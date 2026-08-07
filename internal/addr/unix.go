@@ -5,19 +5,29 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
 func openUnixConnect(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Opened, error) {
-	if len(s.Params) < 1 {
+	if len(s.Params) < 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("UNIX-CONNECT requires path")
 	}
 	path := s.Params[0]
-	var d net.Dialer
-	conn, err := d.DialContext(ctx, "unix", path)
+	var conn net.Conn
+	err := withRetry(ctx, s, g, "UNIX-CONNECT", func() error {
+		var d net.Dialer
+		c, e := d.DialContext(ctx, "unix", path)
+		if e != nil {
+			return e
+		}
+		conn = c
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +45,8 @@ func openUnixConnect(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Ope
 }
 
 func openUnixListen(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Opened, error) {
-	if len(s.Params) < 1 {
+	if len(s.Params) < 1 || s.Params[0] == "" {
+		// Fail fast: classic testaddrs uses UNIX-LISTEN::::: probes.
 		return nil, fmt.Errorf("UNIX-LISTEN requires path")
 	}
 	path := s.Params[0]
@@ -85,6 +96,14 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Open
 		return o, nil
 	}
 
+	// accept-timeout (also used by half-close tests indirectly via peer retry)
+	if at := s.OptionValue("accept-timeout", ""); at != "" {
+		if f, e := strconv.ParseFloat(at, 64); e == nil && f > 0 {
+			if dl, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
+				_ = dl.SetDeadline(time.Now().Add(time.Duration(f * float64(time.Second))))
+			}
+		}
+	}
 	g.Log.Noticef("listening on %s", path)
 	type acc struct {
 		c   net.Conn

@@ -486,16 +486,26 @@ func printHelp(w io.Writer, level int) {
 	fmt.Fprintf(w, "  UNIX UNIX-CONNECT UNIX-CLIENT UNIX-LISTEN UNIX-L SOCKETPAIR\n")
 	fmt.Fprintf(w, "  EXEC SYSTEM SHELL TEXT STALL\n")
 	if level >= 2 {
-		// Option names listed so test.sh testoptions() can grep them via -hh/-hhh.
-		fmt.Fprintf(w, "\nb: reuseaddr so-reuseaddr reuseport so-reuseport\n")
-		fmt.Fprintf(w, "b: fork bind connect-timeout accept-timeout\n")
-		fmt.Fprintf(w, "b: unlink-early unlink-close unlink-late mode nonblock o-nonblock\n")
-		fmt.Fprintf(w, "b: rdonly wronly creat create excl append trunc\n")
-		fmt.Fprintf(w, "b: nodelay tcp-nodelay keepalive so-keepalive pipes setsid stderr\n")
-		fmt.Fprintf(w, "b: pf sourceport crnl ignoreeof readbytes retry forever backlog\n")
-		fmt.Fprintf(w, "b: fdin fdout pipes setsid stderr pty\n")
-		fmt.Fprintf(w, "b: ipv6-v6only sp sourceport broadcast\n")
-		fmt.Fprintf(w, "b: range lowport\n")
+		// Option names for test.sh testoptions(): greps
+		//   [^a-z0-9-]<name>[^a-z0-9-]
+		// so each name needs a non-alnum neighbor on BOTH sides (pad with spaces).
+		opts := []string{
+			"reuseaddr", "so-reuseaddr", "reuseport", "so-reuseport",
+			"fork", "bind", "connect-timeout", "accept-timeout",
+			"unlink-early", "unlink-close", "unlink-late", "mode", "nonblock", "o-nonblock",
+			"rdonly", "wronly", "creat", "create", "excl", "append", "trunc",
+			"nodelay", "tcp-nodelay", "keepalive", "so-keepalive", "pipes", "setsid", "stderr",
+			"pf", "sourceport", "sp", "crnl", "ignoreeof", "readbytes", "retry", "forever",
+			"interval", "backlog", "fdin", "fdout", "pty", "ipv6-v6only", "broadcast",
+			"range", "lowport", "children-shutup", "max-children", "end-close", "shut-null",
+			"null-eof", "cool-write", "perm", "user", "group", "chdir",
+		}
+		fmt.Fprintln(w)
+		fmt.Fprint(w, "b:")
+		for _, o := range opts {
+			fmt.Fprintf(w, " %s ", o) // spaces on both sides for grep boundaries
+		}
+		fmt.Fprintln(w)
 	}
 	if level >= 3 {
 		fmt.Fprintf(w, "\nCommon options: reuseaddr,fork,bind,connect-timeout,unlink-early,mode,pipes,setsid\n")

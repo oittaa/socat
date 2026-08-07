@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
-	"time"
+	"sync"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
@@ -41,29 +42,42 @@ func openTEXT(_ context.Context, s parse.Spec, mode Mode, _ *Global) (*Opened, e
 	return &Opened{Stream: st, Label: "TEXT"}, nil
 }
 
-// STALL — never readable, never writable (hangs I/O). Useful for testing timeouts.
+// STALL — never readable, never writable until closed.
+// Close unblocks I/O so -T idle timeout / SIGTERM can finish the process.
 func openSTALL(_ context.Context, _ parse.Spec, _ Mode, _ *Global) (*Opened, error) {
 	return &Opened{
-		Stream: stallStream{},
+		Stream: newStallStream(),
 		Label:  "STALL",
 	}, nil
 }
 
-type stallStream struct{}
+type stallStream struct {
+	done chan struct{}
+	once sync.Once
+}
 
-func (stallStream) Read(p []byte) (int, error) {
-	// Block forever until process exit (or use a long sleep loop).
-	for {
-		time.Sleep(time.Hour)
-	}
+func newStallStream() *stallStream {
+	return &stallStream{done: make(chan struct{})}
 }
-func (stallStream) Write(p []byte) (int, error) {
-	for {
-		time.Sleep(time.Hour)
-	}
+
+func (s *stallStream) Read([]byte) (int, error) {
+	<-s.done
+	return 0, io.EOF
 }
-func (stallStream) Close() error          { return nil }
-func (stallStream) ShutdownWrite() error  { return nil }
+
+func (s *stallStream) Write([]byte) (int, error) {
+	<-s.done
+	return 0, io.ErrClosedPipe
+}
+
+func (s *stallStream) Close() error {
+	s.once.Do(func() { close(s.done) })
+	return nil
+}
+
+func (s *stallStream) ShutdownWrite() error {
+	return s.Close()
+}
 
 // expandEscapes handles common classic socat string escapes.
 func expandEscapes(s string) []byte {

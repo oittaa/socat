@@ -62,13 +62,21 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global,
 		dialer.LocalAddr = ba
 	}
 
-	dctx := ctx
-	var cancel context.CancelFunc
-	if timeout > 0 {
-		dctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
-	conn, err := dialer.DialContext(dctx, network, addr)
+	var conn net.Conn
+	err = withRetry(ctx, s, g, network+" connect", func() error {
+		dctx := ctx
+		var cancel context.CancelFunc
+		if timeout > 0 {
+			dctx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
+		}
+		c, e := dialer.DialContext(dctx, network, addr)
+		if e != nil {
+			return e
+		}
+		conn = c
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
