@@ -1,0 +1,11 @@
+/socat
+/filan
+/procan
+/bin/
+*.test
+*.out
+/tmp/
+/testdata/tmp/
+.DS_Store
+coverage.out
+coverage.html

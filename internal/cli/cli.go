@@ -1,0 +1,497 @@
+// Package cli implements the socat command-line interface.
+package cli
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"os/signal"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/oittaa/socat"
+	"github.com/oittaa/socat/internal/addr"
+	"github.com/oittaa/socat/internal/logx"
+	"github.com/oittaa/socat/internal/parse"
+)
+
+// Config holds parsed global options.
+type Config struct {
+	Help       int // 0 none, 1 -h, 2 -hh, 3 -hhh
+	Version    bool
+	LogLevel   logx.Level
+	LogFile    string
+	Progname   string
+	Micros     bool
+	Hostname   bool
+	Verbose    bool
+	Hex        bool
+	BlockSize  int
+	Sloppy     bool
+	Linger     time.Duration
+	Idle       time.Duration // <0 infinite, 0 zero, >0 timeout
+	IdleSet    bool
+	LeftToRight bool // -u
+	RightToLeft bool // -U
+	IP4        bool
+	IP6        bool
+	IPAny      bool
+	Statistics bool
+	LockFile   string
+	LockWait   string
+	RawLeft    string // -r
+	RawRight   string // -R
+	Addresses  []string
+}
+
+// ParseArgs parses os.Args-style arguments (without program name).
+func ParseArgs(args []string) (*Config, error) {
+	cfg := &Config{
+		LogLevel:  logx.Warning,
+		BlockSize: 8192,
+		Linger:    500 * time.Millisecond,
+		Idle:      -1, // infinite
+		Progname:  "socat",
+	}
+
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			cfg.Addresses = append(cfg.Addresses, args[i+1:]...)
+			break
+		}
+		// Addresses may start with '-' (STDIO synonym) or dual forms like '-!!-'.
+		if !strings.HasPrefix(a, "-") || a == "-" || strings.HasPrefix(a, "-!!") || strings.Contains(a, "!!") {
+			cfg.Addresses = append(cfg.Addresses, a)
+			continue
+		}
+
+		// Long options
+		if a == "--statistics" {
+			cfg.Statistics = true
+			continue
+		}
+		if a == "--experimental" {
+			continue
+		}
+
+		// Cluster short options carefully
+		if err := parseOption(a, args, &i, cfg); err != nil {
+			return nil, err
+		}
+	}
+	return cfg, nil
+}
+
+func parseOption(a string, args []string, i *int, cfg *Config) error {
+	// -d / -dd / -ddd / -dddd / -d0 / -d2 …
+	if strings.HasPrefix(a, "-d") {
+		rest := a[2:]
+		if rest == "" {
+			// each bare -d increases one level from current (min Notice)
+			if cfg.LogLevel < logx.Notice {
+				cfg.LogLevel = logx.Notice
+			} else if cfg.LogLevel < logx.Debug {
+				cfg.LogLevel++
+			}
+			return nil
+		}
+		if n, err := strconv.Atoi(rest); err == nil {
+			cfg.LogLevel = levelFromN(n)
+			return nil
+		}
+		// -dd, -ddd, -dddd
+		if strings.Trim(rest, "d") == "" {
+			cfg.LogLevel = levelFromN(len(rest) + 1) // -dd => 2 d's total with first d
+			// a is -dd: rest="d" len 1 → levelFromN(2); better count all d's
+			cfg.LogLevel = levelFromN(len(a) - 1)
+			return nil
+		}
+	}
+
+	switch {
+	case a == "-h" || a == "-?" || a == "--help":
+		cfg.Help = 1
+	case a == "-hh" || a == "-??":
+		cfg.Help = 2
+	case a == "-hhh" || a == "-???":
+		cfg.Help = 3
+	case a == "-V":
+		cfg.Version = true
+	case a == "-v":
+		cfg.Verbose = true
+	case a == "-x":
+		cfg.Hex = true
+	case a == "-s":
+		cfg.Sloppy = true
+	case a == "-u":
+		cfg.LeftToRight = true
+	case a == "-U":
+		cfg.RightToLeft = true
+	case a == "-4":
+		cfg.IP4 = true
+	case a == "-6":
+		cfg.IP6 = true
+	case a == "-0":
+		cfg.IPAny = true
+	case a == "-S" || a == "--statistics":
+		cfg.Statistics = true
+	case a == "-lu":
+		cfg.Micros = true
+	case a == "-lh":
+		cfg.Hostname = true
+	case a == "-g":
+		// ignore option group check
+	case strings.HasPrefix(a, "-b"):
+		v, err := optArg(a, "b", args, i)
+		if err != nil {
+			return err
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil || n <= 0 {
+			return fmt.Errorf("invalid -b size %q", v)
+		}
+		cfg.BlockSize = n
+	case strings.HasPrefix(a, "-t"):
+		v, err := optArg(a, "t", args, i)
+		if err != nil {
+			return err
+		}
+		cfg.Linger = parseDuration(v)
+	case strings.HasPrefix(a, "-T"):
+		v, err := optArg(a, "T", args, i)
+		if err != nil {
+			return err
+		}
+		cfg.IdleSet = true
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			cfg.Idle = parseDuration(v)
+		} else if f < 0 {
+			cfg.Idle = -1
+		} else {
+			cfg.Idle = time.Duration(f * float64(time.Second))
+		}
+	case strings.HasPrefix(a, "-lp"):
+		v, err := optArg(a, "lp", args, i)
+		if err != nil {
+			return err
+		}
+		cfg.Progname = v
+	case strings.HasPrefix(a, "-lf"):
+		v, err := optArg(a, "lf", args, i)
+		if err != nil {
+			return err
+		}
+		cfg.LogFile = v
+	case strings.HasPrefix(a, "-L"):
+		v, err := optArg(a, "L", args, i)
+		if err != nil {
+			return err
+		}
+		cfg.LockFile = v
+	case strings.HasPrefix(a, "-W"):
+		v, err := optArg(a, "W", args, i)
+		if err != nil {
+			return err
+		}
+		cfg.LockWait = v
+	case strings.HasPrefix(a, "-r") && !strings.HasPrefix(a, "-reuse"):
+		v, err := optArg(a, "r", args, i)
+		if err != nil {
+			return err
+		}
+		cfg.RawLeft = v
+	case strings.HasPrefix(a, "-R"):
+		v, err := optArg(a, "R", args, i)
+		if err != nil {
+			return err
+		}
+		cfg.RawRight = v
+	case a == "-D":
+		// log FDs before transfer — future
+	case a == "-ls":
+		// log to stderr (default)
+	default:
+		// try multi -d as separate already handled
+		if strings.HasPrefix(a, "-d") {
+			cfg.LogLevel = logx.Notice
+			return nil
+		}
+		return fmt.Errorf("unknown option %q", a)
+	}
+	return nil
+}
+
+func levelFromN(n int) logx.Level {
+	// n = number of -d or -dn value
+	// 0: error only (no warning)? classic -d0 fatal+error
+	// 1: +notice
+	// 2: +info  
+	// 3: +debug? man: -ddd is info, -dddd debug
+	switch {
+	case n <= 0:
+		return logx.Error
+	case n == 1:
+		return logx.Notice
+	case n == 2:
+		return logx.Info
+	default:
+		return logx.Debug
+	}
+}
+
+func optArg(a, key string, args []string, i *int) (string, error) {
+	// -b8192 or -b 8192 or -lpname or -lp name
+	prefix := "-" + key
+	if a == prefix {
+		if *i+1 >= len(args) {
+			return "", fmt.Errorf("option %s requires an argument", prefix)
+		}
+		*i++
+		return args[*i], nil
+	}
+	if strings.HasPrefix(a, prefix) {
+		return a[len(prefix):], nil
+	}
+	return "", fmt.Errorf("option parse error for %s", a)
+}
+
+func parseDuration(v string) time.Duration {
+	f, err := strconv.ParseFloat(v, 64)
+	if err == nil {
+		return time.Duration(f * float64(time.Second))
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0
+	}
+	return d
+}
+
+// Main runs socat with the given args (excluding program name).
+func Main(args []string) int {
+	cfg, err := ParseArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "socat: %v\n", err)
+		return 1
+	}
+
+	if cfg.Version {
+		printVersion(os.Stdout)
+		return 0
+	}
+	if cfg.Help > 0 {
+		printHelp(os.Stdout, cfg.Help)
+		return 0
+	}
+
+	if len(cfg.Addresses) != 2 {
+		fmt.Fprintf(os.Stderr, "socat: exactly two addresses required (got %d)\n", len(cfg.Addresses))
+		printHelp(os.Stderr, 1)
+		return 1
+	}
+
+	log := logx.New()
+	log.SetLevel(cfg.LogLevel)
+	log.SetProgname(cfg.Progname)
+	log.SetMicros(cfg.Micros)
+	if cfg.Hostname {
+		h, _ := os.Hostname()
+		log.SetHostname(h)
+	}
+	if cfg.LogFile != "" {
+		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "socat: %v\n", err)
+			return 1
+		}
+		defer f.Close()
+		log.SetOutput(f)
+	}
+
+	// Lock files
+	if cfg.LockFile != "" {
+		if _, err := os.Stat(cfg.LockFile); err == nil {
+			fmt.Fprintf(os.Stderr, "socat: lockfile %s exists\n", cfg.LockFile)
+			return 1
+		}
+		if err := os.WriteFile(cfg.LockFile, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "socat: %v\n", err)
+			return 1
+		}
+		defer os.Remove(cfg.LockFile)
+	}
+	if cfg.LockWait != "" {
+		for {
+			if _, err := os.Stat(cfg.LockWait); os.IsNotExist(err) {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err := os.WriteFile(cfg.LockWait, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
+			fmt.Fprintf(os.Stderr, "socat: %v\n", err)
+			return 1
+		}
+		defer os.Remove(cfg.LockWait)
+	}
+
+	left, err := parse.ParseChannel(cfg.Addresses[0])
+	if err != nil {
+		log.Errorf("parse left address: %s", err)
+		return 1
+	}
+	right, err := parse.ParseChannel(cfg.Addresses[1])
+	if err != nil {
+		log.Errorf("parse right address: %s", err)
+		return 1
+	}
+
+	g := &addr.Global{
+		Log:         log,
+		BlockSize:   cfg.BlockSize,
+		Linger:      cfg.Linger,
+		Verbose:     cfg.Verbose,
+		Hex:         cfg.Hex,
+		Dump:        os.Stderr,
+		Statistics:  cfg.Statistics,
+		Sloppy:      cfg.Sloppy,
+		LeftToRight: cfg.LeftToRight,
+		RightToLeft: cfg.RightToLeft,
+	}
+	if cfg.IdleSet {
+		if cfg.Idle < 0 {
+			g.Idle = 0 // disabled in relay when 0
+		} else {
+			g.Idle = cfg.Idle
+		}
+	}
+	switch {
+	case cfg.IPAny:
+		g.IPVersion = addr.IPvAny
+	case cfg.IP6:
+		g.IPVersion = addr.IPv6
+	case cfg.IP4:
+		g.IPVersion = addr.IPv4
+	default:
+		g.IPVersion = addr.IPv4
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := addr.Run(ctx, left, right, g); err != nil {
+		if ctx.Err() != nil {
+			return 0
+		}
+		log.Errorf("%s", err)
+		return 1
+	}
+	return 0
+}
+
+func printVersion(w io.Writer) {
+	// Format compatible with classic test.sh testfeats() which greps:
+	//   #define WITH_FOO 1
+	fmt.Fprintf(w, "socat version %s on %s\n", socat.Version, time.Now().Format(time.RFC3339))
+	fmt.Fprintf(w, "   running on Go reimplementation (github.com/oittaa/socat)\n")
+	fmt.Fprintln(w, "features:")
+	// Implemented = 1, not yet = 0. Keep names aligned with classic socat -V.
+	feats := []struct {
+		name string
+		on   bool
+	}{
+		{"HELP", true},
+		{"STATS", true},
+		{"STDIO", true},
+		{"FDNUM", true},
+		{"FILE", true},
+		{"CREAT", true},
+		{"GOPEN", true},
+		{"TERMIOS", false},
+		{"PIPE", true},
+		{"STALL", false},
+		{"TEXT", false},
+		{"SOCKETPAIR", true},
+		{"UNIX", true},
+		{"ABSTRACT_UNIXSOCKET", false},
+		{"IP4", true},
+		{"IP6", true},
+		{"RAWIP", false},
+		{"GENERICSOCKET", false},
+		{"INTERFACE", false},
+		{"TCP", true},
+		{"UDP", true},
+		{"SCTP", false},
+		{"DCCP", false},
+		{"UDPLITE", false},
+		{"LISTEN", true},
+		{"POSIXMQ", false},
+		{"SOCKS4", false},
+		{"SOCKS4A", false},
+		{"SOCKS5", false},
+		{"VSOCK", false},
+		{"NAMESPACES", false},
+		{"PROXY", false},
+		{"SYSTEM", true},
+		{"SHELL", true},
+		{"EXEC", true},
+		{"READLINE", false},
+		{"TUN", false},
+		{"PTY", false},
+		{"OPENSSL", false},
+		{"FIPS", false},
+		{"LIBWRAP", false},
+	}
+	for _, f := range feats {
+		if f.on {
+			fmt.Fprintf(w, "  #define WITH_%s 1\n", f.name)
+		} else {
+			fmt.Fprintf(w, "  #undef WITH_%s\n", f.name)
+		}
+	}
+}
+
+func printHelp(w io.Writer, level int) {
+	fmt.Fprintf(w, "socat %s by oittaa — multipurpose relay (Go)\n", socat.Version)
+	fmt.Fprintf(w, "Usage: socat [options] <address> <address>\n")
+	fmt.Fprintf(w, "       socat -V | -h[h[h]]\n\n")
+	fmt.Fprintf(w, "Options:\n")
+	fmt.Fprintf(w, "  -V              print version\n")
+	fmt.Fprintf(w, "  -h|-?           print help\n")
+	fmt.Fprintf(w, "  -d|-d0..-d4     increase verbosity\n")
+	fmt.Fprintf(w, "  -v              verbose data dump (text)\n")
+	fmt.Fprintf(w, "  -x              verbose data dump (hex)\n")
+	fmt.Fprintf(w, "  -b<size>        transfer block size (default 8192)\n")
+	fmt.Fprintf(w, "  -t<time>        linger after EOF (default 0.5s)\n")
+	fmt.Fprintf(w, "  -T<time>        inactivity timeout\n")
+	fmt.Fprintf(w, "  -u              unidirectional left→right\n")
+	fmt.Fprintf(w, "  -U              unidirectional right→left\n")
+	fmt.Fprintf(w, "  -4|-6|-0        preferred IP version\n")
+	fmt.Fprintf(w, "  --statistics    print transfer statistics\n")
+	// Address type names on -h (level>=1): classic test.sh runstcp4 greps
+	// `$SOCAT -h | grep -i ' TCP4-'` etc.
+	fmt.Fprintf(w, "\nAddress types:\n")
+	fmt.Fprintf(w, "  STDIO STDIN STDOUT STDERR FD PIPE OPEN CREATE GOPEN\n")
+	fmt.Fprintf(w, "  TCP TCP4 TCP6 TCP-CONNECT TCP4-CONNECT TCP6-CONNECT\n")
+	fmt.Fprintf(w, "  TCP-LISTEN TCP4-LISTEN TCP6-LISTEN TCP-L TCP4-L TCP6-L\n")
+	fmt.Fprintf(w, "  UDP UDP4 UDP6 UDP-LISTEN UDP4-LISTEN UDP6-LISTEN UDP-SENDTO UDP4-SENDTO UDP6-SENDTO\n")
+	fmt.Fprintf(w, "  UDP-RECV UDP4-RECV UDP6-RECV UDP-RECVFROM UDP4-RECVFROM UDP6-RECVFROM\n")
+	fmt.Fprintf(w, "  UNIX UNIX-CONNECT UNIX-CLIENT UNIX-LISTEN UNIX-L SOCKETPAIR\n")
+	fmt.Fprintf(w, "  EXEC SYSTEM SHELL\n")
+	if level >= 2 {
+		// Option names listed so test.sh testoptions() can grep them via -hh/-hhh.
+		fmt.Fprintf(w, "\nb: reuseaddr so-reuseaddr reuseport so-reuseport\n")
+		fmt.Fprintf(w, "b: fork bind connect-timeout accept-timeout\n")
+		fmt.Fprintf(w, "b: unlink-early unlink-close unlink-late mode nonblock o-nonblock\n")
+		fmt.Fprintf(w, "b: rdonly wronly creat create excl append trunc\n")
+		fmt.Fprintf(w, "b: nodelay tcp-nodelay keepalive so-keepalive pipes setsid stderr\n")
+		fmt.Fprintf(w, "b: pf sourceport crnl ignoreeof readbytes retry forever backlog\n")
+	}
+	if level >= 3 {
+		fmt.Fprintf(w, "\nCommon options: reuseaddr,fork,bind,connect-timeout,unlink-early,mode,pipes,setsid\n")
+	}
+}
