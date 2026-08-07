@@ -462,6 +462,8 @@ func normalizeOptionName(name string) string {
 		"o-rdonly":         "rdonly",
 		"o-wronly":         "wronly",
 		"o-ndelay":         "nonblock",
+		"sp":               "sourceport",
+		"sourceport":       "sourceport",
 	}
 	if c, ok := aliases[n]; ok {
 		return c
@@ -531,44 +533,49 @@ func unquote(s string) string {
 	s = strings.TrimSpace(s)
 	if len(s) >= 2 {
 		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
-			inner := s[1 : len(s)-1]
-			// simple unescape
-			var b strings.Builder
-			escape := false
-			for i := 0; i < len(inner); i++ {
-				c := inner[i]
-				if escape {
-					b.WriteByte(c)
-					escape = false
-					continue
-				}
-				if c == '\\' {
-					escape = true
-					continue
-				}
-				b.WriteByte(c)
-			}
-			return b.String()
+			return expandSlashEscapes(s[1 : len(s)-1])
 		}
 	}
-	// process backslash escapes outside quotes
 	if !strings.Contains(s, `\`) {
 		return s
 	}
+	return expandSlashEscapes(s)
+}
+
+// expandSlashEscapes handles classic \n \r \t \0 \\ and \xHH sequences.
+func expandSlashEscapes(s string) string {
 	var b strings.Builder
-	escape := false
 	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if escape {
-			b.WriteByte(c)
-			escape = false
+		if s[i] != '\\' || i+1 >= len(s) {
+			b.WriteByte(s[i])
 			continue
 		}
-		if c == '\\' {
-			escape = true
-			continue
+		i++
+		switch s[i] {
+		case 'n':
+			b.WriteByte('\n')
+		case 'r':
+			b.WriteByte('\r')
+		case 't':
+			b.WriteByte('\t')
+		case '0':
+			b.WriteByte(0)
+		case '\\':
+			b.WriteByte('\\')
+		case 'x':
+			if i+2 < len(s) {
+				var v byte
+				if _, err := fmt.Sscanf(s[i+1:i+3], "%02x", &v); err == nil {
+					b.WriteByte(v)
+					i += 2
+					continue
+				}
+			}
+			b.WriteByte('x')
+		default:
+			// keep unknown escape as the escaped char (classic-ish)
+			b.WriteByte(s[i])
 		}
-		b.WriteByte(c)
 	}
 	return b.String()
 }

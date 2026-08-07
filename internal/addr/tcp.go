@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"syscall"
@@ -14,7 +15,11 @@ import (
 )
 
 func openTCPConnect(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	return openTCPConnectNetwork(ctx, s, mode, g, networkTCP(g, s, ""))
+	host := ""
+	if len(s.Params) >= 1 {
+		host = s.Params[0]
+	}
+	return openTCPConnectNetwork(ctx, s, mode, g, networkTCPForHost(g, s, host))
 }
 
 func openTCP4Connect(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
@@ -37,8 +42,20 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global,
 
 	timeout := connectTimeout(s)
 	dialer := &net.Dialer{Timeout: timeout}
-	if bind := s.OptionValue("bind", ""); bind != "" {
-		ba, err := net.ResolveTCPAddr(network, bindPort(bind, s.OptionValue("sourceport", "0")))
+	bind := s.OptionValue("bind", "")
+	sp := s.OptionValue("sourceport", "")
+	if bind != "" || sp != "" {
+		if bind == "" {
+			if network == "tcp6" {
+				bind = "::"
+			} else {
+				bind = "0.0.0.0"
+			}
+		}
+		if sp == "" {
+			sp = "0"
+		}
+		ba, err := net.ResolveTCPAddr(network, bindPort(bind, sp))
 		if err != nil {
 			return nil, fmt.Errorf("bind: %w", err)
 		}
@@ -64,14 +81,56 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global,
 		}
 	}
 	g.Log.Infof("successfully connected from %s to %s", conn.LocalAddr(), conn.RemoteAddr())
+	rememberAddrs(g, conn)
+	st := relay.Stream(relay.NetStream{Conn: conn})
+	st, err = wrapCommon(s, st)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
 	return &Opened{
-		Stream: relay.NetStream{Conn: conn},
+		Stream: st,
 		Label:  fmt.Sprintf("%s:%s", network, addr),
 	}, nil
 }
 
 func openTCPListen(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	return openTCPListenNetwork(ctx, s, mode, g, networkTCP(g, s, "tcp"))
+	// Classic precedence for listen address family:
+	//   1) address option pf=
+	//   2) explicit -4 / -6 / -0
+	//   3) env SOCAT_DEFAULT_LISTEN_IP
+	//   4) default IPv4
+	netw := listenNetwork(g, s)
+	return openTCPListenNetwork(ctx, s, mode, g, netw)
+}
+
+func listenNetwork(g *Global, s parse.Spec) string {
+	if pf := s.OptionValue("pf", ""); pf != "" {
+		switch strings.ToLower(pf) {
+		case "ip4", "ipv4", "inet", "4":
+			return "tcp4"
+		case "ip6", "ipv6", "inet6", "6":
+			return "tcp6"
+		}
+	}
+	switch g.IPVersion {
+	case IPv4:
+		return "tcp4"
+	case IPv6:
+		return "tcp6"
+	case IPvAny:
+		return "tcp"
+	}
+	// IPvDefault: honor listen env, else IPv4
+	if v := strings.TrimSpace(os.Getenv("SOCAT_DEFAULT_LISTEN_IP")); v != "" {
+		switch strings.ToLower(v) {
+		case "4", "ip4", "ipv4":
+			return "tcp4"
+		case "6", "ip6", "ipv6":
+			return "tcp6"
+		}
+	}
+	return "tcp4"
 }
 
 func openTCP4Listen(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
@@ -79,7 +138,13 @@ func openTCP4Listen(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*O
 }
 
 func openTCP6Listen(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	return openTCPListenNetwork(ctx, s, mode, g, "tcp6")
+	// Go's "tcp6" forces IPV6_V6ONLY=1 after our Control hook. For
+	// ipv6-v6only=0 use dual-stack "tcp" on :: so IPv4 clients work.
+	netw := "tcp6"
+	if s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
+		netw = "tcp"
+	}
+	return openTCPListenNetwork(ctx, s, mode, g, netw)
 }
 
 func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, network string) (*Opened, error) {
@@ -98,6 +163,9 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 			host = "0.0.0.0"
 		case "tcp6":
 			host = "::"
+		case "tcp":
+			// Dual-stack default bind
+			host = "::"
 		default:
 			host = ""
 		}
@@ -106,12 +174,23 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 
 	lc := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
-			if s.BoolOption("reuseaddr") {
-				return c.Control(func(fd uintptr) {
+			return c.Control(func(fd uintptr) {
+				if s.BoolOption("reuseaddr") {
 					_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-				})
-			}
-			return nil
+				}
+				// Must set before bind. For dual-stack (tcp / ipv6-v6only=0) clear V6ONLY.
+				if network == "tcp" || network == "tcp6" {
+					if s.HasOption("ipv6-v6only") {
+						v := 0
+						if s.BoolOption("ipv6-v6only") {
+							v = 1
+						}
+						_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, v)
+					} else if network == "tcp" {
+						_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 0)
+					}
+				}
+			})
 		},
 	}
 	ln, err := lc.Listen(ctx, network, addr)
@@ -129,34 +208,87 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 
 	if fork {
 		// Parent keeps listening; Run handles accept loop.
+		// Close listener when ctx cancelled so Accept unblocks on SIGTERM.
+		go func() {
+			<-ctx.Done()
+			ln.Close()
+		}()
 		return o, nil
 	}
 
-	// Non-fork: accept one connection (blocking)
-	if at := acceptTimeout(s); at > 0 {
-		if dl, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
-			_ = dl.SetDeadline(time.Now().Add(at))
-		}
-	}
+	// Non-fork: accept one connection; honour ctx and accept-timeout.
 	g.Log.Noticef("listening on %s", ln.Addr())
-	conn, err := ln.Accept()
-	if err != nil {
+	type acc struct {
+		c   net.Conn
+		err error
+	}
+	ch := make(chan acc, 1)
+	go func() {
+		if at := acceptTimeout(s); at > 0 {
+			if dl, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
+				_ = dl.SetDeadline(time.Now().Add(at))
+			}
+		}
+		c, err := ln.Accept()
+		ch <- acc{c, err}
+	}()
+	var conn net.Conn
+	select {
+	case <-ctx.Done():
 		ln.Close()
+		o.Listener = nil
+		return nil, ctx.Err()
+	case a := <-ch:
+		ln.Close()
+		o.Listener = nil
+		if a.err != nil {
+			return nil, a.err
+		}
+		conn = a.c
+	}
+	g.Log.Infof("accepted connection from %s", conn.RemoteAddr())
+	rememberAddrs(g, conn)
+	st := relay.Stream(relay.NetStream{Conn: conn})
+	st, err = wrapCommon(s, st)
+	if err != nil {
+		conn.Close()
 		return nil, err
 	}
-	ln.Close()
-	o.Listener = nil
-	g.Log.Infof("accepted connection from %s", conn.RemoteAddr())
-	o.Stream = relay.NetStream{Conn: conn}
+	o.Stream = st
 	return o, nil
+}
+
+// rememberAddrs fills SOCAT_* environment fields on g from a live connection.
+func rememberAddrs(g *Global, c net.Conn) {
+	if g == nil || c == nil {
+		return
+	}
+	if la := c.LocalAddr(); la != nil {
+		host, port, err := net.SplitHostPort(la.String())
+		if err == nil {
+			g.SockAddr = host
+			g.SockPort = port
+		} else {
+			g.SockAddr = la.String()
+		}
+	}
+	if ra := c.RemoteAddr(); ra != nil {
+		host, port, err := net.SplitHostPort(ra.String())
+		if err == nil {
+			g.PeerAddr = host
+			g.PeerPort = port
+		} else {
+			g.PeerAddr = ra.String()
+		}
+	}
 }
 
 func networkTCP(g *Global, s parse.Spec, def string) string {
 	if pf := s.OptionValue("pf", ""); pf != "" {
 		switch strings.ToLower(pf) {
-		case "ip4", "ipv4", "inet":
+		case "ip4", "ipv4", "inet", "4":
 			return "tcp4"
-		case "ip6", "ipv6", "inet6":
+		case "ip6", "ipv6", "inet6", "6":
 			return "tcp6"
 		}
 	}
@@ -167,12 +299,32 @@ func networkTCP(g *Global, s parse.Spec, def string) string {
 		return "tcp6"
 	case IPvAny:
 		return "tcp"
-	default:
+	default: // IPvDefault
 		if def != "" {
 			return def
 		}
 		return "tcp4" // classic default since 1.8.0.1
 	}
+}
+
+// networkTCPForHost picks tcp/tcp4/tcp6 using options, then host literal shape.
+func networkTCPForHost(g *Global, s parse.Spec, host string) string {
+	// Explicit pf / global version first (except when host is clearly the other family)
+	n := networkTCP(g, s, "")
+	h := stripBrackets(host)
+	if ip := net.ParseIP(h); ip != nil {
+		if ip.To4() != nil {
+			return "tcp4"
+		}
+		return "tcp6"
+	}
+	if strings.Contains(h, ":") {
+		return "tcp6"
+	}
+	if n != "" {
+		return n
+	}
+	return "tcp4"
 }
 
 func hostPortParams(s parse.Spec) (host, port string, err error) {

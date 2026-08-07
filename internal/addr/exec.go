@@ -3,6 +3,7 @@ package addr
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -64,49 +65,142 @@ func startProcess(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmdSt
 }
 
 func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
-	// Default: socketpair communication
-	usePipes := s.BoolOption("pipes")
+	// Default: socketpair for full duplex; pipes when requested or unidirectional
+	// so unused direction can inherit process stdio (classic LISTENENV / single-exec).
+	usePipes := s.BoolOption("pipes") || mode == ModeRead || mode == ModeWrite
 	usePty := s.BoolOption("pty")
 
 	if usePty {
 		return nil, fmt.Errorf("EXEC pty option not yet implemented")
 	}
 
+	// fdin/fdout: map socat's pipe ends onto child FDs via a shell exec redirect.
+	// Classic: fdin=8,fdout=9 with command using those descriptors.
+	fdin := s.OptionValue("fdin", "")
+	fdout := s.OptionValue("fdout", "")
+	if fdin != "" || fdout != "" {
+		usePipes = true // need separate in/out pipes
+		// Rebuild command as: sh -c 'exec N<&0 M>&1; original...'
+		orig := strings.Join(cmd.Args, " ")
+		if cmd.Path != "" && len(cmd.Args) > 0 {
+			// Args[0] is usually the program name
+			parts := append([]string{}, cmd.Args...)
+			orig = strings.Join(parts, " ")
+		}
+		// Prefer Args reconstruction for Command
+		if len(cmd.Args) > 0 {
+			// For Command("sh","-c", script), Args are already set
+			if cmd.Args[0] == "/bin/sh" || cmd.Args[0] == "sh" || strings.HasSuffix(cmd.Path, "/sh") {
+				if len(cmd.Args) >= 3 && cmd.Args[1] == "-c" {
+					orig = cmd.Args[2]
+				}
+			} else {
+				// quote-free join; classic test commands are simple
+				orig = shellJoin(cmd.Args)
+			}
+		}
+		redir := "exec"
+		if fdin != "" {
+			redir += " " + fdin + "<&0"
+		}
+		if fdout != "" {
+			redir += " " + fdout + ">&1"
+		}
+		script := redir + "; " + orig
+		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", script)
+	}
+
 	var stream relay.Stream
 	var cleanup []func()
+	var child *os.File
 
 	if usePipes {
-		stdin, err := cmd.StdinPipe()
-		if err != nil {
-			return nil, err
+		// With fdin/fdout, only create pipes for the directions that are remapped.
+		// Classic dual-SYSTEM tests rely on the other direction inheriting process
+		// stdio so data can enter/leave via the dual address alone.
+		//
+		// Similarly, single-direction EXEC (ModeRead / ModeWrite) should inherit
+		// the unused stdio of the socat process (classic "inheritance" tests).
+		needIn := true
+		needOut := true
+		if fdin != "" && fdout == "" {
+			needIn, needOut = true, false
+		} else if fdout != "" && fdin == "" {
+			needIn, needOut = false, true
+		} else if fdin != "" && fdout != "" {
+			needIn, needOut = true, true
+		} else {
+			switch mode {
+			case ModeRead:
+				// Only reading from child: inherit process stdin for the child.
+				needIn, needOut = false, true
+			case ModeWrite:
+				// Only writing to child: inherit process stdout from the child.
+				needIn, needOut = true, false
+			default:
+				needIn, needOut = true, true
+			}
 		}
-		stdout, err := cmd.StdoutPipe()
-		if err != nil {
-			return nil, err
+
+		var stdin io.WriteCloser
+		var stdout io.ReadCloser
+		var err error
+
+		if needIn {
+			stdin, err = cmd.StdinPipe()
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			cmd.Stdin = os.Stdin
+		}
+		if needOut {
+			stdout, err = cmd.StdoutPipe()
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			cmd.Stdout = os.Stdout
 		}
 		if s.BoolOption("stderr") {
 			cmd.Stderr = os.Stderr
 		}
+
+		var r io.Reader = stdout
+		var w io.Writer = stdin
+		if stdout == nil {
+			r = eofReader{}
+		}
+		if stdin == nil {
+			w = discardWriter{}
+		}
 		stream = relay.FDStream{
-			R: stdout,
-			W: stdin,
+			R: r,
+			W: w,
 			C: multiCloser{},
 			CloseW: func() error {
-				return stdin.Close()
+				if stdin != nil {
+					return stdin.Close()
+				}
+				return nil
 			},
 		}
 		cleanup = append(cleanup, func() {
-			stdin.Close()
-			stdout.Close()
+			if stdin != nil {
+				stdin.Close()
+			}
+			if stdout != nil {
+				stdout.Close()
+			}
 		})
 	} else {
-		// socketpair
+		// socketpair — must SHUT_WR so child sees EOF on stdin (classic behavior)
 		fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
 		if err != nil {
 			return nil, err
 		}
 		parent := os.NewFile(uintptr(fds[0]), "exec-parent")
-		child := os.NewFile(uintptr(fds[1]), "exec-child")
+		child = os.NewFile(uintptr(fds[1]), "exec-child")
 		cmd.Stdin = child
 		cmd.Stdout = child
 		if s.BoolOption("stderr") {
@@ -114,45 +208,103 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		} else {
 			cmd.Stderr = child
 		}
-		stream = relay.RWCStream{ReadWriteCloser: parent}
+		stream = fileStream(parent)
 		cleanup = append(cleanup, func() {
 			parent.Close()
-			child.Close()
 		})
-		// child fd must be closed in parent after Start
-		defer child.Close()
 	}
 
 	if s.BoolOption("setsid") {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		if cmd.SysProcAttr == nil {
+			cmd.SysProcAttr = &syscall.SysProcAttr{}
+		}
+		cmd.SysProcAttr.Setsid = true
+	}
+
+	// Inject classic SOCAT_* connection environment for SYSTEM/EXEC children.
+	if g != nil {
+		env := append([]string{}, os.Environ()...)
+		if g.SockAddr != "" {
+			env = append(env, "SOCAT_SOCKADDR="+g.SockAddr)
+		}
+		if g.PeerAddr != "" {
+			env = append(env, "SOCAT_PEERADDR="+g.PeerAddr)
+		}
+		if g.SockPort != "" {
+			env = append(env, "SOCAT_SOCKPORT="+g.SockPort)
+		}
+		if g.PeerPort != "" {
+			env = append(env, "SOCAT_PEERPORT="+g.PeerPort)
+		}
+		cmd.Env = env
 	}
 
 	if err := cmd.Start(); err != nil {
 		for _, f := range cleanup {
 			f()
 		}
+		if child != nil {
+			child.Close()
+		}
 		return nil, err
 	}
-	// After start with socketpair, close child side in parent — done via defer above for socketpair
+	// Close child end in parent so only the process holds it.
+	if child != nil {
+		child.Close()
+	}
+
+	st, err := wrapCommon(s, stream)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+		for _, f := range cleanup {
+			f()
+		}
+		return nil, err
+	}
+
+	done := make(chan struct{})
+	go func() {
+		_ = cmd.Wait()
+		close(done)
+	}()
 
 	o := &Opened{
-		Stream: stream,
+		Stream: st,
 		Label:  "EXEC",
 	}
 	for _, f := range cleanup {
 		o.addCleanup(f)
 	}
 	o.addCleanup(func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		// Prefer graceful exit after half-close; only force-kill if still running.
+		select {
+		case <-done:
+		default:
+			_ = cmd.Process.Kill()
+			<-done
+		}
 	})
-	// Reap in background if process exits
-	go func() {
-		_ = cmd.Wait()
-	}()
 	_ = mode
 	_ = g
 	_ = ctx
 	return o, nil
+}
+
+func shellJoin(args []string) string {
+	var b strings.Builder
+	for i, a := range args {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		if strings.ContainsAny(a, " \t'\"\\$`") {
+			b.WriteByte('\'')
+			b.WriteString(strings.ReplaceAll(a, "'", `'\''`))
+			b.WriteByte('\'')
+		} else {
+			b.WriteString(a)
+		}
+	}
+	return b.String()
 }
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
+	"golang.org/x/sys/unix"
 )
 
 func openOPEN(_ context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
@@ -89,33 +90,7 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened
 func openPIPE(_ context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
 	// Named pipe if param present; else anonymous pipe echo
 	if len(s.Params) >= 1 && s.Params[0] != "" {
-		path := s.Params[0]
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			if err := syscall.Mkfifo(path, uint32(parseFileMode(s, 0o644))); err != nil {
-				return nil, fmt.Errorf("mkfifo %s: %w", path, err)
-			}
-			o := &Opened{Label: "PIPE:" + path}
-			if s.BoolOption("unlink-early") || !s.HasOption("unlink-close") {
-				// classic removes named pipe on close by default since 1.4.3
-				if !s.HasOption("unlink-close") || s.BoolOption("unlink-close") {
-					o.addCleanup(func() { _ = os.Remove(path) })
-				}
-			}
-			flags := openFlags(s, mode)
-			f, err := os.OpenFile(path, flags, 0)
-			if err != nil {
-				o.Close()
-				return nil, err
-			}
-			o.Stream = relay.RWCStream{ReadWriteCloser: f}
-			return o, nil
-		}
-		flags := openFlags(s, mode)
-		f, err := os.OpenFile(path, flags, 0)
-		if err != nil {
-			return nil, err
-		}
-		return &Opened{Stream: relay.RWCStream{ReadWriteCloser: f}, Label: "PIPE:" + path}, nil
+		return openNamedPIPE(s, mode)
 	}
 
 	// Anonymous pipe echo: writes to the write end are readable on the read end.
@@ -137,6 +112,137 @@ func openPIPE(_ context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, e
 			func() { r.Close(); w.Close() },
 		},
 	}, nil
+}
+
+// openNamedPIPE creates/opens a FIFO. For bidirectional use we open separate
+// read and write FDs so ShutdownWrite can close the writer and deliver EOF.
+func openNamedPIPE(s parse.Spec, mode Mode) (*Opened, error) {
+	path := s.Params[0]
+	created := false
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if err := syscall.Mkfifo(path, uint32(parseFileMode(s, 0o644))); err != nil {
+			return nil, fmt.Errorf("mkfifo %s: %w", path, err)
+		}
+		created = true
+	}
+
+	cleanupPath := func() {
+		if created || s.BoolOption("unlink-close") || !s.HasOption("unlink-close") {
+			if s.BoolOption("unlink-early") {
+				return
+			}
+			if !s.HasOption("unlink-close") || s.BoolOption("unlink-close") {
+				_ = os.Remove(path)
+			}
+		}
+	}
+
+	clearNB := func(f *os.File) {
+		fd := int(f.Fd())
+		fl, e := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
+		if e == nil {
+			_, _ = unix.FcntlInt(uintptr(fd), unix.F_SETFL, fl&^unix.O_NONBLOCK)
+		}
+	}
+
+	switch mode {
+	case ModeRead:
+		f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			if created {
+				_ = os.Remove(path)
+			}
+			return nil, err
+		}
+		clearNB(f)
+		if s.BoolOption("unlink-early") {
+			_ = os.Remove(path)
+		}
+		st, err := wrapCommon(s, fileStream(f))
+		if err != nil {
+			f.Close()
+			return nil, err
+		}
+		o := &Opened{Stream: st, Label: "PIPE:" + path}
+		if !s.BoolOption("unlink-early") {
+			o.addCleanup(cleanupPath)
+		}
+		return o, nil
+	case ModeWrite:
+		// Need a reader end open first for O_WRONLY on FIFO.
+		r, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			if created {
+				_ = os.Remove(path)
+			}
+			return nil, err
+		}
+		w, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			r.Close()
+			if created {
+				_ = os.Remove(path)
+			}
+			return nil, err
+		}
+		clearNB(w)
+		r.Close() // only writing
+		if s.BoolOption("unlink-early") {
+			_ = os.Remove(path)
+		}
+		st, err := wrapCommon(s, fileStream(w))
+		if err != nil {
+			w.Close()
+			return nil, err
+		}
+		o := &Opened{Stream: st, Label: "PIPE:" + path}
+		if !s.BoolOption("unlink-early") {
+			o.addCleanup(cleanupPath)
+		}
+		return o, nil
+	default:
+		// Bidirectional: open reader then writer (both NONBLOCK), then blocking I/O.
+		r, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			if created {
+				_ = os.Remove(path)
+			}
+			return nil, err
+		}
+		w, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			r.Close()
+			if created {
+				_ = os.Remove(path)
+			}
+			return nil, err
+		}
+		clearNB(r)
+		clearNB(w)
+		if s.BoolOption("unlink-early") {
+			_ = os.Remove(path)
+		}
+		stream := relay.FDStream{
+			R: r,
+			W: w,
+			C: multiCloser{relay.RWCStream{ReadWriteCloser: r}, relay.RWCStream{ReadWriteCloser: w}},
+			CloseW: func() error {
+				return w.Close()
+			},
+		}
+		st, err := wrapCommon(s, stream)
+		if err != nil {
+			r.Close()
+			w.Close()
+			return nil, err
+		}
+		o := &Opened{Stream: st, Label: "PIPE:" + path}
+		o.addCleanup(func() { r.Close(); w.Close() })
+		if !s.BoolOption("unlink-early") {
+			o.addCleanup(cleanupPath)
+		}
+		return o, nil
+	}
 }
 
 func openSocketpair(_ context.Context, _ parse.Spec, _ Mode, _ *Global) (*Opened, error) {
@@ -167,15 +273,14 @@ func openSocketpair(_ context.Context, _ parse.Spec, _ Mode, _ *Global) (*Opened
 
 	c1 := os.NewFile(uintptr(fds[0]), "socketpair0")
 	c2 := os.NewFile(uintptr(fds[1]), "socketpair1")
-	// Stream: read from c1, write to c1 — for SOCK_STREAM socketpair, writing to c1
-	// is read from c2, not c1. So we need R=c1 W=c2 for echo... wait:
-	// Write to c2 → read from c1. So R=c1, W=c2 gives: data written is readable. Echo!
+	// Echo: write to c2 is readable on c1.
 	return &Opened{
 		Stream: relay.FDStream{
 			R: c1,
 			W: c2,
 			C: multiCloser{relay.RWCStream{ReadWriteCloser: c1}, relay.RWCStream{ReadWriteCloser: c2}},
 			CloseW: func() error {
+				_ = unix.Shutdown(int(c2.Fd()), unix.SHUT_WR)
 				return c2.Close()
 			},
 		},
@@ -228,15 +333,19 @@ func fileOpened(f *os.File, s parse.Spec, path string) (*Opened, error) {
 			W: f,
 			C: f,
 			CloseW: func() error {
-				// half-close write not available on regular files
 				return nil
 			},
 		}
 	} else {
-		stream = relay.RWCStream{ReadWriteCloser: f}
+		stream = fileStream(f)
+	}
+	st, err := wrapCommon(s, stream)
+	if err != nil {
+		f.Close()
+		return nil, err
 	}
 	o := &Opened{
-		Stream: stream,
+		Stream: st,
 		Label:  path,
 	}
 	if s.BoolOption("unlink-early") {

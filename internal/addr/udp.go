@@ -25,10 +25,25 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global,
 	if err != nil {
 		return nil, err
 	}
+	if host == "" || port == "" {
+		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
+	}
 	addr := net.JoinHostPort(stripBrackets(host), port)
 	var d net.Dialer
-	if bind := s.OptionValue("bind", ""); bind != "" {
-		ba, err := net.ResolveUDPAddr(network, bindPort(bind, s.OptionValue("sourceport", "0")))
+	bind := s.OptionValue("bind", "")
+	sp := s.OptionValue("sourceport", "")
+	if bind != "" || sp != "" {
+		if bind == "" {
+			if network == "udp6" {
+				bind = "::"
+			} else {
+				bind = "0.0.0.0"
+			}
+		}
+		if sp == "" {
+			sp = "0"
+		}
+		ba, err := net.ResolveUDPAddr(network, bindPort(bind, sp))
 		if err != nil {
 			return nil, err
 		}
@@ -38,7 +53,13 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global,
 	if err != nil {
 		return nil, err
 	}
-	return &Opened{Stream: relay.NetStream{Conn: conn}, Label: "UDP:" + addr}, nil
+	st := relay.Stream(relay.NetStream{Conn: conn})
+	st, err = wrapCommon(s, st)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return &Opened{Stream: st, Label: "UDP:" + addr}, nil
 }
 
 func openUDPListen(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
@@ -74,10 +95,28 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 	}
 	// Wait for first packet, then dial a connected UDP socket back to the sender.
 	buf := make([]byte, max(g.BlockSize, 8192))
-	n, raddr, err := pc.ReadFromUDP(buf)
-	if err != nil {
+	type res struct {
+		n int
+		a *net.UDPAddr
+		e error
+	}
+	ch := make(chan res, 1)
+	go func() {
+		n, raddr, err := pc.ReadFromUDP(buf)
+		ch <- res{n, raddr, err}
+	}()
+	var n int
+	var raddr *net.UDPAddr
+	select {
+	case <-ctx.Done():
 		pc.Close()
-		return nil, err
+		return nil, ctx.Err()
+	case r := <-ch:
+		if r.e != nil {
+			pc.Close()
+			return nil, r.e
+		}
+		n, raddr = r.n, r.a
 	}
 	local := pc.LocalAddr().(*net.UDPAddr)
 	pc.Close()
@@ -122,6 +161,77 @@ func openUDP6Sendto(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*O
 	return openUDP6Connect(ctx, s, mode, g)
 }
 
+// UDP*-DATAGRAM: unconnected datagram to address (broadcast/multicast capable).
+func openUDPDatagram(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	return openUDPDatagramNetwork(ctx, s, mode, g, networkUDP(g, s, "udp4"))
+}
+func openUDP4Datagram(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	return openUDPDatagramNetwork(ctx, s, mode, g, "udp4")
+}
+func openUDP6Datagram(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	return openUDPDatagramNetwork(ctx, s, mode, g, "udp6")
+}
+
+func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, network string) (*Opened, error) {
+	host, port, err := hostPortParams(s)
+	if err != nil {
+		return nil, err
+	}
+	raddr, err := net.ResolveUDPAddr(network, net.JoinHostPort(stripBrackets(host), port))
+	if err != nil {
+		return nil, err
+	}
+	bind := s.OptionValue("bind", "")
+	sp := s.OptionValue("sourceport", "0")
+	var laddr *net.UDPAddr
+	if bind != "" || sp != "0" {
+		if bind == "" {
+			if network == "udp6" {
+				bind = "::"
+			} else {
+				bind = "0.0.0.0"
+			}
+		}
+		laddr, err = net.ResolveUDPAddr(network, bindPort(bind, sp))
+		if err != nil {
+			return nil, err
+		}
+	}
+	c, err := net.ListenUDP(network, laddr)
+	if err != nil {
+		return nil, err
+	}
+	if s.BoolOption("broadcast") {
+		// SO_BROADCAST
+		raw, err := c.SyscallConn()
+		if err == nil {
+			_ = raw.Control(func(fd uintptr) {
+				_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+			})
+		}
+	}
+	st := &udpDatagramConn{UDPConn: c, raddr: raddr}
+	wrapped, err := wrapCommon(s, st)
+	if err != nil {
+		c.Close()
+		return nil, err
+	}
+	_ = ctx
+	_ = g
+	return &Opened{Stream: wrapped, Label: "UDP-DATAGRAM:" + raddr.String()}, nil
+}
+
+// udpDatagramConn writes always to raddr; reads from anyone (optional filter later).
+type udpDatagramConn struct {
+	*net.UDPConn
+	raddr *net.UDPAddr
+}
+
+func (u *udpDatagramConn) Write(p []byte) (int, error) {
+	return u.UDPConn.WriteToUDP(p, u.raddr)
+}
+func (u *udpDatagramConn) ShutdownWrite() error { return nil }
+
 func openUDPRecv(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
 	return openUDPRecvNetwork(ctx, s, mode, g, networkUDP(g, s, "udp4"), false)
 }
@@ -164,12 +274,30 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 		return nil, err
 	}
 	if recvfrom {
-		// one packet, then reply to sender
+		// one packet, then reply to sender — honour ctx so SIGTERM unblocks.
 		buf := make([]byte, max(g.BlockSize, 65535))
-		n, raddr, err := pc.ReadFromUDP(buf)
-		if err != nil {
+		type res struct {
+			n int
+			a *net.UDPAddr
+			e error
+		}
+		ch := make(chan res, 1)
+		go func() {
+			n, raddr, err := pc.ReadFromUDP(buf)
+			ch <- res{n, raddr, err}
+		}()
+		var n int
+		var raddr *net.UDPAddr
+		select {
+		case <-ctx.Done():
 			pc.Close()
-			return nil, err
+			return nil, ctx.Err()
+		case r := <-ch:
+			if r.e != nil {
+				pc.Close()
+				return nil, r.e
+			}
+			n, raddr = r.n, r.a
 		}
 		conn, err := net.DialUDP(network, laddr, raddr)
 		pc.Close()

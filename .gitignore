@@ -9,3 +9,14 @@
 .DS_Store
 coverage.out
 coverage.html
+.classic-scorecard/
+# classic test.sh side-effects if run from repo root
+/relsleep
+/testalt.conf
+/testcert.conf
+/testcert6.conf
+/testcert*.pem
+/testcli*
+/testsrv*
+
+.classic-scorecard/

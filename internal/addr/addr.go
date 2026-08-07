@@ -36,18 +36,24 @@ const (
 
 // Global holds process-wide options affecting address open.
 type Global struct {
-	Log        *logx.Logger
-	IPVersion  IPVersion
-	BlockSize  int
-	Linger     time.Duration
-	Idle       time.Duration
+	Log         *logx.Logger
+	IPVersion   IPVersion
+	BlockSize   int
+	Linger      time.Duration
+	Idle        time.Duration
 	LeftToRight bool
 	RightToLeft bool
-	Verbose    bool
-	Hex        bool
-	Dump       io.Writer
-	Statistics bool
-	Sloppy     bool // -s continue on some errors
+	Verbose     bool
+	Hex         bool
+	Dump        io.Writer
+	Statistics  bool
+	Sloppy      bool // -s continue on some errors
+
+	// Peer info from the most recently accepted/connected socket (for SOCAT_* env).
+	SockAddr  string
+	PeerAddr  string
+	SockPort  string
+	PeerPort  string
 }
 
 // Opened is a live address endpoint ready for transfer or accept-loop.
@@ -198,8 +204,12 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		"STDERR":       openSTDERR,
 		"FD":           openFD,
 		"PIPE":         openPIPE,
+		"FIFO":         openPIPE,
+		"ECHO":         openPIPE, // classic synonym for unnamed/named pipe echo
 		"OPEN":         openOPEN,
+		"FILE":         openOPEN, // classic synonym
 		"CREATE":       openCREATE,
+		"CREAT":        openCREATE, // classic short form
 		"GOPEN":        openGOPEN,
 		"TCP":           openTCPConnect,
 		"TCP4":          openTCP4Connect,
@@ -225,6 +235,12 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		"UDP-SENDTO":   openUDPSendto,
 		"UDP4-SENDTO":  openUDP4Sendto,
 		"UDP6-SENDTO":  openUDP6Sendto,
+		"UDP-SEND":     openUDPSendto,
+		"UDP4-SEND":    openUDP4Sendto,
+		"UDP6-SEND":    openUDP6Sendto,
+		"UDP-DATAGRAM": openUDPDatagram,
+		"UDP4-DATAGRAM": openUDP4Datagram,
+		"UDP6-DATAGRAM": openUDP6Datagram,
 		"UDP-RECV":     openUDPRecv,
 		"UDP4-RECV":    openUDP4Recv,
 		"UDP6-RECV":    openUDP6Recv,
@@ -240,6 +256,8 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		"EXEC":         openEXEC,
 		"SYSTEM":       openSYSTEM,
 		"SHELL":        openSHELL,
+		"TEXT":         openTEXT,
+		"STALL":        openSTALL,
 	}
 	fn, ok := openers[typ]
 	if !ok {
@@ -298,22 +316,23 @@ func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
 func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode Mode, g *Global) error {
 	ln := lo.Listener
 	g.Log.Noticef("listening on %s", ln.Addr())
+	go func() {
+		<-ctx.Done()
+		ln.Close()
+	}()
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil
 			}
-			// Check if listener closed
-			if ne, ok := err.(net.Error); ok && !ne.Timeout() {
-				return err
-			}
 			return err
 		}
 		g.Log.Infof("accepted %s", conn.RemoteAddr())
 		go func(c net.Conn) {
 			defer c.Close()
-			leftStream := relay.NetStream{Conn: c}
+			rememberAddrs(g, c)
+			leftStream := relay.Stream(relay.NetStream{Conn: c})
 			ro, err := OpenChannel(ctx, right, rMode, g)
 			if err != nil {
 				g.Log.Errorf("right address: %s", err)

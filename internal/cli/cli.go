@@ -369,6 +369,7 @@ func Main(args []string) int {
 			g.Idle = cfg.Idle
 		}
 	}
+	// IP version: explicit -4/-6/-0 vs default (env SOCAT_DEFAULT_LISTEN_IP may apply to listen).
 	switch {
 	case cfg.IPAny:
 		g.IPVersion = addr.IPvAny
@@ -377,7 +378,7 @@ func Main(args []string) int {
 	case cfg.IP4:
 		g.IPVersion = addr.IPv4
 	default:
-		g.IPVersion = addr.IPv4
+		g.IPVersion = addr.IPvDefault
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -413,8 +414,8 @@ func printVersion(w io.Writer) {
 		{"GOPEN", true},
 		{"TERMIOS", false},
 		{"PIPE", true},
-		{"STALL", false},
-		{"TEXT", false},
+		{"STALL", true},
+		{"TEXT", true},
 		{"SOCKETPAIR", true},
 		{"UNIX", true},
 		{"ABSTRACT_UNIXSOCKET", false},
@@ -475,13 +476,15 @@ func printHelp(w io.Writer, level int) {
 	// Address type names on -h (level>=1): classic test.sh runstcp4 greps
 	// `$SOCAT -h | grep -i ' TCP4-'` etc.
 	fmt.Fprintf(w, "\nAddress types:\n")
-	fmt.Fprintf(w, "  STDIO STDIN STDOUT STDERR FD PIPE OPEN CREATE GOPEN\n")
+	fmt.Fprintf(w, "  STDIO STDIN STDOUT STDERR FD PIPE FIFO ECHO OPEN FILE CREATE CREAT GOPEN\n")
 	fmt.Fprintf(w, "  TCP TCP4 TCP6 TCP-CONNECT TCP4-CONNECT TCP6-CONNECT\n")
 	fmt.Fprintf(w, "  TCP-LISTEN TCP4-LISTEN TCP6-LISTEN TCP-L TCP4-L TCP6-L\n")
-	fmt.Fprintf(w, "  UDP UDP4 UDP6 UDP-LISTEN UDP4-LISTEN UDP6-LISTEN UDP-SENDTO UDP4-SENDTO UDP6-SENDTO\n")
+	fmt.Fprintf(w, "  UDP UDP4 UDP6 UDP-LISTEN UDP4-LISTEN UDP6-LISTEN\n")
+	fmt.Fprintf(w, "  UDP-SENDTO UDP4-SENDTO UDP6-SENDTO UDP-SEND UDP4-SEND UDP6-SEND\n")
+	fmt.Fprintf(w, "  UDP-DATAGRAM UDP4-DATAGRAM UDP6-DATAGRAM\n")
 	fmt.Fprintf(w, "  UDP-RECV UDP4-RECV UDP6-RECV UDP-RECVFROM UDP4-RECVFROM UDP6-RECVFROM\n")
 	fmt.Fprintf(w, "  UNIX UNIX-CONNECT UNIX-CLIENT UNIX-LISTEN UNIX-L SOCKETPAIR\n")
-	fmt.Fprintf(w, "  EXEC SYSTEM SHELL\n")
+	fmt.Fprintf(w, "  EXEC SYSTEM SHELL TEXT STALL\n")
 	if level >= 2 {
 		// Option names listed so test.sh testoptions() can grep them via -hh/-hhh.
 		fmt.Fprintf(w, "\nb: reuseaddr so-reuseaddr reuseport so-reuseport\n")
@@ -490,6 +493,9 @@ func printHelp(w io.Writer, level int) {
 		fmt.Fprintf(w, "b: rdonly wronly creat create excl append trunc\n")
 		fmt.Fprintf(w, "b: nodelay tcp-nodelay keepalive so-keepalive pipes setsid stderr\n")
 		fmt.Fprintf(w, "b: pf sourceport crnl ignoreeof readbytes retry forever backlog\n")
+		fmt.Fprintf(w, "b: fdin fdout pipes setsid stderr pty\n")
+		fmt.Fprintf(w, "b: ipv6-v6only sp sourceport broadcast\n")
+		fmt.Fprintf(w, "b: range lowport\n")
 	}
 	if level >= 3 {
 		fmt.Fprintf(w, "\nCommon options: reuseaddr,fork,bind,connect-timeout,unlink-early,mode,pipes,setsid\n")

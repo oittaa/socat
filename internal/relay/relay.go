@@ -173,6 +173,13 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	results := make(chan dirResult, 2)
 	var wg sync.WaitGroup
 
+	// Unblock blocked Reads/Writes when the transfer is cancelled (UDP has no EOF).
+	go func() {
+		<-ctx.Done()
+		_ = left.Close()
+		_ = right.Close()
+	}()
+
 	copyDir := func(dst Stream, src Stream, dir string, bytes, blocks *atomic.Uint64) {
 		defer wg.Done()
 		bp := getBuf(cfg.BufferSize)

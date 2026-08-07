@@ -22,8 +22,14 @@ func openUnixConnect(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Ope
 		return nil, err
 	}
 	g.Log.Infof("successfully connected to %s", path)
+	st := relay.Stream(relay.NetStream{Conn: conn})
+	st, err = wrapCommon(s, st)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
 	return &Opened{
-		Stream: relay.NetStream{Conn: conn},
+		Stream: st,
 		Label:  "UNIX:" + path,
 	}, nil
 }
@@ -72,18 +78,46 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Open
 	o.addCleanup(func() { ln.Close() })
 
 	if fork {
+		go func() {
+			<-ctx.Done()
+			ln.Close()
+		}()
 		return o, nil
 	}
 
 	g.Log.Noticef("listening on %s", path)
-	conn, err := ln.Accept()
+	type acc struct {
+		c   net.Conn
+		err error
+	}
+	ch := make(chan acc, 1)
+	go func() {
+		c, err := ln.Accept()
+		ch <- acc{c, err}
+	}()
+	var conn net.Conn
+	select {
+	case <-ctx.Done():
+		ln.Close()
+		o.Listener = nil
+		return nil, ctx.Err()
+	case a := <-ch:
+		ln.Close()
+		o.Listener = nil
+		if a.err != nil {
+			o.Close()
+			return nil, a.err
+		}
+		conn = a.c
+	}
+	st := relay.Stream(relay.NetStream{Conn: conn})
+	st, err = wrapCommon(s, st)
 	if err != nil {
+		conn.Close()
 		o.Close()
 		return nil, err
 	}
-	ln.Close()
-	o.Listener = nil
-	o.Stream = relay.NetStream{Conn: conn}
+	o.Stream = st
 	return o, nil
 }
 

@@ -72,13 +72,21 @@ Common options: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `
 
 Unit/integration tests are written in Go, derived from behaviors in classic **`test.sh`** (~264 named cases).
 
-When a feature is ready, run the **full classic suite** as a scorecard (not in CI yet):
+When a feature is ready, run the **classic suite scorecard** (not in CI yet). Prefer the **parallel sharded runner** so one hung test cannot freeze the whole run for half an hour:
 
 ```bash
-# obtain classic test.sh (GPL-2), then:
+# obtain classic tree (GPL-2):
+#   git clone --depth 1 https://repo.or.cz/socat.git /tmp/socat-master
 make build
-SOCAT=$PWD/socat FILAN=$PWD/filan PROCAN=$PWD/procan bash /path/to/test.sh
+./scripts/classic-scorecard.sh /tmp/socat-master/test.sh
+
+# Faster knobs:
+JOBS=8 SHARD_TIMEOUT=120 VAL_T=0.05 ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh
+ONLY=functions JOBS=2 ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh   # smoke group
+MAX_N=80 JOBS=4 ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh          # first 80 numbers
 ```
+
+Shards use isolated port bases and per-shard wall timeouts. Logs: `.classic-scorecard/shard-*.log`.
 
 ```bash
 go test ./...
