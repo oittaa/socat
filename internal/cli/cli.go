@@ -63,8 +63,10 @@ func ParseArgs(args []string) (*Config, error) {
 			cfg.Addresses = append(cfg.Addresses, args[i+1:]...)
 			break
 		}
-		// Addresses may start with '-' (STDIO synonym) or dual forms like '-!!-'.
-		if !strings.HasPrefix(a, "-") || a == "-" || strings.HasPrefix(a, "-!!") || strings.Contains(a, "!!") {
+		// Addresses may start with '-' (STDIO synonym), '-,opts', or dual forms like '-!!-'.
+		// Classic: "-,escape=27" is STDIO with options, not a CLI flag.
+		if !strings.HasPrefix(a, "-") || a == "-" || strings.HasPrefix(a, "-,") ||
+			strings.HasPrefix(a, "-!!") || strings.Contains(a, "!!") {
 			cfg.Addresses = append(cfg.Addresses, a)
 			continue
 		}
@@ -497,6 +499,7 @@ func printHelp(w io.Writer, level int) {
 	fmt.Fprintf(w, "  UDP-DATAGRAM UDP4-DATAGRAM UDP6-DATAGRAM\n")
 	fmt.Fprintf(w, "  UDP-RECV UDP4-RECV UDP6-RECV UDP-RECVFROM UDP4-RECVFROM UDP6-RECVFROM\n")
 	fmt.Fprintf(w, "  UNIX UNIX-CONNECT UNIX-CLIENT UNIX-LISTEN UNIX-L SOCKETPAIR\n")
+	fmt.Fprintf(w, "  ABSTRACT-CLIENT ABSTRACT-CONNECT ABSTRACT-SENDTO ABSTRACT-RECVFROM ABSTRACT-RECV\n")
 	fmt.Fprintf(w, "  EXEC SYSTEM SHELL TEXT STALL PTY\n")
 	if level >= 2 {
 		// Honesty: only list options we actually honor. test.sh greps
@@ -513,13 +516,14 @@ func printHelp(w io.Writer, level int) {
 			"range", "lowport",
 			"crnl", "ignoreeof", "readbytes",
 			"retry", "forever", "interval",
-			"backlog", "fdin", "fdout",
+			"backlog", "fdin", "fdout", "max-children",
 			"ipv6-v6only", "broadcast",
 			"link", "symbolic-link", "cfmakeraw", "raw", "rawer",
-			"echo", "opost", "perm",
+			"echo", "opost", "perm", "ispeed", "ospeed",
+			"escape",
 			// shut-none: do not SIGKILL EXEC/SYSTEM children (EXEC_RC / SYSTEM_RC).
-			// Do not list shut-null/end-close until implemented (security/semantics FAILs).
-			"shut-none",
+			// shut-null / null-eof: 0-byte datagram as half-close (UDP etc.).
+			"shut-none", "shut-null", "null-eof", "shut", "end-close",
 		}
 		fmt.Fprintln(w)
 		fmt.Fprint(w, "b:")

@@ -10,27 +10,30 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-func openSTDIO(_ context.Context, _ parse.Spec, mode Mode, _ *Global) (*Opened, error) {
-	// Classic STDIO: fd 0 read, fd 1 write
+func openSTDIO(_ context.Context, s parse.Spec, mode Mode, _ *Global) (*Opened, error) {
+	// Classic STDIO: fd 0 read, fd 1 write; options like escape= apply via wrapCommon.
+	var stream relay.Stream
 	switch mode {
 	case ModeRead:
-		return &Opened{Stream: relay.FDStream{R: os.Stdin, W: discardWriter{}, C: nopCloser{}}, Label: "STDIO"}, nil
+		stream = relay.FDStream{R: os.Stdin, W: discardWriter{}, C: nopCloser{}}
 	case ModeWrite:
-		return &Opened{Stream: relay.FDStream{R: eofReader{}, W: os.Stdout, C: nopCloser{}}, Label: "STDIO"}, nil
+		stream = relay.FDStream{R: eofReader{}, W: os.Stdout, C: nopCloser{}}
 	default:
-		return &Opened{
-			Stream: relay.FDStream{
-				R: os.Stdin,
-				W: os.Stdout,
-				C: nopCloser{},
-				CloseW: func() error {
-					// cannot half-close stdout meaningfully
-					return nil
-				},
+		stream = relay.FDStream{
+			R: os.Stdin,
+			W: os.Stdout,
+			C: nopCloser{},
+			CloseW: func() error {
+				// cannot half-close stdout meaningfully
+				return nil
 			},
-			Label: "STDIO",
-		}, nil
+		}
 	}
+	st, err := wrapCommon(s, stream)
+	if err != nil {
+		return nil, err
+	}
+	return &Opened{Stream: st, Label: "STDIO"}, nil
 }
 
 func openSTDIN(_ context.Context, _ parse.Spec, mode Mode, _ *Global) (*Opened, error) {

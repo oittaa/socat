@@ -17,18 +17,27 @@ func openUnixConnect(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Ope
 	if len(s.Params) < 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("UNIX-CONNECT requires path")
 	}
-	path := s.Params[0]
+	path := unixAddr(s.Params[0])
 	bindPath := s.OptionValue("bind", "")
+	if bindPath != "" {
+		bindPath = unixAddr(bindPath)
+	}
+	netw := "unix"
+	if isAbstract(path) || isAbstract(bindPath) {
+		netw = "unix"
+	}
 
 	var conn net.Conn
 	err := withRetry(ctx, s, g, "UNIX-CONNECT", func() error {
 		d := net.Dialer{}
 		if bindPath != "" {
 			// Classic: bind local unix socket path before connect.
-			_ = os.Remove(bindPath) // stale leftover
-			d.LocalAddr = &net.UnixAddr{Name: bindPath, Net: "unix"}
+			if !isAbstract(bindPath) {
+				_ = os.Remove(bindPath) // stale leftover
+			}
+			d.LocalAddr = &net.UnixAddr{Name: bindPath, Net: netw}
 		}
-		c, e := d.DialContext(ctx, "unix", path)
+		c, e := d.DialContext(ctx, netw, path)
 		if e != nil {
 			return e
 		}
@@ -198,14 +207,90 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Open
 	return o, nil
 }
 
-// abstract unix (Linux @name) — basic support via path starting with @
+// abstract unix (Linux): classic ABSTRACT-* and @path / \0path forms.
+// Go net uses a leading NUL byte for abstract namespace names.
 func unixAddr(path string) string {
-	if len(path) > 0 && path[0] == '@' {
-		// Go uses \x00 prefix for abstract
+	if path == "" {
+		return path
+	}
+	if path[0] == '@' {
 		return string(byte(0)) + path[1:]
+	}
+	// Already abstract (NUL-prefixed)
+	if path[0] == 0 {
+		return path
 	}
 	return path
 }
+
+func isAbstract(path string) bool {
+	return len(path) > 0 && (path[0] == 0 || path[0] == '@')
+}
+
+// openAbstractSendto implements ABSTRACT-SENDTO / ABSTRACT-CLIENT bind+datagram style.
+// For stream-ish echo tests, ABSTRACT-SENDTO with bind to same name loops on dgram.
+func openAbstractSendto(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	if len(s.Params) < 1 || s.Params[0] == "" {
+		return nil, fmt.Errorf("ABSTRACT-SENDTO requires name")
+	}
+	// Classic ABSTRACT-SENDTO:path — abstract name from path (filesystem path becomes abstract name).
+	name := s.Params[0]
+	// Use abstract form: leading @ or convert path to abstract label.
+	absName := name
+	if !isAbstract(absName) {
+		absName = "@" + name // mark; unixAddr converts
+	}
+	target := unixAddr(absName)
+	bindOpt := s.OptionValue("bind", "")
+	var laddr *net.UnixAddr
+	if bindOpt != "" {
+		bp := bindOpt
+		if !isAbstract(bp) {
+			bp = "@" + bp
+		}
+		laddr = &net.UnixAddr{Name: unixAddr(bp), Net: "unixgram"}
+	}
+	raddr := &net.UnixAddr{Name: target, Net: "unixgram"}
+	c, err := net.ListenUnixgram("unixgram", laddr)
+	if err != nil {
+		// Fallback: dial unixgram
+		d := net.Dialer{}
+		if laddr != nil {
+			d.LocalAddr = laddr
+		}
+		conn, e := d.DialContext(ctx, "unixgram", raddr.String())
+		if e != nil {
+			return nil, e
+		}
+		st := relay.Stream(relay.NetStream{Conn: conn})
+		st, err = wrapCommon(s, st)
+		if err != nil {
+			conn.Close()
+			return nil, err
+		}
+		return &Opened{Stream: st, Label: "ABSTRACT-SENDTO:" + name}, nil
+	}
+	// Connected-style: write to raddr, read any
+	st := &unixgramConn{UnixConn: c, raddr: raddr}
+	wrapped, err := wrapCommon(s, st)
+	if err != nil {
+		c.Close()
+		return nil, err
+	}
+	_ = mode
+	_ = g
+	return &Opened{Stream: wrapped, Label: "ABSTRACT-SENDTO:" + name}, nil
+}
+
+type unixgramConn struct {
+	*net.UnixConn
+	raddr *net.UnixAddr
+}
+
+func (u *unixgramConn) Write(p []byte) (int, error) {
+	return u.UnixConn.WriteToUnix(p, u.raddr)
+}
+func (u *unixgramConn) ShutdownWrite() error { return nil }
 
 // silence unused on non-special builds
 var _ = syscall.AF_UNIX

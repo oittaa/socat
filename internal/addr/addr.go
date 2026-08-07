@@ -79,6 +79,8 @@ type Opened struct {
 	// PeerFilter rejects accepted connections (range/sourceport/lowport).
 	// Used by fork accept loops; non-fork applies the same check before returning.
 	PeerFilter func(net.Conn) error
+	// MaxChildren limits concurrent fork children (0 = unlimited). Classic max-children.
+	MaxChildren int
 	// For dual: separate read/write streams
 	Read  relay.Stream
 	Write relay.Stream
@@ -264,6 +266,12 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		"UNIX-CLIENT":  openUnixConnect,
 		"UNIX-LISTEN":  openUnixListen,
 		"UNIX-L":       openUnixListen,
+		// Linux abstract namespace (path becomes abstract name).
+		"ABSTRACT-CLIENT":  openAbstractSendto,
+		"ABSTRACT-CONNECT": openAbstractSendto,
+		"ABSTRACT-SENDTO":  openAbstractSendto,
+		"ABSTRACT-RECVFROM": openAbstractSendto, // minimal: same dial path for bind tests
+		"ABSTRACT-RECV":    openAbstractSendto,
 		"SOCKETPAIR":   openSocketpair,
 		"EXEC":         openEXEC,
 		"SYSTEM":       openSYSTEM,
@@ -333,13 +341,26 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 		<-ctx.Done()
 		ln.Close()
 	}()
-	// Peer filters (range/sourceport/lowport) live on the listen address options.
-	// Stash them via Label is awkward; re-parse is not available. Instead Open
-	// stores them on Opened via PeerFilter when set.
 	filter := lo.PeerFilter
+	maxCh := lo.MaxChildren
+	// Semaphore for max-children (0 = unlimited).
+	var slots chan struct{}
+	if maxCh > 0 {
+		slots = make(chan struct{}, maxCh)
+	}
 	for {
+		if slots != nil {
+			select {
+			case <-ctx.Done():
+				return nil
+			case slots <- struct{}{}:
+			}
+		}
 		conn, err := ln.Accept()
 		if err != nil {
+			if slots != nil {
+				<-slots
+			}
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -349,12 +370,18 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 			if err := filter(conn); err != nil {
 				g.Log.Noticef("%s", err)
 				conn.Close()
+				if slots != nil {
+					<-slots
+				}
 				continue
 			}
 		}
 		g.Log.Infof("accepted %s", conn.RemoteAddr())
 		go func(c net.Conn) {
 			defer c.Close()
+			if slots != nil {
+				defer func() { <-slots }()
+			}
 			// Per-connection Global copy so SOCAT_* env is correct under concurrency.
 			cg := *g
 			rememberAddrs(&cg, c)
@@ -386,7 +413,9 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 		go func(c net.Conn) {
 			defer c.Close()
 			rightStream := relay.NetStream{Conn: c}
-			if err := transferStreams(ctx, left, rightStream, g); err != nil {
+			// end-close left: do not Close shared left when each child transfer ends.
+			noCloseLeft := streamIsEndClose(left)
+			if err := transferStreamsOpts(ctx, left, rightStream, g, noCloseLeft, false); err != nil {
 				g.Log.Debugf("transfer: %s", err)
 			}
 		}(conn)
@@ -398,18 +427,24 @@ func transferPair(ctx context.Context, lo, ro *Opened, g *Global) error {
 }
 
 func transferStreams(ctx context.Context, left, right relay.Stream, g *Global) error {
+	return transferStreamsOpts(ctx, left, right, g, streamIsEndClose(left), streamIsEndClose(right))
+}
+
+func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Global, noCloseLeft, noCloseRight bool) error {
 	if left == nil || right == nil {
 		return fmt.Errorf("nil stream")
 	}
 	cfg := relay.Config{
-		BufferSize:  g.BlockSize,
-		Linger:      g.Linger,
-		IdleTimeout: g.Idle,
-		LeftToRight: g.LeftToRight || (!g.LeftToRight && !g.RightToLeft),
-		RightToLeft: g.RightToLeft || (!g.LeftToRight && !g.RightToLeft),
-		Verbose:     g.Verbose,
-		Hex:         g.Hex,
-		Dump:        g.Dump,
+		BufferSize:   g.BlockSize,
+		Linger:       g.Linger,
+		IdleTimeout:  g.Idle,
+		LeftToRight:  g.LeftToRight || (!g.LeftToRight && !g.RightToLeft),
+		RightToLeft:  g.RightToLeft || (!g.LeftToRight && !g.RightToLeft),
+		Verbose:      g.Verbose,
+		Hex:          g.Hex,
+		Dump:         g.Dump,
+		NoCloseLeft:  noCloseLeft,
+		NoCloseRight: noCloseRight,
 	}
 	if !g.LeftToRight && !g.RightToLeft {
 		cfg.LeftToRight = true

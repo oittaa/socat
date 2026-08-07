@@ -96,8 +96,10 @@ make build
 JOBS=8 SHARD_TIMEOUT=180 VAL_T=0.05 ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh
 ```
 
-**Snapshot (hang-free, JOBS=8):** **197 OK / 84 FAILED / 325 CANT** of 606 selected.  
-Deltas vs early hang-free baseline (~156/120/330): **+41 OK**, **−36 FAILED**. Remaining FAILs are mostly unimplemented families (OpenSSL, generic SOCKET, max-children, termios phases, end-close, scripts). Logs: `.classic-scorecard/shard-*.log`.
+**Snapshot (hang-free, JOBS=8):** **210 OK / 72 FAILED / 324 CANT** of 606 selected.  
+Deltas vs early hang-free baseline (~156/120/330): **+54 OK**, **−48 FAILED**.  
+
+Classic host checklist: `scripts/classic-host-check.sh`. After installing `libwrap0-dev` + `libreadline-dev` and **rebuilding** classic (no reboot), this host got **504 OK / 3 FAIL / 99 CANT** (was 489/3/114). Logs: `.classic-scorecard/shard-*.log`.
 
 ```bash
 go test ./...

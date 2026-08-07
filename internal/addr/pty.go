@@ -4,17 +4,67 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 	"syscall"
+	"unicode"
 
 	"github.com/creack/pty"
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
 
+// validateIntOption enforces classic integer option syntax for named options.
+// Messages must contain "missing numerical value" / "trailing garbage" for test.sh.
+func validateIntOption(s parse.Spec, name string) error {
+	if !s.HasOption(name) {
+		return nil
+	}
+	v := s.OptionValue(name, "")
+	if v == "" {
+		return fmt.Errorf("option \"%s\": missing numerical value", name)
+	}
+	// Reject leading non-digit (e.g. b19200)
+	if !unicode.IsDigit(rune(v[0])) && v[0] != '-' && v[0] != '+' {
+		return fmt.Errorf("option \"%s\": missing numerical value", name)
+	}
+	// Parse leading integer; trailing garbage is an error
+	i := 0
+	if v[0] == '+' || v[0] == '-' {
+		i = 1
+	}
+	start := i
+	for i < len(v) && unicode.IsDigit(rune(v[i])) {
+		i++
+	}
+	if i == start {
+		return fmt.Errorf("option \"%s\": missing numerical value", name)
+	}
+	if i < len(v) {
+		return fmt.Errorf("option \"%s\": trailing garbage \"%s\"", name, v[i:])
+	}
+	if _, err := strconv.Atoi(v[:i]); err != nil {
+		return fmt.Errorf("option \"%s\": missing numerical value", name)
+	}
+	_ = strings.TrimSpace
+	return nil
+}
+
 // openPTY implements classic PTY address: allocate a pseudo-terminal, optionally
 // create a symlink to the slave (link=), optionally put master in raw mode (cfmakeraw).
 // The transfer stream is the master side; peers open the slave path via the link.
 func openPTY(_ context.Context, s parse.Spec, _ Mode, g *Global) (*Opened, error) {
+	// Classic rejects non-numeric ispeed/ospeed (tests MISSING_INTEGER / INTEGER_GARBAGE).
+	if err := validateIntOption(s, "ispeed"); err != nil {
+		return nil, err
+	}
+	if err := validateIntOption(s, "ospeed"); err != nil {
+		return nil, err
+	}
+	// PTY takes no positional parameters (PTY::::: probes / PTY_VOIDARG).
+	if len(s.Params) > 0 {
+		return nil, fmt.Errorf("PTY: wrong number of parameters (expected 0)")
+	}
 	master, slave, err := pty.Open()
 	if err != nil {
 		return nil, fmt.Errorf("PTY: %w", err)

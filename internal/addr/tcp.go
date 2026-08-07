@@ -213,11 +213,18 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 
 	fork := s.BoolOption("fork")
 	filter := func(c net.Conn) error { return peerAllowed(s, c) }
+	maxChildren := 0
+	if v := s.OptionValue("max-children", ""); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxChildren = n
+		}
+	}
 	o := &Opened{
-		Listener:   ln,
-		Fork:       fork,
-		Label:      fmt.Sprintf("%s-LISTEN:%s", network, port),
-		PeerFilter: filter,
+		Listener:    ln,
+		Fork:        fork,
+		Label:       fmt.Sprintf("%s-LISTEN:%s", network, port),
+		PeerFilter:  filter,
+		MaxChildren: maxChildren,
 	}
 	o.addCleanup(func() { ln.Close() })
 

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -154,7 +156,88 @@ func applyCRNL(s parse.Spec, stream relay.Stream) relay.Stream {
 	}
 }
 
-// wrapCommon applies readbytes / crnl / ignoreeof-style wrappers after open.
+// escapeReader stops with EOF when the escape byte is seen (classic escape=N).
+type escapeReader struct {
+	r   io.Reader
+	esc byte
+	// leftover after escape in same Read is discarded (EOF after partial)
+}
+
+func (e *escapeReader) Read(p []byte) (int, error) {
+	n, err := e.r.Read(p)
+	if n > 0 {
+		for i := 0; i < n; i++ {
+			if p[i] == e.esc {
+				// Return data before escape; next Read will EOF.
+				e.r = eofReader{}
+				if i == 0 {
+					return 0, io.EOF
+				}
+				return i, io.EOF
+			}
+		}
+	}
+	return n, err
+}
+
+func applyEscape(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
+	v := s.OptionValue("escape", "")
+	if v == "" {
+		return stream, nil
+	}
+	// Decimal, hex 0x.., or single char.
+	var esc byte
+	if strings.HasPrefix(v, "0x") || strings.HasPrefix(v, "0X") {
+		var n int
+		if _, err := fmt.Sscanf(v, "%x", &n); err != nil || n < 0 || n > 255 {
+			return nil, fmt.Errorf("escape: invalid value %q", v)
+		}
+		esc = byte(n)
+	} else if n, err := strconv.Atoi(v); err == nil {
+		if n < 0 || n > 255 {
+			return nil, fmt.Errorf("escape: invalid value %q", v)
+		}
+		esc = byte(n)
+	} else if len(v) == 1 {
+		esc = v[0]
+	} else {
+		return nil, fmt.Errorf("escape: invalid value %q", v)
+	}
+	return relay.FDStream{
+		R: &escapeReader{r: stream, esc: esc},
+		W: stream,
+		C: stream,
+		CloseW: func() error {
+			return stream.ShutdownWrite()
+		},
+	}, nil
+}
+
+// nullEOFReader treats a zero-length successful Read as EOF (classic null-eof).
+// Used with datagram sockets where a 0-byte packet signals end-of-stream.
+type nullEOFReader struct {
+	r io.Reader
+}
+
+func (n *nullEOFReader) Read(p []byte) (int, error) {
+	nr, err := n.r.Read(p)
+	if err == nil && nr == 0 {
+		return 0, io.EOF
+	}
+	return nr, err
+}
+
+// shutNullWriter sends a 0-byte Write on ShutdownWrite (classic shut-null).
+type shutNullStream struct {
+	relay.Stream
+}
+
+func (s shutNullStream) ShutdownWrite() error {
+	_, _ = s.Stream.Write(nil) // 0-byte datagram
+	return s.Stream.ShutdownWrite()
+}
+
+// wrapCommon applies readbytes / crnl / escape / null-eof / shut-null wrappers.
 func wrapCommon(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	var err error
 	stream, err = applyReadBytes(s, stream)
@@ -162,5 +245,44 @@ func wrapCommon(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 		return nil, err
 	}
 	stream = applyCRNL(s, stream)
+	stream, err = applyEscape(s, stream)
+	if err != nil {
+		return nil, err
+	}
+	if s.BoolOption("null-eof") {
+		stream = relay.FDStream{
+			R: &nullEOFReader{r: stream},
+			W: stream,
+			C: stream,
+			CloseW: func() error { return stream.ShutdownWrite() },
+		}
+	}
+	if s.BoolOption("shut-null") || s.OptionValue("shut", "") == "null" {
+		stream = shutNullStream{Stream: stream}
+	}
+	// end-close: do not half-close or fully close the underlying FD when the
+	// transfer finishes (classic TCP4ENDCLOSE / EXECENDCLOSE).
+	if s.BoolOption("end-close") {
+		stream = endCloseStream{Stream: stream}
+	}
 	return stream, nil
+}
+
+// endCloseStream suppresses ShutdownWrite and Close so the peer FD stays open.
+type endCloseStream struct {
+	relay.Stream
+}
+
+func (e endCloseStream) ShutdownWrite() error { return nil }
+func (e endCloseStream) Close() error         { return nil }
+func (e endCloseStream) IsEndClose() bool     { return true }
+func (e endCloseStream) UnwrapStream() relay.Stream { return e.Stream }
+
+// streamIsEndClose reports whether s (or a wrapper) is classic end-close.
+func streamIsEndClose(s relay.Stream) bool {
+	type endCloser interface{ IsEndClose() bool }
+	if e, ok := s.(endCloser); ok && e.IsEndClose() {
+		return true
+	}
+	return false
 }

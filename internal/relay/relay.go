@@ -36,6 +36,10 @@ type Config struct {
 	Dump io.Writer
 	// OnStats is called with final counters if non-nil.
 	OnStats func(Stats)
+	// NoCloseLeft/Right: on cancel, do not Close that stream (classic end-close
+	// shared address across fork children).
+	NoCloseLeft  bool
+	NoCloseRight bool
 }
 
 // Stats holds transfer counters.
@@ -185,6 +189,15 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	}
 	results := make(chan dirResult, 2)
 	var wg sync.WaitGroup
+
+	// Session wrappers: when NoClose*, cancel closes only the wrapper so a
+	// shared end-close stream is not destroyed (classic EXECENDCLOSE).
+	if cfg.NoCloseLeft {
+		left = newSessionWrap(left)
+	}
+	if cfg.NoCloseRight {
+		right = newSessionWrap(right)
+	}
 
 	// Unblock blocked Reads/Writes when the transfer is cancelled (UDP has no EOF).
 	go func() {
@@ -355,6 +368,90 @@ func dump(cfg Config, dir string, data []byte) {
 		}
 	}
 	fmt.Fprintln(cfg.Dump)
+}
+
+// sessionWrap decouples a transfer session from a shared underlying stream.
+// Close aborts this session; a short read deadline on the inner FD unblocks
+// a stuck Read so the next session can reuse the shared stream.
+type sessionWrap struct {
+	inner Stream
+	done  chan struct{}
+	once  sync.Once
+}
+
+func newSessionWrap(inner Stream) *sessionWrap {
+	return &sessionWrap{inner: inner, done: make(chan struct{})}
+}
+
+func (s *sessionWrap) Read(p []byte) (int, error) {
+	type res struct {
+		n   int
+		err error
+	}
+	ch := make(chan res, 1)
+	go func() {
+		n, err := s.inner.Read(p)
+		ch <- res{n, err}
+	}()
+	select {
+	case <-s.done:
+		return 0, io.EOF
+	case r := <-ch:
+		select {
+		case <-s.done:
+			return 0, io.EOF
+		default:
+			return r.n, r.err
+		}
+	}
+}
+
+func (s *sessionWrap) Write(p []byte) (int, error) {
+	select {
+	case <-s.done:
+		return 0, io.ErrClosedPipe
+	default:
+	}
+	return s.inner.Write(p)
+}
+
+func (s *sessionWrap) Close() error {
+	s.once.Do(func() {
+		close(s.done)
+		pokeReadDeadline(s.inner)
+	})
+	return nil
+}
+
+func (s *sessionWrap) ShutdownWrite() error {
+	return s.inner.ShutdownWrite()
+}
+
+func pokeReadDeadline(s Stream) {
+	// Try SetReadDeadline on known types; clear after a moment.
+	set := func(d interface{ SetReadDeadline(time.Time) error }) {
+		_ = d.SetReadDeadline(time.Now())
+		go func() {
+			time.Sleep(10 * time.Millisecond)
+			_ = d.SetReadDeadline(time.Time{})
+		}()
+	}
+	if t, ok := s.(NetStream); ok {
+		if c, ok := t.Conn.(interface{ SetReadDeadline(time.Time) error }); ok {
+			set(c)
+			return
+		}
+	}
+	if t, ok := s.(FDStream); ok {
+		if f, ok := t.R.(*os.File); ok {
+			set(f)
+			return
+		}
+	}
+	// Unwrap embedded Stream (endCloseStream, etc.)
+	if u, ok := s.(interface{ UnwrapStream() Stream }); ok {
+		pokeReadDeadline(u.UnwrapStream())
+	}
 }
 
 // isBenignClose reports I/O errors that mean the peer/stream was already closed

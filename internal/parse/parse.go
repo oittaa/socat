@@ -77,10 +77,21 @@ func ParseSpec(s string) (Spec, error) {
 	if s == "" {
 		return Spec{}, fmt.Errorf("empty address")
 	}
+	if err := checkBalancedQuotes(s); err != nil {
+		return Spec{}, err
+	}
 
 	// Implicit types
 	if s == "-" {
 		return Spec{Type: "STDIO", Raw: s}, nil
+	}
+	// STDIO with options: -,opt=val
+	if strings.HasPrefix(s, "-,") {
+		opts, err := splitOptions(s[2:])
+		if err != nil {
+			return Spec{}, err
+		}
+		return Spec{Type: "STDIO", Options: opts, Raw: s}, nil
 	}
 	if isAllDigits(s) {
 		return Spec{Type: "FD", Params: []string{s}, Raw: s}, nil
@@ -540,6 +551,35 @@ func unquote(s string) string {
 		return s
 	}
 	return expandSlashEscapes(s)
+}
+
+// checkBalancedQuotes returns an error if s has an unclosed quote (classic syntax error).
+func checkBalancedQuotes(s string) error {
+	inSingle, inDouble := false, false
+	escape := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if escape {
+			escape = false
+			continue
+		}
+		if c == '\\' && !inSingle {
+			escape = true
+			continue
+		}
+		if !inDouble && c == '\'' {
+			inSingle = !inSingle
+			continue
+		}
+		if !inSingle && c == '"' {
+			inDouble = !inDouble
+			continue
+		}
+	}
+	if inSingle || inDouble {
+		return fmt.Errorf("syntax error: unexpected end of address (unbalanced quote)")
+	}
+	return nil
 }
 
 // expandSlashEscapes handles classic \n \r \t \0 \\ and \xHH sequences.

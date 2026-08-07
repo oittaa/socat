@@ -156,13 +156,16 @@ func (c *udpPeerConn) SetDeadline(time.Time) error      { return nil }
 func (c *udpPeerConn) SetReadDeadline(time.Time) error  { return nil }
 func (c *udpPeerConn) SetWriteDeadline(time.Time) error { return nil }
 
-type udpFirstPacket struct {
+// udpRecvFromConn: first datagram already received; further Read/Write use the
+// listening socket with WriteTo to the peer (no rebinding).
+type udpRecvFromConn struct {
 	*net.UDPConn
+	peer  *net.UDPAddr
 	first []byte
 	got   bool
 }
 
-func (u *udpFirstPacket) Read(p []byte) (int, error) {
+func (u *udpRecvFromConn) Read(p []byte) (int, error) {
 	if !u.got && len(u.first) > 0 {
 		u.got = true
 		n := copy(p, u.first)
@@ -172,19 +175,39 @@ func (u *udpFirstPacket) Read(p []byte) (int, error) {
 		}
 		return n, nil
 	}
-	return u.UDPConn.Read(p)
+	for {
+		n, addr, err := u.UDPConn.ReadFromUDP(p)
+		if err != nil {
+			return n, err
+		}
+		// Only accept further packets from the first peer (classic recvfrom session).
+		if u.peer != nil && addr != nil && addr.String() == u.peer.String() {
+			return n, nil
+		}
+	}
 }
 
-func (u *udpFirstPacket) ShutdownWrite() error { return nil }
+func (u *udpRecvFromConn) Write(p []byte) (int, error) {
+	if u.peer == nil {
+		return 0, net.ErrClosed
+	}
+	return u.UDPConn.WriteToUDP(p, u.peer)
+}
 
+func (u *udpRecvFromConn) ShutdownWrite() error { return nil }
+
+// Legacy name used by listen path
+type udpFirstPacket = udpRecvFromConn
+
+// UDP*-SENDTO is classic unconnected sendto/recvfrom (not connect).
 func openUDPSendto(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	return openUDPConnect(ctx, s, mode, g)
+	return openUDPDatagramNetwork(ctx, s, mode, g, networkUDP(g, s, "udp4"))
 }
 func openUDP4Sendto(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	return openUDP4Connect(ctx, s, mode, g)
+	return openUDPDatagramNetwork(ctx, s, mode, g, "udp4")
 }
 func openUDP6Sendto(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	return openUDP6Connect(ctx, s, mode, g)
+	return openUDPDatagramNetwork(ctx, s, mode, g, "udp6")
 }
 
 // UDP*-DATAGRAM: unconnected datagram to address (broadcast/multicast capable).
@@ -208,9 +231,9 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global
 		return nil, err
 	}
 	bind := s.OptionValue("bind", "")
-	sp := s.OptionValue("sourceport", "0")
+	sp := s.OptionValue("sourceport", "")
 	var laddr *net.UDPAddr
-	if bind != "" || sp != "0" {
+	if bind != "" || sp != "" {
 		if bind == "" {
 			if network == "udp6" {
 				bind = "::"
@@ -218,17 +241,42 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global
 				bind = "0.0.0.0"
 			}
 		}
-		laddr, err = net.ResolveUDPAddr(network, bindPort(bind, sp))
+		if sp == "" {
+			// bind may already be host:port
+			if _, _, e := net.SplitHostPort(bind); e != nil {
+				sp = "0"
+			}
+		}
+		ba := bind
+		if sp != "" {
+			ba = bindPort(bind, sp)
+		}
+		laddr, err = net.ResolveUDPAddr(network, ba)
 		if err != nil {
 			return nil, err
 		}
 	}
-	c, err := net.ListenUDP(network, laddr)
+	// SO_REUSEADDR on bind so rapid retests / paired ports work.
+	cfg := net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			return c.Control(func(fd uintptr) {
+				_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+				if s.BoolOption("broadcast") {
+					_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+				}
+			})
+		},
+	}
+	pc, err := cfg.ListenPacket(ctx, network, laddrString(network, laddr))
 	if err != nil {
 		return nil, err
 	}
+	c, ok := pc.(*net.UDPConn)
+	if !ok {
+		pc.Close()
+		return nil, fmt.Errorf("UDP: unexpected packet conn type")
+	}
 	if s.BoolOption("broadcast") {
-		// SO_BROADCAST
 		raw, err := c.SyscallConn()
 		if err == nil {
 			_ = raw.Control(func(fd uintptr) {
@@ -242,9 +290,18 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global
 		c.Close()
 		return nil, err
 	}
-	_ = ctx
 	_ = g
 	return &Opened{Stream: wrapped, Label: "UDP-DATAGRAM:" + raddr.String()}, nil
+}
+
+func laddrString(network string, laddr *net.UDPAddr) string {
+	if laddr == nil {
+		if network == "udp6" {
+			return "[::]:0"
+		}
+		return "0.0.0.0:0"
+	}
+	return laddr.String()
 }
 
 // udpDatagramConn writes always to raddr; reads from anyone (optional filter later).
@@ -254,6 +311,7 @@ type udpDatagramConn struct {
 }
 
 func (u *udpDatagramConn) Write(p []byte) (int, error) {
+	// Allow 0-byte writes (shut-null sends empty datagram).
 	return u.UDPConn.WriteToUDP(p, u.raddr)
 }
 func (u *udpDatagramConn) ShutdownWrite() error { return nil }
@@ -300,7 +358,8 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 		return nil, err
 	}
 	if recvfrom {
-		// one permitted packet, then reply to sender — honour ctx so SIGTERM unblocks.
+		// One permitted packet, then use the *same* listening socket for replies
+		// (classic). DialUDP(local, peer) after Close fails with EADDRINUSE.
 		buf := make([]byte, max(g.BlockSize, 65535))
 		type res struct {
 			n int
@@ -334,13 +393,18 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 			}
 			break
 		}
-		conn, err := net.DialUDP(network, laddr, raddr)
-		pc.Close()
+		st := relay.Stream(&udpRecvFromConn{
+			UDPConn: pc,
+			peer:    raddr,
+			first:   append([]byte(nil), buf[:n]...),
+		})
+		st, err = wrapCommon(s, st)
 		if err != nil {
+			pc.Close()
 			return nil, err
 		}
 		return &Opened{
-			Stream: &udpFirstPacket{UDPConn: conn, first: append([]byte(nil), buf[:n]...)},
+			Stream: st,
 			Label:  "UDP-RECVFROM",
 		}, nil
 	}
@@ -349,8 +413,14 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 		pc.Close()
 		return nil, fmt.Errorf("UDP-RECV is read-only")
 	}
+	st := relay.Stream(&udpFilteredRecv{conn: pc, spec: s, log: g})
+	st, err = wrapCommon(s, st)
+	if err != nil {
+		pc.Close()
+		return nil, err
+	}
 	return &Opened{
-		Stream: &udpFilteredRecv{conn: pc, spec: s, log: g},
+		Stream: st,
 		Label:  "UDP-RECV",
 	}, nil
 }
