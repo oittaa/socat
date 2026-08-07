@@ -4,14 +4,14 @@ A modern [Go](https://go.dev) reimplementation of classic [socat](http://www.des
 
 **Module:** `github.com/oittaa/socat`  
 **License:** MIT  
-**Status:** early development (MVP)
+**Status:** usable core; expanding toward classic parity
 
 ## Goals
 
 - **Drop-in CLI** — classic address syntax (`TYPE:params,options`)
-- **Speed** — efficient Go I/O, buffer pooling, optional future `splice`
-- **Security** — memory-safe implementation; careful parsers; modern TLS defaults (when TLS lands)
-- **Feature completeness** — grow toward classic parity, driven by upstream tests
+- **Speed** — efficient Go I/O, buffer pooling
+- **Security** — memory-safe implementation; peer filters (`range`, `sourceport`, `lowport`) on listen/recv
+- **Honesty** — `-V` / `-hhh` only advertise features and options that are enforced
 - **Companions** — `filan` and `procan` included
 
 ## Build
@@ -29,7 +29,7 @@ go build -o procan ./cmd/procan
 ## Usage
 
 ```bash
-# TCP echo server (PIPE is an echo channel)
+# TCP echo server
 ./socat TCP4-LISTEN:8080,reuseaddr,fork PIPE
 
 # Client
@@ -39,8 +39,8 @@ echo hello | ./socat - TCP4:127.0.0.1:8080
 ./socat UNIX-LISTEN:/tmp/echo.sock,fork,unlink-early PIPE
 ./socat - UNIX-CONNECT:/tmp/echo.sock
 
-# Dual stdio
-echo hi | ./socat STDIN!!STDOUT -
+# EXEC with PTY
+echo hi | ./socat - EXEC:cat,pty,cfmakeraw
 ```
 
 ```text
@@ -50,43 +50,54 @@ socat -V | -h[h[h]]
 
 Common options: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `--statistics`.
 
-### Address types (current)
+### Address types (supported)
 
-| Type | Status |
+| Type | Notes |
 |------|--------|
 | STDIO, STDIN, STDOUT, STDERR, FD | yes |
-| PIPE, OPEN, CREATE, GOPEN, SOCKETPAIR | yes |
-| TCP / TCP4 / TCP6 + LISTEN | yes |
-| UDP (+ LISTEN/SENDTO/RECV/RECVFROM basic) | yes |
-| UNIX-CONNECT, UNIX-LISTEN | yes |
-| EXEC, SYSTEM, SHELL | basic |
-| OPENSSL, SOCKS, PROXY, PTY, … | planned |
+| PIPE, OPEN, FILE, CREATE/CREAT, GOPEN, SOCKETPAIR | yes |
+| TCP / TCP4 / TCP6 (+ CONNECT, LISTEN / -L) | SO_REUSEADDR default on; `accept-timeout` exits 0 |
+| UDP (+ LISTEN, SENDTO, RECV, RECVFROM, DATAGRAM) | basic; peer filters on recv/listen |
+| UNIX-CONNECT / UNIX-CLIENT, UNIX-LISTEN | `bind=`, `unlink-close` / `unlink-early` |
+| EXEC, SYSTEM, SHELL | pipes, socketpair, **pty**, fdin/fdout, setsid, shut-none; child exit promoted |
+| TEXT, STALL, PTY | STALL uses classic full-pipe backpressure |
+| OPENSSL, SOCKS, PROXY, SCTP, abstract UNIX, … | **not** implemented (`#undef` in `-V`) |
+
+### Options (honored)
+
+Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
+
+| Area | Options |
+|------|---------|
+| Listen/connect | `reuseaddr`, `fork`, `bind`, `connect-timeout`, `accept-timeout`, `pf`, `ipv6-v6only`, `backlog` |
+| Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport` |
+| Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `nonblock` |
+| UNIX | `unlink-early`, `unlink-close` |
+| EXEC | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none` |
+| PTY/termios-ish | `link`, `cfmakeraw`, `raw`, `echo`, `opost` |
+| Transfer | `crnl`, `ignoreeof`, `readbytes`, `retry`/`forever`/`interval` |
+
+**Not advertised / not enforced:** `end-close`, `shut-null`, `max-children`, openssl, libwrap, etc.
 
 ### Intentional differences from classic socat
 
 - **`fork`** uses **goroutines**, not `fork(2)` process isolation
-- Fewer address options (growing over time)
 - Companion tools aim for useful parity, not bit-identical C ifdef output
+- Unknown options are generally ignored (classic may error more strictly)
 
-## Test strategy
+## Classic scorecard
 
-Unit/integration tests are written in Go, derived from behaviors in classic **`test.sh`** (~264 named cases).
-
-When a feature is ready, run the **classic suite scorecard** (not in CI yet). Prefer the **parallel sharded runner** so one hung test cannot freeze the whole run for half an hour:
+Upstream **`test.sh`** (~608 numbered cases) is the feature scorecard (not CI). Prefer the parallel runner:
 
 ```bash
 # obtain classic tree (GPL-2):
 #   git clone --depth 1 https://repo.or.cz/socat.git /tmp/socat-master
 make build
-./scripts/classic-scorecard.sh /tmp/socat-master/test.sh
-
-# Faster knobs:
-JOBS=8 SHARD_TIMEOUT=120 VAL_T=0.05 ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh
-ONLY=functions JOBS=2 ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh   # smoke group
-MAX_N=80 JOBS=4 ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh          # first 80 numbers
+JOBS=8 SHARD_TIMEOUT=180 VAL_T=0.05 ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh
 ```
 
-Shards use isolated port bases and per-shard wall timeouts. Logs: `.classic-scorecard/shard-*.log`.
+**Snapshot (hang-free, JOBS=8):** **197 OK / 84 FAILED / 325 CANT** of 606 selected.  
+Deltas vs early hang-free baseline (~156/120/330): **+41 OK**, **−36 FAILED**. Remaining FAILs are mostly unimplemented families (OpenSSL, generic SOCKET, max-children, termios phases, end-close, scripts). Logs: `.classic-scorecard/shard-*.log`.
 
 ```bash
 go test ./...
@@ -98,6 +109,7 @@ go test -tags=e2e ./e2e/...   # after build
 ```
 cmd/socat   cmd/filan   cmd/procan
 internal/parse  internal/addr  internal/relay  internal/cli  internal/logx
+scripts/classic-scorecard.sh
 e2e/
 ```
 

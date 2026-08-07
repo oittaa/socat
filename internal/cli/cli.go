@@ -386,6 +386,10 @@ func Main(args []string) int {
 
 	if err := addr.Run(ctx, left, right, g); err != nil {
 		if ctx.Err() != nil {
+			// Still honour child exit if transfer ended on signal after child failed.
+			if g.ChildExitCode != 0 {
+				return g.ChildExitCode
+			}
 			return 0
 		}
 		// Classic socat exits 0 when accept-timeout fires with no peer.
@@ -394,6 +398,10 @@ func Main(args []string) int {
 		}
 		log.Errorf("%s", err)
 		return 1
+	}
+	// EXEC_RC / SYSTEM_RC: promote child non-zero exit.
+	if g.ChildExitCode != 0 {
+		return g.ChildExitCode
 	}
 	return 0
 }
@@ -500,14 +508,18 @@ func printHelp(w io.Writer, level int) {
 			"unlink-early", "unlink-close", "unlink-late", "mode", "nonblock", "o-nonblock",
 			"rdonly", "wronly", "creat", "create", "excl", "append", "trunc", "o-append",
 			"nodelay", "tcp-nodelay", "keepalive", "so-keepalive",
-			"pipes", "setsid", "stderr",
+			"pipes", "setsid", "stderr", "pty",
 			"pf", "sourceport", "sp",
 			"range", "lowport",
 			"crnl", "ignoreeof", "readbytes",
 			"retry", "forever", "interval",
 			"backlog", "fdin", "fdout",
 			"ipv6-v6only", "broadcast",
-			"link", "symbolic-link", "cfmakeraw",
+			"link", "symbolic-link", "cfmakeraw", "raw", "rawer",
+			"echo", "opost", "perm",
+			// shut-none: do not SIGKILL EXEC/SYSTEM children (EXEC_RC / SYSTEM_RC).
+			// Do not list shut-null/end-close until implemented (security/semantics FAILs).
+			"shut-none",
 		}
 		fmt.Fprintln(w)
 		fmt.Fprint(w, "b:")

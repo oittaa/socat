@@ -3,10 +3,12 @@ package relay
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -233,6 +235,10 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 					blocks.Add(1)
 				}
 				if ew != nil {
+					if isBenignClose(ew) {
+						results <- dirResult{err: nil, dir: dir}
+						return
+					}
 					results <- dirResult{err: ew, dir: dir}
 					return
 				}
@@ -242,7 +248,7 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 				}
 			}
 			if er != nil {
-				if er == io.EOF {
+				if er == io.EOF || isBenignClose(er) {
 					_ = dst.ShutdownWrite()
 					results <- dirResult{err: nil, dir: dir}
 					return
@@ -349,6 +355,24 @@ func dump(cfg Config, dir string, data []byte) {
 		}
 	}
 	fmt.Fprintln(cfg.Dump)
+}
+
+// isBenignClose reports I/O errors that mean the peer/stream was already closed
+// (common with PTY/socketpair half-close races). Treat as clean EOF.
+func isBenignClose(err error) bool {
+	if err == nil {
+		return false
+	}
+	if err == io.EOF || err == io.ErrClosedPipe || err == net.ErrClosed {
+		return true
+	}
+	if errors.Is(err, syscall.EIO) || errors.Is(err, syscall.EBADF) || errors.Is(err, syscall.EPIPE) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "file already closed") ||
+		strings.Contains(msg, "use of closed") ||
+		strings.Contains(msg, "broken pipe")
 }
 
 func streamReadFD(s Stream) int {

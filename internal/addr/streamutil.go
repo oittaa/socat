@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
@@ -26,6 +27,44 @@ func fileStream(f *os.File) relay.Stream {
 			return nil
 		},
 	}
+}
+
+// ptyStream wraps a PTY master. ShutdownWrite does NOT close the master FD
+// (unlike fileStream on non-sockets), so the reverse direction can still read
+// child output until full Close. Closing the master early SIGIO/SIGHUPs the child.
+func ptyStream(f *os.File) relay.Stream {
+	w := &halfCloseWriter{w: f}
+	return relay.FDStream{
+		R: f,
+		W: w,
+		C: f,
+		CloseW: func() error {
+			w.closeWrite()
+			return nil
+		},
+	}
+}
+
+// halfCloseWriter rejects Writes after closeWrite without closing the underlying file.
+type halfCloseWriter struct {
+	w    io.Writer
+	mu   sync.Mutex
+	done bool
+}
+
+func (h *halfCloseWriter) Write(p []byte) (int, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.done {
+		return 0, io.ErrClosedPipe
+	}
+	return h.w.Write(p)
+}
+
+func (h *halfCloseWriter) closeWrite() {
+	h.mu.Lock()
+	h.done = true
+	h.mu.Unlock()
 }
 
 // readBytesWrap limits total bytes read (classic readbytes=N).

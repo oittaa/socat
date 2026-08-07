@@ -59,6 +59,10 @@ type Global struct {
 	PeerAddr  string
 	SockPort  string
 	PeerPort  string
+
+	// Child process exit (EXEC/SYSTEM): non-zero promotes socat process exit.
+	ChildExitCode int
+	ChildErr      error
 }
 
 // Opened is a live address endpoint ready for transfer or accept-loop.

@@ -7,10 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
+	"github.com/creack/pty"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
+	"golang.org/x/sys/unix"
 )
 
 func openEXEC(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
@@ -55,7 +59,6 @@ func startProcess(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmdSt
 	if useShell {
 		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr)
 	} else {
-		// Preserve intentional spaces inside quoted segments (already unquoted by parser).
 		// Split on whitespace for argv; classic EXEC uses simple space separation.
 		parts := splitExecArgs(cmdStr)
 		if len(parts) == 0 {
@@ -78,44 +81,36 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	usePipes := s.BoolOption("pipes") || mode == ModeRead || mode == ModeWrite
 	usePty := s.BoolOption("pty")
 
-	if usePty {
-		return nil, fmt.Errorf("EXEC pty option not yet implemented")
-	}
-
 	// fdin/fdout: map socat's pipe ends onto child FDs via a shell exec redirect.
-	// Classic: fdin=8,fdout=9 with command using those descriptors.
 	fdin := s.OptionValue("fdin", "")
 	fdout := s.OptionValue("fdout", "")
 	if fdin != "" || fdout != "" {
-		usePipes = true // need separate in/out pipes
-		// Rebuild command as: sh -c 'exec N<&0 M>&1; original...'
-		orig := strings.Join(cmd.Args, " ")
-		if cmd.Path != "" && len(cmd.Args) > 0 {
-			// Args[0] is usually the program name
-			parts := append([]string{}, cmd.Args...)
-			orig = strings.Join(parts, " ")
+		usePipes = true
+		usePty = false
+		cmd = rebuildWithFDRedirect(cmd, fdin, fdout)
+	}
+
+	if s.BoolOption("setsid") {
+		if cmd.SysProcAttr == nil {
+			cmd.SysProcAttr = &syscall.SysProcAttr{}
 		}
-		// Prefer Args reconstruction for Command
-		if len(cmd.Args) > 0 {
-			// For Command("sh","-c", script), Args are already set
-			if cmd.Args[0] == "/bin/sh" || cmd.Args[0] == "sh" || strings.HasSuffix(cmd.Path, "/sh") {
-				if len(cmd.Args) >= 3 && cmd.Args[1] == "-c" {
-					orig = cmd.Args[2]
-				}
-			} else {
-				// quote-free join; classic test commands are simple
-				orig = shellJoin(cmd.Args)
-			}
-		}
-		redir := "exec"
-		if fdin != "" {
-			redir += " " + fdin + "<&0"
-		}
-		if fdout != "" {
-			redir += " " + fdout + ">&1"
-		}
-		script := redir + "; " + orig
-		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", script)
+		cmd.SysProcAttr.Setsid = true
+	}
+
+	// Inject classic SOCAT_* connection environment for SYSTEM/EXEC children.
+	if g != nil {
+		env := append([]string{}, os.Environ()...)
+		env = append(env,
+			"SOCAT_SOCKADDR="+g.SockAddr,
+			"SOCAT_PEERADDR="+g.PeerAddr,
+			"SOCAT_SOCKPORT="+g.SockPort,
+			"SOCAT_PEERPORT="+g.PeerPort,
+		)
+		cmd.Env = env
+	}
+
+	if usePty {
+		return startCmdPty(s, mode, g, cmd)
 	}
 
 	var stream relay.Stream
@@ -123,33 +118,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	var child *os.File
 
 	if usePipes {
-		// With fdin/fdout, only create pipes for the directions that are remapped.
-		// Classic dual-SYSTEM tests rely on the other direction inheriting process
-		// stdio so data can enter/leave via the dual address alone.
-		//
-		// Similarly, single-direction EXEC (ModeRead / ModeWrite) should inherit
-		// the unused stdio of the socat process (classic "inheritance" tests).
-		needIn := true
-		needOut := true
-		if fdin != "" && fdout == "" {
-			needIn, needOut = true, false
-		} else if fdout != "" && fdin == "" {
-			needIn, needOut = false, true
-		} else if fdin != "" && fdout != "" {
-			needIn, needOut = true, true
-		} else {
-			switch mode {
-			case ModeRead:
-				// Only reading from child: inherit process stdin for the child.
-				needIn, needOut = false, true
-			case ModeWrite:
-				// Only writing to child: inherit process stdout from the child.
-				needIn, needOut = true, false
-			default:
-				needIn, needOut = true, true
-			}
-		}
-
+		needIn, needOut := pipeDirections(mode, fdin, fdout)
 		var stdin io.WriteCloser
 		var stdout io.ReadCloser
 		var err error
@@ -222,27 +191,6 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		})
 	}
 
-	if s.BoolOption("setsid") {
-		if cmd.SysProcAttr == nil {
-			cmd.SysProcAttr = &syscall.SysProcAttr{}
-		}
-		cmd.SysProcAttr.Setsid = true
-	}
-
-	// Inject classic SOCAT_* connection environment for SYSTEM/EXEC children.
-	if g != nil {
-		env := append([]string{}, os.Environ()...)
-		// Always set the four vars (empty if unknown) so scripts can rely on them.
-		env = append(env,
-			"SOCAT_SOCKADDR="+g.SockAddr,
-			"SOCAT_PEERADDR="+g.PeerAddr,
-			"SOCAT_SOCKPORT="+g.SockPort,
-			"SOCAT_PEERPORT="+g.PeerPort,
-		)
-		cmd.Env = env
-	}
-
-	// Promote child failure: if nofork semantics requested later; for now Start errors fail open.
 	if err := cmd.Start(); err != nil {
 		for _, f := range cleanup {
 			f()
@@ -252,11 +200,100 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		}
 		return nil, err
 	}
-	// Close child end in parent so only the process holds it.
 	if child != nil {
 		child.Close()
 	}
 
+	return finishExec(s, g, cmd, stream, cleanup)
+}
+
+// startCmdPty runs the child with a pseudo-terminal (classic EXEC/SYSTEM,pty).
+//
+// Unidirectional dual forms inherit the unused stdio of the socat process:
+//   ModeWrite (-!!EXEC,pty): child stdin←PTY, child stdout→os.Stdout (inherit)
+//   ModeRead  (EXEC,pty!!-): child stdin←os.Stdin (inherit), child stdout→PTY
+// Full duplex: both directions on the PTY slave (pty.Start).
+func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
+	var ptmx *os.File
+	var err error
+
+	switch mode {
+	case ModeWrite:
+		// Inherit stdout/stderr; only stdin is the PTY slave.
+		master, slave, err := pty.Open()
+		if err != nil {
+			return nil, fmt.Errorf("EXEC pty: %w", err)
+		}
+		ptmx = master
+		cmd.Stdin = slave
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stdout
+		if err := cmd.Start(); err != nil {
+			master.Close()
+			slave.Close()
+			return nil, err
+		}
+		slave.Close() // child has it
+		applyPtyOpts(s, ptmx)
+		w := &halfCloseWriter{w: ptmx}
+		stream := relay.FDStream{
+			R: eofReader{},
+			W: w,
+			C: multiCloser{},
+			CloseW: func() error { w.closeWrite(); return nil },
+		}
+		return finishExec(s, g, cmd, stream, []func(){func() { ptmx.Close() }})
+
+	case ModeRead:
+		// Inherit stdin; only stdout/stderr on PTY slave.
+		master, slave, err := pty.Open()
+		if err != nil {
+			return nil, fmt.Errorf("EXEC pty: %w", err)
+		}
+		ptmx = master
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = slave
+		cmd.Stderr = slave
+		if err := cmd.Start(); err != nil {
+			master.Close()
+			slave.Close()
+			return nil, err
+		}
+		slave.Close()
+		applyPtyOpts(s, ptmx)
+		stream := relay.FDStream{
+			R: ptmx,
+			W: discardWriter{},
+			C: multiCloser{},
+			CloseW: func() error { return nil },
+		}
+		return finishExec(s, g, cmd, stream, []func(){func() { ptmx.Close() }})
+
+	default:
+		ptmx, err = pty.Start(cmd)
+		if err != nil {
+			return nil, fmt.Errorf("EXEC pty: %w", err)
+		}
+		applyPtyOpts(s, ptmx)
+		return finishExec(s, g, cmd, ptyStream(ptmx), []func(){func() { ptmx.Close() }})
+	}
+}
+
+func applyPtyOpts(s parse.Spec, ptmx *os.File) {
+	if s.BoolOption("cfmakeraw") || s.BoolOption("raw") || s.BoolOption("rawer") ||
+		s.HasOption("cfmakeraw") || s.HasOption("raw") {
+		_ = setRaw(int(ptmx.Fd()))
+		return
+	}
+	if v := s.OptionValue("echo", ""); v == "0" || (s.HasOption("echo") && !s.BoolOption("echo")) {
+		_ = setTermiosFlag(int(ptmx.Fd()), false, true)
+	}
+	if v := s.OptionValue("opost", ""); v == "0" || (s.HasOption("opost") && !s.BoolOption("opost")) {
+		_ = setTermiosFlag(int(ptmx.Fd()), true, false)
+	}
+}
+
+func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func()) (*Opened, error) {
 	st, err := wrapCommon(s, stream)
 	if err != nil {
 		_ = cmd.Process.Kill()
@@ -267,11 +304,33 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		return nil, err
 	}
 
+	// Track child exit for EXEC_RC / SYSTEM_RC.
+	var mu sync.Mutex
+	var waitErr error
+	var exitCode int
 	done := make(chan struct{})
 	go func() {
-		_ = cmd.Wait()
+		err := cmd.Wait()
+		mu.Lock()
+		waitErr = err
+		if err == nil {
+			exitCode = 0
+		} else if ee, ok := err.(*exec.ExitError); ok {
+			exitCode = ee.ExitCode()
+		} else {
+			exitCode = 1
+		}
+		mu.Unlock()
 		close(done)
 	}()
+
+	// How long to wait for child flush after transfer ends (classic -t linger).
+	linger := 500 * time.Millisecond
+	if g != nil && g.Linger > 0 {
+		linger = g.Linger
+	}
+	// shut-none: do not kill the child; wait for natural exit (with a cap).
+	shutNone := s.BoolOption("shut-none") || s.OptionValue("shut", "") == "none"
 
 	o := &Opened{
 		Stream: st,
@@ -281,18 +340,100 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		o.addCleanup(f)
 	}
 	o.addCleanup(func() {
-		// Prefer graceful exit after half-close; only force-kill if still running.
+		// Give write-only children (od -c) time to flush after stdin EOF.
+		waitFor := linger
+		if shutNone {
+			waitFor = 5 * time.Second
+		}
+		killed := false
 		select {
 		case <-done:
-		default:
-			_ = cmd.Process.Kill()
+		case <-time.After(waitFor):
+			if !shutNone {
+				killed = true
+				_ = cmd.Process.Kill()
+			}
 			<-done
 		}
+		// Promote only natural non-zero exits (false/exit 1), not kills/SIGHUP
+		// from closing a PTY master (those yield 255/signal and must not fail echo tests).
+		mu.Lock()
+		code := exitCode
+		werr := waitErr
+		mu.Unlock()
+		if killed {
+			return
+		}
+		if code != 0 && g != nil {
+			// Signal deaths: Go reports -1; classic 128+n. Not EXEC_RC failures
+			// (PTY master close often SIGHUPs cat after a successful echo).
+			if code < 0 || code >= 128 {
+				return
+			}
+			g.ChildExitCode = code
+			if werr != nil {
+				g.ChildErr = werr
+			}
+		}
 	})
-	_ = mode
-	_ = g
-	_ = ctx
 	return o, nil
+}
+
+func pipeDirections(mode Mode, fdin, fdout string) (needIn, needOut bool) {
+	if fdin != "" && fdout == "" {
+		return true, false
+	}
+	if fdout != "" && fdin == "" {
+		return false, true
+	}
+	if fdin != "" && fdout != "" {
+		return true, true
+	}
+	switch mode {
+	case ModeRead:
+		// Only reading from child: inherit process stdin for the child.
+		return false, true
+	case ModeWrite:
+		// Only writing to child: inherit process stdout from the child.
+		return true, false
+	default:
+		return true, true
+	}
+}
+
+func rebuildWithFDRedirect(cmd *exec.Cmd, fdin, fdout string) *exec.Cmd {
+	orig := ""
+	if len(cmd.Args) > 0 {
+		if cmd.Args[0] == "/bin/sh" || cmd.Args[0] == "sh" || strings.HasSuffix(cmd.Path, "/sh") {
+			if len(cmd.Args) >= 3 && cmd.Args[1] == "-c" {
+				orig = cmd.Args[2]
+			}
+		} else {
+			orig = shellJoin(cmd.Args)
+		}
+	}
+	redir := "exec"
+	if fdin != "" {
+		redir += " " + fdin + "<&0"
+	}
+	if fdout != "" {
+		redir += " " + fdout + ">&1"
+	}
+	return exec.Command("/bin/sh", "-c", redir+"; "+orig)
+}
+
+func setTermiosFlag(fd int, clearOPost, clearEcho bool) error {
+	termios, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	if err != nil {
+		return err
+	}
+	if clearOPost {
+		termios.Oflag &^= unix.OPOST
+	}
+	if clearEcho {
+		termios.Lflag &^= unix.ECHO | unix.ECHONL
+	}
+	return unix.IoctlSetTermios(fd, unix.TCSETS, termios)
 }
 
 func shellJoin(args []string) string {
@@ -311,4 +452,3 @@ func shellJoin(args []string) string {
 	}
 	return b.String()
 }
-
