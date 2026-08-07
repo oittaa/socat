@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"syscall"
+	"time"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
@@ -93,30 +94,41 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 	if err != nil {
 		return nil, err
 	}
-	// Wait for first packet, then dial a connected UDP socket back to the sender.
+	// Wait for first permitted packet, then dial a connected UDP socket back.
 	buf := make([]byte, max(g.BlockSize, 8192))
 	type res struct {
 		n int
 		a *net.UDPAddr
 		e error
 	}
-	ch := make(chan res, 1)
-	go func() {
-		n, raddr, err := pc.ReadFromUDP(buf)
-		ch <- res{n, raddr, err}
-	}()
 	var n int
 	var raddr *net.UDPAddr
-	select {
-	case <-ctx.Done():
-		pc.Close()
-		return nil, ctx.Err()
-	case r := <-ch:
-		if r.e != nil {
+	for {
+		ch := make(chan res, 1)
+		go func() {
+			n, a, err := pc.ReadFromUDP(buf)
+			ch <- res{n, a, err}
+		}()
+		select {
+		case <-ctx.Done():
 			pc.Close()
-			return nil, r.e
+			return nil, ctx.Err()
+		case r := <-ch:
+			if r.e != nil {
+				pc.Close()
+				return nil, r.e
+			}
+			// Temporary conn for peer filter (range/sourceport/lowport).
+			fake := &udpPeerConn{addr: r.a}
+			if err := peerAllowed(s, fake); err != nil {
+				if g != nil && g.Log != nil {
+					g.Log.Noticef("%s", err)
+				}
+				continue
+			}
+			n, raddr = r.n, r.a
 		}
-		n, raddr = r.n, r.a
+		break
 	}
 	local := pc.LocalAddr().(*net.UDPAddr)
 	pc.Close()
@@ -129,6 +141,20 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 		Label:  "UDP-LISTEN",
 	}, nil
 }
+
+// udpPeerConn is a minimal net.Conn exposing only RemoteAddr for peer filters.
+type udpPeerConn struct {
+	addr net.Addr
+}
+
+func (c *udpPeerConn) Read([]byte) (int, error)         { return 0, net.ErrClosed }
+func (c *udpPeerConn) Write([]byte) (int, error)        { return 0, net.ErrClosed }
+func (c *udpPeerConn) Close() error                     { return nil }
+func (c *udpPeerConn) LocalAddr() net.Addr              { return nil }
+func (c *udpPeerConn) RemoteAddr() net.Addr             { return c.addr }
+func (c *udpPeerConn) SetDeadline(time.Time) error      { return nil }
+func (c *udpPeerConn) SetReadDeadline(time.Time) error  { return nil }
+func (c *udpPeerConn) SetWriteDeadline(time.Time) error { return nil }
 
 type udpFirstPacket struct {
 	*net.UDPConn
@@ -274,30 +300,39 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 		return nil, err
 	}
 	if recvfrom {
-		// one packet, then reply to sender — honour ctx so SIGTERM unblocks.
+		// one permitted packet, then reply to sender — honour ctx so SIGTERM unblocks.
 		buf := make([]byte, max(g.BlockSize, 65535))
 		type res struct {
 			n int
 			a *net.UDPAddr
 			e error
 		}
-		ch := make(chan res, 1)
-		go func() {
-			n, raddr, err := pc.ReadFromUDP(buf)
-			ch <- res{n, raddr, err}
-		}()
 		var n int
 		var raddr *net.UDPAddr
-		select {
-		case <-ctx.Done():
-			pc.Close()
-			return nil, ctx.Err()
-		case r := <-ch:
-			if r.e != nil {
+		for {
+			ch := make(chan res, 1)
+			go func() {
+				n, a, err := pc.ReadFromUDP(buf)
+				ch <- res{n, a, err}
+			}()
+			select {
+			case <-ctx.Done():
 				pc.Close()
-				return nil, r.e
+				return nil, ctx.Err()
+			case r := <-ch:
+				if r.e != nil {
+					pc.Close()
+					return nil, r.e
+				}
+				if err := peerAllowed(s, &udpPeerConn{addr: r.a}); err != nil {
+					if g != nil && g.Log != nil {
+						g.Log.Noticef("%s", err)
+					}
+					continue
+				}
+				n, raddr = r.n, r.a
 			}
-			n, raddr = r.n, r.a
+			break
 		}
 		conn, err := net.DialUDP(network, laddr, raddr)
 		pc.Close()
@@ -309,13 +344,45 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 			Label:  "UDP-RECVFROM",
 		}, nil
 	}
-	// RECV: merge all packets, read-only
+	// RECV: merge all packets, read-only, with peer filters.
 	if mode == ModeWrite {
 		pc.Close()
 		return nil, fmt.Errorf("UDP-RECV is read-only")
 	}
-	return &Opened{Stream: relay.NetStream{Conn: pc}, Label: "UDP-RECV"}, nil
+	return &Opened{
+		Stream: &udpFilteredRecv{conn: pc, spec: s, log: g},
+		Label:  "UDP-RECV",
+	}, nil
 }
+
+// udpFilteredRecv drops packets that fail range/sourceport/lowport checks.
+type udpFilteredRecv struct {
+	conn *net.UDPConn
+	spec parse.Spec
+	log  *Global
+}
+
+func (u *udpFilteredRecv) Read(p []byte) (int, error) {
+	for {
+		n, addr, err := u.conn.ReadFromUDP(p)
+		if err != nil {
+			return n, err
+		}
+		if err := peerAllowed(u.spec, &udpPeerConn{addr: addr}); err != nil {
+			if u.log != nil && u.log.Log != nil {
+				u.log.Log.Noticef("%s", err)
+			}
+			continue
+		}
+		return n, nil
+	}
+}
+
+func (u *udpFilteredRecv) Write([]byte) (int, error) { return 0, net.ErrClosed }
+func (u *udpFilteredRecv) Close() error              { return u.conn.Close() }
+func (u *udpFilteredRecv) ShutdownWrite() error      { return nil }
+func (u *udpFilteredRecv) LocalAddr() net.Addr       { return u.conn.LocalAddr() }
+func (u *udpFilteredRecv) RemoteAddr() net.Addr      { return nil }
 
 func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, error) {
 	cfg := net.ListenConfig{

@@ -180,10 +180,15 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 	}
 	addr := net.JoinHostPort(stripBrackets(host), port)
 
+	// Classic default: SO_REUSEADDR is on for listen unless reuseaddr=0.
+	reuse := true
+	if s.HasOption("reuseaddr") {
+		reuse = s.BoolOption("reuseaddr")
+	}
 	lc := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
 			return c.Control(func(fd uintptr) {
-				if s.BoolOption("reuseaddr") {
+				if reuse {
 					_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 				}
 				// Must set before bind. For dual-stack (tcp / ipv6-v6only=0) clear V6ONLY.
@@ -207,10 +212,12 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 	}
 
 	fork := s.BoolOption("fork")
+	filter := func(c net.Conn) error { return peerAllowed(s, c) }
 	o := &Opened{
-		Listener: ln,
-		Fork:     fork,
-		Label:    fmt.Sprintf("%s-LISTEN:%s", network, port),
+		Listener:   ln,
+		Fork:       fork,
+		Label:      fmt.Sprintf("%s-LISTEN:%s", network, port),
+		PeerFilter: filter,
 	}
 	o.addCleanup(func() { ln.Close() })
 
@@ -224,36 +231,56 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 		return o, nil
 	}
 
-	// Non-fork: accept one connection; honour ctx and accept-timeout.
+	// Non-fork: accept one permitted connection; honour ctx and accept-timeout.
+	// Classic Exit(0) on accept-timeout with no connection.
 	g.Log.Noticef("listening on %s", ln.Addr())
-	type acc struct {
-		c   net.Conn
-		err error
+	at := acceptTimeout(s)
+	var deadline time.Time
+	if at > 0 {
+		deadline = time.Now().Add(at)
 	}
-	ch := make(chan acc, 1)
-	go func() {
-		if at := acceptTimeout(s); at > 0 {
+	var conn net.Conn
+	for {
+		if !deadline.IsZero() {
 			if dl, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
-				_ = dl.SetDeadline(time.Now().Add(at))
+				_ = dl.SetDeadline(deadline)
 			}
 		}
-		c, err := ln.Accept()
-		ch <- acc{c, err}
-	}()
-	var conn net.Conn
-	select {
-	case <-ctx.Done():
-		ln.Close()
-		o.Listener = nil
-		return nil, ctx.Err()
-	case a := <-ch:
-		ln.Close()
-		o.Listener = nil
-		if a.err != nil {
-			return nil, a.err
+		type acc struct {
+			c   net.Conn
+			err error
 		}
-		conn = a.c
+		ch := make(chan acc, 1)
+		go func() {
+			c, err := ln.Accept()
+			ch <- acc{c, err}
+		}()
+		select {
+		case <-ctx.Done():
+			ln.Close()
+			o.Listener = nil
+			return nil, ctx.Err()
+		case a := <-ch:
+			if a.err != nil {
+				ln.Close()
+				o.Listener = nil
+				if isTimeoutErr(a.err) {
+					g.Log.Warningf("accept: %v", a.err)
+					return nil, ErrAcceptTimeout
+				}
+				return nil, a.err
+			}
+			if err := filter(a.c); err != nil {
+				g.Log.Noticef("%s", err)
+				a.c.Close()
+				continue // keep waiting for a permitted peer
+			}
+			conn = a.c
+		}
+		break
 	}
+	ln.Close()
+	o.Listener = nil
 	g.Log.Infof("accepted connection from %s", conn.RemoteAddr())
 	rememberAddrs(g, conn)
 	st := relay.Stream(relay.NetStream{Conn: conn})
@@ -266,6 +293,17 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 	return o, nil
 }
 
+func isTimeoutErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if ne, ok := err.(net.Error); ok && ne.Timeout() {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "timeout") ||
+		strings.Contains(strings.ToLower(err.Error()), "i/o timeout")
+}
+
 // rememberAddrs fills SOCAT_* environment fields on g from a live connection.
 func rememberAddrs(g *Global, c net.Conn) {
 	if g == nil || c == nil {
@@ -274,7 +312,7 @@ func rememberAddrs(g *Global, c net.Conn) {
 	if la := c.LocalAddr(); la != nil {
 		host, port, err := net.SplitHostPort(la.String())
 		if err == nil {
-			g.SockAddr = host
+			g.SockAddr = formatSocatAddr(host)
 			g.SockPort = port
 		} else {
 			g.SockAddr = la.String()
@@ -283,12 +321,35 @@ func rememberAddrs(g *Global, c net.Conn) {
 	if ra := c.RemoteAddr(); ra != nil {
 		host, port, err := net.SplitHostPort(ra.String())
 		if err == nil {
-			g.PeerAddr = host
+			g.PeerAddr = formatSocatAddr(host)
 			g.PeerPort = port
 		} else {
 			g.PeerAddr = ra.String()
 		}
 	}
+}
+
+// formatSocatAddr matches classic env formatting (IPv6 in brackets).
+func formatSocatAddr(host string) string {
+	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
+		// Expand to full form when possible for test comparisons.
+		return "[" + expandIPv6(ip) + "]"
+	}
+	return host
+}
+
+func expandIPv6(ip net.IP) string {
+	if ip == nil {
+		return ""
+	}
+	ip = ip.To16()
+	if ip == nil {
+		return ""
+	}
+	// Classic often prints full zero-padded form for ::1
+	return fmt.Sprintf("%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
+		ip[0], ip[1], ip[2], ip[3], ip[4], ip[5], ip[6], ip[7],
+		ip[8], ip[9], ip[10], ip[11], ip[12], ip[13], ip[14], ip[15])
 }
 
 func networkTCP(g *Global, s parse.Spec, def string) string {

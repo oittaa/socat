@@ -55,13 +55,21 @@ func startProcess(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmdSt
 	if useShell {
 		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr)
 	} else {
-		parts := strings.Fields(cmdStr)
+		// Preserve intentional spaces inside quoted segments (already unquoted by parser).
+		// Split on whitespace for argv; classic EXEC uses simple space separation.
+		parts := splitExecArgs(cmdStr)
 		if len(parts) == 0 {
 			return nil, fmt.Errorf("empty EXEC command")
 		}
 		cmd = exec.CommandContext(ctx, parts[0], parts[1:]...)
 	}
 	return startCmd(ctx, s, mode, g, cmd)
+}
+
+// splitExecArgs splits an EXEC command line on whitespace, collapsing runs of spaces
+// the same way classic socat does for unquoted commands.
+func splitExecArgs(s string) []string {
+	return strings.Fields(s)
 }
 
 func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
@@ -224,21 +232,17 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	// Inject classic SOCAT_* connection environment for SYSTEM/EXEC children.
 	if g != nil {
 		env := append([]string{}, os.Environ()...)
-		if g.SockAddr != "" {
-			env = append(env, "SOCAT_SOCKADDR="+g.SockAddr)
-		}
-		if g.PeerAddr != "" {
-			env = append(env, "SOCAT_PEERADDR="+g.PeerAddr)
-		}
-		if g.SockPort != "" {
-			env = append(env, "SOCAT_SOCKPORT="+g.SockPort)
-		}
-		if g.PeerPort != "" {
-			env = append(env, "SOCAT_PEERPORT="+g.PeerPort)
-		}
+		// Always set the four vars (empty if unknown) so scripts can rely on them.
+		env = append(env,
+			"SOCAT_SOCKADDR="+g.SockAddr,
+			"SOCAT_PEERADDR="+g.PeerAddr,
+			"SOCAT_SOCKPORT="+g.SockPort,
+			"SOCAT_PEERPORT="+g.PeerPort,
+		)
 		cmd.Env = env
 	}
 
+	// Promote child failure: if nofork semantics requested later; for now Start errors fail open.
 	if err := cmd.Start(); err != nil {
 		for _, f := range cleanup {
 			f()

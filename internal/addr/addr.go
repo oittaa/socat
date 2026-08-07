@@ -3,6 +3,7 @@ package addr
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,6 +15,10 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
+
+// ErrAcceptTimeout is returned when accept-timeout expires with no connection.
+// Classic socat exits 0 in this case (not an error for the process).
+var ErrAcceptTimeout = errors.New("accept timeout")
 
 // Mode indicates how an address is used.
 type Mode int
@@ -67,6 +72,9 @@ type Opened struct {
 	Fork     bool
 	Label    string
 	cleanup  []func()
+	// PeerFilter rejects accepted connections (range/sourceport/lowport).
+	// Used by fork accept loops; non-fork applies the same check before returning.
+	PeerFilter func(net.Conn) error
 	// For dual: separate read/write streams
 	Read  relay.Stream
 	Write relay.Stream
@@ -258,6 +266,7 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		"SHELL":        openSHELL,
 		"TEXT":         openTEXT,
 		"STALL":        openSTALL,
+		"PTY":          openPTY,
 	}
 	fn, ok := openers[typ]
 	if !ok {
@@ -320,6 +329,10 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 		<-ctx.Done()
 		ln.Close()
 	}()
+	// Peer filters (range/sourceport/lowport) live on the listen address options.
+	// Stash them via Label is awkward; re-parse is not available. Instead Open
+	// stores them on Opened via PeerFilter when set.
+	filter := lo.PeerFilter
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -328,18 +341,27 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 			}
 			return err
 		}
+		if filter != nil {
+			if err := filter(conn); err != nil {
+				g.Log.Noticef("%s", err)
+				conn.Close()
+				continue
+			}
+		}
 		g.Log.Infof("accepted %s", conn.RemoteAddr())
 		go func(c net.Conn) {
 			defer c.Close()
-			rememberAddrs(g, c)
+			// Per-connection Global copy so SOCAT_* env is correct under concurrency.
+			cg := *g
+			rememberAddrs(&cg, c)
 			leftStream := relay.Stream(relay.NetStream{Conn: c})
-			ro, err := OpenChannel(ctx, right, rMode, g)
+			ro, err := OpenChannel(ctx, right, rMode, &cg)
 			if err != nil {
 				g.Log.Errorf("right address: %s", err)
 				return
 			}
 			defer ro.Close()
-			if err := transferStreams(ctx, leftStream, ro.EffectiveStream(), g); err != nil {
+			if err := transferStreams(ctx, leftStream, ro.EffectiveStream(), &cg); err != nil {
 				g.Log.Debugf("transfer: %s", err)
 			}
 		}(conn)

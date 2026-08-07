@@ -18,8 +18,8 @@ type ignoreEOFReader struct {
 func newIgnoreEOF(r io.Reader) *ignoreEOFReader {
 	return &ignoreEOFReader{
 		r:       r,
-		idle:    50 * time.Millisecond,
-		maxIdle: 5 * time.Second,
+		idle:    20 * time.Millisecond,
+		maxIdle: 30 * time.Second, // long enough for classic FILE dual-echo tests
 	}
 }
 

@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // Config controls transfer behavior.
@@ -49,6 +53,13 @@ type Stream interface {
 	// ShutdownWrite half-closes the write side (like shutdown(SHUT_WR)).
 	// If not supported, Close may be used by the relay after linger.
 	ShutdownWrite() error
+}
+
+// fdProvider is optionally implemented by streams backed by a real file descriptor.
+// When both ends provide FDs, Transfer waits for the destination to be writable
+// before reading the source (classic select-based backpressure, needed for STALL).
+type fdProvider interface {
+	Fd() uintptr
 }
 
 // NetStream wraps a net.Conn as a Stream.
@@ -191,10 +202,23 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 			buf = buf[:cfg.BufferSize]
 		}
 
+		// Classic backpressure: only read src when dst is writable.
+		// Critical for STALL (full pipe never POLLOUT until closed).
+		// Use direction-aware FDs: read side for src, write side for dst.
+		dstFD := streamWriteFD(dst)
+		srcFD := streamReadFD(src)
+		usePoll := dstFD >= 0 && srcFD >= 0
+
 		for {
 			if ctx.Err() != nil {
 				results <- dirResult{err: ctx.Err(), dir: dir}
 				return
+			}
+			if usePoll {
+				if err := waitReadableAndWritable(ctx, srcFD, dstFD); err != nil {
+					results <- dirResult{err: err, dir: dir}
+					return
+				}
 			}
 			nr, er := src.Read(buf)
 			if nr > 0 {
@@ -325,4 +349,105 @@ func dump(cfg Config, dir string, data []byte) {
 		}
 	}
 	fmt.Fprintln(cfg.Dump)
+}
+
+func streamReadFD(s Stream) int {
+	if fs, ok := s.(FDStream); ok {
+		if f := ioFD(fs.R); f >= 0 {
+			return f
+		}
+	}
+	return streamAnyFD(s)
+}
+
+func streamWriteFD(s Stream) int {
+	if fs, ok := s.(FDStream); ok {
+		if f := ioFD(fs.W); f >= 0 {
+			return f
+		}
+	}
+	return streamAnyFD(s)
+}
+
+func streamAnyFD(s Stream) int {
+	if f, ok := s.(fdProvider); ok {
+		return int(f.Fd())
+	}
+	if ns, ok := s.(NetStream); ok {
+		type sc interface {
+			SyscallConn() (syscall.RawConn, error)
+		}
+		if c, ok := ns.Conn.(sc); ok {
+			rc, err := c.SyscallConn()
+			if err == nil {
+				var fd int
+				_ = rc.Control(func(f uintptr) { fd = int(f) })
+				if fd > 0 {
+					return fd
+				}
+			}
+		}
+	}
+	if fs, ok := s.(FDStream); ok {
+		if f := ioFD(fs.R); f >= 0 {
+			return f
+		}
+		if f := ioFD(fs.W); f >= 0 {
+			return f
+		}
+	}
+	return -1
+}
+
+func ioFD(v any) int {
+	if v == nil {
+		return -1
+	}
+	if f, ok := v.(*os.File); ok {
+		return int(f.Fd())
+	}
+	if f, ok := v.(interface{ Fd() uintptr }); ok {
+		return int(f.Fd())
+	}
+	return -1
+}
+
+// waitReadableAndWritable waits until src is readable and dst is writable
+// (classic select backpressure). If dst is closed/errored without being writable,
+// return an error without reading (preserve unread peer data — needed for STALL).
+func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
+	for {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		pfd := []unix.PollFd{
+			{Fd: int32(srcFD), Events: unix.POLLIN},
+			{Fd: int32(dstFD), Events: unix.POLLOUT},
+		}
+		n, err := unix.Poll(pfd, 100) // 100ms so we honour ctx
+		if err != nil {
+			if err == syscall.EINTR {
+				continue
+			}
+			return err
+		}
+		if n == 0 {
+			continue
+		}
+		srcRe := pfd[0].Revents
+		dstRe := pfd[1].Revents
+		// Destination dead and not writable: abort without consuming src.
+		if dstRe&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 && dstRe&unix.POLLOUT == 0 {
+			return io.ErrClosedPipe
+		}
+		// Source closed: allow Read to return EOF.
+		if srcRe&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 && srcRe&unix.POLLIN == 0 {
+			return nil
+		}
+		srcReady := srcRe&unix.POLLIN != 0
+		dstReady := dstRe&unix.POLLOUT != 0
+		if srcReady && dstReady {
+			return nil
+		}
+	}
 }

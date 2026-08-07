@@ -12,7 +12,7 @@ import (
 )
 
 func openOPEN(_ context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	if len(s.Params) < 1 {
+	if len(s.Params) < 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("OPEN requires filename")
 	}
 	path := s.Params[0]
@@ -20,6 +20,17 @@ func openOPEN(_ context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, e
 	f, err := os.OpenFile(path, flags, parseFileMode(s, 0o644))
 	if err != nil {
 		return nil, err
+	}
+	if s.HasOption("ftruncate") || s.HasOption("trunc") {
+		// ftruncate=N or trunc flag after open
+		if v := s.OptionValue("ftruncate", ""); v != "" {
+			var n int64
+			if _, e := fmt.Sscanf(v, "%d", &n); e == nil {
+				_ = f.Truncate(n)
+			}
+		} else if s.BoolOption("trunc") {
+			_ = f.Truncate(0)
+		}
 	}
 	return fileOpened(f, s, path)
 }

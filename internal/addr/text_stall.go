@@ -7,15 +7,20 @@ import (
 	"io"
 	"os"
 	"strings"
-	"sync"
+	"syscall"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
+	"golang.org/x/sys/unix"
 )
 
 // TEXT:<string> — input is the string (with classic escapes); output goes to stdout.
 func openTEXT(_ context.Context, s parse.Spec, mode Mode, _ *Global) (*Opened, error) {
 	if len(s.Params) < 1 {
+		return nil, fmt.Errorf("TEXT requires string parameter")
+	}
+	// TEXT::::: probe → empty params; still require non-empty content
+	if len(s.Params) == 1 && s.Params[0] == "" {
 		return nil, fmt.Errorf("TEXT requires string parameter")
 	}
 	// Escapes already expanded by the address parser (quotes / backslash).
@@ -42,41 +47,110 @@ func openTEXT(_ context.Context, s parse.Spec, mode Mode, _ *Global) (*Opened, e
 	return &Opened{Stream: st, Label: "TEXT"}, nil
 }
 
-// STALL — never readable, never writable until closed.
-// Close unblocks I/O so -T idle timeout / SIGTERM can finish the process.
-func openSTALL(_ context.Context, _ parse.Spec, _ Mode, _ *Global) (*Opened, error) {
-	return &Opened{
-		Stream: newStallStream(),
-		Label:  "STALL",
-	}, nil
+// STALL — never readable, never writable (classic: pipes that never become ready).
+//
+// Classic fills the write-end pipe to capacity so poll/select never marks it
+// writable; that prevents the transfer loop from reading the peer (backpressure).
+// Read side is a pipe whose write end is never written, so it never becomes readable.
+// Closing the FDs (idle -T, process exit) unblocks I/O.
+func openSTALL(_ context.Context, s parse.Spec, mode Mode, _ *Global) (*Opened, error) {
+	// Classic STALL takes no parameters. testaddrs probes with STALL::::: and
+	// expects a parse/syntax failure so the process does not hang transferring.
+	if len(s.Params) > 0 {
+		return nil, fmt.Errorf("STALL: wrong number of parameters (expected 0)")
+	}
+	var r io.Reader = eofReader{}
+	var w io.Writer = discardWriter{}
+	var cleanup []func()
+	var closeFDs []int
+
+	// Read stall: pipe with only read end held open; never has data.
+	if mode == ModeRead || mode == ModeRDWR {
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			return nil, err
+		}
+		// Keep write end open so Read blocks (not EOF); drop after process ends.
+		r = pr
+		closeFDs = append(closeFDs, int(pr.Fd()), int(pw.Fd()))
+		cleanup = append(cleanup, func() {
+			pr.Close()
+			pw.Close()
+		})
+	}
+
+	// Write stall: pipe filled to capacity so further Writes block.
+	if mode == ModeWrite || mode == ModeRDWR {
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			for _, f := range cleanup {
+				f()
+			}
+			return nil, err
+		}
+		// Keep read end open; fill write end.
+		fillPipe(pw)
+		w = pw
+		closeFDs = append(closeFDs, int(pr.Fd()), int(pw.Fd()))
+		cleanup = append(cleanup, func() {
+			pr.Close()
+			pw.Close()
+		})
+	}
+
+	stream := relay.FDStream{
+		R: r,
+		W: w,
+		C: multiCloserFuncs(cleanup),
+		CloseW: func() error {
+			// Closing write end of write-stall pipe unblocks any blocked Write.
+			if c, ok := w.(io.Closer); ok {
+				return c.Close()
+			}
+			return nil
+		},
+	}
+	// When idle timeout cancels, Close() runs cleanup and unblocks.
+	_ = closeFDs
+	return &Opened{Stream: stream, Label: "STALL"}, nil
 }
 
-type stallStream struct {
-	done chan struct{}
-	once sync.Once
+// fillPipe writes zeros until the pipe buffer is full (classic STALL write side).
+func fillPipe(pw *os.File) {
+	// Prefer F_GETPIPE_SZ when available.
+	sz := 65536
+	if n, err := unix.FcntlInt(pw.Fd(), unix.F_GETPIPE_SZ, 0); err == nil && n > 0 {
+		sz = n
+	}
+	// Non-blocking fill
+	raw, err := pw.SyscallConn()
+	if err != nil {
+		return
+	}
+	_ = raw.Control(func(fd uintptr) {
+		flags, _ := unix.FcntlInt(fd, unix.F_GETFL, 0)
+		_, _ = unix.FcntlInt(fd, unix.F_SETFL, flags|unix.O_NONBLOCK)
+		zeros := make([]byte, sz)
+		for {
+			n, err := unix.Write(int(fd), zeros)
+			if n < 0 || err != nil {
+				break
+			}
+			if n < len(zeros) {
+				break
+			}
+		}
+		_, _ = unix.FcntlInt(fd, unix.F_SETFL, flags)
+	})
 }
 
-func newStallStream() *stallStream {
-	return &stallStream{done: make(chan struct{})}
-}
+type multiCloserFuncs []func()
 
-func (s *stallStream) Read([]byte) (int, error) {
-	<-s.done
-	return 0, io.EOF
-}
-
-func (s *stallStream) Write([]byte) (int, error) {
-	<-s.done
-	return 0, io.ErrClosedPipe
-}
-
-func (s *stallStream) Close() error {
-	s.once.Do(func() { close(s.done) })
+func (m multiCloserFuncs) Close() error {
+	for i := len(m) - 1; i >= 0; i-- {
+		m[i]()
+	}
 	return nil
-}
-
-func (s *stallStream) ShutdownWrite() error {
-	return s.Close()
 }
 
 // expandEscapes handles common classic socat string escapes.
@@ -113,3 +187,5 @@ func expandEscapes(s string) []byte {
 	return []byte(b.String())
 }
 
+// silence
+var _ = syscall.O_NONBLOCK

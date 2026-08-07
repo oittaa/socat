@@ -388,6 +388,10 @@ func Main(args []string) int {
 		if ctx.Err() != nil {
 			return 0
 		}
+		// Classic socat exits 0 when accept-timeout fires with no peer.
+		if err == addr.ErrAcceptTimeout {
+			return 0
+		}
 		log.Errorf("%s", err)
 		return 1
 	}
@@ -405,8 +409,9 @@ func printVersion(w io.Writer) {
 		name string
 		on   bool
 	}{
+		// Honesty: only set 1 for features that actually work end-to-end.
 		{"HELP", true},
-		{"STATS", true},
+		{"STATS", false}, // --statistics partial; SIGUSR1 not implemented
 		{"STDIO", true},
 		{"FDNUM", true},
 		{"FILE", true},
@@ -442,7 +447,7 @@ func printVersion(w io.Writer) {
 		{"EXEC", true},
 		{"READLINE", false},
 		{"TUN", false},
-		{"PTY", false},
+		{"PTY", true},
 		{"OPENSSL", false},
 		{"FIPS", false},
 		{"LIBWRAP", false},
@@ -484,26 +489,30 @@ func printHelp(w io.Writer, level int) {
 	fmt.Fprintf(w, "  UDP-DATAGRAM UDP4-DATAGRAM UDP6-DATAGRAM\n")
 	fmt.Fprintf(w, "  UDP-RECV UDP4-RECV UDP6-RECV UDP-RECVFROM UDP4-RECVFROM UDP6-RECVFROM\n")
 	fmt.Fprintf(w, "  UNIX UNIX-CONNECT UNIX-CLIENT UNIX-LISTEN UNIX-L SOCKETPAIR\n")
-	fmt.Fprintf(w, "  EXEC SYSTEM SHELL TEXT STALL\n")
+	fmt.Fprintf(w, "  EXEC SYSTEM SHELL TEXT STALL PTY\n")
 	if level >= 2 {
-		// Option names for test.sh testoptions(): greps
-		//   [^a-z0-9-]<name>[^a-z0-9-]
-		// so each name needs a non-alnum neighbor on BOTH sides (pad with spaces).
+		// Honesty: only list options we actually honor. test.sh greps
+		//   [^a-z0-9-]<name>[^a-z0-9-]  — pad with spaces on both sides.
+		// Security filters range/sourceport/lowport are enforced on accept.
 		opts := []string{
-			"reuseaddr", "so-reuseaddr", "reuseport", "so-reuseport",
+			"reuseaddr", "so-reuseaddr",
 			"fork", "bind", "connect-timeout", "accept-timeout",
 			"unlink-early", "unlink-close", "unlink-late", "mode", "nonblock", "o-nonblock",
-			"rdonly", "wronly", "creat", "create", "excl", "append", "trunc",
-			"nodelay", "tcp-nodelay", "keepalive", "so-keepalive", "pipes", "setsid", "stderr",
-			"pf", "sourceport", "sp", "crnl", "ignoreeof", "readbytes", "retry", "forever",
-			"interval", "backlog", "fdin", "fdout", "pty", "ipv6-v6only", "broadcast",
-			"range", "lowport", "children-shutup", "max-children", "end-close", "shut-null",
-			"null-eof", "cool-write", "perm", "user", "group", "chdir",
+			"rdonly", "wronly", "creat", "create", "excl", "append", "trunc", "o-append",
+			"nodelay", "tcp-nodelay", "keepalive", "so-keepalive",
+			"pipes", "setsid", "stderr",
+			"pf", "sourceport", "sp",
+			"range", "lowport",
+			"crnl", "ignoreeof", "readbytes",
+			"retry", "forever", "interval",
+			"backlog", "fdin", "fdout",
+			"ipv6-v6only", "broadcast",
+			"link", "symbolic-link", "cfmakeraw",
 		}
 		fmt.Fprintln(w)
 		fmt.Fprint(w, "b:")
 		for _, o := range opts {
-			fmt.Fprintf(w, " %s ", o) // spaces on both sides for grep boundaries
+			fmt.Fprintf(w, " %s ", o)
 		}
 		fmt.Fprintln(w)
 	}

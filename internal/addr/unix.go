@@ -18,9 +18,16 @@ func openUnixConnect(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Ope
 		return nil, fmt.Errorf("UNIX-CONNECT requires path")
 	}
 	path := s.Params[0]
+	bindPath := s.OptionValue("bind", "")
+
 	var conn net.Conn
 	err := withRetry(ctx, s, g, "UNIX-CONNECT", func() error {
-		var d net.Dialer
+		d := net.Dialer{}
+		if bindPath != "" {
+			// Classic: bind local unix socket path before connect.
+			_ = os.Remove(bindPath) // stale leftover
+			d.LocalAddr = &net.UnixAddr{Name: bindPath, Net: "unix"}
+		}
 		c, e := d.DialContext(ctx, "unix", path)
 		if e != nil {
 			return e
@@ -32,16 +39,42 @@ func openUnixConnect(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Ope
 		return nil, err
 	}
 	g.Log.Infof("successfully connected to %s", path)
+	if g != nil {
+		if bindPath != "" {
+			g.SockAddr = bindPath
+		} else {
+			g.SockAddr = path
+		}
+		g.PeerAddr = path
+	}
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = wrapCommon(s, st)
 	if err != nil {
 		conn.Close()
+		if bindPath != "" {
+			_ = os.Remove(bindPath)
+		}
 		return nil, err
 	}
-	return &Opened{
+	o := &Opened{
 		Stream: st,
 		Label:  "UNIX:" + path,
-	}, nil
+	}
+	// unlink-close: remove the *local bind* path (classic client option).
+	// Default for connect is 0 (keep); only unlink when explicitly true or
+	// when bind path was used with unlink-close=1.
+	unlinkTarget := bindPath
+	if unlinkTarget == "" {
+		// Without bind, classic may still honor unlink-close on the peer path
+		// only when explicitly requested — tests use bind= + unlink-close=1.
+		unlinkTarget = ""
+	}
+	if s.BoolOption("unlink-close") && unlinkTarget != "" {
+		o.addCleanup(func() { _ = os.Remove(unlinkTarget) })
+	} else if bindPath != "" && !s.HasOption("unlink-close") {
+		// Keep bind path by default (classic unlink-close default for connect is off).
+	}
+	return o, nil
 }
 
 func openUnixListen(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Opened, error) {
@@ -54,7 +87,7 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Open
 	if s.BoolOption("unlink-early") {
 		_ = os.Remove(path)
 	} else if _, err := os.Stat(path); err == nil {
-		// classic may fail if exists; try remove if unlink-close semantics
+		// classic may fail if exists; try remove if reuseaddr
 		if s.BoolOption("reuseaddr") {
 			_ = os.Remove(path)
 		}
@@ -64,6 +97,13 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Open
 	ln, err := lc.Listen(ctx, "unix", path)
 	if err != nil {
 		return nil, err
+	}
+
+	// Go's UnixListener unlinks the path on Close by default. Match classic
+	// unlink-close: default true; unlink-close=0 keeps the filesystem entry.
+	doUnlink := !s.HasOption("unlink-close") || s.BoolOption("unlink-close")
+	if ul, ok := ln.(*net.UnixListener); ok {
+		ul.SetUnlinkOnClose(doUnlink)
 	}
 
 	// mode on socket file
@@ -77,15 +117,6 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Open
 		Fork:     fork,
 		Label:    "UNIX-LISTEN:" + path,
 	}
-	if !s.HasOption("unlink-close") || s.BoolOption("unlink-close") {
-		// default: remove socket on close
-		if !s.BoolOption("unlink-close") {
-			// classic default unlink-close=1 for unix listen
-			o.addCleanup(func() { _ = os.Remove(path) })
-		} else {
-			o.addCleanup(func() { _ = os.Remove(path) })
-		}
-	}
 	o.addCleanup(func() { ln.Close() })
 
 	if fork {
@@ -96,12 +127,14 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Open
 		return o, nil
 	}
 
-	// accept-timeout (also used by half-close tests indirectly via peer retry)
-	if at := s.OptionValue("accept-timeout", ""); at != "" {
-		if f, e := strconv.ParseFloat(at, 64); e == nil && f > 0 {
-			if dl, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
-				_ = dl.SetDeadline(time.Now().Add(time.Duration(f * float64(time.Second))))
-			}
+	// accept-timeout
+	at := acceptTimeout(s)
+	var deadline time.Time
+	if at > 0 {
+		deadline = time.Now().Add(at)
+	} else if v := s.OptionValue("accept-timeout", ""); v != "" {
+		if f, e := strconv.ParseFloat(v, 64); e == nil && f > 0 {
+			deadline = time.Now().Add(time.Duration(f * float64(time.Second)))
 		}
 	}
 	g.Log.Noticef("listening on %s", path)
@@ -111,6 +144,11 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Open
 	}
 	ch := make(chan acc, 1)
 	go func() {
+		if !deadline.IsZero() {
+			if dl, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
+				_ = dl.SetDeadline(deadline)
+			}
+		}
 		c, err := ln.Accept()
 		ch <- acc{c, err}
 	}()
@@ -125,9 +163,29 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Open
 		o.Listener = nil
 		if a.err != nil {
 			o.Close()
+			if isTimeoutErr(a.err) {
+				return nil, ErrAcceptTimeout
+			}
 			return nil, a.err
 		}
 		conn = a.c
+	}
+	// UNIX env: sock = listen path; peer = client path if bound.
+	if g != nil {
+		g.SockAddr = path
+		g.SockPort = ""
+		g.PeerPort = ""
+		if ra := conn.RemoteAddr(); ra != nil {
+			if ua, ok := ra.(*net.UnixAddr); ok && ua.Name != "" {
+				g.PeerAddr = ua.Name
+			} else if s := ra.String(); s != "" {
+				g.PeerAddr = s
+			} else {
+				g.PeerAddr = path
+			}
+		} else {
+			g.PeerAddr = path
+		}
 	}
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = wrapCommon(s, st)
