@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
+	"golang.org/x/sys/unix"
 )
 
 func openUDPConnect(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
@@ -94,7 +97,33 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 	if err != nil {
 		return nil, err
 	}
-	// Wait for first permitted packet, then dial a connected UDP socket back.
+
+	// fork: keep listening and spawn a session per first-packet "connection".
+	if s.BoolOption("fork") {
+		maxChildren := 0
+		if v := s.OptionValue("max-children", ""); v != "" {
+			if n, e := strconv.Atoi(v); e == nil && n > 0 {
+				maxChildren = n
+			}
+		}
+		ln := &udpForkListener{
+			pc:      pc,
+			network: network,
+			laddr:   laddr,
+			spec:    s,
+			g:       g,
+			ctx:     ctx,
+		}
+		return &Opened{
+			Listener:    ln,
+			Fork:        true,
+			Label:       "UDP-LISTEN",
+			MaxChildren: maxChildren,
+			PeerFilter:  func(c net.Conn) error { return peerAllowed(s, c) },
+		}, nil
+	}
+
+	// Non-fork: one session then done (keep listen socket for reply like RECVFROM).
 	buf := make([]byte, max(g.BlockSize, 8192))
 	type res struct {
 		n int
@@ -118,7 +147,6 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 				pc.Close()
 				return nil, r.e
 			}
-			// Temporary conn for peer filter (range/sourceport/lowport).
 			fake := &udpPeerConn{addr: r.a}
 			if err := peerAllowed(s, fake); err != nil {
 				if g != nil && g.Log != nil {
@@ -130,16 +158,175 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 		}
 		break
 	}
-	local := pc.LocalAddr().(*net.UDPAddr)
-	pc.Close()
-	conn, err := net.DialUDP(network, local, raddr)
+	st := relay.Stream(&udpRecvFromConn{
+		uc:    pc,
+		peer:  raddr,
+		first: append([]byte(nil), buf[:n]...),
+	})
+	st, err = wrapCommon(s, st)
+	if err != nil {
+		pc.Close()
+		return nil, err
+	}
+	return &Opened{Stream: st, Label: "UDP-LISTEN"}, nil
+}
+
+// udpForkListener implements net.Listener for UDP-LISTEN,fork:
+// each Accept waits for a datagram and returns a session Conn for that peer.
+type udpForkListener struct {
+	pc      *net.UDPConn
+	network string
+	laddr   *net.UDPAddr
+	spec    parse.Spec
+	g       *Global
+	ctx     context.Context
+}
+
+func (l *udpForkListener) Accept() (net.Conn, error) {
+	buf := make([]byte, 65535)
+	for {
+		type res struct {
+			n int
+			a *net.UDPAddr
+			e error
+		}
+		ch := make(chan res, 1)
+		go func() {
+			n, a, err := l.pc.ReadFromUDP(buf)
+			ch <- res{n, a, err}
+		}()
+		select {
+		case <-l.ctx.Done():
+			return nil, l.ctx.Err()
+		case r := <-ch:
+			if r.e != nil {
+				return nil, r.e
+			}
+			if err := peerAllowed(l.spec, &udpPeerConn{addr: r.a}); err != nil {
+				if l.g != nil && l.g.Log != nil {
+					l.g.Log.Noticef("%s", err)
+				}
+				continue
+			}
+			// Prefer connected child socket (REUSEADDR) so parent keeps listening.
+			conn, err := dialUDPSession(l.network, l.laddr, r.a)
+			if err != nil {
+				if l.g != nil && l.g.Log != nil {
+					l.g.Log.Noticef("UDP fork session dial: %s", err)
+				}
+				return nil, err
+			}
+			return &udpSessionConn{
+				conn:  conn,
+				peer:  r.a,
+				first: append([]byte(nil), buf[:r.n]...),
+			}, nil
+		}
+	}
+}
+
+func (l *udpForkListener) Close() error   { return l.pc.Close() }
+func (l *udpForkListener) Addr() net.Addr { return l.pc.LocalAddr() }
+
+func dialUDPSession(network string, local, remote *net.UDPAddr) (*net.UDPConn, error) {
+	// SO_REUSEADDR so we can bind the same local port as the parent listener.
+	d := net.Dialer{
+		LocalAddr: local,
+		Control: func(network, address string, c syscall.RawConn) error {
+			return c.Control(func(fd uintptr) {
+				_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+			})
+		},
+	}
+	c, err := d.Dial(network, remote.String())
 	if err != nil {
 		return nil, err
 	}
-	return &Opened{
-		Stream: &udpFirstPacket{UDPConn: conn, first: append([]byte(nil), buf[:n]...)},
-		Label:  "UDP-LISTEN",
-	}, nil
+	uc, ok := c.(*net.UDPConn)
+	if !ok {
+		c.Close()
+		return nil, fmt.Errorf("UDP session: unexpected conn type")
+	}
+	return uc, nil
+}
+
+// udpSessionConn is one UDP "connection" for fork children.
+// Do NOT embed *net.UDPConn: poll would wait for POLLIN while the first
+// datagram is only in first[] (already consumed from the listen socket).
+type udpSessionConn struct {
+	conn   *net.UDPConn // connected child socket (preferred)
+	pc     *net.UDPConn // shared parent when conn is nil
+	peer   *net.UDPAddr
+	first  []byte
+	got    bool
+	shared bool
+}
+
+func (u *udpSessionConn) Read(p []byte) (int, error) {
+	if !u.got && len(u.first) > 0 {
+		u.got = true
+		n := copy(p, u.first)
+		if n < len(u.first) {
+			u.first = u.first[n:]
+			u.got = false
+		}
+		return n, nil
+	}
+	if u.conn != nil {
+		return u.conn.Read(p)
+	}
+	for {
+		n, addr, err := u.pc.ReadFromUDP(p)
+		if err != nil {
+			return n, err
+		}
+		if u.peer != nil && addr != nil && addr.String() == u.peer.String() {
+			return n, nil
+		}
+	}
+}
+
+func (u *udpSessionConn) Write(p []byte) (int, error) {
+	if u.conn != nil {
+		return u.conn.Write(p)
+	}
+	return u.pc.WriteToUDP(p, u.peer)
+}
+
+func (u *udpSessionConn) Close() error {
+	if u.shared {
+		return nil // parent owns listen socket
+	}
+	if u.conn != nil {
+		return u.conn.Close()
+	}
+	return nil
+}
+
+func (u *udpSessionConn) LocalAddr() net.Addr {
+	if u.conn != nil {
+		return u.conn.LocalAddr()
+	}
+	return u.pc.LocalAddr()
+}
+func (u *udpSessionConn) RemoteAddr() net.Addr { return u.peer }
+func (u *udpSessionConn) SetDeadline(t time.Time) error {
+	if u.conn != nil {
+		return u.conn.SetDeadline(t)
+	}
+	return nil
+}
+func (u *udpSessionConn) SetReadDeadline(t time.Time) error {
+	if u.conn != nil {
+		return u.conn.SetReadDeadline(t)
+	}
+	return nil
+}
+func (u *udpSessionConn) SetWriteDeadline(t time.Time) error {
+	if u.conn != nil {
+		return u.conn.SetWriteDeadline(t)
+	}
+	return nil
 }
 
 // udpPeerConn is a minimal net.Conn exposing only RemoteAddr for peer filters.
@@ -158,8 +345,9 @@ func (c *udpPeerConn) SetWriteDeadline(time.Time) error { return nil }
 
 // udpRecvFromConn: first datagram already received; further Read/Write use the
 // listening socket with WriteTo to the peer (no rebinding).
+// Named field (not embed) so poll does not wait for POLLIN while first is buffered.
 type udpRecvFromConn struct {
-	*net.UDPConn
+	uc    *net.UDPConn
 	peer  *net.UDPAddr
 	first []byte
 	got   bool
@@ -176,11 +364,10 @@ func (u *udpRecvFromConn) Read(p []byte) (int, error) {
 		return n, nil
 	}
 	for {
-		n, addr, err := u.UDPConn.ReadFromUDP(p)
+		n, addr, err := u.uc.ReadFromUDP(p)
 		if err != nil {
 			return n, err
 		}
-		// Only accept further packets from the first peer (classic recvfrom session).
 		if u.peer != nil && addr != nil && addr.String() == u.peer.String() {
 			return n, nil
 		}
@@ -191,10 +378,22 @@ func (u *udpRecvFromConn) Write(p []byte) (int, error) {
 	if u.peer == nil {
 		return 0, net.ErrClosed
 	}
-	return u.UDPConn.WriteToUDP(p, u.peer)
+	return u.uc.WriteToUDP(p, u.peer)
 }
 
-func (u *udpRecvFromConn) ShutdownWrite() error { return nil }
+func (u *udpRecvFromConn) Close() error              { return u.uc.Close() }
+func (u *udpRecvFromConn) ShutdownWrite() error      { return nil }
+func (u *udpRecvFromConn) LocalAddr() net.Addr       { return u.uc.LocalAddr() }
+func (u *udpRecvFromConn) RemoteAddr() net.Addr      { return u.peer }
+func (u *udpRecvFromConn) SetDeadline(t time.Time) error {
+	return u.uc.SetDeadline(t)
+}
+func (u *udpRecvFromConn) SetReadDeadline(t time.Time) error {
+	return u.uc.SetReadDeadline(t)
+}
+func (u *udpRecvFromConn) SetWriteDeadline(t time.Time) error {
+	return u.uc.SetWriteDeadline(t)
+}
 
 // Legacy name used by listen path
 type udpFirstPacket = udpRecvFromConn
@@ -394,9 +593,9 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 			break
 		}
 		st := relay.Stream(&udpRecvFromConn{
-			UDPConn: pc,
-			peer:    raddr,
-			first:   append([]byte(nil), buf[:n]...),
+			uc:    pc,
+			peer:  raddr,
+			first: append([]byte(nil), buf[:n]...),
 		})
 		st, err = wrapCommon(s, st)
 		if err != nil {
@@ -455,21 +654,144 @@ func (u *udpFilteredRecv) LocalAddr() net.Addr       { return u.conn.LocalAddr()
 func (u *udpFilteredRecv) RemoteAddr() net.Addr      { return nil }
 
 func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, error) {
+	// Default reuseaddr for listen-like UDP (classic often implies it with explicit option).
+	reuse := true
+	if s.HasOption("reuseaddr") {
+		reuse = s.BoolOption("reuseaddr")
+	}
 	cfg := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
-			if s.BoolOption("reuseaddr") {
-				return c.Control(func(fd uintptr) {
+			return c.Control(func(fd uintptr) {
+				if reuse {
 					_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-				})
-			}
-			return nil
+				}
+				if s.BoolOption("broadcast") {
+					_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+				}
+			})
 		},
 	}
 	pc, err := cfg.ListenPacket(context.Background(), network, laddr.String())
 	if err != nil {
 		return nil, err
 	}
-	return pc.(*net.UDPConn), nil
+	c := pc.(*net.UDPConn)
+	// ip-add-membership=mcastaddr:interfaceaddr (classic form).
+	if v := s.OptionValue("ip-add-membership", ""); v != "" {
+		if err := joinMulticast(c, network, v); err != nil {
+			c.Close()
+			return nil, err
+		}
+	}
+	return c, nil
+}
+
+// joinMulticast parses classic "mcast:iface" or "mcast%iface" and joins the group.
+func joinMulticast(c *net.UDPConn, network, spec string) error {
+	// Forms: 224.x.x.x:ifaceIP  or  224.x.x.x:ifaceName
+	mcast, iface, ok := strings.Cut(spec, ":")
+	if !ok {
+		mcast, iface, ok = strings.Cut(spec, "%")
+	}
+	if !ok {
+		return fmt.Errorf("ip-add-membership: expected mcast:iface, got %q", spec)
+	}
+	gip := net.ParseIP(strings.TrimSpace(mcast))
+	if gip == nil {
+		return fmt.Errorf("ip-add-membership: bad group %q", mcast)
+	}
+	var ifi *net.Interface
+	iface = strings.TrimSpace(iface)
+	if ip := net.ParseIP(iface); ip != nil {
+		// Find interface with this address.
+		ifaces, _ := net.Interfaces()
+		for _, cand := range ifaces {
+			addrs, _ := cand.Addrs()
+			for _, a := range addrs {
+				var ipn net.IP
+				switch v := a.(type) {
+				case *net.IPNet:
+					ipn = v.IP
+				case *net.IPAddr:
+					ipn = v.IP
+				}
+				if ipn != nil && ipn.Equal(ip) {
+					ifi = &cand
+					break
+				}
+			}
+			if ifi != nil {
+				break
+			}
+		}
+		// Even without ifi, IP_ADD_MEMBERSHIP can use interface IP via IPv4mreq.
+		if gip.To4() != nil && ip.To4() != nil {
+			return setIPv4Membership(c, gip.To4(), ip.To4())
+		}
+	} else {
+		var err error
+		ifi, err = net.InterfaceByName(iface)
+		if err != nil {
+			return fmt.Errorf("ip-add-membership: interface %q: %w", iface, err)
+		}
+	}
+	if gip.To4() != nil {
+		var ifaceIP net.IP
+		if ifi != nil {
+			addrs, _ := ifi.Addrs()
+			for _, a := range addrs {
+				if ipn, ok := a.(*net.IPNet); ok && ipn.IP.To4() != nil {
+					ifaceIP = ipn.IP.To4()
+					break
+				}
+			}
+		}
+		if ifaceIP == nil {
+			ifaceIP = net.IPv4zero.To4()
+		}
+		return setIPv4Membership(c, gip.To4(), ifaceIP)
+	}
+	return setIPv6Membership(c, gip, ifi)
+}
+
+func setIPv4Membership(c *net.UDPConn, group, ifaceIP net.IP) error {
+	raw, err := c.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var serr error
+	err = raw.Control(func(fd uintptr) {
+		var mreq unix.IPMreq
+		copy(mreq.Multiaddr[:], group.To4())
+		copy(mreq.Interface[:], ifaceIP.To4())
+		serr = unix.SetsockoptIPMreq(int(fd), unix.IPPROTO_IP, unix.IP_ADD_MEMBERSHIP, &mreq)
+	})
+	if err != nil {
+		return err
+	}
+	return serr
+}
+
+func setIPv6Membership(c *net.UDPConn, group net.IP, ifi *net.Interface) error {
+	raw, err := c.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var serr error
+	idx := 0
+	if ifi != nil {
+		idx = ifi.Index
+	}
+	err = raw.Control(func(fd uintptr) {
+		var mreq unix.IPv6Mreq
+		copy(mreq.Multiaddr[:], group.To16())
+		mreq.Interface = uint32(idx)
+		serr = unix.SetsockoptIPv6Mreq(int(fd), unix.IPPROTO_IPV6, unix.IPV6_JOIN_GROUP, &mreq)
+	})
+	if err != nil {
+		return err
+	}
+	return serr
 }
 
 func networkUDP(g *Global, s parse.Spec, def string) string {

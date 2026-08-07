@@ -494,7 +494,8 @@ func printHelp(w io.Writer, level int) {
 	fmt.Fprintf(w, "  STDIO STDIN STDOUT STDERR FD PIPE FIFO ECHO OPEN FILE CREATE CREAT GOPEN\n")
 	fmt.Fprintf(w, "  TCP TCP4 TCP6 TCP-CONNECT TCP4-CONNECT TCP6-CONNECT\n")
 	fmt.Fprintf(w, "  TCP-LISTEN TCP4-LISTEN TCP6-LISTEN TCP-L TCP4-L TCP6-L\n")
-	fmt.Fprintf(w, "  UDP UDP4 UDP6 UDP-LISTEN UDP4-LISTEN UDP6-LISTEN\n")
+	fmt.Fprintf(w, "  UDP UDP4 UDP6 UDP-CONNECT UDP4-CONNECT UDP6-CONNECT\n")
+	fmt.Fprintf(w, "  UDP-LISTEN UDP4-LISTEN UDP6-LISTEN UDP-L UDP4-L UDP6-L\n")
 	fmt.Fprintf(w, "  UDP-SENDTO UDP4-SENDTO UDP6-SENDTO UDP-SEND UDP4-SEND UDP6-SEND\n")
 	fmt.Fprintf(w, "  UDP-DATAGRAM UDP4-DATAGRAM UDP6-DATAGRAM\n")
 	fmt.Fprintf(w, "  UDP-RECV UDP4-RECV UDP6-RECV UDP-RECVFROM UDP4-RECVFROM UDP6-RECVFROM\n")
@@ -517,7 +518,7 @@ func printHelp(w io.Writer, level int) {
 			"crnl", "ignoreeof", "readbytes",
 			"retry", "forever", "interval",
 			"backlog", "fdin", "fdout", "max-children",
-			"ipv6-v6only", "broadcast",
+			"ipv6-v6only", "broadcast", "ip-add-membership",
 			"link", "symbolic-link", "cfmakeraw", "raw", "rawer",
 			"echo", "opost", "perm", "ispeed", "ospeed",
 			"escape",
