@@ -171,15 +171,16 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 	return &Opened{Stream: st, Label: "UDP-LISTEN"}, nil
 }
 
-// udpForkListener implements net.Listener for UDP-LISTEN,fork:
+// udpForkListener implements net.Listener for UDP-LISTEN/RECVFROM,fork:
 // each Accept waits for a datagram and returns a session Conn for that peer.
 type udpForkListener struct {
-	pc      *net.UDPConn
-	network string
-	laddr   *net.UDPAddr
-	spec    parse.Spec
-	g       *Global
-	ctx     context.Context
+	pc         *net.UDPConn
+	network    string
+	laddr      *net.UDPAddr
+	spec       parse.Spec
+	g          *Global
+	ctx        context.Context
+	rcvTimeout time.Duration
 }
 
 func (l *udpForkListener) Accept() (net.Conn, error) {
@@ -191,6 +192,9 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			e error
 		}
 		ch := make(chan res, 1)
+		if l.rcvTimeout > 0 {
+			_ = l.pc.SetReadDeadline(time.Now().Add(l.rcvTimeout))
+		}
 		go func() {
 			n, a, err := l.pc.ReadFromUDP(buf)
 			ch <- res{n, a, err}
@@ -557,6 +561,41 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 		return nil, err
 	}
 	if recvfrom {
+		// fork: keep listening, one SYSTEM/child per datagram (classic UDP4_FORK).
+		if s.BoolOption("fork") {
+			maxChildren := 0
+			if v := s.OptionValue("max-children", ""); v != "" {
+				if n, e := strconv.Atoi(v); e == nil && n > 0 {
+					maxChildren = n
+				}
+			}
+			// Optional SO_RCVTIMEO
+			if v := s.OptionValue("so-rcvtimeo", ""); v != "" {
+				if d := parseTimeval(v); d > 0 {
+					_ = pc.SetReadDeadline(time.Time{}) // clear; per-accept deadline set in Accept
+					_ = d
+				}
+			}
+			ln := &udpForkListener{
+				pc:      pc,
+				network: network,
+				laddr:   laddr,
+				spec:    s,
+				g:       g,
+				ctx:     ctx,
+			}
+			// so-rcvtimeo for Accept reads
+			if v := s.OptionValue("so-rcvtimeo", ""); v != "" {
+				ln.rcvTimeout = parseTimeval(v)
+			}
+			return &Opened{
+				Listener:    ln,
+				Fork:        true,
+				Label:       "UDP-RECVFROM",
+				MaxChildren: maxChildren,
+				PeerFilter:  func(c net.Conn) error { return peerAllowed(s, c) },
+			}, nil
+		}
 		// One permitted packet, then use the *same* listening socket for replies
 		// (classic). DialUDP(local, peer) after Close fails with EADDRINUSE.
 		buf := make([]byte, max(g.BlockSize, 65535))

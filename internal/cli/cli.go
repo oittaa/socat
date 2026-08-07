@@ -150,13 +150,33 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 	case strings.HasPrefix(a, "-b"):
 		v, err := optArg(a, "b", args, i)
 		if err != nil {
-			return err
+			// Classic: bare/missing -b → "missing numerical value of option "-b""
+			return fmt.Errorf("parseopts(): missing numerical value of option \"-b\"")
 		}
-		n, err := strconv.Atoi(v)
-		if err != nil || n <= 0 {
-			return fmt.Errorf("invalid -b size %q", v)
+		// Reject empty or non-numeric (classic overflow / missing value messages).
+		if v == "" {
+			return fmt.Errorf("parseopts(): missing numerical value of option \"-b\"")
 		}
-		cfg.BlockSize = n
+		// Parse as unsigned; overflow → "to big" (classic).
+		n, err := strconv.ParseUint(v, 10, 64)
+		if err != nil {
+			// value larger than uint64 or non-numeric
+			if _, e2 := strconv.ParseFloat(v, 64); e2 == nil {
+				return fmt.Errorf("buffer size option (-b) to big")
+			}
+			return fmt.Errorf("parseopts(): missing numerical value of option \"-b\"")
+		}
+		// max is math.MaxInt64 for signed size math in classic (SIZE_T related)
+		const maxBuf = uint64(1<<63 - 1)
+		if n == 0 || n > maxBuf {
+			return fmt.Errorf("buffer size option (-b) to big")
+		}
+		// Also cap at a practical size to avoid OOM
+		const practical = 256 * 1024 * 1024
+		if n > practical {
+			return fmt.Errorf("buffer size option (-b) to big")
+		}
+		cfg.BlockSize = int(n)
 	case strings.HasPrefix(a, "-t"):
 		v, err := optArg(a, "t", args, i)
 		if err != nil {

@@ -161,6 +161,8 @@ func (s Spec) OptionValue(name, def string) string {
 }
 
 // BoolOption returns whether an option is set truthily.
+// Classic: bare flag → true; =0/false/no/off → false; empty value (=) → false
+// (so-reuseaddr= disables SO_REUSEADDR).
 func (s Spec) BoolOption(name string) bool {
 	o, ok := s.OptionNamed(name)
 	if !ok {
@@ -169,7 +171,10 @@ func (s Spec) BoolOption(name string) bool {
 	if !o.Has {
 		return true
 	}
-	v := strings.ToLower(o.Value)
+	v := strings.ToLower(strings.TrimSpace(o.Value))
+	if v == "" {
+		return false
+	}
 	return v != "0" && v != "false" && v != "no" && v != "off"
 }
 
@@ -547,10 +552,45 @@ func unquote(s string) string {
 			return expandSlashEscapes(s[1 : len(s)-1])
 		}
 	}
+	// Strip nesting quotes used to hide commas/colons (classic nestlex).
+	// e.g. (,)[,]{,}","([),]) → (,)[,]{,},([),])
+	if strings.ContainsAny(s, `"'`) {
+		s = stripNestingQuotes(s)
+	}
 	if !strings.Contains(s, `\`) {
 		return s
 	}
 	return expandSlashEscapes(s)
+}
+
+// stripNestingQuotes removes quote delimiter characters while keeping content.
+func stripNestingQuotes(s string) string {
+	var b strings.Builder
+	inSingle, inDouble := false, false
+	escape := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if escape {
+			b.WriteByte(c)
+			escape = false
+			continue
+		}
+		if c == '\\' && !inSingle {
+			escape = true
+			b.WriteByte(c)
+			continue
+		}
+		if !inDouble && c == '\'' {
+			inSingle = !inSingle
+			continue // drop delimiter
+		}
+		if !inSingle && c == '"' {
+			inDouble = !inDouble
+			continue // drop delimiter
+		}
+		b.WriteByte(c)
+	}
+	return b.String()
 }
 
 // checkBalancedQuotes returns an error if s has an unclosed quote (classic syntax error).

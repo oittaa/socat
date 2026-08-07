@@ -405,9 +405,30 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 	ln := ro.Listener
 	left := lo.EffectiveStream()
+	noCloseLeft := streamIsEndClose(left)
+	// max-children applies to the listen address (right side here).
+	maxCh := ro.MaxChildren
+	var slots chan struct{}
+	if maxCh > 0 {
+		slots = make(chan struct{}, maxCh)
+	}
+	go func() {
+		<-ctx.Done()
+		ln.Close()
+	}()
 	for {
+		if slots != nil {
+			select {
+			case <-ctx.Done():
+				return nil
+			case slots <- struct{}{}:
+			}
+		}
 		conn, err := ln.Accept()
 		if err != nil {
+			if slots != nil {
+				<-slots
+			}
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -415,9 +436,10 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 		}
 		go func(c net.Conn) {
 			defer c.Close()
+			if slots != nil {
+				defer func() { <-slots }()
+			}
 			rightStream := relay.NetStream{Conn: c}
-			// end-close left: do not Close shared left when each child transfer ends.
-			noCloseLeft := streamIsEndClose(left)
 			if err := transferStreamsOpts(ctx, left, rightStream, g, noCloseLeft, false); err != nil {
 				g.Log.Debugf("transfer: %s", err)
 			}

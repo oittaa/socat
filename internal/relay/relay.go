@@ -200,8 +200,12 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	}
 
 	// Unblock blocked Reads/Writes when the transfer is cancelled (UDP has no EOF).
+	// Also poke read deadlines so stdin (FD 0) and other FDs unblock even when
+	// Close is a no-op (STDIO).
 	go func() {
 		<-ctx.Done()
+		pokeReadDeadline(left)
+		pokeReadDeadline(right)
 		_ = left.Close()
 		_ = right.Close()
 	}()
@@ -473,26 +477,61 @@ func isBenignClose(err error) bool {
 }
 
 func streamReadFD(s Stream) int {
-	if fs, ok := s.(FDStream); ok {
-		if f := ioFD(fs.R); f >= 0 {
-			return f
+	// Unwrap nested Streams (dual FDStream wraps Stream interfaces).
+	for i := 0; i < 6 && s != nil; i++ {
+		if fs, ok := s.(FDStream); ok {
+			if f := ioFD(fs.R); f >= 0 {
+				return f
+			}
+			// R may itself be a Stream
+			if rs, ok := fs.R.(Stream); ok {
+				s = rs
+				continue
+			}
+			if rs, ok := any(fs.R).(Stream); ok {
+				s = rs
+				continue
+			}
 		}
+		if u, ok := s.(interface{ UnwrapStream() Stream }); ok {
+			s = u.UnwrapStream()
+			continue
+		}
+		break
 	}
 	return streamAnyFD(s)
 }
 
 func streamWriteFD(s Stream) int {
-	if fs, ok := s.(FDStream); ok {
-		if f := ioFD(fs.W); f >= 0 {
-			return f
+	for i := 0; i < 6 && s != nil; i++ {
+		if fs, ok := s.(FDStream); ok {
+			if f := ioFD(fs.W); f >= 0 {
+				return f
+			}
+			if ws, ok := fs.W.(Stream); ok {
+				s = ws
+				continue
+			}
+			if ws, ok := any(fs.W).(Stream); ok {
+				s = ws
+				continue
+			}
 		}
+		if u, ok := s.(interface{ UnwrapStream() Stream }); ok {
+			s = u.UnwrapStream()
+			continue
+		}
+		break
 	}
 	return streamAnyFD(s)
 }
 
 func streamAnyFD(s Stream) int {
 	if f, ok := s.(fdProvider); ok {
-		return int(f.Fd())
+		fd := int(f.Fd())
+		if fd >= 0 {
+			return fd
+		}
 	}
 	if ns, ok := s.(NetStream); ok {
 		type sc interface {
@@ -501,9 +540,9 @@ func streamAnyFD(s Stream) int {
 		if c, ok := ns.Conn.(sc); ok {
 			rc, err := c.SyscallConn()
 			if err == nil {
-				var fd int
+				var fd int = -1
 				_ = rc.Control(func(f uintptr) { fd = int(f) })
-				if fd > 0 {
+				if fd >= 0 {
 					return fd
 				}
 			}
@@ -525,6 +564,7 @@ func ioFD(v any) int {
 		return -1
 	}
 	if f, ok := v.(*os.File); ok {
+		// Accept FD 0 (stdin) — was incorrectly rejected by >0 checks.
 		return int(f.Fd())
 	}
 	if f, ok := v.(interface{ Fd() uintptr }); ok {

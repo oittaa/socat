@@ -8,6 +8,7 @@ import (
 	"os/user"
 	"strconv"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -132,6 +133,16 @@ func procan(w io.Writer) {
 		fmt.Fprintf(w, "SHELL = %s\n", v)
 	}
 	fmt.Fprintf(w, "time = %s\n", time.Now().Format(time.RFC3339))
+
+	// Classic procan emits sizeof lines used by test.sh SIZE_T extraction:
+	//   SIZE_T=$($PROCAN |grep "^[^[:space:]]*size_t" |awk '{print($3);}')
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "sizeof(int)       = %d\n", strconv.IntSize/8)
+	fmt.Fprintf(w, "sizeof(long)      = %d\n", int(unsafe.Sizeof(int64(0))))
+	fmt.Fprintf(w, "sizeof(size_t)    = %d\n", int(unsafe.Sizeof(uintptr(0))))
+	fmt.Fprintf(w, "sizeof(off_t)     = %d\n", int(unsafe.Sizeof(int64(0))))
+	fmt.Fprintf(w, "sizeof(time_t)    = %d\n", int(unsafe.Sizeof(int64(0))))
+	fmt.Fprintf(w, "FD_SETSIZE = %d\n", unix.FD_SETSIZE)
 }
 
 func printRlimit(w io.Writer, name string, res int) {
@@ -161,6 +172,8 @@ func printCdefs(w io.Writer) {
 	// Classic -c prints C compile-time defines; we print Go/unix equivalents useful for debugging.
 	fmt.Fprintln(w, "/* Go/unix constants (not C preprocessor defines) */")
 	fmt.Fprintf(w, "sizeof(int) ~= %d\n", strconv.IntSize/8)
+	// test.sh: SIZE_T=$($PROCAN |grep size_t |awk '{print($3);}')
+	fmt.Fprintf(w, "sizeof(size_t)    = %d\n", int(unsafe.Sizeof(uintptr(0))))
 	fmt.Fprintf(w, "FD_SETSIZE = %d\n", unix.FD_SETSIZE)
 	fmt.Fprintf(w, "PATH_MAX = %d\n", unix.PathMax)
 	fmt.Fprintf(w, "AF_UNIX = %d\n", unix.AF_UNIX)
