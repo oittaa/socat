@@ -388,24 +388,33 @@ func newSessionWrap(inner Stream) *sessionWrap {
 }
 
 func (s *sessionWrap) Read(p []byte) (int, error) {
-	type res struct {
-		n   int
-		err error
-	}
-	ch := make(chan res, 1)
-	go func() {
-		n, err := s.inner.Read(p)
-		ch <- res{n, err}
-	}()
-	select {
-	case <-s.done:
-		return 0, io.EOF
-	case r := <-ch:
+	// Poll with short deadlines so Close can stop the session without leaving
+	// an abandoned Read on a shared end-close FD (that would steal later data).
+	for {
 		select {
 		case <-s.done:
 			return 0, io.EOF
 		default:
-			return r.n, r.err
+		}
+		setStreamReadDeadline(s.inner, time.Now().Add(50*time.Millisecond))
+		n, err := s.inner.Read(p)
+		setStreamReadDeadline(s.inner, time.Time{}) // clear
+		if err == nil {
+			select {
+			case <-s.done:
+				return 0, io.EOF
+			default:
+				return n, nil
+			}
+		}
+		if isTimeoutErr(err) {
+			continue
+		}
+		select {
+		case <-s.done:
+			return 0, io.EOF
+		default:
+			return n, err
 		}
 	}
 }
@@ -422,7 +431,12 @@ func (s *sessionWrap) Write(p []byte) (int, error) {
 func (s *sessionWrap) Close() error {
 	s.once.Do(func() {
 		close(s.done)
-		pokeReadDeadline(s.inner)
+		// Wake a blocked poll-Read without permanently poisoning the shared FD.
+		setStreamReadDeadline(s.inner, time.Now().Add(time.Millisecond))
+		go func() {
+			time.Sleep(20 * time.Millisecond)
+			setStreamReadDeadline(s.inner, time.Time{})
+		}()
 	})
 	return nil
 }
@@ -431,6 +445,39 @@ func (s *sessionWrap) ShutdownWrite() error {
 	// NoCloseLeft/Right: do not half-close the shared underlying stream
 	// (classic EXEC,end-close + LISTEN,fork keeps cat stdin open across accepts).
 	return nil
+}
+
+func setStreamReadDeadline(s Stream, deadline time.Time) {
+	if d, ok := s.(interface{ SetReadDeadline(time.Time) error }); ok {
+		_ = d.SetReadDeadline(deadline)
+		return
+	}
+	if u, ok := s.(interface{ UnwrapStream() Stream }); ok {
+		setStreamReadDeadline(u.UnwrapStream(), deadline)
+		return
+	}
+	if ns, ok := s.(NetStream); ok {
+		if c, ok := ns.Conn.(interface{ SetReadDeadline(time.Time) error }); ok {
+			_ = c.SetReadDeadline(deadline)
+		}
+		return
+	}
+	if fs, ok := s.(FDStream); ok {
+		if f, ok := fs.R.(*os.File); ok {
+			_ = f.SetReadDeadline(deadline)
+		}
+	}
+}
+
+func isTimeoutErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "timeout") || strings.Contains(msg, "i/o timeout")
 }
 
 func pokeReadDeadline(s Stream) {

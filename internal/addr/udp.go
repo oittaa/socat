@@ -3,6 +3,7 @@ package addr
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -178,10 +179,13 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 			}
 		}
 	}
+	// One-shot listen (UDP_CONNECT_EOF): after first packet, do not keep the
+	// socket open forever waiting for more. Connected-style session ends on EOF.
 	st := relay.Stream(&udpRecvFromConn{
-		uc:    pc,
-		peer:  raddr,
-		first: append([]byte(nil), buf[:n]...),
+		uc:       pc,
+		peer:     raddr,
+		first:    append([]byte(nil), buf[:n]...),
+		closeEOF: true, // next read after first payload → EOF (unidirectional capture)
 	})
 	st, err = wrapCommon(s, st)
 	if err != nil {
@@ -371,21 +375,22 @@ func (c *udpPeerConn) SetWriteDeadline(time.Time) error { return nil }
 // listening socket with WriteTo to the peer (no rebinding).
 // Named field (not embed) so poll does not wait for POLLIN while first is buffered.
 type udpRecvFromConn struct {
-	uc    *net.UDPConn
-	peer  *net.UDPAddr
-	first []byte
-	got   bool
+	uc       *net.UDPConn
+	peer     *net.UDPAddr
+	first    []byte
+	got      bool
+	closeEOF bool // after first payload: further Read → EOF (one-shot UDP-LISTEN)
 }
 
 func (u *udpRecvFromConn) Read(p []byte) (int, error) {
-	if !u.got && len(u.first) > 0 {
-		u.got = true
+	if len(u.first) > 0 {
 		n := copy(p, u.first)
-		if n < len(u.first) {
-			u.first = u.first[n:]
-			u.got = false
-		}
+		u.first = u.first[n:]
 		return n, nil
+	}
+	if u.closeEOF {
+		// UDP_CONNECT_EOF: one-shot listen ends after the first datagram.
+		return 0, io.EOF
 	}
 	for {
 		n, addr, err := u.uc.ReadFromUDP(p)

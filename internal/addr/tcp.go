@@ -293,7 +293,8 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 				ln.Close()
 				o.Listener = nil
 				if isTimeoutErr(a.err) {
-					g.Log.Warningf("accept: %v", a.err)
+					// Phrase "timed out" matches classic test.sh REUSEADDR_NULL CANT path.
+					g.Log.Warningf("accept: Connection timed out")
 					return nil, ErrAcceptTimeout
 				}
 				return nil, a.err

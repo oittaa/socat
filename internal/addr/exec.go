@@ -155,6 +155,14 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		return startCmdPty(s, mode, g, cmd)
 	}
 
+	// end-close + shared LISTEN,fork: a single socketpair FD cannot be half-closed
+	// per session and poll deadlines on the shared FD race with later accepts.
+	// Separate pipes keep stdin/stdout independent (classic still works; our
+	// goroutine accept model needs this for EXECENDCLOSE).
+	if s.BoolOption("end-close") && !usePipes {
+		usePipes = true
+	}
+
 	var stream relay.Stream
 	var cleanup []func()
 	var child *os.File
@@ -245,6 +253,12 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		})
 	}
 
+	// EXEC_FDS: only FDs 0/1/2 may remain in the child.
+	// Mark ALL FDs ≥3 CLOEXEC (including the socketpair/pipe ends we pass as
+	// Stdin/Stdout). Go's fork/exec dup2's them to 0/1/2 first, then closes
+	// CLOEXEC descriptors, so the high-numbered originals are not leaked.
+	setCloexecAllFrom(3)
+
 	if err := cmd.Start(); err != nil {
 		for _, f := range cleanup {
 			f()
@@ -259,6 +273,32 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 
 	return finishExec(s, g, cmd, stream, cleanup)
+}
+
+// setCloexecAllFrom marks FDs ≥ from CLOEXEC so they are not left open in EXEC children.
+func setCloexecAllFrom(from int) {
+	// Prefer /proc listing so we catch sparse high FDs (cgroup, pts, etc.).
+	if ents, err := os.ReadDir("/proc/self/fd"); err == nil {
+		for _, e := range ents {
+			fd, err := strconv.Atoi(e.Name())
+			if err != nil || fd < from {
+				continue
+			}
+			flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+			if err != nil {
+				continue
+			}
+			_, _ = unix.FcntlInt(uintptr(fd), unix.F_SETFD, flags|unix.FD_CLOEXEC)
+		}
+		return
+	}
+	for fd := from; fd < 1024; fd++ {
+		flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+		if err != nil {
+			continue
+		}
+		_, _ = unix.FcntlInt(uintptr(fd), unix.F_SETFD, flags|unix.FD_CLOEXEC)
+	}
 }
 
 // startCmdPty runs the child with a pseudo-terminal (classic EXEC/SYSTEM,pty).

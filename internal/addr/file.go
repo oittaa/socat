@@ -87,9 +87,21 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened
 		}, mode, g)
 	}
 	flags := openFlags(s, mode)
-	if !s.BoolOption("append") && mode != ModeRead {
-		// classic GOPEN uses O_APPEND when existing non-socket
-		flags |= os.O_APPEND
+	// Classic GOPEN defaults to O_APPEND on existing non-socket files.
+	// o-append=0 turns that off (and o-append=1 / bare append keeps it on).
+	if mode != ModeRead {
+		if s.HasOption("append") {
+			if s.BoolOption("append") {
+				flags |= os.O_APPEND
+			} else {
+				// Explicit off: overwrite from start; truncate so shorter writes
+				// do not leave trailing garbage (GOPEN_NO_APPEND).
+				flags &^= os.O_APPEND
+				flags |= os.O_TRUNC
+			}
+		} else {
+			flags |= os.O_APPEND
+		}
 	}
 	f, err := os.OpenFile(path, flags, parseFileMode(s, 0o644))
 	if err != nil {
