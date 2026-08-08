@@ -9,7 +9,6 @@ import (
 	"syscall"
 	"unicode"
 
-	"github.com/creack/pty"
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
@@ -65,7 +64,7 @@ func openPTY(_ context.Context, s parse.Spec, _ Mode, g *Global) (*Opened, error
 	if len(s.Params) > 0 {
 		return nil, fmt.Errorf("PTY: wrong number of parameters (expected 0)")
 	}
-	master, slave, err := pty.Open()
+	master, slave, err := openPTYPair()
 	if err != nil {
 		return nil, fmt.Errorf("PTY: %w", err)
 	}

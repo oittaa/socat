@@ -12,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/creack/pty"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/unix"
@@ -318,7 +317,7 @@ func setCloexecAllFrom(from int) {
 // Unidirectional dual forms inherit the unused stdio of the socat process:
 //   ModeWrite (-!!EXEC,pty): child stdin←PTY, child stdout→os.Stdout (inherit)
 //   ModeRead  (EXEC,pty!!-): child stdin←os.Stdin (inherit), child stdout→PTY
-// Full duplex: both directions on the PTY slave (pty.Start).
+// Full duplex: both directions on the PTY slave (startOnPTY).
 func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
 	var ptmx *os.File
 	var err error
@@ -326,7 +325,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 	switch mode {
 	case ModeWrite:
 		// Inherit stdout/stderr; only stdin is the PTY slave.
-		master, slave, err := pty.Open()
+		master, slave, err := openPTYPair()
 		if err != nil {
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}
@@ -334,6 +333,11 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		cmd.Stdin = slave
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stdout
+		if cmd.SysProcAttr == nil {
+			cmd.SysProcAttr = &syscall.SysProcAttr{}
+		}
+		cmd.SysProcAttr.Setsid = true
+		cmd.SysProcAttr.Setctty = true
 		if err := cmd.Start(); err != nil {
 			master.Close()
 			slave.Close()
@@ -352,7 +356,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 
 	case ModeRead:
 		// Inherit stdin; only stdout/stderr on PTY slave.
-		master, slave, err := pty.Open()
+		master, slave, err := openPTYPair()
 		if err != nil {
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}
@@ -360,6 +364,14 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = slave
 		cmd.Stderr = slave
+		if cmd.SysProcAttr == nil {
+			cmd.SysProcAttr = &syscall.SysProcAttr{}
+		}
+		cmd.SysProcAttr.Setsid = true
+		// Controlling tty is stdout/stderr slave; Setctty needs a child FD.
+		// With stdin inherited, Ctty 1 (stdout) is the slave after setup.
+		cmd.SysProcAttr.Setctty = true
+		cmd.SysProcAttr.Ctty = 1
 		if err := cmd.Start(); err != nil {
 			master.Close()
 			slave.Close()
@@ -376,7 +388,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		return finishExec(s, g, cmd, stream, []func(){func() { ptmx.Close() }})
 
 	default:
-		ptmx, err = pty.Start(cmd)
+		ptmx, err = startOnPTY(cmd)
 		if err != nil {
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}
