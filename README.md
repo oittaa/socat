@@ -97,19 +97,34 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 
 ## Classic scorecard
 
-Upstream **`test.sh`** (~608 numbered cases) is the feature scorecard (not CI). Prefer the parallel runner:
+Upstream **`test.sh`** (~608 numbered cases) is the feature scorecard (not CI). Prefer the parallel runner. Each run writes **structured results** (per-test OK / FAILED / CANT / TIMEOUT) so you can:
+
+1. Save a **classic C baseline** once  
+2. Run **our Go binary** often  
+3. **Compare** without re-running classic every time (detect regressions vs classic parity or vs last Go baseline)
+
+See **`testdata/scorecard/README.md`** for the full workflow.
 
 ```bash
 # obtain classic tree (GPL-2):
 #   git clone --depth 1 https://repo.or.cz/socat.git /tmp/socat-master
+
+# Go run + compare to saved classic baseline (if present)
 make build
-JOBS=8 SHARD_TIMEOUT=180 VAL_T=0.05 ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh
+BASELINE=testdata/scorecard/classic-baseline.json \
+  JOBS=8 SHARD_TIMEOUT=240 VAL_T=0.05 \
+  ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh
+# → .classic-scorecard/results.json  (+ compare.json when BASELINE is set)
+
+# Record classic baseline (rare — when classic version / host libs change)
+SOCAT=/path/to/classic/socat FILAN=... PROCAN=... SKIP_BUILD=1 LABEL=classic \
+  SAVE_BASELINE=testdata/scorecard/classic-baseline.json \
+  ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh
 ```
 
-**Snapshot (hang-free, JOBS=8):** **210 OK / 72 FAILED / 324 CANT** of 606 selected.  
-Deltas vs early hang-free baseline (~156/120/330): **+54 OK**, **−48 FAILED**.  
+**Latest Go snapshot (structured parse):** on the order of **~290+ OK** hang-free (improving). Exact counts live in `results.json` after each run.
 
-Classic host checklist: `scripts/classic-host-check.sh`. After installing `libwrap0-dev` + `libreadline-dev` and **rebuilding** classic (no reboot), this host got **504 OK / 3 FAIL / 99 CANT** (was 489/3/114). Logs: `.classic-scorecard/shard-*.log`.
+Classic host checklist: `scripts/classic-host-check.sh`.
 
 ```bash
 go test ./...
@@ -121,7 +136,8 @@ go test -tags=e2e ./e2e/...   # after build
 ```
 cmd/socat   cmd/filan   cmd/procan
 internal/parse  internal/addr  internal/relay  internal/cli  internal/logx
-scripts/classic-scorecard.sh
+scripts/classic-scorecard.sh  scripts/scorecard-parse.py  scripts/scorecard-compare.py
+testdata/scorecard/   # classic / go baselines
 e2e/
 ```
 

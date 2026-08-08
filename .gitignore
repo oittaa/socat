@@ -10,6 +10,7 @@
 coverage.out
 coverage.html
 .classic-scorecard/
+.classic-scorecard-classic/
 # classic test.sh side-effects if run from repo root
 /relsleep
 /testalt.conf
@@ -19,4 +20,10 @@ coverage.html
 /testcli*
 /testsrv*
 
-.classic-scorecard/
+# Regenerated often; classic-baseline.json is the rare committed reference.
+testdata/scorecard/go-latest.json
+testdata/scorecard/go-baseline.json
+testdata/scorecard/compare-*.json
+testdata/scorecard/*.jsonl
+
+.classic-scorecard-classic/

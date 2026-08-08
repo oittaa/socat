@@ -6,11 +6,31 @@
 #   A single hung socat can freeze the whole suite for tens of minutes.
 #   This runner shards by test number, isolates ports, and bounds each shard.
 #
+# After each run it writes structured results:
+#   OUT_DIR/results.json   — full snapshot (meta + per-test status)
+#   OUT_DIR/results.jsonl  — one JSON object per test
+#   OUT_DIR/compare.json   — if BASELINE= is set
+#
 # Usage:
+#   # Run Go implementation (default SOCAT=./socat after make build)
 #   ./scripts/classic-scorecard.sh /path/to/classic/test.sh
-#   JOBS=8 SHARD_TIMEOUT=120 ./scripts/classic-scorecard.sh /path/to/test.sh
-#   ONLY=functions ./scripts/classic-scorecard.sh /path/to/test.sh   # group filter
-#   MAX_N=100 ./scripts/classic-scorecard.sh /path/to/test.sh      # first N only
+#
+#   # Record classic C baseline once (store under testdata/scorecard/)
+#   SOCAT=/path/to/classic/socat LABEL=classic \
+#     SAVE_BASELINE=testdata/scorecard/classic-baseline.json \
+#     ./scripts/classic-scorecard.sh /path/to/classic/test.sh
+#
+#   # Run Go and compare against saved classic baseline (no need to re-run classic)
+#   BASELINE=testdata/scorecard/classic-baseline.json \
+#     REGRESSION_EXIT=0 \
+#     ./scripts/classic-scorecard.sh /path/to/classic/test.sh
+#
+#   # Detect Go regressions vs last Go run
+#   BASELINE=testdata/scorecard/go-baseline.json REGRESSION_EXIT=1 \
+#     SAVE_BASELINE=testdata/scorecard/go-baseline.json \
+#     ./scripts/classic-scorecard.sh /path/to/classic/test.sh
+#
+#   JOBS=8 SHARD_TIMEOUT=120 ONLY=functions MAX_N=100 ...
 #
 # Does not modify upstream test.sh in place; uses a temp copy with a port base.
 set -euo pipefail
@@ -27,6 +47,12 @@ MAX_N="${MAX_N:-}"                     # optional cap on highest test number
 ONLY="${ONLY:-}"                       # optional classic group/name filter (e.g. functions,tcp)
 KEEP_LOGS="${KEEP_LOGS:-0}"
 OUT_DIR="${OUT_DIR:-$ROOT/.classic-scorecard}"
+# Structured results / baselines
+LABEL="${LABEL:-}"                     # auto: classic|go from binary path if empty
+BASELINE="${BASELINE:-}"               # path to results.json to compare against
+SAVE_BASELINE="${SAVE_BASELINE:-}"     # copy results.json here after run
+REGRESSION_EXIT="${REGRESSION_EXIT:-0}" # 1 = exit non-zero on OK→non-OK vs BASELINE
+SKIP_BUILD="${SKIP_BUILD:-0}"          # 1 = do not make build (when using foreign SOCAT)
 
 TEST_SH="${1:-${CLASSIC_TEST_SH:-}}"
 if [[ -z "$TEST_SH" || ! -f "$TEST_SH" ]]; then
@@ -36,11 +62,22 @@ if [[ -z "$TEST_SH" || ! -f "$TEST_SH" ]]; then
 fi
 TEST_SH="$(cd "$(dirname "$TEST_SH")" && pwd)/$(basename "$TEST_SH")"
 
-# Build binaries
-make -s build
+# Build binaries unless using an external SOCAT only
+if [[ "$SKIP_BUILD" != "1" ]]; then
+  make -s build
+fi
 export SOCAT="${SOCAT:-$ROOT/socat}"
 export FILAN="${FILAN:-$ROOT/filan}"
 export PROCAN="${PROCAN:-$ROOT/procan}"
+
+# Auto label
+if [[ -z "$LABEL" ]]; then
+  if [[ "$SOCAT" == "$ROOT/socat" || "$SOCAT" == "./socat" ]]; then
+    LABEL=go
+  else
+    LABEL=classic
+  fi
+fi
 
 # Kill leftover socat from this tree only (never broad killall bash)
 cleanup_orphans() {
@@ -64,12 +101,15 @@ rm -f "$OUT_DIR"/shard-*.log "$OUT_DIR"/shard-*.summary "$OUT_DIR"/aggregate.txt
 echo "classic scorecard"
 echo "  test.sh:        $TEST_SH"
 echo "  SOCAT:          $SOCAT"
+echo "  label:          $LABEL"
 echo "  jobs:           $JOBS"
 echo "  shard_timeout:  ${SHARD_TIMEOUT}s"
 echo "  -t (val_t):     $VAL_T"
 echo "  total range:    1..$TOTAL"
 echo "  only filter:    ${ONLY:-<all numbered>}"
 echo "  logs:           $OUT_DIR"
+echo "  baseline:       ${BASELINE:-<none>}"
+echo "  save_baseline:  ${SAVE_BASELINE:-<none>}"
 echo
 
 # Build shard ranges: contiguous blocks of test numbers.
@@ -202,6 +242,9 @@ cleanup_orphans
 echo
 echo "======== AGGREGATE ========"
 
+# set +e: the aggregate parser exits 1 when there are FAILs; we still want
+# structured results + baseline save afterward.
+set +e
 python3 - "$OUT_DIR" <<'PY'
 import pathlib, re, sys
 out = pathlib.Path(sys.argv[1])
@@ -252,14 +295,74 @@ if fails:
 (out / "totals.txt").write_text(
     f"ok={total_ok}\nfail={total_fail}\ncant={total_cant}\nline_ok={line_ok}\nline_fail={line_fail}\ntimeouts={timeouts}\n"
 )
-# Non-zero if any hard failures or shard timeouts
+# Aggregate exit: non-zero if hard failures or shard timeouts (legacy behaviour)
 sys.exit(1 if total_fail or timeouts or line_fail else 0)
 PY
 agg_ec=$?
+set -e
+
+echo
+echo "======== STRUCTURED RESULTS ========"
+parse_ec=0
+COMPARE_ARGS=()
+if [[ -n "$BASELINE" && -f "$BASELINE" ]]; then
+  COMPARE_ARGS+=(--compare "$BASELINE")
+  if [[ "$REGRESSION_EXIT" == "1" ]]; then
+    COMPARE_ARGS+=(--regression-exit)
+  fi
+fi
+set +e
+python3 "$ROOT/scripts/scorecard-parse.py" "$OUT_DIR" \
+  --label "$LABEL" \
+  --socat "$SOCAT" \
+  --test-sh "$TEST_SH" \
+  --write "$OUT_DIR/results.json" \
+  --meta "val_t=$VAL_T" \
+  --meta "jobs=$JOBS" \
+  --meta "shard_timeout=$SHARD_TIMEOUT" \
+  ${COMPARE_ARGS[@]+"${COMPARE_ARGS[@]}"}
+parse_ec=$?
+set -e
+
+if [[ -n "$SAVE_BASELINE" ]]; then
+  mkdir -p "$(dirname "$SAVE_BASELINE")"
+  cp -f "$OUT_DIR/results.json" "$SAVE_BASELINE"
+  # Keep a sidecar copy of summary for humans
+  python3 - "$SAVE_BASELINE" <<'PY'
+import json, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+doc = json.loads(p.read_text())
+s = doc["summary"]
+m = doc["meta"]
+side = p.with_suffix(".summary.txt")
+side.write_text(
+    f"label={m.get('label')}\n"
+    f"timestamp={m.get('timestamp')}\n"
+    f"socat={m.get('socat')}\n"
+    f"socat_version={m.get('socat_version')}\n"
+    f"git={m.get('git')}\n"
+    f"ok={s.get('ok')}\n"
+    f"failed={s.get('failed')}\n"
+    f"cant={s.get('cant')}\n"
+    f"timeout={s.get('timeout')}\n"
+    f"unknown={s.get('unknown')}\n"
+    f"total_recorded={s.get('total_recorded')}\n"
+)
+print(f"saved baseline {p}")
+print(f"saved summary  {side}")
+PY
+fi
 
 echo
 echo "Logs under $OUT_DIR (shard-*.log)."
+echo "Results: $OUT_DIR/results.json  (+ results.jsonl)"
 echo "Tip: ONLY=functions JOBS=1 $0 $TEST_SH   # fast smoke"
 echo "     JOBS=8 SHARD_TIMEOUT=120 $0 $TEST_SH  # full parallel"
+echo "     BASELINE=testdata/scorecard/classic-baseline.json $0 $TEST_SH  # compare"
+echo "     SAVE_BASELINE=testdata/scorecard/classic-baseline.json SOCAT=... $0 $TEST_SH"
 
+# Exit: prefer regression exit if requested; else aggregate fail/timeout
+if [[ "$REGRESSION_EXIT" == "1" && $parse_ec -ne 0 ]]; then
+  exit "$parse_ec"
+fi
 exit "$agg_ec"
