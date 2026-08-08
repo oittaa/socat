@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -69,10 +70,51 @@ func startProcess(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmdSt
 	return startCmd(ctx, s, mode, g, cmd)
 }
 
-// splitExecArgs splits an EXEC command line on whitespace, collapsing runs of spaces
-// the same way classic socat does for unquoted commands.
+// splitExecArgs splits an EXEC command line like classic nestlex/argv:
+// unquoted runs of spaces separate args (no empty args from bare spaces);
+// double-quoted segments keep spaces and may be empty ("" → empty arg);
+// \" inside quotes is a literal quote (so -c 'echo "$1"' works).
 func splitExecArgs(s string) []string {
-	return strings.Fields(s)
+	var args []string
+	var cur strings.Builder
+	inDouble := false
+	escape := false
+	// sawQuote marks a quoted segment so "" becomes an empty argument.
+	sawQuote := false
+
+	flush := func() {
+		if sawQuote || cur.Len() > 0 {
+			args = append(args, cur.String())
+		}
+		cur.Reset()
+		sawQuote = false
+	}
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if escape {
+			cur.WriteByte(c)
+			escape = false
+			continue
+		}
+		if c == '\\' && inDouble {
+			escape = true
+			continue
+		}
+		if c == '"' {
+			inDouble = !inDouble
+			sawQuote = true
+			continue // drop delimiter
+		}
+		if !inDouble && (c == ' ' || c == '\t') {
+			flush()
+			// collapse consecutive unquoted whitespace
+			continue
+		}
+		cur.WriteByte(c)
+	}
+	flush()
+	return args
 }
 
 func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
@@ -171,8 +213,14 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 			}
 		})
 	} else {
-		// socketpair — must SHUT_WR so child sees EOF on stdin (classic behavior)
-		fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+		// socketpair — SOCK_STREAM by default; socktype=2 (SOCK_DGRAM) for packet EXEC.
+		stype := syscall.SOCK_STREAM
+		if v := s.OptionValue("socktype", ""); v != "" {
+			if n, e := strconv.Atoi(v); e == nil && n > 0 {
+				stype = n
+			}
+		}
+		fds, err := syscall.Socketpair(syscall.AF_UNIX, stype, 0)
 		if err != nil {
 			return nil, err
 		}
@@ -185,7 +233,13 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		} else {
 			cmd.Stderr = child
 		}
-		stream = fileStream(parent)
+		if stype == syscall.SOCK_DGRAM {
+			// Dgram socketpair: SHUT_WR does not deliver EOF to the child.
+			// Close the parent FD on half-close so cat/etc. exit (packet tests).
+			stream = dgramPairStream(parent)
+		} else {
+			stream = fileStream(parent)
+		}
 		cleanup = append(cleanup, func() {
 			parent.Close()
 		})

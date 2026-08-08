@@ -264,18 +264,28 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		"UDP-RECVFROM": openUDPRecvfrom,
 		"UDP4-RECVFROM": openUDP4Recvfrom,
 		"UDP6-RECVFROM": openUDP6Recvfrom,
-		"UNIX":         openUnixConnect,
-		"UNIX-CONNECT": openUnixConnect,
-		"UNIX-CLIENT":  openUnixConnect,
-		"UNIX-LISTEN":  openUnixListen,
-		"UNIX-L":       openUnixListen,
+		"UNIX":          openUnixConnect,
+		"UNIX-CONNECT":  openUnixConnect,
+		"UNIX-CLIENT":   openUnixConnect,
+		"UNIX-LISTEN":   openUnixListen,
+		"UNIX-L":        openUnixListen,
+		"UNIX-SENDTO":   openUnixSendto,
+		"UNIX-RECVFROM": openUnixRecvfrom,
+		"UNIX-RECV":     openUnixRecv,
+		"UNIX-DATAGRAM": openUnixDatagram,
 		// Linux abstract namespace (path becomes abstract name).
 		"ABSTRACT-CLIENT":  openAbstractSendto,
 		"ABSTRACT-CONNECT": openAbstractSendto,
 		"ABSTRACT-SENDTO":  openAbstractSendto,
 		"ABSTRACT-RECVFROM": openAbstractSendto, // minimal: same dial path for bind tests
 		"ABSTRACT-RECV":    openAbstractSendto,
-		"SOCKETPAIR":   openSocketpair,
+		"SOCKETPAIR":       openSocketpair,
+		"SOCKET-CONNECT":   openSocketConnect,
+		"SOCKET-LISTEN":    openSocketListen,
+		"SOCKET-SENDTO":    openSocketSendto,
+		"SOCKET-DATAGRAM":  openSocketDatagram,
+		"SOCKET-RECV":      openSocketRecv,
+		"SOCKET-RECVFROM":  openSocketRecvfrom,
 		"EXEC":         openEXEC,
 		"SYSTEM":       openSYSTEM,
 		"SHELL":        openSHELL,
@@ -405,7 +415,8 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 	ln := ro.Listener
 	left := lo.EffectiveStream()
-	noCloseLeft := streamIsEndClose(left)
+	// Shared left (e.g. FILE,o-append) must stay open across all fork children.
+	// Classic max-children + -U FILE:... LISTEN,fork appends each session in order.
 	// max-children applies to the listen address (right side here).
 	maxCh := ro.MaxChildren
 	var slots chan struct{}
@@ -416,6 +427,7 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 		<-ctx.Done()
 		ln.Close()
 	}()
+	filter := ro.PeerFilter
 	for {
 		if slots != nil {
 			select {
@@ -434,13 +446,26 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 			}
 			return err
 		}
+		if filter != nil {
+			if err := filter(conn); err != nil {
+				g.Log.Noticef("%s", err)
+				conn.Close()
+				if slots != nil {
+					<-slots
+				}
+				continue
+			}
+		}
 		go func(c net.Conn) {
 			defer c.Close()
 			if slots != nil {
 				defer func() { <-slots }()
 			}
+			cg := *g
+			rememberAddrs(&cg, c)
 			rightStream := relay.NetStream{Conn: c}
-			if err := transferStreamsOpts(ctx, left, rightStream, g, noCloseLeft, false); err != nil {
+			// noCloseLeft=true: do not close/shutdown shared left between children.
+			if err := transferStreamsOpts(ctx, left, rightStream, &cg, true, false); err != nil {
 				g.Log.Debugf("transfer: %s", err)
 			}
 		}(conn)

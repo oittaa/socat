@@ -440,6 +440,11 @@ func pokeReadDeadline(s Stream) {
 			_ = d.SetReadDeadline(time.Time{})
 		}()
 	}
+	// Streams that implement SetReadDeadline themselves (e.g. SOCKET raw dgram).
+	if d, ok := s.(interface{ SetReadDeadline(time.Time) error }); ok {
+		set(d)
+		return
+	}
 	if t, ok := s.(NetStream); ok {
 		if c, ok := t.Conn.(interface{ SetReadDeadline(time.Time) error }); ok {
 			set(c)

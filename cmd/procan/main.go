@@ -169,13 +169,17 @@ func mustGetwd() string {
 }
 
 func printCdefs(w io.Writer) {
-	// Classic -c prints C compile-time defines; we print Go/unix equivalents useful for debugging.
-	fmt.Fprintln(w, "/* Go/unix constants (not C preprocessor defines) */")
+	// Classic test.sh greps `^#define NAME value` from procan -c for SOCK_DGRAM,
+	// PF_INET6, SOL_SOCKET, SO_REUSEADDR, TCP_MAXSEG, TIOCEXCL, FOPEN_MAX.
+	// Emit both human-readable lines and classic-style defines.
+	fmt.Fprintln(w, "/* Go/unix constants (classic-compatible #define lines for test.sh) */")
 	fmt.Fprintf(w, "sizeof(int) ~= %d\n", strconv.IntSize/8)
 	// test.sh: SIZE_T=$($PROCAN |grep size_t |awk '{print($3);}')
 	fmt.Fprintf(w, "sizeof(size_t)    = %d\n", int(unsafe.Sizeof(uintptr(0))))
 	fmt.Fprintf(w, "FD_SETSIZE = %d\n", unix.FD_SETSIZE)
 	fmt.Fprintf(w, "PATH_MAX = %d\n", unix.PathMax)
+
+	// Human-readable form
 	fmt.Fprintf(w, "AF_UNIX = %d\n", unix.AF_UNIX)
 	fmt.Fprintf(w, "AF_INET = %d\n", unix.AF_INET)
 	fmt.Fprintf(w, "AF_INET6 = %d\n", unix.AF_INET6)
@@ -185,6 +189,30 @@ func printCdefs(w io.Writer) {
 	fmt.Fprintf(w, "SO_REUSEADDR = %d\n", unix.SO_REUSEADDR)
 	fmt.Fprintf(w, "IPPROTO_TCP = %d\n", unix.IPPROTO_TCP)
 	fmt.Fprintf(w, "IPPROTO_UDP = %d\n", unix.IPPROTO_UDP)
+
+	// Classic #define form (PF_* aliases AF_* on Linux)
+	fmt.Fprintf(w, "#define PF_UNSPEC %d\n", unix.AF_UNSPEC)
+	fmt.Fprintf(w, "#define PF_UNIX %d\n", unix.AF_UNIX)
+	fmt.Fprintf(w, "#define PF_INET %d\n", unix.AF_INET)
+	fmt.Fprintf(w, "#define PF_INET6 %d\n", unix.AF_INET6)
+	fmt.Fprintf(w, "#define AF_UNIX %d\n", unix.AF_UNIX)
+	fmt.Fprintf(w, "#define AF_INET %d\n", unix.AF_INET)
+	fmt.Fprintf(w, "#define AF_INET6 %d\n", unix.AF_INET6)
+	fmt.Fprintf(w, "#define SOCK_STREAM %d\n", unix.SOCK_STREAM)
+	fmt.Fprintf(w, "#define SOCK_DGRAM %d\n", unix.SOCK_DGRAM)
+	fmt.Fprintf(w, "#define SOCK_RAW %d\n", unix.SOCK_RAW)
+	fmt.Fprintf(w, "#define SOCK_SEQPACKET %d\n", unix.SOCK_SEQPACKET)
+	fmt.Fprintf(w, "#define SOL_SOCKET %d\n", unix.SOL_SOCKET)
+	fmt.Fprintf(w, "#define SO_REUSEADDR %d\n", unix.SO_REUSEADDR)
+	fmt.Fprintf(w, "#define IPPROTO_IP %d\n", unix.IPPROTO_IP)
+	fmt.Fprintf(w, "#define IPPROTO_TCP %d\n", unix.IPPROTO_TCP)
+	fmt.Fprintf(w, "#define IPPROTO_UDP %d\n", unix.IPPROTO_UDP)
+	fmt.Fprintf(w, "#define IPPROTO_RAW %d\n", unix.IPPROTO_RAW)
+	fmt.Fprintf(w, "#define TCP_MAXSEG %d\n", unix.TCP_MAXSEG)
+	fmt.Fprintf(w, "#define TIOCEXCL 0x%x\n", unix.TIOCEXCL)
+	fmt.Fprintf(w, "#define FOPEN_MAX 16\n")
+	fmt.Fprintf(w, "#define FD_SETSIZE %d\n", unix.FD_SETSIZE)
+
 	uname := &unix.Utsname{}
 	if err := unix.Uname(uname); err == nil {
 		fmt.Fprintf(w, "uname.sysname = %s\n", cstr(uname.Sysname[:]))

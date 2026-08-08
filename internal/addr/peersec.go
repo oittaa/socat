@@ -67,6 +67,7 @@ func peerAllowed(s parse.Spec, conn net.Conn) error {
 //	addr/bits          CIDR
 //	addr:netmask       IPv4 (or IPv6 with mask as address)
 //	[ipv6]/bits
+//	xPORTxIP:xPORTxMASK  classic generic SOCKET hex (port prefix ignored)
 func ipInRange(ip net.IP, spec string) (bool, error) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" {
@@ -86,6 +87,13 @@ func ipInRange(ip net.IP, spec string) (bool, error) {
 			return false, fmt.Errorf("range: %w", err)
 		}
 		return network.Contains(ip), nil
+	}
+
+	// Classic SOCKET hex: x0000x7f000000:x0000xffffffff (sockaddr data net:mask)
+	if strings.Contains(spec, "x") || strings.Contains(spec, "X") {
+		if ok, err, handled := ipInHexSockRange(ip, spec); handled {
+			return ok, err
+		}
 	}
 
 	// addr:mask — split on last ':' that is not part of IPv6 ambiguity carefully.
@@ -114,6 +122,53 @@ func ipInRange(ip net.IP, spec string) (bool, error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+// ipInHexSockRange parses xPORTxIP:xPORTxMASK (classic generic socket range).
+// handled=false if the form does not look like hex sockaddr range.
+func ipInHexSockRange(ip net.IP, spec string) (ok bool, err error, handled bool) {
+	// Split net:mask on the colon that separates the two hex groups.
+	// Each side typically looks like x0000x7f000000 (port + IPv4) or longer for IPv6.
+	idx := -1
+	// Prefer split after first complete hex group: find ":x" which starts the mask side.
+	if i := strings.Index(strings.ToLower(spec), ":x"); i > 0 {
+		idx = i
+	} else if i := strings.LastIndex(spec, ":"); i > 0 {
+		idx = i
+	}
+	if idx <= 0 {
+		return false, nil, false
+	}
+	netPart := spec[:idx]
+	maskPart := spec[idx+1:]
+	if !strings.ContainsAny(netPart, "xX") || !strings.ContainsAny(maskPart, "xX") {
+		return false, nil, false
+	}
+	netBytes, nerr := parseSocatData(netPart)
+	maskBytes, merr := parseSocatData(maskPart)
+	if nerr != nil || merr != nil {
+		return false, fmt.Errorf("range: invalid hex sockaddr"), true
+	}
+	if len(netBytes) < 6 || len(maskBytes) < 6 {
+		return false, fmt.Errorf("range: hex sockaddr too short"), true
+	}
+	// Skip 2-byte port prefix; next 4 bytes are IPv4 (classic SOCKETRANGEMASK).
+	// If longer (>= 22 after port+flow), treat as IPv6.
+	if len(netBytes) >= 2+4+16 {
+		// IPv6: port(2)+flow(4)+addr(16)
+		if len(maskBytes) < 2+4+16 {
+			return false, fmt.Errorf("range: IPv6 mask too short"), true
+		}
+		base := net.IP(netBytes[6:22])
+		mask := net.IP(maskBytes[6:22])
+		ok, err = matchAddrMask(ip, base.String(), mask.String())
+		return ok, err, true
+	}
+	// IPv4
+	base := net.IPv4(netBytes[2], netBytes[3], netBytes[4], netBytes[5])
+	mask := net.IPv4(maskBytes[2], maskBytes[3], maskBytes[4], maskBytes[5])
+	ok, err = matchAddrMask(ip, base.String(), mask.String())
+	return ok, err, true
 }
 
 func matchAddrMask(ip net.IP, addrPart, maskPart string) (bool, error) {

@@ -14,7 +14,8 @@ import (
 )
 
 // fileStream wraps *os.File with proper half-close via shutdown(2) when possible.
-// For non-sockets (FIFOs, regular files), falls back to Close so peers see EOF.
+// Regular files: ShutdownWrite is a no-op (closing would break shared FILE,o-append
+// under fork,max-children). Pipes/FIFOs: Close to deliver EOF to the peer.
 func fileStream(f *os.File) relay.Stream {
 	return relay.FDStream{
 		R: f,
@@ -22,14 +23,40 @@ func fileStream(f *os.File) relay.Stream {
 		C: f,
 		CloseW: func() error {
 			err := unix.Shutdown(int(f.Fd()), unix.SHUT_WR)
-			if err != nil {
-				// ENOTSOCK and friends: close the FD to signal EOF on pipes/FIFOs.
-				return f.Close()
+			if err == nil {
+				return nil
 			}
+			// ENOTSOCK: do not close regular files (shared multi-child append).
+			if st, e := f.Stat(); e == nil && st.Mode().IsRegular() {
+				return nil
+			}
+			// Pipes/FIFOs: close the FD so the peer sees EOF.
+			return f.Close()
+		},
+	}
+}
+
+// dgramPairStream is an AF_UNIX SOCK_DGRAM socketpair end. Half-close must Close
+// the FD (not only SHUT_WR) so the peer process sees errors/EOF and exits.
+func dgramPairStream(f *os.File) relay.Stream {
+	var once sync.Once
+	closeF := func() { once.Do(func() { _ = f.Close() }) }
+	return relay.FDStream{
+		R: f,
+		W: f,
+		C: closerFunc(func() error { closeF(); return nil }),
+		CloseW: func() error {
+			// Prefer 0-byte packet (shut-null style) then close.
+			_, _ = f.Write(nil)
+			closeF()
 			return nil
 		},
 	}
 }
+
+type closerFunc func() error
+
+func (c closerFunc) Close() error { return c() }
 
 // ptyStream wraps a PTY master. ShutdownWrite does NOT close the master FD
 // (unlike fileStream on non-sockets), so the reverse direction can still read
@@ -250,11 +277,13 @@ func wrapCommon(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 		return nil, err
 	}
 	if s.BoolOption("null-eof") {
+		// Capture inner before reassignment — closure must not recurse on FDStream.
+		inner := stream
 		stream = relay.FDStream{
-			R: &nullEOFReader{r: stream},
-			W: stream,
-			C: stream,
-			CloseW: func() error { return stream.ShutdownWrite() },
+			R: &nullEOFReader{r: inner},
+			W: inner,
+			C: inner,
+			CloseW: func() error { return inner.ShutdownWrite() },
 		}
 	}
 	if s.BoolOption("shut-null") || s.OptionValue("shut", "") == "null" {

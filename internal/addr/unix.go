@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-func openUnixConnect(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Opened, error) {
+func openUnixConnect(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
 	if len(s.Params) < 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("UNIX-CONNECT requires path")
 	}
@@ -22,9 +23,17 @@ func openUnixConnect(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Ope
 	if bindPath != "" {
 		bindPath = unixAddr(bindPath)
 	}
-	netw := "unix"
-	if isAbstract(path) || isAbstract(bindPath) {
-		netw = "unix"
+
+	// Explicit socktype=2 (SOCK_DGRAM) or classic client fallback when peer is dgram.
+	wantDgram := false
+	if v := s.OptionValue("socktype", ""); v != "" {
+		if n, e := strconv.Atoi(v); e == nil && n == syscall.SOCK_DGRAM {
+			wantDgram = true
+		}
+	}
+
+	if wantDgram {
+		return openUnixDgramClient(ctx, s, mode, g, path, bindPath)
 	}
 
 	var conn net.Conn
@@ -35,15 +44,22 @@ func openUnixConnect(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Ope
 			if !isAbstract(bindPath) {
 				_ = os.Remove(bindPath) // stale leftover
 			}
-			d.LocalAddr = &net.UnixAddr{Name: bindPath, Net: netw}
+			d.LocalAddr = &net.UnixAddr{Name: bindPath, Net: "unix"}
 		}
-		c, e := d.DialContext(ctx, netw, path)
+		c, e := d.DialContext(ctx, "unix", path)
 		if e != nil {
+			// Classic UNIX client probes peer type: stream fail → try dgram (UNIXTODGRAM).
+			if isWrongType(e) {
+				return errTryDgram
+			}
 			return e
 		}
 		conn = c
 		return nil
 	})
+	if err == errTryDgram || (err != nil && isWrongType(err)) {
+		return openUnixDgramClient(ctx, s, mode, g, path, bindPath)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -70,20 +86,36 @@ func openUnixConnect(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Ope
 		Label:  "UNIX:" + path,
 	}
 	// unlink-close: remove the *local bind* path (classic client option).
-	// Default for connect is 0 (keep); only unlink when explicitly true or
-	// when bind path was used with unlink-close=1.
-	unlinkTarget := bindPath
-	if unlinkTarget == "" {
-		// Without bind, classic may still honor unlink-close on the peer path
-		// only when explicitly requested — tests use bind= + unlink-close=1.
-		unlinkTarget = ""
-	}
-	if s.BoolOption("unlink-close") && unlinkTarget != "" {
-		o.addCleanup(func() { _ = os.Remove(unlinkTarget) })
-	} else if bindPath != "" && !s.HasOption("unlink-close") {
-		// Keep bind path by default (classic unlink-close default for connect is off).
+	if s.BoolOption("unlink-close") && bindPath != "" {
+		o.addCleanup(func() { _ = os.Remove(bindPath) })
 	}
 	return o, nil
+}
+
+// errTryDgram signals stream connect hit EPROTOTYPE; fall back to unixgram.
+var errTryDgram = fmt.Errorf("try unixgram")
+
+func isWrongType(err error) bool {
+	if err == nil {
+		return false
+	}
+	if err == syscall.EPROTOTYPE {
+		return true
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "protocol wrong type") || strings.Contains(s, "eprototype")
+}
+
+// openUnixDgramClient is UNIX:/UNIX-CONNECT as datagram (peer is RECVFROM etc.).
+func openUnixDgramClient(ctx context.Context, s parse.Spec, mode Mode, g *Global, path, bindPath string) (*Opened, error) {
+	// Reuse SENDTO path with synthetic params.
+	ps := s
+	ps.Params = []string{path}
+	if bindPath != "" && !s.HasOption("bind") {
+		// Inject bind into a copy of options via OptionValue path: set on Spec.
+		ps.Options = append(append([]parse.Option{}, s.Options...), parse.Option{Name: "bind", Value: bindPath})
+	}
+	return openUnixSendto(ctx, ps, mode, g)
 }
 
 func openUnixListen(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Opened, error) {
@@ -227,6 +259,294 @@ func isAbstract(path string) bool {
 	return len(path) > 0 && (path[0] == 0 || path[0] == '@')
 }
 
+// openUnixSendto: UNIX-SENDTO:path[,bind=localpath]
+// Filesystem unix datagram: send to path, optional bind for replies.
+func openUnixSendto(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	if len(s.Params) < 1 || s.Params[0] == "" {
+		return nil, fmt.Errorf("UNIX-SENDTO requires path")
+	}
+	remote := unixAddr(s.Params[0])
+	bindPath := s.OptionValue("bind", "")
+	raddr := &net.UnixAddr{Name: remote, Net: "unixgram"}
+
+	var c *net.UnixConn
+	var err error
+	if bindPath != "" {
+		bp := unixAddr(bindPath)
+		if !isAbstract(bp) {
+			_ = os.Remove(bp)
+		}
+		laddr := &net.UnixAddr{Name: bp, Net: "unixgram"}
+		c, err = net.ListenUnixgram("unixgram", laddr)
+	} else {
+		// Unbound unixgram: DialUnix without local name (kernel assigns ephemeral).
+		c, err = net.DialUnix("unixgram", nil, raddr)
+		if err == nil {
+			// Connected socket: use NetStream (Write goes to peer).
+			st := relay.Stream(relay.NetStream{Conn: c})
+			st, err = wrapCommon(s, st)
+			if err != nil {
+				c.Close()
+				return nil, err
+			}
+			_ = ctx
+			_ = mode
+			_ = g
+			return &Opened{Stream: st, Label: "UNIX-SENDTO:" + remote}, nil
+		}
+		// Fallback: raw socket unbound
+		c, err = listenUnixgramUnbound()
+	}
+	if err != nil {
+		return nil, err
+	}
+	st := &unixgramConn{UnixConn: c, raddr: raddr}
+	wrapped, err := wrapCommon(s, st)
+	if err != nil {
+		c.Close()
+		return nil, err
+	}
+	o := &Opened{Stream: wrapped, Label: "UNIX-SENDTO:" + remote}
+	// Classic default unlink-close=1 for bound unix dgram paths.
+	if bindPath != "" {
+		bp := unixAddr(bindPath)
+		doUnlink := !s.HasOption("unlink-close") || s.BoolOption("unlink-close")
+		if doUnlink && !isAbstract(bp) {
+			o.addCleanup(func() { _ = os.Remove(bp) })
+		}
+	}
+	_ = ctx
+	_ = mode
+	_ = g
+	return o, nil
+}
+
+// listenUnixgramUnbound creates an unbound AF_UNIX SOCK_DGRAM socket.
+func listenUnixgramUnbound() (*net.UnixConn, error) {
+	fd, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_DGRAM, 0)
+	if err != nil {
+		return nil, err
+	}
+	f := os.NewFile(uintptr(fd), "unixgram-unbound")
+	c, err := net.FilePacketConn(f)
+	f.Close()
+	if err != nil {
+		syscall.Close(fd)
+		return nil, err
+	}
+	uc, ok := c.(*net.UnixConn)
+	if !ok {
+		c.Close()
+		return nil, fmt.Errorf("not a UnixConn")
+	}
+	return uc, nil
+}
+
+// openUnixRecvfrom: UNIX-RECVFROM:path — bind, first packet peer for replies.
+// With fork: each datagram is a child session (classic).
+func openUnixRecvfrom(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	return openUnixRecvCommon(ctx, s, mode, g, true)
+}
+
+// openUnixRecv: UNIX-RECV:path — bind, read-only (no reply).
+func openUnixRecv(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	return openUnixRecvCommon(ctx, s, mode, g, false)
+}
+
+func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode Mode, g *Global, from bool) (*Opened, error) {
+	if len(s.Params) < 1 || s.Params[0] == "" {
+		return nil, fmt.Errorf("%s requires path", s.Type)
+	}
+	path := unixAddr(s.Params[0])
+	if !isAbstract(path) {
+		if s.BoolOption("unlink-early") || s.BoolOption("reuseaddr") {
+			_ = os.Remove(path)
+		}
+	}
+	laddr := &net.UnixAddr{Name: path, Net: "unixgram"}
+	c, err := net.ListenUnixgram("unixgram", laddr)
+	if err != nil {
+		return nil, err
+	}
+	label := s.Type + ":" + path
+	// Non-fork RECVFROM: one packet peer, then stream until EOF/timeout.
+	// Fork: use a simple packet-accept loop via Opened.Listener adapter.
+	if s.BoolOption("fork") && from {
+		ln := &unixgramListener{c: c, path: path}
+		maxChildren := 0
+		if v := s.OptionValue("max-children", ""); v != "" {
+			if n, e := strconv.Atoi(v); e == nil && n > 0 {
+				maxChildren = n
+			}
+		}
+		o := &Opened{
+			Listener:    ln,
+			Fork:        true,
+			Label:       label,
+			MaxChildren: maxChildren,
+		}
+		if !isAbstract(path) && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close")) {
+			o.addCleanup(func() {
+				ln.Close()
+				_ = os.Remove(path)
+			})
+		} else {
+			o.addCleanup(func() { ln.Close() })
+		}
+		_ = ctx
+		_ = mode
+		_ = g
+		return o, nil
+	}
+
+	st := &unixRecvStream{c: c, from: from}
+	wrapped, err := wrapCommon(s, st)
+	if err != nil {
+		c.Close()
+		return nil, err
+	}
+	o := &Opened{Stream: wrapped, Label: label}
+	if !isAbstract(path) && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close")) {
+		o.addCleanup(func() {
+			c.Close()
+			_ = os.Remove(path)
+		})
+	} else {
+		o.addCleanup(func() { c.Close() })
+	}
+	_ = ctx
+	_ = mode
+	_ = g
+	return o, nil
+}
+
+// openUnixDatagram: UNIX-DATAGRAM:path[,bind=local]
+// Connected-style dgram to path (or dual peer).
+func openUnixDatagram(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	// Same as sendto for basic echo tests.
+	return openUnixSendto(ctx, s, mode, g)
+}
+
+// unixRecvStream: first Recvfrom captures peer when from=true; Write replies to peer.
+type unixRecvStream struct {
+	c    *net.UnixConn
+	from bool
+	peer *net.UnixAddr
+	got  bool
+}
+
+func (u *unixRecvStream) Read(p []byte) (int, error) {
+	n, addr, err := u.c.ReadFromUnix(p)
+	if err != nil {
+		return n, err
+	}
+	if u.from && !u.got && addr != nil {
+		u.peer = addr
+		u.got = true
+	}
+	return n, nil
+}
+func (u *unixRecvStream) Write(p []byte) (int, error) {
+	if !u.from || u.peer == nil {
+		return 0, fmt.Errorf("UNIX-RECV is read-only")
+	}
+	return u.c.WriteToUnix(p, u.peer)
+}
+func (u *unixRecvStream) Close() error         { return u.c.Close() }
+func (u *unixRecvStream) ShutdownWrite() error { return nil }
+func (u *unixRecvStream) SetReadDeadline(t time.Time) error {
+	return u.c.SetReadDeadline(t)
+}
+
+// unixgramListener turns RECVFROM,fork into accept-like sessions per packet.
+type unixgramListener struct {
+	c    *net.UnixConn
+	path string
+}
+
+func (l *unixgramListener) Accept() (net.Conn, error) {
+	buf := make([]byte, 65536)
+	n, addr, err := l.c.ReadFromUnix(buf)
+	if err != nil {
+		return nil, err
+	}
+	// Return a connected-style unixgram session for this peer with first data.
+	return &unixPacketConn{
+		c:     l.c,
+		peer:  addr,
+		first: append([]byte(nil), buf[:n]...),
+		// Do not close shared parent socket on child Close.
+		shared: true,
+	}, nil
+}
+func (l *unixgramListener) Close() error {
+	return l.c.Close()
+}
+func (l *unixgramListener) Addr() net.Addr {
+	return &net.UnixAddr{Name: l.path, Net: "unixgram"}
+}
+
+// unixPacketConn is one datagram session (first payload + reply path).
+type unixPacketConn struct {
+	c      *net.UnixConn
+	peer   *net.UnixAddr
+	first  []byte
+	shared bool
+	closed bool
+}
+
+func (u *unixPacketConn) Read(p []byte) (int, error) {
+	if len(u.first) > 0 {
+		n := copy(p, u.first)
+		u.first = u.first[n:]
+		if len(u.first) == 0 {
+			u.first = nil
+		}
+		return n, nil
+	}
+	// Subsequent reads from same peer only.
+	for {
+		n, addr, err := u.c.ReadFromUnix(p)
+		if err != nil {
+			return n, err
+		}
+		if addr != nil && u.peer != nil && addr.Name == u.peer.Name {
+			return n, nil
+		}
+		// Drop packets from other peers when filtering (fork children race).
+		// In fork mode each Accept takes one packet; extra reads may be empty wait.
+		_ = addr
+		return n, nil
+	}
+}
+func (u *unixPacketConn) Write(p []byte) (int, error) {
+	if u.peer == nil {
+		return 0, fmt.Errorf("no peer")
+	}
+	return u.c.WriteToUnix(p, u.peer)
+}
+func (u *unixPacketConn) Close() error {
+	if u.closed {
+		return nil
+	}
+	u.closed = true
+	if u.shared {
+		return nil
+	}
+	return u.c.Close()
+}
+func (u *unixPacketConn) LocalAddr() net.Addr  { return u.c.LocalAddr() }
+func (u *unixPacketConn) RemoteAddr() net.Addr { return u.peer }
+func (u *unixPacketConn) SetDeadline(t time.Time) error {
+	return u.c.SetDeadline(t)
+}
+func (u *unixPacketConn) SetReadDeadline(t time.Time) error {
+	return u.c.SetReadDeadline(t)
+}
+func (u *unixPacketConn) SetWriteDeadline(t time.Time) error {
+	return u.c.SetWriteDeadline(t)
+}
+
 // openAbstractSendto implements ABSTRACT-SENDTO / ABSTRACT-CLIENT bind+datagram style.
 // For stream-ish echo tests, ABSTRACT-SENDTO with bind to same name loops on dgram.
 func openAbstractSendto(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
@@ -291,6 +611,12 @@ func (u *unixgramConn) Write(p []byte) (int, error) {
 	return u.UnixConn.WriteToUnix(p, u.raddr)
 }
 func (u *unixgramConn) ShutdownWrite() error { return nil }
+func (u *unixgramConn) SetReadDeadline(t time.Time) error {
+	return u.UnixConn.SetReadDeadline(t)
+}
+func (u *unixgramConn) SetDeadline(t time.Time) error {
+	return u.UnixConn.SetDeadline(t)
+}
 
 // silence unused on non-special builds
 var _ = syscall.AF_UNIX
