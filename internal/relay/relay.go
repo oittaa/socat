@@ -428,7 +428,9 @@ func (s *sessionWrap) Close() error {
 }
 
 func (s *sessionWrap) ShutdownWrite() error {
-	return s.inner.ShutdownWrite()
+	// NoCloseLeft/Right: do not half-close the shared underlying stream
+	// (classic EXEC,end-close + LISTEN,fork keeps cat stdin open across accepts).
+	return nil
 }
 
 func pokeReadDeadline(s Stream) {

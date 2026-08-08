@@ -62,6 +62,22 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global,
 		dialer.LocalAddr = ba
 	}
 
+	// Apply setsockopt before connect when possible via Control (level:opt:val).
+	// Fail the open if setsockopt returns an error (classic SETSOCKOPT MSS=1).
+	var setSockErr error
+	if raw := s.OptionValue("setsockopt", ""); raw != "" {
+		prev := dialer.Control
+		dialer.Control = func(network, address string, c syscall.RawConn) error {
+			if prev != nil {
+				if e := prev(network, address, c); e != nil {
+					return e
+				}
+			}
+			return c.Control(func(fd uintptr) {
+				setSockErr = applySetsockoptFD(int(fd), raw)
+			})
+		}
+	}
 	var conn net.Conn
 	err = withRetry(ctx, s, g, network+" connect", func() error {
 		dctx := ctx
@@ -70,9 +86,14 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global,
 			dctx, cancel = context.WithTimeout(ctx, timeout)
 			defer cancel()
 		}
+		setSockErr = nil
 		c, e := dialer.DialContext(dctx, network, addr)
 		if e != nil {
 			return e
+		}
+		if setSockErr != nil {
+			c.Close()
+			return setSockErr
 		}
 		conn = c
 		return nil
@@ -309,6 +330,28 @@ func isTimeoutErr(err error) bool {
 	}
 	return strings.Contains(strings.ToLower(err.Error()), "timeout") ||
 		strings.Contains(strings.ToLower(err.Error()), "i/o timeout")
+}
+
+// applySetsockoptFD parses classic setsockopt=level:optname:value (ints) and applies it.
+// SETSOCKOPT test uses setsockopt=6:TCP_MAXSEG:512 (IPPROTO_TCP + TCP_MAXSEG).
+func applySetsockoptFD(fd int, spec string) error {
+	parts := strings.Split(spec, ":")
+	if len(parts) < 3 {
+		return fmt.Errorf("setsockopt requires level:optname:value")
+	}
+	level, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return fmt.Errorf("setsockopt level: %w", err)
+	}
+	opt, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return fmt.Errorf("setsockopt optname: %w", err)
+	}
+	val, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return fmt.Errorf("setsockopt value: %w", err)
+	}
+	return syscall.SetsockoptInt(fd, level, opt, val)
 }
 
 // rememberAddrs fills SOCAT_* environment fields on g from a live connection.

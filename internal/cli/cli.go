@@ -536,7 +536,7 @@ func printHelp(w io.Writer, level int) {
 			"nodelay", "tcp-nodelay", "keepalive", "so-keepalive",
 			"pipes", "setsid", "stderr", "pty",
 			"pf", "sourceport", "sp",
-			"range", "lowport",
+			"range", "lowport", "setsockopt",
 			"crnl", "ignoreeof", "readbytes",
 			"retry", "forever", "interval",
 			"backlog", "fdin", "fdout", "max-children",

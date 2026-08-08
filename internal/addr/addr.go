@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
@@ -428,6 +429,9 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 		ln.Close()
 	}()
 	filter := ro.PeerFilter
+	// Shared left stream (FILE append, EXEC end-close) cannot safely run concurrent
+	// bidirectional transfers on one FD pair — serialize accept sessions.
+	var leftMu sync.Mutex
 	for {
 		if slots != nil {
 			select {
@@ -461,6 +465,8 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 			if slots != nil {
 				defer func() { <-slots }()
 			}
+			leftMu.Lock()
+			defer leftMu.Unlock()
 			cg := *g
 			rememberAddrs(&cg, c)
 			rightStream := relay.NetStream{Conn: c}

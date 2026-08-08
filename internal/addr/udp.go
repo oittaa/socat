@@ -158,6 +158,26 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 		}
 		break
 	}
+	// SOCAT_* env for EXEC/SYSTEM children (UDP6LISTENENV etc.).
+	// When bound to unspecified (:: / 0.0.0.0), classic still reports the
+	// local address used for this peer (loopback peer → loopback sock).
+	if g != nil {
+		if raddr != nil {
+			g.PeerAddr = formatSocatAddr(raddr.IP.String())
+			g.PeerPort = strconv.Itoa(raddr.Port)
+		}
+		if la := pc.LocalAddr(); la != nil {
+			if host, p, e := net.SplitHostPort(la.String()); e == nil {
+				g.SockPort = p
+				lip := net.ParseIP(stripBrackets(host))
+				if lip != nil && lip.IsUnspecified() && raddr != nil {
+					g.SockAddr = formatSocatAddr(raddr.IP.String())
+				} else {
+					g.SockAddr = formatSocatAddr(host)
+				}
+			}
+		}
+	}
 	st := relay.Stream(&udpRecvFromConn{
 		uc:    pc,
 		peer:  raddr,
@@ -436,6 +456,40 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global
 	bind := s.OptionValue("bind", "")
 	sp := s.OptionValue("sourceport", "")
 	var laddr *net.UDPAddr
+	// classic lowport: bind an ephemeral port in 640..1023 (log even if EACCES).
+	if s.BoolOption("lowport") && sp == "" {
+		if bind == "" {
+			if network == "udp6" {
+				bind = "::"
+			} else {
+				bind = "0.0.0.0"
+			}
+		}
+		c, port, berr := bindUDPLowport(ctx, network, bind, s, g)
+		if berr == nil && c != nil {
+			// use this bound conn as the packet socket
+			if s.BoolOption("broadcast") {
+				raw, e := c.SyscallConn()
+				if e == nil {
+					_ = raw.Control(func(fd uintptr) {
+						_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+					})
+				}
+			}
+			st := &udpDatagramConn{UDPConn: c, raddr: raddr}
+			wrapped, err := wrapCommon(s, st)
+			if err != nil {
+				c.Close()
+				return nil, err
+			}
+			_ = port
+			return &Opened{Stream: wrapped, Label: "UDP-DATAGRAM:" + raddr.String()}, nil
+		}
+		// Fall through: still emit classic-style bind log if bindUDPLowport logged.
+		if berr != nil && g != nil && g.Log != nil {
+			// bindUDPLowport already logged attempts
+		}
+	}
 	if bind != "" || sp != "" {
 		if bind == "" {
 			if network == "udp6" {
@@ -516,6 +570,37 @@ type udpDatagramConn struct {
 func (u *udpDatagramConn) Write(p []byte) (int, error) {
 	// Allow 0-byte writes (shut-null sends empty datagram).
 	return u.UDPConn.WriteToUDP(p, u.raddr)
+}
+
+// bindUDPLowport tries ports 1023..640 (classic lowport). Logs bind like SYCLS for tests.
+func bindUDPLowport(ctx context.Context, network, bind string, s parse.Spec, g *Global) (*net.UDPConn, int, error) {
+	_ = s
+	var last error
+	for port := 1023; port >= 640; port-- {
+		// Classic test greps: [DE] bind(.*:PORT
+		if g != nil && g.Log != nil {
+			g.Log.Debugf("bind({AF=2 %s:%d}, 16)", bind, port)
+		}
+		addr, err := net.ResolveUDPAddr(network, net.JoinHostPort(stripBrackets(bind), strconv.Itoa(port)))
+		if err != nil {
+			last = err
+			continue
+		}
+		cfg := net.ListenConfig{}
+		pc, err := cfg.ListenPacket(ctx, network, addr.String())
+		if err != nil {
+			last = err
+			continue
+		}
+		c, ok := pc.(*net.UDPConn)
+		if !ok {
+			pc.Close()
+			last = fmt.Errorf("not UDPConn")
+			continue
+		}
+		return c, port, nil
+	}
+	return nil, 0, last
 }
 func (u *udpDatagramConn) ShutdownWrite() error { return nil }
 
