@@ -204,7 +204,13 @@ func filanFile(path string, out io.Writer) error {
 		return err
 	}
 	fd := -1
-	if st.Mode&unix.S_IFMT != unix.S_IFSOCK {
+	// Symlinks and sockets: do not open (classic prints LINKTARGET for symlinks
+	// when statfd < 0). Opening a socket path fails; opening a symlink would
+	// follow it and lose the link type without -L.
+	switch st.Mode & unix.S_IFMT {
+	case unix.S_IFSOCK, unix.S_IFLNK:
+		// leave fd = -1
+	default:
 		f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOCTTY|unix.O_NONBLOCK, 0)
 		if err == nil {
 			fd = int(f.Fd())
@@ -212,6 +218,13 @@ func filanFile(path string, out io.Writer) error {
 		}
 	}
 	printStat(-1, fd, &st, out)
+	// Classic FILANSYMLINK: when analyzing a symlink path with lstat, append
+	// LINKTARGET=... (no space before the keyword).
+	if !followSymlinks && st.Mode&unix.S_IFMT == unix.S_IFLNK {
+		if target, err := os.Readlink(path); err == nil {
+			fmt.Fprintf(out, "LINKTARGET=%s", target)
+		}
+	}
 	fmt.Fprintln(out)
 	return nil
 }
@@ -281,24 +294,25 @@ func printTime(out io.Writer, sec int64) {
 	fmt.Fprintf(out, "\t%s", t.Format("2006-01-02 15:04:05"))
 }
 
+// fileTypeString matches classic filan getfiletypestring() (test.sh greps these).
 func fileTypeString(mode uint32) string {
 	switch mode & unix.S_IFMT {
 	case unix.S_IFREG:
-		return "ordinary"
+		return "file"
 	case unix.S_IFDIR:
-		return "directory"
+		return "dir"
 	case unix.S_IFLNK:
 		return "symlink"
 	case unix.S_IFCHR:
-		return "character"
+		return "chrdev"
 	case unix.S_IFBLK:
-		return "block"
+		return "blkdev"
 	case unix.S_IFIFO:
-		return "fifo"
+		return "pipe"
 	case unix.S_IFSOCK:
 		return "socket"
 	default:
-		return "unknown"
+		return "undef"
 	}
 }
 
@@ -374,6 +388,28 @@ func fdname(fd int, out io.Writer) {
 			path = sockAddrString(sa)
 		}
 	}
+	// Go runtime / systemd often open cgroup and epoll FDs after exec. Classic
+	// C filan has only 0/1/2 after a clean EXEC. Skip those so EXEC_FDS /
+	// EXEC_SNIFF still detect real socat leaks (extra sockets, -r/-R files).
+	if fd >= 3 && isRuntimeNoisePath(path) {
+		return
+	}
 	fmt.Fprintf(out, "%5d %s %s\n", fd, typ, path)
+}
+
+func isRuntimeNoisePath(path string) bool {
+	if path == "" {
+		return false
+	}
+	if strings.HasPrefix(path, "/sys/fs/cgroup/") {
+		return true
+	}
+	if strings.HasPrefix(path, "anon_inode:") {
+		return true
+	}
+	// Go internal notification / netpoll pipes sometimes show as pipe:[inode]
+	// only when they are not stdio — leave pipe: visible if fd>=3 so real
+	// leaks still show; only hide known runtime names.
+	return false
 }
 

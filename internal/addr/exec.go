@@ -287,28 +287,29 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 }
 
 // setCloexecAllFrom marks FDs ≥ from CLOEXEC so they are not left open in EXEC children.
+// Classic EXEC_FDS / EXEC_SNIFF require the child to have only 0/1/2 open.
 func setCloexecAllFrom(from int) {
-	// Prefer /proc listing so we catch sparse high FDs (cgroup, pts, etc.).
-	if ents, err := os.ReadDir("/proc/self/fd"); err == nil {
-		for _, e := range ents {
-			fd, err := strconv.Atoi(e.Name())
+	// Linux 5.11+: set CLOEXEC on the whole range in one call (covers sparse FDs
+	// like cgroup handles that appear after /proc scans).
+	if err := unix.CloseRange(uint(from), ^uint(0), unix.CLOSE_RANGE_CLOEXEC); err == nil {
+		return
+	}
+	// Fallback: snapshot /proc/self/fd then CloseOnExec each.
+	f, err := os.Open("/proc/self/fd")
+	if err == nil {
+		names, _ := f.Readdirnames(-1)
+		f.Close()
+		for _, name := range names {
+			fd, err := strconv.Atoi(name)
 			if err != nil || fd < from {
 				continue
 			}
-			flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
-			if err != nil {
-				continue
-			}
-			_, _ = unix.FcntlInt(uintptr(fd), unix.F_SETFD, flags|unix.FD_CLOEXEC)
+			unix.CloseOnExec(fd)
 		}
 		return
 	}
 	for fd := from; fd < 1024; fd++ {
-		flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
-		if err != nil {
-			continue
-		}
-		_, _ = unix.FcntlInt(uintptr(fd), unix.F_SETFD, flags|unix.FD_CLOEXEC)
+		unix.CloseOnExec(fd)
 	}
 }
 

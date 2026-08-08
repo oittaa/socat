@@ -73,6 +73,10 @@ type Global struct {
 	// Child process exit (EXEC/SYSTEM): non-zero promotes socat process exit.
 	ChildExitCode int
 	ChildErr      error
+
+	// Classic -r / -R raw transfer dumps (left→right / right→left). CLOEXEC.
+	RawLeft  *os.File
+	RawRight *os.File
 }
 
 // Opened is a live address endpoint ready for transfer or accept-loop.
@@ -624,6 +628,8 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 		Verbose:      g.Verbose,
 		Hex:          g.Hex,
 		Dump:         g.Dump,
+		RawLeft:      g.RawLeft,
+		RawRight:     g.RawRight,
 		NoCloseLeft:  noCloseLeft,
 		NoCloseRight: noCloseRight,
 	}

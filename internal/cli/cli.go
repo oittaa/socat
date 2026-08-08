@@ -16,6 +16,7 @@ import (
 	"github.com/oittaa/socat/internal/addr"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
+	"golang.org/x/sys/unix"
 )
 
 // Config holds parsed global options.
@@ -383,6 +384,26 @@ func Main(args []string) int {
 		Sloppy:      cfg.Sloppy,
 		LeftToRight: cfg.LeftToRight,
 		RightToLeft: cfg.RightToLeft,
+	}
+	// Classic -r / -R: raw dump files for left→right / right→left.
+	// Open with CLOEXEC so EXEC_SNIFF does not inherit them.
+	if cfg.RawLeft != "" {
+		f, err := os.OpenFile(cfg.RawLeft, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|unix.O_CLOEXEC, 0o644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "socat: -r: %v\n", err)
+			return 1
+		}
+		defer f.Close()
+		g.RawLeft = f
+	}
+	if cfg.RawRight != "" {
+		f, err := os.OpenFile(cfg.RawRight, os.O_CREATE|os.O_WRONLY|os.O_TRUNC|unix.O_CLOEXEC, 0o644)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "socat: -R: %v\n", err)
+			return 1
+		}
+		defer f.Close()
+		g.RawRight = f
 	}
 	if cfg.IdleSet {
 		if cfg.Idle < 0 {

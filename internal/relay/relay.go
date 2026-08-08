@@ -34,6 +34,9 @@ type Config struct {
 	Hex bool
 	// Dump is where -v/-x output goes (usually stderr).
 	Dump io.Writer
+	// RawLeft/RawRight: classic -r / -R binary dumps of transferred data.
+	RawLeft  io.Writer // left→right
+	RawRight io.Writer // right→left
 	// OnStats is called with final counters if non-nil.
 	OnStats func(Stats)
 	// NoCloseLeft/Right: on cancel, do not Close that stream (classic end-close
@@ -245,6 +248,13 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 				data := buf[:nr]
 				if cfg.Verbose || cfg.Hex {
 					dump(cfg, dir, data)
+				}
+				// Classic -r (left→right ">") / -R (right→left "<") raw dumps.
+				if dir == ">" && cfg.RawLeft != nil {
+					_, _ = cfg.RawLeft.Write(data)
+				}
+				if dir == "<" && cfg.RawRight != nil {
+					_, _ = cfg.RawRight.Write(data)
 				}
 				nw, ew := dst.Write(data)
 				if nw > 0 {
