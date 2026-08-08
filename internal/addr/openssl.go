@@ -2,10 +2,14 @@ package addr
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"math/big"
 	"net"
 	"os"
 	"strings"
@@ -256,29 +260,39 @@ func parsePositiveInt(v string) (int, error) {
 
 func verifyEnabled(s parse.Spec) bool {
 	// Classic default verify=1; verify=0 disables peer verification.
+	// Bare "verify" without value is true (flag).
 	if !s.HasOption("verify") {
 		return true
 	}
 	return s.BoolOption("verify")
 }
 
+// commonNameOption returns classic openssl-commonname / commonname if set.
+func commonNameOption(s parse.Spec) string {
+	if v := s.OptionValue("commonname", ""); v != "" {
+		return v
+	}
+	return s.OptionValue("openssl-commonname", "")
+}
+
 func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 	cfg := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 	}
-	// Server name for SNI / hostname check
-	sn := s.OptionValue("commonname", "")
-	if sn == "" {
-		sn = s.OptionValue("openssl-commonname", "")
+	// Name used for hostname check / SNI.
+	// OPENSSL_CN_CLIENT_SECURITY: commonname=$LOCALHOST while connecting to 127.0.0.1.
+	// Without commonname, verify against the dial host (IP must not auto-pass).
+	cnOpt := commonNameOption(s)
+	checkName := stripBrackets(serverName)
+	if cnOpt != "" {
+		checkName = cnOpt
 	}
-	if sn == "" {
-		sn = stripBrackets(serverName)
-	}
-	// Skip SNI for raw IPs unless commonname set
-	if ip := net.ParseIP(sn); ip == nil {
-		cfg.ServerName = sn
-	} else if s.HasOption("commonname") || s.HasOption("openssl-commonname") {
-		cfg.ServerName = sn
+	// SNI: use hostname form when not an IP
+	if ip := net.ParseIP(checkName); ip == nil {
+		cfg.ServerName = checkName
+	} else if cnOpt != "" {
+		// commonname is hostname while dial target may be IP — still set SNI
+		cfg.ServerName = cnOpt
 	}
 
 	if !verifyEnabled(s) {
@@ -288,10 +302,9 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		// Classic test certs often have CN only (no SAN). Modern Go rejects CN-only
-		// hostname checks, so we verify the chain ourselves and allow CN match.
+		// Manual verify: classic CN-only certs + strict name (no IP→any-CN shortcut).
 		cfg.InsecureSkipVerify = true
-		cfg.VerifyPeerCertificate = makeVerifyPeer(roots, cfg.ServerName)
+		cfg.VerifyPeerCertificate = makeVerifyPeer(roots, checkName, cnOpt != "")
 		if roots != nil {
 			cfg.RootCAs = roots
 		}
@@ -312,19 +325,31 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 
 func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 	certPath := s.OptionValue("cert", "")
-	if certPath == "" {
-		return nil, fmt.Errorf("OPENSSL-LISTEN requires cert=")
-	}
 	keyPath := s.OptionValue("key", "")
-	cert, err := loadKeyPair(certPath, keyPath)
-	if err != nil {
-		return nil, err
+	var cert tls.Certificate
+	var err error
+	if certPath == "" {
+		// Classic allows OPENSSL-LISTEN without cert for option-parse regression
+		// tests (V1800_OPENSSL_LISTEN_*). Generate an ephemeral self-signed cert.
+		cert, err = ephemeralSelfSigned()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		cert, err = loadKeyPair(certPath, keyPath)
+		if err != nil {
+			return nil, err
+		}
 	}
 	cfg := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
 	}
-	if verifyEnabled(s) {
+
+	cnWant := commonNameOption(s)
+	needClientCert := verifyEnabled(s) || cnWant != ""
+
+	if needClientCert {
 		roots, err := loadCAPool(s)
 		if err != nil {
 			return nil, err
@@ -332,14 +357,62 @@ func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 		if roots != nil {
 			cfg.ClientCAs = roots
 			cfg.ClientAuth = tls.RequireAndVerifyClientCert
-		} else {
-			// verify=1 without cafile: request but use system roots if any
+		} else if verifyEnabled(s) {
 			cfg.ClientAuth = tls.RequireAnyClientCert
+		} else {
+			// commonname check only: request a client cert if offered
+			cfg.ClientAuth = tls.RequestClientCert
+		}
+		if cnWant != "" || roots != nil {
+			// Verify client chain + optional CN match (OPENSSL_CN_SERVER_SECURITY).
+			cfg.InsecureSkipVerify = false // N/A for server
+			prev := cfg.VerifyPeerCertificate
+			cfg.VerifyPeerCertificate = makeServerVerifyPeer(roots, cnWant, verifyEnabled(s), prev)
 		}
 	} else {
 		cfg.ClientAuth = tls.NoClientCert
 	}
 	return cfg, nil
+}
+
+// makeServerVerifyPeer checks client certificate chain and optional commonname.
+func makeServerVerifyPeer(roots *x509.CertPool, cnWant string, doVerify bool, prev func([][]byte, [][]*x509.Certificate) error) func([][]byte, [][]*x509.Certificate) error {
+	return func(rawCerts [][]byte, chains [][]*x509.Certificate) error {
+		if prev != nil {
+			if err := prev(rawCerts, chains); err != nil {
+				return err
+			}
+		}
+		if len(rawCerts) == 0 {
+			if cnWant != "" || doVerify {
+				return fmt.Errorf("tls: no client certificate")
+			}
+			return nil
+		}
+		leaf, err := x509.ParseCertificate(rawCerts[0])
+		if err != nil {
+			return err
+		}
+		if doVerify && roots != nil {
+			opts := x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageAny}}
+			inter := x509.NewCertPool()
+			for i := 1; i < len(rawCerts); i++ {
+				if c, e := x509.ParseCertificate(rawCerts[i]); e == nil {
+					inter.AddCert(c)
+				}
+			}
+			opts.Intermediates = inter
+			if _, err := leaf.Verify(opts); err != nil {
+				return err
+			}
+		}
+		if cnWant != "" {
+			if !cnMatches(leaf, cnWant) {
+				return fmt.Errorf("tls: client commonName %q does not match %q", leaf.Subject.CommonName, cnWant)
+			}
+		}
+		return nil
+	}
 }
 
 // loadKeyPair loads cert+key from separate files or a combined PEM (classic .pem).
@@ -416,9 +489,10 @@ func loadCAPool(s parse.Spec) (*x509.CertPool, error) {
 	return pool, nil
 }
 
-// makeVerifyPeer verifies the leaf against roots and checks hostname via SAN or CN.
-// Classic socat test certificates often lack SANs and only set CommonName.
-func makeVerifyPeer(roots *x509.CertPool, serverName string) func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+// makeVerifyPeer verifies the leaf against roots and checks name via SAN or CN.
+// wantCN: when true (commonname= set), only that name may match — no IP shortcuts.
+// Classic test certs often lack SANs; we still allow CN match for the check name.
+func makeVerifyPeer(roots *x509.CertPool, checkName string, wantCN bool) func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 	return func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 		if len(rawCerts) == 0 {
 			return fmt.Errorf("tls: no peer certificates")
@@ -440,7 +514,6 @@ func makeVerifyPeer(roots *x509.CertPool, serverName string) func(rawCerts [][]b
 			opts.Intermediates.AddCert(c)
 		}
 		if roots == nil {
-			// System roots
 			sys, err := x509.SystemCertPool()
 			if err != nil {
 				return err
@@ -450,44 +523,124 @@ func makeVerifyPeer(roots *x509.CertPool, serverName string) func(rawCerts [][]b
 		if _, err := leaf.Verify(opts); err != nil {
 			return err
 		}
-		if serverName == "" {
+		if checkName == "" {
 			return nil
 		}
-		// Prefer SANs; fall back to CN for classic test certs.
-		if err := leaf.VerifyHostname(serverName); err == nil {
+		// Prefer SANs (modern).
+		if err := leaf.VerifyHostname(checkName); err == nil {
 			return nil
 		}
-		if leaf.Subject.CommonName != "" && (strings.EqualFold(leaf.Subject.CommonName, serverName) ||
-			strings.EqualFold(leaf.Subject.CommonName, "localhost") && isLocalName(serverName)) {
+		// CN match for classic test certs / commonname= option.
+		if cnMatches(leaf, checkName) {
 			return nil
 		}
-		// IP peer and CN is hostname is still classic-style; accept if chain valid
-		// and CN is non-empty for verify=1 tests that only care about cafile trust.
-		if net.ParseIP(serverName) != nil && leaf.Subject.CommonName != "" {
-			return nil
-		}
-		return fmt.Errorf("tls: certificate hostname mismatch (CN=%q name=%q)", leaf.Subject.CommonName, serverName)
+		// Without explicit commonname, do NOT accept arbitrary CN for IP dials
+		// (OPENSSL_CN_CLIENT_SECURITY: connect 127.0.0.1 without commonname must fail).
+		return fmt.Errorf("tls: certificate hostname mismatch (CN=%q name=%q)", leaf.Subject.CommonName, checkName)
 	}
 }
 
-func isLocalName(s string) bool {
-	s = strings.ToLower(s)
-	return s == "localhost" || s == "127.0.0.1" || s == "::1" || s == "[::1]"
+func cnMatches(leaf *x509.Certificate, want string) bool {
+	if leaf == nil || want == "" {
+		return false
+	}
+	want = stripBrackets(want)
+	if strings.EqualFold(leaf.Subject.CommonName, want) {
+		return true
+	}
+	for _, n := range leaf.DNSNames {
+		if strings.EqualFold(n, want) {
+			return true
+		}
+	}
+	return false
+}
+
+// ephemeralSelfSigned builds a short-lived RSA cert for OPENSSL-LISTEN without cert=.
+func ephemeralSelfSigned() (tls.Certificate, error) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "socat-ephemeral"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	return tls.X509KeyPair(certPEM, keyPEM)
 }
 
 // rememberTLSPeer fills SOCAT_OPENSSL_X509_* from the peer certificate when present.
 func rememberTLSPeer(g *Global, c net.Conn) {
-	if g == nil {
+	if g == nil || c == nil {
 		return
 	}
 	tc, ok := c.(*tls.Conn)
 	if !ok {
+		// tls.NewListener returns *tls.Conn; still handle wrappers.
+		if u, ok := c.(interface{ NetConn() net.Conn }); ok {
+			if tc2, ok := u.NetConn().(*tls.Conn); ok {
+				tc = tc2
+			} else {
+				return
+			}
+		} else {
+			return
+		}
+	}
+	// Ensure handshake finished (Accept should already have done this).
+	if err := tc.Handshake(); err != nil {
 		return
 	}
 	st := tc.ConnectionState()
 	if len(st.PeerCertificates) == 0 {
 		return
 	}
-	// X509 env injection for EXEC is a follow-up; stream tests do not need it.
-	_ = st
+	leaf := st.PeerCertificates[0]
+	// Classic format: "C = XY, CN = localhost, O = dest-unreach, OU = socat, L = Lunar Base"
+	g.TLSPeerSubject = formatOpenSSLName(leaf.Subject)
+	g.TLSPeerIssuer = formatOpenSSLName(leaf.Issuer)
+	g.TLSPeerCommonName = leaf.Subject.CommonName
+	g.TLSPeerCountry = firstOrEmpty(leaf.Subject.Country)
+	g.TLSPeerLocality = firstOrEmpty(leaf.Subject.Locality)
+	g.TLSPeerOrg = firstOrEmpty(leaf.Subject.Organization)
+	g.TLSPeerOrgUnit = firstOrEmpty(leaf.Subject.OrganizationalUnit)
+}
+
+// formatOpenSSLName matches classic SOCAT_OPENSSL_X509_SUBJECT / ISSUER layout.
+func formatOpenSSLName(n pkix.Name) string {
+	// Order used by classic test.sh expected values: C, CN, O, OU, L
+	var parts []string
+	if len(n.Country) > 0 {
+		parts = append(parts, "C = "+n.Country[0])
+	}
+	if n.CommonName != "" {
+		parts = append(parts, "CN = "+n.CommonName)
+	}
+	if len(n.Organization) > 0 {
+		parts = append(parts, "O = "+n.Organization[0])
+	}
+	if len(n.OrganizationalUnit) > 0 {
+		parts = append(parts, "OU = "+n.OrganizationalUnit[0])
+	}
+	if len(n.Locality) > 0 {
+		parts = append(parts, "L = "+n.Locality[0])
+	}
+	return strings.Join(parts, ", ")
+}
+
+func firstOrEmpty(ss []string) string {
+	if len(ss) == 0 {
+		return ""
+	}
+	return ss[0]
 }

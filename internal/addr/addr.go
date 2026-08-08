@@ -61,6 +61,15 @@ type Global struct {
 	SockPort  string
 	PeerPort  string
 
+	// TLS peer certificate fields (classic SOCAT_OPENSSL_X509_*).
+	TLSPeerSubject    string
+	TLSPeerIssuer     string
+	TLSPeerCommonName string
+	TLSPeerCountry    string
+	TLSPeerLocality   string
+	TLSPeerOrg        string
+	TLSPeerOrgUnit    string
+
 	// Child process exit (EXEC/SYSTEM): non-zero promotes socat process exit.
 	ChildExitCode int
 	ChildErr      error

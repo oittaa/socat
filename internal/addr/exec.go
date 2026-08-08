@@ -148,6 +148,18 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 			"SOCAT_SOCKPORT="+g.SockPort,
 			"SOCAT_PEERPORT="+g.PeerPort,
 		)
+		// Peer TLS certificate (ENV_OPENSSL_* classic tests).
+		if g.TLSPeerSubject != "" {
+			env = append(env,
+				"SOCAT_OPENSSL_X509_SUBJECT="+g.TLSPeerSubject,
+				"SOCAT_OPENSSL_X509_ISSUER="+g.TLSPeerIssuer,
+				"SOCAT_OPENSSL_X509_COMMONNAME="+g.TLSPeerCommonName,
+				"SOCAT_OPENSSL_X509_COUNTRYNAME="+g.TLSPeerCountry,
+				"SOCAT_OPENSSL_X509_LOCALITYNAME="+g.TLSPeerLocality,
+				"SOCAT_OPENSSL_X509_ORGANIZATIONNAME="+g.TLSPeerOrg,
+				"SOCAT_OPENSSL_X509_ORGANIZATIONALUNITNAME="+g.TLSPeerOrgUnit,
+			)
+		}
 		cmd.Env = env
 	}
 
