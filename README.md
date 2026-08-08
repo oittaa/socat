@@ -70,14 +70,14 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 
 | Area | Options |
 |------|---------|
-| Listen/connect | `reuseaddr`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `pf`, `ipv6-v6only`, `backlog` |
+| Listen/connect | `reuseaddr`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `pf`, `ai-addrconfig`, `ipv6-v6only`, `backlog` |
 | Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport` |
 | Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `nonblock` |
 | UNIX | `unlink-early`, `unlink-close` |
 | EXEC | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none` |
 | PTY/termios-ish | `link`, `cfmakeraw`, `raw`, `echo`, `opost` |
 | Transfer | `crnl`, `ignoreeof`, `readbytes`, `retry`/`forever`/`interval` |
-| TLS | `cert`, `key`, `cafile`/`ca`, `verify`, `commonname` / `openssl-commonname` |
+| TLS | `cert`, `key`, `cafile`/`ca`, `verify`, `commonname` / `openssl-commonname`, `openssl-snihost` / `snihost`, `openssl-no-sni` / `nosni` |
 
 **`max-children`:** limits concurrent `fork` sessions on **LISTEN** addresses and on **CONNECT** / **OPENSSL-CONNECT** client reconnect loops (classic `TCP_CONNECT_MAXCHILDREN` / `OPENSSL_CONNECT_MAXCHILDREN`). Requires `fork`. With CONNECT, the parent dials again after `interval` (default 1s).
 
@@ -86,6 +86,7 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 - **Stream TLS only** — DTLS is not available in Go `crypto/tls` and is not implemented.
 - **No DSA** — DSA certificates/keys are **not supported** (deprecated; `crypto/tls` cannot load DSA keys). Classic `OPENSSLLISTENDSA` will fail here by design. Use RSA or ECDSA (or Ed25519) certs.
 - **Post-quantum key exchange** — Go 1.24+ `crypto/tls` defaults to the hybrid **X25519MLKEM768** KEM for TLS 1.3. We inherit that default. Classic `test.sh` has **no** post-quantum tests; we cover PQC in unit tests (`TestPostQuantumHybridKeyExchange`) and e2e (`TestOpenSSLPQC`).
+- **Multi-address connect** — TCP/OPENSSL CONNECT tries every resolved address (classic multi-A/AAAA), logs `opening connection to AF=…`, and matches `bind=` to the remote address family (`-4`/`-6` reorder dual-stack results).
 
 ### Intentional differences from classic socat
 

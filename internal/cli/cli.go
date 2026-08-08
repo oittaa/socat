@@ -506,7 +506,10 @@ func printHelp(w io.Writer, level int) {
 	fmt.Fprintf(w, "  -T<time>        inactivity timeout\n")
 	fmt.Fprintf(w, "  -u              unidirectional left→right\n")
 	fmt.Fprintf(w, "  -U              unidirectional right→left\n")
-	fmt.Fprintf(w, "  -4|-6|-0        preferred IP version\n")
+	// Classic test.sh greps: [[:space:]]-4[[:space:]], -6, -0 on separate lines.
+	fmt.Fprintf(w, "  -4     prefer IPv4 if version is not explicitly specified\n")
+	fmt.Fprintf(w, "  -6     prefer IPv6 if version is not explicitly specified\n")
+	fmt.Fprintf(w, "  -0     do not prefer an IP version\n")
 	fmt.Fprintf(w, "  --statistics    print transfer statistics\n")
 	// Address type names on -h (level>=1): classic test.sh runstcp4 greps
 	// `$SOCAT -h | grep -i ' TCP4-'` etc.
@@ -539,6 +542,10 @@ func printHelp(w io.Writer, level int) {
 			"pf", "sourceport", "sp",
 			"range", "lowport", "setsockopt",
 			"cert", "key", "cafile", "ca", "verify", "commonname", "openssl-commonname",
+			// SNI: OPENSSL_SNI / OPENSSL_NO_SNI greps; snihost is classic alias.
+			"openssl-snihost", "snihost", "openssl-no-sni", "nosni",
+			// Multi-address resolve (TRY_ADDRS_4_6); filter when true.
+			"ai-addrconfig", "addrconfig",
 			"crnl", "ignoreeof", "readbytes",
 			"retry", "forever", "interval",
 			"backlog", "fdin", "fdout", "max-children",

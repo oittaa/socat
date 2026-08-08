@@ -22,7 +22,8 @@ import (
 
 // OPENSSL / OPENSSL-CONNECT / SSL / SSL-CONNECT — TLS client over TCP.
 func openOpenSSLConnect(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	return openOpenSSLConnectNetwork(ctx, s, mode, g, networkTCPForHost(g, s, firstHost(s)))
+	// Dual-stack like TCP-CONNECT; pf=ip4/ip6 still forces a family.
+	return openOpenSSLConnectNetwork(ctx, s, mode, g, connectNetworkForType(g, s, firstHost(s), "tcp"))
 }
 
 func openOpenSSLConnectNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, network string) (*Opened, error) {
@@ -33,6 +34,8 @@ func openOpenSSLConnectNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Glo
 	if host == "" || port == "" {
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
+	// Dual-stack + pf= like TCP-CONNECT (OPENSSL inherits IP app connect).
+	network = connectNetworkForType(g, s, host, network)
 	addr := net.JoinHostPort(stripBrackets(host), port)
 
 	tlsCfg, err := tlsClientConfig(s, host)
@@ -41,24 +44,9 @@ func openOpenSSLConnectNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Glo
 	}
 
 	timeout := connectTimeout(s)
-	dialer := &net.Dialer{Timeout: timeout}
-	if bind := s.OptionValue("bind", ""); bind != "" || s.OptionValue("sourceport", "") != "" {
-		sp := s.OptionValue("sourceport", "0")
-		if bind == "" {
-			if network == "tcp6" {
-				bind = "::"
-			} else {
-				bind = "0.0.0.0"
-			}
-		}
-		ba, err := net.ResolveTCPAddr(network, bindPort(bind, sp))
-		if err != nil {
-			return nil, fmt.Errorf("bind: %w", err)
-		}
-		dialer.LocalAddr = ba
-	}
 
 	// Classic OPENSSL-CONNECT forks after the TLS handshake; Dial returns a live TLS conn.
+	// TCP multi-address walk first, then TLS on the winning socket.
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := withRetry(dctx, s, g, "OPENSSL-CONNECT", func() error {
@@ -68,12 +56,12 @@ func openOpenSSLConnectNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Glo
 				cctx, cancel = context.WithTimeout(dctx, timeout)
 				defer cancel()
 			}
-			// Clone config per dial so concurrent handshake state stays isolated.
-			cfg := tlsCfg.Clone()
-			raw, e := dialer.DialContext(cctx, network, addr)
+			raw, e := dialTCPAll(cctx, network, stripBrackets(host), port, s, g, timeout, nil)
 			if e != nil {
 				return e
 			}
+			// Clone config per dial so concurrent handshake state stays isolated.
+			cfg := tlsCfg.Clone()
 			tc := tls.Client(raw, cfg)
 			if e := tc.HandshakeContext(cctx); e != nil {
 				raw.Close()
@@ -316,12 +304,23 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 	if cnOpt != "" {
 		checkName = cnOpt
 	}
-	// SNI: use hostname form when not an IP
-	if ip := net.ParseIP(checkName); ip == nil {
-		cfg.ServerName = checkName
-	} else if cnOpt != "" {
-		// commonname is hostname while dial target may be IP — still set SNI
-		cfg.ServerName = cnOpt
+
+	// SNI: classic openssl-no-sni / openssl-snihost (alias snihost).
+	// OPENSSL_SNI / OPENSSL_NO_SNI: badssl.com needs SNI to succeed / fail.
+	noSNI := s.BoolOption("openssl-no-sni") || s.BoolOption("nosni")
+	sniHost := s.OptionValue("openssl-snihost", "")
+	if sniHost == "" {
+		sniHost = s.OptionValue("snihost", "")
+	}
+	if !noSNI {
+		if sniHost != "" {
+			cfg.ServerName = sniHost
+		} else if ip := net.ParseIP(checkName); ip == nil {
+			cfg.ServerName = checkName
+		} else if cnOpt != "" {
+			// commonname is hostname while dial target may be IP — still set SNI
+			cfg.ServerName = cnOpt
+		}
 	}
 
 	if !verifyEnabled(s) {

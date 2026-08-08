@@ -19,7 +19,8 @@ func openTCPConnect(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*O
 	if len(s.Params) >= 1 {
 		host = s.Params[0]
 	}
-	return openTCPConnectNetwork(ctx, s, mode, g, networkTCPForHost(g, s, host))
+	// Generic TCP: dual-stack resolve; -4/-6 only reorder (classic preference).
+	return openTCPConnectNetwork(ctx, s, mode, g, connectNetworkForType(g, s, host, "tcp"))
 }
 
 func openTCP4Connect(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
@@ -38,41 +39,18 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global,
 	if host == "" || port == "" {
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
+	// Honour pf= even when called from TCP4/TCP6 openers.
+	network = connectNetworkForType(g, s, host, network)
 	addr := net.JoinHostPort(stripBrackets(host), port)
 
 	timeout := connectTimeout(s)
-	dialer := &net.Dialer{Timeout: timeout}
-	bind := s.OptionValue("bind", "")
-	sp := s.OptionValue("sourceport", "")
-	if bind != "" || sp != "" {
-		if bind == "" {
-			if network == "tcp6" {
-				bind = "::"
-			} else {
-				bind = "0.0.0.0"
-			}
-		}
-		if sp == "" {
-			sp = "0"
-		}
-		ba, err := net.ResolveTCPAddr(network, bindPort(bind, sp))
-		if err != nil {
-			return nil, fmt.Errorf("bind: %w", err)
-		}
-		dialer.LocalAddr = ba
-	}
 
 	// Apply setsockopt before connect when possible via Control (level:opt:val).
 	// Fail the open if setsockopt returns an error (classic SETSOCKOPT MSS=1).
 	var setSockErr error
+	var control func(network, address string, c syscall.RawConn) error
 	if raw := s.OptionValue("setsockopt", ""); raw != "" {
-		prev := dialer.Control
-		dialer.Control = func(network, address string, c syscall.RawConn) error {
-			if prev != nil {
-				if e := prev(network, address, c); e != nil {
-					return e
-				}
-			}
+		control = func(network, address string, c syscall.RawConn) error {
 			return c.Control(func(fd uintptr) {
 				setSockErr = applySetsockoptFD(int(fd), raw)
 			})
@@ -82,14 +60,8 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global,
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := withRetry(dctx, s, g, network+" connect", func() error {
-			cctx := dctx
-			var cancel context.CancelFunc
-			if timeout > 0 {
-				cctx, cancel = context.WithTimeout(dctx, timeout)
-				defer cancel()
-			}
 			setSockErr = nil
-			c, e := dialer.DialContext(cctx, network, addr)
+			c, e := dialTCPAll(dctx, network, stripBrackets(host), port, s, g, timeout, control)
 			if e != nil {
 				return e
 			}
