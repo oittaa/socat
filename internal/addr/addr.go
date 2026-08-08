@@ -293,6 +293,15 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		"TEXT":         openTEXT,
 		"STALL":        openSTALL,
 		"PTY":          openPTY,
+		// Stream TLS (crypto/tls). DTLS is not available in crypto/tls.
+		"OPENSSL":          openOpenSSLConnect,
+		"OPENSSL-CONNECT":  openOpenSSLConnect,
+		"SSL":              openOpenSSLConnect,
+		"SSL-CONNECT":      openOpenSSLConnect,
+		"OPENSSL-LISTEN":   openOpenSSLListen,
+		"OPENSSL-L":        openOpenSSLListen,
+		"SSL-LISTEN":       openOpenSSLListen,
+		"SSL-L":            openOpenSSLListen,
 	}
 	fn, ok := openers[typ]
 	if !ok {

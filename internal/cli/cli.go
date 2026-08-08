@@ -478,7 +478,7 @@ func printVersion(w io.Writer) {
 		{"READLINE", false},
 		{"TUN", false},
 		{"PTY", true},
-		{"OPENSSL", false},
+		{"OPENSSL", true}, // stream TLS via crypto/tls (not DTLS)
 		{"FIPS", false},
 		{"LIBWRAP", false},
 	}
@@ -524,6 +524,7 @@ func printHelp(w io.Writer, level int) {
 	fmt.Fprintf(w, "  SOCKET-CONNECT SOCKET-LISTEN SOCKET-SENDTO SOCKET-DATAGRAM SOCKET-RECV SOCKET-RECVFROM\n")
 	fmt.Fprintf(w, "  ABSTRACT-CLIENT ABSTRACT-CONNECT ABSTRACT-SENDTO ABSTRACT-RECVFROM ABSTRACT-RECV\n")
 	fmt.Fprintf(w, "  EXEC SYSTEM SHELL TEXT STALL PTY\n")
+	fmt.Fprintf(w, "  OPENSSL OPENSSL-CONNECT OPENSSL-LISTEN OPENSSL-L SSL SSL-CONNECT SSL-LISTEN SSL-L\n")
 	if level >= 2 {
 		// Honesty: only list options we actually honor. test.sh greps
 		//   [^a-z0-9-]<name>[^a-z0-9-]  — pad with spaces on both sides.
@@ -537,6 +538,7 @@ func printHelp(w io.Writer, level int) {
 			"pipes", "setsid", "stderr", "pty",
 			"pf", "sourceport", "sp",
 			"range", "lowport", "setsockopt",
+			"cert", "key", "cafile", "ca", "verify", "commonname", "openssl-commonname",
 			"crnl", "ignoreeof", "readbytes",
 			"retry", "forever", "interval",
 			"backlog", "fdin", "fdout", "max-children",

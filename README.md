@@ -61,7 +61,8 @@ Common options: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `
 | UNIX-CONNECT / UNIX-CLIENT, UNIX-LISTEN | `bind=`, `unlink-close` / `unlink-early` |
 | EXEC, SYSTEM, SHELL | pipes, socketpair, **pty**, fdin/fdout, setsid, shut-none; child exit promoted |
 | TEXT, STALL, PTY | STALL uses classic full-pipe backpressure |
-| OPENSSL, SOCKS, PROXY, SCTP, abstract UNIX, … | **not** implemented (`#undef` in `-V`) |
+| OPENSSL / OPENSSL-CONNECT / OPENSSL-LISTEN (SSL-*) | stream TLS via `crypto/tls` (`#define WITH_OPENSSL`); **not** DTLS |
+| SOCKS, PROXY, SCTP, abstract UNIX, … | **not** implemented (`#undef` in `-V`) |
 
 ### Options (honored)
 
@@ -76,6 +77,7 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 | EXEC | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none` |
 | PTY/termios-ish | `link`, `cfmakeraw`, `raw`, `echo`, `opost` |
 | Transfer | `crnl`, `ignoreeof`, `readbytes`, `retry`/`forever`/`interval` |
+| TLS | `cert`, `key`, `cafile`/`ca`, `verify`, `commonname` / `openssl-commonname` |
 
 **Not advertised / not enforced:** `end-close`, `shut-null`, `max-children`, openssl, libwrap, etc.
 
