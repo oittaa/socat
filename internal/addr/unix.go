@@ -135,7 +135,13 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Open
 	}
 
 	lc := net.ListenConfig{}
-	ln, err := lc.Listen(ctx, "unix", path)
+	var ln net.Listener
+	var err error
+	err = withUmask(s, func() error {
+		var e error
+		ln, e = lc.Listen(ctx, "unix", path)
+		return e
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -364,7 +370,12 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 		}
 	}
 	laddr := &net.UnixAddr{Name: path, Net: "unixgram"}
-	c, err := net.ListenUnixgram("unixgram", laddr)
+	var c *net.UnixConn
+	err := withUmask(s, func() error {
+		var e error
+		c, e = net.ListenUnixgram("unixgram", laddr)
+		return e
+	})
 	if err != nil {
 		return nil, err
 	}

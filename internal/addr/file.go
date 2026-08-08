@@ -17,7 +17,12 @@ func openOPEN(_ context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, e
 	}
 	path := s.Params[0]
 	flags := openFlags(s, mode)
-	f, err := os.OpenFile(path, flags, parseFileMode(s, 0o644))
+	var f *os.File
+	err := withUmask(s, func() error {
+		var e error
+		f, e = os.OpenFile(path, flags, parseFileMode(s, 0o644))
+		return e
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +52,12 @@ func openCREATE(_ context.Context, s parse.Spec, mode Mode, _ *Global) (*Opened,
 	if s.BoolOption("append") {
 		flags = os.O_WRONLY | os.O_CREATE | os.O_APPEND
 	}
-	f, err := os.OpenFile(path, flags, parseFileMode(s, 0o644))
+	var f *os.File
+	err := withUmask(s, func() error {
+		var e error
+		f, e = os.OpenFile(path, flags, parseFileMode(s, 0o644))
+		return e
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +79,12 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened
 			} else if mode == ModeWrite {
 				flags = os.O_WRONLY | os.O_CREATE
 			}
-			f, err := os.OpenFile(path, flags, parseFileMode(s, 0o644))
+			var f *os.File
+			err := withUmask(s, func() error {
+				var e error
+				f, e = os.OpenFile(path, flags, parseFileMode(s, 0o644))
+				return e
+			})
 			if err != nil {
 				return nil, err
 			}

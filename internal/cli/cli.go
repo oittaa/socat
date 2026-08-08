@@ -537,6 +537,7 @@ func printHelp(w io.Writer, level int) {
 			"fork", "bind", "connect-timeout", "accept-timeout",
 			"unlink-early", "unlink-close", "unlink-late", "mode", "nonblock", "o-nonblock",
 			"rdonly", "wronly", "creat", "create", "excl", "append", "trunc", "o-append",
+			"umask",
 			"nodelay", "tcp-nodelay", "keepalive", "so-keepalive",
 			"pipes", "setsid", "stderr", "pty",
 			"pf", "sourceport", "sp",

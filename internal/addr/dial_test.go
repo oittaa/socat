@@ -15,7 +15,7 @@ import (
 func TestBindTCPAddrForRemoteFamily(t *testing.T) {
 	ctx := context.Background()
 	// IPv4 bind + IPv6 remote → skip
-	_, skip, err := bindTCPAddrForRemote(ctx, net.ParseIP("::1"), "127.0.0.1", "0", "tcp")
+	_, skip, err := bindTCPAddrForRemote(ctx, net.ParseIP("::1"), "127.0.0.1", "0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,14 +23,19 @@ func TestBindTCPAddrForRemoteFamily(t *testing.T) {
 		t.Fatal("expected skip for IPv4 bind vs IPv6 remote")
 	}
 	// IPv4 bind + IPv4 remote → ok
-	la, skip, err := bindTCPAddrForRemote(ctx, net.ParseIP("127.0.0.1"), "127.0.0.1", "0", "tcp")
+	la, skip, err := bindTCPAddrForRemote(ctx, net.ParseIP("127.0.0.1"), "127.0.0.1", "0")
 	if err != nil || skip || la == nil || la.IP.To4() == nil {
 		t.Fatalf("v4 bind: la=%v skip=%v err=%v", la, skip, err)
 	}
 	// IPv6 bind + IPv6 remote
-	la, skip, err = bindTCPAddrForRemote(ctx, net.ParseIP("::1"), "::1", "0", "tcp")
+	la, skip, err = bindTCPAddrForRemote(ctx, net.ParseIP("::1"), "::1", "0")
 	if err != nil || skip || la == nil || la.IP.To4() != nil {
 		t.Fatalf("v6 bind: la=%v skip=%v err=%v", la, skip, err)
+	}
+	// bind=host:port form
+	la, skip, err = bindTCPAddrForRemote(ctx, net.ParseIP("127.0.0.1"), "127.0.0.1:0", "")
+	if err != nil || skip || la == nil {
+		t.Fatalf("bind host:port: la=%v skip=%v err=%v", la, skip, err)
 	}
 }
 

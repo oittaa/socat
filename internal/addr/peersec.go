@@ -107,15 +107,28 @@ func ipInRange(ip net.IP, spec string) (bool, error) {
 		}
 	}
 
-	// IPv4 a.b.c.d:w.x.y.z — exactly one colon between two dotted quads
-	if parts := strings.Split(spec, ":"); len(parts) == 2 &&
-		strings.Count(parts[0], ".") == 3 && strings.Count(parts[1], ".") == 3 {
-		return matchAddrMask(ip, parts[0], parts[1])
+	// Classic IPv4: a.b.c.d:w.x.y.z or hostname:w.x.y.z (FDLEAK uses range=localhost:255.255.255.255).
+	// Prefer last-colon split when the right side looks like an IPv4 mask (three dots).
+	if i := strings.LastIndex(spec, ":"); i > 0 {
+		addrPart := stripBrackets(spec[:i])
+		maskPart := spec[i+1:]
+		if strings.Count(maskPart, ".") == 3 {
+			return matchAddrMask(ip, addrPart, maskPart)
+		}
 	}
 
-	// Bare address = /32 or /128
+	// Bare address or hostname = exact host (/32 or /128 after resolve).
 	base := net.ParseIP(stripBrackets(spec))
 	if base == nil {
+		// Resolve hostname once for exact match.
+		if ips, err := net.LookupIP(stripBrackets(spec)); err == nil {
+			for _, cand := range ips {
+				if cand.Equal(ip) {
+					return true, nil
+				}
+			}
+			return false, nil
+		}
 		return false, fmt.Errorf("range: invalid %q", spec)
 	}
 	if base.Equal(ip) {
@@ -173,6 +186,24 @@ func ipInHexSockRange(ip net.IP, spec string) (ok bool, err error, handled bool)
 
 func matchAddrMask(ip net.IP, addrPart, maskPart string) (bool, error) {
 	base := net.ParseIP(stripBrackets(addrPart))
+	if base == nil {
+		// Hostname in range= (classic range=localhost:255.255.255.255).
+		ips, err := net.LookupIP(stripBrackets(addrPart))
+		if err != nil || len(ips) == 0 {
+			return false, fmt.Errorf("range: resolve %s: %v", addrPart, err)
+		}
+		// Prefer IPv4 base when peer is IPv4 (and vice versa).
+		want4 := ip.To4() != nil
+		for _, cand := range ips {
+			if (cand.To4() != nil) == want4 {
+				base = cand
+				break
+			}
+		}
+		if base == nil {
+			base = ips[0]
+		}
+	}
 	maskIP := net.ParseIP(stripBrackets(maskPart))
 	if base == nil || maskIP == nil {
 		return false, fmt.Errorf("range: invalid addr:mask %s:%s", addrPart, maskPart)

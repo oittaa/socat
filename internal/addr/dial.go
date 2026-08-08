@@ -23,8 +23,13 @@ const (
 // dialTCPAll resolves host and tries each address in order (classic multi-A/AAAA).
 // network is "tcp", "tcp4", or "tcp6". Logs Notice "opening connection to AF=…"
 // for each attempt so TRY_ADDRS_* tests pass.
+// port may be numeric or a /etc/services name (TCP4SERVICE).
 func dialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g *Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
 	host = stripBrackets(host)
+	portNum, err := resolvePortNum(network, port)
+	if err != nil {
+		return nil, err
+	}
 	ips, err := resolveConnectIPs(ctx, network, host, s, g)
 	if err != nil {
 		return nil, err
@@ -35,20 +40,17 @@ func dialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 
 	bindOpt := s.OptionValue("bind", "")
 	sp := s.OptionValue("sourceport", "")
-	if sp == "" {
-		sp = "0"
-	}
 
 	var lastErr error
 	for _, ip := range ips {
 		af := afForIP(ip)
-		raddr := &net.TCPAddr{IP: ip, Port: mustPort(port)}
+		raddr := &net.TCPAddr{IP: ip, Port: portNum}
 		if g != nil && g.Log != nil {
 			// Match classic: "opening connection to AF=2 127.0.0.1:9"
 			g.Log.Noticef("opening connection to AF=%d %s", af, formatTCPAddr(ip, raddr.Port))
 		}
 
-		laddr, skip, err := bindTCPAddrForRemote(ctx, ip, bindOpt, sp, network)
+		laddr, skip, err := bindTCPAddrForRemote(ctx, ip, bindOpt, sp)
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {
@@ -98,13 +100,22 @@ func dialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 	return nil, lastErr
 }
 
-func mustPort(port string) int {
-	n, err := strconv.Atoi(port)
-	if err != nil || n < 0 || n > 65535 {
-		// service names not resolved here; 0 lets dial fail clearly
-		return 0
+// resolvePortNum accepts a numeric port or /etc/services name (classic TCP:host:http).
+func resolvePortNum(network, port string) (int, error) {
+	if port == "" {
+		return 0, fmt.Errorf("empty port")
 	}
-	return n
+	if n, err := strconv.Atoi(port); err == nil {
+		if n < 0 || n > 65535 {
+			return 0, fmt.Errorf("invalid port %s", port)
+		}
+		return n, nil
+	}
+	proto := "tcp"
+	if strings.HasPrefix(network, "udp") {
+		proto = "udp"
+	}
+	return net.LookupPort(proto, port)
 }
 
 func formatTCPAddr(ip net.IP, port int) string {
@@ -214,21 +225,36 @@ func localIPFamilies() (v4, v6 bool) {
 }
 
 // bindTCPAddrForRemote picks a local TCPAddr matching remote's family.
-// skip=true means no matching bind for this remote (try next remote).
-func bindTCPAddrForRemote(ctx context.Context, remote net.IP, bindOpt, sourceport, network string) (laddr *net.TCPAddr, skip bool, err error) {
+// bindOpt may be host, [ipv6], or host:port / [ipv6]:port (classic bind=).
+// sourceport is used when bind has no port. skip=true means try next remote.
+func bindTCPAddrForRemote(ctx context.Context, remote net.IP, bindOpt, sourceport string) (laddr *net.TCPAddr, skip bool, err error) {
 	if bindOpt == "" && (sourceport == "" || sourceport == "0") {
 		return nil, false, nil
 	}
-	port := 0
-	if sourceport != "" && sourceport != "0" {
-		port, err = strconv.Atoi(sourceport)
-		if err != nil {
-			return nil, false, fmt.Errorf("sourceport: %w", err)
+	bindHost, bindPort := "", "0"
+	if sourceport != "" {
+		bindPort = sourceport
+	}
+	if bindOpt != "" {
+		// Prefer SplitHostPort so bind=127.0.0.1:0 and bind=[::1]:123 work.
+		if h, p, e := net.SplitHostPort(bindOpt); e == nil {
+			bindHost, bindPort = h, p
+		} else {
+			bindHost = stripBrackets(bindOpt)
 		}
+	}
+	port := 0
+	if bindPort != "" && bindPort != "0" {
+		port, err = resolvePortNum("tcp", bindPort)
+		if err != nil {
+			return nil, false, fmt.Errorf("bind port: %w", err)
+		}
+	} else if bindPort == "0" || bindPort == "" {
+		port = 0
 	}
 	want4 := remote.To4() != nil
 
-	if bindOpt == "" {
+	if bindHost == "" {
 		// sourceport only: wildcard of matching family
 		if want4 {
 			return &net.TCPAddr{IP: net.IPv4zero, Port: port}, false, nil
@@ -236,7 +262,7 @@ func bindTCPAddrForRemote(ctx context.Context, remote net.IP, bindOpt, sourcepor
 		return &net.TCPAddr{IP: net.IPv6zero, Port: port}, false, nil
 	}
 
-	bindHost := stripBrackets(bindOpt)
+	bindHost = stripBrackets(bindHost)
 	if ip := net.ParseIP(bindHost); ip != nil {
 		if (ip.To4() != nil) != want4 {
 			return nil, true, nil
