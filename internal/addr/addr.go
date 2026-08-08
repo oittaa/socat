@@ -91,6 +91,13 @@ type Opened struct {
 	PeerFilter func(net.Conn) error
 	// MaxChildren limits concurrent fork children (0 = unlimited). Classic max-children.
 	MaxChildren int
+	// ConnectFork: client-side reconnect loop (TCP/OPENSSL CONNECT with fork).
+	// Parent dials repeatedly; each child transfers one connection. Dial must
+	// complete the full open (including TLS handshake for OPENSSL-CONNECT).
+	ConnectFork bool
+	Dial        func(ctx context.Context) (net.Conn, error)
+	// Interval between parent connect iterations (classic interval= seconds).
+	Interval time.Duration
 	// For dual: separate read/write streams
 	Read  relay.Stream
 	Write relay.Stream
@@ -352,6 +359,12 @@ func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
 		return runForkListen(ctx, lo, right, rMode, g)
 	}
 
+	// Client CONNECT/OPENSSL-CONNECT with fork,max-children (classic xio-ipapp loop).
+	// Parent only dials; each child opens the peer address and transfers.
+	if lo.ConnectFork {
+		return runConnectFork(ctx, lo, right, rMode, g)
+	}
+
 	ro, err := OpenChannel(ctx, right, rMode, g)
 	if err != nil {
 		return err
@@ -363,7 +376,101 @@ func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
 		return runForkListenRight(ctx, lo, ro, g)
 	}
 
+	if ro.ConnectFork {
+		return runConnectForkWithLeft(ctx, lo.EffectiveStream(), ro, g)
+	}
+
 	return transferPair(ctx, lo, ro, g)
+}
+
+// runConnectFork is the classic CONNECT,fork parent loop: dial, spawn child
+// transfer, sleep interval, honour max-children, repeat until ctx cancel.
+func runConnectFork(ctx context.Context, lo *Opened, right parse.Channel, rMode Mode, g *Global) error {
+	return runConnectForkLoop(ctx, lo, g, func(cctx context.Context, cg *Global, c net.Conn) error {
+		ro, err := OpenChannel(cctx, right, rMode, cg)
+		if err != nil {
+			return err
+		}
+		defer ro.Close()
+		return transferStreams(cctx, relay.NetStream{Conn: c}, ro.EffectiveStream(), cg)
+	})
+}
+
+// runConnectForkWithLeft handles CONNECT,fork on the right address with left
+// already open (shared stream; sessions serialized).
+func runConnectForkWithLeft(ctx context.Context, left relay.Stream, ro *Opened, g *Global) error {
+	var leftMu sync.Mutex
+	return runConnectForkLoop(ctx, ro, g, func(cctx context.Context, cg *Global, c net.Conn) error {
+		leftMu.Lock()
+		defer leftMu.Unlock()
+		return transferStreamsOpts(cctx, left, relay.NetStream{Conn: c}, cg, true, false)
+	})
+}
+
+func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(context.Context, *Global, net.Conn) error) error {
+	if o.Dial == nil {
+		return fmt.Errorf("%s: connect fork without dialer", o.Label)
+	}
+	interval := o.Interval
+	if interval <= 0 {
+		interval = time.Second
+	}
+	var slots chan struct{}
+	if o.MaxChildren > 0 {
+		slots = make(chan struct{}, o.MaxChildren)
+	}
+	if g != nil && g.Log != nil {
+		g.Log.Noticef("starting connect loop (%s)", o.Label)
+	}
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+		// Wait for a free child slot before dial (classic: parent blocks when
+		// num_child >= max-children, then connects again).
+		if slots != nil {
+			select {
+			case <-ctx.Done():
+				return nil
+			case slots <- struct{}{}:
+			}
+		}
+		conn, err := o.Dial(ctx)
+		if err != nil {
+			if slots != nil {
+				<-slots
+			}
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
+		if g != nil && g.Log != nil {
+			g.Log.Infof("successfully connected from %s to %s", conn.LocalAddr(), conn.RemoteAddr())
+		}
+		go func(c net.Conn) {
+			defer c.Close()
+			if slots != nil {
+				defer func() { <-slots }()
+			}
+			cg := *g
+			rememberAddrs(&cg, c)
+			rememberTLSPeer(&cg, c)
+			if err := child(ctx, &cg, c); err != nil {
+				if g != nil && g.Log != nil {
+					g.Log.Debugf("connect child: %s", err)
+				}
+			}
+		}(conn)
+		// Classic parent always sleeps interval before the next connect attempt.
+		t := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return nil
+		case <-t.C:
+		}
+	}
 }
 
 func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode Mode, g *Global) error {

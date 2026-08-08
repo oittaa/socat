@@ -78,36 +78,64 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global,
 			})
 		}
 	}
-	var conn net.Conn
-	err = withRetry(ctx, s, g, network+" connect", func() error {
-		dctx := ctx
-		var cancel context.CancelFunc
-		if timeout > 0 {
-			dctx, cancel = context.WithTimeout(ctx, timeout)
-			defer cancel()
+
+	dialOnce := func(dctx context.Context) (net.Conn, error) {
+		var conn net.Conn
+		err := withRetry(dctx, s, g, network+" connect", func() error {
+			cctx := dctx
+			var cancel context.CancelFunc
+			if timeout > 0 {
+				cctx, cancel = context.WithTimeout(dctx, timeout)
+				defer cancel()
+			}
+			setSockErr = nil
+			c, e := dialer.DialContext(cctx, network, addr)
+			if e != nil {
+				return e
+			}
+			if setSockErr != nil {
+				c.Close()
+				return setSockErr
+			}
+			if tc, ok := c.(*net.TCPConn); ok {
+				if s.BoolOption("nodelay") {
+					_ = tc.SetNoDelay(true)
+				}
+				if s.BoolOption("keepalive") || s.HasOption("keepidle") {
+					_ = tc.SetKeepAlive(true)
+				}
+			}
+			conn = c
+			return nil
+		})
+		return conn, err
+	}
+
+	fork := s.BoolOption("fork")
+	maxChildren := 0
+	if v := s.OptionValue("max-children", ""); v != "" {
+		if n, e := parsePositiveInt(v); e == nil {
+			maxChildren = n
 		}
-		setSockErr = nil
-		c, e := dialer.DialContext(dctx, network, addr)
-		if e != nil {
-			return e
-		}
-		if setSockErr != nil {
-			c.Close()
-			return setSockErr
-		}
-		conn = c
-		return nil
-	})
+	}
+	if maxChildren > 0 && !fork {
+		return nil, fmt.Errorf("%s: option max-children not allowed without option fork", s.Type)
+	}
+	if fork {
+		// Classic CONNECT,fork parent loop (TCP_CONNECT_MAXCHILDREN).
+		return &Opened{
+			ConnectFork: true,
+			Fork:        true,
+			MaxChildren: maxChildren,
+			Interval:    parseRetry(s).interval,
+			Label:       fmt.Sprintf("%s:%s", network, addr),
+			Dial:        dialOnce,
+		}, nil
+	}
+
+	conn, err := dialOnce(ctx)
 	if err != nil {
 		return nil, err
-	}
-	if tc, ok := conn.(*net.TCPConn); ok {
-		if s.BoolOption("nodelay") {
-			_ = tc.SetNoDelay(true)
-		}
-		if s.BoolOption("keepalive") || s.HasOption("keepidle") {
-			_ = tc.SetKeepAlive(true)
-		}
 	}
 	g.Log.Infof("successfully connected from %s to %s", conn.LocalAddr(), conn.RemoteAddr())
 	rememberAddrs(g, conn)

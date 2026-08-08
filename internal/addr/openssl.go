@@ -58,26 +58,55 @@ func openOpenSSLConnectNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Glo
 		dialer.LocalAddr = ba
 	}
 
-	var conn net.Conn
-	err = withRetry(ctx, s, g, "OPENSSL-CONNECT", func() error {
-		dctx := ctx
-		var cancel context.CancelFunc
-		if timeout > 0 {
-			dctx, cancel = context.WithTimeout(ctx, timeout)
-			defer cancel()
+	// Classic OPENSSL-CONNECT forks after the TLS handshake; Dial returns a live TLS conn.
+	dialOnce := func(dctx context.Context) (net.Conn, error) {
+		var conn net.Conn
+		err := withRetry(dctx, s, g, "OPENSSL-CONNECT", func() error {
+			cctx := dctx
+			var cancel context.CancelFunc
+			if timeout > 0 {
+				cctx, cancel = context.WithTimeout(dctx, timeout)
+				defer cancel()
+			}
+			// Clone config per dial so concurrent handshake state stays isolated.
+			cfg := tlsCfg.Clone()
+			raw, e := dialer.DialContext(cctx, network, addr)
+			if e != nil {
+				return e
+			}
+			tc := tls.Client(raw, cfg)
+			if e := tc.HandshakeContext(cctx); e != nil {
+				raw.Close()
+				return e
+			}
+			conn = tc
+			return nil
+		})
+		return conn, err
+	}
+
+	fork := s.BoolOption("fork")
+	maxChildren := 0
+	if v := s.OptionValue("max-children", ""); v != "" {
+		if n, e := parsePositiveInt(v); e == nil {
+			maxChildren = n
 		}
-		raw, e := dialer.DialContext(dctx, network, addr)
-		if e != nil {
-			return e
-		}
-		tc := tls.Client(raw, tlsCfg)
-		if e := tc.HandshakeContext(dctx); e != nil {
-			raw.Close()
-			return e
-		}
-		conn = tc
-		return nil
-	})
+	}
+	if maxChildren > 0 && !fork {
+		return nil, fmt.Errorf("%s: option max-children not allowed without option fork", s.Type)
+	}
+	if fork {
+		return &Opened{
+			ConnectFork: true,
+			Fork:        true,
+			MaxChildren: maxChildren,
+			Interval:    parseRetry(s).interval,
+			Label:       "OPENSSL:" + addr,
+			Dial:        dialOnce,
+		}, nil
+	}
+
+	conn, err := dialOnce(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -415,6 +444,10 @@ func makeServerVerifyPeer(roots *x509.CertPool, cnWant string, doVerify bool, pr
 	}
 }
 
+// errDSAUnsupported is returned when a PEM contains a DSA private key.
+// DSA is deprecated; Go crypto/tls does not support DSA keys.
+var errDSAUnsupported = fmt.Errorf("DSA private keys are not supported (deprecated)")
+
 // loadKeyPair loads cert+key from separate files or a combined PEM (classic .pem).
 func loadKeyPair(certPath, keyPath string) (tls.Certificate, error) {
 	if keyPath == "" {
@@ -423,6 +456,9 @@ func loadKeyPair(certPath, keyPath string) (tls.Certificate, error) {
 		if err != nil {
 			return tls.Certificate{}, err
 		}
+		if pemHasDSAPrivateKey(data) {
+			return tls.Certificate{}, fmt.Errorf("cert %s: %w", certPath, errDSAUnsupported)
+		}
 		// tls.X509KeyPair accepts cert PEM then key PEM, or we try both orders.
 		certPEM, keyPEM := splitCertKeyPEM(data)
 		if len(certPEM) == 0 || len(keyPEM) == 0 {
@@ -430,7 +466,28 @@ func loadKeyPair(certPath, keyPath string) (tls.Certificate, error) {
 		}
 		return tls.X509KeyPair(certPEM, keyPEM)
 	}
+	keyData, err := os.ReadFile(keyPath)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	if pemHasDSAPrivateKey(keyData) {
+		return tls.Certificate{}, fmt.Errorf("key %s: %w", keyPath, errDSAUnsupported)
+	}
 	return tls.LoadX509KeyPair(certPath, keyPath)
+}
+
+func pemHasDSAPrivateKey(data []byte) bool {
+	rest := data
+	for {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			return false
+		}
+		if block.Type == "DSA PRIVATE KEY" {
+			return true
+		}
+	}
 }
 
 func splitCertKeyPEM(data []byte) (certPEM, keyPEM []byte) {
@@ -445,7 +502,8 @@ func splitCertKeyPEM(data []byte) (certPEM, keyPEM []byte) {
 		switch block.Type {
 		case "CERTIFICATE":
 			certPEM = append(certPEM, b...)
-		case "PRIVATE KEY", "RSA PRIVATE KEY", "EC PRIVATE KEY", "DSA PRIVATE KEY", "ENCRYPTED PRIVATE KEY":
+		case "PRIVATE KEY", "RSA PRIVATE KEY", "EC PRIVATE KEY", "ENCRYPTED PRIVATE KEY":
+			// DSA PRIVATE KEY intentionally omitted — rejected in loadKeyPair.
 			keyPEM = append(keyPEM, b...)
 		}
 	}

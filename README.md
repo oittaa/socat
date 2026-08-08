@@ -70,7 +70,7 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 
 | Area | Options |
 |------|---------|
-| Listen/connect | `reuseaddr`, `fork`, `bind`, `connect-timeout`, `accept-timeout`, `pf`, `ipv6-v6only`, `backlog` |
+| Listen/connect | `reuseaddr`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `pf`, `ipv6-v6only`, `backlog` |
 | Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport` |
 | Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `nonblock` |
 | UNIX | `unlink-early`, `unlink-close` |
@@ -79,13 +79,20 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 | Transfer | `crnl`, `ignoreeof`, `readbytes`, `retry`/`forever`/`interval` |
 | TLS | `cert`, `key`, `cafile`/`ca`, `verify`, `commonname` / `openssl-commonname` |
 
-**Not advertised / not enforced:** `end-close`, `shut-null`, `max-children`, openssl, libwrap, etc.
+**`max-children`:** limits concurrent `fork` sessions on **LISTEN** addresses and on **CONNECT** / **OPENSSL-CONNECT** client reconnect loops (classic `TCP_CONNECT_MAXCHILDREN` / `OPENSSL_CONNECT_MAXCHILDREN`). Requires `fork`. With CONNECT, the parent dials again after `interval` (default 1s).
+
+### TLS notes
+
+- **Stream TLS only** — DTLS is not available in Go `crypto/tls` and is not implemented.
+- **No DSA** — DSA certificates/keys are **not supported** (deprecated; `crypto/tls` cannot load DSA keys). Classic `OPENSSLLISTENDSA` will fail here by design. Use RSA or ECDSA (or Ed25519) certs.
+- **Post-quantum key exchange** — Go 1.24+ `crypto/tls` defaults to the hybrid **X25519MLKEM768** KEM for TLS 1.3. We inherit that default. Classic `test.sh` has **no** post-quantum tests; we cover PQC in unit tests (`TestPostQuantumHybridKeyExchange`) and e2e (`TestOpenSSLPQC`).
 
 ### Intentional differences from classic socat
 
 - **`fork`** uses **goroutines**, not `fork(2)` process isolation
 - Companion tools aim for useful parity, not bit-identical C ifdef output
 - Unknown options are generally ignored (classic may error more strictly)
+- DSA TLS materials are rejected instead of silently failing later
 
 ## Classic scorecard
 
