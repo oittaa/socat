@@ -169,6 +169,9 @@ func openNamedPIPE(s parse.Spec, mode Mode) (*Opened, error) {
 		err := withUmask(s, func() error {
 			return syscall.Mkfifo(path, uint32(parseFileMode(s, 0o644)))
 		})
+		if err == nil {
+			_ = applyPerm(path, s, nil)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("mkfifo %s: %w", path, err)
 		}
@@ -375,6 +378,11 @@ func openFlags(s parse.Spec, mode Mode) int {
 }
 
 func fileOpened(f *os.File, s parse.Spec, path string) (*Opened, error) {
+	// Classic perm=/mode= via fchmod after open (CREATE_PERM etc.).
+	if err := applyPerm(path, s, f); err != nil {
+		f.Close()
+		return nil, err
+	}
 	var stream relay.Stream
 	if s.BoolOption("ignoreeof") {
 		stream = relay.FDStream{

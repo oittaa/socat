@@ -153,9 +153,12 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Open
 		ul.SetUnlinkOnClose(doUnlink)
 	}
 
-	// mode on socket file
-	if mode := parseFileMode(s, 0); mode != 0 {
-		_ = os.Chmod(path, mode)
+	// mode/perm on socket file (classic fchmod/chmod after bind)
+	if err := applyPerm(path, s, nil); err != nil {
+		// Non-fatal for some platforms; still try mode=
+		if mode := parseFileMode(s, 0); mode != 0 {
+			_ = os.Chmod(path, mode)
+		}
 	}
 
 	fork := s.BoolOption("fork")
@@ -379,6 +382,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 	if err != nil {
 		return nil, err
 	}
+	_ = applyPerm(path, s, nil)
 	label := s.Type + ":" + path
 	// Non-fork RECVFROM: one packet peer, then stream until EOF/timeout.
 	// Fork: use a simple packet-accept loop via Opened.Listener adapter.
@@ -558,7 +562,93 @@ func (u *unixPacketConn) SetWriteDeadline(t time.Time) error {
 	return u.c.SetWriteDeadline(t)
 }
 
-// openAbstractSendto implements ABSTRACT-SENDTO / ABSTRACT-CLIENT bind+datagram style.
+// openAbstractListen: ABSTRACT-LISTEN:name — stream listen in Linux abstract namespace.
+func openAbstractListen(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	if len(s.Params) < 1 || s.Params[0] == "" {
+		return nil, fmt.Errorf("ABSTRACT-LISTEN requires name")
+	}
+	name := s.Params[0]
+	if !isAbstract(name) {
+		name = "@" + name
+	}
+	path := unixAddr(name)
+	lc := net.ListenConfig{}
+	ln, err := lc.Listen(ctx, "unix", path)
+	if err != nil {
+		return nil, err
+	}
+	fork := s.BoolOption("fork")
+	o := &Opened{
+		Listener: ln,
+		Fork:     fork,
+		Label:    "ABSTRACT-LISTEN:" + name,
+	}
+	o.addCleanup(func() { ln.Close() })
+	if fork {
+		go func() {
+			<-ctx.Done()
+			ln.Close()
+		}()
+		return o, nil
+	}
+	// Non-fork: accept one
+	type acc struct {
+		c   net.Conn
+		err error
+	}
+	ch := make(chan acc, 1)
+	go func() {
+		c, err := ln.Accept()
+		ch <- acc{c, err}
+	}()
+	select {
+	case <-ctx.Done():
+		ln.Close()
+		return nil, ctx.Err()
+	case a := <-ch:
+		ln.Close()
+		o.Listener = nil
+		if a.err != nil {
+			return nil, a.err
+		}
+		st := relay.Stream(relay.NetStream{Conn: a.c})
+		st, err = wrapCommon(s, st)
+		if err != nil {
+			a.c.Close()
+			return nil, err
+		}
+		o.Stream = st
+		return o, nil
+	}
+}
+
+// openAbstractConnect: ABSTRACT-CONNECT / ABSTRACT-CLIENT stream connect.
+func openAbstractConnect(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	if len(s.Params) < 1 || s.Params[0] == "" {
+		return nil, fmt.Errorf("ABSTRACT-CONNECT requires name")
+	}
+	name := s.Params[0]
+	if !isAbstract(name) {
+		name = "@" + name
+	}
+	path := unixAddr(name)
+	d := net.Dialer{Timeout: connectTimeout(s)}
+	c, err := d.DialContext(ctx, "unix", path)
+	if err != nil {
+		return nil, err
+	}
+	st := relay.Stream(relay.NetStream{Conn: c})
+	st, err = wrapCommon(s, st)
+	if err != nil {
+		c.Close()
+		return nil, err
+	}
+	_ = mode
+	_ = g
+	return &Opened{Stream: st, Label: "ABSTRACT-CONNECT:" + name}, nil
+}
+
+// openAbstractSendto implements ABSTRACT-SENDTO bind+datagram style.
 // For stream-ish echo tests, ABSTRACT-SENDTO with bind to same name loops on dgram.
 func openAbstractSendto(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
 	if len(s.Params) < 1 || s.Params[0] == "" {

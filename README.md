@@ -61,8 +61,11 @@ Common options: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `
 | UNIX-CONNECT / UNIX-CLIENT, UNIX-LISTEN | `bind=`, `unlink-close` / `unlink-early` |
 | EXEC, SYSTEM, SHELL | pipes, socketpair, **pty**, fdin/fdout, setsid, shut-none; child exit promoted |
 | TEXT, STALL, PTY | STALL uses classic full-pipe backpressure |
-| OPENSSL / OPENSSL-CONNECT / OPENSSL-LISTEN (SSL-*) | stream TLS via `crypto/tls` (`#define WITH_OPENSSL`); **not** DTLS |
-| SOCKS, PROXY, SCTP, abstract UNIX, … | **not** implemented (`#undef` in `-V`) |
+| OPENSSL / OPENSSL-CONNECT / OPENSSL-LISTEN (SSL-*) | stream TLS via `crypto/tls`; **not** DTLS (see [Unsupported / security](#unsupported--security-related)) |
+| PROXY / PROXY-CONNECT | HTTP CONNECT client (`proxyport`, `http-version`, `crlf`) |
+| SOCKS4 / SOCKS4A | SOCKS4 CONNECT client (`socksport`, `socksuser`); **not** SOCKS5 yet |
+| ABSTRACT-LISTEN / ABSTRACT-CONNECT / … | Linux abstract UNIX namespace |
+| SCTP, DCCP, POSIXMQ, TUN, libwrap, readline | **not** implemented (`#undef` in `-V`) |
 
 ### Options (honored)
 
@@ -72,28 +75,44 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 |------|---------|
 | Listen/connect | `reuseaddr`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `pf`, `ai-addrconfig`, `ipv6-v6only`, `backlog` |
 | Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport` |
-| Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `nonblock` |
+| Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `umask`, `nonblock` |
 | UNIX | `unlink-early`, `unlink-close` |
-| EXEC | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none` |
-| PTY/termios-ish | `link`, `cfmakeraw`, `raw`, `echo`, `opost` |
-| Transfer | `crnl`, `ignoreeof`, `readbytes`, `retry`/`forever`/`interval` |
+| EXEC | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none`, `umask` (child inherits, then parent restores) |
+| PTY/termios-ish | `link`, `cfmakeraw`, `raw`, `echo`, `opost`, `perm` |
+| Transfer | `crnl`, `crlf`, `ignoreeof`, `readbytes`, `retry`/`forever`/`interval` |
 | TLS | `cert`, `key`, `cafile`/`ca`, `verify`, `commonname` / `openssl-commonname`, `openssl-snihost` / `snihost`, `openssl-no-sni` / `nosni` |
+| PROXY/SOCKS | `proxyport`, `http-version`, `socksport`, `socksuser` |
 
-**`max-children`:** limits concurrent `fork` sessions on **LISTEN** addresses and on **CONNECT** / **OPENSSL-CONNECT** client reconnect loops (classic `TCP_CONNECT_MAXCHILDREN` / `OPENSSL_CONNECT_MAXCHILDREN`). Requires `fork`. With CONNECT, the parent dials again after `interval` (default 1s).
+**`max-children`:** limits concurrent `fork` sessions on **LISTEN** and on **CONNECT** / **OPENSSL-CONNECT** client reconnect loops. Requires `fork`. Parent redials after `interval` (default 1s).
+
+**`perm=` / `mode=`:** after create/open, `chmod`/`fchmod` sets the exact mode (classic NAMED group). **`umask=`** applies only during open (or child `Start` for EXEC/SHELL), then restores.
 
 ### TLS notes
 
-- **Stream TLS only** — DTLS is not available in Go `crypto/tls` and is not implemented.
-- **No DSA** — DSA certificates/keys are **not supported** (deprecated; `crypto/tls` cannot load DSA keys). Classic `OPENSSLLISTENDSA` will fail here by design. Use RSA or ECDSA (or Ed25519) certs.
-- **Post-quantum key exchange** — Go 1.24+ `crypto/tls` defaults to the hybrid **X25519MLKEM768** KEM for TLS 1.3. We inherit that default. Classic `test.sh` has **no** post-quantum tests; we cover PQC in unit tests (`TestPostQuantumHybridKeyExchange`) and e2e (`TestOpenSSLPQC`).
-- **Multi-address connect** — TCP/OPENSSL CONNECT tries every resolved address (classic multi-A/AAAA), logs `opening connection to AF=…`, and matches `bind=` to the remote address family (`-4`/`-6` reorder dual-stack results).
+- **Stream TLS only** — see [Unsupported](#unsupported--security-related) for DTLS.
+- **No DSA** — see [Unsupported](#unsupported--security-related).
+- **Post-quantum key exchange** — Go 1.24+ `crypto/tls` defaults to hybrid **X25519MLKEM768**. We inherit that. Classic `test.sh` has no PQC tests; we cover PQC in unit/e2e tests.
+- **Multi-address connect** — try every resolved address; log `opening connection to AF=…`; match `bind=` to remote family; `-4`/`-6` reorder dual-stack results.
+- **IPv6 peer filters** on OPENSSL-LISTEN: `range`, `sourceport`, `lowport` (CN check accepts `::1` vs `[::1]`).
+
+### Unsupported / security-related
+
+We do **not** re-implement features that Go’s standard libraries removed or never offered for security (or crypto-policy) reasons. Prefer modern alternatives.
+
+| Topic | Status | Why / reference |
+|-------|--------|------------------|
+| **DSA certificates / keys** | Rejected | DSA is obsolete; Go `crypto/tls` does not parse DSA keys. Classic `OPENSSLLISTENDSA` fails by design. Use RSA, ECDSA, or Ed25519. See [Go crypto/tls](https://pkg.go.dev/crypto/tls) and [NIST SP 800-57 / deprecation of DSA](https://csrc.nist.gov/publications/detail/sp/800-57-part-1/rev-5/final). |
+| **DTLS** | Not implemented | Not available in Go `crypto/tls` (stream TLS only). See [crypto/tls package docs](https://pkg.go.dev/crypto/tls). |
+| **SSLv3 / weak ciphers** | Not offered | Go TLS defaults reject obsolete protocols/ciphers. See [Go TLS cipher suites](https://go.dev/blog/tls-cipher-suites) and [crypto/tls Config](https://pkg.go.dev/crypto/tls#Config). |
+| **SOCKS5** | Not yet | Planned separately; not a security block. |
+| **libwrap / TCP wrappers** | Not yet | Host `hosts.allow` filtering; optional for later. |
 
 ### Intentional differences from classic socat
 
 - **`fork`** uses **goroutines**, not `fork(2)` process isolation
 - Companion tools aim for useful parity, not bit-identical C ifdef output
 - Unknown options are generally ignored (classic may error more strictly)
-- DSA TLS materials are rejected instead of silently failing later
+- Security-deprecated crypto (DSA, DTLS, etc.) is documented above rather than forced in
 
 ## Classic scorecard
 

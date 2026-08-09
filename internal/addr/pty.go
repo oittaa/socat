@@ -97,6 +97,11 @@ func openPTY(_ context.Context, s parse.Spec, _ Mode, g *Global) (*Opened, error
 			return nil, fmt.Errorf("PTY link: %w", err)
 		}
 	}
+	// Classic perm= on PTY applies to the slave node (and thus the link target).
+	_ = applyPerm(slaveName, s, slave)
+	if link != "" {
+		_ = applyPerm(link, s, nil)
+	}
 
 	// Use ptyStream so half-close does not Close the master (fileStream would).
 	st := ptyStream(master)

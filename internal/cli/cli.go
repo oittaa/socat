@@ -474,7 +474,7 @@ func printVersion(w io.Writer) {
 		{"TEXT", true},
 		{"SOCKETPAIR", true},
 		{"UNIX", true},
-		{"ABSTRACT_UNIXSOCKET", false},
+		{"ABSTRACT_UNIXSOCKET", true},
 		{"IP4", true},
 		{"IP6", true},
 		{"RAWIP", false},
@@ -487,12 +487,12 @@ func printVersion(w io.Writer) {
 		{"UDPLITE", false},
 		{"LISTEN", true},
 		{"POSIXMQ", false},
-		{"SOCKS4", false},
-		{"SOCKS4A", false},
-		{"SOCKS5", false},
+		{"SOCKS4", true},
+		{"SOCKS4A", true},
+		{"SOCKS5", false}, // not yet
 		{"VSOCK", false},
 		{"NAMESPACES", false},
-		{"PROXY", false},
+		{"PROXY", true},
 		{"SYSTEM", true},
 		{"SHELL", true},
 		{"EXEC", true},
@@ -546,9 +546,11 @@ func printHelp(w io.Writer, level int) {
 	fmt.Fprintf(w, "  UNIX UNIX-CONNECT UNIX-CLIENT UNIX-LISTEN UNIX-L\n")
 	fmt.Fprintf(w, "  UNIX-SENDTO UNIX-RECVFROM UNIX-RECV UNIX-DATAGRAM SOCKETPAIR\n")
 	fmt.Fprintf(w, "  SOCKET-CONNECT SOCKET-LISTEN SOCKET-SENDTO SOCKET-DATAGRAM SOCKET-RECV SOCKET-RECVFROM\n")
-	fmt.Fprintf(w, "  ABSTRACT-CLIENT ABSTRACT-CONNECT ABSTRACT-SENDTO ABSTRACT-RECVFROM ABSTRACT-RECV\n")
+	fmt.Fprintf(w, "  ABSTRACT-LISTEN ABSTRACT-L ABSTRACT-CLIENT ABSTRACT-CONNECT\n")
+	fmt.Fprintf(w, "  ABSTRACT-SENDTO ABSTRACT-RECVFROM ABSTRACT-RECV\n")
 	fmt.Fprintf(w, "  EXEC SYSTEM SHELL TEXT STALL PTY\n")
 	fmt.Fprintf(w, "  OPENSSL OPENSSL-CONNECT OPENSSL-LISTEN OPENSSL-L SSL SSL-CONNECT SSL-LISTEN SSL-L\n")
+	fmt.Fprintf(w, "  PROXY PROXY-CONNECT SOCKS4 SOCKS4A\n")
 	if level >= 2 {
 		// Honesty: only list options we actually honor. test.sh greps
 		//   [^a-z0-9-]<name>[^a-z0-9-]  — pad with spaces on both sides.
@@ -558,7 +560,7 @@ func printHelp(w io.Writer, level int) {
 			"fork", "bind", "connect-timeout", "accept-timeout",
 			"unlink-early", "unlink-close", "unlink-late", "mode", "nonblock", "o-nonblock",
 			"rdonly", "wronly", "creat", "create", "excl", "append", "trunc", "o-append",
-			"umask",
+			"umask", "perm", "mode", "user", "group",
 			"nodelay", "tcp-nodelay", "keepalive", "so-keepalive",
 			"pipes", "setsid", "stderr", "pty",
 			"pf", "sourceport", "sp",
@@ -568,6 +570,8 @@ func printHelp(w io.Writer, level int) {
 			"openssl-snihost", "snihost", "openssl-no-sni", "nosni",
 			// Multi-address resolve (TRY_ADDRS_4_6); filter when true.
 			"ai-addrconfig", "addrconfig",
+			// PROXY / SOCKS
+			"proxyport", "http-version", "crlf", "socksport", "socksuser",
 			"crnl", "ignoreeof", "readbytes",
 			"retry", "forever", "interval",
 			"backlog", "fdin", "fdout", "max-children",

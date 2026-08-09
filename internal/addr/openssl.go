@@ -601,7 +601,12 @@ func cnMatches(leaf *x509.Certificate, want string) bool {
 	if leaf == nil || want == "" {
 		return false
 	}
+	// OPENSSLTCP6_*: classic test certs use CN="[::1]" while dial name is ::1.
 	want = stripBrackets(want)
+	cn := stripBrackets(leaf.Subject.CommonName)
+	if strings.EqualFold(cn, want) {
+		return true
+	}
 	if strings.EqualFold(leaf.Subject.CommonName, want) {
 		return true
 	}

@@ -270,14 +270,23 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	// CLOEXEC descriptors, so the high-numbered originals are not leaked.
 	setCloexecAllFrom(3)
 
-	if err := cmd.Start(); err != nil {
+	// Classic umask= on EXEC/SYSTEM/SHELL: child inherits umask at fork;
+	// parent restores immediately after Start (UMASK_ON_SYSTEM / UMASK_ON_CREATE).
+	var startErr error
+	if err := withUmask(s, func() error {
+		startErr = cmd.Start()
+		return nil
+	}); err != nil {
+		startErr = err
+	}
+	if startErr != nil {
 		for _, f := range cleanup {
 			f()
 		}
 		if child != nil {
 			child.Close()
 		}
-		return nil, err
+		return nil, startErr
 	}
 	if child != nil {
 		child.Close()

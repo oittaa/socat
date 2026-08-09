@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -294,13 +295,20 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		"UNIX-RECVFROM": openUnixRecvfrom,
 		"UNIX-RECV":     openUnixRecv,
 		"UNIX-DATAGRAM": openUnixDatagram,
-		// Linux abstract namespace (path becomes abstract name).
-		"ABSTRACT-CLIENT":  openAbstractSendto,
-		"ABSTRACT-CONNECT": openAbstractSendto,
-		"ABSTRACT-SENDTO":  openAbstractSendto,
-		"ABSTRACT-RECVFROM": openAbstractSendto, // minimal: same dial path for bind tests
-		"ABSTRACT-RECV":    openAbstractSendto,
-		"SOCKETPAIR":       openSocketpair,
+		// Linux abstract namespace.
+		"ABSTRACT-LISTEN":   openAbstractListen,
+		"ABSTRACT-L":        openAbstractListen,
+		"ABSTRACT-CLIENT":   openAbstractConnect,
+		"ABSTRACT-CONNECT":  openAbstractConnect,
+		"ABSTRACT-SENDTO":   openAbstractSendto,
+		"ABSTRACT-RECVFROM": openAbstractSendto,
+		"ABSTRACT-RECV":     openAbstractSendto,
+		// HTTP CONNECT and SOCKS4/4A clients.
+		"PROXY":         openProxyConnect,
+		"PROXY-CONNECT": openProxyConnect,
+		"SOCKS4":        openSOCKS4Connect,
+		"SOCKS4A":       openSOCKS4AConnect,
+		"SOCKETPAIR":    openSocketpair,
 		"SOCKET-CONNECT":   openSocketConnect,
 		"SOCKET-LISTEN":    openSocketListen,
 		"SOCKET-SENDTO":    openSocketSendto,
@@ -665,15 +673,54 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 }
 
 // Apply common file mode from options (octal string).
+// Classic accepts both perm= and mode= (TYPE_MODET, octal).
 func parseFileMode(s parse.Spec, def os.FileMode) os.FileMode {
-	v := s.OptionValue("mode", "")
+	if m, ok := explicitFileMode(s); ok {
+		return m
+	}
+	return def
+}
+
+// explicitFileMode returns perm= or mode= when set (octal, classic TYPE_MODET).
+func explicitFileMode(s parse.Spec) (os.FileMode, bool) {
+	v := s.OptionValue("perm", "")
 	if v == "" {
-		return def
+		v = s.OptionValue("mode", "")
 	}
-	var m uint64
-	_, err := fmt.Sscanf(v, "%o", &m)
+	if v == "" {
+		return 0, false
+	}
+	// Prefer pure octal (perm=511, mode=644); allow 0-prefix.
+	m, err := strconv.ParseUint(v, 8, 32)
 	if err != nil {
-		return def
+		var m2 uint64
+		if _, e := fmt.Sscanf(v, "%o", &m2); e != nil {
+			return 0, false
+		}
+		m = m2
 	}
-	return os.FileMode(m)
+	return os.FileMode(m), true
+}
+
+// applyPerm sets exact permissions after create/open (classic fchmod/chmod).
+// Open create modes are still masked by umask; perm= forces the final mode.
+func applyPerm(path string, s parse.Spec, f *os.File) error {
+	mode, ok := explicitFileMode(s)
+	if !ok {
+		return nil
+	}
+	if f != nil {
+		if err := f.Chmod(mode); err != nil {
+			// Some paths (e.g. some PTY slaves) reject fchmod; try path.
+			if path != "" {
+				return os.Chmod(path, mode)
+			}
+			return err
+		}
+		return nil
+	}
+	if path == "" {
+		return nil
+	}
+	return os.Chmod(path, mode)
 }
