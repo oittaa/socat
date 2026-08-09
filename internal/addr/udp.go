@@ -380,6 +380,8 @@ type udpRecvFromConn struct {
 	first    []byte
 	got      bool
 	closeEOF bool // after first payload: further Read → EOF (one-shot UDP-LISTEN)
+	wantCtrl bool
+	g        *Global
 }
 
 func (u *udpRecvFromConn) Read(p []byte) (int, error) {
@@ -393,11 +395,14 @@ func (u *udpRecvFromConn) Read(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 	for {
-		n, addr, err := u.uc.ReadFromUDP(p)
+		n, oob, addr, err := readUDPMsg(u.uc, p, u.wantCtrl)
 		if err != nil {
 			return n, err
 		}
 		if u.peer != nil && addr != nil && addr.String() == u.peer.String() {
+			if u.wantCtrl {
+				processAncillary(oob, u.g)
+			}
 			return n, nil
 		}
 	}
@@ -481,6 +486,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global
 					})
 				}
 			}
+			applyUDPConnOpts(c, s, network)
 			st := &udpDatagramConn{UDPConn: c, raddr: raddr}
 			wrapped, err := wrapCommon(s, st)
 			if err != nil {
@@ -546,6 +552,8 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global
 			})
 		}
 	}
+	// Send-side IP options (ip-ttl, ip-tos, ipv6-tclass, …) for SENDTO/DATAGRAM.
+	applyUDPConnOpts(c, s, network)
 	st := &udpDatagramConn{UDPConn: c, raddr: raddr}
 	wrapped, err := wrapCommon(s, st)
 	if err != nil {
@@ -688,19 +696,23 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 		}
 		// One permitted packet, then use the *same* listening socket for replies
 		// (classic). DialUDP(local, peer) after Close fails with EADDRINUSE.
+		// When ancillary options are set, use recvmsg so we can log/set env
+		// before SYSTEM/EXEC children start (UDP*ENV tests).
 		buf := make([]byte, max(g.BlockSize, 65535))
+		wantCtrl := needAncillary(s)
 		type res struct {
-			n int
-			a *net.UDPAddr
-			e error
+			n   int
+			a   *net.UDPAddr
+			oob []byte
+			e   error
 		}
 		var n int
 		var raddr *net.UDPAddr
 		for {
 			ch := make(chan res, 1)
 			go func() {
-				n, a, err := pc.ReadFromUDP(buf)
-				ch <- res{n, a, err}
+				nn, oob, a, err := readUDPMsg(pc, buf, wantCtrl)
+				ch <- res{nn, a, oob, err}
 			}()
 			select {
 			case <-ctx.Done():
@@ -718,6 +730,8 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 					continue
 				}
 				n, raddr = r.n, r.a
+				// Process before returning so SYSTEM sees SOCAT_* env.
+				processAncillary(r.oob, g)
 			}
 			break
 		}
@@ -728,6 +742,8 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 			peer:     raddr,
 			first:    append([]byte(nil), buf[:n]...),
 			closeEOF: true,
+			wantCtrl: wantCtrl,
+			g:        g,
 		})
 		st, err = wrapCommon(s, st)
 		if err != nil {
@@ -744,7 +760,12 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 		pc.Close()
 		return nil, fmt.Errorf("UDP-RECV is read-only")
 	}
-	st := relay.Stream(&udpFilteredRecv{conn: pc, spec: s, log: g})
+	st := relay.Stream(&udpFilteredRecv{
+		conn:     pc,
+		spec:     s,
+		log:      g,
+		wantCtrl: needAncillary(s),
+	})
 	st, err = wrapCommon(s, st)
 	if err != nil {
 		pc.Close()
@@ -757,15 +778,17 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 }
 
 // udpFilteredRecv drops packets that fail range/sourceport/lowport checks.
+// When wantCtrl is set, uses ReadMsgUDP and logs/sets ancillary env.
 type udpFilteredRecv struct {
-	conn *net.UDPConn
-	spec parse.Spec
-	log  *Global
+	conn     *net.UDPConn
+	spec     parse.Spec
+	log      *Global
+	wantCtrl bool
 }
 
 func (u *udpFilteredRecv) Read(p []byte) (int, error) {
 	for {
-		n, addr, err := u.conn.ReadFromUDP(p)
+		n, oob, addr, err := readUDPMsg(u.conn, p, u.wantCtrl)
 		if err != nil {
 			return n, err
 		}
@@ -774,6 +797,9 @@ func (u *udpFilteredRecv) Read(p []byte) (int, error) {
 				u.log.Log.Noticef("%s", err)
 			}
 			continue
+		}
+		if u.wantCtrl {
+			processAncillary(oob, u.log)
 		}
 		return n, nil
 	}
@@ -808,6 +834,8 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 		return nil, err
 	}
 	c := pc.(*net.UDPConn)
+	// Ancillary recv opts (so-timestamp, ip-recvttl, …) and send-side IP opts.
+	applyUDPConnOpts(c, s, network)
 	// ip-add-membership=mcastaddr:interfaceaddr (classic form).
 	if v := s.OptionValue("ip-add-membership", ""); v != "" {
 		if err := joinMulticast(c, network, v); err != nil {

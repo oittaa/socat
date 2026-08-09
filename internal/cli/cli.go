@@ -582,6 +582,18 @@ func printHelp(w io.Writer, level int) {
 			// shut-none: do not SIGKILL EXEC/SYSTEM children (EXEC_RC / SYSTEM_RC).
 			// shut-null / null-eof: 0-byte datagram as half-close (UDP etc.).
 			"shut-none", "shut-null", "null-eof", "shut", "end-close", "nofork",
+			// UDP/IP ancillary (SCM/ENV classic tests): recv enable + send values.
+			"so-timestamp", "timestamp",
+			"ip-pktinfo", "pktinfo",
+			"ip-recvttl", "recvttl",
+			"ip-recvtos", "recvtos",
+			"ip-recvopts", "recvopts",
+			"ip-ttl", "ttl", "ip-tos", "tos", "ip-options",
+			"ipv6-recvpktinfo", "recvpktinfo",
+			"ipv6-recvhoplimit", "recvhoplimit",
+			"ipv6-recvtclass", "recvtclass",
+			"ipv6-unicast-hops", "unicast-hops",
+			"ipv6-tclass", "tclass",
 		}
 		fmt.Fprintln(w)
 		fmt.Fprint(w, "b:")
