@@ -240,12 +240,18 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 			maxChildren = n
 		}
 	}
+	// Per-connection wrap for fork accept (crlf, escape, …). Non-fork applies
+	// the same via wrapCommon after the single accept below.
+	wrapConn := func(c net.Conn) (relay.Stream, error) {
+		return wrapCommon(s, relay.NetStream{Conn: c})
+	}
 	o := &Opened{
 		Listener:    ln,
 		Fork:        fork,
 		Label:       fmt.Sprintf("%s-LISTEN:%s", network, port),
 		PeerFilter:  filter,
 		MaxChildren: maxChildren,
+		WrapDial:    wrapConn,
 	}
 	o.addCleanup(func() { ln.Close() })
 

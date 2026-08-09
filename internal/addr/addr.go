@@ -96,11 +96,13 @@ type Opened struct {
 	PeerFilter func(net.Conn) error
 	// MaxChildren limits concurrent fork children (0 = unlimited). Classic max-children.
 	MaxChildren int
-	// ConnectFork: client-side reconnect loop (TCP/OPENSSL CONNECT with fork).
+	// ConnectFork: client-side reconnect loop (TCP/OPENSSL/SOCKS/PROXY CONNECT with fork).
 	// Parent dials repeatedly; each child transfers one connection. Dial must
-	// complete the full open (including TLS handshake for OPENSSL-CONNECT).
+	// complete the full open (including TLS/SOCKS/HTTP handshake).
 	ConnectFork bool
 	Dial        func(ctx context.Context) (net.Conn, error)
+	// WrapDial wraps each dialed conn for transfer (crlf, escape, …). Optional.
+	WrapDial func(net.Conn) (relay.Stream, error)
 	// Interval between parent connect iterations (classic interval= seconds).
 	Interval time.Duration
 	// For dual: separate read/write streams
@@ -397,16 +399,28 @@ func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
 	return transferPair(ctx, lo, ro, g)
 }
 
+// streamFromDial applies optional WrapDial, else plain NetStream.
+func streamFromDial(o *Opened, c net.Conn) (relay.Stream, error) {
+	if o != nil && o.WrapDial != nil {
+		return o.WrapDial(c)
+	}
+	return relay.NetStream{Conn: c}, nil
+}
+
 // runConnectFork is the classic CONNECT,fork parent loop: dial, spawn child
 // transfer, sleep interval, honour max-children, repeat until ctx cancel.
 func runConnectFork(ctx context.Context, lo *Opened, right parse.Channel, rMode Mode, g *Global) error {
 	return runConnectForkLoop(ctx, lo, g, func(cctx context.Context, cg *Global, c net.Conn) error {
+		left, err := streamFromDial(lo, c)
+		if err != nil {
+			return err
+		}
 		ro, err := OpenChannel(cctx, right, rMode, cg)
 		if err != nil {
 			return err
 		}
 		defer ro.Close()
-		return transferStreams(cctx, relay.NetStream{Conn: c}, ro.EffectiveStream(), cg)
+		return transferStreams(cctx, left, ro.EffectiveStream(), cg)
 	})
 }
 
@@ -415,9 +429,13 @@ func runConnectFork(ctx context.Context, lo *Opened, right parse.Channel, rMode 
 func runConnectForkWithLeft(ctx context.Context, left relay.Stream, ro *Opened, g *Global) error {
 	var leftMu sync.Mutex
 	return runConnectForkLoop(ctx, ro, g, func(cctx context.Context, cg *Global, c net.Conn) error {
+		right, err := streamFromDial(ro, c)
+		if err != nil {
+			return err
+		}
 		leftMu.Lock()
 		defer leftMu.Unlock()
-		return transferStreamsOpts(cctx, left, relay.NetStream{Conn: c}, cg, true, false)
+		return transferStreamsOpts(cctx, left, right, cg, true, false)
 	})
 }
 
@@ -538,7 +556,11 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 			// Per-connection Global copy so SOCAT_* env is correct under concurrency.
 			cg := *g
 			rememberAddrs(&cg, c)
-			leftStream := relay.Stream(relay.NetStream{Conn: c})
+			leftStream, err := streamFromDial(lo, c)
+			if err != nil {
+				g.Log.Errorf("wrap accept: %s", err)
+				return
+			}
 			ro, err := OpenChannel(ctx, right, rMode, &cg)
 			if err != nil {
 				g.Log.Errorf("right address: %s", err)
@@ -608,7 +630,11 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 			defer leftMu.Unlock()
 			cg := *g
 			rememberAddrs(&cg, c)
-			rightStream := relay.NetStream{Conn: c}
+			rightStream, err := streamFromDial(ro, c)
+			if err != nil {
+				g.Log.Errorf("wrap accept: %s", err)
+				return
+			}
 			// noCloseLeft=true: do not close/shutdown shared left between children.
 			if err := transferStreamsOpts(ctx, left, rightStream, &cg, true, false); err != nil {
 				g.Log.Debugf("transfer: %s", err)

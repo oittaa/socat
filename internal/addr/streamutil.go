@@ -137,7 +137,7 @@ func applyReadBytes(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	}, nil
 }
 
-// crnlWriter converts LF → CRLF on write (classic crnl option, basic form).
+// crnlWriter converts LF → CRLF on write (classic crlf/crnl: internal RAW → external CRNL).
 type crnlWriter struct {
 	w io.Writer
 }
@@ -169,12 +169,50 @@ func (c crnlWriter) Write(p []byte) (int, error) {
 	return written, nil
 }
 
+// crnlReader converts external CRNL → internal RAW (classic cv_newline CRNL→RAW):
+// strip every CR; leave LF and other bytes unchanged.
+type crnlReader struct {
+	r io.Reader
+}
+
+func (c crnlReader) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	// Keep reading until we produce at least one non-CR byte or hit error/EOF.
+	// A pure-CR chunk would otherwise return (0, nil) and confuse some loops.
+	tmp := make([]byte, len(p))
+	out := 0
+	var err error
+	for out == 0 {
+		var n int
+		n, err = c.r.Read(tmp)
+		for i := 0; i < n; i++ {
+			if tmp[i] == '\r' {
+				continue
+			}
+			p[out] = tmp[i]
+			out++
+		}
+		if err != nil || n == 0 {
+			break
+		}
+	}
+	return out, err
+}
+
+// wantCRNL reports classic crlf/crnl line-ending conversion on an address.
+// "crlf" is an alias for "crnl" in classic xioopts.c.
+func wantCRNL(s parse.Spec) bool {
+	return s.BoolOption("crlf") || s.BoolOption("crnl") || s.BoolOption("crorlf")
+}
+
 func applyCRNL(s parse.Spec, stream relay.Stream) relay.Stream {
-	if !s.BoolOption("crnl") && !s.BoolOption("crorlf") {
+	if !wantCRNL(s) {
 		return stream
 	}
 	return relay.FDStream{
-		R: stream,
+		R: crnlReader{r: stream},
 		W: crnlWriter{w: stream},
 		C: stream,
 		CloseW: func() error {

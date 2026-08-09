@@ -5,14 +5,16 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
-// PROXY / PROXY-CONNECT:proxy:targethost:targetport[,proxyport=N][,crlf][,http-version=1.0]
+// PROXY / PROXY-CONNECT:proxy:targethost:targetport[,proxyport=N][,http-version=1.0][,resolve]
 // Classic HTTP CONNECT through a proxy server.
+// CONNECT request lines always use CRLF (classic xio-proxy.c hardcodes them).
 func openProxyConnect(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
 	// Params: proxyhost, targethost, targetport  (or combined from parser)
 	proxyHost, targetHost, targetPort, err := proxyParams(s)
@@ -27,73 +29,151 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode Mode, g *Global) (
 	if ver == "" {
 		ver = "1.0"
 	}
-	// crlf option: classic default for PROXY is CRLF line ends
-	useCRLF := !s.HasOption("crlf") || s.BoolOption("crlf")
-	nl := "\n"
-	if useCRLF {
-		nl = "\r\n"
+
+	// Classic proxy-resolve / resolve (default true): put IPv4 in CONNECT target.
+	// proxyecho.sh and many proxies expect "CONNECT a.b.c.d:port HTTP/x.y".
+	connectHost := stripBrackets(targetHost)
+	doResolve := true
+	if s.HasOption("proxy-resolve") {
+		doResolve = s.BoolOption("proxy-resolve")
+	} else if s.HasOption("resolve") {
+		doResolve = s.BoolOption("resolve")
+	}
+	if doResolve {
+		if ip := net.ParseIP(connectHost); ip == nil || ip.To4() == nil {
+			if ips, e := net.DefaultResolver.LookupIP(ctx, "ip4", connectHost); e == nil && len(ips) > 0 {
+				connectHost = ips[0].String()
+			}
+		} else if ip4 := ip.To4(); ip4 != nil {
+			connectHost = ip4.String()
+		}
 	}
 
 	addr := net.JoinHostPort(stripBrackets(proxyHost), proxyPort)
+	// Honour pf=ip4/ip6 when dialing the proxy host.
+	network := connectNetworkForType(g, s, proxyHost, "tcp")
 	d := net.Dialer{Timeout: connectTimeout(s)}
-	var conn net.Conn
-	err = withRetry(ctx, s, g, "PROXY-CONNECT", func() error {
-		c, e := d.DialContext(ctx, "tcp", addr)
-		if e != nil {
-			return e
-		}
-		// CONNECT host:port HTTP/1.x
-		req := fmt.Sprintf("CONNECT %s:%s HTTP/%s%s", stripBrackets(targetHost), targetPort, ver, nl)
-		// Optional proxy-authorization: user:pass (base64) — leave for later
-		req += nl // end headers
-		if _, e := c.Write([]byte(req)); e != nil {
-			c.Close()
-			return e
-		}
-		br := bufio.NewReader(c)
-		status, e := br.ReadString('\n')
-		if e != nil {
-			c.Close()
-			return fmt.Errorf("proxy response: %w", e)
-		}
-		// HTTP/1.x 200 ...
-		if !strings.Contains(status, " 200") {
-			c.Close()
-			return fmt.Errorf("proxy CONNECT failed: %s", strings.TrimSpace(status))
-		}
-		// Drain headers until blank line
-		for {
-			line, e := br.ReadString('\n')
+	label := "PROXY:" + targetHost + ":" + targetPort
+
+	dialOnce := func(dctx context.Context) (net.Conn, error) {
+		var conn net.Conn
+		e := withRetry(dctx, s, g, "PROXY-CONNECT", func() error {
+			c, e := d.DialContext(dctx, network, addr)
 			if e != nil {
+				return e
+			}
+			// CONNECT host:port HTTP/1.x\r\n\r\n  (classic always CRLF)
+			req := fmt.Sprintf("CONNECT %s:%s HTTP/%s\r\n\r\n", connectHost, targetPort, ver)
+			if _, e := c.Write([]byte(req)); e != nil {
 				c.Close()
 				return e
 			}
-			if line == "\r\n" || line == "\n" {
-				break
+			br := bufio.NewReader(c)
+			status, e := br.ReadString('\n')
+			if e != nil {
+				c.Close()
+				return fmt.Errorf("proxy response: %w", e)
 			}
+			// Classic: accept HTTP/1.0 or 1.1, skip multiple spaces, require code 200.
+			if !proxyStatusOK(status) {
+				c.Close()
+				return fmt.Errorf("proxy CONNECT failed: %s", strings.TrimSpace(status))
+			}
+			// Drain headers until blank line
+			for {
+				line, e := br.ReadString('\n')
+				if e != nil {
+					c.Close()
+					return e
+				}
+				if line == "\r\n" || line == "\n" {
+					break
+				}
+			}
+			// Any buffered bytes after headers must remain available to the stream.
+			if br.Buffered() > 0 {
+				peek, _ := br.Peek(br.Buffered())
+				conn = &prefixConn{Conn: c, prefix: append([]byte(nil), peek...)}
+				_, _ = br.Discard(br.Buffered())
+			} else {
+				conn = c
+			}
+			return nil
+		})
+		return conn, e
+	}
+
+	wrap := func(c net.Conn) (relay.Stream, error) {
+		return wrapCommon(s, relay.NetStream{Conn: c})
+	}
+
+	fork := s.BoolOption("fork")
+	maxChildren := 0
+	if v := s.OptionValue("max-children", ""); v != "" {
+		if n, e := parsePositiveInt(v); e == nil {
+			maxChildren = n
 		}
-		// Any buffered bytes after headers must remain available to the stream.
-		if br.Buffered() > 0 {
-			peek, _ := br.Peek(br.Buffered())
-			conn = &prefixConn{Conn: c, prefix: append([]byte(nil), peek...)}
-			_, _ = br.Discard(br.Buffered())
-		} else {
-			conn = c
-		}
-		return nil
-	})
+	}
+	if maxChildren > 0 && !fork {
+		return nil, fmt.Errorf("%s: option max-children not allowed without option fork", s.Type)
+	}
+	if fork {
+		return &Opened{
+			ConnectFork: true,
+			Fork:        true,
+			MaxChildren: maxChildren,
+			Interval:    parseRetry(s).interval,
+			Label:       label,
+			Dial:        dialOnce,
+			WrapDial:    wrap,
+		}, nil
+	}
+
+	conn, err := dialOnce(ctx)
 	if err != nil {
 		return nil, err
 	}
 	rememberAddrs(g, conn)
-	st := relay.Stream(relay.NetStream{Conn: conn})
-	st, err = wrapCommon(s, st)
+	st, err := wrap(conn)
 	if err != nil {
 		conn.Close()
 		return nil, err
 	}
 	_ = mode
-	return &Opened{Stream: st, Label: "PROXY:" + targetHost + ":" + targetPort}, nil
+	return &Opened{Stream: st, Label: label}, nil
+}
+
+// proxyStatusOK matches classic xio-proxy.c: HTTP/1.0|1.1, skip spaces, "200".
+func proxyStatusOK(status string) bool {
+	line := strings.TrimRight(status, "\r\n")
+	var rest string
+	switch {
+	case strings.HasPrefix(line, "HTTP/1.0 "):
+		rest = line[len("HTTP/1.0 "):]
+	case strings.HasPrefix(line, "HTTP/1.1 "):
+		rest = line[len("HTTP/1.1 "):]
+	default:
+		// Also accept HTTP/1.x with extra spaces after version (PROXY2SPACES style
+		// puts spaces between version and code: "HTTP/1.0   200").
+		if !strings.HasPrefix(line, "HTTP/1.") {
+			return false
+		}
+		// Find first space after "HTTP/1.x"
+		i := strings.IndexByte(line, ' ')
+		if i < 0 {
+			return false
+		}
+		rest = line[i+1:]
+	}
+	rest = strings.TrimLeft(rest, " ")
+	if len(rest) < 3 {
+		return false
+	}
+	code := rest[:3]
+	if _, err := strconv.Atoi(code); err != nil {
+		return false
+	}
+	return code == "200"
 }
 
 func proxyParams(s parse.Spec) (proxy, host, port string, err error) {
