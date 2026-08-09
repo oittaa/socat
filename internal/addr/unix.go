@@ -3,6 +3,7 @@ package addr
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
@@ -445,14 +446,20 @@ func openUnixDatagram(ctx context.Context, s parse.Spec, mode Mode, g *Global) (
 }
 
 // unixRecvStream: first Recvfrom captures peer when from=true; Write replies to peer.
+// Classic non-fork RECVFROM: after the first datagram is delivered, further
+// Read returns EOF so one-shot echo servers (RECVFROM PIPE) exit.
 type unixRecvStream struct {
-	c    *net.UnixConn
-	from bool
-	peer *net.UnixAddr
-	got  bool
+	c        *net.UnixConn
+	from     bool
+	peer     *net.UnixAddr
+	got      bool
+	firstEOF bool // after first packet fully delivered
 }
 
 func (u *unixRecvStream) Read(p []byte) (int, error) {
+	if u.from && u.firstEOF {
+		return 0, io.EOF
+	}
 	n, addr, err := u.c.ReadFromUnix(p)
 	if err != nil {
 		return n, err
@@ -460,6 +467,8 @@ func (u *unixRecvStream) Read(p []byte) (int, error) {
 	if u.from && !u.got && addr != nil {
 		u.peer = addr
 		u.got = true
+		// One-shot: next Read is EOF after this payload is returned.
+		u.firstEOF = true
 	}
 	return n, nil
 }

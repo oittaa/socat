@@ -721,10 +721,13 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 			}
 			break
 		}
+		// Classic non-fork RECVFROM: one datagram then EOF on further reads
+		// (so RECVFROM|PIPE echo servers exit after one client exchange).
 		st := relay.Stream(&udpRecvFromConn{
-			uc:    pc,
-			peer:  raddr,
-			first: append([]byte(nil), buf[:n]...),
+			uc:       pc,
+			peer:     raddr,
+			first:    append([]byte(nil), buf[:n]...),
+			closeEOF: true,
 		})
 		st, err = wrapCommon(s, st)
 		if err != nil {

@@ -409,23 +409,45 @@ func newSessionWrap(inner Stream) *sessionWrap {
 }
 
 func (s *sessionWrap) Read(p []byte) (int, error) {
-	// Poll with short deadlines so Close can stop the session without leaving
-	// an abandoned Read on a shared end-close FD (that would steal later data).
+	// Do not rely on SetReadDeadline: PTY masters (and some other FDs) ignore
+	// deadlines while a slave/peer stays open, which hung PTYENDCLOSE forever.
+	// Poll the underlying FD with a short timeout so Close can always stop us.
+	fd := streamReadFD(s.inner)
 	for {
 		select {
 		case <-s.done:
 			return 0, io.EOF
 		default:
 		}
-		setStreamReadDeadline(s.inner, time.Now().Add(50*time.Millisecond))
-		n, err := s.inner.Read(p)
-		setStreamReadDeadline(s.inner, time.Time{}) // clear
+		if fd >= 0 {
+			pfd := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+			n, err := unix.Poll(pfd, 50) // 50ms
+			if err != nil && err != syscall.EINTR {
+				return 0, err
+			}
+			select {
+			case <-s.done:
+				return 0, io.EOF
+			default:
+			}
+			if n == 0 {
+				continue
+			}
+			// HUP/ERR with no data → let Read return EOF/error.
+		} else {
+			// No FD: fall back to short deadline if the stream supports it.
+			setStreamReadDeadline(s.inner, time.Now().Add(50*time.Millisecond))
+		}
+		nr, err := s.inner.Read(p)
+		if fd < 0 {
+			setStreamReadDeadline(s.inner, time.Time{})
+		}
 		if err == nil {
 			select {
 			case <-s.done:
 				return 0, io.EOF
 			default:
-				return n, nil
+				return nr, nil
 			}
 		}
 		if isTimeoutErr(err) {
@@ -435,7 +457,7 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 		case <-s.done:
 			return 0, io.EOF
 		default:
-			return n, err
+			return nr, err
 		}
 	}
 }
