@@ -102,9 +102,10 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened
 		}, mode, g)
 	}
 	flags := openFlags(s, mode)
-	// Classic GOPEN defaults to O_APPEND on existing non-socket files.
-	// o-append=0 turns that off (and o-append=1 / bare append keeps it on).
-	if mode != ModeRead {
+	// Classic GOPEN defaults to O_APPEND on existing regular files only.
+	// Devices (PTY slaves via FAKEPTY link=), fifos, etc. must not get O_APPEND.
+	isReg := fi.Mode().IsRegular()
+	if mode != ModeRead && isReg {
 		if s.HasOption("append") {
 			if s.BoolOption("append") {
 				flags |= os.O_APPEND
@@ -118,9 +119,16 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened
 			flags |= os.O_APPEND
 		}
 	}
+	// Apply cfmakeraw etc. after open for PTY/tty devices.
 	f, err := os.OpenFile(path, flags, parseFileMode(s, 0o644))
 	if err != nil {
 		return nil, err
+	}
+	if s.BoolOption("cfmakeraw") || s.HasOption("cfmakeraw") {
+		if err := setRaw(int(f.Fd())); err != nil {
+			f.Close()
+			return nil, fmt.Errorf("cfmakeraw: %w", err)
+		}
 	}
 	return fileOpened(f, s, path)
 }
@@ -158,7 +166,10 @@ func openNamedPIPE(s parse.Spec, mode Mode) (*Opened, error) {
 	path := s.Params[0]
 	created := false
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		if err := syscall.Mkfifo(path, uint32(parseFileMode(s, 0o644))); err != nil {
+		err := withUmask(s, func() error {
+			return syscall.Mkfifo(path, uint32(parseFileMode(s, 0o644)))
+		})
+		if err != nil {
 			return nil, fmt.Errorf("mkfifo %s: %w", path, err)
 		}
 		created = true

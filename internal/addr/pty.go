@@ -68,9 +68,10 @@ func openPTY(_ context.Context, s parse.Spec, _ Mode, g *Global) (*Opened, error
 	if err != nil {
 		return nil, fmt.Errorf("PTY: %w", err)
 	}
-	// We only need the master FD; slave path is used via symlink.
+	// Keep the slave open for the address lifetime. If the last slave FD is
+	// closed, reads on the master return EIO and FAKEPTY-style servers exit
+	// immediately (classic keeps a slave FD open while waiting for clients).
 	slaveName := slave.Name()
-	_ = slave.Close()
 
 	if g != nil && g.Log != nil {
 		g.Log.Noticef("PTY is %s", slaveName)
@@ -79,6 +80,7 @@ func openPTY(_ context.Context, s parse.Spec, _ Mode, g *Global) (*Opened, error
 	if s.BoolOption("cfmakeraw") || s.HasOption("cfmakeraw") {
 		if err := setRaw(int(master.Fd())); err != nil {
 			master.Close()
+			slave.Close()
 			return nil, fmt.Errorf("PTY cfmakeraw: %w", err)
 		}
 	}
@@ -91,14 +93,17 @@ func openPTY(_ context.Context, s parse.Spec, _ Mode, g *Global) (*Opened, error
 		_ = os.Remove(link)
 		if err := os.Symlink(slaveName, link); err != nil {
 			master.Close()
+			slave.Close()
 			return nil, fmt.Errorf("PTY link: %w", err)
 		}
 	}
 
-	st := fileStream(master)
+	// Use ptyStream so half-close does not Close the master (fileStream would).
+	st := ptyStream(master)
 	st, err = wrapCommon(s, st)
 	if err != nil {
 		master.Close()
+		slave.Close()
 		if link != "" {
 			_ = os.Remove(link)
 		}
@@ -108,6 +113,7 @@ func openPTY(_ context.Context, s parse.Spec, _ Mode, g *Global) (*Opened, error
 		Stream: st,
 		Label:  "PTY:" + slaveName,
 	}
+	o.addCleanup(func() { _ = slave.Close() })
 	if link != "" {
 		// Unlink symlink on close (classic often leaves it; tests recreate each run).
 		o.addCleanup(func() { _ = os.Remove(link) })

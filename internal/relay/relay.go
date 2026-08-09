@@ -39,6 +39,9 @@ type Config struct {
 	RawRight io.Writer // right→left
 	// OnStats is called with final counters if non-nil.
 	OnStats func(Stats)
+	// OnEOF is called once per direction when that side reaches EOF
+	// (classic MULTIPLE_EOF: "socket N (fd X) is at EOF"). sock is 1=left, 2=right.
+	OnEOF func(sock int, fd int)
 	// NoCloseLeft/Right: on cancel, do not Close that stream (classic end-close
 	// shared address across fork children).
 	NoCloseLeft  bool
@@ -276,6 +279,14 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 			}
 			if er != nil {
 				if er == io.EOF || isBenignClose(er) {
+					if cfg.OnEOF != nil {
+						// dir ">": reading left (socket 1); dir "<": reading right (socket 2)
+						sock := 1
+						if dir == "<" {
+							sock = 2
+						}
+						cfg.OnEOF(sock, streamReadFD(src))
+					}
 					_ = dst.ShutdownWrite()
 					results <- dirResult{err: nil, dir: dir}
 					return

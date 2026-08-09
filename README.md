@@ -122,7 +122,14 @@ SOCAT=/path/to/classic/socat FILAN=... PROCAN=... SKIP_BUILD=1 LABEL=classic \
   ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh
 ```
 
-**Latest Go snapshot (structured parse):** on the order of **~290+ OK** hang-free (improving). Exact counts live in `results.json` after each run.
+**Latest committed baselines** (see `testdata/scorecard/`):
+
+| Label | OK | FAILED | CANT |
+|-------|-----|--------|------|
+| classic 1.8.1.3 | 475 | 24 | 103 |
+| go (this tree) | ~301 | ~34 | ~229 |
+
+Re-run Go and compare with `BASELINE=testdata/scorecard/classic-baseline.json`. Use `go-baseline.json` + `REGRESSION_EXIT=1` to catch Go regressions.
 
 Classic host checklist: `scripts/classic-host-check.sh`.
 

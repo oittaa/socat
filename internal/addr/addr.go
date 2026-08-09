@@ -646,6 +646,21 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 				st.BytesLR, st.BlocksLR, st.BytesRL, st.BlocksRL, st.Duration)
 		}
 	}
+	// Classic MULTIPLE_EOF greps: "socket 2 (fd .*) is at EOF" (Notice once per side).
+	if g != nil && g.Log != nil {
+		var eofOnce [3]sync.Once // index 1 and 2
+		cfg.OnEOF = func(sock, fd int) {
+			if sock < 1 || sock > 2 {
+				return
+			}
+			eofOnce[sock].Do(func() {
+				if fd < 0 {
+					fd = 0
+				}
+				g.Log.Noticef("socket %d (fd %d) is at EOF", sock, fd)
+			})
+		}
+	}
 	return relay.Transfer(ctx, left, right, cfg)
 }
 

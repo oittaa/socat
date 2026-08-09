@@ -249,6 +249,7 @@ def compare(baseline: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]
     new_fails: list[dict[str, Any]] = []
     status_changes: list[dict[str, Any]] = []
 
+    incomplete: list[dict[str, Any]] = []
     for tid in all_ids:
         b = btests.get(tid)
         c = ctests.get(tid)
@@ -264,13 +265,22 @@ def compare(baseline: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]
             "to": cs,
             "detail": (c or {}).get("detail", ""),
         }
+        # Missing from current = incomplete shard (timeout), not a real regression.
+        if c is None:
+            incomplete.append(entry)
+            continue
+        if b is None:
+            # New test number vs older baseline — note only if FAILED
+            if cs == "FAILED":
+                new_fails.append(entry)
+            status_changes.append(entry)
+            continue
         status_changes.append(entry)
+        # True regression: was OK, now FAILED/TIMEOUT/CANT/UNKNOWN
         if bs == "OK" and cs != "OK":
             regressions.append(entry)
         if bs != "OK" and cs == "OK":
             improvements.append(entry)
-        if bs is None and cs == "FAILED":
-            new_fails.append(entry)
 
     return {
         "baseline_label": (baseline.get("meta") or {}).get("label"),
@@ -280,9 +290,11 @@ def compare(baseline: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]
         "regressions": regressions,
         "improvements": improvements,
         "new_fails": new_fails,
+        "incomplete": incomplete,
         "status_changes": status_changes,
         "regression_count": len(regressions),
         "improvement_count": len(improvements),
+        "incomplete_count": len(incomplete),
     }
 
 
@@ -310,11 +322,19 @@ def print_compare(cmp: dict[str, Any]) -> None:
         if cmp["improvement_count"] > 40:
             print(f"  ... and {cmp['improvement_count']-40} more")
         print()
+    if cmp.get("incomplete"):
+        print(f"INCOMPLETE ({cmp.get('incomplete_count', 0)}) — in baseline but missing from current (shard timeout?)")
+        print()
     if cmp["new_fails"]:
         print(f"NEW FAILS (not in baseline, now FAILED): {len(cmp['new_fails'])}")
         for e in cmp["new_fails"][:20]:
             print(f"  {e['id']:4d} {e['name']:<32} {e.get('detail','')[:60]}")
         print()
+    # Useful: OK on both vs real FAIL (classic OK, go FAILED)
+    real_fail = [e for e in cmp["regressions"] if e.get("to") == "FAILED"]
+    real_cant = [e for e in cmp["regressions"] if e.get("to") == "CANT"]
+    print(f"Parity gap (classic OK): FAILED={len(real_fail)} CANT={len(real_cant)} other={cmp['regression_count']-len(real_fail)-len(real_cant)}")
+
 
 
 def main() -> int:

@@ -20,9 +20,9 @@ coverage.html
 /testcli*
 /testsrv*
 
-# Regenerated often; classic-baseline.json is the rare committed reference.
+# Working copies / compare artefacts. Commit classic-baseline.json and
+# go-baseline.json intentionally when refreshing reference snapshots.
 testdata/scorecard/go-latest.json
-testdata/scorecard/go-baseline.json
 testdata/scorecard/compare-*.json
 testdata/scorecard/*.jsonl
 
