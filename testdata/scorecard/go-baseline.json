@@ -1,22 +1,22 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-08-09T06:59:17Z",
+    "timestamp": "2026-08-09T07:59:26Z",
     "hostname": "gmktec",
     "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.39",
     "socat": "/home/eero/src/socat/socat",
-    "socat_version": "socat version 0.1.0-dev on 2026-08-09T06:59:17Z",
+    "socat_version": "socat version 0.1.0-dev on 2026-08-09T07:59:26Z",
     "test_sh": "/tmp/socat-master/test.sh",
-    "git": "875b7af",
+    "git": "9bf3be8",
     "out_dir": "/home/eero/src/socat/.classic-scorecard",
     "val_t": "0.05",
     "jobs": "8",
-    "shard_timeout": "240"
+    "shard_timeout": "300"
   },
   "summary": {
-    "ok": 301,
-    "failed": 34,
-    "cant": 229,
+    "ok": 329,
+    "failed": 28,
+    "cant": 207,
     "timeout": 1,
     "unknown": 3,
     "total_recorded": 568,
@@ -128,10 +128,10 @@
       "id": 12,
       "name": "EXECPIPES",
       "description": "simple echo via exec of cat with pipes",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test  12 EXECPIPES: simple echo via exec of cat with pipes... FAILED:"
+      "raw": "test  12 EXECPIPES: simple echo via exec of cat with pipes... OK"
     },
     "13": {
       "id": 13,
@@ -209,19 +209,19 @@
       "id": 21,
       "name": "SYSTEMPIPESFLUSH",
       "description": "call to od via system() with pipes",
-      "status": "FAILED",
-      "detail": "diff:",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test  21 SYSTEMPIPESFLUSH: call to od via system() with pipes... FAILED: diff:"
+      "raw": "test  21 SYSTEMPIPESFLUSH: call to od via system() with pipes... OK"
     },
     "22": {
       "id": 22,
       "name": "SYSTEMPIPESFDSFLUSH",
       "description": "call to od via system() with pipes, non stdio",
-      "status": "FAILED",
-      "detail": "diff:",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test  22 SYSTEMPIPESFDSFLUSH: call to od via system() with pipes, non stdio... FAILED: diff:"
+      "raw": "test  22 SYSTEMPIPESFDSFLUSH: call to od via system() with pipes, non stdio... OK"
     },
     "23": {
       "id": 23,
@@ -551,28 +551,28 @@
       "id": 59,
       "name": "CHILDDEFAULT",
       "description": "child process default properties",
-      "status": "OK",
+      "status": "FAILED",
       "detail": "",
       "shard": 0,
-      "raw": "test  59 CHILDDEFAULT: child process default properties... OK"
+      "raw": "test  59 CHILDDEFAULT: child process default properties... FAILED:"
     },
     "60": {
       "id": 60,
       "name": "CHILDSETSID",
       "description": "child process with setsid",
-      "status": "OK",
+      "status": "FAILED",
       "detail": "",
       "shard": 0,
-      "raw": "test  60 CHILDSETSID: child process with setsid... OK"
+      "raw": "test  60 CHILDSETSID: child process with setsid... FAILED"
     },
     "61": {
       "id": 61,
       "name": "MAINSETSID",
       "description": "main process with setsid",
-      "status": "OK",
+      "status": "FAILED",
       "detail": "",
       "shard": 0,
-      "raw": "test  61 MAINSETSID: main process with setsid... OK"
+      "raw": "test  61 MAINSETSID: main process with setsid... FAILED"
     },
     "62": {
       "id": 62,
@@ -749,55 +749,55 @@
       "id": 81,
       "name": "SOCKS4CONNECT_TCP4",
       "description": "socks4 connect over TCP/IPv4",
-      "status": "CANT",
-      "detail": "Program socks4echo.sh not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test  81 SOCKS4CONNECT_TCP4: socks4 connect over TCP/IPv4... Program socks4echo.sh not available"
+      "raw": "test  81 SOCKS4CONNECT_TCP4: socks4 connect over TCP/IPv4... OK"
     },
     "82": {
       "id": 82,
       "name": "SOCKS4CONNECT_TCP6",
       "description": "socks4 connect over TCP/IPv6",
-      "status": "CANT",
-      "detail": "SOCKS4 not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test  82 SOCKS4CONNECT_TCP6: socks4 connect over TCP/IPv6... SOCKS4 not available"
+      "raw": "test  82 SOCKS4CONNECT_TCP6: socks4 connect over TCP/IPv6... OK"
     },
     "83": {
       "id": 83,
       "name": "SOCKS4ACONNECT_TCP4",
       "description": "socks4a connect over TCP/IPv4",
-      "status": "CANT",
-      "detail": "SOCKS4A not available",
+      "status": "FAILED",
+      "detail": "/home/eero/src/socat/socat:",
       "shard": 1,
-      "raw": "test  83 SOCKS4ACONNECT_TCP4: socks4a connect over TCP/IPv4... SOCKS4A not available"
+      "raw": "test  83 SOCKS4ACONNECT_TCP4: socks4a connect over TCP/IPv4... FAILED:  /home/eero/src/socat/socat:"
     },
     "84": {
       "id": 84,
       "name": "SOCKS4ACONNECT_TCP6",
       "description": "socks4a connect over TCP/IPv6",
-      "status": "CANT",
-      "detail": "SOCKS4A not available",
+      "status": "FAILED",
+      "detail": "/home/eero/src/socat/socat:",
       "shard": 1,
-      "raw": "test  84 SOCKS4ACONNECT_TCP6: socks4a connect over TCP/IPv6... SOCKS4A not available"
+      "raw": "test  84 SOCKS4ACONNECT_TCP6: socks4a connect over TCP/IPv6... FAILED:  /home/eero/src/socat/socat:"
     },
     "85": {
       "id": 85,
       "name": "PROXYCONNECT_TCP4",
       "description": "proxy connect over TCP/IPv4",
-      "status": "CANT",
-      "detail": "PROXY not available",
+      "status": "FAILED",
+      "detail": "(rc1=1)",
       "shard": 1,
-      "raw": "test  85 PROXYCONNECT_TCP4: proxy connect over TCP/IPv4... PROXY not available"
+      "raw": "test  85 PROXYCONNECT_TCP4: proxy connect over TCP/IPv4... FAILED (rc1=1)"
     },
     "86": {
       "id": 86,
       "name": "PROXYCONNECT_TCP6",
       "description": "proxy connect over TCP/IPv6",
-      "status": "CANT",
-      "detail": "PROXY not available",
+      "status": "FAILED",
+      "detail": "(rc1=1)",
       "shard": 1,
-      "raw": "test  86 PROXYCONNECT_TCP6: proxy connect over TCP/IPv6... PROXY not available"
+      "raw": "test  86 PROXYCONNECT_TCP6: proxy connect over TCP/IPv6... FAILED (rc1=1)"
     },
     "87": {
       "id": 87,
@@ -848,10 +848,10 @@
       "id": 93,
       "name": "PROXY2SPACES",
       "description": "proxy connect accepts status with multiple spaces",
-      "status": "CANT",
-      "detail": "PROXY not available",
+      "status": "FAILED",
+      "detail": "/home/eero/src/socat/socat:",
       "shard": 1,
-      "raw": "test  93 PROXY2SPACES: proxy connect accepts status with multiple spaces... PROXY not available"
+      "raw": "test  93 PROXY2SPACES: proxy connect accepts status with multiple spaces... FAILED:  /home/eero/src/socat/socat:"
     },
     "95": {
       "id": 95,
@@ -938,19 +938,19 @@
       "id": 104,
       "name": "OUTBOUNDIN",
       "description": "gender changer via SSL through HTTP proxy, oneshot",
-      "status": "CANT",
-      "detail": "PROXY not available",
+      "status": "OK",
+      "detail": "",
       "shard": 1,
-      "raw": "test 104 OUTBOUNDIN: gender changer via SSL through HTTP proxy, oneshot... PROXY not available"
+      "raw": "test 104 OUTBOUNDIN: gender changer via SSL through HTTP proxy, oneshot... OK"
     },
     "105": {
       "id": 105,
       "name": "INTRANETRIPPER",
       "description": "gender changer via SSL through HTTP proxy, daemons",
-      "status": "CANT",
-      "detail": "PROXY not available",
+      "status": "OK",
+      "detail": "",
       "shard": 1,
-      "raw": "test 105 INTRANETRIPPER: gender changer via SSL through HTTP proxy, daemons... PROXY not available"
+      "raw": "test 105 INTRANETRIPPER: gender changer via SSL through HTTP proxy, daemons... OK"
     },
     "106": {
       "id": 106,
@@ -1181,28 +1181,28 @@
       "id": 131,
       "name": "OPENSSLTCP6_RANGE",
       "description": "security of SSL-L over TCP/IPv6 with RANGE option",
-      "status": "FAILED",
-      "detail": "NO RESULT (ph.1 function fails):  /home/eero/src/socat/socat:",
+      "status": "OK",
+      "detail": "",
       "shard": 1,
-      "raw": "test 131 OPENSSLTCP6_RANGE: security of SSL-L over TCP/IPv6 with RANGE option... NO RESULT (ph.1 function fails):  /home/eero/src/socat/socat:"
+      "raw": "test 131 OPENSSLTCP6_RANGE: security of SSL-L over TCP/IPv6 with RANGE option... OK"
     },
     "132": {
       "id": 132,
       "name": "OPENSSLTCP6_SOURCEPORT",
       "description": "security of SSL-L over TCP/IPv6 with SOURCEPORT option",
-      "status": "FAILED",
-      "detail": "NO RESULT (ph.1 function fails):  /home/eero/src/socat/socat:",
+      "status": "OK",
+      "detail": "",
       "shard": 1,
-      "raw": "test 132 OPENSSLTCP6_SOURCEPORT: security of SSL-L over TCP/IPv6 with SOURCEPORT option... NO RESULT (ph.1 function fails):  /home/eero/src/socat/socat:"
+      "raw": "test 132 OPENSSLTCP6_SOURCEPORT: security of SSL-L over TCP/IPv6 with SOURCEPORT option... OK"
     },
     "133": {
       "id": 133,
       "name": "OPENSSLTCP6_LOWPORT",
       "description": "security of SSL-L over TCP/IPv6 with LOWPORT option",
-      "status": "FAILED",
-      "detail": "NO RESULT (ph.1 function fails):  /home/eero/src/socat/socat:",
+      "status": "OK",
+      "detail": "",
       "shard": 1,
-      "raw": "test 133 OPENSSLTCP6_LOWPORT: security of SSL-L over TCP/IPv6 with LOWPORT option... NO RESULT (ph.1 function fails):  /home/eero/src/socat/socat:"
+      "raw": "test 133 OPENSSLTCP6_LOWPORT: security of SSL-L over TCP/IPv6 with LOWPORT option... OK"
     },
     "134": {
       "id": 134,
@@ -1326,18 +1326,18 @@
       "name": "EXITCODESIGTERM",
       "description": "exit status when dying on SIGTERM",
       "status": "FAILED",
-      "detail": "/tmp/socat-shard-1.kL9XYa/test.sh: line 6519: kill: (2439991) - No such process",
+      "detail": "/tmp/socat-shard-1.i2nqNT/test.sh: line 6519: kill: (2565723) - No such process",
       "shard": 1,
-      "raw": "test 147 EXITCODESIGTERM: exit status when dying on SIGTERM... /tmp/socat-shard-1.kL9XYa/test.sh: line 6519: kill: (2439991) - No such process"
+      "raw": "test 147 EXITCODESIGTERM: exit status when dying on SIGTERM... /tmp/socat-shard-1.i2nqNT/test.sh: line 6519: kill: (2565723) - No such process"
     },
     "148": {
       "id": 148,
       "name": "EXITCODESIGILL",
       "description": "exit status when dying on SIGILL",
       "status": "FAILED",
-      "detail": "/tmp/socat-shard-1.kL9XYa/test.sh: line 6519: kill: (2440027) - No such process",
+      "detail": "/tmp/socat-shard-1.i2nqNT/test.sh: line 6519: kill: (2565759) - No such process",
       "shard": 1,
-      "raw": "test 148 EXITCODESIGILL: exit status when dying on SIGILL... /tmp/socat-shard-1.kL9XYa/test.sh: line 6519: kill: (2440027) - No such process"
+      "raw": "test 148 EXITCODESIGILL: exit status when dying on SIGILL... /tmp/socat-shard-1.i2nqNT/test.sh: line 6519: kill: (2565759) - No such process"
     },
     "149": {
       "id": 149,
@@ -1866,9 +1866,9 @@
       "name": "PTYENDCLOSE",
       "description": "PTY handles option end-close",
       "status": "UNKNOWN",
-      "detail": "cat: /tmp/socat-shard-2.FFJr9P/tmp/eero/2399167/test207.rc0: No such file or directory",
+      "detail": "cat: /tmp/socat-shard-2.5IDLcU/tmp/eero/2518489/test207.rc0: No such file or directory",
       "shard": 2,
-      "raw": "test 207 PTYENDCLOSE: PTY handles option end-close... cat: /tmp/socat-shard-2.FFJr9P/tmp/eero/2399167/test207.rc0: No such file or directory"
+      "raw": "test 207 PTYENDCLOSE: PTY handles option end-close... cat: /tmp/socat-shard-2.5IDLcU/tmp/eero/2518489/test207.rc0: No such file or directory"
     },
     "208": {
       "id": 208,
@@ -2693,10 +2693,10 @@
       "id": 336,
       "name": "ENV_OPENSSL_SERVER_X509_ORGANIZATIONALUNITNAME",
       "description": "OPENSSL sets env SOCAT_OPENSSL_X509_ORGANIZATIONALUNITNAME",
-      "status": "OK",
-      "detail": "",
+      "status": "FAILED",
+      "detail": "file /tmp/socat-shard-4.I3eYNK/tmp/eero/2518459/test336.stdout timed out",
       "shard": 4,
-      "raw": "test 336 ENV_OPENSSL_SERVER_X509_ORGANIZATIONALUNITNAME: OPENSSL sets env SOCAT_OPENSSL_X509_ORGANIZATIONALUNITNAME... OK"
+      "raw": "test 336 ENV_OPENSSL_SERVER_X509_ORGANIZATIONALUNITNAME: OPENSSL sets env SOCAT_OPENSSL_X509_ORGANIZATIONALUNITNAME... file /tmp/socat-shard-4.I3eYNK/tmp/eero/2518459/test336.stdout timed out"
     },
     "337": {
       "id": 337,
@@ -2783,82 +2783,82 @@
       "id": 346,
       "name": "PIPE_UMASK",
       "description": "PIPE applies option umask",
-      "status": "FAILED",
-      "detail": "perms \"644\", expected \"600\"",
+      "status": "OK",
+      "detail": "",
       "shard": 4,
-      "raw": "test 346 PIPE_UMASK: PIPE applies option umask... perms \"644\", expected \"600\""
+      "raw": "test 346 PIPE_UMASK: PIPE applies option umask... OK"
     },
     "347": {
       "id": 347,
       "name": "CREATE_PERM",
       "description": "CREATE applies option perm",
-      "status": "FAILED",
-      "detail": "perms \"644\", expected \"511\"",
+      "status": "OK",
+      "detail": "",
       "shard": 4,
-      "raw": "test 347 CREATE_PERM: CREATE applies option perm... perms \"644\", expected \"511\""
+      "raw": "test 347 CREATE_PERM: CREATE applies option perm... OK"
     },
     "348": {
       "id": 348,
       "name": "OPEN_PERM",
       "description": "OPEN applies option perm",
-      "status": "FAILED",
-      "detail": "perms \"644\", expected \"511\"",
+      "status": "OK",
+      "detail": "",
       "shard": 4,
-      "raw": "test 348 OPEN_PERM: OPEN applies option perm... perms \"644\", expected \"511\""
+      "raw": "test 348 OPEN_PERM: OPEN applies option perm... OK"
     },
     "349": {
       "id": 349,
       "name": "GOPEN_PERM",
       "description": "GOPEN applies option perm",
-      "status": "FAILED",
-      "detail": "perms \"644\", expected \"511\"",
+      "status": "OK",
+      "detail": "",
       "shard": 4,
-      "raw": "test 349 GOPEN_PERM: GOPEN applies option perm... perms \"644\", expected \"511\""
+      "raw": "test 349 GOPEN_PERM: GOPEN applies option perm... OK"
     },
     "350": {
       "id": 350,
       "name": "UNIX_LISTEN_PERM",
       "description": "UNIX-LISTEN applies option perm",
-      "status": "FAILED",
-      "detail": "perms \"775\", expected \"511\"",
+      "status": "OK",
+      "detail": "",
       "shard": 4,
-      "raw": "test 350 UNIX_LISTEN_PERM: UNIX-LISTEN applies option perm... perms \"775\", expected \"511\""
+      "raw": "test 350 UNIX_LISTEN_PERM: UNIX-LISTEN applies option perm... OK"
     },
     "351": {
       "id": 351,
       "name": "UNIX_RECVFROM_PERM",
       "description": "UNIX-RECVFROM applies option perm",
-      "status": "FAILED",
-      "detail": "perms \"775\", expected \"511\"",
+      "status": "OK",
+      "detail": "",
       "shard": 4,
-      "raw": "test 351 UNIX_RECVFROM_PERM: UNIX-RECVFROM applies option perm... perms \"775\", expected \"511\""
+      "raw": "test 351 UNIX_RECVFROM_PERM: UNIX-RECVFROM applies option perm... OK"
     },
     "352": {
       "id": 352,
       "name": "UNIX_RECV_PERM",
       "description": "UNIX-RECV applies option perm",
-      "status": "FAILED",
-      "detail": "perms \"775\", expected \"511\"",
+      "status": "OK",
+      "detail": "",
       "shard": 4,
-      "raw": "test 352 UNIX_RECV_PERM: UNIX-RECV applies option perm... perms \"775\", expected \"511\""
+      "raw": "test 352 UNIX_RECV_PERM: UNIX-RECV applies option perm... OK"
     },
     "353": {
       "id": 353,
       "name": "PIPE_PERM",
       "description": "PIPE applies option perm",
-      "status": "FAILED",
-      "detail": "perms \"644\", expected \"511\"",
+      "status": "OK",
+      "detail": "",
       "shard": 4,
-      "raw": "test 353 PIPE_PERM: PIPE applies option perm... perms \"644\", expected \"511\""
+      "raw": "test 353 PIPE_PERM: PIPE applies option perm... OK"
     },
     "354": {
       "id": 354,
       "name": "PTY_PERM",
       "description": "PTY applies option perm",
-      "status": "FAILED",
-      "detail": "perms \"620\", expected \"511\"",
+      "status": "OK",
+      "detail": "",
       "shard": 4,
-      "raw": "test 354 PTY_PERM: PTY applies option perm... perms \"620\", expected \"511\""
+      "raw": "test 354 PTY_PERM: PTY applies option perm... OK"
     },
     "355": {
       "id": 355,
@@ -3161,10 +3161,10 @@
       "id": 388,
       "name": "DIAG_FDIN",
       "description": "test use of fdin=3",
-      "status": "OK",
+      "status": "FAILED",
       "detail": "",
       "shard": 4,
-      "raw": "test 388 DIAG_FDIN: test use of fdin=3... OK"
+      "raw": "test 388 DIAG_FDIN: test use of fdin=3... FAILED"
     },
     "389": {
       "id": 389,
@@ -3351,9 +3351,9 @@
       "name": "PROXYAUTHFILE",
       "description": "proxy-authorization-file option",
       "status": "CANT",
-      "detail": "PROXY not available",
+      "detail": "Option proxy-authorization-file not available",
       "shard": 5,
-      "raw": "test 409 PROXYAUTHFILE: proxy-authorization-file option... PROXY not available"
+      "raw": "test 409 PROXYAUTHFILE: proxy-authorization-file option... Option proxy-authorization-file not available"
     },
     "410": {
       "id": 410,
@@ -3431,10 +3431,10 @@
       "id": 418,
       "name": "ABSTRACT_USER",
       "description": "Is the fs related user option on ABSTRACT socket applied to FD",
-      "status": "CANT",
-      "detail": "Feature ABSTRACT_UNIXSOCKET not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 5,
-      "raw": "test 418 ABSTRACT_USER: Is the fs related user option on ABSTRACT socket applied to FD... Feature ABSTRACT_UNIXSOCKET not configured in /home/eero/src/socat/socat"
+      "raw": "test 418 ABSTRACT_USER: Is the fs related user option on ABSTRACT socket applied to FD... OK"
     },
     "419": {
       "id": 419,
@@ -3935,10 +3935,10 @@
       "id": 474,
       "name": "PROXY_HTTPVERSION",
       "description": "PROXY-CONNECT with option http-version",
-      "status": "CANT",
-      "detail": "proxyecho.sh not available",
+      "status": "FAILED",
+      "detail": "/home/eero/src/socat/socat:",
       "shard": 5,
-      "raw": "test 474 PROXY_HTTPVERSION: PROXY-CONNECT with option http-version... proxyecho.sh not available"
+      "raw": "test 474 PROXY_HTTPVERSION: PROXY-CONNECT with option http-version... FAILED:  /home/eero/src/socat/socat:"
     },
     "475": {
       "id": 475,
@@ -4042,20 +4042,20 @@
     "486": {
       "id": 486,
       "name": "NETNS",
-      "description": "option netns (net namespace socat-2399175-test486)",
+      "description": "option netns (net namespace socat-2518421-test486)",
       "status": "CANT",
       "detail": "Must be root",
       "shard": 5,
-      "raw": "test 486 NETNS: option netns (net namespace socat-2399175-test486)... Must be root"
+      "raw": "test 486 NETNS: option netns (net namespace socat-2518421-test486)... Must be root"
     },
     "487": {
       "id": 487,
       "name": "NETNS_EXEC",
-      "description": "option netns with EXEC (net namespace socat-2399175-test487)",
+      "description": "option netns with EXEC (net namespace socat-2518421-test487)",
       "status": "CANT",
       "detail": "Must be root",
       "shard": 5,
-      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-2399175-test487)... Must be root"
+      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-2518421-test487)... Must be root"
     },
     "488": {
       "id": 488,
@@ -4187,10 +4187,10 @@
       "id": 502,
       "name": "SHELL_PIPES",
       "description": "call  od -c  via SHELL using pipes",
-      "status": "FAILED",
-      "detail": "diff:",
+      "status": "OK",
+      "detail": "",
       "shard": 6,
-      "raw": "test 502 SHELL_PIPES: call  od -c  via SHELL using pipes... FAILED: diff:"
+      "raw": "test 502 SHELL_PIPES: call  od -c  via SHELL using pipes... OK"
     },
     "503": {
       "id": 503,
@@ -4241,10 +4241,10 @@
       "id": 508,
       "name": "UMASK_ON_SYSTEM",
       "description": "test restore after SHELL with umask option",
-      "status": "FAILED",
-      "detail": "(umask failed)",
+      "status": "OK",
+      "detail": "",
       "shard": 6,
-      "raw": "test 508 UMASK_ON_SYSTEM: test restore after SHELL with umask option... FAILED (umask failed)"
+      "raw": "test 508 UMASK_ON_SYSTEM: test restore after SHELL with umask option... OK"
     },
     "509": {
       "id": 509,
@@ -4287,36 +4287,36 @@
       "name": "ABSTRACT_LISTEN_CONNECT_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
       "status": "CANT",
-      "detail": "abstract-unixsocket not available",
+      "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
       "shard": 6,
-      "raw": "test 513 ABSTRACT_LISTEN_CONNECT_BIND_TEMPNAME: Option unix-bind-tempname... abstract-unixsocket not available"
+      "raw": "test 513 ABSTRACT_LISTEN_CONNECT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
     },
     "514": {
       "id": 514,
       "name": "ABSTRACT_LISTEN_CLIENT_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
       "status": "CANT",
-      "detail": "abstract-unixsocket not available",
+      "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
       "shard": 6,
-      "raw": "test 514 ABSTRACT_LISTEN_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... abstract-unixsocket not available"
+      "raw": "test 514 ABSTRACT_LISTEN_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
     },
     "515": {
       "id": 515,
       "name": "ABSTRACT_RECVFROM_CLIENT_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
       "status": "CANT",
-      "detail": "abstract-unixsocket not available",
+      "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
       "shard": 6,
-      "raw": "test 515 ABSTRACT_RECVFROM_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... abstract-unixsocket not available"
+      "raw": "test 515 ABSTRACT_RECVFROM_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
     },
     "516": {
       "id": 516,
       "name": "ABSTRACT_RECVFROM_SENDTO_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
       "status": "CANT",
-      "detail": "abstract-unixsocket not available",
+      "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
       "shard": 6,
-      "raw": "test 516 ABSTRACT_RECVFROM_SENDTO_BIND_TEMPNAME: Option unix-bind-tempname... abstract-unixsocket not available"
+      "raw": "test 516 ABSTRACT_RECVFROM_SENDTO_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
     },
     "517": {
       "id": 517,
@@ -4430,37 +4430,37 @@
       "id": 529,
       "name": "SOCAT_CHAIN_SOCKS4",
       "description": "test socat-chain.sh with SOCKS4 over UNIX-socket",
-      "status": "CANT",
-      "detail": "Feature SOCKS4 not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 6,
-      "raw": "test 529 SOCAT_CHAIN_SOCKS4: test socat-chain.sh with SOCKS4 over UNIX-socket... Feature SOCKS4 not configured in /home/eero/src/socat/socat"
+      "raw": "test 529 SOCAT_CHAIN_SOCKS4: test socat-chain.sh with SOCKS4 over UNIX-socket... OK"
     },
     "530": {
       "id": 530,
       "name": "SOCAT_CHAIN_SSL_PTY",
       "description": "test socat-chain.sh with SSL over PTY",
-      "status": "FAILED",
-      "detail": "(rc1=127)",
+      "status": "OK",
+      "detail": "",
       "shard": 6,
-      "raw": "test 530 SOCAT_CHAIN_SSL_PTY: test socat-chain.sh with SSL over PTY... FAILED (rc1=127)"
+      "raw": "test 530 SOCAT_CHAIN_SSL_PTY: test socat-chain.sh with SSL over PTY... OK"
     },
     "531": {
       "id": 531,
       "name": "SOCAT_MUX",
       "description": "test the socat-mux.sh script",
-      "status": "FAILED",
-      "detail": "(rc2b=1)",
+      "status": "OK",
+      "detail": "",
       "shard": 6,
-      "raw": "test 531 SOCAT_MUX: test the socat-mux.sh script... FAILED (rc2b=1)"
+      "raw": "test 531 SOCAT_MUX: test the socat-mux.sh script... OK"
     },
     "532": {
       "id": 532,
       "name": "SOCAT_BROKER",
       "description": "test the socat-broker.sh script",
-      "status": "FAILED",
-      "detail": "(rc1b=1)",
+      "status": "OK",
+      "detail": "",
       "shard": 6,
-      "raw": "test 532 SOCAT_BROKER: test the socat-broker.sh script... FAILED (rc1b=1)"
+      "raw": "test 532 SOCAT_BROKER: test the socat-broker.sh script... OK"
     },
     "533": {
       "id": 533,
@@ -4763,28 +4763,28 @@
       "id": 566,
       "name": "READLINE_SH_OVERWRITE",
       "description": "Test the readline.sh file overwrite vulnerability",
-      "status": "CANT",
-      "detail": "Program readline.sh not available",
+      "status": "OK",
+      "detail": "",
       "shard": 6,
-      "raw": "test 566 READLINE_SH_OVERWRITE: Test the readline.sh file overwrite vulnerability... Program readline.sh not available"
+      "raw": "test 566 READLINE_SH_OVERWRITE: Test the readline.sh file overwrite vulnerability... OK"
     },
     "567": {
       "id": 567,
       "name": "SOCKS5CONNECT_TCP4",
       "description": "SOCKS5-CONNECT over TCP/IPv4",
-      "status": "CANT",
-      "detail": "Program ./socks5server-echo.sh not available",
+      "status": "OK",
+      "detail": "",
       "shard": 6,
-      "raw": "test 567 SOCKS5CONNECT_TCP4: SOCKS5-CONNECT over TCP/IPv4... Program ./socks5server-echo.sh not available"
+      "raw": "test 567 SOCKS5CONNECT_TCP4: SOCKS5-CONNECT over TCP/IPv4... OK"
     },
     "568": {
       "id": 568,
       "name": "SOCKS5LISTEN_TCP4",
       "description": "SOCKS5-LISTEN over TCP/IPv4",
       "status": "CANT",
-      "detail": "Program ./socks5server-echo.sh not available",
+      "detail": "Address SOCKS5-LISTEN not available in /home/eero/src/socat/socat",
       "shard": 6,
-      "raw": "test 568 SOCKS5LISTEN_TCP4: SOCKS5-LISTEN over TCP/IPv4... Program ./socks5server-echo.sh not available"
+      "raw": "test 568 SOCKS5LISTEN_TCP4: SOCKS5-LISTEN over TCP/IPv4... Address SOCKS5-LISTEN not available in /home/eero/src/socat/socat"
     },
     "569": {
       "id": 569,
@@ -4845,27 +4845,27 @@
       "name": "SOCKS4_BIND_6_4",
       "description": "SOCKS4 bind chooses matching IPv",
       "status": "CANT",
-      "detail": "Feature SOCKS4 not configured in /home/eero/src/socat/socat",
+      "detail": "use test.sh option --internet",
       "shard": 7,
-      "raw": "test 575 SOCKS4_BIND_6_4: SOCKS4 bind chooses matching IPv... Feature SOCKS4 not configured in /home/eero/src/socat/socat"
+      "raw": "test 575 SOCKS4_BIND_6_4: SOCKS4 bind chooses matching IPv... use test.sh option --internet"
     },
     "576": {
       "id": 576,
       "name": "SOCKS5_CONNECT_BIND_6_4",
       "description": "SOCKS5 bind chooses matching IPv",
       "status": "CANT",
-      "detail": "Feature SOCKS5 not configured in /home/eero/src/socat/socat",
+      "detail": "use test.sh option --internet",
       "shard": 7,
-      "raw": "test 576 SOCKS5_CONNECT_BIND_6_4: SOCKS5 bind chooses matching IPv... Feature SOCKS5 not configured in /home/eero/src/socat/socat"
+      "raw": "test 576 SOCKS5_CONNECT_BIND_6_4: SOCKS5 bind chooses matching IPv... use test.sh option --internet"
     },
     "577": {
       "id": 577,
       "name": "PROXY_CONNECT_BIND_6_4",
       "description": "PROXY bind chooses matching IPv",
       "status": "CANT",
-      "detail": "Feature PROXY not configured in /home/eero/src/socat/socat",
+      "detail": "use test.sh option --internet",
       "shard": 7,
-      "raw": "test 577 PROXY_CONNECT_BIND_6_4: PROXY bind chooses matching IPv... Feature PROXY not configured in /home/eero/src/socat/socat"
+      "raw": "test 577 PROXY_CONNECT_BIND_6_4: PROXY bind chooses matching IPv... use test.sh option --internet"
     },
     "578": {
       "id": 578,
@@ -4925,28 +4925,28 @@
       "id": 584,
       "name": "SOCKS4_RETRY",
       "description": "SOCKS4 can retry",
-      "status": "CANT",
-      "detail": "Feature SOCKS4 not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 7,
-      "raw": "test 584 SOCKS4_RETRY: SOCKS4 can retry... Feature SOCKS4 not configured in /home/eero/src/socat/socat"
+      "raw": "test 584 SOCKS4_RETRY: SOCKS4 can retry... OK"
     },
     "585": {
       "id": 585,
       "name": "SOCKS5_CONNECT_RETRY",
       "description": "SOCKS5 can retry",
-      "status": "CANT",
-      "detail": "Feature SOCKS5 not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 7,
-      "raw": "test 585 SOCKS5_CONNECT_RETRY: SOCKS5 can retry... Feature SOCKS5 not configured in /home/eero/src/socat/socat"
+      "raw": "test 585 SOCKS5_CONNECT_RETRY: SOCKS5 can retry... OK"
     },
     "586": {
       "id": 586,
       "name": "PROXY_CONNECT_RETRY",
       "description": "PROXY can retry",
-      "status": "CANT",
-      "detail": "Feature PROXY not configured in /home/eero/src/socat/socat",
+      "status": "FAILED",
+      "detail": "NO RESULT (unexpected error)",
       "shard": 7,
-      "raw": "test 586 PROXY_CONNECT_RETRY: PROXY can retry... Feature PROXY not configured in /home/eero/src/socat/socat"
+      "raw": "test 586 PROXY_CONNECT_RETRY: PROXY can retry... NO RESULT (unexpected error)"
     },
     "587": {
       "id": 587,
@@ -4979,37 +4979,37 @@
       "id": 590,
       "name": "OPENSSL_CONNECT_MAXCHILDREN",
       "description": "OPENSSL with fork,max-children",
-      "status": "FAILED",
-      "detail": "(diff)",
+      "status": "OK",
+      "detail": "",
       "shard": 7,
-      "raw": "test 590 OPENSSL_CONNECT_MAXCHILDREN: OPENSSL with fork,max-children... FAILED (diff)"
+      "raw": "test 590 OPENSSL_CONNECT_MAXCHILDREN: OPENSSL with fork,max-children... OK"
     },
     "591": {
       "id": 591,
       "name": "SOCKS4_MAXCHILDREN",
       "description": "SOCKS4 with fork,max-children",
-      "status": "CANT",
-      "detail": "Feature SOCKS4 not configured in /home/eero/src/socat/socat",
+      "status": "FAILED",
+      "detail": "(diff)",
       "shard": 7,
-      "raw": "test 591 SOCKS4_MAXCHILDREN: SOCKS4 with fork,max-children... Feature SOCKS4 not configured in /home/eero/src/socat/socat"
+      "raw": "test 591 SOCKS4_MAXCHILDREN: SOCKS4 with fork,max-children... FAILED (diff)"
     },
     "592": {
       "id": 592,
       "name": "SOCKS5_CONNECT_MAXCHILDREN",
       "description": "SOCKS5 with fork,max-children",
-      "status": "CANT",
-      "detail": "Feature SOCKS5 not configured in /home/eero/src/socat/socat",
+      "status": "FAILED",
+      "detail": "(diff)",
       "shard": 7,
-      "raw": "test 592 SOCKS5_CONNECT_MAXCHILDREN: SOCKS5 with fork,max-children... Feature SOCKS5 not configured in /home/eero/src/socat/socat"
+      "raw": "test 592 SOCKS5_CONNECT_MAXCHILDREN: SOCKS5 with fork,max-children... FAILED (diff)"
     },
     "593": {
       "id": 593,
       "name": "PROXY_CONNECT_MAXCHILDREN",
       "description": "PROXY with fork,max-children",
-      "status": "CANT",
-      "detail": "Feature PROXY not configured in /home/eero/src/socat/socat",
+      "status": "FAILED",
+      "detail": "(diff)",
       "shard": 7,
-      "raw": "test 593 PROXY_CONNECT_MAXCHILDREN: PROXY with fork,max-children... Feature PROXY not configured in /home/eero/src/socat/socat"
+      "raw": "test 593 PROXY_CONNECT_MAXCHILDREN: PROXY with fork,max-children... FAILED (diff)"
     },
     "594": {
       "id": 594,
@@ -5034,9 +5034,9 @@
       "name": "SOCKS4_SIGSEGV",
       "description": "test for SOCKS4 SIGSEGV on RST",
       "status": "CANT",
-      "detail": "Feature SOCKS4 not configured in /home/eero/src/socat/socat",
+      "detail": "Option so-linger not available in /home/eero/src/socat/socat",
       "shard": 7,
-      "raw": "test 596 SOCKS4_SIGSEGV: test for SOCKS4 SIGSEGV on RST... Feature SOCKS4 not configured in /home/eero/src/socat/socat"
+      "raw": "test 596 SOCKS4_SIGSEGV: test for SOCKS4 SIGSEGV on RST... Option so-linger not available in /home/eero/src/socat/socat"
     },
     "597": {
       "id": 597,
@@ -5105,10 +5105,10 @@
       "id": 604,
       "name": "SOCKS5_USER_PASS",
       "description": "test the SOCKS5 client username+password authentication",
-      "status": "CANT",
-      "detail": "Program socks5server-auth.sh not available",
+      "status": "OK",
+      "detail": "",
       "shard": 7,
-      "raw": "test 604 SOCKS5_USER_PASS: test the SOCKS5 client username+password authentication... Program socks5server-auth.sh not available"
+      "raw": "test 604 SOCKS5_USER_PASS: test the SOCKS5 client username+password authentication... OK"
     },
     "605": {
       "id": 605,
@@ -5132,10 +5132,10 @@
       "id": 607,
       "name": "SOCKS5_OVERFL",
       "description": "socks5 client buffer overflow",
-      "status": "CANT",
-      "detail": "Feature SOCKS5 not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 7,
-      "raw": "test 607 SOCKS5_OVERFL: socks5 client buffer overflow... Feature SOCKS5 not configured in /home/eero/src/socat/socat"
+      "raw": "test 607 SOCKS5_OVERFL: socks5 client buffer overflow... OK"
     }
   }
 }
