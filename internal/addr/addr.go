@@ -75,9 +75,14 @@ type Global struct {
 	ChildExitCode int
 	ChildErr      error
 
-	// Classic -r / -R raw transfer dumps (left→right / right→left). CLOEXEC.
-	RawLeft  *os.File
-	RawRight *os.File
+	// Classic -r / -R raw transfer dumps (left→right / right→left).
+	// Path templates may contain $PROGNAME, $TIMESTAMP, $MICROS, $$, $ENV.
+	// Files are opened at transfer start (after peer is known) with CLOEXEC.
+	RawLeftPath  string
+	RawRightPath string
+	Progname     string // -lp value; default "socat"
+	RawLeft      *os.File
+	RawRight     *os.File
 }
 
 // Opened is a live address endpoint ready for transfer or accept-loop.
@@ -654,6 +659,22 @@ func transferStreams(ctx context.Context, left, right relay.Stream, g *Global) e
 func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Global, noCloseLeft, noCloseRight bool) error {
 	if left == nil || right == nil {
 		return fmt.Errorf("nil stream")
+	}
+	// Classic opens -r/-R sniff files at transfer start (after peer env is set).
+	if g != nil && (g.RawLeftPath != "" || g.RawRightPath != "") {
+		if err := openSniffFiles(g); err != nil {
+			return err
+		}
+		defer func() {
+			if g.RawLeft != nil {
+				_ = g.RawLeft.Close()
+				g.RawLeft = nil
+			}
+			if g.RawRight != nil {
+				_ = g.RawRight.Close()
+				g.RawRight = nil
+			}
+		}()
 	}
 	cfg := relay.Config{
 		BufferSize:   g.BlockSize,

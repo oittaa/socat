@@ -282,7 +282,9 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*O
 	var err error
 	if bindPath != "" {
 		bp := unixAddr(bindPath)
-		if !isAbstract(bp) {
+		// Classic: do not unlink the bind path unless unlink-early is set.
+		// Unconditional remove would replace a symlink (TEMPNAME_SEC attack).
+		if !isAbstract(bp) && s.BoolOption("unlink-early") {
 			_ = os.Remove(bp)
 		}
 		laddr := &net.UnixAddr{Name: bp, Net: "unixgram"}

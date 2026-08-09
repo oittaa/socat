@@ -362,6 +362,7 @@ func applySetsockoptFD(fd int, spec string) error {
 }
 
 // rememberAddrs fills SOCAT_* environment fields on g from a live connection.
+// Also exports classic process env used by -r/-R path expansion ($SERVER0_PEERADDR).
 func rememberAddrs(g *Global, c net.Conn) {
 	if g == nil || c == nil {
 		return
@@ -384,6 +385,29 @@ func rememberAddrs(g *Global, c net.Conn) {
 			g.PeerAddr = ra.String()
 		}
 	}
+	// Classic xiosetenv: PROGNAME_PEERADDR / PROGNAME_PEERPORT (and SOCAT_*).
+	exportSocatEnv(g)
+}
+
+// exportSocatEnv sets process environment for sniff-path expansion and children.
+func exportSocatEnv(g *Global) {
+	if g == nil {
+		return
+	}
+	prog := g.Progname
+	if prog == "" {
+		prog = "socat"
+	}
+	// Uppercase progname like classic xiosetenv.
+	up := strings.ToUpper(prog)
+	_ = os.Setenv("SOCAT_SOCKADDR", g.SockAddr)
+	_ = os.Setenv("SOCAT_PEERADDR", g.PeerAddr)
+	_ = os.Setenv("SOCAT_SOCKPORT", g.SockPort)
+	_ = os.Setenv("SOCAT_PEERPORT", g.PeerPort)
+	_ = os.Setenv(up+"_SOCKADDR", g.SockAddr)
+	_ = os.Setenv(up+"_PEERADDR", g.PeerAddr)
+	_ = os.Setenv(up+"_SOCKPORT", g.SockPort)
+	_ = os.Setenv(up+"_PEERPORT", g.PeerPort)
 }
 
 // formatSocatAddr matches classic env formatting (IPv6 in brackets).
