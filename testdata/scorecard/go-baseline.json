@@ -1,28 +1,26 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-08-09T11:24:50Z",
+    "timestamp": "2026-08-09T19:42:44Z",
     "hostname": "gmktec",
     "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.39",
     "socat": "/home/eero/src/socat/socat",
-    "socat_version": "socat version 0.1.0-dev on 2026-08-09T11:24:50Z",
+    "socat_version": "socat version 0.1.0-dev on 2026-08-09T19:42:44Z",
     "test_sh": "/tmp/socat-1.8.1.3/test.sh",
-    "git": "8ef80ad",
+    "git": "5199001",
     "out_dir": ".classic-scorecard",
-    "val_t": "0.1",
-    "jobs": "8",
-    "shard_timeout": "300"
+    "val_t": "auto",
+    "jobs": "1",
+    "shard_timeout": "7200"
   },
   "summary": {
-    "ok": 337,
-    "failed": 20,
-    "cant": 207,
-    "timeout": 1,
-    "unknown": 3,
-    "total_recorded": 568,
-    "shard_timeouts": [
-      2
-    ]
+    "ok": 368,
+    "failed": 11,
+    "cant": 224,
+    "timeout": 0,
+    "unknown": 2,
+    "total_recorded": 605,
+    "shard_timeouts": []
   },
   "tests": {
     "1": {
@@ -128,28 +126,28 @@
       "id": 12,
       "name": "EXECPIPES",
       "description": "simple echo via exec of cat with pipes",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test  12 EXECPIPES: simple echo via exec of cat with pipes... FAILED:"
+      "raw": "test  12 EXECPIPES: simple echo via exec of cat with pipes... OK"
     },
     "13": {
       "id": 13,
       "name": "SYSTEMPIPES",
       "description": "simple echo via system() of cat with pipes",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test  13 SYSTEMPIPES: simple echo via system() of cat with pipes... FAILED:"
+      "raw": "test  13 SYSTEMPIPES: simple echo via system() of cat with pipes... OK"
     },
     "14": {
       "id": 14,
       "name": "EXECPTY",
       "description": "simple echo via exec of cat with pseudo terminal",
-      "status": "FAILED",
-      "detail": "/home/eero/src/socat/socat:",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test  14 EXECPTY: simple echo via exec of cat with pseudo terminal... FAILED:  /home/eero/src/socat/socat:"
+      "raw": "test  14 EXECPTY: simple echo via exec of cat with pseudo terminal... OK"
     },
     "15": {
       "id": 15,
@@ -164,10 +162,10 @@
       "id": 16,
       "name": "SYSTEMPIPESFDS",
       "description": "simple echo via system() of cat with pipes, non stdio",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test  16 SYSTEMPIPESFDS: simple echo via system() of cat with pipes, non stdio... FAILED:"
+      "raw": "test  16 SYSTEMPIPESFDS: simple echo via system() of cat with pipes, non stdio... OK"
     },
     "17": {
       "id": 17,
@@ -209,10 +207,10 @@
       "id": 21,
       "name": "SYSTEMPIPESFLUSH",
       "description": "call to od via system() with pipes",
-      "status": "FAILED",
-      "detail": "diff:",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test  21 SYSTEMPIPESFLUSH: call to od via system() with pipes... FAILED: diff:"
+      "raw": "test  21 SYSTEMPIPESFLUSH: call to od via system() with pipes... OK"
     },
     "22": {
       "id": 22,
@@ -569,10 +567,10 @@
       "id": 61,
       "name": "MAINSETSID",
       "description": "main process with setsid",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test  61 MAINSETSID: main process with setsid... FAILED"
+      "raw": "test  61 MAINSETSID: main process with setsid... OK"
     },
     "62": {
       "id": 62,
@@ -769,7 +767,7 @@
       "description": "socks4a connect over TCP/IPv4",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test  83 SOCKS4ACONNECT_TCP4: socks4a connect over TCP/IPv4... OK"
     },
     "84": {
@@ -778,7 +776,7 @@
       "description": "socks4a connect over TCP/IPv6",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test  84 SOCKS4ACONNECT_TCP6: socks4a connect over TCP/IPv6... OK"
     },
     "85": {
@@ -787,7 +785,7 @@
       "description": "proxy connect over TCP/IPv4",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test  85 PROXYCONNECT_TCP4: proxy connect over TCP/IPv4... OK"
     },
     "86": {
@@ -796,7 +794,7 @@
       "description": "proxy connect over TCP/IPv6",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test  86 PROXYCONNECT_TCP6: proxy connect over TCP/IPv6... OK"
     },
     "87": {
@@ -805,7 +803,7 @@
       "description": "echo via connection to TCP V4 socket with nofork'ed exec",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test  87 TCP4NOFORK: echo via connection to TCP V4 socket with nofork'ed exec... OK"
     },
     "88": {
@@ -814,7 +812,7 @@
       "description": "simple echo via exec of cat with nofork",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test  88 EXECCATNOFORK: simple echo via exec of cat with nofork... OK"
     },
     "89": {
@@ -823,7 +821,7 @@
       "description": "simple echo via system() of cat with nofork",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test  89 SYSTEMCATNOFORK: simple echo via system() of cat with nofork... OK"
     },
     "90": {
@@ -832,7 +830,7 @@
       "description": "simple echo via exec() of cat with nofork and setsid",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test  90 NOFORKSETSID: simple echo via exec() of cat with nofork and setsid... OK"
     },
     "91": {
@@ -841,7 +839,7 @@
       "description": "socat inactivity timeout",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test  91 TOTALTIMEOUT: socat inactivity timeout... OK"
     },
     "93": {
@@ -850,7 +848,7 @@
       "description": "proxy connect accepts status with multiple spaces",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test  93 PROXY2SPACES: proxy connect accepts status with multiple spaces... OK"
     },
     "95": {
@@ -859,7 +857,7 @@
       "description": "inheritance of stdout to single exec with socketpair",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test  95 SINGLEEXECOUTSOCKETPAIR: inheritance of stdout to single exec with socketpair... OK"
     },
     "96": {
@@ -868,7 +866,7 @@
       "description": "inheritance of stdout to single exec with pipe",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test  96 SINGLEEXECOUTPIPE: inheritance of stdout to single exec with pipe... OK"
     },
     "97": {
@@ -877,17 +875,17 @@
       "description": "inheritance of stdout to single exec with pty",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test  97 SINGLEEXECOUTPTY: inheritance of stdout to single exec with pty... OK"
     },
     "98": {
       "id": 98,
       "name": "SINGLEEXECINSOCKETPAIR",
       "description": "inheritance of stdin to single exec with socketpair",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
-      "shard": 1,
-      "raw": "test  98 SINGLEEXECINSOCKETPAIR: inheritance of stdin to single exec with socketpair... FAILED:"
+      "shard": 0,
+      "raw": "test  98 SINGLEEXECINSOCKETPAIR: inheritance of stdin to single exec with socketpair... OK"
     },
     "99": {
       "id": 99,
@@ -895,7 +893,7 @@
       "description": "inheritance of stdin to single exec with pipe",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test  99 SINGLEEXECINPIPE: inheritance of stdin to single exec with pipe... OK"
     },
     "100": {
@@ -904,7 +902,7 @@
       "description": "inheritance of stdin to single exec with pty, with delay",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 100 SINGLEEXECINPTYDELAY: inheritance of stdin to single exec with pty, with delay... OK"
     },
     "101": {
@@ -913,7 +911,7 @@
       "description": "inheritance of stdin to single exec with pty",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 101 SINGLEEXECINPTY: inheritance of stdin to single exec with pty... OK"
     },
     "102": {
@@ -922,7 +920,7 @@
       "description": "readline with password and sigint",
       "status": "CANT",
       "detail": "READLINE not available",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 102 READLINE: readline with password and sigint... READLINE not available"
     },
     "103": {
@@ -931,7 +929,7 @@
       "description": "TCP4 \"gender changer\"",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 103 GENDERCHANGER: TCP4 \"gender changer\"... OK"
     },
     "104": {
@@ -940,7 +938,7 @@
       "description": "gender changer via SSL through HTTP proxy, oneshot",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 104 OUTBOUNDIN: gender changer via SSL through HTTP proxy, oneshot... OK"
     },
     "105": {
@@ -949,7 +947,7 @@
       "description": "gender changer via SSL through HTTP proxy, daemons",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 105 INTRANETRIPPER: gender changer via SSL through HTTP proxy, daemons... OK"
     },
     "106": {
@@ -958,7 +956,7 @@
       "description": "security of TCP4-L with RANGE option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 106 TCP4RANGEBITS: security of TCP4-L with RANGE option... OK"
     },
     "107": {
@@ -967,7 +965,7 @@
       "description": "security of TCP4-L with RANGE option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 107 TCP4RANGEMASK: security of TCP4-L with RANGE option... OK"
     },
     "108": {
@@ -976,26 +974,26 @@
       "description": "security of TCP4-L with RANGE option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 108 TCP4RANGEMASKHAIRY: security of TCP4-L with RANGE option... OK"
     },
     "109": {
       "id": 109,
       "name": "TCP4SOURCEPORT",
       "description": "security of TCP4-L with SOURCEPORT option",
-      "status": "FAILED",
-      "detail": "NO RESULT (ph.2 client error):  /home/eero/src/socat/socat:",
-      "shard": 1,
-      "raw": "test 109 TCP4SOURCEPORT: security of TCP4-L with SOURCEPORT option... NO RESULT (ph.2 client error):  /home/eero/src/socat/socat:"
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 109 TCP4SOURCEPORT: security of TCP4-L with SOURCEPORT option... OK"
     },
     "110": {
       "id": 110,
       "name": "TCP4LOWPORT",
       "description": "security of TCP4-L with LOWPORT option",
-      "status": "FAILED",
-      "detail": "NO RESULT (ph.2 client error):  /home/eero/src/socat/socat:",
-      "shard": 1,
-      "raw": "test 110 TCP4LOWPORT: security of TCP4-L with LOWPORT option... NO RESULT (ph.2 client error):  /home/eero/src/socat/socat:"
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 110 TCP4LOWPORT: security of TCP4-L with LOWPORT option... OK"
     },
     "111": {
       "id": 111,
@@ -1003,7 +1001,7 @@
       "description": "security of TCP4-L with TCPWRAP option",
       "status": "CANT",
       "detail": "libwrap not available",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 111 TCP4WRAPPERS_ADDR: security of TCP4-L with TCPWRAP option... libwrap not available"
     },
     "112": {
@@ -1012,7 +1010,7 @@
       "description": "security of TCP4-L with TCPWRAP option",
       "status": "CANT",
       "detail": "libwrap not available",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 112 TCP4WRAPPERS_NAME: security of TCP4-L with TCPWRAP option... libwrap not available"
     },
     "113": {
@@ -1021,7 +1019,7 @@
       "description": "security of TCP6-L with RANGE option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 113 TCP6RANGE: security of TCP6-L with RANGE option... OK"
     },
     "114": {
@@ -1030,7 +1028,7 @@
       "description": "security of TCP6-L with SOURCEPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 114 TCP6SOURCEPORT: security of TCP6-L with SOURCEPORT option... OK"
     },
     "115": {
@@ -1039,7 +1037,7 @@
       "description": "security of TCP6-L with LOWPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 115 TCP6LOWPORT: security of TCP6-L with LOWPORT option... OK"
     },
     "116": {
@@ -1048,7 +1046,7 @@
       "description": "security of TCP6-L with TCPWRAP option",
       "status": "CANT",
       "detail": "libwrap not available",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 116 TCP6TCPWRAP: security of TCP6-L with TCPWRAP option... libwrap not available"
     },
     "117": {
@@ -1057,7 +1055,7 @@
       "description": "security of UDP4-L with RANGE option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 117 UDP4RANGE: security of UDP4-L with RANGE option... OK"
     },
     "118": {
@@ -1066,7 +1064,7 @@
       "description": "security of UDP4-L with SOURCEPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 118 UDP4SOURCEPORT: security of UDP4-L with SOURCEPORT option... OK"
     },
     "119": {
@@ -1075,7 +1073,7 @@
       "description": "security of UDP4-L with LOWPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 119 UDP4LOWPORT: security of UDP4-L with LOWPORT option... OK"
     },
     "120": {
@@ -1084,7 +1082,7 @@
       "description": "security of UDP4-L with TCPWRAP option",
       "status": "CANT",
       "detail": "libwrap not available",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 120 UDP4TCPWRAP: security of UDP4-L with TCPWRAP option... libwrap not available"
     },
     "121": {
@@ -1093,7 +1091,7 @@
       "description": "security of UDP6-L with RANGE option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 121 UDP6RANGE: security of UDP6-L with RANGE option... OK"
     },
     "122": {
@@ -1102,7 +1100,7 @@
       "description": "security of UDP6-L with SOURCEPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 122 UDP6SOURCEPORT: security of UDP6-L with SOURCEPORT option... OK"
     },
     "123": {
@@ -1111,7 +1109,7 @@
       "description": "security of UDP6-L with LOWPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 123 UDP6LOWPORT: security of UDP6-L with LOWPORT option... OK"
     },
     "124": {
@@ -1120,7 +1118,7 @@
       "description": "security of UDP6-L with TCPWRAP option",
       "status": "CANT",
       "detail": "libwrap not available",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 124 UDP6TCPWRAP: security of UDP6-L with TCPWRAP option... libwrap not available"
     },
     "125": {
@@ -1129,7 +1127,7 @@
       "description": "security of SSL-L over TCP/IPv4 with RANGE option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 125 OPENSSLTCP4_RANGE: security of SSL-L over TCP/IPv4 with RANGE option... OK"
     },
     "126": {
@@ -1138,7 +1136,7 @@
       "description": "security of SSL-L with SOURCEPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 126 OPENSSLTCP4_SOURCEPORT: security of SSL-L with SOURCEPORT option... OK"
     },
     "127": {
@@ -1147,7 +1145,7 @@
       "description": "security of SSL-L with LOWPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 127 OPENSSLTCP4_LOWPORT: security of SSL-L with LOWPORT option... OK"
     },
     "128": {
@@ -1156,7 +1154,7 @@
       "description": "security of SSL-L with TCPWRAP option",
       "status": "CANT",
       "detail": "libwrap not available",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 128 OPENSSLTCP4_TCPWRAP: security of SSL-L with TCPWRAP option... libwrap not available"
     },
     "129": {
@@ -1165,7 +1163,7 @@
       "description": "security of SSL-L with client certificate",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 129 OPENSSLCERTSERVER: security of SSL-L with client certificate... OK"
     },
     "130": {
@@ -1174,7 +1172,7 @@
       "description": "security of SSL with server certificate",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 130 OPENSSLCERTCLIENT: security of SSL with server certificate... OK"
     },
     "131": {
@@ -1183,7 +1181,7 @@
       "description": "security of SSL-L over TCP/IPv6 with RANGE option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 131 OPENSSLTCP6_RANGE: security of SSL-L over TCP/IPv6 with RANGE option... OK"
     },
     "132": {
@@ -1192,7 +1190,7 @@
       "description": "security of SSL-L over TCP/IPv6 with SOURCEPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 132 OPENSSLTCP6_SOURCEPORT: security of SSL-L over TCP/IPv6 with SOURCEPORT option... OK"
     },
     "133": {
@@ -1201,7 +1199,7 @@
       "description": "security of SSL-L over TCP/IPv6 with LOWPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 133 OPENSSLTCP6_LOWPORT: security of SSL-L over TCP/IPv6 with LOWPORT option... OK"
     },
     "134": {
@@ -1210,7 +1208,7 @@
       "description": "security of SSL-L over TCP/IPv6 with TCPWRAP option",
       "status": "CANT",
       "detail": "libwrap not available",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 134 OPENSSLTCP6_TCPWRAP: security of SSL-L over TCP/IPv6 with TCPWRAP option... libwrap not available"
     },
     "135": {
@@ -1219,7 +1217,7 @@
       "description": "security of client openssl-commonname option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 135 OPENSSL_CN_CLIENT_SECURITY: security of client openssl-commonname option... OK"
     },
     "136": {
@@ -1228,7 +1226,7 @@
       "description": "security of server openssl-commonname option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 136 OPENSSL_CN_SERVER_SECURITY: security of server openssl-commonname option... OK"
     },
     "137": {
@@ -1237,7 +1235,7 @@
       "description": "OpenSSL restrictions by FIPS",
       "status": "CANT",
       "detail": "OPENSSL/FIPS not available",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 137 OPENSSL_FIPS_SECURITY: OpenSSL restrictions by FIPS... OPENSSL/FIPS not available"
     },
     "138": {
@@ -1246,7 +1244,7 @@
       "description": "give exec'd write-only process a chance to flush (-u)",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 138 UNIEXECEOF: give exec'd write-only process a chance to flush (-u)... OK"
     },
     "139": {
@@ -1255,7 +1253,7 @@
       "description": "give exec'd write-only process a chance to flush (-U)",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 139 REVEXECEOF: give exec'd write-only process a chance to flush (-U)... OK"
     },
     "140": {
@@ -1264,7 +1262,7 @@
       "description": "check type printed for directories",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 140 FILANDIR: check type printed for directories... OK"
     },
     "141": {
@@ -1273,7 +1271,7 @@
       "description": "capability to analyze named unix socket",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 141 FILANSOCKET: capability to analyze named unix socket... OK"
     },
     "142": {
@@ -1282,7 +1280,7 @@
       "description": "test if master pty (ptmx) waits for slave connection",
       "status": "CANT",
       "detail": "option PTMX not available",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 142 PTMXWAITSLAVE: test if master pty (ptmx) waits for slave connection... option PTMX not available"
     },
     "143": {
@@ -1291,7 +1289,7 @@
       "description": "test if master pty (openpty) waits for slave connection",
       "status": "CANT",
       "detail": "option OPENPTY not available",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 143 OPENPTYWAITSLAVE: test if master pty (openpty) waits for slave connection... option OPENPTY not available"
     },
     "144": {
@@ -1300,7 +1298,7 @@
       "description": "test the connect-timeout option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 144 CONNECTTIMEOUT: test the connect-timeout option... OK"
     },
     "145": {
@@ -1309,7 +1307,7 @@
       "description": "TCP4 connect-timeout option when server replies",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 145 CONNECTTIMEOUT_CONN: TCP4 connect-timeout option when server replies... OK"
     },
     "146": {
@@ -1318,7 +1316,7 @@
       "description": "openssl listen with DSA certificate",
       "status": "FAILED",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 146 OPENSSLLISTENDSA: openssl listen with DSA certificate... FAILED"
     },
     "147": {
@@ -1326,18 +1324,18 @@
       "name": "EXITCODESIGTERM",
       "description": "exit status when dying on SIGTERM",
       "status": "FAILED",
-      "detail": "/tmp/socat-shard-1.fqV64n/test.sh: line 6519: kill: (2693984) - No such process",
-      "shard": 1,
-      "raw": "test 147 EXITCODESIGTERM: exit status when dying on SIGTERM... /tmp/socat-shard-1.fqV64n/test.sh: line 6519: kill: (2693984) - No such process"
+      "detail": "/tmp/socat-shard-0.GjTH8Q/test.sh: line 6519: kill: (2790456) - No such process",
+      "shard": 0,
+      "raw": "test 147 EXITCODESIGTERM: exit status when dying on SIGTERM... /tmp/socat-shard-0.GjTH8Q/test.sh: line 6519: kill: (2790456) - No such process"
     },
     "148": {
       "id": 148,
       "name": "EXITCODESIGILL",
       "description": "exit status when dying on SIGILL",
       "status": "FAILED",
-      "detail": "/tmp/socat-shard-1.fqV64n/test.sh: line 6519: kill: (2694224) - No such process",
-      "shard": 1,
-      "raw": "test 148 EXITCODESIGILL: exit status when dying on SIGILL... /tmp/socat-shard-1.fqV64n/test.sh: line 6519: kill: (2694224) - No such process"
+      "detail": "/tmp/socat-shard-0.GjTH8Q/test.sh: line 6519: kill: (2790492) - No such process",
+      "shard": 0,
+      "raw": "test 148 EXITCODESIGILL: exit status when dying on SIGILL... /tmp/socat-shard-0.GjTH8Q/test.sh: line 6519: kill: (2790492) - No such process"
     },
     "149": {
       "id": 149,
@@ -1345,7 +1343,7 @@
       "description": "restrict reading from file with bytes option",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 149 READBYTES: restrict reading from file with bytes option... OK"
     },
     "150": {
@@ -1354,7 +1352,7 @@
       "description": "UDP socket rebinds after first connection",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 150 UDPLISTENFORK: UDP socket rebinds after first connection... OK"
     },
     "151": {
@@ -1363,7 +1361,7 @@
       "description": "TCP4 listen handles 2 concurrent connections",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 151 TCP4LISTENFORK: TCP4 listen handles 2 concurrent connections... OK"
     },
     "152": {
@@ -1372,7 +1370,7 @@
       "description": "TCP6 listen handles 2 concurrent connections",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 152 TCP6LISTENFORK: TCP6 listen handles 2 concurrent connections... OK"
     },
     "153": {
@@ -1381,7 +1379,7 @@
       "description": "UDP4 listen handles 2 concurrent connections",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 153 UDP4LISTENFORK: UDP4 listen handles 2 concurrent connections... OK"
     },
     "154": {
@@ -1390,7 +1388,7 @@
       "description": "UDP6 listen handles 2 concurrent connections",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 154 UDP6LISTENFORK: UDP6 listen handles 2 concurrent connections... OK"
     },
     "155": {
@@ -1399,7 +1397,7 @@
       "description": "SCTP4 listen handles 2 concurrent connections",
       "status": "CANT",
       "detail": "SCTP4 not available",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 155 SCTP4LISTENFORK: SCTP4 listen handles 2 concurrent connections... SCTP4 not available"
     },
     "156": {
@@ -1408,7 +1406,7 @@
       "description": "SCTP6 listen handles 2 concurrent connections",
       "status": "CANT",
       "detail": "SCTP6 not available",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 156 SCTP6LISTENFORK: SCTP6 listen handles 2 concurrent connections... SCTP6 not available"
     },
     "157": {
@@ -1417,7 +1415,7 @@
       "description": "UNIX listen handles 2 concurrent connections",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 157 UNIXLISTENFORK: UNIX listen handles 2 concurrent connections... OK"
     },
     "158": {
@@ -1426,7 +1424,7 @@
       "description": "generic UNIX client connects to stream socket",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 158 UNIXTOSTREAM: generic UNIX client connects to stream socket... OK"
     },
     "159": {
@@ -1435,7 +1433,7 @@
       "description": "generic UNIX client connects to datagram socket",
       "status": "FAILED",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 159 UNIXTODGRAM: generic UNIX client connects to datagram socket... FAILED:"
     },
     "160": {
@@ -1444,7 +1442,7 @@
       "description": "simple echo via exec of cat with pipes,stderr",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 160 EXECPIPESSTDERR: simple echo via exec of cat with pipes,stderr... OK"
     },
     "161": {
@@ -1453,7 +1451,7 @@
       "description": "simple echo via exec of cat with pipes,stderr",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 161 EXECSTDERRLOG: simple echo via exec of cat with pipes,stderr... OK"
     },
     "162": {
@@ -1462,17 +1460,17 @@
       "description": "invoke socat from socat",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 162 SIMPLEPARSE: invoke socat from socat... OK"
     },
     "163": {
       "id": 163,
       "name": "FULLPARSE",
       "description": "correctly parse special chars",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
-      "shard": 1,
-      "raw": "test 163 FULLPARSE: correctly parse special chars... FAILED:"
+      "shard": 0,
+      "raw": "test 163 FULLPARSE: correctly parse special chars... OK"
     },
     "164": {
       "id": 164,
@@ -1480,7 +1478,7 @@
       "description": "does lexical analysis work sensibly (exec)",
       "status": "OK",
       "detail": "",
-      "shard": 1,
+      "shard": 0,
       "raw": "test 164 NESTEDSOCATEXEC: does lexical analysis work sensibly (exec)... OK"
     },
     "165": {
@@ -1489,16 +1487,16 @@
       "description": "does lexical analysis work sensibly (system)",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 165 NESTEDSOCATSYSTEM: does lexical analysis work sensibly (system)... OK"
     },
     "166": {
       "id": 166,
       "name": "TCP6BYTCP4",
       "description": "TCP4 mapped into TCP6 address space",
-      "status": "UNKNOWN",
+      "status": "CANT",
       "detail": "Feature removed",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 166 TCP6BYTCP4: TCP4 mapped into TCP6 address space... Feature removed"
     },
     "167": {
@@ -1507,7 +1505,7 @@
       "description": "UDP/IPv4 sendto and recvfrom",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 167 UDP4DGRAM: UDP/IPv4 sendto and recvfrom... OK"
     },
     "168": {
@@ -1516,7 +1514,7 @@
       "description": "UDP/IPv6 datagram",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 168 UDP6DGRAM: UDP/IPv6 datagram... OK"
     },
     "169": {
@@ -1525,7 +1523,7 @@
       "description": "raw IPv4 datagram",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 169 RAWIP4RECVFROM: raw IPv4 datagram... must be root"
     },
     "170": {
@@ -1534,7 +1532,7 @@
       "description": "UNIX datagram",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 170 UNIXDGRAM: UNIX datagram... OK"
     },
     "171": {
@@ -1543,7 +1541,7 @@
       "description": "UDP/IPv4 receive",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 171 UDP4RECV: UDP/IPv4 receive... OK"
     },
     "172": {
@@ -1552,7 +1550,7 @@
       "description": "UDP/IPv6 receive",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 172 UDP6RECV: UDP/IPv6 receive... OK"
     },
     "173": {
@@ -1561,7 +1559,7 @@
       "description": "raw IPv4 receive",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 173 RAWIP4RECV: raw IPv4 receive... must be root"
     },
     "174": {
@@ -1570,7 +1568,7 @@
       "description": "raw IPv6 receive",
       "status": "CANT",
       "detail": "rawip not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 174 RAWIP6RECV: raw IPv6 receive... rawip not available"
     },
     "175": {
@@ -1579,7 +1577,7 @@
       "description": "UNIX receive",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 175 UNIXRECV: UNIX receive... OK"
     },
     "176": {
@@ -1588,7 +1586,7 @@
       "description": "security of UDP4-RECVFROM with SOURCEPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 176 UDP4RECVFROM_SOURCEPORT: security of UDP4-RECVFROM with SOURCEPORT option... OK"
     },
     "177": {
@@ -1597,7 +1595,7 @@
       "description": "security of UDP4-RECVFROM with LOWPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 177 UDP4RECVFROM_LOWPORT: security of UDP4-RECVFROM with LOWPORT option... OK"
     },
     "178": {
@@ -1606,7 +1604,7 @@
       "description": "security of UDP4-RECVFROM with RANGE option",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 178 UDP4RECVFROM_RANGE: security of UDP4-RECVFROM with RANGE option... OK"
     },
     "179": {
@@ -1615,7 +1613,7 @@
       "description": "security of UDP4-RECVFROM with TCPWRAP option",
       "status": "CANT",
       "detail": "libwrap not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 179 UDP4RECVFROM_TCPWRAP: security of UDP4-RECVFROM with TCPWRAP option... libwrap not available"
     },
     "180": {
@@ -1624,7 +1622,7 @@
       "description": "security of UDP4-RECV with SOURCEPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 180 UDP4RECV_SOURCEPORT: security of UDP4-RECV with SOURCEPORT option... OK"
     },
     "181": {
@@ -1633,7 +1631,7 @@
       "description": "security of UDP4-RECV with LOWPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 181 UDP4RECV_LOWPORT: security of UDP4-RECV with LOWPORT option... OK"
     },
     "182": {
@@ -1642,7 +1640,7 @@
       "description": "security of UDP4-RECV with RANGE option",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 182 UDP4RECV_RANGE: security of UDP4-RECV with RANGE option... OK"
     },
     "183": {
@@ -1651,7 +1649,7 @@
       "description": "security of UDP4-RECV with TCPWRAP option",
       "status": "CANT",
       "detail": "libwrap not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 183 UDP4RECV_TCPWRAP: security of UDP4-RECV with TCPWRAP option... libwrap not available"
     },
     "184": {
@@ -1660,7 +1658,7 @@
       "description": "security of UDP6-RECVFROM with SOURCEPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 184 UDP6RECVFROM_SOURCEPORT: security of UDP6-RECVFROM with SOURCEPORT option... OK"
     },
     "185": {
@@ -1669,7 +1667,7 @@
       "description": "security of UDP6-RECVFROM with LOWPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 185 UDP6RECVFROM_LOWPORT: security of UDP6-RECVFROM with LOWPORT option... OK"
     },
     "186": {
@@ -1678,7 +1676,7 @@
       "description": "security of UDP6-RECVFROM with RANGE option",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 186 UDP6RECVFROM_RANGE: security of UDP6-RECVFROM with RANGE option... OK"
     },
     "187": {
@@ -1687,7 +1685,7 @@
       "description": "security of UDP6-RECVFROM with TCPWRAP option",
       "status": "CANT",
       "detail": "libwrap not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 187 UDP6RECVFROM_TCPWRAP: security of UDP6-RECVFROM with TCPWRAP option... libwrap not available"
     },
     "188": {
@@ -1696,7 +1694,7 @@
       "description": "security of UDP6-RECV with SOURCEPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 188 UDP6RECV_SOURCEPORT: security of UDP6-RECV with SOURCEPORT option... OK"
     },
     "189": {
@@ -1705,7 +1703,7 @@
       "description": "security of UDP6-RECV with LOWPORT option",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 189 UDP6RECV_LOWPORT: security of UDP6-RECV with LOWPORT option... OK"
     },
     "190": {
@@ -1714,7 +1712,7 @@
       "description": "security of UDP6-RECV with RANGE option",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 190 UDP6RECV_RANGE: security of UDP6-RECV with RANGE option... OK"
     },
     "191": {
@@ -1723,7 +1721,7 @@
       "description": "security of UDP6-RECV with TCPWRAP option",
       "status": "CANT",
       "detail": "libwrap not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 191 UDP6RECV_TCPWRAP: security of UDP6-RECV with TCPWRAP option... libwrap not available"
     },
     "192": {
@@ -1732,7 +1730,7 @@
       "description": "security of IP4-RECVFROM with RANGE option",
       "status": "CANT",
       "detail": "rawip not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 192 IP4RECVFROM_RANGE: security of IP4-RECVFROM with RANGE option... rawip not available"
     },
     "193": {
@@ -1741,7 +1739,7 @@
       "description": "security of IP4-RECVFROM with TCPWRAP option",
       "status": "CANT",
       "detail": "rawip not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 193 IP4RECVFROM_TCPWRAP: security of IP4-RECVFROM with TCPWRAP option... rawip not available"
     },
     "194": {
@@ -1750,7 +1748,7 @@
       "description": "security of IP4-RECV with RANGE option",
       "status": "CANT",
       "detail": "IP4 not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 194 IP4RECV_RANGE: security of IP4-RECV with RANGE option... IP4 not available"
     },
     "195": {
@@ -1759,7 +1757,7 @@
       "description": "security of IP4-RECV with TCPWRAP option",
       "status": "CANT",
       "detail": "rawip not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 195 IP4RECV_TCPWRAP: security of IP4-RECV with TCPWRAP option... rawip not available"
     },
     "196": {
@@ -1768,7 +1766,7 @@
       "description": "security of IP6-RECVFROM with RANGE option",
       "status": "CANT",
       "detail": "rawip not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 196 IP6RECVFROM_RANGE: security of IP6-RECVFROM with RANGE option... rawip not available"
     },
     "197": {
@@ -1777,7 +1775,7 @@
       "description": "security of IP6-RECVFROM with TCPWRAP option",
       "status": "CANT",
       "detail": "rawip not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 197 IP6RECVFROM_TCPWRAP: security of IP6-RECVFROM with TCPWRAP option... rawip not available"
     },
     "198": {
@@ -1786,7 +1784,7 @@
       "description": "security of IP6-RECV with RANGE option",
       "status": "CANT",
       "detail": "raw IP6 not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 198 IP6RECV_RANGE: security of IP6-RECV with RANGE option... raw IP6 not available"
     },
     "199": {
@@ -1795,7 +1793,7 @@
       "description": "security of IP6-RECV with TCPWRAP option",
       "status": "CANT",
       "detail": "rawip not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 199 IP6RECV_TCPWRAP: security of IP6-RECV with TCPWRAP option... rawip not available"
     },
     "200": {
@@ -1804,7 +1802,7 @@
       "description": "option O_NOATIME on file",
       "status": "CANT",
       "detail": "o-noatime not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 200 O_NOATIME_FILE: option O_NOATIME on file... o-noatime not available"
     },
     "201": {
@@ -1813,7 +1811,7 @@
       "description": "option O_NOATIME on file descriptor",
       "status": "CANT",
       "detail": "o-noatime not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 201 O_NOATIME_FD: option O_NOATIME on file descriptor... o-noatime not available"
     },
     "202": {
@@ -1822,7 +1820,7 @@
       "description": "extended file system options using fs noatime option",
       "status": "CANT",
       "detail": "fs-noatime not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 202 FS_NOATIME: extended file system options using fs noatime option... fs-noatime not available"
     },
     "203": {
@@ -1831,7 +1829,7 @@
       "description": "option cool-write",
       "status": "CANT",
       "detail": "option cool-write not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 203 COOLWRITE: option cool-write... option cool-write not available"
     },
     "204": {
@@ -1840,7 +1838,7 @@
       "description": "option cool-write on bidirectional stdio",
       "status": "CANT",
       "detail": "option cool-write not available",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 204 COOLSTDIO: option cool-write on bidirectional stdio... option cool-write not available"
     },
     "205": {
@@ -1849,7 +1847,7 @@
       "description": "end-close keeps TCP V4 socket open",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 205 TCP4ENDCLOSE: end-close keeps TCP V4 socket open... OK"
     },
     "206": {
@@ -1858,26 +1856,359 @@
       "description": "end-close keeps EXEC child running",
       "status": "OK",
       "detail": "",
-      "shard": 2,
+      "shard": 0,
       "raw": "test 206 EXECENDCLOSE: end-close keeps EXEC child running... OK"
     },
     "207": {
       "id": 207,
       "name": "PTYENDCLOSE",
       "description": "PTY handles option end-close",
-      "status": "UNKNOWN",
-      "detail": "cat: /tmp/socat-shard-2.pe7FQu/tmp/eero/2669105/test207.rc0: No such file or directory",
-      "shard": 2,
-      "raw": "test 207 PTYENDCLOSE: PTY handles option end-close... cat: /tmp/socat-shard-2.pe7FQu/tmp/eero/2669105/test207.rc0: No such file or directory"
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 207 PTYENDCLOSE: PTY handles option end-close... OK"
     },
     "208": {
       "id": 208,
       "name": "SHUTNULLEOF",
       "description": "options shut-null and null-eof",
-      "status": "TIMEOUT",
-      "detail": "shard timeout (no final result)",
-      "shard": 2,
-      "raw": "test 208 SHUTNULLEOF: options shut-null and null-eof..."
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 208 SHUTNULLEOF: options shut-null and null-eof... OK"
+    },
+    "209": {
+      "id": 209,
+      "name": "UDP6LISTENBIND",
+      "description": "UDP6-LISTEN with bind",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 209 UDP6LISTENBIND: UDP6-LISTEN with bind... OK"
+    },
+    "210": {
+      "id": 210,
+      "name": "TCPWRAPPERS_MULTIOPTS",
+      "description": "use of multiple tcpwrapper enabling options",
+      "status": "CANT",
+      "detail": "libwrap not available",
+      "shard": 0,
+      "raw": "test 210 TCPWRAPPERS_MULTIOPTS: use of multiple tcpwrapper enabling options... libwrap not available"
+    },
+    "211": {
+      "id": 211,
+      "name": "TCPWRAPPERS_TCP6ADDR",
+      "description": "specification of TCP6 address in hosts.allow",
+      "status": "CANT",
+      "detail": "libwrap not available",
+      "shard": 0,
+      "raw": "test 211 TCPWRAPPERS_TCP6ADDR: specification of TCP6 address in hosts.allow... libwrap not available"
+    },
+    "212": {
+      "id": 212,
+      "name": "UDP4BROADCAST",
+      "description": "UDP/IPv4 broadcast",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 212 UDP4BROADCAST: UDP/IPv4 broadcast... OK"
+    },
+    "213": {
+      "id": 213,
+      "name": "IP4BROADCAST",
+      "description": "raw IPv4 broadcast",
+      "status": "CANT",
+      "detail": "raw IP4 not available",
+      "shard": 0,
+      "raw": "test 213 IP4BROADCAST: raw IPv4 broadcast... raw IP4 not available"
+    },
+    "214": {
+      "id": 214,
+      "name": "UDP4MULTICAST_UNIDIR",
+      "description": "UDP/IPv4 multicast, send only",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 214 UDP4MULTICAST_UNIDIR: UDP/IPv4 multicast, send only... OK"
+    },
+    "215": {
+      "id": 215,
+      "name": "IP4MULTICAST_UNIDIR",
+      "description": "IPv4 multicast",
+      "status": "CANT",
+      "detail": "rawip not available",
+      "shard": 0,
+      "raw": "test 215 IP4MULTICAST_UNIDIR: IPv4 multicast... rawip not available"
+    },
+    "216": {
+      "id": 216,
+      "name": "UDP6MULTICAST_UNIDIR",
+      "description": "UDP/IPv6 multicast",
+      "status": "CANT",
+      "detail": "Option ipv6-join-group not available in /home/eero/src/socat/socat",
+      "shard": 0,
+      "raw": "test 216 UDP6MULTICAST_UNIDIR: UDP/IPv6 multicast... Option ipv6-join-group not available in /home/eero/src/socat/socat"
+    },
+    "217": {
+      "id": 217,
+      "name": "UDP4MULTICAST_BIDIR",
+      "description": "UDP/IPv4 multicast, with reply",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 217 UDP4MULTICAST_BIDIR: UDP/IPv4 multicast, with reply... OK"
+    },
+    "218": {
+      "id": 218,
+      "name": "IP4MULTICAST_BIDIR",
+      "description": "IPv4 multicast, with reply",
+      "status": "CANT",
+      "detail": "rawip not available",
+      "shard": 0,
+      "raw": "test 218 IP4MULTICAST_BIDIR: IPv4 multicast, with reply... rawip not available"
+    },
+    "219": {
+      "id": 219,
+      "name": "TUNREAD",
+      "description": "reading data sent through tun interface",
+      "status": "CANT",
+      "detail": "tun not available",
+      "shard": 0,
+      "raw": "test 219 TUNREAD: reading data sent through tun interface... tun not available"
+    },
+    "220": {
+      "id": 220,
+      "name": "TUNINTERFACE",
+      "description": "pass data through tun interface using INTERFACE",
+      "status": "CANT",
+      "detail": "Feature TUN not configured in /home/eero/src/socat/socat",
+      "shard": 0,
+      "raw": "test 220 TUNINTERFACE: pass data through tun interface using INTERFACE... Feature TUN not configured in /home/eero/src/socat/socat"
+    },
+    "221": {
+      "id": 221,
+      "name": "ABSTRACTSTREAM",
+      "description": "abstract UNIX stream socket, listen and connect",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 221 ABSTRACTSTREAM: abstract UNIX stream socket, listen and connect... OK"
+    },
+    "222": {
+      "id": 222,
+      "name": "ABSTRACTDGRAM",
+      "description": "abstract UNIX datagram",
+      "status": "FAILED",
+      "detail": "/home/eero/src/socat/socat:",
+      "shard": 0,
+      "raw": "test 222 ABSTRACTDGRAM: abstract UNIX datagram... FAILED:  /home/eero/src/socat/socat:"
+    },
+    "223": {
+      "id": 223,
+      "name": "ABSTRACTRECV",
+      "description": "abstract UNIX datagram receive",
+      "status": "FAILED",
+      "detail": "/home/eero/src/socat/socat:",
+      "shard": 0,
+      "raw": "test 223 ABSTRACTRECV: abstract UNIX datagram receive... FAILED:  /home/eero/src/socat/socat:"
+    },
+    "224": {
+      "id": 224,
+      "name": "ABSTRACT_BIND",
+      "description": "abstract bind",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 224 ABSTRACT_BIND: abstract bind... OK"
+    },
+    "225": {
+      "id": 225,
+      "name": "OPENSSLREAD",
+      "description": "socat handles data buffered by openssl",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 225 OPENSSLREAD: socat handles data buffered by openssl... OK"
+    },
+    "226": {
+      "id": 226,
+      "name": "READBYTES_EOF",
+      "description": "trigger EOF after that many bytes, even when socket idle",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 226 READBYTES_EOF: trigger EOF after that many bytes, even when socket idle... OK"
+    },
+    "227": {
+      "id": 227,
+      "name": "EXECPTYKILL",
+      "description": "exec:",
+      "status": "UNKNOWN",
+      "detail": ",pty explicitly kills sub process... OK",
+      "shard": 0,
+      "raw": "test 227 EXECPTYKILL: exec:...,pty explicitly kills sub process... OK"
+    },
+    "228": {
+      "id": 228,
+      "name": "TCP4SERVICE",
+      "description": "echo via connection to TCP V4 socket",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 228 TCP4SERVICE: echo via connection to TCP V4 socket... OK"
+    },
+    "229": {
+      "id": 229,
+      "name": "EXCEED_FOPEN_MAX",
+      "description": "more than FOPEN_MAX FDs in use",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 229 EXCEED_FOPEN_MAX: more than FOPEN_MAX FDs in use... OK"
+    },
+    "230": {
+      "id": 230,
+      "name": "UDP4LISTEN_SIGCHLD",
+      "description": "test if UDP4-LISTEN child becomes zombie",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 230 UDP4LISTEN_SIGCHLD: test if UDP4-LISTEN child becomes zombie... OK"
+    },
+    "231": {
+      "id": 231,
+      "name": "UDP4RECVFROM_SIGCHLD",
+      "description": "test if UDP4-RECVFROM child becomes zombie",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 231 UDP4RECVFROM_SIGCHLD: test if UDP4-RECVFROM child becomes zombie... OK"
+    },
+    "232": {
+      "id": 232,
+      "name": "RAWIP4RECVBIND",
+      "description": "raw IPv4 receive with bind",
+      "status": "CANT",
+      "detail": "must be root",
+      "shard": 0,
+      "raw": "test 232 RAWIP4RECVBIND: raw IPv4 receive with bind... must be root"
+    },
+    "233": {
+      "id": 233,
+      "name": "UDP4RECVFROM_FORK",
+      "description": "test if UDP4-RECVFROM handles more than one packet",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 233 UDP4RECVFROM_FORK: test if UDP4-RECVFROM handles more than one packet... OK"
+    },
+    "234": {
+      "id": 234,
+      "name": "EXECSPACES",
+      "description": "correctly parse exec with consecutive spaces",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 234 EXECSPACES: correctly parse exec with consecutive spaces... OK"
+    },
+    "235": {
+      "id": 235,
+      "name": "UDP4LISTENCONT",
+      "description": "let range drop a packet and see if old socket is closed",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 235 UDP4LISTENCONT: let range drop a packet and see if old socket is closed... OK"
+    },
+    "236": {
+      "id": 236,
+      "name": "IGNOREEOFNOBLOCK",
+      "description": "ignoreeof does not block other direction",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 236 IGNOREEOFNOBLOCK: ignoreeof does not block other direction... OK"
+    },
+    "237": {
+      "id": 237,
+      "name": "ESCAPE",
+      "description": "escape character triggers EOF",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 237 ESCAPE: escape character triggers EOF... OK"
+    },
+    "238": {
+      "id": 238,
+      "name": "ESCAPE_IGNOREEOF",
+      "description": "escape character triggers EOF",
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 238 ESCAPE_IGNOREEOF: escape character triggers EOF... OK"
+    },
+    "239": {
+      "id": 239,
+      "name": "UDP4SCM_IP_OPTIONS",
+      "description": "UDP4 log ancillary message IP_OPTIONS options",
+      "status": "CANT",
+      "detail": "option ip-recvopts not available",
+      "shard": 0,
+      "raw": "test 239 UDP4SCM_IP_OPTIONS: UDP4 log ancillary message IP_OPTIONS options... option ip-recvopts not available"
+    },
+    "240": {
+      "id": 240,
+      "name": "UDP4SCM_SCM_TIMESTAMP",
+      "description": "UDP4 log ancillary message SCM_TIMESTAMP timestamp",
+      "status": "CANT",
+      "detail": "option so-timestamp not available",
+      "shard": 0,
+      "raw": "test 240 UDP4SCM_SCM_TIMESTAMP: UDP4 log ancillary message SCM_TIMESTAMP timestamp... option so-timestamp not available"
+    },
+    "241": {
+      "id": 241,
+      "name": "UDP4SCM_IP_TTL",
+      "description": "UDP4 log ancillary message IP_TTL ttl",
+      "status": "CANT",
+      "detail": "option ip-recvttl not available",
+      "shard": 0,
+      "raw": "test 241 UDP4SCM_IP_TTL: UDP4 log ancillary message IP_TTL ttl... option ip-recvttl not available"
+    },
+    "242": {
+      "id": 242,
+      "name": "UDP4SCM_IP_TOS",
+      "description": "UDP4 log ancillary message IP_TOS tos",
+      "status": "CANT",
+      "detail": "option ip-recvtos not available",
+      "shard": 0,
+      "raw": "test 242 UDP4SCM_IP_TOS: UDP4 log ancillary message IP_TOS tos... option ip-recvtos not available"
+    },
+    "243": {
+      "id": 243,
+      "name": "UDP4SCM_IP_PKTINFO",
+      "description": "UDP4 log ancillary message IP_PKTINFO locaddr",
+      "status": "CANT",
+      "detail": "option ip-pktinfo not available",
+      "shard": 0,
+      "raw": "test 243 UDP4SCM_IP_PKTINFO: UDP4 log ancillary message IP_PKTINFO locaddr... option ip-pktinfo not available"
+    },
+    "244": {
+      "id": 244,
+      "name": "UDP4SCM_IP_PKTINFO",
+      "description": "UDP4 log ancillary message IP_PKTINFO dstaddr",
+      "status": "CANT",
+      "detail": "option ip-pktinfo not available",
+      "shard": 0,
+      "raw": "test 244 UDP4SCM_IP_PKTINFO: UDP4 log ancillary message IP_PKTINFO dstaddr... option ip-pktinfo not available"
+    },
+    "245": {
+      "id": 245,
+      "name": "UDP4SCM_IP_PKTINFO",
+      "description": "UDP4 log ancillary message IP_PKTINFO if",
+      "status": "CANT",
+      "detail": "option ip-pktinfo not available",
+      "shard": 0,
+      "raw": "test 245 UDP4SCM_IP_PKTINFO: UDP4 log ancillary message IP_PKTINFO if... option ip-pktinfo not available"
     },
     "246": {
       "id": 246,
@@ -1885,7 +2216,7 @@
       "description": "UDP4 log ancillary message IP_RECVIF if",
       "status": "CANT",
       "detail": "option ip-recvif not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 246 UDP4SCM_IP_RECVIF: UDP4 log ancillary message IP_RECVIF if... option ip-recvif not available"
     },
     "247": {
@@ -1894,7 +2225,7 @@
       "description": "UDP4 log ancillary message IP_RECVDSTADDR dstaddr",
       "status": "CANT",
       "detail": "option ip-recvdstaddr not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 247 UDP4SCM_IP_RECVDSTADDR: UDP4 log ancillary message IP_RECVDSTADDR dstaddr... option ip-recvdstaddr not available"
     },
     "248": {
@@ -1903,7 +2234,7 @@
       "description": "IP4 log ancillary message IP_OPTIONS options",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 248 IP4SCM_IP_OPTIONS: IP4 log ancillary message IP_OPTIONS options... must be root"
     },
     "249": {
@@ -1912,7 +2243,7 @@
       "description": "IP4 log ancillary message SCM_TIMESTAMP timestamp",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 249 IP4SCM_SCM_TIMESTAMP: IP4 log ancillary message SCM_TIMESTAMP timestamp... must be root"
     },
     "250": {
@@ -1921,7 +2252,7 @@
       "description": "IP4 log ancillary message IP_TTL ttl",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 250 IP4SCM_IP_TTL: IP4 log ancillary message IP_TTL ttl... must be root"
     },
     "251": {
@@ -1930,7 +2261,7 @@
       "description": "IP4 log ancillary message IP_TOS tos",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 251 IP4SCM_IP_TOS: IP4 log ancillary message IP_TOS tos... must be root"
     },
     "252": {
@@ -1939,7 +2270,7 @@
       "description": "IP4 log ancillary message IP_PKTINFO locaddr",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 252 IP4SCM_IP_PKTINFO: IP4 log ancillary message IP_PKTINFO locaddr... must be root"
     },
     "253": {
@@ -1948,7 +2279,7 @@
       "description": "IP4 log ancillary message IP_PKTINFO dstaddr",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 253 IP4SCM_IP_PKTINFO: IP4 log ancillary message IP_PKTINFO dstaddr... must be root"
     },
     "254": {
@@ -1957,7 +2288,7 @@
       "description": "IP4 log ancillary message IP_PKTINFO if",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 254 IP4SCM_IP_PKTINFO: IP4 log ancillary message IP_PKTINFO if... must be root"
     },
     "255": {
@@ -1966,7 +2297,7 @@
       "description": "IP4 log ancillary message IP_RECVIF if",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 255 IP4SCM_IP_RECVIF: IP4 log ancillary message IP_RECVIF if... must be root"
     },
     "256": {
@@ -1975,7 +2306,7 @@
       "description": "IP4 log ancillary message IP_RECVDSTADDR dstaddr",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 256 IP4SCM_IP_RECVDSTADDR: IP4 log ancillary message IP_RECVDSTADDR dstaddr... must be root"
     },
     "257": {
@@ -1984,7 +2315,7 @@
       "description": "UDP6 log ancillary message SCM_TIMESTAMP timestamp",
       "status": "CANT",
       "detail": "option so-timestamp not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 257 UDP6SCM_SCM_TIMESTAMP: UDP6 log ancillary message SCM_TIMESTAMP timestamp... option so-timestamp not available"
     },
     "258": {
@@ -1993,7 +2324,7 @@
       "description": "UDP6 log ancillary message IPV6_PKTINFO dstaddr",
       "status": "CANT",
       "detail": "option ipv6-recvpktinfo not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 258 UDP6SCM_IPV6_PKTINFO: UDP6 log ancillary message IPV6_PKTINFO dstaddr... option ipv6-recvpktinfo not available"
     },
     "259": {
@@ -2002,7 +2333,7 @@
       "description": "UDP6 log ancillary message IPV6_HOPLIMIT hoplimit",
       "status": "CANT",
       "detail": "option ipv6-recvhoplimit not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 259 UDP6SCM_IPV6_HOPLIMIT: UDP6 log ancillary message IPV6_HOPLIMIT hoplimit... option ipv6-recvhoplimit not available"
     },
     "260": {
@@ -2011,7 +2342,7 @@
       "description": "UDP6 log ancillary message IPV6_TCLASS tclass",
       "status": "CANT",
       "detail": "option ipv6-recvtclass not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 260 UDP6SCM_IPV6_TCLASS: UDP6 log ancillary message IPV6_TCLASS tclass... option ipv6-recvtclass not available"
     },
     "261": {
@@ -2020,7 +2351,7 @@
       "description": "IP6 log ancillary message SCM_TIMESTAMP timestamp",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 261 IP6SCM_SCM_TIMESTAMP: IP6 log ancillary message SCM_TIMESTAMP timestamp... must be root"
     },
     "262": {
@@ -2029,7 +2360,7 @@
       "description": "IP6 log ancillary message IPV6_PKTINFO dstaddr",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 262 IP6SCM_IPV6_PKTINFO: IP6 log ancillary message IPV6_PKTINFO dstaddr... must be root"
     },
     "263": {
@@ -2038,7 +2369,7 @@
       "description": "IP6 log ancillary message IPV6_HOPLIMIT hoplimit",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 263 IP6SCM_IPV6_HOPLIMIT: IP6 log ancillary message IPV6_HOPLIMIT hoplimit... must be root"
     },
     "264": {
@@ -2047,7 +2378,7 @@
       "description": "IP6 log ancillary message IPV6_TCLASS tclass",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 264 IP6SCM_IPV6_TCLASS: IP6 log ancillary message IPV6_TCLASS tclass... must be root"
     },
     "265": {
@@ -2056,7 +2387,7 @@
       "description": "TCP4-LISTEN sets environment variables with socket addresses",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 265 TCP4LISTENENV: TCP4-LISTEN sets environment variables with socket addresses... OK"
     },
     "266": {
@@ -2065,7 +2396,7 @@
       "description": "TCP6-LISTEN sets environment variables with socket addresses",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 266 TCP6LISTENENV: TCP6-LISTEN sets environment variables with socket addresses... OK"
     },
     "267": {
@@ -2074,7 +2405,7 @@
       "description": "UDP6-LISTEN sets environment variables with socket addresses",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 267 UDP6LISTENENV: UDP6-LISTEN sets environment variables with socket addresses... OK"
     },
     "268": {
@@ -2083,7 +2414,7 @@
       "description": "SCTP4-LISTEN sets environment variables with socket addresses",
       "status": "CANT",
       "detail": "SCTP not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 268 SCTP4LISTENENV: SCTP4-LISTEN sets environment variables with socket addresses... SCTP not available"
     },
     "269": {
@@ -2092,7 +2423,7 @@
       "description": "SCTP6-LISTEN sets environment variables with socket addresses",
       "status": "CANT",
       "detail": "SCTP not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 269 SCTP6LISTENENV: SCTP6-LISTEN sets environment variables with socket addresses... SCTP not available"
     },
     "270": {
@@ -2101,7 +2432,7 @@
       "description": "UNIX-LISTEN sets environment variables with socket addresses",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 270 UNIXLISTENENV: UNIX-LISTEN sets environment variables with socket addresses... OK"
     },
     "271": {
@@ -2110,7 +2441,7 @@
       "description": "UDP4 ancillary message sets env SOCAT_IP_OPTIONS",
       "status": "CANT",
       "detail": "ip-recvopts not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 271 UDP4ENV_IP_OPTIONS: UDP4 ancillary message sets env SOCAT_IP_OPTIONS... ip-recvopts not available"
     },
     "272": {
@@ -2119,7 +2450,7 @@
       "description": "UDP4 ancillary message sets env SOCAT_TIMESTAMP",
       "status": "CANT",
       "detail": "so-timestamp not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 272 UDP4ENV_TIMESTAMP: UDP4 ancillary message sets env SOCAT_TIMESTAMP... so-timestamp not available"
     },
     "273": {
@@ -2128,7 +2459,7 @@
       "description": "UDP4 ancillary message sets env SOCAT_IP_TTL",
       "status": "CANT",
       "detail": "ip-recvttl not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 273 UDP4ENV_IP_TTL: UDP4 ancillary message sets env SOCAT_IP_TTL... ip-recvttl not available"
     },
     "274": {
@@ -2137,7 +2468,7 @@
       "description": "UDP4 ancillary message sets env SOCAT_IP_TOS",
       "status": "CANT",
       "detail": "ip-recvtos not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 274 UDP4ENV_IP_TOS: UDP4 ancillary message sets env SOCAT_IP_TOS... ip-recvtos not available"
     },
     "275": {
@@ -2146,7 +2477,7 @@
       "description": "UDP4 ancillary message sets env SOCAT_IP_LOCADDR",
       "status": "CANT",
       "detail": "ip-pktinfo not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 275 UDP4ENV_IP_LOCADDR: UDP4 ancillary message sets env SOCAT_IP_LOCADDR... ip-pktinfo not available"
     },
     "276": {
@@ -2155,7 +2486,7 @@
       "description": "UDP4 ancillary message sets env SOCAT_IP_DSTADDR",
       "status": "CANT",
       "detail": "ip-pktinfo not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 276 UDP4ENV_IP_DSTADDR: UDP4 ancillary message sets env SOCAT_IP_DSTADDR... ip-pktinfo not available"
     },
     "277": {
@@ -2164,7 +2495,7 @@
       "description": "UDP4 ancillary message sets env SOCAT_IP_IF",
       "status": "CANT",
       "detail": "ip-pktinfo not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 277 UDP4ENV_IP_IF: UDP4 ancillary message sets env SOCAT_IP_IF... ip-pktinfo not available"
     },
     "278": {
@@ -2173,7 +2504,7 @@
       "description": "UDP4 ancillary message sets env SOCAT_IP_IF",
       "status": "CANT",
       "detail": "ip-recvif not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 278 UDP4ENV_IP_IF: UDP4 ancillary message sets env SOCAT_IP_IF... ip-recvif not available"
     },
     "279": {
@@ -2182,7 +2513,7 @@
       "description": "UDP4 ancillary message sets env SOCAT_IP_DSTADDR",
       "status": "CANT",
       "detail": "ip-recvdstaddr not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 279 UDP4ENV_IP_DSTADDR: UDP4 ancillary message sets env SOCAT_IP_DSTADDR... ip-recvdstaddr not available"
     },
     "280": {
@@ -2191,7 +2522,7 @@
       "description": "IP4 ancillary message sets env SOCAT_IP_OPTIONS",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 280 IP4ENV_IP_OPTIONS: IP4 ancillary message sets env SOCAT_IP_OPTIONS... must be root"
     },
     "281": {
@@ -2200,7 +2531,7 @@
       "description": "IP4 ancillary message sets env SOCAT_TIMESTAMP",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 281 IP4ENV_TIMESTAMP: IP4 ancillary message sets env SOCAT_TIMESTAMP... must be root"
     },
     "282": {
@@ -2209,7 +2540,7 @@
       "description": "IP4 ancillary message sets env SOCAT_IP_TTL",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 282 IP4ENV_IP_TTL: IP4 ancillary message sets env SOCAT_IP_TTL... must be root"
     },
     "283": {
@@ -2218,7 +2549,7 @@
       "description": "IP4 ancillary message sets env SOCAT_IP_TOS",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 283 IP4ENV_IP_TOS: IP4 ancillary message sets env SOCAT_IP_TOS... must be root"
     },
     "284": {
@@ -2227,7 +2558,7 @@
       "description": "IP4 ancillary message sets env SOCAT_IP_LOCADDR",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 284 IP4ENV_IP_LOCADDR: IP4 ancillary message sets env SOCAT_IP_LOCADDR... must be root"
     },
     "285": {
@@ -2236,7 +2567,7 @@
       "description": "IP4 ancillary message sets env SOCAT_IP_DSTADDR",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 285 IP4ENV_IP_DSTADDR: IP4 ancillary message sets env SOCAT_IP_DSTADDR... must be root"
     },
     "286": {
@@ -2245,7 +2576,7 @@
       "description": "IP4 ancillary message sets env SOCAT_IP_IF",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 286 IP4ENV_IP_IF: IP4 ancillary message sets env SOCAT_IP_IF... must be root"
     },
     "287": {
@@ -2254,7 +2585,7 @@
       "description": "IP4 ancillary message sets env SOCAT_IP_IF",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 287 IP4ENV_IP_IF: IP4 ancillary message sets env SOCAT_IP_IF... must be root"
     },
     "288": {
@@ -2263,7 +2594,7 @@
       "description": "IP4 ancillary message sets env SOCAT_IP_DSTADDR",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 288 IP4ENV_IP_DSTADDR: IP4 ancillary message sets env SOCAT_IP_DSTADDR... must be root"
     },
     "289": {
@@ -2272,7 +2603,7 @@
       "description": "UDP6 ancillary message sets env SOCAT_IPV6_DSTADDR",
       "status": "CANT",
       "detail": "ipv6-recvpktinfo not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 289 UDP6ENV_IPV6_DSTADDR: UDP6 ancillary message sets env SOCAT_IPV6_DSTADDR... ipv6-recvpktinfo not available"
     },
     "290": {
@@ -2281,7 +2612,7 @@
       "description": "UDP6 ancillary message sets env SOCAT_IPV6_HOPLIMIT",
       "status": "CANT",
       "detail": "ipv6-recvhoplimit not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 290 UDP6ENV_IPV6_HOPLIMIT: UDP6 ancillary message sets env SOCAT_IPV6_HOPLIMIT... ipv6-recvhoplimit not available"
     },
     "291": {
@@ -2290,7 +2621,7 @@
       "description": "UDP6 ancillary message sets env SOCAT_IPV6_TCLASS",
       "status": "CANT",
       "detail": "ipv6-recvtclass not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 291 UDP6ENV_IPV6_TCLASS: UDP6 ancillary message sets env SOCAT_IPV6_TCLASS... ipv6-recvtclass not available"
     },
     "292": {
@@ -2299,7 +2630,7 @@
       "description": "IP6 ancillary message sets env SOCAT_IPV6_DSTADDR",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 292 IP6ENV_IPV6_DSTADDR: IP6 ancillary message sets env SOCAT_IPV6_DSTADDR... must be root"
     },
     "293": {
@@ -2308,7 +2639,7 @@
       "description": "IP6 ancillary message sets env SOCAT_IPV6_HOPLIMIT",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 293 IP6ENV_IPV6_HOPLIMIT: IP6 ancillary message sets env SOCAT_IPV6_HOPLIMIT... must be root"
     },
     "294": {
@@ -2317,7 +2648,7 @@
       "description": "IP6 ancillary message sets env SOCAT_IPV6_TCLASS",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 294 IP6ENV_IPV6_TCLASS: IP6 ancillary message sets env SOCAT_IPV6_TCLASS... must be root"
     },
     "295": {
@@ -2326,7 +2657,7 @@
       "description": "socket connect with TCP/IPv4",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 295 SOCKET_CONNECT_TCP4: socket connect with TCP/IPv4... OK"
     },
     "296": {
@@ -2335,7 +2666,7 @@
       "description": "socket connect with TCP/IPv6",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 296 SOCKET_CONNECT_TCP6: socket connect with TCP/IPv6... OK"
     },
     "297": {
@@ -2344,7 +2675,7 @@
       "description": "socket connect with UNIX domain",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 297 SOCKET_CONNECT_UNIX: socket connect with UNIX domain... OK"
     },
     "298": {
@@ -2353,7 +2684,7 @@
       "description": "socket recvfrom with TCP/IPv4",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 298 SOCKET_LISTEN: socket recvfrom with TCP/IPv4... OK"
     },
     "299": {
@@ -2362,7 +2693,7 @@
       "description": "socket sendto with UDP/IPv4",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 299 SOCKET_SENDTO: socket sendto with UDP/IPv4... OK"
     },
     "300": {
@@ -2371,7 +2702,7 @@
       "description": "socket recvfrom with UDP/IPv4",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 300 SOCKET_RECVFROM: socket recvfrom with UDP/IPv4... OK"
     },
     "301": {
@@ -2380,7 +2711,7 @@
       "description": "socket recv with UDP/IPv4",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 301 SOCKET_RECV: socket recv with UDP/IPv4... OK"
     },
     "302": {
@@ -2389,7 +2720,7 @@
       "description": "socket datagram via UDP/IPv4",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 302 SOCKET_DATAGRAM: socket datagram via UDP/IPv4... OK"
     },
     "303": {
@@ -2398,7 +2729,7 @@
       "description": "security of generic socket-listen with RANGE option",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 303 SOCKETRANGEMASK: security of generic socket-listen with RANGE option... OK"
     },
     "304": {
@@ -2407,7 +2738,7 @@
       "description": "test the ioctl-void option",
       "status": "CANT",
       "detail": "Option ioctl-void not available in /home/eero/src/socat/socat",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 304 IOCTL_VOID: test the ioctl-void option... Option ioctl-void not available in /home/eero/src/socat/socat"
     },
     "305": {
@@ -2416,7 +2747,7 @@
       "description": "test the setsockopt option",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 305 SETSOCKOPT: test the setsockopt option... OK"
     },
     "306": {
@@ -2425,7 +2756,7 @@
       "description": "test the setsockopt-listen option",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 306 SETSOCKOPT_LISTEN: test the setsockopt-listen option... OK"
     },
     "307": {
@@ -2434,7 +2765,7 @@
       "description": "echo via connection to SCTP V4 socket",
       "status": "CANT",
       "detail": "SCTP4 not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 307 SCTP4STREAM: echo via connection to SCTP V4 socket... SCTP4 not available"
     },
     "308": {
@@ -2443,7 +2774,7 @@
       "description": "echo via connection to SCTP V6 socket",
       "status": "CANT",
       "detail": "SCTP6 not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 308 SCTP6STREAM: echo via connection to SCTP V6 socket... SCTP6 not available"
     },
     "309": {
@@ -2452,7 +2783,7 @@
       "description": "OpenSSL connections survive renogotiation",
       "status": "CANT",
       "detail": "not with OpenSSL 3.0.13",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 309 OPENSSLRENEG1: OpenSSL connections survive renogotiation... not with OpenSSL 3.0.13"
     },
     "310": {
@@ -2461,7 +2792,7 @@
       "description": "OpenSSL connections do not block after renogotiation",
       "status": "CANT",
       "detail": "not with OpenSSL 3.0.13",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 310 OPENSSLRENEG2: OpenSSL connections do not block after renogotiation... not with OpenSSL 3.0.13"
     },
     "311": {
@@ -2470,7 +2801,7 @@
       "description": "stack overflow on overly long host name",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 311 HOSTNAMEOVFL: stack overflow on overly long host name... OK"
     },
     "312": {
@@ -2479,7 +2810,7 @@
       "description": "stack overflow on overly long file name",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 312 FILENAMEOVFL: stack overflow on overly long file name... OK"
     },
     "313": {
@@ -2488,7 +2819,7 @@
       "description": "stack overflow on overly long nested arg",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 313 NESTEDOVFL: stack overflow on overly long nested arg... OK"
     },
     "314": {
@@ -2497,7 +2828,7 @@
       "description": "check crash when connecting to a unix domain socket using address GOPEN",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 314 GOPEN_UNIX_CRASH: check crash when connecting to a unix domain socket using address GOPEN... OK"
     },
     "315": {
@@ -2506,7 +2837,7 @@
       "description": "socat keeps an existing file where it wanted to create a UNIX socket",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 315 UNIXLISTEN_KEEPFILE: socat keeps an existing file where it wanted to create a UNIX socket... OK"
     },
     "316": {
@@ -2515,7 +2846,7 @@
       "description": "check if address params of PTY produce error",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 316 PTY_VOIDARG: check if address params of PTY produce error... OK"
     },
     "317": {
@@ -2524,7 +2855,7 @@
       "description": "check if incomplete writes are handled properly",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 317 INCOMPLETE_WRITE: check if incomplete writes are handled properly... OK"
     },
     "318": {
@@ -2533,7 +2864,7 @@
       "description": "OpenSSL server with cipher aNULL",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 318 OPENSSL_ANULL: OpenSSL server with cipher aNULL ... OK"
     },
     "319": {
@@ -2542,7 +2873,7 @@
       "description": "max-children option with TCP4-LISTEN",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 319 TCP4_L_MAXCHILDREN: max-children option with TCP4-LISTEN... OK"
     },
     "320": {
@@ -2551,7 +2882,7 @@
       "description": "max-children option with TCP6-LISTEN",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 320 TCP6_L_MAXCHILDREN: max-children option with TCP6-LISTEN... OK"
     },
     "321": {
@@ -2560,7 +2891,7 @@
       "description": "max-children option with SCTP4-LISTEN",
       "status": "CANT",
       "detail": "SCTP not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 321 SCTP4_L_MAXCHILDREN: max-children option with SCTP4-LISTEN... SCTP not available"
     },
     "322": {
@@ -2569,7 +2900,7 @@
       "description": "max-children option with SCTP6-LISTEN",
       "status": "CANT",
       "detail": "SCTP not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 322 SCTP6_L_MAXCHILDREN: max-children option with SCTP6-LISTEN... SCTP not available"
     },
     "323": {
@@ -2578,7 +2909,7 @@
       "description": "max-children option with UNIX-LISTEN",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 323 UNIX_L_MAXCHILDREN: max-children option with UNIX-LISTEN... OK"
     },
     "324": {
@@ -2587,7 +2918,7 @@
       "description": "max-children option with UDP4-LISTEN",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 324 UDP4_L_MAXCHILDREN: max-children option with UDP4-LISTEN... OK"
     },
     "325": {
@@ -2596,7 +2927,7 @@
       "description": "max-children option with UDP6-LISTEN",
       "status": "OK",
       "detail": "",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 325 UDP6_L_MAXCHILDREN: max-children option with UDP6-LISTEN... OK"
     },
     "326": {
@@ -2605,7 +2936,7 @@
       "description": "test for buffer overflow in readline prompt handling",
       "status": "CANT",
       "detail": "READLINE not available",
-      "shard": 3,
+      "shard": 0,
       "raw": "test 326 READLINE_OVFL: test for buffer overflow in readline prompt handling... READLINE not available"
     },
     "327": {
@@ -2614,7 +2945,7 @@
       "description": "file descriptor leak with range option",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 327 FDLEAK: file descriptor leak with range option... OK"
     },
     "328": {
@@ -2623,7 +2954,7 @@
       "description": "keepalive option is applied to connection socket",
       "status": "FAILED",
       "detail": "NO RESULT",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 328 LISTEN_KEEPALIVE: keepalive option is applied to connection socket... NO RESULT"
     },
     "329": {
@@ -2632,7 +2963,7 @@
       "description": "test OPENSSL-CONNECT with bind option",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 329 OPENSSL_CONNECT_BIND: test OPENSSL-CONNECT with bind option... OK"
     },
     "330": {
@@ -2641,7 +2972,7 @@
       "description": "correct evaluation of range mask 0",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 330 TCP4RANGE_0BITS: correct evaluation of range mask 0... OK"
     },
     "331": {
@@ -2650,7 +2981,7 @@
       "description": "OPENSSL sets env SOCAT_OPENSSL_X509_ISSUER",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 331 ENV_OPENSSL_SERVER_X509_ISSUER: OPENSSL sets env SOCAT_OPENSSL_X509_ISSUER... OK"
     },
     "332": {
@@ -2659,7 +2990,7 @@
       "description": "OPENSSL sets env SOCAT_OPENSSL_X509_SUBJECT",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 332 ENV_OPENSSL_SERVER_X509_SUBJECT: OPENSSL sets env SOCAT_OPENSSL_X509_SUBJECT... OK"
     },
     "333": {
@@ -2668,7 +2999,7 @@
       "description": "OPENSSL sets env SOCAT_OPENSSL_X509_COMMONNAME",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 333 ENV_OPENSSL_SERVER_X509_COMMONNAME: OPENSSL sets env SOCAT_OPENSSL_X509_COMMONNAME... OK"
     },
     "334": {
@@ -2677,7 +3008,7 @@
       "description": "OPENSSL sets env SOCAT_OPENSSL_X509_COUNTRYNAME",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 334 ENV_OPENSSL_SERVER_X509_COUNTRYNAME: OPENSSL sets env SOCAT_OPENSSL_X509_COUNTRYNAME... OK"
     },
     "335": {
@@ -2686,7 +3017,7 @@
       "description": "OPENSSL sets env SOCAT_OPENSSL_X509_LOCALITYNAME",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 335 ENV_OPENSSL_SERVER_X509_LOCALITYNAME: OPENSSL sets env SOCAT_OPENSSL_X509_LOCALITYNAME... OK"
     },
     "336": {
@@ -2695,7 +3026,7 @@
       "description": "OPENSSL sets env SOCAT_OPENSSL_X509_ORGANIZATIONALUNITNAME",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 336 ENV_OPENSSL_SERVER_X509_ORGANIZATIONALUNITNAME: OPENSSL sets env SOCAT_OPENSSL_X509_ORGANIZATIONALUNITNAME... OK"
     },
     "337": {
@@ -2704,7 +3035,7 @@
       "description": "OPENSSL sets env SOCAT_OPENSSL_X509_ORGANIZATIONNAME",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 337 ENV_OPENSSL_SERVER_X509_ORGANIZATIONNAME: OPENSSL sets env SOCAT_OPENSSL_X509_ORGANIZATIONNAME... OK"
     },
     "338": {
@@ -2713,7 +3044,7 @@
       "description": "OPENSSL sets env SOCAT_OPENSSL_X509_SUBJECT",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 338 ENV_OPENSSL_CLIENT_X509_SUBJECT: OPENSSL sets env SOCAT_OPENSSL_X509_SUBJECT... OK"
     },
     "339": {
@@ -2722,7 +3053,7 @@
       "description": "OPENSSL sets env SOCAT_OPENSSL_X509_ISSUER",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 339 ENV_OPENSSL_CLIENT_X509_ISSUER: OPENSSL sets env SOCAT_OPENSSL_X509_ISSUER... OK"
     },
     "340": {
@@ -2731,7 +3062,7 @@
       "description": "CREATE applies option umask",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 340 CREATE_UMASK: CREATE applies option umask... OK"
     },
     "341": {
@@ -2740,7 +3071,7 @@
       "description": "OPEN applies option umask",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 341 OPEN_UMASK: OPEN applies option umask... OK"
     },
     "342": {
@@ -2749,7 +3080,7 @@
       "description": "GOPEN applies option umask",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 342 GOPEN_UMASK: GOPEN applies option umask... OK"
     },
     "343": {
@@ -2758,7 +3089,7 @@
       "description": "UNIX-LISTEN applies option umask",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 343 UNIX_LISTEN_UMASK: UNIX-LISTEN applies option umask... OK"
     },
     "344": {
@@ -2767,7 +3098,7 @@
       "description": "UNIX-RECVFROM applies option umask",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 344 UNIX_RECVFROM_UMASK: UNIX-RECVFROM applies option umask... OK"
     },
     "345": {
@@ -2776,7 +3107,7 @@
       "description": "UNIX-RECV applies option umask",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 345 UNIX_RECV_UMASK: UNIX-RECV applies option umask... OK"
     },
     "346": {
@@ -2785,7 +3116,7 @@
       "description": "PIPE applies option umask",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 346 PIPE_UMASK: PIPE applies option umask... OK"
     },
     "347": {
@@ -2794,7 +3125,7 @@
       "description": "CREATE applies option perm",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 347 CREATE_PERM: CREATE applies option perm... OK"
     },
     "348": {
@@ -2803,7 +3134,7 @@
       "description": "OPEN applies option perm",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 348 OPEN_PERM: OPEN applies option perm... OK"
     },
     "349": {
@@ -2812,7 +3143,7 @@
       "description": "GOPEN applies option perm",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 349 GOPEN_PERM: GOPEN applies option perm... OK"
     },
     "350": {
@@ -2821,7 +3152,7 @@
       "description": "UNIX-LISTEN applies option perm",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 350 UNIX_LISTEN_PERM: UNIX-LISTEN applies option perm... OK"
     },
     "351": {
@@ -2830,7 +3161,7 @@
       "description": "UNIX-RECVFROM applies option perm",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 351 UNIX_RECVFROM_PERM: UNIX-RECVFROM applies option perm... OK"
     },
     "352": {
@@ -2839,7 +3170,7 @@
       "description": "UNIX-RECV applies option perm",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 352 UNIX_RECV_PERM: UNIX-RECV applies option perm... OK"
     },
     "353": {
@@ -2848,7 +3179,7 @@
       "description": "PIPE applies option perm",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 353 PIPE_PERM: PIPE applies option perm... OK"
     },
     "354": {
@@ -2857,7 +3188,7 @@
       "description": "PTY applies option perm",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 354 PTY_PERM: PTY applies option perm... OK"
     },
     "355": {
@@ -2866,7 +3197,7 @@
       "description": "CREATE applies option user",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 355 CREATE_USER: CREATE applies option user... must be root"
     },
     "356": {
@@ -2875,7 +3206,7 @@
       "description": "OPEN applies option user",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 356 OPEN_USER: OPEN applies option user... must be root"
     },
     "357": {
@@ -2884,7 +3215,7 @@
       "description": "GOPEN applies option user",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 357 GOPEN_USER: GOPEN applies option user... must be root"
     },
     "358": {
@@ -2893,7 +3224,7 @@
       "description": "UNIX-LISTEN applies option user",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 358 UNIX_LISTEN_USER: UNIX-LISTEN applies option user... must be root"
     },
     "359": {
@@ -2902,7 +3233,7 @@
       "description": "UNIX-RECVFROM applies option user",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 359 UNIX_RECVFROM_USER: UNIX-RECVFROM applies option user... must be root"
     },
     "360": {
@@ -2911,7 +3242,7 @@
       "description": "UNIX-RECV applies option user",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 360 UNIX_RECV_USER: UNIX-RECV applies option user... must be root"
     },
     "361": {
@@ -2920,7 +3251,7 @@
       "description": "PIPE applies option user",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 361 PIPE_USER: PIPE applies option user... must be root"
     },
     "362": {
@@ -2929,7 +3260,7 @@
       "description": "PTY applies option user",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 362 PTY_USER: PTY applies option user... must be root"
     },
     "363": {
@@ -2938,7 +3269,7 @@
       "description": "UNIX-LISTEN removes socket entry when terminated while waiting for connection",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 363 UNIX_LISTEN_REMOVE: UNIX-LISTEN removes socket entry when terminated while waiting for connection... OK"
     },
     "364": {
@@ -2947,7 +3278,7 @@
       "description": "UNIX-RECVFROM removes socket entry when terminated while waiting for connection",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 364 UNIX_RECVFROM_REMOVE: UNIX-RECVFROM removes socket entry when terminated while waiting for connection... OK"
     },
     "365": {
@@ -2956,7 +3287,7 @@
       "description": "UNIX-RECV removes socket entry when terminated while waiting for connection",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 365 UNIX_RECV_REMOVE: UNIX-RECV removes socket entry when terminated while waiting for connection... OK"
     },
     "366": {
@@ -2965,7 +3296,7 @@
       "description": "PIPE removes socket entry when terminated while waiting for connection",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 366 PIPE_REMOVE: PIPE removes socket entry when terminated while waiting for connection... OK"
     },
     "367": {
@@ -2974,7 +3305,7 @@
       "description": "PTY removes socket entry when terminated while waiting for connection",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 367 PTY_REMOVE: PTY removes socket entry when terminated while waiting for connection... OK"
     },
     "368": {
@@ -2983,7 +3314,7 @@
       "description": "UNIX-LISTEN with fork removes socket entry when terminated during accept",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 368 UNIX_LISTEN_REMOVE_FORK: UNIX-LISTEN with fork removes socket entry when terminated during accept... OK"
     },
     "369": {
@@ -2992,7 +3323,7 @@
       "description": "UNIX-RECVFROM with fork removes socket entry when terminated during accept",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 369 UNIX_RECVFROM_REMOVE_FORK: UNIX-RECVFROM with fork removes socket entry when terminated during accept... OK"
     },
     "370": {
@@ -3001,7 +3332,7 @@
       "description": "SYSTEM address does not shutdown its parents addresses",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 370 SYSTEM_SHUTDOWN: SYSTEM address does not shutdown its parents addresses... OK"
     },
     "371": {
@@ -3010,7 +3341,7 @@
       "description": "test if TCP4-LISTEN with empty port arg bails out",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 371 TCP4_NOPORT: test if TCP4-LISTEN with empty port arg bails out... OK"
     },
     "372": {
@@ -3019,7 +3350,7 @@
       "description": "test OpenSSL method SSL3",
       "status": "CANT",
       "detail": "Option openssl-method not available",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 372 OPENSSL_METHOD_SSL3: test OpenSSL method SSL3... Option openssl-method not available"
     },
     "373": {
@@ -3028,7 +3359,7 @@
       "description": "test OpenSSL method SSL23",
       "status": "CANT",
       "detail": "Option openssl-method not available",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 373 OPENSSL_METHOD_SSL23: test OpenSSL method SSL23... Option openssl-method not available"
     },
     "374": {
@@ -3037,7 +3368,7 @@
       "description": "test OpenSSL method TLS1",
       "status": "CANT",
       "detail": "Option openssl-method not available",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 374 OPENSSL_METHOD_TLS1: test OpenSSL method TLS1... Option openssl-method not available"
     },
     "375": {
@@ -3046,7 +3377,7 @@
       "description": "",
       "status": "CANT",
       "detail": "from Summary CANT list",
-      "shard": 4,
+      "shard": 0,
       "raw": ""
     },
     "376": {
@@ -3055,7 +3386,7 @@
       "description": "",
       "status": "CANT",
       "detail": "from Summary CANT list",
-      "shard": 4,
+      "shard": 0,
       "raw": ""
     },
     "377": {
@@ -3064,7 +3395,7 @@
       "description": "test OpenSSL method DTLS1",
       "status": "CANT",
       "detail": "Option openssl-method not available",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 377 OPENSSL_METHOD_DTLS1: test OpenSSL method DTLS1... Option openssl-method not available"
     },
     "378": {
@@ -3073,7 +3404,7 @@
       "description": "",
       "status": "CANT",
       "detail": "from Summary CANT list",
-      "shard": 4,
+      "shard": 0,
       "raw": ""
     },
     "379": {
@@ -3082,7 +3413,7 @@
       "description": "security of OpenSSL server with openssl-min-proto-version",
       "status": "CANT",
       "detail": "openssl-min-proto-version not available",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 379 OPENSSL_MIN_VERSION: security of OpenSSL server with openssl-min-proto-version... openssl-min-proto-version not available"
     },
     "380": {
@@ -3091,7 +3422,7 @@
       "description": "fdout bails out in write-only context",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 380 FDOUT_ERROR: fdout bails out in write-only context... OK"
     },
     "381": {
@@ -3100,7 +3431,7 @@
       "description": "promote failure of SYSTEM",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 381 SYSTEM_RC: promote failure of SYSTEM... OK"
     },
     "382": {
@@ -3109,7 +3440,7 @@
       "description": "promote failure of EXEC",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 382 EXEC_RC: promote failure of EXEC... OK"
     },
     "383": {
@@ -3118,7 +3449,7 @@
       "description": "test the so-reuseaddr option",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 383 SO_REUSEADDR: test the so-reuseaddr option... OK"
     },
     "384": {
@@ -3127,7 +3458,7 @@
       "description": "test the so-reuseport option",
       "status": "CANT",
       "detail": "so-reuseport not available",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 384 SO_REUSEPORT: test the so-reuseport option... so-reuseport not available"
     },
     "385": {
@@ -3136,7 +3467,7 @@
       "description": "Programs invoked with EXEC, nofork, and -u or -U had stdin and stdout assignment swapped",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 385 EXEC_NOFORK_UNIDIR: Programs invoked with EXEC, nofork, and -u or -U had stdin and stdout assignment swapped... OK"
     },
     "386": {
@@ -3145,7 +3476,7 @@
       "description": "test OpenSSL ECDHE",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 386 OPENSSL_ECDHE: test OpenSSL ECDHE... OK"
     },
     "387": {
@@ -3154,7 +3485,7 @@
       "description": "is option ipv6-join-group used",
       "status": "CANT",
       "detail": "Option ipv6-join-group not available in /home/eero/src/socat/socat",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 387 USE_IPV6_JOIN_GROUP: is option ipv6-join-group used... Option ipv6-join-group not available in /home/eero/src/socat/socat"
     },
     "388": {
@@ -3163,7 +3494,7 @@
       "description": "test use of fdin=3",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 388 DIAG_FDIN: test use of fdin=3... OK"
     },
     "389": {
@@ -3172,7 +3503,7 @@
       "description": "check if merging single character options is rejected",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 389 SOCAT_OPT_HINT: check if merging single character options is rejected... OK"
     },
     "390": {
@@ -3181,7 +3512,7 @@
       "description": "are termios options applied to the correct address",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 390 TERMIOS_PH_ALL: are termios options applied to the correct address... OK"
     },
     "391": {
@@ -3190,7 +3521,7 @@
       "description": "IP-SENDTO::6 passes getaddrinfo()",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 391 IP_SENDTO_6: IP-SENDTO::6 passes getaddrinfo()... OK"
     },
     "392": {
@@ -3199,7 +3530,7 @@
       "description": "multiple EOF messages",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 392 MULTIPLE_EOF: multiple EOF messages... OK"
     },
     "393": {
@@ -3208,7 +3539,7 @@
       "description": "integer overflow with buffer size parameter",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 393 BLKSIZE_INT_OVERFL: integer overflow with buffer size parameter... OK"
     },
     "394": {
@@ -3217,7 +3548,7 @@
       "description": "Test fix of unbalanced quoting",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 394 UNBALANCED_QUOTE: Test fix of unbalanced quoting... OK"
     },
     "395": {
@@ -3226,7 +3557,7 @@
       "description": "Service name resolution works with SCTP",
       "status": "CANT",
       "detail": "SCTP4 not available",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 395 SCTP_SERVICENAME: Service name resolution works with SCTP... SCTP4 not available"
     },
     "396": {
@@ -3235,7 +3566,7 @@
       "description": "echo via file with o-direct",
       "status": "CANT",
       "detail": "o-direct not available",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 396 O_DIRECT: echo via file with o-direct... o-direct not available"
     },
     "397": {
@@ -3244,7 +3575,7 @@
       "description": "Option unlink-close with UNIX sendto socket",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 397 UNIX_SENDTO_UNLINK: Option unlink-close with UNIX sendto socket... OK"
     },
     "398": {
@@ -3253,7 +3584,7 @@
       "description": "Option unlink-close with UNIX connect socket",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 398 UNIX_CONNECT_UNLINK: Option unlink-close with UNIX connect socket... OK"
     },
     "399": {
@@ -3262,7 +3593,7 @@
       "description": "OpenSSL DTLS client",
       "status": "CANT",
       "detail": "Address openssl-dtls-client not available",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 399 OPENSSL_DTLS_CLIENT: OpenSSL DTLS client... Address openssl-dtls-client not available"
     },
     "400": {
@@ -3271,7 +3602,7 @@
       "description": "OpenSSL DTLS server",
       "status": "CANT",
       "detail": "openssl-dtls-server not available",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 400 OPENSSL_DTLS_SERVER: OpenSSL DTLS server... openssl-dtls-server not available"
     },
     "401": {
@@ -3280,7 +3611,7 @@
       "description": "OpenSSL server authentication with SubjectAltName (hostname)",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 401 OPENSSL_SERVERALTAUTH: OpenSSL server authentication with SubjectAltName (hostname)... OK"
     },
     "402": {
@@ -3289,7 +3620,7 @@
       "description": "OpenSSL server authentication with SubjectAltName (IPv4 address)",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 402 OPENSSL_SERVERALTIP4AUTH: OpenSSL server authentication with SubjectAltName (IPv4 address)... OK"
     },
     "403": {
@@ -3298,7 +3629,7 @@
       "description": "OpenSSL server authentication with SubjectAltName (IPv6 address)",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 403 OPENSSL_SERVERALTIP6AUTH: OpenSSL server authentication with SubjectAltName (IPv6 address)... OK"
     },
     "404": {
@@ -3307,7 +3638,7 @@
       "description": "raw dump of transferred data",
       "status": "CANT",
       "detail": "Options -r, -R not available",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 404 OPTION_RAW_DUMP: raw dump of transferred data... Options -r, -R not available"
     },
     "405": {
@@ -3316,7 +3647,7 @@
       "description": "Test the OpenSSL SNI feature",
       "status": "CANT",
       "detail": "use test.sh option --internet",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 405 OPENSSL_SNI: Test the OpenSSL SNI feature... use test.sh option --internet"
     },
     "406": {
@@ -3325,7 +3656,7 @@
       "description": "Test the openssl-no-sni option",
       "status": "CANT",
       "detail": "use test.sh option --internet",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 406 OPENSSL_NO_SNI: Test the openssl-no-sni option... use test.sh option --internet"
     },
     "407": {
@@ -3334,7 +3665,7 @@
       "description": "test the accept-timeout option",
       "status": "OK",
       "detail": "",
-      "shard": 4,
+      "shard": 0,
       "raw": "test 407 ACCEPTTIMEOUT: test the accept-timeout option... OK"
     },
     "408": {
@@ -3343,7 +3674,7 @@
       "description": "test UDP-DATAGRAM ignoring peerport",
       "status": "CANT",
       "detail": "Only with Socat 1.7.4.0 or higher",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 408 UDP_DATAGRAM_PEERPORT: test UDP-DATAGRAM ignoring peerport... Only with Socat 1.7.4.0 or higher"
     },
     "409": {
@@ -3352,7 +3683,7 @@
       "description": "proxy-authorization-file option",
       "status": "CANT",
       "detail": "Option proxy-authorization-file not available",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 409 PROXYAUTHFILE: proxy-authorization-file option... Option proxy-authorization-file not available"
     },
     "410": {
@@ -3361,7 +3692,7 @@
       "description": "test communication via VSOCK loopback socket",
       "status": "CANT",
       "detail": "VSOCK not available",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 410 VSOCK_ECHO: test communication via VSOCK loopback socket... VSOCK not available"
     },
     "411": {
@@ -3370,7 +3701,7 @@
       "description": "OpenSSL stream from client to server",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 411 OPENSSL_STREAM_TO_SERVER: OpenSSL stream from client to server... OK"
     },
     "412": {
@@ -3379,7 +3710,7 @@
       "description": "OpenSSL stream from server to client",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 412 OPENSSL_STREAM_TO_CLIENT: OpenSSL stream from server to client... OK"
     },
     "413": {
@@ -3388,7 +3719,7 @@
       "description": "OpenSSL DTLS transfer from client to server",
       "status": "CANT",
       "detail": "openssl-dtls-listen not available",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 413 OPENSSL_DTLS_TO_SERVER: OpenSSL DTLS transfer from client to server... openssl-dtls-listen not available"
     },
     "414": {
@@ -3397,7 +3728,7 @@
       "description": "OpenSSL DTLS transfer from server to client",
       "status": "CANT",
       "detail": "openssl-dtls-listen not available",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 414 OPENSSL_DTLS_TO_CLIENT: OpenSSL DTLS transfer from server to client... openssl-dtls-listen not available"
     },
     "415": {
@@ -3406,7 +3737,7 @@
       "description": "test diverse of socket,openssl params",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 415 OPENSSL_PARA_OVERLAP: test diverse of socket,openssl params... OK"
     },
     "416": {
@@ -3415,7 +3746,7 @@
       "description": "Test if OpenSSL server may be crashed by client cert with IPv6 address",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 416 OPENSSL_CLIENT_IP6_CN: Test if OpenSSL server may be crashed by client cert with IPv6 address... OK"
     },
     "417": {
@@ -3424,7 +3755,7 @@
       "description": "test if unknown service specs are handled properly",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 417 BAD_SERVICE: test if unknown service specs are handled properly... OK"
     },
     "418": {
@@ -3433,7 +3764,7 @@
       "description": "Is the fs related user option on ABSTRACT socket applied to FD",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 418 ABSTRACT_USER: Is the fs related user option on ABSTRACT socket applied to FD... OK"
     },
     "419": {
@@ -3442,7 +3773,7 @@
       "description": "test if option -R does not sniff left-to-right traffic",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 419 SNIFF_RIGHT_TO_LEFT: test if option -R does not sniff left-to-right traffic... OK"
     },
     "420": {
@@ -3451,7 +3782,7 @@
       "description": "Failure handling on connect access to missing",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 420 CONNECT_TO_MISSING: Failure handling on connect access to missing... OK"
     },
     "421": {
@@ -3460,7 +3791,7 @@
       "description": "Failure handling on connect access to denied",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 421 CONNECT_TO_DENIED: Failure handling on connect access to denied... OK"
     },
     "422": {
@@ -3469,7 +3800,7 @@
       "description": "Failure handling on connect access to directory",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 422 CONNECT_TO_DIRECTORY: Failure handling on connect access to directory... OK"
     },
     "423": {
@@ -3478,7 +3809,7 @@
       "description": "Failure handling on connect access to orphaned",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 423 CONNECT_TO_ORPHANED: Failure handling on connect access to orphaned... OK"
     },
     "424": {
@@ -3487,7 +3818,7 @@
       "description": "Failure handling on connect access to file",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 424 CONNECT_TO_FILE: Failure handling on connect access to file... OK"
     },
     "425": {
@@ -3496,7 +3827,7 @@
       "description": "Failure handling on connect access to dgram",
       "status": "CANT",
       "detail": "not with eero",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 425 CONNECT_TO_DGRAM: Failure handling on connect access to dgram... not with eero"
     },
     "426": {
@@ -3505,7 +3836,7 @@
       "description": "Failure handling on connect access to seqpacket",
       "status": "CANT",
       "detail": "not with eero",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 426 CONNECT_TO_SEQPACKET: Failure handling on connect access to seqpacket... not with eero"
     },
     "427": {
@@ -3514,7 +3845,7 @@
       "description": "Failure handling on send access to missing",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 427 SEND_TO_MISSING: Failure handling on send access to missing... OK"
     },
     "428": {
@@ -3523,7 +3854,7 @@
       "description": "Failure handling on send access to denied",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 428 SEND_TO_DENIED: Failure handling on send access to denied... OK"
     },
     "429": {
@@ -3532,7 +3863,7 @@
       "description": "Failure handling on send access to directory",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 429 SEND_TO_DIRECTORY: Failure handling on send access to directory... OK"
     },
     "430": {
@@ -3541,7 +3872,7 @@
       "description": "Failure handling on send access to orphaned",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 430 SEND_TO_ORPHANED: Failure handling on send access to orphaned... OK"
     },
     "431": {
@@ -3550,7 +3881,7 @@
       "description": "Failure handling on send access to file",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 431 SEND_TO_FILE: Failure handling on send access to file... OK"
     },
     "432": {
@@ -3559,7 +3890,7 @@
       "description": "Failure handling on send access to stream",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 432 SEND_TO_STREAM: Failure handling on send access to stream... OK"
     },
     "433": {
@@ -3568,7 +3899,7 @@
       "description": "Failure handling on send access to seqpacket",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 433 SEND_TO_SEQPACKET: Failure handling on send access to seqpacket... OK"
     },
     "434": {
@@ -3577,7 +3908,7 @@
       "description": "Failure handling on sendto access to missing",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 434 SENDTO_TO_MISSING: Failure handling on sendto access to missing... OK"
     },
     "435": {
@@ -3586,7 +3917,7 @@
       "description": "Failure handling on sendto access to denied",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 435 SENDTO_TO_DENIED: Failure handling on sendto access to denied... OK"
     },
     "436": {
@@ -3595,7 +3926,7 @@
       "description": "Failure handling on sendto access to directory",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 436 SENDTO_TO_DIRECTORY: Failure handling on sendto access to directory... OK"
     },
     "437": {
@@ -3604,7 +3935,7 @@
       "description": "Failure handling on sendto access to orphaned",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 437 SENDTO_TO_ORPHANED: Failure handling on sendto access to orphaned... OK"
     },
     "438": {
@@ -3613,7 +3944,7 @@
       "description": "Failure handling on sendto access to file",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 438 SENDTO_TO_FILE: Failure handling on sendto access to file... OK"
     },
     "439": {
@@ -3622,7 +3953,7 @@
       "description": "Failure handling on sendto access to stream",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 439 SENDTO_TO_STREAM: Failure handling on sendto access to stream... OK"
     },
     "440": {
@@ -3631,7 +3962,7 @@
       "description": "Failure handling on sendto access to seqpacket",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 440 SENDTO_TO_SEQPACKET: Failure handling on sendto access to seqpacket... OK"
     },
     "441": {
@@ -3640,7 +3971,7 @@
       "description": "Failure handling on seqpacket access to missing",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 441 SEQPACKET_TO_MISSING: Failure handling on seqpacket access to missing... OK"
     },
     "442": {
@@ -3649,7 +3980,7 @@
       "description": "Failure handling on seqpacket access to denied",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 442 SEQPACKET_TO_DENIED: Failure handling on seqpacket access to denied... OK"
     },
     "443": {
@@ -3658,7 +3989,7 @@
       "description": "Failure handling on seqpacket access to directory",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 443 SEQPACKET_TO_DIRECTORY: Failure handling on seqpacket access to directory... OK"
     },
     "444": {
@@ -3667,7 +3998,7 @@
       "description": "Failure handling on seqpacket access to orphaned",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 444 SEQPACKET_TO_ORPHANED: Failure handling on seqpacket access to orphaned... OK"
     },
     "445": {
@@ -3676,7 +4007,7 @@
       "description": "Failure handling on seqpacket access to file",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 445 SEQPACKET_TO_FILE: Failure handling on seqpacket access to file... OK"
     },
     "446": {
@@ -3685,7 +4016,7 @@
       "description": "Failure handling on seqpacket access to stream",
       "status": "CANT",
       "detail": "not with eero",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 446 SEQPACKET_TO_STREAM: Failure handling on seqpacket access to stream... not with eero"
     },
     "447": {
@@ -3694,7 +4025,7 @@
       "description": "Failure handling on seqpacket access to dgram",
       "status": "CANT",
       "detail": "not with eero",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 447 SEQPACKET_TO_DGRAM: Failure handling on seqpacket access to dgram... not with eero"
     },
     "448": {
@@ -3703,7 +4034,7 @@
       "description": "Failure handling on unix access to missing",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 448 UNIX_TO_MISSING: Failure handling on unix access to missing... OK"
     },
     "449": {
@@ -3712,7 +4043,7 @@
       "description": "Failure handling on unix access to denied",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 449 UNIX_TO_DENIED: Failure handling on unix access to denied... OK"
     },
     "450": {
@@ -3721,7 +4052,7 @@
       "description": "Failure handling on unix access to directory",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 450 UNIX_TO_DIRECTORY: Failure handling on unix access to directory... OK"
     },
     "451": {
@@ -3730,7 +4061,7 @@
       "description": "Failure handling on unix access to file",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 451 UNIX_TO_FILE: Failure handling on unix access to file... OK"
     },
     "452": {
@@ -3739,7 +4070,7 @@
       "description": "Failure handling on unix access to orphaned",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 452 UNIX_TO_ORPHANED: Failure handling on unix access to orphaned... OK"
     },
     "453": {
@@ -3748,7 +4079,7 @@
       "description": "Failure handling on gopen access to denied",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 453 GOPEN_TO_DENIED: Failure handling on gopen access to denied... OK"
     },
     "454": {
@@ -3757,7 +4088,7 @@
       "description": "Failure handling on gopen access to directory",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 454 GOPEN_TO_DIRECTORY: Failure handling on gopen access to directory... OK"
     },
     "455": {
@@ -3766,7 +4097,7 @@
       "description": "Failure handling on gopen access to orphaned",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 455 GOPEN_TO_ORPHANED: Failure handling on gopen access to orphaned... OK"
     },
     "456": {
@@ -3775,7 +4106,7 @@
       "description": "TCP with options connect-timeout and retry",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 456 TCP_TIMEOUT_RETRY: TCP with options connect-timeout and retry... OK"
     },
     "457": {
@@ -3784,7 +4115,7 @@
       "description": "Test if the rawer option fails",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 457 RAWER: Test if the rawer option fails... OK"
     },
     "458": {
@@ -3793,7 +4124,7 @@
       "description": "UDP4-SEND with lowport",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 458 UDP_LOWPORT: UDP4-SEND with lowport... OK"
     },
     "459": {
@@ -3802,7 +4133,7 @@
       "description": "Error on option that's missing integer value",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 459 MISSING_INTEGER: Error on option that's missing integer value... OK"
     },
     "460": {
@@ -3811,7 +4142,7 @@
       "description": "Error on trailing garbage",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 460 INTEGER_GARBAGE: Error on trailing garbage... OK"
     },
     "461": {
@@ -3820,7 +4151,7 @@
       "description": "capability to display symlink target",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 461 FILANSYMLINK: capability to display symlink target... OK"
     },
     "462": {
@@ -3829,7 +4160,7 @@
       "description": "simple echo via exec of cat with socketpair, keeping packet boundaries",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 462 EXECSOCKETPAIRPACKETS: simple echo via exec of cat with socketpair, keeping packet boundaries... OK"
     },
     "463": {
@@ -3838,7 +4169,7 @@
       "description": "simple echo via system of cat with socketpair, keeping packet boundaries",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 463 SYSTEMSOCKETPAIRPACKETS: simple echo via system of cat with socketpair, keeping packet boundaries... OK"
     },
     "464": {
@@ -3847,7 +4178,7 @@
       "description": "Dalan syntax error does not raise SIGSEGV",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 464 DALAN_NO_SIGSEGV: Dalan syntax error does not raise SIGSEGV... OK"
     },
     "465": {
@@ -3856,7 +4187,7 @@
       "description": "filan -s displays TCP etc",
       "status": "CANT",
       "detail": "Option nofork not available in /home/eero/src/socat/socat",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 465 FILAN_SHORT_TCP: filan -s displays TCP etc... Option nofork not available in /home/eero/src/socat/socat"
     },
     "466": {
@@ -3865,7 +4196,7 @@
       "description": "Restoring of terminal settings",
       "status": "CANT",
       "detail": "Option ctty not available in /home/eero/src/socat/socat",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 466 RESTORE_TTY: Restoring of terminal settings... Option ctty not available in /home/eero/src/socat/socat"
     },
     "467": {
@@ -3874,7 +4205,7 @@
       "description": "Socat does not leak FDs to EXEC'd program",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 467 EXEC_FDS: Socat does not leak FDs to EXEC'd program... OK"
     },
     "468": {
@@ -3883,7 +4214,7 @@
       "description": "Socat does not leak sniffing FDs",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 468 EXEC_SNIFF: Socat does not leak sniffing FDs... OK"
     },
     "469": {
@@ -3892,7 +4223,7 @@
       "description": "UDP4-RECVFROM with fork option",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 469 UDP4_FORK: UDP4-RECVFROM with fork option... OK"
     },
     "470": {
@@ -3901,7 +4232,7 @@
       "description": "UDP6-RECVFROM with fork option",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 470 UDP6_FORK: UDP6-RECVFROM with fork option... OK"
     },
     "471": {
@@ -3910,7 +4241,7 @@
       "description": "UNIX-RECVFROM with fork option",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 471 UNIX_FORK: UNIX-RECVFROM with fork option... OK"
     },
     "472": {
@@ -3919,7 +4250,7 @@
       "description": "Option -S can turn off logging of SIGTERM",
       "status": "CANT",
       "detail": "Option -S not available",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 472 SIGTERM_NOLOG: Option -S can turn off logging of SIGTERM... Option -S not available"
     },
     "473": {
@@ -3928,7 +4259,7 @@
       "description": "Option -S can turn on logging of signal 31",
       "status": "CANT",
       "detail": "Option -S not available",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 473 SIG31_LOG: Option -S can turn on logging of signal 31... Option -S not available"
     },
     "474": {
@@ -3937,7 +4268,7 @@
       "description": "PROXY-CONNECT with option http-version",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 474 PROXY_HTTPVERSION: PROXY-CONNECT with option http-version... OK"
     },
     "475": {
@@ -3946,7 +4277,7 @@
       "description": "test the so-rcvtimeo option with DTLS",
       "status": "CANT",
       "detail": "Address DTLS not available in /home/eero/src/socat/socat",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 475 RCVTIMEO_DTLS: test the so-rcvtimeo option with DTLS... Address DTLS not available in /home/eero/src/socat/socat"
     },
     "476": {
@@ -3955,7 +4286,7 @@
       "description": "sniff file names with variables",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 476 VARS_IN_SNIFFPATH: sniff file names with variables... OK"
     },
     "477": {
@@ -3964,7 +4295,7 @@
       "description": "Socat option --statistics",
       "status": "CANT",
       "detail": "Feature STATS not available in /home/eero/src/socat/socat",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 477 OPTION_STATISTICS: Socat option --statistics... Feature STATS not available in /home/eero/src/socat/socat"
     },
     "478": {
@@ -3973,7 +4304,7 @@
       "description": "statistics on SIGUSR1",
       "status": "CANT",
       "detail": "Feature STATS not configured in /home/eero/src/socat/socat",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 478 SIGUSR1_STATISTICS: statistics on SIGUSR1... Feature STATS not configured in /home/eero/src/socat/socat"
     },
     "479": {
@@ -3982,7 +4313,7 @@
       "description": "test the children-shutup option",
       "status": "CANT",
       "detail": "Option children-shutup not available",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 479 CHILDREN_SHUTUP: test the children-shutup option... Option children-shutup not available"
     },
     "480": {
@@ -3991,7 +4322,7 @@
       "description": "INTERFACE ignores outgoing packets",
       "status": "CANT",
       "detail": "must be root",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 480 INTERFACE_IGNOREOUTGOING: INTERFACE ignores outgoing packets... must be root"
     },
     "481": {
@@ -4000,7 +4331,7 @@
       "description": "test if option reuseaddr's default is 1",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 481 TCP4_REUSEADDR: test if option reuseaddr's default is 1... OK"
     },
     "482": {
@@ -4009,7 +4340,7 @@
       "description": "test if option reuseaddr's default is 1 with SSL-L",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 482 OPENSSL_6_REUSEADDR: test if option reuseaddr's default is 1 with SSL-L... OK"
     },
     "483": {
@@ -4018,7 +4349,7 @@
       "description": "test option reuseaddr without value",
       "status": "FAILED",
       "detail": "NO RESULT",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 483 REUSEADDR_NULL: test option reuseaddr without value... NO RESULT"
     },
     "484": {
@@ -4027,7 +4358,7 @@
       "description": "try all available TCP4 addresses",
       "status": "CANT",
       "detail": "use test.sh option --internet",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 484 TRY_ADDRS_4: try all available TCP4 addresses... use test.sh option --internet"
     },
     "485": {
@@ -4036,26 +4367,26 @@
       "description": "for TCP try all available IPv4 and IPv6 addresses",
       "status": "CANT",
       "detail": "use test.sh option --internet",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 485 TRY_ADDRS_4_6: for TCP try all available IPv4 and IPv6 addresses... use test.sh option --internet"
     },
     "486": {
       "id": 486,
       "name": "NETNS",
-      "description": "option netns (net namespace socat-2669014-test486)",
+      "description": "option netns (net namespace socat-2782574-test486)",
       "status": "CANT",
       "detail": "Must be root",
-      "shard": 5,
-      "raw": "test 486 NETNS: option netns (net namespace socat-2669014-test486)... Must be root"
+      "shard": 0,
+      "raw": "test 486 NETNS: option netns (net namespace socat-2782574-test486)... Must be root"
     },
     "487": {
       "id": 487,
       "name": "NETNS_EXEC",
-      "description": "option netns with EXEC (net namespace socat-2669014-test487)",
+      "description": "option netns with EXEC (net namespace socat-2782574-test487)",
       "status": "CANT",
       "detail": "Must be root",
-      "shard": 5,
-      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-2669014-test487)... Must be root"
+      "shard": 0,
+      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-2782574-test487)... Must be root"
     },
     "488": {
       "id": 488,
@@ -4063,7 +4394,7 @@
       "description": "stdio and internal socketpair with stream",
       "status": "OK",
       "detail": "",
-      "shard": 5,
+      "shard": 0,
       "raw": "test 488 SOCKETPAIR_STREAM: stdio and internal socketpair with stream... OK"
     },
     "489": {
@@ -4072,7 +4403,7 @@
       "description": "stdio and internal socketpair with datagram",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 489 SOCKETPAIR_DATAGRAM: stdio and internal socketpair with datagram... OK"
     },
     "490": {
@@ -4081,7 +4412,7 @@
       "description": "stdio and internal socketpair with seqpacket",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 490 SOCKETPAIR_SEQPACKET: stdio and internal socketpair with seqpacket... OK"
     },
     "491": {
@@ -4090,7 +4421,7 @@
       "description": "Internal socketpair keeps packet boundaries",
       "status": "CANT",
       "detail": "Option socktype not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 491 SOCKETPAIR_BOUNDARIES: Internal socketpair keeps packet boundaries... Option socktype not available in /home/eero/src/socat/socat"
     },
     "492": {
@@ -4099,7 +4430,7 @@
       "description": "ACCEPT-FD address",
       "status": "CANT",
       "detail": "Address ACCEPT-FD not available",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 492 ACCEPT_FD: ACCEPT-FD address... Address ACCEPT-FD not available"
     },
     "493": {
@@ -4108,7 +4439,7 @@
       "description": "POSIX-MQ with prio",
       "status": "CANT",
       "detail": "Feature POSIXMQ not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 493 POSIXMQ_READ_PRIO: POSIX-MQ with prio... Feature POSIXMQ not configured in /home/eero/src/socat/socat"
     },
     "494": {
@@ -4117,7 +4448,7 @@
       "description": "POSIX-MQ RECV with fork",
       "status": "CANT",
       "detail": "Feature POSIXMQ not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 494 POSIXMQ_RECV_FORK: POSIX-MQ RECV with fork... Feature POSIXMQ not configured in /home/eero/src/socat/socat"
     },
     "495": {
@@ -4126,7 +4457,7 @@
       "description": "POSIX-MQ RECV with fork,max-children",
       "status": "CANT",
       "detail": "Feature POSIXMQ not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 495 POSIXMQ_RECV_MAXCHILDREN: POSIX-MQ RECV with fork,max-children... Feature POSIXMQ not configured in /home/eero/src/socat/socat"
     },
     "496": {
@@ -4135,7 +4466,7 @@
       "description": "POSIX-MQ SEND with fork,max-children",
       "status": "CANT",
       "detail": "Feature POSIXMQ not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 496 POSIXMQ_SEND_MAXCHILDREN: POSIX-MQ SEND with fork,max-children... Feature POSIXMQ not configured in /home/eero/src/socat/socat"
     },
     "497": {
@@ -4144,7 +4475,7 @@
       "description": "sigint option with SHELL",
       "status": "CANT",
       "detail": "Option sigint not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 497 SHELL_SIGINT: sigint option with SHELL... Option sigint not available in /home/eero/src/socat/socat"
     },
     "498": {
@@ -4153,7 +4484,7 @@
       "description": "simple echo via SHELL of cat with socketpair",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 498 SHELL_SOCKETPAIR: simple echo via SHELL of cat with socketpair... OK"
     },
     "499": {
@@ -4162,7 +4493,7 @@
       "description": "simple echo via SHELL of cat with pipes",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 499 SHELL_PIPES: simple echo via SHELL of cat with pipes... OK"
     },
     "500": {
@@ -4171,7 +4502,7 @@
       "description": "simple echo via SHELL of cat with pty",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 500 SHELL_PTY: simple echo via SHELL of cat with pty... OK"
     },
     "501": {
@@ -4180,7 +4511,7 @@
       "description": "call  od -c  via SHELL using socketpair",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 501 SHELL_SOCKETPAIR_FLUSH: call  od -c  via SHELL using socketpair... OK"
     },
     "502": {
@@ -4189,7 +4520,7 @@
       "description": "call  od -c  via SHELL using pipes",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 502 SHELL_PIPES: call  od -c  via SHELL using pipes... OK"
     },
     "503": {
@@ -4198,7 +4529,7 @@
       "description": "sigint option with SYSTEM",
       "status": "CANT",
       "detail": "Feature SYCLS not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 503 SYSTEM_SIGINT: sigint option with SYSTEM... Feature SYCLS not configured in /home/eero/src/socat/socat"
     },
     "504": {
@@ -4207,7 +4538,7 @@
       "description": "test the res-nsaddr option",
       "status": "CANT",
       "detail": "Option res-nsaddr not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 504 RES_NSADDR: test the res-nsaddr option... Option res-nsaddr not available in /home/eero/src/socat/socat"
     },
     "505": {
@@ -4216,7 +4547,7 @@
       "description": "restore of pwd after CREAT with chdir option",
       "status": "CANT",
       "detail": "Option chdir not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 505 CHDIR_ON_CREATE: restore of pwd after CREAT with chdir option... Option chdir not available in /home/eero/src/socat/socat"
     },
     "506": {
@@ -4225,7 +4556,7 @@
       "description": "restore of pwd after SYSTEM with chdir option",
       "status": "CANT",
       "detail": "Option chdir not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 506 CHDIR_ON_SHELL: restore of pwd after SYSTEM with chdir option... Option chdir not available in /home/eero/src/socat/socat"
     },
     "507": {
@@ -4234,7 +4565,7 @@
       "description": "test restore after CREAT with umask option",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 507 UMASK_ON_CREATE: test restore after CREAT with umask option... OK"
     },
     "508": {
@@ -4243,7 +4574,7 @@
       "description": "test restore after SHELL with umask option",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 508 UMASK_ON_SYSTEM: test restore after SHELL with umask option... OK"
     },
     "509": {
@@ -4252,7 +4583,7 @@
       "description": "Option unix-bind-tempname",
       "status": "CANT",
       "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 509 UNIX_LISTEN_CONNECT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
     },
     "510": {
@@ -4261,7 +4592,7 @@
       "description": "Option unix-bind-tempname",
       "status": "CANT",
       "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 510 UNIX_LISTEN_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
     },
     "511": {
@@ -4270,7 +4601,7 @@
       "description": "Option unix-bind-tempname",
       "status": "CANT",
       "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 511 UNIX_RECVFROM_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
     },
     "512": {
@@ -4279,7 +4610,7 @@
       "description": "Option unix-bind-tempname",
       "status": "CANT",
       "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 512 UNIX_RECVFROM_SENDTO_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
     },
     "513": {
@@ -4288,7 +4619,7 @@
       "description": "Option unix-bind-tempname",
       "status": "CANT",
       "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 513 ABSTRACT_LISTEN_CONNECT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
     },
     "514": {
@@ -4297,7 +4628,7 @@
       "description": "Option unix-bind-tempname",
       "status": "CANT",
       "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 514 ABSTRACT_LISTEN_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
     },
     "515": {
@@ -4306,7 +4637,7 @@
       "description": "Option unix-bind-tempname",
       "status": "CANT",
       "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 515 ABSTRACT_RECVFROM_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
     },
     "516": {
@@ -4315,7 +4646,7 @@
       "description": "Option unix-bind-tempname",
       "status": "CANT",
       "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 516 ABSTRACT_RECVFROM_SENDTO_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
     },
     "517": {
@@ -4324,7 +4655,7 @@
       "description": "test if a symlink attack works against bind()",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 517 TEMPNAME_SEC: test if a symlink attack works against bind()... OK"
     },
     "518": {
@@ -4333,7 +4664,7 @@
       "description": "f-setpipe-sz on STDIN",
       "status": "CANT",
       "detail": "Option f-setpipe-sz not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 518 STDIN_F_SETPIPE_SZ: f-setpipe-sz on STDIN... Option f-setpipe-sz not available in /home/eero/src/socat/socat"
     },
     "519": {
@@ -4342,7 +4673,7 @@
       "description": "f-setpipe-sz on EXEC with pipes",
       "status": "CANT",
       "detail": "Option f-setpipe-sz not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 519 EXEC_F_SETPIPE_SZ: f-setpipe-sz on EXEC with pipes... Option f-setpipe-sz not available in /home/eero/src/socat/socat"
     },
     "520": {
@@ -4351,7 +4682,7 @@
       "description": "DCCP over IPv4",
       "status": "CANT",
       "detail": "Feature DCCP not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 520 DCCP4: DCCP over IPv4... Feature DCCP not configured in /home/eero/src/socat/socat"
     },
     "521": {
@@ -4360,7 +4691,7 @@
       "description": "echo via connection to UDP-Lite IPv4 socket",
       "status": "CANT",
       "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 521 UDPLITE4STREAM: echo via connection to UDP-Lite IPv4 socket... Feature UDPLITE not configured in /home/eero/src/socat/socat"
     },
     "522": {
@@ -4369,7 +4700,7 @@
       "description": "echo via connection to UDP-Lite IPv4 socket",
       "status": "CANT",
       "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 522 UDPLITE4STREAM: echo via connection to UDP-Lite IPv4 socket... Feature UDPLITE not configured in /home/eero/src/socat/socat"
     },
     "523": {
@@ -4378,7 +4709,7 @@
       "description": "echo via connection to UDP-Lite IPv6 socket",
       "status": "CANT",
       "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 523 UDPLITE6STREAM: echo via connection to UDP-Lite IPv6 socket... Feature UDPLITE not configured in /home/eero/src/socat/socat"
     },
     "524": {
@@ -4387,7 +4718,7 @@
       "description": "UDPLITE4-LISTEN sets environment variables with socket addresses",
       "status": "CANT",
       "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 524 UDPLITE4LISTENENV: UDPLITE4-LISTEN sets environment variables with socket addresses... Feature UDPLITE not configured in /home/eero/src/socat/socat"
     },
     "525": {
@@ -4396,7 +4727,7 @@
       "description": "UDPLITE6-LISTEN sets environment variables with socket addresses",
       "status": "CANT",
       "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 525 UDPLITE6LISTENENV: UDPLITE6-LISTEN sets environment variables with socket addresses... Feature UDPLITE not configured in /home/eero/src/socat/socat"
     },
     "526": {
@@ -4405,7 +4736,7 @@
       "description": "max-children option with UDPLITE4-LISTEN",
       "status": "CANT",
       "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 526 UDPLITE4_L_MAXCHILDREN: max-children option with UDPLITE4-LISTEN... Feature UDPLITE not configured in /home/eero/src/socat/socat"
     },
     "527": {
@@ -4414,7 +4745,7 @@
       "description": "max-children option with UDPLITE6-LISTEN",
       "status": "CANT",
       "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 527 UDPLITE6_L_MAXCHILDREN: max-children option with UDPLITE6-LISTEN... Feature UDPLITE not configured in /home/eero/src/socat/socat"
     },
     "528": {
@@ -4423,7 +4754,7 @@
       "description": "test procan controlling terminal output",
       "status": "UNKNOWN",
       "detail": "must run in tty",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 528 PROCAN_CTTY: test procan controlling terminal output... must run in tty"
     },
     "529": {
@@ -4432,7 +4763,7 @@
       "description": "test socat-chain.sh with SOCKS4 over UNIX-socket",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 529 SOCAT_CHAIN_SOCKS4: test socat-chain.sh with SOCKS4 over UNIX-socket... OK"
     },
     "530": {
@@ -4441,7 +4772,7 @@
       "description": "test socat-chain.sh with SSL over PTY",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 530 SOCAT_CHAIN_SSL_PTY: test socat-chain.sh with SSL over PTY... OK"
     },
     "531": {
@@ -4450,7 +4781,7 @@
       "description": "test the socat-mux.sh script",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 531 SOCAT_MUX: test the socat-mux.sh script... OK"
     },
     "532": {
@@ -4459,7 +4790,7 @@
       "description": "test the socat-broker.sh script",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 532 SOCAT_BROKER: test the socat-broker.sh script... OK"
     },
     "533": {
@@ -4468,7 +4799,7 @@
       "description": "Bug on RECVFROM with fork and child failure",
       "status": "FAILED",
       "detail": "NO RESULT (no error)",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 533 RECVFROM_FORK_LOOP: Bug on RECVFROM with fork and child failure... NO RESULT (no error)"
     },
     "534": {
@@ -4477,7 +4808,7 @@
       "description": "FD leak on RECVFROM with fork",
       "status": "FAILED",
       "detail": "NO RESULT (not 2 socketpair())",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 534 RECVFROM_FORK_LEAK: FD leak on RECVFROM with fork... NO RESULT (not 2 socketpair())"
     },
     "535": {
@@ -4486,7 +4817,7 @@
       "description": "test IP-SENDTO with option pf with protocol name",
       "status": "CANT",
       "detail": "Feature RAWIP not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 535 IP_SENDTO_PF: test IP-SENDTO with option pf with protocol name... Feature RAWIP not configured in /home/eero/src/socat/socat"
     },
     "536": {
@@ -4495,7 +4826,7 @@
       "description": "TCP-L with -0 accepts IPv4",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 536 LISTEN_4: TCP-L with -0 accepts IPv4... OK"
     },
     "537": {
@@ -4504,7 +4835,7 @@
       "description": "TCP-L with -0 accepts IPv6",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 537 LISTEN_6: TCP-L with -0 accepts IPv6... OK"
     },
     "538": {
@@ -4513,7 +4844,7 @@
       "description": "test regression of TCP-LISTEN with IPv4 RANGE",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 538 V1800_TCP_LISTEN_RANGE: test regression of TCP-LISTEN with IPv4 RANGE... OK"
     },
     "539": {
@@ -4522,7 +4853,7 @@
       "description": "test regression of TCP-LISTEN with IPv4 BIND",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 539 V1800_TCP_LISTEN_BIND: test regression of TCP-LISTEN with IPv4 BIND... OK"
     },
     "540": {
@@ -4531,7 +4862,7 @@
       "description": "test regression of SCTP-LISTEN with IPv4 RANGE",
       "status": "CANT",
       "detail": "Feature SCTP not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 540 V1800_SCTP_LISTEN_RANGE: test regression of SCTP-LISTEN with IPv4 RANGE... Feature SCTP not configured in /home/eero/src/socat/socat"
     },
     "541": {
@@ -4540,7 +4871,7 @@
       "description": "test regression of SCTP-LISTEN with IPv4 BIND",
       "status": "CANT",
       "detail": "Feature SCTP not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 541 V1800_SCTP_LISTEN_BIND: test regression of SCTP-LISTEN with IPv4 BIND... Feature SCTP not configured in /home/eero/src/socat/socat"
     },
     "542": {
@@ -4549,7 +4880,7 @@
       "description": "test regression of DCCP-LISTEN with IPv4 RANGE",
       "status": "CANT",
       "detail": "Feature DCCP not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 542 V1800_DCCP_LISTEN_RANGE: test regression of DCCP-LISTEN with IPv4 RANGE... Feature DCCP not configured in /home/eero/src/socat/socat"
     },
     "543": {
@@ -4558,7 +4889,7 @@
       "description": "test regression of DCCP-LISTEN with IPv4 BIND",
       "status": "CANT",
       "detail": "Feature DCCP not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 543 V1800_DCCP_LISTEN_BIND: test regression of DCCP-LISTEN with IPv4 BIND... Feature DCCP not configured in /home/eero/src/socat/socat"
     },
     "544": {
@@ -4567,7 +4898,7 @@
       "description": "test regression of OPENSSL-LISTEN with IPv4 RANGE",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 544 V1800_OPENSSL_LISTEN_RANGE: test regression of OPENSSL-LISTEN with IPv4 RANGE... OK"
     },
     "545": {
@@ -4576,7 +4907,7 @@
       "description": "test regression of OPENSSL-LISTEN with IPv4 BIND",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 545 V1800_OPENSSL_LISTEN_BIND: test regression of OPENSSL-LISTEN with IPv4 BIND... OK"
     },
     "546": {
@@ -4585,7 +4916,7 @@
       "description": "test regression of UDP-LISTEN with IPv4 RANGE",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 546 V1800_UDP_LISTEN_RANGE: test regression of UDP-LISTEN with IPv4 RANGE... OK"
     },
     "547": {
@@ -4594,7 +4925,7 @@
       "description": "test regression of UDP-LISTEN with IPv4 BIND",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 547 V1800_UDP_LISTEN_BIND: test regression of UDP-LISTEN with IPv4 BIND... OK"
     },
     "548": {
@@ -4603,7 +4934,7 @@
       "description": "test regression of UDP-RECVFROM with IPv4 RANGE",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 548 V1800_UDP_RECVFROM_RANGE: test regression of UDP-RECVFROM with IPv4 RANGE... OK"
     },
     "549": {
@@ -4612,7 +4943,7 @@
       "description": "test regression of UDP-RECVFROM with IPv4 BIND",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 549 V1800_UDP_RECVFROM_BIND: test regression of UDP-RECVFROM with IPv4 BIND... OK"
     },
     "550": {
@@ -4621,7 +4952,7 @@
       "description": "test regression of UDPLITE-LISTEN with IPv4 RANGE",
       "status": "CANT",
       "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 550 V1800_UDPLITE_LISTEN_RANGE: test regression of UDPLITE-LISTEN with IPv4 RANGE... Feature UDPLITE not configured in /home/eero/src/socat/socat"
     },
     "551": {
@@ -4630,7 +4961,7 @@
       "description": "test regression of UDPLITE-LISTEN with IPv4 BIND",
       "status": "CANT",
       "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 551 V1800_UDPLITE_LISTEN_BIND: test regression of UDPLITE-LISTEN with IPv4 BIND... Feature UDPLITE not configured in /home/eero/src/socat/socat"
     },
     "552": {
@@ -4639,7 +4970,7 @@
       "description": "test regression of UDPLITE-RECVFROM with IPv4 RANGE",
       "status": "CANT",
       "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 552 V1800_UDPLITE_RECVFROM_RANGE: test regression of UDPLITE-RECVFROM with IPv4 RANGE... Feature UDPLITE not configured in /home/eero/src/socat/socat"
     },
     "553": {
@@ -4648,7 +4979,7 @@
       "description": "test regression of UDPLITE-RECVFROM with IPv4 BIND",
       "status": "CANT",
       "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 553 V1800_UDPLITE_RECVFROM_BIND: test regression of UDPLITE-RECVFROM with IPv4 BIND... Feature UDPLITE not configured in /home/eero/src/socat/socat"
     },
     "554": {
@@ -4657,7 +4988,7 @@
       "description": "test regression of UDP-DATAGRAM:1.2.3.4 with IPv4 RANGE",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 554 V1800_UDP_DATAGRAM_RANGE: test regression of UDP-DATAGRAM:1.2.3.4 with IPv4 RANGE... OK"
     },
     "555": {
@@ -4666,7 +4997,7 @@
       "description": "test regression of UDP-DATAGRAM:1.2.3.4 with IPv4 BIND",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 555 V1800_UDP_DATAGRAM_BIND: test regression of UDP-DATAGRAM:1.2.3.4 with IPv4 BIND... OK"
     },
     "556": {
@@ -4675,7 +5006,7 @@
       "description": "test regression of UDPLITE-DATAGRAM:1.2.3.4 with IPv4 RANGE",
       "status": "CANT",
       "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 556 V1800_UDPLITE_DATAGRAM_RANGE: test regression of UDPLITE-DATAGRAM:1.2.3.4 with IPv4 RANGE... Feature UDPLITE not configured in /home/eero/src/socat/socat"
     },
     "557": {
@@ -4684,7 +5015,7 @@
       "description": "test regression of UDPLITE-DATAGRAM:1.2.3.4 with IPv4 BIND",
       "status": "CANT",
       "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 557 V1800_UDPLITE_DATAGRAM_BIND: test regression of UDPLITE-DATAGRAM:1.2.3.4 with IPv4 BIND... Feature UDPLITE not configured in /home/eero/src/socat/socat"
     },
     "558": {
@@ -4693,7 +5024,7 @@
       "description": "test regression of IP-DATAGRAM:1.2.3.4 with IPv4 RANGE",
       "status": "CANT",
       "detail": "Address IP-DATAGRAM:1.2.3.4 not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 558 V1800_IP_DATAGRAM_RANGE: test regression of IP-DATAGRAM:1.2.3.4 with IPv4 RANGE... Address IP-DATAGRAM:1.2.3.4 not available in /home/eero/src/socat/socat"
     },
     "559": {
@@ -4702,7 +5033,7 @@
       "description": "test regression of IP-DATAGRAM:1.2.3.4 with IPv4 BIND",
       "status": "CANT",
       "detail": "Address IP-DATAGRAM:1.2.3.4 not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 559 V1800_IP_DATAGRAM_BIND: test regression of IP-DATAGRAM:1.2.3.4 with IPv4 BIND... Address IP-DATAGRAM:1.2.3.4 not available in /home/eero/src/socat/socat"
     },
     "560": {
@@ -4711,7 +5042,7 @@
       "description": "test regression of UDP-SENDTO with IPv6,4 and binding to IPv4",
       "status": "CANT",
       "detail": "Feature DEVTESTS not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 560 V1800_UDP_SENDTO_RESOLV_6_4: test regression of UDP-SENDTO with IPv6,4 and binding to IPv4... Feature DEVTESTS not configured in /home/eero/src/socat/socat"
     },
     "561": {
@@ -4720,7 +5051,7 @@
       "description": "test regression of UDPLITE-SENDTO with IPv6,4 and binding to IPv4",
       "status": "CANT",
       "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 561 V1800_UDPLITE_SENDTO_RESOLV_6_4: test regression of UDPLITE-SENDTO with IPv6,4 and binding to IPv4... Feature UDPLITE not configured in /home/eero/src/socat/socat"
     },
     "562": {
@@ -4729,7 +5060,7 @@
       "description": "test regression of IP-SENDTO with IPv6,4 and binding to IPv4",
       "status": "CANT",
       "detail": "Feature DEVTESTS not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 562 V1800_IP_SENDTO_RESOLV_6_4: test regression of IP-SENDTO with IPv6,4 and binding to IPv4... Feature DEVTESTS not configured in /home/eero/src/socat/socat"
     },
     "563": {
@@ -4738,7 +5069,7 @@
       "description": "test regression of TCP-CONNECT with IPv6,4 and binding to IPv4",
       "status": "CANT",
       "detail": "Feature DEVTESTS not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 563 V1800_TCP_CONNECT_CONNECT_6_4: test regression of TCP-CONNECT with IPv6,4 and binding to IPv4... Feature DEVTESTS not configured in /home/eero/src/socat/socat"
     },
     "564": {
@@ -4747,7 +5078,7 @@
       "description": "test regression of SCTP-CONNECT with IPv6,4 and binding to IPv4",
       "status": "CANT",
       "detail": "Feature SCTP not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 564 V1800_SCTP_CONNECT_CONNECT_6_4: test regression of SCTP-CONNECT with IPv6,4 and binding to IPv4... Feature SCTP not configured in /home/eero/src/socat/socat"
     },
     "565": {
@@ -4756,7 +5087,7 @@
       "description": "test regression of DCCP-CONNECT with IPv6,4 and binding to IPv4",
       "status": "CANT",
       "detail": "Feature DCCP not configured in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 565 V1800_DCCP_CONNECT_CONNECT_6_4: test regression of DCCP-CONNECT with IPv6,4 and binding to IPv4... Feature DCCP not configured in /home/eero/src/socat/socat"
     },
     "566": {
@@ -4765,7 +5096,7 @@
       "description": "Test the readline.sh file overwrite vulnerability",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 566 READLINE_SH_OVERWRITE: Test the readline.sh file overwrite vulnerability... OK"
     },
     "567": {
@@ -4774,7 +5105,7 @@
       "description": "SOCKS5-CONNECT over TCP/IPv4",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 567 SOCKS5CONNECT_TCP4: SOCKS5-CONNECT over TCP/IPv4... OK"
     },
     "568": {
@@ -4783,7 +5114,7 @@
       "description": "SOCKS5-LISTEN over TCP/IPv4",
       "status": "CANT",
       "detail": "Address SOCKS5-LISTEN not available in /home/eero/src/socat/socat",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 568 SOCKS5LISTEN_TCP4: SOCKS5-LISTEN over TCP/IPv4... Address SOCKS5-LISTEN not available in /home/eero/src/socat/socat"
     },
     "569": {
@@ -4792,7 +5123,7 @@
       "description": "Test UDP-LISTEN with bind to IPv4 addr",
       "status": "OK",
       "detail": "",
-      "shard": 6,
+      "shard": 0,
       "raw": "test 569 UDP_LISTEN_BIND4: Test UDP-LISTEN with bind to IPv4 addr... OK"
     },
     "570": {
@@ -4801,7 +5132,7 @@
       "description": "Test if UNIX-L with bind does not fail INTERNAL",
       "status": "FAILED",
       "detail": "NO RESULT (rc0=0)",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 570 UNIX_L_BIND: Test if UNIX-L with bind does not fail INTERNAL... NO RESULT (rc0=0)"
     },
     "571": {
@@ -4810,7 +5141,7 @@
       "description": "TCP bind chooses matching IPv",
       "status": "CANT",
       "detail": "use test.sh option --internet",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 571 TCP_CONNECT_BIND_6_4: TCP bind chooses matching IPv... use test.sh option --internet"
     },
     "572": {
@@ -4819,7 +5150,7 @@
       "description": "SCTP bind chooses matching IPv",
       "status": "CANT",
       "detail": "Feature SCTP not configured in /home/eero/src/socat/socat",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 572 SCTP_CONNECT_BIND_6_4: SCTP bind chooses matching IPv... Feature SCTP not configured in /home/eero/src/socat/socat"
     },
     "573": {
@@ -4828,7 +5159,7 @@
       "description": "DCCP bind chooses matching IPv",
       "status": "CANT",
       "detail": "Feature DCCP not configured in /home/eero/src/socat/socat",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 573 DCCP_CONNECT_BIND_6_4: DCCP bind chooses matching IPv... Feature DCCP not configured in /home/eero/src/socat/socat"
     },
     "574": {
@@ -4837,7 +5168,7 @@
       "description": "OPENSSL bind chooses matching IPv",
       "status": "CANT",
       "detail": "use test.sh option --internet",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 574 OPENSSL_CONNECT_BIND_6_4: OPENSSL bind chooses matching IPv... use test.sh option --internet"
     },
     "575": {
@@ -4846,7 +5177,7 @@
       "description": "SOCKS4 bind chooses matching IPv",
       "status": "CANT",
       "detail": "use test.sh option --internet",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 575 SOCKS4_BIND_6_4: SOCKS4 bind chooses matching IPv... use test.sh option --internet"
     },
     "576": {
@@ -4855,7 +5186,7 @@
       "description": "SOCKS5 bind chooses matching IPv",
       "status": "CANT",
       "detail": "use test.sh option --internet",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 576 SOCKS5_CONNECT_BIND_6_4: SOCKS5 bind chooses matching IPv... use test.sh option --internet"
     },
     "577": {
@@ -4864,7 +5195,7 @@
       "description": "PROXY bind chooses matching IPv",
       "status": "CANT",
       "detail": "use test.sh option --internet",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 577 PROXY_CONNECT_BIND_6_4: PROXY bind chooses matching IPv... use test.sh option --internet"
     },
     "578": {
@@ -4873,7 +5204,7 @@
       "description": "TCP-CONNECT chooses IPv4 from bind",
       "status": "CANT",
       "detail": "use test.sh option --internet",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 578 TCP_BIND_4: TCP-CONNECT chooses IPv4 from bind... use test.sh option --internet"
     },
     "579": {
@@ -4882,7 +5213,7 @@
       "description": "TCP-CONNECT chooses IPv6 from bind",
       "status": "CANT",
       "detail": "use test.sh option --internet",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 579 TCP_BIND_6: TCP-CONNECT chooses IPv6 from bind... use test.sh option --internet"
     },
     "580": {
@@ -4891,7 +5222,7 @@
       "description": "TCP can retry",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 580 TCP_CONNECT_RETRY: TCP can retry... OK"
     },
     "581": {
@@ -4900,7 +5231,7 @@
       "description": "SCTP can retry",
       "status": "CANT",
       "detail": "Feature SCTP not configured in /home/eero/src/socat/socat",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 581 SCTP_CONNECT_RETRY: SCTP can retry... Feature SCTP not configured in /home/eero/src/socat/socat"
     },
     "582": {
@@ -4909,7 +5240,7 @@
       "description": "DCCP can retry",
       "status": "CANT",
       "detail": "Feature DCCP not configured in /home/eero/src/socat/socat",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 582 DCCP_CONNECT_RETRY: DCCP can retry... Feature DCCP not configured in /home/eero/src/socat/socat"
     },
     "583": {
@@ -4918,7 +5249,7 @@
       "description": "OPENSSL can retry",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 583 OPENSSL_CONNECT_RETRY: OPENSSL can retry... OK"
     },
     "584": {
@@ -4927,7 +5258,7 @@
       "description": "SOCKS4 can retry",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 584 SOCKS4_RETRY: SOCKS4 can retry... OK"
     },
     "585": {
@@ -4936,7 +5267,7 @@
       "description": "SOCKS5 can retry",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 585 SOCKS5_CONNECT_RETRY: SOCKS5 can retry... OK"
     },
     "586": {
@@ -4945,7 +5276,7 @@
       "description": "PROXY can retry",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 586 PROXY_CONNECT_RETRY: PROXY can retry... OK"
     },
     "587": {
@@ -4954,7 +5285,7 @@
       "description": "TCP with fork,max-children",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 587 TCP_CONNECT_MAXCHILDREN: TCP with fork,max-children... OK"
     },
     "588": {
@@ -4963,7 +5294,7 @@
       "description": "SCTP with fork,max-children",
       "status": "CANT",
       "detail": "Feature SCTP not configured in /home/eero/src/socat/socat",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 588 SCTP_CONNECT_MAXCHILDREN: SCTP with fork,max-children... Feature SCTP not configured in /home/eero/src/socat/socat"
     },
     "589": {
@@ -4972,7 +5303,7 @@
       "description": "DCCP with fork,max-children",
       "status": "CANT",
       "detail": "Feature DCCP not configured in /home/eero/src/socat/socat",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 589 DCCP_CONNECT_MAXCHILDREN: DCCP with fork,max-children... Feature DCCP not configured in /home/eero/src/socat/socat"
     },
     "590": {
@@ -4981,17 +5312,17 @@
       "description": "OPENSSL with fork,max-children",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 590 OPENSSL_CONNECT_MAXCHILDREN: OPENSSL with fork,max-children... OK"
     },
     "591": {
       "id": 591,
       "name": "SOCKS4_MAXCHILDREN",
       "description": "SOCKS4 with fork,max-children",
-      "status": "FAILED",
-      "detail": "(diff)",
-      "shard": 7,
-      "raw": "test 591 SOCKS4_MAXCHILDREN: SOCKS4 with fork,max-children... FAILED (diff)"
+      "status": "OK",
+      "detail": "",
+      "shard": 0,
+      "raw": "test 591 SOCKS4_MAXCHILDREN: SOCKS4 with fork,max-children... OK"
     },
     "592": {
       "id": 592,
@@ -4999,7 +5330,7 @@
       "description": "SOCKS5 with fork,max-children",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 592 SOCKS5_CONNECT_MAXCHILDREN: SOCKS5 with fork,max-children... OK"
     },
     "593": {
@@ -5008,7 +5339,7 @@
       "description": "PROXY with fork,max-children",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 593 PROXY_CONNECT_MAXCHILDREN: PROXY with fork,max-children... OK"
     },
     "594": {
@@ -5017,7 +5348,7 @@
       "description": "realloc() based heap overflow in EXEC address",
       "status": "CANT",
       "detail": "Option nofork not available in /home/eero/src/socat/socat",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 594 EXEC_REALLOC: realloc() based heap overflow in EXEC address... Option nofork not available in /home/eero/src/socat/socat"
     },
     "595": {
@@ -5026,7 +5357,7 @@
       "description": "Test if IP-RECV:17 SIGSEGV has been fixed",
       "status": "CANT",
       "detail": "Address IP-RECV not available in /home/eero/src/socat/socat",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 595 IP_RECV_17: Test if IP-RECV:17 SIGSEGV has been fixed... Address IP-RECV not available in /home/eero/src/socat/socat"
     },
     "596": {
@@ -5035,7 +5366,7 @@
       "description": "test for SOCKS4 SIGSEGV on RST",
       "status": "CANT",
       "detail": "Option so-linger not available in /home/eero/src/socat/socat",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 596 SOCKS4_SIGSEGV: test for SOCKS4 SIGSEGV on RST... Option so-linger not available in /home/eero/src/socat/socat"
     },
     "597": {
@@ -5044,7 +5375,7 @@
       "description": "test explicit PTY (failed on Solaris)",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 597 SOLARIS_PTY: test explicit PTY (failed on Solaris)... OK"
     },
     "598": {
@@ -5053,7 +5384,7 @@
       "description": "STALL address in read mode",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 598 STALL_RD: STALL address in read mode... OK"
     },
     "599": {
@@ -5062,7 +5393,7 @@
       "description": "STALL address in write mode",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 599 STALL_WR: STALL address in write mode... OK"
     },
     "600": {
@@ -5071,7 +5402,7 @@
       "description": "TEXT address with STDOUT",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 600 TEXT_STDOUT: TEXT address with STDOUT... OK"
     },
     "601": {
@@ -5080,7 +5411,7 @@
       "description": "Test the interface-mtu option on a TUN interface",
       "status": "CANT",
       "detail": "Feature TUN not configured in /home/eero/src/socat/socat",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 601 TUN_MTU: Test the interface-mtu option on a TUN interface... Feature TUN not configured in /home/eero/src/socat/socat"
     },
     "602": {
@@ -5089,7 +5420,7 @@
       "description": "Test SHELL without argument",
       "status": "CANT",
       "detail": "Option ctty not available in /home/eero/src/socat/socat",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 602 INTERACTIVE_SHELL: Test SHELL without argument... Option ctty not available in /home/eero/src/socat/socat"
     },
     "603": {
@@ -5098,7 +5429,7 @@
       "description": "UDP-CONNECT EOF",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 603 UDP_CONNECT_EOF: UDP-CONNECT EOF... OK"
     },
     "604": {
@@ -5107,7 +5438,7 @@
       "description": "test the SOCKS5 client username+password authentication",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 604 SOCKS5_USER_PASS: test the SOCKS5 client username+password authentication... OK"
     },
     "605": {
@@ -5116,7 +5447,7 @@
       "description": "try GOPEN with o_append=0",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 605 GOPEN_NO_APPEND: try GOPEN with o_append=0... OK"
     },
     "606": {
@@ -5125,7 +5456,7 @@
       "description": "check option tiocswinsz on PTY",
       "status": "CANT",
       "detail": "Feature TERMIOS not configured in /home/eero/src/socat/socat",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 606 TIOCSWINSZ: check option tiocswinsz on PTY... Feature TERMIOS not configured in /home/eero/src/socat/socat"
     },
     "607": {
@@ -5134,7 +5465,7 @@
       "description": "socks5 client buffer overflow",
       "status": "OK",
       "detail": "",
-      "shard": 7,
+      "shard": 0,
       "raw": "test 607 SOCKS5_OVERFL: socks5 client buffer overflow... OK"
     }
   }

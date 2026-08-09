@@ -602,13 +602,23 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode Mode, g *Global)
 		}()
 		return o, nil
 	}
-	// Non-fork: accept one
+	// Non-fork: accept one; honour accept-timeout (classic ABSTRACT_USER etc.).
+	at := acceptTimeout(s)
+	var deadline time.Time
+	if at > 0 {
+		deadline = time.Now().Add(at)
+	}
 	type acc struct {
 		c   net.Conn
 		err error
 	}
 	ch := make(chan acc, 1)
 	go func() {
+		if !deadline.IsZero() {
+			if dl, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
+				_ = dl.SetDeadline(deadline)
+			}
+		}
 		c, err := ln.Accept()
 		ch <- acc{c, err}
 	}()
@@ -620,6 +630,9 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode Mode, g *Global)
 		ln.Close()
 		o.Listener = nil
 		if a.err != nil {
+			if isTimeoutErr(a.err) {
+				return nil, ErrAcceptTimeout
+			}
 			return nil, a.err
 		}
 		st := relay.Stream(relay.NetStream{Conn: a.c})
