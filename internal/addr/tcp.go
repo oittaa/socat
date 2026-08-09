@@ -240,9 +240,10 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 			maxChildren = n
 		}
 	}
-	// Per-connection wrap for fork accept (crlf, escape, …). Non-fork applies
-	// the same via wrapCommon after the single accept below.
+	// Per-connection wrap for fork accept (crlf, escape, keepalive, …).
+	// Non-fork applies the same via wrapCommon after the single accept below.
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
+		applyTCPConnOpts(s, c)
 		return wrapCommon(s, relay.NetStream{Conn: c})
 	}
 	o := &Opened{
@@ -317,6 +318,9 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 	ln.Close()
 	o.Listener = nil
 	g.Log.Infof("accepted connection from %s", conn.RemoteAddr())
+	// Classic: socket options on LISTEN apply to the accepted connection
+	// (so-keepalive, nodelay, …). LISTEN_KEEPALIVE checks filan on the conn.
+	applyTCPConnOpts(s, conn)
 	rememberAddrs(g, conn)
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = wrapCommon(s, st)
@@ -326,6 +330,20 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 	}
 	o.Stream = st
 	return o, nil
+}
+
+// applyTCPConnOpts sets classic TCP/socket options on an accepted or dialed conn.
+func applyTCPConnOpts(s parse.Spec, c net.Conn) {
+	tc, ok := c.(*net.TCPConn)
+	if !ok {
+		return
+	}
+	if s.BoolOption("keepalive") || s.BoolOption("so-keepalive") || s.HasOption("keepidle") {
+		_ = tc.SetKeepAlive(true)
+	}
+	if s.BoolOption("nodelay") || s.BoolOption("tcp-nodelay") {
+		_ = tc.SetNoDelay(true)
+	}
 }
 
 func isTimeoutErr(err error) bool {

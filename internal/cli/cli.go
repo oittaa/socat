@@ -412,22 +412,34 @@ func Main(args []string) int {
 		g.IPVersion = addr.IPvDefault
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	// Classic EXITCODESIG*: dying on SIGTERM/ILL/… exits with 128+signum.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM, syscall.SIGILL, syscall.SIGQUIT, syscall.SIGHUP)
+	defer signal.Stop(sigCh)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		sig := <-sigCh
+		cancel()
+		if ss, ok := sig.(syscall.Signal); ok && ss > 0 {
+			// Exit immediately so Wait()-blocked nofork paths still report classic status.
+			os.Exit(128 + int(ss))
+		}
+	}()
 
-	if err := addr.Run(ctx, left, right, g); err != nil {
+	runErr := addr.Run(ctx, left, right, g)
+	if runErr != nil {
 		if ctx.Err() != nil {
-			// Still honour child exit if transfer ended on signal after child failed.
 			if g.ChildExitCode != 0 {
 				return g.ChildExitCode
 			}
 			return 0
 		}
 		// Classic socat exits 0 when accept-timeout fires with no peer.
-		if err == addr.ErrAcceptTimeout {
+		if runErr == addr.ErrAcceptTimeout {
 			return 0
 		}
-		log.Errorf("%s", err)
+		log.Errorf("%s", runErr)
 		return 1
 	}
 	// EXEC_RC / SYSTEM_RC: promote child non-zero exit.
@@ -569,7 +581,7 @@ func printHelp(w io.Writer, level int) {
 			"escape",
 			// shut-none: do not SIGKILL EXEC/SYSTEM children (EXEC_RC / SYSTEM_RC).
 			// shut-null / null-eof: 0-byte datagram as half-close (UDP etc.).
-			"shut-none", "shut-null", "null-eof", "shut", "end-close",
+			"shut-none", "shut-null", "null-eof", "shut", "end-close", "nofork",
 		}
 		fmt.Fprintln(w)
 		fmt.Fprint(w, "b:")

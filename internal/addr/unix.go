@@ -38,12 +38,20 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*
 	}
 
 	var conn net.Conn
+	// If stream dial with LocalAddr fails (e.g. peer is SOCK_DGRAM), the kernel
+	// may have already bound the local path — remove it before dgram fallback
+	// (UNIXTODGRAM: classic probes stream then dgram with the same bind= path).
+	cleanupStreamBind := func() {
+		if bindPath != "" && !isAbstract(bindPath) {
+			_ = os.Remove(bindPath)
+		}
+	}
 	err := withRetry(ctx, s, g, "UNIX-CONNECT", func() error {
 		d := net.Dialer{}
 		if bindPath != "" {
-			// Classic: bind local unix socket path before connect.
+			// Classic client bind path: remove stale leftover before bind.
 			if !isAbstract(bindPath) {
-				_ = os.Remove(bindPath) // stale leftover
+				_ = os.Remove(bindPath)
 			}
 			d.LocalAddr = &net.UnixAddr{Name: bindPath, Net: "unix"}
 		}
@@ -51,6 +59,12 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*
 		if e != nil {
 			// Classic UNIX client probes peer type: stream fail → try dgram (UNIXTODGRAM).
 			if isWrongType(e) {
+				cleanupStreamBind()
+				return errTryDgram
+			}
+			// connection refused / not a socket can also mean dgram peer exists
+			if isConnRefusedOrNotSocket(e) && bindPath != "" {
+				cleanupStreamBind()
 				return errTryDgram
 			}
 			return e
@@ -59,6 +73,7 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*
 		return nil
 	})
 	if err == errTryDgram || (err != nil && isWrongType(err)) {
+		cleanupStreamBind()
 		return openUnixDgramClient(ctx, s, mode, g, path, bindPath)
 	}
 	if err != nil {
@@ -104,7 +119,18 @@ func isWrongType(err error) bool {
 		return true
 	}
 	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "protocol wrong type") || strings.Contains(s, "eprototype")
+	return strings.Contains(s, "protocol wrong type") || strings.Contains(s, "eprototype") ||
+		strings.Contains(s, "wrong protocol type")
+}
+
+func isConnRefusedOrNotSocket(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "connection refused") ||
+		strings.Contains(s, "not a socket") ||
+		strings.Contains(s, "socket operation on non-socket")
 }
 
 // openUnixDgramClient is UNIX:/UNIX-CONNECT as datagram (peer is RECVFROM etc.).
@@ -160,6 +186,12 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Open
 		if mode := parseFileMode(s, 0); mode != 0 {
 			_ = os.Chmod(path, mode)
 		}
+	}
+
+	// Classic: bind= on UNIX-LISTEN is invalid (must not bind twice / INTERNAL).
+	// UNIX_L_BIND expects a non-zero exit without the word INTERNAL.
+	if s.HasOption("bind") {
+		return nil, fmt.Errorf("option \"bind\" with UNIX-LISTEN is not supported")
 	}
 
 	fork := s.BoolOption("fork")
@@ -283,10 +315,19 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*O
 	var err error
 	if bindPath != "" {
 		bp := unixAddr(bindPath)
-		// Classic: do not unlink the bind path unless unlink-early is set.
-		// Unconditional remove would replace a symlink (TEMPNAME_SEC attack).
-		if !isAbstract(bp) && s.BoolOption("unlink-early") {
-			_ = os.Remove(bp)
+		// Client bind for SENDTO / UNIX dgram: remove stale path (classic creates
+		// a fresh local name). Do not follow a symlink target (TEMPNAME_SEC):
+		// if bp is a symlink, Leave it and let bind fail with EADDRINUSE.
+		if !isAbstract(bp) {
+			if fi, e := os.Lstat(bp); e == nil && fi.Mode()&os.ModeSymlink == 0 {
+				_ = os.Remove(bp)
+			} else if os.IsNotExist(e) {
+				// ok
+			} else if e == nil && fi.Mode()&os.ModeSymlink != 0 {
+				// symlink: do not remove (security); bind will fail
+			} else if s.BoolOption("unlink-early") {
+				_ = os.Remove(bp)
+			}
 		}
 		laddr := &net.UnixAddr{Name: bp, Net: "unixgram"}
 		c, err = net.ListenUnixgram("unixgram", laddr)
@@ -672,59 +713,77 @@ func openAbstractConnect(ctx context.Context, s parse.Spec, mode Mode, g *Global
 	return &Opened{Stream: st, Label: "ABSTRACT-CONNECT:" + name}, nil
 }
 
-// openAbstractSendto implements ABSTRACT-SENDTO bind+datagram style.
-// For stream-ish echo tests, ABSTRACT-SENDTO with bind to same name loops on dgram.
+// abstractName maps classic ABSTRACT-*:path (even if path is a filesystem path
+// that was touch'ed so non-abstract would fail) to the abstract namespace name.
+func abstractName(raw string) string {
+	if isAbstract(raw) {
+		return unixAddr(raw)
+	}
+	// Classic: ABSTRACT-RECVFROM:/tmp/foo uses abstract name equal to the string
+	// (with leading NUL), not a filesystem socket.
+	return "\x00" + raw
+}
+
+// openAbstractRecvfrom: bind abstract datagram, one peer packet then reply (like UNIX-RECVFROM).
+func openAbstractRecvfrom(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	if len(s.Params) < 1 || s.Params[0] == "" {
+		return nil, fmt.Errorf("ABSTRACT-RECVFROM requires name")
+	}
+	path := abstractName(s.Params[0])
+	ps := s
+	ps.Params = []string{path}
+	// Force abstract path through openUnixRecvCommon without filesystem unlink.
+	return openUnixRecvCommon(ctx, ps, mode, g, true)
+}
+
+// openAbstractRecv: bind abstract datagram, read-only merge of packets.
+func openAbstractRecv(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	if len(s.Params) < 1 || s.Params[0] == "" {
+		return nil, fmt.Errorf("ABSTRACT-RECV requires name")
+	}
+	path := abstractName(s.Params[0])
+	ps := s
+	ps.Params = []string{path}
+	return openUnixRecvCommon(ctx, ps, mode, g, false)
+}
+
+// openAbstractSendto implements ABSTRACT-SENDTO[,bind=] datagram send.
 func openAbstractSendto(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
 	if len(s.Params) < 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("ABSTRACT-SENDTO requires name")
 	}
-	// Classic ABSTRACT-SENDTO:path — abstract name from path (filesystem path becomes abstract name).
-	name := s.Params[0]
-	// Use abstract form: leading @ or convert path to abstract label.
-	absName := name
-	if !isAbstract(absName) {
-		absName = "@" + name // mark; unixAddr converts
-	}
-	target := unixAddr(absName)
+	target := abstractName(s.Params[0])
 	bindOpt := s.OptionValue("bind", "")
 	var laddr *net.UnixAddr
 	if bindOpt != "" {
-		bp := bindOpt
-		if !isAbstract(bp) {
-			bp = "@" + bp
-		}
-		laddr = &net.UnixAddr{Name: unixAddr(bp), Net: "unixgram"}
+		laddr = &net.UnixAddr{Name: abstractName(bindOpt), Net: "unixgram"}
 	}
 	raddr := &net.UnixAddr{Name: target, Net: "unixgram"}
-	c, err := net.ListenUnixgram("unixgram", laddr)
-	if err != nil {
-		// Fallback: dial unixgram
-		d := net.Dialer{}
-		if laddr != nil {
-			d.LocalAddr = laddr
-		}
-		conn, e := d.DialContext(ctx, "unixgram", raddr.String())
-		if e != nil {
-			return nil, e
-		}
-		st := relay.Stream(relay.NetStream{Conn: conn})
-		st, err = wrapCommon(s, st)
+	// Prefer bind local abstract name then WriteTo (classic client with bind=).
+	var c *net.UnixConn
+	var err error
+	if laddr != nil {
+		c, err = net.ListenUnixgram("unixgram", laddr)
 		if err != nil {
-			conn.Close()
 			return nil, err
 		}
-		return &Opened{Stream: st, Label: "ABSTRACT-SENDTO:" + name}, nil
+	} else {
+		// Unbound abstract sendto: create unbound unixgram.
+		c, err = listenUnixgramUnbound()
+		if err != nil {
+			return nil, err
+		}
 	}
-	// Connected-style: write to raddr, read any
 	st := &unixgramConn{UnixConn: c, raddr: raddr}
 	wrapped, err := wrapCommon(s, st)
 	if err != nil {
 		c.Close()
 		return nil, err
 	}
+	_ = ctx
 	_ = mode
 	_ = g
-	return &Opened{Stream: wrapped, Label: "ABSTRACT-SENDTO:" + name}, nil
+	return &Opened{Stream: wrapped, Label: "ABSTRACT-SENDTO:" + s.Params[0]}, nil
 }
 
 type unixgramConn struct {

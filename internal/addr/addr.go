@@ -11,11 +11,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
+	"golang.org/x/sys/unix"
 )
 
 // ErrAcceptTimeout is returned when accept-timeout expires with no connection.
@@ -113,6 +115,8 @@ type Opened struct {
 	// For dual: separate read/write streams
 	Read  relay.Stream
 	Write relay.Stream
+	// NoForkSpec: EXEC/SYSTEM,nofork — process started in Run with peer FD as stdio.
+	NoForkSpec *parse.Spec
 }
 
 // Close releases resources.
@@ -308,8 +312,8 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		"ABSTRACT-CLIENT":   openAbstractConnect,
 		"ABSTRACT-CONNECT":  openAbstractConnect,
 		"ABSTRACT-SENDTO":   openAbstractSendto,
-		"ABSTRACT-RECVFROM": openAbstractSendto,
-		"ABSTRACT-RECV":     openAbstractSendto,
+		"ABSTRACT-RECVFROM": openAbstractRecvfrom,
+		"ABSTRACT-RECV":     openAbstractRecv,
 		// HTTP CONNECT and SOCKS4/4A clients.
 		"PROXY":          openProxyConnect,
 		"PROXY-CONNECT":  openProxyConnect,
@@ -386,11 +390,26 @@ func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
 		return runConnectFork(ctx, lo, right, rMode, g)
 	}
 
+	// Left EXEC,nofork: need right open first, then exec on right's stream.
+	if lo.NoForkSpec != nil {
+		ro, err := OpenChannel(ctx, right, rMode, g)
+		if err != nil {
+			return err
+		}
+		defer ro.Close()
+		return runExecNoFork(ctx, ro.EffectiveStream(), *lo.NoForkSpec, g)
+	}
+
 	ro, err := OpenChannel(ctx, right, rMode, g)
 	if err != nil {
 		return err
 	}
 	defer ro.Close()
+
+	// Right EXEC,nofork on left stream (TCP-LISTEN + EXEC,nofork).
+	if ro.NoForkSpec != nil {
+		return runExecNoFork(ctx, lo.EffectiveStream(), *ro.NoForkSpec, g)
+	}
 
 	if ro.Fork && ro.Listener != nil {
 		// Unusual: listen on right — classic still works; handle accept loop with left already open
@@ -410,6 +429,23 @@ func streamFromDial(o *Opened, c net.Conn) (relay.Stream, error) {
 		return o.WrapDial(c)
 	}
 	return relay.NetStream{Conn: c}, nil
+}
+
+// unixSocketpairLogged creates AF_UNIX SOCK_STREAM pair and logs classic
+// `I socketpair(1, 1, 0, {a,b}) -> 0` (RECVFROM_FORK_LEAK).
+func unixSocketpairLogged(g *Global) (a, b *os.File, err error) {
+	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Classic CLOEXEC on both ends after logging the numbers.
+	if g != nil && g.Log != nil {
+		g.Log.Infof("Generating socketpair that triggers parent when packet has been consumed")
+		g.Log.Infof("socketpair(1, 1, 0, {%d,%d}) -> 0", fds[0], fds[1])
+	}
+	unix.CloseOnExec(fds[0])
+	unix.CloseOnExec(fds[1])
+	return os.NewFile(uintptr(fds[0]), "sp0"), os.NewFile(uintptr(fds[1]), "sp1"), nil
 }
 
 // runConnectFork is the classic CONNECT,fork parent loop: dial, spawn child
@@ -566,13 +602,28 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 				g.Log.Errorf("wrap accept: %s", err)
 				return
 			}
-			ro, err := OpenChannel(ctx, right, rMode, &cg)
-			if err != nil {
-				g.Log.Errorf("right address: %s", err)
+			// Classic RECVFROM,fork creates a socketpair per child (FD-leak tests).
+			sp0, sp1, spErr := unixSocketpairLogged(g)
+			if spErr != nil {
+				g.Log.Errorf("socketpair: %s", spErr)
 				return
 			}
-			defer ro.Close()
-			if err := transferStreams(ctx, leftStream, ro.EffectiveStream(), &cg); err != nil {
+			ro, err := OpenChannel(ctx, right, rMode, &cg)
+			if err != nil {
+				// Classic greps `E open(` for RECVFROM_FORK_LOOP — no "right address:" prefix.
+				g.Log.Errorf("%s", err)
+				sp0.Close()
+				sp1.Close()
+				return
+			}
+			// Bridge: left (datagram session) ↔ socketpair ↔ right address.
+			go func() {
+				defer sp1.Close()
+				defer ro.Close()
+				_ = transferStreams(ctx, fileStream(sp1), ro.EffectiveStream(), &cg)
+			}()
+			defer sp0.Close()
+			if err := transferStreams(ctx, leftStream, fileStream(sp0), &cg); err != nil {
 				g.Log.Debugf("transfer: %s", err)
 			}
 		}(conn)

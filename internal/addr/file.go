@@ -24,7 +24,8 @@ func openOPEN(_ context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, e
 		return e
 	})
 	if err != nil {
-		return nil, err
+		// Classic format for RECVFROM_FORK_LOOP: `E open("path", …): …`
+		return nil, fmt.Errorf("open(%q, %02o, %04o): %w", path, flags, parseFileMode(s, 0o666), err)
 	}
 	if s.HasOption("ftruncate") || s.HasOption("trunc") {
 		// ftruncate=N or trunc flag after open

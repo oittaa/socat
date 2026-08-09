@@ -137,6 +137,10 @@ func run(args []string) int {
 	if singleFD {
 		n = m + 1
 	}
+	// Classic header line (LISTEN_KEEPALIVE uses tail -n +2 to skip it).
+	if style != 1 {
+		fmt.Fprintln(out, "  FD  typedeviceinodemodelinksuidgidrdevsizeblksizeblocksatimemtimectimecloexecflagssigownsigio")
+	}
 	for fd := m; fd < n; fd++ {
 		if style == 1 {
 			fdname(fd, out)
@@ -342,6 +346,33 @@ func printSocket(fd int, out io.Writer) {
 			fmt.Fprintf(out, "\ttype=%d", v)
 		}
 	}
+	// Classic sockopts used by test.sh (LISTEN_KEEPALIVE greps KEEPALIVE=).
+	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_DEBUG, "DEBUG")
+	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, "REUSEADDR")
+	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_TYPE, "TYPE")
+	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_ERROR, "ERROR")
+	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_DONTROUTE, "DONTROUTE")
+	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_BROADCAST, "BROADCAST")
+	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_SNDBUF, "SNDBUF")
+	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_RCVBUF, "RCVBUF")
+	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_KEEPALIVE, "KEEPALIVE")
+	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_OOBINLINE, "OOBINLINE")
+	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_NO_CHECK, "NO_CHECK")
+	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_PRIORITY, "PRIORITY")
+	printSockoptInt(out, fd, unix.IPPROTO_TCP, unix.TCP_NODELAY, "TCP_NODELAY")
+	printSockoptInt(out, fd, unix.IPPROTO_TCP, unix.TCP_MAXSEG, "TCP_MAXSEG")
+	printSockoptInt(out, fd, unix.IPPROTO_TCP, unix.TCP_KEEPIDLE, "TCP_KEEPIDLE")
+	printSockoptInt(out, fd, unix.IPPROTO_TCP, unix.TCP_KEEPINTVL, "TCP_KEEPINTVL")
+	printSockoptInt(out, fd, unix.IPPROTO_TCP, unix.TCP_KEEPCNT, "TCP_KEEPCNT")
+}
+
+func printSockoptInt(out io.Writer, fd, level, opt int, name string) {
+	v, err := unix.GetsockoptInt(fd, level, opt)
+	if err != nil {
+		return
+	}
+	// Classic separates sockopts with TAB so test.sh sed can strip after KEEPALIVE=1.
+	fmt.Fprintf(out, "\t%s=%d", name, v)
 }
 
 func sockAddrString(sa unix.Sockaddr) string {

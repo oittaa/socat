@@ -116,7 +116,121 @@ func splitExecArgs(s string) []string {
 	return args
 }
 
+// runExecNoFork runs EXEC/SYSTEM with nofork on an already-open peer stream
+// (classic: accepted socket becomes child's stdin/stdout; no relay).
+func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Global) error {
+	cmdStr := strings.Join(s.Params, ":")
+	useShell := strings.EqualFold(s.Type, "SYSTEM") || strings.EqualFold(s.Type, "SHELL")
+	var cmd *exec.Cmd
+	if useShell {
+		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr)
+	} else {
+		parts := splitExecArgs(cmdStr)
+		if len(parts) == 0 {
+			return fmt.Errorf("empty EXEC command")
+		}
+		cmd = exec.CommandContext(ctx, parts[0], parts[1:]...)
+	}
+	if s.BoolOption("setsid") {
+		if cmd.SysProcAttr == nil {
+			cmd.SysProcAttr = &syscall.SysProcAttr{}
+		}
+		cmd.SysProcAttr.Setsid = true
+	}
+	// Dup peer FD as stdin+stdout for the child (filan sees real TCP socket).
+	f, err := streamAsFile(peer)
+	if err != nil {
+		return err
+	}
+	cmd.Stdin = f
+	cmd.Stdout = f
+	if s.BoolOption("stderr") {
+		cmd.Stderr = f
+	} else {
+		cmd.Stderr = os.Stderr
+	}
+	if g != nil {
+		env := append([]string{}, os.Environ()...)
+		env = append(env,
+			"SOCAT_SOCKADDR="+g.SockAddr,
+			"SOCAT_PEERADDR="+g.PeerAddr,
+			"SOCAT_SOCKPORT="+g.SockPort,
+			"SOCAT_PEERPORT="+g.PeerPort,
+		)
+		cmd.Env = env
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	waitErr := cmd.Wait()
+	if waitErr == nil {
+		return nil
+	}
+	if ee, ok := waitErr.(*exec.ExitError); ok {
+		code := ee.ExitCode()
+		if g != nil {
+			g.ChildExitCode = code
+		}
+		// Signal deaths are reported via exit 128+n already by Wait on Unix.
+		return nil
+	}
+	return waitErr
+}
+
+// streamAsFile returns an *os.File for the peer stream when possible.
+func streamAsFile(st relay.Stream) (*os.File, error) {
+	// Unwrap wrappers
+	for i := 0; i < 8 && st != nil; i++ {
+		if ns, ok := st.(relay.NetStream); ok {
+			if c, ok := ns.Conn.(interface {
+				SyscallConn() (syscall.RawConn, error)
+			}); ok {
+				rc, err := c.SyscallConn()
+				if err != nil {
+					return nil, err
+				}
+				var ffd int
+				_ = rc.Control(func(fd uintptr) { ffd = int(fd) })
+				// Dup so child close does not kill our copy.
+				nfd, err := syscall.Dup(ffd)
+				if err != nil {
+					return nil, err
+				}
+				return os.NewFile(uintptr(nfd), "nofork-conn"), nil
+			}
+		}
+		if fs, ok := st.(relay.FDStream); ok {
+			if f, ok := fs.R.(*os.File); ok {
+				nfd, err := syscall.Dup(int(f.Fd()))
+				if err != nil {
+					return nil, err
+				}
+				return os.NewFile(uintptr(nfd), "nofork-fd"), nil
+			}
+			if f, ok := fs.W.(*os.File); ok {
+				nfd, err := syscall.Dup(int(f.Fd()))
+				if err != nil {
+					return nil, err
+				}
+				return os.NewFile(uintptr(nfd), "nofork-fd"), nil
+			}
+		}
+		if u, ok := st.(interface{ UnwrapStream() relay.Stream }); ok {
+			st = u.UnwrapStream()
+			continue
+		}
+		break
+	}
+	return nil, fmt.Errorf("nofork: peer stream has no file descriptor")
+}
+
 func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
+	// nofork: defer start until Run has the peer stream (runExecNoFork).
+	// Placeholder Opened; Stream is nil — Run must not transferPair this alone.
+	if s.BoolOption("nofork") {
+		spec := s
+		return &Opened{Label: "EXEC-nofork", NoForkSpec: &spec}, nil
+	}
 	// Default: socketpair for full duplex; pipes when requested or unidirectional
 	// so unused direction can inherit process stdio (classic LISTENENV / single-exec).
 	usePipes := s.BoolOption("pipes") || mode == ModeRead || mode == ModeWrite
