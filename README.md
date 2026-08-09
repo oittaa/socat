@@ -63,7 +63,7 @@ Common options: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `
 | TEXT, STALL, PTY | STALL uses classic full-pipe backpressure |
 | OPENSSL / OPENSSL-CONNECT / OPENSSL-LISTEN (SSL-*) | stream TLS via `crypto/tls`; **not** DTLS (see [Unsupported / security](#unsupported--security-related)) |
 | PROXY / PROXY-CONNECT | HTTP CONNECT client (`proxyport`, `http-version`, `crlf`) |
-| SOCKS4 / SOCKS4A | SOCKS4 CONNECT client (`socksport`, `socksuser`); **not** SOCKS5 yet |
+| SOCKS4 / SOCKS4A / SOCKS5 / SOCKS5-CONNECT | SOCKS clients (`socksport`, `socksuser`, `sockspass`) |
 | ABSTRACT-LISTEN / ABSTRACT-CONNECT / … | Linux abstract UNIX namespace |
 | SCTP, DCCP, POSIXMQ, TUN, libwrap, readline | **not** implemented (`#undef` in `-V`) |
 
@@ -104,7 +104,6 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 | **DSA certificates / keys** | Rejected | DSA is obsolete; Go `crypto/tls` does not parse DSA keys. Classic `OPENSSLLISTENDSA` fails by design. Use RSA, ECDSA, or Ed25519. See [Go crypto/tls](https://pkg.go.dev/crypto/tls) and [NIST SP 800-57 / deprecation of DSA](https://csrc.nist.gov/publications/detail/sp/800-57-part-1/rev-5/final). |
 | **DTLS** | Not implemented | Not available in Go `crypto/tls` (stream TLS only). See [crypto/tls package docs](https://pkg.go.dev/crypto/tls). |
 | **SSLv3 / weak ciphers** | Not offered | Go TLS defaults reject obsolete protocols/ciphers. See [Go TLS cipher suites](https://go.dev/blog/tls-cipher-suites) and [crypto/tls Config](https://pkg.go.dev/crypto/tls#Config). |
-| **SOCKS5** | Not yet | Planned separately; not a security block. |
 | **libwrap / TCP wrappers** | Not yet | Host `hosts.allow` filtering; optional for later. |
 
 ### Intentional differences from classic socat

@@ -143,6 +143,28 @@ run_shard() {
   sed -e "s/^_PORT=12001/_PORT=${port_base}/" "$TEST_SH" >"$patched"
   chmod +x "$patched"
 
+  # Classic test.sh expects helper scripts (socks4echo.sh, proxyecho.sh, …)
+  # next to it. Symlink them into the shard workdir.
+  local classic_dir
+  classic_dir="$(dirname "$TEST_SH")"
+  local helper
+  for helper in "$classic_dir"/*; do
+    local base
+    base="$(basename "$helper")"
+    case "$base" in
+      test.sh|*.c|*.h|*.o|*.a|config*|Makefile*|doc|*.1) continue ;;
+    esac
+    if [[ -f "$helper" && -x "$helper" ]] || [[ "$base" == *.sh ]] || [[ "$base" == *.pem ]] || [[ "$base" == *.crt ]] || [[ "$base" == *.key ]]; then
+      ln -sfn "$helper" "$work/$base" 2>/dev/null || cp -a "$helper" "$work/$base" 2>/dev/null || true
+    fi
+  done
+  # Also common generated cert names if present in CWD of classic tree
+  for helper in testsrv.pem testsrv.crt testsrv.key testcli.pem testcli.crt testsrv6.pem testsrv6.crt testsrv6.key; do
+    if [[ -f "$classic_dir/$helper" ]]; then
+      ln -sfn "$classic_dir/$helper" "$work/$helper" 2>/dev/null || cp -a "$classic_dir/$helper" "$work/$helper" 2>/dev/null || true
+    fi
+  done
+
   local args=(-t "$VAL_T" -N "$start" -Z "$end")
   # Optional classic filter tokens (group names / test names)
   # When ONLY is set, still apply number window so shards stay disjoint.

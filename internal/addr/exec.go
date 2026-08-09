@@ -178,6 +178,15 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	var cleanup []func()
 	var child *os.File
 
+	// Classic: child stderr inherits socat's stderr unless option stderr
+	// redirects it onto the data channel. Merging stderr into the data FD
+	// corrupts binary protocols (SOCKS4 echo scripts write diagnostics to stderr).
+	if s.BoolOption("stderr") {
+		// Leave assignment to the data channel below.
+	} else {
+		cmd.Stderr = os.Stderr
+	}
+
 	if usePipes {
 		needIn, needOut := pipeDirections(mode, fdin, fdout)
 		var stdin io.WriteCloser
@@ -193,15 +202,27 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 			cmd.Stdin = os.Stdin
 		}
 		if needOut {
-			stdout, err = cmd.StdoutPipe()
-			if err != nil {
-				return nil, err
+			if s.BoolOption("stderr") {
+				// Classic stderr: merge child stdout+stderr into one pipe.
+				pr, pw, e := os.Pipe()
+				if e != nil {
+					return nil, e
+				}
+				cmd.Stdout = pw
+				cmd.Stderr = pw
+				stdout = pr
+				cleanup = append(cleanup, func() {
+					_ = pw.Close()
+					_ = pr.Close()
+				})
+			} else {
+				stdout, err = cmd.StdoutPipe()
+				if err != nil {
+					return nil, err
+				}
 			}
 		} else {
 			cmd.Stdout = os.Stdout
-		}
-		if s.BoolOption("stderr") {
-			cmd.Stderr = os.Stderr
 		}
 
 		var r io.Reader = stdout
@@ -248,10 +269,10 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		cmd.Stdin = child
 		cmd.Stdout = child
 		if s.BoolOption("stderr") {
-			cmd.Stderr = os.Stderr
-		} else {
+			// Explicit: merge stderr into the data socketpair (classic stderr).
 			cmd.Stderr = child
 		}
+		// else: already set to os.Stderr above
 		if stype == syscall.SOCK_DGRAM {
 			// Dgram socketpair: SHUT_WR does not deliver EOF to the child.
 			// Close the parent FD on half-close so cat/etc. exit (packet tests).

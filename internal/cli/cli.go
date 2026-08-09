@@ -489,7 +489,7 @@ func printVersion(w io.Writer) {
 		{"POSIXMQ", false},
 		{"SOCKS4", true},
 		{"SOCKS4A", true},
-		{"SOCKS5", false}, // not yet
+		{"SOCKS5", true},
 		{"VSOCK", false},
 		{"NAMESPACES", false},
 		{"PROXY", true},
@@ -550,7 +550,7 @@ func printHelp(w io.Writer, level int) {
 	fmt.Fprintf(w, "  ABSTRACT-SENDTO ABSTRACT-RECVFROM ABSTRACT-RECV\n")
 	fmt.Fprintf(w, "  EXEC SYSTEM SHELL TEXT STALL PTY\n")
 	fmt.Fprintf(w, "  OPENSSL OPENSSL-CONNECT OPENSSL-LISTEN OPENSSL-L SSL SSL-CONNECT SSL-LISTEN SSL-L\n")
-	fmt.Fprintf(w, "  PROXY PROXY-CONNECT SOCKS4 SOCKS4A\n")
+	fmt.Fprintf(w, "  PROXY PROXY-CONNECT SOCKS4 SOCKS4A SOCKS5 SOCKS5-CONNECT\n")
 	if level >= 2 {
 		// Honesty: only list options we actually honor. test.sh greps
 		//   [^a-z0-9-]<name>[^a-z0-9-]  — pad with spaces on both sides.
@@ -571,7 +571,7 @@ func printHelp(w io.Writer, level int) {
 			// Multi-address resolve (TRY_ADDRS_4_6); filter when true.
 			"ai-addrconfig", "addrconfig",
 			// PROXY / SOCKS
-			"proxyport", "http-version", "crlf", "socksport", "socksuser",
+			"proxyport", "http-version", "crlf", "socksport", "socksuser", "sockspass", "sockspassword",
 			"crnl", "ignoreeof", "readbytes",
 			"retry", "forever", "interval",
 			"backlog", "fdin", "fdout", "max-children",
