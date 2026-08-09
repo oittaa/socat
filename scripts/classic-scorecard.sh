@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# Parallel classic socat test.sh scorecard for this Go reimplementation.
+# Classic socat test.sh scorecard for this Go reimplementation.
 #
-# Why this exists:
-#   Full test.sh is ~600 cases. When healthy, most finish in <1s each.
-#   A single hung socat can freeze the whole suite for tens of minutes.
-#   This runner shards by test number, isolates ports, and bounds each shard.
+# Classic upstream runs test.sh **sequentially** (one process, tests in order)
+# and auto-calibrates -t from machine speed. That is slower but far less flaky.
+#
+# This runner can:
+#   - Match classic: MODE=classic (JOBS=1, auto -t, long wall timeout)
+#   - Stable parity: MODE=stable  (JOBS=1, generous -t, long timeout)
+#   - Fast iterate:  MODE=fast    (parallel shards, short -t; default)
+#
+# A single hung socat can freeze an unbounded suite; every mode still uses a
+# wall SHARD_TIMEOUT and kills leftover socat from this tree between shards.
 #
 # After each run it writes structured results:
 #   OUT_DIR/results.json   — full snapshot (meta + per-test status)
@@ -12,25 +18,27 @@
 #   OUT_DIR/compare.json   — if BASELINE= is set
 #
 # Usage:
-#   # Run Go implementation (default SOCAT=./socat after make build)
+#   # Fast parallel (default) — good for smoke, flakier under load
 #   ./scripts/classic-scorecard.sh /path/to/classic/test.sh
 #
-#   # Record classic C baseline once (store under testdata/scorecard/)
-#   SOCAT=/path/to/classic/socat LABEL=classic \
+#   # Same shape as classic: sequential + auto val_t (recommended for baselines)
+#   MODE=classic ./scripts/classic-scorecard.sh /path/to/classic/test.sh
+#
+#   # Sequential with fixed generous -t (no auto-calibration)
+#   MODE=stable ./scripts/classic-scorecard.sh /path/to/classic/test.sh
+#
+#   # Record classic C baseline once
+#   SOCAT=/path/to/classic/socat LABEL=classic MODE=classic \
 #     SAVE_BASELINE=testdata/scorecard/classic-baseline.json \
 #     ./scripts/classic-scorecard.sh /path/to/classic/test.sh
 #
-#   # Run Go and compare against saved classic baseline (no need to re-run classic)
-#   BASELINE=testdata/scorecard/classic-baseline.json \
-#     REGRESSION_EXIT=0 \
-#     ./scripts/classic-scorecard.sh /path/to/classic/test.sh
-#
-#   # Detect Go regressions vs last Go run
-#   BASELINE=testdata/scorecard/go-baseline.json REGRESSION_EXIT=1 \
+#   # Go regression vs last baseline
+#   MODE=classic BASELINE=testdata/scorecard/go-baseline.json REGRESSION_EXIT=1 \
 #     SAVE_BASELINE=testdata/scorecard/go-baseline.json \
 #     ./scripts/classic-scorecard.sh /path/to/classic/test.sh
 #
-#   JOBS=8 SHARD_TIMEOUT=120 ONLY=functions MAX_N=100 ...
+#   JOBS=8 SHARD_TIMEOUT=120 VAL_T=0.1 ONLY=functions MAX_N=100 ...
+#   VAL_T=auto  — omit -t; let test.sh calibrate (classic default)
 #
 # Does not modify upstream test.sh in place; uses a temp copy with a port base.
 set -euo pipefail
@@ -38,9 +46,35 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+# MODE presets (explicit env still wins if set after — apply only when unset)
+MODE="${MODE:-fast}"
+case "$MODE" in
+  classic)
+    # Match upstream: one process, auto -t, plenty of wall time.
+    : "${JOBS:=1}"
+    : "${VAL_T:=auto}"
+    : "${SHARD_TIMEOUT:=7200}"   # 2h wall for full sequential suite
+    ;;
+  stable)
+    # Sequential with fixed generous linger (reproducible without calibration).
+    : "${JOBS:=1}"
+    : "${VAL_T:=0.5}"
+    : "${SHARD_TIMEOUT:=3600}"
+    ;;
+  fast|"")
+    : "${JOBS:=$(nproc 2>/dev/null || echo 4)}"
+    : "${VAL_T:=0.05}"
+    : "${SHARD_TIMEOUT:=180}"
+    ;;
+  *)
+    echo "unknown MODE=$MODE (use classic|stable|fast)" >&2
+    exit 2
+    ;;
+esac
+
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 SHARD_TIMEOUT="${SHARD_TIMEOUT:-180}"   # wall seconds per shard (not per test)
-VAL_T="${VAL_T:-0.05}"                 # classic -t base timeout (smaller = faster)
+VAL_T="${VAL_T:-0.05}"                 # classic -t; "auto" = omit -t (test.sh calibrates)
 BASE_PORT="${BASE_PORT:-20000}"        # first shard port base; each shard + PORT_STRIDE
 PORT_STRIDE="${PORT_STRIDE:-3000}"     # port space per shard (avoid collisions)
 MAX_N="${MAX_N:-}"                     # optional cap on highest test number
@@ -98,13 +132,26 @@ TOTAL="${MAX_N:-650}"
 mkdir -p "$OUT_DIR"
 rm -f "$OUT_DIR"/shard-*.log "$OUT_DIR"/shard-*.summary "$OUT_DIR"/aggregate.txt
 
+# Resolve -t args for test.sh (empty / auto → classic self-calibration)
+VAL_T_ARGS=()
+VAL_T_DISPLAY="$VAL_T"
+case "$VAL_T" in
+  ""|auto|AUTO)
+    VAL_T_DISPLAY="auto (test.sh calibrates)"
+    ;;
+  *)
+    VAL_T_ARGS=(-t "$VAL_T")
+    ;;
+esac
+
 echo "classic scorecard"
 echo "  test.sh:        $TEST_SH"
 echo "  SOCAT:          $SOCAT"
 echo "  label:          $LABEL"
+echo "  mode:           $MODE"
 echo "  jobs:           $JOBS"
 echo "  shard_timeout:  ${SHARD_TIMEOUT}s"
-echo "  -t (val_t):     $VAL_T"
+echo "  -t (val_t):     $VAL_T_DISPLAY"
 echo "  total range:    1..$TOTAL"
 echo "  only filter:    ${ONLY:-<all numbered>}"
 echo "  logs:           $OUT_DIR"
@@ -165,7 +212,14 @@ run_shard() {
     fi
   done
 
-  local args=(-t "$VAL_T" -N "$start" -Z "$end")
+  # -N/-Z window; -t only when VAL_T is a number (classic omits -t to auto-calibrate).
+  # Rebuild args inside the function (export -f subshells do not keep arrays).
+  local args=()
+  case "${VAL_T:-}" in
+    ""|auto|AUTO) ;;
+    *) args+=(-t "$VAL_T") ;;
+  esac
+  args+=(-N "$start" -Z "$end")
   # Optional classic filter tokens (group names / test names)
   # When ONLY is set, still apply number window so shards stay disjoint.
   local filter=()

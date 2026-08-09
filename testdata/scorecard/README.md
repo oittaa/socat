@@ -24,6 +24,31 @@ Statuses recorded per test:
 | `TIMEOUT` | shard killed; incomplete result |
 | `UNKNOWN` | no clear result line |
 
+## How classic runs vs our runner
+
+Upstream **`test.sh`** is **sequential**: one process, tests 1…N in order, and
+if you omit `-t` it measures machine speed and sets `val_t` itself.
+
+Our **`scripts/classic-scorecard.sh`** can match that or go faster:
+
+| `MODE` | Behaviour | Flake risk | Speed |
+|--------|-----------|------------|-------|
+| `classic` | `JOBS=1`, `VAL_T=auto` (no `-t`), long wall timeout | lowest | slowest (~tens of min) |
+| `stable` | `JOBS=1`, `VAL_T=0.5` | low | slow |
+| `fast` (default) | parallel shards, short `VAL_T` | higher | fast |
+
+**Why fast is flaky:** short `-t`, concurrent ports/CPU, orphaned processes
+from a prior test, and shard wall timeouts that leave incomplete results
+(which look like regressions vs a previous baseline).
+
+**Anti-flake checklist:**
+
+1. Prefer `MODE=classic` (or `MODE=stable`) for baselines and “is this a real FAIL?”.
+2. Use `VAL_T=0.1` or higher if you stay parallel; `0.05` is aggressive.
+3. Raise `SHARD_TIMEOUT` if a shard dies with exit 124.
+4. Re-run only the FAILED names with `ONLY='NAME1 NAME2' JOBS=1` before chasing.
+5. Kill leftovers only for **this** tree’s binary (the runner already does that).
+
 ## Commands
 
 ```bash
@@ -31,26 +56,30 @@ Statuses recorded per test:
 git clone --depth 1 https://repo.or.cz/socat.git /tmp/socat-master
 # Use a built classic binary, e.g. /tmp/socat-1.8.1.3/socat
 
-# 1) Record classic baseline (slow; do rarely)
+# 1) Record classic baseline — sequential like upstream (recommended)
 SOCAT=/tmp/socat-1.8.1.3/socat \
   FILAN=/tmp/socat-1.8.1.3/filan \
   PROCAN=/tmp/socat-1.8.1.3/procan \
-  SKIP_BUILD=1 LABEL=classic \
+  SKIP_BUILD=1 LABEL=classic MODE=classic \
   SAVE_BASELINE=testdata/scorecard/classic-baseline.json \
-  JOBS=8 SHARD_TIMEOUT=240 VAL_T=0.05 \
-  ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh
+  ./scripts/classic-scorecard.sh /tmp/socat-1.8.1.3/test.sh
 
-# 2) Run Go implementation and compare to classic (no classic re-run)
-BASELINE=testdata/scorecard/classic-baseline.json \
+# 2) Go parity run (same classic-like shape; low flake)
+MODE=classic \
+  BASELINE=testdata/scorecard/classic-baseline.json \
   LABEL=go REGRESSION_EXIT=0 \
-  JOBS=8 SHARD_TIMEOUT=240 VAL_T=0.05 \
-  ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh
+  ./scripts/classic-scorecard.sh /tmp/socat-1.8.1.3/test.sh
 
 # 3) Update Go baseline after intentional improvements
-SAVE_BASELINE=testdata/scorecard/go-baseline.json \
+MODE=classic \
+  SAVE_BASELINE=testdata/scorecard/go-baseline.json \
   BASELINE=testdata/scorecard/go-baseline.json \
   REGRESSION_EXIT=1 \
-  ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh
+  ./scripts/classic-scorecard.sh /tmp/socat-1.8.1.3/test.sh
+
+# Fast parallel smoke only
+JOBS=8 VAL_T=0.1 SHARD_TIMEOUT=300 \
+  ./scripts/classic-scorecard.sh /tmp/socat-1.8.1.3/test.sh
 
 # Offline compare only
 ./scripts/scorecard-compare.py \

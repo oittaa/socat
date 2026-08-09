@@ -115,11 +115,17 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 
 ## Classic scorecard
 
-Upstream **`test.sh`** (~608 numbered cases) is the feature scorecard (not CI). Prefer the parallel runner. Each run writes **structured results** (per-test OK / FAILED / CANT / TIMEOUT) so you can:
+Upstream **`test.sh`** (~608 numbered cases) is the feature scorecard (not CI).
+Classic runs it **sequentially** with an auto-calibrated `-t`. Our runner can
+match that or go faster (and flakier) with parallel shards.
 
-1. Save a **classic C baseline** once  
-2. Run **our Go binary** often  
-3. **Compare** without re-running classic every time (detect regressions vs classic parity or vs last Go baseline)
+| Mode | Command shape | Use when |
+|------|----------------|----------|
+| **classic** | `JOBS=1`, auto `-t`, long wall | Baselines / low flake (closest to upstream) |
+| **stable** | `JOBS=1`, `VAL_T=0.5` | Sequential, fixed timeouts |
+| **fast** (default) | parallel + short `-t` | Smoke / day-to-day |
+
+Each run writes **structured results** (OK / FAILED / CANT / TIMEOUT) for compare.
 
 See **`testdata/scorecard/README.md`** for the full workflow.
 
@@ -127,17 +133,22 @@ See **`testdata/scorecard/README.md`** for the full workflow.
 # obtain classic tree (GPL-2):
 #   git clone --depth 1 https://repo.or.cz/socat.git /tmp/socat-master
 
-# Go run + compare to saved classic baseline (if present)
 make build
-BASELINE=testdata/scorecard/classic-baseline.json \
-  JOBS=8 SHARD_TIMEOUT=240 VAL_T=0.05 \
-  ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh
-# → .classic-scorecard/results.json  (+ compare.json when BASELINE is set)
 
-# Record classic baseline (rare — when classic version / host libs change)
-SOCAT=/path/to/classic/socat FILAN=... PROCAN=... SKIP_BUILD=1 LABEL=classic \
+# Recommended for parity baselines (like classic: one-by-one, auto -t)
+MODE=classic \
+  BASELINE=testdata/scorecard/classic-baseline.json \
+  SAVE_BASELINE=testdata/scorecard/go-baseline.json \
+  ./scripts/classic-scorecard.sh /tmp/socat-1.8.1.3/test.sh
+
+# Fast parallel smoke (default MODE=fast; more flaky under load)
+JOBS=8 SHARD_TIMEOUT=240 VAL_T=0.1 \
+  ./scripts/classic-scorecard.sh /tmp/socat-1.8.1.3/test.sh
+
+# Record classic C baseline (rare)
+SOCAT=/path/to/classic/socat SKIP_BUILD=1 LABEL=classic MODE=classic \
   SAVE_BASELINE=testdata/scorecard/classic-baseline.json \
-  ./scripts/classic-scorecard.sh /tmp/socat-master/test.sh
+  ./scripts/classic-scorecard.sh /tmp/socat-1.8.1.3/test.sh
 ```
 
 **Latest committed baselines** (see `testdata/scorecard/`):
@@ -145,9 +156,9 @@ SOCAT=/path/to/classic/socat FILAN=... PROCAN=... SKIP_BUILD=1 LABEL=classic \
 | Label | OK | FAILED | CANT |
 |-------|-----|--------|------|
 | classic 1.8.1.3 | 475 | 24 | 103 |
-| go (this tree) | ~301 | ~34 | ~229 |
+| go (this tree) | ~337 | ~20 | ~207 |
 
-Re-run Go and compare with `BASELINE=testdata/scorecard/classic-baseline.json`. Use `go-baseline.json` + `REGRESSION_EXIT=1` to catch Go regressions.
+Use `go-baseline.json` + `REGRESSION_EXIT=1` after a **MODE=classic** run to catch real Go regressions with less noise.
 
 Classic host checklist: `scripts/classic-host-check.sh`.
 
