@@ -1,0 +1,806 @@
+package endpoint
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/relay"
+	"golang.org/x/sys/unix"
+)
+
+func openEXEC(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	if len(s.Params) < 1 {
+		return nil, fmt.Errorf("EXEC requires command")
+	}
+	// Classic: spaces separate argv; our parser may have split on ':' so rejoin.
+	// Quoted commands land as a single param (e.g. EXEC:"ls -l").
+	cmdStr := strings.Join(s.Params, ":")
+	return startProcess(ctx, s, mode, g, cmdStr, false)
+}
+
+func openSYSTEM(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	if len(s.Params) < 1 {
+		return nil, fmt.Errorf("SYSTEM requires command")
+	}
+	cmdStr := strings.Join(s.Params, ":")
+	return startProcess(ctx, s, mode, g, cmdStr, true)
+}
+
+func openSHELL(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	cmdStr := strings.Join(s.Params, ":")
+	if cmdStr == "" {
+		cmdStr = os.Getenv("SHELL")
+		if cmdStr == "" {
+			cmdStr = "/bin/sh"
+		}
+	}
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	// interactive or -c
+	if len(s.Params) == 0 || s.Params[0] == "" {
+		return startCmd(ctx, s, mode, g, exec.CommandContext(ctx, shell, "-i"))
+	}
+	return startCmd(ctx, s, mode, g, exec.CommandContext(ctx, shell, "-c", cmdStr))
+}
+
+func startProcess(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmdStr string, useShell bool) (*Opened, error) {
+	var cmd *exec.Cmd
+	if useShell {
+		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr)
+	} else {
+		// Split on whitespace for argv; classic EXEC uses simple space separation.
+		parts := splitExecArgs(cmdStr)
+		if len(parts) == 0 {
+			return nil, fmt.Errorf("empty EXEC command")
+		}
+		cmd = exec.CommandContext(ctx, parts[0], parts[1:]...)
+	}
+	return startCmd(ctx, s, mode, g, cmd)
+}
+
+// splitExecArgs splits an EXEC command line like classic nestlex/argv:
+// unquoted runs of spaces separate args (no empty args from bare spaces);
+// double-quoted segments keep spaces and may be empty ("" → empty arg);
+// \" inside quotes is a literal quote (so -c 'echo "$1"' works).
+func splitExecArgs(s string) []string {
+	var args []string
+	var cur strings.Builder
+	inDouble := false
+	escape := false
+	// sawQuote marks a quoted segment so "" becomes an empty argument.
+	sawQuote := false
+
+	flush := func() {
+		if sawQuote || cur.Len() > 0 {
+			args = append(args, cur.String())
+		}
+		cur.Reset()
+		sawQuote = false
+	}
+
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if escape {
+			cur.WriteByte(c)
+			escape = false
+			continue
+		}
+		if c == '\\' && inDouble {
+			escape = true
+			continue
+		}
+		if c == '"' {
+			inDouble = !inDouble
+			sawQuote = true
+			continue // drop delimiter
+		}
+		if !inDouble && (c == ' ' || c == '\t') {
+			flush()
+			// collapse consecutive unquoted whitespace
+			continue
+		}
+		cur.WriteByte(c)
+	}
+	flush()
+	return args
+}
+
+// runExecNoFork runs EXEC/SYSTEM with nofork on an already-open peer stream
+// (classic: no relay — child inherits peer FDs as stdin/stdout).
+// mode is the EXEC address mode: RDWR (echo), Write (-u right), Read (-u left).
+func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Global, mode Mode) error {
+	cmdStr := strings.Join(s.Params, ":")
+	useShell := strings.EqualFold(s.Type, "SYSTEM") || strings.EqualFold(s.Type, "SHELL")
+	var cmd *exec.Cmd
+	if useShell {
+		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr)
+	} else {
+		parts := splitExecArgs(cmdStr)
+		if len(parts) == 0 {
+			return fmt.Errorf("empty EXEC command")
+		}
+		cmd = exec.CommandContext(ctx, parts[0], parts[1:]...)
+	}
+	if s.BoolOption("setsid") {
+		if cmd.SysProcAttr == nil {
+			cmd.SysProcAttr = &syscall.SysProcAttr{}
+		}
+		cmd.SysProcAttr.Setsid = true
+	}
+	// Classic nofork FD wiring (xio-progcall !withfork):
+	//   RDWR:  stdin=peer.R, stdout=peer.W  (STDIO: 0 and 1; socket: same FD twice)
+	//   WRONLY (-u right EXEC): stdin=peer.R, stdout=process stdout (so echo appears)
+	//   RDONLY (-u left EXEC):  stdin=process stdin, stdout=peer.W
+	in, out, err := peerStdioFiles(peer, mode)
+	if err != nil {
+		return err
+	}
+	cmd.Stdin = in
+	cmd.Stdout = out
+	if s.BoolOption("stderr") {
+		cmd.Stderr = out
+	} else {
+		cmd.Stderr = os.Stderr
+	}
+	if g != nil {
+		env := append([]string{}, os.Environ()...)
+		env = append(env,
+			"SOCAT_SOCKADDR="+g.SockAddr,
+			"SOCAT_PEERADDR="+g.PeerAddr,
+			"SOCAT_SOCKPORT="+g.SockPort,
+			"SOCAT_PEERPORT="+g.PeerPort,
+		)
+		cmd.Env = env
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	waitErr := cmd.Wait()
+	if waitErr == nil {
+		return nil
+	}
+	if ee, ok := waitErr.(*exec.ExitError); ok {
+		code := ee.ExitCode()
+		if g != nil {
+			g.ChildExitCode = code
+		}
+		// Signal deaths are reported via exit 128+n already by Wait on Unix.
+		return nil
+	}
+	return waitErr
+}
+
+// peerStdioFiles returns child stdin/stdout Files for nofork, matching classic.
+func peerStdioFiles(st relay.Stream, mode Mode) (in, out *os.File, err error) {
+	r, w, single, err := streamRWFiles(st)
+	if err != nil {
+		return nil, nil, err
+	}
+	dup := func(f *os.File, name string) (*os.File, error) {
+		if f == nil {
+			return nil, fmt.Errorf("nofork: missing %s fd", name)
+		}
+		// os.Stdin/Stdout: ExtraFiles / Cmd will share; do not Dup and close.
+		if f == os.Stdin || f == os.Stdout || f == os.Stderr {
+			return f, nil
+		}
+		nfd, e := syscall.Dup(int(f.Fd()))
+		if e != nil {
+			return nil, e
+		}
+		return os.NewFile(uintptr(nfd), "nofork-"+name), nil
+	}
+	switch mode {
+	case ModeWrite:
+		// EXEC is write-only (right side of -u): child stdout stays process stdout.
+		if single != nil {
+			in, err = dup(single, "in")
+		} else {
+			in, err = dup(r, "in")
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		return in, os.Stdout, nil
+	case ModeRead:
+		// EXEC is read-only (left side of -u): child stdin stays process stdin.
+		if single != nil {
+			out, err = dup(single, "out")
+		} else {
+			out, err = dup(w, "out")
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		return os.Stdin, out, nil
+	default:
+		// Full duplex: STDIO uses 0+1; sockets use one duplex FD for both.
+		if single != nil {
+			in, err = dup(single, "in")
+			if err != nil {
+				return nil, nil, err
+			}
+			out, err = dup(single, "out")
+			if err != nil {
+				return nil, nil, err
+			}
+			return in, out, nil
+		}
+		in, err = dup(r, "in")
+		if err != nil {
+			return nil, nil, err
+		}
+		out, err = dup(w, "out")
+		if err != nil {
+			return nil, nil, err
+		}
+		return in, out, nil
+	}
+}
+
+// streamRWFiles unwraps peer stream to read-file, write-file, and/or a single duplex FD.
+func streamRWFiles(st relay.Stream) (r, w, single *os.File, err error) {
+	for i := 0; i < 12 && st != nil; i++ {
+		if ns, ok := st.(relay.NetStream); ok {
+			if c, ok := ns.Conn.(interface {
+				SyscallConn() (syscall.RawConn, error)
+			}); ok {
+				rc, e := c.SyscallConn()
+				if e != nil {
+					return nil, nil, nil, e
+				}
+				var ffd int
+				_ = rc.Control(func(fd uintptr) { ffd = int(fd) })
+				// Return the live conn fd; peerStdioFiles will Dup as needed.
+				// We cannot return *os.File of the same fd without ownership issues;
+				// Dup once here as single.
+				nfd, e := syscall.Dup(ffd)
+				if e != nil {
+					return nil, nil, nil, e
+				}
+				return nil, nil, os.NewFile(uintptr(nfd), "nofork-conn"), nil
+			}
+		}
+		if fs, ok := st.(relay.FDStream); ok {
+			rf := asOSFile(fs.R)
+			wf := asOSFile(fs.W)
+			if rf != nil || wf != nil {
+				return rf, wf, nil, nil
+			}
+		}
+		if f, ok := st.(interface{ Fd() uintptr }); ok {
+			nfd, e := syscall.Dup(int(f.Fd()))
+			if e != nil {
+				return nil, nil, nil, e
+			}
+			return nil, nil, os.NewFile(uintptr(nfd), "nofork-fd"), nil
+		}
+		if u, ok := st.(interface{ UnwrapStream() relay.Stream }); ok {
+			st = u.UnwrapStream()
+			continue
+		}
+		break
+	}
+	return nil, nil, nil, fmt.Errorf("nofork: peer stream has no file descriptor")
+}
+
+func asOSFile(x any) *os.File {
+	if x == nil {
+		return nil
+	}
+	if f, ok := x.(*os.File); ok {
+		return f
+	}
+	// ignoreEOF and similar wrappers that expose Fd/underlying file
+	if u, ok := x.(interface{ Unwrap() any }); ok {
+		return asOSFile(u.Unwrap())
+	}
+	if f, ok := x.(interface{ Fd() uintptr }); ok {
+		// Do not wrap arbitrary Fd without knowing lifetime; only *os.File is safe.
+		_ = f
+	}
+	return nil
+}
+
+func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
+	// nofork: defer start until Run has the peer stream (runExecNoFork).
+	// Placeholder Opened; Stream is nil — Run must not transferPair this alone.
+	if s.BoolOption("nofork") {
+		spec := s
+		return &Opened{Label: "EXEC-nofork", NoForkSpec: &spec}, nil
+	}
+	// Default: socketpair for full duplex; pipes when requested or unidirectional
+	// so unused direction can inherit process stdio (classic LISTENENV / single-exec).
+	usePipes := s.BoolOption("pipes") || mode == ModeRead || mode == ModeWrite
+	usePty := s.BoolOption("pty")
+
+	// fdin/fdout: map socat's pipe ends onto child FDs via a shell exec redirect.
+	fdin := s.OptionValue("fdin", "")
+	fdout := s.OptionValue("fdout", "")
+	if fdin != "" || fdout != "" {
+		usePipes = true
+		usePty = false
+		cmd = rebuildWithFDRedirect(cmd, fdin, fdout)
+	}
+
+	if s.BoolOption("setsid") {
+		if cmd.SysProcAttr == nil {
+			cmd.SysProcAttr = &syscall.SysProcAttr{}
+		}
+		cmd.SysProcAttr.Setsid = true
+	}
+
+	// Inject classic SOCAT_* connection environment for SYSTEM/EXEC children.
+	if g != nil {
+		env := append([]string{}, os.Environ()...)
+		env = append(env,
+			"SOCAT_SOCKADDR="+g.SockAddr,
+			"SOCAT_PEERADDR="+g.PeerAddr,
+			"SOCAT_SOCKPORT="+g.SockPort,
+			"SOCAT_PEERPORT="+g.PeerPort,
+		)
+		// Peer TLS certificate (ENV_OPENSSL_* classic tests).
+		if g.TLSPeerSubject != "" {
+			env = append(env,
+				"SOCAT_OPENSSL_X509_SUBJECT="+g.TLSPeerSubject,
+				"SOCAT_OPENSSL_X509_ISSUER="+g.TLSPeerIssuer,
+				"SOCAT_OPENSSL_X509_COMMONNAME="+g.TLSPeerCommonName,
+				"SOCAT_OPENSSL_X509_COUNTRYNAME="+g.TLSPeerCountry,
+				"SOCAT_OPENSSL_X509_LOCALITYNAME="+g.TLSPeerLocality,
+				"SOCAT_OPENSSL_X509_ORGANIZATIONNAME="+g.TLSPeerOrg,
+				"SOCAT_OPENSSL_X509_ORGANIZATIONALUNITNAME="+g.TLSPeerOrgUnit,
+			)
+		}
+		cmd.Env = env
+	}
+
+	if usePty {
+		return startCmdPty(s, mode, g, cmd)
+	}
+
+	// end-close + shared LISTEN,fork: a single socketpair FD cannot be half-closed
+	// per session and poll deadlines on the shared FD race with later accepts.
+	// Separate pipes keep stdin/stdout independent (classic still works; our
+	// goroutine accept model needs this for EXECENDCLOSE).
+	if s.BoolOption("end-close") && !usePipes {
+		usePipes = true
+	}
+
+	var stream relay.Stream
+	var cleanup []func()
+	var child *os.File
+
+	// Classic: child stderr inherits socat's stderr unless option stderr
+	// redirects it onto the data channel. Merging stderr into the data FD
+	// corrupts binary protocols (SOCKS4 echo scripts write diagnostics to stderr).
+	if s.BoolOption("stderr") {
+		// Leave assignment to the data channel below.
+	} else {
+		cmd.Stderr = os.Stderr
+	}
+
+	if usePipes {
+		needIn, needOut := pipeDirections(mode, fdin, fdout)
+		var stdin io.WriteCloser
+		var stdout io.ReadCloser
+		var err error
+
+		if needIn {
+			stdin, err = cmd.StdinPipe()
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			cmd.Stdin = os.Stdin
+		}
+		if needOut {
+			if s.BoolOption("stderr") {
+				// Classic stderr: merge child stdout+stderr into one pipe.
+				pr, pw, e := os.Pipe()
+				if e != nil {
+					return nil, e
+				}
+				cmd.Stdout = pw
+				cmd.Stderr = pw
+				stdout = pr
+				cleanup = append(cleanup, func() {
+					_ = pw.Close()
+					_ = pr.Close()
+				})
+			} else {
+				stdout, err = cmd.StdoutPipe()
+				if err != nil {
+					return nil, err
+				}
+			}
+		} else {
+			cmd.Stdout = os.Stdout
+		}
+
+		var r io.Reader = stdout
+		var w io.Writer = stdin
+		if stdout == nil {
+			r = eofReader{}
+		}
+		if stdin == nil {
+			w = discardWriter{}
+		}
+		stream = relay.FDStream{
+			R: r,
+			W: w,
+			C: multiCloser{},
+			CloseW: func() error {
+				if stdin != nil {
+					return stdin.Close()
+				}
+				return nil
+			},
+		}
+		cleanup = append(cleanup, func() {
+			if stdin != nil {
+				stdin.Close()
+			}
+			if stdout != nil {
+				stdout.Close()
+			}
+		})
+	} else {
+		// socketpair — SOCK_STREAM by default; socktype=2 (SOCK_DGRAM) for packet EXEC.
+		stype := syscall.SOCK_STREAM
+		if v := s.OptionValue("socktype", ""); v != "" {
+			if n, e := strconv.Atoi(v); e == nil && n > 0 {
+				stype = n
+			}
+		}
+		fds, err := syscall.Socketpair(syscall.AF_UNIX, stype, 0)
+		if err != nil {
+			return nil, err
+		}
+		parent := os.NewFile(uintptr(fds[0]), "exec-parent")
+		child = os.NewFile(uintptr(fds[1]), "exec-child")
+		cmd.Stdin = child
+		cmd.Stdout = child
+		if s.BoolOption("stderr") {
+			// Explicit: merge stderr into the data socketpair (classic stderr).
+			cmd.Stderr = child
+		}
+		// else: already set to os.Stderr above
+		if stype == syscall.SOCK_DGRAM {
+			// Dgram socketpair: SHUT_WR does not deliver EOF to the child.
+			// Close the parent FD on half-close so cat/etc. exit (packet tests).
+			stream = dgramPairStream(parent)
+		} else {
+			stream = fileStream(parent)
+		}
+		cleanup = append(cleanup, func() {
+			parent.Close()
+		})
+	}
+
+	// EXEC_FDS: only FDs 0/1/2 may remain in the child.
+	// Mark ALL FDs ≥3 CLOEXEC (including the socketpair/pipe ends we pass as
+	// Stdin/Stdout). Go's fork/exec dup2's them to 0/1/2 first, then closes
+	// CLOEXEC descriptors, so the high-numbered originals are not leaked.
+	setCloexecAllFrom(3)
+
+	// Classic umask= on EXEC/SYSTEM/SHELL: child inherits umask at fork;
+	// parent restores immediately after Start (UMASK_ON_SYSTEM / UMASK_ON_CREATE).
+	var startErr error
+	if err := withUmask(s, func() error {
+		startErr = cmd.Start()
+		return nil
+	}); err != nil {
+		startErr = err
+	}
+	if startErr != nil {
+		for _, f := range cleanup {
+			f()
+		}
+		if child != nil {
+			child.Close()
+		}
+		return nil, startErr
+	}
+	if child != nil {
+		child.Close()
+	}
+
+	return finishExec(s, g, cmd, stream, cleanup)
+}
+
+// setCloexecAllFrom marks FDs ≥ from CLOEXEC so they are not left open in EXEC children.
+// Classic EXEC_FDS / EXEC_SNIFF require the child to have only 0/1/2 open.
+func setCloexecAllFrom(from int) {
+	// Linux 5.11+: set CLOEXEC on the whole range in one call (covers sparse FDs
+	// like cgroup handles that appear after /proc scans).
+	if err := unix.CloseRange(uint(from), ^uint(0), unix.CLOSE_RANGE_CLOEXEC); err == nil {
+		return
+	}
+	// Fallback: snapshot /proc/self/fd then CloseOnExec each.
+	f, err := os.Open("/proc/self/fd")
+	if err == nil {
+		names, _ := f.Readdirnames(-1)
+		f.Close()
+		for _, name := range names {
+			fd, err := strconv.Atoi(name)
+			if err != nil || fd < from {
+				continue
+			}
+			unix.CloseOnExec(fd)
+		}
+		return
+	}
+	for fd := from; fd < 1024; fd++ {
+		unix.CloseOnExec(fd)
+	}
+}
+
+// startCmdPty runs the child with a pseudo-terminal (classic EXEC/SYSTEM,pty).
+//
+// Unidirectional dual forms inherit the unused stdio of the socat process:
+//   ModeWrite (-!!EXEC,pty): child stdin←PTY, child stdout→os.Stdout (inherit)
+//   ModeRead  (EXEC,pty!!-): child stdin←os.Stdin (inherit), child stdout→PTY
+// Full duplex: both directions on the PTY slave (startOnPTY).
+func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
+	var ptmx *os.File
+	var err error
+
+	switch mode {
+	case ModeWrite:
+		// Inherit stdout/stderr; only stdin is the PTY slave.
+		master, slave, err := openPTYPair()
+		if err != nil {
+			return nil, fmt.Errorf("EXEC pty: %w", err)
+		}
+		ptmx = master
+		cmd.Stdin = slave
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stdout
+		if cmd.SysProcAttr == nil {
+			cmd.SysProcAttr = &syscall.SysProcAttr{}
+		}
+		cmd.SysProcAttr.Setsid = true
+		cmd.SysProcAttr.Setctty = true
+		if err := cmd.Start(); err != nil {
+			master.Close()
+			slave.Close()
+			return nil, err
+		}
+		slave.Close() // child has it
+		applyPtyOpts(s, ptmx)
+		w := &halfCloseWriter{w: ptmx}
+		stream := relay.FDStream{
+			R: eofReader{},
+			W: w,
+			C: multiCloser{},
+			CloseW: func() error { w.closeWrite(); return nil },
+		}
+		return finishExec(s, g, cmd, stream, []func(){func() { ptmx.Close() }})
+
+	case ModeRead:
+		// Inherit stdin; only stdout/stderr on PTY slave.
+		master, slave, err := openPTYPair()
+		if err != nil {
+			return nil, fmt.Errorf("EXEC pty: %w", err)
+		}
+		ptmx = master
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = slave
+		cmd.Stderr = slave
+		if cmd.SysProcAttr == nil {
+			cmd.SysProcAttr = &syscall.SysProcAttr{}
+		}
+		cmd.SysProcAttr.Setsid = true
+		// Controlling tty is stdout/stderr slave; Setctty needs a child FD.
+		// With stdin inherited, Ctty 1 (stdout) is the slave after setup.
+		cmd.SysProcAttr.Setctty = true
+		cmd.SysProcAttr.Ctty = 1
+		if err := cmd.Start(); err != nil {
+			master.Close()
+			slave.Close()
+			return nil, err
+		}
+		slave.Close()
+		applyPtyOpts(s, ptmx)
+		stream := relay.FDStream{
+			R: ptmx,
+			W: discardWriter{},
+			C: multiCloser{},
+			CloseW: func() error { return nil },
+		}
+		return finishExec(s, g, cmd, stream, []func(){func() { ptmx.Close() }})
+
+	default:
+		ptmx, err = startOnPTY(cmd)
+		if err != nil {
+			return nil, fmt.Errorf("EXEC pty: %w", err)
+		}
+		applyPtyOpts(s, ptmx)
+		return finishExec(s, g, cmd, ptyStream(ptmx), []func(){func() { ptmx.Close() }})
+	}
+}
+
+func applyPtyOpts(s parse.Spec, ptmx *os.File) {
+	if s.BoolOption("cfmakeraw") || s.BoolOption("raw") || s.BoolOption("rawer") ||
+		s.HasOption("cfmakeraw") || s.HasOption("raw") {
+		_ = setRaw(int(ptmx.Fd()))
+		return
+	}
+	if v := s.OptionValue("echo", ""); v == "0" || (s.HasOption("echo") && !s.BoolOption("echo")) {
+		_ = setTermiosFlag(int(ptmx.Fd()), false, true)
+	}
+	if v := s.OptionValue("opost", ""); v == "0" || (s.HasOption("opost") && !s.BoolOption("opost")) {
+		_ = setTermiosFlag(int(ptmx.Fd()), true, false)
+	}
+}
+
+func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func()) (*Opened, error) {
+	st, err := wrapCommon(s, stream)
+	if err != nil {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+		for _, f := range cleanup {
+			f()
+		}
+		return nil, err
+	}
+
+	// Track child exit for EXEC_RC / SYSTEM_RC.
+	var mu sync.Mutex
+	var waitErr error
+	var exitCode int
+	done := make(chan struct{})
+	go func() {
+		err := cmd.Wait()
+		mu.Lock()
+		waitErr = err
+		if err == nil {
+			exitCode = 0
+		} else if ee, ok := err.(*exec.ExitError); ok {
+			exitCode = ee.ExitCode()
+		} else {
+			exitCode = 1
+		}
+		mu.Unlock()
+		close(done)
+	}()
+
+	// How long to wait for child flush after transfer ends (classic -t linger).
+	linger := 500 * time.Millisecond
+	if g != nil && g.Linger > 0 {
+		linger = g.Linger
+	}
+	// shut-none: do not kill the child; wait for natural exit (with a cap).
+	shutNone := s.BoolOption("shut-none") || s.OptionValue("shut", "") == "none"
+
+	o := &Opened{
+		Stream: st,
+		Label:  "EXEC",
+	}
+	for _, f := range cleanup {
+		o.addCleanup(f)
+	}
+	o.addCleanup(func() {
+		// Give write-only children (od -c) time to flush after stdin EOF.
+		waitFor := linger
+		if shutNone {
+			waitFor = 5 * time.Second
+		}
+		killed := false
+		select {
+		case <-done:
+		case <-time.After(waitFor):
+			if !shutNone {
+				killed = true
+				_ = cmd.Process.Kill()
+			}
+			<-done
+		}
+		// Promote only natural non-zero exits (false/exit 1), not kills/SIGHUP
+		// from closing a PTY master (those yield 255/signal and must not fail echo tests).
+		mu.Lock()
+		code := exitCode
+		werr := waitErr
+		mu.Unlock()
+		if killed {
+			return
+		}
+		if code != 0 && g != nil {
+			// Signal deaths: Go reports -1; classic 128+n. Not EXEC_RC failures
+			// (PTY master close often SIGHUPs cat after a successful echo).
+			if code < 0 || code >= 128 {
+				return
+			}
+			g.ChildExitCode = code
+			if werr != nil {
+				g.ChildErr = werr
+			}
+		}
+	})
+	return o, nil
+}
+
+func pipeDirections(mode Mode, fdin, fdout string) (needIn, needOut bool) {
+	if fdin != "" && fdout == "" {
+		return true, false
+	}
+	if fdout != "" && fdin == "" {
+		return false, true
+	}
+	if fdin != "" && fdout != "" {
+		return true, true
+	}
+	switch mode {
+	case ModeRead:
+		// Only reading from child: inherit process stdin for the child.
+		return false, true
+	case ModeWrite:
+		// Only writing to child: inherit process stdout from the child.
+		return true, false
+	default:
+		return true, true
+	}
+}
+
+func rebuildWithFDRedirect(cmd *exec.Cmd, fdin, fdout string) *exec.Cmd {
+	orig := ""
+	if len(cmd.Args) > 0 {
+		if cmd.Args[0] == "/bin/sh" || cmd.Args[0] == "sh" || strings.HasSuffix(cmd.Path, "/sh") {
+			if len(cmd.Args) >= 3 && cmd.Args[1] == "-c" {
+				orig = cmd.Args[2]
+			}
+		} else {
+			orig = shellJoin(cmd.Args)
+		}
+	}
+	redir := "exec"
+	if fdin != "" {
+		redir += " " + fdin + "<&0"
+	}
+	if fdout != "" {
+		redir += " " + fdout + ">&1"
+	}
+	return exec.Command("/bin/sh", "-c", redir+"; "+orig)
+}
+
+func setTermiosFlag(fd int, clearOPost, clearEcho bool) error {
+	termios, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	if err != nil {
+		return err
+	}
+	if clearOPost {
+		termios.Oflag &^= unix.OPOST
+	}
+	if clearEcho {
+		termios.Lflag &^= unix.ECHO | unix.ECHONL
+	}
+	return unix.IoctlSetTermios(fd, unix.TCSETS, termios)
+}
+
+func shellJoin(args []string) string {
+	var b strings.Builder
+	for i, a := range args {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		if strings.ContainsAny(a, " \t'\"\\$`") {
+			b.WriteByte('\'')
+			b.WriteString(strings.ReplaceAll(a, "'", `'\''`))
+			b.WriteByte('\'')
+		} else {
+			b.WriteString(a)
+		}
+	}
+	return b.String()
+}

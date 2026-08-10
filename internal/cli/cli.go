@@ -13,38 +13,38 @@ import (
 	"time"
 
 	"github.com/oittaa/socat"
-	"github.com/oittaa/socat/internal/addr"
+	"github.com/oittaa/socat/internal/endpoint"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 )
 
 // Config holds parsed global options.
 type Config struct {
-	Help       int // 0 none, 1 -h, 2 -hh, 3 -hhh
-	Version    bool
-	LogLevel   logx.Level
-	LogFile    string
-	Progname   string
-	Micros     bool
-	Hostname   bool
-	Verbose    bool
-	Hex        bool
-	BlockSize  int
-	Sloppy     bool
-	Linger     time.Duration
-	Idle       time.Duration // <0 infinite, 0 zero, >0 timeout
-	IdleSet    bool
+	Help        int // 0 none, 1 -h, 2 -hh, 3 -hhh
+	Version     bool
+	LogLevel    logx.Level
+	LogFile     string
+	Progname    string
+	Micros      bool
+	Hostname    bool
+	Verbose     bool
+	Hex         bool
+	BlockSize   int
+	Sloppy      bool
+	Linger      time.Duration
+	Idle        time.Duration // <0 infinite, 0 zero, >0 timeout
+	IdleSet     bool
 	LeftToRight bool // -u
 	RightToLeft bool // -U
-	IP4        bool
-	IP6        bool
-	IPAny      bool
-	Statistics bool
-	LockFile   string
-	LockWait   string
-	RawLeft    string // -r
-	RawRight   string // -R
-	Addresses  []string
+	IP4         bool
+	IP6         bool
+	IPAny       bool
+	Statistics  bool
+	LockFile    string
+	LockWait    string
+	RawLeft     string // -r
+	RawRight    string // -R
+	Addresses   []string
 }
 
 // ParseArgs parses os.Args-style arguments (without program name).
@@ -252,7 +252,7 @@ func levelFromN(n int) logx.Level {
 	// n = number of -d or -dn value
 	// 0: error only (no warning)? classic -d0 fatal+error
 	// 1: +notice
-	// 2: +info  
+	// 2: +info
 	// 3: +debug? man: -ddd is info, -dddd debug
 	switch {
 	case n <= 0:
@@ -372,7 +372,7 @@ func Main(args []string) int {
 		return 1
 	}
 
-	g := &addr.Global{
+	g := &endpoint.Global{
 		Log:         log,
 		BlockSize:   cfg.BlockSize,
 		Linger:      cfg.Linger,
@@ -403,13 +403,13 @@ func Main(args []string) int {
 	// IP version: explicit -4/-6/-0 vs default (env SOCAT_DEFAULT_LISTEN_IP may apply to listen).
 	switch {
 	case cfg.IPAny:
-		g.IPVersion = addr.IPvAny
+		g.IPVersion = endpoint.IPvAny
 	case cfg.IP6:
-		g.IPVersion = addr.IPv6
+		g.IPVersion = endpoint.IPv6
 	case cfg.IP4:
-		g.IPVersion = addr.IPv4
+		g.IPVersion = endpoint.IPv4
 	default:
-		g.IPVersion = addr.IPvDefault
+		g.IPVersion = endpoint.IPvDefault
 	}
 
 	// Classic EXITCODESIG*: dying on SIGTERM/ILL/… exits with 128+signum.
@@ -423,14 +423,14 @@ func Main(args []string) int {
 	go func() {
 		sig := <-sigCh
 		cancel()
-		addr.UnlinkRegisteredPaths()
+		endpoint.UnlinkRegisteredPaths()
 		if ss, ok := sig.(syscall.Signal); ok && ss > 0 {
 			// Exit immediately so Wait()-blocked nofork paths still report classic status.
 			os.Exit(128 + int(ss))
 		}
 	}()
 
-	runErr := addr.Run(ctx, left, right, g)
+	runErr := endpoint.Run(ctx, left, right, g)
 	if runErr != nil {
 		if ctx.Err() != nil {
 			if g.ChildExitCode != 0 {
@@ -439,7 +439,7 @@ func Main(args []string) int {
 			return 0
 		}
 		// Classic socat exits 0 when accept-timeout fires with no peer.
-		if runErr == addr.ErrAcceptTimeout {
+		if runErr == endpoint.ErrAcceptTimeout {
 			return 0
 		}
 		log.Errorf("%s", runErr)
