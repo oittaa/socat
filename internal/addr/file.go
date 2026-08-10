@@ -172,21 +172,29 @@ func openNamedPIPE(s parse.Spec, mode Mode) (*Opened, error) {
 		})
 		if err == nil {
 			_ = applyPerm(path, s, nil)
+			_ = applyOwner(path, s, nil)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("mkfifo %s: %w", path, err)
 		}
 		created = true
+	} else {
+		// Existing FIFO: still apply user=/perm= when requested.
+		_ = applyPerm(path, s, nil)
+		_ = applyOwner(path, s, nil)
 	}
 
+	// Classic default unlink-close=1 for named pipes (PIPE_REMOVE).
+	doUnlink := created || !s.HasOption("unlink-close") || s.BoolOption("unlink-close")
+	if doUnlink && !s.BoolOption("unlink-early") {
+		registerUnlinkPath(path)
+	}
 	cleanupPath := func() {
-		if created || s.BoolOption("unlink-close") || !s.HasOption("unlink-close") {
-			if s.BoolOption("unlink-early") {
-				return
-			}
-			if !s.HasOption("unlink-close") || s.BoolOption("unlink-close") {
-				_ = os.Remove(path)
-			}
+		if s.BoolOption("unlink-early") {
+			return
+		}
+		if doUnlink {
+			_ = os.Remove(path)
 		}
 	}
 
@@ -384,6 +392,11 @@ func fileOpened(f *os.File, s parse.Spec, path string) (*Opened, error) {
 		f.Close()
 		return nil, err
 	}
+	// Classic user=/group= via fchown (CREATE_USER, OPEN_USER, GOPEN_USER).
+	if err := applyOwner(path, s, f); err != nil {
+		f.Close()
+		return nil, err
+	}
 	var stream relay.Stream
 	if s.BoolOption("ignoreeof") {
 		stream = relay.FDStream{
@@ -410,6 +423,7 @@ func fileOpened(f *os.File, s parse.Spec, path string) (*Opened, error) {
 		_ = os.Remove(path)
 	}
 	if s.BoolOption("unlink-late") || s.BoolOption("unlink-close") {
+		registerUnlinkPath(path)
 		o.addCleanup(func() { _ = os.Remove(path) })
 	}
 	return o, nil

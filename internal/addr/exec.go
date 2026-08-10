@@ -117,8 +117,9 @@ func splitExecArgs(s string) []string {
 }
 
 // runExecNoFork runs EXEC/SYSTEM with nofork on an already-open peer stream
-// (classic: accepted socket becomes child's stdin/stdout; no relay).
-func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Global) error {
+// (classic: no relay — child inherits peer FDs as stdin/stdout).
+// mode is the EXEC address mode: RDWR (echo), Write (-u right), Read (-u left).
+func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Global, mode Mode) error {
 	cmdStr := strings.Join(s.Params, ":")
 	useShell := strings.EqualFold(s.Type, "SYSTEM") || strings.EqualFold(s.Type, "SHELL")
 	var cmd *exec.Cmd
@@ -137,15 +138,18 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 		}
 		cmd.SysProcAttr.Setsid = true
 	}
-	// Dup peer FD as stdin+stdout for the child (filan sees real TCP socket).
-	f, err := streamAsFile(peer)
+	// Classic nofork FD wiring (xio-progcall !withfork):
+	//   RDWR:  stdin=peer.R, stdout=peer.W  (STDIO: 0 and 1; socket: same FD twice)
+	//   WRONLY (-u right EXEC): stdin=peer.R, stdout=process stdout (so echo appears)
+	//   RDONLY (-u left EXEC):  stdin=process stdin, stdout=peer.W
+	in, out, err := peerStdioFiles(peer, mode)
 	if err != nil {
 		return err
 	}
-	cmd.Stdin = f
-	cmd.Stdout = f
+	cmd.Stdin = in
+	cmd.Stdout = out
 	if s.BoolOption("stderr") {
-		cmd.Stderr = f
+		cmd.Stderr = out
 	} else {
 		cmd.Stderr = os.Stderr
 	}
@@ -177,43 +181,110 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 	return waitErr
 }
 
-// streamAsFile returns an *os.File for the peer stream when possible.
-func streamAsFile(st relay.Stream) (*os.File, error) {
-	// Unwrap wrappers
-	for i := 0; i < 8 && st != nil; i++ {
+// peerStdioFiles returns child stdin/stdout Files for nofork, matching classic.
+func peerStdioFiles(st relay.Stream, mode Mode) (in, out *os.File, err error) {
+	r, w, single, err := streamRWFiles(st)
+	if err != nil {
+		return nil, nil, err
+	}
+	dup := func(f *os.File, name string) (*os.File, error) {
+		if f == nil {
+			return nil, fmt.Errorf("nofork: missing %s fd", name)
+		}
+		// os.Stdin/Stdout: ExtraFiles / Cmd will share; do not Dup and close.
+		if f == os.Stdin || f == os.Stdout || f == os.Stderr {
+			return f, nil
+		}
+		nfd, e := syscall.Dup(int(f.Fd()))
+		if e != nil {
+			return nil, e
+		}
+		return os.NewFile(uintptr(nfd), "nofork-"+name), nil
+	}
+	switch mode {
+	case ModeWrite:
+		// EXEC is write-only (right side of -u): child stdout stays process stdout.
+		if single != nil {
+			in, err = dup(single, "in")
+		} else {
+			in, err = dup(r, "in")
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		return in, os.Stdout, nil
+	case ModeRead:
+		// EXEC is read-only (left side of -u): child stdin stays process stdin.
+		if single != nil {
+			out, err = dup(single, "out")
+		} else {
+			out, err = dup(w, "out")
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		return os.Stdin, out, nil
+	default:
+		// Full duplex: STDIO uses 0+1; sockets use one duplex FD for both.
+		if single != nil {
+			in, err = dup(single, "in")
+			if err != nil {
+				return nil, nil, err
+			}
+			out, err = dup(single, "out")
+			if err != nil {
+				return nil, nil, err
+			}
+			return in, out, nil
+		}
+		in, err = dup(r, "in")
+		if err != nil {
+			return nil, nil, err
+		}
+		out, err = dup(w, "out")
+		if err != nil {
+			return nil, nil, err
+		}
+		return in, out, nil
+	}
+}
+
+// streamRWFiles unwraps peer stream to read-file, write-file, and/or a single duplex FD.
+func streamRWFiles(st relay.Stream) (r, w, single *os.File, err error) {
+	for i := 0; i < 12 && st != nil; i++ {
 		if ns, ok := st.(relay.NetStream); ok {
 			if c, ok := ns.Conn.(interface {
 				SyscallConn() (syscall.RawConn, error)
 			}); ok {
-				rc, err := c.SyscallConn()
-				if err != nil {
-					return nil, err
+				rc, e := c.SyscallConn()
+				if e != nil {
+					return nil, nil, nil, e
 				}
 				var ffd int
 				_ = rc.Control(func(fd uintptr) { ffd = int(fd) })
-				// Dup so child close does not kill our copy.
-				nfd, err := syscall.Dup(ffd)
-				if err != nil {
-					return nil, err
+				// Return the live conn fd; peerStdioFiles will Dup as needed.
+				// We cannot return *os.File of the same fd without ownership issues;
+				// Dup once here as single.
+				nfd, e := syscall.Dup(ffd)
+				if e != nil {
+					return nil, nil, nil, e
 				}
-				return os.NewFile(uintptr(nfd), "nofork-conn"), nil
+				return nil, nil, os.NewFile(uintptr(nfd), "nofork-conn"), nil
 			}
 		}
 		if fs, ok := st.(relay.FDStream); ok {
-			if f, ok := fs.R.(*os.File); ok {
-				nfd, err := syscall.Dup(int(f.Fd()))
-				if err != nil {
-					return nil, err
-				}
-				return os.NewFile(uintptr(nfd), "nofork-fd"), nil
+			rf := asOSFile(fs.R)
+			wf := asOSFile(fs.W)
+			if rf != nil || wf != nil {
+				return rf, wf, nil, nil
 			}
-			if f, ok := fs.W.(*os.File); ok {
-				nfd, err := syscall.Dup(int(f.Fd()))
-				if err != nil {
-					return nil, err
-				}
-				return os.NewFile(uintptr(nfd), "nofork-fd"), nil
+		}
+		if f, ok := st.(interface{ Fd() uintptr }); ok {
+			nfd, e := syscall.Dup(int(f.Fd()))
+			if e != nil {
+				return nil, nil, nil, e
 			}
+			return nil, nil, os.NewFile(uintptr(nfd), "nofork-fd"), nil
 		}
 		if u, ok := st.(interface{ UnwrapStream() relay.Stream }); ok {
 			st = u.UnwrapStream()
@@ -221,7 +292,25 @@ func streamAsFile(st relay.Stream) (*os.File, error) {
 		}
 		break
 	}
-	return nil, fmt.Errorf("nofork: peer stream has no file descriptor")
+	return nil, nil, nil, fmt.Errorf("nofork: peer stream has no file descriptor")
+}
+
+func asOSFile(x any) *os.File {
+	if x == nil {
+		return nil
+	}
+	if f, ok := x.(*os.File); ok {
+		return f
+	}
+	// ignoreEOF and similar wrappers that expose Fd/underlying file
+	if u, ok := x.(interface{ Unwrap() any }); ok {
+		return asOSFile(u.Unwrap())
+	}
+	if f, ok := x.(interface{ Fd() uintptr }); ok {
+		// Do not wrap arbitrary Fd without knowing lifetime; only *os.File is safe.
+		_ = f
+	}
+	return nil
 }
 
 func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {

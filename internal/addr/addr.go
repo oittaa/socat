@@ -413,7 +413,7 @@ func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
 			return err
 		}
 		defer ro.Close()
-		return runExecNoFork(ctx, ro.EffectiveStream(), *lo.NoForkSpec, g)
+		return runExecNoFork(ctx, ro.EffectiveStream(), *lo.NoForkSpec, g, lMode)
 	}
 
 	ro, err := OpenChannel(ctx, right, rMode, g)
@@ -422,9 +422,9 @@ func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
 	}
 	defer ro.Close()
 
-	// Right EXEC,nofork on left stream (TCP-LISTEN + EXEC,nofork).
+	// Right EXEC,nofork on left stream (TCP-LISTEN + EXEC,nofork; or STDIO + EXEC,nofork).
 	if ro.NoForkSpec != nil {
-		return runExecNoFork(ctx, lo.EffectiveStream(), *ro.NoForkSpec, g)
+		return runExecNoFork(ctx, lo.EffectiveStream(), *ro.NoForkSpec, g, rMode)
 	}
 
 	if ro.Fork && ro.Listener != nil {

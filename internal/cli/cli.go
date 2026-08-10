@@ -413,6 +413,8 @@ func Main(args []string) int {
 	}
 
 	// Classic EXITCODESIG*: dying on SIGTERM/ILL/… exits with 128+signum.
+	// Also unlink registered FS entries (UNIX/PIPE/PTY link) before Exit so
+	// REMOVE* tests pass — os.Exit skips Opened.Close / SetUnlinkOnClose.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM, syscall.SIGILL, syscall.SIGQUIT, syscall.SIGHUP)
 	defer signal.Stop(sigCh)
@@ -421,6 +423,7 @@ func Main(args []string) int {
 	go func() {
 		sig := <-sigCh
 		cancel()
+		addr.UnlinkRegisteredPaths()
 		if ss, ok := sig.(syscall.Signal); ok && ss > 0 {
 			// Exit immediately so Wait()-blocked nofork paths still report classic status.
 			os.Exit(128 + int(ss))

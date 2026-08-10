@@ -97,8 +97,9 @@ func openPTY(_ context.Context, s parse.Spec, _ Mode, g *Global) (*Opened, error
 			return nil, fmt.Errorf("PTY link: %w", err)
 		}
 	}
-	// Classic perm= on PTY applies to the slave node (and thus the link target).
+	// Classic perm=/user= on PTY applies to the slave node (stat -L follows link).
 	_ = applyPerm(slaveName, s, slave)
+	_ = applyOwner(slaveName, s, slave)
 	if link != "" {
 		_ = applyPerm(link, s, nil)
 	}
@@ -120,7 +121,8 @@ func openPTY(_ context.Context, s parse.Spec, _ Mode, g *Global) (*Opened, error
 	}
 	o.addCleanup(func() { _ = slave.Close() })
 	if link != "" {
-		// Unlink symlink on close (classic often leaves it; tests recreate each run).
+		// PTY_REMOVE: link gone when process exits (incl. SIGTERM).
+		registerUnlinkPath(link)
 		o.addCleanup(func() { _ = os.Remove(link) })
 	}
 	return o, nil

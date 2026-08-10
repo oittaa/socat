@@ -180,18 +180,24 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ Mode, g *Global) (*Open
 		ul.SetUnlinkOnClose(doUnlink)
 	}
 
-	// mode/perm on socket file (classic fchmod/chmod after bind)
+	// mode/perm/user on socket file (classic fchmod/fchown after bind)
 	if err := applyPerm(path, s, nil); err != nil {
 		// Non-fatal for some platforms; still try mode=
 		if mode := parseFileMode(s, 0); mode != 0 {
 			_ = os.Chmod(path, mode)
 		}
 	}
+	_ = applyOwner(path, s, nil)
 
 	// Classic: bind= on UNIX-LISTEN is invalid (must not bind twice / INTERNAL).
 	// UNIX_L_BIND expects a non-zero exit without the word INTERNAL.
 	if s.HasOption("bind") {
 		return nil, fmt.Errorf("option \"bind\" with UNIX-LISTEN is not supported")
+	}
+
+	// Ensure path is removed on SIGTERM (SetUnlinkOnClose only runs on Close).
+	if doUnlink && !isAbstract(path) {
+		registerUnlinkPath(path)
 	}
 
 	fork := s.BoolOption("fork")
@@ -445,6 +451,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 			MaxChildren: maxChildren,
 		}
 		if !isAbstract(path) && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close")) {
+			registerUnlinkPath(path)
 			o.addCleanup(func() {
 				ln.Close()
 				_ = os.Remove(path)
@@ -452,6 +459,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 		} else {
 			o.addCleanup(func() { ln.Close() })
 		}
+		_ = applyOwner(path, s, nil)
 		_ = ctx
 		_ = mode
 		_ = g
@@ -465,7 +473,9 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 		return nil, err
 	}
 	o := &Opened{Stream: wrapped, Label: label}
+	_ = applyOwner(path, s, nil)
 	if !isAbstract(path) && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close")) {
+		registerUnlinkPath(path)
 		o.addCleanup(func() {
 			c.Close()
 			_ = os.Remove(path)
