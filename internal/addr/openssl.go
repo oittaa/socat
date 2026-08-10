@@ -113,8 +113,14 @@ func openOpenSSLConnectNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Glo
 }
 
 // OPENSSL-LISTEN / SSL-LISTEN / OPENSSL-L / SSL-L — TLS server over TCP.
+// Family selection matches TCP-LISTEN: pf=, -4/-6/-0, SOCAT_DEFAULT_LISTEN_IP, else IPv4.
 func openOpenSSLListen(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	return openOpenSSLListenNetwork(ctx, s, mode, g, networkTCP(g, s, "tcp4"))
+	netw := listenNetwork(g, s)
+	// Same dual-stack rule as TCP6-LISTEN when ipv6-v6only=0.
+	if netw == "tcp6" && s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
+		netw = "tcp"
+	}
+	return openOpenSSLListenNetwork(ctx, s, mode, g, netw)
 }
 
 func openOpenSSLListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, network string) (*Opened, error) {
@@ -127,23 +133,15 @@ func openOpenSSLListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Glob
 		switch network {
 		case "tcp4":
 			host = "0.0.0.0"
-		case "tcp6":
+		case "tcp6", "tcp":
 			host = "::"
 		default:
 			host = "::"
 		}
 	}
-	// pf=ip4/ip6 may override
-	if pf := s.OptionValue("pf", ""); pf != "" {
-		switch strings.ToLower(pf) {
-		case "ip4", "ipv4", "inet", "4":
-			network = "tcp4"
-			if host == "::" {
-				host = "0.0.0.0"
-			}
-		case "ip6", "ipv6", "inet6", "6":
-			network = "tcp6"
-		}
+	// If bind was left as dual-stack default but pf/network is IPv4, force v4 any.
+	if network == "tcp4" && (host == "::" || host == "") {
+		host = "0.0.0.0"
 	}
 	addr := net.JoinHostPort(stripBrackets(host), port)
 
@@ -161,6 +159,18 @@ func openOpenSSLListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Glob
 			return c.Control(func(fd uintptr) {
 				if reuse {
 					_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+				}
+				// Match TCP-LISTEN: set IPV6_V6ONLY before bind for tcp/tcp6.
+				if network == "tcp" || network == "tcp6" {
+					if s.HasOption("ipv6-v6only") {
+						v := 0
+						if s.BoolOption("ipv6-v6only") {
+							v = 1
+						}
+						_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, v)
+					} else if network == "tcp" {
+						_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 0)
+					}
 				}
 			})
 		},
