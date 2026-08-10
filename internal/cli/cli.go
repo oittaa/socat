@@ -482,7 +482,7 @@ func printVersion(w io.Writer) {
 		{"IP6", true},
 		{"RAWIP", true},
 		{"GENERICSOCKET", false},
-		{"INTERFACE", false},
+		{"INTERFACE", true}, // Linux AF_PACKET SOCK_RAW
 		{"TCP", true},
 		{"UDP", true},
 		{"SCTP", false},
@@ -500,7 +500,7 @@ func printVersion(w io.Writer) {
 		{"SHELL", true},
 		{"EXEC", true},
 		{"READLINE", false},
-		{"TUN", false},
+		{"TUN", true}, // Linux /dev/net/tun
 		{"PTY", true},
 		{"OPENSSL", true}, // stream TLS via crypto/tls (not DTLS)
 		{"FIPS", false},
@@ -556,6 +556,7 @@ func printHelp(w io.Writer, level int) {
 	fmt.Fprintf(w, "  EXEC SYSTEM SHELL TEXT STALL PTY\n")
 	fmt.Fprintf(w, "  OPENSSL OPENSSL-CONNECT OPENSSL-LISTEN OPENSSL-L SSL SSL-CONNECT SSL-LISTEN SSL-L\n")
 	fmt.Fprintf(w, "  PROXY PROXY-CONNECT SOCKS4 SOCKS4A SOCKS5 SOCKS5-CONNECT\n")
+	fmt.Fprintf(w, "  TUN INTERFACE\n")
 	if level >= 2 {
 		// Honesty: only list options we actually honor. test.sh greps
 		//   [^a-z0-9-]<name>[^a-z0-9-]  — pad with spaces on both sides.
@@ -604,6 +605,13 @@ func printHelp(w io.Writer, level int) {
 			"ipv6-recvtclass", "recvtclass",
 			"ipv6-unicast-hops", "unicast-hops",
 			"ipv6-tclass", "tclass",
+			// TUN / INTERFACE (Linux)
+			"tun-device", "tun-name", "tun-type", "iff-no-pi", "no-pi",
+			"iff-up", "up", "iff-broadcast", "iff-debug", "iff-loopback", "loopback",
+			"iff-pointopoint", "pointopoint", "iff-running", "running",
+			"iff-noarp", "noarp", "iff-promisc", "promisc",
+			"iff-allmulti", "allmulti", "iff-multicast",
+			"if-mtu", "interface-mtu",
 		}
 		fmt.Fprintln(w)
 		fmt.Fprint(w, "b:")

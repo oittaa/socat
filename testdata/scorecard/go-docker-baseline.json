@@ -1,11 +1,11 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-08-10T07:15:48Z",
-    "hostname": "756247de4f18",
+    "timestamp": "2026-08-10T08:03:26Z",
+    "hostname": "0741e6a83962",
     "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.43",
     "socat": "/opt/go/socat",
-    "socat_version": "socat version 0.1.0-dev on 2026-08-10T07:15:48Z",
+    "socat_version": "socat version 0.1.0-dev on 2026-08-10T08:03:26Z",
     "test_sh": "/opt/classic-src/test.sh",
     "git": "",
     "out_dir": "/out",
@@ -14,9 +14,9 @@
     "shard_timeout": "7200"
   },
   "summary": {
-    "ok": 463,
-    "failed": 2,
-    "cant": 138,
+    "ok": 466,
+    "failed": 3,
+    "cant": 134,
     "timeout": 0,
     "unknown": 2,
     "total_recorded": 605,
@@ -1971,19 +1971,19 @@
       "id": 219,
       "name": "TUNREAD",
       "description": "reading data sent through tun interface",
-      "status": "CANT",
-      "detail": "tun not available",
+      "status": "FAILED",
+      "detail": "",
       "shard": 0,
-      "raw": "test 219 TUNREAD: reading data sent through tun interface... tun not available"
+      "raw": "test 219 TUNREAD: reading data sent through tun interface... FAILED"
     },
     "220": {
       "id": 220,
       "name": "TUNINTERFACE",
       "description": "pass data through tun interface using INTERFACE",
-      "status": "CANT",
-      "detail": "Feature TUN not configured in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 220 TUNINTERFACE: pass data through tun interface using INTERFACE... Feature TUN not configured in /opt/go/socat"
+      "raw": "test 220 TUNINTERFACE: pass data through tun interface using INTERFACE... OK"
     },
     "221": {
       "id": 221,
@@ -4320,10 +4320,10 @@
       "id": 480,
       "name": "INTERFACE_IGNOREOUTGOING",
       "description": "INTERFACE ignores outgoing packets",
-      "status": "CANT",
-      "detail": "TUN not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 480 INTERFACE_IGNOREOUTGOING: INTERFACE ignores outgoing packets... TUN not available"
+      "raw": "test 480 INTERFACE_IGNOREOUTGOING: INTERFACE ignores outgoing packets... OK"
     },
     "481": {
       "id": 481,
@@ -5409,10 +5409,10 @@
       "id": 601,
       "name": "TUN_MTU",
       "description": "Test the interface-mtu option on a TUN interface",
-      "status": "CANT",
-      "detail": "Feature TUN not configured in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 601 TUN_MTU: Test the interface-mtu option on a TUN interface... Feature TUN not configured in /opt/go/socat"
+      "raw": "test 601 TUN_MTU: Test the interface-mtu option on a TUN interface... OK"
     },
     "602": {
       "id": 602,

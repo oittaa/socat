@@ -66,7 +66,8 @@ Common options: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `
 | SOCKS4 / SOCKS4A / SOCKS5 / SOCKS5-CONNECT | SOCKS clients (`socksport`, `socksuser`, `sockspass`) |
 | ABSTRACT-LISTEN / ABSTRACT-CONNECT / … | Linux abstract UNIX namespace |
 | libwrap / TCP wrappers | pure-Go `hosts.allow` / `hosts.deny` (`WITH_LIBWRAP`) |
-| SCTP, DCCP, POSIXMQ, TUN, readline | **not** implemented (`#undef` in `-V`) |
+| TUN, INTERFACE | Linux TUN/TAP + AF_PACKET (`WITH_TUN`, `WITH_INTERFACE`; need CAP_NET_ADMIN) |
+| SCTP, DCCP, POSIXMQ, readline | **not** implemented (`#undef` in `-V`) |
 
 ### Options (honored)
 
@@ -76,6 +77,7 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 |------|---------|
 | Listen/connect | `reuseaddr`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `pf`, `ai-addrconfig`, `ipv6-v6only`, `backlog` |
 | Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport`, `tcpwrap` / `hosts-allow` / `hosts-deny` / `tcpwrap-etc` |
+| TUN / INTERFACE | `tun-name`, `tun-type`, `tun-device`, `iff-up`, `iff-no-pi`, `if-mtu` / `interface-mtu`, other `iff-*` flags |
 | Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `umask`, `nonblock` |
 | UNIX | `unlink-early`, `unlink-close` |
 | EXEC | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none`, `umask` (child inherits, then parent restores) |

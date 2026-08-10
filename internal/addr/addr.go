@@ -359,6 +359,9 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		"OPENSSL-L":        openOpenSSLListen,
 		"SSL-LISTEN":       openOpenSSLListen,
 		"SSL-L":            openOpenSSLListen,
+		// Linux TUN/TAP and AF_PACKET INTERFACE (need CAP_NET_ADMIN).
+		"TUN":       openTUN,
+		"INTERFACE": openINTERFACE,
 	}
 	fn, ok := openers[typ]
 	if !ok {

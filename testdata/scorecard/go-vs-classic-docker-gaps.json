@@ -1,6 +1,6 @@
 {
   "classic_docker_ok": 552,
-  "go_ok": 463,
+  "go_ok": 466,
   "parity_fail": [
     {
       "id": "146",
@@ -62,11 +62,6 @@
     {
       "id": "204",
       "name": "COOLSTDIO",
-      "status": "CANT"
-    },
-    {
-      "id": "220",
-      "name": "TUNINTERFACE",
       "status": "CANT"
     },
     {
@@ -222,11 +217,6 @@
     {
       "id": "479",
       "name": "CHILDREN_SHUTUP",
-      "status": "CANT"
-    },
-    {
-      "id": "480",
-      "name": "INTERFACE_IGNOREOUTGOING",
       "status": "CANT"
     },
     {
@@ -440,11 +430,6 @@
       "status": "CANT"
     },
     {
-      "id": "601",
-      "name": "TUN_MTU",
-      "status": "CANT"
-    },
-    {
       "id": "602",
       "name": "INTERACTIVE_SHELL",
       "status": "CANT"
@@ -456,7 +441,7 @@
     }
   ],
   "parity_other": [],
-  "parity_gap_total": 90,
+  "parity_gap_total": 87,
   "new_ok_vs_classic_docker": [
     {
       "id": "318",
