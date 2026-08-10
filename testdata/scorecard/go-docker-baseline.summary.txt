@@ -1,11 +1,11 @@
 label=go
-timestamp=2026-08-10T05:34:00Z
+timestamp=2026-08-10T06:29:09Z
 socat=/opt/go/socat
-socat_version=socat version 0.1.0-dev on 2026-08-10T05:34:00Z
+socat_version=socat version 0.1.0-dev on 2026-08-10T06:29:09Z
 environment=docker-ubuntu26.04-root
-ok=416
-failed=30
+ok=440
+failed=8
 cant=155
 timeout=0
-unknown=4
+unknown=2
 total_recorded=605

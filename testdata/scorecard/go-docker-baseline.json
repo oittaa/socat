@@ -1,11 +1,11 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-08-10T05:34:00Z",
-    "hostname": "ecb837f14733",
+    "timestamp": "2026-08-10T06:29:09Z",
+    "hostname": "ea7366977597",
     "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.43",
     "socat": "/opt/go/socat",
-    "socat_version": "socat version 0.1.0-dev on 2026-08-10T05:34:00Z",
+    "socat_version": "socat version 0.1.0-dev on 2026-08-10T06:29:09Z",
     "test_sh": "/opt/classic-src/test.sh",
     "git": "",
     "out_dir": "/out",
@@ -14,11 +14,11 @@
     "shard_timeout": "7200"
   },
   "summary": {
-    "ok": 416,
-    "failed": 30,
+    "ok": 440,
+    "failed": 8,
     "cant": 155,
     "timeout": 0,
-    "unknown": 4,
+    "unknown": 2,
     "total_recorded": 605,
     "shard_timeouts": []
   },
@@ -234,19 +234,19 @@
       "id": 24,
       "name": "RAWIP4SELF",
       "description": "simple echo via self receiving raw IPv4 protocol",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test  24 RAWIP4SELF: simple echo via self receiving raw IPv4 protocol... FAILED:"
+      "raw": "test  24 RAWIP4SELF: simple echo via self receiving raw IPv4 protocol... OK"
     },
     "25": {
       "id": 25,
       "name": "RAWIPX4SELF",
       "description": "simple echo via self receiving raw IP protocol, v4 by target",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test  25 RAWIPX4SELF: simple echo via self receiving raw IP protocol, v4 by target... FAILED:"
+      "raw": "test  25 RAWIPX4SELF: simple echo via self receiving raw IP protocol, v4 by target... OK"
     },
     "26": {
       "id": 26,
@@ -261,10 +261,10 @@
       "id": 27,
       "name": "RAWIPX6SELF",
       "description": "simple echo via self receiving raw IP protocol, v6 by target",
-      "status": "FAILED",
-      "detail": "/opt/go/socat:",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test  27 RAWIPX6SELF: simple echo via self receiving raw IP protocol, v6 by target... FAILED:  /opt/go/socat:"
+      "raw": "test  27 RAWIPX6SELF: simple echo via self receiving raw IP protocol, v6 by target... OK"
     },
     "28": {
       "id": 28,
@@ -810,28 +810,28 @@
       "id": 88,
       "name": "EXECCATNOFORK",
       "description": "simple echo via exec of cat with nofork",
-      "status": "FAILED",
-      "detail": "/opt/go/socat:",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test  88 EXECCATNOFORK: simple echo via exec of cat with nofork... FAILED:  /opt/go/socat:"
+      "raw": "test  88 EXECCATNOFORK: simple echo via exec of cat with nofork... OK"
     },
     "89": {
       "id": 89,
       "name": "SYSTEMCATNOFORK",
       "description": "simple echo via system() of cat with nofork",
-      "status": "FAILED",
-      "detail": "/opt/go/socat:",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test  89 SYSTEMCATNOFORK: simple echo via system() of cat with nofork... FAILED:  /opt/go/socat:"
+      "raw": "test  89 SYSTEMCATNOFORK: simple echo via system() of cat with nofork... OK"
     },
     "90": {
       "id": 90,
       "name": "NOFORKSETSID",
       "description": "simple echo via exec() of cat with nofork and setsid",
-      "status": "FAILED",
-      "detail": "/opt/go/socat:",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test  90 NOFORKSETSID: simple echo via exec() of cat with nofork and setsid... FAILED:  /opt/go/socat:"
+      "raw": "test  90 NOFORKSETSID: simple echo via exec() of cat with nofork and setsid... OK"
     },
     "91": {
       "id": 91,
@@ -1017,10 +1017,10 @@
       "id": 113,
       "name": "TCP6RANGE",
       "description": "security of TCP6-L with RANGE option",
-      "status": "OK",
-      "detail": "",
+      "status": "FAILED",
+      "detail": "NO RESULT (ph.2 client error):  /opt/go/socat:",
       "shard": 0,
-      "raw": "test 113 TCP6RANGE: security of TCP6-L with RANGE option... OK"
+      "raw": "test 113 TCP6RANGE: security of TCP6-L with RANGE option... NO RESULT (ph.2 client error):  /opt/go/socat:"
     },
     "114": {
       "id": 114,
@@ -1323,19 +1323,19 @@
       "id": 147,
       "name": "EXITCODESIGTERM",
       "description": "exit status when dying on SIGTERM",
-      "status": "UNKNOWN",
-      "detail": "/tmp/socat-shard-0.EHzku1/test.sh: line 6519: kill: (7786) - No such process",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 147 EXITCODESIGTERM: exit status when dying on SIGTERM... /tmp/socat-shard-0.EHzku1/test.sh: line 6519: kill: (7786) - No such process"
+      "raw": "test 147 EXITCODESIGTERM: exit status when dying on SIGTERM... OK"
     },
     "148": {
       "id": 148,
       "name": "EXITCODESIGILL",
       "description": "exit status when dying on SIGILL",
-      "status": "UNKNOWN",
-      "detail": "/tmp/socat-shard-0.EHzku1/test.sh: line 6519: kill: (7818) - No such process",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 148 EXITCODESIGILL: exit status when dying on SIGILL... /tmp/socat-shard-0.EHzku1/test.sh: line 6519: kill: (7818) - No such process"
+      "raw": "test 148 EXITCODESIGILL: exit status when dying on SIGILL... OK"
     },
     "149": {
       "id": 149,
@@ -1521,10 +1521,10 @@
       "id": 169,
       "name": "RAWIP4RECVFROM",
       "description": "raw IPv4 datagram",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 169 RAWIP4RECVFROM: raw IPv4 datagram... FAILED"
+      "raw": "test 169 RAWIP4RECVFROM: raw IPv4 datagram... OK"
     },
     "170": {
       "id": 170,
@@ -3195,82 +3195,82 @@
       "id": 355,
       "name": "CREATE_USER",
       "description": "CREATE applies option user",
-      "status": "FAILED",
-      "detail": "(user \"root\", expected \"ubuntu\")",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 355 CREATE_USER: CREATE applies option user... FAILED(user \"root\", expected \"ubuntu\")"
+      "raw": "test 355 CREATE_USER: CREATE applies option user... OK"
     },
     "356": {
       "id": 356,
       "name": "OPEN_USER",
       "description": "OPEN applies option user",
-      "status": "FAILED",
-      "detail": "(user \"root\", expected \"ubuntu\")",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 356 OPEN_USER: OPEN applies option user... FAILED(user \"root\", expected \"ubuntu\")"
+      "raw": "test 356 OPEN_USER: OPEN applies option user... OK"
     },
     "357": {
       "id": 357,
       "name": "GOPEN_USER",
       "description": "GOPEN applies option user",
-      "status": "FAILED",
-      "detail": "(user \"root\", expected \"ubuntu\")",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 357 GOPEN_USER: GOPEN applies option user... FAILED(user \"root\", expected \"ubuntu\")"
+      "raw": "test 357 GOPEN_USER: GOPEN applies option user... OK"
     },
     "358": {
       "id": 358,
       "name": "UNIX_LISTEN_USER",
       "description": "UNIX-LISTEN applies option user",
-      "status": "FAILED",
-      "detail": "(user \"root\", expected \"ubuntu\")",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 358 UNIX_LISTEN_USER: UNIX-LISTEN applies option user... FAILED(user \"root\", expected \"ubuntu\")"
+      "raw": "test 358 UNIX_LISTEN_USER: UNIX-LISTEN applies option user... OK"
     },
     "359": {
       "id": 359,
       "name": "UNIX_RECVFROM_USER",
       "description": "UNIX-RECVFROM applies option user",
-      "status": "FAILED",
-      "detail": "(user \"root\", expected \"ubuntu\")",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 359 UNIX_RECVFROM_USER: UNIX-RECVFROM applies option user... FAILED(user \"root\", expected \"ubuntu\")"
+      "raw": "test 359 UNIX_RECVFROM_USER: UNIX-RECVFROM applies option user... OK"
     },
     "360": {
       "id": 360,
       "name": "UNIX_RECV_USER",
       "description": "UNIX-RECV applies option user",
-      "status": "FAILED",
-      "detail": "(user \"root\", expected \"ubuntu\")",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 360 UNIX_RECV_USER: UNIX-RECV applies option user... FAILED(user \"root\", expected \"ubuntu\")"
+      "raw": "test 360 UNIX_RECV_USER: UNIX-RECV applies option user... OK"
     },
     "361": {
       "id": 361,
       "name": "PIPE_USER",
       "description": "PIPE applies option user",
-      "status": "FAILED",
-      "detail": "(user \"root\", expected \"ubuntu\")",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 361 PIPE_USER: PIPE applies option user... FAILED(user \"root\", expected \"ubuntu\")"
+      "raw": "test 361 PIPE_USER: PIPE applies option user... OK"
     },
     "362": {
       "id": 362,
       "name": "PTY_USER",
       "description": "PTY applies option user",
-      "status": "FAILED",
-      "detail": "(user \"root\", expected \"ubuntu\")",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 362 PTY_USER: PTY applies option user... FAILED(user \"root\", expected \"ubuntu\")"
+      "raw": "test 362 PTY_USER: PTY applies option user... OK"
     },
     "363": {
       "id": 363,
       "name": "UNIX_LISTEN_REMOVE",
       "description": "UNIX-LISTEN removes socket entry when terminated while waiting for connection",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 363 UNIX_LISTEN_REMOVE: UNIX-LISTEN removes socket entry when terminated while waiting for connection... FAILED"
+      "raw": "test 363 UNIX_LISTEN_REMOVE: UNIX-LISTEN removes socket entry when terminated while waiting for connection... OK"
     },
     "364": {
       "id": 364,
@@ -3285,46 +3285,46 @@
       "id": 365,
       "name": "UNIX_RECV_REMOVE",
       "description": "UNIX-RECV removes socket entry when terminated while waiting for connection",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 365 UNIX_RECV_REMOVE: UNIX-RECV removes socket entry when terminated while waiting for connection... FAILED"
+      "raw": "test 365 UNIX_RECV_REMOVE: UNIX-RECV removes socket entry when terminated while waiting for connection... OK"
     },
     "366": {
       "id": 366,
       "name": "PIPE_REMOVE",
       "description": "PIPE removes socket entry when terminated while waiting for connection",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 366 PIPE_REMOVE: PIPE removes socket entry when terminated while waiting for connection... FAILED"
+      "raw": "test 366 PIPE_REMOVE: PIPE removes socket entry when terminated while waiting for connection... OK"
     },
     "367": {
       "id": 367,
       "name": "PTY_REMOVE",
       "description": "PTY removes socket entry when terminated while waiting for connection",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 367 PTY_REMOVE: PTY removes socket entry when terminated while waiting for connection... FAILED"
+      "raw": "test 367 PTY_REMOVE: PTY removes socket entry when terminated while waiting for connection... OK"
     },
     "368": {
       "id": 368,
       "name": "UNIX_LISTEN_REMOVE_FORK",
       "description": "UNIX-LISTEN with fork removes socket entry when terminated during accept",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 368 UNIX_LISTEN_REMOVE_FORK: UNIX-LISTEN with fork removes socket entry when terminated during accept... FAILED"
+      "raw": "test 368 UNIX_LISTEN_REMOVE_FORK: UNIX-LISTEN with fork removes socket entry when terminated during accept... OK"
     },
     "369": {
       "id": 369,
       "name": "UNIX_RECVFROM_REMOVE_FORK",
       "description": "UNIX-RECVFROM with fork removes socket entry when terminated during accept",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 369 UNIX_RECVFROM_REMOVE_FORK: UNIX-RECVFROM with fork removes socket entry when terminated during accept... FAILED"
+      "raw": "test 369 UNIX_RECVFROM_REMOVE_FORK: UNIX-RECVFROM with fork removes socket entry when terminated during accept... OK"
     },
     "370": {
       "id": 370,
@@ -3465,10 +3465,10 @@
       "id": 385,
       "name": "EXEC_NOFORK_UNIDIR",
       "description": "Programs invoked with EXEC, nofork, and -u or -U had stdin and stdout assignment swapped",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 385 EXEC_NOFORK_UNIDIR: Programs invoked with EXEC, nofork, and -u or -U had stdin and stdout assignment swapped... FAILED"
+      "raw": "test 385 EXEC_NOFORK_UNIDIR: Programs invoked with EXEC, nofork, and -u or -U had stdin and stdout assignment swapped... OK"
     },
     "386": {
       "id": 386,
@@ -4284,10 +4284,10 @@
       "id": 476,
       "name": "VARS_IN_SNIFFPATH",
       "description": "sniff file names with variables",
-      "status": "FAILED",
-      "detail": "(unknown)",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 476 VARS_IN_SNIFFPATH: sniff file names with variables... FAILED (unknown)"
+      "raw": "test 476 VARS_IN_SNIFFPATH: sniff file names with variables... OK"
     },
     "477": {
       "id": 477,
@@ -4373,20 +4373,20 @@
     "486": {
       "id": 486,
       "name": "NETNS",
-      "description": "option netns (net namespace socat-336-test486)",
+      "description": "option netns (net namespace socat-337-test486)",
       "status": "CANT",
       "detail": "Feature NAMESPACES not available",
       "shard": 0,
-      "raw": "test 486 NETNS: option netns (net namespace socat-336-test486)... Feature NAMESPACES not available"
+      "raw": "test 486 NETNS: option netns (net namespace socat-337-test486)... Feature NAMESPACES not available"
     },
     "487": {
       "id": 487,
       "name": "NETNS_EXEC",
-      "description": "option netns with EXEC (net namespace socat-336-test487)",
+      "description": "option netns with EXEC (net namespace socat-337-test487)",
       "status": "CANT",
       "detail": "Feature NAMESPACES not available",
       "shard": 0,
-      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-336-test487)... Feature NAMESPACES not available"
+      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-337-test487)... Feature NAMESPACES not available"
     },
     "488": {
       "id": 488,

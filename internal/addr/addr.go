@@ -618,32 +618,50 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 				g.Log.Errorf("wrap accept: %s", err)
 				return
 			}
-			// Classic RECVFROM,fork creates a socketpair per child (FD-leak tests).
-			sp0, sp1, spErr := unixSocketpairLogged(g)
-			if spErr != nil {
-				g.Log.Errorf("socketpair: %s", spErr)
-				return
-			}
 			ro, err := OpenChannel(ctx, right, rMode, &cg)
 			if err != nil {
 				// Classic greps `E open(` for RECVFROM_FORK_LOOP — no "right address:" prefix.
 				g.Log.Errorf("%s", err)
-				sp0.Close()
-				sp1.Close()
 				return
 			}
-			// Bridge: left (datagram session) ↔ socketpair ↔ right address.
-			go func() {
-				defer sp1.Close()
-				defer ro.Close()
-				_ = transferStreams(ctx, fileStream(sp1), ro.EffectiveStream(), &cg)
-			}()
-			defer sp0.Close()
-			if err := transferStreams(ctx, leftStream, fileStream(sp0), &cg); err != nil {
+			// Classic RECVFROM,fork creates a socketpair per child (FD-leak / loop tests).
+			// Stream listens (TCP-LISTEN,fork PIPE) transfer directly — a bridge would
+			// open -r/-R sniff files twice per session (VARS_IN_SNIFFPATH expects 4 files
+			// for 2 clients, not 8).
+			if needsForkSocketpair(lo) {
+				sp0, sp1, spErr := unixSocketpairLogged(g)
+				if spErr != nil {
+					g.Log.Errorf("socketpair: %s", spErr)
+					ro.Close()
+					return
+				}
+				go func() {
+					defer sp1.Close()
+					defer ro.Close()
+					_ = transferStreams(ctx, fileStream(sp1), ro.EffectiveStream(), &cg)
+				}()
+				defer sp0.Close()
+				if err := transferStreams(ctx, leftStream, fileStream(sp0), &cg); err != nil {
+					g.Log.Debugf("transfer: %s", err)
+				}
+				return
+			}
+			defer ro.Close()
+			if err := transferStreams(ctx, leftStream, ro.EffectiveStream(), &cg); err != nil {
 				g.Log.Debugf("transfer: %s", err)
 			}
 		}(conn)
 	}
+}
+
+// needsForkSocketpair is true for datagram RECVFROM,fork (classic creates a
+// socketpair per child). Stream acceptors transfer the accepted conn directly.
+func needsForkSocketpair(lo *Opened) bool {
+	if lo == nil {
+		return false
+	}
+	lab := strings.ToUpper(lo.Label)
+	return strings.Contains(lab, "RECVFROM")
 }
 
 func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {

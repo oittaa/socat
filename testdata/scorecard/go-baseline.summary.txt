@@ -1,11 +1,11 @@
 label=go
-timestamp=2026-08-09T19:42:44Z
+timestamp=2026-08-10T06:24:51Z
 socat=/home/eero/src/socat/socat
-socat_version=socat version 0.1.0-dev on 2026-08-09T19:42:44Z
-git=5199001
-ok=368
-failed=11
-cant=224
+socat_version=socat version 0.1.0-dev on 2026-08-10T06:24:51Z
+git=43bbbac
+ok=399
+failed=3
+cant=201
 timeout=0
 unknown=2
 total_recorded=605

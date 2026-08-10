@@ -1,45 +1,15 @@
 {
   "classic_docker_ok": 552,
-  "go_ok": 416,
+  "go_ok": 440,
   "parity_fail": [
     {
-      "id": "24",
-      "name": "RAWIP4SELF",
-      "status": "FAILED"
-    },
-    {
-      "id": "25",
-      "name": "RAWIPX4SELF",
-      "status": "FAILED"
-    },
-    {
-      "id": "27",
-      "name": "RAWIPX6SELF",
-      "status": "FAILED"
-    },
-    {
-      "id": "88",
-      "name": "EXECCATNOFORK",
-      "status": "FAILED"
-    },
-    {
-      "id": "89",
-      "name": "SYSTEMCATNOFORK",
-      "status": "FAILED"
-    },
-    {
-      "id": "90",
-      "name": "NOFORKSETSID",
+      "id": "113",
+      "name": "TCP6RANGE",
       "status": "FAILED"
     },
     {
       "id": "146",
       "name": "OPENSSLLISTENDSA",
-      "status": "FAILED"
-    },
-    {
-      "id": "169",
-      "name": "RAWIP4RECVFROM",
       "status": "FAILED"
     },
     {
@@ -58,88 +28,8 @@
       "status": "FAILED"
     },
     {
-      "id": "355",
-      "name": "CREATE_USER",
-      "status": "FAILED"
-    },
-    {
-      "id": "356",
-      "name": "OPEN_USER",
-      "status": "FAILED"
-    },
-    {
-      "id": "357",
-      "name": "GOPEN_USER",
-      "status": "FAILED"
-    },
-    {
-      "id": "358",
-      "name": "UNIX_LISTEN_USER",
-      "status": "FAILED"
-    },
-    {
-      "id": "359",
-      "name": "UNIX_RECVFROM_USER",
-      "status": "FAILED"
-    },
-    {
-      "id": "360",
-      "name": "UNIX_RECV_USER",
-      "status": "FAILED"
-    },
-    {
-      "id": "361",
-      "name": "PIPE_USER",
-      "status": "FAILED"
-    },
-    {
-      "id": "362",
-      "name": "PTY_USER",
-      "status": "FAILED"
-    },
-    {
-      "id": "363",
-      "name": "UNIX_LISTEN_REMOVE",
-      "status": "FAILED"
-    },
-    {
-      "id": "365",
-      "name": "UNIX_RECV_REMOVE",
-      "status": "FAILED"
-    },
-    {
-      "id": "366",
-      "name": "PIPE_REMOVE",
-      "status": "FAILED"
-    },
-    {
-      "id": "367",
-      "name": "PTY_REMOVE",
-      "status": "FAILED"
-    },
-    {
-      "id": "368",
-      "name": "UNIX_LISTEN_REMOVE_FORK",
-      "status": "FAILED"
-    },
-    {
-      "id": "369",
-      "name": "UNIX_RECVFROM_REMOVE_FORK",
-      "status": "FAILED"
-    },
-    {
-      "id": "385",
-      "name": "EXEC_NOFORK_UNIDIR",
-      "status": "FAILED"
-    },
-    {
       "id": "465",
       "name": "FILAN_SHORT_TCP",
-      "status": "FAILED"
-    },
-    {
-      "id": "476",
-      "name": "VARS_IN_SNIFFPATH",
       "status": "FAILED"
     },
     {
@@ -680,19 +570,8 @@
       "status": "CANT"
     }
   ],
-  "parity_other": [
-    {
-      "id": "147",
-      "name": "EXITCODESIGTERM",
-      "status": "UNKNOWN"
-    },
-    {
-      "id": "148",
-      "name": "EXITCODESIGILL",
-      "status": "UNKNOWN"
-    }
-  ],
-  "parity_gap_total": 137,
+  "parity_other": [],
+  "parity_gap_total": 113,
   "new_ok_vs_classic_docker": [
     {
       "id": "318",

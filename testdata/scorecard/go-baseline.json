@@ -1,22 +1,22 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-08-09T19:42:44Z",
+    "timestamp": "2026-08-10T06:24:51Z",
     "hostname": "gmktec",
     "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.39",
     "socat": "/home/eero/src/socat/socat",
-    "socat_version": "socat version 0.1.0-dev on 2026-08-09T19:42:44Z",
+    "socat_version": "socat version 0.1.0-dev on 2026-08-10T06:24:51Z",
     "test_sh": "/tmp/socat-1.8.1.3/test.sh",
-    "git": "5199001",
-    "out_dir": ".classic-scorecard",
+    "git": "43bbbac",
+    "out_dir": "/home/eero/src/socat/.classic-scorecard-host",
     "val_t": "auto",
     "jobs": "1",
     "shard_timeout": "7200"
   },
   "summary": {
-    "ok": 368,
-    "failed": 11,
-    "cant": 224,
+    "ok": 399,
+    "failed": 3,
+    "cant": 201,
     "timeout": 0,
     "unknown": 2,
     "total_recorded": 605,
@@ -235,36 +235,36 @@
       "name": "RAWIP4SELF",
       "description": "simple echo via self receiving raw IPv4 protocol",
       "status": "CANT",
-      "detail": "RAWIP not available",
+      "detail": "must be root",
       "shard": 0,
-      "raw": "test  24 RAWIP4SELF: simple echo via self receiving raw IPv4 protocol... RAWIP not available"
+      "raw": "test  24 RAWIP4SELF: simple echo via self receiving raw IPv4 protocol... must be root"
     },
     "25": {
       "id": 25,
       "name": "RAWIPX4SELF",
       "description": "simple echo via self receiving raw IP protocol, v4 by target",
       "status": "CANT",
-      "detail": "RAWIP not available",
+      "detail": "must be root",
       "shard": 0,
-      "raw": "test  25 RAWIPX4SELF: simple echo via self receiving raw IP protocol, v4 by target... RAWIP not available"
+      "raw": "test  25 RAWIPX4SELF: simple echo via self receiving raw IP protocol, v4 by target... must be root"
     },
     "26": {
       "id": 26,
       "name": "RAWIP6SELF",
       "description": "simple echo via self receiving raw IPv6 protocol",
       "status": "CANT",
-      "detail": "RAWIP not available",
+      "detail": "must be root",
       "shard": 0,
-      "raw": "test  26 RAWIP6SELF: simple echo via self receiving raw IPv6 protocol... RAWIP not available"
+      "raw": "test  26 RAWIP6SELF: simple echo via self receiving raw IPv6 protocol... must be root"
     },
     "27": {
       "id": 27,
       "name": "RAWIPX6SELF",
       "description": "simple echo via self receiving raw IP protocol, v6 by target",
       "status": "CANT",
-      "detail": "RAWIP not available",
+      "detail": "must be root",
       "shard": 0,
-      "raw": "test  27 RAWIPX6SELF: simple echo via self receiving raw IP protocol, v6 by target... RAWIP not available"
+      "raw": "test  27 RAWIPX6SELF: simple echo via self receiving raw IP protocol, v6 by target... must be root"
     },
     "28": {
       "id": 28,
@@ -1323,19 +1323,19 @@
       "id": 147,
       "name": "EXITCODESIGTERM",
       "description": "exit status when dying on SIGTERM",
-      "status": "FAILED",
-      "detail": "/tmp/socat-shard-0.GjTH8Q/test.sh: line 6519: kill: (2790456) - No such process",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 147 EXITCODESIGTERM: exit status when dying on SIGTERM... /tmp/socat-shard-0.GjTH8Q/test.sh: line 6519: kill: (2790456) - No such process"
+      "raw": "test 147 EXITCODESIGTERM: exit status when dying on SIGTERM... OK"
     },
     "148": {
       "id": 148,
       "name": "EXITCODESIGILL",
       "description": "exit status when dying on SIGILL",
-      "status": "FAILED",
-      "detail": "/tmp/socat-shard-0.GjTH8Q/test.sh: line 6519: kill: (2790492) - No such process",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 148 EXITCODESIGILL: exit status when dying on SIGILL... /tmp/socat-shard-0.GjTH8Q/test.sh: line 6519: kill: (2790492) - No such process"
+      "raw": "test 148 EXITCODESIGILL: exit status when dying on SIGILL... OK"
     },
     "149": {
       "id": 149,
@@ -1431,10 +1431,10 @@
       "id": 159,
       "name": "UNIXTODGRAM",
       "description": "generic UNIX client connects to datagram socket",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 159 UNIXTODGRAM: generic UNIX client connects to datagram socket... FAILED:"
+      "raw": "test 159 UNIXTODGRAM: generic UNIX client connects to datagram socket... OK"
     },
     "160": {
       "id": 160,
@@ -1567,9 +1567,9 @@
       "name": "RAWIP6RECV",
       "description": "raw IPv6 receive",
       "status": "CANT",
-      "detail": "rawip not available",
+      "detail": "must be root",
       "shard": 0,
-      "raw": "test 174 RAWIP6RECV: raw IPv6 receive... rawip not available"
+      "raw": "test 174 RAWIP6RECV: raw IPv6 receive... must be root"
     },
     "175": {
       "id": 175,
@@ -1729,72 +1729,72 @@
       "name": "IP4RECVFROM_RANGE",
       "description": "security of IP4-RECVFROM with RANGE option",
       "status": "CANT",
-      "detail": "rawip not available",
+      "detail": "must be root",
       "shard": 0,
-      "raw": "test 192 IP4RECVFROM_RANGE: security of IP4-RECVFROM with RANGE option... rawip not available"
+      "raw": "test 192 IP4RECVFROM_RANGE: security of IP4-RECVFROM with RANGE option... must be root"
     },
     "193": {
       "id": 193,
       "name": "IP4RECVFROM_TCPWRAP",
       "description": "security of IP4-RECVFROM with TCPWRAP option",
       "status": "CANT",
-      "detail": "rawip not available",
+      "detail": "libwrap not available",
       "shard": 0,
-      "raw": "test 193 IP4RECVFROM_TCPWRAP: security of IP4-RECVFROM with TCPWRAP option... rawip not available"
+      "raw": "test 193 IP4RECVFROM_TCPWRAP: security of IP4-RECVFROM with TCPWRAP option... libwrap not available"
     },
     "194": {
       "id": 194,
       "name": "IP4RECV_RANGE",
       "description": "security of IP4-RECV with RANGE option",
       "status": "CANT",
-      "detail": "IP4 not available",
+      "detail": "must be root",
       "shard": 0,
-      "raw": "test 194 IP4RECV_RANGE: security of IP4-RECV with RANGE option... IP4 not available"
+      "raw": "test 194 IP4RECV_RANGE: security of IP4-RECV with RANGE option... must be root"
     },
     "195": {
       "id": 195,
       "name": "IP4RECV_TCPWRAP",
       "description": "security of IP4-RECV with TCPWRAP option",
       "status": "CANT",
-      "detail": "rawip not available",
+      "detail": "libwrap not available",
       "shard": 0,
-      "raw": "test 195 IP4RECV_TCPWRAP: security of IP4-RECV with TCPWRAP option... rawip not available"
+      "raw": "test 195 IP4RECV_TCPWRAP: security of IP4-RECV with TCPWRAP option... libwrap not available"
     },
     "196": {
       "id": 196,
       "name": "IP6RECVFROM_RANGE",
       "description": "security of IP6-RECVFROM with RANGE option",
       "status": "CANT",
-      "detail": "rawip not available",
+      "detail": "must be root",
       "shard": 0,
-      "raw": "test 196 IP6RECVFROM_RANGE: security of IP6-RECVFROM with RANGE option... rawip not available"
+      "raw": "test 196 IP6RECVFROM_RANGE: security of IP6-RECVFROM with RANGE option... must be root"
     },
     "197": {
       "id": 197,
       "name": "IP6RECVFROM_TCPWRAP",
       "description": "security of IP6-RECVFROM with TCPWRAP option",
       "status": "CANT",
-      "detail": "rawip not available",
+      "detail": "libwrap not available",
       "shard": 0,
-      "raw": "test 197 IP6RECVFROM_TCPWRAP: security of IP6-RECVFROM with TCPWRAP option... rawip not available"
+      "raw": "test 197 IP6RECVFROM_TCPWRAP: security of IP6-RECVFROM with TCPWRAP option... libwrap not available"
     },
     "198": {
       "id": 198,
       "name": "IP6RECV_RANGE",
       "description": "security of IP6-RECV with RANGE option",
       "status": "CANT",
-      "detail": "raw IP6 not available",
+      "detail": "must be root",
       "shard": 0,
-      "raw": "test 198 IP6RECV_RANGE: security of IP6-RECV with RANGE option... raw IP6 not available"
+      "raw": "test 198 IP6RECV_RANGE: security of IP6-RECV with RANGE option... must be root"
     },
     "199": {
       "id": 199,
       "name": "IP6RECV_TCPWRAP",
       "description": "security of IP6-RECV with TCPWRAP option",
       "status": "CANT",
-      "detail": "rawip not available",
+      "detail": "libwrap not available",
       "shard": 0,
-      "raw": "test 199 IP6RECV_TCPWRAP: security of IP6-RECV with TCPWRAP option... rawip not available"
+      "raw": "test 199 IP6RECV_TCPWRAP: security of IP6-RECV with TCPWRAP option... libwrap not available"
     },
     "200": {
       "id": 200,
@@ -1918,9 +1918,9 @@
       "name": "IP4BROADCAST",
       "description": "raw IPv4 broadcast",
       "status": "CANT",
-      "detail": "raw IP4 not available",
+      "detail": "must be root",
       "shard": 0,
-      "raw": "test 213 IP4BROADCAST: raw IPv4 broadcast... raw IP4 not available"
+      "raw": "test 213 IP4BROADCAST: raw IPv4 broadcast... must be root"
     },
     "214": {
       "id": 214,
@@ -1936,9 +1936,9 @@
       "name": "IP4MULTICAST_UNIDIR",
       "description": "IPv4 multicast",
       "status": "CANT",
-      "detail": "rawip not available",
+      "detail": "must be root",
       "shard": 0,
-      "raw": "test 215 IP4MULTICAST_UNIDIR: IPv4 multicast... rawip not available"
+      "raw": "test 215 IP4MULTICAST_UNIDIR: IPv4 multicast... must be root"
     },
     "216": {
       "id": 216,
@@ -1963,9 +1963,9 @@
       "name": "IP4MULTICAST_BIDIR",
       "description": "IPv4 multicast, with reply",
       "status": "CANT",
-      "detail": "rawip not available",
+      "detail": "must be root",
       "shard": 0,
-      "raw": "test 218 IP4MULTICAST_BIDIR: IPv4 multicast, with reply... rawip not available"
+      "raw": "test 218 IP4MULTICAST_BIDIR: IPv4 multicast, with reply... must be root"
     },
     "219": {
       "id": 219,
@@ -1998,19 +1998,19 @@
       "id": 222,
       "name": "ABSTRACTDGRAM",
       "description": "abstract UNIX datagram",
-      "status": "FAILED",
-      "detail": "/home/eero/src/socat/socat:",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 222 ABSTRACTDGRAM: abstract UNIX datagram... FAILED:  /home/eero/src/socat/socat:"
+      "raw": "test 222 ABSTRACTDGRAM: abstract UNIX datagram... OK"
     },
     "223": {
       "id": 223,
       "name": "ABSTRACTRECV",
       "description": "abstract UNIX datagram receive",
-      "status": "FAILED",
-      "detail": "/home/eero/src/socat/socat:",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 223 ABSTRACTRECV: abstract UNIX datagram receive... FAILED:  /home/eero/src/socat/socat:"
+      "raw": "test 223 ABSTRACTRECV: abstract UNIX datagram receive... OK"
     },
     "224": {
       "id": 224,
@@ -2151,64 +2151,64 @@
       "id": 239,
       "name": "UDP4SCM_IP_OPTIONS",
       "description": "UDP4 log ancillary message IP_OPTIONS options",
-      "status": "CANT",
-      "detail": "option ip-recvopts not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 239 UDP4SCM_IP_OPTIONS: UDP4 log ancillary message IP_OPTIONS options... option ip-recvopts not available"
+      "raw": "test 239 UDP4SCM_IP_OPTIONS: UDP4 log ancillary message IP_OPTIONS options... OK"
     },
     "240": {
       "id": 240,
       "name": "UDP4SCM_SCM_TIMESTAMP",
       "description": "UDP4 log ancillary message SCM_TIMESTAMP timestamp",
-      "status": "CANT",
-      "detail": "option so-timestamp not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 240 UDP4SCM_SCM_TIMESTAMP: UDP4 log ancillary message SCM_TIMESTAMP timestamp... option so-timestamp not available"
+      "raw": "test 240 UDP4SCM_SCM_TIMESTAMP: UDP4 log ancillary message SCM_TIMESTAMP timestamp... OK"
     },
     "241": {
       "id": 241,
       "name": "UDP4SCM_IP_TTL",
       "description": "UDP4 log ancillary message IP_TTL ttl",
-      "status": "CANT",
-      "detail": "option ip-recvttl not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 241 UDP4SCM_IP_TTL: UDP4 log ancillary message IP_TTL ttl... option ip-recvttl not available"
+      "raw": "test 241 UDP4SCM_IP_TTL: UDP4 log ancillary message IP_TTL ttl... OK"
     },
     "242": {
       "id": 242,
       "name": "UDP4SCM_IP_TOS",
       "description": "UDP4 log ancillary message IP_TOS tos",
-      "status": "CANT",
-      "detail": "option ip-recvtos not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 242 UDP4SCM_IP_TOS: UDP4 log ancillary message IP_TOS tos... option ip-recvtos not available"
+      "raw": "test 242 UDP4SCM_IP_TOS: UDP4 log ancillary message IP_TOS tos... OK"
     },
     "243": {
       "id": 243,
       "name": "UDP4SCM_IP_PKTINFO",
       "description": "UDP4 log ancillary message IP_PKTINFO locaddr",
-      "status": "CANT",
-      "detail": "option ip-pktinfo not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 243 UDP4SCM_IP_PKTINFO: UDP4 log ancillary message IP_PKTINFO locaddr... option ip-pktinfo not available"
+      "raw": "test 243 UDP4SCM_IP_PKTINFO: UDP4 log ancillary message IP_PKTINFO locaddr... OK"
     },
     "244": {
       "id": 244,
       "name": "UDP4SCM_IP_PKTINFO",
       "description": "UDP4 log ancillary message IP_PKTINFO dstaddr",
-      "status": "CANT",
-      "detail": "option ip-pktinfo not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 244 UDP4SCM_IP_PKTINFO: UDP4 log ancillary message IP_PKTINFO dstaddr... option ip-pktinfo not available"
+      "raw": "test 244 UDP4SCM_IP_PKTINFO: UDP4 log ancillary message IP_PKTINFO dstaddr... OK"
     },
     "245": {
       "id": 245,
       "name": "UDP4SCM_IP_PKTINFO",
       "description": "UDP4 log ancillary message IP_PKTINFO if",
-      "status": "CANT",
-      "detail": "option ip-pktinfo not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 245 UDP4SCM_IP_PKTINFO: UDP4 log ancillary message IP_PKTINFO if... option ip-pktinfo not available"
+      "raw": "test 245 UDP4SCM_IP_PKTINFO: UDP4 log ancillary message IP_PKTINFO if... OK"
     },
     "246": {
       "id": 246,
@@ -2313,37 +2313,37 @@
       "id": 257,
       "name": "UDP6SCM_SCM_TIMESTAMP",
       "description": "UDP6 log ancillary message SCM_TIMESTAMP timestamp",
-      "status": "CANT",
-      "detail": "option so-timestamp not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 257 UDP6SCM_SCM_TIMESTAMP: UDP6 log ancillary message SCM_TIMESTAMP timestamp... option so-timestamp not available"
+      "raw": "test 257 UDP6SCM_SCM_TIMESTAMP: UDP6 log ancillary message SCM_TIMESTAMP timestamp... OK"
     },
     "258": {
       "id": 258,
       "name": "UDP6SCM_IPV6_PKTINFO",
       "description": "UDP6 log ancillary message IPV6_PKTINFO dstaddr",
-      "status": "CANT",
-      "detail": "option ipv6-recvpktinfo not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 258 UDP6SCM_IPV6_PKTINFO: UDP6 log ancillary message IPV6_PKTINFO dstaddr... option ipv6-recvpktinfo not available"
+      "raw": "test 258 UDP6SCM_IPV6_PKTINFO: UDP6 log ancillary message IPV6_PKTINFO dstaddr... OK"
     },
     "259": {
       "id": 259,
       "name": "UDP6SCM_IPV6_HOPLIMIT",
       "description": "UDP6 log ancillary message IPV6_HOPLIMIT hoplimit",
-      "status": "CANT",
-      "detail": "option ipv6-recvhoplimit not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 259 UDP6SCM_IPV6_HOPLIMIT: UDP6 log ancillary message IPV6_HOPLIMIT hoplimit... option ipv6-recvhoplimit not available"
+      "raw": "test 259 UDP6SCM_IPV6_HOPLIMIT: UDP6 log ancillary message IPV6_HOPLIMIT hoplimit... OK"
     },
     "260": {
       "id": 260,
       "name": "UDP6SCM_IPV6_TCLASS",
       "description": "UDP6 log ancillary message IPV6_TCLASS tclass",
-      "status": "CANT",
-      "detail": "option ipv6-recvtclass not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 260 UDP6SCM_IPV6_TCLASS: UDP6 log ancillary message IPV6_TCLASS tclass... option ipv6-recvtclass not available"
+      "raw": "test 260 UDP6SCM_IPV6_TCLASS: UDP6 log ancillary message IPV6_TCLASS tclass... OK"
     },
     "261": {
       "id": 261,
@@ -2439,64 +2439,64 @@
       "id": 271,
       "name": "UDP4ENV_IP_OPTIONS",
       "description": "UDP4 ancillary message sets env SOCAT_IP_OPTIONS",
-      "status": "CANT",
-      "detail": "ip-recvopts not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 271 UDP4ENV_IP_OPTIONS: UDP4 ancillary message sets env SOCAT_IP_OPTIONS... ip-recvopts not available"
+      "raw": "test 271 UDP4ENV_IP_OPTIONS: UDP4 ancillary message sets env SOCAT_IP_OPTIONS... OK"
     },
     "272": {
       "id": 272,
       "name": "UDP4ENV_TIMESTAMP",
       "description": "UDP4 ancillary message sets env SOCAT_TIMESTAMP",
-      "status": "CANT",
-      "detail": "so-timestamp not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 272 UDP4ENV_TIMESTAMP: UDP4 ancillary message sets env SOCAT_TIMESTAMP... so-timestamp not available"
+      "raw": "test 272 UDP4ENV_TIMESTAMP: UDP4 ancillary message sets env SOCAT_TIMESTAMP... OK"
     },
     "273": {
       "id": 273,
       "name": "UDP4ENV_IP_TTL",
       "description": "UDP4 ancillary message sets env SOCAT_IP_TTL",
-      "status": "CANT",
-      "detail": "ip-recvttl not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 273 UDP4ENV_IP_TTL: UDP4 ancillary message sets env SOCAT_IP_TTL... ip-recvttl not available"
+      "raw": "test 273 UDP4ENV_IP_TTL: UDP4 ancillary message sets env SOCAT_IP_TTL... OK"
     },
     "274": {
       "id": 274,
       "name": "UDP4ENV_IP_TOS",
       "description": "UDP4 ancillary message sets env SOCAT_IP_TOS",
-      "status": "CANT",
-      "detail": "ip-recvtos not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 274 UDP4ENV_IP_TOS: UDP4 ancillary message sets env SOCAT_IP_TOS... ip-recvtos not available"
+      "raw": "test 274 UDP4ENV_IP_TOS: UDP4 ancillary message sets env SOCAT_IP_TOS... OK"
     },
     "275": {
       "id": 275,
       "name": "UDP4ENV_IP_LOCADDR",
       "description": "UDP4 ancillary message sets env SOCAT_IP_LOCADDR",
-      "status": "CANT",
-      "detail": "ip-pktinfo not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 275 UDP4ENV_IP_LOCADDR: UDP4 ancillary message sets env SOCAT_IP_LOCADDR... ip-pktinfo not available"
+      "raw": "test 275 UDP4ENV_IP_LOCADDR: UDP4 ancillary message sets env SOCAT_IP_LOCADDR... OK"
     },
     "276": {
       "id": 276,
       "name": "UDP4ENV_IP_DSTADDR",
       "description": "UDP4 ancillary message sets env SOCAT_IP_DSTADDR",
-      "status": "CANT",
-      "detail": "ip-pktinfo not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 276 UDP4ENV_IP_DSTADDR: UDP4 ancillary message sets env SOCAT_IP_DSTADDR... ip-pktinfo not available"
+      "raw": "test 276 UDP4ENV_IP_DSTADDR: UDP4 ancillary message sets env SOCAT_IP_DSTADDR... OK"
     },
     "277": {
       "id": 277,
       "name": "UDP4ENV_IP_IF",
       "description": "UDP4 ancillary message sets env SOCAT_IP_IF",
-      "status": "CANT",
-      "detail": "ip-pktinfo not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 277 UDP4ENV_IP_IF: UDP4 ancillary message sets env SOCAT_IP_IF... ip-pktinfo not available"
+      "raw": "test 277 UDP4ENV_IP_IF: UDP4 ancillary message sets env SOCAT_IP_IF... OK"
     },
     "278": {
       "id": 278,
@@ -2601,28 +2601,28 @@
       "id": 289,
       "name": "UDP6ENV_IPV6_DSTADDR",
       "description": "UDP6 ancillary message sets env SOCAT_IPV6_DSTADDR",
-      "status": "CANT",
-      "detail": "ipv6-recvpktinfo not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 289 UDP6ENV_IPV6_DSTADDR: UDP6 ancillary message sets env SOCAT_IPV6_DSTADDR... ipv6-recvpktinfo not available"
+      "raw": "test 289 UDP6ENV_IPV6_DSTADDR: UDP6 ancillary message sets env SOCAT_IPV6_DSTADDR... OK"
     },
     "290": {
       "id": 290,
       "name": "UDP6ENV_IPV6_HOPLIMIT",
       "description": "UDP6 ancillary message sets env SOCAT_IPV6_HOPLIMIT",
-      "status": "CANT",
-      "detail": "ipv6-recvhoplimit not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 290 UDP6ENV_IPV6_HOPLIMIT: UDP6 ancillary message sets env SOCAT_IPV6_HOPLIMIT... ipv6-recvhoplimit not available"
+      "raw": "test 290 UDP6ENV_IPV6_HOPLIMIT: UDP6 ancillary message sets env SOCAT_IPV6_HOPLIMIT... OK"
     },
     "291": {
       "id": 291,
       "name": "UDP6ENV_IPV6_TCLASS",
       "description": "UDP6 ancillary message sets env SOCAT_IPV6_TCLASS",
-      "status": "CANT",
-      "detail": "ipv6-recvtclass not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 291 UDP6ENV_IPV6_TCLASS: UDP6 ancillary message sets env SOCAT_IPV6_TCLASS... ipv6-recvtclass not available"
+      "raw": "test 291 UDP6ENV_IPV6_TCLASS: UDP6 ancillary message sets env SOCAT_IPV6_TCLASS... OK"
     },
     "292": {
       "id": 292,
@@ -2952,10 +2952,10 @@
       "id": 328,
       "name": "LISTEN_KEEPALIVE",
       "description": "keepalive option is applied to connection socket",
-      "status": "FAILED",
-      "detail": "NO RESULT",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 328 LISTEN_KEEPALIVE: keepalive option is applied to connection socket... NO RESULT"
+      "raw": "test 328 LISTEN_KEEPALIVE: keepalive option is applied to connection socket... OK"
     },
     "329": {
       "id": 329,
@@ -4185,10 +4185,10 @@
       "id": 465,
       "name": "FILAN_SHORT_TCP",
       "description": "filan -s displays TCP etc",
-      "status": "CANT",
-      "detail": "Option nofork not available in /home/eero/src/socat/socat",
+      "status": "FAILED",
+      "detail": "",
       "shard": 0,
-      "raw": "test 465 FILAN_SHORT_TCP: filan -s displays TCP etc... Option nofork not available in /home/eero/src/socat/socat"
+      "raw": "test 465 FILAN_SHORT_TCP: filan -s displays TCP etc... FAILED"
     },
     "466": {
       "id": 466,
@@ -4373,20 +4373,20 @@
     "486": {
       "id": 486,
       "name": "NETNS",
-      "description": "option netns (net namespace socat-2782574-test486)",
+      "description": "option netns (net namespace socat-3161881-test486)",
       "status": "CANT",
       "detail": "Must be root",
       "shard": 0,
-      "raw": "test 486 NETNS: option netns (net namespace socat-2782574-test486)... Must be root"
+      "raw": "test 486 NETNS: option netns (net namespace socat-3161881-test486)... Must be root"
     },
     "487": {
       "id": 487,
       "name": "NETNS_EXEC",
-      "description": "option netns with EXEC (net namespace socat-2782574-test487)",
+      "description": "option netns with EXEC (net namespace socat-3161881-test487)",
       "status": "CANT",
       "detail": "Must be root",
       "shard": 0,
-      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-2782574-test487)... Must be root"
+      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-3161881-test487)... Must be root"
     },
     "488": {
       "id": 488,
@@ -4797,28 +4797,28 @@
       "id": 533,
       "name": "RECVFROM_FORK_LOOP",
       "description": "Bug on RECVFROM with fork and child failure",
-      "status": "FAILED",
-      "detail": "NO RESULT (no error)",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 533 RECVFROM_FORK_LOOP: Bug on RECVFROM with fork and child failure... NO RESULT (no error)"
+      "raw": "test 533 RECVFROM_FORK_LOOP: Bug on RECVFROM with fork and child failure... OK"
     },
     "534": {
       "id": 534,
       "name": "RECVFROM_FORK_LEAK",
       "description": "FD leak on RECVFROM with fork",
-      "status": "FAILED",
-      "detail": "NO RESULT (not 2 socketpair())",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 534 RECVFROM_FORK_LEAK: FD leak on RECVFROM with fork... NO RESULT (not 2 socketpair())"
+      "raw": "test 534 RECVFROM_FORK_LEAK: FD leak on RECVFROM with fork... OK"
     },
     "535": {
       "id": 535,
       "name": "IP_SENDTO_PF",
       "description": "test IP-SENDTO with option pf with protocol name",
       "status": "CANT",
-      "detail": "Feature RAWIP not configured in /home/eero/src/socat/socat",
+      "detail": "Must be root",
       "shard": 0,
-      "raw": "test 535 IP_SENDTO_PF: test IP-SENDTO with option pf with protocol name... Feature RAWIP not configured in /home/eero/src/socat/socat"
+      "raw": "test 535 IP_SENDTO_PF: test IP-SENDTO with option pf with protocol name... Must be root"
     },
     "536": {
       "id": 536,
@@ -5023,18 +5023,18 @@
       "name": "V1800_IP_DATAGRAM_RANGE",
       "description": "test regression of IP-DATAGRAM:1.2.3.4 with IPv4 RANGE",
       "status": "CANT",
-      "detail": "Address IP-DATAGRAM:1.2.3.4 not available in /home/eero/src/socat/socat",
+      "detail": "Must be root",
       "shard": 0,
-      "raw": "test 558 V1800_IP_DATAGRAM_RANGE: test regression of IP-DATAGRAM:1.2.3.4 with IPv4 RANGE... Address IP-DATAGRAM:1.2.3.4 not available in /home/eero/src/socat/socat"
+      "raw": "test 558 V1800_IP_DATAGRAM_RANGE: test regression of IP-DATAGRAM:1.2.3.4 with IPv4 RANGE... Must be root"
     },
     "559": {
       "id": 559,
       "name": "V1800_IP_DATAGRAM_BIND",
       "description": "test regression of IP-DATAGRAM:1.2.3.4 with IPv4 BIND",
       "status": "CANT",
-      "detail": "Address IP-DATAGRAM:1.2.3.4 not available in /home/eero/src/socat/socat",
+      "detail": "Must be root",
       "shard": 0,
-      "raw": "test 559 V1800_IP_DATAGRAM_BIND: test regression of IP-DATAGRAM:1.2.3.4 with IPv4 BIND... Address IP-DATAGRAM:1.2.3.4 not available in /home/eero/src/socat/socat"
+      "raw": "test 559 V1800_IP_DATAGRAM_BIND: test regression of IP-DATAGRAM:1.2.3.4 with IPv4 BIND... Must be root"
     },
     "560": {
       "id": 560,
@@ -5130,10 +5130,10 @@
       "id": 570,
       "name": "UNIX_L_BIND",
       "description": "Test if UNIX-L with bind does not fail INTERNAL",
-      "status": "FAILED",
-      "detail": "NO RESULT (rc0=0)",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 570 UNIX_L_BIND: Test if UNIX-L with bind does not fail INTERNAL... NO RESULT (rc0=0)"
+      "raw": "test 570 UNIX_L_BIND: Test if UNIX-L with bind does not fail INTERNAL... OK"
     },
     "571": {
       "id": 571,
@@ -5346,19 +5346,19 @@
       "id": 594,
       "name": "EXEC_REALLOC",
       "description": "realloc() based heap overflow in EXEC address",
-      "status": "CANT",
-      "detail": "Option nofork not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 594 EXEC_REALLOC: realloc() based heap overflow in EXEC address... Option nofork not available in /home/eero/src/socat/socat"
+      "raw": "test 594 EXEC_REALLOC: realloc() based heap overflow in EXEC address... OK"
     },
     "595": {
       "id": 595,
       "name": "IP_RECV_17",
       "description": "Test if IP-RECV:17 SIGSEGV has been fixed",
       "status": "CANT",
-      "detail": "Address IP-RECV not available in /home/eero/src/socat/socat",
+      "detail": "Must be root",
       "shard": 0,
-      "raw": "test 595 IP_RECV_17: Test if IP-RECV:17 SIGSEGV has been fixed... Address IP-RECV not available in /home/eero/src/socat/socat"
+      "raw": "test 595 IP_RECV_17: Test if IP-RECV:17 SIGSEGV has been fixed... Must be root"
     },
     "596": {
       "id": 596,
