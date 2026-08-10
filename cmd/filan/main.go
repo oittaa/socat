@@ -410,14 +410,15 @@ func fdname(fd int, out io.Writer) {
 	if err := unix.Fstat(fd, &st); err != nil {
 		return
 	}
+	// Classic -s (fdname.c sockname style 's'): "tcp", "udp", "unix", …
+	// not the generic "socket" from getfiletypestring. FILAN_SHORT_TCP greps
+	// the second field as "tcp".
 	typ := fileTypeString(st.Mode)
 	path := ""
-	if p, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd)); err == nil {
+	if st.Mode&unix.S_IFMT == unix.S_IFSOCK {
+		typ, path = shortSocketName(fd)
+	} else if p, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd)); err == nil {
 		path = p
-	} else if st.Mode&unix.S_IFMT == unix.S_IFSOCK {
-		if sa, err := unix.Getsockname(fd); err == nil {
-			path = sockAddrString(sa)
-		}
 	}
 	// Go runtime / systemd often open cgroup and epoll FDs after exec. Classic
 	// C filan has only 0/1/2 after a clean EXEC. Skip those so EXEC_FDS /
@@ -426,6 +427,66 @@ func fdname(fd int, out io.Writer) {
 		return
 	}
 	fmt.Fprintf(out, "%5d %s %s\n", fd, typ, path)
+}
+
+// shortSocketName matches classic filan -s sockname() for AF_INET/INET6/UNIX.
+// Returns type string ("tcp", "udp", "unix", …) and "local peer" address text.
+func shortSocketName(fd int) (typ, addrs string) {
+	typ = "socket"
+	proto, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_PROTOCOL)
+	if err != nil {
+		proto = -1
+	}
+	stype, _ := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_TYPE)
+	sa, err := unix.Getsockname(fd)
+	if err != nil {
+		return typ, ""
+	}
+	local := sockAddrString(sa)
+	peer := ""
+	if pa, err := unix.Getpeername(fd); err == nil {
+		peer = sockAddrString(pa)
+	}
+	listenTag := ""
+	if v, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ACCEPTCONN); err == nil && v != 0 {
+		listenTag = "(listening)"
+	}
+	switch sa.(type) {
+	case *unix.SockaddrInet4, *unix.SockaddrInet6:
+		switch proto {
+		case unix.IPPROTO_TCP:
+			typ = "tcp" + listenTag
+		case unix.IPPROTO_UDP:
+			typ = "udp"
+		case unix.IPPROTO_SCTP:
+			typ = "sctp" + listenTag
+		case unix.IPPROTO_RAW:
+			typ = "raw"
+		default:
+			if stype == unix.SOCK_STREAM {
+				typ = "tcp" + listenTag
+			} else if stype == unix.SOCK_DGRAM {
+				typ = "udp"
+			} else {
+				typ = fmt.Sprintf("proto%d", proto)
+			}
+		}
+		if peer != "" {
+			addrs = local + " " + peer
+		} else {
+			addrs = local
+		}
+	case *unix.SockaddrUnix:
+		if stype == unix.SOCK_DGRAM {
+			typ = "unixdatagram"
+		} else {
+			typ = "unix" + listenTag
+		}
+		addrs = local
+	default:
+		addrs = local
+	}
+	return typ, addrs
 }
 
 func isRuntimeNoisePath(path string) bool {

@@ -184,3 +184,16 @@ func TestBangInsideQuotesNotDual(t *testing.T) {
 		t.Fatalf("param %q", ch.Single.Params[0])
 	}
 }
+
+func TestBoolOptionEmptyDisables(t *testing.T) {
+	s, err := ParseSpec("TCP4-LISTEN:1,so-reuseaddr=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.HasOption("reuseaddr") {
+		t.Fatal("expected HasOption reuseaddr")
+	}
+	if s.BoolOption("reuseaddr") {
+		t.Fatal("so-reuseaddr= must be false")
+	}
+}
