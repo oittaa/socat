@@ -56,7 +56,11 @@ func openIP6Recvfrom(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*
 	return openIPRecvNetwork(ctx, s, mode, g, "ip6", true)
 }
 
-// Classic also uses bare IP4/IP6 as sendto-style to host:proto.
+// Classic bare IP:host:proto — family from pf=, host address, or global -4/-6.
+func openIP(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	netw := networkIPFromHost(g, s, "ip4")
+	return openIPSendtoNetwork(ctx, s, mode, g, netw)
+}
 func openIP4(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
 	return openIPSendtoNetwork(ctx, s, mode, g, "ip4")
 }
@@ -83,6 +87,23 @@ func networkIP(g *Global, s parse.Spec, def string) string {
 		}
 	}
 	return def
+}
+
+// networkIPFromHost prefers an explicit IPv6 host (e.g. IP:[::1]:proto).
+func networkIPFromHost(g *Global, s parse.Spec, def string) string {
+	if s.HasOption("pf") {
+		return networkIP(g, s, def)
+	}
+	if len(s.Params) >= 1 {
+		host := stripBrackets(s.Params[0])
+		if ip := net.ParseIP(host); ip != nil {
+			if ip.To4() == nil {
+				return "ip6"
+			}
+			return "ip4"
+		}
+	}
+	return networkIP(g, s, def)
 }
 
 func ipNetwork(network string, proto int) string {
@@ -131,13 +152,22 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, n
 		}
 		laddr = &net.IPAddr{IP: lip}
 	}
+	// Enforce family match for explicit IP4/IP6 types.
+	if network == "ip4" && raddr.IP.To4() == nil {
+		return nil, fmt.Errorf("%s: address %s: non-IPv4 address", s.Type, host)
+	}
+	if network == "ip6" && raddr.IP.To4() != nil {
+		return nil, fmt.Errorf("%s: address %s: non-IPv6 address", s.Type, host)
+	}
 	netw := ipNetwork(network, proto)
 	c, err := net.DialIP(netw, laddr, raddr)
 	if err != nil {
 		return nil, err
 	}
 	applyIPConnOpts(c, s, network)
-	st := relay.Stream(&rawIPConn{IPConn: c, peer: raddr, oneShot: false})
+	// Connected IPv4 Read() keeps the IP header; strip for classic parity.
+	v4 := network == "ip4" || raddr.IP.To4() != nil
+	st := relay.Stream(&rawIPConn{IPConn: c, peer: raddr, v4: v4})
 	st, err = wrapCommon(s, st)
 	if err != nil {
 		c.Close()
@@ -184,8 +214,9 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global, 
 		var raddr net.Addr
 		for {
 			ch := make(chan res, 1)
+			stripV4 := network == "ip4"
 			go func() {
-				nn, oob, a, err := readIPMsg(pc, buf, wantCtrl)
+				nn, oob, a, err := readIPMsg(pc, buf, wantCtrl, stripV4)
 				ch <- res{nn, a, oob, err}
 			}()
 			select {
@@ -219,8 +250,11 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global, 
 			c:        pc,
 			peer:     peerIP,
 			first:    append([]byte(nil), buf[:n]...),
+			// Keep socket open for reply writes (RECVFROM|PIPE echo); further
+			// reads return EOF after the first datagram (classic one-shot).
 			closeEOF: true,
 			wantCtrl: wantCtrl,
+			v4:       network == "ip4",
 			g:        g,
 		})
 		st, err = wrapCommon(s, st)
@@ -241,6 +275,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global, 
 		spec:     s,
 		g:        g,
 		wantCtrl: wantCtrl,
+		v4:       network == "ip4",
 	})
 	st, err = wrapCommon(s, st)
 	if err != nil {
@@ -273,10 +308,16 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) {
 	})
 }
 
-func readIPMsg(c *net.IPConn, p []byte, wantCtrl bool) (n int, oob []byte, addr net.Addr, err error) {
+func readIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob []byte, addr net.Addr, err error) {
 	if !wantCtrl {
 		n, addr, err = c.ReadFrom(p)
-		// Go's ReadFrom already strips IPv4 header on Linux; keep as-is.
+		if err != nil {
+			return n, nil, addr, err
+		}
+		// ReadFrom usually strips IPv4 already; only strip when a full header is present.
+		if stripV4 {
+			n = skipIPv4HeaderIfPresent(p, n)
+		}
 		return n, nil, addr, err
 	}
 	// ReadMsgIP returns the full IPv4 packet (header + payload). Classic
@@ -287,16 +328,19 @@ func readIPMsg(c *net.IPConn, p []byte, wantCtrl bool) (n int, oob []byte, addr 
 	if err != nil {
 		return n, nil, nil, err
 	}
-	n = skipIPv4Header(p, n)
+	if stripV4 {
+		n = skipIPv4HeaderIfPresent(p, n)
+	}
 	return n, oob[:oobn], addr, nil
 }
 
-// skipIPv4Header drops the IP header when present (classic RECV_SKIPIP).
-func skipIPv4Header(p []byte, n int) int {
+// skipIPv4HeaderIfPresent drops a leading IPv4 header when the buffer looks like
+// a complete IP packet (classic RECV_SKIPIP). Connected IPConn.Read() on Linux
+// returns header+payload; unconnected ReadFrom often returns payload only.
+func skipIPv4HeaderIfPresent(p []byte, n int) int {
 	if n < 20 {
 		return n
 	}
-	// IPv4: version nibble == 4
 	if p[0]>>4 != 4 {
 		return n
 	}
@@ -304,15 +348,32 @@ func skipIPv4Header(p []byte, n int) int {
 	if ihl < 20 || ihl > n {
 		return n
 	}
+	total := int(p[2])<<8 | int(p[3])
+	// Require IP total length to match the received size (full packet).
+	if total != n {
+		return n
+	}
 	copy(p, p[ihl:n])
 	return n - ihl
 }
 
-// rawIPConn: sendto-style connected IPConn.
+// rawIPConn: sendto-style connected IPConn (SELF echo, SENDTO client).
+// Do not embed Read from *net.IPConn — connected Read keeps the IPv4 header.
 type rawIPConn struct {
 	*net.IPConn
-	peer    *net.IPAddr
-	oneShot bool
+	peer *net.IPAddr
+	v4   bool
+}
+
+func (r *rawIPConn) Read(p []byte) (int, error) {
+	n, err := r.IPConn.Read(p)
+	if err != nil {
+		return n, err
+	}
+	if r.v4 {
+		n = skipIPv4HeaderIfPresent(p, n)
+	}
+	return n, nil
 }
 
 func (r *rawIPConn) ShutdownWrite() error { return nil }
@@ -324,6 +385,7 @@ type rawIPRecvFrom struct {
 	first    []byte
 	closeEOF bool
 	wantCtrl bool
+	v4       bool
 	g        *Global
 }
 
@@ -337,7 +399,7 @@ func (r *rawIPRecvFrom) Read(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 	for {
-		n, oob, addr, err := readIPMsg(r.c, p, r.wantCtrl)
+		n, oob, addr, err := readIPMsg(r.c, p, r.wantCtrl, r.v4)
 		if err != nil {
 			return n, err
 		}
@@ -380,11 +442,12 @@ type rawIPFilteredRecv struct {
 	spec     parse.Spec
 	g        *Global
 	wantCtrl bool
+	v4       bool
 }
 
 func (r *rawIPFilteredRecv) Read(p []byte) (int, error) {
 	for {
-		n, oob, addr, err := readIPMsg(r.c, p, r.wantCtrl)
+		n, oob, addr, err := readIPMsg(r.c, p, r.wantCtrl, r.v4)
 		if err != nil {
 			return n, err
 		}

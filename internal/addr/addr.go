@@ -298,7 +298,7 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		"UDP4-RECVFROM": openUDP4Recvfrom,
 		"UDP6-RECVFROM": openUDP6Recvfrom,
 		// Raw IP (SOCK_RAW; needs CAP_NET_RAW). Classic IP4/IP6-* tests.
-		"IP":            openIP4,
+		"IP":            openIP, // family from host (IP:127.0.0.1 vs IP:[::1])
 		"IP4":           openIP4,
 		"IP6":           openIP6,
 		"IP-SENDTO":     openIPSendto,
