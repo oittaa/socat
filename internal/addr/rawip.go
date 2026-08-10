@@ -294,7 +294,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global, 
 				}
 				// peer filter uses UDP-style helper via fake addr when possible
 				if ia, ok := r.a.(*net.IPAddr); ok {
-					if err := peerAllowed(s, &udpPeerConn{addr: &net.UDPAddr{IP: ia.IP}}); err != nil {
+					if err := peerAllowedG(s, &udpPeerConn{addr: &net.UDPAddr{IP: ia.IP}}, g); err != nil {
 						if g != nil && g.Log != nil {
 							g.Log.Noticef("%s", err)
 						}
@@ -660,7 +660,7 @@ func (r *rawIPFilteredRecv) Read(p []byte) (int, error) {
 			return n, err
 		}
 		if ia, ok := addr.(*net.IPAddr); ok {
-			if err := peerAllowed(r.spec, &udpPeerConn{addr: &net.UDPAddr{IP: ia.IP}}); err != nil {
+			if err := peerAllowedG(r.spec, &udpPeerConn{addr: &net.UDPAddr{IP: ia.IP}}, r.g); err != nil {
 				if r.g != nil && r.g.Log != nil {
 					r.g.Log.Noticef("%s", err)
 				}

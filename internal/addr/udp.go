@@ -120,7 +120,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 			Fork:        true,
 			Label:       "UDP-LISTEN",
 			MaxChildren: maxChildren,
-			PeerFilter:  func(c net.Conn) error { return peerAllowed(s, c) },
+			PeerFilter:  func(c net.Conn) error { return peerAllowedG(s, c, g) },
 		}, nil
 	}
 
@@ -149,7 +149,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 				return nil, r.e
 			}
 			fake := &udpPeerConn{addr: r.a}
-			if err := peerAllowed(s, fake); err != nil {
+			if err := peerAllowedG(s, fake, g); err != nil {
 				if g != nil && g.Log != nil {
 					g.Log.Noticef("%s", err)
 				}
@@ -230,7 +230,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			if r.e != nil {
 				return nil, r.e
 			}
-			if err := peerAllowed(l.spec, &udpPeerConn{addr: r.a}); err != nil {
+			if err := peerAllowedG(l.spec, &udpPeerConn{addr: r.a}, l.g); err != nil {
 				if l.g != nil && l.g.Log != nil {
 					l.g.Log.Noticef("%s", err)
 				}
@@ -691,7 +691,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 				Fork:        true,
 				Label:       "UDP-RECVFROM",
 				MaxChildren: maxChildren,
-				PeerFilter:  func(c net.Conn) error { return peerAllowed(s, c) },
+				PeerFilter:  func(c net.Conn) error { return peerAllowedG(s, c, g) },
 			}, nil
 		}
 		// One permitted packet, then use the *same* listening socket for replies
@@ -723,7 +723,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode Mode, g *Global,
 					pc.Close()
 					return nil, r.e
 				}
-				if err := peerAllowed(s, &udpPeerConn{addr: r.a}); err != nil {
+				if err := peerAllowedG(s, &udpPeerConn{addr: r.a}, g); err != nil {
 					if g != nil && g.Log != nil {
 						g.Log.Noticef("%s", err)
 					}
@@ -792,7 +792,7 @@ func (u *udpFilteredRecv) Read(p []byte) (int, error) {
 		if err != nil {
 			return n, err
 		}
-		if err := peerAllowed(u.spec, &udpPeerConn{addr: addr}); err != nil {
+		if err := peerAllowedG(u.spec, &udpPeerConn{addr: addr}, u.log); err != nil {
 			if u.log != nil && u.log.Log != nil {
 				u.log.Log.Noticef("%s", err)
 			}

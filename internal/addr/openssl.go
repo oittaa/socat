@@ -188,7 +188,7 @@ func openOpenSSLListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Glob
 			maxChildren = n
 		}
 	}
-	filter := func(c net.Conn) error { return peerAllowed(s, c) }
+	filter := func(c net.Conn) error { return peerAllowedG(s, c, g) }
 
 	o := &Opened{
 		Listener:    tlsLn,
@@ -254,7 +254,7 @@ func openOpenSSLListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Glob
 		conn = a.c
 	}
 	if err := filter(conn); err != nil {
-		conn.Close()
+		closeRefusedPeer(conn)
 		return nil, err
 	}
 	rememberAddrs(g, conn)

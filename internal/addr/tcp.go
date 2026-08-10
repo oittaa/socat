@@ -233,7 +233,7 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 	}
 
 	fork := s.BoolOption("fork")
-	filter := func(c net.Conn) error { return peerAllowed(s, c) }
+	filter := func(c net.Conn) error { return peerAllowedG(s, c, g) }
 	maxChildren := 0
 	if v := s.OptionValue("max-children", ""); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -308,7 +308,7 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ Mode, g *Global, 
 			}
 			if err := filter(a.c); err != nil {
 				g.Log.Noticef("%s", err)
-				a.c.Close()
+				closeRefusedPeer(a.c)
 				continue // keep waiting for a permitted peer
 			}
 			conn = a.c

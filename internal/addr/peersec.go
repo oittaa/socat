@@ -2,17 +2,47 @@ package addr
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/oittaa/socat/internal/parse"
 )
 
+// closeRefusedPeer closes a rejected accept without RST when the peer already
+// wrote (unread data would otherwise trigger connection reset). Classic security
+// tests expect empty client output / exit 0, not "connection reset by peer".
+func closeRefusedPeer(c net.Conn) {
+	if c == nil {
+		return
+	}
+	// Unwrap TLS so we can drain the TCP socket.
+	type netConner interface{ NetConn() net.Conn }
+	raw := c
+	if nc, ok := c.(netConner); ok {
+		if inner := nc.NetConn(); inner != nil {
+			raw = inner
+		}
+	}
+	if tc, ok := raw.(*net.TCPConn); ok {
+		_ = tc.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+		_, _ = io.Copy(io.Discard, tc)
+		_ = tc.CloseWrite()
+	}
+	_ = c.Close()
+}
+
 // peerAllowed implements classic xiocheckpeer-style filters for listen accepts:
-// range, sourceport (as peer-port filter), and lowport.
+// range, sourceport (as peer-port filter), lowport, and tcpwrap/libwrap.
 // Returns nil if the peer is permitted.
+// g may be nil; when non-nil it supplies progname for tcpwrap daemon name.
 func peerAllowed(s parse.Spec, conn net.Conn) error {
+	return peerAllowedG(s, conn, nil)
+}
+
+func peerAllowedG(s parse.Spec, conn net.Conn, g *Global) error {
 	if conn == nil {
 		return nil
 	}
@@ -24,6 +54,10 @@ func peerAllowed(s parse.Spec, conn net.Conn) error {
 	host, portStr, err := net.SplitHostPort(ra.String())
 	if err != nil {
 		// Non-IP (e.g. unix) — range/sourceport/lowport do not apply.
+		// Still run tcpwrap if enabled (unlikely for unix).
+		if tw := parseTCPWrap(s, g); tw.enabled {
+			return tcpwrapAllowed(tw, ra, conn.LocalAddr())
+		}
 		return nil
 	}
 	ip := net.ParseIP(stripBrackets(host))
@@ -56,6 +90,13 @@ func peerAllowed(s parse.Spec, conn net.Conn) error {
 	if s.BoolOption("lowport") {
 		if port == 0 || port >= 1024 {
 			return fmt.Errorf("refusing connection from %s, not a low port", ra)
+		}
+	}
+
+	// TCP wrappers (hosts.allow / hosts.deny).
+	if tw := parseTCPWrap(s, g); tw.enabled {
+		if err := tcpwrapAllowed(tw, ra, conn.LocalAddr()); err != nil {
+			return err
 		}
 	}
 

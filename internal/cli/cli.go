@@ -504,7 +504,7 @@ func printVersion(w io.Writer) {
 		{"PTY", true},
 		{"OPENSSL", true}, // stream TLS via crypto/tls (not DTLS)
 		{"FIPS", false},
-		{"LIBWRAP", false},
+		{"LIBWRAP", true}, // pure-Go hosts.allow/deny (no CGO libwrap)
 	}
 	for _, f := range feats {
 		if f.on {
@@ -570,6 +570,11 @@ func printHelp(w io.Writer, level int) {
 			"pipes", "setsid", "stderr", "pty",
 			"pf", "sourceport", "sp",
 			"range", "lowport", "setsockopt",
+			// TCP wrappers (libwrap): pure-Go hosts.allow / hosts.deny
+			"tcpwrap", "tcpwrappers", "tcpwrapper", "libwrap", "wrap",
+			"tcpwrap-etc", "tcpwrap-dir",
+			"hosts-allow", "hosts-deny", "allow-table", "deny-table",
+			"tcpwrap-hosts-allow-table", "tcpwrap-hosts-deny-table",
 			"cert", "key", "cafile", "ca", "verify", "commonname", "openssl-commonname",
 			// SNI: OPENSSL_SNI / OPENSSL_NO_SNI greps; snihost is classic alias.
 			"openssl-snihost", "snihost", "openssl-no-sni", "nosni",

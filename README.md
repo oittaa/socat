@@ -65,7 +65,8 @@ Common options: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `
 | PROXY / PROXY-CONNECT | HTTP CONNECT client (`proxyport`, `http-version`, `crlf`) |
 | SOCKS4 / SOCKS4A / SOCKS5 / SOCKS5-CONNECT | SOCKS clients (`socksport`, `socksuser`, `sockspass`) |
 | ABSTRACT-LISTEN / ABSTRACT-CONNECT / … | Linux abstract UNIX namespace |
-| SCTP, DCCP, POSIXMQ, TUN, libwrap, readline | **not** implemented (`#undef` in `-V`) |
+| libwrap / TCP wrappers | pure-Go `hosts.allow` / `hosts.deny` (`WITH_LIBWRAP`) |
+| SCTP, DCCP, POSIXMQ, TUN, readline | **not** implemented (`#undef` in `-V`) |
 
 ### Options (honored)
 
@@ -74,7 +75,7 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 | Area | Options |
 |------|---------|
 | Listen/connect | `reuseaddr`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `pf`, `ai-addrconfig`, `ipv6-v6only`, `backlog` |
-| Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport` |
+| Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport`, `tcpwrap` / `hosts-allow` / `hosts-deny` / `tcpwrap-etc` |
 | Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `umask`, `nonblock` |
 | UNIX | `unlink-early`, `unlink-close` |
 | EXEC | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none`, `umask` (child inherits, then parent restores) |
@@ -104,7 +105,7 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 | **DSA certificates / keys** | Rejected | DSA is obsolete; Go `crypto/tls` does not parse DSA keys. Classic `OPENSSLLISTENDSA` fails by design. Use RSA, ECDSA, or Ed25519. See [Go crypto/tls](https://pkg.go.dev/crypto/tls) and [NIST SP 800-57 / deprecation of DSA](https://csrc.nist.gov/publications/detail/sp/800-57-part-1/rev-5/final). |
 | **DTLS** | Not implemented | Not available in Go `crypto/tls` (stream TLS only). See [crypto/tls package docs](https://pkg.go.dev/crypto/tls). |
 | **SSLv3 / weak ciphers** | Not offered | Go TLS defaults reject obsolete protocols/ciphers. See [Go TLS cipher suites](https://go.dev/blog/tls-cipher-suites) and [crypto/tls Config](https://pkg.go.dev/crypto/tls#Config). |
-| **libwrap / TCP wrappers** | Not yet | Host `hosts.allow` filtering; optional for later. |
+| **libwrap / TCP wrappers** | Implemented (pure Go) | No CGO/libwrap0; reads `hosts.allow`/`hosts.deny` (or `tcpwrap-etc=`). Subset: daemon ALL/name, client ALL/IP/hostname/`[ipv6]`. |
 
 ### Intentional differences from classic socat
 

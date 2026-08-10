@@ -597,7 +597,7 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 		if filter != nil {
 			if err := filter(conn); err != nil {
 				g.Log.Noticef("%s", err)
-				conn.Close()
+				closeRefusedPeer(conn)
 				if slots != nil {
 					<-slots
 				}
@@ -704,7 +704,7 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 		if filter != nil {
 			if err := filter(conn); err != nil {
 				g.Log.Noticef("%s", err)
-				conn.Close()
+				closeRefusedPeer(conn)
 				if slots != nil {
 					<-slots
 				}

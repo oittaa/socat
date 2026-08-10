@@ -1,40 +1,10 @@
 {
   "classic_docker_ok": 552,
-  "go_ok": 440,
+  "go_ok": 463,
   "parity_fail": [
-    {
-      "id": "113",
-      "name": "TCP6RANGE",
-      "status": "FAILED"
-    },
     {
       "id": "146",
       "name": "OPENSSLLISTENDSA",
-      "status": "FAILED"
-    },
-    {
-      "id": "213",
-      "name": "IP4BROADCAST",
-      "status": "FAILED"
-    },
-    {
-      "id": "215",
-      "name": "IP4MULTICAST_UNIDIR",
-      "status": "FAILED"
-    },
-    {
-      "id": "218",
-      "name": "IP4MULTICAST_BIDIR",
-      "status": "FAILED"
-    },
-    {
-      "id": "465",
-      "name": "FILAN_SHORT_TCP",
-      "status": "FAILED"
-    },
-    {
-      "id": "559",
-      "name": "V1800_IP_DATAGRAM_BIND",
       "status": "FAILED"
     }
   ],
@@ -47,41 +17,6 @@
     {
       "id": "102",
       "name": "READLINE",
-      "status": "CANT"
-    },
-    {
-      "id": "111",
-      "name": "TCP4WRAPPERS_ADDR",
-      "status": "CANT"
-    },
-    {
-      "id": "112",
-      "name": "TCP4WRAPPERS_NAME",
-      "status": "CANT"
-    },
-    {
-      "id": "116",
-      "name": "TCP6TCPWRAP",
-      "status": "CANT"
-    },
-    {
-      "id": "120",
-      "name": "UDP4TCPWRAP",
-      "status": "CANT"
-    },
-    {
-      "id": "124",
-      "name": "UDP6TCPWRAP",
-      "status": "CANT"
-    },
-    {
-      "id": "128",
-      "name": "OPENSSLTCP4_TCPWRAP",
-      "status": "CANT"
-    },
-    {
-      "id": "134",
-      "name": "OPENSSLTCP6_TCPWRAP",
       "status": "CANT"
     },
     {
@@ -102,46 +37,6 @@
     {
       "id": "156",
       "name": "SCTP6LISTENFORK",
-      "status": "CANT"
-    },
-    {
-      "id": "179",
-      "name": "UDP4RECVFROM_TCPWRAP",
-      "status": "CANT"
-    },
-    {
-      "id": "183",
-      "name": "UDP4RECV_TCPWRAP",
-      "status": "CANT"
-    },
-    {
-      "id": "187",
-      "name": "UDP6RECVFROM_TCPWRAP",
-      "status": "CANT"
-    },
-    {
-      "id": "191",
-      "name": "UDP6RECV_TCPWRAP",
-      "status": "CANT"
-    },
-    {
-      "id": "193",
-      "name": "IP4RECVFROM_TCPWRAP",
-      "status": "CANT"
-    },
-    {
-      "id": "195",
-      "name": "IP4RECV_TCPWRAP",
-      "status": "CANT"
-    },
-    {
-      "id": "197",
-      "name": "IP6RECVFROM_TCPWRAP",
-      "status": "CANT"
-    },
-    {
-      "id": "199",
-      "name": "IP6RECV_TCPWRAP",
       "status": "CANT"
     },
     {
@@ -167,16 +62,6 @@
     {
       "id": "204",
       "name": "COOLSTDIO",
-      "status": "CANT"
-    },
-    {
-      "id": "210",
-      "name": "TCPWRAPPERS_MULTIOPTS",
-      "status": "CANT"
-    },
-    {
-      "id": "211",
-      "name": "TCPWRAPPERS_TCP6ADDR",
       "status": "CANT"
     },
     {
@@ -571,7 +456,7 @@
     }
   ],
   "parity_other": [],
-  "parity_gap_total": 113,
+  "parity_gap_total": 90,
   "new_ok_vs_classic_docker": [
     {
       "id": "318",

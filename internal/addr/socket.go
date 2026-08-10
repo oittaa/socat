@@ -129,7 +129,7 @@ func openSocketListen(ctx context.Context, s parse.Spec, mode Mode, g *Global) (
 			Fork:        true,
 			Label:       "SOCKET-LISTEN",
 			MaxChildren: maxChildren,
-			PeerFilter:  func(c net.Conn) error { return peerAllowed(s, c) },
+			PeerFilter:  func(c net.Conn) error { return peerAllowedG(s, c, g) },
 		}, nil
 	}
 	// accept one
