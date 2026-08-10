@@ -81,6 +81,19 @@ Expected host→docker losses (environment, not binary bugs): UDP6 multicast
 route, VSOCK device, “not with root” denials, missing `systemd-socket-activate`,
 and one PTY ioctl case under root.
 
+### Go under test in Docker
+
+```bash
+# Build classic base + Go image, full MODE=classic vs classic-docker-baseline
+./scripts/docker-go-scorecard.sh
+
+# Host-built binaries (skip gobuild stage)
+USE_HOST_BIN=1 NO_BUILD=1 ./scripts/docker-go-scorecard.sh
+```
+
+Results land in `.classic-scorecard-docker-go/`. Use this path for root-only
+features (RAWIP, raw IP ancillary, TUN, …).
+
 ## Commands
 
 ```bash

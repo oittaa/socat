@@ -44,13 +44,14 @@ docker run --rm \
   socat-classic-test
 ```
 
-## Next: Go socat in the same image
+## Go socat in the same environment
 
-Plan:
+See `docker/go-test/Dockerfile` and `scripts/docker-go-scorecard.sh`.
 
-1. Multi-stage or second target that builds the Go binary into `/opt/go/socat`.
-2. `LABEL=go SOCAT=/opt/go/socat` with the same `test.sh` and caps.
-3. Compare against `classic-docker-baseline.json` (root-capable classic truth).
+```bash
+./scripts/docker-go-scorecard.sh
+# Fast iterate with host-built binaries:
+USE_HOST_BIN=1 NO_BUILD=1 ONLY=ancillary ./scripts/docker-go-scorecard.sh
+```
 
-That path is the right place to implement features that need root (raw IP
-ancillary, some interface tests, etc.).
+Compares against `testdata/scorecard/classic-docker-baseline.json` (root classic).

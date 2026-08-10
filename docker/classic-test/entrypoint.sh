@@ -14,16 +14,19 @@ export HOME="${HOME:-/root}"
 export SHELL="${SHELL:-/bin/bash}"
 export TERM="${TERM:-xterm}"
 
-echo "=== socat classic test container ==="
+echo "=== socat scorecard container ==="
 echo "  uid=$(id -u) gid=$(id -g) user=$(id -un) USER=$USER SHELL=$SHELL"
+echo "  LABEL=${LABEL:-}"
 echo "  SOCAT=${SOCAT:-}"
 echo "  FILAN=${FILAN:-}"
 echo "  PROCAN=${PROCAN:-}"
 echo "  MODE=${MODE:-classic}"
 echo "  OUT_DIR=${OUT_DIR:-/out}"
 echo "  CLASSIC_TEST_SH=${CLASSIC_TEST_SH:-/opt/classic-src/test.sh}"
-if [[ -x "${SOCAT:-}" ]]; then
-  "${SOCAT}" -V 2>&1 | head -5 || true
+if [[ -n "${SOCAT:-}" && -x "${SOCAT}" ]]; then
+  "${SOCAT}" -V 2>&1 | head -8 || true
+elif [[ -n "${SOCAT:-}" ]]; then
+  echo "  warning: SOCAT not executable: $SOCAT" >&2
 fi
 
 # --- network prep (root + NET_ADMIN) ---
@@ -55,13 +58,28 @@ BASELINE_ARG=()
 if [[ -n "${BASELINE:-}" && -f "${BASELINE}" ]]; then
   BASELINE_ARG+=(BASELINE="${BASELINE}")
 fi
-SAVE="${SAVE_BASELINE:-${OUT_DIR}/classic-docker-baseline.json}"
+# Default save path depends on which binary we exercise.
+if [[ -z "${SAVE_BASELINE:-}" ]]; then
+  if [[ "${LABEL:-classic}" == "go" ]]; then
+    SAVE_BASELINE="${OUT_DIR}/go-docker-baseline.json"
+  else
+    SAVE_BASELINE="${OUT_DIR}/classic-docker-baseline.json"
+  fi
+fi
+SAVE="$SAVE_BASELINE"
 
 cd /opt/scorecard
 
-export SOCAT="${SOCAT:-/opt/classic/bin/socat}"
-export FILAN="${FILAN:-/opt/classic/bin/filan}"
-export PROCAN="${PROCAN:-/opt/classic/bin/procan}"
+# LABEL=go defaults to /opt/go/* when present; classic stays at /opt/classic.
+if [[ "${LABEL:-}" == "go" ]]; then
+  export SOCAT="${SOCAT:-/opt/go/socat}"
+  export FILAN="${FILAN:-/opt/go/filan}"
+  export PROCAN="${PROCAN:-/opt/go/procan}"
+else
+  export SOCAT="${SOCAT:-/opt/classic/bin/socat}"
+  export FILAN="${FILAN:-/opt/classic/bin/filan}"
+  export PROCAN="${PROCAN:-/opt/classic/bin/procan}"
+fi
 export SKIP_BUILD="${SKIP_BUILD:-1}"
 export LABEL="${LABEL:-classic}"
 export MODE="${MODE:-classic}"
@@ -83,10 +101,14 @@ if [[ ! -f "$TEST_SH" ]]; then
   exit 2
 fi
 
-# Extra args after image name → passed to scorecard (optional path override).
-if [[ $# -gt 0 && -f "${1:-}" ]]; then
+# Extra args: only treat as test.sh override when the path looks like test.sh.
+# (Avoid "docker run image /opt/go/socat -V" stealing the binary path as TEST_SH.)
+if [[ $# -gt 0 && -f "${1:-}" && "$(basename "$1")" == "test.sh" ]]; then
   TEST_SH="$1"
   shift
+elif [[ $# -gt 0 ]]; then
+  # Non-scorecard command: exec it (debug shell, socat -V, …).
+  exec "$@"
 fi
 
 echo "=== starting classic-scorecard.sh ==="
@@ -108,8 +130,10 @@ print(f"results: OK={s.get('ok')} FAILED={s.get('failed')} CANT={s.get('cant')} 
 PY
 fi
 
-# Optional: verify host baseline OK ⊆ docker OK (no loss of host-passers).
-if [[ -n "${HOST_BASELINE:-}" && -f "${HOST_BASELINE}" && -f "${OUT_DIR}/results.json" ]]; then
+# Optional: verify host baseline OK ⊆ docker OK (classic image smoke only).
+# Skip for LABEL=go unless VERIFY_HOST=1 (host baseline is non-root classic).
+if [[ -n "${HOST_BASELINE:-}" && -f "${HOST_BASELINE}" && -f "${OUT_DIR}/results.json" ]] \
+   && { [[ "${LABEL:-}" != "go" ]] || [[ "${VERIFY_HOST:-0}" == "1" ]]; }; then
   echo "=== compare host baseline OK set vs docker ==="
   python3 - <<'PY'
 import json, os, sys

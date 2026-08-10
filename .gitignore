@@ -30,3 +30,6 @@ testdata/scorecard/*.jsonl
 
 .classic-scorecard-docker/
 .classic-scorecard-docker-*/
+
+.classic-scorecard-docker-go/
+.classic-scorecard-docker-go-*/

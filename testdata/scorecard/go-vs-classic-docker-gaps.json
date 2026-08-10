@@ -1,0 +1,703 @@
+{
+  "classic_docker_ok": 552,
+  "go_ok": 416,
+  "parity_fail": [
+    {
+      "id": "24",
+      "name": "RAWIP4SELF",
+      "status": "FAILED"
+    },
+    {
+      "id": "25",
+      "name": "RAWIPX4SELF",
+      "status": "FAILED"
+    },
+    {
+      "id": "27",
+      "name": "RAWIPX6SELF",
+      "status": "FAILED"
+    },
+    {
+      "id": "88",
+      "name": "EXECCATNOFORK",
+      "status": "FAILED"
+    },
+    {
+      "id": "89",
+      "name": "SYSTEMCATNOFORK",
+      "status": "FAILED"
+    },
+    {
+      "id": "90",
+      "name": "NOFORKSETSID",
+      "status": "FAILED"
+    },
+    {
+      "id": "146",
+      "name": "OPENSSLLISTENDSA",
+      "status": "FAILED"
+    },
+    {
+      "id": "169",
+      "name": "RAWIP4RECVFROM",
+      "status": "FAILED"
+    },
+    {
+      "id": "213",
+      "name": "IP4BROADCAST",
+      "status": "FAILED"
+    },
+    {
+      "id": "215",
+      "name": "IP4MULTICAST_UNIDIR",
+      "status": "FAILED"
+    },
+    {
+      "id": "218",
+      "name": "IP4MULTICAST_BIDIR",
+      "status": "FAILED"
+    },
+    {
+      "id": "355",
+      "name": "CREATE_USER",
+      "status": "FAILED"
+    },
+    {
+      "id": "356",
+      "name": "OPEN_USER",
+      "status": "FAILED"
+    },
+    {
+      "id": "357",
+      "name": "GOPEN_USER",
+      "status": "FAILED"
+    },
+    {
+      "id": "358",
+      "name": "UNIX_LISTEN_USER",
+      "status": "FAILED"
+    },
+    {
+      "id": "359",
+      "name": "UNIX_RECVFROM_USER",
+      "status": "FAILED"
+    },
+    {
+      "id": "360",
+      "name": "UNIX_RECV_USER",
+      "status": "FAILED"
+    },
+    {
+      "id": "361",
+      "name": "PIPE_USER",
+      "status": "FAILED"
+    },
+    {
+      "id": "362",
+      "name": "PTY_USER",
+      "status": "FAILED"
+    },
+    {
+      "id": "363",
+      "name": "UNIX_LISTEN_REMOVE",
+      "status": "FAILED"
+    },
+    {
+      "id": "365",
+      "name": "UNIX_RECV_REMOVE",
+      "status": "FAILED"
+    },
+    {
+      "id": "366",
+      "name": "PIPE_REMOVE",
+      "status": "FAILED"
+    },
+    {
+      "id": "367",
+      "name": "PTY_REMOVE",
+      "status": "FAILED"
+    },
+    {
+      "id": "368",
+      "name": "UNIX_LISTEN_REMOVE_FORK",
+      "status": "FAILED"
+    },
+    {
+      "id": "369",
+      "name": "UNIX_RECVFROM_REMOVE_FORK",
+      "status": "FAILED"
+    },
+    {
+      "id": "385",
+      "name": "EXEC_NOFORK_UNIDIR",
+      "status": "FAILED"
+    },
+    {
+      "id": "465",
+      "name": "FILAN_SHORT_TCP",
+      "status": "FAILED"
+    },
+    {
+      "id": "476",
+      "name": "VARS_IN_SNIFFPATH",
+      "status": "FAILED"
+    },
+    {
+      "id": "559",
+      "name": "V1800_IP_DATAGRAM_BIND",
+      "status": "FAILED"
+    }
+  ],
+  "parity_cant": [
+    {
+      "id": "80",
+      "name": "OPENSSL_COMPRESS",
+      "status": "CANT"
+    },
+    {
+      "id": "102",
+      "name": "READLINE",
+      "status": "CANT"
+    },
+    {
+      "id": "111",
+      "name": "TCP4WRAPPERS_ADDR",
+      "status": "CANT"
+    },
+    {
+      "id": "112",
+      "name": "TCP4WRAPPERS_NAME",
+      "status": "CANT"
+    },
+    {
+      "id": "116",
+      "name": "TCP6TCPWRAP",
+      "status": "CANT"
+    },
+    {
+      "id": "120",
+      "name": "UDP4TCPWRAP",
+      "status": "CANT"
+    },
+    {
+      "id": "124",
+      "name": "UDP6TCPWRAP",
+      "status": "CANT"
+    },
+    {
+      "id": "128",
+      "name": "OPENSSLTCP4_TCPWRAP",
+      "status": "CANT"
+    },
+    {
+      "id": "134",
+      "name": "OPENSSLTCP6_TCPWRAP",
+      "status": "CANT"
+    },
+    {
+      "id": "142",
+      "name": "PTMXWAITSLAVE",
+      "status": "CANT"
+    },
+    {
+      "id": "143",
+      "name": "OPENPTYWAITSLAVE",
+      "status": "CANT"
+    },
+    {
+      "id": "155",
+      "name": "SCTP4LISTENFORK",
+      "status": "CANT"
+    },
+    {
+      "id": "156",
+      "name": "SCTP6LISTENFORK",
+      "status": "CANT"
+    },
+    {
+      "id": "179",
+      "name": "UDP4RECVFROM_TCPWRAP",
+      "status": "CANT"
+    },
+    {
+      "id": "183",
+      "name": "UDP4RECV_TCPWRAP",
+      "status": "CANT"
+    },
+    {
+      "id": "187",
+      "name": "UDP6RECVFROM_TCPWRAP",
+      "status": "CANT"
+    },
+    {
+      "id": "191",
+      "name": "UDP6RECV_TCPWRAP",
+      "status": "CANT"
+    },
+    {
+      "id": "193",
+      "name": "IP4RECVFROM_TCPWRAP",
+      "status": "CANT"
+    },
+    {
+      "id": "195",
+      "name": "IP4RECV_TCPWRAP",
+      "status": "CANT"
+    },
+    {
+      "id": "197",
+      "name": "IP6RECVFROM_TCPWRAP",
+      "status": "CANT"
+    },
+    {
+      "id": "199",
+      "name": "IP6RECV_TCPWRAP",
+      "status": "CANT"
+    },
+    {
+      "id": "200",
+      "name": "O_NOATIME_FILE",
+      "status": "CANT"
+    },
+    {
+      "id": "201",
+      "name": "O_NOATIME_FD",
+      "status": "CANT"
+    },
+    {
+      "id": "202",
+      "name": "FS_NOATIME",
+      "status": "CANT"
+    },
+    {
+      "id": "203",
+      "name": "COOLWRITE",
+      "status": "CANT"
+    },
+    {
+      "id": "204",
+      "name": "COOLSTDIO",
+      "status": "CANT"
+    },
+    {
+      "id": "210",
+      "name": "TCPWRAPPERS_MULTIOPTS",
+      "status": "CANT"
+    },
+    {
+      "id": "211",
+      "name": "TCPWRAPPERS_TCP6ADDR",
+      "status": "CANT"
+    },
+    {
+      "id": "220",
+      "name": "TUNINTERFACE",
+      "status": "CANT"
+    },
+    {
+      "id": "268",
+      "name": "SCTP4LISTENENV",
+      "status": "CANT"
+    },
+    {
+      "id": "269",
+      "name": "SCTP6LISTENENV",
+      "status": "CANT"
+    },
+    {
+      "id": "307",
+      "name": "SCTP4STREAM",
+      "status": "CANT"
+    },
+    {
+      "id": "308",
+      "name": "SCTP6STREAM",
+      "status": "CANT"
+    },
+    {
+      "id": "321",
+      "name": "SCTP4_L_MAXCHILDREN",
+      "status": "CANT"
+    },
+    {
+      "id": "322",
+      "name": "SCTP6_L_MAXCHILDREN",
+      "status": "CANT"
+    },
+    {
+      "id": "326",
+      "name": "READLINE_OVFL",
+      "status": "CANT"
+    },
+    {
+      "id": "364",
+      "name": "UNIX_RECVFROM_REMOVE",
+      "status": "CANT"
+    },
+    {
+      "id": "379",
+      "name": "OPENSSL_MIN_VERSION",
+      "status": "CANT"
+    },
+    {
+      "id": "384",
+      "name": "SO_REUSEPORT",
+      "status": "CANT"
+    },
+    {
+      "id": "387",
+      "name": "USE_IPV6_JOIN_GROUP",
+      "status": "CANT"
+    },
+    {
+      "id": "395",
+      "name": "SCTP_SERVICENAME",
+      "status": "CANT"
+    },
+    {
+      "id": "396",
+      "name": "O_DIRECT",
+      "status": "CANT"
+    },
+    {
+      "id": "399",
+      "name": "OPENSSL_DTLS_CLIENT",
+      "status": "CANT"
+    },
+    {
+      "id": "400",
+      "name": "OPENSSL_DTLS_SERVER",
+      "status": "CANT"
+    },
+    {
+      "id": "404",
+      "name": "OPTION_RAW_DUMP",
+      "status": "CANT"
+    },
+    {
+      "id": "408",
+      "name": "UDP_DATAGRAM_PEERPORT",
+      "status": "CANT"
+    },
+    {
+      "id": "409",
+      "name": "PROXYAUTHFILE",
+      "status": "CANT"
+    },
+    {
+      "id": "413",
+      "name": "OPENSSL_DTLS_TO_SERVER",
+      "status": "CANT"
+    },
+    {
+      "id": "414",
+      "name": "OPENSSL_DTLS_TO_CLIENT",
+      "status": "CANT"
+    },
+    {
+      "id": "425",
+      "name": "CONNECT_TO_DGRAM",
+      "status": "CANT"
+    },
+    {
+      "id": "426",
+      "name": "CONNECT_TO_SEQPACKET",
+      "status": "CANT"
+    },
+    {
+      "id": "446",
+      "name": "SEQPACKET_TO_STREAM",
+      "status": "CANT"
+    },
+    {
+      "id": "447",
+      "name": "SEQPACKET_TO_DGRAM",
+      "status": "CANT"
+    },
+    {
+      "id": "466",
+      "name": "RESTORE_TTY",
+      "status": "CANT"
+    },
+    {
+      "id": "472",
+      "name": "SIGTERM_NOLOG",
+      "status": "CANT"
+    },
+    {
+      "id": "473",
+      "name": "SIG31_LOG",
+      "status": "CANT"
+    },
+    {
+      "id": "475",
+      "name": "RCVTIMEO_DTLS",
+      "status": "CANT"
+    },
+    {
+      "id": "477",
+      "name": "OPTION_STATISTICS",
+      "status": "CANT"
+    },
+    {
+      "id": "478",
+      "name": "SIGUSR1_STATISTICS",
+      "status": "CANT"
+    },
+    {
+      "id": "479",
+      "name": "CHILDREN_SHUTUP",
+      "status": "CANT"
+    },
+    {
+      "id": "480",
+      "name": "INTERFACE_IGNOREOUTGOING",
+      "status": "CANT"
+    },
+    {
+      "id": "491",
+      "name": "SOCKETPAIR_BOUNDARIES",
+      "status": "CANT"
+    },
+    {
+      "id": "493",
+      "name": "POSIXMQ_READ_PRIO",
+      "status": "CANT"
+    },
+    {
+      "id": "494",
+      "name": "POSIXMQ_RECV_FORK",
+      "status": "CANT"
+    },
+    {
+      "id": "495",
+      "name": "POSIXMQ_RECV_MAXCHILDREN",
+      "status": "CANT"
+    },
+    {
+      "id": "496",
+      "name": "POSIXMQ_SEND_MAXCHILDREN",
+      "status": "CANT"
+    },
+    {
+      "id": "497",
+      "name": "SHELL_SIGINT",
+      "status": "CANT"
+    },
+    {
+      "id": "504",
+      "name": "RES_NSADDR",
+      "status": "CANT"
+    },
+    {
+      "id": "505",
+      "name": "CHDIR_ON_CREATE",
+      "status": "CANT"
+    },
+    {
+      "id": "506",
+      "name": "CHDIR_ON_SHELL",
+      "status": "CANT"
+    },
+    {
+      "id": "509",
+      "name": "UNIX_LISTEN_CONNECT_BIND_TEMPNAME",
+      "status": "CANT"
+    },
+    {
+      "id": "510",
+      "name": "UNIX_LISTEN_CLIENT_BIND_TEMPNAME",
+      "status": "CANT"
+    },
+    {
+      "id": "511",
+      "name": "UNIX_RECVFROM_CLIENT_BIND_TEMPNAME",
+      "status": "CANT"
+    },
+    {
+      "id": "512",
+      "name": "UNIX_RECVFROM_SENDTO_BIND_TEMPNAME",
+      "status": "CANT"
+    },
+    {
+      "id": "513",
+      "name": "ABSTRACT_LISTEN_CONNECT_BIND_TEMPNAME",
+      "status": "CANT"
+    },
+    {
+      "id": "514",
+      "name": "ABSTRACT_LISTEN_CLIENT_BIND_TEMPNAME",
+      "status": "CANT"
+    },
+    {
+      "id": "515",
+      "name": "ABSTRACT_RECVFROM_CLIENT_BIND_TEMPNAME",
+      "status": "CANT"
+    },
+    {
+      "id": "516",
+      "name": "ABSTRACT_RECVFROM_SENDTO_BIND_TEMPNAME",
+      "status": "CANT"
+    },
+    {
+      "id": "518",
+      "name": "STDIN_F_SETPIPE_SZ",
+      "status": "CANT"
+    },
+    {
+      "id": "519",
+      "name": "EXEC_F_SETPIPE_SZ",
+      "status": "CANT"
+    },
+    {
+      "id": "520",
+      "name": "DCCP4",
+      "status": "CANT"
+    },
+    {
+      "id": "521",
+      "name": "UDPLITE4STREAM",
+      "status": "CANT"
+    },
+    {
+      "id": "522",
+      "name": "UDPLITE4STREAM",
+      "status": "CANT"
+    },
+    {
+      "id": "523",
+      "name": "UDPLITE6STREAM",
+      "status": "CANT"
+    },
+    {
+      "id": "524",
+      "name": "UDPLITE4LISTENENV",
+      "status": "CANT"
+    },
+    {
+      "id": "525",
+      "name": "UDPLITE6LISTENENV",
+      "status": "CANT"
+    },
+    {
+      "id": "526",
+      "name": "UDPLITE4_L_MAXCHILDREN",
+      "status": "CANT"
+    },
+    {
+      "id": "527",
+      "name": "UDPLITE6_L_MAXCHILDREN",
+      "status": "CANT"
+    },
+    {
+      "id": "540",
+      "name": "V1800_SCTP_LISTEN_RANGE",
+      "status": "CANT"
+    },
+    {
+      "id": "541",
+      "name": "V1800_SCTP_LISTEN_BIND",
+      "status": "CANT"
+    },
+    {
+      "id": "542",
+      "name": "V1800_DCCP_LISTEN_RANGE",
+      "status": "CANT"
+    },
+    {
+      "id": "543",
+      "name": "V1800_DCCP_LISTEN_BIND",
+      "status": "CANT"
+    },
+    {
+      "id": "550",
+      "name": "V1800_UDPLITE_LISTEN_RANGE",
+      "status": "CANT"
+    },
+    {
+      "id": "551",
+      "name": "V1800_UDPLITE_LISTEN_BIND",
+      "status": "CANT"
+    },
+    {
+      "id": "552",
+      "name": "V1800_UDPLITE_RECVFROM_RANGE",
+      "status": "CANT"
+    },
+    {
+      "id": "553",
+      "name": "V1800_UDPLITE_RECVFROM_BIND",
+      "status": "CANT"
+    },
+    {
+      "id": "556",
+      "name": "V1800_UDPLITE_DATAGRAM_RANGE",
+      "status": "CANT"
+    },
+    {
+      "id": "557",
+      "name": "V1800_UDPLITE_DATAGRAM_BIND",
+      "status": "CANT"
+    },
+    {
+      "id": "568",
+      "name": "SOCKS5LISTEN_TCP4",
+      "status": "CANT"
+    },
+    {
+      "id": "581",
+      "name": "SCTP_CONNECT_RETRY",
+      "status": "CANT"
+    },
+    {
+      "id": "582",
+      "name": "DCCP_CONNECT_RETRY",
+      "status": "CANT"
+    },
+    {
+      "id": "588",
+      "name": "SCTP_CONNECT_MAXCHILDREN",
+      "status": "CANT"
+    },
+    {
+      "id": "596",
+      "name": "SOCKS4_SIGSEGV",
+      "status": "CANT"
+    },
+    {
+      "id": "601",
+      "name": "TUN_MTU",
+      "status": "CANT"
+    },
+    {
+      "id": "602",
+      "name": "INTERACTIVE_SHELL",
+      "status": "CANT"
+    },
+    {
+      "id": "606",
+      "name": "TIOCSWINSZ",
+      "status": "CANT"
+    }
+  ],
+  "parity_other": [
+    {
+      "id": "147",
+      "name": "EXITCODESIGTERM",
+      "status": "UNKNOWN"
+    },
+    {
+      "id": "148",
+      "name": "EXITCODESIGILL",
+      "status": "UNKNOWN"
+    }
+  ],
+  "parity_gap_total": 137,
+  "new_ok_vs_classic_docker": [
+    {
+      "id": "318",
+      "name": "OPENSSL_ANULL",
+      "was": "FAILED"
+    }
+  ]
+}
