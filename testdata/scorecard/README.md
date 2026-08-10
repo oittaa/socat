@@ -49,6 +49,38 @@ from a prior test, and shard wall timeouts that leave incomplete results
 4. Re-run only the FAILED names with `ONLY='NAME1 NAME2' JOBS=1` before chasing.
 5. Kill leftovers only for **this** tree’s binary (the runner already does that).
 
+## Docker classic scorecard (recommended for root / raw IP)
+
+Run Gerhard’s C socat + `test.sh` **as root inside Ubuntu 26.04** with network
+capabilities. This is safer than root on the laptop and unlocks many tests that
+are `CANT` (must be root) on an unprivileged host.
+
+```bash
+# Build image + full MODE=classic run; verify host-OK set still passes
+./scripts/docker-classic-scorecard.sh
+
+# Reuse image; write under a custom dir
+NO_BUILD=1 OUT_HOST=$PWD/.classic-scorecard-docker \
+  ./scripts/docker-classic-scorecard.sh
+
+# Smoke only
+NO_BUILD=1 MODE=stable ONLY=ancillary \
+  OUT_HOST=$PWD/.classic-scorecard-docker-smoke \
+  ./scripts/docker-classic-scorecard.sh
+```
+
+Image: `docker/classic-test/Dockerfile` → tag `socat-classic-test`.  
+Host wrapper: `scripts/docker-classic-scorecard.sh`  
+Results: `.classic-scorecard-docker/results.json` and
+`testdata/scorecard/classic-docker-baseline.json` (saved reference).
+
+Caps used: `NET_ADMIN`, `NET_RAW`, `SYS_CHROOT`, `SETUID`, `SETGID`,
+`SYS_ADMIN`, `NET_BIND_SERVICE`, plus `/dev/net/tun` when present.
+
+Expected host→docker losses (environment, not binary bugs): UDP6 multicast
+route, VSOCK device, “not with root” denials, missing `systemd-socket-activate`,
+and one PTY ioctl case under root.
+
 ## Commands
 
 ```bash
@@ -91,10 +123,13 @@ JOBS=8 VAL_T=0.1 SHARD_TIMEOUT=300 \
 
 | File | Role |
 |------|------|
-| `classic-baseline.json` | Reference: classic C results on a known host |
+| `classic-baseline.json` | Reference: classic C results on a known host (often non-root) |
 | `classic-baseline.summary.txt` | Human one-pager for classic |
+| `classic-docker-baseline.json` | Classic C in Docker as root (more OK; raw/IP/tcpwrap) |
+| `classic-docker-vs-host.json` | Host OK set vs docker verify report |
 | `go-baseline.json` | Optional: last known-good Go run (regression gate) |
 | `.classic-scorecard/results.json` | Latest run (gitignored working data) |
+| `.classic-scorecard-docker/` | Latest docker classic run (working data) |
 
 ## When to refresh classic baseline
 

@@ -1,0 +1,280 @@
+{
+  "host_ok": 475,
+  "host_ok_ran": 475,
+  "still_ok": 470,
+  "lost_count": 5,
+  "lost": [
+    {
+      "id": "216",
+      "status": "CANT",
+      "name": "UDP6MULTICAST_UNIDIR"
+    },
+    {
+      "id": "304",
+      "status": "FAILED",
+      "name": "IOCTL_VOID"
+    },
+    {
+      "id": "410",
+      "status": "FAILED",
+      "name": "VSOCK_ECHO"
+    },
+    {
+      "id": "453",
+      "status": "CANT",
+      "name": "GOPEN_TO_DENIED"
+    },
+    {
+      "id": "492",
+      "status": "CANT",
+      "name": "ACCEPT_FD"
+    }
+  ],
+  "gained_from_cant_count": 61,
+  "gained_from_cant": [
+    {
+      "id": "24",
+      "name": "RAWIP4SELF"
+    },
+    {
+      "id": "25",
+      "name": "RAWIPX4SELF"
+    },
+    {
+      "id": "26",
+      "name": "RAWIP6SELF"
+    },
+    {
+      "id": "27",
+      "name": "RAWIPX6SELF"
+    },
+    {
+      "id": "81",
+      "name": "SOCKS4CONNECT_TCP4"
+    },
+    {
+      "id": "169",
+      "name": "RAWIP4RECVFROM"
+    },
+    {
+      "id": "173",
+      "name": "RAWIP4RECV"
+    },
+    {
+      "id": "174",
+      "name": "RAWIP6RECV"
+    },
+    {
+      "id": "192",
+      "name": "IP4RECVFROM_RANGE"
+    },
+    {
+      "id": "193",
+      "name": "IP4RECVFROM_TCPWRAP"
+    },
+    {
+      "id": "194",
+      "name": "IP4RECV_RANGE"
+    },
+    {
+      "id": "195",
+      "name": "IP4RECV_TCPWRAP"
+    },
+    {
+      "id": "196",
+      "name": "IP6RECVFROM_RANGE"
+    },
+    {
+      "id": "197",
+      "name": "IP6RECVFROM_TCPWRAP"
+    },
+    {
+      "id": "198",
+      "name": "IP6RECV_RANGE"
+    },
+    {
+      "id": "199",
+      "name": "IP6RECV_TCPWRAP"
+    },
+    {
+      "id": "213",
+      "name": "IP4BROADCAST"
+    },
+    {
+      "id": "215",
+      "name": "IP4MULTICAST_UNIDIR"
+    },
+    {
+      "id": "218",
+      "name": "IP4MULTICAST_BIDIR"
+    },
+    {
+      "id": "220",
+      "name": "TUNINTERFACE"
+    },
+    {
+      "id": "232",
+      "name": "RAWIP4RECVBIND"
+    },
+    {
+      "id": "248",
+      "name": "IP4SCM_IP_OPTIONS"
+    },
+    {
+      "id": "249",
+      "name": "IP4SCM_SCM_TIMESTAMP"
+    },
+    {
+      "id": "250",
+      "name": "IP4SCM_IP_TTL"
+    },
+    {
+      "id": "251",
+      "name": "IP4SCM_IP_TOS"
+    },
+    {
+      "id": "252",
+      "name": "IP4SCM_IP_PKTINFO"
+    },
+    {
+      "id": "253",
+      "name": "IP4SCM_IP_PKTINFO"
+    },
+    {
+      "id": "254",
+      "name": "IP4SCM_IP_PKTINFO"
+    },
+    {
+      "id": "261",
+      "name": "IP6SCM_SCM_TIMESTAMP"
+    },
+    {
+      "id": "262",
+      "name": "IP6SCM_IPV6_PKTINFO"
+    },
+    {
+      "id": "263",
+      "name": "IP6SCM_IPV6_HOPLIMIT"
+    },
+    {
+      "id": "264",
+      "name": "IP6SCM_IPV6_TCLASS"
+    },
+    {
+      "id": "280",
+      "name": "IP4ENV_IP_OPTIONS"
+    },
+    {
+      "id": "281",
+      "name": "IP4ENV_TIMESTAMP"
+    },
+    {
+      "id": "282",
+      "name": "IP4ENV_IP_TTL"
+    },
+    {
+      "id": "283",
+      "name": "IP4ENV_IP_TOS"
+    },
+    {
+      "id": "284",
+      "name": "IP4ENV_IP_LOCADDR"
+    },
+    {
+      "id": "285",
+      "name": "IP4ENV_IP_DSTADDR"
+    },
+    {
+      "id": "286",
+      "name": "IP4ENV_IP_IF"
+    },
+    {
+      "id": "292",
+      "name": "IP6ENV_IPV6_DSTADDR"
+    },
+    {
+      "id": "293",
+      "name": "IP6ENV_IPV6_HOPLIMIT"
+    },
+    {
+      "id": "294",
+      "name": "IP6ENV_IPV6_TCLASS"
+    },
+    {
+      "id": "355",
+      "name": "CREATE_USER"
+    },
+    {
+      "id": "356",
+      "name": "OPEN_USER"
+    },
+    {
+      "id": "357",
+      "name": "GOPEN_USER"
+    },
+    {
+      "id": "358",
+      "name": "UNIX_LISTEN_USER"
+    },
+    {
+      "id": "359",
+      "name": "UNIX_RECVFROM_USER"
+    },
+    {
+      "id": "360",
+      "name": "UNIX_RECV_USER"
+    },
+    {
+      "id": "361",
+      "name": "PIPE_USER"
+    },
+    {
+      "id": "362",
+      "name": "PTY_USER"
+    },
+    {
+      "id": "474",
+      "name": "PROXY_HTTPVERSION"
+    },
+    {
+      "id": "480",
+      "name": "INTERFACE_IGNOREOUTGOING"
+    },
+    {
+      "id": "535",
+      "name": "IP_SENDTO_PF"
+    },
+    {
+      "id": "558",
+      "name": "V1800_IP_DATAGRAM_RANGE"
+    },
+    {
+      "id": "559",
+      "name": "V1800_IP_DATAGRAM_BIND"
+    },
+    {
+      "id": "566",
+      "name": "READLINE_SH_OVERWRITE"
+    },
+    {
+      "id": "567",
+      "name": "SOCKS5CONNECT_TCP4"
+    },
+    {
+      "id": "568",
+      "name": "SOCKS5LISTEN_TCP4"
+    },
+    {
+      "id": "595",
+      "name": "IP_RECV_17"
+    },
+    {
+      "id": "601",
+      "name": "TUN_MTU"
+    },
+    {
+      "id": "604",
+      "name": "SOCKS5_USER_PASS"
+    }
+  ]
+}

@@ -27,3 +27,6 @@ testdata/scorecard/compare-*.json
 testdata/scorecard/*.jsonl
 
 .classic-scorecard-classic/
+
+.classic-scorecard-docker/
+.classic-scorecard-docker-*/

@@ -1,0 +1,12 @@
+label=classic
+timestamp=2026-08-09T22:16:45Z
+socat=/opt/classic/bin/socat
+socat_version=socat by Gerhard Rieger and contributors - see www.dest-unreach.org
+environment=docker-ubuntu26.04-root
+git=
+ok=552
+failed=8
+cant=42
+timeout=1
+unknown=2
+total_recorded=605

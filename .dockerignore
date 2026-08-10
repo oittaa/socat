@@ -1,0 +1,19 @@
+# Keep docker build context small and free of junk.
+.git
+.classic-scorecard*
+.classic-scorecard-*/
+.venv
+**/__pycache__
+*.lst
+results.txt
+timestamp
+queue.sh
+# Classic test.sh may leave abstract/path sockets named "::"
+::
+filan
+procan
+socat
+relsleep
+**/*.test
+**/core
+**/core.*
