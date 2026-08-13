@@ -174,7 +174,8 @@ go test -tags=e2e ./e2e/...   # after build
 
 ```
 cmd/socat   cmd/filan   cmd/procan
-internal/parse  internal/endpoint  internal/relay  internal/cli  internal/logx
+internal/parse  internal/xio/{netopen,tlsopen,proxyopen,fileopen,tunopen,all}
+internal/relay  internal/cli  internal/logx
 scripts/classic-scorecard.sh  scripts/scorecard-parse.py  scripts/scorecard-compare.py
 testdata/scorecard/   # classic / go baselines
 e2e/

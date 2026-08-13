@@ -13,9 +13,10 @@ import (
 	"time"
 
 	"github.com/oittaa/socat"
-	"github.com/oittaa/socat/internal/endpoint"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
+	_ "github.com/oittaa/socat/internal/xio/all"
 )
 
 // Config holds parsed global options.
@@ -372,7 +373,7 @@ func Main(args []string) int {
 		return 1
 	}
 
-	g := &endpoint.Global{
+	g := &xio.Global{
 		Log:         log,
 		BlockSize:   cfg.BlockSize,
 		Linger:      cfg.Linger,
@@ -403,13 +404,13 @@ func Main(args []string) int {
 	// IP version: explicit -4/-6/-0 vs default (env SOCAT_DEFAULT_LISTEN_IP may apply to listen).
 	switch {
 	case cfg.IPAny:
-		g.IPVersion = endpoint.IPvAny
+		g.IPVersion = xio.IPvAny
 	case cfg.IP6:
-		g.IPVersion = endpoint.IPv6
+		g.IPVersion = xio.IPv6
 	case cfg.IP4:
-		g.IPVersion = endpoint.IPv4
+		g.IPVersion = xio.IPv4
 	default:
-		g.IPVersion = endpoint.IPvDefault
+		g.IPVersion = xio.IPvDefault
 	}
 
 	// Classic EXITCODESIG*: dying on SIGTERM/ILL/… exits with 128+signum.
@@ -423,14 +424,14 @@ func Main(args []string) int {
 	go func() {
 		sig := <-sigCh
 		cancel()
-		endpoint.UnlinkRegisteredPaths()
+		xio.UnlinkRegisteredPaths()
 		if ss, ok := sig.(syscall.Signal); ok && ss > 0 {
 			// Exit immediately so Wait()-blocked nofork paths still report classic status.
 			os.Exit(128 + int(ss))
 		}
 	}()
 
-	runErr := endpoint.Run(ctx, left, right, g)
+	runErr := xio.Run(ctx, left, right, g)
 	if runErr != nil {
 		if ctx.Err() != nil {
 			if g.ChildExitCode != 0 {
@@ -439,7 +440,7 @@ func Main(args []string) int {
 			return 0
 		}
 		// Classic socat exits 0 when accept-timeout fires with no peer.
-		if runErr == endpoint.ErrAcceptTimeout {
+		if runErr == xio.ErrAcceptTimeout {
 			return 0
 		}
 		log.Errorf("%s", runErr)
