@@ -87,6 +87,32 @@ func TestTunPositional(t *testing.T) {
 	}
 }
 
+func TestTUNRejectsBadName(t *testing.T) {
+	s, err := parse.ParseSpec("TUN,tun-name=../all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = openTUN(context.Background(), s, xio.ModeRDWR, nil)
+	if err == nil {
+		t.Fatal("expected tun-name ../all to fail")
+	}
+}
+
+func TestValidIfaceName(t *testing.T) {
+	ok := []string{"eth0", "tun0", "scattun0", "br-abc", "dummy0"}
+	for _, n := range ok {
+		if !validIfaceName(n) {
+			t.Fatalf("%q should be valid", n)
+		}
+	}
+	bad := []string{"", ".", "..", "a/b", "../all", "x\x00y", "/dev/tun"}
+	for _, n := range bad {
+		if validIfaceName(n) {
+			t.Fatalf("%q should be invalid", n)
+		}
+	}
+}
+
 func TestParseIffOpts(t *testing.T) {
 	s, err := parse.ParseSpec("TUN,iff-up,iff-noarp=0")
 	if err != nil {

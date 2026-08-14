@@ -27,6 +27,10 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	if err != nil {
 		return nil, err
 	}
+	name := s.OptionValue("tun-name", "")
+	if name != "" && !validIfaceName(name) {
+		return nil, fmt.Errorf("tun-name %q is not a valid interface name", name)
+	}
 	dev := s.OptionValue("tun-device", "/dev/net/tun")
 	if dev == "" {
 		dev = "/dev/net/tun"
@@ -59,7 +63,6 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 		}
 	}
 
-	name := s.OptionValue("tun-name", "")
 	ifr, err := unix.NewIfreq(name)
 	if err != nil {
 		unix.Close(fd)
@@ -76,7 +79,7 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	}
 
 	// Control socket for address / flags / mtu.
-	sock, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+	sock, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
 		unix.Close(fd)
 		return nil, fmt.Errorf("socket(AF_INET): %w", err)
@@ -347,6 +350,9 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	// Extra empty fields from INTERFACE:foo:::: — still wrong arity for classic.
 	// (Parse of INTERFACE::::: is params=["","","","",""] → caught above.)
 	ifname := s.Params[0]
+	if !validIfaceName(ifname) {
+		return nil, fmt.Errorf("INTERFACE: invalid name %q", ifname)
+	}
 
 	ifi, err := net.InterfaceByName(ifname)
 	if err != nil {
@@ -354,13 +360,13 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	}
 
 	proto := htons(uint16(unix.ETH_P_ALL))
-	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW, int(proto))
+	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW|unix.SOCK_CLOEXEC, int(proto))
 	if err != nil {
 		return nil, fmt.Errorf("socket(AF_PACKET): %w", err)
 	}
 
 	// Apply interface flags / MTU if requested (shared with TUN).
-	csock, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+	csock, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, 0)
 	if err == nil {
 		_ = applyInterfaceOpts(csock, ifname, s)
 		unix.Close(csock)
@@ -401,9 +407,24 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	return o, nil
 }
 
+// validIfaceName reports a kernel-style iface name that is safe to put in a
+// /proc/sys path (no slash, NUL, "." or "..").
+func validIfaceName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	if strings.ContainsAny(name, "/\x00") {
+		return false
+	}
+	return true
+}
+
 // disableIPv6OnIface turns off xio.IPv6 autoconfig for ifname (best-effort).
 // Docker often mounts /proc/sys read-only — failure is ignored.
 func disableIPv6OnIface(ifname string) {
+	if !validIfaceName(ifname) {
+		return
+	}
 	path := "/proc/sys/net/ipv6/conf/" + ifname + "/disable_ipv6"
 	_ = os.WriteFile(path, []byte("1\n"), 0o644)
 }

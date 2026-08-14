@@ -31,7 +31,7 @@ func openSocketConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 	if err != nil {
 		return nil, err
 	}
-	fd, err := unix.Socket(domain, unix.SOCK_STREAM, proto)
+	fd, err := newSocket(domain, unix.SOCK_STREAM, proto)
 	if err != nil {
 		return nil, fmt.Errorf("socket: %w", err)
 	}
@@ -86,7 +86,7 @@ func openSocketListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	if err != nil {
 		return nil, err
 	}
-	fd, err := unix.Socket(domain, unix.SOCK_STREAM, proto)
+	fd, err := newSocket(domain, unix.SOCK_STREAM, proto)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +190,7 @@ func openSocketDgram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	if err != nil {
 		return nil, err
 	}
-	fd, err := unix.Socket(domain, typ, proto)
+	fd, err := newSocket(domain, typ, proto)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +271,7 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 	if err != nil {
 		return nil, err
 	}
-	fd, err := unix.Socket(domain, typ, proto)
+	fd, err := newSocket(domain, typ, proto)
 	if err != nil {
 		return nil, err
 	}
@@ -583,6 +583,17 @@ func applySocketOpts(fd int, s parse.Spec) error {
 
 func osNewFile(fd int, name string) *os.File {
 	return os.NewFile(uintptr(fd), name)
+}
+
+func newSocket(domain, typ, proto int) (int, error) {
+	fd, err := unix.Socket(domain, typ|sockCloexec, proto)
+	if err != nil {
+		return -1, err
+	}
+	if sockCloexec == 0 {
+		unix.CloseOnExec(fd)
+	}
+	return fd, nil
 }
 
 // rawListener adapts a listening FD to net.Listener.
