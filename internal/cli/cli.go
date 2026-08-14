@@ -507,7 +507,7 @@ func printVersion(w io.Writer) {
 		{"FIPS", false},
 		{"LIBWRAP", true},   // pure-Go hosts.allow/deny (no CGO libwrap)
 		{"WEBSOCKET", true}, // WS/WSS via coder/websocket (not in classic socat)
-		{"QUIC", true},      // RFC 9000 via x/net/quic (not HTTP/3; not in classic)
+		{"QUIC", true},      // RFC 9000 via quic-go (not HTTP/3; not in classic)
 	}
 	for _, f := range feats {
 		if f.on {

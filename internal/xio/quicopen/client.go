@@ -4,9 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"time"
 
-	"golang.org/x/net/quic"
+	"github.com/quic-go/quic-go"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
@@ -26,7 +25,7 @@ func openQUICConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	if err != nil {
 		return nil, err
 	}
-	qcfg := quicConfig(s, tlsCfg)
+	setup := quicConfig(s, tlsCfg)
 
 	bindHost := s.OptionValue("bind", "")
 	if bindHost == "" {
@@ -49,12 +48,7 @@ func openQUICConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	if err != nil {
 		return nil, err
 	}
-	// nil listen config: this endpoint does not accept inbound connections.
-	ep, err := quic.NewEndpoint(pc, nil)
-	if err != nil {
-		pc.Close()
-		return nil, err
-	}
+	tr := &quic.Transport{Conn: pc}
 
 	timeout := xio.ConnectTimeout(s)
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
@@ -66,13 +60,17 @@ func openQUICConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 				cctx, cancel = context.WithTimeout(dctx, timeout)
 				defer cancel()
 			}
-			qc, e := ep.Dial(cctx, network, dest, qcfg)
+			raddr, e := net.ResolveUDPAddr(network, dest)
 			if e != nil {
 				return e
 			}
-			st, e := qc.NewStream(cctx)
+			qc, e := tr.Dial(cctx, raddr, setup.tls.Clone(), setup.cfg)
 			if e != nil {
-				_ = qc.Close()
+				return e
+			}
+			st, e := qc.OpenStreamSync(cctx)
+			if e != nil {
+				_ = qc.CloseWithError(0, "")
 				return e
 			}
 			conn = wrapQUIC(qc, st)
@@ -89,7 +87,8 @@ func openQUICConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		}
 	}
 	if maxChildren > 0 && !fork {
-		_ = ep.Close(context.Background())
+		_ = tr.Close()
+		_ = pc.Close()
 		return nil, fmt.Errorf("%s: option max-children not allowed without option fork", s.Type)
 	}
 
@@ -97,9 +96,8 @@ func openQUICConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		Label: s.Type + ":" + dest,
 	}
 	o.AddCleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		_ = ep.Close(ctx)
+		_ = tr.Close()
+		_ = pc.Close()
 	})
 
 	if fork {

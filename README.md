@@ -68,7 +68,7 @@ Common options: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `
 | libwrap / TCP wrappers | pure-Go `hosts.allow` / `hosts.deny` (`WITH_LIBWRAP`) |
 | TUN, INTERFACE | Linux TUN/TAP + AF_PACKET (`WITH_TUN`, `WITH_INTERFACE`; need CAP_NET_ADMIN) |
 | WS / WSS (+ CONNECT, LISTEN / -L) | WebSocket byte relay (`github.com/coder/websocket`); **not** in classic socat |
-| QUIC / QUIC-CONNECT / QUIC-LISTEN | RFC 9000 byte relay (`golang.org/x/net/quic`); **not** HTTP/3; **not** in classic socat |
+| QUIC / QUIC-CONNECT / QUIC-LISTEN | RFC 9000 byte relay (`github.com/quic-go/quic-go`); **not** HTTP/3; **not** in classic socat |
 | SCTP, DCCP, POSIXMQ, readline | **not** implemented (`#undef` in `-V`) |
 
 ### Options (honored)
@@ -116,7 +116,7 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 ### Intentional differences from classic socat
 
 - **WebSocket (WS/WSS)** is a Go extra (classic has no WS). Uses `github.com/coder/websocket` (`NetConn` + binary frames), not frozen `golang.org/x/net/websocket`.
-- **QUIC** is a Go extra (classic has no QUIC). Uses `golang.org/x/net/quic` (work in progress: no 0-RTT, no migration). One bidirectional stream as a byte pipe. Not HTTP/3 (`alpn` default `socat`).
+- **QUIC** is a Go extra (classic has no QUIC). Uses `github.com/quic-go/quic-go` (same stack as HTTP/3 CONNECT). One bidirectional stream as a byte pipe. Not HTTP/3 (`alpn` default `socat`). 0-RTT is off.
 - **PROXY `http-version=2` / `3`** is a Go extra (classic PROXY is HTTP/1.x). HTTP/2 uses `net/http`. HTTP/3 uses `github.com/quic-go/quic-go/http3` because `golang.org/x/net/http3` is not a public client API.
 - **`fork`** uses **goroutines**, not `fork(2)` process isolation
 - Companion tools aim for useful parity, not bit-identical C ifdef output

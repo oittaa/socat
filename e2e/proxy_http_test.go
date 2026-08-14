@@ -103,7 +103,10 @@ func TestPROXYH3Echo(t *testing.T) {
 		Handler: proxyConnectEcho(),
 	}
 	go srv.Serve(pc)
-	defer srv.Close()
+	defer func() {
+		_ = srv.Close()
+		_ = pc.Close()
+	}()
 
 	payload := fmt.Sprintf("h3-connect %d\n", time.Now().UnixNano())
 	cli := exec.Command(bin, "stdin!!stdout",

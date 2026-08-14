@@ -9,7 +9,7 @@
 //	fileopen  — STDIO, FILE, PIPE, PTY, TEXT, STALL
 //	tunopen   — TUN, INTERFACE (Linux)
 //	wsopen    — WS / WSS (coder/websocket; not in classic socat)
-//	quicopen  — QUIC (x/net/quic; not in classic socat; not HTTP/3)
+//	quicopen  — QUIC (quic-go; not in classic socat; not HTTP/3)
 //
 // EXEC/SYSTEM/SHELL stay in this package (tightly coupled to Run / nofork).
 // Import internal/xio/all from main/cli so opener registration runs.
