@@ -1,0 +1,410 @@
+{
+  "meta": {
+    "timestamp": "2026-08-14T09:41:03Z",
+    "git": "07de807",
+    "hostname": "gmktec",
+    "uname": "Linux 6.8.0-137-generic",
+    "cpu_model": "Intel(R) N150",
+    "nproc": 4,
+    "go_version": "go version go1.26.5 linux/amd64",
+    "go_socat": "/home/eero/src/socat/socat",
+    "go_socat_version": "socat version 0.1.0-dev on 2026-08-14T09:41:03Z",
+    "classic_socat": "/tmp/socat-1.8.1.3/bin/socat",
+    "classic_socat_version": "socat by Gerhard Rieger and contributors - see www.dest-unreach.org",
+    "openssl_version": "OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)",
+    "size_bytes": 268435456,
+    "runs": 5,
+    "warmup": 1,
+    "buffer": 8192,
+    "payload": "aes-128-ctr (incompressible)",
+    "payload_sha256": "925f959b52e80db3cfe583ac121e664503ffa806c9fc1626de8dd16fa54e2648 (first 1048576 bytes)",
+    "payload_path": "/dev/shm/socat-bench-payload.aes-ctr.268435456"
+  },
+  "cases": [
+    {
+      "id": "tcp",
+      "impl": "classic",
+      "status": "ok",
+      "kind": "stream",
+      "mib_s": {
+        "median": 1190.1006811715154,
+        "min": 1189.329281908583,
+        "max": 1190.8384979980178,
+        "runs": [
+          1189.329281908583,
+          1189.6979408130107,
+          1190.347944667759,
+          1190.1006811715154,
+          1190.8384979980178
+        ]
+      },
+      "elapsed_s": {
+        "median": 0.2151078509996296,
+        "min": 0.2149745749993599,
+        "max": 0.2152473700043629
+      },
+      "peak_rss_kib": 8476,
+      "ok_runs": 5,
+      "n_runs": 5,
+      "detail": ""
+    },
+    {
+      "id": "tcp",
+      "impl": "go",
+      "status": "ok",
+      "kind": "stream",
+      "mib_s": {
+        "median": 616.5768868469153,
+        "min": 615.5997156854577,
+        "max": 701.0827897787075,
+        "runs": [
+          697.055080598582,
+          615.7696831147027,
+          616.5768868469153,
+          615.5997156854577,
+          701.0827897787075
+        ]
+      },
+      "elapsed_s": {
+        "median": 0.4151955830020597,
+        "min": 0.3651494570003706,
+        "max": 0.41585464300442254
+      },
+      "peak_rss_kib": 20728,
+      "ok_runs": 5,
+      "n_runs": 5,
+      "detail": ""
+    },
+    {
+      "id": "unix",
+      "impl": "classic",
+      "status": "ok",
+      "kind": "stream",
+      "mib_s": {
+        "median": 1188.6158552113118,
+        "min": 1186.640385353777,
+        "max": 1191.2714738682464,
+        "runs": [
+          1189.7139635826768,
+          1191.2714738682464,
+          1186.640385353777,
+          1188.6158552113118,
+          1187.7436344933376
+        ]
+      },
+      "elapsed_s": {
+        "median": 0.21537656500004232,
+        "min": 0.21489644100074656,
+        "max": 0.2157351150017348
+      },
+      "peak_rss_kib": 8248,
+      "ok_runs": 5,
+      "n_runs": 5,
+      "detail": ""
+    },
+    {
+      "id": "unix",
+      "impl": "go",
+      "status": "ok",
+      "kind": "stream",
+      "mib_s": {
+        "median": 809.6864177951899,
+        "min": 804.6701825250633,
+        "max": 811.9831663705701,
+        "runs": [
+          809.6864177951899,
+          808.5686700296989,
+          804.6701825250633,
+          811.0170302080634,
+          811.9831663705701
+        ]
+      },
+      "elapsed_s": {
+        "median": 0.31617178499436704,
+        "min": 0.31527747200016165,
+        "max": 0.3181427689996781
+      },
+      "peak_rss_kib": 20488,
+      "ok_runs": 5,
+      "n_runs": 5,
+      "detail": ""
+    },
+    {
+      "id": "tls",
+      "impl": "classic",
+      "status": "ok",
+      "kind": "stream",
+      "mib_s": {
+        "median": 615.9991100318819,
+        "min": 615.9513053887515,
+        "max": 700.2267744577921,
+        "runs": [
+          615.9991100318819,
+          615.9805187935219,
+          615.9513053887515,
+          700.2267744577921,
+          616.0376256376481
+        ]
+      },
+      "elapsed_s": {
+        "median": 0.41558501600229647,
+        "min": 0.3655958460003603,
+        "max": 0.415617270002258
+      },
+      "peak_rss_kib": 16876,
+      "ok_runs": 5,
+      "n_runs": 5,
+      "detail": ""
+    },
+    {
+      "id": "tls",
+      "impl": "go",
+      "status": "ok",
+      "kind": "stream",
+      "mib_s": {
+        "median": 549.9550026145729,
+        "min": 547.8515653172792,
+        "max": 550.4059796614611,
+        "runs": [
+          550.2166841431196,
+          548.6110551441064,
+          550.4059796614611,
+          549.9550026145729,
+          547.8515653172792
+        ]
+      },
+      "elapsed_s": {
+        "median": 0.46549262900225585,
+        "min": 0.46511122600350063,
+        "max": 0.46727985499455826
+      },
+      "peak_rss_kib": 23672,
+      "ok_runs": 5,
+      "n_runs": 5,
+      "detail": ""
+    },
+    {
+      "id": "quic",
+      "impl": "classic",
+      "status": "skip",
+      "detail": "classic has no QUIC"
+    },
+    {
+      "id": "quic",
+      "impl": "go",
+      "status": "ok",
+      "kind": "stream",
+      "mib_s": {
+        "median": 279.18983276619224,
+        "min": 279.06471121780294,
+        "max": 279.36832599468244,
+        "runs": [
+          279.18983276619224,
+          279.36832599468244,
+          279.06471121780294,
+          279.21349380581427,
+          279.0903190165061
+        ]
+      },
+      "elapsed_s": {
+        "median": 0.916938834998291,
+        "min": 0.9163529870056664,
+        "max": 0.9173499540047487
+      },
+      "peak_rss_kib": 35508,
+      "ok_runs": 5,
+      "n_runs": 5,
+      "detail": ""
+    },
+    {
+      "id": "tcp-rr",
+      "impl": "classic",
+      "status": "ok",
+      "kind": "rr",
+      "rtt_us": {
+        "median": 23.621,
+        "p99": 38.544,
+        "min": 23.294,
+        "max": 23.866,
+        "runs_median": [
+          23.294,
+          23.527,
+          23.657,
+          23.866,
+          23.621
+        ]
+      },
+      "msgs_s": {
+        "median": 41105.49918740183,
+        "min": 38966.40868397279,
+        "max": 41390.1014579001
+      },
+      "peak_rss_kib": 4236,
+      "ok_runs": 5,
+      "n_runs": 5,
+      "detail": ""
+    },
+    {
+      "id": "tcp-rr",
+      "impl": "go",
+      "status": "ok",
+      "kind": "rr",
+      "rtt_us": {
+        "median": 21.22,
+        "p99": 33.335,
+        "min": 20.991,
+        "max": 21.324,
+        "runs_median": [
+          21.119,
+          21.22,
+          21.324,
+          21.253,
+          20.991
+        ]
+      },
+      "msgs_s": {
+        "median": 44240.94533733462,
+        "min": 42982.22358389907,
+        "max": 46147.1549938611
+      },
+      "peak_rss_kib": 10452,
+      "ok_runs": 5,
+      "n_runs": 5,
+      "detail": ""
+    },
+    {
+      "id": "tls-rr",
+      "impl": "classic",
+      "status": "ok",
+      "kind": "rr",
+      "rtt_us": {
+        "median": 30.937,
+        "p99": 50.479,
+        "min": 30.853,
+        "max": 31.377,
+        "runs_median": [
+          30.975,
+          30.931,
+          31.377,
+          30.937,
+          30.853
+        ]
+      },
+      "msgs_s": {
+        "median": 31242.86739982356,
+        "min": 30881.64194132637,
+        "max": 31538.986808156445
+      },
+      "peak_rss_kib": 8732,
+      "ok_runs": 5,
+      "n_runs": 5,
+      "detail": ""
+    },
+    {
+      "id": "tls-rr",
+      "impl": "go",
+      "status": "ok",
+      "kind": "rr",
+      "rtt_us": {
+        "median": 30.471,
+        "p99": 55.43,
+        "min": 29.912,
+        "max": 31.237,
+        "runs_median": [
+          31.237,
+          30.471,
+          30.451,
+          30.53,
+          29.912
+        ]
+      },
+      "msgs_s": {
+        "median": 30898.914941343355,
+        "min": 29798.952797751044,
+        "max": 31893.70201636385
+      },
+      "peak_rss_kib": 12156,
+      "ok_runs": 5,
+      "n_runs": 5,
+      "detail": ""
+    },
+    {
+      "id": "quic-rr",
+      "impl": "classic",
+      "status": "skip",
+      "detail": "classic has no QUIC"
+    },
+    {
+      "id": "quic-rr",
+      "impl": "go",
+      "status": "ok",
+      "kind": "rr",
+      "rtt_us": {
+        "median": 93.348,
+        "p99": 233.226,
+        "min": 92.578,
+        "max": 94.822,
+        "runs_median": [
+          92.578,
+          92.831,
+          93.348,
+          94.822,
+          93.727
+        ]
+      },
+      "msgs_s": {
+        "median": 9555.711042157176,
+        "min": 9116.324757903825,
+        "max": 9757.50765886535
+      },
+      "peak_rss_kib": 16136,
+      "ok_runs": 5,
+      "n_runs": 5,
+      "detail": ""
+    },
+    {
+      "id": "tls-hs",
+      "impl": "classic",
+      "status": "ok",
+      "kind": "hs",
+      "hs_s": {
+        "median": 19.301308535300358,
+        "min": 19.258816751138664,
+        "max": 19.357296151518586,
+        "runs": [
+          19.258816751138664,
+          19.312261231482267,
+          19.29773817340796,
+          19.301308535300358,
+          19.357296151518586
+        ]
+      },
+      "peak_rss_kib": 21232,
+      "ok_runs": 5,
+      "n_runs": 5,
+      "detail": ""
+    },
+    {
+      "id": "tls-hs",
+      "impl": "go",
+      "status": "ok",
+      "kind": "hs",
+      "hs_s": {
+        "median": 213.7679300336368,
+        "min": 212.20354693666326,
+        "max": 217.82694331805195,
+        "runs": [
+          213.7679300336368,
+          212.2045274769637,
+          217.82694331805195,
+          212.20354693666326,
+          213.97540035875306
+        ]
+      },
+      "peak_rss_kib": 17652,
+      "ok_runs": 5,
+      "n_runs": 5,
+      "detail": ""
+    }
+  ]
+}

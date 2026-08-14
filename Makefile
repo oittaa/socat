@@ -1,4 +1,4 @@
-.PHONY: all build test e2e lab clean install
+.PHONY: all build test e2e lab bench clean install
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -23,6 +23,10 @@ e2e: build
 # Optional two-container Compose lab (not part of test or e2e).
 lab:
 	./examples/lab/run.sh
+
+# Optional loopback benches vs classic C (not part of test or e2e).
+bench:
+	./scripts/bench.sh
 
 clean:
 	rm -f socat filan procan

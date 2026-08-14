@@ -1,0 +1,28 @@
+timestamp=2026-08-14T09:41:03Z
+git=07de807
+hostname=gmktec
+uname=Linux 6.8.0-137-generic
+cpu_model=Intel(R) N150
+nproc=4
+go_version=go version go1.26.5 linux/amd64
+classic_socat_version=socat by Gerhard Rieger and contributors - see www.dest-unreach.org
+size_bytes=268435456
+runs=5
+payload=aes-128-ctr (incompressible)
+
+tcp/classic: 1190.1 MiB/s (min 1189.3 max 1190.8) peak_rss_kib=8476
+tcp/go: 616.6 MiB/s (min 615.6 max 701.1) peak_rss_kib=20728
+unix/classic: 1188.6 MiB/s (min 1186.6 max 1191.3) peak_rss_kib=8248
+unix/go: 809.7 MiB/s (min 804.7 max 812.0) peak_rss_kib=20488
+tls/classic: 616.0 MiB/s (min 616.0 max 700.2) peak_rss_kib=16876
+tls/go: 550.0 MiB/s (min 547.9 max 550.4) peak_rss_kib=23672
+quic/classic: skip classic has no QUIC
+quic/go: 279.2 MiB/s (min 279.1 max 279.4) peak_rss_kib=35508
+tcp-rr/classic: rtt_us median=23.6 p99=38.5 msgs_s=41105 peak_rss_kib=4236
+tcp-rr/go: rtt_us median=21.2 p99=33.3 msgs_s=44241 peak_rss_kib=10452
+tls-rr/classic: rtt_us median=30.9 p99=50.5 msgs_s=31243 peak_rss_kib=8732
+tls-rr/go: rtt_us median=30.5 p99=55.4 msgs_s=30899 peak_rss_kib=12156
+quic-rr/classic: skip classic has no QUIC
+quic-rr/go: rtt_us median=93.3 p99=233.2 msgs_s=9556 peak_rss_kib=16136
+tls-hs/classic: 19.3 hs/s (min 19.3 max 19.4) peak_rss_kib=21232
+tls-hs/go: 213.8 hs/s (min 212.2 max 217.8) peak_rss_kib=17652

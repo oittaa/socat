@@ -195,6 +195,31 @@ make lab
 
 See [examples/lab/README.md](examples/lab/README.md).
 
+## Benchmarks
+
+Loopback on one host. Method: [testdata/bench/README.md](testdata/bench/README.md).
+Reproduce: `make bench` (set `CLASSIC_SOCAT` for classic columns).
+
+Recorded 2026-08-14 on Intel N150 (4 cores), Linux 6.8.0-137, Go 1.26.5,
+classic socat 1.8.1.3, OpenSSL 3.0.13. Payload: 256 MiB AES-128-CTR
+(incompressible; not `/dev/zero`). Median of 5 timed runs, `-b 8192`.
+
+| Case | classic | go | Peak RSS (classic / go) |
+|------|---------|----|-------------------------|
+| TCP 256 MiB | 1190.1 MiB/s | 616.6 MiB/s | 8.3 / 20.2 MiB |
+| UNIX 256 MiB | 1188.6 MiB/s | 809.7 MiB/s | 8.1 / 20.0 MiB |
+| TLS (OPENSSL) 256 MiB | 616.0 MiB/s | 550.0 MiB/s | 16.5 / 23.1 MiB |
+| QUIC 256 MiB | n/a | 279.2 MiB/s | n/a / 34.7 MiB |
+| TCP 64 B RTT | 23.6 µs | 21.2 µs | 4.1 / 10.2 MiB |
+| TLS 64 B RTT | 30.9 µs | 30.5 µs | 8.5 / 11.9 MiB |
+| QUIC 64 B RTT | n/a | 93.3 µs | n/a / 15.8 MiB |
+| TLS handshake | 19.3 /s | 213.8 /s | 20.7 / 17.2 MiB |
+
+- QUIC is a UDP byte tunnel (`alpn=socat`). It is not HTTP/3 and not OpenSSL.
+- Go TLS uses `crypto/tls` (default KEX may be hybrid X25519MLKEM768). Classic uses OpenSSL.
+- `tls-hs` uses `fork`: classic starts a process; Go starts a goroutine.
+- These numbers are one machine. Run the script on your host. JSON: `testdata/bench/host.json`.
+
 ## Layout
 
 ```
@@ -202,7 +227,9 @@ cmd/socat   cmd/filan   cmd/procan
 internal/parse  internal/xio/{netopen,tlsopen,proxyopen,fileopen,tunopen,all}
 internal/relay  internal/cli  internal/logx
 scripts/classic-scorecard.sh  scripts/scorecard-parse.py  scripts/scorecard-compare.py
+scripts/bench.sh              # optional loopback benches
 testdata/scorecard/   # classic / go baselines
+testdata/bench/       # committed bench snapshot
 e2e/
 examples/lab/         # optional Compose host/client lab
 ```
