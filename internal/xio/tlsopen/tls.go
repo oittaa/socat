@@ -153,16 +153,10 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, err
 	}
 
-	reuse := true
-	if s.HasOption("reuseaddr") {
-		reuse = s.BoolOption("reuseaddr")
-	}
 	lc := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
 			return c.Control(func(fd uintptr) {
-				if reuse {
-					_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-				}
+				xio.ApplyReuse(int(fd), s, true)
 				// Match TCP-LISTEN: set IPV6_V6ONLY before bind for tcp/tcp6.
 				if network == "tcp" || network == "tcp6" {
 					if s.HasOption("ipv6-v6only") {

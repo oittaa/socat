@@ -2,6 +2,7 @@ package netopen
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"net"
@@ -17,14 +18,71 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
+const unixTempChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+// resolveUnixBind returns bind= or a unique unix-bind-tempname path (classic).
+func resolveUnixBind(s parse.Spec) (string, error) {
+	hasTemp := s.HasOption("unix-bind-tempname")
+	hasBind := s.HasOption("bind")
+	if hasTemp && hasBind {
+		return "", fmt.Errorf("do not use both options bind and unix-bind-tempname")
+	}
+	if !hasTemp {
+		return s.OptionValue("bind", ""), nil
+	}
+	o, _ := s.OptionNamed("unix-bind-tempname")
+	pat := ""
+	if o.Has && o.Value != "" && o.Value != "1" {
+		pat = o.Value
+	}
+	return unixTempnam(pat)
+}
+
+// unixTempnam fills XXXXXX like classic xio_tempnam / tempnam(3).
+func unixTempnam(pattern string) (string, error) {
+	if pattern == "" {
+		pattern = "/tmp/socat-bind.XXXXXX"
+	}
+	idx := strings.LastIndex(pattern, "XXXXXX")
+	if idx < 0 {
+		return "", fmt.Errorf("unix-bind-tempname: path pattern is not valid")
+	}
+	abs := xio.IsAbstract(unixAddr(pattern))
+	var b [6]byte
+	for n := 0; n < 10000; n++ {
+		if _, err := rand.Read(b[:]); err != nil {
+			return "", err
+		}
+		var out [6]byte
+		for i := 0; i < 6; i++ {
+			out[i] = unixTempChars[int(b[i])%len(unixTempChars)]
+		}
+		name := pattern[:idx] + string(out[:]) + pattern[idx+6:]
+		if abs {
+			return name, nil
+		}
+		if _, err := os.Lstat(unixAddr(name)); os.IsNotExist(err) {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("unix-bind-tempname: no free name")
+}
+
 func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	if len(s.Params) < 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("UNIX-CONNECT requires path")
 	}
 	path := unixAddr(s.Params[0])
-	bindPath := s.OptionValue("bind", "")
+	bindPath, err := resolveUnixBind(s)
+	if err != nil {
+		return nil, err
+	}
 	if bindPath != "" {
-		bindPath = unixAddr(bindPath)
+		if strings.HasPrefix(strings.ToUpper(s.Type), "ABSTRACT") {
+			bindPath = abstractName(bindPath)
+		} else {
+			bindPath = unixAddr(bindPath)
+		}
 	}
 
 	// Explicit socktype=2 (SOCK_DGRAM) or classic client fallback when peer is dgram.
@@ -48,7 +106,7 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 			_ = os.Remove(bindPath)
 		}
 	}
-	err := xio.WithRetry(ctx, s, g, "UNIX-CONNECT", func() error {
+	err = xio.WithRetry(ctx, s, g, "UNIX-CONNECT", func() error {
 		d := net.Dialer{}
 		if bindPath != "" {
 			// Classic client bind path: remove stale leftover before bind.
@@ -140,9 +198,18 @@ func openUnixDgramClient(ctx context.Context, s parse.Spec, mode xio.Mode, g *xi
 	// Reuse SENDTO path with synthetic params.
 	ps := s
 	ps.Params = []string{path}
-	if bindPath != "" && !s.HasOption("bind") {
-		// Inject bind into a copy of options via OptionValue path: set on Spec.
-		ps.Options = append(append([]parse.Option{}, s.Options...), parse.Option{Name: "bind", Value: bindPath})
+	if bindPath != "" {
+		var opts []parse.Option
+		for _, o := range s.Options {
+			if o.Name == "unix-bind-tempname" {
+				continue
+			}
+			opts = append(opts, o)
+		}
+		if !s.HasOption("bind") {
+			opts = append(opts, parse.Option{Name: "bind", Value: bindPath, Has: true})
+		}
+		ps.Options = opts
 	}
 	return openUnixSendto(ctx, ps, mode, g)
 }
@@ -310,11 +377,13 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 		return nil, fmt.Errorf("UNIX-SENDTO requires path")
 	}
 	remote := unixAddr(s.Params[0])
-	bindPath := s.OptionValue("bind", "")
+	bindPath, err := resolveUnixBind(s)
+	if err != nil {
+		return nil, err
+	}
 	raddr := &net.UnixAddr{Name: remote, Net: "unixgram"}
 
 	var c *net.UnixConn
-	var err error
 	if bindPath != "" {
 		bp := unixAddr(bindPath)
 		// Client bind for SENDTO / UNIX dgram: remove stale path (classic creates
@@ -702,21 +771,9 @@ func openAbstractConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xi
 	if !xio.IsAbstract(name) {
 		name = "@" + name
 	}
-	path := unixAddr(name)
-	d := net.Dialer{Timeout: xio.ConnectTimeout(s)}
-	c, err := d.DialContext(ctx, "unix", path)
-	if err != nil {
-		return nil, err
-	}
-	st := relay.Stream(relay.NetStream{Conn: c})
-	st, err = xio.WrapCommon(s, st)
-	if err != nil {
-		c.Close()
-		return nil, err
-	}
-	_ = mode
-	_ = g
-	return &xio.Opened{Stream: st, Label: "ABSTRACT-CONNECT:" + name}, nil
+	ps := s
+	ps.Params = []string{name}
+	return openUnixConnect(ctx, ps, mode, g)
 }
 
 // abstractName maps classic ABSTRACT-*:path (even if path is a filesystem path
@@ -759,7 +816,10 @@ func openAbstractSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		return nil, fmt.Errorf("ABSTRACT-SENDTO requires name")
 	}
 	target := abstractName(s.Params[0])
-	bindOpt := s.OptionValue("bind", "")
+	bindOpt, err := resolveUnixBind(s)
+	if err != nil {
+		return nil, err
+	}
 	var laddr *net.UnixAddr
 	if bindOpt != "" {
 		laddr = &net.UnixAddr{Name: abstractName(bindOpt), Net: "unixgram"}
@@ -767,7 +827,6 @@ func openAbstractSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	raddr := &net.UnixAddr{Name: target, Net: "unixgram"}
 	// Prefer bind local abstract name then WriteTo (classic client with bind=).
 	var c *net.UnixConn
-	var err error
 	if laddr != nil {
 		c, err = net.ListenUnixgram("unixgram", laddr)
 		if err != nil {

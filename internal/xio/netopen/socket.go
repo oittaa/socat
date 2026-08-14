@@ -90,14 +90,7 @@ func openSocketListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	if err != nil {
 		return nil, err
 	}
-	// reuseaddr default true for listen
-	reuse := true
-	if s.HasOption("reuseaddr") {
-		reuse = s.BoolOption("reuseaddr")
-	}
-	if reuse {
-		_ = unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
-	}
+	xio.ApplyReuse(fd, s, true)
 	if err := applySocketOpts(fd, s); err != nil {
 		unix.Close(fd)
 		return nil, err
@@ -282,9 +275,7 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 	if err != nil {
 		return nil, err
 	}
-	if s.BoolOption("reuseaddr") || !s.HasOption("reuseaddr") {
-		_ = unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
-	}
+	xio.ApplyReuse(fd, s, true)
 	if err := bindRaw(fd, sa, salen); err != nil {
 		unix.Close(fd)
 		return nil, err
@@ -586,9 +577,7 @@ func connectRaw(fd int, sa unix.Sockaddr, _ int) error {
 }
 
 func applySocketOpts(fd int, s parse.Spec) error {
-	if s.BoolOption("reuseaddr") {
-		_ = unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
-	}
+	xio.ApplyReuse(fd, s, false)
 	return nil
 }
 

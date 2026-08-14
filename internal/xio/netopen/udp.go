@@ -815,16 +815,10 @@ func (u *udpFilteredRecv) RemoteAddr() net.Addr      { return nil }
 
 func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, error) {
 	// Default reuseaddr for listen-like UDP (classic often implies it with explicit option).
-	reuse := true
-	if s.HasOption("reuseaddr") {
-		reuse = s.BoolOption("reuseaddr")
-	}
 	cfg := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
 			return c.Control(func(fd uintptr) {
-				if reuse {
-					_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-				}
+				xio.ApplyReuse(int(fd), s, true)
 				if s.BoolOption("broadcast") {
 					_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 				}
@@ -848,19 +842,63 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 	return c, nil
 }
 
-// joinMulticast parses classic "mcast:iface" or "mcast%iface" and joins the group.
-func joinMulticast(c *net.UDPConn, network, spec string) error {
-	// Forms: 224.x.x.x:ifaceIP  or  224.x.x.x:ifaceName
+// parseMcastSpec parses classic ip-add-membership / ipv6-join-group:
+// "224.x.x.x:iface", "[ff02::2]:iface", or "group%iface".
+func parseMcastSpec(spec string) (net.IP, string, error) {
+	spec = strings.TrimSpace(spec)
+	if spec == "" {
+		return nil, "", fmt.Errorf("ip-add-membership: expected mcast:iface, got %q", spec)
+	}
+	if strings.HasPrefix(spec, "[") {
+		end := strings.IndexByte(spec, ']')
+		if end < 0 {
+			return nil, "", fmt.Errorf("ip-add-membership: expected mcast:iface, got %q", spec)
+		}
+		gip := net.ParseIP(spec[1:end])
+		if gip == nil {
+			return nil, "", fmt.Errorf("ip-add-membership: bad group %q", spec[1:end])
+		}
+		rest := spec[end+1:]
+		if strings.HasPrefix(rest, ":") || strings.HasPrefix(rest, "%") {
+			rest = rest[1:]
+		}
+		rest = strings.TrimSpace(rest)
+		if rest == "" {
+			return nil, "", fmt.Errorf("ip-add-membership: expected mcast:iface, got %q", spec)
+		}
+		return gip, rest, nil
+	}
 	mcast, iface, ok := strings.Cut(spec, ":")
 	if !ok {
 		mcast, iface, ok = strings.Cut(spec, "%")
 	}
-	if !ok {
-		return fmt.Errorf("ip-add-membership: expected mcast:iface, got %q", spec)
+	if !ok || strings.Count(spec, ":") > 1 {
+		// Unbracketed IPv6: last colon separates iface.
+		if i := strings.LastIndex(spec, ":"); i > 0 {
+			if g := net.ParseIP(spec[:i]); g != nil {
+				return g, strings.TrimSpace(spec[i+1:]), nil
+			}
+		}
+		if !ok {
+			return nil, "", fmt.Errorf("ip-add-membership: expected mcast:iface, got %q", spec)
+		}
 	}
 	gip := net.ParseIP(strings.TrimSpace(mcast))
 	if gip == nil {
-		return fmt.Errorf("ip-add-membership: bad group %q", mcast)
+		return nil, "", fmt.Errorf("ip-add-membership: bad group %q", mcast)
+	}
+	iface = strings.TrimSpace(iface)
+	if iface == "" {
+		return nil, "", fmt.Errorf("ip-add-membership: expected mcast:iface, got %q", spec)
+	}
+	return gip, iface, nil
+}
+
+// joinMulticast parses classic "mcast:iface" or "mcast%iface" and joins the group.
+func joinMulticast(c *net.UDPConn, network, spec string) error {
+	gip, iface, err := parseMcastSpec(spec)
+	if err != nil {
+		return err
 	}
 	var ifi *net.Interface
 	iface = strings.TrimSpace(iface)

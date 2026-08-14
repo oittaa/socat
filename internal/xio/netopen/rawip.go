@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"strconv"
-	"strings"
 	"syscall"
 	"time"
 
@@ -368,9 +367,7 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 		xio.ApplyAncillaryRecvOpts(int(fd), s)
 		xio.ApplyIPSendOpts(int(fd), s, network)
 		// classic often sets reuse on raw too
-		if s.BoolOption("reuseaddr") || s.HasOption("reuseaddr") {
-			_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-		}
+		xio.ApplyReuse(int(fd), s, true)
 		if s.BoolOption("broadcast") || s.HasOption("broadcast") {
 			_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 		}
@@ -388,18 +385,10 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 
 // joinMulticastIP is like joinMulticast for *net.IPConn (raw IP).
 func joinMulticastIP(c *net.IPConn, network, spec string) error {
-	mcast, iface, ok := strings.Cut(spec, ":")
-	if !ok {
-		mcast, iface, ok = strings.Cut(spec, "%")
+	gip, iface, err := parseMcastSpec(spec)
+	if err != nil {
+		return err
 	}
-	if !ok {
-		return fmt.Errorf("ip-add-membership: expected mcast:iface, got %q", spec)
-	}
-	gip := net.ParseIP(strings.TrimSpace(mcast))
-	if gip == nil {
-		return fmt.Errorf("ip-add-membership: bad group %q", mcast)
-	}
-	iface = strings.TrimSpace(iface)
 	var ifi *net.Interface
 	if ip := net.ParseIP(iface); ip != nil {
 		ifaces, _ := net.Interfaces()

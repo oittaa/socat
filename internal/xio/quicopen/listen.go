@@ -141,16 +141,10 @@ func quicConfig(s parse.Spec, tlsCfg *tls.Config) quicSetup {
 }
 
 func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.PacketConn, error) {
-	reuse := true
-	if s.HasOption("reuseaddr") {
-		reuse = s.BoolOption("reuseaddr")
-	}
 	lc := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
 			return c.Control(func(fd uintptr) {
-				if reuse {
-					_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-				}
+				xio.ApplyReuse(int(fd), s, true)
 				if network == "udp" || network == "udp6" {
 					if s.HasOption("ipv6-v6only") {
 						v := 0

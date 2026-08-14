@@ -532,6 +532,9 @@ func printHelp(w io.Writer, level int) {
 	fmt.Fprintf(w, "  -T<time>        inactivity timeout\n")
 	fmt.Fprintf(w, "  -u              unidirectional left→right\n")
 	fmt.Fprintf(w, "  -U              unidirectional right→left\n")
+	// Classic test.sh OPTION_RAW_DUMP greps: [[:space:]]-[rR][[:space:]]
+	fmt.Fprintf(w, "  -r <file>       dump left-to-right raw data\n")
+	fmt.Fprintf(w, "  -R <file>       dump right-to-left raw data\n")
 	// Classic test.sh greps: [[:space:]]-4[[:space:]], -6, -0 on separate lines.
 	fmt.Fprintf(w, "  -4     prefer IPv4 if version is not explicitly specified\n")
 	fmt.Fprintf(w, "  -6     prefer IPv6 if version is not explicitly specified\n")
@@ -567,6 +570,7 @@ func printHelp(w io.Writer, level int) {
 		// Security filters range/sourceport/lowport are enforced on accept.
 		opts := []string{
 			"reuseaddr", "so-reuseaddr",
+			"reuseport", "so-reuseport",
 			"fork", "bind", "connect-timeout", "accept-timeout",
 			"unlink-early", "unlink-close", "unlink-late", "mode", "nonblock", "o-nonblock",
 			"rdonly", "wronly", "creat", "create", "excl", "append", "trunc", "o-append",
@@ -591,7 +595,11 @@ func printHelp(w io.Writer, level int) {
 			"crnl", "ignoreeof", "readbytes",
 			"retry", "forever", "interval",
 			"backlog", "fdin", "fdout", "max-children",
-			"ipv6-v6only", "broadcast", "ip-add-membership",
+			"ipv6-v6only", "broadcast", "ip-add-membership", "ipv6-join-group",
+			"chdir",
+			"unix-bind-tempname", "bind-tempname",
+			"proxy-authorization", "proxyauth",
+			"proxy-authorization-file", "proxyauthfile",
 			"link", "symbolic-link", "cfmakeraw", "raw", "rawer",
 			"echo", "opost", "perm", "ispeed", "ospeed",
 			"escape",

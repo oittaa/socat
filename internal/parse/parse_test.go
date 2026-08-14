@@ -197,3 +197,22 @@ func TestBoolOptionEmptyDisables(t *testing.T) {
 		t.Fatal("so-reuseaddr= must be false")
 	}
 }
+
+func TestOptionAliases(t *testing.T) {
+	s, err := ParseSpec("UDP6-RECV:1,ipv6-join-group=[ff02::2]:lo,bind-tempname=/tmp/x.XXXXXX,so-reuseport")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.HasOption("ip-add-membership") || !s.HasOption("ipv6-join-group") {
+		t.Fatal("ipv6-join-group alias")
+	}
+	if got := s.OptionValue("ip-add-membership", ""); got != "[ff02::2]:lo" {
+		t.Fatalf("membership %q", got)
+	}
+	if !s.HasOption("unix-bind-tempname") || !s.HasOption("bind-tempname") {
+		t.Fatal("bind-tempname alias")
+	}
+	if !s.BoolOption("reuseport") || !s.BoolOption("so-reuseport") {
+		t.Fatal("so-reuseport alias")
+	}
+}

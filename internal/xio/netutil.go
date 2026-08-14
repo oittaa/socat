@@ -10,7 +10,23 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
+	"golang.org/x/sys/unix"
 )
+
+// ApplyReuse sets SO_REUSEADDR and optional SO_REUSEPORT on fd.
+// reuseaddrDefault is the classic listen default (true for TCP/UDP listen).
+func ApplyReuse(fd int, s parse.Spec, reuseaddrDefault bool) {
+	reuse := reuseaddrDefault
+	if s.HasOption("reuseaddr") {
+		reuse = s.BoolOption("reuseaddr")
+	}
+	if reuse {
+		_ = unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
+	}
+	if s.BoolOption("reuseport") {
+		_ = unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEPORT, 1)
+	}
+}
 
 func StripBrackets(host string) string {
 	if len(host) >= 2 && host[0] == '[' && host[len(host)-1] == ']' {

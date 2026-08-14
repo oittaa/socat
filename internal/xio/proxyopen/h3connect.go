@@ -3,6 +3,7 @@ package proxyopen
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
@@ -40,6 +41,12 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 		}
 		req.Host = authority
 		req.ContentLength = -1
+		if auth, e := proxyAuthString(s); e != nil {
+			_ = pw.Close()
+			return e
+		} else if auth != "" {
+			req.Header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(auth)))
+		}
 		resp, e := tr.RoundTrip(req)
 		if e != nil {
 			_ = pw.Close()

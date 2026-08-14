@@ -3,8 +3,10 @@ package proxyopen
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 
@@ -88,8 +90,15 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 			if e != nil {
 				return e
 			}
-			// CONNECT host:port HTTP/1.x\r\n\r\n  (classic always CRLF)
-			req := fmt.Sprintf("CONNECT %s:%s HTTP/%s\r\n\r\n", connectHost, targetPort, ver)
+			// CONNECT host:port HTTP/1.x\r\n[auth]\r\n  (classic always CRLF)
+			req := fmt.Sprintf("CONNECT %s:%s HTTP/%s\r\n", connectHost, targetPort, ver)
+			if auth, e := proxyAuthHeader(s); e != nil {
+				c.Close()
+				return e
+			} else if auth != "" {
+				req += auth
+			}
+			req += "\r\n"
 			if _, e := c.Write([]byte(req)); e != nil {
 				c.Close()
 				return e
@@ -178,6 +187,37 @@ func openProxyDial(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glob
 	}
 	_ = mode
 	return &xio.Opened{Stream: st, Label: t.label}, nil
+}
+
+// proxyAuthHeader returns classic "Proxy-authorization: Basic …\r\n" or "".
+func proxyAuthHeader(s parse.Spec) (string, error) {
+	raw, err := proxyAuthString(s)
+	if err != nil || raw == "" {
+		return "", err
+	}
+	return "Proxy-authorization: Basic " + base64.StdEncoding.EncodeToString([]byte(raw)) + "\r\n", nil
+}
+
+func proxyAuthString(s parse.Spec) (string, error) {
+	inline := ""
+	if o, ok := s.OptionNamed("proxy-authorization"); ok && o.Has {
+		inline = o.Value
+	}
+	file := ""
+	if o, ok := s.OptionNamed("proxy-authorization-file"); ok && o.Has {
+		file = o.Value
+	}
+	if inline != "" && file != "" {
+		return "", fmt.Errorf("only one of options proxy-authorization and proxy-authorization-file allowed")
+	}
+	if file != "" {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return "", fmt.Errorf("open(%q, O_RDONLY): %w", file, err)
+		}
+		return string(b), nil
+	}
+	return inline, nil
 }
 
 // proxyStatusOK matches classic xio-proxy.c: HTTP/1.0|1.1, skip spaces, "200".

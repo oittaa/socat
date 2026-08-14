@@ -77,18 +77,18 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 
 | Area | Options |
 |------|---------|
-| Listen/connect | `reuseaddr`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `pf`, `ai-addrconfig`, `ipv6-v6only`, `backlog` |
+| Listen/connect | `reuseaddr`, `so-reuseport`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `pf`, `ai-addrconfig`, `ipv6-v6only`, `backlog` |
 | Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport`, `tcpwrap` / `hosts-allow` / `hosts-deny` / `tcpwrap-etc` |
 | TUN / INTERFACE | `tun-name`, `tun-type`, `tun-device`, `iff-up`, `iff-no-pi`, `if-mtu` / `interface-mtu`, other `iff-*` flags |
 | Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `umask`, `nonblock` |
-| UNIX | `unlink-early`, `unlink-close` |
-| EXEC | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none`, `umask` (child inherits, then parent restores) |
+| UNIX | `unlink-early`, `unlink-close`, `unix-bind-tempname` / `bind-tempname` |
+| EXEC | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none`, `chdir`, `umask` (child inherits, then parent restores) |
 | PTY/termios-ish | `link`, `cfmakeraw`, `raw`, `echo`, `opost`, `perm` |
 | Transfer | `crnl`, `crlf`, `ignoreeof`, `readbytes`, `retry`/`forever`/`interval` |
 | TLS | `cert`, `key`, `cafile`/`ca`, `verify`, `commonname` / `openssl-commonname`, `openssl-snihost` / `snihost`, `openssl-no-sni` / `nosni` |
 | WebSocket | `path`, `origin`, `protocol` (binary frames; WSS reuses TLS options) |
 | QUIC | `alpn` (default `socat`; not `h3`); reuses TLS options; one bidirectional stream |
-| PROXY/SOCKS | `proxyport`, `http-version` (`1.0`/`1.1`/`2`/`3`), `h2c`, `socksport`, `socksuser` |
+| PROXY/SOCKS | `proxyport`, `http-version` (`1.0`/`1.1`/`2`/`3`), `h2c`, `proxy-authorization` / `proxy-authorization-file`, `socksport`, `socksuser` |
 
 **`max-children`:** limits concurrent `fork` sessions on **LISTEN** and on **CONNECT** / **OPENSSL-CONNECT** client reconnect loops. Requires `fork`. Parent redials after `interval` (default 1s).
 

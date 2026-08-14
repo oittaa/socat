@@ -252,7 +252,13 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		// grep "E unknown device/address"
 		return nil, fmt.Errorf("unknown device/address \"%s\"", s.Type)
 	}
-	return fn(ctx, s, mode, g)
+	var o *Opened
+	err := WithChdir(s, func() error {
+		var e error
+		o, e = fn(ctx, s, mode, g)
+		return e
+	})
+	return o, err
 }
 
 // Opener opens one address type.

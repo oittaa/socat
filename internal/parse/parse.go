@@ -133,9 +133,9 @@ func ParseSpec(s string) (Spec, error) {
 
 // OptionNamed returns the option with the given name (case-insensitive), if any.
 func (s Spec) OptionNamed(name string) (Option, bool) {
-	name = strings.ToLower(name)
+	name = normalizeOptionName(name)
 	for _, o := range s.Options {
-		if strings.ToLower(o.Name) == name {
+		if o.Name == name {
 			return o, true
 		}
 	}
@@ -459,27 +459,31 @@ func parseOption(s string) Option {
 func normalizeOptionName(name string) string {
 	n := strings.ToLower(name)
 	aliases := map[string]string{
-		"so-reuseaddr":     "reuseaddr",
-		"so-reuseport":     "reuseport",
-		"so-keepalive":     "keepalive",
-		"so-bindtodevice":  "bindtodevice",
-		"so-broadcast":     "broadcast",
-		"so-rcvbuf":        "rcvbuf",
-		"so-sndbuf":        "sndbuf",
-		"so-rcvtimeo":      "rcvtimeo",
-		"so-sndtimeo":      "sndtimeo",
-		"tcp-nodelay":      "nodelay",
-		"tcp-keepalive":    "keepalive",
-		"o-nonblock":       "nonblock",
-		"o-append":         "append",
-		"o-trunc":          "trunc",
-		"o-creat":          "creat",
-		"o-excl":           "excl",
-		"o-rdonly":         "rdonly",
-		"o-wronly":         "wronly",
-		"o-ndelay":         "nonblock",
-		"sp":               "sourceport",
-		"sourceport":       "sourceport",
+		"so-reuseaddr":    "reuseaddr",
+		"so-reuseport":    "reuseport",
+		"ipv6-join-group": "ip-add-membership",
+		"bind-tempname":   "unix-bind-tempname",
+		"proxyauth":       "proxy-authorization",
+		"proxyauthfile":   "proxy-authorization-file",
+		"so-keepalive":    "keepalive",
+		"so-bindtodevice": "bindtodevice",
+		"so-broadcast":    "broadcast",
+		"so-rcvbuf":       "rcvbuf",
+		"so-sndbuf":       "sndbuf",
+		"so-rcvtimeo":     "rcvtimeo",
+		"so-sndtimeo":     "sndtimeo",
+		"tcp-nodelay":     "nodelay",
+		"tcp-keepalive":   "keepalive",
+		"o-nonblock":      "nonblock",
+		"o-append":        "append",
+		"o-trunc":         "trunc",
+		"o-creat":         "creat",
+		"o-excl":          "excl",
+		"o-rdonly":        "rdonly",
+		"o-wronly":        "wronly",
+		"o-ndelay":        "nonblock",
+		"sp":              "sourceport",
+		"sourceport":      "sourceport",
 	}
 	if c, ok := aliases[n]; ok {
 		return c
