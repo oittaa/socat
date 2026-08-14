@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"unsafe"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -31,11 +32,12 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	if dev == "" {
 		dev = "/dev/net/tun"
 	}
-	f, err := os.OpenFile(dev, os.O_RDWR, 0)
+	// Open with unix.Open (blocking). os.OpenFile registers the fd with the
+	// Go netpoller; after TUNSETIFF, Read/Write then fail with "not pollable".
+	fd, err := unix.Open(dev, unix.O_RDWR|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, fmt.Errorf("open(%q): %w", dev, err)
 	}
-	fd := int(f.Fd())
 
 	// Flags: IFF_TUN (default) or IFF_TAP; optional IFF_NO_PI.
 	flags := uint16(unix.IFF_TUN)
@@ -49,7 +51,7 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	case "tap":
 		flags = unix.IFF_TAP
 	default:
-		f.Close()
+		unix.Close(fd)
 		return nil, fmt.Errorf("unknown tun-type %q", tunType)
 	}
 	if s.HasOption("iff-no-pi") || s.HasOption("no-pi") {
@@ -61,12 +63,12 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	name := s.OptionValue("tun-name", "")
 	ifr, err := unix.NewIfreq(name)
 	if err != nil {
-		f.Close()
+		unix.Close(fd)
 		return nil, fmt.Errorf("tun-name: %w", err)
 	}
 	ifr.SetUint16(flags)
 	if err := unix.IoctlIfreq(fd, unix.TUNSETIFF, ifr); err != nil {
-		f.Close()
+		unix.Close(fd)
 		return nil, fmt.Errorf("ioctl(TUNSETIFF, %q): %w", name, err)
 	}
 	ifname := ifr.Name()
@@ -77,7 +79,7 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	// Control socket for address / flags / mtu.
 	sock, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
 	if err != nil {
-		f.Close()
+		unix.Close(fd)
 		return nil, fmt.Errorf("socket(AF_INET): %w", err)
 	}
 	defer unix.Close(sock)
@@ -89,14 +91,14 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	// Optional TUN:addr/bits
 	if addrSpec != "" {
 		if err := setTunIPv4(sock, ifname, addrSpec); err != nil {
-			f.Close()
+			unix.Close(fd)
 			return nil, err
 		}
 	}
 
 	// Interface flags (iff-up, …) and MTU.
 	if err := applyInterfaceOpts(sock, ifname, s); err != nil {
-		f.Close()
+		unix.Close(fd)
 		return nil, err
 	}
 
@@ -104,33 +106,41 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	// Wrap TUN fd: drop xio.IPv6 link-local multicast (MLD/ND) so TUN…PIPE does
 	// not re-inject them into INTERFACE (classic TUNINTERFACE).
 	noPI := flags&unix.IFF_NO_PI != 0
-	st := relay.Stream(&tunStream{f: f, noPI: noPI})
-	st, err = xio.WrapCommon(s, st)
+	ts := &tunStream{fd: fd, noPI: noPI}
+	st, err := xio.WrapCommon(s, relay.Stream(ts))
 	if err != nil {
-		f.Close()
+		ts.Close()
 		return nil, err
 	}
 	o := &xio.Opened{
 		Stream: st,
 		Label:  "TUN:" + ifname,
 	}
-	o.AddCleanup(func() { f.Close() })
+	o.AddCleanup(func() { _ = ts.Close() })
 	return o, nil
 }
 
-// tunStream is a TUN/TAP char-device stream. Read skips xio.IPv6 multicast noise
-// from the kernel (MLD/ND) that would otherwise be echoed via PIPE into
-// INTERFACE. Unicast xio.IPv4/xio.IPv6 and non-multicast frames pass through.
+// tunStream is a TUN/TAP char-device stream. Read/Write use unix syscalls
+// because os.File I/O goes through the Go netpoller, which reports
+// /dev/net/tun as "not pollable" after TUNSETIFF. Read skips IPv6 multicast
+// (MLD/ND) that would otherwise be echoed via PIPE into INTERFACE.
 type tunStream struct {
-	f    *os.File
-	noPI bool
+	fd     int
+	noPI   bool
+	closed sync.Once
 }
 
 func (t *tunStream) Read(p []byte) (int, error) {
 	for {
-		n, err := t.f.Read(p)
-		if err != nil || n == 0 {
-			return n, err
+		n, err := unix.Read(t.fd, p)
+		if err != nil {
+			if err == unix.EINTR {
+				continue
+			}
+			return 0, err
+		}
+		if n == 0 {
+			return 0, nil
 		}
 		if isTunIPv6Multicast(p[:n], t.noPI) {
 			continue
@@ -139,13 +149,31 @@ func (t *tunStream) Read(p []byte) (int, error) {
 	}
 }
 
-func (t *tunStream) Write(p []byte) (int, error) { return t.f.Write(p) }
-func (t *tunStream) Close() error                { return t.f.Close() }
+func (t *tunStream) Write(p []byte) (int, error) {
+	for {
+		n, err := unix.Write(t.fd, p)
+		if err == unix.EINTR {
+			continue
+		}
+		return n, err
+	}
+}
+
+func (t *tunStream) Close() error {
+	var err error
+	t.closed.Do(func() { err = unix.Close(t.fd) })
+	return err
+}
+
 func (t *tunStream) ShutdownWrite() error {
 	// Do not close the TUN fd on half-close — the peer direction still needs it
 	// (same as PTY master). Full Close runs when the transfer ends.
 	return nil
 }
+
+// Fd exposes the TUN fd for relay poll/backpressure (poll(2) works; epoll via
+// the Go netpoller does not).
+func (t *tunStream) Fd() uintptr { return uintptr(t.fd) }
 
 // isTunIPv6Multicast reports kernel xio.IPv6 MLD/ND-style multicast on TUN.
 func isTunIPv6Multicast(b []byte, noPI bool) bool {

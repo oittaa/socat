@@ -1,0 +1,129 @@
+//go:build linux
+
+package tunopen
+
+import (
+	"context"
+	"encoding/binary"
+	"errors"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
+	"golang.org/x/sys/unix"
+)
+
+func TestIsTunIPv6Multicast(t *testing.T) {
+	// PI header + IPv6 dest ff02::1
+	withPI := make([]byte, 4+40)
+	binary.BigEndian.PutUint16(withPI[2:4], unix.ETH_P_IPV6)
+	withPI[4+24] = 0xff
+	if !isTunIPv6Multicast(withPI, false) {
+		t.Fatal("PI IPv6 multicast not detected")
+	}
+
+	withPI[4+24] = 0xfe // unicast-ish
+	if isTunIPv6Multicast(withPI, false) {
+		t.Fatal("PI IPv6 unicast treated as multicast")
+	}
+
+	// IPv4 proto in PI
+	ipv4 := make([]byte, 4+20)
+	binary.BigEndian.PutUint16(ipv4[2:4], unix.ETH_P_IP)
+	if isTunIPv6Multicast(ipv4, false) {
+		t.Fatal("IPv4 PI treated as IPv6 multicast")
+	}
+
+	noPI := make([]byte, 40)
+	noPI[0] = 0x60
+	noPI[24] = 0xff
+	if !isTunIPv6Multicast(noPI, true) {
+		t.Fatal("no-PI IPv6 multicast not detected")
+	}
+
+	if isTunIPv6Multicast([]byte("hello"), false) {
+		t.Fatal("short payload treated as multicast")
+	}
+}
+
+func TestTunPositional(t *testing.T) {
+	s, err := parse.ParseSpec("TUN:10.1.2.3/24")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := tunPositional(s)
+	if err != nil || got != "10.1.2.3/24" {
+		t.Fatalf("got %q err=%v", got, err)
+	}
+
+	s, err = parse.ParseSpec("TUN:::::")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tunPositional(s); err == nil {
+		t.Fatal("TUN::::: should fail")
+	}
+
+	s, err = parse.ParseSpec("TUN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = tunPositional(s)
+	if err != nil || got != "" {
+		t.Fatalf("empty TUN: got %q err=%v", got, err)
+	}
+}
+
+func TestParseIffOpts(t *testing.T) {
+	s, err := parse.ParseSpec("TUN,iff-up,iff-noarp=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, clear := parseIffOpts(s)
+	if set&unix.IFF_UP == 0 {
+		t.Fatal("iff-up not set")
+	}
+	if clear&unix.IFF_NOARP == 0 {
+		t.Fatal("iff-noarp=0 not cleared")
+	}
+}
+
+func TestTUNOpenStaysAlive(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("need root for TUN")
+	}
+	if _, err := os.Stat("/dev/net/tun"); err != nil {
+		t.Skip("/dev/net/tun not available")
+	}
+
+	s, err := parse.ParseSpec("TUN:10.255.254.1/24,iff-up=1,tun-type=tun,tun-name=scattun0,if-mtu=888")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openTUN(context.Background(), s, xio.ModeRDWR, nil)
+	if err != nil {
+		t.Skipf("open TUN: %v", err)
+	}
+	defer o.Close()
+
+	errc := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 1500)
+		_, err := o.Stream.Read(buf)
+		errc <- err
+	}()
+	select {
+	case err := <-errc:
+		if err != nil && strings.Contains(err.Error(), "not pollable") {
+			t.Fatalf("TUN Read failed with netpoll error: %v", err)
+		}
+		if err != nil && !errors.Is(err, unix.EBADF) {
+			t.Fatalf("TUN Read returned immediately: %v", err)
+		}
+	case <-time.After(200 * time.Millisecond):
+		// blocked in Read: the Go netpoller is not involved
+	}
+}
