@@ -16,6 +16,16 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+func TestHtons(t *testing.T) {
+	// ETH_P_ALL is 0x0003; sockaddr_ll.Protocol is network byte order.
+	got := htons(unix.ETH_P_ALL)
+	var b [2]byte
+	binary.NativeEndian.PutUint16(b[:], got)
+	if binary.BigEndian.Uint16(b[:]) != unix.ETH_P_ALL {
+		t.Fatalf("htons(%#x)=%#x is not network order", unix.ETH_P_ALL, got)
+	}
+}
+
 func TestIsTunIPv6Multicast(t *testing.T) {
 	// PI header + IPv6 dest ff02::1
 	withPI := make([]byte, 4+40)

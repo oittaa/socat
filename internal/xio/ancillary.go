@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unsafe"
 
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
@@ -169,15 +168,54 @@ func ProcessAncillary(oob []byte, g *Global) {
 }
 
 func handleTimestamp(data []byte, g *Global) {
-	if len(data) < int(unsafe.Sizeof(unix.Timeval{})) {
+	sec, usec, ok := parseCmsgTimeval(data)
+	if !ok {
 		return
 	}
-	tv := (*unix.Timeval)(unsafe.Pointer(&data[0]))
-	t := time.Unix(int64(tv.Sec), int64(tv.Usec)*1000)
+	t := time.Unix(sec, usec*1000)
 	// Classic ctime_r style: "Mon Jan  2 15:04:05 2006, 000123 usecs"
-	val := t.Format("Mon Jan _2 15:04:05 2006") + fmt.Sprintf(", %06d usecs", tv.Usec)
+	val := t.Format("Mon Jan _2 15:04:05 2006") + fmt.Sprintf(", %06d usecs", usec)
 	logAncillary(g, "SCM_TIMESTAMP", "timestamp", val)
 	setAncillaryEnv(g, "TIMESTAMP", val)
+}
+
+// parseCmsgTimeval reads a kernel timeval from cmsg data (native endian).
+// 16-byte form is two 64-bit fields (Linux 64-bit) or int64+int32+pad (Darwin).
+func parseCmsgTimeval(data []byte) (sec, usec int64, ok bool) {
+	switch {
+	case len(data) >= 16:
+		sec = int64(binary.NativeEndian.Uint64(data[0:8]))
+		usec = int64(binary.NativeEndian.Uint64(data[8:16]))
+		if usec < 0 || usec >= 1_000_000 {
+			usec = int64(int32(binary.NativeEndian.Uint32(data[8:12])))
+		}
+		return sec, usec, true
+	case len(data) >= 8:
+		sec = int64(int32(binary.NativeEndian.Uint32(data[0:4])))
+		usec = int64(int32(binary.NativeEndian.Uint32(data[4:8])))
+		return sec, usec, true
+	default:
+		return 0, 0, false
+	}
+}
+
+func parseInet4Pktinfo(data []byte) (ifindex int, specDst, addr net.IP, ok bool) {
+	if len(data) < unix.SizeofInet4Pktinfo {
+		return 0, nil, nil, false
+	}
+	ifindex = int(int32(binary.NativeEndian.Uint32(data[0:4])))
+	specDst = net.IP(data[4:8])
+	addr = net.IP(data[8:12])
+	return ifindex, specDst, addr, true
+}
+
+func parseInet6Pktinfo(data []byte) (ifindex int, addr net.IP, ok bool) {
+	if len(data) < unix.SizeofInet6Pktinfo {
+		return 0, nil, false
+	}
+	addr = net.IP(data[0:16])
+	ifindex = int(binary.NativeEndian.Uint32(data[16:20]))
+	return ifindex, addr, true
 }
 
 // cmsgInt extracts an int-sized control value (1 or 4 bytes, host endian).
@@ -209,13 +247,13 @@ func handleIPv4Cmsg(typ int32, data []byte, g *Global) {
 			g.Log.Noticef("Ancillary message: tos=%s", val)
 		}
 	case unix.IP_PKTINFO:
-		if len(data) < unix.SizeofInet4Pktinfo {
+		ifi, specDst, dstIP, ok := parseInet4Pktinfo(data)
+		if !ok {
 			return
 		}
-		info := (*unix.Inet4Pktinfo)(unsafe.Pointer(&data[0]))
-		ifname := ifIndexName(int(info.Ifindex))
-		loc := net.IP(info.Spec_dst[:]).String()
-		dst := net.IP(info.Addr[:]).String()
+		ifname := ifIndexName(ifi)
+		loc := specDst.String()
+		dst := dstIP.String()
 		logAncillary(g, "IP_PKTINFO", "if", ifname)
 		logAncillary(g, "IP_PKTINFO", "locaddr", loc)
 		logAncillary(g, "IP_PKTINFO", "dstaddr", dst)
@@ -237,14 +275,14 @@ func handleIPv4Cmsg(typ int32, data []byte, g *Global) {
 func handleIPv6Cmsg(typ int32, data []byte, g *Global) {
 	switch typ {
 	case unix.IPV6_PKTINFO:
-		if len(data) < unix.SizeofInet6Pktinfo {
+		ifi, addr, ok := parseInet6Pktinfo(data)
+		if !ok {
 			return
 		}
-		info := (*unix.Inet6Pktinfo)(unsafe.Pointer(&data[0]))
-		dst := ExpandIPv6Full(net.IP(info.Addr[:]))
+		dst := ExpandIPv6Full(addr)
 		// Classic: [0000:0000:...:0001]
 		br := "[" + dst + "]"
-		ifname := ifIndexName(int(info.Ifindex))
+		ifname := ifIndexName(ifi)
 		logAncillary(g, "IPV6_PKTINFO", "dstaddr", br)
 		logAncillary(g, "IPV6_PKTINFO", "if", ifname)
 		setAncillaryEnv(g, "IPV6_DSTADDR", br)

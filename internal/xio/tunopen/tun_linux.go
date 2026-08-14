@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"unsafe"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -466,9 +465,9 @@ func (p *packetRawStream) ShutdownWrite() error {
 // Fd exposes the packet socket for relay backpressure/poll.
 func (p *packetRawStream) Fd() uintptr { return uintptr(p.fd) }
 
-// htons converts a uint16 to network byte order.
+// htons converts a host uint16 to network byte order.
 func htons(v uint16) uint16 {
 	var b [2]byte
-	binary.BigEndian.PutUint16(b[:], v)
-	return *(*uint16)(unsafe.Pointer(&b[0]))
+	binary.NativeEndian.PutUint16(b[:], v)
+	return binary.BigEndian.Uint16(b[:])
 }
