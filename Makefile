@@ -1,4 +1,4 @@
-.PHONY: all build test e2e clean install
+.PHONY: all build test e2e lab clean install
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -19,6 +19,10 @@ test:
 
 e2e: build
 	go test $(GOFLAGS) -tags=e2e ./e2e/...
+
+# Optional two-container Compose lab (not part of test or e2e).
+lab:
+	./examples/lab/run.sh
 
 clean:
 	rm -f socat filan procan

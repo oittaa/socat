@@ -1,0 +1,8 @@
+# Mount a host-built socat (USE_HOST_BIN=1). Paths are relative to examples/lab.
+services:
+  server:
+    volumes:
+      - ../../socat:/usr/local/bin/socat:ro
+  client:
+    volumes:
+      - ../../socat:/usr/local/bin/socat:ro

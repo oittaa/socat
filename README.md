@@ -178,6 +178,19 @@ go test ./...
 go test -tags=e2e ./e2e/...   # after build
 ```
 
+## Examples / lab
+
+Optional two-container Docker Compose checks (curl, microsocks, HTTP over
+TLS / QUIC / WSS / SOCKS5). Not part of `make test` or `make e2e`.
+
+```bash
+make lab
+# or
+./examples/lab/run.sh tls
+```
+
+See [examples/lab/README.md](examples/lab/README.md).
+
 ## Layout
 
 ```
@@ -187,6 +200,7 @@ internal/relay  internal/cli  internal/logx
 scripts/classic-scorecard.sh  scripts/scorecard-parse.py  scripts/scorecard-compare.py
 testdata/scorecard/   # classic / go baselines
 e2e/
+examples/lab/         # optional Compose host/client lab
 ```
 
 ## Prior art

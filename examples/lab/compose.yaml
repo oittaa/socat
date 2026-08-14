@@ -1,0 +1,34 @@
+name: socat-lab
+
+services:
+  server:
+    image: ${LAB_IMAGE:-socat-lab}
+    build:
+      context: ../..
+      dockerfile: examples/lab/Dockerfile
+    hostname: server
+    environment:
+      ROLE: server
+      SCENARIO: ${SCENARIO:?set SCENARIO}
+    volumes:
+      - ./certs/out:/certs:ro
+      - ./scenarios:/lab/scenarios:ro
+    command: ["/lab/scenarios/entry.sh"]
+    networks: [lab]
+
+  client:
+    image: ${LAB_IMAGE:-socat-lab}
+    hostname: client
+    depends_on: [server]
+    environment:
+      ROLE: client
+      SCENARIO: ${SCENARIO:?set SCENARIO}
+    volumes:
+      - ./certs/out:/certs:ro
+      - ./scenarios:/lab/scenarios:ro
+    command: ["/lab/scenarios/entry.sh"]
+    networks: [lab]
+
+networks:
+  lab:
+    driver: bridge
