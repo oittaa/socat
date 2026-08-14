@@ -9,4 +9,6 @@ func init() {
 	xio.Register("SOCKS4A", openSOCKS4AConnect)
 	xio.Register("SOCKS5", openSOCKS5Connect)
 	xio.Register("SOCKS5-CONNECT", openSOCKS5Connect)
+	xio.Register("SOCKS5-LISTEN", openSOCKS5Listen)
+	xio.Register("SOCKS5-BIND", openSOCKS5Listen)
 }

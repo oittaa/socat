@@ -149,9 +149,23 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	return &xio.Opened{Stream: st, Label: label}, nil
 }
 
+const (
+	socks5CmdConnect = 1
+	socks5CmdBind    = 2
+)
+
 // SOCKS5 / SOCKS5-CONNECT:sockshost:targethost:targetport[,socksport=N]
 // Also SOCKS5-CONNECT:server:socksport:target:port (4 params).
 func openSOCKS5Connect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	return openSOCKS5(ctx, s, mode, g, socks5CmdConnect)
+}
+
+// SOCKS5-LISTEN / SOCKS5-BIND: RFC 1928 BIND via the SOCKS server.
+func openSOCKS5Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	return openSOCKS5(ctx, s, mode, g, socks5CmdBind)
+}
+
+func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, cmd byte) (*xio.Opened, error) {
 	socksHost, socksPort, targetHost, targetPort, err := socksParams(s)
 	if err != nil {
 		return nil, err
@@ -190,6 +204,9 @@ func openSOCKS5Connect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 	network := xio.ConnectNetworkForType(g, s, socksHost, "tcp")
 	d := net.Dialer{Timeout: xio.ConnectTimeout(s)}
 	label := fmt.Sprintf("SOCKS5:%s:%s", targetHost, targetPort)
+	if cmd == socks5CmdBind {
+		label = fmt.Sprintf("SOCKS5-LISTEN:%s:%s", targetHost, targetPort)
+	}
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
@@ -252,53 +269,23 @@ func openSOCKS5Connect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 				return fmt.Errorf("socks5: unsupported auth method %d", hello[1])
 			}
 
-			req := []byte{5, 1, 0, atyp}
+			req := []byte{5, cmd, 0, atyp}
 			req = append(req, addrBytes...)
 			req = binary.BigEndian.AppendUint16(req, uint16(portNum))
 			if _, e := c.Write(req); e != nil {
 				c.Close()
 				return e
 			}
-			var hdr [4]byte
-			if _, e := io.ReadFull(c, hdr[:]); e != nil {
+			if e := socks5ReadReply(c); e != nil {
 				c.Close()
-				return fmt.Errorf("socks5 reply: %w", e)
+				return e
 			}
-			if hdr[0] != 5 {
-				c.Close()
-				return fmt.Errorf("socks5: bad reply version %d", hdr[0])
-			}
-			if hdr[1] != 0 {
-				c.Close()
-				return fmt.Errorf("socks5 connect failed (rep=%d)", hdr[1])
-			}
-			switch hdr[3] {
-			case 1:
-				var skip [6]byte
-				if _, e := io.ReadFull(c, skip[:]); e != nil {
+			if cmd == socks5CmdBind {
+				// First reply: remote listen ready. Second: incoming peer.
+				if e := socks5ReadReply(c); e != nil {
 					c.Close()
 					return e
 				}
-			case 4:
-				var skip [18]byte
-				if _, e := io.ReadFull(c, skip[:]); e != nil {
-					c.Close()
-					return e
-				}
-			case 3:
-				var ln [1]byte
-				if _, e := io.ReadFull(c, ln[:]); e != nil {
-					c.Close()
-					return e
-				}
-				skip := make([]byte, int(ln[0])+2)
-				if _, e := io.ReadFull(c, skip); e != nil {
-					c.Close()
-					return e
-				}
-			default:
-				c.Close()
-				return fmt.Errorf("socks5: unknown atyp %d in reply", hdr[3])
 			}
 			conn = c
 			return nil
@@ -372,6 +359,39 @@ func socksParams(s parse.Spec) (socksHost, socksPort, targetHost, targetPort str
 		}
 	}
 	return "", "", "", "", fmt.Errorf("%s requires socks-server, host, and port", s.Type)
+}
+
+func socks5ReadReply(c net.Conn) error {
+	var hdr [4]byte
+	if _, e := io.ReadFull(c, hdr[:]); e != nil {
+		return fmt.Errorf("socks5 reply: %w", e)
+	}
+	if hdr[0] != 5 {
+		return fmt.Errorf("socks5: bad reply version %d", hdr[0])
+	}
+	if hdr[1] != 0 {
+		return fmt.Errorf("socks5 request failed (rep=%d)", hdr[1])
+	}
+	switch hdr[3] {
+	case 1:
+		var skip [6]byte
+		_, e := io.ReadFull(c, skip[:])
+		return e
+	case 4:
+		var skip [18]byte
+		_, e := io.ReadFull(c, skip[:])
+		return e
+	case 3:
+		var ln [1]byte
+		if _, e := io.ReadFull(c, ln[:]); e != nil {
+			return e
+		}
+		skip := make([]byte, int(ln[0])+2)
+		_, e := io.ReadFull(c, skip)
+		return e
+	default:
+		return fmt.Errorf("socks5: unknown atyp %d in reply", hdr[3])
+	}
 }
 
 func defaultSocksPort(p string) string {
