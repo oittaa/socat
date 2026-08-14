@@ -336,16 +336,14 @@ func Main(args []string) int {
 		log.SetOutput(f)
 	}
 
-	// Lock files
+	// Lock files: O_EXCL so two processes cannot both claim the same path.
+	// Register for signal exit (os.Exit skips defers).
 	if cfg.LockFile != "" {
-		if _, err := os.Stat(cfg.LockFile); err == nil {
-			fmt.Fprintf(os.Stderr, "socat: lockfile %s exists\n", cfg.LockFile)
-			return 1
-		}
-		if err := os.WriteFile(cfg.LockFile, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
+		if err := createLockFile(cfg.LockFile); err != nil {
 			fmt.Fprintf(os.Stderr, "socat: %v\n", err)
 			return 1
 		}
+		xio.RegisterUnlinkPath(cfg.LockFile)
 		defer os.Remove(cfg.LockFile)
 	}
 	if cfg.LockWait != "" {
@@ -355,10 +353,11 @@ func Main(args []string) int {
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
-		if err := os.WriteFile(cfg.LockWait, []byte(fmt.Sprintf("%d\n", os.Getpid())), 0o644); err != nil {
+		if err := createLockFile(cfg.LockWait); err != nil {
 			fmt.Fprintf(os.Stderr, "socat: %v\n", err)
 			return 1
 		}
+		xio.RegisterUnlinkPath(cfg.LockWait)
 		defer os.Remove(cfg.LockWait)
 	}
 
@@ -633,4 +632,25 @@ func printHelp(w io.Writer, level int) {
 	if level >= 3 {
 		fmt.Fprintf(w, "\nCommon options: reuseaddr,fork,bind,connect-timeout,unlink-early,mode,pipes,setsid\n")
 	}
+}
+
+func createLockFile(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			return fmt.Errorf("lockfile %s exists", path)
+		}
+		return err
+	}
+	_, werr := fmt.Fprintf(f, "%d\n", os.Getpid())
+	cerr := f.Close()
+	if werr != nil {
+		_ = os.Remove(path)
+		return werr
+	}
+	if cerr != nil {
+		_ = os.Remove(path)
+		return cerr
+	}
+	return nil
 }

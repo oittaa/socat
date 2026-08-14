@@ -14,7 +14,7 @@ import (
 // expandSniffPath expands classic -r/-R path variables (sysutils.c expandenv).
 // Special: $$ pid, $PROGNAME, $TIMESTAMP (%Y%m%dT%H%M%S), $MICROS; else getenv.
 // \$ yields a literal $.
-func expandSniffPath(src string, progname string, now time.Time) (string, error) {
+func expandSniffPath(src string, progname string, now time.Time, g *Global) (string, error) {
 	if progname == "" {
 		progname = "socat"
 	}
@@ -88,7 +88,11 @@ func expandSniffPath(src string, progname string, now time.Time) (string, error)
 		case "MICROS":
 			val = fmt.Sprintf("%06d", now.Nanosecond()/1000)
 		default:
-			val = os.Getenv(name)
+			if v, ok := sniffEnvValue(g, name); ok {
+				val = v
+			} else {
+				val = os.Getenv(name)
+			}
 		}
 		// Missing env vars expand to empty (classic skips them).
 		b.WriteString(val)
@@ -118,7 +122,7 @@ func openSniffFiles(g *Global) error {
 		prog = "socat"
 	}
 	if g.RawLeftPath != "" {
-		path, err := expandSniffPath(g.RawLeftPath, prog, now)
+		path, err := expandSniffPath(g.RawLeftPath, prog, now, g)
 		if err != nil {
 			return fmt.Errorf("-r: %w", err)
 		}
@@ -129,7 +133,7 @@ func openSniffFiles(g *Global) error {
 		g.RawLeft = f
 	}
 	if g.RawRightPath != "" {
-		path, err := expandSniffPath(g.RawRightPath, prog, now)
+		path, err := expandSniffPath(g.RawRightPath, prog, now, g)
 		if err != nil {
 			return fmt.Errorf("-R: %w", err)
 		}

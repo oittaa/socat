@@ -154,14 +154,7 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 		cmd.Stderr = os.Stderr
 	}
 	if g != nil {
-		env := append([]string{}, os.Environ()...)
-		env = append(env,
-			"SOCAT_SOCKADDR="+g.SockAddr,
-			"SOCAT_PEERADDR="+g.PeerAddr,
-			"SOCAT_SOCKPORT="+g.SockPort,
-			"SOCAT_PEERPORT="+g.PeerPort,
-		)
-		cmd.Env = env
+		cmd.Env = childEnviron(g)
 	}
 	if err := cmd.Start(); err != nil {
 		return err
@@ -343,26 +336,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 
 	// Inject classic SOCAT_* connection environment for SYSTEM/EXEC children.
 	if g != nil {
-		env := append([]string{}, os.Environ()...)
-		env = append(env,
-			"SOCAT_SOCKADDR="+g.SockAddr,
-			"SOCAT_PEERADDR="+g.PeerAddr,
-			"SOCAT_SOCKPORT="+g.SockPort,
-			"SOCAT_PEERPORT="+g.PeerPort,
-		)
-		// Peer TLS certificate (ENV_OPENSSL_* classic tests).
-		if g.TLSPeerSubject != "" {
-			env = append(env,
-				"SOCAT_OPENSSL_X509_SUBJECT="+g.TLSPeerSubject,
-				"SOCAT_OPENSSL_X509_ISSUER="+g.TLSPeerIssuer,
-				"SOCAT_OPENSSL_X509_COMMONNAME="+g.TLSPeerCommonName,
-				"SOCAT_OPENSSL_X509_COUNTRYNAME="+g.TLSPeerCountry,
-				"SOCAT_OPENSSL_X509_LOCALITYNAME="+g.TLSPeerLocality,
-				"SOCAT_OPENSSL_X509_ORGANIZATIONNAME="+g.TLSPeerOrg,
-				"SOCAT_OPENSSL_X509_ORGANIZATIONALUNITNAME="+g.TLSPeerOrgUnit,
-			)
-		}
-		cmd.Env = env
+		cmd.Env = childEnviron(g)
 	}
 
 	if usePty {
@@ -700,9 +674,11 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 			waitFor = 5 * time.Second
 		}
 		killed := false
+		t := time.NewTimer(waitFor)
 		select {
 		case <-done:
-		case <-time.After(waitFor):
+			t.Stop()
+		case <-t.C:
 			if !shutNone {
 				killed = true
 				_ = cmd.Process.Kill()

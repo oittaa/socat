@@ -34,30 +34,99 @@ func RememberAddrs(g *Global, c net.Conn) {
 			g.PeerAddr = ra.String()
 		}
 	}
-	// Classic xiosetenv: PROGNAME_PEERADDR / PROGNAME_PEERPORT (and SOCAT_*).
-	ExportSocatEnv(g)
+	// Session fields stay on g. EXEC children get them via childEnviron.
+	// Do not os.Setenv: fork goroutines would race on process environment.
 }
 
-// ExportSocatEnv sets process environment for sniff-path expansion and children.
-func ExportSocatEnv(g *Global) {
+// sessionEnv returns classic SOCAT_* / PROGNAME_* values from this session.
+func sessionEnv(g *Global) []string {
 	if g == nil {
-		return
+		return nil
 	}
 	prog := g.Progname
 	if prog == "" {
 		prog = "socat"
 	}
-	// Uppercase progname like classic xiosetenv.
 	up := strings.ToUpper(prog)
-	_ = os.Setenv("SOCAT_SOCKADDR", g.SockAddr)
-	_ = os.Setenv("SOCAT_PEERADDR", g.PeerAddr)
-	_ = os.Setenv("SOCAT_SOCKPORT", g.SockPort)
-	_ = os.Setenv("SOCAT_PEERPORT", g.PeerPort)
-	_ = os.Setenv(up+"_SOCKADDR", g.SockAddr)
-	_ = os.Setenv(up+"_PEERADDR", g.PeerAddr)
-	_ = os.Setenv(up+"_SOCKPORT", g.SockPort)
-	_ = os.Setenv(up+"_PEERPORT", g.PeerPort)
+	out := []string{
+		"SOCAT_SOCKADDR=" + g.SockAddr,
+		"SOCAT_PEERADDR=" + g.PeerAddr,
+		"SOCAT_SOCKPORT=" + g.SockPort,
+		"SOCAT_PEERPORT=" + g.PeerPort,
+		up + "_SOCKADDR=" + g.SockAddr,
+		up + "_PEERADDR=" + g.PeerAddr,
+		up + "_SOCKPORT=" + g.SockPort,
+		up + "_PEERPORT=" + g.PeerPort,
+	}
+	if g.TLSPeerSubject != "" {
+		out = append(out,
+			"SOCAT_OPENSSL_X509_SUBJECT="+g.TLSPeerSubject,
+			"SOCAT_OPENSSL_X509_ISSUER="+g.TLSPeerIssuer,
+			"SOCAT_OPENSSL_X509_COMMONNAME="+g.TLSPeerCommonName,
+			"SOCAT_OPENSSL_X509_COUNTRYNAME="+g.TLSPeerCountry,
+			"SOCAT_OPENSSL_X509_LOCALITYNAME="+g.TLSPeerLocality,
+			"SOCAT_OPENSSL_X509_ORGANIZATIONNAME="+g.TLSPeerOrg,
+			"SOCAT_OPENSSL_X509_ORGANIZATIONALUNITNAME="+g.TLSPeerOrgUnit,
+		)
+	}
+	return out
 }
+
+// childEnviron copies the process environment and overlays this session's
+// SOCAT_* keys (last key wins). Used for EXEC/SYSTEM/SHELL so fork children
+// do not share process-wide Setenv.
+func childEnviron(g *Global) []string {
+	extra := sessionEnv(g)
+	if len(extra) == 0 {
+		return os.Environ()
+	}
+	drop := make(map[string]struct{}, len(extra))
+	for _, e := range extra {
+		if i := strings.IndexByte(e, '='); i > 0 {
+			drop[e[:i]] = struct{}{}
+		}
+	}
+	base := os.Environ()
+	out := make([]string, 0, len(base)+len(extra))
+	for _, e := range base {
+		k := e
+		if i := strings.IndexByte(e, '='); i > 0 {
+			k = e[:i]
+		}
+		if _, skip := drop[k]; skip {
+			continue
+		}
+		out = append(out, e)
+	}
+	return append(out, extra...)
+}
+
+// sniffEnvValue resolves -r/-R $NAME from this session (not process getenv).
+func sniffEnvValue(g *Global, name string) (string, bool) {
+	if g == nil {
+		return "", false
+	}
+	prog := g.Progname
+	if prog == "" {
+		prog = "socat"
+	}
+	up := strings.ToUpper(prog)
+	switch name {
+	case "SOCAT_SOCKADDR", up + "_SOCKADDR", "SOCKADDR":
+		return g.SockAddr, true
+	case "SOCAT_PEERADDR", up + "_PEERADDR", "PEERADDR":
+		return g.PeerAddr, true
+	case "SOCAT_SOCKPORT", up + "_SOCKPORT", "SOCKPORT":
+		return g.SockPort, true
+	case "SOCAT_PEERPORT", up + "_PEERPORT", "PEERPORT":
+		return g.PeerPort, true
+	}
+	return "", false
+}
+
+// ExportSocatEnv is kept for callers that used process env. It is a no-op:
+// session values live on Global and are applied in childEnviron / sniff paths.
+func ExportSocatEnv(g *Global) {}
 
 // RememberTLSPeer fills SOCAT_OPENSSL_X509_* from the peer certificate when present.
 func RememberTLSPeer(g *Global, c net.Conn) {

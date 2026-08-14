@@ -2,15 +2,21 @@ package quicopen
 
 import (
 	"net"
+	"sync"
 	"time"
 
 	"github.com/quic-go/quic-go"
 )
 
+// Longer than default linger and e2e -t 2 so CONNECTION_CLOSE does not
+// drop the last STREAM bytes.
+const quicConnDrain = 5 * time.Second
+
 // quicNetConn presents one QUIC stream as a net.Conn for the socat relay.
 type quicNetConn struct {
-	qc *quic.Conn
-	st *quic.Stream
+	qc   *quic.Conn
+	st   *quic.Stream
+	once sync.Once
 }
 
 func wrapQUIC(qc *quic.Conn, st *quic.Stream) *quicNetConn {
@@ -26,10 +32,15 @@ func (c *quicNetConn) CloseWrite() error {
 }
 
 func (c *quicNetConn) Close() error {
-	// Close the stream only. CONNECTION_CLOSE would drop in-flight STREAM
-	// bytes (stdin EOF + linger). The QUIC conn ends when the Transport
-	// or Listener closes, or after MaxIdleTimeout.
-	return c.st.Close()
+	_ = c.st.Close()
+	// Delay CONNECTION_CLOSE so linger can deliver the last STREAM bytes.
+	c.once.Do(func() {
+		go func() {
+			time.Sleep(quicConnDrain)
+			_ = c.qc.CloseWithError(0, "")
+		}()
+	})
+	return nil
 }
 
 func (c *quicNetConn) LocalAddr() net.Addr  { return c.qc.LocalAddr() }
