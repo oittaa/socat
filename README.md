@@ -68,6 +68,7 @@ Common options: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `
 | libwrap / TCP wrappers | pure-Go `hosts.allow` / `hosts.deny` (`WITH_LIBWRAP`) |
 | TUN, INTERFACE | Linux TUN/TAP + AF_PACKET (`WITH_TUN`, `WITH_INTERFACE`; need CAP_NET_ADMIN) |
 | WS / WSS (+ CONNECT, LISTEN / -L) | WebSocket byte relay (`github.com/coder/websocket`); **not** in classic socat |
+| QUIC / QUIC-CONNECT / QUIC-LISTEN | RFC 9000 byte relay (`golang.org/x/net/quic`); **not** HTTP/3; **not** in classic socat |
 | SCTP, DCCP, POSIXMQ, readline | **not** implemented (`#undef` in `-V`) |
 
 ### Options (honored)
@@ -86,6 +87,7 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 | Transfer | `crnl`, `crlf`, `ignoreeof`, `readbytes`, `retry`/`forever`/`interval` |
 | TLS | `cert`, `key`, `cafile`/`ca`, `verify`, `commonname` / `openssl-commonname`, `openssl-snihost` / `snihost`, `openssl-no-sni` / `nosni` |
 | WebSocket | `path`, `origin`, `protocol` (binary frames; WSS reuses TLS options) |
+| QUIC | `alpn` (default `socat`; not `h3`); reuses TLS options; one bidirectional stream |
 | PROXY/SOCKS | `proxyport`, `http-version`, `socksport`, `socksuser` |
 
 **`max-children`:** limits concurrent `fork` sessions on **LISTEN** and on **CONNECT** / **OPENSSL-CONNECT** client reconnect loops. Requires `fork`. Parent redials after `interval` (default 1s).
@@ -114,6 +116,7 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 ### Intentional differences from classic socat
 
 - **WebSocket (WS/WSS)** is a Go extra (classic has no WS). Uses `github.com/coder/websocket` (`NetConn` + binary frames), not frozen `golang.org/x/net/websocket`.
+- **QUIC** is a Go extra (classic has no QUIC). Uses `golang.org/x/net/quic` (work in progress: no 0-RTT, no migration). One bidirectional stream as a byte pipe. Not HTTP/3 (`alpn` default `socat`).
 - **`fork`** uses **goroutines**, not `fork(2)` process isolation
 - Companion tools aim for useful parity, not bit-identical C ifdef output
 - Unknown options are generally ignored (classic may error more strictly)
