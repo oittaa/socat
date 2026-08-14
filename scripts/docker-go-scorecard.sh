@@ -16,7 +16,7 @@ cd "$ROOT"
 
 IMAGE="${IMAGE:-socat-go-test}"
 CLASSIC_IMAGE="${CLASSIC_IMAGE:-socat-classic-test}"
-OUT_HOST="${OUT_HOST:-$ROOT/.classic-scorecard-docker-go}"
+OUT_HOST="${OUT_HOST:-$ROOT/.scorecard/docker-go}"
 CLASSIC_BASELINE="${CLASSIC_BASELINE:-$ROOT/testdata/scorecard/classic-docker-baseline.json}"
 NO_BUILD="${NO_BUILD:-0}"
 USE_HOST_BIN="${USE_HOST_BIN:-0}"

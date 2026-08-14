@@ -22,7 +22,7 @@ Environment variables:
 |----------|---------|---------|
 | `MODE` | `classic` | `classic` / `stable` / `fast` |
 | `ONLY` | empty | classic test.sh filter tokens |
-| `OUT_HOST` | `.classic-scorecard-docker` | host path mounted at `/out` |
+| `OUT_HOST` | `.scorecard/docker` | host path mounted at `/out` |
 | `HOST_BASELINE` | `testdata/scorecard/classic-baseline.json` | verify host OK ⊆ docker OK |
 | `NO_BUILD` | `0` | `1` = skip `docker build` |
 | `PRIVILEGED` | `0` | `1` = `--privileged` instead of explicit caps |
@@ -37,7 +37,7 @@ docker run --rm \
   --cap-add=SYS_CHROOT --cap-add=SETUID --cap-add=SETGID \
   --cap-add=SYS_ADMIN --cap-add=NET_BIND_SERVICE \
   --device /dev/net/tun \
-  -v "$PWD/.classic-scorecard-docker:/out" \
+  -v "$PWD/.scorecard/docker:/out" \
   -v "$PWD/testdata/scorecard/classic-baseline.json:/baseline/classic-baseline.json:ro" \
   -e HOST_BASELINE=/baseline/classic-baseline.json \
   -e MODE=classic \

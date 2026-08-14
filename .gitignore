@@ -9,10 +9,18 @@
 .DS_Store
 coverage.out
 coverage.html
-.classic-scorecard/
-.classic-scorecard-classic/
-# classic test.sh side-effects if run from repo root
+
+# Scorecard working runs (host, docker, and ad-hoc OUT_DIR / OUT_HOST)
+.scorecard/
+
+# classic test.sh leftovers if run from repo root
 /relsleep
+/cannot.lst
+/failed.lst
+/success.lst
+/results.txt
+/timestamp
+/queue.sh
 /testalt.conf
 /testcert.conf
 /testcert6.conf
@@ -20,16 +28,7 @@ coverage.html
 /testcli*
 /testsrv*
 
-# Working copies / compare artefacts. Commit classic-baseline.json and
-# go-baseline.json intentionally when refreshing reference snapshots.
+# Generated next to committed baselines in testdata/scorecard/
 testdata/scorecard/go-latest.json
 testdata/scorecard/compare-*.json
 testdata/scorecard/*.jsonl
-
-.classic-scorecard-classic/
-
-.classic-scorecard-docker/
-.classic-scorecard-docker-*/
-
-.classic-scorecard-docker-go/
-.classic-scorecard-docker-go-*/

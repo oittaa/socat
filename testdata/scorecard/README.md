@@ -3,13 +3,17 @@
 This directory holds **saved results** from classic `test.sh` runs so we do not
 need to re-run the classic C binary on every development cycle.
 
+Working runs (logs, `results.json`) go under **`.scorecard/`** at the repo
+root (gitignored). Defaults: `.scorecard/host`, `.scorecard/docker`,
+`.scorecard/docker-go`. Ad-hoc runs: `OUT_DIR` / `OUT_HOST=$PWD/.scorecard/name`.
+
 ## Approach
 
 1. **Classic baseline (rare)** — run once against Gerhard’s C socat (or after
    upgrading the classic tree / host libs). Save to
    `classic-baseline.json`.
 2. **Go run (often)** — run our binary; write `results.json` under
-   `.classic-scorecard/`.
+   `.scorecard/host/`.
 3. **Compare** — either:
    - Go vs **classic baseline** → “how far from classic parity?”
    - Go vs **previous Go baseline** → “did we regress?”
@@ -60,18 +64,18 @@ are `CANT` (must be root) on an unprivileged host.
 ./scripts/docker-classic-scorecard.sh
 
 # Reuse image; write under a custom dir
-NO_BUILD=1 OUT_HOST=$PWD/.classic-scorecard-docker \
+NO_BUILD=1 OUT_HOST=$PWD/.scorecard/docker \
   ./scripts/docker-classic-scorecard.sh
 
 # Smoke only
 NO_BUILD=1 MODE=stable ONLY=ancillary \
-  OUT_HOST=$PWD/.classic-scorecard-docker-smoke \
+  OUT_HOST=$PWD/.scorecard/docker-smoke \
   ./scripts/docker-classic-scorecard.sh
 ```
 
 Image: `docker/classic-test/Dockerfile` → tag `socat-classic-test`.  
 Host wrapper: `scripts/docker-classic-scorecard.sh`  
-Results: `.classic-scorecard-docker/results.json` and
+Results: `.scorecard/docker/results.json` and
 `testdata/scorecard/classic-docker-baseline.json` (saved reference).
 
 Caps used: `NET_ADMIN`, `NET_RAW`, `SYS_CHROOT`, `SETUID`, `SETGID`,
@@ -91,7 +95,7 @@ and one PTY ioctl case under root.
 USE_HOST_BIN=1 NO_BUILD=1 ./scripts/docker-go-scorecard.sh
 ```
 
-Results land in `.classic-scorecard-docker-go/`. Use this path for root-only
+Results land in `.scorecard/docker-go/`. Use this path for root-only
 features (RAWIP, raw IP ancillary, TUN, …).
 
 ## Commands
@@ -129,7 +133,7 @@ JOBS=8 VAL_T=0.1 SHARD_TIMEOUT=300 \
 # Offline compare only
 ./scripts/scorecard-compare.py \
   testdata/scorecard/classic-baseline.json \
-  .classic-scorecard/results.json
+  .scorecard/host/results.json
 ```
 
 ## Files
@@ -141,8 +145,9 @@ JOBS=8 VAL_T=0.1 SHARD_TIMEOUT=300 \
 | `classic-docker-baseline.json` | Classic C in Docker as root (more OK; raw/IP/tcpwrap) |
 | `classic-docker-vs-host.json` | Host OK set vs docker verify report |
 | `go-baseline.json` | Optional: last known-good Go run (regression gate) |
-| `.classic-scorecard/results.json` | Latest run (gitignored working data) |
-| `.classic-scorecard-docker/` | Latest docker classic run (working data) |
+| `.scorecard/host/` | Latest host run (gitignored working data) |
+| `.scorecard/docker/` | Latest docker classic run (working data) |
+| `.scorecard/docker-go/` | Latest docker Go run (working data) |
 
 ## When to refresh classic baseline
 

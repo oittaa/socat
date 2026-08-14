@@ -80,7 +80,7 @@ PORT_STRIDE="${PORT_STRIDE:-3000}"     # port space per shard (avoid collisions)
 MAX_N="${MAX_N:-}"                     # optional cap on highest test number
 ONLY="${ONLY:-}"                       # optional classic group/name filter (e.g. functions,tcp)
 KEEP_LOGS="${KEEP_LOGS:-0}"
-OUT_DIR="${OUT_DIR:-$ROOT/.classic-scorecard}"
+OUT_DIR="${OUT_DIR:-$ROOT/.scorecard/host}"
 # Structured results / baselines
 LABEL="${LABEL:-}"                     # auto: classic|go from binary path if empty
 BASELINE="${BASELINE:-}"               # path to results.json to compare against

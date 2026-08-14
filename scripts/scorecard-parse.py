@@ -219,8 +219,11 @@ def build_document(
     extra_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     root = out_dir.resolve()
-    # Prefer repo root (parent of .classic-scorecard)
-    repo = root.parent if root.name.startswith(".") else root
+    repo = root
+    for cand in [root, *root.parents]:
+        if (cand / ".git").exists() or (cand / "go.mod").exists():
+            repo = cand
+            break
     parsed = parse_logs(out_dir)
     meta = {
         "label": label,

@@ -21,7 +21,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
 IMAGE="${IMAGE:-socat-classic-test}"
-OUT_HOST="${OUT_HOST:-$ROOT/.classic-scorecard-docker}"
+OUT_HOST="${OUT_HOST:-$ROOT/.scorecard/docker}"
 HOST_BASELINE="${HOST_BASELINE:-$ROOT/testdata/scorecard/classic-baseline.json}"
 NO_BUILD="${NO_BUILD:-0}"
 # Default MODE=classic for truth; override for faster smoke.

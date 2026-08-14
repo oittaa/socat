@@ -6,7 +6,7 @@ Exit 1 with --regression-exit if any test that was OK is no longer OK.
 Usage:
   ./scripts/scorecard-compare.py \\
       testdata/scorecard/classic-baseline.json \\
-      .classic-scorecard/results.json
+      .scorecard/host/results.json
 
   ./scripts/scorecard-compare.py go-prev.json go-now.json --regression-exit
 """
