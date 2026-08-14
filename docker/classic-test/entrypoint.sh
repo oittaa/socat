@@ -39,17 +39,9 @@ sysctl -w net.ipv6.conf.lo.disable_ipv6=0 >/dev/null 2>&1 || true
 sysctl -w net.ipv4.conf.all.rp_filter=0 >/dev/null 2>&1 || true
 sysctl -w net.ipv4.conf.default.rp_filter=0 >/dev/null 2>&1 || true
 
-# Optional second interface address for tests that bind non-127 IPs.
-# Prefer eth0/en* if present (bridge network).
-for ifc in eth0 ens3 enp0s3; do
-  if ip link show "$ifc" >/dev/null 2>&1; then
-    # Add a secondary /32 only if not already present (idempotent).
-    if ! ip -4 addr show dev "$ifc" | grep -q ' 10.255.255.2/'; then
-      ip addr add 10.255.255.2/32 dev "$ifc" 2>/dev/null || true
-    fi
-    break
-  fi
-done
+# Do not add extra IPv4 addresses. Linux test.sh hardcodes SECONDADDR=127.1.0.1.
+# A local 10.255.255.2 (classic TUNNET peer) makes TUNREAD send UDP to the host
+# stack instead of the TUN device. eth0 already has the Docker bridge address.
 
 mkdir -p "${OUT_DIR:-/out}"
 
@@ -94,12 +86,16 @@ export ONLY="${ONLY:-}"
 export MAX_N="${MAX_N:-}"
 export BASELINE="${BASELINE:-}"
 export KEEP_LOGS="${KEEP_LOGS:-1}"
+# Container netns is disposable: drop local addresses that collide with TUNNET.
+export CLASSIC_FIX_TUNNET="${CLASSIC_FIX_TUNNET:-1}"
 
 TEST_SH="${CLASSIC_TEST_SH:-/opt/classic-src/test.sh}"
-if [[ ! -f "$TEST_SH" ]]; then
-  echo "error: classic test.sh not found at $TEST_SH" >&2
-  exit 2
-fi
+run_tunnet_guard() {
+  local f="$1"
+  if [[ -f "$f" && -x /opt/scorecard/scripts/classic-tunnet-guard.sh ]]; then
+    /opt/scorecard/scripts/classic-tunnet-guard.sh "$f"
+  fi
+}
 
 # Extra args: only treat as test.sh override when the path looks like test.sh.
 # (Avoid "docker run image /opt/go/socat -V" stealing the binary path as TEST_SH.)
@@ -108,8 +104,15 @@ if [[ $# -gt 0 && -f "${1:-}" && "$(basename "$1")" == "test.sh" ]]; then
   shift
 elif [[ $# -gt 0 ]]; then
   # Non-scorecard command: exec it (debug shell, socat -V, …).
+  run_tunnet_guard "$TEST_SH"
   exec "$@"
 fi
+
+if [[ ! -f "$TEST_SH" ]]; then
+  echo "error: classic test.sh not found at $TEST_SH" >&2
+  exit 2
+fi
+run_tunnet_guard "$TEST_SH"
 
 echo "=== starting classic-scorecard.sh ==="
 set +e

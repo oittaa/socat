@@ -71,10 +71,13 @@ RUN curl -fsSL "http://www.dest-unreach.org/socat/download/socat-${CLASSIC_VERSI
     && "${CLASSIC_PREFIX}/bin/socat" -V | head -40
 
 WORKDIR /opt/scorecard
-COPY scripts/classic-scorecard.sh scripts/scorecard-parse.py scripts/scorecard-compare.py \
+COPY scripts/classic-scorecard.sh scripts/classic-tunnet-guard.sh \
+     scripts/scorecard-parse.py scripts/scorecard-compare.py \
      /opt/scorecard/scripts/
 COPY docker/classic-test/entrypoint.sh /opt/scorecard/entrypoint.sh
-RUN chmod +x /opt/scorecard/entrypoint.sh /opt/scorecard/scripts/classic-scorecard.sh \
+RUN chmod +x /opt/scorecard/entrypoint.sh \
+        /opt/scorecard/scripts/classic-scorecard.sh \
+        /opt/scorecard/scripts/classic-tunnet-guard.sh \
     && mkdir -p /opt/scorecard/testdata/scorecard /out \
     && printf 'build:\n\t@true\n' > /opt/scorecard/Makefile
 

@@ -96,6 +96,13 @@ if [[ -z "$TEST_SH" || ! -f "$TEST_SH" ]]; then
 fi
 TEST_SH="$(cd "$(dirname "$TEST_SH")" && pwd)/$(basename "$TEST_SH")"
 
+# Do not patch test.sh. Read TUNNET= from this copy so a classic sync cannot
+# reintroduce a local address on the TUNREAD peer (see classic-tunnet-guard.sh).
+GUARD="$(cd "$(dirname "$0")" && pwd)/classic-tunnet-guard.sh"
+if [[ -x "$GUARD" ]]; then
+  "$GUARD" "$TEST_SH"
+fi
+
 # Build binaries unless using an external SOCAT only
 if [[ "$SKIP_BUILD" != "1" ]]; then
   make -s build
