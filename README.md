@@ -201,23 +201,33 @@ Loopback on one host. Method: [testdata/bench/README.md](testdata/bench/README.m
 Reproduce: `make bench` (set `CLASSIC_SOCAT` for classic columns).
 
 Recorded 2026-08-14 on Intel N150 (4 cores), Linux 6.8.0-137, Go 1.26.5,
-classic socat 1.8.1.3, OpenSSL 3.0.13. Payload: 256 MiB AES-128-CTR
+classic socat 1.8.1.3, distro OpenSSL 3.0.13. Payload: 256 MiB AES-128-CTR
 (incompressible; not `/dev/zero`). Median of 5 timed runs, `-b 8192`.
 
 | Case | classic | go | Peak RSS (classic / go) |
 |------|---------|----|-------------------------|
-| TCP 256 MiB | 1190.1 MiB/s | 616.6 MiB/s | 8.3 / 20.2 MiB |
-| UNIX 256 MiB | 1188.6 MiB/s | 809.7 MiB/s | 8.1 / 20.0 MiB |
-| TLS (OPENSSL) 256 MiB | 616.0 MiB/s | 550.0 MiB/s | 16.5 / 23.1 MiB |
-| QUIC 256 MiB | n/a | 279.2 MiB/s | n/a / 34.7 MiB |
-| TCP 64 B RTT | 23.6 µs | 21.2 µs | 4.1 / 10.2 MiB |
-| TLS 64 B RTT | 30.9 µs | 30.5 µs | 8.5 / 11.9 MiB |
-| QUIC 64 B RTT | n/a | 93.3 µs | n/a / 15.8 MiB |
-| TLS handshake | 19.3 /s | 213.8 /s | 20.7 / 17.2 MiB |
+| TCP 256 MiB | 966.8 MiB/s | 616.5 MiB/s | 8.3 / 20.1 MiB |
+| UNIX 256 MiB | 1190.8 MiB/s | 812.0 MiB/s | 8.0 / 20.0 MiB |
+| TLS (OPENSSL) 256 MiB | 616.2 MiB/s | 550.1 MiB/s | 16.5 / 23.4 MiB |
+| QUIC 256 MiB | n/a | 279.0 MiB/s | n/a / 34.5 MiB |
+| TCP 64 B RTT | 23.0 µs | 21.2 µs | 4.1 / 10.2 MiB |
+| TLS 64 B RTT | 31.0 µs | 30.5 µs | 8.6 / 11.9 MiB |
+| QUIC 64 B RTT | n/a | 92.9 µs | n/a / 16.1 MiB |
+| TLS handshake | 19.3 /s | 217.9 /s | 20.6 / 17.2 MiB |
 
+Recorded handshakes (same binaries as the table; see `meta.tls` in `testdata/bench/host.json`):
+
+| Pairing | Used by | Version | Cipher | Group |
+|---------|---------|---------|--------|-------|
+| Go `crypto/tls` ↔ Go OPENSSL-LISTEN | `tls`, `tls-rr`, `tls-hs` (go) | TLS 1.3 | TLS_AES_128_GCM_SHA256 | X25519MLKEM768 |
+| Distro OpenSSL 3.0.13 ↔ classic OPENSSL-LISTEN | `tls` (classic) | TLS 1.3 | TLS_AES_256_GCM_SHA384 | P-256 |
+| Go `crypto/tls` ↔ classic OPENSSL-LISTEN | `tls-rr`, `tls-hs` (classic) | TLS 1.3 | TLS_AES_128_GCM_SHA256 | P-256 |
+| quic-go ↔ Go QUIC-LISTEN | `quic`, `quic-rr` | TLS 1.3 | TLS_AES_128_GCM_SHA256 | X25519MLKEM768 |
+
+- Go TLS/QUIC used hybrid post-quantum **X25519MLKEM768**. Classic OPENSSL used **P-256** (unpatched 1.8.1.3 pins that curve; distro OpenSSL 3.0.13 has no ML-KEM).
+- Bulk TLS also used different ciphers: classic **AES-256-GCM**, Go **AES-128-GCM**.
+- `tls-hs` (classic) is a Go client to a classic listener, so that column is P-256. The Go `tls-hs` column is X25519MLKEM768. The rate gap is also classic `fork(2)` vs Go goroutines.
 - QUIC is a UDP byte tunnel (`alpn=socat`). It is not HTTP/3 and not OpenSSL.
-- Go TLS uses `crypto/tls` (default KEX may be hybrid X25519MLKEM768). Classic uses OpenSSL.
-- `tls-hs` uses `fork`: classic starts a process; Go starts a goroutine.
 - These numbers are one machine. Run the script on your host. JSON: `testdata/bench/host.json`.
 
 ## Layout

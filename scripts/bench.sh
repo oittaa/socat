@@ -23,6 +23,8 @@ if [[ ! -x "$SOCAT" ]]; then
   exit 2
 fi
 
+OPENSSL_BIN="${OPENSSL_BIN:-$(command -v openssl || true)}"
+
 CLASSIC_SOCAT="${CLASSIC_SOCAT:-}"
 if [[ -z "$CLASSIC_SOCAT" ]]; then
   for c in \
@@ -40,18 +42,18 @@ fi
 WORKDIR="${WORKDIR:-$ROOT/testdata/tmp/bench}"
 mkdir -p "$WORKDIR/certs" "$WORKDIR/logs"
 
-if ! command -v openssl >/dev/null 2>&1; then
-  echo "openssl is required (certificates and incompressible payload)" >&2
+if [[ -z "${OPENSSL_BIN:-}" || ! -x "$OPENSSL_BIN" ]]; then
+  echo "openssl is required (certificates, payload, TLS probe)" >&2
   exit 2
 fi
 
 CERT_DIR="$WORKDIR/certs"
 if [[ ! -f "$CERT_DIR/ca.pem" || ! -f "$CERT_DIR/server.crt" || ! -f "$CERT_DIR/server.key" ]]; then
   umask 077
-  openssl req -x509 -newkey rsa:2048 -sha256 -days 2 -nodes \
+  "$OPENSSL_BIN" req -x509 -newkey rsa:2048 -sha256 -days 2 -nodes \
     -keyout "$CERT_DIR/ca.key" -out "$CERT_DIR/ca.pem" \
     -subj "/CN=socat-bench-ca" >/dev/null 2>&1
-  openssl req -newkey rsa:2048 -sha256 -nodes \
+  "$OPENSSL_BIN" req -newkey rsa:2048 -sha256 -nodes \
     -keyout "$CERT_DIR/server.key" -out "$CERT_DIR/server.csr" \
     -subj "/CN=localhost" >/dev/null 2>&1
   cat >"$CERT_DIR/server.ext" <<'EOF'
@@ -60,7 +62,7 @@ basicConstraints=CA:FALSE
 keyUsage=digitalSignature,keyEncipherment
 extendedKeyUsage=serverAuth
 EOF
-  openssl x509 -req -in "$CERT_DIR/server.csr" -CA "$CERT_DIR/ca.pem" -CAkey "$CERT_DIR/ca.key" \
+  "$OPENSSL_BIN" x509 -req -in "$CERT_DIR/server.csr" -CA "$CERT_DIR/ca.pem" -CAkey "$CERT_DIR/ca.key" \
     -CAcreateserial -out "$CERT_DIR/server.crt" -days 2 \
     -extfile "$CERT_DIR/server.ext" >/dev/null 2>&1
   rm -f "$CERT_DIR/server.csr" "$CERT_DIR/server.ext" "$CERT_DIR/ca.srl"
@@ -77,7 +79,7 @@ if [[ ! -x "$BENCHCLIENT" ]]; then
   exit 2
 fi
 
-export SOCAT CLASSIC_SOCAT WORKDIR BENCHCLIENT
+export SOCAT CLASSIC_SOCAT OPENSSL_BIN WORKDIR BENCHCLIENT
 export SIZE="${SIZE:-256M}"
 export RUNS="${RUNS:-5}"
 export WARMUP="${WARMUP:-1}"

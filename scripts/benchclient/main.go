@@ -28,6 +28,10 @@ type result struct {
 	MsgsS    float64 `json:"msgs_s,omitempty"`
 	HsS      float64 `json:"hs_s,omitempty"`
 	RTTUs    *stats  `json:"rtt_us,omitempty"`
+	Version  string  `json:"version,omitempty"`
+	Cipher   string  `json:"cipher,omitempty"`
+	Group    string  `json:"group,omitempty"`
+	ALPN     string  `json:"alpn,omitempty"`
 	Error    string  `json:"error,omitempty"`
 }
 
@@ -57,7 +61,7 @@ func main() {
 	if *size < 1 {
 		*size = 1
 	}
-	if *n < 1 {
+	if *mode != "probe" && *n < 1 {
 		fail(result{Mode: *mode, Proto: *proto, Error: "n must be >= 1"})
 	}
 
@@ -72,8 +76,10 @@ func main() {
 		out, err = runRR(*proto, *addr, tlsCfg, *n, *warmup, *size)
 	case "hs":
 		out, err = runHS(*proto, *addr, tlsCfg, *n, *warmup, *size)
+	case "probe":
+		out, err = runProbe(*proto, *addr, tlsCfg)
 	default:
-		fail(result{Mode: *mode, Proto: *proto, Error: "mode must be rr or hs"})
+		fail(result{Mode: *mode, Proto: *proto, Error: "mode must be rr, hs, or probe"})
 	}
 	if err != nil {
 		out.OK = false
@@ -229,6 +235,63 @@ func dial(proto, addr string, tlsCfg *tls.Config) (connIO, func(), error) {
 	default:
 		return nil, nil, fmt.Errorf("unknown proto %q", proto)
 	}
+}
+
+func runProbe(proto, addr string, tlsCfg *tls.Config) (result, error) {
+	out := result{Mode: "probe", Proto: proto}
+	switch proto {
+	case "tls":
+		d := &net.Dialer{Timeout: 5 * time.Second}
+		c, err := tls.DialWithDialer(d, "tcp", addr, tlsCfg)
+		if err != nil {
+			return out, err
+		}
+		fillTLS(&out, c.ConnectionState())
+		_ = c.Close()
+		return out, nil
+	case "quic":
+		return probeQUIC(addr, tlsCfg)
+	default:
+		return out, fmt.Errorf("probe proto must be tls or quic")
+	}
+}
+
+func probeQUIC(addr string, tlsCfg *tls.Config) (result, error) {
+	out := result{Mode: "probe", Proto: "quic"}
+	raddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return out, err
+	}
+	pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		return out, err
+	}
+	tr := &quic.Transport{Conn: pc}
+	defer func() {
+		_ = tr.Close()
+		_ = pc.Close()
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	qc, err := tr.Dial(ctx, raddr, tlsCfg.Clone(), &quic.Config{})
+	if err != nil {
+		return out, err
+	}
+	defer func() { _ = qc.CloseWithError(0, "") }()
+	fillTLS(&out, qc.ConnectionState().TLS)
+	if out.ALPN == "" {
+		out.ALPN = "socat"
+	}
+	return out, nil
+}
+
+func fillTLS(out *result, cs tls.ConnectionState) {
+	out.Version = tls.VersionName(cs.Version)
+	out.Cipher = tls.CipherSuiteName(cs.CipherSuite)
+	if cs.CurveID != 0 {
+		out.Group = cs.CurveID.String()
+	}
+	out.ALPN = cs.NegotiatedProtocol
 }
 
 func dialQUIC(addr string, tlsCfg *tls.Config) (connIO, func(), error) {

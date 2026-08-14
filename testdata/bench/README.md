@@ -5,6 +5,11 @@ Optional loopback measures. They are not `make test` and not `make e2e`.
 The suite starts real socat processes. It compares this Go binary with classic
 C socat when `CLASSIC_SOCAT` is set.
 
+Classic TLS uses the **distro OpenSSL** (this host: 3.0.13) and an unpatched
+classic 1.8.1.3. That binary pins P-256 via `SSL_CTX_set_tmp_ecdh`. Go
+`crypto/tls` defaults to hybrid **X25519MLKEM768**. The probe records both
+values. Do not guess.
+
 ## Payload (not /dev/zero)
 
 The stream cases do **not** read `/dev/zero`.
@@ -26,9 +31,6 @@ also sit in `/dev/shm` when that directory is writable.
 # From the repo root
 make bench
 # or
-./scripts/bench.sh
-
-# Need classic columns
 CLASSIC_SOCAT=/path/to/classic/socat ./scripts/bench.sh
 
 # Subset and smaller size
@@ -86,6 +88,7 @@ Classic socat has no QUIC.
 |----------|---------|---------|
 | `SOCAT` | `./socat` | Go binary |
 | `CLASSIC_SOCAT` | search common paths | Classic C binary |
+| `OPENSSL_BIN` | `openssl` on PATH | Distro OpenSSL (certs, payload, probe) |
 | `SIZE` | `256M` | Stream payload (MiB if `M`) |
 | `RUNS` | `5` | Timed runs |
 | `WARMUP` | `1` | Untimed runs |
@@ -95,6 +98,7 @@ Classic socat has no QUIC.
 | `RR_N` / `RR_WARMUP` / `RR_SIZE` | 20000 / 1000 / 64 | Ping-pong |
 | `HS_N` / `HS_WARMUP` | 200 / 20 | Handshakes |
 | `SKIP_BUILD` | `0` | Skip `make build` |
+| `PROBE_ONLY` | `0` | Handshake probe only; merge `meta.tls` into `SAVE_BASELINE` |
 
 Both binaries use `-b 8192` and bind `127.0.0.1`.
 
@@ -104,7 +108,10 @@ Each run writes JSON (`meta` + `cases`) and a text summary. Structured JSON is
 the source of truth. The root README table must match `testdata/bench/host.json`.
 
 `meta` records: time, git, host, kernel, CPU, nproc, Go version, classic
-version, OpenSSL version, size, runs, payload kind, payload hash.
+version, OpenSSL version, size, runs, payload kind, payload hash, and
+**`meta.tls`**: the negotiated TLS version, cipher, and group for each
+pairing the suite uses. The probe is a real handshake against the same
+listen command as the timed case. Do not write “may be” for those values.
 
 RSS is the peak `VmRSS` of the socat process tree (50 ms sample). For
 `tls-hs` that includes classic child processes.
@@ -112,17 +119,19 @@ RSS is the peak `VmRSS` of the socat process tree (50 ms sample). For
 ## Honesty
 
 - These numbers are one machine. Run the script on your host.
-- Go TLS uses `crypto/tls` (the default KEX may be hybrid X25519MLKEM768).
-  Classic uses OpenSSL.
+- Quote `meta.tls` for version, cipher, and group. Go TLS/QUIC uses
+  **X25519MLKEM768**. Classic OPENSSL (distro OpenSSL + unpatched 1.8.1.3)
+  uses **P-256**. Classic bulk TLS uses **TLS_AES_256_GCM_SHA384**; Go uses
+  **TLS_AES_128_GCM_SHA256**.
+- `tls-rr` / `tls-hs` (classic) use the Go `benchclient` against classic
+  OPENSSL-LISTEN. That pairing is not classic↔classic.
 - QUIC is not a drop-in OPENSSL replacement.
 - Do not claim a winner unless the JSON shows it.
 
 ## Refresh the committed snapshot
 
 ```bash
-CLASSIC_SOCAT=/path/to/classic/socat \
-  SAVE_BASELINE=testdata/bench/host.json \
-  ./scripts/bench.sh
+SAVE_BASELINE=testdata/bench/host.json ./scripts/bench.sh
 ```
 
 Then copy the medians from `testdata/bench/host.summary.txt` into the root

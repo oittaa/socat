@@ -85,6 +85,189 @@ def git_head(root: Path) -> str:
         return ""
 
 
+def normalize_group(raw: str) -> str:
+    s = (raw or "").strip()
+    sl = s.lower().replace(" ", "")
+    if "x25519mlkem768" in sl or "mlkem768" in sl:
+        return "X25519MLKEM768"
+    if "x25519" in sl:
+        return "X25519"
+    if "prime256v1" in sl or "secp256r1" in sl or sl.startswith("p-256") or "p256" in sl:
+        return "P-256"
+    return s
+
+
+def parse_openssl_sclient(text: str) -> dict[str, str]:
+    version = cipher = group_raw = ""
+    for line in text.splitlines():
+        l = line.strip()
+        low = l.lower()
+        if low.startswith("protocol version:"):
+            version = l.split(":", 1)[1].strip()
+        elif low.startswith("protocol") and ":" in l and "version" not in low:
+            version = l.split(":", 1)[1].strip()
+        elif low.startswith("ciphersuite:"):
+            cipher = l.split(":", 1)[1].strip()
+        elif "cipher is" in low:
+            cipher = l.split("is", 1)[1].strip()
+            if "tlsv1.3" in low:
+                version = version or "TLSv1.3"
+        elif low.startswith("cipher") and ":" in l:
+            cipher = l.split(":", 1)[1].strip()
+        elif "negotiated tls1.3 group:" in low:
+            group_raw = l.split(":", 1)[1].strip()
+        elif "server temp key:" in low or "peer temp key:" in low:
+            group_raw = l.split(":", 1)[1].strip()
+    return {
+        "version": version,
+        "cipher": cipher,
+        "group": normalize_group(group_raw),
+        "group_raw": group_raw,
+    }
+
+
+def probe_go_client(
+    *,
+    server_bin: str,
+    proto: str,
+    certs: dict[str, Path],
+    workdir: Path,
+    benchclient: Path,
+    tag: str,
+) -> dict[str, Any]:
+    port = free_tcp_port()
+    listen = echo_listen(proto if proto != "quic" else "quic", port, certs, fork=True)
+    slog = workdir / "logs" / f"{tag}.server.log"
+    server = start_socat(server_bin, [listen, "PIPE"], slog)
+    try:
+        if proto == "quic":
+            wait_udp(port)
+        else:
+            wait_tcp(port)
+        cmd = [
+            str(benchclient),
+            "-mode",
+            "probe",
+            "-proto",
+            proto,
+            "-addr",
+            f"127.0.0.1:{port}",
+            "-ca",
+            str(certs["ca"]),
+            "-servername",
+            "localhost",
+        ]
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=20)
+        if p.returncode != 0:
+            err = (p.stdout or "") + (p.stderr or "")
+            return {"ok": False, "error": err[-400:] or f"exit {p.returncode}"}
+        data = json.loads(p.stdout)
+        if not data.get("ok"):
+            return {"ok": False, "error": data.get("error", "probe not ok")}
+        return {
+            "ok": True,
+            "version": data.get("version", ""),
+            "cipher": data.get("cipher", ""),
+            "group": normalize_group(data.get("group", "")),
+            "group_raw": data.get("group", ""),
+            "alpn": data.get("alpn", ""),
+            "client": "benchclient (crypto/tls or quic-go)",
+            "server": server_bin,
+        }
+    finally:
+        kill_proc(server)
+
+
+def probe_openssl_sclient(
+    *,
+    server_bin: str,
+    certs: dict[str, Path],
+    workdir: Path,
+    tag: str,
+) -> dict[str, Any]:
+    port = free_tcp_port()
+    listen = echo_listen("tls", port, certs, fork=True)
+    slog = workdir / "logs" / f"{tag}.server.log"
+    server = start_socat(server_bin, [listen, "PIPE"], slog)
+    try:
+        wait_tcp(port)
+        openssl_bin = os.environ.get("OPENSSL_BIN", "openssl")
+        p = subprocess.run(
+            [
+                openssl_bin,
+                "s_client",
+                "-connect",
+                f"127.0.0.1:{port}",
+                "-CAfile",
+                str(certs["ca"]),
+                "-servername",
+                "localhost",
+            ],
+            input="",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=20,
+        )
+        parsed = parse_openssl_sclient(p.stdout or "")
+        if not parsed.get("cipher") and not parsed.get("version"):
+            return {"ok": False, "error": (p.stdout or "openssl s_client failed")[-400:]}
+        parsed["ok"] = True
+        parsed["client"] = f"{openssl_bin} s_client"
+        parsed["server"] = server_bin
+        return parsed
+    finally:
+        kill_proc(server)
+
+
+def probe_all(
+    *,
+    go_bin: str,
+    classic_bin: str | None,
+    certs: dict[str, Path],
+    workdir: Path,
+    benchclient: Path,
+) -> dict[str, Any]:
+    """Record the handshake each bench pairing actually negotiates."""
+    out: dict[str, Any] = {}
+    print("  probe go client / go OPENSSL-LISTEN ...", flush=True)
+    out["go_client_go_server"] = probe_go_client(
+        server_bin=go_bin,
+        proto="tls",
+        certs=certs,
+        workdir=workdir,
+        benchclient=benchclient,
+        tag="probe.go-go",
+    )
+    print("  probe go client / go QUIC-LISTEN ...", flush=True)
+    out["go_client_go_quic"] = probe_go_client(
+        server_bin=go_bin,
+        proto="quic",
+        certs=certs,
+        workdir=workdir,
+        benchclient=benchclient,
+        tag="probe.go-quic",
+    )
+    if classic_bin:
+        print("  probe openssl s_client / classic OPENSSL-LISTEN ...", flush=True)
+        out["openssl_client_classic_server"] = probe_openssl_sclient(
+            server_bin=classic_bin,
+            certs=certs,
+            workdir=workdir,
+            tag="probe.ossl-classic",
+        )
+        print("  probe go client / classic OPENSSL-LISTEN ...", flush=True)
+        out["go_client_classic_server"] = probe_go_client(
+            server_bin=classic_bin,
+            proto="tls",
+            certs=certs,
+            workdir=workdir,
+            benchclient=benchclient,
+            tag="probe.go-classic",
+        )
+    return out
+
+
 def collect_meta(args: dict[str, Any]) -> dict[str, Any]:
     go_bin = args["socat"]
     classic = args.get("classic")
@@ -100,7 +283,8 @@ def collect_meta(args: dict[str, Any]) -> dict[str, Any]:
         "go_socat_version": first_line([go_bin, "-V"]),
         "classic_socat": classic or "",
         "classic_socat_version": first_line([classic, "-V"]) if classic else "",
-        "openssl_version": first_line(["openssl", "version"]),
+        "openssl_bin": os.environ.get("OPENSSL_BIN", "openssl"),
+        "openssl_version": first_line([os.environ.get("OPENSSL_BIN", "openssl"), "version"]),
         "size_bytes": args["size"],
         "runs": args["runs"],
         "warmup": args["warmup"],
@@ -180,7 +364,7 @@ def generate_aes_ctr(dest: Path, size: int) -> None:
     assert dd.stdout is not None
     enc = subprocess.Popen(
         [
-            "openssl",
+            os.environ.get("OPENSSL_BIN", "openssl"),
             "enc",
             "-aes-128-ctr",
             "-nosalt",
@@ -653,8 +837,19 @@ def write_summary(doc: dict[str, Any], path: Path) -> None:
         f"size_bytes={m.get('size_bytes')}",
         f"runs={m.get('runs')}",
         f"payload={m.get('payload')}",
-        "",
     ]
+    tls = m.get("tls") or {}
+    for key, row in tls.items():
+        if not isinstance(row, dict):
+            continue
+        if row.get("ok"):
+            lines.append(
+                f"tls.{key}: version={row.get('version')} cipher={row.get('cipher')} "
+                f"group={row.get('group')}"
+            )
+        else:
+            lines.append(f"tls.{key}: fail {row.get('error', '')}")
+    lines.append("")
     for c in doc["cases"]:
         ident = f"{c['id']}/{c['impl']}"
         st = c.get("status")
@@ -701,10 +896,30 @@ def main() -> int:
         "crt": Path(os.environ["BENCH_CERT"]),
         "key": Path(os.environ["BENCH_KEY"]),
     }
-    wanted = tuple(sys.argv[1:] or DEFAULT_CASES)
+    probe_only = os.environ.get("PROBE_ONLY", "") == "1"
+    wanted = tuple(sys.argv[1:] or (() if probe_only else DEFAULT_CASES))
     for c in wanted:
         if c not in STREAM_CASES | RR_CASES | HS_CASES:
             raise SystemExit(f"unknown case {c}; want {', '.join(DEFAULT_CASES)}")
+
+    if probe_only:
+        print("probe TLS/QUIC handshakes (no timed cases)", flush=True)
+        tls = probe_all(
+            go_bin=socat,
+            classic_bin=classic or None,
+            certs=certs,
+            workdir=workdir,
+            benchclient=benchclient,
+        )
+        print(json.dumps(tls, indent=2), flush=True)
+        save = os.environ.get("SAVE_BASELINE", "").strip()
+        if save and Path(save).is_file():
+            doc = json.loads(Path(save).read_text(encoding="utf-8"))
+            doc.setdefault("meta", {})["tls"] = tls
+            Path(save).write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+            write_summary(doc, Path(save).with_suffix(".summary.txt"))
+            print(f"updated tls probe in {save}", flush=True)
+        return 0 if all(v.get("ok") for v in tls.values() if isinstance(v, dict)) else 1
 
     payload, payload_note = ensure_payload(workdir, size)
     args = {
@@ -719,6 +934,14 @@ def main() -> int:
         "payload_sha256": payload_sha256(payload),
     }
     doc: dict[str, Any] = {"meta": collect_meta(args), "cases": []}
+    print("probe TLS/QUIC handshakes ...", flush=True)
+    doc["meta"]["tls"] = probe_all(
+        go_bin=socat,
+        classic_bin=classic or None,
+        certs=certs,
+        workdir=workdir,
+        benchclient=benchclient,
+    )
 
     impls_for = []
     if classic:
