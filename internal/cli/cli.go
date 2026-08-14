@@ -587,7 +587,8 @@ func printHelp(w io.Writer, level int) {
 			// Multi-address resolve (TRY_ADDRS_4_6); filter when true.
 			"ai-addrconfig", "addrconfig",
 			// PROXY / SOCKS
-			"proxyport", "http-version", "crlf", "socksport", "socksuser", "sockspass", "sockspassword",
+			"proxyport", "http-version", "crlf", "h2c",
+			"socksport", "socksuser", "sockspass", "sockspassword",
 			"crnl", "ignoreeof", "readbytes",
 			"retry", "forever", "interval",
 			"backlog", "fdin", "fdout", "max-children",

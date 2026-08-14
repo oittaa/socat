@@ -62,7 +62,7 @@ Common options: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `
 | EXEC, SYSTEM, SHELL | pipes, socketpair, **pty**, fdin/fdout, setsid, shut-none; child exit promoted |
 | TEXT, STALL, PTY | STALL uses classic full-pipe backpressure |
 | OPENSSL / OPENSSL-CONNECT / OPENSSL-LISTEN (SSL-*) | stream TLS via `crypto/tls`; **not** DTLS (see [Unsupported / security](#unsupported--security-related)) |
-| PROXY / PROXY-CONNECT | HTTP CONNECT client (`proxyport`, `http-version`, `crlf`) |
+| PROXY / PROXY-CONNECT | HTTP CONNECT client: default HTTP/1.x; `http-version=2` (`net/http`) / `http-version=3` (quic-go/http3); `h2c` |
 | SOCKS4 / SOCKS4A / SOCKS5 / SOCKS5-CONNECT | SOCKS clients (`socksport`, `socksuser`, `sockspass`) |
 | ABSTRACT-LISTEN / ABSTRACT-CONNECT / … | Linux abstract UNIX namespace |
 | libwrap / TCP wrappers | pure-Go `hosts.allow` / `hosts.deny` (`WITH_LIBWRAP`) |
@@ -88,7 +88,7 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 | TLS | `cert`, `key`, `cafile`/`ca`, `verify`, `commonname` / `openssl-commonname`, `openssl-snihost` / `snihost`, `openssl-no-sni` / `nosni` |
 | WebSocket | `path`, `origin`, `protocol` (binary frames; WSS reuses TLS options) |
 | QUIC | `alpn` (default `socat`; not `h3`); reuses TLS options; one bidirectional stream |
-| PROXY/SOCKS | `proxyport`, `http-version`, `socksport`, `socksuser` |
+| PROXY/SOCKS | `proxyport`, `http-version` (`1.0`/`1.1`/`2`/`3`), `h2c`, `socksport`, `socksuser` |
 
 **`max-children`:** limits concurrent `fork` sessions on **LISTEN** and on **CONNECT** / **OPENSSL-CONNECT** client reconnect loops. Requires `fork`. Parent redials after `interval` (default 1s).
 
@@ -117,6 +117,7 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 
 - **WebSocket (WS/WSS)** is a Go extra (classic has no WS). Uses `github.com/coder/websocket` (`NetConn` + binary frames), not frozen `golang.org/x/net/websocket`.
 - **QUIC** is a Go extra (classic has no QUIC). Uses `golang.org/x/net/quic` (work in progress: no 0-RTT, no migration). One bidirectional stream as a byte pipe. Not HTTP/3 (`alpn` default `socat`).
+- **PROXY `http-version=2` / `3`** is a Go extra (classic PROXY is HTTP/1.x). HTTP/2 uses `net/http`. HTTP/3 uses `github.com/quic-go/quic-go/http3` because `golang.org/x/net/http3` is not a public client API.
 - **`fork`** uses **goroutines**, not `fork(2)` process isolation
 - Companion tools aim for useful parity, not bit-identical C ifdef output
 - Unknown options are generally ignored (classic may error more strictly)

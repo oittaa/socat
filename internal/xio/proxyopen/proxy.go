@@ -14,9 +14,8 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-// PROXY / PROXY-CONNECT:proxy:targethost:targetport[,proxyport=N][,http-version=1.0][,resolve]
-// Classic HTTP CONNECT through a proxy server.
-// CONNECT request lines always use CRLF (classic xio-proxy.c hardcodes them).
+// PROXY / PROXY-CONNECT:proxy:targethost:targetport[,proxyport=N][,http-version=1.0|2|3][,resolve]
+// HTTP CONNECT through a proxy. Default is classic HTTP/1.0.
 func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	// Params: proxyhost, targethost, targetport  (or combined from parser)
 	proxyHost, targetHost, targetPort, err := proxyParams(s)
@@ -26,6 +25,13 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	proxyPort := s.OptionValue("proxyport", "8080")
 	if proxyPort == "" {
 		proxyPort = "8080"
+	}
+	major, err := parseHTTPVersion(s)
+	if err != nil {
+		return nil, err
+	}
+	if s.BoolOption("h2c") && major != httpVer2 {
+		return nil, fmt.Errorf("h2c requires http-version=2")
 	}
 	ver := s.OptionValue("http-version", "1.0")
 	if ver == "" {
@@ -51,11 +57,29 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		}
 	}
 
+	t := proxyTarget{
+		proxyHost:   proxyHost,
+		proxyPort:   proxyPort,
+		targetHost:  targetHost,
+		targetPort:  targetPort,
+		connectHost: connectHost,
+		label:       "PROXY:" + targetHost + ":" + targetPort,
+	}
+	switch major {
+	case httpVer2:
+		return openProxyDial(ctx, s, mode, g, t, func(dctx context.Context) (net.Conn, error) {
+			return dialH2CONNECT(dctx, s, g, t)
+		})
+	case httpVer3:
+		return openProxyDial(ctx, s, mode, g, t, func(dctx context.Context) (net.Conn, error) {
+			return dialH3CONNECT(dctx, s, g, t)
+		})
+	}
+
 	addr := net.JoinHostPort(xio.StripBrackets(proxyHost), proxyPort)
 	// Honour pf=ip4/ip6 when dialing the proxy host.
 	network := xio.ConnectNetworkForType(g, s, proxyHost, "tcp")
 	d := net.Dialer{Timeout: xio.ConnectTimeout(s)}
-	label := "PROXY:" + targetHost + ":" + targetPort
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
@@ -105,6 +129,17 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		return conn, e
 	}
 
+	return openProxyDial(ctx, s, mode, g, t, dialOnce)
+}
+
+type proxyTarget struct {
+	proxyHost, proxyPort   string
+	targetHost, targetPort string
+	connectHost            string
+	label                  string
+}
+
+func openProxyDial(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, t proxyTarget, dialOnce func(context.Context) (net.Conn, error)) (*xio.Opened, error) {
 	wrap := func(c net.Conn) (relay.Stream, error) {
 		return xio.WrapCommon(s, relay.NetStream{Conn: c})
 	}
@@ -125,7 +160,7 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 			Fork:        true,
 			MaxChildren: maxChildren,
 			Interval:    xio.ParseRetry(s).Interval,
-			Label:       label,
+			Label:       t.label,
 			Dial:        dialOnce,
 			WrapDial:    wrap,
 		}, nil
@@ -142,7 +177,7 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		return nil, err
 	}
 	_ = mode
-	return &xio.Opened{Stream: st, Label: label}, nil
+	return &xio.Opened{Stream: st, Label: t.label}, nil
 }
 
 // proxyStatusOK matches classic xio-proxy.c: HTTP/1.0|1.1, skip spaces, "200".
