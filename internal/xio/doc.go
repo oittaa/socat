@@ -8,6 +8,7 @@
 //	proxyopen — PROXY, SOCKS4/4A/5
 //	fileopen  — STDIO, FILE, PIPE, PTY, TEXT, STALL
 //	tunopen   — TUN, INTERFACE (Linux)
+//	wsopen    — WS / WSS (coder/websocket; not in classic socat)
 //
 // EXEC/SYSTEM/SHELL stay in this package (tightly coupled to Run / nofork).
 // Import internal/xio/all from main/cli so opener registration runs.

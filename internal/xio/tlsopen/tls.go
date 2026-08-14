@@ -289,6 +289,16 @@ func commonNameOption(s parse.Spec) string {
 	return s.OptionValue("openssl-commonname", "")
 }
 
+// TLSClientConfig builds a crypto/tls client config from classic OPENSSL/WSS options.
+func TLSClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
+	return tlsClientConfig(s, serverName)
+}
+
+// TLSServerConfig builds a crypto/tls server config from classic OPENSSL/WSS-LISTEN options.
+func TLSServerConfig(s parse.Spec) (*tls.Config, error) {
+	return tlsServerConfig(s)
+}
+
 func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 	cfg := &tls.Config{
 		MinVersion: tls.VersionTLS12,

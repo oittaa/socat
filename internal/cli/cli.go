@@ -505,7 +505,8 @@ func printVersion(w io.Writer) {
 		{"PTY", true},
 		{"OPENSSL", true}, // stream TLS via crypto/tls (not DTLS)
 		{"FIPS", false},
-		{"LIBWRAP", true}, // pure-Go hosts.allow/deny (no CGO libwrap)
+		{"LIBWRAP", true},   // pure-Go hosts.allow/deny (no CGO libwrap)
+		{"WEBSOCKET", true}, // WS/WSS via coder/websocket (not in classic socat)
 	}
 	for _, f := range feats {
 		if f.on {
@@ -558,6 +559,7 @@ func printHelp(w io.Writer, level int) {
 	fmt.Fprintf(w, "  OPENSSL OPENSSL-CONNECT OPENSSL-LISTEN OPENSSL-L SSL SSL-CONNECT SSL-LISTEN SSL-L\n")
 	fmt.Fprintf(w, "  PROXY PROXY-CONNECT SOCKS4 SOCKS4A SOCKS5 SOCKS5-CONNECT\n")
 	fmt.Fprintf(w, "  TUN INTERFACE\n")
+	fmt.Fprintf(w, "  WS WS-CONNECT WSS WSS-CONNECT WS-LISTEN WS-L WSS-LISTEN WSS-L\n")
 	if level >= 2 {
 		// Honesty: only list options we actually honor. test.sh greps
 		//   [^a-z0-9-]<name>[^a-z0-9-]  — pad with spaces on both sides.
@@ -613,6 +615,8 @@ func printHelp(w io.Writer, level int) {
 			"iff-noarp", "noarp", "iff-promisc", "promisc",
 			"iff-allmulti", "allmulti", "iff-multicast",
 			"if-mtu", "interface-mtu",
+			// WebSocket (WS/WSS)
+			"path", "origin", "protocol",
 		}
 		fmt.Fprintln(w)
 		fmt.Fprint(w, "b:")
