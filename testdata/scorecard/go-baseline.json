@@ -1,22 +1,22 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-08-10T07:12:44Z",
+    "timestamp": "2026-08-14T08:47:18Z",
     "hostname": "gmktec",
-    "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.39",
+    "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
     "socat": "/home/eero/src/socat/socat",
-    "socat_version": "socat version 0.1.0-dev on 2026-08-10T07:12:44Z",
-    "test_sh": "/tmp/classic-src-full/test.sh",
-    "git": "04b8868",
-    "out_dir": "/home/eero/src/socat/.classic-scorecard-host-final",
+    "socat_version": "socat version 0.1.0-dev on 2026-08-14T08:47:18Z",
+    "test_sh": "/tmp/classic-src/test.sh",
+    "git": "4825bc2",
+    "out_dir": "/home/eero/src/socat/.scorecard/host-refresh",
     "val_t": "auto",
     "jobs": "1",
     "shard_timeout": "7200"
   },
   "summary": {
-    "ok": 412,
+    "ok": 428,
     "failed": 3,
-    "cant": 188,
+    "cant": 172,
     "timeout": 0,
     "unknown": 2,
     "total_recorded": 605,
@@ -1944,10 +1944,10 @@
       "id": 216,
       "name": "UDP6MULTICAST_UNIDIR",
       "description": "UDP/IPv6 multicast",
-      "status": "CANT",
-      "detail": "Option ipv6-join-group not available in /home/eero/src/socat/socat",
+      "status": "FAILED",
+      "detail": "",
       "shard": 0,
-      "raw": "test 216 UDP6MULTICAST_UNIDIR: UDP/IPv6 multicast... Option ipv6-join-group not available in /home/eero/src/socat/socat"
+      "raw": "test 216 UDP6MULTICAST_UNIDIR: UDP/IPv6 multicast... FAILED"
     },
     "217": {
       "id": 217,
@@ -1972,18 +1972,18 @@
       "name": "TUNREAD",
       "description": "reading data sent through tun interface",
       "status": "CANT",
-      "detail": "tun not available",
+      "detail": "must be root",
       "shard": 0,
-      "raw": "test 219 TUNREAD: reading data sent through tun interface... tun not available"
+      "raw": "test 219 TUNREAD: reading data sent through tun interface... must be root"
     },
     "220": {
       "id": 220,
       "name": "TUNINTERFACE",
       "description": "pass data through tun interface using INTERFACE",
       "status": "CANT",
-      "detail": "Feature TUN not configured in /home/eero/src/socat/socat",
+      "detail": "Must be root",
       "shard": 0,
-      "raw": "test 220 TUNINTERFACE: pass data through tun interface using INTERFACE... Feature TUN not configured in /home/eero/src/socat/socat"
+      "raw": "test 220 TUNINTERFACE: pass data through tun interface using INTERFACE... Must be root"
     },
     "221": {
       "id": 221,
@@ -3456,10 +3456,10 @@
       "id": 384,
       "name": "SO_REUSEPORT",
       "description": "test the so-reuseport option",
-      "status": "CANT",
-      "detail": "so-reuseport not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 384 SO_REUSEPORT: test the so-reuseport option... so-reuseport not available"
+      "raw": "test 384 SO_REUSEPORT: test the so-reuseport option... OK"
     },
     "385": {
       "id": 385,
@@ -3483,10 +3483,10 @@
       "id": 387,
       "name": "USE_IPV6_JOIN_GROUP",
       "description": "is option ipv6-join-group used",
-      "status": "CANT",
-      "detail": "Option ipv6-join-group not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 387 USE_IPV6_JOIN_GROUP: is option ipv6-join-group used... Option ipv6-join-group not available in /home/eero/src/socat/socat"
+      "raw": "test 387 USE_IPV6_JOIN_GROUP: is option ipv6-join-group used... OK"
     },
     "388": {
       "id": 388,
@@ -3636,10 +3636,10 @@
       "id": 404,
       "name": "OPTION_RAW_DUMP",
       "description": "raw dump of transferred data",
-      "status": "CANT",
-      "detail": "Options -r, -R not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 404 OPTION_RAW_DUMP: raw dump of transferred data... Options -r, -R not available"
+      "raw": "test 404 OPTION_RAW_DUMP: raw dump of transferred data... OK"
     },
     "405": {
       "id": 405,
@@ -3681,10 +3681,10 @@
       "id": 409,
       "name": "PROXYAUTHFILE",
       "description": "proxy-authorization-file option",
-      "status": "CANT",
-      "detail": "Option proxy-authorization-file not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 409 PROXYAUTHFILE: proxy-authorization-file option... Option proxy-authorization-file not available"
+      "raw": "test 409 PROXYAUTHFILE: proxy-authorization-file option... OK"
     },
     "410": {
       "id": 410,
@@ -4373,20 +4373,20 @@
     "486": {
       "id": 486,
       "name": "NETNS",
-      "description": "option netns (net namespace socat-3372400-test486)",
+      "description": "option netns (net namespace socat-258903-test486)",
       "status": "CANT",
       "detail": "Must be root",
       "shard": 0,
-      "raw": "test 486 NETNS: option netns (net namespace socat-3372400-test486)... Must be root"
+      "raw": "test 486 NETNS: option netns (net namespace socat-258903-test486)... Must be root"
     },
     "487": {
       "id": 487,
       "name": "NETNS_EXEC",
-      "description": "option netns with EXEC (net namespace socat-3372400-test487)",
+      "description": "option netns with EXEC (net namespace socat-258903-test487)",
       "status": "CANT",
       "detail": "Must be root",
       "shard": 0,
-      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-3372400-test487)... Must be root"
+      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-258903-test487)... Must be root"
     },
     "488": {
       "id": 488,
@@ -4545,19 +4545,19 @@
       "id": 505,
       "name": "CHDIR_ON_CREATE",
       "description": "restore of pwd after CREAT with chdir option",
-      "status": "CANT",
-      "detail": "Option chdir not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 505 CHDIR_ON_CREATE: restore of pwd after CREAT with chdir option... Option chdir not available in /home/eero/src/socat/socat"
+      "raw": "test 505 CHDIR_ON_CREATE: restore of pwd after CREAT with chdir option... OK"
     },
     "506": {
       "id": 506,
       "name": "CHDIR_ON_SHELL",
       "description": "restore of pwd after SYSTEM with chdir option",
-      "status": "CANT",
-      "detail": "Option chdir not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 506 CHDIR_ON_SHELL: restore of pwd after SYSTEM with chdir option... Option chdir not available in /home/eero/src/socat/socat"
+      "raw": "test 506 CHDIR_ON_SHELL: restore of pwd after SYSTEM with chdir option... OK"
     },
     "507": {
       "id": 507,
@@ -4581,73 +4581,73 @@
       "id": 509,
       "name": "UNIX_LISTEN_CONNECT_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
-      "status": "CANT",
-      "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 509 UNIX_LISTEN_CONNECT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
+      "raw": "test 509 UNIX_LISTEN_CONNECT_BIND_TEMPNAME: Option unix-bind-tempname... OK"
     },
     "510": {
       "id": 510,
       "name": "UNIX_LISTEN_CLIENT_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
-      "status": "CANT",
-      "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 510 UNIX_LISTEN_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
+      "raw": "test 510 UNIX_LISTEN_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... OK"
     },
     "511": {
       "id": 511,
       "name": "UNIX_RECVFROM_CLIENT_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
-      "status": "CANT",
-      "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 511 UNIX_RECVFROM_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
+      "raw": "test 511 UNIX_RECVFROM_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... OK"
     },
     "512": {
       "id": 512,
       "name": "UNIX_RECVFROM_SENDTO_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
-      "status": "CANT",
-      "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 512 UNIX_RECVFROM_SENDTO_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
+      "raw": "test 512 UNIX_RECVFROM_SENDTO_BIND_TEMPNAME: Option unix-bind-tempname... OK"
     },
     "513": {
       "id": 513,
       "name": "ABSTRACT_LISTEN_CONNECT_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
-      "status": "CANT",
-      "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 513 ABSTRACT_LISTEN_CONNECT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
+      "raw": "test 513 ABSTRACT_LISTEN_CONNECT_BIND_TEMPNAME: Option unix-bind-tempname... OK"
     },
     "514": {
       "id": 514,
       "name": "ABSTRACT_LISTEN_CLIENT_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
-      "status": "CANT",
-      "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 514 ABSTRACT_LISTEN_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
+      "raw": "test 514 ABSTRACT_LISTEN_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... OK"
     },
     "515": {
       "id": 515,
       "name": "ABSTRACT_RECVFROM_CLIENT_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
-      "status": "CANT",
-      "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 515 ABSTRACT_RECVFROM_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
+      "raw": "test 515 ABSTRACT_RECVFROM_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... OK"
     },
     "516": {
       "id": 516,
       "name": "ABSTRACT_RECVFROM_SENDTO_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
-      "status": "CANT",
-      "detail": "Option unix-bind-tempname not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 516 ABSTRACT_RECVFROM_SENDTO_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /home/eero/src/socat/socat"
+      "raw": "test 516 ABSTRACT_RECVFROM_SENDTO_BIND_TEMPNAME: Option unix-bind-tempname... OK"
     },
     "517": {
       "id": 517,
@@ -4779,10 +4779,10 @@
       "id": 531,
       "name": "SOCAT_MUX",
       "description": "test the socat-mux.sh script",
-      "status": "FAILED",
-      "detail": "(rc2b=1)",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 531 SOCAT_MUX: test the socat-mux.sh script... FAILED (rc2b=1)"
+      "raw": "test 531 SOCAT_MUX: test the socat-mux.sh script... OK"
     },
     "532": {
       "id": 532,
@@ -5112,10 +5112,10 @@
       "id": 568,
       "name": "SOCKS5LISTEN_TCP4",
       "description": "SOCKS5-LISTEN over TCP/IPv4",
-      "status": "CANT",
-      "detail": "Address SOCKS5-LISTEN not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 568 SOCKS5LISTEN_TCP4: SOCKS5-LISTEN over TCP/IPv4... Address SOCKS5-LISTEN not available in /home/eero/src/socat/socat"
+      "raw": "test 568 SOCKS5LISTEN_TCP4: SOCKS5-LISTEN over TCP/IPv4... OK"
     },
     "569": {
       "id": 569,
@@ -5410,9 +5410,9 @@
       "name": "TUN_MTU",
       "description": "Test the interface-mtu option on a TUN interface",
       "status": "CANT",
-      "detail": "Feature TUN not configured in /home/eero/src/socat/socat",
+      "detail": "Must be root",
       "shard": 0,
-      "raw": "test 601 TUN_MTU: Test the interface-mtu option on a TUN interface... Feature TUN not configured in /home/eero/src/socat/socat"
+      "raw": "test 601 TUN_MTU: Test the interface-mtu option on a TUN interface... Must be root"
     },
     "602": {
       "id": 602,

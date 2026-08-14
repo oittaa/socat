@@ -144,7 +144,9 @@ JOBS=8 VAL_T=0.1 SHARD_TIMEOUT=300 \
 | `classic-baseline.summary.txt` | Human one-pager for classic |
 | `classic-docker-baseline.json` | Classic C in Docker as root (more OK; raw/IP/tcpwrap) |
 | `classic-docker-vs-host.json` | Host OK set vs docker verify report |
-| `go-baseline.json` | Optional: last known-good Go run (regression gate) |
+| `go-baseline.json` | Last known-good Go host run (regression gate) |
+| `go-docker-baseline.json` | Last known-good Go Docker/root run |
+| `go-vs-classic-docker-gaps.json` | Classic-docker OK that Go did not get |
 | `.scorecard/host/` | Latest host run (gitignored working data) |
 | `.scorecard/docker/` | Latest docker classic run (working data) |
 | `.scorecard/docker-go/` | Latest docker Go run (working data) |

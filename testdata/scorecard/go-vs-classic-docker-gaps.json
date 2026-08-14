@@ -1,6 +1,6 @@
 {
   "classic_docker_ok": 552,
-  "go_ok": 466,
+  "go_ok": 483,
   "parity_fail": [
     {
       "id": "146",
@@ -100,23 +100,8 @@
       "status": "CANT"
     },
     {
-      "id": "364",
-      "name": "UNIX_RECVFROM_REMOVE",
-      "status": "CANT"
-    },
-    {
       "id": "379",
       "name": "OPENSSL_MIN_VERSION",
-      "status": "CANT"
-    },
-    {
-      "id": "384",
-      "name": "SO_REUSEPORT",
-      "status": "CANT"
-    },
-    {
-      "id": "387",
-      "name": "USE_IPV6_JOIN_GROUP",
       "status": "CANT"
     },
     {
@@ -140,18 +125,8 @@
       "status": "CANT"
     },
     {
-      "id": "404",
-      "name": "OPTION_RAW_DUMP",
-      "status": "CANT"
-    },
-    {
       "id": "408",
       "name": "UDP_DATAGRAM_PEERPORT",
-      "status": "CANT"
-    },
-    {
-      "id": "409",
-      "name": "PROXYAUTHFILE",
       "status": "CANT"
     },
     {
@@ -255,56 +230,6 @@
       "status": "CANT"
     },
     {
-      "id": "505",
-      "name": "CHDIR_ON_CREATE",
-      "status": "CANT"
-    },
-    {
-      "id": "506",
-      "name": "CHDIR_ON_SHELL",
-      "status": "CANT"
-    },
-    {
-      "id": "509",
-      "name": "UNIX_LISTEN_CONNECT_BIND_TEMPNAME",
-      "status": "CANT"
-    },
-    {
-      "id": "510",
-      "name": "UNIX_LISTEN_CLIENT_BIND_TEMPNAME",
-      "status": "CANT"
-    },
-    {
-      "id": "511",
-      "name": "UNIX_RECVFROM_CLIENT_BIND_TEMPNAME",
-      "status": "CANT"
-    },
-    {
-      "id": "512",
-      "name": "UNIX_RECVFROM_SENDTO_BIND_TEMPNAME",
-      "status": "CANT"
-    },
-    {
-      "id": "513",
-      "name": "ABSTRACT_LISTEN_CONNECT_BIND_TEMPNAME",
-      "status": "CANT"
-    },
-    {
-      "id": "514",
-      "name": "ABSTRACT_LISTEN_CLIENT_BIND_TEMPNAME",
-      "status": "CANT"
-    },
-    {
-      "id": "515",
-      "name": "ABSTRACT_RECVFROM_CLIENT_BIND_TEMPNAME",
-      "status": "CANT"
-    },
-    {
-      "id": "516",
-      "name": "ABSTRACT_RECVFROM_SENDTO_BIND_TEMPNAME",
-      "status": "CANT"
-    },
-    {
       "id": "518",
       "name": "STDIN_F_SETPIPE_SZ",
       "status": "CANT"
@@ -405,11 +330,6 @@
       "status": "CANT"
     },
     {
-      "id": "568",
-      "name": "SOCKS5LISTEN_TCP4",
-      "status": "CANT"
-    },
-    {
       "id": "581",
       "name": "SCTP_CONNECT_RETRY",
       "status": "CANT"
@@ -441,8 +361,13 @@
     }
   ],
   "parity_other": [],
-  "parity_gap_total": 87,
+  "parity_gap_total": 71,
   "new_ok_vs_classic_docker": [
+    {
+      "id": "219",
+      "name": "TUNREAD",
+      "was": "FAILED"
+    },
     {
       "id": "318",
       "name": "OPENSSL_ANULL",

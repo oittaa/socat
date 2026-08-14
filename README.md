@@ -162,12 +162,16 @@ SOCAT=/path/to/classic/socat SKIP_BUILD=1 LABEL=classic MODE=classic \
   ./scripts/classic-scorecard.sh /tmp/socat-1.8.1.3/test.sh
 ```
 
-**Latest committed baselines** (see `testdata/scorecard/`):
+**Latest committed baselines** (see `testdata/scorecard/`; counts from structured `results.json`):
 
 | Label | OK | FAILED | CANT |
 |-------|-----|--------|------|
-| classic 1.8.1.3 | 475 | 24 | 103 |
-| go (this tree) | ~337 | ~20 | ~207 |
+| classic 1.8.1.3 (host) | 475 | 24 | 103 |
+| classic 1.8.1.3 (Docker, root) | 552 | 8 | 42 |
+| go (this tree, host) | 428 | 3 | 172 |
+| go (this tree, Docker, root) | 483 | 2 | 118 |
+
+Go host FAILED: `OPENSSLLISTENDSA` (DSA, by design), `UDP6MULTICAST_UNIDIR` (host environment), `REUSEADDR_NULL` (NO RESULT). Go Docker FAILED: `OPENSSLLISTENDSA`, `REUSEADDR_NULL`. Both Go runs also record UNKNOWN=2 (`EXECPTYKILL` parse quirk, `PROCAN_CTTY`).
 
 Use `go-baseline.json` + `REGRESSION_EXIT=1` after a **MODE=classic** run to catch real Go regressions with less noise.
 

@@ -1,11 +1,11 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-08-10T08:03:26Z",
-    "hostname": "0741e6a83962",
-    "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.43",
+    "timestamp": "2026-08-14T08:51:40Z",
+    "hostname": "d39fbefb9551",
+    "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.43",
     "socat": "/opt/go/socat",
-    "socat_version": "socat version 0.1.0-dev on 2026-08-10T08:03:26Z",
+    "socat_version": "socat version 0.1.0-dev on 2026-08-14T08:51:40Z",
     "test_sh": "/opt/classic-src/test.sh",
     "git": "",
     "out_dir": "/out",
@@ -14,9 +14,9 @@
     "shard_timeout": "7200"
   },
   "summary": {
-    "ok": 466,
-    "failed": 3,
-    "cant": 134,
+    "ok": 483,
+    "failed": 2,
+    "cant": 118,
     "timeout": 0,
     "unknown": 2,
     "total_recorded": 605,
@@ -1945,9 +1945,9 @@
       "name": "UDP6MULTICAST_UNIDIR",
       "description": "UDP/IPv6 multicast",
       "status": "CANT",
-      "detail": "Option ipv6-join-group not available in /opt/go/socat",
+      "detail": "IPv6 multicasting does not work",
       "shard": 0,
-      "raw": "test 216 UDP6MULTICAST_UNIDIR: UDP/IPv6 multicast... Option ipv6-join-group not available in /opt/go/socat"
+      "raw": "test 216 UDP6MULTICAST_UNIDIR: UDP/IPv6 multicast... IPv6 multicasting does not work"
     },
     "217": {
       "id": 217,
@@ -1971,10 +1971,10 @@
       "id": 219,
       "name": "TUNREAD",
       "description": "reading data sent through tun interface",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 219 TUNREAD: reading data sent through tun interface... FAILED"
+      "raw": "test 219 TUNREAD: reading data sent through tun interface... OK"
     },
     "220": {
       "id": 220,
@@ -3276,10 +3276,10 @@
       "id": 364,
       "name": "UNIX_RECVFROM_REMOVE",
       "description": "UNIX-RECVFROM removes socket entry when terminated while waiting for connection",
-      "status": "CANT",
-      "detail": "setup failed",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 364 UNIX_RECVFROM_REMOVE: UNIX-RECVFROM removes socket entry when terminated while waiting for connection... setup failed"
+      "raw": "test 364 UNIX_RECVFROM_REMOVE: UNIX-RECVFROM removes socket entry when terminated while waiting for connection... OK"
     },
     "365": {
       "id": 365,
@@ -3456,10 +3456,10 @@
       "id": 384,
       "name": "SO_REUSEPORT",
       "description": "test the so-reuseport option",
-      "status": "CANT",
-      "detail": "so-reuseport not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 384 SO_REUSEPORT: test the so-reuseport option... so-reuseport not available"
+      "raw": "test 384 SO_REUSEPORT: test the so-reuseport option... OK"
     },
     "385": {
       "id": 385,
@@ -3483,10 +3483,10 @@
       "id": 387,
       "name": "USE_IPV6_JOIN_GROUP",
       "description": "is option ipv6-join-group used",
-      "status": "CANT",
-      "detail": "Option ipv6-join-group not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 387 USE_IPV6_JOIN_GROUP: is option ipv6-join-group used... Option ipv6-join-group not available in /opt/go/socat"
+      "raw": "test 387 USE_IPV6_JOIN_GROUP: is option ipv6-join-group used... OK"
     },
     "388": {
       "id": 388,
@@ -3636,10 +3636,10 @@
       "id": 404,
       "name": "OPTION_RAW_DUMP",
       "description": "raw dump of transferred data",
-      "status": "CANT",
-      "detail": "Options -r, -R not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 404 OPTION_RAW_DUMP: raw dump of transferred data... Options -r, -R not available"
+      "raw": "test 404 OPTION_RAW_DUMP: raw dump of transferred data... OK"
     },
     "405": {
       "id": 405,
@@ -3681,10 +3681,10 @@
       "id": 409,
       "name": "PROXYAUTHFILE",
       "description": "proxy-authorization-file option",
-      "status": "CANT",
-      "detail": "Option proxy-authorization-file not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 409 PROXYAUTHFILE: proxy-authorization-file option... Option proxy-authorization-file not available"
+      "raw": "test 409 PROXYAUTHFILE: proxy-authorization-file option... OK"
     },
     "410": {
       "id": 410,
@@ -4373,20 +4373,20 @@
     "486": {
       "id": 486,
       "name": "NETNS",
-      "description": "option netns (net namespace socat-336-test486)",
+      "description": "option netns (net namespace socat-349-test486)",
       "status": "CANT",
       "detail": "Feature NAMESPACES not available",
       "shard": 0,
-      "raw": "test 486 NETNS: option netns (net namespace socat-336-test486)... Feature NAMESPACES not available"
+      "raw": "test 486 NETNS: option netns (net namespace socat-349-test486)... Feature NAMESPACES not available"
     },
     "487": {
       "id": 487,
       "name": "NETNS_EXEC",
-      "description": "option netns with EXEC (net namespace socat-336-test487)",
+      "description": "option netns with EXEC (net namespace socat-349-test487)",
       "status": "CANT",
       "detail": "Feature NAMESPACES not available",
       "shard": 0,
-      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-336-test487)... Feature NAMESPACES not available"
+      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-349-test487)... Feature NAMESPACES not available"
     },
     "488": {
       "id": 488,
@@ -4545,19 +4545,19 @@
       "id": 505,
       "name": "CHDIR_ON_CREATE",
       "description": "restore of pwd after CREAT with chdir option",
-      "status": "CANT",
-      "detail": "Option chdir not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 505 CHDIR_ON_CREATE: restore of pwd after CREAT with chdir option... Option chdir not available in /opt/go/socat"
+      "raw": "test 505 CHDIR_ON_CREATE: restore of pwd after CREAT with chdir option... OK"
     },
     "506": {
       "id": 506,
       "name": "CHDIR_ON_SHELL",
       "description": "restore of pwd after SYSTEM with chdir option",
-      "status": "CANT",
-      "detail": "Option chdir not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 506 CHDIR_ON_SHELL: restore of pwd after SYSTEM with chdir option... Option chdir not available in /opt/go/socat"
+      "raw": "test 506 CHDIR_ON_SHELL: restore of pwd after SYSTEM with chdir option... OK"
     },
     "507": {
       "id": 507,
@@ -4581,73 +4581,73 @@
       "id": 509,
       "name": "UNIX_LISTEN_CONNECT_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
-      "status": "CANT",
-      "detail": "Option unix-bind-tempname not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 509 UNIX_LISTEN_CONNECT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /opt/go/socat"
+      "raw": "test 509 UNIX_LISTEN_CONNECT_BIND_TEMPNAME: Option unix-bind-tempname... OK"
     },
     "510": {
       "id": 510,
       "name": "UNIX_LISTEN_CLIENT_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
-      "status": "CANT",
-      "detail": "Option unix-bind-tempname not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 510 UNIX_LISTEN_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /opt/go/socat"
+      "raw": "test 510 UNIX_LISTEN_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... OK"
     },
     "511": {
       "id": 511,
       "name": "UNIX_RECVFROM_CLIENT_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
-      "status": "CANT",
-      "detail": "Option unix-bind-tempname not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 511 UNIX_RECVFROM_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /opt/go/socat"
+      "raw": "test 511 UNIX_RECVFROM_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... OK"
     },
     "512": {
       "id": 512,
       "name": "UNIX_RECVFROM_SENDTO_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
-      "status": "CANT",
-      "detail": "Option unix-bind-tempname not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 512 UNIX_RECVFROM_SENDTO_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /opt/go/socat"
+      "raw": "test 512 UNIX_RECVFROM_SENDTO_BIND_TEMPNAME: Option unix-bind-tempname... OK"
     },
     "513": {
       "id": 513,
       "name": "ABSTRACT_LISTEN_CONNECT_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
-      "status": "CANT",
-      "detail": "Option unix-bind-tempname not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 513 ABSTRACT_LISTEN_CONNECT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /opt/go/socat"
+      "raw": "test 513 ABSTRACT_LISTEN_CONNECT_BIND_TEMPNAME: Option unix-bind-tempname... OK"
     },
     "514": {
       "id": 514,
       "name": "ABSTRACT_LISTEN_CLIENT_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
-      "status": "CANT",
-      "detail": "Option unix-bind-tempname not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 514 ABSTRACT_LISTEN_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /opt/go/socat"
+      "raw": "test 514 ABSTRACT_LISTEN_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... OK"
     },
     "515": {
       "id": 515,
       "name": "ABSTRACT_RECVFROM_CLIENT_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
-      "status": "CANT",
-      "detail": "Option unix-bind-tempname not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 515 ABSTRACT_RECVFROM_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /opt/go/socat"
+      "raw": "test 515 ABSTRACT_RECVFROM_CLIENT_BIND_TEMPNAME: Option unix-bind-tempname... OK"
     },
     "516": {
       "id": 516,
       "name": "ABSTRACT_RECVFROM_SENDTO_BIND_TEMPNAME",
       "description": "Option unix-bind-tempname",
-      "status": "CANT",
-      "detail": "Option unix-bind-tempname not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 516 ABSTRACT_RECVFROM_SENDTO_BIND_TEMPNAME: Option unix-bind-tempname... Option unix-bind-tempname not available in /opt/go/socat"
+      "raw": "test 516 ABSTRACT_RECVFROM_SENDTO_BIND_TEMPNAME: Option unix-bind-tempname... OK"
     },
     "517": {
       "id": 517,
@@ -5112,10 +5112,10 @@
       "id": 568,
       "name": "SOCKS5LISTEN_TCP4",
       "description": "SOCKS5-LISTEN over TCP/IPv4",
-      "status": "CANT",
-      "detail": "Address SOCKS5-LISTEN not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 568 SOCKS5LISTEN_TCP4: SOCKS5-LISTEN over TCP/IPv4... Address SOCKS5-LISTEN not available in /opt/go/socat"
+      "raw": "test 568 SOCKS5LISTEN_TCP4: SOCKS5-LISTEN over TCP/IPv4... OK"
     },
     "569": {
       "id": 569,
