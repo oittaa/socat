@@ -1,4 +1,4 @@
-.PHONY: all build test e2e lab bench clean install
+.PHONY: all build fmt fmt-check test e2e lab bench clean install hooks
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -7,6 +7,9 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GOFLAGS ?=
 LDFLAGS ?= -s -w -X github.com/oittaa/socat.Version=$(VERSION)
 
+# Project Go (exclude testdata/ clones).
+GOFMT_DIRS := cmd e2e internal scripts/benchclient version.go
+
 all: build
 
 build:
@@ -14,7 +17,22 @@ build:
 	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o filan ./cmd/filan
 	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o procan ./cmd/procan
 
-test:
+fmt:
+	gofmt -w $(GOFMT_DIRS)
+
+fmt-check:
+	@out=$$(gofmt -l $(GOFMT_DIRS)); \
+	if [ -n "$$out" ]; then \
+		echo "gofmt needed:" >&2; \
+		echo "$$out" >&2; \
+		exit 1; \
+	fi
+
+# Enable repo hooks: git config core.hooksPath .githooks
+hooks:
+	git config core.hooksPath .githooks
+
+test: fmt-check
 	go test $(GOFLAGS) ./...
 
 e2e: build

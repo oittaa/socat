@@ -228,4 +228,3 @@ func cstr(b []byte) string {
 	}
 	return string(b[:i])
 }
-

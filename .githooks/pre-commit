@@ -1,0 +1,7 @@
+#!/bin/sh
+# Format staged Go files. Skip testdata/ (third-party trees).
+set -e
+files=$(git diff --cached --name-only --diff-filter=ACMR | grep '\.go$' | grep -v '^testdata/' || true)
+[ -z "$files" ] && exit 0
+echo "$files" | tr '\n' '\0' | xargs -0 gofmt -w
+echo "$files" | tr '\n' '\0' | xargs -0 git add
