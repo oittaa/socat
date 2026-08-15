@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,22 +37,26 @@ func openSYSTEM(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opene
 }
 
 func openSHELL(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	cmdStr := strings.Join(s.Params, ":")
-	if cmdStr == "" {
-		cmdStr = os.Getenv("SHELL")
-		if cmdStr == "" {
-			cmdStr = "/bin/sh"
-		}
+	// Classic: execl($SHELL, basename, [-c, command], NULL). No -i.
+	// Bash is interactive only if stdin and stderr are both ttys (or -i).
+	shell := s.OptionValue("shell", "")
+	if shell == "" {
+		shell = os.Getenv("SHELL")
 	}
-	shell := os.Getenv("SHELL")
 	if shell == "" {
 		shell = "/bin/sh"
 	}
-	// interactive or -c
+	argv0 := filepath.Base(shell)
+	cmdStr := strings.Join(s.Params, ":")
+	var cmd *exec.Cmd
 	if len(s.Params) == 0 || s.Params[0] == "" {
-		return startCmd(ctx, s, mode, g, exec.CommandContext(ctx, shell, "-i"))
+		cmd = exec.CommandContext(ctx, shell)
+		cmd.Args = []string{argv0}
+	} else {
+		cmd = exec.CommandContext(ctx, shell, "-c", cmdStr)
+		cmd.Args[0] = argv0
 	}
-	return startCmd(ctx, s, mode, g, exec.CommandContext(ctx, shell, "-c", cmdStr))
+	return startCmd(ctx, s, mode, g, cmd)
 }
 
 func startProcess(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmdStr string, useShell bool) (*Opened, error) {
@@ -542,7 +547,9 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		ptmx = master
 		cmd.Stdin = slave
 		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stdout
+		if s.BoolOption("stderr") {
+			cmd.Stderr = slave
+		}
 		if cmd.SysProcAttr == nil {
 			cmd.SysProcAttr = &syscall.SysProcAttr{}
 		}
@@ -574,7 +581,9 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		ptmx = master
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = slave
-		cmd.Stderr = slave
+		if s.BoolOption("stderr") {
+			cmd.Stderr = slave
+		}
 		if cmd.SysProcAttr == nil {
 			cmd.SysProcAttr = &syscall.SysProcAttr{}
 		}

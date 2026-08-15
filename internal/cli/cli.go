@@ -589,7 +589,7 @@ func printHelp(w io.Writer, level int) {
 			"rdonly", "wronly", "creat", "create", "excl", "append", "trunc", "o-append",
 			"umask", "perm", "mode", "user", "group",
 			"nodelay", "tcp-nodelay", "keepalive", "so-keepalive",
-			"pipes", "setsid", "stderr", "pty",
+			"pipes", "setsid", "stderr", "pty", "shell",
 			"pf", "sourceport", "sp",
 			"range", "lowport", "setsockopt",
 			// TCP wrappers (libwrap): pure-Go hosts.allow / hosts.deny

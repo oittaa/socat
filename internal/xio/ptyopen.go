@@ -28,7 +28,8 @@ func startOnPTY(cmd *exec.Cmd, s parse.Spec) (*os.File, error) {
 	if cmd.Stdout == nil {
 		cmd.Stdout = slave
 	}
-	if cmd.Stderr == nil {
+	// Classic: stderr stays on the parent unless option stderr.
+	if cmd.Stderr == nil && s.BoolOption("stderr") {
 		cmd.Stderr = slave
 	}
 	if cmd.SysProcAttr == nil {
