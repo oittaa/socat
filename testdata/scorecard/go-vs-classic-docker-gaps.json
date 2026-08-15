@@ -1,6 +1,6 @@
 {
   "classic_docker_ok": 552,
-  "go_ok": 483,
+  "go_ok": 498,
   "parity_fail": [
     {
       "id": "146",
@@ -30,16 +30,6 @@
       "status": "CANT"
     },
     {
-      "id": "155",
-      "name": "SCTP4LISTENFORK",
-      "status": "CANT"
-    },
-    {
-      "id": "156",
-      "name": "SCTP6LISTENFORK",
-      "status": "CANT"
-    },
-    {
       "id": "200",
       "name": "O_NOATIME_FILE",
       "status": "CANT"
@@ -65,36 +55,6 @@
       "status": "CANT"
     },
     {
-      "id": "268",
-      "name": "SCTP4LISTENENV",
-      "status": "CANT"
-    },
-    {
-      "id": "269",
-      "name": "SCTP6LISTENENV",
-      "status": "CANT"
-    },
-    {
-      "id": "307",
-      "name": "SCTP4STREAM",
-      "status": "CANT"
-    },
-    {
-      "id": "308",
-      "name": "SCTP6STREAM",
-      "status": "CANT"
-    },
-    {
-      "id": "321",
-      "name": "SCTP4_L_MAXCHILDREN",
-      "status": "CANT"
-    },
-    {
-      "id": "322",
-      "name": "SCTP6_L_MAXCHILDREN",
-      "status": "CANT"
-    },
-    {
       "id": "326",
       "name": "READLINE_OVFL",
       "status": "CANT"
@@ -102,11 +62,6 @@
     {
       "id": "379",
       "name": "OPENSSL_MIN_VERSION",
-      "status": "CANT"
-    },
-    {
-      "id": "395",
-      "name": "SCTP_SERVICENAME",
       "status": "CANT"
     },
     {
@@ -177,16 +132,6 @@
     {
       "id": "475",
       "name": "RCVTIMEO_DTLS",
-      "status": "CANT"
-    },
-    {
-      "id": "477",
-      "name": "OPTION_STATISTICS",
-      "status": "CANT"
-    },
-    {
-      "id": "478",
-      "name": "SIGUSR1_STATISTICS",
       "status": "CANT"
     },
     {
@@ -280,16 +225,6 @@
       "status": "CANT"
     },
     {
-      "id": "540",
-      "name": "V1800_SCTP_LISTEN_RANGE",
-      "status": "CANT"
-    },
-    {
-      "id": "541",
-      "name": "V1800_SCTP_LISTEN_BIND",
-      "status": "CANT"
-    },
-    {
       "id": "542",
       "name": "V1800_DCCP_LISTEN_RANGE",
       "status": "CANT"
@@ -330,18 +265,8 @@
       "status": "CANT"
     },
     {
-      "id": "581",
-      "name": "SCTP_CONNECT_RETRY",
-      "status": "CANT"
-    },
-    {
       "id": "582",
       "name": "DCCP_CONNECT_RETRY",
-      "status": "CANT"
-    },
-    {
-      "id": "588",
-      "name": "SCTP_CONNECT_MAXCHILDREN",
       "status": "CANT"
     },
     {
@@ -361,7 +286,7 @@
     }
   ],
   "parity_other": [],
-  "parity_gap_total": 71,
+  "parity_gap_total": 56,
   "new_ok_vs_classic_docker": [
     {
       "id": "219",

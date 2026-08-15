@@ -5,10 +5,12 @@ package e2e_test
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -178,6 +180,66 @@ func TestDualStdio(t *testing.T) {
 	}
 	if string(out) != payload {
 		t.Fatalf("got %q", out)
+	}
+}
+
+func TestSCTP4Echo(t *testing.T) {
+	bin := socatBin(t)
+	// Kernel SCTP: skip if the binary cannot open an SCTP listen socket.
+	probe := exec.Command(bin, "/dev/null", "SCTP4-L:0,accept-timeout=0.05")
+	if err := probe.Run(); err != nil {
+		t.Skipf("kernel SCTP not usable: %v", err)
+	}
+	// Use a TCP bind probe only to pick a free numeric port.
+	port := freePort(t)
+	srv := exec.Command(bin, fmt.Sprintf("SCTP4-LISTEN:%d,reuseaddr,bind=127.0.0.1", port), "PIPE")
+	var stderr bytes.Buffer
+	srv.Stderr = &stderr
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = srv.Process.Kill()
+		_, _ = srv.Process.Wait()
+	}()
+	time.Sleep(150 * time.Millisecond)
+
+	payload := fmt.Sprintf("test SCTP4 %d\n", time.Now().UnixNano())
+	pr, pw := io.Pipe()
+	go func() {
+		_, _ = io.WriteString(pw, payload)
+		// RFC 9260: no TCP-style half-close; keep the association up briefly.
+		time.Sleep(400 * time.Millisecond)
+		_ = pw.Close()
+	}()
+	cli := exec.Command(bin, "-", fmt.Sprintf("SCTP4:127.0.0.1:%d", port))
+	cli.Stdin = pr
+	var out, errb bytes.Buffer
+	cli.Stdout = &out
+	cli.Stderr = &errb
+	if err := cli.Run(); err != nil {
+		t.Fatalf("client: %v server=%s client=%s", err, stderr.String(), errb.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte(strings.TrimSpace(payload))) && !bytes.Contains(out.Bytes(), []byte(payload)) {
+		t.Fatalf("echo mismatch out=%q server=%s client=%s", out.Bytes(), stderr.String(), errb.String())
+	}
+}
+
+func TestVersionHasSCTP(t *testing.T) {
+	bin := socatBin(t)
+	out, err := exec.Command(bin, "-V").CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte("#define WITH_SCTP 1")) {
+		t.Fatalf("missing WITH_SCTP 1:\n%s", out)
+	}
+	h, err := exec.Command(bin, "-h").CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(h, []byte("SCTP4-")) {
+		t.Fatalf("help missing SCTP4-: %s", h)
 	}
 }
 

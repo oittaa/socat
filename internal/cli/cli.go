@@ -495,7 +495,7 @@ func printVersion(w io.Writer) {
 		{"INTERFACE", true}, // Linux AF_PACKET SOCK_RAW
 		{"TCP", true},
 		{"UDP", true},
-		{"SCTP", false},
+		{"SCTP", xio.FeatureSCTP},
 		{"DCCP", false},
 		{"UDPLITE", false},
 		{"LISTEN", true},
@@ -574,6 +574,9 @@ func printHelp(w io.Writer, level int) {
 	fmt.Fprintf(w, "  TUN INTERFACE\n")
 	fmt.Fprintf(w, "  WS WS-CONNECT WSS WSS-CONNECT WS-LISTEN WS-L WSS-LISTEN WSS-L\n")
 	fmt.Fprintf(w, "  QUIC QUIC-CONNECT QUIC-LISTEN QUIC-L\n")
+	fmt.Fprintf(w, "  SCTP SCTP-CONNECT SCTP-LISTEN SCTP-L\n")
+	fmt.Fprintf(w, "  SCTP4 SCTP4-CONNECT SCTP4-LISTEN SCTP4-L\n")
+	fmt.Fprintf(w, "  SCTP6 SCTP6-CONNECT SCTP6-LISTEN SCTP6-L\n")
 	if level >= 2 {
 		// Honesty: only list options we actually honor. test.sh greps
 		//   [^a-z0-9-]<name>[^a-z0-9-]  — pad with spaces on both sides.

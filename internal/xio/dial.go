@@ -112,10 +112,31 @@ func ResolvePortNum(network, port string) (int, error) {
 		return n, nil
 	}
 	proto := "tcp"
-	if strings.HasPrefix(network, "udp") {
+	switch {
+	case strings.HasPrefix(network, "udp"):
 		proto = "udp"
+	case strings.HasPrefix(network, "sctp"):
+		// Classic SCTP_SERVICENAME: try SCTP, then TCP names from /etc/services.
+		if p, err := net.LookupPort("sctp", port); err == nil {
+			return p, nil
+		}
+		return net.LookupPort("tcp", port)
 	}
 	return net.LookupPort(proto, port)
+}
+
+// ResolveConnectIPs returns remote IPs in classic try order.
+// network may be tcp/tcp4/tcp6 or sctp/sctp4/sctp6 (SCTP uses the TCP hint).
+func ResolveConnectIPs(ctx context.Context, network, host string, s parse.Spec, g *Global) ([]net.IP, error) {
+	switch network {
+	case "sctp4":
+		network = "tcp4"
+	case "sctp6":
+		network = "tcp6"
+	case "sctp":
+		network = "tcp"
+	}
+	return resolveConnectIPs(ctx, network, host, s, g)
 }
 
 func formatTCPAddr(ip net.IP, port int) string {

@@ -1,11 +1,11 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-08-14T08:51:40Z",
-    "hostname": "d39fbefb9551",
+    "timestamp": "2026-08-15T19:21:14Z",
+    "hostname": "5947125c1bc4",
     "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.43",
     "socat": "/opt/go/socat",
-    "socat_version": "socat version 0.1.0-dev on 2026-08-14T08:51:40Z",
+    "socat_version": "socat version 0.1.0-dev on 2026-08-15T19:21:14Z",
     "test_sh": "/opt/classic-src/test.sh",
     "git": "",
     "out_dir": "/out",
@@ -14,9 +14,9 @@
     "shard_timeout": "7200"
   },
   "summary": {
-    "ok": 483,
+    "ok": 498,
     "failed": 2,
-    "cant": 118,
+    "cant": 103,
     "timeout": 0,
     "unknown": 2,
     "total_recorded": 605,
@@ -1395,19 +1395,19 @@
       "id": 155,
       "name": "SCTP4LISTENFORK",
       "description": "SCTP4 listen handles 2 concurrent connections",
-      "status": "CANT",
-      "detail": "SCTP4 not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 155 SCTP4LISTENFORK: SCTP4 listen handles 2 concurrent connections... SCTP4 not available"
+      "raw": "test 155 SCTP4LISTENFORK: SCTP4 listen handles 2 concurrent connections... OK"
     },
     "156": {
       "id": 156,
       "name": "SCTP6LISTENFORK",
       "description": "SCTP6 listen handles 2 concurrent connections",
-      "status": "CANT",
-      "detail": "SCTP6 not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 156 SCTP6LISTENFORK: SCTP6 listen handles 2 concurrent connections... SCTP6 not available"
+      "raw": "test 156 SCTP6LISTENFORK: SCTP6 listen handles 2 concurrent connections... OK"
     },
     "157": {
       "id": 157,
@@ -2412,19 +2412,19 @@
       "id": 268,
       "name": "SCTP4LISTENENV",
       "description": "SCTP4-LISTEN sets environment variables with socket addresses",
-      "status": "CANT",
-      "detail": "SCTP not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 268 SCTP4LISTENENV: SCTP4-LISTEN sets environment variables with socket addresses... SCTP not available"
+      "raw": "test 268 SCTP4LISTENENV: SCTP4-LISTEN sets environment variables with socket addresses... OK"
     },
     "269": {
       "id": 269,
       "name": "SCTP6LISTENENV",
       "description": "SCTP6-LISTEN sets environment variables with socket addresses",
-      "status": "CANT",
-      "detail": "SCTP not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 269 SCTP6LISTENENV: SCTP6-LISTEN sets environment variables with socket addresses... SCTP not available"
+      "raw": "test 269 SCTP6LISTENENV: SCTP6-LISTEN sets environment variables with socket addresses... OK"
     },
     "270": {
       "id": 270,
@@ -2763,19 +2763,19 @@
       "id": 307,
       "name": "SCTP4STREAM",
       "description": "echo via connection to SCTP V4 socket",
-      "status": "CANT",
-      "detail": "SCTP4 not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 307 SCTP4STREAM: echo via connection to SCTP V4 socket... SCTP4 not available"
+      "raw": "test 307 SCTP4STREAM: echo via connection to SCTP V4 socket... OK"
     },
     "308": {
       "id": 308,
       "name": "SCTP6STREAM",
       "description": "echo via connection to SCTP V6 socket",
-      "status": "CANT",
-      "detail": "SCTP6 not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 308 SCTP6STREAM: echo via connection to SCTP V6 socket... SCTP6 not available"
+      "raw": "test 308 SCTP6STREAM: echo via connection to SCTP V6 socket... OK"
     },
     "309": {
       "id": 309,
@@ -2889,19 +2889,19 @@
       "id": 321,
       "name": "SCTP4_L_MAXCHILDREN",
       "description": "max-children option with SCTP4-LISTEN",
-      "status": "CANT",
-      "detail": "SCTP not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 321 SCTP4_L_MAXCHILDREN: max-children option with SCTP4-LISTEN... SCTP not available"
+      "raw": "test 321 SCTP4_L_MAXCHILDREN: max-children option with SCTP4-LISTEN... OK"
     },
     "322": {
       "id": 322,
       "name": "SCTP6_L_MAXCHILDREN",
       "description": "max-children option with SCTP6-LISTEN",
-      "status": "CANT",
-      "detail": "SCTP not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 322 SCTP6_L_MAXCHILDREN: max-children option with SCTP6-LISTEN... SCTP not available"
+      "raw": "test 322 SCTP6_L_MAXCHILDREN: max-children option with SCTP6-LISTEN... OK"
     },
     "323": {
       "id": 323,
@@ -3555,10 +3555,10 @@
       "id": 395,
       "name": "SCTP_SERVICENAME",
       "description": "Service name resolution works with SCTP",
-      "status": "CANT",
-      "detail": "SCTP4 not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 395 SCTP_SERVICENAME: Service name resolution works with SCTP... SCTP4 not available"
+      "raw": "test 395 SCTP_SERVICENAME: Service name resolution works with SCTP... OK"
     },
     "396": {
       "id": 396,
@@ -4293,19 +4293,19 @@
       "id": 477,
       "name": "OPTION_STATISTICS",
       "description": "Socat option --statistics",
-      "status": "CANT",
-      "detail": "Feature STATS not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 477 OPTION_STATISTICS: Socat option --statistics... Feature STATS not available in /opt/go/socat"
+      "raw": "test 477 OPTION_STATISTICS: Socat option --statistics... OK"
     },
     "478": {
       "id": 478,
       "name": "SIGUSR1_STATISTICS",
       "description": "statistics on SIGUSR1",
-      "status": "CANT",
-      "detail": "Feature STATS not configured in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 478 SIGUSR1_STATISTICS: statistics on SIGUSR1... Feature STATS not configured in /opt/go/socat"
+      "raw": "test 478 SIGUSR1_STATISTICS: statistics on SIGUSR1... OK"
     },
     "479": {
       "id": 479,
@@ -4860,19 +4860,19 @@
       "id": 540,
       "name": "V1800_SCTP_LISTEN_RANGE",
       "description": "test regression of SCTP-LISTEN with IPv4 RANGE",
-      "status": "CANT",
-      "detail": "Feature SCTP not configured in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 540 V1800_SCTP_LISTEN_RANGE: test regression of SCTP-LISTEN with IPv4 RANGE... Feature SCTP not configured in /opt/go/socat"
+      "raw": "test 540 V1800_SCTP_LISTEN_RANGE: test regression of SCTP-LISTEN with IPv4 RANGE... OK"
     },
     "541": {
       "id": 541,
       "name": "V1800_SCTP_LISTEN_BIND",
       "description": "test regression of SCTP-LISTEN with IPv4 BIND",
-      "status": "CANT",
-      "detail": "Feature SCTP not configured in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 541 V1800_SCTP_LISTEN_BIND: test regression of SCTP-LISTEN with IPv4 BIND... Feature SCTP not configured in /opt/go/socat"
+      "raw": "test 541 V1800_SCTP_LISTEN_BIND: test regression of SCTP-LISTEN with IPv4 BIND... OK"
     },
     "542": {
       "id": 542,
@@ -5077,9 +5077,9 @@
       "name": "V1800_SCTP_CONNECT_CONNECT_6_4",
       "description": "test regression of SCTP-CONNECT with IPv6,4 and binding to IPv4",
       "status": "CANT",
-      "detail": "Feature SCTP not configured in /opt/go/socat",
+      "detail": "Feature DEVTESTS not configured in /opt/go/socat",
       "shard": 0,
-      "raw": "test 564 V1800_SCTP_CONNECT_CONNECT_6_4: test regression of SCTP-CONNECT with IPv6,4 and binding to IPv4... Feature SCTP not configured in /opt/go/socat"
+      "raw": "test 564 V1800_SCTP_CONNECT_CONNECT_6_4: test regression of SCTP-CONNECT with IPv6,4 and binding to IPv4... Feature DEVTESTS not configured in /opt/go/socat"
     },
     "565": {
       "id": 565,
@@ -5149,9 +5149,9 @@
       "name": "SCTP_CONNECT_BIND_6_4",
       "description": "SCTP bind chooses matching IPv",
       "status": "CANT",
-      "detail": "Feature SCTP not configured in /opt/go/socat",
+      "detail": "use test.sh option --internet",
       "shard": 0,
-      "raw": "test 572 SCTP_CONNECT_BIND_6_4: SCTP bind chooses matching IPv... Feature SCTP not configured in /opt/go/socat"
+      "raw": "test 572 SCTP_CONNECT_BIND_6_4: SCTP bind chooses matching IPv... use test.sh option --internet"
     },
     "573": {
       "id": 573,
@@ -5229,10 +5229,10 @@
       "id": 581,
       "name": "SCTP_CONNECT_RETRY",
       "description": "SCTP can retry",
-      "status": "CANT",
-      "detail": "Feature SCTP not configured in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 581 SCTP_CONNECT_RETRY: SCTP can retry... Feature SCTP not configured in /opt/go/socat"
+      "raw": "test 581 SCTP_CONNECT_RETRY: SCTP can retry... OK"
     },
     "582": {
       "id": 582,
@@ -5292,10 +5292,10 @@
       "id": 588,
       "name": "SCTP_CONNECT_MAXCHILDREN",
       "description": "SCTP with fork,max-children",
-      "status": "CANT",
-      "detail": "Feature SCTP not configured in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 588 SCTP_CONNECT_MAXCHILDREN: SCTP with fork,max-children... Feature SCTP not configured in /opt/go/socat"
+      "raw": "test 588 SCTP_CONNECT_MAXCHILDREN: SCTP with fork,max-children... OK"
     },
     "589": {
       "id": 589,

@@ -12,6 +12,20 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
+func TestResolvePortNumSCTPFallsBackToTCP(t *testing.T) {
+	n, err := ResolvePortNum("sctp4", "http")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 80 {
+		t.Fatalf("got %d", n)
+	}
+	n, err = ResolvePortNum("sctp", "443")
+	if err != nil || n != 443 {
+		t.Fatalf("numeric: %d %v", n, err)
+	}
+}
+
 func TestBindTCPAddrForRemoteFamily(t *testing.T) {
 	ctx := context.Background()
 	// IPv4 bind + IPv6 remote → skip

@@ -70,7 +70,8 @@ Common options: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `
 | TUN, INTERFACE | Linux TUN/TAP + AF_PACKET (`WITH_TUN`, `WITH_INTERFACE`; need CAP_NET_ADMIN) |
 | WS / WSS (+ CONNECT, LISTEN / -L) | WebSocket byte relay (`github.com/coder/websocket`); **not** in classic socat |
 | QUIC / QUIC-CONNECT / QUIC-LISTEN | RFC 9000 byte relay (`github.com/quic-go/quic-go`); **not** HTTP/3; **not** in classic socat |
-| SCTP, DCCP, POSIXMQ, readline | **not** implemented (`#undef` in `-V`) |
+| SCTP / SCTP4 / SCTP6 (+ CONNECT, LISTEN / -L) | Linux kernel one-to-one SCTP (`SOCK_STREAM` + `IPPROTO_SCTP`, RFC 9260); need `sctp` module |
+| DCCP, POSIXMQ, readline | **not** implemented (`#undef` in `-V`) |
 
 ### Options (honored)
 
@@ -168,8 +169,8 @@ SOCAT=/path/to/classic/socat SKIP_BUILD=1 LABEL=classic MODE=classic \
 |-------|-----|--------|------|
 | classic 1.8.1.3 (host) | 475 | 24 | 103 |
 | classic 1.8.1.3 (Docker, root) | 552 | 8 | 42 |
-| go (this tree, host) | 428 | 3 | 172 |
-| go (this tree, Docker, root) | 483 | 2 | 118 |
+| go (this tree, host) | 443 | 3 | 157 |
+| go (this tree, Docker, root) | 498 | 2 | 103 |
 
 Go host FAILED: `OPENSSLLISTENDSA` (DSA, by design), `UDP6MULTICAST_UNIDIR` (host environment), `REUSEADDR_NULL` (NO RESULT). Go Docker FAILED: `OPENSSLLISTENDSA`, `REUSEADDR_NULL`. Both Go runs also record UNKNOWN=2 (`EXECPTYKILL` parse quirk, `PROCAN_CTTY`).
 
