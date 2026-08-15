@@ -1,10 +1,20 @@
 {
   "classic_docker_ok": 552,
-  "go_ok": 507,
+  "go_ok": 504,
   "parity_fail": [
     {
       "id": "146",
       "name": "OPENSSLLISTENDSA",
+      "status": "FAILED"
+    },
+    {
+      "id": "544",
+      "name": "V1800_OPENSSL_LISTEN_RANGE",
+      "status": "FAILED"
+    },
+    {
+      "id": "545",
+      "name": "V1800_OPENSSL_LISTEN_BIND",
       "status": "FAILED"
     }
   ],
@@ -241,16 +251,11 @@
     }
   ],
   "parity_other": [],
-  "parity_gap_total": 47,
+  "parity_gap_total": 49,
   "new_ok_vs_classic_docker": [
     {
       "id": "219",
       "name": "TUNREAD",
-      "was": "FAILED"
-    },
-    {
-      "id": "318",
-      "name": "OPENSSL_ANULL",
       "was": "FAILED"
     }
   ]

@@ -1,10 +1,10 @@
 label=go
-timestamp=2026-08-15T20:47:24Z
+timestamp=2026-08-15T23:28:40Z
 socat=/home/eero/src/socat/socat
-socat_version=socat version 0.1.0-dev on 2026-08-15T20:47:24Z
-git=263cb5c
-ok=452
-failed=3
+socat_version=socat version 0.1.0-dev on 2026-08-15T23:28:40Z
+git=16458a7
+ok=449
+failed=6
 cant=148
 timeout=0
 unknown=2

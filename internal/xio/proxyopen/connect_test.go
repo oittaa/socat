@@ -2,8 +2,8 @@ package proxyopen
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -234,7 +234,7 @@ type trustCerts struct {
 func writeTrustCerts(t *testing.T) trustCerts {
 	t.Helper()
 	dir := t.TempDir()
-	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	caPub, caKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func writeTrustCerts(t *testing.T) trustCerts {
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
 		BasicConstraintsValid: true,
 	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, caPub, caKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func writeTrustCerts(t *testing.T) trustCerts {
 	}
 	leaf := func(cn string, serial int64, usage []x509.ExtKeyUsage, ips []net.IP, dns []string) (string, string, tls.Certificate) {
 		t.Helper()
-		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		pub, key, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -274,17 +274,21 @@ func writeTrustCerts(t *testing.T) trustCerts {
 			Subject:      pkix.Name{CommonName: cn},
 			NotBefore:    time.Now().Add(-time.Hour),
 			NotAfter:     time.Now().Add(24 * time.Hour),
-			KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+			KeyUsage:     x509.KeyUsageDigitalSignature,
 			ExtKeyUsage:  usage,
 			IPAddresses:  ips,
 			DNSNames:     dns,
 		}
-		der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, &key.PublicKey, caKey)
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, pub, caKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keyDER, err := x509.MarshalPKCS8PrivateKey(key)
 		if err != nil {
 			t.Fatal(err)
 		}
 		certPath := writePEM(cn+".crt", "CERTIFICATE", der)
-		keyPath := writePEM(cn+".key", "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(key))
+		keyPath := writePEM(cn+".key", "PRIVATE KEY", keyDER)
 		tc, err := tls.LoadX509KeyPair(certPath, keyPath)
 		if err != nil {
 			t.Fatal(err)

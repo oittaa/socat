@@ -13,7 +13,18 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
+
+func listenCert(t *testing.T) string {
+	t.Helper()
+	p, err := tlsopen.WriteTempListenCert(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
 
 func socatBin(t *testing.T) string {
 	t.Helper()
@@ -434,14 +445,26 @@ exit 1
 	}
 }
 
+func TestOpenSSLListenRequiresCert(t *testing.T) {
+	bin := socatBin(t)
+	out, err := exec.Command(bin, "OPENSSL-LISTEN:0,bind=127.0.0.1,verify=0", "PIPE").CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected start failure without cert=, got %q", out)
+	}
+	if !bytes.Contains(out, []byte("cert")) {
+		t.Fatalf("error should mention cert: %s", out)
+	}
+}
+
 // TestOpenSSLPQC — OPENSSL echo with Go default hybrid post-quantum KEM
 // (X25519MLKEM768). Classic test.sh has no PQC cases.
 func TestOpenSSLPQC(t *testing.T) {
 	bin := socatBin(t)
 	port := freePort(t)
 
+	cert := listenCert(t)
 	srv := exec.Command(bin,
-		fmt.Sprintf("OPENSSL-LISTEN:%d,reuseaddr,bind=127.0.0.1,verify=0", port),
+		fmt.Sprintf("OPENSSL-LISTEN:%d,reuseaddr,bind=127.0.0.1,verify=0,cert=%s", port, cert),
 		"PIPE",
 	)
 	var srvErr bytes.Buffer

@@ -2,8 +2,8 @@ package quicopen
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -21,7 +21,17 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	_ "github.com/oittaa/socat/internal/xio/fileopen"
+	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
+
+func listenCert(t *testing.T) string {
+	t.Helper()
+	p, err := tlsopen.WriteTempListenCert(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
 
 func freeUDPPort(t *testing.T) int {
 	t.Helper()
@@ -81,7 +91,7 @@ func TestQUICListenConnectEcho(t *testing.T) {
 	port := freeUDPPort(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0", port))
+	startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, listenCert(t)))
 	waitUDPPort(t, port, 2*time.Second)
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0", port))
@@ -100,7 +110,7 @@ func TestQUICVerifyFailsWithoutTrust(t *testing.T) {
 	port := freeUDPPort(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0", port))
+	startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, listenCert(t)))
 	waitUDPPort(t, port, 2*time.Second)
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("QUIC:127.0.0.1:%d,verify=1", port))
@@ -108,7 +118,7 @@ func TestQUICVerifyFailsWithoutTrust(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := openQUICConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()}); err == nil {
-		t.Fatal("expected verify failure against ephemeral cert")
+		t.Fatal("expected verify failure against untrusted server cert")
 	}
 }
 
@@ -142,7 +152,7 @@ func TestQUICALPNMismatch(t *testing.T) {
 	port := freeUDPPort(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,alpn=socat", port))
+	startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,alpn=socat,cert=%s", port, listenCert(t)))
 	waitUDPPort(t, port, 2*time.Second)
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0,alpn=other", port))
@@ -158,7 +168,7 @@ func TestQUICListenForkTwoClients(t *testing.T) {
 	port := freeUDPPort(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
-	startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0", port))
+	startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, listenCert(t)))
 	waitUDPPort(t, port, 2*time.Second)
 
 	for i, msg := range []string{"one", "two"} {
@@ -179,7 +189,7 @@ func TestQUICHalfClose(t *testing.T) {
 	port := freeUDPPort(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0", port))
+	startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, listenCert(t)))
 	waitUDPPort(t, port, 2*time.Second)
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0", port))
@@ -214,7 +224,7 @@ type trustCerts struct {
 func writeTrustCerts(t *testing.T) trustCerts {
 	t.Helper()
 	dir := t.TempDir()
-	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	caPub, caKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +237,7 @@ func writeTrustCerts(t *testing.T) trustCerts {
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
 		BasicConstraintsValid: true,
 	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, caPub, caKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +257,7 @@ func writeTrustCerts(t *testing.T) trustCerts {
 
 	leaf := func(cn string, serial int64, usage []x509.ExtKeyUsage, ips []net.IP, dns []string) (certPath, keyPath string) {
 		t.Helper()
-		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		pub, key, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -256,17 +266,21 @@ func writeTrustCerts(t *testing.T) trustCerts {
 			Subject:      pkix.Name{CommonName: cn},
 			NotBefore:    time.Now().Add(-time.Hour),
 			NotAfter:     time.Now().Add(24 * time.Hour),
-			KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+			KeyUsage:     x509.KeyUsageDigitalSignature,
 			ExtKeyUsage:  usage,
 			IPAddresses:  ips,
 			DNSNames:     dns,
 		}
-		der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, &key.PublicKey, caKey)
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, pub, caKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keyDER, err := x509.MarshalPKCS8PrivateKey(key)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return writePEM(cn+".crt", "CERTIFICATE", der),
-			writePEM(cn+".key", "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(key))
+			writePEM(cn+".key", "PRIVATE KEY", keyDER)
 	}
 
 	srvCert, srvKey := leaf("localhost", 2, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},

@@ -4,8 +4,8 @@ package e2e_test
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
@@ -70,7 +70,8 @@ func TestQUICEcho(t *testing.T) {
 	bin := socatBin(t)
 	port := freePort(t)
 
-	srv := exec.Command(bin, "-t", "2", fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0", port), "PIPE")
+	cert := listenCert(t)
+	srv := exec.Command(bin, "-t", "2", fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert), "PIPE")
 	var srvErr bytes.Buffer
 	srv.Stderr = &srvErr
 	if err := srv.Start(); err != nil {
@@ -107,7 +108,8 @@ func TestQUICVerifyFail(t *testing.T) {
 	bin := socatBin(t)
 	port := freePort(t)
 
-	srv := exec.Command(bin, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0", port), "PIPE")
+	cert := listenCert(t)
+	srv := exec.Command(bin, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert), "PIPE")
 	if err := srv.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +168,8 @@ func TestTCPToQUICBridge(t *testing.T) {
 	quicPort := freePort(t)
 	tcpPort := freePort(t)
 
-	echo := exec.Command(bin, "-t", "2", fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0", quicPort), "PIPE")
+	cert := listenCert(t)
+	echo := exec.Command(bin, "-t", "2", fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", quicPort, cert), "PIPE")
 	var echoErr bytes.Buffer
 	echo.Stderr = &echoErr
 	if err := echo.Start(); err != nil {
@@ -214,7 +217,7 @@ type e2eTrustCerts struct {
 func writeE2ETrustCerts(t *testing.T) e2eTrustCerts {
 	t.Helper()
 	dir := t.TempDir()
-	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	caPub, caKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +230,7 @@ func writeE2ETrustCerts(t *testing.T) e2eTrustCerts {
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
 		BasicConstraintsValid: true,
 	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, caPub, caKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +248,7 @@ func writeE2ETrustCerts(t *testing.T) e2eTrustCerts {
 	}
 	leaf := func(cn string, serial int64, usage []x509.ExtKeyUsage, ips []net.IP, dns []string) (string, string) {
 		t.Helper()
-		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		pub, key, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -254,17 +257,21 @@ func writeE2ETrustCerts(t *testing.T) e2eTrustCerts {
 			Subject:      pkix.Name{CommonName: cn},
 			NotBefore:    time.Now().Add(-time.Hour),
 			NotAfter:     time.Now().Add(24 * time.Hour),
-			KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+			KeyUsage:     x509.KeyUsageDigitalSignature,
 			ExtKeyUsage:  usage,
 			IPAddresses:  ips,
 			DNSNames:     dns,
 		}
-		der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, &key.PublicKey, caKey)
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, pub, caKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		keyDER, err := x509.MarshalPKCS8PrivateKey(key)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return writePEM(cn+".crt", "CERTIFICATE", der),
-			writePEM(cn+".key", "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(key))
+			writePEM(cn+".key", "PRIVATE KEY", keyDER)
 	}
 	srvCert, srvKey := leaf("localhost", 2, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		[]net.IP{net.ParseIP("127.0.0.1")}, []string{"localhost"})

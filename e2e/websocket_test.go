@@ -76,12 +76,13 @@ func TestWSEcho(t *testing.T) {
 	}
 }
 
-// TestWSSEcho — WSS-LISTEN with ephemeral cert; client verify=0.
+// TestWSSEcho — WSS-LISTEN with a throwaway cert; client verify=0.
 func TestWSSEcho(t *testing.T) {
 	bin := socatBin(t)
 	port := freePort(t)
+	cert := listenCert(t)
 
-	srv := exec.Command(bin, fmt.Sprintf("WSS-LISTEN:%d,reuseaddr,bind=127.0.0.1,verify=0", port), "PIPE")
+	srv := exec.Command(bin, fmt.Sprintf("WSS-LISTEN:%d,reuseaddr,bind=127.0.0.1,verify=0,cert=%s", port, cert), "PIPE")
 	var srvErr bytes.Buffer
 	srv.Stderr = &srvErr
 	if err := srv.Start(); err != nil {

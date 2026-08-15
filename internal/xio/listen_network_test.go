@@ -10,6 +10,7 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 
 	_ "github.com/oittaa/socat/internal/xio/all"
+	"github.com/oittaa/socat/internal/xio/tlsopen"
 
 	"github.com/oittaa/socat/internal/parse"
 )
@@ -71,6 +72,10 @@ func TestOpenSSLListenHonorsDefaultListenIP6(t *testing.T) {
 	port := ln0.Addr().(*net.TCPAddr).Port
 	ln0.Close()
 
+	certPath, err := tlsopen.WriteTempListenCert(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	s := parse.Spec{
 		Type:   "OPENSSL-LISTEN",
 		Params: []string{strconv.Itoa(port)},
@@ -78,6 +83,7 @@ func TestOpenSSLListenHonorsDefaultListenIP6(t *testing.T) {
 			{Name: "reuseaddr"},
 			{Name: "fork"}, // return Listener without blocking on Accept
 			{Name: "verify", Value: "0", Has: true},
+			{Name: "cert", Value: certPath, Has: true},
 		},
 	}
 	o, err := xio.OpenSpec(ctx, s, xio.ModeRead, &xio.Global{})

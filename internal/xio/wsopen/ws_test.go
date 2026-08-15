@@ -18,7 +18,17 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	_ "github.com/oittaa/socat/internal/xio/fileopen"
+	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
+
+func listenCert(t *testing.T) string {
+	t.Helper()
+	p, err := tlsopen.WriteTempListenCert(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
 
 func echoWSHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -268,7 +278,7 @@ func TestWSSListenConnectEcho(t *testing.T) {
 	port := freeTCPPort(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	startListenPIPE(t, ctx, fmt.Sprintf("WSS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0", port))
+	startListenPIPE(t, ctx, fmt.Sprintf("WSS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, listenCert(t)))
 	waitTCPPort(t, port, 2*time.Second)
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("WSS:127.0.0.1:%d,verify=0", port))

@@ -1,8 +1,8 @@
 package tlsopen
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,6 +130,16 @@ func TestTLSClientNoSNI(t *testing.T) {
 	}
 	if cfg.ServerName != "" {
 		t.Fatalf("openssl-no-sni: ServerName=%q want empty", cfg.ServerName)
+	}
+}
+
+func TestTLSServerConfigRequiresCert(t *testing.T) {
+	_, err := tlsServerConfig(parse.Spec{Type: "OPENSSL-LISTEN", Params: []string{"443"}})
+	if err == nil {
+		t.Fatal("expected error without cert=")
+	}
+	if !strings.Contains(err.Error(), "cert") {
+		t.Fatalf("error %q should mention cert", err)
 	}
 }
 
@@ -267,7 +278,7 @@ func writeTLSCert(t *testing.T, dir, name string, cert tls.Certificate) string {
 }
 
 func testCAAndLeaf(dns string) (*x509.Certificate, *x509.Certificate, error) {
-	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	caPub, caKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -280,7 +291,7 @@ func testCAAndLeaf(dns string) (*x509.Certificate, *x509.Certificate, error) {
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
 		BasicConstraintsValid: true,
 	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, caPub, caKey)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -288,7 +299,7 @@ func testCAAndLeaf(dns string) (*x509.Certificate, *x509.Certificate, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	leafKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	leafPub, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -302,7 +313,7 @@ func testCAAndLeaf(dns string) (*x509.Certificate, *x509.Certificate, error) {
 		DNSNames:              []string{dns},
 		BasicConstraintsValid: true,
 	}
-	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, caCert, &leafKey.PublicKey, caKey)
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, caCert, leafPub, caKey)
 	if err != nil {
 		return nil, nil, err
 	}

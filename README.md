@@ -101,6 +101,7 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 ### TLS notes
 
 - **Stream TLS only** — see [Unsupported](#unsupported--security-related) for DTLS.
+- **Listen requires `cert=`** — `OPENSSL-LISTEN`, `WSS-LISTEN`, and `QUIC-LISTEN` refuse to start without `cert=`. Classic `OPENSSL-LISTEN` warns (`no certificate given; consider option "cert"`), binds, then `SSL_accept` fails (`no shared cipher`). We fail at open instead of inventing a dummy certificate. Classic `V1800_OPENSSL_LISTEN_*` (bind/range only) and `ciphers=aNULL` without `cert=` therefore fail here.
 - **No DSA** — see [Unsupported](#unsupported--security-related).
 - **`verify` (OPENSSL, WSS, QUIC)** — default on. `verify=0` skips trust and name checks. `verify=1` uses `crypto/x509` (not OpenSSL `SSL_get_verify_result`). With no `cafile`/`capath`, the **system** CA pool is used on both client and listen (classic `SSL_CTX_set_default_verify_paths`).
 - **`capath`** — directory of CA certificates (PEM or DER). We load every regular file that parses as a certificate, including OpenSSL hashed names and symlinks. Classic OpenSSL only looks up hashed names.
@@ -129,6 +130,7 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 - Companion tools aim for useful parity, not bit-identical C ifdef output
 - Unknown options are generally ignored (classic may error more strictly)
 - Security-deprecated crypto (DSA, DTLS, etc.) is documented above rather than forced in
+- **TLS listen without `cert=`** fails at start (classic warns, listens, then handshake fails). See [TLS notes](#tls-notes).
 
 ## Classic scorecard
 
@@ -174,10 +176,10 @@ SOCAT=/path/to/classic/socat SKIP_BUILD=1 LABEL=classic MODE=classic \
 |-------|-----|--------|------|
 | classic 1.8.1.3 (host) | 475 | 24 | 103 |
 | classic 1.8.1.3 (Docker, root) | 552 | 8 | 42 |
-| go (this tree, host) | 452 | 3 | 148 |
-| go (this tree, Docker, root) | 507 | 2 | 94 |
+| go (this tree, host) | 449 | 6 | 148 |
+| go (this tree, Docker, root) | 504 | 5 | 94 |
 
-Go host FAILED: `OPENSSLLISTENDSA` (DSA, by design), `UDP6MULTICAST_UNIDIR` (host environment), `REUSEADDR_NULL` (NO RESULT). Go Docker FAILED: `OPENSSLLISTENDSA`, `REUSEADDR_NULL`. Both Go runs also record UNKNOWN=2 (`EXECPTYKILL` parse quirk, `PROCAN_CTTY`).
+Go host FAILED: `OPENSSLLISTENDSA` (DSA, by design), `UDP6MULTICAST_UNIDIR` (host environment), `REUSEADDR_NULL` (NO RESULT), `OPENSSL_ANULL`, `V1800_OPENSSL_LISTEN_RANGE`, `V1800_OPENSSL_LISTEN_BIND` (listen requires `cert=`). Go Docker FAILED: `OPENSSLLISTENDSA`, `REUSEADDR_NULL`, `OPENSSL_ANULL`, `V1800_OPENSSL_LISTEN_RANGE`, `V1800_OPENSSL_LISTEN_BIND`. Both Go runs also record UNKNOWN=2 (`EXECPTYKILL` parse quirk, `PROCAN_CTTY`).
 
 Use `go-baseline.json` + `REGRESSION_EXIT=1` after a **MODE=classic** run to catch real Go regressions with less noise.
 

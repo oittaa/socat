@@ -3,8 +3,8 @@ package tlsopen
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -356,20 +356,19 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 	certPath := s.OptionValue("cert", "")
 	keyPath := s.OptionValue("key", "")
-	var cert tls.Certificate
-	var err error
 	if certPath == "" {
-		// Classic allows OPENSSL-LISTEN without cert for option-parse regression
-		// tests (V1800_OPENSSL_LISTEN_*). Generate an ephemeral self-signed cert.
-		cert, err = ephemeralSelfSigned()
-		if err != nil {
-			return nil, err
+		typ := s.Type
+		if typ == "" {
+			typ = "OPENSSL-LISTEN"
 		}
-	} else {
-		cert, err = loadKeyPair(certPath, keyPath)
-		if err != nil {
-			return nil, err
-		}
+		// Classic warns, binds, then SSL_accept fails ("no shared cipher").
+		// We refuse to start. Go crypto/tls cannot serve without a certificate,
+		// and we do not invent a dummy cert.
+		return nil, fmt.Errorf("%s: option \"cert\" is required", typ)
+	}
+	cert, err := loadKeyPair(certPath, keyPath)
+	if err != nil {
+		return nil, err
 	}
 	cfg := &tls.Config{
 		Certificates: []tls.Certificate{cert},
@@ -705,9 +704,39 @@ func cnMatches(leaf *x509.Certificate, want string) bool {
 	return false
 }
 
-// ephemeralSelfSigned builds a short-lived RSA cert for OPENSSL-LISTEN without cert=.
+// WriteTempListenCert writes a short-lived self-signed Ed25519 server
+// certificate and key as one PEM file. Listen addresses require this via cert=.
+func WriteTempListenCert(dir string) (string, error) {
+	cert, err := ephemeralSelfSigned()
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "listen.pem")
+	if err := writeCertKeyPEM(path, cert); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func writeCertKeyPEM(path string, cert tls.Certificate) error {
+	if len(cert.Certificate) == 0 {
+		return fmt.Errorf("tls: empty certificate")
+	}
+	var b []byte
+	for _, der := range cert.Certificate {
+		b = append(b, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(cert.PrivateKey)
+	if err != nil {
+		return err
+	}
+	b = append(b, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})...)
+	return os.WriteFile(path, b, 0o600)
+}
+
+// ephemeralSelfSigned builds a short-lived Ed25519 certificate for tests.
 func ephemeralSelfSigned() (tls.Certificate, error) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return tls.Certificate{}, err
 	}
@@ -716,14 +745,12 @@ func ephemeralSelfSigned() (tls.Certificate, error) {
 		Subject:      pkix.Name{CommonName: "socat-ephemeral"},
 		NotBefore:    time.Now().Add(-time.Hour),
 		NotAfter:     time.Now().Add(24 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, priv)
 	if err != nil {
 		return tls.Certificate{}, err
 	}
-	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
-	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
-	return tls.X509KeyPair(certPEM, keyPEM)
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: priv}, nil
 }
