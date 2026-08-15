@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -327,11 +328,11 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 	if !verifyEnabled(s) {
 		cfg.InsecureSkipVerify = true
 	} else {
-		roots, err := loadCAPool(s)
+		roots, err := loadVerifyRoots(s)
 		if err != nil {
 			return nil, err
 		}
-		// Manual verify: classic CN-only certs + strict name (no IP→any-CN shortcut).
+		// Manual verify: classic CN-only certs + RFC 6125 name (no IP→any-CN shortcut).
 		cfg.InsecureSkipVerify = true
 		cfg.VerifyPeerCertificate = makeVerifyPeer(roots, checkName, cnOpt != "")
 		if roots != nil {
@@ -376,28 +377,35 @@ func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 	}
 
 	cnWant := commonNameOption(s)
-	needClientCert := verifyEnabled(s) || cnWant != ""
+	doVerify := verifyEnabled(s)
+	needClientCert := doVerify || cnWant != ""
 
 	if needClientCert {
-		roots, err := loadCAPool(s)
-		if err != nil {
-			return nil, err
-		}
-		if roots != nil {
+		var roots *x509.CertPool
+		if doVerify {
+			// Classic: SSL_CTX_set_default_verify_paths when cafile/capath are unset.
+			roots, err = loadVerifyRoots(s)
+			if err != nil {
+				return nil, err
+			}
+			if roots == nil {
+				return nil, fmt.Errorf("tls: no CA roots for verify")
+			}
 			cfg.ClientCAs = roots
 			cfg.ClientAuth = tls.RequireAndVerifyClientCert
-		} else if verifyEnabled(s) {
-			cfg.ClientAuth = tls.RequireAnyClientCert
 		} else {
+			roots, err = loadCAPool(s)
+			if err != nil {
+				return nil, err
+			}
+			if roots != nil {
+				cfg.ClientCAs = roots
+			}
 			// commonname check only: request a client cert if offered
 			cfg.ClientAuth = tls.RequestClientCert
 		}
-		if cnWant != "" || roots != nil {
-			// Verify client chain + optional CN match (OPENSSL_CN_SERVER_SECURITY).
-			cfg.InsecureSkipVerify = false // N/A for server
-			prev := cfg.VerifyPeerCertificate
-			cfg.VerifyPeerCertificate = makeServerVerifyPeer(roots, cnWant, verifyEnabled(s), prev)
-		}
+		prev := cfg.VerifyPeerCertificate
+		cfg.VerifyPeerCertificate = makeServerVerifyPeer(roots, cnWant, doVerify, prev)
 	} else {
 		cfg.ClientAuth = tls.NoClientCert
 	}
@@ -422,7 +430,10 @@ func makeServerVerifyPeer(roots *x509.CertPool, cnWant string, doVerify bool, pr
 		if err != nil {
 			return err
 		}
-		if doVerify && roots != nil {
+		if doVerify {
+			if roots == nil {
+				return fmt.Errorf("tls: no CA roots for client certificate")
+			}
 			opts := x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageAny}}
 			inter := x509.NewCertPool()
 			for i := 1; i < len(rawCerts); i++ {
@@ -515,36 +526,110 @@ func loadCAPool(s parse.Spec) (*x509.CertPool, error) {
 	if cafile == "" {
 		cafile = s.OptionValue("ca", "")
 	}
-	if cafile == "" {
+	capath := s.OptionValue("capath", "")
+	if cafile == "" && capath == "" {
 		return nil, nil
 	}
-	data, err := os.ReadFile(cafile)
-	if err != nil {
-		return nil, fmt.Errorf("cafile: %w", err)
-	}
 	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(data) {
-		// try as single DER? or key+cert pem — extract certs only
-		rest := data
-		ok := false
-		for {
-			var block *pem.Block
-			block, rest = pem.Decode(rest)
-			if block == nil {
-				break
-			}
-			if block.Type == "CERTIFICATE" {
-				if c, e := x509.ParseCertificate(block.Bytes); e == nil {
-					pool.AddCert(c)
-					ok = true
-				}
-			}
+	n := 0
+	if cafile != "" {
+		added, err := appendCABytes(pool, cafile)
+		if err != nil {
+			return nil, fmt.Errorf("cafile: %w", err)
 		}
-		if !ok {
-			return nil, fmt.Errorf("cafile %s: no certificates found", cafile)
+		n += added
+	}
+	if capath != "" {
+		added, err := appendCAPath(pool, capath)
+		if err != nil {
+			return nil, err
 		}
+		n += added
+	}
+	if n == 0 {
+		return nil, fmt.Errorf("cafile/capath: no certificates found")
 	}
 	return pool, nil
+}
+
+// loadVerifyRoots is the trust store for verify=1: cafile/capath, else the system pool
+// (classic SSL_CTX_set_default_verify_paths).
+func loadVerifyRoots(s parse.Spec) (*x509.CertPool, error) {
+	pool, err := loadCAPool(s)
+	if err != nil {
+		return nil, err
+	}
+	if pool != nil {
+		return pool, nil
+	}
+	return x509.SystemCertPool()
+}
+
+func appendCABytes(pool *x509.CertPool, path string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	if pool.AppendCertsFromPEM(data) {
+		return 1, nil
+	}
+	n := 0
+	rest := data
+	for {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		c, e := x509.ParseCertificate(block.Bytes)
+		if e != nil {
+			continue
+		}
+		pool.AddCert(c)
+		n++
+	}
+	if n == 0 {
+		if c, e := x509.ParseCertificate(data); e == nil {
+			pool.AddCert(c)
+			return 1, nil
+		}
+		return 0, fmt.Errorf("%s: no certificates found", path)
+	}
+	return n, nil
+}
+
+func appendCAPath(pool *x509.CertPool, dir string) (int, error) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, fmt.Errorf("capath: %w", err)
+	}
+	n := 0
+	for _, e := range ents {
+		if e.IsDir() {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		info, err := e.Info()
+		if err != nil || !info.Mode().IsRegular() {
+			// Hashed OpenSSL capath often uses symlinks; resolve those.
+			st, e2 := os.Stat(p)
+			if e2 != nil || !st.Mode().IsRegular() {
+				continue
+			}
+		}
+		added, err := appendCABytes(pool, p)
+		if err != nil {
+			continue
+		}
+		n += added
+	}
+	if n == 0 {
+		return 0, fmt.Errorf("capath %s: no certificates found", dir)
+	}
+	return n, nil
 }
 
 // makeVerifyPeer verifies the leaf against roots and checks name via SAN or CN.
@@ -584,7 +669,8 @@ func makeVerifyPeer(roots *x509.CertPool, checkName string, wantCN bool) func(ra
 		if checkName == "" {
 			return nil
 		}
-		// Prefer SANs (modern).
+		// RFC 6125 name check (Go VerifyHostname). Classic OPENSSL uses strcmp
+		// plus a looser *.domain rule; we keep the Go rules.
 		if err := leaf.VerifyHostname(checkName); err == nil {
 			return nil
 		}

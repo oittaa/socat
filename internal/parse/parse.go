@@ -493,6 +493,7 @@ func normalizeOptionName(name string) string {
 		"posixmq-flush":    "mq-flush",
 		"posixmq-maxmsg":   "mq-maxmsg",
 		"posixmq-msgsize":  "mq-msgsize",
+		"openssl-capath":   "capath",
 	}
 	if c, ok := aliases[n]; ok {
 		return c

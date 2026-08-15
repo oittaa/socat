@@ -233,6 +233,16 @@ func TestPOSIXMQOptionAliases(t *testing.T) {
 	}
 }
 
+func TestOpenSSLCapathAlias(t *testing.T) {
+	s, err := ParseSpec("OPENSSL:127.0.0.1:443,openssl-capath=/etc/ssl/certs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.OptionValue("capath", "") != "/etc/ssl/certs" {
+		t.Fatalf("capath %q", s.OptionValue("capath", ""))
+	}
+}
+
 func TestParseRESTORESystem(t *testing.T) {
 	s := `SYSTEM:"stty\ >/tmp/x.stty0;\ /home/eero/src/socat/socat\ -\,cfmakeraw\ /dev/nul\l >/tmp/x.err;\ stty\ >/tmp/x.stty1",pty,setsid,ctty,stderr`
 	spec, err := ParseSpec(s)

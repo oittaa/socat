@@ -598,7 +598,7 @@ func printHelp(w io.Writer, level int) {
 			"tcpwrap-etc", "tcpwrap-dir",
 			"hosts-allow", "hosts-deny", "allow-table", "deny-table",
 			"tcpwrap-hosts-allow-table", "tcpwrap-hosts-deny-table",
-			"cert", "key", "cafile", "ca", "verify", "commonname", "openssl-commonname",
+			"cert", "key", "cafile", "ca", "capath", "openssl-capath", "verify", "commonname", "openssl-commonname",
 			// SNI: OPENSSL_SNI / OPENSSL_NO_SNI greps; snihost is classic alias.
 			"openssl-snihost", "snihost", "openssl-no-sni", "nosni",
 			// Multi-address resolve (TRY_ADDRS_4_6); filter when true.
