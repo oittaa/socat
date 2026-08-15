@@ -216,3 +216,12 @@ func TestOptionAliases(t *testing.T) {
 		t.Fatal("so-reuseport alias")
 	}
 }
+
+func TestParseRESTORESystem(t *testing.T) {
+	s := `SYSTEM:"stty\ >/tmp/x.stty0;\ /home/eero/src/socat/socat\ -\,cfmakeraw\ /dev/nul\l >/tmp/x.err;\ stty\ >/tmp/x.stty1",pty,setsid,ctty,stderr`
+	spec, err := ParseSpec(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("params=%q opts=%+v", spec.Params, spec.Options)
+}

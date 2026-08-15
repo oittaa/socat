@@ -6,13 +6,11 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"syscall"
 	"unicode"
 
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/parse"
-	"golang.org/x/sys/unix"
 )
 
 // validateIntOption enforces classic integer option syntax for named options.
@@ -79,12 +77,15 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 		g.Log.Noticef("PTY is %s", slaveName)
 	}
 
-	if s.BoolOption("cfmakeraw") || s.HasOption("cfmakeraw") {
-		if err := setRaw(int(master.Fd())); err != nil {
-			master.Close()
-			slave.Close()
-			return nil, fmt.Errorf("PTY cfmakeraw: %w", err)
-		}
+	if err := xio.ApplyTermios(int(slave.Fd()), s); err != nil {
+		master.Close()
+		slave.Close()
+		return nil, err
+	}
+	if err := xio.ApplyTermios(int(master.Fd()), s); err != nil {
+		master.Close()
+		slave.Close()
+		return nil, err
 	}
 
 	link := s.OptionValue("link", "")
@@ -121,7 +122,19 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 		Stream: st,
 		Label:  "PTY:" + slaveName,
 	}
-	o.AddCleanup(func() { _ = slave.Close() })
+	if s.BoolOption("pty-wait-slave") {
+		_ = slave.Close()
+		slave = nil
+		if err := xio.WaitPTYSlave(int(master.Fd()), xio.PTYWaitInterval(s)); err != nil {
+			master.Close()
+			if link != "" {
+				_ = os.Remove(link)
+			}
+			return nil, err
+		}
+	} else {
+		o.AddCleanup(func() { _ = slave.Close() })
+	}
 	if link != "" {
 		// PTY_REMOVE: link gone when process exits (incl. SIGTERM).
 		xio.RegisterUnlinkPath(link)
@@ -129,23 +142,3 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 	}
 	return o, nil
 }
-
-func setRaw(fd int) error {
-	termios, err := unix.IoctlGetTermios(fd, unix.TCGETS)
-	if err != nil {
-		return err
-	}
-	// cfmakeraw equivalent
-	termios.Iflag &^= unix.IGNBRK | unix.BRKINT | unix.PARMRK | unix.ISTRIP |
-		unix.INLCR | unix.IGNCR | unix.ICRNL | unix.IXON
-	termios.Oflag &^= unix.OPOST
-	termios.Lflag &^= unix.ECHO | unix.ECHONL | unix.ICANON | unix.ISIG | unix.IEXTEN
-	termios.Cflag &^= unix.CSIZE | unix.PARENB
-	termios.Cflag |= unix.CS8
-	termios.Cc[unix.VMIN] = 1
-	termios.Cc[unix.VTIME] = 0
-	return unix.IoctlSetTermios(fd, unix.TCSETS, termios)
-}
-
-// silence unused
-var _ = syscall.TCGETS

@@ -75,6 +75,22 @@ func PtyStream(f *os.File) relay.Stream {
 	}
 }
 
+// PtyExecStream is a PTY master for EXEC/SYSTEM. Close does not drop the
+// master; finishExec waits for the child first, then closes (avoids SIGHUP
+// before a SYSTEM script finishes, classic RESTORE_TTY).
+func PtyExecStream(f *os.File) relay.Stream {
+	w := &halfCloseWriter{w: f}
+	return relay.FDStream{
+		R: f,
+		W: w,
+		C: NopCloser{},
+		CloseW: func() error {
+			w.closeWrite()
+			return nil
+		},
+	}
+}
+
 // halfCloseWriter rejects Writes after closeWrite without closing the underlying file.
 type halfCloseWriter struct {
 	w    io.Writer

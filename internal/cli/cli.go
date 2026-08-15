@@ -481,7 +481,7 @@ func printVersion(w io.Writer) {
 		{"FILE", true},
 		{"CREAT", true},
 		{"GOPEN", true},
-		{"TERMIOS", false},
+		{"TERMIOS", xio.FeatureTERMIOS},
 		{"PIPE", true},
 		{"STALL", true},
 		{"TEXT", true},
@@ -615,6 +615,8 @@ func printHelp(w io.Writer, level int) {
 			"proxy-authorization-file", "proxyauthfile",
 			"link", "symbolic-link", "cfmakeraw", "raw", "rawer",
 			"echo", "opost", "perm", "ispeed", "ospeed",
+			"pty-wait-slave", "wait-slave", "waitslave", "pty-interval",
+			"tiocswinsz", "winsz", "ctty", "tiocsctty", "ptmx", "openpty",
 			"escape",
 			// shut-none: do not SIGKILL EXEC/SYSTEM children (EXEC_RC / SYSTEM_RC).
 			// shut-null / null-eof: 0-byte datagram as half-close (UDP etc.).
@@ -643,6 +645,7 @@ func printHelp(w io.Writer, level int) {
 			// QUIC (RFC 9000)
 			"alpn",
 		}
+		opts = append(opts, xio.TermiosHelpNames()...)
 		fmt.Fprintln(w)
 		fmt.Fprint(w, "b:")
 		for _, o := range opts {

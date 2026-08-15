@@ -127,12 +127,6 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 	if err != nil {
 		return nil, err
 	}
-	if s.BoolOption("cfmakeraw") || s.HasOption("cfmakeraw") {
-		if err := setRaw(int(f.Fd())); err != nil {
-			f.Close()
-			return nil, fmt.Errorf("cfmakeraw: %w", err)
-		}
-	}
 	return FileOpened(f, s, path)
 }
 
@@ -420,6 +414,10 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 	o := &xio.Opened{
 		Stream: st,
 		Label:  path,
+	}
+	if err := xio.AttachTermios(o, int(f.Fd()), s); err != nil {
+		f.Close()
+		return nil, err
 	}
 	if s.BoolOption("unlink-early") {
 		_ = os.Remove(path)

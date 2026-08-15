@@ -47,7 +47,19 @@ func openSTDIO(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 	if err != nil {
 		return nil, err
 	}
-	return &xio.Opened{Stream: st, Label: "STDIO"}, nil
+	o := &xio.Opened{Stream: st, Label: "STDIO"}
+	switch mode {
+	case xio.ModeRead:
+		_ = xio.AttachTermios(o, int(os.Stdin.Fd()), s)
+	case xio.ModeWrite:
+		_ = xio.AttachTermios(o, int(os.Stdout.Fd()), s)
+	default:
+		_ = xio.AttachTermios(o, int(os.Stdin.Fd()), s)
+		if os.Stdout.Fd() != os.Stdin.Fd() {
+			_ = xio.AttachTermios(o, int(os.Stdout.Fd()), s)
+		}
+	}
+	return o, nil
 }
 
 func openSTDIN(_ context.Context, _ parse.Spec, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {

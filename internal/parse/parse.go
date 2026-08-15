@@ -484,6 +484,11 @@ func normalizeOptionName(name string) string {
 		"o-ndelay":        "nonblock",
 		"sp":              "sourceport",
 		"sourceport":      "sourceport",
+		"wait-slave":      "pty-wait-slave",
+		"waitslave":       "pty-wait-slave",
+		"pty-intervall":   "pty-interval",
+		"winsz":           "tiocswinsz",
+		"tiocsctty":       "ctty",
 	}
 	if c, ok := aliases[n]; ok {
 		return c

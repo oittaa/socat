@@ -115,11 +115,17 @@ type Opened struct {
 	Write relay.Stream
 	// NoForkSpec: EXEC/SYSTEM,nofork — process started in Run with peer FD as stdio.
 	NoForkSpec *parse.Spec
+	// ttyRestore runs before Stream.Close so termios restore still sees the fd.
+	ttyRestore []func()
 }
 
 // Close releases resources.
 func (o *Opened) Close() error {
 	var first error
+	for i := len(o.ttyRestore) - 1; i >= 0; i-- {
+		o.ttyRestore[i]()
+	}
+	o.ttyRestore = nil
 	// Prefer cleanup hooks (they own the real FDs). Avoid comparing Stream
 	// values: relay.FDStream holds funcs and is not comparable.
 	if o.Stream != nil {
@@ -145,6 +151,11 @@ func (o *Opened) Close() error {
 
 func (o *Opened) AddCleanup(f func()) {
 	o.Cleanup = append(o.Cleanup, f)
+}
+
+// AddTTYRestore runs before the stream FD is closed.
+func (o *Opened) AddTTYRestore(f func()) {
+	o.ttyRestore = append(o.ttyRestore, f)
 }
 
 // EffectiveStream returns the stream used for bidirectional transfer.

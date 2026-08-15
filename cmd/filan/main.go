@@ -23,12 +23,12 @@ func main() {
 
 func run(args []string) int {
 	var (
-		m, n       = 0, unix.FD_SETSIZE
-		style      = 0
-		filename   string
-		waittime   time.Duration
-		outfname   string
-		singleFD   = false
+		m, n     = 0, unix.FD_SETSIZE
+		style    = 0
+		filename string
+		waittime time.Duration
+		outfname string
+		singleFD = false
 	)
 	n = 1024 // practical default; FD_SETSIZE varies
 
@@ -255,6 +255,12 @@ func filanFD(fd int, out io.Writer) {
 	// try path from /proc
 	if p, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd)); err == nil {
 		fmt.Fprintf(out, "\t%s", p)
+	}
+	if st.Mode&unix.S_IFMT == unix.S_IFCHR {
+		if ws, err := unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ); err == nil {
+			fmt.Fprintf(out, " terminal window size:   %dx%d terminal window pixels: %dx%d",
+				ws.Col, ws.Row, ws.Xpixel, ws.Ypixel)
+		}
 	}
 	fmt.Fprintln(out)
 }
@@ -504,4 +510,3 @@ func isRuntimeNoisePath(path string) bool {
 	// leaks still show; only hide known runtime names.
 	return false
 }
-

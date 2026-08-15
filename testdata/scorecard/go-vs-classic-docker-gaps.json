@@ -1,10 +1,15 @@
 {
   "classic_docker_ok": 552,
-  "go_ok": 498,
+  "go_ok": 502,
   "parity_fail": [
     {
       "id": "146",
       "name": "OPENSSLLISTENDSA",
+      "status": "FAILED"
+    },
+    {
+      "id": "602",
+      "name": "INTERACTIVE_SHELL",
       "status": "FAILED"
     }
   ],
@@ -17,16 +22,6 @@
     {
       "id": "102",
       "name": "READLINE",
-      "status": "CANT"
-    },
-    {
-      "id": "142",
-      "name": "PTMXWAITSLAVE",
-      "status": "CANT"
-    },
-    {
-      "id": "143",
-      "name": "OPENPTYWAITSLAVE",
       "status": "CANT"
     },
     {
@@ -112,11 +107,6 @@
     {
       "id": "447",
       "name": "SEQPACKET_TO_DGRAM",
-      "status": "CANT"
-    },
-    {
-      "id": "466",
-      "name": "RESTORE_TTY",
       "status": "CANT"
     },
     {
@@ -273,20 +263,10 @@
       "id": "596",
       "name": "SOCKS4_SIGSEGV",
       "status": "CANT"
-    },
-    {
-      "id": "602",
-      "name": "INTERACTIVE_SHELL",
-      "status": "CANT"
-    },
-    {
-      "id": "606",
-      "name": "TIOCSWINSZ",
-      "status": "CANT"
     }
   ],
   "parity_other": [],
-  "parity_gap_total": 56,
+  "parity_gap_total": 52,
   "new_ok_vs_classic_docker": [
     {
       "id": "219",

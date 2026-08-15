@@ -3,9 +3,6 @@ package xio
 import (
 	"fmt"
 	"strings"
-	"syscall"
-
-	"golang.org/x/sys/unix"
 )
 
 func firstOrEmpty(ss []string) string {
@@ -88,23 +85,3 @@ func escapeByte(c byte) byte {
 		return c
 	}
 }
-
-func setRaw(fd int) error {
-	termios, err := unix.IoctlGetTermios(fd, unix.TCGETS)
-	if err != nil {
-		return err
-	}
-	// cfmakeraw equivalent
-	termios.Iflag &^= unix.IGNBRK | unix.BRKINT | unix.PARMRK | unix.ISTRIP |
-		unix.INLCR | unix.IGNCR | unix.ICRNL | unix.IXON
-	termios.Oflag &^= unix.OPOST
-	termios.Lflag &^= unix.ECHO | unix.ECHONL | unix.ICANON | unix.ISIG | unix.IEXTEN
-	termios.Cflag &^= unix.CSIZE | unix.PARENB
-	termios.Cflag |= unix.CS8
-	termios.Cc[unix.VMIN] = 1
-	termios.Cc[unix.VTIME] = 0
-	return unix.IoctlSetTermios(fd, unix.TCSETS, termios)
-}
-
-// silence unused
-var _ = syscall.TCGETS

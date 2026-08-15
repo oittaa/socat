@@ -1,11 +1,11 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-08-15T19:21:14Z",
-    "hostname": "5947125c1bc4",
+    "timestamp": "2026-08-15T20:08:38Z",
+    "hostname": "e63d05bcffd5",
     "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.43",
     "socat": "/opt/go/socat",
-    "socat_version": "socat version 0.1.0-dev on 2026-08-15T19:21:14Z",
+    "socat_version": "socat version 0.1.0-dev on 2026-08-15T20:08:38Z",
     "test_sh": "/opt/classic-src/test.sh",
     "git": "",
     "out_dir": "/out",
@@ -14,9 +14,9 @@
     "shard_timeout": "7200"
   },
   "summary": {
-    "ok": 498,
-    "failed": 2,
-    "cant": 103,
+    "ok": 502,
+    "failed": 3,
+    "cant": 98,
     "timeout": 0,
     "unknown": 2,
     "total_recorded": 605,
@@ -1278,19 +1278,19 @@
       "id": 142,
       "name": "PTMXWAITSLAVE",
       "description": "test if master pty (ptmx) waits for slave connection",
-      "status": "CANT",
-      "detail": "option PTMX not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 142 PTMXWAITSLAVE: test if master pty (ptmx) waits for slave connection... option PTMX not available"
+      "raw": "test 142 PTMXWAITSLAVE: test if master pty (ptmx) waits for slave connection... OK"
     },
     "143": {
       "id": 143,
       "name": "OPENPTYWAITSLAVE",
       "description": "test if master pty (openpty) waits for slave connection",
-      "status": "CANT",
-      "detail": "option OPENPTY not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 143 OPENPTYWAITSLAVE: test if master pty (openpty) waits for slave connection... option OPENPTY not available"
+      "raw": "test 143 OPENPTYWAITSLAVE: test if master pty (openpty) waits for slave connection... OK"
     },
     "144": {
       "id": 144,
@@ -4194,10 +4194,10 @@
       "id": 466,
       "name": "RESTORE_TTY",
       "description": "Restoring of terminal settings",
-      "status": "CANT",
-      "detail": "Option ctty not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 466 RESTORE_TTY: Restoring of terminal settings... Option ctty not available in /opt/go/socat"
+      "raw": "test 466 RESTORE_TTY: Restoring of terminal settings... OK"
     },
     "467": {
       "id": 467,
@@ -5418,10 +5418,10 @@
       "id": 602,
       "name": "INTERACTIVE_SHELL",
       "description": "Test SHELL without argument",
-      "status": "CANT",
-      "detail": "Option ctty not available in /opt/go/socat",
+      "status": "FAILED",
+      "detail": "(diff)",
       "shard": 0,
-      "raw": "test 602 INTERACTIVE_SHELL: Test SHELL without argument... Option ctty not available in /opt/go/socat"
+      "raw": "test 602 INTERACTIVE_SHELL: Test SHELL without argument... FAILED (diff)"
     },
     "603": {
       "id": 603,
@@ -5454,10 +5454,10 @@
       "id": 606,
       "name": "TIOCSWINSZ",
       "description": "check option tiocswinsz on PTY",
-      "status": "CANT",
-      "detail": "Feature TERMIOS not configured in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 606 TIOCSWINSZ: check option tiocswinsz on PTY... Feature TERMIOS not configured in /opt/go/socat"
+      "raw": "test 606 TIOCSWINSZ: check option tiocswinsz on PTY... OK"
     },
     "607": {
       "id": 607,

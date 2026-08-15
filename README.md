@@ -85,7 +85,7 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 | Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `umask`, `nonblock` |
 | UNIX | `unlink-early`, `unlink-close`, `unix-bind-tempname` / `bind-tempname` |
 | EXEC | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none`, `chdir`, `umask` (child inherits, then parent restores) |
-| PTY/termios-ish | `link`, `cfmakeraw`, `raw`, `echo`, `opost`, `perm` |
+| PTY / TERMIOS | `link`, `cfmakeraw`/`raw`/`rawer`, `echo`, `opost`, baud/`ispeed`/`ospeed`, `tiocswinsz`, `pty-wait-slave`, `ctty`; restore tty on close |
 | Transfer | `crnl`, `crlf`, `ignoreeof`, `readbytes`, `retry`/`forever`/`interval` |
 | TLS | `cert`, `key`, `cafile`/`ca`, `verify`, `commonname` / `openssl-commonname`, `openssl-snihost` / `snihost`, `openssl-no-sni` / `nosni` |
 | WebSocket | `path`, `origin`, `protocol` (binary frames; WSS reuses TLS options) |
@@ -169,10 +169,10 @@ SOCAT=/path/to/classic/socat SKIP_BUILD=1 LABEL=classic MODE=classic \
 |-------|-----|--------|------|
 | classic 1.8.1.3 (host) | 475 | 24 | 103 |
 | classic 1.8.1.3 (Docker, root) | 552 | 8 | 42 |
-| go (this tree, host) | 443 | 3 | 157 |
-| go (this tree, Docker, root) | 498 | 2 | 103 |
+| go (this tree, host) | 447 | 4 | 152 |
+| go (this tree, Docker, root) | 502 | 3 | 98 |
 
-Go host FAILED: `OPENSSLLISTENDSA` (DSA, by design), `UDP6MULTICAST_UNIDIR` (host environment), `REUSEADDR_NULL` (NO RESULT). Go Docker FAILED: `OPENSSLLISTENDSA`, `REUSEADDR_NULL`. Both Go runs also record UNKNOWN=2 (`EXECPTYKILL` parse quirk, `PROCAN_CTTY`).
+Go host FAILED: `OPENSSLLISTENDSA` (DSA, by design), `UDP6MULTICAST_UNIDIR` (host environment), `REUSEADDR_NULL` (NO RESULT), `INTERACTIVE_SHELL` (SHELL with no command). Go Docker FAILED: `OPENSSLLISTENDSA`, `REUSEADDR_NULL`, `INTERACTIVE_SHELL`. Both Go runs also record UNKNOWN=2 (`EXECPTYKILL` parse quirk, `PROCAN_CTTY`).
 
 Use `go-baseline.json` + `REGRESSION_EXIT=1` after a **MODE=classic** run to catch real Go regressions with less noise.
 

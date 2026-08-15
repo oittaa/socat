@@ -547,7 +547,8 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 			cmd.SysProcAttr = &syscall.SysProcAttr{}
 		}
 		cmd.SysProcAttr.Setsid = true
-		cmd.SysProcAttr.Setctty = true
+		cmd.SysProcAttr.Setctty = !s.HasOption("ctty") || s.BoolOption("ctty")
+		_ = ApplyTermios(int(slave.Fd()), s)
 		if err := cmd.Start(); err != nil {
 			master.Close()
 			slave.Close()
@@ -580,8 +581,9 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		cmd.SysProcAttr.Setsid = true
 		// Controlling tty is stdout/stderr slave; Setctty needs a child FD.
 		// With stdin inherited, Ctty 1 (stdout) is the slave after setup.
-		cmd.SysProcAttr.Setctty = true
+		cmd.SysProcAttr.Setctty = !s.HasOption("ctty") || s.BoolOption("ctty")
 		cmd.SysProcAttr.Ctty = 1
+		_ = ApplyTermios(int(slave.Fd()), s)
 		if err := cmd.Start(); err != nil {
 			master.Close()
 			slave.Close()
@@ -598,27 +600,17 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		return finishExec(s, g, cmd, stream, []func(){func() { ptmx.Close() }})
 
 	default:
-		ptmx, err = startOnPTY(cmd)
+		ptmx, err = startOnPTY(cmd, s)
 		if err != nil {
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}
 		applyPtyOpts(s, ptmx)
-		return finishExec(s, g, cmd, PtyStream(ptmx), []func(){func() { ptmx.Close() }})
+		return finishExec(s, g, cmd, PtyExecStream(ptmx), []func(){func() { ptmx.Close() }})
 	}
 }
 
 func applyPtyOpts(s parse.Spec, ptmx *os.File) {
-	if s.BoolOption("cfmakeraw") || s.BoolOption("raw") || s.BoolOption("rawer") ||
-		s.HasOption("cfmakeraw") || s.HasOption("raw") {
-		_ = setRaw(int(ptmx.Fd()))
-		return
-	}
-	if v := s.OptionValue("echo", ""); v == "0" || (s.HasOption("echo") && !s.BoolOption("echo")) {
-		_ = setTermiosFlag(int(ptmx.Fd()), false, true)
-	}
-	if v := s.OptionValue("opost", ""); v == "0" || (s.HasOption("opost") && !s.BoolOption("opost")) {
-		_ = setTermiosFlag(int(ptmx.Fd()), true, false)
-	}
+	_ = ApplyTermios(int(ptmx.Fd()), s)
 }
 
 func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func()) (*Opened, error) {
@@ -670,6 +662,11 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 	o.AddCleanup(func() {
 		// Give write-only children (od -c) time to flush after stdin EOF.
 		waitFor := linger
+		if s.BoolOption("pty") {
+			// Extra second so SYSTEM,pty scripts (RESTORE_TTY) can finish
+			// after transfer linger, before we close the PTY master.
+			waitFor = linger + time.Second
+		}
 		if shutNone {
 			waitFor = 5 * time.Second
 		}
@@ -750,20 +747,6 @@ func rebuildWithFDRedirect(cmd *exec.Cmd, fdin, fdout string) *exec.Cmd {
 		redir += " " + fdout + ">&1"
 	}
 	return exec.Command("/bin/sh", "-c", redir+"; "+orig)
-}
-
-func setTermiosFlag(fd int, clearOPost, clearEcho bool) error {
-	termios, err := unix.IoctlGetTermios(fd, unix.TCGETS)
-	if err != nil {
-		return err
-	}
-	if clearOPost {
-		termios.Oflag &^= unix.OPOST
-	}
-	if clearEcho {
-		termios.Lflag &^= unix.ECHO | unix.ECHONL
-	}
-	return unix.IoctlSetTermios(fd, unix.TCSETS, termios)
 }
 
 func shellJoin(args []string) string {
