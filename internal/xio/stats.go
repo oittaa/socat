@@ -24,8 +24,8 @@ func PrintStats(log *logx.Logger, st relay.Stats, l2r, r2l bool, started bool) {
 		log.SetLevel(logx.Info)
 		defer log.SetLevel(old)
 	}
-	bw := statDigits(maxU64(st.BlocksLR, st.BlocksRL))
-	dw := statDigits(maxU64(st.BytesLR, st.BytesRL))
+	bw := statDigits(max(st.BlocksLR, st.BlocksRL))
+	dw := statDigits(max(st.BytesLR, st.BytesRL))
 	if l2r {
 		log.Infof("STATISTICS: left to right: %*d packets(s), %*d byte(s)",
 			bw, st.BlocksLR, dw, st.BytesLR)
@@ -75,11 +75,4 @@ func statDigits(n uint64) int {
 		n /= 10
 	}
 	return d
-}
-
-func maxU64(a, b uint64) uint64 {
-	if a > b {
-		return a
-	}
-	return b
 }

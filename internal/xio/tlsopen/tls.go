@@ -641,10 +641,3 @@ func ephemeralSelfSigned() (tls.Certificate, error) {
 	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
 	return tls.X509KeyPair(certPEM, keyPEM)
 }
-
-func firstOrEmpty(ss []string) string {
-	if len(ss) == 0 {
-		return ""
-	}
-	return ss[0]
-}

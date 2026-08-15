@@ -2,6 +2,7 @@ package xio
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"os"
@@ -128,18 +129,7 @@ func ParseHexOpt(v string) ([]byte, error) {
 	if strings.HasPrefix(v, "0x") || strings.HasPrefix(v, "0X") {
 		v = v[2:]
 	}
-	if len(v)%2 != 0 {
-		return nil, fmt.Errorf("odd hex length")
-	}
-	out := make([]byte, len(v)/2)
-	for i := 0; i < len(out); i++ {
-		n, err := strconv.ParseUint(v[i*2:i*2+2], 16, 8)
-		if err != nil {
-			return nil, err
-		}
-		out[i] = byte(n)
-	}
-	return out, nil
+	return hex.DecodeString(v)
 }
 
 // ProcessAncillary parses oob from recvmsg, logs classic Info lines, and sets

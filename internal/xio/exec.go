@@ -408,7 +408,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 			r = EOFReader{}
 		}
 		if stdin == nil {
-			w = DiscardWriter{}
+			w = io.Discard
 		}
 		stream = relay.FDStream{
 			R: r,
@@ -591,7 +591,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		applyPtyOpts(s, ptmx)
 		stream := relay.FDStream{
 			R:      ptmx,
-			W:      DiscardWriter{},
+			W:      io.Discard,
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { return nil },
 		}

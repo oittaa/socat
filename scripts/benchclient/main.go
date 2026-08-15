@@ -146,7 +146,7 @@ func runRR(proto, addr string, tlsCfg *tls.Config, n, warmup, size int) (result,
 		if _, err := c.Write(payload); err != nil {
 			return 0, err
 		}
-		if err := readFull(c, got); err != nil {
+		if _, err := io.ReadFull(c, got); err != nil {
 			return 0, err
 		}
 		return time.Since(t0), nil
@@ -191,7 +191,8 @@ func runHS(proto, addr string, tlsCfg *tls.Config, n, warmup, size int) (result,
 		if _, err := c.Write(payload); err != nil {
 			return err
 		}
-		return readFull(c, got)
+		_, err = io.ReadFull(c, got)
+		return err
 	}
 	for i := 0; i < warmup; i++ {
 		if err := one(); err != nil {
@@ -326,11 +327,6 @@ func dialQUIC(addr string, tlsCfg *tls.Config) (connIO, func(), error) {
 		_ = pc.Close()
 	}
 	return st, closeFn, nil
-}
-
-func readFull(r io.Reader, buf []byte) error {
-	_, err := io.ReadFull(r, buf)
-	return err
 }
 
 func summarize(v []float64) *stats {

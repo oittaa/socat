@@ -32,7 +32,7 @@ func openTEXT(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*x
 	var stream relay.Stream
 	switch mode {
 	case xio.ModeRead:
-		stream = relay.FDStream{R: r, W: xio.DiscardWriter{}, C: xio.NopCloser{}}
+		stream = relay.FDStream{R: r, W: io.Discard, C: xio.NopCloser{}}
 	case xio.ModeWrite:
 		stream = relay.FDStream{R: xio.EOFReader{}, W: os.Stdout, C: xio.NopCloser{}}
 	default:
@@ -62,7 +62,7 @@ func openSTALL(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 		return nil, fmt.Errorf("STALL: wrong number of parameters (expected 0)")
 	}
 	var r io.Reader = xio.EOFReader{}
-	var w io.Writer = xio.DiscardWriter{}
+	var w io.Writer = io.Discard
 	var cleanup []func()
 	var closeFDs []int
 

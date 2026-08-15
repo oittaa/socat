@@ -3,6 +3,7 @@ package fileopen
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 
@@ -28,14 +29,14 @@ func openSTDIO(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 	var stream relay.Stream
 	switch mode {
 	case xio.ModeRead:
-		stream = relay.FDStream{R: os.Stdin, W: DiscardWriter{}, C: NopCloser{}}
+		stream = relay.FDStream{R: os.Stdin, W: io.Discard, C: xio.NopCloser{}}
 	case xio.ModeWrite:
-		stream = relay.FDStream{R: xio.EOFReader{}, W: os.Stdout, C: NopCloser{}}
+		stream = relay.FDStream{R: xio.EOFReader{}, W: os.Stdout, C: xio.NopCloser{}}
 	default:
 		stream = relay.FDStream{
 			R: os.Stdin,
 			W: os.Stdout,
-			C: NopCloser{},
+			C: xio.NopCloser{},
 			CloseW: func() error {
 				// cannot half-close stdout meaningfully
 				return nil
@@ -54,7 +55,7 @@ func openSTDIN(_ context.Context, _ parse.Spec, mode xio.Mode, _ *xio.Global) (*
 		return nil, fmt.Errorf("STDIN is read-only")
 	}
 	return &xio.Opened{
-		Stream: relay.FDStream{R: os.Stdin, W: DiscardWriter{}, C: NopCloser{}},
+		Stream: relay.FDStream{R: os.Stdin, W: io.Discard, C: xio.NopCloser{}},
 		Label:  "STDIN",
 	}, nil
 }
@@ -64,7 +65,7 @@ func openSTDOUT(_ context.Context, _ parse.Spec, mode xio.Mode, _ *xio.Global) (
 		return nil, fmt.Errorf("STDOUT is write-only")
 	}
 	return &xio.Opened{
-		Stream: relay.FDStream{R: xio.EOFReader{}, W: os.Stdout, C: NopCloser{}},
+		Stream: relay.FDStream{R: xio.EOFReader{}, W: os.Stdout, C: xio.NopCloser{}},
 		Label:  "STDOUT",
 	}, nil
 }
@@ -74,7 +75,7 @@ func openSTDERR(_ context.Context, _ parse.Spec, mode xio.Mode, _ *xio.Global) (
 		return nil, fmt.Errorf("STDERR is write-only")
 	}
 	return &xio.Opened{
-		Stream: relay.FDStream{R: xio.EOFReader{}, W: os.Stderr, C: NopCloser{}},
+		Stream: relay.FDStream{R: xio.EOFReader{}, W: os.Stderr, C: xio.NopCloser{}},
 		Label:  "STDERR",
 	}, nil
 }
@@ -96,11 +97,3 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Op
 		Label:  fmt.Sprintf("FD:%d", n),
 	}, nil
 }
-
-type NopCloser struct{}
-
-func (NopCloser) Close() error { return nil }
-
-type DiscardWriter struct{}
-
-func (DiscardWriter) Write(p []byte) (int, error) { return len(p), nil }

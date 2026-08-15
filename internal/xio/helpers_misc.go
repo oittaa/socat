@@ -89,12 +89,6 @@ func escapeByte(c byte) byte {
 	}
 }
 
-// unescapeShellQuotes turns \" and \\ into " and \ for classic test.sh argv forms.
-
-type DiscardWriter struct{}
-
-func (DiscardWriter) Write(p []byte) (int, error) { return len(p), nil }
-
 func setRaw(fd int) error {
 	termios, err := unix.IoctlGetTermios(fd, unix.TCGETS)
 	if err != nil {
