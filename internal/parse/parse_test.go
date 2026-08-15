@@ -217,6 +217,22 @@ func TestOptionAliases(t *testing.T) {
 	}
 }
 
+func TestPOSIXMQOptionAliases(t *testing.T) {
+	s, err := ParseSpec("POSIXMQ-SEND:/q,posixmq-priority=3,posixmq-flush,posixmq-maxmsg=8,posixmq-msgsize=128")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.OptionValue("mq-prio", "") != "3" {
+		t.Fatalf("mq-prio %q", s.OptionValue("mq-prio", ""))
+	}
+	if !s.BoolOption("mq-flush") {
+		t.Fatal("mq-flush")
+	}
+	if s.OptionValue("mq-maxmsg", "") != "8" || s.OptionValue("mq-msgsize", "") != "128" {
+		t.Fatalf("maxmsg/msgsize %q %q", s.OptionValue("mq-maxmsg", ""), s.OptionValue("mq-msgsize", ""))
+	}
+}
+
 func TestParseRESTORESystem(t *testing.T) {
 	s := `SYSTEM:"stty\ >/tmp/x.stty0;\ /home/eero/src/socat/socat\ -\,cfmakeraw\ /dev/nul\l >/tmp/x.err;\ stty\ >/tmp/x.stty1",pty,setsid,ctty,stderr`
 	spec, err := ParseSpec(s)

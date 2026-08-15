@@ -499,7 +499,7 @@ func printVersion(w io.Writer) {
 		{"DCCP", false},
 		{"UDPLITE", false},
 		{"LISTEN", true},
-		{"POSIXMQ", false},
+		{"POSIXMQ", xio.FeaturePOSIXMQ},
 		{"SOCKS4", true},
 		{"SOCKS4A", true},
 		{"SOCKS5", true},
@@ -577,6 +577,7 @@ func printHelp(w io.Writer, level int) {
 	fmt.Fprintf(w, "  SCTP SCTP-CONNECT SCTP-LISTEN SCTP-L\n")
 	fmt.Fprintf(w, "  SCTP4 SCTP4-CONNECT SCTP4-LISTEN SCTP4-L\n")
 	fmt.Fprintf(w, "  SCTP6 SCTP6-CONNECT SCTP6-LISTEN SCTP6-L\n")
+	fmt.Fprintf(w, "  POSIXMQ POSIXMQ-BIDIRECTIONAL POSIXMQ-READ POSIXMQ-RECEIVE POSIXMQ-RECV POSIXMQ-SEND POSIXMQ-WRITE\n")
 	if level >= 2 {
 		// Honesty: only list options we actually honor. test.sh greps
 		//   [^a-z0-9-]<name>[^a-z0-9-]  — pad with spaces on both sides.
@@ -644,6 +645,11 @@ func printHelp(w io.Writer, level int) {
 			"path", "origin", "protocol",
 			// QUIC (RFC 9000)
 			"alpn",
+			// POSIX MQ
+			"mq-prio", "posixmq-priority",
+			"mq-flush", "posixmq-flush",
+			"mq-maxmsg", "posixmq-maxmsg",
+			"mq-msgsize", "posixmq-msgsize",
 		}
 		opts = append(opts, xio.TermiosHelpNames()...)
 		fmt.Fprintln(w)

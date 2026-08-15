@@ -495,7 +495,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		child.Close()
 	}
 
-	return finishExec(s, g, cmd, stream, cleanup)
+	return finishExec(s, g, cmd, stream, cleanup, mode == ModeWrite)
 }
 
 // setCloexecAllFrom marks FDs ≥ from CLOEXEC so they are not left open in EXEC children.
@@ -570,7 +570,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { w.closeWrite(); return nil },
 		}
-		return finishExec(s, g, cmd, stream, []func(){func() { ptmx.Close() }})
+		return finishExec(s, g, cmd, stream, []func(){func() { ptmx.Close() }}, true)
 
 	case ModeRead:
 		// Inherit stdin; only stdout/stderr on PTY slave.
@@ -606,7 +606,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { return nil },
 		}
-		return finishExec(s, g, cmd, stream, []func(){func() { ptmx.Close() }})
+		return finishExec(s, g, cmd, stream, []func(){func() { ptmx.Close() }}, false)
 
 	default:
 		ptmx, err = startOnPTY(cmd, s)
@@ -614,7 +614,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}
 		applyPtyOpts(s, ptmx)
-		return finishExec(s, g, cmd, PtyExecStream(ptmx), []func(){func() { ptmx.Close() }})
+		return finishExec(s, g, cmd, PtyExecStream(ptmx), []func(){func() { ptmx.Close() }}, false)
 	}
 }
 
@@ -622,7 +622,7 @@ func applyPtyOpts(s parse.Spec, ptmx *os.File) {
 	_ = ApplyTermios(int(ptmx.Fd()), s)
 }
 
-func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func()) (*Opened, error) {
+func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func(), waitChild bool) (*Opened, error) {
 	st, err := WrapCommon(s, stream)
 	if err != nil {
 		_ = cmd.Process.Kill()
@@ -671,6 +671,12 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 	o.AddCleanup(func() {
 		// Give write-only children (od -c) time to flush after stdin EOF.
 		waitFor := linger
+		if waitChild {
+			// Classic xioshutdown(END_SHUTDOWN_KILL) on a write-only
+			// EXEC/SHELL: Alarm(1); waitpid. Holds max-children slots
+			// until the child finishes (POSIXMQ_RECV_MAXCHILDREN).
+			waitFor = time.Second
+		}
 		if s.BoolOption("pty") {
 			// Extra second so SYSTEM,pty scripts (RESTORE_TTY) can finish
 			// after transfer linger, before we close the PTY master.

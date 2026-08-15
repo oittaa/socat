@@ -1,11 +1,11 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-08-15T20:08:38Z",
-    "hostname": "e63d05bcffd5",
+    "timestamp": "2026-08-15T20:53:02Z",
+    "hostname": "e9919a5985bf",
     "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.43",
     "socat": "/opt/go/socat",
-    "socat_version": "socat version 0.1.0-dev on 2026-08-15T20:08:38Z",
+    "socat_version": "socat version 0.1.0-dev on 2026-08-15T20:53:02Z",
     "test_sh": "/opt/classic-src/test.sh",
     "git": "",
     "out_dir": "/out",
@@ -14,9 +14,9 @@
     "shard_timeout": "7200"
   },
   "summary": {
-    "ok": 502,
-    "failed": 3,
-    "cant": 98,
+    "ok": 507,
+    "failed": 2,
+    "cant": 94,
     "timeout": 0,
     "unknown": 2,
     "total_recorded": 605,
@@ -4437,37 +4437,37 @@
       "id": 493,
       "name": "POSIXMQ_READ_PRIO",
       "description": "POSIX-MQ with prio",
-      "status": "CANT",
-      "detail": "Feature POSIXMQ not configured in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 493 POSIXMQ_READ_PRIO: POSIX-MQ with prio... Feature POSIXMQ not configured in /opt/go/socat"
+      "raw": "test 493 POSIXMQ_READ_PRIO: POSIX-MQ with prio... OK"
     },
     "494": {
       "id": 494,
       "name": "POSIXMQ_RECV_FORK",
       "description": "POSIX-MQ RECV with fork",
-      "status": "CANT",
-      "detail": "Feature POSIXMQ not configured in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 494 POSIXMQ_RECV_FORK: POSIX-MQ RECV with fork... Feature POSIXMQ not configured in /opt/go/socat"
+      "raw": "test 494 POSIXMQ_RECV_FORK: POSIX-MQ RECV with fork... OK"
     },
     "495": {
       "id": 495,
       "name": "POSIXMQ_RECV_MAXCHILDREN",
       "description": "POSIX-MQ RECV with fork,max-children",
-      "status": "CANT",
-      "detail": "Feature POSIXMQ not configured in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 495 POSIXMQ_RECV_MAXCHILDREN: POSIX-MQ RECV with fork,max-children... Feature POSIXMQ not configured in /opt/go/socat"
+      "raw": "test 495 POSIXMQ_RECV_MAXCHILDREN: POSIX-MQ RECV with fork,max-children... OK"
     },
     "496": {
       "id": 496,
       "name": "POSIXMQ_SEND_MAXCHILDREN",
       "description": "POSIX-MQ SEND with fork,max-children",
-      "status": "CANT",
-      "detail": "Feature POSIXMQ not configured in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 496 POSIXMQ_SEND_MAXCHILDREN: POSIX-MQ SEND with fork,max-children... Feature POSIXMQ not configured in /opt/go/socat"
+      "raw": "test 496 POSIXMQ_SEND_MAXCHILDREN: POSIX-MQ SEND with fork,max-children... OK"
     },
     "497": {
       "id": 497,
@@ -5418,10 +5418,10 @@
       "id": 602,
       "name": "INTERACTIVE_SHELL",
       "description": "Test SHELL without argument",
-      "status": "FAILED",
-      "detail": "(diff)",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 602 INTERACTIVE_SHELL: Test SHELL without argument... FAILED (diff)"
+      "raw": "test 602 INTERACTIVE_SHELL: Test SHELL without argument... OK"
     },
     "603": {
       "id": 603,

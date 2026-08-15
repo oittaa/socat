@@ -71,7 +71,8 @@ Common options: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `
 | WS / WSS (+ CONNECT, LISTEN / -L) | WebSocket byte relay (`github.com/coder/websocket`); **not** in classic socat |
 | QUIC / QUIC-CONNECT / QUIC-LISTEN | RFC 9000 byte relay (`github.com/quic-go/quic-go`); **not** HTTP/3; **not** in classic socat |
 | SCTP / SCTP4 / SCTP6 (+ CONNECT, LISTEN / -L) | Linux kernel one-to-one SCTP (`SOCK_STREAM` + `IPPROTO_SCTP`, RFC 9260); need `sctp` module |
-| DCCP, POSIXMQ, readline | **not** implemented (`#undef` in `-V`) |
+| POSIXMQ / POSIXMQ-READ / POSIXMQ-RECV / POSIXMQ-SEND | Linux POSIX message queues; `mq-prio`, unlink-early/close, RECV/SEND `fork` + `max-children` |
+| DCCP, readline | **not** implemented (`#undef` in `-V`) |
 
 ### Options (honored)
 
@@ -84,6 +85,7 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 | TUN / INTERFACE | `tun-name`, `tun-type`, `tun-device`, `iff-up`, `iff-no-pi`, `if-mtu` / `interface-mtu`, other `iff-*` flags |
 | Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `umask`, `nonblock` |
 | UNIX | `unlink-early`, `unlink-close`, `unix-bind-tempname` / `bind-tempname` |
+| POSIX MQ | `mq-prio` / `posixmq-priority`, `mq-flush`, `mq-maxmsg`, `mq-msgsize` |
 | EXEC | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none`, `chdir`, `umask` (child inherits, then parent restores) |
 | PTY / TERMIOS | `link`, `cfmakeraw`/`raw`/`rawer`, `echo`, `opost`, baud/`ispeed`/`ospeed`, `tiocswinsz`, `pty-wait-slave`, `ctty`; restore tty on close |
 | Transfer | `crnl`, `crlf`, `ignoreeof`, `readbytes`, `retry`/`forever`/`interval` |
@@ -169,10 +171,10 @@ SOCAT=/path/to/classic/socat SKIP_BUILD=1 LABEL=classic MODE=classic \
 |-------|-----|--------|------|
 | classic 1.8.1.3 (host) | 475 | 24 | 103 |
 | classic 1.8.1.3 (Docker, root) | 552 | 8 | 42 |
-| go (this tree, host) | 447 | 4 | 152 |
-| go (this tree, Docker, root) | 502 | 3 | 98 |
+| go (this tree, host) | 452 | 3 | 148 |
+| go (this tree, Docker, root) | 507 | 2 | 94 |
 
-Go host FAILED: `OPENSSLLISTENDSA` (DSA, by design), `UDP6MULTICAST_UNIDIR` (host environment), `REUSEADDR_NULL` (NO RESULT), `INTERACTIVE_SHELL` (SHELL with no command). Go Docker FAILED: `OPENSSLLISTENDSA`, `REUSEADDR_NULL`, `INTERACTIVE_SHELL`. Both Go runs also record UNKNOWN=2 (`EXECPTYKILL` parse quirk, `PROCAN_CTTY`).
+Go host FAILED: `OPENSSLLISTENDSA` (DSA, by design), `UDP6MULTICAST_UNIDIR` (host environment), `REUSEADDR_NULL` (NO RESULT). Go Docker FAILED: `OPENSSLLISTENDSA`, `REUSEADDR_NULL`. Both Go runs also record UNKNOWN=2 (`EXECPTYKILL` parse quirk, `PROCAN_CTTY`).
 
 Use `go-baseline.json` + `REGRESSION_EXIT=1` after a **MODE=classic** run to catch real Go regressions with less noise.
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"slices"
 	"strconv"
 	"sync"
 
@@ -94,6 +95,7 @@ func resolveGID(name string) (int, bool, error) {
 var (
 	unlinkMu    sync.Mutex
 	unlinkPaths []string
+	exitHooks   []func()
 )
 
 // RegisterUnlinkPath records a filesystem path to remove on process signal exit
@@ -108,13 +110,28 @@ func RegisterUnlinkPath(path string) {
 	unlinkMu.Unlock()
 }
 
+// RegisterExitHook runs f on process signal exit (same path as UnlinkRegisteredPaths).
+// Used for POSIX MQ unlink-close; mq names are not filesystem paths.
+func RegisterExitHook(f func()) {
+	if f == nil {
+		return
+	}
+	unlinkMu.Lock()
+	exitHooks = append(exitHooks, f)
+	unlinkMu.Unlock()
+}
+
 // UnlinkRegisteredPaths removes all paths registered with RegisterUnlinkPath.
 // Safe to call multiple times; best-effort (ignore errors).
 func UnlinkRegisteredPaths() {
 	unlinkMu.Lock()
-	paths := append([]string(nil), unlinkPaths...)
+	paths := slices.Clone(unlinkPaths)
+	hooks := slices.Clone(exitHooks)
 	unlinkMu.Unlock()
 	for _, p := range paths {
 		_ = os.Remove(p)
+	}
+	for _, h := range hooks {
+		h()
 	}
 }

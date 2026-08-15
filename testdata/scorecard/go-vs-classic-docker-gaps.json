@@ -1,15 +1,10 @@
 {
   "classic_docker_ok": 552,
-  "go_ok": 502,
+  "go_ok": 507,
   "parity_fail": [
     {
       "id": "146",
       "name": "OPENSSLLISTENDSA",
-      "status": "FAILED"
-    },
-    {
-      "id": "602",
-      "name": "INTERACTIVE_SHELL",
       "status": "FAILED"
     }
   ],
@@ -135,26 +130,6 @@
       "status": "CANT"
     },
     {
-      "id": "493",
-      "name": "POSIXMQ_READ_PRIO",
-      "status": "CANT"
-    },
-    {
-      "id": "494",
-      "name": "POSIXMQ_RECV_FORK",
-      "status": "CANT"
-    },
-    {
-      "id": "495",
-      "name": "POSIXMQ_RECV_MAXCHILDREN",
-      "status": "CANT"
-    },
-    {
-      "id": "496",
-      "name": "POSIXMQ_SEND_MAXCHILDREN",
-      "status": "CANT"
-    },
-    {
       "id": "497",
       "name": "SHELL_SIGINT",
       "status": "CANT"
@@ -266,7 +241,7 @@
     }
   ],
   "parity_other": [],
-  "parity_gap_total": 52,
+  "parity_gap_total": 47,
   "new_ok_vs_classic_docker": [
     {
       "id": "219",

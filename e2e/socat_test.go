@@ -245,6 +245,66 @@ func TestVersionHasTERMIOS(t *testing.T) {
 	}
 }
 
+func TestVersionHasPOSIXMQ(t *testing.T) {
+	bin := socatBin(t)
+	out, err := exec.Command(bin, "-V").CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte("#define WITH_POSIXMQ 1")) {
+		t.Fatalf("missing WITH_POSIXMQ 1:\n%s", out)
+	}
+	h, err := exec.Command(bin, "-h").CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(h, []byte("POSIXMQ-SEND")) {
+		t.Fatalf("help missing POSIXMQ-SEND: %s", h)
+	}
+	hh, err := exec.Command(bin, "-hh").CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, opt := range []string{"mq-prio", "mq-flush", "mq-maxmsg", "mq-msgsize"} {
+		if !bytes.Contains(hh, []byte(" "+opt+" ")) {
+			t.Fatalf("help missing %s:\n%s", opt, hh)
+		}
+	}
+}
+
+func TestPOSIXMQReadPrio(t *testing.T) {
+	bin := socatBin(t)
+	q := fmt.Sprintf("/socat-e2e-%d-%d", os.Getpid(), time.Now().UnixNano()%1e9)
+	defer exec.Command(bin, "-u", "/dev/null", "POSIXMQ-SEND:"+q+",unlink-close").Run()
+
+	msg0 := fmt.Sprintf("prio0-%d\n", time.Now().UnixNano())
+	msg1 := fmt.Sprintf("prio1-%d\n", time.Now().UnixNano())
+	c0 := exec.Command(bin, "-u", "STDIO", "POSIXMQ-SEND:"+q+",mq-prio=0,unlink-early")
+	c0.Stdin = strings.NewReader(msg0)
+	if out, err := c0.CombinedOutput(); err != nil {
+		t.Fatalf("send0: %v %s", err, out)
+	}
+	c1 := exec.Command(bin, "-u", "STDIO", "POSIXMQ-SEND:"+q+",mq-prio=1")
+	c1.Stdin = strings.NewReader(msg1)
+	if out, err := c1.CombinedOutput(); err != nil {
+		t.Fatalf("send1: %v %s", err, out)
+	}
+	rd := exec.Command(bin, "-u", "POSIXMQ-READ:"+q+",unlink-close", "STDIO")
+	var stdout, stderr bytes.Buffer
+	rd.Stdout = &stdout
+	rd.Stderr = &stderr
+	if err := rd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	_ = rd.Process.Kill()
+	_, _ = rd.Process.Wait()
+	want := msg1 + msg0
+	if stdout.String() != want {
+		t.Fatalf("got %q want %q stderr=%s", stdout.String(), want, stderr.String())
+	}
+}
+
 func TestVersionHasSCTP(t *testing.T) {
 	bin := socatBin(t)
 	out, err := exec.Command(bin, "-V").CombinedOutput()

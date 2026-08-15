@@ -1,0 +1,588 @@
+//go:build linux
+
+package posixmqopen
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net"
+	"os"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/relay"
+	"github.com/oittaa/socat/internal/xio"
+	"golang.org/x/sys/unix"
+)
+
+func init() {
+	xio.FeaturePOSIXMQ = true
+}
+
+func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	name, err := queueName(s)
+	if err != nil {
+		return nil, err
+	}
+	kind := kindOf(s.Type)
+	if kind == mqBidir && mode == xio.ModeRDWR && s.Type == "POSIXMQ" {
+		return nil, fmt.Errorf("keyword \"POSIXMQ\" in bidirectional mode might unwanted flush the queue; use \"POSIXMQ-BIDIRECTIONAL\" to confirm usage")
+	}
+
+	fork := s.BoolOption("fork")
+	maxChildren := 0
+	if v := s.OptionValue("max-children", ""); v != "" {
+		n, e := xio.ParsePositiveInt(v)
+		if e != nil {
+			return nil, fmt.Errorf("%s: invalid max-children %q", s.Type, v)
+		}
+		maxChildren = n
+	}
+	if maxChildren > 0 && !fork {
+		return nil, fmt.Errorf("%s: option max-children not allowed without option fork", s.Type)
+	}
+
+	prio := uint32(0)
+	if v := s.OptionValue("mq-prio", ""); v != "" {
+		n, e := strconv.ParseUint(v, 10, 32)
+		if e != nil {
+			return nil, fmt.Errorf("%s: invalid mq-prio %q", s.Type, v)
+		}
+		prio = uint32(n)
+	}
+
+	oflag := 0
+	optCreat := true
+	if s.HasOption("creat") {
+		optCreat = s.BoolOption("creat")
+	}
+	if optCreat {
+		oflag |= unix.O_CREAT
+	}
+	if s.BoolOption("excl") {
+		oflag |= unix.O_EXCL
+	}
+	if s.HasOption("nonblock") && s.BoolOption("nonblock") {
+		oflag |= unix.O_NONBLOCK
+	}
+	switch kind {
+	case mqRead, mqRecv:
+		oflag |= unix.O_RDONLY
+	case mqSend:
+		oflag |= unix.O_WRONLY
+	default:
+		switch mode {
+		case xio.ModeRead:
+			oflag |= unix.O_RDONLY
+		case xio.ModeWrite:
+			oflag |= unix.O_WRONLY
+		default:
+			oflag |= unix.O_RDWR
+		}
+	}
+
+	modePerm := xio.ParseFileMode(s, 0o666)
+
+	var attr *mqAttr
+	if s.HasOption("mq-maxmsg") || s.HasOption("mq-msgsize") {
+		a := mqAttr{}
+		if v := s.OptionValue("mq-maxmsg", ""); v != "" {
+			n, e := strconv.ParseInt(v, 10, 64)
+			if e != nil {
+				return nil, fmt.Errorf("%s: invalid mq-maxmsg %q", s.Type, v)
+			}
+			a.Maxmsg = int(n)
+		}
+		if v := s.OptionValue("mq-msgsize", ""); v != "" {
+			n, e := strconv.ParseInt(v, 10, 64)
+			if e != nil {
+				return nil, fmt.Errorf("%s: invalid mq-msgsize %q", s.Type, v)
+			}
+			a.Msgsize = int(n)
+		}
+		if a.Maxmsg == 0 {
+			if n, ok := readProcLong("/proc/sys/fs/mqueue/msg_default"); ok {
+				a.Maxmsg = int(n)
+			} else {
+				a.Maxmsg = 10
+			}
+		}
+		if a.Msgsize == 0 {
+			if n, ok := readProcLong("/proc/sys/fs/mqueue/msgsize_default"); ok {
+				a.Msgsize = int(n)
+			} else {
+				a.Msgsize = 8192
+			}
+		}
+		attr = &a
+	}
+
+	if s.BoolOption("unlink-early") {
+		if e := mqUnlink(name); e != nil && e != unix.ENOENT {
+			if g != nil && g.Log != nil {
+				g.Log.Infof("mq_unlink(%q): %s", name, e)
+			}
+		}
+	}
+	if s.BoolOption("mq-flush") {
+		if e := flushQueue(name); e != nil {
+			return nil, e
+		}
+	}
+
+	var fd int
+	err = xio.WithUmask(s, func() error {
+		return xio.WithRetry(ctx, s, g, "mq_open", func() error {
+			var e error
+			fd, e = mqOpen(name, oflag, uint32(modePerm), attr)
+			if e != nil {
+				return fmt.Errorf("mq_open(%q, %#o, %#o): %w", name, oflag, modePerm, e)
+			}
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	unix.CloseOnExec(fd)
+
+	got := mqAttr{}
+	if e := mqGetattr(fd, &got); e != nil {
+		_ = mqClose(fd)
+		return nil, fmt.Errorf("mq_getattr(%d): %w", fd, e)
+	}
+	msgsize := got.Msgsize
+	if msgsize < 1 {
+		msgsize = 8192
+	}
+	if g != nil && g.Log != nil {
+		g.Log.Infof("POSIXMQ queue %q attrs: { flags=%d, maxmsg=%d, msgsize=%d, curmsgs=%d }",
+			name, got.Flags, got.Maxmsg, got.Msgsize, got.Curmsgs)
+	}
+
+	unlinkClose := s.BoolOption("unlink-close")
+	cleanup := func() {
+		_ = mqClose(fd)
+		if unlinkClose {
+			_ = mqUnlink(name)
+		}
+	}
+	if unlinkClose {
+		n := name
+		xio.RegisterExitHook(func() { _ = mqUnlink(n) })
+	}
+
+	oneshot := kind == mqRecv
+	nonblock := oflag&unix.O_NONBLOCK != 0
+
+	// SEND,fork: connect-style parent loop (interval + max-children).
+	if fork && kind == mqSend {
+		dial := func(dctx context.Context) (net.Conn, error) {
+			if !nonblock {
+				if e := waitMQ(dctx, fd, unix.POLLOUT, time.Time{}); e != nil {
+					return nil, e
+				}
+			}
+			nfd, e := unix.Dup(fd)
+			if e != nil {
+				return nil, e
+			}
+			unix.CloseOnExec(nfd)
+			return newMQConn(&mqStream{
+				fd:       nfd,
+				name:     name,
+				prio:     prio,
+				msgsize:  msgsize,
+				nonblock: nonblock,
+			}, name), nil
+		}
+		o := &xio.Opened{
+			ConnectFork: true,
+			Fork:        true,
+			MaxChildren: maxChildren,
+			Interval:    xio.ParseRetry(s).Interval,
+			Label:       s.Type,
+			Dial:        dial,
+		}
+		o.AddCleanup(cleanup)
+		return o, nil
+	}
+
+	// RECV,fork: one child per queued message.
+	if fork && oneshot {
+		ln := &mqListener{
+			fd:      fd,
+			name:    name,
+			msgsize: msgsize,
+			prio:    prio,
+			ctx:     ctx,
+		}
+		o := &xio.Opened{
+			Listener:    ln,
+			Fork:        true,
+			MaxChildren: maxChildren,
+			Label:       s.Type,
+		}
+		o.AddCleanup(func() {
+			_ = ln.Close()
+			if unlinkClose {
+				_ = mqUnlink(name)
+			}
+		})
+		return o, nil
+	}
+
+	if oneshot && !nonblock {
+		if e := waitMQ(ctx, fd, unix.POLLIN, time.Time{}); e != nil {
+			cleanup()
+			return nil, e
+		}
+	}
+
+	st := relay.Stream(&mqStream{
+		fd:       fd,
+		name:     name,
+		prio:     prio,
+		msgsize:  msgsize,
+		oneshot:  oneshot,
+		nonblock: nonblock,
+	})
+	st, err = xio.WrapCommon(s, st)
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
+	o := &xio.Opened{Stream: st, Label: s.Type}
+	if unlinkClose {
+		n := name
+		o.AddCleanup(func() { _ = mqUnlink(n) })
+	}
+	return o, nil
+}
+
+func flushQueue(name string) error {
+	fd, err := mqOpen(name, unix.O_RDONLY|unix.O_NONBLOCK, 0, nil)
+	if err != nil {
+		if err == unix.ENOENT {
+			return nil
+		}
+		return fmt.Errorf("mq_open(%q) flush: %w", name, err)
+	}
+	defer mqClose(fd)
+	var attr mqAttr
+	if err := mqGetattr(fd, &attr); err != nil {
+		return fmt.Errorf("mq_getattr flush: %w", err)
+	}
+	if attr.Curmsgs == 0 {
+		return nil
+	}
+	bufsiz := attr.Msgsize
+	if bufsiz < 1 {
+		bufsiz = 8192
+	}
+	buf := make([]byte, bufsiz)
+	for {
+		_, err := mqTimedReceive(fd, buf, nil)
+		if err != nil {
+			if err == unix.EAGAIN {
+				return nil
+			}
+			return fmt.Errorf("mq_receive flush: %w", err)
+		}
+	}
+}
+
+func waitMQ(ctx context.Context, fd int, events int16, deadline time.Time) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		timeout := 200
+		if !deadline.IsZero() {
+			rem := time.Until(deadline)
+			if rem <= 0 {
+				return os.ErrDeadlineExceeded
+			}
+			ms := int(rem / time.Millisecond)
+			if ms < 1 {
+				ms = 1
+			}
+			if ms < timeout {
+				timeout = ms
+			}
+		}
+		pfd := []unix.PollFd{{Fd: int32(fd), Events: events}}
+		n, err := unix.Poll(pfd, timeout)
+		if err != nil {
+			if err == unix.EINTR {
+				continue
+			}
+			return err
+		}
+		if n == 0 {
+			continue
+		}
+		re := pfd[0].Revents
+		if re&unix.POLLNVAL != 0 {
+			return unix.EBADF
+		}
+		if re&events != 0 {
+			return nil
+		}
+		if re&(unix.POLLERR|unix.POLLHUP) != 0 {
+			return io.EOF
+		}
+	}
+}
+
+type mqStream struct {
+	fd       int
+	name     string
+	prio     uint32
+	msgsize  int
+	oneshot  bool
+	noClose  bool
+	nonblock bool
+	trigger  *os.File
+
+	mu        sync.Mutex
+	got       bool
+	leftover  []byte
+	rbuf      []byte
+	closed    bool
+	rdeadline time.Time
+	wdeadline time.Time
+}
+
+func (s *mqStream) Read(p []byte) (int, error) {
+	s.mu.Lock()
+	if len(s.leftover) > 0 {
+		n := copy(p, s.leftover)
+		s.leftover = s.leftover[n:]
+		s.mu.Unlock()
+		return n, nil
+	}
+	if s.oneshot && s.got {
+		s.mu.Unlock()
+		return 0, io.EOF
+	}
+	if s.closed {
+		s.mu.Unlock()
+		return 0, net.ErrClosed
+	}
+	deadline := s.rdeadline
+	nonblock := s.nonblock
+	s.mu.Unlock()
+
+	if !nonblock {
+		if err := waitMQ(context.Background(), s.fd, unix.POLLIN, deadline); err != nil {
+			return 0, err
+		}
+	}
+
+	s.mu.Lock()
+	if s.rbuf == nil {
+		sz := s.msgsize
+		if sz < 1 {
+			sz = 8192
+		}
+		s.rbuf = make([]byte, sz)
+	}
+	buf := s.rbuf
+	s.mu.Unlock()
+
+	var prio uint32
+	n, err := mqTimedReceive(s.fd, buf, &prio)
+	if err != nil {
+		return 0, err
+	}
+	s.mu.Lock()
+	s.prio = prio
+	s.got = true
+	trig := s.trigger
+	s.trigger = nil
+	m := copy(p, buf[:n])
+	if m < n {
+		s.leftover = append([]byte(nil), buf[m:n]...)
+	}
+	s.mu.Unlock()
+	if trig != nil {
+		_ = trig.Close()
+	}
+	return m, nil
+}
+
+func (s *mqStream) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return 0, net.ErrClosed
+	}
+	deadline := s.wdeadline
+	prio := s.prio
+	s.mu.Unlock()
+	if !deadline.IsZero() {
+		if err := waitMQ(context.Background(), s.fd, unix.POLLOUT, deadline); err != nil {
+			return 0, err
+		}
+	}
+	if err := mqTimedSend(s.fd, p, prio); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (s *mqStream) Close() error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil
+	}
+	s.closed = true
+	trig := s.trigger
+	s.trigger = nil
+	noClose := s.noClose
+	fd := s.fd
+	s.mu.Unlock()
+	if trig != nil {
+		_ = trig.Close()
+	}
+	if noClose {
+		return nil
+	}
+	return mqClose(fd)
+}
+
+func (s *mqStream) ShutdownWrite() error { return nil }
+
+func (s *mqStream) SetDeadline(t time.Time) error {
+	s.mu.Lock()
+	s.rdeadline = t
+	s.wdeadline = t
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *mqStream) SetReadDeadline(t time.Time) error {
+	s.mu.Lock()
+	s.rdeadline = t
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *mqStream) SetWriteDeadline(t time.Time) error {
+	s.mu.Lock()
+	s.wdeadline = t
+	s.mu.Unlock()
+	return nil
+}
+
+type mqAddr string
+
+func (a mqAddr) Network() string { return "posixmq" }
+func (a mqAddr) String() string  { return string(a) }
+
+type mqConn struct {
+	*mqStream
+	local  net.Addr
+	remote net.Addr
+}
+
+func newMQConn(s *mqStream, name string) *mqConn {
+	a := mqAddr(name)
+	return &mqConn{mqStream: s, local: a, remote: a}
+}
+
+func (c *mqConn) LocalAddr() net.Addr  { return c.local }
+func (c *mqConn) RemoteAddr() net.Addr { return c.remote }
+
+type mqListener struct {
+	fd      int
+	name    string
+	msgsize int
+	prio    uint32
+	ctx     context.Context
+	mu      sync.Mutex
+	trigR   *os.File
+	closed  bool
+}
+
+func (l *mqListener) Accept() (net.Conn, error) {
+	l.mu.Lock()
+	if l.closed {
+		l.mu.Unlock()
+		return nil, net.ErrClosed
+	}
+	prev := l.trigR
+	l.trigR = nil
+	l.mu.Unlock()
+	if prev != nil {
+		if err := waitPipe(l.ctx, prev); err != nil {
+			_ = prev.Close()
+			return nil, err
+		}
+		_ = prev.Close()
+	}
+	if err := waitMQ(l.ctx, l.fd, unix.POLLIN, time.Time{}); err != nil {
+		return nil, err
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	l.mu.Lock()
+	if l.closed {
+		l.mu.Unlock()
+		_ = r.Close()
+		_ = w.Close()
+		return nil, net.ErrClosed
+	}
+	l.trigR = r
+	l.mu.Unlock()
+	return newMQConn(&mqStream{
+		fd:      l.fd,
+		name:    l.name,
+		prio:    l.prio,
+		msgsize: l.msgsize,
+		oneshot: true,
+		noClose: true,
+		trigger: w,
+	}, l.name), nil
+}
+
+func (l *mqListener) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.closed {
+		return nil
+	}
+	l.closed = true
+	if l.trigR != nil {
+		_ = l.trigR.Close()
+		l.trigR = nil
+	}
+	return mqClose(l.fd)
+}
+
+func (l *mqListener) Addr() net.Addr { return mqAddr(l.name) }
+
+func waitPipe(ctx context.Context, f *os.File) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		_ = f.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+		var b [1]byte
+		_, err := f.Read(b[:])
+		if err == nil || err == io.EOF {
+			return nil
+		}
+		if os.IsTimeout(err) {
+			continue
+		}
+		return err
+	}
+}

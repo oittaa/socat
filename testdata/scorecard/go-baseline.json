@@ -1,22 +1,22 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-08-15T20:02:49Z",
+    "timestamp": "2026-08-15T20:47:24Z",
     "hostname": "gmktec",
     "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
     "socat": "/home/eero/src/socat/socat",
-    "socat_version": "socat version 0.1.0-dev on 2026-08-15T20:02:49Z",
+    "socat_version": "socat version 0.1.0-dev on 2026-08-15T20:47:24Z",
     "test_sh": "/home/eero/src/socat/testdata/tmp/src/socat-1.8.1.3/test.sh",
-    "git": "bdfd915",
-    "out_dir": "/home/eero/src/socat/.scorecard/host",
+    "git": "263cb5c",
+    "out_dir": "/home/eero/src/socat/.scorecard/host-posixmq",
     "val_t": "auto",
     "jobs": "1",
     "shard_timeout": "7200"
   },
   "summary": {
-    "ok": 447,
-    "failed": 4,
-    "cant": 152,
+    "ok": 452,
+    "failed": 3,
+    "cant": 148,
     "timeout": 0,
     "unknown": 2,
     "total_recorded": 605,
@@ -4373,20 +4373,20 @@
     "486": {
       "id": 486,
       "name": "NETNS",
-      "description": "option netns (net namespace socat-724656-test486)",
+      "description": "option netns (net namespace socat-850504-test486)",
       "status": "CANT",
       "detail": "Must be root",
       "shard": 0,
-      "raw": "test 486 NETNS: option netns (net namespace socat-724656-test486)... Must be root"
+      "raw": "test 486 NETNS: option netns (net namespace socat-850504-test486)... Must be root"
     },
     "487": {
       "id": 487,
       "name": "NETNS_EXEC",
-      "description": "option netns with EXEC (net namespace socat-724656-test487)",
+      "description": "option netns with EXEC (net namespace socat-850504-test487)",
       "status": "CANT",
       "detail": "Must be root",
       "shard": 0,
-      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-724656-test487)... Must be root"
+      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-850504-test487)... Must be root"
     },
     "488": {
       "id": 488,
@@ -4437,37 +4437,37 @@
       "id": 493,
       "name": "POSIXMQ_READ_PRIO",
       "description": "POSIX-MQ with prio",
-      "status": "CANT",
-      "detail": "Feature POSIXMQ not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 493 POSIXMQ_READ_PRIO: POSIX-MQ with prio... Feature POSIXMQ not configured in /home/eero/src/socat/socat"
+      "raw": "test 493 POSIXMQ_READ_PRIO: POSIX-MQ with prio... OK"
     },
     "494": {
       "id": 494,
       "name": "POSIXMQ_RECV_FORK",
       "description": "POSIX-MQ RECV with fork",
-      "status": "CANT",
-      "detail": "Feature POSIXMQ not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 494 POSIXMQ_RECV_FORK: POSIX-MQ RECV with fork... Feature POSIXMQ not configured in /home/eero/src/socat/socat"
+      "raw": "test 494 POSIXMQ_RECV_FORK: POSIX-MQ RECV with fork... OK"
     },
     "495": {
       "id": 495,
       "name": "POSIXMQ_RECV_MAXCHILDREN",
       "description": "POSIX-MQ RECV with fork,max-children",
-      "status": "CANT",
-      "detail": "Feature POSIXMQ not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 495 POSIXMQ_RECV_MAXCHILDREN: POSIX-MQ RECV with fork,max-children... Feature POSIXMQ not configured in /home/eero/src/socat/socat"
+      "raw": "test 495 POSIXMQ_RECV_MAXCHILDREN: POSIX-MQ RECV with fork,max-children... OK"
     },
     "496": {
       "id": 496,
       "name": "POSIXMQ_SEND_MAXCHILDREN",
       "description": "POSIX-MQ SEND with fork,max-children",
-      "status": "CANT",
-      "detail": "Feature POSIXMQ not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 496 POSIXMQ_SEND_MAXCHILDREN: POSIX-MQ SEND with fork,max-children... Feature POSIXMQ not configured in /home/eero/src/socat/socat"
+      "raw": "test 496 POSIXMQ_SEND_MAXCHILDREN: POSIX-MQ SEND with fork,max-children... OK"
     },
     "497": {
       "id": 497,
@@ -5418,10 +5418,10 @@
       "id": 602,
       "name": "INTERACTIVE_SHELL",
       "description": "Test SHELL without argument",
-      "status": "FAILED",
-      "detail": "(diff)",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 602 INTERACTIVE_SHELL: Test SHELL without argument... FAILED (diff)"
+      "raw": "test 602 INTERACTIVE_SHELL: Test SHELL without argument... OK"
     },
     "603": {
       "id": 603,
