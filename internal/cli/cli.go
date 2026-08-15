@@ -140,8 +140,7 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 		cfg.IP6 = true
 	case a == "-0":
 		cfg.IPAny = true
-	case a == "-S" || a == "--statistics":
-		cfg.Statistics = true
+	// Classic -S<sigmask> logs selected signals; not --statistics.
 	case a == "-lu":
 		cfg.Micros = true
 	case a == "-lh":
@@ -418,6 +417,9 @@ func Main(args []string) int {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM, syscall.SIGILL, syscall.SIGQUIT, syscall.SIGHUP)
 	defer signal.Stop(sigCh)
+	usr1 := make(chan os.Signal, 1)
+	signal.Notify(usr1, syscall.SIGUSR1)
+	defer signal.Stop(usr1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() {
@@ -429,8 +431,16 @@ func Main(args []string) int {
 			os.Exit(128 + int(ss))
 		}
 	}()
+	go func() {
+		for range usr1 {
+			xio.PrintLiveStats(log)
+		}
+	}()
 
 	runErr := xio.Run(ctx, left, right, g)
+	if cfg.Statistics {
+		xio.PrintExitStats(g)
+	}
 	if runErr != nil {
 		if ctx.Err() != nil {
 			if g.ChildExitCode != 0 {
@@ -465,7 +475,7 @@ func printVersion(w io.Writer) {
 	}{
 		// Honesty: only set 1 for features that actually work end-to-end.
 		{"HELP", true},
-		{"STATS", false}, // --statistics partial; SIGUSR1 not implemented
+		{"STATS", true},
 		{"STDIO", true},
 		{"FDNUM", true},
 		{"FILE", true},
@@ -539,7 +549,7 @@ func printHelp(w io.Writer, level int) {
 	fmt.Fprintf(w, "  -4     prefer IPv4 if version is not explicitly specified\n")
 	fmt.Fprintf(w, "  -6     prefer IPv6 if version is not explicitly specified\n")
 	fmt.Fprintf(w, "  -0     do not prefer an IP version\n")
-	fmt.Fprintf(w, "  --statistics    print transfer statistics\n")
+	fmt.Fprintf(w, "  --statistics   output transfer statistics on exit\n")
 	// Address type names on -h (level>=1): classic test.sh runstcp4 greps
 	// `$SOCAT -h | grep -i ' TCP4-'` etc.
 	fmt.Fprintf(w, "\nAddress types:\n")

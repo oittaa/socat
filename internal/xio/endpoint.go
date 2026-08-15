@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
@@ -41,18 +42,19 @@ const (
 
 // Global holds process-wide options affecting address open.
 type Global struct {
-	Log         *logx.Logger
-	IPVersion   IPVersion
-	BlockSize   int
-	Linger      time.Duration
-	Idle        time.Duration
-	LeftToRight bool
-	RightToLeft bool
-	Verbose     bool
-	Hex         bool
-	Dump        io.Writer
-	Statistics  bool
-	Sloppy      bool // -s continue on some errors
+	Log          *logx.Logger
+	IPVersion    IPVersion
+	BlockSize    int
+	Linger       time.Duration
+	Idle         time.Duration
+	LeftToRight  bool
+	RightToLeft  bool
+	Verbose      bool
+	Hex          bool
+	Dump         io.Writer
+	Statistics   bool
+	statsPrinted atomic.Bool
+	Sloppy       bool // -s continue on some errors
 
 	// Peer info from the most recently accepted/connected socket (for SOCAT_* env).
 	SockAddr string

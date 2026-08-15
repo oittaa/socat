@@ -420,10 +420,10 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 		cfg.LeftToRight = g.LeftToRight
 		cfg.RightToLeft = g.RightToLeft
 	}
-	if g.Statistics {
+	if g != nil && g.Statistics && g.Log != nil {
 		cfg.OnStats = func(st relay.Stats) {
-			g.Log.Noticef("stats: lr=%d bytes/%d blocks rl=%d bytes/%d blocks duration=%s",
-				st.BytesLR, st.BlocksLR, st.BytesRL, st.BlocksRL, st.Duration)
+			PrintStats(g.Log, st, cfg.LeftToRight, cfg.RightToLeft, true)
+			g.statsPrinted.Store(true)
 		}
 	}
 	// Classic MULTIPLE_EOF greps: "socket 2 (fd .*) is at EOF" (Notice once per side).

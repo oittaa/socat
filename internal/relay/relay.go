@@ -37,6 +37,9 @@ type Config struct {
 	// RawLeft/RawRight: classic -r / -R binary dumps of transferred data.
 	RawLeft  io.Writer // left→right
 	RawRight io.Writer // right→left
+	// Tracker receives live counters (SIGUSR1 / --statistics). If nil, Transfer
+	// allocates one and registers it.
+	Tracker *Tracker
 	// OnStats is called with final counters if non-nil.
 	OnStats func(Stats)
 	// OnEOF is called once per direction when that side reaches EOF
@@ -50,11 +53,11 @@ type Config struct {
 
 // Stats holds transfer counters.
 type Stats struct {
-	BytesLR   uint64
-	BytesRL   uint64
-	BlocksLR  uint64
-	BlocksRL  uint64
-	Duration  time.Duration
+	BytesLR  uint64
+	BytesRL  uint64
+	BlocksLR uint64
+	BlocksRL uint64
+	Duration time.Duration
 }
 
 // Stream is a bidirectional byte stream with optional half-close.
@@ -99,10 +102,10 @@ func (s RWCStream) ShutdownWrite() error { return nil }
 
 // FDStream is a ReadWriteCloser with optional write closer.
 type FDStream struct {
-	R         io.Reader
-	W         io.Writer
-	C         io.Closer
-	CloseW    func() error
+	R      io.Reader
+	W      io.Writer
+	C      io.Closer
+	CloseW func() error
 }
 
 func (s FDStream) Read(p []byte) (int, error)  { return s.R.Read(p) }
@@ -155,7 +158,15 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	}
 
 	start := time.Now()
-	var bytesLR, bytesRL, blocksLR, blocksRL atomic.Uint64
+	tr := cfg.Tracker
+	if tr == nil {
+		tr = &Tracker{LeftToRight: cfg.LeftToRight, RightToLeft: cfg.RightToLeft}
+	} else {
+		tr.LeftToRight = cfg.LeftToRight
+		tr.RightToLeft = cfg.RightToLeft
+	}
+	RegisterTracker(tr)
+	defer UnregisterTracker(tr)
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -301,12 +312,12 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	if cfg.LeftToRight {
 		nDirs++
 		wg.Add(1)
-		go copyDir(right, left, ">", &bytesLR, &blocksLR)
+		go copyDir(right, left, ">", &tr.BytesLR, &tr.BlocksLR)
 	}
 	if cfg.RightToLeft {
 		nDirs++
 		wg.Add(1)
-		go copyDir(left, right, "<", &bytesRL, &blocksRL)
+		go copyDir(left, right, "<", &tr.BytesRL, &tr.BlocksRL)
 	}
 
 	// Wait for first direction to finish; then linger for the other.
@@ -347,13 +358,8 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	}
 	wg.Wait()
 
-	st := Stats{
-		BytesLR:  bytesLR.Load(),
-		BytesRL:  bytesRL.Load(),
-		BlocksLR: blocksLR.Load(),
-		BlocksRL: blocksRL.Load(),
-		Duration: time.Since(start),
-	}
+	st := tr.Snapshot()
+	st.Duration = time.Since(start)
 	if cfg.OnStats != nil {
 		cfg.OnStats(st)
 	}
