@@ -21,7 +21,7 @@ func mockSOCKS5Echo(t *testing.T, ln net.Listener) {
 	if err != nil {
 		return
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	hello := make([]byte, 3)
 	if _, err := io.ReadFull(c, hello); err != nil {
 		t.Errorf("hello: %v", err)
@@ -61,7 +61,7 @@ func echoViaSOCKS5(t *testing.T, spec string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go mockSOCKS5Echo(t, ln)
 	port := ln.Addr().(*net.TCPAddr).Port
 	s, err := parse.ParseSpec(spec + ",socksport=" + strconv.Itoa(port) + ",pf=ip4")
@@ -79,7 +79,7 @@ func echoViaSOCKS5(t *testing.T, spec string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	payload := []byte("socks5-ok\n")
 	if _, err := o.Stream.Write(payload); err != nil {
 		t.Fatal(err)

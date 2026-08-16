@@ -372,33 +372,33 @@ func dump(cfg Config, dir string, data []byte) {
 	}
 	prefix := dir + " "
 	if cfg.Hex {
-		fmt.Fprintf(cfg.Dump, "%s", prefix)
+		_, _ = fmt.Fprintf(cfg.Dump, "%s", prefix)
 		for i, b := range data {
 			if i > 0 {
-				fmt.Fprint(cfg.Dump, " ")
+				_, _ = fmt.Fprint(cfg.Dump, " ")
 			}
-			fmt.Fprintf(cfg.Dump, "%02x", b)
+			_, _ = fmt.Fprintf(cfg.Dump, "%02x", b)
 		}
-		fmt.Fprintln(cfg.Dump)
+		_, _ = fmt.Fprintln(cfg.Dump)
 		return
 	}
 	// text mode with simple escapes
-	fmt.Fprint(cfg.Dump, prefix)
+	_, _ = fmt.Fprint(cfg.Dump, prefix)
 	for _, b := range data {
 		switch {
 		case b == '\n':
-			fmt.Fprint(cfg.Dump, "\\n")
+			_, _ = fmt.Fprint(cfg.Dump, "\\n")
 		case b == '\r':
-			fmt.Fprint(cfg.Dump, "\\r")
+			_, _ = fmt.Fprint(cfg.Dump, "\\r")
 		case b == '\t':
-			fmt.Fprint(cfg.Dump, "\\t")
+			_, _ = fmt.Fprint(cfg.Dump, "\\t")
 		case b < 32 || b >= 127:
-			fmt.Fprintf(cfg.Dump, "\\x%02x", b)
+			_, _ = fmt.Fprintf(cfg.Dump, "\\x%02x", b)
 		default:
-			fmt.Fprint(cfg.Dump, string(b))
+			_, _ = fmt.Fprint(cfg.Dump, string(b))
 		}
 	}
-	fmt.Fprintln(cfg.Dump)
+	_, _ = fmt.Fprintln(cfg.Dump)
 }
 
 // sessionWrap decouples a transfer session from a shared underlying stream.
@@ -643,7 +643,7 @@ func streamAnyFD(s Stream) int {
 		if c, ok := ns.Conn.(sc); ok {
 			rc, err := c.SyscallConn()
 			if err == nil {
-				var fd int = -1
+				var fd = -1
 				_ = rc.Control(func(f uintptr) { fd = int(f) })
 				if fd >= 0 {
 					return fd

@@ -203,7 +203,7 @@ func tablesMayNeedHostname(paths ...string) bool {
 				break
 			}
 		}
-		f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		if need {
 			return true
 		}
@@ -222,7 +222,7 @@ func matchHostsTable(path, daemon, clientIP, clientHost string) bool {
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())

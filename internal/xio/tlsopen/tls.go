@@ -70,7 +70,7 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 			cfg := tlsCfg.Clone()
 			tc := tls.Client(raw, cfg)
 			if e := tc.HandshakeContext(cctx); e != nil {
-				raw.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				_ = raw.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return e
 			}
 			conn = tc
@@ -112,7 +112,7 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	return &xio.Opened{Stream: st, Label: s.Type + ":" + addr}, nil
@@ -197,12 +197,12 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		PeerFilter:  filter,
 		MaxChildren: maxChildren,
 	}
-	o.AddCleanup(func() { tlsLn.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
+	o.AddCleanup(func() { _ = tlsLn.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 
 	if fork {
 		go func() {
 			<-ctx.Done()
-			tlsLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = tlsLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		}()
 		return o, nil
 	}
@@ -234,15 +234,15 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	var conn net.Conn
 	select {
 	case <-ctx.Done():
-		tlsLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = tlsLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		o.Listener = nil
 		return nil, ctx.Err()
 	case a := <-ch:
 		// Keep listener closed after one accept (classic non-fork).
-		tlsLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = tlsLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		o.Listener = nil
 		if a.err != nil {
-			o.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = o.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			if xio.IsTimeoutErr(a.err) {
 				if g != nil && g.Log != nil {
 					g.Log.Warningf("accept: Connection timed out")
@@ -262,7 +262,7 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	o.Stream = st

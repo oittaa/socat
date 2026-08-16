@@ -143,7 +143,7 @@ func TestTUNOpenStaysAlive(t *testing.T) {
 	if err != nil {
 		t.Skipf("open TUN: %v", err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 
 	errc := make(chan error, 1)
 	go func() {

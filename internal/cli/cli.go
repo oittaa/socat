@@ -331,7 +331,7 @@ func Main(args []string) int {
 			fmt.Fprintf(os.Stderr, "socat: %v\n", err)
 			return 1
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		log.SetOutput(f)
 	}
 
@@ -343,7 +343,7 @@ func Main(args []string) int {
 			return 1
 		}
 		xio.RegisterUnlinkPath(cfg.LockFile)
-		defer os.Remove(cfg.LockFile)
+		defer func() { _ = os.Remove(cfg.LockFile) }()
 	}
 	if cfg.LockWait != "" {
 		for {
@@ -357,7 +357,7 @@ func Main(args []string) int {
 			return 1
 		}
 		xio.RegisterUnlinkPath(cfg.LockWait)
-		defer os.Remove(cfg.LockWait)
+		defer func() { _ = os.Remove(cfg.LockWait) }()
 	}
 
 	left, err := parse.ParseChannel(cfg.Addresses[0])
@@ -466,9 +466,9 @@ func Main(args []string) int {
 func printVersion(w io.Writer) {
 	// Format compatible with classic test.sh testfeats() which greps:
 	//   #define WITH_FOO 1
-	fmt.Fprintf(w, "socat version %s on %s\n", socat.Version, time.Now().Format(time.RFC3339))
-	fmt.Fprintf(w, "   running on Go reimplementation (github.com/oittaa/socat)\n")
-	fmt.Fprintln(w, "features:")
+	_, _ = fmt.Fprintf(w, "socat version %s on %s\n", socat.Version, time.Now().Format(time.RFC3339))
+	_, _ = fmt.Fprintf(w, "   running on Go reimplementation (github.com/oittaa/socat)\n")
+	_, _ = fmt.Fprintln(w, "features:")
 	// Implemented = 1, not yet = 0. Keep names aligned with classic socat -V.
 	feats := []struct {
 		name string
@@ -522,65 +522,65 @@ func printVersion(w io.Writer) {
 	}
 	for _, f := range feats {
 		if f.on {
-			fmt.Fprintf(w, "  #define WITH_%s 1\n", f.name)
+			_, _ = fmt.Fprintf(w, "  #define WITH_%s 1\n", f.name)
 		} else {
-			fmt.Fprintf(w, "  #undef WITH_%s\n", f.name)
+			_, _ = fmt.Fprintf(w, "  #undef WITH_%s\n", f.name)
 		}
 	}
 }
 
 func printHelp(w io.Writer, level int) {
-	fmt.Fprintf(w, "socat %s by oittaa — multipurpose relay (Go)\n", socat.Version)
-	fmt.Fprintf(w, "Usage: socat [options] <address> <address>\n")
-	fmt.Fprintf(w, "       socat -V | -h[h[h]]\n\n")
-	fmt.Fprintf(w, "Options:\n")
-	fmt.Fprintf(w, "  -V              print version\n")
-	fmt.Fprintf(w, "  -h|-?           print help\n")
-	fmt.Fprintf(w, "  -d|-d0..-d4     increase verbosity\n")
-	fmt.Fprintf(w, "  -v              verbose data dump (text)\n")
-	fmt.Fprintf(w, "  -x              verbose data dump (hex)\n")
-	fmt.Fprintf(w, "  -b<size>        transfer block size (default 8192)\n")
-	fmt.Fprintf(w, "  -t<time>        linger after EOF (default 0.5s)\n")
-	fmt.Fprintf(w, "  -T<time>        inactivity timeout\n")
-	fmt.Fprintf(w, "  -u              unidirectional left→right\n")
-	fmt.Fprintf(w, "  -U              unidirectional right→left\n")
+	_, _ = fmt.Fprintf(w, "socat %s by oittaa — multipurpose relay (Go)\n", socat.Version)
+	_, _ = fmt.Fprintf(w, "Usage: socat [options] <address> <address>\n")
+	_, _ = fmt.Fprintf(w, "       socat -V | -h[h[h]]\n\n")
+	_, _ = fmt.Fprintf(w, "Options:\n")
+	_, _ = fmt.Fprintf(w, "  -V              print version\n")
+	_, _ = fmt.Fprintf(w, "  -h|-?           print help\n")
+	_, _ = fmt.Fprintf(w, "  -d|-d0..-d4     increase verbosity\n")
+	_, _ = fmt.Fprintf(w, "  -v              verbose data dump (text)\n")
+	_, _ = fmt.Fprintf(w, "  -x              verbose data dump (hex)\n")
+	_, _ = fmt.Fprintf(w, "  -b<size>        transfer block size (default 8192)\n")
+	_, _ = fmt.Fprintf(w, "  -t<time>        linger after EOF (default 0.5s)\n")
+	_, _ = fmt.Fprintf(w, "  -T<time>        inactivity timeout\n")
+	_, _ = fmt.Fprintf(w, "  -u              unidirectional left→right\n")
+	_, _ = fmt.Fprintf(w, "  -U              unidirectional right→left\n")
 	// Classic test.sh OPTION_RAW_DUMP greps: [[:space:]]-[rR][[:space:]]
-	fmt.Fprintf(w, "  -r <file>       dump left-to-right raw data\n")
-	fmt.Fprintf(w, "  -R <file>       dump right-to-left raw data\n")
+	_, _ = fmt.Fprintf(w, "  -r <file>       dump left-to-right raw data\n")
+	_, _ = fmt.Fprintf(w, "  -R <file>       dump right-to-left raw data\n")
 	// Classic test.sh greps: [[:space:]]-4[[:space:]], -6, -0 on separate lines.
-	fmt.Fprintf(w, "  -4     prefer IPv4 if version is not explicitly specified\n")
-	fmt.Fprintf(w, "  -6     prefer IPv6 if version is not explicitly specified\n")
-	fmt.Fprintf(w, "  -0     do not prefer an IP version\n")
-	fmt.Fprintf(w, "  --statistics   output transfer statistics on exit\n")
+	_, _ = fmt.Fprintf(w, "  -4     prefer IPv4 if version is not explicitly specified\n")
+	_, _ = fmt.Fprintf(w, "  -6     prefer IPv6 if version is not explicitly specified\n")
+	_, _ = fmt.Fprintf(w, "  -0     do not prefer an IP version\n")
+	_, _ = fmt.Fprintf(w, "  --statistics   output transfer statistics on exit\n")
 	// Address type names on -h (level>=1): classic test.sh runstcp4 greps
 	// `$SOCAT -h | grep -i ' TCP4-'` etc.
-	fmt.Fprintf(w, "\nAddress types:\n")
-	fmt.Fprintf(w, "  STDIO STDIN STDOUT STDERR FD PIPE FIFO ECHO OPEN FILE CREATE CREAT GOPEN\n")
-	fmt.Fprintf(w, "  TCP TCP4 TCP6 TCP-CONNECT TCP4-CONNECT TCP6-CONNECT\n")
-	fmt.Fprintf(w, "  TCP-LISTEN TCP4-LISTEN TCP6-LISTEN TCP-L TCP4-L TCP6-L\n")
-	fmt.Fprintf(w, "  UDP UDP4 UDP6 UDP-CONNECT UDP4-CONNECT UDP6-CONNECT\n")
-	fmt.Fprintf(w, "  UDP-LISTEN UDP4-LISTEN UDP6-LISTEN UDP-L UDP4-L UDP6-L\n")
-	fmt.Fprintf(w, "  UDP-SENDTO UDP4-SENDTO UDP6-SENDTO UDP-SEND UDP4-SEND UDP6-SEND\n")
-	fmt.Fprintf(w, "  UDP-DATAGRAM UDP4-DATAGRAM UDP6-DATAGRAM\n")
-	fmt.Fprintf(w, "  UDP-RECV UDP4-RECV UDP6-RECV UDP-RECVFROM UDP4-RECVFROM UDP6-RECVFROM\n")
-	fmt.Fprintf(w, "  IP IP4 IP6 IP-SENDTO IP4-SENDTO IP6-SENDTO IP-DATAGRAM IP4-DATAGRAM IP6-DATAGRAM\n")
-	fmt.Fprintf(w, "  IP-RECV IP4-RECV IP6-RECV IP-RECVFROM IP4-RECVFROM IP6-RECVFROM\n")
-	fmt.Fprintf(w, "  UNIX UNIX-CONNECT UNIX-CLIENT UNIX-LISTEN UNIX-L\n")
-	fmt.Fprintf(w, "  UNIX-SENDTO UNIX-RECVFROM UNIX-RECV UNIX-DATAGRAM SOCKETPAIR\n")
-	fmt.Fprintf(w, "  SOCKET-CONNECT SOCKET-LISTEN SOCKET-SENDTO SOCKET-DATAGRAM SOCKET-RECV SOCKET-RECVFROM\n")
-	fmt.Fprintf(w, "  ABSTRACT-LISTEN ABSTRACT-L ABSTRACT-CLIENT ABSTRACT-CONNECT\n")
-	fmt.Fprintf(w, "  ABSTRACT-SENDTO ABSTRACT-RECVFROM ABSTRACT-RECV\n")
-	fmt.Fprintf(w, "  EXEC SYSTEM SHELL TEXT STALL PTY\n")
-	fmt.Fprintf(w, "  TLS TLS-CONNECT TLS-LISTEN TLS-L\n")
-	fmt.Fprintf(w, "  OPENSSL OPENSSL-CONNECT OPENSSL-LISTEN OPENSSL-L SSL SSL-CONNECT SSL-LISTEN SSL-L\n")
-	fmt.Fprintf(w, "  PROXY PROXY-CONNECT SOCKS4 SOCKS4A SOCKS5 SOCKS5-CONNECT SOCKS5-LISTEN SOCKS5-BIND\n")
-	fmt.Fprintf(w, "  TUN INTERFACE\n")
-	fmt.Fprintf(w, "  WS WS-CONNECT WSS WSS-CONNECT WS-LISTEN WS-L WSS-LISTEN WSS-L\n")
-	fmt.Fprintf(w, "  QUIC QUIC-CONNECT QUIC-LISTEN QUIC-L\n")
-	fmt.Fprintf(w, "  SCTP SCTP-CONNECT SCTP-LISTEN SCTP-L\n")
-	fmt.Fprintf(w, "  SCTP4 SCTP4-CONNECT SCTP4-LISTEN SCTP4-L\n")
-	fmt.Fprintf(w, "  SCTP6 SCTP6-CONNECT SCTP6-LISTEN SCTP6-L\n")
-	fmt.Fprintf(w, "  POSIXMQ POSIXMQ-BIDIRECTIONAL POSIXMQ-READ POSIXMQ-RECEIVE POSIXMQ-RECV POSIXMQ-SEND POSIXMQ-WRITE\n")
+	_, _ = fmt.Fprintf(w, "\nAddress types:\n")
+	_, _ = fmt.Fprintf(w, "  STDIO STDIN STDOUT STDERR FD PIPE FIFO ECHO OPEN FILE CREATE CREAT GOPEN\n")
+	_, _ = fmt.Fprintf(w, "  TCP TCP4 TCP6 TCP-CONNECT TCP4-CONNECT TCP6-CONNECT\n")
+	_, _ = fmt.Fprintf(w, "  TCP-LISTEN TCP4-LISTEN TCP6-LISTEN TCP-L TCP4-L TCP6-L\n")
+	_, _ = fmt.Fprintf(w, "  UDP UDP4 UDP6 UDP-CONNECT UDP4-CONNECT UDP6-CONNECT\n")
+	_, _ = fmt.Fprintf(w, "  UDP-LISTEN UDP4-LISTEN UDP6-LISTEN UDP-L UDP4-L UDP6-L\n")
+	_, _ = fmt.Fprintf(w, "  UDP-SENDTO UDP4-SENDTO UDP6-SENDTO UDP-SEND UDP4-SEND UDP6-SEND\n")
+	_, _ = fmt.Fprintf(w, "  UDP-DATAGRAM UDP4-DATAGRAM UDP6-DATAGRAM\n")
+	_, _ = fmt.Fprintf(w, "  UDP-RECV UDP4-RECV UDP6-RECV UDP-RECVFROM UDP4-RECVFROM UDP6-RECVFROM\n")
+	_, _ = fmt.Fprintf(w, "  IP IP4 IP6 IP-SENDTO IP4-SENDTO IP6-SENDTO IP-DATAGRAM IP4-DATAGRAM IP6-DATAGRAM\n")
+	_, _ = fmt.Fprintf(w, "  IP-RECV IP4-RECV IP6-RECV IP-RECVFROM IP4-RECVFROM IP6-RECVFROM\n")
+	_, _ = fmt.Fprintf(w, "  UNIX UNIX-CONNECT UNIX-CLIENT UNIX-LISTEN UNIX-L\n")
+	_, _ = fmt.Fprintf(w, "  UNIX-SENDTO UNIX-RECVFROM UNIX-RECV UNIX-DATAGRAM SOCKETPAIR\n")
+	_, _ = fmt.Fprintf(w, "  SOCKET-CONNECT SOCKET-LISTEN SOCKET-SENDTO SOCKET-DATAGRAM SOCKET-RECV SOCKET-RECVFROM\n")
+	_, _ = fmt.Fprintf(w, "  ABSTRACT-LISTEN ABSTRACT-L ABSTRACT-CLIENT ABSTRACT-CONNECT\n")
+	_, _ = fmt.Fprintf(w, "  ABSTRACT-SENDTO ABSTRACT-RECVFROM ABSTRACT-RECV\n")
+	_, _ = fmt.Fprintf(w, "  EXEC SYSTEM SHELL TEXT STALL PTY\n")
+	_, _ = fmt.Fprintf(w, "  TLS TLS-CONNECT TLS-LISTEN TLS-L\n")
+	_, _ = fmt.Fprintf(w, "  OPENSSL OPENSSL-CONNECT OPENSSL-LISTEN OPENSSL-L SSL SSL-CONNECT SSL-LISTEN SSL-L\n")
+	_, _ = fmt.Fprintf(w, "  PROXY PROXY-CONNECT SOCKS4 SOCKS4A SOCKS5 SOCKS5-CONNECT SOCKS5-LISTEN SOCKS5-BIND\n")
+	_, _ = fmt.Fprintf(w, "  TUN INTERFACE\n")
+	_, _ = fmt.Fprintf(w, "  WS WS-CONNECT WSS WSS-CONNECT WS-LISTEN WS-L WSS-LISTEN WSS-L\n")
+	_, _ = fmt.Fprintf(w, "  QUIC QUIC-CONNECT QUIC-LISTEN QUIC-L\n")
+	_, _ = fmt.Fprintf(w, "  SCTP SCTP-CONNECT SCTP-LISTEN SCTP-L\n")
+	_, _ = fmt.Fprintf(w, "  SCTP4 SCTP4-CONNECT SCTP4-LISTEN SCTP4-L\n")
+	_, _ = fmt.Fprintf(w, "  SCTP6 SCTP6-CONNECT SCTP6-LISTEN SCTP6-L\n")
+	_, _ = fmt.Fprintf(w, "  POSIXMQ POSIXMQ-BIDIRECTIONAL POSIXMQ-READ POSIXMQ-RECEIVE POSIXMQ-RECV POSIXMQ-SEND POSIXMQ-WRITE\n")
 	if level >= 2 {
 		// Honesty: only list options we actually honor. test.sh greps
 		//   [^a-z0-9-]<name>[^a-z0-9-]  — pad with spaces on both sides.
@@ -656,15 +656,15 @@ func printHelp(w io.Writer, level int) {
 			"mq-msgsize", "posixmq-msgsize",
 		}
 		opts = append(opts, xio.TermiosHelpNames()...)
-		fmt.Fprintln(w)
-		fmt.Fprint(w, "b:")
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprint(w, "b:")
 		for _, o := range opts {
-			fmt.Fprintf(w, " %s ", o)
+			_, _ = fmt.Fprintf(w, " %s ", o)
 		}
-		fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w)
 	}
 	if level >= 3 {
-		fmt.Fprintf(w, "\nCommon options: reuseaddr,fork,bind,connect-timeout,unlink-early,mode,pipes,setsid\n")
+		_, _ = fmt.Fprintf(w, "\nCommon options: reuseaddr,fork,bind,connect-timeout,unlink-early,mode,pipes,setsid\n")
 	}
 }
 

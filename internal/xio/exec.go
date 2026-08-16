@@ -428,10 +428,10 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		}
 		cleanup = append(cleanup, func() {
 			if stdin != nil {
-				stdin.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				_ = stdin.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			}
 			if stdout != nil {
-				stdout.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				_ = stdout.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			}
 		})
 	} else {
@@ -463,7 +463,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 			stream = FileStream(parent)
 		}
 		cleanup = append(cleanup, func() {
-			parent.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = parent.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		})
 	}
 
@@ -487,12 +487,12 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 			f()
 		}
 		if child != nil {
-			child.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = child.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		}
 		return nil, startErr
 	}
 	if child != nil {
-		child.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = child.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 	}
 
 	return finishExec(s, g, cmd, stream, cleanup, mode == ModeWrite)
@@ -510,7 +510,7 @@ func setCloexecAllFrom(from int) {
 	f, err := os.Open("/proc/self/fd")
 	if err == nil {
 		names, _ := f.Readdirnames(-1)
-		f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		for _, name := range names {
 			fd, err := strconv.Atoi(name)
 			if err != nil || fd < from {
@@ -557,11 +557,11 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		cmd.SysProcAttr.Setctty = !s.HasOption("ctty") || s.BoolOption("ctty")
 		_ = ApplyTermios(int(slave.Fd()), s)
 		if err := cmd.Start(); err != nil {
-			master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-			slave.Close()  // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = slave.Close()  // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, err
 		}
-		slave.Close() // #nosec G104 -- child inherited the slave; parent must drop its copy
+		_ = slave.Close() // #nosec G104 -- child inherited the slave; parent must drop its copy
 		applyPtyOpts(s, ptmx)
 		w := &halfCloseWriter{w: ptmx}
 		stream := relay.FDStream{
@@ -570,7 +570,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { w.closeWrite(); return nil },
 		}
-		return finishExec(s, g, cmd, stream, []func(){func() { ptmx.Close() }}, true) // #nosec G104 -- Close on cleanup; the first error is already returned
+		return finishExec(s, g, cmd, stream, []func(){func() { _ = ptmx.Close() }}, true) // #nosec G104 -- Close on cleanup; the first error is already returned
 
 	case ModeRead:
 		// Inherit stdin; only stdout/stderr on PTY slave.
@@ -594,11 +594,11 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		cmd.SysProcAttr.Ctty = 1
 		_ = ApplyTermios(int(slave.Fd()), s)
 		if err := cmd.Start(); err != nil {
-			master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-			slave.Close()  // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = slave.Close()  // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, err
 		}
-		slave.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = slave.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		applyPtyOpts(s, ptmx)
 		stream := relay.FDStream{
 			R:      ptmx,
@@ -606,7 +606,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { return nil },
 		}
-		return finishExec(s, g, cmd, stream, []func(){func() { ptmx.Close() }}, false) // #nosec G104 -- Close on cleanup; the first error is already returned
+		return finishExec(s, g, cmd, stream, []func(){func() { _ = ptmx.Close() }}, false) // #nosec G104 -- Close on cleanup; the first error is already returned
 
 	default:
 		ptmx, err = startOnPTY(cmd, s)
@@ -614,7 +614,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}
 		applyPtyOpts(s, ptmx)
-		return finishExec(s, g, cmd, PtyExecStream(ptmx), []func(){func() { ptmx.Close() }}, false) // #nosec G104 -- Close on cleanup; the first error is already returned
+		return finishExec(s, g, cmd, PtyExecStream(ptmx), []func(){func() { _ = ptmx.Close() }}, false) // #nosec G104 -- Close on cleanup; the first error is already returned
 	}
 }
 

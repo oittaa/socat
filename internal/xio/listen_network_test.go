@@ -70,7 +70,7 @@ func TestTLSListenHonorsDefaultListenIP6(t *testing.T) {
 		t.Skipf("no IPv6 loopback: %v", err)
 	}
 	port := ln0.Addr().(*net.TCPAddr).Port
-	ln0.Close()
+	_ = ln0.Close()
 
 	certPath, err := tlsopen.WriteTempListenCert(t.TempDir())
 	if err != nil {

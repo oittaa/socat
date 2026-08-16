@@ -25,7 +25,7 @@ func TestPTYLinkCreatesSymlink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	st, err := os.Lstat(link)
 	if err != nil {
 		t.Fatalf("symlink missing: %v", err)

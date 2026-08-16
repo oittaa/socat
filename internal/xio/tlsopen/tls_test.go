@@ -55,7 +55,7 @@ func TestPostQuantumHybridKeyExchange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	srvCfg := &tls.Config{
 		Certificates:     []tls.Certificate{cert},
@@ -78,13 +78,13 @@ func TestPostQuantumHybridKeyExchange(t *testing.T) {
 		}
 		tc := tls.Server(c, srvCfg)
 		if err := tc.Handshake(); err != nil {
-			c.Close()
+			_ = c.Close()
 			errCh <- err
 			return
 		}
 		srvCurve = tc.ConnectionState().CurveID
 		_, _ = tc.Write([]byte("pq-ok"))
-		tc.Close()
+		_ = tc.Close()
 		errCh <- nil
 	}()
 
@@ -102,7 +102,7 @@ func TestPostQuantumHybridKeyExchange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tc.Close()
+	_ = tc.Close()
 	if err := <-errCh; err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestTLSServerVerifyRejectsUntrustedClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	dir := t.TempDir()
 	srvPath := writeTLSCert(t, dir, "srv", srv)
 	sCfg, err := tlsServerConfig(parse.Spec{
@@ -293,7 +293,7 @@ func TestTLSServerVerifyRejectsUntrustedClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	tc := tls.Client(raw, &tls.Config{
 		InsecureSkipVerify: true,
 		Certificates:       []tls.Certificate{cli},
@@ -435,7 +435,7 @@ func handshakeClientToLocal(t *testing.T, srvCert tls.Certificate, spec parse.Sp
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	errCh := make(chan error, 1)
 	go func() {
 		c, err := ln.Accept()
@@ -455,11 +455,11 @@ func handshakeClientToLocal(t *testing.T, srvCert tls.Certificate, spec parse.Sp
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	cli := tls.Client(raw, cfg)
 	herr := cli.Handshake()
 	_ = cli.Close()
-	_ = <-errCh
+	<-errCh
 	return herr
 }
 

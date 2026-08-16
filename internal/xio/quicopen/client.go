@@ -111,15 +111,15 @@ func openQUICConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 
 	conn, err := dialOnce(ctx)
 	if err != nil {
-		o.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = o.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	xio.RememberAddrs(g, conn)
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		o.Close()    // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = o.Close()    // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	o.Stream = st

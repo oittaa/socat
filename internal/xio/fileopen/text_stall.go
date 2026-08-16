@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"syscall"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -62,7 +61,7 @@ func openSTALL(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 		return nil, fmt.Errorf("STALL: wrong number of parameters (expected 0)")
 	}
 	var r io.Reader = xio.EOFReader{}
-	var w io.Writer = io.Discard
+	var w = io.Discard
 	var cleanup []func()
 	var closeFDs []int
 
@@ -76,8 +75,8 @@ func openSTALL(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 		r = pr
 		closeFDs = append(closeFDs, int(pr.Fd()), int(pw.Fd()))
 		cleanup = append(cleanup, func() {
-			pr.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-			pw.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = pr.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = pw.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		})
 	}
 
@@ -95,8 +94,8 @@ func openSTALL(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 		w = pw
 		closeFDs = append(closeFDs, int(pr.Fd()), int(pw.Fd()))
 		cleanup = append(cleanup, func() {
-			pr.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-			pw.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = pr.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = pw.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		})
 	}
 
@@ -154,40 +153,3 @@ func (m multiCloserFuncs) Close() error {
 	}
 	return nil
 }
-
-// expandEscapes handles common classic socat string escapes.
-func expandEscapes(s string) []byte {
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] != '\\' || i+1 >= len(s) {
-			b.WriteByte(s[i])
-			continue
-		}
-		i++
-		switch s[i] {
-		case 'n':
-			b.WriteByte('\n')
-		case 'r':
-			b.WriteByte('\r')
-		case 't':
-			b.WriteByte('\t')
-		case '0':
-			b.WriteByte(0)
-		case '\\':
-			b.WriteByte('\\')
-		case 'x':
-			if i+2 < len(s) {
-				var v byte
-				fmt.Sscanf(s[i+1:i+3], "%02x", &v) // #nosec G104 -- escape parse is best-effort; invalid hex stays zero
-				b.WriteByte(v)
-				i += 2
-			}
-		default:
-			b.WriteByte(s[i])
-		}
-	}
-	return []byte(b.String())
-}
-
-// silence
-var _ = syscall.O_NONBLOCK

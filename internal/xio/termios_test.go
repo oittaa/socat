@@ -13,8 +13,8 @@ func TestApplyTermiosEchoAndWinsz(t *testing.T) {
 	if err != nil {
 		t.Skipf("pty: %v", err)
 	}
-	defer master.Close()
-	defer slave.Close()
+	defer func() { _ = master.Close() }()
+	defer func() { _ = slave.Close() }()
 
 	s, err := parse.ParseSpec("PTY,echo=0,tiocswinsz=177:37")
 	if err != nil {
@@ -44,8 +44,8 @@ func TestRestoreTermios(t *testing.T) {
 	if err != nil {
 		t.Skipf("pty: %v", err)
 	}
-	defer master.Close()
-	defer slave.Close()
+	defer func() { _ = master.Close() }()
+	defer func() { _ = slave.Close() }()
 
 	before, err := unix.IoctlGetTermios(int(slave.Fd()), unix.TCGETS)
 	if err != nil {
@@ -93,10 +93,10 @@ func TestWaitPTYSlave(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	s2, err := unix.Open(name, unix.O_RDWR|unix.O_NOCTTY, 0)
 	if err != nil {
-		master.Close()
+		_ = master.Close()
 		t.Fatal(err)
 	}
-	defer unix.Close(s2)
+	defer func() { _ = unix.Close(s2) }()
 	select {
 	case err := <-done:
 		if err != nil {
@@ -105,7 +105,7 @@ func TestWaitPTYSlave(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("wait-slave timeout")
 	}
-	master.Close()
+	_ = master.Close()
 }
 
 func TestParseWinsz(t *testing.T) {

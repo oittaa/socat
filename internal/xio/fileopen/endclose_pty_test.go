@@ -17,7 +17,7 @@ func TestPTYEndCloseTransferExits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer null.Close()
+	defer func() { _ = null.Close() }()
 	left := xio.FileStream(null)
 
 	ptySpec := parse.Spec{Type: "PTY", Options: []parse.Option{{Name: "end-close"}}}
@@ -27,7 +27,7 @@ func TestPTYEndCloseTransferExits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	right := o.Stream
 
 	cfg := relay.Config{

@@ -40,7 +40,7 @@ func freeUDPPort(t *testing.T) int {
 		t.Fatal(err)
 	}
 	port := pc.LocalAddr().(*net.UDPAddr).Port
-	pc.Close()
+	_ = pc.Close()
 	return port
 }
 
@@ -53,7 +53,7 @@ func waitUDPPort(t *testing.T, port int, d time.Duration) {
 		if err != nil {
 			return
 		}
-		pc.Close()
+		_ = pc.Close()
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("listen not ready")
@@ -102,7 +102,7 @@ func TestQUICListenConnectEcho(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	echoRoundtrip(t, o.Stream, []byte("quic-roundtrip"))
 }
 
@@ -144,7 +144,7 @@ func TestQUICVerifySucceedsWithTrustedCerts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	echoRoundtrip(t, o.Stream, []byte("quic-verify-ok"))
 }
 
@@ -181,7 +181,7 @@ func TestQUICListenForkTwoClients(t *testing.T) {
 			t.Fatalf("client %d: %v", i, err)
 		}
 		echoRoundtrip(t, o.Stream, []byte(msg))
-		o.Close()
+		_ = o.Close()
 	}
 }
 
@@ -200,7 +200,7 @@ func TestQUICHalfClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	payload := []byte("half-close")
 	if _, err := o.Stream.Write(payload); err != nil {
 		t.Fatal(err)

@@ -1,5 +1,6 @@
-# Start from golangci-lint "standard" (errcheck, govet, ineffassign,
-# staticcheck, unused). testdata/ is third-party and is not linted.
+# golangci-lint default: standard
+# (errcheck, govet, ineffassign, staticcheck, unused).
+# testdata/ is third-party and is not linted.
 version: "2"
 
 run:
@@ -7,25 +8,6 @@ run:
 
 linters:
   default: standard
-  disable:
-    # Same Close() sites as gosec G104; those lines already have #nosec.
-    - errcheck
-    # Dead helpers (TEXT/DALAN leftovers). Enable after a cleanup.
-    - unused
-  settings:
-    staticcheck:
-      checks:
-        - all
-        # Style / doc nits, not defects.
-        - -QF1002
-        - -QF1003
-        - -QF1008
-        - -QF1011
-        - -S1005
-        - -ST1000
-        - -ST1005
-        - -ST1020
-        - -SA4008
   exclusions:
     paths:
       - testdata

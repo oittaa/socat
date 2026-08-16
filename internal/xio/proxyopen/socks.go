@@ -91,16 +91,16 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 				req = append(req, 0)
 			}
 			if _, e := c.Write(req); e != nil {
-				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return e
 			}
 			var resp [8]byte
 			if _, e := io.ReadFull(c, resp[:]); e != nil {
-				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return fmt.Errorf("socks4 reply: %w", e)
 			}
 			if resp[1] != 90 {
-				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return fmt.Errorf("socks4 rejected (cd=%d)", resp[1])
 			}
 			conn = c
@@ -142,7 +142,7 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	xio.RememberAddrs(g, conn)
 	st, err := wrap(conn)
 	if err != nil {
-		conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	_ = mode
@@ -221,27 +221,27 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 			}
 			greet := append([]byte{5, byte(len(methods))}, methods...) // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
 			if _, e := c.Write(greet); e != nil {
-				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return e
 			}
 			var hello [2]byte
 			if _, e := io.ReadFull(c, hello[:]); e != nil {
-				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return fmt.Errorf("socks5 hello: %w", e)
 			}
 			if hello[0] != 5 {
-				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return fmt.Errorf("socks5: bad version %d", hello[0])
 			}
 			switch hello[1] {
 			case 0:
 			case 2:
 				if user == "" {
-					c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+					_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 					return fmt.Errorf("socks5: server requires username/password")
 				}
 				if len(user) > 255 || len(pass) > 255 {
-					c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+					_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 					return fmt.Errorf("socks5: credentials too long")
 				}
 				auth := []byte{1, byte(len(user))} // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
@@ -249,23 +249,23 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 				auth = append(auth, byte(len(pass))) // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
 				auth = append(auth, []byte(pass)...)
 				if _, e := c.Write(auth); e != nil {
-					c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+					_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 					return e
 				}
 				var aresp [2]byte
 				if _, e := io.ReadFull(c, aresp[:]); e != nil {
-					c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+					_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 					return fmt.Errorf("socks5 auth reply: %w", e)
 				}
 				if aresp[1] != 0 {
-					c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+					_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 					return fmt.Errorf("socks5 auth failed (status=%d)", aresp[1])
 				}
 			case 0xff:
-				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return fmt.Errorf("socks5: no acceptable auth method")
 			default:
-				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return fmt.Errorf("socks5: unsupported auth method %d", hello[1])
 			}
 
@@ -273,17 +273,17 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 			req = append(req, addrBytes...)
 			req = binary.BigEndian.AppendUint16(req, uint16(portNum)) // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
 			if _, e := c.Write(req); e != nil {
-				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return e
 			}
 			if e := socks5ReadReply(c); e != nil {
-				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return e
 			}
 			if cmd == socks5CmdBind {
 				// First reply: remote listen ready. Second: incoming peer.
 				if e := socks5ReadReply(c); e != nil {
-					c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+					_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 					return e
 				}
 			}
@@ -326,7 +326,7 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	xio.RememberAddrs(g, conn)
 	st, err := wrap(conn)
 	if err != nil {
-		conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	_ = mode

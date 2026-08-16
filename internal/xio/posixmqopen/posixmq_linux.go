@@ -271,7 +271,7 @@ func flushQueue(name string) error {
 		}
 		return fmt.Errorf("mq_open(%q) flush: %w", name, err)
 	}
-	defer mqClose(fd)
+	defer func() { _ = mqClose(fd) }()
 	var attr mqAttr
 	if err := mqGetattr(fd, &attr); err != nil {
 		return fmt.Errorf("mq_getattr flush: %w", err)

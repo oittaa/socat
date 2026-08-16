@@ -116,7 +116,7 @@ func run(args []string) int {
 			return 1
 		}
 		if f != os.Stdout && f != os.Stderr && f != os.Stdin {
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 		}
 		out = f
 	}
@@ -138,7 +138,7 @@ func run(args []string) int {
 	}
 	// Classic header line (LISTEN_KEEPALIVE uses tail -n +2 to skip it).
 	if style != 1 {
-		fmt.Fprintln(out, "  FD  typedeviceinodemodelinksuidgidrdevsizeblksizeblocksatimemtimectimecloexecflagssigownsigio")
+		_, _ = fmt.Fprintln(out, "  FD  typedeviceinodemodelinksuidgidrdevsizeblksizeblocksatimemtimectimecloexecflagssigownsigio")
 	}
 	for fd := m; fd < n; fd++ {
 		if style == 1 {
@@ -182,17 +182,17 @@ func openOut(name string) (*os.File, error) {
 }
 
 func usage(w io.Writer) {
-	fmt.Fprintln(w, "filan by oittaa — analyze file descriptors (Go reimplementation of socat filan)")
-	fmt.Fprintln(w, "Usage: filan [options]")
-	fmt.Fprintln(w, "  -h|-?        help")
-	fmt.Fprintln(w, "  -i<fdnum>    only analyze this fd")
-	fmt.Fprintln(w, "  -n<fdnum>    analyze fds 0..fdnum-1")
-	fmt.Fprintln(w, "  -s           simple output")
-	fmt.Fprintln(w, "  -f<filename> analyze filesystem entry")
-	fmt.Fprintln(w, "  -T<seconds>  wait before analyzing")
-	fmt.Fprintln(w, "  -r           raw time/rdev output")
-	fmt.Fprintln(w, "  -L           follow symlinks")
-	fmt.Fprintln(w, "  -o<filename> output file")
+	_, _ = fmt.Fprintln(w, "filan by oittaa — analyze file descriptors (Go reimplementation of socat filan)")
+	_, _ = fmt.Fprintln(w, "Usage: filan [options]")
+	_, _ = fmt.Fprintln(w, "  -h|-?        help")
+	_, _ = fmt.Fprintln(w, "  -i<fdnum>    only analyze this fd")
+	_, _ = fmt.Fprintln(w, "  -n<fdnum>    analyze fds 0..fdnum-1")
+	_, _ = fmt.Fprintln(w, "  -s           simple output")
+	_, _ = fmt.Fprintln(w, "  -f<filename> analyze filesystem entry")
+	_, _ = fmt.Fprintln(w, "  -T<seconds>  wait before analyzing")
+	_, _ = fmt.Fprintln(w, "  -r           raw time/rdev output")
+	_, _ = fmt.Fprintln(w, "  -L           follow symlinks")
+	_, _ = fmt.Fprintln(w, "  -o<filename> output file")
 }
 
 func filanFile(path string, out io.Writer) error {
@@ -217,7 +217,7 @@ func filanFile(path string, out io.Writer) error {
 		f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOCTTY|unix.O_NONBLOCK, 0) // #nosec G304 G703 -- filan opens the path or fd the user asked to inspect
 		if err == nil {
 			fd = int(f.Fd())
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 		}
 	}
 	printStat(-1, fd, &st, out)
@@ -225,10 +225,10 @@ func filanFile(path string, out io.Writer) error {
 	// LINKTARGET=... (no space before the keyword).
 	if !followSymlinks && st.Mode&unix.S_IFMT == unix.S_IFLNK {
 		if target, err := os.Readlink(path); err == nil {
-			fmt.Fprintf(out, "LINKTARGET=%s", target)
+			_, _ = fmt.Fprintf(out, "LINKTARGET=%s", target)
 		}
 	}
-	fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out)
 	return nil
 }
 
@@ -243,9 +243,9 @@ func filanFD(fd int, out io.Writer) {
 	// cloexec / flags
 	cloexec, _ := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
 	flags, _ := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
-	fmt.Fprintf(out, "\t%d\tx%06x", cloexec, flags)
+	_, _ = fmt.Fprintf(out, "\t%d\tx%06x", cloexec, flags)
 	if own, err := unix.FcntlInt(uintptr(fd), unix.F_GETOWN, 0); err == nil {
-		fmt.Fprintf(out, "\t%d", own)
+		_, _ = fmt.Fprintf(out, "\t%d", own)
 	}
 	// socket extras
 	if st.Mode&unix.S_IFMT == unix.S_IFSOCK {
@@ -253,15 +253,15 @@ func filanFD(fd int, out io.Writer) {
 	}
 	// try path from /proc
 	if p, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd)); err == nil {
-		fmt.Fprintf(out, "\t%s", p)
+		_, _ = fmt.Fprintf(out, "\t%s", p)
 	}
 	if st.Mode&unix.S_IFMT == unix.S_IFCHR {
 		if ws, err := unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ); err == nil {
-			fmt.Fprintf(out, " terminal window size:   %dx%d terminal window pixels: %dx%d",
+			_, _ = fmt.Fprintf(out, " terminal window size:   %dx%d terminal window pixels: %dx%d",
 				ws.Col, ws.Row, ws.Xpixel, ws.Ypixel)
 		}
 	}
-	fmt.Fprintln(out)
+	_, _ = fmt.Fprintln(out)
 }
 
 func printStat(dynfd, statfd int, st *unix.Stat_t, out io.Writer) {
@@ -273,7 +273,7 @@ func printStat(dynfd, statfd int, st *unix.Stat_t, out io.Writer) {
 	if rawOutput {
 		devStr = fmt.Sprintf("%d", st.Dev)
 	}
-	fmt.Fprintf(out, "%4d: %s\t%s\t%d\t%06o\t%d\t%d\t%d",
+	_, _ = fmt.Fprintf(out, "%4d: %s\t%s\t%d\t%06o\t%d\t%d\t%d",
 		fdshow,
 		fileTypeString(st.Mode),
 		devStr,
@@ -284,11 +284,11 @@ func printStat(dynfd, statfd int, st *unix.Stat_t, out io.Writer) {
 		st.Gid,
 	)
 	if st.Mode&unix.S_IFMT == unix.S_IFCHR || st.Mode&unix.S_IFMT == unix.S_IFBLK {
-		fmt.Fprintf(out, "\t%d,%d", unix.Major(uint64(st.Rdev)), unix.Minor(uint64(st.Rdev)))
+		_, _ = fmt.Fprintf(out, "\t%d,%d", unix.Major(uint64(st.Rdev)), unix.Minor(uint64(st.Rdev)))
 	} else {
-		fmt.Fprintf(out, "\t")
+		_, _ = fmt.Fprintf(out, "\t")
 	}
-	fmt.Fprintf(out, "\t%d", st.Size)
+	_, _ = fmt.Fprintf(out, "\t%d", st.Size)
 	printTime(out, st.Atim.Sec)
 	printTime(out, st.Mtim.Sec)
 	printTime(out, st.Ctim.Sec)
@@ -296,11 +296,11 @@ func printStat(dynfd, statfd int, st *unix.Stat_t, out io.Writer) {
 
 func printTime(out io.Writer, sec int64) {
 	if rawOutput {
-		fmt.Fprintf(out, "\t%d", sec)
+		_, _ = fmt.Fprintf(out, "\t%d", sec)
 		return
 	}
 	t := time.Unix(sec, 0).Local()
-	fmt.Fprintf(out, "\t%s", t.Format("2006-01-02 15:04:05"))
+	_, _ = fmt.Fprintf(out, "\t%s", t.Format("2006-01-02 15:04:05"))
 }
 
 // fileTypeString matches classic filan getfiletypestring() (test.sh greps these).
@@ -330,25 +330,25 @@ func printSocket(fd int, out io.Writer) {
 	if err != nil {
 		return
 	}
-	fmt.Fprintf(out, "\t%s", sockAddrString(sa))
+	_, _ = fmt.Fprintf(out, "\t%s", sockAddrString(sa))
 	// peer
 	if pa, err := unix.Getpeername(fd); err == nil {
-		fmt.Fprintf(out, "\t%s", sockAddrString(pa))
+		_, _ = fmt.Fprintf(out, "\t%s", sockAddrString(pa))
 	}
 	// SO_TYPE
 	v, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_TYPE)
 	if err == nil {
 		switch v {
 		case unix.SOCK_STREAM:
-			fmt.Fprint(out, "\tSTREAM")
+			_, _ = fmt.Fprint(out, "\tSTREAM")
 		case unix.SOCK_DGRAM:
-			fmt.Fprint(out, "\tDGRAM")
+			_, _ = fmt.Fprint(out, "\tDGRAM")
 		case unix.SOCK_RAW:
-			fmt.Fprint(out, "\tRAW")
+			_, _ = fmt.Fprint(out, "\tRAW")
 		case unix.SOCK_SEQPACKET:
-			fmt.Fprint(out, "\tSEQPACKET")
+			_, _ = fmt.Fprint(out, "\tSEQPACKET")
 		default:
-			fmt.Fprintf(out, "\ttype=%d", v)
+			_, _ = fmt.Fprintf(out, "\ttype=%d", v)
 		}
 	}
 	// Classic sockopts used by test.sh (LISTEN_KEEPALIVE greps KEEPALIVE=).
@@ -377,7 +377,7 @@ func printSockoptInt(out io.Writer, fd, level, opt int, name string) {
 		return
 	}
 	// Classic separates sockopts with TAB so test.sh sed can strip after KEEPALIVE=1.
-	fmt.Fprintf(out, "\t%s=%d", name, v)
+	_, _ = fmt.Fprintf(out, "\t%s=%d", name, v)
 }
 
 func sockAddrString(sa unix.Sockaddr) string {
@@ -431,7 +431,7 @@ func fdname(fd int, out io.Writer) {
 	if fd >= 3 && isRuntimeNoisePath(path) {
 		return
 	}
-	fmt.Fprintf(out, "%5d %s %s\n", fd, typ, path)
+	_, _ = fmt.Fprintf(out, "%5d %s %s\n", fd, typ, path)
 }
 
 // shortSocketName matches classic filan -s sockname() for AF_INET/INET6/UNIX.
@@ -468,11 +468,12 @@ func shortSocketName(fd int) (typ, addrs string) {
 		case unix.IPPROTO_RAW:
 			typ = "raw"
 		default:
-			if stype == unix.SOCK_STREAM {
+			switch stype {
+			case unix.SOCK_STREAM:
 				typ = "tcp" + listenTag
-			} else if stype == unix.SOCK_DGRAM {
+			case unix.SOCK_DGRAM:
 				typ = "udp"
-			} else {
+			default:
 				typ = fmt.Sprintf("proto%d", proto)
 			}
 		}

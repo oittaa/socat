@@ -23,15 +23,15 @@ func TestTransferEndCloseExitsAfterLinger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer null.Close()
+	defer func() { _ = null.Close() }()
 
 	// right: pipe whose write end we keep open so Read never EOFs
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pr.Close()
-	defer pw.Close() // keep open → no EOF on pr
+	defer func() { _ = pr.Close() }()
+	defer func() { _ = pw.Close() }() // keep open → no EOF on pr
 
 	left := FDStream{R: null, W: null, C: null, CloseW: func() error { return nil }}
 	rightInner := FDStream{R: pr, W: pr, C: pr, CloseW: func() error { return nil }}

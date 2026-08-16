@@ -63,7 +63,7 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	return &xio.Opened{Stream: st, Label: "UDP:" + addr}, nil
@@ -143,11 +143,11 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		}()
 		select {
 		case <-ctx.Done():
-			pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, ctx.Err()
 		case r := <-ch:
 			if r.e != nil {
-				pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return nil, r.e
 			}
 			fake := &udpPeerConn{addr: r.a}
@@ -191,7 +191,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	return &xio.Opened{Stream: st, Label: "UDP-LISTEN"}, nil
@@ -274,7 +274,7 @@ func dialUDPSession(network string, local, remote *net.UDPAddr) (*net.UDPConn, e
 	}
 	uc, ok := c.(*net.UDPConn)
 	if !ok {
-		c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("UDP session: unexpected conn type")
 	}
 	return uc, nil
@@ -380,7 +380,6 @@ type udpRecvFromConn struct {
 	uc       *net.UDPConn
 	peer     *net.UDPAddr
 	first    []byte
-	got      bool
 	closeEOF bool // after first payload: further Read → EOF (one-shot UDP-LISTEN)
 	wantCtrl bool
 	g        *xio.Global
@@ -430,9 +429,6 @@ func (u *udpRecvFromConn) SetReadDeadline(t time.Time) error {
 func (u *udpRecvFromConn) SetWriteDeadline(t time.Time) error {
 	return u.uc.SetWriteDeadline(t)
 }
-
-// Legacy name used by listen path
-type udpFirstPacket = udpRecvFromConn
 
 // UDP*-SENDTO is classic unconnected sendto/recvfrom (not connect).
 func openUDPSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
@@ -492,7 +488,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 			st := &udpDatagramConn{UDPConn: c, raddr: raddr}
 			wrapped, err := xio.WrapCommon(s, st)
 			if err != nil {
-				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return nil, err
 			}
 			_ = port
@@ -540,7 +536,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 	}
 	c, ok := pc.(*net.UDPConn)
 	if !ok {
-		pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("UDP: unexpected packet conn type")
 	}
 	if s.BoolOption("broadcast") {
@@ -556,7 +552,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 	st := &udpDatagramConn{UDPConn: c, raddr: raddr}
 	wrapped, err := xio.WrapCommon(s, st)
 	if err != nil {
-		c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	_ = g
@@ -581,7 +577,7 @@ type udpDatagramConn struct {
 
 func (u *udpDatagramConn) Write(p []byte) (int, error) {
 	// Allow 0-byte writes (shut-null sends empty datagram).
-	return u.UDPConn.WriteToUDP(p, u.raddr)
+	return u.WriteToUDP(p, u.raddr)
 }
 
 // bindUDPLowport tries ports 1023..640 (classic lowport). Logs bind like SYCLS for tests.
@@ -606,7 +602,7 @@ func bindUDPLowport(ctx context.Context, network, bind string, s parse.Spec, g *
 		}
 		c, ok := pc.(*net.UDPConn)
 		if !ok {
-			pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			last = fmt.Errorf("not UDPConn")
 			continue
 		}
@@ -715,11 +711,11 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			}()
 			select {
 			case <-ctx.Done():
-				pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return nil, ctx.Err()
 			case r := <-ch:
 				if r.e != nil {
-					pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+					_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 					return nil, r.e
 				}
 				if err := xio.PeerAllowedG(s, &udpPeerConn{addr: r.a}, g); err != nil {
@@ -746,7 +742,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		})
 		st, err = xio.WrapCommon(s, st)
 		if err != nil {
-			pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, err
 		}
 		return &xio.Opened{
@@ -756,7 +752,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	}
 	// RECV: merge all packets, read-only, with peer filters.
 	if mode == xio.ModeWrite {
-		pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("UDP-RECV is read-only")
 	}
 	st := relay.Stream(&udpFilteredRecv{
@@ -767,7 +763,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	return &xio.Opened{
@@ -832,7 +828,7 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 	// ip-add-membership=mcastaddr:interfaceaddr (classic form).
 	if v := s.OptionValue("ip-add-membership", ""); v != "" {
 		if err := joinMulticast(c, network, v); err != nil {
-			c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, err
 		}
 	}

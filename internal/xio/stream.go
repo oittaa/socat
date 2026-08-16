@@ -315,7 +315,7 @@ type shutNullStream struct {
 }
 
 func (s shutNullStream) ShutdownWrite() error {
-	_, _ = s.Stream.Write(nil) // 0-byte datagram
+	_, _ = s.Write(nil) // 0-byte datagram
 	return s.Stream.ShutdownWrite()
 }
 
