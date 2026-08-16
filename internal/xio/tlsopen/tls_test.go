@@ -117,6 +117,22 @@ func TestPostQuantumHybridKeyExchange(t *testing.T) {
 	}
 }
 
+func TestTLSClientEmptyCommonNameKeepsDialSNI(t *testing.T) {
+	cfg, err := tlsClientConfig(parse.Spec{
+		Type: "TLS",
+		Options: []parse.Option{
+			{Name: "commonname", Value: "", Has: true},
+			{Name: "verify", Value: "0"},
+		},
+	}, "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ServerName != "example.com" {
+		t.Fatalf("ServerName=%q want example.com", cfg.ServerName)
+	}
+}
+
 func TestTLSClientNoSNI(t *testing.T) {
 	cfg, err := tlsClientConfig(parse.Spec{
 		Type: "TLS",
@@ -239,6 +255,163 @@ func TestTLSServerVerifyRejectsUntrustedClient(t *testing.T) {
 	}
 }
 
+func TestCommonNameOption(t *testing.T) {
+	unset, err := parse.ParseSpec("TLS:127.0.0.1:443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name, set := commonNameOption(unset); set || name != "" {
+		t.Fatalf("unset: name=%q set=%v", name, set)
+	}
+
+	empty, err := parse.ParseSpec("TLS:127.0.0.1:443,commonname=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name, set := commonNameOption(empty); !set || name != "" {
+		t.Fatalf("empty: name=%q set=%v", name, set)
+	}
+
+	alias, err := parse.ParseSpec("TLS:127.0.0.1:443,openssl-commonname=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name, set := commonNameOption(alias); !set || name != "" {
+		t.Fatalf("openssl-commonname=: name=%q set=%v", name, set)
+	}
+
+	named, err := parse.ParseSpec("TLS:127.0.0.1:443,commonname=localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if name, set := commonNameOption(named); !set || name != "localhost" {
+		t.Fatalf("named: name=%q set=%v", name, set)
+	}
+}
+
+func TestTLSClientCommonNameCheck(t *testing.T) {
+	// Cert is for DNS:localhost only. Dial target is 127.0.0.1.
+	// Classic: no commonname → name check fails; commonname=localhost → pass;
+	// empty commonname= → skip name check, still verify the CA.
+	ca, leaf, leafKey, err := testCAAndLeafKey("localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	caPath := filepath.Join(dir, "ca.pem")
+	if err := os.WriteFile(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	srvCert := tls.Certificate{Certificate: [][]byte{leaf.Raw}, PrivateKey: leafKey}
+
+	cases := []struct {
+		name    string
+		opts    []parse.Option
+		wantErr bool
+	}{
+		{
+			name: "unset-checks-dial-host",
+			opts: []parse.Option{
+				{Name: "verify", Value: "1", Has: true},
+				{Name: "cafile", Value: caPath, Has: true},
+			},
+			wantErr: true,
+		},
+		{
+			name: "commonname-localhost",
+			opts: []parse.Option{
+				{Name: "verify", Value: "1", Has: true},
+				{Name: "cafile", Value: caPath, Has: true},
+				{Name: "commonname", Value: "localhost", Has: true},
+			},
+		},
+		{
+			name: "empty-commonname-skips-name",
+			opts: []parse.Option{
+				{Name: "verify", Value: "1", Has: true},
+				{Name: "cafile", Value: caPath, Has: true},
+				{Name: "commonname", Value: "", Has: true},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := handshakeClientToLocal(t, srvCert, parse.Spec{Type: "TLS", Options: tc.opts}, "127.0.0.1")
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected name-check failure")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("handshake: %v", err)
+			}
+		})
+	}
+}
+
+func TestTLSClientEmptyCommonNameStillVerifiesTrust(t *testing.T) {
+	// Empty commonname= must not become verify=0: an untrusted leaf still fails.
+	leaf, err := ephemeralSelfSigned()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca, _, err := testCAAndLeaf("other")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	caPath := filepath.Join(dir, "ca.pem")
+	if err := os.WriteFile(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err = handshakeClientToLocal(t, leaf, parse.Spec{
+		Type: "TLS",
+		Options: []parse.Option{
+			{Name: "verify", Value: "1", Has: true},
+			{Name: "cafile", Value: caPath, Has: true},
+			{Name: "commonname", Value: "", Has: true},
+		},
+	}, "127.0.0.1")
+	if err == nil {
+		t.Fatal("expected trust failure with empty commonname=")
+	}
+}
+
+func handshakeClientToLocal(t *testing.T, srvCert tls.Certificate, spec parse.Spec, dialName string) error {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	errCh := make(chan error, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		tc := tls.Server(c, &tls.Config{Certificates: []tls.Certificate{srvCert}})
+		errCh <- tc.Handshake()
+		_ = tc.Close()
+	}()
+	cfg, err := tlsClientConfig(spec, dialName)
+	if err != nil {
+		return err
+	}
+	raw, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	cli := tls.Client(raw, cfg)
+	herr := cli.Handshake()
+	_ = cli.Close()
+	_ = <-errCh
+	return herr
+}
+
 func TestLoadCAPath(t *testing.T) {
 	ca, leaf, err := testCAAndLeaf("localhost")
 	if err != nil {
@@ -278,9 +451,14 @@ func writeTLSCert(t *testing.T, dir, name string, cert tls.Certificate) string {
 }
 
 func testCAAndLeaf(dns string) (*x509.Certificate, *x509.Certificate, error) {
+	ca, leaf, _, err := testCAAndLeafKey(dns)
+	return ca, leaf, err
+}
+
+func testCAAndLeafKey(dns string) (*x509.Certificate, *x509.Certificate, ed25519.PrivateKey, error) {
 	caPub, caKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	caTmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
@@ -293,15 +471,15 @@ func testCAAndLeaf(dns string) (*x509.Certificate, *x509.Certificate, error) {
 	}
 	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, caPub, caKey)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	caCert, err := x509.ParseCertificate(caDER)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	leafPub, _, err := ed25519.GenerateKey(rand.Reader)
+	leafPub, leafKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	leafTmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(2),
@@ -315,11 +493,11 @@ func testCAAndLeaf(dns string) (*x509.Certificate, *x509.Certificate, error) {
 	}
 	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, caCert, leafPub, caKey)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	leaf, err := x509.ParseCertificate(leafDER)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return caCert, leaf, nil
+	return caCert, leaf, leafKey, nil
 }

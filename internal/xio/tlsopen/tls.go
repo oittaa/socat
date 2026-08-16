@@ -278,12 +278,16 @@ func verifyEnabled(s parse.Spec) bool {
 	return s.BoolOption("verify")
 }
 
-// commonNameOption returns classic openssl-commonname / commonname if set.
-func commonNameOption(s parse.Spec) string {
-	if v := s.OptionValue("commonname", ""); v != "" {
-		return v
+// commonNameOption returns openssl-commonname / commonname when the option
+// is present with an explicit value, including the empty string.
+// Classic: unset → check the dial host; commonname= (empty) → skip the name
+// check; commonname=foo → check foo. verify=1 still checks trust.
+func commonNameOption(s parse.Spec) (name string, set bool) {
+	o, ok := s.OptionNamed("commonname")
+	if !ok || !o.Has {
+		return "", false
 	}
-	return s.OptionValue("openssl-commonname", "")
+	return o.Value, true
 }
 
 // TLSClientConfig builds a crypto/tls client config from TLS/WSS options.
@@ -303,14 +307,17 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 	// Name used for hostname check / SNI.
 	// OPENSSL_CN_CLIENT_SECURITY: commonname=$LOCALHOST while connecting to 127.0.0.1.
 	// Without commonname, verify against the dial host (IP must not auto-pass).
-	cnOpt := commonNameOption(s)
-	checkName := xio.StripBrackets(serverName)
-	if cnOpt != "" {
+	// Empty commonname= skips the name check (classic openssl-commonname="").
+	dialHost := xio.StripBrackets(serverName)
+	cnOpt, cnSet := commonNameOption(s)
+	checkName := dialHost
+	if cnSet {
 		checkName = cnOpt
 	}
 
 	// SNI: nosni / snihost (openssl-no-sni / openssl-snihost aliases).
 	// OPENSSL_SNI / OPENSSL_NO_SNI: badssl.com needs SNI to succeed / fail.
+	// Empty commonname= does not clear SNI; use snihost= / nosni for that.
 	noSNI := s.BoolOption("openssl-no-sni") || s.BoolOption("nosni")
 	sniHost := s.OptionValue("openssl-snihost", "")
 	if sniHost == "" {
@@ -319,11 +326,8 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 	if !noSNI {
 		if sniHost != "" {
 			cfg.ServerName = sniHost
-		} else if ip := net.ParseIP(checkName); ip == nil {
-			cfg.ServerName = checkName
-		} else if cnOpt != "" {
-			// commonname is hostname while dial target may be IP — still set SNI
-			cfg.ServerName = cnOpt
+		} else if sni := sniName(checkName, dialHost); sni != "" {
+			cfg.ServerName = sni
 		}
 	}
 
@@ -336,7 +340,7 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 		}
 		// Manual verify: classic CN-only certs + RFC 6125 name (no IP→any-CN shortcut).
 		cfg.InsecureSkipVerify = true
-		cfg.VerifyPeerCertificate = makeVerifyPeer(roots, checkName, cnOpt != "")
+		cfg.VerifyPeerCertificate = makeVerifyPeer(roots, checkName)
 		if roots != nil {
 			cfg.RootCAs = roots
 		}
@@ -377,7 +381,7 @@ func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 		MinVersion:   tls.VersionTLS12,
 	}
 
-	cnWant := commonNameOption(s)
+	cnWant, _ := commonNameOption(s)
 	doVerify := verifyEnabled(s)
 	needClientCert := doVerify || cnWant != ""
 
@@ -633,10 +637,26 @@ func appendCAPath(pool *x509.CertPool, dir string) (int, error) {
 	return n, nil
 }
 
+// sniName is the TLS ServerName. Prefer a non-IP check name (commonname=),
+// else the dial host when that is not an IP.
+func sniName(checkName, dialHost string) string {
+	if checkName != "" {
+		if ip := net.ParseIP(checkName); ip == nil {
+			return checkName
+		}
+	}
+	if dialHost != "" {
+		if ip := net.ParseIP(dialHost); ip == nil {
+			return dialHost
+		}
+	}
+	return ""
+}
+
 // makeVerifyPeer verifies the leaf against roots and checks name via SAN or CN.
-// wantCN: when true (commonname= set), only that name may match — no IP shortcuts.
+// Empty checkName skips the name check (classic empty commonname=).
 // Classic test certs often lack SANs; we still allow CN match for the check name.
-func makeVerifyPeer(roots *x509.CertPool, checkName string, wantCN bool) func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+func makeVerifyPeer(roots *x509.CertPool, checkName string) func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 	return func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 		if len(rawCerts) == 0 {
 			return fmt.Errorf("tls: no peer certificates")
@@ -668,6 +688,7 @@ func makeVerifyPeer(roots *x509.CertPool, checkName string, wantCN bool) func(ra
 			return err
 		}
 		if checkName == "" {
+			// Classic: empty commonname / empty peername skips the name check.
 			return nil
 		}
 		// RFC 6125 name check (Go VerifyHostname). Classic OPENSSL uses strcmp
@@ -679,8 +700,8 @@ func makeVerifyPeer(roots *x509.CertPool, checkName string, wantCN bool) func(ra
 		if cnMatches(leaf, checkName) {
 			return nil
 		}
-		// Without explicit commonname, do NOT accept arbitrary CN for IP dials
-		// (OPENSSL_CN_CLIENT_SECURITY: connect 127.0.0.1 without commonname must fail).
+		// Without a matching SAN/CN, fail (OPENSSL_CN_CLIENT_SECURITY:
+		// connect 127.0.0.1 without commonname must fail).
 		return fmt.Errorf("tls: certificate hostname mismatch (CN=%q name=%q)", leaf.Subject.CommonName, checkName)
 	}
 }

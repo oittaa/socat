@@ -136,6 +136,30 @@ JOBS=8 VAL_T=0.1 SHARD_TIMEOUT=300 \
   .scorecard/host/results.json
 ```
 
+## Latest committed baselines
+
+Counts come from structured `results.json`. Refresh the numbers when you
+save a new baseline.
+
+| Label | OK | FAILED | CANT |
+|-------|-----|--------|------|
+| classic 1.8.1.3 (host) | 475 | 24 | 103 |
+| classic 1.8.1.3 (Docker, root) | 552 | 8 | 42 |
+| go (this tree, host) | 449 | 6 | 148 |
+| go (this tree, Docker, root) | 504 | 5 | 94 |
+
+Go host FAILED: `OPENSSLLISTENDSA` (DSA, by design), `UDP6MULTICAST_UNIDIR`
+(host environment), `REUSEADDR_NULL` (NO RESULT), `OPENSSL_ANULL`,
+`V1800_OPENSSL_LISTEN_RANGE`, `V1800_OPENSSL_LISTEN_BIND` (listen requires
+`cert=`). Go Docker FAILED: `OPENSSLLISTENDSA`, `REUSEADDR_NULL`,
+`OPENSSL_ANULL`, `V1800_OPENSSL_LISTEN_RANGE`, `V1800_OPENSSL_LISTEN_BIND`.
+Both Go runs also record UNKNOWN=2 (`EXECPTYKILL` parse quirk, `PROCAN_CTTY`).
+
+Use `go-baseline.json` + `REGRESSION_EXIT=1` after a **MODE=classic** run
+to catch real Go regressions with less noise.
+
+Classic host checklist: `scripts/classic-host-check.sh`.
+
 ## Files
 
 | File | Role |

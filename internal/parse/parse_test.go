@@ -233,6 +233,20 @@ func TestPOSIXMQOptionAliases(t *testing.T) {
 	}
 }
 
+func TestParseEmptyOptionValue(t *testing.T) {
+	s, err := ParseSpec("TLS:127.0.0.1:443,commonname=,verify=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, ok := s.OptionNamed("commonname")
+	if !ok || !o.Has {
+		t.Fatalf("commonname= missing: %+v", s.Options)
+	}
+	if o.Value != "" {
+		t.Fatalf("commonname=%q want empty", o.Value)
+	}
+}
+
 func TestOpenSSLCapathAlias(t *testing.T) {
 	s, err := ParseSpec("OPENSSL:127.0.0.1:443,openssl-capath=/etc/ssl/certs")
 	if err != nil {
