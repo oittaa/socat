@@ -1,6 +1,8 @@
 package xio
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -112,11 +114,11 @@ func IsTimeoutErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	if ne, ok := err.(net.Error); ok && ne.Timeout() {
+	if os.IsTimeout(err) || errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	return strings.Contains(strings.ToLower(err.Error()), "timeout") ||
-		strings.Contains(strings.ToLower(err.Error()), "i/o timeout")
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 // ApplySetsockoptFD parses classic setsockopt=level:optname:value (ints) and applies it.

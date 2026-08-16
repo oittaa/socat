@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -522,11 +521,11 @@ func isTimeoutErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	if ne, ok := err.(interface{ Timeout() bool }); ok && ne.Timeout() {
+	if os.IsTimeout(err) || errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "timeout") || strings.Contains(msg, "i/o timeout")
+	var to interface{ Timeout() bool }
+	return errors.As(err, &to) && to.Timeout()
 }
 
 func pokeReadDeadline(s Stream) {
@@ -567,16 +566,10 @@ func isBenignClose(err error) bool {
 	if err == nil {
 		return false
 	}
-	if err == io.EOF || err == io.ErrClosedPipe || err == net.ErrClosed {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrClosedPipe) || errors.Is(err, net.ErrClosed) || errors.Is(err, os.ErrClosed) {
 		return true
 	}
-	if errors.Is(err, syscall.EIO) || errors.Is(err, syscall.EBADF) || errors.Is(err, syscall.EPIPE) {
-		return true
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "file already closed") ||
-		strings.Contains(msg, "use of closed") ||
-		strings.Contains(msg, "broken pipe")
+	return errors.Is(err, syscall.EIO) || errors.Is(err, syscall.EBADF) || errors.Is(err, syscall.EPIPE)
 }
 
 func streamReadFD(s Stream) int {

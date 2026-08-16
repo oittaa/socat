@@ -3,6 +3,7 @@ package netopen
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -174,25 +175,11 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 var errTryDgram = fmt.Errorf("try unixgram")
 
 func isWrongType(err error) bool {
-	if err == nil {
-		return false
-	}
-	if err == syscall.EPROTOTYPE {
-		return true
-	}
-	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "protocol wrong type") || strings.Contains(s, "eprototype") ||
-		strings.Contains(s, "wrong protocol type")
+	return errors.Is(err, syscall.EPROTOTYPE)
 }
 
 func isConnRefusedOrNotSocket(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "connection refused") ||
-		strings.Contains(s, "not a socket") ||
-		strings.Contains(s, "socket operation on non-socket")
+	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOTSOCK)
 }
 
 // openUnixDgramClient is UNIX:/UNIX-CONNECT as datagram (peer is RECVFROM etc.).

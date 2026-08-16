@@ -195,8 +195,9 @@ func connectWithCtx(ctx context.Context, fd int, sa unix.Sockaddr) error {
 		return ctx.Err()
 	case err := <-done:
 		if errors.Is(err, unix.ECONNREFUSED) {
-			// Classic test.sh SCTP_SERVICENAME greps this exact phrase.
-			return fmt.Errorf("Connection refused") //nolint:staticcheck // classic test.sh greps this exact phrase
+			// SCTP_SERVICENAME greps "Connection refused" without -i.
+			// If test.sh ever switches to grep -i, drop this wrap and the nolint.
+			return fmt.Errorf("Connection refused") //nolint:staticcheck // ST1005: classic test.sh needs this exact phrase
 		}
 		return err
 	}
