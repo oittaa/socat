@@ -367,7 +367,7 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 		xio.ApplyIPSendOpts(int(fd), s, network)
 		// classic often sets reuse on raw too
 		xio.ApplyReuse(int(fd), s, true)
-		if s.BoolOption("broadcast") || s.HasOption("broadcast") {
+		if s.BoolOption("broadcast") {
 			_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 		}
 	}); err != nil {
