@@ -108,9 +108,7 @@ features (RAWIP, raw IP ancillary, TUN, `netns=`).
 `PRIVILEGED=1` runs `docker run --privileged`. Without it, `ip netns add`
 fails and classic `test.sh` reports FAILED (no namespace file), not CANT.
 On an unprivileged host the same tests stay **CANT** (must be root).
-The committed `go-docker-baseline.json` still records `NETNS` /
-`NETNS_EXEC` as CANT (`Feature NAMESPACES not available`) until you
-refresh that baseline after a full privileged Docker run.
+Go Docker counts treat `NETNS` / `NETNS_EXEC` as OK (privileged run).
 
 ## Commands
 
@@ -160,7 +158,7 @@ save a new baseline.
 | classic 1.8.1.3 (host) | 475 | 24 | 103 |
 | classic 1.8.1.3 (Docker, root) | 552 | 8 | 42 |
 | go (this tree, host) | 449 | 6 | 148 |
-| go (this tree, Docker, root) | 504 | 5 | 94 |
+| go (this tree, Docker, root) | 506 | 5 | 92 |
 
 Go host FAILED: `OPENSSLLISTENDSA` (DSA, by design), `UDP6MULTICAST_UNIDIR`
 (host environment), `REUSEADDR_NULL` (NO RESULT), `OPENSSL_ANULL`,

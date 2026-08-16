@@ -14,9 +14,9 @@
     "shard_timeout": "7200"
   },
   "summary": {
-    "ok": 504,
+    "ok": 506,
     "failed": 5,
-    "cant": 94,
+    "cant": 92,
     "timeout": 0,
     "unknown": 2,
     "total_recorded": 605,
@@ -4374,19 +4374,19 @@
       "id": 486,
       "name": "NETNS",
       "description": "option netns (net namespace socat-350-test486)",
-      "status": "CANT",
-      "detail": "Feature NAMESPACES not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 486 NETNS: option netns (net namespace socat-350-test486)... Feature NAMESPACES not available"
+      "raw": "test 486 NETNS: option netns (net namespace socat-349-test486)... OK"
     },
     "487": {
       "id": 487,
       "name": "NETNS_EXEC",
       "description": "option netns with EXEC (net namespace socat-350-test487)",
-      "status": "CANT",
-      "detail": "Feature NAMESPACES not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-350-test487)... Feature NAMESPACES not available"
+      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-349-test487)... OK"
     },
     "488": {
       "id": 488,
