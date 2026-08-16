@@ -58,6 +58,45 @@ func TestListenNetworkPrecedence(t *testing.T) {
 	}
 }
 
+func TestVersionFromPF(t *testing.T) {
+	cases := []struct {
+		in      string
+		want    xio.IPVersion
+		wantOK  bool
+		network string
+	}{
+		{"ip4", xio.IPv4, true, "tcp4"},
+		{"IPv4", xio.IPv4, true, "tcp4"},
+		{"inet", xio.IPv4, true, "tcp4"},
+		{"4", xio.IPv4, true, "tcp4"},
+		{"2", xio.IPv4, true, "tcp4"},
+		{"ip6", xio.IPv6, true, "tcp6"},
+		{"INET6", xio.IPv6, true, "tcp6"},
+		{"10", xio.IPv6, true, "tcp6"},
+		{"unix", 0, false, ""},
+		{"", 0, false, ""},
+	}
+	for _, tc := range cases {
+		got, ok := xio.VersionFromPF(tc.in)
+		if ok != tc.wantOK || got != tc.want {
+			t.Errorf("VersionFromPF(%q)=%v,%v want %v,%v", tc.in, got, ok, tc.want, tc.wantOK)
+		}
+		if n := xio.NetworkFromPF(tc.in, "tcp", "fallback"); tc.wantOK {
+			if n != tc.network {
+				t.Errorf("NetworkFromPF(%q)=%q want %q", tc.in, n, tc.network)
+			}
+		} else if n != "fallback" {
+			t.Errorf("NetworkFromPF(%q)=%q want fallback", tc.in, n)
+		}
+	}
+	if n := xio.NetworkFromPF("ip4", "udp", ""); n != "udp4" {
+		t.Fatalf("udp pf: got %q", n)
+	}
+	if n := xio.NetworkFromPF("6", "ip", ""); n != "ip6" {
+		t.Fatalf("ip pf: got %q", n)
+	}
+}
+
 func TestTLSListenHonorsDefaultListenIP6(t *testing.T) {
 	// TLS-LISTEN without pf= must follow SOCAT_DEFAULT_LISTEN_IP like TCP-LISTEN.
 	t.Setenv("SOCAT_DEFAULT_LISTEN_IP", "6")

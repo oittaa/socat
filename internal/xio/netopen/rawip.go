@@ -74,12 +74,8 @@ func openIP6(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*
 
 func NetworkIP(g *xio.Global, s parse.Spec, def string) string {
 	if s.HasOption("pf") {
-		v := s.OptionValue("pf", "")
-		switch v {
-		case "ip6", "6", "ipv6":
-			return "ip6"
-		case "ip4", "4", "ipv4":
-			return "ip4"
+		if n := xio.NetworkFromPF(s.OptionValue("pf", ""), "ip", ""); n != "" {
+			return n
 		}
 	}
 	if g != nil {

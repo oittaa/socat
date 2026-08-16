@@ -65,14 +65,15 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 
 func NetworkUDP(g *xio.Global, s parse.Spec, def string) string {
 	if pf := s.OptionValue("pf", ""); pf != "" {
-		switch pf {
-		case "ip4", "ipv4", "inet":
-			return "udp4"
-		case "ip6", "ipv6", "inet6":
-			return "udp6"
+		if n := xio.NetworkFromPF(pf, "udp", ""); n != "" {
+			return n
 		}
 	}
-	switch g.IPVersion {
+	ver := xio.IPv4Default
+	if g != nil {
+		ver = g.IPVersion
+	}
+	switch ver {
 	case xio.IPv4:
 		return "udp4"
 	case xio.IPv6:

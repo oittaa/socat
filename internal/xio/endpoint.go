@@ -34,7 +34,9 @@ const (
 type IPVersion int
 
 const (
-	IPvDefault IPVersion = iota // classic -4 default since 1.8.0.1
+	// IPv4Default is the classic default since 1.8.0.1 (same preference as -4).
+	// Listen still honours SOCAT_DEFAULT_LISTEN_IP; explicit IPv4 (-4) does not.
+	IPv4Default IPVersion = iota
 	IPv4
 	IPv6
 	IPvAny // -0
