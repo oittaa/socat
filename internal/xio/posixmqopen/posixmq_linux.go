@@ -195,8 +195,7 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 			}, name), nil
 		}
 		o := &xio.Opened{
-			ConnectFork: true,
-			Fork:        true,
+			Kind:        xio.KindDial,
 			MaxChildren: maxChildren,
 			Interval:    xio.ParseRetry(s).Interval,
 			Label:       s.Type,
@@ -216,8 +215,8 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 			ctx:     ctx,
 		}
 		o := &xio.Opened{
+			Kind:        xio.KindListen,
 			Listener:    ln,
-			Fork:        true,
 			MaxChildren: maxChildren,
 			Label:       s.Type,
 		}

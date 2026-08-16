@@ -72,8 +72,8 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	}
 
 	o := &xio.Opened{
+		Kind:        xio.ListenKind(fork),
 		Listener:    ln,
-		Fork:        fork,
 		Label:       s.Type + ":" + port + wpath,
 		PeerFilter:  filter,
 		MaxChildren: maxChildren,

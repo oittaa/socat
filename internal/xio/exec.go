@@ -316,7 +316,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	// Placeholder Opened; Stream is nil — Run must not transferPair this alone.
 	if s.BoolOption("nofork") {
 		spec := s
-		return &Opened{Label: "EXEC-nofork", NoForkSpec: &spec}, nil
+		return &Opened{Kind: KindExec, Label: "EXEC-nofork", NoForkSpec: &spec}, nil
 	}
 	// Default: socketpair for full duplex; pipes when requested or unidirectional
 	// so unused direction can inherit process stdio (classic LISTENENV / single-exec).

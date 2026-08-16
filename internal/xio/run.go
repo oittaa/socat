@@ -50,19 +50,20 @@ func RunOpened(ctx context.Context, lo *Opened, right parse.Channel, g *Global) 
 	lMode, rMode := channelModes(g)
 	defer func() { _ = lo.Close() }()
 
-	// Fork listen on left: accept loop
-	if lo.Fork && lo.Listener != nil {
+	switch lo.Kind {
+	case KindListen:
+		if lo.Listener == nil {
+			return fmt.Errorf("%s: listen fork without listener", lo.Label)
+		}
 		return runForkListen(ctx, lo, right, rMode, g)
-	}
-
-	// Client CONNECT/TLS-CONNECT with fork,max-children (classic xio-ipapp loop).
-	// Parent only dials; each child opens the peer address and transfers.
-	if lo.ConnectFork {
+	case KindDial:
+		// Client CONNECT/TLS-CONNECT with fork (classic xio-ipapp loop).
 		return runConnectFork(ctx, lo, right, rMode, g)
-	}
-
-	// Left EXEC,nofork: need right open first, then exec on right's stream.
-	if lo.NoForkSpec != nil {
+	case KindExec:
+		if lo.NoForkSpec == nil {
+			return fmt.Errorf("%s: exec nofork without spec", lo.Label)
+		}
+		// Left EXEC,nofork: open right first, then exec on right's stream.
 		ro, err := OpenChannel(ctx, right, rMode, g)
 		if err != nil {
 			return err
@@ -77,17 +78,20 @@ func RunOpened(ctx context.Context, lo *Opened, right parse.Channel, g *Global) 
 	}
 	defer func() { _ = ro.Close() }()
 
-	// Right EXEC,nofork on left stream (TCP-LISTEN + EXEC,nofork; or STDIO + EXEC,nofork).
-	if ro.NoForkSpec != nil {
+	switch ro.Kind {
+	case KindExec:
+		if ro.NoForkSpec == nil {
+			return fmt.Errorf("%s: exec nofork without spec", ro.Label)
+		}
+		// Right EXEC,nofork on left stream (TCP-LISTEN + EXEC,nofork).
 		return runExecNoFork(ctx, lo.EffectiveStream(), *ro.NoForkSpec, g, rMode)
-	}
-
-	if ro.Fork && ro.Listener != nil {
-		// Unusual: listen on right — classic still works; handle accept loop with left already open
+	case KindListen:
+		if ro.Listener == nil {
+			return fmt.Errorf("%s: listen fork without listener", ro.Label)
+		}
+		// Listen on right with left already open.
 		return runForkListenRight(ctx, lo, ro, g)
-	}
-
-	if ro.ConnectFork {
+	case KindDial:
 		return runConnectForkWithLeft(ctx, lo.EffectiveStream(), ro, g)
 	}
 

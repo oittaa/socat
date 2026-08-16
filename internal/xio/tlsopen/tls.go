@@ -125,8 +125,8 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 
 	o := &xio.Opened{
+		Kind:        xio.ListenKind(fork),
 		Listener:    tlsLn,
-		Fork:        fork,
 		Label:       s.Type + ":" + port,
 		PeerFilter:  filter,
 		MaxChildren: maxChildren,
