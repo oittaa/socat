@@ -125,26 +125,43 @@ func (g *Global) ensureStatsFlag() {
 	}
 }
 
-// Opened is a live address endpoint ready for transfer or accept-loop.
+// OpenedKind says how Run uses an Opened.
+type OpenedKind int
+
+const (
+	// KindReady: Stream or Read/Write is ready for transfer.
+	KindReady OpenedKind = iota
+	// KindListen: Listener parent; Run accepts in a fork loop.
+	KindListen
+	// KindDial: Dial parent; Run dials in a connect-fork loop.
+	KindDial
+	// KindExec: NoForkSpec; Run starts EXEC/SYSTEM after the peer is open.
+	KindExec
+)
+
+// ListenKind is KindListen when fork is set, else KindReady.
+func ListenKind(fork bool) OpenedKind {
+	if fork {
+		return KindListen
+	}
+	return KindReady
+}
+
+// Opened is a live address endpoint ready for transfer or an accept/dial loop.
 type Opened struct {
+	Kind     OpenedKind
 	Stream   relay.Stream
-	Listener net.Listener // non-nil for listen without yet accepting (fork mode parent)
-	// Fork: Listener set, Stream nil.
-	// Non-fork listen: Stream is the accepted connection.
-	Fork    bool
-	Label   string
-	Cleanup []func()
+	Listener net.Listener // KindListen parent; nil after a non-fork accept
+	Label    string
+	Cleanup  []func()
 	// PeerFilter rejects accepted connections (range/sourceport/lowport).
-	// Used by fork accept loops; non-fork applies the same check before returning.
 	PeerFilter func(net.Conn) error
 	// MaxChildren limits concurrent fork children (0 = unlimited). Classic max-children.
 	MaxChildren int
-	// ConnectFork: client-side reconnect loop (TCP/TLS/SOCKS/PROXY CONNECT with fork).
-	// Parent dials repeatedly; each child transfers one connection. Dial must
-	// complete the full open (including TLS/SOCKS/HTTP handshake).
-	ConnectFork bool
-	Dial        func(ctx context.Context) (net.Conn, error)
-	// WrapDial wraps each dialed conn for transfer (crlf, escape, …). Optional.
+	// Dial is the connect-fork dialer (KindDial). It must complete the full
+	// open, including TLS/SOCKS/HTTP handshake.
+	Dial func(ctx context.Context) (net.Conn, error)
+	// WrapDial wraps each accepted or dialed conn for transfer (crlf, escape, …). Optional.
 	WrapDial func(net.Conn) (relay.Stream, error)
 	// Interval between parent connect iterations (classic interval= seconds).
 	Interval time.Duration

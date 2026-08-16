@@ -426,7 +426,9 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 		default:
 		}
 		if pfd, ok := PollFd(fd, unix.POLLIN); ok {
-			n, err := unix.Poll([]unix.PollFd{pfd}, 50) // 50ms
+			// Poll must see a slice element; a value copy leaves Revents at 0.
+			pfds := []unix.PollFd{pfd}
+			n, err := unix.Poll(pfds, 50) // 50ms
 			// EINTR is common: Go uses SIGURG for preemption. Retry; n<0 is not readable.
 			if err != nil {
 				if err == syscall.EINTR {
@@ -442,7 +444,7 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 			if n <= 0 {
 				continue
 			}
-			re := pfd.Revents
+			re := pfds[0].Revents
 			if re&unix.POLLIN == 0 {
 				if re&(unix.POLLHUP|unix.POLLERR|unix.POLLNVAL) != 0 {
 					return 0, io.EOF

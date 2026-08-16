@@ -119,8 +119,8 @@ func openSocketListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	}
 	if fork {
 		return &xio.Opened{
+			Kind:        xio.KindListen,
 			Listener:    ln,
-			Fork:        true,
 			Label:       "SOCKET-LISTEN",
 			MaxChildren: maxChildren,
 			PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },

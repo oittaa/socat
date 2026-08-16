@@ -133,8 +133,8 @@ func openSCTPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return xio.WrapCommon(s, relay.NetStream{Conn: c})
 	}
 	o := &xio.Opened{
+		Kind:        xio.ListenKind(fork),
 		Listener:    ln,
-		Fork:        fork,
 		Label:       fmt.Sprintf("%s-LISTEN:%s", network, port),
 		PeerFilter:  filter,
 		MaxChildren: maxChildren,

@@ -33,8 +33,7 @@ func OpenDialed(ctx context.Context, s parse.Spec, g *Global, d Dialed) (*Opened
 		o.Label = d.Label
 	}
 	if fork {
-		o.ConnectFork = true
-		o.Fork = true
+		o.Kind = KindDial
 		o.MaxChildren = maxChildren
 		o.Interval = ParseRetry(s).Interval
 		o.Dial = d.Dial

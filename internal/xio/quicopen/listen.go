@@ -54,8 +54,8 @@ func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	}
 
 	o := &xio.Opened{
+		Kind:        xio.ListenKind(fork),
 		Listener:    ln,
-		Fork:        fork,
 		Label:       s.Type + ":" + port,
 		PeerFilter:  filter,
 		MaxChildren: maxChildren,

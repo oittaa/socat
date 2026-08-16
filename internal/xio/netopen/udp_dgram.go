@@ -265,8 +265,8 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				ln.rcvTimeout = xio.ParseTimeval(v)
 			}
 			return &xio.Opened{
+				Kind:        xio.KindListen,
 				Listener:    ln,
-				Fork:        true,
 				Label:       "UDP-RECVFROM",
 				MaxChildren: maxChildren,
 				PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },

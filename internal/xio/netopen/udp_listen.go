@@ -64,8 +64,8 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			ctx:     ctx,
 		}
 		return &xio.Opened{
+			Kind:        xio.KindListen,
 			Listener:    ln,
-			Fork:        true,
 			Label:       "UDP-LISTEN",
 			MaxChildren: maxChildren,
 			PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
