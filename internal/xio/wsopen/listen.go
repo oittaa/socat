@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"path"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/coder/websocket"
@@ -37,38 +36,13 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	if network == "tcp6" && s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
 		network = "tcp"
 	}
-	host := s.OptionValue("bind", "")
-	if host == "" {
-		switch network {
-		case "tcp4":
-			host = "0.0.0.0"
-		default:
-			host = "::"
-		}
-	}
-	if network == "tcp4" && (host == "::" || host == "") {
+	host := xio.ListenBindHost(network, s.OptionValue("bind", ""))
+	if network == "tcp4" && host == "::" {
 		host = "0.0.0.0"
 	}
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
-	lc := net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
-			return c.Control(func(fd uintptr) {
-				xio.ApplyReuse(int(fd), s, true)
-				if network == "tcp" || network == "tcp6" {
-					if s.HasOption("ipv6-v6only") {
-						v := 0
-						if s.BoolOption("ipv6-v6only") {
-							v = 1
-						}
-						_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, v)
-					} else if network == "tcp" {
-						_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 0)
-					}
-				}
-			})
-		},
-	}
+	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	rawLn, err := lc.Listen(ctx, network, addr)
 	if err != nil {
 		return nil, err
@@ -85,13 +59,7 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 
 	origin := s.OptionValue("origin", "")
 	proto := s.OptionValue("protocol", "")
-	fork := s.BoolOption("fork")
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, e := xio.ParsePositiveInt(v); e == nil {
-			maxChildren = n
-		}
-	}
+	fork, maxChildren := xio.ForkLimits(s)
 	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 	// Upgrade after peer filter (TCP-level range/sourceport/tcpwrap).
 	wrapConn := func(c net.Conn) (relay.Stream, error) {

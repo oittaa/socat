@@ -84,44 +84,11 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return conn, err
 	}
 
-	fork := s.BoolOption("fork")
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, e := xio.ParsePositiveInt(v); e == nil {
-			maxChildren = n
-		}
-	}
-	if maxChildren > 0 && !fork {
-		return nil, fmt.Errorf("%s: option max-children not allowed without option fork", s.Type)
-	}
-	if fork {
-		// Classic CONNECT,fork parent loop (TCP_CONNECT_MAXCHILDREN).
-		return &xio.Opened{
-			ConnectFork: true,
-			Fork:        true,
-			MaxChildren: maxChildren,
-			Interval:    xio.ParseRetry(s).Interval,
-			Label:       fmt.Sprintf("%s:%s", network, addr),
-			Dial:        dialOnce,
-		}, nil
-	}
-
-	conn, err := dialOnce(ctx)
-	if err != nil {
-		return nil, err
-	}
-	g.Log.Infof("successfully connected from %s to %s", conn.LocalAddr(), conn.RemoteAddr())
-	xio.RememberAddrs(g, conn)
-	st := relay.Stream(relay.NetStream{Conn: conn})
-	st, err = xio.WrapCommon(s, st)
-	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		return nil, err
-	}
-	return &xio.Opened{
-		Stream: st,
-		Label:  fmt.Sprintf("%s:%s", network, addr),
-	}, nil
+	return xio.OpenDialed(ctx, s, g, xio.Dialed{
+		Label: fmt.Sprintf("%s:%s", network, addr),
+		Dial:  dialOnce,
+		LogOK: true,
+	})
 }
 
 func openTCPListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
@@ -157,42 +124,10 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	if port == "" || strings.Trim(port, ":") == "" {
 		return nil, fmt.Errorf("%s: invalid port %q", s.Type, port)
 	}
-	host := s.OptionValue("bind", "")
-	if host == "" {
-		switch network {
-		case "tcp4":
-			host = "0.0.0.0"
-		case "tcp6":
-			host = "::"
-		case "tcp":
-			// Dual-stack default bind
-			host = "::"
-		default:
-			host = ""
-		}
-	}
+	host := xio.ListenBindHost(network, s.OptionValue("bind", ""))
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
-	// Classic default: SO_REUSEADDR is on for listen unless reuseaddr=0.
-	lc := net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
-			return c.Control(func(fd uintptr) {
-				xio.ApplyReuse(int(fd), s, true)
-				// Must set before bind. For dual-stack (tcp / ipv6-v6only=0) clear V6ONLY.
-				if network == "tcp" || network == "tcp6" {
-					if s.HasOption("ipv6-v6only") {
-						v := 0
-						if s.BoolOption("ipv6-v6only") {
-							v = 1
-						}
-						_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, v)
-					} else if network == "tcp" {
-						_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 0)
-					}
-				}
-			})
-		},
-	}
+	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	ln, err := lc.Listen(ctx, network, addr)
 	if err != nil {
 		return nil, err

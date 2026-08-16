@@ -32,17 +32,12 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		return nil, fmt.Errorf("keyword \"POSIXMQ\" in bidirectional mode might unwanted flush the queue; use \"POSIXMQ-BIDIRECTIONAL\" to confirm usage")
 	}
 
-	fork := s.BoolOption("fork")
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		n, e := xio.ParsePositiveInt(v)
-		if e != nil {
-			return nil, fmt.Errorf("%s: invalid max-children %q", s.Type, v)
-		}
-		maxChildren = n
+	fork, maxChildren := xio.ForkLimits(s)
+	if v := s.OptionValue("max-children", ""); v != "" && maxChildren == 0 {
+		return nil, fmt.Errorf("%s: invalid max-children %q", s.Type, v)
 	}
-	if maxChildren > 0 && !fork {
-		return nil, fmt.Errorf("%s: option max-children not allowed without option fork", s.Type)
+	if err := xio.RequireForkWithMaxChildren(s.Type, fork, maxChildren); err != nil {
+		return nil, err
 	}
 
 	prio := uint32(0)

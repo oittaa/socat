@@ -39,6 +39,11 @@ func TestSCTP4Echo(t *testing.T) {
 		t.Fatalf("addr type %T", ln.Addr())
 	}
 	port := ta.Port
+	// FileListener is created lazily on Accept. Create it before dial so a
+	// fast client is not lost on a raw listen fd (seen on GitHub runners).
+	if dl, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
+		_ = dl.SetDeadline(time.Time{})
+	}
 	got := make(chan string, 1)
 	go func() {
 		c, err := ln.Accept()
@@ -47,8 +52,10 @@ func TestSCTP4Echo(t *testing.T) {
 			return
 		}
 		defer func() { _ = c.Close() }()
-		b, err := io.ReadAll(c)
-		if err != nil {
+		_ = c.SetDeadline(time.Now().Add(3 * time.Second))
+		want := "hello-sctp"
+		b := make([]byte, len(want))
+		if _, err := io.ReadFull(c, b); err != nil {
 			got <- "read:" + err.Error()
 			return
 		}
@@ -56,7 +63,7 @@ func TestSCTP4Echo(t *testing.T) {
 	}()
 
 	g := &xio.Global{Log: logx.New()}
-	c, err := dialSCTPAll(ctx, "sctp4", "127.0.0.1", strconv.Itoa(port), parse.Spec{}, g, time.Second, nil)
+	c, err := dialSCTPAll(ctx, "sctp4", "127.0.0.1", strconv.Itoa(port), parse.Spec{}, g, 3*time.Second, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

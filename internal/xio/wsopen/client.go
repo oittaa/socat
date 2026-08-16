@@ -3,7 +3,6 @@ package wsopen
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
 	"net"
 	"net/http"
 	"net/url"
@@ -11,7 +10,6 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
@@ -64,42 +62,11 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 		return conn, err
 	}
 
-	fork := s.BoolOption("fork")
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, e := xio.ParsePositiveInt(v); e == nil {
-			maxChildren = n
-		}
-	}
-	if maxChildren > 0 && !fork {
-		return nil, fmt.Errorf("%s: option max-children not allowed without option fork", s.Type)
-	}
-	if fork {
-		return &xio.Opened{
-			ConnectFork: true,
-			Fork:        true,
-			MaxChildren: maxChildren,
-			Interval:    xio.ParseRetry(s).Interval,
-			Label:       s.Type + ":" + u.Host + path,
-			Dial:        dialOnce,
-		}, nil
-	}
-
-	conn, err := dialOnce(ctx)
-	if err != nil {
-		return nil, err
-	}
-	xio.RememberAddrs(g, conn)
-	if scheme == "wss" {
-		xio.RememberTLSPeer(g, conn)
-	}
-	st := relay.Stream(relay.NetStream{Conn: conn})
-	st, err = xio.WrapCommon(s, st)
-	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		return nil, err
-	}
-	return &xio.Opened{Stream: st, Label: s.Type + ":" + u.Host + path}, nil
+	return xio.OpenDialed(ctx, s, g, xio.Dialed{
+		Label:       s.Type + ":" + u.Host + path,
+		Dial:        dialOnce,
+		RememberTLS: scheme == "wss",
+	})
 }
 
 func dialWS(ctx context.Context, network, host, port, rawURL string, s parse.Spec, g *xio.Global, tlsCfg *tls.Config) (net.Conn, error) {

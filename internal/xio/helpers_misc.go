@@ -55,8 +55,6 @@ func parseDalanString(s string) (out []byte, rest string, err error) {
 	return nil, "", fmt.Errorf("syntax error in %q", s)
 }
 
-// buildSockaddr builds unix.Sockaddr from domain + classic data (without family).
-
 func escapeByte(c byte) byte {
 	switch c {
 	case '0':

@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -79,43 +78,13 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return conn, err
 	}
 
-	fork := s.BoolOption("fork")
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, e := xio.ParsePositiveInt(v); e == nil {
-			maxChildren = n
-		}
-	}
-	if maxChildren > 0 && !fork {
-		return nil, fmt.Errorf("%s: option max-children not allowed without option fork", s.Type)
-	}
-	if fork {
-		return &xio.Opened{
-			ConnectFork: true,
-			Fork:        true,
-			MaxChildren: maxChildren,
-			Interval:    xio.ParseRetry(s).Interval,
-			Label:       s.Type + ":" + addr,
-			Dial:        dialOnce,
-		}, nil
-	}
-
-	conn, err := dialOnce(ctx)
-	if err != nil {
-		return nil, err
-	}
-	xio.RememberAddrs(g, conn)
-	xio.RememberTLSPeer(g, conn)
-	if g != nil && g.Log != nil {
-		g.Log.Infof("successfully connected from %s to %s (TLS)", conn.LocalAddr(), conn.RemoteAddr())
-	}
-	st := relay.Stream(relay.NetStream{Conn: conn})
-	st, err = xio.WrapCommon(s, st)
-	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		return nil, err
-	}
-	return &xio.Opened{Stream: st, Label: s.Type + ":" + addr}, nil
+	return xio.OpenDialed(ctx, s, g, xio.Dialed{
+		Label:       s.Type + ":" + addr,
+		Dial:        dialOnce,
+		RememberTLS: true,
+		LogOK:       true,
+		LogSuffix:   " (TLS)",
+	})
 }
 
 // openTLSListen implements TLS-LISTEN (and OPENSSL-LISTEN/SSL-LISTEN aliases).
@@ -134,19 +103,8 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, fmt.Errorf("%s requires port", s.Type)
 	}
 	port := s.Params[0]
-	host := s.OptionValue("bind", "")
-	if host == "" {
-		switch network {
-		case "tcp4":
-			host = "0.0.0.0"
-		case "tcp6", "tcp":
-			host = "::"
-		default:
-			host = "::"
-		}
-	}
-	// If bind was left as dual-stack default but pf/network is xio.IPv4, force v4 any.
-	if network == "tcp4" && (host == "::" || host == "") {
+	host := xio.ListenBindHost(network, s.OptionValue("bind", ""))
+	if network == "tcp4" && host == "::" {
 		host = "0.0.0.0"
 	}
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
@@ -156,38 +114,14 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, err
 	}
 
-	lc := net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
-			return c.Control(func(fd uintptr) {
-				xio.ApplyReuse(int(fd), s, true)
-				// Match TCP-LISTEN: set IPV6_V6ONLY before bind for tcp/tcp6.
-				if network == "tcp" || network == "tcp6" {
-					if s.HasOption("ipv6-v6only") {
-						v := 0
-						if s.BoolOption("ipv6-v6only") {
-							v = 1
-						}
-						_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, v)
-					} else if network == "tcp" {
-						_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 0)
-					}
-				}
-			})
-		},
-	}
+	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	ln, err := lc.Listen(ctx, network, addr)
 	if err != nil {
 		return nil, err
 	}
 	tlsLn := tls.NewListener(ln, tlsCfg)
 
-	fork := s.BoolOption("fork")
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, e := xio.ParsePositiveInt(v); e == nil {
-			maxChildren = n
-		}
-	}
+	fork, maxChildren := xio.ForkLimits(s)
 	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 
 	o := &xio.Opened{

@@ -416,12 +416,16 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 			}
 		}()
 	}
+	leftToRight, rightToLeft := g.LeftToRight, g.RightToLeft
+	if !leftToRight && !rightToLeft {
+		leftToRight, rightToLeft = true, true
+	}
 	cfg := relay.Config{
 		BufferSize:   g.BlockSize,
 		Linger:       g.Linger,
 		IdleTimeout:  g.Idle,
-		LeftToRight:  g.LeftToRight || (!g.LeftToRight && !g.RightToLeft),
-		RightToLeft:  g.RightToLeft || (!g.LeftToRight && !g.RightToLeft),
+		LeftToRight:  leftToRight,
+		RightToLeft:  rightToLeft,
 		Verbose:      g.Verbose,
 		Hex:          g.Hex,
 		Dump:         g.Dump,
@@ -429,13 +433,6 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 		RawRight:     g.RawRight,
 		NoCloseLeft:  noCloseLeft,
 		NoCloseRight: noCloseRight,
-	}
-	if !g.LeftToRight && !g.RightToLeft {
-		cfg.LeftToRight = true
-		cfg.RightToLeft = true
-	} else {
-		cfg.LeftToRight = g.LeftToRight
-		cfg.RightToLeft = g.RightToLeft
 	}
 	if g != nil && g.Statistics && g.Log != nil {
 		cfg.OnStats = func(st relay.Stats) {
