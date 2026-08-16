@@ -21,31 +21,32 @@ import (
 
 // Config holds parsed global options.
 type Config struct {
-	Help        int // 0 none, 1 -h, 2 -hh, 3 -hhh
-	Version     bool
-	LogLevel    logx.Level
-	LogFile     string
-	Progname    string
-	Micros      bool
-	Hostname    bool
-	Verbose     bool
-	Hex         bool
-	BlockSize   int
-	Sloppy      bool
-	Linger      time.Duration
-	Idle        time.Duration // <0 infinite, 0 zero, >0 timeout
-	IdleSet     bool
-	LeftToRight bool // -u
-	RightToLeft bool // -U
-	IP4         bool
-	IP6         bool
-	IPAny       bool
-	Statistics  bool
-	LockFile    string
-	LockWait    string
-	RawLeft     string // -r
-	RawRight    string // -R
-	Addresses   []string
+	Help         int // 0 none, 1 -h, 2 -hh, 3 -hhh
+	Version      bool
+	LogLevel     logx.Level
+	LogFile      string
+	Progname     string
+	Micros       bool
+	Hostname     bool
+	Verbose      bool
+	Hex          bool
+	BlockSize    int
+	Sloppy       bool
+	Linger       time.Duration
+	Idle         time.Duration // <0 infinite, 0 zero, >0 timeout
+	IdleSet      bool
+	LeftToRight  bool // -u
+	RightToLeft  bool // -U
+	IP4          bool
+	IP6          bool
+	IPAny        bool
+	Statistics   bool
+	Experimental bool
+	LockFile     string
+	LockWait     string
+	RawLeft      string // -r
+	RawRight     string // -R
+	Addresses    []string
 }
 
 // ParseArgs parses os.Args-style arguments (without program name).
@@ -78,6 +79,7 @@ func ParseArgs(args []string) (*Config, error) {
 			continue
 		}
 		if a == "--experimental" {
+			cfg.Experimental = true
 			continue
 		}
 
@@ -372,16 +374,17 @@ func Main(args []string) int {
 	}
 
 	g := &xio.Global{
-		Log:         log,
-		BlockSize:   cfg.BlockSize,
-		Linger:      cfg.Linger,
-		Verbose:     cfg.Verbose,
-		Hex:         cfg.Hex,
-		Dump:        os.Stderr,
-		Statistics:  cfg.Statistics,
-		Sloppy:      cfg.Sloppy,
-		LeftToRight: cfg.LeftToRight,
-		RightToLeft: cfg.RightToLeft,
+		Log:          log,
+		BlockSize:    cfg.BlockSize,
+		Linger:       cfg.Linger,
+		Verbose:      cfg.Verbose,
+		Hex:          cfg.Hex,
+		Dump:         os.Stderr,
+		Statistics:   cfg.Statistics,
+		Sloppy:       cfg.Sloppy,
+		Experimental: cfg.Experimental,
+		LeftToRight:  cfg.LeftToRight,
+		RightToLeft:  cfg.RightToLeft,
 	}
 	g.EnsureStatsFlag()
 	// Classic -r / -R: path templates; opened at transfer start with expandenv
@@ -505,7 +508,7 @@ func printVersion(w io.Writer) {
 		{"SOCKS4A", true},
 		{"SOCKS5", true},
 		{"VSOCK", false},
-		{"NAMESPACES", false},
+		{"NAMESPACES", xio.FeatureNAMESPACES},
 		{"PROXY", true},
 		{"SYSTEM", true},
 		{"SHELL", true},
@@ -552,6 +555,7 @@ func printHelp(w io.Writer, level int) {
 	fprintf(w, "  -6     prefer IPv6 if version is not explicitly specified\n")
 	fprintf(w, "  -0     do not prefer an IP version\n")
 	fprintf(w, "  --statistics   output transfer statistics on exit\n")
+	fprintf(w, "  --experimental allow experimental options (netns)\n")
 	// Address type names on -h (level>=1): classic test.sh runstcp4 greps
 	// `$SOCAT -h | grep -i ' TCP4-'` etc.
 	fprintf(w, "\nAddress types:\n")
@@ -615,6 +619,7 @@ func printHelp(w io.Writer, level int) {
 			"backlog", "fdin", "fdout", "max-children",
 			"ipv6-v6only", "broadcast", "ip-add-membership", "ipv6-join-group",
 			"chdir",
+			"netns",
 			"unix-bind-tempname", "bind-tempname",
 			"proxy-authorization", "proxyauth",
 			"proxy-authorization-file", "proxyauthfile",

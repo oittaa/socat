@@ -72,6 +72,7 @@ Common options: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `
 | QUIC / QUIC-CONNECT / QUIC-LISTEN | RFC 9000 byte relay (`github.com/quic-go/quic-go`); **not** HTTP/3; **not** in classic socat |
 | SCTP / SCTP4 / SCTP6 (+ CONNECT, LISTEN / -L) | Linux kernel one-to-one SCTP (`SOCK_STREAM` + `IPPROTO_SCTP`, RFC 9260); need `sctp` module |
 | POSIXMQ / POSIXMQ-READ / POSIXMQ-RECV / POSIXMQ-SEND | Linux POSIX message queues; `mq-prio`, unlink-early/close, RECV/SEND `fork` + `max-children` |
+| `netns=` | Linux network namespace for one address open (`WITH_NAMESPACES`); needs root/`CAP_SYS_ADMIN`; `--experimental` |
 | DCCP, readline | **not** implemented (`#undef` in `-V`) |
 
 ### Options (honored)
