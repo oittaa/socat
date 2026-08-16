@@ -445,26 +445,51 @@ exit 1
 	}
 }
 
-func TestOpenSSLListenRequiresCert(t *testing.T) {
+func TestTLSListenRequiresCert(t *testing.T) {
 	bin := socatBin(t)
-	out, err := exec.Command(bin, "OPENSSL-LISTEN:0,bind=127.0.0.1,verify=0", "PIPE").CombinedOutput()
-	if err == nil {
-		t.Fatalf("expected start failure without cert=, got %q", out)
-	}
-	if !bytes.Contains(out, []byte("cert")) {
-		t.Fatalf("error should mention cert: %s", out)
+	for _, typ := range []string{"TLS-LISTEN", "OPENSSL-LISTEN"} {
+		out, err := exec.Command(bin, typ+":0,bind=127.0.0.1,verify=0", "PIPE").CombinedOutput()
+		if err == nil {
+			t.Fatalf("%s: expected start failure without cert=, got %q", typ, out)
+		}
+		if !bytes.Contains(out, []byte("cert")) {
+			t.Fatalf("%s: error should mention cert: %s", typ, out)
+		}
 	}
 }
 
-// TestOpenSSLPQC — OPENSSL echo with Go default hybrid post-quantum KEM
+func TestHelpListsTLSAndOpenSSLAlias(t *testing.T) {
+	bin := socatBin(t)
+	out, err := exec.Command(bin, "-h").CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"TLS-LISTEN", "OPENSSL-LISTEN", "SSL-LISTEN"} {
+		if !bytes.Contains(out, []byte(name)) {
+			t.Fatalf("-h missing %s:\n%s", name, out)
+		}
+	}
+	v, err := exec.Command(bin, "-V").CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(v, []byte("#define WITH_TLS 1")) {
+		t.Fatalf("missing WITH_TLS 1:\n%s", v)
+	}
+	if !bytes.Contains(v, []byte("#define WITH_OPENSSL 1")) {
+		t.Fatalf("missing WITH_OPENSSL 1:\n%s", v)
+	}
+}
+
+// TestTLSPQC — TLS echo with Go default hybrid post-quantum KEM
 // (X25519MLKEM768). Classic test.sh has no PQC cases.
-func TestOpenSSLPQC(t *testing.T) {
+func TestTLSPQC(t *testing.T) {
 	bin := socatBin(t)
 	port := freePort(t)
 
 	cert := listenCert(t)
 	srv := exec.Command(bin,
-		fmt.Sprintf("OPENSSL-LISTEN:%d,reuseaddr,bind=127.0.0.1,verify=0,cert=%s", port, cert),
+		fmt.Sprintf("TLS-LISTEN:%d,reuseaddr,bind=127.0.0.1,verify=0,cert=%s", port, cert),
 		"PIPE",
 	)
 	var srvErr bytes.Buffer
@@ -480,7 +505,7 @@ func TestOpenSSLPQC(t *testing.T) {
 
 	payload := fmt.Sprintf("pqc-tls %d\n", time.Now().UnixNano())
 	cli := exec.Command(bin, "stdin!!stdout",
-		fmt.Sprintf("OPENSSL-CONNECT:127.0.0.1:%d,verify=0", port),
+		fmt.Sprintf("TLS:127.0.0.1:%d,verify=0", port),
 	)
 	var cliErr bytes.Buffer
 	cli.Stdin = bytes.NewBufferString(payload)

@@ -38,7 +38,7 @@ func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
 		return runForkListen(ctx, lo, right, rMode, g)
 	}
 
-	// Client CONNECT/OPENSSL-CONNECT with fork,max-children (classic xio-ipapp loop).
+	// Client CONNECT/TLS-CONNECT with fork,max-children (classic xio-ipapp loop).
 	// Parent only dials; each child opens the peer address and transfers.
 	if lo.ConnectFork {
 		return runConnectFork(ctx, lo, right, rMode, g)

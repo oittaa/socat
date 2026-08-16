@@ -238,6 +238,22 @@ func TestOpenSSLCapathAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if s.Type != "OPENSSL" {
+		t.Fatalf("type %q", s.Type)
+	}
+	if s.OptionValue("capath", "") != "/etc/ssl/certs" {
+		t.Fatalf("capath %q", s.OptionValue("capath", ""))
+	}
+}
+
+func TestTLSCapathAlias(t *testing.T) {
+	s, err := ParseSpec("TLS:127.0.0.1:443,tls-capath=/etc/ssl/certs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Type != "TLS" {
+		t.Fatalf("type %q", s.Type)
+	}
 	if s.OptionValue("capath", "") != "/etc/ssl/certs" {
 		t.Fatalf("capath %q", s.OptionValue("capath", ""))
 	}

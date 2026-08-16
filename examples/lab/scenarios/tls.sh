@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Wrap a local HTTP file server with OPENSSL-LISTEN.
+# Wrap a local HTTP file server with TLS-LISTEN.
 # curl (a real TLS client) talks HTTPS to the other container.
 set -euo pipefail
 # shellcheck source=lib.sh
 . /lab/scenarios/lib.sh
 
-SOCAT_TLS_LISTEN='socat OPENSSL-LISTEN:443,reuseaddr,fork,bind=0.0.0.0,cert=/certs/server.crt,key=/certs/server.key,verify=0 TCP:127.0.0.1:8080'
+SOCAT_TLS_LISTEN='socat TLS-LISTEN:443,reuseaddr,fork,bind=0.0.0.0,cert=/certs/server.crt,key=/certs/server.key,verify=0 TCP:127.0.0.1:8080'
 CURL_TLS='curl -fsS --cacert /certs/ca.pem https://server/'
 
 case "${1:-}" in

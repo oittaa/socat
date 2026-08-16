@@ -58,8 +58,8 @@ func TestListenNetworkPrecedence(t *testing.T) {
 	}
 }
 
-func TestOpenSSLListenHonorsDefaultListenIP6(t *testing.T) {
-	// OPENSSL-LISTEN without pf= must follow SOCAT_DEFAULT_LISTEN_IP like TCP-LISTEN.
+func TestTLSListenHonorsDefaultListenIP6(t *testing.T) {
+	// TLS-LISTEN without pf= must follow SOCAT_DEFAULT_LISTEN_IP like TCP-LISTEN.
 	t.Setenv("SOCAT_DEFAULT_LISTEN_IP", "6")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -77,7 +77,7 @@ func TestOpenSSLListenHonorsDefaultListenIP6(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := parse.Spec{
-		Type:   "OPENSSL-LISTEN",
+		Type:   "TLS-LISTEN",
 		Params: []string{strconv.Itoa(port)},
 		Options: []parse.Option{
 			{Name: "reuseaddr"},
@@ -88,7 +88,7 @@ func TestOpenSSLListenHonorsDefaultListenIP6(t *testing.T) {
 	}
 	o, err := xio.OpenSpec(ctx, s, xio.ModeRead, &xio.Global{})
 	if err != nil {
-		t.Fatalf("open OPENSSL-LISTEN: %v", err)
+		t.Fatalf("open TLS-LISTEN: %v", err)
 	}
 	defer func() {
 		if o != nil {

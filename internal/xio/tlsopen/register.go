@@ -3,6 +3,12 @@ package tlsopen
 import "github.com/oittaa/socat/internal/xio"
 
 func init() {
+	// Canonical names.
+	xio.Register("TLS", openTLSConnect)
+	xio.Register("TLS-CONNECT", openTLSConnect)
+	xio.Register("TLS-LISTEN", openTLSListen)
+	xio.Register("TLS-L", openTLSListen)
+	// Classic drop-in aliases (test.sh and existing scripts).
 	xio.Register("OPENSSL", openTLSConnect)
 	xio.Register("OPENSSL-CONNECT", openTLSConnect)
 	xio.Register("SSL", openTLSConnect)

@@ -512,7 +512,8 @@ func printVersion(w io.Writer) {
 		{"READLINE", false},
 		{"TUN", true}, // Linux /dev/net/tun
 		{"PTY", true},
-		{"OPENSSL", true}, // stream TLS via crypto/tls (not DTLS)
+		{"TLS", true},     // stream TLS via crypto/tls (not DTLS)
+		{"OPENSSL", true}, // alias of TLS (classic drop-in)
 		{"FIPS", false},
 		{"LIBWRAP", true},   // pure-Go hosts.allow/deny (no CGO libwrap)
 		{"WEBSOCKET", true}, // WS/WSS via coder/websocket (not in classic socat)
@@ -569,6 +570,7 @@ func printHelp(w io.Writer, level int) {
 	fmt.Fprintf(w, "  ABSTRACT-LISTEN ABSTRACT-L ABSTRACT-CLIENT ABSTRACT-CONNECT\n")
 	fmt.Fprintf(w, "  ABSTRACT-SENDTO ABSTRACT-RECVFROM ABSTRACT-RECV\n")
 	fmt.Fprintf(w, "  EXEC SYSTEM SHELL TEXT STALL PTY\n")
+	fmt.Fprintf(w, "  TLS TLS-CONNECT TLS-LISTEN TLS-L\n")
 	fmt.Fprintf(w, "  OPENSSL OPENSSL-CONNECT OPENSSL-LISTEN OPENSSL-L SSL SSL-CONNECT SSL-LISTEN SSL-L\n")
 	fmt.Fprintf(w, "  PROXY PROXY-CONNECT SOCKS4 SOCKS4A SOCKS5 SOCKS5-CONNECT SOCKS5-LISTEN SOCKS5-BIND\n")
 	fmt.Fprintf(w, "  TUN INTERFACE\n")
@@ -598,9 +600,10 @@ func printHelp(w io.Writer, level int) {
 			"tcpwrap-etc", "tcpwrap-dir",
 			"hosts-allow", "hosts-deny", "allow-table", "deny-table",
 			"tcpwrap-hosts-allow-table", "tcpwrap-hosts-deny-table",
-			"cert", "key", "cafile", "ca", "capath", "openssl-capath", "verify", "commonname", "openssl-commonname",
+			"cert", "key", "cafile", "ca", "capath", "tls-capath", "openssl-capath",
+			"verify", "commonname", "tls-commonname", "openssl-commonname",
 			// SNI: OPENSSL_SNI / OPENSSL_NO_SNI greps; snihost is classic alias.
-			"openssl-snihost", "snihost", "openssl-no-sni", "nosni",
+			"tls-snihost", "openssl-snihost", "snihost", "tls-no-sni", "openssl-no-sni", "nosni",
 			// Multi-address resolve (TRY_ADDRS_4_6); filter when true.
 			"ai-addrconfig", "addrconfig",
 			// PROXY / SOCKS

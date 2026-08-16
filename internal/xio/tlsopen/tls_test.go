@@ -119,7 +119,7 @@ func TestPostQuantumHybridKeyExchange(t *testing.T) {
 
 func TestTLSClientNoSNI(t *testing.T) {
 	cfg, err := tlsClientConfig(parse.Spec{
-		Type: "OPENSSL",
+		Type: "TLS",
 		Options: []parse.Option{
 			{Name: "openssl-no-sni"},
 			{Name: "verify", Value: "0"},
@@ -134,7 +134,7 @@ func TestTLSClientNoSNI(t *testing.T) {
 }
 
 func TestTLSServerConfigRequiresCert(t *testing.T) {
-	_, err := tlsServerConfig(parse.Spec{Type: "OPENSSL-LISTEN", Params: []string{"443"}})
+	_, err := tlsServerConfig(parse.Spec{Type: "TLS-LISTEN", Params: []string{"443"}})
 	if err == nil {
 		t.Fatal("expected error without cert=")
 	}
@@ -145,7 +145,7 @@ func TestTLSServerConfigRequiresCert(t *testing.T) {
 
 func TestTLSClientSNIHost(t *testing.T) {
 	cfg, err := tlsClientConfig(parse.Spec{
-		Type: "OPENSSL",
+		Type: "TLS",
 		Options: []parse.Option{
 			{Name: "openssl-snihost", Value: "sni.example", Has: true},
 			{Name: "verify", Value: "0"},
@@ -167,7 +167,7 @@ func TestTLSServerVerifyUsesSystemRoots(t *testing.T) {
 	dir := t.TempDir()
 	certPath := writeTLSCert(t, dir, "srv", cert)
 	cfg, err := tlsServerConfig(parse.Spec{
-		Type:   "OPENSSL-LISTEN",
+		Type:   "TLS-LISTEN",
 		Params: []string{"443"},
 		Options: []parse.Option{
 			{Name: "cert", Value: certPath, Has: true},
@@ -202,7 +202,7 @@ func TestTLSServerVerifyRejectsUntrustedClient(t *testing.T) {
 	dir := t.TempDir()
 	srvPath := writeTLSCert(t, dir, "srv", srv)
 	sCfg, err := tlsServerConfig(parse.Spec{
-		Type: "OPENSSL-LISTEN",
+		Type: "TLS-LISTEN",
 		Options: []parse.Option{
 			{Name: "cert", Value: srvPath, Has: true},
 			{Name: "verify", Value: "1", Has: true},

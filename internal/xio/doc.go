@@ -4,7 +4,7 @@
 // Address openers live in subpackages and register via Register (init):
 //
 //	netopen   — TCP, UDP, UNIX, SOCKET, raw IP
-//	tlsopen   — classic OPENSSL/SSL via crypto/tls
+//	tlsopen   — TLS (OPENSSL/SSL aliases) via crypto/tls
 //	proxyopen — PROXY, SOCKS4/4A/5
 //	fileopen  — STDIO, FILE, PIPE, PTY, TEXT, STALL
 //	tunopen   — TUN, INTERFACE (Linux)
@@ -14,6 +14,6 @@
 // EXEC/SYSTEM/SHELL stay in this package (tightly coupled to Run / nofork).
 // Import internal/xio/all from main/cli so opener registration runs.
 //
-// Classic-facing names (OPENSSL types, SOCAT_OPENSSL_X509_* env, option names)
-// stay as in Gerhard’s socat so test.sh keeps matching.
+// Classic OPENSSL/SSL type names and SOCAT_OPENSSL_X509_* env stay as aliases
+// so test.sh and existing scripts keep matching.
 package xio

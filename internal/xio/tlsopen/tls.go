@@ -1,4 +1,6 @@
-// TLS endpoints (classic OPENSSL/SSL address types) via crypto/tls — not OpenSSL/CGO.
+// TLS endpoints via crypto/tls — not OpenSSL/CGO.
+// Canonical types: TLS, TLS-CONNECT, TLS-LISTEN.
+// OPENSSL/SSL names are classic aliases.
 package tlsopen
 
 import (
@@ -24,7 +26,7 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-// openTLSConnect implements classic OPENSSL/OPENSSL-CONNECT/SSL/SSL-CONNECT (TLS client over TCP).
+// openTLSConnect implements TLS/TLS-CONNECT (and OPENSSL/SSL aliases).
 func openTLSConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	// Dual-stack like TCP-CONNECT; pf=ip4/ip6 still forces a family.
 	return openTLSConnectNetwork(ctx, s, mode, g, xio.ConnectNetworkForType(g, s, xio.FirstHost(s), "tcp"))
@@ -38,7 +40,7 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	if host == "" || port == "" {
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
-	// Dual-stack + pf= like TCP-CONNECT (OPENSSL inherits IP app connect).
+	// Dual-stack + pf= like TCP-CONNECT.
 	network = xio.ConnectNetworkForType(g, s, host, network)
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
@@ -49,11 +51,11 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 
 	timeout := xio.ConnectTimeout(s)
 
-	// Classic OPENSSL-CONNECT forks after the TLS handshake; Dial returns a live TLS conn.
+	// Classic OPENSSL-CONNECT (alias of TLS-CONNECT) forks after the handshake.
 	// TCP multi-address walk first, then TLS on the winning socket.
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
-		err := xio.WithRetry(dctx, s, g, "OPENSSL-CONNECT", func() error {
+		err := xio.WithRetry(dctx, s, g, s.Type, func() error {
 			cctx := dctx
 			var cancel context.CancelFunc
 			if timeout > 0 {
@@ -93,7 +95,7 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 			Fork:        true,
 			MaxChildren: maxChildren,
 			Interval:    xio.ParseRetry(s).Interval,
-			Label:       "OPENSSL:" + addr,
+			Label:       s.Type + ":" + addr,
 			Dial:        dialOnce,
 		}, nil
 	}
@@ -113,10 +115,10 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		conn.Close()
 		return nil, err
 	}
-	return &xio.Opened{Stream: st, Label: "OPENSSL:" + addr}, nil
+	return &xio.Opened{Stream: st, Label: s.Type + ":" + addr}, nil
 }
 
-// openTLSListen implements classic OPENSSL-LISTEN/SSL-LISTEN (TLS server over TCP).
+// openTLSListen implements TLS-LISTEN (and OPENSSL-LISTEN/SSL-LISTEN aliases).
 // Family selection matches TCP-LISTEN: pf=, -4/-6/-0, SOCAT_DEFAULT_LISTEN_IP, else xio.IPv4.
 func openTLSListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	netw := xio.ListenNetwork(g, s)
@@ -191,7 +193,7 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	o := &xio.Opened{
 		Listener:    tlsLn,
 		Fork:        fork,
-		Label:       "OPENSSL-LISTEN:" + port,
+		Label:       s.Type + ":" + port,
 		PeerFilter:  filter,
 		MaxChildren: maxChildren,
 	}
@@ -284,12 +286,12 @@ func commonNameOption(s parse.Spec) string {
 	return s.OptionValue("openssl-commonname", "")
 }
 
-// TLSClientConfig builds a crypto/tls client config from classic OPENSSL/WSS options.
+// TLSClientConfig builds a crypto/tls client config from TLS/WSS options.
 func TLSClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 	return tlsClientConfig(s, serverName)
 }
 
-// TLSServerConfig builds a crypto/tls server config from classic OPENSSL/WSS-LISTEN options.
+// TLSServerConfig builds a crypto/tls server config from TLS/WSS-LISTEN options.
 func TLSServerConfig(s parse.Spec) (*tls.Config, error) {
 	return tlsServerConfig(s)
 }
@@ -307,7 +309,7 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 		checkName = cnOpt
 	}
 
-	// SNI: classic openssl-no-sni / openssl-snihost (alias snihost).
+	// SNI: nosni / snihost (openssl-no-sni / openssl-snihost aliases).
 	// OPENSSL_SNI / OPENSSL_NO_SNI: badssl.com needs SNI to succeed / fail.
 	noSNI := s.BoolOption("openssl-no-sni") || s.BoolOption("nosni")
 	sniHost := s.OptionValue("openssl-snihost", "")
@@ -359,7 +361,7 @@ func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 	if certPath == "" {
 		typ := s.Type
 		if typ == "" {
-			typ = "OPENSSL-LISTEN"
+			typ = "TLS-LISTEN"
 		}
 		// Classic warns, binds, then SSL_accept fails ("no shared cipher").
 		// We refuse to start. Go crypto/tls cannot serve without a certificate,

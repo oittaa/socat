@@ -101,7 +101,7 @@ type Opened struct {
 	PeerFilter func(net.Conn) error
 	// MaxChildren limits concurrent fork children (0 = unlimited). Classic max-children.
 	MaxChildren int
-	// ConnectFork: client-side reconnect loop (TCP/OPENSSL/SOCKS/PROXY CONNECT with fork).
+	// ConnectFork: client-side reconnect loop (TCP/TLS/SOCKS/PROXY CONNECT with fork).
 	// Parent dials repeatedly; each child transfers one connection. Dial must
 	// complete the full open (including TLS/SOCKS/HTTP handshake).
 	ConnectFork bool

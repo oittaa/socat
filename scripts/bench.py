@@ -134,9 +134,10 @@ def probe_go_client(
     workdir: Path,
     benchclient: Path,
     tag: str,
+    impl: str = "go",
 ) -> dict[str, Any]:
     port = free_tcp_port()
-    listen = echo_listen(proto if proto != "quic" else "quic", port, certs, fork=True)
+    listen = echo_listen(proto if proto != "quic" else "quic", port, certs, fork=True, impl=impl)
     slog = workdir / "logs" / f"{tag}.server.log"
     server = start_socat(server_bin, [listen, "PIPE"], slog)
     try:
@@ -186,7 +187,7 @@ def probe_openssl_sclient(
     tag: str,
 ) -> dict[str, Any]:
     port = free_tcp_port()
-    listen = echo_listen("tls", port, certs, fork=True)
+    listen = echo_listen("tls", port, certs, fork=True, impl="classic")
     slog = workdir / "logs" / f"{tag}.server.log"
     server = start_socat(server_bin, [listen, "PIPE"], slog)
     try:
@@ -230,7 +231,7 @@ def probe_all(
 ) -> dict[str, Any]:
     """Record the handshake each bench pairing actually negotiates."""
     out: dict[str, Any] = {}
-    print("  probe go client / go OPENSSL-LISTEN ...", flush=True)
+    print("  probe go client / go TLS-LISTEN ...", flush=True)
     out["go_client_go_server"] = probe_go_client(
         server_bin=go_bin,
         proto="tls",
@@ -238,6 +239,7 @@ def probe_all(
         workdir=workdir,
         benchclient=benchclient,
         tag="probe.go-go",
+        impl="go",
     )
     print("  probe go client / go QUIC-LISTEN ...", flush=True)
     out["go_client_go_quic"] = probe_go_client(
@@ -264,6 +266,7 @@ def probe_all(
             workdir=workdir,
             benchclient=benchclient,
             tag="probe.go-classic",
+            impl="classic",
         )
     return out
 
@@ -544,7 +547,13 @@ def sink_dir() -> Path:
     return Path(os.environ["WORKDIR"])
 
 
-def stream_addrs(case: str, port: int, sock: Path, certs: dict[str, Path]) -> tuple[str, str]:
+def tls_type_names(impl: str) -> tuple[str, str]:
+    if impl == "classic":
+        return "OPENSSL-LISTEN", "OPENSSL"
+    return "TLS-LISTEN", "TLS"
+
+
+def stream_addrs(case: str, port: int, sock: Path, certs: dict[str, Path], impl: str = "go") -> tuple[str, str]:
     crt, key, ca = certs["crt"], certs["key"], certs["ca"]
     if case == "tcp":
         return (
@@ -557,9 +566,10 @@ def stream_addrs(case: str, port: int, sock: Path, certs: dict[str, Path]) -> tu
             f"UNIX-CONNECT:{sock}",
         )
     if case == "tls":
+        listen_t, conn_t = tls_type_names(impl)
         return (
-            f"OPENSSL-LISTEN:{port},reuseaddr,bind=127.0.0.1,cert={crt},key={key},verify=0",
-            f"OPENSSL:127.0.0.1:{port},verify=1,cafile={ca},commonname=localhost",
+            f"{listen_t}:{port},reuseaddr,bind=127.0.0.1,cert={crt},key={key},verify=0",
+            f"{conn_t}:127.0.0.1:{port},verify=1,cafile={ca},commonname=localhost",
         )
     if case == "quic":
         return (
@@ -595,7 +605,7 @@ def run_stream_once(
     sink.unlink(missing_ok=True)
     if sock.exists():
         sock.unlink()
-    listen, connect = stream_addrs(case, port, sock, certs)
+    listen, connect = stream_addrs(case, port, sock, certs, impl=impl)
     slog = workdir / "logs" / f"{tag}.server.log"
     clog = workdir / "logs" / f"{tag}.client.log"
     server = start_socat(bin_path, ["-u", listen, f"OPEN:{sink},creat,trunc,wronly"], slog)
@@ -646,14 +656,15 @@ def run_stream_once(
             sock.unlink()
 
 
-def echo_listen(case: str, port: int, certs: dict[str, Path], fork: bool) -> str:
+def echo_listen(case: str, port: int, certs: dict[str, Path], fork: bool, impl: str = "go") -> str:
     crt, key = certs["crt"], certs["key"]
     fork_opt = ",fork" if fork else ""
     if case in {"tcp", "tcp-rr"}:
         return f"TCP4-LISTEN:{port},reuseaddr,bind=127.0.0.1{fork_opt}"
     if case in {"tls", "tls-rr", "tls-hs"}:
+        listen_t, _ = tls_type_names(impl)
         return (
-            f"OPENSSL-LISTEN:{port},reuseaddr,bind=127.0.0.1{fork_opt},"
+            f"{listen_t}:{port},reuseaddr,bind=127.0.0.1{fork_opt},"
             f"cert={crt},key={key},verify=0"
         )
     if case in {"quic", "quic-rr"}:
@@ -688,7 +699,7 @@ def run_client_once(
 ) -> dict[str, Any]:
     port = free_tcp_port()
     fork = mode == "hs"
-    listen = echo_listen(case, port, certs, fork=fork)
+    listen = echo_listen(case, port, certs, fork=fork, impl=impl)
     slog = workdir / "logs" / f"{tag}.server.log"
     server = start_socat(bin_path, [listen, "PIPE"], slog)
     try:

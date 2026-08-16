@@ -40,7 +40,7 @@ A scenario passes only when the client exits 0 and the HTTP body contains
 
 | Name | What it proves | Server | Client |
 |------|----------------|--------|--------|
-| `tls` | Real HTTPS to OPENSSL-LISTEN | httpd + OPENSSL-LISTEN:443 | `curl --cacert ca.pem https://server/` |
+| `tls` | Real HTTPS to TLS-LISTEN | httpd + TLS-LISTEN:443 | `curl --cacert ca.pem https://server/` |
 | `quic` | HTTP over a QUIC **tunnel** (not HTTP/3) | httpd + QUIC-LISTEN:4433 | local TCP-LISTEN + QUIC:server:4433, then curl |
 | `socks5` | SOCKS5 **client** to a real daemon | httpd + microsocks :1080 | local TCP-LISTEN + SOCKS5:server:127.0.0.1:8080 |
 | `wss` | HTTP over a WSS tunnel | httpd + WSS-LISTEN:443 | local TCP-LISTEN + WSS:server:443, then curl |
@@ -50,7 +50,7 @@ A scenario passes only when the client exits 0 and the HTTP body contains
 ```bash
 # server
 python3 -m http.server 8080 --bind 127.0.0.1
-socat OPENSSL-LISTEN:443,reuseaddr,fork,bind=0.0.0.0,cert=server.crt,key=server.key,verify=0 \
+socat TLS-LISTEN:443,reuseaddr,fork,bind=0.0.0.0,cert=server.crt,key=server.key,verify=0 \
   TCP:127.0.0.1:8080
 
 # client

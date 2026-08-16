@@ -61,7 +61,7 @@ Common options: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `
 | UNIX-CONNECT / UNIX-CLIENT, UNIX-LISTEN | `bind=`, `unlink-close` / `unlink-early` |
 | EXEC, SYSTEM, SHELL | pipes, socketpair, **pty**, fdin/fdout, setsid, shut-none; child exit promoted |
 | TEXT, STALL, PTY | STALL uses classic full-pipe backpressure |
-| OPENSSL / OPENSSL-CONNECT / OPENSSL-LISTEN (SSL-*) | stream TLS via `crypto/tls`; **not** DTLS (see [Unsupported / security](#unsupported--security-related)) |
+| TLS / TLS-CONNECT / TLS-LISTEN (`TLS-L`) | stream TLS via `crypto/tls`; **not** DTLS (see [Unsupported / security](#unsupported--security-related)). Classic aliases: `OPENSSL` / `OPENSSL-CONNECT` / `OPENSSL-LISTEN`, `SSL` / `SSL-CONNECT` / `SSL-LISTEN` |
 | PROXY / PROXY-CONNECT | HTTP CONNECT client: default HTTP/1.x; `http-version=2` (`net/http`) / `http-version=3` (quic-go/http3); `h2c` |
 | SOCKS4 / SOCKS4A / SOCKS5 / SOCKS5-CONNECT | SOCKS clients (`socksport`, `socksuser`, `sockspass`) |
 | SOCKS5-LISTEN / SOCKS5-BIND | SOCKS5 BIND (remote listen; two server replies) |
@@ -89,26 +89,26 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 | EXEC | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none`, `chdir`, `umask` (child inherits, then parent restores) |
 | PTY / TERMIOS | `link`, `cfmakeraw`/`raw`/`rawer`, `echo`, `opost`, baud/`ispeed`/`ospeed`, `tiocswinsz`, `pty-wait-slave`, `ctty`; restore tty on close |
 | Transfer | `crnl`, `crlf`, `ignoreeof`, `readbytes`, `retry`/`forever`/`interval` |
-| TLS | `cert`, `key`, `cafile`/`ca`, `capath` / `openssl-capath`, `verify`, `commonname` / `openssl-commonname`, `openssl-snihost` / `snihost`, `openssl-no-sni` / `nosni` |
+| TLS | `cert`, `key`, `cafile`/`ca`, `capath`, `verify`, `commonname`, `snihost`, `nosni` (classic aliases: `openssl-capath`, `openssl-commonname`, `openssl-snihost`, `openssl-no-sni`; also `tls-capath`, `tls-commonname`, `tls-snihost`, `tls-no-sni`) |
 | WebSocket | `path`, `origin`, `protocol` (binary frames; WSS reuses TLS options) |
 | QUIC | `alpn` (default `socat`; not `h3`); reuses TLS options; one bidirectional stream |
 | PROXY/SOCKS | `proxyport`, `http-version` (`1.0`/`1.1`/`2`/`3`), `h2c`, `proxy-authorization` / `proxy-authorization-file`, `socksport`, `socksuser` |
 
-**`max-children`:** limits concurrent `fork` sessions on **LISTEN** and on **CONNECT** / **OPENSSL-CONNECT** client reconnect loops. Requires `fork`. Parent redials after `interval` (default 1s).
+**`max-children`:** limits concurrent `fork` sessions on **LISTEN** and on **CONNECT** / **TLS-CONNECT** client reconnect loops. Requires `fork`. Parent redials after `interval` (default 1s).
 
 **`perm=` / `mode=`:** after create/open, `chmod`/`fchmod` sets the exact mode (classic NAMED group). **`umask=`** applies only during open (or child `Start` for EXEC/SHELL), then restores.
 
 ### TLS notes
 
 - **Stream TLS only** — see [Unsupported](#unsupported--security-related) for DTLS.
-- **Listen requires `cert=`** — `OPENSSL-LISTEN`, `WSS-LISTEN`, and `QUIC-LISTEN` refuse to start without `cert=`. Classic `OPENSSL-LISTEN` warns (`no certificate given; consider option "cert"`), binds, then `SSL_accept` fails (`no shared cipher`). We fail at open instead of inventing a dummy certificate. Classic `V1800_OPENSSL_LISTEN_*` (bind/range only) and `ciphers=aNULL` without `cert=` therefore fail here.
+- **Listen requires `cert=`** — `TLS-LISTEN`, `WSS-LISTEN`, and `QUIC-LISTEN` refuse to start without `cert=`. Classic `OPENSSL-LISTEN` warns (`no certificate given; consider option "cert"`), binds, then `SSL_accept` fails (`no shared cipher`). We fail at open instead of inventing a dummy certificate. Classic `V1800_OPENSSL_LISTEN_*` (bind/range only) and `ciphers=aNULL` without `cert=` therefore fail here.
 - **No DSA** — see [Unsupported](#unsupported--security-related).
-- **`verify` (OPENSSL, WSS, QUIC)** — default on. `verify=0` skips trust and name checks. `verify=1` uses `crypto/x509` (not OpenSSL `SSL_get_verify_result`). With no `cafile`/`capath`, the **system** CA pool is used on both client and listen (classic `SSL_CTX_set_default_verify_paths`).
+- **`verify` (TLS, WSS, QUIC)** — default on. `verify=0` skips trust and name checks. `verify=1` uses `crypto/x509` (not OpenSSL `SSL_get_verify_result`). With no `cafile`/`capath`, the **system** CA pool is used on both client and listen (classic `SSL_CTX_set_default_verify_paths`).
 - **`capath`** — directory of CA certificates (PEM or DER). We load every regular file that parses as a certificate, including OpenSSL hashed names and symlinks. Classic OpenSSL only looks up hashed names.
-- **Peer name** — [RFC 6125](https://www.rfc-editor.org/rfc/rfc6125) via Go `Certificate.VerifyHostname` (case-insensitive, modern wildcard rules). Classic OPENSSL uses `strcmp` and treats `*.example.com` as a match for `example.com`. For old test certs with no SAN, we still accept a CN match. An empty `commonname=` does **not** turn off the name check; the dial host is still checked. Use `verify=0` to skip name and trust checks.
+- **Peer name** — [RFC 6125](https://www.rfc-editor.org/rfc/rfc6125) via Go `Certificate.VerifyHostname` (case-insensitive, modern wildcard rules). Classic OPENSSL address types use `strcmp` and treat `*.example.com` as a match for `example.com`. For old test certs with no SAN, we still accept a CN match. An empty `commonname=` does **not** turn off the name check; the dial host is still checked. Use `verify=0` to skip name and trust checks.
 - **Post-quantum key exchange** — Go 1.24+ `crypto/tls` defaults to hybrid **X25519MLKEM768**. We inherit that. Classic `test.sh` has no PQC tests; we cover PQC in unit/e2e tests.
 - **Multi-address connect** — try every resolved address; log `opening connection to AF=…`; match `bind=` to remote family; `-4`/`-6` reorder dual-stack results.
-- **IPv6 peer filters** on OPENSSL-LISTEN: `range`, `sourceport`, `lowport` (CN check accepts `::1` vs `[::1]`).
+- **IPv6 peer filters** on `TLS-LISTEN`: `range`, `sourceport`, `lowport` (CN check accepts `::1` vs `[::1]`).
 
 ### Unsupported / security-related
 
@@ -131,6 +131,7 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 - Unknown options are generally ignored (classic may error more strictly)
 - Security-deprecated crypto (DSA, DTLS, etc.) is documented above rather than forced in
 - **TLS listen without `cert=`** fails at start (classic warns, listens, then handshake fails). See [TLS notes](#tls-notes).
+- **TLS address names** are `TLS` / `TLS-CONNECT` / `TLS-LISTEN`. `OPENSSL*` and `SSL*` remain aliases so classic command lines still work. Peer env vars stay `SOCAT_OPENSSL_X509_*`.
 
 ## Classic scorecard
 
@@ -216,7 +217,7 @@ classic socat 1.8.1.3, distro OpenSSL 3.0.13. Payload: 256 MiB AES-128-CTR
 |------|---------|----|-------------------------|
 | TCP 256 MiB | 966.8 MiB/s | 616.5 MiB/s | 8.3 / 20.1 MiB |
 | UNIX 256 MiB | 1190.8 MiB/s | 812.0 MiB/s | 8.0 / 20.0 MiB |
-| TLS (OPENSSL) 256 MiB | 616.2 MiB/s | 550.1 MiB/s | 16.5 / 23.4 MiB |
+| TLS 256 MiB | 616.2 MiB/s | 550.1 MiB/s | 16.5 / 23.4 MiB |
 | QUIC 256 MiB | n/a | 279.0 MiB/s | n/a / 34.5 MiB |
 | TCP 64 B RTT | 23.0 µs | 21.2 µs | 4.1 / 10.2 MiB |
 | TLS 64 B RTT | 31.0 µs | 30.5 µs | 8.6 / 11.9 MiB |
@@ -227,7 +228,7 @@ Recorded handshakes (same binaries as the table; see `meta.tls` in `testdata/ben
 
 | Pairing | Used by | Version | Cipher | Group |
 |---------|---------|---------|--------|-------|
-| Go `crypto/tls` ↔ Go OPENSSL-LISTEN | `tls`, `tls-rr`, `tls-hs` (go) | TLS 1.3 | TLS_AES_128_GCM_SHA256 | X25519MLKEM768 |
+| Go `crypto/tls` ↔ Go TLS-LISTEN | `tls`, `tls-rr`, `tls-hs` (go) | TLS 1.3 | TLS_AES_128_GCM_SHA256 | X25519MLKEM768 |
 | Distro OpenSSL 3.0.13 ↔ classic OPENSSL-LISTEN | `tls` (classic) | TLS 1.3 | TLS_AES_256_GCM_SHA384 | P-256 |
 | Go `crypto/tls` ↔ classic OPENSSL-LISTEN | `tls-rr`, `tls-hs` (classic) | TLS 1.3 | TLS_AES_128_GCM_SHA256 | P-256 |
 | quic-go ↔ Go QUIC-LISTEN | `quic`, `quic-rr` | TLS 1.3 | TLS_AES_128_GCM_SHA256 | X25519MLKEM768 |

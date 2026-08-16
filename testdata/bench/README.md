@@ -59,7 +59,7 @@ the **median**.
 |----|------------------|----------|
 | `tcp` | TCP4-LISTEN / TCP4 | classic, go |
 | `unix` | UNIX-LISTEN / UNIX-CONNECT | classic, go |
-| `tls` | OPENSSL-LISTEN / OPENSSL | classic, go |
+| `tls` | TLS-LISTEN / TLS (classic: OPENSSL-LISTEN / OPENSSL) | classic, go |
 | `quic` | QUIC-LISTEN / QUIC | go only |
 
 TLS and QUIC use the same RSA-2048 cert (SAN `DNS:localhost`, `IP:127.0.0.1`).
@@ -125,7 +125,7 @@ RSS is the peak `VmRSS` of the socat process tree (50 ms sample). For
   **TLS_AES_128_GCM_SHA256**.
 - `tls-rr` / `tls-hs` (classic) use the Go `benchclient` against classic
   OPENSSL-LISTEN. That pairing is not classic↔classic.
-- QUIC is not a drop-in OPENSSL replacement.
+- QUIC is not a drop-in TLS replacement.
 - Do not claim a winner unless the JSON shows it.
 
 ## Refresh the committed snapshot
