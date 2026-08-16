@@ -89,7 +89,7 @@ func (l *Logger) logf(level Level, format string, args ...any) {
 		host = l.hostname + " "
 	}
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(l.out, "%s %s%s[%d] %s %s\n",
+	_, _ = fmt.Fprintf(l.out, "%s %s%s[%d] %s %s\n",
 		ts, host, l.progname, os.Getpid(), levelNames[level], msg)
 }
 

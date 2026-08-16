@@ -1,4 +1,4 @@
-.PHONY: all build fmt fmt-check test e2e lab bench clean install hooks
+.PHONY: all build fmt fmt-check lint gosec test e2e lab bench clean install hooks
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -31,6 +31,20 @@ fmt-check:
 # Enable repo hooks: git config core.hooksPath .githooks
 hooks:
 	git config core.hooksPath .githooks
+
+lint: fmt-check
+	go vet $(GOFLAGS) ./...
+	golangci-lint run
+
+# Suppress a finding only at the call site with:
+#   // #nosec Gxxx -- reason
+# Do not exclude a whole rule.
+GOSEC ?= gosec
+
+gosec:
+	$(GOSEC) -exclude-dir=testdata \
+		-nosec-require-rules -nosec-require-justification \
+		./...
 
 test: fmt-check
 	go test $(GOFLAGS) ./...

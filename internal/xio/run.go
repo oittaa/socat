@@ -31,7 +31,7 @@ func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
 		// Preserve classic "unknown device/address" text for test.sh testaddrs().
 		return err
 	}
-	defer lo.Close()
+	defer func() { _ = lo.Close() }()
 
 	// Fork listen on left: accept loop
 	if lo.Fork && lo.Listener != nil {
@@ -50,7 +50,7 @@ func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
 		if err != nil {
 			return err
 		}
-		defer ro.Close()
+		defer func() { _ = ro.Close() }()
 		return runExecNoFork(ctx, ro.EffectiveStream(), *lo.NoForkSpec, g, lMode)
 	}
 
@@ -58,7 +58,7 @@ func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
 	if err != nil {
 		return err
 	}
-	defer ro.Close()
+	defer func() { _ = ro.Close() }()
 
 	// Right EXEC,nofork on left stream (TCP-LISTEN + EXEC,nofork; or STDIO + EXEC,nofork).
 	if ro.NoForkSpec != nil {
@@ -114,7 +114,7 @@ func runConnectFork(ctx context.Context, lo *Opened, right parse.Channel, rMode 
 		if err != nil {
 			return err
 		}
-		defer ro.Close()
+		defer func() { _ = ro.Close() }()
 		return transferStreams(cctx, left, ro.EffectiveStream(), cg)
 	})
 }
@@ -176,14 +176,14 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 			g.Log.Infof("successfully connected from %s to %s", conn.LocalAddr(), conn.RemoteAddr())
 		}
 		go func(c net.Conn) {
-			defer c.Close()
+			defer func() { _ = c.Close() }()
 			if slots != nil {
 				defer func() { <-slots }()
 			}
-			cg := *g
-			RememberAddrs(&cg, c)
-			RememberTLSPeer(&cg, c)
-			if err := child(ctx, &cg, c); err != nil {
+			cg := g.forkSession()
+			RememberAddrs(cg, c)
+			RememberTLSPeer(cg, c)
+			if err := child(ctx, cg, c); err != nil {
 				if g != nil && g.Log != nil {
 					g.Log.Debugf("connect child: %s", err)
 				}
@@ -205,7 +205,7 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 	g.Log.Noticef("listening on %s", ln.Addr())
 	go func() {
 		<-ctx.Done()
-		ln.Close()
+		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 	}()
 	filter := lo.PeerFilter
 	maxCh := lo.MaxChildren
@@ -244,19 +244,19 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 		}
 		g.Log.Infof("accepted %s", conn.RemoteAddr())
 		go func(c net.Conn) {
-			defer c.Close()
+			defer func() { _ = c.Close() }()
 			if slots != nil {
 				defer func() { <-slots }()
 			}
-			// Per-connection Global copy so SOCAT_* env is correct under concurrency.
-			cg := *g
-			RememberAddrs(&cg, c)
+			// Per-connection session so SOCAT_* env is correct under concurrency.
+			cg := g.forkSession()
+			RememberAddrs(cg, c)
 			leftStream, err := streamFromDial(lo, c)
 			if err != nil {
 				g.Log.Errorf("wrap accept: %s", err)
 				return
 			}
-			ro, err := OpenChannel(ctx, right, rMode, &cg)
+			ro, err := OpenChannel(ctx, right, rMode, cg)
 			if err != nil {
 				// Classic greps `E open(` for RECVFROM_FORK_LOOP — no "right address:" prefix.
 				g.Log.Errorf("%s", err)
@@ -270,22 +270,22 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 				sp0, sp1, spErr := unixSocketpairLogged(g)
 				if spErr != nil {
 					g.Log.Errorf("socketpair: %s", spErr)
-					ro.Close()
+					_ = ro.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 					return
 				}
 				go func() {
-					defer sp1.Close()
-					defer ro.Close()
-					_ = transferStreams(ctx, FileStream(sp1), ro.EffectiveStream(), &cg)
+					defer func() { _ = sp1.Close() }()
+					defer func() { _ = ro.Close() }()
+					_ = transferStreams(ctx, FileStream(sp1), ro.EffectiveStream(), cg)
 				}()
-				defer sp0.Close()
-				if err := transferStreams(ctx, leftStream, FileStream(sp0), &cg); err != nil {
+				defer func() { _ = sp0.Close() }()
+				if err := transferStreams(ctx, leftStream, FileStream(sp0), cg); err != nil {
 					g.Log.Debugf("transfer: %s", err)
 				}
 				return
 			}
-			defer ro.Close()
-			if err := transferStreams(ctx, leftStream, ro.EffectiveStream(), &cg); err != nil {
+			defer func() { _ = ro.Close() }()
+			if err := transferStreams(ctx, leftStream, ro.EffectiveStream(), cg); err != nil {
 				g.Log.Debugf("transfer: %s", err)
 			}
 		}(conn)
@@ -315,7 +315,7 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 	}
 	go func() {
 		<-ctx.Done()
-		ln.Close()
+		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 	}()
 	filter := ro.PeerFilter
 	// Shared left stream (FILE append, EXEC end-close) cannot safely run concurrent
@@ -350,21 +350,21 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 			}
 		}
 		go func(c net.Conn) {
-			defer c.Close()
+			defer func() { _ = c.Close() }()
 			if slots != nil {
 				defer func() { <-slots }()
 			}
 			leftMu.Lock()
 			defer leftMu.Unlock()
-			cg := *g
-			RememberAddrs(&cg, c)
+			cg := g.forkSession()
+			RememberAddrs(cg, c)
 			rightStream, err := streamFromDial(ro, c)
 			if err != nil {
 				g.Log.Errorf("wrap accept: %s", err)
 				return
 			}
 			// noCloseLeft=true: do not close/shutdown shared left between children.
-			if err := transferStreamsOpts(ctx, left, rightStream, &cg, true, false); err != nil {
+			if err := transferStreamsOpts(ctx, left, rightStream, cg, true, false); err != nil {
 				g.Log.Debugf("transfer: %s", err)
 			}
 		}(conn)
@@ -423,7 +423,7 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 	if g != nil && g.Statistics && g.Log != nil {
 		cfg.OnStats = func(st relay.Stats) {
 			PrintStats(g.Log, st, cfg.LeftToRight, cfg.RightToLeft, true)
-			g.statsPrinted.Store(true)
+			g.markStatsPrinted()
 		}
 	}
 	// Classic MULTIPLE_EOF greps: "socket 2 (fd .*) is at EOF" (Notice once per side).

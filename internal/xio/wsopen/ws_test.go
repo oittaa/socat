@@ -36,9 +36,9 @@ func echoWSHandler() http.Handler {
 		if err != nil {
 			return
 		}
-		defer c.CloseNow()
+		defer func() { _ = c.CloseNow() }()
 		nc := websocket.NetConn(r.Context(), c, websocket.MessageBinary)
-		defer nc.Close()
+		defer func() { _ = nc.Close() }()
 		_, _ = io.Copy(nc, nc)
 	})
 }
@@ -63,7 +63,7 @@ func TestWSClientHTTPtest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	payload := []byte("hello-ws")
 	if _, err := o.Stream.Write(payload); err != nil {
 		t.Fatal(err)
@@ -97,7 +97,7 @@ func TestWSSClientHTTPtest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	payload := []byte("hello-wss")
 	if _, err := o.Stream.Write(payload); err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func freeTCPPort(t *testing.T) int {
 		t.Fatal(err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	ln.Close()
+	_ = ln.Close()
 	return port
 }
 
@@ -153,7 +153,7 @@ func waitTCPPort(t *testing.T, port int, d time.Duration) {
 		if err != nil {
 			return
 		}
-		ln.Close()
+		_ = ln.Close()
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("listen not ready")
@@ -202,7 +202,7 @@ func TestWSListenConnectEcho(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	echoRoundtrip(t, o.Stream, []byte("roundtrip"))
 }
 
@@ -230,7 +230,7 @@ func TestWSListenPathMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	echoRoundtrip(t, o.Stream, []byte("ok"))
 }
 
@@ -249,7 +249,7 @@ func TestWSListenPathOption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	echoRoundtrip(t, o.Stream, []byte("pathopt"))
 }
 
@@ -270,7 +270,7 @@ func TestWSListenForkTwoClients(t *testing.T) {
 			t.Fatalf("client %d: %v", i, err)
 		}
 		echoRoundtrip(t, o.Stream, []byte(msg))
-		o.Close()
+		_ = o.Close()
 	}
 }
 
@@ -289,7 +289,7 @@ func TestWSSListenConnectEcho(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	echoRoundtrip(t, o.Stream, []byte("hello-wss-listen"))
 }
 
@@ -316,7 +316,7 @@ func TestWSListenOriginReject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	echoRoundtrip(t, o.Stream, []byte("origin-ok"))
 }
 
@@ -335,6 +335,6 @@ func TestWSListenProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	echoRoundtrip(t, o.Stream, []byte("proto"))
 }

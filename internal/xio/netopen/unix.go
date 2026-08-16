@@ -3,6 +3,7 @@ package netopen
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -139,7 +140,9 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	if err != nil {
 		return nil, err
 	}
-	g.Log.Infof("successfully connected to %s", path)
+	if g != nil && g.Log != nil {
+		g.Log.Infof("successfully connected to %s", path)
+	}
 	if g != nil {
 		if bindPath != "" {
 			g.SockAddr = bindPath
@@ -151,7 +154,7 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		if bindPath != "" {
 			_ = os.Remove(bindPath)
 		}
@@ -172,25 +175,11 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 var errTryDgram = fmt.Errorf("try unixgram")
 
 func isWrongType(err error) bool {
-	if err == nil {
-		return false
-	}
-	if err == syscall.EPROTOTYPE {
-		return true
-	}
-	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "protocol wrong type") || strings.Contains(s, "eprototype") ||
-		strings.Contains(s, "wrong protocol type")
+	return errors.Is(err, syscall.EPROTOTYPE)
 }
 
 func isConnRefusedOrNotSocket(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "connection refused") ||
-		strings.Contains(s, "not a socket") ||
-		strings.Contains(s, "socket operation on non-socket")
+	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOTSOCK)
 }
 
 // openUnixDgramClient is UNIX:/UNIX-CONNECT as datagram (peer is RECVFROM etc.).
@@ -275,12 +264,12 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		Fork:     fork,
 		Label:    "UNIX-LISTEN:" + path,
 	}
-	o.AddCleanup(func() { ln.Close() })
+	o.AddCleanup(func() { _ = ln.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 
 	if fork {
 		go func() {
 			<-ctx.Done()
-			ln.Close()
+			_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		}()
 		return o, nil
 	}
@@ -313,14 +302,14 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	var conn net.Conn
 	select {
 	case <-ctx.Done():
-		ln.Close()
+		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		o.Listener = nil
 		return nil, ctx.Err()
 	case a := <-ch:
-		ln.Close()
+		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		o.Listener = nil
 		if a.err != nil {
-			o.Close()
+			_ = o.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			if xio.IsTimeoutErr(a.err) {
 				return nil, xio.ErrAcceptTimeout
 			}
@@ -348,8 +337,8 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		conn.Close()
-		o.Close()
+		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		_ = o.Close()    // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	o.Stream = st
@@ -410,7 +399,7 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 			st := relay.Stream(relay.NetStream{Conn: c})
 			st, err = xio.WrapCommon(s, st)
 			if err != nil {
-				c.Close()
+				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return nil, err
 			}
 			_ = ctx
@@ -427,7 +416,7 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 	st := &unixgramConn{UnixConn: c, raddr: raddr}
 	wrapped, err := xio.WrapCommon(s, st)
 	if err != nil {
-		c.Close()
+		_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	o := &xio.Opened{Stream: wrapped, Label: "UNIX-SENDTO:" + remote}
@@ -453,14 +442,14 @@ func listenUnixgramUnbound() (*net.UnixConn, error) {
 	}
 	f := os.NewFile(uintptr(fd), "unixgram-unbound")
 	c, err := net.FilePacketConn(f)
-	f.Close()
+	_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 	if err != nil {
-		syscall.Close(fd)
+		_ = syscall.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	uc, ok := c.(*net.UnixConn)
 	if !ok {
-		c.Close()
+		_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("not a UnixConn")
 	}
 	return uc, nil
@@ -518,11 +507,11 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		if !xio.IsAbstract(path) && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close")) {
 			xio.RegisterUnlinkPath(path)
 			o.AddCleanup(func() {
-				ln.Close()
+				_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				_ = os.Remove(path)
 			})
 		} else {
-			o.AddCleanup(func() { ln.Close() })
+			o.AddCleanup(func() { _ = ln.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 		}
 		_ = xio.ApplyOwner(path, s, nil)
 		_ = ctx
@@ -534,7 +523,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	st := &unixRecvStream{c: c, from: from}
 	wrapped, err := xio.WrapCommon(s, st)
 	if err != nil {
-		c.Close()
+		_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	o := &xio.Opened{Stream: wrapped, Label: label}
@@ -542,11 +531,11 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	if !xio.IsAbstract(path) && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close")) {
 		xio.RegisterUnlinkPath(path)
 		o.AddCleanup(func() {
-			c.Close()
+			_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			_ = os.Remove(path)
 		})
 	} else {
-		o.AddCleanup(func() { c.Close() })
+		o.AddCleanup(func() { _ = c.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 	}
 	_ = ctx
 	_ = mode
@@ -647,19 +636,15 @@ func (u *unixPacketConn) Read(p []byte) (int, error) {
 		return n, nil
 	}
 	// Subsequent reads from same peer only.
-	for {
-		n, addr, err := u.c.ReadFromUnix(p)
-		if err != nil {
-			return n, err
-		}
-		if addr != nil && u.peer != nil && addr.Name == u.peer.Name {
-			return n, nil
-		}
-		// Drop packets from other peers when filtering (fork children race).
-		// In fork mode each Accept takes one packet; extra reads may be empty wait.
-		_ = addr
-		return n, nil
+	n, addr, err := u.c.ReadFromUnix(p)
+	if err != nil {
+		return n, err
 	}
+	if addr != nil && u.peer != nil && addr.Name != u.peer.Name {
+		// Other-peer packets are dropped by the caller / next Accept in fork mode.
+		_ = addr
+	}
+	return n, nil
 }
 func (u *unixPacketConn) Write(p []byte) (int, error) {
 	if u.peer == nil {
@@ -710,11 +695,11 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		Fork:     fork,
 		Label:    "ABSTRACT-LISTEN:" + name,
 	}
-	o.AddCleanup(func() { ln.Close() })
+	o.AddCleanup(func() { _ = ln.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 	if fork {
 		go func() {
 			<-ctx.Done()
-			ln.Close()
+			_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		}()
 		return o, nil
 	}
@@ -740,10 +725,10 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	}()
 	select {
 	case <-ctx.Done():
-		ln.Close()
+		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, ctx.Err()
 	case a := <-ch:
-		ln.Close()
+		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		o.Listener = nil
 		if a.err != nil {
 			if xio.IsTimeoutErr(a.err) {
@@ -754,7 +739,7 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		st := relay.Stream(relay.NetStream{Conn: a.c})
 		st, err = xio.WrapCommon(s, st)
 		if err != nil {
-			a.c.Close()
+			_ = a.c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, err
 		}
 		o.Stream = st
@@ -842,7 +827,7 @@ func openAbstractSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	st := &unixgramConn{UnixConn: c, raddr: raddr}
 	wrapped, err := xio.WrapCommon(s, st)
 	if err != nil {
-		c.Close()
+		_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	_ = ctx
@@ -857,7 +842,7 @@ type unixgramConn struct {
 }
 
 func (u *unixgramConn) Write(p []byte) (int, error) {
-	return u.UnixConn.WriteToUnix(p, u.raddr)
+	return u.WriteToUnix(p, u.raddr)
 }
 func (u *unixgramConn) ShutdownWrite() error { return nil }
 func (u *unixgramConn) SetReadDeadline(t time.Time) error {

@@ -57,7 +57,7 @@ func sendMsg(t *testing.T, q, msg string, prio uint32) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	if _, err := io.WriteString(o.EffectiveStream(), msg); err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestMQSyscalls(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer mqClose(fd)
+	defer func() { _ = mqClose(fd) }()
 	if err := mqTimedSend(fd, []byte("hi"), 1); err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestPOSIXMQReadPrio(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	st := o.EffectiveStream()
 	buf := make([]byte, 64)
 	n1, err := st.Read(buf)
@@ -141,7 +141,7 @@ func TestPOSIXMQRecvOneshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	st := o.EffectiveStream()
 	b, err := io.ReadAll(st)
 	if err != nil {
@@ -220,7 +220,7 @@ func TestPOSIXMQFlush(t *testing.T) {
 	if _, err := io.WriteString(o.EffectiveStream(), "fresh"); err != nil {
 		t.Fatal(err)
 	}
-	o.Close()
+	_ = o.Close()
 
 	ch, err = parse.ParseChannel("POSIXMQ-READ:" + q)
 	if err != nil {
@@ -230,7 +230,7 @@ func TestPOSIXMQFlush(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	buf := make([]byte, 32)
 	n, err := r.EffectiveStream().Read(buf)
 	if err != nil {

@@ -34,7 +34,7 @@ func (h *wsHijacker) WriteHeader(status int) {
 		return
 	}
 	h.wrote = true
-	fmt.Fprintf(h.conn, "HTTP/1.1 %d %s\r\n", status, http.StatusText(status))
+	_, _ = fmt.Fprintf(h.conn, "HTTP/1.1 %d %s\r\n", status, http.StatusText(status))
 	_ = h.header.Write(h.conn)
 	_, _ = h.conn.Write([]byte("\r\n"))
 }

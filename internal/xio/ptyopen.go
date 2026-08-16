@@ -19,7 +19,7 @@ func startOnPTY(cmd *exec.Cmd, s parse.Spec) (*os.File, error) {
 		return nil, err
 	}
 	// Parent must not keep the slave open after Start (child inherits it).
-	defer slave.Close()
+	defer func() { _ = slave.Close() }()
 	_ = ApplyTermios(int(slave.Fd()), s)
 
 	if cmd.Stdin == nil {
@@ -41,7 +41,7 @@ func startOnPTY(cmd *exec.Cmd, s parse.Spec) (*os.File, error) {
 	// Go's fork/exec sets controlling tty from Setctty when slave is Stdin.
 
 	if err := cmd.Start(); err != nil {
-		master.Close()
+		_ = master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("start on pty: %w", err)
 	}
 	return master, nil

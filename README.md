@@ -136,11 +136,15 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 ## Test
 
 ```bash
-make test
-go test -tags=e2e ./e2e/...   # after build
+make test          # gofmt + unit tests
+make e2e           # after build; local processes on 127.0.0.1
+make lint          # gofmt, go vet, golangci-lint
+make gosec         # security scan; suppress only at the call site with #nosec
 ```
 
-Classic `test.sh` scorecard (not CI): [testdata/scorecard/README.md](testdata/scorecard/README.md).
+GitHub Actions runs those four checks on `master` and on pull requests.
+Classic `test.sh` is not in CI (runners are sandboxed). Scorecard:
+[testdata/scorecard/README.md](testdata/scorecard/README.md).
 
 ## Examples / lab
 

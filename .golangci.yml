@@ -1,0 +1,16 @@
+# golangci-lint default: standard
+# (errcheck, govet, ineffassign, staticcheck, unused).
+# testdata/ is third-party and is not linted.
+version: "2"
+
+run:
+  relative-path-mode: wd
+
+linters:
+  default: standard
+  exclusions:
+    paths:
+      - testdata
+      - third_party$
+      - builtin$
+      - examples$

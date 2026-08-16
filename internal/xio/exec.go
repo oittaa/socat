@@ -50,10 +50,10 @@ func openSHELL(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened
 	cmdStr := strings.Join(s.Params, ":")
 	var cmd *exec.Cmd
 	if len(s.Params) == 0 || s.Params[0] == "" {
-		cmd = exec.CommandContext(ctx, shell)
+		cmd = exec.CommandContext(ctx, shell) // #nosec G204 G702 -- EXEC/SYSTEM/SHELL runs the command from the address line
 		cmd.Args = []string{argv0}
 	} else {
-		cmd = exec.CommandContext(ctx, shell, "-c", cmdStr)
+		cmd = exec.CommandContext(ctx, shell, "-c", cmdStr) // #nosec G204 G702 -- EXEC/SYSTEM/SHELL runs the command from the address line
 		cmd.Args[0] = argv0
 	}
 	return startCmd(ctx, s, mode, g, cmd)
@@ -62,14 +62,14 @@ func openSHELL(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened
 func startProcess(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmdStr string, useShell bool) (*Opened, error) {
 	var cmd *exec.Cmd
 	if useShell {
-		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr)
+		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
 	} else {
 		// Split on whitespace for argv; classic EXEC uses simple space separation.
 		parts := splitExecArgs(cmdStr)
 		if len(parts) == 0 {
 			return nil, fmt.Errorf("empty EXEC command")
 		}
-		cmd = exec.CommandContext(ctx, parts[0], parts[1:]...)
+		cmd = exec.CommandContext(ctx, parts[0], parts[1:]...) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
 	}
 	return startCmd(ctx, s, mode, g, cmd)
 }
@@ -129,13 +129,13 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 	useShell := strings.EqualFold(s.Type, "SYSTEM") || strings.EqualFold(s.Type, "SHELL")
 	var cmd *exec.Cmd
 	if useShell {
-		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr)
+		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
 	} else {
 		parts := splitExecArgs(cmdStr)
 		if len(parts) == 0 {
 			return fmt.Errorf("empty EXEC command")
 		}
-		cmd = exec.CommandContext(ctx, parts[0], parts[1:]...)
+		cmd = exec.CommandContext(ctx, parts[0], parts[1:]...) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
 	}
 	if s.BoolOption("setsid") {
 		if cmd.SysProcAttr == nil {
@@ -428,10 +428,10 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		}
 		cleanup = append(cleanup, func() {
 			if stdin != nil {
-				stdin.Close()
+				_ = stdin.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			}
 			if stdout != nil {
-				stdout.Close()
+				_ = stdout.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			}
 		})
 	} else {
@@ -463,7 +463,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 			stream = FileStream(parent)
 		}
 		cleanup = append(cleanup, func() {
-			parent.Close()
+			_ = parent.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		})
 	}
 
@@ -487,12 +487,12 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 			f()
 		}
 		if child != nil {
-			child.Close()
+			_ = child.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		}
 		return nil, startErr
 	}
 	if child != nil {
-		child.Close()
+		_ = child.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 	}
 
 	return finishExec(s, g, cmd, stream, cleanup, mode == ModeWrite)
@@ -510,7 +510,7 @@ func setCloexecAllFrom(from int) {
 	f, err := os.Open("/proc/self/fd")
 	if err == nil {
 		names, _ := f.Readdirnames(-1)
-		f.Close()
+		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		for _, name := range names {
 			fd, err := strconv.Atoi(name)
 			if err != nil || fd < from {
@@ -557,11 +557,11 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		cmd.SysProcAttr.Setctty = !s.HasOption("ctty") || s.BoolOption("ctty")
 		_ = ApplyTermios(int(slave.Fd()), s)
 		if err := cmd.Start(); err != nil {
-			master.Close()
-			slave.Close()
+			_ = master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = slave.Close()  // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, err
 		}
-		slave.Close() // child has it
+		_ = slave.Close() // #nosec G104 -- child inherited the slave; parent must drop its copy
 		applyPtyOpts(s, ptmx)
 		w := &halfCloseWriter{w: ptmx}
 		stream := relay.FDStream{
@@ -570,7 +570,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { w.closeWrite(); return nil },
 		}
-		return finishExec(s, g, cmd, stream, []func(){func() { ptmx.Close() }}, true)
+		return finishExec(s, g, cmd, stream, []func(){func() { _ = ptmx.Close() }}, true) // #nosec G104 -- Close on cleanup; the first error is already returned
 
 	case ModeRead:
 		// Inherit stdin; only stdout/stderr on PTY slave.
@@ -594,11 +594,11 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		cmd.SysProcAttr.Ctty = 1
 		_ = ApplyTermios(int(slave.Fd()), s)
 		if err := cmd.Start(); err != nil {
-			master.Close()
-			slave.Close()
+			_ = master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			_ = slave.Close()  // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, err
 		}
-		slave.Close()
+		_ = slave.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		applyPtyOpts(s, ptmx)
 		stream := relay.FDStream{
 			R:      ptmx,
@@ -606,7 +606,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { return nil },
 		}
-		return finishExec(s, g, cmd, stream, []func(){func() { ptmx.Close() }}, false)
+		return finishExec(s, g, cmd, stream, []func(){func() { _ = ptmx.Close() }}, false) // #nosec G104 -- Close on cleanup; the first error is already returned
 
 	default:
 		ptmx, err = startOnPTY(cmd, s)
@@ -614,7 +614,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}
 		applyPtyOpts(s, ptmx)
-		return finishExec(s, g, cmd, PtyExecStream(ptmx), []func(){func() { ptmx.Close() }}, false)
+		return finishExec(s, g, cmd, PtyExecStream(ptmx), []func(){func() { _ = ptmx.Close() }}, false) // #nosec G104 -- Close on cleanup; the first error is already returned
 	}
 }
 

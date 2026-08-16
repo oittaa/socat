@@ -36,34 +36,34 @@ func openSocketConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		return nil, fmt.Errorf("socket: %w", err)
 	}
 	if err := applySocketOpts(fd, s); err != nil {
-		unix.Close(fd)
+		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	if bind := s.OptionValue("bind", ""); bind != "" {
 		bdata, berr := xio.ParseSocatData(bind)
 		if berr != nil {
-			unix.Close(fd)
+			_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, berr
 		}
 		bsa, _, err := buildSockaddr(domain, bdata)
 		if err != nil {
-			unix.Close(fd)
+			_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, fmt.Errorf("bind: %w", err)
 		}
 		if err := unix.Bind(fd, bsa); err != nil {
-			unix.Close(fd)
+			_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, fmt.Errorf("bind: %w", err)
 		}
 	}
 	if err := connectRaw(fd, sa, salen); err != nil {
-		unix.Close(fd)
+		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("connect: %w", err)
 	}
 	f := osNewFile(fd, "socket-connect")
 	st := xio.FileStream(f)
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		f.Close()
+		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	_ = ctx
@@ -92,11 +92,11 @@ func openSocketListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	}
 	xio.ApplyReuse(fd, s, true)
 	if err := applySocketOpts(fd, s); err != nil {
-		unix.Close(fd)
+		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	if err := bindRaw(fd, sa, salen); err != nil {
-		unix.Close(fd)
+		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("bind: %w", err)
 	}
 	backlog := 5
@@ -106,7 +106,7 @@ func openSocketListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		}
 	}
 	if err := unix.Listen(fd, backlog); err != nil {
-		unix.Close(fd)
+		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	ln := &rawListener{fd: fd, domain: domain}
@@ -129,14 +129,14 @@ func openSocketListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	// accept one
 	c, err := ln.Accept()
 	if err != nil {
-		ln.Close()
+		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
-	ln.Close()
+	_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 	st := relay.Stream(relay.NetStream{Conn: c})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		c.Close()
+		_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	_ = ctx
@@ -195,28 +195,28 @@ func openSocketDgram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 		return nil, err
 	}
 	if err := applySocketOpts(fd, s); err != nil {
-		unix.Close(fd)
+		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	if bind := s.OptionValue("bind", ""); bind != "" {
 		bdata, berr := xio.ParseSocatData(bind)
 		if berr != nil {
-			unix.Close(fd)
+			_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, berr
 		}
 		bsa, blen, err := buildSockaddr(domain, bdata)
 		if err != nil {
-			unix.Close(fd)
+			_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, err
 		}
 		if err := bindRaw(fd, bsa, blen); err != nil {
-			unix.Close(fd)
+			_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, fmt.Errorf("bind: %w", err)
 		}
 	}
 	if connected {
 		if err := connectRaw(fd, sa, salen); err != nil {
-			unix.Close(fd)
+			_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, err
 		}
 	}
@@ -229,7 +229,7 @@ func openSocketDgram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	}
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		f.Close()
+		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	_ = ctx
@@ -277,7 +277,7 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 	}
 	xio.ApplyReuse(fd, s, true)
 	if err := bindRaw(fd, sa, salen); err != nil {
-		unix.Close(fd)
+		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	f := osNewFile(fd, "socket-recv")
@@ -285,7 +285,7 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 	st := &rawRecvStream{f: f, from: from}
 	wrapped, err := xio.WrapCommon(s, st)
 	if err != nil {
-		f.Close()
+		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	_ = ctx
@@ -453,78 +453,6 @@ func splitColonNoUnquote(s string) []string {
 	return parts
 }
 
-func escapeByte(c byte) byte {
-	switch c {
-	case '0':
-		return 0
-	case 'n':
-		return '\n'
-	case 'r':
-		return '\r'
-	case 't':
-		return '\t'
-	case 'f':
-		return '\f'
-	case 'b':
-		return '\b'
-	case 'a':
-		return '\a'
-	case 'e':
-		return 033
-	case '\\':
-		return '\\'
-	case '"':
-		return '"'
-	case '\'':
-		return '\''
-	default:
-		return c
-	}
-}
-
-// unescapeShellQuotes turns \" and \\ into " and \ for classic test.sh argv forms.
-func unescapeShellQuotes(s string) string {
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\\' && i+1 < len(s) {
-			n := s[i+1]
-			if n == '"' || n == '\\' {
-				b.WriteByte(n)
-				i++
-				continue
-			}
-		}
-		b.WriteByte(s[i])
-	}
-	return b.String()
-}
-
-// parseDalanString parses a "..." string with escapes; returns payload and remainder.
-func parseDalanString(s string) (out []byte, rest string, err error) {
-	if len(s) == 0 || s[0] != '"' {
-		return nil, s, fmt.Errorf("syntax error in %q", s)
-	}
-	i := 1
-	for i < len(s) {
-		c := s[i]
-		if c == '"' {
-			return out, s[i+1:], nil
-		}
-		if c == '\\' {
-			i++
-			if i >= len(s) {
-				return nil, "", fmt.Errorf("syntax error in %q", s)
-			}
-			out = append(out, escapeByte(s[i]))
-			i++
-			continue
-		}
-		out = append(out, c)
-		i++
-	}
-	return nil, "", fmt.Errorf("syntax error in %q", s)
-}
-
 // buildSockaddr builds unix.Sockaddr from domain + classic data (without family).
 func buildSockaddr(domain int, data []byte) (unix.Sockaddr, int, error) {
 	if len(data) == 0 {
@@ -611,7 +539,7 @@ func (l *rawListener) fileLn() (net.Listener, error) {
 	}
 	f := os.NewFile(uintptr(l.fd), "socket-listen")
 	ln, err := net.FileListener(f)
-	f.Close() // FileListener dups
+	_ = f.Close() // #nosec G104 -- FileListener dups the fd; close the original
 	if err != nil {
 		return nil, err
 	}
@@ -631,9 +559,9 @@ func (l *rawListener) Accept() (net.Conn, error) {
 		}
 		f := os.NewFile(uintptr(nfd), "socket-accept")
 		c, err := net.FileConn(f)
-		f.Close()
+		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		if err != nil {
-			unix.Close(nfd)
+			_ = unix.Close(nfd) // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, err
 		}
 		return c, nil

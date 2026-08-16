@@ -73,7 +73,7 @@ func echoViaPROXY(t *testing.T, spec string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer o.Close()
+	defer func() { _ = o.Close() }()
 	payload := []byte("proxy-connect-ok")
 	if _, err := o.Stream.Write(payload); err != nil {
 		t.Fatal(err)
@@ -154,8 +154,8 @@ func TestH2CONNECTVerifySuccess(t *testing.T) {
 		ClientCAs:    certs.pool,
 	})
 	srv := &http.Server{Handler: connectEchoHandler()}
-	go srv.Serve(tlsLn)
-	defer srv.Close()
+	go func() { _ = srv.Serve(tlsLn) }()
+	defer func() { _ = srv.Close() }()
 
 	echoViaPROXY(t, fmt.Sprintf(
 		"PROXY:127.0.0.1:127.0.0.1:9,http-version=2,proxyport=%s,verify=1,cert=%s,key=%s,cafile=%s,commonname=localhost",
@@ -173,8 +173,8 @@ func TestH2cCONNECTEcho(t *testing.T) {
 	p.SetHTTP1(false)
 	p.SetUnencryptedHTTP2(true)
 	srv := &http.Server{Handler: connectEchoHandler(), Protocols: &p}
-	go srv.Serve(ln)
-	defer srv.Close()
+	go func() { _ = srv.Serve(ln) }()
+	defer func() { _ = srv.Close() }()
 
 	echoViaPROXY(t, fmt.Sprintf("PROXY:127.0.0.1:127.0.0.1:9,http-version=2,h2c,proxyport=%s", port))
 }
@@ -192,8 +192,8 @@ func TestH3CONNECTEcho(t *testing.T) {
 		MinVersion:   tls.VersionTLS13,
 	}
 	srv := &http3.Server{TLSConfig: tlsCfg, Handler: connectEchoHandler()}
-	go srv.Serve(pc)
-	defer srv.Close()
+	go func() { _ = srv.Serve(pc) }()
+	defer func() { _ = srv.Close() }()
 
 	echoViaPROXY(t, fmt.Sprintf(
 		"PROXY:127.0.0.1:127.0.0.1:9,http-version=3,proxyport=%s,verify=0",
@@ -216,8 +216,8 @@ func TestH3CONNECTVerifySuccess(t *testing.T) {
 		ClientCAs:    certs.pool,
 	}
 	srv := &http3.Server{TLSConfig: tlsCfg, Handler: connectEchoHandler()}
-	go srv.Serve(pc)
-	defer srv.Close()
+	go func() { _ = srv.Serve(pc) }()
+	defer func() { _ = srv.Close() }()
 
 	echoViaPROXY(t, fmt.Sprintf(
 		"PROXY:127.0.0.1:127.0.0.1:9,http-version=3,proxyport=%s,verify=1,cert=%s,key=%s,cafile=%s,commonname=localhost",

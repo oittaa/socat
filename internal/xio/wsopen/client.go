@@ -96,7 +96,7 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	return &xio.Opened{Stream: st, Label: s.Type + ":" + u.Host + path}, nil

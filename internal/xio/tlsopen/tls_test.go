@@ -55,7 +55,7 @@ func TestPostQuantumHybridKeyExchange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	srvCfg := &tls.Config{
 		Certificates:     []tls.Certificate{cert},
@@ -78,13 +78,13 @@ func TestPostQuantumHybridKeyExchange(t *testing.T) {
 		}
 		tc := tls.Server(c, srvCfg)
 		if err := tc.Handshake(); err != nil {
-			c.Close()
+			_ = c.Close()
 			errCh <- err
 			return
 		}
 		srvCurve = tc.ConnectionState().CurveID
 		_, _ = tc.Write([]byte("pq-ok"))
-		tc.Close()
+		_ = tc.Close()
 		errCh <- nil
 	}()
 
@@ -102,7 +102,7 @@ func TestPostQuantumHybridKeyExchange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tc.Close()
+	_ = tc.Close()
 	if err := <-errCh; err != nil {
 		t.Fatal(err)
 	}
@@ -114,6 +114,57 @@ func TestPostQuantumHybridKeyExchange(t *testing.T) {
 	}
 	if srvCurve != tls.X25519MLKEM768 {
 		t.Fatalf("server CurveID=%v want X25519MLKEM768", srvCurve)
+	}
+}
+
+func TestTLSClientVerifyConnectionSet(t *testing.T) {
+	ca, _, err := testCAAndLeaf("localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	caPath := filepath.Join(dir, "ca.pem")
+	if err := os.WriteFile(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := tlsClientConfig(parse.Spec{
+		Type: "TLS",
+		Options: []parse.Option{
+			{Name: "verify", Value: "1", Has: true},
+			{Name: "cafile", Value: caPath, Has: true},
+			{Name: "commonname", Value: "localhost", Has: true},
+		},
+	}, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.VerifyPeerCertificate == nil {
+		t.Fatal("VerifyPeerCertificate is nil")
+	}
+	if cfg.VerifyConnection == nil {
+		t.Fatal("VerifyConnection is nil; resume would skip the name check")
+	}
+}
+
+func TestTLSServerVerifyConnectionSet(t *testing.T) {
+	cert, err := ephemeralSelfSigned()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	certPath := writeTLSCert(t, dir, "srv", cert)
+	cfg, err := tlsServerConfig(parse.Spec{
+		Type: "TLS-LISTEN",
+		Options: []parse.Option{
+			{Name: "cert", Value: certPath, Has: true},
+			{Name: "verify", Value: "1", Has: true},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.VerifyPeerCertificate == nil || cfg.VerifyConnection == nil {
+		t.Fatal("server verify hooks missing; resume would skip client name/trust check")
 	}
 }
 
@@ -214,7 +265,7 @@ func TestTLSServerVerifyRejectsUntrustedClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	dir := t.TempDir()
 	srvPath := writeTLSCert(t, dir, "srv", srv)
 	sCfg, err := tlsServerConfig(parse.Spec{
@@ -242,7 +293,7 @@ func TestTLSServerVerifyRejectsUntrustedClient(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	tc := tls.Client(raw, &tls.Config{
 		InsecureSkipVerify: true,
 		Certificates:       []tls.Certificate{cli},
@@ -384,7 +435,7 @@ func handshakeClientToLocal(t *testing.T, srvCert tls.Certificate, spec parse.Sp
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	errCh := make(chan error, 1)
 	go func() {
 		c, err := ln.Accept()
@@ -404,11 +455,11 @@ func handshakeClientToLocal(t *testing.T, srvCert tls.Certificate, spec parse.Sp
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer raw.Close()
+	defer func() { _ = raw.Close() }()
 	cli := tls.Client(raw, cfg)
 	herr := cli.Handshake()
 	_ = cli.Close()
-	_ = <-errCh
+	<-errCh
 	return herr
 }
 

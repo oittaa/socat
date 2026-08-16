@@ -70,7 +70,7 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 			cfg := tlsCfg.Clone()
 			tc := tls.Client(raw, cfg)
 			if e := tc.HandshakeContext(cctx); e != nil {
-				raw.Close()
+				_ = raw.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return e
 			}
 			conn = tc
@@ -112,7 +112,7 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	return &xio.Opened{Stream: st, Label: s.Type + ":" + addr}, nil
@@ -197,12 +197,12 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		PeerFilter:  filter,
 		MaxChildren: maxChildren,
 	}
-	o.AddCleanup(func() { tlsLn.Close() })
+	o.AddCleanup(func() { _ = tlsLn.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 
 	if fork {
 		go func() {
 			<-ctx.Done()
-			tlsLn.Close()
+			_ = tlsLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		}()
 		return o, nil
 	}
@@ -234,15 +234,15 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	var conn net.Conn
 	select {
 	case <-ctx.Done():
-		tlsLn.Close()
+		_ = tlsLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		o.Listener = nil
 		return nil, ctx.Err()
 	case a := <-ch:
 		// Keep listener closed after one accept (classic non-fork).
-		tlsLn.Close()
+		_ = tlsLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		o.Listener = nil
 		if a.err != nil {
-			o.Close()
+			_ = o.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			if xio.IsTimeoutErr(a.err) {
 				if g != nil && g.Log != nil {
 					g.Log.Warningf("accept: Connection timed out")
@@ -262,7 +262,7 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		conn.Close()
+		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	o.Stream = st
@@ -339,8 +339,10 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 			return nil, err
 		}
 		// Manual verify: classic CN-only certs + RFC 6125 name (no IP→any-CN shortcut).
+		// VerifyConnection is required as well: VerifyPeerCertificate is not
+		// called on a resumed session (gosec G123).
 		cfg.InsecureSkipVerify = true
-		cfg.VerifyPeerCertificate = makeVerifyPeer(roots, checkName)
+		attachPeerVerify(cfg, makeVerifyPeer(roots, checkName))
 		if roots != nil {
 			cfg.RootCAs = roots
 		}
@@ -410,11 +412,28 @@ func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 			cfg.ClientAuth = tls.RequestClientCert
 		}
 		prev := cfg.VerifyPeerCertificate
-		cfg.VerifyPeerCertificate = makeServerVerifyPeer(roots, cnWant, doVerify, prev)
+		attachPeerVerify(cfg, makeServerVerifyPeer(roots, cnWant, doVerify, prev))
 	} else {
 		cfg.ClientAuth = tls.NoClientCert
 	}
 	return cfg, nil
+}
+
+// attachPeerVerify sets both VerifyPeerCertificate and VerifyConnection.
+// crypto/tls skips VerifyPeerCertificate on session resume; VerifyConnection
+// still runs, so a resumed session cannot skip the name/trust check.
+func attachPeerVerify(cfg *tls.Config, fn func([][]byte, [][]*x509.Certificate) error) {
+	if cfg == nil || fn == nil {
+		return
+	}
+	cfg.VerifyPeerCertificate = fn
+	cfg.VerifyConnection = func(cs tls.ConnectionState) error {
+		raws := make([][]byte, len(cs.PeerCertificates))
+		for i, c := range cs.PeerCertificates {
+			raws[i] = c.Raw
+		}
+		return fn(raws, nil)
+	}
 }
 
 // makeServerVerifyPeer checks client certificate chain and optional commonname.
@@ -468,7 +487,7 @@ var errDSAUnsupported = fmt.Errorf("DSA private keys are not supported (deprecat
 func loadKeyPair(certPath, keyPath string) (tls.Certificate, error) {
 	if keyPath == "" {
 		// Combined PEM: PRIVATE KEY + CERTIFICATE (+ optional DH)
-		data, err := os.ReadFile(certPath)
+		data, err := os.ReadFile(certPath) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 		if err != nil {
 			return tls.Certificate{}, err
 		}
@@ -482,7 +501,7 @@ func loadKeyPair(certPath, keyPath string) (tls.Certificate, error) {
 		}
 		return tls.X509KeyPair(certPEM, keyPEM)
 	}
-	keyData, err := os.ReadFile(keyPath)
+	keyData, err := os.ReadFile(keyPath) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 	if err != nil {
 		return tls.Certificate{}, err
 	}
@@ -571,7 +590,7 @@ func loadVerifyRoots(s parse.Spec) (*x509.CertPool, error) {
 }
 
 func appendCABytes(pool *x509.CertPool, path string) (int, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 	if err != nil {
 		return 0, err
 	}

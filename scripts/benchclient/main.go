@@ -111,7 +111,7 @@ func clientTLS(caPath, serverName string, quic bool, alpn string) (*tls.Config, 
 	if caPath == "" {
 		return cfg, fmt.Errorf("missing -ca")
 	}
-	pem, err := os.ReadFile(caPath)
+	pem, err := os.ReadFile(caPath) // #nosec G304 -- bench CA path is a local test file we just wrote
 	if err != nil {
 		return nil, err
 	}

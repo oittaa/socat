@@ -123,11 +123,11 @@ func TestPeerAllowedG_TCPWrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	go func() {
 		c, err := net.Dial("tcp4", ln.Addr().String())
 		if err == nil {
-			defer c.Close()
+			defer func() { _ = c.Close() }()
 			// hold open briefly
 			buf := make([]byte, 1)
 			_, _ = c.Read(buf)
@@ -137,7 +137,7 @@ func TestPeerAllowedG_TCPWrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if err := PeerAllowedG(s2, conn, &Global{Progname: "socat"}); err != nil {
 		t.Fatalf("daemon test should allow ALL: %v", err)
 	}

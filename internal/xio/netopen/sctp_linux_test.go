@@ -22,7 +22,7 @@ func skipIfNoSCTP(t *testing.T) {
 	if err != nil {
 		t.Skipf("no kernel SCTP: %v", err)
 	}
-	unix.Close(fd)
+	_ = unix.Close(fd)
 }
 
 func TestSCTP4Echo(t *testing.T) {
@@ -33,7 +33,7 @@ func TestSCTP4Echo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	ta, ok := ln.Addr().(*net.TCPAddr)
 	if !ok {
 		t.Fatalf("addr type %T", ln.Addr())
@@ -46,7 +46,7 @@ func TestSCTP4Echo(t *testing.T) {
 			got <- "accept:" + err.Error()
 			return
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		b, err := io.ReadAll(c)
 		if err != nil {
 			got <- "read:" + err.Error()

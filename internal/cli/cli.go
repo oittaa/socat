@@ -326,12 +326,12 @@ func Main(args []string) int {
 		log.SetHostname(h)
 	}
 	if cfg.LogFile != "" {
-		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644) // #nosec G302 -- -lf log file is meant to be readable
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "socat: %v\n", err)
 			return 1
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		log.SetOutput(f)
 	}
 
@@ -343,7 +343,7 @@ func Main(args []string) int {
 			return 1
 		}
 		xio.RegisterUnlinkPath(cfg.LockFile)
-		defer os.Remove(cfg.LockFile)
+		defer func() { _ = os.Remove(cfg.LockFile) }()
 	}
 	if cfg.LockWait != "" {
 		for {
@@ -357,7 +357,7 @@ func Main(args []string) int {
 			return 1
 		}
 		xio.RegisterUnlinkPath(cfg.LockWait)
-		defer os.Remove(cfg.LockWait)
+		defer func() { _ = os.Remove(cfg.LockWait) }()
 	}
 
 	left, err := parse.ParseChannel(cfg.Addresses[0])
@@ -383,6 +383,7 @@ func Main(args []string) int {
 		LeftToRight: cfg.LeftToRight,
 		RightToLeft: cfg.RightToLeft,
 	}
+	g.EnsureStatsFlag()
 	// Classic -r / -R: path templates; opened at transfer start with expandenv
 	// ($PROGNAME, $TIMESTAMP, $MICROS, $$, $PEER env after accept).
 	g.RawLeftPath = cfg.RawLeft
@@ -465,9 +466,9 @@ func Main(args []string) int {
 func printVersion(w io.Writer) {
 	// Format compatible with classic test.sh testfeats() which greps:
 	//   #define WITH_FOO 1
-	fmt.Fprintf(w, "socat version %s on %s\n", socat.Version, time.Now().Format(time.RFC3339))
-	fmt.Fprintf(w, "   running on Go reimplementation (github.com/oittaa/socat)\n")
-	fmt.Fprintln(w, "features:")
+	fprintf(w, "socat version %s on %s\n", socat.Version, time.Now().Format(time.RFC3339))
+	fprintf(w, "   running on Go reimplementation (github.com/oittaa/socat)\n")
+	fprintln(w, "features:")
 	// Implemented = 1, not yet = 0. Keep names aligned with classic socat -V.
 	feats := []struct {
 		name string
@@ -521,65 +522,65 @@ func printVersion(w io.Writer) {
 	}
 	for _, f := range feats {
 		if f.on {
-			fmt.Fprintf(w, "  #define WITH_%s 1\n", f.name)
+			fprintf(w, "  #define WITH_%s 1\n", f.name)
 		} else {
-			fmt.Fprintf(w, "  #undef WITH_%s\n", f.name)
+			fprintf(w, "  #undef WITH_%s\n", f.name)
 		}
 	}
 }
 
 func printHelp(w io.Writer, level int) {
-	fmt.Fprintf(w, "socat %s by oittaa — multipurpose relay (Go)\n", socat.Version)
-	fmt.Fprintf(w, "Usage: socat [options] <address> <address>\n")
-	fmt.Fprintf(w, "       socat -V | -h[h[h]]\n\n")
-	fmt.Fprintf(w, "Options:\n")
-	fmt.Fprintf(w, "  -V              print version\n")
-	fmt.Fprintf(w, "  -h|-?           print help\n")
-	fmt.Fprintf(w, "  -d|-d0..-d4     increase verbosity\n")
-	fmt.Fprintf(w, "  -v              verbose data dump (text)\n")
-	fmt.Fprintf(w, "  -x              verbose data dump (hex)\n")
-	fmt.Fprintf(w, "  -b<size>        transfer block size (default 8192)\n")
-	fmt.Fprintf(w, "  -t<time>        linger after EOF (default 0.5s)\n")
-	fmt.Fprintf(w, "  -T<time>        inactivity timeout\n")
-	fmt.Fprintf(w, "  -u              unidirectional left→right\n")
-	fmt.Fprintf(w, "  -U              unidirectional right→left\n")
+	fprintf(w, "socat %s by oittaa — multipurpose relay (Go)\n", socat.Version)
+	fprintf(w, "Usage: socat [options] <address> <address>\n")
+	fprintf(w, "       socat -V | -h[h[h]]\n\n")
+	fprintf(w, "Options:\n")
+	fprintf(w, "  -V              print version\n")
+	fprintf(w, "  -h|-?           print help\n")
+	fprintf(w, "  -d|-d0..-d4     increase verbosity\n")
+	fprintf(w, "  -v              verbose data dump (text)\n")
+	fprintf(w, "  -x              verbose data dump (hex)\n")
+	fprintf(w, "  -b<size>        transfer block size (default 8192)\n")
+	fprintf(w, "  -t<time>        linger after EOF (default 0.5s)\n")
+	fprintf(w, "  -T<time>        inactivity timeout\n")
+	fprintf(w, "  -u              unidirectional left→right\n")
+	fprintf(w, "  -U              unidirectional right→left\n")
 	// Classic test.sh OPTION_RAW_DUMP greps: [[:space:]]-[rR][[:space:]]
-	fmt.Fprintf(w, "  -r <file>       dump left-to-right raw data\n")
-	fmt.Fprintf(w, "  -R <file>       dump right-to-left raw data\n")
+	fprintf(w, "  -r <file>       dump left-to-right raw data\n")
+	fprintf(w, "  -R <file>       dump right-to-left raw data\n")
 	// Classic test.sh greps: [[:space:]]-4[[:space:]], -6, -0 on separate lines.
-	fmt.Fprintf(w, "  -4     prefer IPv4 if version is not explicitly specified\n")
-	fmt.Fprintf(w, "  -6     prefer IPv6 if version is not explicitly specified\n")
-	fmt.Fprintf(w, "  -0     do not prefer an IP version\n")
-	fmt.Fprintf(w, "  --statistics   output transfer statistics on exit\n")
+	fprintf(w, "  -4     prefer IPv4 if version is not explicitly specified\n")
+	fprintf(w, "  -6     prefer IPv6 if version is not explicitly specified\n")
+	fprintf(w, "  -0     do not prefer an IP version\n")
+	fprintf(w, "  --statistics   output transfer statistics on exit\n")
 	// Address type names on -h (level>=1): classic test.sh runstcp4 greps
 	// `$SOCAT -h | grep -i ' TCP4-'` etc.
-	fmt.Fprintf(w, "\nAddress types:\n")
-	fmt.Fprintf(w, "  STDIO STDIN STDOUT STDERR FD PIPE FIFO ECHO OPEN FILE CREATE CREAT GOPEN\n")
-	fmt.Fprintf(w, "  TCP TCP4 TCP6 TCP-CONNECT TCP4-CONNECT TCP6-CONNECT\n")
-	fmt.Fprintf(w, "  TCP-LISTEN TCP4-LISTEN TCP6-LISTEN TCP-L TCP4-L TCP6-L\n")
-	fmt.Fprintf(w, "  UDP UDP4 UDP6 UDP-CONNECT UDP4-CONNECT UDP6-CONNECT\n")
-	fmt.Fprintf(w, "  UDP-LISTEN UDP4-LISTEN UDP6-LISTEN UDP-L UDP4-L UDP6-L\n")
-	fmt.Fprintf(w, "  UDP-SENDTO UDP4-SENDTO UDP6-SENDTO UDP-SEND UDP4-SEND UDP6-SEND\n")
-	fmt.Fprintf(w, "  UDP-DATAGRAM UDP4-DATAGRAM UDP6-DATAGRAM\n")
-	fmt.Fprintf(w, "  UDP-RECV UDP4-RECV UDP6-RECV UDP-RECVFROM UDP4-RECVFROM UDP6-RECVFROM\n")
-	fmt.Fprintf(w, "  IP IP4 IP6 IP-SENDTO IP4-SENDTO IP6-SENDTO IP-DATAGRAM IP4-DATAGRAM IP6-DATAGRAM\n")
-	fmt.Fprintf(w, "  IP-RECV IP4-RECV IP6-RECV IP-RECVFROM IP4-RECVFROM IP6-RECVFROM\n")
-	fmt.Fprintf(w, "  UNIX UNIX-CONNECT UNIX-CLIENT UNIX-LISTEN UNIX-L\n")
-	fmt.Fprintf(w, "  UNIX-SENDTO UNIX-RECVFROM UNIX-RECV UNIX-DATAGRAM SOCKETPAIR\n")
-	fmt.Fprintf(w, "  SOCKET-CONNECT SOCKET-LISTEN SOCKET-SENDTO SOCKET-DATAGRAM SOCKET-RECV SOCKET-RECVFROM\n")
-	fmt.Fprintf(w, "  ABSTRACT-LISTEN ABSTRACT-L ABSTRACT-CLIENT ABSTRACT-CONNECT\n")
-	fmt.Fprintf(w, "  ABSTRACT-SENDTO ABSTRACT-RECVFROM ABSTRACT-RECV\n")
-	fmt.Fprintf(w, "  EXEC SYSTEM SHELL TEXT STALL PTY\n")
-	fmt.Fprintf(w, "  TLS TLS-CONNECT TLS-LISTEN TLS-L\n")
-	fmt.Fprintf(w, "  OPENSSL OPENSSL-CONNECT OPENSSL-LISTEN OPENSSL-L SSL SSL-CONNECT SSL-LISTEN SSL-L\n")
-	fmt.Fprintf(w, "  PROXY PROXY-CONNECT SOCKS4 SOCKS4A SOCKS5 SOCKS5-CONNECT SOCKS5-LISTEN SOCKS5-BIND\n")
-	fmt.Fprintf(w, "  TUN INTERFACE\n")
-	fmt.Fprintf(w, "  WS WS-CONNECT WSS WSS-CONNECT WS-LISTEN WS-L WSS-LISTEN WSS-L\n")
-	fmt.Fprintf(w, "  QUIC QUIC-CONNECT QUIC-LISTEN QUIC-L\n")
-	fmt.Fprintf(w, "  SCTP SCTP-CONNECT SCTP-LISTEN SCTP-L\n")
-	fmt.Fprintf(w, "  SCTP4 SCTP4-CONNECT SCTP4-LISTEN SCTP4-L\n")
-	fmt.Fprintf(w, "  SCTP6 SCTP6-CONNECT SCTP6-LISTEN SCTP6-L\n")
-	fmt.Fprintf(w, "  POSIXMQ POSIXMQ-BIDIRECTIONAL POSIXMQ-READ POSIXMQ-RECEIVE POSIXMQ-RECV POSIXMQ-SEND POSIXMQ-WRITE\n")
+	fprintf(w, "\nAddress types:\n")
+	fprintf(w, "  STDIO STDIN STDOUT STDERR FD PIPE FIFO ECHO OPEN FILE CREATE CREAT GOPEN\n")
+	fprintf(w, "  TCP TCP4 TCP6 TCP-CONNECT TCP4-CONNECT TCP6-CONNECT\n")
+	fprintf(w, "  TCP-LISTEN TCP4-LISTEN TCP6-LISTEN TCP-L TCP4-L TCP6-L\n")
+	fprintf(w, "  UDP UDP4 UDP6 UDP-CONNECT UDP4-CONNECT UDP6-CONNECT\n")
+	fprintf(w, "  UDP-LISTEN UDP4-LISTEN UDP6-LISTEN UDP-L UDP4-L UDP6-L\n")
+	fprintf(w, "  UDP-SENDTO UDP4-SENDTO UDP6-SENDTO UDP-SEND UDP4-SEND UDP6-SEND\n")
+	fprintf(w, "  UDP-DATAGRAM UDP4-DATAGRAM UDP6-DATAGRAM\n")
+	fprintf(w, "  UDP-RECV UDP4-RECV UDP6-RECV UDP-RECVFROM UDP4-RECVFROM UDP6-RECVFROM\n")
+	fprintf(w, "  IP IP4 IP6 IP-SENDTO IP4-SENDTO IP6-SENDTO IP-DATAGRAM IP4-DATAGRAM IP6-DATAGRAM\n")
+	fprintf(w, "  IP-RECV IP4-RECV IP6-RECV IP-RECVFROM IP4-RECVFROM IP6-RECVFROM\n")
+	fprintf(w, "  UNIX UNIX-CONNECT UNIX-CLIENT UNIX-LISTEN UNIX-L\n")
+	fprintf(w, "  UNIX-SENDTO UNIX-RECVFROM UNIX-RECV UNIX-DATAGRAM SOCKETPAIR\n")
+	fprintf(w, "  SOCKET-CONNECT SOCKET-LISTEN SOCKET-SENDTO SOCKET-DATAGRAM SOCKET-RECV SOCKET-RECVFROM\n")
+	fprintf(w, "  ABSTRACT-LISTEN ABSTRACT-L ABSTRACT-CLIENT ABSTRACT-CONNECT\n")
+	fprintf(w, "  ABSTRACT-SENDTO ABSTRACT-RECVFROM ABSTRACT-RECV\n")
+	fprintf(w, "  EXEC SYSTEM SHELL TEXT STALL PTY\n")
+	fprintf(w, "  TLS TLS-CONNECT TLS-LISTEN TLS-L\n")
+	fprintf(w, "  OPENSSL OPENSSL-CONNECT OPENSSL-LISTEN OPENSSL-L SSL SSL-CONNECT SSL-LISTEN SSL-L\n")
+	fprintf(w, "  PROXY PROXY-CONNECT SOCKS4 SOCKS4A SOCKS5 SOCKS5-CONNECT SOCKS5-LISTEN SOCKS5-BIND\n")
+	fprintf(w, "  TUN INTERFACE\n")
+	fprintf(w, "  WS WS-CONNECT WSS WSS-CONNECT WS-LISTEN WS-L WSS-LISTEN WSS-L\n")
+	fprintf(w, "  QUIC QUIC-CONNECT QUIC-LISTEN QUIC-L\n")
+	fprintf(w, "  SCTP SCTP-CONNECT SCTP-LISTEN SCTP-L\n")
+	fprintf(w, "  SCTP4 SCTP4-CONNECT SCTP4-LISTEN SCTP4-L\n")
+	fprintf(w, "  SCTP6 SCTP6-CONNECT SCTP6-LISTEN SCTP6-L\n")
+	fprintf(w, "  POSIXMQ POSIXMQ-BIDIRECTIONAL POSIXMQ-READ POSIXMQ-RECEIVE POSIXMQ-RECV POSIXMQ-SEND POSIXMQ-WRITE\n")
 	if level >= 2 {
 		// Honesty: only list options we actually honor. test.sh greps
 		//   [^a-z0-9-]<name>[^a-z0-9-]  — pad with spaces on both sides.
@@ -655,20 +656,20 @@ func printHelp(w io.Writer, level int) {
 			"mq-msgsize", "posixmq-msgsize",
 		}
 		opts = append(opts, xio.TermiosHelpNames()...)
-		fmt.Fprintln(w)
-		fmt.Fprint(w, "b:")
+		fprintln(w)
+		fprint(w, "b:")
 		for _, o := range opts {
-			fmt.Fprintf(w, " %s ", o)
+			fprintf(w, " %s ", o)
 		}
-		fmt.Fprintln(w)
+		fprintln(w)
 	}
 	if level >= 3 {
-		fmt.Fprintf(w, "\nCommon options: reuseaddr,fork,bind,connect-timeout,unlink-early,mode,pipes,setsid\n")
+		fprintf(w, "\nCommon options: reuseaddr,fork,bind,connect-timeout,unlink-early,mode,pipes,setsid\n")
 	}
 }
 
 func createLockFile(path string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644) // #nosec G302 G304 -- -L lock file path comes from the user; 0644 matches classic socat
 	if err != nil {
 		if os.IsExist(err) {
 			return fmt.Errorf("lockfile %s exists", path)
@@ -686,4 +687,17 @@ func createLockFile(path string) error {
 		return cerr
 	}
 	return nil
+}
+
+// Help and version writes: a failure is not actionable.
+func fprintf(w io.Writer, format string, a ...any) {
+	_, _ = fmt.Fprintf(w, format, a...)
+}
+
+func fprint(w io.Writer, a ...any) {
+	_, _ = fmt.Fprint(w, a...)
+}
+
+func fprintln(w io.Writer, a ...any) {
+	_, _ = fmt.Fprintln(w, a...)
 }

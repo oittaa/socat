@@ -58,12 +58,12 @@ func TestDialTCPAllLogsAF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	port := ln.Addr().(*net.TCPAddr).Port
 	go func() {
 		c, err := ln.Accept()
 		if err == nil {
-			c.Close()
+			_ = c.Close()
 		}
 	}()
 
@@ -79,7 +79,7 @@ func TestDialTCPAllLogsAF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.Close()
+	_ = c.Close()
 	if !strings.Contains(buf.String(), "opening connection to AF=2 ") {
 		t.Fatalf("missing AF=2 notice log: %q", buf.String())
 	}
@@ -94,12 +94,12 @@ func TestDialTCPAllTriesSecondAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	port := ln.Addr().(*net.TCPAddr).Port
 	go func() {
 		c, err := ln.Accept()
 		if err == nil {
-			c.Close()
+			_ = c.Close()
 		}
 	}()
 
@@ -109,7 +109,7 @@ func TestDialTCPAllTriesSecondAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	closedPort := closedLn.Addr().(*net.TCPAddr).Port
-	closedLn.Close()
+	_ = closedLn.Close()
 
 	var buf strings.Builder
 	log := logx.New()
@@ -131,7 +131,7 @@ func TestDialTCPAllTriesSecondAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.Close()
+	_ = c.Close()
 }
 
 func TestConnectNetworkPreferDualStack(t *testing.T) {

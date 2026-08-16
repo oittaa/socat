@@ -43,7 +43,7 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	}
 
 	// Flags: IFF_TUN (default) or IFF_TAP; optional IFF_NO_PI.
-	flags := uint16(unix.IFF_TUN)
+	var flags uint16
 	tunType := strings.ToLower(s.OptionValue("tun-type", "tun"))
 	if tunType == "" {
 		tunType = "tun"
@@ -54,7 +54,7 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	case "tap":
 		flags = unix.IFF_TAP
 	default:
-		unix.Close(fd)
+		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("unknown tun-type %q", tunType)
 	}
 	if s.HasOption("iff-no-pi") || s.HasOption("no-pi") {
@@ -65,12 +65,12 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 
 	ifr, err := unix.NewIfreq(name)
 	if err != nil {
-		unix.Close(fd)
+		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("tun-name: %w", err)
 	}
 	ifr.SetUint16(flags)
 	if err := unix.IoctlIfreq(fd, unix.TUNSETIFF, ifr); err != nil {
-		unix.Close(fd)
+		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("ioctl(TUNSETIFF, %q): %w", name, err)
 	}
 	ifname := ifr.Name()
@@ -81,10 +81,10 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	// Control socket for address / flags / mtu.
 	sock, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
-		unix.Close(fd)
+		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("socket(AF_INET): %w", err)
 	}
-	defer unix.Close(sock)
+	defer func() { _ = unix.Close(sock) }()
 
 	// Disable xio.IPv6 on this iface before UP so kernel NDP/MLD does not inject
 	// extra frames into INTERFACE / TUN streams (TUNINTERFACE expects clean echo).
@@ -93,14 +93,14 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	// Optional TUN:addr/bits
 	if addrSpec != "" {
 		if err := setTunIPv4(sock, ifname, addrSpec); err != nil {
-			unix.Close(fd)
+			_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, err
 		}
 	}
 
 	// Interface flags (iff-up, …) and MTU.
 	if err := applyInterfaceOpts(sock, ifname, s); err != nil {
-		unix.Close(fd)
+		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 
@@ -111,7 +111,7 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	ts := &tunStream{fd: fd, noPI: noPI}
 	st, err := xio.WrapCommon(s, relay.Stream(ts))
 	if err != nil {
-		ts.Close()
+		_ = ts.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	o := &xio.Opened{
@@ -369,7 +369,7 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	csock, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, 0)
 	if err == nil {
 		_ = applyInterfaceOpts(csock, ifname, s)
-		unix.Close(csock)
+		_ = unix.Close(csock) // #nosec G104 -- Close on cleanup; the first error is already returned
 	}
 
 	sa := &unix.SockaddrLinklayer{
@@ -377,7 +377,7 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		Ifindex:  ifi.Index,
 	}
 	if err := unix.Bind(fd, sa); err != nil {
-		unix.Close(fd)
+		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("bind(AF_PACKET, %s): %w", ifname, err)
 	}
 
@@ -398,12 +398,12 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		f.Close()
+		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	_ = mode
 	o := &xio.Opened{Stream: st, Label: "INTERFACE:" + ifname}
-	o.AddCleanup(func() { f.Close() })
+	o.AddCleanup(func() { _ = f.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 	return o, nil
 }
 
@@ -426,7 +426,7 @@ func disableIPv6OnIface(ifname string) {
 		return
 	}
 	path := "/proc/sys/net/ipv6/conf/" + ifname + "/disable_ipv6"
-	_ = os.WriteFile(path, []byte("1\n"), 0o644)
+	_ = os.WriteFile(path, []byte("1\n"), 0o644) // #nosec G306 -- the kernel ignores the mode on /proc
 }
 
 // packetRawStream is AF_PACKET SOCK_RAW read/write for INTERFACE.

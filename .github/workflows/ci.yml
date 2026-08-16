@@ -1,0 +1,76 @@
+# Unit tests, e2e, lint, and gosec on master and pull requests.
+# Classic test.sh is not run here: GitHub-hosted runners are sandboxed
+# (no root, no raw IP, no TUN, incomplete kernel features).
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: unit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Unit tests
+        run: make test
+
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: End-to-end tests
+        run: make e2e
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt
+        run: make fmt-check
+      - name: go vet
+        run: go vet ./...
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.12.2
+
+  gosec:
+    name: gosec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: gosec
+        uses: securego/gosec@v2.28.0
+        with:
+          args: >-
+            -exclude-dir=testdata
+            -nosec-require-rules
+            -nosec-require-justification
+            ./...

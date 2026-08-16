@@ -53,8 +53,8 @@ type Global struct {
 	Hex          bool
 	Dump         io.Writer
 	Statistics   bool
-	statsPrinted atomic.Bool
-	Sloppy       bool // -s continue on some errors
+	statsPrinted *atomic.Bool // pointer so forkSession can copy Global without copying a lock
+	Sloppy       bool         // -s continue on some errors
 
 	// Peer info from the most recently accepted/connected socket (for SOCAT_* env).
 	SockAddr string
@@ -83,6 +83,46 @@ type Global struct {
 	Progname     string // -lp value; default "socat"
 	RawLeft      *os.File
 	RawRight     *os.File
+}
+
+// forkSession returns a per-connection copy of g.
+// Peer/TLS fields must be unique per fork child so SOCAT_* env does not race.
+// statsPrinted is a shared pointer so --statistics still prints once.
+// Passing *g without a copy is not safe: RememberAddrs writes those fields.
+func (g *Global) forkSession() *Global {
+	if g == nil {
+		return &Global{statsPrinted: new(atomic.Bool)}
+	}
+	cg := *g
+	if cg.statsPrinted == nil {
+		cg.statsPrinted = new(atomic.Bool)
+	}
+	return &cg
+}
+
+func (g *Global) statsAlreadyPrinted() bool {
+	return g != nil && g.statsPrinted != nil && g.statsPrinted.Load()
+}
+
+func (g *Global) markStatsPrinted() {
+	if g == nil {
+		return
+	}
+	g.ensureStatsFlag()
+	g.statsPrinted.Store(true)
+}
+
+// EnsureStatsFlag allocates the shared --statistics once-flag on the parent.
+func (g *Global) EnsureStatsFlag() {
+	if g != nil {
+		g.ensureStatsFlag()
+	}
+}
+
+func (g *Global) ensureStatsFlag() {
+	if g.statsPrinted == nil {
+		g.statsPrinted = new(atomic.Bool)
+	}
 }
 
 // Opened is a live address endpoint ready for transfer or accept-loop.
@@ -233,7 +273,7 @@ func openDual(ctx context.Context, d *parse.Dual, g *Global) (*Opened, error) {
 	}
 	right, err := OpenSpec(ctx, d.Right, ModeWrite, g)
 	if err != nil {
-		left.Close()
+		_ = left.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("dual write side: %w", err)
 	}
 	o := &Opened{
@@ -241,8 +281,8 @@ func openDual(ctx context.Context, d *parse.Dual, g *Global) (*Opened, error) {
 		Write: right.EffectiveStream(),
 		Label: d.Raw,
 	}
-	o.AddCleanup(func() { left.Close() })
-	o.AddCleanup(func() { right.Close() })
+	o.AddCleanup(func() { _ = left.Close() })  // #nosec G104 -- Close on cleanup; the first error is already returned
+	o.AddCleanup(func() { _ = right.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 	// Combine into Stream
 	o.Stream = relay.FDStream{
 		R: o.Read,

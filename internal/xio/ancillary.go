@@ -174,15 +174,15 @@ func handleTimestamp(data []byte, g *Global) {
 func parseCmsgTimeval(data []byte) (sec, usec int64, ok bool) {
 	switch {
 	case len(data) >= 16:
-		sec = int64(binary.NativeEndian.Uint64(data[0:8]))
-		usec = int64(binary.NativeEndian.Uint64(data[8:16]))
+		sec = int64(binary.NativeEndian.Uint64(data[0:8]))   // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
+		usec = int64(binary.NativeEndian.Uint64(data[8:16])) // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
 		if usec < 0 || usec >= 1_000_000 {
-			usec = int64(int32(binary.NativeEndian.Uint32(data[8:12])))
+			usec = int64(int32(binary.NativeEndian.Uint32(data[8:12]))) // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
 		}
 		return sec, usec, true
 	case len(data) >= 8:
-		sec = int64(int32(binary.NativeEndian.Uint32(data[0:4])))
-		usec = int64(int32(binary.NativeEndian.Uint32(data[4:8])))
+		sec = int64(int32(binary.NativeEndian.Uint32(data[0:4])))  // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
+		usec = int64(int32(binary.NativeEndian.Uint32(data[4:8]))) // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
 		return sec, usec, true
 	default:
 		return 0, 0, false
@@ -193,7 +193,7 @@ func parseInet4Pktinfo(data []byte) (ifindex int, specDst, addr net.IP, ok bool)
 	if len(data) < unix.SizeofInet4Pktinfo {
 		return 0, nil, nil, false
 	}
-	ifindex = int(int32(binary.NativeEndian.Uint32(data[0:4])))
+	ifindex = int(int32(binary.NativeEndian.Uint32(data[0:4]))) // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
 	specDst = net.IP(data[4:8])
 	addr = net.IP(data[8:12])
 	return ifindex, specDst, addr, true
@@ -212,7 +212,7 @@ func parseInet6Pktinfo(data []byte) (ifindex int, addr net.IP, ok bool) {
 func cmsgInt(data []byte) int {
 	switch {
 	case len(data) >= 4:
-		return int(int32(binary.NativeEndian.Uint32(data[:4])))
+		return int(int32(binary.NativeEndian.Uint32(data[:4]))) // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
 	case len(data) >= 1:
 		return int(data[0])
 	default:
@@ -285,7 +285,7 @@ func handleIPv6Cmsg(typ int32, data []byte, g *Global) {
 	case unix.IPV6_TCLASS:
 		n := cmsgInt(data)
 		// classic: xiodump after ntohl → x000000aa style of the int value
-		val := fmt.Sprintf("x%08x", uint32(n)&0xffffffff)
+		val := fmt.Sprintf("x%08x", uint32(n)&0xffffffff) // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
 		logAncillary(g, "IPV6_TCLASS", "tclass", val)
 		setAncillaryEnv(g, "IPV6_TCLASS", val)
 	}
