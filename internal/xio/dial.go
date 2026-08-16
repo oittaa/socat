@@ -196,7 +196,7 @@ func resolveConnectIPs(ctx context.Context, network, host string, s parse.Spec, 
 			sort.SliceStable(ips, func(i, j int) bool {
 				return ips[i].To4() == nil && ips[j].To4() != nil
 			})
-		case IPv4, IPvDefault:
+		case IPv4, IPv4Default:
 			sort.SliceStable(ips, func(i, j int) bool {
 				return ips[i].To4() != nil && ips[j].To4() == nil
 			})
@@ -323,12 +323,12 @@ func ConnectNetworkForType(g *Global, s parse.Spec, host, forced string) string 
 	if forced == "tcp4" || forced == "tcp6" {
 		// Still honour pf= override if present
 		if pf := s.OptionValue("pf", ""); pf != "" {
-			return networkFromPF(pf, forced)
+			return NetworkFromPF(pf, "tcp", forced)
 		}
 		return forced
 	}
 	if pf := s.OptionValue("pf", ""); pf != "" {
-		return networkFromPF(pf, "tcp")
+		return NetworkFromPF(pf, "tcp", "tcp")
 	}
 	h := StripBrackets(host)
 	if ip := net.ParseIP(h); ip != nil {
@@ -339,15 +339,4 @@ func ConnectNetworkForType(g *Global, s parse.Spec, host, forced string) string 
 	}
 	// Generic TCP: dual-stack resolve; -4/-6 only reorder.
 	return "tcp"
-}
-
-func networkFromPF(pf, def string) string {
-	switch strings.ToLower(pf) {
-	case "ip4", "ipv4", "inet", "4":
-		return "tcp4"
-	case "ip6", "ipv6", "inet6", "6":
-		return "tcp6"
-	default:
-		return def
-	}
 }

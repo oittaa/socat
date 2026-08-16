@@ -409,7 +409,7 @@ func Main(args []string) int {
 	case cfg.IP4:
 		g.IPVersion = xio.IPv4
 	default:
-		g.IPVersion = xio.IPvDefault
+		g.IPVersion = xio.IPv4Default
 	}
 
 	// Classic EXITCODESIG*: dying on SIGTERM/ILL/… exits with 128+signum.
