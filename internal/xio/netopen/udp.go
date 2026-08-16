@@ -978,7 +978,12 @@ func setIPv6Membership(c *net.UDPConn, group net.IP, ifi *net.Interface) error {
 	err = raw.Control(func(fd uintptr) {
 		var mreq unix.IPv6Mreq
 		copy(mreq.Multiaddr[:], group.To16())
-		mreq.Interface = uint32(idx) // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
+		ifi, ok := xio.Uint32FromInt(idx)
+		if !ok {
+			serr = fmt.Errorf("ipv6 join: interface index %d out of range", idx)
+			return
+		}
+		mreq.Interface = ifi
 		serr = unix.SetsockoptIPv6Mreq(int(fd), unix.IPPROTO_IPV6, unix.IPV6_JOIN_GROUP, &mreq)
 	})
 	if err != nil {
