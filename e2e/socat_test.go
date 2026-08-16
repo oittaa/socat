@@ -10,12 +10,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
+
+func skipUnlessLinux(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux only")
+	}
+}
 
 func listenCert(t *testing.T) string {
 	t.Helper()
@@ -257,6 +265,7 @@ func TestVersionHasTERMIOS(t *testing.T) {
 }
 
 func TestVersionHasPOSIXMQ(t *testing.T) {
+	skipUnlessLinux(t)
 	bin := socatBin(t)
 	out, err := exec.Command(bin, "-V").CombinedOutput()
 	if err != nil {
@@ -284,6 +293,7 @@ func TestVersionHasPOSIXMQ(t *testing.T) {
 }
 
 func TestPOSIXMQReadPrio(t *testing.T) {
+	skipUnlessLinux(t)
 	bin := socatBin(t)
 	q := fmt.Sprintf("/socat-e2e-%d-%d", os.Getpid(), time.Now().UnixNano()%1e9)
 	defer exec.Command(bin, "-u", "/dev/null", "POSIXMQ-SEND:"+q+",unlink-close").Run()
@@ -317,6 +327,7 @@ func TestPOSIXMQReadPrio(t *testing.T) {
 }
 
 func TestVersionHasSCTP(t *testing.T) {
+	skipUnlessLinux(t)
 	bin := socatBin(t)
 	out, err := exec.Command(bin, "-V").CombinedOutput()
 	if err != nil {

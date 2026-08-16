@@ -143,6 +143,7 @@ make gosec         # security scan; suppress only at the call site with #nosec
 ```
 
 GitHub Actions runs those four checks on `master` and on pull requests.
+Unit and e2e also run on macOS (`macos-latest`).
 Classic `test.sh` is not in CI (runners are sandboxed). Scorecard:
 [testdata/scorecard/README.md](testdata/scorecard/README.md).
 

@@ -511,7 +511,7 @@ func startCmdSocketpair(s parse.Spec, cmd *exec.Cmd) (relay.Stream, []func(), *o
 func setCloexecAllFrom(from int) {
 	// Linux 5.11+: set CLOEXEC on the whole range in one call (covers sparse FDs
 	// like cgroup handles that appear after /proc scans).
-	if err := unix.CloseRange(uint(from), ^uint(0), unix.CLOSE_RANGE_CLOEXEC); err == nil {
+	if setCloexecRange(from) {
 		return
 	}
 	// Fallback: snapshot /proc/self/fd then CloseOnExec each.
