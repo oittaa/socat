@@ -50,7 +50,7 @@ func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 			g.Log.Noticef("opening connection to AF=%d %s", af, formatTCPAddr(ip, raddr.Port))
 		}
 
-		laddr, skip, err := BindTCPAddrForRemote(ctx, ip, bindOpt, sp)
+		laddr, skip, err := BindTCPAddrForRemote(ctx, ip, s, bindOpt, sp)
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {
@@ -178,7 +178,7 @@ func resolveConnectIPs(ctx context.Context, network, host string, s parse.Spec, 
 		hint = "ip6"
 	}
 
-	ips, err := net.DefaultResolver.LookupIP(ctx, hint, host)
+	ips, err := LookupResolver(s).LookupIP(ctx, hint, host)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +248,7 @@ func localIPFamilies() (v4, v6 bool) {
 // BindTCPAddrForRemote picks a local TCPAddr matching remote's family.
 // bindOpt may be host, [ipv6], or host:port / [ipv6]:port (classic bind=).
 // sourceport is used when bind has no port. skip=true means try next remote.
-func BindTCPAddrForRemote(ctx context.Context, remote net.IP, bindOpt, sourceport string) (laddr *net.TCPAddr, skip bool, err error) {
+func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bindOpt, sourceport string) (laddr *net.TCPAddr, skip bool, err error) {
 	if bindOpt == "" && (sourceport == "" || sourceport == "0") {
 		return nil, false, nil
 	}
@@ -296,10 +296,10 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, bindOpt, sourcepor
 	if want4 {
 		hint = "ip4"
 	}
-	ips, err := net.DefaultResolver.LookupIP(ctx, hint, bindHost)
+	ips, err := LookupResolver(s).LookupIP(ctx, hint, bindHost)
 	if err != nil {
 		// Fallback: full lookup then filter
-		all, err2 := net.DefaultResolver.LookupIP(ctx, "ip", bindHost)
+		all, err2 := LookupResolver(s).LookupIP(ctx, "ip", bindHost)
 		if err2 != nil {
 			return nil, false, fmt.Errorf("bind %s: %w", bindOpt, err)
 		}

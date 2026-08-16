@@ -36,7 +36,7 @@ func OpenDialed(ctx context.Context, s parse.Spec, g *Global, d Dialed) (*Opened
 		o.Kind = KindDial
 		o.MaxChildren = maxChildren
 		o.Interval = ParseRetry(s).Interval
-		o.Dial = d.Dial
+		o.Dial = WrapNetNSDial(s, g, d.Dial)
 		if d.Wrap != nil {
 			o.WrapDial = d.Wrap
 		}

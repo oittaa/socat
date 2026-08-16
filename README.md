@@ -139,6 +139,7 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 ```bash
 make test          # gofmt + unit tests
 make e2e           # after build; local processes on 127.0.0.1
+make test-netns-docker  # root netns= tests in a privileged container
 make lint          # gofmt, go vet, golangci-lint
 make gosec         # security scan; suppress only at the call site with #nosec
 ```

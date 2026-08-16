@@ -5,7 +5,6 @@ package xio
 import (
 	"fmt"
 	"runtime"
-	"sync"
 
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
@@ -15,11 +14,10 @@ func init() {
 	FeatureNAMESPACES = true
 }
 
-// netnsMu serializes setns around address open (fork uses goroutines).
-var netnsMu sync.Mutex
-
 // WithNetNS runs fn in Linux network namespace netns=NAME, then restores.
 // The calling OS thread is locked for the whole section (setns is per-thread).
+// There is no process-wide mutex: setns is per-thread, and a lock here
+// deadlocks LISTEN,netns= (Accept) against a same-process CONNECT,netns=.
 func WithNetNS(s parse.Spec, g *Global, fn func() error) error {
 	name, ok := netnsName(s)
 	if !ok {
@@ -27,8 +25,6 @@ func WithNetNS(s parse.Spec, g *Global, fn func() error) error {
 	}
 	warnNetNSExperimental(g)
 
-	netnsMu.Lock()
-	defer netnsMu.Unlock()
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
@@ -37,7 +33,6 @@ func WithNetNS(s parse.Spec, g *Global, fn func() error) error {
 	if err != nil {
 		return fmt.Errorf("open(%s, O_RDONLY|O_CLOEXEC): %w", procNetNS, err)
 	}
-	defer func() { _ = unix.Close(saved) }()
 
 	nspath := "/run/netns/" + name
 	if g != nil && g.Log != nil {
@@ -45,19 +40,25 @@ func WithNetNS(s parse.Spec, g *Global, fn func() error) error {
 	}
 	nsfd, err := unix.Open(nspath, unix.O_RDONLY|unix.O_CLOEXEC, 0)
 	if err != nil {
+		_ = unix.Close(saved)
 		return fmt.Errorf("open(%s, O_RDONLY|O_CLOEXEC): %w", nspath, err)
 	}
 	if err := unix.Setns(nsfd, unix.CLONE_NEWNET); err != nil {
 		_ = unix.Close(nsfd)
+		_ = unix.Close(saved)
 		return fmt.Errorf("setns(%d, CLONE_NEWNET): %w", nsfd, err)
 	}
 	_ = unix.Close(nsfd)
 
-	fnErr := fn()
-	if err := unix.Setns(saved, unix.CLONE_NEWNET); err != nil {
-		if fnErr == nil {
-			return fmt.Errorf("setns(%d, CLONE_NEWNET): %w", saved, err)
+	// Restore even if fn panics so this OS thread is not returned to the
+	// runtime still attached to the target namespace.
+	var fnErr error
+	defer func() {
+		if e := unix.Setns(saved, unix.CLONE_NEWNET); e != nil && fnErr == nil {
+			fnErr = fmt.Errorf("setns(%d, CLONE_NEWNET): %w", saved, e)
 		}
-	}
+		_ = unix.Close(saved)
+	}()
+	fnErr = fn()
 	return fnErr
 }

@@ -1,4 +1,4 @@
-.PHONY: all build fmt fmt-check lint gosec test e2e lab bench clean install hooks
+.PHONY: all build fmt fmt-check lint gosec test e2e test-netns-docker lab bench clean install hooks
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -51,6 +51,10 @@ test: fmt-check
 
 e2e: build
 	go test $(GOFLAGS) -tags=e2e ./e2e/...
+
+# Root netns= tests. Host skips without root; Docker uses --privileged.
+test-netns-docker:
+	./scripts/docker-netns-test.sh
 
 # Optional two-container Compose lab (not part of test or e2e).
 lab:

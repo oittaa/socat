@@ -104,7 +104,7 @@ func dialSCTPAll(ctx context.Context, network, host, port string, s parse.Spec, 
 		if g != nil && g.Log != nil {
 			g.Log.Noticef("opening connection to AF=%d %s", af, net.JoinHostPort(ip.String(), fmt.Sprintf("%d", portNum)))
 		}
-		laddr, skip, err := xio.BindTCPAddrForRemote(ctx, ip, bindOpt, sp)
+		laddr, skip, err := xio.BindTCPAddrForRemote(ctx, ip, s, bindOpt, sp)
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {

@@ -2,6 +2,9 @@ package xio
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"net"
 	"runtime"
 	"strings"
 	"testing"
@@ -84,6 +87,31 @@ func TestNetNSName(t *testing.T) {
 	name, ok := netnsName(s)
 	if !ok || name != "foo" {
 		t.Fatalf("got %q %v", name, ok)
+	}
+}
+
+func TestLookupResolverPreferGoWithNetNS(t *testing.T) {
+	plain := LookupResolver(parse.Spec{})
+	if plain.PreferGo {
+		t.Fatal("default resolver must not force PreferGo")
+	}
+	s := parse.Spec{Options: []parse.Option{{Name: "netns", Has: true, Value: "foo"}}}
+	r := LookupResolver(s)
+	if r == nil || !r.PreferGo {
+		t.Fatal("netns= must use PreferGo so DNS stays on the locked thread")
+	}
+}
+
+func TestWrapNetNSDialNoOption(t *testing.T) {
+	called := false
+	inner := func(context.Context) (net.Conn, error) {
+		called = true
+		return nil, errors.New("dialed")
+	}
+	got := WrapNetNSDial(parse.Spec{}, nil, inner)
+	_, err := got(context.Background())
+	if !called || err == nil || err.Error() != "dialed" {
+		t.Fatalf("passthrough failed: called=%v err=%v", called, err)
 	}
 }
 

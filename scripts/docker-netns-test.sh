@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Run Linux netns= tests as root in a privileged container.
+# Host non-root cannot create /run/netns or call setns.
+#
+# Usage:
+#   ./scripts/docker-netns-test.sh
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+
+IMAGE="${IMAGE:-golang:1.26}"
+GOMODCACHE="${GOMODCACHE:-$(go env GOMODCACHE)}"
+docker run --rm --privileged \
+  -v "$ROOT:/src" \
+  -v "$GOMODCACHE:/go/pkg/mod:ro" \
+  -w /src \
+  -e CGO_ENABLED=0 \
+  -e GOPROXY=off \
+  -e GOFLAGS="${GOFLAGS:-}" \
+  "$IMAGE" \
+  bash -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iproute2 >/dev/null && go test -count=1 -timeout 180s ./internal/xio/ -run "TestNetNS|TestWithNetNSRestoreOnPanic|TestLookupResolver|TestWrapNetNS"'

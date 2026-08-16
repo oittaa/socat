@@ -51,7 +51,7 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	}
 	if doResolve {
 		if ip := net.ParseIP(connectHost); ip == nil || ip.To4() == nil {
-			if ips, e := net.DefaultResolver.LookupIP(ctx, "ip4", connectHost); e == nil && len(ips) > 0 {
+			if ips, e := xio.LookupResolver(s).LookupIP(ctx, "ip4", connectHost); e == nil && len(ips) > 0 {
 				connectHost = ips[0].String()
 			}
 		} else if ip4 := ip.To4(); ip4 != nil {
