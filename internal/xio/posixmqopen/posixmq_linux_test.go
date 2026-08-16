@@ -390,7 +390,23 @@ func TestPOSIXMQRecvMaxChildren(t *testing.T) {
 	sendMsg(t, q, "1\n", 0)
 	sendMsg(t, q, "2\n", 0)
 	sendMsg(t, q, "4\n", 0)
-	time.Sleep(200 * time.Millisecond)
+
+	// Two children consume 1 and 2 concurrently; 4 stays queued.
+	deadline = time.Now().Add(2 * time.Second)
+	var got []byte
+	for time.Now().Before(deadline) {
+		got, _ = os.ReadFile(out)
+		if bytes.Contains(got, []byte("1\n")) && bytes.Contains(got, []byte("2\n")) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !bytes.Contains(got, []byte("1\n")) || !bytes.Contains(got, []byte("2\n")) {
+		cancel()
+		<-errc
+		t.Fatalf("first two messages: %q", got)
+	}
+
 	f, err := os.OpenFile(out, os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -401,13 +417,16 @@ func TestPOSIXMQRecvMaxChildren(t *testing.T) {
 	_ = f.Close()
 
 	deadline = time.Now().Add(3 * time.Second)
-	var got []byte
 	for time.Now().Before(deadline) {
 		got, _ = os.ReadFile(out)
-		if bytes.Equal(got, []byte("1\n2\n3\n4\n")) {
-			cancel()
-			<-errc
-			return
+		if bytes.Contains(got, []byte("3\n")) && bytes.Contains(got, []byte("4\n")) {
+			i3 := bytes.Index(got, []byte("3\n"))
+			i4 := bytes.Index(got, []byte("4\n"))
+			if i3 >= 0 && i4 >= 0 && i3 < i4 {
+				cancel()
+				<-errc
+				return
+			}
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
