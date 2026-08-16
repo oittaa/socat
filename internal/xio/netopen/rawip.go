@@ -138,7 +138,7 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	raddr := &net.IPAddr{IP: net.ParseIP(host)}
 	if raddr.IP == nil {
 		// resolve name
-		ips, err := net.DefaultResolver.LookupIP(ctx, ipLookupNet(network), host)
+		ips, err := xio.LookupResolver(s).LookupIP(ctx, ipLookupNet(network), host)
 		if err != nil || len(ips) == 0 {
 			return nil, fmt.Errorf("%s: resolve %q: %w", s.Type, host, err)
 		}
@@ -191,7 +191,7 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	}
 	raddr := &net.IPAddr{IP: net.ParseIP(host)}
 	if raddr.IP == nil {
-		ips, err := net.DefaultResolver.LookupIP(ctx, ipLookupNet(network), host)
+		ips, err := xio.LookupResolver(s).LookupIP(ctx, ipLookupNet(network), host)
 		if err != nil || len(ips) == 0 {
 			return nil, fmt.Errorf("%s: resolve %q: %w", s.Type, host, err)
 		}
