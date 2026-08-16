@@ -356,115 +356,24 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		usePipes = true
 	}
 
-	var stream relay.Stream
-	var cleanup []func()
-	var child *os.File
-
 	// Classic: child stderr inherits socat's stderr unless option stderr
 	// redirects it onto the data channel. Merging stderr into the data FD
 	// corrupts binary protocols (SOCKS4 echo scripts write diagnostics to stderr).
-	if s.BoolOption("stderr") {
-		// Leave assignment to the data channel below.
-	} else {
+	if !s.BoolOption("stderr") {
 		cmd.Stderr = os.Stderr
 	}
 
+	var stream relay.Stream
+	var cleanup []func()
+	var child *os.File
+	var err error
 	if usePipes {
-		needIn, needOut := pipeDirections(mode, fdin, fdout)
-		var stdin io.WriteCloser
-		var stdout io.ReadCloser
-		var err error
-
-		if needIn {
-			stdin, err = cmd.StdinPipe()
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			cmd.Stdin = os.Stdin
-		}
-		if needOut {
-			if s.BoolOption("stderr") {
-				// Classic stderr: merge child stdout+stderr into one pipe.
-				pr, pw, e := os.Pipe()
-				if e != nil {
-					return nil, e
-				}
-				cmd.Stdout = pw
-				cmd.Stderr = pw
-				stdout = pr
-				cleanup = append(cleanup, func() {
-					_ = pw.Close()
-					_ = pr.Close()
-				})
-			} else {
-				stdout, err = cmd.StdoutPipe()
-				if err != nil {
-					return nil, err
-				}
-			}
-		} else {
-			cmd.Stdout = os.Stdout
-		}
-
-		var r io.Reader = stdout
-		var w io.Writer = stdin
-		if stdout == nil {
-			r = EOFReader{}
-		}
-		if stdin == nil {
-			w = io.Discard
-		}
-		stream = relay.FDStream{
-			R: r,
-			W: w,
-			C: NewMultiCloser(nil, nil),
-			CloseW: func() error {
-				if stdin != nil {
-					return stdin.Close()
-				}
-				return nil
-			},
-		}
-		cleanup = append(cleanup, func() {
-			if stdin != nil {
-				_ = stdin.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-			}
-			if stdout != nil {
-				_ = stdout.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-			}
-		})
+		stream, cleanup, err = startCmdPipes(s, mode, cmd, fdin, fdout)
 	} else {
-		// socketpair — SOCK_STREAM by default; socktype=2 (SOCK_DGRAM) for packet EXEC.
-		stype := syscall.SOCK_STREAM
-		if v := s.OptionValue("socktype", ""); v != "" {
-			if n, e := strconv.Atoi(v); e == nil && n > 0 {
-				stype = n
-			}
-		}
-		fds, err := syscall.Socketpair(syscall.AF_UNIX, stype, 0)
-		if err != nil {
-			return nil, err
-		}
-		parent := os.NewFile(uintptr(fds[0]), "exec-parent")
-		child = os.NewFile(uintptr(fds[1]), "exec-child")
-		cmd.Stdin = child
-		cmd.Stdout = child
-		if s.BoolOption("stderr") {
-			// Explicit: merge stderr into the data socketpair (classic stderr).
-			cmd.Stderr = child
-		}
-		// else: already set to os.Stderr above
-		if stype == syscall.SOCK_DGRAM {
-			// Dgram socketpair: SHUT_WR does not deliver EOF to the child.
-			// Close the parent FD on half-close so cat/etc. exit (packet tests).
-			stream = DgramPairStream(parent)
-		} else {
-			stream = FileStream(parent)
-		}
-		cleanup = append(cleanup, func() {
-			_ = parent.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		})
+		stream, cleanup, child, err = startCmdSocketpair(s, cmd)
+	}
+	if err != nil {
+		return nil, err
 	}
 
 	// EXEC_FDS: only FDs 0/1/2 may remain in the child.
@@ -496,6 +405,105 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 
 	return finishExec(s, g, cmd, stream, cleanup, mode == ModeWrite)
+}
+
+func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdin, fdout string) (relay.Stream, []func(), error) {
+	needIn, needOut := pipeDirections(mode, fdin, fdout)
+	var stdin io.WriteCloser
+	var stdout io.ReadCloser
+	var cleanup []func()
+
+	if needIn {
+		var err error
+		stdin, err = cmd.StdinPipe()
+		if err != nil {
+			return nil, nil, err
+		}
+	} else {
+		cmd.Stdin = os.Stdin
+	}
+	if needOut {
+		if s.BoolOption("stderr") {
+			pr, pw, err := os.Pipe()
+			if err != nil {
+				return nil, nil, err
+			}
+			cmd.Stdout = pw
+			cmd.Stderr = pw
+			stdout = pr
+			cleanup = append(cleanup, func() {
+				_ = pw.Close()
+				_ = pr.Close()
+			})
+		} else {
+			var err error
+			stdout, err = cmd.StdoutPipe()
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+	} else {
+		cmd.Stdout = os.Stdout
+	}
+
+	var r io.Reader = stdout
+	var w io.Writer = stdin
+	if stdout == nil {
+		r = EOFReader{}
+	}
+	if stdin == nil {
+		w = io.Discard
+	}
+	st := relay.FDStream{
+		R: r,
+		W: w,
+		C: NewMultiCloser(nil, nil),
+		CloseW: func() error {
+			if stdin != nil {
+				return stdin.Close()
+			}
+			return nil
+		},
+	}
+	cleanup = append(cleanup, func() {
+		if stdin != nil {
+			_ = stdin.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		}
+		if stdout != nil {
+			_ = stdout.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		}
+	})
+	return st, cleanup, nil
+}
+
+func startCmdSocketpair(s parse.Spec, cmd *exec.Cmd) (relay.Stream, []func(), *os.File, error) {
+	stype := syscall.SOCK_STREAM
+	if v := s.OptionValue("socktype", ""); v != "" {
+		if n, e := strconv.Atoi(v); e == nil && n > 0 {
+			stype = n
+		}
+	}
+	fds, err := syscall.Socketpair(syscall.AF_UNIX, stype, 0)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	parent := os.NewFile(uintptr(fds[0]), "exec-parent")
+	child := os.NewFile(uintptr(fds[1]), "exec-child")
+	cmd.Stdin = child
+	cmd.Stdout = child
+	if s.BoolOption("stderr") {
+		cmd.Stderr = child
+	}
+	var st relay.Stream
+	if stype == syscall.SOCK_DGRAM {
+		st = DgramPairStream(parent)
+	} else {
+		st = FileStream(parent)
+	}
+	cleanup := []func(){func() {
+		_ = parent.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+	}}
+	return st, cleanup, child, nil
 }
 
 // setCloexecAllFrom marks FDs ≥ from CLOEXEC so they are not left open in EXEC children.

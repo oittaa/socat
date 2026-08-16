@@ -118,22 +118,15 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 		}
 		c, e := d.DialContext(ctx, "unix", path)
 		if e != nil {
-			// Classic UNIX client probes peer type: stream fail → try dgram (UNIXTODGRAM).
-			if isWrongType(e) {
+			if unixTryDgram(e, bindPath != "") {
 				cleanupStreamBind()
-				return errTryDgram
-			}
-			// connection refused / not a socket can also mean dgram peer exists
-			if isConnRefusedOrNotSocket(e) && bindPath != "" {
-				cleanupStreamBind()
-				return errTryDgram
 			}
 			return e
 		}
 		conn = c
 		return nil
 	})
-	if err == errTryDgram || (err != nil && isWrongType(err)) {
+	if unixTryDgram(err, bindPath != "") {
 		cleanupStreamBind()
 		return openUnixDgramClient(ctx, s, mode, g, path, bindPath)
 	}
@@ -171,15 +164,14 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	return o, nil
 }
 
-// errTryDgram signals stream connect hit EPROTOTYPE; fall back to unixgram.
-var errTryDgram = fmt.Errorf("try unixgram")
-
-func isWrongType(err error) bool {
-	return errors.Is(err, syscall.EPROTOTYPE)
-}
-
-func isConnRefusedOrNotSocket(err error) bool {
-	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOTSOCK)
+func unixTryDgram(err error, haveBind bool) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, syscall.EPROTOTYPE) {
+		return true
+	}
+	return haveBind && (errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, syscall.ENOTSOCK))
 }
 
 // openUnixDgramClient is UNIX:/UNIX-CONNECT as datagram (peer is RECVFROM etc.).
