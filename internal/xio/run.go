@@ -180,10 +180,10 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 			if slots != nil {
 				defer func() { <-slots }()
 			}
-			cg := *g
-			RememberAddrs(&cg, c)
-			RememberTLSPeer(&cg, c)
-			if err := child(ctx, &cg, c); err != nil {
+			cg := g.forkSession()
+			RememberAddrs(cg, c)
+			RememberTLSPeer(cg, c)
+			if err := child(ctx, cg, c); err != nil {
 				if g != nil && g.Log != nil {
 					g.Log.Debugf("connect child: %s", err)
 				}
@@ -248,15 +248,15 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 			if slots != nil {
 				defer func() { <-slots }()
 			}
-			// Per-connection Global copy so SOCAT_* env is correct under concurrency.
-			cg := *g
-			RememberAddrs(&cg, c)
+			// Per-connection session so SOCAT_* env is correct under concurrency.
+			cg := g.forkSession()
+			RememberAddrs(cg, c)
 			leftStream, err := streamFromDial(lo, c)
 			if err != nil {
 				g.Log.Errorf("wrap accept: %s", err)
 				return
 			}
-			ro, err := OpenChannel(ctx, right, rMode, &cg)
+			ro, err := OpenChannel(ctx, right, rMode, cg)
 			if err != nil {
 				// Classic greps `E open(` for RECVFROM_FORK_LOOP — no "right address:" prefix.
 				g.Log.Errorf("%s", err)
@@ -276,16 +276,16 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 				go func() {
 					defer sp1.Close()
 					defer ro.Close()
-					_ = transferStreams(ctx, FileStream(sp1), ro.EffectiveStream(), &cg)
+					_ = transferStreams(ctx, FileStream(sp1), ro.EffectiveStream(), cg)
 				}()
 				defer sp0.Close()
-				if err := transferStreams(ctx, leftStream, FileStream(sp0), &cg); err != nil {
+				if err := transferStreams(ctx, leftStream, FileStream(sp0), cg); err != nil {
 					g.Log.Debugf("transfer: %s", err)
 				}
 				return
 			}
 			defer ro.Close()
-			if err := transferStreams(ctx, leftStream, ro.EffectiveStream(), &cg); err != nil {
+			if err := transferStreams(ctx, leftStream, ro.EffectiveStream(), cg); err != nil {
 				g.Log.Debugf("transfer: %s", err)
 			}
 		}(conn)
@@ -356,15 +356,15 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 			}
 			leftMu.Lock()
 			defer leftMu.Unlock()
-			cg := *g
-			RememberAddrs(&cg, c)
+			cg := g.forkSession()
+			RememberAddrs(cg, c)
 			rightStream, err := streamFromDial(ro, c)
 			if err != nil {
 				g.Log.Errorf("wrap accept: %s", err)
 				return
 			}
 			// noCloseLeft=true: do not close/shutdown shared left between children.
-			if err := transferStreamsOpts(ctx, left, rightStream, &cg, true, false); err != nil {
+			if err := transferStreamsOpts(ctx, left, rightStream, cg, true, false); err != nil {
 				g.Log.Debugf("transfer: %s", err)
 			}
 		}(conn)
@@ -423,7 +423,7 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 	if g != nil && g.Statistics && g.Log != nil {
 		cfg.OnStats = func(st relay.Stats) {
 			PrintStats(g.Log, st, cfg.LeftToRight, cfg.RightToLeft, true)
-			g.statsPrinted.Store(true)
+			g.markStatsPrinted()
 		}
 	}
 	// Classic MULTIPLE_EOF greps: "socket 2 (fd .*) is at EOF" (Notice once per side).

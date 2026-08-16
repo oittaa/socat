@@ -1,24 +1,22 @@
-# Focused set: catch real defects without hundreds of Close() nits.
-# testdata/ holds third-party trees and is not linted.
+# Start from golangci-lint "standard" (errcheck, govet, ineffassign,
+# staticcheck, unused). testdata/ is third-party and is not linted.
 version: "2"
 
 run:
   relative-path-mode: wd
 
 linters:
-  default: none
-  enable:
-    - govet
-    - ineffassign
-    - staticcheck
+  default: standard
+  disable:
+    # Same Close() sites as gosec G104; those lines already have #nosec.
+    - errcheck
+    # Dead helpers (TEXT/DALAN leftovers). Enable after a cleanup.
+    - unused
   settings:
-    govet:
-      disable:
-        # Global holds atomic.Bool; per-child copy of session fields is intended.
-        - copylocks
     staticcheck:
       checks:
         - all
+        # Style / doc nits, not defects.
         - -QF1002
         - -QF1003
         - -QF1008

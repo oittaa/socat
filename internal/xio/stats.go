@@ -52,7 +52,7 @@ func PrintExitStats(g *Global) {
 	if g == nil || !g.Statistics || g.Log == nil {
 		return
 	}
-	if g.statsPrinted.Load() {
+	if g.statsAlreadyPrinted() {
 		return
 	}
 	PrintLastStats(g.Log)

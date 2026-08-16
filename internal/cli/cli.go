@@ -383,6 +383,7 @@ func Main(args []string) int {
 		LeftToRight: cfg.LeftToRight,
 		RightToLeft: cfg.RightToLeft,
 	}
+	g.EnsureStatsFlag()
 	// Classic -r / -R: path templates; opened at transfer start with expandenv
 	// ($PROGNAME, $TIMESTAMP, $MICROS, $$, $PEER env after accept).
 	g.RawLeftPath = cfg.RawLeft

@@ -40,3 +40,18 @@ func TestSniffEnvFromSession(t *testing.T) {
 		t.Fatalf("path=%q", path)
 	}
 }
+
+func TestForkSessionSharesStatsFlag(t *testing.T) {
+	g := &Global{PeerAddr: "parent"}
+	g.EnsureStatsFlag()
+	a := g.forkSession()
+	b := g.forkSession()
+	a.PeerAddr = "child-a"
+	if g.PeerAddr != "parent" || b.PeerAddr != "parent" {
+		t.Fatalf("peer fields must be per-child: parent=%q b=%q", g.PeerAddr, b.PeerAddr)
+	}
+	a.markStatsPrinted()
+	if !b.statsAlreadyPrinted() || !g.statsAlreadyPrinted() {
+		t.Fatal("stats flag must be shared so --statistics prints once")
+	}
+}
