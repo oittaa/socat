@@ -72,7 +72,6 @@ Common options: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `
 | QUIC / QUIC-CONNECT / QUIC-LISTEN | RFC 9000 byte relay (`github.com/quic-go/quic-go`); **not** HTTP/3; **not** in classic socat |
 | SCTP / SCTP4 / SCTP6 (+ CONNECT, LISTEN / -L) | Linux kernel one-to-one SCTP (`SOCK_STREAM` + `IPPROTO_SCTP`, RFC 9260); need `sctp` module |
 | POSIXMQ / POSIXMQ-READ / POSIXMQ-RECV / POSIXMQ-SEND | Linux POSIX message queues; `mq-prio`, unlink-early/close, RECV/SEND `fork` + `max-children` |
-| `netns=` | Linux network namespace for one address open (`WITH_NAMESPACES`); needs root/`CAP_SYS_ADMIN`; `--experimental` |
 | DCCP, readline | **not** implemented (`#undef` in `-V`) |
 
 ### Options (honored)
@@ -94,6 +93,7 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 | WebSocket | `path`, `origin`, `protocol` (binary frames; WSS reuses TLS options) |
 | QUIC | `alpn` (default `socat`; not `h3`); reuses TLS options; one bidirectional stream |
 | PROXY/SOCKS | `proxyport`, `http-version` (`1.0`/`1.1`/`2`/`3`), `h2c`, `proxy-authorization` / `proxy-authorization-file`, `socksport`, `socksuser` |
+| Namespaces | `netns=` (Linux `WITH_NAMESPACES`; one address open; root/`CAP_SYS_ADMIN`; `--experimental`) |
 
 **`max-children`:** limits concurrent `fork` sessions on **LISTEN** and on **CONNECT** / **TLS-CONNECT** client reconnect loops. Requires `fork`. Parent redials after `interval` (default 1s).
 
