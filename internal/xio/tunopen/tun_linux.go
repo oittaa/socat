@@ -43,7 +43,7 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	}
 
 	// Flags: IFF_TUN (default) or IFF_TAP; optional IFF_NO_PI.
-	flags := uint16(unix.IFF_TUN)
+	var flags uint16
 	tunType := strings.ToLower(s.OptionValue("tun-type", "tun"))
 	if tunType == "" {
 		tunType = "tun"

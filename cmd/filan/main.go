@@ -23,14 +23,13 @@ func main() {
 
 func run(args []string) int {
 	var (
-		m, n     = 0, unix.FD_SETSIZE
+		m, n     = 0, 1024 // practical default; FD_SETSIZE varies
 		style    = 0
 		filename string
 		waittime time.Duration
 		outfname string
 		singleFD = false
 	)
-	n = 1024 // practical default; FD_SETSIZE varies
 
 	for i := 0; i < len(args); i++ {
 		a := args[i]

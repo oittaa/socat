@@ -292,11 +292,9 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, bindOpt, sourcepor
 	}
 
 	// Hostname: resolve and pick first address matching remote family.
-	hint := "ip"
+	hint := "ip6"
 	if want4 {
 		hint = "ip4"
-	} else {
-		hint = "ip6"
 	}
 	ips, err := net.DefaultResolver.LookupIP(ctx, hint, bindHost)
 	if err != nil {

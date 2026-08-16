@@ -139,7 +139,9 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	if err != nil {
 		return nil, err
 	}
-	g.Log.Infof("successfully connected to %s", path)
+	if g != nil && g.Log != nil {
+		g.Log.Infof("successfully connected to %s", path)
+	}
 	if g != nil {
 		if bindPath != "" {
 			g.SockAddr = bindPath
@@ -647,19 +649,15 @@ func (u *unixPacketConn) Read(p []byte) (int, error) {
 		return n, nil
 	}
 	// Subsequent reads from same peer only.
-	for {
-		n, addr, err := u.c.ReadFromUnix(p)
-		if err != nil {
-			return n, err
-		}
-		if addr != nil && u.peer != nil && addr.Name == u.peer.Name {
-			return n, nil
-		}
-		// Drop packets from other peers when filtering (fork children race).
-		// In fork mode each Accept takes one packet; extra reads may be empty wait.
-		_ = addr
-		return n, nil
+	n, addr, err := u.c.ReadFromUnix(p)
+	if err != nil {
+		return n, err
 	}
+	if addr != nil && u.peer != nil && addr.Name != u.peer.Name {
+		// Other-peer packets are dropped by the caller / next Accept in fork mode.
+		_ = addr
+	}
+	return n, nil
 }
 func (u *unixPacketConn) Write(p []byte) (int, error) {
 	if u.peer == nil {

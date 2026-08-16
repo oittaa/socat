@@ -49,7 +49,7 @@ func procan(w io.Writer) {
 	fmt.Fprintf(w, "process parent id = %d\n", os.Getppid())
 
 	// controlling terminal
-	tty := "-"
+	var tty string
 	if f, err := os.OpenFile("/dev/tty", os.O_RDONLY, 0); err == nil {
 		if name, err := unix.IoctlGetInt(int(f.Fd()), unix.TIOCGDEV); err == nil {
 			_ = name

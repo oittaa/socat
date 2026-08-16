@@ -1,0 +1,36 @@
+# Focused set: catch real defects without hundreds of Close() nits.
+# testdata/ holds third-party trees and is not linted.
+version: "2"
+
+run:
+  relative-path-mode: wd
+
+linters:
+  default: none
+  enable:
+    - govet
+    - ineffassign
+    - staticcheck
+  settings:
+    govet:
+      disable:
+        # Global holds atomic.Bool; per-child copy of session fields is intended.
+        - copylocks
+    staticcheck:
+      checks:
+        - all
+        - -QF1002
+        - -QF1003
+        - -QF1008
+        - -QF1011
+        - -S1005
+        - -ST1000
+        - -ST1005
+        - -ST1020
+        - -SA4008
+  exclusions:
+    paths:
+      - testdata
+      - third_party$
+      - builtin$
+      - examples$

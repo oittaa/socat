@@ -117,6 +117,57 @@ func TestPostQuantumHybridKeyExchange(t *testing.T) {
 	}
 }
 
+func TestTLSClientVerifyConnectionSet(t *testing.T) {
+	ca, _, err := testCAAndLeaf("localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	caPath := filepath.Join(dir, "ca.pem")
+	if err := os.WriteFile(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := tlsClientConfig(parse.Spec{
+		Type: "TLS",
+		Options: []parse.Option{
+			{Name: "verify", Value: "1", Has: true},
+			{Name: "cafile", Value: caPath, Has: true},
+			{Name: "commonname", Value: "localhost", Has: true},
+		},
+	}, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.VerifyPeerCertificate == nil {
+		t.Fatal("VerifyPeerCertificate is nil")
+	}
+	if cfg.VerifyConnection == nil {
+		t.Fatal("VerifyConnection is nil; resume would skip the name check")
+	}
+}
+
+func TestTLSServerVerifyConnectionSet(t *testing.T) {
+	cert, err := ephemeralSelfSigned()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	certPath := writeTLSCert(t, dir, "srv", cert)
+	cfg, err := tlsServerConfig(parse.Spec{
+		Type: "TLS-LISTEN",
+		Options: []parse.Option{
+			{Name: "cert", Value: certPath, Has: true},
+			{Name: "verify", Value: "1", Has: true},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.VerifyPeerCertificate == nil || cfg.VerifyConnection == nil {
+		t.Fatal("server verify hooks missing; resume would skip client name/trust check")
+	}
+}
+
 func TestTLSClientEmptyCommonNameKeepsDialSNI(t *testing.T) {
 	cfg, err := tlsClientConfig(parse.Spec{
 		Type: "TLS",

@@ -1,0 +1,32 @@
+# Weekly updates for module, Actions, and Docker files we own.
+# testdata/tmp clones and stdlib-only Python scripts are not listed.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      go-modules:
+        patterns:
+          - "*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /docker/classic-test
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /docker/go-test
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /examples/lab
+    schedule:
+      interval: weekly

@@ -498,10 +498,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 			_ = port
 			return &xio.Opened{Stream: wrapped, Label: "UDP-DATAGRAM:" + raddr.String()}, nil
 		}
-		// Fall through: still emit classic-style bind log if bindUDPLowport logged.
-		if berr != nil && g != nil && g.Log != nil {
-			// bindUDPLowport already logged attempts
-		}
+		// Fall through: bindUDPLowport already logged attempts.
 	}
 	if bind != "" || sp != "" {
 		if bind == "" {

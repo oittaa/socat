@@ -339,8 +339,10 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 			return nil, err
 		}
 		// Manual verify: classic CN-only certs + RFC 6125 name (no IP→any-CN shortcut).
+		// VerifyConnection is required as well: VerifyPeerCertificate is not
+		// called on a resumed session (gosec G123).
 		cfg.InsecureSkipVerify = true
-		cfg.VerifyPeerCertificate = makeVerifyPeer(roots, checkName)
+		attachPeerVerify(cfg, makeVerifyPeer(roots, checkName))
 		if roots != nil {
 			cfg.RootCAs = roots
 		}
@@ -410,11 +412,28 @@ func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 			cfg.ClientAuth = tls.RequestClientCert
 		}
 		prev := cfg.VerifyPeerCertificate
-		cfg.VerifyPeerCertificate = makeServerVerifyPeer(roots, cnWant, doVerify, prev)
+		attachPeerVerify(cfg, makeServerVerifyPeer(roots, cnWant, doVerify, prev))
 	} else {
 		cfg.ClientAuth = tls.NoClientCert
 	}
 	return cfg, nil
+}
+
+// attachPeerVerify sets both VerifyPeerCertificate and VerifyConnection.
+// crypto/tls skips VerifyPeerCertificate on session resume; VerifyConnection
+// still runs, so a resumed session cannot skip the name/trust check.
+func attachPeerVerify(cfg *tls.Config, fn func([][]byte, [][]*x509.Certificate) error) {
+	if cfg == nil || fn == nil {
+		return
+	}
+	cfg.VerifyPeerCertificate = fn
+	cfg.VerifyConnection = func(cs tls.ConnectionState) error {
+		raws := make([][]byte, len(cs.PeerCertificates))
+		for i, c := range cs.PeerCertificates {
+			raws[i] = c.Raw
+		}
+		return fn(raws, nil)
+	}
 }
 
 // makeServerVerifyPeer checks client certificate chain and optional commonname.
