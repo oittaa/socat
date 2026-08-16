@@ -85,13 +85,7 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 
 	origin := s.OptionValue("origin", "")
 	proto := s.OptionValue("protocol", "")
-	fork := s.BoolOption("fork")
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, e := xio.ParsePositiveInt(v); e == nil {
-			maxChildren = n
-		}
-	}
+	fork, maxChildren := xio.ForkLimits(s)
 	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 	// Upgrade after peer filter (TCP-level range/sourceport/tcpwrap).
 	wrapConn := func(c net.Conn) (relay.Stream, error) {

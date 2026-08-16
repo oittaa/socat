@@ -79,43 +79,13 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return conn, err
 	}
 
-	fork := s.BoolOption("fork")
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, e := xio.ParsePositiveInt(v); e == nil {
-			maxChildren = n
-		}
-	}
-	if maxChildren > 0 && !fork {
-		return nil, fmt.Errorf("%s: option max-children not allowed without option fork", s.Type)
-	}
-	if fork {
-		return &xio.Opened{
-			ConnectFork: true,
-			Fork:        true,
-			MaxChildren: maxChildren,
-			Interval:    xio.ParseRetry(s).Interval,
-			Label:       s.Type + ":" + addr,
-			Dial:        dialOnce,
-		}, nil
-	}
-
-	conn, err := dialOnce(ctx)
-	if err != nil {
-		return nil, err
-	}
-	xio.RememberAddrs(g, conn)
-	xio.RememberTLSPeer(g, conn)
-	if g != nil && g.Log != nil {
-		g.Log.Infof("successfully connected from %s to %s (TLS)", conn.LocalAddr(), conn.RemoteAddr())
-	}
-	st := relay.Stream(relay.NetStream{Conn: conn})
-	st, err = xio.WrapCommon(s, st)
-	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		return nil, err
-	}
-	return &xio.Opened{Stream: st, Label: s.Type + ":" + addr}, nil
+	return xio.OpenDialed(ctx, s, g, xio.Dialed{
+		Label:       s.Type + ":" + addr,
+		Dial:        dialOnce,
+		RememberTLS: true,
+		LogOK:       true,
+		LogSuffix:   " (TLS)",
+	})
 }
 
 // openTLSListen implements TLS-LISTEN (and OPENSSL-LISTEN/SSL-LISTEN aliases).
@@ -181,13 +151,7 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	}
 	tlsLn := tls.NewListener(ln, tlsCfg)
 
-	fork := s.BoolOption("fork")
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, e := xio.ParsePositiveInt(v); e == nil {
-			maxChildren = n
-		}
-	}
+	fork, maxChildren := xio.ForkLimits(s)
 	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 
 	o := &xio.Opened{

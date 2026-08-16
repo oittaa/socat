@@ -13,7 +13,6 @@ import (
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
-	"golang.org/x/sys/unix"
 )
 
 // Raw IP (SOCK_RAW) addresses — classic IP4/IP6-SENDTO/RECV/RECVFROM.
@@ -376,113 +375,11 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 	}
 	// Multicast join (IP4MULTICAST_* classic tests).
 	if v := s.OptionValue("ip-add-membership", ""); v != "" {
-		if err := joinMulticastIP(c, network, v); err != nil {
+		if err := joinMulticast(c, v); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// joinMulticastIP is like joinMulticast for *net.IPConn (raw IP).
-func joinMulticastIP(c *net.IPConn, network, spec string) error {
-	gip, iface, err := parseMcastSpec(spec)
-	if err != nil {
-		return err
-	}
-	var ifi *net.Interface
-	if ip := net.ParseIP(iface); ip != nil {
-		ifaces, _ := net.Interfaces()
-		for _, cand := range ifaces {
-			addrs, _ := cand.Addrs()
-			for _, a := range addrs {
-				var ipn net.IP
-				switch v := a.(type) {
-				case *net.IPNet:
-					ipn = v.IP
-				case *net.IPAddr:
-					ipn = v.IP
-				}
-				if ipn != nil && ipn.Equal(ip) {
-					ifi = &cand
-					break
-				}
-			}
-			if ifi != nil {
-				break
-			}
-		}
-		if gip.To4() != nil && ip.To4() != nil {
-			return setIPv4MembershipRaw(c, gip.To4(), ip.To4())
-		}
-	} else {
-		var err error
-		ifi, err = net.InterfaceByName(iface)
-		if err != nil {
-			return fmt.Errorf("ip-add-membership: interface %q: %w", iface, err)
-		}
-	}
-	if gip.To4() != nil {
-		var ifaceIP net.IP
-		if ifi != nil {
-			addrs, _ := ifi.Addrs()
-			for _, a := range addrs {
-				if ipn, ok := a.(*net.IPNet); ok && ipn.IP.To4() != nil {
-					ifaceIP = ipn.IP.To4()
-					break
-				}
-			}
-		}
-		if ifaceIP == nil {
-			ifaceIP = net.IPv4zero.To4()
-		}
-		return setIPv4MembershipRaw(c, gip.To4(), ifaceIP)
-	}
-	return setIPv6MembershipRaw(c, gip, ifi)
-}
-
-func setIPv4MembershipRaw(c *net.IPConn, group, ifaceIP net.IP) error {
-	raw, err := c.SyscallConn()
-	if err != nil {
-		return err
-	}
-	var serr error
-	err = raw.Control(func(fd uintptr) {
-		var mreq unix.IPMreq
-		copy(mreq.Multiaddr[:], group.To4())
-		copy(mreq.Interface[:], ifaceIP.To4())
-		serr = unix.SetsockoptIPMreq(int(fd), unix.IPPROTO_IP, unix.IP_ADD_MEMBERSHIP, &mreq)
-	})
-	if err != nil {
-		return err
-	}
-	return serr
-}
-
-func setIPv6MembershipRaw(c *net.IPConn, group net.IP, ifi *net.Interface) error {
-	raw, err := c.SyscallConn()
-	if err != nil {
-		return err
-	}
-	var serr error
-	idx := 0
-	if ifi != nil {
-		idx = ifi.Index
-	}
-	err = raw.Control(func(fd uintptr) {
-		var mreq unix.IPv6Mreq
-		copy(mreq.Multiaddr[:], group.To16())
-		ifi, ok := xio.Uint32FromInt(idx)
-		if !ok {
-			serr = fmt.Errorf("ipv6 join: interface index %d out of range", idx)
-			return
-		}
-		mreq.Interface = ifi
-		serr = unix.SetsockoptIPv6Mreq(int(fd), unix.IPPROTO_IPV6, unix.IPV6_JOIN_GROUP, &mreq)
-	})
-	if err != nil {
-		return err
-	}
-	return serr
 }
 
 func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob []byte, addr net.Addr, err error) {

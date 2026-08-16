@@ -129,8 +129,6 @@ func (g *Global) ensureStatsFlag() {
 type Opened struct {
 	Stream   relay.Stream
 	Listener net.Listener // non-nil for listen without yet accepting (fork mode parent)
-	// AcceptOne blocks until a connection is accepted (non-fork listen).
-	// If set, Stream is nil until AcceptOne is used OR Open already accepted.
 	// Fork: Listener set, Stream nil.
 	// Non-fork listen: Stream is the accepted connection.
 	Fork    bool
@@ -297,9 +295,8 @@ func openDual(ctx context.Context, d *parse.Dual, g *Global) (*Opened, error) {
 
 // OpenSpec opens a single address type.
 func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	typ := normalizeType(s.Type)
-	s.Type = typ
-	fn, ok := lookupOpener(typ)
+	s.Type = strings.ToUpper(s.Type)
+	fn, ok := lookupOpener(s.Type)
 	if !ok {
 		// Message text must match classic for test.sh testaddrs():
 		// grep "E unknown device/address"
@@ -334,10 +331,4 @@ func lookupOpener(typ string) (Opener, bool) {
 	defer openerMu.RUnlock()
 	fn, ok := openers[typ]
 	return fn, ok
-}
-
-func normalizeType(t string) string {
-	t = strings.ToUpper(t)
-	// synonyms already uppercased
-	return t
 }

@@ -84,44 +84,11 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return conn, err
 	}
 
-	fork := s.BoolOption("fork")
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, e := xio.ParsePositiveInt(v); e == nil {
-			maxChildren = n
-		}
-	}
-	if maxChildren > 0 && !fork {
-		return nil, fmt.Errorf("%s: option max-children not allowed without option fork", s.Type)
-	}
-	if fork {
-		// Classic CONNECT,fork parent loop (TCP_CONNECT_MAXCHILDREN).
-		return &xio.Opened{
-			ConnectFork: true,
-			Fork:        true,
-			MaxChildren: maxChildren,
-			Interval:    xio.ParseRetry(s).Interval,
-			Label:       fmt.Sprintf("%s:%s", network, addr),
-			Dial:        dialOnce,
-		}, nil
-	}
-
-	conn, err := dialOnce(ctx)
-	if err != nil {
-		return nil, err
-	}
-	g.Log.Infof("successfully connected from %s to %s", conn.LocalAddr(), conn.RemoteAddr())
-	xio.RememberAddrs(g, conn)
-	st := relay.Stream(relay.NetStream{Conn: conn})
-	st, err = xio.WrapCommon(s, st)
-	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		return nil, err
-	}
-	return &xio.Opened{
-		Stream: st,
-		Label:  fmt.Sprintf("%s:%s", network, addr),
-	}, nil
+	return xio.OpenDialed(ctx, s, g, xio.Dialed{
+		Label: fmt.Sprintf("%s:%s", network, addr),
+		Dial:  dialOnce,
+		LogOK: true,
+	})
 }
 
 func openTCPListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {

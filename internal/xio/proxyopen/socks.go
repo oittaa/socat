@@ -113,44 +113,14 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 		return conn, e
 	}
 
-	wrap := func(c net.Conn) (relay.Stream, error) {
-		return xio.WrapCommon(s, relay.NetStream{Conn: c})
-	}
-
-	fork := s.BoolOption("fork")
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, e := xio.ParsePositiveInt(v); e == nil {
-			maxChildren = n
-		}
-	}
-	if maxChildren > 0 && !fork {
-		return nil, fmt.Errorf("%s: option max-children not allowed without option fork", s.Type)
-	}
-	if fork {
-		return &xio.Opened{
-			ConnectFork: true,
-			Fork:        true,
-			MaxChildren: maxChildren,
-			Interval:    xio.ParseRetry(s).Interval,
-			Label:       label,
-			Dial:        dialOnce,
-			WrapDial:    wrap,
-		}, nil
-	}
-
-	conn, err := dialOnce(ctx)
-	if err != nil {
-		return nil, err
-	}
-	xio.RememberAddrs(g, conn)
-	st, err := wrap(conn)
-	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		return nil, err
-	}
 	_ = mode
-	return &xio.Opened{Stream: st, Label: label}, nil
+	return xio.OpenDialed(ctx, s, g, xio.Dialed{
+		Label: label,
+		Dial:  dialOnce,
+		Wrap: func(c net.Conn) (relay.Stream, error) {
+			return xio.WrapCommon(s, relay.NetStream{Conn: c})
+		},
+	})
 }
 
 const (
@@ -310,44 +280,14 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 		return conn, e
 	}
 
-	wrap := func(c net.Conn) (relay.Stream, error) {
-		return xio.WrapCommon(s, relay.NetStream{Conn: c})
-	}
-
-	fork := s.BoolOption("fork")
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, e := xio.ParsePositiveInt(v); e == nil {
-			maxChildren = n
-		}
-	}
-	if maxChildren > 0 && !fork {
-		return nil, fmt.Errorf("%s: option max-children not allowed without option fork", s.Type)
-	}
-	if fork {
-		return &xio.Opened{
-			ConnectFork: true,
-			Fork:        true,
-			MaxChildren: maxChildren,
-			Interval:    xio.ParseRetry(s).Interval,
-			Label:       label,
-			Dial:        dialOnce,
-			WrapDial:    wrap,
-		}, nil
-	}
-
-	conn, err := dialOnce(ctx)
-	if err != nil {
-		return nil, err
-	}
-	xio.RememberAddrs(g, conn)
-	st, err := wrap(conn)
-	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		return nil, err
-	}
 	_ = mode
-	return &xio.Opened{Stream: st, Label: label}, nil
+	return xio.OpenDialed(ctx, s, g, xio.Dialed{
+		Label: label,
+		Dial:  dialOnce,
+		Wrap: func(c net.Conn) (relay.Stream, error) {
+			return xio.WrapCommon(s, relay.NetStream{Conn: c})
+		},
+	})
 }
 
 // socksParams parses SOCKS address params.

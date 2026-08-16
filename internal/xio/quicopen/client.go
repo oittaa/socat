@@ -2,13 +2,11 @@ package quicopen
 
 import (
 	"context"
-	"fmt"
 	"net"
 
 	"github.com/quic-go/quic-go"
 
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
@@ -79,49 +77,18 @@ func openQUICConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		return conn, err
 	}
 
-	fork := s.BoolOption("fork")
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, e := xio.ParsePositiveInt(v); e == nil {
-			maxChildren = n
-		}
-	}
-	if maxChildren > 0 && !fork {
-		_ = tr.Close()
-		_ = pc.Close()
-		return nil, fmt.Errorf("%s: option max-children not allowed without option fork", s.Type)
-	}
-
-	o := &xio.Opened{
-		Label: s.Type + ":" + dest,
-	}
+	o := &xio.Opened{Label: s.Type + ":" + dest}
 	o.AddCleanup(func() {
 		_ = tr.Close()
 		_ = pc.Close()
 	})
-
-	if fork {
-		o.ConnectFork = true
-		o.Fork = true
-		o.MaxChildren = maxChildren
-		o.Interval = xio.ParseRetry(s).Interval
-		o.Dial = dialOnce
-		return o, nil
-	}
-
-	conn, err := dialOnce(ctx)
+	opened, err := xio.OpenDialed(ctx, s, g, xio.Dialed{
+		Dial: dialOnce,
+		Base: o,
+	})
 	if err != nil {
 		_ = o.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
-	xio.RememberAddrs(g, conn)
-	st := relay.Stream(relay.NetStream{Conn: conn})
-	st, err = xio.WrapCommon(s, st)
-	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		_ = o.Close()    // #nosec G104 -- Close on cleanup; the first error is already returned
-		return nil, err
-	}
-	o.Stream = st
-	return o, nil
+	return opened, nil
 }
