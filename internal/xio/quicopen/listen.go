@@ -51,7 +51,7 @@ func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	}
 	qln, err := quic.Listen(pc, qcfg.tls, qcfg.cfg)
 	if err != nil {
-		pc.Close()
+		pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 
@@ -120,7 +120,7 @@ func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	xio.RememberAddrs(g, conn)
 	st, err := wrapConn(conn)
 	if err != nil {
-		conn.Close()
+		conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	o.Stream = st

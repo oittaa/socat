@@ -67,7 +67,7 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 				return e
 			}
 			if setSockErr != nil {
-				c.Close()
+				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return setSockErr
 			}
 			if tc, ok := c.(*net.TCPConn); ok {
@@ -115,7 +115,7 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		conn.Close()
+		conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	return &xio.Opened{
@@ -220,14 +220,14 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		MaxChildren: maxChildren,
 		WrapDial:    wrapConn,
 	}
-	o.AddCleanup(func() { ln.Close() })
+	o.AddCleanup(func() { ln.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 
 	if fork {
 		// Parent keeps listening; xio.Run handles accept loop.
 		// xio.Close listener when ctx cancelled so xio.Accept unblocks on SIGTERM.
 		go func() {
 			<-ctx.Done()
-			ln.Close()
+			ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		}()
 		return o, nil
 	}
@@ -258,12 +258,12 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		}()
 		select {
 		case <-ctx.Done():
-			ln.Close()
+			ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			o.Listener = nil
 			return nil, ctx.Err()
 		case a := <-ch:
 			if a.err != nil {
-				ln.Close()
+				ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				o.Listener = nil
 				if xio.IsTimeoutErr(a.err) {
 					// Phrase "timed out" matches classic test.sh REUSEADDR_NULL CANT path.
@@ -281,7 +281,7 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		}
 		break
 	}
-	ln.Close()
+	ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 	o.Listener = nil
 	g.Log.Infof("accepted connection from %s", conn.RemoteAddr())
 	// Classic: socket options on LISTEN apply to the accepted connection
@@ -291,7 +291,7 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		conn.Close()
+		conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	o.Stream = st

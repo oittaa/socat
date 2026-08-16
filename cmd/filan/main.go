@@ -178,7 +178,7 @@ func openOut(name string) (*os.File, error) {
 		}
 		return os.NewFile(uintptr(fd), name), nil
 	}
-	return os.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	return os.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644) // #nosec G302 G304 G703 -- filan -o writes the report to the path the user gave; 0644 is a normal report file
 }
 
 func usage(w io.Writer) {
@@ -214,7 +214,7 @@ func filanFile(path string, out io.Writer) error {
 	case unix.S_IFSOCK, unix.S_IFLNK:
 		// leave fd = -1
 	default:
-		f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOCTTY|unix.O_NONBLOCK, 0)
+		f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOCTTY|unix.O_NONBLOCK, 0) // #nosec G304 G703 -- filan opens the path or fd the user asked to inspect
 		if err == nil {
 			fd = int(f.Fd())
 			defer f.Close()

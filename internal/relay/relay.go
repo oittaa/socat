@@ -426,8 +426,8 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 		default:
 		}
 		if fd >= 0 {
-			pfd := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
-			n, err := unix.Poll(pfd, 50) // 50ms
+			pfd := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}} // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
+			n, err := unix.Poll(pfd, 50)                               // 50ms
 			if err != nil && err != syscall.EINTR {
 				return 0, err
 			}
@@ -685,8 +685,8 @@ func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 			return ctx.Err()
 		}
 		pfd := []unix.PollFd{
-			{Fd: int32(srcFD), Events: unix.POLLIN},
-			{Fd: int32(dstFD), Events: unix.POLLOUT},
+			{Fd: int32(srcFD), Events: unix.POLLIN},  // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
+			{Fd: int32(dstFD), Events: unix.POLLOUT}, // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
 		}
 		n, err := unix.Poll(pfd, 100) // 100ms so we honour ctx
 		if err != nil {

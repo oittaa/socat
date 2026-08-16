@@ -326,7 +326,7 @@ func Main(args []string) int {
 		log.SetHostname(h)
 	}
 	if cfg.LogFile != "" {
-		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644) // #nosec G302 -- -lf log file is meant to be readable
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "socat: %v\n", err)
 			return 1
@@ -668,7 +668,7 @@ func printHelp(w io.Writer, level int) {
 }
 
 func createLockFile(path string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644) // #nosec G302 G304 -- -L lock file path comes from the user; 0644 matches classic socat
 	if err != nil {
 		if os.IsExist(err) {
 			return fmt.Errorf("lockfile %s exists", path)

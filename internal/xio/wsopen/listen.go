@@ -77,7 +77,7 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	if useTLS {
 		tlsCfg, err := tlsopen.TLSServerConfig(s)
 		if err != nil {
-			rawLn.Close()
+			rawLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, err
 		}
 		ln = tls.NewListener(rawLn, tlsCfg)
@@ -111,12 +111,12 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		MaxChildren: maxChildren,
 		WrapDial:    wrapConn,
 	}
-	o.AddCleanup(func() { ln.Close() })
+	o.AddCleanup(func() { ln.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 
 	if fork {
 		go func() {
 			<-ctx.Done()
-			ln.Close()
+			ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		}()
 		return o, nil
 	}
@@ -139,7 +139,7 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		}
 		c, err := ln.Accept()
 		if err != nil {
-			ln.Close()
+			ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			o.Listener = nil
 			if xio.IsTimeoutErr(err) {
 				return nil, xio.ErrAcceptTimeout
@@ -156,12 +156,12 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		conn = c
 		break
 	}
-	ln.Close()
+	ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 	o.Listener = nil
 	xio.RememberAddrs(g, conn)
 	st, err := wrapConn(conn)
 	if err != nil {
-		conn.Close()
+		conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	o.Stream = st

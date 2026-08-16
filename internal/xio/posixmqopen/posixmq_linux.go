@@ -314,7 +314,7 @@ func waitMQ(ctx context.Context, fd int, events int16, deadline time.Time) error
 				timeout = ms
 			}
 		}
-		pfd := []unix.PollFd{{Fd: int32(fd), Events: events}}
+		pfd := []unix.PollFd{{Fd: int32(fd), Events: events}} // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
 		n, err := unix.Poll(pfd, timeout)
 		if err != nil {
 			if err == unix.EINTR {

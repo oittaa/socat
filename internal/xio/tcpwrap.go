@@ -174,7 +174,7 @@ func tablesMayNeedHostname(paths ...string) bool {
 		if path == "" {
 			continue
 		}
-		f, err := os.Open(path)
+		f, err := os.Open(path) // #nosec G304 -- hosts.allow/deny path comes from tcpwrap-etc= or the default dir
 		if err != nil {
 			continue
 		}
@@ -203,7 +203,7 @@ func tablesMayNeedHostname(paths ...string) bool {
 				break
 			}
 		}
-		f.Close()
+		f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		if need {
 			return true
 		}
@@ -218,7 +218,7 @@ func matchHostsTable(path, daemon, clientIP, clientHost string) bool {
 	if path == "" {
 		return false
 	}
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- hosts.allow/deny path comes from tcpwrap-etc= or the default dir
 	if err != nil {
 		return false
 	}

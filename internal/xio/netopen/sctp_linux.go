@@ -61,11 +61,11 @@ func listenSCTP(_ context.Context, network, host, port string, s parse.Spec) (ne
 	}
 	sa, err := ipPortSockaddr(ip, portNum)
 	if err != nil {
-		unix.Close(fd)
+		unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	if err := unix.Bind(fd, sa); err != nil {
-		unix.Close(fd)
+		unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("sctp bind: %w", err)
 	}
 	backlog := 5
@@ -75,7 +75,7 @@ func listenSCTP(_ context.Context, network, host, port string, s parse.Spec) (ne
 		}
 	}
 	if err := unix.Listen(fd, backlog); err != nil {
-		unix.Close(fd)
+		unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("sctp listen: %w", err)
 	}
 	return &rawListener{fd: fd, domain: family}, nil
@@ -147,24 +147,24 @@ func connectSCTP(ctx context.Context, network string, laddr, raddr *net.TCPAddr,
 	}
 	if control != nil {
 		if err := control(network, raddr.String(), rawFD(fd)); err != nil {
-			unix.Close(fd)
+			unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, err
 		}
 	}
 	if laddr != nil {
 		sa, err := ipPortSockaddr(laddr.IP, laddr.Port)
 		if err != nil {
-			unix.Close(fd)
+			unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, err
 		}
 		if err := unix.Bind(fd, sa); err != nil {
-			unix.Close(fd)
+			unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, fmt.Errorf("sctp bind: %w", err)
 		}
 	}
 	sa, err := ipPortSockaddr(raddr.IP, raddr.Port)
 	if err != nil {
-		unix.Close(fd)
+		unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	cctx := ctx
@@ -174,7 +174,7 @@ func connectSCTP(ctx context.Context, network string, laddr, raddr *net.TCPAddr,
 		defer cancel()
 	}
 	if err := connectWithCtx(cctx, fd, sa); err != nil {
-		unix.Close(fd)
+		unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	return fileConn(fd, "sctp")
@@ -205,7 +205,7 @@ func connectWithCtx(ctx context.Context, fd int, sa unix.Sockaddr) error {
 func fileConn(fd int, name string) (net.Conn, error) {
 	f := os.NewFile(uintptr(fd), name)
 	if f == nil {
-		unix.Close(fd)
+		unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("sctp: invalid fd")
 	}
 	c, err := net.FileConn(f)

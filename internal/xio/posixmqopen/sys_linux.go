@@ -43,9 +43,9 @@ func mqOpen(name string, oflag int, mode uint32, attr *mqAttr) (int, error) {
 	}
 	var ap uintptr
 	if attr != nil {
-		ap = uintptr(unsafe.Pointer(attr))
+		ap = uintptr(unsafe.Pointer(attr)) // #nosec G103 -- There is no safe standard-library API for those calls
 	}
-	r1, _, e := unix.Syscall6(unix.SYS_MQ_OPEN, uintptr(unsafe.Pointer(p)), uintptr(oflag), uintptr(mode), ap, 0, 0)
+	r1, _, e := unix.Syscall6(unix.SYS_MQ_OPEN, uintptr(unsafe.Pointer(p)), uintptr(oflag), uintptr(mode), ap, 0, 0) // #nosec G103 -- There is no safe standard-library API for those calls
 	runtime.KeepAlive(p)
 	runtime.KeepAlive(attr)
 	if e != 0 {
@@ -63,7 +63,7 @@ func mqUnlink(name string) error {
 	if err != nil {
 		return err
 	}
-	_, _, e := unix.Syscall(unix.SYS_MQ_UNLINK, uintptr(unsafe.Pointer(p)), 0, 0)
+	_, _, e := unix.Syscall(unix.SYS_MQ_UNLINK, uintptr(unsafe.Pointer(p)), 0, 0) // #nosec G103 -- There is no safe standard-library API for those calls
 	runtime.KeepAlive(p)
 	if e != 0 {
 		return e
@@ -74,7 +74,7 @@ func mqUnlink(name string) error {
 func mqTimedSend(fd int, msg []byte, prio uint32) error {
 	var ptr uintptr
 	if len(msg) > 0 {
-		ptr = uintptr(unsafe.Pointer(&msg[0]))
+		ptr = uintptr(unsafe.Pointer(&msg[0])) // #nosec G103 -- There is no safe standard-library API for those calls
 	}
 	_, _, e := unix.Syscall6(unix.SYS_MQ_TIMEDSEND, uintptr(fd), ptr, uintptr(len(msg)), uintptr(prio), 0, 0)
 	runtime.KeepAlive(msg)
@@ -87,11 +87,11 @@ func mqTimedSend(fd int, msg []byte, prio uint32) error {
 func mqTimedReceive(fd int, buf []byte, prio *uint32) (int, error) {
 	var ptr uintptr
 	if len(buf) > 0 {
-		ptr = uintptr(unsafe.Pointer(&buf[0]))
+		ptr = uintptr(unsafe.Pointer(&buf[0])) // #nosec G103 -- There is no safe standard-library API for those calls
 	}
 	var pp uintptr
 	if prio != nil {
-		pp = uintptr(unsafe.Pointer(prio))
+		pp = uintptr(unsafe.Pointer(prio)) // #nosec G103 -- There is no safe standard-library API for those calls
 	}
 	r1, _, e := unix.Syscall6(unix.SYS_MQ_TIMEDRECEIVE, uintptr(fd), ptr, uintptr(len(buf)), pp, 0, 0)
 	runtime.KeepAlive(buf)
@@ -103,7 +103,7 @@ func mqTimedReceive(fd int, buf []byte, prio *uint32) (int, error) {
 }
 
 func mqGetattr(fd int, attr *mqAttr) error {
-	_, _, e := unix.Syscall(unix.SYS_MQ_GETSETATTR, uintptr(fd), 0, uintptr(unsafe.Pointer(attr)))
+	_, _, e := unix.Syscall(unix.SYS_MQ_GETSETATTR, uintptr(fd), 0, uintptr(unsafe.Pointer(attr))) // #nosec G103 -- There is no safe standard-library API for those calls
 	runtime.KeepAlive(attr)
 	if e != 0 {
 		return e
@@ -116,7 +116,7 @@ func mqClose(fd int) error {
 }
 
 func readProcLong(path string) (int64, bool) {
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) // #nosec G304 -- reads a /proc sysctl path we build, not a user file
 	if err != nil {
 		return 0, false
 	}

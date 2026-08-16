@@ -153,7 +153,7 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		conn.Close()
+		conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		if bindPath != "" {
 			_ = os.Remove(bindPath)
 		}
@@ -277,12 +277,12 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		Fork:     fork,
 		Label:    "UNIX-LISTEN:" + path,
 	}
-	o.AddCleanup(func() { ln.Close() })
+	o.AddCleanup(func() { ln.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 
 	if fork {
 		go func() {
 			<-ctx.Done()
-			ln.Close()
+			ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		}()
 		return o, nil
 	}
@@ -315,14 +315,14 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	var conn net.Conn
 	select {
 	case <-ctx.Done():
-		ln.Close()
+		ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		o.Listener = nil
 		return nil, ctx.Err()
 	case a := <-ch:
-		ln.Close()
+		ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		o.Listener = nil
 		if a.err != nil {
-			o.Close()
+			o.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			if xio.IsTimeoutErr(a.err) {
 				return nil, xio.ErrAcceptTimeout
 			}
@@ -350,8 +350,8 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		conn.Close()
-		o.Close()
+		conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		o.Close()    // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	o.Stream = st
@@ -412,7 +412,7 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 			st := relay.Stream(relay.NetStream{Conn: c})
 			st, err = xio.WrapCommon(s, st)
 			if err != nil {
-				c.Close()
+				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return nil, err
 			}
 			_ = ctx
@@ -429,7 +429,7 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 	st := &unixgramConn{UnixConn: c, raddr: raddr}
 	wrapped, err := xio.WrapCommon(s, st)
 	if err != nil {
-		c.Close()
+		c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	o := &xio.Opened{Stream: wrapped, Label: "UNIX-SENDTO:" + remote}
@@ -455,14 +455,14 @@ func listenUnixgramUnbound() (*net.UnixConn, error) {
 	}
 	f := os.NewFile(uintptr(fd), "unixgram-unbound")
 	c, err := net.FilePacketConn(f)
-	f.Close()
+	f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 	if err != nil {
-		syscall.Close(fd)
+		syscall.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	uc, ok := c.(*net.UnixConn)
 	if !ok {
-		c.Close()
+		c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("not a UnixConn")
 	}
 	return uc, nil
@@ -520,11 +520,11 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		if !xio.IsAbstract(path) && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close")) {
 			xio.RegisterUnlinkPath(path)
 			o.AddCleanup(func() {
-				ln.Close()
+				ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				_ = os.Remove(path)
 			})
 		} else {
-			o.AddCleanup(func() { ln.Close() })
+			o.AddCleanup(func() { ln.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 		}
 		_ = xio.ApplyOwner(path, s, nil)
 		_ = ctx
@@ -536,7 +536,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	st := &unixRecvStream{c: c, from: from}
 	wrapped, err := xio.WrapCommon(s, st)
 	if err != nil {
-		c.Close()
+		c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	o := &xio.Opened{Stream: wrapped, Label: label}
@@ -544,11 +544,11 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	if !xio.IsAbstract(path) && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close")) {
 		xio.RegisterUnlinkPath(path)
 		o.AddCleanup(func() {
-			c.Close()
+			c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			_ = os.Remove(path)
 		})
 	} else {
-		o.AddCleanup(func() { c.Close() })
+		o.AddCleanup(func() { c.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 	}
 	_ = ctx
 	_ = mode
@@ -708,11 +708,11 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		Fork:     fork,
 		Label:    "ABSTRACT-LISTEN:" + name,
 	}
-	o.AddCleanup(func() { ln.Close() })
+	o.AddCleanup(func() { ln.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 	if fork {
 		go func() {
 			<-ctx.Done()
-			ln.Close()
+			ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		}()
 		return o, nil
 	}
@@ -738,10 +738,10 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	}()
 	select {
 	case <-ctx.Done():
-		ln.Close()
+		ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, ctx.Err()
 	case a := <-ch:
-		ln.Close()
+		ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		o.Listener = nil
 		if a.err != nil {
 			if xio.IsTimeoutErr(a.err) {
@@ -752,7 +752,7 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		st := relay.Stream(relay.NetStream{Conn: a.c})
 		st, err = xio.WrapCommon(s, st)
 		if err != nil {
-			a.c.Close()
+			a.c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, err
 		}
 		o.Stream = st
@@ -840,7 +840,7 @@ func openAbstractSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	st := &unixgramConn{UnixConn: c, raddr: raddr}
 	wrapped, err := xio.WrapCommon(s, st)
 	if err != nil {
-		c.Close()
+		c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	_ = ctx

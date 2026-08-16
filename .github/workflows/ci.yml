@@ -71,5 +71,6 @@ jobs:
         with:
           args: >-
             -exclude-dir=testdata
-            -exclude=G103,G104,G115,G204,G302,G304,G306,G702,G703
+            -nosec-require-rules
+            -nosec-require-justification
             ./...

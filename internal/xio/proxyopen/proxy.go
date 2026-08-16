@@ -93,32 +93,32 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 			// CONNECT host:port HTTP/1.x\r\n[auth]\r\n  (classic always CRLF)
 			req := fmt.Sprintf("CONNECT %s:%s HTTP/%s\r\n", connectHost, targetPort, ver)
 			if auth, e := proxyAuthHeader(s); e != nil {
-				c.Close()
+				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return e
 			} else if auth != "" {
 				req += auth
 			}
 			req += "\r\n"
 			if _, e := c.Write([]byte(req)); e != nil {
-				c.Close()
+				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return e
 			}
 			br := bufio.NewReader(c)
 			status, e := br.ReadString('\n')
 			if e != nil {
-				c.Close()
+				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return fmt.Errorf("proxy response: %w", e)
 			}
 			// Classic: accept HTTP/1.0 or 1.1, skip multiple spaces, require code 200.
 			if !proxyStatusOK(status) {
-				c.Close()
+				c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return fmt.Errorf("proxy CONNECT failed: %s", strings.TrimSpace(status))
 			}
 			// Drain headers until blank line
 			for {
 				line, e := br.ReadString('\n')
 				if e != nil {
-					c.Close()
+					c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 					return e
 				}
 				if line == "\r\n" || line == "\n" {
@@ -182,7 +182,7 @@ func openProxyDial(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glob
 	xio.RememberAddrs(g, conn)
 	st, err := wrap(conn)
 	if err != nil {
-		conn.Close()
+		conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	_ = mode

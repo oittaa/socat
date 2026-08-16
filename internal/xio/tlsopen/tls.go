@@ -70,7 +70,7 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 			cfg := tlsCfg.Clone()
 			tc := tls.Client(raw, cfg)
 			if e := tc.HandshakeContext(cctx); e != nil {
-				raw.Close()
+				raw.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return e
 			}
 			conn = tc
@@ -112,7 +112,7 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		conn.Close()
+		conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	return &xio.Opened{Stream: st, Label: s.Type + ":" + addr}, nil
@@ -197,12 +197,12 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		PeerFilter:  filter,
 		MaxChildren: maxChildren,
 	}
-	o.AddCleanup(func() { tlsLn.Close() })
+	o.AddCleanup(func() { tlsLn.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 
 	if fork {
 		go func() {
 			<-ctx.Done()
-			tlsLn.Close()
+			tlsLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		}()
 		return o, nil
 	}
@@ -234,15 +234,15 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	var conn net.Conn
 	select {
 	case <-ctx.Done():
-		tlsLn.Close()
+		tlsLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		o.Listener = nil
 		return nil, ctx.Err()
 	case a := <-ch:
 		// Keep listener closed after one accept (classic non-fork).
-		tlsLn.Close()
+		tlsLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		o.Listener = nil
 		if a.err != nil {
-			o.Close()
+			o.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			if xio.IsTimeoutErr(a.err) {
 				if g != nil && g.Log != nil {
 					g.Log.Warningf("accept: Connection timed out")
@@ -262,7 +262,7 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		conn.Close()
+		conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	o.Stream = st
@@ -487,7 +487,7 @@ var errDSAUnsupported = fmt.Errorf("DSA private keys are not supported (deprecat
 func loadKeyPair(certPath, keyPath string) (tls.Certificate, error) {
 	if keyPath == "" {
 		// Combined PEM: PRIVATE KEY + CERTIFICATE (+ optional DH)
-		data, err := os.ReadFile(certPath)
+		data, err := os.ReadFile(certPath) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 		if err != nil {
 			return tls.Certificate{}, err
 		}
@@ -501,7 +501,7 @@ func loadKeyPair(certPath, keyPath string) (tls.Certificate, error) {
 		}
 		return tls.X509KeyPair(certPEM, keyPEM)
 	}
-	keyData, err := os.ReadFile(keyPath)
+	keyData, err := os.ReadFile(keyPath) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 	if err != nil {
 		return tls.Certificate{}, err
 	}
@@ -590,7 +590,7 @@ func loadVerifyRoots(s parse.Spec) (*x509.CertPool, error) {
 }
 
 func appendCABytes(pool *x509.CertPool, path string) (int, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 	if err != nil {
 		return 0, err
 	}

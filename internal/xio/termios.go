@@ -319,7 +319,7 @@ func WaitPTYSlave(masterFD int, interval time.Duration) error {
 		interval = time.Second
 	}
 	for {
-		pfd := []unix.PollFd{{Fd: int32(masterFD), Events: unix.POLLIN | unix.POLLOUT}}
+		pfd := []unix.PollFd{{Fd: int32(masterFD), Events: unix.POLLIN | unix.POLLOUT}} // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
 		_, err := unix.Poll(pfd, 0)
 		if err != nil {
 			if err == unix.EINTR {

@@ -233,7 +233,7 @@ func openDual(ctx context.Context, d *parse.Dual, g *Global) (*Opened, error) {
 	}
 	right, err := OpenSpec(ctx, d.Right, ModeWrite, g)
 	if err != nil {
-		left.Close()
+		left.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("dual write side: %w", err)
 	}
 	o := &Opened{
@@ -241,8 +241,8 @@ func openDual(ctx context.Context, d *parse.Dual, g *Global) (*Opened, error) {
 		Write: right.EffectiveStream(),
 		Label: d.Raw,
 	}
-	o.AddCleanup(func() { left.Close() })
-	o.AddCleanup(func() { right.Close() })
+	o.AddCleanup(func() { left.Close() })  // #nosec G104 -- Close on cleanup; the first error is already returned
+	o.AddCleanup(func() { right.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 	// Combine into Stream
 	o.Stream = relay.FDStream{
 		R: o.Read,

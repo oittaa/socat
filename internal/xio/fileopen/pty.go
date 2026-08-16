@@ -78,13 +78,13 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 	}
 
 	if err := xio.ApplyTermios(int(slave.Fd()), s); err != nil {
-		master.Close()
-		slave.Close()
+		master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		slave.Close()  // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 	if err := xio.ApplyTermios(int(master.Fd()), s); err != nil {
-		master.Close()
-		slave.Close()
+		master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		slave.Close()  // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
 
@@ -95,8 +95,8 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 	if link != "" {
 		_ = os.Remove(link)
 		if err := os.Symlink(slaveName, link); err != nil {
-			master.Close()
-			slave.Close()
+			master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			slave.Close()  // #nosec G104 -- Close on cleanup; the first error is already returned
 			return nil, fmt.Errorf("PTY link: %w", err)
 		}
 	}
@@ -111,8 +111,8 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 	st := xio.PtyStream(master)
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		master.Close()
-		slave.Close()
+		master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		slave.Close()  // #nosec G104 -- Close on cleanup; the first error is already returned
 		if link != "" {
 			_ = os.Remove(link)
 		}
@@ -126,7 +126,7 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 		_ = slave.Close()
 		slave = nil
 		if err := xio.WaitPTYSlave(int(master.Fd()), xio.PTYWaitInterval(s)); err != nil {
-			master.Close()
+			master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			if link != "" {
 				_ = os.Remove(link)
 			}

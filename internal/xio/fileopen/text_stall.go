@@ -76,8 +76,8 @@ func openSTALL(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 		r = pr
 		closeFDs = append(closeFDs, int(pr.Fd()), int(pw.Fd()))
 		cleanup = append(cleanup, func() {
-			pr.Close()
-			pw.Close()
+			pr.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			pw.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		})
 	}
 
@@ -95,8 +95,8 @@ func openSTALL(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 		w = pw
 		closeFDs = append(closeFDs, int(pr.Fd()), int(pw.Fd()))
 		cleanup = append(cleanup, func() {
-			pr.Close()
-			pw.Close()
+			pr.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			pw.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		})
 	}
 
@@ -178,7 +178,7 @@ func expandEscapes(s string) []byte {
 		case 'x':
 			if i+2 < len(s) {
 				var v byte
-				fmt.Sscanf(s[i+1:i+3], "%02x", &v)
+				fmt.Sscanf(s[i+1:i+3], "%02x", &v) // #nosec G104 -- escape parse is best-effort; invalid hex stays zero
 				b.WriteByte(v)
 				i += 2
 			}

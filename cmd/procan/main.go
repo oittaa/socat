@@ -60,7 +60,7 @@ func procan(w io.Writer) {
 		} else {
 			tty = "/dev/tty"
 		}
-		f.Close()
+		f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		fmt.Fprintf(w, "controlling terminal: %q\n", tty)
 	} else {
 		fmt.Fprintf(w, "controlling terminal: -\n")
@@ -88,7 +88,7 @@ func procan(w io.Writer) {
 
 	if f, err := os.OpenFile("/dev/tty", os.O_RDWR, 0o600); err == nil {
 		fmt.Fprintln(w, "process has a controlling terminal")
-		f.Close()
+		f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 	} else {
 		fmt.Fprintln(w, "process does not have a controlling terminal")
 	}
