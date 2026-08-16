@@ -81,8 +81,12 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 				return e
 			}
 			req := make([]byte, 0, 8+len(user)+2+len(hostName)+1)
-			req = append(req, 4, 1)                                   // VN=4, CD=CONNECT
-			req = binary.BigEndian.AppendUint16(req, uint16(portNum)) // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
+			port, ok := xio.Uint16FromInt(portNum)
+			if !ok {
+				return fmt.Errorf("socks4: invalid port %d", portNum)
+			}
+			req = append(req, 4, 1) // VN=4, CD=CONNECT
+			req = binary.BigEndian.AppendUint16(req, port)
 			req = append(req, ip4[:]...)
 			req = append(req, []byte(user)...)
 			req = append(req, 0) // userid NUL
@@ -193,11 +197,12 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 		}
 	} else {
 		h := xio.StripBrackets(targetHost)
-		if len(h) > 255 {
+		n, ok := xio.Uint8FromInt(len(h))
+		if !ok {
 			return nil, fmt.Errorf("socks5: domain name too long")
 		}
 		atyp = 3
-		addrBytes = append([]byte{byte(len(h))}, []byte(h)...) // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
+		addrBytes = append([]byte{n}, []byte(h)...)
 	}
 
 	addr := net.JoinHostPort(xio.StripBrackets(socksHost), socksPort)
@@ -219,7 +224,12 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 			if user != "" {
 				methods = []byte{0, 2}
 			}
-			greet := append([]byte{5, byte(len(methods))}, methods...) // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
+			nmethod, ok := xio.Uint8FromInt(len(methods))
+			if !ok {
+				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				return fmt.Errorf("socks5: too many auth methods")
+			}
+			greet := append([]byte{5, nmethod}, methods...)
 			if _, e := c.Write(greet); e != nil {
 				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return e
@@ -240,13 +250,15 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 					_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 					return fmt.Errorf("socks5: server requires username/password")
 				}
-				if len(user) > 255 || len(pass) > 255 {
+				ulen, uok := xio.Uint8FromInt(len(user))
+				plen, pok := xio.Uint8FromInt(len(pass))
+				if !uok || !pok {
 					_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 					return fmt.Errorf("socks5: credentials too long")
 				}
-				auth := []byte{1, byte(len(user))} // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
+				auth := []byte{1, ulen}
 				auth = append(auth, []byte(user)...)
-				auth = append(auth, byte(len(pass))) // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
+				auth = append(auth, plen)
 				auth = append(auth, []byte(pass)...)
 				if _, e := c.Write(auth); e != nil {
 					_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
@@ -269,9 +281,14 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 				return fmt.Errorf("socks5: unsupported auth method %d", hello[1])
 			}
 
+			port, ok := xio.Uint16FromInt(portNum)
+			if !ok {
+				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				return fmt.Errorf("socks5: invalid port %d", portNum)
+			}
 			req := []byte{5, cmd, 0, atyp}
 			req = append(req, addrBytes...)
-			req = binary.BigEndian.AppendUint16(req, uint16(portNum)) // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
+			req = binary.BigEndian.AppendUint16(req, port)
 			if _, e := c.Write(req); e != nil {
 				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return e
