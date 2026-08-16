@@ -326,6 +326,32 @@ func TestPOSIXMQReadPrio(t *testing.T) {
 	}
 }
 
+func TestVersionHasNAMESPACES(t *testing.T) {
+	skipUnlessLinux(t)
+	bin := socatBin(t)
+	out, err := exec.Command(bin, "-V").CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte("#define WITH_NAMESPACES 1")) {
+		t.Fatalf("missing WITH_NAMESPACES 1:\n%s", out)
+	}
+	hh, err := exec.Command(bin, "-hh").CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(hh, []byte(" netns ")) {
+		t.Fatalf("help missing netns:\n%s", hh)
+	}
+	h, err := exec.Command(bin, "-h").CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(h, []byte("--experimental")) {
+		t.Fatalf("help missing --experimental:\n%s", h)
+	}
+}
+
 func TestVersionHasSCTP(t *testing.T) {
 	skipUnlessLinux(t)
 	bin := socatBin(t)

@@ -57,6 +57,7 @@ type Global struct {
 	Statistics   bool
 	statsPrinted *atomic.Bool // pointer so forkSession can copy Global without copying a lock
 	Sloppy       bool         // -s continue on some errors
+	Experimental bool         // --experimental (classic netns= warning)
 
 	// Peer info from the most recently accepted/connected socket (for SOCAT_* env).
 	SockAddr string
@@ -322,10 +323,12 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		return nil, fmt.Errorf("unknown device/address \"%s\"", s.Type)
 	}
 	var o *Opened
-	err := WithChdir(s, func() error {
-		var e error
-		o, e = fn(ctx, s, mode, g)
-		return e
+	err := WithNetNS(s, g, func() error {
+		return WithChdir(s, func() error {
+			var e error
+			o, e = fn(ctx, s, mode, g)
+			return e
+		})
 	})
 	return o, err
 }

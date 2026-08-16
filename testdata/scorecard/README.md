@@ -83,7 +83,9 @@ Caps used: `NET_ADMIN`, `NET_RAW`, `SYS_CHROOT`, `SETUID`, `SETGID`,
 
 Expected host→docker losses (environment, not binary bugs): UDP6 multicast
 route, VSOCK device, “not with root” denials, missing `systemd-socket-activate`,
-and one PTY ioctl case under root.
+and one PTY ioctl case under root. `NETNS` / `NETNS_EXEC` need
+`PRIVILEGED=1` (see Go Docker section). Default Docker caps do not let
+`ip netns add` create `/run/netns/<name>`.
 
 ### Go under test in Docker
 
@@ -93,10 +95,20 @@ and one PTY ioctl case under root.
 
 # Host-built binaries (skip gobuild stage)
 USE_HOST_BIN=1 NO_BUILD=1 ./scripts/docker-go-scorecard.sh
+
+# netns= (NETNS, NETNS_EXEC): ip netns add needs a privileged container.
+# Default --cap-add=SYS_ADMIN is not enough (mount --make-shared /run/netns).
+USE_HOST_BIN=1 NO_BUILD=1 PRIVILEGED=1 ONLY='NETNS NETNS_EXEC' \
+  ./scripts/docker-go-scorecard.sh
 ```
 
 Results land in `.scorecard/docker-go/`. Use this path for root-only
-features (RAWIP, raw IP ancillary, TUN, …).
+features (RAWIP, raw IP ancillary, TUN, `netns=`).
+
+`PRIVILEGED=1` runs `docker run --privileged`. Without it, `ip netns add`
+fails and classic `test.sh` reports FAILED (no namespace file), not CANT.
+On an unprivileged host the same tests stay **CANT** (must be root).
+Go Docker counts treat `NETNS` / `NETNS_EXEC` as OK (privileged run).
 
 ## Commands
 
@@ -146,7 +158,7 @@ save a new baseline.
 | classic 1.8.1.3 (host) | 475 | 24 | 103 |
 | classic 1.8.1.3 (Docker, root) | 552 | 8 | 42 |
 | go (this tree, host) | 449 | 6 | 148 |
-| go (this tree, Docker, root) | 504 | 5 | 94 |
+| go (this tree, Docker, root) | 506 | 5 | 92 |
 
 Go host FAILED: `OPENSSLLISTENDSA` (DSA, by design), `UDP6MULTICAST_UNIDIR`
 (host environment), `REUSEADDR_NULL` (NO RESULT), `OPENSSL_ANULL`,
