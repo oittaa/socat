@@ -30,6 +30,49 @@ func ApplyReuse(fd int, s parse.Spec, reuseaddrDefault bool) {
 	}
 }
 
+// ApplyReuseAndV6Only sets listen reuse flags and IPV6_V6ONLY before bind.
+func ApplyReuseAndV6Only(fd int, s parse.Spec, network string) {
+	ApplyReuse(fd, s, true)
+	switch network {
+	case "tcp", "tcp6", "udp", "udp6":
+	default:
+		return
+	}
+	if s.HasOption("ipv6-v6only") {
+		v := 0
+		if s.BoolOption("ipv6-v6only") {
+			v = 1
+		}
+		_ = unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_V6ONLY, v)
+		return
+	}
+	if network == "tcp" || network == "udp" {
+		_ = unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_V6ONLY, 0)
+	}
+}
+
+// ListenControl is a net.ListenConfig.Control that applies reuse and v6only.
+func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn) error {
+	return func(network, address string, c syscall.RawConn) error {
+		return c.Control(func(fd uintptr) {
+			ApplyReuseAndV6Only(int(fd), s, network)
+		})
+	}
+}
+
+// ListenBindHost is the wildcard bind when bind= is unset.
+func ListenBindHost(network, bind string) string {
+	if bind != "" {
+		return bind
+	}
+	switch network {
+	case "tcp4", "udp4", "ip4":
+		return "0.0.0.0"
+	default:
+		return "::"
+	}
+}
+
 func StripBrackets(host string) string {
 	if len(host) >= 2 && host[0] == '[' && host[len(host)-1] == ']' {
 		return host[1 : len(host)-1]

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"net"
 	"sync"
-	"syscall"
 
 	"github.com/quic-go/quic-go"
 
@@ -25,16 +24,8 @@ func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	if network == "udp6" && s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
 		network = "udp"
 	}
-	host := s.OptionValue("bind", "")
-	if host == "" {
-		switch network {
-		case "udp4":
-			host = "0.0.0.0"
-		default:
-			host = "::"
-		}
-	}
-	if network == "udp4" && (host == "::" || host == "") {
+	host := xio.ListenBindHost(network, s.OptionValue("bind", ""))
+	if network == "udp4" && host == "::" {
 		host = "0.0.0.0"
 	}
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
@@ -56,13 +47,7 @@ func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	}
 
 	ln := newQUICListener(ctx, qln, pc)
-	fork := s.BoolOption("fork")
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, e := xio.ParsePositiveInt(v); e == nil {
-			maxChildren = n
-		}
-	}
+	fork, maxChildren := xio.ForkLimits(s)
 	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
 		return xio.WrapCommon(s, relay.NetStream{Conn: c})
@@ -141,24 +126,7 @@ func quicConfig(s parse.Spec, tlsCfg *tls.Config) quicSetup {
 }
 
 func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.PacketConn, error) {
-	lc := net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
-			return c.Control(func(fd uintptr) {
-				xio.ApplyReuse(int(fd), s, true)
-				if network == "udp" || network == "udp6" {
-					if s.HasOption("ipv6-v6only") {
-						v := 0
-						if s.BoolOption("ipv6-v6only") {
-							v = 1
-						}
-						_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, v)
-					} else if network == "udp" {
-						_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 0)
-					}
-				}
-			})
-		},
-	}
+	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	return lc.ListenPacket(ctx, network, addr)
 }
 

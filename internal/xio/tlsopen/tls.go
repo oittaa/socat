@@ -17,7 +17,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -104,19 +103,8 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, fmt.Errorf("%s requires port", s.Type)
 	}
 	port := s.Params[0]
-	host := s.OptionValue("bind", "")
-	if host == "" {
-		switch network {
-		case "tcp4":
-			host = "0.0.0.0"
-		case "tcp6", "tcp":
-			host = "::"
-		default:
-			host = "::"
-		}
-	}
-	// If bind was left as dual-stack default but pf/network is xio.IPv4, force v4 any.
-	if network == "tcp4" && (host == "::" || host == "") {
+	host := xio.ListenBindHost(network, s.OptionValue("bind", ""))
+	if network == "tcp4" && host == "::" {
 		host = "0.0.0.0"
 	}
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
@@ -126,25 +114,7 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, err
 	}
 
-	lc := net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
-			return c.Control(func(fd uintptr) {
-				xio.ApplyReuse(int(fd), s, true)
-				// Match TCP-LISTEN: set IPV6_V6ONLY before bind for tcp/tcp6.
-				if network == "tcp" || network == "tcp6" {
-					if s.HasOption("ipv6-v6only") {
-						v := 0
-						if s.BoolOption("ipv6-v6only") {
-							v = 1
-						}
-						_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, v)
-					} else if network == "tcp" {
-						_ = syscall.SetsockoptInt(int(fd), syscall.IPPROTO_IPV6, syscall.IPV6_V6ONLY, 0)
-					}
-				}
-			})
-		},
-	}
+	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	ln, err := lc.Listen(ctx, network, addr)
 	if err != nil {
 		return nil, err

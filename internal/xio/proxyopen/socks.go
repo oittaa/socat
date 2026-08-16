@@ -190,89 +190,8 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 			if e != nil {
 				return e
 			}
-			methods := []byte{0}
-			if user != "" {
-				methods = []byte{0, 2}
-			}
-			nmethod, ok := xio.Uint8FromInt(len(methods))
-			if !ok {
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-				return fmt.Errorf("socks5: too many auth methods")
-			}
-			greet := append([]byte{5, nmethod}, methods...)
-			if _, e := c.Write(greet); e != nil {
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			if e := socks5Handshake(c, cmd, user, pass, atyp, addrBytes, portNum); e != nil {
 				return e
-			}
-			var hello [2]byte
-			if _, e := io.ReadFull(c, hello[:]); e != nil {
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-				return fmt.Errorf("socks5 hello: %w", e)
-			}
-			if hello[0] != 5 {
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-				return fmt.Errorf("socks5: bad version %d", hello[0])
-			}
-			switch hello[1] {
-			case 0:
-			case 2:
-				if user == "" {
-					_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-					return fmt.Errorf("socks5: server requires username/password")
-				}
-				ulen, uok := xio.Uint8FromInt(len(user))
-				plen, pok := xio.Uint8FromInt(len(pass))
-				if !uok || !pok {
-					_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-					return fmt.Errorf("socks5: credentials too long")
-				}
-				auth := []byte{1, ulen}
-				auth = append(auth, []byte(user)...)
-				auth = append(auth, plen)
-				auth = append(auth, []byte(pass)...)
-				if _, e := c.Write(auth); e != nil {
-					_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-					return e
-				}
-				var aresp [2]byte
-				if _, e := io.ReadFull(c, aresp[:]); e != nil {
-					_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-					return fmt.Errorf("socks5 auth reply: %w", e)
-				}
-				if aresp[1] != 0 {
-					_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-					return fmt.Errorf("socks5 auth failed (status=%d)", aresp[1])
-				}
-			case 0xff:
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-				return fmt.Errorf("socks5: no acceptable auth method")
-			default:
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-				return fmt.Errorf("socks5: unsupported auth method %d", hello[1])
-			}
-
-			port, ok := xio.Uint16FromInt(portNum)
-			if !ok {
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-				return fmt.Errorf("socks5: invalid port %d", portNum)
-			}
-			req := []byte{5, cmd, 0, atyp}
-			req = append(req, addrBytes...)
-			req = binary.BigEndian.AppendUint16(req, port)
-			if _, e := c.Write(req); e != nil {
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-				return e
-			}
-			if e := socks5ReadReply(c); e != nil {
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-				return e
-			}
-			if cmd == socks5CmdBind {
-				// First reply: remote listen ready. Second: incoming peer.
-				if e := socks5ReadReply(c); e != nil {
-					_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-					return e
-				}
 			}
 			conn = c
 			return nil
@@ -316,6 +235,80 @@ func socksParams(s parse.Spec) (socksHost, socksPort, targetHost, targetPort str
 		}
 	}
 	return "", "", "", "", fmt.Errorf("%s requires socks-server, host, and port", s.Type)
+}
+
+func socks5Handshake(c net.Conn, cmd byte, user, pass string, atyp byte, addrBytes []byte, portNum int) (err error) {
+	defer func() {
+		if err != nil {
+			_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		}
+	}()
+	methods := []byte{0}
+	if user != "" {
+		methods = []byte{0, 2}
+	}
+	nmethod, ok := xio.Uint8FromInt(len(methods))
+	if !ok {
+		return fmt.Errorf("socks5: too many auth methods")
+	}
+	if _, err = c.Write(append([]byte{5, nmethod}, methods...)); err != nil {
+		return err
+	}
+	var hello [2]byte
+	if _, err = io.ReadFull(c, hello[:]); err != nil {
+		return fmt.Errorf("socks5 hello: %w", err)
+	}
+	if hello[0] != 5 {
+		return fmt.Errorf("socks5: bad version %d", hello[0])
+	}
+	switch hello[1] {
+	case 0:
+	case 2:
+		if user == "" {
+			return fmt.Errorf("socks5: server requires username/password")
+		}
+		ulen, uok := xio.Uint8FromInt(len(user))
+		plen, pok := xio.Uint8FromInt(len(pass))
+		if !uok || !pok {
+			return fmt.Errorf("socks5: credentials too long")
+		}
+		auth := []byte{1, ulen}
+		auth = append(auth, []byte(user)...)
+		auth = append(auth, plen)
+		auth = append(auth, []byte(pass)...)
+		if _, err = c.Write(auth); err != nil {
+			return err
+		}
+		var aresp [2]byte
+		if _, err = io.ReadFull(c, aresp[:]); err != nil {
+			return fmt.Errorf("socks5 auth reply: %w", err)
+		}
+		if aresp[1] != 0 {
+			return fmt.Errorf("socks5 auth failed (status=%d)", aresp[1])
+		}
+	case 0xff:
+		return fmt.Errorf("socks5: no acceptable auth method")
+	default:
+		return fmt.Errorf("socks5: unsupported auth method %d", hello[1])
+	}
+
+	port, ok := xio.Uint16FromInt(portNum)
+	if !ok {
+		return fmt.Errorf("socks5: invalid port %d", portNum)
+	}
+	req := []byte{5, cmd, 0, atyp}
+	req = append(req, addrBytes...)
+	req = binary.BigEndian.AppendUint16(req, port)
+	if _, err = c.Write(req); err != nil {
+		return err
+	}
+	if err = socks5ReadReply(c); err != nil {
+		return err
+	}
+	if cmd == socks5CmdBind {
+		return socks5ReadReply(c)
+	}
+	return nil
 }
 
 func socks5ReadReply(c net.Conn) error {

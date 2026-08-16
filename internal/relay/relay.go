@@ -171,39 +171,8 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// Idle timeout watchdog
-	var idleMu sync.Mutex
-	lastActivity := time.Now()
-	touch := func() {
-		idleMu.Lock()
-		lastActivity = time.Now()
-		idleMu.Unlock()
-	}
-	if cfg.IdleTimeout > 0 {
-		go func() {
-			t := time.NewTicker(100 * time.Millisecond)
-			defer t.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-t.C:
-					idleMu.Lock()
-					idle := time.Since(lastActivity)
-					idleMu.Unlock()
-					if idle >= cfg.IdleTimeout {
-						cancel()
-						return
-					}
-				}
-			}
-		}()
-	}
+	touch := startIdleWatch(ctx, cancel, cfg.IdleTimeout)
 
-	type dirResult struct {
-		err error
-		dir string
-	}
 	results := make(chan dirResult, 2)
 	var wg sync.WaitGroup
 
@@ -227,97 +196,16 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 		_ = right.Close()
 	}()
 
-	copyDir := func(dst Stream, src Stream, dir string, bytes, blocks *atomic.Uint64) {
-		defer wg.Done()
-		bp := getBuf(cfg.BufferSize)
-		defer putBuf(bp)
-		buf := *bp
-		if cap(buf) < cfg.BufferSize {
-			buf = make([]byte, cfg.BufferSize)
-		} else {
-			buf = buf[:cfg.BufferSize]
-		}
-
-		// Classic backpressure: only read src when dst is writable.
-		// Critical for STALL (full pipe never POLLOUT until closed).
-		// Use direction-aware FDs: read side for src, write side for dst.
-		dstFD := streamWriteFD(dst)
-		srcFD := streamReadFD(src)
-		usePoll := dstFD >= 0 && srcFD >= 0
-
-		for {
-			if ctx.Err() != nil {
-				results <- dirResult{err: ctx.Err(), dir: dir}
-				return
-			}
-			if usePoll {
-				if err := waitReadableAndWritable(ctx, srcFD, dstFD); err != nil {
-					results <- dirResult{err: err, dir: dir}
-					return
-				}
-			}
-			nr, er := src.Read(buf)
-			if nr > 0 {
-				touch()
-				data := buf[:nr]
-				if cfg.Verbose || cfg.Hex {
-					dump(cfg, dir, data)
-				}
-				// Classic -r (left→right ">") / -R (right→left "<") raw dumps.
-				if dir == ">" && cfg.RawLeft != nil {
-					_, _ = cfg.RawLeft.Write(data)
-				}
-				if dir == "<" && cfg.RawRight != nil {
-					_, _ = cfg.RawRight.Write(data)
-				}
-				nw, ew := dst.Write(data)
-				if nw > 0 {
-					bytes.Add(uint64(nw))
-					blocks.Add(1)
-				}
-				if ew != nil {
-					if isBenignClose(ew) {
-						results <- dirResult{err: nil, dir: dir}
-						return
-					}
-					results <- dirResult{err: ew, dir: dir}
-					return
-				}
-				if nw != nr {
-					results <- dirResult{err: io.ErrShortWrite, dir: dir}
-					return
-				}
-			}
-			if er != nil {
-				if er == io.EOF || isBenignClose(er) {
-					if cfg.OnEOF != nil {
-						// dir ">": reading left (socket 1); dir "<": reading right (socket 2)
-						sock := 1
-						if dir == "<" {
-							sock = 2
-						}
-						cfg.OnEOF(sock, streamReadFD(src))
-					}
-					_ = dst.ShutdownWrite()
-					results <- dirResult{err: nil, dir: dir}
-					return
-				}
-				results <- dirResult{err: er, dir: dir}
-				return
-			}
-		}
-	}
-
 	nDirs := 0
 	if cfg.LeftToRight {
 		nDirs++
 		wg.Add(1)
-		go copyDir(right, left, ">", &tr.BytesLR, &tr.BlocksLR)
+		go copyDir(ctx, right, left, ">", &tr.BytesLR, &tr.BlocksLR, cfg, touch, results, &wg)
 	}
 	if cfg.RightToLeft {
 		nDirs++
 		wg.Add(1)
-		go copyDir(left, right, "<", &tr.BytesRL, &tr.BlocksRL)
+		go copyDir(ctx, left, right, "<", &tr.BytesRL, &tr.BlocksRL, cfg, touch, results, &wg)
 	}
 
 	// Wait for first direction to finish; then linger for the other.
@@ -364,6 +252,118 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 		cfg.OnStats(st)
 	}
 	return firstErr
+}
+
+type dirResult struct {
+	err error
+	dir string
+}
+
+func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Duration) func() {
+	if idle <= 0 {
+		return func() {}
+	}
+	var mu sync.Mutex
+	last := time.Now()
+	go func() {
+		t := time.NewTicker(100 * time.Millisecond)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				mu.Lock()
+				since := time.Since(last)
+				mu.Unlock()
+				if since >= idle {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	return func() {
+		mu.Lock()
+		last = time.Now()
+		mu.Unlock()
+	}
+}
+
+func copyDir(ctx context.Context, dst, src Stream, dir string, bytes, blocks *atomic.Uint64, cfg Config, touch func(), results chan<- dirResult, wg *sync.WaitGroup) {
+	defer wg.Done()
+	bp := getBuf(cfg.BufferSize)
+	defer putBuf(bp)
+	buf := *bp
+	if cap(buf) < cfg.BufferSize {
+		buf = make([]byte, cfg.BufferSize)
+	} else {
+		buf = buf[:cfg.BufferSize]
+	}
+
+	dstFD := streamWriteFD(dst)
+	srcFD := streamReadFD(src)
+	usePoll := dstFD >= 0 && srcFD >= 0
+
+	for {
+		if ctx.Err() != nil {
+			results <- dirResult{err: ctx.Err(), dir: dir}
+			return
+		}
+		if usePoll {
+			if err := waitReadableAndWritable(ctx, srcFD, dstFD); err != nil {
+				results <- dirResult{err: err, dir: dir}
+				return
+			}
+		}
+		nr, er := src.Read(buf)
+		if nr > 0 {
+			touch()
+			data := buf[:nr]
+			if cfg.Verbose || cfg.Hex {
+				dump(cfg, dir, data)
+			}
+			if dir == ">" && cfg.RawLeft != nil {
+				_, _ = cfg.RawLeft.Write(data)
+			}
+			if dir == "<" && cfg.RawRight != nil {
+				_, _ = cfg.RawRight.Write(data)
+			}
+			nw, ew := dst.Write(data)
+			if nw > 0 {
+				bytes.Add(uint64(nw))
+				blocks.Add(1)
+			}
+			if ew != nil {
+				if isBenignClose(ew) {
+					results <- dirResult{err: nil, dir: dir}
+					return
+				}
+				results <- dirResult{err: ew, dir: dir}
+				return
+			}
+			if nw != nr {
+				results <- dirResult{err: io.ErrShortWrite, dir: dir}
+				return
+			}
+		}
+		if er != nil {
+			if er == io.EOF || isBenignClose(er) {
+				if cfg.OnEOF != nil {
+					sock := 1
+					if dir == "<" {
+						sock = 2
+					}
+					cfg.OnEOF(sock, streamReadFD(src))
+				}
+				_ = dst.ShutdownWrite()
+				results <- dirResult{err: nil, dir: dir}
+				return
+			}
+			results <- dirResult{err: er, dir: dir}
+			return
+		}
+	}
 }
 
 func dump(cfg Config, dir string, data []byte) {
