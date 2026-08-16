@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/unix"
 )
 
@@ -318,8 +319,12 @@ func WaitPTYSlave(masterFD int, interval time.Duration) error {
 	if interval <= 0 {
 		interval = time.Second
 	}
+	fd, ok := relay.PollFd(masterFD, unix.POLLIN|unix.POLLOUT)
+	if !ok {
+		return fmt.Errorf("pty-wait-slave: %w", unix.EBADF)
+	}
+	pfd := []unix.PollFd{fd}
 	for {
-		pfd := []unix.PollFd{{Fd: int32(masterFD), Events: unix.POLLIN | unix.POLLOUT}} // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
 		_, err := unix.Poll(pfd, 0)
 		if err != nil {
 			if err == unix.EINTR {

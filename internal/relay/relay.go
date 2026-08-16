@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"sync"
@@ -424,9 +425,8 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 			return 0, io.EOF
 		default:
 		}
-		if fd >= 0 {
-			pfd := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}} // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
-			n, err := unix.Poll(pfd, 50)                               // 50ms
+		if pfd, ok := PollFd(fd, unix.POLLIN); ok {
+			n, err := unix.Poll([]unix.PollFd{pfd}, 50) // 50ms
 			if err != nil && err != syscall.EINTR {
 				return 0, err
 			}
@@ -669,6 +669,14 @@ func ioFD(v any) int {
 	return -1
 }
 
+// PollFd builds a poll(2) request if fd fits in the kernel pollfd.fd (int32).
+func PollFd(fd int, events int16) (unix.PollFd, bool) {
+	if fd < 0 || fd > math.MaxInt32 {
+		return unix.PollFd{}, false
+	}
+	return unix.PollFd{Fd: int32(fd), Events: events}, true
+}
+
 // waitReadableAndWritable waits until src is readable and dst is writable
 // (classic select backpressure). If dst is closed/errored without being writable,
 // return an error without reading (preserve unread peer data — needed for STALL).
@@ -677,10 +685,12 @@ func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		pfd := []unix.PollFd{
-			{Fd: int32(srcFD), Events: unix.POLLIN},  // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
-			{Fd: int32(dstFD), Events: unix.POLLOUT}, // #nosec G115 -- conversion matches kernel or protocol width; value is range-checked or ABI-defined
+		src, srcOK := PollFd(srcFD, unix.POLLIN)
+		dst, dstOK := PollFd(dstFD, unix.POLLOUT)
+		if !srcOK || !dstOK {
+			return syscall.EBADF
 		}
+		pfd := []unix.PollFd{src, dst}
 		n, err := unix.Poll(pfd, 100) // 100ms so we honour ctx
 		if err != nil {
 			if err == syscall.EINTR {
