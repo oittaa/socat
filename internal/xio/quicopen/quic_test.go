@@ -13,7 +13,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 
@@ -44,21 +43,6 @@ func freeUDPPort(t *testing.T) int {
 	return port
 }
 
-func waitUDPPort(t *testing.T, port int, d time.Duration) {
-	t.Helper()
-	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-	deadline := time.Now().Add(d)
-	for time.Now().Before(deadline) {
-		pc, err := net.ListenPacket("udp4", addr)
-		if err != nil {
-			return
-		}
-		_ = pc.Close()
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatal("listen not ready")
-}
-
 func startListenPIPE(t *testing.T, ctx context.Context, spec string) {
 	t.Helper()
 	ls, err := parse.ParseChannel(spec)
@@ -70,7 +54,12 @@ func startListenPIPE(t *testing.T, ctx context.Context, spec string) {
 		t.Fatal(err)
 	}
 	g := &xio.Global{Log: logx.New(), Linger: 200 * time.Millisecond}
-	go func() { _ = xio.Run(ctx, ls, pipe, g) }()
+	// Bind here so a readiness probe cannot steal the UDP port.
+	lo, err := xio.OpenChannel(ctx, ls, xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = xio.RunOpened(ctx, lo, pipe, g) }()
 }
 
 func echoRoundtrip(t *testing.T, st io.ReadWriter, payload []byte) {
@@ -92,7 +81,6 @@ func TestQUICListenConnectEcho(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, listenCert(t)))
-	waitUDPPort(t, port, 2*time.Second)
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0", port))
 	if err != nil {
@@ -111,7 +99,6 @@ func TestQUICVerifyFailsWithoutTrust(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, listenCert(t)))
-	waitUDPPort(t, port, 2*time.Second)
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("QUIC:127.0.0.1:%d,verify=1", port))
 	if err != nil {
@@ -131,7 +118,6 @@ func TestQUICVerifySucceedsWithTrustedCerts(t *testing.T) {
 		"QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=1,cert=%s,key=%s,cafile=%s",
 		port, certs.serverCert, certs.serverKey, certs.caFile,
 	))
-	waitUDPPort(t, port, 2*time.Second)
 
 	cs, err := parse.ParseSpec(fmt.Sprintf(
 		"QUIC:127.0.0.1:%d,verify=1,cert=%s,key=%s,cafile=%s,commonname=localhost",
@@ -153,7 +139,6 @@ func TestQUICALPNMismatch(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,alpn=socat,cert=%s", port, listenCert(t)))
-	waitUDPPort(t, port, 2*time.Second)
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0,alpn=other", port))
 	if err != nil {
@@ -169,7 +154,6 @@ func TestQUICListenForkTwoClients(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, listenCert(t)))
-	waitUDPPort(t, port, 2*time.Second)
 
 	for i, msg := range []string{"one", "two"} {
 		cs, err := parse.ParseSpec(fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0", port))
@@ -190,7 +174,6 @@ func TestQUICHalfClose(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, listenCert(t)))
-	waitUDPPort(t, port, 2*time.Second)
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0", port))
 	if err != nil {

@@ -16,14 +16,22 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
-	// Determine modes from -u/-U
-	lMode, rMode := ModeRDWR, ModeRDWR
-	if g.LeftToRight && !g.RightToLeft {
-		lMode, rMode = ModeRead, ModeWrite
-	} else if g.RightToLeft && !g.LeftToRight {
-		lMode, rMode = ModeWrite, ModeRead
+func channelModes(g *Global) (lMode, rMode Mode) {
+	lMode, rMode = ModeRDWR, ModeRDWR
+	if g == nil {
+		return lMode, rMode
 	}
+	if g.LeftToRight && !g.RightToLeft {
+		return ModeRead, ModeWrite
+	}
+	if g.RightToLeft && !g.LeftToRight {
+		return ModeWrite, ModeRead
+	}
+	return lMode, rMode
+}
+
+func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
+	lMode, _ := channelModes(g)
 
 	// Open left first (classic order)
 	lo, err := OpenChannel(ctx, left, lMode, g)
@@ -31,6 +39,15 @@ func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
 		// Preserve classic "unknown device/address" text for test.sh testaddrs().
 		return err
 	}
+	return RunOpened(ctx, lo, right, g)
+}
+
+// RunOpened continues Run after the left address is already open. It closes lo.
+func RunOpened(ctx context.Context, lo *Opened, right parse.Channel, g *Global) error {
+	if lo == nil {
+		return fmt.Errorf("xio: nil left")
+	}
+	lMode, rMode := channelModes(g)
 	defer func() { _ = lo.Close() }()
 
 	// Fork listen on left: accept loop
