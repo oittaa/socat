@@ -275,7 +275,7 @@ func printStat(dynfd, statfd int, st *unix.Stat_t, out io.Writer) {
 	}
 	fprintf(out, "%4d: %s\t%s\t%d\t%06o\t%d\t%d\t%d",
 		fdshow,
-		fileTypeString(st.Mode),
+		fileTypeString(uint32(st.Mode)),
 		devStr,
 		st.Ino,
 		st.Mode,
@@ -362,11 +362,9 @@ func printSocket(fd int, out io.Writer) {
 	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_RCVBUF, "RCVBUF")
 	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_KEEPALIVE, "KEEPALIVE")
 	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_OOBINLINE, "OOBINLINE")
-	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_NO_CHECK, "NO_CHECK")
-	printSockoptInt(out, fd, unix.SOL_SOCKET, unix.SO_PRIORITY, "PRIORITY")
+	printLinuxSockopts(out, fd)
 	printSockoptInt(out, fd, unix.IPPROTO_TCP, unix.TCP_NODELAY, "TCP_NODELAY")
 	printSockoptInt(out, fd, unix.IPPROTO_TCP, unix.TCP_MAXSEG, "TCP_MAXSEG")
-	printSockoptInt(out, fd, unix.IPPROTO_TCP, unix.TCP_KEEPIDLE, "TCP_KEEPIDLE")
 	printSockoptInt(out, fd, unix.IPPROTO_TCP, unix.TCP_KEEPINTVL, "TCP_KEEPINTVL")
 	printSockoptInt(out, fd, unix.IPPROTO_TCP, unix.TCP_KEEPCNT, "TCP_KEEPCNT")
 }
@@ -418,7 +416,7 @@ func fdname(fd int, out io.Writer) {
 	// Classic -s (fdname.c sockname style 's'): "tcp", "udp", "unix", …
 	// not the generic "socket" from getfiletypestring. FILAN_SHORT_TCP greps
 	// the second field as "tcp".
-	typ := fileTypeString(st.Mode)
+	typ := fileTypeString(uint32(st.Mode))
 	path := ""
 	if st.Mode&unix.S_IFMT == unix.S_IFSOCK {
 		typ, path = shortSocketName(fd)
@@ -438,7 +436,7 @@ func fdname(fd int, out io.Writer) {
 // Returns type string ("tcp", "udp", "unix", …) and "local peer" address text.
 func shortSocketName(fd int) (typ, addrs string) {
 	typ = "socket"
-	proto, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_PROTOCOL)
+	proto, err := socketProtocol(fd)
 	if err != nil {
 		proto = -1
 	}

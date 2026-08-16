@@ -23,7 +23,7 @@ func TestApplyTermiosEchoAndWinsz(t *testing.T) {
 	if err := ApplyTermios(int(slave.Fd()), s); err != nil {
 		t.Fatal(err)
 	}
-	tio, err := unix.IoctlGetTermios(int(slave.Fd()), unix.TCGETS)
+	tio, err := getTermios(int(slave.Fd()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestRestoreTermios(t *testing.T) {
 	defer func() { _ = master.Close() }()
 	defer func() { _ = slave.Close() }()
 
-	before, err := unix.IoctlGetTermios(int(slave.Fd()), unix.TCGETS)
+	before, err := getTermios(int(slave.Fd()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestRestoreTermios(t *testing.T) {
 	if err := AttachTermios(o, int(slave.Fd()), s); err != nil {
 		t.Fatal(err)
 	}
-	mid, err := unix.IoctlGetTermios(int(slave.Fd()), unix.TCGETS)
+	mid, err := getTermios(int(slave.Fd()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestRestoreTermios(t *testing.T) {
 	if err := o.Close(); err != nil {
 		t.Fatal(err)
 	}
-	after, err := unix.IoctlGetTermios(int(slave.Fd()), unix.TCGETS)
+	after, err := getTermios(int(slave.Fd()))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -118,11 +118,7 @@ func openSTALL(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 
 // fillPipe writes zeros until the pipe buffer is full (classic STALL write side).
 func fillPipe(pw *os.File) {
-	// Prefer F_GETPIPE_SZ when available.
-	sz := 65536
-	if n, err := unix.FcntlInt(pw.Fd(), unix.F_GETPIPE_SZ, 0); err == nil && n > 0 {
-		sz = n
-	}
+	sz := pipeBufSize(pw)
 	// Non-blocking fill
 	raw, err := pw.SyscallConn()
 	if err != nil {

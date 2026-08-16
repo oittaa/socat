@@ -50,9 +50,6 @@ func procan(w io.Writer) {
 	// controlling terminal
 	var tty string
 	if f, err := os.OpenFile("/dev/tty", os.O_RDONLY, 0); err == nil {
-		if name, err := unix.IoctlGetInt(int(f.Fd()), unix.TIOCGDEV); err == nil {
-			_ = name
-		}
 		// ttyname via /proc
 		if p, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", f.Fd())); err == nil {
 			tty = p
