@@ -2,6 +2,7 @@ package relay
 
 import (
 	"context"
+	"io"
 	"os"
 	"testing"
 	"time"
@@ -59,3 +60,64 @@ func TestTransferEndCloseExitsAfterLinger(t *testing.T) {
 		t.Fatal("transfer hung past linger+margin (end-close did not unblock)")
 	}
 }
+
+// sessionWrap must Read after poll reports ready (Revents on the slice, not a copy).
+func TestTransferEndCloseCopiesData(t *testing.T) {
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = pr.Close() }()
+
+	var got []byte
+	leftInner := FDStream{R: pr, W: pr, C: pr, CloseW: func() error { return nil }}
+	left := testEndClose{Stream: leftInner}
+	right := FDStream{
+		R:      eofReader{},
+		W:      captureWriter{fn: func(p []byte) { got = append(got, p...) }},
+		C:      nopCloser{},
+		CloseW: func() error { return nil },
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- Transfer(context.Background(), left, right, Config{
+			BufferSize:  8192,
+			Linger:      100 * time.Millisecond,
+			LeftToRight: true,
+			RightToLeft: false,
+			NoCloseLeft: true,
+		})
+	}()
+	if _, err := pw.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	_ = pw.Close()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("transfer: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("transfer hung (sessionWrap did not read)")
+	}
+	if string(got) != "hello" {
+		t.Fatalf("got %q, want hello", got)
+	}
+}
+
+type captureWriter struct{ fn func([]byte) }
+
+func (c captureWriter) Write(p []byte) (int, error) {
+	c.fn(p)
+	return len(p), nil
+}
+
+type nopCloser struct{}
+
+func (nopCloser) Close() error { return nil }
+
+type eofReader struct{}
+
+func (eofReader) Read([]byte) (int, error) { return 0, io.EOF }
