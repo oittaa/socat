@@ -1,3 +1,5 @@
+//go:build unix
+
 package xio
 
 import (
@@ -7,7 +9,6 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/unix"
 )
 
@@ -335,11 +336,10 @@ func WaitPTYSlave(masterFD int, interval time.Duration) error {
 	if interval <= 0 {
 		interval = time.Second
 	}
-	fd, ok := relay.PollFd(masterFD, unix.POLLIN|unix.POLLOUT)
-	if !ok {
+	if masterFD < 0 {
 		return fmt.Errorf("pty-wait-slave: %w", unix.EBADF)
 	}
-	pfd := []unix.PollFd{fd}
+	pfd := []unix.PollFd{{Fd: int32(masterFD), Events: unix.POLLIN | unix.POLLOUT}}
 	for {
 		_, err := unix.Poll(pfd, 0)
 		if err != nil {

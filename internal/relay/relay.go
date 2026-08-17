@@ -13,8 +13,6 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 // Config controls transfer behavior.
@@ -425,10 +423,10 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 			return 0, io.EOF
 		default:
 		}
-		if pfd, ok := PollFd(fd, unix.POLLIN); ok {
+		if pfd, ok := PollFd(fd, pollIn); ok {
 			// Poll must see a slice element; a value copy leaves Revents at 0.
-			pfds := []unix.PollFd{pfd}
-			n, err := unix.Poll(pfds, 50) // 50ms
+			pfds := []pollfd{pfd}
+			n, err := poll(pfds, 50) // 50ms
 			// EINTR is common: Go uses SIGURG for preemption. Retry; n<0 is not readable.
 			if err != nil {
 				if err == syscall.EINTR {
@@ -445,8 +443,8 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 				continue
 			}
 			re := pfds[0].Revents
-			if re&unix.POLLIN == 0 {
-				if re&(unix.POLLHUP|unix.POLLERR|unix.POLLNVAL) != 0 {
+			if re&pollIn == 0 {
+				if re&(pollHup|pollErr|pollNval) != 0 {
 					return 0, io.EOF
 				}
 				continue
@@ -681,12 +679,12 @@ func ioFD(v any) int {
 	return -1
 }
 
-// PollFd builds a poll(2) request if fd fits in the kernel pollfd.fd (int32).
-func PollFd(fd int, events int16) (unix.PollFd, bool) {
+// PollFd builds a poll request if fd fits in the kernel pollfd.fd (int32).
+func PollFd(fd int, events int16) (pollfd, bool) {
 	if fd < 0 || fd > math.MaxInt32 {
-		return unix.PollFd{}, false
+		return pollfd{}, false
 	}
-	return unix.PollFd{Fd: int32(fd), Events: events}, true
+	return pollfd{Fd: int32(fd), Events: events}, true
 }
 
 // waitReadableAndWritable waits until src is readable and dst is writable
@@ -697,13 +695,13 @@ func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		src, srcOK := PollFd(srcFD, unix.POLLIN)
-		dst, dstOK := PollFd(dstFD, unix.POLLOUT)
+		src, srcOK := PollFd(srcFD, pollIn)
+		dst, dstOK := PollFd(dstFD, pollOut)
 		if !srcOK || !dstOK {
 			return syscall.EBADF
 		}
-		pfd := []unix.PollFd{src, dst}
-		n, err := unix.Poll(pfd, 100) // 100ms so we honour ctx
+		pfd := []pollfd{src, dst}
+		n, err := poll(pfd, 100) // 100ms so we honour ctx
 		if err != nil {
 			if err == syscall.EINTR {
 				continue
@@ -716,15 +714,15 @@ func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 		srcRe := pfd[0].Revents
 		dstRe := pfd[1].Revents
 		// Destination dead and not writable: abort without consuming src.
-		if dstRe&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 && dstRe&unix.POLLOUT == 0 {
+		if dstRe&(pollErr|pollHup|pollNval) != 0 && dstRe&pollOut == 0 {
 			return io.ErrClosedPipe
 		}
 		// Source closed: allow Read to return EOF.
-		if srcRe&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 && srcRe&unix.POLLIN == 0 {
+		if srcRe&(pollErr|pollHup|pollNval) != 0 && srcRe&pollIn == 0 {
 			return nil
 		}
-		srcReady := srcRe&unix.POLLIN != 0
-		dstReady := dstRe&unix.POLLOUT != 0
+		srcReady := srcRe&pollIn != 0
+		dstReady := dstRe&pollOut != 0
 		if srcReady && dstReady {
 			return nil
 		}

@@ -11,18 +11,14 @@ import (
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
-	"golang.org/x/sys/unix"
 )
 
 func openSTDIO(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
 	// Classic MAINSETSID: -,setsid calls setsid(2) in the main process
 	// (session leader) before opening EXEC/etc. children.
 	if s.BoolOption("setsid") {
-		if _, err := unix.Setsid(); err != nil {
-			// EPERM if already a session leader — ignore (same process re-entry).
-			if err != unix.EPERM {
-				return nil, fmt.Errorf("setsid: %w", err)
-			}
+		if err := xio.Setsid(); err != nil {
+			return nil, fmt.Errorf("setsid: %w", err)
 		}
 	}
 	// Classic STDIO: fd 0 read, fd 1 write; options like escape= apply via xio.WrapCommon.

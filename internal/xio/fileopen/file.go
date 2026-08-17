@@ -4,13 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"syscall"
 
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
-	"golang.org/x/sys/unix"
 )
 
 func openOPEN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
@@ -165,7 +163,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 	created := false
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		err := xio.WithUmask(s, func() error {
-			return syscall.Mkfifo(path, uint32(xio.ParseFileMode(s, 0o644)))
+			return mkfifo(path, uint32(xio.ParseFileMode(s, 0o644)))
 		})
 		if err == nil {
 			_ = xio.ApplyPerm(path, s, nil)
@@ -195,17 +193,11 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 	}
 
-	clearNB := func(f *os.File) {
-		fd := int(f.Fd())
-		fl, e := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
-		if e == nil {
-			_, _ = unix.FcntlInt(uintptr(fd), unix.F_SETFL, fl&^unix.O_NONBLOCK)
-		}
-	}
+	clearNB := clearNonblock
 
 	switch mode {
 	case xio.ModeRead:
-		f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+		f, err := os.OpenFile(path, os.O_RDONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 		if err != nil {
 			if created {
 				_ = os.Remove(path)
@@ -228,14 +220,14 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		return o, nil
 	case xio.ModeWrite:
 		// Need a reader end open first for O_WRONLY on FIFO.
-		r, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+		r, err := os.OpenFile(path, os.O_RDONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 		if err != nil {
 			if created {
 				_ = os.Remove(path)
 			}
 			return nil, err
 		}
-		w, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NONBLOCK, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+		w, err := os.OpenFile(path, os.O_WRONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 		if err != nil {
 			_ = r.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			if created {
@@ -260,14 +252,14 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		return o, nil
 	default:
 		// Bidirectional: open reader then writer (both NONBLOCK), then blocking I/O.
-		r, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+		r, err := os.OpenFile(path, os.O_RDONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 		if err != nil {
 			if created {
 				_ = os.Remove(path)
 			}
 			return nil, err
 		}
-		w, err := os.OpenFile(path, os.O_WRONLY|syscall.O_NONBLOCK, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+		w, err := os.OpenFile(path, os.O_WRONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 		if err != nil {
 			_ = r.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			if created {
@@ -304,7 +296,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 }
 
 func openSocketpair(_ context.Context, _ parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Opened, error) {
-	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+	c1, c2, err := socketpairFiles()
 	if err != nil {
 		return nil, err
 	}
@@ -329,8 +321,6 @@ func openSocketpair(_ context.Context, _ parse.Spec, _ xio.Mode, _ *xio.Global) 
 	//
 	// So FDStream with R=pipe[0], W=pipe[1] is correct for anonymous PIPE.
 
-	c1 := os.NewFile(uintptr(fds[0]), "socketpair0")
-	c2 := os.NewFile(uintptr(fds[1]), "socketpair1")
 	// Echo: write to c2 is readable on c1.
 	return &xio.Opened{
 		Stream: relay.FDStream{
@@ -338,7 +328,7 @@ func openSocketpair(_ context.Context, _ parse.Spec, _ xio.Mode, _ *xio.Global) 
 			W: c2,
 			C: xio.NewMultiCloser(relay.RWCStream{ReadWriteCloser: c1}, relay.RWCStream{ReadWriteCloser: c2}),
 			CloseW: func() error {
-				_ = unix.Shutdown(int(c2.Fd()), unix.SHUT_WR)
+				_ = xio.ShutdownWrite(int(c2.Fd()))
 				return c2.Close()
 			},
 		},
@@ -378,7 +368,7 @@ func OpenFlags(s parse.Spec, mode xio.Mode) int {
 		flags |= os.O_TRUNC
 	}
 	if s.BoolOption("nonblock") {
-		flags |= syscall.O_NONBLOCK
+		flags |= oNonblock
 	}
 	return flags
 }

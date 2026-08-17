@@ -1,3 +1,5 @@
+//go:build unix
+
 package xio
 
 import (
@@ -15,7 +17,6 @@ import (
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
-	"golang.org/x/sys/unix"
 )
 
 func openEXEC(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
@@ -524,12 +525,12 @@ func setCloexecAllFrom(from int) {
 			if err != nil || fd < from {
 				continue
 			}
-			unix.CloseOnExec(fd)
+			CloseOnExec(fd)
 		}
 		return
 	}
 	for fd := from; fd < 1024; fd++ {
-		unix.CloseOnExec(fd)
+		CloseOnExec(fd)
 	}
 }
 

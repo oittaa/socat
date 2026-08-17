@@ -1,3 +1,5 @@
+//go:build unix
+
 // filan — file descriptor analyzer (classic socat companion).
 package main
 

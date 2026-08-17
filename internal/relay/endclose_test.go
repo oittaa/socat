@@ -20,7 +20,7 @@ func (e testEndClose) UnwrapStream() Stream { return e.Stream }
 // Transfer must still exit after Linger.
 func TestTransferEndCloseExitsAfterLinger(t *testing.T) {
 	// left: /dev/null (immediate EOF on read)
-	null, err := os.OpenFile("/dev/null", os.O_RDWR, 0)
+	null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
 		t.Fatal(err)
 	}

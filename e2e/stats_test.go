@@ -6,8 +6,8 @@ import (
 	"bytes"
 	"io"
 	"os/exec"
+	"runtime"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -43,6 +43,9 @@ func TestVersionHasSTATS(t *testing.T) {
 }
 
 func TestSIGUSR1Statistics(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no SIGUSR1 on Windows")
+	}
 	bin := socatBin(t)
 	pr, pw := io.Pipe()
 	cmd := exec.Command(bin, "STDIO", "PIPE")
@@ -61,7 +64,7 @@ func TestSIGUSR1Statistics(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if err := cmd.Process.Signal(syscall.SIGUSR1); err != nil {
+	if err := signalUSR1(cmd.Process); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(2 * time.Second)

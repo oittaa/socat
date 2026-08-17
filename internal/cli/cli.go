@@ -419,10 +419,10 @@ func Main(args []string) int {
 	// Also unlink registered FS entries (UNIX/PIPE/PTY link) before Exit so
 	// REMOVE* tests pass — os.Exit skips Opened.Close / SetUnlinkOnClose.
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM, syscall.SIGILL, syscall.SIGQUIT, syscall.SIGHUP)
+	notifyExitSignals(sigCh)
 	defer signal.Stop(sigCh)
 	usr1 := make(chan os.Signal, 1)
-	signal.Notify(usr1, syscall.SIGUSR1)
+	notifyStatsSignal(usr1)
 	defer signal.Stop(usr1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

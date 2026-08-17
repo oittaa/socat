@@ -8,12 +8,10 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
-	"golang.org/x/sys/unix"
 )
 
 func channelModes(g *Global) (lMode, rMode Mode) {
@@ -104,23 +102,6 @@ func streamFromDial(o *Opened, c net.Conn) (relay.Stream, error) {
 		return o.WrapDial(c)
 	}
 	return relay.NetStream{Conn: c}, nil
-}
-
-// unixSocketpairLogged creates AF_UNIX SOCK_STREAM pair and logs classic
-// `I socketpair(1, 1, 0, {a,b}) -> 0` (RECVFROM_FORK_LEAK).
-func unixSocketpairLogged(g *Global) (a, b *os.File, err error) {
-	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
-	if err != nil {
-		return nil, nil, err
-	}
-	// Classic CLOEXEC on both ends after logging the numbers.
-	if g != nil && g.Log != nil {
-		g.Log.Infof("Generating socketpair that triggers parent when packet has been consumed")
-		g.Log.Infof("socketpair(1, 1, 0, {%d,%d}) -> 0", fds[0], fds[1])
-	}
-	unix.CloseOnExec(fds[0])
-	unix.CloseOnExec(fds[1])
-	return os.NewFile(uintptr(fds[0]), "sp0"), os.NewFile(uintptr(fds[1]), "sp1"), nil
 }
 
 // runConnectFork is the classic CONNECT,fork parent loop: dial, spawn child

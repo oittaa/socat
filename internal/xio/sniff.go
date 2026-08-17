@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 	"unicode"
-
-	"golang.org/x/sys/unix"
 )
 
 // expandSniffPath expands classic -r/-R path variables (sysutils.c expandenv).
@@ -126,7 +124,7 @@ func openSniffFiles(g *Global) error {
 		if err != nil {
 			return fmt.Errorf("-r: %w", err)
 		}
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND|unix.O_CLOEXEC, 0o664) // #nosec G302 G304 -- -r/-R sniff path comes from the user; 0664 is a readable dump
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND|oCloexec, 0o664) // #nosec G302 G304 -- -r/-R sniff path comes from the user; 0664 is a readable dump
 		if err != nil {
 			return fmt.Errorf("-r %q: %w", path, err)
 		}
@@ -137,7 +135,7 @@ func openSniffFiles(g *Global) error {
 		if err != nil {
 			return fmt.Errorf("-R: %w", err)
 		}
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND|unix.O_CLOEXEC, 0o664) // #nosec G302 G304 -- -r/-R sniff path comes from the user; 0664 is a readable dump
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND|oCloexec, 0o664) // #nosec G302 G304 -- -r/-R sniff path comes from the user; 0664 is a readable dump
 		if err != nil {
 			return fmt.Errorf("-R %q: %w", path, err)
 		}

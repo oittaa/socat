@@ -63,7 +63,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 				raw, e := c.SyscallConn()
 				if e == nil {
 					_ = raw.Control(func(fd uintptr) {
-						_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+						_ = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 					})
 				}
 			}
@@ -106,9 +106,9 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 	cfg := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
 			return c.Control(func(fd uintptr) {
-				_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+				_ = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 				if s.BoolOption("broadcast") {
-					_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+					_ = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 				}
 			})
 		},
@@ -126,7 +126,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		raw, err := c.SyscallConn()
 		if err == nil {
 			_ = raw.Control(func(fd uintptr) {
-				_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+				_ = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 			})
 		}
 	}
@@ -396,7 +396,7 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 			return c.Control(func(fd uintptr) {
 				xio.ApplyReuse(int(fd), s, true)
 				if s.BoolOption("broadcast") {
-					_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+					_ = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 				}
 			})
 		},

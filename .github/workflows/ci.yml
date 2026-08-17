@@ -17,11 +17,21 @@ concurrency:
 
 jobs:
   test:
-    name: unit
+    name: unit (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - name: linux-amd64
+            os: ubuntu-latest
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+          - name: macos
+            os: macos-latest
+          - name: windows-amd64
+            os: windows-latest
+          - name: windows-arm64
+            os: windows-11-arm
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -30,14 +40,36 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Unit tests
+        if: runner.os != 'Windows'
         run: make test
+      - name: Unit tests
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          out=$(gofmt -l cmd e2e internal scripts/benchclient version.go)
+          if [ -n "$out" ]; then
+            echo "gofmt needed:" >&2
+            echo "$out" >&2
+            exit 1
+          fi
+          go test ./...
 
   e2e:
-    name: e2e
+    name: e2e (${{ matrix.name }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          - name: linux-amd64
+            os: ubuntu-latest
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+          - name: macos
+            os: macos-latest
+          - name: windows-amd64
+            os: windows-latest
+          - name: windows-arm64
+            os: windows-11-arm
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -46,7 +78,16 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: End-to-end tests
+        if: runner.os != 'Windows'
         run: make e2e
+      - name: End-to-end tests
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          go build -o socat.exe ./cmd/socat
+          go build -o filan.exe ./cmd/filan
+          go build -o procan.exe ./cmd/procan
+          go test -tags=e2e ./e2e/...
 
   lint:
     name: lint
