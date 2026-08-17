@@ -317,39 +317,26 @@ func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 		MinVersion:   tls.VersionTLS12,
 	}
 
-	cnWant, _ := commonNameOption(s)
-	doVerify := verifyEnabled(s)
-	needClientCert := doVerify || cnWant != ""
-
-	if needClientCert {
-		var roots *x509.CertPool
-		if doVerify {
-			// Classic: SSL_CTX_set_default_verify_paths when cafile/capath are unset.
-			roots, err = loadVerifyRoots(s)
-			if err != nil {
-				return nil, err
-			}
-			if roots == nil {
-				return nil, fmt.Errorf("tls: no CA roots for verify")
-			}
-			cfg.ClientCAs = roots
-			cfg.ClientAuth = tls.RequireAndVerifyClientCert
-		} else {
-			roots, err = loadCAPool(s)
-			if err != nil {
-				return nil, err
-			}
-			if roots != nil {
-				cfg.ClientCAs = roots
-			}
-			// commonname check only: request a client cert if offered
-			cfg.ClientAuth = tls.RequestClientCert
-		}
-		prev := cfg.VerifyPeerCertificate
-		attachPeerVerify(cfg, makeServerVerifyPeer(roots, cnWant, doVerify, prev))
-	} else {
+	// Classic: verify=0 is SSL_VERIFY_NONE. The server does not request a
+	// client certificate, and commonname is ignored (name check runs only
+	// when openssl-verify is on).
+	if !verifyEnabled(s) {
 		cfg.ClientAuth = tls.NoClientCert
+		return cfg, nil
 	}
+
+	cnWant, _ := commonNameOption(s)
+	// Classic: SSL_CTX_set_default_verify_paths when cafile/capath are unset.
+	roots, err := loadVerifyRoots(s)
+	if err != nil {
+		return nil, err
+	}
+	if roots == nil {
+		return nil, fmt.Errorf("tls: no CA roots for verify")
+	}
+	cfg.ClientCAs = roots
+	cfg.ClientAuth = tls.RequireAndVerifyClientCert
+	attachPeerVerify(cfg, makeServerVerifyPeer(roots, cnWant, true, cfg.VerifyPeerCertificate))
 	return cfg, nil
 }
 
