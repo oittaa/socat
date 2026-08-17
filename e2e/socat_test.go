@@ -245,6 +245,9 @@ func TestSCTP4Echo(t *testing.T) {
 }
 
 func TestVersionHasTERMIOS(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no termios on Windows")
+	}
 	bin := socatBin(t)
 	out, err := exec.Command(bin, "-V").CombinedOutput()
 	if err != nil {

@@ -12,6 +12,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+func init() { FeaturePTY = true }
+
 // openPTYPair allocates a master/slave PTY pair (linux /dev/ptmx).
 func OpenPTYPair() (master, slave *os.File, err error) {
 	m, err := os.OpenFile("/dev/ptmx", os.O_RDWR|unix.O_CLOEXEC, 0)
