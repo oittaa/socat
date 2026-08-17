@@ -4,6 +4,7 @@ package xio
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -336,7 +337,7 @@ func WaitPTYSlave(masterFD int, interval time.Duration) error {
 	if interval <= 0 {
 		interval = time.Second
 	}
-	if masterFD < 0 {
+	if masterFD < 0 || masterFD > math.MaxInt32 {
 		return fmt.Errorf("pty-wait-slave: %w", unix.EBADF)
 	}
 	pfd := []unix.PollFd{{Fd: int32(masterFD), Events: unix.POLLIN | unix.POLLOUT}}

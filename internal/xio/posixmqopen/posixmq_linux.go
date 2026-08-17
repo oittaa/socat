@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"strconv"
@@ -308,7 +309,7 @@ func waitMQ(ctx context.Context, fd int, events int16, deadline time.Time) error
 				timeout = ms
 			}
 		}
-		if fd < 0 {
+		if fd < 0 || fd > math.MaxInt32 {
 			return unix.EBADF
 		}
 		pfd := []unix.PollFd{{Fd: int32(fd), Events: events}}
