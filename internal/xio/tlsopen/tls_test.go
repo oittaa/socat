@@ -252,6 +252,63 @@ func TestTLSServerVerifyUsesSystemRoots(t *testing.T) {
 	}
 }
 
+func TestTLSServerVerify0IgnoresCommonName(t *testing.T) {
+	// Classic SSL_VERIFY_NONE: no client cert request; commonname is ignored.
+	cert, err := ephemeralSelfSigned()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	certPath := writeTLSCert(t, dir, "srv", cert)
+	cfg, err := tlsServerConfig(parse.Spec{
+		Type: "TLS-LISTEN",
+		Options: []parse.Option{
+			{Name: "cert", Value: certPath, Has: true},
+			{Name: "verify", Value: "0", Has: true},
+			{Name: "commonname", Value: "onlyyou", Has: true},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ClientAuth != tls.NoClientCert {
+		t.Fatalf("ClientAuth=%v want NoClientCert", cfg.ClientAuth)
+	}
+	if cfg.VerifyPeerCertificate != nil || cfg.VerifyConnection != nil {
+		t.Fatal("verify=0 must not attach client-cert hooks")
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	errCh := make(chan error, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		tc := tls.Server(c, cfg)
+		errCh <- tc.Handshake()
+		_ = tc.Close()
+	}()
+	raw, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = raw.Close() }()
+	cli := tls.Client(raw, &tls.Config{InsecureSkipVerify: true})
+	if err := cli.Handshake(); err != nil {
+		t.Fatalf("client handshake: %v", err)
+	}
+	_ = cli.Close()
+	if herr := <-errCh; herr != nil {
+		t.Fatalf("server handshake with verify=0,commonname=onlyyou: %v", herr)
+	}
+}
+
 func TestTLSServerVerifyRejectsUntrustedClient(t *testing.T) {
 	srv, err := ephemeralSelfSigned()
 	if err != nil {
