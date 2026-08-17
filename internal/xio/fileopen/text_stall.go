@@ -115,27 +115,6 @@ func openSTALL(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 	return &xio.Opened{Stream: stream, Label: "STALL"}, nil
 }
 
-// fillPipe writes zeros until the pipe buffer is full (classic STALL write side).
-func fillPipe(pw *os.File) {
-	sz := pipeBufSize(pw)
-	// Non-blocking fill
-	raw, err := pw.SyscallConn()
-	if err != nil {
-		return
-	}
-	_ = raw.Control(func(fd uintptr) {
-		xio.SetNonblock(int(fd), true)
-		zeros := make([]byte, sz)
-		for {
-			n, err := pw.Write(zeros)
-			if n < len(zeros) || err != nil {
-				break
-			}
-		}
-		xio.SetNonblock(int(fd), false)
-	})
-}
-
 type multiCloserFuncs []func()
 
 func (m multiCloserFuncs) Close() error {
