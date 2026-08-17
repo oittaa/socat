@@ -38,18 +38,20 @@ Common flags: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `--
 `./socat -h` lists types. `./socat -hh` lists honored options.
 
 ```bash
-# TCP echo server
-./socat TCP4-LISTEN:8080,reuseaddr,fork PIPE
+# TCP client from the shell (netcat-style). Talk to any existing service.
+printf 'GET / HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n' | ./socat - TCP4:127.0.0.1:80
 
-# Client
-echo hello | ./socat - TCP4:127.0.0.1:8080
+# Local app only binds a Unix socket; publish it on TCP for another process or host.
+# Example path is PostgreSQL; same shape works for docker.sock, mysqld, …
+./socat TCP4-LISTEN:5432,reuseaddr,fork \
+  UNIX-CONNECT:/var/run/postgresql/.s.PGSQL.5432
 
-# Unix domain
-./socat UNIX-LISTEN:/tmp/echo.sock,fork,unlink-early PIPE
-./socat - UNIX-CONNECT:/tmp/echo.sock
+# Reverse: the app wants a Unix socket; the service already listens on TCP.
+./socat UNIX-LISTEN:/tmp/app.sock,fork,unlink-early,mode=600 \
+  TCP4:127.0.0.1:8080
 
-# EXEC with PTY
-echo hi | ./socat - EXEC:cat,pty,cfmakeraw
+# Give a program a real TTY (REPLs, pagers, and many CLIs disable features without one).
+./socat -,pty,cfmakeraw EXEC:'python3 -i',setsid,stderr
 ```
 
 ### Encrypt a legacy TCP service
