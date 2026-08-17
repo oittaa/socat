@@ -28,6 +28,15 @@ go build -o procan ./cmd/procan
 
 ## Usage
 
+```text
+socat [options] <address> <address>
+socat -V | -h | -hh | -hhh
+```
+
+Each `<address>` is `TYPE:params,option=value,...`. Use `-` for STDIO.
+Common flags: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `--statistics`.
+`./socat -h` lists types. `./socat -hh` lists honored options.
+
 ```bash
 # TCP echo server
 ./socat TCP4-LISTEN:8080,reuseaddr,fork PIPE
@@ -43,45 +52,96 @@ echo hello | ./socat - TCP4:127.0.0.1:8080
 echo hi | ./socat - EXEC:cat,pty,cfmakeraw
 ```
 
-```text
-socat [options] <address> <address>
-socat -V | -h[h[h]]
+### Encrypt a legacy TCP service
+
+The application still speaks **plain TCP**. Socat sits in front and does TLS
+or QUIC. Typical cases: an old HTTP server, SMTP, a database port, or any
+custom protocol that has no encryption of its own.
+
+```bash
+# One-time self-signed cert (or use a real certificate + CA)
+openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
+  -keyout server.key -out server.crt -subj "/CN=server.example"
+
+# Server host: publish TLS :8443; the app keeps listening on 127.0.0.1:8080
+./socat TLS-LISTEN:8443,reuseaddr,fork,cert=server.crt,key=server.key,verify=0 \
+  TCP:127.0.0.1:8080
+
+# Client host: the app connects to 127.0.0.1:8080; socat does the TLS hop
+./socat TCP-LISTEN:8080,reuseaddr,fork,bind=127.0.0.1 \
+  TLS:server.example:8443,cafile=server.crt,verify=1
 ```
 
-Common options: `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`, `-4`/`-6`/`-0`, `--statistics`.
+`OPENSSL-*` and `SSL-*` are aliases of `TLS-*`. Listen needs `cert=`
+(see [TLS notes](#tls-notes)). `verify=0` on the listener means “do not
+request a client certificate”. The client still checks the server when
+`verify=1` and `cafile=` (or `capath=`) is set.
 
-### Address types (supported)
+Same shape over **QUIC** (a byte pipe, **not** HTTP/3; ALPN default `socat`):
 
-| Type | Notes |
-|------|--------|
-| STDIO, STDIN, STDOUT, STDERR, FD | yes |
-| PIPE, OPEN, FILE, CREATE/CREAT, GOPEN, SOCKETPAIR | yes |
-| TCP / TCP4 / TCP6 (+ CONNECT, LISTEN / -L) | SO_REUSEADDR default on; `accept-timeout` exits 0 |
-| UDP (+ LISTEN, SENDTO, RECV, RECVFROM, DATAGRAM) | basic; peer filters on recv/listen |
-| UNIX-CONNECT / UNIX-CLIENT, UNIX-LISTEN | `bind=`, `unlink-close` / `unlink-early` |
-| EXEC, SYSTEM, SHELL | pipes, socketpair, **pty**, fdin/fdout, setsid, shut-none; child exit promoted |
-| TEXT, STALL, PTY | STALL uses classic full-pipe backpressure |
-| TLS / TLS-CONNECT / TLS-LISTEN (`TLS-L`) | stream TLS via `crypto/tls`; **not** DTLS (see [Unsupported / security](#unsupported--security-related)). Classic aliases: `OPENSSL` / `OPENSSL-CONNECT` / `OPENSSL-LISTEN`, `SSL` / `SSL-CONNECT` / `SSL-LISTEN` |
-| PROXY / PROXY-CONNECT | HTTP CONNECT client: default HTTP/1.x; `http-version=2` (`net/http`) / `http-version=3` (quic-go/http3); `h2c` |
-| SOCKS4 / SOCKS4A / SOCKS5 / SOCKS5-CONNECT | SOCKS clients (`socksport`, `socksuser`, `sockspass`) |
-| SOCKS5-LISTEN / SOCKS5-BIND | SOCKS5 BIND (remote listen; two server replies) |
-| ABSTRACT-LISTEN / ABSTRACT-CONNECT / … | Linux abstract UNIX namespace |
-| libwrap / TCP wrappers | pure-Go `hosts.allow` / `hosts.deny` (`WITH_LIBWRAP`) |
-| TUN, INTERFACE | Linux TUN/TAP + AF_PACKET (`WITH_TUN`, `WITH_INTERFACE`; need CAP_NET_ADMIN) |
-| WS / WSS (+ CONNECT, LISTEN / -L) | WebSocket byte relay (`github.com/coder/websocket`); **not** in classic socat |
-| QUIC / QUIC-CONNECT / QUIC-LISTEN | RFC 9000 byte relay (`github.com/quic-go/quic-go`); **not** HTTP/3; **not** in classic socat |
-| SCTP / SCTP4 / SCTP6 (+ CONNECT, LISTEN / -L) | Linux kernel one-to-one SCTP (`SOCK_STREAM` + `IPPROTO_SCTP`, RFC 9260); need `sctp` module |
-| POSIXMQ / POSIXMQ-READ / POSIXMQ-RECV / POSIXMQ-SEND | Linux POSIX message queues; `mq-prio`, unlink-early/close, RECV/SEND `fork` + `max-children` |
-| DCCP, readline | **not** implemented (`#undef` in `-V`) |
+```bash
+# Server
+./socat QUIC-LISTEN:4433,reuseaddr,fork,cert=server.crt,key=server.key,verify=0 \
+  TCP:127.0.0.1:8080
 
-### Options (honored)
+# Client
+./socat TCP-LISTEN:8080,reuseaddr,fork,bind=127.0.0.1 \
+  QUIC:server.example:4433,cafile=server.crt,verify=1
+```
 
-Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
+A two-container walk-through is in [examples/lab/README.md](examples/lab/README.md).
+
+### Address types
+
+Implemented types only. Aliases share a row. `./socat -h` prints syntax for
+every name. DCCP and readline are not implemented (see
+[Unsupported](#unsupported--security-related)).
+
+| Type | Syntax | Notes |
+|------|--------|--------|
+| STDIO | `-` or `STDIO` | stdin and stdout together |
+| STDIN, STDOUT, STDERR | `STDIN` / `STDOUT` / `STDERR` | one standard stream |
+| FD | `FD:<n>` | already-open file descriptor |
+| OPEN, FILE | `OPEN:<path>` | open a file |
+| CREATE, CREAT | `CREATE:<path>` | create or truncate |
+| GOPEN | `GOPEN:<path>` | open or create a file or socket |
+| PIPE, FIFO, ECHO | `PIPE` or `PIPE:<path>` | anonymous pipe or named FIFO |
+| SOCKETPAIR | `SOCKETPAIR` | unnamed UNIX socket pair |
+| TEXT | `TEXT:<string>` | write a fixed string, then EOF |
+| STALL | `STALL` | block writes (full-pipe backpressure) |
+| PTY | `PTY` | allocate a pseudo-terminal |
+| TCP | `TCP4:host:port`, `TCP6:…` | TCP client; `SO_REUSEADDR` default on |
+| TCP-LISTEN | `TCP4-LISTEN:port` (`-L`) | TCP server; `accept-timeout` exits 0 |
+| UDP | `UDP4:host:port`, `UDP6:…` | UDP client |
+| UDP-LISTEN / SENDTO / RECV / RECVFROM / DATAGRAM | `UDP4-LISTEN:port`, `UDP4-SENDTO:host:port`, … | peer filters on recv/listen |
+| IP (raw) | `IP4-SENDTO:host:proto`, `IP4-RECV:proto`, … | Linux raw IP; needs privilege |
+| UNIX | `UNIX-CONNECT:<path>` / `UNIX-CLIENT` | UNIX-domain client |
+| UNIX-LISTEN | `UNIX-LISTEN:<path>` (`-L`) | UNIX-domain server |
+| UNIX datagram | `UNIX-SENDTO` / `RECV` / `RECVFROM` / `DATAGRAM` | UNIX datagram |
+| ABSTRACT | `ABSTRACT-CONNECT` / `LISTEN` / … | Linux abstract UNIX namespace |
+| SOCKET | `SOCKET-CONNECT` / `LISTEN` / `SENDTO` / `DATAGRAM` / `RECV` / `RECVFROM` | generic socket |
+| EXEC, SYSTEM, SHELL | `EXEC:<cmd>` / `SYSTEM:<sh>` / `SHELL` | pipes, socketpair, **pty**, fdin/fdout, setsid, shut-none; child exit promoted |
+| TLS | `TLS:host:port`, `TLS-CONNECT:host:port` | stream TLS (`crypto/tls`); **not** DTLS |
+| TLS-LISTEN | `TLS-LISTEN:<port>` (`-L`) | requires `cert=`; aliases `OPENSSL-*`, `SSL-*` |
+| PROXY | `PROXY:<proxy>:<host>:<port>` | HTTP CONNECT; `http-version=2` / `3`, `h2c` |
+| SOCKS4, SOCKS4A, SOCKS5 | `SOCKS5:<socks>:<host>:<port>` | SOCKS clients |
+| SOCKS5-LISTEN, SOCKS5-BIND | `SOCKS5-LISTEN:<socks>:<host>:<port>` | SOCKS5 BIND (remote listen) |
+| TUN, INTERFACE | `TUN` / `INTERFACE:<if>` | Linux TUN/TAP + AF_PACKET; need `CAP_NET_ADMIN` |
+| WS, WSS | `WS:host:port`, `WSS-LISTEN:port`, … | WebSocket byte relay (Go extra) |
+| QUIC | `QUIC:host:port`, `QUIC-LISTEN:port` | RFC 9000 byte pipe (Go extra); **not** HTTP/3 |
+| SCTP | `SCTP4:host:port`, `SCTP4-LISTEN:port` | Linux one-to-one SCTP; needs `sctp` module |
+| POSIXMQ | `POSIXMQ-READ:/q`, `POSIXMQ-SEND:/q` | Linux POSIX message queues |
+
+### Options
+
+These are **address** options (`TYPE:params,option=value`), not CLI flags.
+`./socat -hh` lists every honored name. `./socat -hhh` adds aliases and
+termios / baud names.
 
 | Area | Options |
 |------|---------|
-| Listen/connect | `reuseaddr`, `so-reuseport`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `pf`, `ai-addrconfig`, `ipv6-v6only`, `backlog` |
-| Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport`, `tcpwrap` / `hosts-allow` / `hosts-deny` / `tcpwrap-etc` |
+| Listen / connect | `reuseaddr`, `so-reuseport`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `pf`, `ai-addrconfig`, `ipv6-v6only`, `backlog` |
+| Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport`, `tcpwrap` / `libwrap` / `hosts-allow` / `hosts-deny` / `tcpwrap-etc` |
 | TUN / INTERFACE | `tun-name`, `tun-type`, `tun-device`, `iff-up`, `iff-no-pi`, `if-mtu` / `interface-mtu`, other `iff-*` flags |
 | Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `umask`, `nonblock` |
 | UNIX | `unlink-early`, `unlink-close`, `unix-bind-tempname` / `bind-tempname` |
@@ -89,10 +149,10 @@ Advertised on `-hh` / `-hhh` (test.sh greps these). Highlights:
 | EXEC | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none`, `chdir`, `umask` (child inherits, then parent restores) |
 | PTY / TERMIOS | `link`, `cfmakeraw`/`raw`/`rawer`, `echo`, `opost`, baud/`ispeed`/`ospeed`, `tiocswinsz`, `pty-wait-slave`, `ctty`; restore tty on close |
 | Transfer | `crnl`, `crlf`, `ignoreeof`, `readbytes`, `retry`/`forever`/`interval` |
-| TLS | `cert`, `key`, `cafile`/`ca`, `capath`, `verify`, `commonname`, `snihost`, `nosni` (classic aliases: `openssl-capath`, `openssl-commonname`, `openssl-snihost`, `openssl-no-sni`; also `tls-capath`, `tls-commonname`, `tls-snihost`, `tls-no-sni`) |
+| TLS | `cert`, `key`, `cafile`/`ca`, `capath`, `verify`, `commonname`, `snihost`, `nosni` (also `openssl-*` / `tls-*` aliases) |
 | WebSocket | `path`, `origin`, `protocol` (binary frames; WSS reuses TLS options) |
 | QUIC | `alpn` (default `socat`; not `h3`); reuses TLS options; one bidirectional stream |
-| PROXY/SOCKS | `proxyport`, `http-version` (`1.0`/`1.1`/`2`/`3`), `h2c`, `proxy-authorization` / `proxy-authorization-file`, `socksport`, `socksuser` |
+| PROXY / SOCKS | `proxyport`, `http-version` (`1.0`/`1.1`/`2`/`3`), `h2c`, `proxy-authorization` / `proxy-authorization-file`, `socksport`, `socksuser` |
 | Namespaces | `netns=` (Linux `WITH_NAMESPACES`; one address open; root/`CAP_SYS_ADMIN`; `--experimental`) |
 
 **`max-children`:** limits concurrent `fork` sessions on **LISTEN** and on **CONNECT** / **TLS-CONNECT** client reconnect loops. Requires `fork`. Parent redials after `interval` (default 1s).
@@ -118,6 +178,7 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 | Topic | Status | Why / reference |
 |-------|--------|------------------|
 | **DSA certificates / keys** | Rejected | DSA is obsolete; Go `crypto/tls` does not parse DSA keys. Classic `OPENSSLLISTENDSA` fails by design. Use RSA, ECDSA, or Ed25519. See [Go crypto/tls](https://pkg.go.dev/crypto/tls) and [NIST SP 800-57 / deprecation of DSA](https://csrc.nist.gov/publications/detail/sp/800-57-part-1/rev-5/final). |
+| **DCCP, readline** | Not implemented | `#undef` in `-V`. No DCCP or GNU readline address type. |
 | **DTLS** | Not implemented | Not available in Go `crypto/tls` (stream TLS only). See [crypto/tls package docs](https://pkg.go.dev/crypto/tls). |
 | **SSLv3 / weak ciphers** | Not offered | Go TLS defaults reject obsolete protocols/ciphers. See [Go TLS cipher suites](https://go.dev/blog/tls-cipher-suites) and [crypto/tls Config](https://pkg.go.dev/crypto/tls#Config). |
 | **libwrap / TCP wrappers** | Implemented (pure Go) | No CGO/libwrap0; reads `hosts.allow`/`hosts.deny` (or `tcpwrap-etc=`). Subset: daemon ALL/name, client ALL/IP/hostname/`[ipv6]`. |
