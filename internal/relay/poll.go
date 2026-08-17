@@ -1,7 +1,6 @@
 package relay
 
-type pollfd struct {
-	Fd      int32
-	Events  int16
-	Revents int16
-}
+import "errors"
+
+// errPollIdle means the wait timed out or the fd was not readable yet; retry.
+var errPollIdle = errors.New("poll idle")

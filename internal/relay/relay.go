@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net"
 	"os"
 	"sync"
@@ -423,31 +422,18 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 			return 0, io.EOF
 		default:
 		}
-		if pfd, ok := PollFd(fd, pollIn); ok {
-			// Poll must see a slice element; a value copy leaves Revents at 0.
-			pfds := []pollfd{pfd}
-			n, err := poll(pfds, 50) // 50ms
-			// EINTR is common: Go uses SIGURG for preemption. Retry; n<0 is not readable.
-			if err != nil {
-				if err == syscall.EINTR {
-					continue
-				}
-				return 0, err
-			}
+		if fd >= 0 {
+			err := waitPollRead(fd, 50)
 			select {
 			case <-s.done:
 				return 0, io.EOF
 			default:
 			}
-			if n <= 0 {
-				continue
-			}
-			re := pfds[0].Revents
-			if re&pollIn == 0 {
-				if re&(pollHup|pollErr|pollNval) != 0 {
-					return 0, io.EOF
+			if err != nil {
+				if err == errPollIdle {
+					continue
 				}
-				continue
+				return 0, err
 			}
 		} else {
 			// No FD: fall back to short deadline if the stream supports it.
@@ -677,54 +663,4 @@ func ioFD(v any) int {
 		return int(f.Fd())
 	}
 	return -1
-}
-
-// PollFd builds a poll request if fd fits in the kernel pollfd.fd (int32).
-func PollFd(fd int, events int16) (pollfd, bool) {
-	if fd < 0 || fd > math.MaxInt32 {
-		return pollfd{}, false
-	}
-	return pollfd{Fd: int32(fd), Events: events}, true
-}
-
-// waitReadableAndWritable waits until src is readable and dst is writable
-// (classic select backpressure). If dst is closed/errored without being writable,
-// return an error without reading (preserve unread peer data — needed for STALL).
-func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
-	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		src, srcOK := PollFd(srcFD, pollIn)
-		dst, dstOK := PollFd(dstFD, pollOut)
-		if !srcOK || !dstOK {
-			return syscall.EBADF
-		}
-		pfd := []pollfd{src, dst}
-		n, err := poll(pfd, 100) // 100ms so we honour ctx
-		if err != nil {
-			if err == syscall.EINTR {
-				continue
-			}
-			return err
-		}
-		if n == 0 {
-			continue
-		}
-		srcRe := pfd[0].Revents
-		dstRe := pfd[1].Revents
-		// Destination dead and not writable: abort without consuming src.
-		if dstRe&(pollErr|pollHup|pollNval) != 0 && dstRe&pollOut == 0 {
-			return io.ErrClosedPipe
-		}
-		// Source closed: allow Read to return EOF.
-		if srcRe&(pollErr|pollHup|pollNval) != 0 && srcRe&pollIn == 0 {
-			return nil
-		}
-		srcReady := srcRe&pollIn != 0
-		dstReady := dstRe&pollOut != 0
-		if srcReady && dstReady {
-			return nil
-		}
-	}
 }
