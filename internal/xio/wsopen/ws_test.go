@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -144,21 +143,6 @@ func freeTCPPort(t *testing.T) int {
 	return port
 }
 
-func waitTCPPort(t *testing.T, port int, d time.Duration) {
-	t.Helper()
-	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-	deadline := time.Now().Add(d)
-	for time.Now().Before(deadline) {
-		ln, err := net.Listen("tcp", addr)
-		if err != nil {
-			return
-		}
-		_ = ln.Close()
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatal("listen not ready")
-}
-
 func startListenPIPE(t *testing.T, ctx context.Context, spec string) {
 	t.Helper()
 	ls, err := parse.ParseChannel(spec)
@@ -170,7 +154,12 @@ func startListenPIPE(t *testing.T, ctx context.Context, spec string) {
 		t.Fatal(err)
 	}
 	g := &xio.Global{Log: logx.New(), Linger: 200 * time.Millisecond}
-	go func() { _ = xio.Run(ctx, ls, pipe, g) }()
+	// Bind here so a readiness probe cannot steal the TCP port (macOS CI flake).
+	lo, err := xio.OpenChannel(ctx, ls, xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = xio.RunOpened(ctx, lo, pipe, g) }()
 }
 
 func echoRoundtrip(t *testing.T, st io.ReadWriter, payload []byte) {
@@ -192,7 +181,6 @@ func TestWSListenConnectEcho(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	startListenPIPE(t, ctx, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port))
-	waitTCPPort(t, port, 2*time.Second)
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("WS:127.0.0.1:%d", port))
 	if err != nil {
@@ -211,7 +199,6 @@ func TestWSListenPathMismatch(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	startListenPIPE(t, ctx, fmt.Sprintf("WS-LISTEN:%d/echo,reuseaddr,bind=127.0.0.1,fork", port))
-	waitTCPPort(t, port, 2*time.Second)
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("WS:127.0.0.1:%d/other", port))
 	if err != nil {
@@ -239,7 +226,6 @@ func TestWSListenPathOption(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	startListenPIPE(t, ctx, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,path=/ws", port))
-	waitTCPPort(t, port, 2*time.Second)
 
 	ok, err := parse.ParseSpec(fmt.Sprintf("WS:127.0.0.1:%d,path=/ws", port))
 	if err != nil {
@@ -258,7 +244,6 @@ func TestWSListenForkTwoClients(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	startListenPIPE(t, ctx, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port))
-	waitTCPPort(t, port, 2*time.Second)
 
 	for i, msg := range []string{"one", "two"} {
 		cs, err := parse.ParseSpec(fmt.Sprintf("WS:127.0.0.1:%d", port))
@@ -279,7 +264,6 @@ func TestWSSListenConnectEcho(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	startListenPIPE(t, ctx, fmt.Sprintf("WSS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, listenCert(t)))
-	waitTCPPort(t, port, 2*time.Second)
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("WSS:127.0.0.1:%d,verify=0", port))
 	if err != nil {
@@ -298,7 +282,6 @@ func TestWSListenOriginReject(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	startListenPIPE(t, ctx, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,origin=example.com", port))
-	waitTCPPort(t, port, 2*time.Second)
 
 	bad, err := parse.ParseSpec(fmt.Sprintf("WS:127.0.0.1:%d,origin=http://evil.com", port))
 	if err != nil {
@@ -325,7 +308,6 @@ func TestWSListenProtocol(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	startListenPIPE(t, ctx, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,protocol=chat", port))
-	waitTCPPort(t, port, 2*time.Second)
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("WS:127.0.0.1:%d,protocol=chat", port))
 	if err != nil {
