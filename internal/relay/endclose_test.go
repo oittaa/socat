@@ -19,13 +19,8 @@ func (e testEndClose) UnwrapStream() Stream { return e.Stream }
 // Hang repro: left EOFs immediately; right never EOFs; end-close suppresses Close.
 // Transfer must still exit after Linger.
 func TestTransferEndCloseExitsAfterLinger(t *testing.T) {
-	// left: /dev/null (immediate EOF on read)
-	null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = null.Close() }()
-
+	// left: immediate EOF on read (do not use os.DevNull: Windows NUL
+	// plus File.Fd() is a poor stand-in for a half-closed peer).
 	// right: pipe whose write end we keep open so Read never EOFs
 	pr, pw, err := os.Pipe()
 	if err != nil {
@@ -34,7 +29,7 @@ func TestTransferEndCloseExitsAfterLinger(t *testing.T) {
 	defer func() { _ = pr.Close() }()
 	defer func() { _ = pw.Close() }() // keep open → no EOF on pr
 
-	left := FDStream{R: null, W: null, C: null, CloseW: func() error { return nil }}
+	left := FDStream{R: eofReader{}, W: io.Discard, C: nopCloser{}, CloseW: func() error { return nil }}
 	rightInner := FDStream{R: pr, W: pr, C: pr, CloseW: func() error { return nil }}
 	right := testEndClose{Stream: rightInner}
 

@@ -298,9 +298,15 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, bytes, blocks *at
 		buf = buf[:cfg.BufferSize]
 	}
 
-	dstFD := streamWriteFD(dst)
-	srcFD := streamReadFD(src)
-	usePoll := canPoll() && dstFD >= 0 && srcFD >= 0
+	// Do not call File.Fd() unless we will poll: on Windows (and Unix)
+	// Fd() disables SetDeadline / IOCP, and then linger cannot unblock Read.
+	dstFD, srcFD := -1, -1
+	usePoll := false
+	if canPoll() {
+		dstFD = streamWriteFD(dst)
+		srcFD = streamReadFD(src)
+		usePoll = dstFD >= 0 && srcFD >= 0
+	}
 
 	for {
 		if ctx.Err() != nil {
@@ -351,7 +357,11 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, bytes, blocks *at
 					if dir == "<" {
 						sock = 2
 					}
-					cfg.OnEOF(sock, streamReadFD(src))
+					eofFD := -1
+					if canPoll() {
+						eofFD = streamReadFD(src)
+					}
+					cfg.OnEOF(sock, eofFD)
 				}
 				_ = dst.ShutdownWrite()
 				results <- dirResult{err: nil, dir: dir}
@@ -412,17 +422,24 @@ func newSessionWrap(inner Stream) *sessionWrap {
 }
 
 func (s *sessionWrap) Read(p []byte) (int, error) {
-	// Do not rely on SetReadDeadline: PTY masters (and some other FDs) ignore
-	// deadlines while a slave/peer stays open, which hung PTYENDCLOSE forever.
-	// Poll the underlying FD with a short timeout so Close can always stop us.
-	fd := streamReadFD(s.inner)
+	// Unix: poll so Close can stop us (PTY masters ignore SetReadDeadline).
+	// Windows: File.Fd() detaches IOCP and kills deadlines, so never call it;
+	// use SetReadDeadline instead (pipes and sockets honour it).
+	usePoll := canPoll()
+	fd := -1
+	if usePoll {
+		fd = streamReadFD(s.inner)
+		if fd < 0 {
+			usePoll = false
+		}
+	}
 	for {
 		select {
 		case <-s.done:
 			return 0, io.EOF
 		default:
 		}
-		if fd >= 0 && canPoll() {
+		if usePoll {
 			err := waitPollRead(fd, 50)
 			select {
 			case <-s.done:
@@ -436,11 +453,10 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 				return 0, err
 			}
 		} else {
-			// No FD: fall back to short deadline if the stream supports it.
 			setStreamReadDeadline(s.inner, time.Now().Add(50*time.Millisecond))
 		}
 		nr, err := s.inner.Read(p)
-		if fd < 0 {
+		if !usePoll {
 			setStreamReadDeadline(s.inner, time.Time{})
 		}
 		if err == nil {
@@ -532,6 +548,10 @@ func pokeReadDeadline(s Stream) {
 			time.Sleep(10 * time.Millisecond)
 			_ = d.SetReadDeadline(time.Time{})
 		}()
+	}
+	if sw, ok := s.(*sessionWrap); ok {
+		pokeReadDeadline(sw.inner)
+		return
 	}
 	// Streams that implement SetReadDeadline themselves (e.g. SOCKET raw dgram).
 	if d, ok := s.(interface{ SetReadDeadline(time.Time) error }); ok {
