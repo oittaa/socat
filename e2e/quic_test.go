@@ -15,12 +15,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
 
 func waitUDPListen(t *testing.T, port int, timeout time.Duration) {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		// Windows SO_REUSEADDR lets a second UDP bind succeed, so a
+		// ListenPacket probe cannot see that the server already holds the port.
+		time.Sleep(250 * time.Millisecond)
+		return
+	}
 	deadline := time.Now().Add(timeout)
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	for time.Now().Before(deadline) {

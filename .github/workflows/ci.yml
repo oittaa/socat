@@ -44,15 +44,10 @@ jobs:
         run: make test
       - name: Unit tests
         if: runner.os == 'Windows'
+        # gofmt is Ubuntu-only (lint job). Windows checkouts are CRLF unless
+        # .gitattributes forces LF; gofmt -l then lists every file.
         shell: bash
-        run: |
-          out=$(gofmt -l cmd e2e internal scripts/benchclient version.go)
-          if [ -n "$out" ]; then
-            echo "gofmt needed:" >&2
-            echo "$out" >&2
-            exit 1
-          fi
-          go test ./...
+        run: go test ./...
 
   e2e:
     name: e2e (${{ matrix.name }})
