@@ -39,7 +39,9 @@ func TestParseTCPWrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg3 := parseTCPWrap(s3, nil)
-	if !cfg3.enabled || cfg3.allow != "/etc/foo/hosts.allow" || cfg3.deny != "/etc/foo/hosts.deny" {
+	wantAllow := filepath.Join("/etc/foo", "hosts.allow")
+	wantDeny := filepath.Join("/etc/foo", "hosts.deny")
+	if !cfg3.enabled || cfg3.allow != wantAllow || cfg3.deny != wantDeny {
 		t.Fatalf("tcpwrap-etc: %+v", cfg3)
 	}
 }

@@ -7,12 +7,15 @@ import (
 	"time"
 )
 
-// waitPollRead has no WSAPoll in x/sys/windows. Sleep, then let Read run.
+func canPoll() bool { return false }
+
+// waitPollRead has no WSAPoll in x/sys/windows. Callers must use canPoll()
+// and the SetReadDeadline loop; this stub must not claim the fd is ready.
 func waitPollRead(_ int, timeoutMs int) error {
 	if timeoutMs > 0 {
 		time.Sleep(time.Duration(timeoutMs) * time.Millisecond)
 	}
-	return nil
+	return errPollIdle
 }
 
 func waitReadableAndWritable(ctx context.Context, _, _ int) error {

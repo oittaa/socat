@@ -300,7 +300,7 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, bytes, blocks *at
 
 	dstFD := streamWriteFD(dst)
 	srcFD := streamReadFD(src)
-	usePoll := dstFD >= 0 && srcFD >= 0
+	usePoll := canPoll() && dstFD >= 0 && srcFD >= 0
 
 	for {
 		if ctx.Err() != nil {
@@ -422,7 +422,7 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 			return 0, io.EOF
 		default:
 		}
-		if fd >= 0 {
+		if fd >= 0 && canPoll() {
 			err := waitPollRead(fd, 50)
 			select {
 			case <-s.done:

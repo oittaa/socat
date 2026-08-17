@@ -19,6 +19,8 @@ const (
 	pollNval = unix.POLLNVAL
 )
 
+func canPoll() bool { return true }
+
 func pollFd(fd int, events int16) (unix.PollFd, bool) {
 	if fd < 0 || fd > math.MaxInt32 {
 		return unix.PollFd{}, false
