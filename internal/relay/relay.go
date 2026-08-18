@@ -523,9 +523,10 @@ func setStreamReadDeadline(s Stream, deadline time.Time) {
 		return
 	}
 	if fs, ok := s.(FDStream); ok {
-		if f, ok := fs.R.(*os.File); ok {
-			_ = f.SetReadDeadline(deadline)
+		if d, ok := fs.R.(interface{ SetReadDeadline(time.Time) error }); ok {
+			_ = d.SetReadDeadline(deadline)
 		}
+		return
 	}
 }
 
@@ -565,8 +566,8 @@ func pokeReadDeadline(s Stream) {
 		}
 	}
 	if t, ok := s.(FDStream); ok {
-		if f, ok := t.R.(*os.File); ok {
-			set(f)
+		if d, ok := t.R.(interface{ SetReadDeadline(time.Time) error }); ok {
+			set(d)
 			return
 		}
 	}

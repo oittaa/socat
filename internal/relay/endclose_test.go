@@ -3,7 +3,7 @@ package relay
 import (
 	"context"
 	"io"
-	"os"
+	"net"
 	"testing"
 	"time"
 )
@@ -19,18 +19,14 @@ func (e testEndClose) UnwrapStream() Stream { return e.Stream }
 // Hang repro: left EOFs immediately; right never EOFs; end-close suppresses Close.
 // Transfer must still exit after Linger.
 func TestTransferEndCloseExitsAfterLinger(t *testing.T) {
-	// left: immediate EOF on read (do not use os.DevNull: Windows NUL
-	// plus File.Fd() is a poor stand-in for a half-closed peer).
-	// right: pipe whose write end we keep open so Read never EOFs
-	pr, pw, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = pr.Close() }()
-	defer func() { _ = pw.Close() }() // keep open → no EOF on pr
+	// left: immediate EOF on read
+	// right: stream whose write end we keep open so Read never EOFs
+	c1, c2 := net.Pipe()
+	defer func() { _ = c1.Close() }()
+	defer func() { _ = c2.Close() }() // keep open → no EOF on c1
 
 	left := FDStream{R: eofReader{}, W: io.Discard, C: nopCloser{}, CloseW: func() error { return nil }}
-	rightInner := FDStream{R: pr, W: pr, C: pr, CloseW: func() error { return nil }}
+	rightInner := NetStream{Conn: c1}
 	right := testEndClose{Stream: rightInner}
 
 	ctx := context.Background()
@@ -58,14 +54,11 @@ func TestTransferEndCloseExitsAfterLinger(t *testing.T) {
 
 // sessionWrap must Read after poll reports ready (Revents on the slice, not a copy).
 func TestTransferEndCloseCopiesData(t *testing.T) {
-	pr, pw, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = pr.Close() }()
+	c1, c2 := net.Pipe()
+	defer func() { _ = c1.Close() }()
 
 	var got []byte
-	leftInner := FDStream{R: pr, W: pr, C: pr, CloseW: func() error { return nil }}
+	leftInner := NetStream{Conn: c1}
 	left := testEndClose{Stream: leftInner}
 	right := FDStream{
 		R:      eofReader{},
@@ -84,10 +77,10 @@ func TestTransferEndCloseCopiesData(t *testing.T) {
 			NoCloseLeft: true,
 		})
 	}()
-	if _, err := pw.Write([]byte("hello")); err != nil {
+	if _, err := c2.Write([]byte("hello")); err != nil {
 		t.Fatal(err)
 	}
-	_ = pw.Close()
+	_ = c2.Close()
 
 	select {
 	case err := <-done:
