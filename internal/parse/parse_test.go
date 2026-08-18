@@ -281,3 +281,76 @@ func TestParseRESTORESystem(t *testing.T) {
 	}
 	t.Logf("params=%q opts=%+v", spec.Params, spec.Options)
 }
+
+func TestParseWindowsCreatePath(t *testing.T) {
+	// Go t.TempDir() uses ...\001\...; \0 must stay a path, not a NUL.
+	path := `C:\Users\RUNNER~1\AppData\Local\Temp\TestFileCreate1\001\out.txt`
+	ch, err := ParseChannel("CREATE:" + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.Single == nil || ch.Single.Type != "CREATE" {
+		t.Fatalf("got %+v", ch.Single)
+	}
+	if len(ch.Single.Params) != 1 || ch.Single.Params[0] != path {
+		t.Fatalf("params %q", ch.Single.Params)
+	}
+}
+
+func TestParseWindowsForwardSlashDrive(t *testing.T) {
+	path := `C:/Users/foo/out.txt`
+	ch, err := ParseChannel("CREATE:" + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ch.Single.Params) != 1 || ch.Single.Params[0] != path {
+		t.Fatalf("params %q", ch.Single.Params)
+	}
+}
+
+func TestParseWindowsCertOption(t *testing.T) {
+	cert := `C:\Users\x\AppData\Local\Temp\t\001\c.pem`
+	s, err := ParseSpec("TLS-LISTEN:443,reuseaddr,cert=" + cert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Type != "TLS-LISTEN" || len(s.Params) != 1 || s.Params[0] != "443" {
+		t.Fatalf("spec %+v", s)
+	}
+	if got := s.OptionValue("cert", ""); got != cert {
+		t.Fatalf("cert %q", got)
+	}
+}
+
+func TestParseWindowsQuotedDrive(t *testing.T) {
+	path := `C:\Temp\out.txt`
+	ch, err := ParseChannel(`CREATE:"` + path + `"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ch.Single.Params) != 1 || ch.Single.Params[0] != path {
+		t.Fatalf("params %q", ch.Single.Params)
+	}
+}
+
+func TestParseWindowsGOPEN(t *testing.T) {
+	path := `C:\foo\bar`
+	ch, err := ParseChannel(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.Single.Type != "GOPEN" || len(ch.Single.Params) != 1 || ch.Single.Params[0] != path {
+		t.Fatalf("got %+v", ch.Single)
+	}
+}
+
+func TestParseWindowsUNC(t *testing.T) {
+	path := `\\server\share\file.txt`
+	ch, err := ParseChannel("OPEN:" + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.Single.Type != "OPEN" || len(ch.Single.Params) != 1 || ch.Single.Params[0] != path {
+		t.Fatalf("got %+v", ch.Single)
+	}
+}

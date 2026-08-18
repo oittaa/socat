@@ -2,6 +2,7 @@
 /filan
 /procan
 /bin/
+*.exe
 *.test
 *.out
 /tmp/

@@ -12,7 +12,6 @@ import (
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
-	"golang.org/x/sys/unix"
 )
 
 // TEXT:<string> — input is the string (with classic escapes); output goes to stdout.
@@ -114,31 +113,6 @@ func openSTALL(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 	// When idle timeout cancels, Close() runs cleanup and unblocks.
 	_ = closeFDs
 	return &xio.Opened{Stream: stream, Label: "STALL"}, nil
-}
-
-// fillPipe writes zeros until the pipe buffer is full (classic STALL write side).
-func fillPipe(pw *os.File) {
-	sz := pipeBufSize(pw)
-	// Non-blocking fill
-	raw, err := pw.SyscallConn()
-	if err != nil {
-		return
-	}
-	_ = raw.Control(func(fd uintptr) {
-		flags, _ := unix.FcntlInt(fd, unix.F_GETFL, 0)
-		_, _ = unix.FcntlInt(fd, unix.F_SETFL, flags|unix.O_NONBLOCK)
-		zeros := make([]byte, sz)
-		for {
-			n, err := unix.Write(int(fd), zeros)
-			if n < 0 || err != nil {
-				break
-			}
-			if n < len(zeros) {
-				break
-			}
-		}
-		_, _ = unix.FcntlInt(fd, unix.F_SETFL, flags)
-	})
 }
 
 type multiCloserFuncs []func()

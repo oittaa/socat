@@ -11,7 +11,6 @@ import (
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
-	"golang.org/x/sys/unix"
 )
 
 // FileStream wraps *os.File with proper half-close via shutdown(2) when possible.
@@ -23,7 +22,7 @@ func FileStream(f *os.File) relay.Stream {
 		W: f,
 		C: f,
 		CloseW: func() error {
-			err := unix.Shutdown(int(f.Fd()), unix.SHUT_WR)
+			err := ShutdownWrite(int(f.Fd()))
 			if err == nil {
 				return nil
 			}

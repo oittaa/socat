@@ -40,7 +40,7 @@ func socatBin(t *testing.T) string {
 	if p := os.Getenv("SOCAT"); p != "" {
 		return p
 	}
-	candidates := []string{"../socat", "./socat", "socat"}
+	candidates := []string{"../socat", "./socat", "socat", "../socat.exe", "./socat.exe", "socat.exe"}
 	for _, c := range candidates {
 		if st, err := os.Stat(c); err == nil && !st.IsDir() {
 			abs, _ := filepath.Abs(c)
@@ -245,6 +245,9 @@ func TestSCTP4Echo(t *testing.T) {
 }
 
 func TestVersionHasTERMIOS(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("no termios on Windows")
+	}
 	bin := socatBin(t)
 	out, err := exec.Command(bin, "-V").CombinedOutput()
 	if err != nil {
@@ -396,6 +399,9 @@ func TestHelp(t *testing.T) {
 // TestTCPConnectMaxChildren — classic TCP_CONNECT_MAXCHILDREN shape:
 // CONNECT,fork,max-children=2 with a slow EXEC producer and a forking listener.
 func TestTCPConnectMaxChildren(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("EXEC is not supported on Windows")
+	}
 	bin := socatBin(t)
 	port := freePort(t)
 	dir := t.TempDir()

@@ -28,6 +28,48 @@ type helpOptGroup struct {
 	opts  []helpOpt
 }
 
+func hideAddr(syntax string) bool {
+	switch {
+	case syntax == "SOCKETPAIR":
+		return !xio.FeatureSOCKETPAIR
+	case syntax == "STALL":
+		return !xio.FeatureSTALL
+	case syntax == "PTY":
+		return !xio.FeaturePTY
+	case len(syntax) >= 9 && syntax[:9] == "ABSTRACT-":
+		return !xio.FeatureABSTRACT
+	case len(syntax) >= 3 && (syntax[:3] == "IP:" || syntax[:3] == "IP4" || syntax[:3] == "IP6" || syntax[:3] == "IP-"):
+		return !xio.FeatureRAWIP
+	case len(syntax) >= 7 && syntax[:7] == "SOCKET-":
+		return !xio.FeatureGENERICSOCKET
+	case syntax == "EXEC:<command-line>" || syntax == "SYSTEM:<shell-command>" || len(syntax) >= 5 && syntax[:5] == "SHELL":
+		return !xio.FeatureEXEC
+	case syntax == "TUN[:<ip>/<bits>]" || len(syntax) >= 10 && syntax[:10] == "INTERFACE:":
+		return !xio.FeatureTUN && !xio.FeatureINTERFACE
+	case len(syntax) >= 4 && syntax[:4] == "SCTP":
+		return !xio.FeatureSCTP
+	case len(syntax) >= 7 && syntax[:7] == "POSIXMQ":
+		return !xio.FeaturePOSIXMQ
+	default:
+		return false
+	}
+}
+
+func hideOptGroup(title string) bool {
+	switch title {
+	case "PTY and TERMIOS":
+		return !xio.FeaturePTY && !xio.FeatureTERMIOS
+	case "POSIX message queues":
+		return !xio.FeaturePOSIXMQ
+	case "TUN and INTERFACE":
+		return !xio.FeatureTUN && !xio.FeatureINTERFACE
+	case "Namespaces":
+		return !xio.FeatureNAMESPACES
+	default:
+		return false
+	}
+}
+
 func printHelp(w io.Writer, level int) {
 	fprintf(w, "socat %s by oittaa — multipurpose relay (Go)\n\n", socat.Version)
 	fprintf(w, "Usage:\n")
@@ -73,14 +115,22 @@ func printHelpFlags(w io.Writer) {
 func printHelpAddresses(w io.Writer) {
 	fprintf(w, "\nAddress types:\n")
 	for _, g := range helpAddressGroups() {
+		var addrs []helpAddr
 		width := 0
 		for _, a := range g.addrs {
+			if hideAddr(a.syntax) {
+				continue
+			}
+			addrs = append(addrs, a)
 			if n := len(a.syntax); n > width {
 				width = n
 			}
 		}
+		if len(addrs) == 0 {
+			continue
+		}
 		fprintf(w, "\n  %s\n", g.title)
-		for _, a := range g.addrs {
+		for _, a := range addrs {
 			fprintf(w, "    %-*s  %s\n", width, a.syntax, a.desc)
 		}
 	}
@@ -92,6 +142,9 @@ func printHelpOptions(w io.Writer, all bool) {
 	groups := helpOptionGroups()
 	width := 0
 	for _, g := range groups {
+		if hideOptGroup(g.title) {
+			continue
+		}
 		for _, o := range g.opts {
 			if n := len(o.name); n > width {
 				width = n
@@ -112,6 +165,9 @@ func printHelpOptions(w io.Writer, all bool) {
 		}
 	}
 	for _, g := range groups {
+		if hideOptGroup(g.title) {
+			continue
+		}
 		fprintf(w, "\n  %s\n", g.title)
 		for _, o := range g.opts {
 			printOptLine(w, o.name, o.desc, width)

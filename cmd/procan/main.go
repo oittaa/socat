@@ -1,4 +1,6 @@
 // procan — process analyzer (classic socat companion).
+//go:build unix
+
 package main
 
 import (

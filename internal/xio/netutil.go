@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
-	"golang.org/x/sys/unix"
 )
 
 // ApplyReuse sets SO_REUSEADDR and optional SO_REUSEPORT on fd.
@@ -23,10 +22,10 @@ func ApplyReuse(fd int, s parse.Spec, reuseaddrDefault bool) {
 		reuse = s.BoolOption("reuseaddr")
 	}
 	if reuse {
-		_ = unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
+		_ = setSockoptInt(fd, solSocket, soReuseaddr, 1)
 	}
-	if s.BoolOption("reuseport") {
-		_ = unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEPORT, 1)
+	if s.BoolOption("reuseport") && soReuseport != 0 {
+		_ = setSockoptInt(fd, solSocket, soReuseport, 1)
 	}
 }
 
@@ -43,11 +42,11 @@ func ApplyReuseAndV6Only(fd int, s parse.Spec, network string) {
 		if s.BoolOption("ipv6-v6only") {
 			v = 1
 		}
-		_ = unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_V6ONLY, v)
+		_ = setSockoptInt(fd, ipprotoIPv6, ipv6V6only, v)
 		return
 	}
 	if network == "tcp" || network == "udp" {
-		_ = unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_V6ONLY, 0)
+		_ = setSockoptInt(fd, ipprotoIPv6, ipv6V6only, 0)
 	}
 }
 
@@ -223,7 +222,7 @@ func ApplySetsockoptFD(fd int, spec string) error {
 	if err != nil {
 		return fmt.Errorf("setsockopt value: %w", err)
 	}
-	return syscall.SetsockoptInt(fd, level, opt, val)
+	return setSockoptInt(fd, level, opt, val)
 }
 
 // FormatSocatAddr matches classic env formatting (IPv6 in brackets).

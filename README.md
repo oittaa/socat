@@ -208,7 +208,8 @@ make gosec         # security scan; suppress only at the call site with #nosec
 ```
 
 GitHub Actions runs those four checks on `master` and on pull requests.
-Unit and e2e also run on macOS (`macos-latest`).
+Unit and e2e run on Linux amd64, Linux arm64, macOS, Windows amd64, and Windows arm64.
+Lint and gosec stay on Ubuntu. `-V` / `-h` only list features that work on that OS.
 Classic `test.sh` is not in CI (runners are sandboxed). Scorecard:
 [testdata/scorecard/README.md](testdata/scorecard/README.md).
 

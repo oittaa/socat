@@ -419,10 +419,10 @@ func Main(args []string) int {
 	// Also unlink registered FS entries (UNIX/PIPE/PTY link) before Exit so
 	// REMOVE* tests pass — os.Exit skips Opened.Close / SetUnlinkOnClose.
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM, syscall.SIGILL, syscall.SIGQUIT, syscall.SIGHUP)
+	notifyExitSignals(sigCh)
 	defer signal.Stop(sigCh)
 	usr1 := make(chan os.Signal, 1)
-	signal.Notify(usr1, syscall.SIGUSR1)
+	notifyStatsSignal(usr1)
 	defer signal.Stop(usr1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -487,16 +487,16 @@ func printVersion(w io.Writer) {
 		{"GOPEN", true},
 		{"TERMIOS", xio.FeatureTERMIOS},
 		{"PIPE", true},
-		{"STALL", true},
+		{"STALL", xio.FeatureSTALL},
 		{"TEXT", true},
-		{"SOCKETPAIR", true},
+		{"SOCKETPAIR", xio.FeatureSOCKETPAIR},
 		{"UNIX", true},
-		{"ABSTRACT_UNIXSOCKET", true},
+		{"ABSTRACT_UNIXSOCKET", xio.FeatureABSTRACT},
 		{"IP4", true},
 		{"IP6", true},
-		{"RAWIP", true},
-		{"GENERICSOCKET", false},
-		{"INTERFACE", true}, // Linux AF_PACKET SOCK_RAW
+		{"RAWIP", xio.FeatureRAWIP},
+		{"GENERICSOCKET", xio.FeatureGENERICSOCKET},
+		{"INTERFACE", xio.FeatureINTERFACE},
 		{"TCP", true},
 		{"UDP", true},
 		{"SCTP", xio.FeatureSCTP},
@@ -510,12 +510,12 @@ func printVersion(w io.Writer) {
 		{"VSOCK", false},
 		{"NAMESPACES", xio.FeatureNAMESPACES},
 		{"PROXY", true},
-		{"SYSTEM", true},
-		{"SHELL", true},
-		{"EXEC", true},
+		{"SYSTEM", xio.FeatureEXEC},
+		{"SHELL", xio.FeatureEXEC},
+		{"EXEC", xio.FeatureEXEC},
 		{"READLINE", false},
-		{"TUN", true}, // Linux /dev/net/tun
-		{"PTY", true},
+		{"TUN", xio.FeatureTUN},
+		{"PTY", xio.FeaturePTY},
 		{"TLS", true},     // stream TLS via crypto/tls (not DTLS)
 		{"OPENSSL", true}, // alias of TLS (classic drop-in)
 		{"FIPS", false},

@@ -6,15 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net"
 	"os"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 // Config controls transfer behavior.
@@ -301,9 +298,15 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, bytes, blocks *at
 		buf = buf[:cfg.BufferSize]
 	}
 
-	dstFD := streamWriteFD(dst)
-	srcFD := streamReadFD(src)
-	usePoll := dstFD >= 0 && srcFD >= 0
+	// Do not call File.Fd() unless we will poll: on Windows (and Unix)
+	// Fd() disables SetDeadline / IOCP, and then linger cannot unblock Read.
+	dstFD, srcFD := -1, -1
+	usePoll := false
+	if canPoll() {
+		dstFD = streamWriteFD(dst)
+		srcFD = streamReadFD(src)
+		usePoll = dstFD >= 0 && srcFD >= 0
+	}
 
 	for {
 		if ctx.Err() != nil {
@@ -354,7 +357,11 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, bytes, blocks *at
 					if dir == "<" {
 						sock = 2
 					}
-					cfg.OnEOF(sock, streamReadFD(src))
+					eofFD := -1
+					if canPoll() {
+						eofFD = streamReadFD(src)
+					}
+					cfg.OnEOF(sock, eofFD)
 				}
 				_ = dst.ShutdownWrite()
 				results <- dirResult{err: nil, dir: dir}
@@ -415,48 +422,41 @@ func newSessionWrap(inner Stream) *sessionWrap {
 }
 
 func (s *sessionWrap) Read(p []byte) (int, error) {
-	// Do not rely on SetReadDeadline: PTY masters (and some other FDs) ignore
-	// deadlines while a slave/peer stays open, which hung PTYENDCLOSE forever.
-	// Poll the underlying FD with a short timeout so Close can always stop us.
-	fd := streamReadFD(s.inner)
+	// Unix: poll so Close can stop us (PTY masters ignore SetReadDeadline).
+	// Windows: File.Fd() detaches IOCP and kills deadlines, so never call it;
+	// use SetReadDeadline instead (pipes and sockets honour it).
+	usePoll := canPoll()
+	fd := -1
+	if usePoll {
+		fd = streamReadFD(s.inner)
+		if fd < 0 {
+			usePoll = false
+		}
+	}
 	for {
 		select {
 		case <-s.done:
 			return 0, io.EOF
 		default:
 		}
-		if pfd, ok := PollFd(fd, unix.POLLIN); ok {
-			// Poll must see a slice element; a value copy leaves Revents at 0.
-			pfds := []unix.PollFd{pfd}
-			n, err := unix.Poll(pfds, 50) // 50ms
-			// EINTR is common: Go uses SIGURG for preemption. Retry; n<0 is not readable.
-			if err != nil {
-				if err == syscall.EINTR {
-					continue
-				}
-				return 0, err
-			}
+		if usePoll {
+			err := waitPollRead(fd, 50)
 			select {
 			case <-s.done:
 				return 0, io.EOF
 			default:
 			}
-			if n <= 0 {
-				continue
-			}
-			re := pfds[0].Revents
-			if re&unix.POLLIN == 0 {
-				if re&(unix.POLLHUP|unix.POLLERR|unix.POLLNVAL) != 0 {
-					return 0, io.EOF
+			if err != nil {
+				if err == errPollIdle {
+					continue
 				}
-				continue
+				return 0, err
 			}
 		} else {
-			// No FD: fall back to short deadline if the stream supports it.
 			setStreamReadDeadline(s.inner, time.Now().Add(50*time.Millisecond))
 		}
 		nr, err := s.inner.Read(p)
-		if fd < 0 {
+		if !usePoll {
 			setStreamReadDeadline(s.inner, time.Time{})
 		}
 		if err == nil {
@@ -523,9 +523,10 @@ func setStreamReadDeadline(s Stream, deadline time.Time) {
 		return
 	}
 	if fs, ok := s.(FDStream); ok {
-		if f, ok := fs.R.(*os.File); ok {
-			_ = f.SetReadDeadline(deadline)
+		if d, ok := fs.R.(interface{ SetReadDeadline(time.Time) error }); ok {
+			_ = d.SetReadDeadline(deadline)
 		}
+		return
 	}
 }
 
@@ -549,6 +550,10 @@ func pokeReadDeadline(s Stream) {
 			_ = d.SetReadDeadline(time.Time{})
 		}()
 	}
+	if sw, ok := s.(*sessionWrap); ok {
+		pokeReadDeadline(sw.inner)
+		return
+	}
 	// Streams that implement SetReadDeadline themselves (e.g. SOCKET raw dgram).
 	if d, ok := s.(interface{ SetReadDeadline(time.Time) error }); ok {
 		set(d)
@@ -561,8 +566,8 @@ func pokeReadDeadline(s Stream) {
 		}
 	}
 	if t, ok := s.(FDStream); ok {
-		if f, ok := t.R.(*os.File); ok {
-			set(f)
+		if d, ok := t.R.(interface{ SetReadDeadline(time.Time) error }); ok {
+			set(d)
 			return
 		}
 	}
@@ -679,54 +684,4 @@ func ioFD(v any) int {
 		return int(f.Fd())
 	}
 	return -1
-}
-
-// PollFd builds a poll(2) request if fd fits in the kernel pollfd.fd (int32).
-func PollFd(fd int, events int16) (unix.PollFd, bool) {
-	if fd < 0 || fd > math.MaxInt32 {
-		return unix.PollFd{}, false
-	}
-	return unix.PollFd{Fd: int32(fd), Events: events}, true
-}
-
-// waitReadableAndWritable waits until src is readable and dst is writable
-// (classic select backpressure). If dst is closed/errored without being writable,
-// return an error without reading (preserve unread peer data — needed for STALL).
-func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
-	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		src, srcOK := PollFd(srcFD, unix.POLLIN)
-		dst, dstOK := PollFd(dstFD, unix.POLLOUT)
-		if !srcOK || !dstOK {
-			return syscall.EBADF
-		}
-		pfd := []unix.PollFd{src, dst}
-		n, err := unix.Poll(pfd, 100) // 100ms so we honour ctx
-		if err != nil {
-			if err == syscall.EINTR {
-				continue
-			}
-			return err
-		}
-		if n == 0 {
-			continue
-		}
-		srcRe := pfd[0].Revents
-		dstRe := pfd[1].Revents
-		// Destination dead and not writable: abort without consuming src.
-		if dstRe&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 && dstRe&unix.POLLOUT == 0 {
-			return io.ErrClosedPipe
-		}
-		// Source closed: allow Read to return EOF.
-		if srcRe&(unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 && srcRe&unix.POLLIN == 0 {
-			return nil
-		}
-		srcReady := srcRe&unix.POLLIN != 0
-		dstReady := dstRe&unix.POLLOUT != 0
-		if srcReady && dstReady {
-			return nil
-		}
-	}
 }

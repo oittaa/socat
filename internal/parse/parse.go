@@ -349,6 +349,9 @@ func splitColonParams(s string) ([]string, error) {
 			}
 		case ':':
 			if depthParen == 0 && depthBrace == 0 && depthBracket == 0 {
+				if isWindowsDriveColon(s, start, i) {
+					continue
+				}
 				parts = append(parts, unquote(s[start:i]))
 				start = i + 1
 			}
@@ -570,13 +573,21 @@ func unquote(s string) string {
 	s = strings.TrimSpace(s)
 	if len(s) >= 2 {
 		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
-			return expandSlashEscapes(s[1 : len(s)-1])
+			s = s[1 : len(s)-1]
+			if looksLikeWindowsPath(s) {
+				return s
+			}
+			return expandSlashEscapes(s)
 		}
 	}
 	// Strip nesting quotes used to hide commas/colons (classic nestlex).
 	// e.g. (,)[,]{,}","([),]) → (,)[,]{,},([),])
 	if strings.ContainsAny(s, `"'`) {
 		s = stripNestingQuotes(s)
+	}
+	// Native Windows paths keep backslashes; \t \0 \xHH would corrupt Temp\ and \001.
+	if looksLikeWindowsPath(s) {
+		return s
 	}
 	if !strings.Contains(s, `\`) {
 		return s
@@ -694,7 +705,11 @@ func isAllDigits(s string) bool {
 }
 
 func looksLikePath(s string) bool {
-	// Classic: if '/' before first ':' or ',', assume GOPEN
+	// Classic: if '/' before first ':' or ',', assume GOPEN.
+	// Native Windows: C:\..., C:/..., or UNC \\server\share.
+	if looksLikeWindowsPath(s) {
+		return true
+	}
 	for i := 0; i < len(s); i++ {
 		switch s[i] {
 		case '/':
@@ -704,6 +719,30 @@ func looksLikePath(s string) bool {
 		}
 	}
 	return false
+}
+
+// looksLikeWindowsPath reports a native Windows path: drive + slash or UNC.
+func looksLikeWindowsPath(s string) bool {
+	if len(s) >= 3 {
+		c := s[0]
+		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) && s[1] == ':' && (s[2] == '\\' || s[2] == '/') {
+			return true
+		}
+	}
+	return len(s) >= 2 && s[0] == '\\' && s[1] == '\\'
+}
+
+// isWindowsDriveColon reports the colon in X:\ or X:/ at the start of s[start:].
+func isWindowsDriveColon(s string, start, i int) bool {
+	if i != start+1 || i+1 >= len(s) {
+		return false
+	}
+	c := s[start]
+	if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') {
+		return false
+	}
+	n := s[i+1]
+	return n == '\\' || n == '/'
 }
 
 // ParseFD parses an FD number parameter.
