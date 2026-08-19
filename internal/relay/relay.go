@@ -127,6 +127,11 @@ var bufPool = sync.Pool{
 	},
 }
 
+// Avoid pinning one-off user-selected buffers as large as 256 MiB in the
+// process-wide pool. Typical and moderately enlarged relay buffers still reuse
+// allocations; exceptionally large buffers are released after the transfer.
+const maxPooledBufferSize = 256 << 10
+
 func getBuf(size int) *[]byte {
 	bp := bufPool.Get().(*[]byte)
 	if cap(*bp) < size {
@@ -139,6 +144,10 @@ func getBuf(size int) *[]byte {
 
 func putBuf(bp *[]byte) {
 	bufPool.Put(bp)
+}
+
+func shouldPoolBuffer(capacity int) bool {
+	return capacity <= maxPooledBufferSize
 }
 
 // Transfer copies data bidirectionally between left and right until both directions finish.
@@ -315,8 +324,14 @@ func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Du
 
 func copyDir(ctx context.Context, dst, src Stream, dir string, dstFD, srcFD int, bytes, blocks *atomic.Uint64, cfg Config, touch func(), results chan<- dirResult, wg *sync.WaitGroup) {
 	defer wg.Done()
-	bp := getBuf(cfg.BufferSize)
-	defer putBuf(bp)
+	var bp *[]byte
+	if shouldPoolBuffer(cfg.BufferSize) {
+		bp = getBuf(cfg.BufferSize)
+		defer putBuf(bp)
+	} else {
+		b := make([]byte, cfg.BufferSize)
+		bp = &b
+	}
 	buf := *bp
 	if cap(buf) < cfg.BufferSize {
 		buf = make([]byte, cfg.BufferSize)
@@ -342,7 +357,10 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, dstFD, srcFD int,
 			touch()
 			data := buf[:nr]
 			if cfg.Verbose || cfg.Hex {
-				dump(cfg, dir, data)
+				if err := dump(cfg, dir, data); err != nil {
+					results <- dirResult{err: fmt.Errorf("verbose dump: %w", err), dir: dir}
+					return
+				}
 			}
 			if dir == ">" && cfg.RawLeft != nil {
 				if err := writeDump(cfg.RawLeft, data); err != nil {
@@ -431,39 +449,92 @@ func (s *closeSerialStream) ShutdownWrite() error {
 
 func (s *closeSerialStream) UnwrapStream() Stream { return s.Stream }
 
-func dump(cfg Config, dir string, data []byte) {
+func dump(cfg Config, dir string, data []byte) error {
 	if cfg.Dump == nil {
-		return
+		return nil
 	}
-	prefix := dir + " "
+	const maxDumpOutputBuffer = 256 << 10
+	maxEncoded := 4 * len(data)
 	if cfg.Hex {
-		_, _ = fmt.Fprintf(cfg.Dump, "%s", prefix)
+		maxEncoded = 3 * len(data)
+	}
+	if len(dir)+2+maxEncoded > maxDumpOutputBuffer {
+		return dumpLarge(cfg, dir, data)
+	}
+	out := make([]byte, 0, len(dir)+2+maxEncoded)
+	out = append(out, dir...)
+	out = append(out, ' ')
+	const hexDigits = "0123456789abcdef"
+	if cfg.Hex {
 		for i, b := range data {
 			if i > 0 {
-				_, _ = fmt.Fprint(cfg.Dump, " ")
+				out = append(out, ' ')
 			}
-			_, _ = fmt.Fprintf(cfg.Dump, "%02x", b)
+			out = append(out, hexDigits[b>>4], hexDigits[b&0x0f])
 		}
-		_, _ = fmt.Fprintln(cfg.Dump)
-		return
+		out = append(out, '\n')
+		return writeDump(cfg.Dump, out)
 	}
 	// text mode with simple escapes
-	_, _ = fmt.Fprint(cfg.Dump, prefix)
 	for _, b := range data {
 		switch {
 		case b == '\n':
-			_, _ = fmt.Fprint(cfg.Dump, "\\n")
+			out = append(out, '\\', 'n')
 		case b == '\r':
-			_, _ = fmt.Fprint(cfg.Dump, "\\r")
+			out = append(out, '\\', 'r')
 		case b == '\t':
-			_, _ = fmt.Fprint(cfg.Dump, "\\t")
+			out = append(out, '\\', 't')
 		case b < 32 || b >= 127:
-			_, _ = fmt.Fprintf(cfg.Dump, "\\x%02x", b)
+			out = append(out, '\\', 'x', hexDigits[b>>4], hexDigits[b&0x0f])
 		default:
-			_, _ = fmt.Fprint(cfg.Dump, string(b))
+			out = append(out, b)
 		}
 	}
-	_, _ = fmt.Fprintln(cfg.Dump)
+	out = append(out, '\n')
+	return writeDump(cfg.Dump, out)
+}
+
+// dumpLarge preserves the single-line dump format without allocating up to
+// four times an arbitrarily large relay buffer. Normal 8 KiB dumps stay on the
+// faster single-write path above.
+func dumpLarge(cfg Config, dir string, data []byte) error {
+	if err := writeDump(cfg.Dump, []byte(dir+" ")); err != nil {
+		return err
+	}
+	const inputChunk = 64 << 10
+	const hexDigits = "0123456789abcdef"
+	for start := 0; start < len(data); start += inputChunk {
+		end := min(start+inputChunk, len(data))
+		chunk := data[start:end]
+		out := make([]byte, 0, 4*len(chunk))
+		if cfg.Hex {
+			for i, b := range chunk {
+				if start+i > 0 {
+					out = append(out, ' ')
+				}
+				out = append(out, hexDigits[b>>4], hexDigits[b&0x0f])
+			}
+		} else {
+			for _, b := range chunk {
+				switch {
+				case b == '\n':
+					out = append(out, '\\', 'n')
+				case b == '\r':
+					out = append(out, '\\', 'r')
+				case b == '\t':
+					out = append(out, '\\', 't')
+				case b < 32 || b >= 127:
+					out = append(out, '\\', 'x', hexDigits[b>>4], hexDigits[b&0x0f])
+				default:
+					out = append(out, b)
+				}
+			}
+		}
+		if err := writeDump(cfg.Dump, out); err != nil {
+			return err
+		}
+	}
+	return writeDump(cfg.Dump, []byte{'\n'})
 }
 
 // sessionWrap decouples a transfer session from a shared underlying stream.
