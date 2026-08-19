@@ -33,8 +33,17 @@ func TestSystemChdirUsesChildDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("socat: %v: %s", err, out)
 	}
-	if got := strings.TrimSpace(string(out)); got != dir {
-		t.Fatalf("pwd=%q want %q", got, dir)
+	got := strings.TrimSpace(string(out))
+	gotInfo, err := os.Stat(got)
+	if err != nil {
+		t.Fatalf("stat pwd output %q: %v", got, err)
+	}
+	wantInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat temp directory %q: %v", dir, err)
+	}
+	if !os.SameFile(gotInfo, wantInfo) {
+		t.Fatalf("pwd=%q does not identify chdir directory %q", got, dir)
 	}
 }
 
