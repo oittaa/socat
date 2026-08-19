@@ -33,7 +33,7 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 			printCdefs(stdout)
 			return 0
 		default:
-			fmt.Fprintf(stderr, "procan: unknown option %q\n", a)
+			fprintf(stderr, "procan: unknown option %q\n", a)
 			usage(stderr)
 			return 1
 		}

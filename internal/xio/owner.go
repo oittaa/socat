@@ -184,5 +184,5 @@ func sameRegisteredFile(original, current os.FileInfo) bool {
 		os.SameFile(original, current) &&
 		original.Mode() == current.Mode() &&
 		original.Size() == current.Size() &&
-		original.ModTime() == current.ModTime()
+		original.ModTime().Equal(current.ModTime())
 }

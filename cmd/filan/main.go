@@ -42,7 +42,7 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if !strings.HasPrefix(a, "-") {
-			fmt.Fprintf(stderr, "filan: unexpected argument %q\n", a)
+			fprintf(stderr, "filan: unexpected argument %q\n", a)
 			usage(stderr)
 			return 1
 		}
@@ -61,12 +61,12 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 		case strings.HasPrefix(a, "-i"):
 			v, err := takeArg(a, "i", args, &i)
 			if err != nil {
-				fmt.Fprintln(stderr, err)
+				fprintln(stderr, err)
 				return 1
 			}
 			fd, err := strconv.Atoi(v)
 			if err != nil {
-				fmt.Fprintf(stderr, "filan: bad -i %q\n", v)
+				fprintf(stderr, "filan: bad -i %q\n", v)
 				return 1
 			}
 			m, n = fd, fd
@@ -74,43 +74,43 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 		case strings.HasPrefix(a, "-n"):
 			v, err := takeArg(a, "n", args, &i)
 			if err != nil {
-				fmt.Fprintln(stderr, err)
+				fprintln(stderr, err)
 				return 1
 			}
 			num, err := strconv.Atoi(v)
 			if err != nil {
-				fmt.Fprintf(stderr, "filan: bad -n %q\n", v)
+				fprintf(stderr, "filan: bad -n %q\n", v)
 				return 1
 			}
 			n = num
 		case strings.HasPrefix(a, "-f"):
 			v, err := takeArg(a, "f", args, &i)
 			if err != nil {
-				fmt.Fprintln(stderr, err)
+				fprintln(stderr, err)
 				return 1
 			}
 			filename = v
 		case strings.HasPrefix(a, "-T"):
 			v, err := takeArg(a, "T", args, &i)
 			if err != nil {
-				fmt.Fprintln(stderr, err)
+				fprintln(stderr, err)
 				return 1
 			}
 			sec, err := strconv.ParseFloat(v, 64)
 			if err != nil {
-				fmt.Fprintf(stderr, "filan: bad -T %q\n", v)
+				fprintf(stderr, "filan: bad -T %q\n", v)
 				return 1
 			}
 			waittime = time.Duration(sec * float64(time.Second))
 		case strings.HasPrefix(a, "-o"):
 			v, err := takeArg(a, "o", args, &i)
 			if err != nil {
-				fmt.Fprintln(stderr, err)
+				fprintln(stderr, err)
 				return 1
 			}
 			outfname = v
 		default:
-			fmt.Fprintf(stderr, "filan: unknown option %q\n", a)
+			fprintf(stderr, "filan: unknown option %q\n", a)
 			usage(stderr)
 			return 1
 		}
@@ -120,7 +120,7 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 	if outfname != "" {
 		f, err := openOut(outfname)
 		if err != nil {
-			fmt.Fprintf(stderr, "filan: %v\n", err)
+			fprintf(stderr, "filan: %v\n", err)
 			return 1
 		}
 		if f != os.Stdout && f != os.Stderr && f != os.Stdin {
@@ -135,7 +135,7 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 
 	if filename != "" {
 		if err := filanFile(filename, out); err != nil {
-			fmt.Fprintf(stderr, "filan: %v\n", err)
+			fprintf(stderr, "filan: %v\n", err)
 			return 1
 		}
 		return 0
