@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"runtime"
 	"testing"
 )
 
@@ -352,5 +353,68 @@ func TestParseWindowsUNC(t *testing.T) {
 	}
 	if ch.Single.Type != "OPEN" || len(ch.Single.Params) != 1 || ch.Single.Params[0] != path {
 		t.Fatalf("got %+v", ch.Single)
+	}
+}
+
+func TestParseWindowsDriveRelativePath(t *testing.T) {
+	path := `C:foo.txt`
+	ch, err := ParseChannel("CREATE:" + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ch.Single.Params) != 1 || ch.Single.Params[0] != path {
+		t.Fatalf("params %q", ch.Single.Params)
+	}
+}
+
+func TestParseWindowsRelativePath(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("native relative backslash paths are Windows-only")
+	}
+	path := `sub\temp.txt`
+	ch, err := ParseChannel("CREATE:" + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ch.Single.Params) != 1 || ch.Single.Params[0] != path {
+		t.Fatalf("params %q", ch.Single.Params)
+	}
+}
+
+func TestParseWindowsRelativeCertOption(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("native relative backslash paths are Windows-only")
+	}
+	cert := `certs\test.pem`
+	s, err := ParseSpec("TLS-LISTEN:443,cert=" + cert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.OptionValue("cert", ""); got != cert {
+		t.Fatalf("cert %q", got)
+	}
+}
+
+func TestParseWindowsBareRelativePath(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("native relative backslash paths are Windows-only")
+	}
+	path := `sub\temp.txt`
+	ch, err := ParseChannel(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.Single.Type != "GOPEN" || len(ch.Single.Params) != 1 || ch.Single.Params[0] != path {
+		t.Fatalf("got %+v", ch.Single)
+	}
+}
+
+func TestTextBackslashEscapesRemainActiveOnWindows(t *testing.T) {
+	ch, err := ParseChannel(`TEXT:hello\tworld`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ch.Single.Params) != 1 || ch.Single.Params[0] != "hello\tworld" {
+		t.Fatalf("params %q", ch.Single.Params)
 	}
 }

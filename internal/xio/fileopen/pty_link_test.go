@@ -1,3 +1,5 @@
+//go:build linux || darwin
+
 package fileopen
 
 import (
@@ -23,7 +25,7 @@ func TestPTYLinkCreatesSymlink(t *testing.T) {
 	g := &xio.Global{Log: logx.New()}
 	o, err := xio.OpenChannel(context.Background(), ch, xio.ModeRDWR, g)
 	if err != nil {
-		t.Skipf("pty: %v", err)
+		t.Fatal(err)
 	}
 	defer func() { _ = o.Close() }()
 	st, err := os.Lstat(link)

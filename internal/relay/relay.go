@@ -480,22 +480,46 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 }
 
 func (s *sessionWrap) Write(p []byte) (int, error) {
-	select {
-	case <-s.done:
-		return 0, io.ErrClosedPipe
-	default:
+	written := 0
+	for {
+		select {
+		case <-s.done:
+			return written, io.ErrClosedPipe
+		default:
+		}
+		// Windows has no poll path. Bound each write so Close can cancel a
+		// session without closing the shared end-close stream underneath it.
+		deadlineSet := !canPoll() && setStreamWriteDeadline(s.inner, time.Now().Add(50*time.Millisecond))
+		nw, err := s.inner.Write(p[written:])
+		written += nw
+		if deadlineSet {
+			_ = setStreamWriteDeadline(s.inner, time.Time{})
+		}
+		select {
+		case <-s.done:
+			return written, io.ErrClosedPipe
+		default:
+		}
+		if written == len(p) {
+			return written, nil
+		}
+		if deadlineSet && isTimeoutErr(err) {
+			continue
+		}
+		return written, err
 	}
-	return s.inner.Write(p)
 }
 
 func (s *sessionWrap) Close() error {
 	s.once.Do(func() {
 		close(s.done)
-		// Wake a blocked poll-Read without permanently poisoning the shared FD.
+		// Wake blocked I/O without permanently poisoning the shared stream.
 		setStreamReadDeadline(s.inner, time.Now().Add(time.Millisecond))
+		_ = setStreamWriteDeadline(s.inner, time.Now().Add(time.Millisecond))
 		go func() {
 			time.Sleep(20 * time.Millisecond)
 			setStreamReadDeadline(s.inner, time.Time{})
+			_ = setStreamWriteDeadline(s.inner, time.Time{})
 		}()
 	})
 	return nil
@@ -528,6 +552,33 @@ func setStreamReadDeadline(s Stream, deadline time.Time) {
 		}
 		return
 	}
+}
+
+func setStreamWriteDeadline(s Stream, deadline time.Time) bool {
+	if d, ok := s.(interface{ SetWriteDeadline(time.Time) error }); ok {
+		return d.SetWriteDeadline(deadline) == nil
+	}
+	if u, ok := s.(interface{ UnwrapStream() Stream }); ok {
+		return setStreamWriteDeadline(u.UnwrapStream(), deadline)
+	}
+	if ns, ok := s.(NetStream); ok {
+		if c, ok := ns.Conn.(interface{ SetWriteDeadline(time.Time) error }); ok {
+			return c.SetWriteDeadline(deadline) == nil
+		}
+		return false
+	}
+	if fs, ok := s.(FDStream); ok {
+		if d, ok := fs.W.(interface{ SetWriteDeadline(time.Time) error }); ok {
+			return d.SetWriteDeadline(deadline) == nil
+		}
+		return false
+	}
+	if rwc, ok := s.(RWCStream); ok {
+		if d, ok := rwc.ReadWriteCloser.(interface{ SetWriteDeadline(time.Time) error }); ok {
+			return d.SetWriteDeadline(deadline) == nil
+		}
+	}
+	return false
 }
 
 func isTimeoutErr(err error) bool {

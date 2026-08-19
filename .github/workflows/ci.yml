@@ -48,6 +48,10 @@ jobs:
         # .gitattributes forces LF; gofmt -l then lists every file.
         shell: bash
         run: go test ./...
+      - name: Go vet Windows files
+        if: matrix.name == 'windows-amd64'
+        shell: bash
+        run: go vet ./...
 
   e2e:
     name: e2e (${{ matrix.name }})

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"io"
+	"runtime"
 
 	"github.com/oittaa/socat"
 	"github.com/oittaa/socat/internal/xio"
@@ -65,6 +66,25 @@ func hideOptGroup(title string) bool {
 		return !xio.FeatureTUN && !xio.FeatureINTERFACE
 	case "Namespaces":
 		return !xio.FeatureNAMESPACES
+	default:
+		return false
+	}
+}
+
+func hideOpt(name string) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	switch name {
+	case "reuseport",
+		"ip-add-membership", "ipv6-join-group",
+		"so-timestamp", "ip-pktinfo", "ip-recvttl", "ip-recvtos", "ip-recvopts",
+		"ip-ttl", "ip-tos", "ip-options",
+		"ipv6-recvpktinfo", "ipv6-recvhoplimit", "ipv6-recvtclass",
+		"ipv6-unicast-hops", "ipv6-tclass",
+		"nonblock", "umask", "user", "group",
+		"pipes", "pty", "setsid", "stderr", "fdin", "fdout", "shell", "shut-none":
+		return true
 	default:
 		return false
 	}
@@ -146,6 +166,9 @@ func printHelpOptions(w io.Writer, all bool) {
 			continue
 		}
 		for _, o := range g.opts {
+			if hideOpt(o.name) {
+				continue
+			}
 			if n := len(o.name); n > width {
 				width = n
 			}
@@ -168,8 +191,15 @@ func printHelpOptions(w io.Writer, all bool) {
 		if hideOptGroup(g.title) {
 			continue
 		}
-		fprintf(w, "\n  %s\n", g.title)
+		printedTitle := false
 		for _, o := range g.opts {
+			if hideOpt(o.name) {
+				continue
+			}
+			if !printedTitle {
+				fprintf(w, "\n  %s\n", g.title)
+				printedTitle = true
+			}
 			printOptLine(w, o.name, o.desc, width)
 			if all {
 				for _, al := range o.aliases {
