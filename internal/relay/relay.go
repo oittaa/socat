@@ -557,11 +557,12 @@ func (s *sessionWrap) Close() error {
 		// Wake blocked I/O without permanently poisoning the shared stream.
 		setStreamReadDeadline(s.inner, time.Now().Add(time.Millisecond))
 		_ = setStreamWriteDeadline(s.inner, time.Now().Add(time.Millisecond))
-		go func() {
-			time.Sleep(20 * time.Millisecond)
-			setStreamReadDeadline(s.inner, time.Time{})
-			_ = setStreamWriteDeadline(s.inner, time.Time{})
-		}()
+		// Transfer waits for Close to finish before allowing the next fork
+		// session to use this shared stream. Clear the deadlines synchronously
+		// so the next session cannot inherit an already-expired deadline.
+		time.Sleep(20 * time.Millisecond)
+		setStreamReadDeadline(s.inner, time.Time{})
+		_ = setStreamWriteDeadline(s.inner, time.Time{})
 	})
 	return nil
 }
@@ -643,7 +644,8 @@ func pokeReadDeadline(s Stream) {
 		}()
 	}
 	if sw, ok := s.(*sessionWrap); ok {
-		pokeReadDeadline(sw.inner)
+		// sessionWrap.Close sets and synchronously clears both deadlines.
+		_ = sw
 		return
 	}
 	// Streams that implement SetReadDeadline themselves (e.g. SOCKET raw dgram).

@@ -774,7 +774,10 @@ func pathParamType(typeName string) bool {
 	case "OPEN", "FILE", "CREATE", "CREAT", "GOPEN", "PIPE", "FIFO", "ECHO":
 		return true
 	}
-	return strings.HasPrefix(n, "UNIX")
+	// Classic UNIX addresses use ':' as the positional-parameter separator;
+	// test.sh relies on UNIX-LISTEN::::: failing immediately. Preserve the
+	// whole value only on Windows, where a native drive path must stay intact.
+	return nativeWindowsPathSeparators && strings.HasPrefix(n, "UNIX")
 }
 
 // pathOption reports option values that are interpreted as filesystem paths.

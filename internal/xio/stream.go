@@ -36,8 +36,9 @@ func FileStream(f *os.File) relay.Stream {
 	}
 }
 
-// DgramPairStream is an AF_UNIX SOCK_DGRAM socketpair end. Half-close must Close
-// the FD (not only SHUT_WR) so the peer process sees errors/EOF and exits.
+// DgramPairStream is an AF_UNIX SOCK_DGRAM socketpair end. A zero-length packet
+// marks the write-side shutdown without closing the read side; full Close at
+// transfer cancellation eventually releases the FD and stops the child.
 func DgramPairStream(f *os.File) relay.Stream {
 	var once sync.Once
 	closeF := func() { once.Do(func() { _ = f.Close() }) }
@@ -46,10 +47,8 @@ func DgramPairStream(f *os.File) relay.Stream {
 		W: f,
 		C: closerFunc(func() error { closeF(); return nil }),
 		CloseW: func() error {
-			// Prefer 0-byte packet (shut-null style) then close.
-			_, _ = f.Write(nil)
-			closeF()
-			return nil
+			_, err := f.Write(nil)
+			return err
 		},
 	}
 }
