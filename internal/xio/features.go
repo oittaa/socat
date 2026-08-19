@@ -10,6 +10,8 @@ var (
 	FeaturePTY           bool
 	FeatureSOCKETPAIR    bool
 	FeatureSTALL         bool
+	FeatureUNIXDatagram  bool
+	FeatureUNIXSeqpacket bool
 	FeatureGENERICSOCKET bool
 	FeatureRAWIP         bool
 )

@@ -6,4 +6,5 @@ func init() {
 	FeatureABSTRACT = true
 	FeatureTUN = true
 	FeatureINTERFACE = true
+	FeatureUNIXSeqpacket = true
 }

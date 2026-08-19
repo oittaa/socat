@@ -119,7 +119,7 @@ every name. DCCP and readline are not implemented (see
 | IP (raw) | `IP4-SENDTO:host:proto`, `IP4-RECV:proto`, … | Linux raw IP; needs privilege |
 | UNIX | `UNIX-CONNECT:<path>` / `UNIX-CLIENT` | UNIX-domain stream, Linux seqpacket, or generic client |
 | UNIX-LISTEN | `UNIX-LISTEN:<path>` (`-L`) | UNIX-domain stream or Linux seqpacket server |
-| UNIX datagram | `UNIX-SENDTO` / `RECV` / `RECVFROM` / `DATAGRAM` | UNIX datagram |
+| UNIX datagram | `UNIX-SENDTO` / `RECV` / `RECVFROM` / `DATAGRAM` | UNIX datagram on Unix platforms (not Windows) |
 | ABSTRACT | `ABSTRACT-CONNECT` / `LISTEN` / … | Linux abstract UNIX namespace |
 | SOCKET | `SOCKET-CONNECT` / `LISTEN` / `SENDTO` / `DATAGRAM` / `RECV` / `RECVFROM` | generic socket |
 | EXEC, SYSTEM, SHELL | `EXEC:<cmd>` / `SYSTEM:<sh>` / `SHELL` | pipes, socketpair, **pty**, fdin/fdout, setsid, shut-none; child exit promoted |
