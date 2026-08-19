@@ -482,6 +482,7 @@ func normalizeOptionName(name string) string {
 		"so-sndbuf":          "sndbuf",
 		"so-rcvtimeo":        "rcvtimeo",
 		"so-sndtimeo":        "sndtimeo",
+		"so-type":            "socktype",
 		"tcp-nodelay":        "nodelay",
 		"tcp-keepalive":      "keepalive",
 		"o-nonblock":         "nonblock",

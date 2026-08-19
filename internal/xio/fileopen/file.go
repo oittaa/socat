@@ -97,7 +97,9 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 	// UNIX domain socket?
 	if fi.Mode()&os.ModeSocket != 0 {
 		return xio.OpenSpec(ctx, parse.Spec{
-			Type:    "UNIX-CONNECT",
+			// GOPEN is a generic client: classic probes stream, seqpacket,
+			// and datagram sockets instead of imposing UNIX-CONNECT semantics.
+			Type:    "UNIX",
 			Params:  []string{path},
 			Options: s.Options,
 			Raw:     s.Raw,

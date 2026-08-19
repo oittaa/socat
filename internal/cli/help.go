@@ -36,6 +36,11 @@ func hideAddr(syntax string) bool {
 		return !xio.FeatureSTALL
 	case syntax == "PTY":
 		return !xio.FeaturePTY
+	case syntax == "UNIX-SENDTO:<filename>" ||
+		syntax == "UNIX-RECVFROM:<filename>" ||
+		syntax == "UNIX-RECV:<filename>" ||
+		syntax == "UNIX-DATAGRAM:<filename>":
+		return !xio.FeatureUNIXDatagram
 	case len(syntax) >= 9 && syntax[:9] == "ABSTRACT-":
 		return !xio.FeatureABSTRACT
 	case len(syntax) >= 3 && (syntax[:3] == "IP:" || syntax[:3] == "IP4" || syntax[:3] == "IP6" || syntax[:3] == "IP-"):
@@ -52,6 +57,46 @@ func hideAddr(syntax string) bool {
 		return !xio.FeaturePOSIXMQ
 	default:
 		return false
+	}
+}
+
+func unixGenericHelp() string {
+	switch {
+	case xio.FeatureUNIXSeqpacket:
+		return "generic UNIX client; auto-detects stream, seqpacket, or datagram"
+	case xio.FeatureUNIXDatagram:
+		return "generic UNIX client; auto-detects stream or datagram"
+	default:
+		return "UNIX stream client"
+	}
+}
+
+func unixConnectHelp() string {
+	switch {
+	case xio.FeatureUNIXSeqpacket:
+		return "UNIX stream client; socktype=2/5 selects datagram/seqpacket"
+	case xio.FeatureUNIXDatagram:
+		return "UNIX stream client; socktype=2 selects datagram"
+	default:
+		return "UNIX stream client"
+	}
+}
+
+func unixListenHelp() string {
+	if xio.FeatureUNIXSeqpacket {
+		return "UNIX stream listener; socktype=5 selects seqpacket"
+	}
+	return "UNIX stream listener"
+}
+
+func unixSocktypeHelp() string {
+	switch {
+	case xio.FeatureUNIXSeqpacket:
+		return "UNIX type: 1=stream, 2=datagram, 5=seqpacket"
+	case xio.FeatureUNIXDatagram:
+		return "UNIX type: 1=stream, 2=datagram"
+	default:
+		return "UNIX type: 1=stream"
 	}
 }
 
@@ -309,10 +354,10 @@ func helpAddressGroups() []helpAddrGroup {
 			{"IP6-RECVFROM:<protocol>", "IPv6 raw IP recvfrom"},
 		}},
 		{"UNIX and abstract", []helpAddr{
-			{"UNIX:<filename>", "UNIX-domain client"},
-			{"UNIX-CONNECT:<filename>", "same as UNIX"},
-			{"UNIX-CLIENT:<filename>", "same as UNIX"},
-			{"UNIX-LISTEN:<filename>", "UNIX-domain server"},
+			{"UNIX:<filename>", unixGenericHelp()},
+			{"UNIX-CONNECT:<filename>", unixConnectHelp()},
+			{"UNIX-CLIENT:<filename>", unixGenericHelp()},
+			{"UNIX-LISTEN:<filename>", unixListenHelp()},
 			{"UNIX-L:<filename>", "same as UNIX-LISTEN"},
 			{"UNIX-SENDTO:<filename>", "UNIX datagram sendto"},
 			{"UNIX-RECVFROM:<filename>", "UNIX datagram recvfrom"},
@@ -475,6 +520,7 @@ func helpOptionGroups() []helpOptGroup {
 			{"unlink-close", "unlink on close", nil},
 			{"unlink-late", "unlink after bind", nil},
 			{"unix-bind-tempname", "bind a temporary UNIX name", []string{"bind-tempname"}},
+			{"socktype", unixSocktypeHelp(), []string{"so-type"}},
 		}},
 		{"EXEC, SYSTEM, SHELL", []helpOpt{
 			{"pipes", "connect with pipes", nil},

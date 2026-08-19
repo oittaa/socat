@@ -386,6 +386,30 @@ func TestTLSListenRequiresCert(t *testing.T) {
 	}
 }
 
+func TestTLSRejectsOpenSSLMethod(t *testing.T) {
+	bin := socatBin(t)
+	for _, optionName := range []string{"openssl-method", "opensslmethod"} {
+		out, err := exec.Command(bin,
+			"OPENSSL-LISTEN:0,verify=0,"+optionName+"=DTLS1",
+			"PIPE",
+		).CombinedOutput()
+		if err == nil {
+			t.Fatalf("%s: expected unsupported method error, got %q", optionName, out)
+		}
+		if !bytes.Contains(out, []byte(optionName)) || !bytes.Contains(out, []byte("not supported")) {
+			t.Fatalf("%s: unexpected error: %s", optionName, out)
+		}
+	}
+
+	hhh, err := exec.Command(bin, "-hhh").CombinedOutput()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(hhh, []byte("openssl-method")) {
+		t.Fatalf("-hhh advertises unsupported openssl-method:\n%s", hhh)
+	}
+}
+
 func TestHelpListsTLSAndOpenSSLAlias(t *testing.T) {
 	bin := socatBin(t)
 	out, err := exec.Command(bin, "-h").CombinedOutput()

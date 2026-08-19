@@ -107,9 +107,28 @@ fi
 if [[ "$SKIP_BUILD" != "1" ]]; then
   make -s build
 fi
-export SOCAT="${SOCAT:-$ROOT/socat}"
-export FILAN="${FILAN:-$ROOT/filan}"
-export PROCAN="${PROCAN:-$ROOT/procan}"
+
+resolve_executable() {
+  local value="$1"
+  if [[ "$value" == */* ]]; then
+    local dir base
+    dir="$(cd "$(dirname "$value")" && pwd)"
+    base="$(basename "$value")"
+    [[ -x "$dir/$base" ]] || return 1
+    printf '%s/%s\n' "$dir" "$base"
+    return
+  fi
+  command -v "$value"
+}
+
+SOCAT="${SOCAT:-$ROOT/socat}"
+SOCAT="$(resolve_executable "$SOCAT")" || { echo "SOCAT is not executable: $SOCAT" >&2; exit 2; }
+target_bin_dir="$(dirname "$SOCAT")"
+FILAN="${FILAN:-$target_bin_dir/filan}"
+PROCAN="${PROCAN:-$target_bin_dir/procan}"
+FILAN="$(resolve_executable "$FILAN")" || { echo "FILAN is not executable: $FILAN" >&2; exit 2; }
+PROCAN="$(resolve_executable "$PROCAN")" || { echo "PROCAN is not executable: $PROCAN" >&2; exit 2; }
+export SOCAT FILAN PROCAN
 
 # Auto label
 if [[ -z "$LABEL" ]]; then
@@ -206,7 +225,7 @@ run_shard() {
     local base
     base="$(basename "$helper")"
     case "$base" in
-      test.sh|*.c|*.h|*.o|*.a|config*|Makefile*|doc|*.1) continue ;;
+      test.sh|socat|filan|procan|*.c|*.h|*.o|*.a|config*|Makefile*|doc|*.1) continue ;;
     esac
     if [[ -f "$helper" && -x "$helper" ]] || [[ "$base" == *.sh ]] || [[ "$base" == *.pem ]] || [[ "$base" == *.crt ]] || [[ "$base" == *.key ]]; then
       ln -sfn "$helper" "$work/$base" 2>/dev/null || cp -a "$helper" "$work/$base" 2>/dev/null || true
@@ -218,6 +237,11 @@ run_shard() {
       ln -sfn "$classic_dir/$helper" "$work/$helper" 2>/dev/null || cp -a "$classic_dir/$helper" "$work/$helper" 2>/dev/null || true
     fi
   done
+  # Some upstream capability checks invoke bare socat instead of $SOCAT.
+  # Make every spelling resolve to the binaries selected for this scorecard.
+  ln -sfn "$SOCAT" "$work/socat"
+  ln -sfn "$FILAN" "$work/filan"
+  ln -sfn "$PROCAN" "$work/procan"
 
   # -N/-Z window; -t only when VAL_T is a number (classic omits -t to auto-calibrate).
   # Rebuild args inside the function (export -f subshells do not keep arrays).
@@ -243,6 +267,7 @@ run_shard() {
     mkdir -p "$TMPDIR"
     export SOCAT FILAN PROCAN
     cd "$work"
+    export PATH="$work:$PATH"
     # shellcheck disable=SC2086
     timeout --signal=TERM --kill-after=15 "${SHARD_TIMEOUT}" \
       bash "$patched" "${args[@]}" ${filter[@]+"${filter[@]}"}

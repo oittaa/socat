@@ -210,6 +210,49 @@ func TestTLSServerConfigRequiresCert(t *testing.T) {
 	}
 }
 
+func TestTLSConfigsRejectOpenSSLMethod(t *testing.T) {
+	for _, optionName := range []string{"openssl-method", "opensslmethod"} {
+		for _, method := range []string{"SSL3", "SSL23", "DTLS1", "DTLS1.2"} {
+			name := optionName + "=" + method
+			t.Run("client/"+name, func(t *testing.T) {
+				spec := parse.Spec{
+					Type: "OPENSSL",
+					Options: []parse.Option{{
+						Name:  optionName,
+						Value: method,
+						Has:   true,
+					}},
+				}
+				_, err := tlsClientConfig(spec, "localhost")
+				if err == nil {
+					t.Fatal("expected unsupported method error")
+				}
+				if !strings.Contains(err.Error(), optionName) || !strings.Contains(err.Error(), "not supported") {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			})
+
+			t.Run("server/"+name, func(t *testing.T) {
+				spec := parse.Spec{
+					Type: "OPENSSL-LISTEN",
+					Options: []parse.Option{{
+						Name:  optionName,
+						Value: method,
+						Has:   true,
+					}},
+				}
+				_, err := tlsServerConfig(spec)
+				if err == nil {
+					t.Fatal("expected unsupported method error")
+				}
+				if !strings.Contains(err.Error(), optionName) || !strings.Contains(err.Error(), "not supported") {
+					t.Fatalf("unexpected error: %v", err)
+				}
+			})
+		}
+	}
+}
+
 func TestTLSClientSNIHost(t *testing.T) {
 	cfg, err := tlsClientConfig(parse.Spec{
 		Type: "TLS",

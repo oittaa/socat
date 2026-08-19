@@ -215,6 +215,16 @@ func TestOptionAliases(t *testing.T) {
 	}
 }
 
+func TestSocketTypeAlias(t *testing.T) {
+	s, err := ParseSpec("UNIX-LISTEN:/tmp/test.sock,so-type=5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.OptionValue("socktype", ""); got != "5" {
+		t.Fatalf("socktype=%q want 5", got)
+	}
+}
+
 func TestPOSIXMQOptionAliases(t *testing.T) {
 	s, err := ParseSpec("POSIXMQ-SEND:/q,posixmq-priority=3,posixmq-flush,posixmq-maxmsg=8,posixmq-msgsize=128")
 	if err != nil {
@@ -271,13 +281,29 @@ func TestTLSCapathAlias(t *testing.T) {
 	}
 }
 
-func TestParseRESTORESystem(t *testing.T) {
-	s := `SYSTEM:"stty\ >/tmp/x.stty0;\ /home/eero/src/socat/socat\ -\,cfmakeraw\ /dev/nul\l >/tmp/x.err;\ stty\ >/tmp/x.stty1",pty,setsid,ctty,stderr`
-	spec, err := ParseSpec(s)
+func TestParseRestoreTTYSystem(t *testing.T) {
+	input := `SYSTEM:"stty\ >/tmp/x.stty0;\ /opt/socat-test/socat\ -\,cfmakeraw\ /dev/nul\l >/tmp/x.err;\ stty\ >/tmp/x.stty1",pty,setsid,ctty,stderr`
+	spec, err := ParseSpec(input)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("params=%q opts=%+v", spec.Params, spec.Options)
+	if spec.Type != "SYSTEM" {
+		t.Fatalf("type=%q want SYSTEM", spec.Type)
+	}
+	wantCommand := "stty >/tmp/x.stty0; /opt/socat-test/socat -,cfmakeraw /dev/null >/tmp/x.err; stty >/tmp/x.stty1"
+	if len(spec.Params) != 1 || spec.Params[0] != wantCommand {
+		t.Fatalf("params=%q want [%q]", spec.Params, wantCommand)
+	}
+	wantOptions := []string{"pty", "setsid", "ctty", "stderr"}
+	if len(spec.Options) != len(wantOptions) {
+		t.Fatalf("options=%+v want %v", spec.Options, wantOptions)
+	}
+	for i, want := range wantOptions {
+		got := spec.Options[i]
+		if got.Name != want || got.Has || got.Value != "" {
+			t.Errorf("option[%d]=%+v want flag %q", i, got, want)
+		}
+	}
 }
 
 func TestParseWindowsCreatePath(t *testing.T) {

@@ -234,7 +234,26 @@ func TLSServerConfig(s parse.Spec) (*tls.Config, error) {
 	return tlsServerConfig(s)
 }
 
+func rejectUnsupportedTLSMethod(s parse.Spec) error {
+	// crypto/tls implements stream TLS only. Silently accepting this classic
+	// socat option could turn a requested DTLS transport into TCP TLS, or make
+	// an obsolete SSL method appear to have been selected when it was not.
+	for _, name := range []string{"openssl-method", "opensslmethod"} {
+		if option, ok := s.OptionNamed(name); ok {
+			typ := s.Type
+			if typ == "" {
+				typ = "TLS"
+			}
+			return fmt.Errorf("%s: option %q is not supported (stream TLS only)", typ, option.Name)
+		}
+	}
+	return nil
+}
+
 func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
+	if err := rejectUnsupportedTLSMethod(s); err != nil {
+		return nil, err
+	}
 	cfg := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 	}
@@ -296,6 +315,9 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 }
 
 func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
+	if err := rejectUnsupportedTLSMethod(s); err != nil {
+		return nil, err
+	}
 	certPath := s.OptionValue("cert", "")
 	keyPath := s.OptionValue("key", "")
 	if certPath == "" {

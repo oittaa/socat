@@ -495,6 +495,9 @@ func printVersion(w io.Writer) {
 		{"TEXT", true},
 		{"SOCKETPAIR", xio.FeatureSOCKETPAIR},
 		{"UNIX", true},
+		// Go-specific detail flags. Classic only exposes the coarser WITH_UNIX.
+		{"UNIX_DGRAM", xio.FeatureUNIXDatagram},
+		{"UNIX_SEQPACKET", xio.FeatureUNIXSeqpacket},
 		{"ABSTRACT_UNIXSOCKET", xio.FeatureABSTRACT},
 		{"IP4", true},
 		{"IP6", true},

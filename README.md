@@ -117,9 +117,9 @@ every name. DCCP and readline are not implemented (see
 | UDP | `UDP4:host:port`, `UDP6:…` | UDP client |
 | UDP-LISTEN / SENDTO / RECV / RECVFROM / DATAGRAM | `UDP4-LISTEN:port`, `UDP4-SENDTO:host:port`, … | peer filters on recv/listen |
 | IP (raw) | `IP4-SENDTO:host:proto`, `IP4-RECV:proto`, … | Linux raw IP; needs privilege |
-| UNIX | `UNIX-CONNECT:<path>` / `UNIX-CLIENT` | UNIX-domain client |
-| UNIX-LISTEN | `UNIX-LISTEN:<path>` (`-L`) | UNIX-domain server |
-| UNIX datagram | `UNIX-SENDTO` / `RECV` / `RECVFROM` / `DATAGRAM` | UNIX datagram |
+| UNIX | `UNIX-CONNECT:<path>` / `UNIX-CLIENT` | UNIX-domain stream, Linux seqpacket, or generic client |
+| UNIX-LISTEN | `UNIX-LISTEN:<path>` (`-L`) | UNIX-domain stream or Linux seqpacket server |
+| UNIX datagram | `UNIX-SENDTO` / `RECV` / `RECVFROM` / `DATAGRAM` | UNIX datagram on Unix platforms (not Windows) |
 | ABSTRACT | `ABSTRACT-CONNECT` / `LISTEN` / … | Linux abstract UNIX namespace |
 | SOCKET | `SOCKET-CONNECT` / `LISTEN` / `SENDTO` / `DATAGRAM` / `RECV` / `RECVFROM` | generic socket |
 | EXEC, SYSTEM, SHELL | `EXEC:<cmd>` / `SYSTEM:<sh>` / `SHELL` | pipes, socketpair, **pty**, fdin/fdout, setsid, shut-none; child exit promoted |
@@ -146,7 +146,7 @@ termios / baud names.
 | Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport`, `tcpwrap` / `libwrap` / `hosts-allow` / `hosts-deny` / `tcpwrap-etc` |
 | TUN / INTERFACE | `tun-name`, `tun-type`, `tun-device`, `iff-up`, `iff-no-pi`, `if-mtu` / `interface-mtu`, other `iff-*` flags |
 | Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `umask`, `nonblock` |
-| UNIX | `unlink-early`, `unlink-close`, `unix-bind-tempname` / `bind-tempname` |
+| UNIX | `unlink-early`, `unlink-close`, `unix-bind-tempname` / `bind-tempname`, `socktype` / `so-type` |
 | POSIX MQ | `mq-prio` / `posixmq-priority`, `mq-flush`, `mq-maxmsg`, `mq-msgsize` |
 | EXEC | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none`, `chdir`, `umask` (child inherits, then parent restores) |
 | PTY / TERMIOS | `link`, `cfmakeraw`/`raw`/`rawer`, `echo`, `opost`, baud/`ispeed`/`ospeed`, `tiocswinsz`, `pty-wait-slave`, `ctty`; restore tty on close |
@@ -181,8 +181,8 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 |-------|--------|------------------|
 | **DSA certificates / keys** | Rejected | DSA is obsolete; Go `crypto/tls` does not parse DSA keys. Classic `OPENSSLLISTENDSA` fails by design. Use RSA, ECDSA, or Ed25519. See [Go crypto/tls](https://pkg.go.dev/crypto/tls) and [NIST SP 800-57 / deprecation of DSA](https://csrc.nist.gov/publications/detail/sp/800-57-part-1/rev-5/final). |
 | **DCCP, readline** | Not implemented | `#undef` in `-V`. No DCCP or GNU readline address type. |
-| **DTLS** | Not implemented | Not available in Go `crypto/tls` (stream TLS only). See [crypto/tls package docs](https://pkg.go.dev/crypto/tls). |
-| **SSLv3 / weak ciphers** | Not offered | Go TLS defaults reject obsolete protocols/ciphers. See [Go TLS cipher suites](https://go.dev/blog/tls-cipher-suites) and [crypto/tls Config](https://pkg.go.dev/crypto/tls#Config). |
+| **DTLS** | Not implemented | Not available in Go `crypto/tls` (stream TLS only). `openssl-method=DTLS*` is rejected instead of silently using TCP TLS. See [crypto/tls package docs](https://pkg.go.dev/crypto/tls). |
+| **SSLv3 / weak ciphers** | Not offered | Go TLS defaults reject obsolete protocols/ciphers. Unsupported `openssl-method=` selections are rejected. See [Go TLS cipher suites](https://go.dev/blog/tls-cipher-suites) and [crypto/tls Config](https://pkg.go.dev/crypto/tls#Config). |
 | **libwrap / TCP wrappers** | Implemented (pure Go) | No CGO/libwrap0; reads `hosts.allow`/`hosts.deny` (or `tcpwrap-etc=`). Subset: daemon ALL/name, client ALL/IP/hostname/`[ipv6]`. |
 
 ### Intentional differences from classic socat
@@ -192,7 +192,7 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 - **PROXY `http-version=2` / `3`** is a Go extra (classic PROXY is HTTP/1.x). HTTP/2 uses `net/http`. HTTP/3 uses `github.com/quic-go/quic-go/http3` because `golang.org/x/net/http3` is not a public client API.
 - **`fork`** uses **goroutines**, not `fork(2)` process isolation
 - Companion tools aim for useful parity, not bit-identical C ifdef output
-- Unknown options are generally ignored (classic may error more strictly)
+- Unknown options are generally ignored (classic may error more strictly), except security- or transport-sensitive selectors such as unsupported `openssl-method=`, which are rejected
 - Security-deprecated crypto (DSA, DTLS, etc.) is documented above rather than forced in
 - **TLS listen without `cert=`** fails at start (classic warns, listens, then handshake fails). See [TLS notes](#tls-notes).
 - **TLS address names** are `TLS` / `TLS-CONNECT` / `TLS-LISTEN`. `OPENSSL*` and `SSL*` remain aliases so classic command lines still work.
