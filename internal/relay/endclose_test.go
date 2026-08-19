@@ -95,6 +95,40 @@ func TestTransferEndCloseCopiesData(t *testing.T) {
 	}
 }
 
+func TestTransferEndCloseReusesSharedStream(t *testing.T) {
+	shared, collector := net.Pipe()
+	defer func() { _ = shared.Close() }()
+	defer func() { _ = collector.Close() }()
+
+	left := NetStream{Conn: shared}
+	for _, message := range []string{"first", "second"} {
+		right := FDStream{
+			R:      &oneShotReader{data: []byte(message)},
+			W:      io.Discard,
+			C:      nopCloser{},
+			CloseW: func() error { return nil },
+		}
+		done := make(chan error, 1)
+		go func() {
+			done <- Transfer(context.Background(), left, right, Config{
+				RightToLeft: true,
+				NoCloseLeft: true,
+			})
+		}()
+
+		buf := make([]byte, len(message))
+		if _, err := io.ReadFull(collector, buf); err != nil {
+			t.Fatalf("read %q: %v", message, err)
+		}
+		if string(buf) != message {
+			t.Fatalf("got %q, want %q", buf, message)
+		}
+		if err := <-done; err != nil {
+			t.Fatalf("transfer %q: %v", message, err)
+		}
+	}
+}
+
 func TestTransferSerializesShutdownAndClose(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -188,3 +222,16 @@ func (nopCloser) Close() error { return nil }
 type eofReader struct{}
 
 func (eofReader) Read([]byte) (int, error) { return 0, io.EOF }
+
+type oneShotReader struct {
+	data []byte
+}
+
+func (r *oneShotReader) Read(p []byte) (int, error) {
+	if len(r.data) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, r.data)
+	r.data = r.data[n:]
+	return n, nil
+}
