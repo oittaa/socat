@@ -54,6 +54,9 @@ func openTEXT(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*x
 // xio.Read side is a pipe whose write end is never written, so it never becomes readable.
 // Closing the FDs (idle -T, process exit) unblocks I/O.
 func openSTALL(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
+	if !xio.FeatureSTALL {
+		return nil, fmt.Errorf("STALL is not supported on this platform")
+	}
 	// Classic STALL takes no parameters. testaddrs probes with STALL::::: and
 	// expects a parse/syntax failure so the process does not hang transferring.
 	if len(s.Params) > 0 {

@@ -1,8 +1,6 @@
 package parse
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestParseSTDIO(t *testing.T) {
 	ch, err := ParseChannel("-")
@@ -352,5 +350,26 @@ func TestParseWindowsUNC(t *testing.T) {
 	}
 	if ch.Single.Type != "OPEN" || len(ch.Single.Params) != 1 || ch.Single.Params[0] != path {
 		t.Fatalf("got %+v", ch.Single)
+	}
+}
+
+func TestParseWindowsDriveRelativePath(t *testing.T) {
+	path := `C:foo.txt`
+	ch, err := ParseChannel("CREATE:" + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ch.Single.Params) != 1 || ch.Single.Params[0] != path {
+		t.Fatalf("params %q", ch.Single.Params)
+	}
+}
+
+func TestTextBackslashEscapesRemainActiveOnWindows(t *testing.T) {
+	ch, err := ParseChannel(`TEXT:hello\tworld`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ch.Single.Params) != 1 || ch.Single.Params[0] != "hello\tworld" {
+		t.Fatalf("params %q", ch.Single.Params)
 	}
 }

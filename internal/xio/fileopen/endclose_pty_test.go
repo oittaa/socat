@@ -1,3 +1,5 @@
+//go:build linux || darwin
+
 package fileopen
 
 import (
@@ -15,7 +17,7 @@ import (
 func TestPTYEndCloseTransferExits(t *testing.T) {
 	null, err := os.OpenFile(os.DevNull, os.O_RDWR, 0)
 	if err != nil {
-		t.Skipf("null: %v", err)
+		t.Fatal(err)
 	}
 	defer func() { _ = null.Close() }()
 	left := xio.FileStream(null)
@@ -25,7 +27,7 @@ func TestPTYEndCloseTransferExits(t *testing.T) {
 	ptySpec.Options = []parse.Option{{Name: "end-close", Has: false}}
 	o, err := openPTY(context.Background(), ptySpec, xio.ModeRDWR, nil)
 	if err != nil {
-		t.Skipf("pty: %v", err)
+		t.Fatal(err)
 	}
 	defer func() { _ = o.Close() }()
 	right := o.Stream

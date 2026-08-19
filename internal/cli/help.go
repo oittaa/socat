@@ -146,6 +146,9 @@ func printHelpOptions(w io.Writer, all bool) {
 			continue
 		}
 		for _, o := range g.opts {
+			if hideOpt(o.name) {
+				continue
+			}
 			if n := len(o.name); n > width {
 				width = n
 			}
@@ -168,8 +171,15 @@ func printHelpOptions(w io.Writer, all bool) {
 		if hideOptGroup(g.title) {
 			continue
 		}
-		fprintf(w, "\n  %s\n", g.title)
+		printedTitle := false
 		for _, o := range g.opts {
+			if hideOpt(o.name) {
+				continue
+			}
+			if !printedTitle {
+				fprintf(w, "\n  %s\n", g.title)
+				printedTitle = true
+			}
 			printOptLine(w, o.name, o.desc, width)
 			if all {
 				for _, al := range o.aliases {
