@@ -6,6 +6,7 @@ func hideOpt(name string) bool {
 	switch name {
 	case "reuseport",
 		"ip-add-membership", "ipv6-join-group",
+		"rcvtimeo",
 		"so-timestamp", "ip-pktinfo", "ip-recvttl", "ip-recvtos", "ip-recvopts",
 		"ip-ttl", "ip-tos", "ip-options",
 		"ipv6-recvpktinfo", "ipv6-recvhoplimit", "ipv6-recvtclass",

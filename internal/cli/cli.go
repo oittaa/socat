@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/signal"
 	"strconv"
@@ -184,20 +185,22 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 		if err != nil {
 			return err
 		}
-		cfg.Linger = parseDuration(v)
+		cfg.Linger, err = parseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid -t value %q: %w", v, err)
+		}
 	case strings.HasPrefix(a, "-T"):
 		v, err := optArg(a, "T", args, i)
 		if err != nil {
 			return err
 		}
 		cfg.IdleSet = true
-		f, err := strconv.ParseFloat(v, 64)
+		cfg.Idle, err = parseDuration(v)
 		if err != nil {
-			cfg.Idle = parseDuration(v)
-		} else if f < 0 {
+			return fmt.Errorf("invalid -T value %q: %w", v, err)
+		}
+		if cfg.Idle < 0 {
 			cfg.Idle = -1
-		} else {
-			cfg.Idle = time.Duration(f * float64(time.Second))
 		}
 	case strings.HasPrefix(a, "-lp"):
 		v, err := optArg(a, "lp", args, i)
@@ -284,16 +287,24 @@ func optArg(a, key string, args []string, i *int) (string, error) {
 	return "", fmt.Errorf("option parse error for %s", a)
 }
 
-func parseDuration(v string) time.Duration {
+func parseDuration(v string) (time.Duration, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, fmt.Errorf("empty duration")
+	}
 	f, err := strconv.ParseFloat(v, 64)
 	if err == nil {
-		return time.Duration(f * float64(time.Second))
+		secondsLimit := float64(math.MaxInt64) / float64(time.Second)
+		if math.IsNaN(f) || math.IsInf(f, 0) || f > secondsLimit || f < -secondsLimit {
+			return 0, fmt.Errorf("duration out of range")
+		}
+		return time.Duration(f * float64(time.Second)), nil
 	}
 	d, err := time.ParseDuration(v)
 	if err != nil {
-		return 0
+		return 0, err
 	}
-	return d
+	return d, nil
 }
 
 // Main runs socat with the given args (excluding program name).
@@ -373,6 +384,14 @@ func Main(args []string) int {
 	}
 	right, err := parse.ParseChannel(cfg.Addresses[1])
 	if err != nil {
+		log.Errorf("parse right address: %s", err)
+		return 1
+	}
+	if err := validateChannelOptions(left); err != nil {
+		log.Errorf("parse left address: %s", err)
+		return 1
+	}
+	if err := validateChannelOptions(right); err != nil {
 		log.Errorf("parse right address: %s", err)
 		return 1
 	}

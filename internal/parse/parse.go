@@ -134,7 +134,11 @@ func ParseSpec(s string) (Spec, error) {
 // OptionNamed returns the option with the given name (case-insensitive), if any.
 func (s Spec) OptionNamed(name string) (Option, bool) {
 	name = normalizeOptionName(name)
-	for _, o := range s.Options {
+	// Classic socat applies options in command-line order, so a later option
+	// overrides an earlier one. Scan backwards to preserve that behavior even
+	// when aliases normalize to the same canonical name.
+	for i := len(s.Options) - 1; i >= 0; i-- {
+		o := s.Options[i]
 		if normalizeOptionName(o.Name) == name {
 			return o, true
 		}

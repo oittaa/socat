@@ -51,6 +51,33 @@ func socatBin(t *testing.T) string {
 	return ""
 }
 
+func TestRejectsInvalidAddressOptionsBeforeSideEffects(t *testing.T) {
+	bin := socatBin(t)
+	tests := []struct {
+		name   string
+		option string
+		want   string
+	}{
+		{name: "unknown", option: "totally-unknown=1", want: "unknown option"},
+		{name: "invalid-perm", option: "perm=xyz", want: "invalid perm"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "must-not-exist")
+			out, err := exec.Command(bin, "-u", "TEXT:data", "CREATE:"+path+","+tc.option).CombinedOutput()
+			if err == nil {
+				t.Fatalf("command succeeded: %s", out)
+			}
+			if !bytes.Contains(out, []byte(tc.want)) {
+				t.Fatalf("output %q does not contain %q", out, tc.want)
+			}
+			if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+				t.Fatalf("address validation created %q: %v", path, statErr)
+			}
+		})
+	}
+}
+
 func freePort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

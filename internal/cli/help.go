@@ -502,6 +502,7 @@ func helpOptionGroups() []helpOptGroup {
 			{"ipv6-recvtclass", "IPV6_RECVTCLASS", []string{"recvtclass"}},
 			{"ipv6-unicast-hops", "IPV6_UNICAST_HOPS", []string{"unicast-hops"}},
 			{"ipv6-tclass", "IPV6_TCLASS", []string{"tclass"}},
+			{"rcvtimeo", "socket receive timeout", []string{"so-rcvtimeo"}},
 		}},
 		{"Files and UNIX", []helpOpt{
 			{"rdonly", "open read-only", nil},
@@ -513,6 +514,7 @@ func helpOptionGroups() []helpOptGroup {
 			{"nonblock", "O_NONBLOCK", []string{"o-nonblock"}},
 			{"mode", "create mode bits", nil},
 			{"perm", "chmod after open", nil},
+			{"ftruncate", "truncate an opened file to this length", nil},
 			{"umask", "umask during open or EXEC start", nil},
 			{"user", "file owner", nil},
 			{"group", "file group", nil},
@@ -555,6 +557,7 @@ func helpOptionGroups() []helpOptGroup {
 		{"Transfer", []helpOpt{
 			{"crnl", "convert CR/NL", nil},
 			{"crlf", "convert CR/LF", nil},
+			{"crorlf", "convert CR or LF", nil},
 			{"ignoreeof", "do not close on EOF", nil},
 			{"readbytes", "read at most N bytes", nil},
 		}},
@@ -578,6 +581,7 @@ func helpOptionGroups() []helpOptGroup {
 			{"proxyport", "HTTP proxy port", nil},
 			{"http-version", "CONNECT HTTP version (1.0, 1.1, 2, 3)", nil},
 			{"h2c", "cleartext HTTP/2 CONNECT", nil},
+			{"proxy-resolve", "resolve CONNECT target locally", []string{"resolve"}},
 			{"proxy-authorization", "proxy basic auth user:pass", []string{"proxyauth"}},
 			{"proxy-authorization-file", "read proxy auth from a file", []string{"proxyauthfile"}},
 			{"socksport", "SOCKS server port", nil},
