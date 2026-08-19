@@ -19,7 +19,11 @@ func TestApplyFileLocksUsesMatchingDescriptorAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer readOnly.Close()
+	defer func() {
+		if err := readOnly.Close(); err != nil {
+			t.Errorf("close test file: %v", err)
+		}
+	}()
 
 	readLock, err := parse.ParseSpec("OPEN:" + path + ",setlk-rd")
 	if err != nil {
