@@ -1,4 +1,4 @@
-# Unit tests, e2e, lint, and gosec on master and pull requests.
+# Unit tests, e2e, lint, gosec, and govulncheck on master and pull requests.
 # Classic test.sh is not run here: GitHub-hosted runners are sandboxed
 # (no root, no raw IP, no TUN, incomplete kernel features).
 name: ci
@@ -125,3 +125,18 @@ jobs:
             -nosec-require-rules
             -nosec-require-justification
             ./...
+
+  govulncheck:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: govulncheck
+        uses: golang/govulncheck-action@v1
+        with:
+          go-version-file: go.mod
+          go-package: ./...

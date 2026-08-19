@@ -168,6 +168,34 @@ func TestTLSServerVerifyConnectionSet(t *testing.T) {
 	}
 }
 
+func TestTLSServerVerifyRequiresClientAuthUsage(t *testing.T) {
+	tests := []struct {
+		name    string
+		usage   x509.ExtKeyUsage
+		wantErr bool
+	}{
+		{name: "client-auth", usage: x509.ExtKeyUsageClientAuth},
+		{name: "server-auth", usage: x509.ExtKeyUsageServerAuth, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ca, leaf, _, err := testCAAndLeafKeyUsage("peer", tc.usage)
+			if err != nil {
+				t.Fatal(err)
+			}
+			roots := x509.NewCertPool()
+			roots.AddCert(ca)
+			err = makeServerVerifyPeer(roots, "", true, nil)([][]byte{leaf.Raw}, nil)
+			if tc.wantErr && err == nil {
+				t.Fatal("server accepted a certificate without the client-auth usage")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("server rejected a client-auth certificate: %v", err)
+			}
+		})
+	}
+}
+
 func TestTLSClientEmptyCommonNameKeepsDialSNI(t *testing.T) {
 	cfg, err := tlsClientConfig(parse.Spec{
 		Type: "TLS",
@@ -607,6 +635,10 @@ func testCAAndLeaf(dns string) (*x509.Certificate, *x509.Certificate, error) {
 }
 
 func testCAAndLeafKey(dns string) (*x509.Certificate, *x509.Certificate, ed25519.PrivateKey, error) {
+	return testCAAndLeafKeyUsage(dns, x509.ExtKeyUsageServerAuth)
+}
+
+func testCAAndLeafKeyUsage(dns string, usage x509.ExtKeyUsage) (*x509.Certificate, *x509.Certificate, ed25519.PrivateKey, error) {
 	caPub, caKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, nil, nil, err
@@ -638,7 +670,7 @@ func testCAAndLeafKey(dns string) (*x509.Certificate, *x509.Certificate, ed25519
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(24 * time.Hour),
 		KeyUsage:              x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage:           []x509.ExtKeyUsage{usage},
 		DNSNames:              []string{dns},
 		BasicConstraintsValid: true,
 	}

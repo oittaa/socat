@@ -401,7 +401,7 @@ func makeServerVerifyPeer(roots *x509.CertPool, cnWant string, doVerify bool, pr
 			if roots == nil {
 				return fmt.Errorf("tls: no CA roots for client certificate")
 			}
-			opts := x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageAny}}
+			opts := x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
 			inter := x509.NewCertPool()
 			for i := 1; i < len(rawCerts); i++ {
 				if c, e := x509.ParseCertificate(rawCerts[i]); e == nil {
