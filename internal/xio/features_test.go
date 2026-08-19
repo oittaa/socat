@@ -1,27 +1,8 @@
 package xio
 
-import (
-	"runtime"
-	"testing"
-)
+import "testing"
 
 func TestFeatureFlagsMatchOS(t *testing.T) {
-	unix := runtime.GOOS != "windows"
-	linux := runtime.GOOS == "linux"
-
-	want := map[string]bool{
-		"EXEC":          unix,
-		"PTY":           unix,
-		"SOCKETPAIR":    unix,
-		"STALL":         unix,
-		"GENERICSOCKET": unix,
-		"RAWIP":         unix,
-		"ABSTRACT":      linux,
-		"TUN":           linux,
-		"INTERFACE":     linux,
-		"NAMESPACES":    linux,
-		"TERMIOS":       unix,
-	}
 	got := map[string]bool{
 		"EXEC":          FeatureEXEC,
 		"PTY":           FeaturePTY,
@@ -35,9 +16,25 @@ func TestFeatureFlagsMatchOS(t *testing.T) {
 		"NAMESPACES":    FeatureNAMESPACES,
 		"TERMIOS":       FeatureTERMIOS,
 	}
-	for name, w := range want {
+	for name, w := range expectedFeatureFlags() {
 		if got[name] != w {
-			t.Errorf("%s: got %v want %v (GOOS=%s)", name, got[name], w, runtime.GOOS)
+			t.Errorf("%s: got %v want %v", name, got[name], w)
 		}
+	}
+}
+
+func featureFlagExpectations(unix, linux, pty bool) map[string]bool {
+	return map[string]bool{
+		"EXEC":          unix,
+		"PTY":           pty,
+		"SOCKETPAIR":    unix,
+		"STALL":         unix,
+		"GENERICSOCKET": unix,
+		"RAWIP":         unix,
+		"ABSTRACT":      linux,
+		"TUN":           linux,
+		"INTERFACE":     linux,
+		"NAMESPACES":    linux,
+		"TERMIOS":       unix,
 	}
 }

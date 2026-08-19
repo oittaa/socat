@@ -3,7 +3,6 @@ package parse
 
 import (
 	"fmt"
-	"runtime"
 	"strconv"
 	"strings"
 	"unicode"
@@ -723,7 +722,7 @@ func looksLikePath(s string) bool {
 		case '/':
 			return true
 		case '\\':
-			return runtime.GOOS == "windows"
+			return nativeWindowsPathSeparators
 		case ':', ',':
 			return false
 		}
@@ -739,7 +738,7 @@ func looksLikeWindowsPath(s string) bool {
 	// A single leading backslash and separator-containing relative paths are
 	// native Windows forms. Do not reinterpret them on Unix, where backslash
 	// remains the classic socat escape character.
-	return runtime.GOOS == "windows" && strings.Contains(s, `\`)
+	return nativeWindowsPathSeparators && strings.Contains(s, `\`)
 }
 
 func hasWindowsVolume(s string) bool {
