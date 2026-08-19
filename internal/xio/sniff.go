@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/oittaa/socat/internal/parse"
 )
 
 // expandSniffPath expands classic -r/-R path variables (sysutils.c expandenv).
@@ -102,6 +104,12 @@ func expandSniffPath(src string, progname string, now time.Time, g *Global) (str
 // openSniffFiles opens -r/-R dump files for this transfer after expanding paths.
 // Uses O_APPEND|O_CREAT|O_CLOEXEC like classic xio_opensnifffile.
 func openSniffFiles(g *Global) error {
+	return WithUmask(parse.Spec{}, func() error {
+		return openSniffFilesLocked(g)
+	})
+}
+
+func openSniffFilesLocked(g *Global) error {
 	if g == nil {
 		return nil
 	}

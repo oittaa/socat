@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -29,6 +30,18 @@ func TestVersionHasTERMIOS(t *testing.T) {
 		if !bytes.Contains(hh, []byte(" "+opt+" ")) {
 			t.Fatalf("help missing %s:\n%s", opt, hh)
 		}
+	}
+}
+
+func TestSystemChdirUsesChildDirectory(t *testing.T) {
+	bin := socatBin(t)
+	dir := t.TempDir()
+	out, err := exec.Command(bin, "-u", "SYSTEM:pwd,chdir="+dir, "STDOUT").CombinedOutput()
+	if err != nil {
+		t.Fatalf("socat: %v: %s", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != dir {
+		t.Fatalf("pwd=%q want %q", got, dir)
 	}
 }
 

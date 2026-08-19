@@ -87,6 +87,10 @@ func validateAddressOptionValue(option parse.Option) error {
 		if err != nil || n > 0o777 {
 			return fmt.Errorf("invalid umask %q", value)
 		}
+	case "chdir":
+		if _, err := requiredOptionValue(option); err != nil {
+			return err
+		}
 	case "connect-timeout", "accept-timeout", "interval", "pty-interval", "rcvtimeo":
 		value, err := requiredOptionValue(option)
 		if err != nil {

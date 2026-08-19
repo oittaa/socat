@@ -335,13 +335,16 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		// grep "E unknown device/address"
 		return nil, fmt.Errorf("unknown device/address \"%s\"", s.Type)
 	}
+	var err error
+	s, err = ResolveChdirPaths(s)
+	if err != nil {
+		return nil, err
+	}
 	var o *Opened
-	err := WithNetNS(s, g, func() error {
-		return WithChdir(s, func() error {
-			var e error
-			o, e = fn(ctx, s, mode, g)
-			return e
-		})
+	err = WithNetNS(s, g, func() error {
+		var e error
+		o, e = fn(ctx, s, mode, g)
+		return e
 	})
 	return o, err
 }

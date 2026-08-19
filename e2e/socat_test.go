@@ -78,6 +78,23 @@ func TestRejectsInvalidAddressOptionsBeforeSideEffects(t *testing.T) {
 	}
 }
 
+func TestChdirCreatesRelativeAddressInRequestedDirectory(t *testing.T) {
+	bin := socatBin(t)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "result.txt")
+	out, err := exec.Command(bin, "-u", "TEXT:data", "CREATE:result.txt,chdir="+dir).CombinedOutput()
+	if err != nil {
+		t.Fatalf("socat: %v: %s", err, out)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "data" {
+		t.Fatalf("contents=%q want data", got)
+	}
+}
+
 func freePort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
