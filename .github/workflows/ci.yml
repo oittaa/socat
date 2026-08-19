@@ -42,6 +42,9 @@ jobs:
       - name: Unit tests
         if: runner.os != 'Windows'
         run: make test
+      - name: Race tests
+        if: matrix.name == 'linux-amd64'
+        run: go test -race ./...
       - name: Unit tests
         if: runner.os == 'Windows'
         # gofmt is Ubuntu-only (lint job). Windows checkouts are CRLF unless

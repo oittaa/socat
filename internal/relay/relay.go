@@ -182,10 +182,34 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 		right = newSessionWrap(right)
 	}
 
+	// Resolve poll descriptors before cancellation can close either stream.
+	// os.File permits concurrent I/O and Close, but Fd itself must not race
+	// with Close. Keep the integer values for the lifetime of this transfer.
+	lrDstFD, lrSrcFD := -1, -1
+	rlDstFD, rlSrcFD := -1, -1
+	if canPoll() {
+		if cfg.LeftToRight {
+			lrDstFD = streamWriteFD(right)
+			lrSrcFD = streamReadFD(left)
+		}
+		if cfg.RightToLeft {
+			rlDstFD = streamWriteFD(left)
+			rlSrcFD = streamReadFD(right)
+		}
+	}
+
+	// Close and ShutdownWrite may both be triggered during cancellation. They
+	// must not operate on the same descriptor concurrently, while Read/Write
+	// remain unlocked so Close can still interrupt blocked I/O.
+	left = newCloseSerialStream(left)
+	right = newCloseSerialStream(right)
+
 	// Unblock blocked Reads/Writes when the transfer is cancelled (UDP has no EOF).
 	// Also poke read deadlines so stdin (FD 0) and other FDs unblock even when
 	// Close is a no-op (STDIO).
+	closeDone := make(chan struct{})
 	go func() {
+		defer close(closeDone)
 		<-ctx.Done()
 		pokeReadDeadline(left)
 		pokeReadDeadline(right)
@@ -197,12 +221,12 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	if cfg.LeftToRight {
 		nDirs++
 		wg.Add(1)
-		go copyDir(ctx, right, left, ">", &tr.BytesLR, &tr.BlocksLR, cfg, touch, results, &wg)
+		go copyDir(ctx, right, left, ">", lrDstFD, lrSrcFD, &tr.BytesLR, &tr.BlocksLR, cfg, touch, results, &wg)
 	}
 	if cfg.RightToLeft {
 		nDirs++
 		wg.Add(1)
-		go copyDir(ctx, left, right, "<", &tr.BytesRL, &tr.BlocksRL, cfg, touch, results, &wg)
+		go copyDir(ctx, left, right, "<", rlDstFD, rlSrcFD, &tr.BytesRL, &tr.BlocksRL, cfg, touch, results, &wg)
 	}
 
 	// Wait for first direction to finish; then linger for the other.
@@ -242,6 +266,8 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 		lingerTimer.Stop()
 	}
 	wg.Wait()
+	cancel()
+	<-closeDone
 
 	st := tr.Snapshot()
 	st.Duration = time.Since(start)
@@ -287,7 +313,7 @@ func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Du
 	}
 }
 
-func copyDir(ctx context.Context, dst, src Stream, dir string, bytes, blocks *atomic.Uint64, cfg Config, touch func(), results chan<- dirResult, wg *sync.WaitGroup) {
+func copyDir(ctx context.Context, dst, src Stream, dir string, dstFD, srcFD int, bytes, blocks *atomic.Uint64, cfg Config, touch func(), results chan<- dirResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	bp := getBuf(cfg.BufferSize)
 	defer putBuf(bp)
@@ -298,15 +324,7 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, bytes, blocks *at
 		buf = buf[:cfg.BufferSize]
 	}
 
-	// Do not call File.Fd() unless we will poll: on Windows (and Unix)
-	// Fd() disables SetDeadline / IOCP, and then linger cannot unblock Read.
-	dstFD, srcFD := -1, -1
-	usePoll := false
-	if canPoll() {
-		dstFD = streamWriteFD(dst)
-		srcFD = streamReadFD(src)
-		usePoll = dstFD >= 0 && srcFD >= 0
-	}
+	usePoll := dstFD >= 0 && srcFD >= 0
 
 	for {
 		if ctx.Err() != nil {
@@ -357,13 +375,11 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, bytes, blocks *at
 					if dir == "<" {
 						sock = 2
 					}
-					eofFD := -1
-					if canPoll() {
-						eofFD = streamReadFD(src)
-					}
-					cfg.OnEOF(sock, eofFD)
+					cfg.OnEOF(sock, srcFD)
 				}
-				_ = dst.ShutdownWrite()
+				if ctx.Err() == nil {
+					_ = dst.ShutdownWrite()
+				}
 				results <- dirResult{err: nil, dir: dir}
 				return
 			}
@@ -372,6 +388,31 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, bytes, blocks *at
 		}
 	}
 }
+
+// closeSerialStream serializes the two descriptor-lifecycle operations while
+// leaving data I/O concurrent so Close can interrupt blocked reads and writes.
+type closeSerialStream struct {
+	Stream
+	mu sync.Mutex
+}
+
+func newCloseSerialStream(stream Stream) *closeSerialStream {
+	return &closeSerialStream{Stream: stream}
+}
+
+func (s *closeSerialStream) Close() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Stream.Close()
+}
+
+func (s *closeSerialStream) ShutdownWrite() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Stream.ShutdownWrite()
+}
+
+func (s *closeSerialStream) UnwrapStream() Stream { return s.Stream }
 
 func dump(cfg Config, dir string, data []byte) {
 	if cfg.Dump == nil {
