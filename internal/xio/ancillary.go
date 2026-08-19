@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -324,14 +323,9 @@ func logAncillary(g *Global, typ, name, val string) {
 }
 
 func setAncillaryEnv(g *Global, name, val string) {
-	// Classic xiosetenv: PROGNAME_NAME (uppercase progname) and SOCAT_NAME.
-	prog := "socat"
-	if g != nil && g.Progname != "" {
-		prog = g.Progname
-	}
-	up := strings.ToUpper(prog)
-	_ = os.Setenv(up+"_"+name, val)
-	_ = os.Setenv("SOCAT_"+name, val)
+	// Keep packet metadata on the session. Process-global Setenv races when
+	// multiple fork sessions receive packets concurrently.
+	SetSessionEnv(g, name, val)
 }
 
 func ifIndexName(idx int) string {

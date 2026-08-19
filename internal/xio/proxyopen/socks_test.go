@@ -100,3 +100,23 @@ func TestSOCKS5ConnectEcho(t *testing.T) {
 func TestSOCKS5ListenEcho(t *testing.T) {
 	echoViaSOCKS5(t, "SOCKS5-LISTEN:127.0.0.1:127.0.0.1:80")
 }
+
+func TestSOCKSUserEnvironmentFallback(t *testing.T) {
+	t.Setenv("LOGNAME", "log-user")
+	t.Setenv("USER", "fallback-user")
+	if got := socksUser(parse.Spec{}); got != "log-user" {
+		t.Fatalf("LOGNAME fallback=%q", got)
+	}
+	t.Setenv("LOGNAME", "")
+	if got := socksUser(parse.Spec{}); got != "fallback-user" {
+		t.Fatalf("USER fallback=%q", got)
+	}
+	s := parse.Spec{Options: []parse.Option{{Name: "socksuser", Value: "option-user", Has: true}}}
+	if got := socksUser(s); got != "option-user" {
+		t.Fatalf("option=%q", got)
+	}
+	t.Setenv("USER", "")
+	if got := socksUser(parse.Spec{}); got != "anonymous" {
+		t.Fatalf("default=%q", got)
+	}
+}

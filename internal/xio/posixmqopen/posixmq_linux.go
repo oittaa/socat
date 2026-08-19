@@ -230,21 +230,35 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		return o, nil
 	}
 
-	if oneshot && !nonblock {
-		if e := waitMQ(ctx, fd, unix.POLLIN, time.Time{}); e != nil {
-			cleanup()
-			return nil, e
-		}
-	}
-
-	st := relay.Stream(&mqStream{
+	mqs := &mqStream{
 		fd:       fd,
 		name:     name,
 		prio:     prio,
 		msgsize:  msgsize,
 		oneshot:  oneshot,
 		nonblock: nonblock,
-	})
+	}
+	if oneshot {
+		if !nonblock {
+			if e := waitMQ(ctx, fd, unix.POLLIN, time.Time{}); e != nil {
+				cleanup()
+				return nil, e
+			}
+		}
+		buf := make([]byte, msgsize)
+		var receivedPrio uint32
+		n, e := mqTimedReceive(fd, buf, &receivedPrio)
+		if e != nil {
+			cleanup()
+			return nil, e
+		}
+		mqs.prio = receivedPrio
+		mqs.got = true
+		mqs.leftover = append([]byte(nil), buf[:n]...)
+		xio.SetSessionEnv(g, "POSIXMQ_PRIO", strconv.FormatUint(uint64(receivedPrio), 10))
+	}
+
+	st := relay.Stream(mqs)
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
 		cleanup()
@@ -487,6 +501,7 @@ type mqConn struct {
 	*mqStream
 	local  net.Addr
 	remote net.Addr
+	env    map[string]string
 }
 
 func newMQConn(s *mqStream, name string) *mqConn {
@@ -494,8 +509,9 @@ func newMQConn(s *mqStream, name string) *mqConn {
 	return &mqConn{mqStream: s, local: a, remote: a}
 }
 
-func (c *mqConn) LocalAddr() net.Addr  { return c.local }
-func (c *mqConn) RemoteAddr() net.Addr { return c.remote }
+func (c *mqConn) LocalAddr() net.Addr                   { return c.local }
+func (c *mqConn) RemoteAddr() net.Addr                  { return c.remote }
+func (c *mqConn) SessionEnvironment() map[string]string { return c.env }
 
 type mqListener struct {
 	fd      int
@@ -514,41 +530,34 @@ func (l *mqListener) Accept() (net.Conn, error) {
 		l.mu.Unlock()
 		return nil, net.ErrClosed
 	}
-	prev := l.trigR
-	l.trigR = nil
 	l.mu.Unlock()
-	if prev != nil {
-		if err := waitPipe(l.ctx, prev); err != nil {
-			_ = prev.Close()
-			return nil, err
-		}
-		_ = prev.Close()
-	}
 	if err := waitMQ(l.ctx, l.fd, unix.POLLIN, time.Time{}); err != nil {
 		return nil, err
 	}
-	r, w, err := os.Pipe()
+	buf := make([]byte, l.msgsize)
+	var receivedPrio uint32
+	n, err := mqTimedReceive(l.fd, buf, &receivedPrio)
 	if err != nil {
 		return nil, err
 	}
 	l.mu.Lock()
 	if l.closed {
 		l.mu.Unlock()
-		_ = r.Close()
-		_ = w.Close()
 		return nil, net.ErrClosed
 	}
-	l.trigR = r
 	l.mu.Unlock()
-	return newMQConn(&mqStream{
-		fd:      l.fd,
-		name:    l.name,
-		prio:    l.prio,
-		msgsize: l.msgsize,
-		oneshot: true,
-		noClose: true,
-		trigger: w,
-	}, l.name), nil
+	conn := newMQConn(&mqStream{
+		fd:       l.fd,
+		name:     l.name,
+		prio:     receivedPrio,
+		msgsize:  l.msgsize,
+		oneshot:  true,
+		noClose:  true,
+		got:      true,
+		leftover: append([]byte(nil), buf[:n]...),
+	}, l.name)
+	conn.env = map[string]string{"POSIXMQ_PRIO": strconv.FormatUint(uint64(receivedPrio), 10)}
+	return conn, nil
 }
 
 func (l *mqListener) Close() error {

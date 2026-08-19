@@ -65,14 +65,14 @@ type Global struct {
 	SockPort string
 	PeerPort string
 
-	// TLS peer certificate fields (classic SOCAT_OPENSSL_X509_*).
-	TLSPeerSubject    string
-	TLSPeerIssuer     string
-	TLSPeerCommonName string
-	TLSPeerCountry    string
-	TLSPeerLocality   string
-	TLSPeerOrg        string
-	TLSPeerOrgUnit    string
+	// TLSVars contains TLS session metadata without the TLS_/OPENSSL_ prefix.
+	// Children receive both the preferred *_TLS_* names and classic
+	// *_OPENSSL_* compatibility aliases.
+	TLSVars map[string]string
+
+	// SessionVars contains other per-session output variables without the
+	// executable prefix (for example TIMESTAMP or POSIXMQ_PRIO).
+	SessionVars map[string]string
 
 	// Child process exit (EXEC/SYSTEM): non-zero promotes socat process exit.
 	ChildExitCode int
@@ -97,10 +97,23 @@ func (g *Global) forkSession() *Global {
 		return &Global{statsPrinted: new(atomic.Bool)}
 	}
 	cg := *g
+	cg.TLSVars = cloneStringMap(g.TLSVars)
+	cg.SessionVars = cloneStringMap(g.SessionVars)
 	if cg.statsPrinted == nil {
 		cg.statsPrinted = new(atomic.Bool)
 	}
 	return &cg
+}
+
+func cloneStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }
 
 func (g *Global) statsAlreadyPrinted() bool {

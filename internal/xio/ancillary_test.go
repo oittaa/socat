@@ -55,3 +55,11 @@ func TestParseInet6Pktinfo(t *testing.T) {
 		t.Fatalf("ifi=%d addr=%s ok=%v", ifi, addr, ok)
 	}
 }
+
+func TestAncillaryEnvironmentIsSessionScoped(t *testing.T) {
+	g := &Global{}
+	setAncillaryEnv(g, "IP_TTL", "42")
+	if got := g.SessionVars["IP_TTL"]; got != "42" {
+		t.Fatalf("IP_TTL=%q", got)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -27,10 +28,7 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	if err != nil {
 		return nil, err
 	}
-	user := s.OptionValue("socksuser", "")
-	if user == "" {
-		user = "nobody"
-	}
+	user := socksUser(s)
 
 	portNum, err := xio.ResolvePortNum("tcp", targetPort)
 	if err != nil {
@@ -121,6 +119,19 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 			return xio.WrapCommon(s, relay.NetStream{Conn: c})
 		},
 	})
+}
+
+func socksUser(s parse.Spec) string {
+	if user := s.OptionValue("socksuser", ""); user != "" {
+		return user
+	}
+	if user := os.Getenv("LOGNAME"); user != "" {
+		return user
+	}
+	if user := os.Getenv("USER"); user != "" {
+		return user
+	}
+	return "anonymous"
 }
 
 const (

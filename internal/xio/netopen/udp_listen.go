@@ -74,18 +74,20 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 
 	// Non-fork: one session then done (keep listen socket for reply like RECVFROM).
 	buf := make([]byte, max(g.BlockSize, 8192))
+	wantCtrl := xio.NeedAncillary(s)
 	type res struct {
-		n int
-		a *net.UDPAddr
-		e error
+		n   int
+		a   *net.UDPAddr
+		oob []byte
+		e   error
 	}
 	var n int
 	var raddr *net.UDPAddr
 	for {
 		ch := make(chan res, 1)
 		go func() {
-			n, a, err := pc.ReadFromUDP(buf)
-			ch <- res{n, a, err}
+			n, oob, a, err := xio.ReadUDPMsg(pc, buf, wantCtrl)
+			ch <- res{n: n, a: a, oob: oob, e: err}
 		}()
 		select {
 		case <-ctx.Done():
@@ -104,6 +106,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 				continue
 			}
 			n, raddr = r.n, r.a
+			xio.ProcessAncillary(r.oob, g)
 		}
 		break
 	}
@@ -157,19 +160,21 @@ type udpForkListener struct {
 
 func (l *udpForkListener) Accept() (net.Conn, error) {
 	buf := make([]byte, 65535)
+	wantCtrl := xio.NeedAncillary(l.spec)
 	for {
 		type res struct {
-			n int
-			a *net.UDPAddr
-			e error
+			n   int
+			a   *net.UDPAddr
+			oob []byte
+			e   error
 		}
 		ch := make(chan res, 1)
 		if l.rcvTimeout > 0 {
 			_ = l.pc.SetReadDeadline(time.Now().Add(l.rcvTimeout))
 		}
 		go func() {
-			n, a, err := l.pc.ReadFromUDP(buf)
-			ch <- res{n, a, err}
+			n, oob, a, err := xio.ReadUDPMsg(l.pc, buf, wantCtrl)
+			ch <- res{n: n, a: a, oob: oob, e: err}
 		}()
 		select {
 		case <-l.ctx.Done():
@@ -192,10 +197,17 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 				}
 				return nil, err
 			}
+			session := &xio.Global{}
+			if l.g != nil {
+				session.Log = l.g.Log
+				session.Progname = l.g.Progname
+			}
+			xio.ProcessAncillary(r.oob, session)
 			return &udpSessionConn{
 				conn:  conn,
 				peer:  r.a,
 				first: append([]byte(nil), buf[:r.n]...),
+				env:   session.SessionVars,
 			}, nil
 		}
 	}
@@ -236,7 +248,10 @@ type udpSessionConn struct {
 	first  []byte
 	got    bool
 	shared bool
+	env    map[string]string
 }
+
+func (u *udpSessionConn) SessionEnvironment() map[string]string { return u.env }
 
 func (u *udpSessionConn) Read(p []byte) (int, error) {
 	if !u.got && len(u.first) > 0 {
