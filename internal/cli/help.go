@@ -490,7 +490,7 @@ func helpOptionGroups() []helpOptGroup {
 			{"ip-add-membership", "IPv4 multicast join", nil},
 			{"ipv6-join-group", "IPv6 multicast join", nil},
 			{"setsockopt", "raw setsockopt (level, opt, value)", nil},
-			{"setsockopt-listen", "raw setsockopt before bind (level:opt:value)", []string{"sockopt-listen"}},
+			{"setsockopt-listen", "raw setsockopt before bind (level, opt, value)", []string{"sockopt-listen"}},
 			{"so-timestamp", "SO_TIMESTAMP ancillary", []string{"timestamp"}},
 			{"ip-pktinfo", "IP_PKTINFO", []string{"pktinfo"}},
 			{"ip-recvttl", "IP_RECVTTL", []string{"recvttl"}},
