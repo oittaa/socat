@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"strconv"
 	"syscall"
@@ -19,7 +20,10 @@ import (
 )
 
 func TestUnixSeqpacketUsesKernelSocketType(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "seqpacket.sock")
+	if _, ok := unixSeqpacketNetwork(); !ok {
+		t.Skip("SOCK_SEQPACKET is unavailable on this platform")
+	}
+	path := unixSocketTestPath(t, "seqpacket.sock")
 	socktype := strconv.Itoa(syscall.SOCK_SEQPACKET)
 	server, err := openUnixListen(context.Background(), parse.Spec{
 		Type:   "UNIX-LISTEN",
@@ -112,7 +116,7 @@ func TestExplicitUnixSocketTypeMismatchesFail(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "target.sock")
+			path := unixSocketTestPath(t, "target.sock")
 			listener := tt.listen(t, path)
 			defer func() { _ = listener.Close() }()
 
@@ -140,7 +144,7 @@ func TestGenericUnixAutodetectsSocketType(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), "target.sock")
+			path := unixSocketTestPath(t, "target.sock")
 			listener := tt.listen(t, path)
 			defer func() { _ = listener.Close() }()
 
@@ -161,6 +165,20 @@ func TestGenericUnixAutodetectsSocketType(t *testing.T) {
 			}
 		})
 	}
+}
+
+func unixSocketTestPath(t *testing.T, name string) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "socat-unix-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(dir); err != nil {
+			t.Errorf("remove UNIX socket test directory: %v", err)
+		}
+	})
+	return filepath.Join(dir, name)
 }
 
 func socketType(t *testing.T, conn any) int {
