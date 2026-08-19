@@ -431,10 +431,16 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 		Verbose:      g.Verbose,
 		Hex:          g.Hex,
 		Dump:         g.Dump,
-		RawLeft:      g.RawLeft,
-		RawRight:     g.RawRight,
 		NoCloseLeft:  noCloseLeft,
 		NoCloseRight: noCloseRight,
+	}
+	// Assign only concrete dump files. Converting a nil *os.File directly to
+	// io.Writer produces a non-nil interface that reports spurious write errors.
+	if g.RawLeft != nil {
+		cfg.RawLeft = g.RawLeft
+	}
+	if g.RawRight != nil {
+		cfg.RawRight = g.RawRight
 	}
 	if g != nil && g.Statistics && g.Log != nil {
 		cfg.OnStats = func(st relay.Stats) {

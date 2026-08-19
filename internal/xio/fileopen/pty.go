@@ -101,10 +101,21 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 		}
 	}
 	// Classic perm=/user= on PTY applies to the slave node (stat -L follows link).
-	_ = xio.ApplyPerm(slaveName, s, slave)
-	_ = xio.ApplyOwner(slaveName, s, slave)
-	if link != "" {
-		_ = xio.ApplyPerm(link, s, nil)
+	if err := xio.ApplyPerm(slaveName, s, slave); err != nil {
+		_ = master.Close()
+		_ = slave.Close()
+		if link != "" {
+			_ = os.Remove(link)
+		}
+		return nil, err
+	}
+	if err := xio.ApplyOwner(slaveName, s, slave); err != nil {
+		_ = master.Close()
+		_ = slave.Close()
+		if link != "" {
+			_ = os.Remove(link)
+		}
+		return nil, err
 	}
 
 	// Use xio.PtyStream so half-close does not xio.Close the master (xio.FileStream would).

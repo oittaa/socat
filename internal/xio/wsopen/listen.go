@@ -64,7 +64,9 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 	// Upgrade after peer filter (TCP-level range/sourceport/tcpwrap).
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
-		xio.ApplyTCPConnOpts(s, c)
+		if err := xio.ApplyTCPConnOpts(s, c); err != nil {
+			return nil, err
+		}
 		uc, err := upgradeConn(c, wpath, origin, proto, handshakeTimeout)
 		if err != nil {
 			return nil, err

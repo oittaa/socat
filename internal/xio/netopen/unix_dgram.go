@@ -141,7 +141,20 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	if err != nil {
 		return nil, err
 	}
-	_ = xio.ApplyPerm(path, s, nil)
+	if err := xio.ApplyPerm(path, s, nil); err != nil {
+		_ = c.Close()
+		if !xio.IsAbstract(path) {
+			_ = os.Remove(path)
+		}
+		return nil, err
+	}
+	if err := xio.ApplyOwner(path, s, nil); err != nil {
+		_ = c.Close()
+		if !xio.IsAbstract(path) {
+			_ = os.Remove(path)
+		}
+		return nil, err
+	}
 	label := s.Type + ":" + path
 	// Non-fork RECVFROM: one packet peer, then stream until EOF/timeout.
 	// Fork: use a simple packet-accept loop via xio.Opened.Listener adapter.
@@ -169,7 +182,6 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		} else {
 			o.AddCleanup(func() { _ = ln.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 		}
-		_ = xio.ApplyOwner(path, s, nil)
 		_ = ctx
 		_ = mode
 		_ = g
@@ -183,7 +195,6 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		return nil, err
 	}
 	o := &xio.Opened{Stream: wrapped, Label: label}
-	_ = xio.ApplyOwner(path, s, nil)
 	if !xio.IsAbstract(path) && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close")) {
 		unregister := xio.RegisterUnlinkPath(path)
 		o.AddCleanup(func() {

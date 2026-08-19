@@ -16,46 +16,61 @@ import (
 
 // ApplyReuse sets SO_REUSEADDR and optional SO_REUSEPORT on fd.
 // reuseaddrDefault is the classic listen default (true for TCP/UDP listen).
-func ApplyReuse(fd int, s parse.Spec, reuseaddrDefault bool) {
+func ApplyReuse(fd int, s parse.Spec, reuseaddrDefault bool) error {
 	reuse := reuseaddrDefault
 	if s.HasOption("reuseaddr") {
 		reuse = s.BoolOption("reuseaddr")
 	}
 	if reuse {
-		_ = setSockoptInt(fd, solSocket, soReuseaddr, 1)
+		if err := setSockoptInt(fd, solSocket, soReuseaddr, 1); err != nil && s.HasOption("reuseaddr") {
+			return fmt.Errorf("reuseaddr: %w", err)
+		}
 	}
-	if s.BoolOption("reuseport") && soReuseport != 0 {
-		_ = setSockoptInt(fd, solSocket, soReuseport, 1)
+	if s.BoolOption("reuseport") {
+		if soReuseport == 0 {
+			return fmt.Errorf("reuseport is not supported on this platform")
+		}
+		if err := setSockoptInt(fd, solSocket, soReuseport, 1); err != nil {
+			return fmt.Errorf("reuseport: %w", err)
+		}
 	}
+	return nil
 }
 
 // ApplyReuseAndV6Only sets listen reuse flags and IPV6_V6ONLY before bind.
-func ApplyReuseAndV6Only(fd int, s parse.Spec, network string) {
-	ApplyReuse(fd, s, true)
+func ApplyReuseAndV6Only(fd int, s parse.Spec, network string) error {
+	if err := ApplyReuse(fd, s, true); err != nil {
+		return err
+	}
 	switch network {
 	case "tcp", "tcp6", "udp", "udp6":
 	default:
-		return
+		return nil
 	}
 	if s.HasOption("ipv6-v6only") {
 		v := 0
 		if s.BoolOption("ipv6-v6only") {
 			v = 1
 		}
-		_ = setSockoptInt(fd, ipprotoIPv6, ipv6V6only, v)
-		return
+		if err := setSockoptInt(fd, ipprotoIPv6, ipv6V6only, v); err != nil {
+			return fmt.Errorf("ipv6-v6only: %w", err)
+		}
+		return nil
 	}
 	if network == "tcp" || network == "udp" {
 		_ = setSockoptInt(fd, ipprotoIPv6, ipv6V6only, 0)
 	}
+	return nil
 }
 
 // ListenControl is a net.ListenConfig.Control that applies reuse and v6only.
 func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) error {
-		return c.Control(func(fd uintptr) {
-			ApplyReuseAndV6Only(int(fd), s, network)
+		var optionErr error
+		controlErr := c.Control(func(fd uintptr) {
+			optionErr = ApplyReuseAndV6Only(int(fd), s, network)
 		})
+		return errors.Join(controlErr, optionErr)
 	}
 }
 
@@ -192,17 +207,24 @@ func IsTimeoutErr(err error) bool {
 
 // ApplySetsockoptFD parses classic setsockopt=level:optname:value (ints) and applies it.
 // SETSOCKOPT test uses setsockopt=6:TCP_MAXSEG:512 (IPPROTO_TCP + TCP_MAXSEG).
-func ApplyTCPConnOpts(s parse.Spec, c net.Conn) {
+func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
 	tc, ok := c.(*net.TCPConn)
 	if !ok {
-		return
+		return nil
 	}
-	if s.BoolOption("keepalive") || s.BoolOption("so-keepalive") || s.HasOption("keepidle") {
-		_ = tc.SetKeepAlive(true)
+	if s.HasOption("keepalive") || s.HasOption("so-keepalive") || s.HasOption("keepidle") {
+		enabled := s.BoolOption("keepalive") || s.BoolOption("so-keepalive") || s.HasOption("keepidle")
+		if err := tc.SetKeepAlive(enabled); err != nil {
+			return fmt.Errorf("keepalive: %w", err)
+		}
 	}
-	if s.BoolOption("nodelay") || s.BoolOption("tcp-nodelay") {
-		_ = tc.SetNoDelay(true)
+	if s.HasOption("nodelay") || s.HasOption("tcp-nodelay") {
+		enabled := s.BoolOption("nodelay") || s.BoolOption("tcp-nodelay")
+		if err := tc.SetNoDelay(enabled); err != nil {
+			return fmt.Errorf("nodelay: %w", err)
+		}
 	}
+	return nil
 }
 
 func ApplySetsockoptFD(fd int, spec string) error {

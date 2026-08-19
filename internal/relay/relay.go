@@ -345,10 +345,16 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, dstFD, srcFD int,
 				dump(cfg, dir, data)
 			}
 			if dir == ">" && cfg.RawLeft != nil {
-				_, _ = cfg.RawLeft.Write(data)
+				if err := writeDump(cfg.RawLeft, data); err != nil {
+					results <- dirResult{err: fmt.Errorf("raw left dump: %w", err), dir: dir}
+					return
+				}
 			}
 			if dir == "<" && cfg.RawRight != nil {
-				_, _ = cfg.RawRight.Write(data)
+				if err := writeDump(cfg.RawRight, data); err != nil {
+					results <- dirResult{err: fmt.Errorf("raw right dump: %w", err), dir: dir}
+					return
+				}
 			}
 			nw, ew := dst.Write(data)
 			if nw > 0 {
@@ -387,6 +393,17 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, dstFD, srcFD int,
 			return
 		}
 	}
+}
+
+func writeDump(w io.Writer, p []byte) error {
+	n, err := w.Write(p)
+	if err != nil {
+		return err
+	}
+	if n != len(p) {
+		return io.ErrShortWrite
+	}
+	return nil
 }
 
 // closeSerialStream serializes the two descriptor-lifecycle operations while

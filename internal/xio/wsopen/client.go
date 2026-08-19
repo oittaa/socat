@@ -76,7 +76,10 @@ func dialWS(ctx context.Context, network, host, port, rawURL string, s parse.Spe
 			if e != nil {
 				return nil, e
 			}
-			xio.ApplyTCPConnOpts(s, c)
+			if err := xio.ApplyTCPConnOpts(s, c); err != nil {
+				_ = c.Close()
+				return nil, err
+			}
 			return c, nil
 		},
 	}

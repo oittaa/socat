@@ -31,11 +31,19 @@ func openOPEN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 		// ftruncate=N or trunc flag after open
 		if v := s.OptionValue("ftruncate", ""); v != "" {
 			var n int64
-			if _, e := fmt.Sscanf(v, "%d", &n); e == nil {
-				_ = f.Truncate(n)
+			if _, e := fmt.Sscanf(v, "%d", &n); e != nil {
+				_ = f.Close()
+				return nil, fmt.Errorf("ftruncate: %w", e)
+			}
+			if e := f.Truncate(n); e != nil {
+				_ = f.Close()
+				return nil, fmt.Errorf("ftruncate: %w", e)
 			}
 		} else if s.BoolOption("trunc") {
-			_ = f.Truncate(0)
+			if e := f.Truncate(0); e != nil {
+				_ = f.Close()
+				return nil, fmt.Errorf("truncate: %w", e)
+			}
 		}
 	}
 	return FileOpened(f, s, path)
@@ -167,18 +175,24 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		err := xio.WithUmask(s, func() error {
 			return mkfifo(path, uint32(xio.ParseFileMode(s, 0o644)))
 		})
-		if err == nil {
-			_ = xio.ApplyPerm(path, s, nil)
-			_ = xio.ApplyOwner(path, s, nil)
-		}
 		if err != nil {
 			return nil, fmt.Errorf("mkfifo %s: %w", path, err)
 		}
 		created = true
-	} else {
-		// Existing FIFO: still apply user=/perm= when requested.
-		_ = xio.ApplyPerm(path, s, nil)
-		_ = xio.ApplyOwner(path, s, nil)
+	}
+	// Existing FIFOs receive the same explicit ownership/mode treatment. A
+	// failed open must not leave behind a FIFO that this invocation created.
+	if err := xio.ApplyPerm(path, s, nil); err != nil {
+		if created {
+			_ = os.Remove(path)
+		}
+		return nil, err
+	}
+	if err := xio.ApplyOwner(path, s, nil); err != nil {
+		if created {
+			_ = os.Remove(path)
+		}
+		return nil, err
 	}
 
 	// Classic default unlink-close=1 for named pipes (PIPE_REMOVE).

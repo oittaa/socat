@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -15,6 +16,8 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
+
+const maxHTTP1ProxyResponseBytes = 64 << 10
 
 // PROXY / PROXY-CONNECT:proxy:targethost:targetport[,proxyport=N][,http-version=1.0|2|3][,resolve]
 // HTTP CONNECT through a proxy. Default is classic HTTP/1.0.
@@ -124,8 +127,9 @@ func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, vers
 	if _, err := c.Write([]byte(req)); err != nil {
 		return nil, err
 	}
-	br := bufio.NewReader(c)
-	status, err := br.ReadString('\n')
+	br := bufio.NewReaderSize(c, maxHTTP1ProxyResponseBytes+1)
+	total := 0
+	status, err := readProxyResponseLine(br, &total)
 	if err != nil {
 		return nil, fmt.Errorf("proxy response: %w", err)
 	}
@@ -135,7 +139,7 @@ func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, vers
 	}
 	// Drain headers until blank line.
 	for {
-		line, err := br.ReadString('\n')
+		line, err := readProxyResponseLine(br, &total)
 		if err != nil {
 			return nil, err
 		}
@@ -151,6 +155,18 @@ func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, vers
 	buffered := append([]byte(nil), peek...)
 	_, _ = br.Discard(br.Buffered())
 	return &prefixConn{Conn: c, prefix: buffered}, nil
+}
+
+func readProxyResponseLine(br *bufio.Reader, total *int) (string, error) {
+	line, err := br.ReadSlice('\n')
+	*total += len(line)
+	if *total > maxHTTP1ProxyResponseBytes {
+		return "", fmt.Errorf("proxy response headers exceed %d bytes", maxHTTP1ProxyResponseBytes)
+	}
+	if errors.Is(err, bufio.ErrBufferFull) {
+		return "", fmt.Errorf("proxy response header line exceeds %d bytes", maxHTTP1ProxyResponseBytes)
+	}
+	return string(line), err
 }
 
 type proxyTarget struct {

@@ -61,12 +61,19 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 
 	// mode/perm/user on socket file (classic fchmod/fchown after bind)
 	if err := xio.ApplyPerm(path, s, nil); err != nil {
-		// Non-fatal for some platforms; still try mode=
-		if mode := xio.ParseFileMode(s, 0); mode != 0 {
-			_ = os.Chmod(path, mode)
+		_ = ln.Close()
+		if !xio.IsAbstract(path) {
+			_ = os.Remove(path)
 		}
+		return nil, err
 	}
-	_ = xio.ApplyOwner(path, s, nil)
+	if err := xio.ApplyOwner(path, s, nil); err != nil {
+		_ = ln.Close()
+		if !xio.IsAbstract(path) {
+			_ = os.Remove(path)
+		}
+		return nil, err
+	}
 
 	// Ensure path is removed on SIGTERM (SetUnlinkOnClose only runs on Close).
 	unregister := func() {}

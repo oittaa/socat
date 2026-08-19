@@ -5,6 +5,7 @@ package xio
 import (
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -27,7 +28,7 @@ func NeedAncillary(s parse.Spec) bool {
 		"ipv6-recvhoplimit", "recvhoplimit",
 		"ipv6-recvtclass", "recvtclass",
 	} {
-		if s.HasOption(name) || s.BoolOption(name) {
+		if s.BoolOption(name) {
 			return true
 		}
 	}
@@ -35,82 +36,145 @@ func NeedAncillary(s parse.Spec) bool {
 }
 
 // ApplyAncillaryRecvOpts enables kernel delivery of control messages on fd.
-func ApplyAncillaryRecvOpts(fd int, s parse.Spec) {
+func ApplyAncillaryRecvOpts(fd int, s parse.Spec) error {
 	on := func(name string) bool {
-		return s.HasOption(name) || s.BoolOption(name)
+		return s.BoolOption(name)
+	}
+	set := func(name string, level, option int) error {
+		if err := unix.SetsockoptInt(fd, level, option, 1); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		return nil
 	}
 	if on("so-timestamp") || on("timestamp") {
-		_ = unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_TIMESTAMP, 1)
+		if err := set("so-timestamp", unix.SOL_SOCKET, unix.SO_TIMESTAMP); err != nil {
+			return err
+		}
 	}
 	if on("ip-pktinfo") || on("pktinfo") {
-		_ = unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_PKTINFO, 1)
+		if err := set("ip-pktinfo", unix.IPPROTO_IP, unix.IP_PKTINFO); err != nil {
+			return err
+		}
 	}
 	if on("ip-recvttl") || on("recvttl") {
-		_ = unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_RECVTTL, 1)
+		if err := set("ip-recvttl", unix.IPPROTO_IP, unix.IP_RECVTTL); err != nil {
+			return err
+		}
 	}
 	if on("ip-recvtos") || on("recvtos") {
-		_ = unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_RECVTOS, 1)
+		if err := set("ip-recvtos", unix.IPPROTO_IP, unix.IP_RECVTOS); err != nil {
+			return err
+		}
 	}
 	if on("ip-recvopts") || on("recvopts") {
-		_ = unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_RECVOPTS, 1)
+		if err := set("ip-recvopts", unix.IPPROTO_IP, unix.IP_RECVOPTS); err != nil {
+			return err
+		}
 	}
 	if on("ipv6-recvpktinfo") || on("recvpktinfo") {
-		_ = unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO, 1)
+		if err := set("ipv6-recvpktinfo", unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO); err != nil {
+			return err
+		}
 	}
 	if on("ipv6-recvhoplimit") || on("recvhoplimit") {
-		_ = unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_RECVHOPLIMIT, 1)
+		if err := set("ipv6-recvhoplimit", unix.IPPROTO_IPV6, unix.IPV6_RECVHOPLIMIT); err != nil {
+			return err
+		}
 	}
 	if on("ipv6-recvtclass") || on("recvtclass") {
-		_ = unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_RECVTCLASS, 1)
+		if err := set("ipv6-recvtclass", unix.IPPROTO_IPV6, unix.IPV6_RECVTCLASS); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // ApplyIPSendOpts sets classic send-side IP options on a UDP/IP socket.
-func ApplyIPSendOpts(fd int, s parse.Spec, network string) {
+func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
 	if v := s.OptionValue("ip-ttl", ""); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			_ = unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TTL, n)
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("ip-ttl: %w", err)
+		}
+		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TTL, n); err != nil {
+			return fmt.Errorf("ip-ttl: %w", err)
 		}
 	} else if v := s.OptionValue("ttl", ""); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			_ = unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TTL, n)
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("ttl: %w", err)
+		}
+		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TTL, n); err != nil {
+			return fmt.Errorf("ttl: %w", err)
 		}
 	}
 	if v := s.OptionValue("ip-tos", ""); v != "" {
-		if n, err := ParseIntAny(v); err == nil {
-			_ = unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TOS, n)
+		n, err := ParseIntAny(v)
+		if err != nil {
+			return fmt.Errorf("ip-tos: %w", err)
+		}
+		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TOS, n); err != nil {
+			return fmt.Errorf("ip-tos: %w", err)
 		}
 	} else if v := s.OptionValue("tos", ""); v != "" {
-		if n, err := ParseIntAny(v); err == nil {
-			_ = unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TOS, n)
+		n, err := ParseIntAny(v)
+		if err != nil {
+			return fmt.Errorf("tos: %w", err)
+		}
+		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TOS, n); err != nil {
+			return fmt.Errorf("tos: %w", err)
 		}
 	}
 	if v := s.OptionValue("ip-options", ""); v != "" {
 		// classic ip-options=x01000000 hex dump of IP options bytes
-		if b, err := ParseHexOpt(v); err == nil && len(b) > 0 {
-			_ = unix.SetsockoptString(fd, unix.IPPROTO_IP, unix.IP_OPTIONS, string(b))
+		b, err := ParseHexOpt(v)
+		if err != nil {
+			return fmt.Errorf("ip-options: %w", err)
+		}
+		if len(b) == 0 {
+			return fmt.Errorf("ip-options: empty value")
+		}
+		if err := unix.SetsockoptString(fd, unix.IPPROTO_IP, unix.IP_OPTIONS, string(b)); err != nil {
+			return fmt.Errorf("ip-options: %w", err)
 		}
 	}
 	if strings.Contains(network, "6") {
 		if v := s.OptionValue("ipv6-unicast-hops", ""); v != "" {
-			if n, err := strconv.Atoi(v); err == nil {
-				_ = unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, n)
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("ipv6-unicast-hops: %w", err)
+			}
+			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, n); err != nil {
+				return fmt.Errorf("ipv6-unicast-hops: %w", err)
 			}
 		} else if v := s.OptionValue("unicast-hops", ""); v != "" {
-			if n, err := strconv.Atoi(v); err == nil {
-				_ = unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, n)
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("unicast-hops: %w", err)
+			}
+			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, n); err != nil {
+				return fmt.Errorf("unicast-hops: %w", err)
 			}
 		}
 		if v := s.OptionValue("ipv6-tclass", ""); v != "" {
-			if n, err := ParseIntAny(v); err == nil {
-				_ = unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_TCLASS, n)
+			n, err := ParseIntAny(v)
+			if err != nil {
+				return fmt.Errorf("ipv6-tclass: %w", err)
+			}
+			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_TCLASS, n); err != nil {
+				return fmt.Errorf("ipv6-tclass: %w", err)
 			}
 		} else if v := s.OptionValue("tclass", ""); v != "" {
-			if n, err := ParseIntAny(v); err == nil {
-				_ = unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_TCLASS, n)
+			n, err := ParseIntAny(v)
+			if err != nil {
+				return fmt.Errorf("tclass: %w", err)
+			}
+			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_TCLASS, n); err != nil {
+				return fmt.Errorf("tclass: %w", err)
 			}
 		}
 	}
+	return nil
 }
 
 func ParseIntAny(v string) (int, error) {
@@ -360,13 +424,18 @@ func ReadUDPMsg(c *net.UDPConn, p []byte, wantCtrl bool) (n int, oob []byte, add
 }
 
 // ApplyUDPConnOpts applies ancillary + send IP options on a live UDPConn.
-func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) {
+func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
-		return
+		return err
 	}
-	_ = raw.Control(func(fd uintptr) {
-		ApplyAncillaryRecvOpts(int(fd), s)
-		ApplyIPSendOpts(int(fd), s, network)
+	var optionErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		if err := ApplyAncillaryRecvOpts(int(fd), s); err != nil {
+			optionErr = err
+			return
+		}
+		optionErr = ApplyIPSendOpts(int(fd), s, network)
 	})
+	return errors.Join(controlErr, optionErr)
 }

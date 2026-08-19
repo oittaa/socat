@@ -2,6 +2,7 @@ package netopen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -358,15 +359,23 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 	if err != nil {
 		return err
 	}
-	if err := raw.Control(func(fd uintptr) {
-		xio.ApplyAncillaryRecvOpts(int(fd), s)
-		xio.ApplyIPSendOpts(int(fd), s, network)
-		// classic often sets reuse on raw too
-		xio.ApplyReuse(int(fd), s, true)
-		if s.BoolOption("broadcast") {
-			_ = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+	var optionErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		if optionErr = xio.ApplyAncillaryRecvOpts(int(fd), s); optionErr != nil {
+			return
 		}
-	}); err != nil {
+		if optionErr = xio.ApplyIPSendOpts(int(fd), s, network); optionErr != nil {
+			return
+		}
+		// classic often sets reuse on raw too
+		if optionErr = xio.ApplyReuse(int(fd), s, true); optionErr != nil {
+			return
+		}
+		if s.BoolOption("broadcast") {
+			optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+		}
+	})
+	if err := errors.Join(controlErr, optionErr); err != nil {
 		return err
 	}
 	// Multicast join (IP4MULTICAST_* classic tests).
