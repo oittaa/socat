@@ -2,6 +2,7 @@ package netopen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -221,9 +222,11 @@ func dialUDPSession(network string, local, remote *net.UDPAddr) (*net.UDPConn, e
 	d := net.Dialer{
 		LocalAddr: local,
 		Control: func(network, address string, c syscall.RawConn) error {
-			return c.Control(func(fd uintptr) {
-				_ = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+			var optionErr error
+			controlErr := c.Control(func(fd uintptr) {
+				optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 			})
+			return errors.Join(controlErr, optionErr)
 		},
 	}
 	c, err := d.Dial(network, remote.String())

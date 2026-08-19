@@ -13,10 +13,12 @@ import (
 
 // tcpwrapConfig holds classic libwrap / tcpwrappers options for peer checks.
 type tcpwrapConfig struct {
-	enabled bool
-	daemon  string // service name in hosts.* (default: progname / "socat")
-	allow   string // path to hosts.allow
-	deny    string // path to hosts.deny
+	enabled       bool
+	daemon        string // service name in hosts.* (default: progname / "socat")
+	allow         string // path to hosts.allow
+	deny          string // path to hosts.deny
+	allowRequired bool   // explicitly selected tables must be readable
+	denyRequired  bool
 }
 
 // parseTCPWrap extracts hosts-allow / hosts-deny / tcpwrap-etc / tcpwrap options.
@@ -26,6 +28,7 @@ func parseTCPWrap(s parse.Spec, g *Global) tcpwrapConfig {
 	// Explicit table paths
 	if s.HasOption("hosts-allow") || s.HasOption("allow-table") || s.HasOption("tcpwrap-hosts-allow-table") {
 		cfg.enabled = true
+		cfg.allowRequired = true
 		cfg.allow = FirstNonEmpty(
 			s.OptionValue("hosts-allow", ""),
 			s.OptionValue("allow-table", ""),
@@ -34,6 +37,7 @@ func parseTCPWrap(s parse.Spec, g *Global) tcpwrapConfig {
 	}
 	if s.HasOption("hosts-deny") || s.HasOption("deny-table") || s.HasOption("tcpwrap-hosts-deny-table") {
 		cfg.enabled = true
+		cfg.denyRequired = true
 		cfg.deny = FirstNonEmpty(
 			s.OptionValue("hosts-deny", ""),
 			s.OptionValue("deny-table", ""),
@@ -49,9 +53,11 @@ func parseTCPWrap(s parse.Spec, g *Global) tcpwrapConfig {
 		cfg.enabled = true
 		if cfg.allow == "" {
 			cfg.allow = filepath.Join(etc, "hosts.allow")
+			cfg.allowRequired = true
 		}
 		if cfg.deny == "" {
 			cfg.deny = filepath.Join(etc, "hosts.deny")
+			cfg.denyRequired = true
 		}
 	}
 	// Bare tcpwrap / libwrap / wrap / tcpwrappers enables with default tables
@@ -107,18 +113,26 @@ func tcpwrapAllowed(cfg tcpwrapConfig, peer net.Addr, local net.Addr) error {
 	}
 	// Match by IP first (no reverse DNS) so reject is fast enough that the
 	// client has not written yet — avoids RST vs FIN (TCP4WRAPPERS_* expect 0).
-	if matchHostsTable(cfg.allow, cfg.daemon, clientIP, "") {
+	allowLines, err := readHostsTable(cfg.allow, cfg.allowRequired)
+	if err != nil {
+		return err
+	}
+	denyLines, err := readHostsTable(cfg.deny, cfg.denyRequired)
+	if err != nil {
+		return err
+	}
+	if matchHostsLines(allowLines, cfg.daemon, clientIP, "") {
 		return nil
 	}
 	// Only reverse-lookup when tables may name hosts (TCP4WRAPPERS_NAME).
 	clientHost := ""
-	if clientIP != "" && tablesMayNeedHostname(cfg.allow, cfg.deny) {
+	if clientIP != "" && hostsLinesMayNeedHostname(allowLines, denyLines) {
 		clientHost = reverseHost(clientIP)
-		if clientHost != "" && matchHostsTable(cfg.allow, cfg.daemon, clientIP, clientHost) {
+		if clientHost != "" && matchHostsLines(allowLines, cfg.daemon, clientIP, clientHost) {
 			return nil
 		}
 	}
-	if matchHostsTable(cfg.deny, cfg.daemon, clientIP, clientHost) {
+	if matchHostsLines(denyLines, cfg.daemon, clientIP, clientHost) {
 		return fmt.Errorf("refusing connection from %s due to tcpwrapper option", peer)
 	}
 	// Classic default: permit if not denied
@@ -168,20 +182,10 @@ func reverseHost(ipStr string) string {
 	return ""
 }
 
-// tablesMayNeedHostname is true if allow/deny list any non-IP, non-ALL token.
-func tablesMayNeedHostname(paths ...string) bool {
-	for _, path := range paths {
-		if path == "" {
-			continue
-		}
-		f, err := os.Open(path) // #nosec G304 -- hosts.allow/deny path comes from tcpwrap-etc= or the default dir
-		if err != nil {
-			continue
-		}
-		sc := bufio.NewScanner(f)
-		need := false
-		for sc.Scan() {
-			line := strings.TrimSpace(sc.Text())
+func hostsLinesMayNeedHostname(tables ...[]string) bool {
+	for _, lines := range tables {
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
 			if line == "" || strings.HasPrefix(line, "#") {
 				continue
 			}
@@ -190,42 +194,52 @@ func tablesMayNeedHostname(paths ...string) bool {
 				continue
 			}
 			for _, tok := range splitHostsList(clientList) {
-				if strings.EqualFold(tok, "ALL") {
-					continue
+				if !strings.EqualFold(tok, "ALL") && net.ParseIP(StripBrackets(tok)) == nil {
+					return true
 				}
-				if net.ParseIP(StripBrackets(tok)) != nil {
-					continue
-				}
-				need = true
-				break
 			}
-			if need {
-				break
-			}
-		}
-		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		if need {
-			return true
 		}
 	}
 	return false
+}
+
+func readHostsTable(path string, required bool) ([]string, error) {
+	if path == "" {
+		return nil, nil
+	}
+	f, err := os.Open(path) // #nosec G304 -- path is an explicit tcpwrap table or a system default
+	if err != nil {
+		if !required && os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read tcpwrapper table %q: %w", path, err)
+	}
+	defer func() { _ = f.Close() }()
+	var lines []string
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		lines = append(lines, sc.Text())
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("read tcpwrapper table %q: %w", path, err)
+	}
+	return lines, nil
 }
 
 // matchHostsTable returns true if daemon+client match a non-comment line.
 // Supports classic subset: daemon_list: client_list [: shell_command]
 // daemon ALL / exact name; client ALL / IP / hostname / [ipv6] (case-insensitive).
 func matchHostsTable(path, daemon, clientIP, clientHost string) bool {
-	if path == "" {
-		return false
-	}
-	f, err := os.Open(path) // #nosec G304 -- hosts.allow/deny path comes from tcpwrap-etc= or the default dir
+	lines, err := readHostsTable(path, false)
 	if err != nil {
 		return false
 	}
-	defer func() { _ = f.Close() }()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimSpace(sc.Text())
+	return matchHostsLines(lines, daemon, clientIP, clientHost)
+}
+
+func matchHostsLines(lines []string, daemon, clientIP, clientHost string) bool {
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}

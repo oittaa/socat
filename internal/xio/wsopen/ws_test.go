@@ -29,6 +29,19 @@ func listenCert(t *testing.T) string {
 	return p
 }
 
+func TestUpgradeConnHandshakeTimeout(t *testing.T) {
+	client, server := net.Pipe()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
+	started := time.Now()
+	if _, err := upgradeConn(server, "/", "", "", 30*time.Millisecond); err == nil {
+		t.Fatal("incomplete WebSocket request did not time out")
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("timeout took %s", elapsed)
+	}
+}
+
 func echoWSHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})

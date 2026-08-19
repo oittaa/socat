@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/signal"
 	"strconv"
@@ -31,7 +32,6 @@ type Config struct {
 	Verbose      bool
 	Hex          bool
 	BlockSize    int
-	Sloppy       bool
 	Linger       time.Duration
 	Idle         time.Duration // <0 infinite, 0 zero, >0 timeout
 	IdleSet      bool
@@ -110,8 +110,6 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 		}
 		// -dd, -ddd, -dddd
 		if strings.Trim(rest, "d") == "" {
-			cfg.LogLevel = levelFromN(len(rest) + 1) // -dd => 2 d's total with first d
-			// a is -dd: rest="d" len 1 → levelFromN(2); better count all d's
 			cfg.LogLevel = levelFromN(len(a) - 1)
 			return nil
 		}
@@ -131,7 +129,8 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 	case a == "-x":
 		cfg.Hex = true
 	case a == "-s":
-		cfg.Sloppy = true
+		// Accepted for classic CLI compatibility. Go's stream APIs do not expose
+		// a portable subset of recoverable I/O errors to which -s could apply.
 	case a == "-u":
 		cfg.LeftToRight = true
 	case a == "-U":
@@ -184,20 +183,22 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 		if err != nil {
 			return err
 		}
-		cfg.Linger = parseDuration(v)
+		cfg.Linger, err = parseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid -t value %q: %w", v, err)
+		}
 	case strings.HasPrefix(a, "-T"):
 		v, err := optArg(a, "T", args, i)
 		if err != nil {
 			return err
 		}
 		cfg.IdleSet = true
-		f, err := strconv.ParseFloat(v, 64)
+		cfg.Idle, err = parseDuration(v)
 		if err != nil {
-			cfg.Idle = parseDuration(v)
-		} else if f < 0 {
+			return fmt.Errorf("invalid -T value %q: %w", v, err)
+		}
+		if cfg.Idle < 0 {
 			cfg.Idle = -1
-		} else {
-			cfg.Idle = time.Duration(f * float64(time.Second))
 		}
 	case strings.HasPrefix(a, "-lp"):
 		v, err := optArg(a, "lp", args, i)
@@ -284,16 +285,24 @@ func optArg(a, key string, args []string, i *int) (string, error) {
 	return "", fmt.Errorf("option parse error for %s", a)
 }
 
-func parseDuration(v string) time.Duration {
+func parseDuration(v string) (time.Duration, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, fmt.Errorf("empty duration")
+	}
 	f, err := strconv.ParseFloat(v, 64)
 	if err == nil {
-		return time.Duration(f * float64(time.Second))
+		secondsLimit := float64(math.MaxInt64) / float64(time.Second)
+		if math.IsNaN(f) || math.IsInf(f, 0) || f > secondsLimit || f < -secondsLimit {
+			return 0, fmt.Errorf("duration out of range")
+		}
+		return time.Duration(f * float64(time.Second)), nil
 	}
 	d, err := time.ParseDuration(v)
 	if err != nil {
-		return 0
+		return 0, err
 	}
-	return d
+	return d, nil
 }
 
 // Main runs socat with the given args (excluding program name).
@@ -348,8 +357,11 @@ func Main(args []string) int {
 			fmt.Fprintf(os.Stderr, "socat: %v\n", err)
 			return 1
 		}
-		xio.RegisterUnlinkPath(cfg.LockFile)
-		defer func() { _ = os.Remove(cfg.LockFile) }()
+		unregister := xio.RegisterUnlinkPath(cfg.LockFile)
+		defer func() {
+			unregister()
+			_ = os.Remove(cfg.LockFile)
+		}()
 	}
 	if cfg.LockWait != "" {
 		for {
@@ -362,8 +374,11 @@ func Main(args []string) int {
 			fmt.Fprintf(os.Stderr, "socat: %v\n", err)
 			return 1
 		}
-		xio.RegisterUnlinkPath(cfg.LockWait)
-		defer func() { _ = os.Remove(cfg.LockWait) }()
+		unregister := xio.RegisterUnlinkPath(cfg.LockWait)
+		defer func() {
+			unregister()
+			_ = os.Remove(cfg.LockWait)
+		}()
 	}
 
 	left, err := parse.ParseChannel(cfg.Addresses[0])
@@ -376,6 +391,14 @@ func Main(args []string) int {
 		log.Errorf("parse right address: %s", err)
 		return 1
 	}
+	if err := validateChannelOptions(left); err != nil {
+		log.Errorf("parse left address: %s", err)
+		return 1
+	}
+	if err := validateChannelOptions(right); err != nil {
+		log.Errorf("parse right address: %s", err)
+		return 1
+	}
 
 	g := &xio.Global{
 		Log:          log,
@@ -385,7 +408,6 @@ func Main(args []string) int {
 		Hex:          cfg.Hex,
 		Dump:         os.Stderr,
 		Statistics:   cfg.Statistics,
-		Sloppy:       cfg.Sloppy,
 		Experimental: cfg.Experimental,
 		LeftToRight:  cfg.LeftToRight,
 		RightToLeft:  cfg.RightToLeft,

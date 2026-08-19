@@ -2,6 +2,7 @@ package netopen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -61,13 +62,22 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 			// use this bound conn as the packet socket
 			if s.BoolOption("broadcast") {
 				raw, e := c.SyscallConn()
-				if e == nil {
-					_ = raw.Control(func(fd uintptr) {
-						_ = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
-					})
+				if e != nil {
+					_ = c.Close()
+					return nil, e
+				}
+				var optionErr error
+				if e = raw.Control(func(fd uintptr) {
+					optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+				}); e != nil || optionErr != nil {
+					_ = c.Close()
+					return nil, errors.Join(e, optionErr)
 				}
 			}
-			xio.ApplyUDPConnOpts(c, s, network)
+			if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
+				_ = c.Close()
+				return nil, err
+			}
 			st := &udpDatagramConn{UDPConn: c, raddr: raddr}
 			wrapped, err := xio.WrapCommon(s, st)
 			if err != nil {
@@ -105,12 +115,17 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 	// SO_REUSEADDR on bind so rapid retests / paired ports work.
 	cfg := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
-			return c.Control(func(fd uintptr) {
-				_ = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+			var optionErr error
+			controlErr := c.Control(func(fd uintptr) {
+				optionErr = xio.ApplyListenOptions(int(fd), s, network)
+				if optionErr != nil {
+					return
+				}
 				if s.BoolOption("broadcast") {
-					_ = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+					optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 				}
 			})
+			return errors.Join(controlErr, optionErr)
 		},
 	}
 	pc, err := cfg.ListenPacket(ctx, network, laddrString(network, laddr))
@@ -122,16 +137,11 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, fmt.Errorf("UDP: unexpected packet conn type")
 	}
-	if s.BoolOption("broadcast") {
-		raw, err := c.SyscallConn()
-		if err == nil {
-			_ = raw.Control(func(fd uintptr) {
-				_ = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
-			})
-		}
-	}
 	// Send-side IP options (ip-ttl, ip-tos, ipv6-tclass, …) for SENDTO/DATAGRAM.
-	xio.ApplyUDPConnOpts(c, s, network)
+	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
+		_ = c.Close()
+		return nil, err
+	}
 	st := &udpDatagramConn{UDPConn: c, raddr: raddr}
 	wrapped, err := xio.WrapCommon(s, st)
 	if err != nil {
@@ -393,12 +403,17 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 	// Default reuseaddr for listen-like UDP (classic often implies it with explicit option).
 	cfg := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
-			return c.Control(func(fd uintptr) {
-				xio.ApplyReuse(int(fd), s, true)
+			var optionErr error
+			controlErr := c.Control(func(fd uintptr) {
+				optionErr = xio.ApplyListenOptions(int(fd), s, network)
+				if optionErr != nil {
+					return
+				}
 				if s.BoolOption("broadcast") {
-					_ = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+					optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 				}
 			})
+			return errors.Join(controlErr, optionErr)
 		},
 	}
 	pc, err := cfg.ListenPacket(context.Background(), network, laddr.String())
@@ -407,7 +422,10 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 	}
 	c := pc.(*net.UDPConn)
 	// Ancillary recv opts (so-timestamp, ip-recvttl, …) and send-side IP opts.
-	xio.ApplyUDPConnOpts(c, s, network)
+	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
+		_ = c.Close()
+		return nil, err
+	}
 	// ip-add-membership=mcastaddr:interfaceaddr (classic form).
 	if v := s.OptionValue("ip-add-membership", ""); v != "" {
 		if err := joinMulticast(c, v); err != nil {

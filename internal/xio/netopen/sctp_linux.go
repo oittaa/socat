@@ -45,7 +45,10 @@ func listenSCTP(_ context.Context, network, host, port string, s parse.Spec) (ne
 	if err != nil {
 		return nil, fmt.Errorf("sctp socket: %w", err)
 	}
-	xio.ApplyReuse(fd, s, true)
+	if err := xio.ApplyReuse(fd, s, true); err != nil {
+		_ = unix.Close(fd)
+		return nil, err
+	}
 	if family == unix.AF_INET6 {
 		v6only := 1
 		if network == "sctp" {
@@ -57,7 +60,10 @@ func listenSCTP(_ context.Context, network, host, port string, s parse.Spec) (ne
 				v6only = 1
 			}
 		}
-		_ = unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_V6ONLY, v6only)
+		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_V6ONLY, v6only); err != nil && s.HasOption("ipv6-v6only") {
+			_ = unix.Close(fd)
+			return nil, fmt.Errorf("ipv6-v6only: %w", err)
+		}
 	}
 	sa, err := ipPortSockaddr(ip, portNum)
 	if err != nil {

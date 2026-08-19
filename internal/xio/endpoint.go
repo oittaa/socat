@@ -56,7 +56,6 @@ type Global struct {
 	Dump         io.Writer
 	Statistics   bool
 	statsPrinted *atomic.Bool // pointer so forkSession can copy Global without copying a lock
-	Sloppy       bool         // -s continue on some errors
 	Experimental bool         // --experimental (classic netns= warning)
 
 	// Peer info from the most recently accepted/connected socket (for SOCAT_* env).
@@ -181,6 +180,8 @@ type Opened struct {
 	WrapDial func(net.Conn) (relay.Stream, error)
 	// Interval between parent connect iterations (classic interval= seconds).
 	Interval time.Duration
+	// HandshakeTimeout bounds accepted TLS/WebSocket protocol negotiation.
+	HandshakeTimeout time.Duration
 	// For dual: separate read/write streams
 	Read  relay.Stream
 	Write relay.Stream
@@ -188,35 +189,38 @@ type Opened struct {
 	NoForkSpec *parse.Spec
 	// ttyRestore runs before Stream.Close so termios restore still sees the fd.
 	ttyRestore []func()
+	closeOnce  sync.Once
+	closeErr   error
 }
 
 // Close releases resources.
 func (o *Opened) Close() error {
+	o.closeOnce.Do(func() {
+		o.closeErr = o.close()
+	})
+	return o.closeErr
+}
+
+func (o *Opened) close() error {
 	var first error
 	for i := len(o.ttyRestore) - 1; i >= 0; i-- {
 		o.ttyRestore[i]()
 	}
-	o.ttyRestore = nil
 	// Prefer cleanup hooks (they own the real FDs). Avoid comparing Stream
 	// values: relay.FDStream holds funcs and is not comparable.
 	if o.Stream != nil {
 		if err := o.Stream.Close(); err != nil && first == nil {
 			first = err
 		}
-		o.Stream = nil
 	}
 	if o.Listener != nil {
 		if err := o.Listener.Close(); err != nil && first == nil {
 			first = err
 		}
-		o.Listener = nil
 	}
 	for i := len(o.Cleanup) - 1; i >= 0; i-- {
 		o.Cleanup[i]()
 	}
-	o.Cleanup = nil
-	o.Read = nil
-	o.Write = nil
 	return first
 }
 
@@ -335,13 +339,16 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		// grep "E unknown device/address"
 		return nil, fmt.Errorf("unknown device/address \"%s\"", s.Type)
 	}
+	var err error
+	s, err = ResolveChdirPaths(s)
+	if err != nil {
+		return nil, err
+	}
 	var o *Opened
-	err := WithNetNS(s, g, func() error {
-		return WithChdir(s, func() error {
-			var e error
-			o, e = fn(ctx, s, mode, g)
-			return e
-		})
+	err = WithNetNS(s, g, func() error {
+		var e error
+		o, e = fn(ctx, s, mode, g)
+		return e
 	})
 	return o, err
 }

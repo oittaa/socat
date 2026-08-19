@@ -59,12 +59,15 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 
 	origin := s.OptionValue("origin", "")
 	proto := s.OptionValue("protocol", "")
+	handshakeTimeout := xio.HandshakeTimeout(s)
 	fork, maxChildren := xio.ForkLimits(s)
 	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 	// Upgrade after peer filter (TCP-level range/sourceport/tcpwrap).
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
-		xio.ApplyTCPConnOpts(s, c)
-		uc, err := upgradeConn(c, wpath, origin, proto)
+		if err := xio.ApplyTCPConnOpts(s, c); err != nil {
+			return nil, err
+		}
+		uc, err := upgradeConn(c, wpath, origin, proto, handshakeTimeout)
 		if err != nil {
 			return nil, err
 		}
@@ -72,12 +75,13 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	}
 
 	o := &xio.Opened{
-		Kind:        xio.ListenKind(fork),
-		Listener:    ln,
-		Label:       s.Type + ":" + port + wpath,
-		PeerFilter:  filter,
-		MaxChildren: maxChildren,
-		WrapDial:    wrapConn,
+		Kind:             xio.ListenKind(fork),
+		Listener:         ln,
+		Label:            s.Type + ":" + port + wpath,
+		PeerFilter:       filter,
+		MaxChildren:      maxChildren,
+		WrapDial:         wrapConn,
+		HandshakeTimeout: handshakeTimeout,
 	}
 	o.AddCleanup(func() { _ = ln.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 
@@ -127,6 +131,12 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 	o.Listener = nil
 	xio.RememberAddrs(g, conn)
+	if useTLS {
+		if err := xio.RememberTLSPeer(g, conn, handshakeTimeout); err != nil {
+			_ = conn.Close() // #nosec G104 -- Close on handshake failure
+			return nil, err
+		}
+	}
 	st, err := wrapConn(conn)
 	if err != nil {
 		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
@@ -136,7 +146,17 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	return o, nil
 }
 
-func upgradeConn(c net.Conn, wantPath, origin, proto string) (net.Conn, error) {
+func upgradeConn(c net.Conn, wantPath, origin, proto string, timeout time.Duration) (net.Conn, error) {
+	var upgraded net.Conn
+	err := xio.WithHandshakeDeadline(c, timeout, func() error {
+		var err error
+		upgraded, err = upgradeConnNow(c, wantPath, origin, proto)
+		return err
+	})
+	return upgraded, err
+}
+
+func upgradeConnNow(c net.Conn, wantPath, origin, proto string) (net.Conn, error) {
 	br := bufio.NewReader(c)
 	req, err := http.ReadRequest(br)
 	if err != nil {

@@ -21,6 +21,9 @@ func openSTDIO(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 			return nil, fmt.Errorf("setsid: %w", err)
 		}
 	}
+	if err := applyFileLocks(s, os.Stdin, os.Stdout); err != nil {
+		return nil, err
+	}
 	// Classic STDIO: fd 0 read, fd 1 write; options like escape= apply via xio.WrapCommon.
 	var stream relay.Stream
 	switch mode {
@@ -58,9 +61,12 @@ func openSTDIO(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 	return o, nil
 }
 
-func openSTDIN(_ context.Context, _ parse.Spec, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
+func openSTDIN(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
 	if mode == xio.ModeWrite {
 		return nil, fmt.Errorf("STDIN is read-only")
+	}
+	if err := applyFileLocks(s, os.Stdin, nil); err != nil {
+		return nil, err
 	}
 	return &xio.Opened{
 		Stream: relay.FDStream{R: os.Stdin, W: io.Discard, C: xio.NopCloser{}},
@@ -68,9 +74,12 @@ func openSTDIN(_ context.Context, _ parse.Spec, mode xio.Mode, _ *xio.Global) (*
 	}, nil
 }
 
-func openSTDOUT(_ context.Context, _ parse.Spec, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
+func openSTDOUT(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
 	if mode == xio.ModeRead {
 		return nil, fmt.Errorf("STDOUT is write-only")
+	}
+	if err := applyFileLocks(s, nil, os.Stdout); err != nil {
+		return nil, err
 	}
 	return &xio.Opened{
 		Stream: relay.FDStream{R: xio.EOFReader{}, W: os.Stdout, C: xio.NopCloser{}},
@@ -78,9 +87,12 @@ func openSTDOUT(_ context.Context, _ parse.Spec, mode xio.Mode, _ *xio.Global) (
 	}, nil
 }
 
-func openSTDERR(_ context.Context, _ parse.Spec, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
+func openSTDERR(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
 	if mode == xio.ModeRead {
 		return nil, fmt.Errorf("STDERR is write-only")
+	}
+	if err := applyFileLocks(s, nil, os.Stderr); err != nil {
+		return nil, err
 	}
 	return &xio.Opened{
 		Stream: relay.FDStream{R: xio.EOFReader{}, W: os.Stderr, C: xio.NopCloser{}},
@@ -99,6 +111,9 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Op
 	f := os.NewFile(uintptr(n), fmt.Sprintf("fd:%d", n))
 	if f == nil {
 		return nil, fmt.Errorf("FD:%d invalid", n)
+	}
+	if err := applyFileLocks(s, f, f); err != nil {
+		return nil, err
 	}
 	return &xio.Opened{
 		Stream: relay.RWCStream{ReadWriteCloser: f},

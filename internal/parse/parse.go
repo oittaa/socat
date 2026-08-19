@@ -3,7 +3,6 @@ package parse
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"unicode"
 )
@@ -134,7 +133,11 @@ func ParseSpec(s string) (Spec, error) {
 // OptionNamed returns the option with the given name (case-insensitive), if any.
 func (s Spec) OptionNamed(name string) (Option, bool) {
 	name = normalizeOptionName(name)
-	for _, o := range s.Options {
+	// Classic socat applies options in command-line order, so a later option
+	// overrides an earlier one. Scan backwards to preserve that behavior even
+	// when aliases normalize to the same canonical name.
+	for i := len(s.Options) - 1; i >= 0; i-- {
+		o := s.Options[i]
 		if normalizeOptionName(o.Name) == name {
 			return o, true
 		}
@@ -465,55 +468,66 @@ func parseOption(s string) Option {
 	return o
 }
 
+// optionAliases is immutable after initialization and safe for concurrent reads.
+// Keeping it out of normalizeOptionName avoids rebuilding the table on every
+// option parse and lookup.
+var optionAliases = map[string]string{
+	"so-reuseaddr":       "reuseaddr",
+	"so-reuseport":       "reuseport",
+	"ipv6-join-group":    "ip-add-membership",
+	"bind-tempname":      "unix-bind-tempname",
+	"proxyauth":          "proxy-authorization",
+	"proxyauthfile":      "proxy-authorization-file",
+	"so-keepalive":       "keepalive",
+	"so-bindtodevice":    "bindtodevice",
+	"so-broadcast":       "broadcast",
+	"so-rcvbuf":          "rcvbuf",
+	"so-sndbuf":          "sndbuf",
+	"so-rcvtimeo":        "rcvtimeo",
+	"so-sndtimeo":        "sndtimeo",
+	"so-type":            "socktype",
+	"tcp-nodelay":        "nodelay",
+	"tcp-keepalive":      "keepalive",
+	"o-nonblock":         "nonblock",
+	"o-append":           "append",
+	"o-trunc":            "trunc",
+	"o-creat":            "creat",
+	"o-excl":             "excl",
+	"o-rdonly":           "rdonly",
+	"o-wronly":           "wronly",
+	"o-ndelay":           "nonblock",
+	"sp":                 "sourceport",
+	"sourceport":         "sourceport",
+	"wait-slave":         "pty-wait-slave",
+	"waitslave":          "pty-wait-slave",
+	"pty-intervall":      "pty-interval",
+	"winsz":              "tiocswinsz",
+	"tiocsctty":          "ctty",
+	"posixmq-priority":   "mq-prio",
+	"posixmq-flush":      "mq-flush",
+	"posixmq-maxmsg":     "mq-maxmsg",
+	"posixmq-msgsize":    "mq-msgsize",
+	"openssl-capath":     "capath",
+	"tls-capath":         "capath",
+	"openssl-commonname": "commonname",
+	"tls-commonname":     "commonname",
+	"openssl-snihost":    "snihost",
+	"tls-snihost":        "snihost",
+	"openssl-no-sni":     "nosni",
+	"tls-no-sni":         "nosni",
+	"cipher":             "ciphers",
+	"openssl-cipherlist": "ciphers",
+	"sockopt-listen":     "setsockopt-listen",
+	"f-setlk-wr":         "setlk",
+	"f-setlkw-wr":        "setlkw",
+	"f-setlk-rd":         "setlk-rd",
+	"f-setlkw-rd":        "setlkw-rd",
+}
+
 // normalizeOptionName maps classic aliases (so-*, o-*, etc.) to canonical names.
 func normalizeOptionName(name string) string {
 	n := strings.ToLower(name)
-	aliases := map[string]string{
-		"so-reuseaddr":       "reuseaddr",
-		"so-reuseport":       "reuseport",
-		"ipv6-join-group":    "ip-add-membership",
-		"bind-tempname":      "unix-bind-tempname",
-		"proxyauth":          "proxy-authorization",
-		"proxyauthfile":      "proxy-authorization-file",
-		"so-keepalive":       "keepalive",
-		"so-bindtodevice":    "bindtodevice",
-		"so-broadcast":       "broadcast",
-		"so-rcvbuf":          "rcvbuf",
-		"so-sndbuf":          "sndbuf",
-		"so-rcvtimeo":        "rcvtimeo",
-		"so-sndtimeo":        "sndtimeo",
-		"so-type":            "socktype",
-		"tcp-nodelay":        "nodelay",
-		"tcp-keepalive":      "keepalive",
-		"o-nonblock":         "nonblock",
-		"o-append":           "append",
-		"o-trunc":            "trunc",
-		"o-creat":            "creat",
-		"o-excl":             "excl",
-		"o-rdonly":           "rdonly",
-		"o-wronly":           "wronly",
-		"o-ndelay":           "nonblock",
-		"sp":                 "sourceport",
-		"sourceport":         "sourceport",
-		"wait-slave":         "pty-wait-slave",
-		"waitslave":          "pty-wait-slave",
-		"pty-intervall":      "pty-interval",
-		"winsz":              "tiocswinsz",
-		"tiocsctty":          "ctty",
-		"posixmq-priority":   "mq-prio",
-		"posixmq-flush":      "mq-flush",
-		"posixmq-maxmsg":     "mq-maxmsg",
-		"posixmq-msgsize":    "mq-msgsize",
-		"openssl-capath":     "capath",
-		"tls-capath":         "capath",
-		"openssl-commonname": "commonname",
-		"tls-commonname":     "commonname",
-		"openssl-snihost":    "snihost",
-		"tls-snihost":        "snihost",
-		"openssl-no-sni":     "nosni",
-		"tls-no-sni":         "nosni",
-	}
-	if c, ok := aliases[n]; ok {
+	if c, ok := optionAliases[n]; ok {
 		return c
 	}
 	return n
@@ -791,13 +805,4 @@ func pathOption(name string) bool {
 	default:
 		return false
 	}
-}
-
-// ParseFD parses an FD number parameter.
-func ParseFD(s string) (int, error) {
-	n, err := strconv.Atoi(s)
-	if err != nil || n < 0 {
-		return 0, fmt.Errorf("invalid fd number %q", s)
-	}
-	return n, nil
 }

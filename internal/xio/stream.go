@@ -369,21 +369,22 @@ func StreamIsEndClose(s relay.Stream) bool {
 	return false
 }
 
-// ignoreEOFReader retries Read after EOF with a short sleep (classic ignoreeof).
-// Stops when the underlying reader returns a non-EOF error or after maxIdle
-// of continuous EOFs without data (safety bound).
+// ignoreEOFReader retries Read after EOF with a short, bounded backoff
+// (classic ignoreeof). Cancellation closes the underlying stream, making the
+// next Read return a non-EOF error; ignoreeof itself has no artificial cutoff.
 type ignoreEOFReader struct {
-	r       io.Reader
-	idle    time.Duration
-	maxIdle time.Duration
-	waited  time.Duration
+	r        io.Reader
+	minDelay time.Duration
+	maxDelay time.Duration
+	delay    time.Duration
 }
 
 func NewIgnoreEOF(r io.Reader) *ignoreEOFReader {
 	return &ignoreEOFReader{
-		r:       r,
-		idle:    20 * time.Millisecond,
-		maxIdle: 30 * time.Second, // long enough for classic FILE dual-echo tests
+		r:        r,
+		minDelay: time.Millisecond,
+		maxDelay: 10 * time.Millisecond,
+		delay:    time.Millisecond,
 	}
 }
 
@@ -391,7 +392,7 @@ func (i *ignoreEOFReader) Read(p []byte) (int, error) {
 	for {
 		n, err := i.r.Read(p)
 		if n > 0 {
-			i.waited = 0
+			i.delay = i.minDelay
 			return n, nil
 		}
 		if err == nil {
@@ -400,12 +401,12 @@ func (i *ignoreEOFReader) Read(p []byte) (int, error) {
 		if err != io.EOF {
 			return 0, err
 		}
-		// EOF: wait and retry
-		i.waited += i.idle
-		if i.waited >= i.maxIdle {
-			return 0, io.EOF
+		// EOF: retry quickly at first so a concurrent append is observed before
+		// short relay linger timers expire, then back off during long idle periods.
+		time.Sleep(i.delay)
+		if i.delay < i.maxDelay {
+			i.delay = min(i.delay*2, i.maxDelay)
 		}
-		time.Sleep(i.idle)
 	}
 }
 

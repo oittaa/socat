@@ -70,13 +70,9 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return setSockErr
 			}
-			if tc, ok := c.(*net.TCPConn); ok {
-				if s.BoolOption("nodelay") {
-					_ = tc.SetNoDelay(true)
-				}
-				if s.BoolOption("keepalive") || s.HasOption("keepidle") {
-					_ = tc.SetKeepAlive(true)
-				}
+			if e := xio.ApplyTCPConnOpts(s, c); e != nil {
+				_ = c.Close()
+				return e
 			}
 			conn = c
 			return nil
@@ -144,7 +140,9 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	// Per-connection wrap for fork accept (crlf, escape, keepalive, …).
 	// Non-fork applies the same via xio.WrapCommon after the single accept below.
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
-		xio.ApplyTCPConnOpts(s, c)
+		if err := xio.ApplyTCPConnOpts(s, c); err != nil {
+			return nil, err
+		}
 		return xio.WrapCommon(s, relay.NetStream{Conn: c})
 	}
 	o := &xio.Opened{
@@ -221,7 +219,10 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	g.Log.Infof("accepted connection from %s", conn.RemoteAddr())
 	// Classic: socket options on LISTEN apply to the accepted connection
 	// (so-keepalive, nodelay, …). LISTEN_KEEPALIVE checks filan on the conn.
-	xio.ApplyTCPConnOpts(s, conn)
+	if err := xio.ApplyTCPConnOpts(s, conn); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
 	xio.RememberAddrs(g, conn)
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)

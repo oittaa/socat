@@ -138,6 +138,7 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 		}
 		cmd = exec.CommandContext(ctx, parts[0], parts[1:]...) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
 	}
+	cmd.Dir = s.OptionValue("chdir", "")
 	if s.BoolOption("setsid") {
 		if cmd.SysProcAttr == nil {
 			cmd.SysProcAttr = &syscall.SysProcAttr{}
@@ -319,6 +320,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		spec := s
 		return &Opened{Kind: KindExec, Label: "EXEC-nofork", NoForkSpec: &spec}, nil
 	}
+	cmd.Dir = s.OptionValue("chdir", "")
 	// Default: socketpair for full duplex; pipes when requested or unidirectional
 	// so unused direction can inherit process stdio (classic LISTENENV / single-exec).
 	usePipes := s.BoolOption("pipes") || mode == ModeRead || mode == ModeWrite

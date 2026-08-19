@@ -31,11 +31,19 @@ func openOPEN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 		// ftruncate=N or trunc flag after open
 		if v := s.OptionValue("ftruncate", ""); v != "" {
 			var n int64
-			if _, e := fmt.Sscanf(v, "%d", &n); e == nil {
-				_ = f.Truncate(n)
+			if _, e := fmt.Sscanf(v, "%d", &n); e != nil {
+				_ = f.Close()
+				return nil, fmt.Errorf("ftruncate: %w", e)
+			}
+			if e := f.Truncate(n); e != nil {
+				_ = f.Close()
+				return nil, fmt.Errorf("ftruncate: %w", e)
 			}
 		} else if s.BoolOption("trunc") {
-			_ = f.Truncate(0)
+			if e := f.Truncate(0); e != nil {
+				_ = f.Close()
+				return nil, fmt.Errorf("truncate: %w", e)
+			}
 		}
 	}
 	return FileOpened(f, s, path)
@@ -167,25 +175,28 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		err := xio.WithUmask(s, func() error {
 			return mkfifo(path, uint32(xio.ParseFileMode(s, 0o644)))
 		})
-		if err == nil {
-			_ = xio.ApplyPerm(path, s, nil)
-			_ = xio.ApplyOwner(path, s, nil)
-		}
 		if err != nil {
 			return nil, fmt.Errorf("mkfifo %s: %w", path, err)
 		}
 		created = true
-	} else {
-		// Existing FIFO: still apply user=/perm= when requested.
-		_ = xio.ApplyPerm(path, s, nil)
-		_ = xio.ApplyOwner(path, s, nil)
+	}
+	// Existing FIFOs receive the same explicit ownership/mode treatment. A
+	// failed open must not leave behind a FIFO that this invocation created.
+	if err := xio.ApplyPerm(path, s, nil); err != nil {
+		if created {
+			_ = os.Remove(path)
+		}
+		return nil, err
+	}
+	if err := xio.ApplyOwner(path, s, nil); err != nil {
+		if created {
+			_ = os.Remove(path)
+		}
+		return nil, err
 	}
 
 	// Classic default unlink-close=1 for named pipes (PIPE_REMOVE).
 	doUnlink := created || !s.HasOption("unlink-close") || s.BoolOption("unlink-close")
-	if doUnlink && !s.BoolOption("unlink-early") {
-		xio.RegisterUnlinkPath(path)
-	}
 	cleanupPath := func() {
 		if s.BoolOption("unlink-early") {
 			return
@@ -193,6 +204,16 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		if doUnlink {
 			_ = os.Remove(path)
 		}
+	}
+	addPathCleanup := func(o *xio.Opened) {
+		if s.BoolOption("unlink-early") || !doUnlink {
+			return
+		}
+		unregister := xio.RegisterUnlinkPath(path)
+		o.AddCleanup(func() {
+			unregister()
+			cleanupPath()
+		})
 	}
 
 	clearNB := clearNonblock
@@ -216,9 +237,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 			return nil, err
 		}
 		o := &xio.Opened{Stream: st, Label: "PIPE:" + path}
-		if !s.BoolOption("unlink-early") {
-			o.AddCleanup(cleanupPath)
-		}
+		addPathCleanup(o)
 		return o, nil
 	case xio.ModeWrite:
 		// Need a reader end open first for O_WRONLY on FIFO.
@@ -248,9 +267,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 			return nil, err
 		}
 		o := &xio.Opened{Stream: st, Label: "PIPE:" + path}
-		if !s.BoolOption("unlink-early") {
-			o.AddCleanup(cleanupPath)
-		}
+		addPathCleanup(o)
 		return o, nil
 	default:
 		// Bidirectional: open reader then writer (both NONBLOCK), then blocking I/O.
@@ -290,9 +307,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		o := &xio.Opened{Stream: st, Label: "PIPE:" + path}
 		o.AddCleanup(func() { _ = r.Close(); _ = w.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
-		if !s.BoolOption("unlink-early") {
-			o.AddCleanup(cleanupPath)
-		}
+		addPathCleanup(o)
 		return o, nil
 	}
 }
@@ -386,6 +401,10 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
+	if err := applyFileLocks(s, f, f); err != nil {
+		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		return nil, err
+	}
 	var stream relay.Stream
 	if s.BoolOption("ignoreeof") {
 		stream = relay.FDStream{
@@ -416,8 +435,11 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 		_ = os.Remove(path)
 	}
 	if s.BoolOption("unlink-late") || s.BoolOption("unlink-close") {
-		xio.RegisterUnlinkPath(path)
-		o.AddCleanup(func() { _ = os.Remove(path) })
+		unregister := xio.RegisterUnlinkPath(path)
+		o.AddCleanup(func() {
+			unregister()
+			_ = os.Remove(path)
+		})
 	}
 	return o, nil
 }

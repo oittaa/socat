@@ -142,6 +142,30 @@ func TestParseOptionValue(t *testing.T) {
 	}
 }
 
+func TestLastOptionWins(t *testing.T) {
+	tests := []struct {
+		name string
+		spec string
+		opt  string
+		want string
+	}{
+		{name: "canonical", spec: "CREATE:file,perm=600,perm=644", opt: "perm", want: "644"},
+		{name: "alias-last", spec: "TCP-LISTEN:1,reuseaddr=0,so-reuseaddr=1", opt: "reuseaddr", want: "1"},
+		{name: "canonical-last", spec: "TCP-LISTEN:1,so-reuseaddr=1,reuseaddr=0", opt: "reuseaddr", want: "0"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := s.OptionValue(tc.opt, ""); got != tc.want {
+				t.Fatalf("%s=%q want %q", tc.opt, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestParsePIPE(t *testing.T) {
 	ch, err := ParseChannel("PIPE")
 	if err != nil {
@@ -212,6 +236,22 @@ func TestOptionAliases(t *testing.T) {
 	}
 	if !s.BoolOption("reuseport") || !s.BoolOption("so-reuseport") {
 		t.Fatal("so-reuseport alias")
+	}
+}
+
+func TestClassicCompatibilityOptionAliases(t *testing.T) {
+	s, err := ParseSpec("OPENSSL:localhost:443,cipher=ECDHE-ECDSA-AES256-GCM-SHA384,sockopt-listen=1:2:1,f-setlk-wr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.OptionValue("ciphers", ""); got != "ECDHE-ECDSA-AES256-GCM-SHA384" {
+		t.Fatalf("ciphers=%q", got)
+	}
+	if got := s.OptionValue("setsockopt-listen", ""); got != "1:2:1" {
+		t.Fatalf("setsockopt-listen=%q", got)
+	}
+	if !s.BoolOption("setlk") {
+		t.Fatal("f-setlk-wr alias did not normalize to setlk")
 	}
 }
 

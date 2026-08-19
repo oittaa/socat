@@ -142,16 +142,16 @@ termios / baud names.
 
 | Area | Options |
 |------|---------|
-| Listen / connect | `reuseaddr`, `so-reuseport`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `pf`, `ai-addrconfig`, `ipv6-v6only`, `backlog` |
+| Listen / connect | `reuseaddr`, `so-reuseport`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `pf`, `ai-addrconfig`, `ipv6-v6only`, `backlog`, `setsockopt-listen` / `sockopt-listen` |
 | Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport`, `tcpwrap` / `libwrap` / `hosts-allow` / `hosts-deny` / `tcpwrap-etc` |
 | TUN / INTERFACE | `tun-name`, `tun-type`, `tun-device`, `iff-up`, `iff-no-pi`, `if-mtu` / `interface-mtu`, other `iff-*` flags |
-| Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `umask`, `nonblock` |
+| Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `umask`, `nonblock`, `setlk` / `setlkw` (read/write variants) |
 | UNIX | `unlink-early`, `unlink-close`, `unix-bind-tempname` / `bind-tempname`, `socktype` / `so-type` |
 | POSIX MQ | `mq-prio` / `posixmq-priority`, `mq-flush`, `mq-maxmsg`, `mq-msgsize` |
 | EXEC | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none`, `chdir`, `umask` (child inherits, then parent restores) |
 | PTY / TERMIOS | `link`, `cfmakeraw`/`raw`/`rawer`, `echo`, `opost`, baud/`ispeed`/`ospeed`, `tiocswinsz`, `pty-wait-slave`, `ctty`; restore tty on close |
 | Transfer | `crnl`, `crlf`, `ignoreeof`, `readbytes`, `retry`/`forever`/`interval` |
-| TLS | `cert`, `key`, `cafile`/`ca`, `capath`, `verify`, `commonname`, `snihost`, `nosni` (also `openssl-*` / `tls-*` aliases) |
+| TLS | `cert`, `key`, `cafile`/`ca`, `capath`, `verify`, `commonname`, `snihost`, `nosni`, `ciphers` (also classic `cipher`, `openssl-*`, and `tls-*` aliases) |
 | WebSocket | `path`, `origin`, `protocol` (binary frames; WSS reuses TLS options) |
 | QUIC | `alpn` (default `socat`; not `h3`); reuses TLS options; one bidirectional stream |
 | PROXY / SOCKS | `proxyport`, `http-version` (`1.0`/`1.1`/`2`/`3`), `h2c`, `proxy-authorization` / `proxy-authorization-file`, `socksport`, `socksuser` |
@@ -166,6 +166,7 @@ termios / baud names.
 - **Stream TLS only** — see [Unsupported](#unsupported--security-related) for DTLS.
 - **Listen requires `cert=`** — `TLS-LISTEN`, `WSS-LISTEN`, and `QUIC-LISTEN` refuse to start without `cert=`. Classic `OPENSSL-LISTEN` warns (`no certificate given; consider option "cert"`), binds, then `SSL_accept` fails (`no shared cipher`). We fail at open instead of inventing a dummy certificate. Classic `V1800_OPENSSL_LISTEN_*` (bind/range only) and `ciphers=aNULL` without `cert=` therefore fail here.
 - **No DSA** — see [Unsupported](#unsupported--security-related).
+- **`ciphers=` / `cipher=`** — accepts colon-, comma-, or whitespace-separated secure TLS 1.2 suite names in OpenSSL or Go form. TLS 1.3 suites remain Go-managed, matching OpenSSL's separation between its legacy cipher list and TLS 1.3 cipher suites. Weak, obsolete, and unknown names are rejected.
 - **`verify` (TLS, WSS, QUIC)** — default on. `verify=0` skips trust and name checks. `verify=1` uses `crypto/x509` (not OpenSSL `SSL_get_verify_result`). With no `cafile`/`capath`, the **system** CA pool is used on both client and listen (classic `SSL_CTX_set_default_verify_paths`).
 - **`capath`** — directory of CA certificates (PEM or DER). We load every regular file that parses as a certificate, including OpenSSL hashed names and symlinks. Classic OpenSSL only looks up hashed names.
 - **Peer name** — [RFC 6125](https://www.rfc-editor.org/rfc/rfc6125) via Go `Certificate.VerifyHostname` (case-insensitive, modern wildcard rules). Classic OPENSSL address types use `strcmp` and treat `*.example.com` as a match for `example.com`. For old test certs with no SAN, we still accept a CN match. No `commonname` → check the dial host. `commonname=foo` → check `foo`. Empty `commonname=` → skip the name check (classic). `verify=1` still checks trust. `verify=0` skips name and trust.
@@ -192,7 +193,7 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 - **PROXY `http-version=2` / `3`** is a Go extra (classic PROXY is HTTP/1.x). HTTP/2 uses `net/http`. HTTP/3 uses `github.com/quic-go/quic-go/http3` because `golang.org/x/net/http3` is not a public client API.
 - **`fork`** uses **goroutines**, not `fork(2)` process isolation
 - Companion tools aim for useful parity, not bit-identical C ifdef output
-- Unknown options are generally ignored (classic may error more strictly), except security- or transport-sensitive selectors such as unsupported `openssl-method=`, which are rejected
+- Unknown options and malformed option values are rejected instead of being silently ignored
 - Security-deprecated crypto (DSA, DTLS, etc.) is documented above rather than forced in
 - **TLS listen without `cert=`** fails at start (classic warns, listens, then handshake fails). See [TLS notes](#tls-notes).
 - **TLS address names** are `TLS` / `TLS-CONNECT` / `TLS-LISTEN`. `OPENSSL*` and `SSL*` remain aliases so classic command lines still work.

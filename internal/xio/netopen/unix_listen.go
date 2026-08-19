@@ -41,7 +41,7 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		}
 	}
 
-	lc := net.ListenConfig{}
+	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	var ln net.Listener
 	err = xio.WithUmask(s, func() error {
 		var e error
@@ -61,16 +61,24 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 
 	// mode/perm/user on socket file (classic fchmod/fchown after bind)
 	if err := xio.ApplyPerm(path, s, nil); err != nil {
-		// Non-fatal for some platforms; still try mode=
-		if mode := xio.ParseFileMode(s, 0); mode != 0 {
-			_ = os.Chmod(path, mode)
+		_ = ln.Close()
+		if !xio.IsAbstract(path) {
+			_ = os.Remove(path)
 		}
+		return nil, err
 	}
-	_ = xio.ApplyOwner(path, s, nil)
+	if err := xio.ApplyOwner(path, s, nil); err != nil {
+		_ = ln.Close()
+		if !xio.IsAbstract(path) {
+			_ = os.Remove(path)
+		}
+		return nil, err
+	}
 
 	// Ensure path is removed on SIGTERM (SetUnlinkOnClose only runs on Close).
+	unregister := func() {}
 	if doUnlink && !xio.IsAbstract(path) {
-		xio.RegisterUnlinkPath(path)
+		unregister = xio.RegisterUnlinkPath(path)
 	}
 
 	fork := s.BoolOption("fork")
@@ -79,7 +87,10 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		Listener: ln,
 		Label:    "UNIX-LISTEN:" + path,
 	}
-	o.AddCleanup(func() { _ = ln.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
+	o.AddCleanup(func() {
+		unregister()
+		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+	})
 
 	if fork {
 		go func() {
@@ -179,7 +190,7 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	if network == "unixgram" {
 		return nil, fmt.Errorf("%s: SOCK_DGRAM does not support listen; use ABSTRACT-RECV or ABSTRACT-RECVFROM", s.Type)
 	}
-	lc := net.ListenConfig{}
+	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	ln, err := lc.Listen(ctx, network, path)
 	if err != nil {
 		return nil, err

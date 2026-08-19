@@ -8,27 +8,42 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestVersionHasTERMIOS(t *testing.T) {
-	bin := socatBin(t)
-	out, err := exec.Command(bin, "-V").CombinedOutput()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := capabilityOutput(t, "-V")
 	if !bytes.Contains(out, []byte("#define WITH_TERMIOS 1")) {
 		t.Fatalf("missing WITH_TERMIOS 1:\n%s", out)
 	}
-	hh, err := exec.Command(bin, "-hh").CombinedOutput()
-	if err != nil {
-		t.Fatal(err)
-	}
+	hh := capabilityOutput(t, "-hh")
 	for _, opt := range []string{"pty-wait-slave", "tiocswinsz", "ctty", "cfmakeraw"} {
 		if !bytes.Contains(hh, []byte(" "+opt+" ")) {
 			t.Fatalf("help missing %s:\n%s", opt, hh)
 		}
+	}
+}
+
+func TestSystemChdirUsesChildDirectory(t *testing.T) {
+	bin := socatBin(t)
+	dir := t.TempDir()
+	out, err := exec.Command(bin, "-u", "SYSTEM:pwd,chdir="+dir, "STDOUT").CombinedOutput()
+	if err != nil {
+		t.Fatalf("socat: %v: %s", err, out)
+	}
+	got := strings.TrimSpace(string(out))
+	gotInfo, err := os.Stat(got)
+	if err != nil {
+		t.Fatalf("stat pwd output %q: %v", got, err)
+	}
+	wantInfo, err := os.Stat(dir)
+	if err != nil {
+		t.Fatalf("stat temp directory %q: %v", dir, err)
+	}
+	if !os.SameFile(gotInfo, wantInfo) {
+		t.Fatalf("pwd=%q does not identify chdir directory %q", got, dir)
 	}
 }
 

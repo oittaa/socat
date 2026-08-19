@@ -20,21 +20,25 @@ func main() {
 }
 
 func run(args []string) int {
+	return runWithIO(args, os.Stdout, os.Stderr)
+}
+
+func runWithIO(args []string, stdout, stderr io.Writer) int {
 	for _, a := range args {
 		switch a {
 		case "-h", "-?":
-			usage(os.Stdout)
+			usage(stdout)
 			return 0
 		case "-c":
-			printCdefs(os.Stdout)
+			printCdefs(stdout)
 			return 0
 		default:
-			fmt.Fprintf(os.Stderr, "procan: unknown option %q\n", a)
-			usage(os.Stderr)
+			fprintf(stderr, "procan: unknown option %q\n", a)
+			usage(stderr)
 			return 1
 		}
 	}
-	procan(os.Stdout)
+	procan(stdout)
 	return 0
 }
 

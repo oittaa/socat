@@ -160,7 +160,9 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	}
 
 	unlinkClose := s.BoolOption("unlink-close")
+	unregister := func() {}
 	cleanup := func() {
+		unregister()
 		_ = mqClose(fd)
 		if unlinkClose {
 			_ = mqUnlink(name)
@@ -168,7 +170,7 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	}
 	if unlinkClose {
 		n := name
-		xio.RegisterExitHook(func() { _ = mqUnlink(n) })
+		unregister = xio.RegisterExitHook(func() { _ = mqUnlink(n) })
 	}
 
 	oneshot := kind == mqRecv

@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -165,6 +166,34 @@ func TestTLSServerVerifyConnectionSet(t *testing.T) {
 	}
 	if cfg.VerifyPeerCertificate == nil || cfg.VerifyConnection == nil {
 		t.Fatal("server verify hooks missing; resume would skip client name/trust check")
+	}
+}
+
+func TestTLSServerVerifyRequiresClientAuthUsage(t *testing.T) {
+	tests := []struct {
+		name    string
+		usage   x509.ExtKeyUsage
+		wantErr bool
+	}{
+		{name: "client-auth", usage: x509.ExtKeyUsageClientAuth},
+		{name: "server-auth", usage: x509.ExtKeyUsageServerAuth, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ca, leaf, _, err := testCAAndLeafKeyUsage("peer", tc.usage)
+			if err != nil {
+				t.Fatal(err)
+			}
+			roots := x509.NewCertPool()
+			roots.AddCert(ca)
+			err = makeServerVerifyPeer(roots, "", true, nil)([][]byte{leaf.Raw}, nil)
+			if tc.wantErr && err == nil {
+				t.Fatal("server accepted a certificate without the client-auth usage")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("server rejected a client-auth certificate: %v", err)
+			}
+		})
 	}
 }
 
@@ -582,6 +611,36 @@ func TestLoadCAPath(t *testing.T) {
 	}
 }
 
+func TestTLSCipherListCompatibility(t *testing.T) {
+	spec, err := parse.ParseSpec("OPENSSL:localhost:443,cipher=ECDHE-ECDSA-AES256-GCM-SHA384")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := tlsClientConfig(spec, "localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384}
+	if !slices.Equal(cfg.CipherSuites, want) {
+		t.Fatalf("CipherSuites=%#v want %#v", cfg.CipherSuites, want)
+	}
+	if cfg.MaxVersion != 0 {
+		t.Fatalf("cipher list must not disable TLS 1.3; MaxVersion=%#x", cfg.MaxVersion)
+	}
+}
+
+func TestTLSCipherListRejectsUnsupportedPolicy(t *testing.T) {
+	for _, value := range []string{"aNULL", "DEFAULT", "TLS_AES_128_GCM_SHA256"} {
+		spec, err := parse.ParseSpec("TLS:localhost:443,ciphers=" + value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tlsClientConfig(spec, "localhost"); err == nil || !strings.Contains(err.Error(), "not supported") {
+			t.Errorf("ciphers=%q error=%v", value, err)
+		}
+	}
+}
+
 func writeTLSCert(t *testing.T, dir, name string, cert tls.Certificate) string {
 	t.Helper()
 	if len(cert.Certificate) == 0 {
@@ -607,6 +666,10 @@ func testCAAndLeaf(dns string) (*x509.Certificate, *x509.Certificate, error) {
 }
 
 func testCAAndLeafKey(dns string) (*x509.Certificate, *x509.Certificate, ed25519.PrivateKey, error) {
+	return testCAAndLeafKeyUsage(dns, x509.ExtKeyUsageServerAuth)
+}
+
+func testCAAndLeafKeyUsage(dns string, usage x509.ExtKeyUsage) (*x509.Certificate, *x509.Certificate, ed25519.PrivateKey, error) {
 	caPub, caKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, nil, nil, err
@@ -638,7 +701,7 @@ func testCAAndLeafKey(dns string) (*x509.Certificate, *x509.Certificate, ed25519
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(24 * time.Hour),
 		KeyUsage:              x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		ExtKeyUsage:           []x509.ExtKeyUsage{usage},
 		DNSNames:              []string{dns},
 		BasicConstraintsValid: true,
 	}
