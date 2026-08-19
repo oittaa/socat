@@ -515,6 +515,13 @@ var optionAliases = map[string]string{
 	"tls-snihost":        "snihost",
 	"openssl-no-sni":     "nosni",
 	"tls-no-sni":         "nosni",
+	"cipher":             "ciphers",
+	"openssl-cipherlist": "ciphers",
+	"sockopt-listen":     "setsockopt-listen",
+	"f-setlk-wr":         "setlk",
+	"f-setlkw-wr":        "setlkw",
+	"f-setlk-rd":         "setlk-rd",
+	"f-setlkw-rd":        "setlkw-rd",
 }
 
 // normalizeOptionName maps classic aliases (so-*, o-*, etc.) to canonical names.

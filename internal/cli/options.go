@@ -125,6 +125,24 @@ func validateAddressOptionValue(option parse.Option) error {
 		if err != nil || name == "if-mtu" && n <= 0 {
 			return fmt.Errorf("invalid %s %q", name, value)
 		}
+	case "setsockopt", "setsockopt-listen":
+		value, err := requiredOptionValue(option)
+		if err != nil {
+			return err
+		}
+		parts := strings.Split(value, ":")
+		if len(parts) != 3 {
+			return fmt.Errorf("invalid %s %q (want level:optname:value)", name, value)
+		}
+		for _, part := range parts {
+			if _, err := strconv.Atoi(part); err != nil {
+				return fmt.Errorf("invalid %s %q (want integer level:optname:value)", name, value)
+			}
+		}
+	case "ciphers":
+		if _, err := requiredOptionValue(option); err != nil {
+			return err
+		}
 	}
 	return nil
 }

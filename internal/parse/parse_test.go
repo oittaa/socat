@@ -239,6 +239,22 @@ func TestOptionAliases(t *testing.T) {
 	}
 }
 
+func TestClassicCompatibilityOptionAliases(t *testing.T) {
+	s, err := ParseSpec("OPENSSL:localhost:443,cipher=ECDHE-ECDSA-AES256-GCM-SHA384,sockopt-listen=1:2:1,f-setlk-wr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.OptionValue("ciphers", ""); got != "ECDHE-ECDSA-AES256-GCM-SHA384" {
+		t.Fatalf("ciphers=%q", got)
+	}
+	if got := s.OptionValue("setsockopt-listen", ""); got != "1:2:1" {
+		t.Fatalf("setsockopt-listen=%q", got)
+	}
+	if !s.BoolOption("setlk") {
+		t.Fatal("f-setlk-wr alias did not normalize to setlk")
+	}
+}
+
 func TestSocketTypeAlias(t *testing.T) {
 	s, err := ParseSpec("UNIX-LISTEN:/tmp/test.sock,so-type=5")
 	if err != nil {

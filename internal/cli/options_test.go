@@ -37,12 +37,17 @@ func TestValidateAddressOptions(t *testing.T) {
 	}{
 		{name: "known", spec: "CREATE:file,perm=600"},
 		{name: "known-alias", spec: "TCP-LISTEN:1,so-reuseaddr"},
+		{name: "listen-sockopt-alias", spec: "TCP-LISTEN:1,sockopt-listen=1:2:1"},
+		{name: "openssl-cipher-alias", spec: "OPENSSL:localhost:443,cipher=ECDHE-ECDSA-AES256-GCM-SHA384"},
 		{name: "unknown", spec: "CREATE:file,totally-unknown=1", wantErr: "unknown option"},
 		{name: "bad-perm", spec: "CREATE:file,perm=xyz", wantErr: "invalid perm"},
 		{name: "bad-duration", spec: "TCP:localhost:1,connect-timeout=soon", wantErr: "invalid connect-timeout"},
 		{name: "bad-children", spec: "TCP-LISTEN:1,fork,max-children=many", wantErr: "invalid max-children"},
 		{name: "bad-socktype", spec: "UNIX:file,socktype=stream", wantErr: "invalid socktype"},
 		{name: "bad-ftruncate", spec: "OPEN:file,ftruncate=-1", wantErr: "invalid ftruncate"},
+		{name: "bad-listen-sockopt-fields", spec: "TCP-LISTEN:1,setsockopt-listen=1:2", wantErr: "level:optname:value"},
+		{name: "bad-listen-sockopt-number", spec: "TCP-LISTEN:1,setsockopt-listen=1:name:1", wantErr: "integer"},
+		{name: "missing-ciphers", spec: "TLS:localhost:443,ciphers", wantErr: "requires a value"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

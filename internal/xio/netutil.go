@@ -63,12 +63,27 @@ func ApplyReuseAndV6Only(fd int, s parse.Spec, network string) error {
 	return nil
 }
 
-// ListenControl is a net.ListenConfig.Control that applies reuse and v6only.
+// ApplyListenOptions applies socket options that must be set before bind.
+func ApplyListenOptions(fd int, s parse.Spec, network string) error {
+	// Windows AF_UNIX sockets reject SO_REUSEADDR and can remain unusable
+	// after the failed call. UNIX path reuse is handled by the opener instead.
+	if !strings.HasPrefix(network, "unix") {
+		if err := ApplyReuseAndV6Only(fd, s, network); err != nil {
+			return err
+		}
+	}
+	if s.HasOption("setsockopt-listen") {
+		return ApplySetsockoptFD(fd, s.OptionValue("setsockopt-listen", ""))
+	}
+	return nil
+}
+
+// ListenControl is a net.ListenConfig.Control that applies pre-bind options.
 func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) error {
 		var optionErr error
 		controlErr := c.Control(func(fd uintptr) {
-			optionErr = ApplyReuseAndV6Only(int(fd), s, network)
+			optionErr = ApplyListenOptions(int(fd), s, network)
 		})
 		return errors.Join(controlErr, optionErr)
 	}
@@ -229,7 +244,7 @@ func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
 
 func ApplySetsockoptFD(fd int, spec string) error {
 	parts := strings.Split(spec, ":")
-	if len(parts) < 3 {
+	if len(parts) != 3 {
 		return fmt.Errorf("setsockopt requires level:optname:value")
 	}
 	level, err := strconv.Atoi(parts[0])

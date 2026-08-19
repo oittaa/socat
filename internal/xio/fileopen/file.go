@@ -401,6 +401,10 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		return nil, err
 	}
+	if err := applyFileLocks(s, f, f); err != nil {
+		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		return nil, err
+	}
 	var stream relay.Stream
 	if s.BoolOption("ignoreeof") {
 		stream = relay.FDStream{

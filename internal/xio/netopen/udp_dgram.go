@@ -117,7 +117,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		Control: func(network, address string, c syscall.RawConn) error {
 			var optionErr error
 			controlErr := c.Control(func(fd uintptr) {
-				optionErr = xio.ApplyReuse(int(fd), s, true)
+				optionErr = xio.ApplyListenOptions(int(fd), s, network)
 				if optionErr != nil {
 					return
 				}
@@ -405,7 +405,7 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 		Control: func(network, address string, c syscall.RawConn) error {
 			var optionErr error
 			controlErr := c.Control(func(fd uintptr) {
-				optionErr = xio.ApplyReuse(int(fd), s, true)
+				optionErr = xio.ApplyListenOptions(int(fd), s, network)
 				if optionErr != nil {
 					return
 				}

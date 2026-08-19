@@ -12,6 +12,7 @@ func hideOpt(name string) bool {
 		"ipv6-recvpktinfo", "ipv6-recvhoplimit", "ipv6-recvtclass",
 		"ipv6-unicast-hops", "ipv6-tclass",
 		"nonblock", "umask", "user", "group",
+		"setlk", "setlkw", "setlk-rd", "setlkw-rd",
 		"pipes", "pty", "setsid", "stderr", "fdin", "fdout", "shell", "shut-none":
 		return true
 	default:

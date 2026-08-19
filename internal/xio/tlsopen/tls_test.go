@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -607,6 +608,36 @@ func TestLoadCAPath(t *testing.T) {
 	opts := x509.VerifyOptions{Roots: pool, DNSName: "localhost"}
 	if _, err := leaf.Verify(opts); err != nil {
 		t.Fatalf("capath verify: %v", err)
+	}
+}
+
+func TestTLSCipherListCompatibility(t *testing.T) {
+	spec, err := parse.ParseSpec("OPENSSL:localhost:443,cipher=ECDHE-ECDSA-AES256-GCM-SHA384")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := tlsClientConfig(spec, "localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []uint16{tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384}
+	if !slices.Equal(cfg.CipherSuites, want) {
+		t.Fatalf("CipherSuites=%#v want %#v", cfg.CipherSuites, want)
+	}
+	if cfg.MaxVersion != 0 {
+		t.Fatalf("cipher list must not disable TLS 1.3; MaxVersion=%#x", cfg.MaxVersion)
+	}
+}
+
+func TestTLSCipherListRejectsUnsupportedPolicy(t *testing.T) {
+	for _, value := range []string{"aNULL", "DEFAULT", "TLS_AES_128_GCM_SHA256"} {
+		spec, err := parse.ParseSpec("TLS:localhost:443,ciphers=" + value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tlsClientConfig(spec, "localhost"); err == nil || !strings.Contains(err.Error(), "not supported") {
+			t.Errorf("ciphers=%q error=%v", value, err)
+		}
 	}
 }
 
