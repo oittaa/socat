@@ -69,8 +69,9 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	_ = xio.ApplyOwner(path, s, nil)
 
 	// Ensure path is removed on SIGTERM (SetUnlinkOnClose only runs on Close).
+	unregister := func() {}
 	if doUnlink && !xio.IsAbstract(path) {
-		xio.RegisterUnlinkPath(path)
+		unregister = xio.RegisterUnlinkPath(path)
 	}
 
 	fork := s.BoolOption("fork")
@@ -79,7 +80,10 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		Listener: ln,
 		Label:    "UNIX-LISTEN:" + path,
 	}
-	o.AddCleanup(func() { _ = ln.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
+	o.AddCleanup(func() {
+		unregister()
+		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+	})
 
 	if fork {
 		go func() {

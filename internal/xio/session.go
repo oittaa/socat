@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	socat "github.com/oittaa/socat"
 )
@@ -196,9 +197,9 @@ func ExportSocatEnv(g *Global) {}
 // RememberTLSPeer records negotiated TLS and peer-certificate metadata. The
 // child environment exposes preferred SOCAT_TLS_* names and SOCAT_OPENSSL_*
 // compatibility aliases.
-func RememberTLSPeer(g *Global, c net.Conn) {
-	if g == nil || c == nil {
-		return
+func RememberTLSPeer(g *Global, c net.Conn, timeout time.Duration) error {
+	if c == nil {
+		return nil
 	}
 	tc, ok := c.(*tls.Conn)
 	if !ok {
@@ -207,17 +208,19 @@ func RememberTLSPeer(g *Global, c net.Conn) {
 			if tc2, ok := u.NetConn().(*tls.Conn); ok {
 				tc = tc2
 			} else {
-				return
+				return nil
 			}
 		} else {
-			return
+			return nil
 		}
 	}
-	// Ensure handshake finished (Accept should already have done this).
-	if err := tc.Handshake(); err != nil {
-		return
+	if err := WithHandshakeDeadline(tc, timeout, tc.Handshake); err != nil {
+		return err
 	}
-	rememberTLSState(g, tc.ConnectionState())
+	if g != nil {
+		rememberTLSState(g, tc.ConnectionState())
+	}
+	return nil
 }
 
 func rememberTLSState(g *Global, st tls.ConnectionState) {

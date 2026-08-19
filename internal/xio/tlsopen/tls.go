@@ -49,6 +49,7 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	}
 
 	timeout := xio.ConnectTimeout(s)
+	handshakeTimeout := xio.HandshakeTimeout(s)
 
 	// Classic OPENSSL-CONNECT (alias of TLS-CONNECT) forks after the handshake.
 	// TCP multi-address walk first, then TLS on the winning socket.
@@ -68,7 +69,13 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 			// Clone config per dial so concurrent handshake state stays isolated.
 			cfg := tlsCfg.Clone()
 			tc := tls.Client(raw, cfg)
-			if e := tc.HandshakeContext(cctx); e != nil {
+			hctx := dctx
+			var handshakeCancel context.CancelFunc
+			if handshakeTimeout > 0 {
+				hctx, handshakeCancel = context.WithTimeout(dctx, handshakeTimeout)
+				defer handshakeCancel()
+			}
+			if e := tc.HandshakeContext(hctx); e != nil {
 				_ = raw.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return e
 			}
@@ -125,11 +132,12 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 
 	o := &xio.Opened{
-		Kind:        xio.ListenKind(fork),
-		Listener:    tlsLn,
-		Label:       s.Type + ":" + port,
-		PeerFilter:  filter,
-		MaxChildren: maxChildren,
+		Kind:             xio.ListenKind(fork),
+		Listener:         tlsLn,
+		Label:            s.Type + ":" + port,
+		PeerFilter:       filter,
+		MaxChildren:      maxChildren,
+		HandshakeTimeout: xio.HandshakeTimeout(s),
 	}
 	o.AddCleanup(func() { _ = tlsLn.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
 
@@ -192,7 +200,10 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, err
 	}
 	xio.RememberAddrs(g, conn)
-	xio.RememberTLSPeer(g, conn)
+	if err := xio.RememberTLSPeer(g, conn, xio.HandshakeTimeout(s)); err != nil {
+		_ = conn.Close() // #nosec G104 -- Close on handshake failure
+		return nil, err
+	}
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {

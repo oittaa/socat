@@ -34,7 +34,7 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 		Path:   path,
 	}
 
-	timeout := xio.ConnectTimeout(s)
+	handshakeTimeout := xio.HandshakeTimeout(s)
 	var tlsCfg *tls.Config
 	if scheme == "wss" {
 		tlsCfg, err = tlsopen.TLSClientConfig(s, host)
@@ -48,8 +48,8 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 		err := xio.WithRetry(dctx, s, g, s.Type, func() error {
 			cctx := dctx
 			var cancel context.CancelFunc
-			if timeout > 0 {
-				cctx, cancel = context.WithTimeout(dctx, timeout)
+			if handshakeTimeout > 0 {
+				cctx, cancel = context.WithTimeout(dctx, handshakeTimeout)
 				defer cancel()
 			}
 			nc, e := dialWS(cctx, network, host, port, u.String(), s, g, tlsCfg)

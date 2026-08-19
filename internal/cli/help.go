@@ -464,6 +464,7 @@ func helpOptionGroups() []helpOptGroup {
 			{"max-children", "limit concurrent fork sessions (needs fork)", nil},
 			{"bind", "local address or interface", nil},
 			{"connect-timeout", "connect timeout", nil},
+			{"handshake-timeout", "TLS, WebSocket, proxy, or SOCKS handshake timeout", nil},
 			{"accept-timeout", "listen accept timeout (exit 0)", nil},
 			{"backlog", "listen backlog", nil},
 			{"pf", "address family (4, 6, IP4, IP6, …)", nil},

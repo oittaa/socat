@@ -91,7 +91,7 @@ func validateAddressOptionValue(option parse.Option) error {
 		if _, err := requiredOptionValue(option); err != nil {
 			return err
 		}
-	case "connect-timeout", "accept-timeout", "interval", "pty-interval", "rcvtimeo":
+	case "connect-timeout", "handshake-timeout", "accept-timeout", "interval", "pty-interval", "rcvtimeo":
 		value, err := requiredOptionValue(option)
 		if err != nil {
 			return err

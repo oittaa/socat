@@ -82,6 +82,7 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	// Honour pf=ip4/ip6 when dialing the proxy host.
 	network := xio.ConnectNetworkForType(g, s, proxyHost, "tcp")
 	d := net.Dialer{Timeout: xio.ConnectTimeout(s)}
+	handshakeTimeout := xio.HandshakeTimeout(s)
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
@@ -90,55 +91,66 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 			if e != nil {
 				return e
 			}
-			// CONNECT host:port HTTP/1.x\r\n[auth]\r\n  (classic always CRLF)
-			req := fmt.Sprintf("CONNECT %s:%s HTTP/%s\r\n", connectHost, targetPort, ver)
-			if auth, e := proxyAuthHeader(s); e != nil {
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-				return e
-			} else if auth != "" {
-				req += auth
-			}
-			req += "\r\n"
-			if _, e := c.Write([]byte(req)); e != nil {
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-				return e
-			}
-			br := bufio.NewReader(c)
-			status, e := br.ReadString('\n')
+			var negotiated net.Conn
+			e = xio.WithHandshakeDeadline(c, handshakeTimeout, func() error {
+				var handshakeErr error
+				negotiated, handshakeErr = proxyHTTP1Handshake(c, s, connectHost, targetPort, ver)
+				return handshakeErr
+			})
 			if e != nil {
 				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-				return fmt.Errorf("proxy response: %w", e)
+				return e
 			}
-			// Classic: accept HTTP/1.0 or 1.1, skip multiple spaces, require code 200.
-			if !proxyStatusOK(status) {
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-				return fmt.Errorf("proxy CONNECT failed: %s", strings.TrimSpace(status))
-			}
-			// Drain headers until blank line
-			for {
-				line, e := br.ReadString('\n')
-				if e != nil {
-					_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-					return e
-				}
-				if line == "\r\n" || line == "\n" {
-					break
-				}
-			}
-			// Any buffered bytes after headers must remain available to the stream.
-			if br.Buffered() > 0 {
-				peek, _ := br.Peek(br.Buffered())
-				conn = &prefixConn{Conn: c, prefix: append([]byte(nil), peek...)}
-				_, _ = br.Discard(br.Buffered())
-			} else {
-				conn = c
-			}
+			conn = negotiated
 			return nil
 		})
 		return conn, e
 	}
 
 	return openProxyDial(ctx, s, mode, g, t, dialOnce)
+}
+
+func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, version string) (net.Conn, error) {
+	// CONNECT host:port HTTP/1.x\r\n[auth]\r\n  (classic always CRLF)
+	req := fmt.Sprintf("CONNECT %s:%s HTTP/%s\r\n", connectHost, targetPort, version)
+	auth, err := proxyAuthHeader(s)
+	if err != nil {
+		return nil, err
+	}
+	if auth != "" {
+		req += auth
+	}
+	req += "\r\n"
+	if _, err := c.Write([]byte(req)); err != nil {
+		return nil, err
+	}
+	br := bufio.NewReader(c)
+	status, err := br.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("proxy response: %w", err)
+	}
+	// Classic: accept HTTP/1.0 or 1.1, skip multiple spaces, require code 200.
+	if !proxyStatusOK(status) {
+		return nil, fmt.Errorf("proxy CONNECT failed: %s", strings.TrimSpace(status))
+	}
+	// Drain headers until blank line.
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
+		if line == "\r\n" || line == "\n" {
+			break
+		}
+	}
+	// Any buffered bytes after headers must remain available to the stream.
+	if br.Buffered() == 0 {
+		return c, nil
+	}
+	peek, _ := br.Peek(br.Buffered())
+	buffered := append([]byte(nil), peek...)
+	_, _ = br.Discard(br.Buffered())
+	return &prefixConn{Conn: c, prefix: buffered}, nil
 }
 
 type proxyTarget struct {

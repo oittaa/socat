@@ -185,7 +185,12 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 			}
 			cg := g.forkSession()
 			RememberAddrs(cg, c)
-			RememberTLSPeer(cg, c)
+			if err := RememberTLSPeer(cg, c, o.HandshakeTimeout); err != nil {
+				if g != nil && g.Log != nil {
+					g.Log.Debugf("connect handshake: %s", err)
+				}
+				return
+			}
 			if err := child(ctx, cg, c); err != nil {
 				if g != nil && g.Log != nil {
 					g.Log.Debugf("connect child: %s", err)
@@ -255,7 +260,10 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 			// Per-connection session so SOCAT_* env is correct under concurrency.
 			cg := g.forkSession()
 			RememberAddrs(cg, c)
-			RememberTLSPeer(cg, c)
+			if err := RememberTLSPeer(cg, c, lo.HandshakeTimeout); err != nil {
+				g.Log.Errorf("handshake: %s", err)
+				return
+			}
 			leftStream, err := streamFromDial(lo, c)
 			if err != nil {
 				g.Log.Errorf("wrap accept: %s", err)
@@ -364,7 +372,10 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 			defer leftMu.Unlock()
 			cg := g.forkSession()
 			RememberAddrs(cg, c)
-			RememberTLSPeer(cg, c)
+			if err := RememberTLSPeer(cg, c, ro.HandshakeTimeout); err != nil {
+				g.Log.Errorf("handshake: %s", err)
+				return
+			}
 			rightStream, err := streamFromDial(ro, c)
 			if err != nil {
 				g.Log.Errorf("wrap accept: %s", err)

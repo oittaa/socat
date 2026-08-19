@@ -95,6 +95,43 @@ func TestChdirCreatesRelativeAddressInRequestedDirectory(t *testing.T) {
 	}
 }
 
+func TestTLSHandshakeTimeoutClosesSilentPeer(t *testing.T) {
+	bin := socatBin(t)
+	port := freePort(t)
+	cert := listenCert(t)
+	cmd := exec.Command(bin,
+		fmt.Sprintf("TLS-LISTEN:%d,bind=127.0.0.1,reuseaddr,fork,verify=0,cert=%s,handshake-timeout=0.1", port, cert),
+		"PIPE",
+	)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	}()
+	waitTCPListen(t, port, 2*time.Second)
+
+	conn, err := net.DialTimeout("tcp4", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	var b [1]byte
+	_, err = conn.Read(b[:])
+	if err == nil {
+		t.Fatal("silent TLS peer remained open")
+	}
+	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+		t.Fatalf("TLS handshake timeout did not close the peer: %s", stderr.String())
+	}
+}
+
 func freePort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

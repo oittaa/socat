@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/user"
-	"slices"
 	"strconv"
 	"sync"
 
@@ -93,45 +92,97 @@ func resolveGID(name string) (int, bool, error) {
 // --- path unlink registry: classic removes named FS entries on process exit ---
 
 var (
-	unlinkMu    sync.Mutex
-	unlinkPaths []string
-	exitHooks   []func()
+	unlinkMu     sync.Mutex
+	unlinkNextID uint64
+	unlinkPaths  = make(map[uint64]unlinkEntry)
+	exitHooks    = make(map[uint64]func())
 )
+
+type unlinkEntry struct {
+	path string
+	info os.FileInfo
+}
 
 // RegisterUnlinkPath records a filesystem path to remove on process signal exit
 // (SIGTERM etc.). Classic xio_close unlinks; our signal path uses os.Exit and
 // would otherwise leave UNIX/PIPE/PTY link entries (REMOVE* tests).
-func RegisterUnlinkPath(path string) {
+func RegisterUnlinkPath(path string) func() {
 	if path == "" || IsAbstract(path) {
-		return
+		return func() {}
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		// Never register a path whose current object identity is unknown: a
+		// later file at that name might belong to somebody else.
+		return func() {}
 	}
 	unlinkMu.Lock()
-	unlinkPaths = append(unlinkPaths, path)
+	unlinkNextID++
+	id := unlinkNextID
+	unlinkPaths[id] = unlinkEntry{path: path, info: info}
 	unlinkMu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			unlinkMu.Lock()
+			delete(unlinkPaths, id)
+			unlinkMu.Unlock()
+		})
+	}
 }
 
 // RegisterExitHook runs f on process signal exit (same path as UnlinkRegisteredPaths).
 // Used for POSIX MQ unlink-close; mq names are not filesystem paths.
-func RegisterExitHook(f func()) {
+func RegisterExitHook(f func()) func() {
 	if f == nil {
-		return
+		return func() {}
 	}
 	unlinkMu.Lock()
-	exitHooks = append(exitHooks, f)
+	unlinkNextID++
+	id := unlinkNextID
+	exitHooks[id] = f
 	unlinkMu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			unlinkMu.Lock()
+			delete(exitHooks, id)
+			unlinkMu.Unlock()
+		})
+	}
 }
 
 // UnlinkRegisteredPaths removes all paths registered with RegisterUnlinkPath.
 // Safe to call multiple times; best-effort (ignore errors).
 func UnlinkRegisteredPaths() {
 	unlinkMu.Lock()
-	paths := slices.Clone(unlinkPaths)
-	hooks := slices.Clone(exitHooks)
+	paths := make([]unlinkEntry, 0, len(unlinkPaths))
+	for _, entry := range unlinkPaths {
+		paths = append(paths, entry)
+	}
+	hooks := make([]func(), 0, len(exitHooks))
+	for _, hook := range exitHooks {
+		hooks = append(hooks, hook)
+	}
+	unlinkPaths = make(map[uint64]unlinkEntry)
+	exitHooks = make(map[uint64]func())
 	unlinkMu.Unlock()
-	for _, p := range paths {
-		_ = os.Remove(p)
+	for _, entry := range paths {
+		current, err := os.Lstat(entry.path)
+		if err != nil || !sameRegisteredFile(entry.info, current) {
+			continue
+		}
+		_ = os.Remove(entry.path)
 	}
 	for _, h := range hooks {
 		h()
 	}
+}
+
+func sameRegisteredFile(original, current os.FileInfo) bool {
+	return original != nil && current != nil &&
+		os.SameFile(original, current) &&
+		original.Mode() == current.Mode() &&
+		original.Size() == current.Size() &&
+		original.ModTime() == current.ModTime()
 }

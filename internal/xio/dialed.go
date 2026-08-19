@@ -49,7 +49,11 @@ func OpenDialed(ctx context.Context, s parse.Spec, g *Global, d Dialed) (*Opened
 	}
 	RememberAddrs(g, conn)
 	if d.RememberTLS {
-		RememberTLSPeer(g, conn)
+		if err := RememberTLSPeer(g, conn, HandshakeTimeout(s)); err != nil {
+			_ = conn.Close() // #nosec G104 -- Close on handshake failure
+			_ = o.Close()    // #nosec G104 -- Close on handshake failure
+			return nil, err
+		}
 	}
 	if d.LogOK && g != nil && g.Log != nil {
 		g.Log.Infof("successfully connected from %s to %s%s", conn.LocalAddr(), conn.RemoteAddr(), d.LogSuffix)

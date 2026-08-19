@@ -66,6 +66,7 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	addr := net.JoinHostPort(xio.StripBrackets(socksHost), socksPort)
 	network := xio.ConnectNetworkForType(g, s, socksHost, "tcp")
 	d := net.Dialer{Timeout: xio.ConnectTimeout(s)}
+	handshakeTimeout := xio.HandshakeTimeout(s)
 	label := fmt.Sprintf("SOCKS4:%s:%s", targetHost, targetPort)
 	if socks4a {
 		label = fmt.Sprintf("SOCKS4A:%s:%s", targetHost, targetPort)
@@ -78,32 +79,12 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 			if e != nil {
 				return e
 			}
-			req := make([]byte, 0, 8+len(user)+2+len(hostName)+1)
-			port, ok := xio.Uint16FromInt(portNum)
-			if !ok {
-				return fmt.Errorf("socks4: invalid port %d", portNum)
-			}
-			req = append(req, 4, 1) // VN=4, CD=CONNECT
-			req = binary.BigEndian.AppendUint16(req, port)
-			req = append(req, ip4[:]...)
-			req = append(req, []byte(user)...)
-			req = append(req, 0) // userid NUL
-			if socks4a {
-				req = append(req, []byte(hostName)...)
-				req = append(req, 0)
-			}
-			if _, e := c.Write(req); e != nil {
+			e = xio.WithHandshakeDeadline(c, handshakeTimeout, func() error {
+				return socks4Handshake(c, socks4a, user, hostName, ip4, portNum)
+			})
+			if e != nil {
 				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				return e
-			}
-			var resp [8]byte
-			if _, e := io.ReadFull(c, resp[:]); e != nil {
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-				return fmt.Errorf("socks4 reply: %w", e)
-			}
-			if resp[1] != 90 {
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-				return fmt.Errorf("socks4 rejected (cd=%d)", resp[1])
 			}
 			conn = c
 			return nil
@@ -119,6 +100,34 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 			return xio.WrapCommon(s, relay.NetStream{Conn: c})
 		},
 	})
+}
+
+func socks4Handshake(c net.Conn, socks4a bool, user, hostName string, ip4 [4]byte, portNum int) error {
+	req := make([]byte, 0, 8+len(user)+2+len(hostName)+1)
+	port, ok := xio.Uint16FromInt(portNum)
+	if !ok {
+		return fmt.Errorf("socks4: invalid port %d", portNum)
+	}
+	req = append(req, 4, 1) // VN=4, CD=CONNECT
+	req = binary.BigEndian.AppendUint16(req, port)
+	req = append(req, ip4[:]...)
+	req = append(req, []byte(user)...)
+	req = append(req, 0) // userid NUL
+	if socks4a {
+		req = append(req, []byte(hostName)...)
+		req = append(req, 0)
+	}
+	if _, err := c.Write(req); err != nil {
+		return err
+	}
+	var resp [8]byte
+	if _, err := io.ReadFull(c, resp[:]); err != nil {
+		return fmt.Errorf("socks4 reply: %w", err)
+	}
+	if resp[1] != 90 {
+		return fmt.Errorf("socks4 rejected (cd=%d)", resp[1])
+	}
+	return nil
 }
 
 func socksUser(s parse.Spec) string {
@@ -189,6 +198,7 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	addr := net.JoinHostPort(xio.StripBrackets(socksHost), socksPort)
 	network := xio.ConnectNetworkForType(g, s, socksHost, "tcp")
 	d := net.Dialer{Timeout: xio.ConnectTimeout(s)}
+	handshakeTimeout := xio.HandshakeTimeout(s)
 	label := fmt.Sprintf("SOCKS5:%s:%s", targetHost, targetPort)
 	if cmd == socks5CmdBind {
 		label = fmt.Sprintf("SOCKS5-LISTEN:%s:%s", targetHost, targetPort)
@@ -201,7 +211,9 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 			if e != nil {
 				return e
 			}
-			if e := socks5Handshake(c, cmd, user, pass, atyp, addrBytes, portNum); e != nil {
+			if e := xio.WithHandshakeDeadline(c, handshakeTimeout, func() error {
+				return socks5Handshake(c, cmd, user, pass, atyp, addrBytes, portNum)
+			}); e != nil {
 				return e
 			}
 			conn = c

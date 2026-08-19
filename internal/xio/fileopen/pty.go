@@ -137,8 +137,11 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 	}
 	if link != "" {
 		// PTY_REMOVE: link gone when process exits (incl. SIGTERM).
-		xio.RegisterUnlinkPath(link)
-		o.AddCleanup(func() { _ = os.Remove(link) })
+		unregister := xio.RegisterUnlinkPath(link)
+		o.AddCleanup(func() {
+			unregister()
+			_ = os.Remove(link)
+		})
 	}
 	return o, nil
 }

@@ -181,6 +181,8 @@ type Opened struct {
 	WrapDial func(net.Conn) (relay.Stream, error)
 	// Interval between parent connect iterations (classic interval= seconds).
 	Interval time.Duration
+	// HandshakeTimeout bounds accepted TLS/WebSocket protocol negotiation.
+	HandshakeTimeout time.Duration
 	// For dual: separate read/write streams
 	Read  relay.Stream
 	Write relay.Stream

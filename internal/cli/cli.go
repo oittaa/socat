@@ -359,8 +359,11 @@ func Main(args []string) int {
 			fmt.Fprintf(os.Stderr, "socat: %v\n", err)
 			return 1
 		}
-		xio.RegisterUnlinkPath(cfg.LockFile)
-		defer func() { _ = os.Remove(cfg.LockFile) }()
+		unregister := xio.RegisterUnlinkPath(cfg.LockFile)
+		defer func() {
+			unregister()
+			_ = os.Remove(cfg.LockFile)
+		}()
 	}
 	if cfg.LockWait != "" {
 		for {
@@ -373,8 +376,11 @@ func Main(args []string) int {
 			fmt.Fprintf(os.Stderr, "socat: %v\n", err)
 			return 1
 		}
-		xio.RegisterUnlinkPath(cfg.LockWait)
-		defer func() { _ = os.Remove(cfg.LockWait) }()
+		unregister := xio.RegisterUnlinkPath(cfg.LockWait)
+		defer func() {
+			unregister()
+			_ = os.Remove(cfg.LockWait)
+		}()
 	}
 
 	left, err := parse.ParseChannel(cfg.Addresses[0])

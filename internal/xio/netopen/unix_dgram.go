@@ -160,8 +160,9 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			MaxChildren: maxChildren,
 		}
 		if !xio.IsAbstract(path) && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close")) {
-			xio.RegisterUnlinkPath(path)
+			unregister := xio.RegisterUnlinkPath(path)
 			o.AddCleanup(func() {
+				unregister()
 				_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 				_ = os.Remove(path)
 			})
@@ -184,8 +185,9 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	o := &xio.Opened{Stream: wrapped, Label: label}
 	_ = xio.ApplyOwner(path, s, nil)
 	if !xio.IsAbstract(path) && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close")) {
-		xio.RegisterUnlinkPath(path)
+		unregister := xio.RegisterUnlinkPath(path)
 		o.AddCleanup(func() {
+			unregister()
 			_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 			_ = os.Remove(path)
 		})
