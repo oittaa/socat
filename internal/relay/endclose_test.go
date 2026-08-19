@@ -95,6 +95,85 @@ func TestTransferEndCloseCopiesData(t *testing.T) {
 	}
 }
 
+func TestTransferSerializesShutdownAndClose(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	right := &blockingLifecycleStream{
+		shutdownStarted: make(chan struct{}),
+		releaseShutdown: make(chan struct{}),
+		closeStarted:    make(chan struct{}),
+		releaseClose:    make(chan struct{}),
+	}
+	left := FDStream{
+		R:      eofReader{},
+		W:      io.Discard,
+		C:      nopCloser{},
+		CloseW: func() error { return nil },
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- Transfer(ctx, left, right, Config{LeftToRight: true})
+	}()
+
+	select {
+	case <-right.shutdownStarted:
+	case <-time.After(time.Second):
+		t.Fatal("ShutdownWrite was not called")
+	}
+	cancel()
+	select {
+	case <-right.closeStarted:
+		t.Fatal("Close overlapped ShutdownWrite")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(right.releaseShutdown)
+	select {
+	case <-right.closeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("Close was not called after ShutdownWrite completed")
+	}
+	select {
+	case <-done:
+		t.Fatal("Transfer returned before the cancellation close completed")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(right.releaseClose)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("transfer: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Transfer did not return after Close completed")
+	}
+}
+
+type blockingLifecycleStream struct {
+	shutdownStarted chan struct{}
+	releaseShutdown chan struct{}
+	closeStarted    chan struct{}
+	releaseClose    chan struct{}
+}
+
+func (*blockingLifecycleStream) Read([]byte) (int, error) { return 0, io.EOF }
+func (*blockingLifecycleStream) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+func (s *blockingLifecycleStream) ShutdownWrite() error {
+	close(s.shutdownStarted)
+	<-s.releaseShutdown
+	return nil
+}
+func (s *blockingLifecycleStream) Close() error {
+	close(s.closeStarted)
+	<-s.releaseClose
+	return nil
+}
+
 type captureWriter struct{ fn func([]byte) }
 
 func (c captureWriter) Write(p []byte) (int, error) {
