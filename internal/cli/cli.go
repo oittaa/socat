@@ -298,6 +298,7 @@ func parseDuration(v string) time.Duration {
 
 // Main runs socat with the given args (excluding program name).
 func Main(args []string) int {
+	xio.WaitFromEnv("SOCAT_MAIN_WAIT")
 	cfg, err := ParseArgs(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "socat: %v\n", err)
@@ -324,7 +325,10 @@ func Main(args []string) int {
 	log.SetProgname(cfg.Progname)
 	log.SetMicros(cfg.Micros)
 	if cfg.Hostname {
-		h, _ := os.Hostname()
+		h, ok := os.LookupEnv("HOSTNAME")
+		if !ok {
+			h, _ = os.Hostname()
+		}
 		log.SetHostname(h)
 	}
 	if cfg.LogFile != "" {

@@ -5,13 +5,6 @@ import (
 	"strings"
 )
 
-func firstOrEmpty(ss []string) string {
-	if len(ss) == 0 {
-		return ""
-	}
-	return ss[0]
-}
-
 func unescapeShellQuotes(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {

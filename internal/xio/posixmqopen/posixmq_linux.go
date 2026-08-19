@@ -212,7 +212,6 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 			fd:      fd,
 			name:    name,
 			msgsize: msgsize,
-			prio:    prio,
 			ctx:     ctx,
 		}
 		o := &xio.Opened{
@@ -230,21 +229,35 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		return o, nil
 	}
 
-	if oneshot && !nonblock {
-		if e := waitMQ(ctx, fd, unix.POLLIN, time.Time{}); e != nil {
-			cleanup()
-			return nil, e
-		}
-	}
-
-	st := relay.Stream(&mqStream{
+	mqs := &mqStream{
 		fd:       fd,
 		name:     name,
 		prio:     prio,
 		msgsize:  msgsize,
 		oneshot:  oneshot,
 		nonblock: nonblock,
-	})
+	}
+	if oneshot {
+		if !nonblock {
+			if e := waitMQ(ctx, fd, unix.POLLIN, time.Time{}); e != nil {
+				cleanup()
+				return nil, e
+			}
+		}
+		buf := make([]byte, msgsize)
+		var receivedPrio uint32
+		n, e := mqTimedReceive(fd, buf, &receivedPrio)
+		if e != nil {
+			cleanup()
+			return nil, e
+		}
+		mqs.prio = receivedPrio
+		mqs.got = true
+		mqs.leftover = append([]byte(nil), buf[:n]...)
+		xio.SetSessionEnv(g, "POSIXMQ_PRIO", strconv.FormatUint(uint64(receivedPrio), 10))
+	}
+
+	st := relay.Stream(mqs)
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
 		cleanup()
@@ -344,7 +357,6 @@ type mqStream struct {
 	oneshot  bool
 	noClose  bool
 	nonblock bool
-	trigger  *os.File
 
 	mu        sync.Mutex
 	got       bool
@@ -400,16 +412,11 @@ func (s *mqStream) Read(p []byte) (int, error) {
 	s.mu.Lock()
 	s.prio = prio
 	s.got = true
-	trig := s.trigger
-	s.trigger = nil
 	m := copy(p, buf[:n])
 	if m < n {
 		s.leftover = append([]byte(nil), buf[m:n]...)
 	}
 	s.mu.Unlock()
-	if trig != nil {
-		_ = trig.Close()
-	}
 	return m, nil
 }
 
@@ -440,14 +447,9 @@ func (s *mqStream) Close() error {
 		return nil
 	}
 	s.closed = true
-	trig := s.trigger
-	s.trigger = nil
 	noClose := s.noClose
 	fd := s.fd
 	s.mu.Unlock()
-	if trig != nil {
-		_ = trig.Close()
-	}
 	if noClose {
 		return nil
 	}
@@ -487,6 +489,7 @@ type mqConn struct {
 	*mqStream
 	local  net.Addr
 	remote net.Addr
+	env    map[string]string
 }
 
 func newMQConn(s *mqStream, name string) *mqConn {
@@ -494,17 +497,16 @@ func newMQConn(s *mqStream, name string) *mqConn {
 	return &mqConn{mqStream: s, local: a, remote: a}
 }
 
-func (c *mqConn) LocalAddr() net.Addr  { return c.local }
-func (c *mqConn) RemoteAddr() net.Addr { return c.remote }
+func (c *mqConn) LocalAddr() net.Addr                   { return c.local }
+func (c *mqConn) RemoteAddr() net.Addr                  { return c.remote }
+func (c *mqConn) SessionEnvironment() map[string]string { return c.env }
 
 type mqListener struct {
 	fd      int
 	name    string
 	msgsize int
-	prio    uint32
 	ctx     context.Context
 	mu      sync.Mutex
-	trigR   *os.File
 	closed  bool
 }
 
@@ -514,41 +516,34 @@ func (l *mqListener) Accept() (net.Conn, error) {
 		l.mu.Unlock()
 		return nil, net.ErrClosed
 	}
-	prev := l.trigR
-	l.trigR = nil
 	l.mu.Unlock()
-	if prev != nil {
-		if err := waitPipe(l.ctx, prev); err != nil {
-			_ = prev.Close()
-			return nil, err
-		}
-		_ = prev.Close()
-	}
 	if err := waitMQ(l.ctx, l.fd, unix.POLLIN, time.Time{}); err != nil {
 		return nil, err
 	}
-	r, w, err := os.Pipe()
+	buf := make([]byte, l.msgsize)
+	var receivedPrio uint32
+	n, err := mqTimedReceive(l.fd, buf, &receivedPrio)
 	if err != nil {
 		return nil, err
 	}
 	l.mu.Lock()
 	if l.closed {
 		l.mu.Unlock()
-		_ = r.Close()
-		_ = w.Close()
 		return nil, net.ErrClosed
 	}
-	l.trigR = r
 	l.mu.Unlock()
-	return newMQConn(&mqStream{
-		fd:      l.fd,
-		name:    l.name,
-		prio:    l.prio,
-		msgsize: l.msgsize,
-		oneshot: true,
-		noClose: true,
-		trigger: w,
-	}, l.name), nil
+	conn := newMQConn(&mqStream{
+		fd:       l.fd,
+		name:     l.name,
+		prio:     receivedPrio,
+		msgsize:  l.msgsize,
+		oneshot:  true,
+		noClose:  true,
+		got:      true,
+		leftover: append([]byte(nil), buf[:n]...),
+	}, l.name)
+	conn.env = map[string]string{"POSIXMQ_PRIO": strconv.FormatUint(uint64(receivedPrio), 10)}
+	return conn, nil
 }
 
 func (l *mqListener) Close() error {
@@ -558,29 +553,7 @@ func (l *mqListener) Close() error {
 		return nil
 	}
 	l.closed = true
-	if l.trigR != nil {
-		_ = l.trigR.Close()
-		l.trigR = nil
-	}
 	return mqClose(l.fd)
 }
 
 func (l *mqListener) Addr() net.Addr { return mqAddr(l.name) }
-
-func waitPipe(ctx context.Context, f *os.File) error {
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		_ = f.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-		var b [1]byte
-		_, err := f.Read(b[:])
-		if err == nil || err == io.EOF {
-			return nil
-		}
-		if os.IsTimeout(err) {
-			continue
-		}
-		return err
-	}
-}

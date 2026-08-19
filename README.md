@@ -195,7 +195,13 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 - Unknown options are generally ignored (classic may error more strictly)
 - Security-deprecated crypto (DSA, DTLS, etc.) is documented above rather than forced in
 - **TLS listen without `cert=`** fails at start (classic warns, listens, then handshake fails). See [TLS notes](#tls-notes).
-- **TLS address names** are `TLS` / `TLS-CONNECT` / `TLS-LISTEN`. `OPENSSL*` and `SSL*` remain aliases so classic command lines still work. Peer env vars stay `SOCAT_OPENSSL_X509_*`.
+- **TLS address names** are `TLS` / `TLS-CONNECT` / `TLS-LISTEN`. `OPENSSL*` and `SSL*` remain aliases so classic command lines still work.
+
+### Environment compatibility
+
+- Inputs: `SOCAT_DEFAULT_LISTEN_IP`, `SOCAT_PREFERRED_RESOLVE_IP`, `SOCAT_MAIN_WAIT`, `SOCAT_TRANSFER_WAIT`, and `SOCAT_FORK_WAIT` are supported. `HOSTNAME` supplies `-lh`; SOCKS4 uses `LOGNAME`, then `USER`, when `socksuser=` is absent; `SHELL` is used by the `SHELL` address.
+- Child outputs: `SOCAT_VERSION`, `SOCAT_PID`, `SOCAT_PPID`, socket/peer address and port variables, ancillary packet variables, and Linux `SOCAT_POSIXMQ_PRIO` are supported. With `-lp`, matching upper-case program-name variables are emitted as well while `SOCAT_*` names remain compatibility aliases.
+- TLS outputs use `SOCAT_TLS_*`, including protocol, cipher, peer subject fields, and DNS/IP subjectAltName values. Equivalent `SOCAT_OPENSSL_*` names are emitted as aliases for classic socat and existing scripts.
 
 ## Test
 

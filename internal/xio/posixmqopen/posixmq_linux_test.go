@@ -128,7 +128,7 @@ func TestPOSIXMQReadPrio(t *testing.T) {
 
 func TestPOSIXMQRecvOneshot(t *testing.T) {
 	q := testQueue(t)
-	sendMsg(t, q, "one", 0)
+	sendMsg(t, q, "one", 4)
 	sendMsg(t, q, "two", 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -137,7 +137,8 @@ func TestPOSIXMQRecvOneshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := xio.OpenChannel(ctx, ch, xio.ModeRead, testGlobal())
+	g := testGlobal()
+	o, err := xio.OpenChannel(ctx, ch, xio.ModeRead, g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,6 +150,9 @@ func TestPOSIXMQRecvOneshot(t *testing.T) {
 	}
 	if string(b) != "one" {
 		t.Fatalf("oneshot got %q", b)
+	}
+	if got := g.SessionVars["POSIXMQ_PRIO"]; got != "4" {
+		t.Fatalf("POSIXMQ_PRIO=%q", got)
 	}
 }
 

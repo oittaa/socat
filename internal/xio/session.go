@@ -7,7 +7,11 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sort"
+	"strconv"
 	"strings"
+
+	socat "github.com/oittaa/socat"
 )
 
 // RememberAddrs fills SOCAT_* environment fields on g from a live connection.
@@ -34,8 +38,25 @@ func RememberAddrs(g *Global, c net.Conn) {
 			g.PeerAddr = ra.String()
 		}
 	}
+	if carrier, ok := c.(interface{ SessionEnvironment() map[string]string }); ok {
+		for name, value := range carrier.SessionEnvironment() {
+			SetSessionEnv(g, name, value)
+		}
+	}
 	// Session fields stay on g. EXEC children get them via childEnviron.
 	// Do not os.Setenv: fork goroutines would race on process environment.
+}
+
+// SetSessionEnv records a per-session output variable without its executable
+// prefix. It is exported for address implementations such as POSIXMQ.
+func SetSessionEnv(g *Global, name, value string) {
+	if g == nil || name == "" {
+		return
+	}
+	if g.SessionVars == nil {
+		g.SessionVars = make(map[string]string)
+	}
+	g.SessionVars[name] = value
 }
 
 // sessionEnv returns classic SOCAT_* / PROGNAME_* values from this session.
@@ -48,28 +69,48 @@ func sessionEnv(g *Global) []string {
 		prog = "socat"
 	}
 	up := strings.ToUpper(prog)
-	out := []string{
-		"SOCAT_SOCKADDR=" + g.SockAddr,
-		"SOCAT_PEERADDR=" + g.PeerAddr,
-		"SOCAT_SOCKPORT=" + g.SockPort,
-		"SOCAT_PEERPORT=" + g.PeerPort,
-		up + "_SOCKADDR=" + g.SockAddr,
-		up + "_PEERADDR=" + g.PeerAddr,
-		up + "_SOCKPORT=" + g.SockPort,
-		up + "_PEERPORT=" + g.PeerPort,
+	prefixes := []string{"SOCAT"}
+	if up != "SOCAT" {
+		prefixes = append(prefixes, up)
 	}
-	if g.TLSPeerSubject != "" {
-		out = append(out,
-			"SOCAT_OPENSSL_X509_SUBJECT="+g.TLSPeerSubject,
-			"SOCAT_OPENSSL_X509_ISSUER="+g.TLSPeerIssuer,
-			"SOCAT_OPENSSL_X509_COMMONNAME="+g.TLSPeerCommonName,
-			"SOCAT_OPENSSL_X509_COUNTRYNAME="+g.TLSPeerCountry,
-			"SOCAT_OPENSSL_X509_LOCALITYNAME="+g.TLSPeerLocality,
-			"SOCAT_OPENSSL_X509_ORGANIZATIONNAME="+g.TLSPeerOrg,
-			"SOCAT_OPENSSL_X509_ORGANIZATIONALUNITNAME="+g.TLSPeerOrgUnit,
-		)
+	values := map[string]string{
+		"VERSION":  socat.Version,
+		"PID":      strconv.Itoa(os.Getpid()),
+		"PPID":     strconv.Itoa(os.Getpid()),
+		"SOCKADDR": g.SockAddr,
+		"PEERADDR": g.PeerAddr,
+		"SOCKPORT": g.SockPort,
+		"PEERPORT": g.PeerPort,
+	}
+	for name, value := range g.SessionVars {
+		values[name] = value
+	}
+
+	names := sortedKeys(values)
+	tlsNames := sortedKeys(g.TLSVars)
+	out := make([]string, 0, len(prefixes)*(len(names)+2*len(tlsNames)))
+	for _, prefix := range prefixes {
+		for _, name := range names {
+			out = append(out, prefix+"_"+name+"="+values[name])
+		}
+		for _, name := range tlsNames {
+			value := g.TLSVars[name]
+			out = append(out,
+				prefix+"_TLS_"+name+"="+value,
+				prefix+"_OPENSSL_"+name+"="+value,
+			)
+		}
 	}
 	return out
+}
+
+func sortedKeys(values map[string]string) []string {
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // childEnviron copies the process environment and overlays this session's
@@ -86,6 +127,20 @@ func childEnviron(g *Global) []string {
 			drop[e[:i]] = struct{}{}
 		}
 	}
+	var dropPrefixes []string
+	if g != nil && g.TLSVars != nil {
+		prog := g.Progname
+		if prog == "" {
+			prog = "socat"
+		}
+		prefixes := []string{"SOCAT"}
+		if up := strings.ToUpper(prog); up != "SOCAT" {
+			prefixes = append(prefixes, up)
+		}
+		for _, prefix := range prefixes {
+			dropPrefixes = append(dropPrefixes, prefix+"_TLS_", prefix+"_OPENSSL_")
+		}
+	}
 	base := os.Environ()
 	out := make([]string, 0, len(base)+len(extra))
 	for _, e := range base {
@@ -94,6 +149,16 @@ func childEnviron(g *Global) []string {
 			k = e[:i]
 		}
 		if _, skip := drop[k]; skip {
+			continue
+		}
+		skip := false
+		for _, prefix := range dropPrefixes {
+			if strings.HasPrefix(k, prefix) {
+				skip = true
+				break
+			}
+		}
+		if skip {
 			continue
 		}
 		out = append(out, e)
@@ -106,20 +171,20 @@ func sniffEnvValue(g *Global, name string) (string, bool) {
 	if g == nil {
 		return "", false
 	}
-	prog := g.Progname
-	if prog == "" {
-		prog = "socat"
-	}
-	up := strings.ToUpper(prog)
 	switch name {
-	case "SOCAT_SOCKADDR", up + "_SOCKADDR", "SOCKADDR":
+	case "SOCKADDR":
 		return g.SockAddr, true
-	case "SOCAT_PEERADDR", up + "_PEERADDR", "PEERADDR":
+	case "PEERADDR":
 		return g.PeerAddr, true
-	case "SOCAT_SOCKPORT", up + "_SOCKPORT", "SOCKPORT":
+	case "SOCKPORT":
 		return g.SockPort, true
-	case "SOCAT_PEERPORT", up + "_PEERPORT", "PEERPORT":
+	case "PEERPORT":
 		return g.PeerPort, true
+	}
+	for _, entry := range sessionEnv(g) {
+		if i := strings.IndexByte(entry, '='); i > 0 && entry[:i] == name {
+			return entry[i+1:], true
+		}
 	}
 	return "", false
 }
@@ -128,7 +193,9 @@ func sniffEnvValue(g *Global, name string) (string, bool) {
 // session values live on Global and are applied in childEnviron / sniff paths.
 func ExportSocatEnv(g *Global) {}
 
-// RememberTLSPeer fills SOCAT_OPENSSL_X509_* from the peer certificate when present.
+// RememberTLSPeer records negotiated TLS and peer-certificate metadata. The
+// child environment exposes preferred SOCAT_TLS_* names and SOCAT_OPENSSL_*
+// compatibility aliases.
 func RememberTLSPeer(g *Global, c net.Conn) {
 	if g == nil || c == nil {
 		return
@@ -150,19 +217,109 @@ func RememberTLSPeer(g *Global, c net.Conn) {
 	if err := tc.Handshake(); err != nil {
 		return
 	}
-	st := tc.ConnectionState()
+	rememberTLSState(g, tc.ConnectionState())
+}
+
+func rememberTLSState(g *Global, st tls.ConnectionState) {
+	if g == nil {
+		return
+	}
+	g.TLSVars = make(map[string]string)
+	if st.Version != 0 {
+		g.TLSVars["PROTO_VERSION"] = tlsProtocolVersion(st.Version)
+	}
+	if st.CipherSuite != 0 {
+		g.TLSVars["CIPHER"] = tls.CipherSuiteName(st.CipherSuite)
+	}
 	if len(st.PeerCertificates) == 0 {
 		return
 	}
 	leaf := st.PeerCertificates[0]
 	// Classic format: "C = XY, CN = localhost, O = dest-unreach, OU = socat, L = Lunar Base"
-	g.TLSPeerSubject = FormatTLSName(leaf.Subject)
-	g.TLSPeerIssuer = FormatTLSName(leaf.Issuer)
-	g.TLSPeerCommonName = leaf.Subject.CommonName
-	g.TLSPeerCountry = firstOrEmpty(leaf.Subject.Country)
-	g.TLSPeerLocality = firstOrEmpty(leaf.Subject.Locality)
-	g.TLSPeerOrg = firstOrEmpty(leaf.Subject.Organization)
-	g.TLSPeerOrgUnit = firstOrEmpty(leaf.Subject.OrganizationalUnit)
+	g.TLSVars["X509_SUBJECT"] = FormatTLSName(leaf.Subject)
+	g.TLSVars["X509_ISSUER"] = FormatTLSName(leaf.Issuer)
+	for name, value := range tlsSubjectFields(leaf.Subject) {
+		g.TLSVars["X509_"+name] = value
+	}
+	if len(leaf.DNSNames) > 0 {
+		value := strings.Join(leaf.DNSNames, " // ")
+		g.TLSVars["X509V3_SUBJECTALTNAME_DNS"] = value
+		// Older manuals documented this shortened spelling.
+		g.TLSVars["X509V3_DNS"] = value
+	}
+	if len(leaf.IPAddresses) > 0 {
+		values := make([]string, 0, len(leaf.IPAddresses))
+		for _, ip := range leaf.IPAddresses {
+			values = append(values, ip.String())
+		}
+		g.TLSVars["X509V3_SUBJECTALTNAME_IPADD"] = strings.Join(values, " // ")
+	}
+}
+
+func tlsProtocolVersion(version uint16) string {
+	switch version {
+	case tls.VersionTLS10:
+		return "TLSv1"
+	case tls.VersionTLS11:
+		return "TLSv1.1"
+	case tls.VersionTLS12:
+		return "TLSv1.2"
+	case tls.VersionTLS13:
+		return "TLSv1.3"
+	default:
+		return tls.VersionName(version)
+	}
+}
+
+func tlsSubjectFields(n pkix.Name) map[string]string {
+	fields := make(map[string]string)
+	attributeValues := make(map[string][]string)
+	attributeNames := map[string]string{
+		"2.5.4.3":                    "COMMONNAME",
+		"2.5.4.4":                    "SURNAME",
+		"2.5.4.5":                    "SERIALNUMBER",
+		"2.5.4.6":                    "COUNTRYNAME",
+		"2.5.4.7":                    "LOCALITYNAME",
+		"2.5.4.8":                    "STATEORPROVINCENAME",
+		"2.5.4.9":                    "STREETADDRESS",
+		"2.5.4.10":                   "ORGANIZATIONNAME",
+		"2.5.4.11":                   "ORGANIZATIONALUNITNAME",
+		"2.5.4.12":                   "TITLE",
+		"2.5.4.17":                   "POSTALCODE",
+		"2.5.4.42":                   "GIVENNAME",
+		"1.2.840.113549.1.9.1":       "EMAILADDRESS",
+		"0.9.2342.19200300.100.1.1":  "USERID",
+		"0.9.2342.19200300.100.1.25": "DOMAINCOMPONENT",
+	}
+	for _, attribute := range n.Names {
+		name := attributeNames[attribute.Type.String()]
+		if name == "" {
+			name = "UNDEF"
+		}
+		attributeValues[name] = append(attributeValues[name], fmt.Sprint(attribute.Value))
+	}
+	for name, values := range attributeValues {
+		fields[name] = strings.Join(values, " // ")
+	}
+	add := func(name string, values []string) {
+		if len(values) > 0 && fields[name] == "" {
+			fields[name] = strings.Join(values, " // ")
+		}
+	}
+	if n.CommonName != "" && fields["COMMONNAME"] == "" {
+		fields["COMMONNAME"] = n.CommonName
+	}
+	add("COUNTRYNAME", n.Country)
+	add("LOCALITYNAME", n.Locality)
+	add("STATEORPROVINCENAME", n.Province)
+	add("ORGANIZATIONNAME", n.Organization)
+	add("ORGANIZATIONALUNITNAME", n.OrganizationalUnit)
+	add("STREETADDRESS", n.StreetAddress)
+	add("POSTALCODE", n.PostalCode)
+	if n.SerialNumber != "" && fields["SERIALNUMBER"] == "" {
+		fields["SERIALNUMBER"] = n.SerialNumber
+	}
+	return fields
 }
 
 // FormatTLSName matches classic SOCAT_OPENSSL_X509_SUBJECT / ISSUER layout.

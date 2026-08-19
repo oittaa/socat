@@ -177,6 +177,7 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 		if g != nil && g.Log != nil {
 			g.Log.Infof("successfully connected from %s to %s", conn.LocalAddr(), conn.RemoteAddr())
 		}
+		WaitFromEnv("SOCAT_FORK_WAIT")
 		go func(c net.Conn) {
 			defer func() { _ = c.Close() }()
 			if slots != nil {
@@ -245,6 +246,7 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 			}
 		}
 		g.Log.Infof("accepted %s", conn.RemoteAddr())
+		WaitFromEnv("SOCAT_FORK_WAIT")
 		go func(c net.Conn) {
 			defer func() { _ = c.Close() }()
 			if slots != nil {
@@ -253,6 +255,7 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 			// Per-connection session so SOCAT_* env is correct under concurrency.
 			cg := g.forkSession()
 			RememberAddrs(cg, c)
+			RememberTLSPeer(cg, c)
 			leftStream, err := streamFromDial(lo, c)
 			if err != nil {
 				g.Log.Errorf("wrap accept: %s", err)
@@ -351,6 +354,7 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 				continue
 			}
 		}
+		WaitFromEnv("SOCAT_FORK_WAIT")
 		go func(c net.Conn) {
 			defer func() { _ = c.Close() }()
 			if slots != nil {
@@ -360,6 +364,7 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 			defer leftMu.Unlock()
 			cg := g.forkSession()
 			RememberAddrs(cg, c)
+			RememberTLSPeer(cg, c)
 			rightStream, err := streamFromDial(ro, c)
 			if err != nil {
 				g.Log.Errorf("wrap accept: %s", err)
@@ -385,6 +390,7 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 	if left == nil || right == nil {
 		return fmt.Errorf("nil stream")
 	}
+	WaitFromEnv("SOCAT_TRANSFER_WAIT")
 	// Classic opens -r/-R sniff files at transfer start (after peer env is set).
 	if g != nil && (g.RawLeftPath != "" || g.RawRightPath != "") {
 		if err := openSniffFiles(g); err != nil {

@@ -189,9 +189,10 @@ func resolveConnectIPs(ctx context.Context, network, host string, s parse.Spec, 
 		ips = filterAIAddrConfig(ips)
 	}
 
-	// Preference order for dual-stack ("tcp"): -6 → IPv6 first; -4/default → IPv4 first; -0 keep resolver order.
-	if hint == "ip" && g != nil && len(ips) > 1 {
-		switch g.IPVersion {
+	// Preference order for dual-stack ("tcp"): explicit -4/-6/-0, then
+	// SOCAT_PREFERRED_RESOLVE_IP, then the IPv4 build default.
+	if hint == "ip" && len(ips) > 1 {
+		switch preferredResolveVersion(g) {
 		case IPv6:
 			sort.SliceStable(ips, func(i, j int) bool {
 				return ips[i].To4() == nil && ips[j].To4() != nil
