@@ -475,6 +475,7 @@ func helpOptionGroups() []helpOptGroup {
 			{"unlink-close", "unlink on close", nil},
 			{"unlink-late", "unlink after bind", nil},
 			{"unix-bind-tempname", "bind a temporary UNIX name", []string{"bind-tempname"}},
+			{"socktype", "UNIX socket type number", []string{"so-type"}},
 		}},
 		{"EXEC, SYSTEM, SHELL", []helpOpt{
 			{"pipes", "connect with pipes", nil},

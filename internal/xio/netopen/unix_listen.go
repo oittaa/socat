@@ -20,6 +20,17 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		return nil, fmt.Errorf("UNIX-LISTEN requires path")
 	}
 	path := s.Params[0]
+	if s.HasOption("bind") {
+		// Classic: bind= on UNIX-LISTEN is invalid (must not bind twice).
+		return nil, fmt.Errorf("option \"bind\" with UNIX-LISTEN is not supported")
+	}
+	network, _, err := unixSocketNetwork(s)
+	if err != nil {
+		return nil, err
+	}
+	if network == "unixgram" {
+		return nil, fmt.Errorf("%s: SOCK_DGRAM does not support listen; use UNIX-RECV or UNIX-RECVFROM", s.Type)
+	}
 
 	if s.BoolOption("unlink-early") {
 		_ = os.Remove(path)
@@ -32,10 +43,9 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 
 	lc := net.ListenConfig{}
 	var ln net.Listener
-	var err error
 	err = xio.WithUmask(s, func() error {
 		var e error
-		ln, e = lc.Listen(ctx, "unix", path)
+		ln, e = lc.Listen(ctx, network, path)
 		return e
 	})
 	if err != nil {
@@ -57,12 +67,6 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		}
 	}
 	_ = xio.ApplyOwner(path, s, nil)
-
-	// Classic: bind= on UNIX-LISTEN is invalid (must not bind twice / INTERNAL).
-	// UNIX_L_BIND expects a non-zero exit without the word INTERNAL.
-	if s.HasOption("bind") {
-		return nil, fmt.Errorf("option \"bind\" with UNIX-LISTEN is not supported")
-	}
 
 	// Ensure path is removed on SIGTERM (SetUnlinkOnClose only runs on Close).
 	if doUnlink && !xio.IsAbstract(path) {
@@ -95,7 +99,9 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 			deadline = time.Now().Add(time.Duration(f * float64(time.Second)))
 		}
 	}
-	g.Log.Noticef("listening on %s", path)
+	if g != nil && g.Log != nil {
+		g.Log.Noticef("listening on %s", path)
+	}
 	type acc struct {
 		c   net.Conn
 		err error
@@ -166,8 +172,15 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		name = "@" + name
 	}
 	path := unixAddr(name)
+	network, _, err := unixSocketNetwork(s)
+	if err != nil {
+		return nil, err
+	}
+	if network == "unixgram" {
+		return nil, fmt.Errorf("%s: SOCK_DGRAM does not support listen; use ABSTRACT-RECV or ABSTRACT-RECVFROM", s.Type)
+	}
 	lc := net.ListenConfig{}
-	ln, err := lc.Listen(ctx, "unix", path)
+	ln, err := lc.Listen(ctx, network, path)
 	if err != nil {
 		return nil, err
 	}

@@ -215,6 +215,16 @@ func TestOptionAliases(t *testing.T) {
 	}
 }
 
+func TestSocketTypeAlias(t *testing.T) {
+	s, err := ParseSpec("UNIX-LISTEN:/tmp/test.sock,so-type=5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.OptionValue("socktype", ""); got != "5" {
+		t.Fatalf("socktype=%q want 5", got)
+	}
+}
+
 func TestPOSIXMQOptionAliases(t *testing.T) {
 	s, err := ParseSpec("POSIXMQ-SEND:/q,posixmq-priority=3,posixmq-flush,posixmq-maxmsg=8,posixmq-msgsize=128")
 	if err != nil {

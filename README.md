@@ -117,8 +117,8 @@ every name. DCCP and readline are not implemented (see
 | UDP | `UDP4:host:port`, `UDP6:…` | UDP client |
 | UDP-LISTEN / SENDTO / RECV / RECVFROM / DATAGRAM | `UDP4-LISTEN:port`, `UDP4-SENDTO:host:port`, … | peer filters on recv/listen |
 | IP (raw) | `IP4-SENDTO:host:proto`, `IP4-RECV:proto`, … | Linux raw IP; needs privilege |
-| UNIX | `UNIX-CONNECT:<path>` / `UNIX-CLIENT` | UNIX-domain client |
-| UNIX-LISTEN | `UNIX-LISTEN:<path>` (`-L`) | UNIX-domain server |
+| UNIX | `UNIX-CONNECT:<path>` / `UNIX-CLIENT` | UNIX-domain stream, seqpacket, or generic client |
+| UNIX-LISTEN | `UNIX-LISTEN:<path>` (`-L`) | UNIX-domain stream or seqpacket server |
 | UNIX datagram | `UNIX-SENDTO` / `RECV` / `RECVFROM` / `DATAGRAM` | UNIX datagram |
 | ABSTRACT | `ABSTRACT-CONNECT` / `LISTEN` / … | Linux abstract UNIX namespace |
 | SOCKET | `SOCKET-CONNECT` / `LISTEN` / `SENDTO` / `DATAGRAM` / `RECV` / `RECVFROM` | generic socket |
@@ -146,7 +146,7 @@ termios / baud names.
 | Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport`, `tcpwrap` / `libwrap` / `hosts-allow` / `hosts-deny` / `tcpwrap-etc` |
 | TUN / INTERFACE | `tun-name`, `tun-type`, `tun-device`, `iff-up`, `iff-no-pi`, `if-mtu` / `interface-mtu`, other `iff-*` flags |
 | Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `umask`, `nonblock` |
-| UNIX | `unlink-early`, `unlink-close`, `unix-bind-tempname` / `bind-tempname` |
+| UNIX | `unlink-early`, `unlink-close`, `unix-bind-tempname` / `bind-tempname`, `socktype` / `so-type` |
 | POSIX MQ | `mq-prio` / `posixmq-priority`, `mq-flush`, `mq-maxmsg`, `mq-msgsize` |
 | EXEC | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none`, `chdir`, `umask` (child inherits, then parent restores) |
 | PTY / TERMIOS | `link`, `cfmakeraw`/`raw`/`rawer`, `echo`, `opost`, baud/`ispeed`/`ospeed`, `tiocswinsz`, `pty-wait-slave`, `ctty`; restore tty on close |
