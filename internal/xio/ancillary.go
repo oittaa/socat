@@ -167,7 +167,7 @@ func handleTimestamp(data []byte, g *Global) {
 	// Classic ctime_r style: "Mon Jan  2 15:04:05 2006, 000123 usecs"
 	val := t.Format("Mon Jan _2 15:04:05 2006") + fmt.Sprintf(", %06d usecs", usec)
 	logAncillary(g, "SCM_TIMESTAMP", "timestamp", val)
-	setAncillaryEnv(g, "TIMESTAMP", val)
+	SetSessionEnv(g, "TIMESTAMP", val)
 }
 
 // parseCmsgTimeval reads a kernel timeval from cmsg data (native endian).
@@ -245,14 +245,14 @@ func handleIPv4Cmsg(typ int32, data []byte, g *Global) {
 	case unix.IP_TTL:
 		val := strconv.Itoa(cmsgInt(data))
 		logAncillary(g, "IP_TTL", "ttl", val)
-		setAncillaryEnv(g, "IP_TTL", val)
+		SetSessionEnv(g, "IP_TTL", val)
 		if g != nil && g.Log != nil {
 			g.Log.Noticef("Ancillary message: ttl=%s", val)
 		}
 	case unix.IP_TOS:
 		val := strconv.Itoa(cmsgInt(data))
 		logAncillary(g, "IP_TOS", "tos", val)
-		setAncillaryEnv(g, "IP_TOS", val)
+		SetSessionEnv(g, "IP_TOS", val)
 		if g != nil && g.Log != nil {
 			g.Log.Noticef("Ancillary message: tos=%s", val)
 		}
@@ -267,9 +267,9 @@ func handleIPv4Cmsg(typ int32, data []byte, g *Global) {
 		logAncillary(g, "IP_PKTINFO", "if", ifname)
 		logAncillary(g, "IP_PKTINFO", "locaddr", loc)
 		logAncillary(g, "IP_PKTINFO", "dstaddr", dst)
-		setAncillaryEnv(g, "IP_IF", ifname)
-		setAncillaryEnv(g, "IP_LOCADDR", loc)
-		setAncillaryEnv(g, "IP_DSTADDR", dst)
+		SetSessionEnv(g, "IP_IF", ifname)
+		SetSessionEnv(g, "IP_LOCADDR", loc)
+		SetSessionEnv(g, "IP_DSTADDR", dst)
 		if g != nil && g.Log != nil {
 			g.Log.Noticef("Ancillary message: interface %q, locaddr=%s, dstaddr=%s", ifname, loc, dst)
 		}
@@ -278,7 +278,7 @@ func handleIPv4Cmsg(typ int32, data []byte, g *Global) {
 		// classic xiodump: x + lowercase hex of option bytes
 		val := "x" + fmt.Sprintf("%x", data)
 		logAncillary(g, "IP_OPTIONS", "options", val)
-		setAncillaryEnv(g, "IP_OPTIONS", val)
+		SetSessionEnv(g, "IP_OPTIONS", val)
 	}
 }
 
@@ -295,13 +295,13 @@ func handleIPv6Cmsg(typ int32, data []byte, g *Global) {
 		ifname := ifIndexName(ifi)
 		logAncillary(g, "IPV6_PKTINFO", "dstaddr", br)
 		logAncillary(g, "IPV6_PKTINFO", "if", ifname)
-		setAncillaryEnv(g, "IPV6_DSTADDR", br)
-		setAncillaryEnv(g, "IPV6_IF", ifname)
+		SetSessionEnv(g, "IPV6_DSTADDR", br)
+		SetSessionEnv(g, "IPV6_IF", ifname)
 	case unix.IPV6_HOPLIMIT:
 		val := strconv.Itoa(cmsgInt(data))
 		logAncillary(g, "IPV6_HOPLIMIT", "hoplimit", val)
 		// classic: empty env name → falls back to type name
-		setAncillaryEnv(g, "IPV6_HOPLIMIT", val)
+		SetSessionEnv(g, "IPV6_HOPLIMIT", val)
 	case unix.IPV6_TCLASS:
 		n := cmsgInt(data)
 		u, ok := Uint32FromInt(n)
@@ -311,7 +311,7 @@ func handleIPv6Cmsg(typ int32, data []byte, g *Global) {
 		// classic: xiodump after ntohl → x000000aa style of the int value
 		val := fmt.Sprintf("x%08x", u)
 		logAncillary(g, "IPV6_TCLASS", "tclass", val)
-		setAncillaryEnv(g, "IPV6_TCLASS", val)
+		SetSessionEnv(g, "IPV6_TCLASS", val)
 	}
 }
 
@@ -320,12 +320,6 @@ func logAncillary(g *Global, typ, name, val string) {
 		// Classic Info3("ancillary message: %s: %s=%s", ...)
 		g.Log.Infof("ancillary message: %s: %s=%s", typ, name, val)
 	}
-}
-
-func setAncillaryEnv(g *Global, name, val string) {
-	// Keep packet metadata on the session. Process-global Setenv races when
-	// multiple fork sessions receive packets concurrently.
-	SetSessionEnv(g, name, val)
 }
 
 func ifIndexName(idx int) string {

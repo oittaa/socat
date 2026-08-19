@@ -212,7 +212,6 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 			fd:      fd,
 			name:    name,
 			msgsize: msgsize,
-			prio:    prio,
 			ctx:     ctx,
 		}
 		o := &xio.Opened{
@@ -358,7 +357,6 @@ type mqStream struct {
 	oneshot  bool
 	noClose  bool
 	nonblock bool
-	trigger  *os.File
 
 	mu        sync.Mutex
 	got       bool
@@ -414,16 +412,11 @@ func (s *mqStream) Read(p []byte) (int, error) {
 	s.mu.Lock()
 	s.prio = prio
 	s.got = true
-	trig := s.trigger
-	s.trigger = nil
 	m := copy(p, buf[:n])
 	if m < n {
 		s.leftover = append([]byte(nil), buf[m:n]...)
 	}
 	s.mu.Unlock()
-	if trig != nil {
-		_ = trig.Close()
-	}
 	return m, nil
 }
 
@@ -454,14 +447,9 @@ func (s *mqStream) Close() error {
 		return nil
 	}
 	s.closed = true
-	trig := s.trigger
-	s.trigger = nil
 	noClose := s.noClose
 	fd := s.fd
 	s.mu.Unlock()
-	if trig != nil {
-		_ = trig.Close()
-	}
 	if noClose {
 		return nil
 	}
@@ -517,10 +505,8 @@ type mqListener struct {
 	fd      int
 	name    string
 	msgsize int
-	prio    uint32
 	ctx     context.Context
 	mu      sync.Mutex
-	trigR   *os.File
 	closed  bool
 }
 
@@ -567,29 +553,7 @@ func (l *mqListener) Close() error {
 		return nil
 	}
 	l.closed = true
-	if l.trigR != nil {
-		_ = l.trigR.Close()
-		l.trigR = nil
-	}
 	return mqClose(l.fd)
 }
 
 func (l *mqListener) Addr() net.Addr { return mqAddr(l.name) }
-
-func waitPipe(ctx context.Context, f *os.File) error {
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		_ = f.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-		var b [1]byte
-		_, err := f.Read(b[:])
-		if err == nil || err == io.EOF {
-			return nil
-		}
-		if os.IsTimeout(err) {
-			continue
-		}
-		return err
-	}
-}

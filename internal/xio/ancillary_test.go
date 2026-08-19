@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"net"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestParseCmsgTimeval16(t *testing.T) {
@@ -57,8 +59,10 @@ func TestParseInet6Pktinfo(t *testing.T) {
 }
 
 func TestAncillaryEnvironmentIsSessionScoped(t *testing.T) {
+	var data [4]byte
+	binary.NativeEndian.PutUint32(data[:], 42)
 	g := &Global{}
-	setAncillaryEnv(g, "IP_TTL", "42")
+	handleIPv4Cmsg(unix.IP_TTL, data[:], g)
 	if got := g.SessionVars["IP_TTL"]; got != "42" {
 		t.Fatalf("IP_TTL=%q", got)
 	}
