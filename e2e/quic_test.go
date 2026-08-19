@@ -20,31 +20,20 @@ import (
 )
 
 func TestQUICVersionFeature(t *testing.T) {
-	bin := socatBin(t)
-	out, err := exec.Command(bin, "-V").CombinedOutput()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := capabilityOutput(t, "-V")
 	if !bytes.Contains(out, []byte("#define WITH_QUIC 1")) {
 		t.Fatalf("missing WITH_QUIC in -V:\n%s", out)
 	}
 }
 
 func TestQUICHelpTypes(t *testing.T) {
-	bin := socatBin(t)
-	out, err := exec.Command(bin, "-h").CombinedOutput()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := capabilityOutput(t, "-h")
 	for _, name := range []string{"QUIC", "QUIC-CONNECT", "QUIC-LISTEN"} {
 		if !bytes.Contains(out, []byte(name)) {
 			t.Fatalf("-h missing %s:\n%s", name, out)
 		}
 	}
-	hh, err := exec.Command(bin, "-hh").CombinedOutput()
-	if err != nil {
-		t.Fatal(err)
-	}
+	hh := capabilityOutput(t, "-hh")
 	if !bytes.Contains(hh, []byte(" alpn ")) {
 		t.Fatalf("-hh missing alpn:\n%s", hh)
 	}
@@ -52,7 +41,7 @@ func TestQUICHelpTypes(t *testing.T) {
 
 func TestQUICEcho(t *testing.T) {
 	bin := socatBin(t)
-	port := freePort(t)
+	port := freeUDPPort(t)
 
 	cert := listenCert(t)
 	srv := exec.Command(bin, "-t", "2", fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert), "PIPE")
@@ -90,7 +79,7 @@ func TestQUICEcho(t *testing.T) {
 
 func TestQUICVerifyFail(t *testing.T) {
 	bin := socatBin(t)
-	port := freePort(t)
+	port := freeUDPPort(t)
 
 	cert := listenCert(t)
 	srv := exec.Command(bin, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert), "PIPE")
@@ -112,7 +101,7 @@ func TestQUICVerifyFail(t *testing.T) {
 
 func TestQUICVerifySuccess(t *testing.T) {
 	bin := socatBin(t)
-	port := freePort(t)
+	port := freeUDPPort(t)
 	certs := writeE2ETrustCerts(t)
 
 	srv := exec.Command(bin, "-t", "2", fmt.Sprintf(
@@ -149,7 +138,7 @@ func TestQUICVerifySuccess(t *testing.T) {
 
 func TestTCPToQUICBridge(t *testing.T) {
 	bin := socatBin(t)
-	quicPort := freePort(t)
+	quicPort := freeUDPPort(t)
 	tcpPort := freePort(t)
 
 	cert := listenCert(t)

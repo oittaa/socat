@@ -334,7 +334,7 @@ func socks5Handshake(c net.Conn, cmd byte, user, pass string, atyp byte, addrByt
 	return nil
 }
 
-func socks5ReadReply(c net.Conn) error {
+func socks5ReadReply(c io.Reader) error {
 	var hdr [4]byte
 	if _, e := io.ReadFull(c, hdr[:]); e != nil {
 		return fmt.Errorf("socks5 reply: %w", e)

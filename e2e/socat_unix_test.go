@@ -14,18 +14,11 @@ import (
 )
 
 func TestVersionHasTERMIOS(t *testing.T) {
-	bin := socatBin(t)
-	out, err := exec.Command(bin, "-V").CombinedOutput()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := capabilityOutput(t, "-V")
 	if !bytes.Contains(out, []byte("#define WITH_TERMIOS 1")) {
 		t.Fatalf("missing WITH_TERMIOS 1:\n%s", out)
 	}
-	hh, err := exec.Command(bin, "-hh").CombinedOutput()
-	if err != nil {
-		t.Fatal(err)
-	}
+	hh := capabilityOutput(t, "-hh")
 	for _, opt := range []string{"pty-wait-slave", "tiocswinsz", "ctty", "cfmakeraw"} {
 		if !bytes.Contains(hh, []byte(" "+opt+" ")) {
 			t.Fatalf("help missing %s:\n%s", opt, hh)

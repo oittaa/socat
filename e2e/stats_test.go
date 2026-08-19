@@ -29,11 +29,7 @@ func TestOptionStatistics(t *testing.T) {
 }
 
 func TestVersionHasSTATS(t *testing.T) {
-	bin := socatBin(t)
-	out, err := exec.Command(bin, "-V").CombinedOutput()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := capabilityOutput(t, "-V")
 	if !bytes.Contains(out, []byte("#define WITH_STATS 1")) {
 		t.Fatalf("missing WITH_STATS 1:\n%s", out)
 	}

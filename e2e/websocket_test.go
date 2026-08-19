@@ -13,31 +13,20 @@ import (
 
 // TestWSVersionFeature: -V advertises WITH_WEBSOCKET (Go extra, not classic).
 func TestWSVersionFeature(t *testing.T) {
-	bin := socatBin(t)
-	out, err := exec.Command(bin, "-V").CombinedOutput()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := capabilityOutput(t, "-V")
 	if !bytes.Contains(out, []byte("#define WITH_WEBSOCKET 1")) {
 		t.Fatalf("missing WITH_WEBSOCKET in -V:\n%s", out)
 	}
 }
 
 func TestWSHelpTypes(t *testing.T) {
-	bin := socatBin(t)
-	out, err := exec.Command(bin, "-h").CombinedOutput()
-	if err != nil {
-		t.Fatal(err)
-	}
+	out := capabilityOutput(t, "-h")
 	for _, name := range []string{"WS", "WS-CONNECT", "WSS", "WSS-CONNECT", "WS-LISTEN", "WSS-LISTEN"} {
 		if !bytes.Contains(out, []byte(name)) {
 			t.Fatalf("-h missing %s:\n%s", name, out)
 		}
 	}
-	hh, err := exec.Command(bin, "-hh").CombinedOutput()
-	if err != nil {
-		t.Fatal(err)
-	}
+	hh := capabilityOutput(t, "-hh")
 	for _, opt := range []string{"path", "origin", "protocol"} {
 		if !bytes.Contains(hh, []byte(" "+opt+" ")) {
 			t.Fatalf("-hh missing option %s:\n%s", opt, hh)

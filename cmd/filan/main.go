@@ -24,6 +24,12 @@ func main() {
 }
 
 func run(args []string) int {
+	return runWithIO(args, os.Stdout, os.Stderr)
+}
+
+func runWithIO(args []string, stdout, stderr io.Writer) int {
+	followSymlinks = false
+	rawOutput = false
 	var (
 		m, n     = 0, 1024 // practical default; FD_SETSIZE varies
 		style    = 0
@@ -36,13 +42,13 @@ func run(args []string) int {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if !strings.HasPrefix(a, "-") {
-			fmt.Fprintf(os.Stderr, "filan: unexpected argument %q\n", a)
-			usage(os.Stderr)
+			fmt.Fprintf(stderr, "filan: unexpected argument %q\n", a)
+			usage(stderr)
 			return 1
 		}
 		switch {
 		case a == "-h" || a == "-?":
-			usage(os.Stdout)
+			usage(stdout)
 			return 0
 		case a == "-L":
 			followSymlinks = true
@@ -55,12 +61,12 @@ func run(args []string) int {
 		case strings.HasPrefix(a, "-i"):
 			v, err := takeArg(a, "i", args, &i)
 			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
+				fmt.Fprintln(stderr, err)
 				return 1
 			}
 			fd, err := strconv.Atoi(v)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "filan: bad -i %q\n", v)
+				fmt.Fprintf(stderr, "filan: bad -i %q\n", v)
 				return 1
 			}
 			m, n = fd, fd
@@ -68,53 +74,53 @@ func run(args []string) int {
 		case strings.HasPrefix(a, "-n"):
 			v, err := takeArg(a, "n", args, &i)
 			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
+				fmt.Fprintln(stderr, err)
 				return 1
 			}
 			num, err := strconv.Atoi(v)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "filan: bad -n %q\n", v)
+				fmt.Fprintf(stderr, "filan: bad -n %q\n", v)
 				return 1
 			}
 			n = num
 		case strings.HasPrefix(a, "-f"):
 			v, err := takeArg(a, "f", args, &i)
 			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
+				fmt.Fprintln(stderr, err)
 				return 1
 			}
 			filename = v
 		case strings.HasPrefix(a, "-T"):
 			v, err := takeArg(a, "T", args, &i)
 			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
+				fmt.Fprintln(stderr, err)
 				return 1
 			}
 			sec, err := strconv.ParseFloat(v, 64)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "filan: bad -T %q\n", v)
+				fmt.Fprintf(stderr, "filan: bad -T %q\n", v)
 				return 1
 			}
 			waittime = time.Duration(sec * float64(time.Second))
 		case strings.HasPrefix(a, "-o"):
 			v, err := takeArg(a, "o", args, &i)
 			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
+				fmt.Fprintln(stderr, err)
 				return 1
 			}
 			outfname = v
 		default:
-			fmt.Fprintf(os.Stderr, "filan: unknown option %q\n", a)
-			usage(os.Stderr)
+			fmt.Fprintf(stderr, "filan: unknown option %q\n", a)
+			usage(stderr)
 			return 1
 		}
 	}
 
-	out := os.Stdout
+	out := stdout
 	if outfname != "" {
 		f, err := openOut(outfname)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "filan: %v\n", err)
+			fmt.Fprintf(stderr, "filan: %v\n", err)
 			return 1
 		}
 		if f != os.Stdout && f != os.Stderr && f != os.Stdin {
@@ -129,7 +135,7 @@ func run(args []string) int {
 
 	if filename != "" {
 		if err := filanFile(filename, out); err != nil {
-			fmt.Fprintf(os.Stderr, "filan: %v\n", err)
+			fmt.Fprintf(stderr, "filan: %v\n", err)
 			return 1
 		}
 		return 0

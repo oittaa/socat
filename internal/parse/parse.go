@@ -3,7 +3,6 @@ package parse
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"unicode"
 )
@@ -795,13 +794,4 @@ func pathOption(name string) bool {
 	default:
 		return false
 	}
-}
-
-// ParseFD parses an FD number parameter.
-func ParseFD(s string) (int, error) {
-	n, err := strconv.Atoi(s)
-	if err != nil || n < 0 {
-		return 0, fmt.Errorf("invalid fd number %q", s)
-	}
-	return n, nil
 }

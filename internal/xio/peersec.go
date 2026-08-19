@@ -34,14 +34,8 @@ func CloseRefusedPeer(c net.Conn) {
 	_ = c.Close()
 }
 
-// PeerAllowed implements classic xiocheckpeer-style filters for listen accepts:
-// range, sourceport (as peer-port filter), lowport, and tcpwrap/libwrap.
-// Returns nil if the peer is permitted.
-// g may be nil; when non-nil it supplies progname for tcpwrap daemon name.
-func PeerAllowed(s parse.Spec, conn net.Conn) error {
-	return PeerAllowedG(s, conn, nil)
-}
-
+// PeerAllowedG implements classic xiocheckpeer-style filters for listen
+// accepts. g may be nil; when set it supplies the tcpwrapper daemon name.
 func PeerAllowedG(s parse.Spec, conn net.Conn, g *Global) error {
 	if conn == nil {
 		return nil

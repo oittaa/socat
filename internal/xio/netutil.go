@@ -249,51 +249,6 @@ func ApplySetsockoptFD(fd int, spec string) error {
 
 // FormatSocatAddr matches classic env formatting (IPv6 in brackets).
 
-func NetworkTCP(g *Global, s parse.Spec, def string) string {
-	if pf := s.OptionValue("pf", ""); pf != "" {
-		if n := NetworkFromPF(pf, "tcp", ""); n != "" {
-			return n
-		}
-	}
-	ver := IPv4Default
-	if g != nil {
-		ver = g.IPVersion
-	}
-	switch ver {
-	case IPv4:
-		return "tcp4"
-	case IPv6:
-		return "tcp6"
-	case IPvAny:
-		return "tcp"
-	default: // IPv4Default
-		if def != "" {
-			return def
-		}
-		return "tcp4" // classic default since 1.8.0.1
-	}
-}
-
-// NetworkTCPForHost picks tcp/tcp4/tcp6 using options, then host literal shape.
-func NetworkTCPForHost(g *Global, s parse.Spec, host string) string {
-	// Explicit pf / global version first (except when host is clearly the other family)
-	n := NetworkTCP(g, s, "")
-	h := StripBrackets(host)
-	if ip := net.ParseIP(h); ip != nil {
-		if ip.To4() != nil {
-			return "tcp4"
-		}
-		return "tcp6"
-	}
-	if strings.Contains(h, ":") {
-		return "tcp6"
-	}
-	if n != "" {
-		return n
-	}
-	return "tcp4"
-}
-
 func ParsePositiveInt(v string) (int, error) {
 	var n int
 	_, err := fmt.Sscanf(v, "%d", &n)

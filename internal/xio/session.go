@@ -190,10 +190,6 @@ func sniffEnvValue(g *Global, name string) (string, bool) {
 	return "", false
 }
 
-// ExportSocatEnv is kept for callers that used process env. It is a no-op:
-// session values live on Global and are applied in childEnviron / sniff paths.
-func ExportSocatEnv(g *Global) {}
-
 // RememberTLSPeer records negotiated TLS and peer-certificate metadata. The
 // child environment exposes preferred SOCAT_TLS_* names and SOCAT_OPENSSL_*
 // compatibility aliases.

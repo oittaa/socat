@@ -32,7 +32,6 @@ type Config struct {
 	Verbose      bool
 	Hex          bool
 	BlockSize    int
-	Sloppy       bool
 	Linger       time.Duration
 	Idle         time.Duration // <0 infinite, 0 zero, >0 timeout
 	IdleSet      bool
@@ -111,8 +110,6 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 		}
 		// -dd, -ddd, -dddd
 		if strings.Trim(rest, "d") == "" {
-			cfg.LogLevel = levelFromN(len(rest) + 1) // -dd => 2 d's total with first d
-			// a is -dd: rest="d" len 1 → levelFromN(2); better count all d's
 			cfg.LogLevel = levelFromN(len(a) - 1)
 			return nil
 		}
@@ -132,7 +129,8 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 	case a == "-x":
 		cfg.Hex = true
 	case a == "-s":
-		cfg.Sloppy = true
+		// Accepted for classic CLI compatibility. Go's stream APIs do not expose
+		// a portable subset of recoverable I/O errors to which -s could apply.
 	case a == "-u":
 		cfg.LeftToRight = true
 	case a == "-U":
@@ -410,7 +408,6 @@ func Main(args []string) int {
 		Hex:          cfg.Hex,
 		Dump:         os.Stderr,
 		Statistics:   cfg.Statistics,
-		Sloppy:       cfg.Sloppy,
 		Experimental: cfg.Experimental,
 		LeftToRight:  cfg.LeftToRight,
 		RightToLeft:  cfg.RightToLeft,

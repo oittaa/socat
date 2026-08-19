@@ -46,11 +46,7 @@ func proxyConnectEcho() http.Handler {
 }
 
 func TestPROXYHelpHTTPVersion(t *testing.T) {
-	bin := socatBin(t)
-	hh, err := exec.Command(bin, "-hh").CombinedOutput()
-	if err != nil {
-		t.Fatal(err)
-	}
+	hh := capabilityOutput(t, "-hh")
 	if !bytes.Contains(hh, []byte(" http-version ")) {
 		t.Fatalf("-hh missing http-version:\n%s", hh)
 	}

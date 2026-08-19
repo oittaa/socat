@@ -56,7 +56,6 @@ type Global struct {
 	Dump         io.Writer
 	Statistics   bool
 	statsPrinted *atomic.Bool // pointer so forkSession can copy Global without copying a lock
-	Sloppy       bool         // -s continue on some errors
 	Experimental bool         // --experimental (classic netns= warning)
 
 	// Peer info from the most recently accepted/connected socket (for SOCAT_* env).

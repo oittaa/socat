@@ -712,10 +712,6 @@ func streamReadFD(s Stream) int {
 				s = rs
 				continue
 			}
-			if rs, ok := any(fs.R).(Stream); ok {
-				s = rs
-				continue
-			}
 		}
 		if u, ok := s.(interface{ UnwrapStream() Stream }); ok {
 			s = u.UnwrapStream()
@@ -733,10 +729,6 @@ func streamWriteFD(s Stream) int {
 				return f
 			}
 			if ws, ok := fs.W.(Stream); ok {
-				s = ws
-				continue
-			}
-			if ws, ok := any(fs.W).(Stream); ok {
 				s = ws
 				continue
 			}
