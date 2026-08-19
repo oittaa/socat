@@ -366,12 +366,16 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 
 	var stream relay.Stream
 	var cleanup []func()
-	var child *os.File
+	var childFiles []*os.File
 	var err error
 	if usePipes {
-		stream, cleanup, err = startCmdPipes(s, mode, cmd, fdin, fdout)
+		stream, cleanup, childFiles, err = startCmdPipes(s, mode, cmd, fdin, fdout)
 	} else {
+		var child *os.File
 		stream, cleanup, child, err = startCmdSocketpair(s, cmd)
+		if child != nil {
+			childFiles = append(childFiles, child)
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -396,53 +400,56 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		for _, f := range cleanup {
 			f()
 		}
-		if child != nil {
+		for _, child := range childFiles {
 			_ = child.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 		}
 		return nil, startErr
 	}
-	if child != nil {
+	for _, child := range childFiles {
 		_ = child.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
 	}
 
 	return finishExec(s, g, cmd, stream, cleanup, mode == ModeWrite)
 }
 
-func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdin, fdout string) (relay.Stream, []func(), error) {
+func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdin, fdout string) (relay.Stream, []func(), []*os.File, error) {
 	needIn, needOut := pipeDirections(mode, fdin, fdout)
 	var stdin io.WriteCloser
 	var stdout io.ReadCloser
-	var cleanup []func()
+	var parentFiles []*os.File
+	var childFiles []*os.File
+	closeFiles := func(files []*os.File) {
+		for _, f := range files {
+			_ = f.Close()
+		}
+	}
 
 	if needIn {
-		var err error
-		stdin, err = cmd.StdinPipe()
+		childStdin, parentStdin, err := os.Pipe()
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
+		cmd.Stdin = childStdin
+		stdin = parentStdin
+		childFiles = append(childFiles, childStdin)
+		parentFiles = append(parentFiles, parentStdin)
 	} else {
 		cmd.Stdin = os.Stdin
 	}
 	if needOut {
-		if s.BoolOption("stderr") {
-			pr, pw, err := os.Pipe()
-			if err != nil {
-				return nil, nil, err
-			}
-			cmd.Stdout = pw
-			cmd.Stderr = pw
-			stdout = pr
-			cleanup = append(cleanup, func() {
-				_ = pw.Close()
-				_ = pr.Close()
-			})
-		} else {
-			var err error
-			stdout, err = cmd.StdoutPipe()
-			if err != nil {
-				return nil, nil, err
-			}
+		parentStdout, childStdout, err := os.Pipe()
+		if err != nil {
+			closeFiles(parentFiles)
+			closeFiles(childFiles)
+			return nil, nil, nil, err
 		}
+		cmd.Stdout = childStdout
+		if s.BoolOption("stderr") {
+			cmd.Stderr = childStdout
+		}
+		stdout = parentStdout
+		childFiles = append(childFiles, childStdout)
+		parentFiles = append(parentFiles, parentStdout)
 	} else {
 		cmd.Stdout = os.Stdout
 	}
@@ -466,15 +473,8 @@ func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdin, fdout string) (
 			return nil
 		},
 	}
-	cleanup = append(cleanup, func() {
-		if stdin != nil {
-			_ = stdin.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		}
-		if stdout != nil {
-			_ = stdout.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		}
-	})
-	return st, cleanup, nil
+	cleanup := []func(){func() { closeFiles(parentFiles) }}
+	return st, cleanup, childFiles, nil
 }
 
 func startCmdSocketpair(s parse.Spec, cmd *exec.Cmd) (relay.Stream, []func(), *os.File, error) {
