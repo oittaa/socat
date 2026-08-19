@@ -189,35 +189,38 @@ type Opened struct {
 	NoForkSpec *parse.Spec
 	// ttyRestore runs before Stream.Close so termios restore still sees the fd.
 	ttyRestore []func()
+	closeOnce  sync.Once
+	closeErr   error
 }
 
 // Close releases resources.
 func (o *Opened) Close() error {
+	o.closeOnce.Do(func() {
+		o.closeErr = o.close()
+	})
+	return o.closeErr
+}
+
+func (o *Opened) close() error {
 	var first error
 	for i := len(o.ttyRestore) - 1; i >= 0; i-- {
 		o.ttyRestore[i]()
 	}
-	o.ttyRestore = nil
 	// Prefer cleanup hooks (they own the real FDs). Avoid comparing Stream
 	// values: relay.FDStream holds funcs and is not comparable.
 	if o.Stream != nil {
 		if err := o.Stream.Close(); err != nil && first == nil {
 			first = err
 		}
-		o.Stream = nil
 	}
 	if o.Listener != nil {
 		if err := o.Listener.Close(); err != nil && first == nil {
 			first = err
 		}
-		o.Listener = nil
 	}
 	for i := len(o.Cleanup) - 1; i >= 0; i-- {
 		o.Cleanup[i]()
 	}
-	o.Cleanup = nil
-	o.Read = nil
-	o.Write = nil
 	return first
 }
 
