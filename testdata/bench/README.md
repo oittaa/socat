@@ -133,21 +133,21 @@ RSS is the peak `VmRSS` of the socat process tree (50 ms sample). For
 
 ## Recorded snapshot
 
-Recorded 2026-08-19 in an Ubuntu 26.04 Hyper-V guest (6 vCPUs) backed by an
+Recorded 2026-08-20 in an Ubuntu 26.04 Hyper-V guest (6 vCPUs) backed by an
 AMD Ryzen 7 9800X3D, Linux 7.0.0-28, Go 1.26.7, classic socat 1.8.1.3, and
 distro OpenSSL 3.5.5. Payload: 1 GiB AES-128-CTR (incompressible; not
 `/dev/zero`). Median of 7 timed runs after 2 warmups, `-b 8192`.
 
 | Case | classic | go | Peak RSS (classic / go) |
 |------|---------|----|-------------------------|
-| TCP 1 GiB | 960.7 MiB/s | 1338.0 MiB/s | 10.5 / 21.0 MiB |
-| UNIX 1 GiB | 878.2 MiB/s | 1431.6 MiB/s | 10.2 / 21.2 MiB |
-| TLS 1 GiB | 808.7 MiB/s | 1118.3 MiB/s | 21.1 / 24.6 MiB |
-| QUIC 1 GiB | n/a | 563.4 MiB/s | n/a / 36.5 MiB |
-| TCP 64 B RTT | 85.6 µs | 66.1 µs | 5.2 / 10.6 MiB |
-| TLS 64 B RTT | 92.7 µs | 136.4 µs | 10.9 / 12.2 MiB |
-| QUIC 64 B RTT | n/a | 321.6 µs | n/a / 17.1 MiB |
-| TLS handshake | 23.5 /s | 662.5 /s | 25.0 / 17.6 MiB |
+| TCP 1 GiB | 878.2 MiB/s | 1988.8 MiB/s | 10.4 / 20.9 MiB |
+| UNIX 1 GiB | 777.8 MiB/s | 1989.1 MiB/s | 10.2 / 21.2 MiB |
+| TLS 1 GiB | 878.1 MiB/s | 1060.3 MiB/s | 21.1 / 24.8 MiB |
+| QUIC 1 GiB | n/a | 579.3 MiB/s | n/a / 36.7 MiB |
+| TCP 64 B RTT | 89.5 µs | 68.1 µs | 5.2 / 10.6 MiB |
+| TLS 64 B RTT | 94.9 µs | 138.7 µs | 10.9 / 12.3 MiB |
+| QUIC 64 B RTT | n/a | 324.8 µs | n/a / 17.2 MiB |
+| TLS handshake | 23.6 /s | 661.9 /s | 25.2 / 18.1 MiB |
 
 Recorded handshakes (same binaries as the table; see `meta.tls` in `host.json`):
 
