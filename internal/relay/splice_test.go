@@ -15,7 +15,7 @@ func TestTransferZeroCopyTCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	payload := bytes.Repeat([]byte("zerocopy-tcp-payload-data-chunk\n"), 1024) // 32KB
 	done := make(chan []byte, 1)
@@ -25,7 +25,7 @@ func TestTransferZeroCopyTCP(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		buf := make([]byte, len(payload))
 		var total []byte
 		for len(total) < len(payload) {
@@ -44,13 +44,13 @@ func TestTransferZeroCopyTCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	srcPipeR, srcPipeW, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer srcPipeR.Close()
+	defer func() { _ = srcPipeR.Close() }()
 
 	go func() {
 		_, _ = srcPipeW.Write(payload)
@@ -100,7 +100,7 @@ func TestTransferZeroCopyFileToTCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	done := make(chan []byte, 1)
 	go func() {
@@ -108,7 +108,7 @@ func TestTransferZeroCopyFileToTCP(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		var total []byte
 		buf := make([]byte, 4096)
 		for len(total) < len(payload) {
@@ -127,13 +127,13 @@ func TestTransferZeroCopyFileToTCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer inFile.Close()
+	defer func() { _ = inFile.Close() }()
 
 	client, err := net.Dial("tcp", ln.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	left := FDStream{R: inFile, W: inFile, C: inFile, CloseW: func() error { return nil }}
 	right := NetStream{Conn: client}
