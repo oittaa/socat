@@ -343,6 +343,39 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, dstFD, srcFD int,
 
 	usePoll := dstFD >= 0 && srcFD >= 0
 
+	if canZeroCopy(cfg, dir, usePoll) {
+		if rawSrc, okSrc := unwrapZeroCopyReader(src); okSrc {
+			if rawDst, okDst := unwrapZeroCopyWriter(dst); okDst {
+				nw, err := io.Copy(rawDst, rawSrc)
+				if nw > 0 {
+					touch()
+					bytes.Add(uint64(nw))
+					blkSize := int64(cfg.BufferSize)
+					if blkSize <= 0 {
+						blkSize = 8192
+					}
+					blocks.Add(uint64((nw + blkSize - 1) / blkSize))
+				}
+				if err == nil || errors.Is(err, io.EOF) || isBenignClose(err) {
+					if cfg.OnEOF != nil {
+						sock := 1
+						if dir == "<" {
+							sock = 2
+						}
+						cfg.OnEOF(sock, srcFD)
+					}
+					if ctx.Err() == nil {
+						_ = dst.ShutdownWrite()
+					}
+					results <- dirResult{err: nil, dir: dir}
+					return
+				}
+				results <- dirResult{err: err, dir: dir}
+				return
+			}
+		}
+	}
+
 	for {
 		if ctx.Err() != nil {
 			results <- dirResult{err: ctx.Err(), dir: dir}
@@ -900,4 +933,67 @@ func ioFD(v any) int {
 		return int(f.Fd())
 	}
 	return -1
+}
+
+// canZeroCopy reports whether a unidirectional stream transfer is eligible
+// for zero-copy kernel splicing / sendfile.
+func canZeroCopy(cfg Config, dir string, usePoll bool) bool {
+	if cfg.Verbose || cfg.Hex || usePoll {
+		return false
+	}
+	if dir == ">" && cfg.RawLeft != nil {
+		return false
+	}
+	if dir == "<" && cfg.RawRight != nil {
+		return false
+	}
+	return true
+}
+
+func unwrapZeroCopyReader(s io.Reader) (io.Reader, bool) {
+	for i := 0; i < 8 && s != nil; i++ {
+		if u, ok := s.(interface{ UnwrapStream() Stream }); ok {
+			s = u.UnwrapStream()
+			continue
+		}
+		if fs, ok := s.(FDStream); ok {
+			s = fs.R
+			continue
+		}
+		if ns, ok := s.(NetStream); ok {
+			s = ns.Conn
+			continue
+		}
+		break
+	}
+	switch v := s.(type) {
+	case *net.TCPConn, *net.UnixConn, *os.File:
+		return v, true
+	default:
+		return nil, false
+	}
+}
+
+func unwrapZeroCopyWriter(s io.Writer) (io.Writer, bool) {
+	for i := 0; i < 8 && s != nil; i++ {
+		if u, ok := s.(interface{ UnwrapStream() Stream }); ok {
+			s = u.UnwrapStream()
+			continue
+		}
+		if fs, ok := s.(FDStream); ok {
+			s = fs.W
+			continue
+		}
+		if ns, ok := s.(NetStream); ok {
+			s = ns.Conn
+			continue
+		}
+		break
+	}
+	switch v := s.(type) {
+	case *net.TCPConn, *net.UnixConn, *os.File:
+		return v, true
+	default:
+		return nil, false
+	}
 }
