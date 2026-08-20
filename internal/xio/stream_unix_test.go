@@ -39,3 +39,32 @@ func TestDgramPairShutdownWriteKeepsReadSideOpen(t *testing.T) {
 		t.Fatalf("Read after ShutdownWrite: n=%d data=%q err=%v", n, buf[:n], err)
 	}
 }
+
+func TestFileStreamShutdownWriteKeepsDeadlines(t *testing.T) {
+	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.SetNonblock(fds[0], true); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.SetNonblock(fds[1], true); err != nil {
+		t.Fatal(err)
+	}
+	local := os.NewFile(uintptr(fds[0]), "local")
+	peer := os.NewFile(uintptr(fds[1]), "peer")
+	defer func() { _ = local.Close() }()
+	defer func() { _ = peer.Close() }()
+
+	if err := FileStream(local).ShutdownWrite(); err != nil {
+		t.Fatalf("ShutdownWrite: %v", err)
+	}
+	if err := local.SetReadDeadline(time.Now().Add(50 * time.Millisecond)); err != nil {
+		t.Fatalf("SetReadDeadline after ShutdownWrite: %v", err)
+	}
+	buf := make([]byte, 1)
+	_, err = local.Read(buf)
+	if !os.IsTimeout(err) {
+		t.Fatalf("Read: want timeout, got %v", err)
+	}
+}
