@@ -261,7 +261,11 @@ func waitZeroCopyFD(ctx context.Context, fd int, events int16) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		fds := []unix.PollFd{{Fd: int32(fd), Events: events}}
+		pfd, ok := pollFd(fd, events)
+		if !ok {
+			return syscall.EBADF
+		}
+		fds := []unix.PollFd{pfd}
 		n, err := unix.Poll(fds, 100)
 		if err != nil {
 			if errors.Is(err, unix.EINTR) {

@@ -355,8 +355,7 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, dstFD, srcFD int,
 				return
 			}
 			touch()
-			blockSize := int64(cfg.BufferSize)
-			blocks.Add(uint64((n + blockSize - 1) / blockSize))
+			blocks.Add(configuredBlockCount(n, cfg.BufferSize))
 		}
 		onWrite := func(n int64) {
 			if n > 0 {
@@ -477,6 +476,21 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, dstFD, srcFD int,
 			return
 		}
 	}
+}
+
+func configuredBlockCount(n int64, bufferSize int) uint64 {
+	if n <= 0 || bufferSize <= 0 {
+		return 0
+	}
+	blockSize := int64(bufferSize)
+	count := n / blockSize
+	if n%blockSize != 0 {
+		count++
+	}
+	if count < 0 {
+		return 0
+	}
+	return uint64(count)
 }
 
 func writeDump(w io.Writer, p []byte) error {
