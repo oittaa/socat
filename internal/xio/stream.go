@@ -359,6 +359,9 @@ func (e endCloseStream) ShutdownWrite() error       { return nil }
 func (e endCloseStream) Close() error               { return nil }
 func (e endCloseStream) IsEndClose() bool           { return true }
 func (e endCloseStream) UnwrapStream() relay.Stream { return e.Stream }
+func (e endCloseStream) UnwrapZeroCopyStream() relay.Stream {
+	return e.Stream
+}
 
 // streamIsEndClose reports whether s (or a wrapper) is classic end-close.
 func StreamIsEndClose(s relay.Stream) bool {

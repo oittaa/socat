@@ -72,6 +72,17 @@ type fdProvider interface {
 	Fd() uintptr
 }
 
+// zeroCopyPlan is prepared before the cancellation goroutine can close either
+// stream. Implementations own any duplicated descriptors and report read and
+// write progress so idle timeouts and live statistics retain their normal
+// semantics while data remains in the kernel.
+type zeroCopyPlan interface {
+	Copy(ctx context.Context, onRead, onWrite func(int64)) error
+	Close() error
+}
+
+var errZeroCopyUnsupported = errors.New("zero-copy transfer unsupported")
+
 // NetStream wraps a net.Conn as a Stream.
 type NetStream struct {
 	net.Conn
@@ -194,11 +205,13 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	// with Close. Keep the integer values for the lifetime of this transfer.
 	lrDstFD, lrSrcFD := -1, -1
 	rlDstFD, rlSrcFD := -1, -1
+	var lrZeroCopy, rlZeroCopy zeroCopyPlan
 	// Ordinary net.Conn and regular-file I/O already gets blocking readiness
 	// from Go and the kernel. Polling before every block only adds a syscall.
 	// Keep explicit poll backpressure for non-regular descriptors (pipes,
 	// terminals) and custom raw-FD streams such as TUN and generic SOCKET.
-	if canPoll() && (streamNeedsExplicitPoll(left) || streamNeedsExplicitPoll(right)) {
+	useExplicitPoll := canPoll() && (streamNeedsExplicitPoll(left) || streamNeedsExplicitPoll(right))
+	if useExplicitPoll {
 		if cfg.LeftToRight {
 			lrDstFD = streamWriteFD(right)
 			lrSrcFD = streamReadFD(left)
@@ -207,6 +220,15 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 			rlDstFD = streamWriteFD(left)
 			rlSrcFD = streamReadFD(right)
 		}
+	}
+	// Prepare kernel-copy descriptors while the original streams are known to
+	// be open. Unsupported platforms and endpoint pairs return nil and retain
+	// the ordinary configured-buffer path.
+	if cfg.LeftToRight && canZeroCopy(cfg, ">", useExplicitPoll) {
+		lrZeroCopy = prepareZeroCopy(left, right)
+	}
+	if cfg.RightToLeft && canZeroCopy(cfg, "<", useExplicitPoll) {
+		rlZeroCopy = prepareZeroCopy(right, left)
 	}
 
 	// Close and ShutdownWrite may both be triggered during cancellation. They
@@ -232,12 +254,12 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	if cfg.LeftToRight {
 		nDirs++
 		wg.Add(1)
-		go copyDir(ctx, right, left, ">", lrDstFD, lrSrcFD, &tr.BytesLR, &tr.BlocksLR, cfg, touch, results, &wg)
+		go copyDir(ctx, right, left, ">", lrDstFD, lrSrcFD, lrZeroCopy, &tr.BytesLR, &tr.BlocksLR, cfg, touch, results, &wg)
 	}
 	if cfg.RightToLeft {
 		nDirs++
 		wg.Add(1)
-		go copyDir(ctx, left, right, "<", rlDstFD, rlSrcFD, &tr.BytesRL, &tr.BlocksRL, cfg, touch, results, &wg)
+		go copyDir(ctx, left, right, "<", rlDstFD, rlSrcFD, rlZeroCopy, &tr.BytesRL, &tr.BlocksRL, cfg, touch, results, &wg)
 	}
 
 	// Wait for first direction to finish; then linger for the other.
@@ -324,8 +346,50 @@ func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Du
 	}
 }
 
-func copyDir(ctx context.Context, dst, src Stream, dir string, dstFD, srcFD int, bytes, blocks *atomic.Uint64, cfg Config, touch func(), results chan<- dirResult, wg *sync.WaitGroup) {
+func copyDir(ctx context.Context, dst, src Stream, dir string, dstFD, srcFD int, zeroCopy zeroCopyPlan, bytes, blocks *atomic.Uint64, cfg Config, touch func(), results chan<- dirResult, wg *sync.WaitGroup) {
 	defer wg.Done()
+	if zeroCopy != nil {
+		defer func() { _ = zeroCopy.Close() }()
+		onRead := func(n int64) {
+			if n <= 0 {
+				return
+			}
+			touch()
+			blockSize := int64(cfg.BufferSize)
+			blocks.Add(uint64((n + blockSize - 1) / blockSize))
+		}
+		onWrite := func(n int64) {
+			if n > 0 {
+				bytes.Add(uint64(n))
+			}
+		}
+		err := zeroCopy.Copy(ctx, onRead, onWrite)
+		if !errors.Is(err, errZeroCopyUnsupported) {
+			if err == nil {
+				if cfg.OnEOF != nil {
+					sock := 1
+					if dir == "<" {
+						sock = 2
+					}
+					cfg.OnEOF(sock, srcFD)
+				}
+				if ctx.Err() == nil {
+					_ = dst.ShutdownWrite()
+				}
+				results <- dirResult{err: nil, dir: dir}
+				return
+			}
+			// A benign destination close is a clean transfer termination, but
+			// it is not evidence that the source reached EOF.
+			if isBenignClose(err) {
+				results <- dirResult{err: nil, dir: dir}
+				return
+			}
+			results <- dirResult{err: err, dir: dir}
+			return
+		}
+	}
+
 	var bp *[]byte
 	if shouldPoolBuffer(cfg.BufferSize) {
 		bp = getBuf(cfg.BufferSize)
@@ -342,41 +406,6 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, dstFD, srcFD int,
 	}
 
 	usePoll := dstFD >= 0 && srcFD >= 0
-
-	if canZeroCopy(cfg, dir, usePoll) {
-		if rawSrc, okSrc := unwrapZeroCopyReader(src); okSrc {
-			if rawDst, okDst := unwrapZeroCopyWriter(dst); okDst {
-				nw, err := io.Copy(rawDst, rawSrc)
-				if nw > 0 {
-					touch()
-					bytes.Add(uint64(nw))
-					blkSize := cfg.BufferSize
-					if blkSize <= 0 {
-						blkSize = 8192
-					}
-					uNW := uint64(nw)
-					uBlkSize := uint64(blkSize)
-					blocks.Add((uNW + uBlkSize - 1) / uBlkSize)
-				}
-				if err == nil || errors.Is(err, io.EOF) || isBenignClose(err) {
-					if cfg.OnEOF != nil {
-						sock := 1
-						if dir == "<" {
-							sock = 2
-						}
-						cfg.OnEOF(sock, srcFD)
-					}
-					if ctx.Err() == nil {
-						_ = dst.ShutdownWrite()
-					}
-					results <- dirResult{err: nil, dir: dir}
-					return
-				}
-				results <- dirResult{err: err, dir: dir}
-				return
-			}
-		}
-	}
 
 	for {
 		if ctx.Err() != nil {
@@ -954,8 +983,8 @@ func canZeroCopy(cfg Config, dir string, usePoll bool) bool {
 
 func unwrapZeroCopyReader(s io.Reader) (io.Reader, bool) {
 	for i := 0; i < 8 && s != nil; i++ {
-		if u, ok := s.(interface{ UnwrapStream() Stream }); ok {
-			s = u.UnwrapStream()
+		if u, ok := s.(interface{ UnwrapZeroCopyStream() Stream }); ok {
+			s = u.UnwrapZeroCopyStream()
 			continue
 		}
 		if fs, ok := s.(FDStream); ok {
@@ -978,8 +1007,8 @@ func unwrapZeroCopyReader(s io.Reader) (io.Reader, bool) {
 
 func unwrapZeroCopyWriter(s io.Writer) (io.Writer, bool) {
 	for i := 0; i < 8 && s != nil; i++ {
-		if u, ok := s.(interface{ UnwrapStream() Stream }); ok {
-			s = u.UnwrapStream()
+		if u, ok := s.(interface{ UnwrapZeroCopyStream() Stream }); ok {
+			s = u.UnwrapZeroCopyStream()
 			continue
 		}
 		if fs, ok := s.(FDStream); ok {

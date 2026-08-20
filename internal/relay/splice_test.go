@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-func TestTransferZeroCopyTCP(t *testing.T) {
+func TestTransferPipeToTCP(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestTransferZeroCopyTCP(t *testing.T) {
 	}
 }
 
-func TestTransferZeroCopyFileToTCP(t *testing.T) {
+func TestTransferFileToTCP(t *testing.T) {
 	dir := t.TempDir()
 	inPath := filepath.Join(dir, "input.dat")
 	payload := bytes.Repeat([]byte("0123456789abcdef"), 2048) // 32KB
