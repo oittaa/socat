@@ -136,7 +136,7 @@ RSS is the peak `VmRSS` of the socat process tree (50 ms sample). For
 Recorded 2026-08-20 in an Ubuntu 26.04 Hyper-V guest (6 vCPUs) backed by an
 AMD Ryzen 7 9800X3D, Linux 7.0.0-28, Go 1.26.7, classic socat 1.8.1.3, and
 distro OpenSSL 3.5.5. Payload: 1 GiB AES-128-CTR (incompressible; not
-`/dev/zero`). Median of 7 timed runs after 2 warmups, `-b 8192`.
+`/dev/zero`). Median of 7 timed runs after 1 warmup, `-b 8192`.
 
 | Case | classic | go | Peak RSS (classic / go) |
 |------|---------|----|-------------------------|
