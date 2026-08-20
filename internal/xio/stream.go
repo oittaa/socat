@@ -22,7 +22,7 @@ func FileStream(f *os.File) relay.Stream {
 		W: f,
 		C: f,
 		CloseW: func() error {
-			err := ShutdownWrite(int(f.Fd()))
+			err := shutdownWriteFile(f)
 			if err == nil {
 				return nil
 			}
@@ -34,6 +34,22 @@ func FileStream(f *os.File) relay.Stream {
 			return f.Close()
 		},
 	}
+}
+
+// shutdownWriteFile calls shutdown(SHUT_WR) without File.Fd().
+// Fd() detaches Windows IOCP and disables SetDeadline.
+func shutdownWriteFile(f *os.File) error {
+	sc, err := f.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var shutErr error
+	if err := sc.Control(func(fd uintptr) {
+		shutErr = ShutdownWrite(int(fd))
+	}); err != nil {
+		return err
+	}
+	return shutErr
 }
 
 // DgramPairStream is an AF_UNIX SOCK_DGRAM socketpair end. A zero-length packet
