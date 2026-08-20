@@ -349,12 +349,15 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, dstFD, srcFD int,
 				nw, err := io.Copy(rawDst, rawSrc)
 				if nw > 0 {
 					touch()
-					bytes.Add(uint64(nw))
+					bytes.Add(uint64(nw)) // #nosec G115 -- nw is positive int64
 					blkSize := int64(cfg.BufferSize)
 					if blkSize <= 0 {
 						blkSize = 8192
 					}
-					blocks.Add(uint64((nw + blkSize - 1) / blkSize))
+					blkCount := (nw + blkSize - 1) / blkSize
+					if blkCount > 0 {
+						blocks.Add(uint64(blkCount)) // #nosec G115 -- blkCount is positive int64
+					}
 				}
 				if err == nil || errors.Is(err, io.EOF) || isBenignClose(err) {
 					if cfg.OnEOF != nil {
