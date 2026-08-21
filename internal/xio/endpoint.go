@@ -355,22 +355,3 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 
 // Opener opens one address type.
 type Opener func(context.Context, parse.Spec, Mode, *Global) (*Opened, error)
-
-var (
-	openerMu sync.RWMutex
-	openers  = map[string]Opener{}
-)
-
-// Register associates a classic address type name with an opener.
-func Register(name string, fn Opener) {
-	openerMu.Lock()
-	defer openerMu.Unlock()
-	openers[strings.ToUpper(name)] = fn
-}
-
-func lookupOpener(typ string) (Opener, bool) {
-	openerMu.RLock()
-	defer openerMu.RUnlock()
-	fn, ok := openers[typ]
-	return fn, ok
-}

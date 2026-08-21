@@ -25,9 +25,3 @@ func openSHELL(context.Context, parse.Spec, Mode, *Global) (*Opened, error) {
 func runExecNoFork(context.Context, relay.Stream, parse.Spec, *Global, Mode) error {
 	return fmt.Errorf("EXEC is not supported on Windows")
 }
-
-func init() {
-	Register("EXEC", openEXEC)
-	Register("SYSTEM", openSYSTEM)
-	Register("SHELL", openSHELL)
-}

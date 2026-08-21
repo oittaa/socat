@@ -792,9 +792,3 @@ func shellJoin(args []string) string {
 	}
 	return b.String()
 }
-
-func init() {
-	Register("EXEC", openEXEC)
-	Register("SYSTEM", openSYSTEM)
-	Register("SHELL", openSHELL)
-}
