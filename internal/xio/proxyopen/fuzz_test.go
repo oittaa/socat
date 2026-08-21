@@ -38,6 +38,23 @@ func FuzzProxyResponseLine(f *testing.F) {
 	})
 }
 
+func FuzzSOCKS4Reply(f *testing.F) {
+	for _, seed := range [][]byte{
+		{0, 90, 0, 0, 0, 0, 0, 0},
+		{0, 91, 0, 0, 0, 0, 0, 0},
+		{0, 90},
+		{},
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, reply []byte) {
+		if len(reply) > 4096 {
+			t.Skip()
+		}
+		_ = socks4ReadReply(bytes.NewReader(reply))
+	})
+}
+
 func FuzzSOCKS5Reply(f *testing.F) {
 	for _, seed := range [][]byte{
 		{5, 0, 0, 1, 127, 0, 0, 1, 0, 80},

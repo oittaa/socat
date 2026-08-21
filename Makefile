@@ -1,4 +1,4 @@
-.PHONY: all build fmt fmt-check lint gosec test e2e test-netns-docker lab bench clean install hooks
+.PHONY: all build fmt fmt-check lint gosec test e2e fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -8,7 +8,7 @@ GOFLAGS ?=
 LDFLAGS ?= -s -w -X github.com/oittaa/socat.Version=$(VERSION)
 
 # Project Go (exclude testdata/ clones).
-GOFMT_DIRS := cmd e2e internal scripts/benchclient version.go
+GOFMT_DIRS := cmd e2e internal scripts/benchclient scripts/fuzzall version.go
 
 all: build
 
@@ -51,6 +51,16 @@ test: fmt-check
 
 e2e: build
 	go test $(GOFLAGS) -tags=e2e ./e2e/...
+
+# Native Go fuzz campaigns. Not part of GitHub CI.
+# Windows: go run ./scripts/fuzzall -fuzztime=30s
+FUZZTIME ?= 30s
+fuzz:
+	go run ./scripts/fuzzall -fuzztime=$(FUZZTIME)
+
+# Bounded live relay matrix (byte-pipe families x directions). Not GitHub CI.
+fuzz-matrix: build
+	go test $(GOFLAGS) -tags=e2e,relaymatrix -run '^TestRelayMatrix' ./e2e/ -count=1 -timeout=10m
 
 # Root netns= tests. Host skips without root; Docker uses --privileged.
 test-netns-docker:
