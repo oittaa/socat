@@ -156,12 +156,12 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	if cfg.LeftToRight {
 		nDirs++
 		wg.Add(1)
-		go copyDir(ctx, right, left, ">", lrDstFD, lrSrcFD, lrZeroCopy, &tr.BytesLR, &tr.BlocksLR, cfg, touch, results, &wg)
+		go copyDir(ctx, dirTask{dir: ">", dst: right, src: left, dstFD: lrDstFD, srcFD: lrSrcFD, plan: lrZeroCopy, bytes: &tr.BytesLR, blocks: &tr.BlocksLR}, cfg, touch, results, &wg)
 	}
 	if cfg.RightToLeft {
 		nDirs++
 		wg.Add(1)
-		go copyDir(ctx, left, right, "<", rlDstFD, rlSrcFD, rlZeroCopy, &tr.BytesRL, &tr.BlocksRL, cfg, touch, results, &wg)
+		go copyDir(ctx, dirTask{dir: "<", dst: left, src: right, dstFD: rlDstFD, srcFD: rlSrcFD, plan: rlZeroCopy, bytes: &tr.BytesRL, blocks: &tr.BlocksRL}, cfg, touch, results, &wg)
 	}
 
 	// Wait for first direction to finish; then linger for the other.
@@ -248,45 +248,58 @@ func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Du
 	}
 }
 
-func copyDir(ctx context.Context, dst, src Stream, dir string, dstFD, srcFD int, zeroCopy zeroCopyPlan, bytes, blocks *atomic.Uint64, cfg Config, touch func(), results chan<- dirResult, wg *sync.WaitGroup) {
+// dirTask bundles one transfer direction: source and destination streams, the
+// descriptors captured for poll backpressure, an optional zero-copy plan, and
+// the direction's live counters.
+type dirTask struct {
+	dir      string // ">" left→right | "<" right→left
+	dst, src Stream
+	dstFD    int
+	srcFD    int
+	plan     zeroCopyPlan
+	bytes    *atomic.Uint64
+	blocks   *atomic.Uint64
+}
+
+func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results chan<- dirResult, wg *sync.WaitGroup) {
 	defer wg.Done()
-	if zeroCopy != nil {
-		defer func() { _ = zeroCopy.Close() }()
+	if t.plan != nil {
+		defer func() { _ = t.plan.Close() }()
 		onRead := func(n int64) {
 			if n <= 0 {
 				return
 			}
 			touch()
-			blocks.Add(configuredBlockCount(n, cfg.BufferSize))
+			t.blocks.Add(configuredBlockCount(n, cfg.BufferSize))
 		}
 		onWrite := func(n int64) {
 			if n > 0 {
-				bytes.Add(uint64(n))
+				t.bytes.Add(uint64(n))
 			}
 		}
-		err := zeroCopy.Copy(ctx, onRead, onWrite)
+		err := t.plan.Copy(ctx, onRead, onWrite)
 		if !errors.Is(err, errZeroCopyUnsupported) {
 			if err == nil {
 				if cfg.OnEOF != nil {
 					sock := 1
-					if dir == "<" {
+					if t.dir == "<" {
 						sock = 2
 					}
-					cfg.OnEOF(sock, srcFD)
+					cfg.OnEOF(sock, t.srcFD)
 				}
 				if ctx.Err() == nil {
-					_ = dst.ShutdownWrite()
+					_ = t.dst.ShutdownWrite()
 				}
-				results <- dirResult{err: nil, dir: dir}
+				results <- dirResult{err: nil, dir: t.dir}
 				return
 			}
 			// A benign destination close is a clean transfer termination, but
 			// it is not evidence that the source reached EOF.
 			if isBenignClose(err) {
-				results <- dirResult{err: nil, dir: dir}
+				results <- dirResult{err: nil, dir: t.dir}
 				return
 			}
-			results <- dirResult{err: err, dir: dir}
+			results <- dirResult{err: err, dir: t.dir}
 			return
 		}
 	}
@@ -306,56 +319,56 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, dstFD, srcFD int,
 		buf = buf[:cfg.BufferSize]
 	}
 
-	usePoll := dstFD >= 0 && srcFD >= 0
+	usePoll := t.dstFD >= 0 && t.srcFD >= 0
 
 	for {
 		if ctx.Err() != nil {
-			results <- dirResult{err: ctx.Err(), dir: dir}
+			results <- dirResult{err: ctx.Err(), dir: t.dir}
 			return
 		}
 		if usePoll {
-			if err := waitReadableAndWritable(ctx, srcFD, dstFD); err != nil {
-				results <- dirResult{err: err, dir: dir}
+			if err := waitReadableAndWritable(ctx, t.srcFD, t.dstFD); err != nil {
+				results <- dirResult{err: err, dir: t.dir}
 				return
 			}
 		}
-		nr, er := src.Read(buf)
+		nr, er := t.src.Read(buf)
 		if nr > 0 {
 			touch()
 			data := buf[:nr]
 			if cfg.Verbose || cfg.Hex {
-				if err := dump(cfg, dir, data); err != nil {
-					results <- dirResult{err: fmt.Errorf("verbose dump: %w", err), dir: dir}
+				if err := dump(cfg, t.dir, data); err != nil {
+					results <- dirResult{err: fmt.Errorf("verbose dump: %w", err), dir: t.dir}
 					return
 				}
 			}
-			if dir == ">" && cfg.RawLeft != nil {
+			if t.dir == ">" && cfg.RawLeft != nil {
 				if err := writeDump(cfg.RawLeft, data); err != nil {
-					results <- dirResult{err: fmt.Errorf("raw left dump: %w", err), dir: dir}
+					results <- dirResult{err: fmt.Errorf("raw left dump: %w", err), dir: t.dir}
 					return
 				}
 			}
-			if dir == "<" && cfg.RawRight != nil {
+			if t.dir == "<" && cfg.RawRight != nil {
 				if err := writeDump(cfg.RawRight, data); err != nil {
-					results <- dirResult{err: fmt.Errorf("raw right dump: %w", err), dir: dir}
+					results <- dirResult{err: fmt.Errorf("raw right dump: %w", err), dir: t.dir}
 					return
 				}
 			}
-			nw, ew := dst.Write(data)
+			nw, ew := t.dst.Write(data)
 			if nw > 0 {
-				bytes.Add(uint64(nw))
-				blocks.Add(1)
+				t.bytes.Add(uint64(nw))
+				t.blocks.Add(1)
 			}
 			if ew != nil {
 				if isBenignClose(ew) {
-					results <- dirResult{err: nil, dir: dir}
+					results <- dirResult{err: nil, dir: t.dir}
 					return
 				}
-				results <- dirResult{err: ew, dir: dir}
+				results <- dirResult{err: ew, dir: t.dir}
 				return
 			}
 			if nw != nr {
-				results <- dirResult{err: io.ErrShortWrite, dir: dir}
+				results <- dirResult{err: io.ErrShortWrite, dir: t.dir}
 				return
 			}
 		}
@@ -363,18 +376,18 @@ func copyDir(ctx context.Context, dst, src Stream, dir string, dstFD, srcFD int,
 			if er == io.EOF || isBenignClose(er) {
 				if cfg.OnEOF != nil {
 					sock := 1
-					if dir == "<" {
+					if t.dir == "<" {
 						sock = 2
 					}
-					cfg.OnEOF(sock, srcFD)
+					cfg.OnEOF(sock, t.srcFD)
 				}
 				if ctx.Err() == nil {
-					_ = dst.ShutdownWrite()
+					_ = t.dst.ShutdownWrite()
 				}
-				results <- dirResult{err: nil, dir: dir}
+				results <- dirResult{err: nil, dir: t.dir}
 				return
 			}
-			results <- dirResult{err: er, dir: dir}
+			results <- dirResult{err: er, dir: t.dir}
 			return
 		}
 	}
