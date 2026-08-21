@@ -336,55 +336,17 @@ func Main(args []string) int {
 		return 1
 	}
 
-	log := logx.New()
-	logx.SetDefault(log)
-	log.SetLevel(cfg.LogLevel)
-	log.SetProgname(cfg.Progname)
-	log.SetMicros(cfg.Micros)
-	if cfg.Hostname {
-		h, ok := os.LookupEnv("HOSTNAME")
-		if !ok {
-			h, _ = os.Hostname()
-		}
-		log.SetHostname(h)
+	log, closeLog, err := setupLogger(cfg)
+	if err != nil {
+		return cliWriteErr("socat: %v\n", err)
 	}
-	if cfg.LogFile != "" {
-		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644) // #nosec G302 -- -lf log file is meant to be readable
-		if err != nil {
-			return cliWriteErr("socat: %v\n", err)
-		}
-		defer logx.CloseQuiet(f)
-		log.SetOutput(f)
-	}
+	defer closeLog()
 
-	// Lock files: O_EXCL so two processes cannot both claim the same path.
-	// Register for signal exit (os.Exit skips defers).
-	if cfg.LockFile != "" {
-		if err := createLockFile(cfg.LockFile); err != nil {
-			return cliWriteErr("socat: %v\n", err)
-		}
-		unregister := xio.RegisterUnlinkPath(cfg.LockFile)
-		defer func() {
-			unregister()
-			_ = os.Remove(cfg.LockFile)
-		}()
+	unlockFiles, err := acquireLockFiles(cfg)
+	if err != nil {
+		return cliWriteErr("socat: %v\n", err)
 	}
-	if cfg.LockWait != "" {
-		for {
-			if _, err := os.Stat(cfg.LockWait); os.IsNotExist(err) {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-		if err := createLockFile(cfg.LockWait); err != nil {
-			return cliWriteErr("socat: %v\n", err)
-		}
-		unregister := xio.RegisterUnlinkPath(cfg.LockWait)
-		defer func() {
-			unregister()
-			_ = os.Remove(cfg.LockWait)
-		}()
-	}
+	defer unlockFiles()
 
 	left, err := parse.ParseChannel(cfg.Addresses[0])
 	if err != nil {
@@ -405,6 +367,114 @@ func Main(args []string) int {
 		return 1
 	}
 
+	g := buildGlobal(cfg, log)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stopSignals := installSignalHandling(ctx, cancel, log)
+	defer stopSignals()
+
+	runErr := xio.Run(ctx, left, right, g)
+	if cfg.Statistics {
+		xio.PrintExitStats(g)
+	}
+	if runErr != nil {
+		if ctx.Err() != nil {
+			if g.ChildExitCode != 0 {
+				return g.ChildExitCode
+			}
+			return 0
+		}
+		// Classic socat exits 0 when accept-timeout fires with no peer.
+		if runErr == xio.ErrAcceptTimeout {
+			return 0
+		}
+		log.Errorf("%s", runErr)
+		return 1
+	}
+	// EXEC_RC / SYSTEM_RC: promote child non-zero exit.
+	if g.ChildExitCode != 0 {
+		return g.ChildExitCode
+	}
+	return 0
+}
+
+// setupLogger builds the process logger from -l* options. The returned close
+// releases the -lf log file after Run completes.
+func setupLogger(cfg *Config) (*logx.Logger, func(), error) {
+	log := logx.New()
+	logx.SetDefault(log)
+	log.SetLevel(cfg.LogLevel)
+	log.SetProgname(cfg.Progname)
+	log.SetMicros(cfg.Micros)
+	if cfg.Hostname {
+		h, ok := os.LookupEnv("HOSTNAME")
+		if !ok {
+			h, _ = os.Hostname()
+		}
+		log.SetHostname(h)
+	}
+	closeLog := func() {}
+	if cfg.LogFile != "" {
+		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644) // #nosec G302 -- -lf log file is meant to be readable
+		if err != nil {
+			return nil, nil, err
+		}
+		closeLog = func() { logx.CloseQuiet(f) }
+		log.SetOutput(f)
+	}
+	return log, closeLog, nil
+}
+
+// acquireLockFiles creates the -L lock file and, after -W's poll-wait, the
+// -W lock file. Files use O_EXCL so two processes cannot both claim a path,
+// and are registered for signal-exit unlink (os.Exit skips defers). The
+// returned cleanup removes them on normal exit; already-created files are
+// cleaned up if a later step fails.
+func acquireLockFiles(cfg *Config) (func(), error) {
+	var cleanups []func()
+	add := func(path string) error {
+		if err := createLockFile(path); err != nil {
+			return err
+		}
+		unregister := xio.RegisterUnlinkPath(path)
+		cleanups = append(cleanups, func() {
+			unregister()
+			_ = os.Remove(path)
+		})
+		return nil
+	}
+	fail := func(err error) (func(), error) {
+		for _, c := range cleanups {
+			c()
+		}
+		return nil, err
+	}
+	if cfg.LockFile != "" {
+		if err := add(cfg.LockFile); err != nil {
+			return fail(err)
+		}
+	}
+	if cfg.LockWait != "" {
+		for {
+			if _, err := os.Stat(cfg.LockWait); os.IsNotExist(err) {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err := add(cfg.LockWait); err != nil {
+			return fail(err)
+		}
+	}
+	return func() {
+		for _, c := range cleanups {
+			c()
+		}
+	}, nil
+}
+
+// buildGlobal maps parsed flags onto the transfer-time Global.
+func buildGlobal(cfg *Config, log *logx.Logger) *xio.Global {
 	g := &xio.Global{
 		Log:          log,
 		BlockSize:    cfg.BlockSize,
@@ -434,29 +504,34 @@ func Main(args []string) int {
 			g.Idle = cfg.Idle
 		}
 	}
-	// IP version: explicit -4/-6/-0 vs default (env SOCAT_DEFAULT_LISTEN_IP may apply to listen).
+	g.IPVersion = ipVersionFromFlags(cfg)
+	return g
+}
+
+// ipVersionFromFlags resolves explicit -4/-6/-0 against the default
+// (env SOCAT_DEFAULT_LISTEN_IP may still apply to listen paths).
+func ipVersionFromFlags(cfg *Config) xio.IPVersion {
 	switch {
 	case cfg.IPAny:
-		g.IPVersion = xio.IPvAny
+		return xio.IPvAny
 	case cfg.IP6:
-		g.IPVersion = xio.IPv6
+		return xio.IPv6
 	case cfg.IP4:
-		g.IPVersion = xio.IPv4
+		return xio.IPv4
 	default:
-		g.IPVersion = xio.IPv4Default
+		return xio.IPv4Default
 	}
+}
 
-	// Classic EXITCODESIG*: dying on SIGTERM/ILL/… exits with 128+signum.
-	// Also unlink registered FS entries (UNIX/PIPE/PTY link) before Exit so
-	// REMOVE* tests pass — os.Exit skips Opened.Close / SetUnlinkOnClose.
+// installSignalHandling wires the two classic signal behaviors: exit signals
+// cancel the context, unlink registered FS entries and exit 128+signum
+// (EXITCODESIG*), and SIGUSR1 prints live transfer statistics. The returned
+// stop releases both signal channels.
+func installSignalHandling(ctx context.Context, cancel context.CancelFunc, log *logx.Logger) func() {
 	sigCh := make(chan os.Signal, 1)
 	notifyExitSignals(sigCh)
-	defer signal.Stop(sigCh)
 	usr1 := make(chan os.Signal, 1)
 	notifyStatsSignal(usr1)
-	defer signal.Stop(usr1)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	go func() {
 		sig := <-sigCh
 		cancel()
@@ -471,30 +546,10 @@ func Main(args []string) int {
 			xio.PrintLiveStats(log)
 		}
 	}()
-
-	runErr := xio.Run(ctx, left, right, g)
-	if cfg.Statistics {
-		xio.PrintExitStats(g)
+	return func() {
+		signal.Stop(sigCh)
+		signal.Stop(usr1)
 	}
-	if runErr != nil {
-		if ctx.Err() != nil {
-			if g.ChildExitCode != 0 {
-				return g.ChildExitCode
-			}
-			return 0
-		}
-		// Classic socat exits 0 when accept-timeout fires with no peer.
-		if runErr == xio.ErrAcceptTimeout {
-			return 0
-		}
-		log.Errorf("%s", runErr)
-		return 1
-	}
-	// EXEC_RC / SYSTEM_RC: promote child non-zero exit.
-	if g.ChildExitCode != 0 {
-		return g.ChildExitCode
-	}
-	return 0
 }
 
 func printVersion(w io.Writer) error {
