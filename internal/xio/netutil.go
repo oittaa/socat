@@ -89,9 +89,15 @@ func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn
 	}
 }
 
-// ListenBindHost is the wildcard bind when bind= is unset.
+// ListenBindHost resolves the bind host for listen addresses: bind= when set,
+// else the network-family wildcard. An explicit IPv6 wildcard on a v4-forced
+// network (pf=ip4, TCP4-LISTEN, …) falls back to the v4 wildcard so the OS
+// does not reject the dual-stroke notation.
 func ListenBindHost(network, bind string) string {
 	if bind != "" {
+		if (network == "tcp4" || network == "udp4" || network == "ip4") && StripBrackets(bind) == "::" {
+			return "0.0.0.0"
+		}
 		return bind
 	}
 	switch network {
@@ -291,4 +297,29 @@ func ParseTimeval(v string) time.Duration {
 		return d
 	}
 	return time.Duration(f * float64(time.Second))
+}
+
+// RecvOneCtx performs one datagram read through read in a goroutine so that
+// context cancellation returns promptly even though the underlying socket has
+// no deadline. The abandoned read completes into a buffered channel and is
+// released when the caller closes the socket.
+func RecvOneCtx[A any](ctx context.Context, read func() (int, []byte, A, error)) (int, []byte, A, error) {
+	type result struct {
+		n    int
+		oob  []byte
+		addr A
+		err  error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		n, oob, addr, err := read()
+		ch <- result{n: n, oob: oob, addr: addr, err: err}
+	}()
+	select {
+	case <-ctx.Done():
+		var zero A
+		return 0, nil, zero, ctx.Err()
+	case r := <-ch:
+		return r.n, r.oob, r.addr, r.err
+	}
 }

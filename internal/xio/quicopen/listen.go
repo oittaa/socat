@@ -26,9 +26,6 @@ func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		network = "udp"
 	}
 	host := xio.ListenBindHost(network, s.OptionValue("bind", ""))
-	if network == "udp4" && host == "::" {
-		host = "0.0.0.0"
-	}
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
 	tlsCfg, err := tlsopen.TLSServerConfig(s)
@@ -48,7 +45,11 @@ func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	}
 
 	ln := newQUICListener(ctx, qln, pc)
-	fork, maxChildren := xio.ForkLimits(s)
+	fork, maxChildren, err := xio.ForkLimits(s)
+	if err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
 	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
 		return xio.WrapCommon(s, relay.NetStream{Conn: c})

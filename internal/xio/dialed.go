@@ -22,8 +22,8 @@ type Dialed struct {
 
 // OpenDialed opens a client address: CONNECT,fork loop, or one dial + wrap.
 func OpenDialed(ctx context.Context, s parse.Spec, g *Global, d Dialed) (*Opened, error) {
-	fork, maxChildren := ForkLimits(s)
-	if err := RequireForkWithMaxChildren(s.Type, fork, maxChildren); err != nil {
+	fork, maxChildren, err := ForkLimits(s)
+	if err != nil {
 		return nil, err
 	}
 	o := d.Base

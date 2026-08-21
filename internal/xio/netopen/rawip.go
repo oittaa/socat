@@ -266,42 +266,28 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 	if recvfrom {
 		// One packet then connected-style session (classic RECVFROM).
 		buf := make([]byte, max(g.BlockSize, 65535))
-		type res struct {
-			n   int
-			a   net.Addr
-			oob []byte
-			e   error
-		}
+		stripV4 := network == "ip4"
 		var n int
 		var raddr net.Addr
 		for {
-			ch := make(chan res, 1)
-			stripV4 := network == "ip4"
-			go func() {
-				nn, oob, a, err := ReadIPMsg(pc, buf, wantCtrl, stripV4)
-				ch <- res{nn, a, oob, err}
-			}()
-			select {
-			case <-ctx.Done():
+			rn, oob, a, err := xio.RecvOneCtx(ctx, func() (int, []byte, net.Addr, error) {
+				return ReadIPMsg(pc, buf, wantCtrl, stripV4)
+			})
+			if err != nil {
 				logx.CloseQuiet(pc)
-				return nil, ctx.Err()
-			case r := <-ch:
-				if r.e != nil {
-					logx.CloseQuiet(pc)
-					return nil, r.e
-				}
-				// peer filter uses UDP-style helper via fake addr when possible
-				if ia, ok := r.a.(*net.IPAddr); ok {
-					if err := xio.PeerAllowedG(s, &udpPeerConn{addr: &net.UDPAddr{IP: ia.IP}}, g); err != nil {
-						if g != nil && g.Log != nil {
-							g.Log.Noticef("%s", err)
-						}
-						continue
-					}
-				}
-				n, raddr = r.n, r.a
-				xio.ProcessAncillary(r.oob, g)
+				return nil, err
 			}
+			// peer filter uses UDP-style helper via fake addr when possible
+			if ia, ok := a.(*net.IPAddr); ok {
+				if ferr := xio.PeerAllowedG(s, &udpPeerConn{addr: &net.UDPAddr{IP: ia.IP}}, g); ferr != nil {
+					if g != nil && g.Log != nil {
+						g.Log.Noticef("%s", ferr)
+					}
+					continue
+				}
+			}
+			n, raddr = rn, a
+			xio.ProcessAncillary(oob, g)
 			break
 		}
 		peerIP := (*net.IPAddr)(nil)

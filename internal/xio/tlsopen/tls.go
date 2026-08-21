@@ -112,9 +112,6 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	}
 	port := s.Params[0]
 	host := xio.ListenBindHost(network, s.OptionValue("bind", ""))
-	if network == "tcp4" && host == "::" {
-		host = "0.0.0.0"
-	}
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
 	tlsCfg, err := tlsServerConfig(s)
@@ -129,7 +126,11 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	}
 	tlsLn := tls.NewListener(ln, tlsCfg)
 
-	fork, maxChildren := xio.ForkLimits(s)
+	fork, maxChildren, err := xio.ForkLimits(s)
+	if err != nil {
+		logx.CloseQuiet(tlsLn)
+		return nil, err
+	}
 	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 
 	o := &xio.Opened{

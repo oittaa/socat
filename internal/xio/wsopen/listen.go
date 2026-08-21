@@ -38,9 +38,6 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		network = "tcp"
 	}
 	host := xio.ListenBindHost(network, s.OptionValue("bind", ""))
-	if network == "tcp4" && host == "::" {
-		host = "0.0.0.0"
-	}
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
@@ -61,7 +58,11 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	origin := s.OptionValue("origin", "")
 	proto := s.OptionValue("protocol", "")
 	handshakeTimeout := xio.HandshakeTimeout(s)
-	fork, maxChildren := xio.ForkLimits(s)
+	fork, maxChildren, ferr := xio.ForkLimits(s)
+	if ferr != nil {
+		logx.CloseQuiet(ln)
+		return nil, ferr
+	}
 	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 	// Upgrade after peer filter (TCP-level range/sourceport/tcpwrap).
 	wrapConn := func(c net.Conn) (relay.Stream, error) {

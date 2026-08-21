@@ -116,12 +116,10 @@ func openSocketListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		return nil, err
 	}
 	ln := &rawListener{fd: fd, domain: domain}
-	fork := s.BoolOption("fork")
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, e := strconv.Atoi(v); e == nil && n > 0 {
-			maxChildren = n
-		}
+	fork, maxChildren, ferr := xio.ForkLimits(s)
+	if ferr != nil {
+		logx.CloseQuiet(ln)
+		return nil, ferr
 	}
 	if fork {
 		return &xio.Opened{

@@ -17,6 +17,7 @@ import (
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/outbuf"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 	_ "github.com/oittaa/socat/internal/xio/all"
 )
@@ -55,7 +56,7 @@ func ParseArgs(args []string) (*Config, error) {
 	cfg := &Config{
 		LogLevel:  logx.Warning,
 		BlockSize: 8192,
-		Linger:    500 * time.Millisecond,
+		Linger:    relay.DefaultLinger,
 		Idle:      -1, // infinite
 		Progname:  "socat",
 	}

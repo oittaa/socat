@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -161,11 +160,10 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	// Fork: use a simple packet-accept loop via xio.Opened.Listener adapter.
 	if s.BoolOption("fork") && from {
 		ln := &unixgramListener{c: c, path: path}
-		maxChildren := 0
-		if v := s.OptionValue("max-children", ""); v != "" {
-			if n, e := strconv.Atoi(v); e == nil && n > 0 {
-				maxChildren = n
-			}
+		_, maxChildren, ferr := xio.ForkLimits(s)
+		if ferr != nil {
+			logx.CloseQuiet(ln)
+			return nil, ferr
 		}
 		o := &xio.Opened{
 			Kind:        xio.KindListen,

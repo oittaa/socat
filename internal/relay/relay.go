@@ -14,6 +14,10 @@ import (
 	"time"
 )
 
+// DefaultLinger is the classic -t default: how long the second direction may
+// keep flushing after the first side EOFs (0.5s).
+const DefaultLinger = 500 * time.Millisecond
+
 // Config controls transfer behavior.
 type Config struct {
 	// BufferSize is the max bytes per read (classic -b, default 8192).
@@ -169,7 +173,7 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 		cfg.RightToLeft = true
 	}
 	if cfg.Linger < 0 {
-		cfg.Linger = 500 * time.Millisecond // classic default 0.5s
+		cfg.Linger = DefaultLinger
 	}
 
 	start := time.Now()

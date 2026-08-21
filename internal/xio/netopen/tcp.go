@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -130,14 +129,12 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, err
 	}
 
-	fork := s.BoolOption("fork")
-	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			maxChildren = n
-		}
+	fork, maxChildren, ferr := xio.ForkLimits(s)
+	if ferr != nil {
+		logx.CloseQuiet(ln)
+		return nil, ferr
 	}
+	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 	// Per-connection wrap for fork accept (crlf, escape, keepalive, …).
 	// Non-fork applies the same via xio.WrapCommon after the single accept below.
 	wrapConn := func(c net.Conn) (relay.Stream, error) {

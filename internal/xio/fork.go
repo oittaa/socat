@@ -6,23 +6,20 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// ForkLimits reads fork and max-children. A non-positive or unparsable
-// max-children value is ignored (classic connect / most listen paths).
-func ForkLimits(s parse.Spec) (fork bool, maxChildren int) {
+// ForkLimits reads the classic fork and max-children options. A present but
+// invalid max-children value, or max-children without fork, is a classic-style
+// error (xioopts rejects both instead of ignoring them).
+func ForkLimits(s parse.Spec) (fork bool, maxChildren int, err error) {
 	fork = s.BoolOption("fork")
 	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, err := ParsePositiveInt(v); err == nil {
-			maxChildren = n
+		n, e := ParsePositiveInt(v)
+		if e != nil {
+			return false, 0, fmt.Errorf("%s: invalid max-children %q", s.Type, v)
 		}
+		if !fork {
+			return false, 0, fmt.Errorf("%s: option max-children not allowed without option fork", s.Type)
+		}
+		maxChildren = n
 	}
-	return fork, maxChildren
-}
-
-// RequireForkWithMaxChildren returns the classic error when max-children is
-// set without fork.
-func RequireForkWithMaxChildren(typ string, fork bool, maxChildren int) error {
-	if maxChildren > 0 && !fork {
-		return fmt.Errorf("%s: option max-children not allowed without option fork", typ)
-	}
-	return nil
+	return fork, maxChildren, nil
 }
