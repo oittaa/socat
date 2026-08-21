@@ -189,7 +189,7 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 ### Intentional differences from classic socat
 
 - **WebSocket (WS/WSS)** is a Go extra (classic has no WS). Uses `github.com/coder/websocket` (`NetConn` + binary frames), not frozen `golang.org/x/net/websocket`.
-- **QUIC** is a Go extra (classic has no QUIC). Uses `github.com/quic-go/quic-go` (same stack as HTTP/3 CONNECT). One bidirectional stream as a byte pipe. Not HTTP/3 (`alpn` default `socat`). 0-RTT is off.
+- **QUIC** is a Go extra (classic has no QUIC). Uses `github.com/quic-go/quic-go` (same stack as HTTP/3 CONNECT). One **client-initiated** bidirectional stream as a byte pipe. A receive-only client (`-u`/`-U`) still opens that stream and half-closes write so the listener can send. Not HTTP/3 (`alpn` default `socat`). 0-RTT is off.
 - **PROXY `http-version=2` / `3`** is a Go extra (classic PROXY is HTTP/1.x). HTTP/2 uses `net/http`. HTTP/3 uses `github.com/quic-go/quic-go/http3` because `golang.org/x/net/http3` is not a public client API.
 - **`fork`** uses **goroutines**, not `fork(2)` process isolation
 - Companion tools aim for useful parity, not bit-identical C ifdef output

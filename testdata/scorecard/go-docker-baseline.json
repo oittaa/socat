@@ -1,22 +1,22 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-08-15T23:29:53Z",
-    "hostname": "a061528116a4",
-    "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.43",
+    "timestamp": "2026-08-21T12:24:22Z",
+    "hostname": "7daef5607ef5",
+    "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.43",
     "socat": "/opt/go/socat",
-    "socat_version": "socat version 0.1.0-dev on 2026-08-15T23:29:53Z",
+    "socat_version": "socat version 0.1.0-dev on 2026-08-21T12:24:22Z",
     "test_sh": "/opt/classic-src/test.sh",
-    "git": "",
+    "git": "6d7c489",
     "out_dir": "/out",
     "val_t": "auto",
     "jobs": "1",
     "shard_timeout": "7200"
   },
   "summary": {
-    "ok": 506,
-    "failed": 5,
-    "cant": 92,
+    "ok": 511,
+    "failed": 6,
+    "cant": 86,
     "timeout": 0,
     "unknown": 2,
     "total_recorded": 605,
@@ -1944,10 +1944,10 @@
       "id": 216,
       "name": "UDP6MULTICAST_UNIDIR",
       "description": "UDP/IPv6 multicast",
-      "status": "CANT",
-      "detail": "IPv6 multicasting does not work",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 216 UDP6MULTICAST_UNIDIR: UDP/IPv6 multicast... IPv6 multicasting does not work"
+      "raw": "test 216 UDP6MULTICAST_UNIDIR: UDP/IPv6 multicast... OK"
     },
     "217": {
       "id": 217,
@@ -3825,19 +3825,19 @@
       "id": 425,
       "name": "CONNECT_TO_DGRAM",
       "description": "Failure handling on connect access to dgram",
-      "status": "CANT",
-      "detail": "not with root",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 425 CONNECT_TO_DGRAM: Failure handling on connect access to dgram... not with root"
+      "raw": "test 425 CONNECT_TO_DGRAM: Failure handling on connect access to dgram... OK"
     },
     "426": {
       "id": 426,
       "name": "CONNECT_TO_SEQPACKET",
       "description": "Failure handling on connect access to seqpacket",
-      "status": "CANT",
-      "detail": "not with root",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 426 CONNECT_TO_SEQPACKET: Failure handling on connect access to seqpacket... not with root"
+      "raw": "test 426 CONNECT_TO_SEQPACKET: Failure handling on connect access to seqpacket... OK"
     },
     "427": {
       "id": 427,
@@ -4014,19 +4014,19 @@
       "id": 446,
       "name": "SEQPACKET_TO_STREAM",
       "description": "Failure handling on seqpacket access to stream",
-      "status": "CANT",
-      "detail": "not with root",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 446 SEQPACKET_TO_STREAM: Failure handling on seqpacket access to stream... not with root"
+      "raw": "test 446 SEQPACKET_TO_STREAM: Failure handling on seqpacket access to stream... OK"
     },
     "447": {
       "id": 447,
       "name": "SEQPACKET_TO_DGRAM",
       "description": "Failure handling on seqpacket access to dgram",
-      "status": "CANT",
-      "detail": "not with root",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 447 SEQPACKET_TO_DGRAM: Failure handling on seqpacket access to dgram... not with root"
+      "raw": "test 447 SEQPACKET_TO_DGRAM: Failure handling on seqpacket access to dgram... OK"
     },
     "448": {
       "id": 448,
@@ -4373,7 +4373,7 @@
     "486": {
       "id": 486,
       "name": "NETNS",
-      "description": "option netns (net namespace socat-350-test486)",
+      "description": "option netns (net namespace socat-349-test486)",
       "status": "OK",
       "detail": "",
       "shard": 0,
@@ -4382,7 +4382,7 @@
     "487": {
       "id": 487,
       "name": "NETNS_EXEC",
-      "description": "option netns with EXEC (net namespace socat-350-test487)",
+      "description": "option netns with EXEC (net namespace socat-349-test487)",
       "status": "OK",
       "detail": "",
       "shard": 0,
@@ -4419,10 +4419,10 @@
       "id": 491,
       "name": "SOCKETPAIR_BOUNDARIES",
       "description": "Internal socketpair keeps packet boundaries",
-      "status": "CANT",
-      "detail": "Option socktype not available in /opt/go/socat",
+      "status": "FAILED",
+      "detail": "",
       "shard": 0,
-      "raw": "test 491 SOCKETPAIR_BOUNDARIES: Internal socketpair keeps packet boundaries... Option socktype not available in /opt/go/socat"
+      "raw": "test 491 SOCKETPAIR_BOUNDARIES: Internal socketpair keeps packet boundaries... FAILED"
     },
     "492": {
       "id": 492,
