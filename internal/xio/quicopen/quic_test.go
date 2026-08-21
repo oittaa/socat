@@ -18,6 +18,7 @@ import (
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 	_ "github.com/oittaa/socat/internal/xio/fileopen"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
@@ -300,5 +301,76 @@ func writeTrustCerts(t *testing.T) trustCerts {
 		serverKey:  srvKey,
 		clientCert: cliCert,
 		clientKey:  cliKey,
+	}
+}
+
+func quicNetConnOf(t *testing.T, o *xio.Opened) *quicNetConn {
+	t.Helper()
+	ns, ok := o.Stream.(relay.NetStream)
+	if !ok {
+		t.Fatalf("stream is %T, want relay.NetStream", o.Stream)
+	}
+	qnc, ok := ns.Conn.(*quicNetConn)
+	if !ok {
+		t.Fatalf("conn is %T, want *quicNetConn", ns.Conn)
+	}
+	return qnc
+}
+
+func TestQUICCloseWithoutWritesClosesPromptly(t *testing.T) {
+	// Connect-and-close without any payload or FIN has nothing in flight;
+	// CONNECTION_CLOSE must not wait out the drain period.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	port := startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:0,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", listenCert(t)))
+
+	cs, err := parse.ParseSpec(fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openQUICConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qnc := quicNetConnOf(t, o)
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-qnc.qc.Context().Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("write-free connection was not closed promptly")
+	}
+}
+
+func TestQUICDataConnectionDrainsBeforeClose(t *testing.T) {
+	// A connection that carried payload keeps the drain delay so the final
+	// STREAM bytes survive CONNECTION_CLOSE.
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	port := startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:0,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", listenCert(t)))
+
+	cs, err := parse.ParseSpec(fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openQUICConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	qnc := quicNetConnOf(t, o)
+	echoRoundtrip(t, o.Stream, []byte("drain-me"))
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-qnc.qc.Context().Done():
+		t.Fatal("data-carrying connection closed before the drain elapsed")
+	case <-time.After(2 * time.Second):
+	}
+	select {
+	case <-qnc.qc.Context().Done():
+	case <-time.After(6 * time.Second):
+		t.Fatal("data-carrying connection was never closed")
 	}
 }

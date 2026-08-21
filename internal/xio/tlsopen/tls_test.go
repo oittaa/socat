@@ -715,3 +715,111 @@ func testCAAndLeafKeyUsage(dns string, usage x509.ExtKeyUsage) (*x509.Certificat
 	}
 	return caCert, leaf, leafKey, nil
 }
+
+// cnGateLeaf builds a server certificate with explicit CN/SAN control so the
+// CN-fallback gating can be exercised (testCAAndLeafKey always sets DNSNames).
+func cnGateLeaf(t *testing.T, caCert *x509.Certificate, caKey ed25519.PrivateKey, cn string, dns []string, ips []net.IP) tls.Certificate {
+	t.Helper()
+	pub, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(7),
+		Subject:               pkix.Name{CommonName: cn},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:              dns,
+		IPAddresses:           ips,
+		BasicConstraintsValid: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, pub, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+}
+
+func TestTLSClientCNFallbackGatedOnSANs(t *testing.T) {
+	// RFC 6125 §6.4.4 / OpenSSL X509_check_host parity: the CN is consulted
+	// only when the certificate has no subjectAltName entries at all.
+	caPub, caKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caTmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "cn-gate-ca"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, caPub, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caCert, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	caPath := filepath.Join(dir, "ca.pem")
+	if err := os.WriteFile(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cases := []struct {
+		name    string
+		cert    tls.Certificate
+		wantErr bool
+	}{
+		{
+			// Classic testcert.conf shape: CN only, no SANs → CN match works.
+			name: "cn-only-cert-matches",
+			cert: cnGateLeaf(t, caCert, caKey, "localhost", nil, nil),
+		},
+		{
+			// SAN present and matching → normal path.
+			name: "matching-dns-san-passes",
+			cert: cnGateLeaf(t, caCert, caKey, "localhost", []string{"localhost"}, nil),
+		},
+		{
+			// Mixed-cert bypass: matching CN beside a non-matching DNS SAN.
+			name:    "cn-beside-other-dns-san-fails",
+			cert:    cnGateLeaf(t, caCert, caKey, "localhost", []string{"other.example.com"}, nil),
+			wantErr: true,
+		},
+		{
+			// An IP SAN also blocks the CN fallback even when it matches the
+			// dial address; the name check asked for "localhost".
+			name:    "cn-beside-ip-san-fails",
+			cert:    cnGateLeaf(t, caCert, caKey, "localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}),
+			wantErr: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := handshakeClientToLocal(t, tc.cert, parse.Spec{
+				Type: "TLS",
+				Options: []parse.Option{
+					{Name: "verify", Value: "1", Has: true},
+					{Name: "cafile", Value: caPath, Has: true},
+					{Name: "commonname", Value: "localhost", Has: true},
+				},
+			}, "127.0.0.1")
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected hostname mismatch failure")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("handshake: %v", err)
+			}
+		})
+	}
+}

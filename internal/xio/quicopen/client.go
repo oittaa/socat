@@ -3,6 +3,8 @@ package quicopen
 import (
 	"context"
 	"net"
+	"sync/atomic"
+	"time"
 
 	"github.com/quic-go/quic-go"
 
@@ -49,6 +51,10 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	}
 	tr := &quic.Transport{Conn: pc}
 
+	// Set when any connection on this transport carried payload or a FIN;
+	// teardown then waits out the drain so tail bytes and the FIN survive.
+	var drain atomic.Bool
+
 	timeout := xio.ConnectTimeout(s)
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
@@ -81,7 +87,14 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 					return e
 				}
 			}
-			conn = wrapQUIC(qc, st)
+			nc := wrapQUIC(qc, st)
+			nc.transportDrain = &drain
+			if mode == xio.ModeRead {
+				// The FIN was queued on st directly; record it so Close
+				// keeps the drain delay and the FIN is not dropped.
+				nc.markFinSent()
+			}
+			conn = nc
 			return nil
 		})
 		return conn, err
@@ -89,6 +102,13 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 
 	o := &xio.Opened{Label: s.Type + ":" + dest}
 	o.AddCleanup(func() {
+		if drain.Load() {
+			time.AfterFunc(quicConnDrain, func() {
+				_ = tr.Close()
+				_ = pc.Close()
+			})
+			return
+		}
 		_ = tr.Close()
 		_ = pc.Close()
 	})
