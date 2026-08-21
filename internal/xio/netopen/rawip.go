@@ -12,6 +12,7 @@ import (
 
 	"github.com/oittaa/socat/internal/xio"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -166,7 +167,7 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 		return nil, err
 	}
 	if err := applyIPConnOpts(c, s, network); err != nil {
-		_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(c)
 		return nil, err
 	}
 	// Connected xio.IPv4 Read() keeps the IP header; strip for classic parity.
@@ -174,7 +175,7 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	st := relay.Stream(&rawIPConn{IPConn: c, peer: raddr, v4: v4})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(c)
 		return nil, err
 	}
 	return &xio.Opened{Stream: st, Label: s.Type + ":" + host + ":" + strconv.Itoa(proto)}, nil
@@ -221,14 +222,14 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return nil, err
 	}
 	if err := applyIPConnOpts(pc, s, network); err != nil {
-		_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(pc)
 		return nil, err
 	}
 	v4 := network == "ip4" || raddr.IP.To4() != nil
 	st := relay.Stream(&rawIPDatagramConn{c: pc, raddr: raddr, v4: v4})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(pc)
 		return nil, err
 	}
 	return &xio.Opened{Stream: st, Label: s.Type + ":" + host + ":" + strconv.Itoa(proto)}, nil
@@ -257,7 +258,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		return nil, err
 	}
 	if err := applyIPConnOpts(pc, s, network); err != nil {
-		_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(pc)
 		return nil, err
 	}
 
@@ -282,11 +283,11 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 			}()
 			select {
 			case <-ctx.Done():
-				_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				logx.CloseQuiet(pc)
 				return nil, ctx.Err()
 			case r := <-ch:
 				if r.e != nil {
-					_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+					logx.CloseQuiet(pc)
 					return nil, r.e
 				}
 				// peer filter uses UDP-style helper via fake addr when possible
@@ -320,7 +321,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		})
 		st, err = xio.WrapCommon(s, st)
 		if err != nil {
-			_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(pc)
 			return nil, err
 		}
 		return &xio.Opened{Stream: st, Label: s.Type}, nil
@@ -328,7 +329,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 
 	// RECV: merge packets, read-only
 	if mode == xio.ModeWrite {
-		_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("%s is read-only", s.Type)
 	}
 	st := relay.Stream(&rawIPFilteredRecv{
@@ -340,7 +341,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 	})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(pc)
 		return nil, err
 	}
 	return &xio.Opened{Stream: st, Label: s.Type}, nil

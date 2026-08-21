@@ -6,6 +6,7 @@ import (
 
 	"github.com/quic-go/quic-go"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
@@ -87,7 +88,7 @@ func openQUICConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		Base: o,
 	})
 	if err != nil {
-		_ = o.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(o)
 		return nil, err
 	}
 	return opened, nil

@@ -13,6 +13,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
@@ -51,7 +52,7 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	if useTLS {
 		tlsCfg, err := tlsopen.TLSServerConfig(s)
 		if err != nil {
-			_ = rawLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(rawLn)
 			return nil, err
 		}
 		ln = tls.NewListener(rawLn, tlsCfg)
@@ -83,12 +84,12 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		WrapDial:         wrapConn,
 		HandshakeTimeout: handshakeTimeout,
 	}
-	o.AddCleanup(func() { _ = ln.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
+	o.AddCleanup(func() { logx.CloseQuiet(ln) })
 
 	if fork {
 		go func() {
 			<-ctx.Done()
-			_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(ln)
 		}()
 		return o, nil
 	}
@@ -111,7 +112,7 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		}
 		c, err := ln.Accept()
 		if err != nil {
-			_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(ln)
 			o.Listener = nil
 			if xio.IsTimeoutErr(err) {
 				return nil, xio.ErrAcceptTimeout
@@ -128,18 +129,18 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		conn = c
 		break
 	}
-	_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+	logx.CloseQuiet(ln)
 	o.Listener = nil
 	xio.RememberAddrs(g, conn)
 	if useTLS {
 		if err := xio.RememberTLSPeer(g, conn, handshakeTimeout); err != nil {
-			_ = conn.Close() // #nosec G104 -- Close on handshake failure
+			logx.CloseQuiet(conn)
 			return nil, err
 		}
 	}
 	st, err := wrapConn(conn)
 	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(conn)
 		return nil, err
 	}
 	o.Stream = st

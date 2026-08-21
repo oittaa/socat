@@ -11,6 +11,7 @@ import (
 
 	"github.com/oittaa/socat/internal/xio"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -67,7 +68,7 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 				return e
 			}
 			if setSockErr != nil {
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				logx.CloseQuiet(c)
 				return setSockErr
 			}
 			if e := xio.ApplyTCPConnOpts(s, c); e != nil {
@@ -153,14 +154,14 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		MaxChildren: maxChildren,
 		WrapDial:    wrapConn,
 	}
-	o.AddCleanup(func() { _ = ln.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
+	o.AddCleanup(func() { logx.CloseQuiet(ln) })
 
 	if fork {
 		// Parent keeps listening; xio.Run handles accept loop.
 		// xio.Close listener when ctx cancelled so xio.Accept unblocks on SIGTERM.
 		go func() {
 			<-ctx.Done()
-			_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(ln)
 		}()
 		return o, nil
 	}
@@ -191,12 +192,12 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		}()
 		select {
 		case <-ctx.Done():
-			_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(ln)
 			o.Listener = nil
 			return nil, ctx.Err()
 		case a := <-ch:
 			if a.err != nil {
-				_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				logx.CloseQuiet(ln)
 				o.Listener = nil
 				if xio.IsTimeoutErr(a.err) {
 					// Phrase "timed out" matches classic test.sh REUSEADDR_NULL CANT path.
@@ -214,7 +215,7 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		}
 		break
 	}
-	_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+	logx.CloseQuiet(ln)
 	o.Listener = nil
 	g.Log.Infof("accepted connection from %s", conn.RemoteAddr())
 	// Classic: socket options on LISTEN apply to the accepted connection
@@ -227,7 +228,7 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(conn)
 		return nil, err
 	}
 	o.Stream = st

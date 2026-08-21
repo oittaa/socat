@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
@@ -67,7 +68,7 @@ func openSCTPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 				return e
 			}
 			if setSockErr != nil {
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				logx.CloseQuiet(c)
 				return setSockErr
 			}
 			conn = c
@@ -140,12 +141,12 @@ func openSCTPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		MaxChildren: maxChildren,
 		WrapDial:    wrapConn,
 	}
-	o.AddCleanup(func() { _ = ln.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
+	o.AddCleanup(func() { logx.CloseQuiet(ln) })
 
 	if fork {
 		go func() {
 			<-ctx.Done()
-			_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(ln)
 		}()
 		return o, nil
 	}
@@ -176,12 +177,12 @@ func openSCTPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		}()
 		select {
 		case <-ctx.Done():
-			_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(ln)
 			o.Listener = nil
 			return nil, ctx.Err()
 		case a := <-ch:
 			if a.err != nil {
-				_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				logx.CloseQuiet(ln)
 				o.Listener = nil
 				if xio.IsTimeoutErr(a.err) {
 					if g != nil && g.Log != nil {
@@ -202,7 +203,7 @@ func openSCTPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		}
 		break
 	}
-	_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+	logx.CloseQuiet(ln)
 	o.Listener = nil
 	if g != nil && g.Log != nil {
 		g.Log.Infof("accepted connection from %s", conn.RemoteAddr())
@@ -211,7 +212,7 @@ func openSCTPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(conn)
 		return nil, err
 	}
 	o.Stream = st

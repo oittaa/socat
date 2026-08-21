@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -44,14 +45,14 @@ func OpenDialed(ctx context.Context, s parse.Spec, g *Global, d Dialed) (*Opened
 	}
 	conn, err := d.Dial(ctx)
 	if err != nil {
-		_ = o.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(o)
 		return nil, err
 	}
 	RememberAddrs(g, conn)
 	if d.RememberTLS {
 		if err := RememberTLSPeer(g, conn, HandshakeTimeout(s)); err != nil {
-			_ = conn.Close() // #nosec G104 -- Close on handshake failure
-			_ = o.Close()    // #nosec G104 -- Close on handshake failure
+			logx.CloseQuiet(conn)
+			logx.CloseQuiet(o)
 			return nil, err
 		}
 	}
@@ -66,8 +67,8 @@ func OpenDialed(ctx context.Context, s parse.Spec, g *Global, d Dialed) (*Opened
 	}
 	st, err := wrap(conn)
 	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		_ = o.Close()    // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(conn)
+		logx.CloseQuiet(o)
 		return nil, err
 	}
 	o.Stream = st

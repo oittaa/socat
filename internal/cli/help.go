@@ -4,6 +4,7 @@ import (
 	"io"
 
 	"github.com/oittaa/socat"
+	"github.com/oittaa/socat/internal/outbuf"
 	"github.com/oittaa/socat/internal/xio"
 )
 
@@ -115,50 +116,52 @@ func hideOptGroup(title string) bool {
 	}
 }
 
-func printHelp(w io.Writer, level int) {
-	fprintf(w, "socat %s by oittaa — multipurpose relay (Go)\n\n", socat.Version)
-	fprintf(w, "Usage:\n")
-	fprintf(w, "  socat [options] <address> <address>\n")
-	fprintf(w, "  socat -V | -h | -hh | -hhh\n\n")
-	fprintf(w, "  <address> is TYPE:params,option=value,...\n")
-	fprintf(w, "  Use - for STDIO.  -h lists types; -hh lists options; -hhh adds aliases.\n\n")
-	fprintf(w, "Example (TLS tunnel in front of a plain TCP service):\n")
-	fprintf(w, "  socat TLS-LISTEN:8443,reuseaddr,fork,cert=s.crt,key=s.key,verify=0 TCP:127.0.0.1:8080\n\n")
+func printHelp(w io.Writer, level int) error {
+	var b outbuf.Buf
+	b.Printf("socat %s by oittaa — multipurpose relay (Go)\n\n", socat.Version)
+	b.Printf("Usage:\n")
+	b.Printf("  socat [options] <address> <address>\n")
+	b.Printf("  socat -V | -h | -hh | -hhh\n\n")
+	b.Printf("  <address> is TYPE:params,option=value,...\n")
+	b.Printf("  Use - for STDIO.  -h lists types; -hh lists options; -hhh adds aliases.\n\n")
+	b.Printf("Example (TLS tunnel in front of a plain TCP service):\n")
+	b.Printf("  socat TLS-LISTEN:8443,reuseaddr,fork,cert=s.crt,key=s.key,verify=0 TCP:127.0.0.1:8080\n\n")
 
-	printHelpFlags(w)
-	printHelpAddresses(w)
+	printHelpFlags(&b)
+	printHelpAddresses(&b)
 	if level >= 2 {
-		printHelpOptions(w, level >= 3)
+		printHelpOptions(&b, level >= 3)
 	}
+	return b.Flush(w)
 }
 
-func printHelpFlags(w io.Writer) {
-	fprintf(w, "Options:\n")
-	fprintf(w, "  -V              print version and features\n")
-	fprintf(w, "  -h|-?           print help\n")
-	fprintf(w, "  -hh             help plus honored address options\n")
-	fprintf(w, "  -hhh            help plus options, aliases, and termios names\n")
-	fprintf(w, "  -d|-d0..-d4     increase verbosity\n")
-	fprintf(w, "  -v              verbose data dump (text)\n")
-	fprintf(w, "  -x              verbose data dump (hex)\n")
-	fprintf(w, "  -b<size>        transfer block size (default 8192)\n")
-	fprintf(w, "  -t<time>        linger after EOF (default 0.5s)\n")
-	fprintf(w, "  -T<time>        inactivity timeout\n")
-	fprintf(w, "  -u              unidirectional left→right\n")
-	fprintf(w, "  -U              unidirectional right→left\n")
+func printHelpFlags(b *outbuf.Buf) {
+	b.Printf("Options:\n")
+	b.Printf("  -V              print version and features\n")
+	b.Printf("  -h|-?           print help\n")
+	b.Printf("  -hh             help plus honored address options\n")
+	b.Printf("  -hhh            help plus options, aliases, and termios names\n")
+	b.Printf("  -d|-d0..-d4     increase verbosity\n")
+	b.Printf("  -v              verbose data dump (text)\n")
+	b.Printf("  -x              verbose data dump (hex)\n")
+	b.Printf("  -b<size>        transfer block size (default 8192)\n")
+	b.Printf("  -t<time>        linger after EOF (default 0.5s)\n")
+	b.Printf("  -T<time>        inactivity timeout\n")
+	b.Printf("  -u              unidirectional left→right\n")
+	b.Printf("  -U              unidirectional right→left\n")
 	// Classic test.sh OPTION_RAW_DUMP greps: [[:space:]]-[rR][[:space:]]
-	fprintf(w, "  -r <file>       dump left-to-right raw data\n")
-	fprintf(w, "  -R <file>       dump right-to-left raw data\n")
+	b.Printf("  -r <file>       dump left-to-right raw data\n")
+	b.Printf("  -R <file>       dump right-to-left raw data\n")
 	// Classic test.sh greps: [[:space:]]-4[[:space:]], -6, -0 on separate lines.
-	fprintf(w, "  -4     prefer IPv4 if version is not explicitly specified\n")
-	fprintf(w, "  -6     prefer IPv6 if version is not explicitly specified\n")
-	fprintf(w, "  -0     do not prefer an IP version\n")
-	fprintf(w, "  --statistics   output transfer statistics on exit\n")
-	fprintf(w, "  --experimental allow experimental options (netns)\n")
+	b.Printf("  -4     prefer IPv4 if version is not explicitly specified\n")
+	b.Printf("  -6     prefer IPv6 if version is not explicitly specified\n")
+	b.Printf("  -0     do not prefer an IP version\n")
+	b.Printf("  --statistics   output transfer statistics on exit\n")
+	b.Printf("  --experimental allow experimental options (netns)\n")
 }
 
-func printHelpAddresses(w io.Writer) {
-	fprintf(w, "\nAddress types:\n")
+func printHelpAddresses(b *outbuf.Buf) {
+	b.Printf("\nAddress types:\n")
 	for _, g := range helpAddressGroups() {
 		var addrs []helpAddr
 		width := 0
@@ -174,16 +177,16 @@ func printHelpAddresses(w io.Writer) {
 		if len(addrs) == 0 {
 			continue
 		}
-		fprintf(w, "\n  %s\n", g.title)
+		b.Printf("\n  %s\n", g.title)
 		for _, a := range addrs {
-			fprintf(w, "    %-*s  %s\n", width, a.syntax, a.desc)
+			b.Printf("    %-*s  %s\n", width, a.syntax, a.desc)
 		}
 	}
 }
 
-func printHelpOptions(w io.Writer, all bool) {
-	fprintf(w, "\nAddress options:\n")
-	fprintf(w, "  Form: option or option=value. Only honored names are listed.\n")
+func printHelpOptions(b *outbuf.Buf, all bool) {
+	b.Printf("\nAddress options:\n")
+	b.Printf("  Form: option or option=value. Only honored names are listed.\n")
 	groups := helpOptionGroups()
 	width := 0
 	for _, g := range groups {
@@ -222,13 +225,13 @@ func printHelpOptions(w io.Writer, all bool) {
 				continue
 			}
 			if !printedTitle {
-				fprintf(w, "\n  %s\n", g.title)
+				b.Printf("\n  %s\n", g.title)
 				printedTitle = true
 			}
-			printOptLine(w, o.name, o.desc, width)
+			printOptLine(b, o.name, o.desc, width)
 			if all {
 				for _, al := range o.aliases {
-					printOptLine(w, al, "alias of "+o.name, width)
+					printOptLine(b, al, "alias of "+o.name, width)
 				}
 			}
 		}
@@ -236,16 +239,16 @@ func printHelpOptions(w io.Writer, all bool) {
 	if len(extra) == 0 {
 		return
 	}
-	fprintf(w, "\n  Termios and baud (PTY / TTY)\n")
+	b.Printf("\n  Termios and baud (PTY / TTY)\n")
 	for _, name := range extra {
-		printOptLine(w, name, "termios flag or baud name", width)
+		printOptLine(b, name, "termios flag or baud name", width)
 	}
 }
 
-func printOptLine(w io.Writer, name, desc string, width int) {
+func printOptLine(b *outbuf.Buf, name, desc string, width int) {
 	// Space on both sides of the name: test.sh testoptions and e2e use
 	// [^a-z0-9-]<name>[^a-z0-9-] / " "+name+" ".
-	fprintf(w, "    %-*s  %s\n", width, name, desc)
+	b.Printf("    %-*s  %s\n", width, name, desc)
 }
 
 func extraHelpNames(all bool) []string {

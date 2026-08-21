@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -213,7 +214,7 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 	g.Log.Noticef("listening on %s", ln.Addr())
 	go func() {
 		<-ctx.Done()
-		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(ln)
 	}()
 	filter := lo.PeerFilter
 	maxCh := lo.MaxChildren
@@ -283,7 +284,7 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 				sp0, sp1, spErr := unixSocketpairLogged(g)
 				if spErr != nil {
 					g.Log.Errorf("socketpair: %s", spErr)
-					_ = ro.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+					logx.CloseQuiet(ro)
 					return
 				}
 				go func() {
@@ -328,7 +329,7 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 	}
 	go func() {
 		<-ctx.Done()
-		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(ln)
 	}()
 	filter := ro.PeerFilter
 	// Shared left stream (FILE append, EXEC end-close) cannot safely run concurrent

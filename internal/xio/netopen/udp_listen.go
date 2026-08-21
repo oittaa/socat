@@ -12,6 +12,7 @@ import (
 
 	"github.com/oittaa/socat/internal/xio"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -92,11 +93,11 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		}()
 		select {
 		case <-ctx.Done():
-			_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(pc)
 			return nil, ctx.Err()
 		case r := <-ch:
 			if r.e != nil {
-				_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				logx.CloseQuiet(pc)
 				return nil, r.e
 			}
 			fake := &udpPeerConn{addr: r.a}
@@ -141,7 +142,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(pc)
 		return nil, err
 	}
 	return &xio.Opened{Stream: st, Label: "UDP-LISTEN"}, nil
@@ -235,7 +236,7 @@ func dialUDPSession(network string, local, remote *net.UDPAddr) (*net.UDPConn, e
 	}
 	uc, ok := c.(*net.UDPConn)
 	if !ok {
-		_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(c)
 		return nil, fmt.Errorf("UDP session: unexpected conn type")
 	}
 	return uc, nil

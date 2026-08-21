@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"syscall"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -43,7 +44,7 @@ func startOnPTY(cmd *exec.Cmd, s parse.Spec) (*os.File, error) {
 	// Go's fork/exec sets controlling tty from Setctty when slave is Stdin.
 
 	if err := cmd.Start(); err != nil {
-		_ = master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(master)
 		return nil, fmt.Errorf("start on pty: %w", err)
 	}
 	return master, nil

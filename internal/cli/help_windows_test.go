@@ -10,7 +10,9 @@ import (
 
 func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 	var b bytes.Buffer
-	printHelp(&b, 2)
+	if err := printHelp(&b, 2); err != nil {
+		t.Fatal(err)
+	}
 	help := b.String()
 	for _, name := range []string{
 		"reuseport", "ip-add-membership", "so-timestamp", "ip-ttl",

@@ -12,14 +12,18 @@ func TestUnixCapabilitiesMatchHelpAndVersion(t *testing.T) {
 	wantDatagram, wantSeqpacket := expectedUnixCapabilities()
 
 	var version bytes.Buffer
-	printVersion(&version)
+	if err := printVersion(&version); err != nil {
+		t.Fatal(err)
+	}
 	versionText := version.String()
 	assertVersionFeature(t, versionText, "UNIX", true)
 	assertVersionFeature(t, versionText, "UNIX_DGRAM", wantDatagram)
 	assertVersionFeature(t, versionText, "UNIX_SEQPACKET", wantSeqpacket)
 
 	var help bytes.Buffer
-	printHelp(&help, 2)
+	if err := printHelp(&help, 2); err != nil {
+		t.Fatal(err)
+	}
 	helpText := help.String()
 	for _, syntax := range []string{
 		"UNIX-SENDTO:<filename>",

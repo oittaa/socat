@@ -9,6 +9,7 @@ import (
 
 	"github.com/quic-go/quic-go"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
@@ -42,7 +43,7 @@ func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	}
 	qln, err := quic.Listen(pc, qcfg.tls, qcfg.cfg)
 	if err != nil {
-		_ = pc.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(pc)
 		return nil, err
 	}
 
@@ -105,7 +106,7 @@ func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	xio.RememberAddrs(g, conn)
 	st, err := wrapConn(conn)
 	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(conn)
 		return nil, err
 	}
 	o.Stream = st

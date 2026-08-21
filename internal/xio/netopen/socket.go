@@ -14,6 +14,7 @@ import (
 
 	"github.com/oittaa/socat/internal/xio"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/unix"
@@ -38,34 +39,34 @@ func openSocketConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		return nil, fmt.Errorf("socket: %w", err)
 	}
 	if err := applySocketOpts(fd, s); err != nil {
-		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
 	if bind := s.OptionValue("bind", ""); bind != "" {
 		bdata, berr := xio.ParseSocatData(bind)
 		if berr != nil {
-			_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseErr(unix.Close(fd))
 			return nil, berr
 		}
 		bsa, _, err := buildSockaddr(domain, bdata)
 		if err != nil {
-			_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseErr(unix.Close(fd))
 			return nil, fmt.Errorf("bind: %w", err)
 		}
 		if err := unix.Bind(fd, bsa); err != nil {
-			_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseErr(unix.Close(fd))
 			return nil, fmt.Errorf("bind: %w", err)
 		}
 	}
 	if err := connectRaw(fd, sa, salen); err != nil {
-		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("connect: %w", err)
 	}
 	f := osNewFile(fd, "socket-connect")
 	st := xio.FileStream(f)
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(f)
 		return nil, err
 	}
 	_ = ctx
@@ -97,11 +98,11 @@ func openSocketListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		return nil, err
 	}
 	if err := applySocketOpts(fd, s); err != nil {
-		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
 	if err := bindRaw(fd, sa, salen); err != nil {
-		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("bind: %w", err)
 	}
 	backlog := 5
@@ -111,7 +112,7 @@ func openSocketListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		}
 	}
 	if err := unix.Listen(fd, backlog); err != nil {
-		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
 	ln := &rawListener{fd: fd, domain: domain}
@@ -134,14 +135,14 @@ func openSocketListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	// accept one
 	c, err := ln.Accept()
 	if err != nil {
-		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(ln)
 		return nil, err
 	}
-	_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+	logx.CloseQuiet(ln)
 	st := relay.Stream(relay.NetStream{Conn: c})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(c)
 		return nil, err
 	}
 	_ = ctx
@@ -200,28 +201,28 @@ func openSocketDgram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 		return nil, err
 	}
 	if err := applySocketOpts(fd, s); err != nil {
-		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
 	if bind := s.OptionValue("bind", ""); bind != "" {
 		bdata, berr := xio.ParseSocatData(bind)
 		if berr != nil {
-			_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseErr(unix.Close(fd))
 			return nil, berr
 		}
 		bsa, blen, err := buildSockaddr(domain, bdata)
 		if err != nil {
-			_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseErr(unix.Close(fd))
 			return nil, err
 		}
 		if err := bindRaw(fd, bsa, blen); err != nil {
-			_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseErr(unix.Close(fd))
 			return nil, fmt.Errorf("bind: %w", err)
 		}
 	}
 	if connected {
 		if err := connectRaw(fd, sa, salen); err != nil {
-			_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseErr(unix.Close(fd))
 			return nil, err
 		}
 	}
@@ -234,7 +235,7 @@ func openSocketDgram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	}
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(f)
 		return nil, err
 	}
 	_ = ctx
@@ -285,7 +286,7 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 		return nil, err
 	}
 	if err := bindRaw(fd, sa, salen); err != nil {
-		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
 	f := osNewFile(fd, "socket-recv")
@@ -293,7 +294,7 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 	st := &rawRecvStream{f: f, from: from}
 	wrapped, err := xio.WrapCommon(s, st)
 	if err != nil {
-		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(f)
 		return nil, err
 	}
 	_ = ctx
@@ -546,7 +547,7 @@ func (l *rawListener) fileLn() (net.Listener, error) {
 	}
 	f := os.NewFile(uintptr(l.fd), "socket-listen")
 	ln, err := net.FileListener(f)
-	_ = f.Close() // #nosec G104 -- FileListener dups the fd; close the original
+	logx.CloseQuiet(f)
 	if err != nil {
 		return nil, err
 	}
@@ -566,9 +567,9 @@ func (l *rawListener) Accept() (net.Conn, error) {
 		}
 		f := os.NewFile(uintptr(nfd), "socket-accept")
 		c, err := net.FileConn(f)
-		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(f)
 		if err != nil {
-			_ = unix.Close(nfd) // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseErr(unix.Close(nfd))
 			return nil, err
 		}
 		return c, nil
