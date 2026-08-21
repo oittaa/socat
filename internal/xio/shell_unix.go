@@ -3,6 +3,7 @@
 package xio
 
 import (
+	"context"
 	"os/exec"
 	"strings"
 )
@@ -11,7 +12,7 @@ import (
 // is relaunched under /bin/sh with exec N<&0 / N>&1 prepended, so the original
 // argv must be re-quoted for shell parsing.
 
-func rebuildWithFDRedirect(cmd *exec.Cmd, fdin, fdout string) *exec.Cmd {
+func rebuildWithFDRedirect(ctx context.Context, cmd *exec.Cmd, fdin, fdout string) *exec.Cmd {
 	orig := ""
 	if len(cmd.Args) > 0 {
 		if cmd.Args[0] == "/bin/sh" || cmd.Args[0] == "sh" || strings.HasSuffix(cmd.Path, "/sh") {
@@ -29,7 +30,7 @@ func rebuildWithFDRedirect(cmd *exec.Cmd, fdin, fdout string) *exec.Cmd {
 	if fdout != "" {
 		redir += " " + fdout + ">&1"
 	}
-	return exec.Command("/bin/sh", "-c", redir+"; "+orig)
+	return exec.CommandContext(ctx, "/bin/sh", "-c", redir+"; "+orig)
 }
 
 func shellJoin(args []string) string {

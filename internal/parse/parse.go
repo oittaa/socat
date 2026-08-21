@@ -272,6 +272,7 @@ var optionAliases = map[string]string{
 	"o-ndelay":           "nonblock",
 	"sp":                 "sourceport",
 	"sourceport":         "sourceport",
+	"addrconfig":         "ai-addrconfig",
 	"wait-slave":         "pty-wait-slave",
 	"waitslave":          "pty-wait-slave",
 	"pty-intervall":      "pty-interval",

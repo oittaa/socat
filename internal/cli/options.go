@@ -206,6 +206,7 @@ func helpOptionGroups() []helpOptGroup {
 		{"Sockets", []helpOpt{
 			{name: "nodelay", desc: "TCP_NODELAY", aliases: []string{"tcp-nodelay"}},
 			{name: "keepalive", desc: "SO_KEEPALIVE", aliases: []string{"so-keepalive"}},
+			{name: "keepidle", desc: "TCP keepidle (requires keepalive)"},
 			{name: "broadcast", desc: "SO_BROADCAST"},
 			{name: "ip-add-membership", desc: "IPv4 multicast join"},
 			{name: "ipv6-join-group", desc: "IPv6 multicast join"},
@@ -276,8 +277,6 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "pty-wait-slave", desc: "wait until the slave is open", aliases: []string{"wait-slave", "waitslave"}},
 			{name: "pty-interval", desc: "poll interval while waiting for slave", validate: validateDurationOption},
 			{name: "ctty", desc: "make the PTY the controlling tty", aliases: []string{"tiocsctty"}},
-			{name: "ptmx", desc: "open /dev/ptmx"},
-			{name: "openpty", desc: "use openpty(3)"},
 			{name: "escape", desc: "escape character"},
 		}},
 		{"Transfer", []helpOpt{

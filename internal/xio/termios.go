@@ -108,7 +108,6 @@ func TermiosHelpNames() []string {
 		"tiocswinsz", "winsz",
 		"ctty", "tiocsctty",
 		"pty-wait-slave", "wait-slave", "waitslave", "pty-interval",
-		"ptmx", "openpty",
 	}
 	for _, f := range termiosFlags {
 		out = append(out, f.name)

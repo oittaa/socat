@@ -1,3 +1,6 @@
+// Classic dalan address-data parsing: quoted strings with C-style escapes
+// ("path\0"), hex segments (xHHHH), and single-character forms ('c'), as
+// consumed by ParseSocatData for SOCKET addresses.
 package xio
 
 import (

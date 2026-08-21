@@ -333,7 +333,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	if fdin != "" || fdout != "" {
 		usePipes = true
 		usePty = false
-		cmd = rebuildWithFDRedirect(cmd, fdin, fdout)
+		cmd = rebuildWithFDRedirect(ctx, cmd, fdin, fdout)
 	}
 
 	if s.BoolOption("setsid") {

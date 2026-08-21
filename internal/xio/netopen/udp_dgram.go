@@ -7,7 +7,6 @@ import (
 	"net"
 	"strconv"
 	"syscall"
-	"time"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -254,13 +253,6 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			if ferr != nil {
 				logx.CloseQuiet(pc)
 				return nil, ferr
-			}
-			// Optional SO_RCVTIMEO
-			if v := s.OptionValue("so-rcvtimeo", ""); v != "" {
-				if d := xio.ParseTimeval(v); d > 0 {
-					_ = pc.SetReadDeadline(time.Time{}) // clear; per-accept deadline set in Accept
-					_ = d
-				}
 			}
 			ln := &udpForkListener{
 				pc:      pc,
