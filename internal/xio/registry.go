@@ -5,6 +5,25 @@ import (
 	"sync"
 )
 
+// Help section titles. RegisterAddress Group values must use these so
+// defaultGroupOrder stays in sync.
+const (
+	GroupFiles     = "Files and stdio"
+	GroupTCP       = "TCP"
+	GroupUDP       = "UDP"
+	GroupRawIP     = "Raw IP"
+	GroupUnix      = "UNIX and abstract"
+	GroupSocket    = "Generic socket"
+	GroupProcess   = "Process"
+	GroupTLS       = "TLS (OPENSSL/SSL aliases)"
+	GroupProxy     = "PROXY and SOCKS"
+	GroupTUN       = "Linux TUN / INTERFACE"
+	GroupWebSocket = "WebSocket (Go extra)" // #nosec G101 -- help section title, not a secret
+	GroupQUIC      = "QUIC (Go extra, not HTTP/3)"
+	GroupSCTP      = "SCTP (Linux)"
+	GroupPOSIXMQ   = "POSIX message queues (Linux)"
+)
+
 // HelpAddr represents a single address entry in help output.
 type HelpAddr struct {
 	Syntax string
@@ -17,11 +36,11 @@ type HelpAddrGroup struct {
 	Addrs []HelpAddr
 }
 
-// AddressDesc describes a registered address type or address entry.
+// AddressDesc describes a registered address type.
+// Each help line is its own descriptor (including classic aliases such as TCP-L).
 type AddressDesc struct {
-	Group       string        // Section title (e.g. "TCP", "Files and stdio")
-	Name        string        // Primary keyword, e.g. "TCP"
-	Aliases     []string      // Alias keywords, e.g. []string{"TCP-CONNECT"}
+	Group       string        // Section title; use Group* constants
+	Name        string        // Keyword, e.g. "TCP" or "TCP-L"
 	Syntax      string        // Help syntax, e.g. "TCP:<host>:<port>"
 	Desc        string        // Help description
 	DynamicDesc func() string // Optional dynamic help description (e.g. UNIX capabilities)
@@ -37,34 +56,29 @@ var (
 )
 
 var defaultGroupOrder = []string{
-	"Files and stdio",
-	"TCP",
-	"UDP",
-	"Raw IP",
-	"UNIX and abstract",
-	"Generic socket",
-	"Process",
-	"TLS (OPENSSL/SSL aliases)",
-	"PROXY and SOCKS",
-	"Linux TUN / INTERFACE",
-	"WebSocket (Go extra)",
-	"QUIC (Go extra, not HTTP/3)",
-	"SCTP (Linux)",
-	"POSIX message queues (Linux)",
+	GroupFiles,
+	GroupTCP,
+	GroupUDP,
+	GroupRawIP,
+	GroupUnix,
+	GroupSocket,
+	GroupProcess,
+	GroupTLS,
+	GroupProxy,
+	GroupTUN,
+	GroupWebSocket,
+	GroupQUIC,
+	GroupSCTP,
+	GroupPOSIXMQ,
 }
 
-// RegisterAddress associates an address descriptor and its aliases with an opener.
+// RegisterAddress associates an address descriptor with an opener and help line.
 func RegisterAddress(desc AddressDesc) {
 	registryMu.Lock()
 	defer registryMu.Unlock()
 
-	if desc.Opener != nil {
-		if desc.Name != "" {
-			openers[strings.ToUpper(desc.Name)] = desc.Opener
-		}
-		for _, alias := range desc.Aliases {
-			openers[strings.ToUpper(alias)] = desc.Opener
-		}
+	if desc.Opener != nil && desc.Name != "" {
+		openers[strings.ToUpper(desc.Name)] = desc.Opener
 	}
 	if desc.Group != "" && desc.Syntax != "" {
 		if _, exists := addrsByGroup[desc.Group]; !exists {
@@ -74,7 +88,8 @@ func RegisterAddress(desc AddressDesc) {
 	}
 }
 
-// Register associates a classic address type name with an opener for backwards compatibility.
+// Register associates a classic address type name with an opener.
+// It does not add a -h line; prefer RegisterAddress with Syntax set.
 func Register(name string, fn Opener) {
 	RegisterAddress(AddressDesc{
 		Name:   name,
@@ -87,6 +102,45 @@ func lookupOpener(typ string) (Opener, bool) {
 	defer registryMu.RUnlock()
 	fn, ok := openers[typ]
 	return fn, ok
+}
+
+// DefaultHelpGroupOrder is the -h section order.
+func DefaultHelpGroupOrder() []string {
+	return append([]string(nil), defaultGroupOrder...)
+}
+
+// AddressRegistration is a snapshot of one registered address type.
+type AddressRegistration struct {
+	Name    string
+	Group   string
+	Syntax  string
+	Enabled bool
+}
+
+// AddressRegistrations returns every opener and its help metadata.
+func AddressRegistrations() []AddressRegistration {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	seen := map[string]bool{}
+	var out []AddressRegistration
+	for _, descs := range addrsByGroup {
+		for _, d := range descs {
+			name := strings.ToUpper(d.Name)
+			seen[name] = true
+			out = append(out, AddressRegistration{
+				Name:    name,
+				Group:   d.Group,
+				Syntax:  d.Syntax,
+				Enabled: d.Enabled == nil || d.Enabled(),
+			})
+		}
+	}
+	for name := range openers {
+		if !seen[name] {
+			out = append(out, AddressRegistration{Name: name})
+		}
+	}
+	return out
 }
 
 // HelpAddressGroups returns address groups and entries formatted for help output.
