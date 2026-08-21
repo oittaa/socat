@@ -7,6 +7,7 @@ import (
 
 	"github.com/oittaa/socat/internal/xio"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -57,7 +58,7 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(conn)
 		return nil, err
 	}
 	return &xio.Opened{Stream: st, Label: "UDP:" + addr}, nil

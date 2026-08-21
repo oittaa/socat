@@ -10,6 +10,7 @@ import (
 
 	"github.com/oittaa/socat/internal/xio"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -77,8 +78,8 @@ func openSTALL(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 		r = pr
 		closeFDs = append(closeFDs, int(pr.Fd()), int(pw.Fd()))
 		cleanup = append(cleanup, func() {
-			_ = pr.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-			_ = pw.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(pr)
+			logx.CloseQuiet(pw)
 		})
 	}
 
@@ -96,8 +97,8 @@ func openSTALL(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 		w = pw
 		closeFDs = append(closeFDs, int(pr.Fd()), int(pw.Fd()))
 		cleanup = append(cleanup, func() {
-			_ = pr.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-			_ = pw.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(pr)
+			logx.CloseQuiet(pw)
 		})
 	}
 

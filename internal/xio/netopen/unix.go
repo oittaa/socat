@@ -13,6 +13,7 @@ import (
 
 	"github.com/oittaa/socat/internal/xio"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -128,7 +129,7 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(conn)
 		if bindPath != "" {
 			_ = os.Remove(bindPath)
 		}
@@ -239,7 +240,7 @@ func openUnixDgramClient(ctx context.Context, s parse.Spec, mode xio.Mode, g *xi
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(conn)
 		cleanupUnixBind(bindPath)
 		return nil, err
 	}

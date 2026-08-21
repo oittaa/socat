@@ -89,8 +89,10 @@ func (l *Logger) logf(level Level, format string, args ...any) {
 		host = l.hostname + " "
 	}
 	msg := fmt.Sprintf(format, args...)
-	_, _ = fmt.Fprintf(l.out, "%s %s%s[%d] %s %s\n",
-		ts, host, l.progname, os.Getpid(), levelNames[level], msg)
+	if _, err := fmt.Fprintf(l.out, "%s %s%s[%d] %s %s\n",
+		ts, host, l.progname, os.Getpid(), levelNames[level], msg); err != nil {
+		return
+	}
 }
 
 func (l *Logger) Fatalf(format string, args ...any)   { l.logf(Fatal, format, args...) }

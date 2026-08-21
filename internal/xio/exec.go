@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -403,12 +404,12 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 			f()
 		}
 		for _, child := range childFiles {
-			_ = child.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(child)
 		}
 		return nil, startErr
 	}
 	for _, child := range childFiles {
-		_ = child.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(child)
 	}
 
 	return finishExec(s, g, cmd, stream, cleanup, mode == ModeWrite)
@@ -504,7 +505,7 @@ func startCmdSocketpair(s parse.Spec, cmd *exec.Cmd) (relay.Stream, []func(), *o
 		st = FileStream(parent)
 	}
 	cleanup := []func(){func() {
-		_ = parent.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(parent)
 	}}
 	return st, cleanup, child, nil
 }
@@ -521,7 +522,7 @@ func setCloexecAllFrom(from int) {
 	f, err := os.Open("/proc/self/fd")
 	if err == nil {
 		names, _ := f.Readdirnames(-1)
-		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(f)
 		for _, name := range names {
 			fd, err := strconv.Atoi(name)
 			if err != nil || fd < from {
@@ -568,11 +569,11 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		cmd.SysProcAttr.Setctty = !s.HasOption("ctty") || s.BoolOption("ctty")
 		_ = ApplyTermios(int(slave.Fd()), s)
 		if err := cmd.Start(); err != nil {
-			_ = master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-			_ = slave.Close()  // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(master)
+			logx.CloseQuiet(slave)
 			return nil, err
 		}
-		_ = slave.Close() // #nosec G104 -- child inherited the slave; parent must drop its copy
+		logx.CloseQuiet(slave)
 		applyPtyOpts(s, ptmx)
 		w := &halfCloseWriter{w: ptmx}
 		stream := relay.FDStream{
@@ -581,7 +582,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { w.closeWrite(); return nil },
 		}
-		return finishExec(s, g, cmd, stream, []func(){func() { _ = ptmx.Close() }}, true) // #nosec G104 -- Close on cleanup; the first error is already returned
+		return finishExec(s, g, cmd, stream, []func(){func() { logx.CloseQuiet(ptmx) }}, true)
 
 	case ModeRead:
 		// Inherit stdin; only stdout/stderr on PTY slave.
@@ -605,11 +606,11 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		cmd.SysProcAttr.Ctty = 1
 		_ = ApplyTermios(int(slave.Fd()), s)
 		if err := cmd.Start(); err != nil {
-			_ = master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-			_ = slave.Close()  // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(master)
+			logx.CloseQuiet(slave)
 			return nil, err
 		}
-		_ = slave.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(slave)
 		applyPtyOpts(s, ptmx)
 		stream := relay.FDStream{
 			R:      ptmx,
@@ -617,7 +618,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { return nil },
 		}
-		return finishExec(s, g, cmd, stream, []func(){func() { _ = ptmx.Close() }}, false) // #nosec G104 -- Close on cleanup; the first error is already returned
+		return finishExec(s, g, cmd, stream, []func(){func() { logx.CloseQuiet(ptmx) }}, false)
 
 	default:
 		ptmx, err = startOnPTY(cmd, s)
@@ -625,7 +626,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}
 		applyPtyOpts(s, ptmx)
-		return finishExec(s, g, cmd, PtyExecStream(ptmx), []func(){func() { _ = ptmx.Close() }}, false) // #nosec G104 -- Close on cleanup; the first error is already returned
+		return finishExec(s, g, cmd, PtyExecStream(ptmx), []func(){func() { logx.CloseQuiet(ptmx) }}, false)
 	}
 }
 

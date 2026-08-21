@@ -10,6 +10,7 @@ import (
 
 	"github.com/oittaa/socat/internal/xio"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -78,13 +79,13 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 	}
 
 	if err := xio.ApplyTermios(int(slave.Fd()), s); err != nil {
-		_ = master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		_ = slave.Close()  // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
 		return nil, err
 	}
 	if err := xio.ApplyTermios(int(master.Fd()), s); err != nil {
-		_ = master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		_ = slave.Close()  // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
 		return nil, err
 	}
 
@@ -95,8 +96,8 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 	if link != "" {
 		_ = os.Remove(link)
 		if err := os.Symlink(slaveName, link); err != nil {
-			_ = master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-			_ = slave.Close()  // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(master)
+			logx.CloseQuiet(slave)
 			return nil, fmt.Errorf("PTY link: %w", err)
 		}
 	}
@@ -122,8 +123,8 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 	st := xio.PtyStream(master)
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		_ = master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		_ = slave.Close()  // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
 		if link != "" {
 			_ = os.Remove(link)
 		}
@@ -137,7 +138,7 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 		_ = slave.Close()
 		slave = nil
 		if err := xio.WaitPTYSlave(int(master.Fd()), xio.PTYWaitInterval(s)); err != nil {
-			_ = master.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(master)
 			if link != "" {
 				_ = os.Remove(link)
 			}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/oittaa/socat/internal/xio"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -83,7 +84,7 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 				return socks4Handshake(c, socks4a, user, hostName, ip4, portNum)
 			})
 			if e != nil {
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				logx.CloseQuiet(c)
 				return e
 			}
 			conn = c
@@ -263,7 +264,7 @@ func socksParams(s parse.Spec) (socksHost, socksPort, targetHost, targetPort str
 func socks5Handshake(c net.Conn, cmd byte, user, pass string, atyp byte, addrBytes []byte, portNum int) (err error) {
 	defer func() {
 		if err != nil {
-			_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(c)
 		}
 	}()
 	methods := []byte{0}

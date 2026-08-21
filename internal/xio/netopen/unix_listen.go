@@ -10,6 +10,7 @@ import (
 
 	"github.com/oittaa/socat/internal/xio"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -89,13 +90,13 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	}
 	o.AddCleanup(func() {
 		unregister()
-		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(ln)
 	})
 
 	if fork {
 		go func() {
 			<-ctx.Done()
-			_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(ln)
 		}()
 		return o, nil
 	}
@@ -130,14 +131,14 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	var conn net.Conn
 	select {
 	case <-ctx.Done():
-		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(ln)
 		o.Listener = nil
 		return nil, ctx.Err()
 	case a := <-ch:
-		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(ln)
 		o.Listener = nil
 		if a.err != nil {
-			_ = o.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(o)
 			if xio.IsTimeoutErr(a.err) {
 				return nil, xio.ErrAcceptTimeout
 			}
@@ -165,8 +166,8 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-		_ = o.Close()    // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(conn)
+		logx.CloseQuiet(o)
 		return nil, err
 	}
 	o.Stream = st
@@ -201,11 +202,11 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		Listener: ln,
 		Label:    "ABSTRACT-LISTEN:" + name,
 	}
-	o.AddCleanup(func() { _ = ln.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
+	o.AddCleanup(func() { logx.CloseQuiet(ln) })
 	if fork {
 		go func() {
 			<-ctx.Done()
-			_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(ln)
 		}()
 		return o, nil
 	}
@@ -231,10 +232,10 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	}()
 	select {
 	case <-ctx.Done():
-		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(ln)
 		return nil, ctx.Err()
 	case a := <-ch:
-		_ = ln.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(ln)
 		o.Listener = nil
 		if a.err != nil {
 			if xio.IsTimeoutErr(a.err) {
@@ -245,7 +246,7 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		st := relay.Stream(relay.NetStream{Conn: a.c})
 		st, err = xio.WrapCommon(s, st)
 		if err != nil {
-			_ = a.c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(a.c)
 			return nil, err
 		}
 		o.Stream = st

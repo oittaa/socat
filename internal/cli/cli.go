@@ -15,6 +15,7 @@ import (
 
 	"github.com/oittaa/socat"
 	"github.com/oittaa/socat/internal/logx"
+	"github.com/oittaa/socat/internal/outbuf"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	_ "github.com/oittaa/socat/internal/xio/all"
@@ -310,26 +311,32 @@ func Main(args []string) int {
 	xio.WaitFromEnv("SOCAT_MAIN_WAIT")
 	cfg, err := ParseArgs(args)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "socat: %v\n", err)
-		return 1
+		return cliWriteErr("socat: %v\n", err)
 	}
 
 	if cfg.Version {
-		printVersion(os.Stdout)
+		if err := printVersion(os.Stdout); err != nil {
+			return cliWriteErr("socat: %v\n", err)
+		}
 		return 0
 	}
 	if cfg.Help > 0 {
-		printHelp(os.Stdout, cfg.Help)
+		if err := printHelp(os.Stdout, cfg.Help); err != nil {
+			return cliWriteErr("socat: %v\n", err)
+		}
 		return 0
 	}
 
 	if len(cfg.Addresses) != 2 {
-		fmt.Fprintf(os.Stderr, "socat: exactly two addresses required (got %d)\n", len(cfg.Addresses))
-		printHelp(os.Stderr, 1)
+		_ = cliWriteErr("socat: exactly two addresses required (got %d)\n", len(cfg.Addresses))
+		if err := printHelp(os.Stderr, 1); err != nil {
+			return cliWriteErr("socat: %v\n", err)
+		}
 		return 1
 	}
 
 	log := logx.New()
+	logx.SetDefault(log)
 	log.SetLevel(cfg.LogLevel)
 	log.SetProgname(cfg.Progname)
 	log.SetMicros(cfg.Micros)
@@ -343,10 +350,9 @@ func Main(args []string) int {
 	if cfg.LogFile != "" {
 		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644) // #nosec G302 -- -lf log file is meant to be readable
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "socat: %v\n", err)
-			return 1
+			return cliWriteErr("socat: %v\n", err)
 		}
-		defer func() { _ = f.Close() }()
+		defer logx.CloseQuiet(f)
 		log.SetOutput(f)
 	}
 
@@ -354,8 +360,7 @@ func Main(args []string) int {
 	// Register for signal exit (os.Exit skips defers).
 	if cfg.LockFile != "" {
 		if err := createLockFile(cfg.LockFile); err != nil {
-			fmt.Fprintf(os.Stderr, "socat: %v\n", err)
-			return 1
+			return cliWriteErr("socat: %v\n", err)
 		}
 		unregister := xio.RegisterUnlinkPath(cfg.LockFile)
 		defer func() {
@@ -371,8 +376,7 @@ func Main(args []string) int {
 			time.Sleep(100 * time.Millisecond)
 		}
 		if err := createLockFile(cfg.LockWait); err != nil {
-			fmt.Fprintf(os.Stderr, "socat: %v\n", err)
-			return 1
+			return cliWriteErr("socat: %v\n", err)
 		}
 		unregister := xio.RegisterUnlinkPath(cfg.LockWait)
 		defer func() {
@@ -492,12 +496,13 @@ func Main(args []string) int {
 	return 0
 }
 
-func printVersion(w io.Writer) {
+func printVersion(w io.Writer) error {
+	var b outbuf.Buf
 	// Format compatible with classic test.sh testfeats() which greps:
 	//   #define WITH_FOO 1
-	fprintf(w, "socat version %s on %s\n", socat.Version, time.Now().Format(time.RFC3339))
-	fprintf(w, "   running on Go reimplementation (github.com/oittaa/socat)\n")
-	fprintln(w, "features:")
+	b.Printf("socat version %s on %s\n", socat.Version, time.Now().Format(time.RFC3339))
+	b.Printf("   running on Go reimplementation (github.com/oittaa/socat)\n")
+	b.Println("features:")
 	// Implemented = 1, not yet = 0. Keep names aligned with classic socat -V.
 	feats := []struct {
 		name string
@@ -554,11 +559,19 @@ func printVersion(w io.Writer) {
 	}
 	for _, f := range feats {
 		if f.on {
-			fprintf(w, "  #define WITH_%s 1\n", f.name)
+			b.Printf("  #define WITH_%s 1\n", f.name)
 		} else {
-			fprintf(w, "  #undef WITH_%s\n", f.name)
+			b.Printf("  #undef WITH_%s\n", f.name)
 		}
 	}
+	return b.Flush(w)
+}
+
+func cliWriteErr(format string, a ...any) int {
+	if _, err := fmt.Fprintf(os.Stderr, format, a...); err != nil {
+		return 1
+	}
+	return 1
 }
 
 func createLockFile(path string) error {
@@ -580,13 +593,4 @@ func createLockFile(path string) error {
 		return cerr
 	}
 	return nil
-}
-
-// Help and version writes: a failure is not actionable.
-func fprintf(w io.Writer, format string, a ...any) {
-	_, _ = fmt.Fprintf(w, format, a...)
-}
-
-func fprintln(w io.Writer, a ...any) {
-	_, _ = fmt.Fprintln(w, a...)
 }

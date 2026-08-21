@@ -14,6 +14,7 @@ import (
 
 	"github.com/oittaa/socat/internal/xio"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/unix"
@@ -54,7 +55,7 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	case "tap":
 		flags = unix.IFF_TAP
 	default:
-		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("unknown tun-type %q", tunType)
 	}
 	if s.HasOption("iff-no-pi") || s.HasOption("no-pi") {
@@ -65,12 +66,12 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 
 	ifr, err := unix.NewIfreq(name)
 	if err != nil {
-		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("tun-name: %w", err)
 	}
 	ifr.SetUint16(flags)
 	if err := unix.IoctlIfreq(fd, unix.TUNSETIFF, ifr); err != nil {
-		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("ioctl(TUNSETIFF, %q): %w", name, err)
 	}
 	ifname := ifr.Name()
@@ -81,7 +82,7 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	// Control socket for address / flags / mtu.
 	sock, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, 0)
 	if err != nil {
-		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("socket(AF_INET): %w", err)
 	}
 	defer func() { _ = unix.Close(sock) }()
@@ -93,14 +94,14 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	// Optional TUN:addr/bits
 	if addrSpec != "" {
 		if err := setTunIPv4(sock, ifname, addrSpec); err != nil {
-			_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseErr(unix.Close(fd))
 			return nil, err
 		}
 	}
 
 	// Interface flags (iff-up, …) and MTU.
 	if err := applyInterfaceOpts(sock, ifname, s); err != nil {
-		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
 
@@ -111,7 +112,7 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	ts := &tunStream{fd: fd, noPI: noPI}
 	st, err := xio.WrapCommon(s, relay.Stream(ts))
 	if err != nil {
-		_ = ts.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(ts)
 		return nil, err
 	}
 	o := &xio.Opened{
@@ -369,7 +370,7 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	csock, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, 0)
 	if err == nil {
 		_ = applyInterfaceOpts(csock, ifname, s)
-		_ = unix.Close(csock) // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseErr(unix.Close(csock))
 	}
 
 	sa := &unix.SockaddrLinklayer{
@@ -377,7 +378,7 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		Ifindex:  ifi.Index,
 	}
 	if err := unix.Bind(fd, sa); err != nil {
-		_ = unix.Close(fd) // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("bind(AF_PACKET, %s): %w", ifname, err)
 	}
 
@@ -398,12 +399,12 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(f)
 		return nil, err
 	}
 	_ = mode
 	o := &xio.Opened{Stream: st, Label: "INTERFACE:" + ifname}
-	o.AddCleanup(func() { _ = f.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
+	o.AddCleanup(func() { logx.CloseQuiet(f) })
 	return o, nil
 }
 

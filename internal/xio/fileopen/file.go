@@ -7,6 +7,7 @@ import (
 
 	"github.com/oittaa/socat/internal/xio"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -161,7 +162,7 @@ func openPIPE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 		},
 		Label: "PIPE",
 		Cleanup: []func(){
-			func() { _ = r.Close(); _ = w.Close() }, // #nosec G104 -- Close on cleanup; the first error is already returned
+			func() { logx.CloseQuiet(r); logx.CloseQuiet(w) },
 		},
 	}, nil
 }
@@ -233,7 +234,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		st, err := xio.WrapCommon(s, xio.FileStream(f))
 		if err != nil {
-			_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(f)
 			return nil, err
 		}
 		o := &xio.Opened{Stream: st, Label: "PIPE:" + path}
@@ -250,20 +251,20 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		w, err := os.OpenFile(path, os.O_WRONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 		if err != nil {
-			_ = r.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(r)
 			if created {
 				_ = os.Remove(path)
 			}
 			return nil, err
 		}
 		clearNB(w)
-		_ = r.Close() // #nosec G104 -- writer-only FIFO; reader was opened only to keep the pipe alive
+		logx.CloseQuiet(r)
 		if s.BoolOption("unlink-early") {
 			_ = os.Remove(path)
 		}
 		st, err := xio.WrapCommon(s, xio.FileStream(w))
 		if err != nil {
-			_ = w.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(w)
 			return nil, err
 		}
 		o := &xio.Opened{Stream: st, Label: "PIPE:" + path}
@@ -280,7 +281,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		w, err := os.OpenFile(path, os.O_WRONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 		if err != nil {
-			_ = r.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(r)
 			if created {
 				_ = os.Remove(path)
 			}
@@ -301,12 +302,12 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		st, err := xio.WrapCommon(s, stream)
 		if err != nil {
-			_ = r.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
-			_ = w.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(r)
+			logx.CloseQuiet(w)
 			return nil, err
 		}
 		o := &xio.Opened{Stream: st, Label: "PIPE:" + path}
-		o.AddCleanup(func() { _ = r.Close(); _ = w.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
+		o.AddCleanup(func() { logx.CloseQuiet(r); logx.CloseQuiet(w) })
 		addPathCleanup(o)
 		return o, nil
 	}
@@ -351,7 +352,7 @@ func openSocketpair(_ context.Context, _ parse.Spec, _ xio.Mode, _ *xio.Global) 
 		},
 		Label: "SOCKETPAIR",
 		Cleanup: []func(){
-			func() { _ = c1.Close(); _ = c2.Close() }, // #nosec G104 -- Close on cleanup; the first error is already returned
+			func() { logx.CloseQuiet(c1); logx.CloseQuiet(c2) },
 		},
 	}, nil
 }
@@ -393,16 +394,16 @@ func OpenFlags(s parse.Spec, mode xio.Mode) int {
 func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 	// Classic perm=/mode= via fchmod after open (CREATE_PERM etc.).
 	if err := xio.ApplyPerm(path, s, f); err != nil {
-		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(f)
 		return nil, err
 	}
 	// Classic user=/group= via fchown (CREATE_USER, OPEN_USER, GOPEN_USER).
 	if err := xio.ApplyOwner(path, s, f); err != nil {
-		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(f)
 		return nil, err
 	}
 	if err := applyFileLocks(s, f, f); err != nil {
-		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(f)
 		return nil, err
 	}
 	var stream relay.Stream
@@ -420,7 +421,7 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 	}
 	st, err := xio.WrapCommon(s, stream)
 	if err != nil {
-		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(f)
 		return nil, err
 	}
 	o := &xio.Opened{
@@ -428,7 +429,7 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 		Label:  path,
 	}
 	if err := xio.AttachTermios(o, int(f.Fd()), s); err != nil {
-		_ = f.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(f)
 		return nil, err
 	}
 	if s.BoolOption("unlink-early") {

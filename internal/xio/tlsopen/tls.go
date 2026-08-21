@@ -21,6 +21,7 @@ import (
 
 	"github.com/oittaa/socat/internal/xio"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -76,7 +77,7 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 				defer handshakeCancel()
 			}
 			if e := tc.HandshakeContext(hctx); e != nil {
-				_ = raw.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				logx.CloseQuiet(raw)
 				return e
 			}
 			conn = tc
@@ -139,12 +140,12 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		MaxChildren:      maxChildren,
 		HandshakeTimeout: xio.HandshakeTimeout(s),
 	}
-	o.AddCleanup(func() { _ = tlsLn.Close() }) // #nosec G104 -- Close on cleanup; the first error is already returned
+	o.AddCleanup(func() { logx.CloseQuiet(tlsLn) })
 
 	if fork {
 		go func() {
 			<-ctx.Done()
-			_ = tlsLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(tlsLn)
 		}()
 		return o, nil
 	}
@@ -176,15 +177,15 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	var conn net.Conn
 	select {
 	case <-ctx.Done():
-		_ = tlsLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(tlsLn)
 		o.Listener = nil
 		return nil, ctx.Err()
 	case a := <-ch:
 		// Keep listener closed after one accept (classic non-fork).
-		_ = tlsLn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(tlsLn)
 		o.Listener = nil
 		if a.err != nil {
-			_ = o.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+			logx.CloseQuiet(o)
 			if xio.IsTimeoutErr(a.err) {
 				if g != nil && g.Log != nil {
 					g.Log.Warningf("accept: Connection timed out")
@@ -201,13 +202,13 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	}
 	xio.RememberAddrs(g, conn)
 	if err := xio.RememberTLSPeer(g, conn, xio.HandshakeTimeout(s)); err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on handshake failure
+		logx.CloseQuiet(conn)
 		return nil, err
 	}
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		_ = conn.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+		logx.CloseQuiet(conn)
 		return nil, err
 	}
 	o.Stream = st

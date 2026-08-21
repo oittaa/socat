@@ -13,6 +13,7 @@ import (
 
 	"github.com/oittaa/socat/internal/xio"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -101,7 +102,7 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 				return handshakeErr
 			})
 			if e != nil {
-				_ = c.Close() // #nosec G104 -- Close on cleanup; the first error is already returned
+				logx.CloseQuiet(c)
 				return e
 			}
 			conn = negotiated
