@@ -132,3 +132,55 @@ func (l *Leaf) WriteCertAndKey(dir, base string) (certPath, keyPath string, err 
 	}
 	return certPath, keyPath, nil
 }
+
+// WriteTempListenCert writes a short-lived self-signed Ed25519 server
+// certificate and key as one PEM file. Listen addresses require this via
+// cert=; tests point TLS-LISTEN/QUIC-LISTEN/WSS-LISTEN at the returned path.
+func WriteTempListenCert(dir string) (string, error) {
+	cert, err := EphemeralSelfSigned()
+	if err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "listen.pem")
+	if err := writeCertKeyPEM(path, cert); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+func writeCertKeyPEM(path string, cert tls.Certificate) error {
+	if len(cert.Certificate) == 0 {
+		return fmt.Errorf("tls: empty certificate")
+	}
+	var b []byte
+	for _, der := range cert.Certificate {
+		b = append(b, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(cert.PrivateKey)
+	if err != nil {
+		return err
+	}
+	b = append(b, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})...)
+	return os.WriteFile(path, b, 0o600)
+}
+
+// EphemeralSelfSigned builds a short-lived self-signed Ed25519 certificate.
+func EphemeralSelfSigned() (tls.Certificate, error) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "socat-ephemeral"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, priv)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: priv}, nil
+}

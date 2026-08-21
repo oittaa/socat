@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/testcert"
 	"github.com/oittaa/socat/internal/xio"
 
 	_ "github.com/oittaa/socat/internal/xio/all"
-	"github.com/oittaa/socat/internal/xio/tlsopen"
 
 	"github.com/oittaa/socat/internal/parse"
 )
@@ -111,7 +111,7 @@ func TestTLSListenHonorsDefaultListenIP6(t *testing.T) {
 	port := ln0.Addr().(*net.TCPAddr).Port
 	_ = ln0.Close()
 
-	certPath, err := tlsopen.WriteTempListenCert(t.TempDir())
+	certPath, err := testcert.WriteTempListenCert(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,14 +15,14 @@ import (
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/testcert"
 	"github.com/oittaa/socat/internal/xio"
 	_ "github.com/oittaa/socat/internal/xio/fileopen"
-	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
 func listenCert(t *testing.T) string {
 	t.Helper()
-	p, err := tlsopen.WriteTempListenCert(t.TempDir())
+	p, err := testcert.WriteTempListenCert(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

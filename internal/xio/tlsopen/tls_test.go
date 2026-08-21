@@ -45,7 +45,7 @@ MIIBuwIBAAKBgQDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 func TestPostQuantumHybridKeyExchange(t *testing.T) {
 	// Classic test.sh has no post-quantum coverage. Go 1.24+ crypto/tls
 	// defaults to the X25519MLKEM768 hybrid KEM; assert we negotiate it.
-	cert, err := ephemeralSelfSigned()
+	cert, err := testcert.EphemeralSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestTLSClientVerifyConnectionSet(t *testing.T) {
 }
 
 func TestTLSServerVerifyConnectionSet(t *testing.T) {
-	cert, err := ephemeralSelfSigned()
+	cert, err := testcert.EphemeralSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestTLSClientSNIHost(t *testing.T) {
 }
 
 func TestTLSServerVerifyUsesSystemRoots(t *testing.T) {
-	cert, err := ephemeralSelfSigned()
+	cert, err := testcert.EphemeralSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +323,7 @@ func TestTLSServerVerifyUsesSystemRoots(t *testing.T) {
 
 func TestTLSServerVerify0IgnoresCommonName(t *testing.T) {
 	// Classic SSL_VERIFY_NONE: no client cert request; commonname is ignored.
-	cert, err := ephemeralSelfSigned()
+	cert, err := testcert.EphemeralSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,11 +379,11 @@ func TestTLSServerVerify0IgnoresCommonName(t *testing.T) {
 }
 
 func TestTLSServerVerifyRejectsUntrustedClient(t *testing.T) {
-	srv, err := ephemeralSelfSigned()
+	srv, err := testcert.EphemeralSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
-	cli, err := ephemeralSelfSigned()
+	cli, err := testcert.EphemeralSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -529,7 +529,7 @@ func TestTLSClientCommonNameCheck(t *testing.T) {
 
 func TestTLSClientEmptyCommonNameStillVerifiesTrust(t *testing.T) {
 	// Empty commonname= must not become verify=0: an untrusted leaf still fails.
-	leaf, err := ephemeralSelfSigned()
+	leaf, err := testcert.EphemeralSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}

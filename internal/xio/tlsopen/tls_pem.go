@@ -2,17 +2,12 @@
 package tlsopen
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
-	"math/big"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/oittaa/socat/internal/parse"
 )
@@ -192,55 +187,4 @@ func appendCAPath(pool *x509.CertPool, dir string) (int, error) {
 		return 0, fmt.Errorf("capath %s: no certificates found", dir)
 	}
 	return n, nil
-}
-
-// WriteTempListenCert writes a short-lived self-signed Ed25519 server
-// certificate and key as one PEM file. Listen addresses require this via cert=.
-func WriteTempListenCert(dir string) (string, error) {
-	cert, err := ephemeralSelfSigned()
-	if err != nil {
-		return "", err
-	}
-	path := filepath.Join(dir, "listen.pem")
-	if err := writeCertKeyPEM(path, cert); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
-func writeCertKeyPEM(path string, cert tls.Certificate) error {
-	if len(cert.Certificate) == 0 {
-		return fmt.Errorf("tls: empty certificate")
-	}
-	var b []byte
-	for _, der := range cert.Certificate {
-		b = append(b, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
-	}
-	keyDER, err := x509.MarshalPKCS8PrivateKey(cert.PrivateKey)
-	if err != nil {
-		return err
-	}
-	b = append(b, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER})...)
-	return os.WriteFile(path, b, 0o600)
-}
-
-// ephemeralSelfSigned builds a short-lived Ed25519 certificate for tests.
-func ephemeralSelfSigned() (tls.Certificate, error) {
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	tmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject:      pkix.Name{CommonName: "socat-ephemeral"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(24 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, pub, priv)
-	if err != nil {
-		return tls.Certificate{}, err
-	}
-	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: priv}, nil
 }
