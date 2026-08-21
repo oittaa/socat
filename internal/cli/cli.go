@@ -93,6 +93,60 @@ func ParseArgs(args []string) (*Config, error) {
 	return cfg, nil
 }
 
+// cliBoolFlags are exact-match switches that take no argument.
+var cliBoolFlags = map[string]func(*Config){
+	"-h":     func(cfg *Config) { cfg.Help = 1 },
+	"-?":     func(cfg *Config) { cfg.Help = 1 },
+	"--help": func(cfg *Config) { cfg.Help = 1 },
+	"-hh":    func(cfg *Config) { cfg.Help = 2 },
+	"-??":    func(cfg *Config) { cfg.Help = 2 },
+	"-hhh":   func(cfg *Config) { cfg.Help = 3 },
+	"-???":   func(cfg *Config) { cfg.Help = 3 },
+	"-V":     func(cfg *Config) { cfg.Version = true },
+	"-v":     func(cfg *Config) { cfg.Verbose = true },
+	"-x":     func(cfg *Config) { cfg.Hex = true },
+	"-s":     func(cfg *Config) {}, // classic -s; Go stream APIs have no portable subset of recoverable I/O errors
+	"-u":     func(cfg *Config) { cfg.LeftToRight = true },
+	"-U":     func(cfg *Config) { cfg.RightToLeft = true },
+	"-4":     func(cfg *Config) { cfg.IP4 = true },
+	"-6":     func(cfg *Config) { cfg.IP6 = true },
+	"-0":     func(cfg *Config) { cfg.IPAny = true },
+	"-lu":    func(cfg *Config) { cfg.Micros = true },
+	"-lh":    func(cfg *Config) { cfg.Hostname = true },
+	"-g":     func(cfg *Config) {}, // ignore option group check
+	"-D":     func(cfg *Config) {}, // log FDs before transfer — future
+	"-ls":    func(cfg *Config) {}, // log to stderr (default)
+}
+
+type cliValueFlag struct {
+	key   string
+	guard func(a string) bool
+	set   func(cfg *Config, v string) error
+}
+
+// cliValueFlags take an argument attached to the flag or as the next argv
+// entry. Order matters: first prefix match wins, mirroring the historical
+// switch.
+var cliValueFlags = []cliValueFlag{
+	{"b", nil, setBlockSize},
+	{"t", nil, setLingerFlag},
+	{"T", nil, setIdleFlag},
+	{"lp", nil, plainFlag((*Config).fieldProgname)},
+	{"lf", nil, plainFlag((*Config).fieldLogFile)},
+	{"L", nil, plainFlag((*Config).fieldLockFile)},
+	{"W", nil, plainFlag((*Config).fieldLockWait)},
+	{"r", func(a string) bool { return !strings.HasPrefix(a, "-reuse") }, plainFlag((*Config).fieldRawLeft)},
+	{"R", nil, plainFlag((*Config).fieldRawRight)},
+}
+
+// plainFlag stores the raw option value in a config field.
+func plainFlag(dst func(*Config) *string) func(cfg *Config, v string) error {
+	return func(cfg *Config, v string) error {
+		*dst(cfg) = v
+		return nil
+	}
+}
+
 func parseOption(a string, args []string, i *int, cfg *Config) error {
 	// -d / -dd / -ddd / -dddd / -d0 / -d2 …
 	if strings.HasPrefix(a, "-d") {
@@ -116,139 +170,77 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 			return nil
 		}
 	}
-
-	switch {
-	case a == "-h" || a == "-?" || a == "--help":
-		cfg.Help = 1
-	case a == "-hh" || a == "-??":
-		cfg.Help = 2
-	case a == "-hhh" || a == "-???":
-		cfg.Help = 3
-	case a == "-V":
-		cfg.Version = true
-	case a == "-v":
-		cfg.Verbose = true
-	case a == "-x":
-		cfg.Hex = true
-	case a == "-s":
-		// Accepted for classic CLI compatibility. Go's stream APIs do not expose
-		// a portable subset of recoverable I/O errors to which -s could apply.
-	case a == "-u":
-		cfg.LeftToRight = true
-	case a == "-U":
-		cfg.RightToLeft = true
-	case a == "-4":
-		cfg.IP4 = true
-	case a == "-6":
-		cfg.IP6 = true
-	case a == "-0":
-		cfg.IPAny = true
-	// Classic -S<sigmask> logs selected signals; not --statistics.
-	case a == "-lu":
-		cfg.Micros = true
-	case a == "-lh":
-		cfg.Hostname = true
-	case a == "-g":
-		// ignore option group check
-	case strings.HasPrefix(a, "-b"):
-		v, err := optArg(a, "b", args, i)
-		if err != nil {
-			// Classic: bare/missing -b → "missing numerical value of option "-b""
-			return fmt.Errorf("parseopts(): missing numerical value of option \"-b\"")
+	if set, ok := cliBoolFlags[a]; ok {
+		set(cfg)
+		return nil
+	}
+	for _, f := range cliValueFlags {
+		matched := strings.HasPrefix(a, "-"+f.key)
+		if matched && f.guard != nil && !f.guard(a) {
+			matched = false
 		}
-		// Reject empty or non-numeric (classic overflow / missing value messages).
-		if v == "" {
-			return fmt.Errorf("parseopts(): missing numerical value of option \"-b\"")
-		}
-		// Parse as unsigned; overflow → "to big" (classic).
-		n, err := strconv.ParseUint(v, 10, 64)
-		if err != nil {
-			// value larger than uint64 or non-numeric
-			if _, e2 := strconv.ParseFloat(v, 64); e2 == nil {
-				return fmt.Errorf("buffer size option (-b) to big")
+		if matched {
+			v, err := optArg(a, f.key, args, i)
+			if err != nil {
+				return err
 			}
-			return fmt.Errorf("parseopts(): missing numerical value of option \"-b\"")
+			return f.set(cfg, v)
 		}
-		// max is math.MaxInt64 for signed size math in classic (SIZE_T related)
-		const maxBuf = uint64(1<<63 - 1)
-		if n == 0 || n > maxBuf {
+	}
+	// Legacy catch: unrecognized -d combos (-dx) act as bare verbosity.
+	if strings.HasPrefix(a, "-d") {
+		cfg.LogLevel = logx.Notice
+		return nil
+	}
+	return fmt.Errorf("unknown option %q", a)
+}
+
+func setBlockSize(cfg *Config, v string) error {
+	// Classic: bare/missing -b → "missing numerical value of option "-b""
+	if v == "" {
+		return fmt.Errorf("parseopts(): missing numerical value of option \"-b\"")
+	}
+	// Parse as unsigned; overflow → "to big" (classic).
+	n, err := strconv.ParseUint(v, 10, 64)
+	if err != nil {
+		// value larger than uint64 or non-numeric
+		if _, e2 := strconv.ParseFloat(v, 64); e2 == nil {
 			return fmt.Errorf("buffer size option (-b) to big")
 		}
-		// Also cap at a practical size to avoid OOM
-		const practical = 256 * 1024 * 1024
-		if n > practical {
-			return fmt.Errorf("buffer size option (-b) to big")
-		}
-		cfg.BlockSize = int(n)
-	case strings.HasPrefix(a, "-t"):
-		v, err := optArg(a, "t", args, i)
-		if err != nil {
-			return err
-		}
-		cfg.Linger, err = parseDuration(v)
-		if err != nil {
-			return fmt.Errorf("invalid -t value %q: %w", v, err)
-		}
-	case strings.HasPrefix(a, "-T"):
-		v, err := optArg(a, "T", args, i)
-		if err != nil {
-			return err
-		}
-		cfg.IdleSet = true
-		cfg.Idle, err = parseDuration(v)
-		if err != nil {
-			return fmt.Errorf("invalid -T value %q: %w", v, err)
-		}
-		if cfg.Idle < 0 {
-			cfg.Idle = -1
-		}
-	case strings.HasPrefix(a, "-lp"):
-		v, err := optArg(a, "lp", args, i)
-		if err != nil {
-			return err
-		}
-		cfg.Progname = v
-	case strings.HasPrefix(a, "-lf"):
-		v, err := optArg(a, "lf", args, i)
-		if err != nil {
-			return err
-		}
-		cfg.LogFile = v
-	case strings.HasPrefix(a, "-L"):
-		v, err := optArg(a, "L", args, i)
-		if err != nil {
-			return err
-		}
-		cfg.LockFile = v
-	case strings.HasPrefix(a, "-W"):
-		v, err := optArg(a, "W", args, i)
-		if err != nil {
-			return err
-		}
-		cfg.LockWait = v
-	case strings.HasPrefix(a, "-r") && !strings.HasPrefix(a, "-reuse"):
-		v, err := optArg(a, "r", args, i)
-		if err != nil {
-			return err
-		}
-		cfg.RawLeft = v
-	case strings.HasPrefix(a, "-R"):
-		v, err := optArg(a, "R", args, i)
-		if err != nil {
-			return err
-		}
-		cfg.RawRight = v
-	case a == "-D":
-		// log FDs before transfer — future
-	case a == "-ls":
-		// log to stderr (default)
-	default:
-		// try multi -d as separate already handled
-		if strings.HasPrefix(a, "-d") {
-			cfg.LogLevel = logx.Notice
-			return nil
-		}
-		return fmt.Errorf("unknown option %q", a)
+		return fmt.Errorf("parseopts(): missing numerical value of option \"-b\"")
+	}
+	// max is math.MaxInt64 for signed size math in classic (SIZE_T related)
+	const maxBuf = uint64(1<<63 - 1)
+	if n == 0 || n > maxBuf {
+		return fmt.Errorf("buffer size option (-b) to big")
+	}
+	// Cap at a practical size to avoid OOM.
+	const practical = 256 * 1024 * 1024
+	if n > practical {
+		return fmt.Errorf("buffer size option (-b) to big")
+	}
+	cfg.BlockSize = int(n)
+	return nil
+}
+
+func setLingerFlag(cfg *Config, v string) error {
+	d, err := parseDuration(v)
+	if err != nil {
+		return fmt.Errorf("invalid -t value %q: %w", v, err)
+	}
+	cfg.Linger = d
+	return nil
+}
+
+func setIdleFlag(cfg *Config, v string) error {
+	d, err := parseDuration(v)
+	if err != nil {
+		return fmt.Errorf("invalid -T value %q: %w", v, err)
+	}
+	cfg.IdleSet = true
+	cfg.Idle = d
+	if cfg.Idle < 0 {
+		cfg.Idle = -1
 	}
 	return nil
 }
@@ -306,6 +298,14 @@ func parseDuration(v string) (time.Duration, error) {
 	}
 	return d, nil
 }
+
+// Field selectors for plainFlag.
+func (c *Config) fieldProgname() *string { return &c.Progname }
+func (c *Config) fieldLogFile() *string  { return &c.LogFile }
+func (c *Config) fieldLockFile() *string { return &c.LockFile }
+func (c *Config) fieldLockWait() *string { return &c.LockWait }
+func (c *Config) fieldRawLeft() *string  { return &c.RawLeft }
+func (c *Config) fieldRawRight() *string { return &c.RawRight }
 
 // Main runs socat with the given args (excluding program name).
 func Main(args []string) int {
