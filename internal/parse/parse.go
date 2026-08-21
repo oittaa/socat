@@ -183,62 +183,16 @@ func (s Spec) BoolOption(name string) bool {
 
 func splitDual(s string) (left, right string, ok bool) {
 	// Find !! outside of quotes/brackets
-	depthParen, depthBrace, depthBracket := 0, 0, 0
-	inSingle, inDouble := false, false
-	escape := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if escape {
-			escape = false
-			continue
+	sc := NewSpecScanner(s, true)
+	for {
+		c, cls, ok2 := sc.Step()
+		if !ok2 {
+			return "", "", false
 		}
-		if c == '\\' && !inSingle {
-			escape = true
-			continue
-		}
-		if inSingle {
-			if c == '\'' {
-				inSingle = false
-			}
-			continue
-		}
-		if inDouble {
-			if c == '"' {
-				inDouble = false
-			}
-			continue
-		}
-		switch c {
-		case '\'':
-			inSingle = true
-		case '"':
-			inDouble = true
-		case '(':
-			depthParen++
-		case ')':
-			if depthParen > 0 {
-				depthParen--
-			}
-		case '{':
-			depthBrace++
-		case '}':
-			if depthBrace > 0 {
-				depthBrace--
-			}
-		case '[':
-			depthBracket++
-		case ']':
-			if depthBracket > 0 {
-				depthBracket--
-			}
-		case '!':
-			if depthParen == 0 && depthBrace == 0 && depthBracket == 0 &&
-				i+1 < len(s) && s[i+1] == '!' {
-				return s[:i], s[i+2:], true
-			}
+		if cls == ClassTop && c == '!' && sc.Pos() < len(s) && s[sc.Pos()] == '!' {
+			return s[:sc.Pos()-1], s[sc.Pos()+1:], true
 		}
 	}
-	return "", "", false
 }
 
 func splitType(s string) (typeName, rest string) {
@@ -308,62 +262,18 @@ func splitColonParams(s string, pathParam bool) ([]string, error) {
 	}
 	var parts []string
 	start := 0
-	depthParen, depthBrace, depthBracket := 0, 0, 0
-	inSingle, inDouble := false, false
-	escape := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if escape {
-			escape = false
-			continue
+	sc := NewSpecScanner(s, true)
+	for {
+		c, cls, ok := sc.Step()
+		if !ok {
+			break
 		}
-		if c == '\\' && !inSingle {
-			escape = true
-			continue
-		}
-		if inSingle {
-			if c == '\'' {
-				inSingle = false
+		if cls == ClassTop && c == ':' {
+			if isWindowsDriveColon(s, start, sc.Pos()-1) {
+				continue
 			}
-			continue
-		}
-		if inDouble {
-			if c == '"' {
-				inDouble = false
-			}
-			continue
-		}
-		switch c {
-		case '\'':
-			inSingle = true
-		case '"':
-			inDouble = true
-		case '(':
-			depthParen++
-		case ')':
-			if depthParen > 0 {
-				depthParen--
-			}
-		case '{':
-			depthBrace++
-		case '}':
-			if depthBrace > 0 {
-				depthBrace--
-			}
-		case '[':
-			depthBracket++
-		case ']':
-			if depthBracket > 0 {
-				depthBracket--
-			}
-		case ':':
-			if depthParen == 0 && depthBrace == 0 && depthBracket == 0 {
-				if isWindowsDriveColon(s, start, i) {
-					continue
-				}
-				parts = append(parts, unquote(s[start:i], false))
-				start = i + 1
-			}
+			parts = append(parts, unquote(s[start:sc.Pos()-1], false))
+			start = sc.Pos()
 		}
 	}
 	parts = append(parts, unquote(s[start:], false))
@@ -376,76 +286,23 @@ func splitOptions(s string) ([]Option, error) {
 	}
 	var opts []Option
 	start := 0
-	depthParen, depthBrace, depthBracket := 0, 0, 0
-	inSingle, inDouble := false, false
-	escape := false
-	for i := 0; i <= len(s); i++ {
-		atEnd := i == len(s)
-		c := byte(0)
-		if !atEnd {
-			c = s[i]
+	sc := NewSpecScanner(s, true)
+	for {
+		c, cls, ok := sc.Step()
+		if !ok {
+			break
 		}
-		if !atEnd {
-			if escape {
-				escape = false
-				continue
-			}
-			if c == '\\' && !inSingle {
-				escape = true
-				continue
-			}
-			if inSingle {
-				if c == '\'' {
-					inSingle = false
-				}
-				continue
-			}
-			if inDouble {
-				if c == '"' {
-					inDouble = false
-				}
-				continue
-			}
-			switch c {
-			case '\'':
-				inSingle = true
-				continue
-			case '"':
-				inDouble = true
-				continue
-			case '(':
-				depthParen++
-				continue
-			case ')':
-				if depthParen > 0 {
-					depthParen--
-				}
-				continue
-			case '{':
-				depthBrace++
-				continue
-			case '}':
-				if depthBrace > 0 {
-					depthBrace--
-				}
-				continue
-			case '[':
-				depthBracket++
-				continue
-			case ']':
-				if depthBracket > 0 {
-					depthBracket--
-				}
-				continue
-			}
-		}
-		if atEnd || (c == ',' && depthParen == 0 && depthBrace == 0 && depthBracket == 0) {
-			part := strings.TrimSpace(s[start:i])
+		if cls == ClassTop && c == ',' {
+			part := strings.TrimSpace(s[start : sc.Pos()-1])
 			if part != "" {
 				opts = append(opts, parseOption(part))
 			}
-			start = i + 1
+			start = sc.Pos()
 		}
+	}
+	part := strings.TrimSpace(s[start:])
+	if part != "" {
+		opts = append(opts, parseOption(part))
 	}
 	return opts, nil
 }
@@ -534,61 +391,7 @@ func normalizeOptionName(name string) string {
 }
 
 func indexTopLevel(s string, sep byte) int {
-	depthParen, depthBrace, depthBracket := 0, 0, 0
-	inSingle, inDouble := false, false
-	escape := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if escape {
-			escape = false
-			continue
-		}
-		if c == '\\' && !inSingle {
-			escape = true
-			continue
-		}
-		if inSingle {
-			if c == '\'' {
-				inSingle = false
-			}
-			continue
-		}
-		if inDouble {
-			if c == '"' {
-				inDouble = false
-			}
-			continue
-		}
-		switch c {
-		case '\'':
-			inSingle = true
-		case '"':
-			inDouble = true
-		case '(':
-			depthParen++
-		case ')':
-			if depthParen > 0 {
-				depthParen--
-			}
-		case '{':
-			depthBrace++
-		case '}':
-			if depthBrace > 0 {
-				depthBrace--
-			}
-		case '[':
-			depthBracket++
-		case ']':
-			if depthBracket > 0 {
-				depthBracket--
-			}
-		default:
-			if c == sep && depthParen == 0 && depthBrace == 0 && depthBracket == 0 {
-				return i
-			}
-		}
-	}
-	return -1
+	return NewSpecScanner(s, true).FindTop(sep)
 }
 
 func unquote(s string, pathValue bool) string {
@@ -620,57 +423,28 @@ func unquote(s string, pathValue bool) string {
 // stripNestingQuotes removes quote delimiter characters while keeping content.
 func stripNestingQuotes(s string) string {
 	var b strings.Builder
-	inSingle, inDouble := false, false
-	escape := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if escape {
+	sc := NewSpecScanner(s, false)
+	for {
+		c, cls, ok := sc.Step()
+		if !ok {
+			break
+		}
+		if cls != ClassDelim {
 			b.WriteByte(c)
-			escape = false
-			continue
 		}
-		if c == '\\' && !inSingle {
-			escape = true
-			b.WriteByte(c)
-			continue
-		}
-		if !inDouble && c == '\'' {
-			inSingle = !inSingle
-			continue // drop delimiter
-		}
-		if !inSingle && c == '"' {
-			inDouble = !inDouble
-			continue // drop delimiter
-		}
-		b.WriteByte(c)
 	}
 	return b.String()
 }
 
 // checkBalancedQuotes returns an error if s has an unclosed quote (classic syntax error).
 func checkBalancedQuotes(s string) error {
-	inSingle, inDouble := false, false
-	escape := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if escape {
-			escape = false
-			continue
-		}
-		if c == '\\' && !inSingle {
-			escape = true
-			continue
-		}
-		if !inDouble && c == '\'' {
-			inSingle = !inSingle
-			continue
-		}
-		if !inSingle && c == '"' {
-			inDouble = !inDouble
-			continue
+	sc := NewSpecScanner(s, false)
+	for {
+		if _, _, ok := sc.Step(); !ok {
+			break
 		}
 	}
-	if inSingle || inDouble {
+	if sc.Single() || sc.Double() {
 		return fmt.Errorf("syntax error: unexpected end of address (unbalanced quote)")
 	}
 	return nil

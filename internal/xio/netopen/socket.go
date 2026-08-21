@@ -380,37 +380,16 @@ func rawSocketAddress(s parse.Spec, paramIndex int) string {
 }
 
 func cutTopLevelComma(s string) string {
-	inSingle, inDouble := false, false
-	escape := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if escape {
-			escape = false
-			continue
+	// Raw SOCKET data treats grouping characters as ordinary bytes; only
+	// quotes and escapes hide the comma.
+	sc := parse.NewSpecScanner(s, false)
+	for {
+		c, cls, ok := sc.Step()
+		if !ok {
+			break
 		}
-		if c == '\\' && !inSingle {
-			escape = true
-			continue
-		}
-		if inSingle {
-			if c == '\'' {
-				inSingle = false
-			}
-			continue
-		}
-		if inDouble {
-			if c == '"' {
-				inDouble = false
-			}
-			continue
-		}
-		switch c {
-		case '\'':
-			inSingle = true
-		case '"':
-			inDouble = true
-		case ',':
-			return s[:i]
+		if cls == parse.ClassTop && c == ',' {
+			return s[:sc.Pos()-1]
 		}
 	}
 	return s
@@ -422,38 +401,15 @@ func splitColonNoUnquote(s string) []string {
 	}
 	var parts []string
 	start := 0
-	inSingle, inDouble := false, false
-	escape := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if escape {
-			escape = false
-			continue
+	sc := parse.NewSpecScanner(s, false)
+	for {
+		c, cls, ok := sc.Step()
+		if !ok {
+			break
 		}
-		if c == '\\' && !inSingle {
-			escape = true
-			continue
-		}
-		if inSingle {
-			if c == '\'' {
-				inSingle = false
-			}
-			continue
-		}
-		if inDouble {
-			if c == '"' {
-				inDouble = false
-			}
-			continue
-		}
-		switch c {
-		case '\'':
-			inSingle = true
-		case '"':
-			inDouble = true
-		case ':':
-			parts = append(parts, s[start:i])
-			start = i + 1
+		if cls == parse.ClassTop && c == ':' {
+			parts = append(parts, s[start:sc.Pos()-1])
+			start = sc.Pos()
 		}
 	}
 	parts = append(parts, s[start:])
