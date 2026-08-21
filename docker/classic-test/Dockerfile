@@ -52,8 +52,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp/build
-RUN curl -fsSL "http://www.dest-unreach.org/socat/download/socat-${CLASSIC_VERSION}.tar.gz" \
-        -o "socat-${CLASSIC_VERSION}.tar.gz" \
+# Fetch from the Alpine distfiles mirror (valid TLS). dest-unreach.org serves a
+# self-signed certificate, so it remains only a plain-HTTP fallback. The sha256
+# is the one pinned by Homebrew homebrew-core (Formula/s/socat.rb) and was
+# verified against both sources; bump it together with CLASSIC_VERSION.
+RUN curl -fsSL -o "socat-${CLASSIC_VERSION}.tar.gz" \
+        "https://distfiles.alpinelinux.org/distfiles/edge/socat-${CLASSIC_VERSION}.tar.gz" \
+    || curl -fsSL -o "socat-${CLASSIC_VERSION}.tar.gz" \
+        "http://www.dest-unreach.org/socat/download/socat-${CLASSIC_VERSION}.tar.gz" \
+    && echo "06602ffd591e98c75b3dc1d66f0f19136cc666b0b2d95caad987d6ab2cb28097  socat-${CLASSIC_VERSION}.tar.gz" | sha256sum -c - \
     && tar -xzf "socat-${CLASSIC_VERSION}.tar.gz" \
     && cd "socat-${CLASSIC_VERSION}" \
     && ./configure --prefix="${CLASSIC_PREFIX}" \
