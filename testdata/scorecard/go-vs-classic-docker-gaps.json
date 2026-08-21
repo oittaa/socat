@@ -1,10 +1,15 @@
 {
   "classic_docker_ok": 552,
-  "go_ok": 504,
+  "go_ok": 511,
   "parity_fail": [
     {
       "id": "146",
       "name": "OPENSSLLISTENDSA",
+      "status": "FAILED"
+    },
+    {
+      "id": "491",
+      "name": "SOCKETPAIR_BOUNDARIES",
       "status": "FAILED"
     },
     {
@@ -95,26 +100,6 @@
       "status": "CANT"
     },
     {
-      "id": "425",
-      "name": "CONNECT_TO_DGRAM",
-      "status": "CANT"
-    },
-    {
-      "id": "426",
-      "name": "CONNECT_TO_SEQPACKET",
-      "status": "CANT"
-    },
-    {
-      "id": "446",
-      "name": "SEQPACKET_TO_STREAM",
-      "status": "CANT"
-    },
-    {
-      "id": "447",
-      "name": "SEQPACKET_TO_DGRAM",
-      "status": "CANT"
-    },
-    {
       "id": "472",
       "name": "SIGTERM_NOLOG",
       "status": "CANT"
@@ -132,11 +117,6 @@
     {
       "id": "479",
       "name": "CHILDREN_SHUTUP",
-      "status": "CANT"
-    },
-    {
-      "id": "491",
-      "name": "SOCKETPAIR_BOUNDARIES",
       "status": "CANT"
     },
     {
@@ -251,11 +231,26 @@
     }
   ],
   "parity_other": [],
-  "parity_gap_total": 49,
+  "parity_gap_total": 45,
   "new_ok_vs_classic_docker": [
+    {
+      "id": "216",
+      "name": "UDP6MULTICAST_UNIDIR",
+      "was": "CANT"
+    },
     {
       "id": "219",
       "name": "TUNREAD",
+      "was": "FAILED"
+    },
+    {
+      "id": "486",
+      "name": "NETNS",
+      "was": "FAILED"
+    },
+    {
+      "id": "487",
+      "name": "NETNS_EXEC",
       "was": "FAILED"
     }
   ]
