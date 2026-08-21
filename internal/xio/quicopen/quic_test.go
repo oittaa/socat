@@ -185,6 +185,46 @@ func TestQUICHalfClose(t *testing.T) {
 	}
 }
 
+func TestQUICReadOnlyClientReceivesListenText(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	payload := "quic-one-way"
+	ls, err := parse.ParseChannel(fmt.Sprintf(
+		"QUIC-LISTEN:0,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", listenCert(t),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := parse.ParseChannel("TEXT:" + payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := &xio.Global{Log: logx.New(), Linger: 200 * time.Millisecond, RightToLeft: true}
+	lo, err := xio.OpenChannel(ctx, ls, xio.ModeWrite, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := lo.Listener.Addr().(*net.UDPAddr).Port
+	go func() { _ = xio.RunOpened(ctx, lo, text, g) }()
+
+	cs, err := parse.ParseSpec(fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openQUICConnect(ctx, cs, xio.ModeRead, &xio.Global{Log: logx.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = o.Close() }()
+	got := make([]byte, len(payload))
+	if _, err := io.ReadFull(o.Stream, got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != payload {
+		t.Fatalf("got %q", got)
+	}
+}
+
 type trustCerts struct {
 	caFile, serverCert, serverKey, clientCert, clientKey string
 }

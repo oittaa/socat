@@ -12,7 +12,7 @@ import (
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
-func openQUICConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	host, port, err := quicTarget(s, false)
 	if err != nil {
 		return nil, err
@@ -71,6 +71,15 @@ func openQUICConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 			if e != nil {
 				_ = qc.CloseWithError(0, "")
 				return e
+			}
+			// quic-go does not signal OpenStream to the peer until data,
+			// reset, or close. A receive-only client never writes, so
+			// half-close send and unblock the listener's AcceptStream.
+			if mode == xio.ModeRead {
+				if e := st.Close(); e != nil {
+					_ = qc.CloseWithError(0, "")
+					return e
+				}
 			}
 			conn = wrapQUIC(qc, st)
 			return nil
