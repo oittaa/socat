@@ -121,8 +121,12 @@ func socks4Handshake(c net.Conn, socks4a bool, user, hostName string, ip4 [4]byt
 	if _, err := c.Write(req); err != nil {
 		return err
 	}
+	return socks4ReadReply(c)
+}
+
+func socks4ReadReply(r io.Reader) error {
 	var resp [8]byte
-	if _, err := io.ReadFull(c, resp[:]); err != nil {
+	if _, err := io.ReadFull(r, resp[:]); err != nil {
 		return fmt.Errorf("socks4 reply: %w", err)
 	}
 	if resp[1] != 90 {

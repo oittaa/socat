@@ -8,8 +8,14 @@ import (
 
 func FuzzParseSpec(f *testing.F) {
 	for _, seed := range []string{
-		"-", "TCP4:127.0.0.1:80,reuseaddr", `EXEC:"echo a!!b",pty`,
+		"-", "-,escape=27", "TCP4:127.0.0.1:80,reuseaddr", `EXEC:"echo a!!b",pty`,
 		"UNIX-LISTEN:/tmp/example.sock,unlink-early", "TCP6:[::1]:443",
+		`CREATE:C:\temp\file`, `OPEN:C:\temp\file,rdonly`, `\\server\share\file`,
+		"CREATE:C:/temp/file", "GOPEN:/tmp/a,b,creat", "TEXT:hello\\tworld",
+		"TCP-LISTEN:8080,reuseaddr,fork,bind=127.0.0.1",
+		"TLS:example.com:443,verify=0,commonname=example.com",
+		"WS:example.com:80/echo/v1", "QUIC:[::1]:4433,alpn=socat",
+		"", "::::", ",,,,", strings.Repeat("A,", 200),
 	} {
 		f.Add(seed)
 	}
@@ -31,6 +37,8 @@ func FuzzParseSpec(f *testing.F) {
 func FuzzParseChannel(f *testing.F) {
 	for _, seed := range []string{
 		"stdin!!stdout", "OPEN:file,rdonly", `EXEC:"printf !!"`, "2", "/tmp/file",
+		"-!!-", "STDIN!!STDOUT", `EXEC:"echo a!!b"!!STDOUT`,
+		`CREATE:C:\out.txt`, "TCP6:[::1]:443!!STDOUT",
 	} {
 		f.Add(seed)
 	}

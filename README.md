@@ -214,6 +214,20 @@ make lint          # gofmt, go vet, golangci-lint
 make gosec         # security scan; suppress only at the call site with #nosec
 ```
 
+Parser fuzz campaigns and the live relay matrix are **local only**. GitHub does not run `-fuzz` or `-tags=relaymatrix`. `go test` still executes each `Fuzz*` function on its seed corpus (milliseconds).
+
+```bash
+go run ./scripts/fuzzall                 # 30s per parser / protocol-byte target
+go run ./scripts/fuzzall -fuzztime=5m
+make fuzz FUZZTIME=5m                    # same; needs make
+go test -tags=e2e,relaymatrix -run TestRelayMatrix ./e2e/ -count=1 -timeout=10m
+make fuzz-matrix                         # same after make build
+```
+
+`scripts/fuzzall` works on Linux, macOS, and Windows (`go run`). It skips unix-only targets on Windows. Generated corpus stays in `testdata/fuzz/` (gitignored). If a campaign finds a crash, add a minimized `f.Add(...)` seed and fix the bug.
+
+The relay matrix is not every address pair. It covers enabled byte-pipe families (TCP4, UNIX, TLS, WS, QUIC, SCTP when the kernel allows it) in three directions, plus FILE, one UDP one-way case, and a few TCP bridges. Skip EXEC, TUN, RAWIP, PROXY/SOCKS, and POSIXMQ here.
+
 GitHub Actions runs those four checks on `master` and on pull requests.
 Unit and e2e run on Linux amd64, Linux arm64, macOS, Windows amd64, and Windows arm64.
 Lint and gosec stay on Ubuntu. `-V` / `-h` only list features that work on that OS.
@@ -246,6 +260,7 @@ internal/parse  internal/xio/{netopen,tlsopen,proxyopen,fileopen,tunopen,all}
 internal/relay  internal/cli  internal/logx
 scripts/classic-scorecard.sh  scripts/scorecard-parse.py  scripts/scorecard-compare.py
 scripts/bench.sh              # optional loopback benches
+scripts/fuzzall               # optional local parser fuzz campaigns
 testdata/scorecard/   # classic / go baselines
 testdata/bench/       # committed bench snapshot
 e2e/
