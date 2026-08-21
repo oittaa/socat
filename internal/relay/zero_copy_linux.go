@@ -75,7 +75,10 @@ func prepareZeroCopy(src, dst Stream) zeroCopyPlan {
 	}
 }
 
-func duplicateZeroCopyFD(v any) (int, zeroCopyEndpointKind, bool) {
+// duplicateZeroCopyFD dups the endpoint's descriptor for exclusive kernel
+// use; v is the concrete *os.File / *net.TCPConn / *net.UnixConn produced by
+// the unwrap helpers.
+func duplicateZeroCopyFD(v syscall.Conn) (int, zeroCopyEndpointKind, bool) {
 	var kind zeroCopyEndpointKind
 	switch value := v.(type) {
 	case *os.File:
@@ -97,11 +100,7 @@ func duplicateZeroCopyFD(v any) (int, zeroCopyEndpointKind, bool) {
 		return -1, 0, false
 	}
 
-	sc, ok := v.(syscall.Conn)
-	if !ok {
-		return -1, 0, false
-	}
-	raw, err := sc.SyscallConn()
+	raw, err := v.SyscallConn()
 	if err != nil {
 		return -1, 0, false
 	}
@@ -169,7 +168,7 @@ func (z *linuxZeroCopy) copySendfile(ctx context.Context, onRead, onWrite func(i
 			if waitErr := waitZeroCopyFD(ctx, z.dstFD, unix.POLLOUT); waitErr != nil {
 				return waitErr
 			}
-		case zeroCopyUnsupportedError(err) && written == 0:
+		case isZeroCopyUnsupportedError(err) && written == 0:
 			return errZeroCopyUnsupported
 		default:
 			return err
@@ -243,7 +242,7 @@ func (z *linuxZeroCopy) copySplice(ctx context.Context, onRead, onWrite func(int
 				}
 				return waitErr
 			}
-		case zeroCopyUnsupportedError(err) && written == 0 && n64 == 0:
+		case isZeroCopyUnsupportedError(err) && written == 0 && n64 == 0:
 			return errZeroCopyUnsupported
 		default:
 			return err
@@ -251,7 +250,7 @@ func (z *linuxZeroCopy) copySplice(ctx context.Context, onRead, onWrite func(int
 	}
 }
 
-func zeroCopyUnsupportedError(err error) bool {
+func isZeroCopyUnsupportedError(err error) bool {
 	return errors.Is(err, unix.ENOSYS) || errors.Is(err, unix.EINVAL) ||
 		errors.Is(err, unix.EOPNOTSUPP)
 }

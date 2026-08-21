@@ -123,10 +123,10 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	// Prepare kernel-copy descriptors while the original streams are known to
 	// be open. Unsupported platforms and endpoint pairs return nil and retain
 	// the ordinary configured-buffer path.
-	if cfg.LeftToRight && canZeroCopy(cfg, ">", useExplicitPoll) {
+	if cfg.LeftToRight && zeroCopyAllowed(cfg, ">", useExplicitPoll) {
 		lrZeroCopy = prepareZeroCopy(left, right)
 	}
-	if cfg.RightToLeft && canZeroCopy(cfg, "<", useExplicitPoll) {
+	if cfg.RightToLeft && zeroCopyAllowed(cfg, "<", useExplicitPoll) {
 		rlZeroCopy = prepareZeroCopy(right, left)
 	}
 

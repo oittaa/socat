@@ -1,8 +1,6 @@
 package relay
 
 import (
-	"context"
-	"errors"
 	"io"
 	"net"
 	"sync"
@@ -23,17 +21,6 @@ type Stream interface {
 type fdProvider interface {
 	Fd() uintptr
 }
-
-// zeroCopyPlan is prepared before the cancellation goroutine can close either
-// stream. Implementations own any duplicated descriptors and report read and
-// write progress so idle timeouts and live statistics retain their normal
-// semantics while data remains in the kernel.
-type zeroCopyPlan interface {
-	Copy(ctx context.Context, onRead, onWrite func(int64)) error
-	Close() error
-}
-
-var errZeroCopyUnsupported = errors.New("zero-copy transfer unsupported")
 
 // NetStream wraps a net.Conn as a Stream.
 type NetStream struct {
