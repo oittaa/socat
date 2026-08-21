@@ -733,8 +733,11 @@ func makeVerifyPeer(roots *x509.CertPool, checkName string) func(rawCerts [][]by
 		if err := leaf.VerifyHostname(checkName); err == nil {
 			return nil
 		}
-		// CN match for classic test certs / commonname= option.
-		if cnMatches(leaf, checkName) {
+		// RFC 6125 §6.4.4 / OpenSSL X509_check_host parity: the CN fallback
+		// applies only when the certificate carries no subjectAltName entries
+		// at all (classic test certs). A certificate with SANs must match via
+		// its SANs; a matching CN beside non-matching SANs must fail.
+		if len(leaf.DNSNames) == 0 && len(leaf.IPAddresses) == 0 && cnMatches(leaf, checkName) {
 			return nil
 		}
 		// Without a matching SAN/CN, fail (OPENSSL_CN_CLIENT_SECURITY:
@@ -743,6 +746,8 @@ func makeVerifyPeer(roots *x509.CertPool, checkName string) func(rawCerts [][]by
 	}
 }
 
+// cnMatches compares the certificate subject CN with want (classic strcmp on
+// the CN). Only reached when the certificate has no SANs; see makeVerifyPeer.
 func cnMatches(leaf *x509.Certificate, want string) bool {
 	if leaf == nil || want == "" {
 		return false
@@ -750,18 +755,7 @@ func cnMatches(leaf *x509.Certificate, want string) bool {
 	// OPENSSLTCP6_*: classic test certs use CN="[::1]" while dial name is ::1.
 	want = xio.StripBrackets(want)
 	cn := xio.StripBrackets(leaf.Subject.CommonName)
-	if strings.EqualFold(cn, want) {
-		return true
-	}
-	if strings.EqualFold(leaf.Subject.CommonName, want) {
-		return true
-	}
-	for _, n := range leaf.DNSNames {
-		if strings.EqualFold(n, want) {
-			return true
-		}
-	}
-	return false
+	return strings.EqualFold(cn, want)
 }
 
 // WriteTempListenCert writes a short-lived self-signed Ed25519 server
