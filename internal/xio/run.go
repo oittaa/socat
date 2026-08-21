@@ -137,6 +137,77 @@ func runConnectForkWithLeft(ctx context.Context, left relay.Stream, ro *Opened, 
 	})
 }
 
+// childSlots bounds concurrent fork sessions (nil = unlimited, classic
+// default when max-children is unset).
+type childSlots chan struct{}
+
+func newChildSlots(maxChildren int) childSlots {
+	if maxChildren <= 0 {
+		return nil
+	}
+	return make(chan struct{}, maxChildren)
+}
+
+// acquire reserves a slot, returning false when ctx completes first.
+func (s childSlots) acquire(ctx context.Context) bool {
+	if s == nil {
+		return true
+	}
+	select {
+	case <-ctx.Done():
+		return false
+	case s <- struct{}{}:
+		return true
+	}
+}
+
+// release frees a reserved slot.
+func (s childSlots) release() {
+	if s != nil {
+		<-s
+	}
+}
+
+// forEachAccepted runs body in a new goroutine per accepted connection under
+// max-children accounting and the peer filter. It returns nil on ctx
+// completion and the accept error otherwise. g.Log must be non-nil (the CLI
+// always installs a logger).
+func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global, logAccept bool, body func(c net.Conn, cg *Global)) error {
+	slots := newChildSlots(o.MaxChildren)
+	for {
+		if !slots.acquire(ctx) {
+			return nil
+		}
+		conn, err := ln.Accept()
+		if err != nil {
+			slots.release()
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
+		if o.PeerFilter != nil {
+			if ferr := o.PeerFilter(conn); ferr != nil {
+				g.Log.Noticef("%s", ferr)
+				CloseRefusedPeer(conn)
+				slots.release()
+				continue
+			}
+		}
+		if logAccept {
+			g.Log.Infof("accepted %s", conn.RemoteAddr())
+		}
+		WaitFromEnv("SOCAT_FORK_WAIT")
+		go func(c net.Conn) {
+			defer func() { _ = c.Close() }()
+			defer slots.release()
+			cg := g.forkSession()
+			RememberAddrs(cg, c)
+			body(c, cg)
+		}(conn)
+	}
+}
+
 func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(context.Context, *Global, net.Conn) error) error {
 	if o.Dial == nil {
 		return fmt.Errorf("%s: connect fork without dialer", o.Label)
@@ -145,10 +216,7 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 	if interval <= 0 {
 		interval = time.Second
 	}
-	var slots chan struct{}
-	if o.MaxChildren > 0 {
-		slots = make(chan struct{}, o.MaxChildren)
-	}
+	slots := newChildSlots(o.MaxChildren)
 	if g != nil && g.Log != nil {
 		g.Log.Noticef("starting connect loop (%s)", o.Label)
 	}
@@ -158,18 +226,12 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 		}
 		// Wait for a free child slot before dial (classic: parent blocks when
 		// num_child >= max-children, then connects again).
-		if slots != nil {
-			select {
-			case <-ctx.Done():
-				return nil
-			case slots <- struct{}{}:
-			}
+		if !slots.acquire(ctx) {
+			return nil
 		}
 		conn, err := o.Dial(ctx)
 		if err != nil {
-			if slots != nil {
-				<-slots
-			}
+			slots.release()
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -181,9 +243,7 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 		WaitFromEnv("SOCAT_FORK_WAIT")
 		go func(c net.Conn) {
 			defer func() { _ = c.Close() }()
-			if slots != nil {
-				defer func() { <-slots }()
-			}
+			defer slots.release()
 			cg := g.forkSession()
 			RememberAddrs(cg, c)
 			if err := RememberTLSPeer(cg, c, o.HandshakeTimeout); err != nil {
@@ -211,99 +271,55 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 
 func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode Mode, g *Global) error {
 	ln := lo.Listener
-	g.Log.Noticef("listening on %s", ln.Addr())
+	lg := g.Log
+	lg.Noticef("listening on %s", ln.Addr())
 	go func() {
 		<-ctx.Done()
 		logx.CloseQuiet(ln)
 	}()
-	filter := lo.PeerFilter
-	maxCh := lo.MaxChildren
-	// Semaphore for max-children (0 = unlimited).
-	var slots chan struct{}
-	if maxCh > 0 {
-		slots = make(chan struct{}, maxCh)
-	}
-	for {
-		if slots != nil {
-			select {
-			case <-ctx.Done():
-				return nil
-			case slots <- struct{}{}:
-			}
+	return lo.forEachAccepted(ctx, ln, g, true, func(c net.Conn, cg *Global) {
+		if err := RememberTLSPeer(cg, c, lo.HandshakeTimeout); err != nil {
+			lg.Errorf("handshake: %s", err)
+			return
 		}
-		conn, err := ln.Accept()
+		leftStream, err := streamFromDial(lo, c)
 		if err != nil {
-			if slots != nil {
-				<-slots
-			}
-			if ctx.Err() != nil {
-				return nil
-			}
-			return err
+			lg.Errorf("wrap accept: %s", err)
+			return
 		}
-		if filter != nil {
-			if err := filter(conn); err != nil {
-				g.Log.Noticef("%s", err)
-				CloseRefusedPeer(conn)
-				if slots != nil {
-					<-slots
-				}
-				continue
-			}
+		ro, err := OpenChannel(ctx, right, rMode, cg)
+		if err != nil {
+			// Classic greps `E open(` for RECVFROM_FORK_LOOP — no "right address:" prefix.
+			lg.Errorf("%s", err)
+			return
 		}
-		g.Log.Infof("accepted %s", conn.RemoteAddr())
-		WaitFromEnv("SOCAT_FORK_WAIT")
-		go func(c net.Conn) {
-			defer func() { _ = c.Close() }()
-			if slots != nil {
-				defer func() { <-slots }()
-			}
-			// Per-connection session so SOCAT_* env is correct under concurrency.
-			cg := g.forkSession()
-			RememberAddrs(cg, c)
-			if err := RememberTLSPeer(cg, c, lo.HandshakeTimeout); err != nil {
-				g.Log.Errorf("handshake: %s", err)
+		// Classic RECVFROM,fork creates a socketpair per child (FD-leak / loop tests).
+		// Stream listens (TCP-LISTEN,fork PIPE) transfer directly — a bridge would
+		// open -r/-R sniff files twice per session (VARS_IN_SNIFFPATH expects 4 files
+		// for 2 clients, not 8).
+		if needsForkSocketpair(lo) {
+			sp0, sp1, spErr := unixSocketpairLogged(g)
+			if spErr != nil {
+				lg.Errorf("socketpair: %s", spErr)
+				logx.CloseQuiet(ro)
 				return
 			}
-			leftStream, err := streamFromDial(lo, c)
-			if err != nil {
-				g.Log.Errorf("wrap accept: %s", err)
-				return
+			go func() {
+				defer func() { _ = sp1.Close() }()
+				defer func() { _ = ro.Close() }()
+				_ = transferStreams(ctx, FileStream(sp1), ro.EffectiveStream(), cg)
+			}()
+			defer func() { _ = sp0.Close() }()
+			if err := transferStreams(ctx, leftStream, FileStream(sp0), cg); err != nil {
+				lg.Debugf("transfer: %s", err)
 			}
-			ro, err := OpenChannel(ctx, right, rMode, cg)
-			if err != nil {
-				// Classic greps `E open(` for RECVFROM_FORK_LOOP — no "right address:" prefix.
-				g.Log.Errorf("%s", err)
-				return
-			}
-			// Classic RECVFROM,fork creates a socketpair per child (FD-leak / loop tests).
-			// Stream listens (TCP-LISTEN,fork PIPE) transfer directly — a bridge would
-			// open -r/-R sniff files twice per session (VARS_IN_SNIFFPATH expects 4 files
-			// for 2 clients, not 8).
-			if needsForkSocketpair(lo) {
-				sp0, sp1, spErr := unixSocketpairLogged(g)
-				if spErr != nil {
-					g.Log.Errorf("socketpair: %s", spErr)
-					logx.CloseQuiet(ro)
-					return
-				}
-				go func() {
-					defer func() { _ = sp1.Close() }()
-					defer func() { _ = ro.Close() }()
-					_ = transferStreams(ctx, FileStream(sp1), ro.EffectiveStream(), cg)
-				}()
-				defer func() { _ = sp0.Close() }()
-				if err := transferStreams(ctx, leftStream, FileStream(sp0), cg); err != nil {
-					g.Log.Debugf("transfer: %s", err)
-				}
-				return
-			}
-			defer func() { _ = ro.Close() }()
-			if err := transferStreams(ctx, leftStream, ro.EffectiveStream(), cg); err != nil {
-				g.Log.Debugf("transfer: %s", err)
-			}
-		}(conn)
-	}
+			return
+		}
+		defer func() { _ = ro.Close() }()
+		if err := transferStreams(ctx, leftStream, ro.EffectiveStream(), cg); err != nil {
+			lg.Debugf("transfer: %s", err)
+		}
+	})
 }
 
 // needsForkSocketpair is true for datagram RECVFROM,fork (classic creates a
@@ -322,72 +338,31 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 	// Shared left (e.g. FILE,o-append) must stay open across all fork children.
 	// Classic max-children + -U FILE:... LISTEN,fork appends each session in order.
 	// max-children applies to the listen address (right side here).
-	maxCh := ro.MaxChildren
-	var slots chan struct{}
-	if maxCh > 0 {
-		slots = make(chan struct{}, maxCh)
-	}
+	// Shared left stream (FILE append, EXEC end-close) cannot safely run concurrent
+	// bidirectional transfers on one FD pair — serialize accept sessions.
+	var leftMu sync.Mutex
 	go func() {
 		<-ctx.Done()
 		logx.CloseQuiet(ln)
 	}()
-	filter := ro.PeerFilter
-	// Shared left stream (FILE append, EXEC end-close) cannot safely run concurrent
-	// bidirectional transfers on one FD pair — serialize accept sessions.
-	var leftMu sync.Mutex
-	for {
-		if slots != nil {
-			select {
-			case <-ctx.Done():
-				return nil
-			case slots <- struct{}{}:
-			}
+	return ro.forEachAccepted(ctx, ln, g, false, func(c net.Conn, cg *Global) {
+		// Serialize sessions on the shared left stream.
+		leftMu.Lock()
+		defer leftMu.Unlock()
+		if err := RememberTLSPeer(cg, c, ro.HandshakeTimeout); err != nil {
+			g.Log.Errorf("handshake: %s", err)
+			return
 		}
-		conn, err := ln.Accept()
+		rightStream, err := streamFromDial(ro, c)
 		if err != nil {
-			if slots != nil {
-				<-slots
-			}
-			if ctx.Err() != nil {
-				return nil
-			}
-			return err
+			g.Log.Errorf("wrap accept: %s", err)
+			return
 		}
-		if filter != nil {
-			if err := filter(conn); err != nil {
-				g.Log.Noticef("%s", err)
-				CloseRefusedPeer(conn)
-				if slots != nil {
-					<-slots
-				}
-				continue
-			}
+		// noCloseLeft=true: do not close/shutdown shared left between children.
+		if err := transferStreamsOpts(ctx, left, rightStream, cg, true, false); err != nil {
+			g.Log.Debugf("transfer: %s", err)
 		}
-		WaitFromEnv("SOCAT_FORK_WAIT")
-		go func(c net.Conn) {
-			defer func() { _ = c.Close() }()
-			if slots != nil {
-				defer func() { <-slots }()
-			}
-			leftMu.Lock()
-			defer leftMu.Unlock()
-			cg := g.forkSession()
-			RememberAddrs(cg, c)
-			if err := RememberTLSPeer(cg, c, ro.HandshakeTimeout); err != nil {
-				g.Log.Errorf("handshake: %s", err)
-				return
-			}
-			rightStream, err := streamFromDial(ro, c)
-			if err != nil {
-				g.Log.Errorf("wrap accept: %s", err)
-				return
-			}
-			// noCloseLeft=true: do not close/shutdown shared left between children.
-			if err := transferStreamsOpts(ctx, left, rightStream, cg, true, false); err != nil {
-				g.Log.Debugf("transfer: %s", err)
-			}
-		}(conn)
-	}
+	})
 }
 
 func transferPair(ctx context.Context, lo, ro *Opened, g *Global) error {
