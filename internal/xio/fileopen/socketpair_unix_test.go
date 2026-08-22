@@ -77,8 +77,12 @@ func TestSocketpairStreamMayCoalesce(t *testing.T) {
 
 func TestSocketpairDatagramEchoThroughTransfer(t *testing.T) {
 	pair, err := openSocketpair(context.Background(), parse.Spec{
-		Type:    "SOCKETPAIR",
-		Options: []parse.Option{{Name: "socktype", Value: strconv.Itoa(syscall.SOCK_DGRAM), Has: true}},
+		Type: "SOCKETPAIR",
+		Options: []parse.Option{
+			{Name: "socktype", Value: strconv.Itoa(syscall.SOCK_DGRAM), Has: true},
+			{Name: "rcvtimeo", Value: "0.02", Has: true},
+			{Name: "sndtimeo", Value: "0.02", Has: true},
+		},
 	}, xio.ModeRDWR, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -130,6 +134,9 @@ func TestSocketpairDatagramEchoThroughTransfer(t *testing.T) {
 
 	first := []byte("aaaaaaaaaaaaaaaaaaaa")
 	second := []byte("bbbbbbbbbbbbbbbbbb")
+	// Leave the socketpair idle across several configured timeout intervals;
+	// the relay must remain live and preserve datagram boundaries.
+	time.Sleep(80 * time.Millisecond)
 	if _, err := cli.WriteTo(first, srv.LocalAddr()); err != nil {
 		t.Fatal(err)
 	}

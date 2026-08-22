@@ -223,31 +223,57 @@ func (s *sessionWrap) ShutdownWrite() error {
 
 // --- capability traversal over wrapped streams ---
 
-// setStreamReadDeadline sets a read deadline on the first layer that supports one.
-func setStreamReadDeadline(s Stream, deadline time.Time) {
-	walkStreamCapabilities(s, func(value any) bool {
+// SetStreamReadDeadline sets a read deadline on the first stream layer that
+// supports one. Layers that report os.ErrNoDeadline are skipped so split
+// streams can expose a deadline-capable reader below an FDStream wrapper.
+func SetStreamReadDeadline(s Stream, deadline time.Time) (bool, error) {
+	var deadlineErr error
+	found := walkStreamCapabilities(s, func(value any) bool {
 		d, ok := value.(interface{ SetReadDeadline(time.Time) error })
-		if ok {
-			_ = d.SetReadDeadline(deadline)
+		if !ok {
+			return false
 		}
-		return ok
+		err := d.SetReadDeadline(deadline)
+		if errors.Is(err, os.ErrNoDeadline) {
+			return false
+		}
+		deadlineErr = err
+		return true
 	}, func(value any) []any {
 		return regularStreamChildren(value, streamRead)
 	})
+	return found, deadlineErr
 }
 
-func setStreamWriteDeadline(s Stream, deadline time.Time) bool {
-	success := false
-	walkStreamCapabilities(s, func(value any) bool {
+// setStreamReadDeadline is the best-effort form used by cancellation paths.
+func setStreamReadDeadline(s Stream, deadline time.Time) {
+	_, _ = SetStreamReadDeadline(s, deadline)
+}
+
+// SetStreamWriteDeadline is the write-side counterpart of
+// SetStreamReadDeadline.
+func SetStreamWriteDeadline(s Stream, deadline time.Time) (bool, error) {
+	var deadlineErr error
+	found := walkStreamCapabilities(s, func(value any) bool {
 		d, ok := value.(interface{ SetWriteDeadline(time.Time) error })
-		if ok {
-			success = d.SetWriteDeadline(deadline) == nil
+		if !ok {
+			return false
 		}
-		return ok
+		err := d.SetWriteDeadline(deadline)
+		if errors.Is(err, os.ErrNoDeadline) {
+			return false
+		}
+		deadlineErr = err
+		return true
 	}, func(value any) []any {
 		return regularStreamChildren(value, streamWrite)
 	})
-	return success
+	return found, deadlineErr
+}
+
+func setStreamWriteDeadline(s Stream, deadline time.Time) bool {
+	found, err := SetStreamWriteDeadline(s, deadline)
+	return found && err == nil
 }
 
 func isTimeoutErr(err error) bool {

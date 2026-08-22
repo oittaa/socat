@@ -1,8 +1,10 @@
 package xio
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -346,25 +348,35 @@ func (s socketTimeoutStream) UnwrapStream() relay.Stream { return s.Stream }
 
 func (s socketTimeoutStream) Read(p []byte) (int, error) {
 	if s.readTimeout > 0 {
-		if d, ok := s.Stream.(interface{ SetReadDeadline(time.Time) error }); ok {
-			if err := d.SetReadDeadline(time.Now().Add(s.readTimeout)); err != nil {
-				return 0, fmt.Errorf("rcvtimeo: %w", err)
-			}
+		if _, err := relay.SetStreamReadDeadline(s.Stream, time.Now().Add(s.readTimeout)); err != nil {
+			return 0, fmt.Errorf("rcvtimeo: %w", err)
 		}
 	}
-	return s.Stream.Read(p)
+	n, err := s.Stream.Read(p)
+	if s.readTimeout > 0 && IsTimeoutErr(err) {
+		return n, socketTimeoutRetryError{err: err}
+	}
+	return n, err
 }
 
 func (s socketTimeoutStream) Write(p []byte) (int, error) {
 	if s.writeTimeout > 0 {
-		if d, ok := s.Stream.(interface{ SetWriteDeadline(time.Time) error }); ok {
-			if err := d.SetWriteDeadline(time.Now().Add(s.writeTimeout)); err != nil {
-				return 0, fmt.Errorf("sndtimeo: %w", err)
-			}
+		if _, err := relay.SetStreamWriteDeadline(s.Stream, time.Now().Add(s.writeTimeout)); err != nil {
+			return 0, fmt.Errorf("sndtimeo: %w", err)
 		}
 	}
-	return s.Stream.Write(p)
+	n, err := s.Stream.Write(p)
+	if s.writeTimeout > 0 && IsTimeoutErr(err) {
+		return n, socketTimeoutRetryError{err: err}
+	}
+	return n, err
 }
+
+type socketTimeoutRetryError struct{ err error }
+
+func (e socketTimeoutRetryError) Error() string   { return e.err.Error() }
+func (e socketTimeoutRetryError) Unwrap() error   { return e.err }
+func (e socketTimeoutRetryError) Retryable() bool { return true }
 
 func applySocketTimeouts(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	var readTimeout, writeTimeout time.Duration
@@ -391,24 +403,30 @@ func applySocketTimeouts(s parse.Spec, stream relay.Stream) (relay.Stream, error
 	return socketTimeoutStream{Stream: stream, readTimeout: readTimeout, writeTimeout: writeTimeout}, nil
 }
 
-// WrapCommon applies ignoreeof / readbytes / crnl / escape / null-eof /
-// shut-null wrappers.
+// WrapCommon applies socket timeouts plus the common stream transformations.
 func WrapCommon(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
+	return wrapCommon(s, stream, true)
+}
+
+// WrapCommonWithSocketTimeoutsApplied is used by framed transports that must
+// absorb socket timeouts below their record layer before applying the remaining
+// common stream transformations.
+func WrapCommonWithSocketTimeoutsApplied(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
+	return wrapCommon(s, stream, false)
+}
+
+func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts bool) (relay.Stream, error) {
 	var err error
-	stream, err = applySocketTimeouts(s, stream)
-	if err != nil {
-		return nil, err
+	if applyTimeouts {
+		stream, err = applySocketTimeouts(s, stream)
+		if err != nil {
+			return nil, err
+		}
 	}
 	// ignoreeof first so it wraps the raw source: EOF is retried (classic
 	// semantics) while outer byte caps like readbytes still terminate.
 	if s.BoolOption("ignoreeof") {
-		inner := stream
-		stream = relay.FDStream{
-			R:      NewIgnoreEOF(inner),
-			W:      inner,
-			C:      inner,
-			CloseW: func() error { return inner.ShutdownWrite() },
-		}
+		stream = newIgnoreEOFStream(stream)
 	}
 	stream, err = ApplyReadBytes(s, stream)
 	if err != nil {
@@ -470,14 +488,17 @@ type ignoreEOFReader struct {
 	minDelay time.Duration
 	maxDelay time.Duration
 	delay    time.Duration
+	done     chan struct{}
+	close    sync.Once
 }
 
 func NewIgnoreEOF(r io.Reader) *ignoreEOFReader {
 	return &ignoreEOFReader{
 		r:        r,
 		minDelay: time.Millisecond,
-		maxDelay: 10 * time.Millisecond,
+		maxDelay: time.Second,
 		delay:    time.Millisecond,
+		done:     make(chan struct{}),
 	}
 }
 
@@ -496,12 +517,43 @@ func (i *ignoreEOFReader) Read(p []byte) (int, error) {
 		}
 		// EOF: retry quickly at first so a concurrent append is observed before
 		// short relay linger timers expire, then back off during long idle periods.
-		time.Sleep(i.delay)
+		timer := time.NewTimer(i.delay)
+		select {
+		case <-timer.C:
+		case <-i.done:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return 0, net.ErrClosed
+		}
 		if i.delay < i.maxDelay {
 			i.delay = min(i.delay*2, i.maxDelay)
 		}
 	}
 }
+
+func (i *ignoreEOFReader) Close() error {
+	i.close.Do(func() { close(i.done) })
+	return nil
+}
+
+type ignoreEOFStream struct {
+	relay.Stream
+	reader *ignoreEOFReader
+}
+
+func newIgnoreEOFStream(inner relay.Stream) relay.Stream {
+	return &ignoreEOFStream{Stream: inner, reader: NewIgnoreEOF(inner)}
+}
+
+func (s *ignoreEOFStream) Read(p []byte) (int, error) { return s.reader.Read(p) }
+func (s *ignoreEOFStream) Close() error {
+	return errors.Join(s.reader.Close(), s.Stream.Close())
+}
+func (s *ignoreEOFStream) UnwrapStream() relay.Stream { return s.Stream }
 
 // NopCloser is a no-op Closer.
 type NopCloser struct{}
