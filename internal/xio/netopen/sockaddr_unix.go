@@ -52,7 +52,7 @@ func parseSocketParams(s parse.Spec, n int) (domain, proto int, addr []byte, err
 		return 0, 0, nil, err
 	}
 	if domain == 0 {
-		// Heuristic: xio.IPv6 sockaddr data is ~26 bytes; xio.IPv4 ~14; else UNIX path.
+		// Heuristic: IPv6 sockaddr data is ~26 bytes; IPv4 ~14; else UNIX path.
 		switch {
 		case len(addr) >= 22:
 			domain = unix.AF_INET6
@@ -85,7 +85,7 @@ func rawSocketAddress(s parse.Spec, paramIndex int) string {
 	if paramIndex >= len(parts) {
 		return ""
 	}
-	// Address may itself contain colons (xio.IPv6 hex form uses x not : usually).
+	// Address may itself contain colons (IPv6 hex form uses x not : usually).
 	// Join remaining params with ':' if more than one (hex uses x separators).
 	if paramIndex < len(parts)-1 {
 		return strings.Join(parts[paramIndex:], ":")

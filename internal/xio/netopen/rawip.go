@@ -91,7 +91,7 @@ func NetworkIP(g *xio.Global, s parse.Spec, def string) string {
 	return def
 }
 
-// NetworkIPFromHost prefers an explicit xio.IPv6 host (e.g. IP:[::1]:proto).
+// NetworkIPFromHost prefers an explicit IPv6 host (e.g. IP:[::1]:proto).
 func NetworkIPFromHost(g *xio.Global, s parse.Spec, def string) string {
 	if s.HasOption("pf") {
 		return NetworkIP(g, s, def)
@@ -127,6 +127,31 @@ func parseProtoParam(s parse.Spec, idx int) (int, error) {
 	return int(n), nil
 }
 
+// resolveRawIPTarget parses a literal IP or resolves a hostname for raw
+// SOCK_RAW addresses, honoring the resolver options.
+func resolveRawIPTarget(ctx context.Context, s parse.Spec, network, host string) (*net.IPAddr, error) {
+	if ip := net.ParseIP(host); ip != nil {
+		return &net.IPAddr{IP: ip}, nil
+	}
+	ips, err := xio.LookupResolver(s).LookupIP(ctx, ipLookupNet(network), host)
+	if err != nil || len(ips) == 0 {
+		return nil, fmt.Errorf("%s: resolve %q: %w", s.Type, host, err)
+	}
+	return &net.IPAddr{IP: ips[0]}, nil
+}
+
+// requireRawIPFamily rejects a target whose family does not match the forced
+// ip4/ip6 network of an explicit IP4/IP6 address type.
+func requireRawIPFamily(typ, network string, raddr *net.IPAddr, host string) error {
+	if network == "ip4" && raddr.IP.To4() == nil {
+		return fmt.Errorf("%s: address %s: non-IPv4 address", typ, host)
+	}
+	if network == "ip6" && raddr.IP.To4() != nil {
+		return fmt.Errorf("%s: address %s: non-IPv6 address", typ, host)
+	}
+	return nil
+}
+
 func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
 	// IP4-SENDTO:host:proto
 	if len(s.Params) < 2 {
@@ -137,14 +162,9 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	if err != nil {
 		return nil, err
 	}
-	raddr := &net.IPAddr{IP: net.ParseIP(host)}
-	if raddr.IP == nil {
-		// resolve name
-		ips, err := xio.LookupResolver(s).LookupIP(ctx, ipLookupNet(network), host)
-		if err != nil || len(ips) == 0 {
-			return nil, fmt.Errorf("%s: resolve %q: %w", s.Type, host, err)
-		}
-		raddr.IP = ips[0]
+	raddr, err := resolveRawIPTarget(ctx, s, network, host)
+	if err != nil {
+		return nil, err
 	}
 	var laddr *net.IPAddr
 	if bind := s.OptionValue("bind", ""); bind != "" {
@@ -154,12 +174,8 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 		}
 		laddr = &net.IPAddr{IP: lip}
 	}
-	// Enforce family match for explicit IP4/IP6 types.
-	if network == "ip4" && raddr.IP.To4() == nil {
-		return nil, fmt.Errorf("%s: address %s: non-xio.IPv4 address", s.Type, host)
-	}
-	if network == "ip6" && raddr.IP.To4() != nil {
-		return nil, fmt.Errorf("%s: address %s: non-xio.IPv6 address", s.Type, host)
+	if err := requireRawIPFamily(s.Type, network, raddr, host); err != nil {
+		return nil, err
 	}
 	netw := ipNetwork(network, proto)
 	c, err := net.DialIP(netw, laddr, raddr)
@@ -170,7 +186,7 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 		logx.CloseQuiet(c)
 		return nil, err
 	}
-	// Connected xio.IPv4 Read() keeps the IP header; strip for classic parity.
+	// Connected IPv4 Read() keeps the IP header; strip for classic parity.
 	v4 := network == "ip4" || raddr.IP.To4() != nil
 	st := relay.Stream(&rawIPConn{IPConn: c, peer: raddr, v4: v4})
 	st, err = xio.WrapCommon(s, st)
@@ -191,19 +207,12 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	if err != nil {
 		return nil, err
 	}
-	raddr := &net.IPAddr{IP: net.ParseIP(host)}
-	if raddr.IP == nil {
-		ips, err := xio.LookupResolver(s).LookupIP(ctx, ipLookupNet(network), host)
-		if err != nil || len(ips) == 0 {
-			return nil, fmt.Errorf("%s: resolve %q: %w", s.Type, host, err)
-		}
-		raddr.IP = ips[0]
+	raddr, err := resolveRawIPTarget(ctx, s, network, host)
+	if err != nil {
+		return nil, err
 	}
-	if network == "ip4" && raddr.IP.To4() == nil {
-		return nil, fmt.Errorf("%s: address %s: non-xio.IPv4 address", s.Type, host)
-	}
-	if network == "ip6" && raddr.IP.To4() != nil {
-		return nil, fmt.Errorf("%s: address %s: non-xio.IPv6 address", s.Type, host)
+	if err := requireRawIPFamily(s.Type, network, raddr, host); err != nil {
+		return nil, err
 	}
 	laddr := &net.IPAddr{IP: net.IPv4zero}
 	if network == "ip6" {
@@ -380,13 +389,13 @@ func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob
 		if err != nil {
 			return n, nil, addr, err
 		}
-		// ReadFrom usually strips xio.IPv4 already; only strip when a full header is present.
+		// ReadFrom usually strips IPv4 already; only strip when a full header is present.
 		if stripV4 {
 			n = skipIPv4HeaderIfPresent(p, n)
 		}
 		return n, nil, addr, err
 	}
-	// ReadMsgIP returns the full xio.IPv4 packet (header + payload). Classic
+	// ReadMsgIP returns the full IPv4 packet (header + payload). Classic
 	// XIODATA_RECV_SKIPIP strips the header so user data starts at payload.
 	oob = make([]byte, 1024)
 	var oobn int
@@ -400,7 +409,7 @@ func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob
 	return n, oob[:oobn], addr, nil
 }
 
-// skipIPv4HeaderIfPresent drops a leading xio.IPv4 header when the buffer looks like
+// skipIPv4HeaderIfPresent drops a leading IPv4 header when the buffer looks like
 // a complete IP packet (classic RECV_SKIPIP). Connected IPConn.Read() on Linux
 // returns header+payload; unconnected ReadFrom often returns payload only.
 func skipIPv4HeaderIfPresent(p []byte, n int) int {
@@ -451,7 +460,7 @@ func (r *rawIPDatagramConn) LocalAddr() net.Addr  { return r.c.LocalAddr() }
 func (r *rawIPDatagramConn) RemoteAddr() net.Addr { return r.raddr }
 
 // rawIPConn: sendto-style connected IPConn (SELF echo, SENDTO client).
-// Do not embed Read from *net.IPConn — connected Read keeps the xio.IPv4 header.
+// Do not embed Read from *net.IPConn — connected Read keeps the IPv4 header.
 type rawIPConn struct {
 	*net.IPConn
 	peer *net.IPAddr

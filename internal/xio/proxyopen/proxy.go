@@ -44,7 +44,7 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		ver = "1.0"
 	}
 
-	// Classic proxy-resolve / resolve (default true): put xio.IPv4 in CONNECT target.
+	// Classic proxy-resolve / resolve (default true): put IPv4 in CONNECT target.
 	// proxyecho.sh and many proxies expect "CONNECT a.b.c.d:port HTTP/x.y".
 	connectHost := xio.StripBrackets(targetHost)
 	doResolve := true
