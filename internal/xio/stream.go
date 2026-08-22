@@ -333,10 +333,72 @@ func (s shutNullStream) ShutdownWrite() error {
 	return s.Stream.ShutdownWrite()
 }
 
+// socketTimeoutStream gives rcvtimeo/sndtimeo their blocking-I/O semantics on
+// Go netpoll connections. Kernel SO_*TIMEO values alone do not bound reads or
+// writes made through net.Conn on either Unix or Windows.
+type socketTimeoutStream struct {
+	relay.Stream
+	readTimeout  time.Duration
+	writeTimeout time.Duration
+}
+
+func (s socketTimeoutStream) UnwrapStream() relay.Stream { return s.Stream }
+
+func (s socketTimeoutStream) Read(p []byte) (int, error) {
+	if s.readTimeout > 0 {
+		if d, ok := s.Stream.(interface{ SetReadDeadline(time.Time) error }); ok {
+			if err := d.SetReadDeadline(time.Now().Add(s.readTimeout)); err != nil {
+				return 0, fmt.Errorf("rcvtimeo: %w", err)
+			}
+		}
+	}
+	return s.Stream.Read(p)
+}
+
+func (s socketTimeoutStream) Write(p []byte) (int, error) {
+	if s.writeTimeout > 0 {
+		if d, ok := s.Stream.(interface{ SetWriteDeadline(time.Time) error }); ok {
+			if err := d.SetWriteDeadline(time.Now().Add(s.writeTimeout)); err != nil {
+				return 0, fmt.Errorf("sndtimeo: %w", err)
+			}
+		}
+	}
+	return s.Stream.Write(p)
+}
+
+func applySocketTimeouts(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
+	var readTimeout, writeTimeout time.Duration
+	for _, item := range []struct {
+		name string
+		dst  *time.Duration
+	}{
+		{name: "rcvtimeo", dst: &readTimeout},
+		{name: "sndtimeo", dst: &writeTimeout},
+	} {
+		value := s.OptionValue(item.name, "")
+		if value == "" {
+			continue
+		}
+		d, err := parseTimeval(value)
+		if err != nil || d < 0 {
+			return nil, fmt.Errorf("%s: invalid timeout %q", item.name, value)
+		}
+		*item.dst = d
+	}
+	if readTimeout == 0 && writeTimeout == 0 {
+		return stream, nil
+	}
+	return socketTimeoutStream{Stream: stream, readTimeout: readTimeout, writeTimeout: writeTimeout}, nil
+}
+
 // WrapCommon applies ignoreeof / readbytes / crnl / escape / null-eof /
 // shut-null wrappers.
 func WrapCommon(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	var err error
+	stream, err = applySocketTimeouts(s, stream)
+	if err != nil {
+		return nil, err
+	}
 	// ignoreeof first so it wraps the raw source: EOF is retried (classic
 	// semantics) while outer byte caps like readbytes still terminate.
 	if s.BoolOption("ignoreeof") {

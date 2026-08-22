@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -70,10 +71,6 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 				logx.CloseQuiet(c)
 				return setSockErr
 			}
-			if e := xio.ApplyTCPConnOpts(s, c); e != nil {
-				_ = c.Close()
-				return e
-			}
 			conn = c
 			return nil
 		})
@@ -127,6 +124,17 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	ln, err := lc.Listen(ctx, network, addr)
 	if err != nil {
 		return nil, err
+	}
+	if value := s.OptionValue("backlog", ""); value != "" {
+		backlog, parseErr := strconv.Atoi(value)
+		if parseErr != nil || backlog <= 0 {
+			logx.CloseQuiet(ln)
+			return nil, fmt.Errorf("backlog: invalid value %q", value)
+		}
+		if err := xio.ApplyListenBacklog(ln, backlog); err != nil {
+			logx.CloseQuiet(ln)
+			return nil, fmt.Errorf("backlog: %w", err)
+		}
 	}
 
 	fork, maxChildren, ferr := xio.ForkLimits(s)

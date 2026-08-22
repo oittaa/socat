@@ -276,6 +276,11 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
 			}, nil
 		}
+		timeoutSet, err := applyUDPAcceptTimeout(pc, s)
+		if err != nil {
+			logx.CloseQuiet(pc)
+			return nil, err
+		}
 		// One permitted packet, then use the *same* listening socket for replies
 		// (classic). DialUDP(local, peer) after Close fails with EADDRINUSE.
 		// When ancillary options are set, use recvmsg so we can log/set env
@@ -303,7 +308,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			case r := <-ch:
 				if r.e != nil {
 					logx.CloseQuiet(pc)
-					return nil, r.e
+					return nil, udpAcceptError(r.e, timeoutSet)
 				}
 				if err := xio.PeerAllowedG(s, &udpPeerConn{addr: r.a}, g); err != nil {
 					if g != nil && g.Log != nil {
@@ -316,6 +321,10 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				xio.ProcessAncillary(r.oob, g)
 			}
 			break
+		}
+		if err := clearUDPAcceptTimeout(pc, timeoutSet); err != nil {
+			logx.CloseQuiet(pc)
+			return nil, fmt.Errorf("accept-timeout: clear deadline: %w", err)
 		}
 		// Classic non-fork RECVFROM: one datagram then EOF on further reads
 		// (so RECVFROM|PIPE echo servers exit after one client exchange).

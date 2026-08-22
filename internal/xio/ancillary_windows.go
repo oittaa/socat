@@ -13,7 +13,9 @@ func NeedAncillary(parse.Spec) bool { return false }
 
 func ApplyAncillaryRecvOpts(int, parse.Spec) error { return nil }
 
-func ApplyIPSendOpts(int, parse.Spec, string) error { return nil }
+func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
+	return applyIPTTLTOS(fd, s, network)
+}
 
 func ProcessAncillary([]byte, *Global) {}
 
@@ -22,14 +24,17 @@ func ReadUDPMsg(c *net.UDPConn, p []byte, _ bool) (int, []byte, *net.UDPAddr, er
 	return n, nil, addr, err
 }
 
-func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, _ string) error {
+func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
 		return err
 	}
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
-		optionErr = ApplySocketTimeos(int(fd), s)
+		optionErr = ApplyIPSendOpts(int(fd), s, network)
+		if optionErr == nil {
+			optionErr = ApplySocketTimeos(int(fd), s)
+		}
 	})
 	return errors.Join(controlErr, optionErr)
 }

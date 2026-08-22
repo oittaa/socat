@@ -123,6 +123,12 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, err
 	}
 	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
+	wrapConn := func(c net.Conn) (relay.Stream, error) {
+		if err := xio.ApplyTCPConnOpts(s, c); err != nil {
+			return nil, err
+		}
+		return xio.WrapCommon(s, relay.NetStream{Conn: c})
+	}
 
 	o := &xio.Opened{
 		Kind:             xio.ListenKind(fork),
@@ -130,6 +136,7 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		Label:            s.Type + ":" + port,
 		PeerFilter:       filter,
 		MaxChildren:      maxChildren,
+		WrapDial:         wrapConn,
 		HandshakeTimeout: xio.HandshakeTimeout(s),
 	}
 	o.AcceptTimeout = xio.AcceptTimeout(s)
@@ -193,13 +200,16 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		xio.CloseRefusedPeer(conn)
 		return nil, err
 	}
+	if err := xio.ApplyTCPConnOpts(s, conn); err != nil {
+		logx.CloseQuiet(conn)
+		return nil, err
+	}
 	xio.RememberAddrs(g, conn)
 	if err := xio.RememberTLSPeer(g, conn, xio.HandshakeTimeout(s)); err != nil {
 		logx.CloseQuiet(conn)
 		return nil, err
 	}
-	st := relay.Stream(relay.NetStream{Conn: conn})
-	st, err = xio.WrapCommon(s, st)
+	st, err := xio.WrapCommon(s, relay.NetStream{Conn: conn})
 	if err != nil {
 		logx.CloseQuiet(conn)
 		return nil, err

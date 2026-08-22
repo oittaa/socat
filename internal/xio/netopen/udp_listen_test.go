@@ -2,13 +2,42 @@ package netopen
 
 import (
 	"context"
+	"errors"
 	"net"
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
+
+func TestUDPNonForkAcceptTimeouts(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		spec string
+		open func(context.Context, parse.Spec, xio.Mode, *xio.Global) (*xio.Opened, error)
+	}{
+		{name: "listen", spec: "UDP4-LISTEN:0,accept-timeout=0.03", open: openUDP4Listen},
+		{name: "recvfrom", spec: "UDP4-RECVFROM:0,accept-timeout=0.03", open: openUDP4Recvfrom},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+			start := time.Now()
+			_, err = tc.open(context.Background(), spec, xio.ModeRDWR, g)
+			if !errors.Is(err, xio.ErrAcceptTimeout) {
+				t.Fatalf("error=%v want ErrAcceptTimeout", err)
+			}
+			if elapsed := time.Since(start); elapsed > time.Second {
+				t.Fatalf("accept timeout took %s", elapsed)
+			}
+		})
+	}
+}
 
 func TestUDPForkListenerSurvivesReceiveTimeout(t *testing.T) {
 	spec, err := parse.ParseSpec("UDP4-RECVFROM:0,fork,rcvtimeo=0.02")

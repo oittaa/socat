@@ -94,6 +94,11 @@ func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 			}
 			continue
 		}
+		if err := ApplyTCPConnOpts(s, c); err != nil {
+			_ = c.Close()
+			lastErr = err
+			continue
+		}
 		return c, nil
 	}
 	if lastErr == nil {

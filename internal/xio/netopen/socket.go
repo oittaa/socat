@@ -131,7 +131,7 @@ func openSocketListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		}, nil
 	}
 	// accept one
-	c, err := ln.Accept()
+	c, err := xio.AcceptWithTimeout(ctx, ln, xio.AcceptTimeout(s))
 	if err != nil {
 		logx.CloseQuiet(ln)
 		return nil, err

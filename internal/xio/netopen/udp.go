@@ -31,7 +31,10 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
-	var d net.Dialer
+	d := net.Dialer{
+		Timeout: xio.ConnectTimeout(s),
+		Control: xio.DialControl(s, network, nil),
+	}
 	bind := s.OptionValue("bind", "")
 	sp := s.OptionValue("sourceport", "")
 	if bind != "" || sp != "" {
@@ -53,6 +56,15 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	}
 	conn, err := d.DialContext(ctx, network, addr)
 	if err != nil {
+		return nil, err
+	}
+	udpConn, ok := conn.(*net.UDPConn)
+	if !ok {
+		logx.CloseQuiet(conn)
+		return nil, fmt.Errorf("UDP: unexpected connection type %T", conn)
+	}
+	if err := xio.ApplyUDPConnOpts(udpConn, s, network); err != nil {
+		logx.CloseQuiet(conn)
 		return nil, err
 	}
 	st := relay.Stream(relay.NetStream{Conn: conn})

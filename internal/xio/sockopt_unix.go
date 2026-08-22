@@ -28,6 +28,10 @@ func SetSockoptInt(fd, level, opt, value int) error {
 	return setSockoptInt(fd, level, opt, value)
 }
 
+func setListenBacklog(fd, backlog int) error {
+	return unix.Listen(fd, backlog)
+}
+
 // ApplySocketTimeos applies classic rcvtimeo=/sndtimeo= as kernel
 // SO_RCVTIMEO/SO_SNDTIMEO (TYPE_TIMEVAL, SOL_SOCKET), matching xioopts.c's
 // IF_SOCKET handling. Only raw blocking-fd paths observe these on our port —
@@ -65,13 +69,13 @@ func timevalFromSpec(v string) (*unix.Timeval, error) {
 	return &tv, nil
 }
 
-// applyIPTTLTOS sets classic ip-ttl/ttl and ip-tos/tos on TCP INET sockets.
+// applyIPTTLTOS sets classic ip-ttl/ttl and ip-tos/tos on TCP/SCTP INET sockets.
 // On IPv6, ttl maps to IPV6_UNICAST_HOPS; tos has no direct v6 equivalent and
 // is skipped (classic uses the separate ipv6-tclass option there). UDP and
 // raw-IP paths apply these through ApplyIPSendOpts instead, so this helper
-// deliberately restricts itself to tcp networks to avoid double application.
+// deliberately restricts itself to TCP/SCTP networks to avoid double application.
 func applyIPTTLTOS(fd int, s parse.Spec, network string) error {
-	if !strings.HasPrefix(network, "tcp") {
+	if !strings.HasPrefix(network, "tcp") && !strings.HasPrefix(network, "sctp") {
 		return nil
 	}
 	is6 := strings.HasSuffix(network, "6")

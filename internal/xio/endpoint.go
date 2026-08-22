@@ -21,6 +21,46 @@ import (
 // Classic socat exits 0 in this case (not an error for the process).
 var ErrAcceptTimeout = errors.New("accept timeout")
 
+type acceptResult struct {
+	conn net.Conn
+	err  error
+}
+
+// AcceptWithTimeout accepts one connection and aborts the listener when the
+// timeout expires. Closing is intentional: classic accept-timeout terminates
+// the listen address, and it also makes the timeout work for wrapped listeners
+// such as TLS and QUIC that do not expose SetDeadline.
+func AcceptWithTimeout(ctx context.Context, ln net.Listener, timeout time.Duration) (net.Conn, error) {
+	if timeout <= 0 {
+		return ln.Accept()
+	}
+	result := make(chan acceptResult, 1)
+	go func() {
+		conn, err := ln.Accept()
+		result <- acceptResult{conn: conn, err: err}
+	}()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case accepted := <-result:
+		return accepted.conn, accepted.err
+	case <-ctx.Done():
+		_ = ln.Close()
+		accepted := <-result
+		if accepted.conn != nil {
+			_ = accepted.conn.Close()
+		}
+		return nil, ctx.Err()
+	case <-timer.C:
+		_ = ln.Close()
+		accepted := <-result
+		if accepted.conn != nil {
+			_ = accepted.conn.Close()
+		}
+		return nil, ErrAcceptTimeout
+	}
+}
+
 // Mode indicates how an address is used.
 type Mode int
 

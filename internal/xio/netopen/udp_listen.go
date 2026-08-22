@@ -27,6 +27,31 @@ func openUDP6Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 	return openUDPListenNetwork(ctx, s, mode, g, "udp6")
 }
 
+func applyUDPAcceptTimeout(pc *net.UDPConn, s parse.Spec) (bool, error) {
+	timeout := xio.AcceptTimeout(s)
+	if timeout <= 0 {
+		return false, nil
+	}
+	if err := pc.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+		return false, fmt.Errorf("accept-timeout: %w", err)
+	}
+	return true, nil
+}
+
+func clearUDPAcceptTimeout(pc *net.UDPConn, set bool) error {
+	if !set {
+		return nil
+	}
+	return pc.SetReadDeadline(time.Time{})
+}
+
+func udpAcceptError(err error, timeoutSet bool) error {
+	if timeoutSet && xio.IsTimeoutErr(err) {
+		return xio.ErrAcceptTimeout
+	}
+	return err
+}
+
 func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
 	if len(s.Params) < 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("UDP-LISTEN requires port")
@@ -75,6 +100,11 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
 		}, nil
 	}
+	timeoutSet, err := applyUDPAcceptTimeout(pc, s)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
 
 	// Non-fork: one session then done (keep listen socket for reply like RECVFROM).
 	buf := make([]byte, max(g.BlockSize, 8192))
@@ -87,7 +117,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		})
 		if err != nil {
 			logx.CloseQuiet(pc)
-			return nil, err
+			return nil, udpAcceptError(err, timeoutSet)
 		}
 		fake := &udpPeerConn{addr: a}
 		if ferr := xio.PeerAllowedG(s, fake, g); ferr != nil {
@@ -99,6 +129,10 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		n, raddr = rn, a
 		xio.ProcessAncillary(oob, g)
 		break
+	}
+	if err := clearUDPAcceptTimeout(pc, timeoutSet); err != nil {
+		logx.CloseQuiet(pc)
+		return nil, fmt.Errorf("accept-timeout: clear deadline: %w", err)
 	}
 	// SOCAT_* env for EXEC/SYSTEM children (UDP6LISTENENV etc.).
 	// When bound to unspecified (:: / 0.0.0.0), classic still reports the

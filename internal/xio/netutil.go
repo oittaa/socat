@@ -86,14 +86,40 @@ func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn
 		controlErr := c.Control(func(fd uintptr) {
 			optionErr = ApplyListenOptions(int(fd), s, network)
 			if optionErr == nil {
-				optionErr = ApplySocketTimeos(int(fd), s)
-			}
-			if optionErr == nil {
-				optionErr = applyIPTTLTOS(int(fd), s, network)
+				optionErr = ApplyNetworkSocketOptions(int(fd), s, network)
 			}
 		})
 		return errors.Join(controlErr, optionErr)
 	}
+}
+
+// ApplyNetworkSocketOptions applies the post-socket options shared by Go net
+// listeners/dialers and raw SCTP sockets.
+func ApplyNetworkSocketOptions(fd int, s parse.Spec, network string) error {
+	if err := ApplySocketTimeos(fd, s); err != nil {
+		return err
+	}
+	return applyIPTTLTOS(fd, s, network)
+}
+
+// ApplyListenBacklog updates the pending-connection queue of an existing TCP
+// listener. Both POSIX and Winsock allow listen to be called again to change
+// the backlog; using the existing listener preserves Go's platform-specific
+// socket setup and dual-stack behavior.
+func ApplyListenBacklog(ln net.Listener, backlog int) error {
+	sc, ok := ln.(syscall.Conn)
+	if !ok {
+		return fmt.Errorf("listener does not expose its socket")
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var optionErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		optionErr = setListenBacklog(int(fd), backlog)
+	})
+	return errors.Join(controlErr, optionErr)
 }
 
 // DialControl merges spec-driven socket options (rcvtimeo/sndtimeo, and
@@ -101,12 +127,13 @@ func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn
 // producing a single net.Dialer.Control.
 func DialControl(s parse.Spec, network string, caller func(string, string, syscall.RawConn) error) func(string, string, syscall.RawConn) error {
 	return func(nw, addr string, c syscall.RawConn) error {
+		optionNetwork := network
+		if optionNetwork == "" {
+			optionNetwork = nw
+		}
 		var optErr error
 		controlErr := c.Control(func(fd uintptr) {
-			optErr = ApplySocketTimeos(int(fd), s)
-			if optErr == nil {
-				optErr = applyIPTTLTOS(int(fd), s, nw)
-			}
+			optErr = ApplyNetworkSocketOptions(int(fd), s, optionNetwork)
 		})
 		if err := errors.Join(controlErr, optErr); err != nil {
 			return err
@@ -274,7 +301,15 @@ func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 	if s.HasOption("keepalive") || s.HasOption("so-keepalive") {
 		enable = s.BoolOption("keepalive") || s.BoolOption("so-keepalive")
 	}
-	cfg := net.KeepAliveConfig{Enable: enable}
+	// Negative values preserve the current OS settings. Zero would replace
+	// omitted fields with Go's defaults (15s/15s/9), which is not what a
+	// single classic tcp-keep* option requests.
+	cfg := net.KeepAliveConfig{
+		Enable:   enable,
+		Idle:     -1,
+		Interval: -1,
+		Count:    -1,
+	}
 
 	durFrom := func(o parse.Option) (time.Duration, error) {
 		d, err := parseTimeval(o.Value)
@@ -302,7 +337,7 @@ func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 	}
 	if o, ok := s.OptionNamed("keepcnt"); ok && o.Has && strings.TrimSpace(o.Value) != "" {
 		n, err := strconv.Atoi(strings.TrimSpace(o.Value))
-		if err != nil || n < 0 {
+		if err != nil || n <= 0 {
 			return fmt.Errorf("keepcnt: invalid count %q", o.Value)
 		}
 		cfg.Count = n
@@ -316,15 +351,30 @@ func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 // ApplyTCPConnOpts parses classic setsockopt=level:optname:value (ints) and applies it.
 // SETSOCKOPT test uses setsockopt=6:TCP_MAXSEG:512 (IPPROTO_TCP + TCP_MAXSEG).
 func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
+	for {
+		unwrapper, ok := c.(interface{ NetConn() net.Conn })
+		if !ok {
+			break
+		}
+		inner := unwrapper.NetConn()
+		if inner == nil || inner == c {
+			break
+		}
+		c = inner
+	}
 	tc, ok := c.(*net.TCPConn)
 	if !ok {
 		return nil
 	}
-	if la := tc.LocalAddr(); la != nil && strings.HasPrefix(la.Network(), "tcp") {
+	if la, ok := tc.LocalAddr().(*net.TCPAddr); ok {
+		network := "tcp6"
+		if la.IP.To4() != nil {
+			network = "tcp4"
+		}
 		if raw, rerr := tc.SyscallConn(); rerr == nil {
 			var optErr error
 			_ = raw.Control(func(fd uintptr) {
-				optErr = applyIPTTLTOS(int(fd), s, la.Network())
+				optErr = applyIPTTLTOS(int(fd), s, network)
 			})
 			if optErr != nil {
 				return optErr
@@ -372,6 +422,15 @@ func ParsePositiveInt(v string) (int, error) {
 		return 0, fmt.Errorf("invalid")
 	}
 	return n, nil
+}
+
+func ParseIntAny(v string) (int, error) {
+	v = strings.TrimSpace(v)
+	if strings.HasPrefix(v, "0x") || strings.HasPrefix(v, "0X") {
+		n, err := strconv.ParseUint(v[2:], 16, 32)
+		return int(n), err
+	}
+	return strconv.Atoi(v)
 }
 
 func FirstHost(s parse.Spec) string {

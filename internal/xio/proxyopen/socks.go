@@ -64,9 +64,8 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 		}
 	}
 
-	addr := net.JoinHostPort(xio.StripBrackets(socksHost), socksPort)
 	network := xio.ConnectNetworkForType(g, s, socksHost, "tcp")
-	d := net.Dialer{Timeout: xio.ConnectTimeout(s)}
+	timeout := xio.ConnectTimeout(s)
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	label := fmt.Sprintf("SOCKS4:%s:%s", targetHost, targetPort)
 	if socks4a {
@@ -76,7 +75,7 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		e := xio.WithRetry(dctx, s, g, "SOCKS4", func() error {
-			c, e := d.DialContext(dctx, network, addr)
+			c, e := xio.DialTCPAll(dctx, network, xio.StripBrackets(socksHost), socksPort, s, g, timeout, nil)
 			if e != nil {
 				return e
 			}
@@ -200,9 +199,8 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 		addrBytes = append([]byte{n}, []byte(h)...)
 	}
 
-	addr := net.JoinHostPort(xio.StripBrackets(socksHost), socksPort)
 	network := xio.ConnectNetworkForType(g, s, socksHost, "tcp")
-	d := net.Dialer{Timeout: xio.ConnectTimeout(s)}
+	timeout := xio.ConnectTimeout(s)
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	label := fmt.Sprintf("SOCKS5:%s:%s", targetHost, targetPort)
 	if cmd == socks5CmdBind {
@@ -212,7 +210,7 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		e := xio.WithRetry(dctx, s, g, "SOCKS5", func() error {
-			c, e := d.DialContext(dctx, network, addr)
+			c, e := xio.DialTCPAll(dctx, network, xio.StripBrackets(socksHost), socksPort, s, g, timeout, nil)
 			if e != nil {
 				return e
 			}

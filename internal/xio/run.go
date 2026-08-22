@@ -2,6 +2,7 @@ package xio
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -174,23 +175,19 @@ func (s childSlots) release() {
 // always installs a logger).
 func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global, logAccept bool, body func(c net.Conn, cg *Global)) error {
 	slots := newChildSlots(o.MaxChildren)
-	type deadliner interface{ SetDeadline(time.Time) error }
-	var dl deadliner
-	if o.AcceptTimeout > 0 {
-		dl, _ = ln.(deadliner)
-	}
+	var children sync.WaitGroup
 	for {
 		if !slots.acquire(ctx) {
 			return nil
 		}
-		if dl != nil {
-			_ = dl.SetDeadline(time.Now().Add(o.AcceptTimeout))
-		}
-		conn, err := ln.Accept()
+		conn, err := AcceptWithTimeout(ctx, ln, o.AcceptTimeout)
 		if err != nil {
 			slots.release()
-			if dl != nil && IsTimeoutErr(err) && ctx.Err() == nil {
-				// Classic accept-timeout aborts waiting for a connection.
+			if errors.Is(err, ErrAcceptTimeout) {
+				// Classic closes the parent listener, then waits for an accepted
+				// fork child to finish. Our children are goroutines in the same
+				// process, so returning immediately would kill active sessions.
+				children.Wait()
 				return ErrAcceptTimeout
 			}
 			if ctx.Err() != nil {
@@ -210,9 +207,11 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 			g.Log.Infof("accepted %s", conn.RemoteAddr())
 		}
 		WaitFromEnv("SOCAT_FORK_WAIT")
+		children.Add(1)
 		go func(c net.Conn) {
 			defer func() { _ = c.Close() }()
 			defer slots.release()
+			defer children.Done()
 			cg := g.forkSession()
 			RememberAddrs(cg, c)
 			body(c, cg)
