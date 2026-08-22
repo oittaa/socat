@@ -157,6 +157,11 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			return xio.ReadUDPMsg(l.pc, buf, wantCtrl)
 		})
 		if err != nil {
+			// Classic restarts a timed-out receive instead of dropping the
+			// listener (TYPE_TIMEVAL semantics); context.Canceled still exits.
+			if l.rcvTimeout > 0 && xio.IsTimeoutErr(err) {
+				continue
+			}
 			return nil, err
 		}
 		if err := xio.PeerAllowedG(l.spec, &udpPeerConn{addr: a}, l.g); err != nil {

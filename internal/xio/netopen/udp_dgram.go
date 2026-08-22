@@ -254,6 +254,13 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				logx.CloseQuiet(pc)
 				return nil, ferr
 			}
+			// Kernel-level fd state matches classic IF_SOCKET application;
+			// functional enforcement for our netpoll reads stays the
+			// per-accept deadline below.
+			if err := xio.ApplyUDPConnOpts(pc, s, network); err != nil {
+				logx.CloseQuiet(pc)
+				return nil, err
+			}
 			ln := &udpForkListener{
 				pc:      pc,
 				network: network,

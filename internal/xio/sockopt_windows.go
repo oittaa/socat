@@ -19,3 +19,8 @@ func setSockoptInt(fd, level, opt, value int) error {
 func SetSockoptInt(fd, level, opt, value int) error {
 	return setSockoptInt(fd, level, opt, value)
 }
+
+// ApplySocketTimeos is a no-op on Windows: classic's TYPE_TIMEVAL socket
+// timeouts have no direct Winsock equivalent wired here, and our raw-fd
+// addresses are unix-only anyway.
+func ApplySocketTimeos(_ int, _ any) error { return nil }

@@ -182,7 +182,10 @@ func connectRaw(fd int, sa unix.Sockaddr, _ int) error {
 }
 
 func applySocketOpts(fd int, s parse.Spec) error {
-	return xio.ApplyReuse(fd, s, false)
+	if err := xio.ApplyReuse(fd, s, false); err != nil {
+		return err
+	}
+	return xio.ApplySocketTimeos(fd, s)
 }
 
 func osNewFile(fd int, name string) *os.File {
