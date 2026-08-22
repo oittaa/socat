@@ -11,7 +11,7 @@ const oNonblock = 0
 
 func mkfifo(string, uint32) error { return fmt.Errorf("named pipe FIFO is not supported on Windows") }
 
-func socketpairFiles() (*os.File, *os.File, error) {
+func socketpairFiles(int) (*os.File, *os.File, error) {
 	return nil, nil, fmt.Errorf("SOCKETPAIR is not supported on Windows")
 }
 

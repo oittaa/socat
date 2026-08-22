@@ -13,8 +13,8 @@ const oNonblock = syscall.O_NONBLOCK
 
 func mkfifo(path string, mode uint32) error { return syscall.Mkfifo(path, mode) }
 
-func socketpairFiles() (a, b *os.File, err error) {
-	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+func socketpairFiles(typ int) (a, b *os.File, err error) {
+	fds, err := syscall.Socketpair(syscall.AF_UNIX, typ, 0)
 	if err != nil {
 		return nil, nil, err
 	}

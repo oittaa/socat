@@ -88,7 +88,8 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	touch := startIdleWatch(ctx, cancel, cfg.IdleTimeout)
+	touch, stopIdle := startIdleWatch(ctx, cancel, cfg.IdleTimeout)
+	defer stopIdle()
 
 	results := make(chan dirResult, 2)
 	var wg sync.WaitGroup
@@ -178,6 +179,9 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 				firstErr = fmt.Errorf("%s: %w", r.dir, r.err)
 			}
 			if finished == 1 && nDirs == 2 && cfg.Linger > 0 {
+				// After one side EOFs, -t owns the rest of the session.
+				// -T is inactivity while both directions still run.
+				stopIdle()
 				lingerTimer = time.NewTimer(cfg.Linger)
 				lingerC = lingerTimer.C
 			} else if finished == 1 && nDirs == 2 && cfg.Linger == 0 {
@@ -217,18 +221,24 @@ type dirResult struct {
 	dir string
 }
 
-func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Duration) func() {
+func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Duration) (touch, stop func()) {
+	nop := func() {}
 	if idle <= 0 {
-		return func() {}
+		return nop, nop
 	}
 	var mu sync.Mutex
 	last := time.Now()
+	done := make(chan struct{})
+	var once sync.Once
+	stop = func() { once.Do(func() { close(done) }) }
 	go func() {
 		t := time.NewTicker(100 * time.Millisecond)
 		defer t.Stop()
 		for {
 			select {
 			case <-ctx.Done():
+				return
+			case <-done:
 				return
 			case <-t.C:
 				mu.Lock()
@@ -241,11 +251,12 @@ func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Du
 			}
 		}
 	}()
-	return func() {
+	touch = func() {
 		mu.Lock()
 		last = time.Now()
 		mu.Unlock()
 	}
+	return touch, stop
 }
 
 // dirTask bundles one transfer direction: source and destination streams, the

@@ -3,7 +3,9 @@ package fileopen
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
+	"syscall"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -313,8 +315,12 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 	}
 }
 
-func openSocketpair(_ context.Context, _ parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Opened, error) {
-	c1, c2, err := socketpairFiles()
+func openSocketpair(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Opened, error) {
+	typ, _, err := xio.SocketTypeOption(s, syscall.SOCK_STREAM)
+	if err != nil {
+		return nil, err
+	}
+	c1, c2, err := socketpairFiles(typ)
 	if err != nil {
 		return nil, err
 	}
@@ -340,20 +346,57 @@ func openSocketpair(_ context.Context, _ parse.Spec, _ xio.Mode, _ *xio.Global) 
 	// So FDStream with R=pipe[0], W=pipe[1] is correct for anonymous PIPE.
 
 	// Echo: write to c2 is readable on c1.
-	return &xio.Opened{
-		Stream: relay.FDStream{
-			R: c1,
-			W: c2,
-			C: xio.NewMultiCloser(relay.RWCStream{ReadWriteCloser: c1}, relay.RWCStream{ReadWriteCloser: c2}),
-			CloseW: func() error {
-				_ = xio.ShutdownWrite(int(c2.Fd()))
-				return c2.Close()
-			},
-		},
-		Label: "SOCKETPAIR",
-		Cleanup: []func(){
-			func() { logx.CloseQuiet(c1); logx.CloseQuiet(c2) },
-		},
+	stream, err := socketpairEchoStream(c1, c2, typ)
+	if err != nil {
+		logx.CloseQuiet(c1)
+		logx.CloseQuiet(c2)
+		return nil, err
+	}
+	st, err := xio.WrapCommon(s, stream)
+	if err != nil {
+		logx.CloseQuiet(stream)
+		return nil, err
+	}
+	return &xio.Opened{Stream: st, Label: "SOCKETPAIR"}, nil
+}
+
+func socketpairEchoStream(c1, c2 *os.File, typ int) (relay.Stream, error) {
+	closeW := func(writeEnd interface{ Close() error }, fd int) func() error {
+		return func() error {
+			_ = xio.ShutdownWrite(fd)
+			return writeEnd.Close()
+		}
+	}
+	if typ == syscall.SOCK_STREAM {
+		return relay.FDStream{
+			R:      c1,
+			W:      c2,
+			C:      xio.NewMultiCloser(relay.RWCStream{ReadWriteCloser: c1}, relay.RWCStream{ReadWriteCloser: c2}),
+			CloseW: closeW(c2, int(c2.Fd())),
+		}, nil
+	}
+	// Message-oriented pairs must not go through *os.File poll: empty
+	// SOCK_DGRAM socketpairs can report POLLHUP, which the relay treats as
+	// EOF and drops the echo. net.UnixConn uses blocking recv/send, one
+	// datagram per Read/Write.
+	n1, err := net.FileConn(c1)
+	if err != nil {
+		return nil, err
+	}
+	n2, err := net.FileConn(c2)
+	if err != nil {
+		logx.CloseQuiet(n1)
+		return nil, err
+	}
+	logx.CloseQuiet(c1)
+	logx.CloseQuiet(c2)
+	s1 := relay.NetStream{Conn: n1}
+	s2 := relay.NetStream{Conn: n2}
+	return relay.FDStream{
+		R:      s1,
+		W:      s2,
+		C:      xio.NewMultiCloser(s1, s2),
+		CloseW: func() error { return s2.Close() },
 	}, nil
 }
 
