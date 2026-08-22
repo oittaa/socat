@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"strconv"
@@ -286,17 +287,30 @@ func FirstHost(s parse.Spec) string {
 	return ""
 }
 
-func ParseTimeval(v string) time.Duration {
+func parseTimeval(v string) (time.Duration, error) {
 	// classic timeval: seconds with optional fractional part
-	f, err := strconv.ParseFloat(v, 64)
-	if err != nil {
-		d, err2 := time.ParseDuration(v)
-		if err2 != nil {
-			return 0
-		}
-		return d
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, fmt.Errorf("empty timeout")
 	}
-	return time.Duration(f * float64(time.Second))
+	f, err := strconv.ParseFloat(v, 64)
+	if err == nil {
+		secondsLimit := float64(math.MaxInt64) / float64(time.Second)
+		if math.IsNaN(f) || math.IsInf(f, 0) || f > secondsLimit || f < -secondsLimit {
+			return 0, fmt.Errorf("timeout out of range")
+		}
+		return time.Duration(f * float64(time.Second)), nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, err
+	}
+	return d, nil
+}
+
+func ParseTimeval(v string) time.Duration {
+	d, _ := parseTimeval(v)
+	return d
 }
 
 // RecvOneCtx performs one datagram read through read in a goroutine so that

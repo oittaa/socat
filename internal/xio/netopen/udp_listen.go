@@ -157,8 +157,8 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			return xio.ReadUDPMsg(l.pc, buf, wantCtrl)
 		})
 		if err != nil {
-			// Classic restarts a timed-out receive instead of dropping the
-			// listener (TYPE_TIMEVAL semantics); context.Canceled still exits.
+			// Keep the listener alive across its periodic receive deadline;
+			// classic's poll loop likewise continues waiting while idle.
 			if l.rcvTimeout > 0 && xio.IsTimeoutErr(err) {
 				continue
 			}

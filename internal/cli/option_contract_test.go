@@ -12,15 +12,16 @@ import (
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 )
 
 // Option-table contract: the CLI table and the option lookups performed by
 // the address implementations must agree in both directions.
 //
 // History justifying this test: keepidle was implemented but rejected by the
-// CLI, addrconfig was accepted but silently ignored, sndtimeo was advertised
-// with no consumer at all, and ptmx/openpty carried compat semantics that only
-// classic test.sh exposed. Each class is caught here mechanically.
+// CLI, addrconfig was accepted but silently ignored, sndtimeo was canonicalized
+// but rejected by the option table, and ptmx/openpty carried compat semantics
+// that only classic test.sh exposed. Each class is caught here mechanically.
 
 // dynamicallyReadOptions are canonical names looked up through literal slices
 // in the implementations rather than inline string arguments, so AST scanning
@@ -186,6 +187,7 @@ func TestOptionTableContract(t *testing.T) {
 	xioDir := filepath.Join("..", "xio")
 	consumed := collectConsumedOptionNames(t, xioDir)
 	table := buildSupportedAddressOptions()
+	termiosNames := termiosFamilyNames(t)
 
 	tableCanonical := make(map[string]struct{}, len(table))
 	for name := range table {
@@ -217,7 +219,7 @@ func TestOptionTableContract(t *testing.T) {
 		if _, ok := dynamicallyReadOptions[name]; ok {
 			continue
 		}
-		if _, ok := termiosFamilyNames(t)[name]; ok {
+		if _, ok := termiosNames[name]; ok {
 			continue
 		}
 		if _, ok := compatNoOptions[name]; ok {
@@ -245,9 +247,14 @@ func TestOptionTableContract(t *testing.T) {
 			t.Errorf("dynamic-family canary %q missing from dynamicallyReadOptions", c)
 		}
 	}
-	for _, c := range []string{"b115200", "icanon"} {
-		if _, ok := table[c]; !ok {
-			t.Errorf("termios-family canary %q missing from the option table", c)
+	if len(xio.TermiosHelpNames()) > 0 {
+		for _, c := range []string{"b115200", "icanon"} {
+			if _, ok := termiosNames[c]; !ok {
+				t.Errorf("termios-family canary %q missing from implementation tables", c)
+			}
+			if _, ok := table[c]; !ok {
+				t.Errorf("termios-family canary %q missing from the option table", c)
+			}
 		}
 	}
 }

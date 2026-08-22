@@ -22,7 +22,10 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 			t.Errorf("unsupported option %q is listed", name)
 		}
 	}
-	for _, name := range []string{"reuseaddr", "broadcast", "setsockopt", "setsockopt-listen", "ciphers", "chdir", "end-close"} {
+	for _, name := range []string{
+		"reuseaddr", "broadcast", "setsockopt", "setsockopt-listen",
+		"rcvtimeo", "sndtimeo", "ciphers", "chdir", "end-close",
+	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("supported option %q is missing", name)
 		}

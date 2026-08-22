@@ -269,8 +269,8 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "ipv6-recvtclass", desc: "IPV6_RECVTCLASS", aliases: []string{"recvtclass"}},
 			{name: "ipv6-unicast-hops", desc: "IPV6_UNICAST_HOPS", aliases: []string{"unicast-hops"}, validate: validateInteger(-1)},
 			{name: "ipv6-tclass", desc: "IPV6_TCLASS", aliases: []string{"tclass"}, validate: validateInt64(false)},
-			{name: "rcvtimeo", desc: "receive timeout on raw-fd sockets; UDP-RECVFROM,fork accept", aliases: []string{"so-rcvtimeo"}, validate: validateDurationOption},
-			{name: "sndtimeo", desc: "send timeout on raw-fd sockets", aliases: []string{"so-sndtimeo"}, validate: validateDurationOption},
+			{name: "rcvtimeo", desc: "socket receive timeout; UDP-RECVFROM,fork accept", aliases: []string{"so-rcvtimeo"}, validate: validateDurationOption},
+			{name: "sndtimeo", desc: "socket send timeout", aliases: []string{"so-sndtimeo"}, validate: validateDurationOption},
 		}},
 		{"Files and UNIX", []helpOpt{
 			{name: "rdonly", desc: "open read-only"},
