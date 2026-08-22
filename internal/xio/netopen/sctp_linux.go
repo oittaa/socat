@@ -127,7 +127,8 @@ func dialSCTPAll(ctx context.Context, network, host, port string, s parse.Spec, 
 			continue
 		}
 		raddr := &net.TCPAddr{IP: ip, Port: portNum}
-		c, err := connectSCTP(ctx, network, laddr, raddr, timeout, control)
+		// Merge spec-driven rcvtimeo/sndtimeo with any setsockopt= control.
+		c, err := connectSCTP(ctx, network, laddr, raddr, timeout, xio.DialControl(s, network, control))
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {

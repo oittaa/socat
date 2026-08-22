@@ -85,8 +85,36 @@ func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn
 		var optionErr error
 		controlErr := c.Control(func(fd uintptr) {
 			optionErr = ApplyListenOptions(int(fd), s, network)
+			if optionErr == nil {
+				optionErr = ApplySocketTimeos(int(fd), s)
+			}
+			if optionErr == nil {
+				optionErr = applyIPTTLTOS(int(fd), s, network)
+			}
 		})
 		return errors.Join(controlErr, optionErr)
+	}
+}
+
+// DialControl merges spec-driven socket options (rcvtimeo/sndtimeo, and
+// ip-ttl/ip-tos on tcp networks) with an optional caller-provided Control,
+// producing a single net.Dialer.Control.
+func DialControl(s parse.Spec, network string, caller func(string, string, syscall.RawConn) error) func(string, string, syscall.RawConn) error {
+	return func(nw, addr string, c syscall.RawConn) error {
+		var optErr error
+		controlErr := c.Control(func(fd uintptr) {
+			optErr = ApplySocketTimeos(int(fd), s)
+			if optErr == nil {
+				optErr = applyIPTTLTOS(int(fd), s, nw)
+			}
+		})
+		if err := errors.Join(controlErr, optErr); err != nil {
+			return err
+		}
+		if caller != nil {
+			return caller(nw, addr, c)
+		}
+		return nil
 	}
 }
 
@@ -291,6 +319,17 @@ func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
 	tc, ok := c.(*net.TCPConn)
 	if !ok {
 		return nil
+	}
+	if la := tc.LocalAddr(); la != nil && strings.HasPrefix(la.Network(), "tcp") {
+		if raw, rerr := tc.SyscallConn(); rerr == nil {
+			var optErr error
+			_ = raw.Control(func(fd uintptr) {
+				optErr = applyIPTTLTOS(int(fd), s, la.Network())
+			})
+			if optErr != nil {
+				return optErr
+			}
+		}
 	}
 	if err := applyKeepAliveConfig(s, tc); err != nil {
 		return err

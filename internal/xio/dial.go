@@ -73,7 +73,9 @@ func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 		d := &net.Dialer{
 			Timeout:   timeout,
 			LocalAddr: laddr,
-			Control:   control,
+			// Merge spec-driven socket timeouts / ttl-tos with any caller
+			// control (e.g. generic setsockopt=).
+			Control: DialControl(s, netw, control),
 		}
 		cctx := ctx
 		var cancel context.CancelFunc

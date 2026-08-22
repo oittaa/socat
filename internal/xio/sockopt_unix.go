@@ -4,6 +4,7 @@ package xio
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
@@ -62,4 +63,47 @@ func timevalFromSpec(v string) (*unix.Timeval, error) {
 	// NsecToTimeval handles each platform's Sec/Usec widths.
 	tv := unix.NsecToTimeval(int64(d))
 	return &tv, nil
+}
+
+// applyIPTTLTOS sets classic ip-ttl/ttl and ip-tos/tos on TCP INET sockets.
+// On IPv6, ttl maps to IPV6_UNICAST_HOPS; tos has no direct v6 equivalent and
+// is skipped (classic uses the separate ipv6-tclass option there). UDP and
+// raw-IP paths apply these through ApplyIPSendOpts instead, so this helper
+// deliberately restricts itself to tcp networks to avoid double application.
+func applyIPTTLTOS(fd int, s parse.Spec, network string) error {
+	if !strings.HasPrefix(network, "tcp") {
+		return nil
+	}
+	is6 := strings.HasSuffix(network, "6")
+	opt := func(names ...string) (string, bool) {
+		for _, n := range names {
+			if o, ok := s.OptionNamed(n); ok && o.Has && strings.TrimSpace(o.Value) != "" {
+				return o.Value, true
+			}
+		}
+		return "", false
+	}
+	if v, ok := opt("ip-ttl", "ttl"); ok {
+		n, err := ParseIntAny(v)
+		if err != nil {
+			return fmt.Errorf("ip-ttl: %w", err)
+		}
+		if is6 {
+			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, n); err != nil {
+				return fmt.Errorf("ip-ttl: %w", err)
+			}
+		} else if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TTL, n); err != nil {
+			return fmt.Errorf("ip-ttl: %w", err)
+		}
+	}
+	if v, ok := opt("ip-tos", "tos"); ok && !is6 {
+		n, err := ParseIntAny(v)
+		if err != nil {
+			return fmt.Errorf("ip-tos: %w", err)
+		}
+		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TOS, n); err != nil {
+			return fmt.Errorf("ip-tos: %w", err)
+		}
+	}
+	return nil
 }

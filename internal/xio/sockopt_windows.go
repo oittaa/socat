@@ -69,3 +69,7 @@ func windowsTimeoutMillis(v string) (uint32, error) {
 	}
 	return uint32(ms), nil
 }
+
+// applyIPTTLTOS is a no-op on Windows: ttl/tos application is unix-only for
+// now (Winsock IP_TOS support differs, and raw-fd addresses are unix-only).
+func applyIPTTLTOS(_ int, _ parse.Spec, _ string) error { return nil }
