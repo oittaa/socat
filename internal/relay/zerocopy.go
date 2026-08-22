@@ -41,57 +41,29 @@ func zeroCopyAllowed(cfg Config, dir string, usePoll bool) bool {
 }
 
 func unwrapZeroCopyReader(s io.Reader) (syscall.Conn, bool) {
-	for i := 0; i < 8 && s != nil; i++ {
-		if u, ok := s.(interface{ UnwrapZeroCopyStream() Stream }); ok {
-			s = u.UnwrapZeroCopyStream()
-			continue
-		}
-		if fs, ok := s.(FDStream); ok {
-			s = fs.R
-			continue
-		}
-		if ns, ok := s.(NetStream); ok {
-			s = ns.Conn
-			continue
-		}
-		break
-	}
-	switch v := s.(type) {
-	case *net.TCPConn:
-		return v, true
-	case *net.UnixConn:
-		return v, true
-	case *os.File:
-		return v, true
-	default:
-		return nil, false
-	}
+	return unwrapZeroCopyConn(s, streamRead)
 }
 
 func unwrapZeroCopyWriter(s io.Writer) (syscall.Conn, bool) {
-	for i := 0; i < 8 && s != nil; i++ {
-		if u, ok := s.(interface{ UnwrapZeroCopyStream() Stream }); ok {
-			s = u.UnwrapZeroCopyStream()
-			continue
+	return unwrapZeroCopyConn(s, streamWrite)
+}
+
+func unwrapZeroCopyConn(root any, direction streamDirection) (syscall.Conn, bool) {
+	var conn syscall.Conn
+	found := walkStreamCapabilities(root, func(value any) bool {
+		switch endpoint := value.(type) {
+		case *net.TCPConn:
+			conn = endpoint
+		case *net.UnixConn:
+			conn = endpoint
+		case *os.File:
+			conn = endpoint
+		default:
+			return false
 		}
-		if fs, ok := s.(FDStream); ok {
-			s = fs.W
-			continue
-		}
-		if ns, ok := s.(NetStream); ok {
-			s = ns.Conn
-			continue
-		}
-		break
-	}
-	switch v := s.(type) {
-	case *net.TCPConn:
-		return v, true
-	case *net.UnixConn:
-		return v, true
-	case *os.File:
-		return v, true
-	default:
-		return nil, false
-	}
+		return true
+	}, func(value any) []any {
+		return zeroCopyStreamChildren(value, direction)
+	})
+	return conn, found
 }

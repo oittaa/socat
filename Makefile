@@ -52,13 +52,14 @@ test: fmt-check
 e2e: build
 	go test $(GOFLAGS) -tags=e2e ./e2e/...
 
-# Native Go fuzz campaigns. Not part of GitHub CI.
+# Native Go fuzz campaigns. Weekly/manual in deep-tests.yml, not per-commit CI.
 # Windows: go run ./scripts/fuzzall -fuzztime=30s
 FUZZTIME ?= 30s
 fuzz:
 	go run ./scripts/fuzzall -fuzztime=$(FUZZTIME)
 
-# Bounded live relay matrix (byte-pipe families x directions). Not GitHub CI.
+# Bounded live relay matrix (byte-pipe families x directions). Weekly/manual in
+# deep-tests.yml, not per-commit CI.
 fuzz-matrix: build
 	go test $(GOFLAGS) -tags=e2e,relaymatrix -run '^TestRelayMatrix' ./e2e/ -count=1 -timeout=10m
 

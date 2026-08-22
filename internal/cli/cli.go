@@ -3,13 +3,16 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"os"
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -307,8 +310,10 @@ func (c *Config) fieldLockWait() *string { return &c.LockWait }
 func (c *Config) fieldRawLeft() *string  { return &c.RawLeft }
 func (c *Config) fieldRawRight() *string { return &c.RawRight }
 
-// Main runs socat with the given args (excluding program name).
-func Main(args []string) int {
+// Run runs socat with the given args (excluding program name). signalExit is
+// owned by cmd/socat so tests can exercise signal handling without terminating
+// the test process.
+func Run(args []string, signalExit func(int)) int {
 	xio.WaitFromEnv("SOCAT_MAIN_WAIT")
 	cfg, err := ParseArgs(args)
 	if err != nil {
@@ -342,7 +347,12 @@ func Main(args []string) int {
 	}
 	defer closeLog()
 
-	unlockFiles, err := acquireLockFiles(cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stopSignals := installSignalHandling(ctx, cancel, log, signalExit)
+	defer stopSignals()
+
+	unlockFiles, err := acquireLockFiles(ctx, cfg)
 	if err != nil {
 		return cliWriteErr("socat: %v\n", err)
 	}
@@ -368,11 +378,6 @@ func Main(args []string) int {
 	}
 
 	g := buildGlobal(cfg, log)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	stopSignals := installSignalHandling(ctx, cancel, log)
-	defer stopSignals()
 
 	runErr := xio.Run(ctx, left, right, g)
 	if cfg.Statistics {
@@ -431,10 +436,10 @@ func setupLogger(cfg *Config) (*logx.Logger, func(), error) {
 // and are registered for signal-exit unlink (os.Exit skips defers). The
 // returned cleanup removes them on normal exit; already-created files are
 // cleaned up if a later step fails.
-func acquireLockFiles(cfg *Config) (func(), error) {
+func acquireLockFiles(ctx context.Context, cfg *Config) (func(), error) {
 	var cleanups []func()
-	add := func(path string) error {
-		if err := createLockFile(path); err != nil {
+	add := func(path string, wait bool) error {
+		if err := acquireLockFile(ctx, path, wait, 100*time.Millisecond); err != nil {
 			return err
 		}
 		unregister := xio.RegisterUnlinkPath(path)
@@ -451,18 +456,12 @@ func acquireLockFiles(cfg *Config) (func(), error) {
 		return nil, err
 	}
 	if cfg.LockFile != "" {
-		if err := add(cfg.LockFile); err != nil {
+		if err := add(cfg.LockFile, false); err != nil {
 			return fail(err)
 		}
 	}
 	if cfg.LockWait != "" {
-		for {
-			if _, err := os.Stat(cfg.LockWait); os.IsNotExist(err) {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-		if err := add(cfg.LockWait); err != nil {
+		if err := add(cfg.LockWait, true); err != nil {
 			return fail(err)
 		}
 	}
@@ -471,6 +470,39 @@ func acquireLockFiles(cfg *Config) (func(), error) {
 			c()
 		}
 	}, nil
+}
+
+func acquireLockFile(ctx context.Context, path string, wait bool, interval time.Duration) error {
+	if interval <= 0 {
+		interval = 100 * time.Millisecond
+	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		err := createLockFile(path)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return err
+		}
+		if !wait {
+			return fmt.Errorf("lockfile %s exists", path)
+		}
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 // buildGlobal maps parsed flags onto the transfer-time Global.
@@ -527,28 +559,54 @@ func ipVersionFromFlags(cfg *Config) xio.IPVersion {
 // cancel the context, unlink registered FS entries and exit 128+signum
 // (EXITCODESIG*), and SIGUSR1 prints live transfer statistics. The returned
 // stop releases both signal channels.
-func installSignalHandling(ctx context.Context, cancel context.CancelFunc, log *logx.Logger) func() {
+func installSignalHandling(ctx context.Context, cancel context.CancelFunc, log *logx.Logger, signalExit func(int)) func() {
 	sigCh := make(chan os.Signal, 1)
 	notifyExitSignals(sigCh)
 	usr1 := make(chan os.Signal, 1)
 	notifyStatsSignal(usr1)
-	go func() {
-		sig := <-sigCh
-		cancel()
-		xio.UnlinkRegisteredPaths()
-		if ss, ok := sig.(syscall.Signal); ok && ss > 0 {
-			// Exit immediately so Wait()-blocked nofork paths still report classic status.
-			os.Exit(128 + int(ss))
-		}
-	}()
-	go func() {
-		for range usr1 {
-			xio.PrintLiveStats(log)
-		}
-	}()
+	stopHandlers := startSignalHandlers(ctx, cancel, log, signalExit, sigCh, usr1)
 	return func() {
 		signal.Stop(sigCh)
 		signal.Stop(usr1)
+		stopHandlers()
+	}
+}
+
+func startSignalHandlers(ctx context.Context, cancel context.CancelFunc, log *logx.Logger, signalExit func(int), sigCh, usr1 <-chan os.Signal) func() {
+	done := make(chan struct{})
+	var once sync.Once
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		select {
+		case sig := <-sigCh:
+			cancel()
+			xio.UnlinkRegisteredPaths()
+			if ss, ok := sig.(syscall.Signal); ok && ss > 0 && signalExit != nil {
+				// Exit immediately so Wait()-blocked nofork paths still report classic status.
+				signalExit(128 + int(ss))
+			}
+		case <-ctx.Done():
+		case <-done:
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-usr1:
+				xio.PrintLiveStats(log)
+			case <-ctx.Done():
+				return
+			case <-done:
+				return
+			}
+		}
+	}()
+	return func() {
+		once.Do(func() { close(done) })
+		wg.Wait()
 	}
 }
 
@@ -633,9 +691,6 @@ func cliWriteErr(format string, a ...any) int {
 func createLockFile(path string) error {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644) // #nosec G302 G304 -- -L lock file path comes from the user; 0644 matches classic socat
 	if err != nil {
-		if os.IsExist(err) {
-			return fmt.Errorf("lockfile %s exists", path)
-		}
 		return err
 	}
 	_, werr := fmt.Fprintf(f, "%d\n", os.Getpid())
