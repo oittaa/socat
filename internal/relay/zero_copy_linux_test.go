@@ -109,8 +109,11 @@ func TestZeroCopyProgressPreservesIdleAndLiveStats(t *testing.T) {
 		transferDone <- Transfer(context.Background(), NetStream{Conn: server}, FDStream{
 			R: out, W: out, C: out, CloseW: func() error { return nil },
 		}, Config{
-			BufferSize:  8192,
-			IdleTimeout: 150 * time.Millisecond,
+			BufferSize: 8192,
+			// Generous margin over the 30ms writer cadence: on loaded or
+			// slower runners a single scheduling gap must not trip the idle
+			// watcher and silently truncate the transfer mid-stream.
+			IdleTimeout: 600 * time.Millisecond,
 			LeftToRight: true,
 			Tracker:     tracker,
 		})

@@ -38,7 +38,7 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 
 	// SOCKS4A (classic xio-socks.c): dest IP is always 0.0.0.1 and the
 	// hostname is appended after the userid NUL. Do not resolve the target.
-	// SOCKS4: resolve target to xio.IPv4; no hostname trailer.
+	// SOCKS4: resolve target to IPv4; no hostname trailer.
 	var ip4 [4]byte
 	hostName := xio.StripBrackets(targetHost)
 	if socks4a {
@@ -46,7 +46,7 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	} else if ip := net.ParseIP(hostName); ip != nil {
 		v4 := ip.To4()
 		if v4 == nil {
-			return nil, fmt.Errorf("SOCKS4 requires xio.IPv4 target (got %s)", targetHost)
+			return nil, fmt.Errorf("SOCKS4 requires IPv4 target (got %s)", targetHost)
 		}
 		copy(ip4[:], v4)
 	} else {
@@ -60,7 +60,7 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 			}
 		}
 		if ip4 == [4]byte{} {
-			return nil, fmt.Errorf("SOCKS4: cannot resolve %s to xio.IPv4", targetHost)
+			return nil, fmt.Errorf("SOCKS4: cannot resolve %s to IPv4", targetHost)
 		}
 	}
 

@@ -333,7 +333,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	if fdin != "" || fdout != "" {
 		usePipes = true
 		usePty = false
-		cmd = rebuildWithFDRedirect(cmd, fdin, fdout)
+		cmd = rebuildWithFDRedirect(ctx, cmd, fdin, fdout)
 	}
 
 	if s.BoolOption("setsid") {
@@ -537,6 +537,28 @@ func setCloexecAllFrom(from int) {
 	}
 }
 
+// openExecPTYPair allocates a PTY pair for an EXEC child, applies the classic
+// session/controlling-terminal attributes, and configures slave termios.
+func openExecPTYPair(cmd *exec.Cmd, s parse.Spec) (*os.File, *os.File, error) {
+	master, slave, err := OpenPTYPair()
+	if err != nil {
+		return nil, nil, fmt.Errorf("EXEC pty: %w", err)
+	}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setsid = true
+	cmd.SysProcAttr.Setctty = !s.HasOption("ctty") || s.BoolOption("ctty")
+	_ = ApplyTermios(int(slave.Fd()), s)
+	return master, slave, nil
+}
+
+// closeExecPTY closes both PTY ends after a failed child start.
+func closeExecPTY(master, slave *os.File) {
+	logx.CloseQuiet(master)
+	logx.CloseQuiet(slave)
+}
+
 // startCmdPty runs the child with a pseudo-terminal (classic EXEC/SYSTEM,pty).
 //
 // Unidirectional dual forms inherit the unused stdio of the socat process:
@@ -552,9 +574,9 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 	switch mode {
 	case ModeWrite:
 		// Inherit stdout/stderr; only stdin is the PTY slave.
-		master, slave, err := OpenPTYPair()
+		master, slave, err := openExecPTYPair(cmd, s)
 		if err != nil {
-			return nil, fmt.Errorf("EXEC pty: %w", err)
+			return nil, err
 		}
 		ptmx = master
 		cmd.Stdin = slave
@@ -562,15 +584,8 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		if s.BoolOption("stderr") {
 			cmd.Stderr = slave
 		}
-		if cmd.SysProcAttr == nil {
-			cmd.SysProcAttr = &syscall.SysProcAttr{}
-		}
-		cmd.SysProcAttr.Setsid = true
-		cmd.SysProcAttr.Setctty = !s.HasOption("ctty") || s.BoolOption("ctty")
-		_ = ApplyTermios(int(slave.Fd()), s)
 		if err := cmd.Start(); err != nil {
-			logx.CloseQuiet(master)
-			logx.CloseQuiet(slave)
+			closeExecPTY(master, slave)
 			return nil, err
 		}
 		logx.CloseQuiet(slave)
@@ -586,9 +601,9 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 
 	case ModeRead:
 		// Inherit stdin; only stdout/stderr on PTY slave.
-		master, slave, err := OpenPTYPair()
+		master, slave, err := openExecPTYPair(cmd, s)
 		if err != nil {
-			return nil, fmt.Errorf("EXEC pty: %w", err)
+			return nil, err
 		}
 		ptmx = master
 		cmd.Stdin = os.Stdin
@@ -596,18 +611,11 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		if s.BoolOption("stderr") {
 			cmd.Stderr = slave
 		}
-		if cmd.SysProcAttr == nil {
-			cmd.SysProcAttr = &syscall.SysProcAttr{}
-		}
-		cmd.SysProcAttr.Setsid = true
 		// Controlling tty is stdout/stderr slave; Setctty needs a child FD.
 		// With stdin inherited, Ctty 1 (stdout) is the slave after setup.
-		cmd.SysProcAttr.Setctty = !s.HasOption("ctty") || s.BoolOption("ctty")
 		cmd.SysProcAttr.Ctty = 1
-		_ = ApplyTermios(int(slave.Fd()), s)
 		if err := cmd.Start(); err != nil {
-			logx.CloseQuiet(master)
-			logx.CloseQuiet(slave)
+			closeExecPTY(master, slave)
 			return nil, err
 		}
 		logx.CloseQuiet(slave)
@@ -753,42 +761,4 @@ func pipeDirections(mode Mode, fdin, fdout string) (needIn, needOut bool) {
 	default:
 		return true, true
 	}
-}
-
-func rebuildWithFDRedirect(cmd *exec.Cmd, fdin, fdout string) *exec.Cmd {
-	orig := ""
-	if len(cmd.Args) > 0 {
-		if cmd.Args[0] == "/bin/sh" || cmd.Args[0] == "sh" || strings.HasSuffix(cmd.Path, "/sh") {
-			if len(cmd.Args) >= 3 && cmd.Args[1] == "-c" {
-				orig = cmd.Args[2]
-			}
-		} else {
-			orig = shellJoin(cmd.Args)
-		}
-	}
-	redir := "exec"
-	if fdin != "" {
-		redir += " " + fdin + "<&0"
-	}
-	if fdout != "" {
-		redir += " " + fdout + ">&1"
-	}
-	return exec.Command("/bin/sh", "-c", redir+"; "+orig)
-}
-
-func shellJoin(args []string) string {
-	var b strings.Builder
-	for i, a := range args {
-		if i > 0 {
-			b.WriteByte(' ')
-		}
-		if strings.ContainsAny(a, " \t'\"\\$`") {
-			b.WriteByte('\'')
-			b.WriteString(strings.ReplaceAll(a, "'", `'\''`))
-			b.WriteByte('\'')
-		} else {
-			b.WriteString(a)
-		}
-	}
-	return b.String()
 }

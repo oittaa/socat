@@ -2,22 +2,19 @@ package tlsopen
 
 import (
 	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
-	"math/big"
 	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/testcert"
 )
 
 func TestLoadKeyPairRejectsDSA(t *testing.T) {
@@ -48,7 +45,7 @@ MIIBuwIBAAKBgQDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 func TestPostQuantumHybridKeyExchange(t *testing.T) {
 	// Classic test.sh has no post-quantum coverage. Go 1.24+ crypto/tls
 	// defaults to the X25519MLKEM768 hybrid KEM; assert we negotiate it.
-	cert, err := ephemeralSelfSigned()
+	cert, err := testcert.EphemeralSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +145,7 @@ func TestTLSClientVerifyConnectionSet(t *testing.T) {
 }
 
 func TestTLSServerVerifyConnectionSet(t *testing.T) {
-	cert, err := ephemeralSelfSigned()
+	cert, err := testcert.EphemeralSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +296,7 @@ func TestTLSClientSNIHost(t *testing.T) {
 }
 
 func TestTLSServerVerifyUsesSystemRoots(t *testing.T) {
-	cert, err := ephemeralSelfSigned()
+	cert, err := testcert.EphemeralSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +323,7 @@ func TestTLSServerVerifyUsesSystemRoots(t *testing.T) {
 
 func TestTLSServerVerify0IgnoresCommonName(t *testing.T) {
 	// Classic SSL_VERIFY_NONE: no client cert request; commonname is ignored.
-	cert, err := ephemeralSelfSigned()
+	cert, err := testcert.EphemeralSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,11 +379,11 @@ func TestTLSServerVerify0IgnoresCommonName(t *testing.T) {
 }
 
 func TestTLSServerVerifyRejectsUntrustedClient(t *testing.T) {
-	srv, err := ephemeralSelfSigned()
+	srv, err := testcert.EphemeralSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
-	cli, err := ephemeralSelfSigned()
+	cli, err := testcert.EphemeralSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -532,7 +529,7 @@ func TestTLSClientCommonNameCheck(t *testing.T) {
 
 func TestTLSClientEmptyCommonNameStillVerifiesTrust(t *testing.T) {
 	// Empty commonname= must not become verify=0: an untrusted leaf still fails.
-	leaf, err := ephemeralSelfSigned()
+	leaf, err := testcert.EphemeralSelfSigned()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -669,106 +666,41 @@ func testCAAndLeafKey(dns string) (*x509.Certificate, *x509.Certificate, ed25519
 	return testCAAndLeafKeyUsage(dns, x509.ExtKeyUsageServerAuth)
 }
 
+// testCAAndLeafKeyUsage delegates to the shared testcert generators; the
+// returned shapes keep the historical helper signature.
 func testCAAndLeafKeyUsage(dns string, usage x509.ExtKeyUsage) (*x509.Certificate, *x509.Certificate, ed25519.PrivateKey, error) {
-	caPub, caKey, err := ed25519.GenerateKey(rand.Reader)
+	a, err := testcert.NewAuthority("test-ca")
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	caTmpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "test-ca"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(24 * time.Hour),
-		IsCA:                  true,
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
-		BasicConstraintsValid: true,
-	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, caPub, caKey)
+	l, err := a.Leaf(dns, []x509.ExtKeyUsage{usage}, nil, []string{dns})
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	caCert, err := x509.ParseCertificate(caDER)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	leafPub, leafKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	leafTmpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(2),
-		Subject:               pkix.Name{CommonName: dns},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(24 * time.Hour),
-		KeyUsage:              x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{usage},
-		DNSNames:              []string{dns},
-		BasicConstraintsValid: true,
-	}
-	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, caCert, leafPub, caKey)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	leaf, err := x509.ParseCertificate(leafDER)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	return caCert, leaf, leafKey, nil
+	return a.Cert, l.Cert, l.Key, nil
 }
 
 // cnGateLeaf builds a server certificate with explicit CN/SAN control so the
-// CN-fallback gating can be exercised (testCAAndLeafKey always sets DNSNames).
-func cnGateLeaf(t *testing.T, caCert *x509.Certificate, caKey ed25519.PrivateKey, cn string, dns []string, ips []net.IP) tls.Certificate {
+// CN-fallback gating can be exercised.
+func cnGateLeaf(t *testing.T, a *testcert.Authority, cn string, dns []string, ips []net.IP) tls.Certificate {
 	t.Helper()
-	pub, key, err := ed25519.GenerateKey(rand.Reader)
+	l, err := a.Leaf(cn, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, ips, dns)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(7),
-		Subject:               pkix.Name{CommonName: cn},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(24 * time.Hour),
-		KeyUsage:              x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:              dns,
-		IPAddresses:           ips,
-		BasicConstraintsValid: true,
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, pub, caKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
+	return l.TLS()
 }
 
 func TestTLSClientCNFallbackGatedOnSANs(t *testing.T) {
 	// RFC 6125 §6.4.4 / OpenSSL X509_check_host parity: the CN is consulted
 	// only when the certificate has no subjectAltName entries at all.
-	caPub, caKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	caTmpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "cn-gate-ca"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(24 * time.Hour),
-		IsCA:                  true,
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
-		BasicConstraintsValid: true,
-	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, caPub, caKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	caCert, err := x509.ParseCertificate(caDER)
+	a, err := testcert.NewAuthority("cn-gate-ca")
 	if err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
 	caPath := filepath.Join(dir, "ca.pem")
-	if err := os.WriteFile(caPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}), 0o644); err != nil {
+	if err := testcert.WriteCertPEM(caPath, a.DER); err != nil {
 		t.Fatal(err)
 	}
 
@@ -780,24 +712,24 @@ func TestTLSClientCNFallbackGatedOnSANs(t *testing.T) {
 		{
 			// Classic testcert.conf shape: CN only, no SANs → CN match works.
 			name: "cn-only-cert-matches",
-			cert: cnGateLeaf(t, caCert, caKey, "localhost", nil, nil),
+			cert: cnGateLeaf(t, a, "localhost", nil, nil),
 		},
 		{
 			// SAN present and matching → normal path.
 			name: "matching-dns-san-passes",
-			cert: cnGateLeaf(t, caCert, caKey, "localhost", []string{"localhost"}, nil),
+			cert: cnGateLeaf(t, a, "localhost", []string{"localhost"}, nil),
 		},
 		{
 			// Mixed-cert bypass: matching CN beside a non-matching DNS SAN.
 			name:    "cn-beside-other-dns-san-fails",
-			cert:    cnGateLeaf(t, caCert, caKey, "localhost", []string{"other.example.com"}, nil),
+			cert:    cnGateLeaf(t, a, "localhost", []string{"other.example.com"}, nil),
 			wantErr: true,
 		},
 		{
 			// An IP SAN also blocks the CN fallback even when it matches the
 			// dial address; the name check asked for "localhost".
 			name:    "cn-beside-ip-san-fails",
-			cert:    cnGateLeaf(t, caCert, caKey, "localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}),
+			cert:    cnGateLeaf(t, a, "localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}),
 			wantErr: true,
 		},
 	}

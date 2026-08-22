@@ -16,10 +16,16 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-var (
+type filanConfig struct {
 	followSymlinks bool
 	rawOutput      bool
-)
+	style          int
+	singleFD       bool
+	m, n           int
+	filename       string
+	waittime       time.Duration
+	outfname       string
+}
 
 func main() {
 	os.Exit(run(os.Args[1:]))
@@ -30,16 +36,10 @@ func run(args []string) int {
 }
 
 func runWithIO(args []string, stdout, stderr io.Writer) int {
-	followSymlinks = false
-	rawOutput = false
-	var (
-		m, n     = 0, 1024 // practical default; FD_SETSIZE varies
-		style    = 0
-		filename string
-		waittime time.Duration
-		outfname string
-		singleFD = false
-	)
+	cfg := filanConfig{
+		m: 0,
+		n: 1024, // practical default; FD_SETSIZE varies
+	}
 
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -57,11 +57,11 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 			}
 			return 0
 		case a == "-L":
-			followSymlinks = true
+			cfg.followSymlinks = true
 		case a == "-s":
-			style = 1
+			cfg.style = 1
 		case a == "-r":
-			rawOutput = true
+			cfg.rawOutput = true
 		case a == "-d":
 			// verbosity ignored for now
 		case strings.HasPrefix(a, "-i"):
@@ -79,8 +79,8 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 				}
 				return 1
 			}
-			m, n = fd, fd
-			singleFD = true
+			cfg.m, cfg.n = fd, fd
+			cfg.singleFD = true
 		case strings.HasPrefix(a, "-n"):
 			v, err := takeArg(a, "n", args, &i)
 			if err != nil {
@@ -96,7 +96,7 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 				}
 				return 1
 			}
-			n = num
+			cfg.n = num
 		case strings.HasPrefix(a, "-f"):
 			v, err := takeArg(a, "f", args, &i)
 			if err != nil {
@@ -105,7 +105,7 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 				}
 				return 1
 			}
-			filename = v
+			cfg.filename = v
 		case strings.HasPrefix(a, "-T"):
 			v, err := takeArg(a, "T", args, &i)
 			if err != nil {
@@ -121,7 +121,7 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 				}
 				return 1
 			}
-			waittime = time.Duration(sec * float64(time.Second))
+			cfg.waittime = time.Duration(sec * float64(time.Second))
 		case strings.HasPrefix(a, "-o"):
 			v, err := takeArg(a, "o", args, &i)
 			if err != nil {
@@ -130,7 +130,7 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 				}
 				return 1
 			}
-			outfname = v
+			cfg.outfname = v
 		default:
 			if err := writeMsg(stderr, "filan: unknown option %q\n", a); err != nil {
 				return 1
@@ -141,8 +141,8 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 	}
 
 	out := stdout
-	if outfname != "" {
-		f, err := openOut(outfname)
+	if cfg.outfname != "" {
+		f, err := openOut(cfg.outfname)
 		if err != nil {
 			if err := writeMsg(stderr, "filan: %v\n", err); err != nil {
 				return 1
@@ -155,13 +155,13 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 		out = f
 	}
 
-	if waittime > 0 {
-		time.Sleep(waittime)
+	if cfg.waittime > 0 {
+		time.Sleep(cfg.waittime)
 	}
 
 	var report outbuf.Buf
-	if filename != "" {
-		if err := filanFile(filename, &report); err != nil {
+	if cfg.filename != "" {
+		if err := cfg.filanFile(cfg.filename, &report); err != nil {
 			if err := writeMsg(stderr, "filan: %v\n", err); err != nil {
 				return 1
 			}
@@ -173,18 +173,18 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	if singleFD {
-		n = m + 1
+	if cfg.singleFD {
+		cfg.n = cfg.m + 1
 	}
 	// Classic header line (LISTEN_KEEPALIVE uses tail -n +2 to skip it).
-	if style != 1 {
+	if cfg.style != 1 {
 		report.Println("  FD  typedeviceinodemodelinksuidgidrdevsizeblksizeblocksatimemtimectimecloexecflagssigownsigio")
 	}
-	for fd := m; fd < n; fd++ {
-		if style == 1 {
+	for fd := cfg.m; fd < cfg.n; fd++ {
+		if cfg.style == 1 {
 			fdname(fd, &report)
 		} else {
-			filanFD(fd, &report)
+			cfg.filanFD(fd, &report)
 		}
 	}
 	if err := report.Flush(out); err != nil {
@@ -245,10 +245,10 @@ func writeMsg(w io.Writer, format string, a ...any) error {
 	return err
 }
 
-func filanFile(path string, b *outbuf.Buf) error {
+func (cfg *filanConfig) filanFile(path string, b *outbuf.Buf) error {
 	var st unix.Stat_t
 	var err error
-	if followSymlinks {
+	if cfg.followSymlinks {
 		err = unix.Stat(path, &st)
 	} else {
 		err = unix.Lstat(path, &st)
@@ -270,10 +270,10 @@ func filanFile(path string, b *outbuf.Buf) error {
 			defer logx.CloseQuiet(f)
 		}
 	}
-	printStat(-1, fd, &st, b)
+	cfg.printStat(-1, fd, &st, b)
 	// Classic FILANSYMLINK: when analyzing a symlink path with lstat, append
 	// LINKTARGET=... (no space before the keyword).
-	if !followSymlinks && st.Mode&unix.S_IFMT == unix.S_IFLNK {
+	if !cfg.followSymlinks && st.Mode&unix.S_IFMT == unix.S_IFLNK {
 		if target, err := os.Readlink(path); err == nil {
 			b.Printf("LINKTARGET=%s", target)
 		}
@@ -282,13 +282,13 @@ func filanFile(path string, b *outbuf.Buf) error {
 	return nil
 }
 
-func filanFD(fd int, b *outbuf.Buf) {
+func (cfg *filanConfig) filanFD(fd int, b *outbuf.Buf) {
 	var st unix.Stat_t
 	err := unix.Fstat(fd, &st)
 	if err != nil {
 		return // skip closed FDs silently like classic often does for gaps
 	}
-	printStat(fd, fd, &st, b)
+	cfg.printStat(fd, fd, &st, b)
 
 	// cloexec / flags
 	cloexec, _ := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
@@ -314,13 +314,13 @@ func filanFD(fd int, b *outbuf.Buf) {
 	b.Println()
 }
 
-func printStat(dynfd, statfd int, st *unix.Stat_t, b *outbuf.Buf) {
+func (cfg *filanConfig) printStat(dynfd, statfd int, st *unix.Stat_t, b *outbuf.Buf) {
 	fdshow := dynfd
 	if fdshow < 0 {
 		fdshow = statfd
 	}
 	devStr := fmt.Sprintf("%d,%d", unix.Major(uint64(st.Dev)), unix.Minor(uint64(st.Dev)))
-	if rawOutput {
+	if cfg.rawOutput {
 		devStr = fmt.Sprintf("%d", st.Dev)
 	}
 	b.Printf("%4d: %s\t%s\t%d\t%06o\t%d\t%d\t%d",
@@ -339,13 +339,13 @@ func printStat(dynfd, statfd int, st *unix.Stat_t, b *outbuf.Buf) {
 		b.Printf("\t")
 	}
 	b.Printf("\t%d", st.Size)
-	printTime(b, st.Atim.Sec)
-	printTime(b, st.Mtim.Sec)
-	printTime(b, st.Ctim.Sec)
+	cfg.printTime(b, st.Atim.Sec)
+	cfg.printTime(b, st.Mtim.Sec)
+	cfg.printTime(b, st.Ctim.Sec)
 }
 
-func printTime(b *outbuf.Buf, sec int64) {
-	if rawOutput {
+func (cfg *filanConfig) printTime(b *outbuf.Buf, sec int64) {
+	if cfg.rawOutput {
 		b.Printf("\t%d", sec)
 		return
 	}

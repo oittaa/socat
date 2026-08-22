@@ -7,38 +7,6 @@ import (
 	"unicode"
 )
 
-// Option is a single address option (keyword or keyword=value).
-type Option struct {
-	Name  string
-	Value string // empty if flag-style
-	Has   bool   // true if =value was present (even if empty)
-}
-
-// Spec is a single address specification.
-type Spec struct {
-	Type    string   // uppercase keyword, e.g. "TCP4", "STDIO", "GOPEN"
-	Params  []string // positional parameters after TYPE:
-	Options []Option
-	Raw     string // original text (for errors)
-}
-
-// Dual is a dual-type address: read from Left, write to Right.
-type Dual struct {
-	Left  Spec
-	Right Spec
-	Raw   string
-}
-
-// Channel is either a single Spec or a Dual address.
-type Channel struct {
-	Single *Spec
-	Dual   *Dual
-	Raw    string
-}
-
-// IsDual reports whether this channel uses dual addressing.
-func (c Channel) IsDual() bool { return c.Dual != nil }
-
 // ParseChannel parses one command-line address argument into a Channel.
 func ParseChannel(s string) (Channel, error) {
 	s = strings.TrimSpace(s)
@@ -130,115 +98,18 @@ func ParseSpec(s string) (Spec, error) {
 	}, nil
 }
 
-// OptionNamed returns the option with the given name (case-insensitive), if any.
-func (s Spec) OptionNamed(name string) (Option, bool) {
-	name = normalizeOptionName(name)
-	// Classic socat applies options in command-line order, so a later option
-	// overrides an earlier one. Scan backwards to preserve that behavior even
-	// when aliases normalize to the same canonical name.
-	for i := len(s.Options) - 1; i >= 0; i-- {
-		o := s.Options[i]
-		if normalizeOptionName(o.Name) == name {
-			return o, true
-		}
-	}
-	return Option{}, false
-}
-
-// HasOption reports whether a flag-style or valued option is present.
-func (s Spec) HasOption(name string) bool {
-	_, ok := s.OptionNamed(name)
-	return ok
-}
-
-// OptionValue returns the value of a named option, or def if missing.
-func (s Spec) OptionValue(name, def string) string {
-	o, ok := s.OptionNamed(name)
-	if !ok {
-		return def
-	}
-	if !o.Has {
-		return "1" // flag present
-	}
-	return o.Value
-}
-
-// BoolOption returns whether an option is set truthily.
-// Classic: bare flag → true; =0/false/no/off → false; empty value (=) → false
-// (so-reuseaddr= disables SO_REUSEADDR).
-func (s Spec) BoolOption(name string) bool {
-	o, ok := s.OptionNamed(name)
-	if !ok {
-		return false
-	}
-	if !o.Has {
-		return true
-	}
-	v := strings.ToLower(strings.TrimSpace(o.Value))
-	if v == "" {
-		return false
-	}
-	return v != "0" && v != "false" && v != "no" && v != "off"
-}
-
 func splitDual(s string) (left, right string, ok bool) {
 	// Find !! outside of quotes/brackets
-	depthParen, depthBrace, depthBracket := 0, 0, 0
-	inSingle, inDouble := false, false
-	escape := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if escape {
-			escape = false
-			continue
+	sc := NewSpecScanner(s, true)
+	for {
+		c, cls, ok2 := sc.Step()
+		if !ok2 {
+			return "", "", false
 		}
-		if c == '\\' && !inSingle {
-			escape = true
-			continue
-		}
-		if inSingle {
-			if c == '\'' {
-				inSingle = false
-			}
-			continue
-		}
-		if inDouble {
-			if c == '"' {
-				inDouble = false
-			}
-			continue
-		}
-		switch c {
-		case '\'':
-			inSingle = true
-		case '"':
-			inDouble = true
-		case '(':
-			depthParen++
-		case ')':
-			if depthParen > 0 {
-				depthParen--
-			}
-		case '{':
-			depthBrace++
-		case '}':
-			if depthBrace > 0 {
-				depthBrace--
-			}
-		case '[':
-			depthBracket++
-		case ']':
-			if depthBracket > 0 {
-				depthBracket--
-			}
-		case '!':
-			if depthParen == 0 && depthBrace == 0 && depthBracket == 0 &&
-				i+1 < len(s) && s[i+1] == '!' {
-				return s[:i], s[i+2:], true
-			}
+		if cls == ClassTop && c == '!' && sc.Pos() < len(s) && s[sc.Pos()] == '!' {
+			return s[:sc.Pos()-1], s[sc.Pos()+1:], true
 		}
 	}
-	return "", "", false
 }
 
 func splitType(s string) (typeName, rest string) {
@@ -308,62 +179,18 @@ func splitColonParams(s string, pathParam bool) ([]string, error) {
 	}
 	var parts []string
 	start := 0
-	depthParen, depthBrace, depthBracket := 0, 0, 0
-	inSingle, inDouble := false, false
-	escape := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if escape {
-			escape = false
-			continue
+	sc := NewSpecScanner(s, true)
+	for {
+		c, cls, ok := sc.Step()
+		if !ok {
+			break
 		}
-		if c == '\\' && !inSingle {
-			escape = true
-			continue
-		}
-		if inSingle {
-			if c == '\'' {
-				inSingle = false
+		if cls == ClassTop && c == ':' {
+			if isWindowsDriveColon(s, start, sc.Pos()-1) {
+				continue
 			}
-			continue
-		}
-		if inDouble {
-			if c == '"' {
-				inDouble = false
-			}
-			continue
-		}
-		switch c {
-		case '\'':
-			inSingle = true
-		case '"':
-			inDouble = true
-		case '(':
-			depthParen++
-		case ')':
-			if depthParen > 0 {
-				depthParen--
-			}
-		case '{':
-			depthBrace++
-		case '}':
-			if depthBrace > 0 {
-				depthBrace--
-			}
-		case '[':
-			depthBracket++
-		case ']':
-			if depthBracket > 0 {
-				depthBracket--
-			}
-		case ':':
-			if depthParen == 0 && depthBrace == 0 && depthBracket == 0 {
-				if isWindowsDriveColon(s, start, i) {
-					continue
-				}
-				parts = append(parts, unquote(s[start:i], false))
-				start = i + 1
-			}
+			parts = append(parts, unquote(s[start:sc.Pos()-1], false))
+			start = sc.Pos()
 		}
 	}
 	parts = append(parts, unquote(s[start:], false))
@@ -376,76 +203,23 @@ func splitOptions(s string) ([]Option, error) {
 	}
 	var opts []Option
 	start := 0
-	depthParen, depthBrace, depthBracket := 0, 0, 0
-	inSingle, inDouble := false, false
-	escape := false
-	for i := 0; i <= len(s); i++ {
-		atEnd := i == len(s)
-		c := byte(0)
-		if !atEnd {
-			c = s[i]
+	sc := NewSpecScanner(s, true)
+	for {
+		c, cls, ok := sc.Step()
+		if !ok {
+			break
 		}
-		if !atEnd {
-			if escape {
-				escape = false
-				continue
-			}
-			if c == '\\' && !inSingle {
-				escape = true
-				continue
-			}
-			if inSingle {
-				if c == '\'' {
-					inSingle = false
-				}
-				continue
-			}
-			if inDouble {
-				if c == '"' {
-					inDouble = false
-				}
-				continue
-			}
-			switch c {
-			case '\'':
-				inSingle = true
-				continue
-			case '"':
-				inDouble = true
-				continue
-			case '(':
-				depthParen++
-				continue
-			case ')':
-				if depthParen > 0 {
-					depthParen--
-				}
-				continue
-			case '{':
-				depthBrace++
-				continue
-			case '}':
-				if depthBrace > 0 {
-					depthBrace--
-				}
-				continue
-			case '[':
-				depthBracket++
-				continue
-			case ']':
-				if depthBracket > 0 {
-					depthBracket--
-				}
-				continue
-			}
-		}
-		if atEnd || (c == ',' && depthParen == 0 && depthBrace == 0 && depthBracket == 0) {
-			part := strings.TrimSpace(s[start:i])
+		if cls == ClassTop && c == ',' {
+			part := strings.TrimSpace(s[start : sc.Pos()-1])
 			if part != "" {
 				opts = append(opts, parseOption(part))
 			}
-			start = i + 1
+			start = sc.Pos()
 		}
+	}
+	part := strings.TrimSpace(s[start:])
+	if part != "" {
+		opts = append(opts, parseOption(part))
 	}
 	return opts, nil
 }
@@ -498,6 +272,7 @@ var optionAliases = map[string]string{
 	"o-ndelay":           "nonblock",
 	"sp":                 "sourceport",
 	"sourceport":         "sourceport",
+	"addrconfig":         "ai-addrconfig",
 	"wait-slave":         "pty-wait-slave",
 	"waitslave":          "pty-wait-slave",
 	"pty-intervall":      "pty-interval",
@@ -534,61 +309,7 @@ func normalizeOptionName(name string) string {
 }
 
 func indexTopLevel(s string, sep byte) int {
-	depthParen, depthBrace, depthBracket := 0, 0, 0
-	inSingle, inDouble := false, false
-	escape := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if escape {
-			escape = false
-			continue
-		}
-		if c == '\\' && !inSingle {
-			escape = true
-			continue
-		}
-		if inSingle {
-			if c == '\'' {
-				inSingle = false
-			}
-			continue
-		}
-		if inDouble {
-			if c == '"' {
-				inDouble = false
-			}
-			continue
-		}
-		switch c {
-		case '\'':
-			inSingle = true
-		case '"':
-			inDouble = true
-		case '(':
-			depthParen++
-		case ')':
-			if depthParen > 0 {
-				depthParen--
-			}
-		case '{':
-			depthBrace++
-		case '}':
-			if depthBrace > 0 {
-				depthBrace--
-			}
-		case '[':
-			depthBracket++
-		case ']':
-			if depthBracket > 0 {
-				depthBracket--
-			}
-		default:
-			if c == sep && depthParen == 0 && depthBrace == 0 && depthBracket == 0 {
-				return i
-			}
-		}
-	}
-	return -1
+	return NewSpecScanner(s, true).FindTop(sep)
 }
 
 func unquote(s string, pathValue bool) string {
@@ -620,57 +341,28 @@ func unquote(s string, pathValue bool) string {
 // stripNestingQuotes removes quote delimiter characters while keeping content.
 func stripNestingQuotes(s string) string {
 	var b strings.Builder
-	inSingle, inDouble := false, false
-	escape := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if escape {
+	sc := NewSpecScanner(s, false)
+	for {
+		c, cls, ok := sc.Step()
+		if !ok {
+			break
+		}
+		if cls != ClassDelim {
 			b.WriteByte(c)
-			escape = false
-			continue
 		}
-		if c == '\\' && !inSingle {
-			escape = true
-			b.WriteByte(c)
-			continue
-		}
-		if !inDouble && c == '\'' {
-			inSingle = !inSingle
-			continue // drop delimiter
-		}
-		if !inSingle && c == '"' {
-			inDouble = !inDouble
-			continue // drop delimiter
-		}
-		b.WriteByte(c)
 	}
 	return b.String()
 }
 
 // checkBalancedQuotes returns an error if s has an unclosed quote (classic syntax error).
 func checkBalancedQuotes(s string) error {
-	inSingle, inDouble := false, false
-	escape := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if escape {
-			escape = false
-			continue
-		}
-		if c == '\\' && !inSingle {
-			escape = true
-			continue
-		}
-		if !inDouble && c == '\'' {
-			inSingle = !inSingle
-			continue
-		}
-		if !inSingle && c == '"' {
-			inDouble = !inDouble
-			continue
+	sc := NewSpecScanner(s, false)
+	for {
+		if _, _, ok := sc.Step(); !ok {
+			break
 		}
 	}
-	if inSingle || inDouble {
+	if sc.Single() || sc.Double() {
 		return fmt.Errorf("syntax error: unexpected end of address (unbalanced quote)")
 	}
 	return nil
@@ -724,85 +416,4 @@ func isAllDigits(s string) bool {
 		}
 	}
 	return true
-}
-
-func looksLikePath(s string) bool {
-	// Classic: if '/' before first ':' or ',', assume GOPEN.
-	// Native Windows: C:\..., C:/..., or UNC \\server\share.
-	if hasWindowsVolume(s) {
-		return true
-	}
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '/':
-			return true
-		case '\\':
-			return nativeWindowsPathSeparators
-		case ':', ',':
-			return false
-		}
-	}
-	return false
-}
-
-// looksLikeWindowsPath reports a native Windows path: drive + slash or UNC.
-func looksLikeWindowsPath(s string) bool {
-	if hasWindowsVolume(s) {
-		return true
-	}
-	// A single leading backslash and separator-containing relative paths are
-	// native Windows forms. Do not reinterpret them on Unix, where backslash
-	// remains the classic socat escape character.
-	return nativeWindowsPathSeparators && strings.Contains(s, `\`)
-}
-
-func hasWindowsVolume(s string) bool {
-	if len(s) >= 2 {
-		c := s[0]
-		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) && s[1] == ':' {
-			return true
-		}
-	}
-	if len(s) >= 2 && s[0] == '\\' && s[1] == '\\' {
-		return true
-	}
-	return false
-}
-
-// isWindowsDriveColon reports the colon in X:\ or X:/ at the start of s[start:].
-func isWindowsDriveColon(s string, start, i int) bool {
-	if i != start+1 || i+1 >= len(s) {
-		return false
-	}
-	c := s[start]
-	if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') {
-		return false
-	}
-	n := s[i+1]
-	return n == '\\' || n == '/'
-}
-
-// pathParamType reports address types whose positional argument is one path.
-func pathParamType(typeName string) bool {
-	n := strings.ToUpper(typeName)
-	switch n {
-	case "OPEN", "FILE", "CREATE", "CREAT", "GOPEN", "PIPE", "FIFO", "ECHO":
-		return true
-	}
-	// Classic UNIX addresses use ':' as the positional-parameter separator;
-	// test.sh relies on UNIX-LISTEN::::: failing immediately. Preserve the
-	// whole value only on Windows, where a native drive path must stay intact.
-	return nativeWindowsPathSeparators && strings.HasPrefix(n, "UNIX")
-}
-
-// pathOption reports option values that are interpreted as filesystem paths.
-func pathOption(name string) bool {
-	switch normalizeOptionName(name) {
-	case "cert", "key", "cafile", "capath", "chdir", "link",
-		"hosts-allow", "hosts-deny", "proxy-authorization-file",
-		"unix-bind-tempname":
-		return true
-	default:
-		return false
-	}
 }

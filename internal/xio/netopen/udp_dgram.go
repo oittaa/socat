@@ -7,7 +7,6 @@ import (
 	"net"
 	"strconv"
 	"syscall"
-	"time"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -250,18 +249,10 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	if recvfrom {
 		// fork: keep listening, one SYSTEM/child per datagram (classic UDP4_FORK).
 		if s.BoolOption("fork") {
-			maxChildren := 0
-			if v := s.OptionValue("max-children", ""); v != "" {
-				if n, e := strconv.Atoi(v); e == nil && n > 0 {
-					maxChildren = n
-				}
-			}
-			// Optional SO_RCVTIMEO
-			if v := s.OptionValue("so-rcvtimeo", ""); v != "" {
-				if d := xio.ParseTimeval(v); d > 0 {
-					_ = pc.SetReadDeadline(time.Time{}) // clear; per-accept deadline set in Accept
-					_ = d
-				}
+			_, maxChildren, ferr := xio.ForkLimits(s)
+			if ferr != nil {
+				logx.CloseQuiet(pc)
+				return nil, ferr
 			}
 			ln := &udpForkListener{
 				pc:      pc,

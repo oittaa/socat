@@ -16,9 +16,9 @@ import (
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/testcert"
 	"github.com/oittaa/socat/internal/xio"
 	_ "github.com/oittaa/socat/internal/xio/all"
-	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
 func skipUnlessNetNS(t *testing.T) {
@@ -179,7 +179,7 @@ func TestNetNSUDPEcho(t *testing.T) {
 
 func TestNetNSTLSEcho(t *testing.T) {
 	ns, g := setupNetNS(t)
-	cert, err := tlsopen.WriteTempListenCert(t.TempDir())
+	cert, err := testcert.WriteTempListenCert(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,7 +194,7 @@ func TestNetNSTLSEcho(t *testing.T) {
 
 func TestNetNSQUICEcho(t *testing.T) {
 	ns, g := setupNetNS(t)
-	cert, err := tlsopen.WriteTempListenCert(t.TempDir())
+	cert, err := testcert.WriteTempListenCert(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

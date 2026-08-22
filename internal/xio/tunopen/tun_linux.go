@@ -87,7 +87,7 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	}
 	defer func() { _ = unix.Close(sock) }()
 
-	// Disable xio.IPv6 on this iface before UP so kernel NDP/MLD does not inject
+	// Disable IPv6 on this iface before UP so kernel NDP/MLD does not inject
 	// extra frames into INTERFACE / TUN streams (TUNINTERFACE expects clean echo).
 	disableIPv6OnIface(ifname)
 
@@ -106,7 +106,7 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	}
 
 	_ = mode
-	// Wrap TUN fd: drop xio.IPv6 link-local multicast (MLD/ND) so TUN…PIPE does
+	// Wrap TUN fd: drop IPv6 link-local multicast (MLD/ND) so TUN…PIPE does
 	// not re-inject them into INTERFACE (classic TUNINTERFACE).
 	noPI := flags&unix.IFF_NO_PI != 0
 	ts := &tunStream{fd: fd, noPI: noPI}
@@ -178,7 +178,7 @@ func (t *tunStream) ShutdownWrite() error {
 // the Go netpoller does not).
 func (t *tunStream) Fd() uintptr { return uintptr(t.fd) }
 
-// isTunIPv6Multicast reports kernel xio.IPv6 MLD/ND-style multicast on TUN.
+// isTunIPv6Multicast reports kernel IPv6 MLD/ND-style multicast on TUN.
 func isTunIPv6Multicast(b []byte, noPI bool) bool {
 	off := 0
 	if !noPI {
@@ -195,14 +195,14 @@ func isTunIPv6Multicast(b []byte, noPI bool) bool {
 			return false
 		}
 	}
-	// xio.IPv6 destination address starts at offset 24 within the IP header.
+	// IPv6 destination address starts at offset 24 within the IP header.
 	if len(b) < off+24+1 {
 		return false
 	}
 	return b[off+24] == 0xff
 }
 
-// setTunIPv4 configures xio.IPv4 address and netmask from "a.b.c.d/bits" or "a.b.c.d".
+// setTunIPv4 configures IPv4 address and netmask from "a.b.c.d/bits" or "a.b.c.d".
 func setTunIPv4(sock int, ifname, spec string) error {
 	spec = strings.TrimSpace(spec)
 	var ip net.IP
@@ -214,7 +214,7 @@ func setTunIPv4(sock int, ifname, spec string) error {
 		}
 		ip = ipp.To4()
 		if ip == nil {
-			return fmt.Errorf("TUN address %q: xio.IPv4 required", spec)
+			return fmt.Errorf("TUN address %q: IPv4 required", spec)
 		}
 		mask = ipnet.Mask
 	} else {
@@ -224,7 +224,7 @@ func setTunIPv4(sock int, ifname, spec string) error {
 		}
 		ip = ip.To4()
 		if ip == nil {
-			return fmt.Errorf("TUN address %q: xio.IPv4 required", spec)
+			return fmt.Errorf("TUN address %q: IPv4 required", spec)
 		}
 		mask = net.CIDRMask(24, 32) // classic default when only ifaddr given
 	}
@@ -420,7 +420,7 @@ func validIfaceName(name string) bool {
 	return true
 }
 
-// disableIPv6OnIface turns off xio.IPv6 autoconfig for ifname (best-effort).
+// disableIPv6OnIface turns off IPv6 autoconfig for ifname (best-effort).
 // Docker often mounts /proc/sys read-only — failure is ignored.
 func disableIPv6OnIface(ifname string) {
 	if !validIfaceName(ifname) {

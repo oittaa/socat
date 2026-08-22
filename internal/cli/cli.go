@@ -17,6 +17,7 @@ import (
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/outbuf"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 	_ "github.com/oittaa/socat/internal/xio/all"
 )
@@ -55,7 +56,7 @@ func ParseArgs(args []string) (*Config, error) {
 	cfg := &Config{
 		LogLevel:  logx.Warning,
 		BlockSize: 8192,
-		Linger:    500 * time.Millisecond,
+		Linger:    relay.DefaultLinger,
 		Idle:      -1, // infinite
 		Progname:  "socat",
 	}
@@ -92,6 +93,60 @@ func ParseArgs(args []string) (*Config, error) {
 	return cfg, nil
 }
 
+// cliBoolFlags are exact-match switches that take no argument.
+var cliBoolFlags = map[string]func(*Config){
+	"-h":     func(cfg *Config) { cfg.Help = 1 },
+	"-?":     func(cfg *Config) { cfg.Help = 1 },
+	"--help": func(cfg *Config) { cfg.Help = 1 },
+	"-hh":    func(cfg *Config) { cfg.Help = 2 },
+	"-??":    func(cfg *Config) { cfg.Help = 2 },
+	"-hhh":   func(cfg *Config) { cfg.Help = 3 },
+	"-???":   func(cfg *Config) { cfg.Help = 3 },
+	"-V":     func(cfg *Config) { cfg.Version = true },
+	"-v":     func(cfg *Config) { cfg.Verbose = true },
+	"-x":     func(cfg *Config) { cfg.Hex = true },
+	"-s":     func(cfg *Config) {}, // classic -s; Go stream APIs have no portable subset of recoverable I/O errors
+	"-u":     func(cfg *Config) { cfg.LeftToRight = true },
+	"-U":     func(cfg *Config) { cfg.RightToLeft = true },
+	"-4":     func(cfg *Config) { cfg.IP4 = true },
+	"-6":     func(cfg *Config) { cfg.IP6 = true },
+	"-0":     func(cfg *Config) { cfg.IPAny = true },
+	"-lu":    func(cfg *Config) { cfg.Micros = true },
+	"-lh":    func(cfg *Config) { cfg.Hostname = true },
+	"-g":     func(cfg *Config) {}, // ignore option group check
+	"-D":     func(cfg *Config) {}, // log FDs before transfer — future
+	"-ls":    func(cfg *Config) {}, // log to stderr (default)
+}
+
+type cliValueFlag struct {
+	key   string
+	guard func(a string) bool
+	set   func(cfg *Config, v string) error
+}
+
+// cliValueFlags take an argument attached to the flag or as the next argv
+// entry. Order matters: first prefix match wins, mirroring the historical
+// switch.
+var cliValueFlags = []cliValueFlag{
+	{"b", nil, setBlockSize},
+	{"t", nil, setLingerFlag},
+	{"T", nil, setIdleFlag},
+	{"lp", nil, plainFlag((*Config).fieldProgname)},
+	{"lf", nil, plainFlag((*Config).fieldLogFile)},
+	{"L", nil, plainFlag((*Config).fieldLockFile)},
+	{"W", nil, plainFlag((*Config).fieldLockWait)},
+	{"r", func(a string) bool { return !strings.HasPrefix(a, "-reuse") }, plainFlag((*Config).fieldRawLeft)},
+	{"R", nil, plainFlag((*Config).fieldRawRight)},
+}
+
+// plainFlag stores the raw option value in a config field.
+func plainFlag(dst func(*Config) *string) func(cfg *Config, v string) error {
+	return func(cfg *Config, v string) error {
+		*dst(cfg) = v
+		return nil
+	}
+}
+
 func parseOption(a string, args []string, i *int, cfg *Config) error {
 	// -d / -dd / -ddd / -dddd / -d0 / -d2 …
 	if strings.HasPrefix(a, "-d") {
@@ -115,139 +170,77 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 			return nil
 		}
 	}
-
-	switch {
-	case a == "-h" || a == "-?" || a == "--help":
-		cfg.Help = 1
-	case a == "-hh" || a == "-??":
-		cfg.Help = 2
-	case a == "-hhh" || a == "-???":
-		cfg.Help = 3
-	case a == "-V":
-		cfg.Version = true
-	case a == "-v":
-		cfg.Verbose = true
-	case a == "-x":
-		cfg.Hex = true
-	case a == "-s":
-		// Accepted for classic CLI compatibility. Go's stream APIs do not expose
-		// a portable subset of recoverable I/O errors to which -s could apply.
-	case a == "-u":
-		cfg.LeftToRight = true
-	case a == "-U":
-		cfg.RightToLeft = true
-	case a == "-4":
-		cfg.IP4 = true
-	case a == "-6":
-		cfg.IP6 = true
-	case a == "-0":
-		cfg.IPAny = true
-	// Classic -S<sigmask> logs selected signals; not --statistics.
-	case a == "-lu":
-		cfg.Micros = true
-	case a == "-lh":
-		cfg.Hostname = true
-	case a == "-g":
-		// ignore option group check
-	case strings.HasPrefix(a, "-b"):
-		v, err := optArg(a, "b", args, i)
-		if err != nil {
-			// Classic: bare/missing -b → "missing numerical value of option "-b""
-			return fmt.Errorf("parseopts(): missing numerical value of option \"-b\"")
+	if set, ok := cliBoolFlags[a]; ok {
+		set(cfg)
+		return nil
+	}
+	for _, f := range cliValueFlags {
+		matched := strings.HasPrefix(a, "-"+f.key)
+		if matched && f.guard != nil && !f.guard(a) {
+			matched = false
 		}
-		// Reject empty or non-numeric (classic overflow / missing value messages).
-		if v == "" {
-			return fmt.Errorf("parseopts(): missing numerical value of option \"-b\"")
-		}
-		// Parse as unsigned; overflow → "to big" (classic).
-		n, err := strconv.ParseUint(v, 10, 64)
-		if err != nil {
-			// value larger than uint64 or non-numeric
-			if _, e2 := strconv.ParseFloat(v, 64); e2 == nil {
-				return fmt.Errorf("buffer size option (-b) to big")
+		if matched {
+			v, err := optArg(a, f.key, args, i)
+			if err != nil {
+				return err
 			}
-			return fmt.Errorf("parseopts(): missing numerical value of option \"-b\"")
+			return f.set(cfg, v)
 		}
-		// max is math.MaxInt64 for signed size math in classic (SIZE_T related)
-		const maxBuf = uint64(1<<63 - 1)
-		if n == 0 || n > maxBuf {
+	}
+	// Legacy catch: unrecognized -d combos (-dx) act as bare verbosity.
+	if strings.HasPrefix(a, "-d") {
+		cfg.LogLevel = logx.Notice
+		return nil
+	}
+	return fmt.Errorf("unknown option %q", a)
+}
+
+func setBlockSize(cfg *Config, v string) error {
+	// Classic: bare/missing -b → "missing numerical value of option "-b""
+	if v == "" {
+		return fmt.Errorf("parseopts(): missing numerical value of option \"-b\"")
+	}
+	// Parse as unsigned; overflow → "to big" (classic).
+	n, err := strconv.ParseUint(v, 10, 64)
+	if err != nil {
+		// value larger than uint64 or non-numeric
+		if _, e2 := strconv.ParseFloat(v, 64); e2 == nil {
 			return fmt.Errorf("buffer size option (-b) to big")
 		}
-		// Also cap at a practical size to avoid OOM
-		const practical = 256 * 1024 * 1024
-		if n > practical {
-			return fmt.Errorf("buffer size option (-b) to big")
-		}
-		cfg.BlockSize = int(n)
-	case strings.HasPrefix(a, "-t"):
-		v, err := optArg(a, "t", args, i)
-		if err != nil {
-			return err
-		}
-		cfg.Linger, err = parseDuration(v)
-		if err != nil {
-			return fmt.Errorf("invalid -t value %q: %w", v, err)
-		}
-	case strings.HasPrefix(a, "-T"):
-		v, err := optArg(a, "T", args, i)
-		if err != nil {
-			return err
-		}
-		cfg.IdleSet = true
-		cfg.Idle, err = parseDuration(v)
-		if err != nil {
-			return fmt.Errorf("invalid -T value %q: %w", v, err)
-		}
-		if cfg.Idle < 0 {
-			cfg.Idle = -1
-		}
-	case strings.HasPrefix(a, "-lp"):
-		v, err := optArg(a, "lp", args, i)
-		if err != nil {
-			return err
-		}
-		cfg.Progname = v
-	case strings.HasPrefix(a, "-lf"):
-		v, err := optArg(a, "lf", args, i)
-		if err != nil {
-			return err
-		}
-		cfg.LogFile = v
-	case strings.HasPrefix(a, "-L"):
-		v, err := optArg(a, "L", args, i)
-		if err != nil {
-			return err
-		}
-		cfg.LockFile = v
-	case strings.HasPrefix(a, "-W"):
-		v, err := optArg(a, "W", args, i)
-		if err != nil {
-			return err
-		}
-		cfg.LockWait = v
-	case strings.HasPrefix(a, "-r") && !strings.HasPrefix(a, "-reuse"):
-		v, err := optArg(a, "r", args, i)
-		if err != nil {
-			return err
-		}
-		cfg.RawLeft = v
-	case strings.HasPrefix(a, "-R"):
-		v, err := optArg(a, "R", args, i)
-		if err != nil {
-			return err
-		}
-		cfg.RawRight = v
-	case a == "-D":
-		// log FDs before transfer — future
-	case a == "-ls":
-		// log to stderr (default)
-	default:
-		// try multi -d as separate already handled
-		if strings.HasPrefix(a, "-d") {
-			cfg.LogLevel = logx.Notice
-			return nil
-		}
-		return fmt.Errorf("unknown option %q", a)
+		return fmt.Errorf("parseopts(): missing numerical value of option \"-b\"")
+	}
+	// max is math.MaxInt64 for signed size math in classic (SIZE_T related)
+	const maxBuf = uint64(1<<63 - 1)
+	if n == 0 || n > maxBuf {
+		return fmt.Errorf("buffer size option (-b) to big")
+	}
+	// Cap at a practical size to avoid OOM.
+	const practical = 256 * 1024 * 1024
+	if n > practical {
+		return fmt.Errorf("buffer size option (-b) to big")
+	}
+	cfg.BlockSize = int(n)
+	return nil
+}
+
+func setLingerFlag(cfg *Config, v string) error {
+	d, err := parseDuration(v)
+	if err != nil {
+		return fmt.Errorf("invalid -t value %q: %w", v, err)
+	}
+	cfg.Linger = d
+	return nil
+}
+
+func setIdleFlag(cfg *Config, v string) error {
+	d, err := parseDuration(v)
+	if err != nil {
+		return fmt.Errorf("invalid -T value %q: %w", v, err)
+	}
+	cfg.IdleSet = true
+	cfg.Idle = d
+	if cfg.Idle < 0 {
+		cfg.Idle = -1
 	}
 	return nil
 }
@@ -306,6 +299,14 @@ func parseDuration(v string) (time.Duration, error) {
 	return d, nil
 }
 
+// Field selectors for plainFlag.
+func (c *Config) fieldProgname() *string { return &c.Progname }
+func (c *Config) fieldLogFile() *string  { return &c.LogFile }
+func (c *Config) fieldLockFile() *string { return &c.LockFile }
+func (c *Config) fieldLockWait() *string { return &c.LockWait }
+func (c *Config) fieldRawLeft() *string  { return &c.RawLeft }
+func (c *Config) fieldRawRight() *string { return &c.RawRight }
+
 // Main runs socat with the given args (excluding program name).
 func Main(args []string) int {
 	xio.WaitFromEnv("SOCAT_MAIN_WAIT")
@@ -335,55 +336,17 @@ func Main(args []string) int {
 		return 1
 	}
 
-	log := logx.New()
-	logx.SetDefault(log)
-	log.SetLevel(cfg.LogLevel)
-	log.SetProgname(cfg.Progname)
-	log.SetMicros(cfg.Micros)
-	if cfg.Hostname {
-		h, ok := os.LookupEnv("HOSTNAME")
-		if !ok {
-			h, _ = os.Hostname()
-		}
-		log.SetHostname(h)
+	log, closeLog, err := setupLogger(cfg)
+	if err != nil {
+		return cliWriteErr("socat: %v\n", err)
 	}
-	if cfg.LogFile != "" {
-		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644) // #nosec G302 -- -lf log file is meant to be readable
-		if err != nil {
-			return cliWriteErr("socat: %v\n", err)
-		}
-		defer logx.CloseQuiet(f)
-		log.SetOutput(f)
-	}
+	defer closeLog()
 
-	// Lock files: O_EXCL so two processes cannot both claim the same path.
-	// Register for signal exit (os.Exit skips defers).
-	if cfg.LockFile != "" {
-		if err := createLockFile(cfg.LockFile); err != nil {
-			return cliWriteErr("socat: %v\n", err)
-		}
-		unregister := xio.RegisterUnlinkPath(cfg.LockFile)
-		defer func() {
-			unregister()
-			_ = os.Remove(cfg.LockFile)
-		}()
+	unlockFiles, err := acquireLockFiles(cfg)
+	if err != nil {
+		return cliWriteErr("socat: %v\n", err)
 	}
-	if cfg.LockWait != "" {
-		for {
-			if _, err := os.Stat(cfg.LockWait); os.IsNotExist(err) {
-				break
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-		if err := createLockFile(cfg.LockWait); err != nil {
-			return cliWriteErr("socat: %v\n", err)
-		}
-		unregister := xio.RegisterUnlinkPath(cfg.LockWait)
-		defer func() {
-			unregister()
-			_ = os.Remove(cfg.LockWait)
-		}()
-	}
+	defer unlockFiles()
 
 	left, err := parse.ParseChannel(cfg.Addresses[0])
 	if err != nil {
@@ -404,6 +367,114 @@ func Main(args []string) int {
 		return 1
 	}
 
+	g := buildGlobal(cfg, log)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	stopSignals := installSignalHandling(ctx, cancel, log)
+	defer stopSignals()
+
+	runErr := xio.Run(ctx, left, right, g)
+	if cfg.Statistics {
+		xio.PrintExitStats(g)
+	}
+	if runErr != nil {
+		if ctx.Err() != nil {
+			if g.ChildExitCode != 0 {
+				return g.ChildExitCode
+			}
+			return 0
+		}
+		// Classic socat exits 0 when accept-timeout fires with no peer.
+		if runErr == xio.ErrAcceptTimeout {
+			return 0
+		}
+		log.Errorf("%s", runErr)
+		return 1
+	}
+	// EXEC_RC / SYSTEM_RC: promote child non-zero exit.
+	if g.ChildExitCode != 0 {
+		return g.ChildExitCode
+	}
+	return 0
+}
+
+// setupLogger builds the process logger from -l* options. The returned close
+// releases the -lf log file after Run completes.
+func setupLogger(cfg *Config) (*logx.Logger, func(), error) {
+	log := logx.New()
+	logx.SetDefault(log)
+	log.SetLevel(cfg.LogLevel)
+	log.SetProgname(cfg.Progname)
+	log.SetMicros(cfg.Micros)
+	if cfg.Hostname {
+		h, ok := os.LookupEnv("HOSTNAME")
+		if !ok {
+			h, _ = os.Hostname()
+		}
+		log.SetHostname(h)
+	}
+	closeLog := func() {}
+	if cfg.LogFile != "" {
+		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644) // #nosec G302 -- -lf log file is meant to be readable
+		if err != nil {
+			return nil, nil, err
+		}
+		closeLog = func() { logx.CloseQuiet(f) }
+		log.SetOutput(f)
+	}
+	return log, closeLog, nil
+}
+
+// acquireLockFiles creates the -L lock file and, after -W's poll-wait, the
+// -W lock file. Files use O_EXCL so two processes cannot both claim a path,
+// and are registered for signal-exit unlink (os.Exit skips defers). The
+// returned cleanup removes them on normal exit; already-created files are
+// cleaned up if a later step fails.
+func acquireLockFiles(cfg *Config) (func(), error) {
+	var cleanups []func()
+	add := func(path string) error {
+		if err := createLockFile(path); err != nil {
+			return err
+		}
+		unregister := xio.RegisterUnlinkPath(path)
+		cleanups = append(cleanups, func() {
+			unregister()
+			_ = os.Remove(path)
+		})
+		return nil
+	}
+	fail := func(err error) (func(), error) {
+		for _, c := range cleanups {
+			c()
+		}
+		return nil, err
+	}
+	if cfg.LockFile != "" {
+		if err := add(cfg.LockFile); err != nil {
+			return fail(err)
+		}
+	}
+	if cfg.LockWait != "" {
+		for {
+			if _, err := os.Stat(cfg.LockWait); os.IsNotExist(err) {
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		if err := add(cfg.LockWait); err != nil {
+			return fail(err)
+		}
+	}
+	return func() {
+		for _, c := range cleanups {
+			c()
+		}
+	}, nil
+}
+
+// buildGlobal maps parsed flags onto the transfer-time Global.
+func buildGlobal(cfg *Config, log *logx.Logger) *xio.Global {
 	g := &xio.Global{
 		Log:          log,
 		BlockSize:    cfg.BlockSize,
@@ -433,29 +504,34 @@ func Main(args []string) int {
 			g.Idle = cfg.Idle
 		}
 	}
-	// IP version: explicit -4/-6/-0 vs default (env SOCAT_DEFAULT_LISTEN_IP may apply to listen).
+	g.IPVersion = ipVersionFromFlags(cfg)
+	return g
+}
+
+// ipVersionFromFlags resolves explicit -4/-6/-0 against the default
+// (env SOCAT_DEFAULT_LISTEN_IP may still apply to listen paths).
+func ipVersionFromFlags(cfg *Config) xio.IPVersion {
 	switch {
 	case cfg.IPAny:
-		g.IPVersion = xio.IPvAny
+		return xio.IPvAny
 	case cfg.IP6:
-		g.IPVersion = xio.IPv6
+		return xio.IPv6
 	case cfg.IP4:
-		g.IPVersion = xio.IPv4
+		return xio.IPv4
 	default:
-		g.IPVersion = xio.IPv4Default
+		return xio.IPv4Default
 	}
+}
 
-	// Classic EXITCODESIG*: dying on SIGTERM/ILL/… exits with 128+signum.
-	// Also unlink registered FS entries (UNIX/PIPE/PTY link) before Exit so
-	// REMOVE* tests pass — os.Exit skips Opened.Close / SetUnlinkOnClose.
+// installSignalHandling wires the two classic signal behaviors: exit signals
+// cancel the context, unlink registered FS entries and exit 128+signum
+// (EXITCODESIG*), and SIGUSR1 prints live transfer statistics. The returned
+// stop releases both signal channels.
+func installSignalHandling(ctx context.Context, cancel context.CancelFunc, log *logx.Logger) func() {
 	sigCh := make(chan os.Signal, 1)
 	notifyExitSignals(sigCh)
-	defer signal.Stop(sigCh)
 	usr1 := make(chan os.Signal, 1)
 	notifyStatsSignal(usr1)
-	defer signal.Stop(usr1)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	go func() {
 		sig := <-sigCh
 		cancel()
@@ -470,30 +546,10 @@ func Main(args []string) int {
 			xio.PrintLiveStats(log)
 		}
 	}()
-
-	runErr := xio.Run(ctx, left, right, g)
-	if cfg.Statistics {
-		xio.PrintExitStats(g)
+	return func() {
+		signal.Stop(sigCh)
+		signal.Stop(usr1)
 	}
-	if runErr != nil {
-		if ctx.Err() != nil {
-			if g.ChildExitCode != 0 {
-				return g.ChildExitCode
-			}
-			return 0
-		}
-		// Classic socat exits 0 when accept-timeout fires with no peer.
-		if runErr == xio.ErrAcceptTimeout {
-			return 0
-		}
-		log.Errorf("%s", runErr)
-		return 1
-	}
-	// EXEC_RC / SYSTEM_RC: promote child non-zero exit.
-	if g.ChildExitCode != 0 {
-		return g.ChildExitCode
-	}
-	return 0
 }
 
 func printVersion(w io.Writer) error {

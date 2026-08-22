@@ -2,14 +2,10 @@ package quicopen
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
 	"io"
-	"math/big"
 	"net"
 	"os"
 	"path/filepath"
@@ -19,14 +15,14 @@ import (
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
+	"github.com/oittaa/socat/internal/testcert"
 	"github.com/oittaa/socat/internal/xio"
 	_ "github.com/oittaa/socat/internal/xio/fileopen"
-	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
 func listenCert(t *testing.T) string {
 	t.Helper()
-	p, err := tlsopen.WriteTempListenCert(t.TempDir())
+	p, err := testcert.WriteTempListenCert(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,74 +229,41 @@ type trustCerts struct {
 func writeTrustCerts(t *testing.T) trustCerts {
 	t.Helper()
 	dir := t.TempDir()
-	caPub, caKey, err := ed25519.GenerateKey(rand.Reader)
+	a, err := testcert.NewAuthority("socat-test-ca")
 	if err != nil {
 		t.Fatal(err)
 	}
-	caTmpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "socat-test-ca"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(24 * time.Hour),
-		IsCA:                  true,
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
-		BasicConstraintsValid: true,
-	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, caPub, caKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	caCert, err := x509.ParseCertificate(caDER)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	writePEM := func(name, typ string, der []byte) string {
+	writeFile := func(name string, data []byte) string {
 		t.Helper()
 		p := filepath.Join(dir, name)
-		if err := os.WriteFile(p, pem.EncodeToMemory(&pem.Block{Type: typ, Bytes: der}), 0o600); err != nil {
+		if err := os.WriteFile(p, data, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		return p
 	}
-
-	leaf := func(cn string, serial int64, usage []x509.ExtKeyUsage, ips []net.IP, dns []string) (certPath, keyPath string) {
-		t.Helper()
-		pub, key, err := ed25519.GenerateKey(rand.Reader)
-		if err != nil {
-			t.Fatal(err)
-		}
-		tmpl := &x509.Certificate{
-			SerialNumber: big.NewInt(serial),
-			Subject:      pkix.Name{CommonName: cn},
-			NotBefore:    time.Now().Add(-time.Hour),
-			NotAfter:     time.Now().Add(24 * time.Hour),
-			KeyUsage:     x509.KeyUsageDigitalSignature,
-			ExtKeyUsage:  usage,
-			IPAddresses:  ips,
-			DNSNames:     dns,
-		}
-		der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert, pub, caKey)
-		if err != nil {
-			t.Fatal(err)
-		}
-		keyDER, err := x509.MarshalPKCS8PrivateKey(key)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return writePEM(cn+".crt", "CERTIFICATE", der),
-			writePEM(cn+".key", "PRIVATE KEY", keyDER)
-	}
-
-	srvCert, srvKey := leaf("localhost", 2, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	srv, err := a.Leaf("localhost", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		[]net.IP{net.ParseIP("127.0.0.1")}, []string{"localhost"})
-	cliCert, cliKey := leaf("client", 3, []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli, err := a.Leaf("client", []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverCert, serverKey, err := srv.WriteCertAndKey(dir, "localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientCert, clientKey, err := cli.WriteCertAndKey(dir, "client")
+	if err != nil {
+		t.Fatal(err)
+	}
 	return trustCerts{
-		caFile:     writePEM("ca.crt", "CERTIFICATE", caDER),
-		serverCert: srvCert,
-		serverKey:  srvKey,
-		clientCert: cliCert,
-		clientKey:  cliKey,
+		caFile:     writeFile("ca.crt", pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: a.DER})),
+		serverCert: serverCert,
+		serverKey:  serverKey,
+		clientCert: clientCert,
+		clientKey:  clientKey,
 	}
 }
 

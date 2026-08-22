@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -93,7 +92,7 @@ func openTCPListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glob
 	//   1) address option pf=
 	//   2) explicit -4 / -6 / -0
 	//   3) env SOCAT_DEFAULT_LISTEN_IP
-	//   4) default xio.IPv4
+	//   4) default IPv4
 	netw := xio.ListenNetwork(g, s)
 	return openTCPListenNetwork(ctx, s, mode, g, netw)
 }
@@ -104,7 +103,7 @@ func openTCP4Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 
 func openTCP6Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	// Go's "tcp6" forces IPV6_V6ONLY=1 after our Control hook. For
-	// ipv6-v6only=0 use dual-stack "tcp" on :: so xio.IPv4 clients work.
+	// ipv6-v6only=0 use dual-stack "tcp" on :: so IPv4 clients work.
 	netw := "tcp6"
 	if s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
 		netw = "tcp"
@@ -130,14 +129,12 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, err
 	}
 
-	fork := s.BoolOption("fork")
-	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
-	maxChildren := 0
-	if v := s.OptionValue("max-children", ""); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			maxChildren = n
-		}
+	fork, maxChildren, ferr := xio.ForkLimits(s)
+	if ferr != nil {
+		logx.CloseQuiet(ln)
+		return nil, ferr
 	}
+	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 	// Per-connection wrap for fork accept (crlf, escape, keepalive, …).
 	// Non-fork applies the same via xio.WrapCommon after the single accept below.
 	wrapConn := func(c net.Conn) (relay.Stream, error) {

@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oittaa/socat/internal/xio/tlsopen"
+	"github.com/oittaa/socat/internal/testcert"
 )
 
 var capabilityCache = struct {
@@ -33,7 +33,7 @@ func skipUnlessLinux(t *testing.T) {
 
 func listenCert(t *testing.T) string {
 	t.Helper()
-	p, err := tlsopen.WriteTempListenCert(t.TempDir())
+	p, err := testcert.WriteTempListenCert(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
