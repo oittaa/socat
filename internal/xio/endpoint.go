@@ -182,6 +182,9 @@ type Opened struct {
 	Interval time.Duration
 	// HandshakeTimeout bounds accepted TLS/WebSocket protocol negotiation.
 	HandshakeTimeout time.Duration
+	// AcceptTimeout aborts waiting for a connection (classic accept-timeout);
+	// honored by fork accept loops as well as single-shot accepts.
+	AcceptTimeout time.Duration
 	// For dual: separate read/write streams
 	Read  relay.Stream
 	Write relay.Stream

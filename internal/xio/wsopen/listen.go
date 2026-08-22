@@ -85,6 +85,7 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		WrapDial:         wrapConn,
 		HandshakeTimeout: handshakeTimeout,
 	}
+	o.AcceptTimeout = xio.AcceptTimeout(s)
 	o.AddCleanup(func() { logx.CloseQuiet(ln) })
 
 	if fork {

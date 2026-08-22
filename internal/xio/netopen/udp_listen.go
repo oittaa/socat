@@ -58,12 +58,14 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			}
 		}
 		ln := &udpForkListener{
-			pc:      pc,
-			network: network,
-			laddr:   laddr,
-			spec:    s,
-			g:       g,
-			ctx:     ctx,
+			pc:            pc,
+			network:       network,
+			laddr:         laddr,
+			spec:          s,
+			g:             g,
+			ctx:           ctx,
+			rcvTimeout:    xio.ParseTimeval(s.OptionValue("rcvtimeo", "")),
+			acceptTimeout: xio.AcceptTimeout(s),
 		}
 		return &xio.Opened{
 			Kind:        xio.KindListen,
@@ -137,30 +139,41 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 // udpForkListener implements net.Listener for UDP-LISTEN/RECVFROM,fork:
 // each Accept waits for a datagram and returns a session Conn for that peer.
 type udpForkListener struct {
-	pc         *net.UDPConn
-	network    string
-	laddr      *net.UDPAddr
-	spec       parse.Spec
-	g          *xio.Global
-	ctx        context.Context
-	rcvTimeout time.Duration
+	pc            *net.UDPConn
+	network       string
+	laddr         *net.UDPAddr
+	spec          parse.Spec
+	g             *xio.Global
+	ctx           context.Context
+	rcvTimeout    time.Duration
+	acceptTimeout time.Duration
 }
 
 func (l *udpForkListener) Accept() (net.Conn, error) {
 	buf := make([]byte, 65535)
 	wantCtrl := xio.NeedAncillary(l.spec)
 	for {
-		if l.rcvTimeout > 0 {
+		switch {
+		case l.acceptTimeout > 0:
+			// accept-timeout aborts waiting entirely (classic accept-timeout).
+			_ = l.pc.SetReadDeadline(time.Now().Add(l.acceptTimeout))
+		case l.rcvTimeout > 0:
 			_ = l.pc.SetReadDeadline(time.Now().Add(l.rcvTimeout))
 		}
 		rn, oob, a, err := xio.RecvOneCtx(l.ctx, func() (int, []byte, *net.UDPAddr, error) {
 			return xio.ReadUDPMsg(l.pc, buf, wantCtrl)
 		})
 		if err != nil {
+			if l.ctx.Err() != nil {
+				return nil, err
+			}
 			// Keep the listener alive across its periodic receive deadline;
 			// classic's poll loop likewise continues waiting while idle.
-			if l.rcvTimeout > 0 && xio.IsTimeoutErr(err) {
+			if l.rcvTimeout > 0 && l.acceptTimeout == 0 && xio.IsTimeoutErr(err) {
 				continue
+			}
+			if l.acceptTimeout > 0 && xio.IsTimeoutErr(err) {
+				return nil, xio.ErrAcceptTimeout
 			}
 			return nil, err
 		}

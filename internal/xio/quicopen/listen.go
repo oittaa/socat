@@ -63,6 +63,7 @@ func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		MaxChildren: maxChildren,
 		WrapDial:    wrapConn,
 	}
+	o.AcceptTimeout = xio.AcceptTimeout(s)
 	o.AddCleanup(func() { _ = ln.Close() })
 
 	if fork {

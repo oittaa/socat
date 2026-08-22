@@ -132,6 +132,7 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		MaxChildren:      maxChildren,
 		HandshakeTimeout: xio.HandshakeTimeout(s),
 	}
+	o.AcceptTimeout = xio.AcceptTimeout(s)
 	o.AddCleanup(func() { logx.CloseQuiet(tlsLn) })
 
 	if fork {

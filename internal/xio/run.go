@@ -174,13 +174,25 @@ func (s childSlots) release() {
 // always installs a logger).
 func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global, logAccept bool, body func(c net.Conn, cg *Global)) error {
 	slots := newChildSlots(o.MaxChildren)
+	type deadliner interface{ SetDeadline(time.Time) error }
+	var dl deadliner
+	if o.AcceptTimeout > 0 {
+		dl, _ = ln.(deadliner)
+	}
 	for {
 		if !slots.acquire(ctx) {
 			return nil
 		}
+		if dl != nil {
+			_ = dl.SetDeadline(time.Now().Add(o.AcceptTimeout))
+		}
 		conn, err := ln.Accept()
 		if err != nil {
 			slots.release()
+			if dl != nil && IsTimeoutErr(err) && ctx.Err() == nil {
+				// Classic accept-timeout aborts waiting for a connection.
+				return ErrAcceptTimeout
+			}
 			if ctx.Err() != nil {
 				return nil
 			}

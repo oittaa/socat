@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestUDPForkListenerSurvivesReceiveTimeout(t *testing.T) {
@@ -73,5 +74,39 @@ func TestUDPForkListenerSurvivesReceiveTimeout(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Accept did not survive the receive timeout")
+	}
+}
+
+func TestUDPForkListenerAcceptTimeoutAborts(t *testing.T) {
+	spec, err := parse.ParseSpec("UDP4-RECVFROM:0,fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pc, err := listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ln := &udpForkListener{
+		pc:            pc,
+		network:       "udp4",
+		laddr:         pc.LocalAddr().(*net.UDPAddr),
+		spec:          spec,
+		ctx:           ctx,
+		acceptTimeout: 40 * time.Millisecond,
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	start := time.Now()
+	_, err = ln.Accept()
+	if err == nil {
+		t.Fatal("expected accept timeout")
+	}
+	if err != xio.ErrAcceptTimeout {
+		t.Fatalf("err=%v want xio.ErrAcceptTimeout", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("accept-timeout took %s", elapsed)
 	}
 }
