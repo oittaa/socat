@@ -204,6 +204,9 @@ func dialUDPSession(network string, local, remote *net.UDPAddr) (*net.UDPConn, e
 			var optionErr error
 			controlErr := c.Control(func(fd uintptr) {
 				optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+				if optionErr == nil {
+					optionErr = enableUDPForkPortReuse(int(fd))
+				}
 			})
 			return errors.Join(controlErr, optionErr)
 		},
