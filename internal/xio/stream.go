@@ -333,9 +333,21 @@ func (s shutNullStream) ShutdownWrite() error {
 	return s.Stream.ShutdownWrite()
 }
 
-// WrapCommon applies readbytes / crnl / escape / null-eof / shut-null wrappers.
+// WrapCommon applies ignoreeof / readbytes / crnl / escape / null-eof /
+// shut-null wrappers.
 func WrapCommon(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	var err error
+	// ignoreeof first so it wraps the raw source: EOF is retried (classic
+	// semantics) while outer byte caps like readbytes still terminate.
+	if s.BoolOption("ignoreeof") {
+		inner := stream
+		stream = relay.FDStream{
+			R:      NewIgnoreEOF(inner),
+			W:      inner,
+			C:      inner,
+			CloseW: func() error { return inner.ShutdownWrite() },
+		}
+	}
 	stream, err = ApplyReadBytes(s, stream)
 	if err != nil {
 		return nil, err

@@ -449,20 +449,8 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 		logx.CloseQuiet(f)
 		return nil, err
 	}
-	var stream relay.Stream
-	if s.BoolOption("ignoreeof") {
-		stream = relay.FDStream{
-			R: xio.NewIgnoreEOF(f),
-			W: f,
-			C: f,
-			CloseW: func() error {
-				return nil
-			},
-		}
-	} else {
-		stream = xio.FileStream(f)
-	}
-	st, err := xio.WrapCommon(s, stream)
+	// ignoreeof is applied centrally by xio.WrapCommon now.
+	st, err := xio.WrapCommon(s, xio.FileStream(f))
 	if err != nil {
 		logx.CloseQuiet(f)
 		return nil, err
