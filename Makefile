@@ -1,4 +1,4 @@
-.PHONY: all build fmt fmt-check lint gosec test e2e fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
+.PHONY: all build fmt fmt-check lint gosec test e2e check fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -51,6 +51,14 @@ test: fmt-check
 
 e2e: build
 	go test $(GOFLAGS) -tags=e2e ./e2e/...
+
+# Complete pre-commit validation. Keep these recursive calls sequential so a
+# failure identifies the stage clearly even when the caller enables make -j.
+check:
+	$(MAKE) lint
+	$(MAKE) gosec
+	$(MAKE) test
+	$(MAKE) e2e
 
 # Native Go fuzz campaigns. Weekly/manual in deep-tests.yml, not per-commit CI.
 # Windows: go run ./scripts/fuzzall -fuzztime=30s

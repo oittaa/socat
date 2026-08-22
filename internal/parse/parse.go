@@ -308,6 +308,13 @@ func normalizeOptionName(name string) string {
 	return n
 }
 
+// CanonicalOptionName resolves classic aliases (so-*, o-*, tls-*, …) to the
+// canonical spelling implementations look up. Exported for tooling that
+// audits the option table against real consumption.
+func CanonicalOptionName(name string) string {
+	return normalizeOptionName(name)
+}
+
 func indexTopLevel(s string, sep byte) int {
 	return NewSpecScanner(s, true).FindTop(sep)
 }

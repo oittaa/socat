@@ -436,6 +436,9 @@ func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 			return
 		}
 		optionErr = ApplyIPSendOpts(int(fd), s, network)
+		if optionErr == nil {
+			optionErr = ApplySocketTimeos(int(fd), s)
+		}
 	})
 	return errors.Join(controlErr, optionErr)
 }

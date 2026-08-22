@@ -3,6 +3,7 @@
 package xio
 
 import (
+	"errors"
 	"net"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -21,4 +22,14 @@ func ReadUDPMsg(c *net.UDPConn, p []byte, _ bool) (int, []byte, *net.UDPAddr, er
 	return n, nil, addr, err
 }
 
-func ApplyUDPConnOpts(*net.UDPConn, parse.Spec, string) error { return nil }
+func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, _ string) error {
+	raw, err := c.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var optionErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		optionErr = ApplySocketTimeos(int(fd), s)
+	})
+	return errors.Join(controlErr, optionErr)
+}

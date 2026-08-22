@@ -401,6 +401,12 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 				if optionErr != nil {
 					return
 				}
+				if s.BoolOption("fork") {
+					optionErr = enableUDPForkPortReuse(int(fd))
+					if optionErr != nil {
+						return
+					}
+				}
 				if s.BoolOption("broadcast") {
 					optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 				}

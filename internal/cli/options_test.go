@@ -37,6 +37,7 @@ func TestValidateAddressOptions(t *testing.T) {
 	}{
 		{name: "known", spec: "CREATE:file,perm=600"},
 		{name: "known-alias", spec: "TCP-LISTEN:1,so-reuseaddr"},
+		{name: "zero-socket-timeouts", spec: "UDP:localhost:1,rcvtimeo=0,sndtimeo=0"},
 		{name: "listen-sockopt-alias", spec: "TCP-LISTEN:1,sockopt-listen=1:2:1"},
 		{name: "openssl-cipher-alias", spec: "OPENSSL:localhost:443,cipher=ECDHE-ECDSA-AES256-GCM-SHA384"},
 		{name: "proxy-tls-option", spec: "PROXY:localhost:example.com:443,verify=0"},
@@ -48,6 +49,7 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "unknown", spec: "CREATE:file,totally-unknown=1", wantErr: "unknown option"},
 		{name: "bad-perm", spec: "CREATE:file,perm=xyz", wantErr: "invalid perm"},
 		{name: "bad-duration", spec: "TCP:localhost:1,connect-timeout=soon", wantErr: "invalid connect-timeout"},
+		{name: "negative-socket-timeout", spec: "UDP:localhost:1,rcvtimeo=-1", wantErr: "invalid rcvtimeo"},
 		{name: "bad-children", spec: "TCP-LISTEN:1,fork,max-children=many", wantErr: "invalid max-children"},
 		{name: "bad-socktype", spec: "UNIX:file,socktype=stream", wantErr: "invalid socktype"},
 		{name: "bad-ftruncate", spec: "OPEN:file,ftruncate=-1", wantErr: "invalid ftruncate"},

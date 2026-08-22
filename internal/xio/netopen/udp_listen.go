@@ -157,6 +157,11 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			return xio.ReadUDPMsg(l.pc, buf, wantCtrl)
 		})
 		if err != nil {
+			// Keep the listener alive across its periodic receive deadline;
+			// classic's poll loop likewise continues waiting while idle.
+			if l.rcvTimeout > 0 && xio.IsTimeoutErr(err) {
+				continue
+			}
 			return nil, err
 		}
 		if err := xio.PeerAllowedG(l.spec, &udpPeerConn{addr: a}, l.g); err != nil {
@@ -199,6 +204,9 @@ func dialUDPSession(network string, local, remote *net.UDPAddr) (*net.UDPConn, e
 			var optionErr error
 			controlErr := c.Control(func(fd uintptr) {
 				optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+				if optionErr == nil {
+					optionErr = enableUDPForkPortReuse(int(fd))
+				}
 			})
 			return errors.Join(controlErr, optionErr)
 		},
