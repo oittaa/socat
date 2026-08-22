@@ -92,8 +92,16 @@ func TestSocketpairDatagramEchoThroughTransfer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer srvPC.Close()
-	defer cliPC.Close()
+	t.Cleanup(func() {
+		if err := srvPC.Close(); err != nil {
+			t.Errorf("close server packet connection: %v", err)
+		}
+	})
+	t.Cleanup(func() {
+		if err := cliPC.Close(); err != nil {
+			t.Errorf("close client packet connection: %v", err)
+		}
+	})
 	srv := srvPC.(*net.UDPConn)
 	cli := cliPC.(*net.UDPConn)
 	udp := udpEchoConn{UDPConn: srv, peer: cli.LocalAddr().(*net.UDPAddr)}
