@@ -5,6 +5,7 @@ package fileopen
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net"
 	"strconv"
 	"strings"
@@ -82,7 +83,11 @@ func TestSocketpairDatagramEchoThroughTransfer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = pair.Close() }()
+	t.Cleanup(func() {
+		if err := pair.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Errorf("close socketpair: %v", err)
+		}
+	})
 
 	srvPC, err := net.ListenPacket("udp4", "127.0.0.1:0")
 	if err != nil {
@@ -93,12 +98,12 @@ func TestSocketpairDatagramEchoThroughTransfer(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := srvPC.Close(); err != nil {
+		if err := srvPC.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 			t.Errorf("close server packet connection: %v", err)
 		}
 	})
 	t.Cleanup(func() {
-		if err := cliPC.Close(); err != nil {
+		if err := cliPC.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
 			t.Errorf("close client packet connection: %v", err)
 		}
 	})
@@ -107,10 +112,21 @@ func TestSocketpairDatagramEchoThroughTransfer(t *testing.T) {
 	udp := udpEchoConn{UDPConn: srv, peer: cli.LocalAddr().(*net.UDPAddr)}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+	done := make(chan error, 1)
 	go func() {
-		_ = relay.Transfer(ctx, udp, pair.Stream, relay.Config{BufferSize: 8192, Linger: 200 * time.Millisecond})
+		done <- relay.Transfer(ctx, udp, pair.Stream, relay.Config{BufferSize: 8192, Linger: 200 * time.Millisecond})
 	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("transfer: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Error("transfer did not stop after cancellation")
+		}
+	})
 
 	first := []byte("aaaaaaaaaaaaaaaaaaaa")
 	second := []byte("bbbbbbbbbbbbbbbbbb")
