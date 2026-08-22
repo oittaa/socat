@@ -227,18 +227,73 @@ func IsTimeoutErr(err error) bool {
 	return errors.As(err, &ne) && ne.Timeout()
 }
 
-// ApplySetsockoptFD parses classic setsockopt=level:optname:value (ints) and applies it.
+// applyKeepAliveConfig builds net.KeepAliveConfig from the classic keepalive
+// family: keepalive/so-keepalive toggle, keepidle/keepintvl/keepcnt values.
+// Any sub-option implies enable; an explicit keepalive=0 disables even when
+// sub-options are present. Unset fields keep their platform defaults.
+func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
+	anyOpt := false
+	enable := true
+	for _, n := range []string{"keepalive", "so-keepalive", "keepidle", "keepintvl", "keepcnt"} {
+		if s.HasOption(n) {
+			anyOpt = true
+			break
+		}
+	}
+	if !anyOpt {
+		return nil
+	}
+	if s.HasOption("keepalive") || s.HasOption("so-keepalive") {
+		enable = s.BoolOption("keepalive") || s.BoolOption("so-keepalive")
+	}
+	cfg := net.KeepAliveConfig{Enable: enable}
+
+	durFrom := func(o parse.Option) (time.Duration, error) {
+		d, err := parseTimeval(o.Value)
+		if err != nil {
+			return 0, fmt.Errorf("%s: %w", o.Name, err)
+		}
+		if d <= 0 {
+			return 0, fmt.Errorf("%s: must be positive, got %q", o.Name, o.Value)
+		}
+		return d, nil
+	}
+	if o, ok := s.OptionNamed("keepidle"); ok && o.Has && strings.TrimSpace(o.Value) != "" {
+		d, err := durFrom(o)
+		if err != nil {
+			return err
+		}
+		cfg.Idle = d
+	}
+	if o, ok := s.OptionNamed("keepintvl"); ok && o.Has && strings.TrimSpace(o.Value) != "" {
+		d, err := durFrom(o)
+		if err != nil {
+			return err
+		}
+		cfg.Interval = d
+	}
+	if o, ok := s.OptionNamed("keepcnt"); ok && o.Has && strings.TrimSpace(o.Value) != "" {
+		n, err := strconv.Atoi(strings.TrimSpace(o.Value))
+		if err != nil || n < 0 {
+			return fmt.Errorf("keepcnt: invalid count %q", o.Value)
+		}
+		cfg.Count = n
+	}
+	if err := tc.SetKeepAliveConfig(cfg); err != nil {
+		return fmt.Errorf("keepalive: %w", err)
+	}
+	return nil
+}
+
+// ApplyTCPConnOpts parses classic setsockopt=level:optname:value (ints) and applies it.
 // SETSOCKOPT test uses setsockopt=6:TCP_MAXSEG:512 (IPPROTO_TCP + TCP_MAXSEG).
 func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
 	tc, ok := c.(*net.TCPConn)
 	if !ok {
 		return nil
 	}
-	if s.HasOption("keepalive") || s.HasOption("so-keepalive") || s.HasOption("keepidle") {
-		enabled := s.BoolOption("keepalive") || s.BoolOption("so-keepalive") || s.HasOption("keepidle")
-		if err := tc.SetKeepAlive(enabled); err != nil {
-			return fmt.Errorf("keepalive: %w", err)
-		}
+	if err := applyKeepAliveConfig(s, tc); err != nil {
+		return err
 	}
 	if s.HasOption("nodelay") || s.HasOption("tcp-nodelay") {
 		enabled := s.BoolOption("nodelay") || s.BoolOption("tcp-nodelay")

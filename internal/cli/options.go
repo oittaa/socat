@@ -250,7 +250,9 @@ func helpOptionGroups() []helpOptGroup {
 		{"Sockets", []helpOpt{
 			{name: "nodelay", desc: "TCP_NODELAY", aliases: []string{"tcp-nodelay"}},
 			{name: "keepalive", desc: "SO_KEEPALIVE", aliases: []string{"so-keepalive"}},
-			{name: "keepidle", desc: "TCP keepidle (requires keepalive)"},
+			{name: "keepidle", desc: "TCP_KEEPIDLE idle time (requires keepalive)", aliases: []string{"so-keepidle"}, validate: validateDurationOption},
+			{name: "keepintvl", desc: "TCP_KEEPINTVL probe interval", aliases: []string{"so-keepintvl"}, validate: validateDurationOption},
+			{name: "keepcnt", desc: "TCP_KEEPCNT probe count", aliases: []string{"so-keepcnt"}, validate: validateInteger(0)},
 			{name: "broadcast", desc: "SO_BROADCAST"},
 			{name: "ip-add-membership", desc: "IPv4 multicast join"},
 			{name: "ipv6-join-group", desc: "IPv6 multicast join"},
