@@ -330,6 +330,9 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	// fdin/fdout: map socat's pipe ends onto child FDs via a shell exec redirect.
 	fdin := s.OptionValue("fdin", "")
 	fdout := s.OptionValue("fdout", "")
+	if err := validateProcessFDOptions(mode, fdin, fdout); err != nil {
+		return nil, err
+	}
 	if fdin != "" || fdout != "" {
 		usePipes = true
 		usePty = false
@@ -413,6 +416,16 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 
 	return finishExec(s, g, cmd, stream, cleanup, mode == ModeWrite)
+}
+
+func validateProcessFDOptions(mode Mode, fdin, fdout string) error {
+	if mode == ModeWrite && fdout != "" {
+		return fmt.Errorf("fdout is not valid in a write-only process address")
+	}
+	if mode == ModeRead && fdin != "" {
+		return fmt.Errorf("fdin is not valid in a read-only process address")
+	}
+	return nil
 }
 
 func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdin, fdout string) (relay.Stream, []func(), []*os.File, error) {

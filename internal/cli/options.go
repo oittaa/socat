@@ -22,34 +22,61 @@ type helpOptGroup struct {
 	opts  []helpOpt
 }
 
+type addressOption struct {
+	validate      func(parse.Option) error
+	addressGroups []string
+}
+
 var supportedAddressOptions = buildSupportedAddressOptions()
 
-func buildSupportedAddressOptions() map[string]func(parse.Option) error {
-	options := make(map[string]func(parse.Option) error)
+func buildSupportedAddressOptions() map[string]addressOption {
+	options := make(map[string]addressOption)
 	for _, group := range helpOptionGroups() {
-		if hideOptGroup(group.title) {
-			continue
+		spec := addressOption{
+			addressGroups: optionAddressGroups(group.title),
 		}
 		for _, option := range group.opts {
-			if hideOpt(option.name) {
-				continue
-			}
-			options[strings.ToLower(option.name)] = option.validate
+			spec.validate = option.validate
+			options[strings.ToLower(option.name)] = spec
 			for _, alias := range option.aliases {
-				options[strings.ToLower(alias)] = option.validate
+				options[strings.ToLower(alias)] = spec
 			}
 		}
 	}
 	for _, name := range extraHelpNames(true) {
-		options[strings.ToLower(name)] = nil
+		options[strings.ToLower(name)] = addressOption{}
 	}
 	// These names are deliberately recognized so the relevant opener can
 	// return a precise "not supported" error. They must not be advertised as
 	// honored options in -hh/-hhh.
 	for _, name := range []string{"openssl-method", "opensslmethod"} {
-		options[name] = nil
+		options[name] = addressOption{addressGroups: tlsOptionAddressGroups()}
 	}
 	return options
+}
+
+// optionAddressGroups limits only protocol-specific option families. Classic
+// cross-cutting options remain broadly accepted because many are applied by
+// common wrappers rather than by one opener package.
+func optionAddressGroups(title string) []string {
+	switch title {
+	case "TLS, WSS, and QUIC":
+		return tlsOptionAddressGroups()
+	case "WebSocket":
+		return []string{xio.GroupWebSocket}
+	case "PROXY and SOCKS":
+		return []string{xio.GroupProxy}
+	case "POSIX message queues":
+		return []string{xio.GroupPOSIXMQ}
+	case "TUN and INTERFACE":
+		return []string{xio.GroupTUN}
+	default:
+		return nil
+	}
+}
+
+func tlsOptionAddressGroups() []string {
+	return []string{xio.GroupTLS, xio.GroupWebSocket, xio.GroupQUIC, xio.GroupProxy}
 }
 
 func validateChannelOptions(ch parse.Channel) error {
@@ -68,10 +95,15 @@ func validateChannelOptions(ch parse.Channel) error {
 }
 
 func validateSpecOptions(spec parse.Spec) error {
+	registration, registered := xio.AddressRegistrationForType(spec.Type)
 	for _, option := range spec.Options {
 		name := strings.ToLower(option.Name)
-		if _, ok := supportedAddressOptions[name]; !ok {
+		optionSpec, ok := supportedAddressOptions[name]
+		if !ok {
 			return fmt.Errorf("%s: unknown option %q", spec.Type, option.Name)
+		}
+		if registered && !addressGroupAllowed(registration.Group, optionSpec.addressGroups) {
+			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
 		if err := validateAddressOptionValue(option); err != nil {
 			return fmt.Errorf("%s: %w", spec.Type, err)
@@ -82,10 +114,22 @@ func validateSpecOptions(spec parse.Spec) error {
 
 func validateAddressOptionValue(option parse.Option) error {
 	name := strings.ToLower(option.Name)
-	if validator, ok := supportedAddressOptions[name]; ok && validator != nil {
-		return validator(option)
+	if optionSpec, ok := supportedAddressOptions[name]; ok && optionSpec.validate != nil {
+		return optionSpec.validate(option)
 	}
 	return nil
+}
+
+func addressGroupAllowed(group string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, candidate := range allowed {
+		if group == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func requiredOptionValue(option parse.Option) (string, error) {

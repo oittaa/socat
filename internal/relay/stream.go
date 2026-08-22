@@ -225,53 +225,29 @@ func (s *sessionWrap) ShutdownWrite() error {
 
 // setStreamReadDeadline sets a read deadline on the first layer that supports one.
 func setStreamReadDeadline(s Stream, deadline time.Time) {
-	if d, ok := s.(interface{ SetReadDeadline(time.Time) error }); ok {
-		_ = d.SetReadDeadline(deadline)
-		return
-	}
-	if u, ok := s.(interface{ UnwrapStream() Stream }); ok {
-		setStreamReadDeadline(u.UnwrapStream(), deadline)
-		return
-	}
-	if ns, ok := s.(NetStream); ok {
-		if c, ok := ns.Conn.(interface{ SetReadDeadline(time.Time) error }); ok {
-			_ = c.SetReadDeadline(deadline)
-		}
-		return
-	}
-	if fs, ok := s.(FDStream); ok {
-		if d, ok := fs.R.(interface{ SetReadDeadline(time.Time) error }); ok {
+	walkStreamCapabilities(s, func(value any) bool {
+		d, ok := value.(interface{ SetReadDeadline(time.Time) error })
+		if ok {
 			_ = d.SetReadDeadline(deadline)
 		}
-		return
-	}
+		return ok
+	}, func(value any) []any {
+		return regularStreamChildren(value, streamRead)
+	})
 }
 
 func setStreamWriteDeadline(s Stream, deadline time.Time) bool {
-	if d, ok := s.(interface{ SetWriteDeadline(time.Time) error }); ok {
-		return d.SetWriteDeadline(deadline) == nil
-	}
-	if u, ok := s.(interface{ UnwrapStream() Stream }); ok {
-		return setStreamWriteDeadline(u.UnwrapStream(), deadline)
-	}
-	if ns, ok := s.(NetStream); ok {
-		if c, ok := ns.Conn.(interface{ SetWriteDeadline(time.Time) error }); ok {
-			return c.SetWriteDeadline(deadline) == nil
+	success := false
+	walkStreamCapabilities(s, func(value any) bool {
+		d, ok := value.(interface{ SetWriteDeadline(time.Time) error })
+		if ok {
+			success = d.SetWriteDeadline(deadline) == nil
 		}
-		return false
-	}
-	if fs, ok := s.(FDStream); ok {
-		if d, ok := fs.W.(interface{ SetWriteDeadline(time.Time) error }); ok {
-			return d.SetWriteDeadline(deadline) == nil
-		}
-		return false
-	}
-	if rwc, ok := s.(RWCStream); ok {
-		if d, ok := rwc.ReadWriteCloser.(interface{ SetWriteDeadline(time.Time) error }); ok {
-			return d.SetWriteDeadline(deadline) == nil
-		}
-	}
-	return false
+		return ok
+	}, func(value any) []any {
+		return regularStreamChildren(value, streamWrite)
+	})
+	return success
 }
 
 func isTimeoutErr(err error) bool {
@@ -294,107 +270,58 @@ func pokeReadDeadline(s Stream) {
 			_ = d.SetReadDeadline(time.Time{})
 		}()
 	}
-	if sw, ok := s.(*sessionWrap); ok {
-		// sessionWrap.Close sets and synchronously clears both deadlines.
-		_ = sw
-		return
-	}
-	// Streams that implement SetReadDeadline themselves (e.g. SOCKET raw dgram).
-	if d, ok := s.(interface{ SetReadDeadline(time.Time) error }); ok {
-		set(d)
-		return
-	}
-	if t, ok := s.(NetStream); ok {
-		if c, ok := t.Conn.(interface{ SetReadDeadline(time.Time) error }); ok {
-			set(c)
-			return
+	walkStreamCapabilities(s, func(value any) bool {
+		if _, ok := value.(*sessionWrap); ok {
+			// sessionWrap.Close sets and synchronously clears both deadlines.
+			return true
 		}
-	}
-	if t, ok := s.(FDStream); ok {
-		if d, ok := t.R.(interface{ SetReadDeadline(time.Time) error }); ok {
+		d, ok := value.(interface{ SetReadDeadline(time.Time) error })
+		if ok {
 			set(d)
-			return
 		}
-	}
-	// Unwrap embedded Stream (endCloseStream, etc.)
-	if u, ok := s.(interface{ UnwrapStream() Stream }); ok {
-		pokeReadDeadline(u.UnwrapStream())
-	}
+		return ok
+	}, func(value any) []any {
+		return regularStreamChildren(value, streamRead)
+	})
 }
 
 func streamReadFD(s Stream) int {
-	// Unwrap nested Streams (dual FDStream wraps Stream interfaces).
-	for i := 0; i < 6 && s != nil; i++ {
-		if fs, ok := s.(FDStream); ok {
-			if f := ioFD(fs.R); f >= 0 {
-				return f
-			}
-			// R may itself be a Stream
-			if rs, ok := fs.R.(Stream); ok {
-				s = rs
-				continue
-			}
-		}
-		if u, ok := s.(interface{ UnwrapStream() Stream }); ok {
-			s = u.UnwrapStream()
-			continue
-		}
-		break
-	}
-	return streamAnyFD(s)
+	return streamFD(s, streamRead)
 }
 
 func streamWriteFD(s Stream) int {
-	for i := 0; i < 6 && s != nil; i++ {
-		if fs, ok := s.(FDStream); ok {
-			if f := ioFD(fs.W); f >= 0 {
-				return f
-			}
-			if ws, ok := fs.W.(Stream); ok {
-				s = ws
-				continue
-			}
-		}
-		if u, ok := s.(interface{ UnwrapStream() Stream }); ok {
-			s = u.UnwrapStream()
-			continue
-		}
-		break
-	}
-	return streamAnyFD(s)
+	return streamFD(s, streamWrite)
 }
 
-func streamAnyFD(s Stream) int {
-	if f, ok := s.(fdProvider); ok {
-		fd := int(f.Fd())
-		if fd >= 0 {
-			return fd
-		}
+func streamFD(s Stream, direction streamDirection) int {
+	fd := -1
+	walkStreamCapabilities(s, func(value any) bool {
+		fd = streamValueFD(value)
+		return fd >= 0
+	}, func(value any) []any {
+		return regularStreamChildren(value, direction)
+	})
+	return fd
+}
+
+func streamValueFD(value any) int {
+	if fd := ioFD(value); fd >= 0 {
+		return fd
 	}
-	if ns, ok := s.(NetStream); ok {
-		type sc interface {
-			SyscallConn() (syscall.RawConn, error)
-		}
-		if c, ok := ns.Conn.(sc); ok {
-			rc, err := c.SyscallConn()
-			if err == nil {
-				var fd = -1
-				_ = rc.Control(func(f uintptr) { fd = int(f) })
-				if fd >= 0 {
-					return fd
-				}
-			}
-		}
+	type syscallConn interface {
+		SyscallConn() (syscall.RawConn, error)
 	}
-	if fs, ok := s.(FDStream); ok {
-		if f := ioFD(fs.R); f >= 0 {
-			return f
-		}
-		if f := ioFD(fs.W); f >= 0 {
-			return f
-		}
+	conn, ok := value.(syscallConn)
+	if !ok {
+		return -1
 	}
-	return -1
+	raw, err := conn.SyscallConn()
+	if err != nil {
+		return -1
+	}
+	fd := -1
+	_ = raw.Control(func(rawFD uintptr) { fd = int(rawFD) })
+	return fd
 }
 
 func ioFD(v any) int {

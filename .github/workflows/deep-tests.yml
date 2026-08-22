@@ -1,0 +1,66 @@
+# Bounded fuzz campaigns and the live relay matrix are intentionally separate
+# from per-commit CI. They run weekly and can be dispatched before a release.
+name: deep-tests
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: Time per native Go fuzz target
+        required: false
+        default: 30s
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deep-tests-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fuzz:
+    name: native fuzz targets (linux-amd64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run bounded fuzz campaigns
+        env:
+          FUZZTIME: ${{ inputs.fuzztime || '30s' }}
+        run: go run ./scripts/fuzzall -fuzztime="$FUZZTIME"
+
+  relay-matrix:
+    name: relay matrix (${{ matrix.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            os: ubuntu-latest
+          - name: windows-amd64
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build relay binaries
+        shell: bash
+        run: |
+          suffix=
+          if [[ "$RUNNER_OS" == "Windows" ]]; then suffix=.exe; fi
+          go build -o "socat${suffix}" ./cmd/socat
+          go build -o "filan${suffix}" ./cmd/filan
+          go build -o "procan${suffix}" ./cmd/procan
+      - name: Run live relay matrix
+        shell: bash
+        run: go test -tags=e2e,relaymatrix -run '^TestRelayMatrix' ./e2e/ -count=1 -timeout=10m

@@ -1,6 +1,7 @@
 package xio
 
 import (
+	"sort"
 	"strings"
 	"sync"
 )
@@ -48,12 +49,23 @@ type AddressDesc struct {
 	Opener      Opener        // Opener function handling this address
 }
 
-var (
-	registryMu   sync.RWMutex
-	openers      = map[string]Opener{}
-	addrsByGroup = map[string][]AddressDesc{}
-	groupOrder   = []string{}
-)
+type addressRegistry struct {
+	mu           sync.RWMutex
+	openers      map[string]Opener
+	descsByName  map[string]AddressDesc
+	addrsByGroup map[string][]AddressDesc
+	groupOrder   []string
+}
+
+func newAddressRegistry() *addressRegistry {
+	return &addressRegistry{
+		openers:      make(map[string]Opener),
+		descsByName:  make(map[string]AddressDesc),
+		addrsByGroup: make(map[string][]AddressDesc),
+	}
+}
+
+var registeredAddresses = newAddressRegistry()
 
 var defaultGroupOrder = []string{
 	GroupFiles,
@@ -74,17 +86,30 @@ var defaultGroupOrder = []string{
 
 // RegisterAddress associates an address descriptor with an opener and help line.
 func RegisterAddress(desc AddressDesc) {
-	registryMu.Lock()
-	defer registryMu.Unlock()
+	registeredAddresses.register(desc)
+}
 
-	if desc.Opener != nil && desc.Name != "" {
-		openers[strings.ToUpper(desc.Name)] = desc.Opener
+func (r *addressRegistry) register(desc AddressDesc) {
+	name := strings.ToUpper(strings.TrimSpace(desc.Name))
+	if name == "" {
+		panic("xio: address registration requires a name")
+	}
+	desc.Name = name
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.descsByName[name]; exists {
+		panic("xio: duplicate address registration: " + name)
+	}
+	r.descsByName[name] = desc
+	if desc.Opener != nil {
+		r.openers[name] = desc.Opener
 	}
 	if desc.Group != "" && desc.Syntax != "" {
-		if _, exists := addrsByGroup[desc.Group]; !exists {
-			groupOrder = append(groupOrder, desc.Group)
+		if _, exists := r.addrsByGroup[desc.Group]; !exists {
+			r.groupOrder = append(r.groupOrder, desc.Group)
 		}
-		addrsByGroup[desc.Group] = append(addrsByGroup[desc.Group], desc)
+		r.addrsByGroup[desc.Group] = append(r.addrsByGroup[desc.Group], desc)
 	}
 }
 
@@ -98,9 +123,9 @@ func Register(name string, fn Opener) {
 }
 
 func lookupOpener(typ string) (Opener, bool) {
-	registryMu.RLock()
-	defer registryMu.RUnlock()
-	fn, ok := openers[typ]
+	registeredAddresses.mu.RLock()
+	defer registeredAddresses.mu.RUnlock()
+	fn, ok := registeredAddresses.openers[strings.ToUpper(typ)]
 	return fn, ok
 }
 
@@ -117,56 +142,71 @@ type AddressRegistration struct {
 	Enabled bool
 }
 
+// AddressRegistrationForType returns the registered metadata for one address
+// keyword. It is used by the CLI to validate protocol-specific option scopes.
+func AddressRegistrationForType(typ string) (AddressRegistration, bool) {
+	return registeredAddresses.registration(typ)
+}
+
+func (r *addressRegistry) registration(typ string) (AddressRegistration, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	d, ok := r.descsByName[strings.ToUpper(typ)]
+	if !ok {
+		return AddressRegistration{}, false
+	}
+	return registrationSnapshot(d), true
+}
+
 // AddressRegistrations returns every opener and its help metadata.
 func AddressRegistrations() []AddressRegistration {
-	registryMu.RLock()
-	defer registryMu.RUnlock()
+	return registeredAddresses.registrations()
+}
+
+func (r *addressRegistry) registrations() []AddressRegistration {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	seen := map[string]bool{}
 	var out []AddressRegistration
-	for _, descs := range addrsByGroup {
+	for _, group := range r.orderedGroupsLocked() {
+		descs := r.addrsByGroup[group]
 		for _, d := range descs {
-			name := strings.ToUpper(d.Name)
+			name := d.Name
 			seen[name] = true
-			out = append(out, AddressRegistration{
-				Name:    name,
-				Group:   d.Group,
-				Syntax:  d.Syntax,
-				Enabled: d.Enabled == nil || d.Enabled(),
-			})
+			out = append(out, registrationSnapshot(d))
 		}
 	}
-	for name := range openers {
+	var hidden []string
+	for name := range r.openers {
 		if !seen[name] {
-			out = append(out, AddressRegistration{Name: name})
+			hidden = append(hidden, name)
 		}
+	}
+	sort.Strings(hidden)
+	for _, name := range hidden {
+		out = append(out, registrationSnapshot(r.descsByName[name]))
 	}
 	return out
 }
 
+func registrationSnapshot(d AddressDesc) AddressRegistration {
+	return AddressRegistration{
+		Name:    d.Name,
+		Group:   d.Group,
+		Syntax:  d.Syntax,
+		Enabled: d.Enabled == nil || d.Enabled(),
+	}
+}
+
 // HelpAddressGroups returns address groups and entries formatted for help output.
 func HelpAddressGroups() []HelpAddrGroup {
-	registryMu.RLock()
-	defer registryMu.RUnlock()
-
-	seenGroups := make(map[string]bool)
-	var orderedGroups []string
-	for _, g := range defaultGroupOrder {
-		if _, ok := addrsByGroup[g]; ok {
-			orderedGroups = append(orderedGroups, g)
-			seenGroups[g] = true
-		}
-	}
-	for _, g := range groupOrder {
-		if !seenGroups[g] {
-			orderedGroups = append(orderedGroups, g)
-			seenGroups[g] = true
-		}
-	}
+	registeredAddresses.mu.RLock()
+	defer registeredAddresses.mu.RUnlock()
 
 	var res []HelpAddrGroup
-	for _, g := range orderedGroups {
+	for _, g := range registeredAddresses.orderedGroupsLocked() {
 		var list []HelpAddr
-		for _, a := range addrsByGroup[g] {
+		for _, a := range registeredAddresses.addrsByGroup[g] {
 			if a.Enabled != nil && !a.Enabled() {
 				continue
 			}
@@ -187,6 +227,24 @@ func HelpAddressGroups() []HelpAddrGroup {
 		}
 	}
 	return res
+}
+
+func (r *addressRegistry) orderedGroupsLocked() []string {
+	seen := make(map[string]bool)
+	ordered := make([]string, 0, len(r.groupOrder))
+	for _, group := range defaultGroupOrder {
+		if _, ok := r.addrsByGroup[group]; ok {
+			ordered = append(ordered, group)
+			seen[group] = true
+		}
+	}
+	for _, group := range r.groupOrder {
+		if !seen[group] {
+			ordered = append(ordered, group)
+			seen[group] = true
+		}
+	}
+	return ordered
 }
 
 // UnixGenericHelp returns the description for generic UNIX client addresses.
