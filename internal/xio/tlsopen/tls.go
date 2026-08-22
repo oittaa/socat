@@ -58,9 +58,14 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 			if e != nil {
 				return e
 			}
+			timeoutRaw, e := xio.NewSocketTimeoutConn(s, raw)
+			if e != nil {
+				logx.CloseQuiet(raw)
+				return e
+			}
 			// Clone config per dial so concurrent handshake state stays isolated.
 			cfg := tlsCfg.Clone()
-			tc := tls.Client(raw, cfg)
+			tc := tls.Client(timeoutRaw, cfg)
 			hctx := dctx
 			var handshakeCancel context.CancelFunc
 			if handshakeTimeout > 0 {
@@ -71,6 +76,7 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 				logx.CloseQuiet(raw)
 				return e
 			}
+			timeoutRaw.EnableSocketTimeouts()
 			conn = tc
 			return nil
 		})
@@ -83,6 +89,9 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		RememberTLS: true,
 		LogOK:       true,
 		LogSuffix:   " (TLS)",
+		Wrap: func(c net.Conn) (relay.Stream, error) {
+			return xio.WrapCommonWithSocketTimeoutsApplied(s, relay.NetStream{Conn: c})
+		},
 	})
 }
 
@@ -115,7 +124,7 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	if err != nil {
 		return nil, err
 	}
-	tlsLn := tls.NewListener(ln, tlsCfg)
+	tlsLn := tls.NewListener(&socketTimeoutListener{Listener: ln, spec: s}, tlsCfg)
 
 	fork, maxChildren, err := xio.ForkLimits(s)
 	if err != nil {
@@ -124,10 +133,11 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	}
 	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
+		xio.EnableSocketTimeouts(c)
 		if err := xio.ApplyTCPConnOpts(s, c); err != nil {
 			return nil, err
 		}
-		return xio.WrapCommon(s, relay.NetStream{Conn: c})
+		return xio.WrapCommonWithSocketTimeoutsApplied(s, relay.NetStream{Conn: c})
 	}
 
 	o := &xio.Opened{
@@ -209,13 +219,32 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		logx.CloseQuiet(conn)
 		return nil, err
 	}
-	st, err := xio.WrapCommon(s, relay.NetStream{Conn: conn})
+	xio.EnableSocketTimeouts(conn)
+	st, err := xio.WrapCommonWithSocketTimeoutsApplied(s, relay.NetStream{Conn: conn})
 	if err != nil {
 		logx.CloseQuiet(conn)
 		return nil, err
 	}
 	o.Stream = st
 	return o, nil
+}
+
+type socketTimeoutListener struct {
+	net.Listener
+	spec parse.Spec
+}
+
+func (l *socketTimeoutListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	wrapped, err := xio.NewSocketTimeoutConn(l.spec, conn)
+	if err != nil {
+		logx.CloseQuiet(conn)
+		return nil, err
+	}
+	return wrapped, nil
 }
 
 // TLSClientConfig builds a crypto/tls client config from TLS/WSS options.

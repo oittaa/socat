@@ -31,3 +31,10 @@ func waitReadableAndWritable(ctx context.Context, _, _ int) error {
 		return nil
 	}
 }
+
+func waitWritable(ctx context.Context, _ int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return nil
+}

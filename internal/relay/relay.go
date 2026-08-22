@@ -365,9 +365,8 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 					return
 				}
 			}
-			nw, ew := t.dst.Write(data)
-			if nw > 0 {
-				t.bytes.Add(uint64(nw))
+			wroteBlock, ew := writeBlock(ctx, t.dst, t.dstFD, data, t.bytes)
+			if wroteBlock {
 				t.blocks.Add(1)
 			}
 			if ew != nil {
@@ -378,12 +377,11 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 				results <- dirResult{err: ew, dir: t.dir}
 				return
 			}
-			if nw != nr {
-				results <- dirResult{err: io.ErrShortWrite, dir: t.dir}
-				return
-			}
 		}
 		if er != nil {
+			if isRetryableIOError(er) {
+				continue
+			}
 			if er == io.EOF || isBenignClose(er) {
 				if cfg.OnEOF != nil {
 					sock := 1
@@ -402,6 +400,44 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 			return
 		}
 	}
+}
+
+// writeBlock preserves partial progress across classic-style retryable send
+// errors. The block count is owned by the caller and advances once when any
+// bytes from this source read were written, rather than once per retry.
+func writeBlock(ctx context.Context, dst Stream, dstFD int, data []byte, bytes *atomic.Uint64) (bool, error) {
+	written := 0
+	wroteBlock := false
+	for written < len(data) {
+		if err := ctx.Err(); err != nil {
+			return wroteBlock, err
+		}
+		nw, err := dst.Write(data[written:])
+		remaining := len(data) - written
+		if nw < 0 || nw > remaining {
+			return wroteBlock, fmt.Errorf("invalid write count %d", nw)
+		}
+		if nw > 0 {
+			written += nw
+			bytes.Add(uint64(nw))
+			wroteBlock = true
+		}
+		if err != nil {
+			if isRetryableIOError(err) {
+				if dstFD >= 0 && isWouldBlock(err) {
+					if waitErr := waitWritable(ctx, dstFD); waitErr != nil {
+						return wroteBlock, waitErr
+					}
+				}
+				continue
+			}
+			return wroteBlock, err
+		}
+		if nw == 0 {
+			return wroteBlock, io.ErrNoProgress
+		}
+	}
+	return wroteBlock, nil
 }
 
 // isBenignClose reports I/O errors that mean the peer/stream was already closed

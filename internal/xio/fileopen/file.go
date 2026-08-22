@@ -324,6 +324,13 @@ func openSocketpair(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) 
 	if err != nil {
 		return nil, err
 	}
+	for _, conn := range []*os.File{c1, c2} {
+		if err := xio.ApplySocketTimeos(int(conn.Fd()), s); err != nil {
+			logx.CloseQuiet(c1)
+			logx.CloseQuiet(c2)
+			return nil, fmt.Errorf("socket timeouts: %w", err)
+		}
+	}
 	// Use one end only as the stream; the other end is paired so writes loop back...
 	// Actually for echo we need to use BOTH ends incorrectly as one FD.
 	// Classic SOCKETPAIR creates a pair and uses one "side" that is both ends merged via

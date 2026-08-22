@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -282,6 +283,31 @@ func fileOpenAddressTypes() []string {
 	return []string{"OPEN", "FILE", "CREATE", "CREAT", "GOPEN"}
 }
 
+func socketTimeoutAddressTypes() []string {
+	allowedGroups := map[string]bool{
+		xio.GroupTCP:    true,
+		xio.GroupUDP:    true,
+		xio.GroupRawIP:  true,
+		xio.GroupUnix:   true,
+		xio.GroupSocket: true,
+		xio.GroupTLS:    true,
+		xio.GroupProxy:  true,
+		xio.GroupSCTP:   true,
+	}
+	allowedNames := map[string]bool{
+		"INTERFACE":  true, // AF_PACKET socket in the TUN group
+		"SOCKETPAIR": true, // socket-backed address in the file group
+	}
+	var names []string
+	for _, registration := range xio.AddressRegistrations() {
+		if allowedGroups[registration.Group] || allowedNames[registration.Name] {
+			names = append(names, registration.Name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 func helpOptionGroups() []helpOptGroup {
 	return []helpOptGroup{
 		{"Listen and connect", []helpOpt{
@@ -338,8 +364,8 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "ipv6-recvtclass", desc: "IPV6_RECVTCLASS", aliases: []string{"recvtclass"}},
 			{name: "ipv6-unicast-hops", desc: "IPV6_UNICAST_HOPS", aliases: []string{"unicast-hops"}, validate: validateInteger(-1)},
 			{name: "ipv6-tclass", desc: "IPV6_TCLASS", aliases: []string{"tclass"}, validate: validateInt64(false)},
-			{name: "rcvtimeo", desc: "socket receive timeout; UDP-RECVFROM,fork accept", aliases: []string{"so-rcvtimeo"}, validate: validateDurationOption},
-			{name: "sndtimeo", desc: "socket send timeout", aliases: []string{"so-sndtimeo"}, validate: validateDurationOption},
+			{name: "rcvtimeo", desc: "per-operation socket receive timeout; retry after expiration", aliases: []string{"so-rcvtimeo"}, addressTypes: socketTimeoutAddressTypes(), validate: validateDurationOption},
+			{name: "sndtimeo", desc: "per-operation socket send timeout; retry after expiration", aliases: []string{"so-sndtimeo"}, addressTypes: socketTimeoutAddressTypes(), validate: validateDurationOption},
 		}},
 		{"Files and UNIX", []helpOpt{
 			{name: "rdonly", desc: "open read-only"},

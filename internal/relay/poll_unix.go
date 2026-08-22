@@ -98,3 +98,33 @@ func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 		}
 	}
 }
+
+func waitWritable(ctx context.Context, fd int) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		dst, ok := pollFd(fd, pollOut)
+		if !ok {
+			return syscall.EBADF
+		}
+		pfds := []unix.PollFd{dst}
+		n, err := poll(pfds, 100)
+		if err != nil {
+			if err == syscall.EINTR {
+				continue
+			}
+			return err
+		}
+		if n == 0 {
+			continue
+		}
+		revents := pfds[0].Revents
+		if revents&pollOut != 0 {
+			return nil
+		}
+		if revents&(pollErr|pollHup|pollNval) != 0 {
+			return io.ErrClosedPipe
+		}
+	}
+}

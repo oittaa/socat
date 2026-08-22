@@ -1,7 +1,9 @@
 package xio
 
 import (
+	"errors"
 	"io"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -32,8 +34,8 @@ func (r *appendReader) append(data []byte) {
 func TestIgnoreEOFObservesPromptAppend(t *testing.T) {
 	source := &appendReader{}
 	reader := NewIgnoreEOF(source)
-	if reader.delay > 2*time.Millisecond || reader.maxDelay > 10*time.Millisecond {
-		t.Fatalf("ignoreeof backoff is too slow for short relay linger: initial=%v max=%v", reader.delay, reader.maxDelay)
+	if reader.delay > 2*time.Millisecond || reader.maxDelay != time.Second {
+		t.Fatalf("ignoreeof backoff initial=%v max=%v, want prompt start and classic 1s ceiling", reader.delay, reader.maxDelay)
 	}
 	result := make(chan string, 1)
 	go func() {
@@ -55,5 +57,31 @@ func TestIgnoreEOFObservesPromptAppend(t *testing.T) {
 		}
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("ignoreeof did not observe append before a short relay linger would expire")
+	}
+}
+
+func TestIgnoreEOFCloseInterruptsBackoff(t *testing.T) {
+	reader := NewIgnoreEOF(&appendReader{})
+	reader.delay = reader.maxDelay
+	done := make(chan error, 1)
+	go func() {
+		_, err := reader.Read(make([]byte, 1))
+		done <- err
+	}()
+	time.Sleep(10 * time.Millisecond)
+	start := time.Now()
+	if err := reader.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("Read error=%v want net.ErrClosed", err)
+		}
+		if elapsed := time.Since(start); elapsed > 100*time.Millisecond {
+			t.Fatalf("Close took %s to interrupt ignoreeof backoff", elapsed)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("Close did not interrupt ignoreeof backoff")
 	}
 }

@@ -42,7 +42,8 @@ Run these from a PowerShell process that can manage Hyper-V:
 ```
 
 `download` verifies Canonical's pinned SHA-256. `create` refuses to overwrite an
-existing VM or disk. `provision` installs the Go toolchain and classic socat
+existing VM or disk. `provision` installs the Go toolchain, the CI-pinned
+`golangci-lint` and `gosec` tools needed by `make check`, and classic socat
 `tag-1.8.1.3`, including available optional protocol libraries. `checkpoint`
 requires successful provisioning, performs a clean guest shutdown, detaches the
 cloud-init seed, and records a powered-off `clean-provisioned` checkpoint.

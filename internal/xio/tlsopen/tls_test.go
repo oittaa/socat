@@ -6,16 +6,81 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/testcert"
+	"github.com/oittaa/socat/internal/xio"
 )
+
+func TestSocketTimeoutsDoNotPoisonTLSConnection(t *testing.T) {
+	cert, err := testcert.EphemeralSelfSigned()
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientRaw, serverRaw := net.Pipe()
+	defer func() { _ = clientRaw.Close() }()
+	defer func() { _ = serverRaw.Close() }()
+
+	spec := parse.Spec{Options: []parse.Option{
+		{Name: "rcvtimeo", Value: "0.02", Has: true},
+		{Name: "sndtimeo", Value: "0.02", Has: true},
+	}}
+	timeoutRaw, err := xio.NewSocketTimeoutConn(spec, clientRaw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := tls.Client(timeoutRaw, &tls.Config{InsecureSkipVerify: true})
+	server := tls.Server(serverRaw, &tls.Config{Certificates: []tls.Certificate{cert}})
+
+	serverHandshake := make(chan error, 1)
+	go func() { serverHandshake <- server.Handshake() }()
+	if err := client.Handshake(); err != nil {
+		t.Fatalf("client handshake: %v", err)
+	}
+	if err := <-serverHandshake; err != nil {
+		t.Fatalf("server handshake: %v", err)
+	}
+	timeoutRaw.EnableSocketTimeouts()
+
+	readBuf := make([]byte, len("late-read"))
+	readDone := make(chan error, 1)
+	go func() {
+		_, err := io.ReadFull(client, readBuf)
+		readDone <- err
+	}()
+	time.Sleep(80 * time.Millisecond)
+	if _, err := server.Write([]byte("late-read")); err != nil {
+		t.Fatalf("server.Write: %v", err)
+	}
+	if err := <-readDone; err != nil {
+		t.Fatalf("client ReadFull after receive timeouts: %v", err)
+	}
+
+	writeDone := make(chan error, 1)
+	go func() {
+		_, err := client.Write([]byte("late-write"))
+		writeDone <- err
+	}()
+	time.Sleep(80 * time.Millisecond)
+	writeBuf := make([]byte, len("late-write"))
+	if _, err := io.ReadFull(server, writeBuf); err != nil {
+		t.Fatalf("server ReadFull: %v", err)
+	}
+	if err := <-writeDone; err != nil {
+		t.Fatalf("client Write after send timeouts: %v", err)
+	}
+	if string(readBuf) != "late-read" || string(writeBuf) != "late-write" {
+		t.Fatalf("payloads read=%q write=%q", readBuf, writeBuf)
+	}
+}
 
 func TestLoadKeyPairRejectsDSA(t *testing.T) {
 	// Type label alone is enough for our early rejection (body need not parse).
