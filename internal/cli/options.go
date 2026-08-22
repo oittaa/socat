@@ -230,7 +230,7 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "connect-timeout", desc: "connect timeout", validate: validateDurationOption},
 			{name: "handshake-timeout", desc: "TLS, WebSocket, proxy, or SOCKS handshake timeout", validate: validateDurationOption},
 			{name: "accept-timeout", desc: "listen accept timeout (exit 0)", validate: validateDurationOption},
-			{name: "backlog", desc: "listen backlog", validate: validateInteger(1)},
+			{name: "backlog", desc: "listen backlog (SOCKET-LISTEN, SCTP-LISTEN)", validate: validateInteger(1)},
 			{name: "pf", desc: "address family (4, 6, IP4, IP6, …)"},
 			{name: "ai-addrconfig", desc: "getaddrinfo AI_ADDRCONFIG", aliases: []string{"addrconfig"}},
 			{name: "ipv6-v6only", desc: "IPV6_V6ONLY"},
