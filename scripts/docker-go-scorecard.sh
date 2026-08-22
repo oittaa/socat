@@ -7,8 +7,10 @@
 #   NO_BUILD=1 MODE=stable ONLY=ancillary ./scripts/docker-go-scorecard.sh
 #   # Fast iterate: mount host-built binaries (skip gobuild stage)
 #   USE_HOST_BIN=1 NO_BUILD=1 ./scripts/docker-go-scorecard.sh
-#   # Match testdata/scorecard/go-docker-baseline.json (NETNS needs this):
-#   USE_HOST_BIN=1 NO_BUILD=1 MODE=classic PRIVILEGED=1 ./scripts/docker-go-scorecard.sh
+#   # Match testdata/scorecard/go-docker-baseline.json
+#   # (NETNS needs PRIVILEGED=1; internet tests need TEST_SH_ARGS=--internet):
+#   USE_HOST_BIN=1 NO_BUILD=1 MODE=classic PRIVILEGED=1 TEST_SH_ARGS=--internet \
+#     ./scripts/docker-go-scorecard.sh
 #
 # Results: $OUT_HOST/results.json  (+ go-docker-baseline.json if SAVE set)
 set -euo pipefail
@@ -113,6 +115,7 @@ docker run --rm \
   -e REGRESSION_EXIT="$REGRESSION_EXIT" \
   -e KEEP_LOGS=1 \
   -e SCORECARD_EXIT="${SCORECARD_EXIT:-0}" \
+  -e TEST_SH_ARGS="${TEST_SH_ARGS:-}" \
   $DOCKER_EXTRA \
   "$IMAGE"
 ec=$?

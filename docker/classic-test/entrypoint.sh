@@ -86,6 +86,7 @@ export ONLY="${ONLY:-}"
 export MAX_N="${MAX_N:-}"
 export BASELINE="${BASELINE:-}"
 export KEEP_LOGS="${KEEP_LOGS:-1}"
+export TEST_SH_ARGS="${TEST_SH_ARGS:-}"
 # Container netns is disposable: drop local addresses that collide with TUNNET.
 export CLASSIC_FIX_TUNNET="${CLASSIC_FIX_TUNNET:-1}"
 

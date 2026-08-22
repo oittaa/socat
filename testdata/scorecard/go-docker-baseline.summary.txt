@@ -1,11 +1,11 @@
 label=go
-timestamp=2026-08-21T12:24:22Z
+timestamp=2026-08-22T11:05:33Z
 socat=/opt/go/socat
-socat_version=socat version 0.1.0-dev on 2026-08-21T12:24:22Z
-git=6d7c489
-ok=511
-failed=6
-cant=86
+socat_version=socat version 1.0.0-dev on 2026-08-22T11:05:33Z
+git=f5bff09
+ok=524
+failed=5
+cant=74
 timeout=0
 unknown=2
 total_recorded=605

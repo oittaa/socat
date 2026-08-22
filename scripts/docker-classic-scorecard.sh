@@ -10,6 +10,7 @@
 #   ./scripts/docker-classic-scorecard.sh
 #   MODE=stable ONLY=ancillary ./scripts/docker-classic-scorecard.sh
 #   NO_BUILD=1 ./scripts/docker-classic-scorecard.sh   # reuse image
+#   TEST_SH_ARGS=--internet ./scripts/docker-classic-scorecard.sh
 #
 # Results:
 #   $OUT_HOST/results.json
@@ -95,6 +96,7 @@ docker run --rm \
   -e HOST_BASELINE="${export_host_bl}" \
   -e REGRESSION_EXIT="${REGRESSION_EXIT:-0}" \
   -e KEEP_LOGS=1 \
+  -e TEST_SH_ARGS="${TEST_SH_ARGS:-}" \
   $DOCKER_EXTRA \
   "$IMAGE"
 ec=$?

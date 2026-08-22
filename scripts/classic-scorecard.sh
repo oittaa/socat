@@ -87,6 +87,8 @@ BASELINE="${BASELINE:-}"               # path to results.json to compare against
 SAVE_BASELINE="${SAVE_BASELINE:-}"     # copy results.json here after run
 REGRESSION_EXIT="${REGRESSION_EXIT:-0}" # 1 = exit non-zero on OK→non-OK vs BASELINE
 SKIP_BUILD="${SKIP_BUILD:-0}"          # 1 = do not make build (when using foreign SOCAT)
+TEST_SH_ARGS="${TEST_SH_ARGS:-}"       # extra test.sh flags, e.g. --internet
+export TEST_SH_ARGS
 
 TEST_SH="${1:-${CLASSIC_TEST_SH:-}}"
 if [[ -z "$TEST_SH" || ! -f "$TEST_SH" ]]; then
@@ -180,6 +182,7 @@ echo "  shard_timeout:  ${SHARD_TIMEOUT}s"
 echo "  -t (val_t):     $VAL_T_DISPLAY"
 echo "  total range:    1..$TOTAL"
 echo "  only filter:    ${ONLY:-<all numbered>}"
+echo "  test.sh extras: ${TEST_SH_ARGS:-<none>}"
 echo "  logs:           $OUT_DIR"
 echo "  baseline:       ${BASELINE:-<none>}"
 echo "  save_baseline:  ${SAVE_BASELINE:-<none>}"
@@ -251,6 +254,11 @@ run_shard() {
     *) args+=(-t "$VAL_T") ;;
   esac
   args+=(-N "$start" -Z "$end")
+  local extra=()
+  if [[ -n "${TEST_SH_ARGS:-}" ]]; then
+    # shellcheck disable=SC2206
+    extra=($TEST_SH_ARGS)
+  fi
   # Optional classic filter tokens (group names / test names)
   # When ONLY is set, still apply number window so shards stay disjoint.
   local filter=()
@@ -270,7 +278,7 @@ run_shard() {
     export PATH="$work:$PATH"
     # shellcheck disable=SC2086
     timeout --signal=TERM --kill-after=15 "${SHARD_TIMEOUT}" \
-      bash "$patched" "${args[@]}" ${filter[@]+"${filter[@]}"}
+      bash "$patched" "${args[@]}" ${extra[@]+"${extra[@]}"} ${filter[@]+"${filter[@]}"}
   ) >"$log" 2>&1
   ec=$?
   set -e
