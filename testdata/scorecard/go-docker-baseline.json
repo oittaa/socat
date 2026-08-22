@@ -1,22 +1,22 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-08-21T12:24:22Z",
-    "hostname": "7daef5607ef5",
+    "timestamp": "2026-08-22T11:05:33Z",
+    "hostname": "298b50f23105",
     "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.43",
     "socat": "/opt/go/socat",
-    "socat_version": "socat version 0.1.0-dev on 2026-08-21T12:24:22Z",
+    "socat_version": "socat version 1.0.0-dev on 2026-08-22T11:05:33Z",
     "test_sh": "/opt/classic-src/test.sh",
-    "git": "6d7c489",
+    "git": "f5bff09",
     "out_dir": "/out",
     "val_t": "auto",
     "jobs": "1",
     "shard_timeout": "7200"
   },
   "summary": {
-    "ok": 511,
-    "failed": 6,
-    "cant": 86,
+    "ok": 524,
+    "failed": 5,
+    "cant": 74,
     "timeout": 0,
     "unknown": 2,
     "total_recorded": 605,
@@ -3645,19 +3645,19 @@
       "id": 405,
       "name": "OPENSSL_SNI",
       "description": "Test the OpenSSL SNI feature",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 405 OPENSSL_SNI: Test the OpenSSL SNI feature... use test.sh option --internet"
+      "raw": "test 405 OPENSSL_SNI: Test the OpenSSL SNI feature... OK"
     },
     "406": {
       "id": 406,
       "name": "OPENSSL_NO_SNI",
       "description": "Test the openssl-no-sni option",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 406 OPENSSL_NO_SNI: Test the openssl-no-sni option... use test.sh option --internet"
+      "raw": "test 406 OPENSSL_NO_SNI: Test the openssl-no-sni option... OK"
     },
     "407": {
       "id": 407,
@@ -4356,37 +4356,37 @@
       "id": 484,
       "name": "TRY_ADDRS_4",
       "description": "try all available TCP4 addresses",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 484 TRY_ADDRS_4: try all available TCP4 addresses... use test.sh option --internet"
+      "raw": "test 484 TRY_ADDRS_4: try all available TCP4 addresses... OK"
     },
     "485": {
       "id": 485,
       "name": "TRY_ADDRS_4_6",
       "description": "for TCP try all available IPv4 and IPv6 addresses",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 485 TRY_ADDRS_4_6: for TCP try all available IPv4 and IPv6 addresses... use test.sh option --internet"
+      "raw": "test 485 TRY_ADDRS_4_6: for TCP try all available IPv4 and IPv6 addresses... OK"
     },
     "486": {
       "id": 486,
       "name": "NETNS",
-      "description": "option netns (net namespace socat-349-test486)",
+      "description": "option netns (net namespace socat-362-test486)",
       "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 486 NETNS: option netns (net namespace socat-349-test486)... OK"
+      "raw": "test 486 NETNS: option netns (net namespace socat-362-test486)... OK"
     },
     "487": {
       "id": 487,
       "name": "NETNS_EXEC",
-      "description": "option netns with EXEC (net namespace socat-349-test487)",
+      "description": "option netns with EXEC (net namespace socat-362-test487)",
       "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-349-test487)... OK"
+      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-362-test487)... OK"
     },
     "488": {
       "id": 488,
@@ -4419,10 +4419,10 @@
       "id": 491,
       "name": "SOCKETPAIR_BOUNDARIES",
       "description": "Internal socketpair keeps packet boundaries",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 491 SOCKETPAIR_BOUNDARIES: Internal socketpair keeps packet boundaries... FAILED"
+      "raw": "test 491 SOCKETPAIR_BOUNDARIES: Internal socketpair keeps packet boundaries... OK"
     },
     "492": {
       "id": 492,
@@ -5139,19 +5139,19 @@
       "id": 571,
       "name": "TCP_CONNECT_BIND_6_4",
       "description": "TCP bind chooses matching IPv",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 571 TCP_CONNECT_BIND_6_4: TCP bind chooses matching IPv... use test.sh option --internet"
+      "raw": "test 571 TCP_CONNECT_BIND_6_4: TCP bind chooses matching IPv... OK"
     },
     "572": {
       "id": 572,
       "name": "SCTP_CONNECT_BIND_6_4",
       "description": "SCTP bind chooses matching IPv",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 572 SCTP_CONNECT_BIND_6_4: SCTP bind chooses matching IPv... use test.sh option --internet"
+      "raw": "test 572 SCTP_CONNECT_BIND_6_4: SCTP bind chooses matching IPv... OK"
     },
     "573": {
       "id": 573,
@@ -5166,55 +5166,55 @@
       "id": 574,
       "name": "OPENSSL_CONNECT_BIND_6_4",
       "description": "OPENSSL bind chooses matching IPv",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 574 OPENSSL_CONNECT_BIND_6_4: OPENSSL bind chooses matching IPv... use test.sh option --internet"
+      "raw": "test 574 OPENSSL_CONNECT_BIND_6_4: OPENSSL bind chooses matching IPv... OK"
     },
     "575": {
       "id": 575,
       "name": "SOCKS4_BIND_6_4",
       "description": "SOCKS4 bind chooses matching IPv",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 575 SOCKS4_BIND_6_4: SOCKS4 bind chooses matching IPv... use test.sh option --internet"
+      "raw": "test 575 SOCKS4_BIND_6_4: SOCKS4 bind chooses matching IPv... OK"
     },
     "576": {
       "id": 576,
       "name": "SOCKS5_CONNECT_BIND_6_4",
       "description": "SOCKS5 bind chooses matching IPv",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 576 SOCKS5_CONNECT_BIND_6_4: SOCKS5 bind chooses matching IPv... use test.sh option --internet"
+      "raw": "test 576 SOCKS5_CONNECT_BIND_6_4: SOCKS5 bind chooses matching IPv... OK"
     },
     "577": {
       "id": 577,
       "name": "PROXY_CONNECT_BIND_6_4",
       "description": "PROXY bind chooses matching IPv",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 577 PROXY_CONNECT_BIND_6_4: PROXY bind chooses matching IPv... use test.sh option --internet"
+      "raw": "test 577 PROXY_CONNECT_BIND_6_4: PROXY bind chooses matching IPv... OK"
     },
     "578": {
       "id": 578,
       "name": "TCP_BIND_4",
       "description": "TCP-CONNECT chooses IPv4 from bind",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 578 TCP_BIND_4: TCP-CONNECT chooses IPv4 from bind... use test.sh option --internet"
+      "raw": "test 578 TCP_BIND_4: TCP-CONNECT chooses IPv4 from bind... OK"
     },
     "579": {
       "id": 579,
       "name": "TCP_BIND_6",
       "description": "TCP-CONNECT chooses IPv6 from bind",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 579 TCP_BIND_6: TCP-CONNECT chooses IPv6 from bind... use test.sh option --internet"
+      "raw": "test 579 TCP_BIND_6: TCP-CONNECT chooses IPv6 from bind... OK"
     },
     "580": {
       "id": 580,

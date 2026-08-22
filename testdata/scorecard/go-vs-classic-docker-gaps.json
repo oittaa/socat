@@ -1,15 +1,10 @@
 {
   "classic_docker_ok": 552,
-  "go_ok": 511,
+  "go_ok": 524,
   "parity_fail": [
     {
       "id": "146",
       "name": "OPENSSLLISTENDSA",
-      "status": "FAILED"
-    },
-    {
-      "id": "491",
-      "name": "SOCKETPAIR_BOUNDARIES",
       "status": "FAILED"
     },
     {
@@ -231,7 +226,7 @@
     }
   ],
   "parity_other": [],
-  "parity_gap_total": 45,
+  "parity_gap_total": 44,
   "new_ok_vs_classic_docker": [
     {
       "id": "216",
@@ -244,6 +239,26 @@
       "was": "FAILED"
     },
     {
+      "id": "405",
+      "name": "OPENSSL_SNI",
+      "was": "CANT"
+    },
+    {
+      "id": "406",
+      "name": "OPENSSL_NO_SNI",
+      "was": "CANT"
+    },
+    {
+      "id": "484",
+      "name": "TRY_ADDRS_4",
+      "was": "CANT"
+    },
+    {
+      "id": "485",
+      "name": "TRY_ADDRS_4_6",
+      "was": "CANT"
+    },
+    {
       "id": "486",
       "name": "NETNS",
       "was": "FAILED"
@@ -252,6 +267,46 @@
       "id": "487",
       "name": "NETNS_EXEC",
       "was": "FAILED"
+    },
+    {
+      "id": "571",
+      "name": "TCP_CONNECT_BIND_6_4",
+      "was": "CANT"
+    },
+    {
+      "id": "572",
+      "name": "SCTP_CONNECT_BIND_6_4",
+      "was": "CANT"
+    },
+    {
+      "id": "574",
+      "name": "OPENSSL_CONNECT_BIND_6_4",
+      "was": "CANT"
+    },
+    {
+      "id": "575",
+      "name": "SOCKS4_BIND_6_4",
+      "was": "CANT"
+    },
+    {
+      "id": "576",
+      "name": "SOCKS5_CONNECT_BIND_6_4",
+      "was": "CANT"
+    },
+    {
+      "id": "577",
+      "name": "PROXY_CONNECT_BIND_6_4",
+      "was": "CANT"
+    },
+    {
+      "id": "578",
+      "name": "TCP_BIND_4",
+      "was": "CANT"
+    },
+    {
+      "id": "579",
+      "name": "TCP_BIND_6",
+      "was": "CANT"
     }
   ]
 }

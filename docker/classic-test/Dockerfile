@@ -77,6 +77,12 @@ RUN curl -fsSL -o "socat-${CLASSIC_VERSION}.tar.gz" \
     && rm -rf /tmp/build \
     && "${CLASSIC_PREFIX}/bin/socat" -V | head -40
 
+# nslookup/host are used by test.sh --internet address-order tests.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        bind9-host \
+        dnsutils \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /opt/scorecard
 COPY scripts/classic-scorecard.sh scripts/classic-tunnet-guard.sh \
      scripts/scorecard-parse.py scripts/scorecard-compare.py \
