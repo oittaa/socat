@@ -32,16 +32,10 @@ var supportedAddressOptions = buildSupportedAddressOptions()
 func buildSupportedAddressOptions() map[string]addressOption {
 	options := make(map[string]addressOption)
 	for _, group := range helpOptionGroups() {
-		if hideOptGroup(group.title) {
-			continue
-		}
 		spec := addressOption{
 			addressGroups: optionAddressGroups(group.title),
 		}
 		for _, option := range group.opts {
-			if hideOpt(option.name) {
-				continue
-			}
 			spec.validate = option.validate
 			options[strings.ToLower(option.name)] = spec
 			for _, alias := range option.aliases {

@@ -45,7 +45,11 @@ func TestCapabilityWalkerTraversesDeepWrappers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	t.Cleanup(func() {
+		if err := file.Close(); err != nil {
+			t.Errorf("close endpoint: %v", err)
+		}
+	})
 
 	wrapped := wrapTestStream(FDStream{R: file, W: file, C: file}, 32)
 	wantFD := int(file.Fd())
@@ -78,7 +82,11 @@ func TestCapabilityWalkerKeepsFDDirectionsSeparate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	t.Cleanup(func() {
+		if err := file.Close(); err != nil {
+			t.Errorf("close writer: %v", err)
+		}
+	})
 
 	stream := FDStream{R: bytes.NewReader(nil), W: file, C: file}
 	if got := streamReadFD(stream); got != -1 {
@@ -115,8 +123,14 @@ func TestCapabilityWalkerFindsDeepPollEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
-	defer writer.Close()
+	t.Cleanup(func() {
+		if err := reader.Close(); err != nil {
+			t.Errorf("close pipe reader: %v", err)
+		}
+		if err := writer.Close(); err != nil {
+			t.Errorf("close pipe writer: %v", err)
+		}
+	})
 
 	wrapped := wrapTestStream(FDStream{R: reader, W: writer, C: reader}, 32)
 	if !streamNeedsExplicitPoll(wrapped) {
