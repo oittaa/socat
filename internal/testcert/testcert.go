@@ -112,7 +112,7 @@ func (l *Leaf) KeyPEM() ([]byte, error) {
 
 // WriteCertPEM writes a single certificate as PEM.
 func WriteCertPEM(path string, der []byte) error {
-	return os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o644)
+	return os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600)
 }
 
 // WriteCertAndKey writes the leaf certificate and its key as separate PEM
