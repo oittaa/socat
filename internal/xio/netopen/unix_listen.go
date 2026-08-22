@@ -88,6 +88,7 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		Listener: ln,
 		Label:    "UNIX-LISTEN:" + path,
 	}
+	o.AcceptTimeout = xio.AcceptTimeout(s)
 	o.AddCleanup(func() {
 		unregister()
 		logx.CloseQuiet(ln)
@@ -202,6 +203,7 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		Listener: ln,
 		Label:    "ABSTRACT-LISTEN:" + name,
 	}
+	o.AcceptTimeout = xio.AcceptTimeout(s)
 	o.AddCleanup(func() { logx.CloseQuiet(ln) })
 	if fork {
 		go func() {

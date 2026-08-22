@@ -2,12 +2,42 @@ package netopen
 
 import (
 	"context"
+	"errors"
 	"net"
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 )
+
+func TestUDPNonForkAcceptTimeouts(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		spec string
+		open func(context.Context, parse.Spec, xio.Mode, *xio.Global) (*xio.Opened, error)
+	}{
+		{name: "listen", spec: "UDP4-LISTEN:0,accept-timeout=0.03", open: openUDP4Listen},
+		{name: "recvfrom", spec: "UDP4-RECVFROM:0,accept-timeout=0.03", open: openUDP4Recvfrom},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+			start := time.Now()
+			_, err = tc.open(context.Background(), spec, xio.ModeRDWR, g)
+			if !errors.Is(err, xio.ErrAcceptTimeout) {
+				t.Fatalf("error=%v want ErrAcceptTimeout", err)
+			}
+			if elapsed := time.Since(start); elapsed > time.Second {
+				t.Fatalf("accept timeout took %s", elapsed)
+			}
+		})
+	}
+}
 
 func TestUDPForkListenerSurvivesReceiveTimeout(t *testing.T) {
 	spec, err := parse.ParseSpec("UDP4-RECVFROM:0,fork,rcvtimeo=0.02")
@@ -73,5 +103,39 @@ func TestUDPForkListenerSurvivesReceiveTimeout(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Accept did not survive the receive timeout")
+	}
+}
+
+func TestUDPForkListenerAcceptTimeoutAborts(t *testing.T) {
+	spec, err := parse.ParseSpec("UDP4-RECVFROM:0,fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pc, err := listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ln := &udpForkListener{
+		pc:            pc,
+		network:       "udp4",
+		laddr:         pc.LocalAddr().(*net.UDPAddr),
+		spec:          spec,
+		ctx:           ctx,
+		acceptTimeout: 40 * time.Millisecond,
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	start := time.Now()
+	_, err = ln.Accept()
+	if err == nil {
+		t.Fatal("expected accept timeout")
+	}
+	if err != xio.ErrAcceptTimeout {
+		t.Fatalf("err=%v want xio.ErrAcceptTimeout", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("accept-timeout took %s", elapsed)
 	}
 }

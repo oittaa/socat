@@ -10,11 +10,12 @@ import (
 )
 
 type helpOpt struct {
-	name        string
-	desc        string
-	aliases     []string
-	dynamicDesc func() string
-	validate    func(parse.Option) error
+	name         string
+	desc         string
+	aliases      []string
+	addressTypes []string
+	dynamicDesc  func() string
+	validate     func(parse.Option) error
 }
 
 type helpOptGroup struct {
@@ -25,6 +26,7 @@ type helpOptGroup struct {
 type addressOption struct {
 	validate      func(parse.Option) error
 	addressGroups []string
+	addressTypes  []string
 }
 
 var supportedAddressOptions = buildSupportedAddressOptions()
@@ -37,6 +39,7 @@ func buildSupportedAddressOptions() map[string]addressOption {
 		}
 		for _, option := range group.opts {
 			spec.validate = option.validate
+			spec.addressTypes = option.addressTypes
 			options[strings.ToLower(option.name)] = spec
 			for _, alias := range option.aliases {
 				options[strings.ToLower(alias)] = spec
@@ -105,6 +108,9 @@ func validateSpecOptions(spec parse.Spec) error {
 		if registered && !addressGroupAllowed(registration.Group, optionSpec.addressGroups) {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
+		if registered && !addressTypeAllowed(registration.Name, optionSpec.addressTypes) {
+			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
+		}
 		if err := validateAddressOptionValue(option); err != nil {
 			return fmt.Errorf("%s: %w", spec.Type, err)
 		}
@@ -126,6 +132,18 @@ func addressGroupAllowed(group string, allowed []string) bool {
 	}
 	for _, candidate := range allowed {
 		if group == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func addressTypeAllowed(addressType string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, candidate := range allowed {
+		if strings.EqualFold(addressType, candidate) {
 			return true
 		}
 	}
@@ -218,6 +236,52 @@ func validateSockopt(option parse.Option) error {
 	return nil
 }
 
+func proxyAddressTypes() []string {
+	return []string{"PROXY", "PROXY-CONNECT"}
+}
+
+func socksAddressTypes() []string {
+	return []string{
+		"SOCKS4", "SOCKS4A", "SOCKS5", "SOCKS5-CONNECT", "SOCKS5-LISTEN", "SOCKS5-BIND",
+	}
+}
+
+func tcpStreamAddressTypes() []string {
+	return []string{
+		"TCP", "TCP-CONNECT", "TCP4", "TCP4-CONNECT", "TCP6", "TCP6-CONNECT",
+		"TCP-LISTEN", "TCP-L", "TCP4-LISTEN", "TCP4-L", "TCP6-LISTEN", "TCP6-L",
+		"TLS", "TLS-CONNECT", "TLS-LISTEN", "TLS-L",
+		"OPENSSL", "OPENSSL-CONNECT", "OPENSSL-LISTEN", "OPENSSL-L",
+		"SSL", "SSL-CONNECT", "SSL-LISTEN", "SSL-L",
+		"WS", "WS-CONNECT", "WS-LISTEN", "WS-L",
+		"WSS", "WSS-CONNECT", "WSS-LISTEN", "WSS-L",
+		"PROXY", "PROXY-CONNECT",
+		"SOCKS4", "SOCKS4A", "SOCKS5", "SOCKS5-CONNECT", "SOCKS5-LISTEN", "SOCKS5-BIND",
+	}
+}
+
+func tlsAddressTypes() []string {
+	return []string{
+		"TLS", "TLS-CONNECT", "TLS-LISTEN", "TLS-L",
+		"OPENSSL", "OPENSSL-CONNECT", "OPENSSL-LISTEN", "OPENSSL-L",
+		"SSL", "SSL-CONNECT", "SSL-LISTEN", "SSL-L",
+		"WSS", "WSS-CONNECT", "WSS-LISTEN", "WSS-L",
+		"QUIC", "QUIC-CONNECT", "QUIC-LISTEN", "QUIC-L",
+		"PROXY", "PROXY-CONNECT",
+	}
+}
+
+func alpnAddressTypes() []string {
+	return []string{
+		"QUIC", "QUIC-CONNECT", "QUIC-LISTEN", "QUIC-L",
+		"PROXY", "PROXY-CONNECT",
+	}
+}
+
+func fileOpenAddressTypes() []string {
+	return []string{"OPEN", "FILE", "CREATE", "CREAT", "GOPEN"}
+}
+
 func helpOptionGroups() []helpOptGroup {
 	return []helpOptGroup{
 		{"Listen and connect", []helpOpt{
@@ -229,8 +293,11 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "bind", desc: "local address or interface"},
 			{name: "connect-timeout", desc: "connect timeout", validate: validateDurationOption},
 			{name: "handshake-timeout", desc: "TLS, WebSocket, proxy, or SOCKS handshake timeout", validate: validateDurationOption},
-			{name: "accept-timeout", desc: "listen accept timeout (exit 0)", validate: validateDurationOption},
-			{name: "backlog", desc: "listen backlog", validate: validateInteger(1)},
+			{name: "accept-timeout", desc: "listen accept timeout (exit 0)", aliases: []string{"listen-timeout"}, validate: validateDurationOption},
+			{name: "backlog", desc: "listen backlog", addressTypes: []string{
+				"TCP-LISTEN", "TCP-L", "TCP4-LISTEN", "TCP4-L", "TCP6-LISTEN", "TCP6-L",
+				"SOCKET-LISTEN", "SCTP-LISTEN", "SCTP-L", "SCTP4-LISTEN", "SCTP4-L", "SCTP6-LISTEN", "SCTP6-L",
+			}, validate: validateInteger(1)},
 			{name: "pf", desc: "address family (4, 6, IP4, IP6, …)"},
 			{name: "ai-addrconfig", desc: "getaddrinfo AI_ADDRCONFIG", aliases: []string{"addrconfig"}},
 			{name: "ipv6-v6only", desc: "IPV6_V6ONLY"},
@@ -248,9 +315,11 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "hosts-deny", desc: "deny table path", aliases: []string{"deny-table", "tcpwrap-hosts-deny-table"}},
 		}},
 		{"Sockets", []helpOpt{
-			{name: "nodelay", desc: "TCP_NODELAY", aliases: []string{"tcp-nodelay"}},
-			{name: "keepalive", desc: "SO_KEEPALIVE", aliases: []string{"so-keepalive"}},
-			{name: "keepidle", desc: "TCP keepidle (requires keepalive)"},
+			{name: "nodelay", desc: "TCP_NODELAY", aliases: []string{"tcp-nodelay"}, addressTypes: tcpStreamAddressTypes()},
+			{name: "keepalive", desc: "SO_KEEPALIVE", aliases: []string{"so-keepalive"}, addressTypes: tcpStreamAddressTypes()},
+			{name: "keepidle", desc: "TCP_KEEPIDLE idle time (requires keepalive)", aliases: []string{"so-keepidle", "tcp-keepidle"}, addressTypes: tcpStreamAddressTypes(), validate: validateDurationOption},
+			{name: "keepintvl", desc: "TCP_KEEPINTVL probe interval", aliases: []string{"so-keepintvl", "tcp-keepintvl"}, addressTypes: tcpStreamAddressTypes(), validate: validateDurationOption},
+			{name: "keepcnt", desc: "TCP_KEEPCNT probe count", aliases: []string{"so-keepcnt", "tcp-keepcnt"}, addressTypes: tcpStreamAddressTypes(), validate: validateInteger(1)},
 			{name: "broadcast", desc: "SO_BROADCAST"},
 			{name: "ip-add-membership", desc: "IPv4 multicast join"},
 			{name: "ipv6-join-group", desc: "IPv6 multicast join"},
@@ -261,8 +330,8 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "ip-recvttl", desc: "IP_RECVTTL", aliases: []string{"recvttl"}},
 			{name: "ip-recvtos", desc: "IP_RECVTOS", aliases: []string{"recvtos"}},
 			{name: "ip-recvopts", desc: "IP_RECVOPTS", aliases: []string{"recvopts"}},
-			{name: "ip-ttl", desc: "IP_TTL", aliases: []string{"ttl"}, validate: validateInteger(-1)},
-			{name: "ip-tos", desc: "IP_TOS", aliases: []string{"tos"}, validate: validateInt64(false)},
+			{name: "ip-ttl", desc: "IP_TTL", aliases: []string{"ttl", "ipttl"}, validate: validateInteger(-1)},
+			{name: "ip-tos", desc: "IP_TOS", aliases: []string{"tos", "iptos"}, validate: validateInt64(false)},
 			{name: "ip-options", desc: "IP_OPTIONS"},
 			{name: "ipv6-recvpktinfo", desc: "IPV6_RECVPKTINFO", aliases: []string{"recvpktinfo"}},
 			{name: "ipv6-recvhoplimit", desc: "IPV6_RECVHOPLIMIT", aliases: []string{"recvhoplimit"}},
@@ -277,7 +346,7 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "wronly", desc: "open write-only"},
 			{name: "creat", desc: "create the file", aliases: []string{"create"}},
 			{name: "excl", desc: "fail if the file exists"},
-			{name: "append", desc: "open append", aliases: []string{"o-append"}},
+			{name: "append", desc: "open append", aliases: []string{"o-append"}, addressTypes: fileOpenAddressTypes()},
 			{name: "trunc", desc: "truncate on open"},
 			{name: "nonblock", desc: "O_NONBLOCK", aliases: []string{"o-nonblock"}},
 			{name: "mode", desc: "create mode bits", validate: validateOctal(0o7777)},
@@ -333,20 +402,20 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "crnl", desc: "convert CR/NL"},
 			{name: "crlf", desc: "convert CR/LF"},
 			{name: "crorlf", desc: "convert CR or LF"},
-			{name: "ignoreeof", desc: "do not close on EOF"},
+			{name: "ignoreeof", desc: "do not close on EOF", aliases: []string{"ignoreof"}},
 			{name: "readbytes", desc: "read at most N bytes", validate: validateInteger(0)},
 		}},
 		{"TLS, WSS, and QUIC", []helpOpt{
-			{name: "cert", desc: "certificate file (PEM); required on listen"},
-			{name: "key", desc: "private key file (PEM)"},
-			{name: "cafile", desc: "CA file (PEM or DER)", aliases: []string{"ca"}},
-			{name: "capath", desc: "directory of CA certificates", aliases: []string{"tls-capath", "openssl-capath"}},
-			{name: "verify", desc: "verify the peer (default on; 0 skips)"},
-			{name: "commonname", desc: "name to check (empty skips the name check)", aliases: []string{"tls-commonname", "openssl-commonname"}},
-			{name: "snihost", desc: "TLS SNI host name", aliases: []string{"tls-snihost", "openssl-snihost"}},
-			{name: "nosni", desc: "do not send SNI", aliases: []string{"tls-no-sni", "openssl-no-sni"}},
-			{name: "ciphers", desc: "TLS 1.2 cipher suite list", aliases: []string{"cipher", "openssl-cipherlist"}, validate: validateRequiredString},
-			{name: "alpn", desc: "QUIC ALPN (default socat; not h3)"},
+			{name: "cert", desc: "certificate file (PEM); required on listen", addressTypes: tlsAddressTypes()},
+			{name: "key", desc: "private key file (PEM)", addressTypes: tlsAddressTypes()},
+			{name: "cafile", desc: "CA file (PEM or DER)", aliases: []string{"ca"}, addressTypes: tlsAddressTypes()},
+			{name: "capath", desc: "directory of CA certificates", aliases: []string{"tls-capath", "openssl-capath"}, addressTypes: tlsAddressTypes()},
+			{name: "verify", desc: "verify the peer (default on; 0 skips)", addressTypes: tlsAddressTypes()},
+			{name: "commonname", desc: "name to check (empty skips the name check)", aliases: []string{"tls-commonname", "openssl-commonname"}, addressTypes: tlsAddressTypes()},
+			{name: "snihost", desc: "TLS SNI host name", aliases: []string{"tls-snihost", "openssl-snihost"}, addressTypes: tlsAddressTypes()},
+			{name: "nosni", desc: "do not send SNI", aliases: []string{"tls-no-sni", "openssl-no-sni"}, addressTypes: tlsAddressTypes()},
+			{name: "ciphers", desc: "TLS 1.2 cipher suite list", aliases: []string{"cipher", "openssl-cipherlist"}, addressTypes: tlsAddressTypes(), validate: validateRequiredString},
+			{name: "alpn", desc: "QUIC or HTTP/2/3 proxy ALPN", addressTypes: alpnAddressTypes()},
 		}},
 		{"WebSocket", []helpOpt{
 			{name: "path", desc: "WebSocket URL path"},
@@ -354,15 +423,15 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "protocol", desc: "WebSocket subprotocol"},
 		}},
 		{"PROXY and SOCKS", []helpOpt{
-			{name: "proxyport", desc: "HTTP proxy port"},
-			{name: "http-version", desc: "CONNECT HTTP version (1.0, 1.1, 2, 3)"},
-			{name: "h2c", desc: "cleartext HTTP/2 CONNECT"},
-			{name: "proxy-resolve", desc: "resolve CONNECT target locally", aliases: []string{"resolve"}},
-			{name: "proxy-authorization", desc: "proxy basic auth user:pass", aliases: []string{"proxyauth"}},
-			{name: "proxy-authorization-file", desc: "read proxy auth from a file", aliases: []string{"proxyauthfile"}},
-			{name: "socksport", desc: "SOCKS server port"},
-			{name: "socksuser", desc: "SOCKS user name"},
-			{name: "sockspass", desc: "SOCKS password", aliases: []string{"sockspassword"}},
+			{name: "proxyport", desc: "HTTP proxy port", addressTypes: proxyAddressTypes()},
+			{name: "http-version", desc: "CONNECT HTTP version (1.0, 1.1, 2, 3)", addressTypes: proxyAddressTypes()},
+			{name: "h2c", desc: "cleartext HTTP/2 CONNECT", addressTypes: proxyAddressTypes()},
+			{name: "proxy-resolve", desc: "resolve CONNECT target locally", aliases: []string{"resolve"}, addressTypes: proxyAddressTypes()},
+			{name: "proxy-authorization", desc: "proxy basic auth user:pass", aliases: []string{"proxyauth"}, addressTypes: proxyAddressTypes()},
+			{name: "proxy-authorization-file", desc: "read proxy auth from a file", aliases: []string{"proxyauthfile"}, addressTypes: proxyAddressTypes()},
+			{name: "socksport", desc: "SOCKS server port", addressTypes: socksAddressTypes()},
+			{name: "socksuser", desc: "SOCKS user name", addressTypes: socksAddressTypes()},
+			{name: "sockspass", desc: "SOCKS password", aliases: []string{"sockspassword"}, addressTypes: socksAddressTypes()},
 		}},
 		{"POSIX message queues", []helpOpt{
 			{name: "mq-prio", desc: "message priority", aliases: []string{"posixmq-priority"}, validate: validateInteger(0)},

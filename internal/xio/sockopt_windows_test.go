@@ -81,6 +81,65 @@ func TestApplyUDPConnOptsWindowsTimeos(t *testing.T) {
 	apply("UDP:127.0.0.1:9,rcvtimeo=0,sndtimeo=0", 0, 0)
 }
 
+func TestApplyTCPConnOptsWindowsTTLAndTOS(t *testing.T) {
+	ln, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	accepted := make(chan *net.TCPConn, 1)
+	go func() {
+		conn, _ := ln.AcceptTCP()
+		accepted <- conn
+	}()
+	client, err := net.DialTCP("tcp4", nil, ln.Addr().(*net.TCPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	server := <-accepted
+	t.Cleanup(func() { _ = server.Close() })
+	spec, err := parse.ParseSpec("TCP4:127.0.0.1:1,ip-ttl=9,ip-tos=0x10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyTCPConnOpts(spec, client); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := client.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ttl, tos int
+	var optionErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		ttl, optionErr = windows.GetsockoptInt(windows.Handle(fd), windows.IPPROTO_IP, windows.IP_TTL)
+		if optionErr == nil {
+			tos, optionErr = windows.GetsockoptInt(windows.Handle(fd), windows.IPPROTO_IP, windows.IP_TOS)
+		}
+	})
+	if err := errors.Join(controlErr, optionErr); err != nil {
+		t.Fatal(err)
+	}
+	if ttl != 9 {
+		t.Fatalf("IP_TTL=%d want 9", ttl)
+	}
+	if tos != 0x10 {
+		t.Fatalf("IP_TOS=%#x want %#x", tos, 0x10)
+	}
+}
+
+func TestApplyListenBacklogWindows(t *testing.T) {
+	ln, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	if err := ApplyListenBacklog(ln, 3); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func windowsSocketOption(c *net.UDPConn, opt int) (int, error) {
 	raw, err := c.SyscallConn()
 	if err != nil {

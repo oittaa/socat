@@ -82,16 +82,15 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		})
 	}
 
-	addr := net.JoinHostPort(xio.StripBrackets(proxyHost), proxyPort)
 	// Honour pf=ip4/ip6 when dialing the proxy host.
 	network := xio.ConnectNetworkForType(g, s, proxyHost, "tcp")
-	d := net.Dialer{Timeout: xio.ConnectTimeout(s)}
+	timeout := xio.ConnectTimeout(s)
 	handshakeTimeout := xio.HandshakeTimeout(s)
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		e := xio.WithRetry(dctx, s, g, "PROXY-CONNECT", func() error {
-			c, e := d.DialContext(dctx, network, addr)
+			c, e := xio.DialTCPAll(dctx, network, xio.StripBrackets(proxyHost), proxyPort, s, g, timeout, nil)
 			if e != nil {
 				return e
 			}

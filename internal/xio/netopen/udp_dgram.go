@@ -262,10 +262,12 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				g:       g,
 				ctx:     ctx,
 			}
-			// so-rcvtimeo for Accept reads
-			if v := s.OptionValue("so-rcvtimeo", ""); v != "" {
+			// so-rcvtimeo bounds each Accept receive; accept-timeout
+			// aborts waiting entirely (classic semantics).
+			if v := s.OptionValue("rcvtimeo", ""); v != "" {
 				ln.rcvTimeout = xio.ParseTimeval(v)
 			}
+			ln.acceptTimeout = xio.AcceptTimeout(s)
 			return &xio.Opened{
 				Kind:        xio.KindListen,
 				Listener:    ln,
@@ -273,6 +275,11 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				MaxChildren: maxChildren,
 				PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
 			}, nil
+		}
+		timeoutSet, err := applyUDPAcceptTimeout(pc, s)
+		if err != nil {
+			logx.CloseQuiet(pc)
+			return nil, err
 		}
 		// One permitted packet, then use the *same* listening socket for replies
 		// (classic). DialUDP(local, peer) after Close fails with EADDRINUSE.
@@ -301,7 +308,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			case r := <-ch:
 				if r.e != nil {
 					logx.CloseQuiet(pc)
-					return nil, r.e
+					return nil, udpAcceptError(r.e, timeoutSet)
 				}
 				if err := xio.PeerAllowedG(s, &udpPeerConn{addr: r.a}, g); err != nil {
 					if g != nil && g.Log != nil {
@@ -314,6 +321,10 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				xio.ProcessAncillary(r.oob, g)
 			}
 			break
+		}
+		if err := clearUDPAcceptTimeout(pc, timeoutSet); err != nil {
+			logx.CloseQuiet(pc)
+			return nil, fmt.Errorf("accept-timeout: clear deadline: %w", err)
 		}
 		// Classic non-fork RECVFROM: one datagram then EOF on further reads
 		// (so RECVFROM|PIPE echo servers exit after one client exchange).

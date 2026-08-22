@@ -177,15 +177,6 @@ func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
 	return nil
 }
 
-func ParseIntAny(v string) (int, error) {
-	v = strings.TrimSpace(v)
-	if strings.HasPrefix(v, "0x") || strings.HasPrefix(v, "0X") {
-		n, err := strconv.ParseUint(v[2:], 16, 32)
-		return int(n), err
-	}
-	return strconv.Atoi(v)
-}
-
 func ParseHexOpt(v string) ([]byte, error) {
 	v = strings.TrimSpace(v)
 	if strings.HasPrefix(v, "x") || strings.HasPrefix(v, "X") {

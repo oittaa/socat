@@ -5,6 +5,7 @@ package xio
 import (
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -28,6 +29,10 @@ func setSockoptInt(fd, level, opt, value int) error {
 
 func SetSockoptInt(fd, level, opt, value int) error {
 	return setSockoptInt(fd, level, opt, value)
+}
+
+func setListenBacklog(fd, backlog int) error {
+	return windows.Listen(windows.Handle(fd), backlog)
 }
 
 // ApplySocketTimeos applies rcvtimeo=/sndtimeo= using Winsock's millisecond
@@ -68,4 +73,42 @@ func windowsTimeoutMillis(v string) (uint32, error) {
 		return 0, fmt.Errorf("timeout %q exceeds Winsock's DWORD milliseconds", v)
 	}
 	return uint32(ms), nil
+}
+
+func applyIPTTLTOS(fd int, s parse.Spec, network string) error {
+	if !strings.HasPrefix(network, "tcp") && !strings.HasPrefix(network, "udp") {
+		return nil
+	}
+	is6 := strings.HasSuffix(network, "6")
+	option := func(names ...string) (string, bool) {
+		for _, name := range names {
+			if o, ok := s.OptionNamed(name); ok && o.Has && strings.TrimSpace(o.Value) != "" {
+				return o.Value, true
+			}
+		}
+		return "", false
+	}
+	if value, ok := option("ip-ttl", "ttl"); ok {
+		n, err := ParseIntAny(value)
+		if err != nil {
+			return fmt.Errorf("ip-ttl: %w", err)
+		}
+		level, opt := windows.IPPROTO_IP, windows.IP_TTL
+		if is6 {
+			level, opt = windows.IPPROTO_IPV6, windows.IPV6_UNICAST_HOPS
+		}
+		if err := windows.SetsockoptInt(windows.Handle(fd), level, opt, n); err != nil {
+			return fmt.Errorf("ip-ttl: %w", err)
+		}
+	}
+	if value, ok := option("ip-tos", "tos"); ok && !is6 {
+		n, err := ParseIntAny(value)
+		if err != nil {
+			return fmt.Errorf("ip-tos: %w", err)
+		}
+		if err := windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IP, windows.IP_TOS, n); err != nil {
+			return fmt.Errorf("ip-tos: %w", err)
+		}
+	}
+	return nil
 }

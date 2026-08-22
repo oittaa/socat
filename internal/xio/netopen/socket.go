@@ -122,15 +122,16 @@ func openSocketListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	}
 	if fork {
 		return &xio.Opened{
-			Kind:        xio.KindListen,
-			Listener:    ln,
-			Label:       "SOCKET-LISTEN",
-			MaxChildren: maxChildren,
-			PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
+			Kind:          xio.KindListen,
+			Listener:      ln,
+			Label:         "SOCKET-LISTEN",
+			MaxChildren:   maxChildren,
+			AcceptTimeout: xio.AcceptTimeout(s),
+			PeerFilter:    func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
 		}, nil
 	}
 	// accept one
-	c, err := ln.Accept()
+	c, err := xio.AcceptWithTimeout(ctx, ln, xio.AcceptTimeout(s))
 	if err != nil {
 		logx.CloseQuiet(ln)
 		return nil, err

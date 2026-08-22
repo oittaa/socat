@@ -236,6 +236,40 @@ func TestOptionTableContract(t *testing.T) {
 			strings.Join(unconsumed, "\n  "))
 	}
 
+	// Direction C: options restricted to protocol-specific address groups
+	// must be consumed only inside the matching implementation packages.
+	pkgToGroup := map[string]string{
+		"tlsopen":     xio.GroupTLS,
+		"wsopen":      xio.GroupWebSocket,
+		"proxyopen":   xio.GroupProxy,
+		"posixmqopen": xio.GroupPOSIXMQ,
+		"tunopen":     xio.GroupTUN,
+		"quicopen":    xio.GroupQUIC,
+	}
+	for name, entry := range table {
+		if len(entry.addressGroups) == 0 {
+			continue
+		}
+		sites := consumed[name]
+		for _, site := range sites {
+			group, known := pkgToGroup[site.pkg]
+			if !known {
+				t.Errorf("group-restricted option %q consumed in package %q (not a protocol package)", name, site.pkg)
+				continue
+			}
+			allowed := false
+			for _, g := range entry.addressGroups {
+				if g == group {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				t.Errorf("option %q (%v) consumed in package %q (group %q)", name, entry.addressGroups, site.pkg, group)
+			}
+		}
+	}
+
 	// Guard canaries: representatives of each dynamic family must stay covered
 	// on both sides, so silent table edits cannot strand a whole family.
 	canaries := []string{"iff-up", "setlk", "tcpwrap", "ip-pktinfo"}
