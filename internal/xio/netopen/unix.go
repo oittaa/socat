@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strconv"
 	"strings"
 	"syscall"
 
@@ -147,29 +146,22 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 }
 
 func unixSocketNetwork(s parse.Spec) (network string, explicit bool, err error) {
-	o, ok := s.OptionNamed("socktype")
-	if !ok {
+	typ, explicit, err := xio.SocketTypeOption(s, syscall.SOCK_STREAM)
+	if err != nil {
+		return "", explicit, err
+	}
+	if !explicit {
 		return "unix", false, nil
 	}
-	if !o.Has || strings.TrimSpace(o.Value) == "" {
-		return "", true, fmt.Errorf("%s: option %q requires a socket type number", s.Type, o.Name)
-	}
-	n, err := strconv.Atoi(o.Value)
-	if err != nil {
-		return "", true, fmt.Errorf("%s: invalid %s=%q", s.Type, o.Name, o.Value)
-	}
-	switch n {
+	switch typ {
 	case syscall.SOCK_STREAM:
 		return "unix", true, nil
 	case syscall.SOCK_DGRAM:
 		return "unixgram", true, nil
 	case syscall.SOCK_SEQPACKET:
-		if network, ok := unixSeqpacketNetwork(); ok {
-			return network, true, nil
-		}
-		return "", true, fmt.Errorf("%s: %s=%d (SOCK_SEQPACKET) is not supported on this platform", s.Type, o.Name, n)
+		return "unixpacket", true, nil
 	default:
-		return "", true, fmt.Errorf("%s: unsupported %s=%d", s.Type, o.Name, n)
+		return "", true, fmt.Errorf("%s: unsupported socktype=%d", s.Type, typ)
 	}
 }
 

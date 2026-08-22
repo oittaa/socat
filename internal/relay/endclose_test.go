@@ -186,6 +186,48 @@ func TestTransferSerializesShutdownAndClose(t *testing.T) {
 	}
 }
 
+func TestTransferLingerBeatsIdleTimeout(t *testing.T) {
+	c1, c2 := net.Pipe()
+	defer func() { _ = c1.Close(); _ = c2.Close() }()
+	got := make(chan []byte, 1)
+	left := FDStream{
+		R:      eofReader{},
+		W:      captureWriter{fn: func(p []byte) { got <- append([]byte(nil), p...) }},
+		C:      nopCloser{},
+		CloseW: func() error { return nil },
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- Transfer(context.Background(), left, NetStream{Conn: c1}, Config{
+			Linger:      400 * time.Millisecond,
+			IdleTimeout: 80 * time.Millisecond,
+			LeftToRight: true,
+			RightToLeft: true,
+		})
+	}()
+	time.Sleep(150 * time.Millisecond)
+	if _, err := c2.Write([]byte("late")); err != nil {
+		t.Fatal(err)
+	}
+	_ = c2.Close()
+	select {
+	case b := <-got:
+		if string(b) != "late" {
+			t.Fatalf("got %q", b)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("late data was not copied during linger")
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("transfer did not finish")
+	}
+}
+
 type blockingLifecycleStream struct {
 	shutdownStarted chan struct{}
 	releaseShutdown chan struct{}
