@@ -15,8 +15,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/oittaa/socat/internal/testcert"
 )
 
 var capabilityCache = struct {
@@ -29,32 +27,6 @@ func skipUnlessLinux(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("Linux only")
 	}
-}
-
-func listenCert(t *testing.T) string {
-	t.Helper()
-	p, err := testcert.WriteTempListenCert(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	return p
-}
-
-func socatBin(t *testing.T) string {
-	t.Helper()
-	// Prefer ./socat from repo root or SOCAT env
-	if p := os.Getenv("SOCAT"); p != "" {
-		return p
-	}
-	candidates := []string{"../socat", "./socat", "socat", "../socat.exe", "./socat.exe", "socat.exe"}
-	for _, c := range candidates {
-		if st, err := os.Stat(c); err == nil && !st.IsDir() {
-			abs, _ := filepath.Abs(c)
-			return abs
-		}
-	}
-	t.Fatal("socat binary not found; run make build and set SOCAT= or run from repo root")
-	return ""
 }
 
 // capabilityOutput caches immutable command metadata. Capability tests used to
