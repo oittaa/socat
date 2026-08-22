@@ -35,6 +35,7 @@ hooks:
 lint: fmt-check
 	go vet $(GOFLAGS) ./...
 	golangci-lint run
+	$(MAKE) gosec
 
 # Suppress a finding only at the call site with:
 #   // #nosec Gxxx -- reason
