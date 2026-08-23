@@ -114,3 +114,17 @@ func TestAddressDurationUsesCLIUnits(t *testing.T) {
 		t.Fatalf("duration=%v err=%v", d, err)
 	}
 }
+
+func TestWinsizeHelpUsesColumnRowOrder(t *testing.T) {
+	for _, group := range helpOptionGroups() {
+		for _, option := range group.opts {
+			if option.name == "tiocswinsz" {
+				if option.desc != "window size cols:rows" {
+					t.Fatalf("tiocswinsz description=%q", option.desc)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("tiocswinsz missing from help options")
+}

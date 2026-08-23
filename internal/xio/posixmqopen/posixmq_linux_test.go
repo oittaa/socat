@@ -70,10 +70,10 @@ func TestMQSyscalls(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = mqClose(fd) }()
-	if err := mqTimedSend(fd, []byte("hi"), 1); err != nil {
+	if err := mqTimedSend(fd, []byte("hi"), 1, time.Time{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := mqTimedSend(fd, []byte("lo"), 0); err != nil {
+	if err := mqTimedSend(fd, []byte("lo"), 0, time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	var attr mqAttr
@@ -85,12 +85,45 @@ func TestMQSyscalls(t *testing.T) {
 	}
 	buf := make([]byte, attr.Msgsize)
 	var prio uint32
-	n, err := mqTimedReceive(fd, buf, &prio)
+	n, err := mqTimedReceive(fd, buf, &prio, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if prio != 1 || string(buf[:n]) != "hi" {
 		t.Fatalf("first prio=%d msg=%q", prio, buf[:n])
+	}
+}
+
+func TestMQTimedSyscallsHonorDeadline(t *testing.T) {
+	q := testQueue(t)
+	attr := mqAttr{Maxmsg: 1, Msgsize: 16}
+	fd, err := mqOpen(q, unix.O_RDWR|unix.O_CREAT|unix.O_EXCL, 0o600, &attr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = mqClose(fd) }()
+
+	if err := mqTimedSend(fd, []byte("full"), 0, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if err := mqTimedSend(fd, []byte("blocked"), 0, start.Add(40*time.Millisecond)); err != unix.ETIMEDOUT {
+		t.Fatalf("timed send error=%v, want %v", err, unix.ETIMEDOUT)
+	}
+	if elapsed := time.Since(start); elapsed < 20*time.Millisecond || elapsed > 2*time.Second {
+		t.Fatalf("timed send elapsed %v", elapsed)
+	}
+
+	buf := make([]byte, attr.Msgsize)
+	if _, err := mqTimedReceive(fd, buf, nil, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	start = time.Now()
+	if _, err := mqTimedReceive(fd, buf, nil, start.Add(40*time.Millisecond)); err != unix.ETIMEDOUT {
+		t.Fatalf("timed receive error=%v, want %v", err, unix.ETIMEDOUT)
+	}
+	if elapsed := time.Since(start); elapsed < 20*time.Millisecond || elapsed > 2*time.Second {
+		t.Fatalf("timed receive elapsed %v", elapsed)
 	}
 }
 

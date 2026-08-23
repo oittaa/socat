@@ -19,6 +19,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const mqWaitInterval = 200 * time.Millisecond
+
 func init() {
 	xio.FeaturePOSIXMQ = true
 }
@@ -245,7 +247,7 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		}
 		buf := make([]byte, msgsize)
 		var receivedPrio uint32
-		n, e := mqTimedReceive(fd, buf, &receivedPrio)
+		n, e := receiveMQ(ctx, fd, buf, &receivedPrio, nonblock, time.Time{})
 		if e != nil {
 			cleanup()
 			return nil, e
@@ -292,7 +294,7 @@ func flushQueue(name string) error {
 	}
 	buf := make([]byte, bufsiz)
 	for {
-		_, err := mqTimedReceive(fd, buf, nil)
+		_, err := mqTimedReceive(fd, buf, nil, time.Time{})
 		if err != nil {
 			if err == unix.EAGAIN {
 				return nil
@@ -307,7 +309,7 @@ func waitMQ(ctx context.Context, fd int, events int16, deadline time.Time) error
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		timeout := 200
+		timeout := int(mqWaitInterval / time.Millisecond)
 		if !deadline.IsZero() {
 			rem := time.Until(deadline)
 			if rem <= 0 {
@@ -344,6 +346,64 @@ func waitMQ(ctx context.Context, fd int, events int16, deadline time.Time) error
 		}
 		if re&(unix.POLLERR|unix.POLLHUP) != 0 {
 			return io.EOF
+		}
+	}
+}
+
+func boundedMQDeadline(deadline time.Time) time.Time {
+	bound := time.Now().Add(mqWaitInterval)
+	if !deadline.IsZero() && deadline.Before(bound) {
+		return deadline
+	}
+	return bound
+}
+
+func retryMQTimedError(err error, deadline time.Time) (bool, error) {
+	switch err {
+	case unix.EINTR:
+		return true, nil
+	case unix.ETIMEDOUT:
+		if !deadline.IsZero() && !time.Now().Before(deadline) {
+			return false, os.ErrDeadlineExceeded
+		}
+		return true, nil
+	default:
+		return false, err
+	}
+}
+
+func receiveMQ(ctx context.Context, fd int, buf []byte, prio *uint32, nonblock bool, deadline time.Time) (int, error) {
+	if nonblock {
+		return mqTimedReceive(fd, buf, prio, time.Time{})
+	}
+	for {
+		if err := waitMQ(ctx, fd, unix.POLLIN, deadline); err != nil {
+			return 0, err
+		}
+		n, err := mqTimedReceive(fd, buf, prio, boundedMQDeadline(deadline))
+		if err == nil {
+			return n, nil
+		}
+		if retry, result := retryMQTimedError(err, deadline); !retry {
+			return 0, result
+		}
+	}
+}
+
+func sendMQ(ctx context.Context, fd int, msg []byte, prio uint32, nonblock bool, deadline time.Time) error {
+	if nonblock {
+		return mqTimedSend(fd, msg, prio, time.Time{})
+	}
+	for {
+		if err := waitMQ(ctx, fd, unix.POLLOUT, deadline); err != nil {
+			return err
+		}
+		err := mqTimedSend(fd, msg, prio, boundedMQDeadline(deadline))
+		if err == nil {
+			return nil
+		}
+		if retry, result := retryMQTimedError(err, deadline); !retry {
+			return result
 		}
 	}
 }
@@ -386,12 +446,6 @@ func (s *mqStream) Read(p []byte) (int, error) {
 	nonblock := s.nonblock
 	s.mu.Unlock()
 
-	if !nonblock {
-		if err := waitMQ(context.Background(), s.fd, unix.POLLIN, deadline); err != nil {
-			return 0, err
-		}
-	}
-
 	s.mu.Lock()
 	if s.rbuf == nil {
 		sz := s.msgsize
@@ -404,7 +458,7 @@ func (s *mqStream) Read(p []byte) (int, error) {
 	s.mu.Unlock()
 
 	var prio uint32
-	n, err := mqTimedReceive(s.fd, buf, &prio)
+	n, err := receiveMQ(context.Background(), s.fd, buf, &prio, nonblock, deadline)
 	if err != nil {
 		return 0, err
 	}
@@ -427,13 +481,9 @@ func (s *mqStream) Write(p []byte) (int, error) {
 	}
 	deadline := s.wdeadline
 	prio := s.prio
+	nonblock := s.nonblock
 	s.mu.Unlock()
-	if !deadline.IsZero() {
-		if err := waitMQ(context.Background(), s.fd, unix.POLLOUT, deadline); err != nil {
-			return 0, err
-		}
-	}
-	if err := mqTimedSend(s.fd, p, prio); err != nil {
+	if err := sendMQ(context.Background(), s.fd, p, prio, nonblock, deadline); err != nil {
 		return 0, err
 	}
 	return len(p), nil
@@ -516,12 +566,9 @@ func (l *mqListener) Accept() (net.Conn, error) {
 		return nil, net.ErrClosed
 	}
 	l.mu.Unlock()
-	if err := waitMQ(l.ctx, l.fd, unix.POLLIN, time.Time{}); err != nil {
-		return nil, err
-	}
 	buf := make([]byte, l.msgsize)
 	var receivedPrio uint32
-	n, err := mqTimedReceive(l.fd, buf, &receivedPrio)
+	n, err := receiveMQ(l.ctx, l.fd, buf, &receivedPrio, false, time.Time{})
 	if err != nil {
 		return nil, err
 	}

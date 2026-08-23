@@ -75,10 +75,12 @@ var termiosFlags = []termiosFlag{
 	{"iexten", wordL, termiosBits(unix.IEXTEN)},
 }
 
-var baudNamed = []struct {
+type baudOption struct {
 	name string
 	baud uint32
-}{
+}
+
+var baudNamed = []baudOption{
 	{"b0", 0},
 	{"b50", 50},
 	{"b75", 75},
@@ -100,6 +102,13 @@ var baudNamed = []struct {
 	{"b230400", 230400},
 }
 
+func baudOptions() []baudOption {
+	out := make([]baudOption, 0, len(baudNamed)+len(platformBaudNamed))
+	out = append(out, baudNamed...)
+	out = append(out, platformBaudNamed...)
+	return out
+}
+
 // TermiosHelpNames are option names we enforce (for -hh).
 func TermiosHelpNames() []string {
 	out := []string{
@@ -112,7 +121,7 @@ func TermiosHelpNames() []string {
 	for _, f := range termiosFlags {
 		out = append(out, f.name)
 	}
-	for _, b := range baudNamed {
+	for _, b := range baudOptions() {
 		out = append(out, b.name)
 	}
 	return out
@@ -176,16 +185,6 @@ func applyCombo(t *unix.Termios, name string) {
 	}
 }
 
-func setSpeed(t *unix.Termios, baud uint32, in, out bool) {
-	b := termiosBits(baud)
-	if in {
-		t.Ispeed = b
-	}
-	if out {
-		t.Ospeed = b
-	}
-}
-
 func getTermios(fd int) (*unix.Termios, error) {
 	return unix.IoctlGetTermios(fd, termiosGet)
 }
@@ -227,7 +226,7 @@ func ApplyTermios(fd int, s parse.Spec) error {
 			t.Lflag &^= termiosBits(unix.ECHONL)
 		}
 	}
-	for _, b := range baudNamed {
+	for _, b := range baudOptions() {
 		if s.HasOption(b.name) && s.BoolOption(b.name) {
 			setSpeed(t, b.baud, true, true)
 		}
