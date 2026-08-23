@@ -24,6 +24,16 @@ func openSTDIO(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 	if err := applyFileLocks(s, os.Stdin, os.Stdout); err != nil {
 		return nil, err
 	}
+	if mode != xio.ModeWrite {
+		if err := xio.ApplyFDOptions(os.Stdin, s); err != nil {
+			return nil, err
+		}
+	}
+	if mode != xio.ModeRead {
+		if err := xio.ApplyFDOptions(os.Stdout, s); err != nil {
+			return nil, err
+		}
+	}
 	// Classic STDIO: fd 0 read, fd 1 write; options like escape= apply via xio.WrapCommon.
 	var stream relay.Stream
 	switch mode {
@@ -68,6 +78,9 @@ func openSTDIN(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 	if err := applyFileLocks(s, os.Stdin, nil); err != nil {
 		return nil, err
 	}
+	if err := xio.ApplyFDOptions(os.Stdin, s); err != nil {
+		return nil, err
+	}
 	return &xio.Opened{
 		Stream: relay.FDStream{R: os.Stdin, W: io.Discard, C: xio.NopCloser{}},
 		Label:  "STDIN",
@@ -81,6 +94,9 @@ func openSTDOUT(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	if err := applyFileLocks(s, nil, os.Stdout); err != nil {
 		return nil, err
 	}
+	if err := xio.ApplyFDOptions(os.Stdout, s); err != nil {
+		return nil, err
+	}
 	return &xio.Opened{
 		Stream: relay.FDStream{R: xio.EOFReader{}, W: os.Stdout, C: xio.NopCloser{}},
 		Label:  "STDOUT",
@@ -92,6 +108,9 @@ func openSTDERR(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 		return nil, fmt.Errorf("STDERR is write-only")
 	}
 	if err := applyFileLocks(s, nil, os.Stderr); err != nil {
+		return nil, err
+	}
+	if err := xio.ApplyFDOptions(os.Stderr, s); err != nil {
 		return nil, err
 	}
 	return &xio.Opened{
@@ -113,6 +132,9 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Op
 		return nil, fmt.Errorf("FD:%d invalid", n)
 	}
 	if err := applyFileLocks(s, f, f); err != nil {
+		return nil, err
+	}
+	if err := xio.ApplyFDOptions(f, s); err != nil {
 		return nil, err
 	}
 	return &xio.Opened{

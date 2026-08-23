@@ -175,6 +175,11 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 
 	if cfg.singleFD {
 		cfg.n = cfg.m + 1
+	} else if cfg.n == 0 {
+		// Classic treats -n0 as the useful one-descriptor case despite its
+		// help describing an exclusive upper bound. test.sh relies on it when
+		// probing stdin pipe capacity.
+		cfg.n = 1
 	}
 	// Classic header line (LISTEN_KEEPALIVE uses tail -n +2 to skip it).
 	if cfg.style != 1 {
@@ -300,6 +305,9 @@ func (cfg *filanConfig) filanFD(fd int, b *outbuf.Buf) {
 	// socket extras
 	if st.Mode&unix.S_IFMT == unix.S_IFSOCK {
 		printSocket(fd, b)
+	}
+	if st.Mode&unix.S_IFMT == unix.S_IFIFO {
+		printPipeSize(fd, b)
 	}
 	// try path from /proc
 	if p, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd)); err == nil {

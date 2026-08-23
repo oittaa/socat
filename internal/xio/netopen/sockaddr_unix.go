@@ -185,7 +185,7 @@ func applySocketOpts(fd int, s parse.Spec) error {
 	if err := xio.ApplyReuse(fd, s, false); err != nil {
 		return err
 	}
-	return xio.ApplySocketTimeos(fd, s)
+	return xio.ApplySocketOptions(fd, s)
 }
 
 func osNewFile(fd int, name string) *os.File {

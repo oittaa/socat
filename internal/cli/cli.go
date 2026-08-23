@@ -27,41 +27,43 @@ import (
 
 // Config holds parsed global options.
 type Config struct {
-	Help         int // 0 none, 1 -h, 2 -hh, 3 -hhh
-	Version      bool
-	LogLevel     logx.Level
-	LogFile      string
-	Progname     string
-	Micros       bool
-	Hostname     bool
-	Verbose      bool
-	Hex          bool
-	BlockSize    int
-	Linger       time.Duration
-	Idle         time.Duration // <0 infinite, 0 zero, >0 timeout
-	IdleSet      bool
-	LeftToRight  bool // -u
-	RightToLeft  bool // -U
-	IP4          bool
-	IP6          bool
-	IPAny        bool
-	Statistics   bool
-	Experimental bool
-	LockFile     string
-	LockWait     string
-	RawLeft      string // -r
-	RawRight     string // -R
-	Addresses    []string
+	Help          int // 0 none, 1 -h, 2 -hh, 3 -hhh
+	Version       bool
+	LogLevel      logx.Level
+	LogFile       string
+	Progname      string
+	Micros        bool
+	Hostname      bool
+	Verbose       bool
+	Hex           bool
+	BlockSize     int
+	Linger        time.Duration
+	Idle          time.Duration // <0 infinite, 0 zero, >0 timeout
+	IdleSet       bool
+	LeftToRight   bool // -u
+	RightToLeft   bool // -U
+	IP4           bool
+	IP6           bool
+	IPAny         bool
+	Statistics    bool
+	Experimental  bool
+	LockFile      string
+	LockWait      string
+	RawLeft       string // -r
+	RawRight      string // -R
+	SignalLogMask uint64 // -S: signals whose termination is logged
+	Addresses     []string
 }
 
 // ParseArgs parses os.Args-style arguments (without program name).
 func ParseArgs(args []string) (*Config, error) {
 	cfg := &Config{
-		LogLevel:  logx.Warning,
-		BlockSize: 8192,
-		Linger:    relay.DefaultLinger,
-		Idle:      -1, // infinite
-		Progname:  "socat",
+		LogLevel:      logx.Warning,
+		BlockSize:     8192,
+		Linger:        relay.DefaultLinger,
+		Idle:          -1, // infinite
+		Progname:      "socat",
+		SignalLogMask: defaultSignalLogMask(),
 	}
 
 	for i := 0; i < len(args); i++ {
@@ -134,12 +136,22 @@ var cliValueFlags = []cliValueFlag{
 	{"b", nil, setBlockSize},
 	{"t", nil, setLingerFlag},
 	{"T", nil, setIdleFlag},
+	{"S", nil, setSignalLogMask},
 	{"lp", nil, plainFlag((*Config).fieldProgname)},
 	{"lf", nil, plainFlag((*Config).fieldLogFile)},
 	{"L", nil, plainFlag((*Config).fieldLockFile)},
 	{"W", nil, plainFlag((*Config).fieldLockWait)},
 	{"r", func(a string) bool { return !strings.HasPrefix(a, "-reuse") }, plainFlag((*Config).fieldRawLeft)},
 	{"R", nil, plainFlag((*Config).fieldRawRight)},
+}
+
+func setSignalLogMask(cfg *Config, value string) error {
+	mask, err := strconv.ParseUint(strings.TrimSpace(value), 0, 64)
+	if err != nil {
+		return fmt.Errorf("invalid -S signal mask %q", value)
+	}
+	cfg.SignalLogMask = mask
+	return nil
 }
 
 // plainFlag stores the raw option value in a config field.
@@ -349,7 +361,7 @@ func Run(args []string, signalExit func(int)) int {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	stopSignals := installSignalHandling(ctx, cancel, log, signalExit)
+	stopSignals := installSignalHandling(ctx, cancel, log, cfg.SignalLogMask, signalExit)
 	defer stopSignals()
 
 	unlockFiles, err := acquireLockFiles(ctx, cfg)
@@ -559,12 +571,12 @@ func ipVersionFromFlags(cfg *Config) xio.IPVersion {
 // cancel the context, unlink registered FS entries and exit 128+signum
 // (EXITCODESIG*), and SIGUSR1 prints live transfer statistics. The returned
 // stop releases both signal channels.
-func installSignalHandling(ctx context.Context, cancel context.CancelFunc, log *logx.Logger, signalExit func(int)) func() {
+func installSignalHandling(ctx context.Context, cancel context.CancelFunc, log *logx.Logger, signalLogMask uint64, signalExit func(int)) func() {
 	sigCh := make(chan os.Signal, 1)
-	notifyExitSignals(sigCh)
+	notifyExitSignals(sigCh, signalLogMask)
 	usr1 := make(chan os.Signal, 1)
 	notifyStatsSignal(usr1)
-	stopHandlers := startSignalHandlers(ctx, cancel, log, signalExit, sigCh, usr1)
+	stopHandlers := startSignalHandlers(ctx, cancel, log, signalLogMask, signalExit, sigCh, usr1)
 	return func() {
 		signal.Stop(sigCh)
 		signal.Stop(usr1)
@@ -572,7 +584,7 @@ func installSignalHandling(ctx context.Context, cancel context.CancelFunc, log *
 	}
 }
 
-func startSignalHandlers(ctx context.Context, cancel context.CancelFunc, log *logx.Logger, signalExit func(int), sigCh, usr1 <-chan os.Signal) func() {
+func startSignalHandlers(ctx context.Context, cancel context.CancelFunc, log *logx.Logger, signalLogMask uint64, signalExit func(int), sigCh, usr1 <-chan os.Signal) func() {
 	done := make(chan struct{})
 	var once sync.Once
 	var wg sync.WaitGroup
@@ -583,9 +595,17 @@ func startSignalHandlers(ctx context.Context, cancel context.CancelFunc, log *lo
 		case sig := <-sigCh:
 			cancel()
 			xio.UnlinkRegisteredPaths()
-			if ss, ok := sig.(syscall.Signal); ok && ss > 0 && signalExit != nil {
+			if ss, ok := sig.(syscall.Signal); ok && ss > 0 {
+				if int(ss) < 64 && signalLogMask&(uint64(1)<<uint(ss)) != 0 && log != nil {
+					// Classic logs ordinary termination signals below Error;
+					// CHILDREN_SHUTUP checks must not mistake parent SIGTERM cleanup
+					// for a child connection failure.
+					log.Warningf("exiting on signal %d", ss)
+				}
 				// Exit immediately so Wait()-blocked nofork paths still report classic status.
-				signalExit(128 + int(ss))
+				if signalExit != nil {
+					signalExit(128 + int(ss))
+				}
 			}
 		case <-ctx.Done():
 		case <-done:

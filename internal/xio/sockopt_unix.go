@@ -4,6 +4,7 @@ package xio
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -54,6 +55,31 @@ func ApplySocketTimeos(fd int, s parse.Spec) error {
 		}
 		if err := unix.SetsockoptTimeval(fd, solSocket, soSndtimeo, tv); err != nil {
 			return fmt.Errorf("sndtimeo: %w", err)
+		}
+	}
+	return nil
+}
+
+// ApplySocketOptions applies the SOL_SOCKET options shared by raw descriptors
+// and Go net sockets.
+func ApplySocketOptions(fd int, s parse.Spec) error {
+	if err := ApplySocketTimeos(fd, s); err != nil {
+		return err
+	}
+	if value, ok := optionValueAny(s, "so-linger", "linger"); ok {
+		seconds, err := ParseIntAny(value)
+		if err != nil || seconds < 0 {
+			return fmt.Errorf("so-linger: invalid value %q", value)
+		}
+		if seconds > math.MaxInt32 {
+			return fmt.Errorf("so-linger: value %q is out of range", value)
+		}
+		linger := &unix.Linger{
+			Onoff:  1,
+			Linger: int32(seconds), // #nosec G115 -- bounded by MaxInt32 above
+		}
+		if err := unix.SetsockoptLinger(fd, solSocket, unix.SO_LINGER, linger); err != nil {
+			return fmt.Errorf("so-linger: %w", err)
 		}
 	}
 	return nil

@@ -153,6 +153,11 @@ func openPIPE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 	if err != nil {
 		return nil, err
 	}
+	if err := xio.ApplyFDOptions(r, s); err != nil {
+		logx.CloseQuiet(r)
+		logx.CloseQuiet(w)
+		return nil, err
+	}
 	return &xio.Opened{
 		Stream: relay.FDStream{
 			R: r,
@@ -223,14 +228,21 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 
 	switch mode {
 	case xio.ModeRead:
-		f, err := os.OpenFile(path, os.O_RDONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+		// A read-only FIFO must wait for a writer. Opening nonblocking and then
+		// clearing O_NONBLOCK leaves a race where the first Read observes EOF,
+		// the address exits, and unlink-close removes the FIFO before its writer
+		// can open it (classic COOLWRITE).
+		f, err := os.OpenFile(path, os.O_RDONLY, 0) // #nosec G304 -- user-supplied FIFO path
 		if err != nil {
 			if created {
 				_ = os.Remove(path)
 			}
 			return nil, err
 		}
-		clearNB(f)
+		if err := xio.ApplyFDOptions(f, s); err != nil {
+			logx.CloseQuiet(f)
+			return nil, err
+		}
 		if s.BoolOption("unlink-early") {
 			_ = os.Remove(path)
 		}
@@ -261,6 +273,10 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		clearNB(w)
 		logx.CloseQuiet(r)
+		if err := xio.ApplyFDOptions(w, s); err != nil {
+			logx.CloseQuiet(w)
+			return nil, err
+		}
 		if s.BoolOption("unlink-early") {
 			_ = os.Remove(path)
 		}
@@ -291,6 +307,16 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		clearNB(r)
 		clearNB(w)
+		if err := xio.ApplyFDOptions(r, s); err != nil {
+			logx.CloseQuiet(r)
+			logx.CloseQuiet(w)
+			return nil, err
+		}
+		if err := xio.ApplyFDOptions(w, s); err != nil {
+			logx.CloseQuiet(r)
+			logx.CloseQuiet(w)
+			return nil, err
+		}
 		if s.BoolOption("unlink-early") {
 			_ = os.Remove(path)
 		}
@@ -325,10 +351,10 @@ func openSocketpair(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) 
 		return nil, err
 	}
 	for _, conn := range []*os.File{c1, c2} {
-		if err := xio.ApplySocketTimeos(int(conn.Fd()), s); err != nil {
+		if err := xio.ApplySocketOptions(int(conn.Fd()), s); err != nil {
 			logx.CloseQuiet(c1)
 			logx.CloseQuiet(c2)
-			return nil, fmt.Errorf("socket timeouts: %w", err)
+			return nil, fmt.Errorf("socket options: %w", err)
 		}
 	}
 	// Use one end only as the stream; the other end is paired so writes loop back...
@@ -442,6 +468,10 @@ func OpenFlags(s parse.Spec, mode xio.Mode) int {
 }
 
 func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
+	if err := xio.ApplyFDOptions(f, s); err != nil {
+		logx.CloseQuiet(f)
+		return nil, err
+	}
 	// Classic perm=/mode= via fchmod after open (CREATE_PERM etc.).
 	if err := xio.ApplyPerm(path, s, f); err != nil {
 		logx.CloseQuiet(f)

@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -82,7 +84,7 @@ func TestSignalHandlersDeliverExitAndStop(t *testing.T) {
 	sigCh := make(chan os.Signal, 1)
 	usr1 := make(chan os.Signal, 1)
 	exitCode := make(chan int, 1)
-	stop := startSignalHandlers(ctx, cancel, logx.New(), func(code int) {
+	stop := startSignalHandlers(ctx, cancel, logx.New(), 0, func(code int) {
 		exitCode <- code
 	}, sigCh, usr1)
 
@@ -104,10 +106,42 @@ func TestSignalHandlersDeliverExitAndStop(t *testing.T) {
 	stop() // cleanup is intentionally idempotent
 }
 
+func TestSignalLogMaskControlsExitMessage(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		mask uint64
+		want bool
+	}{
+		{name: "masked out", mask: 0, want: false},
+		{name: "included", mask: uint64(1) << uint(syscall.SIGTERM), want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			var output bytes.Buffer
+			logger := logx.New()
+			logger.SetOutput(&output)
+			sigCh := make(chan os.Signal, 1)
+			exited := make(chan struct{}, 1)
+			stop := startSignalHandlers(ctx, cancel, logger, tc.mask, func(int) { exited <- struct{}{} }, sigCh, make(chan os.Signal))
+			sigCh <- syscall.SIGTERM
+			select {
+			case <-exited:
+			case <-time.After(time.Second):
+				t.Fatal("signal handler did not run")
+			}
+			stop()
+			got := strings.Contains(output.String(), "exiting on signal")
+			if got != tc.want {
+				t.Fatalf("logged=%v output=%q", got, output.String())
+			}
+		})
+	}
+}
+
 func TestSignalHandlersStopWithoutSignal(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	stop := startSignalHandlers(ctx, cancel, logx.New(), nil, make(chan os.Signal), make(chan os.Signal))
+	stop := startSignalHandlers(ctx, cancel, logx.New(), defaultSignalLogMask(), nil, make(chan os.Signal), make(chan os.Signal))
 	done := make(chan struct{})
 	go func() {
 		stop()

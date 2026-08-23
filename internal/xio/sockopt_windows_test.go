@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"testing"
+	"unsafe"
 
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/windows"
@@ -126,6 +127,41 @@ func TestApplyTCPConnOptsWindowsTTLAndTOS(t *testing.T) {
 	}
 	if tos != 0x10 {
 		t.Fatalf("IP_TOS=%#x want %#x", tos, 0x10)
+	}
+}
+
+func TestApplySocketOptionsLingerWindows(t *testing.T) {
+	c, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	spec, err := parse.ParseSpec("TCP-LISTEN:1,so-linger=3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := c.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Onoff  uint16
+		Linger uint16
+	}
+	var optionErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		optionErr = ApplySocketOptions(int(fd), spec)
+		if optionErr != nil {
+			return
+		}
+		size := int32(unsafe.Sizeof(got))
+		optionErr = windows.Getsockopt(windows.Handle(fd), int32(windows.SOL_SOCKET), int32(windows.SO_LINGER), (*byte)(unsafe.Pointer(&got)), &size)
+	})
+	if err := errors.Join(controlErr, optionErr); err != nil {
+		t.Fatal(err)
+	}
+	if got.Onoff != 1 || got.Linger != 3 {
+		t.Fatalf("SO_LINGER=%+v want enabled, 3 seconds", got)
 	}
 }
 

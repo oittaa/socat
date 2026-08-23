@@ -29,6 +29,19 @@ func TestParseArgsRejectsMalformedTimeouts(t *testing.T) {
 	}
 }
 
+func TestParseSignalLogMask(t *testing.T) {
+	cfg, err := ParseArgs([]string{"-S", "0x80000000"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SignalLogMask != 0x80000000 {
+		t.Fatalf("SignalLogMask=%#x", cfg.SignalLogMask)
+	}
+	if _, err := ParseArgs([]string{"-S", "not-a-mask"}); err == nil {
+		t.Fatal("invalid -S mask was accepted")
+	}
+}
+
 func TestValidateAddressOptions(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -47,6 +60,10 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "classic-keepalive-aliases", spec: "TCP:localhost:1,tcp-keepidle=7,tcp-keepintvl=9,tcp-keepcnt=3"},
 		{name: "classic-listen-timeout-alias", spec: "TCP-LISTEN:1,listen-timeout=0.1"},
 		{name: "classic-ignoreof-alias", spec: "OPEN:file,ignoreof"},
+		{name: "classic-linger-alias", spec: "TCP:localhost:1,linger=0"},
+		{name: "children-shutup-bare", spec: "TCP-LISTEN:1,fork,children-shutup"},
+		{name: "linux-fd-options", spec: "STDIN,o-noatime,f-setpipe-sz=4096"},
+		{name: "tls-version-bounds", spec: "TLS:localhost:443,min-version=TLS1.2,max-version=TLS1.3"},
 		{name: "classic-ip-aliases", spec: "TCP:localhost:1,ipttl=9,iptos=16"},
 		{name: "tcp-options-on-wss", spec: "WSS:localhost:1,nodelay,keepalive"},
 		{name: "tls-options-on-wss", spec: "WSS:localhost:1,verify=0"},
@@ -83,6 +100,9 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "bad-listen-sockopt-fields", spec: "TCP-LISTEN:1,setsockopt-listen=1:2", wantErr: "level:optname:value"},
 		{name: "bad-listen-sockopt-number", spec: "TCP-LISTEN:1,setsockopt-listen=1:name:1", wantErr: "integer"},
 		{name: "missing-ciphers", spec: "TLS:localhost:443,ciphers", wantErr: "requires a value"},
+		{name: "missing-linger", spec: "TCP:localhost:1,so-linger", wantErr: "requires a value"},
+		{name: "bad-pipe-size", spec: "STDIN,f-setpipe-sz=0", wantErr: "invalid f-setpipe-sz"},
+		{name: "missing-min-version", spec: "TLS:localhost:443,min-version", wantErr: "requires a value"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

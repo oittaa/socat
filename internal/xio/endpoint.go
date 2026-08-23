@@ -213,6 +213,9 @@ type Opened struct {
 	PeerFilter func(net.Conn) error
 	// MaxChildren limits concurrent fork children (0 = unlimited). Classic max-children.
 	MaxChildren int
+	// ChildrenShutup demotes fork-child diagnostic severity without changing
+	// the parent or sibling sessions.
+	ChildrenShutup int
 	// Dial is the connect-fork dialer (KindDial). It must complete the full
 	// open, including TLS/SOCKS/HTTP handshake.
 	Dial func(ctx context.Context) (net.Conn, error)
@@ -393,6 +396,16 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		o, e = fn(ctx, s, mode, g)
 		return e
 	})
+	if err == nil && o != nil {
+		if value, ok := optionValueAny(s, "children-shutup", "child-shutup"); ok {
+			n, parseErr := ParseIntAny(value)
+			if parseErr != nil || n < 0 {
+				_ = o.Close()
+				return nil, fmt.Errorf("children-shutup: invalid value %q", value)
+			}
+			o.ChildrenShutup = n
+		}
+	}
 	return o, err
 }
 

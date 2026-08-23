@@ -60,6 +60,31 @@ func ApplySocketTimeos(fd int, s parse.Spec) error {
 	return nil
 }
 
+// ApplySocketOptions applies the SOL_SOCKET options shared by raw descriptors
+// and Go net sockets.
+func ApplySocketOptions(fd int, s parse.Spec) error {
+	if err := ApplySocketTimeos(fd, s); err != nil {
+		return err
+	}
+	if value, ok := optionValueAny(s, "so-linger", "linger"); ok {
+		seconds, err := ParseIntAny(value)
+		if err != nil || seconds < 0 {
+			return fmt.Errorf("so-linger: invalid value %q", value)
+		}
+		if seconds > math.MaxUint16 {
+			return fmt.Errorf("so-linger: value %q is out of range", value)
+		}
+		linger := &windows.Linger{Onoff: 1, Linger: int32(seconds)}
+		if int(linger.Linger) != seconds {
+			return fmt.Errorf("so-linger: value %q is out of range", value)
+		}
+		if err := windows.SetsockoptLinger(windows.Handle(fd), solSocket, windows.SO_LINGER, linger); err != nil {
+			return fmt.Errorf("so-linger: %w", err)
+		}
+	}
+	return nil
+}
+
 func windowsTimeoutMillis(v string) (uint32, error) {
 	d, err := parseTimeval(v)
 	if err != nil || d < 0 {

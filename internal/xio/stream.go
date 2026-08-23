@@ -455,12 +455,40 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts bool) (relay.St
 	if s.BoolOption("shut-null") || s.OptionValue("shut", "") == "null" {
 		stream = shutNullStream{Stream: stream}
 	}
+	if s.BoolOption("shut-close") || s.OptionValue("shut", "") == "close" {
+		stream = newShutCloseStream(stream)
+	}
 	// end-close: do not half-close or fully close the underlying FD when the
 	// transfer finishes (classic TCP4ENDCLOSE / EXECENDCLOSE).
 	if s.BoolOption("end-close") {
 		stream = endCloseStream{Stream: stream}
 	}
 	return stream, nil
+}
+
+// shutCloseStream turns a directional half-close into a full descriptor
+// close. This is required for SO_LINGER=0 to generate the immediate reset
+// requested by classic shut-close.
+type shutCloseStream struct {
+	relay.Stream
+	once sync.Once
+	err  error
+}
+
+func newShutCloseStream(stream relay.Stream) relay.Stream {
+	return &shutCloseStream{Stream: stream}
+}
+
+func (s *shutCloseStream) close() error {
+	s.once.Do(func() { s.err = s.Stream.Close() })
+	return s.err
+}
+
+func (s *shutCloseStream) ShutdownWrite() error       { return s.close() }
+func (s *shutCloseStream) Close() error               { return s.close() }
+func (s *shutCloseStream) UnwrapStream() relay.Stream { return s.Stream }
+func (s *shutCloseStream) UnwrapZeroCopyStream() relay.Stream {
+	return s.Stream
 }
 
 // endCloseStream suppresses ShutdownWrite and Close so the peer FD stays open.

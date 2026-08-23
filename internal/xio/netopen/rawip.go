@@ -357,6 +357,9 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 	}
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
+		if optionErr = xio.ApplySocketOptions(int(fd), s); optionErr != nil {
+			return
+		}
 		if optionErr = xio.ApplyAncillaryRecvOpts(int(fd), s); optionErr != nil {
 			return
 		}

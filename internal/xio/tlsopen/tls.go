@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -280,6 +281,9 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 	cfg := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 	}
+	if err := applyProtocolVersions(cfg, s); err != nil {
+		return nil, err
+	}
 	if err := applyCipherSuites(cfg, s); err != nil {
 		return nil, err
 	}
@@ -364,6 +368,9 @@ func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
 	}
+	if err := applyProtocolVersions(cfg, s); err != nil {
+		return nil, err
+	}
 	if err := applyCipherSuites(cfg, s); err != nil {
 		return nil, err
 	}
@@ -389,4 +396,51 @@ func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 	cfg.ClientAuth = tls.RequireAndVerifyClientCert
 	attachPeerVerify(cfg, makeServerVerifyPeer(roots, cnWant, true, cfg.VerifyPeerCertificate))
 	return cfg, nil
+}
+
+func applyProtocolVersions(cfg *tls.Config, s parse.Spec) error {
+	if value, ok := tlsOptionValueAny(s, "openssl-min-proto-version", "min-version"); ok {
+		version, err := parseProtocolVersion(value)
+		if err != nil {
+			return fmt.Errorf("openssl-min-proto-version: %w", err)
+		}
+		cfg.MinVersion = version
+	}
+	if value, ok := tlsOptionValueAny(s, "openssl-max-proto-version", "max-version"); ok {
+		version, err := parseProtocolVersion(value)
+		if err != nil {
+			return fmt.Errorf("openssl-max-proto-version: %w", err)
+		}
+		cfg.MaxVersion = version
+	}
+	if cfg.MaxVersion != 0 && cfg.MinVersion > cfg.MaxVersion {
+		return fmt.Errorf("minimum TLS protocol version exceeds maximum")
+	}
+	return nil
+}
+
+func parseProtocolVersion(value string) (uint16, error) {
+	switch strings.ToUpper(strings.TrimSpace(value)) {
+	case "TLS1", "TLS1.0", "TLSV1", "TLSV1.0":
+		return tls.VersionTLS10, nil
+	case "TLS1.1", "TLSV1.1":
+		return tls.VersionTLS11, nil
+	case "TLS1.2", "TLSV1.2":
+		return tls.VersionTLS12, nil
+	case "TLS1.3", "TLSV1.3":
+		return tls.VersionTLS13, nil
+	default:
+		return 0, fmt.Errorf("unsupported protocol version %q", value)
+	}
+}
+
+func tlsOptionValueAny(s parse.Spec, names ...string) (string, bool) {
+	for i := len(s.Options) - 1; i >= 0; i-- {
+		for _, name := range names {
+			if strings.EqualFold(s.Options[i].Name, name) {
+				return s.OptionValue(s.Options[i].Name, ""), true
+			}
+		}
+	}
+	return "", false
 }
