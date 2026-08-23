@@ -413,7 +413,7 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "opost", desc: "output post-processing"},
 			{name: "ispeed", desc: "input baud"},
 			{name: "ospeed", desc: "output baud"},
-			{name: "tiocswinsz", desc: "window size rows:cols", aliases: []string{"winsz"}},
+			{name: "tiocswinsz", desc: "window size cols:rows", aliases: []string{"winsz"}},
 			{name: "pty-wait-slave", desc: "wait until the slave is open", aliases: []string{"wait-slave", "waitslave"}},
 			{name: "pty-interval", desc: "poll interval while waiting for slave", validate: validateDurationOption},
 			{name: "ctty", desc: "make the PTY the controlling tty", aliases: []string{"tiocsctty"}},

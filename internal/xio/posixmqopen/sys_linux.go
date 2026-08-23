@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -71,20 +72,27 @@ func mqUnlink(name string) error {
 	return nil
 }
 
-func mqTimedSend(fd int, msg []byte, prio uint32) error {
+func mqTimedSend(fd int, msg []byte, prio uint32, deadline time.Time) error {
 	var ptr uintptr
 	if len(msg) > 0 {
 		ptr = uintptr(unsafe.Pointer(&msg[0])) // #nosec G103 -- There is no safe standard-library API for those calls
 	}
-	_, _, e := unix.Syscall6(unix.SYS_MQ_TIMEDSEND, uintptr(fd), ptr, uintptr(len(msg)), uintptr(prio), 0, 0)
+	var timeout unix.Timespec
+	var timeoutPtr uintptr
+	if !deadline.IsZero() {
+		timeout = unix.NsecToTimespec(deadline.UnixNano())
+		timeoutPtr = uintptr(unsafe.Pointer(&timeout)) // #nosec G103 -- syscall requires an absolute timespec pointer
+	}
+	_, _, e := unix.Syscall6(unix.SYS_MQ_TIMEDSEND, uintptr(fd), ptr, uintptr(len(msg)), uintptr(prio), timeoutPtr, 0)
 	runtime.KeepAlive(msg)
+	runtime.KeepAlive(&timeout)
 	if e != 0 {
 		return e
 	}
 	return nil
 }
 
-func mqTimedReceive(fd int, buf []byte, prio *uint32) (int, error) {
+func mqTimedReceive(fd int, buf []byte, prio *uint32, deadline time.Time) (int, error) {
 	var ptr uintptr
 	if len(buf) > 0 {
 		ptr = uintptr(unsafe.Pointer(&buf[0])) // #nosec G103 -- There is no safe standard-library API for those calls
@@ -93,9 +101,16 @@ func mqTimedReceive(fd int, buf []byte, prio *uint32) (int, error) {
 	if prio != nil {
 		pp = uintptr(unsafe.Pointer(prio)) // #nosec G103 -- There is no safe standard-library API for those calls
 	}
-	r1, _, e := unix.Syscall6(unix.SYS_MQ_TIMEDRECEIVE, uintptr(fd), ptr, uintptr(len(buf)), pp, 0, 0)
+	var timeout unix.Timespec
+	var timeoutPtr uintptr
+	if !deadline.IsZero() {
+		timeout = unix.NsecToTimespec(deadline.UnixNano())
+		timeoutPtr = uintptr(unsafe.Pointer(&timeout)) // #nosec G103 -- syscall requires an absolute timespec pointer
+	}
+	r1, _, e := unix.Syscall6(unix.SYS_MQ_TIMEDRECEIVE, uintptr(fd), ptr, uintptr(len(buf)), pp, timeoutPtr, 0)
 	runtime.KeepAlive(buf)
 	runtime.KeepAlive(prio)
+	runtime.KeepAlive(&timeout)
 	if e != 0 {
 		return 0, e
 	}

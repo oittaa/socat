@@ -330,6 +330,11 @@ type shutNullStream struct {
 	relay.Stream
 }
 
+func (s shutNullStream) UnwrapStream() relay.Stream { return s.Stream }
+func (s shutNullStream) UnwrapZeroCopyStream() relay.Stream {
+	return s.Stream
+}
+
 func (s shutNullStream) ShutdownWrite() error {
 	_, _ = s.Write(nil) // 0-byte datagram
 	return s.Stream.ShutdownWrite()

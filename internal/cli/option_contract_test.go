@@ -6,7 +6,6 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -147,38 +146,18 @@ func collectConsumedOptionNames(t *testing.T, dir string) map[string][]consumedS
 	return out
 }
 
-// termiosFamilyNames extracts the option names of xio/termios.go's
-// termiosFlags and baudNamed tables (each entry's first string literal) plus
-// the raw-mode control spellings, so the contract covers the whole family
-// without mirroring dozens of entries by hand.
+// termiosFamilyNames collects the platform's dynamic termios option names, so
+// the contract follows the same build-tagged tables as the CLI.
 func termiosFamilyNames(t *testing.T) map[string]string {
 	t.Helper()
-	src, err := os.ReadFile(filepath.Join("..", "xio", "termios.go"))
-	if err != nil {
-		t.Fatalf("read termios.go: %v", err)
-	}
 	out := map[string]string{}
-	for _, table := range []string{"termiosFlags", "baudNamed"} {
-		loc := regexp.MustCompile(`\b` + table + `\s*[:=]`).FindStringIndex(string(src))
-		if loc == nil {
-			t.Fatalf("table %q not found in termios.go", table)
-		}
-		i := loc[0]
-		first := strings.Index(string(src)[i:], `{"`)
-		if first < 0 {
-			t.Fatalf("no entries found for table %q", table)
-		}
-		end := strings.Index(string(src)[i+first:], "\n}")
-		if end < 0 {
-			t.Fatalf("unterminated table %q", table)
-		}
-		block := string(src[i+first : i+first+end])
-		for _, m := range regexp.MustCompile(`\{"([a-z0-9]+)"`).FindAllStringSubmatch(block, -1) {
-			out[m[1]] = "xio/termios.go " + table
-		}
+	for _, name := range xio.TermiosHelpNames() {
+		out[parse.CanonicalOptionName(name)] = "xio.TermiosHelpNames"
 	}
-	for _, extra := range []string{"cfmakeraw", "raw", "rawer", "sane", "winsz", "waitslave"} {
-		out[extra] = "xio/termios.go controls"
+	// These common help spellings remain visible on platforms where termios is
+	// unavailable; the address opener rejects the unsupported PTY at runtime.
+	for _, name := range []string{"cfmakeraw", "raw", "rawer", "sane", "echo", "opost", "winsz", "waitslave"} {
+		out[name] = "common termios help"
 	}
 	return out
 }

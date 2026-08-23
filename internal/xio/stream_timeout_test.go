@@ -44,6 +44,30 @@ func timeoutSpec(name, value string) parse.Spec {
 	return parse.Spec{Options: []parse.Option{{Name: name, Value: value, Has: true}}}
 }
 
+func TestShutNullPreservesDeadlineCapabilities(t *testing.T) {
+	client, server := net.Pipe()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
+
+	spec := parse.Spec{Options: []parse.Option{
+		{Name: "rcvtimeo", Value: "0.02", Has: true},
+		{Name: "sndtimeo", Value: "0.02", Has: true},
+		{Name: "shut-null", Value: "1", Has: true},
+	}}
+	stream, err := WrapCommon(spec, timeoutPipeStream(client))
+	if err != nil {
+		t.Fatalf("WrapCommon: %v", err)
+	}
+
+	deadline := time.Now().Add(time.Second)
+	if found, err := relay.SetStreamReadDeadline(stream, deadline); err != nil || !found {
+		t.Fatalf("SetStreamReadDeadline found=%v err=%v", found, err)
+	}
+	if found, err := relay.SetStreamWriteDeadline(stream, deadline); err != nil || !found {
+		t.Fatalf("SetStreamWriteDeadline found=%v err=%v", found, err)
+	}
+}
+
 func TestSocketReceiveTimeoutRetriesThroughTransfer(t *testing.T) {
 	client, server := net.Pipe()
 	defer func() { _ = server.Close() }()
