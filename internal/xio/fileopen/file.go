@@ -228,17 +228,19 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 
 	switch mode {
 	case xio.ModeRead:
-		// Open O_NONBLOCK so dual PIPE (read side before write side) does not
-		// hang in open(2). Then drop O_NONBLOCK unless the address asked for it.
-		f, err := os.OpenFile(path, os.O_RDONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+		// Explicit nonblock lets the read side of a dual PIPE open before its
+		// write side. Otherwise, wait for a writer so the first Read cannot see
+		// a premature EOF before the peer opens the FIFO.
+		flags := os.O_RDONLY
+		if s.BoolOption("nonblock") {
+			flags |= oNonblock
+		}
+		f, err := os.OpenFile(path, flags, 0) // #nosec G304 -- PIPE must open the path the user gave
 		if err != nil {
 			if created {
 				_ = os.Remove(path)
 			}
 			return nil, err
-		}
-		if !s.BoolOption("nonblock") {
-			clearNB(f)
 		}
 		if err := xio.ApplyFDOptions(f, s); err != nil {
 			logx.CloseQuiet(f)
