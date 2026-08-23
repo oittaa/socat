@@ -7,7 +7,7 @@
 # Multi-stage: build Go binaries with official toolchain, layer onto classic test image.
 
 # --- build Go socat / filan / procan ---
-FROM golang:1.26 AS gobuild
+FROM golang:1.27 AS gobuild
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
