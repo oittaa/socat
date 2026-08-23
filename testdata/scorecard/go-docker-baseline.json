@@ -1,22 +1,22 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-08-22T11:05:33Z",
-    "hostname": "298b50f23105",
+    "timestamp": "2026-08-23T15:49:51Z",
+    "hostname": "b3835f349038",
     "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.43",
     "socat": "/opt/go/socat",
-    "socat_version": "socat version 1.0.0-dev on 2026-08-22T11:05:33Z",
+    "socat_version": "socat version 1.0.0-dev on 2026-08-23T15:49:51Z",
     "test_sh": "/opt/classic-src/test.sh",
-    "git": "f5bff09",
+    "git": "df07051",
     "out_dir": "/out",
     "val_t": "auto",
     "jobs": "1",
     "shard_timeout": "7200"
   },
   "summary": {
-    "ok": 524,
-    "failed": 5,
-    "cant": 74,
+    "ok": 534,
+    "failed": 6,
+    "cant": 63,
     "timeout": 0,
     "unknown": 2,
     "total_recorded": 605,
@@ -1800,19 +1800,19 @@
       "id": 200,
       "name": "O_NOATIME_FILE",
       "description": "option O_NOATIME on file",
-      "status": "CANT",
-      "detail": "o-noatime not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 200 O_NOATIME_FILE: option O_NOATIME on file... o-noatime not available"
+      "raw": "test 200 O_NOATIME_FILE: option O_NOATIME on file... OK"
     },
     "201": {
       "id": 201,
       "name": "O_NOATIME_FD",
       "description": "option O_NOATIME on file descriptor",
-      "status": "CANT",
-      "detail": "o-noatime not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 201 O_NOATIME_FD: option O_NOATIME on file descriptor... o-noatime not available"
+      "raw": "test 201 O_NOATIME_FD: option O_NOATIME on file descriptor... OK"
     },
     "202": {
       "id": 202,
@@ -1827,19 +1827,19 @@
       "id": 203,
       "name": "COOLWRITE",
       "description": "option cool-write",
-      "status": "CANT",
-      "detail": "option cool-write not available",
+      "status": "FAILED",
+      "detail": "/opt/go/socat:",
       "shard": 0,
-      "raw": "test 203 COOLWRITE: option cool-write... option cool-write not available"
+      "raw": "test 203 COOLWRITE: option cool-write... FAILED:  /opt/go/socat:"
     },
     "204": {
       "id": 204,
       "name": "COOLSTDIO",
       "description": "option cool-write on bidirectional stdio",
-      "status": "CANT",
-      "detail": "option cool-write not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 204 COOLSTDIO: option cool-write on bidirectional stdio... option cool-write not available"
+      "raw": "test 204 COOLSTDIO: option cool-write on bidirectional stdio... OK"
     },
     "205": {
       "id": 205,
@@ -3411,10 +3411,10 @@
       "id": 379,
       "name": "OPENSSL_MIN_VERSION",
       "description": "security of OpenSSL server with openssl-min-proto-version",
-      "status": "CANT",
-      "detail": "openssl-min-proto-version not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 379 OPENSSL_MIN_VERSION: security of OpenSSL server with openssl-min-proto-version... openssl-min-proto-version not available"
+      "raw": "test 379 OPENSSL_MIN_VERSION: security of OpenSSL server with openssl-min-proto-version... OK"
     },
     "380": {
       "id": 380,
@@ -4248,19 +4248,19 @@
       "id": 472,
       "name": "SIGTERM_NOLOG",
       "description": "Option -S can turn off logging of SIGTERM",
-      "status": "CANT",
-      "detail": "Option -S not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 472 SIGTERM_NOLOG: Option -S can turn off logging of SIGTERM... Option -S not available"
+      "raw": "test 472 SIGTERM_NOLOG: Option -S can turn off logging of SIGTERM... OK"
     },
     "473": {
       "id": 473,
       "name": "SIG31_LOG",
       "description": "Option -S can turn on logging of signal 31",
-      "status": "CANT",
-      "detail": "Option -S not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 473 SIG31_LOG: Option -S can turn on logging of signal 31... Option -S not available"
+      "raw": "test 473 SIG31_LOG: Option -S can turn on logging of signal 31... OK"
     },
     "474": {
       "id": 474,
@@ -4311,10 +4311,10 @@
       "id": 479,
       "name": "CHILDREN_SHUTUP",
       "description": "test the children-shutup option",
-      "status": "CANT",
-      "detail": "Option children-shutup not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 479 CHILDREN_SHUTUP: test the children-shutup option... Option children-shutup not available"
+      "raw": "test 479 CHILDREN_SHUTUP: test the children-shutup option... OK"
     },
     "480": {
       "id": 480,
@@ -4662,19 +4662,19 @@
       "id": 518,
       "name": "STDIN_F_SETPIPE_SZ",
       "description": "f-setpipe-sz on STDIN",
-      "status": "CANT",
-      "detail": "Option f-setpipe-sz not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 518 STDIN_F_SETPIPE_SZ: f-setpipe-sz on STDIN... Option f-setpipe-sz not available in /opt/go/socat"
+      "raw": "test 518 STDIN_F_SETPIPE_SZ: f-setpipe-sz on STDIN... OK"
     },
     "519": {
       "id": 519,
       "name": "EXEC_F_SETPIPE_SZ",
       "description": "f-setpipe-sz on EXEC with pipes",
-      "status": "CANT",
-      "detail": "Option f-setpipe-sz not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 519 EXEC_F_SETPIPE_SZ: f-setpipe-sz on EXEC with pipes... Option f-setpipe-sz not available in /opt/go/socat"
+      "raw": "test 519 EXEC_F_SETPIPE_SZ: f-setpipe-sz on EXEC with pipes... OK"
     },
     "520": {
       "id": 520,
@@ -5364,10 +5364,10 @@
       "id": 596,
       "name": "SOCKS4_SIGSEGV",
       "description": "test for SOCKS4 SIGSEGV on RST",
-      "status": "CANT",
-      "detail": "Option so-linger not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 596 SOCKS4_SIGSEGV: test for SOCKS4 SIGSEGV on RST... Option so-linger not available in /opt/go/socat"
+      "raw": "test 596 SOCKS4_SIGSEGV: test for SOCKS4 SIGSEGV on RST... OK"
     },
     "597": {
       "id": 597,

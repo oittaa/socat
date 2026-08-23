@@ -1,10 +1,15 @@
 {
   "classic_docker_ok": 552,
-  "go_ok": 524,
+  "go_ok": 534,
   "parity_fail": [
     {
       "id": "146",
       "name": "OPENSSLLISTENDSA",
+      "status": "FAILED"
+    },
+    {
+      "id": "203",
+      "name": "COOLWRITE",
       "status": "FAILED"
     },
     {
@@ -30,38 +35,13 @@
       "status": "CANT"
     },
     {
-      "id": "200",
-      "name": "O_NOATIME_FILE",
-      "status": "CANT"
-    },
-    {
-      "id": "201",
-      "name": "O_NOATIME_FD",
-      "status": "CANT"
-    },
-    {
       "id": "202",
       "name": "FS_NOATIME",
       "status": "CANT"
     },
     {
-      "id": "203",
-      "name": "COOLWRITE",
-      "status": "CANT"
-    },
-    {
-      "id": "204",
-      "name": "COOLSTDIO",
-      "status": "CANT"
-    },
-    {
       "id": "326",
       "name": "READLINE_OVFL",
-      "status": "CANT"
-    },
-    {
-      "id": "379",
-      "name": "OPENSSL_MIN_VERSION",
       "status": "CANT"
     },
     {
@@ -95,23 +75,8 @@
       "status": "CANT"
     },
     {
-      "id": "472",
-      "name": "SIGTERM_NOLOG",
-      "status": "CANT"
-    },
-    {
-      "id": "473",
-      "name": "SIG31_LOG",
-      "status": "CANT"
-    },
-    {
       "id": "475",
       "name": "RCVTIMEO_DTLS",
-      "status": "CANT"
-    },
-    {
-      "id": "479",
-      "name": "CHILDREN_SHUTUP",
       "status": "CANT"
     },
     {
@@ -122,16 +87,6 @@
     {
       "id": "504",
       "name": "RES_NSADDR",
-      "status": "CANT"
-    },
-    {
-      "id": "518",
-      "name": "STDIN_F_SETPIPE_SZ",
-      "status": "CANT"
-    },
-    {
-      "id": "519",
-      "name": "EXEC_F_SETPIPE_SZ",
       "status": "CANT"
     },
     {
@@ -218,15 +173,10 @@
       "id": "582",
       "name": "DCCP_CONNECT_RETRY",
       "status": "CANT"
-    },
-    {
-      "id": "596",
-      "name": "SOCKS4_SIGSEGV",
-      "status": "CANT"
     }
   ],
   "parity_other": [],
-  "parity_gap_total": 44,
+  "parity_gap_total": 34,
   "new_ok_vs_classic_docker": [
     {
       "id": "216",
