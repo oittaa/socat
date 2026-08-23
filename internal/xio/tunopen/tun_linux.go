@@ -366,9 +366,9 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		return nil, fmt.Errorf("socket(AF_PACKET): %w", err)
 	}
 	// Packet sockets are real sockets: classic IF_SOCKET options apply.
-	if err := xio.ApplySocketTimeos(int(fd), s); err != nil {
+	if err := xio.ApplySocketOptions(int(fd), s); err != nil {
 		logx.CloseErr(unix.Close(fd))
-		return nil, fmt.Errorf("socket timeouts: %w", err)
+		return nil, fmt.Errorf("socket options: %w", err)
 	}
 
 	// Apply interface flags / MTU if requested (shared with TUN).

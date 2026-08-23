@@ -41,3 +41,13 @@ func TestRunAnalyzesFile(t *testing.T) {
 		t.Fatalf("filan output=%q", stdout.String())
 	}
 }
+
+func TestRunNZeroAnalyzesStdin(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runWithIO([]string{"-n", "0"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit code=%d stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "0:") {
+		t.Fatalf("filan -n 0 did not report fd 0: %q", stdout.String())
+	}
+}

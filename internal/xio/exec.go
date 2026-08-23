@@ -303,6 +303,20 @@ func asOSFile(x any) *os.File {
 	if f, ok := x.(*os.File); ok {
 		return f
 	}
+	// Dual addresses nest their read and write endpoints inside an outer
+	// FDStream. nofork still needs to discover the actual inherited files.
+	switch stream := x.(type) {
+	case relay.FDStream:
+		if f := asOSFile(stream.R); f != nil {
+			return f
+		}
+		return asOSFile(stream.W)
+	case relay.RWCStream:
+		return asOSFile(stream.ReadWriteCloser)
+	}
+	if u, ok := x.(interface{ UnwrapStream() relay.Stream }); ok {
+		return asOSFile(u.UnwrapStream())
+	}
 	// ignoreEOF and similar wrappers that expose Fd/underlying file
 	if u, ok := x.(interface{ Unwrap() any }); ok {
 		return asOSFile(u.Unwrap())
@@ -449,6 +463,11 @@ func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdin, fdout string) (
 		stdin = parentStdin
 		childFiles = append(childFiles, childStdin)
 		parentFiles = append(parentFiles, parentStdin)
+		if err := ApplyFDOptions(childStdin, s); err != nil {
+			closeFiles(parentFiles)
+			closeFiles(childFiles)
+			return nil, nil, nil, err
+		}
 	} else {
 		cmd.Stdin = os.Stdin
 	}
@@ -466,6 +485,11 @@ func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdin, fdout string) (
 		stdout = parentStdout
 		childFiles = append(childFiles, childStdout)
 		parentFiles = append(parentFiles, parentStdout)
+		if err := ApplyFDOptions(childStdout, s); err != nil {
+			closeFiles(parentFiles)
+			closeFiles(childFiles)
+			return nil, nil, nil, err
+		}
 	} else {
 		cmd.Stdout = os.Stdout
 	}

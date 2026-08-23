@@ -204,6 +204,15 @@ func validateInteger(min int64) func(parse.Option) error {
 	}
 }
 
+func validateOptionalInteger(min int64) func(parse.Option) error {
+	return func(option parse.Option) error {
+		if !option.Has {
+			return nil
+		}
+		return validateInteger(min)(option)
+	}
+}
+
 func validateInt64(requirePositive bool) func(parse.Option) error {
 	return func(option parse.Option) error {
 		name := strings.ToLower(option.Name)
@@ -283,6 +292,14 @@ func fileOpenAddressTypes() []string {
 	return []string{"OPEN", "FILE", "CREATE", "CREAT", "GOPEN"}
 }
 
+func fdOptionAddressTypes() []string {
+	return []string{
+		"STDIO", "STDIN", "STDOUT", "STDERR", "FD",
+		"OPEN", "FILE", "CREATE", "CREAT", "GOPEN",
+		"PIPE", "FIFO", "ECHO", "EXEC", "SYSTEM", "SHELL",
+	}
+}
+
 func socketTimeoutAddressTypes() []string {
 	allowedGroups := map[string]bool{
 		xio.GroupTCP:    true,
@@ -316,6 +333,7 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "fork", desc: "new session per accept or client redial"},
 			{name: "nofork", desc: "do not fork (single session)"},
 			{name: "max-children", desc: "limit concurrent fork sessions (needs fork)", validate: validateInteger(1)},
+			{name: "children-shutup", desc: "lower fork-child log severity", aliases: []string{"child-shutup"}, validate: validateOptionalInteger(0)},
 			{name: "bind", desc: "local address or interface"},
 			{name: "connect-timeout", desc: "connect timeout", validate: validateDurationOption},
 			{name: "handshake-timeout", desc: "TLS, WebSocket, proxy, or SOCKS handshake timeout", validate: validateDurationOption},
@@ -366,6 +384,7 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "ipv6-tclass", desc: "IPV6_TCLASS", aliases: []string{"tclass"}, validate: validateInt64(false)},
 			{name: "rcvtimeo", desc: "per-operation socket receive timeout; retry after expiration", aliases: []string{"so-rcvtimeo"}, addressTypes: socketTimeoutAddressTypes(), validate: validateDurationOption},
 			{name: "sndtimeo", desc: "per-operation socket send timeout; retry after expiration", aliases: []string{"so-sndtimeo"}, addressTypes: socketTimeoutAddressTypes(), validate: validateDurationOption},
+			{name: "so-linger", desc: "SO_LINGER timeout in seconds", aliases: []string{"linger"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
 		}},
 		{"Files and UNIX", []helpOpt{
 			{name: "rdonly", desc: "open read-only"},
@@ -375,6 +394,8 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "append", desc: "open append", aliases: []string{"o-append"}, addressTypes: fileOpenAddressTypes()},
 			{name: "trunc", desc: "truncate on open"},
 			{name: "nonblock", desc: "O_NONBLOCK", aliases: []string{"o-nonblock"}},
+			{name: "o-noatime", desc: "set O_NOATIME on the opened descriptor", aliases: []string{"noatime"}, addressTypes: fdOptionAddressTypes()},
+			{name: "f-setpipe-sz", desc: "set Linux pipe capacity", aliases: []string{"pipesz"}, addressTypes: fdOptionAddressTypes(), validate: validateInteger(1)},
 			{name: "mode", desc: "create mode bits", validate: validateOctal(0o7777)},
 			{name: "perm", desc: "chmod after open", validate: validateOctal(0o7777)},
 			{name: "ftruncate", desc: "truncate an opened file to this length", validate: validateInteger(0)},
@@ -401,9 +422,10 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "shell", desc: "use a shell"},
 			{name: "chdir", desc: "change directory before open or exec", validate: validateRequiredString},
 			{name: "shut-none", desc: "do not kill the child on close"},
+			{name: "shut-close", desc: "fully close instead of half-closing"},
 			{name: "end-close", desc: "close on EOF"},
 			{name: "shut", desc: "half-close mode"},
-			{name: "shut-null", desc: "0-byte datagram as half-close", aliases: []string{"null-eof"}},
+			{name: "shut-null", desc: "0-byte datagram as half-close"},
 		}},
 		{"PTY and TERMIOS", []helpOpt{
 			{name: "link", desc: "symlink to the PTY slave", aliases: []string{"symbolic-link"}},
@@ -429,6 +451,7 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "crlf", desc: "convert CR/LF"},
 			{name: "crorlf", desc: "convert CR or LF"},
 			{name: "ignoreeof", desc: "do not close on EOF", aliases: []string{"ignoreof"}},
+			{name: "null-eof", desc: "treat a zero-length read as EOF"},
 			{name: "readbytes", desc: "read at most N bytes", validate: validateInteger(0)},
 		}},
 		{"TLS, WSS, and QUIC", []helpOpt{
@@ -441,6 +464,8 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "snihost", desc: "TLS SNI host name", aliases: []string{"tls-snihost", "openssl-snihost"}, addressTypes: tlsAddressTypes()},
 			{name: "nosni", desc: "do not send SNI", aliases: []string{"tls-no-sni", "openssl-no-sni"}, addressTypes: tlsAddressTypes()},
 			{name: "ciphers", desc: "TLS 1.2 cipher suite list", aliases: []string{"cipher", "openssl-cipherlist"}, addressTypes: tlsAddressTypes(), validate: validateRequiredString},
+			{name: "openssl-min-proto-version", desc: "minimum TLS protocol version", aliases: []string{"min-version"}, addressTypes: tlsAddressTypes(), validate: validateRequiredString},
+			{name: "openssl-max-proto-version", desc: "maximum TLS protocol version", aliases: []string{"max-version"}, addressTypes: tlsAddressTypes(), validate: validateRequiredString},
 			{name: "alpn", desc: "QUIC or HTTP/2/3 proxy ALPN", addressTypes: alpnAddressTypes()},
 		}},
 		{"WebSocket", []helpOpt{

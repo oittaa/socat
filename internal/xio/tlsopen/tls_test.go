@@ -691,6 +691,35 @@ func TestTLSCipherListCompatibility(t *testing.T) {
 	}
 }
 
+func TestTLSProtocolVersionOptions(t *testing.T) {
+	spec, err := parse.ParseSpec("TLS:localhost:443,min-version=TLSv1.1,openssl-max-proto-version=TLS1.3,verify=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := tlsClientConfig(spec, "localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MinVersion != tls.VersionTLS11 || cfg.MaxVersion != tls.VersionTLS13 {
+		t.Fatalf("protocol bounds=%#x..%#x", cfg.MinVersion, cfg.MaxVersion)
+	}
+}
+
+func TestTLSProtocolVersionOptionsRejectInvalidBounds(t *testing.T) {
+	for _, text := range []string{
+		"TLS:localhost:443,min-version=DTLS1.2,verify=0",
+		"TLS:localhost:443,min-version=TLS1.3,max-version=TLS1.2,verify=0",
+	} {
+		spec, err := parse.ParseSpec(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := tlsClientConfig(spec, "localhost"); err == nil {
+			t.Fatalf("tlsClientConfig(%q) succeeded", text)
+		}
+	}
+}
+
 func TestTLSCipherListRejectsUnsupportedPolicy(t *testing.T) {
 	for _, value := range []string{"aNULL", "DEFAULT", "TLS_AES_128_GCM_SHA256"} {
 		spec, err := parse.ParseSpec("TLS:localhost:443,ciphers=" + value)

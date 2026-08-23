@@ -96,7 +96,7 @@ func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn
 // ApplyNetworkSocketOptions applies the post-socket options shared by Go net
 // listeners/dialers and raw SCTP sockets.
 func ApplyNetworkSocketOptions(fd int, s parse.Spec, network string) error {
-	if err := ApplySocketTimeos(fd, s); err != nil {
+	if err := ApplySocketOptions(fd, s); err != nil {
 		return err
 	}
 	return applyIPTTLTOS(fd, s, network)

@@ -3,8 +3,12 @@
 package xio
 
 import (
+	"io"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/oittaa/socat/internal/relay"
 )
 
 func TestValidateProcessFDOptions(t *testing.T) {
@@ -30,5 +34,20 @@ func TestValidateProcessFDOptions(t *testing.T) {
 				t.Fatalf("error=%v want substring %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestStreamRWFilesFindsNestedDualFiles(t *testing.T) {
+	stream := relay.FDStream{
+		R: relay.FDStream{R: os.Stdin, W: io.Discard, C: NopCloser{}},
+		W: relay.FDStream{R: EOFReader{}, W: os.Stdout, C: NopCloser{}},
+		C: NopCloser{},
+	}
+	r, w, single, err := streamRWFiles(stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r != os.Stdin || w != os.Stdout || single != nil {
+		t.Fatalf("r=%v w=%v single=%v", r, w, single)
 	}
 }

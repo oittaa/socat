@@ -25,9 +25,10 @@ var levelNames = [...]string{"F", "E", "W", "N", "I", "D"}
 
 // Logger is a simple concurrent-safe socat-style logger.
 type Logger struct {
-	mu       sync.Mutex
+	mu       *sync.Mutex
 	out      io.Writer
 	level    Level // maximum level printed (inclusive)
+	shutup   int   // fork-child severity demotion (classic children-shutup)
 	progname string
 	micros   bool
 	hostname string
@@ -36,10 +37,24 @@ type Logger struct {
 // New creates a logger writing to stderr at Warning level (classic default: fatal/error/warning).
 func New() *Logger {
 	return &Logger{
+		mu:       &sync.Mutex{},
 		out:      os.Stderr,
 		level:    Warning,
 		progname: "socat",
 	}
+}
+
+// WithShutup returns a child logger that shares the output lock while
+// demoting messages by n severity levels. The parent logger is unchanged.
+func (l *Logger) WithShutup(n int) *Logger {
+	if l == nil {
+		return nil
+	}
+	child := *l
+	if n > 0 {
+		child.shutup += n
+	}
+	return &child
 }
 
 // SetOutput sets the log destination.
@@ -68,6 +83,10 @@ func (l *Logger) Increase() {
 }
 
 func (l *Logger) logf(level Level, format string, args ...any) {
+	level += Level(l.shutup)
+	if level > Debug {
+		return
+	}
 	if level > l.level {
 		return
 	}

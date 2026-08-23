@@ -54,6 +54,7 @@ func printHelpFlags(b *outbuf.Buf) {
 	b.Printf("  -b<size>        transfer block size (default 8192)\n")
 	b.Printf("  -t<time>        linger after EOF (default 0.5s)\n")
 	b.Printf("  -T<time>        inactivity timeout\n")
+	b.Printf("  -S<mask>        log these signal numbers (bitmap)\n")
 	b.Printf("  -u              unidirectional left→right\n")
 	b.Printf("  -U              unidirectional right→left\n")
 	// Classic test.sh OPTION_RAW_DUMP greps: [[:space:]]-[rR][[:space:]]

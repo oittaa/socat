@@ -65,6 +65,14 @@ var dynamicallyReadOptions = map[string]string{
 
 	"setlk": "fileopen/lock.go", "setlkw": "fileopen/lock.go",
 	"setlk-rd": "fileopen/lock.go", "setlkw-rd": "fileopen/lock.go",
+
+	// Canonical/alias families selected by last-option-wins helper loops.
+	"so-linger": "xio/options.go", "linger": "xio/options.go",
+	"o-noatime": "xio/options.go", "noatime": "xio/options.go",
+	"f-setpipe-sz": "xio/options.go", "pipesz": "xio/options.go",
+	"children-shutup": "xio/options.go", "child-shutup": "xio/options.go",
+	"openssl-min-proto-version": "tlsopen/tls.go", "min-version": "tlsopen/tls.go",
+	"openssl-max-proto-version": "tlsopen/tls.go", "max-version": "tlsopen/tls.go",
 }
 
 // compatNoOptions are advertised deliberately as classic-compat spellings

@@ -213,6 +213,9 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 			defer slots.release()
 			defer children.Done()
 			cg := g.forkSession()
+			if o.ChildrenShutup > 0 && cg.Log != nil {
+				cg.Log = cg.Log.WithShutup(o.ChildrenShutup)
+			}
 			RememberAddrs(cg, c)
 			body(c, cg)
 		}(conn)
@@ -256,16 +259,19 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 			defer func() { _ = c.Close() }()
 			defer slots.release()
 			cg := g.forkSession()
+			if o.ChildrenShutup > 0 && cg.Log != nil {
+				cg.Log = cg.Log.WithShutup(o.ChildrenShutup)
+			}
 			RememberAddrs(cg, c)
 			if err := RememberTLSPeer(cg, c, o.HandshakeTimeout); err != nil {
-				if g != nil && g.Log != nil {
-					g.Log.Debugf("connect handshake: %s", err)
+				if cg.Log != nil {
+					cg.Log.Debugf("connect handshake: %s", err)
 				}
 				return
 			}
 			if err := child(ctx, cg, c); err != nil {
-				if g != nil && g.Log != nil {
-					g.Log.Debugf("connect child: %s", err)
+				if cg.Log != nil {
+					cg.Log.Debugf("connect child: %s", err)
 				}
 			}
 		}(conn)
@@ -290,18 +296,18 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 	}()
 	return lo.forEachAccepted(ctx, ln, g, true, func(c net.Conn, cg *Global) {
 		if err := RememberTLSPeer(cg, c, lo.HandshakeTimeout); err != nil {
-			lg.Errorf("handshake: %s", err)
+			cg.Log.Errorf("handshake: %s", err)
 			return
 		}
 		leftStream, err := streamFromDial(lo, c)
 		if err != nil {
-			lg.Errorf("wrap accept: %s", err)
+			cg.Log.Errorf("wrap accept: %s", err)
 			return
 		}
 		ro, err := OpenChannel(ctx, right, rMode, cg)
 		if err != nil {
 			// Classic greps `E open(` for RECVFROM_FORK_LOOP — no "right address:" prefix.
-			lg.Errorf("%s", err)
+			cg.Log.Errorf("%s", err)
 			return
 		}
 		// Classic RECVFROM,fork creates a socketpair per child (FD-leak / loop tests).
@@ -309,9 +315,9 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 		// open -r/-R sniff files twice per session (VARS_IN_SNIFFPATH expects 4 files
 		// for 2 clients, not 8).
 		if needsForkSocketpair(lo) {
-			sp0, sp1, spErr := unixSocketpairLogged(g)
+			sp0, sp1, spErr := unixSocketpairLogged(cg)
 			if spErr != nil {
-				lg.Errorf("socketpair: %s", spErr)
+				cg.Log.Errorf("socketpair: %s", spErr)
 				logx.CloseQuiet(ro)
 				return
 			}
@@ -322,13 +328,13 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 			}()
 			defer func() { _ = sp0.Close() }()
 			if err := transferStreams(ctx, leftStream, FileStream(sp0), cg); err != nil {
-				lg.Debugf("transfer: %s", err)
+				cg.Log.Debugf("transfer: %s", err)
 			}
 			return
 		}
 		defer func() { _ = ro.Close() }()
 		if err := transferStreams(ctx, leftStream, ro.EffectiveStream(), cg); err != nil {
-			lg.Debugf("transfer: %s", err)
+			cg.Log.Debugf("transfer: %s", err)
 		}
 	})
 }
@@ -361,17 +367,17 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 		leftMu.Lock()
 		defer leftMu.Unlock()
 		if err := RememberTLSPeer(cg, c, ro.HandshakeTimeout); err != nil {
-			g.Log.Errorf("handshake: %s", err)
+			cg.Log.Errorf("handshake: %s", err)
 			return
 		}
 		rightStream, err := streamFromDial(ro, c)
 		if err != nil {
-			g.Log.Errorf("wrap accept: %s", err)
+			cg.Log.Errorf("wrap accept: %s", err)
 			return
 		}
 		// noCloseLeft=true: do not close/shutdown shared left between children.
 		if err := transferStreamsOpts(ctx, left, rightStream, cg, true, false); err != nil {
-			g.Log.Debugf("transfer: %s", err)
+			cg.Log.Debugf("transfer: %s", err)
 		}
 	})
 }

@@ -172,7 +172,7 @@ save a new baseline.
 | classic 1.8.1.3 (host) | 475 | 24 | 103 |
 | classic 1.8.1.3 (Docker, root) | 552 | 8 | 42 |
 | go (this tree, host) | 449 | 6 | 148 |
-| go (this tree, Docker, root, privileged, `--internet`) | 524 | 5 | 74 |
+| go (this tree, Docker, root, privileged, `--internet`) | 533 | 5 | 65 |
 
 Go host FAILED: `OPENSSLLISTENDSA` (DSA, by design), `UDP6MULTICAST_UNIDIR`
 (host environment), `REUSEADDR_NULL` (NO RESULT), `OPENSSL_ANULL`,
@@ -189,13 +189,12 @@ record UNKNOWN=2 (`EXECPTYKILL` parse quirk, `PROCAN_CTTY`).
 records both as OK. Do not treat a full-run timeout or FIFO-order flake of
 those names as a regression until you re-run them alone.
 
-Vs the previous Go Docker baseline (511 OK / 6 FAILED / 86 CANT), this refresh
-moves `SOCKETPAIR_BOUNDARIES` from FAILED to OK, and moves twelve
-`--internet` tests from CANT to OK: `OPENSSL_SNI`, `OPENSSL_NO_SNI`,
-`TRY_ADDRS_4`, `TRY_ADDRS_4_6`, `TCP_CONNECT_BIND_6_4`,
-`SCTP_CONNECT_BIND_6_4`, `OPENSSL_CONNECT_BIND_6_4`, `SOCKS4_BIND_6_4`,
-`SOCKS5_CONNECT_BIND_6_4`, `PROXY_CONNECT_BIND_6_4`, `TCP_BIND_4`,
-`TCP_BIND_6`.
+Vs the previous Go Docker baseline (524 OK / 5 FAILED / 74 CANT), this refresh
+moves nine tests from CANT to OK: `O_NOATIME_FILE`, `O_NOATIME_FD`,
+`OPENSSL_MIN_VERSION`, `SIGTERM_NOLOG`, `SIG31_LOG`, `CHILDREN_SHUTUP`,
+`STDIN_F_SETPIPE_SZ`, `EXEC_F_SETPIPE_SZ`, and `SOCKS4_SIGSEGV`. Classic
+`cool-write` is deprecated (use `children-shutup`); this port does not
+advertise it, so `COOLWRITE` / `COOLSTDIO` stay CANT.
 
 Use `go-baseline.json` + `REGRESSION_EXIT=1` after a **MODE=classic** run
 to catch real Go regressions with less noise.

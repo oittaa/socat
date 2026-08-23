@@ -2,6 +2,7 @@ package netopen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -50,6 +51,10 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 		// Unbound unixgram: DialUnix without local name (kernel assigns ephemeral).
 		c, err = net.DialUnix("unixgram", nil, raddr)
 		if err == nil {
+			if err := applyUnixgramSocketOptions(c, s); err != nil {
+				logx.CloseQuiet(c)
+				return nil, err
+			}
 			// Connected socket: use NetStream (Write goes to peer).
 			st := relay.Stream(relay.NetStream{Conn: c})
 			st, err = xio.WrapCommon(s, st)
@@ -66,6 +71,10 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 		c, err = listenUnixgramUnbound()
 	}
 	if err != nil {
+		return nil, err
+	}
+	if err := applyUnixgramSocketOptions(c, s); err != nil {
+		logx.CloseQuiet(c)
 		return nil, err
 	}
 	st := &unixgramConn{UnixConn: c, raddr: raddr}
@@ -139,6 +148,13 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		return e
 	})
 	if err != nil {
+		return nil, err
+	}
+	if err := applyUnixgramSocketOptions(c, s); err != nil {
+		logx.CloseQuiet(c)
+		if !xio.IsAbstract(path) {
+			_ = os.Remove(path)
+		}
 		return nil, err
 	}
 	if err := xio.ApplyPerm(path, s, nil); err != nil {
@@ -393,6 +409,10 @@ func openAbstractSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			return nil, err
 		}
 	}
+	if err := applyUnixgramSocketOptions(c, s); err != nil {
+		logx.CloseQuiet(c)
+		return nil, err
+	}
 	st := &unixgramConn{UnixConn: c, raddr: raddr}
 	wrapped, err := xio.WrapCommon(s, st)
 	if err != nil {
@@ -403,6 +423,18 @@ func openAbstractSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	_ = mode
 	_ = g
 	return &xio.Opened{Stream: wrapped, Label: "ABSTRACT-SENDTO:" + s.Params[0]}, nil
+}
+
+func applyUnixgramSocketOptions(c *net.UnixConn, s parse.Spec) error {
+	raw, err := c.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var optionErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		optionErr = xio.ApplySocketOptions(int(fd), s)
+	})
+	return errors.Join(controlErr, optionErr)
 }
 
 type unixgramConn struct {

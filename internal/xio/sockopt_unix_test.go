@@ -59,6 +59,28 @@ func TestTimevalFromSpecRejectsInvalidValues(t *testing.T) {
 	}
 }
 
+func TestApplySocketOptionsLingerUnix(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,linger=3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplySocketOptions(fd, spec); err != nil {
+		t.Fatal(err)
+	}
+	got, err := unix.GetsockoptLinger(fd, unix.SOL_SOCKET, unix.SO_LINGER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Onoff != 1 || got.Linger != 3 {
+		t.Fatalf("SO_LINGER=%+v want enabled, 3 seconds", got)
+	}
+}
+
 func TestDialControlAppliesTimeosAndTTL(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
