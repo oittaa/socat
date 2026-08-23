@@ -86,10 +86,8 @@ var recognizedUnsupportedOptions = map[string]string{
 }
 
 var compatNoOptions = map[string]string{
-	"ptmx":       "classic compat: /dev/ptmx is the platform default",
-	"openpty":    "classic compat: openpty(3) semantics are the default",
-	"cool-write": "EAGAIN retry and EPIPE clean-close are default relay semantics",
-	"coolwrite":  "alias of cool-write",
+	"ptmx":    "classic compat: /dev/ptmx is the platform default",
+	"openpty": "classic compat: openpty(3) semantics are the default",
 }
 
 type consumedSite struct {

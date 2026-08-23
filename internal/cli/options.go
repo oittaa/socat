@@ -452,7 +452,6 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "crorlf", desc: "convert CR or LF"},
 			{name: "ignoreeof", desc: "do not close on EOF", aliases: []string{"ignoreof"}},
 			{name: "null-eof", desc: "treat a zero-length read as EOF"},
-			{name: "cool-write", desc: "treat EPIPE as a clean close and retry EAGAIN", aliases: []string{"coolwrite"}},
 			{name: "readbytes", desc: "read at most N bytes", validate: validateInteger(0)},
 		}},
 		{"TLS, WSS, and QUIC", []helpOpt{

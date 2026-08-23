@@ -14,9 +14,9 @@
     "shard_timeout": "7200"
   },
   "summary": {
-    "ok": 534,
-    "failed": 6,
-    "cant": 63,
+    "ok": 533,
+    "failed": 5,
+    "cant": 65,
     "timeout": 0,
     "unknown": 2,
     "total_recorded": 605,
@@ -1827,19 +1827,19 @@
       "id": 203,
       "name": "COOLWRITE",
       "description": "option cool-write",
-      "status": "FAILED",
-      "detail": "/opt/go/socat:",
+      "status": "CANT",
+      "detail": "option cool-write not available",
       "shard": 0,
-      "raw": "test 203 COOLWRITE: option cool-write... FAILED:  /opt/go/socat:"
+      "raw": "test 203 COOLWRITE: option cool-write... option cool-write not available"
     },
     "204": {
       "id": 204,
       "name": "COOLSTDIO",
       "description": "option cool-write on bidirectional stdio",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "option cool-write not available",
       "shard": 0,
-      "raw": "test 204 COOLSTDIO: option cool-write on bidirectional stdio... OK"
+      "raw": "test 204 COOLSTDIO: option cool-write on bidirectional stdio... option cool-write not available"
     },
     "205": {
       "id": 205,

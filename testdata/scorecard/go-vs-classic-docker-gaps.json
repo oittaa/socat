@@ -1,15 +1,10 @@
 {
   "classic_docker_ok": 552,
-  "go_ok": 534,
+  "go_ok": 533,
   "parity_fail": [
     {
       "id": "146",
       "name": "OPENSSLLISTENDSA",
-      "status": "FAILED"
-    },
-    {
-      "id": "203",
-      "name": "COOLWRITE",
       "status": "FAILED"
     },
     {
@@ -37,6 +32,16 @@
     {
       "id": "202",
       "name": "FS_NOATIME",
+      "status": "CANT"
+    },
+    {
+      "id": "203",
+      "name": "COOLWRITE",
+      "status": "CANT"
+    },
+    {
+      "id": "204",
+      "name": "COOLSTDIO",
       "status": "CANT"
     },
     {
@@ -176,7 +181,7 @@
     }
   ],
   "parity_other": [],
-  "parity_gap_total": 34,
+  "parity_gap_total": 35,
   "new_ok_vs_classic_docker": [
     {
       "id": "216",
