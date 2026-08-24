@@ -52,7 +52,7 @@ jobs:
           ./scripts/coverage-summary.sh coverage.unit.out
       - name: Upload unit coverage
         if: matrix.name == 'linux-amd64' && !cancelled()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: unit-coverage
           path: |
@@ -100,7 +100,7 @@ jobs:
           go tool cover -html=coverage.e2e.out -o coverage.e2e.html
       - name: Upload e2e coverage
         if: matrix.name == 'linux-amd64' && !cancelled()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: e2e-coverage
           path: |
