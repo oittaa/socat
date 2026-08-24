@@ -3,6 +3,7 @@ package netopen
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -56,6 +57,7 @@ func TestUDPForkListenerSurvivesReceiveTimeout(t *testing.T) {
 		spec:       spec,
 		ctx:        ctx,
 		rcvTimeout: 20 * time.Millisecond,
+		oneShot:    true,
 	}
 	t.Cleanup(func() {
 		cancel()
@@ -139,6 +141,96 @@ func TestUDP4BindIPv6WildcardNormalizes(t *testing.T) {
 	}
 }
 
+func TestUDPForkListenerOneShotFlag(t *testing.T) {
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	for _, tc := range []struct {
+		name    string
+		spec    string
+		open    func(context.Context, parse.Spec, xio.Mode, *xio.Global) (*xio.Opened, error)
+		oneShot bool
+	}{
+		{name: "recvfrom", spec: "UDP4-RECVFROM:0,bind=127.0.0.1,reuseaddr,fork", open: openUDP4Recvfrom, oneShot: true},
+		{name: "listen", spec: "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork", open: openUDP4Listen, oneShot: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			o, err := tc.open(context.Background(), spec, xio.ModeRDWR, g)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = o.Close() })
+			ln, ok := o.Listener.(*udpForkListener)
+			if !ok {
+				t.Fatalf("Listener type %T", o.Listener)
+			}
+			if ln.oneShot != tc.oneShot {
+				t.Fatalf("oneShot=%v want %v", ln.oneShot, tc.oneShot)
+			}
+		})
+	}
+}
+
+func TestUDPSessionConnReadOneShotVsMulti(t *testing.T) {
+	newPair := func(t *testing.T) (server, child *net.UDPConn) {
+		t.Helper()
+		var err error
+		server, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = server.Close() })
+		child, err = net.DialUDP("udp4", nil, server.LocalAddr().(*net.UDPAddr))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = child.Close() })
+		return server, child
+	}
+
+	t.Run("recvfrom-one-shot", func(t *testing.T) {
+		server, child := newPair(t)
+		u := &udpSessionConn{conn: child, first: []byte("first"), oneShot: true}
+		buf := make([]byte, 16)
+		n, err := u.Read(buf)
+		if err != nil || string(buf[:n]) != "first" {
+			t.Fatalf("first n=%d err=%v data=%q", n, err, buf[:n])
+		}
+		if _, err := server.WriteToUDP([]byte("second"), child.LocalAddr().(*net.UDPAddr)); err != nil {
+			t.Fatal(err)
+		}
+		n, err = u.Read(buf)
+		if n != 0 || !errors.Is(err, io.EOF) {
+			t.Fatalf("one-shot second read n=%d err=%v want EOF", n, err)
+		}
+	})
+
+	t.Run("listen-multi", func(t *testing.T) {
+		server, child := newPair(t)
+		u := &udpSessionConn{conn: child, first: []byte("first"), oneShot: false}
+		buf := make([]byte, 16)
+		n, err := u.Read(buf)
+		if err != nil || string(buf[:n]) != "first" {
+			t.Fatalf("first n=%d err=%v data=%q", n, err, buf[:n])
+		}
+		if _, err := server.WriteToUDP([]byte("second"), child.LocalAddr().(*net.UDPAddr)); err != nil {
+			t.Fatal(err)
+		}
+		if err := u.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		n, err = u.Read(buf)
+		if err != nil {
+			t.Fatalf("listen second read: %v", err)
+		}
+		if got := string(buf[:n]); got != "second" {
+			t.Fatalf("second=%q want second", got)
+		}
+	})
+}
+
 func TestUDPForkListenerAcceptTimeoutAborts(t *testing.T) {
 	spec, err := parse.ParseSpec("UDP4-RECVFROM:0,fork")
 	if err != nil {
@@ -157,6 +249,7 @@ func TestUDPForkListenerAcceptTimeoutAborts(t *testing.T) {
 		spec:          spec,
 		ctx:           ctx,
 		acceptTimeout: 40 * time.Millisecond,
+		oneShot:       true,
 	}
 	t.Cleanup(func() { _ = ln.Close() })
 

@@ -176,6 +176,7 @@ type udpForkListener struct {
 	ctx           context.Context
 	rcvTimeout    time.Duration
 	acceptTimeout time.Duration
+	oneShot       bool // UDP-RECVFROM,fork: XIODATA_RECVFROM_ONE
 }
 
 func (l *udpForkListener) Accept() (net.Conn, error) {
@@ -227,10 +228,11 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 		}
 		xio.ProcessAncillary(oob, session)
 		return &udpSessionConn{
-			conn:  conn,
-			peer:  a,
-			first: append([]byte(nil), buf[:rn]...),
-			env:   session.SessionVars,
+			conn:    conn,
+			peer:    a,
+			first:   append([]byte(nil), buf[:rn]...),
+			env:     session.SessionVars,
+			oneShot: l.oneShot,
 		}, nil
 	}
 }
@@ -270,11 +272,12 @@ func dialUDPSession(network string, local, remote *net.UDPAddr) (*net.UDPConn, e
 // datagram is only in first[] (already consumed from the listen socket).
 // Accept always dials a connected child socket; there is no shared-parent path.
 type udpSessionConn struct {
-	conn  *net.UDPConn
-	peer  *net.UDPAddr
-	first []byte
-	got   bool
-	env   map[string]string
+	conn    *net.UDPConn
+	peer    *net.UDPAddr
+	first   []byte
+	got     bool
+	oneShot bool
+	env     map[string]string
 }
 
 func (u *udpSessionConn) SessionEnvironment() map[string]string { return u.env }
@@ -286,8 +289,14 @@ func (u *udpSessionConn) Read(p []byte) (int, error) {
 		if n < len(u.first) {
 			u.first = u.first[n:]
 			u.got = false
+		} else {
+			u.first = nil
 		}
 		return n, nil
+	}
+	if u.oneShot {
+		// Classic UDP-RECVFROM,fork is XIODATA_RECVFROM_ONE.
+		return 0, io.EOF
 	}
 	return u.conn.Read(p)
 }
