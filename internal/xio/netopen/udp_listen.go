@@ -213,32 +213,39 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			}
 			continue
 		}
-		// Prefer connected child socket (REUSEADDR) so parent keeps listening.
-		conn, err := dialUDPSession(l.network, l.laddr, a)
-		if err != nil {
-			if l.g != nil && l.g.Log != nil {
-				l.g.Log.Noticef("UDP fork session dial: %s", err)
-			}
-			return nil, err
-		}
 		session := &xio.Global{}
 		if l.g != nil {
 			session.Log = l.g.Log
 			session.Progname = l.g.Progname
 		}
 		xio.ProcessAncillary(oob, session)
-		return &udpSessionConn{
-			conn:    conn,
-			peer:    a,
+		child := &udpSessionConn{
+			peer:    cloneUDPAddr(a),
 			first:   append([]byte(nil), buf[:rn]...),
 			env:     session.SessionVars,
 			oneShot: l.oneShot,
-		}, nil
+		}
+		if l.oneShot {
+			// Share the parent socket (classic XIODATA_RECVFROM_ONE). A
+			// connected child on the same port would steal later datagrams.
+			child.pc = l.pc
+			return child, nil
+		}
+		local := l.laddr
+		if la, ok := l.pc.LocalAddr().(*net.UDPAddr); ok {
+			local = cloneUDPAddr(la)
+		}
+		conn, err := dialUDPSession(l.network, local, a)
+		if err != nil {
+			if l.g != nil && l.g.Log != nil {
+				l.g.Log.Noticef("UDP fork session dial: %s", err)
+			}
+			return nil, err
+		}
+		child.conn = conn
+		return child, nil
 	}
 }
-
-func (l *udpForkListener) Close() error   { return l.pc.Close() }
-func (l *udpForkListener) Addr() net.Addr { return l.pc.LocalAddr() }
 
 func dialUDPSession(network string, local, remote *net.UDPAddr) (*net.UDPConn, error) {
 	// SO_REUSEADDR so we can bind the same local port as the parent listener.
@@ -267,16 +274,33 @@ func dialUDPSession(network string, local, remote *net.UDPAddr) (*net.UDPConn, e
 	return uc, nil
 }
 
+func (l *udpForkListener) Close() error   { return l.pc.Close() }
+func (l *udpForkListener) Addr() net.Addr { return l.pc.LocalAddr() }
+
+func cloneUDPAddr(a *net.UDPAddr) *net.UDPAddr {
+	if a == nil {
+		return nil
+	}
+	c := *a
+	if a.IP != nil {
+		c.IP = append(net.IP(nil), a.IP...)
+	}
+	return &c
+}
+
 // udpSessionConn is one UDP "connection" for fork children.
 // Do NOT embed *net.UDPConn: poll would wait for POLLIN while the first
 // datagram is only in first[] (already consumed from the listen socket).
-// Accept always dials a connected child socket; there is no shared-parent path.
+// UDP-LISTEN,fork uses a connected child socket. UDP-RECVFROM,fork shares
+// the parent (oneShot): drain first, then EOF, and reply with WriteToUDP.
 type udpSessionConn struct {
-	conn    *net.UDPConn
+	conn    *net.UDPConn // connected child for UDP-LISTEN,fork
+	pc      *net.UDPConn // shared parent for UDP-RECVFROM,fork
 	peer    *net.UDPAddr
 	first   []byte
 	got     bool
 	oneShot bool
+	closed  bool
 	env     map[string]string
 }
 
@@ -302,25 +326,60 @@ func (u *udpSessionConn) Read(p []byte) (int, error) {
 }
 
 func (u *udpSessionConn) Write(p []byte) (int, error) {
-	return u.conn.Write(p)
+	if u.conn != nil {
+		return u.conn.Write(p)
+	}
+	if u.pc == nil || u.peer == nil {
+		return 0, net.ErrClosed
+	}
+	return u.pc.WriteToUDP(p, u.peer)
 }
 
 func (u *udpSessionConn) Close() error {
-	return u.conn.Close()
+	if u.closed {
+		return nil
+	}
+	u.closed = true
+	if u.oneShot {
+		return nil // parent owns the listen socket
+	}
+	if u.conn != nil {
+		return u.conn.Close()
+	}
+	return nil
 }
 
 func (u *udpSessionConn) LocalAddr() net.Addr {
-	return u.conn.LocalAddr()
+	if u.conn != nil {
+		return u.conn.LocalAddr()
+	}
+	if u.pc != nil {
+		return u.pc.LocalAddr()
+	}
+	return nil
 }
 func (u *udpSessionConn) RemoteAddr() net.Addr { return u.peer }
 func (u *udpSessionConn) SetDeadline(t time.Time) error {
+	if u.oneShot {
+		return u.SetWriteDeadline(t)
+	}
 	return u.conn.SetDeadline(t)
 }
 func (u *udpSessionConn) SetReadDeadline(t time.Time) error {
+	if u.oneShot {
+		// Read never touches the shared listener; do not install a deadline on it.
+		return nil
+	}
 	return u.conn.SetReadDeadline(t)
 }
 func (u *udpSessionConn) SetWriteDeadline(t time.Time) error {
-	return u.conn.SetWriteDeadline(t)
+	if u.conn != nil {
+		return u.conn.SetWriteDeadline(t)
+	}
+	if u.pc != nil {
+		return u.pc.SetWriteDeadline(t)
+	}
+	return nil
 }
 
 // udpPeerConn is a minimal net.Conn exposing only RemoteAddr for peer filters.

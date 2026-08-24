@@ -174,41 +174,70 @@ func TestUDPForkListenerOneShotFlag(t *testing.T) {
 }
 
 func TestUDPSessionConnReadOneShotVsMulti(t *testing.T) {
-	newPair := func(t *testing.T) (server, child *net.UDPConn) {
-		t.Helper()
-		var err error
-		server, err = net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = server.Close() })
-		child, err = net.DialUDP("udp4", nil, server.LocalAddr().(*net.UDPAddr))
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = child.Close() })
-		return server, child
-	}
-
 	t.Run("recvfrom-one-shot", func(t *testing.T) {
-		server, child := newPair(t)
-		u := &udpSessionConn{conn: child, first: []byte("first"), oneShot: true}
+		parent, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = parent.Close() })
+		peer, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = peer.Close() })
+
+		u := &udpSessionConn{
+			pc:      parent,
+			peer:    peer.LocalAddr().(*net.UDPAddr),
+			first:   []byte("first"),
+			oneShot: true,
+		}
 		buf := make([]byte, 16)
 		n, err := u.Read(buf)
 		if err != nil || string(buf[:n]) != "first" {
 			t.Fatalf("first n=%d err=%v data=%q", n, err, buf[:n])
 		}
-		if _, err := server.WriteToUDP([]byte("second"), child.LocalAddr().(*net.UDPAddr)); err != nil {
+		if _, err := peer.WriteToUDP([]byte("second"), parent.LocalAddr().(*net.UDPAddr)); err != nil {
 			t.Fatal(err)
 		}
 		n, err = u.Read(buf)
 		if n != 0 || !errors.Is(err, io.EOF) {
 			t.Fatalf("one-shot second read n=%d err=%v want EOF", n, err)
 		}
+		if _, err := u.Write([]byte("ack")); err != nil {
+			t.Fatal(err)
+		}
+		if err := peer.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		n, _, err = peer.ReadFromUDP(buf)
+		if err != nil {
+			t.Fatalf("WriteToUDP reply: %v", err)
+		}
+		if got := string(buf[:n]); got != "ack" {
+			t.Fatalf("reply=%q want ack", got)
+		}
+		_ = parent.SetReadDeadline(time.Now().Add(time.Second))
+		n, _, err = parent.ReadFromUDP(buf)
+		if err != nil {
+			t.Fatalf("parent lost the second datagram: %v", err)
+		}
+		if got := string(buf[:n]); got != "second" {
+			t.Fatalf("parent read=%q want second", got)
+		}
 	})
 
 	t.Run("listen-multi", func(t *testing.T) {
-		server, child := newPair(t)
+		server, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = server.Close() })
+		child, err := net.DialUDP("udp4", nil, server.LocalAddr().(*net.UDPAddr))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = child.Close() })
 		u := &udpSessionConn{conn: child, first: []byte("first"), oneShot: false}
 		buf := make([]byte, 16)
 		n, err := u.Read(buf)
@@ -229,6 +258,195 @@ func TestUDPSessionConnReadOneShotVsMulti(t *testing.T) {
 			t.Fatalf("second=%q want second", got)
 		}
 	})
+}
+
+type udpAcceptResult struct {
+	conn net.Conn
+	err  error
+}
+
+func startUDPAccept(ln net.Listener) <-chan udpAcceptResult {
+	ch := make(chan udpAcceptResult, 1)
+	go func() {
+		conn, err := ln.Accept()
+		ch <- udpAcceptResult{conn: conn, err: err}
+	}()
+	return ch
+}
+
+func waitUDPAccept(t *testing.T, ch <-chan udpAcceptResult, timeout time.Duration, what string) net.Conn {
+	t.Helper()
+	select {
+	case result := <-ch:
+		if result.err != nil {
+			t.Fatalf("%s: %v", what, result.err)
+		}
+		return result.conn
+	case <-time.After(timeout):
+		t.Fatalf("%s: Accept timed out (datagram likely routed to a connected child)", what)
+		return nil
+	}
+}
+
+func TestUDPForkRecvfromSecondDatagramReachesParent(t *testing.T) {
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec, err := parse.ParseSpec("UDP4-RECVFROM:0,bind=127.0.0.1,reuseaddr,fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUDP4Recvfrom(context.Background(), spec, xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	ln, ok := o.Listener.(*udpForkListener)
+	if !ok {
+		t.Fatalf("Listener type %T", o.Listener)
+	}
+
+	client, err := net.DialUDP("udp4", nil, ln.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	firstCh := startUDPAccept(ln)
+	if _, err := client.Write([]byte("pkt1")); err != nil {
+		t.Fatal(err)
+	}
+	first := waitUDPAccept(t, firstCh, 2*time.Second, "first datagram")
+	t.Cleanup(func() { _ = first.Close() })
+	child1, ok := first.(*udpSessionConn)
+	if !ok {
+		t.Fatalf("child type %T", first)
+	}
+	if child1.pc == nil || child1.conn != nil {
+		t.Fatalf("RECVFROM child pc=%v conn=%v want shared parent and no connected socket", child1.pc != nil, child1.conn != nil)
+	}
+
+	buf := make([]byte, 16)
+	n, err := first.Read(buf)
+	if err != nil || string(buf[:n]) != "pkt1" {
+		t.Fatalf("first payload n=%d err=%v data=%q", n, err, buf[:n])
+	}
+	n, err = first.Read(buf)
+	if n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("first child trailing read n=%d err=%v want EOF", n, err)
+	}
+
+	// Child timeouts must not poison the shared parent listener.
+	if err := first.SetReadDeadline(time.Now().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Write([]byte("ack1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	n, err = client.Read(buf)
+	if err != nil {
+		t.Fatalf("WriteToUDP reply: %v", err)
+	}
+	if got := string(buf[:n]); got != "ack1" {
+		t.Fatalf("reply=%q want ack1", got)
+	}
+
+	// Keep the first child open: a connected child would steal this datagram.
+	secondCh := startUDPAccept(ln)
+	if _, err := client.Write([]byte("pkt2")); err != nil {
+		t.Fatal(err)
+	}
+	second := waitUDPAccept(t, secondCh, 2*time.Second, "second same-peer datagram")
+	t.Cleanup(func() { _ = second.Close() })
+	child2, ok := second.(*udpSessionConn)
+	if !ok {
+		t.Fatalf("second child type %T", second)
+	}
+	if child2.pc == nil || child2.conn != nil {
+		t.Fatalf("second RECVFROM child pc=%v conn=%v want shared parent", child2.pc != nil, child2.conn != nil)
+	}
+	n, err = second.Read(buf)
+	if err != nil || string(buf[:n]) != "pkt2" {
+		t.Fatalf("second payload n=%d err=%v data=%q", n, err, buf[:n])
+	}
+
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	thirdCh := startUDPAccept(ln)
+	if _, err := client.Write([]byte("pkt3")); err != nil {
+		t.Fatal(err)
+	}
+	third := waitUDPAccept(t, thirdCh, 2*time.Second, "datagram after child Close")
+	t.Cleanup(func() { _ = third.Close() })
+	n, err = third.Read(buf)
+	if err != nil || string(buf[:n]) != "pkt3" {
+		t.Fatalf("third payload n=%d err=%v data=%q", n, err, buf[:n])
+	}
+}
+
+func TestUDPForkListenSamePeerStaysOnConnectedChild(t *testing.T) {
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUDP4Listen(context.Background(), spec, xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	ln, ok := o.Listener.(*udpForkListener)
+	if !ok {
+		t.Fatalf("Listener type %T", o.Listener)
+	}
+
+	client, err := net.DialUDP("udp4", nil, ln.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	firstCh := startUDPAccept(ln)
+	if _, err := client.Write([]byte("pkt1")); err != nil {
+		t.Fatal(err)
+	}
+	first := waitUDPAccept(t, firstCh, 2*time.Second, "listen first datagram")
+	t.Cleanup(func() { _ = first.Close() })
+	child, ok := first.(*udpSessionConn)
+	if !ok {
+		t.Fatalf("child type %T", first)
+	}
+	if child.conn == nil || child.pc != nil {
+		t.Fatalf("LISTEN child pc=%v conn=%v want connected child, not shared parent", child.pc != nil, child.conn != nil)
+	}
+
+	buf := make([]byte, 16)
+	n, err := first.Read(buf)
+	if err != nil || string(buf[:n]) != "pkt1" {
+		t.Fatalf("first payload n=%d err=%v data=%q", n, err, buf[:n])
+	}
+
+	stolen := startUDPAccept(ln)
+	if _, err := client.Write([]byte("pkt2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	n, err = first.Read(buf)
+	if err != nil || string(buf[:n]) != "pkt2" {
+		t.Fatalf("connected child n=%d err=%v data=%q want pkt2", n, err, buf[:n])
+	}
+	select {
+	case result := <-stolen:
+		if result.err == nil {
+			_ = result.conn.Close()
+			t.Fatal("LISTEN Accept stole a same-peer datagram from the connected child")
+		}
+	case <-time.After(200 * time.Millisecond):
+	}
 }
 
 func TestUDPForkListenerAcceptTimeoutAborts(t *testing.T) {
