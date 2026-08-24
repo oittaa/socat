@@ -2,7 +2,7 @@
 # Build from the repo root:
 #   docker build -t socat-lab -f examples/lab/Dockerfile .
 
-FROM golang:1.26 AS gobuild
+FROM golang:1.27 AS gobuild
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
