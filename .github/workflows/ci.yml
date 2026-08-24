@@ -39,17 +39,24 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # One step on every matrix cell so linux-amd64 does not show skipped
+      # "Unit tests" entries (gray 0s circles) next to the coverage run.
       - name: Unit tests
-        if: runner.os != 'Windows' && matrix.name != 'linux-amd64'
-        run: make test
-      - name: Race tests with coverage
-        if: matrix.name == 'linux-amd64'
+        shell: bash
         run: |
-          make fmt-check
-          go test -race -covermode=atomic -coverprofile=coverage.unit.out ./...
-          go tool cover -func=coverage.unit.out | tee coverage.unit.txt
-          go tool cover -html=coverage.unit.out -o coverage.unit.html
-          ./scripts/coverage-summary.sh coverage.unit.out
+          if [ "${{ matrix.name }}" = "linux-amd64" ]; then
+            make fmt-check
+            go test -race -covermode=atomic -coverprofile=coverage.unit.out ./...
+            go tool cover -func=coverage.unit.out | tee coverage.unit.txt
+            go tool cover -html=coverage.unit.out -o coverage.unit.html
+            ./scripts/coverage-summary.sh coverage.unit.out
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            # gofmt is Ubuntu-only (lint job). Windows checkouts are CRLF unless
+            # .gitattributes forces LF; gofmt -l then lists every file.
+            go test ./...
+          else
+            make test
+          fi
       - name: Upload unit coverage
         if: matrix.name == 'linux-amd64' && !cancelled()
         uses: actions/upload-artifact@v7
@@ -59,12 +66,19 @@ jobs:
             coverage.unit.out
             coverage.unit.txt
             coverage.unit.html
-      - name: Unit tests
-        if: runner.os == 'Windows'
-        # gofmt is Ubuntu-only (lint job). Windows checkouts are CRLF unless
-        # .gitattributes forces LF; gofmt -l then lists every file.
-        shell: bash
-        run: go test ./...
+      - name: Upload unit coverage to Codecov
+        if: >-
+          matrix.name == 'linux-amd64' && !cancelled() &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.unit.out
+          flags: unit
+          name: unit-linux-amd64
+          fail_ci_if_error: true
+          disable_search: true
       - name: Go vet Windows files
         if: matrix.name == 'windows-amd64'
         shell: bash
@@ -93,11 +107,20 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: End-to-end tests with binary coverage
-        if: matrix.name == 'linux-amd64'
+      - name: End-to-end tests
+        shell: bash
         run: |
-          make e2e-cover
-          go tool cover -html=coverage.e2e.out -o coverage.e2e.html
+          if [ "${{ matrix.name }}" = "linux-amd64" ]; then
+            make e2e-cover
+            go tool cover -html=coverage.e2e.out -o coverage.e2e.html
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            go build -o socat.exe ./cmd/socat
+            go build -o filan.exe ./cmd/filan
+            go build -o procan.exe ./cmd/procan
+            go test -tags=e2e ./e2e/...
+          else
+            make e2e
+          fi
       - name: Upload e2e coverage
         if: matrix.name == 'linux-amd64' && !cancelled()
         uses: actions/upload-artifact@v7
@@ -107,17 +130,19 @@ jobs:
             coverage.e2e.out
             coverage.e2e.html
             coverage/e2e
-      - name: End-to-end tests
-        if: runner.os != 'Windows' && matrix.name != 'linux-amd64'
-        run: make e2e
-      - name: End-to-end tests
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          go build -o socat.exe ./cmd/socat
-          go build -o filan.exe ./cmd/filan
-          go build -o procan.exe ./cmd/procan
-          go test -tags=e2e ./e2e/...
+      - name: Upload e2e coverage to Codecov
+        if: >-
+          matrix.name == 'linux-amd64' && !cancelled() &&
+          (github.event_name != 'pull_request' ||
+           github.event.pull_request.head.repo.full_name == github.repository)
+        uses: codecov/codecov-action@v7
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.e2e.out
+          flags: e2e
+          name: e2e-linux-amd64
+          fail_ci_if_error: true
+          disable_search: true
 
   lint:
     name: lint

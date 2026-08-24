@@ -3,6 +3,7 @@
 A modern [Go](https://go.dev) reimplementation of classic [socat](http://www.dest-unreach.org/socat/) — a multipurpose relay for bidirectional data transfer between two independent channels.
 
 [![CI](https://github.com/oittaa/socat/actions/workflows/ci.yml/badge.svg)](https://github.com/oittaa/socat/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/oittaa/socat/branch/master/graph/badge.svg)](https://codecov.io/gh/oittaa/socat)
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -241,8 +242,11 @@ make lint          # gofmt, go vet, golangci-lint, gosec
 ```
 
 Per-commit CI runs lint, gosec, unit tests, and e2e on Linux amd64/arm64,
-macOS, and Windows amd64/arm64. A weekly workflow additionally runs native
-fuzz campaigns and the live relay matrix, and can be dispatched manually.
+macOS, and Windows amd64/arm64. linux-amd64 uploads unit and e2e coverage
+to [Codecov](https://codecov.io/gh/oittaa/socat) (file-level reports and
+PR comments) when `CODECOV_TOKEN` is set, and as HTML artifacts. A weekly workflow additionally runs
+native fuzz campaigns and the live relay matrix, and can be dispatched
+manually.
 
 Parser fuzz campaigns and the live relay matrix also run locally:
 
