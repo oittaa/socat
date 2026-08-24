@@ -154,7 +154,7 @@ func TestRelayMatrixBridgeTCPTLS(t *testing.T) {
 		port := freePort(t)
 		stderr := &bytes.Buffer{}
 		cmd := startSocat(t, stderr, fmt.Sprintf("TLS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert), "PIPE")
-		waitTCPListen(t, port, 2*time.Second)
+		waitTCPListen(t, port, tcpListenerStartupTimeout)
 		return fmt.Sprintf("TLS:127.0.0.1:%d,verify=0", port), func() {
 			_ = cmd.Process.Kill()
 			_, _ = cmd.Process.Wait()
@@ -170,7 +170,7 @@ func TestRelayMatrixBridgeTCPWS(t *testing.T) {
 		port := freePort(t)
 		stderr := &bytes.Buffer{}
 		cmd := startSocat(t, stderr, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port), "PIPE")
-		waitTCPListen(t, port, 2*time.Second)
+		waitTCPListen(t, port, tcpListenerStartupTimeout)
 		return fmt.Sprintf("WS:127.0.0.1:%d", port), func() {
 			_ = cmd.Process.Kill()
 			_, _ = cmd.Process.Wait()
@@ -371,7 +371,7 @@ func waitTCPPort(t *testing.T, listenSpec string) {
 	if !ok {
 		t.Fatalf("no port in %q", listenSpec)
 	}
-	waitTCPListen(t, port, 2*time.Second)
+	waitTCPListen(t, port, tcpListenerStartupTimeout)
 }
 
 func waitUDPPort(t *testing.T, listenSpec string) {
@@ -493,7 +493,7 @@ func runTCPBridge(t *testing.T, peer func(t *testing.T) (connect string, stop fu
 	port := freePort(t)
 	stderr := &bytes.Buffer{}
 	startSocat(t, stderr, fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port), connect)
-	waitTCPListen(t, port, 2*time.Second)
+	waitTCPListen(t, port, tcpListenerStartupTimeout)
 	out, errb, err := runSocat(t, []byte(matrixPayload), "stdin!!stdout", fmt.Sprintf("TCP4:127.0.0.1:%d", port))
 	if err != nil || string(out) != matrixPayload {
 		t.Fatalf("bridge: %v out=%q err=%s srv=%s", err, out, errb, stderr)
