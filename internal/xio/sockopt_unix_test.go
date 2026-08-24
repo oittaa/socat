@@ -47,8 +47,35 @@ func TestApplySocketTimeosUnix(t *testing.T) {
 		}
 	}
 
-	apply("UDP:127.0.0.1:9,rcvtimeo=1.25,sndtimeo=2.5", 1250*time.Millisecond, 2500*time.Millisecond)
+	// Whole seconds so the getsockopt round-trip is independent of kernel HZ
+	// (SO_RCVTIMEO/SO_SNDTIMEO are stored in jiffies). Distinct values prove
+	// rcvtimeo and sndtimeo are wired to different option constants.
+	// Fractional conversion is covered by TestTimevalFromSpec.
+	apply("UDP:127.0.0.1:9,rcvtimeo=1,sndtimeo=2", 1*time.Second, 2*time.Second)
 	apply("UDP:127.0.0.1:9,rcvtimeo=0,sndtimeo=0", 0, 0)
+}
+
+func TestTimevalFromSpec(t *testing.T) {
+	tests := []struct {
+		value string
+		sec   int64
+		usec  int64
+	}{
+		{value: "0", sec: 0, usec: 0},
+		{value: "1.25", sec: 1, usec: 250000},
+		{value: "2.5", sec: 2, usec: 500000},
+	}
+	for _, tc := range tests {
+		t.Run(tc.value, func(t *testing.T) {
+			tv, err := timevalFromSpec(tc.value)
+			if err != nil {
+				t.Fatalf("timevalFromSpec(%q): %v", tc.value, err)
+			}
+			if int64(tv.Sec) != tc.sec || int64(tv.Usec) != tc.usec {
+				t.Fatalf("timevalFromSpec(%q)=%+v want {Sec:%d Usec:%d}", tc.value, tv, tc.sec, tc.usec)
+			}
+		})
+	}
 }
 
 func TestTimevalFromSpecRejectsInvalidValues(t *testing.T) {
