@@ -6,6 +6,12 @@ Stay a drop-in replacement for classic socat
 (`git://repo.or.cz/socat.git`, https://repo.or.cz/socat.git) unless a
 change is a documented security exception.
 
+Use the latest released tag from the official repository as the primary
+compatibility baseline, and also check current master for newer behavior.
+Cite the exact tag or commit used. Do not use third-party mirrors when the
+official repository is available. If the latest release and master differ,
+report the difference before implementing.
+
 Security-related deviations belong in README ("Intentional differences
 from classic socat" / "Unsupported / security-related") and in a code
 comment at the call site.
