@@ -10,6 +10,9 @@
 .DS_Store
 coverage.out
 coverage.html
+coverage.unit.html
+coverage.e2e.html
+/coverage/
 
 # Scorecard working runs (host, docker, and ad-hoc OUT_DIR / OUT_HOST)
 .scorecard/
