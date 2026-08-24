@@ -167,7 +167,7 @@ func TestTCPToQUICBridge(t *testing.T) {
 		_ = bridge.Process.Kill()
 		_, _ = bridge.Process.Wait()
 	}()
-	waitTCPListen(t, tcpPort, 2*time.Second)
+	waitTCPListen(t, tcpPort, tcpListenerStartupTimeout)
 
 	payload := fmt.Sprintf("tcp-quic %d\n", time.Now().UnixNano())
 	cli := exec.Command(bin, "-t", "2", "stdin!!stdout", fmt.Sprintf("TCP:127.0.0.1:%d", tcpPort))

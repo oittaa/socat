@@ -22,6 +22,124 @@ var capabilityCache = struct {
 	output map[string][]byte
 }{output: make(map[string][]byte)}
 
+const (
+	tcpListenerStartupTimeout = 10 * time.Second
+	tcpListenerStartAttempts  = 3
+)
+
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.b.String()
+}
+
+type testProcess struct {
+	cmd     *exec.Cmd
+	stderr  lockedBuffer
+	done    chan struct{}
+	waitMu  sync.Mutex
+	waitErr error
+}
+
+func startTestProcess(cmd *exec.Cmd) (*testProcess, error) {
+	p := &testProcess{cmd: cmd, done: make(chan struct{})}
+	cmd.Stderr = &p.stderr
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	go func() {
+		err := cmd.Wait()
+		p.waitMu.Lock()
+		p.waitErr = err
+		p.waitMu.Unlock()
+		close(p.done)
+	}()
+	return p, nil
+}
+
+func (p *testProcess) status() (error, bool) {
+	select {
+	case <-p.done:
+		p.waitMu.Lock()
+		defer p.waitMu.Unlock()
+		return p.waitErr, true
+	default:
+		return nil, false
+	}
+}
+
+func (p *testProcess) stop() {
+	select {
+	case <-p.done:
+		return
+	default:
+	}
+	_ = p.cmd.Process.Kill()
+	<-p.done
+}
+
+func waitTCPTestProcess(p *testProcess, port int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if err, exited := p.status(); exited {
+			return fmt.Errorf("server exited before listening: %v", err)
+		}
+		ln, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			// Give a child that just lost the bind race time to report its exit.
+			select {
+			case <-p.done:
+				exitErr, _ := p.status()
+				return fmt.Errorf("server exited before listening: %v", exitErr)
+			case <-time.After(20 * time.Millisecond):
+			}
+			return nil
+		}
+		_ = ln.Close()
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("timeout waiting for listen on %d", port)
+}
+
+// startTCPTestServer tolerates slow CI runners and the unavoidable race between
+// reserving a free port and binding it in a child process. Early child exits
+// retain stderr so a real startup failure is actionable instead of timing out.
+func startTCPTestServer(t *testing.T, command func(port int) *exec.Cmd) (int, *testProcess) {
+	t.Helper()
+	var failures []string
+	for attempt := 1; attempt <= tcpListenerStartAttempts; attempt++ {
+		port := freePort(t)
+		process, err := startTestProcess(command(port))
+		if err != nil {
+			t.Fatalf("start TCP test server: %v", err)
+		}
+		err = waitTCPTestProcess(process, port, tcpListenerStartupTimeout)
+		if err == nil {
+			t.Cleanup(process.stop)
+			return port, process
+		}
+		process.stop()
+		failure := fmt.Sprintf("attempt %d port %d: %v; stderr=%s", attempt, port, err, process.stderr.String())
+		failures = append(failures, failure)
+		if attempt < tcpListenerStartAttempts {
+			t.Logf("TCP test server startup failed, retrying: %s", failure)
+		}
+	}
+	t.Fatalf("TCP test server failed after %d attempts: %s", tcpListenerStartAttempts, strings.Join(failures, "; "))
+	return 0, nil
+}
+
 func skipUnlessLinux(t *testing.T) {
 	t.Helper()
 	if runtime.GOOS != "linux" {
@@ -109,7 +227,7 @@ func TestTLSHandshakeTimeoutClosesSilentPeer(t *testing.T) {
 		_ = cmd.Process.Kill()
 		_, _ = cmd.Process.Wait()
 	}()
-	waitTCPListen(t, port, 2*time.Second)
+	waitTCPListen(t, port, tcpListenerStartupTimeout)
 
 	conn, err := net.DialTimeout("tcp4", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
 	if err != nil {
@@ -170,22 +288,12 @@ func waitTCPListen(t *testing.T, port int, timeout time.Duration) {
 // TCP4 — classic test.sh NAME=TCP4: echo via TCP V4
 func TestTCP4Echo(t *testing.T) {
 	bin := socatBin(t)
-	port := freePort(t)
+	port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1", port), "PIPE")
+	})
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 
 	// Classic: TCP4-LISTEN + PIPE echo; no fork (single connection)
-	srv := exec.Command(bin, fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1", port), "PIPE")
-	var stderr bytes.Buffer
-	srv.Stderr = &stderr
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = srv.Process.Kill()
-		_, _ = srv.Process.Wait()
-	}()
-	waitTCPListen(t, port, 2*time.Second)
-
 	payload := fmt.Sprintf("test TCP4 %d\n", time.Now().UnixNano())
 	cli := exec.Command(bin, "stdin!!stdout", fmt.Sprintf("TCP4:%s", addr))
 	var cliErr bytes.Buffer
@@ -193,11 +301,31 @@ func TestTCP4Echo(t *testing.T) {
 	cli.Stderr = &cliErr
 	out, err := cli.Output()
 	if err != nil {
-		t.Fatalf("client: %v cli_stderr=%s srv_stderr=%s", err, cliErr.String(), stderr.String())
+		t.Fatalf("client: %v cli_stderr=%s srv_stderr=%s", err, cliErr.String(), srv.stderr.String())
 	}
 	if string(out) != payload {
-		t.Fatalf("got %q want %q (srv stderr: %s)", out, payload, stderr.String())
+		t.Fatalf("got %q want %q (srv stderr: %s)", out, payload, srv.stderr.String())
 	}
+}
+
+func TestTCPTestServerRetriesEarlyExit(t *testing.T) {
+	bin := socatBin(t)
+	attempts := 0
+	port, _ := startTCPTestServer(t, func(port int) *exec.Cmd {
+		attempts++
+		if attempts == 1 {
+			return exec.Command(bin, "NOT-A-REAL-ADDRESS", "PIPE")
+		}
+		return exec.Command(bin, fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1", port), "PIPE")
+	})
+	if attempts != 2 {
+		t.Fatalf("startup attempts=%d want 2", attempts)
+	}
+	conn, err := net.DialTimeout("tcp4", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close()
 }
 
 // UNIXSTREAM — echo via unix stream socket
@@ -515,7 +643,7 @@ func TestTLSPQC(t *testing.T) {
 		_ = srv.Process.Kill()
 		_, _ = srv.Process.Wait()
 	}()
-	waitTCPListen(t, port, 2*time.Second)
+	waitTCPListen(t, port, tcpListenerStartupTimeout)
 
 	payload := fmt.Sprintf("pqc-tls %d\n", time.Now().UnixNano())
 	cli := exec.Command(bin, "stdin!!stdout",
