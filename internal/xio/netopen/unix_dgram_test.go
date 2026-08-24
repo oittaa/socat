@@ -5,14 +5,12 @@ package netopen
 import (
 	"io"
 	"net"
-	"path/filepath"
 	"testing"
 	"time"
 )
 
 func TestUnixPacketConnOneShotDoesNotReadParent(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "recv.sock")
+	path := unixSocketTestPath(t, "recv.sock")
 	laddr := &net.UnixAddr{Name: path, Net: "unixgram"}
 	parent, err := net.ListenUnixgram("unixgram", laddr)
 	if err != nil {
@@ -20,15 +18,13 @@ func TestUnixPacketConnOneShotDoesNotReadParent(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = parent.Close() })
 
-	peerPath := filepath.Join(dir, "peer.sock")
-	peer, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: peerPath, Net: "unixgram"})
+	peer, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: unixSocketTestPath(t, "peer.sock"), Net: "unixgram"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = peer.Close() })
 
-	otherPath := filepath.Join(dir, "other.sock")
-	other, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: otherPath, Net: "unixgram"})
+	other, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: unixSocketTestPath(t, "other.sock"), Net: "unixgram"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,8 +74,7 @@ func TestUnixPacketConnOneShotDoesNotReadParent(t *testing.T) {
 }
 
 func TestUnixPacketConnSetReadDeadlineDoesNotPoisonParent(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "recv.sock")
+	path := unixSocketTestPath(t, "recv.sock")
 	laddr := &net.UnixAddr{Name: path, Net: "unixgram"}
 	parent, err := net.ListenUnixgram("unixgram", laddr)
 	if err != nil {
@@ -91,7 +86,7 @@ func TestUnixPacketConnSetReadDeadlineDoesNotPoisonParent(t *testing.T) {
 	if err := child.SetReadDeadline(time.Now().Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	peer, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: filepath.Join(dir, "peer.sock"), Net: "unixgram"})
+	peer, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: unixSocketTestPath(t, "peer.sock"), Net: "unixgram"})
 	if err != nil {
 		t.Fatal(err)
 	}

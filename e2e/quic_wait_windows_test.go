@@ -14,6 +14,12 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// Winsock SO_EXCLUSIVEADDRUSE is (~SO_REUSEADDR); x/sys/windows does not export it.
+const (
+	soExclusiveAddrUse = ^0x4 // Winsock SO_EXCLUSIVEADDRUSE (~SO_REUSEADDR)
+	stillActive        = 259  // GetExitCodeProcess STILL_ACTIVE
+)
+
 func waitUDPListen(t *testing.T, port int, timeout time.Duration, cmds ...*exec.Cmd) {
 	t.Helper()
 	if err := errWaitUDPListen(port, timeout, cmds...); err != nil {
@@ -38,7 +44,7 @@ func errWaitUDPListen(port int, timeout time.Duration, cmds ...*exec.Cmd) error 
 					// Go's listener defaults set SO_REUSEADDR first; exclusive
 					// bind only works after clearing it.
 					_ = windows.SetsockoptInt(h, windows.SOL_SOCKET, windows.SO_REUSEADDR, 0)
-					opErr = windows.SetsockoptInt(h, windows.SOL_SOCKET, windows.SO_EXCLUSIVEADDRUSE, 1)
+					opErr = windows.SetsockoptInt(h, windows.SOL_SOCKET, soExclusiveAddrUse, 1)
 				}); err != nil {
 					return err
 				}
@@ -69,5 +75,5 @@ func udpServerAlive(cmd *exec.Cmd) bool {
 	if err := windows.GetExitCodeProcess(h, &code); err != nil {
 		return false
 	}
-	return code == windows.STILL_ACTIVE
+	return code == stillActive
 }
