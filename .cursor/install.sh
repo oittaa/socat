@@ -5,9 +5,11 @@
 # supplied by the base image, and go.mod's `toolchain` directive fetches the
 # exact compiler (go1.26.x) on first use, so we do not install Go here.
 #
-# Idempotent: safe to re-run. Tools land in $(go env GOPATH)/bin, which the
-# agent's login shell already has on PATH, so `make lint`/`make gosec` find the
-# bare `golangci-lint` and `gosec` binaries.
+# The Makefile invokes the bare `golangci-lint` and `gosec` binaries, but the
+# agent shell does not add $(go env GOPATH)/bin to PATH. So after building each
+# tool we place it on a directory that is already on PATH (mirroring the repo's
+# own `make install`, which targets /usr/local/bin) so `make lint`/`make gosec`
+# resolve them in any shell. Idempotent: safe to re-run.
 set -euo pipefail
 
 # Keep these in sync with .github/workflows/ci.yml (golangci-lint-action /
@@ -19,23 +21,47 @@ GOBIN="$(go env GOPATH)/bin"
 mkdir -p "$GOBIN"
 export GOBIN
 
-# Guard on the GOBIN path directly (not `command -v`) so a warm boot skips the
-# reinstall even when the install shell's PATH lacks GOBIN.
-if [ -x "$GOBIN/golangci-lint" ] &&
-	"$GOBIN/golangci-lint" version 2>&1 | grep -q "${GOLANGCI_LINT_VERSION#v}"; then
+# Pick a bin directory that is already on PATH and installable. Prefer the
+# standard /usr/local/bin (via sudo when needed); fall back to a writable
+# on-PATH directory if sudo is unavailable.
+if [ -w /usr/local/bin ]; then
+	BINDIR=/usr/local/bin
+	SUDO=""
+elif sudo -n true 2>/dev/null; then
+	BINDIR=/usr/local/bin
+	SUDO="sudo"
+elif [ -w /usr/local/cargo/bin ]; then
+	BINDIR=/usr/local/cargo/bin
+	SUDO=""
+else
+	BINDIR="$GOBIN"
+	SUDO=""
+fi
+echo "placing tools in ${BINDIR}"
+
+place_on_path() { # <name>
+	local name="$1"
+	[ "$BINDIR" = "$GOBIN" ] && return 0
+	$SUDO install -m 0755 "$GOBIN/$name" "$BINDIR/$name"
+}
+
+if [ -x "$BINDIR/golangci-lint" ] &&
+	"$BINDIR/golangci-lint" version 2>&1 | grep -q "${GOLANGCI_LINT_VERSION#v}"; then
 	echo "golangci-lint ${GOLANGCI_LINT_VERSION} already present"
 else
 	echo "installing golangci-lint ${GOLANGCI_LINT_VERSION}"
 	go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
+	place_on_path golangci-lint
 fi
 
 # gosec built via `go install` reports its version as "dev", so guard on
 # presence only; the pinned version is fixed by the module query below.
-if [ -x "$GOBIN/gosec" ]; then
+if [ -x "$BINDIR/gosec" ]; then
 	echo "gosec already present"
 else
 	echo "installing gosec ${GOSEC_VERSION}"
 	go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
+	place_on_path gosec
 fi
 
 # Prime the module cache so build/test/e2e runs are fast and offline-safe.
