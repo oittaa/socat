@@ -2,8 +2,11 @@ package relay
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
+	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -100,7 +103,7 @@ func TestTransferEndCloseReusesSharedStream(t *testing.T) {
 	defer func() { _ = shared.Close() }()
 	defer func() { _ = collector.Close() }()
 
-	left := NetStream{Conn: shared}
+	left := ShareStream(NetStream{Conn: shared})
 	for _, message := range []string{"first", "second"} {
 		right := FDStream{
 			R:      &oneShotReader{data: []byte(message)},
@@ -126,6 +129,137 @@ func TestTransferEndCloseReusesSharedStream(t *testing.T) {
 		if err := <-done; err != nil {
 			t.Fatalf("transfer %q: %v", message, err)
 		}
+	}
+}
+
+func TestShareStreamCoordinatesGenerations(t *testing.T) {
+	shared := ShareStream(&recordingDeadlineStream{})
+	w1 := newSessionWrap(shared)
+	w2 := newSessionWrap(shared)
+	if w1.session != w2.session {
+		t.Fatal("expected shared generation state")
+	}
+	if w1.myGen == w2.myGen {
+		t.Fatal("expected distinct generations")
+	}
+	if !w1.stale() {
+		t.Fatal("first wrap should be stale after second wrap")
+	}
+	if w2.stale() {
+		t.Fatal("second wrap should be current")
+	}
+}
+
+func TestShareStreamIdempotent(t *testing.T) {
+	inner := &recordingDeadlineStream{}
+	a := ShareStream(inner)
+	if ShareStream(a) != a {
+		t.Fatal("ShareStream should be idempotent")
+	}
+}
+
+func TestSessionWrapCloseDoesNotSleep(t *testing.T) {
+	c1, c2 := net.Pipe()
+	defer func() { _ = c1.Close() }()
+	defer func() { _ = c2.Close() }()
+	w := newSessionWrap(NetStream{Conn: c1})
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		_, _ = w.Read(make([]byte, 8))
+	}()
+	<-started
+	time.Sleep(5 * time.Millisecond)
+	start := time.Now()
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d >= 15*time.Millisecond {
+		t.Fatalf("Close took %s; expected no 20ms wait", d)
+	}
+}
+
+func TestSessionWrapNextSessionClearsLeftoverPoke(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+	defer func() { _ = w.Close() }()
+	shared := ShareStream(RWCStream{ReadWriteCloser: r})
+	if err := newSessionWrap(shared).Close(); err != nil {
+		t.Fatal(err)
+	}
+	sess := newSessionWrap(shared)
+	errCh := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 8)
+		n, err := sess.Read(buf)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		if string(buf[:n]) != "hello" {
+			errCh <- fmt.Errorf("got %q", buf[:n])
+			return
+		}
+		errCh <- nil
+	}()
+	// Previous Close pokes a 1ms deadline. Wait past that so a leftover
+	// deadline would fail the polled inner Read before the payload arrives.
+	time.Sleep(5 * time.Millisecond)
+	if _, err := w.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("second session read: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second session did not read")
+	}
+}
+
+func TestSessionWrapStaleReadDoesNotClearNextDeadline(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	inner := &recordingDeadlineStream{
+		read: func([]byte) (int, error) {
+			close(started)
+			<-release
+			return 0, os.ErrDeadlineExceeded
+		},
+	}
+	shared := ShareStream(inner)
+	w1 := newSessionWrap(shared)
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		_, _ = w1.Read(make([]byte, 8))
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("first session did not enter Read")
+	}
+
+	_ = newSessionWrap(shared)
+	want := time.Now().Add(time.Hour)
+	setStreamReadDeadline(shared, want)
+
+	close(release)
+	select {
+	case <-readDone:
+	case <-time.After(time.Second):
+		t.Fatal("stale Read did not return")
+	}
+
+	inner.mu.Lock()
+	got := inner.readDeadline
+	inner.mu.Unlock()
+	if got.IsZero() || got.Before(time.Now().Add(30*time.Minute)) {
+		t.Fatalf("stale session cleared next deadline: %v", got)
 	}
 }
 
@@ -264,6 +398,38 @@ func (nopCloser) Close() error { return nil }
 type eofReader struct{}
 
 func (eofReader) Read([]byte) (int, error) { return 0, io.EOF }
+
+type recordingDeadlineStream struct {
+	mu            sync.Mutex
+	read          func([]byte) (int, error)
+	readDeadline  time.Time
+	writeDeadline time.Time
+}
+
+func (s *recordingDeadlineStream) Read(p []byte) (int, error) {
+	if s.read != nil {
+		return s.read(p)
+	}
+	return 0, io.EOF
+}
+
+func (*recordingDeadlineStream) Write(p []byte) (int, error) { return len(p), nil }
+func (*recordingDeadlineStream) Close() error                { return nil }
+func (*recordingDeadlineStream) ShutdownWrite() error        { return nil }
+
+func (s *recordingDeadlineStream) SetReadDeadline(t time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.readDeadline = t
+	return nil
+}
+
+func (s *recordingDeadlineStream) SetWriteDeadline(t time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.writeDeadline = t
+	return nil
+}
 
 type oneShotReader struct {
 	data []byte
