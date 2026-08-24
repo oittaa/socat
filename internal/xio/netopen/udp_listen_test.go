@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"runtime"
 	"testing"
 	"time"
 
@@ -426,6 +427,13 @@ func TestUDPForkListenSamePeerStaysOnConnectedChild(t *testing.T) {
 	n, err := first.Read(buf)
 	if err != nil || string(buf[:n]) != "pkt1" {
 		t.Fatalf("first payload n=%d err=%v data=%q", n, err, buf[:n])
+	}
+
+	if runtime.GOOS == "windows" {
+		// Windows does not steer later same-peer datagrams to a connected
+		// SO_REUSEADDR child the way Linux/BSD do. The connected-child
+		// construction is still required; demux is a Unix kernel behavior.
+		return
 	}
 
 	stolen := startUDPAccept(ln)
