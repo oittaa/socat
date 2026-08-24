@@ -49,7 +49,7 @@ func TestWSEcho(t *testing.T) {
 		_ = srv.Process.Kill()
 		_, _ = srv.Process.Wait()
 	}()
-	waitTCPListen(t, port, 2*time.Second)
+	waitTCPListen(t, port, tcpListenerStartupTimeout)
 
 	payload := fmt.Sprintf("ws-echo %d\n", time.Now().UnixNano())
 	cli := exec.Command(bin, "stdin!!stdout", fmt.Sprintf("WS:127.0.0.1:%d", port))
@@ -81,7 +81,7 @@ func TestWSSEcho(t *testing.T) {
 		_ = srv.Process.Kill()
 		_, _ = srv.Process.Wait()
 	}()
-	waitTCPListen(t, port, 2*time.Second)
+	waitTCPListen(t, port, tcpListenerStartupTimeout)
 
 	payload := fmt.Sprintf("wss-echo %d\n", time.Now().UnixNano())
 	cli := exec.Command(bin, "stdin!!stdout", fmt.Sprintf("WSS:127.0.0.1:%d,verify=0", port))
@@ -112,7 +112,7 @@ func TestWSPath(t *testing.T) {
 		_ = srv.Process.Kill()
 		_, _ = srv.Process.Wait()
 	}()
-	waitTCPListen(t, port, 2*time.Second)
+	waitTCPListen(t, port, tcpListenerStartupTimeout)
 
 	bad := exec.Command(bin, "stdin!!stdout", fmt.Sprintf("WS:127.0.0.1:%d/other", port))
 	bad.Stdin = bytes.NewBufferString("nope")
@@ -150,7 +150,7 @@ func TestTCPToWSBridge(t *testing.T) {
 		_ = echo.Process.Kill()
 		_, _ = echo.Process.Wait()
 	}()
-	waitTCPListen(t, wsPort, 2*time.Second)
+	waitTCPListen(t, wsPort, tcpListenerStartupTimeout)
 
 	bridge := exec.Command(bin,
 		fmt.Sprintf("TCP-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", tcpPort),
@@ -165,7 +165,7 @@ func TestTCPToWSBridge(t *testing.T) {
 		_ = bridge.Process.Kill()
 		_, _ = bridge.Process.Wait()
 	}()
-	waitTCPListen(t, tcpPort, 2*time.Second)
+	waitTCPListen(t, tcpPort, tcpListenerStartupTimeout)
 
 	payload := fmt.Sprintf("tcp-ws %d\n", time.Now().UnixNano())
 	cli := exec.Command(bin, "stdin!!stdout", fmt.Sprintf("TCP:127.0.0.1:%d", tcpPort))
@@ -194,7 +194,7 @@ func TestWSOriginReject(t *testing.T) {
 		_ = srv.Process.Kill()
 		_, _ = srv.Process.Wait()
 	}()
-	waitTCPListen(t, port, 2*time.Second)
+	waitTCPListen(t, port, tcpListenerStartupTimeout)
 
 	bad := exec.Command(bin, "stdin!!stdout", fmt.Sprintf("WS:127.0.0.1:%d,origin=http://evil.com", port))
 	bad.Stdin = bytes.NewBufferString("x")

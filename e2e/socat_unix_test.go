@@ -99,7 +99,7 @@ exit 1
 		_ = srv.Process.Kill()
 		_, _ = srv.Process.Wait()
 	}()
-	waitTCPListen(t, port, 2*time.Second)
+	waitTCPListen(t, port, tcpListenerStartupTimeout)
 
 	// Client: CONNECT fork max-children=2, short interval; EXEC drains queue.
 	cli := exec.Command(bin, "-4",
