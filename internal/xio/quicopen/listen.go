@@ -32,7 +32,10 @@ func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	if err != nil {
 		return nil, err
 	}
-	qcfg := quicConfig(s, tlsCfg)
+	qcfg, err := quicConfig(s, tlsCfg)
+	if err != nil {
+		return nil, err
+	}
 
 	pc, err := listenPacket(ctx, network, addr, s)
 	if err != nil {
@@ -120,12 +123,16 @@ type quicSetup struct {
 	cfg *quic.Config
 }
 
-func quicConfig(s parse.Spec, tlsCfg *tls.Config) quicSetup {
+func quicConfig(s parse.Spec, tlsCfg *tls.Config) (quicSetup, error) {
+	quicTLS, err := withALPN(tlsCfg, s)
+	if err != nil {
+		return quicSetup{}, err
+	}
 	cfg := &quic.Config{}
 	if t := xio.ConnectTimeout(s); t > 0 {
 		cfg.HandshakeIdleTimeout = t
 	}
-	return quicSetup{tls: withALPN(tlsCfg, s), cfg: cfg}
+	return quicSetup{tls: quicTLS, cfg: cfg}, nil
 }
 
 func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.PacketConn, error) {

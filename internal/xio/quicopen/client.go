@@ -26,7 +26,10 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	if err != nil {
 		return nil, err
 	}
-	setup := quicConfig(s, tlsCfg)
+	setup, err := quicConfig(s, tlsCfg)
+	if err != nil {
+		return nil, err
+	}
 
 	bindHost := s.OptionValue("bind", "")
 	if bindHost == "" {
