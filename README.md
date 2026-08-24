@@ -101,7 +101,8 @@ openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
 `OPENSSL-*` and `SSL-*` are aliases of `TLS-*`. Listen needs `cert=`
 (see [TLS notes](#tls-notes)). `verify=0` on the listener means “do not
 request a client certificate”. The client still checks the server when
-`verify=1` and `cafile=` (or `capath=`) is set.
+`verify=1` — against `cafile=`/`capath=` when given, otherwise against the
+system trust store.
 
 Same shape over **QUIC** (a byte pipe, **not** HTTP/3; ALPN default `socat`):
 
