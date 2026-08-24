@@ -2,8 +2,11 @@ package relay
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
+	"os"
+	"sync"
 	"testing"
 	"time"
 )
@@ -126,6 +129,102 @@ func TestTransferEndCloseReusesSharedStream(t *testing.T) {
 		if err := <-done; err != nil {
 			t.Fatalf("transfer %q: %v", message, err)
 		}
+	}
+}
+
+func TestSessionWrapCloseDoesNotWaitForRead(t *testing.T) {
+	started := make(chan struct{})
+	block := make(chan struct{})
+	inner := &recordingDeadlineStream{
+		read: func([]byte) (int, error) {
+			close(started)
+			<-block
+			return 0, io.EOF
+		},
+	}
+	w := newSessionWrap(inner)
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		_, _ = w.Read(make([]byte, 1))
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("Read did not enter the inner stream")
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-readDone:
+		t.Fatal("Close waited for the inner Read to finish")
+	default:
+	}
+	close(block)
+	select {
+	case <-readDone:
+	case <-time.After(time.Second):
+		t.Fatal("Read did not return after inner unblocked")
+	}
+}
+
+func TestSessionWrapNextSessionClearsLeftoverPoke(t *testing.T) {
+	inner := &recordingDeadlineStream{}
+	if err := newSessionWrap(inner).Close(); err != nil {
+		t.Fatal(err)
+	}
+	inner.mu.Lock()
+	if inner.readDeadline.IsZero() {
+		inner.mu.Unlock()
+		t.Fatal("Close should poke a read deadline")
+	}
+	inner.mu.Unlock()
+
+	_ = newSessionWrap(inner)
+	inner.mu.Lock()
+	gotRead, gotWrite := inner.readDeadline, inner.writeDeadline
+	inner.mu.Unlock()
+	if !gotRead.IsZero() || !gotWrite.IsZero() {
+		t.Fatalf("next wrap left poke deadlines read=%v write=%v", gotRead, gotWrite)
+	}
+}
+
+func TestSessionWrapReusesPipeAfterClosePoke(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+	defer func() { _ = w.Close() }()
+	if err := newSessionWrap(RWCStream{ReadWriteCloser: r}).Close(); err != nil {
+		t.Fatal(err)
+	}
+	sess := newSessionWrap(RWCStream{ReadWriteCloser: r})
+	errCh := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 8)
+		n, err := sess.Read(buf)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		if string(buf[:n]) != "hello" {
+			errCh <- fmt.Errorf("got %q", buf[:n])
+			return
+		}
+		errCh <- nil
+	}()
+	if _, err := w.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("second session read: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second session did not read")
 	}
 }
 
@@ -264,6 +363,38 @@ func (nopCloser) Close() error { return nil }
 type eofReader struct{}
 
 func (eofReader) Read([]byte) (int, error) { return 0, io.EOF }
+
+type recordingDeadlineStream struct {
+	mu            sync.Mutex
+	read          func([]byte) (int, error)
+	readDeadline  time.Time
+	writeDeadline time.Time
+}
+
+func (s *recordingDeadlineStream) Read(p []byte) (int, error) {
+	if s.read != nil {
+		return s.read(p)
+	}
+	return 0, io.EOF
+}
+
+func (*recordingDeadlineStream) Write(p []byte) (int, error) { return len(p), nil }
+func (*recordingDeadlineStream) Close() error                { return nil }
+func (*recordingDeadlineStream) ShutdownWrite() error        { return nil }
+
+func (s *recordingDeadlineStream) SetReadDeadline(t time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.readDeadline = t
+	return nil
+}
+
+func (s *recordingDeadlineStream) SetWriteDeadline(t time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.writeDeadline = t
+	return nil
+}
 
 type oneShotReader struct {
 	data []byte

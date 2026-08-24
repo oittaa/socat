@@ -98,8 +98,10 @@ func (s *closeSerialStream) ShutdownWrite() error {
 func (s *closeSerialStream) UnwrapStream() Stream { return s.Stream }
 
 // sessionWrap decouples a transfer session from a shared underlying stream.
-// Close aborts this session; a short read deadline on the inner FD unblocks
-// a stuck Read so the next session can reuse the shared stream.
+// Close aborts this session and pokes a short deadline to wake blocked I/O.
+// It does not sleep or clear that poke: fork reuse is serialized (leftMu),
+// Transfer waits for the copies to finish, and the next wrap drops leftover
+// deadlines at construction.
 type sessionWrap struct {
 	inner Stream
 	done  chan struct{}
@@ -107,7 +109,22 @@ type sessionWrap struct {
 }
 
 func newSessionWrap(inner Stream) *sessionWrap {
+	// Drop leftover poke deadlines from the previous serialized session
+	// before this one starts I/O or a caller installs timeout=.
+	setStreamReadDeadline(inner, time.Time{})
+	_ = setStreamWriteDeadline(inner, time.Time{})
 	return &sessionWrap{inner: inner, done: make(chan struct{})}
+}
+
+func (s *sessionWrap) UnwrapStream() Stream { return s.inner }
+
+func (s *sessionWrap) closed() bool {
+	select {
+	case <-s.done:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *sessionWrap) Read(p []byte) (int, error) {
@@ -123,17 +140,13 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 		}
 	}
 	for {
-		select {
-		case <-s.done:
+		if s.closed() {
 			return 0, io.EOF
-		default:
 		}
 		if usePoll {
 			err := waitPollRead(fd, 50)
-			select {
-			case <-s.done:
+			if s.closed() {
 				return 0, io.EOF
-			default:
 			}
 			if err != nil {
 				if err == errPollIdle {
@@ -145,49 +158,39 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 			setStreamReadDeadline(s.inner, time.Now().Add(50*time.Millisecond))
 		}
 		nr, err := s.inner.Read(p)
+		if s.closed() {
+			// Leave leftover poke/slice deadlines for the next serialized wrap.
+			return 0, io.EOF
+		}
 		if !usePoll {
 			setStreamReadDeadline(s.inner, time.Time{})
 		}
 		if err == nil {
-			select {
-			case <-s.done:
-				return 0, io.EOF
-			default:
-				return nr, nil
-			}
+			return nr, nil
 		}
 		if isTimeoutErr(err) {
 			continue
 		}
-		select {
-		case <-s.done:
-			return 0, io.EOF
-		default:
-			return nr, err
-		}
+		return nr, err
 	}
 }
 
 func (s *sessionWrap) Write(p []byte) (int, error) {
 	written := 0
 	for {
-		select {
-		case <-s.done:
+		if s.closed() {
 			return written, io.ErrClosedPipe
-		default:
 		}
 		// Windows has no poll path. Bound each write so Close can cancel a
 		// session without closing the shared end-close stream underneath it.
 		deadlineSet := !canPoll() && setStreamWriteDeadline(s.inner, time.Now().Add(50*time.Millisecond))
 		nw, err := s.inner.Write(p[written:])
 		written += nw
+		if s.closed() {
+			return written, io.ErrClosedPipe
+		}
 		if deadlineSet {
 			_ = setStreamWriteDeadline(s.inner, time.Time{})
-		}
-		select {
-		case <-s.done:
-			return written, io.ErrClosedPipe
-		default:
 		}
 		if written == len(p) {
 			return written, nil
@@ -202,15 +205,10 @@ func (s *sessionWrap) Write(p []byte) (int, error) {
 func (s *sessionWrap) Close() error {
 	s.once.Do(func() {
 		close(s.done)
-		// Wake blocked I/O without permanently poisoning the shared stream.
-		setStreamReadDeadline(s.inner, time.Now().Add(time.Millisecond))
-		_ = setStreamWriteDeadline(s.inner, time.Now().Add(time.Millisecond))
-		// Transfer waits for Close to finish before allowing the next fork
-		// session to use this shared stream. Clear the deadlines synchronously
-		// so the next session cannot inherit an already-expired deadline.
-		time.Sleep(20 * time.Millisecond)
-		setStreamReadDeadline(s.inner, time.Time{})
-		_ = setStreamWriteDeadline(s.inner, time.Time{})
+		// Wake blocked I/O. The next serialized sessionWrap clears leftovers.
+		now := time.Now().Add(time.Millisecond)
+		setStreamReadDeadline(s.inner, now)
+		_ = setStreamWriteDeadline(s.inner, now)
 	})
 	return nil
 }
@@ -298,7 +296,9 @@ func pokeReadDeadline(s Stream) {
 	}
 	walkStreamCapabilities(s, func(value any) bool {
 		if _, ok := value.(*sessionWrap); ok {
-			// sessionWrap.Close sets and synchronously clears both deadlines.
+			// sessionWrap.Close pokes inner deadlines; the next serialized
+			// wrap clears leftovers at construction. Do not async-clear
+			// through this layer.
 			return true
 		}
 		d, ok := value.(interface{ SetReadDeadline(time.Time) error })
