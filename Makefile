@@ -1,4 +1,4 @@
-.PHONY: all build fmt fmt-check lint gosec test e2e check fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
+.PHONY: all build fmt fmt-check lint gosec test e2e e2e-cover coverage check fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -51,6 +51,29 @@ test: fmt-check
 
 e2e: build
 	go test $(GOFLAGS) -tags=e2e ./e2e/...
+
+# Unit coverage (not part of make check). CI uploads the profile and HTML.
+COVERMODE ?= atomic
+COVERAGE_UNIT ?= coverage.unit.out
+coverage: fmt-check
+	go test $(GOFLAGS) -covermode=$(COVERMODE) -coverprofile=$(COVERAGE_UNIT) ./...
+	./scripts/coverage-summary.sh $(COVERAGE_UNIT)
+
+# E2E coverage of the socat binary (go build -cover + GOCOVERDIR). This is how
+# to tell whether an e2e test actually reached the code it names: functions
+# that stay at 0.0% were never executed by the instrumented binary.
+COVERDIR ?= coverage/e2e
+COVERAGE_E2E ?= coverage.e2e.out
+e2e-cover:
+	rm -rf $(COVERDIR)
+	mkdir -p $(COVERDIR)
+	go build $(GOFLAGS) -cover -covermode=$(COVERMODE) -ldflags '$(LDFLAGS)' -o socat ./cmd/socat
+	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o filan ./cmd/filan
+	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o procan ./cmd/procan
+	GOCOVERDIR="$(CURDIR)/$(COVERDIR)" go test $(GOFLAGS) -tags=e2e ./e2e/...
+	go tool covdata percent -i="$(COVERDIR)"
+	go tool covdata textfmt -i="$(COVERDIR)" -o $(COVERAGE_E2E)
+	./scripts/coverage-summary.sh $(COVERAGE_E2E)
 
 # Complete pre-commit validation. Keep these recursive calls sequential so a
 # failure identifies the stage clearly even when the caller enables make -j.

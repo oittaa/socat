@@ -40,11 +40,25 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Unit tests
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && matrix.name != 'linux-amd64'
         run: make test
-      - name: Race tests
+      - name: Race tests with coverage
         if: matrix.name == 'linux-amd64'
-        run: go test -race ./...
+        run: |
+          make fmt-check
+          go test -race -covermode=atomic -coverprofile=coverage.unit.out ./...
+          go tool cover -func=coverage.unit.out | tee coverage.unit.txt
+          go tool cover -html=coverage.unit.out -o coverage.unit.html
+          ./scripts/coverage-summary.sh coverage.unit.out
+      - name: Upload unit coverage
+        if: matrix.name == 'linux-amd64' && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-coverage
+          path: |
+            coverage.unit.out
+            coverage.unit.txt
+            coverage.unit.html
       - name: Unit tests
         if: runner.os == 'Windows'
         # gofmt is Ubuntu-only (lint job). Windows checkouts are CRLF unless
@@ -79,8 +93,22 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: End-to-end tests with binary coverage
+        if: matrix.name == 'linux-amd64'
+        run: |
+          make e2e-cover
+          go tool cover -html=coverage.e2e.out -o coverage.e2e.html
+      - name: Upload e2e coverage
+        if: matrix.name == 'linux-amd64' && !cancelled()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-coverage
+          path: |
+            coverage.e2e.out
+            coverage.e2e.html
+            coverage/e2e
       - name: End-to-end tests
-        if: runner.os != 'Windows'
+        if: runner.os != 'Windows' && matrix.name != 'linux-amd64'
         run: make e2e
       - name: End-to-end tests
         if: runner.os == 'Windows'

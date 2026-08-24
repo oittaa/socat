@@ -115,7 +115,7 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 
 func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, version string) (net.Conn, error) {
 	// CONNECT host:port HTTP/1.x\r\n[auth]\r\n  (classic always CRLF)
-	req := fmt.Sprintf("CONNECT %s:%s HTTP/%s\r\n", connectHost, targetPort, version)
+	req := fmt.Sprintf("CONNECT %s HTTP/%s\r\n", net.JoinHostPort(connectHost, targetPort), version)
 	auth, err := proxyAuthHeader(s)
 	if err != nil {
 		return nil, err

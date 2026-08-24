@@ -283,23 +283,9 @@ func ApplyEscape(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	if v == "" {
 		return stream, nil
 	}
-	// Decimal, hex 0x.., or single char.
-	var esc byte
-	if strings.HasPrefix(v, "0x") || strings.HasPrefix(v, "0X") {
-		var n int
-		if _, err := fmt.Sscanf(v, "%x", &n); err != nil || n < 0 || n > 255 {
-			return nil, fmt.Errorf("escape: invalid value %q", v)
-		}
-		esc = byte(n)
-	} else if n, err := strconv.Atoi(v); err == nil {
-		if n < 0 || n > 255 {
-			return nil, fmt.Errorf("escape: invalid value %q", v)
-		}
-		esc = byte(n)
-	} else if len(v) == 1 {
-		esc = v[0]
-	} else {
-		return nil, fmt.Errorf("escape: invalid value %q", v)
+	esc, err := parseEscapeByte(v)
+	if err != nil {
+		return nil, err
 	}
 	return relay.FDStream{
 		R: &escapeReader{r: stream, esc: esc},
@@ -309,6 +295,29 @@ func ApplyEscape(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 			return stream.ShutdownWrite()
 		},
 	}, nil
+}
+
+// parseEscapeByte accepts classic escape values: decimal (27), hex with a 0x
+// prefix (0x1b), or a single character. strconv.ParseUint base 0 is required
+// for the hex form; fmt.Sscanf %x stops at the 'x' and would silently yield 0.
+func parseEscapeByte(v string) (byte, error) {
+	if strings.HasPrefix(v, "0x") || strings.HasPrefix(v, "0X") {
+		n, err := strconv.ParseUint(v, 0, 8)
+		if err != nil {
+			return 0, fmt.Errorf("escape: invalid value %q", v)
+		}
+		return byte(n), nil
+	}
+	if n, err := strconv.Atoi(v); err == nil {
+		if n < 0 || n > 255 {
+			return 0, fmt.Errorf("escape: invalid value %q", v)
+		}
+		return byte(n), nil
+	}
+	if len(v) == 1 {
+		return v[0], nil
+	}
+	return 0, fmt.Errorf("escape: invalid value %q", v)
 }
 
 // nullEOFReader treats a zero-length successful Read as EOF (classic null-eof).

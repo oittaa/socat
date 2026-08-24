@@ -39,8 +39,15 @@ func openSYSTEM(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opene
 }
 
 func openSHELL(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	// Classic: execl($SHELL, basename, [-c, command], NULL). No -i.
-	// Bash is interactive only if stdin and stderr are both ttys (or -i).
+	cmdStr := strings.Join(s.Params, ":")
+	hasCommand := len(s.Params) > 0 && s.Params[0] != ""
+	return startCmd(ctx, s, mode, g, shellCommand(ctx, s, cmdStr, hasCommand))
+}
+
+// shellCommand matches classic SHELL: execl($SHELL, basename, [-c, command], NULL).
+// nofork rebuilds the command in runExecNoFork, so this helper is the single
+// place that honors shell= and $SHELL.
+func shellCommand(ctx context.Context, s parse.Spec, cmdStr string, hasCommand bool) *exec.Cmd {
 	shell := s.OptionValue("shell", "")
 	if shell == "" {
 		shell = os.Getenv("SHELL")
@@ -49,16 +56,14 @@ func openSHELL(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened
 		shell = "/bin/sh"
 	}
 	argv0 := filepath.Base(shell)
-	cmdStr := strings.Join(s.Params, ":")
-	var cmd *exec.Cmd
-	if len(s.Params) == 0 || s.Params[0] == "" {
-		cmd = exec.CommandContext(ctx, shell) // #nosec G204 G702 -- EXEC/SYSTEM/SHELL runs the command from the address line
+	if !hasCommand {
+		cmd := exec.CommandContext(ctx, shell) // #nosec G204 G702 -- EXEC/SYSTEM/SHELL runs the command from the address line
 		cmd.Args = []string{argv0}
-	} else {
-		cmd = exec.CommandContext(ctx, shell, "-c", cmdStr) // #nosec G204 G702 -- EXEC/SYSTEM/SHELL runs the command from the address line
-		cmd.Args[0] = argv0
+		return cmd
 	}
-	return startCmd(ctx, s, mode, g, cmd)
+	cmd := exec.CommandContext(ctx, shell, "-c", cmdStr) // #nosec G204 G702 -- EXEC/SYSTEM/SHELL runs the command from the address line
+	cmd.Args[0] = argv0
+	return cmd
 }
 
 func startProcess(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmdStr string, useShell bool) (*Opened, error) {
@@ -123,16 +128,19 @@ func splitExecArgs(s string) []string {
 	return args
 }
 
-// runExecNoFork runs EXEC/SYSTEM with nofork on an already-open peer stream
+// runExecNoFork runs EXEC/SYSTEM/SHELL with nofork on an already-open peer stream
 // (classic: no relay — child inherits peer FDs as stdin/stdout).
 // mode is the EXEC address mode: RDWR (echo), Write (-u right), Read (-u left).
 func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Global, mode Mode) error {
 	cmdStr := strings.Join(s.Params, ":")
-	useShell := strings.EqualFold(s.Type, "SYSTEM") || strings.EqualFold(s.Type, "SHELL")
 	var cmd *exec.Cmd
-	if useShell {
+	switch {
+	case strings.EqualFold(s.Type, "SHELL"):
+		hasCommand := len(s.Params) > 0 && s.Params[0] != ""
+		cmd = shellCommand(ctx, s, cmdStr, hasCommand)
+	case strings.EqualFold(s.Type, "SYSTEM"):
 		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
-	} else {
+	default:
 		parts := splitExecArgs(cmdStr)
 		if len(parts) == 0 {
 			return fmt.Errorf("empty EXEC command")
