@@ -19,8 +19,10 @@ GOBIN="$(go env GOPATH)/bin"
 mkdir -p "$GOBIN"
 export GOBIN
 
-if command -v golangci-lint >/dev/null 2>&1 &&
-	golangci-lint version 2>&1 | grep -q "${GOLANGCI_LINT_VERSION#v}"; then
+# Guard on the GOBIN path directly (not `command -v`) so a warm boot skips the
+# reinstall even when the install shell's PATH lacks GOBIN.
+if [ -x "$GOBIN/golangci-lint" ] &&
+	"$GOBIN/golangci-lint" version 2>&1 | grep -q "${GOLANGCI_LINT_VERSION#v}"; then
 	echo "golangci-lint ${GOLANGCI_LINT_VERSION} already present"
 else
 	echo "installing golangci-lint ${GOLANGCI_LINT_VERSION}"
@@ -28,8 +30,8 @@ else
 fi
 
 # gosec built via `go install` reports its version as "dev", so guard on
-# presence only; the pinned version is fixed by the module query above.
-if command -v gosec >/dev/null 2>&1; then
+# presence only; the pinned version is fixed by the module query below.
+if [ -x "$GOBIN/gosec" ]; then
 	echo "gosec already present"
 else
 	echo "installing gosec ${GOSEC_VERSION}"
