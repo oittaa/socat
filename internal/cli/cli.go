@@ -488,6 +488,9 @@ func acquireLockFile(ctx context.Context, path string, wait bool, interval time.
 	if interval <= 0 {
 		interval = 100 * time.Millisecond
 	}
+	const transientRetryLimit = time.Second
+	contentionObserved := false
+	var transientSince time.Time
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -496,11 +499,21 @@ func acquireLockFile(ctx context.Context, path string, wait bool, interval time.
 		if err == nil {
 			return nil
 		}
-		if !errors.Is(err, fs.ErrExist) {
+		exists := errors.Is(err, fs.ErrExist)
+		transient := wait && contentionObserved && isTransientLockCreateError(err)
+		if !exists && !transient {
 			return err
 		}
 		if !wait {
 			return fmt.Errorf("lockfile %s exists", path)
+		}
+		if exists {
+			contentionObserved = true
+			transientSince = time.Time{}
+		} else if transientSince.IsZero() {
+			transientSince = time.Now()
+		} else if time.Since(transientSince) >= transientRetryLimit {
+			return err
 		}
 		timer := time.NewTimer(interval)
 		select {
