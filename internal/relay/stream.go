@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -98,87 +97,28 @@ func (s *closeSerialStream) ShutdownWrite() error {
 
 func (s *closeSerialStream) UnwrapStream() Stream { return s.Stream }
 
-// streamSession is the generation counter shared by sequential sessionWraps on
-// one reused stream (LISTEN,fork + end-close / FILE append). Each wrap
-// snapshots a generation at construction; a later wrap makes the previous wrap
-// stale so it cannot clear deadlines the next session installed.
-type streamSession struct {
-	gen atomic.Uint64
-}
-
-// sharedStream holds streamSession for sequential NoClose transfers. Callers
-// that reuse a stream across Transfer sessions must keep this wrapper.
-type sharedStream struct {
-	Stream
-	session *streamSession
-}
-
-func (s *sharedStream) UnwrapStream() Stream         { return s.Stream }
-func (s *sharedStream) UnwrapZeroCopyStream() Stream { return s.Stream }
-
-// ShareStream returns a stream that sequential NoClose session wraps can
-// coordinate through a generation counter. It is idempotent: wrapping an
-// already-shared stream is a no-op.
-func ShareStream(inner Stream) Stream {
-	if inner == nil {
-		return nil
-	}
-	if findSharedStream(inner) != nil {
-		return inner
-	}
-	return &sharedStream{Stream: inner, session: &streamSession{}}
-}
-
-func findSharedStream(inner Stream) *sharedStream {
-	var found *sharedStream
-	walkStreamCapabilities(inner, func(value any) bool {
-		s, ok := value.(*sharedStream)
-		if ok {
-			found = s
-		}
-		return ok
-	}, func(value any) []any {
-		return regularStreamChildren(value, streamBoth)
-	})
-	return found
-}
-
-func sessionOf(inner Stream) *streamSession {
-	if s := findSharedStream(inner); s != nil {
-		return s.session
-	}
-	return &streamSession{}
-}
-
 // sessionWrap decouples a transfer session from a shared underlying stream.
 // Close aborts this session and pokes a short deadline to wake blocked I/O.
-// The next session starts with a new generation and drops leftover deadlines
-// at construction, so Close does not sleep waiting for the poke to land.
+// It does not sleep or clear that poke: fork reuse is serialized (leftMu),
+// Transfer waits for the copies to finish, and the next wrap drops leftover
+// deadlines at construction.
 type sessionWrap struct {
-	inner   Stream
-	done    chan struct{}
-	once    sync.Once
-	session *streamSession
-	myGen   uint64
+	inner Stream
+	done  chan struct{}
+	once  sync.Once
 }
 
 func newSessionWrap(inner Stream) *sessionWrap {
-	inner = ShareStream(inner)
-	session := sessionOf(inner)
-	myGen := session.gen.Add(1)
-	// Drop leftover poke deadlines from the previous session before this one
-	// starts I/O or a caller installs timeout=.
+	// Drop leftover poke deadlines from the previous serialized session
+	// before this one starts I/O or a caller installs timeout=.
 	setStreamReadDeadline(inner, time.Time{})
 	_ = setStreamWriteDeadline(inner, time.Time{})
-	return &sessionWrap{inner: inner, done: make(chan struct{}), session: session, myGen: myGen}
+	return &sessionWrap{inner: inner, done: make(chan struct{})}
 }
 
 func (s *sessionWrap) UnwrapStream() Stream { return s.inner }
 
-func (s *sessionWrap) stale() bool {
-	if s.session.gen.Load() != s.myGen {
-		return true
-	}
+func (s *sessionWrap) closed() bool {
 	select {
 	case <-s.done:
 		return true
@@ -200,12 +140,12 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 		}
 	}
 	for {
-		if s.stale() {
+		if s.closed() {
 			return 0, io.EOF
 		}
 		if usePoll {
 			err := waitPollRead(fd, 50)
-			if s.stale() {
+			if s.closed() {
 				return 0, io.EOF
 			}
 			if err != nil {
@@ -218,8 +158,8 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 			setStreamReadDeadline(s.inner, time.Now().Add(50*time.Millisecond))
 		}
 		nr, err := s.inner.Read(p)
-		if s.stale() {
-			// Do not clear deadlines: the next session may already own them.
+		if s.closed() {
+			// Leave leftover poke/slice deadlines for the next serialized wrap.
 			return 0, io.EOF
 		}
 		if !usePoll {
@@ -238,7 +178,7 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 func (s *sessionWrap) Write(p []byte) (int, error) {
 	written := 0
 	for {
-		if s.stale() {
+		if s.closed() {
 			return written, io.ErrClosedPipe
 		}
 		// Windows has no poll path. Bound each write so Close can cancel a
@@ -246,7 +186,7 @@ func (s *sessionWrap) Write(p []byte) (int, error) {
 		deadlineSet := !canPoll() && setStreamWriteDeadline(s.inner, time.Now().Add(50*time.Millisecond))
 		nw, err := s.inner.Write(p[written:])
 		written += nw
-		if s.stale() {
+		if s.closed() {
 			return written, io.ErrClosedPipe
 		}
 		if deadlineSet {
@@ -265,9 +205,7 @@ func (s *sessionWrap) Write(p []byte) (int, error) {
 func (s *sessionWrap) Close() error {
 	s.once.Do(func() {
 		close(s.done)
-		// Wake blocked I/O without waiting for it to observe the poke. The
-		// next sessionWrap takes a new generation and clears leftover
-		// deadlines at construction; a stale wrap must not clear them.
+		// Wake blocked I/O. The next serialized sessionWrap clears leftovers.
 		now := time.Now().Add(time.Millisecond)
 		setStreamReadDeadline(s.inner, now)
 		_ = setStreamWriteDeadline(s.inner, now)
@@ -358,9 +296,9 @@ func pokeReadDeadline(s Stream) {
 	}
 	walkStreamCapabilities(s, func(value any) bool {
 		if _, ok := value.(*sessionWrap); ok {
-			// sessionWrap.Close pokes inner deadlines; generation + the next
-			// wrap's constructor drop leftovers. Do not async-clear through
-			// this layer (that would race the next session's timeout).
+			// sessionWrap.Close pokes inner deadlines; the next serialized
+			// wrap clears leftovers at construction. Do not async-clear
+			// through this layer.
 			return true
 		}
 		d, ok := value.(interface{ SetReadDeadline(time.Time) error })

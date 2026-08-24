@@ -126,7 +126,9 @@ func runConnectFork(ctx context.Context, lo *Opened, right parse.Channel, rMode 
 // runConnectForkWithLeft handles CONNECT,fork on the right address with left
 // already open (shared stream; sessions serialized).
 func runConnectForkWithLeft(ctx context.Context, left relay.Stream, ro *Opened, g *Global) error {
-	left = relay.ShareStream(left)
+	// Serialize sessions on the shared left stream. sessionWrap.Close pokes a
+	// short deadline and returns immediately; the next wrap, started only after
+	// Transfer returns, clears that leftover.
 	var leftMu sync.Mutex
 	return runConnectForkLoop(ctx, ro, g, func(cctx context.Context, cg *Global, c net.Conn) error {
 		right, err := streamFromDial(ro, c)
@@ -352,14 +354,14 @@ func needsForkSocketpair(lo *Opened) bool {
 
 func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 	ln := ro.Listener
-	// ShareStream keeps a generation counter across serialized fork sessions
-	// so sessionWrap.Close need not sleep to clear poke deadlines.
-	left := relay.ShareStream(lo.EffectiveStream())
+	left := lo.EffectiveStream()
 	// Shared left (e.g. FILE,o-append) must stay open across all fork children.
 	// Classic max-children + -U FILE:... LISTEN,fork appends each session in order.
 	// max-children applies to the listen address (right side here).
 	// Shared left stream (FILE append, EXEC end-close) cannot safely run concurrent
 	// bidirectional transfers on one FD pair — serialize accept sessions.
+	// sessionWrap.Close pokes a short deadline and returns immediately; the next
+	// wrap, started only after Transfer returns, clears that leftover.
 	var leftMu sync.Mutex
 	go func() {
 		<-ctx.Done()
