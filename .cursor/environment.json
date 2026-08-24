@@ -1,0 +1,4 @@
+{
+  "name": "socat (Go)",
+  "install": "./.cursor/install.sh"
+}
