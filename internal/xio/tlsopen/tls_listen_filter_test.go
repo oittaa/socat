@@ -1,0 +1,152 @@
+package tlsopen
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"net"
+	"strconv"
+	"testing"
+	"time"
+
+	"github.com/oittaa/socat/internal/logx"
+	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/testcert"
+	"github.com/oittaa/socat/internal/xio"
+)
+
+func TestTLSListenNonForkRetriesRejectedPeer(t *testing.T) {
+	certPath, err := testcert.WriteTempListenCert(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln0, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln0.Addr().(*net.TCPAddr).Port
+	_ = ln0.Close()
+
+	spec, err := parse.ParseSpec(
+		"TLS-LISTEN:" + strconv.Itoa(port) + ",reuseaddr,bind=127.0.0.1,verify=0,cert=" + certPath + ",range=127.0.0.1,accept-timeout=2",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := &xio.Global{Log: logx.New()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	type result struct {
+		o   *xio.Opened
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		o, err := openTLSListen(ctx, spec, xio.ModeRDWR, g)
+		done <- result{o, err}
+	}()
+	waitTCP4(t, port, 2*time.Second)
+
+	refuse := &net.Dialer{LocalAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 2)}}
+	raw, err := refuse.DialContext(ctx, "tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		t.Skipf("cannot bind 127.0.0.2: %v", err)
+	}
+	tc := tls.Client(raw, &tls.Config{InsecureSkipVerify: true})
+	_ = tc.Handshake()
+	_ = tc.Close()
+
+	raw, err = net.DialTimeout("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), time.Second)
+	if err != nil {
+		t.Fatalf("matching peer dial: %v", err)
+	}
+	ok := tls.Client(raw, &tls.Config{InsecureSkipVerify: true})
+	if err := ok.Handshake(); err != nil {
+		t.Fatalf("matching peer handshake: %v", err)
+	}
+
+	select {
+	case r := <-done:
+		if r.err != nil {
+			t.Fatalf("listen: %v", r.err)
+		}
+		t.Cleanup(func() {
+			_ = ok.Close()
+			if r.o != nil {
+				_ = r.o.Close()
+			}
+		})
+	case <-time.After(3 * time.Second):
+		t.Fatal("TLS-LISTEN did not accept the matching peer after a refusal")
+	}
+}
+
+func TestTLSListenNonForkKeepsAbsoluteAcceptTimeout(t *testing.T) {
+	certPath, err := testcert.WriteTempListenCert(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln0, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln0.Addr().(*net.TCPAddr).Port
+	_ = ln0.Close()
+
+	spec, err := parse.ParseSpec(
+		"TLS-LISTEN:" + strconv.Itoa(port) + ",reuseaddr,bind=127.0.0.1,verify=0,cert=" + certPath + ",range=127.0.0.1,accept-timeout=0.30",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := &xio.Global{Log: logx.New()}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	start := time.Now()
+	go func() {
+		_, err := openTLSListen(ctx, spec, xio.ModeRDWR, g)
+		errCh <- err
+	}()
+	waitTCP4(t, port, 2*time.Second)
+	time.Sleep(180 * time.Millisecond)
+
+	refuse := &net.Dialer{LocalAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 2)}}
+	if raw, err := refuse.DialContext(ctx, "tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port))); err == nil {
+		tc := tls.Client(raw, &tls.Config{InsecureSkipVerify: true})
+		_ = tc.Handshake()
+		_ = tc.Close()
+	} else {
+		t.Skipf("cannot bind 127.0.0.2: %v", err)
+	}
+
+	select {
+	case err := <-errCh:
+		elapsed := time.Since(start)
+		if !errors.Is(err, xio.ErrAcceptTimeout) {
+			t.Fatalf("error=%v want ErrAcceptTimeout after %s", err, elapsed)
+		}
+		if elapsed > 420*time.Millisecond {
+			t.Fatalf("accept-timeout took %s; deadline likely reset after the refused peer", elapsed)
+		}
+	case <-time.After(800 * time.Millisecond):
+		t.Fatal("TLS-LISTEN kept waiting after the original accept-timeout")
+	}
+}
+
+func waitTCP4(t *testing.T, port int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	for time.Now().Before(deadline) {
+		ln, err := net.Listen("tcp4", addr)
+		if err != nil {
+			return
+		}
+		_ = ln.Close()
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for TCP listen on %d", port)
+}

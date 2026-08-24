@@ -57,14 +57,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, fmt.Errorf("UDP-LISTEN requires port")
 	}
 	port := s.Params[0]
-	host := s.OptionValue("bind", "")
-	if host == "" {
-		if network == "udp6" {
-			host = "::"
-		} else {
-			host = "0.0.0.0"
-		}
-	}
+	host := xio.ListenBindHost(network, s.OptionValue("bind", ""))
 	laddr, err := net.ResolveUDPAddr(network, net.JoinHostPort(xio.StripBrackets(host), port))
 	if err != nil {
 		return nil, err
@@ -76,11 +69,10 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 
 	// fork: keep listening and spawn a session per first-packet "connection".
 	if s.BoolOption("fork") {
-		maxChildren := 0
-		if v := s.OptionValue("max-children", ""); v != "" {
-			if n, e := strconv.Atoi(v); e == nil && n > 0 {
-				maxChildren = n
-			}
+		_, maxChildren, ferr := xio.ForkLimits(s)
+		if ferr != nil {
+			logx.CloseQuiet(pc)
+			return nil, ferr
 		}
 		ln := &udpForkListener{
 			pc:            pc,
@@ -98,6 +90,9 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			Label:       "UDP-LISTEN",
 			MaxChildren: maxChildren,
 			PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
+			WrapDial: func(c net.Conn) (relay.Stream, error) {
+				return xio.WrapCommon(s, relay.NetStream{Conn: c})
+			},
 		}, nil
 	}
 	timeoutSet, err := applyUDPAcceptTimeout(pc, s)
@@ -273,14 +268,13 @@ func dialUDPSession(network string, local, remote *net.UDPAddr) (*net.UDPConn, e
 // udpSessionConn is one UDP "connection" for fork children.
 // Do NOT embed *net.UDPConn: poll would wait for POLLIN while the first
 // datagram is only in first[] (already consumed from the listen socket).
+// Accept always dials a connected child socket; there is no shared-parent path.
 type udpSessionConn struct {
-	conn   *net.UDPConn // connected child socket (preferred)
-	pc     *net.UDPConn // shared parent when conn is nil
-	peer   *net.UDPAddr
-	first  []byte
-	got    bool
-	shared bool
-	env    map[string]string
+	conn  *net.UDPConn
+	peer  *net.UDPAddr
+	first []byte
+	got   bool
+	env   map[string]string
 }
 
 func (u *udpSessionConn) SessionEnvironment() map[string]string { return u.env }
@@ -295,61 +289,29 @@ func (u *udpSessionConn) Read(p []byte) (int, error) {
 		}
 		return n, nil
 	}
-	if u.conn != nil {
-		return u.conn.Read(p)
-	}
-	for {
-		n, addr, err := u.pc.ReadFromUDP(p)
-		if err != nil {
-			return n, err
-		}
-		if u.peer != nil && addr != nil && addr.String() == u.peer.String() {
-			return n, nil
-		}
-	}
+	return u.conn.Read(p)
 }
 
 func (u *udpSessionConn) Write(p []byte) (int, error) {
-	if u.conn != nil {
-		return u.conn.Write(p)
-	}
-	return u.pc.WriteToUDP(p, u.peer)
+	return u.conn.Write(p)
 }
 
 func (u *udpSessionConn) Close() error {
-	if u.shared {
-		return nil // parent owns listen socket
-	}
-	if u.conn != nil {
-		return u.conn.Close()
-	}
-	return nil
+	return u.conn.Close()
 }
 
 func (u *udpSessionConn) LocalAddr() net.Addr {
-	if u.conn != nil {
-		return u.conn.LocalAddr()
-	}
-	return u.pc.LocalAddr()
+	return u.conn.LocalAddr()
 }
 func (u *udpSessionConn) RemoteAddr() net.Addr { return u.peer }
 func (u *udpSessionConn) SetDeadline(t time.Time) error {
-	if u.conn != nil {
-		return u.conn.SetDeadline(t)
-	}
-	return nil
+	return u.conn.SetDeadline(t)
 }
 func (u *udpSessionConn) SetReadDeadline(t time.Time) error {
-	if u.conn != nil {
-		return u.conn.SetReadDeadline(t)
-	}
-	return nil
+	return u.conn.SetReadDeadline(t)
 }
 func (u *udpSessionConn) SetWriteDeadline(t time.Time) error {
-	if u.conn != nil {
-		return u.conn.SetWriteDeadline(t)
-	}
-	return nil
+	return u.conn.SetWriteDeadline(t)
 }
 
 // udpPeerConn is a minimal net.Conn exposing only RemoteAddr for peer filters.

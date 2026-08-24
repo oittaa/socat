@@ -38,13 +38,7 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	bind := s.OptionValue("bind", "")
 	sp := s.OptionValue("sourceport", "")
 	if bind != "" || sp != "" {
-		if bind == "" {
-			if network == "udp6" {
-				bind = "::"
-			} else {
-				bind = "0.0.0.0"
-			}
-		}
+		bind = xio.ListenBindHost(network, bind)
 		if sp == "" {
 			sp = "0"
 		}

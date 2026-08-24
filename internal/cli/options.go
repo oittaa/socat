@@ -204,6 +204,19 @@ func validateInteger(min int64) func(parse.Option) error {
 	}
 }
 
+// validateSizeT matches classic TYPE_SIZE_T: base-0 parse, zero allowed.
+func validateSizeT(option parse.Option) error {
+	value, err := requiredOptionValue(option)
+	if err != nil {
+		return err
+	}
+	n, err := strconv.ParseInt(value, 0, 64)
+	if err != nil || n < 0 {
+		return fmt.Errorf("invalid %s %q", option.Name, value)
+	}
+	return nil
+}
+
 func validateOptionalInteger(min int64) func(parse.Option) error {
 	return func(option parse.Option) error {
 		if !option.Has {
@@ -452,7 +465,7 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "crorlf", desc: "convert CR or LF"},
 			{name: "ignoreeof", desc: "do not close on EOF", aliases: []string{"ignoreof"}},
 			{name: "null-eof", desc: "treat a zero-length read as EOF"},
-			{name: "readbytes", desc: "read at most N bytes", validate: validateInteger(0)},
+			{name: "readbytes", desc: "read at most N bytes", validate: validateSizeT},
 		}},
 		{"TLS, WSS, and QUIC", []helpOpt{
 			{name: "cert", desc: "certificate file (PEM); required on listen", addressTypes: tlsAddressTypes()},

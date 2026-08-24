@@ -20,15 +20,19 @@ func openOPEN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 	}
 	path := s.Params[0]
 	flags := OpenFlags(s, mode)
+	perm, err := xio.ParseFileMode(s, xio.DefaultCreateMode)
+	if err != nil {
+		return nil, err
+	}
 	var f *os.File
-	err := xio.WithUmask(s, func() error {
+	err = xio.WithUmask(s, func() error {
 		var e error
-		f, e = os.OpenFile(path, flags, xio.ParseFileMode(s, 0o644)) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+		f, e = os.OpenFile(path, flags, perm) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 		return e
 	})
 	if err != nil {
 		// Classic format for RECVFROM_FORK_LOOP: `E open("path", …): …`
-		return nil, fmt.Errorf("open(%q, %02o, %04o): %w", path, flags, xio.ParseFileMode(s, 0o666), err)
+		return nil, fmt.Errorf("open(%q, %02o, %04o): %w", path, flags, perm, err)
 	}
 	if s.HasOption("ftruncate") || s.HasOption("trunc") {
 		// ftruncate=N or trunc flag after open
@@ -64,10 +68,14 @@ func openCREATE(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	if s.BoolOption("append") {
 		flags = os.O_WRONLY | os.O_CREATE | os.O_APPEND
 	}
+	perm, err := xio.ParseFileMode(s, xio.DefaultCreateMode)
+	if err != nil {
+		return nil, err
+	}
 	var f *os.File
-	err := xio.WithUmask(s, func() error {
+	err = xio.WithUmask(s, func() error {
 		var e error
-		f, e = os.OpenFile(path, flags, xio.ParseFileMode(s, 0o644)) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+		f, e = os.OpenFile(path, flags, perm) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 		return e
 	})
 	if err != nil {
@@ -93,9 +101,13 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 				flags = os.O_WRONLY | os.O_CREATE
 			}
 			var f *os.File
+			perm, perr := xio.ParseFileMode(s, xio.DefaultCreateMode)
+			if perr != nil {
+				return nil, perr
+			}
 			err := xio.WithUmask(s, func() error {
 				var e error
-				f, e = os.OpenFile(path, flags, xio.ParseFileMode(s, 0o644)) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+				f, e = os.OpenFile(path, flags, perm) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 				return e
 			})
 			if err != nil {
@@ -135,7 +147,11 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 		}
 	}
 	// Apply cfmakeraw etc. after open for PTY/tty devices.
-	f, err := os.OpenFile(path, flags, xio.ParseFileMode(s, 0o644)) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+	perm, err := xio.ParseFileMode(s, xio.DefaultCreateMode)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, flags, perm) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 	if err != nil {
 		return nil, err
 	}
@@ -181,7 +197,11 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 	created := false
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		err := xio.WithUmask(s, func() error {
-			return mkfifo(path, uint32(xio.ParseFileMode(s, 0o644)))
+			perm, perr := xio.ParseFileMode(s, xio.DefaultCreateMode)
+			if perr != nil {
+				return perr
+			}
+			return mkfifo(path, uint32(perm))
 		})
 		if err != nil {
 			return nil, fmt.Errorf("mkfifo %s: %w", path, err)

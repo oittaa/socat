@@ -464,40 +464,50 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 	return relay.Transfer(ctx, left, right, cfg)
 }
 
-// Apply common file mode from options (octal string).
-// Classic accepts both perm= and mode= (TYPE_MODET, octal).
-func ParseFileMode(s parse.Spec, def os.FileMode) os.FileMode {
-	if m, ok := explicitFileMode(s); ok {
-		return m
+// DefaultCreateMode is classic open/creat/mkfifo mode (0666 before umask).
+const DefaultCreateMode os.FileMode = 0o666
+
+// ParseFileMode applies perm= or mode= (octal, classic TYPE_MODET), else def.
+func ParseFileMode(s parse.Spec, def os.FileMode) (os.FileMode, error) {
+	m, ok, err := explicitFileMode(s)
+	if err != nil {
+		return 0, err
 	}
-	return def
+	if ok {
+		return m, nil
+	}
+	return def, nil
 }
 
 // explicitFileMode returns perm= or mode= when set (octal, classic TYPE_MODET).
-func explicitFileMode(s parse.Spec) (os.FileMode, bool) {
+func explicitFileMode(s parse.Spec) (os.FileMode, bool, error) {
+	name := "perm"
 	v := s.OptionValue("perm", "")
 	if v == "" {
+		name = "mode"
 		v = s.OptionValue("mode", "")
 	}
 	if v == "" {
-		return 0, false
+		return 0, false, nil
 	}
-	// Prefer pure octal (perm=511, mode=644); allow 0-prefix.
 	m, err := strconv.ParseUint(v, 8, 32)
 	if err != nil {
 		var m2 uint64
 		if _, e := fmt.Sscanf(v, "%o", &m2); e != nil {
-			return 0, false
+			return 0, false, fmt.Errorf("invalid %s %q", name, v)
 		}
 		m = m2
 	}
-	return os.FileMode(m), true
+	return os.FileMode(m), true, nil
 }
 
 // ApplyPerm sets exact permissions after create/open (classic fchmod/chmod).
 // Open create modes are still masked by umask; perm= forces the final mode.
 func ApplyPerm(path string, s parse.Spec, f *os.File) error {
-	mode, ok := explicitFileMode(s)
+	mode, ok, err := explicitFileMode(s)
+	if err != nil {
+		return err
+	}
 	if !ok {
 		return nil
 	}

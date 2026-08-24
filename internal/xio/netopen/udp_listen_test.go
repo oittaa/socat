@@ -106,6 +106,39 @@ func TestUDPForkListenerSurvivesReceiveTimeout(t *testing.T) {
 	}
 }
 
+func TestUDP4BindIPv6WildcardNormalizes(t *testing.T) {
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		spec string
+		open func(context.Context, parse.Spec, xio.Mode, *xio.Global) (*xio.Opened, error)
+	}{
+		{name: "listen", spec: "UDP4-LISTEN:0,bind=::,reuseaddr,accept-timeout=0.05", open: openUDP4Listen},
+		{name: "recvfrom", spec: "UDP4-RECVFROM:0,bind=::,reuseaddr,accept-timeout=0.05", open: openUDP4Recvfrom},
+		{name: "sendto", spec: "UDP4-SENDTO:127.0.0.1:9,bind=::", open: openUDP4Sendto},
+		{name: "connect", spec: "UDP4:127.0.0.1:9,bind=::", open: openUDP4Connect},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			o, err := tc.open(ctx, spec, xio.ModeRDWR, g)
+			if tc.name == "listen" || tc.name == "recvfrom" {
+				if !errors.Is(err, xio.ErrAcceptTimeout) {
+					t.Fatalf("error=%v want ErrAcceptTimeout (bind=:: should normalize to 0.0.0.0)", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("open with bind=::: %v", err)
+			}
+			t.Cleanup(func() { _ = o.Close() })
+		})
+	}
+}
+
 func TestUDPForkListenerAcceptTimeoutAborts(t *testing.T) {
 	spec, err := parse.ParseSpec("UDP4-RECVFROM:0,fork")
 	if err != nil {
