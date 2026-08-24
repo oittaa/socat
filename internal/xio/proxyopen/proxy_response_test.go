@@ -77,3 +77,45 @@ func testOversizedProxyResponse(t *testing.T, response string) {
 		t.Fatal("proxy server goroutine did not exit")
 	}
 }
+
+func TestProxyHTTP1ConnectTarget(t *testing.T) {
+	tests := []struct {
+		name        string
+		connectHost string
+		port        string
+		want        string
+	}{
+		{name: "ipv4", connectHost: "192.0.2.1", port: "443", want: "CONNECT 192.0.2.1:443 HTTP/1.0\r\n"},
+		{name: "ipv6", connectHost: "2001:db8::1", port: "443", want: "CONNECT [2001:db8::1]:443 HTTP/1.0\r\n"},
+		{name: "hostname", connectHost: "example.com", port: "80", want: "CONNECT example.com:80 HTTP/1.0\r\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			client, server := net.Pipe()
+			defer func() { _ = client.Close() }()
+			defer func() { _ = server.Close() }()
+			gotCh := make(chan string, 1)
+			go func() {
+				br := bufio.NewReader(server)
+				line, err := br.ReadString('\n')
+				if err != nil {
+					gotCh <- err.Error()
+					return
+				}
+				gotCh <- line
+				_, _ = br.ReadString('\n')
+				_, _ = server.Write([]byte("HTTP/1.0 200 OK\r\n\r\n"))
+			}()
+			s, err := parse.ParseSpec("PROXY:proxy.example:target.example:443")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := proxyHTTP1Handshake(client, s, tc.connectHost, tc.port, "1.0"); err != nil {
+				t.Fatal(err)
+			}
+			if got := <-gotCh; got != tc.want {
+				t.Fatalf("request line=%q want %q", got, tc.want)
+			}
+		})
+	}
+}
