@@ -244,7 +244,7 @@ make lint          # gofmt, go vet, golangci-lint, gosec
 Per-commit CI runs lint, gosec, unit tests, and e2e on Linux amd64/arm64,
 macOS, and Windows amd64/arm64. linux-amd64 uploads unit and e2e coverage
 to [Codecov](https://codecov.io/gh/oittaa/socat) (file-level reports and
-PR comments) and as HTML artifacts. A weekly workflow additionally runs
+PR comments) when `CODECOV_TOKEN` is set, and as HTML artifacts. A weekly workflow additionally runs
 native fuzz campaigns and the live relay matrix, and can be dispatched
 manually.
 
