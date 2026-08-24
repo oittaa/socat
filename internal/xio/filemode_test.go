@@ -38,7 +38,14 @@ func TestParseFileModeDefaultAndExplicit(t *testing.T) {
 }
 
 func TestParseFileModeRejectsInvalidOctal(t *testing.T) {
-	for _, opt := range []string{"perm=xyz", "mode=xyz", "perm=abc"} {
+	for _, opt := range []string{
+		"perm=xyz",
+		"mode=xyz",
+		"perm=abc",
+		"perm=644junk",
+		"perm=10000",
+		"mode=8",
+	} {
 		spec, err := parse.ParseSpec("CREATE:file," + opt)
 		if err != nil {
 			t.Fatal(err)
@@ -50,5 +57,17 @@ func TestParseFileModeRejectsInvalidOctal(t *testing.T) {
 		if !strings.Contains(err.Error(), "invalid") {
 			t.Fatalf("%s: error %v", opt, err)
 		}
+	}
+
+	ok, err := parse.ParseSpec("CREATE:file,perm=7777")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := ParseFileMode(ok, DefaultCreateMode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m != 0o7777 {
+		t.Fatalf("perm=7777 mode=%#o", m)
 	}
 }

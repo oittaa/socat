@@ -491,12 +491,8 @@ func explicitFileMode(s parse.Spec) (os.FileMode, bool, error) {
 		return 0, false, nil
 	}
 	m, err := strconv.ParseUint(v, 8, 32)
-	if err != nil {
-		var m2 uint64
-		if _, e := fmt.Sscanf(v, "%o", &m2); e != nil {
-			return 0, false, fmt.Errorf("invalid %s %q", name, v)
-		}
-		m = m2
+	if err != nil || m > 0o7777 {
+		return 0, false, fmt.Errorf("invalid %s %q", name, v)
 	}
 	return os.FileMode(m), true, nil
 }
