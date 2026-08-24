@@ -120,3 +120,59 @@ func TestSOCKSUserEnvironmentFallback(t *testing.T) {
 		t.Fatalf("default=%q", got)
 	}
 }
+
+func TestSOCKS5AuthMethods(t *testing.T) {
+	if got := socks5AuthMethods("", ""); len(got) != 1 || got[0] != 0 {
+		t.Fatalf("no credentials: %v want [0]", got)
+	}
+	if got := socks5AuthMethods("user", ""); len(got) != 1 || got[0] != 2 {
+		t.Fatalf("user only: %v want [2]", got)
+	}
+	if got := socks5AuthMethods("user", "pass"); len(got) != 1 || got[0] != 2 {
+		t.Fatalf("user and pass: %v want [2]", got)
+	}
+	if got := socks5AuthMethods("", "pass"); len(got) != 1 || got[0] != 2 {
+		t.Fatalf("pass only: %v want [2]", got)
+	}
+}
+
+func TestSOCKS5ConnectWithCredentialsDoesNotOfferNoAuth(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	helloCh := make(chan []byte, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			helloCh <- nil
+			return
+		}
+		defer func() { _ = c.Close() }()
+		hdr := make([]byte, 2)
+		if _, err := io.ReadFull(c, hdr); err != nil {
+			helloCh <- nil
+			return
+		}
+		methods := make([]byte, int(hdr[1]))
+		if _, err := io.ReadFull(c, methods); err != nil {
+			helloCh <- nil
+			return
+		}
+		helloCh <- append(append([]byte{}, hdr...), methods...)
+		_, _ = c.Write([]byte{5, 0xff})
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+	s, err := parse.ParseSpec("SOCKS5-CONNECT:127.0.0.1:127.0.0.1:80,socksuser=u,sockspass=p,socksport=" + strconv.Itoa(port) + ",pf=ip4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _ = openSOCKS5Connect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	hello := <-helloCh
+	if len(hello) != 3 || hello[0] != 5 || hello[1] != 1 || hello[2] != 2 {
+		t.Fatalf("hello=%x want 05 01 02 (username/password only)", hello)
+	}
+}

@@ -263,16 +263,23 @@ func socksParams(s parse.Spec) (socksHost, socksPort, targetHost, targetPort str
 	return "", "", "", "", fmt.Errorf("%s requires socks-server, host, and port", s.Type)
 }
 
+// socks5AuthMethods is the RFC 1928 method list. Credentials mean the client
+// asked to authenticate, so offer only username/password (method 2). Offering
+// no-auth (method 0) as well would let the server skip the password.
+func socks5AuthMethods(user, pass string) []byte {
+	if user != "" || pass != "" {
+		return []byte{2}
+	}
+	return []byte{0}
+}
+
 func socks5Handshake(c net.Conn, cmd byte, user, pass string, atyp byte, addrBytes []byte, portNum int) (err error) {
 	defer func() {
 		if err != nil {
 			logx.CloseQuiet(c)
 		}
 	}()
-	methods := []byte{0}
-	if user != "" {
-		methods = []byte{0, 2}
-	}
+	methods := socks5AuthMethods(user, pass)
 	nmethod, ok := xio.Uint8FromInt(len(methods))
 	if !ok {
 		return fmt.Errorf("socks5: too many auth methods")
