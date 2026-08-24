@@ -168,10 +168,14 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	if err != nil {
 		return nil, err
 	}
-	user := s.OptionValue("socksuser", "")
-	pass := s.OptionValue("sockspass", "")
-	if pass == "" {
-		pass = s.OptionValue("sockspassword", "")
+	user, pass, offerUserPass := socks5Credentials(s)
+	if offerUserPass && g != nil && g.Log != nil {
+		if !s.HasOption("socksuser") {
+			g.Log.Warningf("SOCKS5 password without username, falling back to \"anonymous\"")
+		}
+		if !s.HasOption("sockspass") && !s.HasOption("sockspassword") {
+			g.Log.Warningf("SOCKS5 username without password")
+		}
 	}
 
 	portNum, err := xio.ResolvePortNum("tcp", targetPort)
@@ -215,7 +219,7 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 				return e
 			}
 			if e := xio.WithHandshakeDeadline(c, handshakeTimeout, func() error {
-				return socks5Handshake(c, cmd, user, pass, atyp, addrBytes, portNum)
+				return socks5Handshake(c, cmd, user, pass, offerUserPass, atyp, addrBytes, portNum)
 			}); e != nil {
 				return e
 			}
@@ -263,23 +267,48 @@ func socksParams(s parse.Spec) (socksHost, socksPort, targetHost, targetPort str
 	return "", "", "", "", fmt.Errorf("%s requires socks-server, host, and port", s.Type)
 }
 
-// socks5AuthMethods is the RFC 1928 method list. Credentials mean the client
-// asked to authenticate, so offer only username/password (method 2). Offering
-// no-auth (method 0) as well would let the server skip the password.
-func socks5AuthMethods(user, pass string) []byte {
-	if user != "" || pass != "" {
-		return []byte{2}
+// socks5Credentials matches classic xio-socks5.c: if either socksuser or
+// sockspass is present, offer username/password in addition to no-auth.
+// sockspass without socksuser falls back to user "anonymous"; socksuser
+// without sockspass uses an empty password.
+func socks5Credentials(s parse.Spec) (user, pass string, offerUserPass bool) {
+	hasUser := s.HasOption("socksuser")
+	hasPass := s.HasOption("sockspass") || s.HasOption("sockspassword")
+	if !hasUser && !hasPass {
+		return "", "", false
+	}
+	if hasUser {
+		user = s.OptionValue("socksuser", "")
+	} else {
+		user = "anonymous"
+	}
+	if hasPass {
+		pass = s.OptionValue("sockspass", "")
+		if pass == "" {
+			pass = s.OptionValue("sockspassword", "")
+		}
+	}
+	return user, pass, true
+}
+
+// socks5AuthMethods is the RFC 1928 method list. Classic always offers
+// no-auth (method 0) and, when credentials options are set, also username/
+// password (method 2): 05 02 00 02. Do not drop method 0; classic test 604
+// (SOCKS5_USER_PASS / socks5server-auth.sh) requires that greeting.
+func socks5AuthMethods(offerUserPass bool) []byte {
+	if offerUserPass {
+		return []byte{0, 2}
 	}
 	return []byte{0}
 }
 
-func socks5Handshake(c net.Conn, cmd byte, user, pass string, atyp byte, addrBytes []byte, portNum int) (err error) {
+func socks5Handshake(c net.Conn, cmd byte, user, pass string, offerUserPass bool, atyp byte, addrBytes []byte, portNum int) (err error) {
 	defer func() {
 		if err != nil {
 			logx.CloseQuiet(c)
 		}
 	}()
-	methods := socks5AuthMethods(user, pass)
+	methods := socks5AuthMethods(offerUserPass)
 	nmethod, ok := xio.Uint8FromInt(len(methods))
 	if !ok {
 		return fmt.Errorf("socks5: too many auth methods")
@@ -296,9 +325,10 @@ func socks5Handshake(c net.Conn, cmd byte, user, pass string, atyp byte, addrByt
 	}
 	switch hello[1] {
 	case 0:
+		// Classic accepts no-auth even when it also offered method 2.
 	case 2:
-		if user == "" {
-			return fmt.Errorf("socks5: server requires username/password")
+		if !offerUserPass {
+			return fmt.Errorf("socks5: authentication with SOCKS5 server failed")
 		}
 		ulen, uok := xio.Uint8FromInt(len(user))
 		plen, pok := xio.Uint8FromInt(len(pass))
