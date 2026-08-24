@@ -273,13 +273,12 @@ func TestFileCreate(t *testing.T) {
 	}
 }
 
-// Dual address stdin!!stdout
+// Dual address stdin!!stdout. The !! form must be the command that actually
+// runs: an earlier version built this argv and then overwrote it with STDIN.
 func TestDualStdio(t *testing.T) {
 	bin := socatBin(t)
 	payload := "dual\n"
 	cmd := exec.Command(bin, "-u", "STDIN!!STDOUT", "STDOUT")
-	// simpler: STDIN to CREATE via dual not needed
-	cmd = exec.Command(bin, "-u", "STDIN", "STDOUT")
 	cmd.Stdin = bytes.NewBufferString(payload)
 	out, err := cmd.Output()
 	if err != nil {
