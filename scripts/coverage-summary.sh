@@ -24,7 +24,7 @@ echo "=== functions at 0.0% ($zero_count) ==="
 if [ -z "$zero" ]; then
 	echo "(none)"
 else
-	printf '%s\n' "$zero" | head -n 80
+	printf '%s\n' "$zero" | awk 'NR<=80 { print }'
 	if [ "$zero_count" -gt 80 ]; then
 		echo "... truncated ($zero_count total)"
 	fi
@@ -42,7 +42,7 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
 		if [ -z "$zero" ]; then
 			echo "(none)"
 		else
-			printf '%s\n' "$zero" | head -n 80
+			printf '%s\n' "$zero" | awk 'NR<=80 { print }'
 			if [ "$zero_count" -gt 80 ]; then
 				echo "... truncated ($zero_count total)"
 			fi

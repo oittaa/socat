@@ -65,6 +65,7 @@ coverage: fmt-check
 COVERDIR ?= coverage/e2e
 COVERAGE_E2E ?= coverage.e2e.out
 e2e-cover:
+	rm -rf $(COVERDIR)
 	mkdir -p $(COVERDIR)
 	go build $(GOFLAGS) -cover -covermode=$(COVERMODE) -ldflags '$(LDFLAGS)' -o socat ./cmd/socat
 	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o filan ./cmd/filan
