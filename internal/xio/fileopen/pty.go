@@ -102,15 +102,7 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 		}
 	}
 	// Classic perm=/user= on PTY applies to the slave node (stat -L follows link).
-	if err := xio.ApplyPerm(slaveName, s, slave); err != nil {
-		_ = master.Close()
-		_ = slave.Close()
-		if link != "" {
-			_ = os.Remove(link)
-		}
-		return nil, err
-	}
-	if err := xio.ApplyOwner(slaveName, s, slave); err != nil {
+	if err := xio.ApplyNamedAttrs(slaveName, s, slave); err != nil {
 		_ = master.Close()
 		_ = slave.Close()
 		if link != "" {

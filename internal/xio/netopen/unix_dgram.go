@@ -30,23 +30,24 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 	raddr := &net.UnixAddr{Name: remote, Net: "unixgram"}
 
 	var c *net.UnixConn
+	bound := ""
 	if bindPath != "" {
-		bp := unixAddr(bindPath)
+		bound = unixAddr(bindPath)
 		// Client bind for SENDTO / UNIX dgram: remove stale path (classic creates
 		// a fresh local name). Do not follow a symlink target (TEMPNAME_SEC):
 		// if bp is a symlink, Leave it and let bind fail with EADDRINUSE.
-		if !xio.IsAbstract(bp) {
-			if fi, e := os.Lstat(bp); e == nil && fi.Mode()&os.ModeSymlink == 0 {
-				_ = os.Remove(bp)
+		if !xio.IsAbstract(bound) {
+			if fi, e := os.Lstat(bound); e == nil && fi.Mode()&os.ModeSymlink == 0 {
+				_ = os.Remove(bound)
 			} else if os.IsNotExist(e) {
 				// ok
 			} else if e == nil && fi.Mode()&os.ModeSymlink != 0 {
 				// symlink: do not remove (security); bind will fail
 			} else if s.BoolOption("unlink-early") {
-				_ = os.Remove(bp)
+				_ = os.Remove(bound)
 			}
 		}
-		laddr := &net.UnixAddr{Name: bp, Net: "unixgram"}
+		laddr := &net.UnixAddr{Name: bound, Net: "unixgram"}
 		c, err = net.ListenUnixgram("unixgram", laddr)
 	} else {
 		// Unbound unixgram: DialUnix without local name (kernel assigns ephemeral).
@@ -74,25 +75,19 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 	if err != nil {
 		return nil, err
 	}
+	life := trackUnixBind(bound, s)
 	if err := applyUnixgramSocketOptions(c, s); err != nil {
-		logx.CloseQuiet(c)
+		life.drop(c)
 		return nil, err
 	}
 	st := &unixgramConn{UnixConn: c, raddr: raddr}
 	wrapped, err := xio.WrapCommon(s, st)
 	if err != nil {
-		logx.CloseQuiet(c)
+		life.drop(c)
 		return nil, err
 	}
 	o := &xio.Opened{Stream: wrapped, Label: "UNIX-SENDTO:" + remote}
-	// Classic default unlink-close=1 for bound unix dgram paths.
-	if bindPath != "" {
-		bp := unixAddr(bindPath)
-		doUnlink := !s.HasOption("unlink-close") || s.BoolOption("unlink-close")
-		if doUnlink && !xio.IsAbstract(bp) {
-			o.AddCleanup(func() { _ = os.Remove(bp) })
-		}
-	}
+	life.attach(o)
 	_ = ctx
 	_ = mode
 	_ = g
@@ -151,25 +146,13 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	if err != nil {
 		return nil, err
 	}
+	life := trackUnixBind(path, s)
 	if err := applyUnixgramSocketOptions(c, s); err != nil {
-		logx.CloseQuiet(c)
-		if !xio.IsAbstract(path) {
-			_ = os.Remove(path)
-		}
+		life.drop(c)
 		return nil, err
 	}
-	if err := xio.ApplyPerm(path, s, nil); err != nil {
-		_ = c.Close()
-		if !xio.IsAbstract(path) {
-			_ = os.Remove(path)
-		}
-		return nil, err
-	}
-	if err := xio.ApplyOwner(path, s, nil); err != nil {
-		_ = c.Close()
-		if !xio.IsAbstract(path) {
-			_ = os.Remove(path)
-		}
+	if err := xio.ApplyNamedAttrs(path, s, nil); err != nil {
+		life.drop(c)
 		return nil, err
 	}
 	label := s.Type + ":" + path
@@ -177,13 +160,13 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		ln := &unixgramListener{c: c, path: path, spec: s, g: g, ctx: ctx}
 		d, terr := xio.RecvTimeoutFromSpec(s)
 		if terr != nil {
-			logx.CloseQuiet(ln)
+			life.drop(ln)
 			return nil, terr
 		}
 		ln.rcvTimeout = d
 		_, maxChildren, ferr := xio.ForkLimits(s)
 		if ferr != nil {
-			logx.CloseQuiet(ln)
+			life.drop(ln)
 			return nil, ferr
 		}
 		o := &xio.Opened{
@@ -195,16 +178,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				return xio.WrapCommon(s, relay.NetStream{Conn: conn})
 			},
 		}
-		if !xio.IsAbstract(path) && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close")) {
-			unregister := xio.RegisterUnlinkPath(path)
-			o.AddCleanup(func() {
-				unregister()
-				logx.CloseQuiet(ln)
-				_ = os.Remove(path)
-			})
-		} else {
-			o.AddCleanup(func() { logx.CloseQuiet(ln) })
-		}
+		life.attach(o)
 		_ = mode
 		return o, nil
 	}
@@ -212,29 +186,17 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	if from {
 		first, peer, err := waitUnixRecvfromPacket(ctx, c, g)
 		if err != nil {
-			logx.CloseQuiet(c)
-			if !xio.IsAbstract(path) {
-				_ = os.Remove(path)
-			}
+			life.drop(c)
 			return nil, err
 		}
 		st := relay.Stream(&unixRecvStream{c: c, from: true, peer: peer, first: first, firstEOF: true})
 		wrapped, err := xio.WrapCommon(s, st)
 		if err != nil {
-			logx.CloseQuiet(c)
+			life.drop(c)
 			return nil, err
 		}
 		o := &xio.Opened{Stream: wrapped, Label: label}
-		if !xio.IsAbstract(path) && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close")) {
-			unregister := xio.RegisterUnlinkPath(path)
-			o.AddCleanup(func() {
-				unregister()
-				logx.CloseQuiet(c)
-				_ = os.Remove(path)
-			})
-		} else {
-			o.AddCleanup(func() { logx.CloseQuiet(c) })
-		}
+		life.attach(o)
 		_ = mode
 		return o, nil
 	}
@@ -242,20 +204,11 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	st := &unixRecvStream{c: c, from: from}
 	wrapped, err := xio.WrapCommon(s, st)
 	if err != nil {
-		logx.CloseQuiet(c)
+		life.drop(c)
 		return nil, err
 	}
 	o := &xio.Opened{Stream: wrapped, Label: label}
-	if !xio.IsAbstract(path) && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close")) {
-		unregister := xio.RegisterUnlinkPath(path)
-		o.AddCleanup(func() {
-			unregister()
-			logx.CloseQuiet(c)
-			_ = os.Remove(path)
-		})
-	} else {
-		o.AddCleanup(func() { logx.CloseQuiet(c) })
-	}
+	life.attach(o)
 	_ = ctx
 	_ = mode
 	_ = g

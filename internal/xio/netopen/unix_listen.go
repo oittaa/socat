@@ -61,14 +61,7 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	}
 
 	// mode/perm/user on socket file (classic fchmod/fchown after bind)
-	if err := xio.ApplyPerm(path, s, nil); err != nil {
-		_ = ln.Close()
-		if !xio.IsAbstract(path) {
-			_ = os.Remove(path)
-		}
-		return nil, err
-	}
-	if err := xio.ApplyOwner(path, s, nil); err != nil {
+	if err := xio.ApplyNamedAttrs(path, s, nil); err != nil {
 		_ = ln.Close()
 		if !xio.IsAbstract(path) {
 			_ = os.Remove(path)

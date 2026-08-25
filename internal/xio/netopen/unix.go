@@ -138,7 +138,9 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 		Stream: st,
 		Label:  "UNIX:" + path,
 	}
-	// unlink-close: remove the *local bind* path (classic client option).
+	// Stream/seqpacket: unlink the local bind path only when unlink-close is
+	// explicitly set. Classic NAMED clients default unlink-close=1; this is
+	// an existing divergence, not part of the datagram trackUnixBind change.
 	if s.BoolOption("unlink-close") && bindPath != "" {
 		o.AddCleanup(func() { _ = os.Remove(bindPath) })
 	}
@@ -221,6 +223,7 @@ func openUnixDgramClient(ctx context.Context, s parse.Spec, mode xio.Mode, g *xi
 	if err != nil {
 		return nil, err
 	}
+	life := trackUnixBind(bindPath, s)
 	if g != nil && g.Log != nil {
 		g.Log.Infof("successfully connected to %s", path)
 	}
@@ -235,16 +238,11 @@ func openUnixDgramClient(ctx context.Context, s parse.Spec, mode xio.Mode, g *xi
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		logx.CloseQuiet(conn)
-		cleanupUnixBind(bindPath)
+		life.drop(conn)
 		return nil, err
 	}
 	o := &xio.Opened{Stream: st, Label: "UNIX:" + path}
-	// Preserve the classic datagram-client default: a named local socket is
-	// removed on close unless unlink-close=0 was explicitly requested.
-	if bindPath != "" && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close")) {
-		o.AddCleanup(func() { cleanupUnixBind(bindPath) })
-	}
+	life.attach(o)
 	_ = mode
 	return o, nil
 }

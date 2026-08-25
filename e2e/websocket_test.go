@@ -137,35 +137,17 @@ func TestWSPath(t *testing.T) {
 // TestTCPToWSBridge — raw TCP client through TCP-LISTEN → WS client → WS-LISTEN echo.
 func TestTCPToWSBridge(t *testing.T) {
 	bin := socatBin(t)
-	wsPort := freePort(t)
-	tcpPort := freePort(t)
-
-	echo := exec.Command(bin, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", wsPort), "PIPE")
-	var echoErr bytes.Buffer
-	echo.Stderr = &echoErr
-	if err := echo.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = echo.Process.Kill()
-		_, _ = echo.Process.Wait()
-	}()
-	waitTCPListen(t, wsPort, tcpListenerStartupTimeout)
-
-	bridge := exec.Command(bin,
-		fmt.Sprintf("TCP-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", tcpPort),
-		fmt.Sprintf("WS:127.0.0.1:%d", wsPort),
-	)
-	var bridgeErr bytes.Buffer
-	bridge.Stderr = &bridgeErr
-	if err := bridge.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = bridge.Process.Kill()
-		_, _ = bridge.Process.Wait()
-	}()
-	waitTCPListen(t, tcpPort, tcpListenerStartupTimeout)
+	// Use startTCPTestServer: waitTCPListen ignores a child that exits before
+	// bind, so a port race on slow Windows ARM64 CI looks like a 10s timeout.
+	wsPort, echo := startTCPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port), "PIPE")
+	})
+	tcpPort, bridge := startTCPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin,
+			fmt.Sprintf("TCP-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port),
+			fmt.Sprintf("WS:127.0.0.1:%d", wsPort),
+		)
+	})
 
 	payload := fmt.Sprintf("tcp-ws %d\n", time.Now().UnixNano())
 	cli := exec.Command(bin, "stdin!!stdout", fmt.Sprintf("TCP:127.0.0.1:%d", tcpPort))
@@ -174,10 +156,10 @@ func TestTCPToWSBridge(t *testing.T) {
 	cli.Stderr = &cliErr
 	out, err := cli.Output()
 	if err != nil {
-		t.Fatalf("client: %v cli=%s bridge=%s echo=%s", err, cliErr.String(), bridgeErr.String(), echoErr.String())
+		t.Fatalf("client: %v cli=%s bridge=%s echo=%s", err, cliErr.String(), bridge.stderr.String(), echo.stderr.String())
 	}
 	if string(out) != payload {
-		t.Fatalf("got %q want %q bridge=%s echo=%s", out, payload, bridgeErr.String(), echoErr.String())
+		t.Fatalf("got %q want %q bridge=%s echo=%s", out, payload, bridge.stderr.String(), echo.stderr.String())
 	}
 }
 
