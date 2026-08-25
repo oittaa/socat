@@ -32,14 +32,19 @@ type udpDispatchListener struct {
 	mu       sync.Mutex
 	sessions map[string]*udpDispatchConn
 	writeMu  sync.Mutex
+
+	// peerRejected is a coalesced signal that Accept should restart
+	// accept-timeout after a refused peer (classic TCP listen behavior).
+	peerRejected chan struct{}
 }
 
 func newUDPListenForkListener(base *udpForkListener) net.Listener {
 	l := &udpDispatchListener{
-		base:     base,
-		accepts:  make(chan net.Conn, udpDispatchAcceptQueueSize),
-		done:     make(chan struct{}),
-		sessions: make(map[string]*udpDispatchConn),
+		base:         base,
+		accepts:      make(chan net.Conn, udpDispatchAcceptQueueSize),
+		done:         make(chan struct{}),
+		sessions:     make(map[string]*udpDispatchConn),
+		peerRejected: make(chan struct{}, 1),
 	}
 	go l.readLoop()
 	go func() {
@@ -53,42 +58,50 @@ func newUDPListenForkListener(base *udpForkListener) net.Listener {
 }
 
 func (l *udpDispatchListener) Accept() (net.Conn, error) {
-	select {
-	case <-l.base.ctx.Done():
-		return nil, l.base.ctx.Err()
-	case <-l.done:
-		return nil, l.closedError()
-	default:
-	}
-
-	var timer *time.Timer
-	var timeout <-chan time.Time
-	if l.base.acceptTimeout > 0 {
-		timer = time.NewTimer(l.base.acceptTimeout)
-		timeout = timer.C
-		defer timer.Stop()
-	}
-
-	select {
-	case conn := <-l.accepts:
+	for {
 		select {
+		case <-l.base.ctx.Done():
+			return nil, l.base.ctx.Err()
 		case <-l.done:
-			_ = conn.Close()
 			return nil, l.closedError()
 		default:
 		}
-		return conn, nil
-	case <-timeout:
+
+		var timer *time.Timer
+		var timeout <-chan time.Time
+		if l.base.acceptTimeout > 0 {
+			timer = time.NewTimer(l.base.acceptTimeout)
+			timeout = timer.C
+		}
+
 		select {
 		case conn := <-l.accepts:
+			stopUDPDispatchTimer(timer)
+			select {
+			case <-l.done:
+				_ = conn.Close()
+				return nil, l.closedError()
+			default:
+			}
 			return conn, nil
-		default:
-			return nil, xio.ErrAcceptTimeout
+		case <-timeout:
+			stopUDPDispatchTimer(timer)
+			select {
+			case conn := <-l.accepts:
+				return conn, nil
+			default:
+				return nil, xio.ErrAcceptTimeout
+			}
+		case <-l.peerRejected:
+			stopUDPDispatchTimer(timer)
+			continue
+		case <-l.base.ctx.Done():
+			stopUDPDispatchTimer(timer)
+			return nil, l.base.ctx.Err()
+		case <-l.done:
+			stopUDPDispatchTimer(timer)
+			return nil, l.closedError()
 		}
-	case <-l.base.ctx.Done():
-		return nil, l.base.ctx.Err()
-	case <-l.done:
-		return nil, l.closedError()
 	}
 }
 
@@ -157,6 +170,10 @@ func (l *udpDispatchListener) readLoop() {
 		if err := xio.PeerAllowedG(l.base.spec, &udpPeerConn{addr: peer}, l.base.g); err != nil {
 			if l.base.g != nil && l.base.g.Log != nil {
 				l.base.g.Log.Noticef("%s", err)
+			}
+			select {
+			case l.peerRejected <- struct{}{}:
+			default:
 			}
 			continue
 		}
@@ -325,6 +342,9 @@ func (c *udpDispatchConn) waitPacket() ([]byte, error) {
 }
 
 func stopUDPDispatchTimer(timer *time.Timer) {
+	if timer == nil {
+		return
+	}
 	if !timer.Stop() {
 		select {
 		case <-timer.C:

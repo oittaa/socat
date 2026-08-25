@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -88,6 +89,9 @@ func TestCreatePathsUseClassic0666BeforeUmask(t *testing.T) {
 }
 
 func TestCreatePermPreservesSetuidBits(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("open(2) does not preserve setuid bits on this platform")
+	}
 	path := filepath.Join(t.TempDir(), "setuid.bin")
 	spec, err := parse.ParseSpec("CREATE:" + path + ",umask=0,perm=4755")
 	if err != nil {
