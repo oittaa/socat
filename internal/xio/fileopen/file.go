@@ -224,8 +224,21 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		return nil, err
 	}
 
-	// Classic default unlink-close=1 for named pipes (PIPE_REMOVE).
-	doUnlink := created || !s.HasOption("unlink-close") || s.BoolOption("unlink-close")
+	// Classic xio-pipe.c (tag-1.8.1.3 / af5388c): after Mkfifo, before the
+	// possibly blocking open, record unlink_close so SIGTERM removes the
+	// FIFO (test.sh PIPE_REMOVE). Only the creating process unlinks, and
+	// unlink-close=0 keeps the entry.
+	doUnlink := created && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close"))
+	unregister := func() {}
+	if doUnlink && !s.BoolOption("unlink-early") {
+		unregister = xio.RegisterUnlinkPath(path)
+	}
+	removeCreated := func() {
+		if created {
+			unregister()
+			_ = os.Remove(path)
+		}
+	}
 	cleanupPath := func() {
 		if s.BoolOption("unlink-early") {
 			return
@@ -238,7 +251,6 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		if s.BoolOption("unlink-early") || !doUnlink {
 			return
 		}
-		unregister := xio.RegisterUnlinkPath(path)
 		o.AddCleanup(func() {
 			unregister()
 			cleanupPath()
@@ -258,9 +270,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		f, err := os.OpenFile(path, flags, 0) // #nosec G304 -- PIPE must open the path the user gave
 		if err != nil {
-			if created {
-				_ = os.Remove(path)
-			}
+			removeCreated()
 			return nil, err
 		}
 		if err := xio.ApplyFDOptions(f, s); err != nil {
@@ -268,6 +278,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 			return nil, err
 		}
 		if s.BoolOption("unlink-early") {
+			unregister()
 			_ = os.Remove(path)
 		}
 		st, err := xio.WrapCommon(s, xio.FileStream(f))
@@ -282,17 +293,13 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		// Need a reader end open first for O_WRONLY on FIFO.
 		r, err := os.OpenFile(path, os.O_RDONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 		if err != nil {
-			if created {
-				_ = os.Remove(path)
-			}
+			removeCreated()
 			return nil, err
 		}
 		w, err := os.OpenFile(path, os.O_WRONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 		if err != nil {
 			logx.CloseQuiet(r)
-			if created {
-				_ = os.Remove(path)
-			}
+			removeCreated()
 			return nil, err
 		}
 		clearNB(w)
@@ -302,6 +309,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 			return nil, err
 		}
 		if s.BoolOption("unlink-early") {
+			unregister()
 			_ = os.Remove(path)
 		}
 		st, err := xio.WrapCommon(s, xio.FileStream(w))
@@ -316,17 +324,13 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		// Bidirectional: open reader then writer (both NONBLOCK), then blocking I/O.
 		r, err := os.OpenFile(path, os.O_RDONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 		if err != nil {
-			if created {
-				_ = os.Remove(path)
-			}
+			removeCreated()
 			return nil, err
 		}
 		w, err := os.OpenFile(path, os.O_WRONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 		if err != nil {
 			logx.CloseQuiet(r)
-			if created {
-				_ = os.Remove(path)
-			}
+			removeCreated()
 			return nil, err
 		}
 		clearNB(r)
@@ -342,6 +346,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 			return nil, err
 		}
 		if s.BoolOption("unlink-early") {
+			unregister()
 			_ = os.Remove(path)
 		}
 		stream := relay.FDStream{
