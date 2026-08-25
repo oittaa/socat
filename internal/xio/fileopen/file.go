@@ -15,6 +15,12 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
+// openUserFile opens the user-specified path of an address. It is the single
+// audited choke point for user-controlled path opens in this package.
+func openUserFile(path string, flags int, perm os.FileMode) (*os.File, error) {
+	return os.OpenFile(path, flags, perm) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+}
+
 func openOPEN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	if len(s.Params) < 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("OPEN requires filename")
@@ -28,7 +34,7 @@ func openOPEN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 	var f *os.File
 	err = xio.WithUmask(s, func() error {
 		var e error
-		f, e = os.OpenFile(path, flags, perm) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+		f, e = openUserFile(path, flags, perm)
 		return e
 	})
 	if err != nil {
@@ -76,7 +82,7 @@ func openCREATE(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	var f *os.File
 	err = xio.WithUmask(s, func() error {
 		var e error
-		f, e = os.OpenFile(path, flags, perm) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+		f, e = openUserFile(path, flags, perm)
 		return e
 	})
 	if err != nil {
@@ -108,7 +114,7 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 			}
 			err := xio.WithUmask(s, func() error {
 				var e error
-				f, e = os.OpenFile(path, flags, perm) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+				f, e = openUserFile(path, flags, perm)
 				return e
 			})
 			if err != nil {
@@ -152,7 +158,7 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(path, flags, perm) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+	f, err := openUserFile(path, flags, perm)
 	if err != nil {
 		return nil, err
 	}
@@ -256,7 +262,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		if s.BoolOption("nonblock") {
 			flags |= oNonblock
 		}
-		f, err := os.OpenFile(path, flags, 0) // #nosec G304 -- PIPE must open the path the user gave
+		f, err := openUserFile(path, flags, 0)
 		if err != nil {
 			if created {
 				_ = os.Remove(path)
@@ -280,14 +286,14 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		return o, nil
 	case xio.ModeWrite:
 		// Need a reader end open first for O_WRONLY on FIFO.
-		r, err := os.OpenFile(path, os.O_RDONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+		r, err := openUserFile(path, os.O_RDONLY|oNonblock, 0)
 		if err != nil {
 			if created {
 				_ = os.Remove(path)
 			}
 			return nil, err
 		}
-		w, err := os.OpenFile(path, os.O_WRONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+		w, err := openUserFile(path, os.O_WRONLY|oNonblock, 0)
 		if err != nil {
 			logx.CloseQuiet(r)
 			if created {
@@ -314,14 +320,14 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		return o, nil
 	default:
 		// Bidirectional: open reader then writer (both NONBLOCK), then blocking I/O.
-		r, err := os.OpenFile(path, os.O_RDONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+		r, err := openUserFile(path, os.O_RDONLY|oNonblock, 0)
 		if err != nil {
 			if created {
 				_ = os.Remove(path)
 			}
 			return nil, err
 		}
-		w, err := os.OpenFile(path, os.O_WRONLY|oNonblock, 0) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+		w, err := openUserFile(path, os.O_WRONLY|oNonblock, 0)
 		if err != nil {
 			logx.CloseQuiet(r)
 			if created {

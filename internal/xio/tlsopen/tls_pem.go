@@ -16,11 +16,17 @@ import (
 // DSA is deprecated; Go crypto/tls does not support DSA keys.
 var errDSAUnsupported = fmt.Errorf("DSA private keys are not supported (deprecated)")
 
+// readUserPEM reads a user-specified certificate, key, or CA path. It is the
+// single audited choke point for user-controlled file reads in this package.
+func readUserPEM(path string) ([]byte, error) {
+	return os.ReadFile(path) // #nosec G304 -- cert= must open the path the user gave
+}
+
 // loadKeyPair loads cert+key from separate files or a combined PEM (classic .pem).
 func loadKeyPair(certPath, keyPath string) (tls.Certificate, error) {
 	if keyPath == "" {
 		// Combined PEM: PRIVATE KEY + CERTIFICATE (+ optional DH)
-		data, err := os.ReadFile(certPath) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+		data, err := readUserPEM(certPath)
 		if err != nil {
 			return tls.Certificate{}, err
 		}
@@ -34,7 +40,7 @@ func loadKeyPair(certPath, keyPath string) (tls.Certificate, error) {
 		}
 		return tls.X509KeyPair(certPEM, keyPEM)
 	}
-	keyData, err := os.ReadFile(keyPath) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+	keyData, err := readUserPEM(keyPath)
 	if err != nil {
 		return tls.Certificate{}, err
 	}
@@ -123,7 +129,7 @@ func loadVerifyRoots(s parse.Spec) (*x509.CertPool, error) {
 }
 
 func appendCABytes(pool *x509.CertPool, path string) (int, error) {
-	data, err := os.ReadFile(path) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
+	data, err := readUserPEM(path)
 	if err != nil {
 		return 0, err
 	}
