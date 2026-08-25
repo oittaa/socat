@@ -1,4 +1,4 @@
-package all
+package xio_test
 
 import (
 	"context"
@@ -15,23 +15,20 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/testcert"
 	"github.com/oittaa/socat/internal/xio"
+	_ "github.com/oittaa/socat/internal/xio/all"
 )
 
 // Tests in this file open addresses through xio.OpenChannel / xio.RunOpened
 // and move bytes. They cover README and classic examples that unit tests
 // previously only parsed.
 
-func testGlobal() *xio.Global {
-	return &xio.Global{BlockSize: 8192, Log: logx.New(), Linger: 200 * time.Millisecond}
-}
-
 // cloneGlobal is a per-process copy. OpenChannel and forkSession write peer
 // fields on *Global, so a listener and a client must not share one.
 func cloneGlobal(g *xio.Global) *xio.Global {
 	if g == nil {
-		return testGlobal()
+		g = testGlobal()
 	}
-	return &xio.Global{
+	cg := &xio.Global{
 		Log:          g.Log,
 		BlockSize:    g.BlockSize,
 		Linger:       g.Linger,
@@ -40,6 +37,16 @@ func cloneGlobal(g *xio.Global) *xio.Global {
 		Experimental: g.Experimental,
 		IPVersion:    g.IPVersion,
 	}
+	if cg.Log == nil {
+		cg.Log = logx.New()
+	}
+	if cg.BlockSize == 0 {
+		cg.BlockSize = 8192
+	}
+	if cg.Linger == 0 {
+		cg.Linger = 200 * time.Millisecond
+	}
+	return cg
 }
 
 func mustParse(t *testing.T, spec string) parse.Channel {
@@ -83,7 +90,7 @@ func startListenRight(t *testing.T, ctx context.Context, g *xio.Global, listenSp
 	return lo
 }
 
-func startListenPIPE(t *testing.T, ctx context.Context, g *xio.Global, listenSpec string) *xio.Opened {
+func startForkListenPIPE(t *testing.T, ctx context.Context, g *xio.Global, listenSpec string) *xio.Opened {
 	t.Helper()
 	return startListenRight(t, ctx, g, listenSpec, "PIPE")
 }
@@ -225,10 +232,50 @@ func testCtx(t *testing.T) context.Context {
 	return ctx
 }
 
+func skipNoIPv6(t *testing.T) {
+	t.Helper()
+	ln, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skipf("no IPv6 loopback: %v", err)
+	}
+	_ = ln.Close()
+}
+
+func freeTCP4Port(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return port
+}
+
+func waitDialTCP4(t *testing.T, port int) net.Conn {
+	t.Helper()
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	deadline := time.Now().Add(3 * time.Second)
+	var last error
+	for time.Now().Before(deadline) {
+		c, err := net.DialTimeout("tcp4", addr, 150*time.Millisecond)
+		if err == nil {
+			t.Cleanup(func() { _ = c.Close() })
+			return c
+		}
+		last = err
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("dial %s: %v", addr, last)
+	return nil
+}
+
 // TestTCP4ListenPIPEEcho is classic `socat TCP4-LISTEN:port,reuseaddr,fork,bind=127.0.0.1 PIPE`.
 func TestTCP4ListenPIPEEcho(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
-	srv := startListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
+	srv := startForkListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
 	cli := openClient(t, ctx, g, "TCP4:127.0.0.1:"+tcpPort(t, srv)+",connect-timeout=2")
 	echoLive(t, streamOf(t, cli), []byte("tcp-hello"))
 }
@@ -237,7 +284,7 @@ func TestTCP4ListenPIPEEcho(t *testing.T) {
 // `socat - TCP4:127.0.0.1:port` talking to a TCP4-LISTEN peer.
 func TestTCP4ListenConnectEcho(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
-	srv := startListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
+	srv := startForkListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
 	cli := openClient(t, ctx, g, "TCP4:127.0.0.1:"+tcpPort(t, srv)+",connect-timeout=2")
 	echoLive(t, streamOf(t, cli), []byte("tcp4-connect"))
 }
@@ -245,7 +292,7 @@ func TestTCP4ListenConnectEcho(t *testing.T) {
 // TestTCPListenForwardsToTCP is `socat TCP4-LISTEN:front,fork TCP4:127.0.0.1:back`.
 func TestTCPListenForwardsToTCP(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
-	back := startListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
+	back := startForkListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
 	front := startListenRight(t, ctx, g,
 		"TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1",
 		"TCP4:127.0.0.1:"+tcpPort(t, back)+",connect-timeout=2")
@@ -383,7 +430,7 @@ func TestFDReadsPipe(t *testing.T) {
 
 func TestUDP4ListenPIPEEcho(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
-	srv := startListenPIPE(t, ctx, g, "UDP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
+	srv := startForkListenPIPE(t, ctx, g, "UDP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
 	cli := openClient(t, ctx, g, "UDP4:127.0.0.1:"+tcpPort(t, srv))
 	echoLive(t, streamOf(t, cli), []byte("udp-hi"))
 }
@@ -410,7 +457,7 @@ func TestUDP4SendtoToRecv(t *testing.T) {
 
 func TestUDP4RecvfromForkEcho(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
-	srv := startListenPIPE(t, ctx, g, "UDP4-RECVFROM:0,bind=127.0.0.1,reuseaddr,fork")
+	srv := startForkListenPIPE(t, ctx, g, "UDP4-RECVFROM:0,bind=127.0.0.1,reuseaddr,fork")
 	cli, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: listenerPort(t, srv)})
 	if err != nil {
 		t.Fatal(err)
@@ -432,7 +479,7 @@ func TestUDP4RecvfromForkEcho(t *testing.T) {
 func TestTLSListenPIPEEcho(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
 	cert := listenCert(t)
-	srv := startListenPIPE(t, ctx, g, "TLS-LISTEN:0,reuseaddr,fork,bind=127.0.0.1,verify=0,cert="+cert)
+	srv := startForkListenPIPE(t, ctx, g, "TLS-LISTEN:0,reuseaddr,fork,bind=127.0.0.1,verify=0,cert="+cert)
 	cli := openClient(t, ctx, g, "TLS:127.0.0.1:"+tcpPort(t, srv)+",verify=0,connect-timeout=2")
 	echoLive(t, streamOf(t, cli), []byte("tls-hello"))
 }
@@ -440,7 +487,7 @@ func TestTLSListenPIPEEcho(t *testing.T) {
 func TestOPENSSLListenAliasEcho(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
 	cert := listenCert(t)
-	srv := startListenPIPE(t, ctx, g, "OPENSSL-LISTEN:0,reuseaddr,fork,bind=127.0.0.1,verify=0,cert="+cert)
+	srv := startForkListenPIPE(t, ctx, g, "OPENSSL-LISTEN:0,reuseaddr,fork,bind=127.0.0.1,verify=0,cert="+cert)
 	cli := openClient(t, ctx, g, "OPENSSL:127.0.0.1:"+tcpPort(t, srv)+",verify=0,connect-timeout=2")
 	echoLive(t, streamOf(t, cli), []byte("openssl-alias"))
 }
@@ -449,7 +496,7 @@ func TestOPENSSLListenAliasEcho(t *testing.T) {
 // TLS-LISTEN → TCP:127.0.0.1:backend.
 func TestTLSListenForwardsToTCP(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
-	back := startListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
+	back := startForkListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
 	cert := listenCert(t)
 	front := startListenRight(t, ctx, g,
 		"TLS-LISTEN:0,reuseaddr,fork,bind=127.0.0.1,verify=0,cert="+cert,
@@ -463,12 +510,244 @@ func TestTLSListenForwardsToTCP(t *testing.T) {
 func TestTCPListenForwardsToTLS(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
 	cert := listenCert(t)
-	tlsSrv := startListenPIPE(t, ctx, g, "TLS-LISTEN:0,reuseaddr,fork,bind=127.0.0.1,verify=0,cert="+cert)
+	tlsSrv := startForkListenPIPE(t, ctx, g, "TLS-LISTEN:0,reuseaddr,fork,bind=127.0.0.1,verify=0,cert="+cert)
 	front := startListenRight(t, ctx, g,
 		"TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1",
 		"TLS:127.0.0.1:"+tcpPort(t, tlsSrv)+",verify=0,connect-timeout=2")
 	cli := openClient(t, ctx, g, "TCP4:127.0.0.1:"+tcpPort(t, front)+",connect-timeout=2")
 	echoLive(t, streamOf(t, cli), []byte("plain-to-tls"))
+}
+
+// TestTCPListenConnectUnqualified is the README/netcat shape people type:
+// `socat TCP-LISTEN:port,reuseaddr,fork,bind=127.0.0.1 PIPE` plus `TCP:host:port`.
+func TestTCPListenConnectUnqualified(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	srv := startForkListenPIPE(t, ctx, g, "TCP-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
+	cli := openClient(t, ctx, g, "TCP:127.0.0.1:"+tcpPort(t, srv)+",connect-timeout=2")
+	echoLive(t, streamOf(t, cli), []byte("tcp-unqualified"))
+}
+
+func TestTCPLAliasAndTCPConnectAlias(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	srv := startForkListenPIPE(t, ctx, g, "TCP-L:0,reuseaddr,fork,bind=127.0.0.1")
+	cli := openClient(t, ctx, g, "TCP-CONNECT:127.0.0.1:"+tcpPort(t, srv)+",connect-timeout=2")
+	echoLive(t, streamOf(t, cli), []byte("tcp-aliases"))
+}
+
+func TestTCP6ListenConnectEcho(t *testing.T) {
+	skipNoIPv6(t)
+	ctx, g := testCtx(t), testGlobal()
+	srv := startForkListenPIPE(t, ctx, g, "TCP6-LISTEN:0,reuseaddr,fork,bind=::1")
+	cli := openClient(t, ctx, g, "TCP6:[::1]:"+tcpPort(t, srv)+",connect-timeout=2")
+	echoLive(t, streamOf(t, cli), []byte("tcp6-hello"))
+}
+
+// TestTCPListenDumpsToCREATE is `socat -u TCP-LISTEN:port,reuseaddr,fork CREATE:file`.
+func TestTCPListenDumpsToCREATE(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	g.LeftToRight = true
+	path := filepath.Join(t.TempDir(), "dump.bin")
+	srv := startListenRight(t, ctx, g,
+		"TCP-LISTEN:0,reuseaddr,fork,bind=127.0.0.1",
+		"CREATE:"+path)
+	cli := openClient(t, ctx, g, "TCP:127.0.0.1:"+tcpPort(t, srv)+",connect-timeout=2")
+	mustWrite(t, cli.Stream, []byte("dumped"))
+	if err := cli.Stream.ShutdownWrite(); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		got, err := os.ReadFile(path)
+		if err == nil && string(got) == "dumped" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	got, _ := os.ReadFile(path)
+	t.Fatalf("CREATE dump got %q want dumped", got)
+}
+
+// TestPIPEToTCPListenFork is listen on the right address:
+// `socat PIPE TCP-LISTEN:port,reuseaddr,fork` (runForkListenRight).
+func TestPIPEToTCPListenFork(t *testing.T) {
+	ctx := testCtx(t)
+	port := freeTCP4Port(t)
+	left, err := xio.OpenChannel(ctx, mustParse(t, "PIPE"), xio.ModeRDWR, cloneGlobal(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		_ = xio.RunOpened(ctx, left, mustParse(t, fmt.Sprintf("TCP-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1", port)), cloneGlobal(nil))
+	}()
+	cli := openClient(t, ctx, testGlobal(), fmt.Sprintf("TCP:127.0.0.1:%d,connect-timeout=2", port))
+	echoLive(t, streamOf(t, cli), []byte("right-listen"))
+}
+
+// TestTCPListenNoForkEcho is one-shot `socat TCP-LISTEN:port,reuseaddr PIPE`
+// (no fork): OpenChannel accepts a single connection, then RunOpened transfers.
+func TestTCPListenNoForkEcho(t *testing.T) {
+	ctx := testCtx(t)
+	port := freeTCP4Port(t)
+	opened := make(chan *xio.Opened, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		o, err := xio.OpenChannel(ctx, mustParse(t, fmt.Sprintf("TCP-LISTEN:%d,reuseaddr,bind=127.0.0.1", port)), xio.ModeRDWR, cloneGlobal(nil))
+		if err != nil {
+			errCh <- err
+			return
+		}
+		opened <- o
+	}()
+	c := waitDialTCP4(t, port)
+	var lo *xio.Opened
+	select {
+	case lo = <-opened:
+	case err := <-errCh:
+		t.Fatal(err)
+	case <-time.After(4 * time.Second):
+		t.Fatal("TCP-LISTEN accept timed out")
+	}
+	go func() { _ = xio.RunOpened(ctx, lo, mustParse(t, "PIPE"), cloneGlobal(nil)) }()
+	echoLive(t, c, []byte("nofork"))
+}
+
+func TestTCPListenRangeAllowsLoopback(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	srv := startForkListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1,range=127.0.0.0/8")
+	cli := openClient(t, ctx, g, "TCP4:127.0.0.1:"+tcpPort(t, srv)+",connect-timeout=2")
+	echoLive(t, streamOf(t, cli), []byte("in-range"))
+}
+
+func TestTCPListenRangeRejects(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	srv := startForkListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1,range=10.0.0.0/8")
+	c, err := net.DialTimeout("tcp4", "127.0.0.1:"+tcpPort(t, srv), 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	_, _ = c.Write([]byte("nope"))
+	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 16)
+	n, rerr := c.Read(buf)
+	if n > 0 {
+		t.Fatalf("range-rejected peer read %q", buf[:n])
+	}
+	if rerr == nil {
+		t.Fatal("range-rejected peer: expected EOF or error")
+	}
+}
+
+func TestTCPConnectRetryWaitsForListener(t *testing.T) {
+	ctx := testCtx(t)
+	port := freeTCP4Port(t)
+	done := make(chan *xio.Opened, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		o, err := xio.OpenChannel(ctx, mustParse(t, fmt.Sprintf("TCP:127.0.0.1:%d,retry=50,interval=0.05,connect-timeout=1", port)), xio.ModeRDWR, cloneGlobal(nil))
+		if err != nil {
+			errCh <- err
+			return
+		}
+		done <- o
+	}()
+	time.Sleep(150 * time.Millisecond)
+	startForkListenPIPE(t, ctx, testGlobal(), fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1", port))
+	var cli *xio.Opened
+	select {
+	case cli = <-done:
+		t.Cleanup(func() { _ = cli.Close() })
+	case err := <-errCh:
+		t.Fatal(err)
+	case <-time.After(6 * time.Second):
+		t.Fatal("retry connect timed out")
+	}
+	echoLive(t, streamOf(t, cli), []byte("retried"))
+}
+
+func TestTCPConnectReadbytes(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	srv := startForkListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
+	cli := openClient(t, ctx, g, "TCP4:127.0.0.1:"+tcpPort(t, srv)+",readbytes=4,connect-timeout=2")
+	mustWrite(t, cli.Stream, []byte("hello"))
+	if got := string(readFull(t, cli.Stream, 4)); got != "hell" {
+		t.Fatalf("readbytes got %q want hell", got)
+	}
+}
+
+func TestFILEAliasRoundtrip(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	path := filepath.Join(t.TempDir(), "alias.bin")
+	const payload = "file-alias"
+	w, err := xio.OpenChannel(ctx, mustParse(t, "CREATE:"+path), xio.ModeWrite, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, w.Stream, []byte(payload))
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	r, err := xio.OpenChannel(ctx, mustParse(t, "FILE:"+path), xio.ModeRead, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close() })
+	if got := string(readAll(t, r.Stream)); got != payload {
+		t.Fatalf("FILE got %q", got)
+	}
+}
+
+func TestECHOAliasPIPE(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	o, err := xio.OpenChannel(ctx, mustParse(t, "ECHO"), xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	echoLive(t, streamOf(t, o), []byte("echo-alias"))
+}
+
+func TestCREATAliasCREATE(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	g.LeftToRight = true
+	path := filepath.Join(t.TempDir(), "creat.out")
+	if err := xio.Run(ctx, mustParse(t, "TEXT:creat-ok"), mustParse(t, "CREAT:"+path), g); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "creat-ok" {
+		t.Fatalf("CREAT got %q", got)
+	}
+}
+
+func TestUDPListenConnectUnqualified(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	srv := startForkListenPIPE(t, ctx, g, "UDP-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
+	cli := openClient(t, ctx, g, "UDP:127.0.0.1:"+tcpPort(t, srv))
+	echoLive(t, streamOf(t, cli), []byte("udp-unqual"))
+}
+
+func TestUDP4DatagramToRecv(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	recv, err := xio.OpenChannel(ctx, mustParse(t, "UDP-RECV:0,bind=127.0.0.1"), xio.ModeRead, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = recv.Close() })
+	port := localUDPPort(t, recv)
+	send, err := xio.OpenChannel(ctx, mustParse(t, "UDP4-DATAGRAM:127.0.0.1:"+strconv.Itoa(port)), xio.ModeWrite, cloneGlobal(g))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = send.Close() })
+	const payload = "dgram-hi"
+	mustWrite(t, send.Stream, []byte(payload))
+	if got := string(readFull(t, recv.Stream, len(payload))); got != payload {
+		t.Fatalf("UDP-DATAGRAM got %q", got)
+	}
 }
 
 func TestTCPConnectCRNL(t *testing.T) {

@@ -1,6 +1,6 @@
 //go:build unix
 
-package all
+package xio_test
 
 import (
 	"io"
@@ -30,7 +30,7 @@ func TestUNIXListenPIPEEcho(t *testing.T) {
 	}
 	ctx, g := testCtx(t), testGlobal()
 	path := filepath.Join(t.TempDir(), "echo.sock")
-	startListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork")
+	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork")
 	cli := openClient(t, ctx, g, "UNIX-CONNECT:"+path)
 	echoLive(t, streamOf(t, cli), []byte("unix-hello"))
 }
@@ -38,7 +38,7 @@ func TestUNIXListenPIPEEcho(t *testing.T) {
 func TestUNIXListenMode(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
 	path := filepath.Join(t.TempDir(), "mode.sock")
-	startListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork,mode=600")
+	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork,mode=600")
 	st, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
@@ -53,7 +53,7 @@ func TestUNIXListenMode(t *testing.T) {
 func TestTCPListenUnixConnect(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
 	path := filepath.Join(t.TempDir(), "app.sock")
-	startListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork")
+	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork")
 	front := startListenRight(t, ctx, g,
 		"TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1",
 		"UNIX-CONNECT:"+path)
@@ -64,7 +64,7 @@ func TestTCPListenUnixConnect(t *testing.T) {
 // TestUNIXListenTCPConnect is the README reverse: UNIX-LISTEN → TCP4:host:port.
 func TestUNIXListenTCPConnect(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
-	back := startListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
+	back := startForkListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
 	path := filepath.Join(t.TempDir(), "app.sock")
 	startListenRight(t, ctx, g,
 		"UNIX-LISTEN:"+path+",unlink-early,fork,mode=600",
@@ -76,7 +76,7 @@ func TestUNIXListenTCPConnect(t *testing.T) {
 func TestGOPENUnixSocket(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
 	path := filepath.Join(t.TempDir(), "gopen.sock")
-	startListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork")
+	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork")
 	cli := openClient(t, ctx, g, "GOPEN:"+path)
 	echoLive(t, streamOf(t, cli), []byte("gopen-unix"))
 }
@@ -290,11 +290,139 @@ func TestPTYLinkSlaveBytes(t *testing.T) {
 func TestUnixDialNetEcho(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
 	path := filepath.Join(t.TempDir(), "net.sock")
-	startListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork")
+	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork")
 	c, err := net.DialTimeout("unix", path, 2*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
 	echoLive(t, c, []byte("net-unix"))
+}
+
+func TestUNIXClientConnect(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	path := filepath.Join(t.TempDir(), "client.sock")
+	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork")
+	cli := openClient(t, ctx, g, "UNIX-CLIENT:"+path)
+	echoLive(t, streamOf(t, cli), []byte("unix-client"))
+}
+
+func TestUNIXListenEXECCat(t *testing.T) {
+	if !xio.FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	cat := lookPath(t, "cat")
+	ctx, g := testCtx(t), testGlobal()
+	path := filepath.Join(t.TempDir(), "exec.sock")
+	startListenRight(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork", "EXEC:"+cat)
+	cli := openClient(t, ctx, g, "UNIX-CONNECT:"+path)
+	const payload = "unix-inetd"
+	mustWrite(t, cli.Stream, []byte(payload))
+	if err := cli.Stream.ShutdownWrite(); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(readFull(t, cli.Stream, len(payload))); got != payload {
+		t.Fatalf("UNIX-LISTEN EXEC got %q", got)
+	}
+}
+
+func TestEXECPipesRoundtrip(t *testing.T) {
+	if !xio.FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	cat := lookPath(t, "cat")
+	ctx, g := testCtx(t), testGlobal()
+	o, err := xio.OpenChannel(ctx, mustParse(t, "EXEC:"+cat+",pipes"), xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	const payload = "pipes-ok"
+	mustWrite(t, o.Stream, []byte(payload))
+	if err := o.Stream.ShutdownWrite(); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(readFull(t, o.Stream, len(payload))); got != payload {
+		t.Fatalf("EXEC,pipes got %q", got)
+	}
+}
+
+func TestSOCKETPAIREcho(t *testing.T) {
+	if !xio.FeatureSOCKETPAIR {
+		t.Skip("SOCKETPAIR not enabled")
+	}
+	ctx, g := testCtx(t), testGlobal()
+	o, err := xio.OpenChannel(ctx, mustParse(t, "SOCKETPAIR"), xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	echoLive(t, streamOf(t, o), []byte("socketpair"))
+}
+
+func TestUNIXSendtoRecv(t *testing.T) {
+	if !xio.FeatureUNIXDatagram {
+		t.Skip("UNIX datagram not enabled")
+	}
+	ctx, g := testCtx(t), testGlobal()
+	path := filepath.Join(t.TempDir(), "dgram.sock")
+	recv, err := xio.OpenChannel(ctx, mustParse(t, "UNIX-RECV:"+path+",unlink-early"), xio.ModeRead, cloneGlobal(g))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = recv.Close() })
+	send, err := xio.OpenChannel(ctx, mustParse(t, "UNIX-SENDTO:"+path), xio.ModeWrite, cloneGlobal(g))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = send.Close() })
+	const payload = "unix-dgram"
+	mustWrite(t, send.Stream, []byte(payload))
+	if got := string(readFull(t, recv.Stream, len(payload))); got != payload {
+		t.Fatalf("UNIX-RECV got %q", got)
+	}
+}
+
+func TestFIFOAliasNamedPipe(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	path := filepath.Join(t.TempDir(), "alias.fifo")
+	opened := make(chan *xio.Opened, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		o, err := xio.OpenChannel(ctx, mustParse(t, "FIFO:"+path), xio.ModeRead, cloneGlobal(g))
+		if err != nil {
+			errCh <- err
+			return
+		}
+		opened <- o
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if st, err := os.Stat(path); err == nil && st.Mode()&os.ModeNamedPipe != 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	w, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const payload = "fifo-alias"
+	if _, err := io.WriteString(w, payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errCh:
+		t.Fatal(err)
+	case o := <-opened:
+		t.Cleanup(func() { _ = o.Close() })
+		if got := string(readAll(t, o.Stream)); got != payload {
+			t.Fatalf("FIFO alias got %q", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("FIFO alias open timed out")
+	}
 }
