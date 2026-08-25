@@ -3,6 +3,7 @@ package netopen
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strings"
@@ -741,5 +742,75 @@ func TestUDPForkRecvfromIgnoresAcceptTimeout(t *testing.T) {
 	n, err := conn.Read(buf)
 	if err != nil || string(buf[:n]) != "late" {
 		t.Fatalf("n=%d err=%v data=%q", n, err, buf[:n])
+	}
+}
+
+func parseUDPSpec(t *testing.T, raw string) parse.Spec {
+	t.Helper()
+	s, err := parse.ParseSpec(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func listenUDPOnPort(t *testing.T, spec parse.Spec, port int) (*net.UDPConn, error) {
+	t.Helper()
+	return listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}, spec)
+}
+
+func TestUDPSecondBindWithoutReuseaddrFails(t *testing.T) {
+	first, err := listenUDPOnPort(t, parseUDPSpec(t, "UDP4-LISTEN:0,bind=127.0.0.1"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = first.Close() })
+	port := first.LocalAddr().(*net.UDPAddr).Port
+	second, err := listenUDPOnPort(t, parseUDPSpec(t, fmt.Sprintf("UDP4-LISTEN:%d,bind=127.0.0.1", port)), port)
+	if err == nil {
+		_ = second.Close()
+		t.Fatal("second UDP-LISTEN without reuseaddr bound successfully")
+	}
+}
+
+func TestUDPSecondBindWithReuseaddrSucceeds(t *testing.T) {
+	first, err := listenUDPOnPort(t, parseUDPSpec(t, "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = first.Close() })
+	port := first.LocalAddr().(*net.UDPAddr).Port
+	second, err := listenUDPOnPort(t, parseUDPSpec(t, fmt.Sprintf("UDP4-LISTEN:%d,bind=127.0.0.1,reuseaddr", port)), port)
+	if err != nil {
+		t.Fatalf("second UDP-LISTEN,reuseaddr: %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+}
+
+func TestUDPListenForkImpliesReuseaddr(t *testing.T) {
+	first, err := listenUDPOnPort(t, parseUDPSpec(t, "UDP4-LISTEN:0,bind=127.0.0.1,fork"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = first.Close() })
+	port := first.LocalAddr().(*net.UDPAddr).Port
+	second, err := listenUDPOnPort(t, parseUDPSpec(t, fmt.Sprintf("UDP4-LISTEN:%d,bind=127.0.0.1,fork", port)), port)
+	if err != nil {
+		t.Fatalf("second UDP-LISTEN,fork: %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+}
+
+func TestUDPForkReuseaddrZeroKeepsExclusive(t *testing.T) {
+	first, err := listenUDPOnPort(t, parseUDPSpec(t, "UDP4-LISTEN:0,bind=127.0.0.1,fork,reuseaddr=0"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = first.Close() })
+	port := first.LocalAddr().(*net.UDPAddr).Port
+	second, err := listenUDPOnPort(t, parseUDPSpec(t, fmt.Sprintf("UDP4-LISTEN:%d,bind=127.0.0.1,fork,reuseaddr=0", port)), port)
+	if err == nil {
+		_ = second.Close()
+		t.Fatal("second UDP-LISTEN,fork,reuseaddr=0 bound successfully")
 	}
 }

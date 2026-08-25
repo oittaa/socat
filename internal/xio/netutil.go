@@ -70,8 +70,24 @@ func firstAvailableLowportFrom(start int, bind func(int) error) (int, error) {
 	return 0, lastErr
 }
 
+// reuseaddrListenDefault is the SO_REUSEADDR default before bind.
+// Classic xiosock_reuseaddr (tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same tree) turns it on for
+// TCP listen. UDP-LISTEN sets it when fork is on or reuseaddr is present
+// (_xioopen_ipdgram_listen). Other UDP binds only set it when the option is
+// present. Classic 1.7.2.0 treated always-on UDP-LISTEN reuse as a bug.
+func reuseaddrListenDefault(s parse.Spec, network string) bool {
+	switch network {
+	case "udp", "udp4", "udp6":
+		return s.BoolOption("fork")
+	default:
+		return true
+	}
+}
+
 // ApplyReuse sets SO_REUSEADDR and optional SO_REUSEPORT on fd.
-// reuseaddrDefault is the classic listen default (true for TCP/UDP listen).
+// reuseaddrDefault is used when reuseaddr is not present on the spec.
 func ApplyReuse(fd int, s parse.Spec, reuseaddrDefault bool) error {
 	reuse := reuseaddrDefault
 	if s.HasOption("reuseaddr") {
@@ -95,7 +111,7 @@ func ApplyReuse(fd int, s parse.Spec, reuseaddrDefault bool) error {
 
 // ApplyReuseAndV6Only sets listen reuse flags and IPV6_V6ONLY before bind.
 func ApplyReuseAndV6Only(fd int, s parse.Spec, network string) error {
-	if err := ApplyReuse(fd, s, true); err != nil {
+	if err := ApplyReuse(fd, s, reuseaddrListenDefault(s, network)); err != nil {
 		return err
 	}
 	switch network {

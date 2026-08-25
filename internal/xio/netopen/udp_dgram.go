@@ -109,7 +109,6 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 			return nil, err
 		}
 	}
-	// SO_REUSEADDR on bind so rapid retests / paired ports work.
 	cfg := udpListenConfig(s)
 	pc, err := cfg.ListenPacket(ctx, network, laddrString(network, laddr))
 	if err != nil {
@@ -395,7 +394,8 @@ func (u *udpFilteredRecv) LocalAddr() net.Addr       { return u.conn.LocalAddr()
 func (u *udpFilteredRecv) RemoteAddr() net.Addr      { return nil }
 
 func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, error) {
-	// Default reuseaddr for listen-like UDP (classic often implies it with explicit option).
+	// Classic UDP-LISTEN sets SO_REUSEADDR when fork is on or reuseaddr is
+	// present; UDP-RECV/RECVFROM only when the option is present.
 	cfg := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
 			var optionErr error

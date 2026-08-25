@@ -243,6 +243,38 @@ func TestParseSizeTMatchesUnsignedClassicParsing(t *testing.T) {
 	}
 }
 
+func TestReuseaddrListenDefault(t *testing.T) {
+	udp, err := parse.ParseSpec("UDP4-LISTEN:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reuseaddrListenDefault(udp, "udp4") || reuseaddrListenDefault(udp, "udp") || reuseaddrListenDefault(udp, "udp6") {
+		t.Fatal("UDP without fork must default SO_REUSEADDR off")
+	}
+	udpFork, err := parse.ParseSpec("UDP4-LISTEN:1,fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reuseaddrListenDefault(udpFork, "udp4") {
+		t.Fatal("UDP-LISTEN,fork must default SO_REUSEADDR on")
+	}
+	udpReuseOff, err := parse.ParseSpec("UDP4-LISTEN:1,fork,reuseaddr=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Default is on because of fork; ApplyReuse still honors reuseaddr=0.
+	if !reuseaddrListenDefault(udpReuseOff, "udp4") {
+		t.Fatal("fork still supplies the default; reuseaddr=0 is applied later")
+	}
+	tcp, err := parse.ParseSpec("TCP4-LISTEN:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reuseaddrListenDefault(tcp, "tcp4") || !reuseaddrListenDefault(tcp, "tcp") {
+		t.Fatal("TCP listen must default SO_REUSEADDR on")
+	}
+}
+
 func TestRecvTimeoutFromSpecRejectsJunk(t *testing.T) {
 	ok, err := parse.ParseSpec("UDP4-LISTEN:0,fork")
 	if err != nil {
