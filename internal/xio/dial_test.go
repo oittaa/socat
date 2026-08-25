@@ -2,10 +2,12 @@ package xio
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -179,10 +181,12 @@ func TestDialTCPLowportFailsClosedWhenUnprivileged(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root can bind privileged ports")
 	}
-	probe, err := net.Listen("tcp4", "127.0.0.1:1023")
-	if err == nil {
-		_ = probe.Close()
-		t.Skip("process can bind privileged ports")
+	// Probe the same bind dialTCPLowport uses (0.0.0.0:1023), not
+	// Listen("127.0.0.1:1023"). macOS GitHub runners reject the loopback
+	// listen while still allowing the wildcard bind, which then fails
+	// connect with ECONNREFUSED instead of the fail-closed wrap.
+	if !lowportWildcardBindDenied() {
+		t.Skip("platform allowed a lowport bind")
 	}
 	s, err := parse.ParseSpec("TCP4:127.0.0.1:1,lowport")
 	if err != nil {
@@ -197,4 +201,38 @@ func TestDialTCPLowportFailsClosedWhenUnprivileged(t *testing.T) {
 	if !strings.Contains(err.Error(), "lowport: cannot bind a port in 640-1023") {
 		t.Fatalf("err=%v want fail-closed lowport range", err)
 	}
+}
+
+func TestDialTCPLowportReturnsConnectErrorWhenBindSucceeds(t *testing.T) {
+	if lowportWildcardBindDenied() {
+		t.Skip("cannot bind lowport; fail-closed path is covered separately")
+	}
+	s, err := parse.ParseSpec("TCP4:127.0.0.1:1,lowport")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = DialTCPAll(ctx, "tcp4", "127.0.0.1", "1", s, nil, time.Second, nil)
+	if err == nil {
+		t.Fatal("expected connect error after a successful lowport bind")
+	}
+	if strings.Contains(err.Error(), "lowport: cannot bind a port in 640-1023") {
+		t.Fatalf("bind succeeded but error was wrapped as fail-closed: %v", err)
+	}
+}
+
+// lowportWildcardBindDenied reports whether binding 0.0.0.0:1023 is denied
+// with EACCES/EPERM, matching dialTCPLowport's fail-closed condition.
+func lowportWildcardBindDenied() bool {
+	d := net.Dialer{
+		Timeout:   200 * time.Millisecond,
+		LocalAddr: &net.TCPAddr{IP: net.IPv4zero, Port: 1023},
+	}
+	c, err := d.Dial("tcp4", "127.0.0.1:1")
+	if err == nil {
+		_ = c.Close()
+		return false
+	}
+	return errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.EPERM)
 }
