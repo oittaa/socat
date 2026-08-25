@@ -5,12 +5,20 @@ package fileopen
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
+)
+
+const (
+	blockedPipeHelperEnv  = "SOCAT_TEST_BLOCKED_PIPE_HELPER"
+	blockedPipePathEnv    = "SOCAT_TEST_BLOCKED_PIPE_PATH"
+	blockedPipeChannelEnv = "SOCAT_TEST_BLOCKED_PIPE_CHANNEL"
+	blockedPipeReplaceEnv = "SOCAT_TEST_BLOCKED_PIPE_REPLACE"
 )
 
 // TestNamedPipeRemoveUnlinksBeforeWriter mimics classic test.sh PIPE_REMOVE:
@@ -21,45 +29,100 @@ import (
 // leaves the FIFO behind.
 func TestNamedPipeRemoveUnlinksBeforeWriter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pipe")
-	ch, err := parse.ParseChannel("PIPE:" + path)
+	runBlockedPipeHelper(t, path, "PIPE:"+path, false)
+}
+
+// TestNamedPipeUnlinkEarlyReplacesAndRemovesBeforeWriter covers classic's
+// ordering: unlink the stale FIFO, create/register a replacement, then block
+// opening it. A signal cleanup must remove the replacement.
+func TestNamedPipeUnlinkEarlyReplacesAndRemovesBeforeWriter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pipe")
+	if err := mkfifo(path, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	runBlockedPipeHelper(t, path, "PIPE:"+path+",unlink-early", true)
+}
+
+func TestNamedPipeUnlinkEarlyRequiresExistingPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing")
+	ch, err := parse.ParseChannel("PIPE:" + path + ",unlink-early")
 	if err != nil {
 		t.Fatal(err)
 	}
+	o, err := xio.OpenChannel(context.Background(), ch, xio.ModeRead, nil)
+	if err == nil {
+		_ = o.Close()
+		t.Fatal("PIPE,unlink-early unexpectedly accepted a missing path")
+	}
+}
 
-	opened := make(chan error, 1)
-	go func() {
-		o, err := xio.OpenChannel(context.Background(), ch, xio.ModeRead, nil)
-		if err != nil {
-			opened <- err
-			return
-		}
-		opened <- o.Close()
-	}()
-
-	waitPathExists(t, path, 2*time.Second)
-	select {
-	case err := <-opened:
-		t.Fatalf("PIPE ModeRead open returned before a writer: %v", err)
-	default:
+// TestNamedPipeBlockedOpenHelper runs in a subprocess. Unlinking a FIFO while
+// open(O_RDONLY) is blocked leaves that syscall blocked on an unreachable
+// inode, so isolating it avoids leaking a goroutine and OS thread in the main
+// unit-test process.
+func TestNamedPipeBlockedOpenHelper(t *testing.T) {
+	if os.Getenv(blockedPipeHelperEnv) != "1" {
+		t.Skip("subprocess helper")
+	}
+	path := os.Getenv(blockedPipePathEnv)
+	raw := os.Getenv(blockedPipeChannelEnv)
+	wantReplacement := os.Getenv(blockedPipeReplaceEnv) == "1"
+	if path == "" || raw == "" {
+		t.Fatal("missing blocked PIPE helper environment")
 	}
 
+	var original os.FileInfo
+	if wantReplacement {
+		var err error
+		original, err = os.Lstat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	ch, err := parse.ParseChannel(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened := make(chan resultOpened, 1)
+	go func() {
+		o, err := xio.OpenChannel(context.Background(), ch, xio.ModeRead, nil)
+		opened <- resultOpened{o: o, err: err}
+	}()
+
+	waitPipeReady(t, path, original, wantReplacement, 2*time.Second)
+	select {
+	case r := <-opened:
+		if r.o != nil {
+			_ = r.o.Close()
+		}
+		t.Fatalf("PIPE ModeRead open returned before a writer: %v", r.err)
+	default:
+	}
 	xio.UnlinkRegisteredPaths()
 	if _, err := os.Lstat(path); !os.IsNotExist(err) {
 		t.Fatalf("FIFO still exists after UnlinkRegisteredPaths: %v", err)
 	}
+}
 
-	t.Cleanup(func() {
-		if _, err := os.Lstat(path); err == nil {
-			w, werr := os.OpenFile(path, os.O_WRONLY, 0) // #nosec G304 -- test-created FIFO path
-			if werr == nil {
-				_ = w.Close()
-			}
-			select {
-			case <-opened:
-			case <-time.After(2 * time.Second):
-			}
-		}
-	})
+func runBlockedPipeHelper(t *testing.T, path, raw string, wantReplacement bool) {
+	t.Helper()
+	replace := "0"
+	if wantReplacement {
+		replace = "1"
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestNamedPipeBlockedOpenHelper$", "-test.v") // #nosec G204 -- re-exec this test binary without a shell
+	cmd.Env = append(os.Environ(),
+		blockedPipeHelperEnv+"=1",
+		blockedPipePathEnv+"="+path,
+		blockedPipeChannelEnv+"="+raw,
+		blockedPipeReplaceEnv+"="+replace,
+	)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("blocked PIPE helper failed: %v\n%s", err, output)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("FIFO still exists after helper exit: %v", err)
+	}
 }
 
 func TestNamedPipeUnlinkCloseZeroKeepsFIFODuringBlockedOpen(t *testing.T) {
@@ -143,6 +206,27 @@ func waitPathExists(t *testing.T, path string, timeout time.Duration) {
 			t.Fatal(err)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %s", path)
+}
+
+func waitPipeReady(t *testing.T, path string, original os.FileInfo, wantReplacement bool, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		current, err := os.Lstat(path)
+		switch {
+		case err == nil && (!wantReplacement || !os.SameFile(original, current)):
+			return
+		case err == nil:
+		case os.IsNotExist(err):
+		default:
+			t.Fatal(err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if wantReplacement {
+		t.Fatalf("timed out waiting for replacement FIFO %s", path)
 	}
 	t.Fatalf("timed out waiting for %s", path)
 }
