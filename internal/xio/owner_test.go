@@ -14,12 +14,7 @@ func TestUnlinkRegistryDoesNotRemoveReplacement(t *testing.T) {
 	}
 	unregister := RegisterUnlinkPath(path)
 	t.Cleanup(unregister)
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte("replacement"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	replaceAtPath(t, path, []byte("replacement"), 0o600)
 
 	UnlinkRegisteredPaths()
 	got, err := os.ReadFile(path)
@@ -38,14 +33,10 @@ func TestUnlinkRegistryDoesNotRemoveSameSizeReplacement(t *testing.T) {
 	}
 	unregister := RegisterUnlinkPath(path)
 	t.Cleanup(unregister)
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	// Same length as "original" so size/mtime matching cannot distinguish a
-	// recycled inode from the object we registered.
-	if err := os.WriteFile(path, []byte("ORIGINAL"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	// Same length as "original". Unlink+recreate can recycle inode / NTFS
+	// file IDs; rename-over keeps both objects alive so SameFile can tell
+	// them apart.
+	replaceAtPath(t, path, []byte("ORIGINAL"), 0o600)
 
 	UnlinkRegisteredPaths()
 	got, err := os.ReadFile(path)
@@ -54,6 +45,18 @@ func TestUnlinkRegistryDoesNotRemoveSameSizeReplacement(t *testing.T) {
 	}
 	if string(got) != "ORIGINAL" {
 		t.Fatalf("contents=%q", got)
+	}
+}
+
+// replaceAtPath installs contents at path by renaming a sibling over it.
+func replaceAtPath(t *testing.T, path string, contents []byte, perm os.FileMode) {
+	t.Helper()
+	other := path + ".new"
+	if err := os.WriteFile(other, contents, perm); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(other, path); err != nil {
+		t.Fatal(err)
 	}
 }
 

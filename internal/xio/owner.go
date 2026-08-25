@@ -101,16 +101,12 @@ var (
 type unlinkEntry struct {
 	path string
 	info os.FileInfo
-	// hold pins the registered inode so a replacement cannot recycle its
-	// identity (Linux O_PATH, Darwin O_EVTONLY, Windows FILE_SHARE_DELETE).
-	// Must not be a FIFO reader. Closed before os.Remove so Darwin can unlink
-	// a FIFO that still has a blocked open.
-	hold *os.File
 }
 
 // RegisterUnlinkPath records a filesystem path to remove on process signal exit
-// (SIGTERM etc.). Classic xio_close unlinks; our signal path uses os.Exit and
-// would otherwise leave UNIX/PIPE/PTY link entries (REMOVE* tests).
+// (SIGTERM etc.). Classic xio_close calls unlink(2) on the stored name; our
+// signal path uses os.Exit and would otherwise leave UNIX/PIPE/PTY entries
+// (REMOVE* tests).
 func RegisterUnlinkPath(path string) func() {
 	if path == "" || IsAbstract(path) {
 		return func() {}
@@ -121,11 +117,13 @@ func RegisterUnlinkPath(path string) func() {
 		// later file at that name might belong to somebody else.
 		return func() {}
 	}
-	hold := pinUnlinkPath(path)
+	if !snapshotRegisteredIdentity(info) {
+		return func() {}
+	}
 	unlinkMu.Lock()
 	unlinkNextID++
 	id := unlinkNextID
-	unlinkPaths[id] = unlinkEntry{path: path, info: info, hold: hold}
+	unlinkPaths[id] = unlinkEntry{path: path, info: info}
 	unlinkMu.Unlock()
 	var once sync.Once
 	return func() {
@@ -133,9 +131,6 @@ func RegisterUnlinkPath(path string) func() {
 			unlinkMu.Lock()
 			delete(unlinkPaths, id)
 			unlinkMu.Unlock()
-			if hold != nil {
-				_ = hold.Close()
-			}
 		})
 	}
 }
@@ -178,26 +173,40 @@ func UnlinkRegisteredPaths() {
 	unlinkMu.Unlock()
 	for _, entry := range paths {
 		current, err := os.Lstat(entry.path)
-		same := err == nil && sameRegisteredFile(entry.info, current)
-		// Drop the pin before unlink: Darwin can refuse to remove a FIFO while
-		// an O_EVTONLY descriptor still names that vnode.
-		if entry.hold != nil {
-			_ = entry.hold.Close()
+		if err != nil || !sameRegisteredFile(entry.info, current) {
+			continue
 		}
-		if same {
-			_ = os.Remove(entry.path)
-		}
+		_ = os.Remove(entry.path)
 	}
 	for _, h := range hooks {
 		h()
 	}
 }
 
-// sameRegisteredFile reports whether current is the object that was registered.
-// Classic unlinks the stored path with no identity check. We skip replacements
-// at the same name (dev+inode via SameFile). Mode/size/mtime are not compared:
-// they change on the live object (open, chmod, write) and would skip PIPE_REMOVE
-// cleanup. Inode reuse is handled by pinUnlinkPath, not by metadata.
+// snapshotRegisteredIdentity records enough identity in info for a later
+// os.SameFile check, without keeping a descriptor open.
+//
+// Extra fds were the wrong tool: Linux unlink(2) removes the name while any
+// already-open endpoint fd holds the inode; Darwin O_EVTONLY is a kqueue
+// monitor flag (open(2)) and open() of a FIFO with it still waits for a
+// writer; Windows DeleteFile fails while another handle is open without
+// FILE_SHARE_DELETE.
+//
+// Unix Lstat already has st_dev/st_ino. Windows Lstat uses GetFileAttributesEx
+// and leaves the file index unset; os.SameFile then re-opens the path (Go
+// os/types_windows.go loadFileId) and would treat a replacement as the
+// original. Calling SameFile now snapshots the index while this object still
+// owns the name, then closes that brief handle.
+func snapshotRegisteredIdentity(info os.FileInfo) bool {
+	return info != nil && os.SameFile(info, info)
+}
+
+// sameRegisteredFile reports whether current is still the object that was
+// registered. unlink(2) removes a directory entry, not an inode; if the name
+// now refers to a different file (st_dev/st_ino, or Windows volume+file index
+// via os.SameFile), leave it. Mode/size/mtime are not part of that identity:
+// they change on the live object (open, chmod, write) and must not skip
+// PIPE_REMOVE.
 func sameRegisteredFile(original, current os.FileInfo) bool {
 	return original != nil && current != nil && os.SameFile(original, current)
 }
