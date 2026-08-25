@@ -13,7 +13,7 @@ import (
 
 func TestFirstAvailableLowportRetriesOnlyAddressInUse(t *testing.T) {
 	var tried []int
-	port, err := FirstAvailableLowport(func(port int) error {
+	port, err := firstAvailableLowportFrom(LowportMax, func(port int) error {
 		tried = append(tried, port)
 		if len(tried) < 3 {
 			return syscall.EADDRINUSE
@@ -29,7 +29,7 @@ func TestFirstAvailableLowportRetriesOnlyAddressInUse(t *testing.T) {
 
 	wantErr := errors.New("permission denied")
 	tried = nil
-	if _, err := FirstAvailableLowport(func(port int) error {
+	if _, err := firstAvailableLowportFrom(LowportMax, func(port int) error {
 		tried = append(tried, port)
 		return wantErr
 	}); !errors.Is(err, wantErr) {
@@ -37,6 +37,95 @@ func TestFirstAvailableLowportRetriesOnlyAddressInUse(t *testing.T) {
 	}
 	if len(tried) != 1 {
 		t.Fatalf("non-EADDRINUSE tried %d ports, want 1", len(tried))
+	}
+}
+
+func TestFirstAvailableLowportFromWrapsDownward(t *testing.T) {
+	var tried []int
+	port, err := firstAvailableLowportFrom(LowportMin, func(port int) error {
+		tried = append(tried, port)
+		if port != LowportMax {
+			return syscall.EADDRINUSE
+		}
+		return nil
+	})
+	if err != nil || port != LowportMax {
+		t.Fatalf("port=%d err=%v", port, err)
+	}
+	if len(tried) != 2 || tried[0] != LowportMin || tried[1] != LowportMax {
+		t.Fatalf("tried %v, want [%d %d]", tried, LowportMin, LowportMax)
+	}
+}
+
+func TestFirstAvailableLowportFromTriesFullRangeOnce(t *testing.T) {
+	const start = 800
+	var tried []int
+	_, err := firstAvailableLowportFrom(start, func(port int) error {
+		tried = append(tried, port)
+		return syscall.EADDRINUSE
+	})
+	if !errors.Is(err, syscall.EADDRINUSE) {
+		t.Fatalf("err=%v want EADDRINUSE", err)
+	}
+	n := LowportMax - LowportMin + 1
+	if len(tried) != n {
+		t.Fatalf("tried %d ports, want %d", len(tried), n)
+	}
+	if tried[0] != start {
+		t.Fatalf("first port %d, want start %d", tried[0], start)
+	}
+	seen := make(map[int]int, n)
+	for i, p := range tried {
+		if p < LowportMin || p > LowportMax {
+			t.Fatalf("out of range port %d", p)
+		}
+		seen[p]++
+		if i == 0 {
+			continue
+		}
+		want := tried[i-1] - 1
+		if tried[i-1] == LowportMin {
+			want = LowportMax
+		}
+		if p != want {
+			t.Fatalf("tried[%d]=%d, want %d after %d", i, p, want, tried[i-1])
+		}
+	}
+	if len(seen) != n {
+		t.Fatalf("unique ports %d, want %d", len(seen), n)
+	}
+	if tried[len(tried)-1] != start+1 {
+		t.Fatalf("last port %d, want %d (wrap stop before retrying start)", tried[len(tried)-1], start+1)
+	}
+}
+
+func TestFirstAvailableLowportFromStopsOnOtherErrorAfterWrap(t *testing.T) {
+	wantErr := errors.New("permission denied")
+	var tried []int
+	_, err := firstAvailableLowportFrom(LowportMin, func(port int) error {
+		tried = append(tried, port)
+		if port == LowportMin {
+			return syscall.EADDRINUSE
+		}
+		return wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("error=%v want %v", err, wantErr)
+	}
+	if len(tried) != 2 || tried[0] != LowportMin || tried[1] != LowportMax {
+		t.Fatalf("tried %v, want [%d %d]", tried, LowportMin, LowportMax)
+	}
+}
+
+func TestFirstAvailableLowportPicksPortInRange(t *testing.T) {
+	port, err := FirstAvailableLowport(func(port int) error {
+		if port < LowportMin || port > LowportMax {
+			t.Fatalf("bind called with out of range port %d", port)
+		}
+		return nil
+	})
+	if err != nil || port < LowportMin || port > LowportMax {
+		t.Fatalf("port=%d err=%v", port, err)
 	}
 }
 

@@ -2,9 +2,11 @@ package xio
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"math"
+	"math/big"
 	"net"
 	"os"
 	"strconv"
@@ -15,18 +17,40 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// Classic lowport bind range (xio-socket.c xiobindlowport): 1023 down to 640.
+// Classic lowport bind range from xio-socket.c xiobind (tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same): 640 through 1023.
 const (
 	LowportMin = 640
 	LowportMax = 1023
 )
 
-// FirstAvailableLowport calls bind for ports 1023 down to 640. As in classic
-// xiobindlowport, only EADDRINUSE advances to another port; permission and
+// FirstAvailableLowport selects a random start in [LowportMin, LowportMax]
+// (classic: 640 + random() % 384), then walks downward, wrapping from
+// LowportMin to LowportMax, and stops after one full pass. Matching classic
+// xiobind, only EADDRINUSE advances to another port; permission and
 // configuration errors fail immediately instead of being hidden by retries.
 func FirstAvailableLowport(bind func(int) error) (int, error) {
+	return firstAvailableLowportFrom(randomLowport(), bind)
+}
+
+func randomLowport() int {
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(LowportMax-LowportMin+1)))
+	if err != nil {
+		return LowportMax
+	}
+	return LowportMin + int(n.Int64())
+}
+
+// firstAvailableLowportFrom is the deterministic walk used by tests so they
+// do not depend on the random start FirstAvailableLowport chooses.
+func firstAvailableLowportFrom(start int, bind func(int) error) (int, error) {
+	if start < LowportMin || start > LowportMax {
+		start = LowportMax
+	}
 	var lastErr error
-	for port := LowportMax; port >= LowportMin; port-- {
+	port := start
+	for range LowportMax - LowportMin + 1 {
 		err := bind(port)
 		if err == nil {
 			return port, nil
@@ -34,6 +58,10 @@ func FirstAvailableLowport(bind func(int) error) (int, error) {
 		lastErr = err
 		if !errors.Is(err, syscall.EADDRINUSE) {
 			return 0, err
+		}
+		port--
+		if port < LowportMin {
+			port = LowportMax
 		}
 	}
 	if lastErr == nil {
