@@ -53,7 +53,12 @@ func TestUNIXSendtoBindRemove(t *testing.T) {
 	dir := t.TempDir()
 	remote := filepath.Join(dir, "remote")
 	local := filepath.Join(dir, "local")
-	cmd := exec.Command(bin, "-u", "UNIX-SENDTO:"+remote+",bind="+local, "FILE:"+os.DevNull)
+	hold := filepath.Join(dir, "hold")
+	// Open SENDTO first so bind= creates local, then block in PIPE open(O_RDONLY)
+	// the same way PIPE_REMOVE stays alive. FILE:/dev/null as the peer starts
+	// the transfer loop; Darwin poll on an unconnected unix datagram then
+	// fails with "read/write on closed pipe" before waitPath sees the socket.
+	cmd := exec.Command(bin, "-U", "UNIX-SENDTO:"+remote+",bind="+local, "PIPE:"+hold)
 	stderrPath := attachStderrFile(t, cmd)
 	proc, err := startTestProcess(cmd)
 	if err != nil {
