@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -774,6 +775,9 @@ func TestUDPSecondBindWithoutReuseaddrFails(t *testing.T) {
 }
 
 func TestUDPSecondBindWithReuseaddrSucceeds(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux SO_REUSEADDR lets two UDP sockets share a port; Darwin/BSD need SO_REUSEPORT")
+	}
 	first, err := listenUDPOnPort(t, parseUDPSpec(t, "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr"), 0)
 	if err != nil {
 		t.Fatal(err)
@@ -802,6 +806,9 @@ func TestUDPListenForkImpliesReuseaddr(t *testing.T) {
 }
 
 func TestUDPForkReuseaddrZeroKeepsExclusive(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("BSD UDP fork sets SO_REUSEPORT, so a second bind still succeeds")
+	}
 	first, err := listenUDPOnPort(t, parseUDPSpec(t, "UDP4-LISTEN:0,bind=127.0.0.1,fork,reuseaddr=0"), 0)
 	if err != nil {
 		t.Fatal(err)

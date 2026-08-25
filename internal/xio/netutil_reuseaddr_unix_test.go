@@ -31,6 +31,12 @@ func reuseaddrValue(t *testing.T, conn syscall.Conn) int {
 	return v
 }
 
+func reuseaddrEnabled(t *testing.T, conn syscall.Conn) bool {
+	t.Helper()
+	// Linux returns 1; Darwin has been observed to return 4 when the option is on.
+	return reuseaddrValue(t, conn) != 0
+}
+
 func TestTCPListenSetsReuseaddrByDefault(t *testing.T) {
 	spec, err := parse.ParseSpec("TCP4-LISTEN:0,bind=127.0.0.1")
 	if err != nil {
@@ -46,8 +52,8 @@ func TestTCPListenSetsReuseaddrByDefault(t *testing.T) {
 	if !ok {
 		t.Fatalf("%T does not implement syscall.Conn", ln)
 	}
-	if got := reuseaddrValue(t, sc); got != 1 {
-		t.Fatalf("TCP SO_REUSEADDR=%d want 1", got)
+	if !reuseaddrEnabled(t, sc) {
+		t.Fatal("TCP listen did not set SO_REUSEADDR")
 	}
 }
 
@@ -66,8 +72,8 @@ func TestUDPListenOmitsReuseaddrByDefault(t *testing.T) {
 	if !ok {
 		t.Fatalf("%T does not implement syscall.Conn", pc)
 	}
-	if got := reuseaddrValue(t, sc); got != 0 {
-		t.Fatalf("UDP SO_REUSEADDR=%d want 0", got)
+	if reuseaddrEnabled(t, sc) {
+		t.Fatal("UDP listen set SO_REUSEADDR without fork or reuseaddr")
 	}
 }
 
@@ -86,7 +92,7 @@ func TestUDPListenForkSetsReuseaddr(t *testing.T) {
 	if !ok {
 		t.Fatalf("%T does not implement syscall.Conn", pc)
 	}
-	if got := reuseaddrValue(t, sc); got != 1 {
-		t.Fatalf("UDP,fork SO_REUSEADDR=%d want 1", got)
+	if !reuseaddrEnabled(t, sc) {
+		t.Fatal("UDP-LISTEN,fork did not set SO_REUSEADDR")
 	}
 }
