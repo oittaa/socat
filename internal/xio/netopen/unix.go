@@ -138,7 +138,9 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 		Stream: st,
 		Label:  "UNIX:" + path,
 	}
-	// unlink-close: remove the *local bind* path (classic client option).
+	// Stream/seqpacket: unlink the local bind path only when unlink-close is
+	// explicitly set. Classic NAMED clients default unlink-close=1; this is
+	// an existing divergence, not part of the datagram trackUnixBind change.
 	if s.BoolOption("unlink-close") && bindPath != "" {
 		o.AddCleanup(func() { _ = os.Remove(bindPath) })
 	}

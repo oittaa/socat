@@ -268,6 +268,34 @@ func TestUnixSendtoBindUnlinksOnSignalSweep(t *testing.T) {
 	}
 }
 
+func TestUnixSendtoBindUnlinksOnClose(t *testing.T) {
+	if !xio.FeatureUNIXDatagram {
+		t.Skip("UNIX datagram not enabled")
+	}
+	local := unixSocketTestPath(t, "local.sock")
+	remote := unixSocketTestPath(t, "remote.sock")
+	spec, err := parse.ParseSpec("UNIX-SENDTO:" + remote + ",bind=" + local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUnixSendto(context.Background(), spec, xio.ModeWrite, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(local); err != nil {
+		t.Fatalf("SENDTO bind path missing after open: %v", err)
+	}
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(local); !os.IsNotExist(err) {
+		t.Fatalf("SENDTO bind path survived Close: %v", err)
+	}
+	if xio.RegisteredUnlinkCount() != 0 {
+		t.Fatal("Close left a signal-exit unlink registration")
+	}
+}
+
 func TestUnixSendtoBindUnlinkCloseZeroKeepsPath(t *testing.T) {
 	if !xio.FeatureUNIXDatagram {
 		t.Skip("UNIX datagram not enabled")

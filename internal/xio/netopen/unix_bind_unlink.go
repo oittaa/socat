@@ -11,7 +11,9 @@ import (
 
 // unixBoundUnlink owns a bound filesystem UNIX path for close and SIGTERM.
 // Classic xio_close unlinks NAMED unix sockets unless unlink-close=0
-// (tag-1.8.1.3 / af5388c). Abstract names have no directory entry.
+// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a has the same NAMED unlink policy).
+// Abstract names have no directory entry.
 type unixBoundUnlink struct {
 	path     string
 	doUnlink bool
