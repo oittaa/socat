@@ -54,7 +54,12 @@ type testProcess struct {
 
 func startTestProcess(cmd *exec.Cmd) (*testProcess, error) {
 	p := &testProcess{cmd: cmd, done: make(chan struct{})}
-	cmd.Stderr = &p.stderr
+	// A Writer wrapper starts a copy goroutine that can deadlock Wait()
+	// when the child os.Exits from a signal handler. An explicit *os.File
+	// is left in place so those tests capture stderr without that path.
+	if cmd.Stderr == nil {
+		cmd.Stderr = &p.stderr
+	}
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}

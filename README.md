@@ -212,6 +212,8 @@ aliases and termios / baud names.
 - Security-deprecated crypto (DSA, DTLS, etc.) is documented above rather than forced in
 - **TLS listen without `cert=`** fails at start (classic warns, listens, then handshake fails). See [TLS notes](#tls-notes).
 - **TLS address names** are `TLS` / `TLS-CONNECT` / `TLS-LISTEN`. `OPENSSL*` and `SSL*` remain aliases so classic command lines still work.
+- **SIGILL on Darwin** — classic `EXITCODESIGILL` expects exit `128+4` from a caught SIGILL. Linux matches that. On Darwin, Go’s runtime treats SIGILL as a crash dump (`exit 2`, `SIGILL: illegal instruction`); `os/signal.Notify` cannot intercept it. SIGTERM still exits `128+15`.
+- **Signal-exit unlink identity** — classic `xio_close` calls `unlink(2)` on the stored name with no identity check. If `lstat` shows a different file than at registration (`os.SameFile`), we skip the name instead of removing a replacement. We do not hold extra descriptors to pin inodes: Linux `unlink(2)` removes the name while the endpoint fd already holds the object; Darwin `O_EVTONLY` is a kqueue monitor flag and `open` of a FIFO with it waits for a writer; Windows `DeleteFile` fails while a handle is open without `FILE_SHARE_DELETE`.
 
 ## Unsupported / security-related
 
