@@ -481,13 +481,16 @@ func ParseFileMode(s parse.Spec, def os.FileMode) (os.FileMode, error) {
 
 // explicitFileMode returns perm= or mode= when set (octal, classic TYPE_MODET).
 func explicitFileMode(s parse.Spec) (os.FileMode, bool, error) {
-	name := "perm"
-	v := s.OptionValue("perm", "")
-	if v == "" {
-		name = "mode"
-		v = s.OptionValue("mode", "")
+	var name, v string
+	for i := len(s.Options) - 1; i >= 0; i-- {
+		n := parse.CanonicalOptionName(s.Options[i].Name)
+		if n == "perm" || n == "mode" {
+			name = n
+			v = s.Options[i].Value
+			break
+		}
 	}
-	if v == "" {
+	if name == "" || v == "" {
 		return 0, false, nil
 	}
 	m, err := strconv.ParseUint(v, 8, 32)

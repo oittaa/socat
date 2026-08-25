@@ -77,6 +77,7 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "proxy-option-on-socks", spec: "SOCKS4:localhost:example.com:80,proxyport=8080", wantErr: "not supported"},
 		{name: "socks-option-on-proxy", spec: "PROXY:localhost:example.com:80,socksuser=user", wantErr: "not supported"},
 		{name: "backlog-on-tcp", spec: "TCP-LISTEN:1,backlog=10"},
+		{name: "hex-max-children", spec: "TCP-LISTEN:1,fork,max-children=0x10"},
 		{name: "backlog-on-socket", spec: "SOCKET-LISTEN:2:0:x00,backlog=10"},
 		{name: "nodelay-on-file", spec: "CREATE:file,nodelay", wantErr: "not supported"},
 		{name: "keepalive-on-udp", spec: "UDP:localhost:1,keepalive", wantErr: "not supported"},

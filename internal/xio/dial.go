@@ -293,6 +293,12 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bind
 
 	bindHost = StripBrackets(bindHost)
 	if ip := net.ParseIP(bindHost); ip != nil {
+		if ip.IsUnspecified() {
+			if want4 {
+				return &net.TCPAddr{IP: net.IPv4zero, Port: port}, false, nil
+			}
+			return &net.TCPAddr{IP: net.IPv6zero, Port: port}, false, nil
+		}
 		if (ip.To4() != nil) != want4 {
 			return nil, true, nil
 		}

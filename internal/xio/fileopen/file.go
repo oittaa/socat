@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -37,10 +38,10 @@ func openOPEN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 	if s.HasOption("ftruncate") || s.HasOption("trunc") {
 		// ftruncate=N or trunc flag after open
 		if v := s.OptionValue("ftruncate", ""); v != "" {
-			var n int64
-			if _, e := fmt.Sscanf(v, "%d", &n); e != nil {
+			n, e := strconv.ParseInt(v, 0, 64)
+			if e != nil || n < 0 {
 				_ = f.Close()
-				return nil, fmt.Errorf("ftruncate: %w", e)
+				return nil, fmt.Errorf("ftruncate: invalid value %q", v)
 			}
 			if e := f.Truncate(n); e != nil {
 				_ = f.Close()

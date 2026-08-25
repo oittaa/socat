@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -126,7 +125,7 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, err
 	}
 	if value := s.OptionValue("backlog", ""); value != "" {
-		backlog, parseErr := strconv.Atoi(value)
+		backlog, parseErr := xio.ParseIntAny(value)
 		if parseErr != nil || backlog <= 0 {
 			logx.CloseQuiet(ln)
 			return nil, fmt.Errorf("backlog: invalid value %q", value)
@@ -174,7 +173,9 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 
 	// Non-fork: accept one permitted connection; honour ctx and accept-timeout.
 	// Classic Exit(0) on accept-timeout with no connection.
-	g.Log.Noticef("listening on %s", ln.Addr())
+	if g != nil && g.Log != nil {
+		g.Log.Noticef("listening on %s", ln.Addr())
+	}
 	at := xio.AcceptTimeout(s)
 	var deadline time.Time
 	if at > 0 {
@@ -207,13 +208,17 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 				o.Listener = nil
 				if xio.IsTimeoutErr(a.err) {
 					// Phrase "timed out" matches classic test.sh REUSEADDR_NULL CANT path.
-					g.Log.Warningf("accept: Connection timed out")
+					if g != nil && g.Log != nil {
+						g.Log.Warningf("accept: Connection timed out")
+					}
 					return nil, xio.ErrAcceptTimeout
 				}
 				return nil, a.err
 			}
 			if err := filter(a.c); err != nil {
-				g.Log.Noticef("%s", err)
+				if g != nil && g.Log != nil {
+					g.Log.Noticef("%s", err)
+				}
 				xio.CloseRefusedPeer(a.c)
 				continue // keep waiting for a permitted peer
 			}
@@ -223,7 +228,9 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	}
 	logx.CloseQuiet(ln)
 	o.Listener = nil
-	g.Log.Infof("accepted connection from %s", conn.RemoteAddr())
+	if g != nil && g.Log != nil {
+		g.Log.Infof("accepted connection from %s", conn.RemoteAddr())
+	}
 	// Classic: socket options on LISTEN apply to the accepted connection
 	// (so-keepalive, nodelay, …). LISTEN_KEEPALIVE checks filan on the conn.
 	if err := xio.ApplyTCPConnOpts(s, conn); err != nil {

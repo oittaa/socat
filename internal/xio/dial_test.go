@@ -51,6 +51,15 @@ func TestBindTCPAddrForRemoteFamily(t *testing.T) {
 	if err != nil || skip || la == nil {
 		t.Fatalf("bind host:port: la=%v skip=%v err=%v", la, skip, err)
 	}
+	// bind=:: against IPv4 remote uses IPv4 unspecified, matching ListenBindHost.
+	la, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("127.0.0.1"), parse.Spec{}, "::", "0")
+	if err != nil || skip || la == nil || la.IP.To4() == nil || !la.IP.IsUnspecified() {
+		t.Fatalf("bind=:: v4 remote: la=%v skip=%v err=%v", la, skip, err)
+	}
+	la, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("::1"), parse.Spec{}, "0.0.0.0", "0")
+	if err != nil || skip || la == nil || la.IP.To4() != nil || !la.IP.IsUnspecified() {
+		t.Fatalf("bind=0.0.0.0 v6 remote: la=%v skip=%v err=%v", la, skip, err)
+	}
 }
 
 func TestDialTCPAllLogsAF(t *testing.T) {

@@ -196,7 +196,7 @@ func validateInteger(min int64) func(parse.Option) error {
 		if err != nil {
 			return err
 		}
-		n, err := strconv.ParseInt(value, 10, 64)
+		n, err := strconv.ParseInt(value, 0, 64)
 		if err != nil || n < min {
 			return fmt.Errorf("invalid %s %q", option.Name, value)
 		}

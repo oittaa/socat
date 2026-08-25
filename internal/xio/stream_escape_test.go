@@ -16,6 +16,7 @@ func TestParseEscapeByte(t *testing.T) {
 		wantErr bool
 	}{
 		{value: "27", want: 27},
+		{value: "027", want: 23},
 		{value: "0x1b", want: 0x1b},
 		{value: "0X1B", want: 0x1b},
 		{value: "0xff", want: 0xff},

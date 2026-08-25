@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -306,17 +305,7 @@ func ApplyEscape(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 // prefix (0x1b), or a single character. strconv.ParseUint base 0 is required
 // for the hex form; fmt.Sscanf %x stops at the 'x' and would silently yield 0.
 func parseEscapeByte(v string) (byte, error) {
-	if strings.HasPrefix(v, "0x") || strings.HasPrefix(v, "0X") {
-		n, err := strconv.ParseUint(v, 0, 8)
-		if err != nil {
-			return 0, fmt.Errorf("escape: invalid value %q", v)
-		}
-		return byte(n), nil
-	}
-	if n, err := strconv.Atoi(v); err == nil {
-		if n < 0 || n > 255 {
-			return 0, fmt.Errorf("escape: invalid value %q", v)
-		}
+	if n, err := strconv.ParseUint(v, 0, 8); err == nil {
 		return byte(n), nil
 	}
 	if len(v) == 1 {

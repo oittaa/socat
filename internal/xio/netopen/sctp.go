@@ -107,15 +107,7 @@ func openSCTPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	if port == "" || strings.Trim(port, ":") == "" {
 		return nil, fmt.Errorf("%s: invalid port %q", s.Type, port)
 	}
-	host := s.OptionValue("bind", "")
-	if host == "" {
-		switch network {
-		case "sctp4":
-			host = "0.0.0.0"
-		case "sctp6", "sctp":
-			host = "::"
-		}
-	}
+	host := xio.ListenBindHost(network, s.OptionValue("bind", ""))
 	ln, err := listenSCTP(ctx, network, host, port, s)
 	if err != nil {
 		return nil, err
