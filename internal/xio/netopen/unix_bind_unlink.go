@@ -1,6 +1,7 @@
 package netopen
 
 import (
+	"fmt"
 	"io"
 	"os"
 
@@ -31,6 +32,29 @@ func trackUnixBind(path string, s parse.Spec) unixBoundUnlink {
 		u.unreg = xio.RegisterUnlinkPath(path)
 	}
 	return u
+}
+
+// prepareUnixFilesystemPath matches classic xio-unix.c (tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same tree):
+// unlink-early removes the name (ENOENT is informational); otherwise an
+// existing filesystem entry is an error. reuseaddr does not unlink.
+func prepareUnixFilesystemPath(path string, s parse.Spec) error {
+	if path == "" || xio.IsAbstract(path) {
+		return nil
+	}
+	if s.BoolOption("unlink-early") {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("unlink %s: %w", path, err)
+		}
+		return nil
+	}
+	if _, err := os.Lstat(path); err == nil {
+		return fmt.Errorf("%q exists", path)
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
 }
 
 // drop unregisters, closes c, and removes the path when unlink-close is on.
