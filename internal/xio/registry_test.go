@@ -67,16 +67,20 @@ func TestOpenersHaveHelpOrAreDisabled(t *testing.T) {
 func TestRegisteredAddressOptionCaps(t *testing.T) {
 	cases := []struct {
 		name string
-		want []string
+		must []string
+		not  []string
 	}{
-		{name: "UDP-LISTEN", want: []string{xio.OptCapListen, xio.OptCapIPFilter, xio.OptCapPort, xio.OptCapLowport}},
-		{name: "UDP-RECVFROM", want: []string{xio.OptCapIPFilter, xio.OptCapPort, xio.OptCapLowport}},
-		{name: "UNIX-RECVFROM", want: nil},
-		{name: "UNIX-LISTEN", want: []string{xio.OptCapListen}},
-		{name: "TCP-LISTEN", want: []string{xio.OptCapListen, xio.OptCapIPFilter, xio.OptCapPort, xio.OptCapLowport}},
-		{name: "SOCKET-LISTEN", want: []string{xio.OptCapListen}},
-		{name: "OPEN", want: []string{xio.OptCapOpen}},
-		{name: "CREATE", want: nil},
+		{name: "UDP-LISTEN", must: []string{"listen", "range", "ip-udp", "child"}, not: []string{"termios", "pty", "open"}},
+		{name: "UDP-RECVFROM", must: []string{"range", "ip-udp", "child"}, not: []string{"listen"}},
+		{name: "UNIX-RECVFROM", must: []string{"sock-unix", "child"}, not: []string{"listen", "range"}},
+		{name: "UNIX-LISTEN", must: []string{"listen", "sock-unix", "child"}, not: []string{"range"}},
+		{name: "TCP-LISTEN", must: []string{"listen", "range", "ip-tcp", "child"}, not: []string{"pty"}},
+		{name: "SOCKET-LISTEN", must: []string{"listen", "range", "child"}},
+		{name: "OPEN", must: []string{"open", "named"}, not: []string{"listen", "socket"}},
+		{name: "CREATE", must: []string{"named", "reg"}, not: []string{"open"}},
+		{name: "TLS-LISTEN", must: []string{"listen", "openssl", "ip-tcp"}},
+		{name: "QUIC", must: []string{"openssl", "ip-udp"}},
+		{name: "WS", must: []string{"ip-tcp", "socket"}},
 	}
 	for _, tc := range cases {
 		reg, ok := xio.AddressRegistrationForType(tc.name)
@@ -84,14 +88,36 @@ func TestRegisteredAddressOptionCaps(t *testing.T) {
 			t.Errorf("%s: not registered", tc.name)
 			continue
 		}
-		if len(reg.OptionCaps) != len(tc.want) {
-			t.Errorf("%s OptionCaps=%v want %v", tc.name, reg.OptionCaps, tc.want)
+		have := map[string]bool{}
+		for _, c := range reg.OptionCaps {
+			have[c] = true
+		}
+		for _, cap := range tc.must {
+			if !have[cap] {
+				t.Errorf("%s missing cap %q: %v", tc.name, cap, reg.OptionCaps)
+			}
+		}
+		for _, cap := range tc.not {
+			if have[cap] {
+				t.Errorf("%s unexpected cap %q: %v", tc.name, cap, reg.OptionCaps)
+			}
+		}
+	}
+}
+
+func TestRegisteredAddressesCarryClassicGroups(t *testing.T) {
+	for _, reg := range xio.AddressRegistrations() {
+		classic := xio.ClassicAddressCaps(reg.Name)
+		if len(classic) == 0 {
 			continue
 		}
-		for i, cap := range tc.want {
-			if reg.OptionCaps[i] != cap {
-				t.Errorf("%s OptionCaps=%v want %v", tc.name, reg.OptionCaps, tc.want)
-				break
+		have := map[string]bool{}
+		for _, c := range reg.OptionCaps {
+			have[c] = true
+		}
+		for _, g := range classic {
+			if !have[g] {
+				t.Errorf("%s missing classic group %q; OptionCaps=%v", reg.Name, g, reg.OptionCaps)
 			}
 		}
 	}

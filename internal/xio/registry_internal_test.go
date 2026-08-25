@@ -56,7 +56,7 @@ func TestAddressRegistryMergesDerivedOptionCaps(t *testing.T) {
 	if !ok {
 		t.Fatal("missing registration")
 	}
-	want := []string{OptCapListen, OptCapIPFilter, OptCapPort, OptCapLowport, "extra"}
+	want := uniqueCaps([]string{OptCapListen, OptCapRange, "ip-tcp", "extra"})
 	if !reflect.DeepEqual(reg.OptionCaps, want) {
 		t.Fatalf("OptionCaps=%v want %v", reg.OptionCaps, want)
 	}

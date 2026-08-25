@@ -10,17 +10,19 @@ func TestDerivedOptionCaps(t *testing.T) {
 		name, group string
 		want        []string
 	}{
-		{name: "UDP-LISTEN", group: GroupUDP, want: []string{OptCapListen, OptCapIPFilter, OptCapPort, OptCapLowport}},
-		{name: "UDP-RECVFROM", group: GroupUDP, want: []string{OptCapIPFilter, OptCapPort, OptCapLowport}},
-		{name: "UNIX-RECVFROM", group: GroupUnix, want: nil},
-		{name: "UNIX-LISTEN", group: GroupUnix, want: []string{OptCapListen}},
-		{name: "TCP-LISTEN", group: GroupTCP, want: []string{OptCapListen, OptCapIPFilter, OptCapPort, OptCapLowport}},
-		{name: "SOCKET-LISTEN", group: GroupSocket, want: []string{OptCapListen}},
-		{name: "OPEN", group: GroupFiles, want: []string{OptCapOpen}},
-		{name: "CREATE", group: GroupFiles, want: nil},
-		{name: "POSIXMQ-RECV", group: GroupPOSIXMQ, want: []string{OptCapOpen}},
-		{name: "UDP", group: GroupUDP, want: []string{OptCapPort, OptCapLowport}},
-		{name: "QUIC", group: GroupQUIC, want: []string{OptCapPort}},
+		{name: "UDP-LISTEN", group: GroupUDP, want: uniqueCaps([]string{"fd", "socket", "sock-ip4", "sock-ip6", "ip-udp", "listen", "child", "range"})},
+		{name: "UDP-RECVFROM", group: GroupUDP, want: uniqueCaps([]string{"fd", "socket", "sock-ip4", "sock-ip6", "ip-udp", "child", "range"})},
+		{name: "UNIX-RECVFROM", group: GroupUnix, want: uniqueCaps([]string{"fd", "named", "socket", "sock-unix", "retry", "child"})},
+		{name: "UNIX-LISTEN", group: GroupUnix, want: uniqueCaps([]string{"fd", "named", "socket", "sock-unix", "listen", "child", "retry"})},
+		{name: "TCP-LISTEN", group: GroupTCP, want: uniqueCaps([]string{"fd", "socket", "sock-ip4", "sock-ip6", "ip-tcp", "listen", "child", "range", "retry"})},
+		{name: "SOCKET-LISTEN", group: GroupSocket, want: uniqueCaps([]string{"fd", "socket", "listen", "range", "child", "retry"})},
+		{name: "OPEN", group: GroupFiles, want: uniqueCaps([]string{"fd", "fifo", "chr", "blk", "reg", "named", "open", "termios"})},
+		{name: "CREATE", group: GroupFiles, want: uniqueCaps([]string{"fd", "named", "reg"})},
+		{name: "POSIXMQ-RECV", group: GroupPOSIXMQ, want: uniqueCaps([]string{"fd", "open", "named", "posixmq", "retry", "child"})},
+		{name: "UDP", group: GroupUDP, want: uniqueCaps([]string{"fd", "socket", "sock-ip4", "sock-ip6", "ip-udp"})},
+		{name: "QUIC", group: GroupQUIC, want: uniqueCaps(ClassicAddressCaps("QUIC"))},
+		{name: "TLS-LISTEN", group: GroupTLS, want: uniqueCaps(ClassicAddressCaps("OPENSSL-LISTEN"))},
+		{name: "WS", group: GroupWebSocket, want: uniqueCaps(ClassicAddressCaps("TCP-CONNECT"))},
 	}
 	for _, tc := range cases {
 		got := DerivedOptionCaps(tc.name, tc.group)
@@ -39,5 +41,46 @@ func TestOptionCapsAllowed(t *testing.T) {
 	}
 	if !OptionCapsAllowed([]string{OptCapListen}, nil) {
 		t.Fatal("unrestricted option must be allowed")
+	}
+}
+
+func TestClassicAllowsOption(t *testing.T) {
+	cases := []struct {
+		addr, opt string
+		want      bool
+	}{
+		{"TCP-CONNECT", "readbytes", true},
+		{"TCP-CONNECT", "crnl", true},
+		{"TCP-CONNECT", "setsid", true},
+		{"TCP-CONNECT", "pty", false},
+		{"TCP-CONNECT", "echo", false},
+		{"TCP-CONNECT", "excl", false},
+		{"TCP-CONNECT", "append", true},
+		{"TCP-CONNECT", "fork", true},
+		{"UDP-CONNECT", "fork", false},
+		{"UDP-CONNECT", "lowport", true},
+		{"UDP-LISTEN", "accept-timeout", true},
+		{"UDP-RECVFROM", "accept-timeout", false},
+		{"UDP-RECVFROM", "range", true},
+		{"UNIX-RECVFROM", "range", false},
+		{"UNIX-RECVFROM", "accept-timeout", false},
+		{"CREATE", "excl", false},
+		{"OPEN", "excl", true},
+		{"EXEC", "pty", true},
+		{"EXEC", "fork", false},
+		{"TCP-LISTEN", "sourceport", true},
+		{"OPEN", "sourceport", false},
+		{"TUN", "rcvtimeo", false},
+		{"INTERFACE", "rcvtimeo", true},
+		{"OPENSSL", "cert", true},
+		{"TCP-CONNECT", "cert", false},
+		{"QUIC", "lowport", true},
+		{"WS", "nodelay", true},
+	}
+	for _, tc := range cases {
+		got := ClassicAllowsOption(tc.addr, tc.opt)
+		if got != tc.want {
+			t.Errorf("ClassicAllowsOption(%s, %s)=%v want %v", tc.addr, tc.opt, got, tc.want)
+		}
 	}
 }
