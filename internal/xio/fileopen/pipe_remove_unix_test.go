@@ -18,7 +18,6 @@ const (
 	blockedPipeHelperEnv  = "SOCAT_TEST_BLOCKED_PIPE_HELPER"
 	blockedPipePathEnv    = "SOCAT_TEST_BLOCKED_PIPE_PATH"
 	blockedPipeChannelEnv = "SOCAT_TEST_BLOCKED_PIPE_CHANNEL"
-	blockedPipeReplaceEnv = "SOCAT_TEST_BLOCKED_PIPE_REPLACE"
 )
 
 // TestNamedPipeRemoveUnlinksBeforeWriter mimics classic test.sh PIPE_REMOVE:
@@ -29,7 +28,7 @@ const (
 // leaves the FIFO behind.
 func TestNamedPipeRemoveUnlinksBeforeWriter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pipe")
-	runBlockedPipeHelper(t, path, "PIPE:"+path, false)
+	runBlockedPipeHelper(t, path, "PIPE:"+path)
 }
 
 // TestNamedPipeUnlinkEarlyReplacesAndRemovesBeforeWriter covers classic's
@@ -40,7 +39,7 @@ func TestNamedPipeUnlinkEarlyReplacesAndRemovesBeforeWriter(t *testing.T) {
 	if err := mkfifo(path, 0o666); err != nil {
 		t.Fatal(err)
 	}
-	runBlockedPipeHelper(t, path, "PIPE:"+path+",unlink-early", true)
+	runBlockedPipeHelper(t, path, "PIPE:"+path+",unlink-early")
 }
 
 func TestNamedPipeUnlinkEarlyRequiresExistingPath(t *testing.T) {
@@ -66,25 +65,8 @@ func TestNamedPipeBlockedOpenHelper(t *testing.T) {
 	}
 	path := os.Getenv(blockedPipePathEnv)
 	raw := os.Getenv(blockedPipeChannelEnv)
-	wantReplacement := os.Getenv(blockedPipeReplaceEnv) == "1"
 	if path == "" || raw == "" {
 		t.Fatal("missing blocked PIPE helper environment")
-	}
-
-	var original os.FileInfo
-	if wantReplacement {
-		// Keep the stale FIFO inode referenced while unlink-early replaces it.
-		// Otherwise some filesystems can immediately reuse the inode number,
-		// making os.SameFile report that the replacement is still the old FIFO.
-		oldFIFO, err := os.OpenFile(path, os.O_RDONLY|oNonblock, 0) // #nosec G304 -- test-created FIFO whose inode identity is under test
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = oldFIFO.Close() }()
-		original, err = oldFIFO.Stat()
-		if err != nil {
-			t.Fatal(err)
-		}
 	}
 	ch, err := parse.ParseChannel(raw)
 	if err != nil {
@@ -96,7 +78,10 @@ func TestNamedPipeBlockedOpenHelper(t *testing.T) {
 		opened <- resultOpened{o: o, err: err}
 	}()
 
-	waitPipeReady(t, path, original, wantReplacement, 2*time.Second)
+	// Path existence is not "ready": mkfifo is visible before RegisterUnlinkPath,
+	// and unlink-early removes the stale name before creating the replacement.
+	// os.SameFile is not "replaced": overlay/tmpfs recycles inode numbers.
+	waitRegisteredUnlink(t, opened, 2*time.Second)
 	select {
 	case r := <-opened:
 		if r.o != nil {
@@ -111,18 +96,13 @@ func TestNamedPipeBlockedOpenHelper(t *testing.T) {
 	}
 }
 
-func runBlockedPipeHelper(t *testing.T, path, raw string, wantReplacement bool) {
+func runBlockedPipeHelper(t *testing.T, path, raw string) {
 	t.Helper()
-	replace := "0"
-	if wantReplacement {
-		replace = "1"
-	}
 	cmd := exec.Command(os.Args[0], "-test.run=^TestNamedPipeBlockedOpenHelper$", "-test.v") // #nosec G204 -- re-exec this test binary without a shell
 	cmd.Env = append(os.Environ(),
 		blockedPipeHelperEnv+"=1",
 		blockedPipePathEnv+"="+path,
 		blockedPipeChannelEnv+"="+raw,
-		blockedPipeReplaceEnv+"="+replace,
 	)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("blocked PIPE helper failed: %v\n%s", err, output)
@@ -145,6 +125,9 @@ func TestNamedPipeUnlinkCloseZeroKeepsFIFODuringBlockedOpen(t *testing.T) {
 		opened <- resultOpened{o: o, err: err}
 	}()
 	waitPathExists(t, path, 2*time.Second)
+	// mkfifo is visible before the blocking open. Wait until that open is
+	// parked so a mistaken unlink-close registration would already have run.
+	waitBlockedOpen(t, opened, 50*time.Millisecond)
 
 	xio.UnlinkRegisteredPaths()
 	if _, err := os.Lstat(path); err != nil {
@@ -217,23 +200,38 @@ func waitPathExists(t *testing.T, path string, timeout time.Duration) {
 	t.Fatalf("timed out waiting for %s", path)
 }
 
-func waitPipeReady(t *testing.T, path string, original os.FileInfo, wantReplacement bool, timeout time.Duration) {
+func waitBlockedOpen(t *testing.T, opened <-chan resultOpened, d time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		select {
+		case r := <-opened:
+			if r.o != nil {
+				_ = r.o.Close()
+			}
+			t.Fatalf("PIPE ModeRead open returned before a writer: %v", r.err)
+		default:
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+}
+
+func waitRegisteredUnlink(t *testing.T, opened <-chan resultOpened, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		current, err := os.Lstat(path)
-		switch {
-		case err == nil && (!wantReplacement || !os.SameFile(original, current)):
-			return
-		case err == nil:
-		case os.IsNotExist(err):
+		select {
+		case r := <-opened:
+			if r.o != nil {
+				_ = r.o.Close()
+			}
+			t.Fatalf("PIPE ModeRead open returned before a writer: %v", r.err)
 		default:
-			t.Fatal(err)
+		}
+		if xio.RegisteredUnlinkCount() > 0 {
+			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if wantReplacement {
-		t.Fatalf("timed out waiting for replacement FIFO %s", path)
-	}
-	t.Fatalf("timed out waiting for %s", path)
+	t.Fatal("timed out waiting for PIPE unlink registration")
 }
