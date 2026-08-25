@@ -50,7 +50,10 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 	var laddr *net.UDPAddr
 	// classic lowport: bind an ephemeral port in 640..1023 (log even if EACCES).
 	if s.BoolOption("lowport") && sp == "" {
-		bind = xio.ListenBindHost(network, bind)
+		bind, err = xio.BindHostForListen(network, bind)
+		if err != nil {
+			return nil, err
+		}
 		c, port, berr := bindUDPLowport(ctx, network, bind, s, g)
 		if berr == nil && c != nil {
 			// use this bound conn as the packet socket
@@ -87,7 +90,10 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		return nil, fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", xio.LowportMin, xio.LowportMax, berr)
 	}
 	if bind != "" || sp != "" {
-		bind = xio.ListenBindHost(network, bind)
+		bind, err = xio.BindHostForListen(network, bind)
+		if err != nil {
+			return nil, err
+		}
 		if sp == "" {
 			// bind may already be host:port
 			if _, _, e := net.SplitHostPort(bind); e != nil {
@@ -225,7 +231,10 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		return nil, fmt.Errorf("UDP-RECV requires port")
 	}
 	port := s.Params[0]
-	host := xio.ListenBindHost(network, s.OptionValue("bind", ""))
+	host, err := xio.BindHostForListen(network, s.OptionValue("bind", ""))
+	if err != nil {
+		return nil, err
+	}
 	laddr, err := net.ResolveUDPAddr(network, net.JoinHostPort(xio.StripBrackets(host), port))
 	if err != nil {
 		return nil, err

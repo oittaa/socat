@@ -72,22 +72,57 @@ func TestListenBindHost(t *testing.T) {
 		{"tcp4", "", "0.0.0.0"},
 		{"udp4", "", "0.0.0.0"},
 		{"ip4", "", "0.0.0.0"},
+		{"sctp4", "", "0.0.0.0"},
 		{"tcp6", "", "::"},
 		{"udp6", "", "::"},
+		{"sctp6", "", "::"},
 		{"tcp", "", "::"},
 		{"tcp4", "127.0.0.1", "127.0.0.1"},
 		{"tcp6", "[::1]", "[::1]"},
-		// Explicit IPv6 wildcard on a v4-forced network falls back to v4.
-		{"tcp4", "::", "0.0.0.0"},
-		{"tcp4", "[::]", "0.0.0.0"},
-		{"udp4", "::", "0.0.0.0"},
-		{"ip4", "::", "0.0.0.0"},
+		// Explicit bind is never rewritten, including IPv6 wildcards on v4 nets.
+		{"tcp4", "::", "::"},
+		{"tcp4", "[::]", "[::]"},
+		{"udp4", "::", "::"},
+		{"ip4", "::", "::"},
+		{"sctp4", "::", "::"},
 		{"tcp6", "::", "::"},
+		{"tcp6", "0.0.0.0", "0.0.0.0"},
 	}
 	for _, tc := range cases {
 		if got := ListenBindHost(tc.network, tc.bind); got != tc.want {
 			t.Errorf("ListenBindHost(%q, %q) = %q, want %q", tc.network, tc.bind, got, tc.want)
 		}
+	}
+}
+
+func TestBindFamilyMismatch(t *testing.T) {
+	if err := BindFamilyMismatch("tcp4", ""); err != nil {
+		t.Fatalf("empty bind: %v", err)
+	}
+	if err := BindFamilyMismatch("tcp4", "127.0.0.1"); err != nil {
+		t.Fatalf("v4 bind: %v", err)
+	}
+	if err := BindFamilyMismatch("tcp", "::"); err != nil {
+		t.Fatalf("generic family + :: : %v", err)
+	}
+	if err := BindFamilyMismatch("tcp4", "::"); err == nil {
+		t.Fatal("tcp4 + :: must fail")
+	}
+	if err := BindFamilyMismatch("udp4", "[::]"); err == nil {
+		t.Fatal("udp4 + [::] must fail")
+	}
+	if err := BindFamilyMismatch("sctp4", "::"); err == nil {
+		t.Fatal("sctp4 + :: must fail")
+	}
+	if err := BindFamilyMismatch("tcp6", "0.0.0.0"); err == nil {
+		t.Fatal("tcp6 + 0.0.0.0 must fail")
+	}
+	if _, err := BindHostForListen("tcp4", "::"); err == nil {
+		t.Fatal("BindHostForListen tcp4 + :: must fail")
+	}
+	host, err := BindHostForListen("tcp4", "")
+	if err != nil || host != "0.0.0.0" {
+		t.Fatalf("empty tcp4 bind: host=%q err=%v", host, err)
 	}
 }
 

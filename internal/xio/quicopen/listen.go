@@ -24,7 +24,10 @@ func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	if network == "udp6" && s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
 		network = "udp"
 	}
-	host := xio.ListenBindHost(network, s.OptionValue("bind", ""))
+	host, err := xio.BindHostForListen(network, s.OptionValue("bind", ""))
+	if err != nil {
+		return nil, err
+	}
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
 	tlsCfg, err := tlsopen.TLSServerConfig(s)
