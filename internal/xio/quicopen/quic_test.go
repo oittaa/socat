@@ -339,6 +339,27 @@ func TestQUICDataConnectionDrainsBeforeClose(t *testing.T) {
 	}
 }
 
+func TestQUICConnectExplicitBind(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	port := startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:0,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", listenCert(t)))
+
+	cs, err := parse.ParseSpec(fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0,bind=127.0.0.1", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openQUICConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = o.Close() }()
+	la, ok := quicNetConnOf(t, o).LocalAddr().(*net.UDPAddr)
+	if !ok || !la.IP.Equal(net.IPv4(127, 0, 0, 1)) {
+		t.Fatalf("local addr %v, want 127.0.0.1", quicNetConnOf(t, o).LocalAddr())
+	}
+	echoRoundtrip(t, o.Stream, []byte("quic-explicit-bind"))
+}
+
 func TestQUICConnectLowportBindsOrFailsClosed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

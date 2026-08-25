@@ -2,6 +2,7 @@ package xio_test
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -152,4 +153,166 @@ func TestForkListenersAndDialersProvideWrapDial(t *testing.T) {
 			}
 		})
 	}
+}
+
+func streamLocalIP(t *testing.T, o *xio.Opened) net.IP {
+	t.Helper()
+	type localAddrer interface{ LocalAddr() net.Addr }
+	la, ok := o.Stream.(localAddrer)
+	if !ok {
+		t.Fatalf("stream %T has no LocalAddr", o.Stream)
+	}
+	switch a := la.LocalAddr().(type) {
+	case *net.TCPAddr:
+		return a.IP
+	case *net.UDPAddr:
+		return a.IP
+	default:
+		t.Fatalf("local addr %T %v", a, a)
+		return nil
+	}
+}
+
+func acceptOnce(t *testing.T, ln net.Listener) {
+	t.Helper()
+	go func() {
+		c, err := ln.Accept()
+		if err == nil {
+			_ = c.Close()
+		}
+	}()
+}
+
+func TestMatchingConnectBind(t *testing.T) {
+	t.Run("tcp4", func(t *testing.T) {
+		ln, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = ln.Close() })
+		acceptOnce(t, ln)
+		port := ln.Addr().(*net.TCPAddr).Port
+		o, err := openSpec(t, fmt.Sprintf("TCP4:127.0.0.1:%d,bind=127.0.0.1,connect-timeout=2", port))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = o.Close() })
+		ip := streamLocalIP(t, o)
+		if !ip.Equal(net.IPv4(127, 0, 0, 1)) {
+			t.Fatalf("local IP %v, want 127.0.0.1", ip)
+		}
+	})
+	t.Run("tcp4-host-port", func(t *testing.T) {
+		ln, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = ln.Close() })
+		acceptOnce(t, ln)
+		port := ln.Addr().(*net.TCPAddr).Port
+		o, err := openSpec(t, fmt.Sprintf("TCP4:127.0.0.1:%d,bind=127.0.0.1:0,connect-timeout=2", port))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = o.Close() })
+		ip := streamLocalIP(t, o)
+		if !ip.Equal(net.IPv4(127, 0, 0, 1)) {
+			t.Fatalf("local IP %v, want 127.0.0.1", ip)
+		}
+	})
+	t.Run("udp4", func(t *testing.T) {
+		pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = pc.Close() })
+		port := pc.LocalAddr().(*net.UDPAddr).Port
+		o, err := openSpec(t, fmt.Sprintf("UDP4:127.0.0.1:%d,bind=127.0.0.1", port))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = o.Close() })
+		ip := streamLocalIP(t, o)
+		if !ip.Equal(net.IPv4(127, 0, 0, 1)) {
+			t.Fatalf("local IP %v, want 127.0.0.1", ip)
+		}
+	})
+}
+
+func TestListenWithoutBindOpensWildcard(t *testing.T) {
+	t.Setenv("SOCAT_DEFAULT_LISTEN_IP", "")
+	for _, spec := range []string{
+		"TCP-LISTEN:0,reuseaddr,fork",
+		"TCP4-LISTEN:0,reuseaddr,fork",
+		"UDP-LISTEN:0,reuseaddr,fork",
+		"UDP4-LISTEN:0,reuseaddr,fork",
+	} {
+		t.Run(spec, func(t *testing.T) {
+			o, err := openSpec(t, spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = o.Close() })
+			if o.Listener == nil {
+				t.Fatal("expected Listener")
+			}
+			host, port, err := net.SplitHostPort(o.Listener.Addr().String())
+			if err != nil {
+				t.Fatal(err)
+			}
+			ip := net.ParseIP(host)
+			if ip == nil || !ip.IsUnspecified() || ip.To4() == nil {
+				t.Fatalf("default listen addr %s, want IPv4 wildcard", o.Listener.Addr())
+			}
+			if !strings.HasPrefix(spec, "TCP") {
+				return
+			}
+			c, err := net.Dial("tcp4", net.JoinHostPort("127.0.0.1", port))
+			if err != nil {
+				t.Fatalf("dial wildcard listener: %v", err)
+			}
+			_ = c.Close()
+		})
+	}
+}
+
+func TestHostnameBind(t *testing.T) {
+	t.Run("listen", func(t *testing.T) {
+		o, err := openSpec(t, "TCP4-LISTEN:0,bind=localhost,reuseaddr,fork")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = o.Close() })
+		host, port, err := net.SplitHostPort(o.Listener.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		ip := net.ParseIP(host)
+		if ip == nil || !ip.IsLoopback() || ip.To4() == nil {
+			t.Fatalf("bind=localhost listen addr %s, want IPv4 loopback", o.Listener.Addr())
+		}
+		c, err := net.Dial("tcp4", net.JoinHostPort("127.0.0.1", port))
+		if err != nil {
+			t.Fatalf("dial localhost listener: %v", err)
+		}
+		_ = c.Close()
+	})
+	t.Run("connect", func(t *testing.T) {
+		ln, err := net.Listen("tcp4", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = ln.Close() })
+		acceptOnce(t, ln)
+		port := ln.Addr().(*net.TCPAddr).Port
+		o, err := openSpec(t, fmt.Sprintf("TCP4:127.0.0.1:%d,bind=localhost,connect-timeout=2", port))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = o.Close() })
+		ip := streamLocalIP(t, o)
+		if ip == nil || !ip.IsLoopback() || ip.To4() == nil {
+			t.Fatalf("bind=localhost local IP %v, want IPv4 loopback", ip)
+		}
+	})
 }

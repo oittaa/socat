@@ -82,13 +82,22 @@ func TestListenBindHost(t *testing.T) {
 		{network: "tcp6", bind: "[::1]", want: "[::1]"},
 		{network: "tcp6", bind: "::", want: "::"},
 		{network: "tcp", bind: "::", want: "::"},
+		{network: "tcp4", bind: "localhost", want: "localhost"},
+		{network: "tcp6", bind: "localhost", want: "localhost"},
+		{network: "tcp4", bind: "127.0.0.1:0", want: "127.0.0.1:0"},
+		{network: "tcp4", bind: "127.0.0.1:8080", want: "127.0.0.1:8080"},
+		{network: "tcp6", bind: "[::1]:443", want: "[::1]:443"},
 		{network: "tcp4", bind: "::", wantErr: true},
 		{network: "tcp4", bind: "[::]", wantErr: true},
+		{network: "tcp4", bind: "[::]:0", wantErr: true},
+		{network: "tcp4", bind: "[::1]:80", wantErr: true},
 		{network: "udp4", bind: "::", wantErr: true},
 		{network: "udp4", bind: "[::]", wantErr: true},
 		{network: "ip4", bind: "::", wantErr: true},
 		{network: "sctp4", bind: "::", wantErr: true},
 		{network: "tcp6", bind: "0.0.0.0", wantErr: true},
+		{network: "tcp6", bind: "127.0.0.1:0", wantErr: true},
+		{network: "tcp6", bind: "0.0.0.0:0", wantErr: true},
 	}
 	for _, tc := range cases {
 		got, err := ListenBindHost(tc.network, tc.bind)
