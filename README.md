@@ -212,6 +212,7 @@ aliases and termios / baud names.
 - Security-deprecated crypto (DSA, DTLS, etc.) is documented above rather than forced in
 - **TLS listen without `cert=`** fails at start (classic warns, listens, then handshake fails). See [TLS notes](#tls-notes).
 - **TLS address names** are `TLS` / `TLS-CONNECT` / `TLS-LISTEN`. `OPENSSL*` and `SSL*` remain aliases so classic command lines still work.
+- **SIGILL on Darwin** — classic `EXITCODESIGILL` expects exit `128+4` from a caught SIGILL. Linux matches that. On Darwin, Go’s runtime treats SIGILL as a crash dump (`exit 2`, `SIGILL: illegal instruction`); `os/signal.Notify` cannot intercept it. SIGTERM still exits `128+15`.
 
 ## Unsupported / security-related
 

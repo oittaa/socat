@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -61,6 +62,9 @@ func TestExitCodeOnSignal(t *testing.T) {
 		{name: "ILL", sig: syscall.SIGILL, logged: "exiting on signal 4"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.sig == syscall.SIGILL && runtime.GOOS == "darwin" {
+				t.Skip("Go runtime on Darwin treats SIGILL as a crash dump; Notify cannot intercept it")
+			}
 			dir := t.TempDir()
 			ready := filepath.Join(dir, "ready")
 			script := filepath.Join(dir, "child.sh")
