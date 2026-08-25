@@ -115,7 +115,10 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	if port == "" || strings.Trim(port, ":") == "" {
 		return nil, fmt.Errorf("%s: invalid port %q", s.Type, port)
 	}
-	host := xio.ListenBindHost(network, s.OptionValue("bind", ""))
+	host, err := xio.ListenBindHost(network, s.OptionValue("bind", ""))
+	if err != nil {
+		return nil, err
+	}
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}

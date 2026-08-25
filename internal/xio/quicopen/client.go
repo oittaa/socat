@@ -31,14 +31,11 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 		return nil, err
 	}
 
-	bindHost := xio.ListenBindHost(network, s.OptionValue("bind", ""))
-	sp := s.OptionValue("sourceport", "")
-	if sp == "" {
-		sp = "0"
+	bindHost, err := xio.ListenBindHost(network, s.OptionValue("bind", ""))
+	if err != nil {
+		return nil, err
 	}
-	laddr := net.JoinHostPort(xio.StripBrackets(bindHost), sp)
-
-	pc, err := listenPacket(ctx, network, laddr, s)
+	pc, err := listenQUICClientPacket(ctx, network, bindHost, s.OptionValue("sourceport", ""), s, g)
 	if err != nil {
 		return nil, err
 	}

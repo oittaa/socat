@@ -29,15 +29,24 @@ func listenSCTP(_ context.Context, network, host, port string, s parse.Spec) (ne
 	ip := net.ParseIP(xio.StripBrackets(host))
 	family := unix.AF_INET
 	switch network {
-	case "sctp6", "sctp":
+	case "sctp6":
+		family = unix.AF_INET6
+		if ip != nil && ip.To4() != nil {
+			return nil, fmt.Errorf("bind: address family mismatch (%s on %s)", host, network)
+		}
+		if ip == nil {
+			ip = net.IPv6zero
+		}
+	case "sctp":
 		family = unix.AF_INET6
 		if ip == nil {
 			ip = net.IPv6zero
 		}
 	default:
 		if ip != nil && ip.To4() == nil {
-			family = unix.AF_INET6
-		} else if ip == nil {
+			return nil, fmt.Errorf("bind: address family mismatch (%s on %s)", host, network)
+		}
+		if ip == nil {
 			ip = net.IPv4zero
 		}
 	}

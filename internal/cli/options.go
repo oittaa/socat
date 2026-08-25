@@ -109,13 +109,7 @@ func validateSpecOptions(spec parse.Spec) error {
 		if !ok {
 			return fmt.Errorf("%s: unknown option %q", spec.Type, option.Name)
 		}
-		if registered && !addressGroupAllowed(registration.Group, optionSpec.addressGroups) {
-			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
-		}
-		if registered && !addressTypeAllowed(registration.Name, optionSpec.addressTypes) {
-			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
-		}
-		if registered && !xio.OptionCapsAllowed(registration.OptionCaps, optionSpec.optionCaps) {
+		if registered && !xio.OptionSupportedOnAddress(registration, name, optionSpec.addressGroups, optionSpec.addressTypes, optionSpec.optionCaps) {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
 		if err := validateAddressOptionValue(option); err != nil {
@@ -131,30 +125,6 @@ func validateAddressOptionValue(option parse.Option) error {
 		return optionSpec.validate(option)
 	}
 	return nil
-}
-
-func addressGroupAllowed(group string, allowed []string) bool {
-	if len(allowed) == 0 {
-		return true
-	}
-	for _, candidate := range allowed {
-		if group == candidate {
-			return true
-		}
-	}
-	return false
-}
-
-func addressTypeAllowed(addressType string, allowed []string) bool {
-	if len(allowed) == 0 {
-		return true
-	}
-	for _, candidate := range allowed {
-		if strings.EqualFold(addressType, candidate) {
-			return true
-		}
-	}
-	return false
 }
 
 func requiredOptionValue(option parse.Option) (string, error) {
@@ -356,7 +326,7 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "bind", desc: "local address or interface"},
 			{name: "connect-timeout", desc: "connect timeout", validate: validateDurationOption},
 			{name: "handshake-timeout", desc: "TLS, WebSocket, proxy, or SOCKS handshake timeout", validate: validateDurationOption},
-			{name: "accept-timeout", desc: "listen accept timeout (exit 0)", aliases: []string{"listen-timeout"}, optionCaps: []string{xio.OptCapListen}, validate: validateDurationOption},
+			{name: "accept-timeout", desc: "listen accept timeout (exit 0)", aliases: []string{"listen-timeout"}, validate: validateDurationOption},
 			{name: "backlog", desc: "listen backlog", addressTypes: []string{
 				"TCP-LISTEN", "TCP-L", "TCP4-LISTEN", "TCP4-L", "TCP6-LISTEN", "TCP6-L",
 				"SOCKET-LISTEN", "SCTP-LISTEN", "SCTP-L", "SCTP4-LISTEN", "SCTP4-L", "SCTP6-LISTEN", "SCTP6-L",
@@ -369,9 +339,9 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "interval", desc: "retry or fork-redial interval", validate: validateDurationOption},
 		}},
 		{"Security filters", []helpOpt{
-			{name: "range", desc: "accept only peers in this network", optionCaps: []string{xio.OptCapIPFilter}},
-			{name: "sourceport", desc: "peer source port (listen) or bind port (connect)", aliases: []string{"sp"}, optionCaps: []string{xio.OptCapPort}},
-			{name: "lowport", desc: "require or bind a low source port", optionCaps: []string{xio.OptCapLowport}},
+			{name: "range", desc: "accept only peers in this network"},
+			{name: "sourceport", desc: "peer source port (listen) or bind port (connect)", aliases: []string{"sp"}},
+			{name: "lowport", desc: "require or bind a low source port"},
 			{name: "tcpwrap", desc: "apply hosts.allow / hosts.deny", aliases: []string{"tcpwrappers", "tcpwrapper", "libwrap", "wrap"}},
 			{name: "tcpwrap-etc", desc: "directory of hosts.allow / hosts.deny", aliases: []string{"tcpwrap-dir"}},
 			{name: "hosts-allow", desc: "allow table path", aliases: []string{"allow-table", "tcpwrap-hosts-allow-table"}},
@@ -409,7 +379,7 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "rdonly", desc: "open read-only"},
 			{name: "wronly", desc: "open write-only"},
 			{name: "creat", desc: "create the file", aliases: []string{"create"}},
-			{name: "excl", desc: "fail if the file exists", optionCaps: []string{xio.OptCapOpen}},
+			{name: "excl", desc: "fail if the file exists"},
 			{name: "append", desc: "open append", aliases: []string{"o-append"}, addressTypes: fileOpenAddressTypes()},
 			{name: "trunc", desc: "truncate on open"},
 			{name: "nonblock", desc: "O_NONBLOCK", aliases: []string{"o-nonblock"}},

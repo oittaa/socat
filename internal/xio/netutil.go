@@ -172,30 +172,50 @@ func DialControl(s parse.Spec, network string, caller func(string, string, sysca
 	}
 }
 
-// ListenBindHost resolves the bind host for listen addresses: bind= when set,
-// else the network-family wildcard. An explicit IPv6 wildcard on a v4-forced
-// network (pf=ip4, TCP4-LISTEN, …) falls back to the v4 wildcard so the OS
-// does not reject the dual-stroke notation.
-func listenBindIsIPv4(network string) bool {
+func forcedIPv4Network(network string) bool {
 	switch network {
-	case "tcp4", "udp4", "ip4":
+	case "tcp4", "udp4", "ip4", "sctp4":
 		return true
 	default:
 		return false
 	}
 }
 
-func ListenBindHost(network, bind string) string {
-	if bind != "" {
-		if listenBindIsIPv4(network) && StripBrackets(bind) == "::" {
-			return "0.0.0.0"
+func forcedIPv6Network(network string) bool {
+	switch network {
+	case "tcp6", "udp6", "ip6", "sctp6":
+		return true
+	default:
+		return false
+	}
+}
+
+// ListenBindHost resolves the bind host for listen and local-bind paths.
+// An explicit bind= value is returned unchanged: never rewrite :: to 0.0.0.0.
+// A family wildcard is supplied only when bind is absent.
+// Forced-family combinations that would otherwise fail inside the OS resolver
+// (TCP4/UDP4 vs ::, TCP6 vs 0.0.0.0) return a clear error.
+func ListenBindHost(network, bind string) (string, error) {
+	if bind == "" {
+		if forcedIPv4Network(network) {
+			return "0.0.0.0", nil
 		}
-		return bind
+		return "::", nil
 	}
-	if listenBindIsIPv4(network) {
-		return "0.0.0.0"
+	host := StripBrackets(bind)
+	if h, _, err := net.SplitHostPort(bind); err == nil {
+		host = StripBrackets(h)
 	}
-	return "::"
+	if ip := net.ParseIP(host); ip != nil {
+		is4 := ip.To4() != nil
+		if forcedIPv4Network(network) && !is4 {
+			return "", fmt.Errorf("bind: address family mismatch (%s on %s)", bind, network)
+		}
+		if forcedIPv6Network(network) && is4 {
+			return "", fmt.Errorf("bind: address family mismatch (%s on %s)", bind, network)
+		}
+	}
+	return bind, nil
 }
 
 func StripBrackets(host string) string {

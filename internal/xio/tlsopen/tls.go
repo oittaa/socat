@@ -112,7 +112,10 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, fmt.Errorf("%s requires port", s.Type)
 	}
 	port := s.Params[0]
-	host := xio.ListenBindHost(network, s.OptionValue("bind", ""))
+	host, err := xio.ListenBindHost(network, s.OptionValue("bind", ""))
+	if err != nil {
+		return nil, err
+	}
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
 	tlsCfg, err := tlsServerConfig(s)

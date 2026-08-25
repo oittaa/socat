@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,7 +108,7 @@ func TestUDPForkListenerSurvivesReceiveTimeout(t *testing.T) {
 	}
 }
 
-func TestUDP4BindIPv6WildcardNormalizes(t *testing.T) {
+func TestUDP4BindIPv6WildcardRejected(t *testing.T) {
 	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
 	ctx := context.Background()
 	for _, tc := range []struct {
@@ -125,16 +126,13 @@ func TestUDP4BindIPv6WildcardNormalizes(t *testing.T) {
 				t.Fatal(err)
 			}
 			o, err := tc.open(ctx, spec, xio.ModeRDWR, g)
-			if tc.name == "listen" {
-				if !errors.Is(err, xio.ErrAcceptTimeout) {
-					t.Fatalf("error=%v want ErrAcceptTimeout (bind=:: should normalize to 0.0.0.0)", err)
-				}
-				return
+			if err == nil {
+				_ = o.Close()
+				t.Fatal("bind=:: on UDP4 must not be rewritten to 0.0.0.0")
 			}
-			if err != nil {
-				t.Fatalf("open with bind=::: %v", err)
+			if !strings.Contains(err.Error(), "address family mismatch") {
+				t.Fatalf("error=%v want address family mismatch", err)
 			}
-			t.Cleanup(func() { _ = o.Close() })
 		})
 	}
 }

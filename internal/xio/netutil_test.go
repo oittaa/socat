@@ -68,25 +68,38 @@ func TestListenControlAppliesSetsockoptListen(t *testing.T) {
 func TestListenBindHost(t *testing.T) {
 	cases := []struct {
 		network, bind, want string
+		wantErr             bool
 	}{
-		{"tcp4", "", "0.0.0.0"},
-		{"udp4", "", "0.0.0.0"},
-		{"ip4", "", "0.0.0.0"},
-		{"tcp6", "", "::"},
-		{"udp6", "", "::"},
-		{"tcp", "", "::"},
-		{"tcp4", "127.0.0.1", "127.0.0.1"},
-		{"tcp6", "[::1]", "[::1]"},
-		// Explicit IPv6 wildcard on a v4-forced network falls back to v4.
-		{"tcp4", "::", "0.0.0.0"},
-		{"tcp4", "[::]", "0.0.0.0"},
-		{"udp4", "::", "0.0.0.0"},
-		{"ip4", "::", "0.0.0.0"},
-		{"tcp6", "::", "::"},
+		{network: "tcp4", bind: "", want: "0.0.0.0"},
+		{network: "udp4", bind: "", want: "0.0.0.0"},
+		{network: "ip4", bind: "", want: "0.0.0.0"},
+		{network: "sctp4", bind: "", want: "0.0.0.0"},
+		{network: "tcp6", bind: "", want: "::"},
+		{network: "udp6", bind: "", want: "::"},
+		{network: "sctp6", bind: "", want: "::"},
+		{network: "tcp", bind: "", want: "::"},
+		{network: "tcp4", bind: "127.0.0.1", want: "127.0.0.1"},
+		{network: "tcp6", bind: "[::1]", want: "[::1]"},
+		{network: "tcp6", bind: "::", want: "::"},
+		{network: "tcp", bind: "::", want: "::"},
+		{network: "tcp4", bind: "::", wantErr: true},
+		{network: "tcp4", bind: "[::]", wantErr: true},
+		{network: "udp4", bind: "::", wantErr: true},
+		{network: "udp4", bind: "[::]", wantErr: true},
+		{network: "ip4", bind: "::", wantErr: true},
+		{network: "sctp4", bind: "::", wantErr: true},
+		{network: "tcp6", bind: "0.0.0.0", wantErr: true},
 	}
 	for _, tc := range cases {
-		if got := ListenBindHost(tc.network, tc.bind); got != tc.want {
-			t.Errorf("ListenBindHost(%q, %q) = %q, want %q", tc.network, tc.bind, got, tc.want)
+		got, err := ListenBindHost(tc.network, tc.bind)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("ListenBindHost(%q, %q) = %q, want error", tc.network, tc.bind, got)
+			}
+			continue
+		}
+		if err != nil || got != tc.want {
+			t.Errorf("ListenBindHost(%q, %q) = %q, %v, want %q", tc.network, tc.bind, got, err, tc.want)
 		}
 	}
 }
