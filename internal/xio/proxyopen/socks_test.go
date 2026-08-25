@@ -97,6 +97,101 @@ func TestSOCKS5ConnectEcho(t *testing.T) {
 	echoViaSOCKS5(t, "SOCKS5-CONNECT:127.0.0.1:127.0.0.1:80")
 }
 
+func TestSOCKS4ConnectEcho(t *testing.T) {
+	echoViaSOCKS4(t, "SOCKS4:127.0.0.1:127.0.0.1:80", false)
+}
+
+func TestSOCKS4AConnectEcho(t *testing.T) {
+	echoViaSOCKS4(t, "SOCKS4A:127.0.0.1:localhost:80", true)
+}
+
+func echoViaSOCKS4(t *testing.T, spec string, socks4a bool) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go mockSOCKS4Echo(t, ln, socks4a)
+	port := ln.Addr().(*net.TCPAddr).Port
+	s, err := parse.ParseSpec(spec + ",socksport=" + strconv.Itoa(port) + ",pf=ip4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var o *xio.Opened
+	if socks4a {
+		o, err = openSOCKS4AConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	} else {
+		o, err = openSOCKS4Connect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = o.Close() }()
+	payload := []byte("socks4-ok\n")
+	if _, err := o.Stream.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, len(payload))
+	if _, err := io.ReadFull(o.Stream, buf); err != nil {
+		t.Fatal(err)
+	}
+	if string(buf) != string(payload) {
+		t.Fatalf("got %q", buf)
+	}
+}
+
+func mockSOCKS4Echo(t *testing.T, ln net.Listener, socks4a bool) {
+	t.Helper()
+	c, err := ln.Accept()
+	if err != nil {
+		return
+	}
+	defer func() { _ = c.Close() }()
+	hdr := make([]byte, 8)
+	if _, err := io.ReadFull(c, hdr); err != nil {
+		t.Errorf("socks4 header: %v", err)
+		return
+	}
+	if hdr[0] != 4 || hdr[1] != 1 {
+		t.Errorf("bad socks4 header %x", hdr)
+		return
+	}
+	if err := readCString(c); err != nil {
+		t.Errorf("socks4 userid: %v", err)
+		return
+	}
+	is4a := hdr[4] == 0 && hdr[5] == 0 && hdr[6] == 0 && hdr[7] == 1
+	if socks4a && !is4a {
+		t.Errorf("SOCKS4A expected dest 0.0.0.1, got %d.%d.%d.%d", hdr[4], hdr[5], hdr[6], hdr[7])
+		return
+	}
+	if is4a {
+		if err := readCString(c); err != nil {
+			t.Errorf("socks4a hostname: %v", err)
+			return
+		}
+	}
+	if _, err := c.Write([]byte{0, 90, 0, 0, 0, 0, 0, 0}); err != nil {
+		return
+	}
+	_, _ = io.Copy(c, c)
+}
+
+func readCString(r io.Reader) error {
+	for {
+		var b [1]byte
+		if _, err := io.ReadFull(r, b[:]); err != nil {
+			return err
+		}
+		if b[0] == 0 {
+			return nil
+		}
+	}
+}
+
 func TestSOCKS5ListenEcho(t *testing.T) {
 	echoViaSOCKS5(t, "SOCKS5-LISTEN:127.0.0.1:127.0.0.1:80")
 }
