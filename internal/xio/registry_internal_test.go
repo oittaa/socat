@@ -48,3 +48,16 @@ func TestAddressRegistrySnapshotsAreDeterministic(t *testing.T) {
 		t.Fatalf("registration=%+v ok=%v", reg, ok)
 	}
 }
+
+func TestAddressRegistryMergesDerivedOptionCaps(t *testing.T) {
+	r := newAddressRegistry()
+	r.register(AddressDesc{Name: "TCP-LISTEN-X", Group: GroupTCP, Syntax: "TCP-LISTEN-X:<port>", OptionCaps: []string{"extra"}})
+	reg, ok := r.registration("tcp-listen-x")
+	if !ok {
+		t.Fatal("missing registration")
+	}
+	want := []string{OptCapListen, OptCapIPFilter, OptCapPort, OptCapLowport, "extra"}
+	if !reflect.DeepEqual(reg.OptionCaps, want) {
+		t.Fatalf("OptionCaps=%v want %v", reg.OptionCaps, want)
+	}
+}

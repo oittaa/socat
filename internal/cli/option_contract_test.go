@@ -73,6 +73,8 @@ var dynamicallyReadOptions = map[string]string{
 	"children-shutup": "xio/options.go", "child-shutup": "xio/options.go",
 	"openssl-min-proto-version": "tlsopen/tls.go", "min-version": "tlsopen/tls.go",
 	"openssl-max-proto-version": "tlsopen/tls.go", "max-version": "tlsopen/tls.go",
+
+	"perm": "xio/run.go", "mode": "xio/run.go",
 }
 
 // compatNoOptions are advertised deliberately as classic-compat spellings

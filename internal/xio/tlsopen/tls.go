@@ -127,12 +127,6 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	}
 	tlsLn := tls.NewListener(&socketTimeoutListener{Listener: ln, spec: s}, tlsCfg)
 
-	fork, maxChildren, err := xio.ForkLimits(s)
-	if err != nil {
-		logx.CloseQuiet(tlsLn)
-		return nil, err
-	}
-	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
 		xio.EnableSocketTimeouts(c)
 		if err := xio.ApplyTCPConnOpts(s, c); err != nil {
@@ -141,94 +135,22 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return xio.WrapCommonWithSocketTimeoutsApplied(s, relay.NetStream{Conn: c})
 	}
 
-	o := &xio.Opened{
-		Kind:             xio.ListenKind(fork),
-		Listener:         tlsLn,
-		Label:            s.Type + ":" + port,
-		PeerFilter:       filter,
-		MaxChildren:      maxChildren,
-		WrapDial:         wrapConn,
-		HandshakeTimeout: xio.HandshakeTimeout(s),
+	var setAcceptDeadline func(time.Time) error
+	if dl, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
+		setAcceptDeadline = dl.SetDeadline
 	}
-	o.AcceptTimeout = xio.AcceptTimeout(s)
-	o.AddCleanup(func() { logx.CloseQuiet(tlsLn) })
-
-	if fork {
-		go func() {
-			<-ctx.Done()
-			logx.CloseQuiet(tlsLn)
-		}()
-		return o, nil
-	}
-
-	// xio.Accept one connection (with optional accept-timeout).
-	if g != nil && g.Log != nil {
-		g.Log.Noticef("listening on %s (TLS)", tlsLn.Addr())
-	}
-	at := xio.AcceptTimeout(s)
-	var deadline time.Time
-	if at > 0 {
-		deadline = time.Now().Add(at)
-	}
-	var conn net.Conn
-	for {
-		if !deadline.IsZero() {
-			// tls.Listener has no SetDeadline; use the underlying TCP listener.
-			if dl, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
-				_ = dl.SetDeadline(deadline)
-			}
-		}
-		type acc struct {
-			c   net.Conn
-			err error
-		}
-		ch := make(chan acc, 1)
-		go func() {
-			c, err := tlsLn.Accept()
-			ch <- acc{c, err}
-		}()
-		select {
-		case <-ctx.Done():
-			logx.CloseQuiet(tlsLn)
-			o.Listener = nil
-			return nil, ctx.Err()
-		case a := <-ch:
-			if a.err != nil {
-				logx.CloseQuiet(tlsLn)
-				o.Listener = nil
-				if xio.IsTimeoutErr(a.err) {
-					if g != nil && g.Log != nil {
-						g.Log.Warningf("accept: Connection timed out")
-					}
-					return nil, xio.ErrAcceptTimeout
-				}
-				return nil, a.err
-			}
-			if err := filter(a.c); err != nil {
-				if g != nil && g.Log != nil {
-					g.Log.Noticef("%s", err)
-				}
-				xio.CloseRefusedPeer(a.c)
-				continue
-			}
-			conn = a.c
-		}
-		break
-	}
-	logx.CloseQuiet(tlsLn)
-	o.Listener = nil
-	xio.RememberAddrs(g, conn)
-	if err := xio.RememberTLSPeer(g, conn, xio.HandshakeTimeout(s)); err != nil {
-		logx.CloseQuiet(conn)
-		return nil, err
-	}
-	st, err := wrapConn(conn)
-	if err != nil {
-		logx.CloseQuiet(conn)
-		return nil, err
-	}
-	o.Stream = st
-	return o, nil
+	handshakeTimeout := xio.HandshakeTimeout(s)
+	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
+		Listener:          tlsLn,
+		Label:             s.Type + ":" + port,
+		WrapDial:          wrapConn,
+		SetAcceptDeadline: setAcceptDeadline,
+		HandshakeTimeout:  handshakeTimeout,
+		ListeningLog:      fmt.Sprintf("listening on %s (TLS)", tlsLn.Addr()),
+		AfterAccept: func(g *xio.Global, c net.Conn) error {
+			return xio.RememberTLSPeer(g, c, handshakeTimeout)
+		},
+	})
 }
 
 type socketTimeoutListener struct {

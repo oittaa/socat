@@ -81,7 +81,10 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 			_ = port
 			return &xio.Opened{Stream: wrapped, Label: "UDP-DATAGRAM:" + raddr.String()}, nil
 		}
-		// Fall through: bindUDPLowport already logged attempts.
+		if berr == nil {
+			berr = fmt.Errorf("all ports in use")
+		}
+		return nil, fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", xio.LowportMin, xio.LowportMax, berr)
 	}
 	if bind != "" || sp != "" {
 		bind = xio.ListenBindHost(network, bind)
@@ -101,21 +104,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		}
 	}
 	// SO_REUSEADDR on bind so rapid retests / paired ports work.
-	cfg := net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
-			var optionErr error
-			controlErr := c.Control(func(fd uintptr) {
-				optionErr = xio.ApplyListenOptions(int(fd), s, network)
-				if optionErr != nil {
-					return
-				}
-				if s.BoolOption("broadcast") {
-					optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
-				}
-			})
-			return errors.Join(controlErr, optionErr)
-		},
-	}
+	cfg := udpListenConfig(s)
 	pc, err := cfg.ListenPacket(ctx, network, laddrString(network, laddr))
 	if err != nil {
 		return nil, err
@@ -138,6 +127,24 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 	}
 	_ = g
 	return &xio.Opened{Stream: wrapped, Label: "UDP-DATAGRAM:" + raddr.String()}, nil
+}
+
+func udpListenConfig(s parse.Spec) net.ListenConfig {
+	return net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			var optionErr error
+			controlErr := c.Control(func(fd uintptr) {
+				optionErr = xio.ApplyListenOptions(int(fd), s, network)
+				if optionErr != nil {
+					return
+				}
+				if s.BoolOption("broadcast") {
+					optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+				}
+			})
+			return errors.Join(controlErr, optionErr)
+		},
+	}
 }
 
 func laddrString(network string, laddr *net.UDPAddr) string {
@@ -163,33 +170,33 @@ func (u *udpDatagramConn) Write(p []byte) (int, error) {
 
 // bindUDPLowport tries ports 1023..640 (classic lowport). Logs bind like SYCLS for tests.
 func bindUDPLowport(ctx context.Context, network, bind string, s parse.Spec, g *xio.Global) (*net.UDPConn, int, error) {
-	_ = s
-	var last error
-	for port := 1023; port >= 640; port-- {
+	var conn *net.UDPConn
+	port, err := xio.FirstAvailableLowport(func(port int) error {
 		// Classic test greps: [DE] bind(.*:PORT
 		if g != nil && g.Log != nil {
 			g.Log.Debugf("bind({AF=2 %s:%d}, 16)", bind, port)
 		}
 		addr, err := net.ResolveUDPAddr(network, net.JoinHostPort(xio.StripBrackets(bind), strconv.Itoa(port)))
 		if err != nil {
-			last = err
-			continue
+			return err
 		}
-		cfg := net.ListenConfig{}
+		cfg := udpListenConfig(s)
 		pc, err := cfg.ListenPacket(ctx, network, addr.String())
 		if err != nil {
-			last = err
-			continue
+			return err
 		}
 		c, ok := pc.(*net.UDPConn)
 		if !ok {
 			logx.CloseQuiet(pc)
-			last = fmt.Errorf("not UDPConn")
-			continue
+			return fmt.Errorf("not UDPConn")
 		}
-		return c, port, nil
+		conn = c
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
 	}
-	return nil, 0, last
+	return conn, port, nil
 }
 func (u *udpDatagramConn) ShutdownWrite() error { return nil }
 
@@ -244,12 +251,10 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				ctx:     ctx,
 				oneShot: true,
 			}
-			// so-rcvtimeo bounds each Accept receive; accept-timeout
-			// aborts waiting entirely (classic semantics).
-			if v := s.OptionValue("rcvtimeo", ""); v != "" {
-				ln.rcvTimeout = xio.ParseTimeval(v)
+			if err := applyUDPForkTimeouts(ln, s); err != nil {
+				logx.CloseQuiet(pc)
+				return nil, err
 			}
-			ln.acceptTimeout = xio.AcceptTimeout(s)
 			return &xio.Opened{
 				Kind:        xio.KindListen,
 				Listener:    ln,
@@ -261,11 +266,8 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				},
 			}, nil
 		}
-		timeoutSet, err := applyUDPAcceptTimeout(pc, s)
-		if err != nil {
-			logx.CloseQuiet(pc)
-			return nil, err
-		}
+		// Classic UDP-RECVFROM is not GROUP_LISTEN: wait for the first
+		// permitted datagram with no accept-timeout.
 		// One permitted packet, then use the *same* listening socket for replies
 		// (classic). DialUDP(local, peer) after Close fails with EADDRINUSE.
 		// When ancillary options are set, use recvmsg so we can log/set env
@@ -293,7 +295,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			case r := <-ch:
 				if r.e != nil {
 					logx.CloseQuiet(pc)
-					return nil, udpAcceptError(r.e, timeoutSet)
+					return nil, udpAcceptError(r.e, false)
 				}
 				if err := xio.PeerAllowedG(s, &udpPeerConn{addr: r.a}, g); err != nil {
 					if g != nil && g.Log != nil {
@@ -306,10 +308,6 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				xio.ProcessAncillary(r.oob, g)
 			}
 			break
-		}
-		if err := clearUDPAcceptTimeout(pc, timeoutSet); err != nil {
-			logx.CloseQuiet(pc)
-			return nil, fmt.Errorf("accept-timeout: clear deadline: %w", err)
 		}
 		// Classic non-fork RECVFROM: one datagram then EOF on further reads
 		// (so RECVFROM|PIPE echo servers exit after one client exchange).

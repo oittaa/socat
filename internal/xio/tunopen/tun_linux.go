@@ -268,7 +268,7 @@ func applyInterfaceOpts(sock int, ifname string, s parse.Spec) error {
 
 	mtuStr := xio.FirstNonEmpty(s.OptionValue("if-mtu", ""), s.OptionValue("interface-mtu", ""))
 	if mtuStr != "" {
-		mtu, err := strconv.ParseUint(mtuStr, 10, 32)
+		mtu, err := strconv.ParseUint(mtuStr, 0, 32)
 		if err != nil || mtu == 0 {
 			return fmt.Errorf("if-mtu: invalid %q", mtuStr)
 		}

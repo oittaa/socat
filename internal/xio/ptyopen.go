@@ -23,7 +23,6 @@ func startOnPTY(cmd *exec.Cmd, s parse.Spec) (*os.File, error) {
 	}
 	// Parent must not keep the slave open after Start (child inherits it).
 	defer func() { _ = slave.Close() }()
-	_ = ApplyTermios(int(slave.Fd()), s)
 
 	if cmd.Stdin == nil {
 		cmd.Stdin = slave
@@ -43,7 +42,12 @@ func startOnPTY(cmd *exec.Cmd, s parse.Spec) (*os.File, error) {
 	// Ctty is the slave FD number as seen by the child after fd setup.
 	// Go's fork/exec sets controlling tty from Setctty when slave is Stdin.
 
-	if err := cmd.Start(); err != nil {
+	if err := ApplyTermios(int(slave.Fd()), s); err != nil {
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
+		return nil, err
+	}
+	if err := startWithChildUmask(s, cmd); err != nil {
 		logx.CloseQuiet(master)
 		return nil, fmt.Errorf("start on pty: %w", err)
 	}

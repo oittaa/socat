@@ -31,24 +31,31 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
-	d := net.Dialer{
-		Timeout: xio.ConnectTimeout(s),
-		Control: xio.DialControl(s, network, nil),
-	}
 	bind := s.OptionValue("bind", "")
 	sp := s.OptionValue("sourceport", "")
-	if bind != "" || sp != "" {
+	lowport := s.BoolOption("lowport") && (sp == "" || sp == "0")
+	var conn net.Conn
+	if lowport {
 		bind = xio.ListenBindHost(network, bind)
-		if sp == "" {
-			sp = "0"
+		conn, err = dialUDPLowport(ctx, network, bind, addr, s, g)
+	} else {
+		d := net.Dialer{
+			Timeout: xio.ConnectTimeout(s),
+			Control: xio.DialControl(s, network, nil),
 		}
-		ba, err := net.ResolveUDPAddr(network, xio.BindPort(bind, sp))
-		if err != nil {
-			return nil, err
+		if bind != "" || sp != "" {
+			bind = xio.ListenBindHost(network, bind)
+			if sp == "" {
+				sp = "0"
+			}
+			ba, resolveErr := net.ResolveUDPAddr(network, xio.BindPort(bind, sp))
+			if resolveErr != nil {
+				return nil, resolveErr
+			}
+			d.LocalAddr = ba
 		}
-		d.LocalAddr = ba
+		conn, err = d.DialContext(ctx, network, addr)
 	}
-	conn, err := d.DialContext(ctx, network, addr)
 	if err != nil {
 		return nil, err
 	}
@@ -68,6 +75,30 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return nil, err
 	}
 	return &xio.Opened{Stream: st, Label: "UDP:" + addr}, nil
+}
+
+func dialUDPLowport(ctx context.Context, network, bind, remote string, s parse.Spec, g *xio.Global) (net.Conn, error) {
+	var conn net.Conn
+	_, err := xio.FirstAvailableLowport(func(port int) error {
+		if g != nil && g.Log != nil {
+			g.Log.Debugf("bind(%s:%d)", bind, port)
+		}
+		laddr, err := net.ResolveUDPAddr(network, xio.BindPort(bind, fmt.Sprintf("%d", port)))
+		if err != nil {
+			return err
+		}
+		d := net.Dialer{
+			Timeout:   xio.ConnectTimeout(s),
+			LocalAddr: laddr,
+			Control:   xio.DialControl(s, network, nil),
+		}
+		conn, err = d.DialContext(ctx, network, remote)
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", xio.LowportMin, xio.LowportMax, err)
+	}
+	return conn, nil
 }
 
 func NetworkUDP(g *xio.Global, s parse.Spec, def string) string {

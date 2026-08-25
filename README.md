@@ -185,7 +185,7 @@ aliases and termios / baud names.
 
 **`max-children`:** limits concurrent `fork` sessions on **LISTEN** and on **CONNECT** / **TLS-CONNECT** client reconnect loops. Requires `fork`. Parent redials after `interval` (default 1s).
 
-**`perm=` / `mode=`:** after create/open, `chmod`/`fchmod` sets the exact mode (classic NAMED group). **`umask=`** applies only during open (or child `Start` for EXEC/SHELL), then restores.
+**`perm=` / `mode=`:** last specified name wins. Regular files and FIFOs use the value as the `open`/`mkfifo` creation mode, so `umask=` still masks it (`umask=077,perm=0666` → `0600`). UNIX sockets and PTY slaves still `chmod` after bind. **`umask=`** applies during open (or child `Start` for EXEC/SHELL), then restores.
 
 ## TLS notes
 

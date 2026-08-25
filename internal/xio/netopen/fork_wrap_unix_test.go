@@ -59,3 +59,20 @@ func TestForkListenersWrapDialAppliesReadbytesUnix(t *testing.T) {
 		})
 	}
 }
+
+func TestSocketListenForkHasWrapDial(t *testing.T) {
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec, err := parse.ParseSpec("SOCKET-LISTEN:2:0:x00007f000001,reuseaddr,fork,readbytes=4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openSocketListen(context.Background(), spec, xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	if o.PeerFilter == nil {
+		t.Fatal("SOCKET-LISTEN must install PeerFilter")
+	}
+	assertWrapDialReadbytes(t, o)
+}

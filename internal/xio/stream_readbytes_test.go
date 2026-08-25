@@ -21,7 +21,7 @@ func TestApplyReadBytesClassicSizeT(t *testing.T) {
 		{name: "hex", opt: "readbytes=0x10", want: payload},
 		{name: "octal", opt: "readbytes=010", want: "01234567"},
 		{name: "zero-unlimited", opt: "readbytes=0", want: payload},
-		{name: "negative", opt: "readbytes=-1", wantErr: true},
+		{name: "negative", opt: "readbytes=-1", want: payload},
 		{name: "garbage", opt: "readbytes=xyz", wantErr: true},
 	}
 	for _, tc := range tests {

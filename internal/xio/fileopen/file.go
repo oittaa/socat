@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -32,15 +33,15 @@ func openOPEN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 	})
 	if err != nil {
 		// Classic format for RECVFROM_FORK_LOOP: `E open("path", …): …`
-		return nil, fmt.Errorf("open(%q, %02o, %04o): %w", path, flags, perm, err)
+		return nil, fmt.Errorf("open(%q, %02o, %04o): %w", path, flags, xio.FileModeToUnix(perm), err)
 	}
 	if s.HasOption("ftruncate") || s.HasOption("trunc") {
 		// ftruncate=N or trunc flag after open
 		if v := s.OptionValue("ftruncate", ""); v != "" {
-			var n int64
-			if _, e := fmt.Sscanf(v, "%d", &n); e != nil {
+			n, e := strconv.ParseInt(v, 0, 64)
+			if e != nil || n < 0 {
 				_ = f.Close()
-				return nil, fmt.Errorf("ftruncate: %w", e)
+				return nil, fmt.Errorf("ftruncate: invalid value %q", v)
 			}
 			if e := f.Truncate(n); e != nil {
 				_ = f.Close()
@@ -174,16 +175,22 @@ func openPIPE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 		logx.CloseQuiet(w)
 		return nil, err
 	}
-	return &xio.Opened{
-		Stream: relay.FDStream{
-			R: r,
-			W: w,
-			C: xio.NewMultiCloser(relay.RWCStream{ReadWriteCloser: r}, relay.RWCStream{ReadWriteCloser: w}),
-			CloseW: func() error {
-				return w.Close()
-			},
+	st, err := xio.WrapCommon(s, relay.FDStream{
+		R: r,
+		W: w,
+		C: xio.NewMultiCloser(relay.RWCStream{ReadWriteCloser: r}, relay.RWCStream{ReadWriteCloser: w}),
+		CloseW: func() error {
+			return w.Close()
 		},
-		Label: "PIPE",
+	})
+	if err != nil {
+		logx.CloseQuiet(r)
+		logx.CloseQuiet(w)
+		return nil, err
+	}
+	return &xio.Opened{
+		Stream: st,
+		Label:  "PIPE",
 		Cleanup: []func(){
 			func() { logx.CloseQuiet(r); logx.CloseQuiet(w) },
 		},
@@ -197,25 +204,19 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 	created := false
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		err := xio.WithUmask(s, func() error {
-			perm, perr := xio.ParseFileMode(s, xio.DefaultCreateMode)
+			perm, perr := xio.ParseUnixMode(s, uint32(xio.DefaultCreateMode))
 			if perr != nil {
 				return perr
 			}
-			return mkfifo(path, uint32(perm))
+			return mkfifo(path, perm)
 		})
 		if err != nil {
 			return nil, fmt.Errorf("mkfifo %s: %w", path, err)
 		}
 		created = true
 	}
-	// Existing FIFOs receive the same explicit ownership/mode treatment. A
+	// Existing FIFOs receive the same explicit ownership treatment. A
 	// failed open must not leave behind a FIFO that this invocation created.
-	if err := xio.ApplyPerm(path, s, nil); err != nil {
-		if created {
-			_ = os.Remove(path)
-		}
-		return nil, err
-	}
 	if err := xio.ApplyOwner(path, s, nil); err != nil {
 		if created {
 			_ = os.Remove(path)
@@ -495,12 +496,9 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 		logx.CloseQuiet(f)
 		return nil, err
 	}
-	// Classic perm=/mode= via fchmod after open (CREATE_PERM etc.).
-	if err := xio.ApplyPerm(path, s, f); err != nil {
-		logx.CloseQuiet(f)
-		return nil, err
-	}
-	// Classic user=/group= via fchown (CREATE_USER, OPEN_USER, GOPEN_USER).
+	// Classic perm=/user= after open apply to named sockets and PTY slaves.
+	// Regular files use perm=/mode= as the open(2) creation mode so umask
+	// still masks the result (umask=077,perm=0666 → 0600).
 	if err := xio.ApplyOwner(path, s, f); err != nil {
 		logx.CloseQuiet(f)
 		return nil, err

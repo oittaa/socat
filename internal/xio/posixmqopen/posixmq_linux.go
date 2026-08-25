@@ -42,7 +42,7 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 
 	prio := uint32(0)
 	if v := s.OptionValue("mq-prio", ""); v != "" {
-		n, e := strconv.ParseUint(v, 10, 32)
+		n, e := strconv.ParseUint(v, 0, 32)
 		if e != nil {
 			return nil, fmt.Errorf("%s: invalid mq-prio %q", s.Type, v)
 		}
@@ -79,7 +79,7 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		}
 	}
 
-	modePerm, err := xio.ParseFileMode(s, xio.DefaultCreateMode)
+	modePerm, err := xio.ParseUnixMode(s, uint32(xio.DefaultCreateMode))
 	if err != nil {
 		return nil, err
 	}
@@ -88,14 +88,14 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	if s.HasOption("mq-maxmsg") || s.HasOption("mq-msgsize") {
 		a := mqAttr{}
 		if v := s.OptionValue("mq-maxmsg", ""); v != "" {
-			n, e := strconv.ParseInt(v, 10, 64)
+			n, e := strconv.ParseInt(v, 0, 64)
 			if e != nil {
 				return nil, fmt.Errorf("%s: invalid mq-maxmsg %q", s.Type, v)
 			}
 			a.Maxmsg = int(n)
 		}
 		if v := s.OptionValue("mq-msgsize", ""); v != "" {
-			n, e := strconv.ParseInt(v, 10, 64)
+			n, e := strconv.ParseInt(v, 0, 64)
 			if e != nil {
 				return nil, fmt.Errorf("%s: invalid mq-msgsize %q", s.Type, v)
 			}
@@ -135,7 +135,7 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	err = xio.WithUmask(s, func() error {
 		return xio.WithRetry(ctx, s, g, "mq_open", func() error {
 			var e error
-			fd, e = mqOpen(name, oflag, uint32(modePerm), attr)
+			fd, e = mqOpen(name, oflag, modePerm, attr)
 			if e != nil {
 				return fmt.Errorf("mq_open(%q, %#o, %#o): %w", name, oflag, modePerm, e)
 			}
@@ -199,12 +199,16 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 				nonblock: nonblock,
 			}, name), nil
 		}
+		wrap := func(c net.Conn) (relay.Stream, error) {
+			return xio.WrapCommon(s, relay.NetStream{Conn: c})
+		}
 		o := &xio.Opened{
 			Kind:        xio.KindDial,
 			MaxChildren: maxChildren,
 			Interval:    xio.ParseRetry(s).Interval,
 			Label:       s.Type,
 			Dial:        dial,
+			WrapDial:    wrap,
 		}
 		o.AddCleanup(cleanup)
 		return o, nil
@@ -223,8 +227,12 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 			Listener:    ln,
 			MaxChildren: maxChildren,
 			Label:       s.Type,
+			WrapDial: func(c net.Conn) (relay.Stream, error) {
+				return xio.WrapCommon(s, relay.NetStream{Conn: c})
+			},
 		}
 		o.AddCleanup(func() {
+			unregister()
 			_ = ln.Close()
 			if unlinkClose {
 				_ = mqUnlink(name)
@@ -268,10 +276,12 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		return nil, err
 	}
 	o := &xio.Opened{Stream: st, Label: s.Type}
-	if unlinkClose {
-		n := name
-		o.AddCleanup(func() { _ = mqUnlink(n) })
-	}
+	o.AddCleanup(func() {
+		unregister()
+		if unlinkClose {
+			_ = mqUnlink(name)
+		}
+	})
 	return o, nil
 }
 

@@ -22,7 +22,7 @@ func ParseRetry(s parse.Spec) RetryPolicy {
 		p.MaxAttempts = 0
 	}
 	if v := s.OptionValue("retry", ""); v != "" {
-		n, err := strconv.Atoi(v)
+		n, err := ParseIntAny(v)
 		if err == nil {
 			// classic: retry=N means N retries after the first try → N+1 attempts
 			if n < 0 {

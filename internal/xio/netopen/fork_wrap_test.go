@@ -15,6 +15,19 @@ func TestForkListenersWrapDialAppliesReadbytes(t *testing.T) {
 	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
 	ctx := context.Background()
 
+	t.Run("tcp-listen", func(t *testing.T) {
+		spec, err := parse.ParseSpec("TCP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork,readbytes=4")
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, err := openTCP4Listen(ctx, spec, xio.ModeRDWR, g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = o.Close() })
+		assertWrapDialReadbytes(t, o)
+	})
+
 	t.Run("udp-listen", func(t *testing.T) {
 		spec, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork,readbytes=4")
 		if err != nil {

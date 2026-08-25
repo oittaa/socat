@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -132,19 +131,21 @@ func (h *halfCloseWriter) closeWrite() {
 // readBytesWrap limits total bytes read (classic readbytes=N).
 type readBytesWrap struct {
 	r    io.Reader
-	left int64
+	left uint64
 }
 
 func (r *readBytesWrap) Read(p []byte) (int, error) {
-	if r.left <= 0 {
+	if r.left == 0 {
 		return 0, io.EOF
 	}
-	if int64(len(p)) > r.left {
+	if uint64(len(p)) > r.left {
 		p = p[:r.left]
 	}
 	n, err := r.r.Read(p)
-	r.left -= int64(n)
-	if r.left <= 0 && err == nil {
+	if n > 0 {
+		r.left -= uint64(n)
+	}
+	if r.left == 0 && err == nil {
 		return n, io.EOF
 	}
 	return n, err
@@ -158,8 +159,8 @@ func ApplyReadBytes(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	if v == "" {
 		return stream, nil
 	}
-	n, err := strconv.ParseInt(v, 0, 64)
-	if err != nil || n < 0 {
+	n, err := ParseSizeT(v)
+	if err != nil {
 		return nil, fmt.Errorf("invalid readbytes %q", v)
 	}
 	if n == 0 {
@@ -177,12 +178,33 @@ func ApplyReadBytes(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 
 // crnlWriter converts LF → CRLF on write (classic crlf/crnl: internal RAW → external CRNL).
 type crnlWriter struct {
-	w io.Writer
+	w         io.Writer
+	pendingLF bool
 }
 
-func (c crnlWriter) Write(p []byte) (int, error) {
-	// Expand \n to \r\n; report original len for io.Copy compatibility-ish
+func (c *crnlWriter) Write(p []byte) (int, error) {
+	// Expand \n to \r\n; report original len for io.Copy compatibility-ish.
+	// If \r of a CRLF is written and \n is not, remember that so a retry of
+	// the same input byte cannot emit a second \r (sndtimeo short writes).
 	written := 0
+	if c.pendingLF {
+		n, err := c.w.Write([]byte{'\n'})
+		if n == 1 {
+			c.pendingLF = false
+			if len(p) > 0 && p[0] == '\n' {
+				written++
+				p = p[1:]
+			}
+			if err != nil {
+				return written, err
+			}
+		} else {
+			if err == nil {
+				err = io.ErrShortWrite
+			}
+			return 0, err
+		}
+	}
 	for len(p) > 0 {
 		i := 0
 		for i < len(p) && p[i] != '\n' {
@@ -191,17 +213,44 @@ func (c crnlWriter) Write(p []byte) (int, error) {
 		if i > 0 {
 			n, err := c.w.Write(p[:i])
 			written += n
+			if n != i && err == nil {
+				err = io.ErrShortWrite
+			}
 			if err != nil {
 				return written, err
 			}
 			p = p[i:]
 		}
 		if len(p) > 0 && p[0] == '\n' {
-			if _, err := c.w.Write([]byte{'\r', '\n'}); err != nil {
+			n, err := c.w.Write([]byte{'\r', '\n'})
+			switch n {
+			case 0:
+				if err == nil {
+					err = io.ErrShortWrite
+				}
+				return written, err
+			case 1:
+				c.pendingLF = true
+				if err != nil {
+					return written, err
+				}
+				n, err = c.w.Write([]byte{'\n'})
+				if n != 1 {
+					if err == nil {
+						err = io.ErrShortWrite
+					}
+					return written, err
+				}
+				c.pendingLF = false
+			case 2:
+			default:
+				return written, io.ErrShortWrite
+			}
+			written++
+			p = p[1:]
+			if err != nil {
 				return written, err
 			}
-			written++ // count as 1 input byte
-			p = p[1:]
 		}
 	}
 	return written, nil
@@ -251,7 +300,7 @@ func ApplyCRNL(s parse.Spec, stream relay.Stream) relay.Stream {
 	}
 	return relay.FDStream{
 		R: crnlReader{r: stream},
-		W: crnlWriter{w: stream},
+		W: &crnlWriter{w: stream},
 		C: stream,
 		CloseW: func() error {
 			return stream.ShutdownWrite()
@@ -306,17 +355,7 @@ func ApplyEscape(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 // prefix (0x1b), or a single character. strconv.ParseUint base 0 is required
 // for the hex form; fmt.Sscanf %x stops at the 'x' and would silently yield 0.
 func parseEscapeByte(v string) (byte, error) {
-	if strings.HasPrefix(v, "0x") || strings.HasPrefix(v, "0X") {
-		n, err := strconv.ParseUint(v, 0, 8)
-		if err != nil {
-			return 0, fmt.Errorf("escape: invalid value %q", v)
-		}
-		return byte(n), nil
-	}
-	if n, err := strconv.Atoi(v); err == nil {
-		if n < 0 || n > 255 {
-			return 0, fmt.Errorf("escape: invalid value %q", v)
-		}
+	if n, err := strconv.ParseUint(v, 0, 8); err == nil {
 		return byte(n), nil
 	}
 	if len(v) == 1 {

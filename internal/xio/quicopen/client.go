@@ -31,17 +31,7 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 		return nil, err
 	}
 
-	bindHost := s.OptionValue("bind", "")
-	if bindHost == "" {
-		switch network {
-		case "udp4":
-			bindHost = "0.0.0.0"
-		case "udp6":
-			bindHost = "::"
-		default:
-			bindHost = ""
-		}
-	}
+	bindHost := xio.ListenBindHost(network, s.OptionValue("bind", ""))
 	sp := s.OptionValue("sourceport", "")
 	if sp == "" {
 		sp = "0"

@@ -232,12 +232,12 @@ func ApplyTermios(fd int, s parse.Spec) error {
 		}
 	}
 	if v := s.OptionValue("ispeed", ""); v != "" && s.HasOption("ispeed") {
-		if n, err := strconv.ParseUint(v, 10, 32); err == nil {
+		if n, err := strconv.ParseUint(v, 0, 32); err == nil {
 			setSpeed(t, uint32(n), true, false)
 		}
 	}
 	if v := s.OptionValue("ospeed", ""); v != "" && s.HasOption("ospeed") {
-		if n, err := strconv.ParseUint(v, 10, 32); err == nil {
+		if n, err := strconv.ParseUint(v, 0, 32); err == nil {
 			setSpeed(t, uint32(n), false, true)
 		}
 	}

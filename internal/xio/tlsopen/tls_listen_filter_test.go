@@ -82,7 +82,7 @@ func TestTLSListenNonForkRetriesRejectedPeer(t *testing.T) {
 	}
 }
 
-func TestTLSListenNonForkKeepsAbsoluteAcceptTimeout(t *testing.T) {
+func TestTLSListenNonForkRestartsAcceptTimeoutAfterRefusedPeer(t *testing.T) {
 	certPath, err := testcert.WriteTempListenCert(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -128,11 +128,14 @@ func TestTLSListenNonForkKeepsAbsoluteAcceptTimeout(t *testing.T) {
 		if !errors.Is(err, xio.ErrAcceptTimeout) {
 			t.Fatalf("error=%v want ErrAcceptTimeout after %s", err, elapsed)
 		}
-		if elapsed > 420*time.Millisecond {
-			t.Fatalf("accept-timeout took %s; deadline likely reset after the refused peer", elapsed)
+		if elapsed < 430*time.Millisecond {
+			t.Fatalf("accept-timeout took %s; deadline was not restarted after the refused peer", elapsed)
 		}
-	case <-time.After(800 * time.Millisecond):
-		t.Fatal("TLS-LISTEN kept waiting after the original accept-timeout")
+		if elapsed > 850*time.Millisecond {
+			t.Fatalf("accept-timeout took unexpectedly long: %s", elapsed)
+		}
+	case <-time.After(1200 * time.Millisecond):
+		t.Fatal("TLS-LISTEN did not time out after the refused peer")
 	}
 }
 
