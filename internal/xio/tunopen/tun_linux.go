@@ -432,7 +432,7 @@ func disableIPv6OnIface(ifname string) {
 		return
 	}
 	path := "/proc/sys/net/ipv6/conf/" + ifname + "/disable_ipv6"
-	_ = os.WriteFile(path, []byte("1\n"), 0o644) // #nosec G306 -- the kernel ignores the mode on /proc
+	_ = os.WriteFile(path, []byte("1\n"), 0o600)
 }
 
 // packetRawStream is AF_PACKET SOCK_RAW read/write for INTERFACE.
