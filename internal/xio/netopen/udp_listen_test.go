@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"runtime"
 	"testing"
 	"time"
 
@@ -163,12 +162,12 @@ func TestUDPForkListenerOneShotFlag(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = o.Close() })
-			ln, ok := o.Listener.(*udpForkListener)
+			ln, ok := o.Listener.(interface{ oneShotMode() bool })
 			if !ok {
 				t.Fatalf("Listener type %T", o.Listener)
 			}
-			if ln.oneShot != tc.oneShot {
-				t.Fatalf("oneShot=%v want %v", ln.oneShot, tc.oneShot)
+			if got := ln.oneShotMode(); got != tc.oneShot {
+				t.Fatalf("oneShot=%v want %v", got, tc.oneShot)
 			}
 		})
 	}
@@ -387,7 +386,7 @@ func TestUDPForkRecvfromSecondDatagramReachesParent(t *testing.T) {
 	}
 }
 
-func TestUDPForkListenSamePeerStaysOnConnectedChild(t *testing.T) {
+func TestUDPForkListenSamePeerStaysInSession(t *testing.T) {
 	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
 	spec, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork")
 	if err != nil {
@@ -398,10 +397,7 @@ func TestUDPForkListenSamePeerStaysOnConnectedChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	ln, ok := o.Listener.(*udpForkListener)
-	if !ok {
-		t.Fatalf("Listener type %T", o.Listener)
-	}
+	ln := o.Listener
 
 	client, err := net.DialUDP("udp4", nil, ln.Addr().(*net.UDPAddr))
 	if err != nil {
@@ -415,25 +411,24 @@ func TestUDPForkListenSamePeerStaysOnConnectedChild(t *testing.T) {
 	}
 	first := waitUDPAccept(t, firstCh, 2*time.Second, "listen first datagram")
 	t.Cleanup(func() { _ = first.Close() })
-	child, ok := first.(*udpSessionConn)
-	if !ok {
-		t.Fatalf("child type %T", first)
-	}
-	if child.conn == nil || child.pc != nil {
-		t.Fatalf("LISTEN child pc=%v conn=%v want connected child, not shared parent", child.pc != nil, child.conn != nil)
-	}
 
 	buf := make([]byte, 16)
 	n, err := first.Read(buf)
 	if err != nil || string(buf[:n]) != "pkt1" {
 		t.Fatalf("first payload n=%d err=%v data=%q", n, err, buf[:n])
 	}
-
-	if runtime.GOOS == "windows" {
-		// Windows does not steer later same-peer datagrams to a connected
-		// SO_REUSEADDR child the way Linux/BSD do. The connected-child
-		// construction is still required; demux is a Unix kernel behavior.
-		return
+	if _, err := first.Write([]byte("ack1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	n, err = client.Read(buf)
+	if err != nil || string(buf[:n]) != "ack1" {
+		t.Fatalf("session reply n=%d err=%v data=%q", n, err, buf[:n])
+	}
+	if err := client.SetReadDeadline(time.Time{}); err != nil {
+		t.Fatal(err)
 	}
 
 	stolen := startUDPAccept(ln)
@@ -445,15 +440,28 @@ func TestUDPForkListenSamePeerStaysOnConnectedChild(t *testing.T) {
 	}
 	n, err = first.Read(buf)
 	if err != nil || string(buf[:n]) != "pkt2" {
-		t.Fatalf("connected child n=%d err=%v data=%q want pkt2", n, err, buf[:n])
+		t.Fatalf("existing session n=%d err=%v data=%q want pkt2", n, err, buf[:n])
 	}
 	select {
 	case result := <-stolen:
 		if result.err == nil {
 			_ = result.conn.Close()
-			t.Fatal("LISTEN Accept stole a same-peer datagram from the connected child")
+			t.Fatal("LISTEN Accept stole a same-peer datagram from the existing session")
 		}
 	case <-time.After(200 * time.Millisecond):
+	}
+
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Write([]byte("pkt3")); err != nil {
+		t.Fatal(err)
+	}
+	replacement := waitUDPAccept(t, stolen, 2*time.Second, "listen datagram after session close")
+	t.Cleanup(func() { _ = replacement.Close() })
+	n, err = replacement.Read(buf)
+	if err != nil || string(buf[:n]) != "pkt3" {
+		t.Fatalf("replacement session n=%d err=%v data=%q want pkt3", n, err, buf[:n])
 	}
 }
 

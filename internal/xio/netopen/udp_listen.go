@@ -74,7 +74,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			logx.CloseQuiet(pc)
 			return nil, ferr
 		}
-		ln := &udpForkListener{
+		base := &udpForkListener{
 			pc:            pc,
 			network:       network,
 			laddr:         laddr,
@@ -84,6 +84,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			rcvTimeout:    xio.ParseTimeval(s.OptionValue("rcvtimeo", "")),
 			acceptTimeout: xio.AcceptTimeout(s),
 		}
+		ln := newUDPListenForkListener(base)
 		return &xio.Opened{
 			Kind:        xio.KindListen,
 			Listener:    ln,
@@ -276,6 +277,9 @@ func dialUDPSession(network string, local, remote *net.UDPAddr) (*net.UDPConn, e
 
 func (l *udpForkListener) Close() error   { return l.pc.Close() }
 func (l *udpForkListener) Addr() net.Addr { return l.pc.LocalAddr() }
+func (l *udpForkListener) oneShotMode() bool {
+	return l.oneShot
+}
 
 func cloneUDPAddr(a *net.UDPAddr) *net.UDPAddr {
 	if a == nil {
