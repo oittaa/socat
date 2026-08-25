@@ -44,6 +44,9 @@ func openOPEN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 	if err != nil {
 		return nil, err
 	}
+	if err := namedUnlinkBeforeOpen(path, s); err != nil {
+		return nil, err
+	}
 	f, err := openUserFileWithUmask(s, path, flags, perm)
 	if err != nil {
 		// Classic format for RECVFROM_FORK_LOOP: `E open("path", …): …`
@@ -87,6 +90,9 @@ func openCREATE(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	if err != nil {
 		return nil, err
 	}
+	if err := namedUnlinkBeforeOpen(path, s); err != nil {
+		return nil, err
+	}
 	f, err := openUserFileWithUmask(s, path, flags, perm)
 	if err != nil {
 		return nil, err
@@ -99,6 +105,9 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 		return nil, fmt.Errorf("GOPEN requires filename")
 	}
 	path := s.Params[0]
+	if err := namedUnlinkBeforeOpen(path, s); err != nil {
+		return nil, err
+	}
 	fi, err := os.Lstat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -124,7 +133,7 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 	}
 	// UNIX domain socket?
 	if fi.Mode()&os.ModeSocket != 0 {
-		return xio.OpenSpec(ctx, parse.Spec{
+		o, err := xio.OpenSpec(ctx, parse.Spec{
 			// GOPEN is a generic client: classic probes stream, seqpacket,
 			// and datagram sockets instead of imposing UNIX-CONNECT semantics.
 			Type:    "UNIX",
@@ -132,6 +141,15 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 			Options: s.Options,
 			Raw:     s.Raw,
 		}, mode, g)
+		if err != nil {
+			return nil, err
+		}
+		// Classic GOPEN of a socket applies PH_PASTOPEN unlink-late on the
+		// path after connect; unlink-close is only armed for non-sockets.
+		if s.BoolOption("unlink-late") {
+			_ = os.Remove(path)
+		}
+		return o, nil
 	}
 	flags := OpenFlags(s, mode)
 	// Classic GOPEN defaults to O_APPEND on existing regular files only.
@@ -212,6 +230,10 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		if err := os.Remove(path); err != nil {
 			return nil, fmt.Errorf("unlink %s: %w", path, err)
 		}
+	} else if s.BoolOption("unlink") {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return nil, fmt.Errorf("unlink %s: %w", path, err)
+		}
 	}
 	created := false
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -259,6 +281,9 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 	}
 	addPathCleanup := func(o *xio.Opened) {
+		if s.BoolOption("unlink-late") {
+			_ = os.Remove(path)
+		}
 		if !doUnlink {
 			return
 		}
@@ -532,15 +557,6 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 		logx.CloseQuiet(f)
 		return nil, err
 	}
-	if s.BoolOption("unlink-early") {
-		_ = os.Remove(path)
-	}
-	if s.BoolOption("unlink-late") || s.BoolOption("unlink-close") {
-		unregister := xio.RegisterUnlinkPath(path)
-		o.AddCleanup(func() {
-			unregister()
-			_ = os.Remove(path)
-		})
-	}
+	applyNamedUnlinkAfterOpen(o, s, path)
 	return o, nil
 }
