@@ -332,8 +332,9 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bind
 	return &net.TCPAddr{IP: ips[0], Port: port}, false, nil
 }
 
-// dialTCPLowport binds 1023..640 then connects. Classic fails closed when no
-// privileged port is available instead of falling back to an ephemeral port.
+// dialTCPLowport binds a classic lowport (random start in 640-1023, walk down
+// with wrap) then connects. Classic fails closed when no privileged port is
+// available instead of falling back to an ephemeral port.
 func dialTCPLowport(ctx context.Context, network string, raddr, laddr *net.TCPAddr, timeout time.Duration, control func(network, address string, c syscall.RawConn) error, g *Global) (net.Conn, error) {
 	ip := net.IPv4zero
 	if raddr != nil && raddr.IP.To4() == nil {
@@ -342,8 +343,8 @@ func dialTCPLowport(ctx context.Context, network string, raddr, laddr *net.TCPAd
 	if laddr != nil && laddr.IP != nil {
 		ip = laddr.IP
 	}
-	var last error
-	for port := LowportMax; port >= LowportMin; port-- {
+	var conn net.Conn
+	_, err := FirstAvailableLowport(func(port int) error {
 		if g != nil && g.Log != nil {
 			g.Log.Debugf("bind({AF=%d %s:%d}, 16)", afForIP(ip), ip.String(), port)
 		}
@@ -362,23 +363,20 @@ func dialTCPLowport(ctx context.Context, network string, raddr, laddr *net.TCPAd
 			cancel()
 		}
 		if err != nil {
-			if errors.Is(err, syscall.EADDRINUSE) {
-				last = err
-				continue
-			}
-			if errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.EPERM) {
-				return nil, fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", LowportMin, LowportMax, err)
-			}
-			// The bind succeeded and connect failed (for example ECONNREFUSED).
-			// Retrying every privileged port would hide the actual connect error.
-			return nil, err
+			return err
 		}
-		return c, nil
+		conn = c
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EADDRINUSE) {
+			return nil, fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", LowportMin, LowportMax, err)
+		}
+		// The bind succeeded and connect failed (for example ECONNREFUSED).
+		// Retrying every privileged port would hide the actual connect error.
+		return nil, err
 	}
-	if last == nil {
-		last = fmt.Errorf("all ports in use")
-	}
-	return nil, fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", LowportMin, LowportMax, last)
+	return conn, nil
 }
 
 // ConnectNetworkForType picks dial network for a CONNECT address type.

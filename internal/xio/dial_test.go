@@ -181,10 +181,12 @@ func TestDialTCPLowportFailsClosedWhenUnprivileged(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root can bind privileged ports")
 	}
-	// Probe the same bind dialTCPLowport uses (0.0.0.0:1023), not
+	// Probe a privileged wildcard bind (0.0.0.0:1023), not
 	// Listen("127.0.0.1:1023"). macOS GitHub runners reject the loopback
 	// listen while still allowing the wildcard bind, which then fails
-	// connect with ECONNREFUSED instead of the fail-closed wrap.
+	// connect with ECONNREFUSED instead of the fail-closed wrap. Classic
+	// xiobind starts at a random port in 640-1023, but EACCES on any of
+	// those ports fails immediately, so 1023 is a representative probe.
 	if !lowportWildcardBindDenied() {
 		t.Skip("platform allowed a lowport bind")
 	}

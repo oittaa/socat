@@ -48,7 +48,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 	bind := s.OptionValue("bind", "")
 	sp := s.OptionValue("sourceport", "")
 	var laddr *net.UDPAddr
-	// classic lowport: bind an ephemeral port in 640..1023 (log even if EACCES).
+	// classic lowport: bind a port in 640..1023 (log even if EACCES).
 	if s.BoolOption("lowport") && sp == "" {
 		bind, err = xio.ListenBindHost(network, bind)
 		if err != nil {
@@ -174,7 +174,7 @@ func (u *udpDatagramConn) Write(p []byte) (int, error) {
 	return u.WriteToUDP(p, u.raddr)
 }
 
-// bindUDPLowport tries ports 1023..640 (classic lowport). Logs bind like SYCLS for tests.
+// bindUDPLowport binds a classic lowport via FirstAvailableLowport. Logs bind like SYCLS for tests.
 func bindUDPLowport(ctx context.Context, network, bind string, s parse.Spec, g *xio.Global) (*net.UDPConn, int, error) {
 	var conn *net.UDPConn
 	port, err := xio.FirstAvailableLowport(func(port int) error {

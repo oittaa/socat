@@ -84,8 +84,8 @@ func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.
 }
 
 // listenQUICClientPacket binds the client PacketConn. An explicit nonzero
-// sourceport is used as-is. lowport with sourceport absent or 0 walks 1023
-// down to 640 via FirstAvailableLowport, matching classic UDP lowport.
+// sourceport is used as-is. lowport with sourceport absent or 0 uses
+// FirstAvailableLowport (random start in 640-1023, walk down with wrap).
 func listenQUICClientPacket(ctx context.Context, network, bindHost, sourceport string, s parse.Spec, g *xio.Global) (net.PacketConn, error) {
 	lowport := s.BoolOption("lowport") && (sourceport == "" || sourceport == "0")
 	if lowport {
