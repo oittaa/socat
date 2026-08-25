@@ -21,6 +21,19 @@ func openUserFile(path string, flags int, perm os.FileMode) (*os.File, error) {
 	return os.OpenFile(path, flags, perm) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 }
 
+// openUserFileWithUmask opens path under the process umask (classic umask=).
+// Use this for CREATE/OPEN and GOPEN's create path. Existing-file opens and
+// FIFO open(2) after mkfifo use openUserFile; mkfifo has its own WithUmask.
+func openUserFileWithUmask(s parse.Spec, path string, flags int, perm os.FileMode) (*os.File, error) {
+	var f *os.File
+	err := xio.WithUmask(s, func() error {
+		var e error
+		f, e = openUserFile(path, flags, perm)
+		return e
+	})
+	return f, err
+}
+
 func openOPEN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	if len(s.Params) < 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("OPEN requires filename")
@@ -31,12 +44,7 @@ func openOPEN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 	if err != nil {
 		return nil, err
 	}
-	var f *os.File
-	err = xio.WithUmask(s, func() error {
-		var e error
-		f, e = openUserFile(path, flags, perm)
-		return e
-	})
+	f, err := openUserFileWithUmask(s, path, flags, perm)
 	if err != nil {
 		// Classic format for RECVFROM_FORK_LOOP: `E open("path", …): …`
 		return nil, fmt.Errorf("open(%q, %02o, %04o): %w", path, flags, xio.FileModeToUnix(perm), err)
@@ -79,12 +87,7 @@ func openCREATE(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	if err != nil {
 		return nil, err
 	}
-	var f *os.File
-	err = xio.WithUmask(s, func() error {
-		var e error
-		f, e = openUserFile(path, flags, perm)
-		return e
-	})
+	f, err := openUserFileWithUmask(s, path, flags, perm)
 	if err != nil {
 		return nil, err
 	}
@@ -107,16 +110,11 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 			case xio.ModeWrite:
 				flags = os.O_WRONLY | os.O_CREATE
 			}
-			var f *os.File
 			perm, perr := xio.ParseFileMode(s, xio.DefaultCreateMode)
 			if perr != nil {
 				return nil, perr
 			}
-			err := xio.WithUmask(s, func() error {
-				var e error
-				f, e = openUserFile(path, flags, perm)
-				return e
-			})
+			f, err := openUserFileWithUmask(s, path, flags, perm)
 			if err != nil {
 				return nil, err
 			}
