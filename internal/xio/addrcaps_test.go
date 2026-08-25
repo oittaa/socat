@@ -76,6 +76,10 @@ func TestClassicAllowsOption(t *testing.T) {
 		{"TCP-CONNECT", "cert", false},
 		{"QUIC", "lowport", true},
 		{"WS", "nodelay", true},
+		{"TCP", "noatime", true},
+		{"UDP4", "pktinfo", true},
+		{"OPEN", "noatime", true},
+		{"CREATE", "pktinfo", false},
 	}
 	for _, tc := range cases {
 		got := ClassicAllowsOption(tc.addr, tc.opt)

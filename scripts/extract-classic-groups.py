@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """Extract address and option groups from classic socat 1.8.1.3 sources.
 
+Option keywords come from the alphabetically sorted optionnames[] table in
+xioopts.c, each mapped through the optdesc symbol it references. Deriving
+keywords from optdesc defname/nickname is incorrect: duplicate nicknames
+exist (noatime, pktinfo) and classic parseopts looks up optionnames[].
+
 Usage:
-  python3 scripts/extract-classic-groups.py /tmp/socat-classic/src > internal/xio/classicgroups_gen.go
+  python3 scripts/extract-classic-groups.py /tmp/socat-classic > internal/xio/classicgroups_gen.go
 """
 
 from __future__ import annotations
@@ -60,8 +65,13 @@ COMPOSITE = {
 }
 
 ADDR_BLOCK_RE = re.compile(r"const struct addrdesc\s+(\w+)\s*=\s*\{(.*?)\}\s*;", re.S)
-OPT_BLOCK_RE = re.compile(r"const struct optdesc\s+\w+\s*=\s*\{(.*?)\};", re.S)
+OPT_BLOCK_RE = re.compile(r"const struct optdesc\s+(\w+)\s*=\s*\{(.*?)\};", re.S)
 ADDRNAME_RE = re.compile(r'\{\s*"([^"]+)"\s*,\s*&(\w+)\s*\}')
+OPTNAME_ENTRY_RE = re.compile(r'IF_[A-Z0-9]+\s*\(\s*"([^"]+)"\s*,\s*&(\w+)\s*\)')
+OPTNAMES_ARRAY_RE = re.compile(
+    r"const struct optname optionnames\[\]\s*=\s*\{(.*?)^\}\s*;",
+    re.S | re.M,
+)
 STRING_RE = re.compile(r'"([^"]*)"')
 
 
@@ -107,17 +117,45 @@ def go_strings(values: list[str]) -> str:
     return f"[]string{{{inner}}}"
 
 
-def set_option(options: dict[str, list[str]], name: str | None, groups: list[str], overwrite: bool) -> None:
-    if not name:
-        return
-    key = name.lower()
-    if overwrite or key not in options:
-        options[key] = groups
+def classic_root(path: Path) -> Path:
+    if (path / "xioopts.c").is_file():
+        return path
+    nested = path / "src"
+    if (nested / "xioopts.c").is_file():
+        return nested
+    raise FileNotFoundError(f"xioopts.c not found under {path}")
 
 
-def main() -> int:
-    src = Path(sys.argv[1] if len(sys.argv) > 1 else "/tmp/socat-classic/src")
-    files = list(src.glob("xio*.c"))
+def parse_optdesc_groups(src: Path) -> dict[str, list[str]]:
+    symbols: dict[str, list[str]] = {}
+    for path in sorted(src.glob("xio*.c")):
+        text = strip_comments(path.read_text(errors="replace"))
+        for m in OPT_BLOCK_RE.finditer(text):
+            symbols[m.group(1)] = expand_groups(groups_expr(m.group(2)))
+    return symbols
+
+
+def parse_optionnames(src: Path) -> list[tuple[str, str]]:
+    text = strip_comments((src / "xioopts.c").read_text(errors="replace"))
+    m = OPTNAMES_ARRAY_RE.search(text)
+    if not m:
+        raise ValueError("optionnames[] not found in xioopts.c")
+    entries: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    for name, symbol in OPTNAME_ENTRY_RE.findall(m.group(1)):
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        entries.append((key, symbol))
+    if not entries:
+        raise ValueError("optionnames[] contained no IF_* keyword entries")
+    return entries
+
+
+def generate(src: Path) -> str:
+    src = classic_root(src)
+    files = sorted(src.glob("xio*.c"))
     text = strip_comments("\n".join(p.read_text(errors="replace") for p in files))
 
     addresses: dict[str, list[str]] = {}
@@ -140,42 +178,61 @@ def main() -> int:
             if alias not in addresses and target in addresses:
                 addresses[alias] = addresses[target]
 
+    optdesc = parse_optdesc_groups(src)
     options: dict[str, list[str]] = {}
-    for m in OPT_BLOCK_RE.finditer(text):
-        block = strip_comments(m.group(1))
-        strings = c_strings(block)
-        if not strings:
+    missing: list[str] = []
+    for keyword, symbol in parse_optionnames(src):
+        groups = optdesc.get(symbol)
+        if groups is None:
+            missing.append(f"{keyword}->{symbol}")
             continue
-        groups = expand_groups(groups_expr(block))
-        set_option(options, strings[0], groups, overwrite=True)
-        if len(strings) > 1:
-            set_option(options, strings[1], groups, overwrite=False)
+        options[keyword] = groups
+    if missing:
+        raise ValueError("optionnames[] referenced unknown optdesc symbols: " + ", ".join(missing))
 
-    print("// Code generated from classic socat tag-1.8.1.3. DO NOT EDIT.")
-    print("// Source: git://repo.or.cz/socat.git tag-1.8.1.3 (xio*.c, xioopen.c).")
-    print("//go:generate python3 ../../scripts/extract-classic-groups.py /tmp/socat-classic/src")
-    print()
-    print("package xio")
-    print()
-    print("// ClassicAddressGroups is the expanded GROUP_* set for each address keyword")
-    print("// in classic socat 1.8.1.3. Aliases from addressnames[] are included.")
-    print("var ClassicAddressGroups = map[string][]string{")
+    lines = [
+        "// Code generated from classic socat tag-1.8.1.3. DO NOT EDIT.",
+        "// Source: https://repo.or.cz/socat.git tag-1.8.1.3",
+        "// (addrdesc in xio*.c, addressnames[] in xioopen.c, optionnames[] in xioopts.c).",
+        "//go:generate python3 ../../scripts/extract-classic-groups.py /tmp/socat-classic",
+        "",
+        "package xio",
+        "",
+        "// ClassicAddressGroups is the expanded GROUP_* set for each address keyword",
+        "// in classic socat 1.8.1.3. Aliases from addressnames[] are included.",
+        "var ClassicAddressGroups = map[string][]string{",
+    ]
     for name in sorted(addresses):
-        print(f"\t{go_str(name)}: {go_strings(addresses[name])},")
-    print("}")
-    print()
-    print("// ClassicOptionGroups is the expanded GROUP_* set for each option keyword")
-    print("// and nickname in classic socat 1.8.1.3. A defname wins over a later nickname.")
-    print("var ClassicOptionGroups = map[string][]string{")
+        lines.append(f"\t{go_str(name)}: {go_strings(addresses[name])},")
+    lines.extend(
+        [
+            "}",
+            "",
+            "// ClassicOptionGroups is the expanded GROUP_* set for each option keyword",
+            "// in classic socat 1.8.1.3, taken from optionnames[] via its optdesc symbol.",
+            "var ClassicOptionGroups = map[string][]string{",
+        ]
+    )
     for name in sorted(options):
-        print(f"\t{go_str(name)}: {go_strings(options[name])},")
-    print("}")
-    print()
-    print("// ClassicAddressAliases maps addressnames[] aliases to the canonical addrdesc name.")
-    print("var ClassicAddressAliases = map[string]string{")
+        lines.append(f"\t{go_str(name)}: {go_strings(options[name])},")
+    lines.extend(
+        [
+            "}",
+            "",
+            "// ClassicAddressAliases maps addressnames[] aliases to the canonical addrdesc name.",
+            "var ClassicAddressAliases = map[string]string{",
+        ]
+    )
     for name in sorted(aliases):
-        print(f"\t{go_str(name)}: {go_str(aliases[name])},")
-    print("}")
+        lines.append(f"\t{go_str(name)}: {go_str(aliases[name])},")
+    lines.append("}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def main() -> int:
+    src = Path(sys.argv[1] if len(sys.argv) > 1 else "/tmp/socat-classic")
+    sys.stdout.write(generate(src))
     return 0
 
 

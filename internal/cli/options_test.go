@@ -85,6 +85,8 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "classic-linger-alias", spec: "TCP:localhost:1,linger=0"},
 		{name: "children-shutup-bare", spec: "TCP-LISTEN:1,fork,children-shutup"},
 		{name: "linux-fd-options", spec: "STDIN,o-noatime,f-setpipe-sz=4096"},
+		{name: "noatime-on-tcp", spec: "TCP:localhost:1,noatime"},
+		{name: "pktinfo-on-udp4", spec: "UDP4:localhost:1,pktinfo"},
 		{name: "tls-version-bounds", spec: "TLS:localhost:443,min-version=TLS1.2,max-version=TLS1.3"},
 		{name: "classic-ip-aliases", spec: "TCP:localhost:1,ipttl=9,iptos=16"},
 		{name: "tcp-options-on-wss", spec: "WSS:localhost:1,nodelay,keepalive"},
