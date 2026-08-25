@@ -300,14 +300,8 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		return o, nil
 	case xio.ModeWrite:
 		// Need a reader end open first for O_WRONLY on FIFO.
-		r, err := openUserFile(path, os.O_RDONLY|oNonblock, 0)
+		r, w, err := openFIFOPair(path)
 		if err != nil {
-			removeCreated()
-			return nil, err
-		}
-		w, err := openUserFile(path, os.O_WRONLY|oNonblock, 0)
-		if err != nil {
-			logx.CloseQuiet(r)
 			removeCreated()
 			return nil, err
 		}
@@ -329,14 +323,8 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		return o, nil
 	default:
 		// Bidirectional: open reader then writer (both NONBLOCK), then blocking I/O.
-		r, err := openUserFile(path, os.O_RDONLY|oNonblock, 0)
+		r, w, err := openFIFOPair(path)
 		if err != nil {
-			removeCreated()
-			return nil, err
-		}
-		w, err := openUserFile(path, os.O_WRONLY|oNonblock, 0)
-		if err != nil {
-			logx.CloseQuiet(r)
 			removeCreated()
 			return nil, err
 		}
@@ -374,6 +362,23 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		addPathCleanup(o)
 		return o, nil
 	}
+}
+
+// openFIFOPair opens a named FIFO reader then writer, both O_NONBLOCK, so
+// O_WRONLY does not wait for a peer (POSIX). If the writer open fails, the
+// reader is closed. Callers own unlink, FD options, wrapping, and clearing
+// nonblock (write-only clears the writer and drops the reader; bidi keeps both).
+func openFIFOPair(path string) (*os.File, *os.File, error) {
+	r, err := openUserFile(path, os.O_RDONLY|oNonblock, 0)
+	if err != nil {
+		return nil, nil, err
+	}
+	w, err := openUserFile(path, os.O_WRONLY|oNonblock, 0)
+	if err != nil {
+		logx.CloseQuiet(r)
+		return nil, nil, err
+	}
+	return r, w, nil
 }
 
 func openSocketpair(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Opened, error) {
