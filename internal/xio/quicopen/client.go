@@ -35,13 +35,7 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	if err != nil {
 		return nil, err
 	}
-	sp := s.OptionValue("sourceport", "")
-	if sp == "" {
-		sp = "0"
-	}
-	laddr := net.JoinHostPort(xio.StripBrackets(bindHost), sp)
-
-	pc, err := listenPacket(ctx, network, laddr, s)
+	pc, err := listenQUICClientPacket(ctx, network, bindHost, s.OptionValue("sourceport", ""), s, g)
 	if err != nil {
 		return nil, err
 	}

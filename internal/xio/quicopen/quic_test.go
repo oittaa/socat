@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -335,5 +336,88 @@ func TestQUICDataConnectionDrainsBeforeClose(t *testing.T) {
 	case <-qnc.qc.Context().Done():
 	case <-time.After(6 * time.Second):
 		t.Fatal("data-carrying connection was never closed")
+	}
+}
+
+func TestQUICConnectLowportBindsOrFailsClosed(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	s, err := parse.ParseSpec("QUIC:127.0.0.1:9,verify=0,lowport,bind=127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pc, err := listenQUICClientPacket(ctx, "udp4", "127.0.0.1", "", s, nil)
+	if err != nil {
+		if !strings.Contains(err.Error(), "lowport: cannot bind a port in 640-1023") {
+			t.Fatalf("lowport bind: %v", err)
+		}
+		t.Logf("lowport fail-closed: %v", err)
+		return
+	}
+	defer func() { _ = pc.Close() }()
+	bound := pc.LocalAddr().(*net.UDPAddr).Port
+	if bound < xio.LowportMin || bound > xio.LowportMax {
+		t.Fatalf("bound port %d, want %d-%d", bound, xio.LowportMin, xio.LowportMax)
+	}
+
+	port := startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:0,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", listenCert(t)))
+	cs, err := parse.ParseSpec(fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0,lowport,bind=127.0.0.1", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openQUICConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = o.Close() }()
+	lp := quicNetConnOf(t, o).LocalAddr().(*net.UDPAddr).Port
+	if lp < xio.LowportMin || lp > xio.LowportMax {
+		t.Fatalf("connected local port %d, want %d-%d", lp, xio.LowportMin, xio.LowportMax)
+	}
+}
+
+func TestQUICConnectSourceportTakesPrecedenceOverLowport(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	port := startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:0,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", listenCert(t)))
+
+	for range 8 {
+		hold, err := net.ListenPacket("udp4", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sp := hold.LocalAddr().(*net.UDPAddr).Port
+		_ = hold.Close()
+		cs, err := parse.ParseSpec(fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0,lowport,bind=127.0.0.1,sourceport=%d", port, sp))
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, err := openQUICConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+		if err != nil {
+			if strings.Contains(err.Error(), "address already in use") || strings.Contains(strings.ToLower(err.Error()), "bind") {
+				continue
+			}
+			t.Fatal(err)
+		}
+		defer func() { _ = o.Close() }()
+		got := quicNetConnOf(t, o).LocalAddr().(*net.UDPAddr).Port
+		if got != sp {
+			t.Fatalf("sourceport=%d local=%d; lowport must not override an explicit sourceport", sp, got)
+		}
+		return
+	}
+	t.Fatal("could not bind an explicit sourceport for the precedence test")
+}
+
+func TestQUICConnectLowportBindFamilyMismatch(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cs, err := parse.ParseSpec("QUIC:127.0.0.1:9,pf=ip4,bind=::,lowport,verify=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = openQUICConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	if err == nil || !strings.Contains(err.Error(), "address family mismatch") {
+		t.Fatalf("want bind family mismatch, got %v", err)
 	}
 }
