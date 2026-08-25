@@ -79,7 +79,10 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		}
 	}
 
-	modePerm := xio.ParseFileMode(s, 0o666)
+	modePerm, err := xio.ParseFileMode(s, xio.DefaultCreateMode)
+	if err != nil {
+		return nil, err
+	}
 
 	var attr *mqAttr
 	if s.HasOption("mq-maxmsg") || s.HasOption("mq-msgsize") {

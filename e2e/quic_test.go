@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -54,7 +55,7 @@ func TestQUICEcho(t *testing.T) {
 		_ = srv.Process.Kill()
 		_, _ = srv.Process.Wait()
 	}()
-	waitUDPListen(t, port, 2*time.Second)
+	waitUDPListen(t, port, 2*time.Second, srv)
 
 	payload := fmt.Sprintf("quic-echo %d\n", time.Now().UnixNano())
 	var out []byte
@@ -90,7 +91,7 @@ func TestQUICVerifyFail(t *testing.T) {
 		_ = srv.Process.Kill()
 		_, _ = srv.Process.Wait()
 	}()
-	waitUDPListen(t, port, 2*time.Second)
+	waitUDPListen(t, port, 2*time.Second, srv)
 
 	cli := exec.Command(bin, "stdin!!stdout", fmt.Sprintf("QUIC:127.0.0.1:%d,verify=1", port))
 	cli.Stdin = bytes.NewBufferString("nope")
@@ -117,7 +118,7 @@ func TestQUICVerifySuccess(t *testing.T) {
 		_ = srv.Process.Kill()
 		_, _ = srv.Process.Wait()
 	}()
-	waitUDPListen(t, port, 2*time.Second)
+	waitUDPListen(t, port, 2*time.Second, srv)
 
 	payload := "quic-mtls\n"
 	cli := exec.Command(bin, "-t", "2", "stdin!!stdout", fmt.Sprintf(
@@ -152,7 +153,7 @@ func TestTCPToQUICBridge(t *testing.T) {
 		_ = echo.Process.Kill()
 		_, _ = echo.Process.Wait()
 	}()
-	waitUDPListen(t, quicPort, 2*time.Second)
+	waitUDPListen(t, quicPort, 2*time.Second, echo)
 
 	bridge := exec.Command(bin, "-t", "2",
 		fmt.Sprintf("TCP-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", tcpPort),
@@ -180,6 +181,27 @@ func TestTCPToQUICBridge(t *testing.T) {
 	}
 	if string(out) != payload {
 		t.Fatalf("got %q want %q bridge=%s echo=%s", out, payload, bridgeErr.String(), echoErr.String())
+	}
+}
+
+func TestWaitUDPListenDetectsEarlyExit(t *testing.T) {
+	bin := socatBin(t)
+	port := freeUDPPort(t)
+	cmd := exec.Command(bin, "NOT-A-REAL-ADDRESS", "PIPE")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+	}()
+	time.Sleep(200 * time.Millisecond)
+	err := errWaitUDPListen(port, 2*time.Second, cmd)
+	if err == nil {
+		t.Fatal("waitUDPListen succeeded after the UDP server exited")
+	}
+	if !strings.Contains(err.Error(), "exited before listening") {
+		t.Fatalf("error=%v", err)
 	}
 }
 

@@ -122,11 +122,11 @@ func TestRelayMatrixUDP4OneWay(t *testing.T) {
 	port := freeUDPPort(t)
 	path := filepath.Join(t.TempDir(), "udp.bin")
 	stderr := &bytes.Buffer{}
-	startSocat(t, stderr, "-t", "2", "-u",
+	cmd := startSocat(t, stderr, "-t", "2", "-u",
 		fmt.Sprintf("UDP4-RECVFROM:%d,reuseaddr,bind=127.0.0.1", port),
 		"CREATE:"+path,
 	)
-	waitUDPListen(t, port, 2*time.Second)
+	waitUDPListen(t, port, 2*time.Second, cmd)
 	_, errb, err := runSocat(t, []byte(matrixPayload), "-t", "2", "-u", "STDIN",
 		fmt.Sprintf("UDP4-SENDTO:127.0.0.1:%d", port))
 	if err != nil {
@@ -187,7 +187,7 @@ func TestRelayMatrixBridgeTCPQUIC(t *testing.T) {
 		port := freeUDPPort(t)
 		stderr := &bytes.Buffer{}
 		cmd := startSocat(t, stderr, "-t", "2", fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert), "PIPE")
-		waitUDPListen(t, port, 2*time.Second)
+		waitUDPListen(t, port, 2*time.Second, cmd)
 		return fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0", port), func() {
 			_ = cmd.Process.Kill()
 			_, _ = cmd.Process.Wait()

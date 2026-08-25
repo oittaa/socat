@@ -82,11 +82,26 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		unregister = xio.RegisterUnlinkPath(path)
 	}
 
-	fork := s.BoolOption("fork")
+	fork, maxChildren, ferr := xio.ForkLimits(s)
+	if ferr != nil {
+		unregister()
+		logx.CloseQuiet(ln)
+		if !xio.IsAbstract(path) {
+			_ = os.Remove(path)
+		}
+		return nil, ferr
+	}
+
+	wrapConn := func(c net.Conn) (relay.Stream, error) {
+		return xio.WrapCommon(s, relay.NetStream{Conn: c})
+	}
 	o := &xio.Opened{
-		Kind:     xio.ListenKind(fork),
-		Listener: ln,
-		Label:    "UNIX-LISTEN:" + path,
+		Kind:        xio.ListenKind(fork),
+		Listener:    ln,
+		Label:       "UNIX-LISTEN:" + path,
+		MaxChildren: maxChildren,
+		PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
+		WrapDial:    wrapConn,
 	}
 	o.AcceptTimeout = xio.AcceptTimeout(s)
 	o.AddCleanup(func() {
@@ -197,11 +212,21 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	if err != nil {
 		return nil, err
 	}
-	fork := s.BoolOption("fork")
+	fork, maxChildren, ferr := xio.ForkLimits(s)
+	if ferr != nil {
+		logx.CloseQuiet(ln)
+		return nil, ferr
+	}
+	wrapConn := func(c net.Conn) (relay.Stream, error) {
+		return xio.WrapCommon(s, relay.NetStream{Conn: c})
+	}
 	o := &xio.Opened{
-		Kind:     xio.ListenKind(fork),
-		Listener: ln,
-		Label:    "ABSTRACT-LISTEN:" + name,
+		Kind:        xio.ListenKind(fork),
+		Listener:    ln,
+		Label:       "ABSTRACT-LISTEN:" + name,
+		MaxChildren: maxChildren,
+		PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
+		WrapDial:    wrapConn,
 	}
 	o.AcceptTimeout = xio.AcceptTimeout(s)
 	o.AddCleanup(func() { logx.CloseQuiet(ln) })

@@ -50,13 +50,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 	var laddr *net.UDPAddr
 	// classic lowport: bind an ephemeral port in 640..1023 (log even if EACCES).
 	if s.BoolOption("lowport") && sp == "" {
-		if bind == "" {
-			if network == "udp6" {
-				bind = "::"
-			} else {
-				bind = "0.0.0.0"
-			}
-		}
+		bind = xio.ListenBindHost(network, bind)
 		c, port, berr := bindUDPLowport(ctx, network, bind, s, g)
 		if berr == nil && c != nil {
 			// use this bound conn as the packet socket
@@ -90,13 +84,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		// Fall through: bindUDPLowport already logged attempts.
 	}
 	if bind != "" || sp != "" {
-		if bind == "" {
-			if network == "udp6" {
-				bind = "::"
-			} else {
-				bind = "0.0.0.0"
-			}
-		}
+		bind = xio.ListenBindHost(network, bind)
 		if sp == "" {
 			// bind may already be host:port
 			if _, _, e := net.SplitHostPort(bind); e != nil {
@@ -230,14 +218,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		return nil, fmt.Errorf("UDP-RECV requires port")
 	}
 	port := s.Params[0]
-	host := s.OptionValue("bind", "")
-	if host == "" {
-		if network == "udp6" {
-			host = "::"
-		} else {
-			host = "0.0.0.0"
-		}
-	}
+	host := xio.ListenBindHost(network, s.OptionValue("bind", ""))
 	laddr, err := net.ResolveUDPAddr(network, net.JoinHostPort(xio.StripBrackets(host), port))
 	if err != nil {
 		return nil, err
@@ -261,6 +242,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				spec:    s,
 				g:       g,
 				ctx:     ctx,
+				oneShot: true,
 			}
 			// so-rcvtimeo bounds each Accept receive; accept-timeout
 			// aborts waiting entirely (classic semantics).
@@ -274,6 +256,9 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				Label:       "UDP-RECVFROM",
 				MaxChildren: maxChildren,
 				PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
+				WrapDial: func(c net.Conn) (relay.Stream, error) {
+					return xio.WrapCommon(s, relay.NetStream{Conn: c})
+				},
 			}, nil
 		}
 		timeoutSet, err := applyUDPAcceptTimeout(pc, s)

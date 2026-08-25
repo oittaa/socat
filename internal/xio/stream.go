@@ -151,14 +151,19 @@ func (r *readBytesWrap) Read(p []byte) (int, error) {
 }
 
 // ApplyReadBytes wraps a stream if the address has readbytes=N.
+// Classic TYPE_SIZE_T is parsed with base 0 (decimal, 0x hex, 0 octal).
+// readbytes=0 means unlimited and leaves the stream unwrapped.
 func ApplyReadBytes(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	v := s.OptionValue("readbytes", "")
 	if v == "" {
 		return stream, nil
 	}
-	var n int64
-	if _, err := fmt.Sscanf(v, "%d", &n); err != nil || n < 0 {
+	n, err := strconv.ParseInt(v, 0, 64)
+	if err != nil || n < 0 {
 		return nil, fmt.Errorf("invalid readbytes %q", v)
+	}
+	if n == 0 {
+		return stream, nil
 	}
 	return relay.FDStream{
 		R: &readBytesWrap{r: stream, left: n},

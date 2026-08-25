@@ -186,6 +186,9 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			Listener:    ln,
 			Label:       label,
 			MaxChildren: maxChildren,
+			WrapDial: func(c net.Conn) (relay.Stream, error) {
+				return xio.WrapCommon(s, relay.NetStream{Conn: c})
+			},
 		}
 		if !xio.IsAbstract(path) && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close")) {
 			unregister := xio.RegisterUnlinkPath(path)
@@ -318,16 +321,10 @@ func (u *unixPacketConn) Read(p []byte) (int, error) {
 		}
 		return n, nil
 	}
-	// Subsequent reads from same peer only.
-	n, addr, err := u.c.ReadFromUnix(p)
-	if err != nil {
-		return n, err
-	}
-	if addr != nil && u.peer != nil && addr.Name != u.peer.Name {
-		// Other-peer packets are dropped by the caller / next Accept in fork mode.
-		_ = addr
-	}
-	return n, nil
+	// Classic UNIX-RECVFROM,fork is one-shot (XIODATA_RECVFROM_ONE): the
+	// accepted datagram is already in first. Never read the shared parent
+	// socket again — that would steal other peers' packets.
+	return 0, io.EOF
 }
 func (u *unixPacketConn) Write(p []byte) (int, error) {
 	if u.peer == nil {
@@ -348,10 +345,11 @@ func (u *unixPacketConn) Close() error {
 func (u *unixPacketConn) LocalAddr() net.Addr  { return u.c.LocalAddr() }
 func (u *unixPacketConn) RemoteAddr() net.Addr { return u.peer }
 func (u *unixPacketConn) SetDeadline(t time.Time) error {
-	return u.c.SetDeadline(t)
+	return u.SetWriteDeadline(t)
 }
-func (u *unixPacketConn) SetReadDeadline(t time.Time) error {
-	return u.c.SetReadDeadline(t)
+func (u *unixPacketConn) SetReadDeadline(time.Time) error {
+	// Read never touches the shared listener; do not install a deadline on it.
+	return nil
 }
 func (u *unixPacketConn) SetWriteDeadline(t time.Time) error {
 	return u.c.SetWriteDeadline(t)
