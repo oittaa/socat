@@ -12,7 +12,6 @@ import (
 
 	"github.com/oittaa/socat/internal/xio"
 
-	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -125,25 +124,23 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 		}
 		g.PeerAddr = path
 	}
+	// Classic xioopen_unix_connect (tag-1.8.1.3
+	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+	// af5388c898c7bb60997935aee93c223deba60c4a is the same): filesystem
+	// (non-ABSTRACT) clients default unlink-close=1 after a successful bind.
+	// Same helper as datagram; ABSTRACT / unlink-close=0 skip the unlink.
+	life := trackUnixBind(bindPath, s)
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
-		logx.CloseQuiet(conn)
-		if bindPath != "" {
-			_ = os.Remove(bindPath)
-		}
+		life.drop(conn)
 		return nil, err
 	}
 	o := &xio.Opened{
 		Stream: st,
 		Label:  "UNIX:" + path,
 	}
-	// Stream/seqpacket: unlink the local bind path only when unlink-close is
-	// explicitly set. Classic NAMED clients default unlink-close=1; this is
-	// an existing divergence, not part of the datagram trackUnixBind change.
-	if s.BoolOption("unlink-close") && bindPath != "" {
-		o.AddCleanup(func() { _ = os.Remove(bindPath) })
-	}
+	life.attach(o)
 	return o, nil
 }
 
