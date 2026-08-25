@@ -51,11 +51,62 @@ func TestListenBindHost(t *testing.T) {
 		{"tcp4", "[::]", "0.0.0.0"},
 		{"udp4", "::", "0.0.0.0"},
 		{"ip4", "::", "0.0.0.0"},
+		{"sctp4", "::", "0.0.0.0"},
+		{"sctp4", "", "0.0.0.0"},
 		{"tcp6", "::", "::"},
 	}
 	for _, tc := range cases {
 		if got := ListenBindHost(tc.network, tc.bind); got != tc.want {
 			t.Errorf("ListenBindHost(%q, %q) = %q, want %q", tc.network, tc.bind, got, tc.want)
 		}
+	}
+}
+
+func TestParsePositiveIntBase0AndTrailingJunk(t *testing.T) {
+	n, err := ParsePositiveInt("0x10")
+	if err != nil || n != 16 {
+		t.Fatalf("0x10: n=%d err=%v want 16", n, err)
+	}
+	n, err = ParsePositiveInt("010")
+	if err != nil || n != 8 {
+		t.Fatalf("010: n=%d err=%v want 8", n, err)
+	}
+	if _, err := ParsePositiveInt("5abc"); err == nil {
+		t.Fatal("5abc: expected error")
+	}
+	if _, err := ParsePositiveInt("0"); err == nil {
+		t.Fatal("0: expected error")
+	}
+}
+
+func TestParseIntAnyBase0(t *testing.T) {
+	n, err := ParseIntAny("010")
+	if err != nil || n != 8 {
+		t.Fatalf("010: n=%d err=%v want 8", n, err)
+	}
+	n, err = ParseIntAny("0x10")
+	if err != nil || n != 16 {
+		t.Fatalf("0x10: n=%d err=%v want 16", n, err)
+	}
+	if _, err := ParseIntAny("10junk"); err == nil {
+		t.Fatal("10junk: expected error")
+	}
+}
+
+func TestRecvTimeoutFromSpecRejectsJunk(t *testing.T) {
+	ok, err := parse.ParseSpec("UDP4-LISTEN:0,fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := RecvTimeoutFromSpec(ok)
+	if err != nil || d != 0 {
+		t.Fatalf("empty rcvtimeo d=%s err=%v", d, err)
+	}
+	bad, err := parse.ParseSpec("UDP4-LISTEN:0,fork,rcvtimeo=nope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RecvTimeoutFromSpec(bad); err == nil {
+		t.Fatal("expected rcvtimeo parse error")
 	}
 }

@@ -244,12 +244,10 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				ctx:     ctx,
 				oneShot: true,
 			}
-			// so-rcvtimeo bounds each Accept receive; accept-timeout
-			// aborts waiting entirely (classic semantics).
-			if v := s.OptionValue("rcvtimeo", ""); v != "" {
-				ln.rcvTimeout = xio.ParseTimeval(v)
+			if err := applyUDPForkTimeouts(ln, s); err != nil {
+				logx.CloseQuiet(pc)
+				return nil, err
 			}
-			ln.acceptTimeout = xio.AcceptTimeout(s)
 			return &xio.Opened{
 				Kind:        xio.KindListen,
 				Listener:    ln,

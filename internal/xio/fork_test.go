@@ -24,6 +24,23 @@ func TestForkLimits(t *testing.T) {
 			wantMaxChildren: 5,
 		},
 		{
+			name:            "hex-max-children",
+			spec:            "TCP4-LISTEN:0,fork,max-children=0x10",
+			wantFork:        true,
+			wantMaxChildren: 16,
+		},
+		{
+			name:            "octal-max-children",
+			spec:            "TCP4-LISTEN:0,fork,max-children=010",
+			wantFork:        true,
+			wantMaxChildren: 8,
+		},
+		{
+			name:    "trailing-junk",
+			spec:    "TCP4-LISTEN:0,fork,max-children=5abc",
+			wantErr: `invalid max-children "5abc"`,
+		},
+		{
 			name:    "invalid-value",
 			spec:    "TCP4-LISTEN:0,fork,max-children=abc",
 			wantErr: `invalid max-children "abc"`,

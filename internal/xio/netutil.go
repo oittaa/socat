@@ -149,19 +149,26 @@ func DialControl(s parse.Spec, network string, caller func(string, string, sysca
 // else the network-family wildcard. An explicit IPv6 wildcard on a v4-forced
 // network (pf=ip4, TCP4-LISTEN, …) falls back to the v4 wildcard so the OS
 // does not reject the dual-stroke notation.
+func listenBindIsIPv4(network string) bool {
+	switch network {
+	case "tcp4", "udp4", "ip4", "sctp4":
+		return true
+	default:
+		return false
+	}
+}
+
 func ListenBindHost(network, bind string) string {
 	if bind != "" {
-		if (network == "tcp4" || network == "udp4" || network == "ip4") && StripBrackets(bind) == "::" {
+		if listenBindIsIPv4(network) && StripBrackets(bind) == "::" {
 			return "0.0.0.0"
 		}
 		return bind
 	}
-	switch network {
-	case "tcp4", "udp4", "ip4":
+	if listenBindIsIPv4(network) {
 		return "0.0.0.0"
-	default:
-		return "::"
 	}
+	return "::"
 }
 
 func StripBrackets(host string) string {
@@ -416,8 +423,7 @@ func ApplySetsockoptFD(fd int, spec string) error {
 // FormatSocatAddr matches classic env formatting (IPv6 in brackets).
 
 func ParsePositiveInt(v string) (int, error) {
-	var n int
-	_, err := fmt.Sscanf(v, "%d", &n)
+	n, err := ParseIntAny(v)
 	if err != nil || n <= 0 {
 		return 0, fmt.Errorf("invalid")
 	}
@@ -425,12 +431,14 @@ func ParsePositiveInt(v string) (int, error) {
 }
 
 func ParseIntAny(v string) (int, error) {
-	v = strings.TrimSpace(v)
-	if strings.HasPrefix(v, "0x") || strings.HasPrefix(v, "0X") {
-		n, err := strconv.ParseUint(v[2:], 16, 32)
-		return int(n), err
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 0, 64)
+	if err != nil {
+		return 0, err
 	}
-	return strconv.Atoi(v)
+	if n > math.MaxInt || n < math.MinInt {
+		return 0, fmt.Errorf("out of range")
+	}
+	return int(n), nil
 }
 
 func FirstHost(s parse.Spec) string {
@@ -464,6 +472,20 @@ func parseTimeval(v string) (time.Duration, error) {
 func ParseTimeval(v string) time.Duration {
 	d, _ := parseTimeval(v)
 	return d
+}
+
+// RecvTimeoutFromSpec parses so-rcvtimeo / rcvtimeo. An empty value means
+// unlimited; a present but invalid value is an error (classic fail-closed).
+func RecvTimeoutFromSpec(s parse.Spec) (time.Duration, error) {
+	v := s.OptionValue("rcvtimeo", "")
+	if v == "" {
+		return 0, nil
+	}
+	d, err := parseTimeval(v)
+	if err != nil || d < 0 {
+		return 0, fmt.Errorf("rcvtimeo: invalid timeout %q", v)
+	}
+	return d, nil
 }
 
 // RecvOneCtx performs one datagram read through read in a goroutine so that

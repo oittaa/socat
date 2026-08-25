@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
@@ -75,14 +77,16 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			return nil, ferr
 		}
 		base := &udpForkListener{
-			pc:            pc,
-			network:       network,
-			laddr:         laddr,
-			spec:          s,
-			g:             g,
-			ctx:           ctx,
-			rcvTimeout:    xio.ParseTimeval(s.OptionValue("rcvtimeo", "")),
-			acceptTimeout: xio.AcceptTimeout(s),
+			pc:      pc,
+			network: network,
+			laddr:   laddr,
+			spec:    s,
+			g:       g,
+			ctx:     ctx,
+		}
+		if err := applyUDPForkTimeouts(base, s); err != nil {
+			logx.CloseQuiet(pc)
+			return nil, err
 		}
 		ln := newUDPListenForkListener(base)
 		return &xio.Opened{
@@ -178,16 +182,31 @@ type udpForkListener struct {
 	rcvTimeout    time.Duration
 	acceptTimeout time.Duration
 	oneShot       bool // UDP-RECVFROM,fork: XIODATA_RECVFROM_ONE
+	writeMu       sync.Mutex
+}
+
+func applyUDPForkTimeouts(ln *udpForkListener, s parse.Spec) error {
+	d, err := xio.RecvTimeoutFromSpec(s)
+	if err != nil {
+		return err
+	}
+	ln.rcvTimeout = d
+	ln.acceptTimeout = xio.AcceptTimeout(s)
+	return nil
 }
 
 func (l *udpForkListener) Accept() (net.Conn, error) {
 	buf := make([]byte, 65535)
 	wantCtrl := xio.NeedAncillary(l.spec)
+	var acceptDeadline time.Time
+	if l.acceptTimeout > 0 {
+		acceptDeadline = time.Now().Add(l.acceptTimeout)
+	}
 	for {
 		switch {
-		case l.acceptTimeout > 0:
-			// accept-timeout aborts waiting entirely (classic accept-timeout).
-			_ = l.pc.SetReadDeadline(time.Now().Add(l.acceptTimeout))
+		case !acceptDeadline.IsZero():
+			// Absolute accept-timeout: rejected peers must not restart the window.
+			_ = l.pc.SetReadDeadline(acceptDeadline)
 		case l.rcvTimeout > 0:
 			_ = l.pc.SetReadDeadline(time.Now().Add(l.rcvTimeout))
 		}
@@ -200,10 +219,10 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			}
 			// Keep the listener alive across its periodic receive deadline;
 			// classic's poll loop likewise continues waiting while idle.
-			if l.rcvTimeout > 0 && l.acceptTimeout == 0 && xio.IsTimeoutErr(err) {
+			if l.rcvTimeout > 0 && acceptDeadline.IsZero() && xio.IsTimeoutErr(err) {
 				continue
 			}
-			if l.acceptTimeout > 0 && xio.IsTimeoutErr(err) {
+			if !acceptDeadline.IsZero() && xio.IsTimeoutErr(err) {
 				return nil, xio.ErrAcceptTimeout
 			}
 			return nil, err
@@ -225,6 +244,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			first:   append([]byte(nil), buf[:rn]...),
 			env:     session.SessionVars,
 			oneShot: l.oneShot,
+			writeMu: &l.writeMu,
 		}
 		if l.oneShot {
 			// Share the parent socket (classic XIODATA_RECVFROM_ONE). A
@@ -241,7 +261,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			if l.g != nil && l.g.Log != nil {
 				l.g.Log.Noticef("UDP fork session dial: %s", err)
 			}
-			return nil, err
+			continue
 		}
 		child.conn = conn
 		return child, nil
@@ -306,6 +326,10 @@ type udpSessionConn struct {
 	oneShot bool
 	closed  bool
 	env     map[string]string
+
+	writeMu       *sync.Mutex
+	deadlineMu    sync.Mutex
+	writeDeadline time.Time
 }
 
 func (u *udpSessionConn) SessionEnvironment() map[string]string { return u.env }
@@ -314,12 +338,7 @@ func (u *udpSessionConn) Read(p []byte) (int, error) {
 	if !u.got && len(u.first) > 0 {
 		u.got = true
 		n := copy(p, u.first)
-		if n < len(u.first) {
-			u.first = u.first[n:]
-			u.got = false
-		} else {
-			u.first = nil
-		}
+		u.first = nil
 		return n, nil
 	}
 	if u.oneShot {
@@ -336,7 +355,22 @@ func (u *udpSessionConn) Write(p []byte) (int, error) {
 	if u.pc == nil || u.peer == nil {
 		return 0, net.ErrClosed
 	}
-	return u.pc.WriteToUDP(p, u.peer)
+	if u.writeMu != nil {
+		u.writeMu.Lock()
+		defer u.writeMu.Unlock()
+	}
+	u.deadlineMu.Lock()
+	deadline := u.writeDeadline
+	u.deadlineMu.Unlock()
+	if !deadline.IsZero() && !time.Now().Before(deadline) {
+		return 0, os.ErrDeadlineExceeded
+	}
+	if err := u.pc.SetWriteDeadline(deadline); err != nil {
+		return 0, err
+	}
+	n, err := u.pc.WriteToUDP(p, u.peer)
+	_ = u.pc.SetWriteDeadline(time.Time{})
+	return n, err
 }
 
 func (u *udpSessionConn) Close() error {
@@ -380,9 +414,9 @@ func (u *udpSessionConn) SetWriteDeadline(t time.Time) error {
 	if u.conn != nil {
 		return u.conn.SetWriteDeadline(t)
 	}
-	if u.pc != nil {
-		return u.pc.SetWriteDeadline(t)
-	}
+	u.deadlineMu.Lock()
+	u.writeDeadline = t
+	u.deadlineMu.Unlock()
 	return nil
 }
 
@@ -415,7 +449,7 @@ type udpRecvFromConn struct {
 func (u *udpRecvFromConn) Read(p []byte) (int, error) {
 	if len(u.first) > 0 {
 		n := copy(p, u.first)
-		u.first = u.first[n:]
+		u.first = nil
 		return n, nil
 	}
 	if u.closeEOF {

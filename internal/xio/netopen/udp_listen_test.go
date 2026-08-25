@@ -499,3 +499,174 @@ func TestUDPForkListenerAcceptTimeoutAborts(t *testing.T) {
 		t.Fatalf("accept-timeout took %s", elapsed)
 	}
 }
+
+func TestUDPForkListenOpenedAcceptTimeoutAborts(t *testing.T) {
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork,accept-timeout=0.05")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUDP4Listen(context.Background(), spec, xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	start := time.Now()
+	_, err = o.Listener.Accept()
+	if err == nil {
+		t.Fatal("expected accept timeout")
+	}
+	if err != xio.ErrAcceptTimeout {
+		t.Fatalf("err=%v want xio.ErrAcceptTimeout", err)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("accept-timeout took %s", elapsed)
+	}
+}
+
+func TestUDPForkListenOpenedSurvivesReceiveTimeout(t *testing.T) {
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork,rcvtimeo=0.02")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUDP4Listen(context.Background(), spec, xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+
+	accepted := startUDPAccept(o.Listener)
+	time.Sleep(75 * time.Millisecond)
+	client, err := net.DialUDP("udp4", nil, o.Listener.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	if _, err := client.Write([]byte("after-timeout")); err != nil {
+		t.Fatal(err)
+	}
+	conn := waitUDPAccept(t, accepted, 2*time.Second, "listen after rcvtimeo")
+	t.Cleanup(func() { _ = conn.Close() })
+	buf := make([]byte, 16)
+	n, err := conn.Read(buf)
+	if err != nil || string(buf[:n]) != "after-timeout" {
+		t.Fatalf("n=%d err=%v data=%q", n, err, buf[:n])
+	}
+}
+
+func TestUDPForkInvalidRcvtimeoFailsOpen(t *testing.T) {
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork,rcvtimeo=nope")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = openUDP4Listen(context.Background(), spec, xio.ModeRDWR, g)
+	if err == nil {
+		t.Fatal("expected rcvtimeo error")
+	}
+}
+
+func TestUDPForkAcceptTimeoutIsAbsoluteAcrossRejectedPeers(t *testing.T) {
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec, err := parse.ParseSpec("UDP4-RECVFROM:0,bind=127.0.0.1,reuseaddr,fork,range=10.0.0.1/32,accept-timeout=0.20")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUDP4Recvfrom(context.Background(), spec, xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+
+	client, err := net.DialUDP("udp4", nil, o.Listener.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	done := make(chan error, 1)
+	start := time.Now()
+	go func() {
+		_, err := o.Listener.Accept()
+		done <- err
+	}()
+	deadline := time.Now().Add(150 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		_, _ = client.Write([]byte("nope"))
+		time.Sleep(20 * time.Millisecond)
+	}
+	select {
+	case err := <-done:
+		if err != xio.ErrAcceptTimeout {
+			t.Fatalf("err=%v want ErrAcceptTimeout", err)
+		}
+		if elapsed := time.Since(start); elapsed > 2*time.Second {
+			t.Fatalf("absolute accept-timeout took %s", elapsed)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("accept-timeout did not fire; rejected peers likely reset the deadline")
+	}
+}
+
+func TestUDPForkRecvfromWriteDeadlineDoesNotPoisonParent(t *testing.T) {
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec, err := parse.ParseSpec("UDP4-RECVFROM:0,bind=127.0.0.1,reuseaddr,fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUDP4Recvfrom(context.Background(), spec, xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	ln := o.Listener
+
+	client, err := net.DialUDP("udp4", nil, ln.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	firstCh := startUDPAccept(ln)
+	if _, err := client.Write([]byte("pkt1")); err != nil {
+		t.Fatal(err)
+	}
+	first := waitUDPAccept(t, firstCh, 2*time.Second, "first datagram")
+	t.Cleanup(func() { _ = first.Close() })
+	buf := make([]byte, 16)
+	n, err := first.Read(buf)
+	if err != nil || string(buf[:n]) != "pkt1" {
+		t.Fatalf("first n=%d err=%v data=%q", n, err, buf[:n])
+	}
+	if err := first.SetWriteDeadline(time.Now().Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Write([]byte("late")); err == nil {
+		t.Fatal("expected write deadline exceeded")
+	}
+
+	secondCh := startUDPAccept(ln)
+	if _, err := client.Write([]byte("pkt2")); err != nil {
+		t.Fatal(err)
+	}
+	second := waitUDPAccept(t, secondCh, 2*time.Second, "second datagram after child write deadline")
+	t.Cleanup(func() { _ = second.Close() })
+	n, err = second.Read(buf)
+	if err != nil || string(buf[:n]) != "pkt2" {
+		t.Fatalf("second n=%d err=%v data=%q", n, err, buf[:n])
+	}
+}
+
+func TestUDPSessionConnShortReadDropsRemainder(t *testing.T) {
+	u := &udpSessionConn{first: []byte("abcd"), oneShot: true}
+	buf := make([]byte, 1)
+	n, err := u.Read(buf)
+	if err != nil || n != 1 || buf[0] != 'a' {
+		t.Fatalf("short read n=%d err=%v data=%q", n, err, buf[:n])
+	}
+	n, err = u.Read(buf)
+	if n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("remainder n=%d err=%v want EOF", n, err)
+	}
+}

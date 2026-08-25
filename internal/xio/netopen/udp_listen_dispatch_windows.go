@@ -16,8 +16,8 @@ import (
 // Keep one socket responsible for receiving and demultiplex packets by peer in
 // user space so UDP-LISTEN,fork has the same session semantics as classic.
 const (
-	udpDispatchAcceptQueueSize = 64
-	udpDispatchPacketQueueSize = 4
+	udpDispatchAcceptQueueSize = 256
+	udpDispatchPacketQueueSize = 64
 )
 
 type udpDispatchListener struct {
@@ -79,7 +79,12 @@ func (l *udpDispatchListener) Accept() (net.Conn, error) {
 		}
 		return conn, nil
 	case <-timeout:
-		return nil, xio.ErrAcceptTimeout
+		select {
+		case conn := <-l.accepts:
+			return conn, nil
+		default:
+			return nil, xio.ErrAcceptTimeout
+		}
 	case <-l.base.ctx.Done():
 		return nil, l.base.ctx.Err()
 	case <-l.done:
@@ -113,6 +118,14 @@ func (l *udpDispatchListener) shutdown(cause error) error {
 		l.mu.Unlock()
 		for _, child := range children {
 			child.closeFromListener()
+		}
+		for {
+			select {
+			case conn := <-l.accepts:
+				_ = conn.Close()
+			default:
+				return
+			}
 		}
 	})
 	return l.closeErr
@@ -260,11 +273,8 @@ func (c *udpDispatchConn) Read(p []byte) (int, error) {
 	for {
 		if c.havePending {
 			n := copy(p, c.pending)
-			c.pending = c.pending[n:]
-			if len(c.pending) == 0 {
-				c.pending = nil
-				c.havePending = false
-			}
+			c.pending = nil
+			c.havePending = false
 			return n, nil
 		}
 		packet, err := c.waitPacket()
