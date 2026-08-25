@@ -15,6 +15,12 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
+// Classic lowport bind range (xio-socket.c xiobindlowport): 1023 down to 640.
+const (
+	LowportMin = 640
+	LowportMax = 1023
+)
+
 // ApplyReuse sets SO_REUSEADDR and optional SO_REUSEPORT on fd.
 // reuseaddrDefault is the classic listen default (true for TCP/UDP listen).
 func ApplyReuse(fd int, s parse.Spec, reuseaddrDefault bool) error {

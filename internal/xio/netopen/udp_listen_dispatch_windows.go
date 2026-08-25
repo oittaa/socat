@@ -349,9 +349,11 @@ func (c *udpDispatchConn) Write(p []byte) (int, error) {
 	c.deadlineMu.Lock()
 	deadline := c.writeDeadline
 	c.deadlineMu.Unlock()
-	if err := c.pc.SetWriteDeadline(deadline); err != nil {
-		return 0, err
+	if !deadline.IsZero() && !time.Now().Before(deadline) {
+		return 0, os.ErrDeadlineExceeded
 	}
+	// Do not SetWriteDeadline on the shared parent: one child would arm or
+	// expire another child's sndtimeo. Honour the deadline in userspace.
 	return c.pc.WriteToUDP(p, c.peer)
 }
 

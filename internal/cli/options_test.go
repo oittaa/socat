@@ -48,7 +48,13 @@ func TestValidateAddressOptions(t *testing.T) {
 		spec    string
 		wantErr string
 	}{
-		{name: "known", spec: "CREATE:file,perm=600"},
+		{name: "create-excl", spec: "CREATE:file,excl", wantErr: "not supported"},
+		{name: "open-excl", spec: "OPEN:file,excl"},
+		{name: "unix-recvfrom-accept-timeout", spec: "UNIX-RECVFROM:sock,accept-timeout=0.1", wantErr: "not supported"},
+		{name: "unix-recvfrom-range", spec: "UNIX-RECVFROM:sock,range=127.0.0.1/32", wantErr: "not supported"},
+		{name: "udp-recvfrom-accept-timeout", spec: "UDP-RECVFROM:1,accept-timeout=0.1", wantErr: "not supported"},
+		{name: "udp-listen-accept-timeout", spec: "UDP-LISTEN:1,accept-timeout=0.1"},
+		{name: "udp-recvfrom-range", spec: "UDP-RECVFROM:1,range=127.0.0.1/32"},
 		{name: "known-alias", spec: "TCP-LISTEN:1,so-reuseaddr"},
 		{name: "zero-socket-timeouts", spec: "UDP:localhost:1,rcvtimeo=0,sndtimeo=0"},
 		{name: "socketpair-timeouts", spec: "SOCKETPAIR,rcvtimeo=0.1,sndtimeo=0.1"},
@@ -78,6 +84,8 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "socks-option-on-proxy", spec: "PROXY:localhost:example.com:80,socksuser=user", wantErr: "not supported"},
 		{name: "backlog-on-tcp", spec: "TCP-LISTEN:1,backlog=10"},
 		{name: "hex-max-children", spec: "TCP-LISTEN:1,fork,max-children=0x10"},
+		{name: "octal-max-children", spec: "TCP-LISTEN:1,fork,max-children=010"},
+		{name: "octal-ftruncate", spec: "OPEN:file,ftruncate=010"},
 		{name: "backlog-on-socket", spec: "SOCKET-LISTEN:2:0:x00,backlog=10"},
 		{name: "nodelay-on-file", spec: "CREATE:file,nodelay", wantErr: "not supported"},
 		{name: "keepalive-on-udp", spec: "UDP:localhost:1,keepalive", wantErr: "not supported"},

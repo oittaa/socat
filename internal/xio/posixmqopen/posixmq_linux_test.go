@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -484,5 +485,69 @@ func TestPOSIXMQUnknownAddressNotUsed(t *testing.T) {
 	}
 	if bytes.Contains([]byte(err.Error()), []byte("unknown device/address")) {
 		t.Fatalf("testaddrs probe must not look unknown: %v", err)
+	}
+}
+
+func TestPOSIXMQForkHasWrapDial(t *testing.T) {
+	skipIfNoMQ(t)
+	g := testGlobal()
+	ctx := context.Background()
+
+	t.Run("recv", func(t *testing.T) {
+		q := testQueue(t)
+		spec, err := parse.ParseSpec("POSIXMQ-RECV:" + q + ",unlink-early,fork,readbytes=4")
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, err := openPOSIXMQ(ctx, spec, xio.ModeRead, g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = o.Close() })
+		assertPOSIXMQWrapDialReadbytes(t, o)
+	})
+
+	t.Run("send", func(t *testing.T) {
+		q := testQueue(t)
+		spec, err := parse.ParseSpec("POSIXMQ-SEND:" + q + ",unlink-early,fork,readbytes=4")
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, err := openPOSIXMQ(ctx, spec, xio.ModeWrite, g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = o.Close() })
+		if o.WrapDial == nil {
+			t.Fatal("WrapDial is nil")
+		}
+		assertPOSIXMQWrapDialReadbytes(t, o)
+	})
+}
+
+func assertPOSIXMQWrapDialReadbytes(t *testing.T, o *xio.Opened) {
+	t.Helper()
+	if o.WrapDial == nil {
+		t.Fatal("WrapDial is nil")
+	}
+	a, b := net.Pipe()
+	t.Cleanup(func() {
+		_ = a.Close()
+		_ = b.Close()
+	})
+	st, err := o.WrapDial(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		_, _ = b.Write([]byte("hello"))
+		_ = b.Close()
+	}()
+	got, err := io.ReadAll(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "hell" {
+		t.Fatalf("readbytes wrap got %q want hell", got)
 	}
 }

@@ -81,7 +81,10 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 			_ = port
 			return &xio.Opened{Stream: wrapped, Label: "UDP-DATAGRAM:" + raddr.String()}, nil
 		}
-		// Fall through: bindUDPLowport already logged attempts.
+		if berr == nil {
+			berr = fmt.Errorf("all ports in use")
+		}
+		return nil, fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", xio.LowportMin, xio.LowportMax, berr)
 	}
 	if bind != "" || sp != "" {
 		bind = xio.ListenBindHost(network, bind)
@@ -259,11 +262,8 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				},
 			}, nil
 		}
-		timeoutSet, err := applyUDPAcceptTimeout(pc, s)
-		if err != nil {
-			logx.CloseQuiet(pc)
-			return nil, err
-		}
+		// Classic UDP-RECVFROM is not GROUP_LISTEN: wait for the first
+		// permitted datagram with no accept-timeout.
 		// One permitted packet, then use the *same* listening socket for replies
 		// (classic). DialUDP(local, peer) after Close fails with EADDRINUSE.
 		// When ancillary options are set, use recvmsg so we can log/set env
@@ -291,7 +291,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			case r := <-ch:
 				if r.e != nil {
 					logx.CloseQuiet(pc)
-					return nil, udpAcceptError(r.e, timeoutSet)
+					return nil, udpAcceptError(r.e, false)
 				}
 				if err := xio.PeerAllowedG(s, &udpPeerConn{addr: r.a}, g); err != nil {
 					if g != nil && g.Log != nil {
@@ -304,10 +304,6 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				xio.ProcessAncillary(r.oob, g)
 			}
 			break
-		}
-		if err := clearUDPAcceptTimeout(pc, timeoutSet); err != nil {
-			logx.CloseQuiet(pc)
-			return nil, fmt.Errorf("accept-timeout: clear deadline: %w", err)
 		}
 		// Classic non-fork RECVFROM: one datagram then EOF on further reads
 		// (so RECVFROM|PIPE echo servers exit after one client exchange).

@@ -191,7 +191,9 @@ func applyUDPForkTimeouts(ln *udpForkListener, s parse.Spec) error {
 		return err
 	}
 	ln.rcvTimeout = d
-	ln.acceptTimeout = xio.AcceptTimeout(s)
+	if !ln.oneShot {
+		ln.acceptTimeout = xio.AcceptTimeout(s)
+	}
 	return nil
 }
 
@@ -205,7 +207,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 	for {
 		switch {
 		case !acceptDeadline.IsZero():
-			// Absolute accept-timeout: rejected peers must not restart the window.
+			// Classic restarts the listen accept-timeout after a refused peer.
 			_ = l.pc.SetReadDeadline(acceptDeadline)
 		case l.rcvTimeout > 0:
 			_ = l.pc.SetReadDeadline(time.Now().Add(l.rcvTimeout))
@@ -230,6 +232,10 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 		if err := xio.PeerAllowedG(l.spec, &udpPeerConn{addr: a}, l.g); err != nil {
 			if l.g != nil && l.g.Log != nil {
 				l.g.Log.Noticef("%s", err)
+			}
+			// Classic restarts the listen accept-timeout after a refused peer.
+			if l.acceptTimeout > 0 {
+				acceptDeadline = time.Now().Add(l.acceptTimeout)
 			}
 			continue
 		}
@@ -365,12 +371,9 @@ func (u *udpSessionConn) Write(p []byte) (int, error) {
 	if !deadline.IsZero() && !time.Now().Before(deadline) {
 		return 0, os.ErrDeadlineExceeded
 	}
-	if err := u.pc.SetWriteDeadline(deadline); err != nil {
-		return 0, err
-	}
-	n, err := u.pc.WriteToUDP(p, u.peer)
-	_ = u.pc.SetWriteDeadline(time.Time{})
-	return n, err
+	// Do not SetWriteDeadline on the shared parent: one child would arm or
+	// expire another child's sndtimeo. Honour the deadline in userspace.
+	return u.pc.WriteToUDP(p, u.peer)
 }
 
 func (u *udpSessionConn) Close() error {

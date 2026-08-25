@@ -181,7 +181,6 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			return nil, terr
 		}
 		ln.rcvTimeout = d
-		ln.acceptTimeout = xio.AcceptTimeout(s)
 		_, maxChildren, ferr := xio.ForkLimits(s)
 		if ferr != nil {
 			logx.CloseQuiet(ln)
@@ -192,7 +191,6 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			Listener:    ln,
 			Label:       label,
 			MaxChildren: maxChildren,
-			PeerFilter:  func(conn net.Conn) error { return xio.PeerAllowedG(s, conn, g) },
 			WrapDial: func(conn net.Conn) (relay.Stream, error) {
 				return xio.WrapCommon(s, relay.NetStream{Conn: conn})
 			},
@@ -212,7 +210,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	}
 
 	if from {
-		first, peer, err := waitUnixRecvfromPacket(ctx, c, s, g)
+		first, peer, err := waitUnixRecvfromPacket(ctx, c, g)
 		if err != nil {
 			logx.CloseQuiet(c)
 			if !xio.IsAbstract(path) {
@@ -271,38 +269,23 @@ func openUnixDatagram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	return openUnixSendto(ctx, s, mode, g)
 }
 
-func waitUnixRecvfromPacket(ctx context.Context, c *net.UnixConn, s parse.Spec, g *xio.Global) ([]byte, *net.UnixAddr, error) {
-	timeout := xio.AcceptTimeout(s)
-	if timeout > 0 {
-		if err := c.SetReadDeadline(time.Now().Add(timeout)); err != nil {
-			return nil, nil, fmt.Errorf("accept-timeout: %w", err)
-		}
-		defer func() { _ = c.SetReadDeadline(time.Time{}) }()
-	}
+func waitUnixRecvfromPacket(ctx context.Context, c *net.UnixConn, g *xio.Global) ([]byte, *net.UnixAddr, error) {
 	buf := make([]byte, 65536)
-	for {
-		n, _, addr, err := xio.RecvOneCtx(ctx, func() (int, []byte, *net.UnixAddr, error) {
-			nn, a, e := c.ReadFromUnix(buf)
-			return nn, nil, a, e
-		})
-		if err != nil {
-			return nil, nil, udpAcceptError(err, timeout > 0)
-		}
-		if err := xio.PeerAllowedG(s, &udpPeerConn{addr: addr}, g); err != nil {
-			if g != nil && g.Log != nil {
-				g.Log.Noticef("%s", err)
-			}
-			continue
-		}
-		if g != nil && addr != nil {
-			if addr.Name != "" {
-				g.PeerAddr = addr.Name
-			} else {
-				g.PeerAddr = addr.String()
-			}
-		}
-		return append([]byte(nil), buf[:n]...), addr, nil
+	n, _, addr, err := xio.RecvOneCtx(ctx, func() (int, []byte, *net.UnixAddr, error) {
+		nn, a, e := c.ReadFromUnix(buf)
+		return nn, nil, a, e
+	})
+	if err != nil {
+		return nil, nil, err
 	}
+	if g != nil && addr != nil {
+		if addr.Name != "" {
+			g.PeerAddr = addr.Name
+		} else {
+			g.PeerAddr = addr.String()
+		}
+	}
+	return append([]byte(nil), buf[:n]...), addr, nil
 }
 
 // unixRecvStream: first Recvfrom captures peer when from=true; Write replies to peer.
@@ -349,31 +332,23 @@ func (u *unixRecvStream) SetReadDeadline(t time.Time) error {
 
 // unixgramListener turns RECVFROM,fork into accept-like sessions per packet.
 type unixgramListener struct {
-	c             *net.UnixConn
-	path          string
-	spec          parse.Spec
-	g             *xio.Global
-	ctx           context.Context
-	rcvTimeout    time.Duration
-	acceptTimeout time.Duration
-	writeMu       sync.Mutex
+	c          *net.UnixConn
+	path       string
+	spec       parse.Spec
+	g          *xio.Global
+	ctx        context.Context
+	rcvTimeout time.Duration
+	writeMu    sync.Mutex
 }
 
 func (l *unixgramListener) Accept() (net.Conn, error) {
 	buf := make([]byte, 65536)
-	var acceptDeadline time.Time
-	if l.acceptTimeout > 0 {
-		acceptDeadline = time.Now().Add(l.acceptTimeout)
-	}
 	ctx := l.ctx
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	for {
-		switch {
-		case !acceptDeadline.IsZero():
-			_ = l.c.SetReadDeadline(acceptDeadline)
-		case l.rcvTimeout > 0:
+		if l.rcvTimeout > 0 {
 			_ = l.c.SetReadDeadline(time.Now().Add(l.rcvTimeout))
 		}
 		n, _, addr, err := xio.RecvOneCtx(ctx, func() (int, []byte, *net.UnixAddr, error) {
@@ -384,19 +359,10 @@ func (l *unixgramListener) Accept() (net.Conn, error) {
 			if l.ctx != nil && l.ctx.Err() != nil {
 				return nil, err
 			}
-			if l.rcvTimeout > 0 && acceptDeadline.IsZero() && xio.IsTimeoutErr(err) {
+			if l.rcvTimeout > 0 && xio.IsTimeoutErr(err) {
 				continue
 			}
-			if !acceptDeadline.IsZero() && xio.IsTimeoutErr(err) {
-				return nil, xio.ErrAcceptTimeout
-			}
 			return nil, err
-		}
-		if err := xio.PeerAllowedG(l.spec, &udpPeerConn{addr: addr}, l.g); err != nil {
-			if l.g != nil && l.g.Log != nil {
-				l.g.Log.Noticef("%s", err)
-			}
-			continue
 		}
 		return &unixPacketConn{
 			c:       l.c,
@@ -451,12 +417,7 @@ func (u *unixPacketConn) Write(p []byte) (int, error) {
 	if !deadline.IsZero() && !time.Now().Before(deadline) {
 		return 0, os.ErrDeadlineExceeded
 	}
-	if err := u.c.SetWriteDeadline(deadline); err != nil {
-		return 0, err
-	}
-	n, err := u.c.WriteToUnix(p, u.peer)
-	_ = u.c.SetWriteDeadline(time.Time{})
-	return n, err
+	return u.c.WriteToUnix(p, u.peer)
 }
 func (u *unixPacketConn) Close() error {
 	if u.closed {

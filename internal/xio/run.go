@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -481,27 +480,16 @@ func ParseFileMode(s parse.Spec, def os.FileMode) (os.FileMode, error) {
 
 // explicitFileMode returns perm= or mode= when set (octal, classic TYPE_MODET).
 func explicitFileMode(s parse.Spec) (os.FileMode, bool, error) {
-	var name, v string
-	for i := len(s.Options) - 1; i >= 0; i-- {
-		n := parse.CanonicalOptionName(s.Options[i].Name)
-		if n == "perm" || n == "mode" {
-			name = n
-			v = s.Options[i].Value
-			break
-		}
+	m, ok, err := explicitUnixMode(s)
+	if err != nil || !ok {
+		return 0, ok, err
 	}
-	if name == "" || v == "" {
-		return 0, false, nil
-	}
-	m, err := strconv.ParseUint(v, 8, 32)
-	if err != nil || m > 0o7777 {
-		return 0, false, fmt.Errorf("invalid %s %q", name, v)
-	}
-	return os.FileMode(m), true, nil
+	return UnixModeToFileMode(m), true, nil
 }
 
-// ApplyPerm sets exact permissions after create/open (classic fchmod/chmod).
-// Open create modes are still masked by umask; perm= forces the final mode.
+// ApplyPerm sets exact permissions on named sockets and PTY slaves after bind
+// (classic NAMED fchmod). Regular files use perm=/mode= as the open(2) mode
+// instead, so umask still applies.
 func ApplyPerm(path string, s parse.Spec, f *os.File) error {
 	mode, ok, err := explicitFileMode(s)
 	if err != nil {

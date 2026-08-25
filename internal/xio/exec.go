@@ -172,7 +172,7 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 	if g != nil {
 		cmd.Env = childEnviron(g)
 	}
-	if err := cmd.Start(); err != nil {
+	if err := startWithChildUmask(s, cmd); err != nil {
 		return err
 	}
 	waitErr := cmd.Wait()
@@ -410,20 +410,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 
 	// EXEC_FDS: only FDs 0/1/2 may remain in the child.
-	// Mark ALL FDs ≥3 CLOEXEC (including the socketpair/pipe ends we pass as
-	// Stdin/Stdout). Go's fork/exec dup2's them to 0/1/2 first, then closes
-	// CLOEXEC descriptors, so the high-numbered originals are not leaked.
-	setCloexecAllFrom(3)
-
-	// Classic umask= on EXEC/SYSTEM/SHELL: child inherits umask at fork;
-	// parent restores immediately after Start (UMASK_ON_SYSTEM / UMASK_ON_CREATE).
-	var startErr error
-	if err := WithUmask(s, func() error {
-		startErr = cmd.Start()
-		return nil
-	}); err != nil {
-		startErr = err
-	}
+	startErr := startWithChildUmask(s, cmd)
 	if startErr != nil {
 		for _, f := range cleanup {
 			f()
@@ -555,8 +542,23 @@ func startCmdSocketpair(s parse.Spec, cmd *exec.Cmd) (relay.Stream, []func(), *o
 	return st, cleanup, child, nil
 }
 
-// setCloexecAllFrom marks FDs ≥ from CLOEXEC so they are not left open in EXEC children.
-// Classic EXEC_FDS / EXEC_SNIFF require the child to have only 0/1/2 open.
+// startWithChildUmask applies classic umask= around cmd.Start and marks FDs ≥3
+// CLOEXEC so EXEC children inherit only 0/1/2 (EXEC_FDS / EXEC_SNIFF).
+func startWithChildUmask(s parse.Spec, cmd *exec.Cmd) error {
+	// Mark ALL FDs ≥3 CLOEXEC (including the socketpair/pipe/PTY ends we pass
+	// as Stdin/Stdout). Go's fork/exec dup2's them to 0/1/2 first, then closes
+	// CLOEXEC descriptors, so the high-numbered originals are not leaked.
+	setCloexecAllFrom(3)
+	var startErr error
+	if err := WithUmask(s, func() error {
+		startErr = cmd.Start()
+		return nil
+	}); err != nil {
+		return err
+	}
+	return startErr
+}
+
 func setCloexecAllFrom(from int) {
 	// Linux 5.11+: set CLOEXEC on the whole range in one call (covers sparse FDs
 	// like cgroup handles that appear after /proc scans).
@@ -594,7 +596,11 @@ func openExecPTYPair(cmd *exec.Cmd, s parse.Spec) (*os.File, *os.File, error) {
 	}
 	cmd.SysProcAttr.Setsid = true
 	cmd.SysProcAttr.Setctty = !s.HasOption("ctty") || s.BoolOption("ctty")
-	_ = ApplyTermios(int(slave.Fd()), s)
+	if err := ApplyTermios(int(slave.Fd()), s); err != nil {
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
+		return nil, nil, err
+	}
 	return master, slave, nil
 }
 
@@ -629,7 +635,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		if s.BoolOption("stderr") {
 			cmd.Stderr = slave
 		}
-		if err := cmd.Start(); err != nil {
+		if err := startWithChildUmask(s, cmd); err != nil {
 			closeExecPTY(master, slave)
 			return nil, err
 		}
@@ -659,7 +665,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		// Controlling tty is stdout/stderr slave; Setctty needs a child FD.
 		// With stdin inherited, Ctty 1 (stdout) is the slave after setup.
 		cmd.SysProcAttr.Ctty = 1
-		if err := cmd.Start(); err != nil {
+		if err := startWithChildUmask(s, cmd); err != nil {
 			closeExecPTY(master, slave)
 			return nil, err
 		}

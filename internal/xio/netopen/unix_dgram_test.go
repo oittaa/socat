@@ -146,6 +146,19 @@ func TestUnixPacketConnSetWriteDeadlineDoesNotPoisonParent(t *testing.T) {
 	}
 }
 
+func TestUnixPacketConnShortReadDropsRemainder(t *testing.T) {
+	child := &unixPacketConn{first: []byte("abcd"), shared: true}
+	buf := make([]byte, 1)
+	n, err := child.Read(buf)
+	if err != nil || n != 1 || buf[0] != 'a' {
+		t.Fatalf("short read n=%d err=%v data=%q", n, err, buf[:n])
+	}
+	n, err = child.Read(buf)
+	if n != 0 || err != io.EOF {
+		t.Fatalf("remainder n=%d err=%v want EOF", n, err)
+	}
+}
+
 func TestUnixRecvfromWaitsForDatagramThenEOF(t *testing.T) {
 	path := unixSocketTestPath(t, "recv.sock")
 	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
@@ -197,27 +210,10 @@ func TestUnixRecvfromWaitsForDatagramThenEOF(t *testing.T) {
 	}
 }
 
-func TestUnixRecvfromAcceptTimeout(t *testing.T) {
+func TestUnixRecvfromForkHasWrapDial(t *testing.T) {
 	path := unixSocketTestPath(t, "recv.sock")
 	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
-	spec, err := parse.ParseSpec("UNIX-RECVFROM:" + path + ",unlink-early,accept-timeout=0.05")
-	if err != nil {
-		t.Fatal(err)
-	}
-	start := time.Now()
-	_, err = openUnixRecvfrom(context.Background(), spec, xio.ModeRDWR, g)
-	if !errors.Is(err, xio.ErrAcceptTimeout) {
-		t.Fatalf("err=%v want ErrAcceptTimeout", err)
-	}
-	if elapsed := time.Since(start); elapsed > 2*time.Second {
-		t.Fatalf("accept-timeout took %s", elapsed)
-	}
-}
-
-func TestUnixRecvfromForkAcceptTimeout(t *testing.T) {
-	path := unixSocketTestPath(t, "recv.sock")
-	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
-	spec, err := parse.ParseSpec("UNIX-RECVFROM:" + path + ",unlink-early,fork,accept-timeout=0.05")
+	spec, err := parse.ParseSpec("UNIX-RECVFROM:" + path + ",unlink-early,fork,readbytes=4")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,15 +222,21 @@ func TestUnixRecvfromForkAcceptTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	if o.PeerFilter == nil {
-		t.Fatal("PeerFilter is nil")
+	if o.PeerFilter != nil {
+		t.Fatal("UNIX-RECVFROM must not install an IP PeerFilter")
 	}
-	start := time.Now()
-	_, err = o.Listener.Accept()
-	if err != xio.ErrAcceptTimeout {
-		t.Fatalf("err=%v want ErrAcceptTimeout", err)
+	assertWrapDialReadbytes(t, o)
+}
+
+func TestUnixRecvStreamShortReadDropsRemainder(t *testing.T) {
+	u := &unixRecvStream{first: []byte("abcd"), from: true, firstEOF: true}
+	buf := make([]byte, 1)
+	n, err := u.Read(buf)
+	if err != nil || n != 1 || buf[0] != 'a' {
+		t.Fatalf("short read n=%d err=%v data=%q", n, err, buf[:n])
 	}
-	if elapsed := time.Since(start); elapsed > 2*time.Second {
-		t.Fatalf("accept-timeout took %s", elapsed)
+	n, err = u.Read(buf)
+	if n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("remainder n=%d err=%v want EOF", n, err)
 	}
 }

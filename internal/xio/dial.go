@@ -40,6 +40,7 @@ func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 
 	bindOpt := s.OptionValue("bind", "")
 	sp := s.OptionValue("sourceport", "")
+	lowport := s.BoolOption("lowport") && (sp == "" || sp == "0")
 
 	var lastErr error
 	for _, ip := range ips {
@@ -70,21 +71,25 @@ func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 		if ip.To4() == nil {
 			netw = "tcp6"
 		}
-		d := &net.Dialer{
-			Timeout:   timeout,
-			LocalAddr: laddr,
-			// Merge spec-driven socket timeouts / ttl-tos with any caller
-			// control (e.g. generic setsockopt=).
-			Control: DialControl(s, netw, control),
-		}
-		cctx := ctx
-		var cancel context.CancelFunc
-		if timeout > 0 {
-			cctx, cancel = context.WithTimeout(ctx, timeout)
-		}
-		c, err := d.DialContext(cctx, netw, raddr.String())
-		if cancel != nil {
-			cancel()
+		controlFn := DialControl(s, netw, control)
+		var c net.Conn
+		if lowport {
+			c, err = dialTCPLowport(ctx, netw, raddr, laddr, timeout, controlFn, g)
+		} else {
+			d := &net.Dialer{
+				Timeout:   timeout,
+				LocalAddr: laddr,
+				Control:   controlFn,
+			}
+			cctx := ctx
+			var cancel context.CancelFunc
+			if timeout > 0 {
+				cctx, cancel = context.WithTimeout(ctx, timeout)
+			}
+			c, err = d.DialContext(cctx, netw, raddr.String())
+			if cancel != nil {
+				cancel()
+			}
 		}
 		if err != nil {
 			lastErr = err
@@ -293,12 +298,8 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bind
 
 	bindHost = StripBrackets(bindHost)
 	if ip := net.ParseIP(bindHost); ip != nil {
-		if ip.IsUnspecified() {
-			if want4 {
-				return &net.TCPAddr{IP: net.IPv4zero, Port: port}, false, nil
-			}
-			return &net.TCPAddr{IP: net.IPv6zero, Port: port}, false, nil
-		}
+		// Classic forced-IPv4 resolves bind= as AF_INET; an IPv6 wildcard
+		// does not become 0.0.0.0. Skip this remote and try the next.
 		if (ip.To4() != nil) != want4 {
 			return nil, true, nil
 		}
@@ -328,6 +329,47 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bind
 		return nil, true, nil
 	}
 	return &net.TCPAddr{IP: ips[0], Port: port}, false, nil
+}
+
+// dialTCPLowport binds 1023..640 then connects. Classic fails closed when no
+// privileged port is available instead of falling back to an ephemeral port.
+func dialTCPLowport(ctx context.Context, network string, raddr, laddr *net.TCPAddr, timeout time.Duration, control func(network, address string, c syscall.RawConn) error, g *Global) (net.Conn, error) {
+	ip := net.IPv4zero
+	if raddr != nil && raddr.IP.To4() == nil {
+		ip = net.IPv6zero
+	}
+	if laddr != nil && laddr.IP != nil {
+		ip = laddr.IP
+	}
+	var last error
+	for port := LowportMax; port >= LowportMin; port-- {
+		if g != nil && g.Log != nil {
+			g.Log.Debugf("bind({AF=%d %s:%d}, 16)", afForIP(ip), ip.String(), port)
+		}
+		d := &net.Dialer{
+			Timeout:   timeout,
+			LocalAddr: &net.TCPAddr{IP: ip, Port: port},
+			Control:   control,
+		}
+		cctx := ctx
+		var cancel context.CancelFunc
+		if timeout > 0 {
+			cctx, cancel = context.WithTimeout(ctx, timeout)
+		}
+		c, err := d.DialContext(cctx, network, raddr.String())
+		if cancel != nil {
+			cancel()
+		}
+		if err != nil {
+			last = err
+			continue
+		}
+		return c, nil
+	}
+	if last == nil {
+		last = fmt.Errorf("all ports in use")
+	}
+	return nil, fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", LowportMin, LowportMax, last)
 }
 
 // ConnectNetworkForType picks dial network for a CONNECT address type.

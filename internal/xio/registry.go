@@ -47,6 +47,7 @@ type AddressDesc struct {
 	DynamicDesc func() string // Optional dynamic help description (e.g. UNIX capabilities)
 	Enabled     func() bool   // Optional feature predicate. If nil, considered enabled.
 	Opener      Opener        // Opener function handling this address
+	OptionCaps  []string      // Extra option capabilities merged with DerivedOptionCaps
 }
 
 type addressRegistry struct {
@@ -95,6 +96,7 @@ func (r *addressRegistry) register(desc AddressDesc) {
 		panic("xio: address registration requires a name")
 	}
 	desc.Name = name
+	desc.OptionCaps = mergeOptionCaps(DerivedOptionCaps(desc.Name, desc.Group), desc.OptionCaps)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -136,10 +138,11 @@ func DefaultHelpGroupOrder() []string {
 
 // AddressRegistration is a snapshot of one registered address type.
 type AddressRegistration struct {
-	Name    string
-	Group   string
-	Syntax  string
-	Enabled bool
+	Name       string
+	Group      string
+	Syntax     string
+	Enabled    bool
+	OptionCaps []string
 }
 
 // AddressRegistrationForType returns the registered metadata for one address
@@ -191,10 +194,11 @@ func (r *addressRegistry) registrations() []AddressRegistration {
 
 func registrationSnapshot(d AddressDesc) AddressRegistration {
 	return AddressRegistration{
-		Name:    d.Name,
-		Group:   d.Group,
-		Syntax:  d.Syntax,
-		Enabled: d.Enabled == nil || d.Enabled(),
+		Name:       d.Name,
+		Group:      d.Group,
+		Syntax:     d.Syntax,
+		Enabled:    d.Enabled == nil || d.Enabled(),
+		OptionCaps: append([]string(nil), d.OptionCaps...),
 	}
 }
 

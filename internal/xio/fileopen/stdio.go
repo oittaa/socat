@@ -81,10 +81,13 @@ func openSTDIN(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 	if err := xio.ApplyFDOptions(os.Stdin, s); err != nil {
 		return nil, err
 	}
-	return &xio.Opened{
-		Stream: relay.FDStream{R: os.Stdin, W: io.Discard, C: xio.NopCloser{}},
-		Label:  "STDIN",
-	}, nil
+	st, err := xio.WrapCommon(s, relay.FDStream{R: os.Stdin, W: io.Discard, C: xio.NopCloser{}})
+	if err != nil {
+		return nil, err
+	}
+	o := &xio.Opened{Stream: st, Label: "STDIN"}
+	_ = xio.AttachTermios(o, int(os.Stdin.Fd()), s)
+	return o, nil
 }
 
 func openSTDOUT(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
@@ -97,10 +100,13 @@ func openSTDOUT(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	if err := xio.ApplyFDOptions(os.Stdout, s); err != nil {
 		return nil, err
 	}
-	return &xio.Opened{
-		Stream: relay.FDStream{R: xio.EOFReader{}, W: os.Stdout, C: xio.NopCloser{}},
-		Label:  "STDOUT",
-	}, nil
+	st, err := xio.WrapCommon(s, relay.FDStream{R: xio.EOFReader{}, W: os.Stdout, C: xio.NopCloser{}})
+	if err != nil {
+		return nil, err
+	}
+	o := &xio.Opened{Stream: st, Label: "STDOUT"}
+	_ = xio.AttachTermios(o, int(os.Stdout.Fd()), s)
+	return o, nil
 }
 
 func openSTDERR(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
@@ -113,10 +119,11 @@ func openSTDERR(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	if err := xio.ApplyFDOptions(os.Stderr, s); err != nil {
 		return nil, err
 	}
-	return &xio.Opened{
-		Stream: relay.FDStream{R: xio.EOFReader{}, W: os.Stderr, C: xio.NopCloser{}},
-		Label:  "STDERR",
-	}, nil
+	st, err := xio.WrapCommon(s, relay.FDStream{R: xio.EOFReader{}, W: os.Stderr, C: xio.NopCloser{}})
+	if err != nil {
+		return nil, err
+	}
+	return &xio.Opened{Stream: st, Label: "STDERR"}, nil
 }
 
 func openFD(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Opened, error) {
@@ -137,8 +144,12 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Op
 	if err := xio.ApplyFDOptions(f, s); err != nil {
 		return nil, err
 	}
+	st, err := xio.WrapCommon(s, relay.RWCStream{ReadWriteCloser: f})
+	if err != nil {
+		return nil, err
+	}
 	return &xio.Opened{
-		Stream: relay.RWCStream{ReadWriteCloser: f},
+		Stream: st,
 		Label:  fmt.Sprintf("FD:%d", n),
 	}, nil
 }

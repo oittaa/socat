@@ -1,6 +1,7 @@
 package xio
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -67,8 +68,18 @@ func TestParseFileModeRejectsInvalidOctal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if m != 0o7777 {
-		t.Fatalf("perm=7777 mode=%#o", m)
+	if m != UnixModeToFileMode(0o7777) {
+		t.Fatalf("perm=7777 mode=%#o want %#o", m, UnixModeToFileMode(0o7777))
+	}
+}
+
+func TestUnixModePreservesSetuidBits(t *testing.T) {
+	got := UnixModeToFileMode(0o4755)
+	if got&os.ModeSetuid == 0 || got.Perm() != 0o755 {
+		t.Fatalf("04755 → %#o perm=%#o setuid=%v", got, got.Perm(), got&os.ModeSetuid != 0)
+	}
+	if FileModeToUnix(got) != 0o4755 {
+		t.Fatalf("round-trip %#o", FileModeToUnix(got))
 	}
 }
 

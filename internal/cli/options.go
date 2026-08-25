@@ -15,6 +15,7 @@ type helpOpt struct {
 	desc         string
 	aliases      []string
 	addressTypes []string
+	optionCaps   []string
 	dynamicDesc  func() string
 	validate     func(parse.Option) error
 }
@@ -28,6 +29,7 @@ type addressOption struct {
 	validate      func(parse.Option) error
 	addressGroups []string
 	addressTypes  []string
+	optionCaps    []string
 }
 
 var supportedAddressOptions = buildSupportedAddressOptions()
@@ -41,6 +43,7 @@ func buildSupportedAddressOptions() map[string]addressOption {
 		for _, option := range group.opts {
 			spec.validate = option.validate
 			spec.addressTypes = option.addressTypes
+			spec.optionCaps = option.optionCaps
 			options[strings.ToLower(option.name)] = spec
 			for _, alias := range option.aliases {
 				options[strings.ToLower(alias)] = spec
@@ -110,6 +113,9 @@ func validateSpecOptions(spec parse.Spec) error {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
 		if registered && !addressTypeAllowed(registration.Name, optionSpec.addressTypes) {
+			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
+		}
+		if registered && !xio.OptionCapsAllowed(registration.OptionCaps, optionSpec.optionCaps) {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
 		if err := validateAddressOptionValue(option); err != nil {
@@ -210,10 +216,11 @@ func validateSizeT(option parse.Option) error {
 	if err != nil {
 		return err
 	}
-	n, err := strconv.ParseInt(value, 0, 64)
-	if err != nil || n < 0 {
+	n, err := strconv.ParseUint(value, 0, 64)
+	if err != nil {
 		return fmt.Errorf("invalid %s %q", option.Name, value)
 	}
+	_ = n
 	return nil
 }
 
@@ -350,7 +357,7 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "bind", desc: "local address or interface"},
 			{name: "connect-timeout", desc: "connect timeout", validate: validateDurationOption},
 			{name: "handshake-timeout", desc: "TLS, WebSocket, proxy, or SOCKS handshake timeout", validate: validateDurationOption},
-			{name: "accept-timeout", desc: "listen accept timeout (exit 0)", aliases: []string{"listen-timeout"}, validate: validateDurationOption},
+			{name: "accept-timeout", desc: "listen accept timeout (exit 0)", aliases: []string{"listen-timeout"}, optionCaps: []string{xio.OptCapListen}, validate: validateDurationOption},
 			{name: "backlog", desc: "listen backlog", addressTypes: []string{
 				"TCP-LISTEN", "TCP-L", "TCP4-LISTEN", "TCP4-L", "TCP6-LISTEN", "TCP6-L",
 				"SOCKET-LISTEN", "SCTP-LISTEN", "SCTP-L", "SCTP4-LISTEN", "SCTP4-L", "SCTP6-LISTEN", "SCTP6-L",
@@ -363,7 +370,7 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "interval", desc: "retry or fork-redial interval", validate: validateDurationOption},
 		}},
 		{"Security filters", []helpOpt{
-			{name: "range", desc: "accept only peers in this network"},
+			{name: "range", desc: "accept only peers in this network", optionCaps: []string{xio.OptCapIPFilter}},
 			{name: "sourceport", desc: "peer source port (listen) or bind port (connect)", aliases: []string{"sp"}},
 			{name: "lowport", desc: "require or bind a low source port"},
 			{name: "tcpwrap", desc: "apply hosts.allow / hosts.deny", aliases: []string{"tcpwrappers", "tcpwrapper", "libwrap", "wrap"}},
@@ -403,7 +410,7 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "rdonly", desc: "open read-only"},
 			{name: "wronly", desc: "open write-only"},
 			{name: "creat", desc: "create the file", aliases: []string{"create"}},
-			{name: "excl", desc: "fail if the file exists"},
+			{name: "excl", desc: "fail if the file exists", optionCaps: []string{xio.OptCapOpen}},
 			{name: "append", desc: "open append", aliases: []string{"o-append"}, addressTypes: fileOpenAddressTypes()},
 			{name: "trunc", desc: "truncate on open"},
 			{name: "nonblock", desc: "O_NONBLOCK", aliases: []string{"o-nonblock"}},

@@ -3,6 +3,7 @@ package xio
 import (
 	"context"
 	"net"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -51,14 +52,14 @@ func TestBindTCPAddrForRemoteFamily(t *testing.T) {
 	if err != nil || skip || la == nil {
 		t.Fatalf("bind host:port: la=%v skip=%v err=%v", la, skip, err)
 	}
-	// bind=:: against IPv4 remote uses IPv4 unspecified, matching ListenBindHost.
-	la, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("127.0.0.1"), parse.Spec{}, "::", "0")
-	if err != nil || skip || la == nil || la.IP.To4() == nil || !la.IP.IsUnspecified() {
-		t.Fatalf("bind=:: v4 remote: la=%v skip=%v err=%v", la, skip, err)
+	// Classic AF_INET connect does not rewrite bind=:: to 0.0.0.0.
+	_, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("127.0.0.1"), parse.Spec{}, "::", "0")
+	if err != nil || !skip {
+		t.Fatalf("bind=:: v4 remote: skip=%v err=%v want skip", skip, err)
 	}
-	la, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("::1"), parse.Spec{}, "0.0.0.0", "0")
-	if err != nil || skip || la == nil || la.IP.To4() != nil || !la.IP.IsUnspecified() {
-		t.Fatalf("bind=0.0.0.0 v6 remote: la=%v skip=%v err=%v", la, skip, err)
+	_, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("::1"), parse.Spec{}, "0.0.0.0", "0")
+	if err != nil || !skip {
+		t.Fatalf("bind=0.0.0.0 v6 remote: skip=%v err=%v want skip", skip, err)
 	}
 }
 
@@ -171,5 +172,29 @@ func TestResolveOrderIPv6First(t *testing.T) {
 	}
 	if ips[0].To4() != nil {
 		t.Fatalf("with -6 preference first IP should be v6, got %v", ips)
+	}
+}
+
+func TestDialTCPLowportFailsClosedWhenUnprivileged(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can bind privileged ports")
+	}
+	probe, err := net.Listen("tcp4", "127.0.0.1:1023")
+	if err == nil {
+		_ = probe.Close()
+		t.Skip("process can bind privileged ports")
+	}
+	s, err := parse.ParseSpec("TCP4:127.0.0.1:1,lowport")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = DialTCPAll(ctx, "tcp4", "127.0.0.1", "1", s, nil, time.Second, nil)
+	if err == nil {
+		t.Fatal("expected lowport bind failure")
+	}
+	if !strings.Contains(err.Error(), "lowport: cannot bind a port in 640-1023") {
+		t.Fatalf("err=%v want fail-closed lowport range", err)
 	}
 }

@@ -75,7 +75,7 @@ func openSocketConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 }
 
 // SOCKET-LISTEN:<domain>:<protocol>:<local-address>
-func openSocketListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openSocketListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	domain, proto, addrData, err := parseSocketParams(s, 3)
 	if err != nil {
 		return nil, err
@@ -115,38 +115,14 @@ func openSocketListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		return nil, err
 	}
 	ln := &rawListener{fd: fd, domain: domain}
-	fork, maxChildren, ferr := xio.ForkLimits(s)
-	if ferr != nil {
-		logx.CloseQuiet(ln)
-		return nil, ferr
+	wrapConn := func(c net.Conn) (relay.Stream, error) {
+		return xio.WrapCommon(s, relay.NetStream{Conn: c})
 	}
-	if fork {
-		return &xio.Opened{
-			Kind:          xio.KindListen,
-			Listener:      ln,
-			Label:         "SOCKET-LISTEN",
-			MaxChildren:   maxChildren,
-			AcceptTimeout: xio.AcceptTimeout(s),
-			PeerFilter:    func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
-		}, nil
-	}
-	// accept one
-	c, err := xio.AcceptWithTimeout(ctx, ln, xio.AcceptTimeout(s))
-	if err != nil {
-		logx.CloseQuiet(ln)
-		return nil, err
-	}
-	logx.CloseQuiet(ln)
-	st := relay.Stream(relay.NetStream{Conn: c})
-	st, err = xio.WrapCommon(s, st)
-	if err != nil {
-		logx.CloseQuiet(c)
-		return nil, err
-	}
-	_ = ctx
-	_ = mode
-	_ = g
-	return &xio.Opened{Stream: st, Label: "SOCKET-LISTEN"}, nil
+	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
+		Listener: ln,
+		Label:    "SOCKET-LISTEN",
+		WrapDial: wrapConn,
+	})
 }
 
 // SOCKET-SENDTO / SOCKET-DATAGRAM: domain:type:protocol:remote

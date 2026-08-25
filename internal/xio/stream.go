@@ -131,19 +131,21 @@ func (h *halfCloseWriter) closeWrite() {
 // readBytesWrap limits total bytes read (classic readbytes=N).
 type readBytesWrap struct {
 	r    io.Reader
-	left int64
+	left uint64
 }
 
 func (r *readBytesWrap) Read(p []byte) (int, error) {
-	if r.left <= 0 {
+	if r.left == 0 {
 		return 0, io.EOF
 	}
-	if int64(len(p)) > r.left {
+	if uint64(len(p)) > r.left {
 		p = p[:r.left]
 	}
 	n, err := r.r.Read(p)
-	r.left -= int64(n)
-	if r.left <= 0 && err == nil {
+	if n > 0 {
+		r.left -= uint64(n)
+	}
+	if r.left == 0 && err == nil {
 		return n, io.EOF
 	}
 	return n, err
@@ -157,8 +159,8 @@ func ApplyReadBytes(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	if v == "" {
 		return stream, nil
 	}
-	n, err := strconv.ParseInt(v, 0, 64)
-	if err != nil || n < 0 {
+	n, err := strconv.ParseUint(v, 0, 64)
+	if err != nil {
 		return nil, fmt.Errorf("invalid readbytes %q", v)
 	}
 	if n == 0 {
@@ -176,12 +178,25 @@ func ApplyReadBytes(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 
 // crnlWriter converts LF → CRLF on write (classic crlf/crnl: internal RAW → external CRNL).
 type crnlWriter struct {
-	w io.Writer
+	w         io.Writer
+	pendingLF bool
 }
 
-func (c crnlWriter) Write(p []byte) (int, error) {
-	// Expand \n to \r\n; report original len for io.Copy compatibility-ish
+func (c *crnlWriter) Write(p []byte) (int, error) {
+	// Expand \n to \r\n; report original len for io.Copy compatibility-ish.
+	// If \r of a CRLF is written and \n is not, remember that so a retry of
+	// the same input byte cannot emit a second \r (sndtimeo short writes).
 	written := 0
+	if c.pendingLF {
+		if _, err := c.w.Write([]byte{'\n'}); err != nil {
+			return 0, err
+		}
+		c.pendingLF = false
+		written++
+		if len(p) > 0 && p[0] == '\n' {
+			p = p[1:]
+		}
+	}
 	for len(p) > 0 {
 		i := 0
 		for i < len(p) && p[i] != '\n' {
@@ -196,10 +211,23 @@ func (c crnlWriter) Write(p []byte) (int, error) {
 			p = p[i:]
 		}
 		if len(p) > 0 && p[0] == '\n' {
-			if _, err := c.w.Write([]byte{'\r', '\n'}); err != nil {
+			n, err := c.w.Write([]byte{'\r', '\n'})
+			switch {
+			case n == 0:
+				return written, err
+			case n == 1:
+				c.pendingLF = true
+				if err != nil {
+					return written, err
+				}
+				if _, err := c.w.Write([]byte{'\n'}); err != nil {
+					return written, err
+				}
+				c.pendingLF = false
+			case err != nil:
 				return written, err
 			}
-			written++ // count as 1 input byte
+			written++
 			p = p[1:]
 		}
 	}
@@ -250,7 +278,7 @@ func ApplyCRNL(s parse.Spec, stream relay.Stream) relay.Stream {
 	}
 	return relay.FDStream{
 		R: crnlReader{r: stream},
-		W: crnlWriter{w: stream},
+		W: &crnlWriter{w: stream},
 		C: stream,
 		CloseW: func() error {
 			return stream.ShutdownWrite()

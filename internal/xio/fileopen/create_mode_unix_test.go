@@ -58,6 +58,20 @@ func TestCreatePathsUseClassic0666BeforeUmask(t *testing.T) {
 		assertPerm(t, path, 0o666)
 	})
 
+	t.Run("umask-masks-perm", func(t *testing.T) {
+		path := filepath.Join(dir, "perm.bin")
+		spec, err := parse.ParseSpec("CREATE:" + path + ",umask=077,perm=0666")
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, err := openCREATE(ctx, spec, xio.ModeWrite, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = o.Close() })
+		assertPerm(t, path, 0o600)
+	})
+
 	t.Run("fifo", func(t *testing.T) {
 		path := filepath.Join(dir, "named.pipe")
 		spec, err := parse.ParseSpec("PIPE:" + path + ",umask=0,nonblock")
@@ -71,6 +85,43 @@ func TestCreatePathsUseClassic0666BeforeUmask(t *testing.T) {
 		t.Cleanup(func() { _ = o.Close() })
 		assertPerm(t, path, 0o666)
 	})
+}
+
+func TestCreatePermPreservesSetuidBits(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "setuid.bin")
+	spec, err := parse.ParseSpec("CREATE:" + path + ",umask=0,perm=4755")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openCREATE(context.Background(), spec, xio.ModeWrite, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSetuid == 0 || info.Mode().Perm() != 0o755 {
+		t.Fatalf("mode=%#o setuid=%v want 04755", info.Mode(), info.Mode()&os.ModeSetuid != 0)
+	}
+}
+
+func TestOpenExistingFileDoesNotChmod(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "existing.bin")
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := parse.ParseSpec("OPEN:" + path + ",perm=0600")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openOPEN(context.Background(), spec, xio.ModeRead, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	assertPerm(t, path, 0o644)
 }
 
 func assertPerm(t *testing.T, path string, want os.FileMode) {
