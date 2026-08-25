@@ -455,7 +455,75 @@ func TestUDP4SendtoToRecv(t *testing.T) {
 	}
 }
 
+func freeUDP4Port(t *testing.T) int {
+	t.Helper()
+	pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := pc.LocalAddr().(*net.UDPAddr).Port
+	if err := pc.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return port
+}
+
+// TestUDP4RecvfromReply is one-shot UDP-RECVFROM (no fork): wait for a datagram
+// and reply to the sender. fork+PIPE needs socketpair, which Windows does not have.
+func TestUDP4RecvfromReply(t *testing.T) {
+	ctx := testCtx(t)
+	port := freeUDP4Port(t)
+	opened := make(chan *xio.Opened, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		o, err := xio.OpenChannel(ctx, mustParse(t, fmt.Sprintf("UDP4-RECVFROM:%d,bind=127.0.0.1,reuseaddr", port)), xio.ModeRDWR, cloneGlobal(nil))
+		if err != nil {
+			errCh <- err
+			return
+		}
+		opened <- o
+	}()
+	cli, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cli.Close() })
+	const payload = "recvfrom-hi"
+	ticker := time.NewTicker(20 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.After(4 * time.Second)
+	var o *xio.Opened
+	for o == nil {
+		select {
+		case o = <-opened:
+		case e := <-errCh:
+			t.Fatal(e)
+		case <-ticker.C:
+			_, _ = cli.Write([]byte(payload))
+		case <-timeout:
+			t.Fatal("UDP-RECVFROM open timed out")
+		}
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	if got := string(readFull(t, o.Stream, len(payload))); got != payload {
+		t.Fatalf("UDP-RECVFROM got %q", got)
+	}
+	mustWrite(t, o.Stream, []byte(payload))
+	_ = cli.SetReadDeadline(time.Now().Add(3 * time.Second))
+	buf := make([]byte, 64)
+	n, err := cli.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(buf[:n]) != payload {
+		t.Fatalf("UDP-RECVFROM reply %q", buf[:n])
+	}
+}
+
 func TestUDP4RecvfromForkEcho(t *testing.T) {
+	if !xio.FeatureSOCKETPAIR {
+		t.Skip("RECVFROM,fork echo uses socketpair")
+	}
 	ctx, g := testCtx(t), testGlobal()
 	srv := startForkListenPIPE(t, ctx, g, "UDP4-RECVFROM:0,bind=127.0.0.1,reuseaddr,fork")
 	cli, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: listenerPort(t, srv)})
