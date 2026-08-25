@@ -73,8 +73,15 @@ func TestNamedPipeBlockedOpenHelper(t *testing.T) {
 
 	var original os.FileInfo
 	if wantReplacement {
-		var err error
-		original, err = os.Lstat(path)
+		// Keep the stale FIFO inode referenced while unlink-early replaces it.
+		// Otherwise some filesystems can immediately reuse the inode number,
+		// making os.SameFile report that the replacement is still the old FIFO.
+		oldFIFO, err := os.OpenFile(path, os.O_RDONLY|oNonblock, 0) // #nosec G304 -- test-created FIFO whose inode identity is under test
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = oldFIFO.Close() }()
+		original, err = oldFIFO.Stat()
 		if err != nil {
 			t.Fatal(err)
 		}
