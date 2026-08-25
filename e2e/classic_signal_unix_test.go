@@ -48,6 +48,33 @@ func TestPIPERemove(t *testing.T) {
 	}
 }
 
+func TestUNIXSendtoBindRemove(t *testing.T) {
+	bin := socatBin(t)
+	dir := t.TempDir()
+	remote := filepath.Join(dir, "remote")
+	local := filepath.Join(dir, "local")
+	cmd := exec.Command(bin, "-u", "UNIX-SENDTO:"+remote+",bind="+local, "FILE:"+os.DevNull)
+	stderrPath := attachStderrFile(t, cmd)
+	proc, err := startTestProcess(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(proc.stop)
+
+	waitPath(t, local, proc, stderrPath, 5*time.Second)
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-proc.done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("socat did not exit after SIGTERM stderr=%s", readFile(t, stderrPath))
+	}
+	if _, err := os.Lstat(local); !os.IsNotExist(err) {
+		t.Fatalf("SENDTO bind path still exists after SIGTERM stderr=%s", readFile(t, stderrPath))
+	}
+}
+
 // TestExitCodeOnSignal mimics classic test.sh EXITCODESIGTERM / EXITCODESIGILL:
 // SYSTEM,nofork blocks in Wait(); a caught signal must yield 128+signum and
 // log "exiting on signal" (handler ran, not a pre-Notify default dump).

@@ -240,3 +240,117 @@ func TestUnixRecvStreamShortReadDropsRemainder(t *testing.T) {
 		t.Fatalf("remainder n=%d err=%v want EOF", n, err)
 	}
 }
+
+func TestUnixSendtoBindUnlinksOnSignalSweep(t *testing.T) {
+	if !xio.FeatureUNIXDatagram {
+		t.Skip("UNIX datagram not enabled")
+	}
+	local := unixSocketTestPath(t, "local.sock")
+	remote := unixSocketTestPath(t, "remote.sock")
+	spec, err := parse.ParseSpec("UNIX-SENDTO:" + remote + ",bind=" + local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUnixSendto(context.Background(), spec, xio.ModeWrite, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	if _, err := os.Lstat(local); err != nil {
+		t.Fatalf("SENDTO bind path missing after open: %v", err)
+	}
+	if xio.RegisteredUnlinkCount() == 0 {
+		t.Fatal("SENDTO bind path was not registered for signal-exit unlink")
+	}
+	xio.UnlinkRegisteredPaths()
+	if _, err := os.Lstat(local); !os.IsNotExist(err) {
+		t.Fatalf("SENDTO bind path survived signal sweep: %v", err)
+	}
+}
+
+func TestUnixSendtoBindUnlinkCloseZeroKeepsPath(t *testing.T) {
+	if !xio.FeatureUNIXDatagram {
+		t.Skip("UNIX datagram not enabled")
+	}
+	local := unixSocketTestPath(t, "local.sock")
+	remote := unixSocketTestPath(t, "remote.sock")
+	spec, err := parse.ParseSpec("UNIX-SENDTO:" + remote + ",bind=" + local + ",unlink-close=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUnixSendto(context.Background(), spec, xio.ModeWrite, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if xio.RegisteredUnlinkCount() != 0 {
+		t.Fatal("unlink-close=0 registered a signal-exit unlink")
+	}
+	xio.UnlinkRegisteredPaths()
+	if _, err := os.Lstat(local); err != nil {
+		t.Fatalf("unlink-close=0 bind path was removed on signal sweep: %v", err)
+	}
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(local); err != nil {
+		t.Fatalf("unlink-close=0 bind path was removed on close: %v", err)
+	}
+}
+
+func TestUnixRecvfromForkSetupFailureUnlinksBind(t *testing.T) {
+	if !xio.FeatureUNIXDatagram {
+		t.Skip("UNIX datagram not enabled")
+	}
+	path := unixSocketTestPath(t, "recv.sock")
+	spec, err := parse.ParseSpec("UNIX-RECVFROM:" + path + ",unlink-early,fork,max-children=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUnixRecvfrom(context.Background(), spec, xio.ModeRDWR, nil)
+	if err == nil {
+		_ = o.Close()
+		t.Fatal("expected max-children=0 to fail after bind")
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("RECVFROM bind path survived setup failure: %v", err)
+	}
+}
+
+func TestUnixRecvfromForkSetupFailureUnlinkCloseZeroKeepsPath(t *testing.T) {
+	if !xio.FeatureUNIXDatagram {
+		t.Skip("UNIX datagram not enabled")
+	}
+	path := unixSocketTestPath(t, "recv.sock")
+	spec, err := parse.ParseSpec("UNIX-RECVFROM:" + path + ",unlink-early,fork,max-children=0,unlink-close=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUnixRecvfrom(context.Background(), spec, xio.ModeRDWR, nil)
+	if err == nil {
+		_ = o.Close()
+		t.Fatal("expected max-children=0 to fail after bind")
+	}
+	if _, err := os.Lstat(path); err != nil {
+		t.Fatalf("unlink-close=0 bind path was removed on setup failure: %v", err)
+	}
+}
+
+func TestUnixRecvAbstractDoesNotRegisterUnlink(t *testing.T) {
+	if !xio.FeatureUNIXDatagram || !xio.FeatureABSTRACT {
+		t.Skip("abstract UNIX datagram not enabled")
+	}
+	name := "@socat-abs-recv-unlink"
+	spec, err := parse.ParseSpec("UNIX-RECV:" + name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := xio.RegisteredUnlinkCount()
+	o, err := openUnixRecv(context.Background(), spec, xio.ModeRead, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	if xio.RegisteredUnlinkCount() != before {
+		t.Fatal("abstract UNIX-RECV registered a filesystem unlink")
+	}
+}
