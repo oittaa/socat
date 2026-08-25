@@ -69,11 +69,11 @@ func TestRegisteredAddressOptionCaps(t *testing.T) {
 		name string
 		want []string
 	}{
-		{name: "UDP-LISTEN", want: []string{xio.OptCapListen, xio.OptCapIPFilter}},
-		{name: "UDP-RECVFROM", want: []string{xio.OptCapIPFilter}},
+		{name: "UDP-LISTEN", want: []string{xio.OptCapListen, xio.OptCapIPFilter, xio.OptCapPort, xio.OptCapLowport}},
+		{name: "UDP-RECVFROM", want: []string{xio.OptCapIPFilter, xio.OptCapPort, xio.OptCapLowport}},
 		{name: "UNIX-RECVFROM", want: nil},
 		{name: "UNIX-LISTEN", want: []string{xio.OptCapListen}},
-		{name: "TCP-LISTEN", want: []string{xio.OptCapListen, xio.OptCapIPFilter}},
+		{name: "TCP-LISTEN", want: []string{xio.OptCapListen, xio.OptCapIPFilter, xio.OptCapPort, xio.OptCapLowport}},
 		{name: "SOCKET-LISTEN", want: []string{xio.OptCapListen}},
 		{name: "OPEN", want: []string{xio.OptCapOpen}},
 		{name: "CREATE", want: nil},

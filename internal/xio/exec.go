@@ -355,6 +355,15 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	if err := validateProcessFDOptions(mode, fdin, fdout); err != nil {
 		return nil, err
 	}
+	var err error
+	fdin, err = normalizeProcessFD(fdin, "fdin")
+	if err != nil {
+		return nil, err
+	}
+	fdout, err = normalizeProcessFD(fdout, "fdout")
+	if err != nil {
+		return nil, err
+	}
 	if fdin != "" || fdout != "" {
 		usePipes = true
 		usePty = false
@@ -395,7 +404,6 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	var stream relay.Stream
 	var cleanup []func()
 	var childFiles []*os.File
-	var err error
 	if usePipes {
 		stream, cleanup, childFiles, err = startCmdPipes(s, mode, cmd, fdin, fdout)
 	} else {
@@ -435,6 +443,17 @@ func validateProcessFDOptions(mode Mode, fdin, fdout string) error {
 		return fmt.Errorf("fdin is not valid in a read-only process address")
 	}
 	return nil
+}
+
+func normalizeProcessFD(value, name string) (string, error) {
+	if value == "" {
+		return "", nil
+	}
+	n, err := ParseIntAny(value)
+	if err != nil || n < 0 {
+		return "", fmt.Errorf("%s: invalid file descriptor %q", name, value)
+	}
+	return strconv.Itoa(n), nil
 }
 
 func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdin, fdout string) (relay.Stream, []func(), []*os.File, error) {
@@ -513,11 +532,9 @@ func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdin, fdout string) (
 }
 
 func startCmdSocketpair(s parse.Spec, cmd *exec.Cmd) (relay.Stream, []func(), *os.File, error) {
-	stype := syscall.SOCK_STREAM
-	if v := s.OptionValue("socktype", ""); v != "" {
-		if n, e := strconv.Atoi(v); e == nil && n > 0 {
-			stype = n
-		}
+	stype, _, err := SocketTypeOption(s, syscall.SOCK_STREAM)
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	fds, err := syscall.Socketpair(syscall.AF_UNIX, stype, 0)
 	if err != nil {

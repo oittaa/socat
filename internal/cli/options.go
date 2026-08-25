@@ -216,11 +216,10 @@ func validateSizeT(option parse.Option) error {
 	if err != nil {
 		return err
 	}
-	n, err := strconv.ParseUint(value, 0, 64)
+	_, err = xio.ParseSizeT(value)
 	if err != nil {
 		return fmt.Errorf("invalid %s %q", option.Name, value)
 	}
-	_ = n
 	return nil
 }
 
@@ -371,8 +370,8 @@ func helpOptionGroups() []helpOptGroup {
 		}},
 		{"Security filters", []helpOpt{
 			{name: "range", desc: "accept only peers in this network", optionCaps: []string{xio.OptCapIPFilter}},
-			{name: "sourceport", desc: "peer source port (listen) or bind port (connect)", aliases: []string{"sp"}},
-			{name: "lowport", desc: "require or bind a low source port"},
+			{name: "sourceport", desc: "peer source port (listen) or bind port (connect)", aliases: []string{"sp"}, optionCaps: []string{xio.OptCapPort}},
+			{name: "lowport", desc: "require or bind a low source port", optionCaps: []string{xio.OptCapLowport}},
 			{name: "tcpwrap", desc: "apply hosts.allow / hosts.deny", aliases: []string{"tcpwrappers", "tcpwrapper", "libwrap", "wrap"}},
 			{name: "tcpwrap-etc", desc: "directory of hosts.allow / hosts.deny", aliases: []string{"tcpwrap-dir"}},
 			{name: "hosts-allow", desc: "allow table path", aliases: []string{"allow-table", "tcpwrap-hosts-allow-table"}},

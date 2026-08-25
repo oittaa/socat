@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 	"strconv"
 	"sync"
 	"syscall"
@@ -361,19 +360,12 @@ func (u *udpSessionConn) Write(p []byte) (int, error) {
 	if u.pc == nil || u.peer == nil {
 		return 0, net.ErrClosed
 	}
-	if u.writeMu != nil {
-		u.writeMu.Lock()
-		defer u.writeMu.Unlock()
-	}
 	u.deadlineMu.Lock()
 	deadline := u.writeDeadline
 	u.deadlineMu.Unlock()
-	if !deadline.IsZero() && !time.Now().Before(deadline) {
-		return 0, os.ErrDeadlineExceeded
-	}
-	// Do not SetWriteDeadline on the shared parent: one child would arm or
-	// expire another child's sndtimeo. Honour the deadline in userspace.
-	return u.pc.WriteToUDP(p, u.peer)
+	return writeSharedPacket(u.writeMu, deadline, u.pc.SetWriteDeadline, func() (int, error) {
+		return u.pc.WriteToUDP(p, u.peer)
+	})
 }
 
 func (u *udpSessionConn) Close() error {

@@ -2,7 +2,6 @@ package xio
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 	"syscall"
 
@@ -19,7 +18,7 @@ func SocketTypeOption(s parse.Spec, def int) (typ int, explicit bool, err error)
 	if !o.Has || strings.TrimSpace(o.Value) == "" {
 		return 0, true, fmt.Errorf("%s: option %q requires a socket type number", s.Type, o.Name)
 	}
-	n, err := strconv.Atoi(o.Value)
+	n, err := ParseIntAny(o.Value)
 	if err != nil {
 		return 0, true, fmt.Errorf("%s: invalid %s=%q", s.Type, o.Name, o.Value)
 	}

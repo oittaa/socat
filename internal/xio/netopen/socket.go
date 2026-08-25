@@ -106,9 +106,12 @@ func openSocketListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Glob
 	}
 	backlog := 5
 	if v := s.OptionValue("backlog", ""); v != "" {
-		if n, e := strconv.Atoi(v); e == nil && n > 0 {
-			backlog = n
+		n, e := xio.ParseIntAny(v)
+		if e != nil || n <= 0 {
+			logx.CloseErr(unix.Close(fd))
+			return nil, fmt.Errorf("backlog: invalid value %q", v)
 		}
+		backlog = n
 	}
 	if err := unix.Listen(fd, backlog); err != nil {
 		logx.CloseErr(unix.Close(fd))

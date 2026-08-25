@@ -104,21 +104,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		}
 	}
 	// SO_REUSEADDR on bind so rapid retests / paired ports work.
-	cfg := net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
-			var optionErr error
-			controlErr := c.Control(func(fd uintptr) {
-				optionErr = xio.ApplyListenOptions(int(fd), s, network)
-				if optionErr != nil {
-					return
-				}
-				if s.BoolOption("broadcast") {
-					optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
-				}
-			})
-			return errors.Join(controlErr, optionErr)
-		},
-	}
+	cfg := udpListenConfig(s)
 	pc, err := cfg.ListenPacket(ctx, network, laddrString(network, laddr))
 	if err != nil {
 		return nil, err
@@ -141,6 +127,24 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 	}
 	_ = g
 	return &xio.Opened{Stream: wrapped, Label: "UDP-DATAGRAM:" + raddr.String()}, nil
+}
+
+func udpListenConfig(s parse.Spec) net.ListenConfig {
+	return net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			var optionErr error
+			controlErr := c.Control(func(fd uintptr) {
+				optionErr = xio.ApplyListenOptions(int(fd), s, network)
+				if optionErr != nil {
+					return
+				}
+				if s.BoolOption("broadcast") {
+					optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
+				}
+			})
+			return errors.Join(controlErr, optionErr)
+		},
+	}
 }
 
 func laddrString(network string, laddr *net.UDPAddr) string {
@@ -166,33 +170,33 @@ func (u *udpDatagramConn) Write(p []byte) (int, error) {
 
 // bindUDPLowport tries ports 1023..640 (classic lowport). Logs bind like SYCLS for tests.
 func bindUDPLowport(ctx context.Context, network, bind string, s parse.Spec, g *xio.Global) (*net.UDPConn, int, error) {
-	_ = s
-	var last error
-	for port := 1023; port >= 640; port-- {
+	var conn *net.UDPConn
+	port, err := xio.FirstAvailableLowport(func(port int) error {
 		// Classic test greps: [DE] bind(.*:PORT
 		if g != nil && g.Log != nil {
 			g.Log.Debugf("bind({AF=2 %s:%d}, 16)", bind, port)
 		}
 		addr, err := net.ResolveUDPAddr(network, net.JoinHostPort(xio.StripBrackets(bind), strconv.Itoa(port)))
 		if err != nil {
-			last = err
-			continue
+			return err
 		}
-		cfg := net.ListenConfig{}
+		cfg := udpListenConfig(s)
 		pc, err := cfg.ListenPacket(ctx, network, addr.String())
 		if err != nil {
-			last = err
-			continue
+			return err
 		}
 		c, ok := pc.(*net.UDPConn)
 		if !ok {
 			logx.CloseQuiet(pc)
-			last = fmt.Errorf("not UDPConn")
-			continue
+			return fmt.Errorf("not UDPConn")
 		}
-		return c, port, nil
+		conn = c
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
 	}
-	return nil, 0, last
+	return conn, port, nil
 }
 func (u *udpDatagramConn) ShutdownWrite() error { return nil }
 

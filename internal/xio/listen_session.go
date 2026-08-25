@@ -2,6 +2,7 @@ package xio
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -15,16 +16,17 @@ import (
 // listeners. Fork mode keeps Listener+WrapDial+PeerFilter; non-fork accepts
 // one permitted peer and applies the same wrap.
 type ListenSession struct {
-	Listener          net.Listener
-	Label             string
-	WrapDial          func(net.Conn) (relay.Stream, error)
-	SetAcceptDeadline func(time.Time) error
-	Accept            func(ctx context.Context) (net.Conn, error)
-	UseContextTimeout bool
-	HandshakeTimeout  time.Duration
-	AfterAccept       func(*Global, net.Conn) error
-	ListeningLog      string
-	CloseListener     func() error
+	Listener               net.Listener
+	Label                  string
+	WrapDial               func(net.Conn) (relay.Stream, error)
+	SetAcceptDeadline      func(time.Time) error
+	Accept                 func(ctx context.Context) (net.Conn, error)
+	UseContextTimeout      bool
+	HandshakeTimeout       time.Duration
+	AfterAccept            func(*Global, net.Conn) error
+	ListeningLog           string
+	CloseListener          func() error
+	KeepListenerForSession bool
 }
 
 // WrapAccepted applies extra per-conn setup then WrapCommon. Extra may be nil.
@@ -45,7 +47,8 @@ func DefaultWrapDial(s parse.Spec) func(net.Conn) (relay.Stream, error) {
 }
 
 // OpenListenSession installs fork wrapping and peer filtering, or accepts one
-// permitted connection for non-fork. Rejected peers do not restart accept-timeout.
+// permitted connection for non-fork. Each refused peer restarts
+// accept-timeout, matching classic's listen loop.
 func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess ListenSession) (*Opened, error) {
 	ln := sess.Listener
 	if ln == nil {
@@ -57,7 +60,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 	}
 	fork, maxChildren, err := ForkLimits(s)
 	if err != nil {
-		logx.CloseErr(closeLn())
+		_ = closeLn()
 		return nil, err
 	}
 	wrap := sess.WrapDial
@@ -86,7 +89,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 		HandshakeTimeout: sess.HandshakeTimeout,
 	}
 	o.AcceptTimeout = AcceptTimeout(s)
-	o.AddCleanup(func() { logx.CloseErr(closeLn()) })
+	o.AddCleanup(func() { _ = closeLn() })
 
 	if fork {
 		go func() {
@@ -103,34 +106,35 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 	}
 
 	at := o.AcceptTimeout
-	var deadline time.Time
-	if at > 0 && !sess.UseContextTimeout {
-		deadline = time.Now().Add(at)
-	}
-	actx := ctx
-	var cancel context.CancelFunc
-	if sess.UseContextTimeout && at > 0 {
-		actx, cancel = context.WithTimeout(ctx, at)
-		defer cancel()
-	}
-
 	var conn net.Conn
 	for {
-		if setDeadline != nil && !deadline.IsZero() {
-			_ = setDeadline(deadline)
+		if setDeadline != nil && at > 0 && !sess.UseContextTimeout {
+			if err := setDeadline(time.Now().Add(at)); err != nil {
+				_ = closeLn()
+				o.Listener = nil
+				return nil, fmt.Errorf("accept-timeout: %w", err)
+			}
+		}
+		actx := ctx
+		var cancel context.CancelFunc
+		if sess.UseContextTimeout && at > 0 {
+			actx, cancel = context.WithTimeout(ctx, at)
 		}
 		c, err := acceptOne(actx, ln, accept)
+		if cancel != nil {
+			cancel()
+		}
 		if err != nil {
-			logx.CloseErr(closeLn())
+			_ = closeLn()
 			o.Listener = nil
-			if IsTimeoutErr(err) || ctxDeadline(actx, err) {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			if IsTimeoutErr(err) || errors.Is(err, context.DeadlineExceeded) || errors.Is(actx.Err(), context.DeadlineExceeded) {
 				if g != nil && g.Log != nil {
 					g.Log.Warningf("accept: Connection timed out")
 				}
 				return nil, ErrAcceptTimeout
-			}
-			if actx.Err() != nil && ctx.Err() != nil {
-				return nil, ctx.Err()
 			}
 			return nil, err
 		}
@@ -144,7 +148,9 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 		conn = c
 		break
 	}
-	logx.CloseErr(closeLn())
+	if !sess.KeepListenerForSession {
+		_ = closeLn()
+	}
 	o.Listener = nil
 	if g != nil && g.Log != nil && conn.RemoteAddr() != nil {
 		g.Log.Infof("accepted connection from %s", conn.RemoteAddr())
@@ -153,20 +159,22 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 	if sess.AfterAccept != nil {
 		if err := sess.AfterAccept(g, conn); err != nil {
 			logx.CloseQuiet(conn)
+			if sess.KeepListenerForSession {
+				_ = closeLn()
+			}
 			return nil, err
 		}
 	}
 	st, err := wrap(conn)
 	if err != nil {
 		logx.CloseQuiet(conn)
+		if sess.KeepListenerForSession {
+			_ = closeLn()
+		}
 		return nil, err
 	}
 	o.Stream = st
 	return o, nil
-}
-
-func ctxDeadline(ctx context.Context, err error) bool {
-	return ctx.Err() != nil && (err == context.DeadlineExceeded || err == ctx.Err())
 }
 
 func acceptOne(ctx context.Context, ln net.Listener, accept func(context.Context) (net.Conn, error)) (net.Conn, error) {

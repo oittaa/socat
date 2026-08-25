@@ -2,6 +2,7 @@ package xio
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sort"
@@ -361,8 +362,16 @@ func dialTCPLowport(ctx context.Context, network string, raddr, laddr *net.TCPAd
 			cancel()
 		}
 		if err != nil {
-			last = err
-			continue
+			if errors.Is(err, syscall.EADDRINUSE) {
+				last = err
+				continue
+			}
+			if errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.EPERM) {
+				return nil, fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", LowportMin, LowportMax, err)
+			}
+			// The bind succeeded and connect failed (for example ECONNREFUSED).
+			// Retrying every privileged port would hide the actual connect error.
+			return nil, err
 		}
 		return c, nil
 	}

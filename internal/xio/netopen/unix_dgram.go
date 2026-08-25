@@ -329,6 +329,9 @@ func (u *unixRecvStream) ShutdownWrite() error { return nil }
 func (u *unixRecvStream) SetReadDeadline(t time.Time) error {
 	return u.c.SetReadDeadline(t)
 }
+func (u *unixRecvStream) SetWriteDeadline(t time.Time) error {
+	return u.c.SetWriteDeadline(t)
+}
 
 // unixgramListener turns RECVFROM,fork into accept-like sessions per packet.
 type unixgramListener struct {
@@ -407,17 +410,12 @@ func (u *unixPacketConn) Write(p []byte) (int, error) {
 	if u.peer == nil {
 		return 0, fmt.Errorf("no peer")
 	}
-	if u.writeMu != nil {
-		u.writeMu.Lock()
-		defer u.writeMu.Unlock()
-	}
 	u.deadlineMu.Lock()
 	deadline := u.writeDeadline
 	u.deadlineMu.Unlock()
-	if !deadline.IsZero() && !time.Now().Before(deadline) {
-		return 0, os.ErrDeadlineExceeded
-	}
-	return u.c.WriteToUnix(p, u.peer)
+	return writeSharedPacket(u.writeMu, deadline, u.c.SetWriteDeadline, func() (int, error) {
+		return u.c.WriteToUnix(p, u.peer)
+	})
 }
 func (u *unixPacketConn) Close() error {
 	if u.closed {

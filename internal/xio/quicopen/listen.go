@@ -3,7 +3,7 @@ package quicopen
 import (
 	"context"
 	"crypto/tls"
-	"errors"
+	"fmt"
 	"net"
 	"sync"
 
@@ -11,7 +11,6 @@ import (
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
@@ -48,74 +47,14 @@ func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	}
 
 	ln := newQUICListener(ctx, qln, pc)
-	fork, maxChildren, err := xio.ForkLimits(s)
-	if err != nil {
-		_ = ln.Close()
-		return nil, err
-	}
-	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
-	wrapConn := func(c net.Conn) (relay.Stream, error) {
-		return xio.WrapCommon(s, relay.NetStream{Conn: c})
-	}
-
-	o := &xio.Opened{
-		Kind:        xio.ListenKind(fork),
-		Listener:    ln,
-		Label:       s.Type + ":" + port,
-		PeerFilter:  filter,
-		MaxChildren: maxChildren,
-		WrapDial:    wrapConn,
-	}
-	o.AcceptTimeout = xio.AcceptTimeout(s)
-	o.AddCleanup(func() { _ = ln.Close() })
-
-	if fork {
-		go func() {
-			<-ctx.Done()
-			_ = ln.Close()
-		}()
-		return o, nil
-	}
-
-	if g != nil && g.Log != nil {
-		g.Log.Noticef("listening on %s (quic)", ln.Addr())
-	}
-	actx := ctx
-	var cancel context.CancelFunc
-	if at := xio.AcceptTimeout(s); at > 0 {
-		actx, cancel = context.WithTimeout(ctx, at)
-		defer cancel()
-	}
-	var conn net.Conn
-	for {
-		c, err := ln.AcceptContext(actx)
-		if err != nil {
-			_ = ln.Close()
-			o.Listener = nil
-			if errors.Is(err, context.DeadlineExceeded) || xio.IsTimeoutErr(err) {
-				return nil, xio.ErrAcceptTimeout
-			}
-			return nil, err
-		}
-		if err := filter(c); err != nil {
-			if g != nil && g.Log != nil {
-				g.Log.Noticef("%s", err)
-			}
-			xio.CloseRefusedPeer(c)
-			continue
-		}
-		conn = c
-		break
-	}
-	o.Listener = nil
-	xio.RememberAddrs(g, conn)
-	st, err := wrapConn(conn)
-	if err != nil {
-		logx.CloseQuiet(conn)
-		return nil, err
-	}
-	o.Stream = st
-	return o, nil
+	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
+		Listener:               ln,
+		Label:                  s.Type + ":" + port,
+		Accept:                 func(actx context.Context) (net.Conn, error) { return ln.AcceptContext(actx) },
+		UseContextTimeout:      true,
+		KeepListenerForSession: true,
+		ListeningLog:           fmt.Sprintf("listening on %s (quic)", ln.Addr()),
+	})
 }
 
 type quicSetup struct {

@@ -6,11 +6,9 @@ import (
 	"net"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 )
 
@@ -121,100 +119,10 @@ func openSCTPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return nil, err
 	}
 
-	fork, maxChildren, ferr := xio.ForkLimits(s)
-	if ferr != nil {
-		logx.CloseQuiet(ln)
-		return nil, ferr
-	}
-	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
-	wrapConn := func(c net.Conn) (relay.Stream, error) {
-		return xio.WrapCommon(s, relay.NetStream{Conn: c})
-	}
-	o := &xio.Opened{
-		Kind:        xio.ListenKind(fork),
-		Listener:    ln,
-		Label:       fmt.Sprintf("%s-LISTEN:%s", network, port),
-		PeerFilter:  filter,
-		MaxChildren: maxChildren,
-		WrapDial:    wrapConn,
-	}
-	o.AcceptTimeout = xio.AcceptTimeout(s)
-	o.AddCleanup(func() { logx.CloseQuiet(ln) })
-
-	if fork {
-		go func() {
-			<-ctx.Done()
-			logx.CloseQuiet(ln)
-		}()
-		return o, nil
-	}
-
-	if g != nil && g.Log != nil {
-		g.Log.Noticef("listening on %s", ln.Addr())
-	}
-	at := xio.AcceptTimeout(s)
-	var deadline time.Time
-	if at > 0 {
-		deadline = time.Now().Add(at)
-	}
-	var conn net.Conn
-	for {
-		if !deadline.IsZero() {
-			if dl, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
-				_ = dl.SetDeadline(deadline)
-			}
-		}
-		type acc struct {
-			c   net.Conn
-			err error
-		}
-		ch := make(chan acc, 1)
-		go func() {
-			c, err := ln.Accept()
-			ch <- acc{c, err}
-		}()
-		select {
-		case <-ctx.Done():
-			logx.CloseQuiet(ln)
-			o.Listener = nil
-			return nil, ctx.Err()
-		case a := <-ch:
-			if a.err != nil {
-				logx.CloseQuiet(ln)
-				o.Listener = nil
-				if xio.IsTimeoutErr(a.err) {
-					if g != nil && g.Log != nil {
-						g.Log.Warningf("accept: Connection timed out")
-					}
-					return nil, xio.ErrAcceptTimeout
-				}
-				return nil, a.err
-			}
-			if err := filter(a.c); err != nil {
-				if g != nil && g.Log != nil {
-					g.Log.Noticef("%s", err)
-				}
-				xio.CloseRefusedPeer(a.c)
-				continue
-			}
-			conn = a.c
-		}
-		break
-	}
-	logx.CloseQuiet(ln)
-	o.Listener = nil
-	if g != nil && g.Log != nil {
-		g.Log.Infof("accepted connection from %s", conn.RemoteAddr())
-	}
-	xio.RememberAddrs(g, conn)
-	st := relay.Stream(relay.NetStream{Conn: conn})
-	st, err = xio.WrapCommon(s, st)
-	if err != nil {
-		logx.CloseQuiet(conn)
-		return nil, err
-	}
-	o.Stream = st
-	return o, nil
+	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
+		Listener: ln,
+		Label:    fmt.Sprintf("%s-LISTEN:%s", network, port),
+	})
 }
 
 func sctpNetwork(tcpNet string) string {

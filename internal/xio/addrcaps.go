@@ -9,6 +9,8 @@ const (
 	OptCapListen   = "listen"
 	OptCapOpen     = "open"
 	OptCapIPFilter = "ip-filter"
+	OptCapPort     = "port"
+	OptCapLowport  = "lowport"
 )
 
 // DerivedOptionCaps infers option capabilities from an address keyword and
@@ -25,6 +27,14 @@ func DerivedOptionCaps(name, group string) []string {
 		if strings.Contains(n, "LISTEN") || strings.Contains(n, "RECVFROM") {
 			caps = append(caps, OptCapIPFilter)
 		}
+	}
+	switch group {
+	case GroupTCP, GroupUDP, GroupSCTP, GroupTLS, GroupQUIC, GroupWebSocket, GroupProxy:
+		caps = append(caps, OptCapPort)
+	}
+	switch group {
+	case GroupTCP, GroupUDP, GroupSCTP, GroupTLS, GroupWebSocket, GroupProxy:
+		caps = append(caps, OptCapLowport)
 	}
 	switch n {
 	case "OPEN", "FILE", "GOPEN":

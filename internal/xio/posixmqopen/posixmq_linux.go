@@ -42,7 +42,7 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 
 	prio := uint32(0)
 	if v := s.OptionValue("mq-prio", ""); v != "" {
-		n, e := strconv.ParseUint(v, 10, 32)
+		n, e := strconv.ParseUint(v, 0, 32)
 		if e != nil {
 			return nil, fmt.Errorf("%s: invalid mq-prio %q", s.Type, v)
 		}
@@ -88,14 +88,14 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	if s.HasOption("mq-maxmsg") || s.HasOption("mq-msgsize") {
 		a := mqAttr{}
 		if v := s.OptionValue("mq-maxmsg", ""); v != "" {
-			n, e := strconv.ParseInt(v, 10, 64)
+			n, e := strconv.ParseInt(v, 0, 64)
 			if e != nil {
 				return nil, fmt.Errorf("%s: invalid mq-maxmsg %q", s.Type, v)
 			}
 			a.Maxmsg = int(n)
 		}
 		if v := s.OptionValue("mq-msgsize", ""); v != "" {
-			n, e := strconv.ParseInt(v, 10, 64)
+			n, e := strconv.ParseInt(v, 0, 64)
 			if e != nil {
 				return nil, fmt.Errorf("%s: invalid mq-msgsize %q", s.Type, v)
 			}

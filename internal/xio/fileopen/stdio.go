@@ -59,14 +59,15 @@ func openSTDIO(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 	o := &xio.Opened{Stream: st, Label: "STDIO"}
 	switch mode {
 	case xio.ModeRead:
-		_ = xio.AttachTermios(o, int(os.Stdin.Fd()), s)
+		err = attachTermios(o, s, os.Stdin)
 	case xio.ModeWrite:
-		_ = xio.AttachTermios(o, int(os.Stdout.Fd()), s)
+		err = attachTermios(o, s, os.Stdout)
 	default:
-		_ = xio.AttachTermios(o, int(os.Stdin.Fd()), s)
-		if os.Stdout.Fd() != os.Stdin.Fd() {
-			_ = xio.AttachTermios(o, int(os.Stdout.Fd()), s)
-		}
+		err = attachTermios(o, s, os.Stdin, os.Stdout)
+	}
+	if err != nil {
+		_ = o.Close()
+		return nil, err
 	}
 	return o, nil
 }
@@ -86,7 +87,10 @@ func openSTDIN(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 		return nil, err
 	}
 	o := &xio.Opened{Stream: st, Label: "STDIN"}
-	_ = xio.AttachTermios(o, int(os.Stdin.Fd()), s)
+	if err := attachTermios(o, s, os.Stdin); err != nil {
+		_ = o.Close()
+		return nil, err
+	}
 	return o, nil
 }
 
@@ -105,7 +109,10 @@ func openSTDOUT(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 		return nil, err
 	}
 	o := &xio.Opened{Stream: st, Label: "STDOUT"}
-	_ = xio.AttachTermios(o, int(os.Stdout.Fd()), s)
+	if err := attachTermios(o, s, os.Stdout); err != nil {
+		_ = o.Close()
+		return nil, err
+	}
 	return o, nil
 }
 
@@ -123,7 +130,12 @@ func openSTDERR(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	if err != nil {
 		return nil, err
 	}
-	return &xio.Opened{Stream: st, Label: "STDERR"}, nil
+	o := &xio.Opened{Stream: st, Label: "STDERR"}
+	if err := attachTermios(o, s, os.Stderr); err != nil {
+		_ = o.Close()
+		return nil, err
+	}
+	return o, nil
 }
 
 func openFD(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Opened, error) {
@@ -148,8 +160,27 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Op
 	if err != nil {
 		return nil, err
 	}
-	return &xio.Opened{
+	o := &xio.Opened{
 		Stream: st,
 		Label:  fmt.Sprintf("FD:%d", n),
-	}, nil
+	}
+	if err := attachTermios(o, s, f); err != nil {
+		_ = o.Close()
+		return nil, err
+	}
+	return o, nil
+}
+
+func attachTermios(o *xio.Opened, s parse.Spec, files ...*os.File) error {
+	seen := make(map[uintptr]bool, len(files))
+	for _, f := range files {
+		if f == nil || seen[f.Fd()] {
+			continue
+		}
+		seen[f.Fd()] = true
+		if err := xio.AttachTermios(o, int(f.Fd()), s); err != nil {
+			return err
+		}
+	}
+	return nil
 }

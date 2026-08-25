@@ -10,16 +10,17 @@ func TestDerivedOptionCaps(t *testing.T) {
 		name, group string
 		want        []string
 	}{
-		{name: "UDP-LISTEN", group: GroupUDP, want: []string{OptCapListen, OptCapIPFilter}},
-		{name: "UDP-RECVFROM", group: GroupUDP, want: []string{OptCapIPFilter}},
+		{name: "UDP-LISTEN", group: GroupUDP, want: []string{OptCapListen, OptCapIPFilter, OptCapPort, OptCapLowport}},
+		{name: "UDP-RECVFROM", group: GroupUDP, want: []string{OptCapIPFilter, OptCapPort, OptCapLowport}},
 		{name: "UNIX-RECVFROM", group: GroupUnix, want: nil},
 		{name: "UNIX-LISTEN", group: GroupUnix, want: []string{OptCapListen}},
-		{name: "TCP-LISTEN", group: GroupTCP, want: []string{OptCapListen, OptCapIPFilter}},
+		{name: "TCP-LISTEN", group: GroupTCP, want: []string{OptCapListen, OptCapIPFilter, OptCapPort, OptCapLowport}},
 		{name: "SOCKET-LISTEN", group: GroupSocket, want: []string{OptCapListen}},
 		{name: "OPEN", group: GroupFiles, want: []string{OptCapOpen}},
 		{name: "CREATE", group: GroupFiles, want: nil},
 		{name: "POSIXMQ-RECV", group: GroupPOSIXMQ, want: []string{OptCapOpen}},
-		{name: "UDP", group: GroupUDP, want: nil},
+		{name: "UDP", group: GroupUDP, want: []string{OptCapPort, OptCapLowport}},
+		{name: "QUIC", group: GroupQUIC, want: []string{OptCapPort}},
 	}
 	for _, tc := range cases {
 		got := DerivedOptionCaps(tc.name, tc.group)

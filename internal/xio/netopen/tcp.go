@@ -6,7 +6,6 @@ import (
 	"net"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -136,116 +135,15 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		}
 	}
 
-	fork, maxChildren, ferr := xio.ForkLimits(s)
-	if ferr != nil {
-		logx.CloseQuiet(ln)
-		return nil, ferr
-	}
-	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
-	// Per-connection wrap for fork accept (crlf, escape, keepalive, …).
-	// Non-fork applies the same via xio.WrapCommon after the single accept below.
-	wrapConn := func(c net.Conn) (relay.Stream, error) {
-		if err := xio.ApplyTCPConnOpts(s, c); err != nil {
-			return nil, err
-		}
-		return xio.WrapCommon(s, relay.NetStream{Conn: c})
-	}
-	o := &xio.Opened{
-		Kind:        xio.ListenKind(fork),
-		Listener:    ln,
-		Label:       fmt.Sprintf("%s-LISTEN:%s", network, port),
-		PeerFilter:  filter,
-		MaxChildren: maxChildren,
-		WrapDial:    wrapConn,
-	}
-	o.AcceptTimeout = xio.AcceptTimeout(s)
-	o.AddCleanup(func() { logx.CloseQuiet(ln) })
-
-	if fork {
-		// Parent keeps listening; xio.Run handles accept loop.
-		// xio.Close listener when ctx cancelled so xio.Accept unblocks on SIGTERM.
-		go func() {
-			<-ctx.Done()
-			logx.CloseQuiet(ln)
-		}()
-		return o, nil
-	}
-
-	// Non-fork: accept one permitted connection; honour ctx and accept-timeout.
-	// Classic Exit(0) on accept-timeout with no connection.
-	if g != nil && g.Log != nil {
-		g.Log.Noticef("listening on %s", ln.Addr())
-	}
-	at := xio.AcceptTimeout(s)
-	var deadline time.Time
-	if at > 0 {
-		deadline = time.Now().Add(at)
-	}
-	var conn net.Conn
-	for {
-		if !deadline.IsZero() {
-			if dl, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
-				_ = dl.SetDeadline(deadline)
-			}
-		}
-		type acc struct {
-			c   net.Conn
-			err error
-		}
-		ch := make(chan acc, 1)
-		go func() {
-			c, err := ln.Accept()
-			ch <- acc{c, err}
-		}()
-		select {
-		case <-ctx.Done():
-			logx.CloseQuiet(ln)
-			o.Listener = nil
-			return nil, ctx.Err()
-		case a := <-ch:
-			if a.err != nil {
-				logx.CloseQuiet(ln)
-				o.Listener = nil
-				if xio.IsTimeoutErr(a.err) {
-					// Phrase "timed out" matches classic test.sh REUSEADDR_NULL CANT path.
-					if g != nil && g.Log != nil {
-						g.Log.Warningf("accept: Connection timed out")
-					}
-					return nil, xio.ErrAcceptTimeout
-				}
-				return nil, a.err
-			}
-			if err := filter(a.c); err != nil {
-				if g != nil && g.Log != nil {
-					g.Log.Noticef("%s", err)
-				}
-				xio.CloseRefusedPeer(a.c)
-				continue // keep waiting for a permitted peer
-			}
-			conn = a.c
-		}
-		break
-	}
-	logx.CloseQuiet(ln)
-	o.Listener = nil
-	if g != nil && g.Log != nil {
-		g.Log.Infof("accepted connection from %s", conn.RemoteAddr())
-	}
-	// Classic: socket options on LISTEN apply to the accepted connection
-	// (so-keepalive, nodelay, …). LISTEN_KEEPALIVE checks filan on the conn.
-	if err := xio.ApplyTCPConnOpts(s, conn); err != nil {
-		_ = conn.Close()
-		return nil, err
-	}
-	xio.RememberAddrs(g, conn)
-	st := relay.Stream(relay.NetStream{Conn: conn})
-	st, err = xio.WrapCommon(s, st)
-	if err != nil {
-		logx.CloseQuiet(conn)
-		return nil, err
-	}
-	o.Stream = st
-	return o, nil
+	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
+		Listener: ln,
+		Label:    fmt.Sprintf("%s-LISTEN:%s", network, port),
+		WrapDial: func(c net.Conn) (relay.Stream, error) {
+			return xio.WrapAccepted(s, c, func(c net.Conn) error {
+				return xio.ApplyTCPConnOpts(s, c)
+			})
+		},
+	})
 }
 
 // xio.ApplyTCPConnOpts sets classic TCP/socket options on an accepted or dialed conn.

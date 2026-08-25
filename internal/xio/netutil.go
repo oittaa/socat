@@ -21,6 +21,27 @@ const (
 	LowportMax = 1023
 )
 
+// FirstAvailableLowport calls bind for ports 1023 down to 640. As in classic
+// xiobindlowport, only EADDRINUSE advances to another port; permission and
+// configuration errors fail immediately instead of being hidden by retries.
+func FirstAvailableLowport(bind func(int) error) (int, error) {
+	var lastErr error
+	for port := LowportMax; port >= LowportMin; port-- {
+		err := bind(port)
+		if err == nil {
+			return port, nil
+		}
+		lastErr = err
+		if !errors.Is(err, syscall.EADDRINUSE) {
+			return 0, err
+		}
+	}
+	if lastErr == nil {
+		lastErr = syscall.EADDRINUSE
+	}
+	return 0, lastErr
+}
+
 // ApplyReuse sets SO_REUSEADDR and optional SO_REUSEPORT on fd.
 // reuseaddrDefault is the classic listen default (true for TCP/UDP listen).
 func ApplyReuse(fd int, s parse.Spec, reuseaddrDefault bool) error {
@@ -157,7 +178,7 @@ func DialControl(s parse.Spec, network string, caller func(string, string, sysca
 // does not reject the dual-stroke notation.
 func listenBindIsIPv4(network string) bool {
 	switch network {
-	case "tcp4", "udp4", "ip4", "sctp4":
+	case "tcp4", "udp4", "ip4":
 		return true
 	default:
 		return false
@@ -349,7 +370,7 @@ func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 		cfg.Interval = d
 	}
 	if o, ok := s.OptionNamed("keepcnt"); ok && o.Has && strings.TrimSpace(o.Value) != "" {
-		n, err := strconv.Atoi(strings.TrimSpace(o.Value))
+		n, err := ParseIntAny(o.Value)
 		if err != nil || n <= 0 {
 			return fmt.Errorf("keepcnt: invalid count %q", o.Value)
 		}
@@ -445,6 +466,31 @@ func ParseIntAny(v string) (int, error) {
 		return 0, fmt.Errorf("out of range")
 	}
 	return int(n), nil
+}
+
+// ParseSizeT matches classic's strtoul-based TYPE_SIZE_T parser. In
+// particular, an optional minus sign is converted modulo 2^64, so
+// readbytes=-1 means the largest possible limit rather than a parse failure.
+func ParseSizeT(v string) (uint64, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0, fmt.Errorf("empty value")
+	}
+	negative := v[0] == '-'
+	if negative || v[0] == '+' {
+		v = v[1:]
+		if v == "" {
+			return 0, fmt.Errorf("invalid value")
+		}
+	}
+	n, err := strconv.ParseUint(v, 0, 64)
+	if err != nil {
+		return 0, err
+	}
+	if negative {
+		return -n, nil
+	}
+	return n, nil
 }
 
 func FirstHost(s parse.Spec) string {

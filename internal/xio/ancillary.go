@@ -92,7 +92,7 @@ func ApplyAncillaryRecvOpts(fd int, s parse.Spec) error {
 // ApplyIPSendOpts sets classic send-side IP options on a UDP/IP socket.
 func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
 	if v := s.OptionValue("ip-ttl", ""); v != "" {
-		n, err := strconv.Atoi(v)
+		n, err := ParseIntAny(v)
 		if err != nil {
 			return fmt.Errorf("ip-ttl: %w", err)
 		}
@@ -100,7 +100,7 @@ func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
 			return fmt.Errorf("ip-ttl: %w", err)
 		}
 	} else if v := s.OptionValue("ttl", ""); v != "" {
-		n, err := strconv.Atoi(v)
+		n, err := ParseIntAny(v)
 		if err != nil {
 			return fmt.Errorf("ttl: %w", err)
 		}
@@ -140,7 +140,7 @@ func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
 	}
 	if strings.Contains(network, "6") {
 		if v := s.OptionValue("ipv6-unicast-hops", ""); v != "" {
-			n, err := strconv.Atoi(v)
+			n, err := ParseIntAny(v)
 			if err != nil {
 				return fmt.Errorf("ipv6-unicast-hops: %w", err)
 			}
@@ -148,7 +148,7 @@ func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
 				return fmt.Errorf("ipv6-unicast-hops: %w", err)
 			}
 		} else if v := s.OptionValue("unicast-hops", ""); v != "" {
-			n, err := strconv.Atoi(v)
+			n, err := ParseIntAny(v)
 			if err != nil {
 				return fmt.Errorf("unicast-hops: %w", err)
 			}

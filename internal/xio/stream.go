@@ -159,7 +159,7 @@ func ApplyReadBytes(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	if v == "" {
 		return stream, nil
 	}
-	n, err := strconv.ParseUint(v, 0, 64)
+	n, err := ParseSizeT(v)
 	if err != nil {
 		return nil, fmt.Errorf("invalid readbytes %q", v)
 	}
@@ -188,13 +188,21 @@ func (c *crnlWriter) Write(p []byte) (int, error) {
 	// the same input byte cannot emit a second \r (sndtimeo short writes).
 	written := 0
 	if c.pendingLF {
-		if _, err := c.w.Write([]byte{'\n'}); err != nil {
+		n, err := c.w.Write([]byte{'\n'})
+		if n == 1 {
+			c.pendingLF = false
+			if len(p) > 0 && p[0] == '\n' {
+				written++
+				p = p[1:]
+			}
+			if err != nil {
+				return written, err
+			}
+		} else {
+			if err == nil {
+				err = io.ErrShortWrite
+			}
 			return 0, err
-		}
-		c.pendingLF = false
-		written++
-		if len(p) > 0 && p[0] == '\n' {
-			p = p[1:]
 		}
 	}
 	for len(p) > 0 {
@@ -205,6 +213,9 @@ func (c *crnlWriter) Write(p []byte) (int, error) {
 		if i > 0 {
 			n, err := c.w.Write(p[:i])
 			written += n
+			if n != i && err == nil {
+				err = io.ErrShortWrite
+			}
 			if err != nil {
 				return written, err
 			}
@@ -212,23 +223,34 @@ func (c *crnlWriter) Write(p []byte) (int, error) {
 		}
 		if len(p) > 0 && p[0] == '\n' {
 			n, err := c.w.Write([]byte{'\r', '\n'})
-			switch {
-			case n == 0:
+			switch n {
+			case 0:
+				if err == nil {
+					err = io.ErrShortWrite
+				}
 				return written, err
-			case n == 1:
+			case 1:
 				c.pendingLF = true
 				if err != nil {
 					return written, err
 				}
-				if _, err := c.w.Write([]byte{'\n'}); err != nil {
+				n, err = c.w.Write([]byte{'\n'})
+				if n != 1 {
+					if err == nil {
+						err = io.ErrShortWrite
+					}
 					return written, err
 				}
 				c.pendingLF = false
-			case err != nil:
-				return written, err
+			case 2:
+			default:
+				return written, io.ErrShortWrite
 			}
 			written++
 			p = p[1:]
+			if err != nil {
+				return written, err
+			}
 		}
 	}
 	return written, nil

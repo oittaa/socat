@@ -359,22 +359,17 @@ func (c *udpDispatchConn) Write(p []byte) (int, error) {
 		return 0, net.ErrClosed
 	default:
 	}
-	c.listener.writeMu.Lock()
-	defer c.listener.writeMu.Unlock()
-	select {
-	case <-c.done:
-		return 0, net.ErrClosed
-	default:
-	}
 	c.deadlineMu.Lock()
 	deadline := c.writeDeadline
 	c.deadlineMu.Unlock()
-	if !deadline.IsZero() && !time.Now().Before(deadline) {
-		return 0, os.ErrDeadlineExceeded
-	}
-	// Do not SetWriteDeadline on the shared parent: one child would arm or
-	// expire another child's sndtimeo. Honour the deadline in userspace.
-	return c.pc.WriteToUDP(p, c.peer)
+	return writeSharedPacket(&c.listener.writeMu, deadline, c.pc.SetWriteDeadline, func() (int, error) {
+		select {
+		case <-c.done:
+			return 0, net.ErrClosed
+		default:
+		}
+		return c.pc.WriteToUDP(p, c.peer)
+	})
 }
 
 func (c *udpDispatchConn) Close() error {

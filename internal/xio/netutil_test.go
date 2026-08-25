@@ -2,12 +2,43 @@ package xio
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
+	"syscall"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
 )
+
+func TestFirstAvailableLowportRetriesOnlyAddressInUse(t *testing.T) {
+	var tried []int
+	port, err := FirstAvailableLowport(func(port int) error {
+		tried = append(tried, port)
+		if len(tried) < 3 {
+			return syscall.EADDRINUSE
+		}
+		return nil
+	})
+	if err != nil || port != LowportMax-2 {
+		t.Fatalf("port=%d err=%v", port, err)
+	}
+	if len(tried) != 3 {
+		t.Fatalf("tried %v, want three ports", tried)
+	}
+
+	wantErr := errors.New("permission denied")
+	tried = nil
+	if _, err := FirstAvailableLowport(func(port int) error {
+		tried = append(tried, port)
+		return wantErr
+	}); !errors.Is(err, wantErr) {
+		t.Fatalf("error=%v want %v", err, wantErr)
+	}
+	if len(tried) != 1 {
+		t.Fatalf("non-EADDRINUSE tried %d ports, want 1", len(tried))
+	}
+}
 
 func TestListenControlAppliesSetsockoptListen(t *testing.T) {
 	spec, err := parse.ParseSpec(fmt.Sprintf("TCP4-LISTEN:0,setsockopt-listen=%d:%d:1", solSocket, soReuseaddr))
@@ -51,8 +82,6 @@ func TestListenBindHost(t *testing.T) {
 		{"tcp4", "[::]", "0.0.0.0"},
 		{"udp4", "::", "0.0.0.0"},
 		{"ip4", "::", "0.0.0.0"},
-		{"sctp4", "::", "0.0.0.0"},
-		{"sctp4", "", "0.0.0.0"},
 		{"tcp6", "::", "::"},
 	}
 	for _, tc := range cases {
@@ -90,6 +119,25 @@ func TestParseIntAnyBase0(t *testing.T) {
 	}
 	if _, err := ParseIntAny("10junk"); err == nil {
 		t.Fatal("10junk: expected error")
+	}
+}
+
+func TestParseSizeTMatchesUnsignedClassicParsing(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  uint64
+	}{
+		{value: "010", want: 8},
+		{value: "0x10", want: 16},
+		{value: "-1", want: ^uint64(0)},
+	} {
+		got, err := ParseSizeT(tc.value)
+		if err != nil || got != tc.want {
+			t.Errorf("ParseSizeT(%q)=%d,%v want %d", tc.value, got, err, tc.want)
+		}
+	}
+	if _, err := ParseSizeT("10junk"); err == nil {
+		t.Fatal("ParseSizeT accepted trailing junk")
 	}
 }
 

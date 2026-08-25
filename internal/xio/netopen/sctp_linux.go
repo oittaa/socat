@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -85,9 +84,12 @@ func listenSCTP(_ context.Context, network, host, port string, s parse.Spec) (ne
 	}
 	backlog := 5
 	if v := s.OptionValue("backlog", ""); v != "" {
-		if n, e := strconv.Atoi(v); e == nil && n > 0 {
-			backlog = n
+		n, e := xio.ParseIntAny(v)
+		if e != nil || n <= 0 {
+			logx.CloseErr(unix.Close(fd))
+			return nil, fmt.Errorf("backlog: invalid value %q", v)
 		}
+		backlog = n
 	}
 	if err := unix.Listen(fd, backlog); err != nil {
 		logx.CloseErr(unix.Close(fd))
@@ -110,6 +112,7 @@ func dialSCTPAll(ctx context.Context, network, host, port string, s parse.Spec, 
 	}
 	bindOpt := s.OptionValue("bind", "")
 	sp := s.OptionValue("sourceport", "")
+	lowport := s.BoolOption("lowport") && (sp == "" || sp == "0")
 	var lastErr error
 	for _, ip := range ips {
 		af := 2
@@ -140,7 +143,7 @@ func dialSCTPAll(ctx context.Context, network, host, port string, s parse.Spec, 
 			optionNetwork = "sctp6"
 		}
 		// Merge spec-driven rcvtimeo/sndtimeo with any setsockopt= control.
-		c, err := connectSCTP(ctx, network, laddr, raddr, timeout, xio.DialControl(s, optionNetwork, control))
+		c, err := connectSCTP(ctx, network, laddr, raddr, timeout, lowport, g, xio.DialControl(s, optionNetwork, control))
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {
@@ -156,7 +159,7 @@ func dialSCTPAll(ctx context.Context, network, host, port string, s parse.Spec, 
 	return nil, lastErr
 }
 
-func connectSCTP(ctx context.Context, network string, laddr, raddr *net.TCPAddr, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
+func connectSCTP(ctx context.Context, network string, laddr, raddr *net.TCPAddr, timeout time.Duration, lowport bool, g *xio.Global, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
 	family := unix.AF_INET
 	if raddr.IP.To4() == nil {
 		family = unix.AF_INET6
@@ -171,7 +174,12 @@ func connectSCTP(ctx context.Context, network string, laddr, raddr *net.TCPAddr,
 			return nil, err
 		}
 	}
-	if laddr != nil {
+	if lowport {
+		if _, err := bindSCTPLowport(fd, family, laddr, g); err != nil {
+			logx.CloseErr(unix.Close(fd))
+			return nil, fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", xio.LowportMin, xio.LowportMax, err)
+		}
+	} else if laddr != nil {
 		sa, err := ipPortSockaddr(laddr.IP, laddr.Port)
 		if err != nil {
 			logx.CloseErr(unix.Close(fd))
@@ -198,6 +206,30 @@ func connectSCTP(ctx context.Context, network string, laddr, raddr *net.TCPAddr,
 		return nil, err
 	}
 	return fileConn(fd, "sctp")
+}
+
+func bindSCTPLowport(fd, family int, laddr *net.TCPAddr, g *xio.Global) (int, error) {
+	ip := net.IPv4zero
+	if family == unix.AF_INET6 {
+		ip = net.IPv6zero
+	}
+	if laddr != nil && laddr.IP != nil {
+		ip = laddr.IP
+	}
+	return xio.FirstAvailableLowport(func(port int) error {
+		if g != nil && g.Log != nil {
+			af := 2
+			if family == unix.AF_INET6 {
+				af = 10
+			}
+			g.Log.Debugf("bind({AF=%d %s:%d}, 16)", af, ip.String(), port)
+		}
+		sa, err := ipPortSockaddr(ip, port)
+		if err != nil {
+			return err
+		}
+		return unix.Bind(fd, sa)
+	})
 }
 
 func connectWithCtx(ctx context.Context, fd int, sa unix.Sockaddr) error {

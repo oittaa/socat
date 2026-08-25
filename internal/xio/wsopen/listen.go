@@ -58,12 +58,6 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	origin := s.OptionValue("origin", "")
 	proto := s.OptionValue("protocol", "")
 	handshakeTimeout := xio.HandshakeTimeout(s)
-	fork, maxChildren, ferr := xio.ForkLimits(s)
-	if ferr != nil {
-		logx.CloseQuiet(ln)
-		return nil, ferr
-	}
-	filter := func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) }
 	// Upgrade after peer filter (TCP-level range/sourceport/tcpwrap).
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
 		if err := xio.ApplyTCPConnOpts(s, c); err != nil {
@@ -76,77 +70,24 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		return xio.WrapCommon(s, relay.NetStream{Conn: uc})
 	}
 
-	o := &xio.Opened{
-		Kind:             xio.ListenKind(fork),
-		Listener:         ln,
-		Label:            s.Type + ":" + port + wpath,
-		PeerFilter:       filter,
-		MaxChildren:      maxChildren,
-		WrapDial:         wrapConn,
-		HandshakeTimeout: handshakeTimeout,
+	var setAcceptDeadline func(time.Time) error
+	if dl, ok := rawLn.(interface{ SetDeadline(time.Time) error }); ok {
+		setAcceptDeadline = dl.SetDeadline
 	}
-	o.AcceptTimeout = xio.AcceptTimeout(s)
-	o.AddCleanup(func() { logx.CloseQuiet(ln) })
-
-	if fork {
-		go func() {
-			<-ctx.Done()
-			logx.CloseQuiet(ln)
-		}()
-		return o, nil
+	sess := xio.ListenSession{
+		Listener:          ln,
+		Label:             s.Type + ":" + port + wpath,
+		WrapDial:          wrapConn,
+		SetAcceptDeadline: setAcceptDeadline,
+		HandshakeTimeout:  handshakeTimeout,
+		ListeningLog:      fmt.Sprintf("listening on %s (websocket %s)", ln.Addr(), wpath),
 	}
-
-	if g != nil && g.Log != nil {
-		g.Log.Noticef("listening on %s (websocket %s)", ln.Addr(), wpath)
-	}
-	at := xio.AcceptTimeout(s)
-	var deadline time.Time
-	if at > 0 {
-		deadline = time.Now().Add(at)
-	}
-	var conn net.Conn
-	for {
-		if !deadline.IsZero() {
-			// tls.Listener has no SetDeadline; use the TCP listener.
-			if dl, ok := rawLn.(interface{ SetDeadline(time.Time) error }); ok {
-				_ = dl.SetDeadline(deadline)
-			}
-		}
-		c, err := ln.Accept()
-		if err != nil {
-			logx.CloseQuiet(ln)
-			o.Listener = nil
-			if xio.IsTimeoutErr(err) {
-				return nil, xio.ErrAcceptTimeout
-			}
-			return nil, err
-		}
-		if err := filter(c); err != nil {
-			if g != nil && g.Log != nil {
-				g.Log.Noticef("%s", err)
-			}
-			xio.CloseRefusedPeer(c)
-			continue
-		}
-		conn = c
-		break
-	}
-	logx.CloseQuiet(ln)
-	o.Listener = nil
-	xio.RememberAddrs(g, conn)
 	if useTLS {
-		if err := xio.RememberTLSPeer(g, conn, handshakeTimeout); err != nil {
-			logx.CloseQuiet(conn)
-			return nil, err
+		sess.AfterAccept = func(g *xio.Global, c net.Conn) error {
+			return xio.RememberTLSPeer(g, c, handshakeTimeout)
 		}
 	}
-	st, err := wrapConn(conn)
-	if err != nil {
-		logx.CloseQuiet(conn)
-		return nil, err
-	}
-	o.Stream = st
-	return o, nil
+	return xio.OpenListenSession(ctx, s, g, sess)
 }
 
 func upgradeConn(c net.Conn, wantPath, origin, proto string, timeout time.Duration) (net.Conn, error) {
