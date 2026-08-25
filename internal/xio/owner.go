@@ -101,6 +101,11 @@ var (
 type unlinkEntry struct {
 	path string
 	info os.FileInfo
+	// hold pins the registered inode (O_PATH / O_EVTONLY). Overlay/tmpfs can
+	// recycle inode numbers on unlink+recreate; keeping the original object
+	// alive makes os.SameFile distinguish a replacement. Must not be a FIFO
+	// reader (O_RDONLY), which would consume data.
+	hold *os.File
 }
 
 // RegisterUnlinkPath records a filesystem path to remove on process signal exit
@@ -110,7 +115,7 @@ func RegisterUnlinkPath(path string) func() {
 	if path == "" || IsAbstract(path) {
 		return func() {}
 	}
-	info, err := os.Lstat(path)
+	hold, info, err := holdUnlinkIdentity(path)
 	if err != nil {
 		// Never register a path whose current object identity is unknown: a
 		// later file at that name might belong to somebody else.
@@ -119,7 +124,7 @@ func RegisterUnlinkPath(path string) func() {
 	unlinkMu.Lock()
 	unlinkNextID++
 	id := unlinkNextID
-	unlinkPaths[id] = unlinkEntry{path: path, info: info}
+	unlinkPaths[id] = unlinkEntry{path: path, info: info, hold: hold}
 	unlinkMu.Unlock()
 	var once sync.Once
 	return func() {
@@ -127,6 +132,9 @@ func RegisterUnlinkPath(path string) func() {
 			unlinkMu.Lock()
 			delete(unlinkPaths, id)
 			unlinkMu.Unlock()
+			if hold != nil {
+				_ = hold.Close()
+			}
 		})
 	}
 }
@@ -169,20 +177,30 @@ func UnlinkRegisteredPaths() {
 	unlinkMu.Unlock()
 	for _, entry := range paths {
 		current, err := os.Lstat(entry.path)
-		if err != nil || !sameRegisteredFile(entry.info, current) {
-			continue
+		if err == nil && sameRegisteredFile(entry.info, current) {
+			_ = os.Remove(entry.path)
 		}
-		_ = os.Remove(entry.path)
+		if entry.hold != nil {
+			_ = entry.hold.Close()
+		}
 	}
 	for _, h := range hooks {
 		h()
 	}
 }
 
+// sameRegisteredFile reports whether current is the object that was registered.
+// Classic unlinks the stored path with no identity check. We skip replacements
+// at the same name (dev+inode via SameFile). Mode/size/mtime are not compared:
+// they change on the live object (open, chmod, write) and would skip PIPE_REMOVE
+// cleanup. Inode reuse is handled by holdUnlinkIdentity, not by metadata.
 func sameRegisteredFile(original, current os.FileInfo) bool {
-	return original != nil && current != nil &&
-		os.SameFile(original, current) &&
-		original.Mode() == current.Mode() &&
-		original.Size() == current.Size() &&
-		original.ModTime().Equal(current.ModTime())
+	return original != nil && current != nil && os.SameFile(original, current)
+}
+
+// RegisteredUnlinkCount is the number of paths waiting for signal-exit cleanup.
+func RegisteredUnlinkCount() int {
+	unlinkMu.Lock()
+	defer unlinkMu.Unlock()
+	return len(unlinkPaths)
 }
