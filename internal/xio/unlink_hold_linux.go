@@ -8,19 +8,12 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// holdUnlinkIdentity pins path's inode without opening it for I/O. O_PATH is
-// not a FIFO reader, so a later blocking open(O_RDONLY) still waits for a writer.
-func holdUnlinkIdentity(path string) (*os.File, os.FileInfo, error) {
+// pinUnlinkPath holds path's inode without opening it for I/O. O_PATH is not a
+// FIFO reader, so a later blocking open(O_RDONLY) still waits for a writer.
+func pinUnlinkPath(path string) *os.File {
 	fd, err := unix.Open(path, unix.O_PATH|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0) // #nosec G304 -- endpoint path we created and are about to unregister on signal
 	if err != nil {
-		info, e := os.Lstat(path)
-		return nil, info, e
+		return nil
 	}
-	f := os.NewFile(uintptr(fd), path)
-	info, err := f.Stat()
-	if err != nil {
-		_ = f.Close()
-		return nil, nil, err
-	}
-	return f, info, nil
+	return os.NewFile(uintptr(fd), path)
 }

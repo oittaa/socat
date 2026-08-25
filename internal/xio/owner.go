@@ -101,10 +101,10 @@ var (
 type unlinkEntry struct {
 	path string
 	info os.FileInfo
-	// hold pins the registered inode (O_PATH / O_EVTONLY). Overlay/tmpfs can
-	// recycle inode numbers on unlink+recreate; keeping the original object
-	// alive makes os.SameFile distinguish a replacement. Must not be a FIFO
-	// reader (O_RDONLY), which would consume data.
+	// hold pins the registered inode so a replacement cannot recycle its
+	// identity (Linux O_PATH, Darwin O_EVTONLY, Windows FILE_SHARE_DELETE).
+	// Must not be a FIFO reader. Closed before os.Remove so Darwin can unlink
+	// a FIFO that still has a blocked open.
 	hold *os.File
 }
 
@@ -115,12 +115,13 @@ func RegisterUnlinkPath(path string) func() {
 	if path == "" || IsAbstract(path) {
 		return func() {}
 	}
-	hold, info, err := holdUnlinkIdentity(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		// Never register a path whose current object identity is unknown: a
 		// later file at that name might belong to somebody else.
 		return func() {}
 	}
+	hold := pinUnlinkPath(path)
 	unlinkMu.Lock()
 	unlinkNextID++
 	id := unlinkNextID
@@ -177,11 +178,14 @@ func UnlinkRegisteredPaths() {
 	unlinkMu.Unlock()
 	for _, entry := range paths {
 		current, err := os.Lstat(entry.path)
-		if err == nil && sameRegisteredFile(entry.info, current) {
-			_ = os.Remove(entry.path)
-		}
+		same := err == nil && sameRegisteredFile(entry.info, current)
+		// Drop the pin before unlink: Darwin can refuse to remove a FIFO while
+		// an O_EVTONLY descriptor still names that vnode.
 		if entry.hold != nil {
 			_ = entry.hold.Close()
+		}
+		if same {
+			_ = os.Remove(entry.path)
 		}
 	}
 	for _, h := range hooks {
@@ -193,7 +197,7 @@ func UnlinkRegisteredPaths() {
 // Classic unlinks the stored path with no identity check. We skip replacements
 // at the same name (dev+inode via SameFile). Mode/size/mtime are not compared:
 // they change on the live object (open, chmod, write) and would skip PIPE_REMOVE
-// cleanup. Inode reuse is handled by holdUnlinkIdentity, not by metadata.
+// cleanup. Inode reuse is handled by pinUnlinkPath, not by metadata.
 func sameRegisteredFile(original, current os.FileInfo) bool {
 	return original != nil && current != nil && os.SameFile(original, current)
 }
