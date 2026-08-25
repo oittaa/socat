@@ -36,7 +36,7 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	lowport := s.BoolOption("lowport") && (sp == "" || sp == "0")
 	var conn net.Conn
 	if lowport {
-		bind, err = xio.BindHostForListen(network, bind)
+		bind, err = xio.ListenBindHost(network, bind)
 		if err != nil {
 			return nil, err
 		}
@@ -47,7 +47,7 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 			Control: xio.DialControl(s, network, nil),
 		}
 		if bind != "" || sp != "" {
-			bind, err = xio.BindHostForListen(network, bind)
+			bind, err = xio.ListenBindHost(network, bind)
 			if err != nil {
 				return nil, err
 			}

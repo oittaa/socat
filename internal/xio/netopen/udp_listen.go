@@ -58,7 +58,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, fmt.Errorf("UDP-LISTEN requires port")
 	}
 	port := s.Params[0]
-	host, err := xio.BindHostForListen(network, s.OptionValue("bind", ""))
+	host, err := xio.ListenBindHost(network, s.OptionValue("bind", ""))
 	if err != nil {
 		return nil, err
 	}

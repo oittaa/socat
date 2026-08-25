@@ -11,8 +11,6 @@ const (
 	OptCapListen = "listen"
 	OptCapOpen   = "open"
 	OptCapRange  = "range"
-	// OptCapIPFilter is the historic name for GROUP_RANGE.
-	OptCapIPFilter = OptCapRange
 )
 
 // GoAddressClassicAlias maps Go-only or renamed address keywords onto the
@@ -115,16 +113,6 @@ func uniqueCaps(in []string) []string {
 	return out
 }
 
-// AddressAllowsOptionCap reports whether an address advertises cap.
-func AddressAllowsOptionCap(addrCaps []string, cap string) bool {
-	for _, c := range addrCaps {
-		if c == cap {
-			return true
-		}
-	}
-	return false
-}
-
 // OptionCapsAllowed is true when the option is unrestricted or the address
 // advertises at least one of the option's required capabilities.
 func OptionCapsAllowed(addrCaps, optionCaps []string) bool {
@@ -132,8 +120,10 @@ func OptionCapsAllowed(addrCaps, optionCaps []string) bool {
 		return true
 	}
 	for _, need := range optionCaps {
-		if AddressAllowsOptionCap(addrCaps, need) {
-			return true
+		for _, c := range addrCaps {
+			if c == need {
+				return true
+			}
 		}
 	}
 	return false

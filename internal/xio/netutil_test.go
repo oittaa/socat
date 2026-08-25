@@ -68,61 +68,39 @@ func TestListenControlAppliesSetsockoptListen(t *testing.T) {
 func TestListenBindHost(t *testing.T) {
 	cases := []struct {
 		network, bind, want string
+		wantErr             bool
 	}{
-		{"tcp4", "", "0.0.0.0"},
-		{"udp4", "", "0.0.0.0"},
-		{"ip4", "", "0.0.0.0"},
-		{"sctp4", "", "0.0.0.0"},
-		{"tcp6", "", "::"},
-		{"udp6", "", "::"},
-		{"sctp6", "", "::"},
-		{"tcp", "", "::"},
-		{"tcp4", "127.0.0.1", "127.0.0.1"},
-		{"tcp6", "[::1]", "[::1]"},
-		// Explicit bind is never rewritten, including IPv6 wildcards on v4 nets.
-		{"tcp4", "::", "::"},
-		{"tcp4", "[::]", "[::]"},
-		{"udp4", "::", "::"},
-		{"ip4", "::", "::"},
-		{"sctp4", "::", "::"},
-		{"tcp6", "::", "::"},
-		{"tcp6", "0.0.0.0", "0.0.0.0"},
+		{network: "tcp4", bind: "", want: "0.0.0.0"},
+		{network: "udp4", bind: "", want: "0.0.0.0"},
+		{network: "ip4", bind: "", want: "0.0.0.0"},
+		{network: "sctp4", bind: "", want: "0.0.0.0"},
+		{network: "tcp6", bind: "", want: "::"},
+		{network: "udp6", bind: "", want: "::"},
+		{network: "sctp6", bind: "", want: "::"},
+		{network: "tcp", bind: "", want: "::"},
+		{network: "tcp4", bind: "127.0.0.1", want: "127.0.0.1"},
+		{network: "tcp6", bind: "[::1]", want: "[::1]"},
+		{network: "tcp6", bind: "::", want: "::"},
+		{network: "tcp", bind: "::", want: "::"},
+		{network: "tcp4", bind: "::", wantErr: true},
+		{network: "tcp4", bind: "[::]", wantErr: true},
+		{network: "udp4", bind: "::", wantErr: true},
+		{network: "udp4", bind: "[::]", wantErr: true},
+		{network: "ip4", bind: "::", wantErr: true},
+		{network: "sctp4", bind: "::", wantErr: true},
+		{network: "tcp6", bind: "0.0.0.0", wantErr: true},
 	}
 	for _, tc := range cases {
-		if got := ListenBindHost(tc.network, tc.bind); got != tc.want {
-			t.Errorf("ListenBindHost(%q, %q) = %q, want %q", tc.network, tc.bind, got, tc.want)
+		got, err := ListenBindHost(tc.network, tc.bind)
+		if tc.wantErr {
+			if err == nil {
+				t.Errorf("ListenBindHost(%q, %q) = %q, want error", tc.network, tc.bind, got)
+			}
+			continue
 		}
-	}
-}
-
-func TestBindFamilyMismatch(t *testing.T) {
-	if err := BindFamilyMismatch("tcp4", ""); err != nil {
-		t.Fatalf("empty bind: %v", err)
-	}
-	if err := BindFamilyMismatch("tcp4", "127.0.0.1"); err != nil {
-		t.Fatalf("v4 bind: %v", err)
-	}
-	if err := BindFamilyMismatch("tcp", "::"); err != nil {
-		t.Fatalf("generic family + :: : %v", err)
-	}
-	if err := BindFamilyMismatch("tcp4", "::"); err == nil {
-		t.Fatal("tcp4 + :: must fail")
-	}
-	if err := BindFamilyMismatch("udp4", "[::]"); err == nil {
-		t.Fatal("udp4 + [::] must fail")
-	}
-	if err := BindFamilyMismatch("sctp4", "::"); err == nil {
-		t.Fatal("sctp4 + :: must fail")
-	}
-	if err := BindFamilyMismatch("tcp6", "0.0.0.0"); err == nil {
-		t.Fatal("tcp6 + 0.0.0.0 must fail")
-	}
-	if _, err := BindHostForListen("tcp4", "::"); err == nil {
-		t.Fatal("BindHostForListen tcp4 + :: must fail")
-	}
-	host, err := BindHostForListen("tcp4", "")
-	if err != nil || host != "0.0.0.0" {
-		t.Fatalf("empty tcp4 bind: host=%q err=%v", host, err)
+		if err != nil || got != tc.want {
+			t.Errorf("ListenBindHost(%q, %q) = %q, %v, want %q", tc.network, tc.bind, got, err, tc.want)
+		}
 	}
 }
 

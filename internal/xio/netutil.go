@@ -172,9 +172,6 @@ func DialControl(s parse.Spec, network string, caller func(string, string, sysca
 	}
 }
 
-// ListenBindHost resolves the bind host for listen and local-bind paths.
-// An explicit bind= value is returned unchanged: never rewrite :: to 0.0.0.0.
-// A family wildcard is supplied only when bind is absent.
 func forcedIPv4Network(network string) bool {
 	switch network {
 	case "tcp4", "udp4", "ip4", "sctp4":
@@ -193,47 +190,32 @@ func forcedIPv6Network(network string) bool {
 	}
 }
 
-func ListenBindHost(network, bind string) string {
-	if bind != "" {
-		return bind
-	}
-	if forcedIPv4Network(network) {
-		return "0.0.0.0"
-	}
-	return "::"
-}
-
-// BindFamilyMismatch reports an explicit bind= address that cannot be used
-// with a forced-family network (TCP4/UDP4/… vs ::, TCP6 vs 0.0.0.0).
-func BindFamilyMismatch(network, bind string) error {
+// ListenBindHost resolves the bind host for listen and local-bind paths.
+// An explicit bind= value is returned unchanged: never rewrite :: to 0.0.0.0.
+// A family wildcard is supplied only when bind is absent.
+// Forced-family combinations that would otherwise fail inside the OS resolver
+// (TCP4/UDP4 vs ::, TCP6 vs 0.0.0.0) return a clear error.
+func ListenBindHost(network, bind string) (string, error) {
 	if bind == "" {
-		return nil
+		if forcedIPv4Network(network) {
+			return "0.0.0.0", nil
+		}
+		return "::", nil
 	}
 	host := StripBrackets(bind)
 	if h, _, err := net.SplitHostPort(bind); err == nil {
 		host = StripBrackets(h)
 	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return nil
+	if ip := net.ParseIP(host); ip != nil {
+		is4 := ip.To4() != nil
+		if forcedIPv4Network(network) && !is4 {
+			return "", fmt.Errorf("bind: address family mismatch (%s on %s)", bind, network)
+		}
+		if forcedIPv6Network(network) && is4 {
+			return "", fmt.Errorf("bind: address family mismatch (%s on %s)", bind, network)
+		}
 	}
-	is4 := ip.To4() != nil
-	if forcedIPv4Network(network) && !is4 {
-		return fmt.Errorf("bind: address family mismatch (%s on %s)", bind, network)
-	}
-	if forcedIPv6Network(network) && is4 {
-		return fmt.Errorf("bind: address family mismatch (%s on %s)", bind, network)
-	}
-	return nil
-}
-
-// BindHostForListen is ListenBindHost plus a clear error for forced-family
-// combinations that would otherwise fail inside the OS resolver.
-func BindHostForListen(network, bind string) (string, error) {
-	if err := BindFamilyMismatch(network, bind); err != nil {
-		return "", err
-	}
-	return ListenBindHost(network, bind), nil
+	return bind, nil
 }
 
 func StripBrackets(host string) string {
