@@ -52,12 +52,15 @@ func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 			}
 		}
 
-		hctx := ctx
-		var cancel context.CancelFunc
-		if handshakeTimeout > 0 {
-			hctx, cancel = context.WithTimeout(ctx, handshakeTimeout)
-			defer cancel()
-		}
+		hctx, stopTimer, cancelHandshake := proxyHandshakeContext(ctx, handshakeTimeout)
+		success := false
+		defer func() {
+			if !success {
+				stopTimer()
+				cancelHandshake()
+				logx.CloseQuiet(raw)
+			}
+		}()
 
 		take := alreadyDialed(raw)
 		tr := &http.Transport{
@@ -93,14 +96,12 @@ func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 		req, e := http.NewRequestWithContext(hctx, http.MethodConnect, u, pr)
 		if e != nil {
 			_ = pw.Close()
-			logx.CloseQuiet(raw)
 			return e
 		}
 		req.Host = authority
 		req.ContentLength = -1
 		if auth, e := proxyAuthString(s); e != nil {
 			_ = pw.Close()
-			logx.CloseQuiet(raw)
 			return e
 		} else if auth != "" {
 			req.Header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(auth)))
@@ -109,23 +110,27 @@ func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 		if e != nil {
 			_ = pw.Close()
 			tr.CloseIdleConnections()
-			logx.CloseQuiet(raw)
 			return e
 		}
 		if resp.StatusCode < 200 || resp.StatusCode > 299 {
 			_ = pw.Close()
 			_ = resp.Body.Close()
 			tr.CloseIdleConnections()
-			logx.CloseQuiet(raw)
 			return fmt.Errorf("proxy CONNECT failed: %s", resp.Status)
 		}
+		stopTimer()
 		_ = raw.SetDeadline(time.Time{})
+		success = true
 		conn = &pipeConn{
 			r:      resp.Body,
 			w:      pw,
 			local:  staticAddr("h2", u),
 			remote: staticAddr("h2", authority),
-			extra:  []io.Closer{closerFunc(func() error { tr.CloseIdleConnections(); return nil })},
+			extra: []io.Closer{closerFunc(func() error {
+				cancelHandshake()
+				tr.CloseIdleConnections()
+				return nil
+			})},
 		}
 		return nil
 	})
@@ -133,6 +138,18 @@ func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 		return nil, err
 	}
 	return conn, nil
+}
+
+// proxyHandshakeContext bounds RoundTrip until CONNECT succeeds. HTTP/2 and
+// HTTP/3 abort the stream if the request context is cancelled, so the timer
+// must be stopped on success without cancelling; cancel runs on Close.
+func proxyHandshakeContext(parent context.Context, timeout time.Duration) (ctx context.Context, stopTimer, cancel context.CancelFunc) {
+	if timeout <= 0 {
+		return parent, func() {}, func() {}
+	}
+	ctx, cancel = context.WithCancel(parent)
+	timer := time.AfterFunc(timeout, cancel)
+	return ctx, func() { timer.Stop() }, cancel
 }
 
 func alreadyDialed(c net.Conn) func(context.Context, string, string) (net.Conn, error) {

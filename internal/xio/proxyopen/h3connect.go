@@ -39,24 +39,25 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 			TLSClientConfig: tlsCfg.Clone(),
 			QUICConfig:      &quic.Config{HandshakeIdleTimeout: idle},
 		}
-		cctx := ctx
-		var cancel context.CancelFunc
-		if attemptTimeout > 0 {
-			cctx, cancel = context.WithTimeout(ctx, attemptTimeout)
-			defer cancel()
-		}
+		cctx, stopTimer, cancelHandshake := proxyHandshakeContext(ctx, attemptTimeout)
+		success := false
+		defer func() {
+			if !success {
+				stopTimer()
+				cancelHandshake()
+				_ = tr.Close()
+			}
+		}()
 		pr, pw := io.Pipe()
 		req, e := http.NewRequestWithContext(cctx, http.MethodConnect, u, pr)
 		if e != nil {
 			_ = pw.Close()
-			_ = tr.Close()
 			return e
 		}
 		req.Host = authority
 		req.ContentLength = -1
 		if auth, e := proxyAuthString(s); e != nil {
 			_ = pw.Close()
-			_ = tr.Close()
 			return e
 		} else if auth != "" {
 			req.Header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(auth)))
@@ -64,21 +65,24 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 		resp, e := tr.RoundTrip(req)
 		if e != nil {
 			_ = pw.Close()
-			_ = tr.Close()
 			return e
 		}
 		if resp.StatusCode < 200 || resp.StatusCode > 299 {
 			_ = pw.Close()
 			_ = resp.Body.Close()
-			_ = tr.Close()
 			return fmt.Errorf("proxy CONNECT failed: %s", resp.Status)
 		}
+		stopTimer()
+		success = true
 		conn = &pipeConn{
 			r:      resp.Body,
 			w:      pw,
 			local:  staticAddr("h3", u),
 			remote: staticAddr("h3", authority),
-			extra:  []io.Closer{closerFunc(func() error { return tr.Close() })},
+			extra: []io.Closer{closerFunc(func() error {
+				cancelHandshake()
+				return tr.Close()
+			})},
 		}
 		return nil
 	})
