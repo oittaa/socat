@@ -74,16 +74,53 @@ func firstAvailableLowportFrom(start int, bind func(int) error) (int, error) {
 // Classic xiosock_reuseaddr (tag-1.8.1.3
 // 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 // af5388c898c7bb60997935aee93c223deba60c4a is the same tree) turns it on for
-// TCP listen. UDP-LISTEN sets it when fork is on or reuseaddr is present
-// (_xioopen_ipdgram_listen). Other UDP binds only set it when the option is
-// present. Classic 1.7.2.0 treated always-on UDP-LISTEN reuse as a bug.
+// TCP listen. Classic _xioopen_ipdgram_listen (UDP-LISTEN, UDP4-LISTEN, and
+// UDP6-LISTEN, including aliases UDP-L, UDP4-L, UDP6-L) sets it when fork is
+// on. Other UDP-backed addresses (UDP-RECVFROM, QUIC-LISTEN, …) only set it
+// when reuseaddr is present. Classic 1.7.2.0 treated always-on UDP-LISTEN
+// reuse as a bug.
 func reuseaddrListenDefault(s parse.Spec, network string) bool {
+	if udpListenAddress(s.Type) {
+		return s.BoolOption("fork")
+	}
 	switch network {
 	case "udp", "udp4", "udp6":
-		return s.BoolOption("fork")
+		return false
 	default:
 		return true
 	}
+}
+
+// udpListenAddress reports whether addrType is classic UDP-LISTEN after
+// addressnames[] alias expansion. Do not use GoAddressClassicAlias: QUIC-LISTEN
+// maps to OPENSSL-DTLS-SERVER for option groups, not for this default.
+func udpListenAddress(addrType string) bool {
+	t := strings.ToUpper(strings.TrimSpace(addrType))
+	if alias, ok := ClassicAddressAliases[t]; ok {
+		t = alias
+	}
+	switch t {
+	case "UDP-LISTEN", "UDP4-LISTEN", "UDP6-LISTEN":
+		return true
+	default:
+		return false
+	}
+}
+
+// UDPForkPortReuse reports whether a UDP-LISTEN fork session may share the
+// parent's port (SO_REUSEPORT on BSD; SO_REUSEADDR on connected child sockets).
+// Classic does not set SO_REUSEPORT; the Go port needs equivalent port reuse so
+// a connected child can bind the same local port while the parent stays
+// listening. Explicit reuseaddr=0 disables sharing, matching classic
+// setsockopt(SO_REUSEADDR, 0).
+func UDPForkPortReuse(s parse.Spec) bool {
+	if !udpListenAddress(s.Type) || !s.BoolOption("fork") {
+		return false
+	}
+	if s.HasOption("reuseaddr") {
+		return s.BoolOption("reuseaddr")
+	}
+	return true
 }
 
 // ApplyReuse sets SO_REUSEADDR and optional SO_REUSEPORT on fd.

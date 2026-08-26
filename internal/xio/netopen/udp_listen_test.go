@@ -806,9 +806,6 @@ func TestUDPListenForkImpliesReuseaddr(t *testing.T) {
 }
 
 func TestUDPForkReuseaddrZeroKeepsExclusive(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("BSD UDP fork sets SO_REUSEPORT, so a second bind still succeeds")
-	}
 	first, err := listenUDPOnPort(t, parseUDPSpec(t, "UDP4-LISTEN:0,bind=127.0.0.1,fork,reuseaddr=0"), 0)
 	if err != nil {
 		t.Fatal(err)
@@ -819,5 +816,19 @@ func TestUDPForkReuseaddrZeroKeepsExclusive(t *testing.T) {
 	if err == nil {
 		_ = second.Close()
 		t.Fatal("second UDP-LISTEN,fork,reuseaddr=0 bound successfully")
+	}
+}
+
+func TestUDPRecvfromForkDoesNotImplyReuseaddr(t *testing.T) {
+	first, err := listenUDPOnPort(t, parseUDPSpec(t, "UDP4-RECVFROM:0,bind=127.0.0.1,fork"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = first.Close() })
+	port := first.LocalAddr().(*net.UDPAddr).Port
+	second, err := listenUDPOnPort(t, parseUDPSpec(t, fmt.Sprintf("UDP4-RECVFROM:%d,bind=127.0.0.1,fork", port)), port)
+	if err == nil {
+		_ = second.Close()
+		t.Fatal("second UDP4-RECVFROM,fork bound successfully")
 	}
 }

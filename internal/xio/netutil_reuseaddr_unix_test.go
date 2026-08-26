@@ -4,6 +4,7 @@ package xio
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"syscall"
 	"testing"
@@ -94,5 +95,56 @@ func TestUDPListenForkSetsReuseaddr(t *testing.T) {
 	}
 	if !reuseaddrEnabled(t, sc) {
 		t.Fatal("UDP-LISTEN,fork did not set SO_REUSEADDR")
+	}
+}
+
+func TestUDPRecvfromForkOmitsReuseaddr(t *testing.T) {
+	spec, err := parse.ParseSpec("UDP4-RECVFROM:0,bind=127.0.0.1,fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lc := net.ListenConfig{Control: ListenControl(spec)}
+	pc, err := lc.ListenPacket(context.Background(), "udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	sc, ok := pc.(syscall.Conn)
+	if !ok {
+		t.Fatalf("%T does not implement syscall.Conn", pc)
+	}
+	if reuseaddrEnabled(t, sc) {
+		t.Fatal("UDP4-RECVFROM,fork set SO_REUSEADDR")
+	}
+}
+
+func TestQUICListenForkOmitsReuseaddr(t *testing.T) {
+	spec, err := parse.ParseSpec("QUIC-LISTEN:0,bind=127.0.0.1,fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lc := net.ListenConfig{Control: ListenControl(spec)}
+	pc, err := lc.ListenPacket(context.Background(), "udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	sc, ok := pc.(syscall.Conn)
+	if !ok {
+		t.Fatalf("%T does not implement syscall.Conn", pc)
+	}
+	if reuseaddrEnabled(t, sc) {
+		t.Fatal("QUIC-LISTEN,fork set SO_REUSEADDR")
+	}
+	port := pc.LocalAddr().(*net.UDPAddr).Port
+	secondSpec, err := parse.ParseSpec(fmt.Sprintf("QUIC-LISTEN:%d,bind=127.0.0.1,fork", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondLC := net.ListenConfig{Control: ListenControl(secondSpec)}
+	second, err := secondLC.ListenPacket(context.Background(), "udp4", fmt.Sprintf("127.0.0.1:%d", port))
+	if err == nil {
+		_ = second.Close()
+		t.Fatal("second QUIC-LISTEN,fork bound successfully")
 	}
 }

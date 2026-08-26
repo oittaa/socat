@@ -396,6 +396,8 @@ func (u *udpFilteredRecv) RemoteAddr() net.Addr      { return nil }
 func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, error) {
 	// Classic UDP-LISTEN sets SO_REUSEADDR when fork is on or reuseaddr is
 	// present; UDP-RECV/RECVFROM only when the option is present.
+	// BSD SO_REUSEPORT is enabled only for UDP-LISTEN fork when reuseaddr is
+	// not explicitly disabled, so reuseaddr=0 stays exclusive.
 	cfg := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
 			var optionErr error
@@ -404,7 +406,7 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 				if optionErr != nil {
 					return
 				}
-				if s.BoolOption("fork") {
+				if xio.UDPForkPortReuse(s) {
 					optionErr = enableUDPForkPortReuse(int(fd))
 					if optionErr != nil {
 						return

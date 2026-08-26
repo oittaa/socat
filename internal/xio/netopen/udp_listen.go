@@ -264,7 +264,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 		if la, ok := l.pc.LocalAddr().(*net.UDPAddr); ok {
 			local = cloneUDPAddr(la)
 		}
-		conn, err := dialUDPSession(l.network, local, a)
+		conn, err := dialUDPSession(l.network, local, a, l.spec)
 		if err != nil {
 			if l.g != nil && l.g.Log != nil {
 				l.g.Log.Noticef("UDP fork session dial: %s", err)
@@ -276,13 +276,18 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 	}
 }
 
-func dialUDPSession(network string, local, remote *net.UDPAddr) (*net.UDPConn, error) {
+func dialUDPSession(network string, local, remote *net.UDPAddr, s parse.Spec) (*net.UDPConn, error) {
 	// SO_REUSEADDR so we can bind the same local port as the parent listener.
+	// Skip when reuseaddr=0: classic applies the explicit zero and does not
+	// enable SO_REUSEPORT for parent/child sharing.
 	d := net.Dialer{
 		LocalAddr: local,
 		Control: func(network, address string, c syscall.RawConn) error {
 			var optionErr error
 			controlErr := c.Control(func(fd uintptr) {
+				if !xio.UDPForkPortReuse(s) {
+					return
+				}
 				optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 				if optionErr == nil {
 					optionErr = enableUDPForkPortReuse(int(fd))
