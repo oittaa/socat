@@ -430,6 +430,11 @@ func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 		if optionErr == nil {
 			optionErr = ApplySocketOptions(int(fd), s)
 		}
+		// PH_LATE so-sndbuf-late / so-rcvbuf-late on the raw UDP fd after
+		// bind/connect, before packet-session wrapping (udpRecvFromConn).
+		if optionErr == nil {
+			optionErr = ApplyLateSocketOptions(int(fd), s)
+		}
 	})
 	return errors.Join(controlErr, optionErr)
 }

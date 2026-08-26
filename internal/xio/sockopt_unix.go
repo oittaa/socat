@@ -3,6 +3,7 @@
 package xio
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -19,7 +20,13 @@ const (
 	ipv6V6only  = unix.IPV6_V6ONLY
 	soRcvtimeo  = unix.SO_RCVTIMEO
 	soSndtimeo  = unix.SO_SNDTIMEO
+	soSndbuf    = unix.SO_SNDBUF
+	soRcvbuf    = unix.SO_RCVBUF
 )
+
+func isNotSocketError(err error) bool {
+	return errors.Is(err, unix.ENOTSOCK)
+}
 
 func setSockoptInt(fd, level, opt, value int) error {
 	return unix.SetsockoptInt(fd, level, opt, value)
@@ -82,7 +89,7 @@ func ApplySocketOptions(fd int, s parse.Spec) error {
 			return fmt.Errorf("so-linger: %w", err)
 		}
 	}
-	return nil
+	return applyPastSocketBuffersAndDevice(fd, s)
 }
 
 func timevalFromSpec(v string) (*unix.Timeval, error) {

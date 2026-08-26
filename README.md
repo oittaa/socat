@@ -168,7 +168,7 @@ aliases and termios / baud names.
 
 | Area | Options |
 |------|---------|
-| Listen / connect | `reuseaddr` (TCP listen default on; UDP-LISTEN with `fork` or this option), `so-reuseport`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `listen-timeout`, `pf`, `ai-addrconfig`, `ipv6-v6only`, `backlog`, `so-linger`/`linger`, `setsockopt-listen` / `sockopt-listen`, `setsockopt` |
+| Listen / connect | `reuseaddr` (TCP listen default on; UDP-LISTEN with `fork` or this option), `so-reuseport`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `listen-timeout`, `pf`, `ai-addrconfig`, `ipv6-v6only`, `backlog`, `so-linger`/`linger`, `sndbuf`/`so-sndbuf`, `rcvbuf`/`so-rcvbuf`, `sndbuf-late`/`so-sndbuf-late`, `rcvbuf-late`/`so-rcvbuf-late`, `bindtodevice`/`so-bindtodevice`/`if`/`interface` (Linux), `setsockopt-listen` / `sockopt-listen`, `setsockopt` |
 | Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport`, `tcpwrap` / `libwrap` / `hosts-allow` / `hosts-deny` / `tcpwrap-etc` |
 | TUN / INTERFACE | `tun-name`, `tun-type`, `tun-device`, `iff-up`, `iff-no-pi`, `if-mtu` / `interface-mtu`, other `iff-*` flags |
 | Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `perm-early`, `user-early`/`uid-e`, `group-early`/`gid-e` (pre-open chmod/chown of an existing OPEN/CREATE/GOPEN/PIPE name, and chmod/chown of a UNIX socket after bind), `umask`, `nonblock`, `o-direct`/`direct` (Linux), `o-noatime`/`noatime`, `fs-noatime`/`ext2-noatime`/`ext3-noatime` (Linux), `unlink-early`, `unlink`/`delete`/`remove`, `unlink-late`, `unlink-close`, `f-setpipe-sz`/`pipesz` (Linux), `setlk` / `setlkw` (read/write variants) |
@@ -184,6 +184,8 @@ aliases and termios / baud names.
 | Namespaces | `netns=` (Linux `WITH_NAMESPACES`; one address open; root/`CAP_SYS_ADMIN`; `--experimental`) |
 
 **`max-children`:** limits concurrent `fork` sessions on **LISTEN** and on **CONNECT** / **TLS-CONNECT** client reconnect loops. Requires `fork`. Parent redials after `interval` (default 1s).
+
+**`sndbuf-late` / `rcvbuf-late`:** classic `PH_LATE`. Applied on the raw TCP socket after connect or accept (before TLS/PROXY handshake), on the raw UDP/UNIX datagram socket after bind or connect (before session wrapping), and on QUIC's transport UDP socket. `WrapCommon` still applies them on streams that expose a socket fd.
 
 **`perm=` / `mode=`:** last specified name wins. Regular files and FIFOs use the value as the `open`/`mkfifo` creation mode, so `umask=` still masks it (`umask=077,perm=0666` → `0600`). UNIX sockets and PTY slaves still `chmod` after bind. **`perm-early` / `user-early` (`uid-e`) / `group-early` (`gid-e`)** chmod/chown an existing filesystem name before open (`PH_PREOPEN` in classic `xio-named.c`); a missing OPEN/CREATE/GOPEN name drops them. On UNIX listen/recv and a bound UNIX client they also chmod/chown the new socket after bind (classic `xio-listen.c` / `xio-socket.c`: `PH_FD` then `PH_PREOPEN`, so `perm-early` wins over `perm=`). They are not create-mode bits. **`umask=`** applies during open (or child `Start` for EXEC/SHELL), then restores.
 

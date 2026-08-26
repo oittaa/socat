@@ -474,6 +474,9 @@ func applyUnixgramSocketOptions(c *net.UnixConn, s parse.Spec) error {
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
 		optionErr = xio.ApplySocketOptions(int(fd), s)
+		if optionErr == nil {
+			optionErr = xio.ApplyLateSocketOptions(int(fd), s)
+		}
 	})
 	return errors.Join(controlErr, optionErr)
 }

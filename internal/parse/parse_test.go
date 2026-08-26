@@ -152,6 +152,13 @@ func TestLastOptionWins(t *testing.T) {
 		{name: "canonical", spec: "CREATE:file,perm=600,perm=644", opt: "perm", want: "644"},
 		{name: "alias-last", spec: "TCP-LISTEN:1,reuseaddr=0,so-reuseaddr=1", opt: "reuseaddr", want: "1"},
 		{name: "canonical-last", spec: "TCP-LISTEN:1,so-reuseaddr=1,reuseaddr=0", opt: "reuseaddr", want: "0"},
+		{name: "sndbuf-alias", spec: "TCP:127.0.0.1:9,so-sndbuf=4096", opt: "sndbuf", want: "4096"},
+		{name: "rcvbuf-alias", spec: "TCP:127.0.0.1:9,so-rcvbuf=8192", opt: "rcvbuf", want: "8192"},
+		{name: "sndbuf-late-alias", spec: "TCP:127.0.0.1:9,so-sndbuf-late=4096", opt: "sndbuf-late", want: "4096"},
+		{name: "rcvbuf-late-alias", spec: "TCP:127.0.0.1:9,so-rcvbuf-late=8192", opt: "rcvbuf-late", want: "8192"},
+		{name: "bindtodevice-if", spec: "TCP:127.0.0.1:9,if=lo", opt: "bindtodevice", want: "lo"},
+		{name: "bindtodevice-so", spec: "TCP:127.0.0.1:9,so-bindtodevice=eth0", opt: "bindtodevice", want: "eth0"},
+		{name: "bindtodevice-interface", spec: "TCP4:127.0.0.1:9,interface=lo", opt: "bindtodevice", want: "lo"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

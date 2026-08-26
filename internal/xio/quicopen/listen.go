@@ -80,7 +80,15 @@ func quicConfig(s parse.Spec, tlsCfg *tls.Config) (quicSetup, error) {
 
 func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.PacketConn, error) {
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
-	return lc.ListenPacket(ctx, network, addr)
+	pc, err := lc.ListenPacket(ctx, network, addr)
+	if err != nil {
+		return nil, err
+	}
+	if err := xio.ApplyLateSocketOptionsToPacketConn(pc, s); err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
+	return pc, nil
 }
 
 // listenQUICClientPacket binds the client PacketConn. An explicit nonzero

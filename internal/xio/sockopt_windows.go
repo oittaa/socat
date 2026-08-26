@@ -3,6 +3,7 @@
 package xio
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -21,7 +22,13 @@ const (
 	soRcvtimeo  = windows.SO_RCVTIMEO
 	// x/sys/windows does not currently expose Winsock's SO_SNDTIMEO.
 	soSndtimeo = 0x1005
+	soSndbuf   = windows.SO_SNDBUF
+	soRcvbuf   = windows.SO_RCVBUF
 )
+
+func isNotSocketError(err error) bool {
+	return errors.Is(err, windows.WSAENOTSOCK)
+}
 
 func setSockoptInt(fd, level, opt, value int) error {
 	return windows.SetsockoptInt(windows.Handle(fd), level, opt, value)
@@ -82,7 +89,7 @@ func ApplySocketOptions(fd int, s parse.Spec) error {
 			return fmt.Errorf("so-linger: %w", err)
 		}
 	}
-	return nil
+	return applyPastSocketBuffersAndDevice(fd, s)
 }
 
 func windowsTimeoutMillis(v string) (uint32, error) {

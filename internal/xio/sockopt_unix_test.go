@@ -3,11 +3,16 @@
 package xio
 
 import (
+	"context"
 	"net"
+	"os"
+	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/unix"
 )
 
@@ -108,6 +113,245 @@ func TestApplySocketOptionsLingerUnix(t *testing.T) {
 	}
 }
 
+func unixSockoptInt(t *testing.T, fd, opt int) int {
+	t.Helper()
+	got, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func TestApplySocketOptionsSndbufRcvbufUnix(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+
+	spec, err := parse.ParseSpec("UDP:127.0.0.1:9,sndbuf=4096,rcvbuf=8192,sndbuf-late=65536,rcvbuf-late=131072")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplySocketOptions(fd, spec); err != nil {
+		t.Fatal(err)
+	}
+	if got := unixSockoptInt(t, fd, unix.SO_SNDBUF); got < 4096 {
+		t.Fatalf("SO_SNDBUF=%d want >= 4096 (late must not apply at PH_PASTSOCKET)", got)
+	}
+	if got := unixSockoptInt(t, fd, unix.SO_RCVBUF); got < 8192 {
+		t.Fatalf("SO_RCVBUF=%d want >= 8192 (late must not apply at PH_PASTSOCKET)", got)
+	}
+	if got := unixSockoptInt(t, fd, unix.SO_SNDBUF); got >= 65536 {
+		t.Fatalf("SO_SNDBUF=%d: sndbuf-late applied inside ApplySocketOptions", got)
+	}
+}
+
+func TestApplySocketOptionsRejectsNegativeSndbuf(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	spec, err := parse.ParseSpec("UDP:127.0.0.1:9,sndbuf=-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplySocketOptions(fd, spec); err == nil {
+		t.Fatal("expected invalid sndbuf error")
+	}
+}
+
+func TestWrapCommonAppliesSndbufLateOverEarlyUnix(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := os.NewFile(uintptr(fd), "sock")
+	t.Cleanup(func() { _ = f.Close() })
+
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,sndbuf=4096,rcvbuf=4096,sndbuf-late=65536,rcvbuf-late=65536")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplySocketOptions(fd, spec); err != nil {
+		t.Fatal(err)
+	}
+	earlySnd := unixSockoptInt(t, fd, unix.SO_SNDBUF)
+	earlyRcv := unixSockoptInt(t, fd, unix.SO_RCVBUF)
+	if earlySnd < 4096 || earlyRcv < 4096 {
+		t.Fatalf("early SO_SNDBUF=%d SO_RCVBUF=%d want >= 4096", earlySnd, earlyRcv)
+	}
+
+	if _, err := WrapCommon(spec, FileStream(f)); err != nil {
+		t.Fatal(err)
+	}
+	lateSnd := unixSockoptInt(t, fd, unix.SO_SNDBUF)
+	lateRcv := unixSockoptInt(t, fd, unix.SO_RCVBUF)
+	if lateSnd < 65536 {
+		t.Fatalf("SO_SNDBUF=%d want >= 65536 after WrapCommon (late wins)", lateSnd)
+	}
+	if lateRcv < 65536 {
+		t.Fatalf("SO_RCVBUF=%d want >= 65536 after WrapCommon (late wins)", lateRcv)
+	}
+	if lateSnd <= earlySnd {
+		t.Fatalf("SO_SNDBUF did not grow from early=%d to late=%d", earlySnd, lateSnd)
+	}
+}
+
+type netConnUnwrapper struct {
+	net.Conn
+}
+
+func (c netConnUnwrapper) NetConn() net.Conn { return c.Conn }
+
+func tcpPair(t *testing.T) (*net.TCPConn, *net.TCPConn) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	type res struct {
+		c   net.Conn
+		err error
+	}
+	ch := make(chan res, 1)
+	go func() {
+		c, err := ln.Accept()
+		ch <- res{c, err}
+	}()
+	cli, err := net.DialTCP("tcp", nil, ln.Addr().(*net.TCPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cli.Close() })
+	srv := <-ch
+	if srv.err != nil {
+		t.Fatal(srv.err)
+	}
+	t.Cleanup(func() { _ = srv.c.Close() })
+	return cli, srv.c.(*net.TCPConn)
+}
+
+func tcpSockoptInt(t *testing.T, tc *net.TCPConn, opt int) int {
+	t.Helper()
+	raw, err := tc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v int
+	var gerr error
+	_ = raw.Control(func(fd uintptr) {
+		v, gerr = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, opt)
+	})
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	return v
+}
+
+func TestApplyTCPConnOptsAppliesSndbufLateUnix(t *testing.T) {
+	cli, srv := tcpPair(t)
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,sndbuf=4096,rcvbuf=4096,sndbuf-late=65536,rcvbuf-late=65536")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := cli.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var optErr error
+	_ = raw.Control(func(fd uintptr) {
+		optErr = ApplySocketOptions(int(fd), spec)
+	})
+	if optErr != nil {
+		t.Fatal(optErr)
+	}
+	earlySnd := tcpSockoptInt(t, cli, unix.SO_SNDBUF)
+	earlyRcv := tcpSockoptInt(t, cli, unix.SO_RCVBUF)
+	if earlySnd < 4096 || earlyRcv < 4096 {
+		t.Fatalf("early SO_SNDBUF=%d SO_RCVBUF=%d want >= 4096", earlySnd, earlyRcv)
+	}
+	if earlySnd >= 65536 {
+		t.Fatalf("SO_SNDBUF=%d: sndbuf-late applied before ApplyTCPConnOpts", earlySnd)
+	}
+
+	if err := ApplyTCPConnOpts(spec, cli); err != nil {
+		t.Fatal(err)
+	}
+	lateSnd := tcpSockoptInt(t, cli, unix.SO_SNDBUF)
+	lateRcv := tcpSockoptInt(t, cli, unix.SO_RCVBUF)
+	if lateSnd < 65536 {
+		t.Fatalf("SO_SNDBUF=%d want >= 65536 after ApplyTCPConnOpts", lateSnd)
+	}
+	if lateRcv < 65536 {
+		t.Fatalf("SO_RCVBUF=%d want >= 65536 after ApplyTCPConnOpts", lateRcv)
+	}
+	if lateSnd <= earlySnd {
+		t.Fatalf("SO_SNDBUF did not grow from early=%d to late=%d", earlySnd, lateSnd)
+	}
+
+	if err := ApplyTCPConnOpts(spec, srv); err != nil {
+		t.Fatal(err)
+	}
+	if got := tcpSockoptInt(t, srv, unix.SO_SNDBUF); got < 65536 {
+		t.Fatalf("accepted SO_SNDBUF=%d want >= 65536", got)
+	}
+}
+
+func TestApplyTCPConnOptsAppliesSndbufLateThroughNetConnUnwrap(t *testing.T) {
+	cli, _ := tcpPair(t)
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,sndbuf-late=65536")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyTCPConnOpts(spec, netConnUnwrapper{Conn: cli}); err != nil {
+		t.Fatal(err)
+	}
+	if got := tcpSockoptInt(t, cli, unix.SO_SNDBUF); got < 65536 {
+		t.Fatalf("SO_SNDBUF=%d want >= 65536 through NetConn() unwrap", got)
+	}
+}
+
+func TestDialTCPAllAppliesSndbufLateUnix(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		buf := make([]byte, 1)
+		_, _ = c.Read(buf)
+	}()
+
+	port := ln.Addr().(*net.TCPAddr).Port
+	spec, err := parse.ParseSpec("TCP4:127.0.0.1:9,sndbuf-late=65536,rcvbuf-late=65536")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := DialTCPAll(context.Background(), "tcp4", "127.0.0.1", strconv.Itoa(port), spec, nil, time.Second, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	tc, ok := c.(*net.TCPConn)
+	if !ok {
+		t.Fatalf("conn type %T want *net.TCPConn", c)
+	}
+	if got := tcpSockoptInt(t, tc, unix.SO_SNDBUF); got < 65536 {
+		t.Fatalf("SO_SNDBUF=%d want >= 65536 after DialTCPAll", got)
+	}
+	if got := tcpSockoptInt(t, tc, unix.SO_RCVBUF); got < 65536 {
+		t.Fatalf("SO_RCVBUF=%d want >= 65536 after DialTCPAll", got)
+	}
+}
+
 func TestDialControlAppliesTimeosAndTTL(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -172,4 +416,65 @@ func TestDialControlAppliesTimeosAndTTL(t *testing.T) {
 	if tos != 0x10 {
 		t.Fatalf("IP_TOS=%#x want %#x", tos, 0x10)
 	}
+}
+
+func TestApplyUDPConnOptsAppliesLateUnix(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("linux SO_SNDBUF doubling")
+	}
+
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	uc := pc.(*net.UDPConn)
+
+	spec, err := parse.ParseSpec("UDP-LISTEN:0,sndbuf-late=65536,rcvbuf-late=65536")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyUDPConnOpts(uc, spec, "udp"); err != nil {
+		t.Fatalf("ApplyUDPConnOpts: %v", err)
+	}
+	if got := udpSockoptInt(t, uc, unix.SO_SNDBUF); got < 65536 {
+		t.Fatalf("SO_SNDBUF=%d want >= 65536 after ApplyUDPConnOpts", got)
+	}
+	if got := udpSockoptInt(t, uc, unix.SO_RCVBUF); got < 65536 {
+		t.Fatalf("SO_RCVBUF=%d want >= 65536 after ApplyUDPConnOpts", got)
+	}
+}
+
+func TestWrapCommonAppliesLateThroughNetConnUnwrapUnix(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("linux SO_SNDBUF doubling")
+	}
+	cli, _ := tcpPair(t)
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,sndbuf-late=65536")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WrapCommon(spec, relay.NetStream{Conn: netConnUnwrapper{Conn: cli}}); err != nil {
+		t.Fatalf("WrapCommon via NetConn(): %v", err)
+	}
+	if got := tcpSockoptInt(t, cli, unix.SO_SNDBUF); got < 65536 {
+		t.Fatalf("SO_SNDBUF=%d want >= 65536 through NetConn() unwrap", got)
+	}
+}
+
+func udpSockoptInt(t *testing.T, uc *net.UDPConn, opt int) int {
+	t.Helper()
+	raw, err := uc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v int
+	var gerr error
+	_ = raw.Control(func(fd uintptr) {
+		v, gerr = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, opt)
+	})
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	return v
 }
