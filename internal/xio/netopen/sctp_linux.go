@@ -255,13 +255,30 @@ func connectWithCtx(ctx context.Context, fd int, sa unix.Sockaddr) error {
 		<-done
 		return ctx.Err()
 	case err := <-done:
-		if errors.Is(err, unix.ECONNREFUSED) {
-			// SCTP_SERVICENAME greps "Connection refused" without -i.
-			// If test.sh ever switches to grep -i, drop this wrap and the nolint.
-			return fmt.Errorf("Connection refused") //nolint:staticcheck // ST1005: classic test.sh needs this exact phrase
-		}
-		return err
+		return sctpConnectErr(err, func() error {
+			_, e := unix.Getpeername(fd)
+			return e
+		})
 	}
+}
+
+// sctpConnectErr maps unix.Connect results. EISCONN is success when the
+// association is already up: Go may preempt the blocking connect goroutine
+// with SIGURG, and Linux SCTP then reports EISCONN for an established
+// socket (seen on GitHub linux-arm64 runners).
+func sctpConnectErr(err error, connected func() error) error {
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, unix.EISCONN) && connected != nil && connected() == nil {
+		return nil
+	}
+	if errors.Is(err, unix.ECONNREFUSED) {
+		// SCTP_SERVICENAME greps "Connection refused" without -i.
+		// If test.sh ever switches to grep -i, drop this wrap and the nolint.
+		return fmt.Errorf("Connection refused") //nolint:staticcheck // ST1005: classic test.sh needs this exact phrase
+	}
+	return err
 }
 
 func fileConn(fd int, name string) (net.Conn, error) {

@@ -3,8 +3,10 @@ package netopen
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -741,5 +743,187 @@ func TestUDPForkRecvfromIgnoresAcceptTimeout(t *testing.T) {
 	n, err := conn.Read(buf)
 	if err != nil || string(buf[:n]) != "late" {
 		t.Fatalf("n=%d err=%v data=%q", n, err, buf[:n])
+	}
+}
+
+func parseUDPSpec(t *testing.T, raw string) parse.Spec {
+	t.Helper()
+	s, err := parse.ParseSpec(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func listenUDPOnPort(t *testing.T, spec parse.Spec, port int) (*net.UDPConn, error) {
+	t.Helper()
+	return listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}, spec)
+}
+
+func TestUDPSecondBindWithoutReuseaddrFails(t *testing.T) {
+	first, err := listenUDPOnPort(t, parseUDPSpec(t, "UDP4-LISTEN:0,bind=127.0.0.1"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = first.Close() })
+	port := first.LocalAddr().(*net.UDPAddr).Port
+	second, err := listenUDPOnPort(t, parseUDPSpec(t, fmt.Sprintf("UDP4-LISTEN:%d,bind=127.0.0.1", port)), port)
+	if err == nil {
+		_ = second.Close()
+		t.Fatal("second UDP-LISTEN without reuseaddr bound successfully")
+	}
+}
+
+func TestUDPSecondBindWithReuseaddrSucceeds(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux SO_REUSEADDR lets two UDP sockets share a port; Darwin/BSD need SO_REUSEPORT")
+	}
+	first, err := listenUDPOnPort(t, parseUDPSpec(t, "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = first.Close() })
+	port := first.LocalAddr().(*net.UDPAddr).Port
+	second, err := listenUDPOnPort(t, parseUDPSpec(t, fmt.Sprintf("UDP4-LISTEN:%d,bind=127.0.0.1,reuseaddr", port)), port)
+	if err != nil {
+		t.Fatalf("second UDP-LISTEN,reuseaddr: %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+}
+
+func TestUDPListenForkImpliesReuseaddr(t *testing.T) {
+	first, err := listenUDPOnPort(t, parseUDPSpec(t, "UDP4-LISTEN:0,bind=127.0.0.1,fork"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = first.Close() })
+	port := first.LocalAddr().(*net.UDPAddr).Port
+	second, err := listenUDPOnPort(t, parseUDPSpec(t, fmt.Sprintf("UDP4-LISTEN:%d,bind=127.0.0.1,fork", port)), port)
+	if err != nil {
+		t.Fatalf("second UDP-LISTEN,fork: %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+}
+
+func TestUDPForkReuseaddrZeroKeepsExclusive(t *testing.T) {
+	first, err := listenUDPOnPort(t, parseUDPSpec(t, "UDP4-LISTEN:0,bind=127.0.0.1,fork,reuseaddr=0"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = first.Close() })
+	port := first.LocalAddr().(*net.UDPAddr).Port
+	second, err := listenUDPOnPort(t, parseUDPSpec(t, fmt.Sprintf("UDP4-LISTEN:%d,bind=127.0.0.1,fork,reuseaddr=0", port)), port)
+	if err == nil {
+		_ = second.Close()
+		t.Fatal("second UDP-LISTEN,fork,reuseaddr=0 bound successfully")
+	}
+}
+
+func TestUDPListenForkReuseaddrZeroServesFirstClient(t *testing.T) {
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec := parseUDPSpec(t, "UDP4-LISTEN:0,bind=127.0.0.1,fork,reuseaddr=0")
+	o, err := openUDP4Listen(context.Background(), spec, xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	ln := o.Listener
+
+	client, err := net.DialUDP("udp4", nil, ln.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	accepted := startUDPAccept(ln)
+	if _, err := client.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	sess := waitUDPAccept(t, accepted, 2*time.Second, "exclusive first datagram")
+	t.Cleanup(func() { _ = sess.Close() })
+
+	child, ok := sess.(*udpSessionConn)
+	if ok {
+		if !child.ownsListen || child.pc == nil || child.conn != nil {
+			t.Fatalf("exclusive child ownsListen=%v pc=%v conn=%v want handed-off listen socket", child.ownsListen, child.pc != nil, child.conn != nil)
+		}
+	} else if runtime.GOOS != "windows" {
+		t.Fatalf("child type %T want *udpSessionConn", sess)
+	}
+
+	buf := make([]byte, 16)
+	n, err := sess.Read(buf)
+	if err != nil || string(buf[:n]) != "ping" {
+		t.Fatalf("first payload n=%d err=%v data=%q", n, err, buf[:n])
+	}
+	if _, err := sess.Write([]byte("pong")); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	n, err = client.Read(buf)
+	if err != nil || string(buf[:n]) != "pong" {
+		t.Fatalf("echo n=%d err=%v data=%q", n, err, buf[:n])
+	}
+
+	if _, err := client.Write([]byte("ping2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	n, err = sess.Read(buf)
+	if err != nil || string(buf[:n]) != "ping2" {
+		t.Fatalf("second payload n=%d err=%v data=%q", n, err, buf[:n])
+	}
+	if _, err := sess.Write([]byte("pong2")); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	n, err = client.Read(buf)
+	if err != nil || string(buf[:n]) != "pong2" {
+		t.Fatalf("second echo n=%d err=%v data=%q", n, err, buf[:n])
+	}
+
+	if runtime.GOOS == "windows" {
+		return
+	}
+	second := startUDPAccept(ln)
+	select {
+	case result := <-second:
+		if result.err == nil {
+			_ = result.conn.Close()
+			t.Fatal("second Accept succeeded before exclusive session closed")
+		}
+	case <-time.After(200 * time.Millisecond):
+	}
+	if err := sess.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-second:
+		if result.err == nil {
+			_ = result.conn.Close()
+			t.Fatal("second Accept produced a session after exclusive handoff")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("second Accept still blocked after exclusive session Close")
+	}
+}
+
+func TestUDPRecvfromForkDoesNotImplyReuseaddr(t *testing.T) {
+	first, err := listenUDPOnPort(t, parseUDPSpec(t, "UDP4-RECVFROM:0,bind=127.0.0.1,fork"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = first.Close() })
+	port := first.LocalAddr().(*net.UDPAddr).Port
+	second, err := listenUDPOnPort(t, parseUDPSpec(t, fmt.Sprintf("UDP4-RECVFROM:%d,bind=127.0.0.1,fork", port)), port)
+	if err == nil {
+		_ = second.Close()
+		t.Fatal("second UDP4-RECVFROM,fork bound successfully")
 	}
 }

@@ -168,7 +168,7 @@ aliases and termios / baud names.
 
 | Area | Options |
 |------|---------|
-| Listen / connect | `reuseaddr`, `so-reuseport`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `listen-timeout`, `pf`, `ai-addrconfig`, `ipv6-v6only`, `backlog`, `so-linger`/`linger`, `setsockopt-listen` / `sockopt-listen`, `setsockopt` |
+| Listen / connect | `reuseaddr` (TCP listen default on; UDP-LISTEN with `fork` or this option), `so-reuseport`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `listen-timeout`, `pf`, `ai-addrconfig`, `ipv6-v6only`, `backlog`, `so-linger`/`linger`, `setsockopt-listen` / `sockopt-listen`, `setsockopt` |
 | Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport`, `tcpwrap` / `libwrap` / `hosts-allow` / `hosts-deny` / `tcpwrap-etc` |
 | TUN / INTERFACE | `tun-name`, `tun-type`, `tun-device`, `iff-up`, `iff-no-pi`, `if-mtu` / `interface-mtu`, other `iff-*` flags |
 | Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `umask`, `nonblock`, `o-noatime`/`noatime`, `f-setpipe-sz`/`pipesz` (Linux), `setlk` / `setlkw` (read/write variants) |

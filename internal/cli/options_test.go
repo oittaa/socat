@@ -181,3 +181,17 @@ func TestWinsizeHelpUsesColumnRowOrder(t *testing.T) {
 	}
 	t.Fatal("tiocswinsz missing from help options")
 }
+
+func TestReuseaddrHelpMentionsTCPDefaultAndUDPFork(t *testing.T) {
+	for _, group := range helpOptionGroups() {
+		for _, option := range group.opts {
+			if option.name == "reuseaddr" {
+				if !strings.Contains(option.desc, "TCP") || !strings.Contains(option.desc, "UDP-LISTEN") {
+					t.Fatalf("reuseaddr description=%q", option.desc)
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("reuseaddr missing from help options")
+}

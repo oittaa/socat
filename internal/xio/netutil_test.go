@@ -243,6 +243,67 @@ func TestParseSizeTMatchesUnsignedClassicParsing(t *testing.T) {
 	}
 }
 
+func TestReuseaddrListenDefault(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		spec    string
+		network string
+		want    bool
+	}{
+		{name: "udp-listen", spec: "UDP4-LISTEN:1", network: "udp4"},
+		{name: "udp-listen-generic", spec: "UDP4-LISTEN:1", network: "udp"},
+		{name: "udp6-listen", spec: "UDP4-LISTEN:1", network: "udp6"},
+		{name: "udp-listen-fork", spec: "UDP4-LISTEN:1,fork", network: "udp4", want: true},
+		{name: "udp-l-alias-fork", spec: "UDP-L:1,fork", network: "udp4", want: true},
+		{name: "udp4-l-alias-fork", spec: "UDP4-L:1,fork", network: "udp4", want: true},
+		{name: "udp6-l-alias-fork", spec: "UDP6-L:1,fork", network: "udp6", want: true},
+		// Default is on because of fork; ApplyReuse still honors reuseaddr=0.
+		{name: "udp-listen-fork-reuseaddr-0", spec: "UDP4-LISTEN:1,fork,reuseaddr=0", network: "udp4", want: true},
+		{name: "udp-recvfrom-fork", spec: "UDP4-RECVFROM:1,fork", network: "udp4"},
+		{name: "udp-recvfrom-generic-fork", spec: "UDP-RECVFROM:1,fork", network: "udp"},
+		{name: "quic-listen-fork", spec: "QUIC-LISTEN:1,fork", network: "udp4"},
+		{name: "quic-l-alias-fork", spec: "QUIC-L:1,fork", network: "udp4"},
+		{name: "tcp-listen", spec: "TCP4-LISTEN:1", network: "tcp4", want: true},
+		{name: "tcp-listen-generic", spec: "TCP4-LISTEN:1", network: "tcp", want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := reuseaddrListenDefault(s, tc.network); got != tc.want {
+				t.Fatalf("reuseaddrListenDefault(%q, %q)=%v want %v", tc.spec, tc.network, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestUDPForkPortReuse(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		spec string
+		want bool
+	}{
+		{name: "udp-listen-fork", spec: "UDP4-LISTEN:1,fork", want: true},
+		{name: "udp-l-alias-fork", spec: "UDP-L:1,fork", want: true},
+		{name: "udp-listen-fork-reuseaddr", spec: "UDP4-LISTEN:1,fork,reuseaddr", want: true},
+		{name: "udp-listen-fork-reuseaddr-0", spec: "UDP4-LISTEN:1,fork,reuseaddr=0"},
+		{name: "udp-listen", spec: "UDP4-LISTEN:1"},
+		{name: "udp-recvfrom-fork", spec: "UDP4-RECVFROM:1,fork"},
+		{name: "quic-listen-fork", spec: "QUIC-LISTEN:1,fork"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := UDPForkPortReuse(s); got != tc.want {
+				t.Fatalf("UDPForkPortReuse(%q)=%v want %v", tc.spec, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRecvTimeoutFromSpecRejectsJunk(t *testing.T) {
 	ok, err := parse.ParseSpec("UDP4-LISTEN:0,fork")
 	if err != nil {

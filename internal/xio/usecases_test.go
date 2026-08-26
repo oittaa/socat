@@ -435,6 +435,13 @@ func TestUDP4ListenPIPEEcho(t *testing.T) {
 	echoLive(t, streamOf(t, cli), []byte("udp-hi"))
 }
 
+func TestUDP4ListenForkReuseaddrZeroPIPEEcho(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	srv := startForkListenPIPE(t, ctx, g, "UDP4-LISTEN:0,fork,reuseaddr=0,bind=127.0.0.1")
+	cli := openClient(t, ctx, g, "UDP4:127.0.0.1:"+tcpPort(t, srv))
+	echoLive(t, streamOf(t, cli), []byte("udp-exclusive-hi"))
+}
+
 func TestUDP4SendtoToRecv(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
 	recv, err := xio.OpenChannel(ctx, mustParse(t, "UDP4-RECV:0,bind=127.0.0.1"), xio.ModeRead, g)
