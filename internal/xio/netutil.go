@@ -111,8 +111,9 @@ func udpListenAddress(addrType string) bool {
 // parent's port (SO_REUSEPORT on BSD; SO_REUSEADDR on connected child sockets).
 // Classic does not set SO_REUSEPORT; the Go port needs equivalent port reuse so
 // a connected child can bind the same local port while the parent stays
-// listening. Explicit reuseaddr=0 disables sharing, matching classic
-// setsockopt(SO_REUSEADDR, 0).
+// listening. Explicit reuseaddr=0 disables sharing; the first session then
+// takes the listen socket (classic child inherits the fd) instead of dropping
+// the datagram.
 func UDPForkPortReuse(s parse.Spec) bool {
 	if !udpListenAddress(s.Type) || !s.BoolOption("fork") {
 		return false
