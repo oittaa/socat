@@ -13,9 +13,11 @@ import (
 // af5388c898c7bb60997935aee93c223deba60c4a is the same tree).
 //
 // os.Stat follows symlinks, matching classic Stat(). unlink-early (PH_EARLY)
-// may set exists false. unlink/delete/remove (PH_PREOPEN) run only while
-// exists is still true and do not change exists or the recorded type, so
-// GOPEN keeps the original existing-file / socket classification.
+// may set exists false. If the name still exists, applyopts_named PH_PREOPEN
+// walks s.Options in command-line order (perm-early, user-early, group-early,
+// unlink). Those ops do not change exists or the recorded type, so GOPEN
+// keeps the original existing-file / socket classification. A missing name
+// drops PH_PREOPEN (classic dropopts): no chmod/chown/unlink of a hole.
 type namedEarly struct {
 	exists bool
 	mode   os.FileMode
@@ -40,11 +42,8 @@ func namedOpenEarly(path string, s parse.Spec) (namedEarly, error) {
 		n.exists = false
 	}
 
-	// Classic applyopts_named (tag-1.8.1.3 / master) unlinks on presence and
-	// ignores the stored TYPE_BOOL, so unlink=0 still deletes. That is a bug
-	// in this classic release; honor the documented bool.
-	if n.exists && s.BoolOption("unlink") {
-		if err := unlinkNamed(path); err != nil {
+	if n.exists {
+		if err := xio.ApplyNamedPreopen(path, s); err != nil {
 			return n, err
 		}
 	}
