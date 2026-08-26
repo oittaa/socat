@@ -4,6 +4,7 @@ package xio
 
 import (
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -105,6 +106,92 @@ func TestApplySocketOptionsLingerUnix(t *testing.T) {
 	}
 	if got.Onoff != 1 || got.Linger != 3 {
 		t.Fatalf("SO_LINGER=%+v want enabled, 3 seconds", got)
+	}
+}
+
+func unixSockoptInt(t *testing.T, fd, opt int) int {
+	t.Helper()
+	got, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func TestApplySocketOptionsSndbufRcvbufUnix(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+
+	spec, err := parse.ParseSpec("UDP:127.0.0.1:9,sndbuf=4096,rcvbuf=8192,sndbuf-late=65536,rcvbuf-late=131072")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplySocketOptions(fd, spec); err != nil {
+		t.Fatal(err)
+	}
+	if got := unixSockoptInt(t, fd, unix.SO_SNDBUF); got < 4096 {
+		t.Fatalf("SO_SNDBUF=%d want >= 4096 (late must not apply at PH_PASTSOCKET)", got)
+	}
+	if got := unixSockoptInt(t, fd, unix.SO_RCVBUF); got < 8192 {
+		t.Fatalf("SO_RCVBUF=%d want >= 8192 (late must not apply at PH_PASTSOCKET)", got)
+	}
+	if got := unixSockoptInt(t, fd, unix.SO_SNDBUF); got >= 65536 {
+		t.Fatalf("SO_SNDBUF=%d: sndbuf-late applied inside ApplySocketOptions", got)
+	}
+}
+
+func TestApplySocketOptionsRejectsNegativeSndbuf(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	spec, err := parse.ParseSpec("UDP:127.0.0.1:9,sndbuf=-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplySocketOptions(fd, spec); err == nil {
+		t.Fatal("expected invalid sndbuf error")
+	}
+}
+
+func TestWrapCommonAppliesSndbufLateOverEarlyUnix(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := os.NewFile(uintptr(fd), "sock")
+	t.Cleanup(func() { _ = f.Close() })
+
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,sndbuf=4096,rcvbuf=4096,sndbuf-late=65536,rcvbuf-late=65536")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplySocketOptions(fd, spec); err != nil {
+		t.Fatal(err)
+	}
+	earlySnd := unixSockoptInt(t, fd, unix.SO_SNDBUF)
+	earlyRcv := unixSockoptInt(t, fd, unix.SO_RCVBUF)
+	if earlySnd < 4096 || earlyRcv < 4096 {
+		t.Fatalf("early SO_SNDBUF=%d SO_RCVBUF=%d want >= 4096", earlySnd, earlyRcv)
+	}
+
+	if _, err := WrapCommon(spec, FileStream(f)); err != nil {
+		t.Fatal(err)
+	}
+	lateSnd := unixSockoptInt(t, fd, unix.SO_SNDBUF)
+	lateRcv := unixSockoptInt(t, fd, unix.SO_RCVBUF)
+	if lateSnd < 65536 {
+		t.Fatalf("SO_SNDBUF=%d want >= 65536 after WrapCommon (late wins)", lateSnd)
+	}
+	if lateRcv < 65536 {
+		t.Fatalf("SO_RCVBUF=%d want >= 65536 after WrapCommon (late wins)", lateRcv)
+	}
+	if lateSnd <= earlySnd {
+		t.Fatalf("SO_SNDBUF did not grow from early=%d to late=%d", earlySnd, lateSnd)
 	}
 }
 

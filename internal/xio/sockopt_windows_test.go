@@ -5,10 +5,12 @@ package xio
 import (
 	"errors"
 	"net"
+	"strings"
 	"testing"
 	"unsafe"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/windows"
 )
 
@@ -162,6 +164,138 @@ func TestApplySocketOptionsLingerWindows(t *testing.T) {
 	}
 	if got.Onoff != 1 || got.Linger != 3 {
 		t.Fatalf("SO_LINGER=%+v want enabled, 3 seconds", got)
+	}
+}
+
+func windowsTCPSockopt(t *testing.T, c *net.TCPConn, opt int) int {
+	t.Helper()
+	raw, err := c.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value int
+	var optionErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		value, optionErr = windows.GetsockoptInt(windows.Handle(fd), solSocket, opt)
+	})
+	if err := errors.Join(controlErr, optionErr); err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func TestApplySocketOptionsSndbufRcvbufWindows(t *testing.T) {
+	ln, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	accepted := make(chan *net.TCPConn, 1)
+	go func() {
+		conn, _ := ln.AcceptTCP()
+		accepted <- conn
+	}()
+	client, err := net.DialTCP("tcp4", nil, ln.Addr().(*net.TCPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	server := <-accepted
+	t.Cleanup(func() { _ = server.Close() })
+
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,sndbuf=4096,rcvbuf=8192,sndbuf-late=65536")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := client.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var optionErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		optionErr = ApplySocketOptions(int(fd), spec)
+	})
+	if err := errors.Join(controlErr, optionErr); err != nil {
+		t.Fatal(err)
+	}
+	if got := windowsTCPSockopt(t, client, windows.SO_SNDBUF); got < 4096 {
+		t.Fatalf("SO_SNDBUF=%d want >= 4096", got)
+	}
+	if got := windowsTCPSockopt(t, client, windows.SO_RCVBUF); got < 8192 {
+		t.Fatalf("SO_RCVBUF=%d want >= 8192", got)
+	}
+	if got := windowsTCPSockopt(t, client, windows.SO_SNDBUF); got >= 65536 {
+		t.Fatalf("SO_SNDBUF=%d: sndbuf-late applied inside ApplySocketOptions", got)
+	}
+}
+
+func TestWrapCommonAppliesSndbufLateOverEarlyWindows(t *testing.T) {
+	ln, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	accepted := make(chan *net.TCPConn, 1)
+	go func() {
+		conn, _ := ln.AcceptTCP()
+		accepted <- conn
+	}()
+	client, err := net.DialTCP("tcp4", nil, ln.Addr().(*net.TCPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	server := <-accepted
+	t.Cleanup(func() { _ = server.Close() })
+
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,sndbuf=4096,sndbuf-late=65536")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := client.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var optionErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		optionErr = ApplySocketOptions(int(fd), spec)
+	})
+	if err := errors.Join(controlErr, optionErr); err != nil {
+		t.Fatal(err)
+	}
+	early := windowsTCPSockopt(t, client, windows.SO_SNDBUF)
+	if early < 4096 {
+		t.Fatalf("early SO_SNDBUF=%d want >= 4096", early)
+	}
+	if _, err := WrapCommon(spec, relay.NetStream{Conn: client}); err != nil {
+		t.Fatal(err)
+	}
+	late := windowsTCPSockopt(t, client, windows.SO_SNDBUF)
+	if late < 65536 {
+		t.Fatalf("SO_SNDBUF=%d want >= 65536 after WrapCommon (late wins)", late)
+	}
+}
+
+func TestBindToDeviceUnsupportedWindows(t *testing.T) {
+	c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	spec, err := parse.ParseSpec("UDP:127.0.0.1:9,bindtodevice=lo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := c.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var optionErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		optionErr = ApplySocketOptions(int(fd), spec)
+	})
+	if err := errors.Join(controlErr, optionErr); err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("error=%v want not supported", err)
 	}
 }
 

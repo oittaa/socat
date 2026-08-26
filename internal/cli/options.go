@@ -374,6 +374,11 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "rcvtimeo", desc: "per-operation socket receive timeout; retry after expiration", aliases: []string{"so-rcvtimeo"}, addressTypes: socketTimeoutAddressTypes(), validate: validateDurationOption},
 			{name: "sndtimeo", desc: "per-operation socket send timeout; retry after expiration", aliases: []string{"so-sndtimeo"}, addressTypes: socketTimeoutAddressTypes(), validate: validateDurationOption},
 			{name: "so-linger", desc: "SO_LINGER timeout in seconds", aliases: []string{"linger"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
+			{name: "sndbuf", desc: "SO_SNDBUF size in bytes", aliases: []string{"so-sndbuf"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
+			{name: "rcvbuf", desc: "SO_RCVBUF size in bytes", aliases: []string{"so-rcvbuf"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
+			{name: "sndbuf-late", desc: "SO_SNDBUF after connect or accept", aliases: []string{"so-sndbuf-late"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
+			{name: "rcvbuf-late", desc: "SO_RCVBUF after connect or accept", aliases: []string{"so-rcvbuf-late"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
+			{name: "bindtodevice", desc: "SO_BINDTODEVICE interface name", aliases: []string{"so-bindtodevice", "if"}, addressTypes: socketTimeoutAddressTypes(), validate: validateRequiredString},
 		}},
 		{"Files and UNIX", []helpOpt{
 			{name: "rdonly", desc: "open read-only"},
