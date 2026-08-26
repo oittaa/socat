@@ -14,7 +14,7 @@ set -euo pipefail
 
 # Keep these in sync with .github/workflows/ci.yml (golangci-lint-action /
 # securego/gosec versions) so local `make check` matches CI.
-GOLANGCI_LINT_VERSION="v2.12.2"
+GOLANGCI_LINT_VERSION="v2.13.1"
 GOSEC_VERSION="v2.28.0"
 
 GOBIN="$(go env GOPATH)/bin"
