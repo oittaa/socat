@@ -18,9 +18,28 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"sndbuf", "rcvbuf", "sndbuf-late", "rcvbuf-late", "bindtodevice",
 		"so-sndbuf", "so-rcvbuf", "so-sndbuf-late", "so-rcvbuf-late",
 		"so-bindtodevice", "if", "interface",
+		"so-protocol", "so-prototype", "prototype", "protocol-family",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)
 		}
+	}
+	for _, addr := range []string{
+		"VSOCK-CONNECT:<cid>:<port>",
+		"VSOCK-LISTEN:<port>",
+	} {
+		if !strings.Contains(help, addr) {
+			t.Errorf("help missing %q", addr)
+		}
+	}
+}
+
+func TestLinuxVersionDefinesVSOCK(t *testing.T) {
+	var b bytes.Buffer
+	if err := printVersion(&b); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(b.String(), "#define WITH_VSOCK 1") {
+		t.Fatalf("missing WITH_VSOCK 1:\n%s", b.String())
 	}
 }

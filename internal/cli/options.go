@@ -299,6 +299,7 @@ func socketTimeoutAddressTypes() []string {
 		xio.GroupTLS:    true,
 		xio.GroupProxy:  true,
 		xio.GroupSCTP:   true,
+		xio.GroupVSOCK:  true,
 	}
 	allowedNames := map[string]bool{
 		"INTERFACE":  true, // AF_PACKET socket in the TUN group
@@ -330,8 +331,9 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "backlog", desc: "listen backlog", addressTypes: []string{
 				"TCP-LISTEN", "TCP-L", "TCP4-LISTEN", "TCP4-L", "TCP6-LISTEN", "TCP6-L",
 				"SOCKET-LISTEN", "SCTP-LISTEN", "SCTP-L", "SCTP4-LISTEN", "SCTP4-L", "SCTP6-LISTEN", "SCTP6-L",
+				"VSOCK-LISTEN", "VSOCK-L",
 			}, validate: validateInteger(1)},
-			{name: "pf", desc: "address family (4, 6, IP4, IP6, …)"},
+			{name: "pf", desc: "address family (4, 6, IP4, IP6, …)", aliases: []string{"protocol-family"}},
 			{name: "ai-addrconfig", desc: "getaddrinfo AI_ADDRCONFIG", aliases: []string{"addrconfig"}},
 			{name: "ipv6-v6only", desc: "IPV6_V6ONLY"},
 			{name: "retry", desc: "retry count on connect failure", validate: validateInteger(-1)},
@@ -379,6 +381,7 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "sndbuf-late", desc: "SO_SNDBUF after connect, accept, or bind (raw socket, before TLS/PROXY/QUIC wrapping)", aliases: []string{"so-sndbuf-late"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
 			{name: "rcvbuf-late", desc: "SO_RCVBUF after connect, accept, or bind (raw socket, before TLS/PROXY/QUIC wrapping)", aliases: []string{"so-rcvbuf-late"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
 			{name: "bindtodevice", desc: "SO_BINDTODEVICE interface name", aliases: []string{"so-bindtodevice", "if", "interface"}, addressTypes: socketTimeoutAddressTypes(), validate: validateRequiredString},
+			{name: "so-protocol", desc: "socket() protocol number", aliases: []string{"so-prototype", "prototype"}, validate: validateInteger(-1)},
 		}},
 		{"Files and UNIX", []helpOpt{
 			{name: "rdonly", desc: "open read-only"},

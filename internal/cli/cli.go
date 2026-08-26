@@ -688,7 +688,7 @@ func printVersion(w io.Writer) error {
 		{"SOCKS4", true},
 		{"SOCKS4A", true},
 		{"SOCKS5", true},
-		{"VSOCK", false},
+		{"VSOCK", xio.FeatureVSOCK},
 		{"NAMESPACES", xio.FeatureNAMESPACES},
 		{"PROXY", true},
 		{"SYSTEM", xio.FeatureEXEC},

@@ -22,6 +22,7 @@ const (
 	GroupWebSocket = "WebSocket (Go extra)" // #nosec G101 -- help section title, not a secret
 	GroupQUIC      = "QUIC (Go extra, not HTTP/3)"
 	GroupSCTP      = "SCTP (Linux)"
+	GroupVSOCK     = "VSOCK (Linux)"
 	GroupPOSIXMQ   = "POSIX message queues (Linux)"
 )
 
@@ -82,6 +83,7 @@ var defaultGroupOrder = []string{
 	GroupWebSocket,
 	GroupQUIC,
 	GroupSCTP,
+	GroupVSOCK,
 	GroupPOSIXMQ,
 }
 
