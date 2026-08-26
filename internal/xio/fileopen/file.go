@@ -584,7 +584,7 @@ func applyOpenTruncate(f *os.File, s parse.Spec) error {
 	// Named-file ftruncate stays here so OPEN/CREATE/GOPEN still truncate
 	// once (ApplyFDOptions skips these types) and Windows keeps working.
 	// FD:n / inherited descriptors use ftruncate(2) in ApplyFDOptions.
-	if v := s.OptionValue("ftruncate", ""); s.HasOption("ftruncate") || s.HasOption("truncate") {
+	if v := s.OptionValue("ftruncate", ""); s.HasOption("ftruncate") {
 		if v == "" {
 			return fmt.Errorf("ftruncate: invalid value %q", v)
 		}

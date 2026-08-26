@@ -23,8 +23,8 @@ const fsNoatimeFL = 0x00000080
 //
 // Classic phases (xio-fd.c / applyopt_fcntl, tag-1.8.1.3
 // 12c08bf66d709fba17035ce95d85bd218428d9ba): PH_FD perm/user/group and
-// o-noatime, then PH_LATE append/ftruncate. claimFDLifecycle dedups when
-// WrapCommon would apply the same fd again.
+// o-noatime, then PH_LATE append/ftruncate. Duplicate apply with WrapCommon
+// is idempotent; fd numbers are not cached globally.
 func ApplyFDOptions(f *os.File, s parse.Spec) error {
 	if f == nil {
 		return nil
@@ -52,17 +52,13 @@ func ApplyFDOptions(f *os.File, s parse.Spec) error {
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
 		n := int(fd)
-		first := false
 		if needLifecycle {
-			first = claimFDLifecycle(n, s)
-			if first {
-				if fdLifecycleTestHook != nil {
-					fdLifecycleTestHook(n)
-				}
-				if e := applyFDPhaseLifecycle(n, s); e != nil {
-					optionErr = e
-					return
-				}
+			if fdLifecycleTestHook != nil {
+				fdLifecycleTestHook(n)
+			}
+			if e := applyFDPhaseLifecycle(n, s); e != nil {
+				optionErr = e
+				return
 			}
 		}
 		if noatime {
@@ -87,7 +83,7 @@ func ApplyFDOptions(f *os.File, s parse.Spec) error {
 				return
 			}
 		}
-		if needLifecycle && first {
+		if needLifecycle {
 			if e := applyLateLifecycle(n, s); e != nil {
 				optionErr = e
 			}

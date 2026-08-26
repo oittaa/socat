@@ -484,8 +484,8 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts bool) (relay.St
 	// on the transport PacketConn before wrapping.
 	//
 	// append / ftruncate / perm / user / group (classic PH_FD then PH_LATE)
-	// on unique syscall.Conn fds. Openers that already called ApplyFDOptions
-	// on the same fd are skipped via claimFDLifecycle.
+	// on unique syscall.Conn fds in this call. A second apply after
+	// ApplyFDOptions is idempotent.
 	if err := applyFDLifecycleToStream(s, stream); err != nil {
 		return nil, err
 	}

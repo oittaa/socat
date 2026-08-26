@@ -3,28 +3,20 @@
 package xio
 
 import (
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
 	"testing"
 
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/unix"
 )
-
-func mustSpec(t *testing.T, raw string) parse.Spec {
-	t.Helper()
-	s, err := parse.ParseSpec(raw)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return s
-}
 
 func fcntlFlags(t *testing.T, f *os.File) int {
 	t.Helper()
@@ -191,11 +183,11 @@ func TestApplyFDOptionsThenWrapCommonAppliesOnce(t *testing.T) {
 	if _, err := WrapCommon(spec, FileStream(f)); err != nil {
 		t.Fatal(err)
 	}
-	if got := n.Load(); got != 1 {
-		t.Fatalf("lifecycle applied %d times want 1 (ApplyFDOptions + WrapCommon on the same fd)", got)
+	if got := n.Load(); got < 1 {
+		t.Fatalf("lifecycle applied %d times want at least 1", got)
 	}
 	if fcntlFlags(t, f)&unix.O_APPEND == 0 {
-		t.Fatal("O_APPEND missing after deduped apply")
+		t.Fatal("O_APPEND missing after ApplyFDOptions + WrapCommon")
 	}
 }
 
@@ -228,7 +220,28 @@ func TestWrapCommonFtruncateRejectsTCP(t *testing.T) {
 	_ = srv
 }
 
-func TestWrapCommonPermOnUnixSocketDoesNotFail(t *testing.T) {
+func TestWrapCommonPermOnAnonymousSocketPropagatesFchmodError(t *testing.T) {
+	// Type TCP so skipDescriptorOwnerOpts does not skip. Classic applyopt_spec
+	// Fchmod reports EINVAL on Darwin/BSD sockets; that error must propagate.
+	cli, srv := localTCPPair(t)
+	spec := mustSpec(t, "TCP:127.0.0.1:1,perm=0600")
+	_, err := WrapCommon(spec, relay.NetStream{Conn: cli})
+	if runtime.GOOS == "linux" {
+		// Linux fchmod(2) on a socket fd can succeed; do not hide either outcome.
+		_ = err
+		_ = srv
+		return
+	}
+	if err == nil {
+		t.Fatal("expected fchmod error on anonymous socket descriptor")
+	}
+	if !strings.Contains(err.Error(), "fchmod") && !errors.Is(err, unix.EINVAL) {
+		t.Fatalf("error=%v want fchmod EINVAL", err)
+	}
+	_ = srv
+}
+
+func TestWrapCommonNamedUNIXTypeSkipsDescriptorFchmod(t *testing.T) {
 	// Darwin sun_path is 104 bytes. t.TempDir() includes the test name and
 	// fails bind with EINVAL on macOS CI (same as named_attrs_test.go).
 	dir, err := os.MkdirTemp("/tmp", "socat-perm-")
@@ -254,11 +267,9 @@ func TestWrapCommonPermOnUnixSocketDoesNotFail(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = cli.Close() })
-	// Type TCP so skipDescriptorOwnerOpts does not skip; the conn is AF_UNIX.
-	// Darwin fchmod(2) on sockets returns EINVAL; the open must still succeed.
-	spec := mustSpec(t, "TCP:127.0.0.1:1,perm=0600")
+	spec := mustSpec(t, "UNIX-CONNECT:"+listen+",perm=0600")
 	if _, err := WrapCommon(spec, relay.NetStream{Conn: cli}); err != nil {
-		t.Fatalf("WrapCommon perm on UNIX socket: %v", err)
+		t.Fatalf("named UNIX type must skip descriptor fchmod: %v", err)
 	}
 }
 
@@ -325,4 +336,188 @@ func connFcntlFlags(t *testing.T, c net.Conn) int {
 		t.Fatal(ferr)
 	}
 	return flags
+}
+
+func skipIfOwnerChangeDenied(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "operation not permitted") || strings.Contains(msg, "permission denied") {
+		t.Skipf("%v", err)
+	}
+	t.Fatal(err)
+}
+
+func TestApplyFDOptionsReusesFDNumberWithSameSpec(t *testing.T) {
+	// Regression for process-global fdLifecycleApplied: the kernel reuses fd
+	// numbers after close, and tests/callers reuse the same parsed Spec.
+	spec := mustSpec(t, "FD:3,ftruncate=3")
+	dir := t.TempDir()
+
+	path1 := filepath.Join(dir, "one")
+	fd1, err := unix.Open(path1, unix.O_RDWR|unix.O_CREAT, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unix.Write(fd1, []byte("0123456789")); err != nil {
+		_ = unix.Close(fd1)
+		t.Fatal(err)
+	}
+	f1 := os.NewFile(uintptr(fd1), path1)
+	if err := ApplyFDOptions(f1, spec); err != nil {
+		_ = f1.Close()
+		t.Fatal(err)
+	}
+	st, err := f1.Stat()
+	if err != nil {
+		_ = f1.Close()
+		t.Fatal(err)
+	}
+	if st.Size() != 3 {
+		_ = f1.Close()
+		t.Fatalf("first apply size=%d want 3", st.Size())
+	}
+	if err := f1.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	path2 := filepath.Join(dir, "two")
+	fd2, err := unix.Open(path2, unix.O_RDWR|unix.O_CREAT, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unix.Write(fd2, []byte("abcdefghij")); err != nil {
+		_ = unix.Close(fd2)
+		t.Fatal(err)
+	}
+	if fd2 != fd1 {
+		if err := unix.Dup2(fd2, fd1); err != nil {
+			_ = unix.Close(fd2)
+			t.Fatal(err)
+		}
+		if err := unix.Close(fd2); err != nil {
+			t.Fatal(err)
+		}
+		fd2 = fd1
+	}
+	f2 := os.NewFile(uintptr(fd2), path2)
+	t.Cleanup(func() { _ = f2.Close() })
+	st, err = f2.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Size() != 10 {
+		t.Fatalf("reused fd pre-apply size=%d want 10", st.Size())
+	}
+	if err := ApplyFDOptions(f2, spec); err != nil {
+		t.Fatal(err)
+	}
+	st, err = f2.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Size() != 3 {
+		t.Fatalf("reused fd %d size=%d want 3 (same spec skipped?)", fd2, st.Size())
+	}
+}
+
+func TestApplyFDOptionsModeAliasLastWins(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want os.FileMode
+	}{
+		{raw: "FD:3,mode=0600", want: 0o600},
+		{raw: "FD:3,perm=0644,mode=0600", want: 0o600},
+		{raw: "FD:3,mode=0600,perm=0644", want: 0o644},
+	}
+	for _, tc := range tests {
+		t.Run(tc.raw, func(t *testing.T) {
+			f, err := os.CreateTemp(t.TempDir(), "mode")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = f.Close() })
+			if err := f.Chmod(0o666); err != nil {
+				t.Fatal(err)
+			}
+			st, err := f.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st.Mode().Perm() != 0o666 {
+				t.Skipf("chmod 0666 did not stick (perm=%#o)", st.Mode().Perm())
+			}
+			if err := ApplyFDOptions(f, mustSpec(t, tc.raw)); err != nil {
+				skipIfOwnerChangeDenied(t, err)
+			}
+			st, err = f.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st.Mode().Perm() != tc.want {
+				t.Fatalf("perm=%#o want %#o", st.Mode().Perm(), tc.want)
+			}
+		})
+	}
+}
+
+func TestApplyFDOptionsUIDOwnerGIDAliases(t *testing.T) {
+	uid := strconv.Itoa(os.Getuid())
+	gid := strconv.Itoa(os.Getgid())
+	for _, raw := range []string{
+		"FD:3,uid=" + uid,
+		"FD:3,owner=" + uid,
+		"FD:3,gid=" + gid,
+		"FD:3,uid=" + uid + ",gid=" + gid,
+		"FD:3,owner=" + uid + ",user=" + uid,
+		"FD:3,gid=" + gid + ",group=" + gid,
+	} {
+		t.Run(raw, func(t *testing.T) {
+			f, err := os.CreateTemp(t.TempDir(), "owner-alias")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = f.Close() })
+			if err := ApplyFDOptions(f, mustSpec(t, raw)); err != nil {
+				skipIfOwnerChangeDenied(t, err)
+			}
+		})
+	}
+}
+
+func TestApplyFDOptionsFtruncate32And64LastWins(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want int64
+	}{
+		{raw: "FD:3,ftruncate32=4", want: 4},
+		{raw: "FD:3,ftruncate64=5", want: 5},
+		{raw: "FD:3,ftruncate=10,ftruncate32=3", want: 3},
+		{raw: "FD:3,ftruncate64=3,ftruncate=8", want: 8},
+		{raw: "FD:3,ftruncate32=2,ftruncate64=6", want: 6},
+	}
+	for _, tc := range tests {
+		t.Run(tc.raw, func(t *testing.T) {
+			f, err := os.CreateTemp(t.TempDir(), "trunc-alias")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = f.Close() })
+			if _, err := f.Write([]byte("0123456789abcdefghij")); err != nil {
+				t.Fatal(err)
+			}
+			if err := ApplyFDOptions(f, mustSpec(t, tc.raw)); err != nil {
+				t.Fatal(err)
+			}
+			st, err := f.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st.Size() != tc.want {
+				t.Fatalf("size=%d want %d", st.Size(), tc.want)
+			}
+		})
+	}
 }

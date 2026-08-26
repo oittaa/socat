@@ -76,6 +76,9 @@ var dynamicallyReadOptions = map[string]string{
 	"so-protocol": "netopen/vsock.go parseVsockProtocolOption",
 
 	"perm": "xio/run.go", "mode": "xio/run.go",
+	"uid": "xio/fdopts_lifecycle.go", "owner": "xio/fdopts_lifecycle.go",
+	"gid":         "xio/fdopts_lifecycle.go",
+	"ftruncate32": "xio/fdopts_lifecycle.go", "ftruncate64": "xio/fdopts_lifecycle.go",
 
 	// PH_PREOPEN NAMED walk in ApplyNamedPreopen (command-line order).
 	"perm-early": "xio/named_preopen.go", "user-early": "xio/named_preopen.go",

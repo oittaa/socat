@@ -360,6 +360,60 @@ func TestTruncateAlias(t *testing.T) {
 	}
 }
 
+func TestModePermUIDOwnerGIDFtruncateAliases(t *testing.T) {
+	tests := []struct {
+		raw        string
+		canonical  string
+		wantValue  string
+		aliasCheck string
+		wantCanon  string
+	}{
+		{raw: "FD:3,mode=0600", canonical: "perm", wantValue: "0600", aliasCheck: "mode", wantCanon: "perm"},
+		{raw: "FD:3,uid=7", canonical: "user", wantValue: "7", aliasCheck: "uid", wantCanon: "user"},
+		{raw: "FD:3,owner=8", canonical: "user", wantValue: "8", aliasCheck: "owner", wantCanon: "user"},
+		{raw: "FD:3,gid=9", canonical: "group", wantValue: "9", aliasCheck: "gid", wantCanon: "group"},
+		{raw: "FD:3,ftruncate32=4", canonical: "ftruncate", wantValue: "4", aliasCheck: "ftruncate32", wantCanon: "ftruncate"},
+		{raw: "FD:3,ftruncate64=5", canonical: "ftruncate", wantValue: "5", aliasCheck: "ftruncate64", wantCanon: "ftruncate"},
+	}
+	for _, tc := range tests {
+		if CanonicalOptionName(tc.aliasCheck) != tc.wantCanon {
+			t.Fatalf("%s canonicalized to %q want %q", tc.aliasCheck, CanonicalOptionName(tc.aliasCheck), tc.wantCanon)
+		}
+		s, err := ParseSpec(tc.raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !s.HasOption(tc.canonical) {
+			t.Fatalf("%s: missing %s after alias fold", tc.raw, tc.canonical)
+		}
+		if got := s.OptionValue(tc.canonical, ""); got != tc.wantValue {
+			t.Fatalf("%s: %s=%q want %q", tc.raw, tc.canonical, got, tc.wantValue)
+		}
+	}
+
+	s, err := ParseSpec("FD:3,perm=0644,mode=0600")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.OptionValue("perm", "") != "0600" {
+		t.Fatalf("perm=0644,mode=0600 last-wins got %q", s.OptionValue("perm", ""))
+	}
+	s, err = ParseSpec("FD:3,mode=0600,perm=0644")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.OptionValue("perm", "") != "0644" {
+		t.Fatalf("mode=0600,perm=0644 last-wins got %q", s.OptionValue("perm", ""))
+	}
+	s, err = ParseSpec("FD:3,ftruncate=10,ftruncate32=3,ftruncate64=8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.OptionValue("ftruncate", "") != "8" {
+		t.Fatalf("ftruncate last-wins got %q", s.OptionValue("ftruncate", ""))
+	}
+}
+
 func TestSocketTypeAlias(t *testing.T) {
 	for _, alias := range []string{"so-type", "type"} {
 		s, err := ParseSpec("UNIX-LISTEN:/tmp/test.sock," + alias + "=5")
