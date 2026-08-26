@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -284,53 +285,89 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 // Uses net.FileListener so SetDeadline works and Accept is interruptible
 // (hang-free under fork+retry and scorecard cleanup).
 type rawListener struct {
+	mu     sync.Mutex
 	fd     int
 	domain int
 	ln     net.Listener // lazy FileListener
 }
 
 func (l *rawListener) fileLn() (net.Listener, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.ln != nil {
 		return l.ln, nil
 	}
-	f := os.NewFile(uintptr(l.fd), "socket-listen")
+	if l.fd < 0 {
+		return nil, net.ErrClosed
+	}
+	// os.NewFile does not dup; FileListener copies internally, then Close
+	// of *os.File closes the NewFile fd. Dup first so a FileListener error
+	// does not close l.fd, which Accept's raw fallback and Close still own.
+	nfd, err := dupFD(l.fd)
+	if err != nil {
+		return nil, err
+	}
+	f := os.NewFile(uintptr(nfd), "socket-listen")
 	ln, err := net.FileListener(f)
 	logx.CloseQuiet(f)
 	if err != nil {
 		return nil, err
 	}
-	l.ln = ln
-	// Ownership of fd transferred to FileListener's dup; do not Close l.fd twice.
+	if err := unix.Close(l.fd); err != nil {
+		l.fd = -1
+		logx.CloseQuiet(ln)
+		return nil, err
+	}
 	l.fd = -1
+	l.ln = ln
 	return l.ln, nil
+}
+
+func dupFD(fd int) (int, error) {
+	nfd, err := unix.Dup(fd)
+	if err != nil {
+		return -1, err
+	}
+	unix.CloseOnExec(nfd)
+	return nfd, nil
 }
 
 func (l *rawListener) Accept() (net.Conn, error) {
 	ln, err := l.fileLn()
-	if err != nil {
-		// Fallback: raw accept
-		nfd, _, err := unix.Accept(l.fd)
-		if err != nil {
-			return nil, err
-		}
-		f := os.NewFile(uintptr(nfd), "socket-accept")
-		c, err := net.FileConn(f)
-		logx.CloseQuiet(f)
-		if err != nil {
-			logx.CloseErr(unix.Close(nfd))
-			return nil, err
-		}
-		return c, nil
+	if err == nil {
+		return ln.Accept()
 	}
-	return ln.Accept()
+	l.mu.Lock()
+	fd := l.fd
+	l.mu.Unlock()
+	if fd < 0 {
+		return nil, err
+	}
+	// Fallback: raw accept
+	nfd, _, err := unix.Accept(fd)
+	if err != nil {
+		return nil, err
+	}
+	f := os.NewFile(uintptr(nfd), "socket-accept")
+	c, err := net.FileConn(f)
+	logx.CloseQuiet(f)
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
 }
 
 func (l *rawListener) Close() error {
-	if l.ln != nil {
-		return l.ln.Close()
+	l.mu.Lock()
+	ln := l.ln
+	fd := l.fd
+	l.fd = -1
+	l.mu.Unlock()
+	if ln != nil {
+		return ln.Close()
 	}
-	if l.fd >= 0 {
-		return unix.Close(l.fd)
+	if fd >= 0 {
+		return unix.Close(fd)
 	}
 	return nil
 }
@@ -347,8 +384,13 @@ func (l *rawListener) SetDeadline(t time.Time) error {
 }
 
 func (l *rawListener) Addr() net.Addr {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.ln != nil {
 		return l.ln.Addr()
+	}
+	if l.fd < 0 {
+		return &net.IPAddr{}
 	}
 	sa, err := unix.Getsockname(l.fd)
 	if err != nil {
