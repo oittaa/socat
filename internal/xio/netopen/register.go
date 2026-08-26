@@ -108,4 +108,12 @@ func init() {
 	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupSCTP, Name: "SCTP6-CONNECT", Syntax: "SCTP6-CONNECT:<host>:<port>", Desc: "same as SCTP6", Enabled: sctpEnabled, Opener: openSCTP6Connect})
 	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupSCTP, Name: "SCTP6-LISTEN", Syntax: "SCTP6-LISTEN:<port>", Desc: "IPv6 SCTP server", Enabled: sctpEnabled, Opener: openSCTP6Listen})
 	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupSCTP, Name: "SCTP6-L", Syntax: "SCTP6-L:<port>", Desc: "same as SCTP6-LISTEN", Enabled: sctpEnabled, Opener: openSCTP6Listen})
+
+	// VSOCK. Classic -h lists VSOCK-CONNECT and VSOCK-LISTEN; addressnames[]
+	// also accepts VSOCK / VSOCK-L (same as SCTP / SCTP-L).
+	vsockEnabled := func() bool { return xio.FeatureVSOCK }
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupVSOCK, Name: "VSOCK", Syntax: "VSOCK:<cid>:<port>", Desc: "same as VSOCK-CONNECT", Enabled: vsockEnabled, Opener: openVSOCKConnect})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupVSOCK, Name: "VSOCK-CONNECT", Syntax: "VSOCK-CONNECT:<cid>:<port>", Desc: "VSOCK stream client", Enabled: vsockEnabled, Opener: openVSOCKConnect})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupVSOCK, Name: "VSOCK-LISTEN", Syntax: "VSOCK-LISTEN:<port>", Desc: "VSOCK stream server", Enabled: vsockEnabled, Opener: openVSOCKListen})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupVSOCK, Name: "VSOCK-L", Syntax: "VSOCK-L:<port>", Desc: "same as VSOCK-LISTEN", Enabled: vsockEnabled, Opener: openVSOCKListen})
 }

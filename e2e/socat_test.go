@@ -4,6 +4,8 @@ package e2e_test
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -561,6 +563,36 @@ func TestVersionHasSCTP(t *testing.T) {
 	h := capabilityOutput(t, "-h")
 	if !bytes.Contains(h, []byte("SCTP4-")) {
 		t.Fatalf("help missing SCTP4-: %s", h)
+	}
+}
+
+func TestVersionHasVSOCK(t *testing.T) {
+	skipUnlessLinux(t)
+	out := capabilityOutput(t, "-V")
+	if !bytes.Contains(out, []byte("#define WITH_VSOCK 1")) {
+		t.Fatalf("missing WITH_VSOCK 1:\n%s", out)
+	}
+	h := capabilityOutput(t, "-h")
+	if !bytes.Contains(h, []byte("VSOCK-CONNECT:")) {
+		t.Fatalf("help missing VSOCK-CONNECT: %s", h)
+	}
+	if !bytes.Contains(h, []byte("VSOCK-LISTEN:")) {
+		t.Fatalf("help missing VSOCK-LISTEN: %s", h)
+	}
+}
+
+func TestVSOCKListenAcceptTimeout(t *testing.T) {
+	skipUnlessLinux(t)
+	bin := socatBin(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, os.DevNull, "VSOCK-LISTEN:0,accept-timeout=0.05")
+	out, err := cmd.CombinedOutput()
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		t.Fatalf("VSOCK-LISTEN accept-timeout hung: %s", out)
+	}
+	if err != nil {
+		t.Skipf("VSOCK-LISTEN not usable: %v: %s", err, out)
 	}
 }
 

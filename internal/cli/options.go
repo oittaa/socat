@@ -299,6 +299,7 @@ func socketTimeoutAddressTypes() []string {
 		xio.GroupTLS:    true,
 		xio.GroupProxy:  true,
 		xio.GroupSCTP:   true,
+		xio.GroupVSOCK:  true,
 	}
 	allowedNames := map[string]bool{
 		"INTERFACE":  true, // AF_PACKET socket in the TUN group
@@ -330,6 +331,7 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "backlog", desc: "listen backlog", addressTypes: []string{
 				"TCP-LISTEN", "TCP-L", "TCP4-LISTEN", "TCP4-L", "TCP6-LISTEN", "TCP6-L",
 				"SOCKET-LISTEN", "SCTP-LISTEN", "SCTP-L", "SCTP4-LISTEN", "SCTP4-L", "SCTP6-LISTEN", "SCTP6-L",
+				"VSOCK-LISTEN", "VSOCK-L",
 			}, validate: validateInteger(1)},
 			{name: "pf", desc: "address family (4, 6, IP4, IP6, …)"},
 			{name: "ai-addrconfig", desc: "getaddrinfo AI_ADDRCONFIG", aliases: []string{"addrconfig"}},

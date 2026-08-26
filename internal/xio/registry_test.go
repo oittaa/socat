@@ -81,6 +81,8 @@ func TestRegisteredAddressOptionCaps(t *testing.T) {
 		{name: "TLS-LISTEN", must: []string{"listen", "openssl", "ip-tcp"}},
 		{name: "QUIC", must: []string{"openssl", "ip-udp"}},
 		{name: "WS", must: []string{"ip-tcp", "socket"}},
+		{name: "VSOCK-CONNECT", must: []string{"socket", "child", "retry"}, not: []string{"listen", "range", "ip-tcp"}},
+		{name: "VSOCK-LISTEN", must: []string{"listen", "socket", "child", "retry"}, not: []string{"range", "ip-tcp"}},
 	}
 	for _, tc := range cases {
 		reg, ok := xio.AddressRegistrationForType(tc.name)
