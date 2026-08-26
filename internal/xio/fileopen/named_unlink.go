@@ -21,6 +21,21 @@ type namedEarly struct {
 	mode   os.FileMode
 }
 
+// namedUnlinkPresent is classic applyopts_named PH_PREOPEN OPT_UNLINK.
+// unlink, delete, and remove are TYPE_BOOL, but applyopts_named never reads
+// the bool: presence of the option is enough, so unlink=0 still unlinks.
+// unlink-early is different: _xioopen_named_early and xioopen_fifo consume it
+// with retropt_bool, so unlink-early=0 is disabled.
+func namedUnlinkPresent(s parse.Spec) bool {
+	return s.HasOption("unlink")
+}
+
+// namedUnlinkLatePresent is classic applyopts_named PH_PASTOPEN OPT_UNLINK_LATE.
+// Like unlink, presence is enough; unlink-late=0 still unlinks after open.
+func namedUnlinkLatePresent(s parse.Spec) bool {
+	return s.HasOption("unlink-late")
+}
+
 func namedOpenEarly(path string, s parse.Spec) (namedEarly, error) {
 	var n namedEarly
 	fi, err := os.Stat(path)
@@ -40,7 +55,7 @@ func namedOpenEarly(path string, s parse.Spec) (namedEarly, error) {
 		n.exists = false
 	}
 
-	if n.exists && s.BoolOption("unlink") {
+	if n.exists && namedUnlinkPresent(s) {
 		if err := unlinkNamed(path); err != nil {
 			return n, err
 		}
@@ -60,7 +75,7 @@ func unlinkNamed(path string) error {
 // in xio-named.c; any other Unlink() error is Error() and aborts (exitlevel
 // E_ERROR).
 func applyNamedUnlinkLate(path string, s parse.Spec) error {
-	if !s.BoolOption("unlink-late") {
+	if !namedUnlinkLatePresent(s) {
 		return nil
 	}
 	return unlinkNamed(path)
