@@ -21,19 +21,21 @@ type namedEarly struct {
 	mode   os.FileMode
 }
 
-// namedUnlinkPresent is classic applyopts_named PH_PREOPEN OPT_UNLINK.
-// unlink, delete, and remove are TYPE_BOOL, but applyopts_named never reads
-// the bool: presence of the option is enough, so unlink=0 still unlinks.
-// unlink-early is different: _xioopen_named_early and xioopen_fifo consume it
-// with retropt_bool, so unlink-early=0 is disabled.
-func namedUnlinkPresent(s parse.Spec) bool {
-	return s.HasOption("unlink")
+// namedUnlinkEnabled honors the documented TYPE_BOOL value of unlink/delete/
+// remove. Classic applyopts_named (xio-named.c, tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same tree) ignores the
+// stored bool and unlinks on presence, so unlink=0 still deletes. That
+// contradicts the documented 0/1 bool contract and adjacent unlink-early /
+// unlink-close (retropt_bool). We follow the documented bool, not the bug.
+func namedUnlinkEnabled(s parse.Spec) bool {
+	return s.BoolOption("unlink")
 }
 
-// namedUnlinkLatePresent is classic applyopts_named PH_PASTOPEN OPT_UNLINK_LATE.
-// Like unlink, presence is enough; unlink-late=0 still unlinks after open.
-func namedUnlinkLatePresent(s parse.Spec) bool {
-	return s.HasOption("unlink-late")
+// namedUnlinkLateEnabled is the same correction for unlink-late: classic
+// applyopts_named PH_PASTOPEN unlinks on presence, including unlink-late=0.
+func namedUnlinkLateEnabled(s parse.Spec) bool {
+	return s.BoolOption("unlink-late")
 }
 
 func namedOpenEarly(path string, s parse.Spec) (namedEarly, error) {
@@ -55,7 +57,7 @@ func namedOpenEarly(path string, s parse.Spec) (namedEarly, error) {
 		n.exists = false
 	}
 
-	if n.exists && namedUnlinkPresent(s) {
+	if n.exists && namedUnlinkEnabled(s) {
 		if err := unlinkNamed(path); err != nil {
 			return n, err
 		}
@@ -75,7 +77,7 @@ func unlinkNamed(path string) error {
 // in xio-named.c; any other Unlink() error is Error() and aborts (exitlevel
 // E_ERROR).
 func applyNamedUnlinkLate(path string, s parse.Spec) error {
-	if !namedUnlinkLatePresent(s) {
+	if !namedUnlinkLateEnabled(s) {
 		return nil
 	}
 	return unlinkNamed(path)

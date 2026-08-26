@@ -430,40 +430,40 @@ func TestOpenUnlinkLateFailsWhenParentNotWritable(t *testing.T) {
 	}
 }
 
-func TestOpenUnlinkEqualsZeroStillUnlinks(t *testing.T) {
-	// Classic applyopts_named PH_PREOPEN never reads the bool, so unlink=0
-	// still removes the name before open.
+func TestOpenUnlinkEqualsZeroDoesNotUnlink(t *testing.T) {
+	// Documented TYPE_BOOL: unlink=0 must not delete. Classic applyopts_named
+	// ignores the stored false and would unlink; we do not copy that bug.
 	for _, opt := range []string{"unlink=0", "delete=0", "remove=0"} {
 		t.Run(opt, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "file")
 			if err := os.WriteFile(path, []byte("OLD\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			spec, err := parse.ParseSpec("OPEN:" + path + "," + opt)
+			o := openSpec(t, "OPEN:"+path+","+opt, xio.ModeRead)
+			t.Cleanup(func() { _ = o.Close() })
+			if _, err := os.Lstat(path); err != nil {
+				t.Fatalf("%s removed the name: %v", opt, err)
+			}
+			got, err := io.ReadAll(o.Stream)
 			if err != nil {
 				t.Fatal(err)
 			}
-			o, err := openOPEN(context.Background(), spec, xio.ModeRead, nil)
-			if err == nil {
-				_ = o.Close()
-				t.Fatalf("%s left the file and succeeded", opt)
-			}
-			if _, err := os.Lstat(path); !os.IsNotExist(err) {
-				t.Fatalf("%s left the name: %v", opt, err)
+			if string(got) != "OLD\n" {
+				t.Fatalf("read %q want OLD\\n", got)
 			}
 		})
 	}
 }
 
-func TestOpenUnlinkLateEqualsZeroStillUnlinks(t *testing.T) {
+func TestOpenUnlinkLateEqualsZeroDoesNotUnlink(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(path, []byte("hello\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	o := openSpec(t, "OPEN:"+path+",unlink-late=0", xio.ModeRead)
 	defer func() { _ = o.Close() }()
-	if _, err := os.Lstat(path); !os.IsNotExist(err) {
-		t.Fatalf("unlink-late=0 left the name: %v", err)
+	if _, err := os.Lstat(path); err != nil {
+		t.Fatalf("unlink-late=0 removed the name: %v", err)
 	}
 	got, err := io.ReadAll(o.Stream)
 	if err != nil {
@@ -523,26 +523,23 @@ func TestOpenUnlinkCloseEqualsZeroDisabled(t *testing.T) {
 	}
 }
 
-func TestGOPENUnlinkEqualsZeroExistingRegularFileFails(t *testing.T) {
+func TestGOPENUnlinkEqualsZeroKeepsExistingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(path, []byte("OLD\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	spec, err := parse.ParseSpec("GOPEN:" + path + ",unlink=0")
+	o := openSpec(t, "GOPEN:"+path+",unlink=0", xio.ModeWrite)
+	t.Cleanup(func() { _ = o.Close() })
+	got, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("GOPEN,unlink=0 removed the name: %v", err)
 	}
-	o, err := openGOPEN(context.Background(), spec, xio.ModeWrite, nil)
-	if err == nil {
-		_ = o.Close()
-		t.Fatal("GOPEN,unlink=0 of an existing file succeeded")
-	}
-	if _, err := os.Lstat(path); !os.IsNotExist(err) {
-		t.Fatalf("GOPEN,unlink=0 left or replaced the name: %v", err)
+	if string(got) != "OLD\n" {
+		t.Fatalf("content=%q want OLD\\n", got)
 	}
 }
 
-func TestNamedPipeUnlinkEqualsZeroIgnoresMissingPath(t *testing.T) {
+func TestNamedPipeUnlinkEqualsZeroMissingCreatesFIFO(t *testing.T) {
 	dir := t.TempDir()
 	for _, opt := range []string{"unlink=0", "delete=0", "remove=0"} {
 		t.Run(opt, func(t *testing.T) {
@@ -560,7 +557,7 @@ func TestNamedPipeUnlinkEqualsZeroIgnoresMissingPath(t *testing.T) {
 	}
 }
 
-func TestNamedPipeUnlinkEqualsZeroRemovesLeftoverFile(t *testing.T) {
+func TestNamedPipeUnlinkEqualsZeroLeavesLeftoverFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "stale")
 	if err := os.WriteFile(path, []byte("OLD\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -576,14 +573,17 @@ func TestNamedPipeUnlinkEqualsZeroRemovesLeftoverFile(t *testing.T) {
 	t.Cleanup(func() { _ = o.Close() })
 	fi, err := os.Lstat(path)
 	if err != nil {
-		t.Fatalf("PIPE,unlink=0 left no FIFO: %v", err)
+		t.Fatalf("PIPE,unlink=0 removed the leftover: %v", err)
 	}
-	if fi.Mode()&os.ModeNamedPipe == 0 {
-		t.Fatalf("PIPE,unlink=0 left mode=%v want FIFO", fi.Mode())
+	if fi.Mode()&os.ModeNamedPipe != 0 {
+		t.Fatal("PIPE,unlink=0 replaced the leftover file with a FIFO")
+	}
+	if !fi.Mode().IsRegular() {
+		t.Fatalf("PIPE,unlink=0 left mode=%v want regular file", fi.Mode())
 	}
 }
 
-func TestNamedPipeUnlinkLateEqualsZeroRemovesNameWhileOpen(t *testing.T) {
+func TestNamedPipeUnlinkLateEqualsZeroKeepsName(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pipe")
 	spec, err := parse.ParseSpec("PIPE:" + path + ",unlink-late=0,nonblock,unlink-close=0")
 	if err != nil {
@@ -594,7 +594,7 @@ func TestNamedPipeUnlinkLateEqualsZeroRemovesNameWhileOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = o.Close() }()
-	if _, err := os.Lstat(path); !os.IsNotExist(err) {
-		t.Fatalf("PIPE unlink-late=0 left the name: %v", err)
+	if _, err := os.Lstat(path); err != nil {
+		t.Fatalf("PIPE unlink-late=0 removed the name: %v", err)
 	}
 }

@@ -210,9 +210,9 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		if err := xio.Unlink(path); err != nil {
 			return nil, fmt.Errorf("unlink %s: %w", path, err)
 		}
-	} else if namedUnlinkPresent(s) {
-		// Classic xioopen_fifo applyopts_named PH_PREOPEN: unlink/delete/remove
-		// are active by presence, including unlink=0. ENOENT is ignored.
+	} else if namedUnlinkEnabled(s) {
+		// ENOENT is ignored (classic xio_unlink). unlink=0 does not unlink:
+		// see namedUnlinkEnabled.
 		if err := unlinkNamed(path); err != nil {
 			return nil, err
 		}
