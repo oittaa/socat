@@ -229,7 +229,13 @@ func TestWrapCommonFtruncateRejectsTCP(t *testing.T) {
 }
 
 func TestWrapCommonPermOnUnixSocketDoesNotFail(t *testing.T) {
-	dir := t.TempDir()
+	// Darwin sun_path is 104 bytes. t.TempDir() includes the test name and
+	// fails bind with EINVAL on macOS CI (same as named_attrs_test.go).
+	dir, err := os.MkdirTemp("/tmp", "socat-perm-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	listen := filepath.Join(dir, "l.sock")
 	ln, err := net.Listen("unix", listen)
 	if err != nil {
