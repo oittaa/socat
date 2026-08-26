@@ -45,14 +45,17 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	// teardown then waits out the drain so tail bytes and the FIN survive.
 	var drain atomic.Bool
 
-	timeout := xio.ConnectTimeout(s)
+	handshakeTimeout := xio.HandshakeTimeout(s)
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := xio.WithRetry(dctx, s, g, s.Type, func() error {
 			cctx := dctx
 			var cancel context.CancelFunc
-			if timeout > 0 {
-				cctx, cancel = context.WithTimeout(dctx, timeout)
+			// QUIC handshake is bounded by handshake-timeout (and
+			// HandshakeIdleTimeout). connect-timeout applies to UDP bind
+			// in listenPacket, not to this Dial.
+			if handshakeTimeout > 0 {
+				cctx, cancel = context.WithTimeout(dctx, handshakeTimeout)
 				defer cancel()
 			}
 			raddr, e := net.ResolveUDPAddr(network, dest)

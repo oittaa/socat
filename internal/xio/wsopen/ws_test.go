@@ -42,6 +42,42 @@ func TestUpgradeConnHandshakeTimeout(t *testing.T) {
 	}
 }
 
+func TestWSConnectHandshakeTimeoutStalledPeer(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		time.Sleep(5 * time.Second)
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	s, err := parse.ParseSpec(fmt.Sprintf("WS:127.0.0.1:%d,handshake-timeout=0.2", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	_, err = openWSConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	if err == nil {
+		t.Fatal("stalled WebSocket peer did not time out")
+	}
+	elapsed := time.Since(started)
+	if elapsed < 150*time.Millisecond {
+		t.Fatalf("failed too quickly (%s); handshake-timeout may not have been applied: %v", elapsed, err)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("handshake timeout took %s: %v", elapsed, err)
+	}
+}
+
 func echoWSHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})

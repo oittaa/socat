@@ -71,14 +71,19 @@ func quicConfig(s parse.Spec, tlsCfg *tls.Config) (quicSetup, error) {
 	if err != nil {
 		return quicSetup{}, err
 	}
-	cfg := &quic.Config{}
-	if t := xio.ConnectTimeout(s); t > 0 {
-		cfg.HandshakeIdleTimeout = t
-	}
+	// HandshakeIdleTimeout is the Go handshake-timeout extra. Classic
+	// OPTION_CONNECT_TIMEOUT (tag-1.8.1.3 12c08bf) aborts a connection
+	// attempt only; it must not be reused as the QUIC handshake idle bound.
+	cfg := &quic.Config{HandshakeIdleTimeout: xio.HandshakeTimeout(s)}
 	return quicSetup{tls: quicTLS, cfg: cfg}, nil
 }
 
 func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.PacketConn, error) {
+	if t := xio.ConnectTimeout(s); t > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, t)
+		defer cancel()
+	}
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	pc, err := lc.ListenPacket(ctx, network, addr)
 	if err != nil {

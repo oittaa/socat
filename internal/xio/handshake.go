@@ -10,14 +10,14 @@ import (
 const defaultHandshakeTimeout = 30 * time.Second
 
 // HandshakeTimeout bounds protocol negotiation after a connection is
-// established. handshake-timeout=0 explicitly disables the bound; otherwise
-// connect-timeout is reused when supplied and a safe default is applied.
+// established. This is a Go extra (not classic OPTION_CONNECT_TIMEOUT).
+// handshake-timeout=0 explicitly disables the bound. When the option is
+// omitted, a 30s default applies so a stalled TLS/WS/QUIC/PROXY/SOCKS
+// handshake cannot hang forever. connect-timeout is never reused here; it
+// remains the dial/accept-establishment bound only.
 func HandshakeTimeout(s parse.Spec) time.Duration {
 	if s.HasOption("handshake-timeout") {
 		return ParseTimeval(s.OptionValue("handshake-timeout", ""))
-	}
-	if timeout := ConnectTimeout(s); timeout > 0 {
-		return timeout
 	}
 	return defaultHandshakeTimeout
 }

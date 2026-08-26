@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oittaa/socat/internal/parse"
 )
@@ -115,5 +116,61 @@ func TestQUICConfigEnforcesTLS13Minimum(t *testing.T) {
 func TestUDPNetwork(t *testing.T) {
 	if udpNetwork("tcp4") != "udp4" || udpNetwork("tcp6") != "udp6" || udpNetwork("tcp") != "udp" {
 		t.Fatal(udpNetwork("tcp4"), udpNetwork("tcp6"), udpNetwork("tcp"))
+	}
+}
+
+func TestQUICConfigHandshakeIdleTimeoutFromHandshakeTimeout(t *testing.T) {
+	s, err := parse.ParseSpec("QUIC:h:1,handshake-timeout=0.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup, err := quicConfig(s, &tls.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if setup.cfg.HandshakeIdleTimeout != 200*time.Millisecond {
+		t.Fatalf("HandshakeIdleTimeout=%s want 200ms", setup.cfg.HandshakeIdleTimeout)
+	}
+}
+
+func TestQUICConfigHandshakeIdleTimeoutIgnoresConnectTimeout(t *testing.T) {
+	s, err := parse.ParseSpec("QUIC:h:1,connect-timeout=0.05")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup, err := quicConfig(s, &tls.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if setup.cfg.HandshakeIdleTimeout != 30*time.Second {
+		t.Fatalf("HandshakeIdleTimeout=%s want 30s default, not connect-timeout", setup.cfg.HandshakeIdleTimeout)
+	}
+}
+
+func TestQUICConfigHandshakeIdleTimeoutOmittedUsesDefault(t *testing.T) {
+	s, err := parse.ParseSpec("QUIC:h:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup, err := quicConfig(s, &tls.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if setup.cfg.HandshakeIdleTimeout != 30*time.Second {
+		t.Fatalf("HandshakeIdleTimeout=%s want 30s default", setup.cfg.HandshakeIdleTimeout)
+	}
+}
+
+func TestQUICConfigHandshakeIdleTimeoutZeroDisablesBound(t *testing.T) {
+	s, err := parse.ParseSpec("QUIC:h:1,handshake-timeout=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setup, err := quicConfig(s, &tls.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if setup.cfg.HandshakeIdleTimeout != 0 {
+		t.Fatalf("HandshakeIdleTimeout=%s want 0 (disabled; not 30s default)", setup.cfg.HandshakeIdleTimeout)
 	}
 }
