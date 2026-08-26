@@ -2,10 +2,16 @@
 
 package xio
 
-import "golang.org/x/sys/windows"
+import (
+	"os"
 
-// Unlink removes a file or socket name without removing directories.
-// DeleteFile is the Windows analog of unlink(2); RemoveDirectory is not.
+	"golang.org/x/sys/windows"
+)
+
+// Unlink removes a file, socket name, or symbolic link without removing real
+// directories. DeleteFile is the Windows analog of unlink(2) for non-directory
+// names. Directory symlinks and junctions require RemoveDirectory, which
+// removes the link rather than its target.
 //
 // os.Remove also rmdirs empty directories and, on ACCESS_DENIED, retries after
 // clearing FILE_ATTRIBUTE_READONLY. Classic unlink(2) unlinks a mode-0400 file
@@ -25,7 +31,10 @@ func Unlink(path string) error {
 		return err
 	}
 	if attrs&windows.FILE_ATTRIBUTE_DIRECTORY != 0 {
-		return err
+		if _, lerr := os.Readlink(path); lerr != nil {
+			return err
+		}
+		return windows.RemoveDirectory(p)
 	}
 	if attrs&windows.FILE_ATTRIBUTE_READONLY == 0 {
 		return err
