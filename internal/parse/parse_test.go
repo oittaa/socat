@@ -345,12 +345,14 @@ func TestDirectAndFSNoatimeAliases(t *testing.T) {
 }
 
 func TestSocketTypeAlias(t *testing.T) {
-	s, err := ParseSpec("UNIX-LISTEN:/tmp/test.sock,so-type=5")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := s.OptionValue("socktype", ""); got != "5" {
-		t.Fatalf("socktype=%q want 5", got)
+	for _, alias := range []string{"so-type", "type"} {
+		s, err := ParseSpec("UNIX-LISTEN:/tmp/test.sock," + alias + "=5")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := s.OptionValue("socktype", ""); got != "5" {
+			t.Fatalf("%s: socktype=%q want 5", alias, got)
+		}
 	}
 }
 

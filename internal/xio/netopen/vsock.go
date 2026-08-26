@@ -236,11 +236,17 @@ func parseClassicSocketPF(name string) (int, error) {
 }
 
 func parseVsockProtocolOption(s parse.Spec) (int, error) {
-	if o, ok := s.OptionNamed("so-protocol"); ok {
-		return parseVsockSocketInt(o, "so-protocol")
+	// protocol= is also the WebSocket subprotocol option, so it cannot be
+	// globally canonicalized to so-protocol. Within a VSOCK address it has the
+	// classic socket() meaning. Walk backwards so mixed aliases remain
+	// last-option-wins like the rest of Spec's option accessors.
+	for i := len(s.Options) - 1; i >= 0; i-- {
+		o := s.Options[i]
+		switch strings.ToLower(o.Name) {
+		case "so-protocol", "protocol":
+			return parseVsockSocketInt(o, o.Name)
+		}
 	}
-	// Classic alias "protocol" is also the Go WebSocket subprotocol option, so
-	// it is not canonicalized to so-protocol and is not read here.
 	return 0, nil
 }
 

@@ -1,5 +1,7 @@
 package cli
 
+import "github.com/oittaa/socat/internal/xio"
+
 // TLS, WebSocket, PROXY, and SOCKS options.
 func tlsOptionGroups() []helpOptGroup {
 	return []helpOptGroup{
@@ -20,7 +22,7 @@ func tlsOptionGroups() []helpOptGroup {
 		{"WebSocket", []helpOpt{
 			{name: "path", desc: "WebSocket URL path"},
 			{name: "origin", desc: "WebSocket Origin header"},
-			{name: "protocol", desc: "WebSocket subprotocol"},
+			{name: "protocol", desc: "WebSocket subprotocol; VSOCK socket() protocol number", implementationGroups: []string{xio.GroupWebSocket, xio.GroupVSOCK}},
 		}},
 		{"PROXY and SOCKS", []helpOpt{
 			{name: "proxyport", desc: "HTTP proxy port", addressTypes: proxyAddressTypes()},

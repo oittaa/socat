@@ -11,13 +11,14 @@ import (
 )
 
 type helpOpt struct {
-	name         string
-	desc         string
-	aliases      []string
-	addressTypes []string
-	optionCaps   []string
-	dynamicDesc  func() string
-	validate     func(parse.Option) error
+	name                 string
+	desc                 string
+	aliases              []string
+	addressTypes         []string
+	optionCaps           []string
+	implementationGroups []string
+	dynamicDesc          func() string
+	validate             func(parse.Option) error
 }
 
 type helpOptGroup struct {
@@ -26,10 +27,11 @@ type helpOptGroup struct {
 }
 
 type addressOption struct {
-	validate      func(parse.Option) error
-	addressGroups []string
-	addressTypes  []string
-	optionCaps    []string
+	validate             func(parse.Option) error
+	addressGroups        []string
+	addressTypes         []string
+	optionCaps           []string
+	implementationGroups []string
 }
 
 var supportedAddressOptions = buildSupportedAddressOptions()
@@ -44,6 +46,7 @@ func buildSupportedAddressOptions() map[string]addressOption {
 			spec.validate = option.validate
 			spec.addressTypes = option.addressTypes
 			spec.optionCaps = option.optionCaps
+			spec.implementationGroups = option.implementationGroups
 			options[strings.ToLower(option.name)] = spec
 			for _, alias := range option.aliases {
 				options[strings.ToLower(alias)] = spec
@@ -112,6 +115,9 @@ func validateSpecOptions(spec parse.Spec) error {
 		if !ok {
 			return fmt.Errorf("%s: unknown option %q", spec.Type, option.Name)
 		}
+		if registered && !optionImplementedForGroup(registration.Group, optionSpec.implementationGroups) {
+			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
+		}
 		if registered && !xio.OptionSupportedOnAddress(registration, name, optionSpec.addressGroups, optionSpec.addressTypes, optionSpec.optionCaps) {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
@@ -120,6 +126,22 @@ func validateSpecOptions(spec parse.Spec) error {
 		}
 	}
 	return nil
+}
+
+// implementationGroups narrows classic socket-wide options to the address
+// families that currently apply them. Without this guard, classic's broad
+// GROUP_SOCKET metadata would make the CLI accept options that an opener then
+// silently ignores.
+func optionImplementedForGroup(group string, implementationGroups []string) bool {
+	if len(implementationGroups) == 0 {
+		return true
+	}
+	for _, candidate := range implementationGroups {
+		if group == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func validateAddressOptionValue(option parse.Option) error {

@@ -1,5 +1,7 @@
 package cli
 
+import "github.com/oittaa/socat/internal/xio"
+
 // Socket, IP, and TCP options.
 func socketOptionGroups() []helpOptGroup {
 	return []helpOptGroup{
@@ -35,7 +37,7 @@ func socketOptionGroups() []helpOptGroup {
 			{name: "sndbuf-late", desc: "SO_SNDBUF after connect, accept, or bind (raw socket, before TLS/PROXY/QUIC wrapping)", aliases: []string{"so-sndbuf-late"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
 			{name: "rcvbuf-late", desc: "SO_RCVBUF after connect, accept, or bind (raw socket, before TLS/PROXY/QUIC wrapping)", aliases: []string{"so-rcvbuf-late"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
 			{name: "bindtodevice", desc: "SO_BINDTODEVICE interface name", aliases: []string{"so-bindtodevice", "if", "interface"}, addressTypes: socketTimeoutAddressTypes(), validate: validateRequiredString},
-			{name: "so-protocol", desc: "socket() protocol number", aliases: []string{"so-prototype", "prototype"}, validate: validateInteger(-1)},
+			{name: "so-protocol", desc: "socket() protocol number", aliases: []string{"so-prototype", "prototype"}, implementationGroups: []string{xio.GroupVSOCK}, validate: validateInteger(-1)},
 		}},
 	}
 }

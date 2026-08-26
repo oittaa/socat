@@ -19,6 +19,8 @@ func init() {
 		"remove":        "unlink",
 		"uid-e":         "user-early",
 		"gid-e":         "group-early",
+		"so-type":       "socktype",
+		"type":          "socktype",
 		"f-setlk-wr":    "setlk",
 		"f-setlkw-wr":   "setlkw",
 		"f-setlk-rd":    "setlk-rd",
