@@ -37,6 +37,37 @@ func TestListenPacketAppliesLateBuffersUnix(t *testing.T) {
 	}
 }
 
+func TestListenPacketAppliesBroadcastUnix(t *testing.T) {
+	for _, tc := range []struct {
+		spec string
+		want int
+	}{
+		{spec: "QUIC-LISTEN:0,broadcast", want: 1},
+		{spec: "QUIC-LISTEN:0,so-broadcast", want: 1},
+		{spec: "QUIC-LISTEN:0,broadcast=1", want: 1},
+		{spec: "QUIC-LISTEN:0,broadcast=0", want: 0},
+	} {
+		t.Run(tc.spec, func(t *testing.T) {
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pc, err := listenPacket(context.Background(), "udp4", "127.0.0.1:0", spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = pc.Close() })
+			sc, ok := pc.(syscall.Conn)
+			if !ok {
+				t.Fatalf("PacketConn type %T is not syscall.Conn", pc)
+			}
+			if got := packetSockoptInt(t, sc, unix.SO_BROADCAST); got != tc.want {
+				t.Fatalf("SO_BROADCAST=%d want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 func packetSockoptInt(t *testing.T, sc syscall.Conn, opt int) int {
 	t.Helper()
 	raw, err := sc.SyscallConn()
