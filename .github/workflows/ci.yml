@@ -170,14 +170,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # The gosec Docker action image ships Go 1.26 with GOTOOLCHAIN=local
+      # and cannot load a go 1.27 module. Install the same pin as
+      # .cursor/install.sh and run `make gosec` on the setup-go toolchain.
+      - name: Install gosec
+        run: |
+          toolchain="$(awk '/^toolchain / { print $2; exit }' go.mod)"
+          GOTOOLCHAIN="$toolchain" go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
       - name: gosec
-        uses: securego/gosec@v2.28.0
-        with:
-          args: >-
-            -exclude-dir=testdata
-            -nosec-require-rules
-            -nosec-require-justification
-            ./...
+        run: make gosec
 
   govulncheck:
     name: govulncheck
