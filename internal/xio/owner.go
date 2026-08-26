@@ -53,6 +53,7 @@ func ApplyOwner(path string, s parse.Spec, f *os.File) error {
 	return nil
 }
 
+// resolveUID parses user=/user-early= as a numeric uid or login name.
 func resolveUID(name string) (int, bool, error) {
 	if name == "" {
 		return -1, false, nil
@@ -71,6 +72,7 @@ func resolveUID(name string) (int, bool, error) {
 	return n, true, nil
 }
 
+// resolveGID parses group=/group-early= as a numeric gid or group name.
 func resolveGID(name string) (int, bool, error) {
 	if name == "" {
 		return -1, false, nil

@@ -5,9 +5,11 @@ package fileopen
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -597,4 +599,215 @@ func TestNamedPipeUnlinkLateEqualsZeroKeepsName(t *testing.T) {
 	if _, err := os.Lstat(path); err != nil {
 		t.Fatalf("PIPE unlink-late=0 removed the name: %v", err)
 	}
+}
+
+func TestOpenPermEarlyChmodsExistingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(path, []byte("OLD\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := openSpec(t, "OPEN:"+path+",perm-early=0600", xio.ModeRead)
+	t.Cleanup(func() { _ = o.Close() })
+	assertNamedMode(t, path, 0o600)
+	got, err := io.ReadAll(o.Stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "OLD\n" {
+		t.Fatalf("read %q want OLD\\n", got)
+	}
+}
+
+func TestOpenPermDoesNotChmodExistingFile(t *testing.T) {
+	// perm= is create mode, not PH_PREOPEN chmod. Contrast perm-early.
+	path := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(path, []byte("OLD\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	o := openSpec(t, "OPEN:"+path+",perm=0600", xio.ModeRead)
+	t.Cleanup(func() { _ = o.Close() })
+	assertNamedMode(t, path, 0o644)
+}
+
+func TestOpenUnlinkEarlyDropsPermEarly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(path, []byte("OLD\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := parse.ParseSpec("OPEN:" + path + ",unlink-early,perm-early=0600")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openOPEN(context.Background(), spec, xio.ModeRead, nil)
+	if err == nil {
+		_ = o.Close()
+		t.Fatal("OPEN,unlink-early,perm-early of existing file without creat succeeded")
+	}
+	if strings.Contains(err.Error(), "chmod") {
+		t.Fatalf("perm-early was applied after unlink-early: %v", err)
+	}
+	if !os.IsNotExist(err) && !errors.Is(err, syscall.ENOENT) {
+		t.Fatalf("error=%v want not-exist", err)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("name survived unlink-early: %v", err)
+	}
+}
+
+func TestOpenUnlinkThenPermEarlyFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(path, []byte("OLD\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := parse.ParseSpec("OPEN:" + path + ",unlink,perm-early=0600")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openOPEN(context.Background(), spec, xio.ModeRead, nil)
+	if err == nil {
+		_ = o.Close()
+		t.Fatal("OPEN,unlink,perm-early succeeded")
+	}
+	if !strings.Contains(err.Error(), "chmod") {
+		t.Fatalf("error=%v want chmod after unlink", err)
+	}
+	if !os.IsNotExist(err) && !errors.Is(err, syscall.ENOENT) {
+		t.Fatalf("error=%v want ENOENT from chmod", err)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("name survived unlink: %v", err)
+	}
+}
+
+func TestOpenPermEarlyThenUnlink(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "file")
+	link := filepath.Join(dir, "hardlink")
+	if err := os.WriteFile(path, []byte("OLD\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(path, link); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := parse.ParseSpec("OPEN:" + path + ",perm-early=0600,unlink")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openOPEN(context.Background(), spec, xio.ModeRead, nil)
+	if err == nil {
+		_ = o.Close()
+		t.Fatal("OPEN,perm-early,unlink without creat succeeded")
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("name survived unlink: %v", err)
+	}
+	assertNamedMode(t, link, 0o600)
+}
+
+func TestOpenUserEarlyGroupEarlyCurrentIDs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	uid, gid := os.Getuid(), os.Getgid()
+	raw := fmt.Sprintf("OPEN:%s,user-early=%d,group-early=%d", path, uid, gid)
+	o := openSpec(t, raw, xio.ModeRead)
+	t.Cleanup(func() { _ = o.Close() })
+	gotUID, gotGID := fileOwner(t, path)
+	if gotUID != uid || gotGID != gid {
+		t.Fatalf("owner=%d:%d want %d:%d", gotUID, gotGID, uid, gid)
+	}
+}
+
+func TestOpenPermEarlyDroppedOnMissingPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing")
+	spec, err := parse.ParseSpec("OPEN:" + path + ",perm-early=0600")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openOPEN(context.Background(), spec, xio.ModeRead, nil)
+	if err == nil {
+		_ = o.Close()
+		t.Fatal("OPEN of missing path with perm-early succeeded")
+	}
+	if strings.Contains(err.Error(), "chmod") {
+		t.Fatalf("perm-early was applied to a missing name: %v", err)
+	}
+	if !os.IsNotExist(err) && !errors.Is(err, syscall.ENOENT) {
+		t.Fatalf("error=%v want not-exist", err)
+	}
+}
+
+func TestCreatePermStillUsesCreateModeAndUmask(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file")
+	o := openSpec(t, "CREATE:"+path+",umask=077,perm=0666", xio.ModeWrite)
+	t.Cleanup(func() { _ = o.Close() })
+	assertNamedMode(t, path, 0o600)
+}
+
+func TestOpenUserAfterOpenIndependentOfUserEarly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	uid := os.Getuid()
+	o := openSpec(t, fmt.Sprintf("OPEN:%s,user-early=%d,user=%d", path, uid, uid), xio.ModeRead)
+	t.Cleanup(func() { _ = o.Close() })
+	gotUID, _ := fileOwner(t, path)
+	if gotUID != uid {
+		t.Fatalf("uid=%d want %d", gotUID, uid)
+	}
+
+	spec, err := parse.ParseSpec("OPEN:" + path + ",user=socat-user-that-must-not-exist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bad, err := openOPEN(context.Background(), spec, xio.ModeRead, nil)
+	if err == nil {
+		_ = bad.Close()
+		t.Fatal("OPEN,user=unknown succeeded")
+	}
+	if !strings.Contains(err.Error(), "user") {
+		t.Fatalf("error=%v want user lookup failure", err)
+	}
+}
+
+func TestUIDEAndGIDEAliases(t *testing.T) {
+	s, err := parse.ParseSpec("OPEN:file,uid-e=1000,gid-e=100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.OptionValue("user-early", "") != "1000" {
+		t.Fatalf("uid-e did not parse as user-early: %v", s.Options)
+	}
+	if s.OptionValue("group-early", "") != "100" {
+		t.Fatalf("gid-e did not parse as group-early: %v", s.Options)
+	}
+	if len(s.Options) != 2 || s.Options[0].Name != "user-early" || s.Options[1].Name != "group-early" {
+		t.Fatalf("stored names=%v", s.Options)
+	}
+}
+
+func assertNamedMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Fatalf("%s mode=%#o want %#o", path, got, want)
+	}
+}
+
+func fileOwner(t *testing.T, path string) (uid, gid int) {
+	t.Helper()
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Fatalf("stat sys type %T", info.Sys())
+	}
+	return int(st.Uid), int(st.Gid)
 }

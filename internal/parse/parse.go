@@ -275,6 +275,8 @@ var optionAliases = map[string]string{
 	"o-wronly":           "wronly",
 	"delete":             "unlink",
 	"remove":             "unlink",
+	"uid-e":              "user-early",
+	"gid-e":              "group-early",
 	"o-ndelay":           "nonblock",
 	"so-keepidle":        "keepidle",
 	"so-keepintvl":       "keepintvl",

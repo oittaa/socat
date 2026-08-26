@@ -75,6 +75,10 @@ var dynamicallyReadOptions = map[string]string{
 	"openssl-max-proto-version": "tlsopen/tls.go", "max-version": "tlsopen/tls.go",
 
 	"perm": "xio/run.go", "mode": "xio/run.go",
+
+	// PH_PREOPEN NAMED walk in ApplyNamedPreopen (command-line order).
+	"perm-early": "xio/named_preopen.go", "user-early": "xio/named_preopen.go",
+	"group-early": "xio/named_preopen.go", "unlink": "xio/named_preopen.go",
 }
 
 // compatNoOptions are advertised deliberately as classic-compat spellings
