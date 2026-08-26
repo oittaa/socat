@@ -465,7 +465,11 @@ func TestBuildClassicHelpCatalogScriptRefusesUserPath(t *testing.T) {
 		t.Fatal("runtime.Caller")
 	}
 	script := filepath.Join(filepath.Dir(file), "../../scripts/build-classic-help-catalog.sh")
-	cmd := exec.Command("bash", script)
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not available; catalog rebuild script is tested on Linux")
+	}
+	cmd := exec.Command(bash, script)
 	var env []string
 	for _, e := range os.Environ() {
 		if strings.HasPrefix(e, "SOCAT=") || strings.HasPrefix(e, "CLASSIC_SOCAT=") || strings.HasPrefix(e, "CLASSIC_BUILD_DIR=") {
