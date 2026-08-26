@@ -501,8 +501,9 @@ func (u *udpSessionConn) Close() error {
 		err = u.conn.Close()
 	}
 	if u.ownsListen && u.pc != nil {
+		// Keep pc set: Transfer pokes SetReadDeadline from another
+		// goroutine after Close (UDP has no EOF).
 		err = errors.Join(err, u.pc.Close())
-		u.pc = nil
 	}
 	if u.releaseListen != nil {
 		u.releaseListen()
