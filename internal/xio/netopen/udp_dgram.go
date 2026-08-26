@@ -146,6 +146,9 @@ func udpListenConfig(s parse.Spec) net.ListenConfig {
 				if s.BoolOption("broadcast") {
 					optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 				}
+				if optionErr == nil {
+					optionErr = xio.ApplyMembershipJoins(int(fd), s)
+				}
 			})
 			return errors.Join(controlErr, optionErr)
 		},
@@ -415,6 +418,10 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 				if s.BoolOption("broadcast") {
 					optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 				}
+				if optionErr == nil {
+					// UDP-RECV uses this Control, not xio.ListenControl.
+					optionErr = xio.ApplyMembershipJoins(int(fd), s)
+				}
 			})
 			return errors.Join(controlErr, optionErr)
 		},
@@ -428,13 +435,6 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
 		_ = c.Close()
 		return nil, err
-	}
-	// ip-add-membership / ipv6-join-group (classic form mcast:iface).
-	if v := membershipJoinSpec(s); v != "" {
-		if err := joinMulticast(c, v); err != nil {
-			logx.CloseQuiet(c)
-			return nil, err
-		}
 	}
 	return c, nil
 }

@@ -19,6 +19,8 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"so-sndbuf", "so-rcvbuf", "so-sndbuf-late", "so-rcvbuf-late",
 		"so-bindtodevice", "if", "interface",
 		"so-protocol", "so-prototype", "prototype", "protocol-family", "type",
+		"ip-add-membership", "add-membership", "ip-membership", "membership",
+		"ipv6-join-group", "ipv6-add-membership", "join-group",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)

@@ -101,6 +101,13 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "ipv6-join-group-on-tcp6", spec: "TCP6:localhost:1,ipv6-join-group=[ff02::2]:lo"},
 		{name: "ip-add-membership-on-udp4", spec: "UDP4:localhost:1,ip-add-membership=224.0.0.1:lo"},
 		{name: "ip-add-membership-on-udp6", spec: "UDP6:localhost:1,ip-add-membership=[ff02::2]:lo"},
+		{name: "add-membership-alias-on-udp4", spec: "UDP4:localhost:1,add-membership=224.0.0.1:lo"},
+		{name: "ip-membership-alias-on-udp4", spec: "UDP4:localhost:1,ip-membership=224.0.0.1:lo"},
+		{name: "membership-alias-on-udp4", spec: "UDP4:localhost:1,membership=224.0.0.1:lo"},
+		{name: "join-group-alias-on-udp6", spec: "UDP6:localhost:1,join-group=[ff02::2]:lo"},
+		{name: "ipv6-add-membership-alias-on-udp6", spec: "UDP6:localhost:1,ipv6-add-membership=[ff02::2]:lo"},
+		{name: "join-group-alias-on-udp4", spec: "UDP4:localhost:1,join-group=[ff02::2]:lo", wantErr: "not supported"},
+		{name: "ipv6-add-membership-alias-on-tcp4", spec: "TCP4:localhost:1,ipv6-add-membership=[ff02::2]:lo", wantErr: "not supported"},
 		{name: "classic-linger-alias", spec: "TCP:localhost:1,linger=0"},
 		{name: "sndbuf", spec: "TCP:localhost:1,sndbuf=4096"},
 		{name: "rcvbuf-alias", spec: "TCP:localhost:1,so-rcvbuf=8192"},
@@ -456,6 +463,8 @@ func TestIPv6JoinGroupAcceptedOnIPv6(t *testing.T) {
 		"UDP6:localhost:1,ipv6-join-group=[ff02::2]:lo",
 		"UDP6-RECV:1,ipv6-join-group=[ff02::2]:lo",
 		"TCP6:localhost:1,ipv6-join-group=[ff02::2]:lo",
+		"UDP6:localhost:1,join-group=[ff02::2]:lo",
+		"TCP6:localhost:1,ipv6-add-membership=[ff02::2]:lo",
 	} {
 		ch, err := parse.ParseChannel(spec)
 		if err != nil {
@@ -473,6 +482,9 @@ func TestIPAddMembershipAcceptedOnUDP4AndUDP6(t *testing.T) {
 		"UDP4-RECV:1,ip-add-membership=224.0.0.1:lo",
 		"UDP6:localhost:1,ip-add-membership=[ff02::2]:lo",
 		"UDP6-RECV:1,ip-add-membership=[ff02::2]:lo",
+		"UDP4:localhost:1,add-membership=224.0.0.1:lo",
+		"UDP4:localhost:1,membership=224.0.0.1:lo",
+		"UDP6:localhost:1,ip-membership=[ff02::2]:lo",
 	} {
 		ch, err := parse.ParseChannel(spec)
 		if err != nil {

@@ -373,18 +373,11 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 		if s.BoolOption("broadcast") {
 			optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
 		}
-	})
-	if err := errors.Join(controlErr, optionErr); err != nil {
-		return err
-	}
-	// Multicast join (IP4MULTICAST_* classic tests): ip-add-membership and
-	// ipv6-join-group are distinct spellings after parse stopped folding them.
-	if v := membershipJoinSpec(s); v != "" {
-		if err := joinMulticast(c, v); err != nil {
-			return err
+		if optionErr == nil {
+			optionErr = xio.ApplyMembershipJoins(int(fd), s)
 		}
-	}
-	return nil
+	})
+	return errors.Join(controlErr, optionErr)
 }
 
 func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob []byte, addr net.Addr, err error) {

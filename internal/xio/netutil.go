@@ -203,12 +203,19 @@ func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn
 }
 
 // ApplyNetworkSocketOptions applies the post-socket options shared by Go net
-// listeners/dialers and raw SCTP sockets.
+// listeners/dialers and raw SCTP sockets. Membership (PH_PASTSOCKET
+// IP_ADD_MEMBERSHIP / IPV6_JOIN_GROUP) is applied here so DialControl and
+// ListenControl cover UDP connect, TCP connect, and TCP listen. Classic
+// tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same option tree.
 func ApplyNetworkSocketOptions(fd int, s parse.Spec, network string) error {
 	if err := ApplySocketOptions(fd, s); err != nil {
 		return err
 	}
-	return applyIPTTLTOS(fd, s, network)
+	if err := applyIPTTLTOS(fd, s, network); err != nil {
+		return err
+	}
+	return ApplyMembershipJoins(fd, s)
 }
 
 // ApplyListenBacklog updates the pending-connection queue of an existing TCP

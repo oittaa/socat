@@ -3,31 +3,17 @@
 package netopen
 
 import (
+	"context"
 	"net"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 )
 
-func TestParseMcastSpecBracketIPv6(t *testing.T) {
-	g, iface, err := parseMcastSpec("[ff02::2]:eth0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if g.String() != "ff02::2" || iface != "eth0" {
-		t.Fatalf("group=%s iface=%q", g, iface)
-	}
-}
-
-func TestParseMcastSpecIPv4(t *testing.T) {
-	g, iface, err := parseMcastSpec("224.1.2.3:127.0.0.1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if g.String() != "224.1.2.3" || iface != "127.0.0.1" {
-		t.Fatalf("group=%s iface=%q", g, iface)
-	}
-}
+const missingMcastIface = "no-such-iface-socat-test"
 
 func TestListenUDPJoinsIPv6GroupFromJoinGroupOption(t *testing.T) {
 	iface := multicastIfaceName(t)
@@ -42,17 +28,82 @@ func TestListenUDPJoinsIPv6GroupFromJoinGroupOption(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 }
 
-func TestListenUDPJoinsIPv6GroupFromIPAddMembership(t *testing.T) {
+func TestListenUDPJoinsIPv4GroupFromIPAddMembership(t *testing.T) {
 	iface := multicastIfaceName(t)
-	spec, err := parse.ParseSpec("UDP6-RECV:0,ip-add-membership=[ff02::2]:" + iface)
+	spec, err := parse.ParseSpec("UDP4-RECV:0,ip-add-membership=224.0.0.1:" + iface)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}, spec)
+	if err != nil {
+		t.Fatalf("ip-add-membership on UDP4-RECV: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+}
+
+func TestListenUDPAppliesRepeatedMembershipInOrder(t *testing.T) {
+	iface := multicastIfaceName(t)
+	// First invalid, then valid: last-wins would succeed; apply-all must fail.
+	spec, err := parse.ParseSpec("UDP6-RECV:0,ipv6-join-group=[ff02::2]:" + missingMcastIface + ",ipv6-join-group=[ff02::3]:" + iface)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c, err := listenUDP("udp6", &net.UDPAddr{IP: net.IPv6unspecified, Port: 0}, spec)
+	if c != nil {
+		_ = c.Close()
+	}
+	if err == nil {
+		t.Fatal("last-wins would ignore the invalid first membership option")
+	}
+	if !strings.Contains(err.Error(), missingMcastIface) {
+		t.Fatalf("error=%v want %q", err, missingMcastIface)
+	}
+
+	spec, err = parse.ParseSpec("UDP6-RECV:0,ipv6-join-group=[ff02::2]:" + iface + ",ipv6-join-group=[ff02::3]:" + iface)
 	if err != nil {
-		t.Fatalf("ip-add-membership on UDP6-RECV: %v", err)
+		t.Fatal(err)
+	}
+	c, err = listenUDP("udp6", &net.UDPAddr{IP: net.IPv6unspecified, Port: 0}, spec)
+	if err != nil {
+		t.Fatalf("repeated valid ipv6-join-group: %v", err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
+}
+
+func TestUDP6ConnectProcessesMembershipInterface(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := xio.OpenChannel(ctx, parseChannel(t, "UDP6:[::1]:9,ipv6-join-group=[ff02::2]:"+missingMcastIface), xio.ModeRDWR, useGlobal())
+	if err == nil {
+		t.Fatal("UDP6 connect with invalid membership interface succeeded (option was a no-op)")
+	}
+	if !strings.Contains(err.Error(), missingMcastIface) {
+		t.Fatalf("error=%v want %q", err, missingMcastIface)
+	}
+}
+
+func TestTCP6ConnectProcessesMembershipInterface(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := xio.OpenChannel(ctx, parseChannel(t, "TCP6:[::1]:1,ipv6-join-group=[ff02::2]:"+missingMcastIface+",connect-timeout=2"), xio.ModeRDWR, useGlobal())
+	if err == nil {
+		t.Fatal("TCP6 connect with invalid membership interface succeeded (option was a no-op)")
+	}
+	if !strings.Contains(err.Error(), missingMcastIface) {
+		t.Fatalf("error=%v want %q", err, missingMcastIface)
+	}
+}
+
+func TestUDP6DatagramProcessesMembershipInterface(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := xio.OpenChannel(ctx, parseChannel(t, "UDP6-DATAGRAM:[::1]:9,ipv6-join-group=[ff02::2]:"+missingMcastIface), xio.ModeRDWR, useGlobal())
+	if err == nil {
+		t.Fatal("UDP6-DATAGRAM with invalid membership interface succeeded (option was a no-op)")
+	}
+	if !strings.Contains(err.Error(), missingMcastIface) {
+		t.Fatalf("error=%v want %q", err, missingMcastIface)
+	}
 }
 
 func multicastIfaceName(t *testing.T) string {
