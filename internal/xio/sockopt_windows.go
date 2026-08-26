@@ -21,9 +21,10 @@ const (
 	ipv6V6only  = windows.IPV6_V6ONLY
 	soRcvtimeo  = windows.SO_RCVTIMEO
 	// x/sys/windows does not currently expose Winsock's SO_SNDTIMEO.
-	soSndtimeo = 0x1005
-	soSndbuf   = windows.SO_SNDBUF
-	soRcvbuf   = windows.SO_RCVBUF
+	soSndtimeo  = 0x1005
+	soSndbuf    = windows.SO_SNDBUF
+	soRcvbuf    = windows.SO_RCVBUF
+	soBroadcast = windows.SO_BROADCAST
 )
 
 func isNotSocketError(err error) bool {

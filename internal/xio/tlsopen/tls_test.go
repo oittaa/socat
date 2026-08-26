@@ -2,6 +2,7 @@ package tlsopen
 
 import (
 	"crypto/ed25519"
+	"crypto/mldsa"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -177,6 +178,125 @@ func TestPostQuantumHybridKeyExchange(t *testing.T) {
 	}
 	if srvCurve != tls.X25519MLKEM768 {
 		t.Fatalf("server CurveID=%v want X25519MLKEM768", srvCurve)
+	}
+}
+
+func TestHandshakeMLDSA(t *testing.T) {
+	// Go 1.27 crypto/tls advertises ML-DSA signature schemes on TLS 1.3.
+	// loadKeyPair must accept the PKCS#8 PEMs and the handshake must use them.
+	bundle, err := testcert.WriteMLDSA44Trust(t.TempDir())
+	if err != nil {
+		if strings.Contains(err.Error(), "unavailable") {
+			t.Skip(err.Error())
+		}
+		t.Fatal(err)
+	}
+	srvCert, err := loadKeyPair(bundle.ServerCert, bundle.ServerKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := srvCert.PrivateKey.(*mldsa.PrivateKey); !ok {
+		t.Fatalf("server key %T, want *mldsa.PrivateKey", srvCert.PrivateKey)
+	}
+	cliCert, err := loadKeyPair(bundle.ClientCert, bundle.ClientKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caPEM, err := os.ReadFile(bundle.CAFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	if !roots.AppendCertsFromPEM(caPEM) {
+		t.Fatal("cafile: no certificates")
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	srvCfg := &tls.Config{
+		Certificates: []tls.Certificate{srvCert},
+		ClientCAs:    roots,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		MinVersion:   tls.VersionTLS13,
+	}
+	cliCfg := &tls.Config{
+		Certificates: []tls.Certificate{cliCert},
+		RootCAs:      roots,
+		ServerName:   "localhost",
+		MinVersion:   tls.VersionTLS13,
+	}
+
+	errCh := make(chan error, 1)
+	var srvPeer *x509.Certificate
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		tc := tls.Server(c, srvCfg)
+		if err := tc.Handshake(); err != nil {
+			_ = c.Close()
+			errCh <- err
+			return
+		}
+		st := tc.ConnectionState()
+		if len(st.PeerCertificates) > 0 {
+			srvPeer = st.PeerCertificates[0]
+		}
+		_, _ = tc.Write([]byte("mldsa-ok"))
+		_ = tc.Close()
+		errCh <- nil
+	}()
+
+	raw, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tc := tls.Client(raw, cliCfg)
+	if err := tc.Handshake(); err != nil {
+		t.Fatalf("client handshake: %v", err)
+	}
+	st := tc.ConnectionState()
+	buf := make([]byte, 16)
+	n, err := tc.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = tc.Close()
+	if err := <-errCh; err != nil {
+		t.Fatal(err)
+	}
+	if string(buf[:n]) != "mldsa-ok" {
+		t.Fatalf("payload %q", buf[:n])
+	}
+	if st.Version != tls.VersionTLS13 {
+		t.Fatalf("version=%#x want TLS 1.3", st.Version)
+	}
+	if len(st.PeerCertificates) == 0 {
+		t.Fatal("client saw no peer certificate")
+	}
+	assertMLDSA44Cert(t, "server leaf", st.PeerCertificates[0])
+	if srvPeer == nil {
+		t.Fatal("server saw no client certificate")
+	}
+	assertMLDSA44Cert(t, "client leaf", srvPeer)
+}
+
+func assertMLDSA44Cert(t *testing.T, what string, cert *x509.Certificate) {
+	t.Helper()
+	if cert.SignatureAlgorithm != x509.MLDSA44 {
+		t.Fatalf("%s SignatureAlgorithm=%v want MLDSA44", what, cert.SignatureAlgorithm)
+	}
+	if cert.PublicKeyAlgorithm != x509.MLDSA {
+		t.Fatalf("%s PublicKeyAlgorithm=%v want MLDSA", what, cert.PublicKeyAlgorithm)
+	}
+	if _, ok := cert.PublicKey.(*mldsa.PublicKey); !ok {
+		t.Fatalf("%s public key %T, want *mldsa.PublicKey", what, cert.PublicKey)
 	}
 }
 

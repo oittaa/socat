@@ -1,14 +1,13 @@
 module github.com/oittaa/socat
 
-go 1.26
+go 1.27
 
-toolchain go1.26.7
-
-require golang.org/x/sys v0.47.0
+toolchain go1.27.0
 
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/quic-go/quic-go v0.61.0
+	golang.org/x/sys v0.47.0
 )
 
 require (

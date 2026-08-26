@@ -18,6 +18,22 @@ func TestHelpDoesNotTriggerClassicOptionArraySentinel(t *testing.T) {
 	}
 }
 
+func TestHelpListsSoBroadcastAlias(t *testing.T) {
+	var output bytes.Buffer
+	if err := printHelp(&output, 3); err != nil {
+		t.Fatal(err)
+	}
+	help := output.String()
+	for _, name := range []string{"broadcast", "so-broadcast"} {
+		if !strings.Contains(help, "    "+name+" ") {
+			t.Errorf("-hhh missing %q", name)
+		}
+	}
+	if !strings.Contains(help, "alias of broadcast") {
+		t.Error("-hhh missing so-broadcast alias line")
+	}
+}
+
 func TestHelpListsDescriptorLifecycleAliases(t *testing.T) {
 	var output bytes.Buffer
 	if err := printHelp(&output, 3); err != nil {
