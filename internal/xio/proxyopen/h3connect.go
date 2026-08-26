@@ -8,13 +8,51 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 
+	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
+
+func tcpToUDPNetwork(tcpNet string) string {
+	switch strings.ToLower(tcpNet) {
+	case "tcp4":
+		return "udp4"
+	case "tcp6":
+		return "udp6"
+	default:
+		return "udp"
+	}
+}
+
+// listenH3Packet binds the HTTP/3 UDP socket with ListenControl so PH_PASTSOCKET
+// options including ip-add-membership / ipv6-join-group apply on that fd
+// before bind. http3.Transport would otherwise create its own UDP socket and
+// silently ignore membership (classic tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a apply membership at PH_PASTSOCKET).
+func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost string) (net.PacketConn, string, error) {
+	network := tcpToUDPNetwork(xio.ConnectNetworkForType(g, s, proxyHost, "tcp"))
+	bindHost, err := xio.ListenBindHost(network, s.OptionValue("bind", ""))
+	if err != nil {
+		return nil, "", err
+	}
+	sourceport := s.OptionValue("sourceport", "")
+	if sourceport == "" {
+		sourceport = "0"
+	}
+	laddr := net.JoinHostPort(xio.StripBrackets(bindHost), sourceport)
+	lc := net.ListenConfig{Control: xio.ListenControl(s)}
+	pc, err := lc.ListenPacket(ctx, network, laddr)
+	if err != nil {
+		return nil, "", err
+	}
+	return pc, network, nil
+}
 
 func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarget) (net.Conn, error) {
 	tlsCfg, err := tlsopen.TLSClientConfig(s, t.proxyHost)
@@ -27,7 +65,27 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 	}
 	tlsCfg.NextProtos = []string{proxyALPN(s, http3.NextProtoH3)}
 
-	tr := &http3.Transport{TLSClientConfig: tlsCfg}
+	pc, network, err := listenH3Packet(ctx, s, g, t.proxyHost)
+	if err != nil {
+		return nil, err
+	}
+	qtr := &quic.Transport{Conn: pc}
+	tr := &http3.Transport{
+		TLSClientConfig: tlsCfg,
+		Dial: func(dctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
+			raddr, e := net.ResolveUDPAddr(network, addr)
+			if e != nil {
+				return nil, e
+			}
+			return qtr.Dial(dctx, raddr, tlsCfg, cfg)
+		},
+	}
+	closeH3 := func() error {
+		_ = tr.Close()
+		_ = qtr.Close()
+		return pc.Close()
+	}
+
 	u := "https://" + net.JoinHostPort(xio.StripBrackets(t.proxyHost), t.proxyPort) + "/"
 	authority := net.JoinHostPort(t.connectHost, t.targetPort)
 
@@ -62,12 +120,12 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 			w:      pw,
 			local:  staticAddr("h3", u),
 			remote: staticAddr("h3", authority),
-			extra:  []io.Closer{closerFunc(func() error { return tr.Close() })},
+			extra:  []io.Closer{closerFunc(closeH3)},
 		}
 		return nil
 	})
 	if err != nil {
-		_ = tr.Close()
+		_ = closeH3()
 		return nil, err
 	}
 	return conn, nil

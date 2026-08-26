@@ -5,6 +5,7 @@ package netopen
 import (
 	"context"
 	"net"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -104,6 +105,90 @@ func TestUDP6DatagramProcessesMembershipInterface(t *testing.T) {
 	if !strings.Contains(err.Error(), missingMcastIface) {
 		t.Fatalf("error=%v want %q", err, missingMcastIface)
 	}
+}
+
+func TestListenUDPJoinsIPv4NumericIndex(t *testing.T) {
+	ifi := multicastIface(t)
+	spec, err := parse.ParseSpec("UDP4-RECV:0,ip-add-membership=224.0.0.1:" + strconv.Itoa(ifi.Index))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}, spec)
+	if err != nil {
+		t.Fatalf("ip-add-membership numeric index: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+}
+
+func TestListenUDPJoinsIPv6NumericIndex(t *testing.T) {
+	ifi := multicastIface(t)
+	spec, err := parse.ParseSpec("UDP6-RECV:0,ipv6-join-group=[ff02::2]:" + strconv.Itoa(ifi.Index))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := listenUDP("udp6", &net.UDPAddr{IP: net.IPv6unspecified, Port: 0}, spec)
+	if err != nil {
+		t.Fatalf("ipv6-join-group numeric index: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+}
+
+func TestListenUDPJoinsIPv4ThreeFieldNameAndIndex(t *testing.T) {
+	ifi := multicastIface(t)
+	addr := firstIPv4(t, ifi)
+	spec, err := parse.ParseSpec("UDP4-RECV:0,ip-add-membership=224.0.0.1:" + addr + ":" + ifi.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}, spec)
+	if err != nil {
+		t.Fatalf("three-field name: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	spec, err = parse.ParseSpec("UDP4-RECV:0,ip-add-membership=224.0.0.1:" + addr + ":" + strconv.Itoa(ifi.Index))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err = listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}, spec)
+	if err != nil {
+		t.Fatalf("three-field index: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+}
+
+func multicastIface(t *testing.T) net.Interface {
+	t.Helper()
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ifi := range ifaces {
+		if ifi.Flags&net.FlagUp != 0 && ifi.Flags&net.FlagMulticast != 0 && ifi.Flags&net.FlagLoopback != 0 {
+			return ifi
+		}
+	}
+	t.Skip("no multicast loopback interface")
+	return net.Interface{}
+}
+
+func firstIPv4(t *testing.T, ifi net.Interface) string {
+	t.Helper()
+	addrs, err := ifi.Addrs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range addrs {
+		ipn, ok := a.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		if ip4 := ipn.IP.To4(); ip4 != nil {
+			return ip4.String()
+		}
+	}
+	t.Skipf("%s has no IPv4 address", ifi.Name)
+	return ""
 }
 
 func multicastIfaceName(t *testing.T) string {
