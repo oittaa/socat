@@ -158,7 +158,7 @@ every name. DCCP and readline are not implemented (see
 | WS, WSS | `WS:host:port`, `WSS-LISTEN:port`, … | WebSocket byte relay (Go extra) |
 | QUIC | `QUIC:host:port`, `QUIC-LISTEN:port` | RFC 9000 byte pipe (Go extra); **not** HTTP/3 |
 | SCTP | `SCTP4:host:port`, `SCTP4-LISTEN:port` | Linux one-to-one SCTP; needs `sctp` module |
-| VSOCK | `VSOCK-CONNECT:<cid>:<port>`, `VSOCK-LISTEN:<port>` | Linux AF_VSOCK stream (`x/sys/unix`; no extra module). Listen port `0` is `VMADDR_PORT_ANY`. Loopback is CID `1` |
+| VSOCK | `VSOCK-CONNECT:<cid>:<port>`, `VSOCK-LISTEN:<port>` | Linux AF_VSOCK stream (`x/sys/unix`; no extra module). Loopback is CID `1`. Listen port `0` matches classic (`EACCES`); ephemeral listen is `VSOCK-LISTEN:-1` |
 | POSIXMQ | `POSIXMQ-READ:/q`, `POSIXMQ-SEND:/q` | Linux POSIX message queues |
 
 ## Options

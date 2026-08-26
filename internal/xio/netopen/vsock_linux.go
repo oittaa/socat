@@ -25,10 +25,6 @@ func init() {
 }
 
 func listenVSOCK(_ context.Context, port uint32, s parse.Spec, g *xio.Global) (net.Listener, error) {
-	typ, _, err := xio.SocketTypeOption(s, unix.SOCK_STREAM)
-	if err != nil {
-		return nil, err
-	}
 	cid := uint32(unix.VMADDR_CID_ANY)
 	bind, set, err := parseVsockBindOption(s, false)
 	if err != nil {
@@ -37,16 +33,9 @@ func listenVSOCK(_ context.Context, port uint32, s parse.Spec, g *xio.Global) (n
 	if set {
 		cid = bind.cid
 	}
-	// Classic sockaddr_vm_parse passes port 0 through to bind(2). Linux
-	// rejects vsock port 0 with EACCES; VMADDR_PORT_ANY (0xffffffff) is the
-	// kernel ephemeral-port sentinel (mdlayher/vsock Listen does the same).
-	// TCP-LISTEN:0 already means "any port" in this codebase.
-	if port == 0 {
-		port = unix.VMADDR_PORT_ANY
-	}
-	fd, err := newSocket(unix.AF_VSOCK, typ, 0)
+	fd, err := vsockSocket(s)
 	if err != nil {
-		return nil, fmt.Errorf("vsock socket: %w", err)
+		return nil, err
 	}
 	// Classic opt_so_reuseaddr has no default; do not turn SO_REUSEADDR on
 	// unless reuseaddr is present (unlike TCP/SCTP listen in this port).
@@ -91,12 +80,24 @@ func listenVSOCK(_ context.Context, port uint32, s parse.Spec, g *xio.Global) (n
 	return newVsockListener(fd, addr)
 }
 
+func vsockSocket(s parse.Spec) (int, error) {
+	args, err := parseVsockSocketArgs(s)
+	if err != nil {
+		return -1, err
+	}
+	fd, err := newSocket(args.family, args.socktype, args.protocol)
+	if err != nil {
+		return -1, fmt.Errorf("vsock socket: %w", err)
+	}
+	return fd, nil
+}
+
 func dialVSOCK(ctx context.Context, remote vsockEndpoint, s parse.Spec, g *xio.Global, timeout time.Duration, control func(string, string, syscall.RawConn) error) (net.Conn, error) {
-	typ, _, err := xio.SocketTypeOption(s, unix.SOCK_STREAM)
+	args, err := parseVsockSocketArgs(s)
 	if err != nil {
 		return nil, err
 	}
-	fd, err := newSocket(unix.AF_VSOCK, typ, 0)
+	fd, err := newSocket(args.family, args.socktype, args.protocol)
 	if err != nil {
 		return nil, fmt.Errorf("vsock socket: %w", err)
 	}
@@ -133,7 +134,7 @@ func dialVSOCK(ctx context.Context, remote vsockEndpoint, s parse.Spec, g *xio.G
 		defer cancel()
 	}
 	if g != nil && g.Log != nil {
-		g.Log.Noticef("opening connection to AF=%d cid:%d port:%d", unix.AF_VSOCK, remote.cid, remote.port)
+		g.Log.Noticef("opening connection to AF=%d cid:%d port:%d", args.family, remote.cid, remote.port)
 	}
 	if err := connectVSOCK(cctx, fd, &unix.SockaddrVM{CID: remote.cid, Port: remote.port}); err != nil {
 		logx.CloseErr(unix.Close(fd))
@@ -229,6 +230,12 @@ type vsockConn struct {
 }
 
 func newVsockConn(fd int, local, remote *vsockAddr) (*vsockConn, error) {
+	// os.File deadlines require a nonblocking descriptor. Accept already
+	// passes SOCK_NONBLOCK; connect() uses a blocking fd until here.
+	if err := unix.SetNonblock(fd, true); err != nil {
+		logx.CloseErr(unix.Close(fd))
+		return nil, fmt.Errorf("vsock setnonblock: %w", err)
+	}
 	f := os.NewFile(uintptr(fd), "vsock")
 	if f == nil {
 		logx.CloseErr(unix.Close(fd))

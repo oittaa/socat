@@ -354,6 +354,39 @@ func TestSocketTypeAlias(t *testing.T) {
 	}
 }
 
+func TestSoProtocolAliases(t *testing.T) {
+	for _, spec := range []string{
+		"VSOCK-LISTEN:9,so-protocol=6",
+		"VSOCK-LISTEN:9,so-prototype=6",
+		"VSOCK-LISTEN:9,prototype=6",
+	} {
+		s, err := ParseSpec(spec)
+		if err != nil {
+			t.Fatalf("%s: %v", spec, err)
+		}
+		if got := s.OptionValue("so-protocol", ""); got != "6" {
+			t.Fatalf("%s: so-protocol=%q", spec, got)
+		}
+	}
+	s, err := ParseSpec("VSOCK-LISTEN:9,protocol-family=inet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.OptionValue("pf", ""); got != "inet" {
+		t.Fatalf("pf=%q", got)
+	}
+	s, err = ParseSpec("WS:localhost:1,protocol=chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.OptionValue("protocol", "") != "chat" {
+		t.Fatalf("WebSocket protocol canonicalized away: %q", s.OptionValue("protocol", ""))
+	}
+	if s.HasOption("so-protocol") {
+		t.Fatal("WebSocket protocol must not alias so-protocol")
+	}
+}
+
 func TestPOSIXMQOptionAliases(t *testing.T) {
 	s, err := ParseSpec("POSIXMQ-SEND:/q,posixmq-priority=3,posixmq-flush,posixmq-maxmsg=8,posixmq-msgsize=128")
 	if err != nil {

@@ -24,10 +24,18 @@ import (
 // instead of importing github.com/mdlayher/vsock (which would pull
 // github.com/mdlayher/socket). Classic listen binds VMADDR_CID_ANY; mdlayher
 // Listen() uses the local CID from ioctl — we match classic.
+//
+// Listen port 0 is passed through to bind(2). Linux rejects vsock port 0
+// with EACCES (classic: "Permission denied"). Do not map 0 to
+// VMADDR_PORT_ANY; that is a non-security classic divergence.
+// Ephemeral listen is classic VSOCK-LISTEN:-1 (uint32 0xffffffff).
 
 const (
 	vsockCIDAny  = 0xffffffff
 	vsockPortAny = 0xffffffff
+	// vsockDefaultFamily is Linux AF_VSOCK (40). vsock.go is compiled on
+	// every GOOS; unix.AF_VSOCK is Linux-only.
+	vsockDefaultFamily = 40
 )
 
 func openVSOCKConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
@@ -164,6 +172,87 @@ func parseVsockCID(s string) (uint32, error) {
 		return vsockCIDAny, nil
 	}
 	return parseVsockU32(s)
+}
+
+type vsockSocketArgs struct {
+	family   int
+	socktype int
+	protocol int
+}
+
+// parseVsockSocketArgs matches classic xioopen_vsock_* : retropt_socket_pf,
+// OPT_SO_TYPE, OPT_SO_PROTOTYPE before socket().
+func parseVsockSocketArgs(s parse.Spec) (vsockSocketArgs, error) {
+	args := vsockSocketArgs{
+		family:   vsockDefaultFamily,
+		socktype: syscall.SOCK_STREAM,
+		protocol: 0,
+	}
+	if v := s.OptionValue("pf", ""); v != "" {
+		pf, err := parseClassicSocketPF(v)
+		if err != nil {
+			return vsockSocketArgs{}, err
+		}
+		args.family = pf
+	}
+	if o, ok := s.OptionNamed("socktype"); ok {
+		n, err := parseVsockSocketInt(o, "socktype")
+		if err != nil {
+			return vsockSocketArgs{}, err
+		}
+		args.socktype = n
+	}
+	proto, err := parseVsockProtocolOption(s)
+	if err != nil {
+		return vsockSocketArgs{}, err
+	}
+	args.protocol = proto
+	return args, nil
+}
+
+// parseClassicSocketPF matches retropt_socket_pf in xio-socket.c (tag-1.8.1.3):
+// a leading digit is strtoul base 0; inet/inet4/ip4/ipv4 → PF_INET;
+// inet6/ip6/ipv6 → PF_INET6; anything else is an error.
+func parseClassicSocketPF(name string) (int, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return vsockDefaultFamily, nil
+	}
+	if name[0] >= '0' && name[0] <= '9' {
+		n, err := xio.ParseIntAny(name)
+		if err != nil {
+			return 0, fmt.Errorf("unknown protocol family %q", name)
+		}
+		return n, nil
+	}
+	switch strings.ToLower(name) {
+	case "inet", "inet4", "ip4", "ipv4":
+		return syscall.AF_INET, nil
+	case "inet6", "ip6", "ipv6":
+		return syscall.AF_INET6, nil
+	default:
+		return 0, fmt.Errorf("unknown protocol family %q", name)
+	}
+}
+
+func parseVsockProtocolOption(s parse.Spec) (int, error) {
+	if o, ok := s.OptionNamed("so-protocol"); ok {
+		return parseVsockSocketInt(o, "so-protocol")
+	}
+	// Classic alias "protocol" is also the Go WebSocket subprotocol option, so
+	// it is not canonicalized to so-protocol and is not read here.
+	return 0, nil
+}
+
+func parseVsockSocketInt(o parse.Option, name string) (int, error) {
+	if !o.Has || strings.TrimSpace(o.Value) == "" {
+		return 0, fmt.Errorf("option %q requires a number", name)
+	}
+	n, err := xio.ParseIntAny(o.Value)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s=%q", name, o.Value)
+	}
+	return n, nil
 }
 
 // parseVsockU32 matches classic sockaddr_vm_parse: strtoul(..., 0) stored in

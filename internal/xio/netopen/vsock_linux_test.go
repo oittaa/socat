@@ -32,7 +32,7 @@ func skipIfNoVSOCK(t *testing.T) {
 func skipIfNoVSOCKListen(t *testing.T) net.Listener {
 	t.Helper()
 	skipIfNoVSOCK(t)
-	ln, err := listenVSOCK(context.Background(), 0, parse.Spec{}, nil)
+	ln, err := listenVSOCK(context.Background(), vsockPortAny, parse.Spec{}, nil)
 	if err != nil {
 		t.Skipf("VSOCK-LISTEN: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestVSOCKListenAcceptTimeout(t *testing.T) {
 	skipIfNoVSOCK(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	ch, err := parse.ParseChannel("VSOCK-LISTEN:0,accept-timeout=0.05")
+	ch, err := parse.ParseChannel("VSOCK-LISTEN:-1,accept-timeout=0.05")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestVSOCKOpenChannelEcho(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	g := useGlobal()
-	lo, err := xio.OpenChannel(ctx, parseChannel(t, "VSOCK-LISTEN:0,fork"), xio.ModeRDWR, g)
+	lo, err := xio.OpenChannel(ctx, parseChannel(t, "VSOCK-LISTEN:-1,fork"), xio.ModeRDWR, g)
 	if err != nil {
 		if vsockLoopbackUnavailable(err) {
 			t.Skip(err.Error())
@@ -213,4 +213,88 @@ func vsockLoopbackUnavailable(err error) bool {
 		strings.Contains(msg, "cannot assign requested address") ||
 		strings.Contains(msg, "network is unreachable") ||
 		strings.Contains(msg, "permission denied")
+}
+
+func TestVSOCKDialWrapperSupportsDeadlines(t *testing.T) {
+	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = unix.Close(fds[1]) }()
+
+	c, err := newVsockConn(fds[0], &vsockAddr{}, &vsockAddr{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if err := c.SetDeadline(time.Now().Add(40 * time.Millisecond)); err != nil {
+		t.Fatalf("connected wrapper does not support deadlines: %v", err)
+	}
+	buf := make([]byte, 1)
+	_, err = c.Read(buf)
+	if err == nil {
+		t.Fatal("blocking socketpair read succeeded; expected deadline")
+	}
+	if !errors.Is(err, os.ErrDeadlineExceeded) && !errors.Is(err, unix.EAGAIN) && !strings.Contains(err.Error(), "deadline") && !strings.Contains(err.Error(), "timeout") {
+		t.Fatalf("read error %v, want deadline", err)
+	}
+}
+
+func TestVSOCKListenPortZeroDenied(t *testing.T) {
+	skipIfNoVSOCK(t)
+	_, err := listenVSOCK(context.Background(), 0, parse.Spec{}, nil)
+	if err == nil {
+		t.Fatal("VSOCK-LISTEN:0 succeeded; classic bind of port 0 is EACCES")
+	}
+	if !errors.Is(err, unix.EACCES) && !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("err=%v want permission denied", err)
+	}
+}
+
+func TestVSOCKListenPFInetAddressFamily(t *testing.T) {
+	skipIfNoVSOCK(t)
+	s, err := parse.ParseSpec("VSOCK-LISTEN:9,pf=inet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = listenVSOCK(context.Background(), 9, s, nil)
+	if err == nil {
+		t.Fatal("pf=inet succeeded; classic bind is EAFNOSUPPORT")
+	}
+	if !errors.Is(err, unix.EAFNOSUPPORT) && !strings.Contains(err.Error(), "address family") {
+		t.Fatalf("err=%v want address family not supported", err)
+	}
+}
+
+func TestVSOCKListenSoProtocol(t *testing.T) {
+	skipIfNoVSOCK(t)
+	s, err := parse.ParseSpec("VSOCK-LISTEN:9,so-protocol=6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = listenVSOCK(context.Background(), 9, s, nil)
+	if err == nil {
+		t.Fatal("so-protocol=6 succeeded; classic socket() is EPROTONOSUPPORT")
+	}
+	if !errors.Is(err, unix.EPROTONOSUPPORT) && !strings.Contains(err.Error(), "protocol not supported") {
+		t.Fatalf("err=%v want protocol not supported", err)
+	}
+}
+
+func TestVSOCKListenSocktypeRaw(t *testing.T) {
+	skipIfNoVSOCK(t)
+	s, err := parse.ParseSpec("VSOCK-LISTEN:9,so-type=3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = listenVSOCK(context.Background(), 9, s, nil)
+	if err == nil {
+		t.Fatal("so-type=3 succeeded; classic socket() is ESOCKTNOSUPPORT")
+	}
+	if strings.Contains(err.Error(), "unsupported socktype") {
+		t.Fatalf("so-type=3 rejected in user space: %v", err)
+	}
+	if !errors.Is(err, unix.ESOCKTNOSUPPORT) && !errors.Is(err, unix.EPROTONOSUPPORT) && !strings.Contains(err.Error(), "socket type") {
+		t.Fatalf("err=%v want socket type not supported", err)
+	}
 }
