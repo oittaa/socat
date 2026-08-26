@@ -3,7 +3,7 @@
 #
 # Installs the pinned lint/security tools that `make check` needs. Go itself is
 # supplied by the base image, and go.mod's `toolchain` directive fetches the
-# exact compiler (go1.26.x) on first use, so we do not install Go here.
+# exact compiler (go1.27.x) on first use, so we do not install Go here.
 #
 # The Makefile invokes the bare `golangci-lint` and `gosec` binaries, but the
 # agent shell does not add $(go env GOPATH)/bin to PATH. So after building each
