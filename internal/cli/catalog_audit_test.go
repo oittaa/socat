@@ -103,4 +103,12 @@ func TestCatalogVsGoHelp(t *testing.T) {
 			t.Errorf("optional parser-only alias %q must not be treated as required missing coverage", name)
 		}
 	}
+	for name := range classiccatalog.IntentionalPublicOmissions {
+		if _, ok := missingSet[name]; ok {
+			t.Errorf("intentional omission %q must not be treated as required missing coverage", name)
+		}
+		if _, ok := advertised[name]; ok {
+			t.Errorf("Go -hhh must not advertise intentional omission %q", name)
+		}
+	}
 }

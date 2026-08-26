@@ -89,7 +89,7 @@ func TestExtractClassicHelpMatchesCheckedInCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(formatted) != string(want) {
-		t.Fatal("generated output differs from checked-in catalog_gen.go; regenerate from testdata/tag-1.8.1.3.hhh")
+		t.Fatal("generated output differs from checked-in catalog_gen.go; regenerate from testdata/tag-1.8.1.3.hhh with gofmt on the Linux make-check VM (go.mod toolchain; CI lint runs make fmt-check)")
 	}
 }
 
@@ -268,13 +268,47 @@ func TestRequiredPublicSpellingsUnion(t *testing.T) {
 	if _, ok := required["udp-ignore-peerport"]; !ok {
 		t.Fatal("RequiredPublicSpellings must include documented udp-ignore-peerport")
 	}
-	if _, ok := required["openssl-method"]; !ok {
-		t.Fatal("RequiredPublicSpellings must include documented openssl-method")
+	if _, ok := required["method"]; !ok {
+		t.Fatal("RequiredPublicSpellings must include documented method")
 	}
-	if got, want := len(required), len(Options)+len(DocsOnlyNotInThisBinary); got != want {
-		t.Fatalf("RequiredPublicSpellings has %d names, want %d (Options ∪ DocsOnlyNotInThisBinary)", got, want)
+	if _, ok := required["fips"]; !ok {
+		t.Fatal("RequiredPublicSpellings must include documented fips")
+	}
+	if _, ok := required["openssl-method"]; ok {
+		t.Fatal("openssl-method is a parser-only alias, not a documented public spelling")
+	}
+	if _, ok := required["openssl-fips"]; ok {
+		t.Fatal("openssl-fips is a parser-only alias, not a documented public spelling")
+	}
+	if _, ok := required["cool-write"]; ok {
+		t.Fatal("cool-write is an IntentionalPublicOmission")
+	}
+	if _, ok := required["coolwrite"]; ok {
+		t.Fatal("coolwrite is an IntentionalPublicOmission")
+	}
+	want := 0
+	for name := range Options {
+		if _, omit := IntentionalPublicOmissions[name]; omit {
+			continue
+		}
+		want++
+	}
+	for name := range DocsOnlyNotInThisBinary {
+		if _, omit := IntentionalPublicOmissions[name]; omit {
+			continue
+		}
+		if _, dup := Options[name]; dup {
+			continue
+		}
+		want++
+	}
+	if got := len(required); got != want {
+		t.Fatalf("RequiredPublicSpellings has %d names, want %d (Options ∪ DocsOnly, minus IntentionalPublicOmissions)", got, want)
 	}
 	for name := range Options {
+		if _, omit := IntentionalPublicOmissions[name]; omit {
+			continue
+		}
 		if _, ok := required[name]; !ok {
 			t.Errorf("advertised %q missing from RequiredPublicSpellings", name)
 		}
@@ -283,6 +317,27 @@ func TestRequiredPublicSpellingsUnion(t *testing.T) {
 		if _, ok := required[name]; !ok {
 			t.Errorf("documented %q missing from RequiredPublicSpellings", name)
 		}
+	}
+}
+
+func TestIntentionalPublicOmissions(t *testing.T) {
+	required := RequiredPublicSpellings()
+	for name, reason := range IntentionalPublicOmissions {
+		if reason == "" {
+			t.Errorf("IntentionalPublicOmissions[%q] needs a reason", name)
+		}
+		if _, ok := required[name]; ok {
+			t.Errorf("%q is an IntentionalPublicOmission; it must not be in RequiredPublicSpellings", name)
+		}
+	}
+	if _, ok := Lookup("cool-write"); !ok {
+		t.Fatal("classic advertises cool-write; keep it in Options")
+	}
+	if _, ok := Lookup("coolwrite"); !ok {
+		t.Fatal("classic advertises coolwrite; keep it in Options")
+	}
+	if IntentionalPublicOmissions["cool-write"] == "" || IntentionalPublicOmissions["coolwrite"] == "" {
+		t.Fatal("cool-write and coolwrite must be IntentionalPublicOmissions")
 	}
 }
 
@@ -305,6 +360,12 @@ func TestOptionalParserOnlyAliasesNotRequired(t *testing.T) {
 	if _, ok := OptionalParserOnlyAliases["b7200"]; ok {
 		t.Fatal("b7200 is advertised; it must not be in OptionalParserOnlyAliases")
 	}
+	if OptionalParserOnlyAliases["openssl-method"] == "" || OptionalParserOnlyAliases["openssl-fips"] == "" {
+		t.Fatal("openssl-method and openssl-fips are parser-only aliases")
+	}
+	if DocsOnlyNotInThisBinary["openssl-method"] != "" || DocsOnlyNotInThisBinary["openssl-fips"] != "" {
+		t.Fatal("openssl-method and openssl-fips must not stay in DocsOnlyNotInThisBinary")
+	}
 }
 
 func TestGoOnlyHelpAllowlistNotInClassicCatalog(t *testing.T) {
@@ -316,9 +377,16 @@ func TestGoOnlyHelpAllowlistNotInClassicCatalog(t *testing.T) {
 }
 
 func TestCheckedInVRecordsFeatureCompleteDefines(t *testing.T) {
-	missing := MissingFeatureCompleteDefines(testdataV(t))
+	v := testdataV(t)
+	missing := MissingFeatureCompleteDefines(v)
 	if len(missing) > 0 {
 		t.Fatalf("testdata/tag-1.8.1.3.V missing #define %s", strings.Join(missing, ", "))
+	}
+	if strings.Contains(v, "socat version 1.8.1.3 on ") {
+		t.Fatal("testdata/tag-1.8.1.3.V must sanitize the compile-date line")
+	}
+	if strings.Contains(v, "running on Linux version") {
+		t.Fatal("testdata/tag-1.8.1.3.V must sanitize the kernel line")
 	}
 }
 
@@ -384,6 +452,55 @@ func findFeatureCompleteClassicBinary() (string, string) {
 		return "", "classic socat binary not available (set SOCAT or CLASSIC_SOCAT)"
 	}
 	return "", "no feature-complete classic socat binary (" + strings.Join(skipped, "; ") + ")"
+}
+
+func TestBuildClassicHelpCatalogScriptRefusesUserPath(t *testing.T) {
+	dir := t.TempDir()
+	sentinel := filepath.Join(dir, "sentinel")
+	if err := os.WriteFile(sentinel, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller")
+	}
+	script := filepath.Join(filepath.Dir(file), "../../scripts/build-classic-help-catalog.sh")
+	cmd := exec.Command("bash", script)
+	var env []string
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "SOCAT=") || strings.HasPrefix(e, "CLASSIC_SOCAT=") || strings.HasPrefix(e, "CLASSIC_BUILD_DIR=") {
+			continue
+		}
+		env = append(env, e)
+	}
+	cmd.Env = append(env, "CLASSIC_BUILD_DIR="+dir)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected failure for unsuitable CLASSIC_BUILD_DIR, output:\n%s", out)
+	}
+	if _, statErr := os.Stat(sentinel); statErr != nil {
+		t.Fatalf("user CLASSIC_BUILD_DIR was deleted: %v\n%s", statErr, out)
+	}
+	if !bytes.Contains(out, []byte("Refusing to delete a user-controlled path")) {
+		t.Fatalf("expected refuse-to-delete message, got:\n%s", out)
+	}
+}
+
+func TestBuildClassicHelpCatalogScriptDoesNotForgeB7200(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller")
+	}
+	b, err := os.ReadFile(filepath.Join(filepath.Dir(file), "../../scripts/build-classic-help-catalog.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(b, []byte("env CPPFLAGS=-DB7200")) || bytes.Contains(b, []byte("./configure CPPFLAGS=-DB7200")) {
+		t.Fatal("rebuild script must not force CPPFLAGS=-DB7200=7200U")
+	}
+	if !bytes.Contains(b, []byte("Do not pass CPPFLAGS=-DB7200=7200U")) {
+		t.Fatal("rebuild script must fail with a prerequisite message instead of forging B7200")
+	}
 }
 
 func helpGroupsToInternal(groups []string) []string {

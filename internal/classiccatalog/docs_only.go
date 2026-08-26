@@ -1,14 +1,15 @@
 package classiccatalog
 
-// DocsOnlyNotInThisBinary records official-documentation (and matching
-// optionnames[] aliases) spellings that testdata/tag-1.8.1.3.hhh does not
-// advertise. The dump is one configured binary: Linux glibc, OpenSSL 3,
-// GNU Readline, libwrap, default configure flags (--enable-openssl-method
-// and --enable-fips remain off).
+// DocsOnlyNotInThisBinary records official-documentation spellings that
+// testdata/tag-1.8.1.3.hhh does not advertise. The dump is one configured
+// binary: Linux glibc, OpenSSL 3, GNU Readline, libwrap, default configure
+// flags (--enable-openssl-method and --enable-fips remain off).
 //
 // These names are required inputs for later compatibility work, but they
 // must not be forged into the advertised -hhh catalog. RequiredPublicSpellings
-// unions this set with Options.
+// unions this set with Options, minus IntentionalPublicOmissions.
+// Parser-only optionnames[] aliases that the man page does not document
+// (including openssl-fips and openssl-method) belong in OptionalParserOnlyAliases.
 var DocsOnlyNotInThisBinary = map[string]string{
 	"abort-threshold":      "documented; compiled only with HP-UX TCP_ABORT_THRESHOLD",
 	"b3600":                "HP-UX B3600; not defined on Linux glibc",
@@ -30,8 +31,6 @@ var DocsOnlyNotInThisBinary = map[string]string{
 	"nopush":               "documented; compiled only with TCP_NOPUSH",
 	"notail":               "documented fs-notail nickname; compiled only with FS_NOTAIL_FL",
 	"nshare":               "documented; compiled only with O_NSHARE",
-	"openssl-fips":         "optionnames[] alias of fips; requires --enable-fips",
-	"openssl-method":       "optionnames[] alias of method; requires --enable-openssl-method",
 	"paws":                 "documented; compiled only with OSF1 TCP_PAWS",
 	"res-aaonly":           "documented resolver option; compiled only with WITH_AA_ONLY",
 	"res-primary":          "documented resolver option; compiled only with WITH_RES_PRIMARY",
@@ -50,8 +49,9 @@ var DocsOnlyNotInThisBinary = map[string]string{
 
 // OptionalParserOnlyAliases are C optionnames[] spellings that this configured
 // binary does not advertise and that the official man page does not document
-// as public OPTION_ names (or matching openssl-* aliases). They are accepted
-// by the classic parser on some hosts but are not compatibility requirements.
+// as public OPTION_ names. They are accepted by the classic parser on some
+// hosts but are not compatibility requirements. openssl-fips and openssl-method
+// are parser aliases of documented fips and method.
 var OptionalParserOnlyAliases = map[string]string{
 	"aaonly":                   "optionnames[] alias of res-aaonly; WITH_AA_ONLY",
 	"audit":                    "optionnames[] SO_AUDIT (AIX)",
@@ -82,6 +82,8 @@ var OptionalParserOnlyAliases = map[string]string{
 	"o_nshare":                 "optionnames[] alias of nshare; O_NSHARE",
 	"o_priv":                   "optionnames[] O_PRIV",
 	"o_rshare":                 "optionnames[] alias of rshare; O_RSHARE",
+	"openssl-fips":             "optionnames[] alias of documented fips; not a public man spelling",
+	"openssl-method":           "optionnames[] alias of documented method; not a public man spelling",
 	"pop-all":                  "optionnames[] alias of i-pop-all",
 	"port":                     "optionnames[] host-specific",
 	"primary":                  "optionnames[] alias of res-primary",
@@ -116,6 +118,15 @@ var OptionalParserOnlyAliases = map[string]string{
 	"useifbufs":                "optionnames[] alias of so-use-ifbufs",
 	"useloopback":              "optionnames[] alias of so-useloopback",
 	"vdsusp":                   "optionnames[] alias of dsusp",
+}
+
+// IntentionalPublicOmissions are classic public spellings this port records
+// in the catalog but deliberately does not treat as compatibility
+// requirements. cool-write is deprecated (use children-shutup); Go must not
+// re-advertise it, and the audit must not tell later agents to implement it.
+var IntentionalPublicOmissions = map[string]string{
+	"cool-write": "deprecated; this port stopped advertising it (use children-shutup)",
+	"coolwrite":  "deprecated alias of cool-write; this port stopped advertising it",
 }
 
 // GoOnlyHelpAllowlist is names this port advertises in -hh/-hhh that classic

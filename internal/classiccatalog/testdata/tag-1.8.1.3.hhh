@@ -4,13 +4,13 @@
 # Official master af5388c898c7bb60997935aee93c223deba60c4a has identical
 # xiohelp.c, xioopts.h, optionnames[], and xio*.c.
 #
-# Feature-complete Linux build with OpenSSL, GNU Readline, and libwrap
-# (configure defaults once those libraries are present). Unique advertised
-# spellings: 795, including b7200 (glibc B7200 / bits/termios-baud.h, or
-# CPPFLAGS=-DB7200=7200U on older glibc).
+# Feature-complete Ubuntu 26.04 / glibc 2.41+ Linux build with OpenSSL,
+# GNU Readline, and libwrap (configure defaults once those libraries are
+# present). Unique advertised spellings: 795, including b7200 from a real
+# <termios.h> #define B7200 7200U. Do not forge B7200 with CPPFLAGS.
 #
 # Rebuild: scripts/build-classic-help-catalog.sh
-# Provenance: testdata/tag-1.8.1.3.V
+# Provenance: testdata/tag-1.8.1.3.V (timestamps/kernel sanitized)
 #
    opts:
       <opt>{,<opts>}:

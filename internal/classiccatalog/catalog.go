@@ -7,11 +7,11 @@
 // behavior differences from that tag (xiohelp.c, xioopts.h, optionnames[],
 // and xio*.c are identical).
 //
-// The checked-in dump is a feature-complete Linux build of that tag
-// (OpenSSL, GNU Readline, and libwrap enabled by configure once the
-// libraries are present). That binary advertises AdvertisedCount unique
-// option spellings, including b7200 when B7200 is defined (glibc
-// bits/termios-baud.h, or CPPFLAGS=-DB7200=7200U on older glibc).
+// The checked-in dump is a feature-complete Ubuntu 26.04 / glibc 2.41+
+// Linux build of that tag (OpenSSL, GNU Readline, and libwrap enabled by
+// configure once the libraries are present). That binary advertises
+// AdvertisedCount unique option spellings, including b7200 from a real
+// <termios.h> `#define B7200 7200U`. Do not forge B7200 with CPPFLAGS.
 package classiccatalog
 
 import "strings"
@@ -60,15 +60,22 @@ func Lookup(spelling string) (Entry, bool) {
 }
 
 // RequiredPublicSpellings is the union of advertised -hhh names and
-// documented public spellings that this binary does not print. Missing Go
-// coverage is calculated from this set. Undocumented parser-only aliases
-// are not included; see OptionalParserOnlyAliases.
+// documented public spellings that this binary does not print, minus
+// IntentionalPublicOmissions. Missing Go coverage is calculated from this
+// set. Undocumented parser-only aliases are not included; see
+// OptionalParserOnlyAliases.
 func RequiredPublicSpellings() map[string]struct{} {
 	out := make(map[string]struct{}, len(Options)+len(DocsOnlyNotInThisBinary))
 	for name := range Options {
+		if _, omit := IntentionalPublicOmissions[name]; omit {
+			continue
+		}
 		out[name] = struct{}{}
 	}
 	for name := range DocsOnlyNotInThisBinary {
+		if _, omit := IntentionalPublicOmissions[name]; omit {
+			continue
+		}
 		out[name] = struct{}{}
 	}
 	return out
