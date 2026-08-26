@@ -425,8 +425,9 @@ func TestApplyUnixgramSocketOptionsAppliesSetsockoptUnix(t *testing.T) {
 	if err := applyUnixgramSocketOptions(c, spec); err != nil {
 		t.Fatalf("UNIX datagram setsockopt must apply, not no-op: %v", err)
 	}
-	if got := packetSockoptInt(t, c, unix.SO_KEEPALIVE); got != 1 {
-		t.Fatalf("SO_KEEPALIVE=%d want 1", got)
+	if got := packetSockoptInt(t, c, unix.SO_KEEPALIVE); got == 0 {
+		// Darwin getsockopt returns the so_options bit (8), not 1.
+		t.Fatalf("SO_KEEPALIVE=%d want enabled", got)
 	}
 }
 
@@ -444,7 +445,7 @@ func TestUnixRecvStreamWrapCommonSetsockoptUnix(t *testing.T) {
 	if _, err := xio.WrapCommon(spec, &unixRecvStream{c: c}); err != nil {
 		t.Fatalf("WrapCommon on UNIX-RECV wrapper must not fail: %v", err)
 	}
-	if got := packetSockoptInt(t, c, unix.SO_KEEPALIVE); got != 1 {
-		t.Fatalf("SO_KEEPALIVE=%d want 1 after WrapCommon", got)
+	if got := packetSockoptInt(t, c, unix.SO_KEEPALIVE); got == 0 {
+		t.Fatalf("SO_KEEPALIVE=%d want enabled after WrapCommon", got)
 	}
 }

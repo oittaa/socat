@@ -21,19 +21,19 @@ func TestApplyUDPConnOptsAppliesSetsockoptWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
-	spec, err := parse.ParseSpec(fmt.Sprintf("UDP:127.0.0.1:9,setsockopt=%d:%d:1", solSocket, soKeepalive))
+	spec, err := parse.ParseSpec(fmt.Sprintf("UDP:127.0.0.1:9,setsockopt=%d:%d:1", solSocket, windows.SO_BROADCAST))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := ApplyUDPConnOpts(c, spec, "udp4"); err != nil {
 		t.Fatalf("UDP setsockopt must apply, not no-op: %v", err)
 	}
-	got, err := windowsSocketOption(c, soKeepalive)
+	got, err := windowsSocketOption(c, windows.SO_BROADCAST)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != 1 {
-		t.Fatalf("SO_KEEPALIVE=%d want 1", got)
+	if got == 0 {
+		t.Fatalf("SO_BROADCAST=%d want enabled", got)
 	}
 }
 
@@ -43,19 +43,19 @@ func TestApplyTCPConnOptsAppliesSetsockoptOnUDPWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
-	spec, err := parse.ParseSpec(fmt.Sprintf("UDP:127.0.0.1:9,setsockopt-int=%d:%d:1", solSocket, soKeepalive))
+	spec, err := parse.ParseSpec(fmt.Sprintf("UDP:127.0.0.1:9,setsockopt-int=%d:%d:1", solSocket, windows.SO_BROADCAST))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := ApplyTCPConnOpts(spec, c); err != nil {
 		t.Fatalf("UDP setsockopt must apply, not no-op: %v", err)
 	}
-	got, err := windowsSocketOption(c, soKeepalive)
+	got, err := windowsSocketOption(c, windows.SO_BROADCAST)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != 1 {
-		t.Fatalf("SO_KEEPALIVE=%d want 1", got)
+	if got == 0 {
+		t.Fatalf("SO_BROADCAST=%d want enabled", got)
 	}
 }
 

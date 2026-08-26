@@ -935,7 +935,8 @@ func TestUDPRecvFromConnWrapCommonSetsockopt(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
-	spec, err := parse.ParseSpec(fmt.Sprintf("UDP4-LISTEN:0,setsockopt=%d:%d:1", syscall.SOL_SOCKET, syscall.SO_KEEPALIVE))
+	// SO_BROADCAST is valid on UDP on Windows; SO_KEEPALIVE is not.
+	spec, err := parse.ParseSpec(fmt.Sprintf("UDP4-LISTEN:0,setsockopt=%d:%d:1", syscall.SOL_SOCKET, syscall.SO_BROADCAST))
 	if err != nil {
 		t.Fatal(err)
 	}

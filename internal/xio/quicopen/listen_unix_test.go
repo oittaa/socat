@@ -52,8 +52,9 @@ func TestListenPacketAppliesSetsockoptUnix(t *testing.T) {
 	if !ok {
 		t.Fatalf("PacketConn type %T is not syscall.Conn", pc)
 	}
-	if got := packetSockoptInt(t, sc, unix.SO_KEEPALIVE); got != 1 {
-		t.Fatalf("SO_KEEPALIVE=%d want 1 after listenPacket setsockopt", got)
+	if got := packetSockoptInt(t, sc, unix.SO_KEEPALIVE); got == 0 {
+		// Darwin getsockopt returns the so_options bit (8), not 1.
+		t.Fatalf("SO_KEEPALIVE=%d want enabled after listenPacket setsockopt", got)
 	}
 }
 

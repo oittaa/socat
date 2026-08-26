@@ -24,14 +24,14 @@ func TestApplyTCPConnOptsSetsockoptIntKeepaliveUnix(t *testing.T) {
 	if err := ApplyTCPConnOpts(spec, cli); err != nil {
 		t.Fatal(err)
 	}
-	if got := tcpSockoptInt(t, cli, soKeepalive); got != 1 {
-		t.Fatalf("client SO_KEEPALIVE=%d want 1", got)
+	if got := tcpSockoptInt(t, cli, soKeepalive); !sockoptFlagOn(got) {
+		t.Fatalf("client SO_KEEPALIVE=%d want enabled", got)
 	}
 	if err := ApplyTCPConnOpts(spec, srv); err != nil {
 		t.Fatal(err)
 	}
-	if got := tcpSockoptInt(t, srv, soKeepalive); got != 1 {
-		t.Fatalf("accepted SO_KEEPALIVE=%d want 1", got)
+	if got := tcpSockoptInt(t, srv, soKeepalive); !sockoptFlagOn(got) {
+		t.Fatalf("accepted SO_KEEPALIVE=%d want enabled", got)
 	}
 }
 
@@ -46,8 +46,8 @@ func TestApplyTCPConnOptsSetsockoptDalanHexUnix(t *testing.T) {
 	if err := ApplyTCPConnOpts(spec, cli); err != nil {
 		t.Fatal(err)
 	}
-	if got := tcpSockoptInt(t, cli, soKeepalive); got != 1 {
-		t.Fatalf("SO_KEEPALIVE=%d want 1 after dalan hex", got)
+	if got := tcpSockoptInt(t, cli, soKeepalive); !sockoptFlagOn(got) {
+		t.Fatalf("SO_KEEPALIVE=%d want enabled after dalan hex", got)
 	}
 }
 
@@ -60,8 +60,8 @@ func TestApplyTCPConnOptsSetsockoptConnectedAliasUnix(t *testing.T) {
 	if err := ApplyTCPConnOpts(spec, cli); err != nil {
 		t.Fatal(err)
 	}
-	if got := tcpSockoptInt(t, cli, soKeepalive); got != 1 {
-		t.Fatalf("SO_KEEPALIVE=%d want 1", got)
+	if got := tcpSockoptInt(t, cli, soKeepalive); !sockoptFlagOn(got) {
+		t.Fatalf("SO_KEEPALIVE=%d want enabled", got)
 	}
 }
 
@@ -74,8 +74,8 @@ func TestApplyTCPConnOptsSetsockoptThroughNetConnUnwrapUnix(t *testing.T) {
 	if err := ApplyTCPConnOpts(spec, netConnUnwrapper{Conn: cli}); err != nil {
 		t.Fatal(err)
 	}
-	if got := tcpSockoptInt(t, cli, soKeepalive); got != 1 {
-		t.Fatalf("SO_KEEPALIVE=%d want 1 through NetConn unwrap", got)
+	if got := tcpSockoptInt(t, cli, soKeepalive); !sockoptFlagOn(got) {
+		t.Fatalf("SO_KEEPALIVE=%d want enabled through NetConn unwrap", got)
 	}
 }
 
@@ -92,8 +92,8 @@ func TestApplyUDPConnOptsAppliesSetsockoptUnix(t *testing.T) {
 	if err := ApplyUDPConnOpts(c, spec, "udp4"); err != nil {
 		t.Fatalf("UDP setsockopt must apply, not no-op: %v", err)
 	}
-	if got := udpSockoptInt(t, c, soKeepalive); got != 1 {
-		t.Fatalf("SO_KEEPALIVE=%d want 1", got)
+	if got := udpSockoptInt(t, c, soKeepalive); !sockoptFlagOn(got) {
+		t.Fatalf("SO_KEEPALIVE=%d want enabled", got)
 	}
 }
 
@@ -110,8 +110,8 @@ func TestApplyTCPConnOptsAppliesSetsockoptOnUDPUnix(t *testing.T) {
 	if err := ApplyTCPConnOpts(spec, c); err != nil {
 		t.Fatalf("UDP setsockopt must apply, not no-op: %v", err)
 	}
-	if got := udpSockoptInt(t, c, soKeepalive); got != 1 {
-		t.Fatalf("SO_KEEPALIVE=%d want 1 after ApplyTCPConnOpts on UDP", got)
+	if got := udpSockoptInt(t, c, soKeepalive); !sockoptFlagOn(got) {
+		t.Fatalf("SO_KEEPALIVE=%d want enabled after ApplyTCPConnOpts on UDP", got)
 	}
 }
 
@@ -140,8 +140,8 @@ func TestListenControlSetsockoptPhasesUnix(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ln2.Close() })
-	if got := listenerSockoptInt(t, ln2, soKeepalive); got != 1 {
-		t.Fatalf("listener SO_KEEPALIVE=%d want 1 after setsockopt-socket", got)
+	if got := listenerSockoptInt(t, ln2, soKeepalive); !sockoptFlagOn(got) {
+		t.Fatalf("listener SO_KEEPALIVE=%d want enabled after setsockopt-socket", got)
 	}
 
 	listen, err := parse.ParseSpec(fmt.Sprintf("TCP4-LISTEN:0,setsockopt-listen=%d:%d:1", solSocket, soKeepalive))
@@ -154,8 +154,8 @@ func TestListenControlSetsockoptPhasesUnix(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ln3.Close() })
-	if got := listenerSockoptInt(t, ln3, soKeepalive); got != 1 {
-		t.Fatalf("listener SO_KEEPALIVE=%d want 1 after setsockopt-listen PREBIND", got)
+	if got := listenerSockoptInt(t, ln3, soKeepalive); !sockoptFlagOn(got) {
+		t.Fatalf("listener SO_KEEPALIVE=%d want enabled after setsockopt-listen PREBIND", got)
 	}
 }
 
@@ -186,6 +186,10 @@ func TestApplyGenericSetsockoptInvalidOptionUnix(t *testing.T) {
 		t.Fatal("invalid level/opt must fail, not succeed silently")
 	}
 }
+
+// sockoptFlagOn reports whether a SOL_SOCKET boolean option is enabled.
+// Linux returns 1; Darwin returns the so_options bit (SO_KEEPALIVE is 8).
+func sockoptFlagOn(v int) bool { return v != 0 }
 
 func listenerSockoptInt(t *testing.T, ln net.Listener, opt int) int {
 	t.Helper()
