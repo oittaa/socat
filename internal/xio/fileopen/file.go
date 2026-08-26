@@ -44,29 +44,13 @@ func openOPEN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 	if err != nil {
 		return nil, err
 	}
+	if _, err := namedOpenEarly(path, s); err != nil {
+		return nil, err
+	}
 	f, err := openUserFileWithUmask(s, path, flags, perm)
 	if err != nil {
 		// Classic format for RECVFROM_FORK_LOOP: `E open("path", …): …`
 		return nil, fmt.Errorf("open(%q, %02o, %04o): %w", path, flags, xio.FileModeToUnix(perm), err)
-	}
-	if s.HasOption("ftruncate") || s.HasOption("trunc") {
-		// ftruncate=N or trunc flag after open
-		if v := s.OptionValue("ftruncate", ""); v != "" {
-			n, e := strconv.ParseInt(v, 0, 64)
-			if e != nil || n < 0 {
-				_ = f.Close()
-				return nil, fmt.Errorf("ftruncate: invalid value %q", v)
-			}
-			if e := f.Truncate(n); e != nil {
-				_ = f.Close()
-				return nil, fmt.Errorf("ftruncate: %w", e)
-			}
-		} else if s.BoolOption("trunc") {
-			if e := f.Truncate(0); e != nil {
-				_ = f.Close()
-				return nil, fmt.Errorf("truncate: %w", e)
-			}
-		}
 	}
 	return FileOpened(f, s, path)
 }
@@ -87,6 +71,9 @@ func openCREATE(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	if err != nil {
 		return nil, err
 	}
+	if _, err := namedOpenEarly(path, s); err != nil {
+		return nil, err
+	}
 	f, err := openUserFileWithUmask(s, path, flags, perm)
 	if err != nil {
 		return nil, err
@@ -99,32 +86,33 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 		return nil, fmt.Errorf("GOPEN requires filename")
 	}
 	path := s.Params[0]
-	fi, err := os.Lstat(path)
+	early, err := namedOpenEarly(path, s)
 	if err != nil {
-		if os.IsNotExist(err) {
-			// create regular file
-			flags := os.O_RDWR | os.O_CREATE
-			switch mode {
-			case xio.ModeRead:
-				flags = os.O_RDONLY | os.O_CREATE
-			case xio.ModeWrite:
-				flags = os.O_WRONLY | os.O_CREATE
-			}
-			perm, perr := xio.ParseFileMode(s, xio.DefaultCreateMode)
-			if perr != nil {
-				return nil, perr
-			}
-			f, err := openUserFileWithUmask(s, path, flags, perm)
-			if err != nil {
-				return nil, err
-			}
-			return FileOpened(f, s, path)
-		}
 		return nil, err
 	}
-	// UNIX domain socket?
-	if fi.Mode()&os.ModeSocket != 0 {
-		return xio.OpenSpec(ctx, parse.Spec{
+	if !early.exists {
+		// create regular file
+		flags := os.O_RDWR | os.O_CREATE
+		switch mode {
+		case xio.ModeRead:
+			flags = os.O_RDONLY | os.O_CREATE
+		case xio.ModeWrite:
+			flags = os.O_WRONLY | os.O_CREATE
+		}
+		perm, perr := xio.ParseFileMode(s, xio.DefaultCreateMode)
+		if perr != nil {
+			return nil, perr
+		}
+		f, err := openUserFileWithUmask(s, path, flags, perm)
+		if err != nil {
+			return nil, err
+		}
+		return FileOpened(f, s, path)
+	}
+	// UNIX domain socket? Uses the pre-unlink Stat snapshot: PH_PREOPEN
+	// unlink does not reclassify a socket as a missing create-path.
+	if early.mode&os.ModeSocket != 0 {
+		o, err := xio.OpenSpec(ctx, parse.Spec{
 			// GOPEN is a generic client: classic probes stream, seqpacket,
 			// and datagram sockets instead of imposing UNIX-CONNECT semantics.
 			Type:    "UNIX",
@@ -132,11 +120,21 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 			Options: s.Options,
 			Raw:     s.Raw,
 		}, mode, g)
+		if err != nil {
+			return nil, err
+		}
+		// Classic GOPEN of a socket applies PH_PASTOPEN unlink-late on the
+		// path after connect; unlink-close is only armed for non-sockets.
+		if err := applyNamedUnlinkLate(path, s); err != nil {
+			logx.CloseQuiet(o)
+			return nil, err
+		}
+		return o, nil
 	}
 	flags := OpenFlags(s, mode)
 	// Classic GOPEN defaults to O_APPEND on existing regular files only.
 	// Devices (PTY slaves via FAKEPTY link=), fifos, etc. must not get O_APPEND.
-	isReg := fi.Mode().IsRegular()
+	isReg := early.mode.IsRegular()
 	if mode != xio.ModeRead && isReg {
 		if s.HasOption("append") {
 			if s.BoolOption("append") {
@@ -209,8 +207,14 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 	// entry, then creates and opens a new FIFO at the same path. It does not
 	// unlink the newly created FIFO after open.
 	if s.BoolOption("unlink-early") {
-		if err := os.Remove(path); err != nil {
+		if err := xio.Unlink(path); err != nil {
 			return nil, fmt.Errorf("unlink %s: %w", path, err)
+		}
+	} else if s.BoolOption("unlink") {
+		// ENOENT is ignored (classic xio_unlink). unlink=0 does not unlink:
+		// classic applyopts_named presence bug in this release.
+		if err := unlinkNamed(path); err != nil {
+			return nil, err
 		}
 	}
 	created := false
@@ -231,7 +235,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 	// failed open must not leave behind a FIFO that this invocation created.
 	if err := xio.ApplyOwner(path, s, nil); err != nil {
 		if created {
-			_ = os.Remove(path)
+			_ = xio.Unlink(path)
 		}
 		return nil, err
 	}
@@ -250,12 +254,12 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 	removeCreated := func() {
 		if created {
 			unregister()
-			_ = os.Remove(path)
+			_ = xio.Unlink(path)
 		}
 	}
 	cleanupPath := func() {
 		if doUnlink {
-			_ = os.Remove(path)
+			_ = xio.Unlink(path)
 		}
 	}
 	addPathCleanup := func(o *xio.Opened) {
@@ -281,6 +285,11 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		f, err := openUserFile(path, flags, 0)
 		if err != nil {
+			removeCreated()
+			return nil, err
+		}
+		if err := applyNamedUnlinkLate(path, s); err != nil {
+			logx.CloseQuiet(f)
 			removeCreated()
 			return nil, err
 		}
@@ -313,6 +322,11 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		clearNB(w)
 		logx.CloseQuiet(r)
+		if err := applyNamedUnlinkLate(path, s); err != nil {
+			logx.CloseQuiet(w)
+			removeCreated()
+			return nil, err
+		}
 		if err := xio.ApplyFDOptions(w, s); err != nil {
 			logx.CloseQuiet(w)
 			removeCreated()
@@ -342,6 +356,12 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		clearNB(r)
 		clearNB(w)
+		if err := applyNamedUnlinkLate(path, s); err != nil {
+			logx.CloseQuiet(r)
+			logx.CloseQuiet(w)
+			removeCreated()
+			return nil, err
+		}
 		if err := xio.ApplyFDOptions(r, s); err != nil {
 			logx.CloseQuiet(r)
 			logx.CloseQuiet(w)
@@ -502,45 +522,69 @@ func OpenFlags(s parse.Spec, mode xio.Mode) int {
 	return flags
 }
 
+func applyOpenTruncate(f *os.File, s parse.Spec) error {
+	if !s.HasOption("ftruncate") && !s.HasOption("trunc") {
+		return nil
+	}
+	if v := s.OptionValue("ftruncate", ""); v != "" {
+		n, e := strconv.ParseInt(v, 0, 64)
+		if e != nil || n < 0 {
+			return fmt.Errorf("ftruncate: invalid value %q", v)
+		}
+		if e := f.Truncate(n); e != nil {
+			return fmt.Errorf("ftruncate: %w", e)
+		}
+		return nil
+	}
+	if s.BoolOption("trunc") {
+		if e := f.Truncate(0); e != nil {
+			return fmt.Errorf("truncate: %w", e)
+		}
+	}
+	return nil
+}
+
 func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
-	if err := xio.ApplyFDOptions(f, s); err != nil {
+	// Classic _xioopen_open applies PH_PASTOPEN unlink-late immediately after
+	// open(2). unlink-close is armed before FD/owner/lock/wrap/termios so a
+	// later failure still removes the name (xio-file.c / xio-gopen.c).
+	guard, err := namedAfterOpen(path, s)
+	if err != nil {
 		logx.CloseQuiet(f)
 		return nil, err
+	}
+	fail := func(err error) (*xio.Opened, error) {
+		logx.CloseQuiet(f)
+		guard.drop()
+		return nil, err
+	}
+	if err := applyOpenTruncate(f, s); err != nil {
+		return fail(err)
+	}
+	if err := xio.ApplyFDOptions(f, s); err != nil {
+		return fail(err)
 	}
 	// Classic perm=/user= after open apply to named sockets and PTY slaves.
 	// Regular files use perm=/mode= as the open(2) creation mode so umask
 	// still masks the result (umask=077,perm=0666 → 0600).
 	if err := xio.ApplyOwner(path, s, f); err != nil {
-		logx.CloseQuiet(f)
-		return nil, err
+		return fail(err)
 	}
 	if err := applyFileLocks(s, f, f); err != nil {
-		logx.CloseQuiet(f)
-		return nil, err
+		return fail(err)
 	}
 	// ignoreeof is applied centrally by xio.WrapCommon now.
 	st, err := xio.WrapCommon(s, xio.FileStream(f))
 	if err != nil {
-		logx.CloseQuiet(f)
-		return nil, err
+		return fail(err)
 	}
 	o := &xio.Opened{
 		Stream: st,
 		Label:  path,
 	}
 	if err := xio.AttachTermios(o, int(f.Fd()), s); err != nil {
-		logx.CloseQuiet(f)
-		return nil, err
+		return fail(err)
 	}
-	if s.BoolOption("unlink-early") {
-		_ = os.Remove(path)
-	}
-	if s.BoolOption("unlink-late") || s.BoolOption("unlink-close") {
-		unregister := xio.RegisterUnlinkPath(path)
-		o.AddCleanup(func() {
-			unregister()
-			_ = os.Remove(path)
-		})
-	}
+	guard.attach(o)
 	return o, nil
 }

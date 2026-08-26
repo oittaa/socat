@@ -176,7 +176,7 @@ func UnlinkRegisteredPaths() {
 		if err != nil || !sameRegisteredFile(entry.info, current) {
 			continue
 		}
-		_ = os.Remove(entry.path)
+		_ = Unlink(entry.path)
 	}
 	for _, h := range hooks {
 		h()

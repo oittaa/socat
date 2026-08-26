@@ -198,7 +198,7 @@ func dialUnixNetwork(ctx context.Context, s parse.Spec, g *xio.Global, network, 
 
 func cleanupUnixBind(path string) {
 	if path != "" && !xio.IsAbstract(path) {
-		_ = os.Remove(path)
+		_ = xio.Unlink(path)
 	}
 }
 

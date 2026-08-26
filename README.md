@@ -171,7 +171,7 @@ aliases and termios / baud names.
 | Listen / connect | `reuseaddr` (TCP listen default on; UDP-LISTEN with `fork` or this option), `so-reuseport`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `listen-timeout`, `pf`, `ai-addrconfig`, `ipv6-v6only`, `backlog`, `so-linger`/`linger`, `setsockopt-listen` / `sockopt-listen`, `setsockopt` |
 | Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport`, `tcpwrap` / `libwrap` / `hosts-allow` / `hosts-deny` / `tcpwrap-etc` |
 | TUN / INTERFACE | `tun-name`, `tun-type`, `tun-device`, `iff-up`, `iff-no-pi`, `if-mtu` / `interface-mtu`, other `iff-*` flags |
-| Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `umask`, `nonblock`, `o-noatime`/`noatime`, `f-setpipe-sz`/`pipesz` (Linux), `setlk` / `setlkw` (read/write variants) |
+| Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `umask`, `nonblock`, `o-noatime`/`noatime`, `unlink-early`, `unlink`/`delete`/`remove`, `unlink-late`, `unlink-close`, `f-setpipe-sz`/`pipesz` (Linux), `setlk` / `setlkw` (read/write variants) |
 | UNIX | `unlink-early` (required to replace a leftover path; `reuseaddr` does not unlink), `unlink-close`, `unix-bind-tempname` / `bind-tempname`, `socktype` / `so-type` |
 | POSIX MQ | `mq-prio` / `posixmq-priority`, `mq-flush`, `mq-maxmsg`, `mq-msgsize` |
 | EXEC / PROCESS | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none`, `shut-close`, `children-shutup`/`child-shutup`, `chdir`, `umask` (child inherits, then parent restores) |
@@ -214,6 +214,7 @@ aliases and termios / baud names.
 - **TLS address names** are `TLS` / `TLS-CONNECT` / `TLS-LISTEN`. `OPENSSL*` and `SSL*` remain aliases so classic command lines still work.
 - **SIGILL on Darwin** — classic `EXITCODESIGILL` expects exit `128+4` from a caught SIGILL. Linux matches that. On Darwin, Go’s runtime treats SIGILL as a crash dump (`exit 2`, `SIGILL: illegal instruction`); `os/signal.Notify` cannot intercept it. SIGTERM still exits `128+15`.
 - **Signal-exit unlink identity** — classic `xio_close` calls `unlink(2)` on the stored name with no identity check. If `lstat` shows a different file than at registration (`os.SameFile`), we skip the name instead of removing a replacement. We do not hold extra descriptors to pin inodes: Linux `unlink(2)` removes the name while the endpoint fd already holds the object; Darwin `O_EVTONLY` is a kqueue monitor flag and `open` of a FIFO with it waits for a writer; Windows `DeleteFile` fails while a handle is open without `FILE_SHARE_DELETE`.
+- **`unlink=0` / `unlink-late=0`** — documented `TYPE_BOOL`; `=0` disables deletion. Classic `applyopts_named` ignores the stored bool and unlinks because the option is present (`tag-1.8.1.3` / master). Adjacent `unlink-early` and `unlink-close` already honor `=0` via `retropt_bool`. Copying the presence bug would delete files the user asked not to remove.
 
 ## Unsupported / security-related
 

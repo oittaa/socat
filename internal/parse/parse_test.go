@@ -239,6 +239,18 @@ func TestOptionAliases(t *testing.T) {
 	}
 }
 
+func TestUnlinkDeleteRemoveAliases(t *testing.T) {
+	for _, spec := range []string{"OPEN:file,unlink", "OPEN:file,delete", "OPEN:file,remove"} {
+		s, err := ParseSpec(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !s.BoolOption("unlink") {
+			t.Fatalf("%s: unlink not set (options=%v)", spec, s.Options)
+		}
+	}
+}
+
 func TestClassicCompatibilityOptionAliases(t *testing.T) {
 	s, err := ParseSpec("OPENSSL:localhost:443,cipher=ECDHE-ECDSA-AES256-GCM-SHA384,sockopt-listen=1:2:1,f-setlk-wr")
 	if err != nil {
