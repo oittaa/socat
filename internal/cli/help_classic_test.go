@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -40,19 +41,26 @@ func TestHelpListsDescriptorLifecycleAliases(t *testing.T) {
 		t.Fatal(err)
 	}
 	help := output.String()
-	for _, name := range []string{"perm", "user", "group", "ftruncate"} {
-		if !strings.Contains(help, "    "+name+" ") {
-			t.Errorf("-hhh missing canonical %q", name)
-		}
-	}
+	canonical := []string{"perm", "ftruncate"}
 	aliases := map[string]string{
 		"mode":        "perm",
-		"uid":         "user",
-		"owner":       "user",
-		"gid":         "group",
 		"truncate":    "ftruncate",
 		"ftruncate32": "ftruncate",
 		"ftruncate64": "ftruncate",
+	}
+	// Windows has no fchmod/fchown on inherited FDs; user/group stay
+	// rejected and hidden from -hhh (same rule as membership). Unix
+	// advertises classic uid/owner/gid spellings.
+	if runtime.GOOS != "windows" {
+		canonical = append(canonical, "user", "group")
+		aliases["uid"] = "user"
+		aliases["owner"] = "user"
+		aliases["gid"] = "group"
+	}
+	for _, name := range canonical {
+		if !strings.Contains(help, "    "+name+" ") {
+			t.Errorf("-hhh missing canonical %q", name)
+		}
 	}
 	for alias, canon := range aliases {
 		want := "alias of " + canon
