@@ -266,21 +266,31 @@ func cmsgInt(data []byte) int {
 }
 
 func handleIPv4Cmsg(typ int32, data []byte, g *Global) {
-	switch typ {
-	case unix.IP_TTL:
+	// Do not use a combined switch case for IP_TTL/IP_RECVTTL: the constants
+	// are equal on some UNIXes and Go rejects duplicate cases. Classic
+	// xio-ip.c (tag-1.8.1.3 12c08bf) treats Linux IP_TTL and BSD IP_RECVTTL
+	// as the same received-TTL cmsg (env IP_TTL).
+	if typ == unix.IP_TTL || typ == unix.IP_RECVTTL {
 		val := strconv.Itoa(cmsgInt(data))
 		logAncillary(g, "IP_TTL", "ttl", val)
 		SetSessionEnv(g, "IP_TTL", val)
 		if g != nil && g.Log != nil {
 			g.Log.Noticef("Ancillary message: ttl=%s", val)
 		}
-	case unix.IP_TOS:
+		return
+	}
+	// Solaris delivers TOS as IP_RECVTOS; Linux/Darwin typically use IP_TOS
+	// (classic xio-ip.c: IP_RECVTOS when XIO_ANCILLARY_TYPE_SOLARIS).
+	if typ == unix.IP_TOS || typ == unix.IP_RECVTOS {
 		val := strconv.Itoa(cmsgInt(data))
 		logAncillary(g, "IP_TOS", "tos", val)
 		SetSessionEnv(g, "IP_TOS", val)
 		if g != nil && g.Log != nil {
 			g.Log.Noticef("Ancillary message: tos=%s", val)
 		}
+		return
+	}
+	switch typ {
 	case unix.IP_PKTINFO:
 		ifi, specDst, dstIP, ok := parseInet4Pktinfo(data)
 		if !ok {

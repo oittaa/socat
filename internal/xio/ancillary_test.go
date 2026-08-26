@@ -69,6 +69,24 @@ func TestAncillaryEnvironmentIsSessionScoped(t *testing.T) {
 	}
 }
 
+func TestAncillaryBSDRecvTTLSetsIPTTL(t *testing.T) {
+	// Darwin/FreeBSD recvmsg delivers TTL as IP_RECVTTL (byte or int), not
+	// Linux IP_TTL. The session env name stays IP_TTL (classic xio-ip.c).
+	g := &Global{}
+	handleIPv4Cmsg(unix.IP_RECVTTL, []byte{64}, g)
+	if got := g.SessionVars["IP_TTL"]; got != "64" {
+		t.Fatalf("session env=%v want IP_TTL=64", g.SessionVars)
+	}
+}
+
+func TestAncillaryRecvTOSSetsIPTOS(t *testing.T) {
+	g := &Global{}
+	handleIPv4Cmsg(unix.IP_RECVTOS, []byte{0x10}, g)
+	if got := g.SessionVars["IP_TOS"]; got != "16" {
+		t.Fatalf("session env=%v want IP_TOS=16", g.SessionVars)
+	}
+}
+
 func TestNeedAncillaryBoolOption(t *testing.T) {
 	on, err := parse.ParseSpec("UDP4:127.0.0.1:1,pktinfo")
 	if err != nil {
@@ -144,7 +162,13 @@ func TestUDPRecvTTLAncillary(t *testing.T) {
 	g := &Global{}
 	ProcessAncillary(oob, g)
 	if g.SessionVars["IP_TTL"] == "" {
-		t.Fatalf("session env=%v want IP_TTL", g.SessionVars)
+		msgs, _ := unix.ParseSocketControlMessage(oob)
+		types := make([]int32, 0, len(msgs))
+		for _, m := range msgs {
+			types = append(types, m.Header.Type)
+		}
+		t.Fatalf("session env=%v want IP_TTL; cmsg types=%v IP_TTL=%d IP_RECVTTL=%d",
+			g.SessionVars, types, unix.IP_TTL, unix.IP_RECVTTL)
 	}
 }
 
