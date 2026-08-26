@@ -63,8 +63,8 @@ type IPAncillaryEntry struct {
 var ipAncillaryRecvGroups = []string{GroupUDP, GroupRawIP}
 
 // ipAncillarySendGroups are families that apply send-side IP socket options
-// on the underlying INET fd (TCP/SCTP/TLS/WS/PROXY via applyIPTTLTOS;
-// UDP/raw IP/QUIC via ApplyIPSendOpts).
+// on the underlying INET fd once at PH_PASTSOCKET (DialControl /
+// ListenControl → ApplyNetworkSocketOptions; raw IP via ApplyIPSendOpts).
 var ipAncillarySendGroups = []string{
 	GroupUDP, GroupRawIP, GroupTCP, GroupSCTP,
 	GroupTLS, GroupWebSocket, GroupProxy, GroupQUIC,
@@ -277,10 +277,7 @@ func RejectUnsupportedIPAncillary(s parse.Spec) error {
 	}
 	family := specForcedIPFamily(s)
 	for _, option := range s.Options {
-		name := option.Name
-		if name == "" {
-			name = option.OriginalSpelling()
-		}
+		name := specOptionName(option)
 		e, inMatrix := lookupIPAncillary(name)
 		if !inMatrix {
 			continue
@@ -333,27 +330,35 @@ func ancillaryRecvRequested(s parse.Spec) bool {
 	return false
 }
 
+func ancillaryRecvOptionInt(o parse.Option) (int, error) {
+	if !o.Has {
+		return 1, nil
+	}
+	v := strings.ToLower(strings.TrimSpace(o.Value))
+	switch v {
+	case "", "0", "false", "no", "off":
+		return 0, nil
+	case "1", "true", "yes", "on":
+		return 1, nil
+	}
+	n, err := ParseIntAny(o.Value)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
 // ancillaryRecvInt returns the TYPE_INT value classic OFUNC_SOCKOPT would
 // pass to setsockopt. Presence without a value is 1; =0/false/no/off is 0.
-// Names must already fold onto one canonical spelling so OptionNamed's
-// reverse scan implements last-wins (ip-recvttl=1,recvttl=0 disables).
+// OptionNamed's reverse scan implements last-wins for NeedAncillary
+// (ip-recvttl=1,recvttl=0 disables ReadMsg). APPLY walks every occurrence.
 func ancillaryRecvInt(s parse.Spec, names ...string) (int, bool, error) {
 	for _, name := range names {
 		o, ok := s.OptionNamed(name)
 		if !ok {
 			continue
 		}
-		if !o.Has {
-			return 1, true, nil
-		}
-		v := strings.ToLower(strings.TrimSpace(o.Value))
-		switch v {
-		case "", "0", "false", "no", "off":
-			return 0, true, nil
-		case "1", "true", "yes", "on":
-			return 1, true, nil
-		}
-		n, err := ParseIntAny(o.Value)
+		n, err := ancillaryRecvOptionInt(o)
 		if err != nil {
 			return 0, true, fmt.Errorf("%s: %w", name, err)
 		}

@@ -146,7 +146,7 @@ func TestApplyKeepAliveExplicitDisableWins(t *testing.T) {
 	}
 }
 
-func TestApplyTCPConnOptsIPv6TTL(t *testing.T) {
+func TestDialControlIPv6TTL(t *testing.T) {
 	ln, err := net.ListenTCP("tcp6", &net.TCPAddr{IP: net.IPv6loopback})
 	if err != nil {
 		t.Skipf("IPv6 unavailable: %v", err)
@@ -157,21 +157,19 @@ func TestApplyTCPConnOptsIPv6TTL(t *testing.T) {
 		conn, _ := ln.AcceptTCP()
 		accepted <- conn
 	}()
-	client, err := net.DialTCP("tcp6", nil, ln.Addr().(*net.TCPAddr))
+	spec, err := parse.ParseSpec("TCP6:[::1]:1,ip-ttl=9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &net.Dialer{Control: DialControl(spec, "tcp6", nil)}
+	client, err := d.Dial("tcp6", ln.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	server := <-accepted
 	t.Cleanup(func() { _ = server.Close() })
-	spec, err := parse.ParseSpec("TCP6:[::1]:1,ip-ttl=9")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyTCPConnOpts(spec, client); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := client.SyscallConn()
+	raw, err := client.(*net.TCPConn).SyscallConn()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +186,7 @@ func TestApplyTCPConnOptsIPv6TTL(t *testing.T) {
 	}
 }
 
-func TestApplyTCPConnOptsIPv6TOS(t *testing.T) {
+func TestDialControlIPv6TOS(t *testing.T) {
 	ln, err := net.ListenTCP("tcp6", &net.TCPAddr{IP: net.IPv6loopback})
 	if err != nil {
 		t.Skipf("IPv6 unavailable: %v", err)
@@ -199,21 +197,19 @@ func TestApplyTCPConnOptsIPv6TOS(t *testing.T) {
 		conn, _ := ln.AcceptTCP()
 		accepted <- conn
 	}()
-	client, err := net.DialTCP("tcp6", nil, ln.Addr().(*net.TCPAddr))
+	spec, err := parse.ParseSpec("TCP6:[::1]:1,ip-tos=0x10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &net.Dialer{Control: DialControl(spec, "tcp6", nil)}
+	client, err := d.Dial("tcp6", ln.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	server := <-accepted
 	t.Cleanup(func() { _ = server.Close() })
-	spec, err := parse.ParseSpec("TCP6:[::1]:1,ip-tos=0x10")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyTCPConnOpts(spec, client); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := client.SyscallConn()
+	raw, err := client.(*net.TCPConn).SyscallConn()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +226,7 @@ func TestApplyTCPConnOptsIPv6TOS(t *testing.T) {
 	}
 }
 
-func TestApplyTCPConnOptsIPv6UnicastHops(t *testing.T) {
+func TestDialControlIPv6UnicastHops(t *testing.T) {
 	ln, err := net.ListenTCP("tcp6", &net.TCPAddr{IP: net.IPv6loopback})
 	if err != nil {
 		t.Skipf("IPv6 unavailable: %v", err)
@@ -241,21 +237,19 @@ func TestApplyTCPConnOptsIPv6UnicastHops(t *testing.T) {
 		conn, _ := ln.AcceptTCP()
 		accepted <- conn
 	}()
-	client, err := net.DialTCP("tcp6", nil, ln.Addr().(*net.TCPAddr))
+	spec, err := parse.ParseSpec("TCP6:[::1]:1,ipv6-unicast-hops=9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &net.Dialer{Control: DialControl(spec, "tcp6", nil)}
+	client, err := d.Dial("tcp6", ln.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	server := <-accepted
 	t.Cleanup(func() { _ = server.Close() })
-	spec, err := parse.ParseSpec("TCP6:[::1]:1,ipv6-unicast-hops=9")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyTCPConnOpts(spec, client); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := client.SyscallConn()
+	raw, err := client.(*net.TCPConn).SyscallConn()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +266,7 @@ func TestApplyTCPConnOptsIPv6UnicastHops(t *testing.T) {
 	}
 }
 
-func TestApplyTCPConnOptsIPv4RejectsIPv6SendOpts(t *testing.T) {
+func TestDialControlIPv4RejectsIPv6SendOpts(t *testing.T) {
 	ln, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)
@@ -283,13 +277,6 @@ func TestApplyTCPConnOptsIPv4RejectsIPv6SendOpts(t *testing.T) {
 		conn, _ := ln.AcceptTCP()
 		accepted <- conn
 	}()
-	client, err := net.DialTCP("tcp4", nil, ln.Addr().(*net.TCPAddr))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = client.Close() })
-	server := <-accepted
-	t.Cleanup(func() { _ = server.Close() })
 	for _, specText := range []string{
 		"TCP:127.0.0.1:1,ipv6-tclass=16",
 		"TCP:127.0.0.1:1,ipv6-unicast-hops=9",
@@ -298,10 +285,21 @@ func TestApplyTCPConnOptsIPv4RejectsIPv6SendOpts(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = ApplyTCPConnOpts(spec, client)
+		d := &net.Dialer{Control: DialControl(spec, "tcp4", nil)}
+		client, err := d.Dial("tcp4", ln.Addr().String())
+		if err == nil {
+			t.Cleanup(func() { _ = client.Close() })
+		}
 		if err == nil || !strings.Contains(err.Error(), "not supported on IPv4") {
 			t.Fatalf("%s: err=%v want not supported on IPv4", specText, err)
 		}
+	}
+	select {
+	case c := <-accepted:
+		if c != nil {
+			_ = c.Close()
+		}
+	default:
 	}
 }
 

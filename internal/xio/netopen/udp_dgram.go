@@ -105,7 +105,8 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("UDP: unexpected packet conn type")
 	}
-	// Send-side IP options (ip-ttl, ip-tos, ipv6-tclass, …) for SENDTO/DATAGRAM.
+	// Ancillary recv + PH_LATE buffers. Send-side IP options were applied
+	// at PH_PASTSOCKET by ListenControl.
 	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
 		_ = c.Close()
 		return nil, err
@@ -120,15 +121,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 }
 
 func udpListenConfig(s parse.Spec) net.ListenConfig {
-	return net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
-			var optionErr error
-			controlErr := c.Control(func(fd uintptr) {
-				optionErr = xio.ApplyListenOptions(int(fd), s, network)
-			})
-			return errors.Join(controlErr, optionErr)
-		},
-	}
+	return net.ListenConfig{Control: xio.ListenControl(s)}
 }
 
 func laddrString(network string, laddr *net.UDPAddr) string {
@@ -392,18 +385,15 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 	// not explicitly disabled, so reuseaddr=0 stays exclusive.
 	cfg := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
+			if err := xio.ListenControl(s)(network, address, c); err != nil {
+				return err
+			}
+			if !xio.UDPForkPortReuse(s) {
+				return nil
+			}
 			var optionErr error
 			controlErr := c.Control(func(fd uintptr) {
-				optionErr = xio.ApplyListenOptions(int(fd), s, network)
-				if optionErr != nil {
-					return
-				}
-				if xio.UDPForkPortReuse(s) {
-					optionErr = enableUDPForkPortReuse(int(fd))
-					if optionErr != nil {
-						return
-					}
-				}
+				optionErr = enableUDPForkPortReuse(int(fd))
 			})
 			return errors.Join(controlErr, optionErr)
 		},
@@ -413,7 +403,8 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 		return nil, err
 	}
 	c := pc.(*net.UDPConn)
-	// Ancillary recv opts (so-timestamp, ip-recvttl, …) and send-side IP opts.
+	// Ancillary recv opts (so-timestamp, ip-recvttl, …). Send-side IP
+	// options were applied at PH_PASTSOCKET by ListenControl.
 	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
 		_ = c.Close()
 		return nil, err

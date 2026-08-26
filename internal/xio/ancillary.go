@@ -23,48 +23,58 @@ func NeedAncillary(s parse.Spec) bool {
 
 // ApplyAncillaryRecvOpts enables kernel delivery of control messages on fd.
 // Classic TYPE_INT OFUNC_SOCKOPT (tag-1.8.1.3 12c08bf): presence setsockopt 1,
-// an explicit integer is passed through, =0 disables.
+// an explicit integer is passed through, =0 disables. Each matching option
+// in s.Options is applied in command-line order (ippktinfo then ip-pktinfo=0
+// is two setsockopt calls).
 func ApplyAncillaryRecvOpts(fd int, s parse.Spec) error {
-	type recvOpt struct {
-		canonical string
-		level     int
-		opt       int
-	}
-	opts := []recvOpt{
-		{"so-timestamp", unix.SOL_SOCKET, unix.SO_TIMESTAMP},
-		{"ip-pktinfo", unix.IPPROTO_IP, unix.IP_PKTINFO},
-		{"ip-recvttl", unix.IPPROTO_IP, unix.IP_RECVTTL},
-		{"ip-recvtos", unix.IPPROTO_IP, unix.IP_RECVTOS},
-		{"ip-recvopts", unix.IPPROTO_IP, unix.IP_RECVOPTS},
-		{"ipv6-recvpktinfo", unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO},
-		{"ipv6-recvhoplimit", unix.IPPROTO_IPV6, unix.IPV6_RECVHOPLIMIT},
-		{"ipv6-recvtclass", unix.IPPROTO_IPV6, unix.IPV6_RECVTCLASS},
-	}
 	family, err := socketIPFamily(fd)
 	if err != nil {
 		return err
 	}
-	for _, o := range opts {
-		n, present, err := ancillaryRecvInt(s, o.canonical)
-		if err != nil {
-			return err
-		}
-		if !present {
+	for _, option := range s.Options {
+		e, ok := lookupIPAncillary(specOptionName(option))
+		if !ok || e.Kind&IPAncillaryRecv == 0 {
 			continue
 		}
-		if err := rejectIPAncillaryApply(o.canonical, family); err != nil {
+		n, err := ancillaryRecvOptionInt(option)
+		if err != nil {
+			return fmt.Errorf("%s: %w", e.Canonical, err)
+		}
+		if err := rejectIPAncillaryApply(e.Canonical, family); err != nil {
 			return err
 		}
-		if err := unix.SetsockoptInt(fd, o.level, o.opt, n); err != nil {
-			return fmt.Errorf("%s: %w", o.canonical, err)
+		level, opt, ok := ancillaryRecvSockopt(e.Canonical)
+		if !ok {
+			continue
+		}
+		if err := setSockoptInt(fd, level, opt, n); err != nil {
+			return fmt.Errorf("%s: %w", e.Canonical, err)
 		}
 	}
 	return nil
 }
 
-// ApplyIPSendOpts sets classic send-side IP options on a UDP/IP socket.
-func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
-	return applyClassicIPSendOpts(fd, s, ipFamilyFromNetwork(network))
+func ancillaryRecvSockopt(canonical string) (level, opt int, ok bool) {
+	switch canonical {
+	case "so-timestamp":
+		return unix.SOL_SOCKET, unix.SO_TIMESTAMP, true
+	case "ip-pktinfo":
+		return unix.IPPROTO_IP, unix.IP_PKTINFO, true
+	case "ip-recvttl":
+		return unix.IPPROTO_IP, unix.IP_RECVTTL, true
+	case "ip-recvtos":
+		return unix.IPPROTO_IP, unix.IP_RECVTOS, true
+	case "ip-recvopts":
+		return unix.IPPROTO_IP, unix.IP_RECVOPTS, true
+	case "ipv6-recvpktinfo":
+		return unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO, true
+	case "ipv6-recvhoplimit":
+		return unix.IPPROTO_IPV6, unix.IPV6_RECVHOPLIMIT, true
+	case "ipv6-recvtclass":
+		return unix.IPPROTO_IPV6, unix.IPV6_RECVTCLASS, true
+	default:
+		return 0, 0, false
+	}
 }
 
 // ProcessAncillary parses oob from recvmsg, logs classic Info lines, and sets
@@ -303,7 +313,9 @@ func ReadUDPMsg(c *net.UDPConn, p []byte, wantCtrl bool) (n int, oob []byte, add
 	return n, oob[:oobn], addr, nil
 }
 
-// ApplyUDPConnOpts applies ancillary + send IP options on a live UDPConn.
+// ApplyUDPConnOpts applies ancillary recv options and PH_LATE buffers on a
+// live UDPConn. Send-side IP options are PH_PASTSOCKET (DialControl /
+// ListenControl → ApplyNetworkSocketOptions).
 func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
@@ -315,10 +327,8 @@ func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 			optionErr = err
 			return
 		}
-		optionErr = ApplyIPSendOpts(int(fd), s, network)
-		if optionErr == nil {
-			optionErr = ApplySocketOptions(int(fd), s)
-		}
+		// Send-side IP options are PH_PASTSOCKET (DialControl / ListenControl).
+		optionErr = ApplySocketOptions(int(fd), s)
 		// PH_LATE so-sndbuf-late / so-rcvbuf-late on the raw UDP fd after
 		// bind/connect, before packet-session wrapping (udpRecvFromConn).
 		if optionErr == nil {

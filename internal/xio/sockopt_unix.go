@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
@@ -30,6 +29,7 @@ func isNotSocketError(err error) bool {
 }
 
 func setSockoptInt(fd, level, opt, value int) error {
+	invokeSetSockoptIntHook(fd, level, opt, value)
 	return unix.SetsockoptInt(fd, level, opt, value)
 }
 
@@ -101,17 +101,4 @@ func timevalFromSpec(v string) (*unix.Timeval, error) {
 	// NsecToTimeval handles each platform's Sec/Usec widths.
 	tv := unix.NsecToTimeval(int64(d))
 	return &tv, nil
-}
-
-// applyIPTTLTOS sets classic send-side IP options on TCP/SCTP INET sockets.
-// ip-ttl/ip-tos/ip-options use SOL_IP IP_TTL/IP_TOS/IP_OPTIONS (xio-ip.c
-// OFUNC_SOCKOPT) on IPv4 and IPv6; they are not translated to IPV6_* and not
-// skipped on v6. ipv6-unicast-hops/ipv6-tclass error on IPv4. UDP, raw-IP,
-// and QUIC apply the same options through ApplyIPSendOpts instead, so this
-// helper restricts itself to TCP/SCTP networks to avoid double application.
-func applyIPTTLTOS(fd int, s parse.Spec, network string) error {
-	if !strings.HasPrefix(network, "tcp") && !strings.HasPrefix(network, "sctp") {
-		return nil
-	}
-	return applyClassicIPSendOpts(fd, s, ipFamilyFromNetwork(network))
 }

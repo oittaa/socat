@@ -209,7 +209,8 @@ func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn
 }
 
 // ApplyNetworkSocketOptions applies the post-socket options shared by Go net
-// listeners/dialers and raw SCTP sockets.
+// listeners/dialers and raw SCTP sockets, including PH_PASTSOCKET send-side
+// IP options (once; not again after connect/bind).
 func ApplyNetworkSocketOptions(fd int, s parse.Spec, network string) error {
 	if err := ApplySocketOptions(fd, s); err != nil {
 		return err
@@ -238,7 +239,7 @@ func ApplyListenBacklog(ln net.Listener, backlog int) error {
 }
 
 // DialControl merges spec-driven socket options (rcvtimeo/sndtimeo, and
-// ip-ttl/ip-tos on tcp networks) with an optional caller-provided Control,
+// PH_PASTSOCKET IP send options) with an optional caller-provided Control,
 // producing a single net.Dialer.Control.
 func DialControl(s parse.Spec, network string, caller func(string, string, syscall.RawConn) error) func(string, string, syscall.RawConn) error {
 	return func(nw, addr string, c syscall.RawConn) error {
@@ -507,21 +508,6 @@ func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
 	tc, ok := c.(*net.TCPConn)
 	if !ok {
 		return nil
-	}
-	if la, ok := tc.LocalAddr().(*net.TCPAddr); ok {
-		network := "tcp6"
-		if la.IP.To4() != nil {
-			network = "tcp4"
-		}
-		if raw, rerr := tc.SyscallConn(); rerr == nil {
-			var optErr error
-			_ = raw.Control(func(fd uintptr) {
-				optErr = applyIPTTLTOS(int(fd), s, network)
-			})
-			if optErr != nil {
-				return optErr
-			}
-		}
 	}
 	if err := applyKeepAliveConfig(s, tc); err != nil {
 		return err

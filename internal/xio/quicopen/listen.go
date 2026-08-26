@@ -79,16 +79,14 @@ func quicConfig(s parse.Spec, tlsCfg *tls.Config) (quicSetup, error) {
 }
 
 func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.PacketConn, error) {
+	// ListenControl applies PH_PASTSOCKET send-side IP options once, after
+	// socket() and before bind. Do not call ApplyIPSendOptsToPacketConn here.
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	pc, err := lc.ListenPacket(ctx, network, addr)
 	if err != nil {
 		return nil, err
 	}
 	if err := xio.ApplyLateSocketOptionsToPacketConn(pc, s); err != nil {
-		logx.CloseQuiet(pc)
-		return nil, err
-	}
-	if err := xio.ApplyIPSendOptsToPacketConn(pc, s, network); err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
 	}

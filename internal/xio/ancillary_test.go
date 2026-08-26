@@ -187,7 +187,12 @@ func TestTCPConnIPTTL(t *testing.T) {
 		}
 		accept <- c
 	}()
-	cli, err := net.Dial("tcp", ln.Addr().String())
+	spec, err := parse.ParseSpec("TCP4:127.0.0.1:1,ip-ttl=9,ip-tos=0x10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &net.Dialer{Control: DialControl(spec, "tcp4", nil)}
+	cli, err := d.Dial("tcp", ln.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,10 +202,6 @@ func TestTCPConnIPTTL(t *testing.T) {
 		t.Fatal("accept failed")
 	}
 	t.Cleanup(func() { _ = srv.Close() })
-	spec, err := parse.ParseSpec("TCP4:127.0.0.1:1,ip-ttl=9,ip-tos=0x10")
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := ApplyTCPConnOpts(spec, cli); err != nil {
 		t.Fatal(err)
 	}

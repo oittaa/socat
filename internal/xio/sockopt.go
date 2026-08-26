@@ -4,11 +4,35 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
+
+type sockoptIntHook func(fd, level, opt, value int)
+
+// testHookSetSockoptInt, when set, is invoked before every setSockoptInt.
+// Tests use it to count and order IP_TTL / IP_TOS / … calls.
+var testHookSetSockoptInt atomic.Pointer[sockoptIntHook]
+
+func invokeSetSockoptIntHook(fd, level, opt, value int) {
+	p := testHookSetSockoptInt.Load()
+	if p == nil || *p == nil {
+		return
+	}
+	(*p)(fd, level, opt, value)
+}
+
+func setTestHookSetSockoptInt(h sockoptIntHook) {
+	if h == nil {
+		testHookSetSockoptInt.Store(nil)
+		return
+	}
+	hook := h
+	testHookSetSockoptInt.Store(&hook)
+}
 
 // applySocketBufferOpt sets SO_SNDBUF or SO_RCVBUF (classic xio-socket.c
 // TYPE_INT). so-sndbuf/so-rcvbuf are PH_PASTSOCKET; so-sndbuf-late/
@@ -129,10 +153,9 @@ func ApplyLateSocketOptionsToPacketConn(pc net.PacketConn, s parse.Spec) error {
 	return ApplyLateSocketOptionsToConn(sc, s)
 }
 
-// ApplyIPSendOptsToPacketConn applies send-side IP options (ip-ttl, ip-tos,
-// ipv6-unicast-hops, ipv6-tclass, ip-options) on a UDP PacketConn. Used by
-// QUIC's transport socket. Rejects enabled send options when the conn does
-// not expose a socket fd.
+// ApplyIPSendOptsToPacketConn applies send-side IP options on a UDP PacketConn
+// that was not created with ListenControl (tests, leftover callers). QUIC and
+// HTTP/3 apply the same options once in ListenControl at PH_PASTSOCKET.
 func ApplyIPSendOptsToPacketConn(pc net.PacketConn, s parse.Spec, network string) error {
 	if pc == nil || !ipSendRequested(s) {
 		return nil

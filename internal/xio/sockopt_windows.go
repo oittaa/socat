@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -32,6 +31,7 @@ func isNotSocketError(err error) bool {
 }
 
 func setSockoptInt(fd, level, opt, value int) error {
+	invokeSetSockoptIntHook(fd, level, opt, value)
 	return windows.SetsockoptInt(windows.Handle(fd), level, opt, value)
 }
 
@@ -106,11 +106,4 @@ func windowsTimeoutMillis(v string) (uint32, error) {
 		return 0, fmt.Errorf("timeout %q exceeds Winsock's DWORD milliseconds", v)
 	}
 	return uint32(ms), nil
-}
-
-func applyIPTTLTOS(fd int, s parse.Spec, network string) error {
-	if !strings.HasPrefix(network, "tcp") && !strings.HasPrefix(network, "udp") && !strings.HasPrefix(network, "ip") && !strings.HasPrefix(network, "sctp") {
-		return nil
-	}
-	return applyClassicIPSendOpts(fd, s, ipFamilyFromNetwork(network))
 }
