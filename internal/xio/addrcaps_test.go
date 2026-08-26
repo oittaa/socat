@@ -80,6 +80,14 @@ func TestClassicAllowsOption(t *testing.T) {
 		{"UDP4", "pktinfo", true},
 		{"OPEN", "noatime", true},
 		{"CREATE", "pktinfo", false},
+		{"OPEN", "o-direct", true},
+		{"PIPE", "o-direct", true},
+		{"CREATE", "o-direct", false},
+		{"OPEN", "fs-noatime", true},
+		{"CREATE", "fs-noatime", true},
+		{"FD", "fs-noatime", true},
+		{"PIPE", "fs-noatime", false},
+		{"EXEC", "fs-noatime", false},
 	}
 	for _, tc := range cases {
 		got := ClassicAllowsOption(tc.addr, tc.opt)
