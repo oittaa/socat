@@ -201,17 +201,35 @@ func TestParseVsockSocketArgs(t *testing.T) {
 			t.Fatalf("protocol=%d", args.protocol)
 		}
 	})
-	t.Run("websocket-protocol-not-so-protocol", func(t *testing.T) {
+	t.Run("protocol-alias", func(t *testing.T) {
 		args, err := parseVsockSocketArgs(must("VSOCK-LISTEN:9,protocol=6"))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if args.protocol != 0 {
-			t.Fatalf("WebSocket protocol= must not become socket() protocol, got %d", args.protocol)
+		if args.protocol != 6 {
+			t.Fatalf("protocol=%d", args.protocol)
+		}
+	})
+	t.Run("protocol-alias-last-wins", func(t *testing.T) {
+		args, err := parseVsockSocketArgs(must("VSOCK-LISTEN:9,so-protocol=7,protocol=6"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if args.protocol != 6 {
+			t.Fatalf("protocol=%d", args.protocol)
 		}
 	})
 	t.Run("so-type-raw", func(t *testing.T) {
 		args, err := parseVsockSocketArgs(must("VSOCK-LISTEN:9,so-type=3"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if args.socktype != 3 {
+			t.Fatalf("socktype=%d", args.socktype)
+		}
+	})
+	t.Run("type-raw", func(t *testing.T) {
+		args, err := parseVsockSocketArgs(must("VSOCK-LISTEN:9,type=3"))
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -73,6 +73,7 @@ var dynamicallyReadOptions = map[string]string{
 	"children-shutup": "xio/options.go", "child-shutup": "xio/options.go",
 	"openssl-min-proto-version": "tlsopen/tls.go", "min-version": "tlsopen/tls.go",
 	"openssl-max-proto-version": "tlsopen/tls.go", "max-version": "tlsopen/tls.go",
+	"so-protocol": "netopen/vsock.go parseVsockProtocolOption",
 
 	"perm": "xio/run.go", "mode": "xio/run.go",
 

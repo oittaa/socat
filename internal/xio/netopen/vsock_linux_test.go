@@ -266,35 +266,43 @@ func TestVSOCKListenPFInetAddressFamily(t *testing.T) {
 	}
 }
 
-func TestVSOCKListenSoProtocol(t *testing.T) {
+func TestVSOCKListenProtocolAliases(t *testing.T) {
 	skipIfNoVSOCK(t)
-	s, err := parse.ParseSpec("VSOCK-LISTEN:9,so-protocol=6")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = listenVSOCK(context.Background(), 9, s, nil)
-	if err == nil {
-		t.Fatal("so-protocol=6 succeeded; classic socket() is EPROTONOSUPPORT")
-	}
-	if !errors.Is(err, unix.EPROTONOSUPPORT) && !strings.Contains(err.Error(), "protocol not supported") {
-		t.Fatalf("err=%v want protocol not supported", err)
+	for _, name := range []string{"so-protocol", "protocol"} {
+		t.Run(name, func(t *testing.T) {
+			s, err := parse.ParseSpec("VSOCK-LISTEN:9," + name + "=6")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = listenVSOCK(context.Background(), 9, s, nil)
+			if err == nil {
+				t.Fatalf("%s=6 succeeded; classic socket() is EPROTONOSUPPORT", name)
+			}
+			if !errors.Is(err, unix.EPROTONOSUPPORT) && !strings.Contains(err.Error(), "protocol not supported") {
+				t.Fatalf("err=%v want protocol not supported", err)
+			}
+		})
 	}
 }
 
-func TestVSOCKListenSocktypeRaw(t *testing.T) {
+func TestVSOCKListenSocktypeAliasesRaw(t *testing.T) {
 	skipIfNoVSOCK(t)
-	s, err := parse.ParseSpec("VSOCK-LISTEN:9,so-type=3")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = listenVSOCK(context.Background(), 9, s, nil)
-	if err == nil {
-		t.Fatal("so-type=3 succeeded; classic socket() is ESOCKTNOSUPPORT")
-	}
-	if strings.Contains(err.Error(), "unsupported socktype") {
-		t.Fatalf("so-type=3 rejected in user space: %v", err)
-	}
-	if !errors.Is(err, unix.ESOCKTNOSUPPORT) && !errors.Is(err, unix.EPROTONOSUPPORT) && !strings.Contains(err.Error(), "socket type") {
-		t.Fatalf("err=%v want socket type not supported", err)
+	for _, name := range []string{"so-type", "type"} {
+		t.Run(name, func(t *testing.T) {
+			s, err := parse.ParseSpec("VSOCK-LISTEN:9," + name + "=3")
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = listenVSOCK(context.Background(), 9, s, nil)
+			if err == nil {
+				t.Fatalf("%s=3 succeeded; classic socket() is ESOCKTNOSUPPORT", name)
+			}
+			if strings.Contains(err.Error(), "unsupported socktype") {
+				t.Fatalf("%s=3 rejected in user space: %v", name, err)
+			}
+			if !errors.Is(err, unix.ESOCKTNOSUPPORT) && !errors.Is(err, unix.EPROTONOSUPPORT) && !strings.Contains(err.Error(), "socket type") {
+				t.Fatalf("err=%v want socket type not supported", err)
+			}
+		})
 	}
 }

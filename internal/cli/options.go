@@ -11,13 +11,14 @@ import (
 )
 
 type helpOpt struct {
-	name         string
-	desc         string
-	aliases      []string
-	addressTypes []string
-	optionCaps   []string
-	dynamicDesc  func() string
-	validate     func(parse.Option) error
+	name                 string
+	desc                 string
+	aliases              []string
+	addressTypes         []string
+	optionCaps           []string
+	implementationGroups []string
+	dynamicDesc          func() string
+	validate             func(parse.Option) error
 }
 
 type helpOptGroup struct {
@@ -26,10 +27,11 @@ type helpOptGroup struct {
 }
 
 type addressOption struct {
-	validate      func(parse.Option) error
-	addressGroups []string
-	addressTypes  []string
-	optionCaps    []string
+	validate             func(parse.Option) error
+	addressGroups        []string
+	addressTypes         []string
+	optionCaps           []string
+	implementationGroups []string
 }
 
 var supportedAddressOptions = buildSupportedAddressOptions()
@@ -44,6 +46,7 @@ func buildSupportedAddressOptions() map[string]addressOption {
 			spec.validate = option.validate
 			spec.addressTypes = option.addressTypes
 			spec.optionCaps = option.optionCaps
+			spec.implementationGroups = option.implementationGroups
 			options[strings.ToLower(option.name)] = spec
 			for _, alias := range option.aliases {
 				options[strings.ToLower(alias)] = spec
@@ -109,6 +112,9 @@ func validateSpecOptions(spec parse.Spec) error {
 		if !ok {
 			return fmt.Errorf("%s: unknown option %q", spec.Type, option.Name)
 		}
+		if registered && !optionImplementedForGroup(registration.Group, optionSpec.implementationGroups) {
+			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
+		}
 		if registered && !xio.OptionSupportedOnAddress(registration, name, optionSpec.addressGroups, optionSpec.addressTypes, optionSpec.optionCaps) {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
@@ -117,6 +123,22 @@ func validateSpecOptions(spec parse.Spec) error {
 		}
 	}
 	return nil
+}
+
+// implementationGroups narrows classic socket-wide options to the address
+// families that currently apply them. Without this guard, classic's broad
+// GROUP_SOCKET metadata would make the CLI accept options that an opener then
+// silently ignores.
+func optionImplementedForGroup(group string, implementationGroups []string) bool {
+	if len(implementationGroups) == 0 {
+		return true
+	}
+	for _, candidate := range implementationGroups {
+		if group == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func validateAddressOptionValue(option parse.Option) error {
@@ -381,7 +403,7 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "sndbuf-late", desc: "SO_SNDBUF after connect, accept, or bind (raw socket, before TLS/PROXY/QUIC wrapping)", aliases: []string{"so-sndbuf-late"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
 			{name: "rcvbuf-late", desc: "SO_RCVBUF after connect, accept, or bind (raw socket, before TLS/PROXY/QUIC wrapping)", aliases: []string{"so-rcvbuf-late"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
 			{name: "bindtodevice", desc: "SO_BINDTODEVICE interface name", aliases: []string{"so-bindtodevice", "if", "interface"}, addressTypes: socketTimeoutAddressTypes(), validate: validateRequiredString},
-			{name: "so-protocol", desc: "socket() protocol number", aliases: []string{"so-prototype", "prototype"}, validate: validateInteger(-1)},
+			{name: "so-protocol", desc: "socket() protocol number", aliases: []string{"so-prototype", "prototype"}, implementationGroups: []string{xio.GroupVSOCK}, validate: validateInteger(-1)},
 		}},
 		{"Files and UNIX", []helpOpt{
 			{name: "rdonly", desc: "open read-only"},
@@ -417,7 +439,7 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "unlink-close", desc: "unlink on close"},
 			{name: "unlink-late", desc: "unlink immediately after open"},
 			{name: "unix-bind-tempname", desc: "bind a temporary UNIX name", aliases: []string{"bind-tempname"}},
-			{name: "socktype", dynamicDesc: xio.UnixSocktypeHelp, aliases: []string{"so-type"}, validate: validateInteger(-1)},
+			{name: "socktype", dynamicDesc: xio.UnixSocktypeHelp, aliases: []string{"so-type", "type"}, validate: validateInteger(-1)},
 		}},
 		{"EXEC, SYSTEM, SHELL", []helpOpt{
 			{name: "pipes", desc: "connect with pipes"},
@@ -478,7 +500,7 @@ func helpOptionGroups() []helpOptGroup {
 		{"WebSocket", []helpOpt{
 			{name: "path", desc: "WebSocket URL path"},
 			{name: "origin", desc: "WebSocket Origin header"},
-			{name: "protocol", desc: "WebSocket subprotocol"},
+			{name: "protocol", desc: "WebSocket subprotocol; VSOCK socket() protocol number", implementationGroups: []string{xio.GroupWebSocket, xio.GroupVSOCK}},
 		}},
 		{"PROXY and SOCKS", []helpOpt{
 			{name: "proxyport", desc: "HTTP proxy port", addressTypes: proxyAddressTypes()},
