@@ -131,10 +131,8 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		return nil, fmt.Errorf("%s requires path", s.Type)
 	}
 	path := unixAddr(s.Params[0])
-	if !xio.IsAbstract(path) {
-		if s.BoolOption("unlink-early") || s.BoolOption("reuseaddr") {
-			_ = os.Remove(path)
-		}
+	if err := prepareUnixFilesystemPath(path, s); err != nil {
+		return nil, err
 	}
 	laddr := &net.UnixAddr{Name: path, Net: "unixgram"}
 	var c *net.UnixConn

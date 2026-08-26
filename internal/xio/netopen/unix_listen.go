@@ -33,13 +33,8 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		return nil, fmt.Errorf("%s: SOCK_DGRAM does not support listen; use UNIX-RECV or UNIX-RECVFROM", s.Type)
 	}
 
-	if s.BoolOption("unlink-early") {
-		_ = os.Remove(path)
-	} else if _, err := os.Stat(path); err == nil {
-		// classic may fail if exists; try remove if reuseaddr
-		if s.BoolOption("reuseaddr") {
-			_ = os.Remove(path)
-		}
+	if err := prepareUnixFilesystemPath(path, s); err != nil {
+		return nil, err
 	}
 
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
