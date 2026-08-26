@@ -1,0 +1,36 @@
+package parse
+
+func init() {
+	registerOptionAliases(map[string]string{
+		"so-reuseaddr":    "reuseaddr",
+		"so-reuseport":    "reuseport",
+		"ipv6-join-group": "ip-add-membership",
+		"so-keepalive":    "keepalive",
+		"so-bindtodevice": "bindtodevice",
+		"if":              "bindtodevice",
+		"interface":       "bindtodevice",
+		"so-broadcast":    "broadcast",
+		"so-rcvbuf":       "rcvbuf",
+		"so-sndbuf":       "sndbuf",
+		"so-rcvbuf-late":  "rcvbuf-late",
+		"so-sndbuf-late":  "sndbuf-late",
+		"so-rcvtimeo":     "rcvtimeo",
+		"so-sndtimeo":     "sndtimeo",
+		"so-type":         "socktype",
+		"so-prototype":    "so-protocol",
+		"prototype":       "so-protocol",
+		"tcp-nodelay":     "nodelay",
+		"tcp-keepalive":   "keepalive",
+		"so-keepidle":     "keepidle",
+		"so-keepintvl":    "keepintvl",
+		"so-keepcnt":      "keepcnt",
+		"tcp-keepidle":    "keepidle",
+		"tcp-keepintvl":   "keepintvl",
+		"tcp-keepcnt":     "keepcnt",
+		"ipttl":           "ip-ttl",
+		"iptos":           "ip-tos",
+		"sp":              "sourceport",
+		"sourceport":      "sourceport",
+		"sockopt-listen":  "setsockopt-listen",
+	})
+}

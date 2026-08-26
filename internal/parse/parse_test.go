@@ -354,6 +354,28 @@ func TestSocketTypeAlias(t *testing.T) {
 	}
 }
 
+func TestOptionSpellingPreserved(t *testing.T) {
+	s, err := ParseSpec("TCP:h:1,so-type=1,O-APPEND,ipv6-join-group=[ff02::2]:lo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Options) != 3 {
+		t.Fatalf("options=%v", s.Options)
+	}
+	if s.Options[0].Name != "socktype" || s.Options[0].Spelling != "so-type" || s.Options[0].Value != "1" {
+		t.Fatalf("so-type stored as %+v", s.Options[0])
+	}
+	if s.Options[1].Name != "append" || s.Options[1].Spelling != "o-append" || s.Options[1].Has {
+		t.Fatalf("O-APPEND stored as %+v", s.Options[1])
+	}
+	if s.Options[2].Name != "ip-add-membership" || s.Options[2].Spelling != "ipv6-join-group" {
+		t.Fatalf("ipv6-join-group stored as %+v", s.Options[2])
+	}
+	if s.Options[0].OriginalSpelling() != "so-type" {
+		t.Fatalf("OriginalSpelling=%q", s.Options[0].OriginalSpelling())
+	}
+}
+
 func TestSoProtocolAliases(t *testing.T) {
 	for _, spec := range []string{
 		"VSOCK-LISTEN:9,so-protocol=6",

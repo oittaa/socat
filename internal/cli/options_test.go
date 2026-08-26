@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/classiccatalog"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -90,6 +91,7 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "classic-keepalive-aliases", spec: "TCP:localhost:1,tcp-keepidle=7,tcp-keepintvl=9,tcp-keepcnt=3"},
 		{name: "classic-listen-timeout-alias", spec: "TCP-LISTEN:1,listen-timeout=0.1"},
 		{name: "classic-ignoreof-alias", spec: "OPEN:file,ignoreof"},
+		{name: "ipv6-join-group-on-tcp4", spec: "TCP4:localhost:1,ipv6-join-group=[ff02::2]:lo"},
 		{name: "classic-linger-alias", spec: "TCP:localhost:1,linger=0"},
 		{name: "sndbuf", spec: "TCP:localhost:1,sndbuf=4096"},
 		{name: "rcvbuf-alias", spec: "TCP:localhost:1,so-rcvbuf=8192"},
@@ -242,4 +244,72 @@ func TestReuseaddrHelpMentionsTCPDefaultAndUDPFork(t *testing.T) {
 		}
 	}
 	t.Fatal("reuseaddr missing from help options")
+}
+
+func TestHelpDoesNotAdvertiseCoolWrite(t *testing.T) {
+	for _, group := range helpOptionGroups() {
+		for _, option := range group.opts {
+			if option.name == "cool-write" {
+				t.Fatal("cool-write must not be advertised")
+			}
+			for _, alias := range option.aliases {
+				if alias == "cool-write" {
+					t.Fatal("cool-write must not be advertised as an alias")
+				}
+			}
+		}
+	}
+}
+
+func TestHelpOptionGroupOrder(t *testing.T) {
+	var titles []string
+	for _, group := range helpOptionGroups() {
+		titles = append(titles, group.title)
+	}
+	want := []string{
+		"Listen and connect",
+		"Security filters",
+		"Sockets",
+		"Files and UNIX",
+		"EXEC, SYSTEM, SHELL",
+		"PTY and TERMIOS",
+		"Transfer",
+		"TLS, WSS, and QUIC",
+		"WebSocket",
+		"PROXY and SOCKS",
+		"POSIX message queues",
+		"TUN and INTERFACE",
+		"Namespaces",
+	}
+	if strings.Join(titles, ",") != strings.Join(want, ",") {
+		t.Fatalf("help group order=%v want %v", titles, want)
+	}
+}
+
+func TestCatalogLifecyclePhasesForAdvertisedFDOptions(t *testing.T) {
+	tests := []struct {
+		spelling string
+		phase    string
+		groups   []string
+	}{
+		{spelling: "append", phase: "LATE", groups: []string{"FD", "OPEN"}},
+		{spelling: "o-append", phase: "LATE", groups: []string{"FD", "OPEN"}},
+		{spelling: "ftruncate", phase: "LATE", groups: []string{"REG"}},
+		{spelling: "perm", phase: "FD", groups: []string{"FD", "NAMED"}},
+		{spelling: "user", phase: "FD", groups: []string{"FD", "NAMED"}},
+		{spelling: "group", phase: "FD", groups: []string{"FD", "NAMED"}},
+	}
+	for _, tt := range tests {
+		e, ok := classiccatalog.Lookup(tt.spelling)
+		if !ok {
+			t.Errorf("%q missing from classic catalog", tt.spelling)
+			continue
+		}
+		if e.Phase != tt.phase {
+			t.Errorf("%q phase=%q want %q", tt.spelling, e.Phase, tt.phase)
+		}
+		if strings.Join(e.Groups, ",") != strings.Join(tt.groups, ",") {
+			t.Errorf("%q groups=%v want %v", tt.spelling, e.Groups, tt.groups)
+		}
+	}
 }

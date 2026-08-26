@@ -6,9 +6,18 @@ import (
 
 // Option is a single address option (keyword or keyword=value).
 type Option struct {
-	Name  string
-	Value string // empty if flag-style
-	Has   bool   // true if =value was present (even if empty)
+	Name     string // canonical runtime name after alias folding
+	Spelling string // original keyword, lowercased (so-type, o-append)
+	Value    string // empty if flag-style
+	Has      bool   // true if =value was present (even if empty)
+}
+
+// OriginalSpelling returns the keyword as specified, or Name if Spelling is unset.
+func (o Option) OriginalSpelling() string {
+	if o.Spelling != "" {
+		return o.Spelling
+	}
+	return o.Name
 }
 
 // Spec is a single address specification.

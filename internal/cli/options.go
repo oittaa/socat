@@ -104,6 +104,9 @@ func validateChannelOptions(ch parse.Channel) error {
 func validateSpecOptions(spec parse.Spec) error {
 	registration, registered := xio.AddressRegistrationForType(spec.Type)
 	for _, option := range spec.Options {
+		// Lookups use Name (canonical). Spelling is preserved for later
+		// spelling-specific group/phase checks; this function must not fold
+		// ipv6-join-group onto ip-add-membership groups until that lands.
 		name := strings.ToLower(option.Name)
 		optionSpec, ok := supportedAddressOptions[name]
 		if !ok {
@@ -316,206 +319,15 @@ func socketTimeoutAddressTypes() []string {
 }
 
 func helpOptionGroups() []helpOptGroup {
-	return []helpOptGroup{
-		{"Listen and connect", []helpOpt{
-			{name: "reuseaddr", desc: "SO_REUSEADDR (TCP listen default on; UDP-LISTEN with fork or this option)", aliases: []string{"so-reuseaddr"}},
-			{name: "reuseport", desc: "SO_REUSEPORT", aliases: []string{"so-reuseport"}},
-			{name: "fork", desc: "new session per accept or client redial"},
-			{name: "nofork", desc: "do not fork (single session)"},
-			{name: "max-children", desc: "limit concurrent fork sessions (needs fork)", validate: validateInteger(1)},
-			{name: "children-shutup", desc: "lower fork-child log severity", aliases: []string{"child-shutup"}, validate: validateOptionalInteger(0)},
-			{name: "bind", desc: "local address or interface"},
-			{name: "connect-timeout", desc: "connect timeout", validate: validateDurationOption},
-			{name: "handshake-timeout", desc: "TLS, WebSocket, proxy, or SOCKS handshake timeout", validate: validateDurationOption},
-			{name: "accept-timeout", desc: "listen accept timeout (exit 0)", aliases: []string{"listen-timeout"}, validate: validateDurationOption},
-			{name: "backlog", desc: "listen backlog", addressTypes: []string{
-				"TCP-LISTEN", "TCP-L", "TCP4-LISTEN", "TCP4-L", "TCP6-LISTEN", "TCP6-L",
-				"SOCKET-LISTEN", "SCTP-LISTEN", "SCTP-L", "SCTP4-LISTEN", "SCTP4-L", "SCTP6-LISTEN", "SCTP6-L",
-				"VSOCK-LISTEN", "VSOCK-L",
-			}, validate: validateInteger(1)},
-			{name: "pf", desc: "address family (4, 6, IP4, IP6, …)", aliases: []string{"protocol-family"}},
-			{name: "ai-addrconfig", desc: "getaddrinfo AI_ADDRCONFIG", aliases: []string{"addrconfig"}},
-			{name: "ipv6-v6only", desc: "IPV6_V6ONLY"},
-			{name: "retry", desc: "retry count on connect failure", validate: validateInteger(-1)},
-			{name: "forever", desc: "retry without limit"},
-			{name: "interval", desc: "retry or fork-redial interval", validate: validateDurationOption},
-		}},
-		{"Security filters", []helpOpt{
-			{name: "range", desc: "accept only peers in this network"},
-			{name: "sourceport", desc: "peer source port (listen) or bind port (connect)", aliases: []string{"sp"}},
-			{name: "lowport", desc: "require or bind a low source port"},
-			{name: "tcpwrap", desc: "apply hosts.allow / hosts.deny", aliases: []string{"tcpwrappers", "tcpwrapper", "libwrap", "wrap"}},
-			{name: "tcpwrap-etc", desc: "directory of hosts.allow / hosts.deny", aliases: []string{"tcpwrap-dir"}},
-			{name: "hosts-allow", desc: "allow table path", aliases: []string{"allow-table", "tcpwrap-hosts-allow-table"}},
-			{name: "hosts-deny", desc: "deny table path", aliases: []string{"deny-table", "tcpwrap-hosts-deny-table"}},
-		}},
-		{"Sockets", []helpOpt{
-			{name: "nodelay", desc: "TCP_NODELAY", aliases: []string{"tcp-nodelay"}, addressTypes: tcpStreamAddressTypes()},
-			{name: "keepalive", desc: "SO_KEEPALIVE", aliases: []string{"so-keepalive"}, addressTypes: tcpStreamAddressTypes()},
-			{name: "keepidle", desc: "TCP_KEEPIDLE idle time (requires keepalive)", aliases: []string{"so-keepidle", "tcp-keepidle"}, addressTypes: tcpStreamAddressTypes(), validate: validateDurationOption},
-			{name: "keepintvl", desc: "TCP_KEEPINTVL probe interval", aliases: []string{"so-keepintvl", "tcp-keepintvl"}, addressTypes: tcpStreamAddressTypes(), validate: validateDurationOption},
-			{name: "keepcnt", desc: "TCP_KEEPCNT probe count", aliases: []string{"so-keepcnt", "tcp-keepcnt"}, addressTypes: tcpStreamAddressTypes(), validate: validateInteger(1)},
-			{name: "broadcast", desc: "SO_BROADCAST"},
-			{name: "ip-add-membership", desc: "IPv4 multicast join"},
-			{name: "ipv6-join-group", desc: "IPv6 multicast join"},
-			{name: "setsockopt", desc: "raw setsockopt (level, opt, value)", validate: validateSockopt},
-			{name: "setsockopt-listen", desc: "raw setsockopt before bind (level, opt, value)", aliases: []string{"sockopt-listen"}, validate: validateSockopt},
-			{name: "so-timestamp", desc: "SO_TIMESTAMP ancillary", aliases: []string{"timestamp"}},
-			{name: "ip-pktinfo", desc: "IP_PKTINFO", aliases: []string{"pktinfo"}},
-			{name: "ip-recvttl", desc: "IP_RECVTTL", aliases: []string{"recvttl"}},
-			{name: "ip-recvtos", desc: "IP_RECVTOS", aliases: []string{"recvtos"}},
-			{name: "ip-recvopts", desc: "IP_RECVOPTS", aliases: []string{"recvopts"}},
-			{name: "ip-ttl", desc: "IP_TTL", aliases: []string{"ttl", "ipttl"}, validate: validateInteger(-1)},
-			{name: "ip-tos", desc: "IP_TOS", aliases: []string{"tos", "iptos"}, validate: validateInt64(false)},
-			{name: "ip-options", desc: "IP_OPTIONS"},
-			{name: "ipv6-recvpktinfo", desc: "IPV6_RECVPKTINFO", aliases: []string{"recvpktinfo"}},
-			{name: "ipv6-recvhoplimit", desc: "IPV6_RECVHOPLIMIT", aliases: []string{"recvhoplimit"}},
-			{name: "ipv6-recvtclass", desc: "IPV6_RECVTCLASS", aliases: []string{"recvtclass"}},
-			{name: "ipv6-unicast-hops", desc: "IPV6_UNICAST_HOPS", aliases: []string{"unicast-hops"}, validate: validateInteger(-1)},
-			{name: "ipv6-tclass", desc: "IPV6_TCLASS", aliases: []string{"tclass"}, validate: validateInt64(false)},
-			{name: "rcvtimeo", desc: "per-operation socket receive timeout; retry after expiration", aliases: []string{"so-rcvtimeo"}, addressTypes: socketTimeoutAddressTypes(), validate: validateDurationOption},
-			{name: "sndtimeo", desc: "per-operation socket send timeout; retry after expiration", aliases: []string{"so-sndtimeo"}, addressTypes: socketTimeoutAddressTypes(), validate: validateDurationOption},
-			{name: "so-linger", desc: "SO_LINGER timeout in seconds", aliases: []string{"linger"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
-			{name: "sndbuf", desc: "SO_SNDBUF size in bytes", aliases: []string{"so-sndbuf"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
-			{name: "rcvbuf", desc: "SO_RCVBUF size in bytes", aliases: []string{"so-rcvbuf"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
-			{name: "sndbuf-late", desc: "SO_SNDBUF after connect, accept, or bind (raw socket, before TLS/PROXY/QUIC wrapping)", aliases: []string{"so-sndbuf-late"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
-			{name: "rcvbuf-late", desc: "SO_RCVBUF after connect, accept, or bind (raw socket, before TLS/PROXY/QUIC wrapping)", aliases: []string{"so-rcvbuf-late"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
-			{name: "bindtodevice", desc: "SO_BINDTODEVICE interface name", aliases: []string{"so-bindtodevice", "if", "interface"}, addressTypes: socketTimeoutAddressTypes(), validate: validateRequiredString},
-			{name: "so-protocol", desc: "socket() protocol number", aliases: []string{"so-prototype", "prototype"}, validate: validateInteger(-1)},
-		}},
-		{"Files and UNIX", []helpOpt{
-			{name: "rdonly", desc: "open read-only"},
-			{name: "wronly", desc: "open write-only"},
-			{name: "creat", desc: "create the file", aliases: []string{"create"}},
-			{name: "excl", desc: "fail if the file exists"},
-			{name: "append", desc: "open append", aliases: []string{"o-append"}, addressTypes: fileOpenAddressTypes()},
-			{name: "trunc", desc: "truncate on open"},
-			{name: "nonblock", desc: "O_NONBLOCK", aliases: []string{"o-nonblock"}},
-			// GROUP_OPEN only (xio-file.c). fileOpenAddressTypes would widen
-			// to CREATE, which classic rejects; intersection is authoritative.
-			{name: "o-direct", desc: "set O_DIRECT at open", aliases: []string{"direct", "o_direct"}},
-			{name: "o-noatime", desc: "set O_NOATIME on the opened descriptor", aliases: []string{"noatime"}, addressTypes: fdOptionAddressTypes()},
-			// GROUP_REG only (xio-fs.c). fdOptionAddressTypes would widen to
-			// PIPE/EXEC, which classic rejects; intersection is authoritative.
-			{name: "fs-noatime", desc: "set FS_NOATIME_FL on the file", aliases: []string{"ext2-noatime", "ext3-noatime"}},
-			{name: "f-setpipe-sz", desc: "set Linux pipe capacity", aliases: []string{"pipesz"}, addressTypes: fdOptionAddressTypes(), validate: validateInteger(1)},
-			{name: "mode", desc: "create mode bits", validate: validateOctal(0o7777)},
-			{name: "perm", desc: "chmod after open", validate: validateOctal(0o7777)},
-			{name: "perm-early", desc: "chmod existing name before open, or UNIX socket after bind", validate: validateOctal(0o7777)},
-			{name: "ftruncate", desc: "truncate an opened file to this length", validate: validateInteger(0)},
-			{name: "setlk", desc: "nonblocking whole-file write lock", aliases: []string{"f-setlk-wr"}},
-			{name: "setlkw", desc: "blocking whole-file write lock", aliases: []string{"f-setlkw-wr"}},
-			{name: "setlk-rd", desc: "nonblocking whole-file read lock", aliases: []string{"f-setlk-rd"}},
-			{name: "setlkw-rd", desc: "blocking whole-file read lock", aliases: []string{"f-setlkw-rd"}},
-			{name: "umask", desc: "umask during open or EXEC start", validate: validateOctal(0o777)},
-			{name: "user", desc: "file owner"},
-			{name: "group", desc: "file group"},
-			{name: "user-early", desc: "chown existing name before open, or UNIX socket after bind", aliases: []string{"uid-e"}},
-			{name: "group-early", desc: "chgrp existing name before open, or UNIX socket after bind", aliases: []string{"gid-e"}},
-			{name: "unlink-early", desc: "unlink before bind/open"},
-			{name: "unlink", desc: "unlink before open", aliases: []string{"delete", "remove"}},
-			{name: "unlink-close", desc: "unlink on close"},
-			{name: "unlink-late", desc: "unlink immediately after open"},
-			{name: "unix-bind-tempname", desc: "bind a temporary UNIX name", aliases: []string{"bind-tempname"}},
-			{name: "socktype", dynamicDesc: xio.UnixSocktypeHelp, aliases: []string{"so-type"}, validate: validateInteger(-1)},
-		}},
-		{"EXEC, SYSTEM, SHELL", []helpOpt{
-			{name: "pipes", desc: "connect with pipes"},
-			{name: "pty", desc: "run on a pseudo-terminal"},
-			{name: "setsid", desc: "new session"},
-			{name: "stderr", desc: "include child stderr"},
-			{name: "fdin", desc: "child stdin fd number", validate: validateInteger(0)},
-			{name: "fdout", desc: "child stdout fd number", validate: validateInteger(0)},
-			{name: "shell", desc: "use a shell"},
-			{name: "chdir", desc: "change directory before open or exec", validate: validateRequiredString},
-			{name: "shut-none", desc: "do not kill the child on close"},
-			{name: "shut-close", desc: "fully close instead of half-closing"},
-			{name: "end-close", desc: "close on EOF"},
-			{name: "shut", desc: "half-close mode"},
-			{name: "shut-null", desc: "0-byte datagram as half-close"},
-		}},
-		{"PTY and TERMIOS", []helpOpt{
-			{name: "link", desc: "symlink to the PTY slave", aliases: []string{"symbolic-link"}},
-			{name: "cfmakeraw", desc: "raw termios (cfmakeraw)", aliases: []string{"raw"}},
-			{name: "rawer", desc: "stricter raw termios"},
-			{name: "echo", desc: "terminal echo"},
-			{name: "opost", desc: "output post-processing"},
-			{name: "ispeed", desc: "input baud"},
-			{name: "ospeed", desc: "output baud"},
-			{name: "tiocswinsz", desc: "window size cols:rows", aliases: []string{"winsz"}},
-			{name: "pty-wait-slave", desc: "wait until the slave is open", aliases: []string{"wait-slave", "waitslave"}},
-			{name: "pty-interval", desc: "poll interval while waiting for slave", validate: validateDurationOption},
-			{name: "ctty", desc: "make the PTY the controlling tty", aliases: []string{"tiocsctty"}},
-			// Classic compat spellings: accepted as no-ops. The PTY master
-			// always comes from the platform default (/dev/ptmx or openpty),
-			// so both spellings already describe what we do.
-			{name: "ptmx", desc: "compat: /dev/ptmx is the default"},
-			{name: "openpty", desc: "compat: openpty(3) semantics are the default"},
-			{name: "escape", desc: "escape character"},
-		}},
-		{"Transfer", []helpOpt{
-			{name: "crnl", desc: "convert CR/NL"},
-			{name: "crlf", desc: "convert CR/LF"},
-			{name: "crorlf", desc: "convert CR or LF"},
-			{name: "ignoreeof", desc: "do not close on EOF", aliases: []string{"ignoreof"}},
-			{name: "null-eof", desc: "treat a zero-length read as EOF"},
-			{name: "readbytes", desc: "read at most N bytes", validate: validateSizeT},
-		}},
-		{"TLS, WSS, and QUIC", []helpOpt{
-			{name: "cert", desc: "certificate file (PEM); required on listen", addressTypes: tlsAddressTypes()},
-			{name: "key", desc: "private key file (PEM)", addressTypes: tlsAddressTypes()},
-			{name: "cafile", desc: "CA file (PEM or DER)", aliases: []string{"ca"}, addressTypes: tlsAddressTypes()},
-			{name: "capath", desc: "directory of CA certificates", aliases: []string{"tls-capath", "openssl-capath"}, addressTypes: tlsAddressTypes()},
-			{name: "verify", desc: "verify the peer (default on; 0 skips)", addressTypes: tlsAddressTypes()},
-			{name: "commonname", desc: "name to check (empty skips the name check)", aliases: []string{"tls-commonname", "openssl-commonname"}, addressTypes: tlsAddressTypes()},
-			{name: "snihost", desc: "TLS SNI host name", aliases: []string{"tls-snihost", "openssl-snihost"}, addressTypes: tlsAddressTypes()},
-			{name: "nosni", desc: "do not send SNI", aliases: []string{"tls-no-sni", "openssl-no-sni"}, addressTypes: tlsAddressTypes()},
-			{name: "ciphers", desc: "TLS 1.2 cipher suite list", aliases: []string{"cipher", "openssl-cipherlist"}, addressTypes: tlsAddressTypes(), validate: validateRequiredString},
-			{name: "openssl-min-proto-version", desc: "minimum TLS protocol version", aliases: []string{"min-version"}, addressTypes: tlsAddressTypes(), validate: validateRequiredString},
-			{name: "openssl-max-proto-version", desc: "maximum TLS protocol version", aliases: []string{"max-version"}, addressTypes: tlsAddressTypes(), validate: validateRequiredString},
-			{name: "alpn", desc: "QUIC or HTTP/2/3 proxy ALPN", addressTypes: alpnAddressTypes()},
-		}},
-		{"WebSocket", []helpOpt{
-			{name: "path", desc: "WebSocket URL path"},
-			{name: "origin", desc: "WebSocket Origin header"},
-			{name: "protocol", desc: "WebSocket subprotocol"},
-		}},
-		{"PROXY and SOCKS", []helpOpt{
-			{name: "proxyport", desc: "HTTP proxy port", addressTypes: proxyAddressTypes()},
-			{name: "http-version", desc: "CONNECT HTTP version (1.0, 1.1, 2, 3)", addressTypes: proxyAddressTypes()},
-			{name: "h2c", desc: "cleartext HTTP/2 CONNECT", addressTypes: proxyAddressTypes()},
-			{name: "proxy-resolve", desc: "resolve CONNECT target locally", aliases: []string{"resolve"}, addressTypes: proxyAddressTypes()},
-			{name: "proxy-authorization", desc: "proxy basic auth user:pass", aliases: []string{"proxyauth"}, addressTypes: proxyAddressTypes()},
-			{name: "proxy-authorization-file", desc: "read proxy auth from a file", aliases: []string{"proxyauthfile"}, addressTypes: proxyAddressTypes()},
-			{name: "socksport", desc: "SOCKS server port", addressTypes: socksAddressTypes()},
-			{name: "socksuser", desc: "SOCKS user name", addressTypes: socksAddressTypes()},
-			{name: "sockspass", desc: "SOCKS password", aliases: []string{"sockspassword"}, addressTypes: socksAddressTypes()},
-		}},
-		{"POSIX message queues", []helpOpt{
-			{name: "mq-prio", desc: "message priority", aliases: []string{"posixmq-priority"}, validate: validateInteger(0)},
-			{name: "mq-flush", desc: "drain the queue before use", aliases: []string{"posixmq-flush"}},
-			{name: "mq-maxmsg", desc: "mq_maxmsg", aliases: []string{"posixmq-maxmsg"}, validate: validateInteger(0)},
-			{name: "mq-msgsize", desc: "mq_msgsize", aliases: []string{"posixmq-msgsize"}, validate: validateInteger(0)},
-		}},
-		{"TUN and INTERFACE", []helpOpt{
-			{name: "tun-device", desc: "path to the TUN clone device"},
-			{name: "tun-name", desc: "TUN/TAP interface name"},
-			{name: "tun-type", desc: "tun or tap"},
-			{name: "iff-no-pi", desc: "no packet information header", aliases: []string{"no-pi"}},
-			{name: "iff-up", desc: "bring the interface up", aliases: []string{"up"}},
-			{name: "iff-broadcast", desc: "IFF_BROADCAST"},
-			{name: "iff-debug", desc: "IFF_DEBUG"},
-			{name: "iff-loopback", desc: "IFF_LOOPBACK", aliases: []string{"loopback"}},
-			{name: "iff-pointopoint", desc: "IFF_POINTOPOINT", aliases: []string{"pointopoint"}},
-			{name: "iff-running", desc: "IFF_RUNNING", aliases: []string{"running"}},
-			{name: "iff-noarp", desc: "IFF_NOARP", aliases: []string{"noarp"}},
-			{name: "iff-promisc", desc: "IFF_PROMISC", aliases: []string{"promisc"}},
-			{name: "iff-allmulti", desc: "IFF_ALLMULTI", aliases: []string{"allmulti"}},
-			{name: "iff-multicast", desc: "IFF_MULTICAST"},
-			{name: "if-mtu", desc: "interface MTU", aliases: []string{"interface-mtu"}, validate: validateInt64(true)},
-		}},
-		{"Namespaces", []helpOpt{
-			{name: "netns", desc: "open this address in a Linux network namespace"},
-		}},
-	}
+	// Order is part of -hh/-hhh output. Split files own groups; this list
+	// concatenates them in the original table order.
+	var groups []helpOptGroup
+	groups = append(groups, listenOptionGroups()...)
+	groups = append(groups, socketOptionGroups()...)
+	groups = append(groups, fileOptionGroups()...)
+	groups = append(groups, processOptionGroups()...)
+	groups = append(groups, transferOptionGroups()...)
+	groups = append(groups, tlsOptionGroups()...)
+	groups = append(groups, tunOptionGroups()...)
+	return groups
 }

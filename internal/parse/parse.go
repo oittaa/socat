@@ -227,117 +227,22 @@ func splitOptions(s string) ([]Option, error) {
 func parseOption(s string) Option {
 	// name=value; first = at top level
 	eq := indexTopLevel(s, '=')
-	var o Option
+	var rawName, rawValue string
+	has := false
 	if eq < 0 {
-		o = Option{Name: s, Has: false}
+		rawName = s
 	} else {
-		name := normalizeOptionName(s[:eq])
-		o = Option{
-			Name:  name,
-			Value: unquote(s[eq+1:], pathOption(name)),
-			Has:   true,
-		}
+		rawName = s[:eq]
+		rawValue = s[eq+1:]
+		has = true
 	}
-	o.Name = normalizeOptionName(o.Name)
+	spelling := strings.ToLower(rawName)
+	name := normalizeOptionName(spelling)
+	o := Option{Name: name, Spelling: spelling, Has: has}
+	if has {
+		o.Value = unquote(rawValue, pathOption(name))
+	}
 	return o
-}
-
-// optionAliases is immutable after initialization and safe for concurrent reads.
-// Keeping it out of normalizeOptionName avoids rebuilding the table on every
-// option parse and lookup.
-var optionAliases = map[string]string{
-	"so-reuseaddr":       "reuseaddr",
-	"so-reuseport":       "reuseport",
-	"ipv6-join-group":    "ip-add-membership",
-	"bind-tempname":      "unix-bind-tempname",
-	"proxyauth":          "proxy-authorization",
-	"proxyauthfile":      "proxy-authorization-file",
-	"so-keepalive":       "keepalive",
-	"so-bindtodevice":    "bindtodevice",
-	"if":                 "bindtodevice",
-	"interface":          "bindtodevice",
-	"so-broadcast":       "broadcast",
-	"so-rcvbuf":          "rcvbuf",
-	"so-sndbuf":          "sndbuf",
-	"so-rcvbuf-late":     "rcvbuf-late",
-	"so-sndbuf-late":     "sndbuf-late",
-	"so-rcvtimeo":        "rcvtimeo",
-	"so-sndtimeo":        "sndtimeo",
-	"so-type":            "socktype",
-	"protocol-family":    "pf",
-	"so-prototype":       "so-protocol",
-	"prototype":          "so-protocol",
-	"tcp-nodelay":        "nodelay",
-	"tcp-keepalive":      "keepalive",
-	"o-nonblock":         "nonblock",
-	"o-append":           "append",
-	"direct":             "o-direct",
-	"o_direct":           "o-direct",
-	"ext2-noatime":       "fs-noatime",
-	"ext3-noatime":       "fs-noatime",
-	"o-trunc":            "trunc",
-	"o-creat":            "creat",
-	"o-excl":             "excl",
-	"o-rdonly":           "rdonly",
-	"o-wronly":           "wronly",
-	"delete":             "unlink",
-	"remove":             "unlink",
-	"uid-e":              "user-early",
-	"gid-e":              "group-early",
-	"o-ndelay":           "nonblock",
-	"so-keepidle":        "keepidle",
-	"so-keepintvl":       "keepintvl",
-	"so-keepcnt":         "keepcnt",
-	"tcp-keepidle":       "keepidle",
-	"tcp-keepintvl":      "keepintvl",
-	"tcp-keepcnt":        "keepcnt",
-	"listen-timeout":     "accept-timeout",
-	"ignoreof":           "ignoreeof",
-	"ipttl":              "ip-ttl",
-	"iptos":              "ip-tos",
-	"sp":                 "sourceport",
-	"sourceport":         "sourceport",
-	"addrconfig":         "ai-addrconfig",
-	"wait-slave":         "pty-wait-slave",
-	"waitslave":          "pty-wait-slave",
-	"pty-intervall":      "pty-interval",
-	"winsz":              "tiocswinsz",
-	"tiocsctty":          "ctty",
-	"posixmq-priority":   "mq-prio",
-	"posixmq-flush":      "mq-flush",
-	"posixmq-maxmsg":     "mq-maxmsg",
-	"posixmq-msgsize":    "mq-msgsize",
-	"openssl-capath":     "capath",
-	"tls-capath":         "capath",
-	"openssl-commonname": "commonname",
-	"tls-commonname":     "commonname",
-	"openssl-snihost":    "snihost",
-	"tls-snihost":        "snihost",
-	"openssl-no-sni":     "nosni",
-	"tls-no-sni":         "nosni",
-	"cipher":             "ciphers",
-	"openssl-cipherlist": "ciphers",
-	"sockopt-listen":     "setsockopt-listen",
-	"f-setlk-wr":         "setlk",
-	"f-setlkw-wr":        "setlkw",
-	"f-setlk-rd":         "setlk-rd",
-	"f-setlkw-rd":        "setlkw-rd",
-}
-
-// normalizeOptionName maps classic aliases (so-*, o-*, etc.) to canonical names.
-func normalizeOptionName(name string) string {
-	n := strings.ToLower(name)
-	if c, ok := optionAliases[n]; ok {
-		return c
-	}
-	return n
-}
-
-// CanonicalOptionName resolves classic aliases (so-*, o-*, tls-*, …) to the
-// canonical spelling implementations look up. Exported for tooling that
-// audits the option table against real consumption.
-func CanonicalOptionName(name string) string {
-	return normalizeOptionName(name)
 }
 
 func indexTopLevel(s string, sep byte) int {
