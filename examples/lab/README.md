@@ -13,7 +13,7 @@ The same commands are examples you can copy.
 
 - Docker Engine
 - OpenSSL on the host (to make short-lived lab certificates)
-- Go 1.26+ only if you set `USE_HOST_BIN=1`
+- Go 1.27+ only if you set `USE_HOST_BIN=1`
 
 `compose.yaml` is optional. Use it if you have Compose v2. `run.sh` uses
 `docker network` and two containers so Compose is not required.

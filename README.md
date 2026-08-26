@@ -4,7 +4,7 @@ A modern [Go](https://go.dev) reimplementation of classic [socat](http://www.des
 
 [![CI](https://github.com/oittaa/socat/actions/workflows/ci.yml/badge.svg)](https://github.com/oittaa/socat/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/oittaa/socat/branch/master/graph/badge.svg)](https://codecov.io/gh/oittaa/socat)
-[![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Go](https://img.shields.io/badge/Go-1.27%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Module:** `github.com/oittaa/socat`
@@ -41,7 +41,7 @@ HTTP/2·3 proxy) ship alongside.
 
 ## Build
 
-Requires **Go 1.26+** (the `toolchain` directive will fetch it if needed):
+Requires **Go 1.27+** (the `toolchain` directive will fetch it if needed):
 
 ```bash
 make build

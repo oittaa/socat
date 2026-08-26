@@ -22,6 +22,7 @@ const (
 	soSndtimeo  = unix.SO_SNDTIMEO
 	soSndbuf    = unix.SO_SNDBUF
 	soRcvbuf    = unix.SO_RCVBUF
+	soBroadcast = unix.SO_BROADCAST
 )
 
 func isNotSocketError(err error) bool {

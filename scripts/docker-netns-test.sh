@@ -9,7 +9,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-IMAGE="${IMAGE:-golang:1.26}"
+IMAGE="${IMAGE:-golang:1.27}"
 GOMODCACHE="${GOMODCACHE:-$(go env GOMODCACHE)}"
 docker run --rm --privileged \
   -v "$ROOT:/src" \
