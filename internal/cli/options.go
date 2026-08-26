@@ -275,6 +275,13 @@ func validateSockoptBin(option parse.Option) error {
 	if strings.TrimSpace(rest) == "" {
 		return fmt.Errorf("invalid %s %q (want level:optname:value)", name, option.Value)
 	}
+	data, _, err := xio.ParseDalan(rest, 'i')
+	if err != nil {
+		return fmt.Errorf("invalid %s %q: %w", name, option.Value, err)
+	}
+	if len(data) == 0 {
+		return fmt.Errorf("invalid %s %q (empty dalan value)", name, option.Value)
+	}
 	return nil
 }
 

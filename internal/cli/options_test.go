@@ -89,6 +89,8 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "setsockopt-int", spec: "TCP:localhost:1,setsockopt-int=1:9:1"},
 		{name: "sockopt-int-alias", spec: "TCP:localhost:1,sockopt-int=1:9:1"},
 		{name: "setsockopt-bin-hex", spec: "TCP:localhost:1,setsockopt-bin=1:9:x01000000"},
+		{name: "setsockopt-bin-garbage", spec: "TCP:localhost:1,setsockopt-bin=1:9:not-a-dalan-path", wantErr: "invalid setsockopt-bin"},
+		{name: "setsockopt-bin-leftover", spec: "TCP:localhost:1,setsockopt-bin=1:9:512junk", wantErr: "invalid setsockopt-bin"},
 		{name: "sockopt-bin-alias", spec: "UDP:localhost:1,sockopt-bin=1:9:1"},
 		{name: "setsockopt-string", spec: "TCP:localhost:1,setsockopt-string=1:1:lo"},
 		{name: "sockopt-string-alias", spec: "TCP:localhost:1,sockopt-string=1:1:lo"},

@@ -449,3 +449,29 @@ func TestUnixRecvStreamWrapCommonSetsockoptUnix(t *testing.T) {
 		t.Fatalf("SO_KEEPALIVE=%d want enabled after WrapCommon", got)
 	}
 }
+
+func TestUnixgramListenPastSocketThenPrebindUnix(t *testing.T) {
+	path := unixSocketTestPath(t, "phase.sock")
+	spec, err := parse.ParseSpec(fmt.Sprintf(
+		"UNIX-RECV:%s,setsockopt-socket=%d:%d:1,setsockopt-listen=%d:%d:0",
+		path, unix.SOL_SOCKET, unix.SO_KEEPALIVE, unix.SOL_SOCKET, unix.SO_KEEPALIVE,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var values []int
+	restore := xio.SetSockoptTestHook(func(c xio.SockoptCall) {
+		if c.Opt == unix.SO_KEEPALIVE {
+			values = append(values, c.IntValue)
+		}
+	})
+	defer restore()
+	c, err := listenUnixgramBound(spec, &net.UnixAddr{Name: path, Net: "unixgram"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	if len(values) != 2 || values[0] != 1 || values[1] != 0 {
+		t.Fatalf("SO_KEEPALIVE values=%v want PASTSOCKET 1 then PREBIND 0", values)
+	}
+}

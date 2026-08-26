@@ -178,7 +178,7 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 		return nil, err
 	}
 	netw := ipNetwork(network, proto)
-	c, err := net.DialIP(netw, laddr, raddr)
+	c, err := dialRawIP(ctx, netw, network, laddr, raddr, s)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +189,7 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	// Connected IPv4 Read() keeps the IP header; strip for classic parity.
 	v4 := network == "ip4" || raddr.IP.To4() != nil
 	st := relay.Stream(&rawIPConn{IPConn: c, peer: raddr, v4: v4})
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(c)
 		return nil, err
@@ -226,7 +226,7 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		laddr = &net.IPAddr{IP: lip}
 	}
 	netw := ipNetwork(network, proto)
-	pc, err := net.ListenIP(netw, laddr)
+	pc, err := listenRawIP(ctx, netw, network, laddr, s)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +236,7 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	}
 	v4 := network == "ip4" || raddr.IP.To4() != nil
 	st := relay.Stream(&rawIPDatagramConn{c: pc, raddr: raddr, v4: v4})
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -262,7 +262,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		laddr = &net.IPAddr{IP: lip}
 	}
 	netw := ipNetwork(network, proto)
-	pc, err := net.ListenIP(netw, laddr)
+	pc, err := listenRawIP(ctx, netw, network, laddr, s)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +314,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 			v4:       network == "ip4",
 			g:        g,
 		})
-		st, err = xio.WrapCommon(s, st)
+		st, err = xio.WrapCommonAfterConnected(s, st)
 		if err != nil {
 			logx.CloseQuiet(pc)
 			return nil, err
@@ -334,7 +334,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		wantCtrl: wantCtrl,
 		v4:       network == "ip4",
 	})
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -350,8 +350,10 @@ func ipLookupNet(network string) string {
 }
 
 // applyIPConnOpts sets ancillary recv, send IP options, and multicast join.
-// SO_BROADCAST is applied with other PH_PASTSOCKET SOL_SOCKET options via
-// ApplySocketOptions (classic TYPE_INT; broadcast=0 is a real setsockopt).
+// PH_PASTSOCKET (ApplySocketOptions / setsockopt-socket / broadcast) is
+// applied in dial/listen Control after socket() and before bind/connect
+// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same).
 func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
@@ -359,9 +361,6 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 	}
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
-		if optionErr = xio.ApplySocketOptions(int(fd), s); optionErr != nil {
-			return
-		}
 		if optionErr = xio.ApplyGenericSetsockopt(int(fd), s, xio.SockoptPhaseConnected); optionErr != nil {
 			return
 		}
@@ -386,6 +385,41 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 		}
 	}
 	return nil
+}
+
+func dialRawIP(ctx context.Context, netw, network string, laddr, raddr *net.IPAddr, s parse.Spec) (*net.IPConn, error) {
+	d := net.Dialer{Control: xio.DialControl(s, network, nil)}
+	if laddr != nil {
+		d.LocalAddr = laddr
+	}
+	c, err := d.DialContext(ctx, netw, raddr.String())
+	if err != nil {
+		return nil, err
+	}
+	ic, ok := c.(*net.IPConn)
+	if !ok {
+		logx.CloseQuiet(c)
+		return nil, fmt.Errorf("raw IP: unexpected conn type %T", c)
+	}
+	return ic, nil
+}
+
+func listenRawIP(ctx context.Context, netw, network string, laddr *net.IPAddr, s parse.Spec) (*net.IPConn, error) {
+	cfg := net.ListenConfig{Control: xio.ListenControl(s)}
+	addr := ""
+	if laddr != nil {
+		addr = laddr.String()
+	}
+	pc, err := cfg.ListenPacket(ctx, netw, addr)
+	if err != nil {
+		return nil, err
+	}
+	ic, ok := pc.(*net.IPConn)
+	if !ok {
+		logx.CloseQuiet(pc)
+		return nil, fmt.Errorf("raw IP: unexpected packet conn type %T", pc)
+	}
+	return ic, nil
 }
 
 func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob []byte, addr net.Addr, err error) {

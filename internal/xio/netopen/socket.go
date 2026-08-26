@@ -63,9 +63,13 @@ func openSocketConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("connect: %w", err)
 	}
+	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhaseConnected); err != nil {
+		logx.CloseErr(unix.Close(fd))
+		return nil, err
+	}
 	f := osNewFile(fd, "socket-connect")
 	st := xio.FileStream(f)
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(f)
 		return nil, err
@@ -205,6 +209,10 @@ func openSocketDgram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 			return nil, err
 		}
 	}
+	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhaseConnected); err != nil {
+		logx.CloseErr(unix.Close(fd))
+		return nil, err
+	}
 	f := osNewFile(fd, "socket-dgram")
 	var st relay.Stream
 	if connected {
@@ -212,7 +220,7 @@ func openSocketDgram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	} else {
 		st = &rawDgramStream{f: f, sa: sa, salen: salen}
 	}
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(f)
 		return nil, err
@@ -283,7 +291,7 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 	f := osNewFile(fd, "socket-recv")
 	// First packet then connected reply for RECVFROM; RECV is read-only merge.
 	st := &rawRecvStream{f: f, from: from}
-	wrapped, err := xio.WrapCommon(s, st)
+	wrapped, err := xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(f)
 		return nil, err

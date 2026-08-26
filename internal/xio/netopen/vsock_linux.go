@@ -107,6 +107,10 @@ func dialVSOCK(ctx context.Context, remote vsockEndpoint, s parse.Spec, g *xio.G
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
+	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhasePrebind); err != nil {
+		logx.CloseErr(unix.Close(fd))
+		return nil, err
+	}
 	if control != nil {
 		if err := control("vsock", remote.String(), rawFD(fd)); err != nil {
 			logx.CloseErr(unix.Close(fd))

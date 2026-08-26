@@ -98,7 +98,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			MaxChildren: maxChildren,
 			PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
 			WrapDial: func(c net.Conn) (relay.Stream, error) {
-				return xio.WrapCommon(s, relay.NetStream{Conn: c})
+				return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
 			},
 		}, nil
 	}
@@ -164,7 +164,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		first:    append([]byte(nil), buf[:n]...),
 		closeEOF: true, // next read after first payload → EOF (unidirectional capture)
 	})
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -351,11 +351,14 @@ func dialUDPSession(network string, local, remote *net.UDPAddr, s parse.Spec) (*
 	d := net.Dialer{
 		LocalAddr: local,
 		Control: func(network, address string, c syscall.RawConn) error {
+			if err := xio.DialControl(s, network, nil)(network, address, c); err != nil {
+				return err
+			}
+			if !xio.UDPForkPortReuse(s) {
+				return nil
+			}
 			var optionErr error
 			controlErr := c.Control(func(fd uintptr) {
-				if !xio.UDPForkPortReuse(s) {
-					return
-				}
 				optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 				if optionErr == nil {
 					optionErr = enableUDPForkPortReuse(int(fd))

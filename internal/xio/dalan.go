@@ -4,8 +4,11 @@
 package xio
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -166,4 +169,224 @@ func escapeByte(c byte) byte {
 	default:
 		return c
 	}
+}
+
+// C type widths for classic dalan (dalan.c dalan_opts / sizeof).
+// int and short are 32/16-bit on every supported platform. long follows
+// LP64 (Unix) vs LLP64 (Windows).
+const (
+	sizeCInt   = 4
+	sizeCShort = 2
+)
+
+func sizeCLong() int {
+	if runtime.GOOS == "windows" {
+		return 4
+	}
+	return strconv.IntSize / 8
+}
+
+const (
+	dalanOK = iota
+	dalanSyntax
+	dalanSpace
+	dalanNotType
+)
+
+// ParseDalan implements classic dalan() from
+// https://repo.or.cz/socat.git tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba (official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same dalan.c).
+//
+// deflt is the default type for untyped numbers (classic setsockopt-bin
+// uses 'i'). Concatenation is packed at the current offset with native
+// widths and native endianness and no extra alignment. After a successful
+// typed item, that type becomes the default for following untyped numbers.
+//
+// singleInt is true when the input is exactly one native C int (bare
+// decimal or iN only), so callers may use SetsockoptInt.
+func ParseDalan(s string, deflt byte) (data []byte, singleInt bool, err error) {
+	if deflt == 0 {
+		deflt = 'i'
+	}
+	line := s
+	items := 0
+	onlyI := true
+	for line != "" {
+		c := line[0]
+		rest := line[1:]
+		out, next, rc := dalanItem(c, rest)
+		switch rc {
+		case dalanOK:
+			data = append(data, out...)
+			line = next
+			deflt = c
+			items++
+			if c != 'i' {
+				onlyI = false
+			}
+		case dalanSpace:
+			line = rest
+		case dalanNotType:
+			out, next, rc = dalanItem(deflt, line)
+			if rc != dalanOK || next == line {
+				return nil, false, fmt.Errorf("syntax error in %q", s)
+			}
+			data = append(data, out...)
+			line = next
+			items++
+			if deflt != 'i' {
+				onlyI = false
+			}
+		default:
+			return nil, false, fmt.Errorf("syntax error in %q", s)
+		}
+	}
+	singleInt = items == 1 && onlyI && len(data) == sizeCInt
+	return data, singleInt, nil
+}
+
+func dalanItem(c byte, line string) (out []byte, rest string, rc int) {
+	switch c {
+	case ' ', '\t', '\r', '\n':
+		return nil, line, dalanSpace
+	case '"':
+		payload, next, err := parseDalanString(`"` + line)
+		if err != nil {
+			return nil, line, dalanSyntax
+		}
+		return payload, next, dalanOK
+	case '\'':
+		return dalanChar(line)
+	case 'x':
+		return dalanHex(line)
+	case 'l':
+		return dalanNumber(line, sizeCLong(), true)
+	case 'L':
+		return dalanNumber(line, sizeCLong(), false)
+	case 'i':
+		return dalanNumber(line, sizeCInt, true)
+	case 'I':
+		return dalanNumber(line, sizeCInt, false)
+	case 's':
+		return dalanNumber(line, sizeCShort, true)
+	case 'S':
+		return dalanNumber(line, sizeCShort, false)
+	case 'b':
+		// Documented as int8_t. Classic dalan.c (tag-1.8.1.3
+		// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+		// af5388c898c7bb60997935aee93c223deba60c4a) is missing a break
+		// after case 'b', so it also writes a uint8_t. Do not reproduce
+		// that extra byte.
+		return dalanNumber(line, 1, true)
+	case 'B':
+		return dalanNumber(line, 1, false)
+	default:
+		return nil, line, dalanNotType
+	}
+}
+
+func dalanChar(line string) ([]byte, string, int) {
+	if line == "" {
+		return nil, line, dalanSyntax
+	}
+	c := line[0]
+	line = line[1:]
+	if c == '\'' {
+		return nil, line, dalanSyntax
+	}
+	if c == '\\' {
+		if line == "" {
+			return nil, line, dalanSyntax
+		}
+		c = escapeByte(line[0])
+		line = line[1:]
+	}
+	if line == "" || line[0] != '\'' {
+		return nil, line, dalanSyntax
+	}
+	return []byte{c}, line[1:], dalanOK
+}
+
+func dalanHex(line string) ([]byte, string, int) {
+	var out []byte
+	for len(line) >= 2 && isHexDigit(line[0]) {
+		if !isHexDigit(line[1]) {
+			return nil, line, dalanSyntax
+		}
+		b, err := hex.DecodeString(line[:2])
+		if err != nil {
+			return nil, line, dalanSyntax
+		}
+		out = append(out, b...)
+		line = line[2:]
+	}
+	if len(line) > 0 && isHexDigit(line[0]) {
+		return nil, line, dalanSyntax
+	}
+	return out, line, dalanOK
+}
+
+func isHexDigit(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
+}
+
+func dalanNumber(line string, nbytes int, _ bool) ([]byte, string, int) {
+	n, rest, ok := parseDalanInt(line)
+	if !ok {
+		return nil, line, dalanSyntax
+	}
+	// Two's complement packing matches C assignment into the native width.
+	return appendNative(nil, uint64(n), nbytes), rest, dalanOK // #nosec G115 -- C two's-complement store
+}
+
+func parseDalanInt(line string) (int64, string, bool) {
+	i := 0
+	for i < len(line) && (line[i] == ' ' || line[i] == '\t' || line[i] == '\r' || line[i] == '\n') {
+		i++
+	}
+	start := i
+	if i < len(line) && (line[i] == '+' || line[i] == '-') {
+		i++
+	}
+	digits := i
+	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
+		i++
+	}
+	if i == digits {
+		return 0, line, false
+	}
+	n, err := strconv.ParseInt(line[start:i], 10, 64)
+	if err != nil {
+		u, uerr := strconv.ParseUint(line[start:i], 10, 64)
+		if uerr != nil {
+			return 0, line, false
+		}
+		return int64(u), line[i:], true // #nosec G115 -- C strtoul into signed storage
+	}
+	return n, line[i:], true
+}
+
+func appendNative(buf []byte, u uint64, nbytes int) []byte {
+	b := make([]byte, nbytes)
+	switch nbytes {
+	case 1:
+		b[0] = byte(u) // #nosec G115 -- classic dalan truncates to the C width
+	case 2:
+		binary.NativeEndian.PutUint16(b, uint16(u)) // #nosec G115 -- classic dalan truncates to the C width
+	case 4:
+		binary.NativeEndian.PutUint32(b, uint32(u)) // #nosec G115 -- classic dalan truncates to the C width
+	case 8:
+		binary.NativeEndian.PutUint64(b, u)
+	default:
+		return buf
+	}
+	return append(buf, b...)
+}
+
+func nativeCInt(data []byte) int {
+	if len(data) < sizeCInt {
+		return 0
+	}
+	return int(int32(binary.NativeEndian.Uint32(data[:sizeCInt]))) // #nosec G115 -- C int is 32-bit two's complement
 }

@@ -31,10 +31,12 @@ func isNotSocketError(err error) bool {
 }
 
 func setSockoptInt(fd, level, opt, value int) error {
+	recordSockoptInt(fd, level, opt, value)
 	return unix.SetsockoptInt(fd, level, opt, value)
 }
 
 func setSockoptBytes(fd, level, opt int, value []byte) error {
+	recordSockoptBytes(fd, level, opt, value)
 	return unix.SetsockoptString(fd, level, opt, string(value))
 }
 

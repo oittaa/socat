@@ -33,10 +33,12 @@ func isNotSocketError(err error) bool {
 }
 
 func setSockoptInt(fd, level, opt, value int) error {
+	recordSockoptInt(fd, level, opt, value)
 	return windows.SetsockoptInt(windows.Handle(fd), level, opt, value)
 }
 
 func setSockoptBytes(fd, level, opt int, value []byte) error {
+	recordSockoptBytes(fd, level, opt, value)
 	if level < math.MinInt32 || level > math.MaxInt32 || opt < math.MinInt32 || opt > math.MaxInt32 {
 		return fmt.Errorf("setsockopt: level or opt out of range")
 	}

@@ -91,7 +91,7 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		LogOK:       true,
 		LogSuffix:   " (TLS)",
 		Wrap: func(c net.Conn) (relay.Stream, error) {
-			return xio.WrapCommonWithSocketTimeoutsApplied(s, relay.NetStream{Conn: c})
+			return xio.WrapCommonAfterConnectedTimeoutsApplied(s, relay.NetStream{Conn: c})
 		},
 	})
 }
@@ -135,7 +135,7 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		if err := xio.ApplyTCPConnOpts(s, c); err != nil {
 			return nil, err
 		}
-		return xio.WrapCommonWithSocketTimeoutsApplied(s, relay.NetStream{Conn: c})
+		return xio.WrapCommonAfterConnectedTimeoutsApplied(s, relay.NetStream{Conn: c})
 	}
 
 	var setAcceptDeadline func(time.Time) error

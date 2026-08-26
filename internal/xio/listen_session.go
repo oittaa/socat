@@ -35,6 +35,7 @@ func WrapAccepted(s parse.Spec, c net.Conn, extra func(net.Conn) error) (relay.S
 		if err := extra(c); err != nil {
 			return nil, err
 		}
+		return WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
 	}
 	return WrapCommon(s, relay.NetStream{Conn: c})
 }

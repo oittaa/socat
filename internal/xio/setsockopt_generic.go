@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 	"syscall"
 
@@ -48,40 +47,44 @@ const (
 
 // ApplyGenericSetsockopt applies the classic generic setsockopt options that
 // belong to phase. Kernel rejection fails the call (classic SETSOCKOPT MSS=1).
+//
+// Classic applyopts walks the option list in original command-line order
+// (xioopts.c applyopts; tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same). Every matching
+// occurrence is applied, including alias+canonical mixtures (aliases are
+// already folded to the canonical Name).
 func ApplyGenericSetsockopt(fd int, s parse.Spec, phase SockoptPhase) error {
-	switch phase {
-	case SockoptPhasePrebind:
-		return applyNamedGenericSetsockopt(fd, s, "setsockopt-listen", sockoptKindBin)
-	case SockoptPhasePastSocket:
-		return applyNamedGenericSetsockopt(fd, s, "setsockopt-socket", sockoptKindBin)
-	case SockoptPhaseConnected:
-		if err := applyNamedGenericSetsockopt(fd, s, "setsockopt", sockoptKindBin); err != nil {
+	for _, o := range s.Options {
+		kind, ok := genericSetsockoptKind(o.Name, phase)
+		if !ok {
+			continue
+		}
+		if !o.Has || strings.TrimSpace(o.Value) == "" {
+			return fmt.Errorf("%s requires level:optname:value", o.Name)
+		}
+		if err := applyGenericSetsockoptValue(fd, o.Name, o.Value, kind); err != nil {
 			return err
 		}
-		if err := applyNamedGenericSetsockopt(fd, s, "setsockopt-bin", sockoptKindBin); err != nil {
-			return err
-		}
-		if err := applyNamedGenericSetsockopt(fd, s, "setsockopt-int", sockoptKindInt); err != nil {
-			return err
-		}
-		if err := applyNamedGenericSetsockopt(fd, s, "setsockopt-string", sockoptKindString); err != nil {
-			return err
-		}
-		return applyNamedGenericSetsockopt(fd, s, "setsockopt-connected", sockoptKindBin)
-	default:
-		return fmt.Errorf("internal: unknown setsockopt phase %d", phase)
 	}
+	return nil
 }
 
-func applyNamedGenericSetsockopt(fd int, s parse.Spec, name string, kind sockoptValueKind) error {
-	o, ok := s.OptionNamed(name)
-	if !ok {
-		return nil
+func genericSetsockoptKind(name string, phase SockoptPhase) (sockoptValueKind, bool) {
+	switch name {
+	case "setsockopt-listen":
+		return sockoptKindBin, phase == SockoptPhasePrebind
+	case "setsockopt-socket":
+		return sockoptKindBin, phase == SockoptPhasePastSocket
+	case "setsockopt", "setsockopt-bin", "setsockopt-connected":
+		return sockoptKindBin, phase == SockoptPhaseConnected
+	case "setsockopt-int":
+		return sockoptKindInt, phase == SockoptPhaseConnected
+	case "setsockopt-string":
+		return sockoptKindString, phase == SockoptPhaseConnected
+	default:
+		return 0, false
 	}
-	if !o.Has || strings.TrimSpace(o.Value) == "" {
-		return fmt.Errorf("%s requires level:optname:value", name)
-	}
-	return applyGenericSetsockoptValue(fd, name, o.Value, kind)
 }
 
 // ApplySetsockoptFD applies a classic INT:INT:BIN setsockopt spec
@@ -141,36 +144,20 @@ func applyGenericSetsockoptValue(fd int, name, spec string, kind sockoptValueKin
 
 // parseSockoptBin implements classic TYPE_INT_INT_BIN: dalan with default type
 // 'i', so a bare decimal such as 512 is sizeof(int) rather than ASCII bytes.
+// Syntax errors are returned; unknown typed expressions are never treated as
+// ASCII paths (ParseSocatData is for SOCKET address data only).
 func parseSockoptBin(rest string) (useInt bool, n int, data []byte, err error) {
-	s := strings.TrimSpace(rest)
-	if isDecimalInt(s) {
-		n, err = strconv.Atoi(s)
-		return true, n, nil, err
+	data, singleInt, err := ParseDalan(rest, 'i')
+	if err != nil {
+		return false, 0, nil, err
 	}
-	if len(s) > 1 && (s[0] == 'i' || s[0] == 'I') && isDecimalInt(s[1:]) {
-		n, err = strconv.Atoi(s[1:])
-		return true, n, nil, err
+	if len(data) == 0 {
+		return false, 0, nil, fmt.Errorf("empty dalan value")
 	}
-	data, err = ParseSocatData(s)
-	return false, 0, data, err
-}
-
-func isDecimalInt(s string) bool {
-	if s == "" {
-		return false
+	if singleInt {
+		return true, nativeCInt(data), data, nil
 	}
-	if s[0] == '+' || s[0] == '-' {
-		s = s[1:]
-	}
-	if s == "" {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return false
-		}
-	}
-	return true
+	return false, 0, data, nil
 }
 
 func hasGenericSetsockopt(s parse.Spec, phase SockoptPhase) bool {

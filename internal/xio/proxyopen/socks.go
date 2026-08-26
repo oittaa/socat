@@ -97,7 +97,7 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 		Label: label,
 		Dial:  dialOnce,
 		Wrap: func(c net.Conn) (relay.Stream, error) {
-			return xio.WrapCommon(s, relay.NetStream{Conn: c})
+			return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
 		},
 	})
 }
@@ -234,7 +234,7 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 		Label: label,
 		Dial:  dialOnce,
 		Wrap: func(c net.Conn) (relay.Stream, error) {
-			return xio.WrapCommon(s, relay.NetStream{Conn: c})
+			return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
 		},
 	})
 }

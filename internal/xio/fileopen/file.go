@@ -430,6 +430,16 @@ func openSocketpair(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) 
 			logx.CloseQuiet(c2)
 			return nil, fmt.Errorf("socket options: %w", err)
 		}
+		// Classic xiosocketpair applyopts(PH_ALL) on both fds (tag-1.8.1.3
+		// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+		// af5388c898c7bb60997935aee93c223deba60c4a is the same), including
+		// PH_CONNECTED generic setsockopt. Apply once per fd, then mark so
+		// WrapCommon does not walk FDStream and apply again.
+		if err := xio.ApplyGenericSetsockopt(int(conn.Fd()), s, xio.SockoptPhaseConnected); err != nil {
+			logx.CloseQuiet(c1)
+			logx.CloseQuiet(c2)
+			return nil, fmt.Errorf("setsockopt: %w", err)
+		}
 	}
 	// Use one end only as the stream; the other end is paired so writes loop back...
 	// Actually for echo we need to use BOTH ends incorrectly as one FD.
@@ -459,7 +469,7 @@ func openSocketpair(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) 
 		logx.CloseQuiet(c2)
 		return nil, err
 	}
-	st, err := xio.WrapCommon(s, stream)
+	st, err := xio.WrapCommonAfterConnected(s, stream)
 	if err != nil {
 		logx.CloseQuiet(stream)
 		return nil, err

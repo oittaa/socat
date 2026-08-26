@@ -173,14 +173,11 @@ func ApplyReuseAndV6Only(fd int, s parse.Spec, network string) error {
 	return nil
 }
 
-// ApplyListenOptions applies socket options that must be set before bind.
+// ApplyListenOptions applies socket options that must be set before bind
+// (classic PH_PREBIND: reuseaddr/reuseport/ipv6-v6only plus setsockopt-listen).
+// PH_PASTSOCKET options including so-broadcast live in ApplySocketOptions and
+// must run first (DialControl / ListenControl / listenUDP Control).
 func ApplyListenOptions(fd int, s parse.Spec, network string) error {
-	// Classic so-broadcast is PH_PASTSOCKET (after socket, before PREBIND).
-	// UDP ListenConfig.Control paths call this helper and not ApplySocketOptions
-	// until after bind, so apply it here as well as in ApplySocketOptions.
-	if err := applyBroadcast(fd, s); err != nil {
-		return err
-	}
 	// Windows AF_UNIX sockets reject SO_REUSEADDR and can remain unusable
 	// after the failed call. UNIX path reuse is handled by the opener instead.
 	if !strings.HasPrefix(network, "unix") {
@@ -188,17 +185,43 @@ func ApplyListenOptions(fd int, s parse.Spec, network string) error {
 			return err
 		}
 	}
+	return ApplyPrebindPhase(fd, s)
+}
+
+// ApplyPastSocketPhase applies classic PH_PASTSOCKET immediately after
+// socket() (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+// official master af5388c898c7bb60997935aee93c223deba60c4a is the same):
+// SOL_SOCKET buffers/broadcast/bindtodevice plus setsockopt-socket, and
+// ip-ttl/tos on TCP/SCTP.
+func ApplyPastSocketPhase(fd int, s parse.Spec, network string) error {
+	return ApplyNetworkSocketOptions(fd, s, network)
+}
+
+// ApplyPrebindPhase applies classic PH_PREBIND generic setsockopt-listen
+// before bind()/connect().
+func ApplyPrebindPhase(fd int, s parse.Spec) error {
 	return ApplyGenericSetsockopt(fd, s, SockoptPhasePrebind)
 }
 
-// ListenControl is a net.ListenConfig.Control that applies pre-bind options.
+// ApplyPastSocketThenPrebind is the Control-hook order used by net.Dialer
+// and net.ListenConfig: PASTSOCKET after socket(), then PREBIND, then
+// return so connect()/bind() happens after both phases.
+func ApplyPastSocketThenPrebind(fd int, s parse.Spec, network string) error {
+	if err := ApplyPastSocketPhase(fd, s, network); err != nil {
+		return err
+	}
+	return ApplyPrebindPhase(fd, s)
+}
+
+// ListenControl is a net.ListenConfig.Control that applies PASTSOCKET then
+// PREBIND before bind().
 func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) error {
 		var optionErr error
 		controlErr := c.Control(func(fd uintptr) {
-			optionErr = ApplyListenOptions(int(fd), s, network)
+			optionErr = ApplyPastSocketPhase(int(fd), s, network)
 			if optionErr == nil {
-				optionErr = ApplyNetworkSocketOptions(int(fd), s, network)
+				optionErr = ApplyListenOptions(int(fd), s, network)
 			}
 		})
 		return errors.Join(controlErr, optionErr)
@@ -236,7 +259,11 @@ func ApplyListenBacklog(ln net.Listener, backlog int) error {
 
 // DialControl merges spec-driven socket options (rcvtimeo/sndtimeo, and
 // ip-ttl/ip-tos on tcp networks) with an optional caller-provided Control,
-// producing a single net.Dialer.Control.
+// producing a single net.Dialer.Control. Classic _xioopen_connect applies
+// PH_PASTSOCKET then PH_PREBIND (setsockopt-listen) before connect()
+// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same). Go's Control
+// hook runs after socket() and before connect(), so both phases go here.
 func DialControl(s parse.Spec, network string, caller func(string, string, syscall.RawConn) error) func(string, string, syscall.RawConn) error {
 	return func(nw, addr string, c syscall.RawConn) error {
 		optionNetwork := network
@@ -245,7 +272,7 @@ func DialControl(s parse.Spec, network string, caller func(string, string, sysca
 		}
 		var optErr error
 		controlErr := c.Control(func(fd uintptr) {
-			optErr = ApplyNetworkSocketOptions(int(fd), s, optionNetwork)
+			optErr = ApplyPastSocketThenPrebind(int(fd), s, optionNetwork)
 		})
 		if err := errors.Join(controlErr, optErr); err != nil {
 			return err
