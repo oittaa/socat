@@ -10,6 +10,9 @@ Baseline: https://repo.or.cz/socat.git tag-1.8.1.3
 af5388c898c7bb60997935aee93c223deba60c4a has identical xiohelp.c, xioopts.h,
 optionnames[], and xio*.c.
 
+The dump must come from a feature-complete official build (OpenSSL, GNU
+Readline, libwrap). Rebuild with scripts/build-classic-help-catalog.sh.
+
 Usage:
   python3 scripts/extract-classic-help.py DUMP.hhh > catalog_gen.go
   python3 scripts/extract-classic-help.py DUMP.hhh -o catalog_gen.go

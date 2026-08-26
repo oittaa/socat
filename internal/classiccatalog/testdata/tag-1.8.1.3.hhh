@@ -4,7 +4,13 @@
 # Official master af5388c898c7bb60997935aee93c223deba60c4a has identical
 # xiohelp.c, xioopts.h, optionnames[], and xio*.c.
 #
-# Regenerated from: /path/to/socat -hhh  (keep the opts: section only)
+# Feature-complete Linux build with OpenSSL, GNU Readline, and libwrap
+# (configure defaults once those libraries are present). Unique advertised
+# spellings: 794. b7200 requires HP-UX B7200 and is recorded in
+# DocsOnlyNotInThisBinary; 794+1=795 feature-complete spellings.
+#
+# Rebuild: scripts/build-classic-help-catalog.sh
+# Provenance: testdata/tag-1.8.1.3.V
 #
    opts:
       <opt>{,<opts>}:
@@ -19,6 +25,7 @@
       ai-passive	groups=IP4,IP6		phase=OFFSET		type=BOOL
       ai-v4mapped	groups=IP4,IP6		phase=OFFSET		type=BOOL
       allmulti		is an alias for iff-allmulti
+      allow-table	is an alias for tcpwrap-hosts-allow-table
       append		groups=FD,OPEN		phase=LATE		type=BOOL
       async		groups=FD,OPEN		phase=LATE		type=BOOL
       attach-filter	is an alias for so-attach-filter
@@ -67,17 +74,27 @@
       bsdcompat		is an alias for so-bsdcompat
       bsdly		groups=TERMIOS		phase=FD		type=BOOL
       bytes		is an alias for readbytes
+      cafile		is an alias for openssl-cafile
+      capath		is an alias for openssl-capath
       ccid		is an alias for dccp-set-ccid
       cd		is an alias for chdir
+      cert		is an alias for openssl-certificate
+      certificate	is an alias for openssl-certificate
       cfmakeraw		is an alias for termios-cfmakeraw
       chdir		groups=(all)			phase=INIT		type=STRING
       children-shutup	groups=CHILD		phase=PASTACCEPT	type=INT
       chroot		groups=PROCESS		phase=LATE		type=STRING
       chroot-early	groups=PROCESS		phase=EARLY		type=STRING
+      cipher		is an alias for openssl-cipherlist
+      cipherlist	is an alias for openssl-cipherlist
+      ciphers		is an alias for openssl-cipherlist
       clocal		groups=TERMIOS		phase=FD		type=BOOL
       cloexec		groups=FD		phase=LATE		type=BOOL
       close		is an alias for end-close
+      cn		is an alias for openssl-commonname
+      commonname	is an alias for openssl-commonname
       compr		is an alias for fs-compr
+      compress		is an alias for openssl-compress
       connect-timeout	groups=SOCKET		phase=PASTSOCKET	type=STRUCT-TIMEVAL
       cool-write	groups=FD		phase=INIT		type=BOOL
       coolwrite		is an alias for cool-write
@@ -110,8 +127,12 @@
       defer-accept	is an alias for tcp-defer-accept
       defnames		is an alias for res-defnames
       delete		is an alias for unlink
+      deny-table	is an alias for tcpwrap-hosts-deny-table
       detach-filter	is an alias for so-detach-filter
       detachfilter	is an alias for so-detach-filter
+      dh		is an alias for openssl-dhparam
+      dhparam		is an alias for openssl-dhparam
+      dhparams		is an alias for openssl-dhparam
       direct		is an alias for o-direct
       directory		is an alias for o-directory
       dirsync		is an alias for fs-dirsync
@@ -128,6 +149,7 @@
       echoke		groups=TERMIOS		phase=FD		type=BOOL
       echonl		groups=TERMIOS		phase=FD		type=BOOL
       echoprt		groups=TERMIOS		phase=FD		type=BOOL
+      egd		is an alias for openssl-egd
       end-close		groups=FD		phase=OFFSET		type=CONST
       eof		is an alias for veof
       eol		is an alias for veol
@@ -205,8 +227,12 @@
       group-early	groups=NAMED		phase=PREOPEN		type=GID_T
       group-late	groups=FD		phase=LATE		type=GID_T
       hdrincl		is an alias for ip-hdrincl
+      history		is an alias for history-file
+      history-file	groups=READLINE		phase=LATE		type=STRING
       hoplimit		is an alias for ipv6-hoplimit
       hopopts		is an alias for ipv6-hopopts
+      hosts-allow	is an alias for tcpwrap-hosts-allow-table
+      hosts-deny	is an alias for tcpwrap-hosts-deny-table
       http-version	groups=HTTP		phase=LATE		type=STRING
       hup		is an alias for hupcl
       hupcl		groups=TERMIOS		phase=FD		type=BOOL
@@ -333,8 +359,10 @@
       keepcnt		is an alias for tcp-keepcnt
       keepidle		is an alias for tcp-keepidle
       keepintvl		is an alias for tcp-keepintvl
+      key		is an alias for openssl-key
       kill		is an alias for vkill
       largefile		is an alias for o-largefile
+      libwrap		is an alias for tcpwrappers
       linger		is an alias for so-linger
       linger2		is an alias for tcp-linger2
       link		is an alias for symbolic-link
@@ -357,13 +385,19 @@
       lseek64-set	groups=BLK,REG		phase=LATE		type=OFF64_T
       master		is an alias for iff-master
       max-children	groups=CHILD		phase=PASTACCEPT	type=INT
+      max-proto-version	is an alias for openssl-max-proto-version
+      max-version	is an alias for openssl-max-proto-version
       maxchildren	is an alias for max-children
+      maxfraglen	is an alias for openssl-maxfraglen
       maxseg		is an alias for tcp-maxseg
       maxseg-late	is an alias for tcp-maxseg-late
+      maxsendfrag	is an alias for openssl-maxsendfrag
       mcloop		is an alias for ip-multicast-loop
       mcloop6		is an alias for ipv6-multicast-loop
       membership	is an alias for ip-add-membership
       min		is an alias for vmin
+      min-proto-version	is an alias for openssl-min-proto-version
+      min-version	is an alias for openssl-min-proto-version
       mode		is an alias for perm
       mq-flush		is an alias for posixmq-flush
       mq-maxmsg		is an alias for posixmq-maxmsg
@@ -389,16 +423,20 @@
       nldly		groups=TERMIOS		phase=FD		type=BOOL
       no-check		is an alias for so-no-check
       no-pi		is an alias for iff-no-pi
+      no-sni		is an alias for openssl-no-sni
       noarp		is an alias for iff-noarp
       noatime		is an alias for o-noatime
       nocheck		is an alias for so-no-check
       noctty		is an alias for o-noctty
       nodelay		is an alias for tcp-nodelay
       nodump		is an alias for fs-nodump
+      noecho		groups=READLINE		phase=LATE		type=STRING
       noflsh		groups=TERMIOS		phase=FD		type=BOOL
       nofollow		is an alias for o-nofollow
       nofork		groups=FORK		phase=BIGEN		type=BOOL
       nonblock		is an alias for o-nonblock
+      noprompt		groups=READLINE		phase=LATE		type=BOOL
+      nosni		is an alias for openssl-no-sni
       notrailers	is an alias for iff-notrailers
       nsaddr		is an alias for res-nsaddr
       null-eof		groups=SOCKET		phase=OFFSET		type=BOOL
@@ -446,6 +484,24 @@
       onocr		groups=TERMIOS		phase=FD		type=BOOL
       oobinline		is an alias for so-oobinline
       openpty		groups=PTY		phase=BIGEN		type=BOOL
+      openssl-cafile	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-capath	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-certificate	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-cipherlist	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-commonname	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-compress	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-dhparam	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-dhparams	is an alias for openssl-dhparam
+      openssl-egd	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-key	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-max-proto-version	groups=OPENSSL		phase=OFFSET		type=STRING
+      openssl-maxfraglen	groups=OPENSSL		phase=SPECIFIC		type=INT
+      openssl-maxsendfrag	groups=OPENSSL		phase=SPECIFIC		type=INT
+      openssl-min-proto-version	groups=OPENSSL		phase=OFFSET		type=STRING
+      openssl-no-sni	groups=OPENSSL		phase=SPECIFIC		type=BOOL
+      openssl-pseudo	groups=OPENSSL		phase=SPECIFIC		type=BOOL
+      openssl-snihost	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-verify	groups=OPENSSL		phase=SPECIFIC		type=BOOL
       opost		groups=TERMIOS		phase=FD		type=BOOL
       ospeed		groups=TERMIOS		phase=FD		type=UNSIGNED-INT
       owner		is an alias for user
@@ -475,6 +531,7 @@
       posixmq-priority	groups=POSIXMQ		phase=INIT		type=UNSIGNED-INT
       priority		is an alias for so-priority
       promisc		is an alias for iff-promisc
+      prompt		groups=READLINE		phase=LATE		type=STRING
       protocol		is an alias for so-protocol
       protocol-family	groups=SOCKET		phase=PRESOCKET		type=STRING
       prototype		is an alias for so-protocol
@@ -486,6 +543,7 @@
       proxyauthfile	is an alias for proxy-authorization-file
       proxyport		groups=HTTP		phase=LATE		type=STRING
       prterase		is an alias for echoprt
+      pseudo		is an alias for openssl-pseudo
       ptmx		groups=PTY		phase=BIGEN		type=BOOL
       pty		groups=FORK		phase=BIGEN		type=BOOL
       pty-interval	groups=PTY		phase=EARLY		type=STRUCT-TIMESPEC
@@ -588,6 +646,7 @@
       sndbuf-late	is an alias for so-sndbuf-late
       sndlowat		is an alias for so-sndlowat
       sndtimeo		is an alias for so-sndtimeo
+      snihost		is an alias for openssl-snihost
       so-acceptconn	groups=SOCKET		phase=PASTSOCKET	type=INT
       so-attach-filter	groups=SOCKET		phase=PASTSOCKET	type=INT
       so-bindtodevice	groups=SOCKET		phase=PASTSOCKET	type=STRING
@@ -671,6 +730,13 @@
       tcp-quickack	groups=TCP		phase=PASTSOCKET	type=INT
       tcp-syncnt	groups=TCP		phase=PASTSOCKET	type=INT
       tcp-window-clamp	groups=TCP		phase=PASTSOCKET	type=INT
+      tcpwrap		is an alias for tcpwrappers
+      tcpwrap-dir	is an alias for tcpwrap-etc
+      tcpwrap-etc	groups=RANGE		phase=ACCEPT		type=STRING
+      tcpwrap-hosts-allow-table	groups=RANGE		phase=ACCEPT		type=STRING
+      tcpwrap-hosts-deny-table	groups=RANGE		phase=ACCEPT		type=STRING
+      tcpwrapper	is an alias for tcpwrappers
+      tcpwrappers	groups=RANGE		phase=ACCEPT		type=STRING-NULL
       termios-cfmakeraw	groups=TERMIOS		phase=FD		type=CONST
       termios-rawer	groups=TERMIOS		phase=FD		type=CONST
       termios-setflags	groups=TERMIOS		phase=FD		type=INT:ULONG
@@ -717,6 +783,7 @@
       veol		groups=TERMIOS		phase=FD		type=BYTE
       veol2		groups=TERMIOS		phase=FD		type=BYTE
       verase		groups=TERMIOS		phase=FD		type=BYTE
+      verify		is an alias for openssl-verify
       vintr		groups=TERMIOS		phase=FD		type=BYTE
       vkill		groups=TERMIOS		phase=FD		type=BYTE
       vlnext		groups=TERMIOS		phase=FD		type=BYTE
@@ -738,6 +805,7 @@
       werase		is an alias for vwerase
       window-clamp	is an alias for tcp-window-clamp
       winsz		is an alias for tiocswinsz
+      wrap		is an alias for tcpwrappers
       wronly		is an alias for o-wronly
       xcase		groups=TERMIOS		phase=FD		type=BOOL
       xtabs		groups=TERMIOS		phase=FD		type=CONST

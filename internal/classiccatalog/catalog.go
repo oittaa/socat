@@ -6,6 +6,13 @@
 // af5388c898c7bb60997935aee93c223deba60c4a currently has no option/help
 // behavior differences from that tag (xiohelp.c, xioopts.h, optionnames[],
 // and xio*.c are identical).
+//
+// The checked-in dump is a feature-complete Linux build of that tag
+// (OpenSSL, GNU Readline, and libwrap enabled by configure once the
+// libraries are present). That binary advertises AdvertisedCount unique
+// option spellings. b7200 is compiled only when B7200 is defined (HP-UX)
+// and is recorded in DocsOnlyNotInThisBinary; AdvertisedCount plus that
+// spelling is FeatureCompleteSpellingCount.
 package classiccatalog
 
 import "strings"
@@ -19,7 +26,29 @@ const (
 	Commit = "12c08bf66d709fba17035ce95d85bd218428d9ba"
 	// Master is the official master commit checked for option/help drift.
 	Master = "af5388c898c7bb60997935aee93c223deba60c4a"
+
+	// AdvertisedCount is unique spellings in testdata/tag-1.8.1.3.hhh
+	// from the feature-complete Linux official binary.
+	AdvertisedCount = 794
+	// FeatureCompleteSpellingCount is AdvertisedCount plus host-#ifdef
+	// spellings that a fully featured official -hhh prints when B7200 is
+	// defined (b7200). Tests assert this even when no classic binary is
+	// on PATH, because TestOfficialBinaryHHHMatchesTestdata otherwise skips.
+	FeatureCompleteSpellingCount = 795
 )
+
+// FeatureCompleteDefines are socat -V macros a dump must have before it is
+// compared to testdata/tag-1.8.1.3.hhh.
+var FeatureCompleteDefines = []string{
+	"WITH_OPENSSL",
+	"WITH_READLINE",
+	"WITH_LIBWRAP",
+}
+
+// FeatureCompleteHostIfdefs are advertised -hhh spellings that this Linux
+// glibc dump cannot print. They complete AdvertisedCount to
+// FeatureCompleteSpellingCount.
+var FeatureCompleteHostIfdefs = []string{"b7200"}
 
 // Entry is one advertised option spelling from classic `socat -hhh`.
 type Entry struct {
@@ -39,4 +68,28 @@ func (e Entry) IsAlias() bool {
 func Lookup(spelling string) (Entry, bool) {
 	e, ok := Options[strings.ToLower(spelling)]
 	return e, ok
+}
+
+// MissingFeatureCompleteDefines returns -V feature names that are not #define'd.
+func MissingFeatureCompleteDefines(versionText string) []string {
+	var missing []string
+	for _, name := range FeatureCompleteDefines {
+		if !featureDefined(versionText, name) {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+func featureDefined(versionText, name string) bool {
+	for _, line := range strings.Split(versionText, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#undef "+name) {
+			return false
+		}
+		if line == "#define "+name || strings.HasPrefix(line, "#define "+name+" ") {
+			return true
+		}
+	}
+	return false
 }
