@@ -50,7 +50,7 @@ var DocsOnlyNotInThisBinary = map[string]string{
 // GoOnlyHelpAllowlist is names this port advertises in -hh/-hhh that classic
 // tag-1.8.1.3 -hhh does not print. Do not add a classic spelling here to
 // start advertising an unimplemented option.
-var GoOnlyHelpAllowlist = map[string]string{
+var GoOnlyHelpAllowlist = map[string]string{ // #nosec G101 -- option names and reasons, not secrets
 	"alpn":              "Go QUIC and HTTP/2/3 CONNECT extra",
 	"ca":                "Go short alias of cafile / openssl-cafile",
 	"child-shutup":      "Go advertised alias of children-shutup (C nickname, not in optionnames[])",
