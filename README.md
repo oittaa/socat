@@ -171,7 +171,7 @@ aliases and termios / baud names.
 | Listen / connect | `reuseaddr` (TCP listen default on; UDP-LISTEN with `fork` or this option), `so-reuseport`, `fork`, `max-children`, `bind`, `connect-timeout`, `accept-timeout`, `listen-timeout`, `pf`, `ai-addrconfig`, `ipv6-v6only`, `backlog`, `so-linger`/`linger`, `setsockopt-listen` / `sockopt-listen`, `setsockopt` |
 | Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport`, `tcpwrap` / `libwrap` / `hosts-allow` / `hosts-deny` / `tcpwrap-etc` |
 | TUN / INTERFACE | `tun-name`, `tun-type`, `tun-device`, `iff-up`, `iff-no-pi`, `if-mtu` / `interface-mtu`, other `iff-*` flags |
-| Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `umask`, `nonblock`, `o-noatime`/`noatime`, `unlink-early`, `unlink`/`delete`/`remove`, `unlink-late`, `unlink-close`, `f-setpipe-sz`/`pipesz` (Linux), `setlk` / `setlkw` (read/write variants) |
+| Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `perm-early`, `user-early`/`uid-e`, `group-early`/`gid-e` (pre-open chmod/chown of an existing OPEN/CREATE/GOPEN/PIPE name, and chmod/chown of a UNIX socket after bind), `umask`, `nonblock`, `o-noatime`/`noatime`, `unlink-early`, `unlink`/`delete`/`remove`, `unlink-late`, `unlink-close`, `f-setpipe-sz`/`pipesz` (Linux), `setlk` / `setlkw` (read/write variants) |
 | UNIX | `unlink-early` (required to replace a leftover path; `reuseaddr` does not unlink), `unlink-close`, `unix-bind-tempname` / `bind-tempname`, `socktype` / `so-type` |
 | POSIX MQ | `mq-prio` / `posixmq-priority`, `mq-flush`, `mq-maxmsg`, `mq-msgsize` |
 | EXEC / PROCESS | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none`, `shut-close`, `children-shutup`/`child-shutup`, `chdir`, `umask` (child inherits, then parent restores) |
@@ -185,7 +185,7 @@ aliases and termios / baud names.
 
 **`max-children`:** limits concurrent `fork` sessions on **LISTEN** and on **CONNECT** / **TLS-CONNECT** client reconnect loops. Requires `fork`. Parent redials after `interval` (default 1s).
 
-**`perm=` / `mode=`:** last specified name wins. Regular files and FIFOs use the value as the `open`/`mkfifo` creation mode, so `umask=` still masks it (`umask=077,perm=0666` → `0600`). UNIX sockets and PTY slaves still `chmod` after bind. **`umask=`** applies during open (or child `Start` for EXEC/SHELL), then restores.
+**`perm=` / `mode=`:** last specified name wins. Regular files and FIFOs use the value as the `open`/`mkfifo` creation mode, so `umask=` still masks it (`umask=077,perm=0666` → `0600`). UNIX sockets and PTY slaves still `chmod` after bind. **`perm-early` / `user-early` (`uid-e`) / `group-early` (`gid-e`)** chmod/chown an existing filesystem name before open (`PH_PREOPEN` in classic `xio-named.c`); a missing OPEN/CREATE/GOPEN name drops them. On UNIX listen/recv and a bound UNIX client they also chmod/chown the new socket after bind (classic `xio-listen.c` / `xio-socket.c`: `PH_FD` then `PH_PREOPEN`, so `perm-early` wins over `perm=`). They are not create-mode bits. **`umask=`** applies during open (or child `Start` for EXEC/SHELL), then restores.
 
 ## TLS notes
 

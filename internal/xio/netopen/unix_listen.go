@@ -54,8 +54,9 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		ul.SetUnlinkOnClose(doUnlink)
 	}
 
-	// mode/perm/user on socket file (classic fchmod/fchown after bind)
-	if err := xio.ApplyNamedAttrs(path, s, nil); err != nil {
+	// mode/perm/user then perm-early/user-early/group-early on the socket
+	// file (classic applyopts_named PH_FD then PH_PREOPEN after bind).
+	if err := xio.ApplyNamedAfterBind(path, s, nil); err != nil {
 		_ = ln.Close()
 		if !xio.IsAbstract(path) {
 			_ = xio.Unlink(path)

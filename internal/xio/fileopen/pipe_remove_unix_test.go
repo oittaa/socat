@@ -4,9 +4,11 @@ package fileopen
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -42,17 +44,42 @@ func TestNamedPipeUnlinkEarlyReplacesAndRemovesBeforeWriter(t *testing.T) {
 	runBlockedPipeHelper(t, path, "PIPE:"+path+",unlink-early")
 }
 
-func TestNamedPipeUnlinkEarlyRequiresExistingPath(t *testing.T) {
+func TestNamedPipeUnlinkEarlyMissingPathFails(t *testing.T) {
+	// Classic xio-pipe.c Unlink()s unlink-early even when the name is
+	// missing; ENOENT aborts before mkfifo (tag-1.8.1.3 / master).
 	path := filepath.Join(t.TempDir(), "missing")
-	ch, err := parse.ParseChannel("PIPE:" + path + ",unlink-early")
+	ch, err := parse.ParseChannel("PIPE:" + path + ",unlink-early,nonblock")
 	if err != nil {
 		t.Fatal(err)
 	}
 	o, err := xio.OpenChannel(context.Background(), ch, xio.ModeRead, nil)
 	if err == nil {
 		_ = o.Close()
-		t.Fatal("PIPE,unlink-early unexpectedly accepted a missing path")
+		t.Fatal("PIPE,unlink-early of a missing path succeeded")
 	}
+	if !errors.Is(err, syscall.ENOENT) {
+		t.Fatalf("error=%v want ENOENT", err)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("missing path was created: %v", err)
+	}
+}
+
+func TestNamedPipePermEarlyChmodsExistingFIFO(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pipe")
+	if err := mkfifo(path, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := parse.ParseChannel("PIPE:" + path + ",perm-early=0600,nonblock,unlink-close=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := xio.OpenChannel(context.Background(), ch, xio.ModeRead, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	assertNamedMode(t, path, 0o600)
 }
 
 // TestNamedPipeBlockedOpenHelper runs in a subprocess. Unlinking a FIFO while
