@@ -344,6 +344,22 @@ func TestDirectAndFSNoatimeAliases(t *testing.T) {
 	}
 }
 
+func TestTruncateAlias(t *testing.T) {
+	s, err := ParseSpec("FD:3,truncate=4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if CanonicalOptionName("truncate") != "ftruncate" {
+		t.Fatalf("truncate canonicalized to %q", CanonicalOptionName("truncate"))
+	}
+	if !s.HasOption("ftruncate") {
+		t.Fatal("truncate= did not normalize to ftruncate")
+	}
+	if s.OptionValue("ftruncate", "") != "4" {
+		t.Fatalf("ftruncate=%q", s.OptionValue("ftruncate", ""))
+	}
+}
+
 func TestSocketTypeAlias(t *testing.T) {
 	for _, alias := range []string{"so-type", "type"} {
 		s, err := ParseSpec("UNIX-LISTEN:/tmp/test.sock," + alias + "=5")

@@ -482,6 +482,13 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts bool) (relay.St
 	// those fds); late buffers are set on the raw socket after bind/connect
 	// in ApplyUDPConnOpts / applyUnixgramSocketOptions. QUIC applies them
 	// on the transport PacketConn before wrapping.
+	//
+	// append / ftruncate / perm / user / group (classic PH_FD then PH_LATE)
+	// on unique syscall.Conn fds. Openers that already called ApplyFDOptions
+	// on the same fd are skipped via claimFDLifecycle.
+	if err := applyFDLifecycleToStream(s, stream); err != nil {
+		return nil, err
+	}
 	if err := applyLateSocketOptionsToStream(s, stream); err != nil {
 		return nil, err
 	}

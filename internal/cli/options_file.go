@@ -10,10 +10,13 @@ func fileOptionGroups() []helpOptGroup {
 			{name: "wronly", desc: "open write-only"},
 			{name: "creat", desc: "create the file", aliases: []string{"create"}},
 			{name: "excl", desc: "fail if the file exists"},
-			{name: "append", desc: "open append", aliases: []string{"o-append"}, addressTypes: fileOpenAddressTypes()},
+			// GROUP_FD|GROUP_OPEN (xio-fd.c). Do not list address types:
+			// classic group intersection allows FD/STDIO/EXEC/sockets and
+			// rejects combinations that lack those groups.
+			{name: "append", desc: "open append or fcntl O_APPEND on an exposed fd", aliases: []string{"o-append"}},
 			{name: "trunc", desc: "truncate on open"},
 			{name: "nonblock", desc: "O_NONBLOCK", aliases: []string{"o-nonblock"}},
-			// GROUP_OPEN only (xio-file.c). fileOpenAddressTypes would widen
+			// GROUP_OPEN only (xio-file.c). A FILE/OPEN type list would widen
 			// to CREATE, which classic rejects; intersection is authoritative.
 			{name: "o-direct", desc: "set O_DIRECT at open", aliases: []string{"direct", "o_direct"}},
 			{name: "o-noatime", desc: "set O_NOATIME on the opened descriptor", aliases: []string{"noatime"}, addressTypes: fdOptionAddressTypes()},
@@ -24,7 +27,7 @@ func fileOptionGroups() []helpOptGroup {
 			{name: "mode", desc: "create mode bits", validate: validateOctal(0o7777)},
 			{name: "perm", desc: "chmod after open", validate: validateOctal(0o7777)},
 			{name: "perm-early", desc: "chmod existing name before open, or UNIX socket after bind", validate: validateOctal(0o7777)},
-			{name: "ftruncate", desc: "truncate an opened file to this length", validate: validateInteger(0)},
+			{name: "ftruncate", desc: "ftruncate(2) an opened regular file to this length", aliases: []string{"truncate"}, validate: validateInteger(0)},
 			{name: "setlk", desc: "nonblocking whole-file write lock", aliases: []string{"f-setlk-wr"}},
 			{name: "setlkw", desc: "blocking whole-file write lock", aliases: []string{"f-setlkw-wr"}},
 			{name: "setlk-rd", desc: "nonblocking whole-file read lock", aliases: []string{"f-setlk-rd"}},

@@ -581,10 +581,13 @@ func rejectUnnamedPIPEODirect(s parse.Spec) error {
 }
 
 func applyOpenTruncate(f *os.File, s parse.Spec) error {
-	if !s.HasOption("ftruncate") && !s.HasOption("trunc") {
-		return nil
-	}
-	if v := s.OptionValue("ftruncate", ""); v != "" {
+	// Named-file ftruncate stays here so OPEN/CREATE/GOPEN still truncate
+	// once (ApplyFDOptions skips these types) and Windows keeps working.
+	// FD:n / inherited descriptors use ftruncate(2) in ApplyFDOptions.
+	if v := s.OptionValue("ftruncate", ""); s.HasOption("ftruncate") || s.HasOption("truncate") {
+		if v == "" {
+			return fmt.Errorf("ftruncate: invalid value %q", v)
+		}
 		n, e := strconv.ParseInt(v, 0, 64)
 		if e != nil || n < 0 {
 			return fmt.Errorf("ftruncate: invalid value %q", v)

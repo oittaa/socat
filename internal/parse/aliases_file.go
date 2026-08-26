@@ -10,6 +10,7 @@ func init() {
 		"ext2-noatime":  "fs-noatime",
 		"ext3-noatime":  "fs-noatime",
 		"o-trunc":       "trunc",
+		"truncate":      "ftruncate",
 		"o-creat":       "creat",
 		"o-excl":        "excl",
 		"o-rdonly":      "rdonly",

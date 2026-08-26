@@ -20,6 +20,11 @@ const fsNoatimeFL = 0x00000080
 // O_NOATIME is deliberately set with F_SETFL so inherited descriptors work
 // the same way as descriptors opened by socat. o-direct is PH_OPEN only and
 // is not applied here.
+//
+// Classic phases (xio-fd.c / applyopt_fcntl, tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba): PH_FD perm/user/group and
+// o-noatime, then PH_LATE append/ftruncate. claimFDLifecycle dedups when
+// WrapCommon would apply the same fd again.
 func ApplyFDOptions(f *os.File, s parse.Spec) error {
 	if f == nil {
 		return nil
@@ -36,8 +41,9 @@ func ApplyFDOptions(f *os.File, s parse.Spec) error {
 			return fmt.Errorf("f-setpipe-sz: invalid value %q", pipeSizeValue)
 		}
 	}
+	needLifecycle := hasFDLifecycleOptions(s)
 	if !noatime && !setPipeSize && !fsNoatimeSet {
-		return nil
+		return applyFDLifecycleToFile(f, s)
 	}
 	raw, err := f.SyscallConn()
 	if err != nil {
@@ -45,6 +51,20 @@ func ApplyFDOptions(f *os.File, s parse.Spec) error {
 	}
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
+		n := int(fd)
+		first := false
+		if needLifecycle {
+			first = claimFDLifecycle(n, s)
+			if first {
+				if fdLifecycleTestHook != nil {
+					fdLifecycleTestHook(n)
+				}
+				if e := applyFDPhaseLifecycle(n, s); e != nil {
+					optionErr = e
+					return
+				}
+			}
+		}
 		if noatime {
 			flags, e := unix.FcntlInt(fd, unix.F_GETFL, 0)
 			if e == nil {
@@ -56,7 +76,7 @@ func ApplyFDOptions(f *os.File, s parse.Spec) error {
 			}
 		}
 		if fsNoatimeSet {
-			if e := applyFSNoatime(int(fd), fsNoatime); e != nil {
+			if e := applyFSNoatime(n, fsNoatime); e != nil {
 				optionErr = fmt.Errorf("fs-noatime: %w", e)
 				return
 			}
@@ -64,6 +84,12 @@ func ApplyFDOptions(f *os.File, s parse.Spec) error {
 		if setPipeSize {
 			if _, e := unix.FcntlInt(fd, unix.F_SETPIPE_SZ, pipeSize); e != nil {
 				optionErr = fmt.Errorf("f-setpipe-sz: %w", e)
+				return
+			}
+		}
+		if needLifecycle && first {
+			if e := applyLateLifecycle(n, s); e != nil {
+				optionErr = e
 			}
 		}
 	})

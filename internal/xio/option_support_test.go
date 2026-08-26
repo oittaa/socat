@@ -80,4 +80,7 @@ func TestClassicOptionGroupsForAliases(t *testing.T) {
 	if parse.CanonicalOptionName("o-append") != "append" {
 		t.Fatal("canonical o-append")
 	}
+	if parse.CanonicalOptionName("truncate") != "ftruncate" {
+		t.Fatal("canonical truncate")
+	}
 }
