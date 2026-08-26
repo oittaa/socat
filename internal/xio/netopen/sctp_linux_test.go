@@ -4,6 +4,7 @@ package netopen
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"strconv"
@@ -105,5 +106,20 @@ func TestSCTPServiceNameHTTP(t *testing.T) {
 	}
 	if n != 80 {
 		t.Fatalf("http=%d", n)
+	}
+}
+
+func TestSCTPConnectErrTreatsEstablishedEISCONNAsSuccess(t *testing.T) {
+	if err := sctpConnectErr(nil, nil); err != nil {
+		t.Fatalf("nil connect err: %v", err)
+	}
+	if err := sctpConnectErr(unix.EISCONN, func() error { return nil }); err != nil {
+		t.Fatalf("established EISCONN: %v", err)
+	}
+	if err := sctpConnectErr(unix.EISCONN, func() error { return unix.EINVAL }); !errors.Is(err, unix.EISCONN) {
+		t.Fatalf("unconnected EISCONN: %v", err)
+	}
+	if err := sctpConnectErr(unix.ECONNREFUSED, nil); err == nil || err.Error() != "Connection refused" {
+		t.Fatalf("ECONNREFUSED: %v", err)
 	}
 }
