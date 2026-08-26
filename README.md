@@ -172,7 +172,7 @@ aliases and termios / baud names.
 | Security filters | `range`, `sourceport`/`sp` (listen = peer filter; connect = bind), `lowport`, `tcpwrap` / `libwrap` / `hosts-allow` / `hosts-deny` / `tcpwrap-etc` |
 | TUN / INTERFACE | `tun-name`, `tun-type`, `tun-device`, `iff-up`, `iff-no-pi`, `if-mtu` / `interface-mtu`, other `iff-*` flags |
 | Files | `rdonly`, `wronly`, `creat`, `excl`, `append`, `trunc`, `mode`, `perm`, `umask`, `nonblock`, `o-noatime`/`noatime`, `unlink-early`, `unlink`/`delete`/`remove`, `unlink-late`, `unlink-close`, `f-setpipe-sz`/`pipesz` (Linux), `setlk` / `setlkw` (read/write variants) |
-| UNIX | `unlink-early`, `unlink-close`, `unix-bind-tempname` / `bind-tempname`, `socktype` / `so-type` |
+| UNIX | `unlink-early` (required to replace a leftover path; `reuseaddr` does not unlink), `unlink-close`, `unix-bind-tempname` / `bind-tempname`, `socktype` / `so-type` |
 | POSIX MQ | `mq-prio` / `posixmq-priority`, `mq-flush`, `mq-maxmsg`, `mq-msgsize` |
 | EXEC / PROCESS | `pipes`, `pty`, `fdin`, `fdout`, `setsid`, `stderr`, `shut-none`, `shut-close`, `children-shutup`/`child-shutup`, `chdir`, `umask` (child inherits, then parent restores) |
 | PTY / TERMIOS | `link`, `cfmakeraw`/`raw`/`rawer`, `echo`, `opost`, baud/`ispeed`/`ospeed`, `tiocswinsz`, `pty-wait-slave`, `ctty`; restore tty on close |
