@@ -22,7 +22,8 @@ import (
 //
 // Callers must invoke this only when the name exists. Classic
 // _xioopen_named_early drops PH_PREOPEN when the path is missing so chmod,
-// chown, and unlink are not attempted on a non-existent name.
+// chown, and unlink are not attempted on a non-existent name. UNIX bind
+// paths call ApplyNamedAfterBind once the directory entry exists.
 func ApplyNamedPreopen(path string, s parse.Spec) error {
 	for _, o := range s.Options {
 		switch parse.CanonicalOptionName(o.Name) {
@@ -67,6 +68,27 @@ func ApplyNamedPreopen(path string, s parse.Spec) error {
 		}
 	}
 	return nil
+}
+
+// ApplyNamedAfterBind applies GROUP_NAMED options to a filesystem UNIX
+// socket after bind, matching classic xio-listen.c / xio-socket.c
+// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same tree):
+// applyopts_named(PH_FD) then applyopts_named(PH_PREOPEN).
+//
+// Classic xio-unix.c documents that perm-early is useless before bind
+// because the directory entry does not exist yet; after bind it chmods the
+// new socket. PH_PREOPEN after PH_FD means perm-early wins over perm=.
+// unlink= at this phase would remove the just-bound name (classic would
+// too). Abstract names have no filesystem entry and are skipped.
+func ApplyNamedAfterBind(path string, s parse.Spec, f *os.File) error {
+	if path == "" || IsAbstract(path) {
+		return nil
+	}
+	if err := ApplyNamedAttrs(path, s, f); err != nil {
+		return err
+	}
+	return ApplyNamedPreopen(path, s)
 }
 
 func parseModeT(name, v string) (os.FileMode, error) {

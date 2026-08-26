@@ -130,6 +130,10 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	// (non-ABSTRACT) clients default unlink-close=1 after a successful bind.
 	// Same helper as datagram; ABSTRACT / unlink-close=0 skip the unlink.
 	life := trackUnixBind(bindPath, s)
+	if err := xio.ApplyNamedAfterBind(bindPath, s, nil); err != nil {
+		life.drop(conn)
+		return nil, err
+	}
 	st := relay.Stream(relay.NetStream{Conn: conn})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
@@ -221,6 +225,10 @@ func openUnixDgramClient(ctx context.Context, s parse.Spec, mode xio.Mode, g *xi
 		return nil, err
 	}
 	life := trackUnixBind(bindPath, s)
+	if err := xio.ApplyNamedAfterBind(bindPath, s, nil); err != nil {
+		life.drop(conn)
+		return nil, err
+	}
 	if g != nil && g.Log != nil {
 		g.Log.Infof("successfully connected to %s", path)
 	}

@@ -203,12 +203,18 @@ func openPIPE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 // read and write FDs so xio.ShutdownWrite can close the writer and deliver EOF.
 func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 	path := s.Params[0]
-	// Share _xioopen_named_early with OPEN/CREATE/GOPEN: stat, unlink-early
-	// only if the name exists, then PH_PREOPEN in command-line order.
-	// Classic xio-pipe.c Unlink()s unlink-early even when missing (ENOENT
-	// aborts); namedOpenEarly matches xio-named.c (exists && unlink-early).
-	// Re-stat afterwards: PH_PREOPEN unlink does not clear exists, so a
-	// leftover name that was unlinked here still takes the mkfifo path.
+	// Classic xio-pipe.c (tag-1.8.1.3
+	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+	// af5388c898c7bb60997935aee93c223deba60c4a): unlink-early Unlink()s
+	// even when the name is missing; ENOENT aborts before mkfifo. OPEN /
+	// CREATE / GOPEN instead share namedOpenEarly (exists && unlink-early).
+	if s.BoolOption("unlink-early") {
+		if err := xio.Unlink(path); err != nil {
+			return nil, fmt.Errorf("unlink %s: %w", path, err)
+		}
+	}
+	// PH_PREOPEN (perm-early / user-early / group-early / unlink) in
+	// command-line order when the name still exists after unlink-early.
 	if _, err := namedOpenEarly(path, s); err != nil {
 		return nil, err
 	}

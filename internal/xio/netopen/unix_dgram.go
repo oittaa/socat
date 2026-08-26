@@ -80,6 +80,10 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 		life.drop(c)
 		return nil, err
 	}
+	if err := xio.ApplyNamedAfterBind(bound, s, nil); err != nil {
+		life.drop(c)
+		return nil, err
+	}
 	st := &unixgramConn{UnixConn: c, raddr: raddr}
 	wrapped, err := xio.WrapCommon(s, st)
 	if err != nil {
@@ -149,7 +153,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		life.drop(c)
 		return nil, err
 	}
-	if err := xio.ApplyNamedAttrs(path, s, nil); err != nil {
+	if err := xio.ApplyNamedAfterBind(path, s, nil); err != nil {
 		life.drop(c)
 		return nil, err
 	}
