@@ -111,9 +111,11 @@ EOF
 
 # Keep the clean VM checkpoint capable of running the repository's mandatory
 # `make check` target. These versions match .github/workflows/ci.yml.
-GOBIN=/usr/local/bin /usr/local/go/bin/go install \
+# Pin GOTOOLCHAIN so `go install pkg@version` does not switch to the tool
+# module's older go.mod toolchain (golangci-lint cannot lint a newer Go).
+GOBIN=/usr/local/bin GOTOOLCHAIN="go${GO_VERSION}" /usr/local/go/bin/go install \
   "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
-GOBIN=/usr/local/bin /usr/local/go/bin/go install \
+GOBIN=/usr/local/bin GOTOOLCHAIN="go${GO_VERSION}" /usr/local/go/bin/go install \
   "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
 
 if [[ ! -d "$CLASSIC_DIR/.git" ]]; then

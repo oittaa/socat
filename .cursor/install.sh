@@ -45,12 +45,18 @@ place_on_path() { # <name>
 	$SUDO install -m 0755 "$GOBIN/$name" "$BINDIR/$name"
 }
 
+# `go install pkg@version` otherwise follows that module's go.mod and can
+# build with an older toolchain. golangci-lint only lints Go versions <= the
+# compiler that built it, so build it with the go.mod toolchain.
+GO_TOOLCHAIN="$(awk '/^toolchain / { print $2; exit }' go.mod)"
+
 if [ -x "$BINDIR/golangci-lint" ] &&
-	"$BINDIR/golangci-lint" version 2>&1 | grep -q "${GOLANGCI_LINT_VERSION#v}"; then
+	"$BINDIR/golangci-lint" version 2>&1 | grep -q "${GOLANGCI_LINT_VERSION#v}" &&
+	"$BINDIR/golangci-lint" version 2>&1 | grep -q "built with ${GO_TOOLCHAIN}"; then
 	echo "golangci-lint ${GOLANGCI_LINT_VERSION} already present"
 else
-	echo "installing golangci-lint ${GOLANGCI_LINT_VERSION}"
-	go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
+	echo "installing golangci-lint ${GOLANGCI_LINT_VERSION} with ${GO_TOOLCHAIN}"
+	GOTOOLCHAIN="${GO_TOOLCHAIN}" go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
 	place_on_path golangci-lint
 fi
 
@@ -60,7 +66,7 @@ if [ -x "$BINDIR/gosec" ]; then
 	echo "gosec already present"
 else
 	echo "installing gosec ${GOSEC_VERSION}"
-	go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
+	GOTOOLCHAIN="${GO_TOOLCHAIN}" go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
 	place_on_path gosec
 fi
 
