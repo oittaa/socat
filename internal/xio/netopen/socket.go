@@ -300,16 +300,36 @@ func (l *rawListener) fileLn() (net.Listener, error) {
 	if l.fd < 0 {
 		return nil, net.ErrClosed
 	}
-	f := os.NewFile(uintptr(l.fd), "socket-listen")
+	// os.NewFile does not dup; FileListener copies internally, then Close
+	// of *os.File closes the NewFile fd. Dup first so a FileListener error
+	// does not close l.fd, which Accept's raw fallback and Close still own.
+	nfd, err := dupFD(l.fd)
+	if err != nil {
+		return nil, err
+	}
+	f := os.NewFile(uintptr(nfd), "socket-listen")
 	ln, err := net.FileListener(f)
 	logx.CloseQuiet(f)
 	if err != nil {
 		return nil, err
 	}
-	l.ln = ln
-	// Ownership of fd transferred to FileListener's dup; do not Close l.fd twice.
+	if err := unix.Close(l.fd); err != nil {
+		l.fd = -1
+		logx.CloseQuiet(ln)
+		return nil, err
+	}
 	l.fd = -1
+	l.ln = ln
 	return l.ln, nil
+}
+
+func dupFD(fd int) (int, error) {
+	nfd, err := unix.Dup(fd)
+	if err != nil {
+		return -1, err
+	}
+	unix.CloseOnExec(nfd)
+	return nfd, nil
 }
 
 func (l *rawListener) Accept() (net.Conn, error) {
@@ -332,7 +352,6 @@ func (l *rawListener) Accept() (net.Conn, error) {
 	c, err := net.FileConn(f)
 	logx.CloseQuiet(f)
 	if err != nil {
-		logx.CloseErr(unix.Close(nfd))
 		return nil, err
 	}
 	return c, nil
