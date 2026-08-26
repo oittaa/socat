@@ -39,13 +39,13 @@ func TestListenPacketAppliesLateBuffersUnix(t *testing.T) {
 
 func TestListenPacketAppliesBroadcastUnix(t *testing.T) {
 	for _, tc := range []struct {
-		spec string
-		want int
+		spec   string
+		wantOn bool
 	}{
-		{spec: "QUIC-LISTEN:0,broadcast", want: 1},
-		{spec: "QUIC-LISTEN:0,so-broadcast", want: 1},
-		{spec: "QUIC-LISTEN:0,broadcast=1", want: 1},
-		{spec: "QUIC-LISTEN:0,broadcast=0", want: 0},
+		{spec: "QUIC-LISTEN:0,broadcast", wantOn: true},
+		{spec: "QUIC-LISTEN:0,so-broadcast", wantOn: true},
+		{spec: "QUIC-LISTEN:0,broadcast=1", wantOn: true},
+		{spec: "QUIC-LISTEN:0,broadcast=0", wantOn: false},
 	} {
 		t.Run(tc.spec, func(t *testing.T) {
 			spec, err := parse.ParseSpec(tc.spec)
@@ -61,8 +61,10 @@ func TestListenPacketAppliesBroadcastUnix(t *testing.T) {
 			if !ok {
 				t.Fatalf("PacketConn type %T is not syscall.Conn", pc)
 			}
-			if got := packetSockoptInt(t, sc, unix.SO_BROADCAST); got != tc.want {
-				t.Fatalf("SO_BROADCAST=%d want %d", got, tc.want)
+			got := packetSockoptInt(t, sc, unix.SO_BROADCAST)
+			// Linux returns 1; Darwin/BSD return the so_options bit (0x20).
+			if (got != 0) != tc.wantOn {
+				t.Fatalf("SO_BROADCAST=%d want on=%v", got, tc.wantOn)
 			}
 		})
 	}

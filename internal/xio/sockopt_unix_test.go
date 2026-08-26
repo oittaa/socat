@@ -479,6 +479,17 @@ func udpSockoptInt(t *testing.T, uc *net.UDPConn, opt int) int {
 	return v
 }
 
+// broadcastFlagOn reports whether SO_BROADCAST is enabled. Linux getsockopt
+// returns 1; Darwin/BSD return the so_options bit (SO_BROADCAST is 0x20).
+func broadcastFlagOn(v int) bool { return v != 0 }
+
+func assertBroadcast(t *testing.T, got int, wantOn bool) {
+	t.Helper()
+	if broadcastFlagOn(got) != wantOn {
+		t.Fatalf("SO_BROADCAST=%d want on=%v", got, wantOn)
+	}
+}
+
 func TestApplySocketOptionsBroadcastUnix(t *testing.T) {
 	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP)
 	if err != nil {
@@ -516,9 +527,7 @@ func TestApplySocketOptionsBroadcastUnix(t *testing.T) {
 			t.Fatalf("after broadcast=0 SO_BROADCAST=%d want 0 (%s)", got, specText)
 		}
 		apply(specText)
-		if got := unixSockoptInt(t, fd, unix.SO_BROADCAST); got != 1 {
-			t.Fatalf("%s: SO_BROADCAST=%d want 1", specText, got)
-		}
+		assertBroadcast(t, unixSockoptInt(t, fd, unix.SO_BROADCAST), true)
 	}
 
 	apply("UDP:127.0.0.1:9,broadcast=0")
@@ -560,9 +569,7 @@ func TestApplyListenOptionsBroadcastUnix(t *testing.T) {
 	if err := ApplyListenOptions(fd, spec, "udp4"); err != nil {
 		t.Fatal(err)
 	}
-	if got := unixSockoptInt(t, fd, unix.SO_BROADCAST); got != 1 {
-		t.Fatalf("so-broadcast SO_BROADCAST=%d want 1", got)
-	}
+	assertBroadcast(t, unixSockoptInt(t, fd, unix.SO_BROADCAST), true)
 }
 
 func TestDialControlAppliesBroadcastUnix(t *testing.T) {
@@ -595,9 +602,7 @@ func TestDialControlAppliesBroadcastUnix(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = c.Close() })
 	uc = c.(*net.UDPConn)
-	if got := udpSockoptInt(t, uc, unix.SO_BROADCAST); got != 1 {
-		t.Fatalf("UDP-CONNECT broadcast SO_BROADCAST=%d want 1", got)
-	}
+	assertBroadcast(t, udpSockoptInt(t, uc, unix.SO_BROADCAST), true)
 }
 
 func TestApplyUDPConnOptsBroadcastUnix(t *testing.T) {
@@ -626,7 +631,5 @@ func TestApplyUDPConnOptsBroadcastUnix(t *testing.T) {
 	if err := ApplyUDPConnOpts(uc, spec, "udp4"); err != nil {
 		t.Fatalf("ApplyUDPConnOpts: %v", err)
 	}
-	if got := udpSockoptInt(t, uc, unix.SO_BROADCAST); got != 1 {
-		t.Fatalf("broadcast=1 SO_BROADCAST=%d want 1", got)
-	}
+	assertBroadcast(t, udpSockoptInt(t, uc, unix.SO_BROADCAST), true)
 }
