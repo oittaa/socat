@@ -107,11 +107,12 @@ func listenUnixgramUnbound(s parse.Spec) (*net.UnixConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := xio.ApplyPastSocketThenPrebind(fd, s, "unixgram"); err != nil {
+	// syscall.Socket returns int on Unix and syscall.Handle (uintptr) on Windows.
+	if err := xio.ApplyPastSocketThenPrebind(int(fd), s, "unixgram"); err != nil {
 		logx.CloseErr(syscall.Close(fd))
 		return nil, err
 	}
-	return unixConnFromFD(fd, "unixgram-unbound")
+	return unixConnFromFD(uintptr(fd), "unixgram-unbound")
 }
 
 func listenUnixgramBound(s parse.Spec, laddr *net.UnixAddr, applyUmask bool) (*net.UnixConn, error) {
@@ -119,7 +120,7 @@ func listenUnixgramBound(s parse.Spec, laddr *net.UnixAddr, applyUmask bool) (*n
 	if err != nil {
 		return nil, err
 	}
-	if err := xio.ApplyPastSocketThenPrebind(fd, s, "unixgram"); err != nil {
+	if err := xio.ApplyPastSocketThenPrebind(int(fd), s, "unixgram"); err != nil {
 		logx.CloseErr(syscall.Close(fd))
 		return nil, err
 	}
@@ -135,7 +136,7 @@ func listenUnixgramBound(s parse.Spec, laddr *net.UnixAddr, applyUmask bool) (*n
 		logx.CloseErr(syscall.Close(fd))
 		return nil, err
 	}
-	return unixConnFromFD(fd, "unixgram")
+	return unixConnFromFD(uintptr(fd), "unixgram")
 }
 
 func dialUnixgram(s parse.Spec, raddr *net.UnixAddr) (*net.UnixConn, error) {
@@ -152,12 +153,15 @@ func dialUnixgram(s parse.Spec, raddr *net.UnixAddr) (*net.UnixConn, error) {
 	return uc, nil
 }
 
-func unixConnFromFD(fd int, name string) (*net.UnixConn, error) {
-	f := os.NewFile(uintptr(fd), name)
+func unixConnFromFD(fd uintptr, name string) (*net.UnixConn, error) {
+	f := os.NewFile(fd, name)
+	if f == nil {
+		return nil, fmt.Errorf("invalid socket fd")
+	}
 	c, err := net.FilePacketConn(f)
+	// NewFile owns fd; FilePacketConn dups it. Close the original either way.
 	logx.CloseQuiet(f)
 	if err != nil {
-		logx.CloseErr(syscall.Close(fd))
 		return nil, err
 	}
 	uc, ok := c.(*net.UnixConn)
