@@ -482,7 +482,14 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts bool) (relay.St
 	// those fds); late buffers are set on the raw socket after bind/connect
 	// in ApplyUDPConnOpts / applyUnixgramSocketOptions. QUIC applies them
 	// on the transport PacketConn before wrapping.
+	// Classic PH_CONNECTED generic setsockopt* follow the same split:
+	// ApplyTCPConnOpts (including TLS/WS/proxy/SOCKS unwrap),
+	// ApplyUDPConnOpts, applyUnixgramSocketOptions, QUIC PacketConn, and
+	// WrapCommon for remaining streams that expose a socket fd.
 	if err := applyLateSocketOptionsToStream(s, stream); err != nil {
+		return nil, err
+	}
+	if err := applyGenericSetsockoptToStream(s, stream, SockoptPhaseConnected); err != nil {
 		return nil, err
 	}
 	var err error

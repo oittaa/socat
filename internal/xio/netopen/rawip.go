@@ -360,6 +360,9 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 		if optionErr = xio.ApplySocketOptions(int(fd), s); optionErr != nil {
 			return
 		}
+		if optionErr = xio.ApplyGenericSetsockopt(int(fd), s, xio.SockoptPhaseConnected); optionErr != nil {
+			return
+		}
 		if optionErr = xio.ApplyAncillaryRecvOpts(int(fd), s); optionErr != nil {
 			return
 		}
@@ -461,6 +464,9 @@ func (r *rawIPDatagramConn) Close() error         { return r.c.Close() }
 func (r *rawIPDatagramConn) ShutdownWrite() error { return nil }
 func (r *rawIPDatagramConn) LocalAddr() net.Addr  { return r.c.LocalAddr() }
 func (r *rawIPDatagramConn) RemoteAddr() net.Addr { return r.raddr }
+func (r *rawIPDatagramConn) SyscallConn() (syscall.RawConn, error) {
+	return r.c.SyscallConn()
+}
 
 // rawIPConn: sendto-style connected IPConn (SELF echo, SENDTO client).
 // Do not embed Read from *net.IPConn — connected Read keeps the IPv4 header.
@@ -540,6 +546,9 @@ func (r *rawIPRecvFrom) SetReadDeadline(t time.Time) error {
 func (r *rawIPRecvFrom) SetWriteDeadline(t time.Time) error {
 	return r.c.SetWriteDeadline(t)
 }
+func (r *rawIPRecvFrom) SyscallConn() (syscall.RawConn, error) {
+	return r.c.SyscallConn()
+}
 
 // rawIPFilteredRecv: continuous RECV with peer filters + ancillary.
 type rawIPFilteredRecv struct {
@@ -576,3 +585,6 @@ func (r *rawIPFilteredRecv) Close() error              { return r.c.Close() }
 func (r *rawIPFilteredRecv) ShutdownWrite() error      { return nil }
 func (r *rawIPFilteredRecv) LocalAddr() net.Addr       { return r.c.LocalAddr() }
 func (r *rawIPFilteredRecv) RemoteAddr() net.Addr      { return nil }
+func (r *rawIPFilteredRecv) SyscallConn() (syscall.RawConn, error) {
+	return r.c.SyscallConn()
+}

@@ -5,6 +5,7 @@ package netopen
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -407,5 +408,43 @@ func TestApplyUnixgramSocketOptionsAppliesLateUnix(t *testing.T) {
 	}
 	if got := packetSockoptInt(t, c, unix.SO_RCVBUF); got < 65536 {
 		t.Fatalf("SO_RCVBUF=%d want >= 65536 after applyUnixgramSocketOptions", got)
+	}
+}
+
+func TestApplyUnixgramSocketOptionsAppliesSetsockoptUnix(t *testing.T) {
+	path := unixSocketTestPath(t, "sockopt.sock")
+	c, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: path, Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	spec, err := parse.ParseSpec(fmt.Sprintf("UNIX-RECVFROM:%s,setsockopt=%d:%d:1", path, unix.SOL_SOCKET, unix.SO_KEEPALIVE))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyUnixgramSocketOptions(c, spec); err != nil {
+		t.Fatalf("UNIX datagram setsockopt must apply, not no-op: %v", err)
+	}
+	if got := packetSockoptInt(t, c, unix.SO_KEEPALIVE); got != 1 {
+		t.Fatalf("SO_KEEPALIVE=%d want 1", got)
+	}
+}
+
+func TestUnixRecvStreamWrapCommonSetsockoptUnix(t *testing.T) {
+	path := unixSocketTestPath(t, "wrap-sockopt.sock")
+	c, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: path, Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	spec, err := parse.ParseSpec(fmt.Sprintf("UNIX-RECV:%s,setsockopt=%d:%d:1", path, unix.SOL_SOCKET, unix.SO_KEEPALIVE))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xio.WrapCommon(spec, &unixRecvStream{c: c}); err != nil {
+		t.Fatalf("WrapCommon on UNIX-RECV wrapper must not fail: %v", err)
+	}
+	if got := packetSockoptInt(t, c, unix.SO_KEEPALIVE); got != 1 {
+		t.Fatalf("SO_KEEPALIVE=%d want 1 after WrapCommon", got)
 	}
 }

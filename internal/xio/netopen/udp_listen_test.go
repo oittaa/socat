@@ -8,6 +8,7 @@ import (
 	"net"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -925,5 +926,20 @@ func TestUDPRecvfromForkDoesNotImplyReuseaddr(t *testing.T) {
 	if err == nil {
 		_ = second.Close()
 		t.Fatal("second UDP4-RECVFROM,fork bound successfully")
+	}
+}
+
+func TestUDPRecvFromConnWrapCommonSetsockopt(t *testing.T) {
+	c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	spec, err := parse.ParseSpec(fmt.Sprintf("UDP4-LISTEN:0,setsockopt=%d:%d:1", syscall.SOL_SOCKET, syscall.SO_KEEPALIVE))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xio.WrapCommon(spec, &udpRecvFromConn{uc: c}); err != nil {
+		t.Fatalf("WrapCommon on UDP session wrapper must not fail after raw apply: %v", err)
 	}
 }

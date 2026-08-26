@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -263,7 +264,19 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 		_ = unix.Close(fd)
 		return nil, err
 	}
+	if err := xio.ApplySocketOptions(fd, s); err != nil {
+		logx.CloseErr(unix.Close(fd))
+		return nil, err
+	}
+	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhasePrebind); err != nil {
+		logx.CloseErr(unix.Close(fd))
+		return nil, err
+	}
 	if err := bindRaw(fd, sa, salen); err != nil {
+		logx.CloseErr(unix.Close(fd))
+		return nil, err
+	}
+	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhaseConnected); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
@@ -435,6 +448,9 @@ func (r *rawDgramStream) SetDeadline(t time.Time) error {
 	return r.f.SetDeadline(t)
 }
 func (r *rawDgramStream) Fd() uintptr { return r.f.Fd() }
+func (r *rawDgramStream) SyscallConn() (syscall.RawConn, error) {
+	return r.f.SyscallConn()
+}
 
 type rawRecvStream struct {
 	f    *os.File
@@ -477,3 +493,6 @@ func (r *rawRecvStream) SetDeadline(t time.Time) error {
 	return r.f.SetDeadline(t)
 }
 func (r *rawRecvStream) Fd() uintptr { return r.f.Fd() }
+func (r *rawRecvStream) SyscallConn() (syscall.RawConn, error) {
+	return r.f.SyscallConn()
+}

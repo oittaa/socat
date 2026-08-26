@@ -435,6 +435,9 @@ func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 		if optionErr == nil {
 			optionErr = ApplyLateSocketOptions(int(fd), s)
 		}
+		if optionErr == nil {
+			optionErr = ApplyGenericSetsockopt(int(fd), s, SockoptPhaseConnected)
+		}
 	})
 	return errors.Join(controlErr, optionErr)
 }

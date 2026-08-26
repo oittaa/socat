@@ -48,7 +48,10 @@ func applyPastSocketBuffersAndDevice(fd int, s parse.Spec) error {
 	if err := applySocketBufferOpt(fd, "rcvbuf", o, ok, soRcvbuf); err != nil {
 		return err
 	}
-	return applyBindToDevice(fd, s)
+	if err := applyBindToDevice(fd, s); err != nil {
+		return err
+	}
+	return ApplyGenericSetsockopt(fd, s, SockoptPhasePastSocket)
 }
 
 // ApplyLateSocketOptions applies classic so-sndbuf-late / so-rcvbuf-late

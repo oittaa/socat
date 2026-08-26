@@ -22,6 +22,7 @@ const (
 	soSndtimeo  = unix.SO_SNDTIMEO
 	soSndbuf    = unix.SO_SNDBUF
 	soRcvbuf    = unix.SO_RCVBUF
+	soKeepalive = unix.SO_KEEPALIVE
 )
 
 func isNotSocketError(err error) bool {
@@ -30,6 +31,10 @@ func isNotSocketError(err error) bool {
 
 func setSockoptInt(fd, level, opt, value int) error {
 	return unix.SetsockoptInt(fd, level, opt, value)
+}
+
+func setSockoptBytes(fd, level, opt int, value []byte) error {
+	return unix.SetsockoptString(fd, level, opt, string(value))
 }
 
 func SetSockoptInt(fd, level, opt, value int) error {

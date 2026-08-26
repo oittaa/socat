@@ -630,3 +630,6 @@ func (u *udpRecvFromConn) SetReadDeadline(t time.Time) error {
 func (u *udpRecvFromConn) SetWriteDeadline(t time.Time) error {
 	return u.uc.SetWriteDeadline(t)
 }
+func (u *udpRecvFromConn) SyscallConn() (syscall.RawConn, error) {
+	return u.uc.SyscallConn()
+}

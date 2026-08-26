@@ -182,10 +182,7 @@ func ApplyListenOptions(fd int, s parse.Spec, network string) error {
 			return err
 		}
 	}
-	if s.HasOption("setsockopt-listen") {
-		return ApplySetsockoptFD(fd, s.OptionValue("setsockopt-listen", ""))
-	}
-	return nil
+	return ApplyGenericSetsockopt(fd, s, SockoptPhasePrebind)
 }
 
 // ListenControl is a net.ListenConfig.Control that applies pre-bind options.
@@ -484,73 +481,48 @@ func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 	return nil
 }
 
-// ApplyTCPConnOpts parses classic setsockopt=level:optname:value (ints) and applies it.
-// SETSOCKOPT test uses setsockopt=6:TCP_MAXSEG:512 (IPPROTO_TCP + TCP_MAXSEG).
+// ApplyTCPConnOpts applies TCP keepalive/nodelay/ttl plus classic PH_CONNECTED
+// generic setsockopt on the unwrapped raw conn. SETSOCKOPT uses
+// setsockopt=6:TCP_MAXSEG:512 (IPPROTO_TCP + TCP_MAXSEG) after connect.
+// Non-TCP connections that expose a socket fd still get generic setsockopt;
+// a present option is never ignored because the conn is not *net.TCPConn.
 func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
-	for {
-		unwrapper, ok := c.(interface{ NetConn() net.Conn })
-		if !ok {
-			break
-		}
-		inner := unwrapper.NetConn()
-		if inner == nil || inner == c {
-			break
-		}
-		c = inner
-	}
-	tc, ok := c.(*net.TCPConn)
-	if !ok {
-		return nil
-	}
-	if la, ok := tc.LocalAddr().(*net.TCPAddr); ok {
-		network := "tcp6"
-		if la.IP.To4() != nil {
-			network = "tcp4"
-		}
-		if raw, rerr := tc.SyscallConn(); rerr == nil {
-			var optErr error
-			_ = raw.Control(func(fd uintptr) {
-				optErr = applyIPTTLTOS(int(fd), s, network)
-			})
-			if optErr != nil {
-				return optErr
+	c = unwrapNetConn(c)
+	if tc, ok := c.(*net.TCPConn); ok {
+		if la, ok := tc.LocalAddr().(*net.TCPAddr); ok {
+			network := "tcp6"
+			if la.IP.To4() != nil {
+				network = "tcp4"
+			}
+			if raw, rerr := tc.SyscallConn(); rerr == nil {
+				var optErr error
+				_ = raw.Control(func(fd uintptr) {
+					optErr = applyIPTTLTOS(int(fd), s, network)
+				})
+				if optErr != nil {
+					return optErr
+				}
 			}
 		}
-	}
-	if err := applyKeepAliveConfig(s, tc); err != nil {
-		return err
-	}
-	if s.HasOption("nodelay") || s.HasOption("tcp-nodelay") {
-		enabled := s.BoolOption("nodelay") || s.BoolOption("tcp-nodelay")
-		if err := tc.SetNoDelay(enabled); err != nil {
-			return fmt.Errorf("nodelay: %w", err)
+		if err := applyKeepAliveConfig(s, tc); err != nil {
+			return err
 		}
+		if s.HasOption("nodelay") || s.HasOption("tcp-nodelay") {
+			enabled := s.BoolOption("nodelay") || s.BoolOption("tcp-nodelay")
+			if err := tc.SetNoDelay(enabled); err != nil {
+				return fmt.Errorf("nodelay: %w", err)
+			}
+		}
+		if err := ApplyGenericSetsockoptToNetConn(tc, s, SockoptPhaseConnected); err != nil {
+			return err
+		}
+		// Classic PH_LATE so-sndbuf-late / so-rcvbuf-late on the raw TCP fd
+		// after connect()/accept(), before TLS/PROXY handshake. WrapCommon
+		// still applies the same options on UNIX/UDP streams; a second
+		// SO_SNDBUF set on this TCP conn is harmless.
+		return ApplyLateSocketOptionsToConn(tc, s)
 	}
-	// Classic PH_LATE so-sndbuf-late / so-rcvbuf-late on the raw TCP fd
-	// after connect()/accept(), before TLS/PROXY handshake. WrapCommon
-	// still applies the same options on UNIX/UDP streams; a second
-	// SO_SNDBUF set on this TCP conn is harmless.
-	return ApplyLateSocketOptionsToConn(tc, s)
-}
-
-func ApplySetsockoptFD(fd int, spec string) error {
-	parts := strings.Split(spec, ":")
-	if len(parts) != 3 {
-		return fmt.Errorf("setsockopt requires level:optname:value")
-	}
-	level, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return fmt.Errorf("setsockopt level: %w", err)
-	}
-	opt, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return fmt.Errorf("setsockopt optname: %w", err)
-	}
-	val, err := strconv.Atoi(parts[2])
-	if err != nil {
-		return fmt.Errorf("setsockopt value: %w", err)
-	}
-	return setSockoptInt(fd, level, opt, val)
+	return ApplyGenericSetsockoptToNetConn(c, s, SockoptPhaseConnected)
 }
 
 // FormatSocatAddr matches classic env formatting (IPv6 in brackets).

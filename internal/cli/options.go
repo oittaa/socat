@@ -242,22 +242,56 @@ func validateInt64(requirePositive bool) func(parse.Option) error {
 	}
 }
 
-func validateSockopt(option parse.Option) error {
-	name := strings.ToLower(option.Name)
+func splitSockoptOption(option parse.Option) (name, level, opt, rest string, err error) {
+	name = strings.ToLower(option.Name)
 	value, err := requiredOptionValue(option)
 	if err != nil {
-		return err
+		return name, "", "", "", err
 	}
-	parts := strings.Split(value, ":")
+	parts := strings.SplitN(value, ":", 3)
 	if len(parts) != 3 {
-		return fmt.Errorf("invalid %s %q (want level:optname:value)", name, value)
+		return name, "", "", "", fmt.Errorf("invalid %s %q (want level:optname:value)", name, value)
 	}
-	for _, part := range parts {
-		if _, err := strconv.Atoi(part); err != nil {
+	return name, parts[0], parts[1], parts[2], nil
+}
+
+func validateSockoptIntFields(name, value string, fields ...string) error {
+	for _, field := range fields {
+		if _, err := strconv.ParseInt(strings.TrimSpace(field), 0, 32); err != nil {
 			return fmt.Errorf("invalid %s %q (want integer level:optname:value)", name, value)
 		}
 	}
 	return nil
+}
+
+func validateSockoptBin(option parse.Option) error {
+	name, level, opt, rest, err := splitSockoptOption(option)
+	if err != nil {
+		return err
+	}
+	if err := validateSockoptIntFields(name, option.Value, level, opt); err != nil {
+		return err
+	}
+	if strings.TrimSpace(rest) == "" {
+		return fmt.Errorf("invalid %s %q (want level:optname:value)", name, option.Value)
+	}
+	return nil
+}
+
+func validateSockoptInt(option parse.Option) error {
+	name, level, opt, rest, err := splitSockoptOption(option)
+	if err != nil {
+		return err
+	}
+	return validateSockoptIntFields(name, option.Value, level, opt, rest)
+}
+
+func validateSockoptString(option parse.Option) error {
+	name, level, opt, _, err := splitSockoptOption(option)
+	if err != nil {
+		return err
+	}
+	return validateSockoptIntFields(name, option.Value, level, opt)
 }
 
 func proxyAddressTypes() []string {

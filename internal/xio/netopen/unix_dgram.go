@@ -287,6 +287,9 @@ func (u *unixRecvStream) SetReadDeadline(t time.Time) error {
 func (u *unixRecvStream) SetWriteDeadline(t time.Time) error {
 	return u.c.SetWriteDeadline(t)
 }
+func (u *unixRecvStream) SyscallConn() (syscall.RawConn, error) {
+	return u.c.SyscallConn()
+}
 
 // unixgramListener turns RECVFROM,fork into accept-like sessions per packet.
 type unixgramListener struct {
@@ -476,6 +479,9 @@ func applyUnixgramSocketOptions(c *net.UnixConn, s parse.Spec) error {
 		optionErr = xio.ApplySocketOptions(int(fd), s)
 		if optionErr == nil {
 			optionErr = xio.ApplyLateSocketOptions(int(fd), s)
+		}
+		if optionErr == nil {
+			optionErr = xio.ApplyGenericSetsockopt(int(fd), s, xio.SockoptPhaseConnected)
 		}
 	})
 	return errors.Join(controlErr, optionErr)

@@ -21,9 +21,10 @@ const (
 	ipv6V6only  = windows.IPV6_V6ONLY
 	soRcvtimeo  = windows.SO_RCVTIMEO
 	// x/sys/windows does not currently expose Winsock's SO_SNDTIMEO.
-	soSndtimeo = 0x1005
-	soSndbuf   = windows.SO_SNDBUF
-	soRcvbuf   = windows.SO_RCVBUF
+	soSndtimeo  = 0x1005
+	soSndbuf    = windows.SO_SNDBUF
+	soRcvbuf    = windows.SO_RCVBUF
+	soKeepalive = windows.SO_KEEPALIVE
 )
 
 func isNotSocketError(err error) bool {
@@ -32,6 +33,20 @@ func isNotSocketError(err error) bool {
 
 func setSockoptInt(fd, level, opt, value int) error {
 	return windows.SetsockoptInt(windows.Handle(fd), level, opt, value)
+}
+
+func setSockoptBytes(fd, level, opt int, value []byte) error {
+	if level < math.MinInt32 || level > math.MaxInt32 || opt < math.MinInt32 || opt > math.MaxInt32 {
+		return fmt.Errorf("setsockopt: level or opt out of range")
+	}
+	if len(value) > math.MaxInt32 {
+		return fmt.Errorf("setsockopt: value too long")
+	}
+	var p *byte
+	if len(value) > 0 {
+		p = &value[0]
+	}
+	return windows.Setsockopt(windows.Handle(fd), int32(level), int32(opt), p, int32(len(value)))
 }
 
 func SetSockoptInt(fd, level, opt, value int) error {
