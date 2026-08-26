@@ -53,8 +53,31 @@ cloud-init seed, and records a powered-off `clean-provisioned` checkpoint.
 ```powershell
 ./scripts/hyperv/socat-classic-lab.ps1 status
 ./scripts/hyperv/socat-classic-lab.ps1 reset
+./scripts/hyperv/socat-classic-lab.ps1 check
 ```
 
 `reset` deliberately discards changes since `clean-provisioned`, starts the VM,
 and waits for SSH. Copy scorecard output back to the Windows repository before
 resetting it.
+
+`check` packages the current Windows working tree into an isolated guest
+directory and runs the complete Linux `make check`. It loads the kernel's real
+AF_VSOCK loopback transport and then reruns every `TestVSOCK` with caching
+disabled; any VSOCK skip fails the check. The official classic checkout already
+provisioned at `/opt/socat-classic` is used by the generator-consistency test,
+so routine validation does not clone repo.or.cz or wait for its network timeout.
+The guest directory is removed after the run.
+
+By default `check` reuses the running VM and its Go caches. Use
+`-ResetBeforeCheck` for validation from the `clean-provisioned` checkpoint, or
+`-KeepGuestWorktree` to retain the isolated guest source tree for debugging:
+
+```powershell
+./scripts/hyperv/socat-classic-lab.ps1 check -ResetBeforeCheck
+./scripts/hyperv/socat-classic-lab.ps1 check -KeepGuestWorktree
+```
+
+The runner verifies that Go, `golangci-lint`, `gosec`, and the classic checkout
+exist before copying the workspace. If an older checkpoint lacks the currently
+pinned tools, it runs `provision` automatically; subsequent checks that reuse
+the running VM keep the warm caches and skip this setup.

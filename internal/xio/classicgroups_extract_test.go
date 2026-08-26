@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+const classicBaselineCommit = "12c08bf66d709fba17035ce95d85bd218428d9ba"
+
 func TestClassicAllowsOptionAmbiguousAliases(t *testing.T) {
 	if !ClassicAllowsOption("TCP", "noatime") {
 		t.Fatal(`ClassicAllowsOption("TCP", "noatime") must be true; optionnames[] maps noatime to opt_o_noatime (open|fd)`)
@@ -58,7 +60,7 @@ const struct addrname addressnames[] = {
 
 func TestExtractClassicGroupsMatchesOfficialCheckout(t *testing.T) {
 	script, py := extractClassicGroupsTool(t)
-	src := cloneOfficialSocat(t)
+	src := officialSocatCheckout(t)
 	first := gofmtSource(t, runExtractClassicGroups(t, py, script, src))
 	second := gofmtSource(t, runExtractClassicGroups(t, py, script, src))
 	if first != second {
@@ -71,6 +73,33 @@ func TestExtractClassicGroupsMatchesOfficialCheckout(t *testing.T) {
 	if first != string(want) {
 		t.Fatal("generated output differs from checked-in classicgroups_gen.go; regenerate from https://repo.or.cz/socat.git tag-1.8.1.3")
 	}
+}
+
+func officialSocatCheckout(t *testing.T) string {
+	t.Helper()
+	if source := strings.TrimSpace(os.Getenv("SOCAT_CLASSIC_SOURCE")); source != "" {
+		absolute, err := filepath.Abs(source)
+		if err != nil {
+			t.Fatalf("SOCAT_CLASSIC_SOURCE: %v", err)
+		}
+		info, err := os.Stat(absolute)
+		if err != nil {
+			t.Fatalf("SOCAT_CLASSIC_SOURCE: %v", err)
+		}
+		if !info.IsDir() {
+			t.Fatalf("SOCAT_CLASSIC_SOURCE is not a directory: %s", absolute)
+		}
+		cmd := exec.Command("git", "-C", absolute, "rev-parse", "HEAD")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("SOCAT_CLASSIC_SOURCE revision: %v\n%s", err, out)
+		}
+		if commit := strings.TrimSpace(string(out)); commit != classicBaselineCommit {
+			t.Fatalf("SOCAT_CLASSIC_SOURCE revision=%s want %s", commit, classicBaselineCommit)
+		}
+		return absolute
+	}
+	return cloneOfficialSocat(t)
 }
 
 func gofmtSource(t *testing.T, src string) string {

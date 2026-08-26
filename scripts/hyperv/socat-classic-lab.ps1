@@ -1,7 +1,7 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('download', 'seed', 'create', 'status', 'wait', 'provision', 'checkpoint', 'reset')]
+    [ValidateSet('download', 'seed', 'create', 'status', 'wait', 'provision', 'checkpoint', 'reset', 'check')]
     [string] $Action = 'status',
 
     [string] $VMName = 'socat-classic-ubuntu2604',
@@ -12,7 +12,9 @@ param(
     [string] $GuestUser = 'socat-user',
     [int] $ProcessorCount = 6,
     [UInt64] $StartupMemoryBytes = 12GB,
-    [UInt64] $DiskSizeBytes = 64GB
+    [UInt64] $DiskSizeBytes = 64GB,
+    [switch] $ResetBeforeCheck,
+    [switch] $KeepGuestWorktree
 )
 
 Set-StrictMode -Version Latest
@@ -35,6 +37,7 @@ $SSHKeyPath = Join-Path $KeyDirectory 'socat_lab_ed25519'
 $KnownHostsPath = Join-Path $KeyDirectory 'known_hosts'
 $StatePath = Join-Path $StateDirectory "$VMName.json"
 $GuestProvisionPath = Join-Path $ScriptRoot 'guest-provision.sh'
+$RepositoryRoot = (Resolve-Path (Join-Path $ScriptRoot '..\..')).Path
 
 function Set-Utf8NoBom {
     param(
@@ -395,6 +398,137 @@ function Reset-LabVM {
     Wait-LabSSH | Out-Null
 }
 
+function Start-LabVMIfNeeded {
+    $vm = Get-VM -Name $VMName -ErrorAction Stop
+    if ($vm.State -eq 'Off') {
+        Start-VM -Name $VMName | Out-Null
+        return
+    }
+    if ($vm.State -ne 'Running') {
+        throw "VM must be running or off before check; current state: $($vm.State)"
+    }
+}
+
+function New-WorkspaceArchive {
+    param(
+        [Parameter(Mandatory)] [string] $ArchivePath,
+        [Parameter(Mandatory)] [string] $ListPath
+    )
+
+    $git = (Get-Command git.exe -ErrorAction Stop).Source
+    $tar = (Get-Command tar.exe -ErrorAction Stop).Source
+    $paths = @(& $git -C $RepositoryRoot ls-files --cached --others --exclude-standard)
+    if ($LASTEXITCODE -ne 0) {
+        throw 'git ls-files failed while preparing the guest workspace'
+    }
+
+    # Nested Codex review worktrees are not part of the source under test.
+    # Deleted tracked files are also omitted so tar sees the working tree as it
+    # exists now, rather than the index alone.
+    $paths = @($paths | Where-Object {
+        $_ -notmatch '^\.codex-[^/\\]+(?:[/\\]|$)' -and
+        (Test-Path -LiteralPath (Join-Path $RepositoryRoot $_) -PathType Leaf)
+    })
+    if ($paths.Count -eq 0) {
+        throw "no source files found under $RepositoryRoot"
+    }
+    if ($paths | Where-Object { $_ -match "[`r`n]" }) {
+        throw 'source paths containing newlines are not supported by the Hyper-V check archive'
+    }
+
+    Set-Utf8NoBom -Path $ListPath -Value (($paths -join "`n") + "`n")
+    Push-Location $RepositoryRoot
+    try {
+        Invoke-Native $tar '-cf' $ArchivePath '-T' $ListPath
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Test-LabCheckTools {
+    param([Parameter(Mandatory)] [string] $Address)
+
+    $sshArguments = @(Get-SSHArguments)
+    $target = "${GuestUser}@${Address}"
+    $command = "bash -lc 'command -v go >/dev/null && command -v golangci-lint >/dev/null && command -v gosec >/dev/null && test -d /opt/socat-classic/.git'"
+    & ssh.exe @sshArguments $target $command
+    return $LASTEXITCODE -eq 0
+}
+
+function Invoke-LabCheck {
+    if ($ResetBeforeCheck) {
+        Reset-LabVM
+    }
+    else {
+        Start-LabVMIfNeeded
+    }
+    $address = Wait-LabSSH
+    if (-not (Test-LabCheckTools -Address $address)) {
+        Write-Host 'guest check tools are missing or stale; provisioning the lab'
+        Invoke-LabProvision
+        $address = Wait-LabSSH
+        if (-not (Test-LabCheckTools -Address $address)) {
+            throw 'guest check tools are unavailable after provisioning'
+        }
+    }
+    $sshArguments = @(Get-SSHArguments)
+    $target = "${GuestUser}@${address}"
+    $runID = [guid]::NewGuid().ToString('N')
+    $remoteDirectory = "/home/$GuestUser/socat-check-$runID"
+    $remoteArchive = "/tmp/socat-check-$runID.tar"
+    $localDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "socat-check-$runID"
+    $localArchive = Join-Path $localDirectory 'workspace.tar'
+    $localList = Join-Path $localDirectory 'files.txt'
+    $remoteArchiveCopied = $false
+    $remoteCreated = $false
+    $timer = [System.Diagnostics.Stopwatch]::StartNew()
+
+    New-Item -ItemType Directory -Path $localDirectory | Out-Null
+    try {
+        New-WorkspaceArchive -ArchivePath $localArchive -ListPath $localList
+        $scpArguments = @(
+            '-i', $SSHKeyPath,
+            '-o', 'BatchMode=yes',
+            '-o', 'StrictHostKeyChecking=accept-new',
+            '-o', "UserKnownHostsFile=$KnownHostsPath",
+            $localArchive,
+            "${target}:${remoteArchive}"
+        )
+        Invoke-Native scp.exe @scpArguments
+        $remoteArchiveCopied = $true
+
+        $prepareCommand = "mkdir '$remoteDirectory' && tar -xf '$remoteArchive' -C '$remoteDirectory'"
+        Invoke-Native ssh.exe @sshArguments $target $prepareCommand
+        $remoteCreated = $true
+
+        $checkCommand = "bash -lc `"cd '$remoteDirectory' && bash scripts/hyperv/guest-check.sh`""
+        Invoke-Native ssh.exe @sshArguments $target $checkCommand
+        $timer.Stop()
+        Write-Host ("Hyper-V check passed in {0:n2}s" -f $timer.Elapsed.TotalSeconds)
+    }
+    finally {
+        if ($remoteArchiveCopied) {
+            $cleanupCommand = if ($KeepGuestWorktree -and $remoteCreated) {
+                "rm -f -- '$remoteArchive'"
+            }
+            else {
+                "rm -rf -- '$remoteDirectory' '$remoteArchive'"
+            }
+            & ssh.exe @sshArguments $target $cleanupCommand
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "guest cleanup failed for $remoteDirectory"
+            }
+            elseif ($KeepGuestWorktree -and $remoteCreated) {
+                Write-Host "kept guest worktree: $remoteDirectory"
+            }
+        }
+        if (Test-Path -LiteralPath $localDirectory) {
+            Remove-Item -Recurse -Force -LiteralPath $localDirectory
+        }
+    }
+}
+
 function Show-LabStatus {
     $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
     if (-not $vm) {
@@ -431,4 +565,5 @@ switch ($Action) {
     'provision' { Invoke-LabProvision }
     'checkpoint' { New-CleanCheckpoint }
     'reset' { Reset-LabVM }
+    'check' { Invoke-LabCheck }
 }
