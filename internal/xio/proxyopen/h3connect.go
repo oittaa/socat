@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -27,22 +28,35 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 	}
 	tlsCfg.NextProtos = []string{proxyALPN(s, http3.NextProtoH3)}
 
-	tr := &http3.Transport{TLSClientConfig: tlsCfg}
 	u := "https://" + net.JoinHostPort(xio.StripBrackets(t.proxyHost), t.proxyPort) + "/"
 	authority := net.JoinHostPort(t.connectHost, t.targetPort)
+	attemptTimeout := xio.CombinedConnectHandshakeTimeout(s)
+	idle := xio.QUICHandshakeIdleTimeout(s)
 
 	var conn net.Conn
 	err = xio.WithRetry(ctx, s, g, "PROXY-CONNECT", func() error {
+		tr := &http3.Transport{
+			TLSClientConfig: tlsCfg.Clone(),
+			QUICConfig:      &quic.Config{HandshakeIdleTimeout: idle},
+		}
+		cctx := ctx
+		var cancel context.CancelFunc
+		if attemptTimeout > 0 {
+			cctx, cancel = context.WithTimeout(ctx, attemptTimeout)
+			defer cancel()
+		}
 		pr, pw := io.Pipe()
-		req, e := http.NewRequestWithContext(ctx, http.MethodConnect, u, pr)
+		req, e := http.NewRequestWithContext(cctx, http.MethodConnect, u, pr)
 		if e != nil {
 			_ = pw.Close()
+			_ = tr.Close()
 			return e
 		}
 		req.Host = authority
 		req.ContentLength = -1
 		if auth, e := proxyAuthString(s); e != nil {
 			_ = pw.Close()
+			_ = tr.Close()
 			return e
 		} else if auth != "" {
 			req.Header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(auth)))
@@ -50,11 +64,13 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 		resp, e := tr.RoundTrip(req)
 		if e != nil {
 			_ = pw.Close()
+			_ = tr.Close()
 			return e
 		}
 		if resp.StatusCode < 200 || resp.StatusCode > 299 {
 			_ = pw.Close()
 			_ = resp.Body.Close()
+			_ = tr.Close()
 			return fmt.Errorf("proxy CONNECT failed: %s", resp.Status)
 		}
 		conn = &pipeConn{
@@ -67,7 +83,6 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 		return nil
 	})
 	if err != nil {
-		_ = tr.Close()
 		return nil, err
 	}
 	return conn, nil

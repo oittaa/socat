@@ -17,13 +17,9 @@ import (
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
-// quicHandshakeIdleTimeoutDisabled is HandshakeIdleTimeout when
-// handshake-timeout=0 (disable the bound). quic-go v0.61.0 populateConfig
-// substitutes protocol.DefaultHandshakeIdleTimeout (5s) when the field is
-// 0, and handshakeTimeout() returns 2*HandshakeIdleTimeout, so this must be
-// nonzero and 2*duration must not overflow int64. One year is effectively
-// unbounded for a handshake.
-const quicHandshakeIdleTimeoutDisabled = 365 * 24 * time.Hour
+// quicHandshakeIdleTimeoutDisabled aliases the shared mapping used by
+// PROXY HTTP/3 and QUIC. See xio.QUICHandshakeIdleTimeoutDisabled.
+const quicHandshakeIdleTimeoutDisabled = xio.QUICHandshakeIdleTimeoutDisabled
 
 func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	_, port, err := quicTarget(s, true)
@@ -76,10 +72,7 @@ type quicSetup struct {
 }
 
 func quicHandshakeIdleTimeout(s parse.Spec) time.Duration {
-	if d := xio.HandshakeTimeout(s); d > 0 {
-		return d
-	}
-	return quicHandshakeIdleTimeoutDisabled
+	return xio.QUICHandshakeIdleTimeout(s)
 }
 
 func quicConfig(s parse.Spec, tlsCfg *tls.Config) (quicSetup, error) {

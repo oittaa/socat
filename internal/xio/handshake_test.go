@@ -3,6 +3,7 @@ package xio
 import (
 	"crypto/tls"
 	"errors"
+	"math"
 	"net"
 	"testing"
 	"time"
@@ -99,6 +100,65 @@ func TestConnectTimeoutIndependentOfHandshakeTimeout(t *testing.T) {
 	}
 	if got := HandshakeTimeout(s); got != defaultHandshakeTimeout {
 		t.Fatalf("HandshakeTimeout=%s want default %s", got, defaultHandshakeTimeout)
+	}
+}
+
+func TestCombinedConnectHandshakeTimeout(t *testing.T) {
+	tests := []struct {
+		name string
+		spec string
+		want time.Duration
+	}{
+		{name: "connect-shorter-than-handshake", spec: "QUIC:h:1,connect-timeout=0.2,handshake-timeout=5", want: 200 * time.Millisecond},
+		{name: "handshake-zero-connect-still-caps", spec: "QUIC:h:1,connect-timeout=0.2,handshake-timeout=0", want: 200 * time.Millisecond},
+		{name: "handshake-zero-no-connect", spec: "QUIC:h:1,handshake-timeout=0", want: 0},
+		{name: "omitted-handshake-default", spec: "QUIC:h:1", want: 30 * time.Second},
+		{name: "omitted-handshake-connect-caps", spec: "QUIC:h:1,connect-timeout=0.2", want: 200 * time.Millisecond},
+		{name: "handshake-shorter-than-connect", spec: "QUIC:h:1,connect-timeout=5,handshake-timeout=0.2", want: 200 * time.Millisecond},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := CombinedConnectHandshakeTimeout(s); got != tc.want {
+				t.Fatalf("CombinedConnectHandshakeTimeout(%q)=%s want %s", tc.spec, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestQUICHandshakeIdleTimeoutMapping(t *testing.T) {
+	tests := []struct {
+		name string
+		spec string
+		want time.Duration
+	}{
+		{name: "explicit", spec: "QUIC:h:1,handshake-timeout=0.2", want: 200 * time.Millisecond},
+		{name: "omitted-default", spec: "QUIC:h:1", want: defaultHandshakeTimeout},
+		{name: "zero-disables", spec: "QUIC:h:1,handshake-timeout=0", want: QUICHandshakeIdleTimeoutDisabled},
+		{name: "ignores-connect-timeout", spec: "QUIC:h:1,connect-timeout=0.05", want: defaultHandshakeTimeout},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := QUICHandshakeIdleTimeout(s); got != tc.want {
+				t.Fatalf("QUICHandshakeIdleTimeout(%q)=%s want %s", tc.spec, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestQUICHandshakeIdleTimeoutDisabledDoesNotOverflowWhenDoubled(t *testing.T) {
+	if QUICHandshakeIdleTimeoutDisabled <= 0 {
+		t.Fatal("disabled HandshakeIdleTimeout must be nonzero so quic-go does not substitute 5s")
+	}
+	if QUICHandshakeIdleTimeoutDisabled > time.Duration(math.MaxInt64/2) {
+		t.Fatalf("2*%s would overflow int64; quic-go handshakeTimeout doubles HandshakeIdleTimeout", QUICHandshakeIdleTimeoutDisabled)
 	}
 }
 

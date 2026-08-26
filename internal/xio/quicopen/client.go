@@ -21,18 +21,7 @@ import (
 // that handshake candidate. The earlier positive deadline wins. A zero
 // result means no extra Dial context timeout.
 func quicDialAttemptTimeout(s parse.Spec) time.Duration {
-	connect := xio.ConnectTimeout(s)
-	handshake := xio.HandshakeTimeout(s)
-	switch {
-	case connect <= 0:
-		return handshake
-	case handshake <= 0:
-		return connect
-	case connect < handshake:
-		return connect
-	default:
-		return handshake
-	}
+	return xio.CombinedConnectHandshakeTimeout(s)
 }
 
 func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
