@@ -167,27 +167,73 @@ func TestApplyFDOptionsUserGroupSameIDs(t *testing.T) {
 }
 
 func TestApplyFDOptionsThenWrapCommonAppliesOnce(t *testing.T) {
-	f, err := os.CreateTemp(t.TempDir(), "dedup")
+	tests := []struct {
+		name string
+		raw  func() string
+		op   string
+	}{
+		{name: "append", raw: func() string { return "FD:3,append" }, op: "F_SETFL"},
+		{name: "ftruncate", raw: func() string { return "FD:3,ftruncate=4" }, op: "ftruncate"},
+		{name: "perm", raw: func() string { return "FD:3,perm=0600" }, op: "fchmod"},
+		{name: "user", raw: func() string { return "FD:3,user=" + strconv.Itoa(os.Getuid()) }, op: "fchown"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f, err := os.CreateTemp(t.TempDir(), "once-"+tc.name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = f.Close() })
+			if tc.op == "ftruncate" {
+				if _, err := f.Write([]byte("abcdefghij")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ops := captureLifecycleSyscalls(t)
+			spec := mustSpec(t, tc.raw())
+			if err := ApplyFDOptions(f, spec); err != nil {
+				skipIfOwnerChangeDenied(t, err)
+			}
+			if _, err := WrapCommon(spec, FileStream(f)); err != nil {
+				skipIfOwnerChangeDenied(t, err)
+			}
+			if got := countOp(*ops, tc.op); got != 1 {
+				t.Fatalf("%s applied %d times want exactly 1 (ops=%v)", tc.op, got, *ops)
+			}
+			if tc.op == "F_SETFL" && fcntlFlags(t, f)&unix.O_APPEND == 0 {
+				t.Fatal("O_APPEND missing after ApplyFDOptions + WrapCommon")
+			}
+		})
+	}
+}
+
+func TestWrapCommonAppliesUnmarkedPeerAfterApplyFDOptions(t *testing.T) {
+	// Unnamed PIPE calls ApplyFDOptions on the read end only, then WrapCommon
+	// on both ends. Skipping the whole stream would drop append on the writer.
+	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = f.Close() })
-	var n atomic.Int32
-	fdLifecycleTestHook = func(int) { n.Add(1) }
-	t.Cleanup(func() { fdLifecycleTestHook = nil })
-
-	spec := mustSpec(t, "FD:3,append")
-	if err := ApplyFDOptions(f, spec); err != nil {
+	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
+	spec := mustSpec(t, "PIPE,append")
+	if err := ApplyFDOptions(r, spec); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := WrapCommon(spec, FileStream(f)); err != nil {
+	if fcntlFlags(t, r)&unix.O_APPEND == 0 {
+		t.Fatal("read end missing O_APPEND after ApplyFDOptions")
+	}
+	if fcntlFlags(t, w)&unix.O_APPEND != 0 {
+		t.Fatal("write end already had O_APPEND")
+	}
+	ops := captureLifecycleSyscalls(t)
+	if _, err := WrapCommon(spec, relay.FDStream{R: r, W: w, C: r}); err != nil {
 		t.Fatal(err)
 	}
-	if got := n.Load(); got < 1 {
-		t.Fatalf("lifecycle applied %d times want at least 1", got)
+	if got := countOp(*ops, "F_SETFL"); got != 1 {
+		t.Fatalf("unmarked write end F_SETFL count=%d want 1 (ops=%v)", got, *ops)
 	}
-	if fcntlFlags(t, f)&unix.O_APPEND == 0 {
-		t.Fatal("O_APPEND missing after ApplyFDOptions + WrapCommon")
+	if fcntlFlags(t, w)&unix.O_APPEND == 0 {
+		t.Fatal("write end missing O_APPEND after WrapCommon")
 	}
 }
 
@@ -519,5 +565,268 @@ func TestApplyFDOptionsFtruncate32And64LastWins(t *testing.T) {
 				t.Fatalf("size=%d want %d", st.Size(), tc.want)
 			}
 		})
+	}
+}
+
+func captureLifecycleSyscalls(t *testing.T) *[]string {
+	t.Helper()
+	var ops []string
+	lifecycleSyscallTestHook = func(op string) {
+		ops = append(ops, op)
+	}
+	t.Cleanup(func() { lifecycleSyscallTestHook = nil })
+	return &ops
+}
+
+func countOp(ops []string, want string) int {
+	n := 0
+	for _, op := range ops {
+		if op == want {
+			n++
+		}
+	}
+	return n
+}
+
+func fileUnixMode(t *testing.T, f *os.File) uint32 {
+	t.Helper()
+	st, err := f.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return FileModeToUnix(st.Mode())
+}
+
+func TestApplyFDOptionsPermUserOrderSetuidBits(t *testing.T) {
+	uid := strconv.Itoa(os.Getuid())
+	const wantSetid uint32 = 0o4755
+	const wantCleared uint32 = 0o0755
+
+	tests := []struct {
+		name string
+		raw  string
+		want uint32
+	}{
+		{
+			name: "user then perm keeps setuid",
+			raw:  "FD:3,user=" + uid + ",perm=04755",
+			want: wantSetid,
+		},
+		{
+			name: "perm then user clears setuid",
+			raw:  "FD:3,perm=04755,user=" + uid,
+			want: wantCleared,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f, err := os.CreateTemp(t.TempDir(), "setuid-order")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = f.Close() })
+			if err := ApplyFDOptions(f, mustSpec(t, tc.raw)); err != nil {
+				skipIfOwnerChangeDenied(t, err)
+			}
+			got := fileUnixMode(t, f) & 0o7777
+			if got&0o4000 == 0 && tc.want&0o4000 != 0 {
+				t.Skipf("setuid bit did not stick (mode=%#o); filesystem may be nosuid", got)
+			}
+			if got != tc.want {
+				t.Fatalf("mode=%#o want %#o", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestApplyFDOptionsRepeatsEachOccurrence(t *testing.T) {
+	t.Run("perm twice", func(t *testing.T) {
+		f, err := os.CreateTemp(t.TempDir(), "perm-repeat")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = f.Close() })
+		ops := captureLifecycleSyscalls(t)
+		if err := ApplyFDOptions(f, mustSpec(t, "FD:3,perm=0644,perm=0600")); err != nil {
+			skipIfOwnerChangeDenied(t, err)
+		}
+		if got := countOp(*ops, "fchmod"); got != 2 {
+			t.Fatalf("fchmod count=%d want 2 (ops=%v)", got, *ops)
+		}
+		if fileUnixMode(t, f)&0o777 != 0o600 {
+			t.Fatalf("perm=%#o want 0600", fileUnixMode(t, f)&0o777)
+		}
+	})
+	t.Run("append then append=0", func(t *testing.T) {
+		f, err := os.CreateTemp(t.TempDir(), "append-repeat")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = f.Close() })
+		ops := captureLifecycleSyscalls(t)
+		if err := ApplyFDOptions(f, mustSpec(t, "FD:3,append,append=0")); err != nil {
+			t.Fatal(err)
+		}
+		if got := countOp(*ops, "F_SETFL"); got != 2 {
+			t.Fatalf("F_SETFL count=%d want 2 (ops=%v)", got, *ops)
+		}
+		if fcntlFlags(t, f)&unix.O_APPEND != 0 {
+			t.Fatal("append then append=0 left O_APPEND set")
+		}
+	})
+	t.Run("ftruncate twice", func(t *testing.T) {
+		f, err := os.CreateTemp(t.TempDir(), "trunc-repeat")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = f.Close() })
+		if _, err := f.Write([]byte("0123456789abcdefghij")); err != nil {
+			t.Fatal(err)
+		}
+		ops := captureLifecycleSyscalls(t)
+		if err := ApplyFDOptions(f, mustSpec(t, "FD:3,ftruncate=8,ftruncate=3")); err != nil {
+			t.Fatal(err)
+		}
+		if got := countOp(*ops, "ftruncate"); got != 2 {
+			t.Fatalf("ftruncate count=%d want 2 (ops=%v)", got, *ops)
+		}
+		st, err := f.Stat()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Size() != 3 {
+			t.Fatalf("size=%d want 3", st.Size())
+		}
+	})
+}
+
+func TestApplyFDOptionsAliasCanonicalEachOccurrence(t *testing.T) {
+	uid := strconv.Itoa(os.Getuid())
+	gid := strconv.Itoa(os.Getgid())
+	t.Run("mode then perm", func(t *testing.T) {
+		f, err := os.CreateTemp(t.TempDir(), "mode-perm")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = f.Close() })
+		ops := captureLifecycleSyscalls(t)
+		if err := ApplyFDOptions(f, mustSpec(t, "FD:3,mode=0644,perm=0600")); err != nil {
+			skipIfOwnerChangeDenied(t, err)
+		}
+		if got := countOp(*ops, "fchmod"); got != 2 {
+			t.Fatalf("fchmod count=%d want 2 (ops=%v)", got, *ops)
+		}
+		if fileUnixMode(t, f)&0o777 != 0o600 {
+			t.Fatalf("perm=%#o want 0600", fileUnixMode(t, f)&0o777)
+		}
+	})
+	t.Run("uid then user", func(t *testing.T) {
+		f, err := os.CreateTemp(t.TempDir(), "uid-user")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = f.Close() })
+		ops := captureLifecycleSyscalls(t)
+		raw := "FD:3,uid=" + uid + ",user=" + uid
+		if err := ApplyFDOptions(f, mustSpec(t, raw)); err != nil {
+			skipIfOwnerChangeDenied(t, err)
+		}
+		if got := countOp(*ops, "fchown"); got != 2 {
+			t.Fatalf("fchown count=%d want 2 (ops=%v)", got, *ops)
+		}
+	})
+	t.Run("owner then user", func(t *testing.T) {
+		f, err := os.CreateTemp(t.TempDir(), "owner-user")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = f.Close() })
+		ops := captureLifecycleSyscalls(t)
+		raw := "FD:3,owner=" + uid + ",user=" + uid
+		if err := ApplyFDOptions(f, mustSpec(t, raw)); err != nil {
+			skipIfOwnerChangeDenied(t, err)
+		}
+		if got := countOp(*ops, "fchown"); got != 2 {
+			t.Fatalf("fchown count=%d want 2 (ops=%v)", got, *ops)
+		}
+	})
+	t.Run("gid then group", func(t *testing.T) {
+		f, err := os.CreateTemp(t.TempDir(), "gid-group")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = f.Close() })
+		ops := captureLifecycleSyscalls(t)
+		raw := "FD:3,gid=" + gid + ",group=" + gid
+		if err := ApplyFDOptions(f, mustSpec(t, raw)); err != nil {
+			skipIfOwnerChangeDenied(t, err)
+		}
+		if got := countOp(*ops, "fchown"); got != 2 {
+			t.Fatalf("fchown count=%d want 2 (ops=%v)", got, *ops)
+		}
+	})
+	t.Run("truncate then ftruncate", func(t *testing.T) {
+		f, err := os.CreateTemp(t.TempDir(), "trunc-alias-order")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = f.Close() })
+		if _, err := f.Write([]byte("0123456789abcdefghij")); err != nil {
+			t.Fatal(err)
+		}
+		ops := captureLifecycleSyscalls(t)
+		if err := ApplyFDOptions(f, mustSpec(t, "FD:3,truncate=8,ftruncate=3")); err != nil {
+			t.Fatal(err)
+		}
+		if got := countOp(*ops, "ftruncate"); got != 2 {
+			t.Fatalf("ftruncate count=%d want 2 (ops=%v)", got, *ops)
+		}
+		st, err := f.Stat()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Size() != 3 {
+			t.Fatalf("size=%d want 3", st.Size())
+		}
+	})
+	t.Run("ftruncate32 then ftruncate64", func(t *testing.T) {
+		f, err := os.CreateTemp(t.TempDir(), "trunc32-64")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = f.Close() })
+		if _, err := f.Write([]byte("0123456789abcdefghij")); err != nil {
+			t.Fatal(err)
+		}
+		ops := captureLifecycleSyscalls(t)
+		if err := ApplyFDOptions(f, mustSpec(t, "FD:3,ftruncate32=8,ftruncate64=5")); err != nil {
+			t.Fatal(err)
+		}
+		if got := countOp(*ops, "ftruncate"); got != 2 {
+			t.Fatalf("ftruncate count=%d want 2 (ops=%v)", got, *ops)
+		}
+		st, err := f.Stat()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if st.Size() != 5 {
+			t.Fatalf("size=%d want 5", st.Size())
+		}
+	})
+}
+
+func TestApplyFDOptionsPhaseOrderPermBeforeAppend(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "phase-order")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	ops := captureLifecycleSyscalls(t)
+	raw := "FD:3,append,perm=0600"
+	if err := ApplyFDOptions(f, mustSpec(t, raw)); err != nil {
+		skipIfOwnerChangeDenied(t, err)
+	}
+	if len(*ops) != 2 || (*ops)[0] != "fchmod" || (*ops)[1] != "F_SETFL" {
+		t.Fatalf("ops=%v want [fchmod F_SETFL] (PH_FD before PH_LATE)", *ops)
 	}
 }

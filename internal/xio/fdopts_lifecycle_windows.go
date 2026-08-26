@@ -26,7 +26,11 @@ func applyFDLifecycleToFile(f *os.File, s parse.Spec) error {
 	ctrlErr := raw.Control(func(fd uintptr) {
 		optionErr = applyFDLifecycleOnHandle(fd, s)
 	})
-	return errors.Join(ctrlErr, optionErr)
+	if err := errors.Join(ctrlErr, optionErr); err != nil {
+		return err
+	}
+	markFDLifecycleApplied(f)
+	return nil
 }
 
 func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
@@ -34,9 +38,12 @@ func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
 		return nil
 	}
 	seen := make(map[uintptr]struct{})
-	for _, raw := range streamSyscallConns(stream) {
+	for _, t := range streamSyscallConnTargets(stream) {
+		if isFDLifecycleApplied(t.file) {
+			continue
+		}
 		var fdErr error
-		ctrlErr := raw.Control(func(fd uintptr) {
+		ctrlErr := t.raw.Control(func(fd uintptr) {
 			if _, ok := seen[fd]; ok {
 				return
 			}
@@ -51,46 +58,57 @@ func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
 }
 
 func applyFDLifecycleOnHandle(fd uintptr, s parse.Spec) error {
-	if err := applyWindowsOwner(s); err != nil {
+	if err := applyWindowsFDPhase(s); err != nil {
 		return err
 	}
-	if err := applyWindowsPerm(s); err != nil {
-		return err
-	}
-	if err := applyWindowsAppend(s); err != nil {
-		return err
-	}
-	return applyWindowsFtruncate(fd, s)
+	return applyWindowsLate(fd, s)
 }
 
-func applyWindowsOwner(s parse.Spec) error {
-	if skipDescriptorOwnerOpts(s.Type) {
-		return nil
-	}
-	if _, ok := lastLifecycleOption(s, "user", "uid", "owner"); ok {
-		return fmt.Errorf("user: not supported on windows")
-	}
-	if _, ok := lastLifecycleOption(s, "group", "gid"); ok {
-		return fmt.Errorf("group: not supported on windows")
+func applyWindowsFDPhase(s parse.Spec) error {
+	skipOwner := skipDescriptorOwnerOpts(s.Type)
+	for _, o := range s.Options {
+		switch parse.CanonicalOptionName(o.Name) {
+		case "perm":
+			if skipOwner {
+				continue
+			}
+			return fmt.Errorf("perm: fchmod is not supported on windows")
+		case "user":
+			if skipOwner {
+				continue
+			}
+			return fmt.Errorf("user: not supported on windows")
+		case "group":
+			if skipOwner {
+				continue
+			}
+			return fmt.Errorf("group: not supported on windows")
+		}
 	}
 	return nil
 }
 
-func applyWindowsPerm(s parse.Spec) error {
-	if skipDescriptorOwnerOpts(s.Type) {
-		return nil
-	}
-	if _, ok := lastLifecycleOption(s, "perm", "mode"); ok {
-		return fmt.Errorf("perm: fchmod is not supported on windows")
+func applyWindowsLate(fd uintptr, s parse.Spec) error {
+	skipTrunc := skipNamedFileFtruncate(s.Type)
+	for _, o := range s.Options {
+		switch parse.CanonicalOptionName(o.Name) {
+		case "append":
+			if err := applyWindowsOneAppend(s); err != nil {
+				return err
+			}
+		case "ftruncate":
+			if skipTrunc {
+				continue
+			}
+			if err := applyWindowsOneFtruncate(fd, o); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
 
-func applyWindowsAppend(s parse.Spec) error {
-	_, present := optionBoolAny(s, "append")
-	if !present {
-		return nil
-	}
+func applyWindowsOneAppend(s parse.Spec) error {
 	switch strings.ToUpper(s.Type) {
 	case "OPEN", "FILE", "CREATE", "CREAT", "GOPEN":
 		return nil
@@ -99,16 +117,10 @@ func applyWindowsAppend(s parse.Spec) error {
 	}
 }
 
-func applyWindowsFtruncate(fd uintptr, s parse.Spec) error {
-	if skipNamedFileFtruncate(s.Type) {
-		return nil
-	}
-	n, present, err := parseFtruncateLength(s)
+func applyWindowsOneFtruncate(fd uintptr, o parse.Option) error {
+	n, err := parseFtruncateOption(o)
 	if err != nil {
 		return err
-	}
-	if !present {
-		return nil
 	}
 	h := windows.Handle(fd)
 	cur, err := windows.Seek(h, 0, io.SeekCurrent)
@@ -118,6 +130,7 @@ func applyWindowsFtruncate(fd uintptr, s parse.Spec) error {
 	if _, err := windows.Seek(h, n, io.SeekStart); err != nil {
 		return fmt.Errorf("ftruncate: %w", err)
 	}
+	noteLifecycleSyscall("ftruncate")
 	if err := windows.SetEndOfFile(h); err != nil {
 		_, _ = windows.Seek(h, cur, io.SeekStart)
 		return fmt.Errorf("ftruncate: not a regular file: %w", err)

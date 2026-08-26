@@ -28,7 +28,11 @@ func applyFDLifecycleToFile(f *os.File, s parse.Spec) error {
 	ctrlErr := raw.Control(func(fd uintptr) {
 		optionErr = applyFDLifecycleOnFD(int(fd), s)
 	})
-	return errors.Join(ctrlErr, optionErr)
+	if err := errors.Join(ctrlErr, optionErr); err != nil {
+		return err
+	}
+	markFDLifecycleApplied(f)
+	return nil
 }
 
 func applyFDLifecycleOnFD(fd int, s parse.Spec) error {
@@ -45,17 +49,20 @@ func applyFDLifecycleOnFD(fd int, s parse.Spec) error {
 }
 
 // applyFDLifecycleToStream applies descriptor lifecycle options once per
-// unique underlying fd in this call. Duplicate application on the same live
-// fd (ApplyFDOptions then WrapCommon) is idempotent; fd numbers are not
-// cached globally because the kernel reuses them after close.
+// unique underlying fd in this call. Files already handled by ApplyFDOptions
+// are skipped via per-open *os.File identity (not a process-global fd-number
+// cache). FileStream R/W/C sharing one unmarked fd still apply once via seen.
 func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
 	if !hasFDLifecycleOptions(s) {
 		return nil
 	}
 	seen := make(map[int]struct{})
-	for _, raw := range streamSyscallConns(stream) {
+	for _, t := range streamSyscallConnTargets(stream) {
+		if isFDLifecycleApplied(t.file) {
+			continue
+		}
 		var fdErr error
-		ctrlErr := raw.Control(func(fd uintptr) {
+		ctrlErr := t.raw.Control(func(fd uintptr) {
 			n := int(fd)
 			if _, ok := seen[n]; ok {
 				return
@@ -71,24 +78,57 @@ func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
 }
 
 func applyFDPhaseLifecycle(fd int, s parse.Spec) error {
-	if err := applyFDPerm(fd, s); err != nil {
-		return err
+	skipOwner := skipDescriptorOwnerOpts(s.Type)
+	for _, o := range s.Options {
+		switch parse.CanonicalOptionName(o.Name) {
+		case "perm":
+			if skipOwner {
+				continue
+			}
+			if err := applyOnePerm(fd, o); err != nil {
+				return err
+			}
+		case "user":
+			if skipOwner {
+				continue
+			}
+			if err := applyOneUser(fd, o); err != nil {
+				return err
+			}
+		case "group":
+			if skipOwner {
+				continue
+			}
+			if err := applyOneGroup(fd, o); err != nil {
+				return err
+			}
+		}
 	}
-	return applyFDOwner(fd, s)
+	return nil
 }
 
 func applyLateLifecycle(fd int, s parse.Spec) error {
-	if err := applyFDAppend(fd, s); err != nil {
-		return err
+	skipTrunc := skipNamedFileFtruncate(s.Type)
+	for _, o := range s.Options {
+		switch parse.CanonicalOptionName(o.Name) {
+		case "append":
+			if err := applyOneAppend(fd, o); err != nil {
+				return err
+			}
+		case "ftruncate":
+			if skipTrunc {
+				continue
+			}
+			if err := applyOneFtruncate(fd, o); err != nil {
+				return err
+			}
+		}
 	}
-	return applyFDFtruncate(fd, s)
+	return nil
 }
 
-func applyFDAppend(fd int, s parse.Spec) error {
-	enable, present := optionBoolAny(s, "append")
-	if !present {
-		return nil
-	}
+func applyOneAppend(fd int, o parse.Option) error {
+	enable := optionEnabled(o)
 	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
 	if err != nil {
 		return fmt.Errorf("append: %w", err)
@@ -98,22 +138,17 @@ func applyFDAppend(fd int, s parse.Spec) error {
 	} else {
 		flags &^= unix.O_APPEND
 	}
+	noteLifecycleSyscall("F_SETFL")
 	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFL, flags); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
 	return nil
 }
 
-func applyFDFtruncate(fd int, s parse.Spec) error {
-	if skipNamedFileFtruncate(s.Type) {
-		return nil
-	}
-	n, present, err := parseFtruncateLength(s)
+func applyOneFtruncate(fd int, o parse.Option) error {
+	n, err := parseFtruncateOption(o)
 	if err != nil {
 		return err
-	}
-	if !present {
-		return nil
 	}
 	var st unix.Stat_t
 	if err := unix.Fstat(fd, &st); err != nil {
@@ -122,60 +157,53 @@ func applyFDFtruncate(fd int, s parse.Spec) error {
 	if st.Mode&unix.S_IFMT != unix.S_IFREG {
 		return fmt.Errorf("ftruncate: not a regular file")
 	}
+	noteLifecycleSyscall("ftruncate")
 	if err := unix.Ftruncate(fd, n); err != nil {
 		return fmt.Errorf("ftruncate: %w", err)
 	}
 	return nil
 }
 
-func applyFDPerm(fd int, s parse.Spec) error {
-	if skipDescriptorOwnerOpts(s.Type) {
-		return nil
-	}
-	o, ok := lastLifecycleOption(s, "perm", "mode")
-	if !ok || !o.Has {
+func applyOnePerm(fd int, o parse.Option) error {
+	if !o.Has {
 		return nil
 	}
 	mode, err := parseModeT(o.OriginalSpelling(), o.Value)
 	if err != nil {
 		return err
 	}
+	noteLifecycleSyscall("fchmod")
 	if err := unix.Fchmod(fd, FileModeToUnix(mode)); err != nil {
 		return fmt.Errorf("fchmod: %w", err)
 	}
 	return nil
 }
 
-func applyFDOwner(fd int, s parse.Spec) error {
-	if skipDescriptorOwnerOpts(s.Type) {
+func applyOneUser(fd int, o parse.Option) error {
+	uid, hasU, err := resolveUID(optionString(o))
+	if err != nil {
+		return err
+	}
+	if !hasU {
 		return nil
 	}
-	var uid, gid int
-	var hasU, hasG bool
-	var err error
-	if o, ok := lastLifecycleOption(s, "user", "uid", "owner"); ok {
-		uid, hasU, err = resolveUID(optionString(o))
-		if err != nil {
-			return err
-		}
+	noteLifecycleSyscall("fchown")
+	if err := unix.Fchown(fd, uid, -1); err != nil {
+		return fmt.Errorf("fchown: %w", err)
 	}
-	if o, ok := lastLifecycleOption(s, "group", "gid"); ok {
-		gid, hasG, err = resolveGID(optionString(o))
-		if err != nil {
-			return err
-		}
+	return nil
+}
+
+func applyOneGroup(fd int, o parse.Option) error {
+	gid, hasG, err := resolveGID(optionString(o))
+	if err != nil {
+		return err
 	}
-	if !hasU && !hasG {
+	if !hasG {
 		return nil
 	}
-	u, g := -1, -1
-	if hasU {
-		u = uid
-	}
-	if hasG {
-		g = gid
-	}
-	if err := unix.Fchown(fd, u, g); err != nil {
+	noteLifecycleSyscall("fchown")
+	if err := unix.Fchown(fd, -1, gid); err != nil {
 		return fmt.Errorf("fchown: %w", err)
 	}
 	return nil

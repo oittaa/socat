@@ -23,8 +23,8 @@ const fsNoatimeFL = 0x00000080
 //
 // Classic phases (xio-fd.c / applyopt_fcntl, tag-1.8.1.3
 // 12c08bf66d709fba17035ce95d85bd218428d9ba): PH_FD perm/user/group and
-// o-noatime, then PH_LATE append/ftruncate. Duplicate apply with WrapCommon
-// is idempotent; fd numbers are not cached globally.
+// o-noatime, then PH_LATE append/ftruncate. ApplyFDOptions owns those
+// lifecycle syscalls for this *os.File; WrapCommon skips the same open.
 func ApplyFDOptions(f *os.File, s parse.Spec) error {
 	if f == nil {
 		return nil
@@ -89,7 +89,13 @@ func ApplyFDOptions(f *os.File, s parse.Spec) error {
 			}
 		}
 	})
-	return errors.Join(controlErr, optionErr)
+	if err := errors.Join(controlErr, optionErr); err != nil {
+		return err
+	}
+	if needLifecycle {
+		markFDLifecycleApplied(f)
+	}
+	return nil
 }
 
 // applyFSNoatime implements classic applyopt_ioctl_mask_long for FS_NOATIME_FL
