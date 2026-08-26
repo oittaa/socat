@@ -44,6 +44,36 @@ func TestWindowsTimeoutMillis(t *testing.T) {
 	}
 }
 
+func TestApplyUDPConnOptsAppliesLateWindows(t *testing.T) {
+	c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	spec, err := parse.ParseSpec("UDP:127.0.0.1:9,sndbuf-late=65536,rcvbuf-late=65536")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyUDPConnOpts(c, spec, "udp4"); err != nil {
+		t.Fatalf("ApplyUDPConnOpts: %v", err)
+	}
+	got, err := windowsSocketOption(c, windows.SO_SNDBUF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got < 65536 {
+		t.Fatalf("SO_SNDBUF=%d want >= 65536 after ApplyUDPConnOpts", got)
+	}
+	got, err = windowsSocketOption(c, windows.SO_RCVBUF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got < 65536 {
+		t.Fatalf("SO_RCVBUF=%d want >= 65536 after ApplyUDPConnOpts", got)
+	}
+}
+
 func TestApplyUDPConnOptsWindowsTimeos(t *testing.T) {
 	c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {

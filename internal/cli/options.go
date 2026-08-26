@@ -376,9 +376,9 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "so-linger", desc: "SO_LINGER timeout in seconds", aliases: []string{"linger"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
 			{name: "sndbuf", desc: "SO_SNDBUF size in bytes", aliases: []string{"so-sndbuf"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
 			{name: "rcvbuf", desc: "SO_RCVBUF size in bytes", aliases: []string{"so-rcvbuf"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
-			{name: "sndbuf-late", desc: "SO_SNDBUF after connect or accept (raw TCP, before TLS/PROXY handshake)", aliases: []string{"so-sndbuf-late"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
-			{name: "rcvbuf-late", desc: "SO_RCVBUF after connect or accept (raw TCP, before TLS/PROXY handshake)", aliases: []string{"so-rcvbuf-late"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
-			{name: "bindtodevice", desc: "SO_BINDTODEVICE interface name", aliases: []string{"so-bindtodevice", "if"}, addressTypes: socketTimeoutAddressTypes(), validate: validateRequiredString},
+			{name: "sndbuf-late", desc: "SO_SNDBUF after connect, accept, or bind (raw socket, before TLS/PROXY/QUIC wrapping)", aliases: []string{"so-sndbuf-late"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
+			{name: "rcvbuf-late", desc: "SO_RCVBUF after connect, accept, or bind (raw socket, before TLS/PROXY/QUIC wrapping)", aliases: []string{"so-rcvbuf-late"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},
+			{name: "bindtodevice", desc: "SO_BINDTODEVICE interface name", aliases: []string{"so-bindtodevice", "if", "interface"}, addressTypes: socketTimeoutAddressTypes(), validate: validateRequiredString},
 		}},
 		{"Files and UNIX", []helpOpt{
 			{name: "rdonly", desc: "open read-only"},

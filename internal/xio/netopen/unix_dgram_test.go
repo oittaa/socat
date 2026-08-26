@@ -8,12 +8,14 @@ import (
 	"io"
 	"net"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
+	"golang.org/x/sys/unix"
 )
 
 func TestUnixPacketConnOneShotDoesNotReadParent(t *testing.T) {
@@ -380,5 +382,30 @@ func TestUnixRecvAbstractDoesNotRegisterUnlink(t *testing.T) {
 	t.Cleanup(func() { _ = o.Close() })
 	if xio.RegisteredUnlinkCount() != before {
 		t.Fatal("abstract UNIX-RECV registered a filesystem unlink")
+	}
+}
+
+func TestApplyUnixgramSocketOptionsAppliesLateUnix(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("linux SO_SNDBUF doubling")
+	}
+	path := unixSocketTestPath(t, "late.sock")
+	c, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: path, Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	spec, err := parse.ParseSpec("UNIX-RECVFROM:" + path + ",sndbuf-late=65536,rcvbuf-late=65536")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyUnixgramSocketOptions(c, spec); err != nil {
+		t.Fatal(err)
+	}
+	if got := packetSockoptInt(t, c, unix.SO_SNDBUF); got < 65536 {
+		t.Fatalf("SO_SNDBUF=%d want >= 65536 after applyUnixgramSocketOptions", got)
+	}
+	if got := packetSockoptInt(t, c, unix.SO_RCVBUF); got < 65536 {
+		t.Fatalf("SO_RCVBUF=%d want >= 65536 after applyUnixgramSocketOptions", got)
 	}
 }

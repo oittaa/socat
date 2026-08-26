@@ -373,6 +373,10 @@ func dialUDPSession(network string, local, remote *net.UDPAddr, s parse.Spec) (*
 		logx.CloseQuiet(c)
 		return nil, fmt.Errorf("UDP session: unexpected conn type")
 	}
+	if err := xio.ApplyUDPConnOpts(uc, s, network); err != nil {
+		logx.CloseQuiet(uc)
+		return nil, err
+	}
 	return uc, nil
 }
 

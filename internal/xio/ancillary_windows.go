@@ -35,6 +35,9 @@ func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 		if optionErr == nil {
 			optionErr = ApplySocketOptions(int(fd), s)
 		}
+		if optionErr == nil {
+			optionErr = ApplyLateSocketOptions(int(fd), s)
+		}
 	})
 	return errors.Join(controlErr, optionErr)
 }

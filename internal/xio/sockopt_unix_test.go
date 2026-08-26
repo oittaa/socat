@@ -6,11 +6,13 @@ import (
 	"context"
 	"net"
 	"os"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/unix"
 )
 
@@ -414,4 +416,65 @@ func TestDialControlAppliesTimeosAndTTL(t *testing.T) {
 	if tos != 0x10 {
 		t.Fatalf("IP_TOS=%#x want %#x", tos, 0x10)
 	}
+}
+
+func TestApplyUDPConnOptsAppliesLateUnix(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("linux SO_SNDBUF doubling")
+	}
+
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	uc := pc.(*net.UDPConn)
+
+	spec, err := parse.ParseSpec("UDP-LISTEN:0,sndbuf-late=65536,rcvbuf-late=65536")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyUDPConnOpts(uc, spec, "udp"); err != nil {
+		t.Fatalf("ApplyUDPConnOpts: %v", err)
+	}
+	if got := udpSockoptInt(t, uc, unix.SO_SNDBUF); got < 65536 {
+		t.Fatalf("SO_SNDBUF=%d want >= 65536 after ApplyUDPConnOpts", got)
+	}
+	if got := udpSockoptInt(t, uc, unix.SO_RCVBUF); got < 65536 {
+		t.Fatalf("SO_RCVBUF=%d want >= 65536 after ApplyUDPConnOpts", got)
+	}
+}
+
+func TestWrapCommonAppliesLateThroughNetConnUnwrapUnix(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("linux SO_SNDBUF doubling")
+	}
+	cli, _ := tcpPair(t)
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,sndbuf-late=65536")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WrapCommon(spec, relay.NetStream{Conn: netConnUnwrapper{Conn: cli}}); err != nil {
+		t.Fatalf("WrapCommon via NetConn(): %v", err)
+	}
+	if got := tcpSockoptInt(t, cli, unix.SO_SNDBUF); got < 65536 {
+		t.Fatalf("SO_SNDBUF=%d want >= 65536 through NetConn() unwrap", got)
+	}
+}
+
+func udpSockoptInt(t *testing.T, uc *net.UDPConn, opt int) int {
+	t.Helper()
+	raw, err := uc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v int
+	var gerr error
+	_ = raw.Control(func(fd uintptr) {
+		v, gerr = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, opt)
+	})
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	return v
 }

@@ -158,6 +158,7 @@ func TestLastOptionWins(t *testing.T) {
 		{name: "rcvbuf-late-alias", spec: "TCP:127.0.0.1:9,so-rcvbuf-late=8192", opt: "rcvbuf-late", want: "8192"},
 		{name: "bindtodevice-if", spec: "TCP:127.0.0.1:9,if=lo", opt: "bindtodevice", want: "lo"},
 		{name: "bindtodevice-so", spec: "TCP:127.0.0.1:9,so-bindtodevice=eth0", opt: "bindtodevice", want: "eth0"},
+		{name: "bindtodevice-interface", spec: "TCP4:127.0.0.1:9,interface=lo", opt: "bindtodevice", want: "lo"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

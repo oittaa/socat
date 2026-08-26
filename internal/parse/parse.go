@@ -255,6 +255,7 @@ var optionAliases = map[string]string{
 	"so-keepalive":       "keepalive",
 	"so-bindtodevice":    "bindtodevice",
 	"if":                 "bindtodevice",
+	"interface":          "bindtodevice",
 	"so-broadcast":       "broadcast",
 	"so-rcvbuf":          "rcvbuf",
 	"so-sndbuf":          "sndbuf",

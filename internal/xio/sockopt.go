@@ -3,6 +3,7 @@ package xio
 import (
 	"errors"
 	"fmt"
+	"net"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -35,7 +36,9 @@ func applySocketBufferOpt(fd int, name string, o parse.Option, present bool, opt
 // applyPastSocketBuffersAndDevice is the PH_PASTSOCKET half of classic
 // opt_so_sndbuf / opt_so_rcvbuf / opt_so_bindtodevice. Late variants are
 // applied in ApplyTCPConnOpts (raw TCP after connect/accept, before TLS/
-// PROXY handshake) and in WrapCommon (streams that expose a socket fd).
+// PROXY handshake), ApplyUDPConnOpts / applyUnixgramSocketOptions (raw
+// UDP/UNIX after bind or connect, before packet-session wrapping), and
+// WrapCommon (streams that expose a socket fd).
 func applyPastSocketBuffersAndDevice(fd int, s parse.Spec) error {
 	o, ok := s.OptionNamed("sndbuf")
 	if err := applySocketBufferOpt(fd, "sndbuf", o, ok, soSndbuf); err != nil {
@@ -66,10 +69,8 @@ func ApplyLateSocketOptionsToConn(conn syscall.Conn, s parse.Spec) error {
 	if conn == nil {
 		return nil
 	}
-	if _, ok := s.OptionNamed("sndbuf-late"); !ok {
-		if _, ok := s.OptionNamed("rcvbuf-late"); !ok {
-			return nil
-		}
+	if !hasLateSocketBuffers(s) {
+		return nil
 	}
 	raw, err := conn.SyscallConn()
 	if err != nil {
@@ -86,11 +87,31 @@ func ApplyLateSocketOptionsToConn(conn syscall.Conn, s parse.Spec) error {
 	return err
 }
 
+// ApplyLateSocketOptionsToPacketConn applies PH_LATE buffers on a UDP
+// PacketConn (QUIC transport, ListenPacket). Rejects enabled late options
+// when the conn does not expose a socket fd.
+func ApplyLateSocketOptionsToPacketConn(pc net.PacketConn, s parse.Spec) error {
+	if pc == nil || !hasLateSocketBuffers(s) {
+		return nil
+	}
+	sc, ok := pc.(syscall.Conn)
+	if !ok {
+		return fmt.Errorf("sndbuf-late/rcvbuf-late: packet connection does not expose a socket")
+	}
+	return ApplyLateSocketOptionsToConn(sc, s)
+}
+
+func hasLateSocketBuffers(s parse.Spec) bool {
+	if _, ok := s.OptionNamed("sndbuf-late"); ok {
+		return true
+	}
+	_, ok := s.OptionNamed("rcvbuf-late")
+	return ok
+}
+
 func applyLateSocketOptionsToStream(s parse.Spec, stream relay.Stream) error {
-	if _, ok := s.OptionNamed("sndbuf-late"); !ok {
-		if _, ok := s.OptionNamed("rcvbuf-late"); !ok {
-			return nil
-		}
+	if !hasLateSocketBuffers(s) {
+		return nil
 	}
 	for _, raw := range streamSyscallConns(stream) {
 		var optErr error
@@ -109,18 +130,25 @@ func applyLateSocketOptionsToStream(s parse.Spec, stream relay.Stream) error {
 func streamSyscallConns(stream relay.Stream) []syscall.RawConn {
 	var out []syscall.RawConn
 	add := func(v any) {
-		if v == nil {
-			return
+		for hops := 0; v != nil && hops < 8; hops++ {
+			if sc, ok := v.(syscall.Conn); ok {
+				raw, err := sc.SyscallConn()
+				if err != nil || raw == nil {
+					return
+				}
+				out = append(out, raw)
+				return
+			}
+			unwrapper, ok := v.(interface{ NetConn() net.Conn })
+			if !ok {
+				return
+			}
+			next := unwrapper.NetConn()
+			if next == nil || next == v {
+				return
+			}
+			v = next
 		}
-		sc, ok := v.(syscall.Conn)
-		if !ok {
-			return
-		}
-		raw, err := sc.SyscallConn()
-		if err != nil || raw == nil {
-			return
-		}
-		out = append(out, raw)
 	}
 	switch s := stream.(type) {
 	case relay.NetStream:

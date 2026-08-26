@@ -67,6 +67,27 @@ func TestApplySocketOptionsBindToDeviceIfAliasLinux(t *testing.T) {
 	}
 }
 
+func TestApplySocketOptionsBindToDeviceInterfaceAliasLinux(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+
+	spec, err := parse.ParseSpec("UDP:127.0.0.1:9,interface=lo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if spec.OptionValue("bindtodevice", "") != "lo" {
+		t.Fatalf("interface= did not canonicalize to bindtodevice: %#v", spec.Options)
+	}
+	err = ApplySocketOptions(fd, spec)
+	skipIfUnprivilegedBindToDevice(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestApplySocketOptionsBindToDeviceInvalidLinux(t *testing.T) {
 	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
 	if err != nil {
