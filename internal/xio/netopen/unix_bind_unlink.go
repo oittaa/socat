@@ -44,7 +44,9 @@ func prepareUnixFilesystemPath(path string, s parse.Spec) error {
 		return nil
 	}
 	if s.BoolOption("unlink-early") {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		// unlink(2), not os.Remove: classic Unlink() refuses directories
+		// (EISDIR). os.Remove would rmdir an empty directory.
+		if err := unlinkPath(path); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("unlink %s: %w", path, err)
 		}
 		return nil
