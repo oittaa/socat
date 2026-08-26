@@ -85,7 +85,7 @@ var dynamicallyReadOptions = map[string]string{
 // compatNoOptions are advertised deliberately as classic-compat spellings
 // whose acceptance is the feature; nothing reads them.
 // recognizedUnsupportedOptions are deliberately accepted so the relevant
-// opener can return a precise "not supported" error; options.go keeps the
+// opener can return a precise "not supported" error; helpOptionGroups keeps the
 // authoritative list and routes them to that error.
 var recognizedUnsupportedOptions = map[string]string{
 	"openssl-method": "stream TLS only; rejected with a precise error",

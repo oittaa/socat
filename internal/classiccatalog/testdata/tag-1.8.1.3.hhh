@@ -1,0 +1,812 @@
+# Classic socat -hhh option catalog (opts: section).
+# Source: https://repo.or.cz/socat.git tag-1.8.1.3
+# Commit: 12c08bf66d709fba17035ce95d85bd218428d9ba
+# Official master af5388c898c7bb60997935aee93c223deba60c4a has identical
+# xiohelp.c, xioopts.h, optionnames[], and xio*.c.
+#
+# Feature-complete Ubuntu 26.04 / glibc 2.41+ Linux build with OpenSSL,
+# GNU Readline, and libwrap (configure defaults once those libraries are
+# present). Unique advertised spellings: 795, including b7200 from a real
+# <termios.h> #define B7200 7200U. Do not forge B7200 with CPPFLAGS.
+#
+# Rebuild: scripts/build-classic-help-catalog.sh
+# Provenance: testdata/tag-1.8.1.3.V (timestamps/kernel sanitized)
+#
+   opts:
+      <opt>{,<opts>}:
+   opt:
+      accept-timeout	groups=LISTEN		phase=LISTEN		type=STRUCT-TIMEVAL
+      acceptconn	is an alias for so-acceptconn
+      add-membership	is an alias for ip-add-membership
+      add-source-membership	is an alias for ip-add-source-membership
+      addrconfig	is an alias for ai-addrconfig
+      ai-addrconfig	groups=IP4,IP6		phase=OFFSET		type=BOOL
+      ai-all		groups=IP4,IP6		phase=OFFSET		type=BOOL
+      ai-passive	groups=IP4,IP6		phase=OFFSET		type=BOOL
+      ai-v4mapped	groups=IP4,IP6		phase=OFFSET		type=BOOL
+      allmulti		is an alias for iff-allmulti
+      allow-table	is an alias for tcpwrap-hosts-allow-table
+      append		groups=FD,OPEN		phase=LATE		type=BOOL
+      async		groups=FD,OPEN		phase=LATE		type=BOOL
+      attach-filter	is an alias for so-attach-filter
+      attachfilter	is an alias for so-attach-filter
+      authhdr		is an alias for ipv6-authhdr
+      automedia		is an alias for iff-automedia
+      b0		groups=TERMIOS		phase=FD		type=CONST
+      b1000000		groups=TERMIOS		phase=FD		type=CONST
+      b110		groups=TERMIOS		phase=FD		type=CONST
+      b115200		groups=TERMIOS		phase=FD		type=CONST
+      b1152000		groups=TERMIOS		phase=FD		type=CONST
+      b1200		groups=TERMIOS		phase=FD		type=CONST
+      b134		groups=TERMIOS		phase=FD		type=CONST
+      b150		groups=TERMIOS		phase=FD		type=CONST
+      b1500000		groups=TERMIOS		phase=FD		type=CONST
+      b1800		groups=TERMIOS		phase=FD		type=CONST
+      b19200		groups=TERMIOS		phase=FD		type=CONST
+      b200		groups=TERMIOS		phase=FD		type=CONST
+      b2000000		groups=TERMIOS		phase=FD		type=CONST
+      b230400		groups=TERMIOS		phase=FD		type=CONST
+      b2400		groups=TERMIOS		phase=FD		type=CONST
+      b2500000		groups=TERMIOS		phase=FD		type=CONST
+      b300		groups=TERMIOS		phase=FD		type=CONST
+      b3000000		groups=TERMIOS		phase=FD		type=CONST
+      b3500000		groups=TERMIOS		phase=FD		type=CONST
+      b38400		groups=TERMIOS		phase=FD		type=CONST
+      b4000000		groups=TERMIOS		phase=FD		type=CONST
+      b460800		groups=TERMIOS		phase=FD		type=CONST
+      b4800		groups=TERMIOS		phase=FD		type=CONST
+      b50		groups=TERMIOS		phase=FD		type=CONST
+      b500000		groups=TERMIOS		phase=FD		type=CONST
+      b57600		groups=TERMIOS		phase=FD		type=CONST
+      b576000		groups=TERMIOS		phase=FD		type=CONST
+      b600		groups=TERMIOS		phase=FD		type=CONST
+      b7200		groups=TERMIOS		phase=FD		type=CONST
+      b75		groups=TERMIOS		phase=FD		type=CONST
+      b921600		groups=TERMIOS		phase=FD		type=CONST
+      b9600		groups=TERMIOS		phase=FD		type=CONST
+      backlog		groups=LISTEN		phase=LISTEN		type=INT
+      bind		groups=SOCKET		phase=BIND		type=STRING
+      bind-tempname	is an alias for unix-bind-tempname
+      bindtodevice	is an alias for so-bindtodevice
+      brkint		groups=TERMIOS		phase=FD		type=BOOL
+      broadcast		is an alias for so-broadcast
+      bs0		groups=TERMIOS		phase=FD		type=CONST
+      bs1		groups=TERMIOS		phase=FD		type=CONST
+      bsdcompat		is an alias for so-bsdcompat
+      bsdly		groups=TERMIOS		phase=FD		type=BOOL
+      bytes		is an alias for readbytes
+      cafile		is an alias for openssl-cafile
+      capath		is an alias for openssl-capath
+      ccid		is an alias for dccp-set-ccid
+      cd		is an alias for chdir
+      cert		is an alias for openssl-certificate
+      certificate	is an alias for openssl-certificate
+      cfmakeraw		is an alias for termios-cfmakeraw
+      chdir		groups=(all)			phase=INIT		type=STRING
+      children-shutup	groups=CHILD		phase=PASTACCEPT	type=INT
+      chroot		groups=PROCESS		phase=LATE		type=STRING
+      chroot-early	groups=PROCESS		phase=EARLY		type=STRING
+      cipher		is an alias for openssl-cipherlist
+      cipherlist	is an alias for openssl-cipherlist
+      ciphers		is an alias for openssl-cipherlist
+      clocal		groups=TERMIOS		phase=FD		type=BOOL
+      cloexec		groups=FD		phase=LATE		type=BOOL
+      close		is an alias for end-close
+      cn		is an alias for openssl-commonname
+      commonname	is an alias for openssl-commonname
+      compr		is an alias for fs-compr
+      compress		is an alias for openssl-compress
+      connect-timeout	groups=SOCKET		phase=PASTSOCKET	type=STRUCT-TIMEVAL
+      cool-write	groups=FD		phase=INIT		type=BOOL
+      coolwrite		is an alias for cool-write
+      cork		is an alias for tcp-cork
+      cr		groups=APPL		phase=LATE		type=CONST
+      cr0		groups=TERMIOS		phase=FD		type=CONST
+      cr1		groups=TERMIOS		phase=FD		type=CONST
+      cr2		groups=TERMIOS		phase=FD		type=CONST
+      cr3		groups=TERMIOS		phase=FD		type=CONST
+      crdly		groups=TERMIOS		phase=FD		type=UNSIGNED-INT
+      cread		groups=TERMIOS		phase=FD		type=BOOL
+      creat		is an alias for o-creat
+      create		is an alias for o-creat
+      crlf		is an alias for crnl
+      crnl		groups=APPL		phase=LATE		type=CONST
+      crterase		is an alias for echoe
+      crtkill		is an alias for echoke
+      crtscts		groups=TERMIOS		phase=FD		type=BOOL
+      cs5		groups=TERMIOS		phase=FD		type=CONST
+      cs6		groups=TERMIOS		phase=FD		type=CONST
+      cs7		groups=TERMIOS		phase=FD		type=CONST
+      cs8		groups=TERMIOS		phase=FD		type=CONST
+      csize		groups=TERMIOS		phase=FD		type=UNSIGNED-INT
+      cstopb		groups=TERMIOS		phase=FD		type=BOOL
+      ctlecho		is an alias for echoctl
+      ctty		is an alias for tiocsctty
+      dash		groups=EXEC		phase=PREEXEC		type=BOOL
+      dccp-set-ccid	groups=DCCP		phase=PASTSOCKET	type=BYTE
+      debug		is an alias for so-debug
+      defer-accept	is an alias for tcp-defer-accept
+      defnames		is an alias for res-defnames
+      delete		is an alias for unlink
+      deny-table	is an alias for tcpwrap-hosts-deny-table
+      detach-filter	is an alias for so-detach-filter
+      detachfilter	is an alias for so-detach-filter
+      dh		is an alias for openssl-dhparam
+      dhparam		is an alias for openssl-dhparam
+      dhparams		is an alias for openssl-dhparam
+      direct		is an alias for o-direct
+      directory		is an alias for o-directory
+      dirsync		is an alias for fs-dirsync
+      discard		is an alias for vdiscard
+      dns		is an alias for res-nsaddr
+      dnsrch		is an alias for res-dnsrch
+      dontroute		is an alias for so-dontroute
+      dstopts		is an alias for ipv6-dstopts
+      dsync		is an alias for o-dsync
+      echo		groups=TERMIOS		phase=FD		type=BOOL
+      echoctl		groups=TERMIOS		phase=FD		type=BOOL
+      echoe		groups=TERMIOS		phase=FD		type=BOOL
+      echok		groups=TERMIOS		phase=FD		type=BOOL
+      echoke		groups=TERMIOS		phase=FD		type=BOOL
+      echonl		groups=TERMIOS		phase=FD		type=BOOL
+      echoprt		groups=TERMIOS		phase=FD		type=BOOL
+      egd		is an alias for openssl-egd
+      end-close		groups=FD		phase=OFFSET		type=CONST
+      eof		is an alias for veof
+      eol		is an alias for veol
+      eol2		is an alias for veol2
+      erase		is an alias for verase
+      error		is an alias for so-error
+      escape		groups=APPL		phase=INIT		type=INT
+      excl		is an alias for o-excl
+      ext2-append	is an alias for fs-append
+      ext2-compr	is an alias for fs-compr
+      ext2-dirsync	is an alias for fs-dirsync
+      ext2-immutable	is an alias for fs-immutable
+      ext2-journal-data	is an alias for fs-journal-data
+      ext2-noatime	is an alias for fs-noatime
+      ext2-nodump	is an alias for fs-nodump
+      ext2-notail	is an alias for fs-notail
+      ext2-secrm	is an alias for fs-secrm
+      ext2-sync		is an alias for fs-sync
+      ext2-topdir	is an alias for fs-topdir
+      ext2-unrm		is an alias for fs-unrm
+      ext3-append	is an alias for fs-append
+      ext3-compr	is an alias for fs-compr
+      ext3-dirsync	is an alias for fs-dirsync
+      ext3-immutable	is an alias for fs-immutable
+      ext3-journal-data	is an alias for fs-journal-data
+      ext3-noatime	is an alias for fs-noatime
+      ext3-nodump	is an alias for fs-nodump
+      ext3-notail	is an alias for fs-notail
+      ext3-secrm	is an alias for fs-secrm
+      ext3-sync		is an alias for fs-sync
+      ext3-topdir	is an alias for fs-topdir
+      ext3-unrm		is an alias for fs-unrm
+      f-setlk		is an alias for f-setlk-wr
+      f-setlk-rd	groups=FD		phase=FD		type=BOOL
+      f-setlk-wr	groups=FD		phase=FD		type=BOOL
+      f-setlkw		is an alias for f-setlkw-wr
+      f-setlkw-rd	groups=FD		phase=FD		type=BOOL
+      f-setlkw-wr	groups=FD		phase=FD		type=BOOL
+      f-setpipe-sz	groups=FIFO		phase=FD		type=INT
+      fdin		groups=FORK		phase=PASTBIGEN		type=UNSIGNED-SHORT
+      fdout		groups=FORK		phase=PASTBIGEN		type=UNSIGNED-SHORT
+      ff0		groups=TERMIOS		phase=FD		type=CONST
+      ff1		groups=TERMIOS		phase=FD		type=CONST
+      ffdly		groups=TERMIOS		phase=FD		type=BOOL
+      fiosetown		groups=SOCKET		phase=PASTSOCKET	type=INT
+      flock		is an alias for flock-ex
+      flock-ex		groups=FD		phase=FD		type=BOOL
+      flock-ex-nb	groups=FD		phase=FD		type=BOOL
+      flock-nb		is an alias for flock-ex-nb
+      flock-sh		groups=FD		phase=FD		type=BOOL
+      flock-sh-nb	groups=FD		phase=FD		type=BOOL
+      flusho		groups=TERMIOS		phase=FD		type=BOOL
+      forever		groups=RETRY		phase=INIT		type=BOOL
+      fork		groups=CHILD		phase=PASTACCEPT	type=BOOL
+      freebind		is an alias for ip-freebind
+      fs-append		groups=REG		phase=FD		type=BOOL
+      fs-compr		groups=REG		phase=FD		type=BOOL
+      fs-dirsync	groups=REG		phase=FD		type=BOOL
+      fs-immutable	groups=REG		phase=FD		type=BOOL
+      fs-journal-data	groups=REG		phase=FD		type=BOOL
+      fs-noatime	groups=REG		phase=FD		type=BOOL
+      fs-nodump		groups=REG		phase=FD		type=BOOL
+      fs-notail		groups=REG		phase=FD		type=BOOL
+      fs-secrm		groups=REG		phase=FD		type=BOOL
+      fs-sync		groups=REG		phase=FD		type=BOOL
+      fs-topdir		groups=REG		phase=FD		type=BOOL
+      fs-unrm		groups=REG		phase=FD		type=BOOL
+      ftruncate		is an alias for ftruncate64
+      ftruncate32	groups=REG		phase=LATE		type=OFF_T
+      ftruncate64	groups=REG		phase=LATE		type=OFF64_T
+      gid		is an alias for group
+      gid-e		is an alias for group-early
+      gid-l		is an alias for group-late
+      group		groups=FD,NAMED		phase=FD		type=GID_T
+      group-early	groups=NAMED		phase=PREOPEN		type=GID_T
+      group-late	groups=FD		phase=LATE		type=GID_T
+      hdrincl		is an alias for ip-hdrincl
+      history		is an alias for history-file
+      history-file	groups=READLINE		phase=LATE		type=STRING
+      hoplimit		is an alias for ipv6-hoplimit
+      hopopts		is an alias for ipv6-hopopts
+      hosts-allow	is an alias for tcpwrap-hosts-allow-table
+      hosts-deny	is an alias for tcpwrap-hosts-deny-table
+      http-version	groups=HTTP		phase=LATE		type=STRING
+      hup		is an alias for hupcl
+      hupcl		groups=TERMIOS		phase=FD		type=BOOL
+      icanon		groups=TERMIOS		phase=FD		type=BOOL
+      icrnl		groups=TERMIOS		phase=FD		type=BOOL
+      iexten		groups=TERMIOS		phase=FD		type=BOOL
+      if		is an alias for so-bindtodevice
+      if-mtu		is an alias for interface-mtu
+      iff-allmulti	groups=INTERFACE	phase=OFFSET		type=BOOL
+      iff-automedia	groups=INTERFACE	phase=OFFSET		type=BOOL
+      iff-broadcast	groups=INTERFACE	phase=OFFSET		type=BOOL
+      iff-debug		groups=INTERFACE	phase=OFFSET		type=BOOL
+      iff-loopback	groups=INTERFACE	phase=OFFSET		type=BOOL
+      iff-master	groups=INTERFACE	phase=OFFSET		type=BOOL
+      iff-multicast	groups=INTERFACE	phase=OFFSET		type=BOOL
+      iff-no-pi		groups=INTERFACE	phase=FD		type=BOOL
+      iff-noarp		groups=INTERFACE	phase=OFFSET		type=BOOL
+      iff-notrailers	groups=INTERFACE	phase=OFFSET		type=BOOL
+      iff-pointopoint	groups=INTERFACE	phase=OFFSET		type=BOOL
+      iff-portsel	groups=INTERFACE	phase=OFFSET		type=BOOL
+      iff-promisc	groups=INTERFACE	phase=OFFSET		type=BOOL
+      iff-running	groups=INTERFACE	phase=OFFSET		type=BOOL
+      iff-slave		groups=INTERFACE	phase=OFFSET		type=BOOL
+      iff-up		groups=INTERFACE	phase=OFFSET		type=BOOL
+      ignbrk		groups=TERMIOS		phase=FD		type=BOOL
+      igncr		groups=TERMIOS		phase=FD		type=BOOL
+      ignorecr		groups=HTTP		phase=LATE		type=BOOL
+      ignoreeof		groups=APPL		phase=LATE		type=BOOL
+      ignoreof		is an alias for ignoreeof
+      ignpar		groups=TERMIOS		phase=FD		type=BOOL
+      igntc		is an alias for res-igntc
+      imaxbel		groups=TERMIOS		phase=FD		type=BOOL
+      immutable		is an alias for fs-immutable
+      info		is an alias for tcp-info
+      inlcr		groups=TERMIOS		phase=FD		type=BOOL
+      inpck		groups=TERMIOS		phase=FD		type=BOOL
+      interface		is an alias for so-bindtodevice
+      interface-mtu	groups=INTERFACE	phase=LATE		type=UNSIGNED-INT
+      interval		groups=RETRY		phase=INIT		type=STRUCT-TIMESPEC
+      intervall		is an alias for interval
+      intr		is an alias for vintr
+      ioctl		is an alias for ioctl-void
+      ioctl-bin		groups=FD		phase=FD		type=INT:BIN
+      ioctl-int		groups=FD		phase=FD		type=INT:INT
+      ioctl-intp	groups=FD		phase=FD		type=INT:INTP
+      ioctl-string	groups=FD		phase=FD		type=INT:STRING
+      ioctl-void	groups=FD		phase=FD		type=INT
+      ip-add-membership	groups=IP4,IP6		phase=PASTSOCKET	type=STRUCT-IP_MREQN
+      ip-add-source-membership	groups=IP4,IP6		phase=PASTSOCKET	type=IP-MREQ-SOURCE
+      ip-freebind	groups=IP4,IP6		phase=PASTSOCKET	type=INT
+      ip-hdrincl	groups=IP4,IP6		phase=PASTSOCKET	type=INT
+      ip-membership	is an alias for ip-add-membership
+      ip-mtu		groups=IP4,IP6		phase=PASTSOCKET	type=INT
+      ip-mtu-discover	groups=IP4,IP6		phase=PASTSOCKET	type=INT
+      ip-multicast-if	groups=IP4,IP6		phase=PASTSOCKET	type=IP4NAME
+      ip-multicast-loop	groups=IP4,IP6		phase=PASTSOCKET	type=BYTE
+      ip-multicast-ttl	groups=IP4,IP6		phase=PASTSOCKET	type=BYTE
+      ip-options	groups=IP4,IP6		phase=PASTSOCKET	type=BIN
+      ip-pktinfo	groups=IP4,IP6		phase=PASTSOCKET	type=INT
+      ip-pktoptions	groups=IP4,IP6		phase=PASTSOCKET	type=INT
+      ip-recverr	groups=IP4,IP6		phase=PASTSOCKET	type=INT
+      ip-recvopts	groups=IP4,IP6		phase=PASTSOCKET	type=INT
+      ip-recvtos	groups=IP4,IP6		phase=PASTSOCKET	type=INT
+      ip-recvttl	groups=IP4,IP6		phase=PASTSOCKET	type=INT
+      ip-retopts	groups=IP4,IP6		phase=PASTSOCKET	type=INT
+      ip-router-alert	groups=IP4,IP6		phase=PASTSOCKET	type=INT
+      ip-tos		groups=IP4,IP6		phase=PASTSOCKET	type=INT
+      ip-transparent	groups=IP4,IP6		phase=PREBIND		type=BOOL
+      ip-ttl		groups=IP4,IP6		phase=PASTSOCKET	type=INT
+      ipfreebind	is an alias for ip-freebind
+      iphdrincl		is an alias for ip-hdrincl
+      ipmtu		is an alias for ip-mtu
+      ipmtudiscover	is an alias for ip-mtu-discover
+      ipmulticastloop	is an alias for ip-multicast-loop
+      ipmulticastttl	is an alias for ip-multicast-ttl
+      ipoptions		is an alias for ip-options
+      ippktinfo		is an alias for ip-pktinfo
+      ippktoptions	is an alias for ip-pktoptions
+      iprecverr		is an alias for ip-recverr
+      iprecvopts	is an alias for ip-recvopts
+      iprecvtos		is an alias for ip-recvtos
+      iprecvttl		is an alias for ip-recvttl
+      ipretopts		is an alias for ip-retopts
+      iprouteralert	is an alias for ip-router-alert
+      iptos		is an alias for ip-tos
+      ipttl		is an alias for ip-ttl
+      ipv6-add-membership	is an alias for ipv6-join-group
+      ipv6-add-source-membership	is an alias for ipv6-join-source-group
+      ipv6-authhdr	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-dstopts	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-hoplimit	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-hopopts	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-join-group	groups=IP6		phase=PASTSOCKET	type=STRUCT-IP_MREQN
+      ipv6-join-source-group	groups=IP6		phase=PASTSOCKET	type=GENERIC
+      ipv6-mcloop	is an alias for ipv6-multicast-loop
+      ipv6-mtu-discover	groups=IP4,IP6		phase=PASTSOCKET	type=INT
+      ipv6-multicast-loop	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-pktinfo	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-recvdstopts	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-recverr	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-recvhoplimit	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-recvhopopts	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-recvpathmtu	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-recvpktinfo	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-recvrthdr	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-recvtclass	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-rthdr	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-tclass	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-unicast-hops	groups=IP6		phase=PASTSOCKET	type=INT
+      ipv6-v6only	groups=IP6		phase=PREBIND		type=INT
+      ipv6only		is an alias for ipv6-v6only
+      isig		groups=TERMIOS		phase=FD		type=BOOL
+      ispeed		groups=TERMIOS		phase=FD		type=UNSIGNED-INT
+      istrip		groups=TERMIOS		phase=FD		type=BOOL
+      iuclc		groups=TERMIOS		phase=FD		type=BOOL
+      ixany		groups=TERMIOS		phase=FD		type=BOOL
+      ixoff		groups=TERMIOS		phase=FD		type=BOOL
+      ixon		groups=TERMIOS		phase=FD		type=BOOL
+      join-group	is an alias for ipv6-join-group
+      join-source-group	is an alias for ipv6-join-source-group
+      journal		is an alias for fs-journal-data
+      journal-data	is an alias for fs-journal-data
+      keepalive		is an alias for so-keepalive
+      keepcnt		is an alias for tcp-keepcnt
+      keepidle		is an alias for tcp-keepidle
+      keepintvl		is an alias for tcp-keepintvl
+      key		is an alias for openssl-key
+      kill		is an alias for vkill
+      largefile		is an alias for o-largefile
+      libwrap		is an alias for tcpwrappers
+      linger		is an alias for so-linger
+      linger2		is an alias for tcp-linger2
+      link		is an alias for symbolic-link
+      listen-timeout	is an alias for accept-timeout
+      lnext		is an alias for vlnext
+      lock		is an alias for f-setlkw-wr
+      lockfile		groups=APPL		phase=INIT		type=STRING
+      lockw		is an alias for f-setlkw-wr
+      login		is an alias for dash
+      loopback		is an alias for iff-loopback
+      lowport		groups=UDP,TCP,SCTP,DCCP,UDPLITEphase=LATE		type=BOOL
+      lseek		is an alias for lseek64-set
+      lseek32		is an alias for lseek32-set
+      lseek32-cur	groups=BLK,REG		phase=LATE		type=OFF_T
+      lseek32-end	groups=BLK,REG		phase=LATE		type=OFF_T
+      lseek32-set	groups=BLK,REG		phase=LATE		type=OFF_T
+      lseek64		is an alias for lseek64-set
+      lseek64-cur	groups=BLK,REG		phase=LATE		type=OFF64_T
+      lseek64-end	groups=BLK,REG		phase=LATE		type=OFF64_T
+      lseek64-set	groups=BLK,REG		phase=LATE		type=OFF64_T
+      master		is an alias for iff-master
+      max-children	groups=CHILD		phase=PASTACCEPT	type=INT
+      max-proto-version	is an alias for openssl-max-proto-version
+      max-version	is an alias for openssl-max-proto-version
+      maxchildren	is an alias for max-children
+      maxfraglen	is an alias for openssl-maxfraglen
+      maxseg		is an alias for tcp-maxseg
+      maxseg-late	is an alias for tcp-maxseg-late
+      maxsendfrag	is an alias for openssl-maxsendfrag
+      mcloop		is an alias for ip-multicast-loop
+      mcloop6		is an alias for ipv6-multicast-loop
+      membership	is an alias for ip-add-membership
+      min		is an alias for vmin
+      min-proto-version	is an alias for openssl-min-proto-version
+      min-version	is an alias for openssl-min-proto-version
+      mode		is an alias for perm
+      mq-flush		is an alias for posixmq-flush
+      mq-maxmsg		is an alias for posixmq-maxmsg
+      mq-msgsize	is an alias for posixmq-msgsize
+      mq-prio		is an alias for posixmq-priority
+      mss		is an alias for tcp-maxseg
+      mss-late		is an alias for tcp-maxseg-late
+      mtu		is an alias for ip-mtu
+      mtudiscover	is an alias for ip-mtu-discover
+      mtudiscover6	is an alias for ipv6-mtu-discover
+      multicast		is an alias for iff-multicast
+      multicast-if	is an alias for ip-multicast-if
+      multicast-loop	is an alias for ip-multicast-loop
+      multicast-ttl	is an alias for ip-multicast-ttl
+      multicastloop	is an alias for ip-multicast-loop
+      multicastttl	is an alias for ip-multicast-ttl
+      nameserver	is an alias for res-nsaddr
+      ndelay		is an alias for o-nonblock
+      netns		groups=PROCESS		phase=INIT		type=STRING
+      new		is an alias for unlink-early
+      nl0		groups=TERMIOS		phase=FD		type=CONST
+      nl1		groups=TERMIOS		phase=FD		type=CONST
+      nldly		groups=TERMIOS		phase=FD		type=BOOL
+      no-check		is an alias for so-no-check
+      no-pi		is an alias for iff-no-pi
+      no-sni		is an alias for openssl-no-sni
+      noarp		is an alias for iff-noarp
+      noatime		is an alias for o-noatime
+      nocheck		is an alias for so-no-check
+      noctty		is an alias for o-noctty
+      nodelay		is an alias for tcp-nodelay
+      nodump		is an alias for fs-nodump
+      noecho		groups=READLINE		phase=LATE		type=STRING
+      noflsh		groups=TERMIOS		phase=FD		type=BOOL
+      nofollow		is an alias for o-nofollow
+      nofork		groups=FORK		phase=BIGEN		type=BOOL
+      nonblock		is an alias for o-nonblock
+      noprompt		groups=READLINE		phase=LATE		type=BOOL
+      nosni		is an alias for openssl-no-sni
+      notrailers	is an alias for iff-notrailers
+      nsaddr		is an alias for res-nsaddr
+      null-eof		groups=SOCKET		phase=OFFSET		type=BOOL
+      o-append		is an alias for append
+      o-async		is an alias for async
+      o-creat		groups=OPEN		phase=OPEN		type=BOOL
+      o-create		is an alias for o-creat
+      o-direct		groups=OPEN		phase=OPEN		type=BOOL
+      o-directory	groups=OPEN		phase=OPEN		type=BOOL
+      o-dsync		groups=OPEN		phase=OPEN		type=BOOL
+      o-excl		groups=OPEN		phase=OPEN		type=BOOL
+      o-largefile	groups=OPEN		phase=OPEN		type=BOOL
+      o-ndelay		is an alias for o-nonblock
+      o-noatime		groups=FD,OPEN		phase=FD		type=BOOL
+      o-noctty		groups=OPEN		phase=OPEN		type=BOOL
+      o-nofollow	groups=OPEN		phase=OPEN		type=BOOL
+      o-nonblock	groups=FD,OPEN		phase=FD		type=BOOL
+      o-rdonly		groups=OPEN		phase=OPEN		type=BOOL
+      o-rdwr		groups=OPEN		phase=OPEN		type=BOOL
+      o-rsync		groups=OPEN		phase=OPEN		type=BOOL
+      o-sync		groups=OPEN		phase=OPEN		type=BOOL
+      o-trunc		groups=OPEN		phase=LATE		type=BOOL
+      o-wronly		groups=OPEN		phase=OPEN		type=BOOL
+      o_creat		is an alias for o-creat
+      o_create		is an alias for o-creat
+      o_direct		is an alias for o-direct
+      o_directory	is an alias for o-directory
+      o_dsync		is an alias for o-dsync
+      o_excl		is an alias for o-excl
+      o_largefile	is an alias for o-largefile
+      o_ndelay		is an alias for o-nonblock
+      o_noctty		is an alias for o-noctty
+      o_nofollow	is an alias for o-nofollow
+      o_rdonly		is an alias for o-rdonly
+      o_rdwr		is an alias for o-rdwr
+      o_rsync		is an alias for o-rsync
+      o_sync		is an alias for o-sync
+      o_wronly		is an alias for o-wronly
+      ocrnl		groups=TERMIOS		phase=FD		type=BOOL
+      ofdel		groups=TERMIOS		phase=FD		type=BOOL
+      ofill		groups=TERMIOS		phase=FD		type=BOOL
+      olcuc		groups=TERMIOS		phase=FD		type=BOOL
+      onlcr		groups=TERMIOS		phase=FD		type=BOOL
+      onlret		groups=TERMIOS		phase=FD		type=BOOL
+      onocr		groups=TERMIOS		phase=FD		type=BOOL
+      oobinline		is an alias for so-oobinline
+      openpty		groups=PTY		phase=BIGEN		type=BOOL
+      openssl-cafile	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-capath	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-certificate	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-cipherlist	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-commonname	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-compress	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-dhparam	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-dhparams	is an alias for openssl-dhparam
+      openssl-egd	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-key	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-max-proto-version	groups=OPENSSL		phase=OFFSET		type=STRING
+      openssl-maxfraglen	groups=OPENSSL		phase=SPECIFIC		type=INT
+      openssl-maxsendfrag	groups=OPENSSL		phase=SPECIFIC		type=INT
+      openssl-min-proto-version	groups=OPENSSL		phase=OFFSET		type=STRING
+      openssl-no-sni	groups=OPENSSL		phase=SPECIFIC		type=BOOL
+      openssl-pseudo	groups=OPENSSL		phase=SPECIFIC		type=BOOL
+      openssl-snihost	groups=OPENSSL		phase=SPECIFIC		type=STRING
+      openssl-verify	groups=OPENSSL		phase=SPECIFIC		type=BOOL
+      opost		groups=TERMIOS		phase=FD		type=BOOL
+      ospeed		groups=TERMIOS		phase=FD		type=UNSIGNED-INT
+      owner		is an alias for user
+      parenb		groups=TERMIOS		phase=FD		type=BOOL
+      parmrk		groups=TERMIOS		phase=FD		type=BOOL
+      parodd		groups=TERMIOS		phase=FD		type=BOOL
+      passcred		is an alias for so-passcred
+      passive		is an alias for ai-passive
+      path		groups=EXEC		phase=PREEXEC		type=STRING
+      peercred		is an alias for so-peercred
+      pendin		groups=TERMIOS		phase=FD		type=BOOL
+      perm		groups=FD,NAMED		phase=FD		type=MODE_T
+      perm-early	groups=NAMED		phase=PREOPEN		type=MODE_T
+      perm-late		groups=FD		phase=LATE		type=MODE_T
+      pf		is an alias for protocol-family
+      pgid		is an alias for setpgid
+      pipes		groups=FORK		phase=BIGEN		type=BOOL
+      pipesz		is an alias for f-setpipe-sz
+      pktinfo		is an alias for ip-pktinfo
+      pktoptions	is an alias for ip-pktoptions
+      pktopts		is an alias for ip-pktoptions
+      pointopoint	is an alias for iff-pointopoint
+      portsel		is an alias for iff-portsel
+      posixmq-flush	groups=POSIXMQ		phase=EARLY		type=BOOL
+      posixmq-maxmsg	groups=POSIXMQ		phase=OPEN		type=LONG
+      posixmq-msgsize	groups=POSIXMQ		phase=OPEN		type=LONG
+      posixmq-priority	groups=POSIXMQ		phase=INIT		type=UNSIGNED-INT
+      priority		is an alias for so-priority
+      promisc		is an alias for iff-promisc
+      prompt		groups=READLINE		phase=LATE		type=STRING
+      protocol		is an alias for so-protocol
+      protocol-family	groups=SOCKET		phase=PRESOCKET		type=STRING
+      prototype		is an alias for so-protocol
+      proxy-auth	is an alias for proxy-authorization
+      proxy-authorization	groups=HTTP		phase=LATE		type=STRING
+      proxy-authorization-file	groups=HTTP		phase=LATE		type=STRING
+      proxy-resolve	groups=HTTP		phase=LATE		type=BOOL
+      proxyauth		is an alias for proxy-authorization
+      proxyauthfile	is an alias for proxy-authorization-file
+      proxyport		groups=HTTP		phase=LATE		type=STRING
+      prterase		is an alias for echoprt
+      pseudo		is an alias for openssl-pseudo
+      ptmx		groups=PTY		phase=BIGEN		type=BOOL
+      pty		groups=FORK		phase=BIGEN		type=BOOL
+      pty-interval	groups=PTY		phase=EARLY		type=STRUCT-TIMESPEC
+      pty-intervall	is an alias for pty-interval
+      pty-wait-slave	groups=PTY		phase=EARLY		type=BOOL
+      quickack		is an alias for tcp-quickack
+      quit		is an alias for vquit
+      range		groups=RANGE		phase=ACCEPT		type=STRING
+      raw		groups=TERMIOS		phase=FD		type=CONST
+      rawer		is an alias for termios-rawer
+      rcvbuf		is an alias for so-rcvbuf
+      rcvbuf-late	is an alias for so-rcvbuf-late
+      rcvlowat		is an alias for so-rcvlowat
+      rcvtimeo		is an alias for so-rcvtimeo
+      rdonly		is an alias for o-rdonly
+      rdwr		is an alias for o-rdwr
+      readbytes		groups=APPL		phase=LATE		type=SIZE_T
+      recurse		is an alias for res-recurse
+      recvdstopts	is an alias for ipv6-recvdstopts
+      recverr		is an alias for ip-recverr
+      recvhoplimit	is an alias for ipv6-recvhoplimit
+      recvhopopts	is an alias for ipv6-recvhopopts
+      recvopts		is an alias for ip-recvopts
+      recvpktinfo	is an alias for ipv6-recvpktinfo
+      recvrthdr		is an alias for ipv6-recvrthdr
+      recvtos		is an alias for ip-recvtos
+      recvttl		is an alias for ip-recvttl
+      remove		is an alias for unlink
+      reprint		is an alias for vreprint
+      res-debug		groups=IP4,IP6		phase=OFFSET		type=BOOL
+      res-defnames	groups=IP4,IP6		phase=OFFSET		type=BOOL
+      res-dnsrch	groups=IP4,IP6		phase=OFFSET		type=BOOL
+      res-igntc		groups=IP4,IP6		phase=OFFSET		type=BOOL
+      res-maxretrans	is an alias for res-retrans
+      res-maxretry	is an alias for res-retry
+      res-nsaddr	groups=IP4,IP6		phase=OFFSET		type=IP4SOCK
+      res-recurse	groups=IP4,IP6		phase=OFFSET		type=BOOL
+      res-retrans	groups=IP4,IP6		phase=OFFSET		type=INT
+      res-retry		groups=IP4,IP6		phase=OFFSET		type=INT
+      res-stayopen	groups=IP4,IP6		phase=OFFSET		type=BOOL
+      res-usevc		groups=IP4,IP6		phase=OFFSET		type=BOOL
+      resolv		is an alias for proxy-resolve
+      resolve		is an alias for proxy-resolve
+      retopts		is an alias for ip-retopts
+      retrans		is an alias for res-retrans
+      retrieve-vlan	groups=INTERFACE	phase=LATE		type=CONST
+      retry		groups=RETRY		phase=INIT		type=UNSIGNED-INT
+      reuseaddr		is an alias for so-reuseaddr
+      reuseport		is an alias for so-reuseport
+      routeralert	is an alias for ip-router-alert
+      rprnt		is an alias for vreprint
+      rsync		is an alias for o-rsync
+      rthdr		is an alias for ipv6-rthdr
+      running		is an alias for iff-running
+      sane		groups=TERMIOS		phase=FD		type=CONST
+      secrm		is an alias for fs-secrm
+      security-authentication	is an alias for so-security-authentication
+      security-encryption-network	is an alias for so-security-encryption-network
+      security-encryption-transport	is an alias for so-security-encryption-transport
+      securityauthentication	is an alias for so-security-authentication
+      securityencryptionnetwork	is an alias for so-security-encryption-network
+      securityencryptiontransport	is an alias for so-security-encryption-transport
+      seek		is an alias for lseek64-set
+      seek-cur		is an alias for lseek64-cur
+      seek-end		is an alias for lseek64-end
+      seek-set		is an alias for lseek64-set
+      setflags		is an alias for termios-setflags
+      setgid		groups=PROCESS		phase=LATE2		type=GID_T
+      setgid-early	groups=PROCESS		phase=EARLY		type=GID_T
+      setlk		is an alias for f-setlk-wr
+      setlk-rd		is an alias for f-setlk-rd
+      setlk-wr		is an alias for f-setlk-wr
+      setlkw		is an alias for f-setlkw-wr
+      setlkw-rd		is an alias for f-setlkw-rd
+      setlkw-wr		is an alias for f-setlkw-wr
+      setpgid		groups=FORK		phase=LATE		type=INT
+      setsid		groups=PROCESS		phase=LATE		type=BOOL
+      setsockopt	groups=SOCKET		phase=CONNECTED		type=INT:INT:BIN
+      setsockopt-bin	groups=SOCKET		phase=CONNECTED		type=INT:INT:BIN
+      setsockopt-connected	groups=SOCKET		phase=CONNECTED		type=INT:INT:BIN
+      setsockopt-int	groups=SOCKET		phase=CONNECTED		type=INT:INT:INT
+      setsockopt-listen	groups=SOCKET		phase=PREBIND		type=INT:INT:BIN
+      setsockopt-socket	groups=SOCKET		phase=PASTSOCKET	type=INT:INT:BIN
+      setsockopt-string	groups=SOCKET		phase=CONNECTED		type=INT:INT:STRING
+      setuid		groups=PROCESS		phase=LATE2		type=UID_T
+      setuid-early	groups=PROCESS		phase=EARLY		type=UID_T
+      shell		groups=SHELL		phase=PREEXEC		type=STRING
+      shut-close	groups=FD		phase=OFFSET		type=CONST
+      shut-down		groups=FD		phase=OFFSET		type=CONST
+      shut-none		groups=FD		phase=OFFSET		type=CONST
+      shut-null		groups=FD		phase=OFFSET		type=CONST
+      sid		is an alias for setsid
+      sighup		groups=PARENT		phase=LATE		type=CONST
+      sigint		groups=PARENT		phase=LATE		type=CONST
+      sigquit		groups=PARENT		phase=LATE		type=CONST
+      siocspgrp		groups=SOCKET		phase=PASTSOCKET	type=INT
+      sitout-eio	groups=PTY		phase=OFFSET		type=STRUCT-TIMEVAL
+      slave		is an alias for iff-slave
+      sndbuf		is an alias for so-sndbuf
+      sndbuf-late	is an alias for so-sndbuf-late
+      sndlowat		is an alias for so-sndlowat
+      sndtimeo		is an alias for so-sndtimeo
+      snihost		is an alias for openssl-snihost
+      so-acceptconn	groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-attach-filter	groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-bindtodevice	groups=SOCKET		phase=PASTSOCKET	type=STRING
+      so-broadcast	groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-bsdcompat	groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-debug		groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-detach-filter	groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-dontroute	groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-error		groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-keepalive	groups=SOCKET		phase=FD		type=INT
+      so-linger		groups=SOCKET		phase=PASTSOCKET	type=STRUCT-LINGER
+      so-no-check	groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-oobinline	groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-passcred	groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-peercred	groups=SOCKET		phase=PASTSOCKET	type=INT[3]
+      so-priority	groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-protocol	groups=SOCKET		phase=SOCKET		type=INT
+      so-prototype	is an alias for so-protocol
+      so-rcvbuf		groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-rcvbuf-late	groups=SOCKET		phase=LATE		type=INT
+      so-rcvlowat	groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-rcvtimeo	groups=SOCKET		phase=PASTSOCKET	type=STRUCT-TIMEVAL
+      so-reuseaddr	groups=SOCKET		phase=PREBIND		type=INT/NULL
+      so-reuseport	groups=SOCKET		phase=PREBIND		type=INT
+      so-security-authentication	groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-security-encryption-network	groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-security-encryption-transport	groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-sndbuf		groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-sndbuf-late	groups=SOCKET		phase=LATE		type=INT
+      so-sndlowat	groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-sndtimeo	groups=SOCKET		phase=PASTSOCKET	type=STRUCT-TIMEVAL
+      so-timestamp	groups=SOCKET		phase=PASTSOCKET	type=INT
+      so-type		groups=SOCKET		phase=SOCKET		type=INT
+      sockopt		is an alias for setsockopt
+      sockopt-bin	is an alias for setsockopt-bin
+      sockopt-conn	is an alias for setsockopt-connected
+      sockopt-int	is an alias for setsockopt-int
+      sockopt-listen	is an alias for setsockopt-listen
+      sockopt-sock	is an alias for setsockopt-socket
+      sockopt-string	is an alias for setsockopt-string
+      sockspass		groups=SOCKS		phase=LATE		type=STRING
+      socksport		groups=SOCKS		phase=LATE		type=STRING
+      socksuser		groups=SOCKS		phase=LATE		type=STRING
+      socktype		is an alias for so-type
+      source-membership	is an alias for ip-add-source-membership
+      sourceport	groups=UDP,TCP,SCTP,DCCP,UDPLITEphase=LATE		type=UNSIGNED-SHORT
+      sp		is an alias for sourceport
+      start		is an alias for vstart
+      stayopen		is an alias for res-stayopen
+      stderr		groups=FORK		phase=PASTFORK		type=BOOL
+      stop		is an alias for vstop
+      su		is an alias for substuser
+      su-d		is an alias for substuser-delayed
+      su-e		is an alias for substuser-early
+      substuser		groups=PROCESS		phase=LATE2		type=UID_T
+      substuser-delayed	groups=PROCESS		phase=INIT		type=UID_T
+      substuser-early	groups=PROCESS		phase=EARLY		type=UID_T
+      susp		is an alias for vsusp
+      swtc		is an alias for vswtc
+      swtch		is an alias for vswtc
+      symbolic-link	groups=PTY		phase=LATE		type=STRING
+      sync		is an alias for o-sync
+      syncnt		is an alias for tcp-syncnt
+      tab0		groups=TERMIOS		phase=FD		type=CONST
+      tab1		groups=TERMIOS		phase=FD		type=CONST
+      tab2		groups=TERMIOS		phase=FD		type=CONST
+      tab3		groups=TERMIOS		phase=FD		type=CONST
+      tabdly		groups=TERMIOS		phase=FD		type=UNSIGNED-INT
+      tandem		is an alias for ixoff
+      tcp-cork		groups=TCP		phase=PASTSOCKET	type=INT
+      tcp-defer-accept	groups=TCP		phase=PASTSOCKET	type=INT
+      tcp-info		groups=TCP		phase=PASTSOCKET	type=INT
+      tcp-keepcnt	groups=TCP		phase=PASTSOCKET	type=INT
+      tcp-keepidle	groups=TCP		phase=PASTSOCKET	type=INT
+      tcp-keepintvl	groups=TCP		phase=PASTSOCKET	type=INT
+      tcp-linger2	groups=TCP		phase=PASTSOCKET	type=INT
+      tcp-maxseg	groups=TCP		phase=PASTSOCKET	type=INT
+      tcp-maxseg-late	groups=TCP		phase=CONNECTED		type=INT
+      tcp-md5sig	groups=TCP		phase=PASTSOCKET	type=INT
+      tcp-nodelay	groups=TCP		phase=PASTSOCKET	type=INT
+      tcp-quickack	groups=TCP		phase=PASTSOCKET	type=INT
+      tcp-syncnt	groups=TCP		phase=PASTSOCKET	type=INT
+      tcp-window-clamp	groups=TCP		phase=PASTSOCKET	type=INT
+      tcpwrap		is an alias for tcpwrappers
+      tcpwrap-dir	is an alias for tcpwrap-etc
+      tcpwrap-etc	groups=RANGE		phase=ACCEPT		type=STRING
+      tcpwrap-hosts-allow-table	groups=RANGE		phase=ACCEPT		type=STRING
+      tcpwrap-hosts-deny-table	groups=RANGE		phase=ACCEPT		type=STRING
+      tcpwrapper	is an alias for tcpwrappers
+      tcpwrappers	groups=RANGE		phase=ACCEPT		type=STRING-NULL
+      termios-cfmakeraw	groups=TERMIOS		phase=FD		type=CONST
+      termios-rawer	groups=TERMIOS		phase=FD		type=CONST
+      termios-setflags	groups=TERMIOS		phase=FD		type=INT:ULONG
+      tightsocklen	is an alias for unix-tightsocklen
+      time		is an alias for vtime
+      timestamp		is an alias for so-timestamp
+      tiocsctty		groups=TERMIOS		phase=LATE2		type=BOOL
+      tiocswinsz	groups=TERMIOS		phase=FD		type=INT:INT
+      topdir		is an alias for fs-topdir
+      tos		is an alias for ip-tos
+      tostop		groups=TERMIOS		phase=FD		type=BOOL
+      transparent	is an alias for ip-transparent
+      trunc		is an alias for o-trunc
+      truncate		is an alias for ftruncate64
+      ttl		is an alias for ip-ttl
+      tun-device	groups=INTERFACE	phase=OPEN		type=STRING
+      tun-name		groups=INTERFACE	phase=FD		type=STRING
+      tun-no-pi		is an alias for iff-no-pi
+      tun-type		groups=INTERFACE	phase=FD		type=STRING
+      type		is an alias for so-type
+      udplite-recv-cscov	groups=UDPLITE		phase=FD		type=INT
+      udplite-send-cscov	groups=UDPLITE		phase=FD		type=INT
+      uid		is an alias for user
+      uid-e		is an alias for user-early
+      uid-l		is an alias for user-late
+      umask		groups=(all)			phase=INIT		type=MODE_T
+      unicast-hops	is an alias for ipv6-unicast-hops
+      unix-bind-tempname	groups=UNIX		phase=PREOPEN		type=STRING-NULL
+      unix-tightsocklen	groups=UNIX		phase=PREBIND		type=BOOL
+      unlink		groups=NAMED		phase=PREOPEN		type=BOOL
+      unlink-close	groups=NAMED		phase=LATE		type=BOOL
+      unlink-early	groups=NAMED		phase=EARLY		type=BOOL
+      unlink-late	groups=NAMED		phase=PASTOPEN		type=BOOL
+      unrm		is an alias for fs-unrm
+      up		is an alias for iff-up
+      user		groups=FD,NAMED		phase=FD		type=UID_T
+      user-early	groups=NAMED		phase=PREOPEN		type=UID_T
+      user-late		groups=FD		phase=LATE		type=UID_T
+      usevc		is an alias for res-usevc
+      v4mapped		is an alias for ai-v4mapped
+      v6only		is an alias for ipv6-v6only
+      vdiscard		groups=TERMIOS		phase=FD		type=BYTE
+      veof		groups=TERMIOS		phase=FD		type=BYTE
+      veol		groups=TERMIOS		phase=FD		type=BYTE
+      veol2		groups=TERMIOS		phase=FD		type=BYTE
+      verase		groups=TERMIOS		phase=FD		type=BYTE
+      verify		is an alias for openssl-verify
+      vintr		groups=TERMIOS		phase=FD		type=BYTE
+      vkill		groups=TERMIOS		phase=FD		type=BYTE
+      vlnext		groups=TERMIOS		phase=FD		type=BYTE
+      vmin		groups=TERMIOS		phase=FD		type=BYTE
+      vquit		groups=TERMIOS		phase=FD		type=BYTE
+      vreprint		groups=TERMIOS		phase=FD		type=BYTE
+      vstart		groups=TERMIOS		phase=FD		type=BYTE
+      vstop		groups=TERMIOS		phase=FD		type=BYTE
+      vsusp		groups=TERMIOS		phase=FD		type=BYTE
+      vswtc		groups=TERMIOS		phase=FD		type=BYTE
+      vt0		groups=TERMIOS		phase=FD		type=CONST
+      vt1		groups=TERMIOS		phase=FD		type=CONST
+      vtdly		groups=TERMIOS		phase=FD		type=BOOL
+      vtime		groups=TERMIOS		phase=FD		type=BYTE
+      vwerase		groups=TERMIOS		phase=FD		type=BYTE
+      wait-slave	is an alias for pty-wait-slave
+      waitlock		groups=APPL		phase=INIT		type=STRING
+      waitslave		is an alias for pty-wait-slave
+      werase		is an alias for vwerase
+      window-clamp	is an alias for tcp-window-clamp
+      winsz		is an alias for tiocswinsz
+      wrap		is an alias for tcpwrappers
+      wronly		is an alias for o-wronly
+      xcase		groups=TERMIOS		phase=FD		type=BOOL
+      xtabs		groups=TERMIOS		phase=FD		type=CONST
