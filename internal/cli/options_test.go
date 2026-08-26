@@ -267,6 +267,23 @@ func TestReuseaddrHelpMentionsTCPDefaultAndUDPFork(t *testing.T) {
 	t.Fatal("reuseaddr missing from help options")
 }
 
+func TestBroadcastHelpAdvertisesSoBroadcast(t *testing.T) {
+	for _, group := range helpOptionGroups() {
+		for _, option := range group.opts {
+			if option.name != "broadcast" {
+				continue
+			}
+			for _, alias := range option.aliases {
+				if alias == "so-broadcast" {
+					return
+				}
+			}
+			t.Fatalf("broadcast aliases=%v want so-broadcast", option.aliases)
+		}
+	}
+	t.Fatal("broadcast missing from help options")
+}
+
 func TestHelpDoesNotAdvertiseCoolWrite(t *testing.T) {
 	for _, group := range helpOptionGroups() {
 		for _, option := range group.opts {

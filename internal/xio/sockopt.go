@@ -33,13 +33,41 @@ func applySocketBufferOpt(fd int, name string, o parse.Option, present bool, opt
 	return nil
 }
 
+// applyBroadcast is classic opt_so_broadcast from xio-socket.c
+// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same tree): GROUP_SOCKET,
+// PH_PASTSOCKET, TYPE_INT, OFUNC_SOCKOPT, SOL_SOCKET, SO_BROADCAST.
+// Bare flag → 1; with '=' → integer (Strtoul). Presence always applies,
+// including broadcast=0. BoolOption is wrong here because it skips false.
+func applyBroadcast(fd int, s parse.Spec) error {
+	o, ok := s.OptionNamed("broadcast")
+	if !ok {
+		return nil
+	}
+	n := 1
+	if o.Has {
+		v, err := ParseIntAny(o.Value)
+		if err != nil || v < 0 {
+			return fmt.Errorf("broadcast: invalid value %q", o.Value)
+		}
+		n = v
+	}
+	if err := setSockoptInt(fd, solSocket, soBroadcast, n); err != nil {
+		return fmt.Errorf("broadcast: %w", err)
+	}
+	return nil
+}
+
 // applyPastSocketBuffersAndDevice is the PH_PASTSOCKET half of classic
-// opt_so_sndbuf / opt_so_rcvbuf / opt_so_bindtodevice. Late variants are
-// applied in ApplyTCPConnOpts (raw TCP after connect/accept, before TLS/
-// PROXY handshake), ApplyUDPConnOpts / applyUnixgramSocketOptions (raw
-// UDP/UNIX after bind or connect, before packet-session wrapping), and
-// WrapCommon (streams that expose a socket fd).
+// opt_so_broadcast / opt_so_sndbuf / opt_so_rcvbuf / opt_so_bindtodevice.
+// Late buffer variants are applied in ApplyTCPConnOpts (raw TCP after
+// connect/accept, before TLS/PROXY handshake), ApplyUDPConnOpts /
+// applyUnixgramSocketOptions (raw UDP/UNIX after bind or connect, before
+// packet-session wrapping), and WrapCommon (streams that expose a socket fd).
 func applyPastSocketBuffersAndDevice(fd int, s parse.Spec) error {
+	if err := applyBroadcast(fd, s); err != nil {
+		return err
+	}
 	o, ok := s.OptionNamed("sndbuf")
 	if err := applySocketBufferOpt(fd, "sndbuf", o, ok, soSndbuf); err != nil {
 		return err

@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -349,7 +348,9 @@ func ipLookupNet(network string) string {
 	return "ip4"
 }
 
-// applyIPConnOpts sets ancillary recv, send IP options, broadcast, and multicast join.
+// applyIPConnOpts sets ancillary recv, send IP options, and multicast join.
+// SO_BROADCAST is applied with other PH_PASTSOCKET SOL_SOCKET options via
+// ApplySocketOptions (classic TYPE_INT; broadcast=0 is a real setsockopt).
 func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
@@ -370,12 +371,7 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 		if optionErr = xio.ApplyReuse(int(fd), s, true); optionErr != nil {
 			return
 		}
-		if s.BoolOption("broadcast") {
-			optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
-		}
-		if optionErr == nil {
-			optionErr = xio.ApplyMembershipJoins(int(fd), s)
-		}
+		optionErr = xio.ApplyMembershipJoins(int(fd), s)
 	})
 	return errors.Join(controlErr, optionErr)
 }

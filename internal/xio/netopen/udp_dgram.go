@@ -57,20 +57,6 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		c, port, berr := bindUDPLowport(ctx, network, bind, s, g)
 		if berr == nil && c != nil {
 			// use this bound conn as the packet socket
-			if s.BoolOption("broadcast") {
-				raw, e := c.SyscallConn()
-				if e != nil {
-					_ = c.Close()
-					return nil, e
-				}
-				var optionErr error
-				if e = raw.Control(func(fd uintptr) {
-					optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
-				}); e != nil || optionErr != nil {
-					_ = c.Close()
-					return nil, errors.Join(e, optionErr)
-				}
-			}
 			if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
 				_ = c.Close()
 				return nil, err
@@ -143,12 +129,8 @@ func udpListenConfig(s parse.Spec) net.ListenConfig {
 				if optionErr != nil {
 					return
 				}
-				if s.BoolOption("broadcast") {
-					optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
-				}
-				if optionErr == nil {
-					optionErr = xio.ApplyMembershipJoins(int(fd), s)
-				}
+				// UDP-DATAGRAM uses this Control, not xio.ListenControl.
+				optionErr = xio.ApplyMembershipJoins(int(fd), s)
 			})
 			return errors.Join(controlErr, optionErr)
 		},
@@ -415,13 +397,8 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 						return
 					}
 				}
-				if s.BoolOption("broadcast") {
-					optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_BROADCAST, 1)
-				}
-				if optionErr == nil {
-					// UDP-RECV uses this Control, not xio.ListenControl.
-					optionErr = xio.ApplyMembershipJoins(int(fd), s)
-				}
+				// UDP-RECV uses this Control, not xio.ListenControl.
+				optionErr = xio.ApplyMembershipJoins(int(fd), s)
 			})
 			return errors.Join(controlErr, optionErr)
 		},

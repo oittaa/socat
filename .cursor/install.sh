@@ -3,7 +3,7 @@
 #
 # Installs the pinned lint/security tools that `make check` needs. Go itself is
 # supplied by the base image, and go.mod's `toolchain` directive fetches the
-# exact compiler (go1.26.x) on first use, so we do not install Go here.
+# exact compiler (go1.27.x) on first use, so we do not install Go here.
 #
 # The Makefile invokes the bare `golangci-lint` and `gosec` binaries, but the
 # agent shell does not add $(go env GOPATH)/bin to PATH. So after building each
@@ -14,7 +14,7 @@ set -euo pipefail
 
 # Keep these in sync with .github/workflows/ci.yml (golangci-lint-action /
 # securego/gosec versions) so local `make check` matches CI.
-GOLANGCI_LINT_VERSION="v2.12.2"
+GOLANGCI_LINT_VERSION="v2.13.1"
 GOSEC_VERSION="v2.28.0"
 
 GOBIN="$(go env GOPATH)/bin"
@@ -45,12 +45,18 @@ place_on_path() { # <name>
 	$SUDO install -m 0755 "$GOBIN/$name" "$BINDIR/$name"
 }
 
+# `go install pkg@version` otherwise follows that module's go.mod and can
+# build with an older toolchain. golangci-lint only lints Go versions <= the
+# compiler that built it, so build it with the go.mod toolchain.
+GO_TOOLCHAIN="$(awk '/^toolchain / { print $2; exit }' go.mod)"
+
 if [ -x "$BINDIR/golangci-lint" ] &&
-	"$BINDIR/golangci-lint" version 2>&1 | grep -q "${GOLANGCI_LINT_VERSION#v}"; then
+	"$BINDIR/golangci-lint" version 2>&1 | grep -q "${GOLANGCI_LINT_VERSION#v}" &&
+	"$BINDIR/golangci-lint" version 2>&1 | grep -q "built with ${GO_TOOLCHAIN}"; then
 	echo "golangci-lint ${GOLANGCI_LINT_VERSION} already present"
 else
-	echo "installing golangci-lint ${GOLANGCI_LINT_VERSION}"
-	go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
+	echo "installing golangci-lint ${GOLANGCI_LINT_VERSION} with ${GO_TOOLCHAIN}"
+	GOTOOLCHAIN="${GO_TOOLCHAIN}" go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
 	place_on_path golangci-lint
 fi
 
@@ -60,7 +66,7 @@ if [ -x "$BINDIR/gosec" ]; then
 	echo "gosec already present"
 else
 	echo "installing gosec ${GOSEC_VERSION}"
-	go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
+	GOTOOLCHAIN="${GO_TOOLCHAIN}" go install "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
 	place_on_path gosec
 fi
 
