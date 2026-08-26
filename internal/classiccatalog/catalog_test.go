@@ -125,6 +125,7 @@ func TestClassicHHHKeyEntries(t *testing.T) {
 		{"sourceport", "sourceport", []string{"UDP", "TCP", "SCTP", "DCCP", "UDPLITE"}, "LATE", "UNSIGNED-SHORT", false},
 		{"sp", "sourceport", []string{"UDP", "TCP", "SCTP", "DCCP", "UDPLITE"}, "LATE", "UNSIGNED-SHORT", true},
 		{"lowport", "lowport", []string{"UDP", "TCP", "SCTP", "DCCP", "UDPLITE"}, "LATE", "BOOL", false},
+		{"b7200", "b7200", []string{"TERMIOS"}, "FD", "CONST", false},
 	}
 	for _, tt := range tests {
 		e, ok := Lookup(tt.spelling)
@@ -208,23 +209,12 @@ func testdataV(t *testing.T) string {
 	return string(b)
 }
 
-func TestFeatureCompleteSpellingCount(t *testing.T) {
+func TestAdvertisedCount(t *testing.T) {
+	if AdvertisedCount != 795 {
+		t.Fatalf("AdvertisedCount=%d, want 795", AdvertisedCount)
+	}
 	if len(Options) != AdvertisedCount {
 		t.Fatalf("advertised catalog has %d spellings, want %d", len(Options), AdvertisedCount)
-	}
-	n := len(Options)
-	for _, name := range FeatureCompleteHostIfdefs {
-		if _, ok := Lookup(name); ok {
-			t.Errorf("%q is in the Linux -hhh catalog; keep it in DocsOnlyNotInThisBinary", name)
-			continue
-		}
-		if DocsOnlyNotInThisBinary[name] == "" {
-			t.Errorf("%q must be in DocsOnlyNotInThisBinary", name)
-		}
-		n++
-	}
-	if n != FeatureCompleteSpellingCount {
-		t.Fatalf("feature-complete spelling count %d, want %d", n, FeatureCompleteSpellingCount)
 	}
 }
 
@@ -244,11 +234,18 @@ func TestFeatureCompleteCanaries(t *testing.T) {
 			t.Errorf("missing advertised canary %q", name)
 		}
 	}
-	if _, ok := Lookup("b7200"); ok {
-		t.Fatal("b7200 must not be forged into the Linux -hhh catalog")
+	e, ok := Lookup("b7200")
+	if !ok {
+		t.Fatal("b7200 must be in the advertised Linux -hhh catalog")
 	}
-	if DocsOnlyNotInThisBinary["b7200"] == "" {
-		t.Fatal("b7200 must be accounted in DocsOnlyNotInThisBinary")
+	if e.Canonical != "b7200" || e.Phase != "FD" || e.Type != "CONST" || e.IsAlias() {
+		t.Fatalf("b7200: canonical=%q phase=%q type=%q alias=%v", e.Canonical, e.Phase, e.Type, e.IsAlias())
+	}
+	if !reflect.DeepEqual(e.Groups, []string{"TERMIOS"}) {
+		t.Fatalf("b7200 groups=%v", e.Groups)
+	}
+	if DocsOnlyNotInThisBinary["b7200"] != "" {
+		t.Fatal("b7200 is advertised; remove it from DocsOnlyNotInThisBinary")
 	}
 }
 
@@ -257,6 +254,56 @@ func TestDocsOnlyNotInAdvertisedCatalog(t *testing.T) {
 		if _, ok := Lookup(name); ok {
 			t.Errorf("%q is advertised in the catalog; remove it from DocsOnlyNotInThisBinary", name)
 		}
+	}
+	if DocsOnlyNotInThisBinary["udp-ignore-peerport"] == "" {
+		t.Fatal("udp-ignore-peerport is documented and must be in DocsOnlyNotInThisBinary")
+	}
+}
+
+func TestRequiredPublicSpellingsUnion(t *testing.T) {
+	required := RequiredPublicSpellings()
+	if _, ok := required["b7200"]; !ok {
+		t.Fatal("RequiredPublicSpellings must include advertised b7200")
+	}
+	if _, ok := required["udp-ignore-peerport"]; !ok {
+		t.Fatal("RequiredPublicSpellings must include documented udp-ignore-peerport")
+	}
+	if _, ok := required["openssl-method"]; !ok {
+		t.Fatal("RequiredPublicSpellings must include documented openssl-method")
+	}
+	if got, want := len(required), len(Options)+len(DocsOnlyNotInThisBinary); got != want {
+		t.Fatalf("RequiredPublicSpellings has %d names, want %d (Options ∪ DocsOnlyNotInThisBinary)", got, want)
+	}
+	for name := range Options {
+		if _, ok := required[name]; !ok {
+			t.Errorf("advertised %q missing from RequiredPublicSpellings", name)
+		}
+	}
+	for name := range DocsOnlyNotInThisBinary {
+		if _, ok := required[name]; !ok {
+			t.Errorf("documented %q missing from RequiredPublicSpellings", name)
+		}
+	}
+}
+
+func TestOptionalParserOnlyAliasesNotRequired(t *testing.T) {
+	required := RequiredPublicSpellings()
+	for name := range OptionalParserOnlyAliases {
+		if _, ok := Lookup(name); ok {
+			t.Errorf("%q is advertised; remove it from OptionalParserOnlyAliases", name)
+		}
+		if DocsOnlyNotInThisBinary[name] != "" {
+			t.Errorf("%q is documented; it belongs in DocsOnlyNotInThisBinary, not OptionalParserOnlyAliases", name)
+		}
+		if _, ok := required[name]; ok {
+			t.Errorf("%q is in RequiredPublicSpellings; optional parser-only aliases are not compatibility requirements", name)
+		}
+	}
+	if _, ok := OptionalParserOnlyAliases["udp-ignore-peerport"]; ok {
+		t.Fatal("udp-ignore-peerport is documented; it must not be in OptionalParserOnlyAliases")
+	}
+	if _, ok := OptionalParserOnlyAliases["b7200"]; ok {
+		t.Fatal("b7200 is advertised; it must not be in OptionalParserOnlyAliases")
 	}
 }
 
@@ -299,6 +346,9 @@ func TestOfficialBinaryHHHMatchesTestdata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, ok := got["b7200"]; !ok {
+		t.Skipf("%s -hhh is feature-complete but lacks b7200; this host's termios.h does not define B7200. The fixture is 795 spellings including b7200 (Ubuntu 26.04 / glibc #define B7200 7200U).", bin)
+	}
 	if len(got) != AdvertisedCount {
 		t.Fatalf("%s -hhh has %d spellings, want %d", bin, len(got), AdvertisedCount)
 	}
@@ -314,10 +364,6 @@ func findFeatureCompleteClassicBinary() (string, string) {
 			candidates = append(candidates, v)
 		}
 	}
-	candidates = append(candidates,
-		"/tmp/socat-tag-1.8.1.3-full/socat",
-		"/tmp/socat-1.8.1.3/socat",
-	)
 	var skipped []string
 	for _, bin := range candidates {
 		if _, err := os.Stat(bin); err != nil {
@@ -335,7 +381,7 @@ func findFeatureCompleteClassicBinary() (string, string) {
 		return bin, ""
 	}
 	if len(skipped) == 0 {
-		return "", "classic socat binary not available"
+		return "", "classic socat binary not available (set SOCAT or CLASSIC_SOCAT)"
 	}
 	return "", "no feature-complete classic socat binary (" + strings.Join(skipped, "; ") + ")"
 }

@@ -52,6 +52,7 @@ var Options = map[string]Entry{
 	"b57600":                           {Spelling: "b57600", Canonical: "b57600", Groups: []string{"TERMIOS"}, Phase: "FD", Type: "CONST"},
 	"b576000":                          {Spelling: "b576000", Canonical: "b576000", Groups: []string{"TERMIOS"}, Phase: "FD", Type: "CONST"},
 	"b600":                             {Spelling: "b600", Canonical: "b600", Groups: []string{"TERMIOS"}, Phase: "FD", Type: "CONST"},
+	"b7200":                            {Spelling: "b7200", Canonical: "b7200", Groups: []string{"TERMIOS"}, Phase: "FD", Type: "CONST"},
 	"b75":                              {Spelling: "b75", Canonical: "b75", Groups: []string{"TERMIOS"}, Phase: "FD", Type: "CONST"},
 	"b921600":                          {Spelling: "b921600", Canonical: "b921600", Groups: []string{"TERMIOS"}, Phase: "FD", Type: "CONST"},
 	"b9600":                            {Spelling: "b9600", Canonical: "b9600", Groups: []string{"TERMIOS"}, Phase: "FD", Type: "CONST"},

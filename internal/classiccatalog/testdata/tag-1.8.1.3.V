@@ -1,5 +1,5 @@
 socat by Gerhard Rieger and contributors - see www.dest-unreach.org
-socat version 1.8.1.3 on Aug 26 2026 18:19:41
+socat version 1.8.1.3 on Aug 26 2026 19:06:25
    running on Linux version #1 SMP PREEMPT_DYNAMIC Fri Aug 21 17:54:13 UTC 2026, release 6.12.94+, machine x86_64
 features:
   #define WITH_HELP 1

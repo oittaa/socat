@@ -7,11 +7,11 @@ package classiccatalog
 // and --enable-fips remain off).
 //
 // These names are required inputs for later compatibility work, but they
-// must not be forged into the advertised -hhh catalog.
+// must not be forged into the advertised -hhh catalog. RequiredPublicSpellings
+// unions this set with Options.
 var DocsOnlyNotInThisBinary = map[string]string{
 	"abort-threshold":      "documented; compiled only with HP-UX TCP_ABORT_THRESHOLD",
 	"b3600":                "HP-UX B3600; not defined on Linux glibc",
-	"b7200":                "HP-UX B7200; not defined on Linux glibc; completes FeatureCompleteSpellingCount",
 	"b900":                 "HP-UX B900; not defined on Linux glibc",
 	"binary":               "documented; compiled only with O_BINARY (Windows)",
 	"conn-abort-threshold": "documented; compiled only with HP-UX TCP_CONN_ABORT_THRESHOLD",
@@ -45,6 +45,77 @@ var DocsOnlyNotInThisBinary = map[string]string{
 	"stdurg":               "documented; compiled only with TCP_STDURG",
 	"text":                 "documented; compiled only with O_TEXT (Windows)",
 	"tsoptena":             "documented; compiled only with OSF1 TCP_TSOPTENA",
+	"udp-ignore-peerport":  "documented UDP-DATAGRAM option; not present in optionnames[]",
+}
+
+// OptionalParserOnlyAliases are C optionnames[] spellings that this configured
+// binary does not advertise and that the official man page does not document
+// as public OPTION_ names (or matching openssl-* aliases). They are accepted
+// by the classic parser on some hosts but are not compatibility requirements.
+var OptionalParserOnlyAliases = map[string]string{
+	"aaonly":                   "optionnames[] alias of res-aaonly; WITH_AA_ONLY",
+	"audit":                    "optionnames[] SO_AUDIT (AIX)",
+	"bin":                      "optionnames[] alias of binary; O_BINARY",
+	"cibaud":                   "optionnames[] termios CIBAUD",
+	"cksumrecv":                "optionnames[] alias of so-cksumrecv",
+	"cleanup":                  "optionnames[] host-specific",
+	"defer":                    "optionnames[] O_DEFER",
+	"delay":                    "optionnames[] O_DELAY",
+	"dgram-errind":             "optionnames[] SO_DGRAM_ERRIND",
+	"dgramerrind":              "optionnames[] alias of dgram-errind",
+	"dontlinger":               "optionnames[] SO_DONTLINGER",
+	"flowinfo":                 "optionnames[] alias of ipv6-flowinfo",
+	"iprecvdstaddr":            "optionnames[] alias of ip-recvdstaddr",
+	"ipv6-flowinfo":            "optionnames[] IPV6_FLOWINFO",
+	"kernaccept":               "optionnames[] SO_KERNACCEPT",
+	"noreuseaddr":              "optionnames[] SO_NOREUSEADDR",
+	"o-binary":                 "optionnames[] alias of binary; O_BINARY",
+	"o-defer":                  "optionnames[] O_DEFER",
+	"o-delay":                  "optionnames[] O_DELAY",
+	"o-noinherit":              "optionnames[] alias of noinherit; O_NOINHERIT",
+	"o-nshare":                 "optionnames[] alias of nshare; O_NSHARE",
+	"o-priv":                   "optionnames[] O_PRIV",
+	"o-rshare":                 "optionnames[] alias of rshare; O_RSHARE",
+	"o-text":                   "optionnames[] alias of text; O_TEXT",
+	"o_defer":                  "optionnames[] O_DEFER",
+	"o_delay":                  "optionnames[] O_DELAY",
+	"o_nshare":                 "optionnames[] alias of nshare; O_NSHARE",
+	"o_priv":                   "optionnames[] O_PRIV",
+	"o_rshare":                 "optionnames[] alias of rshare; O_RSHARE",
+	"pop-all":                  "optionnames[] alias of i-pop-all",
+	"port":                     "optionnames[] host-specific",
+	"primary":                  "optionnames[] alias of res-primary",
+	"priv":                     "optionnames[] O_PRIV",
+	"push":                     "optionnames[] alias of i-push",
+	"recvdstaddr":              "optionnames[] alias of ip-recvdstaddr",
+	"recvif":                   "optionnames[] alias of ip-recvif",
+	"sctp-maxseg-late":         "optionnames[] late SCTP_MAXSEG",
+	"so-audit":                 "optionnames[] SO_AUDIT (AIX)",
+	"so-cksumrecv":             "optionnames[] SO_CKSUMRECV",
+	"so-dgram-errind":          "optionnames[] SO_DGRAM_ERRIND",
+	"so-dontlinger":            "optionnames[] SO_DONTLINGER",
+	"so-kernaccept":            "optionnames[] SO_KERNACCEPT",
+	"so-noreuseaddr":           "optionnames[] SO_NOREUSEADDR",
+	"so-use-ifbufs":            "optionnames[] SO_USE_IFBUFS",
+	"so-useloopback":           "optionnames[] SO_USELOOPBACK",
+	"streams-i-pop-all":        "optionnames[] alias of i-pop-all",
+	"streams-i-push":           "optionnames[] alias of i-push",
+	"tcp-abort-threshold":      "optionnames[] alias of abort-threshold",
+	"tcp-conn-abort-threshold": "optionnames[] alias of conn-abort-threshold",
+	"tcp-keepinit":             "optionnames[] alias of keepinit",
+	"tcp-noopt":                "optionnames[] alias of noopt",
+	"tcp-nopush":               "optionnames[] alias of nopush",
+	"tcp-paws":                 "optionnames[] alias of paws",
+	"tcp-rfc1323":              "optionnames[] alias of rfc1323",
+	"tcp-sack-disable":         "optionnames[] alias of sack-disable",
+	"tcp-sackena":              "optionnames[] alias of sackena",
+	"tcp-signature-enable":     "optionnames[] alias of signature-enable",
+	"tcp-stdurg":               "optionnames[] alias of stdurg",
+	"tcp-tsoptena":             "optionnames[] alias of tsoptena",
+	"use-ifbufs":               "optionnames[] alias of so-use-ifbufs",
+	"useifbufs":                "optionnames[] alias of so-use-ifbufs",
+	"useloopback":              "optionnames[] alias of so-useloopback",
+	"vdsusp":                   "optionnames[] alias of dsusp",
 }
 
 // GoOnlyHelpAllowlist is names this port advertises in -hh/-hhh that classic
