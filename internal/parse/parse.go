@@ -264,6 +264,7 @@ var optionAliases = map[string]string{
 	"so-rcvtimeo":        "rcvtimeo",
 	"so-sndtimeo":        "sndtimeo",
 	"so-type":            "socktype",
+	"type":               "socktype",
 	"protocol-family":    "pf",
 	"so-prototype":       "so-protocol",
 	"prototype":          "so-protocol",
