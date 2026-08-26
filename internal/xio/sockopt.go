@@ -34,7 +34,8 @@ func applySocketBufferOpt(fd int, name string, o parse.Option, present bool, opt
 
 // applyPastSocketBuffersAndDevice is the PH_PASTSOCKET half of classic
 // opt_so_sndbuf / opt_so_rcvbuf / opt_so_bindtodevice. Late variants are
-// applied in WrapCommon, not here.
+// applied in ApplyTCPConnOpts (raw TCP after connect/accept, before TLS/
+// PROXY handshake) and in WrapCommon (streams that expose a socket fd).
 func applyPastSocketBuffersAndDevice(fd int, s parse.Spec) error {
 	o, ok := s.OptionNamed("sndbuf")
 	if err := applySocketBufferOpt(fd, "sndbuf", o, ok, soSndbuf); err != nil {
@@ -56,6 +57,33 @@ func ApplyLateSocketOptions(fd int, s parse.Spec) error {
 	}
 	o, ok = s.OptionNamed("rcvbuf-late")
 	return applySocketBufferOpt(fd, "rcvbuf-late", o, ok, soRcvbuf)
+}
+
+// ApplyLateSocketOptionsToConn applies PH_LATE so-sndbuf-late / so-rcvbuf-late
+// on a connected or accepted socket. Classic applies these on the raw fd
+// after connect()/accept(), before SSL/PROXY handshake.
+func ApplyLateSocketOptionsToConn(conn syscall.Conn, s parse.Spec) error {
+	if conn == nil {
+		return nil
+	}
+	if _, ok := s.OptionNamed("sndbuf-late"); !ok {
+		if _, ok := s.OptionNamed("rcvbuf-late"); !ok {
+			return nil
+		}
+	}
+	raw, err := conn.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var optErr error
+	ctrlErr := raw.Control(func(fd uintptr) {
+		optErr = ApplyLateSocketOptions(int(fd), s)
+	})
+	err = errors.Join(ctrlErr, optErr)
+	if err == nil || isNotSocketError(err) {
+		return nil
+	}
+	return err
 }
 
 func applyLateSocketOptionsToStream(s parse.Spec, stream relay.Stream) error {

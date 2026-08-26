@@ -475,7 +475,9 @@ func WrapCommonWithSocketTimeoutsApplied(s parse.Spec, stream relay.Stream) (rel
 
 func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts bool) (relay.Stream, error) {
 	// PH_LATE so-sndbuf-late / so-rcvbuf-late on streams that expose a
-	// socket fd (syscall.Conn). Non-sockets and TLS crypto/tls.Conn are skipped.
+	// socket fd (syscall.Conn). TLS crypto/tls.Conn is not a syscall.Conn;
+	// ApplyTCPConnOpts applies the same options on the unwrapped raw TCP
+	// fd after connect/accept (client: before TLS/PROXY handshake).
 	if err := applyLateSocketOptionsToStream(s, stream); err != nil {
 		return nil, err
 	}

@@ -526,7 +526,11 @@ func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
 			return fmt.Errorf("nodelay: %w", err)
 		}
 	}
-	return nil
+	// Classic PH_LATE so-sndbuf-late / so-rcvbuf-late on the raw TCP fd
+	// after connect()/accept(), before TLS/PROXY handshake. WrapCommon
+	// still applies the same options on UNIX/UDP streams; a second
+	// SO_SNDBUF set on this TCP conn is harmless.
+	return ApplyLateSocketOptionsToConn(tc, s)
 }
 
 func ApplySetsockoptFD(fd int, spec string) error {

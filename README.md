@@ -185,6 +185,8 @@ aliases and termios / baud names.
 
 **`max-children`:** limits concurrent `fork` sessions on **LISTEN** and on **CONNECT** / **TLS-CONNECT** client reconnect loops. Requires `fork`. Parent redials after `interval` (default 1s).
 
+**`sndbuf-late` / `rcvbuf-late`:** classic `PH_LATE`. Applied on the raw TCP socket after connect or accept (before TLS/PROXY handshake). `WrapCommon` still applies them on UNIX/UDP streams that expose a socket fd.
+
 **`perm=` / `mode=`:** last specified name wins. Regular files and FIFOs use the value as the `open`/`mkfifo` creation mode, so `umask=` still masks it (`umask=077,perm=0666` → `0600`). UNIX sockets and PTY slaves still `chmod` after bind. **`umask=`** applies during open (or child `Start` for EXEC/SHELL), then restores.
 
 ## TLS notes
