@@ -210,9 +210,9 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		if err := xio.Unlink(path); err != nil {
 			return nil, fmt.Errorf("unlink %s: %w", path, err)
 		}
-	} else if namedUnlinkEnabled(s) {
+	} else if s.BoolOption("unlink") {
 		// ENOENT is ignored (classic xio_unlink). unlink=0 does not unlink:
-		// see namedUnlinkEnabled.
+		// classic applyopts_named presence bug in this release.
 		if err := unlinkNamed(path); err != nil {
 			return nil, err
 		}

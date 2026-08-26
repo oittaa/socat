@@ -21,23 +21,6 @@ type namedEarly struct {
 	mode   os.FileMode
 }
 
-// namedUnlinkEnabled honors the documented TYPE_BOOL value of unlink/delete/
-// remove. Classic applyopts_named (xio-named.c, tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree) ignores the
-// stored bool and unlinks on presence, so unlink=0 still deletes. That
-// contradicts the documented 0/1 bool contract and adjacent unlink-early /
-// unlink-close (retropt_bool). We follow the documented bool, not the bug.
-func namedUnlinkEnabled(s parse.Spec) bool {
-	return s.BoolOption("unlink")
-}
-
-// namedUnlinkLateEnabled is the same correction for unlink-late: classic
-// applyopts_named PH_PASTOPEN unlinks on presence, including unlink-late=0.
-func namedUnlinkLateEnabled(s parse.Spec) bool {
-	return s.BoolOption("unlink-late")
-}
-
 func namedOpenEarly(path string, s parse.Spec) (namedEarly, error) {
 	var n namedEarly
 	fi, err := os.Stat(path)
@@ -57,7 +40,10 @@ func namedOpenEarly(path string, s parse.Spec) (namedEarly, error) {
 		n.exists = false
 	}
 
-	if n.exists && namedUnlinkEnabled(s) {
+	// Classic applyopts_named (tag-1.8.1.3 / master) unlinks on presence and
+	// ignores the stored TYPE_BOOL, so unlink=0 still deletes. That is a bug
+	// in this classic release; honor the documented bool.
+	if n.exists && s.BoolOption("unlink") {
 		if err := unlinkNamed(path); err != nil {
 			return n, err
 		}
@@ -77,7 +63,8 @@ func unlinkNamed(path string) error {
 // in xio-named.c; any other Unlink() error is Error() and aborts (exitlevel
 // E_ERROR).
 func applyNamedUnlinkLate(path string, s parse.Spec) error {
-	if !namedUnlinkLateEnabled(s) {
+	// Same classic applyopts_named presence bug as unlink=0; honor the bool.
+	if !s.BoolOption("unlink-late") {
 		return nil
 	}
 	return unlinkNamed(path)
