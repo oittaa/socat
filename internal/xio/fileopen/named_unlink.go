@@ -34,24 +34,36 @@ func namedOpenEarly(path string, s parse.Spec) (namedEarly, error) {
 	}
 
 	if n.exists && s.BoolOption("unlink-early") {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return n, fmt.Errorf("unlink %s: %w", path, err)
+		if err := unlinkNamed(path); err != nil {
+			return n, err
 		}
 		n.exists = false
 	}
 
 	if n.exists && s.BoolOption("unlink") {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return n, fmt.Errorf("unlink %s: %w", path, err)
+		if err := unlinkNamed(path); err != nil {
+			return n, err
 		}
 	}
 	return n, nil
 }
 
-func applyNamedUnlinkLate(path string, s parse.Spec) {
-	if s.BoolOption("unlink-late") {
-		_ = os.Remove(path)
+func unlinkNamed(path string) error {
+	// unlink(2), not os.Remove: classic Unlink() refuses directories.
+	if err := xio.Unlink(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("unlink %s: %w", path, err)
 	}
+	return nil
+}
+
+// applyNamedUnlinkLate is classic PH_PASTOPEN unlink-late. ENOENT is a warning
+// in xio-named.c; any other Unlink() error is Error() and aborts (exitlevel
+// E_ERROR).
+func applyNamedUnlinkLate(path string, s parse.Spec) error {
+	if !s.BoolOption("unlink-late") {
+		return nil
+	}
+	return unlinkNamed(path)
 }
 
 // namedUnlinkGuard is classic unlink-close (PH_LATE): armed after a successful
@@ -65,20 +77,22 @@ type namedUnlinkGuard struct {
 	unreg   func()
 }
 
-func namedAfterOpen(path string, s parse.Spec) namedUnlinkGuard {
-	applyNamedUnlinkLate(path, s)
+func namedAfterOpen(path string, s parse.Spec) (namedUnlinkGuard, error) {
+	if err := applyNamedUnlinkLate(path, s); err != nil {
+		return namedUnlinkGuard{unreg: func() {}}, err
+	}
 	g := namedUnlinkGuard{path: path, unreg: func() {}}
 	if s.BoolOption("unlink-close") {
 		g.closeOn = true
 		g.unreg = xio.RegisterUnlinkPath(path)
 	}
-	return g
+	return g, nil
 }
 
 func (g namedUnlinkGuard) drop() {
 	g.unreg()
 	if g.closeOn {
-		_ = os.Remove(g.path)
+		_ = xio.Unlink(g.path)
 	}
 }
 
@@ -90,6 +104,6 @@ func (g namedUnlinkGuard) attach(o *xio.Opened) {
 	path := g.path
 	o.AddCleanup(func() {
 		unreg()
-		_ = os.Remove(path)
+		_ = xio.Unlink(path)
 	})
 }

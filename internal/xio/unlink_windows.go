@@ -1,12 +1,12 @@
 //go:build windows
 
-package netopen
+package xio
 
 import "golang.org/x/sys/windows"
 
-// unlinkPath removes a file or socket name without removing directories.
+// Unlink removes a file or socket name without removing directories.
 // DeleteFile is the Windows analog of unlink(2); RemoveDirectory is not.
-func unlinkPath(path string) error {
+func Unlink(path string) error {
 	p, err := windows.UTF16PtrFromString(path)
 	if err != nil {
 		return err

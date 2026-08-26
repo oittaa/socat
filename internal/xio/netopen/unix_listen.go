@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"strconv"
 	"time"
 
@@ -59,7 +58,7 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	if err := xio.ApplyNamedAttrs(path, s, nil); err != nil {
 		_ = ln.Close()
 		if !xio.IsAbstract(path) {
-			_ = os.Remove(path)
+			_ = xio.Unlink(path)
 		}
 		return nil, err
 	}
@@ -75,7 +74,7 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		unregister()
 		logx.CloseQuiet(ln)
 		if !xio.IsAbstract(path) {
-			_ = os.Remove(path)
+			_ = xio.Unlink(path)
 		}
 		return nil, ferr
 	}

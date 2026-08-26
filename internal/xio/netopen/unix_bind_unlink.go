@@ -46,7 +46,7 @@ func prepareUnixFilesystemPath(path string, s parse.Spec) error {
 	if s.BoolOption("unlink-early") {
 		// unlink(2), not os.Remove: classic Unlink() refuses directories
 		// (EISDIR). os.Remove would rmdir an empty directory.
-		if err := unlinkPath(path); err != nil && !os.IsNotExist(err) {
+		if err := xio.Unlink(path); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("unlink %s: %w", path, err)
 		}
 		return nil
@@ -65,7 +65,7 @@ func (u unixBoundUnlink) drop(c io.Closer) {
 	u.unreg()
 	logx.CloseQuiet(c)
 	if u.doUnlink {
-		_ = os.Remove(u.path)
+		_ = xio.Unlink(u.path)
 	}
 }
 
@@ -77,6 +77,6 @@ func (u unixBoundUnlink) attach(o *xio.Opened) {
 	}
 	o.AddCleanup(func() {
 		u.unreg()
-		_ = os.Remove(u.path)
+		_ = xio.Unlink(u.path)
 	})
 }

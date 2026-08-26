@@ -4,9 +4,11 @@ package fileopen
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -331,5 +333,99 @@ func TestNamedPipeUnlinkLateRemovesNameWhileOpen(t *testing.T) {
 	defer func() { _ = o.Close() }()
 	if _, err := os.Lstat(path); !os.IsNotExist(err) {
 		t.Fatalf("PIPE unlink-late left the name: %v", err)
+	}
+}
+
+func isUnlinkDirectoryError(err error) bool {
+	return errors.Is(err, syscall.EISDIR) || errors.Is(err, syscall.EPERM)
+}
+
+func TestOpenCreatUnlinkEarlyLeavesEmptyDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "emptydir")
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := parse.ParseSpec("OPEN:" + path + ",creat,unlink-early")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openOPEN(context.Background(), spec, xio.ModeWrite, nil)
+	if err == nil {
+		_ = o.Close()
+		t.Fatal("OPEN,creat,unlink-early deleted an empty directory")
+	}
+	if !isUnlinkDirectoryError(err) {
+		t.Fatalf("error=%v want EISDIR or EPERM", err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("empty directory was replaced; mode=%v", info.Mode())
+	}
+}
+
+func TestNamedPipeUnlinkEarlyLeavesEmptyDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "emptydir")
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := parse.ParseSpec("PIPE:" + path + ",unlink-early,nonblock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openPIPE(context.Background(), spec, xio.ModeRead, nil)
+	if err == nil {
+		_ = o.Close()
+		t.Fatal("PIPE,unlink-early deleted an empty directory")
+	}
+	if !isUnlinkDirectoryError(err) {
+		t.Fatalf("error=%v want EISDIR or EPERM", err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("empty directory was replaced; mode=%v", info.Mode())
+	}
+}
+
+func TestOpenUnlinkLateFailsWhenParentNotWritable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can unlink in unwritable directories")
+	}
+	parent := filepath.Join(t.TempDir(), "parent")
+	if err := os.Mkdir(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(parent, "file")
+	if err := os.WriteFile(path, []byte("secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o755) })
+	if err := os.Chmod(parent, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := parse.ParseSpec("OPEN:" + path + ",unlink-late")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openOPEN(context.Background(), spec, xio.ModeRead, nil)
+	if err == nil {
+		got, _ := io.ReadAll(o.Stream)
+		_ = o.Close()
+		t.Fatalf("unlink-late succeeded and transferred %q", got)
+	}
+	if !errors.Is(err, syscall.EACCES) && !errors.Is(err, syscall.EPERM) {
+		t.Fatalf("error=%v want EACCES or EPERM", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "secret\n" {
+		t.Fatalf("file contents=%q want secret\\n", got)
 	}
 }

@@ -125,7 +125,10 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 		}
 		// Classic GOPEN of a socket applies PH_PASTOPEN unlink-late on the
 		// path after connect; unlink-close is only armed for non-sockets.
-		applyNamedUnlinkLate(path, s)
+		if err := applyNamedUnlinkLate(path, s); err != nil {
+			logx.CloseQuiet(o)
+			return nil, err
+		}
 		return o, nil
 	}
 	flags := OpenFlags(s, mode)
@@ -204,12 +207,12 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 	// entry, then creates and opens a new FIFO at the same path. It does not
 	// unlink the newly created FIFO after open.
 	if s.BoolOption("unlink-early") {
-		if err := os.Remove(path); err != nil {
+		if err := xio.Unlink(path); err != nil {
 			return nil, fmt.Errorf("unlink %s: %w", path, err)
 		}
 	} else if s.BoolOption("unlink") {
-		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-			return nil, fmt.Errorf("unlink %s: %w", path, err)
+		if err := unlinkNamed(path); err != nil {
+			return nil, err
 		}
 	}
 	created := false
@@ -230,7 +233,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 	// failed open must not leave behind a FIFO that this invocation created.
 	if err := xio.ApplyOwner(path, s, nil); err != nil {
 		if created {
-			_ = os.Remove(path)
+			_ = xio.Unlink(path)
 		}
 		return nil, err
 	}
@@ -249,12 +252,12 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 	removeCreated := func() {
 		if created {
 			unregister()
-			_ = os.Remove(path)
+			_ = xio.Unlink(path)
 		}
 	}
 	cleanupPath := func() {
 		if doUnlink {
-			_ = os.Remove(path)
+			_ = xio.Unlink(path)
 		}
 	}
 	addPathCleanup := func(o *xio.Opened) {
@@ -283,7 +286,11 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 			removeCreated()
 			return nil, err
 		}
-		applyNamedUnlinkLate(path, s)
+		if err := applyNamedUnlinkLate(path, s); err != nil {
+			logx.CloseQuiet(f)
+			removeCreated()
+			return nil, err
+		}
 		if err := xio.ApplyFDOptions(f, s); err != nil {
 			logx.CloseQuiet(f)
 			removeCreated()
@@ -313,7 +320,11 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		clearNB(w)
 		logx.CloseQuiet(r)
-		applyNamedUnlinkLate(path, s)
+		if err := applyNamedUnlinkLate(path, s); err != nil {
+			logx.CloseQuiet(w)
+			removeCreated()
+			return nil, err
+		}
 		if err := xio.ApplyFDOptions(w, s); err != nil {
 			logx.CloseQuiet(w)
 			removeCreated()
@@ -343,7 +354,12 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		clearNB(r)
 		clearNB(w)
-		applyNamedUnlinkLate(path, s)
+		if err := applyNamedUnlinkLate(path, s); err != nil {
+			logx.CloseQuiet(r)
+			logx.CloseQuiet(w)
+			removeCreated()
+			return nil, err
+		}
 		if err := xio.ApplyFDOptions(r, s); err != nil {
 			logx.CloseQuiet(r)
 			logx.CloseQuiet(w)
@@ -530,7 +546,11 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 	// Classic _xioopen_open applies PH_PASTOPEN unlink-late immediately after
 	// open(2). unlink-close is armed before FD/owner/lock/wrap/termios so a
 	// later failure still removes the name (xio-file.c / xio-gopen.c).
-	guard := namedAfterOpen(path, s)
+	guard, err := namedAfterOpen(path, s)
+	if err != nil {
+		logx.CloseQuiet(f)
+		return nil, err
+	}
 	fail := func(err error) (*xio.Opened, error) {
 		logx.CloseQuiet(f)
 		guard.drop()
