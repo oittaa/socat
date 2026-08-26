@@ -118,6 +118,9 @@ func validateSpecOptions(spec parse.Spec) error {
 		if registered && !optionImplementedForGroup(registration.Group, optionSpec.implementationGroups) {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
+		if registered && !xio.IPAncillarySupported(registration.Group, name) {
+			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
+		}
 		if registered && !xio.OptionSupportedOnAddress(registration, name, optionSpec.addressGroups, optionSpec.addressTypes, optionSpec.optionCaps) {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}

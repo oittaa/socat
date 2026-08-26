@@ -188,7 +188,7 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	}
 	// Connected IPv4 Read() keeps the IP header; strip for classic parity.
 	v4 := network == "ip4" || raddr.IP.To4() != nil
-	st := relay.Stream(&rawIPConn{IPConn: c, peer: raddr, v4: v4})
+	st := relay.Stream(&rawIPConn{IPConn: c, peer: raddr, v4: v4, wantCtrl: xio.NeedAncillary(s), g: g})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
 		logx.CloseQuiet(c)
@@ -235,7 +235,7 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return nil, err
 	}
 	v4 := network == "ip4" || raddr.IP.To4() != nil
-	st := relay.Stream(&rawIPDatagramConn{c: pc, raddr: raddr, v4: v4})
+	st := relay.Stream(&rawIPDatagramConn{c: pc, raddr: raddr, v4: v4, wantCtrl: xio.NeedAncillary(s), g: g})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
@@ -437,18 +437,20 @@ func skipIPv4HeaderIfPresent(p []byte, n int) int {
 
 // rawIPDatagramConn: unconnected SOCK_RAW; writes always go to raddr.
 type rawIPDatagramConn struct {
-	c     *net.IPConn
-	raddr *net.IPAddr
-	v4    bool
+	c        *net.IPConn
+	raddr    *net.IPAddr
+	v4       bool
+	wantCtrl bool
+	g        *xio.Global
 }
 
 func (r *rawIPDatagramConn) Read(p []byte) (int, error) {
-	n, _, err := r.c.ReadFrom(p)
+	n, oob, _, err := ReadIPMsg(r.c, p, r.wantCtrl, r.v4)
 	if err != nil {
 		return n, err
 	}
-	if r.v4 {
-		n = skipIPv4HeaderIfPresent(p, n)
+	if r.wantCtrl {
+		xio.ProcessAncillary(oob, r.g)
 	}
 	return n, nil
 }
@@ -466,11 +468,21 @@ func (r *rawIPDatagramConn) RemoteAddr() net.Addr { return r.raddr }
 // Do not embed Read from *net.IPConn — connected Read keeps the IPv4 header.
 type rawIPConn struct {
 	*net.IPConn
-	peer *net.IPAddr
-	v4   bool
+	peer     *net.IPAddr
+	v4       bool
+	wantCtrl bool
+	g        *xio.Global
 }
 
 func (r *rawIPConn) Read(p []byte) (int, error) {
+	if r.wantCtrl {
+		n, oob, _, err := ReadIPMsg(r.IPConn, p, true, r.v4)
+		if err != nil {
+			return n, err
+		}
+		xio.ProcessAncillary(oob, r.g)
+		return n, nil
+	}
 	n, err := r.IPConn.Read(p)
 	if err != nil {
 		return n, err

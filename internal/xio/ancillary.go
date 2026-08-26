@@ -17,73 +17,43 @@ import (
 )
 
 // NeedAncillary reports whether the address requests control messages on recv.
+// TYPE_INT recv flags use BoolOption: pktinfo=0 does not enable ReadMsg;
+// presence or =1 does.
 func NeedAncillary(s parse.Spec) bool {
-	for _, name := range []string{
-		"so-timestamp", "timestamp",
-		"ip-pktinfo", "pktinfo",
-		"ip-recvttl", "recvttl",
-		"ip-recvtos", "recvtos",
-		"ip-recvopts", "recvopts",
-		"ipv6-recvpktinfo", "recvpktinfo",
-		"ipv6-recvhoplimit", "recvhoplimit",
-		"ipv6-recvtclass", "recvtclass",
-	} {
-		if s.BoolOption(name) {
-			return true
-		}
-	}
-	return false
+	return ancillaryRecvRequested(s)
 }
 
 // ApplyAncillaryRecvOpts enables kernel delivery of control messages on fd.
+// Classic TYPE_INT OFUNC_SOCKOPT (tag-1.8.1.3 12c08bf): presence setsockopt 1,
+// an explicit integer is passed through, =0 disables.
 func ApplyAncillaryRecvOpts(fd int, s parse.Spec) error {
-	on := func(name string) bool {
-		return s.BoolOption(name)
+	type recvOpt struct {
+		canonical string
+		aliases   []string
+		level     int
+		opt       int
 	}
-	set := func(name string, level, option int) error {
-		if err := unix.SetsockoptInt(fd, level, option, 1); err != nil {
-			return fmt.Errorf("%s: %w", name, err)
-		}
-		return nil
+	opts := []recvOpt{
+		{"so-timestamp", []string{"timestamp"}, unix.SOL_SOCKET, unix.SO_TIMESTAMP},
+		{"ip-pktinfo", []string{"pktinfo"}, unix.IPPROTO_IP, unix.IP_PKTINFO},
+		{"ip-recvttl", []string{"recvttl"}, unix.IPPROTO_IP, unix.IP_RECVTTL},
+		{"ip-recvtos", []string{"recvtos"}, unix.IPPROTO_IP, unix.IP_RECVTOS},
+		{"ip-recvopts", []string{"recvopts"}, unix.IPPROTO_IP, unix.IP_RECVOPTS},
+		{"ipv6-recvpktinfo", []string{"recvpktinfo"}, unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO},
+		{"ipv6-recvhoplimit", []string{"recvhoplimit"}, unix.IPPROTO_IPV6, unix.IPV6_RECVHOPLIMIT},
+		{"ipv6-recvtclass", []string{"recvtclass"}, unix.IPPROTO_IPV6, unix.IPV6_RECVTCLASS},
 	}
-	if on("so-timestamp") || on("timestamp") {
-		if err := set("so-timestamp", unix.SOL_SOCKET, unix.SO_TIMESTAMP); err != nil {
+	for _, o := range opts {
+		names := append([]string{o.canonical}, o.aliases...)
+		n, present, err := ancillaryRecvInt(s, names...)
+		if err != nil {
 			return err
 		}
-	}
-	if on("ip-pktinfo") || on("pktinfo") {
-		if err := set("ip-pktinfo", unix.IPPROTO_IP, unix.IP_PKTINFO); err != nil {
-			return err
+		if !present {
+			continue
 		}
-	}
-	if on("ip-recvttl") || on("recvttl") {
-		if err := set("ip-recvttl", unix.IPPROTO_IP, unix.IP_RECVTTL); err != nil {
-			return err
-		}
-	}
-	if on("ip-recvtos") || on("recvtos") {
-		if err := set("ip-recvtos", unix.IPPROTO_IP, unix.IP_RECVTOS); err != nil {
-			return err
-		}
-	}
-	if on("ip-recvopts") || on("recvopts") {
-		if err := set("ip-recvopts", unix.IPPROTO_IP, unix.IP_RECVOPTS); err != nil {
-			return err
-		}
-	}
-	if on("ipv6-recvpktinfo") || on("recvpktinfo") {
-		if err := set("ipv6-recvpktinfo", unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO); err != nil {
-			return err
-		}
-	}
-	if on("ipv6-recvhoplimit") || on("recvhoplimit") {
-		if err := set("ipv6-recvhoplimit", unix.IPPROTO_IPV6, unix.IPV6_RECVHOPLIMIT); err != nil {
-			return err
-		}
-	}
-	if on("ipv6-recvtclass") || on("recvtclass") {
-		if err := set("ipv6-recvtclass", unix.IPPROTO_IPV6, unix.IPV6_RECVTCLASS); err != nil {
-			return err
+		if err := unix.SetsockoptInt(fd, o.level, o.opt, n); err != nil {
+			return fmt.Errorf("%s: %w", o.canonical, err)
 		}
 	}
 	return nil

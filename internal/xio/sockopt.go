@@ -101,6 +101,29 @@ func ApplyLateSocketOptionsToPacketConn(pc net.PacketConn, s parse.Spec) error {
 	return ApplyLateSocketOptionsToConn(sc, s)
 }
 
+// ApplyIPSendOptsToPacketConn applies send-side IP options (ip-ttl, ip-tos,
+// ipv6-unicast-hops, ipv6-tclass, ip-options) on a UDP PacketConn. Used by
+// QUIC's transport socket. Rejects enabled send options when the conn does
+// not expose a socket fd.
+func ApplyIPSendOptsToPacketConn(pc net.PacketConn, s parse.Spec, network string) error {
+	if pc == nil || !ipSendRequested(s) {
+		return nil
+	}
+	sc, ok := pc.(syscall.Conn)
+	if !ok {
+		return fmt.Errorf("ip-ttl/ip-tos: packet connection does not expose a socket")
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var optErr error
+	ctrlErr := raw.Control(func(fd uintptr) {
+		optErr = ApplyIPSendOpts(int(fd), s, network)
+	})
+	return errors.Join(ctrlErr, optErr)
+}
+
 func hasLateSocketBuffers(s parse.Spec) bool {
 	if _, ok := s.OptionNamed("sndbuf-late"); ok {
 		return true

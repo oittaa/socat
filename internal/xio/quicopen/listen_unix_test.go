@@ -37,6 +37,39 @@ func TestListenPacketAppliesLateBuffersUnix(t *testing.T) {
 	}
 }
 
+func TestListenPacketAppliesIPTTLUnix(t *testing.T) {
+	spec, err := parse.ParseSpec("QUIC-LISTEN:0,ip-ttl=9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pc, err := listenPacket(context.Background(), "udp4", "127.0.0.1:0", spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	sc, ok := pc.(syscall.Conn)
+	if !ok {
+		t.Fatalf("PacketConn type %T is not syscall.Conn", pc)
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ttl int
+	var gerr error
+	if err := raw.Control(func(fd uintptr) {
+		ttl, gerr = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_TTL)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	if ttl != 9 {
+		t.Fatalf("IP_TTL=%d want 9", ttl)
+	}
+}
+
 func packetSockoptInt(t *testing.T, sc syscall.Conn, opt int) int {
 	t.Helper()
 	raw, err := sc.SyscallConn()

@@ -88,6 +88,10 @@ func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
+	if err := xio.ApplyIPSendOptsToPacketConn(pc, s, network); err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
 	return pc, nil
 }
 

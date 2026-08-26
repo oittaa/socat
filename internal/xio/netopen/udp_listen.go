@@ -163,6 +163,8 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		peer:     raddr,
 		first:    append([]byte(nil), buf[:n]...),
 		closeEOF: true, // next read after first payload → EOF (unidirectional capture)
+		wantCtrl: wantCtrl,
+		g:        g,
 	})
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
@@ -313,11 +315,13 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 		}
 		xio.ProcessAncillary(oob, session)
 		child := &udpSessionConn{
-			peer:    cloneUDPAddr(a),
-			first:   append([]byte(nil), buf[:rn]...),
-			env:     session.SessionVars,
-			oneShot: l.oneShot,
-			writeMu: &l.writeMu,
+			peer:     cloneUDPAddr(a),
+			first:    append([]byte(nil), buf[:rn]...),
+			env:      session.SessionVars,
+			oneShot:  l.oneShot,
+			writeMu:  &l.writeMu,
+			wantCtrl: wantCtrl,
+			g:        session,
 		}
 		if l.oneShot {
 			// Share the parent socket (classic XIODATA_RECVFROM_ONE). A
@@ -438,6 +442,8 @@ type udpSessionConn struct {
 	deadlineMu    sync.Mutex
 	writeDeadline time.Time
 	releaseListen func()
+	wantCtrl      bool
+	g             *xio.Global
 }
 
 func (u *udpSessionConn) SessionEnvironment() map[string]string { return u.env }
@@ -459,6 +465,14 @@ func (u *udpSessionConn) Read(p []byte) (int, error) {
 	if u.conn == nil {
 		return 0, net.ErrClosed
 	}
+	if u.wantCtrl {
+		n, oob, _, err := xio.ReadUDPMsg(u.conn, p, true)
+		if err != nil {
+			return n, err
+		}
+		xio.ProcessAncillary(oob, u.g)
+		return n, nil
+	}
 	return u.conn.Read(p)
 }
 
@@ -467,11 +481,14 @@ func (u *udpSessionConn) readHandedOff(p []byte) (int, error) {
 		return 0, net.ErrClosed
 	}
 	for {
-		n, addr, err := u.pc.ReadFromUDP(p)
+		n, oob, addr, err := xio.ReadUDPMsg(u.pc, p, u.wantCtrl)
 		if err != nil {
 			return n, err
 		}
 		if u.peer != nil && addr != nil && addr.String() == u.peer.String() {
+			if u.wantCtrl {
+				xio.ProcessAncillary(oob, u.g)
+			}
 			return n, nil
 		}
 	}

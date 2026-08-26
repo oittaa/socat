@@ -30,8 +30,8 @@ import (
 //     baudNamed, TermiosHelpNames
 //   - iff-* interface flags: tunopen/tun_linux.go parseIffOpts
 //   - tcpwrap family: xio/tcpwrap.go parseTCPWrap name loop
-//   - ancillary recv pairs (both spellings): xio/ancillary.go NeedAncillary /
-//     ApplyAncillaryRecvOpts
+//   - ancillary recv pairs (both spellings): xio/ip_ancillary_matrix.go and
+//     xio/ancillary.go NeedAncillary / ApplyAncillaryRecvOpts
 //   - whole-file locks: fileopen/lock.go applyFileLocks
 var dynamicallyReadOptions = map[string]string{
 	// termios flag/baud/control names are merged in at runtime from

@@ -102,11 +102,12 @@ func timevalFromSpec(v string) (*unix.Timeval, error) {
 	return &tv, nil
 }
 
-// applyIPTTLTOS sets classic ip-ttl/ttl and ip-tos/tos on TCP/SCTP INET sockets.
+// applyIPTTLTOS sets classic send-side IP options on TCP/SCTP INET sockets:
+// ip-ttl/ttl, ip-tos/tos, ip-options (IPv4), ipv6-unicast-hops, ipv6-tclass.
 // On IPv6, ttl maps to IPV6_UNICAST_HOPS; tos has no direct v6 equivalent and
-// is skipped (classic uses the separate ipv6-tclass option there). UDP and
-// raw-IP paths apply these through ApplyIPSendOpts instead, so this helper
-// deliberately restricts itself to TCP/SCTP networks to avoid double application.
+// is skipped (classic uses ipv6-tclass). UDP, raw-IP, and QUIC apply the same
+// options through ApplyIPSendOpts instead, so this helper restricts itself to
+// TCP/SCTP networks to avoid double application.
 func applyIPTTLTOS(fd int, s parse.Spec, network string) error {
 	if !strings.HasPrefix(network, "tcp") && !strings.HasPrefix(network, "sctp") {
 		return nil
@@ -140,6 +141,40 @@ func applyIPTTLTOS(fd int, s parse.Spec, network string) error {
 		}
 		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TOS, n); err != nil {
 			return fmt.Errorf("ip-tos: %w", err)
+		}
+	}
+	if !is6 {
+		if v := s.OptionValue("ip-options", ""); v != "" {
+			b, err := ParseHexOpt(v)
+			if err != nil {
+				return fmt.Errorf("ip-options: %w", err)
+			}
+			if len(b) == 0 {
+				return fmt.Errorf("ip-options: empty value")
+			}
+			if err := unix.SetsockoptString(fd, unix.IPPROTO_IP, unix.IP_OPTIONS, string(b)); err != nil {
+				return fmt.Errorf("ip-options: %w", err)
+			}
+		}
+	}
+	if is6 {
+		if v, ok := opt("ipv6-unicast-hops", "unicast-hops"); ok {
+			n, err := ParseIntAny(v)
+			if err != nil {
+				return fmt.Errorf("ipv6-unicast-hops: %w", err)
+			}
+			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, n); err != nil {
+				return fmt.Errorf("ipv6-unicast-hops: %w", err)
+			}
+		}
+		if v, ok := opt("ipv6-tclass", "tclass"); ok {
+			n, err := ParseIntAny(v)
+			if err != nil {
+				return fmt.Errorf("ipv6-tclass: %w", err)
+			}
+			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_TCLASS, n); err != nil {
+				return fmt.Errorf("ipv6-tclass: %w", err)
+			}
 		}
 	}
 	return nil

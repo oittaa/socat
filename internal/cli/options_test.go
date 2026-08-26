@@ -7,6 +7,7 @@ import (
 
 	"github.com/oittaa/socat/internal/classiccatalog"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestParseDurationRejectsMalformedValues(t *testing.T) {
@@ -135,6 +136,14 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "vsock-sourceport", spec: "VSOCK-CONNECT:1:9,sourceport=1", wantErr: "not supported"},
 		{name: "fs-noatime-on-exec", spec: "EXEC:true,fs-noatime", wantErr: "not supported"},
 		{name: "pktinfo-on-udp4", spec: "UDP4:localhost:1,pktinfo"},
+		{name: "pktinfo-on-udp-connect", spec: "UDP-CONNECT:localhost:1,ip-pktinfo"},
+		{name: "pktinfo-on-tcp", spec: "TCP:localhost:1,ip-pktinfo", wantErr: "not supported"},
+		{name: "timestamp-on-tcp", spec: "TCP:localhost:1,so-timestamp", wantErr: "not supported"},
+		{name: "recvttl-on-quic", spec: "QUIC:localhost:1,ip-recvttl", wantErr: "not supported"},
+		{name: "pktinfo-on-unix", spec: "UNIX-CONNECT:sock,ip-pktinfo", wantErr: "not supported"},
+		{name: "timestamp-on-unix", spec: "UNIX-CONNECT:sock,so-timestamp", wantErr: "not supported"},
+		{name: "ttl-on-quic", spec: "QUIC:localhost:1,ip-ttl=9"},
+		{name: "ttl-on-tcp", spec: "TCP:localhost:1,ip-ttl=9"},
 		{name: "tls-version-bounds", spec: "TLS:localhost:443,min-version=TLS1.2,max-version=TLS1.3"},
 		{name: "classic-ip-aliases", spec: "TCP:localhost:1,ipttl=9,iptos=16"},
 		{name: "tcp-options-on-wss", spec: "WSS:localhost:1,nodelay,keepalive"},
@@ -181,6 +190,7 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "bad-listen-sockopt-fields", spec: "TCP-LISTEN:1,setsockopt-listen=1:2", wantErr: "level:optname:value"},
 		{name: "bad-listen-sockopt-number", spec: "TCP-LISTEN:1,setsockopt-listen=1:name:1", wantErr: "integer"},
 		{name: "missing-ciphers", spec: "TLS:localhost:443,ciphers", wantErr: "requires a value"},
+		{name: "missing-ip-options", spec: "UDP:localhost:1,ip-options", wantErr: "requires a value"},
 		{name: "missing-linger", spec: "TCP:localhost:1,so-linger", wantErr: "requires a value"},
 		{name: "missing-sndbuf", spec: "TCP:localhost:1,sndbuf", wantErr: "requires a value"},
 		{name: "negative-sndbuf", spec: "TCP:localhost:1,sndbuf=-1", wantErr: "invalid sndbuf"},
@@ -315,6 +325,21 @@ func TestCatalogLifecyclePhasesForAdvertisedFDOptions(t *testing.T) {
 		}
 		if strings.Join(e.Groups, ",") != strings.Join(tt.groups, ",") {
 			t.Errorf("%q groups=%v want %v", tt.spelling, e.Groups, tt.groups)
+		}
+	}
+}
+
+func TestIPAncillaryMatrixWiredIntoCLI(t *testing.T) {
+	table := buildSupportedAddressOptions()
+	for _, name := range xio.IPAncillaryNames() {
+		got, ok := table[name]
+		if !ok {
+			t.Errorf("matrix option %q missing from CLI table", name)
+			continue
+		}
+		want := xio.IPAncillaryImplementationGroups(name)
+		if strings.Join(got.implementationGroups, ",") != strings.Join(want, ",") {
+			t.Errorf("%q implementationGroups=%v want %v", name, got.implementationGroups, want)
 		}
 	}
 }
