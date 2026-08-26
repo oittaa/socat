@@ -70,15 +70,19 @@ func hasFDLifecycleOptions(s parse.Spec) bool {
 
 // skipDescriptorOwnerOpts reports address types that already consume perm=/
 // user=/group= as create mode or named chmod/chown (classic retropt_modet /
-// ApplyNamedAttrs). Applying fchmod here would undo umask on regular files
-// and would fchmod a PTY master instead of the slave.
+// ApplyNamedAttrs / ApplyNamedAfterBind). Applying fchmod here would undo
+// umask on regular files, fchmod a PTY master instead of the slave, and
+// Darwin fchmod(2) on UNIX sockets returns EINVAL.
 func skipDescriptorOwnerOpts(addrType string) bool {
-	switch strings.ToUpper(addrType) {
+	t := strings.ToUpper(addrType)
+	switch t {
 	case "OPEN", "FILE", "CREATE", "CREAT", "GOPEN", "PIPE", "FIFO", "ECHO", "PTY":
 		return true
-	default:
-		return false
 	}
+	if strings.HasPrefix(t, "UNIX") || strings.HasPrefix(t, "ABSTRACT") {
+		return true
+	}
+	return false
 }
 
 func skipNamedFileFtruncate(addrType string) bool {
@@ -224,6 +228,9 @@ func applyFDPerm(fd int, s parse.Spec) error {
 		return err
 	}
 	if err := unix.Fchmod(fd, FileModeToUnix(mode)); err != nil {
+		if socketChmodUnsupported(fd, err) {
+			return nil
+		}
 		return fmt.Errorf("fchmod: %w", err)
 	}
 	return nil
@@ -252,7 +259,27 @@ func applyFDOwner(fd int, s parse.Spec) error {
 		g = gid
 	}
 	if err := unix.Fchown(fd, u, g); err != nil {
+		if socketChmodUnsupported(fd, err) {
+			return nil
+		}
 		return fmt.Errorf("fchown: %w", err)
 	}
 	return nil
+}
+
+// socketChmodUnsupported reports Darwin/BSD fchmod(2)/fchown(2) EINVAL on
+// socket fds. ApplyPerm already falls back to path chmod for named sockets
+// and PTY slaves; WrapCommon has only the fd. Named UNIX sockets are chmod'd
+// via ApplyNamedAfterBind. Do not fail the open (tag-1.8.1.3 Fchmod in
+// applyopt_spec would error; this port keeps the named-path chmod that
+// already ran).
+func socketChmodUnsupported(fd int, err error) bool {
+	if err == nil || !errors.Is(err, unix.EINVAL) {
+		return false
+	}
+	var st unix.Stat_t
+	if e := unix.Fstat(fd, &st); e != nil {
+		return false
+	}
+	return st.Mode&unix.S_IFMT == unix.S_IFSOCK
 }

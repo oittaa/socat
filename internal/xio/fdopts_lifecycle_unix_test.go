@@ -228,6 +228,34 @@ func TestWrapCommonFtruncateRejectsTCP(t *testing.T) {
 	_ = srv
 }
 
+func TestWrapCommonPermOnUnixSocketDoesNotFail(t *testing.T) {
+	dir := t.TempDir()
+	listen := filepath.Join(dir, "l.sock")
+	ln, err := net.Listen("unix", listen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		c, accErr := ln.Accept()
+		if accErr != nil {
+			return
+		}
+		_ = c.Close()
+	}()
+	cli, err := net.Dial("unix", listen)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cli.Close() })
+	// Type TCP so skipDescriptorOwnerOpts does not skip; the conn is AF_UNIX.
+	// Darwin fchmod(2) on sockets returns EINVAL; the open must still succeed.
+	spec := mustSpec(t, "TCP:127.0.0.1:1,perm=0600")
+	if _, err := WrapCommon(spec, relay.NetStream{Conn: cli}); err != nil {
+		t.Fatalf("WrapCommon perm on UNIX socket: %v", err)
+	}
+}
+
 func TestWrapCommonAppendOnSocket(t *testing.T) {
 	cli, srv := localTCPPair(t)
 	spec := mustSpec(t, "TCP:127.0.0.1:1,append")
