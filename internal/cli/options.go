@@ -385,7 +385,9 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "nonblock", desc: "O_NONBLOCK", aliases: []string{"o-nonblock"}},
 			{name: "o-direct", desc: "set O_DIRECT at open", aliases: []string{"direct", "o_direct"}, addressTypes: fileOpenAddressTypes()},
 			{name: "o-noatime", desc: "set O_NOATIME on the opened descriptor", aliases: []string{"noatime"}, addressTypes: fdOptionAddressTypes()},
-			{name: "fs-noatime", desc: "set FS_NOATIME_FL on the file", aliases: []string{"ext2-noatime", "ext3-noatime"}, addressTypes: fdOptionAddressTypes()},
+			// GROUP_REG only (xio-fs.c). fdOptionAddressTypes would widen to
+			// PIPE/EXEC, which classic rejects; intersection is authoritative.
+			{name: "fs-noatime", desc: "set FS_NOATIME_FL on the file", aliases: []string{"ext2-noatime", "ext3-noatime"}},
 			{name: "f-setpipe-sz", desc: "set Linux pipe capacity", aliases: []string{"pipesz"}, addressTypes: fdOptionAddressTypes(), validate: validateInteger(1)},
 			{name: "mode", desc: "create mode bits", validate: validateOctal(0o7777)},
 			{name: "perm", desc: "chmod after open", validate: validateOctal(0o7777)},

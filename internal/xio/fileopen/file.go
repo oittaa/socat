@@ -183,6 +183,9 @@ func openPIPE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 	if len(s.Params) >= 1 && s.Params[0] != "" {
 		return openNamedPIPE(s, mode)
 	}
+	if err := rejectUnnamedPIPEODirect(s); err != nil {
+		return nil, err
+	}
 
 	// Anonymous pipe echo: writes to the write end are readable on the read end.
 	r, w, err := os.Pipe()
@@ -300,7 +303,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		if s.BoolOption("nonblock") {
 			flags |= oNonblock
 		}
-		f, err := openUserFile(path, flags, 0)
+		f, err := openFIFO(path, flags, s)
 		if err != nil {
 			removeCreated()
 			return nil, err
@@ -325,13 +328,15 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		addPathCleanup(o)
 		return o, nil
 	case xio.ModeWrite:
-		// Need a reader end open first for O_WRONLY on FIFO.
+		// Need a reader end open first for O_WRONLY on FIFO. The dummy reader
+		// is not a classic fd; o-direct applies only to the user-facing writer
+		// (xio-pipe.c → _xioopen_open).
 		r, err := openUserFile(path, os.O_RDONLY|oNonblock, 0)
 		if err != nil {
 			removeCreated()
 			return nil, err
 		}
-		w, err := openUserFile(path, os.O_WRONLY|oNonblock, 0)
+		w, err := openFIFO(path, os.O_WRONLY|oNonblock, s)
 		if err != nil {
 			logx.CloseQuiet(r)
 			removeCreated()
@@ -360,12 +365,12 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		return o, nil
 	default:
 		// Bidirectional: open reader then writer (both NONBLOCK), then blocking I/O.
-		r, err := openUserFile(path, os.O_RDONLY|oNonblock, 0)
+		r, err := openFIFO(path, os.O_RDONLY|oNonblock, s)
 		if err != nil {
 			removeCreated()
 			return nil, err
 		}
-		w, err := openUserFile(path, os.O_WRONLY|oNonblock, 0)
+		w, err := openFIFO(path, os.O_WRONLY|oNonblock, s)
 		if err != nil {
 			logx.CloseQuiet(r)
 			removeCreated()
@@ -550,6 +555,32 @@ func applyODirectFlag(s parse.Spec, flags int) (int, error) {
 		return 0, fmt.Errorf("o-direct: not supported on this platform")
 	}
 	return flags | oDirect, nil
+}
+
+// openFIFO opens a named FIFO. Classic PIPE is GROUP_OPEN, so o-direct
+// (PH_OPEN / OFUNC_FLAG in xio-file.c) is OR'd into open(2) the same way
+// _xioopen_open does (xio-pipe.c, tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a).
+func openFIFO(path string, flags int, s parse.Spec) (*os.File, error) {
+	flags, err := applyODirectFlag(s, flags)
+	if err != nil {
+		return nil, err
+	}
+	return openUserFile(path, flags, 0)
+}
+
+// rejectUnnamedPIPEODirect matches classic leftover-option failure: unnamed
+// PIPE uses pipe(2), not open(2), so PH_OPEN OFUNC_FLAG o-direct is never
+// consumed. Do not F_SETFL O_DIRECT onto the pipe fds.
+func rejectUnnamedPIPEODirect(s parse.Spec) error {
+	if !s.BoolOption("o-direct") {
+		return nil
+	}
+	if oDirect == 0 {
+		return fmt.Errorf("o-direct: not supported on this platform")
+	}
+	return fmt.Errorf("o-direct: not supported on unnamed PIPE")
 }
 
 func applyOpenTruncate(f *os.File, s parse.Spec) error {
