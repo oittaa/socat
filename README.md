@@ -203,6 +203,7 @@ aliases and termios / baud names.
 - **`capath`** — directory of CA certificates (PEM or DER). We load every regular file that parses as a certificate, including OpenSSL hashed names and symlinks. Classic OpenSSL only looks up hashed names.
 - **Peer name** — [RFC 6125](https://www.rfc-editor.org/rfc/rfc6125) via Go `Certificate.VerifyHostname` (case-insensitive, modern wildcard rules). Classic OPENSSL address types use `strcmp` and treat `*.example.com` as a match for `example.com`. For old test certs with no SAN, we still accept a CN match. No `commonname` → check the dial host. `commonname=foo` → check `foo`. Empty `commonname=` → skip the name check (classic). `verify=1` still checks trust. `verify=0` skips name and trust.
 - **Post-quantum key exchange** — Go 1.24+ `crypto/tls` defaults to hybrid **X25519MLKEM768**. We inherit that. Classic `test.sh` has no PQC tests; we cover PQC in unit/e2e tests.
+- **Post-quantum signatures** — Go 1.27 `crypto/mldsa` (ML-DSA-44/65/87) works on **TLS 1.3** (and QUIC) when `cert=`/`key=` are ML-DSA PEMs. TLS 1.2 does not advertise ML-DSA. Classic OpenSSL DSA (`OPENSSLLISTENDSA`) is unrelated and still rejected.
 - **Multi-address connect** — try every resolved address; log `opening connection to AF=…`; match `bind=` to remote family; `-4`/`-6` reorder dual-stack results.
 - **IPv6 peer filters** on `TLS-LISTEN`: `range`, `sourceport`, `lowport` (CN check accepts `::1` vs `[::1]`).
 
@@ -228,7 +229,7 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 
 | Topic | Status | Why / reference |
 |-------|--------|------------------|
-| **DSA certificates / keys** | Rejected | DSA is obsolete; Go `crypto/tls` does not parse DSA keys. Classic `OPENSSLLISTENDSA` fails by design. Use RSA, ECDSA, or Ed25519. See [Go crypto/tls](https://pkg.go.dev/crypto/tls) and [NIST SP 800-57 / deprecation of DSA](https://csrc.nist.gov/publications/detail/sp/800-57-part-1/rev-5/final). |
+| **DSA certificates / keys** | Rejected | DSA is obsolete; Go `crypto/tls` does not parse DSA keys. Classic `OPENSSLLISTENDSA` fails by design. Use RSA, ECDSA, Ed25519, or ML-DSA (TLS 1.3 / QUIC). See [Go crypto/tls](https://pkg.go.dev/crypto/tls), [crypto/mldsa](https://pkg.go.dev/crypto/mldsa), and [NIST SP 800-57 / deprecation of DSA](https://csrc.nist.gov/publications/detail/sp/800-57-part-1/rev-5/final). |
 | **DCCP, readline** | Not implemented | `#undef` in `-V`. No DCCP or GNU readline address type. |
 | **DTLS** | Not implemented | Not available in Go `crypto/tls` (stream TLS only). `openssl-method=DTLS*` is rejected instead of silently using TCP TLS. See [crypto/tls package docs](https://pkg.go.dev/crypto/tls). |
 | **SSLv3 / weak ciphers** | Not offered | Go TLS defaults reject obsolete protocols/ciphers. Unsupported `openssl-method=` selections are rejected. See [Go TLS cipher suites](https://go.dev/blog/tls-cipher-suites) and [crypto/tls Config](https://pkg.go.dev/crypto/tls#Config). |
