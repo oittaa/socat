@@ -2,9 +2,11 @@ package parse
 
 func init() {
 	registerOptionAliases(map[string]string{
-		"so-reuseaddr":    "reuseaddr",
-		"so-reuseport":    "reuseport",
-		"ipv6-join-group": "ip-add-membership",
+		"so-reuseaddr": "reuseaddr",
+		"so-reuseport": "reuseport",
+		// ipv6-join-group is a distinct classic option (GROUP_IP6 only,
+		// tag-1.8.1.3 / 12c08bf). Do not fold it onto ip-add-membership
+		// (IP4+IP6); validation is spelling-specific.
 		"so-keepalive":    "keepalive",
 		"so-bindtodevice": "bindtodevice",
 		"if":              "bindtodevice",

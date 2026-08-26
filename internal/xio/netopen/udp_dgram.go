@@ -429,8 +429,8 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 		_ = c.Close()
 		return nil, err
 	}
-	// ip-add-membership=mcastaddr:interfaceaddr (classic form).
-	if v := s.OptionValue("ip-add-membership", ""); v != "" {
+	// ip-add-membership / ipv6-join-group (classic form mcast:iface).
+	if v := membershipJoinSpec(s); v != "" {
 		if err := joinMulticast(c, v); err != nil {
 			logx.CloseQuiet(c)
 			return nil, err

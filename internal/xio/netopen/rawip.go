@@ -377,8 +377,9 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 	if err := errors.Join(controlErr, optionErr); err != nil {
 		return err
 	}
-	// Multicast join (IP4MULTICAST_* classic tests).
-	if v := s.OptionValue("ip-add-membership", ""); v != "" {
+	// Multicast join (IP4MULTICAST_* classic tests): ip-add-membership and
+	// ipv6-join-group are distinct spellings after parse stopped folding them.
+	if v := membershipJoinSpec(s); v != "" {
 		if err := joinMulticast(c, v); err != nil {
 			return err
 		}

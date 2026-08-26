@@ -232,10 +232,13 @@ func TestOptionAliases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !s.HasOption("ip-add-membership") || !s.HasOption("ipv6-join-group") {
-		t.Fatal("ipv6-join-group alias")
+	if !s.HasOption("ipv6-join-group") {
+		t.Fatal("ipv6-join-group")
 	}
-	if got := s.OptionValue("ip-add-membership", ""); got != "[ff02::2]:lo" {
+	if s.HasOption("ip-add-membership") {
+		t.Fatal("ipv6-join-group must not fold onto ip-add-membership")
+	}
+	if got := s.OptionValue("ipv6-join-group", ""); got != "[ff02::2]:lo" {
 		t.Fatalf("membership %q", got)
 	}
 	if !s.HasOption("unix-bind-tempname") || !s.HasOption("bind-tempname") {
@@ -370,7 +373,7 @@ func TestOptionSpellingPreserved(t *testing.T) {
 	if s.Options[1].Name != "append" || s.Options[1].Spelling != "o-append" || s.Options[1].Has {
 		t.Fatalf("O-APPEND stored as %+v", s.Options[1])
 	}
-	if s.Options[2].Name != "ip-add-membership" || s.Options[2].Spelling != "ipv6-join-group" {
+	if s.Options[2].Name != "ipv6-join-group" || s.Options[2].Spelling != "ipv6-join-group" {
 		t.Fatalf("ipv6-join-group stored as %+v", s.Options[2])
 	}
 	if s.Options[0].OriginalSpelling() != "so-type" {

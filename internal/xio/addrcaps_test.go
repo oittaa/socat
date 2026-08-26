@@ -88,6 +88,15 @@ func TestClassicAllowsOption(t *testing.T) {
 		{"FD", "fs-noatime", true},
 		{"PIPE", "fs-noatime", false},
 		{"EXEC", "fs-noatime", false},
+		{"UDP4", "ipv6-join-group", false},
+		{"UDP4-RECV", "ipv6-join-group", false},
+		{"TCP4", "ipv6-join-group", false},
+		{"IP4", "ipv6-join-group", false},
+		{"UDP6", "ipv6-join-group", true},
+		{"UDP6-RECV", "ipv6-join-group", true},
+		{"TCP6", "ipv6-join-group", true},
+		{"UDP4", "ip-add-membership", true},
+		{"UDP6", "ip-add-membership", true},
 	}
 	for _, tc := range cases {
 		got := ClassicAllowsOption(tc.addr, tc.opt)
