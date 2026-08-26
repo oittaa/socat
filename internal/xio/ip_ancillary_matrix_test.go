@@ -2,6 +2,8 @@ package xio
 
 import (
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -67,6 +69,12 @@ func TestIPAncillaryImplementationGroupsAliases(t *testing.T) {
 	if IPAncillaryImplementationGroups("nodelay") != nil {
 		t.Fatal("non-matrix option must not grow implementationGroups")
 	}
+	if !reflect.DeepEqual(IPAncillaryImplementationGroups("ippktinfo"), pktinfo) {
+		t.Fatalf("ippktinfo groups=%v want %v", IPAncillaryImplementationGroups("ippktinfo"), pktinfo)
+	}
+	if len(pktinfo) == 0 {
+		t.Fatal("empty implementationGroups means unrestricted; recv must keep UDP/raw IP groups on every platform")
+	}
 }
 
 func TestRejectUnsupportedIPAncillaryWithoutRegistration(t *testing.T) {
@@ -76,6 +84,47 @@ func TestRejectUnsupportedIPAncillaryWithoutRegistration(t *testing.T) {
 	}
 	if err := RejectUnsupportedIPAncillary(spec); err != nil {
 		t.Fatalf("unregistered type: %v", err)
+	}
+}
+
+func TestRejectUnsupportedIPAncillaryFamilyAndPlatform(t *testing.T) {
+	cases := []struct {
+		spec        string
+		wantUnix    string
+		wantWindows string
+	}{
+		{spec: "TCP4:127.0.0.1:1,ipv6-tclass=16", wantUnix: "not supported on IPv4", wantWindows: "not supported on this platform"},
+		{spec: "TCP4:127.0.0.1:1,ipv6-unicast-hops=9", wantUnix: "not supported on IPv4", wantWindows: "not supported on this platform"},
+		{spec: "UDP6:[::1]:1,ip-pktinfo", wantUnix: "not supported on IPv6", wantWindows: "not supported on this platform"},
+		{spec: "UDP4:127.0.0.1:1,ipv6-recvpktinfo", wantUnix: "not supported on IPv4", wantWindows: "not supported on this platform"},
+		{spec: "TCP6:[::1]:1,ip-ttl=9"},
+		{spec: "TCP6:[::1]:1,ip-tos=16"},
+		{spec: "TCP6:[::1]:1,ipv6-tclass=16", wantWindows: "not supported on this platform"},
+		{spec: "UDP4:127.0.0.1:1,ip-pktinfo", wantWindows: "not supported on this platform"},
+		{spec: "UDP4:127.0.0.1:1,ippktinfo", wantWindows: "not supported on this platform"},
+		{spec: "TCP:127.0.0.1:1,ip-options=x01000000", wantWindows: "not supported on this platform"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.spec, func(t *testing.T) {
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = RejectUnsupportedIPAncillary(spec)
+			want := tc.wantUnix
+			if runtime.GOOS == "windows" {
+				want = tc.wantWindows
+			}
+			if want == "" {
+				if err != nil {
+					t.Fatalf("err=%v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Fatalf("err=%v want substring %q", err, want)
+			}
+		})
 	}
 }
 
@@ -103,5 +152,27 @@ func TestAncillaryRecvIntPresenceAndZero(t *testing.T) {
 	n, ok, err = ancillaryRecvInt(on, "ip-pktinfo", "pktinfo")
 	if err != nil || !ok || n != 1 {
 		t.Fatalf("ip-pktinfo=1 n=%d ok=%v err=%v want 1", n, ok, err)
+	}
+}
+
+func TestAncillaryRecvIntAliasLastWins(t *testing.T) {
+	off, err := parse.ParseSpec("UDP:127.0.0.1:1,ip-recvttl=1,recvttl=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, ok, err := ancillaryRecvInt(off, "ip-recvttl")
+	if err != nil || !ok || n != 0 {
+		t.Fatalf("ip-recvttl=1,recvttl=0 n=%d ok=%v err=%v want 0", n, ok, err)
+	}
+	if NeedAncillary(off) {
+		t.Fatal("recvttl=0 must win and disable ReadMsg")
+	}
+	on, err := parse.ParseSpec("UDP:127.0.0.1:1,recvttl=0,iprecvttl=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, ok, err = ancillaryRecvInt(on, "ip-recvttl")
+	if err != nil || !ok || n != 1 {
+		t.Fatalf("recvttl=0,iprecvttl=1 n=%d ok=%v err=%v want 1", n, ok, err)
 	}
 }

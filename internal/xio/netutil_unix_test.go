@@ -175,6 +175,90 @@ func TestApplyTCPConnOptsIPv6TTL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var ttl int
+	var optionErr error
+	_ = raw.Control(func(fd uintptr) {
+		ttl, optionErr = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_TTL)
+	})
+	if optionErr != nil {
+		t.Fatal(optionErr)
+	}
+	if ttl != 9 {
+		t.Fatalf("IP_TTL=%d want 9 (classic SOL_IP, not IPV6_UNICAST_HOPS translation)", ttl)
+	}
+}
+
+func TestApplyTCPConnOptsIPv6TOS(t *testing.T) {
+	ln, err := net.ListenTCP("tcp6", &net.TCPAddr{IP: net.IPv6loopback})
+	if err != nil {
+		t.Skipf("IPv6 unavailable: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	accepted := make(chan *net.TCPConn, 1)
+	go func() {
+		conn, _ := ln.AcceptTCP()
+		accepted <- conn
+	}()
+	client, err := net.DialTCP("tcp6", nil, ln.Addr().(*net.TCPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	server := <-accepted
+	t.Cleanup(func() { _ = server.Close() })
+	spec, err := parse.ParseSpec("TCP6:[::1]:1,ip-tos=0x10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyTCPConnOpts(spec, client); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := client.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tos int
+	var optionErr error
+	_ = raw.Control(func(fd uintptr) {
+		tos, optionErr = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_TOS)
+	})
+	if optionErr != nil {
+		t.Fatal(optionErr)
+	}
+	if tos != 0x10 {
+		t.Fatalf("IP_TOS=%#x want 0x10 (classic SOL_IP, not skipped on TCP6)", tos)
+	}
+}
+
+func TestApplyTCPConnOptsIPv6UnicastHops(t *testing.T) {
+	ln, err := net.ListenTCP("tcp6", &net.TCPAddr{IP: net.IPv6loopback})
+	if err != nil {
+		t.Skipf("IPv6 unavailable: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	accepted := make(chan *net.TCPConn, 1)
+	go func() {
+		conn, _ := ln.AcceptTCP()
+		accepted <- conn
+	}()
+	client, err := net.DialTCP("tcp6", nil, ln.Addr().(*net.TCPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	server := <-accepted
+	t.Cleanup(func() { _ = server.Close() })
+	spec, err := parse.ParseSpec("TCP6:[::1]:1,ipv6-unicast-hops=9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyTCPConnOpts(spec, client); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := client.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
 	var hops int
 	var optionErr error
 	_ = raw.Control(func(fd uintptr) {
@@ -185,6 +269,39 @@ func TestApplyTCPConnOptsIPv6TTL(t *testing.T) {
 	}
 	if hops != 9 {
 		t.Fatalf("IPV6_UNICAST_HOPS=%d want 9", hops)
+	}
+}
+
+func TestApplyTCPConnOptsIPv4RejectsIPv6SendOpts(t *testing.T) {
+	ln, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	accepted := make(chan *net.TCPConn, 1)
+	go func() {
+		conn, _ := ln.AcceptTCP()
+		accepted <- conn
+	}()
+	client, err := net.DialTCP("tcp4", nil, ln.Addr().(*net.TCPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	server := <-accepted
+	t.Cleanup(func() { _ = server.Close() })
+	for _, specText := range []string{
+		"TCP:127.0.0.1:1,ipv6-tclass=16",
+		"TCP:127.0.0.1:1,ipv6-unicast-hops=9",
+	} {
+		spec, err := parse.ParseSpec(specText)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = ApplyTCPConnOpts(spec, client)
+		if err == nil || !strings.Contains(err.Error(), "not supported on IPv4") {
+			t.Fatalf("%s: err=%v want not supported on IPv4", specText, err)
+		}
 	}
 }
 

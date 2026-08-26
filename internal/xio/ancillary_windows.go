@@ -4,6 +4,7 @@ package xio
 
 import (
 	"errors"
+	"fmt"
 	"net"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -11,7 +12,12 @@ import (
 
 func NeedAncillary(parse.Spec) bool { return false }
 
-func ApplyAncillaryRecvOpts(int, parse.Spec) error { return nil }
+func ApplyAncillaryRecvOpts(_ int, s parse.Spec) error {
+	if !ancillaryRecvRequested(s) {
+		return nil
+	}
+	return fmt.Errorf("recv ancillary options are not supported on this platform")
+}
 
 func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
 	return applyIPTTLTOS(fd, s, network)
@@ -31,7 +37,10 @@ func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 	}
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
-		optionErr = ApplyIPSendOpts(int(fd), s, network)
+		optionErr = ApplyAncillaryRecvOpts(int(fd), s)
+		if optionErr == nil {
+			optionErr = ApplyIPSendOpts(int(fd), s, network)
+		}
 		if optionErr == nil {
 			optionErr = ApplySocketOptions(int(fd), s)
 		}

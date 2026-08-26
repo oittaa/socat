@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -46,9 +47,10 @@ func TestParseSignalLogMask(t *testing.T) {
 
 func TestValidateAddressOptions(t *testing.T) {
 	tests := []struct {
-		name    string
-		spec    string
-		wantErr string
+		name       string
+		spec       string
+		wantErr    string
+		windowsErr string
 	}{
 		{name: "create-excl", spec: "CREATE:file,excl", wantErr: "not supported"},
 		{name: "open-excl", spec: "OPEN:file,excl"},
@@ -135,8 +137,8 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "vsock-range", spec: "VSOCK-LISTEN:9,range=127.0.0.1/32", wantErr: "not supported"},
 		{name: "vsock-sourceport", spec: "VSOCK-CONNECT:1:9,sourceport=1", wantErr: "not supported"},
 		{name: "fs-noatime-on-exec", spec: "EXEC:true,fs-noatime", wantErr: "not supported"},
-		{name: "pktinfo-on-udp4", spec: "UDP4:localhost:1,pktinfo"},
-		{name: "pktinfo-on-udp-connect", spec: "UDP-CONNECT:localhost:1,ip-pktinfo"},
+		{name: "pktinfo-on-udp4", spec: "UDP4:localhost:1,pktinfo", windowsErr: "not supported on this platform"},
+		{name: "pktinfo-on-udp-connect", spec: "UDP-CONNECT:localhost:1,ip-pktinfo", windowsErr: "not supported on this platform"},
 		{name: "pktinfo-on-tcp", spec: "TCP:localhost:1,ip-pktinfo", wantErr: "not supported"},
 		{name: "timestamp-on-tcp", spec: "TCP:localhost:1,so-timestamp", wantErr: "not supported"},
 		{name: "recvttl-on-quic", spec: "QUIC:localhost:1,ip-recvttl", wantErr: "not supported"},
@@ -144,8 +146,17 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "timestamp-on-unix", spec: "UNIX-CONNECT:sock,so-timestamp", wantErr: "not supported"},
 		{name: "ttl-on-quic", spec: "QUIC:localhost:1,ip-ttl=9"},
 		{name: "ttl-on-tcp", spec: "TCP:localhost:1,ip-ttl=9"},
-		{name: "tls-version-bounds", spec: "TLS:localhost:443,min-version=TLS1.2,max-version=TLS1.3"},
+		{name: "ttl-on-tcp6", spec: "TCP6:localhost:1,ip-ttl=9"},
+		{name: "tos-on-tcp6", spec: "TCP6:localhost:1,ip-tos=16"},
+		{name: "tclass-on-tcp4", spec: "TCP4:localhost:1,ipv6-tclass=16", wantErr: "not supported on IPv4", windowsErr: "not supported on this platform"},
+		{name: "unicast-hops-on-tcp4", spec: "TCP4:localhost:1,ipv6-unicast-hops=9", wantErr: "not supported on IPv4", windowsErr: "not supported on this platform"},
+		{name: "tclass-on-tcp6", spec: "TCP6:localhost:1,ipv6-tclass=16", windowsErr: "not supported on this platform"},
+		{name: "pktinfo-on-udp6", spec: "UDP6:localhost:1,ip-pktinfo", wantErr: "not supported on IPv6", windowsErr: "not supported on this platform"},
+		{name: "recvhoplimit-on-udp4", spec: "UDP4:localhost:1,ipv6-recvhoplimit", wantErr: "not supported on IPv4", windowsErr: "not supported on this platform"},
+		{name: "concat-ippktinfo", spec: "UDP4:localhost:1,ippktinfo", windowsErr: "not supported on this platform"},
+		{name: "recvttl-alias-last-wins", spec: "UDP4:localhost:1,ip-recvttl=1,recvttl=0", windowsErr: "not supported on this platform"},
 		{name: "classic-ip-aliases", spec: "TCP:localhost:1,ipttl=9,iptos=16"},
+		{name: "tls-version-bounds", spec: "TLS:localhost:443,min-version=TLS1.2,max-version=TLS1.3"},
 		{name: "tcp-options-on-wss", spec: "WSS:localhost:1,nodelay,keepalive"},
 		{name: "tls-options-on-wss", spec: "WSS:localhost:1,verify=0"},
 		{name: "alpn-on-quic", spec: "QUIC:localhost:1,alpn=socat"},
@@ -209,14 +220,18 @@ func TestValidateAddressOptions(t *testing.T) {
 				t.Fatal(err)
 			}
 			err = validateChannelOptions(ch)
-			if tc.wantErr == "" {
+			wantErr := tc.wantErr
+			if runtime.GOOS == "windows" && tc.windowsErr != "" {
+				wantErr = tc.windowsErr
+			}
+			if wantErr == "" {
 				if err != nil {
 					t.Fatal(err)
 				}
 				return
 			}
-			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-				t.Fatalf("error=%v want substring %q", err, tc.wantErr)
+			if err == nil || !strings.Contains(err.Error(), wantErr) {
+				t.Fatalf("error=%v want substring %q", err, wantErr)
 			}
 		})
 	}

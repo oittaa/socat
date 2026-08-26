@@ -4,12 +4,10 @@ package xio
 
 import (
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -29,28 +27,33 @@ func NeedAncillary(s parse.Spec) bool {
 func ApplyAncillaryRecvOpts(fd int, s parse.Spec) error {
 	type recvOpt struct {
 		canonical string
-		aliases   []string
 		level     int
 		opt       int
 	}
 	opts := []recvOpt{
-		{"so-timestamp", []string{"timestamp"}, unix.SOL_SOCKET, unix.SO_TIMESTAMP},
-		{"ip-pktinfo", []string{"pktinfo"}, unix.IPPROTO_IP, unix.IP_PKTINFO},
-		{"ip-recvttl", []string{"recvttl"}, unix.IPPROTO_IP, unix.IP_RECVTTL},
-		{"ip-recvtos", []string{"recvtos"}, unix.IPPROTO_IP, unix.IP_RECVTOS},
-		{"ip-recvopts", []string{"recvopts"}, unix.IPPROTO_IP, unix.IP_RECVOPTS},
-		{"ipv6-recvpktinfo", []string{"recvpktinfo"}, unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO},
-		{"ipv6-recvhoplimit", []string{"recvhoplimit"}, unix.IPPROTO_IPV6, unix.IPV6_RECVHOPLIMIT},
-		{"ipv6-recvtclass", []string{"recvtclass"}, unix.IPPROTO_IPV6, unix.IPV6_RECVTCLASS},
+		{"so-timestamp", unix.SOL_SOCKET, unix.SO_TIMESTAMP},
+		{"ip-pktinfo", unix.IPPROTO_IP, unix.IP_PKTINFO},
+		{"ip-recvttl", unix.IPPROTO_IP, unix.IP_RECVTTL},
+		{"ip-recvtos", unix.IPPROTO_IP, unix.IP_RECVTOS},
+		{"ip-recvopts", unix.IPPROTO_IP, unix.IP_RECVOPTS},
+		{"ipv6-recvpktinfo", unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO},
+		{"ipv6-recvhoplimit", unix.IPPROTO_IPV6, unix.IPV6_RECVHOPLIMIT},
+		{"ipv6-recvtclass", unix.IPPROTO_IPV6, unix.IPV6_RECVTCLASS},
+	}
+	family, err := socketIPFamily(fd)
+	if err != nil {
+		return err
 	}
 	for _, o := range opts {
-		names := append([]string{o.canonical}, o.aliases...)
-		n, present, err := ancillaryRecvInt(s, names...)
+		n, present, err := ancillaryRecvInt(s, o.canonical)
 		if err != nil {
 			return err
 		}
 		if !present {
 			continue
+		}
+		if err := rejectIPAncillaryApply(o.canonical, family); err != nil {
+			return err
 		}
 		if err := unix.SetsockoptInt(fd, o.level, o.opt, n); err != nil {
 			return fmt.Errorf("%s: %w", o.canonical, err)
@@ -61,101 +64,7 @@ func ApplyAncillaryRecvOpts(fd int, s parse.Spec) error {
 
 // ApplyIPSendOpts sets classic send-side IP options on a UDP/IP socket.
 func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
-	if v := s.OptionValue("ip-ttl", ""); v != "" {
-		n, err := ParseIntAny(v)
-		if err != nil {
-			return fmt.Errorf("ip-ttl: %w", err)
-		}
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TTL, n); err != nil {
-			return fmt.Errorf("ip-ttl: %w", err)
-		}
-	} else if v := s.OptionValue("ttl", ""); v != "" {
-		n, err := ParseIntAny(v)
-		if err != nil {
-			return fmt.Errorf("ttl: %w", err)
-		}
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TTL, n); err != nil {
-			return fmt.Errorf("ttl: %w", err)
-		}
-	}
-	if v := s.OptionValue("ip-tos", ""); v != "" {
-		n, err := ParseIntAny(v)
-		if err != nil {
-			return fmt.Errorf("ip-tos: %w", err)
-		}
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TOS, n); err != nil {
-			return fmt.Errorf("ip-tos: %w", err)
-		}
-	} else if v := s.OptionValue("tos", ""); v != "" {
-		n, err := ParseIntAny(v)
-		if err != nil {
-			return fmt.Errorf("tos: %w", err)
-		}
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TOS, n); err != nil {
-			return fmt.Errorf("tos: %w", err)
-		}
-	}
-	if v := s.OptionValue("ip-options", ""); v != "" {
-		// classic ip-options=x01000000 hex dump of IP options bytes
-		b, err := ParseHexOpt(v)
-		if err != nil {
-			return fmt.Errorf("ip-options: %w", err)
-		}
-		if len(b) == 0 {
-			return fmt.Errorf("ip-options: empty value")
-		}
-		if err := unix.SetsockoptString(fd, unix.IPPROTO_IP, unix.IP_OPTIONS, string(b)); err != nil {
-			return fmt.Errorf("ip-options: %w", err)
-		}
-	}
-	if strings.Contains(network, "6") {
-		if v := s.OptionValue("ipv6-unicast-hops", ""); v != "" {
-			n, err := ParseIntAny(v)
-			if err != nil {
-				return fmt.Errorf("ipv6-unicast-hops: %w", err)
-			}
-			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, n); err != nil {
-				return fmt.Errorf("ipv6-unicast-hops: %w", err)
-			}
-		} else if v := s.OptionValue("unicast-hops", ""); v != "" {
-			n, err := ParseIntAny(v)
-			if err != nil {
-				return fmt.Errorf("unicast-hops: %w", err)
-			}
-			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, n); err != nil {
-				return fmt.Errorf("unicast-hops: %w", err)
-			}
-		}
-		if v := s.OptionValue("ipv6-tclass", ""); v != "" {
-			n, err := ParseIntAny(v)
-			if err != nil {
-				return fmt.Errorf("ipv6-tclass: %w", err)
-			}
-			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_TCLASS, n); err != nil {
-				return fmt.Errorf("ipv6-tclass: %w", err)
-			}
-		} else if v := s.OptionValue("tclass", ""); v != "" {
-			n, err := ParseIntAny(v)
-			if err != nil {
-				return fmt.Errorf("tclass: %w", err)
-			}
-			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_TCLASS, n); err != nil {
-				return fmt.Errorf("tclass: %w", err)
-			}
-		}
-	}
-	return nil
-}
-
-func ParseHexOpt(v string) ([]byte, error) {
-	v = strings.TrimSpace(v)
-	if strings.HasPrefix(v, "x") || strings.HasPrefix(v, "X") {
-		v = v[1:]
-	}
-	if strings.HasPrefix(v, "0x") || strings.HasPrefix(v, "0X") {
-		v = v[2:]
-	}
-	return hex.DecodeString(v)
+	return applyClassicIPSendOpts(fd, s, ipFamilyFromNetwork(network))
 }
 
 // ProcessAncillary parses oob from recvmsg, logs classic Info lines, and sets

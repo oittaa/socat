@@ -103,80 +103,15 @@ func timevalFromSpec(v string) (*unix.Timeval, error) {
 	return &tv, nil
 }
 
-// applyIPTTLTOS sets classic send-side IP options on TCP/SCTP INET sockets:
-// ip-ttl/ttl, ip-tos/tos, ip-options (IPv4), ipv6-unicast-hops, ipv6-tclass.
-// On IPv6, ttl maps to IPV6_UNICAST_HOPS; tos has no direct v6 equivalent and
-// is skipped (classic uses ipv6-tclass). UDP, raw-IP, and QUIC apply the same
-// options through ApplyIPSendOpts instead, so this helper restricts itself to
-// TCP/SCTP networks to avoid double application.
+// applyIPTTLTOS sets classic send-side IP options on TCP/SCTP INET sockets.
+// ip-ttl/ip-tos/ip-options use SOL_IP IP_TTL/IP_TOS/IP_OPTIONS (xio-ip.c
+// OFUNC_SOCKOPT) on IPv4 and IPv6; they are not translated to IPV6_* and not
+// skipped on v6. ipv6-unicast-hops/ipv6-tclass error on IPv4. UDP, raw-IP,
+// and QUIC apply the same options through ApplyIPSendOpts instead, so this
+// helper restricts itself to TCP/SCTP networks to avoid double application.
 func applyIPTTLTOS(fd int, s parse.Spec, network string) error {
 	if !strings.HasPrefix(network, "tcp") && !strings.HasPrefix(network, "sctp") {
 		return nil
 	}
-	is6 := strings.HasSuffix(network, "6")
-	opt := func(names ...string) (string, bool) {
-		for _, n := range names {
-			if o, ok := s.OptionNamed(n); ok && o.Has && strings.TrimSpace(o.Value) != "" {
-				return o.Value, true
-			}
-		}
-		return "", false
-	}
-	if v, ok := opt("ip-ttl", "ttl"); ok {
-		n, err := ParseIntAny(v)
-		if err != nil {
-			return fmt.Errorf("ip-ttl: %w", err)
-		}
-		if is6 {
-			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, n); err != nil {
-				return fmt.Errorf("ip-ttl: %w", err)
-			}
-		} else if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TTL, n); err != nil {
-			return fmt.Errorf("ip-ttl: %w", err)
-		}
-	}
-	if v, ok := opt("ip-tos", "tos"); ok && !is6 {
-		n, err := ParseIntAny(v)
-		if err != nil {
-			return fmt.Errorf("ip-tos: %w", err)
-		}
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TOS, n); err != nil {
-			return fmt.Errorf("ip-tos: %w", err)
-		}
-	}
-	if !is6 {
-		if v := s.OptionValue("ip-options", ""); v != "" {
-			b, err := ParseHexOpt(v)
-			if err != nil {
-				return fmt.Errorf("ip-options: %w", err)
-			}
-			if len(b) == 0 {
-				return fmt.Errorf("ip-options: empty value")
-			}
-			if err := unix.SetsockoptString(fd, unix.IPPROTO_IP, unix.IP_OPTIONS, string(b)); err != nil {
-				return fmt.Errorf("ip-options: %w", err)
-			}
-		}
-	}
-	if is6 {
-		if v, ok := opt("ipv6-unicast-hops", "unicast-hops"); ok {
-			n, err := ParseIntAny(v)
-			if err != nil {
-				return fmt.Errorf("ipv6-unicast-hops: %w", err)
-			}
-			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, n); err != nil {
-				return fmt.Errorf("ipv6-unicast-hops: %w", err)
-			}
-		}
-		if v, ok := opt("ipv6-tclass", "tclass"); ok {
-			n, err := ParseIntAny(v)
-			if err != nil {
-				return fmt.Errorf("ipv6-tclass: %w", err)
-			}
-			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_TCLASS, n); err != nil {
-				return fmt.Errorf("ipv6-tclass: %w", err)
-			}
-		}
-	}
-	return nil
+	return applyClassicIPSendOpts(fd, s, ipFamilyFromNetwork(network))
 }

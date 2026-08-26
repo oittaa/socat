@@ -378,6 +378,32 @@ func TestOptionSpellingPreserved(t *testing.T) {
 	}
 }
 
+func TestIPAncillaryAliasesFoldForLastWins(t *testing.T) {
+	s, err := ParseSpec("UDP:127.0.0.1:1,ippktinfo,ip-recvttl=1,recvttl=0,ipoptions=x00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Options) != 4 {
+		t.Fatalf("options=%v", s.Options)
+	}
+	if s.Options[0].Name != "ip-pktinfo" || s.Options[0].Spelling != "ippktinfo" {
+		t.Fatalf("ippktinfo stored as %+v", s.Options[0])
+	}
+	if s.Options[1].Name != "ip-recvttl" || s.Options[2].Name != "ip-recvttl" {
+		t.Fatalf("recvttl aliases stored as %+v %+v", s.Options[1], s.Options[2])
+	}
+	got, ok := s.OptionNamed("ip-recvttl")
+	if !ok || got.Value != "0" {
+		t.Fatalf("last-wins ip-recvttl=%+v", got)
+	}
+	if s.Options[3].Name != "ip-options" || s.Options[3].Spelling != "ipoptions" {
+		t.Fatalf("ipoptions stored as %+v", s.Options[3])
+	}
+	if CanonicalOptionName("ttl") != "ip-ttl" || CanonicalOptionName("tos") != "ip-tos" {
+		t.Fatalf("ttl/tos canonical=%q %q", CanonicalOptionName("ttl"), CanonicalOptionName("tos"))
+	}
+}
+
 func TestSoProtocolAliases(t *testing.T) {
 	for _, spec := range []string{
 		"VSOCK-LISTEN:9,so-protocol=6",
