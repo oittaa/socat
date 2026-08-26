@@ -21,6 +21,7 @@ func TestOptionCapabilityRestrictions(t *testing.T) {
 		{name: "echo-on-tcp", left: "TCP:127.0.0.1:1,echo", wantErr: "not supported"},
 		{name: "fork-on-udp", left: "UDP:127.0.0.1:1,fork", wantErr: "not supported"},
 		{name: "excl-on-create", left: "CREATE:file,excl", wantErr: "not supported"},
+		{name: "o-direct-on-create", left: "CREATE:file,o-direct", wantErr: "not supported"},
 		{name: "accept-timeout-on-recvfrom", left: "UDP-RECVFROM:1,accept-timeout=0.1", wantErr: "not supported"},
 		{name: "append-on-tcp-accepted", left: "TCP:127.0.0.1:1,append"},
 		{name: "readbytes-on-tcp-accepted", left: "TCP:127.0.0.1:1,readbytes=4"},
@@ -55,6 +56,7 @@ func TestOptionCapabilityRestrictions(t *testing.T) {
 				"TCP:127.0.0.1:1,echo",
 				"UDP:127.0.0.1:1,fork",
 				"CREATE:" + t.TempDir() + "/f,excl",
+				"CREATE:" + t.TempDir() + "/g,o-direct",
 			} {
 				goOut, _ := runWithTimeout(t, exec.Command(bin, "-u", spec, "PIPE"), 2*time.Second)
 				clOut, _ := runWithTimeout(t, exec.Command(classic, "-u", spec, "PIPE"), 2*time.Second)

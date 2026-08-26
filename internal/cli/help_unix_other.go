@@ -4,7 +4,7 @@ package cli
 
 func hideOpt(name string) bool {
 	switch name {
-	case "o-noatime", "f-setpipe-sz":
+	case "o-noatime", "o-direct", "fs-noatime", "f-setpipe-sz":
 		return true
 	default:
 		return false

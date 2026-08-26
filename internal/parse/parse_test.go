@@ -289,6 +289,54 @@ func TestClassicCompatibilityOptionAliases(t *testing.T) {
 	}
 }
 
+func TestDirectAndFSNoatimeAliases(t *testing.T) {
+	s, err := ParseSpec("OPEN:file,direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.BoolOption("o-direct") {
+		t.Fatal("direct alias did not normalize to o-direct")
+	}
+	s, err = ParseSpec("OPEN:file,o_direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.BoolOption("o-direct") {
+		t.Fatal("o_direct alias did not normalize to o-direct")
+	}
+	s, err = ParseSpec("OPEN:file,o-direct=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.BoolOption("o-direct") {
+		t.Fatal("o-direct=0 must be false")
+	}
+	s, err = ParseSpec("OPEN:file,ext2-noatime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.BoolOption("fs-noatime") {
+		t.Fatal("ext2-noatime alias did not normalize to fs-noatime")
+	}
+	s, err = ParseSpec("OPEN:file,ext3-noatime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.BoolOption("fs-noatime") {
+		t.Fatal("ext3-noatime alias did not normalize to fs-noatime")
+	}
+	s, err = ParseSpec("OPEN:file,noatime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.BoolOption("fs-noatime") {
+		t.Fatal("noatime must not alias fs-noatime")
+	}
+	if CanonicalOptionName("noatime") != "noatime" {
+		t.Fatalf("noatime canonicalized to %q", CanonicalOptionName("noatime"))
+	}
+}
+
 func TestSocketTypeAlias(t *testing.T) {
 	s, err := ParseSpec("UNIX-LISTEN:/tmp/test.sock,so-type=5")
 	if err != nil {

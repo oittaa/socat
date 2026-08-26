@@ -10,7 +10,7 @@ func hideOpt(name string) bool {
 		"ip-ttl", "ip-tos", "ip-options",
 		"ipv6-recvpktinfo", "ipv6-recvhoplimit", "ipv6-recvtclass",
 		"ipv6-unicast-hops", "ipv6-tclass",
-		"nonblock", "o-noatime", "f-setpipe-sz", "umask", "user", "group",
+		"nonblock", "o-noatime", "o-direct", "fs-noatime", "f-setpipe-sz", "umask", "user", "group",
 		"perm-early", "user-early", "group-early",
 		"setlk", "setlkw", "setlk-rd", "setlkw-rd",
 		"pipes", "pty", "setsid", "stderr", "fdin", "fdout", "shell", "shut-none":
