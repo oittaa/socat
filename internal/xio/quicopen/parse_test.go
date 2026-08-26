@@ -2,11 +2,13 @@ package quicopen
 
 import (
 	"crypto/tls"
+	"math"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestQUICTargetConnect(t *testing.T) {
@@ -166,11 +168,55 @@ func TestQUICConfigHandshakeIdleTimeoutZeroDisablesBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if got := xio.HandshakeTimeout(s); got != 0 {
+		t.Fatalf("HandshakeTimeout=%s want 0 (TLS/WS still treat 0 as no deadline)", got)
+	}
 	setup, err := quicConfig(s, &tls.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if setup.cfg.HandshakeIdleTimeout != 0 {
-		t.Fatalf("HandshakeIdleTimeout=%s want 0 (disabled; not 30s default)", setup.cfg.HandshakeIdleTimeout)
+	// quic-go populateConfig substitutes 5s when HandshakeIdleTimeout is 0.
+	// The public option still means "unbounded"; we map that to a long
+	// explicit duration rather than leaving the field at 0.
+	if setup.cfg.HandshakeIdleTimeout != quicHandshakeIdleTimeoutDisabled {
+		t.Fatalf("HandshakeIdleTimeout=%s want normalized %s", setup.cfg.HandshakeIdleTimeout, quicHandshakeIdleTimeoutDisabled)
+	}
+	if setup.cfg.HandshakeIdleTimeout == 0 || setup.cfg.HandshakeIdleTimeout == 5*time.Second || setup.cfg.HandshakeIdleTimeout == 30*time.Second {
+		t.Fatalf("HandshakeIdleTimeout=%s is not an unbounded substitute", setup.cfg.HandshakeIdleTimeout)
+	}
+}
+
+func TestQUICHandshakeIdleTimeoutDisabledDoesNotOverflowWhenDoubled(t *testing.T) {
+	if quicHandshakeIdleTimeoutDisabled <= 0 {
+		t.Fatal("disabled HandshakeIdleTimeout must be nonzero so quic-go does not substitute 5s")
+	}
+	if quicHandshakeIdleTimeoutDisabled > time.Duration(math.MaxInt64/2) {
+		t.Fatalf("2*%s would overflow int64; quic-go handshakeTimeout doubles HandshakeIdleTimeout", quicHandshakeIdleTimeoutDisabled)
+	}
+}
+
+func TestQUICDialAttemptTimeout(t *testing.T) {
+	tests := []struct {
+		name string
+		spec string
+		want time.Duration
+	}{
+		{name: "connect-shorter-than-handshake", spec: "QUIC:h:1,connect-timeout=0.2,handshake-timeout=5", want: 200 * time.Millisecond},
+		{name: "handshake-zero-connect-still-caps", spec: "QUIC:h:1,connect-timeout=0.2,handshake-timeout=0", want: 200 * time.Millisecond},
+		{name: "handshake-zero-no-connect", spec: "QUIC:h:1,handshake-timeout=0", want: 0},
+		{name: "omitted-handshake-default", spec: "QUIC:h:1", want: 30 * time.Second},
+		{name: "omitted-handshake-connect-caps", spec: "QUIC:h:1,connect-timeout=0.2", want: 200 * time.Millisecond},
+		{name: "handshake-shorter-than-connect", spec: "QUIC:h:1,connect-timeout=5,handshake-timeout=0.2", want: 200 * time.Millisecond},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := quicDialAttemptTimeout(s); got != tc.want {
+				t.Fatalf("quicDialAttemptTimeout(%q)=%s want %s", tc.spec, got, tc.want)
+			}
+		})
 	}
 }

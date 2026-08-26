@@ -7,6 +7,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/quic-go/quic-go"
 
@@ -15,6 +16,14 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
+
+// quicHandshakeIdleTimeoutDisabled is HandshakeIdleTimeout when
+// handshake-timeout=0 (disable the bound). quic-go v0.61.0 populateConfig
+// substitutes protocol.DefaultHandshakeIdleTimeout (5s) when the field is
+// 0, and handshakeTimeout() returns 2*HandshakeIdleTimeout, so this must be
+// nonzero and 2*duration must not overflow int64. One year is effectively
+// unbounded for a handshake.
+const quicHandshakeIdleTimeoutDisabled = 365 * 24 * time.Hour
 
 func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	_, port, err := quicTarget(s, true)
@@ -66,6 +75,13 @@ type quicSetup struct {
 	cfg *quic.Config
 }
 
+func quicHandshakeIdleTimeout(s parse.Spec) time.Duration {
+	if d := xio.HandshakeTimeout(s); d > 0 {
+		return d
+	}
+	return quicHandshakeIdleTimeoutDisabled
+}
+
 func quicConfig(s parse.Spec, tlsCfg *tls.Config) (quicSetup, error) {
 	quicTLS, err := withALPN(tlsCfg, s)
 	if err != nil {
@@ -74,11 +90,16 @@ func quicConfig(s parse.Spec, tlsCfg *tls.Config) (quicSetup, error) {
 	// HandshakeIdleTimeout is the Go handshake-timeout extra. Classic
 	// OPTION_CONNECT_TIMEOUT (tag-1.8.1.3 12c08bf) aborts a connection
 	// attempt only; it must not be reused as the QUIC handshake idle bound.
-	cfg := &quic.Config{HandshakeIdleTimeout: xio.HandshakeTimeout(s)}
+	// handshake-timeout=0 is mapped through quicHandshakeIdleTimeout so
+	// quic-go does not treat 0 as its 5s default.
+	cfg := &quic.Config{HandshakeIdleTimeout: quicHandshakeIdleTimeout(s)}
 	return quicSetup{tls: quicTLS, cfg: cfg}, nil
 }
 
 func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.PacketConn, error) {
+	// connect-timeout bounds this local UDP bind. It is not a substitute
+	// for bounding remote QUIC establishment; the client also applies it
+	// to Transport.Dial (see quicDialAttemptTimeout).
 	if t := xio.ConnectTimeout(s); t > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, t)

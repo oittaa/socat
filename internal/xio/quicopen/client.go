@@ -14,6 +14,27 @@ import (
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
+// quicDialAttemptTimeout is the per-retry context timeout for Transport.Dial
+// and OpenStreamSync. connect-timeout (when > 0) caps the whole remote
+// establishment attempt. handshake-timeout (when > 0, including the 30s
+// omitted default) is also a candidate; handshake-timeout=0 disables only
+// that handshake candidate. The earlier positive deadline wins. A zero
+// result means no extra Dial context timeout.
+func quicDialAttemptTimeout(s parse.Spec) time.Duration {
+	connect := xio.ConnectTimeout(s)
+	handshake := xio.HandshakeTimeout(s)
+	switch {
+	case connect <= 0:
+		return handshake
+	case handshake <= 0:
+		return connect
+	case connect < handshake:
+		return connect
+	default:
+		return handshake
+	}
+}
+
 func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	host, port, err := quicTarget(s, false)
 	if err != nil {
@@ -45,17 +66,24 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	// teardown then waits out the drain so tail bytes and the FIN survive.
 	var drain atomic.Bool
 
-	handshakeTimeout := xio.HandshakeTimeout(s)
+	attemptTimeout := quicDialAttemptTimeout(s)
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := xio.WithRetry(dctx, s, g, s.Type, func() error {
 			cctx := dctx
 			var cancel context.CancelFunc
-			// QUIC handshake is bounded by handshake-timeout (and
-			// HandshakeIdleTimeout). connect-timeout applies to UDP bind
-			// in listenPacket, not to this Dial.
-			if handshakeTimeout > 0 {
-				cctx, cancel = context.WithTimeout(dctx, handshakeTimeout)
+			// QUIC has no separate remote connect syscall: Transport.Dial
+			// establishes the path and runs the cryptographic handshake.
+			// connect-timeout (when > 0) caps that whole attempt.
+			// handshake-timeout (when > 0, including the 30s omitted
+			// default) is also a Dial-context candidate;
+			// handshake-timeout=0 disables only that candidate. The
+			// earlier positive deadline wins. Applied inside WithRetry
+			// from time.Now() so retry/forever gets a fresh budget per
+			// attempt. Local UDP bind still uses connect-timeout in
+			// listenPacket. Handshake idle stays on HandshakeIdleTimeout.
+			if attemptTimeout > 0 {
+				cctx, cancel = context.WithTimeout(dctx, attemptTimeout)
 				defer cancel()
 			}
 			raddr, e := net.ResolveUDPAddr(network, dest)
