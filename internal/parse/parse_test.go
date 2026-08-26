@@ -251,6 +251,28 @@ func TestUnlinkDeleteRemoveAliases(t *testing.T) {
 	}
 }
 
+func TestUserEarlyGroupEarlyAliases(t *testing.T) {
+	s, err := ParseSpec("OPEN:file,uid-e=1000,gid-e=100")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.OptionValue("user-early", ""); got != "1000" {
+		t.Fatalf("user-early=%q want 1000 (options=%v)", got, s.Options)
+	}
+	if got := s.OptionValue("uid-e", ""); got != "1000" {
+		t.Fatalf("uid-e lookup=%q want 1000", got)
+	}
+	if got := s.OptionValue("group-early", ""); got != "100" {
+		t.Fatalf("group-early=%q want 100", got)
+	}
+	if got := s.OptionValue("gid-e", ""); got != "100" {
+		t.Fatalf("gid-e lookup=%q want 100", got)
+	}
+	if len(s.Options) != 2 || s.Options[0].Name != "user-early" || s.Options[1].Name != "group-early" {
+		t.Fatalf("stored names=%v want user-early, group-early", s.Options)
+	}
+}
+
 func TestClassicCompatibilityOptionAliases(t *testing.T) {
 	s, err := ParseSpec("OPENSSL:localhost:443,cipher=ECDHE-ECDSA-AES256-GCM-SHA384,sockopt-listen=1:2:1,f-setlk-wr")
 	if err != nil {

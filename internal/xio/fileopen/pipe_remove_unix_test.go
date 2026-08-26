@@ -42,16 +42,25 @@ func TestNamedPipeUnlinkEarlyReplacesAndRemovesBeforeWriter(t *testing.T) {
 	runBlockedPipeHelper(t, path, "PIPE:"+path+",unlink-early")
 }
 
-func TestNamedPipeUnlinkEarlyRequiresExistingPath(t *testing.T) {
+func TestNamedPipeUnlinkEarlyMissingPathCreatesFIFO(t *testing.T) {
+	// namedOpenEarly matches _xioopen_named_early: unlink-early only if the
+	// name exists. A missing PIPE path is then created with mkfifo.
 	path := filepath.Join(t.TempDir(), "missing")
-	ch, err := parse.ParseChannel("PIPE:" + path + ",unlink-early")
+	ch, err := parse.ParseChannel("PIPE:" + path + ",unlink-early,nonblock")
 	if err != nil {
 		t.Fatal(err)
 	}
 	o, err := xio.OpenChannel(context.Background(), ch, xio.ModeRead, nil)
-	if err == nil {
-		_ = o.Close()
-		t.Fatal("PIPE,unlink-early unexpectedly accepted a missing path")
+	if err != nil {
+		t.Fatalf("PIPE,unlink-early of a missing path: %v", err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	fi, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&os.ModeNamedPipe == 0 {
+		t.Fatalf("mode=%v want FIFO", fi.Mode())
 	}
 }
 
