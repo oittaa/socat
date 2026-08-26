@@ -175,6 +175,12 @@ func ApplyReuseAndV6Only(fd int, s parse.Spec, network string) error {
 
 // ApplyListenOptions applies socket options that must be set before bind.
 func ApplyListenOptions(fd int, s parse.Spec, network string) error {
+	// Classic so-broadcast is PH_PASTSOCKET (after socket, before PREBIND).
+	// UDP ListenConfig.Control paths call this helper and not ApplySocketOptions
+	// until after bind, so apply it here as well as in ApplySocketOptions.
+	if err := applyBroadcast(fd, s); err != nil {
+		return err
+	}
 	// Windows AF_UNIX sockets reject SO_REUSEADDR and can remain unusable
 	// after the failed call. UNIX path reuse is handled by the opener instead.
 	if !strings.HasPrefix(network, "unix") {

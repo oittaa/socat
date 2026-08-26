@@ -11,7 +11,7 @@ func socketOptionGroups() []helpOptGroup {
 			{name: "keepidle", desc: "TCP_KEEPIDLE idle time (requires keepalive)", aliases: []string{"so-keepidle", "tcp-keepidle"}, addressTypes: tcpStreamAddressTypes(), validate: validateDurationOption},
 			{name: "keepintvl", desc: "TCP_KEEPINTVL probe interval", aliases: []string{"so-keepintvl", "tcp-keepintvl"}, addressTypes: tcpStreamAddressTypes(), validate: validateDurationOption},
 			{name: "keepcnt", desc: "TCP_KEEPCNT probe count", aliases: []string{"so-keepcnt", "tcp-keepcnt"}, addressTypes: tcpStreamAddressTypes(), validate: validateInteger(1)},
-			{name: "broadcast", desc: "SO_BROADCAST"},
+			{name: "broadcast", desc: "SO_BROADCAST", aliases: []string{"so-broadcast"}},
 			{name: "ip-add-membership", desc: "IPv4 multicast join"},
 			{name: "ipv6-join-group", desc: "IPv6 multicast join"},
 			{name: "setsockopt", desc: "raw setsockopt after connect (dalan value)", aliases: []string{"sockopt"}, validate: validateSockoptBin},

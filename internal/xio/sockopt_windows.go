@@ -25,6 +25,7 @@ const (
 	soSndbuf    = windows.SO_SNDBUF
 	soRcvbuf    = windows.SO_RCVBUF
 	soKeepalive = windows.SO_KEEPALIVE
+	soBroadcast = windows.SO_BROADCAST
 )
 
 func isNotSocketError(err error) bool {

@@ -23,6 +23,7 @@ const (
 	soSndbuf    = unix.SO_SNDBUF
 	soRcvbuf    = unix.SO_RCVBUF
 	soKeepalive = unix.SO_KEEPALIVE
+	soBroadcast = unix.SO_BROADCAST
 )
 
 func isNotSocketError(err error) bool {
