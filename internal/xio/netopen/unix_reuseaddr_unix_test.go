@@ -141,8 +141,10 @@ func TestUnixUnlinkEarlyLeavesEmptyDirectory(t *testing.T) {
 			if strings.Contains(err.Error(), "exists") {
 				t.Fatalf("error=%v: unlink-early should fail at unlink, not exists", err)
 			}
-			if !errors.Is(err, syscall.EISDIR) {
-				t.Fatalf("error=%v want EISDIR", err)
+			// POSIX unlink() of a directory is EISDIR on Linux and
+			// EPERM on Darwin/BSD. Classic reports strerror of that errno.
+			if !errors.Is(err, syscall.EISDIR) && !errors.Is(err, syscall.EPERM) {
+				t.Fatalf("error=%v want EISDIR or EPERM", err)
 			}
 			info, err := os.Lstat(path)
 			if err != nil {
