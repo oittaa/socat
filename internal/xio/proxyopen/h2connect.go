@@ -118,7 +118,10 @@ func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 			tr.CloseIdleConnections()
 			return fmt.Errorf("proxy CONNECT failed: %s", resp.Status)
 		}
-		stopTimer()
+		if e := finishCONNECTHandshake(hctx, stopTimer, pw, resp); e != nil {
+			tr.CloseIdleConnections()
+			return e
+		}
 		_ = raw.SetDeadline(time.Time{})
 		success = true
 		conn = &pipeConn{
@@ -140,16 +143,78 @@ func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 	return conn, nil
 }
 
+// handshakeTimerHook, if set, is invoked when a handshake timer is armed.
+// stop marks completion; fire is the AfterFunc body. A non-nil return
+// replaces the success-side stop function (it must still invoke stop).
+// Tests use this to race completion with the timeout callback without
+// depending on wall-clock timing.
+var (
+	handshakeTimerHookMu sync.Mutex
+	handshakeTimerHook   func(stop, fire func()) (wrap func())
+)
+
+func setHandshakeTimerHook(hook func(stop, fire func()) (wrap func())) {
+	handshakeTimerHookMu.Lock()
+	handshakeTimerHook = hook
+	handshakeTimerHookMu.Unlock()
+}
+
+func handshakeTimerHookSnapshot() func(stop, fire func()) (wrap func()) {
+	handshakeTimerHookMu.Lock()
+	defer handshakeTimerHookMu.Unlock()
+	return handshakeTimerHook
+}
+
+// finishCONNECTHandshake stops the handshake timer without cancelling the
+// request context. HTTP/2 and HTTP/3 abort CONNECT if that context is
+// cancelled, so success must not cancel. If the timeout callback already
+// won, close the CONNECT body instead of returning a live tunnel.
+func finishCONNECTHandshake(ctx context.Context, stopTimer func(), pw *io.PipeWriter, resp *http.Response) error {
+	stopTimer()
+	if err := ctx.Err(); err != nil {
+		_ = pw.Close()
+		_ = resp.Body.Close()
+		return err
+	}
+	return nil
+}
+
 // proxyHandshakeContext bounds RoundTrip until CONNECT succeeds. HTTP/2 and
-// HTTP/3 abort the stream if the request context is cancelled, so the timer
-// must be stopped on success without cancelling; cancel runs on Close.
+// HTTP/3 abort the stream if the request context is cancelled, so success
+// stops the timer without cancelling; cancel runs on Close. Timer.Stop does
+// not wait for an already-running AfterFunc; completed serializes that
+// callback with stop so a late fire cannot cancel after stop returns.
+// handshake-timeout is a Go extra (classic tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba and official master
+// af5388c898c7bb60997935aee93c223deba60c4a have no equivalent).
 func proxyHandshakeContext(parent context.Context, timeout time.Duration) (ctx context.Context, stopTimer, cancel context.CancelFunc) {
 	if timeout <= 0 {
 		return parent, func() {}, func() {}
 	}
 	ctx, cancel = context.WithCancel(parent)
-	timer := time.AfterFunc(timeout, cancel)
-	return ctx, func() { timer.Stop() }, cancel
+	var mu sync.Mutex
+	var completed bool
+	fire := func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if completed {
+			return
+		}
+		cancel()
+	}
+	timer := time.AfterFunc(timeout, fire)
+	stopTimer = func() {
+		mu.Lock()
+		defer mu.Unlock()
+		completed = true
+		timer.Stop()
+	}
+	if hook := handshakeTimerHookSnapshot(); hook != nil {
+		if wrap := hook(stopTimer, fire); wrap != nil {
+			stopTimer = wrap
+		}
+	}
+	return ctx, stopTimer, cancel
 }
 
 func alreadyDialed(c net.Conn) func(context.Context, string, string) (net.Conn, error) {

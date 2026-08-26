@@ -72,7 +72,9 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 			_ = resp.Body.Close()
 			return fmt.Errorf("proxy CONNECT failed: %s", resp.Status)
 		}
-		stopTimer()
+		if e := finishCONNECTHandshake(cctx, stopTimer, pw, resp); e != nil {
+			return e
+		}
 		success = true
 		conn = &pipeConn{
 			r:      resp.Body,
