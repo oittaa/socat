@@ -70,13 +70,9 @@ func openCREATE(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	if s.BoolOption("append") {
 		flags = os.O_WRONLY | os.O_CREATE | os.O_APPEND
 	}
-	// CREATE opens with flags rather than creat(2). Apply o-direct at
-	// PH_OPEN the same way OpenFlags does for OPEN/GOPEN.
-	var err error
-	flags, err = applyODirectFlag(s, flags)
-	if err != nil {
-		return nil, err
-	}
+	// Classic CREATE is GROUP_FD|GROUP_NAMED|GROUP_FILE, not GROUP_OPEN
+	// (xio-creat.c, tag-1.8.1.3). o-direct is GROUP_OPEN / PH_OPEN, so it
+	// is rejected at option validation rather than applied here.
 	perm, err := xio.ParseFileMode(s, xio.DefaultCreateMode)
 	if err != nil {
 		return nil, err

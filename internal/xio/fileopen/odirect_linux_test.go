@@ -81,35 +81,21 @@ func TestOpenODirectAppearsInFcntl(t *testing.T) {
 	}
 }
 
-func TestCreateAppliesODirect(t *testing.T) {
+func TestCREATEDoesNotApplyODirect(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "create.bin")
 	spec, err := parse.ParseSpec("CREATE:" + path + ",o-direct")
 	if err != nil {
 		t.Fatal(err)
 	}
-	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	flags, err = applyODirectFlag(spec, flags)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f, err := os.OpenFile(path, flags, 0o644)
-	if err != nil {
-		t.Skipf("CREATE O_DIRECT open: %v", err)
-	}
-	t.Cleanup(func() { _ = f.Close() })
-	got, err := unix.FcntlInt(f.Fd(), unix.F_GETFL, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got&unix.O_DIRECT == 0 {
-		t.Fatalf("CREATE F_GETFL=%#x does not contain O_DIRECT", got)
-	}
-
 	o, err := openCREATE(context.Background(), spec, xio.ModeWrite, nil)
 	if err != nil {
-		t.Skipf("openCREATE o-direct: %v", err)
+		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
+	flags := openedReaderFlags(t, o)
+	if flags&unix.O_DIRECT != 0 {
+		t.Fatalf("CREATE F_GETFL=%#x contains O_DIRECT; classic CREATE is not GROUP_OPEN", flags)
+	}
 }
 
 func TestNamedPIPEAppliesODirect(t *testing.T) {

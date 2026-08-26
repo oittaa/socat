@@ -383,7 +383,9 @@ func helpOptionGroups() []helpOptGroup {
 			{name: "append", desc: "open append", aliases: []string{"o-append"}, addressTypes: fileOpenAddressTypes()},
 			{name: "trunc", desc: "truncate on open"},
 			{name: "nonblock", desc: "O_NONBLOCK", aliases: []string{"o-nonblock"}},
-			{name: "o-direct", desc: "set O_DIRECT at open", aliases: []string{"direct", "o_direct"}, addressTypes: fileOpenAddressTypes()},
+			// GROUP_OPEN only (xio-file.c). fileOpenAddressTypes would widen
+			// to CREATE, which classic rejects; intersection is authoritative.
+			{name: "o-direct", desc: "set O_DIRECT at open", aliases: []string{"direct", "o_direct"}},
 			{name: "o-noatime", desc: "set O_NOATIME on the opened descriptor", aliases: []string{"noatime"}, addressTypes: fdOptionAddressTypes()},
 			// GROUP_REG only (xio-fs.c). fdOptionAddressTypes would widen to
 			// PIPE/EXEC, which classic rejects; intersection is authoritative.

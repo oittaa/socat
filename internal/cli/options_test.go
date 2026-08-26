@@ -93,7 +93,7 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "o-direct-on-open", spec: "OPEN:file,o-direct"},
 		{name: "o-direct-alias", spec: "FILE:file,direct"},
 		{name: "o-direct-underscore", spec: "GOPEN:file,o_direct"},
-		{name: "o-direct-on-create", spec: "CREATE:file,o-direct"},
+		{name: "o-direct-on-create", spec: "CREATE:file,o-direct", wantErr: "not supported"},
 		{name: "o-direct-on-pipe", spec: "PIPE:file,o-direct"},
 		{name: "o-direct-on-fifo", spec: "FIFO:file,o-direct"},
 		{name: "o-direct-on-tcp", spec: "TCP:localhost:1,o-direct", wantErr: "not supported"},
