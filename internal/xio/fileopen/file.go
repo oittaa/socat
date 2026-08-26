@@ -39,7 +39,10 @@ func openOPEN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 		return nil, fmt.Errorf("OPEN requires filename")
 	}
 	path := s.Params[0]
-	flags := OpenFlags(s, mode)
+	flags, err := OpenFlags(s, mode)
+	if err != nil {
+		return nil, err
+	}
 	perm, err := xio.ParseFileMode(s, xio.DefaultCreateMode)
 	if err != nil {
 		return nil, err
@@ -66,6 +69,13 @@ func openCREATE(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	if s.BoolOption("append") {
 		flags = os.O_WRONLY | os.O_CREATE | os.O_APPEND
+	}
+	// CREATE opens with flags rather than creat(2). Apply o-direct at
+	// PH_OPEN the same way OpenFlags does for OPEN/GOPEN.
+	var err error
+	flags, err = applyODirectFlag(s, flags)
+	if err != nil {
+		return nil, err
 	}
 	perm, err := xio.ParseFileMode(s, xio.DefaultCreateMode)
 	if err != nil {
@@ -99,6 +109,10 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 		case xio.ModeWrite:
 			flags = os.O_WRONLY | os.O_CREATE
 		}
+		flags, ferr := applyODirectFlag(s, flags)
+		if ferr != nil {
+			return nil, ferr
+		}
 		perm, perr := xio.ParseFileMode(s, xio.DefaultCreateMode)
 		if perr != nil {
 			return nil, perr
@@ -131,7 +145,10 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 		}
 		return o, nil
 	}
-	flags := OpenFlags(s, mode)
+	flags, err := OpenFlags(s, mode)
+	if err != nil {
+		return nil, err
+	}
 	// Classic GOPEN defaults to O_APPEND on existing regular files only.
 	// Devices (PTY slaves via FAKEPTY link=), fifos, etc. must not get O_APPEND.
 	isReg := early.mode.IsRegular()
@@ -488,7 +505,7 @@ func socketpairEchoStream(c1, c2 *os.File, typ int) (relay.Stream, error) {
 	}, nil
 }
 
-func OpenFlags(s parse.Spec, mode xio.Mode) int {
+func OpenFlags(s parse.Spec, mode xio.Mode) (int, error) {
 	var flags int
 	switch mode {
 	case xio.ModeRead:
@@ -519,7 +536,20 @@ func OpenFlags(s parse.Spec, mode xio.Mode) int {
 	if s.BoolOption("nonblock") {
 		flags |= oNonblock
 	}
-	return flags
+	// o-direct is classic PH_OPEN / OFUNC_FLAG (xio-file.c). Apply only at
+	// open(2); do not F_SETFL it onto inherited descriptors (contrast
+	// o-noatime, which is PH_FD).
+	return applyODirectFlag(s, flags)
+}
+
+func applyODirectFlag(s parse.Spec, flags int) (int, error) {
+	if !s.BoolOption("o-direct") {
+		return flags, nil
+	}
+	if oDirect == 0 {
+		return 0, fmt.Errorf("o-direct: not supported on this platform")
+	}
+	return flags | oDirect, nil
 }
 
 func applyOpenTruncate(f *os.File, s parse.Spec) error {
