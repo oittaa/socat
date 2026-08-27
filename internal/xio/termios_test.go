@@ -3,6 +3,8 @@
 package xio
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -117,45 +119,305 @@ func TestParseWinsz(t *testing.T) {
 	}
 }
 
-func TestApplyTermiosCatalogAliases(t *testing.T) {
+func openPTYSlave(t *testing.T) (fd int) {
+	t.Helper()
 	master, slave, err := OpenPTYPair()
 	if err != nil {
 		t.Skipf("pty: %v", err)
 	}
-	defer func() { _ = master.Close() }()
-	defer func() { _ = slave.Close() }()
+	t.Cleanup(func() {
+		_ = master.Close()
+		_ = slave.Close()
+	})
+	return int(slave.Fd())
+}
 
-	s, err := parse.ParseSpec("PTY,crterase=0,termios-cfmakeraw")
+func applyTermiosSpec(t *testing.T, fd int, spec string) *unix.Termios {
+	t.Helper()
+	s, err := parse.ParseSpec(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyTermios(int(slave.Fd()), s); err != nil {
+	if err := ApplyTermios(fd, s); err != nil {
 		t.Fatal(err)
 	}
-	tio, err := getTermios(int(slave.Fd()))
+	tio, err := getTermios(fd)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return tio
+}
+
+func TestApplyTermiosControlChars(t *testing.T) {
+	fd := openPTYSlave(t)
+	const want byte = 0x42
+	chars := []struct {
+		opt string
+		idx int
+	}{
+		{"vintr", unix.VINTR},
+		{"vquit", unix.VQUIT},
+		{"verase", unix.VERASE},
+		{"vkill", unix.VKILL},
+		{"veof", unix.VEOF},
+		{"veol", unix.VEOL},
+		{"veol2", unix.VEOL2},
+		{"vmin", unix.VMIN},
+		{"vtime", unix.VTIME},
+		{"vstart", unix.VSTART},
+		{"vstop", unix.VSTOP},
+		{"vsusp", unix.VSUSP},
+		{"vwerase", unix.VWERASE},
+		{"vlnext", unix.VLNEXT},
+		{"vdiscard", unix.VDISCARD},
+		{"vreprint", unix.VREPRINT},
+	}
+	for _, tc := range chars {
+		t.Run(tc.opt, func(t *testing.T) {
+			tio := applyTermiosSpec(t, fd, "PTY,"+tc.opt+"=0x42")
+			if tio.Cc[tc.idx] != want {
+				t.Fatalf("cc[%s]=%d want %d", tc.opt, tio.Cc[tc.idx], want)
+			}
+		})
+	}
+}
+func TestApplyTermiosControlCharAliases(t *testing.T) {
+	fd := openPTYSlave(t)
+	tio := applyTermiosSpec(t, fd, "PTY,intr=3,quit=0x1c,erase=8,kill=21,eof=4,eol=0,min=4,time=1,start=17,stop=19,susp=26,werase=23,lnext=22,discard=15,reprint=18,eol2=0xff")
+	if tio.Cc[unix.VINTR] != 3 {
+		t.Fatalf("vintr=%d", tio.Cc[unix.VINTR])
+	}
+	if tio.Cc[unix.VQUIT] != 0x1c {
+		t.Fatalf("vquit=%d", tio.Cc[unix.VQUIT])
+	}
+	if tio.Cc[unix.VERASE] != 8 {
+		t.Fatalf("verase=%d", tio.Cc[unix.VERASE])
+	}
+	if tio.Cc[unix.VKILL] != 21 {
+		t.Fatalf("vkill=%d", tio.Cc[unix.VKILL])
+	}
+	if tio.Cc[unix.VEOF] != 4 {
+		t.Fatalf("veof=%d", tio.Cc[unix.VEOF])
+	}
+	if tio.Cc[unix.VMIN] != 4 {
+		t.Fatalf("vmin=%d", tio.Cc[unix.VMIN])
+	}
+	if tio.Cc[unix.VTIME] != 1 {
+		t.Fatalf("vtime=%d", tio.Cc[unix.VTIME])
+	}
+	if tio.Cc[unix.VSTART] != 17 {
+		t.Fatalf("vstart=%d", tio.Cc[unix.VSTART])
+	}
+	if tio.Cc[unix.VSTOP] != 19 {
+		t.Fatalf("vstop=%d", tio.Cc[unix.VSTOP])
+	}
+	if tio.Cc[unix.VSUSP] != 26 {
+		t.Fatalf("vsusp=%d", tio.Cc[unix.VSUSP])
+	}
+	if tio.Cc[unix.VWERASE] != 23 {
+		t.Fatalf("vwerase=%d", tio.Cc[unix.VWERASE])
+	}
+	if tio.Cc[unix.VLNEXT] != 22 {
+		t.Fatalf("vlnext=%d", tio.Cc[unix.VLNEXT])
+	}
+	if tio.Cc[unix.VDISCARD] != 15 {
+		t.Fatalf("vdiscard=%d", tio.Cc[unix.VDISCARD])
+	}
+	if tio.Cc[unix.VREPRINT] != 18 {
+		t.Fatalf("vreprint=%d", tio.Cc[unix.VREPRINT])
+	}
+	if tio.Cc[unix.VEOL2] != 255 {
+		t.Fatalf("veol2=%d", tio.Cc[unix.VEOL2])
+	}
+	rprnt := applyTermiosSpec(t, fd, "PTY,rprnt=9")
+	if rprnt.Cc[unix.VREPRINT] != 9 {
+		t.Fatalf("rprnt=%d", rprnt.Cc[unix.VREPRINT])
+	}
+}
+
+func TestApplyTermiosCharLastWins(t *testing.T) {
+	fd := openPTYSlave(t)
+	tio := applyTermiosSpec(t, fd, "PTY,vintr=1,intr=7")
+	if tio.Cc[unix.VINTR] != 7 {
+		t.Fatalf("vintr last-wins=%d want 7", tio.Cc[unix.VINTR])
+	}
+}
+
+func TestApplyTermiosCommandLineOrder(t *testing.T) {
+	fd := openPTYSlave(t)
+	echoOff := applyTermiosSpec(t, fd, "PTY,sane,echo=0")
+	if echoOff.Lflag&unix.ECHO != 0 {
+		t.Fatal("sane,echo=0 left ECHO set")
+	}
+	echoOn := applyTermiosSpec(t, fd, "PTY,echo=0,sane")
+	if echoOn.Lflag&unix.ECHO == 0 {
+		t.Fatal("echo=0,sane left ECHO clear")
+	}
+}
+
+func TestApplyTermiosRawVsCfmakeraw(t *testing.T) {
+	fd := openPTYSlave(t)
+	raw := applyTermiosSpec(t, fd, "PTY,raw")
+	if raw.Lflag&unix.ICANON != 0 {
+		t.Fatal("raw did not clear ICANON")
+	}
+	if raw.Lflag&unix.ISIG != 0 {
+		t.Fatal("raw did not clear ISIG")
+	}
+	if raw.Lflag&unix.ECHO == 0 {
+		t.Fatal("classic raw must not clear ECHO")
+	}
+	if raw.Cc[unix.VMIN] != 1 || raw.Cc[unix.VTIME] != 0 {
+		t.Fatalf("raw vmin/vtime=%d/%d", raw.Cc[unix.VMIN], raw.Cc[unix.VTIME])
+	}
+
+	cf := applyTermiosSpec(t, fd, "PTY,sane,cfmakeraw")
+	if cf.Lflag&unix.ECHO != 0 {
+		t.Fatal("cfmakeraw did not clear ECHO")
+	}
+	if cf.Lflag&unix.ICANON != 0 {
+		t.Fatal("cfmakeraw did not clear ICANON")
+	}
+}
+
+func TestApplyTermiosSaneSetsCanonical(t *testing.T) {
+	fd := openPTYSlave(t)
+	tio := applyTermiosSpec(t, fd, "PTY,rawer,sane")
+	if tio.Lflag&unix.ICANON == 0 || tio.Lflag&unix.ECHO == 0 || tio.Lflag&unix.ISIG == 0 {
+		t.Fatalf("sane Lflag=%#x", tio.Lflag)
+	}
+	if tio.Oflag&unix.OPOST == 0 || tio.Oflag&unix.ONLCR == 0 {
+		t.Fatalf("sane Oflag=%#x", tio.Oflag)
+	}
+}
+
+func TestApplyTermiosBareVintrIsRejected(t *testing.T) {
+	fd := openPTYSlave(t)
+	s, err := parse.ParseSpec("PTY,vintr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyTermios(fd, s); err == nil || !strings.Contains(err.Error(), "value required") {
+		t.Fatalf("bare vintr error=%v", err)
+	}
+}
+
+func TestApplyTermiosByteOverflowClamps(t *testing.T) {
+	fd := openPTYSlave(t)
+	tio := applyTermiosSpec(t, fd, "PTY,vintr=256")
+	if tio.Cc[unix.VINTR] != 255 {
+		t.Fatalf("vintr overflow=%d want 255", tio.Cc[unix.VINTR])
+	}
+	hex := applyTermiosSpec(t, fd, "PTY,veol2=0x100")
+	if hex.Cc[unix.VEOL2] != 255 {
+		t.Fatalf("veol2 overflow=%d want 255", hex.Cc[unix.VEOL2])
+	}
+	huge := applyTermiosSpec(t, fd, "PTY,vquit=999999999999999999999999999999999999999")
+	if huge.Cc[unix.VQUIT] != 255 {
+		t.Fatalf("vquit huge overflow=%d want 255", huge.Cc[unix.VQUIT])
+	}
+}
+
+func TestApplyTermiosHelpNamesIncludeCharsAndNotHPUnix(t *testing.T) {
+	names := TermiosHelpNames()
+	want := []string{
+		"vintr", "intr", "veol2", "eol2", "vmin", "min", "sane", "raw",
+		"cfmakeraw", "termios-cfmakeraw", "rawer", "termios-rawer",
+		"termios-setflags", "setflags", "echoprt", "prterase",
+	}
+	have := map[string]bool{}
+	for _, n := range names {
+		have[n] = true
+	}
+	for _, n := range want {
+		if !have[n] {
+			t.Errorf("TermiosHelpNames missing %q", n)
+		}
+	}
+	for _, n := range []string{"dsusp", "vdsusp", "b900", "b3600"} {
+		if have[n] {
+			t.Errorf("TermiosHelpNames must not advertise HP-UX-only %q", n)
+		}
+	}
+}
+
+func TestApplyTermiosSetFlagsAndOrder(t *testing.T) {
+	fd := openPTYSlave(t)
+	spec := fmt.Sprintf("PTY,setflags=0:%d,brkint", unix.IGNBRK)
+	tio := applyTermiosSpec(t, fd, spec)
+	want := termiosBits(unix.IGNBRK | unix.BRKINT)
+	if got := tio.Iflag & want; got != want {
+		t.Fatalf("setflags then brkint: Iflag=%#x want bits %#x", tio.Iflag, want)
+	}
+
+	spec = fmt.Sprintf("PTY,brkint,termios-setflags=0:%d", unix.IGNBRK)
+	tio = applyTermiosSpec(t, fd, spec)
+	if tio.Iflag&termiosBits(unix.BRKINT) != 0 || tio.Iflag&termiosBits(unix.IGNBRK) == 0 {
+		t.Fatalf("last termios-setflags did not replace iflag: %#x", tio.Iflag)
+	}
+}
+
+func TestApplyTermiosRejectsInvalidOptionTypes(t *testing.T) {
+	fd := openPTYSlave(t)
+	for _, spec := range []string{
+		"PTY,echo=false",
+		"PTY,raw=0",
+		"PTY,b9600=0",
+		"PTY,ispeed=bad",
+		"PTY,termios-setflags=4:1",
+		"PTY,termios-setflags=0",
+		"PTY,tiocswinsz",
+	} {
+		t.Run(spec, func(t *testing.T) {
+			s, err := parse.ParseSpec(spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ApplyTermios(fd, s); err == nil {
+				t.Fatal("ApplyTermios succeeded")
+			}
+		})
+	}
+}
+
+func TestApplyTermiosDoesNotIgnoreStateOptionsOnNonTTY(t *testing.T) {
+	pipeFDs := []int{0, 0}
+	if err := unix.Pipe(pipeFDs); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = unix.Close(pipeFDs[0]) }()
+	defer func() { _ = unix.Close(pipeFDs[1]) }()
+
+	plain, err := parse.ParseSpec("FD:3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyTermios(pipeFDs[0], plain); err != nil {
+		t.Fatalf("plain non-TTY spec: %v", err)
+	}
+
+	withEcho, err := parse.ParseSpec("FD:3,echo=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyTermios(pipeFDs[0], withEcho); err == nil {
+		t.Fatal("echo=0 on non-TTY was silently ignored")
+	}
+}
+
+func TestApplyTermiosCatalogAliases(t *testing.T) {
+	fd := openPTYSlave(t)
+	tio := applyTermiosSpec(t, fd, "PTY,crterase=0,termios-cfmakeraw")
 	if tio.Lflag&unix.ECHO != 0 {
 		t.Fatal("termios-cfmakeraw did not clear echo")
 	}
 
-	s, err = parse.ParseSpec("PTY,sane,echoe=1,crterase=0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyTermios(int(slave.Fd()), s); err != nil {
-		t.Fatal(err)
-	}
-	tio, err = getTermios(int(slave.Fd()))
-	if err != nil {
-		t.Fatal(err)
-	}
+	tio = applyTermiosSpec(t, fd, "PTY,sane,echoe=1,crterase=0")
 	if tio.Lflag&unix.ECHOE != 0 {
 		t.Fatal("last-wins crterase=0 left ECHOE set")
 	}
 
-	s, err = parse.ParseSpec("PTY,hup,tandem")
+	s, err := parse.ParseSpec("PTY,hup,tandem")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,13 +459,7 @@ func TestRawAndCFMakeRawRemainDistinct(t *testing.T) {
 }
 
 func TestApplyTermiosUsesCommandLineOrder(t *testing.T) {
-	master, slave, err := OpenPTYPair()
-	if err != nil {
-		t.Skipf("pty: %v", err)
-	}
-	defer func() { _ = master.Close() }()
-	defer func() { _ = slave.Close() }()
-
+	fd := openPTYSlave(t)
 	for _, tc := range []struct {
 		spec     string
 		wantEcho bool
@@ -214,17 +470,7 @@ func TestApplyTermiosUsesCommandLineOrder(t *testing.T) {
 		{spec: "PTY,sane,cfmakeraw", wantEcho: false},
 	} {
 		t.Run(tc.spec, func(t *testing.T) {
-			s, parseErr := parse.ParseSpec(tc.spec)
-			if parseErr != nil {
-				t.Fatal(parseErr)
-			}
-			if applyErr := ApplyTermios(int(slave.Fd()), s); applyErr != nil {
-				t.Fatal(applyErr)
-			}
-			tio, getErr := getTermios(int(slave.Fd()))
-			if getErr != nil {
-				t.Fatal(getErr)
-			}
+			tio := applyTermiosSpec(t, fd, tc.spec)
 			if got := tio.Lflag&unix.ECHO != 0; got != tc.wantEcho {
 				t.Fatalf("ECHO=%v want %v (Lflag=%#x)", got, tc.wantEcho, tio.Lflag)
 			}

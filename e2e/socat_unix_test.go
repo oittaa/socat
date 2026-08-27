@@ -19,9 +19,15 @@ func TestVersionHasTERMIOS(t *testing.T) {
 		t.Fatalf("missing WITH_TERMIOS 1:\n%s", out)
 	}
 	hh := capabilityOutput(t, "-hh")
-	for _, opt := range []string{"pty-wait-slave", "tiocswinsz", "ctty", "cfmakeraw"} {
+	for _, opt := range []string{"pty-wait-slave", "tiocswinsz", "ctty", "cfmakeraw", "sane"} {
 		if !bytes.Contains(hh, []byte(" "+opt+" ")) {
 			t.Fatalf("help missing %s:\n%s", opt, hh)
+		}
+	}
+	hhh := capabilityOutput(t, "-hhh")
+	for _, opt := range []string{"vintr", "intr", "pendin"} {
+		if !bytes.Contains(hhh, []byte(" "+opt+" ")) {
+			t.Fatalf("-hhh missing %s:\n%s", opt, hhh)
 		}
 	}
 }

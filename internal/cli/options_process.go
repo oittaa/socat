@@ -23,6 +23,7 @@ func processOptionGroups() []helpOptGroup {
 			{name: "raw", desc: "obsolete classic raw termios mode"},
 			{name: "cfmakeraw", desc: "raw termios (cfmakeraw)", aliases: []string{"termios-cfmakeraw"}},
 			{name: "rawer", desc: "stricter raw termios", aliases: []string{"termios-rawer"}},
+			{name: "sane", desc: "reset termios to sane defaults"},
 			{name: "echo", desc: "terminal echo"},
 			{name: "echoe", desc: "ECHOE", aliases: []string{"crterase"}},
 			{name: "echoke", desc: "ECHOKE", aliases: []string{"crtkill"}},

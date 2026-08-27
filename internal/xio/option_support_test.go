@@ -88,6 +88,22 @@ func TestOptionSupportedOnAddressClassicAndGoExtras(t *testing.T) {
 	}
 }
 
+func TestClassicTermiosOptionNames(t *testing.T) {
+	names := ClassicTermiosOptionNames()
+	have := make(map[string]bool, len(names))
+	for _, name := range names {
+		have[name] = true
+	}
+	for _, name := range []string{"vintr", "intr", "ispeed", "ospeed", "icanon", "echo", "sane", "b115200"} {
+		if !have[name] {
+			t.Errorf("ClassicTermiosOptionNames missing %q", name)
+		}
+	}
+	if len(names) < 50 {
+		t.Fatalf("ClassicTermiosOptionNames returned %d names, want a full GROUP_TERMIOS set", len(names))
+	}
+}
+
 func TestClassicOptionGroupsForAliases(t *testing.T) {
 	appendGroups, ok := ClassicOptionGroupsFor("o-append")
 	if !ok || !reflect.DeepEqual(appendGroups, ClassicOptionGroups["append"]) {

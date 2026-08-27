@@ -5,6 +5,10 @@ package xio
 import "golang.org/x/sys/unix"
 
 var platformBaudNamed = []baudOption{
+	// glibc 2.41+ exposes B7200 as the numeric rate while x/sys/unix does not
+	// export it. Use Linux BOTHER with c_ispeed/c_ospeed for a real 7200-baud
+	// setting rather than omitting the classic advertised option.
+	{"b7200", 7200},
 	{"b460800", 460800},
 	{"b500000", 500000},
 	{"b576000", 576000},
@@ -101,6 +105,17 @@ func setSpeed(t *unix.Termios, baud uint32, in, out bool) {
 		if out {
 			t.Cflag &^= termiosBits(unix.CBAUD)
 			t.Cflag |= code & termiosBits(unix.CBAUD)
+		}
+	} else {
+		// TCSETS2 uses BOTHER plus the numeric c_ispeed/c_ospeed fields for
+		// rates without a legacy kernel B* encoding (including B7200).
+		if in {
+			t.Cflag &^= termiosBits(unix.CIBAUD)
+			t.Cflag |= (termiosBits(unix.BOTHER) << 16) & termiosBits(unix.CIBAUD)
+		}
+		if out {
+			t.Cflag &^= termiosBits(unix.CBAUD)
+			t.Cflag |= termiosBits(unix.BOTHER) & termiosBits(unix.CBAUD)
 		}
 	}
 	if in {

@@ -238,6 +238,13 @@ func termiosFamilyNames(t *testing.T) map[string]string {
 	for _, name := range xio.TermiosHelpNames() {
 		out[parse.CanonicalOptionName(name)] = "xio.TermiosHelpNames"
 	}
+	// Classic GROUP_TERMIOS spellings cover Windows (recognized then rejected)
+	// and leftover PTY/TERMIOS help-group names such as ispeed/ospeed that stay
+	// in the option table even when that help section is hidden.
+	for _, name := range xio.ClassicTermiosOptionNames() {
+		out[name] = "classic GROUP_TERMIOS"
+		out[parse.CanonicalOptionName(name)] = "classic GROUP_TERMIOS"
+	}
 	// These common help spellings remain visible on platforms where termios is
 	// unavailable; the address opener rejects the unsupported PTY at runtime.
 	for _, name := range []string{"cfmakeraw", "raw", "rawer", "sane", "echo", "echoe", "echoke", "echoctl", "hupcl", "ixoff", "opost", "ispeed", "ospeed", "winsz", "waitslave"} {
@@ -345,7 +352,7 @@ func TestOptionTableContract(t *testing.T) {
 		}
 	}
 	if len(xio.TermiosHelpNames()) > 0 {
-		for _, c := range []string{"b115200", "icanon"} {
+		for _, c := range []string{"b115200", "icanon", "vintr"} {
 			if _, ok := termiosNames[c]; !ok {
 				t.Errorf("termios-family canary %q missing from implementation tables", c)
 			}

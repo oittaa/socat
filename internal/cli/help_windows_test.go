@@ -43,6 +43,24 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 	}
 }
 
+func TestWindowsHelpOmitsTermiosSpellings(t *testing.T) {
+	for _, level := range []int{2, 3} {
+		var b bytes.Buffer
+		if err := printHelp(&b, level); err != nil {
+			t.Fatal(err)
+		}
+		help := b.String()
+		for _, name := range []string{
+			"vintr", "intr", "icanon", "ispeed", "ospeed", "sane", "echo",
+			"cfmakeraw", "b115200", "tiocswinsz",
+		} {
+			if strings.Contains(help, "    "+name+" ") {
+				t.Errorf("level %d lists unsupported termios option %q", level, name)
+			}
+		}
+	}
+}
+
 func TestWindowsHelpHHHOmitsMembershipSpellings(t *testing.T) {
 	var b bytes.Buffer
 	if err := printHelp(&b, 3); err != nil {

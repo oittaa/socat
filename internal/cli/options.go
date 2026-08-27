@@ -62,6 +62,17 @@ func buildSupportedAddressOptions() map[string]addressOption {
 	for _, name := range []string{"openssl-method", "opensslmethod"} {
 		options[name] = addressOption{addressGroups: tlsOptionAddressGroups()}
 	}
+	// GROUP_TERMIOS keywords are recognized where termios is unavailable
+	// (Windows) so validation can reject them with a precise error instead
+	// of "unknown option". They are not advertised: hideOptGroup omits the
+	// PTY/TERMIOS help section and TermiosHelpNames is empty there.
+	if !xio.FeatureTERMIOS {
+		for _, name := range xio.ClassicTermiosOptionNames() {
+			if _, ok := options[name]; !ok {
+				options[name] = addressOption{}
+			}
+		}
+	}
 	for _, name := range []string{"ip-recverr", "recverr", "iprecverr", "ipv6-recverr"} {
 		options[name] = addressOption{}
 	}
@@ -129,6 +140,9 @@ func validateSpecOptions(spec parse.Spec) error {
 	if err := xio.RejectUnsupportedIPAncillary(spec); err != nil {
 		return err
 	}
+	if err := xio.RejectUnsupportedTermios(spec); err != nil {
+		return err
+	}
 	if err := xio.RejectUnsupportedRecvErr(spec); err != nil {
 		return err
 	}
@@ -168,9 +182,11 @@ func optionImplementedForGroup(group string, implementationGroups []string) bool
 func validateAddressOptionValue(option parse.Option) error {
 	name := strings.ToLower(option.Name)
 	if optionSpec, ok := supportedAddressOptions[name]; ok && optionSpec.validate != nil {
-		return optionSpec.validate(option)
+		if err := optionSpec.validate(option); err != nil {
+			return err
+		}
 	}
-	return nil
+	return xio.ValidateTermiosOption(option)
 }
 
 func requiredOptionValue(option parse.Option) (string, error) {
