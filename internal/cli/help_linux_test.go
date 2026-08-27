@@ -54,6 +54,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"tun-no-pi", "multicast", "proxy-auth", "resolv", "ignorecr",
 		"udplite-send-cscov", "udplite-recv-cscov",
 		"sctp-nodelay", "sctp-maxseg",
+		"dash", "login", "setpgid", "pgid",
 		"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string",
 		"fs-append", "fs-compr", "fs-dirsync", "fs-immutable", "fs-journal-data",
 		"fs-nodump", "fs-notail", "fs-secrm", "fs-sync", "fs-topdir", "fs-unrm",
@@ -102,6 +103,8 @@ func TestLinuxHHHIncludesClassicOptionMetadata(t *testing.T) {
 		"udplite-recv-cscov":       {"groups=UDPLITE", "phase=FD", "type=INT"},
 		"ioctl-string":             {"groups=FD", "phase=FD", "type=INT:STRING"},
 		"lockfile":                 {"groups=APPL", "phase=INIT", "type=STRING"},
+		"dash":                     {"groups=EXEC", "phase=PREEXEC", "type=BOOL"},
+		"setpgid":                  {"groups=FORK", "phase=LATE", "type=INT"},
 	} {
 		var line string
 		for _, candidate := range strings.Split(help, "\n") {

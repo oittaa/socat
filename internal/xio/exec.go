@@ -81,6 +81,67 @@ func startProcess(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmdSt
 	return startCmd(ctx, s, mode, g, cmd)
 }
 
+// applyExecChildOptions applies classic dash/login (GROUP_EXEC, PH_PREEXEC)
+// and setpgid/pgid (GROUP_FORK, PH_LATE) on the child *exec.Cmd only.
+//
+// Classic baselines: tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba
+// and official master af5388c898c7bb60997935aee93c223deba60c4a.
+//
+// dash (xio-exec.c): basename of argv[0], then prefix '-' when the bool is
+// set; execvp still uses the original path. login is the nickname.
+// GROUP_EXEC is also on SYSTEM and SHELL; applying the same argv[0] rewrite
+// there avoids a silent no-op (classic SYSTEM/SHELL leave dash unused and
+// abort with "option(s) remained unused").
+//
+// setpgid (xio-process.c): Setpgid(0, value) at PH_LATE on the child's
+// copts after moveopts(GROUP_FORK|…). TYPE_INT: bare flag → 1. Man page
+// OPTION_SETPGID says values 0 and 1 both create a new process group; C
+// always calls setpgid(0, value), so 1 joins pgid 1. Runtime follows C.
+func applyExecChildOptions(s parse.Spec, cmd *exec.Cmd) error {
+	if err := applyDashArgv0(s, cmd); err != nil {
+		return err
+	}
+	return applySetpgid(s, cmd)
+}
+
+func applyDashArgv0(s parse.Spec, cmd *exec.Cmd) error {
+	if !s.HasOption("dash") || !s.BoolOption("dash") {
+		return nil
+	}
+	if cmd == nil || len(cmd.Args) == 0 {
+		return fmt.Errorf("dash: no argv to rewrite")
+	}
+	base := filepath.Base(cmd.Args[0])
+	if base == "." || base == "/" {
+		base = cmd.Args[0]
+	}
+	if !strings.HasPrefix(base, "-") {
+		cmd.Args[0] = "-" + base
+	}
+	return nil
+}
+
+func applySetpgid(s parse.Spec, cmd *exec.Cmd) error {
+	o, ok := s.OptionNamed("setpgid")
+	if !ok {
+		return nil
+	}
+	n := 1
+	if o.Has {
+		v, err := ParseIntAny(o.Value)
+		if err != nil {
+			return fmt.Errorf("%s: invalid value %q", o.OriginalSpelling(), o.Value)
+		}
+		n = v
+	}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setpgid = true
+	cmd.SysProcAttr.Pgid = n
+	return nil
+}
+
 // splitExecArgs splits an EXEC command line like classic nestlex/argv:
 // unquoted runs of spaces separate args (no empty args from bare spaces);
 // double-quoted segments keep spaces and may be empty ("" → empty arg);
@@ -153,6 +214,9 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 			cmd.SysProcAttr = &syscall.SysProcAttr{}
 		}
 		cmd.SysProcAttr.Setsid = true
+	}
+	if err := applyExecChildOptions(s, cmd); err != nil {
+		return err
 	}
 	// Classic nofork FD wiring (xio-progcall !withfork):
 	//   RDWR:  stdin=peer.R, stdout=peer.W  (STDIO: 0 and 1; socket: same FD twice)
@@ -375,6 +439,9 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 			cmd.SysProcAttr = &syscall.SysProcAttr{}
 		}
 		cmd.SysProcAttr.Setsid = true
+	}
+	if err := applyExecChildOptions(s, cmd); err != nil {
+		return nil, err
 	}
 
 	// Inject classic SOCAT_* connection environment for SYSTEM/EXEC children.

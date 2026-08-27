@@ -33,6 +33,7 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"perm-early", "user-early", "group-early",
 		"o-sync", "async", "flock", "perm-late", "user-late",
 		"setsid", "pty", "setlk",
+		"dash", "setpgid",
 		"bindtodevice",
 		"ip-pktinfo", "ip-options", "ipv6-tclass", "ipv6-unicast-hops",
 		"tcp-cork", "tcp-maxseg", "tcp-maxseg-late",

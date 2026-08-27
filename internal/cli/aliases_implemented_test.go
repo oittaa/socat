@@ -43,6 +43,8 @@ var implementedAliasHelp = []struct {
 	{"crlf", "crnl"},
 	{"cd", "chdir"},
 	{"sid", "setsid"},
+	{"login", "dash"},
+	{"pgid", "setpgid"},
 	{"close", "end-close"},
 	{"maxchildren", "max-children"},
 	{"intervall", "interval"},
