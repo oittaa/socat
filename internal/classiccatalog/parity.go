@@ -13,7 +13,8 @@ import (
 // af5388c898c7bb60997935aee93c223deba60c4a has the same doc/socat.yo and
 // option/address help). RequiredPublicSpellings is the public interface.
 // ClassifyOption splits that set so CI can pin expected gaps without treating
-// security exclusions or foreign-OS names as an implementation backlog.
+// security exclusions, documented-but-never-implemented classic names, or
+// foreign-OS names as an implementation backlog.
 //
 // Expected-missing maps are split by family so later compatibility PRs edit
 // only the file they implement.
@@ -62,8 +63,10 @@ const (
 	ClassMustAdvertise OptionClass = iota
 	// ClassExpectedMissing: target-platform work still to implement.
 	ClassExpectedMissing
-	// ClassUnsupported: documented and intentionally rejected; never advertise;
-	// not an implementation backlog item.
+	// ClassUnsupported: documented and intentionally not advertised; never
+	// advertise; not an implementation backlog item. Includes security/crypto
+	// exclusions, no-op sockopts, and spellings classic C documented but
+	// never implemented.
 	ClassUnsupported
 	// ClassForeign: not applicable on this GOOS (other-OS or never-on-targets).
 	ClassForeign
@@ -155,7 +158,6 @@ func expectedMissingSources() []map[string]Gap {
 		expectedMissingSocket,
 		expectedMissingTCP,
 		expectedMissingTCPBSD,
-		expectedMissingUDP,
 		expectedMissingUNIX,
 	}
 }
@@ -167,6 +169,7 @@ func unsupportedSources() []map[string]string {
 		unsupportedReadline,
 		unsupportedDCCP,
 		unsupportedNoopSockopts,
+		unsupportedClassicUnimplemented,
 	}
 }
 
@@ -251,7 +254,8 @@ func ExpectedMissingAll() map[string]Gap {
 
 // UnsupportedPublic is documented public spellings this port must not
 // advertise and must not list as implementation backlog. It includes
-// IntentionalPublicOmissions plus OpenSSL/readline/DCCP/no-op exclusions.
+// IntentionalPublicOmissions plus OpenSSL/readline/DCCP/no-op exclusions
+// and documented spellings classic C never implemented.
 func UnsupportedPublic() map[string]string {
 	src := unsupportedMerged()
 	out := make(map[string]string, len(src))

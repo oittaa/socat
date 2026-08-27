@@ -208,17 +208,20 @@ func TestCatalogVsGoHelp(t *testing.T) {
 	}
 
 	class, _ := classiccatalog.ClassifyOption("udp-ignore-peerport", runtime.GOOS)
-	if class != classiccatalog.ClassExpectedMissing {
-		t.Fatalf("udp-ignore-peerport class=%s; documented behavior is still unimplemented", class)
+	if class != classiccatalog.ClassUnsupported {
+		t.Fatalf("udp-ignore-peerport class=%s; documented by classic man page but never implemented in C", class)
 	}
 	if _, ok := advertised["udp-ignore-peerport"]; ok {
-		t.Fatal("udp-ignore-peerport is documented-only; do not advertise it until it is implemented")
+		t.Fatal("udp-ignore-peerport must not be advertised; classic rejects it as unknown")
 	}
 	if _, ok := classiccatalog.RequiredPublicSpellings()["udp-ignore-peerport"]; !ok {
 		t.Fatal("RequiredPublicSpellings must include documented udp-ignore-peerport")
 	}
-	if _, ok := classiccatalog.ImplementationBacklog(runtime.GOOS)["udp-ignore-peerport"]; !ok {
-		t.Fatal("udp-ignore-peerport must stay in the implementation backlog until it is implemented")
+	if _, ok := classiccatalog.ImplementationBacklog(runtime.GOOS)["udp-ignore-peerport"]; ok {
+		t.Fatal("udp-ignore-peerport must not be in the implementation backlog; classic C never implemented it")
+	}
+	if _, ok := classiccatalog.UnsupportedPublic()["udp-ignore-peerport"]; !ok {
+		t.Fatal("udp-ignore-peerport must be classified unsupported")
 	}
 
 	for name := range classiccatalog.OptionalParserOnlyAliases {

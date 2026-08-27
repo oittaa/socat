@@ -74,7 +74,9 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"abort-threshold", "windows", ClassForeign},
 		{"cr", "linux", ClassExpectedMissing},
 		{"cr", "windows", ClassExpectedMissing},
-		{"udp-ignore-peerport", "linux", ClassExpectedMissing},
+		{"udp-ignore-peerport", "linux", ClassUnsupported},
+		{"udp-ignore-peerport", "darwin", ClassUnsupported},
+		{"udp-ignore-peerport", "windows", ClassUnsupported},
 		{"udplite-send-cscov", "linux", ClassMustAdvertise},
 		{"udplite-recv-cscov", "linux", ClassMustAdvertise},
 		{"udplite-send-cscov", "darwin", ClassMustAdvertise},
@@ -110,8 +112,8 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 		}
 	}
 	linux := ImplementationBacklog("linux")
-	if _, ok := linux["udp-ignore-peerport"]; !ok {
-		t.Fatal("linux backlog must include documented udp-ignore-peerport")
+	if _, ok := linux["udp-ignore-peerport"]; ok {
+		t.Fatal("linux backlog must not include udp-ignore-peerport (documented but never implemented by classic)")
 	}
 	if _, ok := linux["udplite-send-cscov"]; ok {
 		t.Fatal("linux backlog must not include implemented udplite-send-cscov (#101)")
@@ -227,6 +229,34 @@ func TestExpectedMissingReasonsNonEmpty(t *testing.T) {
 	for name, gap := range ExpectedMissingAll() {
 		if strings.TrimSpace(gap.Reason) == "" {
 			t.Errorf("expected-missing %q has no reason", name)
+		}
+	}
+}
+
+func TestUDPIgnorePeerportIsUnsupportedNotBacklog(t *testing.T) {
+	if _, ok := DocsOnlyNotInThisBinary["udp-ignore-peerport"]; !ok {
+		t.Fatal("udp-ignore-peerport must stay in DocsOnlyNotInThisBinary")
+	}
+	if _, ok := ExpectedMissingAll()["udp-ignore-peerport"]; ok {
+		t.Fatal("udp-ignore-peerport must not be expected-missing; classic C never implemented it")
+	}
+	if _, ok := RequiredPublicSpellings()["udp-ignore-peerport"]; !ok {
+		t.Fatal("documented udp-ignore-peerport stays in RequiredPublicSpellings; ClassifyOption marks it unsupported")
+	}
+	reason, ok := UnsupportedPublic()["udp-ignore-peerport"]
+	if !ok {
+		t.Fatal("udp-ignore-peerport must be in UnsupportedPublic")
+	}
+	if strings.TrimSpace(reason) == "" {
+		t.Fatal("udp-ignore-peerport unsupported reason is empty")
+	}
+	for _, goos := range []string{"linux", "darwin", "windows"} {
+		class, classReason := ClassifyOption("udp-ignore-peerport", goos)
+		if class != ClassUnsupported {
+			t.Errorf("%s: class=%s reason=%q; want unsupported", goos, class, classReason)
+		}
+		if _, ok := ImplementationBacklog(goos)["udp-ignore-peerport"]; ok {
+			t.Errorf("%s backlog includes udp-ignore-peerport; it is not an implementation item", goos)
 		}
 	}
 }

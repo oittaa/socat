@@ -241,6 +241,7 @@ aliases and termios / baud names.
 - **`unlink=0` / `unlink-late=0`** — documented `TYPE_BOOL`; `=0` disables deletion. Classic `applyopts_named` ignores the stored bool and unlinks because the option is present (`tag-1.8.1.3` / master). Adjacent `unlink-early` and `unlink-close` already honor `=0` via `retropt_bool`. Copying the presence bug would delete files the user asked not to remove.
 - **Multicast membership interface handling** — the documented three-field `ip-add-membership=<group:interface-address:interface-name-or-index>` form is implemented safely. Classic `tag-1.8.1.3` (`12c08bf66d709fba17035ce95d85bd218428d9ba`) and official master (`af5388c898c7bb60997935aee93c223deba60c4a`) write the third field through an uninitialized pointer and can crash. This port also rejects an unresolved interface name instead of continuing with interface index `0`, which could join on an unintended default interface. The same unresolved-name rejection applies to `ipv6-join-source-group`.
 - **UDP-Lite is Linux-only** — classic `xio-udplite.c` (tag-1.8.1.3 `12c08bf66d709fba17035ce95d85bd218428d9ba`; official master `af5388c898c7bb60997935aee93c223deba60c4a` is the same file) enables named `UDPLITE*` addresses whenever `IPPROTO_UDPLITE` is in the platform headers, including FreeBSD. This port implements them only on Linux. The rest of the tree does not yet compile for FreeBSD (`unix.IP_PKTINFO` / `unix.SizeofInet4Pktinfo` are missing from ancillary code), so UDP-Lite is not advertised there.
+- **`udp-ignore-peerport`** — documented in official `doc/socat.yo` (`OPTION_UDP_IGNORE_PEERPORT`) but never registered in `optionnames[]` and never implemented in classic C (tag-1.8.1.3 `12c08bf66d709fba17035ce95d85bd218428d9ba`; official master `af5388c898c7bb60997935aee93c223deba60c4a`). Classic UDP-DATAGRAM accepts any sender by default (`xio-udp.c` / `xioread.c`). This port matches C: the spelling is unknown (rejected) and is not advertised. Advertising a no-op or inventing default peer-port filtering would diverge from classic. Do not implement without an explicit compatibility decision.
 - **`ip-recverr` / `ipv6-recverr`** — classic `OFUNC_SOCKOPT` `IP_RECVERR` / `IPV6_RECVERR` only enables the kernel error queue. This port’s `ReadMsg` path does not drain `MSG_ERRQUEUE` or surface those cmsgs, so the options are rejected instead of being advertised as honored (including on TCP). Baseline: tag-1.8.1.3 `12c08bf66d709fba17035ce95d85bd218428d9ba`; official master `af5388c898c7bb60997935aee93c223deba60c4a` is the same tree. `ipv6-multicast-hops` is not in that catalog.
 
 ## Unsupported / security-related
@@ -288,7 +289,8 @@ are classified by family (implementation backlog vs unsupported vs
 foreign-platform). CI fails if an implemented public spelling disappears, a
 new unclassified gap appears, an exclusion lacks a reason, or an implemented
 name remains in a missing manifest. OpenSSL `method`/`fips`/EGD/pseudo/DH/max-fragment
-options are unsupported exclusions, not backlog items.
+options and documented-but-never-implemented `udp-ignore-peerport` are
+unsupported exclusions, not backlog items.
 
 Parser fuzz campaigns and the live relay matrix also run locally:
 
