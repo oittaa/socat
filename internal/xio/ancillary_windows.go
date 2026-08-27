@@ -4,6 +4,7 @@ package xio
 
 import (
 	"errors"
+	"fmt"
 	"net"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -11,10 +12,11 @@ import (
 
 func NeedAncillary(parse.Spec) bool { return false }
 
-func ApplyAncillaryRecvOpts(int, parse.Spec) error { return nil }
-
-func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
-	return applyIPTTLTOS(fd, s, network)
+func ApplyAncillaryRecvOpts(_ int, s parse.Spec) error {
+	if !ancillaryRecvRequested(s) {
+		return nil
+	}
+	return fmt.Errorf("recv ancillary options are not supported on this platform")
 }
 
 func ProcessAncillary([]byte, *Global) {}
@@ -24,17 +26,20 @@ func ReadUDPMsg(c *net.UDPConn, p []byte, _ bool) (int, []byte, *net.UDPAddr, er
 	return n, nil, addr, err
 }
 
-func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
+func applyOneIPRecvOpt(_ int, e IPAncillaryEntry, _ parse.Option, family ipFamily) error {
+	return rejectIPAncillaryApply(e.Canonical, family)
+}
+
+func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, _ string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
 		return err
 	}
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
-		optionErr = ApplyIPSendOpts(int(fd), s, network)
-		if optionErr == nil {
-			optionErr = ApplyLateSocketOptions(int(fd), s)
-		}
+		// Send and recv IP/ancillary options are PH_PASTSOCKET
+		// (DialControl / ListenControl → ApplyPastSocketPhase).
+		optionErr = ApplyLateSocketOptions(int(fd), s)
 		if optionErr == nil {
 			optionErr = ApplyGenericSetsockopt(int(fd), s, SockoptPhaseConnected)
 		}

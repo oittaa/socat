@@ -60,10 +60,7 @@ func ApplyGenericSetsockopt(fd int, s parse.Spec, phase SockoptPhase) error {
 		if !ok {
 			continue
 		}
-		if !o.Has || strings.TrimSpace(o.Value) == "" {
-			return fmt.Errorf("%s requires level:optname:value", o.Name)
-		}
-		if err := applyGenericSetsockoptValue(fd, o.Name, o.Value, kind); err != nil {
+		if err := applyGenericSetsockoptOption(fd, o, kind); err != nil {
 			return err
 		}
 	}
@@ -80,14 +77,18 @@ func ApplyGenericSetsockoptAll(fd int, s parse.Spec) error {
 		if !ok {
 			continue
 		}
-		if !o.Has || strings.TrimSpace(o.Value) == "" {
-			return fmt.Errorf("%s requires level:optname:value", o.Name)
-		}
-		if err := applyGenericSetsockoptValue(fd, o.Name, o.Value, kind); err != nil {
+		if err := applyGenericSetsockoptOption(fd, o, kind); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func applyGenericSetsockoptOption(fd int, o parse.Option, kind sockoptValueKind) error {
+	if !o.Has || strings.TrimSpace(o.Value) == "" {
+		return fmt.Errorf("%s requires level:optname:value", o.Name)
+	}
+	return applyGenericSetsockoptValue(fd, o.Name, o.Value, kind)
 }
 
 func genericSetsockoptKind(name string, phase SockoptPhase) (sockoptValueKind, bool) {
