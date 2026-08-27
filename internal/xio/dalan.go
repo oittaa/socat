@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
-	"runtime"
 	"strconv"
 	"strings"
 )
@@ -179,13 +178,6 @@ const (
 	sizeCShort = 2
 )
 
-func sizeCLong() int {
-	if runtime.GOOS == "windows" {
-		return 4
-	}
-	return strconv.IntSize / 8
-}
-
 const (
 	dalanOK = iota
 	dalanSyntax
@@ -261,9 +253,9 @@ func dalanItem(c byte, line string) (out []byte, rest string, rc int) {
 	case 'x':
 		return dalanHex(line)
 	case 'l':
-		return dalanNumber(line, sizeCLong(), true)
+		return dalanNumber(line, sizeCLong, true)
 	case 'L':
-		return dalanNumber(line, sizeCLong(), false)
+		return dalanNumber(line, sizeCLong, false)
 	case 'i':
 		return dalanNumber(line, sizeCInt, true)
 	case 'I':

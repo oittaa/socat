@@ -31,8 +31,8 @@ func TestParseDalanWidthsAndSigns(t *testing.T) {
 		return b
 	}
 	longBytes := func(n int64) []byte {
-		b := make([]byte, sizeCLong())
-		if sizeCLong() == 4 {
+		b := make([]byte, sizeCLong)
+		if sizeCLong == 4 {
 			native.PutUint32(b, uint32(n))
 		} else {
 			native.PutUint64(b, uint64(n))
