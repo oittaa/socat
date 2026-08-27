@@ -57,6 +57,10 @@ func TestImplementedOpenFlagAndLockAliasesParse(t *testing.T) {
 		{spec: "TUN,multicast", opt: "iff-multicast"},
 		{spec: "PROXY:127.0.0.1:h:80,proxy-auth=u:p", opt: "proxy-authorization"},
 		{spec: "PROXY:127.0.0.1:h:80,resolv=0", opt: "proxy-resolve"},
+		{spec: "TCP:127.0.0.1:9,priority=6", opt: "so-priority"},
+		{spec: "TCP:127.0.0.1:9,passcred", opt: "so-passcred"},
+		{spec: "UDP:127.0.0.1:9,nocheck", opt: "so-no-check"},
+		{spec: "UDP:127.0.0.1:9,no-check=1", opt: "so-no-check"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.spec, func(t *testing.T) {
@@ -97,6 +101,10 @@ func TestCatalogOpenFlagAliasesShareClassicGroups(t *testing.T) {
 		{"tun-no-pi", "iff-no-pi"},
 		{"multicast", "iff-multicast"},
 		{"proxy-auth", "proxy-authorization"},
+		{"priority", "so-priority"},
+		{"passcred", "so-passcred"},
+		{"nocheck", "so-no-check"},
+		{"no-check", "so-no-check"},
 	}
 	for _, pair := range pairs {
 		alias, canon := pair[0], pair[1]

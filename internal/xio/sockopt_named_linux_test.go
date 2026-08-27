@@ -388,6 +388,194 @@ func TestDialTCPAllAppliesPastSocketCorkOnceLinux(t *testing.T) {
 	}
 }
 
+func TestApplySocketOptionsPriorityPasscredNocheckLinux(t *testing.T) {
+	// Classic xio-socket.c opt_so_priority / opt_so_passcred / opt_so_no_check
+	// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+	// af5388c898c7bb60997935aee93c223deba60c4a): GROUP_SOCKET, PH_PASTSOCKET,
+	// TYPE_INT, OFUNC_SOCKOPT, SOL_SOCKET. This kernel accepts all three on
+	// TCP, UDP, and UNIX.
+	for _, tc := range []struct {
+		name    string
+		network int
+		proto   int
+		spec    string
+		opt     int
+		want    int
+	}{
+		{name: "tcp-priority", network: unix.SOCK_STREAM, proto: 0, spec: "TCP:127.0.0.1:9,so-priority=6", opt: unix.SO_PRIORITY, want: 6},
+		{name: "udp-priority-alias", network: unix.SOCK_DGRAM, proto: unix.IPPROTO_UDP, spec: "UDP:127.0.0.1:9,priority=3", opt: unix.SO_PRIORITY, want: 3},
+		{name: "tcp-passcred", network: unix.SOCK_STREAM, proto: 0, spec: "TCP:127.0.0.1:9,so-passcred", opt: unix.SO_PASSCRED, want: 1},
+		{name: "udp-passcred-clear", network: unix.SOCK_DGRAM, proto: unix.IPPROTO_UDP, spec: "UDP:127.0.0.1:9,passcred=0", opt: unix.SO_PASSCRED, want: 0},
+		{name: "udp-nocheck", network: unix.SOCK_DGRAM, proto: unix.IPPROTO_UDP, spec: "UDP:127.0.0.1:9,nocheck", opt: unix.SO_NO_CHECK, want: 1},
+		{name: "tcp-no-check-alias", network: unix.SOCK_STREAM, proto: 0, spec: "TCP:127.0.0.1:9,no-check=1", opt: unix.SO_NO_CHECK, want: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fd, err := unix.Socket(unix.AF_INET, tc.network, tc.proto)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = unix.Close(fd) })
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ApplySocketOptions(fd, spec); err != nil {
+				t.Fatal(err)
+			}
+			got, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, tc.opt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("getsockopt=%d want %d", got, tc.want)
+			}
+		})
+	}
+
+	fd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	spec, err := parse.ParseSpec("UNIX-CONNECT:/tmp/sock,so-passcred=1,so-priority=4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplySocketOptions(fd, spec); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_PASSCRED); err != nil || got != 1 {
+		t.Fatalf("UNIX SO_PASSCRED=%d err=%v want 1", got, err)
+	}
+	if got, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_PRIORITY); err != nil || got != 4 {
+		t.Fatalf("UNIX SO_PRIORITY=%d err=%v want 4", got, err)
+	}
+}
+
+func TestPastSocketPriorityAndGenericCommandLineOrderLinux(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		options string
+		want    []int
+	}{
+		{
+			name:    "named-then-generic",
+			options: fmt.Sprintf("so-priority=6,setsockopt-socket=%d:%d:1", unix.SOL_SOCKET, unix.SO_PRIORITY),
+			want:    []int{6, 1},
+		},
+		{
+			name:    "generic-then-named",
+			options: fmt.Sprintf("setsockopt-socket=%d:%d:1,priority=6", unix.SOL_SOCKET, unix.SO_PRIORITY),
+			want:    []int{1, 6},
+		},
+		{
+			name:    "alias-then-canonical",
+			options: "priority=1,so-priority=6",
+			want:    []int{1, 6},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = unix.Close(fd) })
+			spec, err := parse.ParseSpec("TCP:127.0.0.1:9," + tc.options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []int
+			restore := SetSockoptTestHook(func(call SockoptCall) {
+				if call.Level == unix.SOL_SOCKET && call.Opt == unix.SO_PRIORITY {
+					got = append(got, call.IntValue)
+				}
+			})
+			t.Cleanup(restore)
+			if err := ApplySocketOptions(fd, spec); err != nil {
+				t.Fatal(err)
+			}
+			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+				t.Fatalf("SO_PRIORITY values=%v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestApplySocketOptionsRejectsInvalidPriorityLinux(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,so-priority=no")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplySocketOptions(fd, spec); err == nil {
+		t.Fatal("so-priority=no must fail")
+	}
+}
+
+func TestListenControlAppliesPriorityLinux(t *testing.T) {
+	spec, err := parse.ParseSpec("TCP4-LISTEN:0,so-priority=5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lc := NewTCPListenConfig(spec)
+	ln, err := lc.Listen(context.Background(), "tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	sc, ok := ln.(syscall.Conn)
+	if !ok {
+		t.Fatalf("listener type %T is not syscall.Conn", ln)
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got int
+	var gerr error
+	if err := raw.Control(func(fd uintptr) {
+		got, gerr = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_PRIORITY)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	if got != 5 {
+		t.Fatalf("listener SO_PRIORITY=%d want 5", got)
+	}
+}
+
+func TestApplyTCPConnOptsDoesNotApplyPastSocketPriorityLinux(t *testing.T) {
+	cli, _ := tcpPair(t)
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,so-priority=6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := cli.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before int
+	_ = raw.Control(func(fd uintptr) {
+		before, _ = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_PRIORITY)
+	})
+	if err := ApplyTCPConnOpts(spec, cli); err != nil {
+		t.Fatal(err)
+	}
+	var after int
+	_ = raw.Control(func(fd uintptr) {
+		after, _ = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_PRIORITY)
+	})
+	if after != before {
+		t.Fatalf("ApplyTCPConnOpts applied PH_PASTSOCKET so-priority: %d → %d", before, after)
+	}
+}
+
 func TestApplyTCPConnOptsMaxsegLateThroughNetConnUnwrapLinux(t *testing.T) {
 	cli, _ := tcpPair(t)
 	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,tcp-maxseg-late=1")

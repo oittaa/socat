@@ -338,7 +338,7 @@ func TestNamedTCPUnsupportedWindows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, opt := range []string{"tcp-cork", "sctp-nodelay", "sctp-maxseg=1400"} {
+	for _, opt := range []string{"tcp-cork", "sctp-nodelay", "sctp-maxseg=1400", "so-priority=6", "so-passcred", "nocheck"} {
 		spec, err := parse.ParseSpec("TCP-LISTEN:1," + opt)
 		if err != nil {
 			t.Fatal(err)

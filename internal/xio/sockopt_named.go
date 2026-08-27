@@ -15,6 +15,9 @@ import (
 // PH_PASTSOCKET TYPE_INT OFUNC_SOCKOPT:
 //
 //	so-debug / debug, so-dontroute / dontroute, so-oobinline / oobinline
+//	so-priority / priority, so-passcred / passcred,
+//	so-no-check / no-check / nocheck (Linux SO_PRIORITY / SO_PASSCRED /
+//	SO_NO_CHECK; classic xio-socket.c #ifdef SO_*)
 //	tcp-cork / cork, tcp-defer-accept / defer-accept, tcp-linger2 / linger2,
 //	tcp-maxseg / maxseg / mss, tcp-quickack / quickack, tcp-syncnt / syncnt,
 //	tcp-window-clamp / window-clamp

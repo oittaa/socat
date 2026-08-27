@@ -43,6 +43,8 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"b7200", "nldly", "crdly", "tabdly", "bsdly", "vtdly", "ffdly", "csize", "xtabs",
 		"echoprt", "prterase", "flusho", "termios-setflags", "setflags", "termios-rawer",
 		"so-debug", "debug", "so-dontroute", "dontroute", "so-oobinline", "oobinline",
+		"so-priority", "priority", "so-passcred", "passcred",
+		"so-no-check", "no-check", "nocheck",
 		"tcp-cork", "cork", "tcp-defer-accept", "defer-accept",
 		"tcp-linger2", "linger2", "tcp-maxseg", "maxseg", "mss",
 		"tcp-maxseg-late", "maxseg-late", "mss-late",

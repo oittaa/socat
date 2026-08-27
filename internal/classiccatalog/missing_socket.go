@@ -4,13 +4,6 @@ package classiccatalog
 // read-only sockopts on each OS before advertising; do not advertise a no-op.
 // so-bsdcompat is unsupportedNoopSockopts, not this map.
 var expectedMissingSocket = map[string]Gap{
-	"so-priority":                      {Reason: "SO_PRIORITY (later named socket options)", Platforms: PlatLinux},
-	"priority":                         {Reason: "alias of so-priority", Platforms: PlatLinux},
-	"so-passcred":                      {Reason: "SO_PASSCRED (later named socket options)", Platforms: PlatLinux},
-	"passcred":                         {Reason: "alias of so-passcred", Platforms: PlatLinux},
-	"so-no-check":                      {Reason: "SO_NO_CHECK (later named socket options)", Platforms: PlatLinux},
-	"no-check":                         {Reason: "alias of so-no-check", Platforms: PlatLinux},
-	"nocheck":                          {Reason: "alias of so-no-check", Platforms: PlatLinux},
 	"so-rcvlowat":                      {Reason: "SO_RCVLOWAT; probe before advertising", Platforms: PlatUnix},
 	"rcvlowat":                         {Reason: "alias of so-rcvlowat", Platforms: PlatUnix},
 	"so-sndlowat":                      {Reason: "SO_SNDLOWAT; probe before advertising", Platforms: PlatUnix},

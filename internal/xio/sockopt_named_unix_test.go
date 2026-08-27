@@ -108,7 +108,7 @@ func TestLinuxOnlyNamedTCPUnsupportedOffLinux(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = unix.Close(fd) })
-	for _, opt := range []string{"tcp-cork", "sctp-nodelay", "sctp-maxseg=1400"} {
+	for _, opt := range []string{"tcp-cork", "sctp-nodelay", "sctp-maxseg=1400", "so-priority=6", "so-passcred", "nocheck"} {
 		spec, err := parse.ParseSpec("TCP:127.0.0.1:9," + opt)
 		if err != nil {
 			t.Fatal(err)

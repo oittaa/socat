@@ -80,6 +80,10 @@ var implementedAliasHelp = []struct {
 	{"journal-data", "fs-journal-data"},
 	{"ext2-sync", "fs-sync"},
 	{"ioctl", "ioctl-void"},
+	{"priority", "so-priority"},
+	{"passcred", "so-passcred"},
+	{"nocheck", "so-no-check"},
+	{"no-check", "so-no-check"},
 }
 
 func TestImplementedAliasesHHHNotHH(t *testing.T) {
