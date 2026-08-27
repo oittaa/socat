@@ -100,7 +100,8 @@ func udpListenAddress(addrType string) bool {
 		t = alias
 	}
 	switch t {
-	case "UDP-LISTEN", "UDP4-LISTEN", "UDP6-LISTEN":
+	case "UDP-LISTEN", "UDP4-LISTEN", "UDP6-LISTEN",
+		"UDPLITE-LISTEN", "UDPLITE4-LISTEN", "UDPLITE6-LISTEN":
 		return true
 	default:
 		return false

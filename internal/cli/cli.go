@@ -682,7 +682,7 @@ func printVersion(w io.Writer) error {
 		{"UDP", true},
 		{"SCTP", xio.FeatureSCTP},
 		{"DCCP", false},
-		{"UDPLITE", false},
+		{"UDPLITE", xio.FeatureUDPLITE},
 		{"LISTEN", true},
 		{"POSIXMQ", xio.FeaturePOSIXMQ},
 		{"SOCKS4", true},
