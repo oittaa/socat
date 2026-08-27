@@ -391,6 +391,19 @@ func TestGenericSetsockoptAliases(t *testing.T) {
 	}
 }
 
+func TestIoctlAliasFoldsToIoctlVoid(t *testing.T) {
+	s, err := ParseSpec("FD:3,ioctl=0x541B")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.OptionValue("ioctl-void", ""); got != "0x541B" {
+		t.Fatalf("ioctl-void=%q", got)
+	}
+	if CanonicalOptionName("ioctl") != "ioctl-void" {
+		t.Fatalf("CanonicalOptionName(ioctl)=%q", CanonicalOptionName("ioctl"))
+	}
+}
+
 func TestDirectAndFSNoatimeAliases(t *testing.T) {
 	s, err := ParseSpec("OPEN:file,direct")
 	if err != nil {

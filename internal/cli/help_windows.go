@@ -8,6 +8,9 @@ func hideOpt(name string) bool {
 	if xio.LinuxExtFSFlagOption(name) {
 		return true
 	}
+	if xio.GenericIoctlOption(name) {
+		return true
+	}
 	switch name {
 	case "reuseport",
 		"ip-add-membership", "ipv6-join-group",

@@ -214,6 +214,13 @@ func applyFDPhaseLifecycleOptions(fd int, s parse.Spec, honorTargetSkip bool) er
 			if err := applyOneFlock(fd, o, unix.LOCK_SH|unix.LOCK_NB); err != nil {
 				return err
 			}
+		case "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string":
+			// Same PH_FD walk as perm/user/group/flock so mixed options keep
+			// command-line order. Do not apply generic ioctl only in
+			// applyLinuxPHFDOption (Linux-only; ioctl is Unix including Darwin).
+			if err := applyGenericIoctlOption(fd, o); err != nil {
+				return err
+			}
 		default:
 			if err := applyLinuxPHFDOption(fd, o); err != nil {
 				return err

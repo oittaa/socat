@@ -15,8 +15,8 @@ import (
 // Classic applyopts walks the original option list once per phase (xio-fd.c /
 // xio-fs.c, tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official
 // master af5388c898c7bb60997935aee93c223deba60c4a is the same tree). PH_FD
-// therefore applies perm/user/group/flock, o-noatime, f-setpipe-sz, and
-// FS_IOC_* fs-* flags in command-line order, then PH_LATE
+// therefore applies perm/user/group/flock, generic ioctl-*, o-noatime,
+// f-setpipe-sz, and FS_IOC_* fs-* flags in command-line order, then PH_LATE
 // append/async/ftruncate/lseek/perm-late. ApplyFDOptions owns those syscalls
 // for this *os.File; WrapCommon skips the same open.
 //
