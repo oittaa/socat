@@ -3,10 +3,8 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"math"
 	"os"
 	"os/signal"
@@ -444,21 +442,16 @@ func setupLogger(cfg *Config) (*logx.Logger, func(), error) {
 }
 
 // acquireLockFiles creates the -L lock file and, after -W's poll-wait, the
-// -W lock file. Files use O_EXCL so two processes cannot both claim a path,
-// and are registered for signal-exit unlink (os.Exit skips defers). The
-// returned cleanup removes them on normal exit; already-created files are
-// cleaned up if a later step fails.
+// -W lock file. Acquire and identity-safe release are shared with address
+// options lockfile=/waitlock= (internal/xio HoldLockFile).
 func acquireLockFiles(ctx context.Context, cfg *Config) (func(), error) {
 	var cleanups []func()
 	add := func(path string, wait bool) error {
-		if err := acquireLockFile(ctx, path, wait, 100*time.Millisecond); err != nil {
+		release, err := xio.HoldLockFile(ctx, path, wait)
+		if err != nil {
 			return err
 		}
-		unregister := xio.RegisterUnlinkPath(path)
-		cleanups = append(cleanups, func() {
-			unregister()
-			_ = os.Remove(path)
-		})
+		cleanups = append(cleanups, release)
 		return nil
 	}
 	fail := func(err error) (func(), error) {
@@ -482,52 +475,6 @@ func acquireLockFiles(ctx context.Context, cfg *Config) (func(), error) {
 			c()
 		}
 	}, nil
-}
-
-func acquireLockFile(ctx context.Context, path string, wait bool, interval time.Duration) error {
-	if interval <= 0 {
-		interval = 100 * time.Millisecond
-	}
-	const transientRetryLimit = time.Second
-	contentionObserved := false
-	var transientSince time.Time
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		err := createLockFile(path)
-		if err == nil {
-			return nil
-		}
-		exists := errors.Is(err, fs.ErrExist)
-		transient := wait && contentionObserved && isTransientLockCreateError(err)
-		if !exists && !transient {
-			return err
-		}
-		if !wait {
-			return fmt.Errorf("lockfile %s exists", path)
-		}
-		if exists {
-			contentionObserved = true
-			transientSince = time.Time{}
-		} else if transientSince.IsZero() {
-			transientSince = time.Now()
-		} else if time.Since(transientSince) >= transientRetryLimit {
-			return err
-		}
-		timer := time.NewTimer(interval)
-		select {
-		case <-ctx.Done():
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
-			return ctx.Err()
-		case <-timer.C:
-		}
-	}
 }
 
 // buildGlobal maps parsed flags onto the transfer-time Global.
@@ -719,22 +666,4 @@ func cliWriteErr(format string, a ...any) int {
 		return 1
 	}
 	return 1
-}
-
-func createLockFile(path string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644) // #nosec G302 G304 -- -L lock file path comes from the user; 0644 matches classic socat
-	if err != nil {
-		return err
-	}
-	_, werr := fmt.Fprintf(f, "%d\n", os.Getpid())
-	cerr := f.Close()
-	if werr != nil {
-		_ = os.Remove(path)
-		return werr
-	}
-	if cerr != nil {
-		_ = os.Remove(path)
-		return cerr
-	}
-	return nil
 }

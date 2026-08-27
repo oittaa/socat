@@ -58,6 +58,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"fs-nodump", "fs-notail", "fs-secrm", "fs-sync", "fs-topdir", "fs-unrm",
 		"ext2-append", "ext3-append", "compr", "nodump", "notail", "journal-data",
 		"shut-down",
+		"lockfile", "waitlock",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)

@@ -77,7 +77,8 @@ func filesystemOption(name string) bool {
 		"hosts-allow", "allow-table", "tcpwrap-hosts-allow-table",
 		"hosts-deny", "deny-table", "tcpwrap-hosts-deny-table",
 		"tcpwrap-etc", "tcpwrap-dir", "proxy-authorization-file",
-		"unix-bind-tempname", "bind-tempname", "tun-device":
+		"unix-bind-tempname", "bind-tempname", "tun-device",
+		"lockfile", "waitlock":
 		return true
 	default:
 		return false

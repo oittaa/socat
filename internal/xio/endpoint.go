@@ -406,23 +406,45 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 	if err := RejectUnsupportedRecvErr(s); err != nil {
 		return nil, err
 	}
+	// Classic PH_INIT GROUP_APPL lockfile=/waitlock= (xioopts.c OPT_LOCKFILE /
+	// OPT_WAITLOCK at tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+	// official master af5388c898c7bb60997935aee93c223deba60c4a is the same
+	// xiolockfile.c / xioopts.c). Apply after chdir= rewrite and before the
+	// opener so a failed open still releases.
+	release, err := applyAddressLock(ctx, s)
+	if err != nil {
+		return nil, err
+	}
 	var o *Opened
 	err = WithNetNS(s, g, func() error {
 		var e error
 		o, e = fn(ctx, s, mode, g)
 		return e
 	})
-	if err == nil && o != nil {
-		if value, ok := optionValueAny(s, "children-shutup", "child-shutup"); ok {
-			n, parseErr := ParseIntAny(value)
-			if parseErr != nil || n < 0 {
-				_ = o.Close()
-				return nil, fmt.Errorf("children-shutup: invalid value %q", value)
-			}
-			o.ChildrenShutup = n
+	if err != nil {
+		if release != nil {
+			release()
 		}
+		return nil, err
 	}
-	return o, err
+	if o == nil {
+		if release != nil {
+			release()
+		}
+		return nil, nil
+	}
+	if release != nil {
+		o.AddCleanup(release)
+	}
+	if value, ok := optionValueAny(s, "children-shutup", "child-shutup"); ok {
+		n, parseErr := ParseIntAny(value)
+		if parseErr != nil || n < 0 {
+			_ = o.Close()
+			return nil, fmt.Errorf("children-shutup: invalid value %q", value)
+		}
+		o.ChildrenShutup = n
+	}
+	return o, nil
 }
 
 // Opener opens one address type.

@@ -278,7 +278,7 @@ func TestParityFailsIfImplementedOptionDisappears(t *testing.T) {
 
 func TestParityFailsIfImplementedOptionStaysInMissingManifest(t *testing.T) {
 	advertised := advertisedHelpNames(true)
-	const name = "lockfile"
+	const name = "ai-all"
 	class, _ := classiccatalog.ClassifyOption(name, runtime.GOOS)
 	if class != classiccatalog.ClassExpectedMissing {
 		t.Fatalf("%q class=%s on %s; want expected-missing", name, class, runtime.GOOS)

@@ -1,8 +1,7 @@
 package classiccatalog
 
 // Application / transfer options (classic GROUP_APPL).
-// lockfile/waitlock are PR H.
+// lockfile/waitlock are implemented (PR H): advertised and applied at PH_INIT.
 var expectedMissingAppl = map[string]Gap{
-	"lockfile": {Reason: "address-option lockfile=; reuse CLI -L atomic lock (PR H)", Platforms: PlatAll},
-	"waitlock": {Reason: "address-option waitlock=; reuse CLI -W atomic lock (PR H)", Platforms: PlatAll},
+	// Empty: GROUP_APPL lockfile= and waitlock= are honored on PlatAll.
 }
