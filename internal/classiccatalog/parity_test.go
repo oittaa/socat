@@ -75,6 +75,10 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"cr", "linux", ClassExpectedMissing},
 		{"cr", "windows", ClassExpectedMissing},
 		{"udp-ignore-peerport", "linux", ClassExpectedMissing},
+		{"udplite-send-cscov", "linux", ClassMustAdvertise},
+		{"udplite-recv-cscov", "linux", ClassMustAdvertise},
+		{"udplite-send-cscov", "darwin", ClassMustAdvertise},
+		{"udplite-send-cscov", "windows", ClassMustAdvertise},
 		{"so-bsdcompat", "linux", ClassUnsupported},
 		{"history-file", "linux", ClassUnsupported},
 		{"dccp-set-ccid", "linux", ClassUnsupported},
@@ -109,6 +113,12 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	if _, ok := linux["udp-ignore-peerport"]; !ok {
 		t.Fatal("linux backlog must include documented udp-ignore-peerport")
 	}
+	if _, ok := linux["udplite-send-cscov"]; ok {
+		t.Fatal("linux backlog must not include implemented udplite-send-cscov (#101)")
+	}
+	if _, ok := linux["udplite-recv-cscov"]; ok {
+		t.Fatal("linux backlog must not include implemented udplite-recv-cscov (#101)")
+	}
 	if _, ok := linux["binary"]; ok {
 		t.Fatal("linux backlog must not include Windows-only binary")
 	}
@@ -125,6 +135,12 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	}
 	if _, ok := darwin["fs-append"]; ok {
 		t.Fatal("darwin backlog must not include Linux fs-append")
+	}
+	if _, ok := darwin["udplite-send-cscov"]; ok {
+		t.Fatal("darwin backlog must not include Linux UDP-Lite cscov")
+	}
+	if _, ok := win["udplite-recv-cscov"]; ok {
+		t.Fatal("windows backlog must not include Linux UDP-Lite cscov")
 	}
 }
 
@@ -154,8 +170,26 @@ func TestAddressClassificationSeparatesUnsupportedFromAliases(t *testing.T) {
 		t.Fatalf("ACCEPT-FD on windows: %s (Unix-only)", class)
 	}
 	class, _ = ClassifyAddress("UDPLITE-CONNECT", "linux")
-	if class != AddrExpectedMissingCanonical {
-		t.Fatalf("UDPLITE-CONNECT: %s", class)
+	if class != AddrMustRegister {
+		t.Fatalf("UDPLITE-CONNECT: %s (implemented in #101)", class)
+	}
+	class, _ = ClassifyAddress("UDPLITE", "linux")
+	if class != AddrMustRegister {
+		t.Fatalf("UDPLITE alias: %s (registered with the family in #101)", class)
+	}
+	class, _ = ClassifyAddress("UDPLITE-DGRAM", "linux")
+	if class != AddrMustRegister {
+		t.Fatalf("UDPLITE-DGRAM: %s (registered with the family in #101; UDP-DGRAM remains alias backlog)", class)
+	}
+	class, _ = ClassifyAddress("UDPLITE-CONNECT", "darwin")
+	if class != AddrMustRegister {
+		t.Fatalf("UDPLITE-CONNECT on darwin: %s (registered, FeatureUDPLITE-gated like VSOCK)", class)
+	}
+	if _, ok := ExpectedMissingCanonicalAddresses["UDPLITE-CONNECT"]; ok {
+		t.Fatal("UDPLITE-CONNECT is implemented (#101); remove it from ExpectedMissingCanonicalAddresses")
+	}
+	if got := len(ExpectedMissingCanonicalAddresses); got != 1 {
+		t.Fatalf("expected-missing canonicals=%d, want 1 (ACCEPT-FD)", got)
 	}
 	class, _ = ClassifyAddress("-", runtime.GOOS)
 	if class != AddrParserShorthand {

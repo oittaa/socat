@@ -218,7 +218,7 @@ func TestCatalogVsGoHelp(t *testing.T) {
 		t.Fatal("RequiredPublicSpellings must include documented udp-ignore-peerport")
 	}
 	if _, ok := classiccatalog.ImplementationBacklog(runtime.GOOS)["udp-ignore-peerport"]; !ok {
-		t.Fatal("udp-ignore-peerport must stay in the implementation backlog until PR B")
+		t.Fatal("udp-ignore-peerport must stay in the implementation backlog until it is implemented")
 	}
 
 	for name := range classiccatalog.OptionalParserOnlyAliases {

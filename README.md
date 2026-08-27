@@ -290,7 +290,6 @@ new unclassified gap appears, an exclusion lacks a reason, or an implemented
 name remains in a missing manifest. OpenSSL `method`/`fips`/EGD/pseudo/DH/max-fragment
 options are unsupported exclusions, not backlog items.
 
-
 Parser fuzz campaigns and the live relay matrix also run locally:
 
 ```bash

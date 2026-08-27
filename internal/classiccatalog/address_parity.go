@@ -44,34 +44,17 @@ var UnsupportedAddressNames = map[string]string{
 }
 
 // ExpectedMissingCanonicalAddresses are classic canonical address types whose
-// Go opener is not registered. ACCEPT-FD is PR F (Unix). UDPLITE is a later
-// Linux-only family; net.UDPConn cannot be relabeled as IPPROTO_UDPLITE.
+// Go opener is not registered. ACCEPT-FD is PR F (Unix). UDPLITE* canonicals
+// and their -L/-SEND/-DGRAM aliases were registered by #101 (Linux-only).
 var ExpectedMissingCanonicalAddresses = map[string]Gap{
 	"ACCEPT-FD": {Reason: "consume an already-accepted stream socket (PR F)", Platforms: PlatUnix},
-
-	"UDPLITE-CONNECT":   {Reason: "IPPROTO_UDPLITE connect (later Linux-only PR)", Platforms: PlatLinux},
-	"UDPLITE-DATAGRAM":  {Reason: "IPPROTO_UDPLITE datagram", Platforms: PlatLinux},
-	"UDPLITE-LISTEN":    {Reason: "IPPROTO_UDPLITE listen", Platforms: PlatLinux},
-	"UDPLITE-RECV":      {Reason: "IPPROTO_UDPLITE recv", Platforms: PlatLinux},
-	"UDPLITE-RECVFROM":  {Reason: "IPPROTO_UDPLITE recvfrom", Platforms: PlatLinux},
-	"UDPLITE-SENDTO":    {Reason: "IPPROTO_UDPLITE sendto", Platforms: PlatLinux},
-	"UDPLITE4-CONNECT":  {Reason: "IPv4 IPPROTO_UDPLITE connect", Platforms: PlatLinux},
-	"UDPLITE4-DATAGRAM": {Reason: "IPv4 IPPROTO_UDPLITE datagram", Platforms: PlatLinux},
-	"UDPLITE4-LISTEN":   {Reason: "IPv4 IPPROTO_UDPLITE listen", Platforms: PlatLinux},
-	"UDPLITE4-RECV":     {Reason: "IPv4 IPPROTO_UDPLITE recv", Platforms: PlatLinux},
-	"UDPLITE4-RECVFROM": {Reason: "IPv4 IPPROTO_UDPLITE recvfrom", Platforms: PlatLinux},
-	"UDPLITE4-SENDTO":   {Reason: "IPv4 IPPROTO_UDPLITE sendto", Platforms: PlatLinux},
-	"UDPLITE6-CONNECT":  {Reason: "IPv6 IPPROTO_UDPLITE connect", Platforms: PlatLinux},
-	"UDPLITE6-DATAGRAM": {Reason: "IPv6 IPPROTO_UDPLITE datagram", Platforms: PlatLinux},
-	"UDPLITE6-LISTEN":   {Reason: "IPv6 IPPROTO_UDPLITE listen", Platforms: PlatLinux},
-	"UDPLITE6-RECV":     {Reason: "IPv6 IPPROTO_UDPLITE recv", Platforms: PlatLinux},
-	"UDPLITE6-RECVFROM": {Reason: "IPv6 IPPROTO_UDPLITE recvfrom", Platforms: PlatLinux},
-	"UDPLITE6-SENDTO":   {Reason: "IPv6 IPPROTO_UDPLITE sendto", Platforms: PlatLinux},
 }
 
 // ExpectedMissingAddressAliases are classic addressnames[] aliases whose
 // canonical Go opener is already registered. PR C implements central alias
-// resolution for these names. Do not add DCCP, DTLS, UDPLITE, or ACCEPT here.
+// resolution for these names. Do not add DCCP, DTLS, or ACCEPT here.
+// UDPLITE-L / UDPLITE-SEND / UDPLITE-DGRAM are already registered with the
+// family (#101); UDP-DGRAM stays here until PR C.
 //
 // Values are the classic canonical addrdesc names.
 var ExpectedMissingAddressAliases = map[string]string{

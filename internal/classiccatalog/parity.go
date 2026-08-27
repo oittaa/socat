@@ -156,7 +156,6 @@ func expectedMissingSources() []map[string]Gap {
 		expectedMissingTCP,
 		expectedMissingTCPBSD,
 		expectedMissingUDP,
-		expectedMissingUDPLITE,
 		expectedMissingUNIX,
 	}
 }

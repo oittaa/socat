@@ -46,7 +46,7 @@ var DocsOnlyNotInThisBinary = map[string]string{
 	"stdurg":               "documented; compiled only with TCP_STDURG",
 	"text":                 "documented; compiled only with O_TEXT (Windows)",
 	"tsoptena":             "documented; compiled only with OSF1 TCP_TSOPTENA",
-	"udp-ignore-peerport":  "documented UDP-DATAGRAM option; not present in optionnames[]",
+	"udp-ignore-peerport":  "documented UDP-DATAGRAM option; not present in optionnames[] (see missing_udp.go)",
 }
 
 // OptionalParserOnlyAliases are C optionnames[] spellings that this configured
