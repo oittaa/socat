@@ -22,22 +22,31 @@ import (
 //   - append / o-append: GROUP_FD|GROUP_OPEN, PH_LATE, TYPE_BOOL, OFUNC_FCNTL
 //     F_SETFL O_APPEND. applyopt_fcntl GETFL then flag|=O_APPEND or
 //     flag&=~O_APPEND, so append=0 clears the bit. Bare append is true.
+//   - async / o-async: GROUP_OPEN|GROUP_FD, PH_LATE, OFUNC_FCNTL F_SETFL
+//     O_ASYNC. Named OPEN/GOPEN also OR O_ASYNC at open(2) (_xioopen_open).
 //   - perm / mode: GROUP_FD|GROUP_NAMED, PH_FD, fchmod(2) on the descriptor.
 //     Classic xioopts.c IF_ANY("mode", &opt_perm).
+//   - perm-late: GROUP_FD, PH_LATE, fchmod(2) after PH_FD perm.
 //   - user / uid / owner, group / gid: GROUP_FD|GROUP_NAMED, PH_FD, fchown(2).
+//   - user-late / uid-l, group-late / gid-l: GROUP_FD, PH_LATE.
 //   - ftruncate / truncate / ftruncate32 / ftruncate64: GROUP_REG, PH_LATE,
 //     ftruncate(2). Fail when the fd is not a regular file.
+//   - lseek / seek-cur / seek-end (and 32/64 aliases): GROUP_REG|GROUP_BLK,
+//     PH_LATE, lseek(2). Last-wins across aliases via command-line order.
+//   - flock / flock-nb / flock-sh / flock-sh-nb: GROUP_FD, PH_FD, flock(2).
+//     Independent of setlk* fcntl locks (fileopen/lock.go).
 //
 // Classic applyopts walks every matching option in original command-line
 // order for one phase (PH_FD then PH_LATE). Each occurrence is applied,
 // including alias/canonical mixtures (mode with perm, uid/owner with user,
-// gid with group, truncate/ftruncate32/64 with ftruncate). Last-wins
-// OptionNamed lookup is not used for applying.
+// gid with group, truncate/ftruncate32/64 with ftruncate, lseek64 with
+// seek). Last-wins OptionNamed lookup is not used for applying.
 //
 // Named OPEN/FILE/CREATE/GOPEN still consume perm= as open(2) mode (classic
-// retropt_modet) so umask applies; those types skip fchmod here. Their
-// ftruncate stays on the named-file open path to avoid truncating twice and
-// to keep Windows working.
+// retropt_modet) so umask applies; those types skip fchmod here. ftruncate
+// on those types shares this PH_LATE walk with lseek/perm-late/async so
+// command-line order is preserved (it is not applied a second time on the
+// named-file open path).
 //
 // ApplyFDOptions is the owner for already-open files (STDIN/STDOUT/STDERR/
 // FD:n, EXEC child pipes). It records per-open *os.File identity so
@@ -148,22 +157,28 @@ func isWeakConnApplied[T any](p *T) bool {
 }
 
 func hasFDLifecycleOptions(s parse.Spec) bool {
-	skipTrunc := skipNamedFileFtruncate(s.Type)
 	skipAppend := skipNamedFileAppend(s.Type)
+	skipAsync := skipNamedFileAsync(s.Type)
 	for _, o := range s.Options {
 		switch parse.CanonicalOptionName(o.Name) {
 		case "append":
 			if !skipAppend {
 				return true
 			}
-		case "ftruncate":
-			if !skipTrunc {
+		case "async":
+			if !skipAsync {
 				return true
 			}
+		case "ftruncate", "lseek", "seek-cur", "seek-end":
+			return true
 		case "perm", "user", "group":
 			if !skipDescriptorOwnerOption(s, parse.CanonicalOptionName(o.Name)) {
 				return true
 			}
+		case "perm-late", "user-late", "group-late":
+			return true
+		case "flock", "flock-nb", "flock-sh", "flock-sh-nb":
+			return true
 		}
 	}
 	return false
@@ -268,9 +283,12 @@ func skipNamedFileAppend(addrType string) bool {
 	}
 }
 
-func skipNamedFileFtruncate(addrType string) bool {
+// skipNamedFileAsync reports named opens that OR O_ASYNC into open(2)
+// (classic _xioopen_open retropt_bool OPT_O_ASYNC). CREATE uses creat(2)
+// and applies async with F_SETFL at PH_LATE instead.
+func skipNamedFileAsync(addrType string) bool {
 	switch strings.ToUpper(addrType) {
-	case "OPEN", "FILE", "CREATE", "CREAT", "GOPEN":
+	case "OPEN", "FILE", "GOPEN":
 		return true
 	default:
 		return false
@@ -307,6 +325,20 @@ func parseFtruncateOption(o parse.Option) (int64, error) {
 	return n, nil
 }
 
+func parseLseekOffset(o parse.Option) (int64, error) {
+	name := o.OriginalSpelling()
+	if !o.Has {
+		// Classic TYPE_OFF32/TYPE_OFF64 defaults a missing value to 1; the
+		// official man page calls this out explicitly for seek options.
+		return 1, nil
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(o.Value), 0, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s: invalid value %q", name, o.Value)
+	}
+	return n, nil
+}
+
 func parseFtruncateLength(s parse.Spec) (int64, bool, error) {
 	o, ok := lastLifecycleOption(s, "ftruncate", "truncate", "ftruncate32", "ftruncate64")
 	if !ok {
@@ -328,9 +360,9 @@ func requiredLifecycleOptionValue(o parse.Option) (string, error) {
 }
 
 // ApplyNamedFileFtruncate applies every ftruncate/truncate/ftruncate32/64
-// occurrence in command-line order (classic applyopts PH_LATE). Named
-// OPEN/CREATE/GOPEN use this instead of ApplyFDOptions so the file is not
-// truncated twice and Windows keeps working.
+// occurrence in command-line order (classic applyopts PH_LATE). Production
+// named OPEN/CREATE/GOPEN apply that walk through ApplyFDOptions so lseek
+// and perm-late share the same phase; this helper remains for isolated tests.
 func ApplyNamedFileFtruncate(f *os.File, s parse.Spec) error {
 	if f == nil {
 		return nil

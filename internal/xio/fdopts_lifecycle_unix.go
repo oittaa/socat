@@ -5,6 +5,7 @@ package xio
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"syscall"
@@ -192,14 +193,30 @@ func applyFDPhaseLifecycleOptions(fd int, s parse.Spec, honorTargetSkip bool) er
 			if err := applyOneGroup(fd, o); err != nil {
 				return err
 			}
+		case "flock":
+			if err := applyOneFlock(fd, o, unix.LOCK_EX); err != nil {
+				return err
+			}
+		case "flock-nb":
+			if err := applyOneFlock(fd, o, unix.LOCK_EX|unix.LOCK_NB); err != nil {
+				return err
+			}
+		case "flock-sh":
+			if err := applyOneFlock(fd, o, unix.LOCK_SH); err != nil {
+				return err
+			}
+		case "flock-sh-nb":
+			if err := applyOneFlock(fd, o, unix.LOCK_SH|unix.LOCK_NB); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
 func applyLateLifecycle(fd int, s parse.Spec) error {
-	skipTrunc := skipNamedFileFtruncate(s.Type)
 	skipAppend := skipNamedFileAppend(s.Type)
+	skipAsync := skipNamedFileAsync(s.Type)
 	for _, o := range s.Options {
 		switch parse.CanonicalOptionName(o.Name) {
 		case "append":
@@ -209,11 +226,39 @@ func applyLateLifecycle(fd int, s parse.Spec) error {
 			if err := applyOneAppend(fd, o); err != nil {
 				return err
 			}
-		case "ftruncate":
-			if skipTrunc {
+		case "async":
+			if skipAsync {
 				continue
 			}
+			if err := applyOneAsync(fd, o); err != nil {
+				return err
+			}
+		case "ftruncate":
 			if err := applyOneFtruncate(fd, o); err != nil {
+				return err
+			}
+		case "lseek":
+			if err := applyOneLseek(fd, o, io.SeekStart); err != nil {
+				return err
+			}
+		case "seek-cur":
+			if err := applyOneLseek(fd, o, io.SeekCurrent); err != nil {
+				return err
+			}
+		case "seek-end":
+			if err := applyOneLseek(fd, o, io.SeekEnd); err != nil {
+				return err
+			}
+		case "perm-late":
+			if err := applyOnePerm(fd, o); err != nil {
+				return err
+			}
+		case "user-late":
+			if err := applyOneUser(fd, o); err != nil {
+				return err
+			}
+		case "group-late":
+			if err := applyOneGroup(fd, o); err != nil {
 				return err
 			}
 		}
@@ -235,6 +280,56 @@ func applyOneAppend(fd int, o parse.Option) error {
 	noteLifecycleSyscall("F_SETFL")
 	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFL, flags); err != nil {
 		return fmt.Errorf("append: %w", err)
+	}
+	return nil
+}
+
+func applyOneAsync(fd int, o parse.Option) error {
+	enable := optionEnabled(o)
+	if enable && !FeatureFDAsync {
+		return fmt.Errorf("%s: not supported on this platform", o.OriginalSpelling())
+	}
+	if !FeatureFDAsync {
+		return nil
+	}
+	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
+	if err != nil {
+		return fmt.Errorf("%s: %w", o.OriginalSpelling(), err)
+	}
+	if enable {
+		flags |= fdAsyncFlag
+	} else {
+		flags &^= fdAsyncFlag
+	}
+	noteLifecycleSyscall("F_SETFL")
+	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFL, flags); err != nil {
+		return fmt.Errorf("%s: %w", o.OriginalSpelling(), err)
+	}
+	return nil
+}
+
+func applyOneFlock(fd int, o parse.Option, how int) error {
+	if !optionEnabled(o) {
+		return nil
+	}
+	if !FeatureFlock {
+		return fmt.Errorf("%s: not supported on this platform", o.OriginalSpelling())
+	}
+	noteLifecycleSyscall("flock")
+	if err := flockFD(fd, how); err != nil {
+		return fmt.Errorf("%s: %w", o.OriginalSpelling(), err)
+	}
+	return nil
+}
+
+func applyOneLseek(fd int, o parse.Option, whence int) error {
+	off, err := parseLseekOffset(o)
+	if err != nil {
+		return err
+	}
+	noteLifecycleSyscall("lseek")
+	if _, err := unix.Seek(fd, off, whence); err != nil {
+		return fmt.Errorf("%s: %w", o.OriginalSpelling(), err)
 	}
 	return nil
 }

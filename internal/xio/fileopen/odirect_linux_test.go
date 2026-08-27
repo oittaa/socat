@@ -105,7 +105,7 @@ func TestNamedPIPEAppliesODirect(t *testing.T) {
 		t.Fatal(err)
 	}
 	flags := os.O_RDONLY | oNonblock
-	flags, err = applyODirectFlag(spec, flags)
+	flags, err = applyOpenFlags(spec, flags)
 	if err != nil {
 		t.Fatal(err)
 	}

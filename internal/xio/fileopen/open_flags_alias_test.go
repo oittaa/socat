@@ -19,6 +19,8 @@ func TestOpenFlagsClassicAliases(t *testing.T) {
 	}{
 		{name: "o-rdonly", spec: "OPEN:x,o-rdonly", mode: xio.ModeWrite, access: os.O_RDONLY},
 		{name: "o-wronly", spec: "OPEN:x,o-wronly", mode: xio.ModeRead, access: os.O_WRONLY},
+		{name: "o-rdwr", spec: "OPEN:x,o-rdwr", mode: xio.ModeRead, access: os.O_RDWR},
+		{name: "o_rdwr", spec: "OPEN:x,o_rdwr", mode: xio.ModeRead, access: os.O_RDWR},
 		{name: "o-creat", spec: "OPEN:x,o-creat", mode: xio.ModeWrite, access: -1, bit: os.O_CREATE},
 		{name: "o-create", spec: "OPEN:x,o-create", mode: xio.ModeWrite, access: -1, bit: os.O_CREATE},
 		{name: "o-excl", spec: "OPEN:x,o-excl", mode: xio.ModeWrite, access: -1, bit: os.O_EXCL},
@@ -45,6 +47,11 @@ func TestOpenFlagsClassicAliases(t *testing.T) {
 			if tc.access == os.O_WRONLY {
 				if flags&os.O_WRONLY == 0 {
 					t.Fatalf("flags=%#x want write-only", flags)
+				}
+			}
+			if tc.access == os.O_RDWR {
+				if flags&os.O_RDWR != os.O_RDWR {
+					t.Fatalf("flags=%#x want read-write", flags)
 				}
 			}
 			if tc.bit != 0 && flags&tc.bit == 0 {

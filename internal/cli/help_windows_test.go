@@ -18,6 +18,7 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"reuseport", "ip-add-membership", "so-timestamp",
 		"nonblock", "umask", "user", "group", "uid", "owner", "gid",
 		"perm-early", "user-early", "group-early",
+		"o-sync", "async", "flock", "perm-late", "user-late",
 		"setsid", "pty", "setlk",
 		"bindtodevice",
 		"ip-pktinfo", "ip-options", "ipv6-tclass", "ipv6-unicast-hops",

@@ -18,6 +18,10 @@ func TestODirectRejectedWhenUnsupported(t *testing.T) {
 	if _, err := OpenFlags(enabled, xio.ModeRead); err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("enabled o-direct: %v", err)
 	}
+	rsync := parse.Spec{Type: "OPEN", Params: []string{"x"}, Options: []parse.Option{{Name: "o-rsync"}}}
+	if _, err := OpenFlags(rsync, xio.ModeRead); err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("enabled o-rsync: %v", err)
+	}
 	if _, err := openOPEN(context.Background(), enabled, xio.ModeRead, nil); err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("openOPEN enabled o-direct: %v", err)
 	}

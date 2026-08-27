@@ -496,6 +496,45 @@ func TestModePermUIDOwnerGIDFtruncateAliases(t *testing.T) {
 	}
 }
 
+func TestFileOpenFDExpansionAliases(t *testing.T) {
+	tests := []struct {
+		raw, canonical, wantValue string
+	}{
+		{raw: "OPEN:file,sync", canonical: "o-sync", wantValue: "1"},
+		{raw: "OPEN:file,o-rdwr", canonical: "rdwr", wantValue: "1"},
+		{raw: "OPEN:file,o_rdwr", canonical: "rdwr", wantValue: "1"},
+		{raw: "OPEN:file,o_dsync", canonical: "o-dsync", wantValue: "1"},
+		{raw: "OPEN:file,noctty", canonical: "o-noctty", wantValue: "1"},
+		{raw: "OPEN:file,o-async", canonical: "async", wantValue: "1"},
+		{raw: "OPEN:file,nofollow", canonical: "o-nofollow", wantValue: "1"},
+		{raw: "FD:3,flock-ex", canonical: "flock", wantValue: "1"},
+		{raw: "FD:3,flock-nb", canonical: "flock-nb", wantValue: "1"},
+		{raw: "FD:3,lseek64=4", canonical: "lseek", wantValue: "4"},
+		{raw: "FD:3,seek-cur=-1", canonical: "seek-cur", wantValue: "-1"},
+		{raw: "FD:3,perm-late=0600", canonical: "perm-late", wantValue: "0600"},
+		{raw: "FD:3,uid-l=1", canonical: "user-late", wantValue: "1"},
+		{raw: "FD:3,gid-l=3", canonical: "group-late", wantValue: "3"},
+	}
+	for _, tc := range tests {
+		s, err := ParseSpec(tc.raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !s.HasOption(tc.canonical) {
+			t.Fatalf("%s: missing %s", tc.raw, tc.canonical)
+		}
+		if got := s.OptionValue(tc.canonical, ""); got != tc.wantValue {
+			t.Fatalf("%s: %s=%q want %q", tc.raw, tc.canonical, got, tc.wantValue)
+		}
+	}
+	if CanonicalOptionName("seek") != "lseek" {
+		t.Fatalf("seek canonicalized to %q", CanonicalOptionName("seek"))
+	}
+	if CanonicalOptionName("lseek64-end") != "seek-end" {
+		t.Fatalf("lseek64-end canonicalized to %q", CanonicalOptionName("lseek64-end"))
+	}
+}
+
 func TestSocketTypeAlias(t *testing.T) {
 	for _, alias := range []string{"so-type", "type"} {
 		s, err := ParseSpec("UNIX-LISTEN:/tmp/test.sock," + alias + "=5")
