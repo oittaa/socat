@@ -47,7 +47,8 @@ var dynamicallyReadOptions = map[string]string{
 	"up": "tunopen/tun_linux.go", "loopback": "tunopen/tun_linux.go",
 	"pointopoint": "tunopen/tun_linux.go", "running": "tunopen/tun_linux.go",
 	"noarp": "tunopen/tun_linux.go", "promisc": "tunopen/tun_linux.go",
-	"allmulti": "tunopen/tun_linux.go",
+	"allmulti": "tunopen/tun_linux.go", "multicast": "tunopen/tun_linux.go",
+	"no-pi": "tunopen/tun_linux.go", "tun-no-pi": "tunopen/tun_linux.go",
 	// Short spellings of the ancillary recv pairs (same dynamic consumer).
 	"timestamp": "xio/ancillary.go", "pktinfo": "xio/ancillary.go",
 	"recvttl": "xio/ancillary.go", "recvtos": "xio/ancillary.go",
@@ -74,8 +75,12 @@ var dynamicallyReadOptions = map[string]string{
 
 	"setlk": "fileopen/lock.go", "setlkw": "fileopen/lock.go",
 	"setlk-rd": "fileopen/lock.go", "setlkw-rd": "fileopen/lock.go",
+	"f-setlk": "fileopen/lock.go", "f-setlkw": "fileopen/lock.go",
+	"setlk-wr": "fileopen/lock.go", "setlkw-wr": "fileopen/lock.go",
+	"lock": "fileopen/lock.go", "lockw": "fileopen/lock.go",
 
 	// Canonical/alias families selected by last-option-wins helper loops.
+	"rdonly": "fileopen/file.go OpenFlags", "wronly": "fileopen/file.go OpenFlags",
 	"so-linger": "xio/options.go", "linger": "xio/options.go",
 	"o-noatime": "xio/options.go", "noatime": "xio/options.go",
 	"f-setpipe-sz": "xio/options.go", "pipesz": "xio/options.go",
@@ -201,7 +206,7 @@ func termiosFamilyNames(t *testing.T) map[string]string {
 	}
 	// These common help spellings remain visible on platforms where termios is
 	// unavailable; the address opener rejects the unsupported PTY at runtime.
-	for _, name := range []string{"cfmakeraw", "raw", "rawer", "sane", "echo", "opost", "winsz", "waitslave"} {
+	for _, name := range []string{"cfmakeraw", "raw", "rawer", "sane", "echo", "echoe", "echoke", "echoctl", "hupcl", "ixoff", "opost", "ispeed", "ospeed", "winsz", "waitslave"} {
 		out[name] = "common termios help"
 	}
 	return out
