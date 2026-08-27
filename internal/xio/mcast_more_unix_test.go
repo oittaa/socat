@@ -172,12 +172,7 @@ func TestMulticastLoopPacketEffect(t *testing.T) {
 		t.Fatal(err)
 	}
 	lc := net.ListenConfig{Control: ListenControl(recvSpec)}
-	recvAddr := "0.0.0.0:0"
-	if runtime.GOOS == "darwin" {
-		// Darwin does not deliver IP multicast to INADDR_ANY; bind the group.
-		recvAddr = group.String() + ":0"
-	}
-	pc, err := lc.ListenPacket(context.Background(), "udp4", recvAddr)
+	pc, err := lc.ListenPacket(context.Background(), "udp4", "0.0.0.0:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,12 +228,7 @@ func TestMulticastTTLAncillaryPacket(t *testing.T) {
 		t.Fatal(err)
 	}
 	lc := net.ListenConfig{Control: ListenControl(recvSpec)}
-	recvAddr := "0.0.0.0:0"
-	if runtime.GOOS == "darwin" {
-		// Darwin does not deliver IP multicast to INADDR_ANY; bind the group.
-		recvAddr = group.String() + ":0"
-	}
-	pc, err := lc.ListenPacket(context.Background(), "udp4", recvAddr)
+	pc, err := lc.ListenPacket(context.Background(), "udp4", "0.0.0.0:0")
 	if err != nil {
 		t.Fatal(err)
 	}

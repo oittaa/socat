@@ -217,7 +217,15 @@ func applyMulticastNamedFD(fd int, kind multicastNamedKind, name string, o parse
 		}
 		return nil
 	case multicastNamedLoop, multicastNamedTTL:
-		n, err := classicFlagInt(o, 255)
+		max := 255
+		if kind == multicastNamedLoop {
+			// doc/socat.yo documents ip-multicast-loop[=<bool>] even
+			// though the optdesc storage type is TYPE_BYTE. Honor the
+			// documented 0/1 interface, per the repository compatibility
+			// policy; ip-multicast-ttl remains the full byte option.
+			max = 1
+		}
+		n, err := classicFlagInt(o, max)
 		if err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
@@ -237,7 +245,9 @@ func applyMulticastNamedFD(fd int, kind multicastNamedKind, name string, o parse
 		if family == ipFamilyV4 {
 			return fmt.Errorf("%s: not supported on IPv4", name)
 		}
-		n, err := classicFlagInt(o, -1)
+		// doc/socat.yo documents ipv6-multicast-loop[=<bool>] even
+		// though its optdesc storage type is TYPE_INT.
+		n, err := classicFlagInt(o, 1)
 		if err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}

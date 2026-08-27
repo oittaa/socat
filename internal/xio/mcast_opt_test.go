@@ -165,14 +165,31 @@ func TestMulticastNamedAliases(t *testing.T) {
 	}
 }
 
+func TestMTUDiscoveryAliases(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		family membershipFamily
+	}{
+		{name: "ip-mtu-discover", family: membershipFamilyIPv4},
+		{name: "mtudiscover", family: membershipFamilyIPv4},
+		{name: "ipmtudiscover", family: membershipFamilyIPv4},
+		{name: "ipv6-mtu-discover", family: membershipFamilyIPv6},
+		{name: "mtudiscover6", family: membershipFamilyIPv6},
+	} {
+		family, _, ok := mtuDiscoveryName(tc.name)
+		if !ok || family != tc.family {
+			t.Errorf("mtuDiscoveryName(%q)=(%v,%v), want family %v", tc.name, family, ok, tc.family)
+		}
+	}
+}
+
 func TestClassicFlagInt(t *testing.T) {
 	n, err := classicFlagInt(parse.Option{}, 255)
 	if err != nil || n != 1 {
 		t.Fatalf("bare flag: n=%d err=%v want 1", n, err)
 	}
-	n, err = classicFlagInt(parse.Option{Has: true, Value: "false"}, 255)
-	if err != nil || n != 0 {
-		t.Fatalf("false: n=%d err=%v", n, err)
+	if _, err := classicFlagInt(parse.Option{Has: true, Value: "false"}, 255); err == nil {
+		t.Fatal("TYPE_BYTE must reject nonnumeric boolean words")
 	}
 	n, err = classicFlagInt(parse.Option{Has: true, Value: "9"}, 255)
 	if err != nil || n != 9 {
@@ -184,5 +201,12 @@ func TestClassicFlagInt(t *testing.T) {
 	n, err = classicFlagInt(parse.Option{Has: true, Value: "2"}, -1)
 	if err != nil || n != 2 {
 		t.Fatalf("TYPE_INT 2: n=%d err=%v", n, err)
+	}
+	n, err = classicFlagInt(parse.Option{Has: true, Value: "-1"}, -1)
+	if err != nil || n != -1 {
+		t.Fatalf("TYPE_INT -1: n=%d err=%v", n, err)
+	}
+	if _, err := classicFlagInt(parse.Option{Has: true, Value: "2"}, 1); err == nil {
+		t.Fatal("TYPE_BOOL 2 must be rejected")
 	}
 }

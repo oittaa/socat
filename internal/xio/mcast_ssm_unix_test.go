@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"net"
-	"runtime"
 	"testing"
 	"unsafe"
 
@@ -15,10 +14,7 @@ import (
 )
 
 func TestGroupSourceReqLayout(t *testing.T) {
-	want := uintptr(264)
-	if runtime.GOOS == "darwin" {
-		want = 260
-	}
+	want := uintptr(groupSourceReqSize)
 	if unsafe.Sizeof(groupSourceReq{}) != want {
 		t.Fatalf("groupSourceReq size=%d want %d", unsafe.Sizeof(groupSourceReq{}), want)
 	}

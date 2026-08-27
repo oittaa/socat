@@ -68,6 +68,12 @@ func applyOrderedPastSocketPhaseOptions(fd int, s parse.Spec, network string) er
 			}
 			continue
 		}
+		if matched, err := applyMTUDiscoveryOption(fd, option); matched {
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		if matched, err := applyRecvErrOption(fd, option); matched {
 			if err != nil {
 				return err

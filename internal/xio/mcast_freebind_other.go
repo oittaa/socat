@@ -15,3 +15,7 @@ func applyFreebindFD(int, parse.Option) error {
 func applyTransparentFD(int, parse.Option) error {
 	return fmt.Errorf("ip-transparent: not supported on this platform")
 }
+
+func applyMTUDiscoveryFD(_ int, _ membershipFamily, name string, _ parse.Option) error {
+	return fmt.Errorf("%s: not supported on this platform", name)
+}

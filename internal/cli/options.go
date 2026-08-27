@@ -248,6 +248,20 @@ func validateOptionalInteger(min int64) func(parse.Option) error {
 	}
 }
 
+func validateOptionalSignedInteger(option parse.Option) error {
+	if !option.Has {
+		return nil
+	}
+	value, err := requiredOptionValue(option)
+	if err != nil {
+		return err
+	}
+	if _, err := strconv.ParseInt(value, 0, 64); err != nil {
+		return fmt.Errorf("invalid %s %q", option.Name, value)
+	}
+	return nil
+}
+
 func validateOptionalByte(option parse.Option) error {
 	if !option.Has {
 		return nil
@@ -261,6 +275,34 @@ func validateOptionalByte(option parse.Option) error {
 		return fmt.Errorf("invalid %s %q", option.Name, value)
 	}
 	return nil
+}
+
+func validateOptionalBool(option parse.Option) error {
+	if !option.Has {
+		return nil
+	}
+	value, err := requiredOptionValue(option)
+	if err != nil {
+		return err
+	}
+	if value != "0" && value != "1" {
+		return fmt.Errorf("invalid %s %q", option.Name, value)
+	}
+	return nil
+}
+
+func validateIntegerRange(min, max int64) func(parse.Option) error {
+	return func(option parse.Option) error {
+		value, err := requiredOptionValue(option)
+		if err != nil {
+			return err
+		}
+		n, err := strconv.ParseInt(value, 0, 64)
+		if err != nil || n < min || n > max {
+			return fmt.Errorf("invalid %s %q", option.Name, value)
+		}
+		return nil
+	}
 }
 
 func validateInt64(requirePositive bool) func(parse.Option) error {

@@ -32,6 +32,8 @@ func TestApplyMembershipJoinsUnsupportedOnWindows(t *testing.T) {
 		"UDP4:127.0.0.1:9,ip-add-source-membership=232.1.1.1:127.0.0.1:127.0.0.1",
 		"TCP4-LISTEN:1,ip-freebind",
 		"TCP4-LISTEN:1,ip-transparent",
+		"UDP4:127.0.0.1:9,ip-mtu-discover=2",
+		"UDP6:[::1]:9,ipv6-mtu-discover=2",
 	} {
 		spec, err = parse.ParseSpec(raw)
 		if err != nil {

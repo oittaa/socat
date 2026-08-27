@@ -29,6 +29,8 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"ipv6-join-source-group", "ipv6-add-source-membership", "join-source-group",
 		"ip-freebind", "freebind", "ipfreebind",
 		"ip-transparent", "transparent",
+		"ip-mtu-discover", "mtudiscover", "ipmtudiscover",
+		"ipv6-mtu-discover", "mtudiscover6",
 		"setsockopt", "setsockopt-int", "setsockopt-bin", "setsockopt-string",
 		"setsockopt-listen", "setsockopt-socket", "setsockopt-connected",
 		"sockopt", "sockopt-int", "sockopt-bin", "sockopt-string",

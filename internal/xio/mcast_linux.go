@@ -21,7 +21,7 @@ func applyFreebindFD(fd int, o parse.Option) error {
 }
 
 func applyTransparentFD(fd int, o parse.Option) error {
-	n, err := classicFlagInt(o, -1)
+	n, err := classicFlagInt(o, 1)
 	if err != nil {
 		return fmt.Errorf("ip-transparent: %w", err)
 	}
@@ -31,6 +31,21 @@ func applyTransparentFD(fd int, o parse.Option) error {
 	// CAP_NET_ADMIN or CAP_NET_RAW; the kernel error is reported, not swallowed.
 	if err := setSockoptInt(fd, unix.IPPROTO_IP, unix.IP_TRANSPARENT, n); err != nil {
 		return fmt.Errorf("ip-transparent: %w", err)
+	}
+	return nil
+}
+
+func applyMTUDiscoveryFD(fd int, family membershipFamily, name string, o parse.Option) error {
+	n, err := classicFlagInt(o, 2)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	level, opt := unix.IPPROTO_IP, unix.IP_MTU_DISCOVER
+	if family == membershipFamilyIPv6 {
+		level, opt = unix.IPPROTO_IPV6, unix.IPV6_MTU_DISCOVER
+	}
+	if err := setSockoptInt(fd, level, opt, n); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
 	}
 	return nil
 }

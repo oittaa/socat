@@ -104,6 +104,8 @@ var dynamicallyReadOptions = map[string]string{
 	"ipv6-join-source-group":   "xio/mcast_opt.go applySourceMembershipOption",
 	"ip-freebind":              "xio/mcast_opt.go applyFreebindOption",
 	"ip-transparent":           "xio/mcast_opt.go applyTransparentOption",
+	"ip-mtu-discover":          "xio/mcast_opt.go applyMTUDiscoveryOption",
+	"ipv6-mtu-discover":        "xio/mcast_opt.go applyMTUDiscoveryOption",
 }
 
 // compatNoOptions are advertised deliberately as classic-compat spellings

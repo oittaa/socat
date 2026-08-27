@@ -133,6 +133,14 @@ func applyTransparentOption(fd int, o parse.Option) (bool, error) {
 	return true, applyTransparentFD(fd, o)
 }
 
+func applyMTUDiscoveryOption(fd int, o parse.Option) (bool, error) {
+	family, name, ok := mtuDiscoveryOf(o)
+	if !ok {
+		return false, nil
+	}
+	return true, applyMTUDiscoveryFD(fd, family, name, o)
+}
+
 func applyRecvErrOption(_ int, o parse.Option) (bool, error) {
 	name, ok := recvErrOptionName(o)
 	if !ok {
@@ -207,6 +215,24 @@ func transparentOptionName(name string) bool {
 	}
 }
 
+func mtuDiscoveryOf(o parse.Option) (membershipFamily, string, bool) {
+	if family, name, ok := mtuDiscoveryName(o.OriginalSpelling()); ok {
+		return family, name, true
+	}
+	return mtuDiscoveryName(o.Name)
+}
+
+func mtuDiscoveryName(name string) (membershipFamily, string, bool) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "ip-mtu-discover", "mtudiscover", "ipmtudiscover":
+		return membershipFamilyIPv4, "ip-mtu-discover", true
+	case "ipv6-mtu-discover", "mtudiscover6":
+		return membershipFamilyIPv6, "ipv6-mtu-discover", true
+	default:
+		return 0, "", false
+	}
+}
+
 func recvErrOptionName(o parse.Option) (string, bool) {
 	if name, ok := recvErrSpelling(o.OriginalSpelling()); ok {
 		return name, true
@@ -256,21 +282,11 @@ func classicFlagInt(o parse.Option, max int) (int, error) {
 	if !o.Has {
 		return 1, nil
 	}
-	v := strings.ToLower(strings.TrimSpace(o.Value))
-	switch v {
-	case "false", "no", "off":
-		return 0, nil
-	case "true", "yes", "on":
-		return 1, nil
-	}
 	n, err := ParseIntAny(o.Value)
 	if err != nil {
 		return 0, fmt.Errorf("invalid value %q", o.Value)
 	}
-	if n < 0 {
-		return 0, fmt.Errorf("invalid value %q", o.Value)
-	}
-	if max >= 0 && n > max {
+	if max >= 0 && (n < 0 || n > max) {
 		return 0, fmt.Errorf("invalid value %q", o.Value)
 	}
 	return n, nil

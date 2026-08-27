@@ -10,3 +10,5 @@ type groupSourceReq struct {
 	Group     [128]byte
 	Source    [128]byte
 }
+
+const groupSourceReqSize = 260
