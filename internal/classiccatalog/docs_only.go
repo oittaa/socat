@@ -124,9 +124,16 @@ var OptionalParserOnlyAliases = map[string]string{
 // in the catalog but deliberately does not treat as compatibility
 // requirements. cool-write is deprecated (use children-shutup); Go must not
 // re-advertise it, and the audit must not tell later agents to implement it.
+// ip-recverr / ipv6-recverr are recognized so they can be rejected with a
+// precise error instead of a silent no-op; they are not advertised because
+// this port has no MSG_ERRQUEUE ReadMsg path.
 var IntentionalPublicOmissions = map[string]string{
-	"cool-write": "deprecated; this port stopped advertising it (use children-shutup)",
-	"coolwrite":  "deprecated alias of cool-write; this port stopped advertising it",
+	"cool-write":   "deprecated; this port stopped advertising it (use children-shutup)",
+	"coolwrite":    "deprecated alias of cool-write; this port stopped advertising it",
+	"ip-recverr":   "recognized and rejected: no MSG_ERRQUEUE ReadMsg path (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master af5388c898c7bb60997935aee93c223deba60c4a)",
+	"recverr":      "alias of ip-recverr; rejected, not advertised",
+	"iprecverr":    "alias of ip-recverr; rejected, not advertised",
+	"ipv6-recverr": "recognized and rejected: no MSG_ERRQUEUE ReadMsg path (GROUP_IP6)",
 }
 
 // GoOnlyHelpAllowlist is names this port advertises in -hh/-hhh that classic

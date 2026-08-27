@@ -87,9 +87,9 @@ func ApplySocketTimeos(fd int, s parse.Spec) error {
 	return nil
 }
 
-// ApplySocketOptionsWithoutGeneric applies the named SOL_SOCKET options but
-// leaves the generic setsockopt family untouched. PH_ALL constructors such as
-// SOCKETPAIR use it before applying all generic actions in command-line order.
+// ApplySocketOptionsWithoutGeneric applies fixed SOL_SOCKET options but leaves
+// command-ordered named and generic setsockopt actions untouched. PH_ALL
+// constructors such as SOCKETPAIR apply those together afterward.
 func ApplySocketOptionsWithoutGeneric(fd int, s parse.Spec) error {
 	if err := ApplySocketTimeos(fd, s); err != nil {
 		return err
@@ -119,7 +119,7 @@ func ApplySocketOptions(fd int, s parse.Spec) error {
 	if err := ApplySocketOptionsWithoutGeneric(fd, s); err != nil {
 		return err
 	}
-	return ApplyGenericSetsockopt(fd, s, SockoptPhasePastSocket)
+	return applyOrderedPastSocketPhaseOptions(fd, s, "")
 }
 
 func windowsTimeoutMillis(v string) (uint32, error) {

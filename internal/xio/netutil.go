@@ -197,10 +197,27 @@ func ApplyPastSocketPhase(fd int, s parse.Spec, network string) error {
 	return ApplyNetworkSocketOptions(fd, s, network)
 }
 
-// ApplyPrebindPhase applies classic PH_PREBIND generic setsockopt-listen
-// before bind()/connect().
+// ApplyPrebindPhase applies classic PH_PREBIND before bind()/connect():
+// generic setsockopt-listen and ip-transparent (xio-ip.c PH_PREBIND TYPE_BOOL
+// OFUNC_SOCKOPT SOL_IP IP_TRANSPARENT; tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same tree). Occurrences are
+// applied in command-line order.
 func ApplyPrebindPhase(fd int, s parse.Spec) error {
-	return ApplyGenericSetsockopt(fd, s, SockoptPhasePrebind)
+	for _, o := range s.Options {
+		if kind, ok := genericSetsockoptKind(o.Name, SockoptPhasePrebind); ok {
+			if err := applyGenericSetsockoptOption(fd, o, kind); err != nil {
+				return err
+			}
+			continue
+		}
+		if matched, err := applyTransparentOption(fd, o); matched {
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // ApplyPastSocketThenPrebind is the Control-hook order used by net.Dialer

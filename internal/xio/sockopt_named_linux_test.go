@@ -5,6 +5,7 @@ package xio
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"strconv"
 	"syscall"
@@ -113,6 +114,50 @@ func TestApplySocketOptionsCorkAliasAndClearLinux(t *testing.T) {
 	}
 	if got := fdTCPSockoptInt(t, fd, unix.TCP_CORK); got != 0 {
 		t.Fatalf("tcp-cork=0 TCP_CORK=%d want 0", got)
+	}
+}
+
+func TestPastSocketTCPNamedAndGenericCommandLineOrderLinux(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		options string
+		want    []int
+	}{
+		{
+			name:    "named-then-generic",
+			options: fmt.Sprintf("tcp-cork=1,setsockopt-socket=%d:%d:0", unix.IPPROTO_TCP, unix.TCP_CORK),
+			want:    []int{1, 0},
+		},
+		{
+			name:    "generic-then-named",
+			options: fmt.Sprintf("setsockopt-socket=%d:%d:0,tcp-cork=1", unix.IPPROTO_TCP, unix.TCP_CORK),
+			want:    []int{0, 1},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = unix.Close(fd) })
+			spec, err := parse.ParseSpec("TCP:127.0.0.1:9," + tc.options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []int
+			restore := SetSockoptTestHook(func(call SockoptCall) {
+				if call.Level == unix.IPPROTO_TCP && call.Opt == unix.TCP_CORK {
+					got = append(got, call.IntValue)
+				}
+			})
+			t.Cleanup(restore)
+			if err := ApplySocketOptions(fd, spec); err != nil {
+				t.Fatal(err)
+			}
+			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+				t.Fatalf("TCP_CORK values=%v want %v", got, tc.want)
+			}
+		})
 	}
 }
 

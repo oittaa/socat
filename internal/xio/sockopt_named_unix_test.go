@@ -126,7 +126,6 @@ func TestApplySocketOptionsRejectsInvalidNamedIntUnix(t *testing.T) {
 	t.Cleanup(func() { _ = unix.Close(fd) })
 	for _, specText := range []string{
 		"TCP:127.0.0.1:9,dontroute=no",
-		"TCP:127.0.0.1:9,so-dontroute=-1",
 	} {
 		spec, err := parse.ParseSpec(specText)
 		if err != nil {
@@ -135,6 +134,51 @@ func TestApplySocketOptionsRejectsInvalidNamedIntUnix(t *testing.T) {
 		if err := ApplySocketOptions(fd, spec); err == nil {
 			t.Fatalf("%s: expected invalid value", specText)
 		}
+	}
+}
+
+func TestNamedAndGenericAllCommandLineOrderUnix(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		options string
+		want    []int
+	}{
+		{
+			name:    "named-then-generic",
+			options: fmt.Sprintf("so-dontroute=1,setsockopt-int=%d:%d:0", solSocket, soDontroute),
+			want:    []int{1, 0},
+		},
+		{
+			name:    "generic-then-named",
+			options: fmt.Sprintf("setsockopt-int=%d:%d:0,so-dontroute=1", solSocket, soDontroute),
+			want:    []int{0, 1},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = unix.Close(fd) })
+			spec, err := parse.ParseSpec("SOCKETPAIR," + tc.options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := sockoptOptCalls(t, func() {
+				if err := ApplyGenericSetsockoptAll(fd, spec); err != nil {
+					t.Fatal(err)
+				}
+			})
+			var got []int
+			for _, call := range calls {
+				if call.Level == solSocket && call.Opt == soDontroute {
+					got = append(got, call.IntValue)
+				}
+			}
+			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+				t.Fatalf("SO_DONTROUTE values=%v want %v", got, tc.want)
+			}
+		})
 	}
 }
 

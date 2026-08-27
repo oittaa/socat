@@ -1,0 +1,79 @@
+//go:build linux
+
+package fileopen
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
+	"golang.org/x/sys/unix"
+)
+
+func TestOpenORsyncAppearsInFcntl(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rsync.bin")
+	if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := parse.ParseSpec("OPEN:" + path + ",o-rsync")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags, err := OpenFlags(spec, xio.ModeRead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags&unix.O_RSYNC == 0 {
+		t.Fatalf("flags=%#x do not contain O_RSYNC", flags)
+	}
+	f, err := os.OpenFile(path, flags, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	got, err := unix.FcntlInt(f.Fd(), unix.F_GETFL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got&unix.O_RSYNC == 0 {
+		t.Fatalf("F_GETFL=%#x does not contain O_RSYNC", got)
+	}
+}
+
+func TestOpenLargefileAccepted(t *testing.T) {
+	spec, err := parse.ParseSpec("OPEN:x,o-largefile,largefile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := OpenFlags(spec, xio.ModeRead); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOverlappingOpenFlagsFollowCommandLineOrder(t *testing.T) {
+	cleared, err := parse.ParseSpec("OPEN:x,o-sync,o-dsync=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags, err := OpenFlags(cleared, xio.ModeRead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags&unix.O_DSYNC != 0 {
+		t.Fatalf("flags=%#x retain O_DSYNC after later o-dsync=0", flags)
+	}
+
+	set, err := parse.ParseSpec("OPEN:x,o-dsync=0,o-sync")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags, err = OpenFlags(set, xio.ModeRead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags&unix.O_SYNC != unix.O_SYNC {
+		t.Fatalf("flags=%#x do not contain O_SYNC from later o-sync", flags)
+	}
+}

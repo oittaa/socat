@@ -76,12 +76,24 @@ func ApplyGenericSetsockopt(fd int, s parse.Spec, phase SockoptPhase) error {
 	return nil
 }
 
-// ApplyGenericSetsockoptAll applies every generic setsockopt action in
-// original command-line order, regardless of its normal lifecycle phase.
+// ApplyGenericSetsockoptAll applies every named or generic setsockopt action
+// in original command-line order, regardless of its normal lifecycle phase.
 // Classic SOCKETPAIR uses applyopts(PH_ALL) on each descriptor, so it needs
-// this behavior rather than three phase-grouped passes.
+// this behavior rather than phase-grouped passes.
 func ApplyGenericSetsockoptAll(fd int, s parse.Spec) error {
 	for _, o := range s.Options {
+		if handled, err := applyNamedPastSocketSockopt(fd, o); handled {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		if handled, err := applyNamedConnectedSockopt(fd, o); handled {
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		_, kind, ok := genericSetsockoptDescriptor(o.Name)
 		if !ok {
 			continue

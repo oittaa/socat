@@ -40,4 +40,19 @@ func TestApplyFileLocksUsesMatchingDescriptorAccess(t *testing.T) {
 	if err := applyFileLocks(writeLock, nil, readOnly); err == nil {
 		t.Fatal("write lock unexpectedly succeeded on a read-only descriptor")
 	}
+
+	lockAlias, err := parse.ParseSpec("OPEN:" + path + ",lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !lockAlias.BoolOption("setlkw") {
+		t.Fatal("lock alias did not fold onto setlkw")
+	}
+	fsetlk, err := parse.ParseSpec("OPEN:" + path + ",f-setlk-rd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyFileLocks(fsetlk, readOnly, nil); err != nil {
+		t.Fatalf("f-setlk-rd alias on read descriptor: %v", err)
+	}
 }

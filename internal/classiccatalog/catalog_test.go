@@ -339,6 +339,9 @@ func TestIntentionalPublicOmissions(t *testing.T) {
 	if IntentionalPublicOmissions["cool-write"] == "" || IntentionalPublicOmissions["coolwrite"] == "" {
 		t.Fatal("cool-write and coolwrite must be IntentionalPublicOmissions")
 	}
+	if IntentionalPublicOmissions["ip-recverr"] == "" || IntentionalPublicOmissions["ipv6-recverr"] == "" {
+		t.Fatal("ip-recverr and ipv6-recverr must be IntentionalPublicOmissions until MSG_ERRQUEUE is implemented")
+	}
 }
 
 func TestOptionalParserOnlyAliasesNotRequired(t *testing.T) {

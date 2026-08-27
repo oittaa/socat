@@ -158,7 +158,20 @@ func setFlag(t *unix.Termios, word termiosWord, mask termiosBits, on bool) {
 
 func applyCombo(t *unix.Termios, name string) {
 	switch name {
-	case "cfmakeraw", "raw":
+	case "raw":
+		// Classic OPT_RAW is deliberately not cfmakeraw. xio-termios.c
+		// clears the full legacy input-processing set and canonical/signal
+		// processing, but leaves ECHO, IEXTEN, CSIZE, and parity unchanged.
+		t.Iflag &^= termiosBits(unix.IGNBRK | unix.BRKINT | unix.IGNPAR | unix.PARMRK |
+			unix.INPCK | unix.ISTRIP | unix.INLCR | unix.IGNCR | unix.ICRNL |
+			unix.IXON | unix.IXOFF | unix.IXANY | unix.IMAXBEL)
+		t.Iflag &^= rawExtraIflag
+		t.Oflag &^= termiosBits(unix.OPOST)
+		t.Lflag &^= termiosBits(unix.ISIG | unix.ICANON)
+		t.Lflag &^= rawExtraLflag
+		t.Cc[unix.VMIN] = 1
+		t.Cc[unix.VTIME] = 0
+	case "cfmakeraw":
 		t.Iflag &^= termiosBits(unix.IGNBRK | unix.BRKINT | unix.PARMRK | unix.ISTRIP |
 			unix.INLCR | unix.IGNCR | unix.ICRNL | unix.IXON)
 		t.Oflag &^= termiosBits(unix.OPOST)
@@ -199,46 +212,54 @@ func ApplyTermios(fd int, s parse.Spec) error {
 	if err != nil {
 		return nil
 	}
-	for _, name := range []string{"sane", "rawer", "raw", "cfmakeraw"} {
-		if !s.HasOption(name) {
-			continue
-		}
-		o, _ := s.OptionNamed(name)
-		if o.Has && !s.BoolOption(name) {
-			continue
-		}
-		applyCombo(t, name)
-	}
+	flags := make(map[string]termiosFlag, len(termiosFlags))
 	for _, f := range termiosFlags {
-		if !s.HasOption(f.name) {
-			continue
-		}
-		on := s.BoolOption(f.name)
-		if f.name == "cs5" || f.name == "cs6" || f.name == "cs7" || f.name == "cs8" {
-			if on {
-				t.Cflag &^= termiosBits(unix.CSIZE)
-				t.Cflag |= f.mask
-			}
-			continue
-		}
-		setFlag(t, f.word, f.mask, on)
-		if f.name == "echo" && !on {
-			t.Lflag &^= termiosBits(unix.ECHONL)
-		}
+		flags[f.name] = f
 	}
+	bauds := make(map[string]uint32, len(baudOptions()))
 	for _, b := range baudOptions() {
-		if s.HasOption(b.name) && s.BoolOption(b.name) {
-			setSpeed(t, b.baud, true, true)
-		}
+		bauds[b.name] = b.baud
 	}
-	if v := s.OptionValue("ispeed", ""); v != "" && s.HasOption("ispeed") {
-		if n, err := strconv.ParseUint(v, 0, 32); err == nil {
-			setSpeed(t, uint32(n), true, false)
-		}
-	}
-	if v := s.OptionValue("ospeed", ""); v != "" && s.HasOption("ospeed") {
-		if n, err := strconv.ParseUint(v, 0, 32); err == nil {
-			setSpeed(t, uint32(n), false, true)
+
+	// Classic applyopts walks every PH_FD option in command-line order.
+	// This matters for combinations such as echo=0,sane and for distinct
+	// raw/cfmakeraw operations. Parser aliases already carry canonical Name,
+	// so alias/canonical mixtures naturally retain the same ordering here.
+	for _, o := range s.Options {
+		name := parse.CanonicalOptionName(o.Name)
+		switch name {
+		case "sane", "rawer", "raw", "cfmakeraw":
+			if optionEnabled(o) {
+				applyCombo(t, name)
+			}
+		case "ispeed", "ospeed":
+			if !o.Has || strings.TrimSpace(o.Value) == "" {
+				continue
+			}
+			n, parseErr := strconv.ParseUint(strings.TrimSpace(o.Value), 0, 32)
+			if parseErr != nil {
+				continue
+			}
+			setSpeed(t, uint32(n), name == "ispeed", name == "ospeed")
+		default:
+			if f, ok := flags[name]; ok {
+				on := optionEnabled(o)
+				if name == "cs5" || name == "cs6" || name == "cs7" || name == "cs8" {
+					if on {
+						t.Cflag &^= termiosBits(unix.CSIZE)
+						t.Cflag |= f.mask
+					}
+					continue
+				}
+				setFlag(t, f.word, f.mask, on)
+				if name == "echo" && !on {
+					t.Lflag &^= termiosBits(unix.ECHONL)
+				}
+				continue
+			}
+			if baud, ok := bauds[name]; ok && optionEnabled(o) {
+				setSpeed(t, baud, true, true)
+			}
 		}
 	}
 	if err := setTermios(fd, t); err != nil {

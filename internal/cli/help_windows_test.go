@@ -18,6 +18,7 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"reuseport", "ip-add-membership", "so-timestamp",
 		"nonblock", "umask", "user", "group", "uid", "owner", "gid",
 		"perm-early", "user-early", "group-early",
+		"o-sync", "async", "flock", "perm-late", "user-late",
 		"setsid", "pty", "setlk",
 		"bindtodevice",
 		"ip-pktinfo", "ip-options", "ipv6-tclass", "ipv6-unicast-hops",
@@ -51,6 +52,12 @@ func TestWindowsHelpHHHOmitsMembershipSpellings(t *testing.T) {
 	for _, name := range []string{
 		"ip-add-membership", "add-membership", "ip-membership", "membership",
 		"ipv6-join-group", "ipv6-add-membership", "join-group",
+		"ip-multicast-if", "ip-multicast-loop", "ip-multicast-ttl",
+		"ipmulticastloop", "multicastloop", "ipmulticastttl", "multicastttl",
+		"ipv6-multicast-loop", "ip-add-source-membership", "ipv6-join-source-group",
+		"ip-freebind", "ip-transparent",
+		"ip-mtu-discover", "mtudiscover", "ipmtudiscover",
+		"ipv6-mtu-discover", "mtudiscover6",
 	} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("unsupported membership spelling %q is listed in -hhh", name)

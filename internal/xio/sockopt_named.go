@@ -3,7 +3,6 @@ package xio
 import (
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/oittaa/socat/internal/parse"
 )
@@ -35,7 +34,7 @@ func parseTypeIntSockopt(o parse.Option) (int, error) {
 		return 1, nil
 	}
 	n, err := ParseIntAny(o.Value)
-	if err != nil || n < 0 {
+	if err != nil {
 		return 0, fmt.Errorf("%s: invalid value %q", o.Name, o.Value)
 	}
 	return n, nil
@@ -52,27 +51,18 @@ func applyNamedIntSockopt(fd int, o parse.Option, level, opt int) error {
 	return nil
 }
 
-// applyNamedPastSocketSockopts applies classic PH_PASTSOCKET named SOL_SOCKET
-// and TCP TYPE_INT options in command-line order. Called from
-// ApplySocketOptionsWithoutGeneric (DialControl / ListenControl / SOCKET /
-// SOCKETPAIR / FD), not from ApplyTCPConnOpts.
-func applyNamedPastSocketSockopts(fd int, s parse.Spec) error {
-	for _, o := range s.Options {
-		if strings.TrimSpace(o.Name) == "" {
-			continue
-		}
-		level, opt, ok, err := lookupNamedPastSocketInt(o.Name)
-		if !ok {
-			continue
-		}
-		if err != nil {
-			return fmt.Errorf("%s: %w", o.Name, err)
-		}
-		if err := applyNamedIntSockopt(fd, o, level, opt); err != nil {
-			return err
-		}
+// applyNamedPastSocketSockopt applies one classic PH_PASTSOCKET named
+// SOL_SOCKET or TCP TYPE_INT option. Its callers walk Spec.Options so named,
+// generic setsockopt-socket, and IP options retain command-line order.
+func applyNamedPastSocketSockopt(fd int, o parse.Option) (bool, error) {
+	level, opt, ok, err := lookupNamedPastSocketInt(o.Name)
+	if !ok {
+		return false, nil
 	}
-	return nil
+	if err != nil {
+		return true, fmt.Errorf("%s: %w", o.Name, err)
+	}
+	return true, applyNamedIntSockopt(fd, o, level, opt)
 }
 
 // applyNamedConnectedSockopt applies PH_CONNECTED named TCP options

@@ -93,9 +93,10 @@ var (
 // IPV6_UNICAST_HOPS translation and not a silent skip of TOS on v6.
 // ipv6-unicast-hops/ipv6-tclass and ipv6 recv opts are IPv6-only.
 //
-// Not listed, and therefore not advertised: ip-recverr, ip-recvdstaddr,
-// ip-retopts, ipv6-recverr, ipv6-recvhopopts, ipv6-recvdstopts, and the
-// other classic SOCK_IP flags this port does not implement.
+// Not listed, and therefore not advertised: ip-recvdstaddr, ip-retopts,
+// ipv6-recvhopopts, ipv6-recvdstopts, and the other classic SOCK_IP flags
+// this port does not implement. ip-recverr / ipv6-recverr are recognized
+// and rejected (no MSG_ERRQUEUE ReadMsg path) instead of being silent no-ops.
 var ipAncillaryMatrix = []IPAncillaryEntry{
 	{Canonical: "so-timestamp", Aliases: []string{"timestamp"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixOnly},
 	{Canonical: "ip-pktinfo", Aliases: []string{"pktinfo", "ippktinfo"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
