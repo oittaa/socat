@@ -231,6 +231,9 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 		}
 		cmd.SysProcAttr.Setsid = true
 	}
+	if err := rejectUnusedExecPastSocketOptions(s); err != nil {
+		return err
+	}
 	if err := applyExecChildOptions(s, cmd); err != nil {
 		return err
 	}
@@ -416,10 +419,29 @@ func asOSFile(x any) *os.File {
 	return nil
 }
 
+// rejectUnusedExecPastSocketOptions fails when a PH_PASTSOCKET socket option
+// would be silently ignored on EXEC/SYSTEM/SHELL pipes, pty, or nofork.
+// Classic never applies PH_PASTSOCKET on those transports, then leftover
+// popts abort via showleft / leftopts (xioopts.c / xio-progcall.c /
+// xio-exec.c at tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
+// Canonical Name is classic defname after alias fold.
+func rejectUnusedExecPastSocketOptions(s parse.Spec) error {
+	for _, o := range s.Options {
+		if isPastSocketActionOption(o) {
+			return fmt.Errorf("option %q not inquired", o.Name)
+		}
+	}
+	return nil
+}
+
 func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
 	// nofork: defer start until Run has the peer stream (runExecNoFork).
 	// Placeholder Opened; Stream is nil — Run must not transferPair this alone.
 	if s.BoolOption("nofork") {
+		if err := rejectUnusedExecPastSocketOptions(s); err != nil {
+			return nil, err
+		}
 		spec := s
 		return &Opened{Kind: KindExec, Label: "EXEC-nofork", NoForkSpec: &spec}, nil
 	}
@@ -450,6 +472,27 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		cmd = rebuildWithFDRedirect(ctx, cmd, fdin, fdout)
 	}
 
+	// end-close + shared LISTEN,fork: a single socketpair FD cannot be half-closed
+	// per session and poll deadlines on the shared FD race with later accepts.
+	// Separate pipes keep stdin/stdout independent (classic still works; our
+	// goroutine accept model needs this for EXECENDCLOSE). Compute this before
+	// leftover PASTSOCKET rejection so implicit pipes are not a silent no-op.
+	if s.BoolOption("end-close") && !usePipes {
+		usePipes = true
+	}
+
+	// Classic xio-progcall.c applies PH_PASTSOCKET only on the socketpair
+	// path (copts on sv[0], popts on sv[1]; tag-1.8.1.3
+	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+	// af5388c898c7bb60997935aee93c223deba60c4a is the same). pipes, pty,
+	// and nofork never consume GROUP_SOCKET PASTSOCKET options; leftover
+	// popts fail via showleft / leftopts ("option \"…\" not inquired").
+	if usePipes || usePty {
+		if err := rejectUnusedExecPastSocketOptions(s); err != nil {
+			return nil, err
+		}
+	}
+
 	if s.BoolOption("setsid") {
 		if cmd.SysProcAttr == nil {
 			cmd.SysProcAttr = &syscall.SysProcAttr{}
@@ -467,14 +510,6 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 
 	if usePty {
 		return startCmdPty(s, mode, g, cmd)
-	}
-
-	// end-close + shared LISTEN,fork: a single socketpair FD cannot be half-closed
-	// per session and poll deadlines on the shared FD race with later accepts.
-	// Separate pipes keep stdin/stdout independent (classic still works; our
-	// goroutine accept model needs this for EXECENDCLOSE).
-	if s.BoolOption("end-close") && !usePipes {
-		usePipes = true
 	}
 
 	// Classic: child stderr inherits socat's stderr unless option stderr
@@ -628,16 +663,11 @@ func startCmdSocketpair(s parse.Spec, cmd *exec.Cmd) (relay.Stream, []func(), *o
 	// Classic xio-progcall.c applies PH_PASTSOCKET with copts on sv[0]
 	// (parent) and popts on sv[1] (child) (tag-1.8.1.3
 	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-	// af5388c898c7bb60997935aee93c223deba60c4a is the same). After moveopts,
-	// GROUP_SOCKET options remain in popts, so classic mainly mutates the
-	// child end. This port applies the same Spec.Options PASTSOCKET walk to
-	// both socketpair ends so options such as so-priority take effect on
-	// the parent stream instead of being accepted as a silent no-op.
-	if err := ApplySocketOptions(int(parent.Fd()), s); err != nil {
-		_ = parent.Close()
-		_ = child.Close()
-		return nil, nil, nil, err
-	}
+	// af5388c898c7bb60997935aee93c223deba60c4a is the same). After
+	// moveopts(GROUP_FORK|GROUP_EXEC|GROUP_PROCESS), GROUP_SOCKET options
+	// remain only in popts, so they affect the child endpoint. Apply the
+	// Spec.Options PASTSOCKET walk to child only. Standalone SOCKETPAIR
+	// still applies PH_ALL to both descriptors.
 	if err := ApplySocketOptions(int(child.Fd()), s); err != nil {
 		_ = parent.Close()
 		_ = child.Close()

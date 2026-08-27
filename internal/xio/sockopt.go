@@ -81,6 +81,24 @@ func applyFixedPastSocketOption(fd int, o parse.Option) (bool, error) {
 	}
 }
 
+// isPastSocketActionOption reports whether o would be consumed by
+// ApplySocketOptions (classic PH_PASTSOCKET). That is the leftover set
+// EXEC pipes/pty/nofork must reject instead of silently ignoring.
+// PH_LATE sndbuf-late/rcvbuf-late and PH_CONNECTED tcp-maxseg-late are not
+// included.
+func isPastSocketActionOption(o parse.Option) bool {
+	switch o.Name {
+	case "broadcast", "sndbuf", "rcvbuf", "bindtodevice",
+		"so-linger", "linger", "rcvtimeo", "sndtimeo":
+		return true
+	}
+	if _, _, ok, _ := lookupNamedPastSocketInt(o.Name); ok {
+		return true
+	}
+	_, ok := genericSetsockoptKind(o.Name, SockoptPhasePastSocket)
+	return ok
+}
+
 // ApplyLateSocketOptions applies classic so-sndbuf-late / so-rcvbuf-late
 // (PH_LATE, same SO_SNDBUF / SO_RCVBUF constants).
 func ApplyLateSocketOptions(fd int, s parse.Spec) error {

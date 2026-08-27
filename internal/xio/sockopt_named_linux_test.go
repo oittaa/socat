@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -748,14 +749,83 @@ func TestOpenSpecEXECSocketpairAppliesSOPriorityLinux(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	fds := map[int]int{}
-	for _, h := range hits {
-		if h.value != 5 {
-			t.Fatalf("SO_PRIORITY value=%d want 5", h.value)
-		}
-		fds[h.fd]++
+	if len(hits) != 1 {
+		t.Fatalf("SO_PRIORITY applied %d times want 1 (child endpoint): %v", len(hits), hits)
 	}
-	if len(fds) != 2 {
-		t.Fatalf("SO_PRIORITY applied on %d fds want 2 socketpair ends: %v", len(fds), hits)
+	if hits[0].value != 5 {
+		t.Fatalf("SO_PRIORITY value=%d want 5", hits[0].value)
+	}
+	parent := asOSFile(o.Stream)
+	if parent == nil {
+		t.Fatal("parent EXEC stream has no *os.File")
+	}
+	parentFD := int(parent.Fd())
+	if hits[0].fd == parentFD {
+		t.Fatalf("SO_PRIORITY applied on parent fd %d", parentFD)
+	}
+	got, err := unix.GetsockoptInt(parentFD, unix.SOL_SOCKET, unix.SO_PRIORITY)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 0 {
+		t.Fatalf("parent SO_PRIORITY=%d want 0 (classic popts on child only)", got)
+	}
+}
+
+func TestOpenSpecEXECNonSocketpairRejectsPastSocketOptionsLinux(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	tests := []struct {
+		name    string
+		spec    string
+		mode    Mode
+		optName string
+	}{
+		{name: "pipes", spec: "EXEC:/bin/true,pipes,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "pipes-priority-alias", spec: "EXEC:/bin/true,pipes,priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "pty", spec: "EXEC:/bin/true,pty,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "nofork", spec: "EXEC:/bin/true,nofork,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "end-close", spec: "EXEC:/bin/true,end-close,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "fdin-fdout", spec: "EXEC:/bin/true,fdin=3,fdout=4,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "implicit-read", spec: "EXEC:/bin/true,so-priority=5", mode: ModeRead, optName: "so-priority"},
+		{name: "implicit-write", spec: "EXEC:/bin/true,so-priority=5", mode: ModeWrite, optName: "so-priority"},
+		{name: "system-pipes", spec: "SYSTEM:/bin/true,pipes,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "setsockopt-socket-pipes", spec: "EXEC:/bin/true,pipes,setsockopt-socket=1:12:1", mode: ModeRDWR, optName: "setsockopt-socket"},
+	}
+	want := func(name string) string {
+		return fmt.Sprintf("option %q not inquired", name)
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = OpenSpec(context.Background(), spec, tc.mode, &Global{Log: logx.New()})
+			if err == nil {
+				t.Fatal("expected leftover PASTSOCKET error")
+			}
+			if !strings.Contains(err.Error(), want(tc.optName)) {
+				t.Fatalf("err=%v want %s", err, want(tc.optName))
+			}
+		})
+	}
+}
+
+func TestRunExecNoForkRejectsPastSocketOptionsLinux(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	spec, err := parse.ParseSpec("EXEC:/bin/true,nofork,so-priority=5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = runExecNoFork(context.Background(), nil, spec, &Global{Log: logx.New()}, ModeRDWR)
+	if err == nil {
+		t.Fatal("expected leftover PASTSOCKET error")
+	}
+	if !strings.Contains(err.Error(), `option "so-priority" not inquired`) {
+		t.Fatalf("err=%v want option %q not inquired", err, "so-priority")
 	}
 }
