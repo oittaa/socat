@@ -132,6 +132,7 @@ spellings) share a `-h` row. Classic `addressnames[]` aliases of those types
 | STDIO | `-` or `STDIO` | stdin and stdout together |
 | STDIN, STDOUT, STDERR | `STDIN` / `STDOUT` / `STDERR` | one standard stream |
 | FD | `FD:<n>` | already-open file descriptor |
+| ACCEPT-FD, ACCEPT | `ACCEPT-FD:<fdnum>` | accept on an inherited listening socket (Unix; systemd `inetd` / `ExtraFiles`). Honors `fork`, `range`, `sourceport`, `lowport`, `tcpwrap`. Not advertised on Windows. Classic C groups (not the man page’s “TCP” shorthand) at tag-1.8.1.3 `12c08bf66d709fba17035ce95d85bd218428d9ba`; official master `af5388c898c7bb60997935aee93c223deba60c4a` is the same `xio-fdnum.c` / `_xioopen_accept_fd` |
 | OPEN, FILE | `OPEN:<path>` | open a file |
 | CREATE, CREAT | `CREATE:<path>` | create or truncate |
 | GOPEN | `GOPEN:<path>` | open or create a file or socket |

@@ -96,10 +96,14 @@ func TestDirectRegistrationBeatsClassicAlias(t *testing.T) {
 	if !ok || reg.Name != "UDPLITE-DGRAM" {
 		t.Fatalf("UDPLITE-DGRAM=%+v ok=%v; #101 direct registration must not become a fallback alias", reg, ok)
 	}
+	reg, ok = xio.AddressRegistrationForType("ACCEPT")
+	if !ok || reg.Name != "ACCEPT" {
+		t.Fatalf("ACCEPT=%+v ok=%v; direct RegisterAddress must win over ACCEPT-FD alias", reg, ok)
+	}
 }
 
 func TestUnsupportedFamilyAliasesRemainUnknown(t *testing.T) {
-	for _, name := range []string{"DCCP", "DCCP-CONNECT", "DTLS", "READLINE", "ACCEPT", "ACCEPT-FD"} {
+	for _, name := range []string{"DCCP", "DCCP-CONNECT", "DTLS", "READLINE"} {
 		if _, ok := xio.AddressRegistrationForType(name); ok {
 			t.Errorf("%s must remain unknown", name)
 		}
@@ -107,6 +111,36 @@ func TestUnsupportedFamilyAliasesRemainUnknown(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "unknown device/address") {
 			t.Errorf("%s OpenSpec err=%v want unknown device/address", name, err)
 		}
+	}
+}
+
+func TestAcceptFDIsRegistered(t *testing.T) {
+	for _, name := range []string{"ACCEPT-FD", "ACCEPT"} {
+		reg, ok := xio.AddressRegistrationForType(name)
+		if !ok {
+			t.Fatalf("%s not registered", name)
+		}
+		if name == "ACCEPT-FD" && reg.Name != "ACCEPT-FD" {
+			t.Fatalf("ACCEPT-FD Name=%q", reg.Name)
+		}
+		if name == "ACCEPT" && reg.Name != "ACCEPT" {
+			t.Fatalf("ACCEPT direct registration must win, Name=%q", reg.Name)
+		}
+		_, err := xio.OpenSpec(context.Background(), parse.Spec{Type: name}, xio.ModeRDWR, nil)
+		if err == nil || strings.Contains(err.Error(), "unknown device/address") {
+			t.Errorf("%s OpenSpec err=%v want registered opener error", name, err)
+		}
+	}
+	canon, ok := xio.AddressRegistrationForType("ACCEPT-FD")
+	if !ok {
+		t.Fatal("ACCEPT-FD missing")
+	}
+	alias, ok := xio.AddressRegistrationForType("ACCEPT")
+	if !ok {
+		t.Fatal("ACCEPT missing")
+	}
+	if !reflect.DeepEqual(canon.OptionCaps, alias.OptionCaps) {
+		t.Fatalf("ACCEPT OptionCaps=%v want %v", alias.OptionCaps, canon.OptionCaps)
 	}
 }
 

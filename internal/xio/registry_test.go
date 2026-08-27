@@ -87,6 +87,8 @@ func TestRegisteredAddressOptionCaps(t *testing.T) {
 		{name: "UDPLITE-CONNECT", must: []string{"ip-udplite", "ip-udp"}, not: []string{"listen"}},
 		{name: "UDPLITE-RECVFROM", must: []string{"range", "ip-udplite", "child"}, not: []string{"listen"}},
 		{name: "UDPLITE-RECV", must: []string{"range", "ip-udplite"}, not: []string{"listen"}},
+		{name: "ACCEPT-FD", must: []string{"fd", "socket", "child", "range", "retry", "ip-tcp"}, not: []string{"listen", "pty", "open", "named"}},
+		{name: "ACCEPT", must: []string{"fd", "socket", "child", "range", "ip-tcp"}, not: []string{"listen"}},
 	}
 	for _, tc := range cases {
 		reg, ok := xio.AddressRegistrationForType(tc.name)
