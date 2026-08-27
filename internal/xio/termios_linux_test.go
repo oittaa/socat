@@ -25,14 +25,21 @@ func TestApplyTermiosLegacyFlags(t *testing.T) {
 		{"PTY,sane,crtscts", func(t *unix.Termios) termiosBits { return t.Cflag }, termiosBits(unix.CRTSCTS), termiosBits(unix.CRTSCTS)},
 		{"PTY,sane,hupcl", func(t *unix.Termios) termiosBits { return t.Cflag }, termiosBits(unix.HUPCL), termiosBits(unix.HUPCL)},
 		{"PTY,sane,cstopb", func(t *unix.Termios) termiosBits { return t.Cflag }, termiosBits(unix.CSTOPB), termiosBits(unix.CSTOPB)},
+		{"PTY,sane,parodd", func(t *unix.Termios) termiosBits { return t.Cflag }, termiosBits(unix.PARODD), termiosBits(unix.PARODD)},
 		{"PTY,sane,icanon=0", func(t *unix.Termios) termiosBits { return t.Lflag }, termiosBits(unix.ICANON), 0},
 		{"PTY,sane,isig=0", func(t *unix.Termios) termiosBits { return t.Lflag }, termiosBits(unix.ISIG), 0},
+		{"PTY,sane,iexten=0", func(t *unix.Termios) termiosBits { return t.Lflag }, termiosBits(unix.IEXTEN), 0},
 		{"PTY,sane,ixon=0", func(t *unix.Termios) termiosBits { return t.Iflag }, termiosBits(unix.IXON), 0},
 		{"PTY,sane,ixoff", func(t *unix.Termios) termiosBits { return t.Iflag }, termiosBits(unix.IXOFF), termiosBits(unix.IXOFF)},
 		{"PTY,sane,ixany", func(t *unix.Termios) termiosBits { return t.Iflag }, termiosBits(unix.IXANY), termiosBits(unix.IXANY)},
 		{"PTY,sane,echoe=0", func(t *unix.Termios) termiosBits { return t.Lflag }, termiosBits(unix.ECHOE), 0},
+		{"PTY,sane,echok=0", func(t *unix.Termios) termiosBits { return t.Lflag }, termiosBits(unix.ECHOK), 0},
+		{"PTY,sane,echonl", func(t *unix.Termios) termiosBits { return t.Lflag }, termiosBits(unix.ECHONL), termiosBits(unix.ECHONL)},
+		{"PTY,sane,echoctl=0", func(t *unix.Termios) termiosBits { return t.Lflag }, termiosBits(unix.ECHOCTL), 0},
+		{"PTY,sane,echoke=0", func(t *unix.Termios) termiosBits { return t.Lflag }, termiosBits(unix.ECHOKE), 0},
 		{"PTY,sane,noflsh", func(t *unix.Termios) termiosBits { return t.Lflag }, termiosBits(unix.NOFLSH), termiosBits(unix.NOFLSH)},
 		{"PTY,sane,tostop", func(t *unix.Termios) termiosBits { return t.Lflag }, termiosBits(unix.TOSTOP), termiosBits(unix.TOSTOP)},
+		{"PTY,sane,icanon=0,icanon", func(t *unix.Termios) termiosBits { return t.Lflag }, termiosBits(unix.ICANON), termiosBits(unix.ICANON)},
 	}
 	if runtime.GOOS == "linux" {
 		cases = append(cases,
@@ -55,30 +62,35 @@ func TestApplyTermiosLegacyFlags(t *testing.T) {
 func TestApplyTermiosDelayPatterns(t *testing.T) {
 	fd := openPTYSlave(t)
 	patterns := []struct {
-		spec string
-		mask termiosBits
-		want termiosBits
+		spec     string
+		mask     termiosBits
+		want     termiosBits
+		linuxDLY bool
 	}{
-		{"PTY,sane,nl1", termiosNLDLY, termiosBits(unix.NL1)},
-		{"PTY,sane,nl1,nl0", termiosNLDLY, termiosNL0},
-		{"PTY,sane,cr1", termiosCRDLY, termiosBits(unix.CR1)},
-		{"PTY,sane,cr2", termiosCRDLY, termiosBits(unix.CR2)},
-		{"PTY,sane,cr3", termiosCRDLY, termiosBits(unix.CR3)},
-		{"PTY,sane,cr3,cr0", termiosCRDLY, termiosCR0},
-		{"PTY,sane,tab1", termiosTABDLY, termiosBits(unix.TAB1)},
-		{"PTY,sane,tab2", termiosTABDLY, termiosBits(unix.TAB2)},
-		{"PTY,sane,tab3", termiosTABDLY, termiosBits(unix.TAB3)},
-		{"PTY,sane,bs1", termiosBSDLY, termiosBits(unix.BS1)},
-		{"PTY,sane,bs1,bs0", termiosBSDLY, termiosBS0},
-		{"PTY,sane,vt1", termiosVTDLY, termiosBits(unix.VT1)},
-		{"PTY,sane,ff1", termiosFFDLY, termiosBits(unix.FF1)},
-		{"PTY,sane,onlcr=0", termiosBits(unix.ONLCR), 0},
-		{"PTY,sane,ocrnl", termiosBits(unix.OCRNL), termiosBits(unix.OCRNL)},
-		{"PTY,sane,onocr", termiosBits(unix.ONOCR), termiosBits(unix.ONOCR)},
-		{"PTY,sane,onlret", termiosBits(unix.ONLRET), termiosBits(unix.ONLRET)},
+		{"PTY,sane,nl1", termiosNLDLY, termiosBits(unix.NL1), true},
+		{"PTY,sane,nl1,nl0", termiosNLDLY, termiosNL0, true},
+		{"PTY,sane,cr1", termiosCRDLY, termiosBits(unix.CR1), true},
+		{"PTY,sane,cr2", termiosCRDLY, termiosBits(unix.CR2), true},
+		{"PTY,sane,cr3", termiosCRDLY, termiosBits(unix.CR3), true},
+		{"PTY,sane,cr3,cr0", termiosCRDLY, termiosCR0, true},
+		{"PTY,sane,tab1", termiosTABDLY, termiosBits(unix.TAB1), true},
+		{"PTY,sane,tab2", termiosTABDLY, termiosBits(unix.TAB2), true},
+		{"PTY,sane,tab3", termiosTABDLY, termiosBits(unix.TAB3), true},
+		{"PTY,sane,tab1,tab3", termiosTABDLY, termiosBits(unix.TAB3), true},
+		{"PTY,sane,bs1", termiosBSDLY, termiosBits(unix.BS1), true},
+		{"PTY,sane,bs1,bs0", termiosBSDLY, termiosBS0, true},
+		{"PTY,sane,vt1", termiosVTDLY, termiosBits(unix.VT1), true},
+		{"PTY,sane,ff1", termiosFFDLY, termiosBits(unix.FF1), true},
+		{"PTY,sane,onlcr=0", termiosBits(unix.ONLCR), 0, false},
+		{"PTY,sane,ocrnl", termiosBits(unix.OCRNL), termiosBits(unix.OCRNL), false},
+		{"PTY,sane,onocr", termiosBits(unix.ONOCR), termiosBits(unix.ONOCR), false},
+		{"PTY,sane,onlret", termiosBits(unix.ONLRET), termiosBits(unix.ONLRET), false},
 	}
 	for _, tc := range patterns {
 		t.Run(tc.spec, func(t *testing.T) {
+			if tc.linuxDLY && runtime.GOOS != "linux" {
+				t.Skip("classic Linux NLDLY/CRDLY/TABDLY/BSDLY/VTDLY/FFDLY field masks")
+			}
 			tio := applyTermiosSpec(t, fd, tc.spec)
 			if got := tio.Oflag & tc.mask; got != tc.want {
 				t.Fatalf("Oflag&mask=%#x want %#x (Oflag=%#x)", got, tc.want, tio.Oflag)

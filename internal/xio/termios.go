@@ -274,8 +274,8 @@ func optionBool(o parse.Option) bool {
 }
 
 func parseTermiosByte(name string, o parse.Option) (byte, error) {
-	// Classic TYPE_BYTE (xioopts.c): bare flag → 1; assigned value is
-	// strtoul base 0, clamped to UCHAR_MAX.
+	// Classic TYPE_BYTE (xioopts.c tag-1.8.1.3): bare flag → 1; assigned
+	// value is strtoul base 0; overflow logs then uses UCHAR_MAX.
 	if !o.Has {
 		return 1, nil
 	}
@@ -283,14 +283,14 @@ func parseTermiosByte(name string, o parse.Option) (byte, error) {
 	if v == "" {
 		return 0, nil
 	}
-	n, err := strconv.ParseUint(v, 0, 64)
-	if err != nil {
-		return 0, fmt.Errorf("%s: invalid byte value %q", name, v)
+	n, err := strconv.ParseUint(v, 0, 8)
+	if err == nil {
+		return byte(n), nil
 	}
-	if n > 255 {
-		n = 255
+	if _, err64 := strconv.ParseUint(v, 0, 64); err64 == nil {
+		return 255, nil
 	}
-	return byte(n), nil
+	return 0, fmt.Errorf("%s: invalid byte value %q", name, v)
 }
 
 func applyCombo(t *unix.Termios, name string) {

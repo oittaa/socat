@@ -182,7 +182,7 @@ func TestApplyTermiosControlChars(t *testing.T) {
 
 func TestApplyTermiosControlCharAliases(t *testing.T) {
 	fd := openPTYSlave(t)
-	tio := applyTermiosSpec(t, fd, "PTY,intr=3,quit=0x1c,erase=8,min=4,reprint=18,eol2=0xff")
+	tio := applyTermiosSpec(t, fd, "PTY,intr=3,quit=0x1c,erase=8,kill=21,eof=4,eol=0,min=4,time=1,start=17,stop=19,susp=26,werase=23,lnext=22,discard=15,reprint=18,eol2=0xff")
 	if tio.Cc[unix.VINTR] != 3 {
 		t.Fatalf("vintr=%d", tio.Cc[unix.VINTR])
 	}
@@ -192,14 +192,45 @@ func TestApplyTermiosControlCharAliases(t *testing.T) {
 	if tio.Cc[unix.VERASE] != 8 {
 		t.Fatalf("verase=%d", tio.Cc[unix.VERASE])
 	}
+	if tio.Cc[unix.VKILL] != 21 {
+		t.Fatalf("vkill=%d", tio.Cc[unix.VKILL])
+	}
+	if tio.Cc[unix.VEOF] != 4 {
+		t.Fatalf("veof=%d", tio.Cc[unix.VEOF])
+	}
 	if tio.Cc[unix.VMIN] != 4 {
 		t.Fatalf("vmin=%d", tio.Cc[unix.VMIN])
+	}
+	if tio.Cc[unix.VTIME] != 1 {
+		t.Fatalf("vtime=%d", tio.Cc[unix.VTIME])
+	}
+	if tio.Cc[unix.VSTART] != 17 {
+		t.Fatalf("vstart=%d", tio.Cc[unix.VSTART])
+	}
+	if tio.Cc[unix.VSTOP] != 19 {
+		t.Fatalf("vstop=%d", tio.Cc[unix.VSTOP])
+	}
+	if tio.Cc[unix.VSUSP] != 26 {
+		t.Fatalf("vsusp=%d", tio.Cc[unix.VSUSP])
+	}
+	if tio.Cc[unix.VWERASE] != 23 {
+		t.Fatalf("vwerase=%d", tio.Cc[unix.VWERASE])
+	}
+	if tio.Cc[unix.VLNEXT] != 22 {
+		t.Fatalf("vlnext=%d", tio.Cc[unix.VLNEXT])
+	}
+	if tio.Cc[unix.VDISCARD] != 15 {
+		t.Fatalf("vdiscard=%d", tio.Cc[unix.VDISCARD])
 	}
 	if tio.Cc[unix.VREPRINT] != 18 {
 		t.Fatalf("vreprint=%d", tio.Cc[unix.VREPRINT])
 	}
 	if tio.Cc[unix.VEOL2] != 255 {
 		t.Fatalf("veol2=%d", tio.Cc[unix.VEOL2])
+	}
+	rprnt := applyTermiosSpec(t, fd, "PTY,rprnt=9")
+	if rprnt.Cc[unix.VREPRINT] != 9 {
+		t.Fatalf("rprnt=%d", rprnt.Cc[unix.VREPRINT])
 	}
 }
 
@@ -264,6 +295,18 @@ func TestApplyTermiosBareVintrIsOne(t *testing.T) {
 	tio := applyTermiosSpec(t, fd, "PTY,vintr")
 	if tio.Cc[unix.VINTR] != 1 {
 		t.Fatalf("bare vintr=%d want 1", tio.Cc[unix.VINTR])
+	}
+}
+
+func TestApplyTermiosByteOverflowClamps(t *testing.T) {
+	fd := openPTYSlave(t)
+	tio := applyTermiosSpec(t, fd, "PTY,vintr=256")
+	if tio.Cc[unix.VINTR] != 255 {
+		t.Fatalf("vintr overflow=%d want 255", tio.Cc[unix.VINTR])
+	}
+	hex := applyTermiosSpec(t, fd, "PTY,veol2=0x100")
+	if hex.Cc[unix.VEOL2] != 255 {
+		t.Fatalf("veol2 overflow=%d want 255", hex.Cc[unix.VEOL2])
 	}
 }
 
