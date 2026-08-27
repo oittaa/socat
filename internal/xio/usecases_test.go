@@ -480,10 +480,15 @@ func freeUDP4Port(t *testing.T) int {
 func TestUDP4RecvfromReply(t *testing.T) {
 	ctx := testCtx(t)
 	port := freeUDP4Port(t)
+	// Do not allow this free-port probe to share a port that another package
+	// claimed between closing the probe and binding the RECVFROM socket. Go
+	// tests packages concurrently, and a shared UDP port could route our retry
+	// datagrams into the unrelated test process.
+	spec := mustParse(t, fmt.Sprintf("UDP4-RECVFROM:%d,bind=127.0.0.1,reuseaddr=0", port))
 	opened := make(chan *xio.Opened, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		o, err := xio.OpenChannel(ctx, mustParse(t, fmt.Sprintf("UDP4-RECVFROM:%d,bind=127.0.0.1,reuseaddr", port)), xio.ModeRDWR, cloneGlobal(nil))
+		o, err := xio.OpenChannel(ctx, spec, xio.ModeRDWR, cloneGlobal(nil))
 		if err != nil {
 			errCh <- err
 			return

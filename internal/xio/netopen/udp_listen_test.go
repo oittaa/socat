@@ -718,6 +718,13 @@ func TestUDPForkRecvfromIgnoresAcceptTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
+	ln, ok := o.Listener.(*udpForkListener)
+	if !ok {
+		t.Fatalf("listener type %T want *udpForkListener", o.Listener)
+	}
+	if ln.acceptTimeout != 0 {
+		t.Fatalf("RECVFROM fork accept-timeout=%s want disabled", ln.acceptTimeout)
+	}
 
 	accepted := startUDPAccept(o.Listener)
 	select {
@@ -725,8 +732,15 @@ func TestUDPForkRecvfromIgnoresAcceptTimeout(t *testing.T) {
 		if result.err != nil {
 			t.Fatalf("RECVFROM fork must not honor accept-timeout: %v", result.err)
 		}
+		session, ok := result.conn.(*udpSessionConn)
+		if !ok {
+			_ = result.conn.Close()
+			t.Fatalf("RECVFROM fork returned unexpected connection type %T", result.conn)
+		}
+		peer := session.peer
+		payload := append([]byte(nil), session.first...)
 		_ = result.conn.Close()
-		t.Fatal("RECVFROM fork Accept returned without a datagram")
+		t.Fatalf("RECVFROM fork received an unexpected early datagram from %v: %q (%x)", peer, payload, payload)
 	case <-time.After(150 * time.Millisecond):
 	}
 
