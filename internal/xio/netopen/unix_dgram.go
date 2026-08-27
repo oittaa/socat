@@ -335,9 +335,12 @@ func (u *unixRecvStream) SetReadDeadline(t time.Time) error {
 func (u *unixRecvStream) SetWriteDeadline(t time.Time) error {
 	return u.c.SetWriteDeadline(t)
 }
-func (u *unixRecvStream) SyscallConn() (syscall.RawConn, error) {
-	return u.c.SyscallConn()
-}
+
+// NetConn exposes the socket to xio's option lifecycle without making this
+// pre-buffered stream a syscall.Conn. The relay must consume first before it
+// polls the underlying socket, which is no longer readable after the opener's
+// initial recvfrom.
+func (u *unixRecvStream) NetConn() net.Conn { return u.c }
 
 // unixgramListener turns RECVFROM,fork into accept-like sessions per packet.
 type unixgramListener struct {

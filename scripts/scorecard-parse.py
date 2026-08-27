@@ -29,7 +29,7 @@ from typing import Any
 # test  24 OPENSSL: ... Feature FOO not available
 # test 405 OPENSSL_SNI: ... use test.sh option --internet
 RE_TEST = re.compile(
-    r"^test\s+(\d+)\s+([A-Za-z0-9_]+):\s+(.*?)\.\.\.\s*(.*)$"
+    r"^test\s+(\d+)\s+([A-Za-z0-9_]+):\s+(.*)\.\.\.\s*(.*)$"
 )
 RE_SUMMARY = re.compile(
     r"Summary:\s+(\d+)\s+tests,\s+(\d+)\s+selected;\s+"
@@ -59,6 +59,7 @@ def classify_tail(tail: str) -> tuple[str, str]:
             "not available",
             "not configured",
             "must be root",
+            "must run in tty",
             "only on ",
             "use test.sh option",
             "broken dns",
@@ -103,9 +104,11 @@ def parse_logs(out_dir: pathlib.Path) -> dict[str, Any]:
         summary_cant: list[int] = []
         summary_failed: list[int] = []
         last_id = 0
+        pending_unknown: int | None = None
 
         for line in lines:
-            m = RE_TEST.match(line.strip())
+            stripped = line.strip()
+            m = RE_TEST.match(stripped)
             if m:
                 tid = int(m.group(1))
                 name = m.group(2)
@@ -121,12 +124,27 @@ def parse_logs(out_dir: pathlib.Path) -> dict[str, Any]:
                     "shard": sid,
                     "raw": line.strip()[:300],
                 }
+                pending_unknown = tid if status == "UNKNOWN" else None
                 continue
-            m = RE_CANT_LIST.match(line.strip())
+            # Shell diagnostics can race into test.sh's printf before its final
+            # status, leaving the standalone result on the next line. Preserve
+            # that result instead of turning a passing test into UNKNOWN.
+            if pending_unknown is not None and (
+                stripped == "OK" or stripped.startswith("FAILED")
+            ):
+                status, detail = classify_tail(stripped)
+                tests[pending_unknown]["status"] = status
+                tests[pending_unknown]["detail"] = detail
+                tests[pending_unknown]["raw"] = (
+                    tests[pending_unknown]["raw"] + " | " + stripped
+                )[:300]
+                pending_unknown = None
+                continue
+            m = RE_CANT_LIST.match(stripped)
             if m:
                 summary_cant = parse_id_list(m.group(1))
                 continue
-            m = RE_FAILED_LIST.match(line.strip())
+            m = RE_FAILED_LIST.match(stripped)
             if m:
                 # Avoid the "FAILED:  /path/to/socat:" command-echo lines
                 ids = parse_id_list(m.group(1))

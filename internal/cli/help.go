@@ -2,8 +2,10 @@ package cli
 
 import (
 	"io"
+	"strings"
 
 	"github.com/oittaa/socat"
+	"github.com/oittaa/socat/internal/classiccatalog"
 	"github.com/oittaa/socat/internal/outbuf"
 	"github.com/oittaa/socat/internal/xio"
 )
@@ -30,7 +32,7 @@ func printHelp(w io.Writer, level int) error {
 	b.Printf("  socat [options] <address> <address>\n")
 	b.Printf("  socat -V | -h | -hh | -hhh\n\n")
 	b.Printf("  <address> is TYPE:params,option=value,...\n")
-	b.Printf("  Use - for STDIO.  -h lists types; -hh lists options; -hhh adds aliases.\n\n")
+	b.Printf("  Use - for STDIO.  -h lists types; -hh lists options; -hhh adds aliases and classic metadata.\n\n")
 	b.Printf("Example (TLS tunnel in front of a plain TCP service):\n")
 	b.Printf("  socat TLS-LISTEN:8443,reuseaddr,fork,cert=s.crt,key=s.key,verify=0 TCP:127.0.0.1:8080\n\n")
 
@@ -147,10 +149,10 @@ func printHelpOptions(b *outbuf.Buf, all bool) {
 			if o.dynamicDesc != nil {
 				desc = o.dynamicDesc()
 			}
-			printOptLine(b, o.name, desc, width)
+			printHelpOptionLine(b, o.name, desc, width, all)
 			if all {
 				for _, al := range o.aliases {
-					printOptLine(b, al, "alias of "+o.name, width)
+					printHelpOptionLine(b, al, "alias of "+o.name, width, true)
 				}
 			}
 		}
@@ -160,8 +162,18 @@ func printHelpOptions(b *outbuf.Buf, all bool) {
 	}
 	b.Printf("\n  Termios and baud (PTY / TTY)\n")
 	for _, name := range extra {
-		printOptLine(b, name, "termios flag or baud name", width)
+		printHelpOptionLine(b, name, "termios flag or baud name", width, all)
 	}
+}
+
+func printHelpOptionLine(b *outbuf.Buf, name, desc string, width int, metadata bool) {
+	if metadata {
+		if entry, ok := classiccatalog.Lookup(name); ok {
+			desc += "  groups=" + strings.Join(entry.Groups, ",") +
+				" phase=" + entry.Phase + " type=" + entry.Type
+		}
+	}
+	printOptLine(b, name, desc, width)
 }
 
 func printOptLine(b *outbuf.Buf, name, desc string, width int) {

@@ -91,6 +91,37 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 	}
 }
 
+func TestLinuxHHHIncludesClassicOptionMetadata(t *testing.T) {
+	var b bytes.Buffer
+	if err := printHelp(&b, 3); err != nil {
+		t.Fatal(err)
+	}
+	help := b.String()
+	for name, fields := range map[string][]string{
+		"ip-add-source-membership": {"groups=IP4,IP6", "phase=PASTSOCKET", "type=IP-MREQ-SOURCE"},
+		"udplite-recv-cscov":       {"groups=UDPLITE", "phase=FD", "type=INT"},
+		"ioctl-string":             {"groups=FD", "phase=FD", "type=INT:STRING"},
+		"lockfile":                 {"groups=APPL", "phase=INIT", "type=STRING"},
+	} {
+		var line string
+		for _, candidate := range strings.Split(help, "\n") {
+			if strings.HasPrefix(candidate, "    "+name+" ") {
+				line = candidate
+				break
+			}
+		}
+		if line == "" {
+			t.Errorf("-hhh missing %q", name)
+			continue
+		}
+		for _, field := range fields {
+			if !strings.Contains(line, field) {
+				t.Errorf("%s line %q missing %q", name, line, field)
+			}
+		}
+	}
+}
+
 func TestLinuxHelpListsEveryClassicTermiosSpelling(t *testing.T) {
 	advertised := advertisedHelpNames(true)
 	var missing []string

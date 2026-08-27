@@ -779,8 +779,9 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 	shutNone := ShutNoneSelected(s)
 
 	o := &Opened{
-		Stream: st,
-		Label:  "EXEC",
+		Stream:    st,
+		Label:     "EXEC",
+		childDone: done,
 	}
 	for _, f := range cleanup {
 		o.AddCleanup(f)

@@ -167,27 +167,40 @@ JOBS=8 VAL_T=0.1 SHARD_TIMEOUT=300 \
 Counts come from structured `results.json`. Refresh the numbers when you
 save a new baseline.
 
+The compatibility source baseline is the official `tag-1.8.1.3` release
+(`12c08bf66d709fba17035ce95d85bd218428d9ba`), also checked against official
+master (`af5388c898c7bb60997935aee93c223deba60c4a`). The Go host baseline was
+recorded in stable sequential mode on the `socat-classic-ubuntu2604` VM.
+
 | Label | OK | FAILED | CANT |
 |-------|-----|--------|------|
 | classic 1.8.1.3 (host) | 475 | 24 | 103 |
 | classic 1.8.1.3 (Docker, root) | 552 | 8 | 42 |
-| go (this tree, host) | 449 | 6 | 148 |
+| go (this tree, host) | 483 | 6 | 116 |
 | go (this tree, Docker, root, privileged, `--internet`) | 533 | 5 | 65 |
 
-Go host FAILED: `OPENSSLLISTENDSA` (DSA, by design), `UDP6MULTICAST_UNIDIR`
-(host environment), `REUSEADDR_NULL` (NO RESULT), `OPENSSL_ANULL`,
-`V1800_OPENSSL_LISTEN_RANGE`, `V1800_OPENSSL_LISTEN_BIND` (listen requires
-`cert=`). Go Docker FAILED: `OPENSSLLISTENDSA`, `REUSEADDR_NULL` (NO RESULT),
-`OPENSSL_ANULL`, `V1800_OPENSSL_LISTEN_RANGE`, `V1800_OPENSSL_LISTEN_BIND`
-(listen requires `cert=`). `SOCKETPAIR_BOUNDARIES` is OK. Both Go runs also
-record UNKNOWN=2 (`EXECPTYKILL` parse quirk, `PROCAN_CTTY`).
+Go host FAILED: `OPENSSL_COMPRESS` (`compress=auto` is intentionally rejected),
+`OPENSSLLISTENDSA` (DSA, by design), `REUSEADDR_NULL` (NO RESULT),
+`OPENSSL_ANULL`, `V1800_OPENSSL_LISTEN_RANGE`, and
+`V1800_OPENSSL_LISTEN_BIND` (listen requires `cert=`). It records no UNKNOWN
+or TIMEOUT results. Go Docker FAILED: `OPENSSLLISTENDSA`, `REUSEADDR_NULL`
+(NO RESULT), `OPENSSL_ANULL`, `V1800_OPENSSL_LISTEN_RANGE`, and
+`V1800_OPENSSL_LISTEN_BIND` (listen requires `cert=`). `SOCKETPAIR_BOUNDARIES`
+is OK. The older Docker baseline still records UNKNOWN=2 (`EXECPTYKILL` parse
+quirk, `PROCAN_CTTY`); refresh it separately with the improved parser.
 
 `OPENPTYWAITSLAVE` can `TIMEOUT` in a long sequential Docker run; an isolated
-`ONLY=OPENPTYWAITSLAVE` re-run is OK. `POSIXMQ_RECV_MAXCHILDREN` can
-`FAILED (diff)` in a long sequential run; an isolated
-`ONLY=POSIXMQ_RECV_MAXCHILDREN` re-run is OK. The committed Docker baseline
-records both as OK. Do not treat a full-run timeout or FIFO-order flake of
-those names as a regression until you re-run them alone.
+`ONLY=OPENPTYWAITSLAVE` re-run is OK. The committed Docker baseline records it
+as OK. Do not treat a full-run timeout of that name as a regression until you
+re-run it alone.
+
+Vs the previous Go host baseline (449 OK / 6 FAILED / 148 CANT), this refresh
+has no regressions and moves 34 tests to OK. These cover `o-noatime` /
+`fs-noatime`, UDP6 multicast, generic ioctl, OpenSSL minimum-version handling,
+signal and child logging, direct I/O, VSOCK, connected UNIX socket modes,
+socketpair boundaries, `ACCEPT-FD`, pipe sizing, UDPLITE, POSIX-MQ
+max-children, and the SOCKS4 regression case. Parser corrections also remove
+the two UNKNOWN results.
 
 Vs the previous Go Docker baseline (524 OK / 5 FAILED / 74 CANT), this refresh
 moves nine tests from CANT to OK: `O_NOATIME_FILE`, `O_NOATIME_FD`,
