@@ -51,37 +51,14 @@ var ExpectedMissingCanonicalAddresses = map[string]Gap{
 }
 
 // ExpectedMissingAddressAliases are classic addressnames[] aliases whose
-// canonical Go opener is already registered. PR C implements central alias
-// resolution for these names. Do not add DCCP, DTLS, or ACCEPT here.
-// UDPLITE-L / UDPLITE-SEND / UDPLITE-DGRAM are already registered with the
-// family (#101); UDP-DGRAM stays here until PR C.
+// canonical Go opener is already registered but the alias is not yet
+// resolved by the address registry. Empty after PR C (central alias
+// resolution in xio). Do not add DCCP, DTLS, readline, or ACCEPT here:
+// those families stay unsupported or unimplemented. UDPLITE-L /
+// UDPLITE-SEND / UDPLITE-DGRAM are directly registered with the family
+// (#101), not fallback aliases.
 //
+// Classic baseline: tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+// official master af5388c898c7bb60997935aee93c223deba60c4a.
 // Values are the classic canonical addrdesc names.
-var ExpectedMissingAddressAliases = map[string]string{
-	"ABSTRACT":     "ABSTRACT-CLIENT",
-	"DATAGRAM":     "SOCKET-DATAGRAM",
-	"DGRAM":        "SOCKET-DATAGRAM",
-	"IF":           "INTERFACE",
-	"INET":         "TCP-CONNECT",
-	"INET-L":       "TCP-LISTEN",
-	"INET-LISTEN":  "TCP-LISTEN",
-	"INET4":        "TCP4-CONNECT",
-	"INET4-L":      "TCP4-LISTEN",
-	"INET4-LISTEN": "TCP4-LISTEN",
-	"INET6":        "TCP6-CONNECT",
-	"INET6-L":      "TCP6-LISTEN",
-	"INET6-LISTEN": "TCP6-LISTEN",
-	"IP-DGRAM":     "IP-DATAGRAM",
-	"IP-SEND":      "IP-SENDTO",
-	"IP4-DGRAM":    "IP4-DATAGRAM",
-	"IP4-SEND":     "IP4-SENDTO",
-	"IP6-DGRAM":    "IP6-DATAGRAM",
-	"IP6-SEND":     "IP6-SENDTO",
-	"LOCAL":        "UNIX-CONNECT",
-	"SENDTO":       "SOCKET-SENDTO",
-	"SOCKS":        "SOCKS4",
-	"UDP-DGRAM":    "UDP-DATAGRAM",
-	"UDP4-DGRAM":   "UDP4-DATAGRAM",
-	"UDP6-DGRAM":   "UDP6-DATAGRAM",
-	"UNIX-SEND":    "UNIX-SENDTO",
-}
+var ExpectedMissingAddressAliases = map[string]string{}

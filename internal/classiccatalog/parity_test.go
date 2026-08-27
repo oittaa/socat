@@ -148,8 +148,12 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 
 func TestAddressClassificationSeparatesUnsupportedFromAliases(t *testing.T) {
 	class, _ := ClassifyAddress("ABSTRACT", "linux")
-	if class != AddrExpectedMissingAlias {
-		t.Fatalf("ABSTRACT: %s", class)
+	if class != AddrMustRegister {
+		t.Fatalf("ABSTRACT: %s (resolved to ABSTRACT-CLIENT by PR C)", class)
+	}
+	class, _ = ClassifyAddress("UDP-DGRAM", "linux")
+	if class != AddrMustRegister {
+		t.Fatalf("UDP-DGRAM: %s (resolved to UDP-DATAGRAM by PR C)", class)
 	}
 	class, _ = ClassifyAddress("DCCP", "linux")
 	if class != AddrUnsupportedFamily {
@@ -181,7 +185,7 @@ func TestAddressClassificationSeparatesUnsupportedFromAliases(t *testing.T) {
 	}
 	class, _ = ClassifyAddress("UDPLITE-DGRAM", "linux")
 	if class != AddrMustRegister {
-		t.Fatalf("UDPLITE-DGRAM: %s (registered with the family in #101; UDP-DGRAM remains alias backlog)", class)
+		t.Fatalf("UDPLITE-DGRAM: %s (registered with the family in #101)", class)
 	}
 	class, _ = ClassifyAddress("UDPLITE-CONNECT", "darwin")
 	if class != AddrMustRegister {
@@ -206,8 +210,8 @@ func TestAddressClassificationSeparatesUnsupportedFromAliases(t *testing.T) {
 	if _, ok := ExpectedMissingAddressAliases["DCCP"]; ok {
 		t.Fatal("DCCP must not be in the supported-alias backlog")
 	}
-	if got := len(ExpectedMissingAddressAliases); got != 26 {
-		t.Fatalf("supported missing aliases=%d, want 26", got)
+	if got := len(ExpectedMissingAddressAliases); got != 0 {
+		t.Fatalf("supported missing aliases=%d, want 0 (PR C resolved the backlog)", got)
 	}
 }
 

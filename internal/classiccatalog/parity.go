@@ -95,11 +95,13 @@ func (c OptionClass) String() string {
 type AddressClass int
 
 const (
-	// AddrMustRegister: canonical or already-registered alias; opener must exist.
+	// AddrMustRegister: canonical or alias whose opener must exist (directly
+	// registered or resolved through ClassicAddressAliases).
 	AddrMustRegister AddressClass = iota
 	// AddrExpectedMissingCanonical: canonical address not yet implemented.
 	AddrExpectedMissingCanonical
-	// AddrExpectedMissingAlias: alias of an implemented canonical (PR C).
+	// AddrExpectedMissingAlias: alias of an implemented canonical that is
+	// still on the supported-alias backlog. Empty after PR C.
 	AddrExpectedMissingAlias
 	// AddrUnsupportedFamily: DCCP, DTLS, or readline.
 	AddrUnsupportedFamily
