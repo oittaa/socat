@@ -142,6 +142,13 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Op
 	if len(s.Params) < 1 {
 		return nil, fmt.Errorf("FD requires fd number")
 	}
+	// Classic xioopen_fd applies the contiguous PH_INIT..PH_FD range. That
+	// includes PH_PASTSOCKET, but neither PH_PREBIND nor PH_CONNECTED.
+	// Reject those combinations explicitly instead of applying them to an
+	// existing socket or silently ignoring them on another fd type.
+	if err := xio.RejectGenericSetsockoptPhases(s, "FD", xio.SockoptPhasePrebind, xio.SockoptPhaseConnected); err != nil {
+		return nil, err
+	}
 	n, err := strconv.Atoi(s.Params[0])
 	if err != nil {
 		return nil, fmt.Errorf("FD: %w", err)
@@ -156,7 +163,13 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Op
 	if err := xio.ApplyFDOptions(f, s); err != nil {
 		return nil, err
 	}
-	st, err := xio.WrapCommon(s, relay.RWCStream{ReadWriteCloser: f})
+	// Classic xioopen_fd applyopts2(PH_INIT, PH_FD) includes PH_PASTSOCKET
+	// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+	// af5388c898c7bb60997935aee93c223deba60c4a is the same).
+	if err := xio.ApplySocketOptions(int(f.Fd()), s); err != nil {
+		return nil, err
+	}
+	st, err := xio.WrapCommonAfterConnected(s, relay.RWCStream{ReadWriteCloser: f})
 	if err != nil {
 		return nil, err
 	}

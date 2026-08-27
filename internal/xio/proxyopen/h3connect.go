@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/quic-go/quic-go"
@@ -42,13 +44,41 @@ func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost 
 		return nil, "", err
 	}
 	sourceport := s.OptionValue("sourceport", "")
-	if sourceport == "" {
-		sourceport = "0"
-	}
-	laddr := net.JoinHostPort(xio.StripBrackets(bindHost), sourceport)
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
-	pc, err := lc.ListenPacket(ctx, network, laddr)
+	listen := func(port string) (net.PacketConn, error) {
+		laddr := net.JoinHostPort(xio.StripBrackets(bindHost), port)
+		return lc.ListenPacket(ctx, network, laddr)
+	}
+	var pc net.PacketConn
+	if s.BoolOption("lowport") && (sourceport == "" || sourceport == "0") {
+		_, err = xio.FirstAvailableLowport(func(port int) error {
+			if g != nil && g.Log != nil {
+				g.Log.Debugf("bind(%s:%d)", bindHost, port)
+			}
+			pc, err = listen(strconv.Itoa(port))
+			return err
+		})
+		if err != nil {
+			return nil, "", fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", xio.LowportMin, xio.LowportMax, err)
+		}
+	} else {
+		if sourceport == "" {
+			sourceport = "0"
+		}
+		pc, err = listen(sourceport)
+	}
 	if err != nil {
+		return nil, "", err
+	}
+	// The explicit PacketConn must carry the same post-bind phases as direct
+	// QUIC. Otherwise options accepted on PROXY,http-version=3 would become
+	// silent no-ops merely because http3.Transport no longer owns the socket.
+	if err := xio.ApplyLateSocketOptionsToPacketConn(pc, s); err != nil {
+		_ = pc.Close()
+		return nil, "", err
+	}
+	if err := xio.ApplyGenericSetsockoptToPacketConn(pc, s, xio.SockoptPhaseConnected); err != nil {
+		_ = pc.Close()
 		return nil, "", err
 	}
 	return pc, network, nil
@@ -65,34 +95,45 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 	}
 	tlsCfg.NextProtos = []string{proxyALPN(s, http3.NextProtoH3)}
 
-	pc, network, err := listenH3Packet(ctx, s, g, t.proxyHost)
-	if err != nil {
-		return nil, err
-	}
-	qtr := &quic.Transport{Conn: pc}
-	tr := &http3.Transport{
-		TLSClientConfig: tlsCfg,
-		Dial: func(dctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
-			raddr, e := net.ResolveUDPAddr(network, addr)
-			if e != nil {
-				return nil, e
-			}
-			return qtr.Dial(dctx, raddr, tlsCfg, cfg)
-		},
-	}
-	closeH3 := func() error {
-		_ = tr.Close()
-		_ = qtr.Close()
-		return pc.Close()
-	}
-
 	u := "https://" + net.JoinHostPort(xio.StripBrackets(t.proxyHost), t.proxyPort) + "/"
 	authority := net.JoinHostPort(t.connectHost, t.targetPort)
+	attemptTimeout := xio.CombinedConnectHandshakeTimeout(s)
+	idle := xio.QUICHandshakeIdleTimeout(s)
 
 	var conn net.Conn
 	err = xio.WithRetry(ctx, s, g, "PROXY-CONNECT", func() error {
+		cctx, stopTimer, cancelHandshake := proxyHandshakeContext(ctx, attemptTimeout)
+		pc, network, e := listenH3Packet(cctx, s, g, t.proxyHost)
+		if e != nil {
+			stopTimer()
+			cancelHandshake()
+			return e
+		}
+		qtr := &quic.Transport{Conn: pc}
+		tr := &http3.Transport{
+			TLSClientConfig: tlsCfg.Clone(),
+			QUICConfig:      &quic.Config{HandshakeIdleTimeout: idle},
+			Dial: func(dctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
+				raddr, resolveErr := net.ResolveUDPAddr(network, addr)
+				if resolveErr != nil {
+					return nil, resolveErr
+				}
+				return qtr.Dial(dctx, raddr, tlsCfg, cfg)
+			},
+		}
+		closeH3 := func() error {
+			cancelHandshake()
+			return errors.Join(tr.Close(), qtr.Close(), pc.Close())
+		}
+		success := false
+		defer func() {
+			if !success {
+				stopTimer()
+				_ = closeH3()
+			}
+		}()
 		pr, pw := io.Pipe()
-		req, e := http.NewRequestWithContext(ctx, http.MethodConnect, u, pr)
+		req, e := http.NewRequestWithContext(cctx, http.MethodConnect, u, pr)
 		if e != nil {
 			_ = pw.Close()
 			return e
@@ -115,6 +156,10 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 			_ = resp.Body.Close()
 			return fmt.Errorf("proxy CONNECT failed: %s", resp.Status)
 		}
+		if e := finishCONNECTHandshake(cctx, stopTimer, pw, resp); e != nil {
+			return e
+		}
+		success = true
 		conn = &pipeConn{
 			r:      resp.Body,
 			w:      pw,
@@ -125,7 +170,6 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 		return nil
 	})
 	if err != nil {
-		_ = closeH3()
 		return nil, err
 	}
 	return conn, nil

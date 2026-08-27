@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"syscall"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -45,29 +44,12 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 
 	timeout := xio.ConnectTimeout(s)
 
-	// Apply setsockopt before connect when possible via Control (level:opt:val).
-	// Fail the open if setsockopt returns an error (classic SETSOCKOPT MSS=1).
-	var setSockErr error
-	var control func(network, address string, c syscall.RawConn) error
-	if raw := s.OptionValue("setsockopt", ""); raw != "" {
-		control = func(network, address string, c syscall.RawConn) error {
-			return c.Control(func(fd uintptr) {
-				setSockErr = xio.ApplySetsockoptFD(int(fd), raw)
-			})
-		}
-	}
-
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := xio.WithRetry(dctx, s, g, network+" connect", func() error {
-			setSockErr = nil
-			c, e := xio.DialTCPAll(dctx, network, xio.StripBrackets(host), port, s, g, timeout, control)
+			c, e := xio.DialTCPAll(dctx, network, xio.StripBrackets(host), port, s, g, timeout, nil)
 			if e != nil {
 				return e
-			}
-			if setSockErr != nil {
-				logx.CloseQuiet(c)
-				return setSockErr
 			}
 			conn = c
 			return nil
@@ -79,6 +61,9 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		Label: fmt.Sprintf("%s:%s", network, addr),
 		Dial:  dialOnce,
 		LogOK: true,
+		Wrap: func(c net.Conn) (relay.Stream, error) {
+			return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
+		},
 	})
 }
 

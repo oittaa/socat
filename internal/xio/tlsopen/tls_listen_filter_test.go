@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,7 +35,7 @@ func TestTLSListenNonForkRetriesRejectedPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := &xio.Global{Log: logx.New()}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	type result struct {
@@ -42,11 +43,16 @@ func TestTLSListenNonForkRetriesRejectedPeer(t *testing.T) {
 		err error
 	}
 	done := make(chan result, 1)
+	bound := make(chan struct{})
+	var boundOnce sync.Once
+	defer xio.SetListenBoundTestHook(func() {
+		boundOnce.Do(func() { close(bound) })
+	})()
 	go func() {
 		o, err := openTLSListen(ctx, spec, xio.ModeRDWR, g)
 		done <- result{o, err}
 	}()
-	waitTCP4(t, port, 2*time.Second)
+	waitListenBound(t, bound, done, 5*time.Second)
 
 	refuse := &net.Dialer{LocalAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 2)}}
 	raw, err := refuse.DialContext(ctx, "tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
@@ -101,16 +107,21 @@ func TestTLSListenNonForkRestartsAcceptTimeoutAfterRefusedPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := &xio.Global{Log: logx.New()}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	errCh := make(chan error, 1)
-	start := time.Now()
+	bound := make(chan struct{})
+	var boundOnce sync.Once
+	defer xio.SetListenBoundTestHook(func() {
+		boundOnce.Do(func() { close(bound) })
+	})()
 	go func() {
 		_, err := openTLSListen(ctx, spec, xio.ModeRDWR, g)
 		errCh <- err
 	}()
-	waitTCP4(t, port, 2*time.Second)
+	waitListenBound(t, bound, errCh, 5*time.Second)
+	start := time.Now()
 	time.Sleep(180 * time.Millisecond)
 
 	refuse := &net.Dialer{LocalAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 2)}}
@@ -139,17 +150,13 @@ func TestTLSListenNonForkRestartsAcceptTimeoutAfterRefusedPeer(t *testing.T) {
 	}
 }
 
-func waitTCP4(t *testing.T, port int, timeout time.Duration) {
+func waitListenBound[T any](t *testing.T, bound <-chan struct{}, failed <-chan T, timeout time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-	for time.Now().Before(deadline) {
-		ln, err := net.Listen("tcp4", addr)
-		if err != nil {
-			return
-		}
-		_ = ln.Close()
-		time.Sleep(20 * time.Millisecond)
+	select {
+	case <-bound:
+	case v := <-failed:
+		t.Fatalf("listen returned before bind: %v", v)
+	case <-time.After(timeout):
+		t.Fatal("timeout waiting for TCP listen")
 	}
-	t.Fatalf("timeout waiting for TCP listen on %d", port)
 }

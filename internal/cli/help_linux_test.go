@@ -21,6 +21,10 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"so-protocol", "so-prototype", "prototype", "protocol-family", "type",
 		"ip-add-membership", "add-membership", "ip-membership", "membership",
 		"ipv6-join-group", "ipv6-add-membership", "join-group",
+		"setsockopt", "setsockopt-int", "setsockopt-bin", "setsockopt-string",
+		"setsockopt-listen", "setsockopt-socket", "setsockopt-connected",
+		"sockopt", "sockopt-int", "sockopt-bin", "sockopt-string",
+		"sockopt-listen", "sockopt-sock", "sockopt-conn",
 		"broadcast", "so-broadcast",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {

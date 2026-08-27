@@ -39,5 +39,11 @@ func init() {
 		"sp":                  "sourceport",
 		"sourceport":          "sourceport",
 		"sockopt-listen":      "setsockopt-listen",
+		"sockopt":             "setsockopt",
+		"sockopt-int":         "setsockopt-int",
+		"sockopt-bin":         "setsockopt-bin",
+		"sockopt-string":      "setsockopt-string",
+		"sockopt-sock":        "setsockopt-socket",
+		"sockopt-conn":        "setsockopt-connected",
 	})
 }

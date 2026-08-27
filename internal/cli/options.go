@@ -246,22 +246,63 @@ func validateInt64(requirePositive bool) func(parse.Option) error {
 	}
 }
 
-func validateSockopt(option parse.Option) error {
-	name := strings.ToLower(option.Name)
+func splitSockoptOption(option parse.Option) (name, level, opt, rest string, err error) {
+	name = strings.ToLower(option.Name)
 	value, err := requiredOptionValue(option)
 	if err != nil {
-		return err
+		return name, "", "", "", err
 	}
-	parts := strings.Split(value, ":")
+	parts := strings.SplitN(value, ":", 3)
 	if len(parts) != 3 {
-		return fmt.Errorf("invalid %s %q (want level:optname:value)", name, value)
+		return name, "", "", "", fmt.Errorf("invalid %s %q (want level:optname:value)", name, value)
 	}
-	for _, part := range parts {
-		if _, err := strconv.Atoi(part); err != nil {
+	return name, parts[0], parts[1], parts[2], nil
+}
+
+func validateSockoptIntFields(name, value string, fields ...string) error {
+	for _, field := range fields {
+		if _, err := strconv.ParseInt(strings.TrimSpace(field), 0, 32); err != nil {
 			return fmt.Errorf("invalid %s %q (want integer level:optname:value)", name, value)
 		}
 	}
 	return nil
+}
+
+func validateSockoptBin(option parse.Option) error {
+	name, level, opt, rest, err := splitSockoptOption(option)
+	if err != nil {
+		return err
+	}
+	if err := validateSockoptIntFields(name, option.Value, level, opt); err != nil {
+		return err
+	}
+	if strings.TrimSpace(rest) == "" {
+		return fmt.Errorf("invalid %s %q (want level:optname:value)", name, option.Value)
+	}
+	data, _, err := xio.ParseDalan(rest, 'i')
+	if err != nil {
+		return fmt.Errorf("invalid %s %q: %w", name, option.Value, err)
+	}
+	if len(data) == 0 {
+		return fmt.Errorf("invalid %s %q (empty dalan value)", name, option.Value)
+	}
+	return nil
+}
+
+func validateSockoptInt(option parse.Option) error {
+	name, level, opt, rest, err := splitSockoptOption(option)
+	if err != nil {
+		return err
+	}
+	return validateSockoptIntFields(name, option.Value, level, opt, rest)
+}
+
+func validateSockoptString(option parse.Option) error {
+	name, level, opt, _, err := splitSockoptOption(option)
+	if err != nil {
+		return err
+	}
+	return validateSockoptIntFields(name, option.Value, level, opt)
 }
 
 func proxyAddressTypes() []string {
@@ -304,6 +345,35 @@ func alpnAddressTypes() []string {
 		"QUIC", "QUIC-CONNECT", "QUIC-LISTEN", "QUIC-L",
 		"PROXY", "PROXY-CONNECT",
 	}
+}
+
+func wsAddressTypes() []string {
+	return []string{
+		"WS", "WS-CONNECT", "WS-LISTEN", "WS-L",
+		"WSS", "WSS-CONNECT", "WSS-LISTEN", "WSS-L",
+	}
+}
+
+// handshakeAddressTypes is the Go extra handshake-timeout allow-list:
+// addresses that actually perform TLS, WebSocket, QUIC, PROXY, or SOCKS
+// negotiation. TCP/UDP/OPEN/EXEC and other non-handshake types must reject
+// the option rather than silently ignore it.
+func handshakeAddressTypes() []string {
+	seen := make(map[string]bool)
+	var types []string
+	add := func(names []string) {
+		for _, name := range names {
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			types = append(types, name)
+		}
+	}
+	add(tlsAddressTypes())
+	add(wsAddressTypes())
+	add(socksAddressTypes())
+	return types
 }
 
 func fileOpenAddressTypes() []string {

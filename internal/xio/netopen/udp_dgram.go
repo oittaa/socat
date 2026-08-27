@@ -62,7 +62,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 				return nil, err
 			}
 			st := &udpDatagramConn{UDPConn: c, raddr: raddr}
-			wrapped, err := xio.WrapCommon(s, st)
+			wrapped, err := xio.WrapCommonAfterConnected(s, st)
 			if err != nil {
 				logx.CloseQuiet(c)
 				return nil, err
@@ -111,7 +111,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		return nil, err
 	}
 	st := &udpDatagramConn{UDPConn: c, raddr: raddr}
-	wrapped, err := xio.WrapCommon(s, st)
+	wrapped, err := xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(c)
 		return nil, err
@@ -122,18 +122,28 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 
 func udpListenConfig(s parse.Spec) net.ListenConfig {
 	return net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
-			var optionErr error
-			controlErr := c.Control(func(fd uintptr) {
-				optionErr = xio.ApplyListenOptions(int(fd), s, network)
-				if optionErr != nil {
-					return
-				}
-				// UDP-DATAGRAM uses this Control, not xio.ListenControl.
-				optionErr = xio.ApplyMembershipJoins(int(fd), s)
-			})
-			return errors.Join(controlErr, optionErr)
-		},
+		Control: udpListenControl(s),
+	}
+}
+
+// udpListenControl applies classic PH_PASTSOCKET then PH_PREBIND after
+// socket() and before bind() (tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same). Go's
+// ListenConfig.Control runs in that window.
+func udpListenControl(s parse.Spec) func(network, address string, c syscall.RawConn) error {
+	return func(network, address string, c syscall.RawConn) error {
+		if err := xio.ListenControl(s)(network, address, c); err != nil {
+			return err
+		}
+		if !xio.UDPForkPortReuse(s) {
+			return nil
+		}
+		var optionErr error
+		controlErr := c.Control(func(fd uintptr) {
+			optionErr = enableUDPForkPortReuse(int(fd))
+		})
+		return errors.Join(controlErr, optionErr)
 	}
 }
 
@@ -255,7 +265,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				MaxChildren: maxChildren,
 				PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
 				WrapDial: func(c net.Conn) (relay.Stream, error) {
-					return xio.WrapCommon(s, relay.NetStream{Conn: c})
+					return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
 				},
 			}, nil
 		}
@@ -312,7 +322,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			wantCtrl: wantCtrl,
 			g:        g,
 		})
-		st, err = xio.WrapCommon(s, st)
+		st, err = xio.WrapCommonAfterConnected(s, st)
 		if err != nil {
 			logx.CloseQuiet(pc)
 			return nil, err
@@ -333,7 +343,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		g:        g,
 		wantCtrl: xio.NeedAncillary(s),
 	})
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -383,25 +393,11 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 	// present; UDP-RECV/RECVFROM only when the option is present.
 	// BSD SO_REUSEPORT is enabled only for UDP-LISTEN fork when reuseaddr is
 	// not explicitly disabled, so reuseaddr=0 stays exclusive.
+	// PH_PASTSOCKET then PH_PREBIND run in Control after socket() and before
+	// bind() (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+	// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
 	cfg := net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
-			var optionErr error
-			controlErr := c.Control(func(fd uintptr) {
-				optionErr = xio.ApplyListenOptions(int(fd), s, network)
-				if optionErr != nil {
-					return
-				}
-				if xio.UDPForkPortReuse(s) {
-					optionErr = enableUDPForkPortReuse(int(fd))
-					if optionErr != nil {
-						return
-					}
-				}
-				// UDP-RECV uses this Control, not xio.ListenControl.
-				optionErr = xio.ApplyMembershipJoins(int(fd), s)
-			})
-			return errors.Join(controlErr, optionErr)
-		},
+		Control: udpListenControl(s),
 	}
 	pc, err := cfg.ListenPacket(context.Background(), network, laddr.String())
 	if err != nil {

@@ -4,7 +4,6 @@ package xio
 
 import (
 	"fmt"
-	"math"
 	"net"
 	"strconv"
 	"strings"
@@ -54,7 +53,7 @@ func parseMcastSpec(spec, optionName string) (parsedMcast, error) {
 		return parsedMcast{}, fmt.Errorf("%s: expected mcast:iface, got %q", optionName, spec)
 	}
 
-	group, err := parseMcastGroup(fields[0])
+	group, err := parseMcastGroup(fields[0], optionName)
 	if err != nil {
 		return parsedMcast{}, fmt.Errorf("%s: %w", optionName, err)
 	}
@@ -63,9 +62,6 @@ func parseMcastSpec(spec, optionName string) (parsedMcast, error) {
 		token := strings.TrimSpace(fields[1])
 		if token == "" {
 			return parsedMcast{}, fmt.Errorf("%s: expected mcast:iface, got %q", optionName, spec)
-		}
-		if ip := net.ParseIP(token); ip != nil && ip.To4() != nil {
-			return parsedMcast{group: group, ifaceAddr: ip.To4()}, nil
 		}
 		return parsedMcast{group: group, token: token}, nil
 	}
@@ -77,14 +73,14 @@ func parseMcastSpec(spec, optionName string) (parsedMcast, error) {
 	if addrTok == "" || nameTok == "" {
 		return parsedMcast{}, fmt.Errorf("%s: expected mcast:iface-address:iface, got %q", optionName, spec)
 	}
-	addr := net.ParseIP(addrTok)
-	if addr == nil || addr.To4() == nil {
+	addr, err := resolveMcastIPv4Address(addrTok)
+	if err != nil {
 		return parsedMcast{}, fmt.Errorf("%s: bad interface address %q", optionName, addrTok)
 	}
-	return parsedMcast{group: group, ifaceAddr: addr.To4(), token: nameTok}, nil
+	return parsedMcast{group: group, ifaceAddr: addr, token: nameTok}, nil
 }
 
-func parseMcastGroup(field string) (net.IP, error) {
+func parseMcastGroup(field, optionName string) (net.IP, error) {
 	field = strings.TrimSpace(field)
 	if strings.HasPrefix(field, "[") {
 		if !strings.HasSuffix(field, "]") {
@@ -92,15 +88,32 @@ func parseMcastGroup(field string) (net.IP, error) {
 		}
 		field = field[1 : len(field)-1]
 	}
-	gip := net.ParseIP(field)
-	if gip == nil {
+	if gip := net.ParseIP(field); gip != nil {
+		return gip, nil
+	}
+	// Classic defers this field to xioresolve(), so hostnames are valid too.
+	// For names, use the family selected by the distinct classic spelling.
+	network := "ip4"
+	if family, _, ok := membershipFamilyName(optionName); ok && family == membershipFamilyIPv6 {
+		network = "ip6"
+	}
+	addr, err := net.ResolveIPAddr(network, field)
+	if err != nil || addr == nil || addr.IP == nil {
 		return nil, fmt.Errorf("bad group %q", field)
 	}
-	return gip, nil
+	return addr.IP, nil
+}
+
+func resolveMcastIPv4Address(field string) (net.IP, error) {
+	addr, err := net.ResolveIPAddr("ip4", strings.TrimSpace(field))
+	if err != nil || addr == nil || addr.IP.To4() == nil {
+		return nil, fmt.Errorf("bad IPv4 address %q", field)
+	}
+	return addr.IP.To4(), nil
 }
 
 // splitMcastFields splits on ':' outside '[' ']' (classic nestlex nests).
-// Unbracketed IPv6 with a trailing :iface uses the last colon.
+// IPv6 groups therefore use the bracketed form, e.g. [ff02::2]:eth0.
 func splitMcastFields(spec string) ([]string, error) {
 	if i := strings.IndexByte(spec, '%'); i > 0 && !strings.Contains(spec, ":") {
 		return []string{spec[:i], spec[i+1:]}, nil
@@ -134,12 +147,6 @@ func splitMcastFields(spec string) ([]string, error) {
 	if len(fields) >= 2 {
 		return fields, nil
 	}
-	// Unbracketed IPv6: last colon separates iface.
-	if i := strings.LastIndex(spec, ":"); i > 0 {
-		if g := net.ParseIP(spec[:i]); g != nil {
-			return []string{spec[:i], spec[i+1:]}, nil
-		}
-	}
 	return nil, fmt.Errorf("expected mcast:iface, got %q", spec)
 }
 
@@ -169,6 +176,15 @@ func joinMulticastFD(fd int, join membershipJoin) error {
 	}
 
 	idx, idxSet, err := resolveMcastInterface(parsed, name)
+	if err != nil && join.family == membershipFamilyIPv4 && !parsed.fieldsThree() {
+		// Classic tries ifindex() first and then xioresolve() for the two-field
+		// IPv4 form, so an address may also be supplied as a resolvable name.
+		if addr, addrErr := resolveMcastIPv4Address(parsed.token); addrErr == nil {
+			parsed.ifaceAddr = addr
+			parsed.token = ""
+			idx, idxSet, err = 0, false, nil
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -186,77 +202,58 @@ func (p parsedMcast) fieldsThree() bool {
 }
 
 // resolveMcastInterface implements classic ifindex() from sysutils.c:
-// a fully-consumed decimal token is the numeric index (no existence
+// a fully-consumed base-0 C integer token is the numeric index (no existence
 // lookup); otherwise if_nametoindex / InterfaceByName.
-func resolveMcastInterface(p parsedMcast, optionName string) (int, bool, error) {
+func resolveMcastInterface(p parsedMcast, optionName string) (uint32, bool, error) {
 	if p.token == "" {
 		return 0, false, nil
 	}
-	if idx, ok := parseDecimalIndex(p.token); ok {
+	if idx, ok := parseClassicInterfaceIndex(p.token); ok {
 		return idx, true, nil
 	}
 	ifi, err := net.InterfaceByName(p.token)
 	if err != nil {
 		return 0, false, fmt.Errorf("%s: interface %q: %w", optionName, p.token, err)
 	}
-	return ifi.Index, true, nil
+	idx, ok := Uint32FromInt(ifi.Index)
+	if !ok {
+		return 0, false, fmt.Errorf("%s: interface %q index %d is out of range", optionName, p.token, ifi.Index)
+	}
+	return idx, true, nil
 }
 
-func parseDecimalIndex(s string) (int, bool) {
+func parseClassicInterfaceIndex(s string) (uint32, bool) {
 	if s == "" {
 		return 0, false
 	}
-	for i := 0; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return 0, false
-		}
+	// strconv's base-0 grammar additionally accepts Go's 0b/0o prefixes and
+	// underscores; C strtol(..., 0), which classic uses, accepts none of them.
+	unsigned := s
+	if unsigned[0] == '+' || unsigned[0] == '-' {
+		unsigned = unsigned[1:]
 	}
-	n, err := strconv.ParseInt(s, 10, 32)
+	if unsigned == "" || strings.ContainsRune(unsigned, '_') ||
+		strings.HasPrefix(unsigned, "0b") || strings.HasPrefix(unsigned, "0B") ||
+		strings.HasPrefix(unsigned, "0o") || strings.HasPrefix(unsigned, "0O") {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(s, 0, strconv.IntSize)
 	if err != nil {
 		return 0, false
 	}
-	return int(n), true
+	// Classic assigns the signed long directly to unsigned int. Preserve that
+	// conversion, including negative values and high-bit interface indices;
+	// the kernel remains responsible for accepting or rejecting the result.
+	return uint32(n), true // #nosec G115 -- deliberate classic strtol-to-unsigned-int conversion
 }
 
-func setIPv4MembershipFD(fd int, group, ifaceAddr net.IP, ifindex int, idxSet bool) error {
-	// Linux IPv4 uses ip_mreqn so a name/index is imr_ifindex, not the
-	// interface's first IPv4 address (classic xioapply_ip_add_membership
-	// with HAVE_STRUCT_IP_MREQN).
-	var mreqn unix.IPMreqn
-	copy(mreqn.Multiaddr[:], group.To4())
-	if ifaceAddr != nil {
-		copy(mreqn.Address[:], ifaceAddr.To4())
-	}
-	if idxSet {
-		idx32, err := int32FromInt(ifindex)
-		if err != nil {
-			return fmt.Errorf("ip-add-membership: %w", err)
-		}
-		mreqn.Ifindex = idx32
-	}
-	if err := unix.SetsockoptIPMreqn(fd, unix.IPPROTO_IP, unix.IP_ADD_MEMBERSHIP, &mreqn); err != nil {
-		return fmt.Errorf("ip-add-membership: %w", err)
-	}
-	return nil
-}
-
-func setIPv6MembershipFD(fd int, group net.IP, ifindex int) error {
-	ifi32, ok := Uint32FromInt(ifindex)
-	if !ok {
-		return fmt.Errorf("ipv6-join-group: interface index %d out of range", ifindex)
-	}
+func setIPv6MembershipFD(fd int, group net.IP, ifindex uint32) error {
 	var mreq unix.IPv6Mreq
 	copy(mreq.Multiaddr[:], group.To16())
-	mreq.Interface = ifi32
+	mreq.Interface = ifindex
+	recordSockoptBytes(fd, unix.IPPROTO_IPV6, unix.IPV6_JOIN_GROUP, nil)
 	if err := unix.SetsockoptIPv6Mreq(fd, unix.IPPROTO_IPV6, unix.IPV6_JOIN_GROUP, &mreq); err != nil {
 		return fmt.Errorf("ipv6-join-group: %w", err)
 	}
 	return nil
-}
-
-func int32FromInt(n int) (int32, error) {
-	if n < math.MinInt32 || n > math.MaxInt32 {
-		return 0, fmt.Errorf("interface index %d out of range", n)
-	}
-	return int32(n), nil
 }

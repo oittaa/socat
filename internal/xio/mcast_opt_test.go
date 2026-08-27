@@ -107,3 +107,16 @@ func TestMembershipFamilyIgnoresAddressWhenClassifying(t *testing.T) {
 		t.Fatalf("ipv6-join-group must stay IPv6 sockopt family, got %+v", got)
 	}
 }
+
+func TestMembershipFamilyPrefersOriginalSpelling(t *testing.T) {
+	o := parse.Option{
+		Name:     "ip-add-membership",
+		Spelling: "ipv6-join-group",
+		Value:    "[ff02::2]:lo",
+		Has:      true,
+	}
+	family, name, ok := membershipFamilyOf(o)
+	if !ok || family != membershipFamilyIPv6 || name != "ipv6-join-group" {
+		t.Fatalf("family=%v name=%q ok=%v", family, name, ok)
+	}
+}

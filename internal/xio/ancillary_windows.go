@@ -33,10 +33,10 @@ func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 	controlErr := raw.Control(func(fd uintptr) {
 		optionErr = ApplyIPSendOpts(int(fd), s, network)
 		if optionErr == nil {
-			optionErr = ApplySocketOptions(int(fd), s)
+			optionErr = ApplyLateSocketOptions(int(fd), s)
 		}
 		if optionErr == nil {
-			optionErr = ApplyLateSocketOptions(int(fd), s)
+			optionErr = ApplyGenericSetsockopt(int(fd), s, SockoptPhaseConnected)
 		}
 	})
 	return errors.Join(controlErr, optionErr)

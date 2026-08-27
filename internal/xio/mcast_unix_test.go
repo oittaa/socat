@@ -30,7 +30,7 @@ func TestParseMcastSpecIPv4Address(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.group.String() != "224.1.2.3" || p.token != "" || p.ifaceAddr.String() != "127.0.0.1" {
+	if p.group.String() != "224.1.2.3" || p.token != "127.0.0.1" || p.ifaceAddr != nil {
 		t.Fatalf("parsed=%+v", p)
 	}
 }
@@ -76,15 +76,46 @@ func TestParseMcastSpecThreeFieldIPv4(t *testing.T) {
 	}
 }
 
-func TestParseDecimalIndexDoesNotUseInterfaceByName(t *testing.T) {
-	if _, ok := parseDecimalIndex("1"); !ok {
-		t.Fatal("1 should be a numeric index")
+func TestParseClassicInterfaceIndexMatchesStrtolBaseZero(t *testing.T) {
+	tests := []struct {
+		value string
+		want  uint32
+		ok    bool
+	}{
+		{value: "1", want: 1, ok: true},
+		{value: "01", want: 1, ok: true},
+		{value: "0x1", want: 1, ok: true},
+		{value: "+0X10", want: 16, ok: true},
+		{value: "-1", want: ^uint32(0), ok: true},
+		{value: "lo", ok: false},
+		{value: "127.0.0.1", ok: false},
+		{value: "08", ok: false},
+		{value: "0b1", ok: false},
+		{value: "0o1", ok: false},
+		{value: "1_0", ok: false},
 	}
-	if _, ok := parseDecimalIndex("lo"); ok {
-		t.Fatal("lo is a name, not an index")
+	for _, tt := range tests {
+		got, ok := parseClassicInterfaceIndex(tt.value)
+		if ok != tt.ok || got != tt.want {
+			t.Errorf("parseClassicInterfaceIndex(%q)=(%d,%v), want (%d,%v)", tt.value, got, ok, tt.want, tt.ok)
+		}
 	}
-	if _, ok := parseDecimalIndex("127.0.0.1"); ok {
-		t.Fatal("IPv4 address is not an index")
+}
+
+func TestParseMcastSpecResolvesClassicAddressNames(t *testing.T) {
+	p, err := parseMcastSpec("224.0.0.1:localhost", "ip-add-membership")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.group.String() != "224.0.0.1" || p.token != "localhost" {
+		t.Fatalf("parsed=%+v", p)
+	}
+	if _, _, err := resolveMcastInterface(p, "ip-add-membership"); err == nil {
+		t.Skip("host has an interface literally named localhost")
+	}
+	addr, err := resolveMcastIPv4Address(p.token)
+	if err != nil || !addr.Equal(net.IPv4(127, 0, 0, 1)) {
+		t.Fatalf("localhost=%v err=%v", addr, err)
 	}
 }
 
@@ -161,6 +192,26 @@ func TestIPv4MembershipInterfaceNameAndIndex(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("index join: %v", err)
 	}
+
+	fd3 := mustUDP4Socket(t)
+	if err := joinMulticastFD(fd3, membershipJoin{
+		family: membershipFamilyIPv4,
+		spec:   "224.0.0.3:0x" + strconv.FormatInt(int64(ifi.Index), 16),
+		name:   "ip-add-membership",
+	}); err != nil {
+		t.Fatalf("base-0 hexadecimal index join: %v", err)
+	}
+}
+
+func TestIPv4MembershipResolvesInterfaceAddressName(t *testing.T) {
+	fd := mustUDP4Socket(t)
+	if err := joinMulticastFD(fd, membershipJoin{
+		family: membershipFamilyIPv4,
+		spec:   "224.0.0.4:localhost",
+		name:   "ip-add-membership",
+	}); err != nil {
+		t.Fatalf("hostname interface address join: %v", err)
+	}
 }
 
 func TestIPv6MembershipInterfaceNameAndIndex(t *testing.T) {
@@ -206,6 +257,40 @@ func TestIPv4ThreeFieldMembershipNameAndIndex(t *testing.T) {
 		name:   "ip-add-membership",
 	}); err != nil {
 		t.Fatalf("three-field index %s: %v", spec, err)
+	}
+
+	fd3 := mustUDP4Socket(t)
+	spec = "224.0.0.2:localhost:" + ifi.Name
+	if err := joinMulticastFD(fd3, membershipJoin{
+		family: membershipFamilyIPv4,
+		spec:   spec,
+		name:   "ip-add-membership",
+	}); err != nil {
+		t.Fatalf("three-field address hostname %s: %v", spec, err)
+	}
+}
+
+func TestListenControlAppliesMembershipExactlyOnce(t *testing.T) {
+	ifi := multicastLoopback(t)
+	spec, err := parse.ParseSpec("UDP4-RECV:0,ip-add-membership=224.0.0.5:" + ifi.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls int
+	restore := SetSockoptTestHook(func(call SockoptCall) {
+		if !call.AsInt {
+			calls++
+		}
+	})
+	t.Cleanup(restore)
+	lc := net.ListenConfig{Control: ListenControl(spec)}
+	pc, err := lc.ListenPacket(context.Background(), "udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	if calls != 1 {
+		t.Fatalf("membership setsockopt calls=%d, want exactly 1", calls)
 	}
 }
 

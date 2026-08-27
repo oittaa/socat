@@ -46,10 +46,8 @@ func ApplyMembershipJoins(fd int, s parse.Spec) error {
 }
 
 // membershipJoins collects every membership option in command-line order.
-// Canonical Name after alias fold is enough for advertised spellings
-// (add-membership → ip-add-membership, join-group → ipv6-join-group).
-// OriginalSpelling is also accepted so a constructed spec still classifies
-// correctly if Name was not folded.
+// OriginalSpelling selects the classic IPv4/IPv6 descriptor; Name is the
+// fallback for constructed specs that do not preserve spelling.
 func membershipJoins(s parse.Spec) []membershipJoin {
 	var out []membershipJoin
 	for _, o := range s.Options {
@@ -57,20 +55,19 @@ func membershipJoins(s parse.Spec) []membershipJoin {
 		if !ok {
 			continue
 		}
-		val := o.Value
-		if !o.Has {
-			val = "1"
-		}
-		out = append(out, membershipJoin{family: family, spec: val, name: name})
+		out = append(out, membershipJoin{family: family, spec: o.Value, name: name})
 	}
 	return out
 }
 
 func membershipFamilyOf(o parse.Option) (membershipFamily, string, bool) {
-	if family, name, ok := membershipFamilyName(o.Name); ok {
+	// Original spelling is authoritative because these two classic
+	// descriptors have different socket families. This also keeps manually
+	// constructed legacy Specs safe if Name was folded incorrectly.
+	if family, name, ok := membershipFamilyName(o.OriginalSpelling()); ok {
 		return family, name, true
 	}
-	return membershipFamilyName(o.OriginalSpelling())
+	return membershipFamilyName(o.Name)
 }
 
 func membershipFamilyName(name string) (membershipFamily, string, bool) {
