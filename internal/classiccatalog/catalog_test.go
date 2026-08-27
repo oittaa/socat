@@ -253,6 +253,9 @@ func TestFeatureCompleteCanaries(t *testing.T) {
 	if DocsOnlyNotInThisBinary["notail"] == "" {
 		t.Fatal("notail remains documented but absent from optionnames[]; keep it in DocsOnlyNotInThisBinary")
 	}
+	if !strings.Contains(DocsOnlyNotInThisBinary["notail"], "optionnames[]") {
+		t.Fatalf("notail docs-only reason %q must say it is absent from optionnames[] even with FS_NOTAIL_FL", DocsOnlyNotInThisBinary["notail"])
+	}
 	if GoOnlyHelpAllowlist["notail"] == "" {
 		t.Fatal("Go advertises notail on Linux; keep it on GoOnlyHelpAllowlist")
 	}

@@ -240,6 +240,12 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "fs-noatime-on-tcp", spec: "TCP:localhost:1,fs-noatime", wantErr: "not supported"},
 		{name: "fs-noatime-on-pipe", spec: "PIPE:file,fs-noatime", wantErr: "not supported"},
 		{name: "fs-append-on-open", spec: "OPEN:file,fs-append"},
+		{name: "fs-append-zero", spec: "OPEN:file,fs-append=0"},
+		{name: "fs-append-one", spec: "OPEN:file,fs-append=1"},
+		{name: "fs-nodump-garbage", spec: "OPEN:file,fs-nodump=garbage", wantErr: "invalid"},
+		{name: "fs-nodump-bool-range", spec: "OPEN:file,fs-nodump=2", wantErr: "invalid"},
+		{name: "fs-nodump-bool-word", spec: "OPEN:file,fs-nodump=true", wantErr: "invalid"},
+		{name: "nodump-garbage-alias", spec: "OPEN:file,nodump=garbage", wantErr: "invalid"},
 		{name: "ext2-append-alias", spec: "FD:3,ext2-append"},
 		{name: "nodump-on-create", spec: "CREATE:file,nodump"},
 		{name: "notail-on-open", spec: "OPEN:file,notail"},
@@ -444,6 +450,26 @@ func TestValidateAddressOptions(t *testing.T) {
 			}
 			if err == nil || !strings.Contains(err.Error(), wantErr) {
 				t.Fatalf("error=%v want substring %q", err, wantErr)
+			}
+		})
+	}
+}
+
+func TestFSFlagOptionsRejectNonBoolValues(t *testing.T) {
+	names := []string{
+		"fs-append", "fs-compr", "fs-dirsync", "fs-immutable", "fs-journal-data",
+		"fs-noatime", "fs-nodump", "fs-notail", "fs-secrm", "fs-sync", "fs-topdir", "fs-unrm",
+		"nodump",
+	}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			ch, err := parse.ParseChannel("OPEN:file," + name + "=garbage")
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = validateChannelOptions(ch)
+			if err == nil || !strings.Contains(err.Error(), "invalid") {
+				t.Fatalf("error=%v want invalid", err)
 			}
 		})
 	}

@@ -30,7 +30,7 @@ var DocsOnlyNotInThisBinary = map[string]string{
 	"noinherit":            "documented; compiled only with O_NOINHERIT",
 	"noopt":                "documented; compiled only with TCP_NOOPT",
 	"nopush":               "documented; compiled only with TCP_NOPUSH",
-	"notail":               "documented fs-notail nickname; compiled only with FS_NOTAIL_FL",
+	"notail":               "documented fs-notail nickname; absent from optionnames[] even when FS_NOTAIL_FL exists",
 	"nshare":               "documented; compiled only with O_NSHARE",
 	"paws":                 "documented; compiled only with OSF1 TCP_PAWS",
 	"res-aaonly":           "documented resolver option; compiled only with WITH_AA_ONLY",
