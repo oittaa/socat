@@ -3,6 +3,7 @@
 package xio
 
 import (
+	"bytes"
 	"net"
 	"strings"
 	"sync"
@@ -285,8 +286,18 @@ func TestApplyAncillaryRecvOptsCommandLineOrder(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = pc.Close() })
 	calls := collectSetSockopt(t)
-	if err := ApplyUDPConnOpts(pc, spec, "udp4"); err != nil {
+	raw, err := pc.SyscallConn()
+	if err != nil {
 		t.Fatal(err)
+	}
+	var optionErr error
+	if err := raw.Control(func(fd uintptr) {
+		optionErr = ApplyAncillaryRecvOpts(int(fd), spec)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if optionErr != nil {
+		t.Fatal(optionErr)
 	}
 	var seq []string
 	for _, c := range calls.snapshot() {
@@ -315,8 +326,17 @@ func TestApplyAncillaryRecvOptsCommandLineOrder(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = pc2.Close() })
 	calls2 := collectSetSockopt(t)
-	if err := ApplyUDPConnOpts(pc2, spec2, "udp4"); err != nil {
+	raw2, err := pc2.SyscallConn()
+	if err != nil {
 		t.Fatal(err)
+	}
+	if err := raw2.Control(func(fd uintptr) {
+		optionErr = ApplyAncillaryRecvOpts(int(fd), spec2)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if optionErr != nil {
+		t.Fatal(optionErr)
 	}
 	seq = seq[:0]
 	for _, c := range calls2.snapshot() {
@@ -367,5 +387,181 @@ func TestUDPDialControlIPTTLSetsockoptOnce(t *testing.T) {
 	after := countLevelOpt(calls.snapshot(), unix.IPPROTO_IP, unix.IP_TTL)
 	if after != 1 {
 		t.Fatalf("IP_TTL setsockopt count after ApplyUDPConnOpts=%d want 1", after)
+	}
+}
+
+func ipMixedRecvSendSeq(calls []sockoptCall) []string {
+	var seq []string
+	for _, c := range calls {
+		if c.level != unix.IPPROTO_IP {
+			continue
+		}
+		switch {
+		case unix.IP_RECVTTL != unix.IP_TTL && c.opt == unix.IP_RECVTTL:
+			seq = append(seq, "ip-recvttl")
+		case c.opt == unix.IP_TTL:
+			if unix.IP_TTL == unix.IP_RECVTTL && c.value == 1 {
+				seq = append(seq, "ip-recvttl")
+			} else {
+				seq = append(seq, "ip-ttl")
+			}
+		}
+	}
+	return seq
+}
+
+func packetConnIPOptions(t *testing.T, pc net.PacketConn) []byte {
+	t.Helper()
+	sc, ok := pc.(syscall.Conn)
+	if !ok {
+		t.Fatalf("PacketConn type %T is not syscall.Conn", pc)
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []byte
+	var gerr error
+	if err := raw.Control(func(fd uintptr) {
+		got, gerr = sockoptIPOptions(int(fd))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	return got
+}
+
+func TestPastSocketMixedRecvSendCommandLineOrder(t *testing.T) {
+	for _, tc := range []struct {
+		spec string
+		want []string
+	}{
+		{spec: "UDP4-RECV:0,ip-recvttl=1,ip-ttl=64", want: []string{"ip-recvttl", "ip-ttl"}},
+		{spec: "UDP4-RECV:0,ip-ttl=64,ip-recvttl=1", want: []string{"ip-ttl", "ip-recvttl"}},
+		{spec: "UDP4-RECV:0,recvttl=1,ttl=64", want: []string{"ip-recvttl", "ip-ttl"}},
+		{spec: "UDP4-RECV:0,ttl=64,recvttl=1", want: []string{"ip-ttl", "ip-recvttl"}},
+	} {
+		t.Run(tc.spec, func(t *testing.T) {
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var recvTTLDuring, ttlDuring int
+			calls := collectSetSockopt(t)
+			lc := net.ListenConfig{
+				Control: func(network, address string, c syscall.RawConn) error {
+					if err := ListenControl(spec)(network, address, c); err != nil {
+						return err
+					}
+					return c.Control(func(fd uintptr) {
+						recvTTLDuring, _ = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_RECVTTL)
+						ttlDuring, _ = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_TTL)
+					})
+				},
+			}
+			pc, err := lc.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = pc.Close() })
+			got := ipMixedRecvSendSeq(calls.snapshot())
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Fatalf("setsockopt order=%v want %v (must be before bind)", got, tc.want)
+			}
+			if recvTTLDuring == 0 {
+				t.Fatal("IP_RECVTTL unset during ListenControl; classic applies it at PH_PASTSOCKET before bind")
+			}
+			if ttlDuring != 64 {
+				t.Fatalf("IP_TTL during ListenControl=%d want 64 (before bind)", ttlDuring)
+			}
+			uc, ok := pc.(*net.UDPConn)
+			if !ok {
+				t.Fatalf("PacketConn type %T", pc)
+			}
+			if err := ApplyUDPConnOpts(uc, spec, "udp4"); err != nil {
+				t.Fatal(err)
+			}
+			after := ipMixedRecvSendSeq(calls.snapshot())
+			if strings.Join(after, ",") != strings.Join(tc.want, ",") {
+				t.Fatalf("ApplyUDPConnOpts reapplied IP options: %v want %v", after, tc.want)
+			}
+		})
+	}
+}
+
+func TestIPOptionsOccurrencesAppend(t *testing.T) {
+	listen := func(specText string) net.PacketConn {
+		t.Helper()
+		spec, err := parse.ParseSpec(specText)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lc := net.ListenConfig{Control: ListenControl(spec)}
+		pc, err := lc.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = pc.Close() })
+		return pc
+	}
+	gotOne := packetConnIPOptions(t, listen("UDP4:127.0.0.1:1,ip-options=x01"))
+	gotTwo := packetConnIPOptions(t, listen("UDP4:127.0.0.1:1,ip-options=x01,ip-options=x01"))
+	if bytes.Equal(gotTwo, gotOne) {
+		t.Fatalf("IP_OPTIONS=%x after two occurrences equals a single occurrence; classic OFUNC_SOCKOPT_APPEND concatenates", gotTwo)
+	}
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	combined := append(append([]byte{}, gotOne...), 0x01)
+	if len(combined) > maxIPOptions {
+		combined = combined[:maxIPOptions]
+	}
+	if err := unix.SetsockoptString(fd, unix.IPPROTO_IP, unix.IP_OPTIONS, string(combined)); err != nil {
+		t.Fatal(err)
+	}
+	want, err := sockoptIPOptions(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotTwo, want) {
+		t.Fatalf("IP_OPTIONS=%x want %x (classic getsockopt+append+setsockopt)", gotTwo, want)
+	}
+
+	gotAlias := packetConnIPOptions(t, listen("UDP4:127.0.0.1:1,ipoptions=x01,ip-options=x02"))
+	fd2, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd2) })
+	combinedAlias := append(append([]byte{}, gotOne...), 0x02)
+	if len(combinedAlias) > maxIPOptions {
+		combinedAlias = combinedAlias[:maxIPOptions]
+	}
+	if err := unix.SetsockoptString(fd2, unix.IPPROTO_IP, unix.IP_OPTIONS, string(combinedAlias)); err != nil {
+		t.Fatal(err)
+	}
+	wantAlias, err := sockoptIPOptions(fd2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotAlias, wantAlias) {
+		t.Fatalf("alias mix IP_OPTIONS=%x want %x", gotAlias, wantAlias)
+	}
+}
+
+func TestIPOptionsInvalidThenValidFails(t *testing.T) {
+	spec, err := parse.ParseSpec("UDP4:127.0.0.1:1,ip-options=xzz,ip-options=x01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lc := net.ListenConfig{Control: ListenControl(spec)}
+	pc, err := lc.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
+	if err == nil {
+		t.Cleanup(func() { _ = pc.Close() })
+		t.Fatal("invalid earlier ip-options succeeded; classic stops on the first occurrence")
 	}
 }

@@ -7,6 +7,8 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
+	"syscall"
 	"time"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -177,7 +179,7 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 		return nil, err
 	}
 	netw := ipNetwork(network, proto)
-	c, err := net.DialIP(netw, laddr, raddr)
+	c, err := dialRawIP(ctx, netw, laddr, raddr, s, network)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +227,7 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		laddr = &net.IPAddr{IP: lip}
 	}
 	netw := ipNetwork(network, proto)
-	pc, err := net.ListenIP(netw, laddr)
+	pc, err := listenRawIP(ctx, netw, laddr, s)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +263,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		laddr = &net.IPAddr{IP: lip}
 	}
 	netw := ipNetwork(network, proto)
-	pc, err := net.ListenIP(netw, laddr)
+	pc, err := listenRawIP(ctx, netw, laddr, s)
 	if err != nil {
 		return nil, err
 	}
@@ -348,10 +350,70 @@ func ipLookupNet(network string) string {
 	return "ip4"
 }
 
-// applyIPConnOpts sets ancillary recv, send IP options, and multicast join.
+func rawIPListenAddr(netw string, laddr *net.IPAddr) string {
+	if laddr != nil && laddr.IP != nil {
+		return laddr.String()
+	}
+	if strings.HasPrefix(netw, "ip6") {
+		return "::"
+	}
+	return "0.0.0.0"
+}
+
+// testHookAfterRawIPPastSocket, when set, runs inside Dialer/ListenConfig
+// Control after PH_PASTSOCKET options and before bind/connect.
+var testHookAfterRawIPPastSocket func(network, address string, c syscall.RawConn) error
+
+func dialRawIP(ctx context.Context, netw string, laddr, raddr *net.IPAddr, s parse.Spec, optionNetwork string) (*net.IPConn, error) {
+	d := net.Dialer{
+		Timeout:   xio.ConnectTimeout(s),
+		LocalAddr: laddr,
+		Control:   xio.DialControl(s, optionNetwork, testHookAfterRawIPPastSocket),
+	}
+	c, err := d.DialContext(ctx, netw, raddr.String())
+	if err != nil {
+		return nil, err
+	}
+	ic, ok := c.(*net.IPConn)
+	if !ok {
+		logx.CloseQuiet(c)
+		return nil, fmt.Errorf("%s: unexpected conn type %T", netw, c)
+	}
+	return ic, nil
+}
+
+func listenRawIP(ctx context.Context, netw string, laddr *net.IPAddr, s parse.Spec) (*net.IPConn, error) {
+	inner := xio.ListenControl(s)
+	lc := net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			if err := inner(network, address, c); err != nil {
+				return err
+			}
+			if h := testHookAfterRawIPPastSocket; h != nil {
+				return h(network, address, c)
+			}
+			return nil
+		},
+	}
+	pc, err := lc.ListenPacket(ctx, netw, rawIPListenAddr(netw, laddr))
+	if err != nil {
+		return nil, err
+	}
+	ic, ok := pc.(*net.IPConn)
+	if !ok {
+		logx.CloseQuiet(pc)
+		return nil, fmt.Errorf("%s: unexpected packet conn type %T", netw, pc)
+	}
+	return ic, nil
+}
+
+// applyIPConnOpts applies remaining SOL_SOCKET options and multicast join.
+// Send and recv IP/ancillary options are PH_PASTSOCKET (dialRawIP /
+// listenRawIP Control → ApplyPastSocketPhase) and must not be re-applied
+// here after DialIP/ListenIP-equivalent bind/connect.
 // SO_BROADCAST is applied with other PH_PASTSOCKET SOL_SOCKET options via
 // ApplySocketOptions (classic TYPE_INT; broadcast=0 is a real setsockopt).
-func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
+func applyIPConnOpts(c *net.IPConn, s parse.Spec, _ string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
 		return err
@@ -359,12 +421,6 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
 		if optionErr = xio.ApplySocketOptions(int(fd), s); optionErr != nil {
-			return
-		}
-		if optionErr = xio.ApplyAncillaryRecvOpts(int(fd), s); optionErr != nil {
-			return
-		}
-		if optionErr = xio.ApplyIPSendOpts(int(fd), s, network); optionErr != nil {
 			return
 		}
 		// classic often sets reuse on raw too

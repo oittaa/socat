@@ -154,8 +154,9 @@ func ApplyLateSocketOptionsToPacketConn(pc net.PacketConn, s parse.Spec) error {
 }
 
 // ApplyIPSendOptsToPacketConn applies send-side IP options on a UDP PacketConn
-// that was not created with ListenControl (tests, leftover callers). QUIC and
-// HTTP/3 apply the same options once in ListenControl at PH_PASTSOCKET.
+// that was not created with ListenControl (tests, leftover callers). QUIC,
+// HTTP/3, and raw IP apply the same options once in ListenControl / DialControl
+// at PH_PASTSOCKET.
 func ApplyIPSendOptsToPacketConn(pc net.PacketConn, s parse.Spec, network string) error {
 	if pc == nil || !ipSendRequested(s) {
 		return nil

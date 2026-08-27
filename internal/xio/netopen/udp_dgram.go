@@ -105,7 +105,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("UDP: unexpected packet conn type")
 	}
-	// Ancillary recv + PH_LATE buffers. Send-side IP options were applied
+	// PH_LATE buffers. Send and recv IP/ancillary options were applied
 	// at PH_PASTSOCKET by ListenControl.
 	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
 		_ = c.Close()
@@ -403,8 +403,8 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 		return nil, err
 	}
 	c := pc.(*net.UDPConn)
-	// Ancillary recv opts (so-timestamp, ip-recvttl, …). Send-side IP
-	// options were applied at PH_PASTSOCKET by ListenControl.
+	// PH_LATE buffers. Send and recv IP/ancillary options were applied
+	// at PH_PASTSOCKET by ListenControl.
 	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
 		_ = c.Close()
 		return nil, err

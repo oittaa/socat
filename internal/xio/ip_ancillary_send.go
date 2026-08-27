@@ -9,24 +9,28 @@ import (
 )
 
 // ApplyIPSendOpts sets classic send-side IP options on an INET fd.
-// DialControl / ListenControl apply these once at PH_PASTSOCKET via
-// ApplyNetworkSocketOptions; raw-IP sockets that have no Control callback
-// call this after ListenIP/DialIP.
+// Production INET sockets apply send and recv IP/ancillary options together
+// at PH_PASTSOCKET via ApplyPastSocketPhase (DialControl / ListenControl,
+// including raw IP). This send-only helper remains for leftover callers
+// such as ApplyIPSendOptsToPacketConn.
 func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
 	return applyClassicIPSendOpts(fd, s, ipFamilyFromNetwork(network))
 }
 
-// applyIPTTLTOS is the PH_PASTSOCKET owner for send-side IP options on Go
-// net sockets. Called from ApplyNetworkSocketOptions (DialControl /
-// ListenControl) after socket() and before bind/connect. Skips UNIX/VSOCK
-// and other non-INET networks. Classic: xio-ip.c / xio-ip6.c OFUNC_SOCKOPT
-// at PH_PASTSOCKET (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same tree).
-func applyIPTTLTOS(fd int, s parse.Spec, network string) error {
+// ApplyPastSocketPhase applies classic PH_PASTSOCKET IP/ancillary options
+// in one pass over Spec.Options, after socket() and before bind/connect.
+// Send (IP_TTL, IP_TOS, IP_OPTIONS, …) and recv (IP_RECVTTL, IP_PKTINFO, …)
+// are classified and applied in original command-line order so
+// ip-recvttl=1,ip-ttl=64 is not split across bind.
+// Classic: xio-ip.c / xio-ip6.c OFUNC_SOCKOPT / OFUNC_SOCKOPT_APPEND at
+// PH_PASTSOCKET; applyopts in xioopts.c (tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same tree).
+func ApplyPastSocketPhase(fd int, s parse.Spec, network string) error {
 	if !ipSendAppliesToNetwork(network) {
 		return nil
 	}
-	return applyClassicIPSendOpts(fd, s, ipFamilyFromNetwork(network))
+	return applyClassicIPPastSocketOpts(fd, s, ipFamilyFromNetwork(network))
 }
 
 func ipSendAppliesToNetwork(network string) bool {
@@ -51,24 +55,57 @@ func specOptionName(o parse.Option) string {
 	return o.OriginalSpelling()
 }
 
+func resolveApplyIPFamily(fd int, family ipFamily) (ipFamily, error) {
+	if family != ipFamilyUnknown {
+		return family, nil
+	}
+	return socketIPFamily(fd)
+}
+
+// applyClassicIPPastSocketOpts applies send and recv IP/ancillary options
+// in one command-line walk (classic applyopts PH_PASTSOCKET).
+func applyClassicIPPastSocketOpts(fd int, s parse.Spec, family ipFamily) error {
+	got, err := resolveApplyIPFamily(fd, family)
+	if err != nil {
+		return err
+	}
+	family = got
+	for _, option := range s.Options {
+		e, ok := lookupIPAncillary(specOptionName(option))
+		if !ok {
+			continue
+		}
+		switch {
+		case e.Kind&IPAncillarySend != 0:
+			if err := applyOneIPSendOpt(fd, e, option, family); err != nil {
+				return err
+			}
+		case e.Kind&IPAncillaryRecv != 0:
+			if err := applyOneIPRecvOpt(fd, e, option, family); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // applyClassicIPSendOpts applies send-side IP options with classic levels from
 // xio-ip.c / xio-ip6.c (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
 // official master af5388c898c7bb60997935aee93c223deba60c4a is the same tree):
-// ip-ttl/ip-tos/ip-options use OFUNC_SOCKOPT SOL_IP (IPPROTO_IP) IP_TTL/IP_TOS/
-// IP_OPTIONS even on IPv6 sockets. ipv6-unicast-hops/ipv6-tclass use SOL_IPV6
-// and are rejected on IPv4 rather than skipped.
+// ip-ttl/ip-tos use OFUNC_SOCKOPT SOL_IP (IPPROTO_IP) IP_TTL/IP_TOS even on
+// IPv6 sockets. ip-options uses OFUNC_SOCKOPT_APPEND SOL_IP IP_OPTIONS.
+// ipv6-unicast-hops/ipv6-tclass use SOL_IPV6 and are rejected on IPv4 rather
+// than skipped.
 //
 // Classic applyopts walks every matching option in command-line order, so
 // ttl=1,ip-ttl=64 is two setsockopt calls (not OptionNamed last-wins). An
 // earlier kernel-invalid value still fails even if a later value is valid.
 func applyClassicIPSendOpts(fd int, s parse.Spec, family ipFamily) error {
-	if family == ipFamilyUnknown {
-		got, err := socketIPFamily(fd)
-		if err != nil {
-			return err
-		}
-		family = got
+	got, err := resolveApplyIPFamily(fd, family)
+	if err != nil {
+		return err
 	}
+	family = got
 	for _, option := range s.Options {
 		e, ok := lookupIPAncillary(specOptionName(option))
 		if !ok || e.Kind&IPAncillarySend == 0 {
@@ -93,6 +130,7 @@ func applyOneIPSendOpt(fd int, e IPAncillaryEntry, option parse.Option, family i
 		if v == "" {
 			return nil
 		}
+		// Each occurrence appends (classic OFUNC_SOCKOPT_APPEND); stop on error.
 		if err := applyIPOptions(fd, v); err != nil {
 			return fmt.Errorf("ip-options: %w", err)
 		}

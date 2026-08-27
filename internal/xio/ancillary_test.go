@@ -112,18 +112,20 @@ func TestNeedAncillaryBoolOption(t *testing.T) {
 }
 
 func TestUDPRecvTTLAncillary(t *testing.T) {
-	recv, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = recv.Close() })
 	spec, err := parse.ParseSpec("UDP-RECV:0,ip-recvttl")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyUDPConnOpts(recv, spec, "udp4"); err != nil {
+	lc := net.ListenConfig{Control: ListenControl(spec)}
+	pc, err := lc.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
+	if err != nil {
 		t.Fatal(err)
 	}
+	recv, ok := pc.(*net.UDPConn)
+	if !ok {
+		t.Fatalf("PacketConn type %T", pc)
+	}
+	t.Cleanup(func() { _ = recv.Close() })
 	raw, err := recv.SyscallConn()
 	if err != nil {
 		t.Fatal(err)

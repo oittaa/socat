@@ -36,20 +36,27 @@ func ApplyAncillaryRecvOpts(fd int, s parse.Spec) error {
 		if !ok || e.Kind&IPAncillaryRecv == 0 {
 			continue
 		}
-		n, err := ancillaryRecvOptionInt(option)
-		if err != nil {
-			return fmt.Errorf("%s: %w", e.Canonical, err)
-		}
-		if err := rejectIPAncillaryApply(e.Canonical, family); err != nil {
+		if err := applyOneIPRecvOpt(fd, e, option, family); err != nil {
 			return err
 		}
-		level, opt, ok := ancillaryRecvSockopt(e.Canonical)
-		if !ok {
-			continue
-		}
-		if err := setSockoptInt(fd, level, opt, n); err != nil {
-			return fmt.Errorf("%s: %w", e.Canonical, err)
-		}
+	}
+	return nil
+}
+
+func applyOneIPRecvOpt(fd int, e IPAncillaryEntry, option parse.Option, family ipFamily) error {
+	n, err := ancillaryRecvOptionInt(option)
+	if err != nil {
+		return fmt.Errorf("%s: %w", e.Canonical, err)
+	}
+	if err := rejectIPAncillaryApply(e.Canonical, family); err != nil {
+		return err
+	}
+	level, opt, ok := ancillaryRecvSockopt(e.Canonical)
+	if !ok {
+		return nil
+	}
+	if err := setSockoptInt(fd, level, opt, n); err != nil {
+		return fmt.Errorf("%s: %w", e.Canonical, err)
 	}
 	return nil
 }
@@ -313,9 +320,10 @@ func ReadUDPMsg(c *net.UDPConn, p []byte, wantCtrl bool) (n int, oob []byte, add
 	return n, oob[:oobn], addr, nil
 }
 
-// ApplyUDPConnOpts applies ancillary recv options and PH_LATE buffers on a
-// live UDPConn. Send-side IP options are PH_PASTSOCKET (DialControl /
-// ListenControl → ApplyNetworkSocketOptions).
+// ApplyUDPConnOpts applies PH_LATE buffers (and remaining SOL_SOCKET options)
+// on a live UDPConn. Send and recv IP/ancillary options are PH_PASTSOCKET
+// (DialControl / ListenControl → ApplyPastSocketPhase) and must not be
+// re-applied here after bind/connect.
 func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
@@ -323,11 +331,6 @@ func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 	}
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
-		if err := ApplyAncillaryRecvOpts(int(fd), s); err != nil {
-			optionErr = err
-			return
-		}
-		// Send-side IP options are PH_PASTSOCKET (DialControl / ListenControl).
 		optionErr = ApplySocketOptions(int(fd), s)
 		// PH_LATE so-sndbuf-late / so-rcvbuf-late on the raw UDP fd after
 		// bind/connect, before packet-session wrapping (udpRecvFromConn).

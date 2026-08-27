@@ -4,9 +4,11 @@ package netopen
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -71,18 +73,16 @@ func TestOpenSpecRejectsTCPRecvAncillary(t *testing.T) {
 }
 
 func TestRawIPSendTTL(t *testing.T) {
-	pc, err := net.ListenIP("ip4:255", &net.IPAddr{IP: net.IPv4zero})
-	if err != nil {
-		t.Skipf("raw IP unavailable: %v", err)
-	}
-	t.Cleanup(func() { _ = pc.Close() })
 	spec, err := parse.ParseSpec("IP4-RECV:255,ip-ttl=7")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := applyIPConnOpts(pc, spec, "ip4"); err != nil {
+	pc, err := listenRawIP(t.Context(), "ip4:255", &net.IPAddr{IP: net.IPv4zero}, spec)
+	skipIfRawIPPermissionDenied(t, err)
+	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = pc.Close() })
 	raw, err := pc.SyscallConn()
 	if err != nil {
 		t.Fatal(err)
@@ -97,5 +97,82 @@ func TestRawIPSendTTL(t *testing.T) {
 	}
 	if ttl != 7 {
 		t.Fatalf("IP_TTL=%d want 7", ttl)
+	}
+}
+
+func skipIfRawIPPermissionDenied(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
+		return
+	}
+	if errors.Is(err, unix.EPERM) || errors.Is(err, unix.EACCES) || errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
+		t.Skipf("SOCK_RAW requires CAP_NET_RAW: %v", err)
+	}
+}
+
+func TestRawIPSendtoAppliesTTLBeforeConnect(t *testing.T) {
+	var ttlDuring int
+	var sawControl bool
+	testHookAfterRawIPPastSocket = func(network, address string, c syscall.RawConn) error {
+		sawControl = true
+		return c.Control(func(fd uintptr) {
+			ttlDuring, _ = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_TTL)
+		})
+	}
+	t.Cleanup(func() { testHookAfterRawIPPastSocket = nil })
+
+	spec, err := parse.ParseSpec("IP4-SENDTO:127.0.0.1:255,ip-ttl=64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	opened, err := openIPSendtoNetwork(ctx, spec, xio.ModeRDWR, useGlobal(), "ip4")
+	skipIfRawIPPermissionDenied(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = opened.Close() })
+	if !sawControl {
+		t.Fatal("raw-IP DialControl did not run; PH_PASTSOCKET options must apply before connect")
+	}
+	if ttlDuring != 64 {
+		t.Fatalf("IP_TTL during Control=%d want 64 (before connect)", ttlDuring)
+	}
+}
+
+func TestRawIPRecvAppliesTTLBeforeBind(t *testing.T) {
+	var ttlDuring int
+	var recvTTLDuring int
+	var sawControl bool
+	testHookAfterRawIPPastSocket = func(network, address string, c syscall.RawConn) error {
+		sawControl = true
+		return c.Control(func(fd uintptr) {
+			ttlDuring, _ = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_TTL)
+			recvTTLDuring, _ = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_RECVTTL)
+		})
+	}
+	t.Cleanup(func() { testHookAfterRawIPPastSocket = nil })
+
+	spec, err := parse.ParseSpec("IP4-RECV:255,ip-recvttl=1,ip-ttl=64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	opened, err := openIPRecvNetwork(ctx, spec, xio.ModeRead, useGlobal(), "ip4", false)
+	skipIfRawIPPermissionDenied(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = opened.Close() })
+	if !sawControl {
+		t.Fatal("raw-IP ListenControl did not run; PH_PASTSOCKET options must apply before bind")
+	}
+	if recvTTLDuring == 0 {
+		t.Fatal("IP_RECVTTL unset during Control; classic applies recv and send together before bind")
+	}
+	if ttlDuring != 64 {
+		t.Fatalf("IP_TTL during Control=%d want 64 (before bind)", ttlDuring)
 	}
 }

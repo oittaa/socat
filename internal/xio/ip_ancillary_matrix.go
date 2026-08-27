@@ -64,7 +64,7 @@ var ipAncillaryRecvGroups = []string{GroupUDP, GroupRawIP}
 
 // ipAncillarySendGroups are families that apply send-side IP socket options
 // on the underlying INET fd once at PH_PASTSOCKET (DialControl /
-// ListenControl → ApplyNetworkSocketOptions; raw IP via ApplyIPSendOpts).
+// ListenControl → ApplyNetworkSocketOptions / ApplyPastSocketPhase).
 var ipAncillarySendGroups = []string{
 	GroupUDP, GroupRawIP, GroupTCP, GroupSCTP,
 	GroupTLS, GroupWebSocket, GroupProxy, GroupQUIC,

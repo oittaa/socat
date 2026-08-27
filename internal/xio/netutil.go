@@ -209,13 +209,13 @@ func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn
 }
 
 // ApplyNetworkSocketOptions applies the post-socket options shared by Go net
-// listeners/dialers and raw SCTP sockets, including PH_PASTSOCKET send-side
-// IP options (once; not again after connect/bind).
+// listeners/dialers and raw SCTP sockets, including the unified PH_PASTSOCKET
+// IP/ancillary pass (send and recv, once; not again after connect/bind).
 func ApplyNetworkSocketOptions(fd int, s parse.Spec, network string) error {
 	if err := ApplySocketOptions(fd, s); err != nil {
 		return err
 	}
-	return applyIPTTLTOS(fd, s, network)
+	return ApplyPastSocketPhase(fd, s, network)
 }
 
 // ApplyListenBacklog updates the pending-connection queue of an existing TCP
@@ -239,8 +239,8 @@ func ApplyListenBacklog(ln net.Listener, backlog int) error {
 }
 
 // DialControl merges spec-driven socket options (rcvtimeo/sndtimeo, and
-// PH_PASTSOCKET IP send options) with an optional caller-provided Control,
-// producing a single net.Dialer.Control.
+// PH_PASTSOCKET IP send and recv ancillary options) with an optional
+// caller-provided Control, producing a single net.Dialer.Control.
 func DialControl(s parse.Spec, network string, caller func(string, string, syscall.RawConn) error) func(string, string, syscall.RawConn) error {
 	return func(nw, addr string, c syscall.RawConn) error {
 		optionNetwork := network

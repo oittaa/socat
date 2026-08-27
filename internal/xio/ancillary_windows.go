@@ -26,6 +26,10 @@ func ReadUDPMsg(c *net.UDPConn, p []byte, _ bool) (int, []byte, *net.UDPAddr, er
 	return n, nil, addr, err
 }
 
+func applyOneIPRecvOpt(_ int, e IPAncillaryEntry, _ parse.Option, family ipFamily) error {
+	return rejectIPAncillaryApply(e.Canonical, family)
+}
+
 func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
@@ -33,11 +37,9 @@ func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 	}
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
-		optionErr = ApplyAncillaryRecvOpts(int(fd), s)
-		if optionErr == nil {
-			// Send-side IP options are PH_PASTSOCKET (DialControl / ListenControl).
-			optionErr = ApplySocketOptions(int(fd), s)
-		}
+		// Send and recv IP/ancillary options are PH_PASTSOCKET
+		// (DialControl / ListenControl → ApplyPastSocketPhase).
+		optionErr = ApplySocketOptions(int(fd), s)
 		if optionErr == nil {
 			optionErr = ApplyLateSocketOptions(int(fd), s)
 		}
