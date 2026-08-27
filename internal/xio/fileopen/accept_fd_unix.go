@@ -33,8 +33,12 @@ func init() {
 //
 // Man lists groups FD, SOCKET, TCP, CHILD, RETRY. C addrdesc is
 // GROUP_FD|GROUP_SOCKET|GROUP_SOCK_UNIX|GROUP_SOCK_IP|GROUP_IPAPP|GROUP_CHILD|
-// GROUP_RANGE|GROUP_RETRY. We follow C so documented useful options (fork,
-// range, sourceport, lowport, tcpwrap) work. Man “TCP” is IPAPP.
+// GROUP_RANGE|GROUP_RETRY. GROUP_IPAPP is the C union of UDP, TCP, SCTP,
+// DCCP, and UDP-Lite (xioopts.h); it is broader than man GROUP_TCP, not a
+// short form of TCP. This is a man/C group discrepancy: we follow C so
+// documented useful options (fork, range, sourceport, lowport, tcpwrap)
+// work for IP and UNIX listeners. ACCEPT is the public addressnames[] alias.
+// The fd must already be a listening stream socket; we accept(2) on it.
 func openAcceptFDNum(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, fd int) (*xio.Opened, error) {
 	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFD, unix.FD_CLOEXEC); err != nil {
 		if g != nil && g.Log != nil {
