@@ -50,7 +50,7 @@ func init() {
 	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 	// af5388c898c7bb60997935aee93c223deba60c4a is the same file) reuses the
 	// UDP CONNECT/LISTEN/SENDTO/RECV/RECVFROM/DATAGRAM openers with
-	// SOCK_DGRAM + IPPROTO_UDPLITE. Linux and FreeBSD; -V WITH_UDPLITE.
+	// SOCK_DGRAM + IPPROTO_UDPLITE. Linux only; -V WITH_UDPLITE.
 	udpliteEnabled := func() bool { return xio.FeatureUDPLITE }
 	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE", Syntax: "UDPLITE:<host>:<port>", Desc: "UDP-Lite client", Enabled: udpliteEnabled, Opener: openUDPConnect})
 	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE-CONNECT", Syntax: "UDPLITE-CONNECT:<host>:<port>", Desc: "same as UDPLITE", Enabled: udpliteEnabled, Opener: openUDPConnect})

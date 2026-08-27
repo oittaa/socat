@@ -647,17 +647,13 @@ func TestUDPLITE4Echo(t *testing.T) {
 		t.Skipf("kernel UDP-Lite not usable: %v", err)
 	}
 	port := freeUDPPort(t)
-	srv := exec.Command(bin, fmt.Sprintf("UDPLITE4-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1", port), "PIPE")
-	var stderr bytes.Buffer
-	srv.Stderr = &stderr
-	if err := srv.Start(); err != nil {
+	srvCmd := exec.Command(bin, fmt.Sprintf("UDPLITE4-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1", port), "PIPE")
+	srv, err := startTestProcess(srvCmd)
+	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		_ = srv.Process.Kill()
-		_, _ = srv.Process.Wait()
-	}()
-	time.Sleep(150 * time.Millisecond)
+	defer srv.stop()
+	waitUDPLITEListen(t, srv, net.IPv4(127, 0, 0, 1), port, tcpListenerStartupTimeout)
 
 	payload := fmt.Sprintf("test UDPLITE4 %d\n", time.Now().UnixNano())
 	pr, pw := io.Pipe()
@@ -672,11 +668,35 @@ func TestUDPLITE4Echo(t *testing.T) {
 	cli.Stdout = &out
 	cli.Stderr = &errb
 	if err := cli.Run(); err != nil {
-		t.Fatalf("client: %v server=%s client=%s", err, stderr.String(), errb.String())
+		t.Fatalf("client: %v server=%s client=%s", err, srv.stderr.String(), errb.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte(strings.TrimSpace(payload))) && !bytes.Contains(out.Bytes(), []byte(payload)) {
-		t.Fatalf("echo mismatch out=%q server=%s client=%s", out.Bytes(), stderr.String(), errb.String())
+		t.Fatalf("echo mismatch out=%q server=%s client=%s", out.Bytes(), srv.stderr.String(), errb.String())
 	}
+}
+
+// waitUDPLITEListen polls /proc/net/udplite for a bound local address.
+// UDP and UDP-Lite have distinct protocol/port namespaces, so an ordinary
+// UDP bind probe is not a valid readiness check.
+func waitUDPLITEListen(t *testing.T, proc *testProcess, ip net.IP, port int, timeout time.Duration) {
+	t.Helper()
+	ip4 := ip.To4()
+	if ip4 == nil {
+		t.Fatalf("waitUDPLITEListen: need IPv4, got %v", ip)
+	}
+	want := fmt.Sprintf("%02X%02X%02X%02X:%04X", ip4[3], ip4[2], ip4[1], ip4[0], port)
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if err, exited := proc.status(); exited {
+			t.Fatalf("UDPLITE server exited before listening: %v stderr=%s", err, proc.stderr.String())
+		}
+		b, err := os.ReadFile("/proc/net/udplite")
+		if err == nil && bytes.Contains(bytes.ToUpper(b), []byte(want)) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for UDPLITE listen on %s:%d", ip, port)
 }
 
 func TestVersionHasSCTP(t *testing.T) {

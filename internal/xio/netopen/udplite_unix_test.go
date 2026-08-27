@@ -1,4 +1,4 @@
-//go:build linux || freebsd
+//go:build linux
 
 package netopen
 
@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -24,6 +25,124 @@ func skipIfNoUDPLITE(t *testing.T) {
 		t.Skipf("no kernel UDP-Lite: %v", err)
 	}
 	_ = unix.Close(fd)
+}
+
+func skipIfNoUDPLITE6(t *testing.T) {
+	t.Helper()
+	skipIfNoUDPLITE(t)
+	fd, err := unix.Socket(unix.AF_INET6, unix.SOCK_DGRAM, unix.IPPROTO_UDPLITE)
+	if err != nil {
+		t.Skipf("no kernel IPv6 UDP-Lite: %v", err)
+	}
+	_ = unix.Close(fd)
+	pc, err := net.ListenPacket("udp6", "[::1]:0")
+	if err != nil {
+		t.Skipf("no IPv6 loopback: %v", err)
+	}
+	_ = pc.Close()
+}
+
+func listenUDPLITE4Probe(t *testing.T) net.PacketConn {
+	t.Helper()
+	skipIfNoUDPLITE(t)
+	pc, err := listenIPDgram(context.Background(), "udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}, parse.Spec{Type: "UDPLITE4-SENDTO"}, ipprotoUDPLITE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	return pc
+}
+
+func TestUDPLITE4SendtoIgnoresWrongPeer(t *testing.T) {
+	skipIfNoUDPLITE(t)
+	testSendtoIgnoresWrongPeer(t, "UDPLITE4-SENDTO", listenUDPLITE4Probe)
+}
+
+func TestUDPLITE4DatagramAcceptsWrongPeerByDefault(t *testing.T) {
+	skipIfNoUDPLITE(t)
+	testDatagramAcceptsWrongPeer(t, "UDPLITE4-DATAGRAM", listenUDPLITE4Probe)
+}
+
+func TestUDPLITE4DatagramRangeFilter(t *testing.T) {
+	skipIfNoUDPLITE(t)
+	testDatagramRangeFilter(t, "UDPLITE4-DATAGRAM", listenUDPLITE4Probe)
+}
+
+func TestUDPLITE4DatagramSourceportFilter(t *testing.T) {
+	skipIfNoUDPLITE(t)
+	testDatagramSourceportFilter(t, "UDPLITE4-DATAGRAM", listenUDPLITE4Probe)
+}
+
+func TestUDPLITE4DatagramTCPWrapFilter(t *testing.T) {
+	skipIfNoUDPLITE(t)
+	testDatagramTCPWrapFilter(t, "UDPLITE4-DATAGRAM", listenUDPLITE4Probe)
+}
+
+func TestUDPLITE6ListenConnectEcho(t *testing.T) {
+	skipIfNoUDPLITE6(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	srv := startNetListenPIPE(t, ctx, useGlobal(), "UDPLITE6-LISTEN:0,reuseaddr,fork,bind=[::1]")
+	t.Cleanup(func() { _ = srv.Close() })
+	ua, ok := srv.Listener.Addr().(*net.UDPAddr)
+	if !ok {
+		t.Fatalf("listen addr %T", srv.Listener.Addr())
+	}
+	cli, err := xio.OpenChannel(ctx, parseChannel(t, "UDPLITE6:[::1]:"+strconv.Itoa(ua.Port)+",connect-timeout=2"), xio.ModeRDWR, useGlobal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cli.Close() })
+	echoConn(t, cli.Stream, []byte("udplite6-hi"))
+}
+
+func TestUDPSockaddrIPv6Zone(t *testing.T) {
+	lo, err := net.InterfaceByName("lo")
+	if err != nil {
+		t.Skipf("no lo interface: %v", err)
+	}
+	id, ok := xio.Uint32FromInt(lo.Index)
+	if !ok {
+		t.Fatalf("lo index %d out of range", lo.Index)
+	}
+	sa, err := udpSockaddr(unix.AF_INET6, &net.UDPAddr{IP: net.ParseIP("::1"), Port: 9, Zone: "lo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inet6, ok := sa.(*unix.SockaddrInet6)
+	if !ok {
+		t.Fatalf("type %T", sa)
+	}
+	if inet6.ZoneId != id {
+		t.Fatalf("name zone=%d want %d", inet6.ZoneId, id)
+	}
+	sa, err = udpSockaddr(unix.AF_INET6, &net.UDPAddr{IP: net.ParseIP("::1"), Port: 9, Zone: strconv.Itoa(lo.Index)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inet6 = sa.(*unix.SockaddrInet6)
+	if inet6.ZoneId != id {
+		t.Fatalf("numeric zone=%d want %d", inet6.ZoneId, id)
+	}
+	if _, err := udpSockaddr(unix.AF_INET6, &net.UDPAddr{IP: net.ParseIP("::1"), Port: 9, Zone: "no-such-udplite-iface"}); err == nil {
+		t.Fatal("unknown interface name must error")
+	}
+	if _, err := udpSockaddr(unix.AF_INET6, &net.UDPAddr{IP: net.ParseIP("::1"), Port: 9, Zone: "4294967296"}); err == nil {
+		t.Fatal("overflowing numeric zone must error")
+	}
+}
+
+func TestUDPLITE6UnknownZoneErrors(t *testing.T) {
+	skipIfNoUDPLITE6(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := xio.OpenChannel(ctx, parseChannel(t, "UDPLITE6-LISTEN:0,bind=[::1%no-such-udplite-iface]"), xio.ModeRDWR, useGlobal())
+	if err == nil {
+		t.Fatal("expected IPv6 zone error")
+	}
+	if !strings.Contains(err.Error(), "no-such-udplite-iface") {
+		t.Fatalf("error %v does not mention zone", err)
+	}
 }
 
 func packetSOProtocol(t *testing.T, sc syscall.Conn) int {

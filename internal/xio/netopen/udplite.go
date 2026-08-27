@@ -13,8 +13,10 @@ import (
 )
 
 // RFC 3828 / IANA UDP-Lite (IP protocol 136). unix.IPPROTO_UDPLITE is 0x88
-// on Linux and FreeBSD. Go net has no "udp-lite" network, so named UDPLITE*
-// types open SOCK_DGRAM + this protocol and wrap the fd as *net.UDPConn.
+// on Linux. Go net has no "udp-lite" network, so named UDPLITE* types open
+// SOCK_DGRAM + this protocol and wrap the fd as *net.UDPConn. Classic also
+// builds UDP-Lite on other platforms with IPPROTO_UDPLITE (including FreeBSD);
+// this port is Linux-only because the repository does not yet build for FreeBSD.
 const ipprotoUDPLITE = 136
 
 func ipDgramProto(s parse.Spec) int {

@@ -1,4 +1,4 @@
-//go:build linux || freebsd
+//go:build linux
 
 package netopen
 
@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -201,16 +202,36 @@ func udpSockaddr(family int, addr *net.UDPAddr) (unix.Sockaddr, error) {
 			copy(sa.Addr[:], v6)
 		}
 		if addr.Zone != "" {
-			if ifi, err := net.InterfaceByName(addr.Zone); err == nil {
-				if zone, ok := xio.Uint32FromInt(ifi.Index); ok {
-					sa.ZoneId = zone
-				}
+			zone, err := ipv6ZoneID(addr.Zone)
+			if err != nil {
+				return nil, err
 			}
+			sa.ZoneId = zone
 		}
 		return sa, nil
 	default:
 		return nil, fmt.Errorf("udplite: unsupported family %d", family)
 	}
+}
+
+// ipv6ZoneID accepts a numeric zone id or a kernel interface name.
+// Unknown names and overflowing indexes are errors (not zone 0).
+func ipv6ZoneID(zone string) (uint32, error) {
+	if zone == "" {
+		return 0, nil
+	}
+	if n, err := strconv.ParseUint(zone, 10, 32); err == nil {
+		return uint32(n), nil
+	}
+	ifi, err := net.InterfaceByName(zone)
+	if err != nil {
+		return 0, fmt.Errorf("udplite: IPv6 zone %q: %w", zone, err)
+	}
+	id, ok := xio.Uint32FromInt(ifi.Index)
+	if !ok {
+		return 0, fmt.Errorf("udplite: IPv6 zone %q: interface index %d out of range", zone, ifi.Index)
+	}
+	return id, nil
 }
 
 type rawControlFD int
