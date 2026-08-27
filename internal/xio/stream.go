@@ -527,8 +527,8 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected,
 			return nil, err
 		}
 	}
-	// Classic PH_CONNECTED generic setsockopt* follow the same split:
-	// ApplyTCPConnOpts (including TLS/WS/proxy/SOCKS unwrap),
+	// Classic PH_CONNECTED generic setsockopt* and tcp-maxseg-late follow
+	// the same split: ApplyTCPConnOpts (including TLS/WS/proxy/SOCKS unwrap),
 	// ApplyUDPConnOpts, applyUnixgramSocketOptions, QUIC PacketConn, and
 	// WrapCommon as a fallback for streams that expose a socket fd and have
 	// not already applied CONNECTED (INTERFACE, FD, SOCKETPAIR, UNIX stream).

@@ -25,6 +25,9 @@ const (
 	soRcvbuf    = windows.SO_RCVBUF
 	soKeepalive = windows.SO_KEEPALIVE
 	soBroadcast = windows.SO_BROADCAST
+	soDebug     = 0x0001 // Winsock SO_DEBUG; x/sys/windows does not export it
+	soDontroute = windows.SO_DONTROUTE
+	soOobinline = 0x0100 // Winsock SO_OOBINLINE; x/sys/windows does not export it
 )
 
 func isNotSocketError(err error) bool {

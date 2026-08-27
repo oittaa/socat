@@ -26,6 +26,12 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"sockopt", "sockopt-int", "sockopt-bin", "sockopt-string",
 		"sockopt-listen", "sockopt-sock", "sockopt-conn",
 		"broadcast", "so-broadcast",
+		"so-debug", "debug", "so-dontroute", "dontroute", "so-oobinline", "oobinline",
+		"tcp-cork", "cork", "tcp-defer-accept", "defer-accept",
+		"tcp-linger2", "linger2", "tcp-maxseg", "maxseg", "mss",
+		"tcp-maxseg-late", "maxseg-late", "mss-late",
+		"tcp-quickack", "quickack", "tcp-syncnt", "syncnt",
+		"tcp-window-clamp", "window-clamp",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)

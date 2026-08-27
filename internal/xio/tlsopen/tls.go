@@ -123,7 +123,7 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, err
 	}
 
-	lc := net.ListenConfig{Control: xio.ListenControl(s)}
+	lc := xio.NewTCPListenConfig(s)
 	ln, err := lc.Listen(ctx, network, addr)
 	if err != nil {
 		return nil, err

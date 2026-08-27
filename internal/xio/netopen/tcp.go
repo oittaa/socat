@@ -106,7 +106,7 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	}
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
-	lc := net.ListenConfig{Control: xio.ListenControl(s)}
+	lc := xio.NewTCPListenConfig(s)
 	ln, err := lc.Listen(ctx, network, addr)
 	if err != nil {
 		return nil, err

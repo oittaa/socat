@@ -21,6 +21,7 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"setsid", "pty", "setlk",
 		"bindtodevice",
 		"ip-pktinfo", "ip-options", "ipv6-tclass", "ipv6-unicast-hops",
+		"tcp-cork", "tcp-maxseg", "tcp-maxseg-late",
 	} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("unsupported option %q is listed", name)
@@ -33,6 +34,7 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"rcvtimeo", "sndtimeo", "sndbuf", "rcvbuf", "sndbuf-late", "rcvbuf-late",
 		"ciphers", "chdir", "end-close",
 		"ip-ttl", "ip-tos",
+		"so-debug", "so-dontroute", "so-oobinline",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("supported option %q is missing", name)

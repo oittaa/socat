@@ -282,6 +282,75 @@ func TestApplyTCPConnOptsWindowsTTLAndTOS(t *testing.T) {
 	}
 }
 
+func TestApplySocketOptionsNamedSOLSOCKETWindows(t *testing.T) {
+	c, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	spec, err := parse.ParseSpec("TCP-LISTEN:1,so-dontroute,so-oobinline=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := c.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var optionErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		optionErr = ApplySocketOptions(int(fd), spec)
+	})
+	if err := errors.Join(controlErr, optionErr); err != nil {
+		t.Fatalf("apply named SOL_SOCKET: %v", err)
+	}
+	if got := windowsListenSockopt(t, c, soDontroute); got == 0 {
+		t.Fatalf("SO_DONTROUTE=%d want enabled", got)
+	}
+	if got := windowsListenSockopt(t, c, soOobinline); got == 0 {
+		t.Fatalf("SO_OOBINLINE=%d want enabled", got)
+	}
+}
+
+func windowsListenSockopt(t *testing.T, c *net.TCPListener, opt int) int {
+	t.Helper()
+	raw, err := c.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value int
+	var optionErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		value, optionErr = windows.GetsockoptInt(windows.Handle(fd), solSocket, opt)
+	})
+	if err := errors.Join(controlErr, optionErr); err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func TestNamedTCPUnsupportedWindows(t *testing.T) {
+	c, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	spec, err := parse.ParseSpec("TCP-LISTEN:1,tcp-cork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := c.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var optionErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		optionErr = ApplySocketOptions(int(fd), spec)
+	})
+	if err := errors.Join(controlErr, optionErr); err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("error=%v want not supported", err)
+	}
+}
+
 func TestApplySocketOptionsLingerWindows(t *testing.T) {
 	c, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {

@@ -23,6 +23,9 @@ const (
 	soRcvbuf    = unix.SO_RCVBUF
 	soKeepalive = unix.SO_KEEPALIVE
 	soBroadcast = unix.SO_BROADCAST
+	soDebug     = unix.SO_DEBUG
+	soDontroute = unix.SO_DONTROUTE
+	soOobinline = unix.SO_OOBINLINE
 )
 
 func isNotSocketError(err error) bool {
