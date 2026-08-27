@@ -202,7 +202,9 @@ func udpSockaddr(family int, addr *net.UDPAddr) (unix.Sockaddr, error) {
 		}
 		if addr.Zone != "" {
 			if ifi, err := net.InterfaceByName(addr.Zone); err == nil {
-				sa.ZoneId = uint32(ifi.Index)
+				if zone, ok := xio.Uint32FromInt(ifi.Index); ok {
+					sa.ZoneId = zone
+				}
 			}
 		}
 		return sa, nil
