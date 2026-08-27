@@ -233,6 +233,21 @@ func TestExpectedMissingReasonsNonEmpty(t *testing.T) {
 	}
 }
 
+func TestIgnoreCRIsMustAdvertise(t *testing.T) {
+	if _, ok := ExpectedMissingAll()["ignorecr"]; ok {
+		t.Fatal("ignorecr must not remain expected-missing after HTTP/1 CONNECT parser support")
+	}
+	for _, goos := range []string{"linux", "darwin", "windows"} {
+		class, reason := ClassifyOption("ignorecr", goos)
+		if class != ClassMustAdvertise {
+			t.Errorf("%s: class=%s reason=%q; want must-advertise", goos, class, reason)
+		}
+		if _, ok := ImplementationBacklog(goos)["ignorecr"]; ok {
+			t.Errorf("%s backlog still lists ignorecr", goos)
+		}
+	}
+}
+
 func TestUDPIgnorePeerportIsUnsupportedNotBacklog(t *testing.T) {
 	if _, ok := DocsOnlyNotInThisBinary["udp-ignore-peerport"]; !ok {
 		t.Fatal("udp-ignore-peerport must stay in DocsOnlyNotInThisBinary")

@@ -3,9 +3,11 @@
 package e2e_test
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -52,6 +54,111 @@ func TestPROXYHelpHTTPVersion(t *testing.T) {
 	}
 	if !bytes.Contains(hh, []byte(" h2c ")) {
 		t.Fatalf("-hh missing h2c:\n%s", hh)
+	}
+	if !bytes.Contains(hh, []byte(" ignorecr ")) {
+		t.Fatalf("-hh missing ignorecr:\n%s", hh)
+	}
+	hhh := capabilityOutput(t, "-hhh")
+	if !bytes.Contains(hhh, []byte(" ignorecr ")) {
+		t.Fatalf("-hhh missing ignorecr:\n%s", hhh)
+	}
+}
+
+func TestPROXYIgnoreCRLFOnly(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	port := ln.Addr().(*net.TCPAddr).Port
+	errCh := make(chan error, 1)
+	go func() {
+		c, aerr := ln.Accept()
+		if aerr != nil {
+			errCh <- aerr
+			return
+		}
+		defer func() { _ = c.Close() }()
+		br := bufio.NewReader(c)
+		for {
+			line, rerr := br.ReadString('\n')
+			if rerr != nil {
+				errCh <- rerr
+				return
+			}
+			if line == "\r\n" || line == "\n" {
+				break
+			}
+		}
+		if _, werr := io.WriteString(c, "HTTP/1.0 200 Connection established\n\n"); werr != nil {
+			errCh <- werr
+			return
+		}
+		_, _ = io.Copy(c, c)
+		errCh <- nil
+	}()
+
+	bin := socatBin(t)
+	payload := fmt.Sprintf("ignorecr-lf %d\n", time.Now().UnixNano())
+	cli := exec.Command(bin, "-T", "2", "stdin!!stdout",
+		fmt.Sprintf("PROXY:127.0.0.1:127.0.0.1:9,proxyport=%d,ignorecr", port),
+	)
+	var cliErr bytes.Buffer
+	cli.Stdin = bytes.NewBufferString(payload)
+	cli.Stderr = &cliErr
+	out, err := cli.Output()
+	if err != nil {
+		t.Fatalf("client with ignorecr: %v %s", err, cliErr.String())
+	}
+	if string(out) != payload {
+		t.Fatalf("got %q want %q", out, payload)
+	}
+	select {
+	case serr := <-errCh:
+		if serr != nil {
+			t.Fatalf("mock proxy: %v", serr)
+		}
+	default:
+	}
+}
+
+func TestPROXYWithoutIgnoreCRRejectsLFOnly(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	port := ln.Addr().(*net.TCPAddr).Port
+	go func() {
+		c, aerr := ln.Accept()
+		if aerr != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		br := bufio.NewReader(c)
+		for {
+			line, rerr := br.ReadString('\n')
+			if rerr != nil {
+				return
+			}
+			if line == "\r\n" || line == "\n" {
+				break
+			}
+		}
+		_, _ = io.WriteString(c, "HTTP/1.0 200 Connection established\n\n")
+	}()
+
+	bin := socatBin(t)
+	cli := exec.Command(bin, "-T", "2", "stdin!!stdout",
+		fmt.Sprintf("PROXY:127.0.0.1:127.0.0.1:9,proxyport=%d", port),
+	)
+	cli.Stdin = bytes.NewBufferString("should-fail\n")
+	out, err := cli.CombinedOutput()
+	if err == nil {
+		t.Fatalf("LF-only response succeeded without ignorecr: %s", out)
+	}
+	if !bytes.Contains(out, []byte("CRLF-terminated")) && !bytes.Contains(out, []byte("ignorecr")) {
+		t.Fatalf("error=%v output=%s want CRLF/ignorecr diagnostic", err, out)
 	}
 }
 
