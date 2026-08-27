@@ -179,6 +179,8 @@ func TestLastOptionWins(t *testing.T) {
 		{name: "bytes-alias", spec: "TCP:127.0.0.1:9,bytes=4", opt: "readbytes", want: "4"},
 		{name: "crlf-then-crnl-off", spec: "TCP:127.0.0.1:9,crlf,crnl=0", opt: "crnl", want: "0"},
 		{name: "cd-alias", spec: "SYSTEM:pwd,cd=/tmp", opt: "chdir", want: "/tmp"},
+		{name: "login-alias", spec: "EXEC:true,login", opt: "dash", want: "1"},
+		{name: "pgid-alias", spec: "SHELL:true,pgid=0", opt: "setpgid", want: "0"},
 		{name: "new-then-unlink-early-off", spec: "OPEN:file,new,unlink-early=0", opt: "unlink-early", want: "0"},
 		{name: "close-alias", spec: "TCP:127.0.0.1:9,close", opt: "end-close", want: "1"},
 		{name: "maxchildren-alias", spec: "TCP-LISTEN:1,fork,maxchildren=3", opt: "max-children", want: "3"},

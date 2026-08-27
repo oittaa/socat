@@ -10,6 +10,8 @@ func init() {
 		"symbolic-link": "link",
 		"cd":            "chdir",
 		"sid":           "setsid",
+		"login":         "dash",
+		"pgid":          "setpgid",
 		"close":         "end-close",
 		// Classic raw is a distinct, obsolete TERMIOS combination. It does
 		// not use the cfmakeraw mask (notably, raw leaves ECHO unchanged).
