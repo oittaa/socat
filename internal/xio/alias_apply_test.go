@@ -17,20 +17,3 @@ func TestParseRetryIntervallAlias(t *testing.T) {
 		t.Fatalf("interval=%s want 2.5s", p.Interval)
 	}
 }
-
-func TestWantCRNLAliasLastWins(t *testing.T) {
-	on, err := parse.ParseSpec("TCP:127.0.0.1:9,crlf")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !wantCRNL(on) {
-		t.Fatal("crlf alias should enable CRNL conversion")
-	}
-	off, err := parse.ParseSpec("TCP:127.0.0.1:9,crlf,crnl=0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if wantCRNL(off) {
-		t.Fatal("last-wins crnl=0 should disable CRNL conversion")
-	}
-}

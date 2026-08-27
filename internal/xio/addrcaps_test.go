@@ -51,6 +51,8 @@ func TestClassicAllowsOption(t *testing.T) {
 	}{
 		{"TCP-CONNECT", "readbytes", true},
 		{"TCP-CONNECT", "crnl", true},
+		{"TCP-CONNECT", "cr", true},
+		{"TCP-CONNECT", "shut-down", true},
 		{"TCP-CONNECT", "setsid", true},
 		{"TCP-CONNECT", "pty", false},
 		{"TCP-CONNECT", "echo", false},

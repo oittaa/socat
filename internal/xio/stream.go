@@ -299,24 +299,162 @@ func (c crnlReader) Read(p []byte) (int, error) {
 	return out, err
 }
 
-// wantCRNL reports classic crlf/crnl line-ending conversion on an address.
-// "crlf" is an alias for "crnl" in classic xioopts.c.
-func wantCRNL(s parse.Spec) bool {
-	return s.BoolOption("crlf") || s.BoolOption("crnl") || s.BoolOption("crorlf")
+// lineTermMode is classic lineterm (xio.h LINETERM_RAW/CR/CRNL) plus Go-only
+// crorlf. cr and crnl/crlf share one ordered field; last active occurrence
+// wins. crorlf is a distinct conversion and is not folded into cr/crnl.
+//
+// Classic man documents cr and crnl as bare flags. C TYPE_CONST rejects any
+// assignment (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official
+// master af5388c898c7bb60997935aee93c223deba60c4a is the same parseopts arm).
+// Assignments are rejected. Go-only crorlf still uses omitted/=1 to select
+// and =0 to leave the previous conversion.
+type lineTermMode int
+
+const (
+	lineTermRaw lineTermMode = iota
+	lineTermCR
+	lineTermCRNL
+	lineTermCRorLF
+)
+
+func selectedLineTerm(s parse.Spec) lineTermMode {
+	seen := map[string]bool{}
+	for i := len(s.Options) - 1; i >= 0; i-- {
+		o := s.Options[i]
+		name := parse.CanonicalOptionName(o.Name)
+		var mode lineTermMode
+		switch name {
+		case "cr":
+			mode = lineTermCR
+		case "crnl":
+			mode = lineTermCRNL
+		case "crorlf":
+			mode = lineTermCRorLF
+		default:
+			continue
+		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		if !o.Active() {
+			continue
+		}
+		return mode
+	}
+	return lineTermRaw
 }
 
-func ApplyCRNL(s parse.Spec, stream relay.Stream) relay.Stream {
-	if !wantCRNL(s) {
-		return stream
+// wantCRNL reports classic crlf/crnl (not Go-only crorlf) line conversion.
+func wantCRNL(s parse.Spec) bool {
+	return selectedLineTerm(s) == lineTermCRNL
+}
+
+// crWriter converts NL → CR on write (classic lineterm CR: RAW → CR).
+type crWriter struct{ w io.Writer }
+
+func (c *crWriter) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
 	}
-	return relay.FDStream{
-		R: crnlReader{r: stream},
-		W: &crnlWriter{w: stream},
-		C: stream,
-		CloseW: func() error {
-			return stream.ShutdownWrite()
-		},
+	buf := make([]byte, len(p))
+	copy(buf, p)
+	for i, b := range buf {
+		if b == '\n' {
+			buf[i] = '\r'
+		}
 	}
+	return c.w.Write(buf)
+}
+
+// crReader converts CR → NL on read (classic lineterm CR: CR → RAW).
+type crReader struct{ r io.Reader }
+
+func (c crReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	for i := 0; i < n; i++ {
+		if p[i] == '\r' {
+			p[i] = '\n'
+		}
+	}
+	return n, err
+}
+
+// crorlfReader converts CR, LF, or CRLF → NL. Distinct from classic crnl
+// (which strips CR) and classic cr (which is a 1:1 CR↔NL swap).
+type crorlfReader struct {
+	r     io.Reader
+	sawCR bool
+}
+
+func (c *crorlfReader) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	tmp := make([]byte, len(p))
+	out := 0
+	var err error
+	for out == 0 {
+		var n int
+		n, err = c.r.Read(tmp)
+		for i := 0; i < n && out < len(p); i++ {
+			b := tmp[i]
+			if c.sawCR && b == '\n' {
+				c.sawCR = false
+				continue
+			}
+			c.sawCR = b == '\r'
+			if b == '\r' || b == '\n' {
+				p[out] = '\n'
+			} else {
+				p[out] = b
+			}
+			out++
+		}
+		if err != nil || n == 0 {
+			break
+		}
+	}
+	return out, err
+}
+
+// lineTermStream applies read/write converters without exposing UnwrapZeroCopy
+// (splice must not bypass conversion). UnwrapStream keeps deadline/timeout
+// walking intact.
+type lineTermStream struct {
+	relay.Stream
+	r io.Reader
+	w io.Writer
+}
+
+func (s *lineTermStream) Read(p []byte) (int, error)  { return s.r.Read(p) }
+func (s *lineTermStream) Write(p []byte) (int, error) { return s.w.Write(p) }
+func (s *lineTermStream) UnwrapStream() relay.Stream  { return s.Stream }
+
+func applyLineTerm(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
+	for _, o := range s.Options {
+		switch parse.CanonicalOptionName(o.Name) {
+		case "cr", "crnl":
+			if o.Has {
+				return nil, fmt.Errorf("%s: no value permitted", o.OriginalSpelling())
+			}
+		}
+	}
+	switch selectedLineTerm(s) {
+	case lineTermCR:
+		return &lineTermStream{Stream: stream, r: crReader{r: stream}, w: &crWriter{w: stream}}, nil
+	case lineTermCRNL:
+		return &lineTermStream{Stream: stream, r: crnlReader{r: stream}, w: &crnlWriter{w: stream}}, nil
+	case lineTermCRorLF:
+		return &lineTermStream{Stream: stream, r: &crorlfReader{r: stream}, w: &crnlWriter{w: stream}}, nil
+	default:
+		return stream, nil
+	}
+}
+
+// ApplyCRNL wraps a stream with the selected classic/Go line-termination mode.
+func ApplyCRNL(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
+	return applyLineTerm(s, stream)
 }
 
 // escapeReader stops with EOF when the escape byte is seen (classic escape=N).
@@ -387,21 +525,6 @@ func (n *nullEOFReader) Read(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 	return nr, err
-}
-
-// shutNullWriter sends a 0-byte Write on ShutdownWrite (classic shut-null).
-type shutNullStream struct {
-	relay.Stream
-}
-
-func (s shutNullStream) UnwrapStream() relay.Stream { return s.Stream }
-func (s shutNullStream) UnwrapZeroCopyStream() relay.Stream {
-	return s.Stream
-}
-
-func (s shutNullStream) ShutdownWrite() error {
-	_, _ = s.Write(nil) // 0-byte datagram
-	return s.Stream.ShutdownWrite()
 }
 
 // socketTimeoutStream gives rcvtimeo/sndtimeo their blocking-I/O semantics on
@@ -556,7 +679,10 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected,
 	if err != nil {
 		return nil, err
 	}
-	stream = ApplyCRNL(s, stream)
+	stream, err = ApplyCRNL(s, stream)
+	if err != nil {
+		return nil, err
+	}
 	stream, err = ApplyEscape(s, stream)
 	if err != nil {
 		return nil, err
@@ -571,11 +697,9 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected,
 			CloseW: func() error { return inner.ShutdownWrite() },
 		}
 	}
-	if s.BoolOption("shut-null") || s.OptionValue("shut", "") == "null" {
-		stream = shutNullStream{Stream: stream}
-	}
-	if s.BoolOption("shut-close") || s.OptionValue("shut", "") == "close" {
-		stream = newShutCloseStream(stream)
+	stream, err = wrapShutPolicy(s, stream)
+	if err != nil {
+		return nil, err
 	}
 	// end-close: do not half-close or fully close the underlying FD when the
 	// transfer finishes (classic TCP4ENDCLOSE / EXECENDCLOSE).
@@ -583,31 +707,6 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected,
 		stream = endCloseStream{Stream: stream}
 	}
 	return stream, nil
-}
-
-// shutCloseStream turns a directional half-close into a full descriptor
-// close. This is required for SO_LINGER=0 to generate the immediate reset
-// requested by classic shut-close.
-type shutCloseStream struct {
-	relay.Stream
-	once sync.Once
-	err  error
-}
-
-func newShutCloseStream(stream relay.Stream) relay.Stream {
-	return &shutCloseStream{Stream: stream}
-}
-
-func (s *shutCloseStream) close() error {
-	s.once.Do(func() { s.err = s.Stream.Close() })
-	return s.err
-}
-
-func (s *shutCloseStream) ShutdownWrite() error       { return s.close() }
-func (s *shutCloseStream) Close() error               { return s.close() }
-func (s *shutCloseStream) UnwrapStream() relay.Stream { return s.Stream }
-func (s *shutCloseStream) UnwrapZeroCopyStream() relay.Stream {
-	return s.Stream
 }
 
 // endCloseStream suppresses ShutdownWrite and Close so the peer FD stays open.

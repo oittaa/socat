@@ -775,7 +775,8 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 		linger = g.Linger
 	}
 	// shut-none: do not kill the child; wait for natural exit (with a cap).
-	shutNone := s.BoolOption("shut-none") || s.OptionValue("shut", "") == "none"
+	// Derived from the same ordered howtoshut selector as WrapCommon.
+	shutNone := ShutNoneSelected(s)
 
 	o := &Opened{
 		Stream: st,

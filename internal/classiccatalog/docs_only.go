@@ -150,7 +150,7 @@ var GoOnlyHelpAllowlist = map[string]string{ // #nosec G101 -- option names and 
 	"notail":            "documented fs-notail nickname omitted from optionnames[] even with FS_NOTAIL_FL (tag-1.8.1.3 12c08bf; master af5388c). Advertised on Linux.",
 	"origin":            "Go WebSocket Origin header extra",
 	"recvtclass":        "Go alias of ipv6-recvtclass (C nickname, not in optionnames[])",
-	"shut":              "Go shut=none|close|null extra; classic advertises shut-* names",
+	"shut":              "Go shut=none|down|close|null extra; classic advertises shut-* names",
 	"so-keepcnt":        "Go so-* alias of keepcnt / tcp-keepcnt",
 	"so-keepidle":       "Go so-* alias of keepidle / tcp-keepidle",
 	"so-keepintvl":      "Go so-* alias of keepintvl / tcp-keepintvl",
