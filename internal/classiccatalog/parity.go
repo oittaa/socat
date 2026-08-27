@@ -201,15 +201,22 @@ func mergeExpectedMissing() (map[string]Gap, error) {
 }
 
 func mergeUnsupported() (map[string]string, error) {
+	return mergeStringMaps(unsupportedSources(), "unsupported option")
+}
+
+// mergeStringMaps unions name→reason maps. Any already-present name is a
+// duplicate, including identical reasons; the previous != reason check
+// silently accepted copies.
+func mergeStringMaps(sources []map[string]string, kind string) (map[string]string, error) {
 	out := make(map[string]string)
 	var dups []string
 	var empty []string
-	for _, src := range unsupportedSources() {
+	for _, src := range sources {
 		for name, reason := range src {
 			if reason == "" {
 				empty = append(empty, name)
 			}
-			if prev, ok := out[name]; ok && prev != reason {
+			if _, ok := out[name]; ok {
 				dups = append(dups, name)
 				continue
 			}
@@ -219,10 +226,10 @@ func mergeUnsupported() (map[string]string, error) {
 	sort.Strings(dups)
 	sort.Strings(empty)
 	if len(dups) > 0 {
-		return out, fmt.Errorf("duplicate unsupported option %s", strings.Join(dups, ", "))
+		return out, fmt.Errorf("duplicate %s %s", kind, strings.Join(dups, ", "))
 	}
 	if len(empty) > 0 {
-		return out, fmt.Errorf("unsupported option without a reason: %s", strings.Join(empty, ", "))
+		return out, fmt.Errorf("%s without a reason: %s", kind, strings.Join(empty, ", "))
 	}
 	return out, nil
 }

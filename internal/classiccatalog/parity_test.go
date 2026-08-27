@@ -260,3 +260,39 @@ func TestUDPIgnorePeerportIsUnsupportedNotBacklog(t *testing.T) {
 		}
 	}
 }
+
+func TestMergeStringMapsRejectsDuplicateNames(t *testing.T) {
+	_, err := mergeStringMaps([]map[string]string{
+		{"foo": "same reason"},
+		{"foo": "same reason"},
+	}, "unsupported option")
+	if err == nil || !strings.Contains(err.Error(), "duplicate") || !strings.Contains(err.Error(), "foo") {
+		t.Fatalf("identical-reason duplicate should fail, got %v", err)
+	}
+
+	_, err = mergeStringMaps([]map[string]string{
+		{"foo": "reason a"},
+		{"foo": "reason b"},
+	}, "unsupported option")
+	if err == nil || !strings.Contains(err.Error(), "foo") {
+		t.Fatalf("differing-reason duplicate should fail, got %v", err)
+	}
+
+	got, err := mergeStringMaps([]map[string]string{
+		{"foo": "a"},
+		{"bar": "b"},
+	}, "unsupported option")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["foo"] != "a" || got["bar"] != "b" || len(got) != 2 {
+		t.Fatalf("unique names: %v", got)
+	}
+
+	_, err = mergeStringMaps([]map[string]string{
+		{"foo": ""},
+	}, "unsupported option")
+	if err == nil || !strings.Contains(err.Error(), "without a reason") {
+		t.Fatalf("empty reason should fail, got %v", err)
+	}
+}
