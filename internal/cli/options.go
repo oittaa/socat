@@ -107,11 +107,12 @@ func validateChannelOptions(ch parse.Channel) error {
 func validateSpecOptions(spec parse.Spec) error {
 	registration, registered := xio.AddressRegistrationForType(spec.Type)
 	for _, option := range spec.Options {
-		// Lookups use Name (canonical). Spelling is preserved for later
-		// spelling-specific group/phase checks; this function must not fold
-		// ipv6-join-group onto ip-add-membership groups until that lands.
 		name := strings.ToLower(option.Name)
+		spelling := strings.ToLower(option.OriginalSpelling())
 		optionSpec, ok := supportedAddressOptions[name]
+		if !ok {
+			optionSpec, ok = supportedAddressOptions[spelling]
+		}
 		if !ok {
 			return fmt.Errorf("%s: unknown option %q", spec.Type, option.Name)
 		}
@@ -127,8 +128,15 @@ func validateSpecOptions(spec parse.Spec) error {
 	}
 	for _, option := range spec.Options {
 		name := strings.ToLower(option.Name)
-		optionSpec := supportedAddressOptions[name]
-		if registered && !xio.OptionSupportedOnAddress(registration, name, optionSpec.addressGroups, optionSpec.addressTypes, optionSpec.optionCaps) {
+		spelling := strings.ToLower(option.OriginalSpelling())
+		optionSpec, ok := supportedAddressOptions[name]
+		if !ok {
+			optionSpec = supportedAddressOptions[spelling]
+		}
+		// Classic group intersection is spelling-specific (tag-1.8.1.3 /
+		// 12c08bf): ipv6-join-group is GROUP_IP6 only, while
+		// ip-add-membership is GROUP_IP4+IP6.
+		if registered && !xio.OptionSupportedOnAddress(registration, spelling, optionSpec.addressGroups, optionSpec.addressTypes, optionSpec.optionCaps) {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
 	}

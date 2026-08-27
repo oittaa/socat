@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/quic-go/quic-go"
@@ -33,10 +35,10 @@ func tcpToUDPNetwork(tcpNet string) string {
 	}
 }
 
-// listenH3Packet binds the HTTP/3 UDP socket with ListenControl so send-side
-// IP options (ip-ttl, ip-tos, ip-options, ipv6-unicast-hops, ipv6-tclass)
-// apply once at PH_PASTSOCKET after socket() and before bind, matching
-// quicopen.listenPacket / listenQUICClientPacket.
+// listenH3Packet binds the HTTP/3 UDP socket with ListenControl so PH_PASTSOCKET
+// options, including send-side IP/ancillary options and multicast joins,
+// apply once after socket() and before bind. http3.Transport would otherwise
+// create its own UDP socket and silently ignore those requested options.
 func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost string) (net.PacketConn, string, error) {
 	network := tcpToUDPNetwork(xio.ConnectNetworkForType(g, s, proxyHost, "tcp"))
 	bindHost, err := xio.ListenBindHost(network, s.OptionValue("bind", ""))
@@ -44,15 +46,35 @@ func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost 
 		return nil, "", err
 	}
 	sourceport := s.OptionValue("sourceport", "")
-	if sourceport == "" {
-		sourceport = "0"
-	}
-	laddr := net.JoinHostPort(xio.StripBrackets(bindHost), sourceport)
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
-	pc, err := lc.ListenPacket(ctx, network, laddr)
+	listen := func(port string) (net.PacketConn, error) {
+		laddr := net.JoinHostPort(xio.StripBrackets(bindHost), port)
+		return lc.ListenPacket(ctx, network, laddr)
+	}
+	var pc net.PacketConn
+	if s.BoolOption("lowport") && (sourceport == "" || sourceport == "0") {
+		_, err = xio.FirstAvailableLowport(func(port int) error {
+			if g != nil && g.Log != nil {
+				g.Log.Debugf("bind(%s:%d)", bindHost, port)
+			}
+			pc, err = listen(strconv.Itoa(port))
+			return err
+		})
+		if err != nil {
+			return nil, "", fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", xio.LowportMin, xio.LowportMax, err)
+		}
+	} else {
+		if sourceport == "" {
+			sourceport = "0"
+		}
+		pc, err = listen(sourceport)
+	}
 	if err != nil {
 		return nil, "", err
 	}
+	// The explicit PacketConn must carry the same post-bind phases as direct
+	// QUIC. Otherwise options accepted on PROXY,http-version=3 would become
+	// silent no-ops merely because http3.Transport no longer owns the socket.
 	if err := xio.ApplyLateSocketOptionsToPacketConn(pc, s); err != nil {
 		_ = pc.Close()
 		return nil, "", err
@@ -105,15 +127,13 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 			},
 		}
 		closeH3 := func() error {
-			_ = tr.Close()
-			_ = qtr.Close()
-			return pc.Close()
+			cancelHandshake()
+			return errors.Join(tr.Close(), qtr.Close(), pc.Close())
 		}
 		success := false
 		defer func() {
 			if !success {
 				stopTimer()
-				cancelHandshake()
 				_ = closeH3()
 			}
 		}()
@@ -150,10 +170,7 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 			w:      pw,
 			local:  staticAddr("h3", u),
 			remote: staticAddr("h3", authority),
-			extra: []io.Closer{closerFunc(func() error {
-				cancelHandshake()
-				return closeH3()
-			})},
+			extra:  []io.Closer{closerFunc(closeH3)},
 		}
 		return nil
 	})

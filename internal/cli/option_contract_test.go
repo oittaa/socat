@@ -89,6 +89,10 @@ var dynamicallyReadOptions = map[string]string{
 	// PH_PREOPEN NAMED walk in ApplyNamedPreopen (command-line order).
 	"perm-early": "xio/named_preopen.go", "user-early": "xio/named_preopen.go",
 	"group-early": "xio/named_preopen.go", "unlink": "xio/named_preopen.go",
+
+	// PH_PASTSOCKET membership walk in option order (not last-wins).
+	"ip-add-membership": "xio/mcast_opt.go membershipJoins",
+	"ipv6-join-group":   "xio/mcast_opt.go membershipJoins",
 }
 
 // compatNoOptions are advertised deliberately as classic-compat spellings

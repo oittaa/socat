@@ -21,7 +21,9 @@ func ClassicOptionUnrestricted(optGroups []string) bool {
 }
 
 // ClassicOptionGroupsFor returns the expanded GROUP_* set for an option
-// keyword or nickname. Aliases such as o-append resolve to append.
+// keyword or nickname. The given spelling is looked up first so names such as
+// ipv6-join-group keep their own classic groups; only unknown nicknames fall
+// back to parse.CanonicalOptionName (o-append → append).
 func ClassicOptionGroupsFor(optionName string) ([]string, bool) {
 	name := strings.ToLower(strings.TrimSpace(optionName))
 	if name == "" {
@@ -90,7 +92,8 @@ func goExtraAllows(reg AddressRegistration, goGroups, goTypes []string) bool {
 }
 
 // OptionSupportedOnAddress is the registry-level check used by the CLI.
-// Classic 1.8.1.3 group intersection is authoritative for known options.
+// optionName should be the original spelling (parse.Option.OriginalSpelling):
+// classic 1.8.1.3 group intersection is authoritative for that keyword.
 // Go extra allow-lists (TLS on PROXY, WebSocket path, …) can still accept a
 // combination classic would reject. Go-only options use address group/type/cap
 // restrictions exactly as declared in the option table.

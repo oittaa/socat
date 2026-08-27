@@ -407,9 +407,9 @@ func listenRawIP(ctx context.Context, netw, _ string, laddr *net.IPAddr, s parse
 	return ic, nil
 }
 
-// applyIPConnOpts applies remaining SOL_SOCKET options and multicast join.
-// Send and recv IP/ancillary options are PH_PASTSOCKET (dialRawIP /
-// listenRawIP Control → ApplyPastSocketPhase) and must not be re-applied
+// applyIPConnOpts applies remaining connected-phase SOL_SOCKET options.
+// Send and recv IP/ancillary options and multicast joins are PH_PASTSOCKET
+// (dialRawIP/listenRawIP Control → ApplyPastSocketPhase) and must not be re-applied
 // here after DialIP/ListenIP-equivalent bind/connect.
 // SO_BROADCAST is applied with other PH_PASTSOCKET SOL_SOCKET options via
 // ApplySocketOptions (classic TYPE_INT; broadcast=0 is a real setsockopt).
@@ -424,20 +424,9 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, _ string) error {
 			return
 		}
 		// classic often sets reuse on raw too
-		if optionErr = xio.ApplyReuse(int(fd), s, true); optionErr != nil {
-			return
-		}
+		optionErr = xio.ApplyReuse(int(fd), s, true)
 	})
-	if err := errors.Join(controlErr, optionErr); err != nil {
-		return err
-	}
-	// Multicast join (IP4MULTICAST_* classic tests).
-	if v := s.OptionValue("ip-add-membership", ""); v != "" {
-		if err := joinMulticast(c, v); err != nil {
-			return err
-		}
-	}
-	return nil
+	return errors.Join(controlErr, optionErr)
 }
 
 func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob []byte, addr net.Addr, err error) {

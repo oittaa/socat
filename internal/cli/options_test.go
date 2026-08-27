@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -107,7 +109,22 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "classic-keepalive-aliases", spec: "TCP:localhost:1,tcp-keepidle=7,tcp-keepintvl=9,tcp-keepcnt=3"},
 		{name: "classic-listen-timeout-alias", spec: "TCP-LISTEN:1,listen-timeout=0.1"},
 		{name: "classic-ignoreof-alias", spec: "OPEN:file,ignoreof"},
-		{name: "ipv6-join-group-on-tcp4", spec: "TCP4:localhost:1,ipv6-join-group=[ff02::2]:lo"},
+		{name: "ipv6-join-group-on-tcp4", spec: "TCP4:localhost:1,ipv6-join-group=[ff02::2]:lo", wantErr: "not supported"},
+		{name: "ipv6-join-group-on-udp4-recv", spec: "UDP4-RECV:1,ipv6-join-group=[ff02::2]:lo", wantErr: "not supported"},
+		{name: "ipv6-join-group-on-ip4", spec: "IP4:127.0.0.1:1,ipv6-join-group=[ff02::2]:lo", wantErr: "not supported"},
+		{name: "ipv6-join-group-on-udp6-recv", spec: "UDP6-RECV:1,ipv6-join-group=[ff02::2]:lo"},
+		{name: "ipv6-join-group-on-tcp6", spec: "TCP6:localhost:1,ipv6-join-group=[ff02::2]:lo"},
+		{name: "ip-add-membership-on-udp4", spec: "UDP4:localhost:1,ip-add-membership=224.0.0.1:lo"},
+		{name: "ip-add-membership-on-udp6", spec: "UDP6:localhost:1,ip-add-membership=[ff02::2]:lo"},
+		{name: "ip-add-membership-requires-value", spec: "UDP4:localhost:1,ip-add-membership", wantErr: "requires a value"},
+		{name: "ipv6-join-group-requires-value", spec: "UDP6:localhost:1,ipv6-join-group", wantErr: "requires a value"},
+		{name: "add-membership-alias-on-udp4", spec: "UDP4:localhost:1,add-membership=224.0.0.1:lo"},
+		{name: "ip-membership-alias-on-udp4", spec: "UDP4:localhost:1,ip-membership=224.0.0.1:lo"},
+		{name: "membership-alias-on-udp4", spec: "UDP4:localhost:1,membership=224.0.0.1:lo"},
+		{name: "join-group-alias-on-udp6", spec: "UDP6:localhost:1,join-group=[ff02::2]:lo"},
+		{name: "ipv6-add-membership-alias-on-udp6", spec: "UDP6:localhost:1,ipv6-add-membership=[ff02::2]:lo"},
+		{name: "join-group-alias-on-udp4", spec: "UDP4:localhost:1,join-group=[ff02::2]:lo", wantErr: "not supported"},
+		{name: "ipv6-add-membership-alias-on-tcp4", spec: "TCP4:localhost:1,ipv6-add-membership=[ff02::2]:lo", wantErr: "not supported"},
 		{name: "classic-linger-alias", spec: "TCP:localhost:1,linger=0"},
 		{name: "sndbuf", spec: "TCP:localhost:1,sndbuf=4096"},
 		{name: "rcvbuf-alias", spec: "TCP:localhost:1,so-rcvbuf=8192"},
@@ -389,6 +406,183 @@ func TestCatalogLifecyclePhasesForAdvertisedFDOptions(t *testing.T) {
 		if strings.Join(e.Groups, ",") != strings.Join(tt.groups, ",") {
 			t.Errorf("%q groups=%v want %v", tt.spelling, e.Groups, tt.groups)
 		}
+	}
+}
+
+type aliasCanonicalGroups struct {
+	alias, canonical string
+	aliasGroups      []string
+	canonicalGroups  []string
+}
+
+// advertisedAliasesWithDifferentClassicGroups returns advertised Go aliases
+// (helpOpt.aliases plus parse aliases that are in classiccatalog.Options)
+// whose catalog Groups differ from the Go canonical target's Groups.
+func advertisedAliasesWithDifferentClassicGroups() []aliasCanonicalGroups {
+	pairs := map[string]string{}
+	for _, group := range helpOptionGroups() {
+		for _, option := range group.opts {
+			for _, alias := range option.aliases {
+				pairs[strings.ToLower(alias)] = strings.ToLower(option.name)
+			}
+		}
+	}
+	for spelling := range classiccatalog.Options {
+		canon := parse.CanonicalOptionName(spelling)
+		if canon != spelling {
+			pairs[spelling] = canon
+		}
+	}
+	var out []aliasCanonicalGroups
+	for alias, canonical := range pairs {
+		if alias == canonical {
+			continue
+		}
+		se, sok := classiccatalog.Lookup(alias)
+		ce, cok := classiccatalog.Lookup(canonical)
+		if !sok || !cok {
+			continue
+		}
+		if reflect.DeepEqual(se.Groups, ce.Groups) {
+			continue
+		}
+		out = append(out, aliasCanonicalGroups{
+			alias: alias, canonical: canonical,
+			aliasGroups: se.Groups, canonicalGroups: ce.Groups,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].alias != out[j].alias {
+			return out[i].alias < out[j].alias
+		}
+		return out[i].canonical < out[j].canonical
+	})
+	return out
+}
+
+var spellingGroupAddressSpecs = []string{
+	"UDP4:localhost:1",
+	"UDP4-RECV:1",
+	"TCP4:localhost:1",
+	"IP4:127.0.0.1:1",
+	"UDP6:localhost:1",
+	"UDP6-RECV:1",
+	"TCP6:localhost:1",
+	"IP6:[::1]:1",
+}
+
+func TestAdvertisedAliasClassicGroupMismatches(t *testing.T) {
+	discovered := advertisedAliasesWithDifferentClassicGroups()
+	if len(discovered) != 0 {
+		t.Fatalf("unexpected Go alias/canonical group mismatches (do not fold distinct classic options): %v", discovered)
+	}
+	// ipv6-join-group is advertised as its own option, not a parse/help alias
+	// of ip-add-membership. Classic groups still differ (IP6 vs IP4+IP6).
+	join, ok := classiccatalog.Lookup("ipv6-join-group")
+	if !ok {
+		t.Fatal("ipv6-join-group")
+	}
+	member, ok := classiccatalog.Lookup("ip-add-membership")
+	if !ok {
+		t.Fatal("ip-add-membership")
+	}
+	mismatches := []aliasCanonicalGroups{{
+		alias: "ipv6-join-group", canonical: "ip-add-membership",
+		aliasGroups: join.Groups, canonicalGroups: member.Groups,
+	}}
+	t.Logf("covered alias/canonical group mismatches: ipv6-join-group %v vs ip-add-membership %v", join.Groups, member.Groups)
+
+	dummyValue := func(spelling string) string {
+		switch spelling {
+		case "ipv6-join-group", "ip-add-membership":
+			return "[ff02::2]:lo"
+		default:
+			return "1"
+		}
+	}
+
+	for _, m := range mismatches {
+		rejected := 0
+		for _, base := range spellingGroupAddressSpecs {
+			ch, err := parse.ParseChannel(base)
+			if err != nil {
+				t.Fatalf("%s: %v", base, err)
+			}
+			addrType := ch.Single.Type
+			canonOK := xio.ClassicAllowsOption(addrType, m.canonical)
+			aliasOK := xio.ClassicAllowsOption(addrType, m.alias)
+			if !canonOK || aliasOK {
+				continue
+			}
+			rejected++
+			spec := base + "," + m.alias + "=" + dummyValue(m.alias)
+			ch, err = parse.ParseChannel(spec)
+			if err != nil {
+				t.Fatalf("%s: %v", spec, err)
+			}
+			err = validateChannelOptions(ch)
+			if err == nil || !strings.Contains(err.Error(), "not supported") {
+				t.Errorf("%s: error=%v want not supported (alias groups=%v canonical groups=%v)",
+					spec, err, m.aliasGroups, m.canonicalGroups)
+			}
+		}
+		if rejected == 0 {
+			t.Errorf("%s -> %s: no sample address is in canonical groups but not alias groups", m.alias, m.canonical)
+		}
+	}
+}
+
+func TestIPv6JoinGroupAcceptedOnIPv6(t *testing.T) {
+	for _, spec := range []string{
+		"UDP6:localhost:1,ipv6-join-group=[ff02::2]:lo",
+		"UDP6-RECV:1,ipv6-join-group=[ff02::2]:lo",
+		"TCP6:localhost:1,ipv6-join-group=[ff02::2]:lo",
+		"UDP6:localhost:1,join-group=[ff02::2]:lo",
+		"TCP6:localhost:1,ipv6-add-membership=[ff02::2]:lo",
+	} {
+		ch, err := parse.ParseChannel(spec)
+		if err != nil {
+			t.Fatalf("%s: %v", spec, err)
+		}
+		if err := validateChannelOptions(ch); err != nil {
+			t.Errorf("%s: %v", spec, err)
+		}
+	}
+}
+
+func TestIPAddMembershipAcceptedOnUDP4AndUDP6(t *testing.T) {
+	for _, spec := range []string{
+		"UDP4:localhost:1,ip-add-membership=224.0.0.1:lo",
+		"UDP4-RECV:1,ip-add-membership=224.0.0.1:lo",
+		"UDP6:localhost:1,ip-add-membership=[ff02::2]:lo",
+		"UDP6-RECV:1,ip-add-membership=[ff02::2]:lo",
+		"UDP4:localhost:1,add-membership=224.0.0.1:lo",
+		"UDP4:localhost:1,membership=224.0.0.1:lo",
+		"UDP6:localhost:1,ip-membership=[ff02::2]:lo",
+	} {
+		ch, err := parse.ParseChannel(spec)
+		if err != nil {
+			t.Fatalf("%s: %v", spec, err)
+		}
+		if err := validateChannelOptions(ch); err != nil {
+			t.Errorf("%s: %v", spec, err)
+		}
+	}
+}
+
+func TestValidateSpecOptionsUsesOriginalSpellingNotFoldedName(t *testing.T) {
+	spec := parse.Spec{
+		Type: "UDP4-RECV",
+		Options: []parse.Option{{
+			Name:     "ip-add-membership",
+			Spelling: "ipv6-join-group",
+			Value:    "[ff02::2]:lo",
+			Has:      true,
+		}},
+	}
+	err := validateSpecOptions(spec)
+	if err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("folded Name must not bypass spelling groups: %v", err)
 	}
 }
 

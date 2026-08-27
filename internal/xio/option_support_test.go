@@ -96,4 +96,25 @@ func TestClassicOptionGroupsForAliases(t *testing.T) {
 	if parse.CanonicalOptionName("o-append") != "append" {
 		t.Fatal("canonical o-append")
 	}
+	joinGroups, ok := ClassicOptionGroupsFor("ipv6-join-group")
+	if !ok || !reflect.DeepEqual(joinGroups, ClassicOptionGroups["ipv6-join-group"]) {
+		t.Fatalf("ipv6-join-group groups=%v ok=%v", joinGroups, ok)
+	}
+	if parse.CanonicalOptionName("ipv6-join-group") != "ipv6-join-group" {
+		t.Fatalf("ipv6-join-group must not fold; got %q", parse.CanonicalOptionName("ipv6-join-group"))
+	}
+	if parse.CanonicalOptionName("join-group") != "ipv6-join-group" {
+		t.Fatalf("join-group canonical=%q", parse.CanonicalOptionName("join-group"))
+	}
+	if parse.CanonicalOptionName("add-membership") != "ip-add-membership" {
+		t.Fatalf("add-membership canonical=%q", parse.CanonicalOptionName("add-membership"))
+	}
+	memberGroups, ok := ClassicOptionGroupsFor("ip-add-membership")
+	if !ok || reflect.DeepEqual(joinGroups, memberGroups) {
+		t.Fatalf("ipv6-join-group groups=%v ip-add-membership groups=%v", joinGroups, memberGroups)
+	}
+	joinAliasGroups, ok := ClassicOptionGroupsFor("join-group")
+	if !ok || !reflect.DeepEqual(joinAliasGroups, ClassicOptionGroups["join-group"]) {
+		t.Fatalf("join-group groups=%v ok=%v", joinAliasGroups, ok)
+	}
 }
