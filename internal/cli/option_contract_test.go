@@ -131,6 +131,20 @@ var dynamicallyReadOptions = map[string]string{
 	"ip-transparent":           "xio/mcast_opt.go applyTransparentOption",
 	"ip-mtu-discover":          "xio/mcast_opt.go applyMTUDiscoveryOption",
 	"ipv6-mtu-discover":        "xio/mcast_opt.go applyMTUDiscoveryOption",
+
+	// PH_PASTSOCKET named SOL_SOCKET/TCP and PH_CONNECTED tcp-maxseg-late
+	// walks in sockopt_named.go (command-line order, not OptionNamed).
+	"so-debug": "xio/sockopt_named.go", "debug": "xio/sockopt_named.go",
+	"so-dontroute": "xio/sockopt_named.go", "dontroute": "xio/sockopt_named.go",
+	"so-oobinline": "xio/sockopt_named.go", "oobinline": "xio/sockopt_named.go",
+	"tcp-cork": "xio/sockopt_named.go", "cork": "xio/sockopt_named.go",
+	"tcp-defer-accept": "xio/sockopt_named.go", "defer-accept": "xio/sockopt_named.go",
+	"tcp-linger2": "xio/sockopt_named.go", "linger2": "xio/sockopt_named.go",
+	"tcp-maxseg": "xio/sockopt_named.go", "maxseg": "xio/sockopt_named.go", "mss": "xio/sockopt_named.go",
+	"tcp-maxseg-late": "xio/sockopt_named.go", "maxseg-late": "xio/sockopt_named.go", "mss-late": "xio/sockopt_named.go",
+	"tcp-quickack": "xio/sockopt_named.go", "quickack": "xio/sockopt_named.go",
+	"tcp-syncnt": "xio/sockopt_named.go", "syncnt": "xio/sockopt_named.go",
+	"tcp-window-clamp": "xio/sockopt_named.go", "window-clamp": "xio/sockopt_named.go",
 }
 
 // compatNoOptions are advertised deliberately as classic-compat spellings

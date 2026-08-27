@@ -29,7 +29,9 @@ func hideOpt(name string) bool {
 		"setlk", "setlkw", "setlk-rd", "setlkw-rd",
 		"flock", "flock-nb", "flock-sh", "flock-sh-nb",
 		"pipes", "pty", "setsid", "stderr", "fdin", "fdout", "shell", "shut-none",
-		"bindtodevice":
+		"bindtodevice",
+		"tcp-cork", "tcp-defer-accept", "tcp-linger2", "tcp-maxseg",
+		"tcp-maxseg-late", "tcp-quickack", "tcp-syncnt", "tcp-window-clamp":
 		return true
 	default:
 		return false

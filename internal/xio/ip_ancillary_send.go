@@ -35,6 +35,12 @@ func applyOrderedPastSocketPhaseOptions(fd int, s parse.Spec, network string) er
 	family := ipFamilyFromNetwork(network)
 	familyResolved := family != ipFamilyUnknown
 	for _, option := range s.Options {
+		if matched, err := applyNamedPastSocketSockopt(fd, option); matched {
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		if kind, ok := genericSetsockoptKind(option.Name, SockoptPhasePastSocket); ok {
 			if err := applyGenericSetsockoptOption(fd, option, kind); err != nil {
 				return err

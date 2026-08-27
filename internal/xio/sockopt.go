@@ -62,9 +62,11 @@ func applyBroadcast(fd int, s parse.Spec) error {
 
 // applyPastSocketBuffersAndDeviceWithoutGeneric is the non-generic
 // PH_PASTSOCKET half of classic
-// opt_so_broadcast / opt_so_sndbuf / opt_so_rcvbuf / opt_so_bindtodevice.
-// Late buffer variants are applied in ApplyTCPConnOpts (raw TCP after
-// connect/accept, before TLS/PROXY handshake), ApplyUDPConnOpts /
+// opt_so_broadcast / opt_so_sndbuf / opt_so_rcvbuf / opt_so_bindtodevice
+// options. Named SOL_SOCKET/TCP TYPE_INT options are applied in the ordered
+// PH_PASTSOCKET pass with generic and IP options. Late buffer variants and
+// tcp-maxseg-late are applied in ApplyTCPConnOpts
+// (raw TCP after connect/accept, before TLS/PROXY handshake), ApplyUDPConnOpts /
 // applyUnixgramSocketOptions (raw UDP/UNIX after bind or connect, before
 // packet-session wrapping), and WrapCommon (streams that expose a socket fd).
 func applyPastSocketBuffersAndDeviceWithoutGeneric(fd int, s parse.Spec) error {

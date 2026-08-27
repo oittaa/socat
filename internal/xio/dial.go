@@ -82,6 +82,7 @@ func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 				LocalAddr: laddr,
 				Control:   controlFn,
 			}
+			d.SetMultipathTCP(false)
 			cctx := ctx
 			var cancel context.CancelFunc
 			if timeout > 0 {
@@ -353,6 +354,7 @@ func dialTCPLowport(ctx context.Context, network string, raddr, laddr *net.TCPAd
 			LocalAddr: &net.TCPAddr{IP: ip, Port: port},
 			Control:   control,
 		}
+		d.SetMultipathTCP(false)
 		cctx := ctx
 		var cancel context.CancelFunc
 		if timeout > 0 {
