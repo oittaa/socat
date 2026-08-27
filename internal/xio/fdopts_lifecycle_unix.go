@@ -20,7 +20,7 @@ import (
 var fdLifecycleTestHook func(fd int)
 
 func applyFDLifecycleToFile(f *os.File, s parse.Spec) error {
-	if f == nil || !hasFDLifecycleOptions(s) {
+	if f == nil || (!hasFDLifecycleOptions(s) && !hasLinuxPHFDOptions(s)) {
 		return nil
 	}
 	raw, err := f.SyscallConn()
@@ -34,19 +34,24 @@ func applyFDLifecycleToFile(f *os.File, s parse.Spec) error {
 	if err := errors.Join(ctrlErr, optionErr); err != nil {
 		return err
 	}
-	markFDLifecycleApplied(f)
+	if hasFDLifecycleOptions(s) {
+		markFDLifecycleApplied(f)
+	}
 	return nil
 }
 
 func applyFDLifecycleOnFD(fd int, s parse.Spec) error {
-	if !hasFDLifecycleOptions(s) {
+	if !hasFDLifecycleOptions(s) && !hasLinuxPHFDOptions(s) {
 		return nil
 	}
-	if fdLifecycleTestHook != nil {
+	if hasFDLifecycleOptions(s) && fdLifecycleTestHook != nil {
 		fdLifecycleTestHook(fd)
 	}
 	if err := applyFDPhaseLifecycle(fd, s); err != nil {
 		return err
+	}
+	if !hasFDLifecycleOptions(s) {
+		return nil
 	}
 	return applyLateLifecycle(fd, s)
 }
@@ -207,6 +212,10 @@ func applyFDPhaseLifecycleOptions(fd int, s parse.Spec, honorTargetSkip bool) er
 			}
 		case "flock-sh-nb":
 			if err := applyOneFlock(fd, o, unix.LOCK_SH|unix.LOCK_NB); err != nil {
+				return err
+			}
+		default:
+			if err := applyLinuxPHFDOption(fd, o); err != nil {
 				return err
 			}
 		}

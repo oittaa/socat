@@ -71,6 +71,14 @@ var implementedAliasHelp = []struct {
 	{"max-proto-version", "openssl-max-proto-version"},
 	{"no-sni", "nosni"},
 	{"compress", "openssl-compress"},
+	{"ext2-append", "fs-append"},
+	{"ext3-append", "fs-append"},
+	{"compr", "fs-compr"},
+	{"nodump", "fs-nodump"},
+	{"notail", "fs-notail"},
+	{"journal", "fs-journal-data"},
+	{"journal-data", "fs-journal-data"},
+	{"ext2-sync", "fs-sync"},
 }
 
 func TestImplementedAliasesHHHNotHH(t *testing.T) {

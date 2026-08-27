@@ -153,6 +153,20 @@ func TestClassicOptionGroupsForAliases(t *testing.T) {
 	if parse.CanonicalOptionName("add-membership") != "ip-add-membership" {
 		t.Fatalf("add-membership canonical=%q", parse.CanonicalOptionName("add-membership"))
 	}
+	if parse.CanonicalOptionName("ext2-append") != "fs-append" || parse.CanonicalOptionName("nodump") != "fs-nodump" {
+		t.Fatalf("ext2-append=%q nodump=%q", parse.CanonicalOptionName("ext2-append"), parse.CanonicalOptionName("nodump"))
+	}
+	if parse.CanonicalOptionName("notail") != "fs-notail" {
+		t.Fatalf("notail canonical=%q", parse.CanonicalOptionName("notail"))
+	}
+	appendFS, ok := ClassicOptionGroupsFor("fs-append")
+	if !ok || !reflect.DeepEqual(appendFS, []string{"reg"}) {
+		t.Fatalf("fs-append groups=%v ok=%v", appendFS, ok)
+	}
+	notailGroups, ok := ClassicOptionGroupsFor("notail")
+	if !ok || !reflect.DeepEqual(notailGroups, ClassicOptionGroups["fs-notail"]) {
+		t.Fatalf("notail groups=%v ok=%v", notailGroups, ok)
+	}
 	memberGroups, ok := ClassicOptionGroupsFor("ip-add-membership")
 	if !ok || reflect.DeepEqual(joinGroups, memberGroups) {
 		t.Fatalf("ipv6-join-group groups=%v ip-add-membership groups=%v", joinGroups, memberGroups)

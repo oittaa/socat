@@ -2,7 +2,12 @@
 
 package cli
 
+import "github.com/oittaa/socat/internal/xio"
+
 func hideOpt(name string) bool {
+	if xio.LinuxExtFSFlagOption(name) {
+		return true
+	}
 	switch name {
 	case "reuseport",
 		"ip-add-membership", "ipv6-join-group",
@@ -22,7 +27,7 @@ func hideOpt(name string) bool {
 		"ip-options",
 		"ipv6-recvpktinfo", "ipv6-recvhoplimit", "ipv6-recvtclass",
 		"ipv6-unicast-hops", "ipv6-tclass",
-		"nonblock", "o-noatime", "o-direct", "fs-noatime", "f-setpipe-sz", "umask", "user", "group",
+		"nonblock", "o-noatime", "o-direct", "f-setpipe-sz", "umask", "user", "group",
 		"perm-early", "user-early", "group-early",
 		"o-sync", "o-dsync", "o-rsync", "o-noctty", "o-nofollow", "o-directory", "o-largefile",
 		"async", "perm-late", "user-late", "group-late",

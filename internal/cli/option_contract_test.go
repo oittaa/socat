@@ -82,8 +82,15 @@ var dynamicallyReadOptions = map[string]string{
 	// Canonical/alias families selected by last-option-wins helper loops.
 	"rdonly": "fileopen/file.go OpenFlags", "wronly": "fileopen/file.go OpenFlags", "rdwr": "fileopen/file.go OpenFlags",
 	"so-linger": "xio/options.go", "linger": "xio/options.go",
-	"o-noatime": "xio/options.go", "noatime": "xio/options.go",
-	"f-setpipe-sz": "xio/options.go", "pipesz": "xio/options.go",
+	"o-noatime": "xio/fdopts_linux.go", "noatime": "xio/fdopts_linux.go",
+	"f-setpipe-sz": "xio/fdopts_linux.go", "pipesz": "xio/fdopts_linux.go",
+	// Linux ext FS_*_FL ioctl-mask walk (command-line order, not OptionNamed).
+	"fs-append": "xio/fdopts_fsflags.go", "fs-compr": "xio/fdopts_fsflags.go",
+	"fs-dirsync": "xio/fdopts_fsflags.go", "fs-immutable": "xio/fdopts_fsflags.go",
+	"fs-journal-data": "xio/fdopts_fsflags.go", "fs-noatime": "xio/fdopts_fsflags.go",
+	"fs-nodump": "xio/fdopts_fsflags.go", "fs-notail": "xio/fdopts_fsflags.go",
+	"fs-secrm": "xio/fdopts_fsflags.go", "fs-sync": "xio/fdopts_fsflags.go",
+	"fs-topdir": "xio/fdopts_fsflags.go", "fs-unrm": "xio/fdopts_fsflags.go",
 	"children-shutup": "xio/options.go", "child-shutup": "xio/options.go",
 	"openssl-min-proto-version": "tlsopen/tls.go",
 	"openssl-max-proto-version": "tlsopen/tls.go",

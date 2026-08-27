@@ -31,9 +31,24 @@ func fileOptionGroups() []helpOptGroup {
 			// also ORs O_ASYNC into open(2) like classic _xioopen_open.
 			{name: "async", desc: "fcntl O_ASYNC on the descriptor", aliases: []string{"o-async"}},
 			{name: "o-noatime", desc: "set O_NOATIME on the opened descriptor", aliases: []string{"noatime"}, addressTypes: fdOptionAddressTypes()},
-			// GROUP_REG only (xio-fs.c). fdOptionAddressTypes would widen to
-			// PIPE/EXEC, which classic rejects; intersection is authoritative.
-			{name: "fs-noatime", desc: "set FS_NOATIME_FL on the file", aliases: []string{"ext2-noatime", "ext3-noatime"}},
+			// GROUP_REG only (xio-fs.c OFUNC_IOCTL_MASK_LONG). Classic
+			// tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+			// official master af5388c898c7bb60997935aee93c223deba60c4a.
+			// fdOptionAddressTypes would widen to PIPE/EXEC, which
+			// classic rejects; intersection is authoritative.
+			// fs-append is FS_APPEND_FL, not open(2) O_APPEND.
+			{name: "fs-append", desc: "set FS_APPEND_FL on the file (not O_APPEND)", aliases: []string{"ext2-append", "ext3-append"}, validate: validateOptionalBool},
+			{name: "fs-compr", desc: "set FS_COMPR_FL on the file", aliases: []string{"compr", "ext2-compr", "ext3-compr"}, validate: validateOptionalBool},
+			{name: "fs-dirsync", desc: "set FS_DIRSYNC_FL on the file", aliases: []string{"dirsync", "ext2-dirsync", "ext3-dirsync"}, validate: validateOptionalBool},
+			{name: "fs-immutable", desc: "set FS_IMMUTABLE_FL on the file", aliases: []string{"immutable", "ext2-immutable", "ext3-immutable"}, validate: validateOptionalBool},
+			{name: "fs-journal-data", desc: "set FS_JOURNAL_DATA_FL on the file", aliases: []string{"journal", "journal-data", "ext2-journal-data", "ext3-journal-data"}, validate: validateOptionalBool},
+			{name: "fs-noatime", desc: "set FS_NOATIME_FL on the file", aliases: []string{"ext2-noatime", "ext3-noatime"}, validate: validateOptionalBool},
+			{name: "fs-nodump", desc: "set FS_NODUMP_FL on the file", aliases: []string{"nodump", "ext2-nodump", "ext3-nodump"}, validate: validateOptionalBool},
+			{name: "fs-notail", desc: "set FS_NOTAIL_FL on the file", aliases: []string{"notail", "ext2-notail", "ext3-notail"}, validate: validateOptionalBool},
+			{name: "fs-secrm", desc: "set FS_SECRM_FL on the file", aliases: []string{"secrm", "ext2-secrm", "ext3-secrm"}, validate: validateOptionalBool},
+			{name: "fs-sync", desc: "set FS_SYNC_FL on the file (not O_SYNC)", aliases: []string{"ext2-sync", "ext3-sync"}, validate: validateOptionalBool},
+			{name: "fs-topdir", desc: "set FS_TOPDIR_FL on the file", aliases: []string{"topdir", "ext2-topdir", "ext3-topdir"}, validate: validateOptionalBool},
+			{name: "fs-unrm", desc: "set FS_UNRM_FL on the file", aliases: []string{"unrm", "ext2-unrm", "ext3-unrm"}, validate: validateOptionalBool},
 			{name: "f-setpipe-sz", desc: "set Linux pipe capacity", aliases: []string{"pipesz"}, addressTypes: fdOptionAddressTypes(), validate: validateInteger(1)},
 			{name: "perm", desc: "chmod after open or on an exposed fd (classic TYPE_MODET)", aliases: []string{"mode"}, validate: validateOctal(0o7777)},
 			{name: "perm-late", desc: "fchmod at classic PH_LATE, after PH_FD perm/user/group", validate: validateOctal(0o7777)},

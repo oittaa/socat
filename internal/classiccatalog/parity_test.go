@@ -66,8 +66,10 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"nopush", "linux", ClassForeign},
 		{"ip-recvif", "darwin", ClassExpectedMissing},
 		{"ip-recvif", "linux", ClassForeign},
-		{"fs-append", "linux", ClassExpectedMissing},
-		{"fs-append", "windows", ClassForeign},
+		{"fs-append", "linux", ClassMustAdvertise},
+		{"fs-append", "windows", ClassMustAdvertise},
+		{"notail", "linux", ClassMustAdvertise},
+		{"notail", "windows", ClassMustAdvertise},
 		{"sctp-nodelay", "linux", ClassMustAdvertise},
 		{"sctp-nodelay", "darwin", ClassMustAdvertise},
 		{"sctp-nodelay", "windows", ClassMustAdvertise},
@@ -131,6 +133,12 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	}
 	if _, ok := linux["sctp-maxseg"]; ok {
 		t.Fatal("linux backlog must not include implemented sctp-maxseg")
+	}
+	if _, ok := linux["fs-append"]; ok {
+		t.Fatal("linux backlog must not include implemented fs-append")
+	}
+	if _, ok := linux["notail"]; ok {
+		t.Fatal("linux backlog must not include implemented notail")
 	}
 	if _, ok := linux["binary"]; ok {
 		t.Fatal("linux backlog must not include Windows-only binary")
@@ -243,7 +251,7 @@ func TestDocsOnlyNamesAreClassified(t *testing.T) {
 		class, reason := ClassifyOption(name, "linux")
 		switch class {
 		case ClassMustAdvertise:
-			// This port implements dump-omitted documented names (sctp-nodelay).
+			// This port implements dump-omitted documented names (notail, sctp-nodelay).
 		case ClassExpectedMissing, ClassUnsupported, ClassForeign:
 			if reason == "" {
 				t.Errorf("docs-only %q classified %s with empty reason", name, class)

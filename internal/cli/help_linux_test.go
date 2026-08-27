@@ -54,6 +54,9 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"tun-no-pi", "multicast", "proxy-auth", "resolv", "ignorecr",
 		"udplite-send-cscov", "udplite-recv-cscov",
 		"sctp-nodelay", "sctp-maxseg",
+		"fs-append", "fs-compr", "fs-dirsync", "fs-immutable", "fs-journal-data",
+		"fs-nodump", "fs-notail", "fs-secrm", "fs-sync", "fs-topdir", "fs-unrm",
+		"ext2-append", "ext3-append", "compr", "nodump", "notail", "journal-data",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)

@@ -153,7 +153,6 @@ func expectedMissingSources() []map[string]Gap {
 		expectedMissingParent,
 		expectedMissingProcess,
 		expectedMissingPTY,
-		expectedMissingReg,
 		expectedMissingResolver,
 		expectedMissingSocket,
 		expectedMissingTCP,
@@ -399,9 +398,10 @@ func ValidateParityManifests() error {
 		switch class {
 		case ClassExpectedMissing, ClassUnsupported, ClassForeign, ClassOptionalParserOnly, ClassMustAdvertise:
 			// ClassMustAdvertise is this port implementing a dump-omitted
-			// documented name (Linux SCTP_NODELAY/SCTP_MAXSEG). Do not forge
-			// those spellings into catalog_gen.go. Hide them on other GOOS
-			// the same way as implemented Linux UDP-Lite / fs-noatime.
+			// documented name (notail / Linux FS_NOTAIL_FL, or Linux
+			// SCTP_NODELAY/SCTP_MAXSEG). Do not forge those spellings into
+			// catalog_gen.go. Hide them on other GOOS the same way as
+			// implemented Linux UDP-Lite / fs-noatime.
 		default:
 			errs = append(errs, "docs-only "+name+" is not classified (expected-missing, unsupported, foreign, or implemented)")
 		}
