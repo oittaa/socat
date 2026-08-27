@@ -124,6 +124,9 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 	// UNIX domain socket? Uses the pre-unlink Stat snapshot: PH_PREOPEN
 	// unlink does not reclassify a socket as a missing create-path.
 	if early.mode&os.ModeSocket != 0 {
+		if err := rejectGOPENSocketOpenFlags(s); err != nil {
+			return nil, err
+		}
 		o, err := xio.OpenSpec(ctx, parse.Spec{
 			// GOPEN is a generic client: classic probes stream, seqpacket,
 			// and datagram sockets instead of imposing UNIX-CONNECT semantics.
@@ -550,11 +553,21 @@ func OpenFlags(s parse.Spec, mode xio.Mode) (int, error) {
 	default:
 		flags = os.O_RDWR
 	}
-	if s.BoolOption("rdonly") {
-		flags = os.O_RDONLY
-	}
-	if s.BoolOption("wronly") {
-		flags = os.O_WRONLY
+	// Classic OFUNC_FLAG_PATTERN walks access-mode options in command-line
+	// order and replaces O_ACCMODE for each one. Preserve that ordering across
+	// canonical/alias mixtures instead of making wronly win unconditionally.
+	for _, o := range s.Options {
+		if !fileOptionEnabled(o) {
+			continue
+		}
+		switch parse.CanonicalOptionName(o.Name) {
+		case "rdonly":
+			flags = os.O_RDONLY
+		case "wronly":
+			flags = os.O_WRONLY
+		case "rdwr":
+			flags = os.O_RDWR
+		}
 	}
 	if s.BoolOption("creat") || s.BoolOption("create") {
 		flags |= os.O_CREATE
@@ -628,10 +641,13 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 	if err := xio.ApplyOwner(path, s, f); err != nil {
 		return fail(err)
 	}
-	if err := xio.ApplyFDOptions(f, s); err != nil {
+	if err := applyFileLocks(s, f, f); err != nil {
 		return fail(err)
 	}
-	if err := applyFileLocks(s, f, f); err != nil {
+	// All PH_FD locks must complete before PH_LATE ftruncate/lseek/async.
+	// Applying lifecycle first could mutate the file before a PH_FD lock
+	// failure, which is the opposite of classic phase ordering.
+	if err := xio.ApplyFDOptions(f, s); err != nil {
 		return fail(err)
 	}
 	// trunc= leftover after ApplyFDOptions PH_LATE ftruncate/lseek/perm-late.

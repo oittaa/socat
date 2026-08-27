@@ -26,9 +26,9 @@ import (
 //     O_ASYNC. Named OPEN/GOPEN also OR O_ASYNC at open(2) (_xioopen_open).
 //   - perm / mode: GROUP_FD|GROUP_NAMED, PH_FD, fchmod(2) on the descriptor.
 //     Classic xioopts.c IF_ANY("mode", &opt_perm).
-//   - perm-late / mode-late: GROUP_FD, PH_LATE, fchmod(2) after PH_FD perm.
+//   - perm-late: GROUP_FD, PH_LATE, fchmod(2) after PH_FD perm.
 //   - user / uid / owner, group / gid: GROUP_FD|GROUP_NAMED, PH_FD, fchown(2).
-//   - user-late / uid-l / owner-late, group-late / gid-l: GROUP_FD, PH_LATE.
+//   - user-late / uid-l, group-late / gid-l: GROUP_FD, PH_LATE.
 //   - ftruncate / truncate / ftruncate32 / ftruncate64: GROUP_REG, PH_LATE,
 //     ftruncate(2). Fail when the fd is not a regular file.
 //   - lseek / seek-cur / seek-end (and 32/64 aliases): GROUP_REG|GROUP_BLK,
@@ -328,7 +328,9 @@ func parseFtruncateOption(o parse.Option) (int64, error) {
 func parseLseekOffset(o parse.Option) (int64, error) {
 	name := o.OriginalSpelling()
 	if !o.Has {
-		return 0, fmt.Errorf("%s: invalid value %q", name, o.Value)
+		// Classic TYPE_OFF32/TYPE_OFF64 defaults a missing value to 1; the
+		// official man page calls this out explicitly for seek options.
+		return 1, nil
 	}
 	n, err := strconv.ParseInt(strings.TrimSpace(o.Value), 0, 64)
 	if err != nil {

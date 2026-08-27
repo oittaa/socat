@@ -6,16 +6,17 @@ import "github.com/oittaa/socat/internal/xio"
 func fileOptionGroups() []helpOptGroup {
 	return []helpOptGroup{
 		{"Files and UNIX", []helpOpt{
-			{name: "rdonly", desc: "open read-only"},
-			{name: "wronly", desc: "open write-only"},
-			{name: "creat", desc: "create the file", aliases: []string{"create"}},
-			{name: "excl", desc: "fail if the file exists"},
+			{name: "rdonly", desc: "open read-only", aliases: []string{"o-rdonly", "o_rdonly"}},
+			{name: "wronly", desc: "open write-only", aliases: []string{"o-wronly", "o_wronly"}},
+			{name: "rdwr", desc: "open read-write", aliases: []string{"o-rdwr", "o_rdwr"}},
+			{name: "creat", desc: "create the file", aliases: []string{"create", "o-creat", "o-create", "o_creat", "o_create"}},
+			{name: "excl", desc: "fail if the file exists", aliases: []string{"o-excl", "o_excl"}},
 			// GROUP_FD|GROUP_OPEN (xio-fd.c). Do not list address types:
 			// classic group intersection allows FD/STDIO/EXEC/sockets and
 			// rejects combinations that lack those groups.
 			{name: "append", desc: "open append or fcntl O_APPEND on an exposed fd", aliases: []string{"o-append"}},
-			{name: "trunc", desc: "truncate on open"},
-			{name: "nonblock", desc: "O_NONBLOCK", aliases: []string{"o-nonblock"}},
+			{name: "trunc", desc: "truncate on open", aliases: []string{"o-trunc"}},
+			{name: "nonblock", desc: "O_NONBLOCK", aliases: []string{"o-nonblock", "ndelay", "o-ndelay", "o_ndelay"}},
 			// GROUP_OPEN only (xio-file.c). A FILE/OPEN type list would widen
 			// to CREATE, which classic rejects; intersection is authoritative.
 			{name: "o-direct", desc: "set O_DIRECT at open", aliases: []string{"direct", "o_direct"}},
@@ -35,14 +36,14 @@ func fileOptionGroups() []helpOptGroup {
 			{name: "fs-noatime", desc: "set FS_NOATIME_FL on the file", aliases: []string{"ext2-noatime", "ext3-noatime"}},
 			{name: "f-setpipe-sz", desc: "set Linux pipe capacity", aliases: []string{"pipesz"}, addressTypes: fdOptionAddressTypes(), validate: validateInteger(1)},
 			{name: "perm", desc: "chmod after open or on an exposed fd (classic TYPE_MODET)", aliases: []string{"mode"}, validate: validateOctal(0o7777)},
-			{name: "perm-late", desc: "fchmod at classic PH_LATE, after PH_FD perm/user/group", aliases: []string{"mode-late"}, validate: validateOctal(0o7777)},
+			{name: "perm-late", desc: "fchmod at classic PH_LATE, after PH_FD perm/user/group", validate: validateOctal(0o7777)},
 			{name: "perm-early", desc: "chmod existing name before open, or UNIX socket after bind", validate: validateOctal(0o7777)},
 			{name: "ftruncate", desc: "ftruncate(2) an opened regular file to this length", aliases: []string{"truncate", "ftruncate32", "ftruncate64"}, validate: validateInteger(0)},
-			{name: "lseek", desc: "lseek SEEK_SET on a regular file or block device", aliases: []string{"lseek64", "lseek64-set", "seek", "seek-set", "lseek32", "lseek32-set"}, validate: validateInt64(false)},
-			{name: "seek-cur", desc: "lseek SEEK_CUR on a regular file or block device", aliases: []string{"lseek64-cur", "lseek32-cur"}, validate: validateInt64(false)},
-			{name: "seek-end", desc: "lseek SEEK_END on a regular file or block device", aliases: []string{"lseek64-end", "lseek32-end"}, validate: validateInt64(false)},
-			{name: "setlk", desc: "nonblocking whole-file write lock", aliases: []string{"f-setlk-wr"}},
-			{name: "setlkw", desc: "blocking whole-file write lock", aliases: []string{"f-setlkw-wr"}},
+			{name: "lseek", desc: "lseek SEEK_SET on a regular file or block device", aliases: []string{"lseek64", "lseek64-set", "seek", "seek-set", "lseek32", "lseek32-set"}, validate: validateOptionalInt64},
+			{name: "seek-cur", desc: "lseek SEEK_CUR on a regular file or block device", aliases: []string{"lseek64-cur", "lseek32-cur"}, validate: validateOptionalInt64},
+			{name: "seek-end", desc: "lseek SEEK_END on a regular file or block device", aliases: []string{"lseek64-end", "lseek32-end"}, validate: validateOptionalInt64},
+			{name: "setlk", desc: "nonblocking whole-file write lock", aliases: []string{"f-setlk-wr", "f-setlk", "setlk-wr"}},
+			{name: "setlkw", desc: "blocking whole-file write lock", aliases: []string{"f-setlkw-wr", "f-setlkw", "lock", "lockw", "setlkw-wr"}},
 			{name: "setlk-rd", desc: "nonblocking whole-file read lock", aliases: []string{"f-setlk-rd"}},
 			{name: "setlkw-rd", desc: "blocking whole-file read lock", aliases: []string{"f-setlkw-rd"}},
 			{name: "flock", desc: "exclusive flock(2) lock (classic PH_FD)", aliases: []string{"flock-ex"}},
@@ -52,11 +53,11 @@ func fileOptionGroups() []helpOptGroup {
 			{name: "umask", desc: "umask during open or EXEC start", validate: validateOctal(0o777)},
 			{name: "user", desc: "file owner", aliases: []string{"uid", "owner"}, validate: validateRequiredString},
 			{name: "group", desc: "file group", aliases: []string{"gid"}, validate: validateRequiredString},
-			{name: "user-late", desc: "fchown user at classic PH_LATE, after PH_FD user/group", aliases: []string{"uid-l", "owner-late"}, validate: validateRequiredString},
+			{name: "user-late", desc: "fchown user at classic PH_LATE, after PH_FD user/group", aliases: []string{"uid-l"}, validate: validateRequiredString},
 			{name: "group-late", desc: "fchown group at classic PH_LATE, after PH_FD user/group", aliases: []string{"gid-l"}, validate: validateRequiredString},
 			{name: "user-early", desc: "chown existing name before open, or UNIX socket after bind", aliases: []string{"uid-e"}, validate: validateRequiredString},
 			{name: "group-early", desc: "chgrp existing name before open, or UNIX socket after bind", aliases: []string{"gid-e"}, validate: validateRequiredString},
-			{name: "unlink-early", desc: "unlink before bind/open"},
+			{name: "unlink-early", desc: "unlink before bind/open", aliases: []string{"new"}},
 			{name: "unlink", desc: "unlink before open", aliases: []string{"delete", "remove"}},
 			{name: "unlink-close", desc: "unlink on close"},
 			{name: "unlink-late", desc: "unlink immediately after open"},

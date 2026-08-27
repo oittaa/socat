@@ -109,3 +109,47 @@ func TestOPENLseekChangesOffset(t *testing.T) {
 		t.Fatalf("read %q n=%d want ef after lseek=4", buf[:n], n)
 	}
 }
+
+func TestOPENBareLseekDefaultsToOne(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bare-lseek")
+	if err := os.WriteFile(path, []byte("abc"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := parse.ParseSpec("OPEN:" + path + ",lseek")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openOPEN(context.Background(), spec, xio.ModeRead, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	buf := make([]byte, 1)
+	if _, err := o.Stream.Read(buf); err != nil {
+		t.Fatal(err)
+	}
+	if string(buf) != "b" {
+		t.Fatalf("read %q want b after bare lseek defaulted to one", buf)
+	}
+}
+
+func TestOPENLockFailurePrecedesLateFtruncate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "phase-lock-before-late")
+	if err := os.WriteFile(path, []byte("abcdefghij"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := parse.ParseSpec("OPEN:" + path + ",setlk-rd,ftruncate=3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := openOPEN(context.Background(), spec, xio.ModeWrite, nil); err == nil {
+		t.Fatal("write-only OPEN unexpectedly acquired a read lock")
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Size() != 10 {
+		t.Fatalf("size=%d want 10: PH_LATE ftruncate ran before PH_FD lock failure", st.Size())
+	}
+}

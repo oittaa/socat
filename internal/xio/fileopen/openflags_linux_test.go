@@ -51,3 +51,29 @@ func TestOpenLargefileAccepted(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestOverlappingOpenFlagsFollowCommandLineOrder(t *testing.T) {
+	cleared, err := parse.ParseSpec("OPEN:x,o-sync,o-dsync=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags, err := OpenFlags(cleared, xio.ModeRead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags&unix.O_DSYNC != 0 {
+		t.Fatalf("flags=%#x retain O_DSYNC after later o-dsync=0", flags)
+	}
+
+	set, err := parse.ParseSpec("OPEN:x,o-dsync=0,o-sync")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags, err = OpenFlags(set, xio.ModeRead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags&unix.O_SYNC != unix.O_SYNC {
+		t.Fatalf("flags=%#x do not contain O_SYNC from later o-sync", flags)
+	}
+}

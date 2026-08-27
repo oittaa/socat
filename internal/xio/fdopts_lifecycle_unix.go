@@ -5,6 +5,7 @@ package xio
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"syscall"
@@ -237,15 +238,15 @@ func applyLateLifecycle(fd int, s parse.Spec) error {
 				return err
 			}
 		case "lseek":
-			if err := applyOneLseek(fd, o, unix.SEEK_SET); err != nil {
+			if err := applyOneLseek(fd, o, io.SeekStart); err != nil {
 				return err
 			}
 		case "seek-cur":
-			if err := applyOneLseek(fd, o, unix.SEEK_CUR); err != nil {
+			if err := applyOneLseek(fd, o, io.SeekCurrent); err != nil {
 				return err
 			}
 		case "seek-end":
-			if err := applyOneLseek(fd, o, unix.SEEK_END); err != nil {
+			if err := applyOneLseek(fd, o, io.SeekEnd); err != nil {
 				return err
 			}
 		case "perm-late":
@@ -285,14 +286,20 @@ func applyOneAppend(fd int, o parse.Option) error {
 
 func applyOneAsync(fd int, o parse.Option) error {
 	enable := optionEnabled(o)
+	if enable && !FeatureFDAsync {
+		return fmt.Errorf("%s: not supported on this platform", o.OriginalSpelling())
+	}
+	if !FeatureFDAsync {
+		return nil
+	}
 	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
 	if err != nil {
 		return fmt.Errorf("%s: %w", o.OriginalSpelling(), err)
 	}
 	if enable {
-		flags |= unix.O_ASYNC
+		flags |= fdAsyncFlag
 	} else {
-		flags &^= unix.O_ASYNC
+		flags &^= fdAsyncFlag
 	}
 	noteLifecycleSyscall("F_SETFL")
 	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFL, flags); err != nil {
@@ -305,8 +312,11 @@ func applyOneFlock(fd int, o parse.Option, how int) error {
 	if !optionEnabled(o) {
 		return nil
 	}
+	if !FeatureFlock {
+		return fmt.Errorf("%s: not supported on this platform", o.OriginalSpelling())
+	}
 	noteLifecycleSyscall("flock")
-	if err := unix.Flock(fd, how); err != nil {
+	if err := flockFD(fd, how); err != nil {
 		return fmt.Errorf("%s: %w", o.OriginalSpelling(), err)
 	}
 	return nil

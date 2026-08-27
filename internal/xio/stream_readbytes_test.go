@@ -23,6 +23,8 @@ func TestApplyReadBytesClassicSizeT(t *testing.T) {
 		{name: "zero-unlimited", opt: "readbytes=0", want: payload},
 		{name: "negative", opt: "readbytes=-1", want: payload},
 		{name: "garbage", opt: "readbytes=xyz", wantErr: true},
+		{name: "bytes-alias", opt: "bytes=4", want: "0123"},
+		{name: "bytes-last-wins", opt: "readbytes=8,bytes=4", want: "0123"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

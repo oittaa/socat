@@ -152,20 +152,6 @@ func TestApplyFDOptionsPermLateAfterPerm(t *testing.T) {
 	}
 }
 
-func TestApplyFDOptionsModeLateAlias(t *testing.T) {
-	f, err := os.CreateTemp(t.TempDir(), "mode-late")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = f.Close() })
-	if err := ApplyFDOptions(f, mustSpec(t, "FD:3,mode-late=0600")); err != nil {
-		skipIfOwnerChangeDenied(t, err)
-	}
-	if fileUnixMode(t, f)&0o777 != 0o600 {
-		t.Fatalf("perm=%#o want 0600", fileUnixMode(t, f)&0o777)
-	}
-}
-
 func TestApplyFDOptionsUserLateAfterUser(t *testing.T) {
 	uid := strconv.Itoa(os.Getuid())
 	f, err := os.CreateTemp(t.TempDir(), "user-late")

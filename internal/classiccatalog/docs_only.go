@@ -151,6 +151,4 @@ var GoOnlyHelpAllowlist = map[string]string{ // #nosec G101 -- option names and 
 	"tls-commonname":    "Go tls-* alias of commonname",
 	"tls-no-sni":        "Go tls-* alias of nosni / no-sni",
 	"tls-snihost":       "Go tls-* alias of snihost",
-	"mode-late":         "Go alias of perm-late (classic mode nickname of perm, not of perm-late)",
-	"owner-late":        "Go alias of user-late (classic owner nickname of user, not of user-late)",
 }

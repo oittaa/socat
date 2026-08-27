@@ -257,6 +257,15 @@ func validateInt64(requirePositive bool) func(parse.Option) error {
 	}
 }
 
+// validateOptionalInt64 matches classic TYPE_OFF32/TYPE_OFF64 parsing for
+// seek options: a bare option is accepted and defaults to offset 1.
+func validateOptionalInt64(option parse.Option) error {
+	if !option.Has {
+		return nil
+	}
+	return validateInt64(false)(option)
+}
+
 func splitSockoptOption(option parse.Option) (name, level, opt, rest string, err error) {
 	name = strings.ToLower(option.Name)
 	value, err := requiredOptionValue(option)
