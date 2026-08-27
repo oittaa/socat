@@ -26,7 +26,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"sockopt", "sockopt-int", "sockopt-bin", "sockopt-string",
 		"sockopt-listen", "sockopt-sock", "sockopt-conn",
 		"broadcast", "so-broadcast",
-		"o-rdonly", "o-creat", "o-excl", "o-wronly", "o-trunc", "ndelay", "o-ndelay",
+		"o-rdonly", "o-creat", "o-excl", "o-wronly", "o-rdwr", "o-trunc", "ndelay", "o-ndelay",
 		"f-setlk", "lock", "bytes", "crlf", "cd", "sid", "close", "maxchildren",
 		"intervall", "ipv6only", "v6only", "termios-cfmakeraw", "crterase",
 		"tun-no-pi", "multicast", "proxy-auth", "resolv",

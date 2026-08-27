@@ -15,6 +15,8 @@ func TestImplementedOpenFlagAndLockAliasesParse(t *testing.T) {
 		{spec: "OPEN:file,o_rdonly", opt: "rdonly"},
 		{spec: "OPEN:file,o-wronly", opt: "wronly"},
 		{spec: "OPEN:file,o_wronly", opt: "wronly"},
+		{spec: "OPEN:file,o-rdwr", opt: "rdwr"},
+		{spec: "OPEN:file,o_rdwr", opt: "rdwr"},
 		{spec: "OPEN:file,o-creat", opt: "creat"},
 		{spec: "OPEN:file,o-create", opt: "creat"},
 		{spec: "OPEN:file,o_creat", opt: "creat"},
@@ -76,6 +78,7 @@ func TestCatalogOpenFlagAliasesShareClassicGroups(t *testing.T) {
 	pairs := [][2]string{
 		{"o-rdonly", "rdonly"},
 		{"o-wronly", "wronly"},
+		{"o-rdwr", "rdwr"},
 		{"o-creat", "creat"},
 		{"o-excl", "excl"},
 		{"o-trunc", "trunc"},
