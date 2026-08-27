@@ -7,8 +7,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"os"
-	"path/filepath"
 	"strconv"
 	"syscall"
 	"testing"
@@ -16,6 +14,7 @@ import (
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
+	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 )
 
@@ -169,16 +168,7 @@ func TestGenericUnixAutodetectsSocketType(t *testing.T) {
 
 func unixSocketTestPath(t *testing.T, name string) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "socat-unix-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.RemoveAll(dir); err != nil {
-			t.Errorf("remove UNIX socket test directory: %v", err)
-		}
-	})
-	return filepath.Join(dir, name)
+	return testutil.UnixSocketPath(t, name)
 }
 
 func socketType(t *testing.T, conn any) int {

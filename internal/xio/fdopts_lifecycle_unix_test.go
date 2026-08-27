@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/oittaa/socat/internal/relay"
+	"github.com/oittaa/socat/internal/testutil"
 	"golang.org/x/sys/unix"
 )
 
@@ -292,12 +293,7 @@ func TestWrapCommonUNIXConnectAppliesDescriptorFchmod(t *testing.T) {
 	// Classic _xioopen_connect applyopts(PH_FD) fchmods the socket descriptor
 	// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba). Darwin fchmod
 	// on UNIX sockets returns EINVAL; that error must propagate.
-	dir, err := os.MkdirTemp("/tmp", "socat-perm-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	listen := filepath.Join(dir, "l.sock")
+	listen := testutil.UnixSocketPath(t, "l.sock")
 	ln, err := net.Listen("unix", listen)
 	if err != nil {
 		t.Fatal(err)
