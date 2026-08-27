@@ -62,9 +62,13 @@ func openAcceptFDNum(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		Listener: ln,
 		Label:    fmt.Sprintf("%s:%d", s.Type, fd),
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			return xio.WrapAccepted(s, c, func(c net.Conn) error {
-				return applyAcceptFDAcceptedOpts(s, c)
-			})
+			if err := applyAcceptFDAcceptedOpts(s, c); err != nil {
+				return nil, err
+			}
+			// Classic _xioopen_accept_fd applies PH_FD before PH_PASTSOCKET /
+			// PH_CONNECTED / PH_LATE (xio-listen.c). Skip PH_FD here so LATE
+			// is not applied early with the descriptor walk.
+			return xio.WrapCommonAfterConnectedFDPhaseApplied(s, relay.NetStream{Conn: c})
 		},
 	})
 }
@@ -138,6 +142,13 @@ func rejectIfNotListening(fd int) error {
 
 func applyAcceptFDAcceptedOpts(s parse.Spec, c net.Conn) error {
 	if sc, ok := c.(syscall.Conn); ok {
+		// Classic _xioopen_accept_fd (xio-listen.c tag-1.8.1.3
+		// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+		// af5388c898c7bb60997935aee93c223deba60c4a is the same): PH_FD, then
+		// PH_PASTSOCKET, then PH_CONNECTED. PH_LATE is WrapCommon.
+		if err := xio.ApplyFDPhaseLifecycleToConn(sc, s); err != nil {
+			return err
+		}
 		raw, err := sc.SyscallConn()
 		if err != nil {
 			return err

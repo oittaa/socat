@@ -61,6 +61,17 @@ func applyFDLifecycleOnFD(fd int, s parse.Spec) error {
 // are skipped via per-open *os.File identity (not a process-global fd-number
 // cache). FileStream R/W/C sharing one unmarked fd still apply once via seen.
 func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
+	return applyFDLifecycleToStreamMode(s, stream, false)
+}
+
+// applyFDLifecycleLateToStream applies only classic PH_LATE descriptor options.
+// ACCEPT-FD applies PH_FD before PH_PASTSOCKET/PH_CONNECTED; WrapCommon then
+// uses this so PH_LATE is not applied early with PH_FD.
+func applyFDLifecycleLateToStream(s parse.Spec, stream relay.Stream) error {
+	return applyFDLifecycleToStreamMode(s, stream, true)
+}
+
+func applyFDLifecycleToStreamMode(s parse.Spec, stream relay.Stream, lateOnly bool) error {
 	if !hasFDLifecycleOptions(s) {
 		return nil
 	}
@@ -87,6 +98,10 @@ func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
 				return
 			}
 			seen[n] = struct{}{}
+			if lateOnly {
+				fdErr = applyLateLifecycle(n, s)
+				return
+			}
 			fdErr = applyFDLifecycleOnFD(n, s)
 		})
 		if err := errors.Join(ctrlErr, fdErr); err != nil {
@@ -174,6 +189,7 @@ func applyFDPhaseLifecycleAll(fd int, s parse.Spec) error {
 }
 
 func applyFDPhaseLifecycleOptions(fd int, s parse.Spec, honorTargetSkip bool) error {
+	noteOptionPhase("FD")
 	for _, o := range s.Options {
 		name := parse.CanonicalOptionName(o.Name)
 		switch name {
@@ -224,6 +240,7 @@ func applyFDPhaseLifecycleOptions(fd int, s parse.Spec, honorTargetSkip bool) er
 }
 
 func applyLateLifecycle(fd int, s parse.Spec) error {
+	noteOptionPhase("LATE")
 	skipAppend := skipNamedFileAppend(s.Type)
 	skipAsync := skipNamedFileAsync(s.Type)
 	for _, o := range s.Options {

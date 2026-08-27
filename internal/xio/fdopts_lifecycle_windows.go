@@ -36,6 +36,14 @@ func applyFDLifecycleToFile(f *os.File, s parse.Spec) error {
 }
 
 func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
+	return applyFDLifecycleToStreamMode(s, stream, false)
+}
+
+func applyFDLifecycleLateToStream(s parse.Spec, stream relay.Stream) error {
+	return applyFDLifecycleToStreamMode(s, stream, true)
+}
+
+func applyFDLifecycleToStreamMode(s parse.Spec, stream relay.Stream, lateOnly bool) error {
 	if !hasFDLifecycleOptions(s) {
 		return nil
 	}
@@ -57,6 +65,10 @@ func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
 				return
 			}
 			seen[fd] = struct{}{}
+			if lateOnly {
+				fdErr = applyWindowsLate(fd, s)
+				return
+			}
 			fdErr = applyFDLifecycleOnHandle(fd, s)
 		})
 		if err := errors.Join(ctrlErr, fdErr); err != nil {
@@ -136,6 +148,7 @@ func applyWindowsFDPhase(s parse.Spec) error {
 }
 
 func applyWindowsFDPhaseOptions(s parse.Spec, honorTargetSkip bool) error {
+	noteOptionPhase("FD")
 	for _, o := range s.Options {
 		name := parse.CanonicalOptionName(o.Name)
 		switch name {
@@ -165,6 +178,7 @@ func applyWindowsFDPhaseOptions(s parse.Spec, honorTargetSkip bool) error {
 }
 
 func applyWindowsLate(fd uintptr, s parse.Spec) error {
+	noteOptionPhase("LATE")
 	skipAppend := skipNamedFileAppend(s.Type)
 	skipAsync := skipNamedFileAsync(s.Type)
 	for _, o := range s.Options {

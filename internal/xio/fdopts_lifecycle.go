@@ -78,6 +78,26 @@ func InstallLifecycleSyscallHook(f func(op string)) func() {
 	return func() { lifecycleSyscallTestHook = prev }
 }
 
+// optionPhaseTestHook is invoked at the start of classic applyopts phases
+// (PH_FD, PH_PASTSOCKET, PH_CONNECTED, PH_LATE). Tests assert ACCEPT-FD
+// follows _xioopen_accept_fd order.
+var optionPhaseTestHook func(phase string)
+
+func noteOptionPhase(phase string) {
+	if hook := optionPhaseTestHook; hook != nil {
+		hook(phase)
+	}
+}
+
+// InstallOptionPhaseHook installs a test observer invoked at the start of
+// each classic option phase apply. Tests restore the previous hook with the
+// returned function.
+func InstallOptionPhaseHook(f func(phase string)) func() {
+	prev := optionPhaseTestHook
+	optionPhaseTestHook = f
+	return func() { optionPhaseTestHook = prev }
+}
+
 // fdLifecycleAppliedFiles is per-open state keyed by *os.File identity, not
 // by fd number. A closed file's number may be reused by a new *os.File; that
 // new object is a different key and still receives lifecycle options.

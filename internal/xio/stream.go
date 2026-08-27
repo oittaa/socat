@@ -597,7 +597,7 @@ func applySocketTimeouts(s parse.Spec, stream relay.Stream) (relay.Stream, error
 
 // WrapCommon applies socket timeouts plus the common stream transformations.
 func WrapCommon(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, true, false, false)
+	return wrapCommon(s, stream, true, false, false, false)
 }
 
 // WrapCommonAfterConnected is WrapCommon for streams whose opener already
@@ -605,7 +605,7 @@ func WrapCommon(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 // rejected for FD. A skip flag is used instead of wrapping the stream so type
 // assertions on the concrete opener type stay valid.
 func WrapCommonAfterConnected(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, true, true, false)
+	return wrapCommon(s, stream, true, true, false, false)
 }
 
 // WrapCommonAfterConnectedFDLifecycleApplied is for logical streams whose
@@ -613,23 +613,33 @@ func WrapCommonAfterConnected(s parse.Spec, stream relay.Stream) (relay.Stream, 
 // descriptor. HTTP/2 and HTTP/3 CONNECT use it after configuring their TCP or
 // UDP transport, because the returned request stream does not expose that fd.
 func WrapCommonAfterConnectedFDLifecycleApplied(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, true, true, true)
+	return wrapCommon(s, stream, true, true, true, false)
+}
+
+// WrapCommonAfterConnectedFDPhaseApplied skips PH_FD and PH_CONNECTED. Use it
+// when the opener already applied classic PH_FD (and PH_CONNECTED) so PH_LATE
+// still runs here. ACCEPT-FD uses this to match _xioopen_accept_fd
+// (xio-listen.c at tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+// official master af5388c898c7bb60997935aee93c223deba60c4a is the same):
+// PH_FD → PH_PASTSOCKET → PH_CONNECTED → PH_LATE.
+func WrapCommonAfterConnectedFDPhaseApplied(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
+	return wrapCommon(s, stream, true, true, false, true)
 }
 
 // WrapCommonWithSocketTimeoutsApplied is used by framed transports that must
 // absorb socket timeouts below their record layer before applying the remaining
 // common stream transformations.
 func WrapCommonWithSocketTimeoutsApplied(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, false, false, false)
+	return wrapCommon(s, stream, false, false, false, false)
 }
 
 // WrapCommonAfterConnectedTimeoutsApplied skips PH_CONNECTED and socket
 // timeouts (already applied on the raw fd / below the record layer).
 func WrapCommonAfterConnectedTimeoutsApplied(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, false, true, false)
+	return wrapCommon(s, stream, false, true, false, false)
 }
 
-func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected, skipFDLifecycle bool) (relay.Stream, error) {
+func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected, skipFDLifecycle, skipFDPhase bool) (relay.Stream, error) {
 	// PH_LATE so-sndbuf-late / so-rcvbuf-late on streams that expose a
 	// socket fd (syscall.Conn). TLS crypto/tls.Conn is not a syscall.Conn;
 	// ApplyTCPConnOpts applies the same options on the unwrapped raw TCP
@@ -646,7 +656,11 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected,
 	// wrappers, POSIX MQ, and QUIC streams hide the fd; those call sites
 	// apply on the raw socket/mqd before wrapping.
 	if !skipFDLifecycle {
-		if err := applyFDLifecycleToStream(s, stream); err != nil {
+		apply := applyFDLifecycleToStream
+		if skipFDPhase {
+			apply = applyFDLifecycleLateToStream
+		}
+		if err := apply(s, stream); err != nil {
 			return nil, err
 		}
 	}

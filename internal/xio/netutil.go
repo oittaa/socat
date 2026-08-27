@@ -196,6 +196,7 @@ func ApplyListenOptions(fd int, s parse.Spec, network string) error {
 // (tcp-cork, tcp-maxseg, …) and Linux SCTP (sctp-nodelay, sctp-maxseg),
 // setsockopt-socket, and ip-ttl/tos on TCP/SCTP.
 func ApplyPastSocketPhase(fd int, s parse.Spec, network string) error {
+	noteOptionPhase("PASTSOCKET")
 	return ApplyNetworkSocketOptions(fd, s, network)
 }
 
@@ -556,6 +557,7 @@ func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 // and named CONNECTED TCP opts; a present option is never ignored because
 // the conn is not *net.TCPConn (TCP_* on UDP/SCTP fails clearly).
 func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
+	noteOptionPhase("CONNECTED")
 	c = unwrapNetConn(c)
 	if tc, ok := c.(*net.TCPConn); ok {
 		if err := applyKeepAliveConfig(s, tc); err != nil {

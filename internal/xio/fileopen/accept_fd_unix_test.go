@@ -15,6 +15,7 @@ import (
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
 )
@@ -495,5 +496,189 @@ func TestAcceptFDWrongParamCount(t *testing.T) {
 	_, err := openAcceptFD(context.Background(), parse.Spec{Type: "ACCEPT-FD"}, xio.ModeRDWR, nil)
 	if err == nil || !strings.Contains(err.Error(), "wrong number of parameters") {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestAcceptFDAppliesPhasesInClassicOrder(t *testing.T) {
+	fd, addr := tcp4ListenOwned(t)
+	var phases []string
+	restore := xio.InstallOptionPhaseHook(func(phase string) {
+		phases = append(phases, phase)
+	})
+	t.Cleanup(restore)
+
+	opened := make(chan *xio.Opened, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		s := parseAcceptSpec(t, "ACCEPT-FD:0,so-rcvbuf=262144,nodelay,append", fd)
+		o, err := openAcceptFD(context.Background(), s, xio.ModeRDWR, nil)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		opened <- o
+	}()
+	cli, err := net.DialTimeout("tcp4", addr, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cli.Close() })
+	var o *xio.Opened
+	select {
+	case o = <-opened:
+		t.Cleanup(func() { _ = o.Close() })
+	case err := <-errCh:
+		t.Fatal(err)
+	case <-time.After(4 * time.Second):
+		t.Fatal("ACCEPT-FD accept timed out")
+	}
+
+	want := []string{"FD", "PASTSOCKET", "CONNECTED", "LATE"}
+	if !phaseOrderContains(phases, want) {
+		t.Fatalf("phases=%v want classic order %v", phases, want)
+	}
+	seenPast := false
+	for _, p := range phases {
+		if p == "PASTSOCKET" {
+			seenPast = true
+		}
+		if seenPast && p == "FD" {
+			t.Fatalf("PH_FD applied after PH_PASTSOCKET: %v", phases)
+		}
+	}
+}
+
+func phaseOrderContains(got, want []string) bool {
+	i := 0
+	for _, p := range got {
+		if i < len(want) && p == want[i] {
+			i++
+		}
+	}
+	return i == len(want)
+}
+
+func unixListenOwned(t *testing.T, socktype int, name string) (fd int, path string) {
+	t.Helper()
+	path = testutil.UnixSocketPath(t, name)
+	fd, err := unix.Socket(unix.AF_UNIX, socktype, 0)
+	if err != nil {
+		t.Fatalf("socket: %v", err)
+	}
+	if err := unix.Bind(fd, &unix.SockaddrUnix{Name: path}); err != nil {
+		_ = unix.Close(fd)
+		t.Fatalf("bind: %v", err)
+	}
+	if err := unix.Listen(fd, 1); err != nil {
+		_ = unix.Close(fd)
+		_ = unix.Unlink(path)
+		t.Fatalf("listen: %v", err)
+	}
+	owned := dupOwnedFD(t, fd)
+	_ = unix.Close(fd)
+	t.Cleanup(func() { _ = unix.Unlink(path) })
+	return owned, path
+}
+
+func TestAcceptFDUnixStreamTransfers(t *testing.T) {
+	fd, path := unixListenOwned(t, unix.SOCK_STREAM, "accept-fd.sock")
+	opened := make(chan *xio.Opened, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		o, err := openAcceptFD(context.Background(), parseAcceptSpec(t, "ACCEPT-FD:0", fd), xio.ModeRDWR, nil)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		opened <- o
+	}()
+	cli, err := net.DialTimeout("unix", path, 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cli.Close() })
+	var o *xio.Opened
+	select {
+	case o = <-opened:
+		t.Cleanup(func() { _ = o.Close() })
+	case err := <-errCh:
+		t.Fatal(err)
+	case <-time.After(4 * time.Second):
+		t.Fatal("unix ACCEPT-FD accept timed out")
+	}
+	payload := []byte("unix-accept-fd")
+	if _, err := cli.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+	if got := readStream(t, o.Stream, len(payload)); string(got) != string(payload) {
+		t.Fatalf("read %q want %q", got, payload)
+	}
+	if _, err := o.Stream.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]byte, len(payload))
+	_ = cli.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := io.ReadFull(cli, got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(payload) {
+		t.Fatalf("echo %q want %q", got, payload)
+	}
+}
+
+func TestAcceptFDUnixSeqpacketPreciseErrorOrTransfer(t *testing.T) {
+	fd, path := unixListenOwned(t, unix.SOCK_SEQPACKET, "accept-fd-seq.sock")
+	opened := make(chan *xio.Opened, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		o, err := openAcceptFD(context.Background(), parseAcceptSpec(t, "ACCEPT-FD:0", fd), xio.ModeRDWR, nil)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		opened <- o
+	}()
+
+	dialDone := make(chan error, 1)
+	var cli net.Conn
+	go func() {
+		c, err := net.DialTimeout("unixpacket", path, 2*time.Second)
+		if err != nil {
+			dialDone <- err
+			return
+		}
+		cli = c
+		dialDone <- nil
+	}()
+
+	select {
+	case err := <-errCh:
+		msg := err.Error()
+		if !strings.Contains(msg, "seqpacket") &&
+			!strings.Contains(msg, "not a listening stream socket") &&
+			!strings.Contains(msg, "unsupported") &&
+			!strings.Contains(msg, "listening") {
+			t.Fatalf("seqpacket err=%v want a precise listening/seqpacket error", err)
+		}
+	case o := <-opened:
+		t.Cleanup(func() { _ = o.Close() })
+		select {
+		case err := <-dialDone:
+			if err != nil {
+				t.Fatalf("unixpacket dial after FileListener wrap: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("unixpacket dial timed out")
+		}
+		t.Cleanup(func() { _ = cli.Close() })
+		payload := []byte("seqpacket-ok")
+		if _, err := cli.Write(payload); err != nil {
+			t.Fatal(err)
+		}
+		if got := readStream(t, o.Stream, len(payload)); string(got) != string(payload) {
+			t.Fatalf("read %q want %q", got, payload)
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("seqpacket ACCEPT-FD timed out")
 	}
 }
