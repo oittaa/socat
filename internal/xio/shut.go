@@ -168,8 +168,11 @@ func (s shutDownStream) UnwrapZeroCopyStream() relay.Stream {
 	return s.Stream
 }
 
-// shutNullStream sends a 0-byte Write on ShutdownWrite (classic XIOSHUT_NULL:
-// xiowrite(..., 0) then return; it does not also Shutdown).
+// shutNullStream sends a 0-byte Write on ShutdownWrite (classic XIOSHUT_NULL
+// in xioshutdown.c, tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+// official master af5388c898c7bb60997935aee93c223deba60c4a is the same):
+// xiowrite(..., 0) then return 0. The write result is ignored; ShutdownWrite
+// of the underlying stream is not called.
 type shutNullStream struct {
 	relay.Stream
 }
@@ -180,8 +183,8 @@ func (s shutNullStream) UnwrapZeroCopyStream() relay.Stream {
 }
 
 func (s shutNullStream) ShutdownWrite() error {
-	_, err := s.Write(nil) // 0-byte datagram; report write errors, do not also half-close
-	return err
+	_, _ = s.Write(nil) // classic xiowrite(..., 0); result ignored; do not also half-close
+	return nil
 }
 
 // shutCloseStream turns a directional half-close into a full descriptor

@@ -152,7 +152,7 @@ var dynamicallyReadOptions = map[string]string{
 	"tcp-quickack": "xio/sockopt_named.go", "quickack": "xio/sockopt_named.go",
 	"tcp-syncnt": "xio/sockopt_named.go", "syncnt": "xio/sockopt_named.go",
 	"tcp-window-clamp": "xio/sockopt_named.go", "window-clamp": "xio/sockopt_named.go",
-	"sctp-nodelay":     "xio/sockopt_named.go", "sctp-maxseg": "xio/sockopt_named.go",
+	"sctp-nodelay": "xio/sockopt_named.go", "sctp-maxseg": "xio/sockopt_named.go",
 
 	// Ordered howtoshut / lineterm: last active occurrence wins (stream.go / shut.go).
 	"shut-none":  "xio/shut.go selectedShutPolicy",

@@ -13,6 +13,12 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
+func TestIsNotSockMatchesENOTSOCK(t *testing.T) {
+	if !isNotSock(syscall.ENOTSOCK) {
+		t.Fatal("syscall.ENOTSOCK must satisfy isNotSock")
+	}
+}
+
 func TestShutDownOnStreamSocketpair(t *testing.T) {
 	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
 	if err != nil {

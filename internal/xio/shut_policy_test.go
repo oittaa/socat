@@ -3,10 +3,10 @@ package xio
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
-	"syscall"
 	"testing"
 	"time"
 
@@ -265,19 +265,31 @@ func TestShutNoneSelectedForExec(t *testing.T) {
 
 type failWriteStream struct{ recordingStream }
 
-func (s *failWriteStream) Write([]byte) (int, error) {
+func (s *failWriteStream) Write(p []byte) (int, error) {
+	s.writes = append(s.writes, append([]byte(nil), p...))
 	return 0, io.ErrClosedPipe
 }
 
-func TestShutNullReportsWriteError(t *testing.T) {
+func TestShutNullIgnoresWriteError(t *testing.T) {
 	inner := &failWriteStream{}
 	stream := wrapSpec(t, "TCP:127.0.0.1:9,shut-null", inner)
-	err := stream.ShutdownWrite()
-	if !errors.Is(err, io.ErrClosedPipe) {
-		t.Fatalf("err=%v want closed pipe", err)
+	if err := stream.ShutdownWrite(); err != nil {
+		t.Fatalf("classic shut-null ignores xiowrite error: %v", err)
 	}
 	if inner.shutdowns != 0 {
-		t.Fatalf("shut-null must not also ShutdownWrite after a write error: shutdowns=%d", inner.shutdowns)
+		t.Fatalf("shut-null must not also ShutdownWrite: shutdowns=%d", inner.shutdowns)
+	}
+	if len(inner.writes) != 1 || len(inner.writes[0]) != 0 {
+		t.Fatalf("writes=%v want one empty datagram", inner.writes)
+	}
+}
+
+func TestIsNotSockMatchesNotSocketError(t *testing.T) {
+	if !isNotSock(notSocketError()) {
+		t.Fatal("notSocketError must satisfy isNotSock")
+	}
+	if !isNotSock(fmt.Errorf("shut-down: %w", notSocketError())) {
+		t.Fatal("wrapped notSocketError must satisfy isNotSock")
 	}
 }
 
@@ -289,8 +301,8 @@ func TestShutDownOnPipeReportsNotSocket(t *testing.T) {
 	defer func() { _ = r.Close(); _ = w.Close() }()
 	stream := wrapSpec(t, "PIPE,shut-down", FileStream(w))
 	err = stream.ShutdownWrite()
-	if err == nil || !errors.Is(err, syscall.ENOTSOCK) {
-		t.Fatalf("err=%v want ENOTSOCK", err)
+	if err == nil || !isNotSock(err) {
+		t.Fatalf("err=%v want not-a-socket", err)
 	}
 	if _, err := w.Write([]byte("still-open")); err != nil {
 		t.Fatalf("pipe must stay open after shut-down: %v", err)

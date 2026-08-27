@@ -1,8 +1,6 @@
 package xio
 
 import (
-	"errors"
-	"fmt"
 	"net"
 	"syscall"
 
@@ -95,12 +93,4 @@ func shutdownSyscallConn(sc syscall.Conn) error {
 		return err
 	}
 	return shutErr
-}
-
-func notSocketError() error {
-	return fmt.Errorf("%w", syscall.ENOTSOCK)
-}
-
-func isNotSock(err error) bool {
-	return errors.Is(err, syscall.ENOTSOCK)
 }
