@@ -85,9 +85,9 @@ var dynamicallyReadOptions = map[string]string{
 	"o-noatime": "xio/options.go", "noatime": "xio/options.go",
 	"f-setpipe-sz": "xio/options.go", "pipesz": "xio/options.go",
 	"children-shutup": "xio/options.go", "child-shutup": "xio/options.go",
-	"openssl-min-proto-version": "tlsopen/tls.go", "min-version": "tlsopen/tls.go",
-	"openssl-max-proto-version": "tlsopen/tls.go", "max-version": "tlsopen/tls.go",
-	"so-protocol": "netopen/vsock.go parseVsockProtocolOption",
+	"openssl-min-proto-version": "tlsopen/tls.go",
+	"openssl-max-proto-version": "tlsopen/tls.go",
+	"so-protocol":               "netopen/vsock.go parseVsockProtocolOption",
 
 	"perm": "xio/run.go", "mode": "xio/run.go",
 	"user": "xio/fdopts_lifecycle.go", "uid": "xio/fdopts_lifecycle.go", "owner": "xio/fdopts_lifecycle.go",
@@ -153,12 +153,18 @@ var dynamicallyReadOptions = map[string]string{
 // opener can return a precise "not supported" error; helpOptionGroups keeps the
 // authoritative list and routes them to that error.
 var recognizedUnsupportedOptions = map[string]string{
-	"openssl-method": "stream TLS only; rejected with a precise error",
-	"opensslmethod":  "stream TLS only; rejected with a precise error",
-	"ip-recverr":     "MSG_ERRQUEUE is not implemented on the ReadMsg path",
-	"recverr":        "MSG_ERRQUEUE is not implemented on the ReadMsg path",
-	"iprecverr":      "MSG_ERRQUEUE is not implemented on the ReadMsg path",
-	"ipv6-recverr":   "MSG_ERRQUEUE is not implemented on the ReadMsg path",
+	"openssl-method":      "stream TLS only; rejected with a precise error",
+	"openssl-fips":        "enabled mode rejected; fips=0 is honored",
+	"openssl-compress":    "only compression=none is honored",
+	"openssl-egd":         "Go does not use EGD for randomness",
+	"openssl-pseudo":      "enabled mode rejected; pseudo=0 is honored",
+	"openssl-dhparam":     "Go crypto/tls does not load DH parameters",
+	"openssl-maxfraglen":  "Go crypto/tls has no max fragment length option",
+	"openssl-maxsendfrag": "Go crypto/tls has no max send fragment option",
+	"ip-recverr":          "MSG_ERRQUEUE is not implemented on the ReadMsg path",
+	"recverr":             "MSG_ERRQUEUE is not implemented on the ReadMsg path",
+	"iprecverr":           "MSG_ERRQUEUE is not implemented on the ReadMsg path",
+	"ipv6-recverr":        "MSG_ERRQUEUE is not implemented on the ReadMsg path",
 }
 
 var compatNoOptions = map[string]string{

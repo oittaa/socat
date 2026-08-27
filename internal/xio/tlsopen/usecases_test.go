@@ -110,3 +110,51 @@ func TestTLSConnectAndListenAliases(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestTLSPublicCertificateAliasEchoUseCase(t *testing.T) {
+	cert, err := testcert.WriteTempListenCert(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	g := &xio.Global{BlockSize: 8192, Log: logx.New(), Linger: 200 * time.Millisecond}
+	ls, err := parse.ParseChannel("OPENSSL-LISTEN:0,reuseaddr,fork,bind=127.0.0.1,openssl-verify=0,openssl-certificate=" + cert)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lo, err := xio.OpenChannel(ctx, ls, xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lo.Listener == nil {
+		_ = lo.Close()
+		t.Fatal("OPENSSL-LISTEN did not return a listener")
+	}
+	pipe, err := parse.ParseChannel("PIPE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = xio.RunOpened(ctx, lo, pipe, g) }()
+	port := lo.Listener.Addr().(*net.TCPAddr).Port
+	cs, err := parse.ParseChannel("OPENSSL:127.0.0.1:" + strconv.Itoa(port) + ",openssl-verify=0,connect-timeout=2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli, err := xio.OpenChannel(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cli.Close() })
+	const payload = "tls-cert-alias"
+	if _, err := io.WriteString(cli.Stream, payload); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]byte, len(payload))
+	if _, err := io.ReadFull(cli.Stream, got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != payload {
+		t.Fatalf("got %q", got)
+	}
+}

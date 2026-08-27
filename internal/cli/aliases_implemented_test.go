@@ -60,23 +60,17 @@ var implementedAliasHelp = []struct {
 	{"multicast", "iff-multicast"},
 	{"proxy-auth", "proxy-authorization"},
 	{"resolv", "proxy-resolve"},
-}
-
-// deferredImplementedTLSAliases are public classic spellings for TLS behavior
-// Go already has, but whose help/parse aliases are intentionally owned by the
-// later TLS compatibility PR. Keep this exact: a blanket OPENSSL-group skip
-// would also hide newly missed aliases and unsupported OpenSSL features.
-var deferredImplementedTLSAliases = map[string]string{
-	"certificate":         "cert",
-	"openssl-certificate": "cert",
-	"openssl-key":         "key",
-	"openssl-cafile":      "cafile",
-	"openssl-verify":      "verify",
-	"cn":                  "commonname",
-	"cipherlist":          "ciphers",
-	"min-proto-version":   "openssl-min-proto-version",
-	"max-proto-version":   "openssl-max-proto-version",
-	"no-sni":              "nosni",
+	{"certificate", "cert"},
+	{"openssl-certificate", "cert"},
+	{"openssl-key", "key"},
+	{"openssl-cafile", "cafile"},
+	{"openssl-verify", "verify"},
+	{"cn", "commonname"},
+	{"cipherlist", "ciphers"},
+	{"min-proto-version", "openssl-min-proto-version"},
+	{"max-proto-version", "openssl-max-proto-version"},
+	{"no-sni", "nosni"},
+	{"compress", "openssl-compress"},
 }
 
 func TestImplementedAliasesHHHNotHH(t *testing.T) {
@@ -160,26 +154,12 @@ func hideOptGroupForAlias(canonical string) bool {
 
 func TestCatalogAliasesOfAdvertisedCanonicalsAreAdvertised(t *testing.T) {
 	advertised := advertisedHelpNames(true)
-	for spelling, canonical := range deferredImplementedTLSAliases {
-		if _, ok := classiccatalog.Lookup(spelling); !ok {
-			t.Errorf("deferred TLS spelling %q is not in the classic catalog", spelling)
-		}
-		if _, ok := advertised[spelling]; ok {
-			t.Errorf("deferred TLS spelling %q is now advertised; remove it from deferredImplementedTLSAliases", spelling)
-		}
-		if _, ok := advertised[canonical]; !ok {
-			t.Errorf("deferred TLS spelling %q targets unadvertised Go option %q", spelling, canonical)
-		}
-	}
 	var missing []string
 	for spelling, e := range classiccatalog.Options {
 		if _, ok := advertised[spelling]; ok {
 			continue
 		}
 		if _, omit := classiccatalog.IntentionalPublicOmissions[spelling]; omit {
-			continue
-		}
-		if _, deferred := deferredImplementedTLSAliases[spelling]; deferred {
 			continue
 		}
 		goCanon := parse.CanonicalOptionName(spelling)

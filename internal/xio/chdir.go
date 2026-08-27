@@ -72,7 +72,7 @@ func filesystemAddressParam(typ string) bool {
 }
 
 func filesystemOption(name string) bool {
-	switch name {
+	switch parse.CanonicalOptionName(name) {
 	case "cert", "key", "cafile", "ca", "capath", "link", "symbolic-link",
 		"hosts-allow", "allow-table", "tcpwrap-hosts-allow-table",
 		"hosts-deny", "deny-table", "tcpwrap-hosts-deny-table",

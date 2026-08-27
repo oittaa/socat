@@ -714,7 +714,7 @@ func TestTLSListenRequiresCert(t *testing.T) {
 
 func TestTLSRejectsOpenSSLMethod(t *testing.T) {
 	bin := socatBin(t)
-	for _, optionName := range []string{"openssl-method", "opensslmethod"} {
+	for _, optionName := range []string{"openssl-method", "opensslmethod", "method"} {
 		out, err := exec.Command(bin,
 			"OPENSSL-LISTEN:0,verify=0,"+optionName+"=DTLS1",
 			"PIPE",
@@ -728,8 +728,77 @@ func TestTLSRejectsOpenSSLMethod(t *testing.T) {
 	}
 
 	hhh := capabilityOutput(t, "-hhh")
-	if bytes.Contains(hhh, []byte("openssl-method")) {
-		t.Fatalf("-hhh advertises unsupported openssl-method:\n%s", hhh)
+	for _, name := range []string{"openssl-method", "openssl-fips", "openssl-egd", "openssl-dhparam", "openssl-maxfraglen", "openssl-maxsendfrag"} {
+		if bytes.Contains(hhh, []byte("    "+name+" ")) {
+			t.Fatalf("-hhh advertises unsupported %s:\n%s", name, hhh)
+		}
+	}
+}
+
+func TestTLSRejectsUnsupportedOpenSSLOptions(t *testing.T) {
+	bin := socatBin(t)
+	for _, option := range []string{
+		"fips", "openssl-fips=1", "compress=auto", "egd=/tmp/egd", "pseudo",
+		"dhparam=dh.pem", "maxfraglen=512", "maxsendfrag=1024",
+	} {
+		out, err := exec.Command(bin,
+			"OPENSSL-LISTEN:0,verify=0,"+option,
+			"PIPE",
+		).CombinedOutput()
+		if err == nil {
+			t.Fatalf("%s: expected unsupported error, got %q", option, out)
+		}
+		if !bytes.Contains(out, []byte("not supported")) {
+			t.Fatalf("%s: unexpected error: %s", option, out)
+		}
+	}
+}
+
+func TestHelpListsTLSPublicCatalogAliases(t *testing.T) {
+	hhh := capabilityOutput(t, "-hhh")
+	for _, name := range []string{
+		"certificate", "openssl-certificate", "openssl-key", "openssl-cafile",
+		"openssl-verify", "cn", "cipherlist", "openssl-compress", "compress", "no-sni",
+		"min-proto-version", "max-proto-version",
+	} {
+		if !bytes.Contains(hhh, []byte("    "+name+" ")) {
+			t.Fatalf("-hhh missing %s:\n%s", name, hhh)
+		}
+	}
+}
+
+func TestTLSPublicCertificateAliasEcho(t *testing.T) {
+	bin := socatBin(t)
+	port := freePort(t)
+	cert := listenCert(t)
+	srv := exec.Command(bin,
+		fmt.Sprintf("OPENSSL-LISTEN:%d,reuseaddr,bind=127.0.0.1,openssl-verify=0,openssl-certificate=%s", port, cert),
+		"PIPE",
+	)
+	var srvErr bytes.Buffer
+	srv.Stderr = &srvErr
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = srv.Process.Kill()
+		_, _ = srv.Process.Wait()
+	}()
+	waitTCPListen(t, port, tcpListenerStartupTimeout)
+
+	payload := fmt.Sprintf("alias-tls %d\n", time.Now().UnixNano())
+	cli := exec.Command(bin, "stdin!!stdout",
+		fmt.Sprintf("OPENSSL:127.0.0.1:%d,openssl-verify=0", port),
+	)
+	var cliErr bytes.Buffer
+	cli.Stdin = bytes.NewBufferString(payload)
+	cli.Stderr = &cliErr
+	out, err := cli.Output()
+	if err != nil {
+		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srvErr.String())
+	}
+	if string(out) != payload {
+		t.Fatalf("got %q want %q (srv=%s)", out, payload, srvErr.String())
 	}
 }
 

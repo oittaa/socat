@@ -77,3 +77,71 @@ func TestHelpListsDescriptorLifecycleAliases(t *testing.T) {
 		}
 	}
 }
+
+func TestHelpListsTLSPublicAliases(t *testing.T) {
+	var output bytes.Buffer
+	if err := printHelp(&output, 3); err != nil {
+		t.Fatal(err)
+	}
+	help := output.String()
+	canonical := []string{
+		"cert", "key", "cafile", "verify", "commonname", "nosni", "ciphers",
+		"openssl-compress", "openssl-min-proto-version", "openssl-max-proto-version",
+	}
+	aliases := map[string]string{
+		"certificate":         "cert",
+		"openssl-certificate": "cert",
+		"openssl-key":         "key",
+		"openssl-cafile":      "cafile",
+		"openssl-verify":      "verify",
+		"cn":                  "commonname",
+		"cipherlist":          "ciphers",
+		"compress":            "openssl-compress",
+		"no-sni":              "nosni",
+		"min-proto-version":   "openssl-min-proto-version",
+		"max-proto-version":   "openssl-max-proto-version",
+	}
+	for _, name := range canonical {
+		if !strings.Contains(help, "    "+name+" ") {
+			t.Errorf("-hhh missing canonical %q", name)
+		}
+	}
+	for alias, canon := range aliases {
+		want := "alias of " + canon
+		found := false
+		for _, line := range strings.Split(help, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) > 0 && fields[0] == alias && strings.Contains(line, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("-hhh missing %q as %s", alias, want)
+		}
+	}
+}
+
+func TestHelpDoesNotAdvertiseUnsupportedOpenSSL(t *testing.T) {
+	var output bytes.Buffer
+	if err := printHelp(&output, 3); err != nil {
+		t.Fatal(err)
+	}
+	help := output.String()
+	for _, name := range []string{
+		"openssl-method", "opensslmethod", "method",
+		"openssl-fips", "fips",
+		"openssl-egd", "egd",
+		"openssl-pseudo", "pseudo",
+		"openssl-dhparam", "dhparam", "dhparams", "dh",
+		"openssl-maxfraglen", "maxfraglen",
+		"openssl-maxsendfrag", "maxsendfrag",
+	} {
+		for _, line := range strings.Split(help, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) > 0 && fields[0] == name {
+				t.Errorf("-hhh advertises unsupported OpenSSL option %q: %s", name, strings.TrimSpace(line))
+			}
+		}
+	}
+}

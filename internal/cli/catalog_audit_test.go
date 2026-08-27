@@ -111,4 +111,15 @@ func TestCatalogVsGoHelp(t *testing.T) {
 			t.Errorf("Go -hhh must not advertise intentional omission %q", name)
 		}
 	}
+	for _, name := range []string{
+		"method", "fips", "openssl-method", "openssl-fips",
+		"openssl-egd", "egd", "openssl-pseudo", "pseudo",
+		"openssl-dhparam", "dhparam", "dh", "dhparams",
+		"openssl-maxfraglen", "maxfraglen",
+		"openssl-maxsendfrag", "maxsendfrag",
+	} {
+		if _, ok := advertised[name]; ok {
+			t.Errorf("Go -hhh must not advertise unsupported OpenSSL option %q as honored", name)
+		}
+	}
 }

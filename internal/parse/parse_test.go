@@ -159,6 +159,16 @@ func TestLastOptionWins(t *testing.T) {
 		{name: "bindtodevice-if", spec: "TCP:127.0.0.1:9,if=lo", opt: "bindtodevice", want: "lo"},
 		{name: "bindtodevice-so", spec: "TCP:127.0.0.1:9,so-bindtodevice=eth0", opt: "bindtodevice", want: "eth0"},
 		{name: "bindtodevice-interface", spec: "TCP4:127.0.0.1:9,interface=lo", opt: "bindtodevice", want: "lo"},
+		{name: "cert-openssl-certificate-last", spec: "TLS:127.0.0.1:443,cert=/tmp/a.pem,openssl-certificate=/tmp/b.pem", opt: "cert", want: "/tmp/b.pem"},
+		{name: "openssl-certificate-then-cert", spec: "TLS:127.0.0.1:443,openssl-certificate=/tmp/a.pem,cert=/tmp/b.pem", opt: "cert", want: "/tmp/b.pem"},
+		{name: "certificate-alias", spec: "OPENSSL:127.0.0.1:443,certificate=/tmp/c.pem", opt: "cert", want: "/tmp/c.pem"},
+		{name: "openssl-key", spec: "TLS:127.0.0.1:443,openssl-key=/tmp/k.pem", opt: "key", want: "/tmp/k.pem"},
+		{name: "openssl-cafile-last", spec: "TLS:127.0.0.1:443,cafile=/tmp/ca1.pem,openssl-cafile=/tmp/ca2.pem", opt: "cafile", want: "/tmp/ca2.pem"},
+		{name: "ca-then-openssl-cafile", spec: "TLS:127.0.0.1:443,ca=/tmp/ca1.pem,openssl-cafile=/tmp/ca2.pem", opt: "cafile", want: "/tmp/ca2.pem"},
+		{name: "cipherlist", spec: "TLS:127.0.0.1:443,cipherlist=ECDHE-ECDSA-AES256-GCM-SHA384", opt: "ciphers", want: "ECDHE-ECDSA-AES256-GCM-SHA384"},
+		{name: "cn", spec: "TLS:127.0.0.1:443,cn=localhost", opt: "commonname", want: "localhost"},
+		{name: "min-proto-version-last", spec: "TLS:127.0.0.1:443,min-version=TLS1.0,min-proto-version=TLS1.2", opt: "openssl-min-proto-version", want: "TLS1.2"},
+		{name: "max-proto-version", spec: "TLS:127.0.0.1:443,max-proto-version=TLS1.3", opt: "openssl-max-proto-version", want: "TLS1.3"},
 		{name: "so-debug-alias", spec: "TCP:127.0.0.1:9,debug=1", opt: "so-debug", want: "1"},
 		{name: "cork-alias", spec: "TCP:127.0.0.1:9,cork=1", opt: "tcp-cork", want: "1"},
 		{name: "mss-late-alias", spec: "TCP:127.0.0.1:9,mss-late=512", opt: "tcp-maxseg-late", want: "512"},
@@ -684,6 +694,36 @@ func TestTLSCapathAlias(t *testing.T) {
 	}
 	if s.OptionValue("capath", "") != "/etc/ssl/certs" {
 		t.Fatalf("capath %q", s.OptionValue("capath", ""))
+	}
+}
+
+func TestTLSPublicCatalogAliasesFold(t *testing.T) {
+	tests := []struct {
+		spec string
+		opt  string
+		want string
+	}{
+		{spec: "OPENSSL:127.0.0.1:443,openssl-certificate=/tmp/c.pem", opt: "cert", want: "/tmp/c.pem"},
+		{spec: "TLS:127.0.0.1:443,certificate=/tmp/c.pem", opt: "cert", want: "/tmp/c.pem"},
+		{spec: "TLS:127.0.0.1:443,openssl-key=/tmp/k.pem", opt: "key", want: "/tmp/k.pem"},
+		{spec: "TLS:127.0.0.1:443,openssl-cafile=/tmp/ca.pem", opt: "cafile", want: "/tmp/ca.pem"},
+		{spec: "TLS:127.0.0.1:443,openssl-verify=0", opt: "verify", want: "0"},
+		{spec: "TLS:127.0.0.1:443,cn=localhost", opt: "commonname", want: "localhost"},
+		{spec: "TLS:127.0.0.1:443,cipherlist=ECDHE-ECDSA-AES256-GCM-SHA384", opt: "ciphers", want: "ECDHE-ECDSA-AES256-GCM-SHA384"},
+		{spec: "TLS:127.0.0.1:443,no-sni", opt: "nosni", want: "1"},
+		{spec: "TLS:127.0.0.1:443,min-proto-version=TLS1.2", opt: "openssl-min-proto-version", want: "TLS1.2"},
+		{spec: "TLS:127.0.0.1:443,max-proto-version=TLS1.3", opt: "openssl-max-proto-version", want: "TLS1.3"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.spec, func(t *testing.T) {
+			s, err := ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := s.OptionValue(tc.opt, ""); got != tc.want {
+				t.Fatalf("%s=%q want %q", tc.opt, got, tc.want)
+			}
+		})
 	}
 }
 
