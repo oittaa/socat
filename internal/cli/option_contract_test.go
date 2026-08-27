@@ -145,6 +145,16 @@ var dynamicallyReadOptions = map[string]string{
 	"tcp-quickack": "xio/sockopt_named.go", "quickack": "xio/sockopt_named.go",
 	"tcp-syncnt": "xio/sockopt_named.go", "syncnt": "xio/sockopt_named.go",
 	"tcp-window-clamp": "xio/sockopt_named.go", "window-clamp": "xio/sockopt_named.go",
+
+	// Ordered howtoshut / lineterm: last active occurrence wins (stream.go / shut.go).
+	"shut-none":  "xio/shut.go selectedShutPolicy",
+	"shut-down":  "xio/shut.go selectedShutPolicy",
+	"shut-close": "xio/shut.go selectedShutPolicy",
+	"shut-null":  "xio/shut.go selectedShutPolicy",
+	"shut":       "xio/shut.go selectedShutPolicy",
+	"cr":         "xio/stream.go selectedLineTerm",
+	"crnl":       "xio/stream.go selectedLineTerm",
+	"crorlf":     "xio/stream.go selectedLineTerm",
 }
 
 // compatNoOptions are advertised deliberately as classic-compat spellings

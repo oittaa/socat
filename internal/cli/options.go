@@ -332,6 +332,22 @@ func validateOptionalBool(option parse.Option) error {
 	return nil
 }
 
+func validateShutOption(option parse.Option) error {
+	if !option.Has {
+		return fmt.Errorf("shut: value required (none, down, close, or null)")
+	}
+	v := strings.ToLower(strings.TrimSpace(option.Value))
+	switch v {
+	case "none", "down", "close", "null":
+		return nil
+	case "0", "false", "no", "off", "":
+		// =0 does not select a policy (same Active() rule as shut-*).
+		return nil
+	default:
+		return fmt.Errorf("shut: invalid value %q (want none, down, close, or null)", option.Value)
+	}
+}
+
 func validateIntegerRange(min, max int64) func(parse.Option) error {
 	return func(option parse.Option) error {
 		value, err := requiredOptionValue(option)

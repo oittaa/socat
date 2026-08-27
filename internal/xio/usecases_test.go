@@ -866,3 +866,40 @@ func TestTCPConnectCRNL(t *testing.T) {
 		t.Fatal("timed out waiting for crnl write")
 	}
 }
+
+func TestTCPConnectCR(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	got := make(chan []byte, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			got <- []byte("accept:" + err.Error())
+			return
+		}
+		defer func() { _ = c.Close() }()
+		_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+		buf := make([]byte, len("helo\r"))
+		if _, err := io.ReadFull(c, buf); err != nil {
+			got <- []byte("read:" + err.Error())
+			return
+		}
+		got <- append([]byte(nil), buf...)
+	}()
+
+	ctx, g := testCtx(t), testGlobal()
+	port := ln.Addr().(*net.TCPAddr).Port
+	cli := openClient(t, ctx, g, fmt.Sprintf("TCP4:127.0.0.1:%d,cr,connect-timeout=2", port))
+	mustWrite(t, cli.Stream, []byte("helo\n"))
+	select {
+	case b := <-got:
+		if string(b) != "helo\r" {
+			t.Fatalf("peer got %q want CR", b)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for cr write")
+	}
+}

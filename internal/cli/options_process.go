@@ -12,10 +12,11 @@ func processOptionGroups() []helpOptGroup {
 			{name: "fdout", desc: "child stdout fd number", validate: validateInteger(0)},
 			{name: "shell", desc: "use a shell"},
 			{name: "chdir", desc: "change directory before open or exec", aliases: []string{"cd"}, validate: validateRequiredString},
-			{name: "shut-none", desc: "do not kill the child on close"},
+			{name: "shut-none", desc: "do not half-close; do not kill EXEC child on close"},
+			{name: "shut-down", desc: "shutdown(SHUT_WR) instead of the address default"},
 			{name: "shut-close", desc: "fully close instead of half-closing"},
 			{name: "end-close", desc: "close on EOF", aliases: []string{"close"}},
-			{name: "shut", desc: "half-close mode"},
+			{name: "shut", desc: "half-close mode (none, down, close, or null)", validate: validateShutOption},
 			{name: "shut-null", desc: "0-byte datagram as half-close"},
 		}},
 		{"PTY and TERMIOS", []helpOpt{

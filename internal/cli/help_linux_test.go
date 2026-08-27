@@ -49,10 +49,11 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"tcp-quickack", "quickack", "tcp-syncnt", "syncnt",
 		"tcp-window-clamp", "window-clamp",
 		"o-rdonly", "o-creat", "o-excl", "o-wronly", "o-rdwr", "o-trunc", "ndelay", "o-ndelay",
-		"f-setlk", "lock", "bytes", "crlf", "cd", "sid", "close", "maxchildren",
+		"f-setlk", "lock", "bytes", "cr", "crlf", "cd", "sid", "close", "maxchildren",
 		"intervall", "ipv6only", "v6only", "termios-cfmakeraw", "crterase",
 		"tun-no-pi", "multicast", "proxy-auth", "resolv",
 		"udplite-send-cscov", "udplite-recv-cscov",
+		"shut-down",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)

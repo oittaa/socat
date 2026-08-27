@@ -78,14 +78,9 @@ func (s Spec) OptionValue(name, def string) string {
 	return o.Value
 }
 
-// BoolOption returns whether an option is set truthily.
-// Classic: bare flag → true; =0/false/no/off → false; empty value (=) → false
-// (so-reuseaddr= disables SO_REUSEADDR).
-func (s Spec) BoolOption(name string) bool {
-	o, ok := s.OptionNamed(name)
-	if !ok {
-		return false
-	}
+// Active reports whether this occurrence selects a CONST/BOOL-style policy.
+// Omitted value means true; =0/false/no/off and empty "=" do not select.
+func (o Option) Active() bool {
 	if !o.Has {
 		return true
 	}
@@ -94,4 +89,15 @@ func (s Spec) BoolOption(name string) bool {
 		return false
 	}
 	return v != "0" && v != "false" && v != "no" && v != "off"
+}
+
+// BoolOption returns whether an option is set truthily.
+// Classic: bare flag → true; =0/false/no/off → false; empty value (=) → false
+// (so-reuseaddr= disables SO_REUSEADDR).
+func (s Spec) BoolOption(name string) bool {
+	o, ok := s.OptionNamed(name)
+	if !ok {
+		return false
+	}
+	return o.Active()
 }
