@@ -29,6 +29,15 @@ func fcntlFlags(t *testing.T, f *os.File) int {
 	return flags
 }
 
+func fcntlFD(t *testing.T, f *os.File) int {
+	t.Helper()
+	flags, err := unix.FcntlInt(f.Fd(), unix.F_GETFD, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return flags
+}
+
 func TestApplyFDOptionsAppendSetsOAPPEND(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "append")
 	if err != nil {
@@ -175,6 +184,7 @@ func TestApplyFDOptionsThenWrapCommonAppliesOnce(t *testing.T) {
 		op   string
 	}{
 		{name: "append", raw: func() string { return "FD:3,append" }, op: "F_SETFL"},
+		{name: "cloexec", raw: func() string { return "FD:3,cloexec=0" }, op: "F_SETFD"},
 		{name: "ftruncate", raw: func() string { return "FD:3,ftruncate=4" }, op: "ftruncate"},
 		{name: "perm", raw: func() string { return "FD:3,perm=0600" }, op: "fchmod"},
 		{name: "user", raw: func() string { return "FD:3,user=" + strconv.Itoa(os.Getuid()) }, op: "fchown"},
@@ -204,6 +214,9 @@ func TestApplyFDOptionsThenWrapCommonAppliesOnce(t *testing.T) {
 			}
 			if tc.op == "F_SETFL" && fcntlFlags(t, f)&unix.O_APPEND == 0 {
 				t.Fatal("O_APPEND missing after ApplyFDOptions + WrapCommon")
+			}
+			if tc.op == "F_SETFD" && fcntlFD(t, f)&unix.FD_CLOEXEC != 0 {
+				t.Fatal("FD_CLOEXEC still set after cloexec=0 + WrapCommon")
 			}
 		})
 	}
@@ -955,5 +968,103 @@ func TestApplyNamedFileFtruncateRepeatsEachOccurrence(t *testing.T) {
 	}
 	if st.Size() != 3 {
 		t.Fatalf("size=%d want 3", st.Size())
+	}
+}
+
+func TestApplyFDOptionsCloexecSetsAndClearsFDCLOEXEC(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "cloexec")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	if fcntlFD(t, f)&unix.FD_CLOEXEC == 0 {
+		t.Fatal("Go temp file is missing default FD_CLOEXEC")
+	}
+	if err := ApplyFDOptions(f, mustSpec(t, "FD:3,cloexec")); err != nil {
+		t.Fatal(err)
+	}
+	if fcntlFD(t, f)&unix.FD_CLOEXEC == 0 {
+		t.Fatal("bare cloexec cleared FD_CLOEXEC")
+	}
+	if err := ApplyFDOptions(f, mustSpec(t, "FD:3,cloexec=0")); err != nil {
+		t.Fatal(err)
+	}
+	if fcntlFD(t, f)&unix.FD_CLOEXEC != 0 {
+		t.Fatal("cloexec=0 left FD_CLOEXEC set")
+	}
+	if err := ApplyFDOptions(f, mustSpec(t, "FD:3,cloexec=1")); err != nil {
+		t.Fatal(err)
+	}
+	if fcntlFD(t, f)&unix.FD_CLOEXEC == 0 {
+		t.Fatal("cloexec=1 did not set FD_CLOEXEC")
+	}
+}
+
+func TestApplyFDOptionsCloexecOccurrenceOrder(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "cloexec-order")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	if err := ApplyFDOptions(f, mustSpec(t, "FD:3,cloexec,cloexec=0")); err != nil {
+		t.Fatal(err)
+	}
+	if fcntlFD(t, f)&unix.FD_CLOEXEC != 0 {
+		t.Fatal("cloexec then cloexec=0 left FD_CLOEXEC set")
+	}
+	if err := ApplyFDOptions(f, mustSpec(t, "FD:3,cloexec=0,cloexec=1")); err != nil {
+		t.Fatal(err)
+	}
+	if fcntlFD(t, f)&unix.FD_CLOEXEC == 0 {
+		t.Fatal("cloexec=0 then cloexec=1 left FD_CLOEXEC clear")
+	}
+}
+
+func TestWrapCommonCloexecOnTCP(t *testing.T) {
+	cli, srv := localTCPPair(t)
+	t.Cleanup(func() { _ = srv.Close() })
+	spec := mustSpec(t, "TCP:127.0.0.1:1,cloexec=0")
+	if _, err := WrapCommon(spec, relay.NetStream{Conn: cli}); err != nil {
+		t.Fatal(err)
+	}
+	sc, ok := cli.(syscall.Conn)
+	if !ok {
+		t.Fatal("tcp conn is not syscall.Conn")
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var flags int
+	var flagErr error
+	if err := raw.Control(func(fd uintptr) {
+		flags, flagErr = unix.FcntlInt(fd, unix.F_GETFD, 0)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if flagErr != nil {
+		t.Fatal(flagErr)
+	}
+	if flags&unix.FD_CLOEXEC != 0 {
+		t.Fatal("WrapCommon cloexec=0 left FD_CLOEXEC set on TCP")
+	}
+}
+
+func TestWrapCommonCloexecRejectsStreamWithoutDescriptor(t *testing.T) {
+	a, b := net.Pipe()
+	t.Cleanup(func() {
+		_ = a.Close()
+		_ = b.Close()
+	})
+	_, err := WrapCommon(mustSpec(t, "TCP:127.0.0.1:9,cloexec=0"), relay.NetStream{Conn: a})
+	if err == nil || !strings.Contains(err.Error(), "does not expose a descriptor") {
+		t.Fatalf("error=%v want stream does not expose a descriptor", err)
+	}
+}
+
+func TestApplyFDLifecycleToPacketConnCloexecRejectsNonSocket(t *testing.T) {
+	err := ApplyFDLifecycleToPacketConn(stubPacketConn{}, mustSpec(t, "QUIC-LISTEN:0,cloexec"))
+	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
+		t.Fatalf("error=%v want packet connection does not expose a socket", err)
 	}
 }

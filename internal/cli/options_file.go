@@ -15,6 +15,11 @@ func fileOptionGroups() []helpOptGroup {
 			// classic group intersection allows FD/STDIO/EXEC/sockets and
 			// rejects combinations that lack those groups.
 			{name: "append", desc: "open append or fcntl O_APPEND on an exposed fd", aliases: []string{"o-append"}},
+			// GROUP_FD, PH_LATE, OFUNC_FCNTL F_SETFD FD_CLOEXEC (xio-fd.c).
+			// Do not list address types: classic group intersection allows
+			// FD/STDIO/EXEC/sockets. cloexec=0 clears Go's default CLOEXEC
+			// only on an exposed descriptor this process owns.
+			{name: "cloexec", desc: "fcntl FD_CLOEXEC on an exposed fd (cloexec=0 clears it)", validate: validateOptionalBool},
 			{name: "trunc", desc: "truncate on open", aliases: []string{"o-trunc"}},
 			{name: "nonblock", desc: "O_NONBLOCK", aliases: []string{"o-nonblock", "ndelay", "o-ndelay", "o_ndelay"}},
 			// GROUP_OPEN only (xio-file.c). A FILE/OPEN type list would widen
