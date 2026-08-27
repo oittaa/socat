@@ -37,6 +37,7 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"setsockopt-socket", "setsockopt-connected",
 		"rcvtimeo", "sndtimeo", "sndbuf", "rcvbuf", "sndbuf-late", "rcvbuf-late",
 		"ciphers", "chdir", "end-close",
+		"lockfile", "waitlock",
 		"ip-ttl", "ip-tos",
 		"so-debug", "so-dontroute", "so-oobinline",
 	} {

@@ -103,6 +103,17 @@ func RegisterUnlinkPath(path string) func() {
 		// later file at that name might belong to somebody else.
 		return func() {}
 	}
+	return RegisterUnlinkPathIdentity(path, info)
+}
+
+// RegisterUnlinkPathIdentity records path using a FileInfo already obtained
+// from the owned object (typically f.Stat() of a still-open created fd).
+// It does not Lstat the pathname again, so a replacement between create and
+// register cannot be mistaken for the acquired object.
+func RegisterUnlinkPathIdentity(path string, info os.FileInfo) func() {
+	if path == "" || IsAbstract(path) || info == nil {
+		return func() {}
+	}
 	if !snapshotRegisteredIdentity(info) {
 		return func() {}
 	}

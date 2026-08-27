@@ -1,5 +1,5 @@
 //go:build !windows
 
-package cli
+package xio
 
 func isTransientLockCreateError(error) bool { return false }

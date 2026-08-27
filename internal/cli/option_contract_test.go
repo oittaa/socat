@@ -79,6 +79,11 @@ var dynamicallyReadOptions = map[string]string{
 	"setlk-wr": "fileopen/lock.go", "setlkw-wr": "fileopen/lock.go",
 	"lock": "fileopen/lock.go", "lockw": "fileopen/lock.go",
 
+	// PH_INIT GROUP_APPL pathname locks (command-line order; only one of
+	// lockfile/waitlock per address). Applied in OpenSpec before the opener.
+	"lockfile": "xio/lockfile.go applyAddressLock",
+	"waitlock": "xio/lockfile.go applyAddressLock",
+
 	// Canonical/alias families selected by last-option-wins helper loops.
 	"rdonly": "fileopen/file.go OpenFlags", "wronly": "fileopen/file.go OpenFlags", "rdwr": "fileopen/file.go OpenFlags",
 	"so-linger": "xio/options.go", "linger": "xio/options.go",

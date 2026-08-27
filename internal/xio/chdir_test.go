@@ -45,6 +45,43 @@ func TestResolveChdirPathsWithoutChangingProcessDirectory(t *testing.T) {
 	}
 }
 
+func TestResolveChdirRewritesLockfilePaths(t *testing.T) {
+	dir := t.TempDir()
+	spec := parse.Spec{
+		Type: "ECHO",
+		Options: []parse.Option{
+			{Name: "chdir", Value: dir, Has: true},
+			{Name: "lockfile", Value: "app.lock", Has: true},
+			{Name: "waitlock", Value: filepath.Join("nested", "wait.lock"), Has: true},
+		},
+	}
+	got, err := ResolveChdirPaths(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value := got.OptionValue("lockfile", ""); value != filepath.Join(dir, "app.lock") {
+		t.Fatalf("lockfile=%q", value)
+	}
+	if value := got.OptionValue("waitlock", ""); value != filepath.Join(dir, "nested", "wait.lock") {
+		t.Fatalf("waitlock=%q", value)
+	}
+	abs := filepath.Join(dir, "abs.lock")
+	spec = parse.Spec{
+		Type: "ECHO",
+		Options: []parse.Option{
+			{Name: "chdir", Value: dir, Has: true},
+			{Name: "lockfile", Value: abs, Has: true},
+		},
+	}
+	got, err = ResolveChdirPaths(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value := got.OptionValue("lockfile", ""); value != abs {
+		t.Fatalf("absolute lockfile rewritten: %q", value)
+	}
+}
+
 func TestResolveChdirAddressPath(t *testing.T) {
 	dir := t.TempDir()
 	spec := parse.Spec{

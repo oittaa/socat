@@ -3,9 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
-	"errors"
 	"os"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -13,71 +11,6 @@ import (
 
 	"github.com/oittaa/socat/internal/logx"
 )
-
-func TestAcquireLockFileWaitsForAtomicCreate(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "socat.lock")
-	if err := os.WriteFile(path, []byte("owner\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	done := make(chan error, 1)
-	go func() {
-		done <- acquireLockFile(context.Background(), path, true, time.Millisecond)
-	}()
-	select {
-	case err := <-done:
-		t.Fatalf("wait returned before the owner released the lock: %v", err)
-	case <-time.After(10 * time.Millisecond):
-	}
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("lock was not acquired after release")
-	}
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("acquired lock is missing: %v", err)
-	}
-}
-
-func TestAcquireLockFileCancellation(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "socat.lock")
-	if err := os.WriteFile(path, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := acquireLockFile(ctx, path, true, time.Hour); !errors.Is(err, context.Canceled) {
-		t.Fatalf("error=%v want context.Canceled", err)
-	}
-}
-
-func TestAcquireLockFileDoesNotCreateAfterCancellation(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "socat.lock")
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if err := acquireLockFile(ctx, path, true, time.Millisecond); !errors.Is(err, context.Canceled) {
-		t.Fatalf("error=%v want context.Canceled", err)
-	}
-	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("canceled acquisition created a lock: %v", err)
-	}
-}
-
-func TestAcquireLockFileWithoutWaitReportsExistingLock(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "socat.lock")
-	if err := os.WriteFile(path, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := acquireLockFile(context.Background(), path, false, time.Millisecond); err == nil {
-		t.Fatal("existing lock was accepted")
-	}
-}
 
 func TestSignalHandlersDeliverExitAndStop(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
