@@ -70,6 +70,10 @@ func TestUDP4SendtoIgnoresWrongPeer(t *testing.T) {
 	testSendtoIgnoresWrongPeer(t, "UDP4-SENDTO", listenUDP4Probe)
 }
 
+func TestUDP4SendtoSourceportBinds(t *testing.T) {
+	testSendtoSourceportBinds(t, "UDP4-SENDTO", listenUDP4Probe)
+}
+
 func TestUDP4DatagramAcceptsWrongPeerByDefault(t *testing.T) {
 	testDatagramAcceptsWrongPeer(t, "UDP4-DATAGRAM", listenUDP4Probe)
 }
@@ -84,6 +88,43 @@ func TestUDP4DatagramSourceportFilter(t *testing.T) {
 
 func TestUDP4DatagramTCPWrapFilter(t *testing.T) {
 	testDatagramTCPWrapFilter(t, "UDP4-DATAGRAM", listenUDP4Probe)
+}
+
+func testSendtoSourceportBinds(t *testing.T, typ string, listen func(*testing.T) net.PacketConn) {
+	t.Helper()
+	dest := listen(t)
+	destPort := dest.LocalAddr().(*net.UDPAddr).Port
+	for range 20 {
+		tmp := listen(t)
+		sp := tmp.LocalAddr().(*net.UDPAddr).Port
+		_ = tmp.Close()
+		if sp == 0 {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		o, err := xio.OpenChannel(ctx, parseChannel(t, typ+":127.0.0.1:"+strconv.Itoa(destPort)+",bind=127.0.0.1,sourceport="+strconv.Itoa(sp)), xio.ModeRDWR, useGlobal())
+		if err != nil {
+			cancel()
+			continue
+		}
+		t.Cleanup(func() {
+			_ = o.Close()
+			cancel()
+		})
+		la, ok := o.Stream.(interface{ LocalAddr() net.Addr })
+		if !ok {
+			t.Fatal("stream has no LocalAddr")
+		}
+		ua, ok := la.LocalAddr().(*net.UDPAddr)
+		if !ok {
+			t.Fatalf("local addr %T", la.LocalAddr())
+		}
+		if ua.Port != sp {
+			t.Fatalf("%s bound local %d, want sourceport %d", typ, ua.Port, sp)
+		}
+		return
+	}
+	t.Fatalf("%s could not bind an explicit sourceport", typ)
 }
 
 func testSendtoIgnoresWrongPeer(t *testing.T, typ string, listen func(*testing.T) net.PacketConn) {
@@ -143,11 +184,19 @@ func testDatagramRangeFilter(t *testing.T, typ string, listen func(*testing.T) n
 
 func testDatagramSourceportFilter(t *testing.T, typ string, listen func(*testing.T) net.PacketConn) {
 	t.Helper()
+	occupied := listen(t)
+	occupiedPort := occupied.LocalAddr().(*net.UDPAddr).Port
+	if occupiedPort == 0 {
+		t.Fatal("occupied sourceport is 0")
+	}
 	dest := listen(t)
 	destPort := dest.LocalAddr().(*net.UDPAddr).Port
-	// sourceport=0 keeps an ephemeral bind; classic still treats the option as
-	// "filter by configured destination port" (xioopen_udp_datagram).
-	st, local := openDgramStream(t, typ+":127.0.0.1:"+strconv.Itoa(destPort)+",bind=127.0.0.1,sourceport=0")
+	// Classic xioopen_udp_datagram consumes sourceport before bind, so an
+	// occupied nonzero value must still open. Filtering uses destPort.
+	st, local := openDgramStream(t, typ+":127.0.0.1:"+strconv.Itoa(destPort)+",bind=127.0.0.1,sourceport="+strconv.Itoa(occupiedPort))
+	if local.Port == occupiedPort {
+		t.Fatalf("%s bound local %d; DATAGRAM must not bind sourceport", typ, local.Port)
+	}
 	impostor := listen(t)
 	writeTo(t, impostor, "wrong-port", local)
 	writeTo(t, dest, "right-port", local)

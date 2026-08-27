@@ -47,7 +47,14 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		return nil, err
 	}
 	bind := s.OptionValue("bind", "")
-	sp := s.OptionValue("sourceport", "")
+	// Classic xioopen_udp_datagram consumes OPT_SOURCEPORT before
+	// _xioopen_udp_sendto (tag-1.8.1.3 xio-udp.c; official master
+	// af5388c898c7bb60997935aee93c223deba60c4a is the same), so DATAGRAM
+	// never binds it. SENDTO still uses it as the local port.
+	sp := ""
+	if exactPeer {
+		sp = s.OptionValue("sourceport", "")
+	}
 	var laddr *net.UDPAddr
 	// classic lowport: bind a port in 640..1023 (log even if EACCES).
 	if s.BoolOption("lowport") && sp == "" {
@@ -216,9 +223,8 @@ func (u *udpDatagramConn) checkPeer(addr *net.UDPAddr) error {
 		}
 		return nil
 	}
-	// Classic xioopen_udp_datagram: if OPT_SOURCEPORT is present, overwrite
-	// the filter port with peersa (the configured destination) and set
-	// dosourceport. Local bind still uses sourceport in this port's opener.
+	// Classic xioopen_udp_datagram consumes OPT_SOURCEPORT before bind, then
+	// overwrites the stored value with peersa (the configured destination).
 	if u.spec.HasOption("sourceport") {
 		if addr == nil || u.raddr == nil || addr.Port != u.raddr.Port {
 			return fmt.Errorf("refusing connection from %s, sourceport mismatch", addr)

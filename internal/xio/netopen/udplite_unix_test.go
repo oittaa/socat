@@ -58,6 +58,11 @@ func TestUDPLITE4SendtoIgnoresWrongPeer(t *testing.T) {
 	testSendtoIgnoresWrongPeer(t, "UDPLITE4-SENDTO", listenUDPLITE4Probe)
 }
 
+func TestUDPLITE4SendtoSourceportBinds(t *testing.T) {
+	skipIfNoUDPLITE(t)
+	testSendtoSourceportBinds(t, "UDPLITE4-SENDTO", listenUDPLITE4Probe)
+}
+
 func TestUDPLITE4DatagramAcceptsWrongPeerByDefault(t *testing.T) {
 	skipIfNoUDPLITE(t)
 	testDatagramAcceptsWrongPeer(t, "UDPLITE4-DATAGRAM", listenUDPLITE4Probe)

@@ -28,7 +28,7 @@ func listenOptionGroups() []helpOptGroup {
 		}},
 		{"Security filters", []helpOpt{
 			{name: "range", desc: "accept only peers in this network"},
-			{name: "sourceport", desc: "peer source port (listen) or bind port (connect)", aliases: []string{"sp"}},
+			{name: "sourceport", desc: "peer source port (listen) or bind port (connect); DATAGRAM dest-port receive filter", aliases: []string{"sp"}},
 			{name: "lowport", desc: "require or bind a low source port"},
 			{name: "tcpwrap", desc: "apply hosts.allow / hosts.deny", aliases: []string{"tcpwrappers", "tcpwrapper", "libwrap", "wrap"}},
 			{name: "tcpwrap-etc", desc: "directory of hosts.allow / hosts.deny", aliases: []string{"tcpwrap-dir"}},
