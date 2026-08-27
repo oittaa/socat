@@ -224,6 +224,8 @@ func applyWindowsLate(fd uintptr, s parse.Spec) error {
 			return fmt.Errorf("user-late: not supported on windows")
 		case "group-late":
 			return fmt.Errorf("group-late: not supported on windows")
+		case "cloexec":
+			return fmt.Errorf("%s: fcntl F_SETFD is not supported on windows", o.OriginalSpelling())
 		}
 	}
 	return nil

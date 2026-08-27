@@ -45,6 +45,14 @@ func TestSkipDescriptorOwnerOptsClassicTypes(t *testing.T) {
 	}
 }
 
+func TestHasFDLifecycleOptionsCloexec(t *testing.T) {
+	for _, raw := range []string{"FD:3,cloexec", "FD:3,cloexec=0", "TCP:localhost:1,cloexec=1", "OPEN:file,cloexec"} {
+		if !hasFDLifecycleOptions(mustSpec(t, raw)) {
+			t.Errorf("%s: cloexec must trigger ApplyFDOptions", raw)
+		}
+	}
+}
+
 func TestWrapHidesDescriptorUsesExactAddressFamilies(t *testing.T) {
 	tests := []struct {
 		raw  string

@@ -61,6 +61,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"ext2-append", "ext3-append", "compr", "nodump", "notail", "journal-data",
 		"shut-down",
 		"lockfile", "waitlock",
+		"cloexec",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)
@@ -105,6 +106,7 @@ func TestLinuxHHHIncludesClassicOptionMetadata(t *testing.T) {
 		"lockfile":                 {"groups=APPL", "phase=INIT", "type=STRING"},
 		"dash":                     {"groups=EXEC", "phase=PREEXEC", "type=BOOL"},
 		"setpgid":                  {"groups=FORK", "phase=LATE", "type=INT"},
+		"cloexec":                  {"groups=FD", "phase=LATE", "type=BOOL"},
 	} {
 		var line string
 		for _, candidate := range strings.Split(help, "\n") {

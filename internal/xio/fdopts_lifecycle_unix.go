@@ -294,7 +294,33 @@ func applyLateLifecycle(fd int, s parse.Spec) error {
 			if err := applyOneGroup(fd, o); err != nil {
 				return err
 			}
+		case "cloexec":
+			if err := applyOneCloexec(fd, o); err != nil {
+				return err
+			}
 		}
+	}
+	return nil
+}
+
+func applyOneCloexec(fd int, o parse.Option) error {
+	// Classic applyopt_fcntl TYPE_BOOL: Fcntl(fd, F_SETFD-1) is F_GETFD,
+	// then |= or &=~ FD_CLOEXEC, then F_SETFD. Clearing Go's default
+	// CLOEXEC is limited to descriptors this walk owns (ApplyFDOptions /
+	// WrapCommon / ApplyFDLifecycleToConn). Streams with no fd reject.
+	enable := optionEnabled(o)
+	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+	if err != nil {
+		return fmt.Errorf("cloexec: %w", err)
+	}
+	if enable {
+		flags |= unix.FD_CLOEXEC
+	} else {
+		flags &^= unix.FD_CLOEXEC
+	}
+	noteLifecycleSyscall("F_SETFD")
+	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFD, flags); err != nil {
+		return fmt.Errorf("cloexec: %w", err)
 	}
 	return nil
 }
