@@ -373,4 +373,3 @@ func TestApplyFDOptionsPermBeforeFSImmutableFailure(t *testing.T) {
 		t.Fatalf("perm must not apply after fs-immutable fails: before=%o after=%o", before.Mode().Perm(), after.Mode().Perm())
 	}
 }
-
