@@ -85,12 +85,17 @@ func fileListenerFromFD(fd int) (net.Listener, error) {
 	default:
 		return nil, fmt.Errorf("ACCEPT-FD:%d: unsupported socket type %d", fd, typ)
 	}
+	// Classic _xioopen_accept_fd does not probe SO_ACCEPTCONN; it accept(2)s.
+	// Linux reports listening==0 for a connected socket. Darwin ExtraFiles
+	// TCP listeners often return ENOPROTOOPT ("protocol not available") for
+	// the probe (filan treats SO_ACCEPTCONN the same way). Skip only those
+	// "option unsupported" errors and let FileListener reject non-listeners.
 	listening, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ACCEPTCONN)
-	if err != nil {
-		return nil, fmt.Errorf("ACCEPT-FD:%d: %w", fd, err)
-	}
-	if listening == 0 {
+	switch {
+	case err == nil && listening == 0:
 		return nil, fmt.Errorf("ACCEPT-FD:%d: socket is connected or not listening", fd)
+	case err != nil && !acceptConnProbeUnsupported(err):
+		return nil, fmt.Errorf("ACCEPT-FD:%d: %w", fd, err)
 	}
 
 	f := os.NewFile(uintptr(fd), fmt.Sprintf("accept-fd:%d", fd))
@@ -103,6 +108,13 @@ func fileListenerFromFD(fd int) (net.Listener, error) {
 		return nil, fmt.Errorf("ACCEPT-FD:%d: not a listening stream socket: %w", fd, err)
 	}
 	return ln, nil
+}
+
+func acceptConnProbeUnsupported(err error) bool {
+	return errors.Is(err, unix.ENOPROTOOPT) ||
+		errors.Is(err, unix.EOPNOTSUPP) ||
+		errors.Is(err, unix.ENOTSUP) ||
+		errors.Is(err, unix.EPROTONOSUPPORT)
 }
 
 func applyAcceptFDAcceptedOpts(s parse.Spec, c net.Conn) error {

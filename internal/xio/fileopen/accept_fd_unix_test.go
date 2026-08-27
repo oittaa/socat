@@ -323,6 +323,15 @@ func TestAcceptFDCloseDoesNotDoubleClose(t *testing.T) {
 	}
 }
 
+func TestAcceptConnProbeUnsupported(t *testing.T) {
+	if !acceptConnProbeUnsupported(unix.ENOPROTOOPT) {
+		t.Fatal("ENOPROTOOPT must be skipped (Darwin ExtraFiles listeners)")
+	}
+	if acceptConnProbeUnsupported(unix.EBADF) {
+		t.Fatal("EBADF must still fail the probe")
+	}
+}
+
 func TestAcceptFDRejectsPipeUDPAndConnected(t *testing.T) {
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -376,7 +385,13 @@ func TestAcceptFDRejectsPipeUDPAndConnected(t *testing.T) {
 	cfd := dupOwnedFD(t, int(f.Fd()))
 	_, err = openAcceptFD(context.Background(), parseAcceptSpec(t, "ACCEPT-FD:0", cfd), xio.ModeRDWR, nil)
 	_ = unix.Close(cfd)
-	if err == nil || (!strings.Contains(err.Error(), "connected") && !strings.Contains(err.Error(), "not listening")) {
+	if err == nil {
+		t.Fatal("connected socket was accepted")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "connected") &&
+		!strings.Contains(msg, "not listening") &&
+		!strings.Contains(msg, "not a listening stream socket") {
 		t.Fatalf("connected socket err=%v want connected/not listening", err)
 	}
 }
