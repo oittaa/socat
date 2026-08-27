@@ -621,6 +621,84 @@ func TestVersionHasNAMESPACES(t *testing.T) {
 	}
 }
 
+func TestVersionHasUDPLITE(t *testing.T) {
+	skipUnlessLinux(t)
+	out := capabilityOutput(t, "-V")
+	if !bytes.Contains(out, []byte("#define WITH_UDPLITE 1")) {
+		t.Fatalf("missing WITH_UDPLITE 1:\n%s", out)
+	}
+	h := capabilityOutput(t, "-h")
+	if !bytes.Contains(h, []byte("UDPLITE4-")) {
+		t.Fatalf("help missing UDPLITE4-: %s", h)
+	}
+	hh := capabilityOutput(t, "-hh")
+	for _, opt := range []string{"udplite-send-cscov", "udplite-recv-cscov"} {
+		if !bytes.Contains(hh, []byte(" "+opt+" ")) {
+			t.Fatalf("help missing %s:\n%s", opt, hh)
+		}
+	}
+}
+
+func TestUDPLITE4Echo(t *testing.T) {
+	skipUnlessLinux(t)
+	bin := socatBin(t)
+	probe := exec.Command(bin, os.DevNull, "UDPLITE4-L:0,accept-timeout=0.05")
+	if err := probe.Run(); err != nil {
+		t.Skipf("kernel UDP-Lite not usable: %v", err)
+	}
+	port := freeUDPPort(t)
+	srvCmd := exec.Command(bin, fmt.Sprintf("UDPLITE4-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1", port), "PIPE")
+	srv, err := startTestProcess(srvCmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.stop()
+	waitUDPLITEListen(t, srv, net.IPv4(127, 0, 0, 1), port, tcpListenerStartupTimeout)
+
+	payload := fmt.Sprintf("test UDPLITE4 %d\n", time.Now().UnixNano())
+	pr, pw := io.Pipe()
+	go func() {
+		_, _ = io.WriteString(pw, payload)
+		time.Sleep(400 * time.Millisecond)
+		_ = pw.Close()
+	}()
+	cli := exec.Command(bin, "-", fmt.Sprintf("UDPLITE4:127.0.0.1:%d", port))
+	cli.Stdin = pr
+	var out, errb bytes.Buffer
+	cli.Stdout = &out
+	cli.Stderr = &errb
+	if err := cli.Run(); err != nil {
+		t.Fatalf("client: %v server=%s client=%s", err, srv.stderr.String(), errb.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte(strings.TrimSpace(payload))) && !bytes.Contains(out.Bytes(), []byte(payload)) {
+		t.Fatalf("echo mismatch out=%q server=%s client=%s", out.Bytes(), srv.stderr.String(), errb.String())
+	}
+}
+
+// waitUDPLITEListen polls /proc/net/udplite for a bound local address.
+// UDP and UDP-Lite have distinct protocol/port namespaces, so an ordinary
+// UDP bind probe is not a valid readiness check.
+func waitUDPLITEListen(t *testing.T, proc *testProcess, ip net.IP, port int, timeout time.Duration) {
+	t.Helper()
+	ip4 := ip.To4()
+	if ip4 == nil {
+		t.Fatalf("waitUDPLITEListen: need IPv4, got %v", ip)
+	}
+	want := fmt.Sprintf("%02X%02X%02X%02X:%04X", ip4[3], ip4[2], ip4[1], ip4[0], port)
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if err, exited := proc.status(); exited {
+			t.Fatalf("UDPLITE server exited before listening: %v stderr=%s", err, proc.stderr.String())
+		}
+		b, err := os.ReadFile("/proc/net/udplite")
+		if err == nil && bytes.Contains(bytes.ToUpper(b), []byte(want)) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timeout waiting for UDPLITE listen on %s:%d", ip, port)
+}
+
 func TestVersionHasSCTP(t *testing.T) {
 	skipUnlessLinux(t)
 	out := capabilityOutput(t, "-V")

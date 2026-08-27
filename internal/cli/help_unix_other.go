@@ -5,6 +5,9 @@ package cli
 import "github.com/oittaa/socat/internal/xio"
 
 func hideOpt(name string) bool {
+	if (name == "udplite-send-cscov" || name == "udplite-recv-cscov") && !xio.FeatureUDPLITE {
+		return true
+	}
 	if name == "async" && !xio.FeatureFDAsync {
 		return true
 	}

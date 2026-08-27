@@ -4,7 +4,7 @@ package cli
 func listenOptionGroups() []helpOptGroup {
 	return []helpOptGroup{
 		{"Listen and connect", []helpOpt{
-			{name: "reuseaddr", desc: "SO_REUSEADDR (TCP listen default on; UDP-LISTEN with fork or this option)", aliases: []string{"so-reuseaddr"}},
+			{name: "reuseaddr", desc: "SO_REUSEADDR (TCP listen default on; UDP-LISTEN / UDPLITE-LISTEN with fork or this option)", aliases: []string{"so-reuseaddr"}},
 			{name: "reuseport", desc: "SO_REUSEPORT", aliases: []string{"so-reuseport"}},
 			{name: "fork", desc: "new session per accept or client redial"},
 			{name: "nofork", desc: "do not fork (single session)"},
@@ -28,7 +28,7 @@ func listenOptionGroups() []helpOptGroup {
 		}},
 		{"Security filters", []helpOpt{
 			{name: "range", desc: "accept only peers in this network"},
-			{name: "sourceport", desc: "peer source port (listen) or bind port (connect)", aliases: []string{"sp"}},
+			{name: "sourceport", desc: "peer source port (listen) or bind port (connect); DATAGRAM dest-port receive filter", aliases: []string{"sp"}},
 			{name: "lowport", desc: "require or bind a low source port"},
 			{name: "tcpwrap", desc: "apply hosts.allow / hosts.deny", aliases: []string{"tcpwrappers", "tcpwrapper", "libwrap", "wrap"}},
 			{name: "tcpwrap-etc", desc: "directory of hosts.allow / hosts.deny", aliases: []string{"tcpwrap-dir"}},

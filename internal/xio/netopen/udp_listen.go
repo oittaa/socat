@@ -55,7 +55,7 @@ func udpAcceptError(err error, timeoutSet bool) error {
 
 func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
 	if len(s.Params) < 1 || s.Params[0] == "" {
-		return nil, fmt.Errorf("UDP-LISTEN requires port")
+		return nil, fmt.Errorf("%s requires port", s.Type)
 	}
 	port := s.Params[0]
 	host, err := xio.ListenBindHost(network, s.OptionValue("bind", ""))
@@ -336,7 +336,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 		if la, ok := l.pc.LocalAddr().(*net.UDPAddr); ok {
 			local = cloneUDPAddr(la)
 		}
-		conn, err := dialUDPSession(l.network, local, a, l.spec)
+		conn, err := dialUDPSession(l.ctx, l.network, local, a, l.spec)
 		if err != nil {
 			if l.g != nil && l.g.Log != nil {
 				l.g.Log.Noticef("UDP fork session dial: %s", err)
@@ -348,7 +348,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 	}
 }
 
-func dialUDPSession(network string, local, remote *net.UDPAddr, s parse.Spec) (*net.UDPConn, error) {
+func dialUDPSession(ctx context.Context, network string, local, remote *net.UDPAddr, s parse.Spec) (*net.UDPConn, error) {
 	// SO_REUSEADDR so we can bind the same local port as the parent listener.
 	// Skip when reuseaddr=0: classic applies the explicit zero and does not
 	// enable SO_REUSEPORT for parent/child sharing.
@@ -365,14 +365,11 @@ func dialUDPSession(network string, local, remote *net.UDPAddr, s parse.Spec) (*
 		})
 		return errors.Join(controlErr, optionErr)
 	}
-	d := net.Dialer{
-		LocalAddr: local,
-		// The child is a new socket, not the parent listener fd. Apply every
-		// PH_PASTSOCKET option again on this fd before bind/connect, then the
-		// fork-specific PREBIND reuse flags.
-		Control: xio.DialControl(s, network, reuseControl),
-	}
-	c, err := d.Dial(network, remote.String())
+	// The child is a new socket, not the parent listener fd. Apply every
+	// PH_PASTSOCKET option again on this fd before bind/connect, then the
+	// fork-specific PREBIND reuse flags. UDPLITE fork sessions must keep
+	// IPPROTO_UDPLITE; net.Dial("udp") would create IPPROTO_UDP.
+	c, err := dialUDPForSpec(ctx, network, local, remote.String(), s, reuseControl, 0)
 	if err != nil {
 		return nil, err
 	}

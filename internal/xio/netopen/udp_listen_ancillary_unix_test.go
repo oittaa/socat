@@ -23,6 +23,7 @@ func TestDialUDPSessionAppliesPastSocketIPOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 	child, err := dialUDPSession(
+		t.Context(),
 		"udp4",
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)},
 		server.LocalAddr().(*net.UDPAddr),

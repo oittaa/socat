@@ -48,7 +48,7 @@ func TestDialUDPSessionAppliesLateUnix(t *testing.T) {
 		t.Fatal(err)
 	}
 	local := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}
-	uc, err := dialUDPSession("udp4", local, peer.LocalAddr().(*net.UDPAddr), spec)
+	uc, err := dialUDPSession(t.Context(), "udp4", local, peer.LocalAddr().(*net.UDPAddr), spec)
 	if err != nil {
 		t.Fatal(err)
 	}
