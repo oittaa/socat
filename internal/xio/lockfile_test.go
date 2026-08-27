@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -20,7 +21,8 @@ func TestAcquireLockFileWaitsForAtomicCreate(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- AcquireLockFile(context.Background(), path, true, time.Millisecond)
+		_, err := AcquireLockFile(context.Background(), path, true, time.Millisecond)
+		done <- err
 	}()
 	select {
 	case err := <-done:
@@ -50,7 +52,7 @@ func TestAcquireLockFileCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := AcquireLockFile(ctx, path, true, time.Hour); !errors.Is(err, context.Canceled) {
+	if _, err := AcquireLockFile(ctx, path, true, time.Hour); !errors.Is(err, context.Canceled) {
 		t.Fatalf("error=%v want context.Canceled", err)
 	}
 }
@@ -59,7 +61,7 @@ func TestAcquireLockFileDoesNotCreateAfterCancellation(t *testing.T) {
 	path := testutil.UnixSocketPath(t, "socat.lock")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if err := AcquireLockFile(ctx, path, true, time.Millisecond); !errors.Is(err, context.Canceled) {
+	if _, err := AcquireLockFile(ctx, path, true, time.Millisecond); !errors.Is(err, context.Canceled) {
 		t.Fatalf("error=%v want context.Canceled", err)
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
@@ -72,14 +74,14 @@ func TestAcquireLockFileWithoutWaitReportsExistingLock(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := AcquireLockFile(context.Background(), path, false, time.Millisecond); err == nil {
+	if _, err := AcquireLockFile(context.Background(), path, false, time.Millisecond); err == nil {
 		t.Fatal("existing lock was accepted")
 	}
 }
 
 func TestCreateLockFileWritesPID(t *testing.T) {
 	path := testutil.UnixSocketPath(t, "socat.lock")
-	if err := CreateLockFile(path); err != nil {
+	if _, err := CreateLockFile(path); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(path)
@@ -172,6 +174,30 @@ func TestHoldLockFileIdempotentRelease(t *testing.T) {
 		t.Fatalf("second release removed a new file: %v", err)
 	}
 	if string(got) != "later\n" {
+		t.Fatalf("contents=%q", got)
+	}
+}
+
+func TestHoldLockFileReplacementBetweenCreateAndRegister(t *testing.T) {
+	path := testutil.UnixSocketPath(t, "socat.lock")
+	lockfileAfterCreateHook = func(p string) {
+		replaceAtPath(t, p, []byte("replacement"), 0o600)
+	}
+	t.Cleanup(func() { lockfileAfterCreateHook = nil })
+
+	release, err := HoldLockFile(context.Background(), path, false, CLILockPollInterval)
+	if release != nil {
+		t.Fatal("release func returned after the lock was replaced")
+	}
+	if err == nil || !strings.Contains(err.Error(), "replaced") {
+		t.Fatalf("error=%v want acquired name was replaced", err)
+	}
+	UnlinkRegisteredPaths()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("replacement was removed: %v", err)
+	}
+	if string(got) != "replacement" {
 		t.Fatalf("contents=%q", got)
 	}
 }

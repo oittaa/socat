@@ -27,11 +27,17 @@ const CLILockPollInterval = 100 * time.Millisecond
 // DefaultLockPollInterval is the AcquireLockFile fallback when interval <= 0.
 const DefaultLockPollInterval = CLILockPollInterval
 
+// lockfileAfterCreateHook runs after a successful CreateLockFile inside
+// HoldLockFile and before identity verification / signal-cleanup registration.
+// Tests replace the pathname here; production leaves it nil.
+var lockfileAfterCreateHook func(path string)
+
 // AcquireLockFile creates path with O_EXCL (0644, pid\n). If wait is false and
 // the name exists, it returns "lockfile %s exists". If wait is true, it polls
 // until the create succeeds or ctx is cancelled. ctx is checked before each
-// create so cancellation cannot create the file.
-func AcquireLockFile(ctx context.Context, path string, wait bool, interval time.Duration) error {
+// create so cancellation cannot create the file. The returned FileInfo is
+// f.Stat() of the created descriptor while it was still open.
+func AcquireLockFile(ctx context.Context, path string, wait bool, interval time.Duration) (os.FileInfo, error) {
 	if interval <= 0 {
 		interval = DefaultLockPollInterval
 	}
@@ -40,19 +46,19 @@ func AcquireLockFile(ctx context.Context, path string, wait bool, interval time.
 	var transientSince time.Time
 	for {
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
-		err := CreateLockFile(path)
+		info, err := CreateLockFile(path)
 		if err == nil {
-			return nil
+			return info, nil
 		}
 		exists := errors.Is(err, fs.ErrExist)
 		transient := wait && contentionObserved && isTransientLockCreateError(err)
 		if !exists && !transient {
-			return err
+			return nil, err
 		}
 		if !wait {
-			return fmt.Errorf("lockfile %s exists", path)
+			return nil, fmt.Errorf("lockfile %s exists", path)
 		}
 		if exists {
 			contentionObserved = true
@@ -60,7 +66,7 @@ func AcquireLockFile(ctx context.Context, path string, wait bool, interval time.
 		} else if transientSince.IsZero() {
 			transientSince = time.Now()
 		} else if time.Since(transientSince) >= transientRetryLimit {
-			return err
+			return nil, err
 		}
 		timer := time.NewTimer(interval)
 		select {
@@ -71,57 +77,76 @@ func AcquireLockFile(ctx context.Context, path string, wait bool, interval time.
 				default:
 				}
 			}
-			return ctx.Err()
+			return nil, ctx.Err()
 		case <-timer.C:
 		}
 	}
 }
 
 // CreateLockFile atomically creates path (O_CREATE|O_EXCL) with mode 0644 and
-// writes pid\n. Classic xiogetlock uses mkstemp + chmod 0644 + link(2); this
-// port reuses the CLI -L/-W O_EXCL implementation. Write/close failure
-// unlinks only when lstat still names the created object.
-func CreateLockFile(path string) error {
+// writes pid\n. Classic xiogetlock uses mkstemp + Fchmod(fd, 0644) + link(2)
+// (xiolockfile.c at tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
+// OpenFile's mode is umask-masked, so this port fchmod(0644)s the still-open
+// descriptor like classic. Identity is f.Stat() while that fd is open; a
+// later Lstat must still name the same object before success is returned.
+// Write/close/chmod failure unlinks only when lstat still names that object.
+func CreateLockFile(path string) (os.FileInfo, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644) // #nosec G302 G304 -- lockfile=/waitlock=/-L/-W path comes from the user; 0644 matches classic socat
 	if err != nil {
-		return err
+		return nil, err
+	}
+	_, werr := fmt.Fprintf(f, "%d\n", os.Getpid())
+	if werr == nil {
+		// Classic Fchmod(fd, 0644) after write, before close. os.OpenFile's
+		// 0644 is umask-masked; this restores the classic lock mode.
+		werr = f.Chmod(0o644)
 	}
 	info, statErr := f.Stat()
 	if statErr == nil {
 		_ = snapshotRegisteredIdentity(info)
 	}
-	_, werr := fmt.Fprintf(f, "%d\n", os.Getpid())
 	cerr := f.Close()
-	if werr != nil || cerr != nil {
+	if werr != nil || cerr != nil || statErr != nil {
 		if statErr == nil {
 			releaseLockFile(path, info)
 		}
 		if werr != nil {
-			return werr
+			return nil, werr
 		}
-		return cerr
+		if cerr != nil {
+			return nil, cerr
+		}
+		return nil, statErr
 	}
-	return nil
+	if err := verifyLockIdentity(path, info); err != nil {
+		return nil, err
+	}
+	return info, nil
 }
 
 // HoldLockFile acquires path (waitlock if wait) and returns an identity-safe
 // release used for normal close, failed-open cleanup, and signal-exit unlink.
 // interval is the waitlock poll; lockfile= ignores it. Pass
 // AddressWaitLockPollInterval for address waitlock= and CLILockPollInterval
-// for CLI -W.
+// for CLI -W. Signal cleanup is registered with the create-time FileInfo,
+// not a second Lstat of whatever currently occupies the name.
 func HoldLockFile(ctx context.Context, path string, wait bool, interval time.Duration) (func(), error) {
-	if err := AcquireLockFile(ctx, path, wait, interval); err != nil {
-		return nil, err
-	}
-	info, err := os.Lstat(path)
+	info, err := AcquireLockFile(ctx, path, wait, interval)
 	if err != nil {
-		// Name is gone or unreadable; do not blindly unlink a replacement.
 		return nil, err
 	}
-	if !snapshotRegisteredIdentity(info) {
-		return nil, fmt.Errorf("lockfile %s: cannot snapshot identity", path)
+	if h := lockfileAfterCreateHook; h != nil {
+		h(path)
 	}
-	unreg := RegisterUnlinkPath(path)
+	if err := verifyLockIdentity(path, info); err != nil {
+		return nil, err
+	}
+	unreg := RegisterUnlinkPathIdentity(path, info)
+	if err := verifyLockIdentity(path, info); err != nil {
+		unreg()
+		return nil, err
+	}
 	var once sync.Once
 	return func() {
 		once.Do(func() {
@@ -129,6 +154,14 @@ func HoldLockFile(ctx context.Context, path string, wait bool, interval time.Dur
 			releaseLockFile(path, info)
 		})
 	}, nil
+}
+
+func verifyLockIdentity(path string, original os.FileInfo) error {
+	current, err := os.Lstat(path)
+	if err != nil || !sameRegisteredFile(original, current) {
+		return fmt.Errorf("lockfile %s: acquired name was replaced", path)
+	}
+	return nil
 }
 
 // releaseLockFile unlinks path only when it still names the acquired object.
