@@ -246,6 +246,7 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "ioctl-int-on-tcp", spec: "TCP:localhost:1,ioctl-int=1:0"},
 		{name: "ioctl-bin-on-open", spec: "OPEN:file,ioctl-bin=1:x01000000"},
 		{name: "ioctl-string-on-fd", spec: "FD:3,ioctl-string=1:hello"},
+		{name: "ioctl-string-quoted-trailing-space", spec: `FD:3,ioctl-string="1:hello "`},
 		{name: "ioctl-string-empty", spec: "STDIN,ioctl-string=1:"},
 		{name: "ioctl-void-fionread", spec: "FD:3,ioctl-void=0x541B"},
 		{name: "ioctl-void-overflow", spec: "FD:3,ioctl-void=4294967296", wantErr: "invalid ioctl-void"},

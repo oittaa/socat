@@ -99,6 +99,32 @@ func TestParseGenericIoctlTypes(t *testing.T) {
 	}
 }
 
+func TestParseGenericIoctlStringPreservesTrailingWhitespace(t *testing.T) {
+	quoted, err := parse.ParseSpec(`FD:3,ioctl-string="1:hello "`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := parseGenericIoctl(quoted.Options[0])
+	if err != nil || got.str != "hello " {
+		t.Fatalf("quoted trailing space: str=%q err=%v", got.str, err)
+	}
+
+	nested, err := parse.ParseSpec(`FD:3,ioctl-string=1:"hello "`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = parseGenericIoctl(nested.Options[0])
+	if err != nil || got.str != "hello " {
+		t.Fatalf("nested quoted payload: str=%q err=%v", got.str, err)
+	}
+
+	o := parse.Option{Name: "ioctl-string", Value: "1:hello\t\n", Has: true, Spelling: "ioctl-string"}
+	got, err = parseGenericIoctl(o)
+	if err != nil || got.str != "hello\t\n" {
+		t.Fatalf("tab/newline payload: str=%q err=%v", got.str, err)
+	}
+}
+
 func TestParseGenericIoctlRejectsMalformed(t *testing.T) {
 	tests := []struct {
 		raw  string
