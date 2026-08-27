@@ -7,10 +7,23 @@ import (
 	"context"
 	"net"
 	"testing"
+	"unsafe"
 
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
+
+func TestGroupSourceReqLayout(t *testing.T) {
+	if unsafe.Sizeof(sockaddrStorage{}) != 128 {
+		t.Fatalf("sockaddrStorage size=%d want 128", unsafe.Sizeof(sockaddrStorage{}))
+	}
+	if unsafe.Alignof(sockaddrStorage{}) != 8 {
+		t.Fatalf("sockaddrStorage align=%d want 8", unsafe.Alignof(sockaddrStorage{}))
+	}
+	if unsafe.Sizeof(groupSourceReq{}) != 264 {
+		t.Fatalf("groupSourceReq size=%d want 264", unsafe.Sizeof(groupSourceReq{}))
+	}
+}
 
 func TestListenControlAppliesIPv4SourceMembership(t *testing.T) {
 	spec, err := parse.ParseSpec("UDP4-RECV:0,ip-add-source-membership=232.1.1.1:127.0.0.1:10.0.0.1")

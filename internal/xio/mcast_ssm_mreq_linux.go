@@ -2,7 +2,13 @@
 
 package xio
 
-import "net"
+import (
+	"net"
+
+	"golang.org/x/sys/unix"
+)
+
+func setSockaddrInet6Len(*unix.RawSockaddrInet6) {}
 
 // packIPMreqSource is Linux struct ip_mreq_source:
 // imr_multiaddr, imr_interface, imr_sourceaddr (12 bytes).

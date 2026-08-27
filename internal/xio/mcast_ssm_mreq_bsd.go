@@ -2,7 +2,15 @@
 
 package xio
 
-import "net"
+import (
+	"net"
+
+	"golang.org/x/sys/unix"
+)
+
+func setSockaddrInet6Len(raw *unix.RawSockaddrInet6) {
+	raw.Len = uint8(unix.SizeofSockaddrInet6)
+}
 
 // packIPMreqSource is Darwin/FreeBSD struct ip_mreq_source:
 // imr_multiaddr, imr_sourceaddr, imr_interface (12 bytes). Linux swaps

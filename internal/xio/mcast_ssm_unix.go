@@ -60,13 +60,19 @@ func parseSourceMcastSpec(spec, optionName string, family membershipFamily) (par
 	return parsedSourceMcast{group: group, token: iface, source: source}, nil
 }
 
+// sockaddrStorage is C struct sockaddr_storage (128 bytes, 8-byte aligned).
+// golang.org/x/sys/unix.SockaddrStorage exists on Linux only.
+type sockaddrStorage struct {
+	_ [16]uint64
+}
+
 // groupSourceReq matches Linux/BSD struct group_source_req. Go inserts
-// alignment padding after Interface so SockaddrStorage stays pointer-aligned
-// (264 bytes on 64-bit, 260 on 32-bit).
+// alignment padding after Interface so sockaddrStorage stays 8-byte aligned
+// (264 bytes on 64-bit).
 type groupSourceReq struct {
 	Interface uint32
-	Group     unix.SockaddrStorage
-	Source    unix.SockaddrStorage
+	Group     sockaddrStorage
+	Source    sockaddrStorage
 }
 
 func applySourceMembershipFD(fd int, family membershipFamily, name, spec string) error {
@@ -129,9 +135,10 @@ func setIPv6SourceMembershipFD(fd int, group net.IP, ifindex uint32, source net.
 	return nil
 }
 
-func putSockaddrInet6(ss *unix.SockaddrStorage, ip net.IP) {
+func putSockaddrInet6(ss *sockaddrStorage, ip net.IP) {
 	raw := (*unix.RawSockaddrInet6)(unsafe.Pointer(ss)) // #nosec G103 -- overlay sockaddr_in6 at the start of sockaddr_storage
 	*raw = unix.RawSockaddrInet6{}
 	raw.Family = unix.AF_INET6
 	copy(raw.Addr[:], ip.To16())
+	setSockaddrInet6Len(raw)
 }
