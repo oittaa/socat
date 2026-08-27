@@ -27,21 +27,12 @@ func TestMLDSAEcho(t *testing.T) {
 	assertMLDSA44PEM(t, certs.ClientCert)
 
 	t.Run("TLS", func(t *testing.T) {
-		port := freePort(t)
-		srv := exec.Command(bin, "-t", "2", fmt.Sprintf(
-			"TLS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=1,min-version=TLS1.3,cert=%s,key=%s,cafile=%s",
-			port, certs.ServerCert, certs.ServerKey, certs.CAFile,
-		), "PIPE")
-		var srvErr bytes.Buffer
-		srv.Stderr = &srvErr
-		if err := srv.Start(); err != nil {
-			t.Fatal(err)
-		}
-		defer func() {
-			_ = srv.Process.Kill()
-			_, _ = srv.Process.Wait()
-		}()
-		waitTCPListen(t, port, tcpListenerStartupTimeout)
+		port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
+			return exec.Command(bin, "-t", "2", fmt.Sprintf(
+				"TLS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=1,min-version=TLS1.3,cert=%s,key=%s,cafile=%s",
+				port, certs.ServerCert, certs.ServerKey, certs.CAFile,
+			), "PIPE")
+		})
 
 		payload := fmt.Sprintf("mldsa-tls %d\n", time.Now().UnixNano())
 		cli := exec.Command(bin, "-t", "2", "stdin!!stdout", fmt.Sprintf(
@@ -53,10 +44,10 @@ func TestMLDSAEcho(t *testing.T) {
 		cli.Stderr = &cliErr
 		out, err := cli.Output()
 		if err != nil {
-			t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srvErr.String())
+			t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
 		}
 		if string(out) != payload {
-			t.Fatalf("got %q want %q (srv=%s)", out, payload, srvErr.String())
+			t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
 		}
 	})
 

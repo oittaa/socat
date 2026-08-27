@@ -3,12 +3,16 @@ package wsopen
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
@@ -47,13 +51,7 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := xio.WithRetry(dctx, s, g, s.Type, func() error {
-			cctx := dctx
-			var cancel context.CancelFunc
-			if handshakeTimeout > 0 {
-				cctx, cancel = context.WithTimeout(dctx, handshakeTimeout)
-				defer cancel()
-			}
-			nc, e := dialWS(cctx, network, host, port, u.String(), s, g, tlsCfg)
+			nc, e := dialWS(dctx, network, host, port, u.String(), s, g, tlsCfg, handshakeTimeout)
 			if e != nil {
 				return e
 			}
@@ -73,18 +71,50 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	})
 }
 
-func dialWS(ctx context.Context, network, host, port, rawURL string, s parse.Spec, g *xio.Global, tlsCfg *tls.Config) (net.Conn, error) {
+func dialWS(ctx context.Context, network, host, port, rawURL string, s parse.Spec, g *xio.Global, tlsCfg *tls.Config, handshakeTimeout time.Duration) (net.Conn, error) {
+	raw, err := xio.DialTCPAll(ctx, network, xio.StripBrackets(host), port, s, g, xio.ConnectTimeout(s), nil)
+	if err != nil {
+		return nil, err
+	}
+	owned := false
+	defer func() {
+		if !owned {
+			logx.CloseQuiet(raw)
+		}
+	}()
+
+	if handshakeTimeout > 0 {
+		if err := raw.SetDeadline(time.Now().Add(handshakeTimeout)); err != nil {
+			return nil, err
+		}
+	}
+
+	hctx := ctx
+	var cancel context.CancelFunc
+	if handshakeTimeout > 0 {
+		hctx, cancel = context.WithTimeout(ctx, handshakeTimeout)
+		defer cancel()
+	}
+
+	take := alreadyDialed(raw)
 	tr := &http.Transport{
-		DialContext: func(dctx context.Context, _, _ string) (net.Conn, error) {
-			c, e := xio.DialTCPAll(dctx, network, xio.StripBrackets(host), port, s, g, xio.ConnectTimeout(s), nil)
+		DialContext: take,
+	}
+	if tlsCfg != nil {
+		attemptTLS := tlsCfg.Clone()
+		tr.TLSClientConfig = attemptTLS
+		tr.DialTLSContext = func(dctx context.Context, _, _ string) (net.Conn, error) {
+			c, e := take(dctx, "", "")
 			if e != nil {
 				return nil, e
 			}
-			return c, nil
-		},
-	}
-	if tlsCfg != nil {
-		tr.TLSClientConfig = tlsCfg
+			tc := tls.Client(c, attemptTLS.Clone())
+			if e := tc.HandshakeContext(dctx); e != nil {
+				logx.CloseQuiet(c)
+				return nil, e
+			}
+			return tc, nil
+		}
 	}
 	opts := &websocket.DialOptions{
 		HTTPClient: &http.Client{Transport: tr},
@@ -96,10 +126,26 @@ func dialWS(ctx context.Context, network, host, port, rawURL string, s parse.Spe
 	if proto := s.OptionValue("protocol", ""); proto != "" {
 		opts.Subprotocols = []string{proto}
 	}
-	c, _, err := websocket.Dial(ctx, rawURL, opts)
+	c, _, err := websocket.Dial(hctx, rawURL, opts)
 	if err != nil {
 		return nil, err
 	}
+	_ = raw.SetDeadline(time.Time{})
+	owned = true
 	// Background: NetConn must outlive the dial timeout; Close ends the session.
 	return websocket.NetConn(context.Background(), c, websocket.MessageBinary), nil
+}
+
+func alreadyDialed(c net.Conn) func(context.Context, string, string) (net.Conn, error) {
+	var mu sync.Mutex
+	return func(context.Context, string, string) (net.Conn, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if c == nil {
+			return nil, fmt.Errorf("websocket TCP connection already used")
+		}
+		out := c
+		c = nil
+		return out, nil
+	}
 }

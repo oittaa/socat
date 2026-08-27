@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -27,14 +28,28 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 	}
 	tlsCfg.NextProtos = []string{proxyALPN(s, http3.NextProtoH3)}
 
-	tr := &http3.Transport{TLSClientConfig: tlsCfg}
 	u := "https://" + net.JoinHostPort(xio.StripBrackets(t.proxyHost), t.proxyPort) + "/"
 	authority := net.JoinHostPort(t.connectHost, t.targetPort)
+	attemptTimeout := xio.CombinedConnectHandshakeTimeout(s)
+	idle := xio.QUICHandshakeIdleTimeout(s)
 
 	var conn net.Conn
 	err = xio.WithRetry(ctx, s, g, "PROXY-CONNECT", func() error {
+		tr := &http3.Transport{
+			TLSClientConfig: tlsCfg.Clone(),
+			QUICConfig:      &quic.Config{HandshakeIdleTimeout: idle},
+		}
+		cctx, stopTimer, cancelHandshake := proxyHandshakeContext(ctx, attemptTimeout)
+		success := false
+		defer func() {
+			if !success {
+				stopTimer()
+				cancelHandshake()
+				_ = tr.Close()
+			}
+		}()
 		pr, pw := io.Pipe()
-		req, e := http.NewRequestWithContext(ctx, http.MethodConnect, u, pr)
+		req, e := http.NewRequestWithContext(cctx, http.MethodConnect, u, pr)
 		if e != nil {
 			_ = pw.Close()
 			return e
@@ -57,17 +72,23 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 			_ = resp.Body.Close()
 			return fmt.Errorf("proxy CONNECT failed: %s", resp.Status)
 		}
+		if e := finishCONNECTHandshake(cctx, stopTimer, pw, resp); e != nil {
+			return e
+		}
+		success = true
 		conn = &pipeConn{
 			r:      resp.Body,
 			w:      pw,
 			local:  staticAddr("h3", u),
 			remote: staticAddr("h3", authority),
-			extra:  []io.Closer{closerFunc(func() error { return tr.Close() })},
+			extra: []io.Closer{closerFunc(func() error {
+				cancelHandshake()
+				return tr.Close()
+			})},
 		}
 		return nil
 	})
 	if err != nil {
-		_ = tr.Close()
 		return nil, err
 	}
 	return conn, nil
