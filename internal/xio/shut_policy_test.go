@@ -7,12 +7,48 @@ import (
 	"io"
 	"net"
 	"os"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
+
+var errControlOnlyRawConn = errors.New("control-only raw conn")
+
+// fdSyscallStream exposes a raw fd to shutdownWritePolicy via syscall.Conn.
+type fdSyscallStream struct {
+	relay.Stream
+	fd int
+}
+
+func (s fdSyscallStream) SyscallConn() (syscall.RawConn, error) {
+	return controlFd(s.fd), nil
+}
+
+type controlFd int
+
+func (fd controlFd) Control(f func(uintptr)) error {
+	f(uintptr(fd))
+	return nil
+}
+
+func (controlFd) Read(func(uintptr) bool) error  { return errControlOnlyRawConn }
+func (controlFd) Write(func(uintptr) bool) error { return errControlOnlyRawConn }
+
+func wrapShutDown(t *testing.T, inner relay.Stream) relay.Stream {
+	t.Helper()
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,shut-down")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream, err := wrapShutPolicy(spec, inner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return stream
+}
 
 type recordingStream struct {
 	writes    [][]byte

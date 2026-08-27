@@ -14,7 +14,9 @@ import (
 // fall back to Stream.ShutdownWrite: that would CloseWrite a pipe or send TLS
 // close-notify. Non-sockets return the kernel ENOTSOCK/WSAENOTSOCK. Wrappers
 // that hide the fd (crypto/tls.Conn, rcvtimeo) must expose NetConn() so this
-// walk can reach the socket. Windows uses Winsock shutdown(SD_SEND).
+// walk can reach the socket. Windows probes SO_TYPE before shutdown(SD_SEND)
+// so a pipe returns WSAENOTSOCK instead of a flaky WSAENOTCONN; a real
+// unconnected socket still surfaces WSAENOTCONN (see ShutdownWrite).
 func shutdownWritePolicy(stream relay.Stream) error {
 	return shutdownFrom(stream)
 }
