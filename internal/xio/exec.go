@@ -88,15 +88,18 @@ func startProcess(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmdSt
 // and official master af5388c898c7bb60997935aee93c223deba60c4a.
 //
 // dash (xio-exec.c): basename of argv[0], then prefix '-' when the bool is
-// set; execvp still uses the original path. login is the nickname.
-// GROUP_EXEC is also on SYSTEM and SHELL; applying the same argv[0] rewrite
-// there avoids a silent no-op (classic SYSTEM/SHELL leave dash unused and
-// abort with "option(s) remained unused").
+// set; execvp still uses the original path. login is the nickname. GROUP_EXEC
+// is also on SYSTEM and SHELL, so parse accepts the option there, but only
+// xioopen_exec consumes it. SYSTEM/SHELL leave it unused and abort with
+// "option(s) remained unused" (xio-system.c / xio-shell.c). This port rejects
+// dash/login on SYSTEM/SHELL instead of turning them into login shells.
 //
-// setpgid (xio-process.c): Setpgid(0, value) at PH_LATE on the child's
-// copts after moveopts(GROUP_FORK|…). TYPE_INT: bare flag → 1. Man page
-// OPTION_SETPGID says values 0 and 1 both create a new process group; C
-// always calls setpgid(0, value), so 1 joins pgid 1. Runtime follows C.
+// setpgid (xio-process.c / xioopts.c OPT_SETPGID): PH_LATE on the child.
+// TYPE_INT: bare flag stores 1. Official doc/socat.yo OPTION_SETPGID says
+// omitted, 0, and 1 all make the process leader of a new process group. C
+// calls setpgid(0, value); on Linux setpgid(0, 1) is EPERM and classic
+// Warn()s then continues without a new group. Go SysProcAttr.Setpgid turns
+// that into a hard Start failure, so omitted/0/1 map to Pgid=0 (new group).
 func applyExecChildOptions(s parse.Spec, cmd *exec.Cmd) error {
 	if err := applyDashArgv0(s, cmd); err != nil {
 		return err
@@ -105,7 +108,14 @@ func applyExecChildOptions(s parse.Spec, cmd *exec.Cmd) error {
 }
 
 func applyDashArgv0(s parse.Spec, cmd *exec.Cmd) error {
-	if !s.HasOption("dash") || !s.BoolOption("dash") {
+	o, ok := s.OptionNamed("dash")
+	if !ok {
+		return nil
+	}
+	if !strings.EqualFold(s.Type, "EXEC") {
+		return fmt.Errorf("%s: unused on %s (classic EXEC only)", o.OriginalSpelling(), s.Type)
+	}
+	if !s.BoolOption("dash") {
 		return nil
 	}
 	if cmd == nil || len(cmd.Args) == 0 {
@@ -126,7 +136,7 @@ func applySetpgid(s parse.Spec, cmd *exec.Cmd) error {
 	if !ok {
 		return nil
 	}
-	n := 1
+	n := 1 // classic TYPE_INT with no '=': parseopts_table stores 1
 	if o.Has {
 		v, err := ParseIntAny(o.Value)
 		if err != nil {
@@ -134,11 +144,17 @@ func applySetpgid(s parse.Spec, cmd *exec.Cmd) error {
 		}
 		n = v
 	}
+	// Man page: omitted, 0, and 1 → new process group. Go Pgid=0 is
+	// setpgid(0, 0). Do not pass Pgid=1: Linux setpgid(0, 1) is EPERM.
+	pgid := n
+	if n == 0 || n == 1 {
+		pgid = 0
+	}
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.Setpgid = true
-	cmd.SysProcAttr.Pgid = n
+	cmd.SysProcAttr.Pgid = pgid
 	return nil
 }
 

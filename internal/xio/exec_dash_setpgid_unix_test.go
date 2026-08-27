@@ -62,29 +62,58 @@ func TestApplyDashArgv0LoginAliasAndClear(t *testing.T) {
 	}
 }
 
-func TestApplySetpgidBareAndZero(t *testing.T) {
-	bare, err := parse.ParseSpec("EXEC:true,setpgid")
+func TestApplySetpgidOmittedZeroOneNewGroup(t *testing.T) {
+	for _, specText := range []string{"EXEC:true,setpgid", "EXEC:true,setpgid=0", "EXEC:true,setpgid=1", "EXEC:true,pgid"} {
+		spec, err := parse.ParseSpec(specText)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("/bin/true")
+		if err := applyExecChildOptions(spec, cmd); err != nil {
+			t.Fatal(err)
+		}
+		if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid || cmd.SysProcAttr.Pgid != 0 {
+			t.Fatalf("%s SysProcAttr=%+v want Setpgid Pgid=0 (new process group)", specText, cmd.SysProcAttr)
+		}
+	}
+}
+
+func TestApplyDashRejectedOnSystemAndShell(t *testing.T) {
+	for _, specText := range []string{
+		"SYSTEM:true,dash",
+		"SYSTEM:true,login",
+		"SYSTEM:true,dash=0",
+		`SHELL:printf x,login`,
+		`SHELL:printf x,dash`,
+	} {
+		spec, err := parse.ParseSpec(specText)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = applyExecChildOptions(spec, exec.Command("/bin/true"))
+		if err == nil || !strings.Contains(err.Error(), "unused") || !strings.Contains(err.Error(), "classic EXEC only") {
+			t.Fatalf("%s: error=%v want unused on SYSTEM/SHELL (classic EXEC only)", specText, err)
+		}
+		if spec.Type == "SYSTEM" && spec.HasOption("dash") && !strings.Contains(err.Error(), "SYSTEM") {
+			t.Fatalf("%s: error=%v want address type SYSTEM", specText, err)
+		}
+		if spec.Type == "SHELL" && !strings.Contains(err.Error(), "SHELL") {
+			t.Fatalf("%s: error=%v want address type SHELL", specText, err)
+		}
+	}
+}
+
+func TestApplySetpgidOtherValueKeepsPgid(t *testing.T) {
+	spec, err := parse.ParseSpec("EXEC:true,setpgid=4242")
 	if err != nil {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("/bin/true")
-	if err := applyExecChildOptions(bare, cmd); err != nil {
+	if err := applyExecChildOptions(spec, cmd); err != nil {
 		t.Fatal(err)
 	}
-	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid || cmd.SysProcAttr.Pgid != 1 {
-		t.Fatalf("bare setpgid SysProcAttr=%+v want Setpgid Pgid=1 (TYPE_INT default)", cmd.SysProcAttr)
-	}
-
-	zero, err := parse.ParseSpec("EXEC:true,pgid=0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd = exec.Command("/bin/true")
-	if err := applyExecChildOptions(zero, cmd); err != nil {
-		t.Fatal(err)
-	}
-	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid || cmd.SysProcAttr.Pgid != 0 {
-		t.Fatalf("pgid=0 SysProcAttr=%+v want Setpgid Pgid=0", cmd.SysProcAttr)
+	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid || cmd.SysProcAttr.Pgid != 4242 {
+		t.Fatalf("setpgid=4242 SysProcAttr=%+v want Pgid=4242", cmd.SysProcAttr)
 	}
 }
 
@@ -131,47 +160,71 @@ func buildArgv0Helper(t *testing.T) string {
 	return bin
 }
 
-func TestSHELLLoginRewritesShellArgv0(t *testing.T) {
-	got := readExecStdout(t, `SHELL:printf %s "x$0",shell=/bin/sh,login`)
-	if got != "x-sh" {
-		t.Fatalf("SHELL,login argv0=%q want x-sh", got)
+func TestSYSTEMAndSHELLDashRejectedAtOpen(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	for _, specText := range []string{
+		"SYSTEM:true,dash",
+		"SYSTEM:true,login",
+		`SHELL:printf x,shell=/bin/sh,login`,
+	} {
+		ch, err := parse.ParseChannel(specText)
+		if err != nil {
+			t.Fatalf("parse %s: %v", specText, err)
+		}
+		o, err := OpenChannel(ctx, ch, ModeRead, nil)
+		if err == nil {
+			_ = o.Close()
+			t.Fatalf("%s: OpenChannel succeeded, want unused dash/login", specText)
+		}
+		if !strings.Contains(err.Error(), "unused") || !strings.Contains(err.Error(), "classic EXEC only") {
+			t.Fatalf("%s: error=%v want unused (classic EXEC only)", specText, err)
+		}
 	}
 }
 
-func TestSYSTEMDashRewritesShArgv0(t *testing.T) {
-	got := readExecStdout(t, `SYSTEM:printf %s "x$0",dash`)
-	if got != "x-sh" {
-		t.Fatalf("SYSTEM,dash argv0=%q want x-sh", got)
-	}
-}
-
-func TestEXECSetpgidZeroNewProcessGroup(t *testing.T) {
+func TestEXECSetpgidOmittedZeroOneNewProcessGroup(t *testing.T) {
 	parent := unix.Getpgrp()
+	bin := buildPgidHelper(t)
+	for _, opt := range []string{"setpgid", "setpgid=0", "setpgid=1", "pgid"} {
+		t.Run(opt, func(t *testing.T) {
+			got := readExecStdout(t, "EXEC:"+bin+","+opt)
+			fields := strings.Fields(got)
+			if len(fields) != 2 {
+				t.Fatalf("child output %q want pid pgid", got)
+			}
+			pid, err := strconv.Atoi(fields[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			pgid, err := strconv.Atoi(fields[1])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pgid != pid {
+				t.Fatalf("child pgid=%d pid=%d want new process group", pgid, pid)
+			}
+			if unix.Getpgrp() != parent {
+				t.Fatalf("parent pgid changed from %d to %d", parent, unix.Getpgrp())
+			}
+		})
+	}
+}
+
+func buildPgidHelper(t *testing.T) string {
+	t.Helper()
 	dir := t.TempDir()
-	script := filepath.Join(dir, "showpgid")
-	body := "#!/bin/sh\nprintf '%s %s\\n' \"$$\" \"$(ps -o pgid= -p $$ | tr -d '[:space:]')\"\n"
-	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+	src := filepath.Join(dir, "pgid.c")
+	body := "#include <stdio.h>\n#include <unistd.h>\nint main(void){ printf(\"%d %d\\n\", (int)getpid(), (int)getpgrp()); return 0; }\n"
+	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	got := readExecStdout(t, "EXEC:"+script+",setpgid=0")
-	fields := strings.Fields(got)
-	if len(fields) != 2 {
-		t.Fatalf("child output %q want pid pgid", got)
-	}
-	pid, err := strconv.Atoi(fields[0])
+	bin := filepath.Join(dir, "pgid")
+	out, err := exec.Command("gcc", "-o", bin, src).CombinedOutput()
 	if err != nil {
-		t.Fatal(err)
+		t.Skipf("gcc unavailable: %v (%s)", err, out)
 	}
-	pgid, err := strconv.Atoi(fields[1])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pgid != pid {
-		t.Fatalf("child pgid=%d pid=%d want new process group", pgid, pid)
-	}
-	if unix.Getpgrp() != parent {
-		t.Fatalf("parent pgid changed from %d to %d", parent, unix.Getpgrp())
-	}
+	return bin
 }
 
 func TestEXECSetpgidDoesNotMutateParentOnNofork(t *testing.T) {
@@ -181,7 +234,7 @@ func TestEXECSetpgidDoesNotMutateParentOnNofork(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	s, err := parse.ParseSpec("EXEC:" + script + ",nofork,setpgid=0")
+	s, err := parse.ParseSpec("EXEC:" + script + ",nofork,setpgid")
 	if err != nil {
 		t.Fatal(err)
 	}
