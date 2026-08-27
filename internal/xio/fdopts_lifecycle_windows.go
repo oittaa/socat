@@ -154,14 +154,19 @@ func applyWindowsFDPhaseOptions(s parse.Spec, honorTargetSkip bool) error {
 				continue
 			}
 			return fmt.Errorf("group: not supported on windows")
+		case "flock", "flock-nb", "flock-sh", "flock-sh-nb":
+			if !optionEnabled(o) {
+				continue
+			}
+			return fmt.Errorf("%s: flock is not supported on windows", o.OriginalSpelling())
 		}
 	}
 	return nil
 }
 
 func applyWindowsLate(fd uintptr, s parse.Spec) error {
-	skipTrunc := skipNamedFileFtruncate(s.Type)
 	skipAppend := skipNamedFileAppend(s.Type)
+	skipAsync := skipNamedFileAsync(s.Type)
 	for _, o := range s.Options {
 		switch parse.CanonicalOptionName(o.Name) {
 		case "append":
@@ -171,13 +176,36 @@ func applyWindowsLate(fd uintptr, s parse.Spec) error {
 			if err := applyWindowsOneAppend(s); err != nil {
 				return err
 			}
-		case "ftruncate":
-			if skipTrunc {
+		case "async":
+			if skipAsync {
 				continue
 			}
+			if !optionEnabled(o) {
+				continue
+			}
+			return fmt.Errorf("%s: fcntl O_ASYNC is not supported on windows", o.OriginalSpelling())
+		case "ftruncate":
 			if err := applyWindowsOneFtruncate(fd, o); err != nil {
 				return err
 			}
+		case "lseek":
+			if err := applyWindowsOneLseek(fd, o, io.SeekStart); err != nil {
+				return err
+			}
+		case "seek-cur":
+			if err := applyWindowsOneLseek(fd, o, io.SeekCurrent); err != nil {
+				return err
+			}
+		case "seek-end":
+			if err := applyWindowsOneLseek(fd, o, io.SeekEnd); err != nil {
+				return err
+			}
+		case "perm-late":
+			return fmt.Errorf("perm-late: fchmod is not supported on windows")
+		case "user-late":
+			return fmt.Errorf("user-late: not supported on windows")
+		case "group-late":
+			return fmt.Errorf("group-late: not supported on windows")
 		}
 	}
 	return nil
@@ -212,6 +240,18 @@ func applyWindowsOneFtruncate(fd uintptr, o parse.Option) error {
 	}
 	if _, err := windows.Seek(h, cur, io.SeekStart); err != nil {
 		return fmt.Errorf("ftruncate: %w", err)
+	}
+	return nil
+}
+
+func applyWindowsOneLseek(fd uintptr, o parse.Option, whence int) error {
+	off, err := parseLseekOffset(o)
+	if err != nil {
+		return err
+	}
+	noteLifecycleSyscall("lseek")
+	if _, err := windows.Seek(windows.Handle(fd), off, whence); err != nil {
+		return fmt.Errorf("%s: %w", o.OriginalSpelling(), err)
 	}
 	return nil
 }

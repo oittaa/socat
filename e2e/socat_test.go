@@ -17,6 +17,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/oittaa/socat/internal/testutil"
 )
 
 var capabilityCache = struct {
@@ -404,8 +406,7 @@ func TestTCPTestServerRetriesEarlyExit(t *testing.T) {
 // UNIXSTREAM — echo via unix stream socket
 func TestUnixStreamEcho(t *testing.T) {
 	bin := socatBin(t)
-	dir := t.TempDir()
-	sock := filepath.Join(dir, "echo.sock")
+	sock := testutil.UnixSocketPath(t, "echo.sock")
 
 	srv := exec.Command(bin, fmt.Sprintf("UNIX-LISTEN:%s,unlink-early", sock), "PIPE")
 	if err := srv.Start(); err != nil {

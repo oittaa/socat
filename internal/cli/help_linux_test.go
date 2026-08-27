@@ -4,8 +4,11 @@ package cli
 
 import (
 	"bytes"
+	"sort"
 	"strings"
 	"testing"
+
+	"github.com/oittaa/socat/internal/classiccatalog"
 )
 
 func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
@@ -21,22 +24,40 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"so-protocol", "so-prototype", "prototype", "protocol-family", "type",
 		"ip-add-membership", "add-membership", "ip-membership", "membership",
 		"ipv6-join-group", "ipv6-add-membership", "join-group",
+		"ip-multicast-if", "multicast-if",
+		"ip-multicast-loop", "multicast-loop", "mcloop", "ipmulticastloop", "multicastloop",
+		"ip-multicast-ttl", "multicast-ttl", "ipmulticastttl", "multicastttl",
+		"ipv6-multicast-loop", "ipv6-mcloop", "mcloop6",
+		"ip-add-source-membership", "add-source-membership", "source-membership",
+		"ipv6-join-source-group", "ipv6-add-source-membership", "join-source-group",
+		"ip-freebind", "freebind", "ipfreebind",
+		"ip-transparent", "transparent",
+		"ip-mtu-discover", "mtudiscover", "ipmtudiscover",
+		"ipv6-mtu-discover", "mtudiscover6",
 		"setsockopt", "setsockopt-int", "setsockopt-bin", "setsockopt-string",
 		"setsockopt-listen", "setsockopt-socket", "setsockopt-connected",
 		"sockopt", "sockopt-int", "sockopt-bin", "sockopt-string",
 		"sockopt-listen", "sockopt-sock", "sockopt-conn",
 		"broadcast", "so-broadcast",
-		"vintr", "intr", "veol2", "sane", "pendin", "iuclc", "nl1", "crtscts",
+		"vintr", "intr", "veol2", "vswtc", "swtch", "sane", "pendin", "iuclc", "nl1", "crtscts",
+		"b7200", "nldly", "crdly", "tabdly", "bsdly", "vtdly", "ffdly", "csize", "xtabs",
+		"echoprt", "prterase", "flusho", "termios-setflags", "setflags", "termios-rawer",
+		"o-rdonly", "o-creat", "o-excl", "o-wronly", "o-rdwr", "o-trunc", "ndelay", "o-ndelay",
+		"f-setlk", "lock", "bytes", "crlf", "cd", "sid", "close", "maxchildren",
+		"intervall", "ipv6only", "v6only", "termios-cfmakeraw", "crterase",
+		"tun-no-pi", "multicast", "proxy-auth", "resolv",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)
 		}
 	}
-	if strings.Contains(help, "    b7200 ") {
-		t.Error("b7200 must not be advertised on this Linux build (no unix.B7200)")
-	}
 	if strings.Contains(help, "    dsusp ") || strings.Contains(help, "    vdsusp ") {
 		t.Error("HP-UX dsusp/vdsusp must not be advertised")
+	}
+	for _, name := range []string{"ip-recverr", "recverr", "iprecverr", "ipv6-recverr", "ipv6-multicast-hops"} {
+		if strings.Contains(help, "    "+name+" ") {
+			t.Errorf("rejected or unknown option %q must not be advertised in -hhh", name)
+		}
 	}
 	for _, addr := range []string{
 		"VSOCK-CONNECT:<cid>:<port>",
@@ -45,6 +66,29 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		if !strings.Contains(help, addr) {
 			t.Errorf("help missing %q", addr)
 		}
+	}
+}
+
+func TestLinuxHelpListsEveryClassicTermiosSpelling(t *testing.T) {
+	advertised := advertisedHelpNames(true)
+	var missing []string
+	for spelling, entry := range classiccatalog.Options {
+		isTermios := false
+		for _, group := range entry.Groups {
+			if group == "TERMIOS" {
+				isTermios = true
+				break
+			}
+		}
+		if isTermios {
+			if _, ok := advertised[spelling]; !ok {
+				missing = append(missing, spelling)
+			}
+		}
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		t.Fatalf("Linux -hhh is missing classic TERMIOS spellings: %s", strings.Join(missing, ", "))
 	}
 }
 

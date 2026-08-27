@@ -33,3 +33,6 @@ const (
 )
 
 var platformTermiosFlags []termiosFlag
+var platformTermiosChars []termiosCC
+var platformTermiosCharAliases []string
+var platformTermiosValues []termiosValue

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 )
 
@@ -29,7 +30,7 @@ func TestUNIXListenPIPEEcho(t *testing.T) {
 		t.Skip("UNIX sockets not enabled")
 	}
 	ctx, g := testCtx(t), testGlobal()
-	path := filepath.Join(t.TempDir(), "echo.sock")
+	path := testutil.UnixSocketPath(t, "echo.sock")
 	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork")
 	cli := openClient(t, ctx, g, "UNIX-CONNECT:"+path)
 	echoLive(t, streamOf(t, cli), []byte("unix-hello"))
@@ -37,7 +38,7 @@ func TestUNIXListenPIPEEcho(t *testing.T) {
 
 func TestUNIXListenMode(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
-	path := filepath.Join(t.TempDir(), "mode.sock")
+	path := testutil.UnixSocketPath(t, "mode.sock")
 	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork,mode=600")
 	st, err := os.Stat(path)
 	if err != nil {
@@ -52,7 +53,7 @@ func TestUNIXListenMode(t *testing.T) {
 // TCP4-LISTEN,reuseaddr,fork → UNIX-CONNECT:path.
 func TestTCPListenUnixConnect(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
-	path := filepath.Join(t.TempDir(), "app.sock")
+	path := testutil.UnixSocketPath(t, "app.sock")
 	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork")
 	front := startListenRight(t, ctx, g,
 		"TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1",
@@ -65,7 +66,7 @@ func TestTCPListenUnixConnect(t *testing.T) {
 func TestUNIXListenTCPConnect(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
 	back := startForkListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
-	path := filepath.Join(t.TempDir(), "app.sock")
+	path := testutil.UnixSocketPath(t, "app.sock")
 	startListenRight(t, ctx, g,
 		"UNIX-LISTEN:"+path+",unlink-early,fork,mode=600",
 		"TCP4:127.0.0.1:"+tcpPort(t, back)+",connect-timeout=2")
@@ -75,7 +76,7 @@ func TestUNIXListenTCPConnect(t *testing.T) {
 
 func TestGOPENUnixSocket(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
-	path := filepath.Join(t.TempDir(), "gopen.sock")
+	path := testutil.UnixSocketPath(t, "gopen.sock")
 	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork")
 	cli := openClient(t, ctx, g, "GOPEN:"+path)
 	echoLive(t, streamOf(t, cli), []byte("gopen-unix"))
@@ -289,7 +290,7 @@ func TestPTYLinkSlaveBytes(t *testing.T) {
 
 func TestUnixDialNetEcho(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
-	path := filepath.Join(t.TempDir(), "net.sock")
+	path := testutil.UnixSocketPath(t, "net.sock")
 	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork")
 	c, err := net.DialTimeout("unix", path, 2*time.Second)
 	if err != nil {
@@ -301,7 +302,7 @@ func TestUnixDialNetEcho(t *testing.T) {
 
 func TestUNIXClientConnect(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
-	path := filepath.Join(t.TempDir(), "client.sock")
+	path := testutil.UnixSocketPath(t, "client.sock")
 	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork")
 	cli := openClient(t, ctx, g, "UNIX-CLIENT:"+path)
 	echoLive(t, streamOf(t, cli), []byte("unix-client"))
@@ -313,7 +314,7 @@ func TestUNIXListenEXECCat(t *testing.T) {
 	}
 	cat := lookPath(t, "cat")
 	ctx, g := testCtx(t), testGlobal()
-	path := filepath.Join(t.TempDir(), "exec.sock")
+	path := testutil.UnixSocketPath(t, "exec.sock")
 	startListenRight(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork", "EXEC:"+cat)
 	cli := openClient(t, ctx, g, "UNIX-CONNECT:"+path)
 	const payload = "unix-inetd"
@@ -365,7 +366,7 @@ func TestUNIXSendtoRecv(t *testing.T) {
 		t.Skip("UNIX datagram not enabled")
 	}
 	ctx, g := testCtx(t), testGlobal()
-	path := filepath.Join(t.TempDir(), "dgram.sock")
+	path := testutil.UnixSocketPath(t, "dgram.sock")
 	recv, err := xio.OpenChannel(ctx, mustParse(t, "UNIX-RECV:"+path+",unlink-early"), xio.ModeRead, cloneGlobal(g))
 	if err != nil {
 		t.Fatal(err)

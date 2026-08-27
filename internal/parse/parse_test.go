@@ -159,6 +159,20 @@ func TestLastOptionWins(t *testing.T) {
 		{name: "bindtodevice-if", spec: "TCP:127.0.0.1:9,if=lo", opt: "bindtodevice", want: "lo"},
 		{name: "bindtodevice-so", spec: "TCP:127.0.0.1:9,so-bindtodevice=eth0", opt: "bindtodevice", want: "eth0"},
 		{name: "bindtodevice-interface", spec: "TCP4:127.0.0.1:9,interface=lo", opt: "bindtodevice", want: "lo"},
+		{name: "o-rdonly-then-wronly", spec: "OPEN:file,o-rdonly,o-wronly", opt: "wronly", want: "1"},
+		{name: "creat-alias-last", spec: "OPEN:file,creat=0,o-creat=1", opt: "creat", want: "1"},
+		{name: "ndelay-then-nonblock-off", spec: "OPEN:file,ndelay,nonblock=0", opt: "nonblock", want: "0"},
+		{name: "lock-then-setlkw-off", spec: "OPEN:file,lock,setlkw=0", opt: "setlkw", want: "0"},
+		{name: "bytes-alias", spec: "TCP:127.0.0.1:9,bytes=4", opt: "readbytes", want: "4"},
+		{name: "crlf-then-crnl-off", spec: "TCP:127.0.0.1:9,crlf,crnl=0", opt: "crnl", want: "0"},
+		{name: "cd-alias", spec: "SYSTEM:pwd,cd=/tmp", opt: "chdir", want: "/tmp"},
+		{name: "new-then-unlink-early-off", spec: "OPEN:file,new,unlink-early=0", opt: "unlink-early", want: "0"},
+		{name: "close-alias", spec: "TCP:127.0.0.1:9,close", opt: "end-close", want: "1"},
+		{name: "maxchildren-alias", spec: "TCP-LISTEN:1,fork,maxchildren=3", opt: "max-children", want: "3"},
+		{name: "intervall-alias", spec: "TCP:127.0.0.1:9,retry=1,intervall=2", opt: "interval", want: "2"},
+		{name: "v6only-alias", spec: "TCP6-LISTEN:1,v6only=0", opt: "ipv6-v6only", want: "0"},
+		{name: "proxy-auth-alias", spec: "PROXY:127.0.0.1:h:80,proxy-auth=u:p", opt: "proxy-authorization", want: "u:p"},
+		{name: "resolv-then-resolve-off", spec: "PROXY:127.0.0.1:h:80,resolv,proxy-resolve=0", opt: "proxy-resolve", want: "0"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -268,6 +282,18 @@ func TestOptionAliases(t *testing.T) {
 	}
 	if CanonicalOptionName("join-group") != "ipv6-join-group" || CanonicalOptionName("ipv6-join-group") != "ipv6-join-group" {
 		t.Fatalf("join-group fold=%q ipv6-join-group fold=%q", CanonicalOptionName("join-group"), CanonicalOptionName("ipv6-join-group"))
+	}
+	if CanonicalOptionName("mcloop") != "ip-multicast-loop" || CanonicalOptionName("mcloop6") != "ipv6-multicast-loop" {
+		t.Fatalf("mcloop=%q mcloop6=%q", CanonicalOptionName("mcloop"), CanonicalOptionName("mcloop6"))
+	}
+	if CanonicalOptionName("source-membership") != "ip-add-source-membership" {
+		t.Fatalf("source-membership=%q", CanonicalOptionName("source-membership"))
+	}
+	if CanonicalOptionName("join-source-group") != "ipv6-join-source-group" || CanonicalOptionName("ipv6-join-source-group") != "ipv6-join-source-group" {
+		t.Fatalf("join-source-group must not fold onto ip-add-source-membership: %q", CanonicalOptionName("join-source-group"))
+	}
+	if CanonicalOptionName("recverr") != "ip-recverr" || CanonicalOptionName("ipv6-recverr") != "ipv6-recverr" {
+		t.Fatalf("recverr=%q ipv6-recverr=%q", CanonicalOptionName("recverr"), CanonicalOptionName("ipv6-recverr"))
 	}
 	if !s.HasOption("unix-bind-tempname") || !s.HasOption("bind-tempname") {
 		t.Fatal("bind-tempname alias")
@@ -467,6 +493,45 @@ func TestModePermUIDOwnerGIDFtruncateAliases(t *testing.T) {
 	}
 	if s.OptionValue("ftruncate", "") != "8" {
 		t.Fatalf("ftruncate last-wins got %q", s.OptionValue("ftruncate", ""))
+	}
+}
+
+func TestFileOpenFDExpansionAliases(t *testing.T) {
+	tests := []struct {
+		raw, canonical, wantValue string
+	}{
+		{raw: "OPEN:file,sync", canonical: "o-sync", wantValue: "1"},
+		{raw: "OPEN:file,o-rdwr", canonical: "rdwr", wantValue: "1"},
+		{raw: "OPEN:file,o_rdwr", canonical: "rdwr", wantValue: "1"},
+		{raw: "OPEN:file,o_dsync", canonical: "o-dsync", wantValue: "1"},
+		{raw: "OPEN:file,noctty", canonical: "o-noctty", wantValue: "1"},
+		{raw: "OPEN:file,o-async", canonical: "async", wantValue: "1"},
+		{raw: "OPEN:file,nofollow", canonical: "o-nofollow", wantValue: "1"},
+		{raw: "FD:3,flock-ex", canonical: "flock", wantValue: "1"},
+		{raw: "FD:3,flock-nb", canonical: "flock-nb", wantValue: "1"},
+		{raw: "FD:3,lseek64=4", canonical: "lseek", wantValue: "4"},
+		{raw: "FD:3,seek-cur=-1", canonical: "seek-cur", wantValue: "-1"},
+		{raw: "FD:3,perm-late=0600", canonical: "perm-late", wantValue: "0600"},
+		{raw: "FD:3,uid-l=1", canonical: "user-late", wantValue: "1"},
+		{raw: "FD:3,gid-l=3", canonical: "group-late", wantValue: "3"},
+	}
+	for _, tc := range tests {
+		s, err := ParseSpec(tc.raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !s.HasOption(tc.canonical) {
+			t.Fatalf("%s: missing %s", tc.raw, tc.canonical)
+		}
+		if got := s.OptionValue(tc.canonical, ""); got != tc.wantValue {
+			t.Fatalf("%s: %s=%q want %q", tc.raw, tc.canonical, got, tc.wantValue)
+		}
+	}
+	if CanonicalOptionName("seek") != "lseek" {
+		t.Fatalf("seek canonicalized to %q", CanonicalOptionName("seek"))
+	}
+	if CanonicalOptionName("lseek64-end") != "seek-end" {
+		t.Fatalf("lseek64-end canonicalized to %q", CanonicalOptionName("lseek64-end"))
 	}
 }
 

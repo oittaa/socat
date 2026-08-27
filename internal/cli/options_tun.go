@@ -13,7 +13,7 @@ func tunOptionGroups() []helpOptGroup {
 			{name: "tun-device", desc: "path to the TUN clone device"},
 			{name: "tun-name", desc: "TUN/TAP interface name"},
 			{name: "tun-type", desc: "tun or tap"},
-			{name: "iff-no-pi", desc: "no packet information header", aliases: []string{"no-pi"}},
+			{name: "iff-no-pi", desc: "no packet information header", aliases: []string{"no-pi", "tun-no-pi"}},
 			{name: "iff-up", desc: "bring the interface up", aliases: []string{"up"}},
 			{name: "iff-broadcast", desc: "IFF_BROADCAST"},
 			{name: "iff-debug", desc: "IFF_DEBUG"},
@@ -23,7 +23,7 @@ func tunOptionGroups() []helpOptGroup {
 			{name: "iff-noarp", desc: "IFF_NOARP", aliases: []string{"noarp"}},
 			{name: "iff-promisc", desc: "IFF_PROMISC", aliases: []string{"promisc"}},
 			{name: "iff-allmulti", desc: "IFF_ALLMULTI", aliases: []string{"allmulti"}},
-			{name: "iff-multicast", desc: "IFF_MULTICAST"},
+			{name: "iff-multicast", desc: "IFF_MULTICAST", aliases: []string{"multicast"}},
 			{name: "if-mtu", desc: "interface MTU", aliases: []string{"interface-mtu"}, validate: validateInt64(true)},
 		}},
 		{"Namespaces", []helpOpt{

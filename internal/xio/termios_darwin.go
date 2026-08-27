@@ -35,6 +35,8 @@ const (
 
 var platformTermiosFlags = []termiosFlag{
 	{"pendin", wordL, termiosBits(unix.PENDIN), 0},
+	{"echoprt", wordL, termiosECHOPRT, 0},
+	{"flusho", wordL, termiosBits(unix.FLUSHO), 0},
 	{"ofill", wordO, termiosOFILL, 0},
 	{"ofdel", wordO, termiosOFDEL, 0},
 	{"nl0", wordO, termiosNL0, termiosNLDLY},
@@ -54,3 +56,7 @@ var platformTermiosFlags = []termiosFlag{
 	{"ff0", wordO, termiosFF0, termiosFFDLY},
 	{"ff1", wordO, termiosBits(unix.FF1), termiosFFDLY},
 }
+
+var platformTermiosChars []termiosCC
+var platformTermiosCharAliases []string
+var platformTermiosValues []termiosValue

@@ -5,17 +5,17 @@ package netopen
 import (
 	"context"
 	"io"
-	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestUNIXListenConnectUseCase(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	path := filepath.Join(t.TempDir(), "use.sock")
+	path := testutil.UnixSocketPath(t, "use.sock")
 	startNetListenPIPE(t, ctx, useGlobal(), "UNIX-LISTEN:"+path+",unlink-early,fork")
 	cli, err := xio.OpenChannel(ctx, parseChannel(t, "UNIX-CONNECT:"+path), xio.ModeRDWR, useGlobal())
 	if err != nil {
@@ -28,7 +28,7 @@ func TestUNIXListenConnectUseCase(t *testing.T) {
 func TestUNIXClientUseCase(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	path := filepath.Join(t.TempDir(), "client.sock")
+	path := testutil.UnixSocketPath(t, "client.sock")
 	startNetListenPIPE(t, ctx, useGlobal(), "UNIX-LISTEN:"+path+",unlink-early,fork")
 	cli, err := xio.OpenChannel(ctx, parseChannel(t, "UNIX-CLIENT:"+path), xio.ModeRDWR, useGlobal())
 	if err != nil {
@@ -44,7 +44,7 @@ func TestUNIXSendtoRecvUseCase(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	path := filepath.Join(t.TempDir(), "dgram.sock")
+	path := testutil.UnixSocketPath(t, "dgram.sock")
 	recv, err := xio.OpenChannel(ctx, parseChannel(t, "UNIX-RECV:"+path+",unlink-early"), xio.ModeRead, useGlobal())
 	if err != nil {
 		t.Fatal(err)

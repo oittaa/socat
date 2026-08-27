@@ -13,6 +13,8 @@ var FeatureTERMIOS = false
 
 func TermiosHelpNames() []string { return nil }
 
+func ValidateTermiosOption(parse.Option) error { return nil }
+
 func ApplyTermios(_ int, s parse.Spec) error {
 	return RejectUnsupportedTermios(s)
 }

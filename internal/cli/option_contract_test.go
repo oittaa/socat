@@ -47,7 +47,8 @@ var dynamicallyReadOptions = map[string]string{
 	"up": "tunopen/tun_linux.go", "loopback": "tunopen/tun_linux.go",
 	"pointopoint": "tunopen/tun_linux.go", "running": "tunopen/tun_linux.go",
 	"noarp": "tunopen/tun_linux.go", "promisc": "tunopen/tun_linux.go",
-	"allmulti": "tunopen/tun_linux.go",
+	"allmulti": "tunopen/tun_linux.go", "multicast": "tunopen/tun_linux.go",
+	"no-pi": "tunopen/tun_linux.go", "tun-no-pi": "tunopen/tun_linux.go",
 	// Short spellings of the ancillary recv pairs (same dynamic consumer).
 	"timestamp": "xio/ancillary.go", "pktinfo": "xio/ancillary.go",
 	"recvttl": "xio/ancillary.go", "recvtos": "xio/ancillary.go",
@@ -74,8 +75,12 @@ var dynamicallyReadOptions = map[string]string{
 
 	"setlk": "fileopen/lock.go", "setlkw": "fileopen/lock.go",
 	"setlk-rd": "fileopen/lock.go", "setlkw-rd": "fileopen/lock.go",
+	"f-setlk": "fileopen/lock.go", "f-setlkw": "fileopen/lock.go",
+	"setlk-wr": "fileopen/lock.go", "setlkw-wr": "fileopen/lock.go",
+	"lock": "fileopen/lock.go", "lockw": "fileopen/lock.go",
 
 	// Canonical/alias families selected by last-option-wins helper loops.
+	"rdonly": "fileopen/file.go OpenFlags", "wronly": "fileopen/file.go OpenFlags", "rdwr": "fileopen/file.go OpenFlags",
 	"so-linger": "xio/options.go", "linger": "xio/options.go",
 	"o-noatime": "xio/options.go", "noatime": "xio/options.go",
 	"f-setpipe-sz": "xio/options.go", "pipesz": "xio/options.go",
@@ -88,14 +93,44 @@ var dynamicallyReadOptions = map[string]string{
 	"user": "xio/fdopts_lifecycle.go", "uid": "xio/fdopts_lifecycle.go", "owner": "xio/fdopts_lifecycle.go",
 	"group": "xio/fdopts_lifecycle.go", "gid": "xio/fdopts_lifecycle.go",
 	"ftruncate32": "xio/fdopts_lifecycle.go", "ftruncate64": "xio/fdopts_lifecycle.go",
+	"perm-late": "xio/fdopts_lifecycle.go",
+	"user-late": "xio/fdopts_lifecycle.go", "uid-l": "xio/fdopts_lifecycle.go",
+	"group-late": "xio/fdopts_lifecycle.go", "gid-l": "xio/fdopts_lifecycle.go",
+	"async": "xio/fdopts_lifecycle.go", "o-async": "xio/fdopts_lifecycle.go",
+	"flock": "xio/fdopts_lifecycle.go", "flock-ex": "xio/fdopts_lifecycle.go",
+	"flock-nb": "xio/fdopts_lifecycle.go", "flock-ex-nb": "xio/fdopts_lifecycle.go",
+	"flock-sh": "xio/fdopts_lifecycle.go", "flock-sh-nb": "xio/fdopts_lifecycle.go",
+	"lseek": "xio/fdopts_lifecycle.go", "lseek64": "xio/fdopts_lifecycle.go", "lseek64-set": "xio/fdopts_lifecycle.go",
+	"seek": "xio/fdopts_lifecycle.go", "seek-set": "xio/fdopts_lifecycle.go",
+	"lseek32": "xio/fdopts_lifecycle.go", "lseek32-set": "xio/fdopts_lifecycle.go",
+	"seek-cur": "xio/fdopts_lifecycle.go", "lseek64-cur": "xio/fdopts_lifecycle.go", "lseek32-cur": "xio/fdopts_lifecycle.go",
+	"seek-end": "xio/fdopts_lifecycle.go", "lseek64-end": "xio/fdopts_lifecycle.go", "lseek32-end": "xio/fdopts_lifecycle.go",
+	"o-direct": "fileopen/openflags.go", "direct": "fileopen/openflags.go", "o_direct": "fileopen/openflags.go",
+	"o-sync": "fileopen/openflags.go", "sync": "fileopen/openflags.go", "o_sync": "fileopen/openflags.go",
+	"o-dsync": "fileopen/openflags.go", "dsync": "fileopen/openflags.go", "o_dsync": "fileopen/openflags.go",
+	"o-rsync": "fileopen/openflags.go", "rsync": "fileopen/openflags.go", "o_rsync": "fileopen/openflags.go",
+	"o-noctty": "fileopen/openflags.go", "noctty": "fileopen/openflags.go", "o_noctty": "fileopen/openflags.go",
+	"o-nofollow": "fileopen/openflags.go", "nofollow": "fileopen/openflags.go", "o_nofollow": "fileopen/openflags.go",
+	"o-directory": "fileopen/openflags.go", "directory": "fileopen/openflags.go", "o_directory": "fileopen/openflags.go",
+	"o-largefile": "fileopen/openflags.go", "largefile": "fileopen/openflags.go", "o_largefile": "fileopen/openflags.go",
 
 	// PH_PREOPEN NAMED walk in ApplyNamedPreopen (command-line order).
 	"perm-early": "xio/named_preopen.go", "user-early": "xio/named_preopen.go",
 	"group-early": "xio/named_preopen.go", "unlink": "xio/named_preopen.go",
 
 	// PH_PASTSOCKET membership walk in option order (not last-wins).
-	"ip-add-membership": "xio/mcast_opt.go membershipJoins",
-	"ipv6-join-group":   "xio/mcast_opt.go membershipJoins",
+	"ip-add-membership":        "xio/mcast_opt.go membershipJoins",
+	"ipv6-join-group":          "xio/mcast_opt.go membershipJoins",
+	"ip-multicast-if":          "xio/mcast_opt.go applyMulticastNamedOption",
+	"ip-multicast-loop":        "xio/mcast_opt.go applyMulticastNamedOption",
+	"ip-multicast-ttl":         "xio/mcast_opt.go applyMulticastNamedOption",
+	"ipv6-multicast-loop":      "xio/mcast_opt.go applyMulticastNamedOption",
+	"ip-add-source-membership": "xio/mcast_opt.go applySourceMembershipOption",
+	"ipv6-join-source-group":   "xio/mcast_opt.go applySourceMembershipOption",
+	"ip-freebind":              "xio/mcast_opt.go applyFreebindOption",
+	"ip-transparent":           "xio/mcast_opt.go applyTransparentOption",
+	"ip-mtu-discover":          "xio/mcast_opt.go applyMTUDiscoveryOption",
+	"ipv6-mtu-discover":        "xio/mcast_opt.go applyMTUDiscoveryOption",
 }
 
 // compatNoOptions are advertised deliberately as classic-compat spellings
@@ -106,6 +141,10 @@ var dynamicallyReadOptions = map[string]string{
 var recognizedUnsupportedOptions = map[string]string{
 	"openssl-method": "stream TLS only; rejected with a precise error",
 	"opensslmethod":  "stream TLS only; rejected with a precise error",
+	"ip-recverr":     "MSG_ERRQUEUE is not implemented on the ReadMsg path",
+	"recverr":        "MSG_ERRQUEUE is not implemented on the ReadMsg path",
+	"iprecverr":      "MSG_ERRQUEUE is not implemented on the ReadMsg path",
+	"ipv6-recverr":   "MSG_ERRQUEUE is not implemented on the ReadMsg path",
 }
 
 var compatNoOptions = map[string]string{
@@ -194,7 +233,7 @@ func termiosFamilyNames(t *testing.T) map[string]string {
 	}
 	// These common help spellings remain visible on platforms where termios is
 	// unavailable; the address opener rejects the unsupported PTY at runtime.
-	for _, name := range []string{"cfmakeraw", "raw", "rawer", "sane", "echo", "opost", "winsz", "waitslave"} {
+	for _, name := range []string{"cfmakeraw", "raw", "rawer", "sane", "echo", "echoe", "echoke", "echoctl", "hupcl", "ixoff", "opost", "ispeed", "ospeed", "winsz", "waitslave"} {
 		out[name] = "common termios help"
 	}
 	return out

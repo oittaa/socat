@@ -396,6 +396,9 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 	if err := RejectUnsupportedTermios(s); err != nil {
 		return nil, err
 	}
+	if err := RejectUnsupportedRecvErr(s); err != nil {
+		return nil, err
+	}
 	var o *Opened
 	err = WithNetNS(s, g, func() error {
 		var e error

@@ -5,8 +5,10 @@ package xio
 import (
 	"runtime"
 	"slices"
+	"strconv"
 	"testing"
 
+	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
 
@@ -20,6 +22,8 @@ func TestApplyTermiosLegacyFlags(t *testing.T) {
 	}
 	cases := []flagCase{
 		{"PTY,sane,pendin", func(t *unix.Termios) termiosBits { return t.Lflag }, termiosBits(unix.PENDIN), termiosBits(unix.PENDIN)},
+		{"PTY,sane,echoprt", func(t *unix.Termios) termiosBits { return t.Lflag }, termiosBits(unix.ECHOPRT), termiosBits(unix.ECHOPRT)},
+		{"PTY,sane,flusho", func(t *unix.Termios) termiosBits { return t.Lflag }, termiosBits(unix.FLUSHO), termiosBits(unix.FLUSHO)},
 		{"PTY,sane,ofill", func(t *unix.Termios) termiosBits { return t.Oflag }, termiosBits(unix.OFILL), termiosBits(unix.OFILL)},
 		{"PTY,sane,ofdel", func(t *unix.Termios) termiosBits { return t.Oflag }, termiosBits(unix.OFDEL), termiosBits(unix.OFDEL)},
 		{"PTY,sane,crtscts", func(t *unix.Termios) termiosBits { return t.Cflag }, termiosBits(unix.CRTSCTS), termiosBits(unix.CRTSCTS)},
@@ -47,6 +51,10 @@ func TestApplyTermiosLegacyFlags(t *testing.T) {
 			flagCase{"PTY,sane,iuclc=0", func(t *unix.Termios) termiosBits { return t.Iflag }, termiosIUCLC, 0},
 			flagCase{"PTY,sane,olcuc", func(t *unix.Termios) termiosBits { return t.Oflag }, termiosOLCUC, termiosOLCUC},
 			flagCase{"PTY,sane,xcase", func(t *unix.Termios) termiosBits { return t.Lflag }, termiosXCASE, termiosXCASE},
+			flagCase{"PTY,sane,nldly", func(t *unix.Termios) termiosBits { return t.Oflag }, termiosNLDLY, termiosNLDLY},
+			flagCase{"PTY,sane,bsdly", func(t *unix.Termios) termiosBits { return t.Oflag }, termiosBSDLY, termiosBSDLY},
+			flagCase{"PTY,sane,vtdly", func(t *unix.Termios) termiosBits { return t.Oflag }, termiosVTDLY, termiosVTDLY},
+			flagCase{"PTY,sane,ffdly", func(t *unix.Termios) termiosBits { return t.Oflag }, termiosFFDLY, termiosFFDLY},
 		)
 	}
 	for _, tc := range cases {
@@ -77,6 +85,7 @@ func TestApplyTermiosDelayPatterns(t *testing.T) {
 		{"PTY,sane,tab2", termiosTABDLY, termiosBits(unix.TAB2), true},
 		{"PTY,sane,tab3", termiosTABDLY, termiosBits(unix.TAB3), true},
 		{"PTY,sane,tab1,tab3", termiosTABDLY, termiosBits(unix.TAB3), true},
+		{"PTY,sane,xtabs", termiosTABDLY, termiosBits(unix.XTABS), true},
 		{"PTY,sane,bs1", termiosBSDLY, termiosBits(unix.BS1), true},
 		{"PTY,sane,bs1,bs0", termiosBSDLY, termiosBS0, true},
 		{"PTY,sane,vt1", termiosVTDLY, termiosBits(unix.VT1), true},
@@ -104,7 +113,9 @@ func TestTermiosHelpIncludesCompletion(t *testing.T) {
 	want := []string{
 		"vintr", "intr", "pendin", "ofill", "ofdel",
 		"nl0", "nl1", "cr0", "cr1", "cr2", "cr3", "tab0", "tab3", "bs0", "bs1",
-		"vt0", "vt1", "ff0", "ff1", "sane", "raw",
+		"vt0", "vt1", "ff0", "ff1", "sane", "raw", "b7200",
+		"nldly", "crdly", "tabdly", "bsdly", "vtdly", "ffdly", "csize", "xtabs",
+		"echoprt", "prterase", "flusho", "vswtc", "swtc", "swtch",
 	}
 	if runtime.GOOS == "linux" {
 		want = append(want, "iuclc", "olcuc", "xcase")
@@ -117,8 +128,8 @@ func TestTermiosHelpIncludesCompletion(t *testing.T) {
 	has7200 := slices.Contains(names, "b7200")
 	switch runtime.GOOS {
 	case "linux":
-		if has7200 {
-			t.Fatal("b7200 must not be advertised on Linux without unix.B7200")
+		if !has7200 {
+			t.Fatal("b7200 must be advertised on Linux (classic glibc B7200)")
 		}
 	case "darwin":
 		if !has7200 {
@@ -127,5 +138,59 @@ func TestTermiosHelpIncludesCompletion(t *testing.T) {
 	}
 	if slices.Contains(names, "extproc") {
 		t.Fatal("extproc is not in classic Linux -hhh; do not advertise")
+	}
+}
+
+func TestApplyTermiosLinuxValueOptions(t *testing.T) {
+	fd := openPTYSlave(t)
+	tio := applyTermiosSpec(t, fd, "PTY,sane,crdly=3,tabdly=2,csize=3")
+	if got := tio.Oflag & termiosCRDLY; got != termiosBits(unix.CR3) {
+		t.Fatalf("crdly=3 got %#x want %#x", got, unix.CR3)
+	}
+	if got := tio.Oflag & termiosTABDLY; got != termiosBits(unix.TAB2) {
+		t.Fatalf("tabdly=2 got %#x want %#x", got, unix.TAB2)
+	}
+	if got := tio.Cflag & termiosBits(unix.CSIZE); got != termiosBits(unix.CS8) {
+		t.Fatalf("csize=3 got %#x want %#x", got, unix.CS8)
+	}
+
+	for _, spec := range []string{"PTY,crdly=4", "PTY,tabdly=4", "PTY,csize=4"} {
+		s, err := parse.ParseSpec(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ApplyTermios(fd, s); err == nil {
+			t.Errorf("%s succeeded", spec)
+		}
+	}
+}
+
+func TestApplyTermiosLinuxVSWTC(t *testing.T) {
+	fd := openPTYSlave(t)
+	tio := applyTermiosSpec(t, fd, "PTY,swtch=0x42")
+	if tio.Cc[unix.VSWTC] != 0x42 {
+		t.Fatalf("VSWTC=%#x want 0x42", tio.Cc[unix.VSWTC])
+	}
+}
+
+func TestApplyTermiosLinuxB7200Effect(t *testing.T) {
+	fd := openPTYSlave(t)
+	tio := applyTermiosSpec(t, fd, "PTY,b7200")
+	if tio.Ispeed != 7200 || tio.Ospeed != 7200 {
+		t.Fatalf("b7200 speed=%d/%d", tio.Ispeed, tio.Ospeed)
+	}
+	if got := tio.Cflag & termiosBits(unix.CBAUD); got != termiosBits(unix.BOTHER) {
+		t.Fatalf("b7200 CBAUD=%#x want BOTHER %#x", got, unix.BOTHER)
+	}
+}
+
+func TestApplyTermiosSetFlagsMatchesClassicULongTruncation(t *testing.T) {
+	if strconv.IntSize != 64 {
+		t.Skip("classic unsigned long is not wider than Linux tcflag_t")
+	}
+	fd := openPTYSlave(t)
+	tio := applyTermiosSpec(t, fd, "PTY,termios-setflags=0:0x100000001")
+	if tio.Iflag != 1 {
+		t.Fatalf("Iflag=%#x want low tcflag_t word 1", tio.Iflag)
 	}
 }

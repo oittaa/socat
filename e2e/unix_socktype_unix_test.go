@@ -8,14 +8,14 @@ import (
 	"errors"
 	"io"
 	"net"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/oittaa/socat/internal/testutil"
 )
 
 func TestUnixSocketTypeMismatchExitCode(t *testing.T) {
@@ -67,16 +67,7 @@ func TestUnixSocketTypeMismatchExitCode(t *testing.T) {
 
 func e2eUnixSocketPath(t *testing.T, name string) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("/tmp", "socat-e2e-unix-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.RemoveAll(dir); err != nil {
-			t.Errorf("remove UNIX socket test directory: %v", err)
-		}
-	})
-	return filepath.Join(dir, name)
+	return testutil.UnixSocketPath(t, name)
 }
 
 func e2eListenUnixStream(t *testing.T, path string) io.Closer {
