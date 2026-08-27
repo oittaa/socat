@@ -52,8 +52,8 @@ func TestParseDalanWidthsAndSigns(t *testing.T) {
 	if got := must("S65535"); string(got) != string(shortBytes(-1)) {
 		t.Fatalf("S65535=%x want %x", got, shortBytes(-1))
 	}
-	if got := must("b-1"); len(got) != 1 || got[0] != 0xff {
-		t.Fatalf("b-1=%x want ff", got)
+	if got := must("b-1"); len(got) != 2 || got[0] != 0xff || got[1] != 0 {
+		t.Fatalf("b-1=%x want ff00 (classic signed-byte fallthrough)", got)
 	}
 	if got := must("B255"); len(got) != 1 || got[0] != 0xff {
 		t.Fatalf("B255=%x want ff", got)
@@ -102,6 +102,13 @@ func TestParseDalanConcatenationAndDefaultType(t *testing.T) {
 	}
 	if native.Uint16(data[:2]) != 1 || native.Uint16(data[2:]) != 2 {
 		t.Fatalf("short default continuation payload=%x", data)
+	}
+
+	// Classic's signed-byte case falls through to unsigned-byte. The second
+	// conversion consumes a following untyped number when one is available.
+	data, single, err = ParseDalan("b1 2", 'i')
+	if err != nil || single || len(data) != 2 || data[0] != 1 || data[1] != 2 {
+		t.Fatalf("b1 2: data=%x single=%v err=%v", data, single, err)
 	}
 }
 

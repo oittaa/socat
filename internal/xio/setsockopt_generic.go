@@ -70,21 +70,64 @@ func ApplyGenericSetsockopt(fd int, s parse.Spec, phase SockoptPhase) error {
 	return nil
 }
 
+// ApplyGenericSetsockoptAll applies every generic setsockopt action in
+// original command-line order, regardless of its normal lifecycle phase.
+// Classic SOCKETPAIR uses applyopts(PH_ALL) on each descriptor, so it needs
+// this behavior rather than three phase-grouped passes.
+func ApplyGenericSetsockoptAll(fd int, s parse.Spec) error {
+	for _, o := range s.Options {
+		_, kind, ok := genericSetsockoptDescriptor(o.Name)
+		if !ok {
+			continue
+		}
+		if !o.Has || strings.TrimSpace(o.Value) == "" {
+			return fmt.Errorf("%s requires level:optname:value", o.Name)
+		}
+		if err := applyGenericSetsockoptValue(fd, o.Name, o.Value, kind); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func genericSetsockoptKind(name string, phase SockoptPhase) (sockoptValueKind, bool) {
+	want, kind, ok := genericSetsockoptDescriptor(name)
+	return kind, ok && want == phase
+}
+
+func genericSetsockoptDescriptor(name string) (SockoptPhase, sockoptValueKind, bool) {
 	switch name {
 	case "setsockopt-listen":
-		return sockoptKindBin, phase == SockoptPhasePrebind
+		return SockoptPhasePrebind, sockoptKindBin, true
 	case "setsockopt-socket":
-		return sockoptKindBin, phase == SockoptPhasePastSocket
+		return SockoptPhasePastSocket, sockoptKindBin, true
 	case "setsockopt", "setsockopt-bin", "setsockopt-connected":
-		return sockoptKindBin, phase == SockoptPhaseConnected
+		return SockoptPhaseConnected, sockoptKindBin, true
 	case "setsockopt-int":
-		return sockoptKindInt, phase == SockoptPhaseConnected
+		return SockoptPhaseConnected, sockoptKindInt, true
 	case "setsockopt-string":
-		return sockoptKindString, phase == SockoptPhaseConnected
+		return SockoptPhaseConnected, sockoptKindString, true
 	default:
-		return 0, false
+		return 0, 0, false
 	}
+}
+
+// RejectGenericSetsockoptPhases fails an address/phase combination before it
+// can be accepted and silently ignored. Classic FD only processes phases from
+// PH_INIT through PH_FD, which includes PASTSOCKET but not PREBIND/CONNECTED.
+func RejectGenericSetsockoptPhases(s parse.Spec, address string, phases ...SockoptPhase) error {
+	for _, o := range s.Options {
+		phase, _, ok := genericSetsockoptDescriptor(o.Name)
+		if !ok {
+			continue
+		}
+		for _, rejected := range phases {
+			if phase == rejected {
+				return fmt.Errorf("%s: option %q is not supported at this lifecycle phase", address, o.Name)
+			}
+		}
+	}
+	return nil
 }
 
 // ApplySetsockoptFD applies a classic INT:INT:BIN setsockopt spec

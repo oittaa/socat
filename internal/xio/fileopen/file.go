@@ -425,17 +425,16 @@ func openSocketpair(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) 
 		return nil, err
 	}
 	for _, conn := range []*os.File{c1, c2} {
-		if err := xio.ApplySocketOptions(int(conn.Fd()), s); err != nil {
+		if err := xio.ApplySocketOptionsWithoutGeneric(int(conn.Fd()), s); err != nil {
 			logx.CloseQuiet(c1)
 			logx.CloseQuiet(c2)
 			return nil, fmt.Errorf("socket options: %w", err)
 		}
 		// Classic xiosocketpair applyopts(PH_ALL) on both fds (tag-1.8.1.3
 		// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-		// af5388c898c7bb60997935aee93c223deba60c4a is the same), including
-		// PH_CONNECTED generic setsockopt. Apply once per fd, then mark so
-		// WrapCommon does not walk FDStream and apply again.
-		if err := xio.ApplyGenericSetsockopt(int(conn.Fd()), s, xio.SockoptPhaseConnected); err != nil {
+		// af5388c898c7bb60997935aee93c223deba60c4a is the same). Thus every
+		// generic phase is applied once per fd in original option order.
+		if err := xio.ApplyGenericSetsockoptAll(int(conn.Fd()), s); err != nil {
 			logx.CloseQuiet(c1)
 			logx.CloseQuiet(c2)
 			return nil, fmt.Errorf("setsockopt: %w", err)

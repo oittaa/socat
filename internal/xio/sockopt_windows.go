@@ -85,9 +85,10 @@ func ApplySocketTimeos(fd int, s parse.Spec) error {
 	return nil
 }
 
-// ApplySocketOptions applies the SOL_SOCKET options shared by raw descriptors
-// and Go net sockets.
-func ApplySocketOptions(fd int, s parse.Spec) error {
+// ApplySocketOptionsWithoutGeneric applies the named SOL_SOCKET options but
+// leaves the generic setsockopt family untouched. PH_ALL constructors such as
+// SOCKETPAIR use it before applying all generic actions in command-line order.
+func ApplySocketOptionsWithoutGeneric(fd int, s parse.Spec) error {
 	if err := ApplySocketTimeos(fd, s); err != nil {
 		return err
 	}
@@ -107,7 +108,16 @@ func ApplySocketOptions(fd int, s parse.Spec) error {
 			return fmt.Errorf("so-linger: %w", err)
 		}
 	}
-	return applyPastSocketBuffersAndDevice(fd, s)
+	return applyPastSocketBuffersAndDeviceWithoutGeneric(fd, s)
+}
+
+// ApplySocketOptions applies the SOL_SOCKET options shared by raw descriptors
+// and Go net sockets, including generic PH_PASTSOCKET actions.
+func ApplySocketOptions(fd int, s parse.Spec) error {
+	if err := ApplySocketOptionsWithoutGeneric(fd, s); err != nil {
+		return err
+	}
+	return ApplyGenericSetsockopt(fd, s, SockoptPhasePastSocket)
 }
 
 func windowsTimeoutMillis(v string) (uint32, error) {

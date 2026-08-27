@@ -467,9 +467,9 @@ func WrapCommon(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 }
 
 // WrapCommonAfterConnected is WrapCommon for streams whose opener already
-// applied PH_CONNECTED (ApplyTCPConnOpts, ApplyUDPConnOpts, unix dgram,
-// raw-IP, SOCKET, INTERFACE, FD, SOCKETPAIR). A skip flag is used instead of
-// wrapping the stream so type assertions on the concrete opener type stay valid.
+// handled PH_CONNECTED: it was applied for socket constructors, or explicitly
+// rejected for FD. A skip flag is used instead of wrapping the stream so type
+// assertions on the concrete opener type stay valid.
 func WrapCommonAfterConnected(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	return wrapCommon(s, stream, true, true)
 }

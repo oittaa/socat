@@ -273,12 +273,21 @@ func dalanItem(c byte, line string) (out []byte, rest string, rc int) {
 	case 'S':
 		return dalanNumber(line, sizeCShort, false)
 	case 'b':
-		// Documented as int8_t. Classic dalan.c (tag-1.8.1.3
-		// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-		// af5388c898c7bb60997935aee93c223deba60c4a) is missing a break
-		// after case 'b', so it also writes a uint8_t. Do not reproduce
-		// that extra byte.
-		return dalanNumber(line, 1, true)
+		// Classic dalan.c (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+		// official master af5388c898c7bb60997935aee93c223deba60c4a is
+		// the same) intentionally remains our byte-for-byte baseline. Its
+		// missing break falls through to B and writes a second byte. When no
+		// second number starts at the remainder, strtoul writes zero without
+		// advancing the input.
+		first, rest, rc := dalanNumber(line, 1, true)
+		if rc != dalanOK {
+			return nil, line, rc
+		}
+		second, next, rc := dalanNumber(rest, 1, false)
+		if rc != dalanOK {
+			second, next = []byte{0}, rest
+		}
+		return append(first, second...), next, dalanOK
 	case 'B':
 		return dalanNumber(line, 1, false)
 	default:
