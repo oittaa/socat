@@ -13,6 +13,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/oittaa/socat/internal/testutil"
 )
 
 // TestPIPERemove mimics classic test.sh PIPE_REMOVE (tag-1.8.1.3 test.sh):
@@ -50,10 +52,9 @@ func TestPIPERemove(t *testing.T) {
 
 func TestUNIXSendtoBindRemove(t *testing.T) {
 	bin := socatBin(t)
-	dir := t.TempDir()
-	remote := filepath.Join(dir, "remote")
-	local := filepath.Join(dir, "local")
-	hold := filepath.Join(dir, "hold")
+	remote := testutil.UnixSocketPath(t, "remote")
+	local := testutil.UnixSocketPath(t, "local")
+	hold := filepath.Join(filepath.Dir(local), "hold")
 	// Open SENDTO first so bind= creates local, then block in PIPE open(O_RDONLY)
 	// the same way PIPE_REMOVE stays alive. FILE:/dev/null as the peer starts
 	// the transfer loop; Darwin poll on an unconnected unix datagram then
@@ -82,10 +83,9 @@ func TestUNIXSendtoBindRemove(t *testing.T) {
 
 func TestUNIXConnectBindRemove(t *testing.T) {
 	bin := socatBin(t)
-	dir := t.TempDir()
-	listen := filepath.Join(dir, "listen")
-	local := filepath.Join(dir, "local")
-	hold := filepath.Join(dir, "hold")
+	listen := testutil.UnixSocketPath(t, "listen")
+	local := testutil.UnixSocketPath(t, "local")
+	hold := filepath.Join(filepath.Dir(local), "hold")
 
 	srv := exec.Command(bin, "-u", "UNIX-LISTEN:"+listen+",unlink-early", "FILE:"+os.DevNull)
 	srvStderr := attachStderrFile(t, srv)
