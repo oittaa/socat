@@ -50,6 +50,36 @@ func applyOrderedPastSocketPhaseOptions(fd int, s parse.Spec, network string) er
 			}
 			continue
 		}
+		if matched, err := applySourceMembershipOption(fd, option); matched {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		if matched, err := applyMulticastNamedOption(fd, option); matched {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		if matched, err := applyFreebindOption(fd, option); matched {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		if matched, err := applyMTUDiscoveryOption(fd, option); matched {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		if matched, err := applyRecvErrOption(fd, option); matched {
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		e, ok := lookupIPAncillary(specOptionName(option))
 		if !ok {
 			continue

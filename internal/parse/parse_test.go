@@ -283,6 +283,18 @@ func TestOptionAliases(t *testing.T) {
 	if CanonicalOptionName("join-group") != "ipv6-join-group" || CanonicalOptionName("ipv6-join-group") != "ipv6-join-group" {
 		t.Fatalf("join-group fold=%q ipv6-join-group fold=%q", CanonicalOptionName("join-group"), CanonicalOptionName("ipv6-join-group"))
 	}
+	if CanonicalOptionName("mcloop") != "ip-multicast-loop" || CanonicalOptionName("mcloop6") != "ipv6-multicast-loop" {
+		t.Fatalf("mcloop=%q mcloop6=%q", CanonicalOptionName("mcloop"), CanonicalOptionName("mcloop6"))
+	}
+	if CanonicalOptionName("source-membership") != "ip-add-source-membership" {
+		t.Fatalf("source-membership=%q", CanonicalOptionName("source-membership"))
+	}
+	if CanonicalOptionName("join-source-group") != "ipv6-join-source-group" || CanonicalOptionName("ipv6-join-source-group") != "ipv6-join-source-group" {
+		t.Fatalf("join-source-group must not fold onto ip-add-source-membership: %q", CanonicalOptionName("join-source-group"))
+	}
+	if CanonicalOptionName("recverr") != "ip-recverr" || CanonicalOptionName("ipv6-recverr") != "ipv6-recverr" {
+		t.Fatalf("recverr=%q ipv6-recverr=%q", CanonicalOptionName("recverr"), CanonicalOptionName("ipv6-recverr"))
+	}
 	if !s.HasOption("unix-bind-tempname") || !s.HasOption("bind-tempname") {
 		t.Fatal("bind-tempname alias")
 	}

@@ -21,6 +21,16 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"so-protocol", "so-prototype", "prototype", "protocol-family", "type",
 		"ip-add-membership", "add-membership", "ip-membership", "membership",
 		"ipv6-join-group", "ipv6-add-membership", "join-group",
+		"ip-multicast-if", "multicast-if",
+		"ip-multicast-loop", "multicast-loop", "mcloop", "ipmulticastloop", "multicastloop",
+		"ip-multicast-ttl", "multicast-ttl", "ipmulticastttl", "multicastttl",
+		"ipv6-multicast-loop", "ipv6-mcloop", "mcloop6",
+		"ip-add-source-membership", "add-source-membership", "source-membership",
+		"ipv6-join-source-group", "ipv6-add-source-membership", "join-source-group",
+		"ip-freebind", "freebind", "ipfreebind",
+		"ip-transparent", "transparent",
+		"ip-mtu-discover", "mtudiscover", "ipmtudiscover",
+		"ipv6-mtu-discover", "mtudiscover6",
 		"setsockopt", "setsockopt-int", "setsockopt-bin", "setsockopt-string",
 		"setsockopt-listen", "setsockopt-socket", "setsockopt-connected",
 		"sockopt", "sockopt-int", "sockopt-bin", "sockopt-string",
@@ -33,6 +43,11 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)
+		}
+	}
+	for _, name := range []string{"ip-recverr", "recverr", "iprecverr", "ipv6-recverr", "ipv6-multicast-hops"} {
+		if strings.Contains(help, "    "+name+" ") {
+			t.Errorf("rejected or unknown option %q must not be advertised in -hhh", name)
 		}
 	}
 	for _, addr := range []string{

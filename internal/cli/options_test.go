@@ -134,6 +134,46 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "ipv6-add-membership-alias-on-udp6", spec: "UDP6:localhost:1,ipv6-add-membership=[ff02::2]:lo"},
 		{name: "join-group-alias-on-udp4", spec: "UDP4:localhost:1,join-group=[ff02::2]:lo", wantErr: "not supported"},
 		{name: "ipv6-add-membership-alias-on-tcp4", spec: "TCP4:localhost:1,ipv6-add-membership=[ff02::2]:lo", wantErr: "not supported"},
+		{name: "ip-multicast-ttl", spec: "UDP4:localhost:1,ip-multicast-ttl=9"},
+		{name: "multicast-ttl-alias", spec: "UDP4:localhost:1,multicast-ttl=4"},
+		{name: "ip-multicast-loop-flag", spec: "UDP4:localhost:1,ip-multicast-loop"},
+		{name: "mcloop-alias", spec: "UDP4:localhost:1,mcloop=0"},
+		{name: "ip-multicast-if", spec: "UDP4:localhost:1,ip-multicast-if=127.0.0.1"},
+		{name: "ipv6-multicast-loop-on-udp6", spec: "UDP6:localhost:1,ipv6-multicast-loop=0"},
+		{name: "mcloop6-on-tcp6", spec: "TCP6:localhost:1,mcloop6"},
+		{name: "ipv6-multicast-loop-on-udp4", spec: "UDP4:localhost:1,ipv6-multicast-loop", wantErr: "not supported"},
+		{name: "mcloop6-on-tcp4", spec: "TCP4:localhost:1,mcloop6=0", wantErr: "not supported"},
+		{name: "ip-add-source-membership", spec: "UDP4:localhost:1,ip-add-source-membership=232.1.1.1:127.0.0.1:127.0.0.1"},
+		{name: "source-membership-alias", spec: "UDP4-RECV:1,source-membership=232.1.1.1:127.0.0.1:127.0.0.1"},
+		{name: "ipv6-join-source-group", spec: "UDP6:localhost:1,ipv6-join-source-group=[ff3e::1]:lo:[::1]"},
+		{name: "join-source-group-on-udp4", spec: "UDP4:localhost:1,join-source-group=[ff3e::1]:lo:[::1]", wantErr: "not supported"},
+		{name: "ipv6-join-source-group-on-tcp4", spec: "TCP4:localhost:1,ipv6-join-source-group=[ff3e::1]:lo:[::1]", wantErr: "not supported"},
+		{name: "ip-freebind", spec: "TCP4-LISTEN:1,ip-freebind"},
+		{name: "freebind-alias", spec: "UDP:localhost:1,freebind=1"},
+		{name: "freebind-signed-type-int", spec: "UDP:localhost:1,ip-freebind=-1"},
+		{name: "freebind-invalid-word", spec: "UDP:localhost:1,ip-freebind=true", wantErr: "invalid"},
+		{name: "ip-transparent", spec: "TCP4-LISTEN:1,ip-transparent"},
+		{name: "transparent-alias", spec: "TCP:localhost:1,transparent=0"},
+		{name: "ip-transparent-bool-range", spec: "TCP:localhost:1,ip-transparent=2", wantErr: "invalid"},
+		{name: "ip-transparent-bool-word", spec: "TCP:localhost:1,ip-transparent=true", wantErr: "invalid"},
+		{name: "ip-mtu-discover", spec: "UDP4:localhost:1,ip-mtu-discover=2"},
+		{name: "mtudiscover-alias", spec: "UDP4:localhost:1,mtudiscover=1"},
+		{name: "ipmtudiscover-alias", spec: "TCP4:localhost:1,ipmtudiscover=0"},
+		{name: "ipv6-mtu-discover", spec: "UDP6:localhost:1,ipv6-mtu-discover=2"},
+		{name: "mtudiscover6-alias", spec: "TCP6:localhost:1,mtudiscover6=1"},
+		{name: "mtu-discover-requires-value", spec: "UDP4:localhost:1,ip-mtu-discover", wantErr: "requires a value"},
+		{name: "mtu-discover-range", spec: "UDP4:localhost:1,ip-mtu-discover=3", wantErr: "invalid"},
+		{name: "mtu-discover6-range", spec: "UDP6:localhost:1,ipv6-mtu-discover=-1", wantErr: "invalid"},
+		{name: "ip-recverr-rejected", spec: "UDP4:localhost:1,ip-recverr", wantErr: "not supported"},
+		{name: "recverr-alias-rejected", spec: "UDP:localhost:1,recverr=1", wantErr: "not supported"},
+		{name: "ipv6-recverr-rejected", spec: "UDP6:localhost:1,ipv6-recverr", wantErr: "not supported"},
+		{name: "ip-recverr-on-tcp-rejected", spec: "TCP:localhost:1,ip-recverr", wantErr: "not supported"},
+		{name: "ip-multicast-ttl-too-large", spec: "UDP4:localhost:1,ip-multicast-ttl=256", wantErr: "invalid"},
+		{name: "ip-multicast-loop-bool-range", spec: "UDP4:localhost:1,ip-multicast-loop=2", wantErr: "invalid"},
+		{name: "ip-multicast-loop-bool-word", spec: "UDP4:localhost:1,ip-multicast-loop=true", wantErr: "invalid"},
+		{name: "ipv6-multicast-loop-bool-range", spec: "UDP6:localhost:1,ipv6-multicast-loop=2", wantErr: "invalid"},
+		{name: "ipv6-multicast-loop-bool-word", spec: "UDP6:localhost:1,ipv6-multicast-loop=true", wantErr: "invalid"},
+		{name: "ip-add-source-membership-requires-value", spec: "UDP4:localhost:1,ip-add-source-membership", wantErr: "requires a value"},
 		{name: "classic-linger-alias", spec: "TCP:localhost:1,linger=0"},
 		{name: "sndbuf", spec: "TCP:localhost:1,sndbuf=4096"},
 		{name: "rcvbuf-alias", spec: "TCP:localhost:1,so-rcvbuf=8192"},
@@ -564,6 +604,8 @@ func TestAdvertisedAliasClassicGroupMismatches(t *testing.T) {
 		switch spelling {
 		case "ipv6-join-group", "ip-add-membership":
 			return "[ff02::2]:lo"
+		case "ipv6-join-source-group", "ip-add-source-membership":
+			return "[ff3e::1]:lo:[::1]"
 		default:
 			return "1"
 		}
@@ -596,6 +638,26 @@ func TestAdvertisedAliasClassicGroupMismatches(t *testing.T) {
 		}
 		if rejected == 0 {
 			t.Errorf("%s -> %s: no sample address is in canonical groups but not alias groups", m.alias, m.canonical)
+		}
+	}
+}
+
+func TestMulticastRemainingOptionsAccepted(t *testing.T) {
+	for _, spec := range []string{
+		"UDP6:localhost:1,ipv6-multicast-loop=0",
+		"UDP6:localhost:1,mcloop6",
+		"UDP6:localhost:1,ipv6-join-source-group=[ff3e::1]:lo:[::1]",
+		"UDP6:localhost:1,join-source-group=[ff3e::1]:lo:[::1]",
+		"UDP4:localhost:1,ip-add-source-membership=232.1.1.1:127.0.0.1:127.0.0.1",
+		"UDP4:localhost:1,ip-multicast-ttl=9,ip-multicast-loop=0,ip-multicast-if=127.0.0.1",
+		"TCP4-LISTEN:1,ip-freebind,ip-transparent",
+	} {
+		ch, err := parse.ParseChannel(spec)
+		if err != nil {
+			t.Fatalf("%s: %v", spec, err)
+		}
+		if err := validateChannelOptions(ch); err != nil {
+			t.Errorf("%s: %v", spec, err)
 		}
 	}
 }

@@ -1,4 +1,4 @@
-//go:build linux || darwin || freebsd
+//go:build linux
 
 package xio
 
@@ -10,8 +10,10 @@ import (
 )
 
 func setIPv4MembershipFD(fd int, group, ifaceAddr net.IP, ifindex uint32, idxSet bool) error {
-	// These platforms expose struct ip_mreqn, so a name/index is carried in
-	// imr_ifindex instead of being replaced with an interface IPv4 address.
+	// Linux IP_ADD_MEMBERSHIP accepts struct ip_mreqn, so a name/index is
+	// carried in imr_ifindex instead of being replaced with an interface IPv4
+	// address. Darwin and the BSDs expose IPMreqn for IP_MULTICAST_IF, but their
+	// IP_ADD_MEMBERSHIP ABI is struct ip_mreq; see mcast_ipv4_mreq.go.
 	var mreqn unix.IPMreqn
 	copy(mreqn.Multiaddr[:], group.To4())
 	if ifaceAddr != nil {
