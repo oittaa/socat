@@ -26,10 +26,17 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"sockopt", "sockopt-int", "sockopt-bin", "sockopt-string",
 		"sockopt-listen", "sockopt-sock", "sockopt-conn",
 		"broadcast", "so-broadcast",
+		"vintr", "intr", "veol2", "sane", "pendin", "iuclc", "nl1", "crtscts",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)
 		}
+	}
+	if strings.Contains(help, "    b7200 ") {
+		t.Error("b7200 must not be advertised on this Linux build (no unix.B7200)")
+	}
+	if strings.Contains(help, "    dsusp ") || strings.Contains(help, "    vdsusp ") {
+		t.Error("HP-UX dsusp/vdsusp must not be advertised")
 	}
 	for _, addr := range []string{
 		"VSOCK-CONNECT:<cid>:<port>",

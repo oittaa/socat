@@ -29,51 +29,93 @@ type termiosFlag struct {
 	name string
 	word termiosWord
 	mask termiosBits
+	// clr, when non-zero, is a field mask: classic OFUNC_TERMIOS_PATTERN
+	// (cs8, nl1, …). Apply clears clr then ORs mask. BOOL flags leave clr=0.
+	clr termiosBits
+}
+
+type termiosCC struct {
+	name string
+	idx  int
 }
 
 // Flags we honor (classic names). Advertise only these.
+// Classic baseline: https://repo.or.cz/socat.git tag-1.8.1.3
+// (12c08bf66d709fba17035ce95d85bd218428d9ba); official master
+// af5388c898c7bb60997935aee93c223deba60c4a has the same xio-termios.c.
 var termiosFlags = []termiosFlag{
-	{"ignbrk", wordI, termiosBits(unix.IGNBRK)},
-	{"brkint", wordI, termiosBits(unix.BRKINT)},
-	{"ignpar", wordI, termiosBits(unix.IGNPAR)},
-	{"parmrk", wordI, termiosBits(unix.PARMRK)},
-	{"inpck", wordI, termiosBits(unix.INPCK)},
-	{"istrip", wordI, termiosBits(unix.ISTRIP)},
-	{"inlcr", wordI, termiosBits(unix.INLCR)},
-	{"igncr", wordI, termiosBits(unix.IGNCR)},
-	{"icrnl", wordI, termiosBits(unix.ICRNL)},
-	{"ixon", wordI, termiosBits(unix.IXON)},
-	{"ixoff", wordI, termiosBits(unix.IXOFF)},
-	{"ixany", wordI, termiosBits(unix.IXANY)},
-	{"imaxbel", wordI, termiosBits(unix.IMAXBEL)},
-	{"opost", wordO, termiosBits(unix.OPOST)},
-	{"onlcr", wordO, termiosBits(unix.ONLCR)},
-	{"ocrnl", wordO, termiosBits(unix.OCRNL)},
-	{"onocr", wordO, termiosBits(unix.ONOCR)},
-	{"onlret", wordO, termiosBits(unix.ONLRET)},
-	{"cs5", wordC, termiosBits(unix.CS5)},
-	{"cs6", wordC, termiosBits(unix.CS6)},
-	{"cs7", wordC, termiosBits(unix.CS7)},
-	{"cs8", wordC, termiosBits(unix.CS8)},
-	{"cstopb", wordC, termiosBits(unix.CSTOPB)},
-	{"cread", wordC, termiosBits(unix.CREAD)},
-	{"parenb", wordC, termiosBits(unix.PARENB)},
-	{"parodd", wordC, termiosBits(unix.PARODD)},
-	{"hupcl", wordC, termiosBits(unix.HUPCL)},
-	{"clocal", wordC, termiosBits(unix.CLOCAL)},
-	{"crtscts", wordC, termiosBits(unix.CRTSCTS)},
-	{"isig", wordL, termiosBits(unix.ISIG)},
-	{"icanon", wordL, termiosBits(unix.ICANON)},
-	{"echo", wordL, termiosBits(unix.ECHO)},
-	{"echoe", wordL, termiosBits(unix.ECHOE)},
-	{"echok", wordL, termiosBits(unix.ECHOK)},
-	{"echonl", wordL, termiosBits(unix.ECHONL)},
-	{"noflsh", wordL, termiosBits(unix.NOFLSH)},
-	{"tostop", wordL, termiosBits(unix.TOSTOP)},
-	{"echoctl", wordL, termiosBits(unix.ECHOCTL)},
-	{"echoke", wordL, termiosBits(unix.ECHOKE)},
-	{"iexten", wordL, termiosBits(unix.IEXTEN)},
+	{"ignbrk", wordI, termiosBits(unix.IGNBRK), 0},
+	{"brkint", wordI, termiosBits(unix.BRKINT), 0},
+	{"ignpar", wordI, termiosBits(unix.IGNPAR), 0},
+	{"parmrk", wordI, termiosBits(unix.PARMRK), 0},
+	{"inpck", wordI, termiosBits(unix.INPCK), 0},
+	{"istrip", wordI, termiosBits(unix.ISTRIP), 0},
+	{"inlcr", wordI, termiosBits(unix.INLCR), 0},
+	{"igncr", wordI, termiosBits(unix.IGNCR), 0},
+	{"icrnl", wordI, termiosBits(unix.ICRNL), 0},
+	{"ixon", wordI, termiosBits(unix.IXON), 0},
+	{"ixoff", wordI, termiosBits(unix.IXOFF), 0},
+	{"ixany", wordI, termiosBits(unix.IXANY), 0},
+	{"imaxbel", wordI, termiosBits(unix.IMAXBEL), 0},
+	{"opost", wordO, termiosBits(unix.OPOST), 0},
+	{"onlcr", wordO, termiosBits(unix.ONLCR), 0},
+	{"ocrnl", wordO, termiosBits(unix.OCRNL), 0},
+	{"onocr", wordO, termiosBits(unix.ONOCR), 0},
+	{"onlret", wordO, termiosBits(unix.ONLRET), 0},
+	{"cs5", wordC, termiosBits(unix.CS5), termiosBits(unix.CSIZE)},
+	{"cs6", wordC, termiosBits(unix.CS6), termiosBits(unix.CSIZE)},
+	{"cs7", wordC, termiosBits(unix.CS7), termiosBits(unix.CSIZE)},
+	{"cs8", wordC, termiosBits(unix.CS8), termiosBits(unix.CSIZE)},
+	{"cstopb", wordC, termiosBits(unix.CSTOPB), 0},
+	{"cread", wordC, termiosBits(unix.CREAD), 0},
+	{"parenb", wordC, termiosBits(unix.PARENB), 0},
+	{"parodd", wordC, termiosBits(unix.PARODD), 0},
+	{"hupcl", wordC, termiosBits(unix.HUPCL), 0},
+	{"clocal", wordC, termiosBits(unix.CLOCAL), 0},
+	{"crtscts", wordC, termiosBits(unix.CRTSCTS), 0},
+	{"isig", wordL, termiosBits(unix.ISIG), 0},
+	{"icanon", wordL, termiosBits(unix.ICANON), 0},
+	{"echo", wordL, termiosBits(unix.ECHO), 0},
+	{"echoe", wordL, termiosBits(unix.ECHOE), 0},
+	{"echok", wordL, termiosBits(unix.ECHOK), 0},
+	{"echonl", wordL, termiosBits(unix.ECHONL), 0},
+	{"noflsh", wordL, termiosBits(unix.NOFLSH), 0},
+	{"tostop", wordL, termiosBits(unix.TOSTOP), 0},
+	{"echoctl", wordL, termiosBits(unix.ECHOCTL), 0},
+	{"echoke", wordL, termiosBits(unix.ECHOKE), 0},
+	{"iexten", wordL, termiosBits(unix.IEXTEN), 0},
 }
+
+// Linux glibc c_cc indices advertised in the tag-1.8.1.3 -hhh dump.
+// HP-UX vdsusp/dsusp stays docs-only (not defined here).
+var termiosChars = []termiosCC{
+	{"vintr", unix.VINTR},
+	{"vquit", unix.VQUIT},
+	{"verase", unix.VERASE},
+	{"vkill", unix.VKILL},
+	{"veof", unix.VEOF},
+	{"veol", unix.VEOL},
+	{"veol2", unix.VEOL2},
+	{"vmin", unix.VMIN},
+	{"vtime", unix.VTIME},
+	{"vstart", unix.VSTART},
+	{"vstop", unix.VSTOP},
+	{"vsusp", unix.VSUSP},
+	{"vwerase", unix.VWERASE},
+	{"vlnext", unix.VLNEXT},
+	{"vdiscard", unix.VDISCARD},
+	{"vreprint", unix.VREPRINT},
+}
+
+// termiosCharAliases are classic optionnames[] nicknames of termiosChars.
+// Folded at parse time; listed in -hhh via TermiosHelpNames.
+var termiosCharAliases = []string{
+	"intr", "quit", "erase", "kill", "eof", "eol", "eol2",
+	"min", "time", "start", "stop", "susp", "werase", "lnext",
+	"discard", "reprint", "rprnt",
+}
+
+var termiosCombos = []string{"sane", "rawer", "raw", "cfmakeraw"}
 
 type baudOption struct {
 	name string
@@ -109,6 +151,13 @@ func baudOptions() []baudOption {
 	return out
 }
 
+func allTermiosFlags() []termiosFlag {
+	out := make([]termiosFlag, 0, len(termiosFlags)+len(platformTermiosFlags))
+	out = append(out, termiosFlags...)
+	out = append(out, platformTermiosFlags...)
+	return out
+}
+
 // TermiosHelpNames are option names we enforce (for -hh).
 func TermiosHelpNames() []string {
 	out := []string{
@@ -118,13 +167,53 @@ func TermiosHelpNames() []string {
 		"ctty", "tiocsctty",
 		"pty-wait-slave", "wait-slave", "waitslave", "pty-interval", "ptmx", "openpty",
 	}
-	for _, f := range termiosFlags {
+	out = append(out, termiosCharAliases...)
+	for _, c := range termiosChars {
+		out = append(out, c.name)
+	}
+	for _, f := range allTermiosFlags() {
 		out = append(out, f.name)
 	}
 	for _, b := range baudOptions() {
 		out = append(out, b.name)
 	}
 	return out
+}
+
+func lookupTermiosFlag(name string) (termiosFlag, bool) {
+	for _, f := range allTermiosFlags() {
+		if f.name == name {
+			return f, true
+		}
+	}
+	return termiosFlag{}, false
+}
+
+func lookupTermiosChar(name string) (int, bool) {
+	for _, c := range termiosChars {
+		if c.name == name {
+			return c.idx, true
+		}
+	}
+	return 0, false
+}
+
+func lookupBaud(name string) (uint32, bool) {
+	for _, b := range baudOptions() {
+		if b.name == name {
+			return b.baud, true
+		}
+	}
+	return 0, false
+}
+
+func isTermiosCombo(name string) bool {
+	for _, c := range termiosCombos {
+		if c == name {
+			return true
+		}
+	}
+	return false
 }
 
 func setFlag(t *unix.Termios, word termiosWord, mask termiosBits, on bool) {
@@ -156,15 +245,73 @@ func setFlag(t *unix.Termios, word termiosWord, mask termiosBits, on bool) {
 	}
 }
 
+func setPattern(t *unix.Termios, word termiosWord, field, value termiosBits) {
+	switch word {
+	case wordI:
+		t.Iflag &^= field
+		t.Iflag |= value
+	case wordO:
+		t.Oflag &^= field
+		t.Oflag |= value
+	case wordC:
+		t.Cflag &^= field
+		t.Cflag |= value
+	case wordL:
+		t.Lflag &^= field
+		t.Lflag |= value
+	}
+}
+
+func optionBool(o parse.Option) bool {
+	if !o.Has {
+		return true
+	}
+	v := strings.ToLower(strings.TrimSpace(o.Value))
+	if v == "" {
+		return false
+	}
+	return v != "0" && v != "false" && v != "no" && v != "off"
+}
+
+func parseTermiosByte(name string, o parse.Option) (byte, error) {
+	// Classic TYPE_BYTE (xioopts.c): bare flag → 1; assigned value is
+	// strtoul base 0, clamped to UCHAR_MAX.
+	if !o.Has {
+		return 1, nil
+	}
+	v := strings.TrimSpace(o.Value)
+	if v == "" {
+		return 0, nil
+	}
+	n, err := strconv.ParseUint(v, 0, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s: invalid byte value %q", name, v)
+	}
+	if n > 255 {
+		n = 255
+	}
+	return byte(n), nil
+}
+
 func applyCombo(t *unix.Termios, name string) {
 	switch name {
-	case "cfmakeraw", "raw":
+	case "cfmakeraw":
+		// Linux cfmakeraw(3) / classic OPT_TERMIOS_CFMAKERAW fallback.
 		t.Iflag &^= termiosBits(unix.IGNBRK | unix.BRKINT | unix.PARMRK | unix.ISTRIP |
 			unix.INLCR | unix.IGNCR | unix.ICRNL | unix.IXON)
 		t.Oflag &^= termiosBits(unix.OPOST)
 		t.Lflag &^= termiosBits(unix.ECHO | unix.ECHONL | unix.ICANON | unix.ISIG | unix.IEXTEN)
 		t.Cflag &^= termiosBits(unix.CSIZE | unix.PARENB)
 		t.Cflag |= termiosBits(unix.CS8)
+		t.Cc[unix.VMIN] = 1
+		t.Cc[unix.VTIME] = 0
+	case "raw":
+		// Classic OPT_RAW (not an alias of cfmakeraw): xio-termios.c
+		// xiotermios_flagscomb, tag-1.8.1.3.
+		t.Iflag &^= termiosBits(unix.IGNBRK|unix.BRKINT|unix.IGNPAR|unix.PARMRK|unix.INPCK|unix.ISTRIP|
+			unix.INLCR|unix.IGNCR|unix.ICRNL|unix.IXON|unix.IXOFF|unix.IXANY|unix.IMAXBEL) | termiosIUCLC
+		t.Oflag &^= termiosBits(unix.OPOST)
+		t.Lflag &^= termiosBits(unix.ISIG|unix.ICANON) | termiosXCASE
 		t.Cc[unix.VMIN] = 1
 		t.Cc[unix.VTIME] = 0
 	case "rawer":
@@ -175,14 +322,68 @@ func applyCombo(t *unix.Termios, name string) {
 		t.Cc[unix.VMIN] = 1
 		t.Cc[unix.VTIME] = 0
 	case "sane":
-		t.Iflag &^= termiosBits(unix.IGNBRK | unix.INLCR | unix.IGNCR | unix.IXOFF | unix.IXANY)
+		t.Iflag &^= termiosBits(unix.IGNBRK|unix.INLCR|unix.IGNCR|unix.IXOFF|unix.IXANY) | termiosIUCLC
 		t.Iflag |= termiosBits(unix.BRKINT | unix.ICRNL | unix.IMAXBEL)
-		t.Oflag &^= termiosBits(unix.OCRNL | unix.ONOCR | unix.ONLRET)
-		t.Oflag |= termiosBits(unix.OPOST | unix.ONLCR)
+		t.Oflag &^= termiosOLCUC | termiosBits(unix.OCRNL|unix.ONOCR|unix.ONLRET) |
+			termiosOFILL | termiosOFDEL | termiosNLDLY | termiosCRDLY | termiosTABDLY |
+			termiosBSDLY | termiosVTDLY | termiosFFDLY
+		t.Oflag |= termiosBits(unix.OPOST|unix.ONLCR) | termiosNL0 | termiosCR0 | termiosTAB0 |
+			termiosBS0 | termiosVT0 | termiosFF0
 		t.Cflag |= termiosBits(unix.CREAD)
-		t.Lflag &^= termiosBits(unix.ECHONL | unix.NOFLSH | unix.TOSTOP)
+		t.Lflag &^= termiosBits(unix.ECHONL|unix.NOFLSH|unix.TOSTOP) | termiosXCASE | termiosECHOPRT
 		t.Lflag |= termiosBits(unix.ISIG | unix.ICANON | unix.IEXTEN | unix.ECHO | unix.ECHOE | unix.ECHOK | unix.ECHOCTL | unix.ECHOKE)
 	}
+}
+
+func applyOneTermios(t *unix.Termios, o parse.Option) error {
+	name := parse.CanonicalOptionName(o.Name)
+	if isTermiosCombo(name) {
+		if o.Has && !optionBool(o) {
+			return nil
+		}
+		applyCombo(t, name)
+		return nil
+	}
+	if f, ok := lookupTermiosFlag(name); ok {
+		on := optionBool(o)
+		if f.clr != 0 {
+			if on {
+				setPattern(t, f.word, f.clr, f.mask)
+			}
+			return nil
+		}
+		setFlag(t, f.word, f.mask, on)
+		return nil
+	}
+	if idx, ok := lookupTermiosChar(name); ok {
+		b, err := parseTermiosByte(name, o)
+		if err != nil {
+			return err
+		}
+		t.Cc[idx] = b
+		return nil
+	}
+	if baud, ok := lookupBaud(name); ok {
+		if optionBool(o) {
+			setSpeed(t, baud, true, true)
+		}
+		return nil
+	}
+	if name == "ispeed" && o.Has {
+		n, err := strconv.ParseUint(strings.TrimSpace(o.Value), 0, 32)
+		if err == nil {
+			setSpeed(t, uint32(n), true, false)
+		}
+		return nil
+	}
+	if name == "ospeed" && o.Has {
+		n, err := strconv.ParseUint(strings.TrimSpace(o.Value), 0, 32)
+		if err == nil {
+			setSpeed(t, uint32(n), false, true)
+		}
+		return nil
+	}
+	return nil
 }
 
 func getTermios(fd int) (*unix.Termios, error) {
@@ -194,51 +395,19 @@ func setTermios(fd int, t *unix.Termios) error {
 }
 
 // ApplyTermios mutates fd termios from spec. No-op if fd is not a tty.
+// Options are applied in command-line order at classic PH_FD (applyopts /
+// OFUNC_TERMIOS_* in xioopts.c). Last occurrence wins for conflicting flags.
 func ApplyTermios(fd int, s parse.Spec) error {
+	if err := RejectUnsupportedTermios(s); err != nil {
+		return err
+	}
 	t, err := getTermios(fd)
 	if err != nil {
 		return nil
 	}
-	for _, name := range []string{"sane", "rawer", "raw", "cfmakeraw"} {
-		if !s.HasOption(name) {
-			continue
-		}
-		o, _ := s.OptionNamed(name)
-		if o.Has && !s.BoolOption(name) {
-			continue
-		}
-		applyCombo(t, name)
-	}
-	for _, f := range termiosFlags {
-		if !s.HasOption(f.name) {
-			continue
-		}
-		on := s.BoolOption(f.name)
-		if f.name == "cs5" || f.name == "cs6" || f.name == "cs7" || f.name == "cs8" {
-			if on {
-				t.Cflag &^= termiosBits(unix.CSIZE)
-				t.Cflag |= f.mask
-			}
-			continue
-		}
-		setFlag(t, f.word, f.mask, on)
-		if f.name == "echo" && !on {
-			t.Lflag &^= termiosBits(unix.ECHONL)
-		}
-	}
-	for _, b := range baudOptions() {
-		if s.HasOption(b.name) && s.BoolOption(b.name) {
-			setSpeed(t, b.baud, true, true)
-		}
-	}
-	if v := s.OptionValue("ispeed", ""); v != "" && s.HasOption("ispeed") {
-		if n, err := strconv.ParseUint(v, 0, 32); err == nil {
-			setSpeed(t, uint32(n), true, false)
-		}
-	}
-	if v := s.OptionValue("ospeed", ""); v != "" && s.HasOption("ospeed") {
-		if n, err := strconv.ParseUint(v, 0, 32); err == nil {
-			setSpeed(t, uint32(n), false, true)
+	for _, o := range s.Options {
+		if err := applyOneTermios(t, o); err != nil {
+			return err
 		}
 	}
 	if err := setTermios(fd, t); err != nil {

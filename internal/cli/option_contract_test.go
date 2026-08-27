@@ -292,7 +292,7 @@ func TestOptionTableContract(t *testing.T) {
 		}
 	}
 	if len(xio.TermiosHelpNames()) > 0 {
-		for _, c := range []string{"b115200", "icanon"} {
+		for _, c := range []string{"b115200", "icanon", "vintr"} {
 			if _, ok := termiosNames[c]; !ok {
 				t.Errorf("termios-family canary %q missing from implementation tables", c)
 			}

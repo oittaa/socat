@@ -20,8 +20,10 @@ func processOptionGroups() []helpOptGroup {
 		}},
 		{"PTY and TERMIOS", []helpOpt{
 			{name: "link", desc: "symlink to the PTY slave", aliases: []string{"symbolic-link"}},
-			{name: "cfmakeraw", desc: "raw termios (cfmakeraw)", aliases: []string{"raw"}},
+			{name: "cfmakeraw", desc: "raw termios (cfmakeraw(3))"},
+			{name: "raw", desc: "POSIX raw termios"},
 			{name: "rawer", desc: "stricter raw termios"},
+			{name: "sane", desc: "reset termios to sane defaults"},
 			{name: "echo", desc: "terminal echo"},
 			{name: "opost", desc: "output post-processing"},
 			{name: "ispeed", desc: "input baud"},
