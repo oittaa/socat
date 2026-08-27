@@ -193,7 +193,8 @@ func ApplyListenOptions(fd int, s parse.Spec, network string) error {
 // socket() (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
 // official master af5388c898c7bb60997935aee93c223deba60c4a is the same):
 // SOL_SOCKET buffers/broadcast/bindtodevice/so-debug plus named TCP
-// (tcp-cork, tcp-maxseg, …), setsockopt-socket, and ip-ttl/tos on TCP/SCTP.
+// (tcp-cork, tcp-maxseg, …) and Linux SCTP (sctp-nodelay, sctp-maxseg),
+// setsockopt-socket, and ip-ttl/tos on TCP/SCTP.
 func ApplyPastSocketPhase(fd int, s parse.Spec, network string) error {
 	return ApplyNetworkSocketOptions(fd, s, network)
 }

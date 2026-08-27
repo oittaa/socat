@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
@@ -15,6 +16,12 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
+)
+
+// linux/sctp.h; xio keeps the same constants unexported.
+const (
+	testSCTPNodelay = 3
+	testSCTPMaxseg  = 13
 )
 
 func skipIfNoSCTP(t *testing.T) {
@@ -121,5 +128,132 @@ func TestSCTPConnectErrTreatsEstablishedEISCONNAsSuccess(t *testing.T) {
 	}
 	if err := sctpConnectErr(unix.ECONNREFUSED, nil); err == nil || err.Error() != "Connection refused" {
 		t.Fatalf("ECONNREFUSED: %v", err)
+	}
+}
+
+func connSCTPSockoptInt(t *testing.T, conn syscall.Conn, opt int) int {
+	t.Helper()
+	raw, err := conn.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v int
+	var gerr error
+	if err := raw.Control(func(fd uintptr) {
+		v, gerr = unix.GetsockoptInt(int(fd), unix.IPPROTO_SCTP, opt)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	return v
+}
+
+func TestSCTPListenDialNamedSockoptsLinux(t *testing.T) {
+	skipIfNoSCTP(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+
+	listenSpec, err := parse.ParseSpec("SCTP4-LISTEN:0,reuseaddr,sctp-nodelay,sctp-maxseg=1400")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := listenSCTP(ctx, "sctp4", "127.0.0.1", "0", listenSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	rl, ok := ln.(*rawListener)
+	if !ok {
+		t.Fatalf("listener type %T", ln)
+	}
+	gotNodelay, err := unix.GetsockoptInt(rl.fd, unix.IPPROTO_SCTP, testSCTPNodelay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotNodelay != 1 {
+		t.Fatalf("listen SCTP_NODELAY=%d want 1 (PH_PASTSOCKET)", gotNodelay)
+	}
+	gotMaxseg, err := unix.GetsockoptInt(rl.fd, unix.IPPROTO_SCTP, testSCTPMaxseg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotMaxseg != 1400 {
+		t.Fatalf("listen SCTP_MAXSEG=%d want 1400 (PH_PASTSOCKET)", gotMaxseg)
+	}
+
+	if dl, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
+		_ = dl.SetDeadline(time.Time{})
+	}
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			accepted <- nil
+			return
+		}
+		accepted <- c
+	}()
+
+	ta, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("addr type %T", ln.Addr())
+	}
+	dialSpec, err := parse.ParseSpec("SCTP4:127.0.0.1:9,sctp-nodelay,sctp-maxseg=1400")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := &xio.Global{Log: logx.New()}
+	cli, err := dialSCTPAll(ctx, "sctp4", "127.0.0.1", strconv.Itoa(ta.Port), dialSpec, g, 3*time.Second, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cli.Close() })
+	sc, ok := cli.(syscall.Conn)
+	if !ok {
+		t.Fatalf("dial conn type %T is not syscall.Conn", cli)
+	}
+	if got := connSCTPSockoptInt(t, sc, testSCTPNodelay); got != 1 {
+		t.Fatalf("dial SCTP_NODELAY=%d want 1", got)
+	}
+	if got := connSCTPSockoptInt(t, sc, testSCTPMaxseg); got != 1400 {
+		t.Fatalf("dial SCTP_MAXSEG=%d want 1400", got)
+	}
+
+	select {
+	case <-ctx.Done():
+		t.Fatal("accept timeout")
+	case acc := <-accepted:
+		if acc == nil {
+			t.Fatal("accept failed")
+		}
+		t.Cleanup(func() { _ = acc.Close() })
+		asc, ok := acc.(syscall.Conn)
+		if !ok {
+			t.Logf("accepted conn %T is not syscall.Conn; skip inheritance check", acc)
+			return
+		}
+		got, err := func() (int, error) {
+			raw, err := asc.SyscallConn()
+			if err != nil {
+				return 0, err
+			}
+			var v int
+			var gerr error
+			if err := raw.Control(func(fd uintptr) {
+				v, gerr = unix.GetsockoptInt(int(fd), unix.IPPROTO_SCTP, testSCTPNodelay)
+			}); err != nil {
+				return 0, err
+			}
+			return v, gerr
+		}()
+		if err != nil {
+			t.Logf("accepted SCTP_NODELAY getsockopt: %v (classic consumes PH_PASTSOCKET on the listen fd)", err)
+			return
+		}
+		if got != 1 {
+			t.Logf("accepted SCTP_NODELAY=%d; kernel inheritance is where-applicable (classic does not re-apply after accept)", got)
+		}
 	}
 }

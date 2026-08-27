@@ -53,6 +53,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"intervall", "ipv6only", "v6only", "termios-cfmakeraw", "crterase",
 		"tun-no-pi", "multicast", "proxy-auth", "resolv",
 		"udplite-send-cscov", "udplite-recv-cscov",
+		"sctp-nodelay", "sctp-maxseg",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)
