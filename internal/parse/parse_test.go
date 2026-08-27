@@ -159,6 +159,20 @@ func TestLastOptionWins(t *testing.T) {
 		{name: "bindtodevice-if", spec: "TCP:127.0.0.1:9,if=lo", opt: "bindtodevice", want: "lo"},
 		{name: "bindtodevice-so", spec: "TCP:127.0.0.1:9,so-bindtodevice=eth0", opt: "bindtodevice", want: "eth0"},
 		{name: "bindtodevice-interface", spec: "TCP4:127.0.0.1:9,interface=lo", opt: "bindtodevice", want: "lo"},
+		{name: "o-rdonly-then-wronly", spec: "OPEN:file,o-rdonly,o-wronly", opt: "wronly", want: "1"},
+		{name: "creat-alias-last", spec: "OPEN:file,creat=0,o-creat=1", opt: "creat", want: "1"},
+		{name: "ndelay-then-nonblock-off", spec: "OPEN:file,ndelay,nonblock=0", opt: "nonblock", want: "0"},
+		{name: "lock-then-setlkw-off", spec: "OPEN:file,lock,setlkw=0", opt: "setlkw", want: "0"},
+		{name: "bytes-alias", spec: "TCP:127.0.0.1:9,bytes=4", opt: "readbytes", want: "4"},
+		{name: "crlf-then-crnl-off", spec: "TCP:127.0.0.1:9,crlf,crnl=0", opt: "crnl", want: "0"},
+		{name: "cd-alias", spec: "SYSTEM:pwd,cd=/tmp", opt: "chdir", want: "/tmp"},
+		{name: "new-then-unlink-early-off", spec: "OPEN:file,new,unlink-early=0", opt: "unlink-early", want: "0"},
+		{name: "close-alias", spec: "TCP:127.0.0.1:9,close", opt: "end-close", want: "1"},
+		{name: "maxchildren-alias", spec: "TCP-LISTEN:1,fork,maxchildren=3", opt: "max-children", want: "3"},
+		{name: "intervall-alias", spec: "TCP:127.0.0.1:9,retry=1,intervall=2", opt: "interval", want: "2"},
+		{name: "v6only-alias", spec: "TCP6-LISTEN:1,v6only=0", opt: "ipv6-v6only", want: "0"},
+		{name: "proxy-auth-alias", spec: "PROXY:127.0.0.1:h:80,proxy-auth=u:p", opt: "proxy-authorization", want: "u:p"},
+		{name: "resolv-then-resolve-off", spec: "PROXY:127.0.0.1:h:80,resolv,proxy-resolve=0", opt: "proxy-resolve", want: "0"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

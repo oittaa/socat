@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -550,11 +551,19 @@ func OpenFlags(s parse.Spec, mode xio.Mode) (int, error) {
 	default:
 		flags = os.O_RDWR
 	}
-	if s.BoolOption("rdonly") {
-		flags = os.O_RDONLY
-	}
-	if s.BoolOption("wronly") {
-		flags = os.O_WRONLY
+	// Classic OFUNC_FLAG_PATTERN walks access-mode options in command-line
+	// order and replaces O_ACCMODE for each one. Preserve that ordering across
+	// canonical/alias mixtures instead of making wronly win unconditionally.
+	for _, o := range s.Options {
+		if !fileOptionEnabled(o) {
+			continue
+		}
+		switch parse.CanonicalOptionName(o.Name) {
+		case "rdonly":
+			flags = os.O_RDONLY
+		case "wronly":
+			flags = os.O_WRONLY
+		}
 	}
 	if s.BoolOption("creat") || s.BoolOption("create") {
 		flags |= os.O_CREATE
@@ -575,6 +584,17 @@ func OpenFlags(s parse.Spec, mode xio.Mode) (int, error) {
 	// open(2); do not F_SETFL it onto inherited descriptors (contrast
 	// o-noatime, which is PH_FD).
 	return applyODirectFlag(s, flags)
+}
+
+func fileOptionEnabled(o parse.Option) bool {
+	if !o.Has {
+		return true
+	}
+	v := strings.ToLower(strings.TrimSpace(o.Value))
+	if v == "" {
+		return false
+	}
+	return v != "0" && v != "false" && v != "no" && v != "off"
 }
 
 func applyODirectFlag(s parse.Spec, flags int) (int, error) {

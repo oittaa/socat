@@ -302,7 +302,7 @@ func parseIffOpts(s parse.Spec) (set, clear uint16) {
 		{[]string{"iff-noarp", "noarp"}, unix.IFF_NOARP},
 		{[]string{"iff-promisc", "promisc"}, unix.IFF_PROMISC},
 		{[]string{"iff-allmulti", "allmulti"}, unix.IFF_ALLMULTI},
-		{[]string{"iff-multicast"}, unix.IFF_MULTICAST},
+		{[]string{"iff-multicast", "multicast"}, unix.IFF_MULTICAST},
 	}
 	for _, o := range opts {
 		for _, n := range o.names {
