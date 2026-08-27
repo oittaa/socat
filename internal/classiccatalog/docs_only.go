@@ -5,11 +5,12 @@ package classiccatalog
 // binary: Linux glibc, OpenSSL 3, GNU Readline, libwrap, default configure
 // flags (--enable-openssl-method and --enable-fips remain off).
 //
-// These names are required inputs for later compatibility work, but they
-// must not be forged into the advertised -hhh catalog. RequiredPublicSpellings
-// unions this set with Options, minus IntentionalPublicOmissions.
-// Parser-only optionnames[] aliases that the man page does not document
-// (including openssl-fips and openssl-method) belong in OptionalParserOnlyAliases.
+// These names are required inputs for ClassifyOption (implementation backlog,
+// unsupported, or foreign). They must not be forged into the advertised -hhh
+// catalog. RequiredPublicSpellings unions this set with Options, minus
+// IntentionalPublicOmissions. Parser-only optionnames[] aliases that the man
+// page does not document (including openssl-fips and openssl-method) belong
+// in OptionalParserOnlyAliases.
 var DocsOnlyNotInThisBinary = map[string]string{
 	"abort-threshold":      "documented; compiled only with HP-UX TCP_ABORT_THRESHOLD",
 	"b3600":                "HP-UX B3600; not defined on Linux glibc",
@@ -44,7 +45,7 @@ var DocsOnlyNotInThisBinary = map[string]string{
 	"stdurg":               "documented; compiled only with TCP_STDURG",
 	"text":                 "documented; compiled only with O_TEXT (Windows)",
 	"tsoptena":             "documented; compiled only with OSF1 TCP_TSOPTENA",
-	"udp-ignore-peerport":  "documented UDP-DATAGRAM option; not present in optionnames[]",
+	"udp-ignore-peerport":  "documented UDP-DATAGRAM option; not present in optionnames[] (see unsupported_udp.go)",
 }
 
 // OptionalParserOnlyAliases are C optionnames[] spellings that this configured

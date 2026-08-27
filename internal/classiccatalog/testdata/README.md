@@ -25,7 +25,8 @@ prerequisite message. Do not pass `CPPFLAGS=-DB7200=7200U`. `b900` and
 The documented names (`method`, `fips`) are in `DocsOnlyNotInThisBinary`.
 Parser-only aliases `openssl-method` and `openssl-fips` are in
 `OptionalParserOnlyAliases`. Documented `udp-ignore-peerport` (man
-`OPTION_UDP_IGNORE_PEERPORT`; not in `optionnames[]`) is docs-only.
+`OPTION_UDP_IGNORE_PEERPORT`; not in `optionnames[]`) is docs-only and
+classified unsupported (classic C never implemented it; not backlog).
 `cool-write` / `coolwrite` stay in the advertised catalog but are
 `IntentionalPublicOmissions` (this port stopped advertising the deprecated
 option). Do not pass `--enable-resolve` extra flags: resolve support is
