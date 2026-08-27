@@ -84,5 +84,18 @@ func init() {
 		"sockopt-string":             "setsockopt-string",
 		"sockopt-sock":               "setsockopt-socket",
 		"sockopt-conn":               "setsockopt-connected",
+		"debug":                      "so-debug",
+		"dontroute":                  "so-dontroute",
+		"oobinline":                  "so-oobinline",
+		"cork":                       "tcp-cork",
+		"defer-accept":               "tcp-defer-accept",
+		"linger2":                    "tcp-linger2",
+		"maxseg":                     "tcp-maxseg",
+		"mss":                        "tcp-maxseg",
+		"maxseg-late":                "tcp-maxseg-late",
+		"mss-late":                   "tcp-maxseg-late",
+		"quickack":                   "tcp-quickack",
+		"syncnt":                     "tcp-syncnt",
+		"window-clamp":               "tcp-window-clamp",
 	})
 }

@@ -16,7 +16,9 @@ func hideOpt(name string) bool {
 		"ip-freebind", "freebind", "ipfreebind",
 		"ip-transparent", "transparent",
 		"ip-mtu-discover", "mtudiscover", "ipmtudiscover",
-		"ipv6-mtu-discover", "mtudiscover6":
+		"ipv6-mtu-discover", "mtudiscover6",
+		"tcp-cork", "tcp-defer-accept", "tcp-linger2",
+		"tcp-quickack", "tcp-syncnt", "tcp-window-clamp":
 		return true
 	default:
 		return false

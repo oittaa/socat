@@ -25,6 +25,9 @@ const (
 	soRcvbuf    = windows.SO_RCVBUF
 	soKeepalive = windows.SO_KEEPALIVE
 	soBroadcast = windows.SO_BROADCAST
+	soDebug     = 0x0001 // Winsock SO_DEBUG; x/sys/windows does not export it
+	soDontroute = windows.SO_DONTROUTE
+	soOobinline = 0x0100 // Winsock SO_OOBINLINE; x/sys/windows does not export it
 )
 
 func isNotSocketError(err error) bool {
@@ -84,9 +87,9 @@ func ApplySocketTimeos(fd int, s parse.Spec) error {
 	return nil
 }
 
-// ApplySocketOptionsWithoutGeneric applies the named SOL_SOCKET options but
-// leaves the generic setsockopt family untouched. PH_ALL constructors such as
-// SOCKETPAIR use it before applying all generic actions in command-line order.
+// ApplySocketOptionsWithoutGeneric applies fixed SOL_SOCKET options but leaves
+// command-ordered named and generic setsockopt actions untouched. PH_ALL
+// constructors such as SOCKETPAIR apply those together afterward.
 func ApplySocketOptionsWithoutGeneric(fd int, s parse.Spec) error {
 	if err := ApplySocketTimeos(fd, s); err != nil {
 		return err
@@ -116,7 +119,7 @@ func ApplySocketOptions(fd int, s parse.Spec) error {
 	if err := ApplySocketOptionsWithoutGeneric(fd, s); err != nil {
 		return err
 	}
-	return ApplyGenericSetsockopt(fd, s, SockoptPhasePastSocket)
+	return applyOrderedPastSocketPhaseOptions(fd, s, "")
 }
 
 func windowsTimeoutMillis(v string) (uint32, error) {

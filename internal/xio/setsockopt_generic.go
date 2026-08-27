@@ -56,23 +56,44 @@ const (
 // already folded to the canonical Name).
 func ApplyGenericSetsockopt(fd int, s parse.Spec, phase SockoptPhase) error {
 	for _, o := range s.Options {
-		kind, ok := genericSetsockoptKind(o.Name, phase)
-		if !ok {
+		if kind, ok := genericSetsockoptKind(o.Name, phase); ok {
+			if err := applyGenericSetsockoptOption(fd, o, kind); err != nil {
+				return err
+			}
 			continue
 		}
-		if err := applyGenericSetsockoptOption(fd, o, kind); err != nil {
-			return err
+		// Named PH_CONNECTED TCP options (tcp-maxseg-late) share this walk
+		// so they apply once with generic CONNECTED setsockopt, including
+		// on TLS/WS/proxy/SOCKS via ApplyTCPConnOpts.
+		if phase == SockoptPhaseConnected {
+			if handled, err := applyNamedConnectedSockopt(fd, o); handled {
+				if err != nil {
+					return err
+				}
+			}
 		}
 	}
 	return nil
 }
 
-// ApplyGenericSetsockoptAll applies every generic setsockopt action in
-// original command-line order, regardless of its normal lifecycle phase.
+// ApplyGenericSetsockoptAll applies every named or generic setsockopt action
+// in original command-line order, regardless of its normal lifecycle phase.
 // Classic SOCKETPAIR uses applyopts(PH_ALL) on each descriptor, so it needs
-// this behavior rather than three phase-grouped passes.
+// this behavior rather than phase-grouped passes.
 func ApplyGenericSetsockoptAll(fd int, s parse.Spec) error {
 	for _, o := range s.Options {
+		if handled, err := applyNamedPastSocketSockopt(fd, o); handled {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		if handled, err := applyNamedConnectedSockopt(fd, o); handled {
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		_, kind, ok := genericSetsockoptDescriptor(o.Name)
 		if !ok {
 			continue
@@ -120,7 +141,10 @@ func RejectGenericSetsockoptPhases(s parse.Spec, address string, phases ...Socko
 	for _, o := range s.Options {
 		phase, _, ok := genericSetsockoptDescriptor(o.Name)
 		if !ok {
-			continue
+			if !namedConnectedTCPName(o.Name) {
+				continue
+			}
+			phase = SockoptPhaseConnected
 		}
 		for _, rejected := range phases {
 			if phase == rejected {
@@ -215,7 +239,8 @@ func hasGenericSetsockopt(s parse.Spec, phase SockoptPhase) bool {
 			s.HasOption("setsockopt-bin") ||
 			s.HasOption("setsockopt-int") ||
 			s.HasOption("setsockopt-string") ||
-			s.HasOption("setsockopt-connected")
+			s.HasOption("setsockopt-connected") ||
+			hasNamedConnectedTCP(s)
 	default:
 		return false
 	}
