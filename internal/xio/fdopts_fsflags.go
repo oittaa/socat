@@ -59,6 +59,25 @@ func LinuxExtFSFlagOption(name string) bool {
 	return ok
 }
 
+// hasLinuxPHFDOptions reports whether spec has Linux PH_FD options that
+// share the applyopts walk with perm/user/group/flock (o-noatime,
+// f-setpipe-sz, FS_IOC_* fs-*). Other GOOS values still call this to decide
+// whether applyFDLifecycleToFile should enter; applyLinuxPHFDOption is a
+// no-op there after ApplyFDOptions rejects enabled names.
+func hasLinuxPHFDOptions(s parse.Spec) bool {
+	for _, o := range s.Options {
+		name := parse.CanonicalOptionName(o.Name)
+		if _, ok := linuxExtFSFlagMasks[name]; ok {
+			return true
+		}
+		switch name {
+		case "o-noatime", "noatime", "f-setpipe-sz", "pipesz":
+			return true
+		}
+	}
+	return false
+}
+
 func linuxExtFSFlagOps(s parse.Spec) []linuxExtFSFlagOp {
 	var out []linuxExtFSFlagOp
 	for _, o := range s.Options {

@@ -250,11 +250,11 @@ func TestFeatureCompleteCanaries(t *testing.T) {
 	if _, ok := Lookup("notail"); ok {
 		t.Fatal("classic -hhh dump does not advertise notail; keep it out of Options")
 	}
-	if DocsOnlyNotInThisBinary["notail"] != "" {
-		t.Fatal("notail is implemented and advertised; remove it from DocsOnlyNotInThisBinary")
+	if DocsOnlyNotInThisBinary["notail"] == "" {
+		t.Fatal("notail remains documented but absent from optionnames[]; keep it in DocsOnlyNotInThisBinary")
 	}
 	if GoOnlyHelpAllowlist["notail"] == "" {
-		t.Fatal("implemented notail nickname must stay on GoOnlyHelpAllowlist")
+		t.Fatal("Go advertises notail on Linux; keep it on GoOnlyHelpAllowlist")
 	}
 }
 

@@ -113,7 +113,19 @@ func openFSFlagProbe(t *testing.T) *os.File {
 	if _, err := unix.IoctlGetInt(int(f.Fd()), unix.FS_IOC_GETFLAGS); err != nil {
 		t.Skipf("FS_IOC_GETFLAGS: %v", err)
 	}
+	// Clear unlink-blocking inode flags before Close/TempDir (LIFO).
+	clearInodeFlagsOnCleanup(t, f, fsAppendFL, fsImmutableFL)
 	return f
+}
+
+func clearInodeFlagsOnCleanup(t *testing.T, f *os.File, masks ...int) {
+	t.Helper()
+	t.Cleanup(func() {
+		fd := int(f.Fd())
+		for _, mask := range masks {
+			_ = applyFSIoctlMask(fd, mask, false)
+		}
+	})
 }
 
 func inodeFlags(t *testing.T, f *os.File) int {
@@ -192,6 +204,7 @@ func TestApplyFDOptionsFSAppendIsNotOAppend(t *testing.T) {
 	}
 
 	f2 := openFSFlagProbe(t)
+	clearInodeFlagsOnCleanup(t, f2, fsAppendFL)
 	fsSpec, err := parse.ParseSpec("FD:3,fs-append")
 	if err != nil {
 		t.Fatal(err)
@@ -254,3 +267,110 @@ func TestApplyFDOptionsDoesNotSetODirect(t *testing.T) {
 		t.Fatalf("ApplyFDOptions must not set O_DIRECT (flags=%#x)", flags)
 	}
 }
+
+func TestApplyFDOptionsPHFDCommandLineOrderCrossFamily(t *testing.T) {
+	f := openFSFlagProbe(t)
+	var ops []string
+	restore := InstallLifecycleSyscallHook(func(op string) { ops = append(ops, op) })
+	t.Cleanup(restore)
+
+	spec, err := parse.ParseSpec("FD:3,perm=0600,fs-nodump,o-noatime,nodump=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyFDOptions(f, spec); err != nil {
+		t.Skipf("mixed PH_FD apply: %v", err)
+	}
+	want := []string{"fchmod", "FS_IOC_SETFLAGS", "F_SETFL", "FS_IOC_SETFLAGS"}
+	if len(ops) != len(want) {
+		t.Fatalf("ops=%v want %v", ops, want)
+	}
+	for i := range want {
+		if ops[i] != want[i] {
+			t.Fatalf("ops=%v want %v", ops, want)
+		}
+	}
+	if inodeFlags(t, f)&fsNodumpFL != 0 {
+		t.Fatalf("last nodump=0 must win after perm/o-noatime: %#x", inodeFlags(t, f))
+	}
+	mode, err := f.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode.Mode().Perm() != 0o600 {
+		t.Fatalf("perm=%o want 0600", mode.Mode().Perm())
+	}
+	fcntlFlags, err := unix.FcntlInt(f.Fd(), unix.F_GETFL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fcntlFlags&unix.O_NOATIME == 0 {
+		t.Fatalf("o-noatime missing after mixed PH_FD walk (flags=%#x)", fcntlFlags)
+	}
+
+	f2 := openFSFlagProbe(t)
+	ops = nil
+	spec, err = parse.ParseSpec("FD:3,fs-nodump,perm=0640,o-noatime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyFDOptions(f2, spec); err != nil {
+		t.Fatal(err)
+	}
+	want = []string{"FS_IOC_SETFLAGS", "fchmod", "F_SETFL"}
+	if len(ops) != len(want) {
+		t.Fatalf("reversed ops=%v want %v", ops, want)
+	}
+	for i := range want {
+		if ops[i] != want[i] {
+			t.Fatalf("reversed ops=%v want %v", ops, want)
+		}
+	}
+}
+
+func TestApplyFDOptionsPermBeforeFSImmutableFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can set FS_IMMUTABLE_FL")
+	}
+	f := openFSFlagProbe(t)
+	spec, err := parse.ParseSpec("FD:3,perm=0600,fs-immutable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ApplyFDOptions(f, spec)
+	if err == nil {
+		t.Fatal("unprivileged fs-immutable succeeded")
+	}
+	if !strings.Contains(err.Error(), "fs-immutable") {
+		t.Fatalf("error %q must name fs-immutable", err)
+	}
+	st, err := f.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o600 {
+		t.Fatalf("perm must apply before fs-immutable fails: mode=%o", st.Mode().Perm())
+	}
+
+	f2 := openFSFlagProbe(t)
+	before, err := f2.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err = parse.ParseSpec("FD:3,fs-immutable,perm=0600")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ApplyFDOptions(f2, spec)
+	if err == nil {
+		t.Fatal("unprivileged fs-immutable succeeded")
+	}
+	after, err := f2.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Mode().Perm() != before.Mode().Perm() {
+		t.Fatalf("perm must not apply after fs-immutable fails: before=%o after=%o", before.Mode().Perm(), after.Mode().Perm())
+	}
+}
+

@@ -251,7 +251,7 @@ func TestDocsOnlyNamesAreClassified(t *testing.T) {
 		class, reason := ClassifyOption(name, "linux")
 		switch class {
 		case ClassMustAdvertise:
-			// This port implements dump-omitted documented names (sctp-nodelay).
+			// This port implements dump-omitted documented names (notail, sctp-nodelay).
 		case ClassExpectedMissing, ClassUnsupported, ClassForeign:
 			if reason == "" {
 				t.Errorf("docs-only %q classified %s with empty reason", name, class)
