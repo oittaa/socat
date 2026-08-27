@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -16,27 +17,27 @@ import (
 )
 
 func openUDPSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openUDPDatagramNetwork(ctx, s, mode, g, NetworkUDP(g, s, "udp4"))
+	return openUDPDatagramNetwork(ctx, s, mode, g, NetworkUDP(g, s, "udp4"), true)
 }
 func openUDP4Sendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openUDPDatagramNetwork(ctx, s, mode, g, "udp4")
+	return openUDPDatagramNetwork(ctx, s, mode, g, "udp4", true)
 }
 func openUDP6Sendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openUDPDatagramNetwork(ctx, s, mode, g, "udp6")
+	return openUDPDatagramNetwork(ctx, s, mode, g, "udp6", true)
 }
 
 // UDP*-DATAGRAM: unconnected datagram to address (broadcast/multicast capable).
 func openUDPDatagram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openUDPDatagramNetwork(ctx, s, mode, g, NetworkUDP(g, s, "udp4"))
+	return openUDPDatagramNetwork(ctx, s, mode, g, NetworkUDP(g, s, "udp4"), false)
 }
 func openUDP4Datagram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openUDPDatagramNetwork(ctx, s, mode, g, "udp4")
+	return openUDPDatagramNetwork(ctx, s, mode, g, "udp4", false)
 }
 func openUDP6Datagram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openUDPDatagramNetwork(ctx, s, mode, g, "udp6")
+	return openUDPDatagramNetwork(ctx, s, mode, g, "udp6", false)
 }
 
-func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
+func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string, exactPeer bool) (*xio.Opened, error) {
 	host, port, err := xio.HostPortParams(s)
 	if err != nil {
 		return nil, err
@@ -61,14 +62,14 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 				_ = c.Close()
 				return nil, err
 			}
-			st := &udpDatagramConn{UDPConn: c, raddr: raddr, g: g, wantCtrl: xio.NeedAncillary(s)}
+			st := newUDPDatagramConn(c, raddr, s, g, exactPeer)
 			wrapped, err := xio.WrapCommonAfterConnected(s, st)
 			if err != nil {
 				logx.CloseQuiet(c)
 				return nil, err
 			}
 			_ = port
-			return &xio.Opened{Stream: wrapped, Label: "UDP-DATAGRAM:" + raddr.String()}, nil
+			return &xio.Opened{Stream: wrapped, Label: datagramLabel(exactPeer, raddr)}, nil
 		}
 		if berr == nil {
 			berr = fmt.Errorf("all ports in use")
@@ -110,13 +111,13 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		_ = c.Close()
 		return nil, err
 	}
-	st := &udpDatagramConn{UDPConn: c, raddr: raddr, g: g, wantCtrl: xio.NeedAncillary(s)}
+	st := newUDPDatagramConn(c, raddr, s, g, exactPeer)
 	wrapped, err := xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(c)
 		return nil, err
 	}
-	return &xio.Opened{Stream: wrapped, Label: "UDP-DATAGRAM:" + raddr.String()}, nil
+	return &xio.Opened{Stream: wrapped, Label: datagramLabel(exactPeer, raddr)}, nil
 }
 
 func udpListenConfig(s parse.Spec) net.ListenConfig {
@@ -156,23 +157,107 @@ func laddrString(network string, laddr *net.UDPAddr) string {
 	return laddr.String()
 }
 
-// udpDatagramConn writes always to raddr; reads from anyone (optional filter later).
+// udpDatagramConn writes always to raddr.
+// SENDTO (exactPeer) accepts only the configured peer (classic XIODATA_RECVFROM
+// in xioread.c / tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba).
+// DATAGRAM accepts any sender by default and applies xiocheckpeer filters
+// (range, tcpwrap, lowport; sourceport means dest-port, xio-udp.c).
 type udpDatagramConn struct {
 	*net.UDPConn
-	raddr    *net.UDPAddr
-	g        *xio.Global
-	wantCtrl bool
+	raddr     *net.UDPAddr
+	spec      parse.Spec
+	g         *xio.Global
+	wantCtrl  bool
+	exactPeer bool
+}
+
+func newUDPDatagramConn(c *net.UDPConn, raddr *net.UDPAddr, s parse.Spec, g *xio.Global, exactPeer bool) *udpDatagramConn {
+	return &udpDatagramConn{
+		UDPConn:   c,
+		raddr:     raddr,
+		spec:      s,
+		g:         g,
+		wantCtrl:  xio.NeedAncillary(s),
+		exactPeer: exactPeer,
+	}
+}
+
+func datagramLabel(exactPeer bool, raddr *net.UDPAddr) string {
+	kind := "UDP-DATAGRAM"
+	if exactPeer {
+		kind = "UDP-SENDTO"
+	}
+	return kind + ":" + raddr.String()
 }
 
 func (u *udpDatagramConn) Read(p []byte) (int, error) {
-	n, oob, _, err := xio.ReadUDPMsg(u.UDPConn, p, u.wantCtrl)
-	if err != nil {
-		return n, err
+	for {
+		n, oob, addr, err := xio.ReadUDPMsg(u.UDPConn, p, u.wantCtrl)
+		if err != nil {
+			return n, err
+		}
+		if err := u.checkPeer(addr); err != nil {
+			if u.g != nil && u.g.Log != nil {
+				u.g.Log.Noticef("%s", err)
+			}
+			continue
+		}
+		if u.wantCtrl {
+			xio.ProcessAncillary(oob, u.g)
+		}
+		return n, nil
 	}
-	if u.wantCtrl {
-		xio.ProcessAncillary(oob, u.g)
+}
+
+func (u *udpDatagramConn) checkPeer(addr *net.UDPAddr) error {
+	if u.exactPeer {
+		if !udpAddrIsPeer(addr, u.raddr) {
+			return fmt.Errorf("recvfrom(): wrong peer address, ignoring packet")
+		}
+		return nil
 	}
-	return n, nil
+	// Classic xioopen_udp_datagram: if OPT_SOURCEPORT is present, overwrite
+	// the filter port with peersa (the configured destination) and set
+	// dosourceport. Local bind still uses sourceport in this port's opener.
+	if u.spec.HasOption("sourceport") {
+		if addr == nil || u.raddr == nil || addr.Port != u.raddr.Port {
+			return fmt.Errorf("refusing connection from %s, sourceport mismatch", addr)
+		}
+	}
+	return xio.PeerAllowedG(specWithoutSourceport(u.spec), &udpPeerConn{addr: addr}, u.g)
+}
+
+func udpAddrIsPeer(got, want *net.UDPAddr) bool {
+	if got == nil || want == nil {
+		return false
+	}
+	if got.Port != want.Port {
+		return false
+	}
+	gi, wi := got.IP, want.IP
+	if len(gi) == 0 {
+		gi = net.IPv4zero
+	}
+	if len(wi) == 0 {
+		wi = net.IPv4zero
+	}
+	return gi.Equal(wi)
+}
+
+func specWithoutSourceport(s parse.Spec) parse.Spec {
+	if !s.HasOption("sourceport") {
+		return s
+	}
+	opts := make([]parse.Option, 0, len(s.Options))
+	for _, o := range s.Options {
+		name := strings.ToLower(o.Name)
+		if name == "sourceport" || name == "sp" {
+			continue
+		}
+		opts = append(opts, o)
+	}
+	s.Options = opts
+	return s
 }
 
 func (u *udpDatagramConn) Write(p []byte) (int, error) {
