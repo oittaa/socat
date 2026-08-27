@@ -81,6 +81,83 @@ func startProcess(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmdSt
 	return startCmd(ctx, s, mode, g, cmd)
 }
 
+// applyExecChildOptions applies classic dash/login (GROUP_EXEC, PH_PREEXEC)
+// and setpgid/pgid (GROUP_FORK, PH_LATE) on the child *exec.Cmd only.
+//
+// Classic baselines: tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba
+// and official master af5388c898c7bb60997935aee93c223deba60c4a.
+//
+// dash (xio-exec.c): basename of argv[0], then prefix '-' when the bool is
+// set; execvp still uses the original path. login is the nickname. GROUP_EXEC
+// is also on SYSTEM and SHELL, so parse accepts the option there, but only
+// xioopen_exec consumes it. SYSTEM/SHELL leave it unused and abort with
+// "option(s) remained unused" (xio-system.c / xio-shell.c). This port rejects
+// dash/login on SYSTEM/SHELL instead of turning them into login shells.
+//
+// setpgid (xio-process.c / xioopts.c OPT_SETPGID): PH_LATE on the child.
+// TYPE_INT: bare flag stores 1. Official doc/socat.yo OPTION_SETPGID says
+// omitted, 0, and 1 all make the process leader of a new process group. C
+// calls setpgid(0, value); on Linux setpgid(0, 1) is EPERM and classic
+// Warn()s then continues without a new group. Go SysProcAttr.Setpgid turns
+// that into a hard Start failure, so omitted/0/1 map to Pgid=0 (new group).
+func applyExecChildOptions(s parse.Spec, cmd *exec.Cmd) error {
+	if err := applyDashArgv0(s, cmd); err != nil {
+		return err
+	}
+	return applySetpgid(s, cmd)
+}
+
+func applyDashArgv0(s parse.Spec, cmd *exec.Cmd) error {
+	o, ok := s.OptionNamed("dash")
+	if !ok {
+		return nil
+	}
+	if !strings.EqualFold(s.Type, "EXEC") {
+		return fmt.Errorf("%s: unused on %s (classic EXEC only)", o.OriginalSpelling(), s.Type)
+	}
+	if !s.BoolOption("dash") {
+		return nil
+	}
+	if cmd == nil || len(cmd.Args) == 0 {
+		return fmt.Errorf("dash: no argv to rewrite")
+	}
+	base := filepath.Base(cmd.Args[0])
+	if base == "." || base == "/" {
+		base = cmd.Args[0]
+	}
+	if !strings.HasPrefix(base, "-") {
+		cmd.Args[0] = "-" + base
+	}
+	return nil
+}
+
+func applySetpgid(s parse.Spec, cmd *exec.Cmd) error {
+	o, ok := s.OptionNamed("setpgid")
+	if !ok {
+		return nil
+	}
+	n := 1 // classic TYPE_INT with no '=': parseopts_table stores 1
+	if o.Has {
+		v, err := ParseIntAny(o.Value)
+		if err != nil {
+			return fmt.Errorf("%s: invalid value %q", o.OriginalSpelling(), o.Value)
+		}
+		n = v
+	}
+	// Man page: omitted, 0, and 1 → new process group. Go Pgid=0 is
+	// setpgid(0, 0). Do not pass Pgid=1: Linux setpgid(0, 1) is EPERM.
+	pgid := n
+	if n == 0 || n == 1 {
+		pgid = 0
+	}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setpgid = true
+	cmd.SysProcAttr.Pgid = pgid
+	return nil
+}
+
 // splitExecArgs splits an EXEC command line like classic nestlex/argv:
 // unquoted runs of spaces separate args (no empty args from bare spaces);
 // double-quoted segments keep spaces and may be empty ("" → empty arg);
@@ -153,6 +230,9 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 			cmd.SysProcAttr = &syscall.SysProcAttr{}
 		}
 		cmd.SysProcAttr.Setsid = true
+	}
+	if err := applyExecChildOptions(s, cmd); err != nil {
+		return err
 	}
 	// Classic nofork FD wiring (xio-progcall !withfork):
 	//   RDWR:  stdin=peer.R, stdout=peer.W  (STDIO: 0 and 1; socket: same FD twice)
@@ -375,6 +455,9 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 			cmd.SysProcAttr = &syscall.SysProcAttr{}
 		}
 		cmd.SysProcAttr.Setsid = true
+	}
+	if err := applyExecChildOptions(s, cmd); err != nil {
+		return nil, err
 	}
 
 	// Inject classic SOCAT_* connection environment for SYSTEM/EXEC children.
