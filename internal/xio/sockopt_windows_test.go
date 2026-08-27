@@ -334,20 +334,22 @@ func TestNamedTCPUnsupportedWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
-	spec, err := parse.ParseSpec("TCP-LISTEN:1,tcp-cork")
-	if err != nil {
-		t.Fatal(err)
-	}
 	raw, err := c.SyscallConn()
 	if err != nil {
 		t.Fatal(err)
 	}
-	var optionErr error
-	controlErr := raw.Control(func(fd uintptr) {
-		optionErr = ApplySocketOptions(int(fd), spec)
-	})
-	if err := errors.Join(controlErr, optionErr); err == nil || !strings.Contains(err.Error(), "not supported") {
-		t.Fatalf("error=%v want not supported", err)
+	for _, opt := range []string{"tcp-cork", "sctp-nodelay", "sctp-maxseg=1400"} {
+		spec, err := parse.ParseSpec("TCP-LISTEN:1," + opt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var optionErr error
+		controlErr := raw.Control(func(fd uintptr) {
+			optionErr = ApplySocketOptions(int(fd), spec)
+		})
+		if err := errors.Join(controlErr, optionErr); err == nil || !strings.Contains(err.Error(), "not supported") {
+			t.Fatalf("%s error=%v want not supported", opt, err)
+		}
 	}
 }
 

@@ -25,6 +25,8 @@ func socketOptionGroups() []helpOptGroup {
 			{name: "tcp-quickack", desc: "TCP_QUICKACK (Linux)", aliases: []string{"quickack"}, addressTypes: tcpStreamAddressTypes()},
 			{name: "tcp-syncnt", desc: "TCP_SYNCNT SYN retries (Linux)", aliases: []string{"syncnt"}, addressTypes: tcpStreamAddressTypes()},
 			{name: "tcp-window-clamp", desc: "TCP_WINDOW_CLAMP advertised window (Linux)", aliases: []string{"window-clamp"}, addressTypes: tcpStreamAddressTypes()},
+			{name: "sctp-nodelay", desc: "SCTP_NODELAY (Linux)", implementationGroups: []string{xio.GroupSCTP}},
+			{name: "sctp-maxseg", desc: "SCTP_MAXSEG after socket (PH_PASTSOCKET)", implementationGroups: []string{xio.GroupSCTP}},
 			{name: "ip-add-membership", desc: "IPv4 multicast join (IP_ADD_MEMBERSHIP)", aliases: []string{"add-membership", "ip-membership", "membership"}, validate: validateRequiredString},
 			{name: "ipv6-join-group", desc: "IPv6 multicast join (IPV6_JOIN_GROUP)", aliases: []string{"ipv6-add-membership", "join-group"}, validate: validateRequiredString},
 			{name: "ip-multicast-if", desc: "IPv4 multicast interface (IP_MULTICAST_IF)", aliases: []string{"multicast-if"}, validate: validateRequiredString},

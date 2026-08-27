@@ -145,6 +145,7 @@ var dynamicallyReadOptions = map[string]string{
 	"tcp-quickack": "xio/sockopt_named.go", "quickack": "xio/sockopt_named.go",
 	"tcp-syncnt": "xio/sockopt_named.go", "syncnt": "xio/sockopt_named.go",
 	"tcp-window-clamp": "xio/sockopt_named.go", "window-clamp": "xio/sockopt_named.go",
+	"sctp-nodelay": "xio/sockopt_named.go", "sctp-maxseg": "xio/sockopt_named.go",
 }
 
 // compatNoOptions are advertised deliberately as classic-compat spellings

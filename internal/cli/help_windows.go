@@ -32,6 +32,7 @@ func hideOpt(name string) bool {
 		"bindtodevice",
 		"tcp-cork", "tcp-defer-accept", "tcp-linger2", "tcp-maxseg",
 		"tcp-maxseg-late", "tcp-quickack", "tcp-syncnt", "tcp-window-clamp",
+		"sctp-nodelay", "sctp-maxseg",
 		"udplite-send-cscov", "udplite-recv-cscov":
 		return true
 	default:

@@ -11,7 +11,8 @@ func lookupNamedPastSocketInt(name string) (level, opt int, ok bool, err error) 
 	case "so-oobinline":
 		return solSocket, soOobinline, true, nil
 	case "tcp-cork", "tcp-defer-accept", "tcp-linger2", "tcp-maxseg",
-		"tcp-quickack", "tcp-syncnt", "tcp-window-clamp":
+		"tcp-quickack", "tcp-syncnt", "tcp-window-clamp",
+		"sctp-nodelay", "sctp-maxseg":
 		return 0, 0, true, errNamedOptUnsupported
 	default:
 		return 0, 0, false, nil

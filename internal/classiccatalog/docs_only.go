@@ -159,4 +159,6 @@ var GoOnlyHelpAllowlist = map[string]string{ // #nosec G101 -- option names and 
 	"tls-commonname":    "Go tls-* alias of commonname",
 	"tls-no-sni":        "Go tls-* alias of nosni / no-sni",
 	"tls-snihost":       "Go tls-* alias of snihost",
+	"sctp-maxseg":       "documented SCTP_MAXSEG; Linux reference -hhh omitted it (no SCTP_MAXSEG in that binary)",
+	"sctp-nodelay":      "documented SCTP_NODELAY; Linux reference -hhh omitted it (no SCTP_NODELAY in that binary)",
 }
