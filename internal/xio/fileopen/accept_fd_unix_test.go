@@ -332,6 +332,45 @@ func TestAcceptConnProbeUnsupported(t *testing.T) {
 	}
 }
 
+func TestRejectIfNotListeningUsesPeernameFallback(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	cli, err := net.DialTimeout("tcp4", ln.Addr().String(), 2*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cli.Close() })
+	srv, err := ln.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+	tc, ok := srv.(*net.TCPConn)
+	if !ok {
+		t.Fatalf("accepted %T", srv)
+	}
+	f, err := tc.File()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	cfd := dupOwnedFD(t, int(f.Fd()))
+	defer func() { _ = unix.Close(cfd) }()
+	err = rejectIfNotListening(cfd)
+	if err == nil || !strings.Contains(err.Error(), "connected") {
+		t.Fatalf("connected probe err=%v want connected", err)
+	}
+
+	lfd, _ := tcp4ListenOwned(t)
+	defer func() { _ = unix.Close(lfd) }()
+	if err := rejectIfNotListening(lfd); err != nil {
+		t.Fatalf("listener probe: %v", err)
+	}
+}
+
 func TestAcceptFDRejectsPipeUDPAndConnected(t *testing.T) {
 	r, w, err := os.Pipe()
 	if err != nil {

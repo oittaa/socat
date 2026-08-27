@@ -85,17 +85,8 @@ func fileListenerFromFD(fd int) (net.Listener, error) {
 	default:
 		return nil, fmt.Errorf("ACCEPT-FD:%d: unsupported socket type %d", fd, typ)
 	}
-	// Classic _xioopen_accept_fd does not probe SO_ACCEPTCONN; it accept(2)s.
-	// Linux reports listening==0 for a connected socket. Darwin ExtraFiles
-	// TCP listeners often return ENOPROTOOPT ("protocol not available") for
-	// the probe (filan treats SO_ACCEPTCONN the same way). Skip only those
-	// "option unsupported" errors and let FileListener reject non-listeners.
-	listening, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ACCEPTCONN)
-	switch {
-	case err == nil && listening == 0:
-		return nil, fmt.Errorf("ACCEPT-FD:%d: socket is connected or not listening", fd)
-	case err != nil && !acceptConnProbeUnsupported(err):
-		return nil, fmt.Errorf("ACCEPT-FD:%d: %w", fd, err)
+	if err := rejectIfNotListening(fd); err != nil {
+		return nil, err
 	}
 
 	f := os.NewFile(uintptr(fd), fmt.Sprintf("accept-fd:%d", fd))
@@ -115,6 +106,34 @@ func acceptConnProbeUnsupported(err error) bool {
 		errors.Is(err, unix.EOPNOTSUPP) ||
 		errors.Is(err, unix.ENOTSUP) ||
 		errors.Is(err, unix.EPROTONOSUPPORT)
+}
+
+// rejectIfNotListening rejects a connected or never-listen()ed stream socket.
+//
+// Classic _xioopen_accept_fd does not probe SO_ACCEPTCONN; it accept(2)s.
+// Linux SO_ACCEPTCONN is 0 for a connected socket. Darwin ExtraFiles TCP
+// listeners often return ENOPROTOOPT for that probe (filan ignores it too).
+// On that path Darwin FileListener will still wrap a connected TCP fd, then
+// Accept returns EINVAL ("invalid argument"). A listener has no peer
+// (getpeername → ENOTCONN); a connected socket does.
+func rejectIfNotListening(fd int) error {
+	listening, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ACCEPTCONN)
+	switch {
+	case err == nil && listening == 0:
+		return fmt.Errorf("ACCEPT-FD:%d: socket is connected or not listening", fd)
+	case err == nil:
+		return nil
+	case !acceptConnProbeUnsupported(err):
+		return fmt.Errorf("ACCEPT-FD:%d: %w", fd, err)
+	}
+	_, err = unix.Getpeername(fd)
+	if err == nil {
+		return fmt.Errorf("ACCEPT-FD:%d: socket is connected or not listening", fd)
+	}
+	if errors.Is(err, unix.ENOTCONN) {
+		return nil
+	}
+	return fmt.Errorf("ACCEPT-FD:%d: %w", fd, err)
 }
 
 func applyAcceptFDAcceptedOpts(s parse.Spec, c net.Conn) error {
