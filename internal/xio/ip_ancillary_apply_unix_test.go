@@ -4,6 +4,7 @@ package xio
 
 import (
 	"bytes"
+	"errors"
 	"net"
 	"strings"
 	"sync"
@@ -492,6 +493,12 @@ func TestPastSocketMixedRecvSendCommandLineOrder(t *testing.T) {
 }
 
 func TestIPOptionsOccurrencesAppend(t *testing.T) {
+	// BSD kernels (including Darwin) reject IP_OPTIONS whose length is not a
+	// multiple of 4. x01000000 is IPOPT_NOP plus padding; Linux accepts it too.
+	const oneHex = "x01000000"
+	const twoHex = "x01010000"
+	probeIPOptionsAppend(t, oneHex)
+
 	listen := func(specText string) net.PacketConn {
 		t.Helper()
 		spec, err := parse.ParseSpec(specText)
@@ -506,17 +513,54 @@ func TestIPOptionsOccurrencesAppend(t *testing.T) {
 		t.Cleanup(func() { _ = pc.Close() })
 		return pc
 	}
-	gotOne := packetConnIPOptions(t, listen("UDP4:127.0.0.1:1,ip-options=x01"))
-	gotTwo := packetConnIPOptions(t, listen("UDP4:127.0.0.1:1,ip-options=x01,ip-options=x01"))
+	gotOne := packetConnIPOptions(t, listen("UDP4:127.0.0.1:1,ip-options="+oneHex))
+	gotTwo := packetConnIPOptions(t, listen("UDP4:127.0.0.1:1,ip-options="+oneHex+",ip-options="+oneHex))
 	if bytes.Equal(gotTwo, gotOne) {
 		t.Fatalf("IP_OPTIONS=%x after two occurrences equals a single occurrence; classic OFUNC_SOCKOPT_APPEND concatenates", gotTwo)
 	}
+	want := ipOptionsAppendWant(t, gotOne, oneHex)
+	if !bytes.Equal(gotTwo, want) {
+		t.Fatalf("IP_OPTIONS=%x want %x (classic getsockopt+append+setsockopt)", gotTwo, want)
+	}
+
+	gotAlias := packetConnIPOptions(t, listen("UDP4:127.0.0.1:1,ipoptions="+oneHex+",ip-options="+twoHex))
+	wantAlias := ipOptionsAppendWant(t, gotOne, twoHex)
+	if !bytes.Equal(gotAlias, wantAlias) {
+		t.Fatalf("alias mix IP_OPTIONS=%x want %x", gotAlias, wantAlias)
+	}
+}
+
+func probeIPOptionsAppend(t *testing.T, hexOpt string) {
+	t.Helper()
 	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = unix.Close(fd) })
-	combined := append(append([]byte{}, gotOne...), 0x01)
+	extra, err := ParseHexOpt(hexOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appendSockoptIPOptions(fd, extra); err != nil {
+		if errors.Is(err, unix.EINVAL) || errors.Is(err, unix.ENOPROTOOPT) {
+			t.Skipf("IP_OPTIONS not usable on this kernel/socket: %v", err)
+		}
+		t.Fatal(err)
+	}
+}
+
+func ipOptionsAppendWant(t *testing.T, existing []byte, hexOpt string) []byte {
+	t.Helper()
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	extra, err := ParseHexOpt(hexOpt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := append(append([]byte{}, existing...), extra...)
 	if len(combined) > maxIPOptions {
 		combined = combined[:maxIPOptions]
 	}
@@ -527,30 +571,7 @@ func TestIPOptionsOccurrencesAppend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(gotTwo, want) {
-		t.Fatalf("IP_OPTIONS=%x want %x (classic getsockopt+append+setsockopt)", gotTwo, want)
-	}
-
-	gotAlias := packetConnIPOptions(t, listen("UDP4:127.0.0.1:1,ipoptions=x01,ip-options=x02"))
-	fd2, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = unix.Close(fd2) })
-	combinedAlias := append(append([]byte{}, gotOne...), 0x02)
-	if len(combinedAlias) > maxIPOptions {
-		combinedAlias = combinedAlias[:maxIPOptions]
-	}
-	if err := unix.SetsockoptString(fd2, unix.IPPROTO_IP, unix.IP_OPTIONS, string(combinedAlias)); err != nil {
-		t.Fatal(err)
-	}
-	wantAlias, err := sockoptIPOptions(fd2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(gotAlias, wantAlias) {
-		t.Fatalf("alias mix IP_OPTIONS=%x want %x", gotAlias, wantAlias)
-	}
+	return want
 }
 
 func TestIPOptionsInvalidThenValidFails(t *testing.T) {
