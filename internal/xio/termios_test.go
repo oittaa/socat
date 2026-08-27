@@ -116,3 +116,50 @@ func TestParseWinsz(t *testing.T) {
 		t.Fatalf("%d %d %v", c, r, err)
 	}
 }
+
+func TestApplyTermiosCatalogAliases(t *testing.T) {
+	master, slave, err := OpenPTYPair()
+	if err != nil {
+		t.Skipf("pty: %v", err)
+	}
+	defer func() { _ = master.Close() }()
+	defer func() { _ = slave.Close() }()
+
+	s, err := parse.ParseSpec("PTY,crterase=0,termios-cfmakeraw")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyTermios(int(slave.Fd()), s); err != nil {
+		t.Fatal(err)
+	}
+	tio, err := getTermios(int(slave.Fd()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tio.Lflag&unix.ECHO != 0 {
+		t.Fatal("termios-cfmakeraw did not clear echo")
+	}
+
+	s, err = parse.ParseSpec("PTY,sane,echoe=1,crterase=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyTermios(int(slave.Fd()), s); err != nil {
+		t.Fatal(err)
+	}
+	tio, err = getTermios(int(slave.Fd()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tio.Lflag&unix.ECHOE != 0 {
+		t.Fatal("last-wins crterase=0 left ECHOE set")
+	}
+
+	s, err = parse.ParseSpec("PTY,hup,tandem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.BoolOption("hupcl") || !s.BoolOption("ixoff") {
+		t.Fatalf("hup/tandem did not fold: options=%v", s.Options)
+	}
+}

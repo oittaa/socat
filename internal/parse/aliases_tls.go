@@ -3,7 +3,10 @@ package parse
 func init() {
 	registerOptionAliases(map[string]string{
 		"proxyauth":          "proxy-authorization",
+		"proxy-auth":         "proxy-authorization",
 		"proxyauthfile":      "proxy-authorization-file",
+		"resolve":            "proxy-resolve",
+		"resolv":             "proxy-resolve",
 		"openssl-capath":     "capath",
 		"tls-capath":         "capath",
 		"openssl-commonname": "commonname",
