@@ -725,14 +725,15 @@ func TestApplyGenericSetsockoptAllPriorityAndSndbufOrderLinux(t *testing.T) {
 	}
 }
 
-func TestOpenSpecEXECSocketpairAppliesSOPriorityLinux(t *testing.T) {
+func assertOpenSpecEXECChildSOPriority(t *testing.T, specText string, mode Mode) {
+	t.Helper()
 	if !FeatureEXEC {
 		t.Skip("EXEC not enabled")
 	}
 	if _, err := os.Stat("/bin/true"); err != nil {
 		t.Skip("/bin/true not available")
 	}
-	spec, err := parse.ParseSpec("EXEC:/bin/true,so-priority=5")
+	spec, err := parse.ParseSpec(specText)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -744,7 +745,7 @@ func TestOpenSpecEXECSocketpairAppliesSOPriorityLinux(t *testing.T) {
 		}
 	})
 	t.Cleanup(restore)
-	o, err := OpenSpec(context.Background(), spec, ModeRDWR, &Global{Log: logx.New()})
+	o, err := OpenSpec(context.Background(), spec, mode, &Global{Log: logx.New()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -772,6 +773,30 @@ func TestOpenSpecEXECSocketpairAppliesSOPriorityLinux(t *testing.T) {
 	}
 }
 
+func TestOpenSpecEXECSocketpairAppliesSOPriorityLinux(t *testing.T) {
+	assertOpenSpecEXECChildSOPriority(t, "EXEC:/bin/true,so-priority=5", ModeRDWR)
+}
+
+func TestOpenSpecEXECClassicSocketpairAppliesSOPriorityLinux(t *testing.T) {
+	// Classic still uses socketpair (not pipes) for these; Go's internal
+	// pipe workaround must not leftover-reject PASTSOCKET.
+	tests := []struct {
+		name string
+		spec string
+		mode Mode
+	}{
+		{name: "end-close", spec: "EXEC:/bin/true,end-close,so-priority=5", mode: ModeRDWR},
+		{name: "fdin-fdout", spec: "EXEC:/bin/true,fdin=3,fdout=4,so-priority=5", mode: ModeRDWR},
+		{name: "implicit-read", spec: "EXEC:/bin/true,so-priority=5", mode: ModeRead},
+		{name: "implicit-write", spec: "EXEC:/bin/true,so-priority=5", mode: ModeWrite},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assertOpenSpecEXECChildSOPriority(t, tc.spec, tc.mode)
+		})
+	}
+}
+
 func TestOpenSpecEXECNonSocketpairRejectsPastSocketOptionsLinux(t *testing.T) {
 	if !FeatureEXEC {
 		t.Skip("EXEC not enabled")
@@ -786,10 +811,6 @@ func TestOpenSpecEXECNonSocketpairRejectsPastSocketOptionsLinux(t *testing.T) {
 		{name: "pipes-priority-alias", spec: "EXEC:/bin/true,pipes,priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "pty", spec: "EXEC:/bin/true,pty,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "nofork", spec: "EXEC:/bin/true,nofork,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
-		{name: "end-close", spec: "EXEC:/bin/true,end-close,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
-		{name: "fdin-fdout", spec: "EXEC:/bin/true,fdin=3,fdout=4,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
-		{name: "implicit-read", spec: "EXEC:/bin/true,so-priority=5", mode: ModeRead, optName: "so-priority"},
-		{name: "implicit-write", spec: "EXEC:/bin/true,so-priority=5", mode: ModeWrite, optName: "so-priority"},
 		{name: "system-pipes", spec: "SYSTEM:/bin/true,pipes,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "setsockopt-socket-pipes", spec: "EXEC:/bin/true,pipes,setsockopt-socket=1:12:1", mode: ModeRDWR, optName: "setsockopt-socket"},
 	}

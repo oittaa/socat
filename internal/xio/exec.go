@@ -420,12 +420,13 @@ func asOSFile(x any) *os.File {
 }
 
 // rejectUnusedExecPastSocketOptions fails when a PH_PASTSOCKET socket option
-// would be silently ignored on EXEC/SYSTEM/SHELL pipes, pty, or nofork.
-// Classic never applies PH_PASTSOCKET on those transports, then leftover
-// popts abort via showleft / leftopts (xioopts.c / xio-progcall.c /
-// xio-exec.c at tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
-// Canonical Name is classic defname after alias fold.
+// would be silently ignored on user-selected EXEC/SYSTEM/SHELL pipes, pty, or
+// nofork. Classic selects those non-socket transports only from those
+// options (xio-progcall.c usepipes/usepty/nofork at tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same), never from
+// unidirectional mode, fdin/fdout, or end-close. Leftover popts abort via
+// showleft / leftopts. Canonical Name is classic defname after alias fold.
 func rejectUnusedExecPastSocketOptions(s parse.Spec) error {
 	for _, o := range s.Options {
 		if isPastSocketActionOption(o) {
@@ -446,12 +447,22 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		return &Opened{Kind: KindExec, Label: "EXEC-nofork", NoForkSpec: &spec}, nil
 	}
 	cmd.Dir = s.OptionValue("chdir", "")
+	userPipes := s.BoolOption("pipes")
+	userPty := s.BoolOption("pty")
+	// Classic leftover-rejects PH_PASTSOCKET only when the user asked for
+	// pipes, pty, or nofork. Unidirectional mode, fdin/fdout, and end-close
+	// still use socketpair in classic (popts on sv[1]).
+	if userPipes || userPty {
+		if err := rejectUnusedExecPastSocketOptions(s); err != nil {
+			return nil, err
+		}
+	}
 	// Default: socketpair for full duplex; pipes when requested or unidirectional
 	// so unused direction can inherit process stdio (classic LISTENENV / single-exec).
-	usePipes := s.BoolOption("pipes") || mode == ModeRead || mode == ModeWrite
-	usePty := s.BoolOption("pty")
+	usePipes := userPipes || mode == ModeRead || mode == ModeWrite
+	usePty := userPty
 
-	// fdin/fdout: map socat's pipe ends onto child FDs via a shell exec redirect.
+	// fdin/fdout: map socat's pipe/socket ends onto child FDs via a shell exec redirect.
 	fdin := s.OptionValue("fdin", "")
 	fdout := s.OptionValue("fdout", "")
 	if err := validateProcessFDOptions(mode, fdin, fdout); err != nil {
@@ -475,22 +486,16 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	// end-close + shared LISTEN,fork: a single socketpair FD cannot be half-closed
 	// per session and poll deadlines on the shared FD race with later accepts.
 	// Separate pipes keep stdin/stdout independent (classic still works; our
-	// goroutine accept model needs this for EXECENDCLOSE). Compute this before
-	// leftover PASTSOCKET rejection so implicit pipes are not a silent no-op.
+	// goroutine accept model needs this for EXECENDCLOSE).
 	if s.BoolOption("end-close") && !usePipes {
 		usePipes = true
 	}
 
-	// Classic xio-progcall.c applies PH_PASTSOCKET only on the socketpair
-	// path (copts on sv[0], popts on sv[1]; tag-1.8.1.3
-	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-	// af5388c898c7bb60997935aee93c223deba60c4a is the same). pipes, pty,
-	// and nofork never consume GROUP_SOCKET PASTSOCKET options; leftover
-	// popts fail via showleft / leftopts ("option \"…\" not inquired").
-	if usePipes || usePty {
-		if err := rejectUnusedExecPastSocketOptions(s); err != nil {
-			return nil, err
-		}
+	// When PASTSOCKET options are present, use classic socketpair so they
+	// apply on the child endpoint instead of following the Go pipe
+	// workaround. Explicit pipes/pty already rejected leftover options.
+	if specHasPastSocketActionOption(s) && !userPipes && !userPty {
+		usePipes = false
 	}
 
 	if s.BoolOption("setsid") {
