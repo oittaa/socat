@@ -621,6 +621,64 @@ func TestVersionHasNAMESPACES(t *testing.T) {
 	}
 }
 
+func TestVersionHasUDPLITE(t *testing.T) {
+	skipUnlessLinux(t)
+	out := capabilityOutput(t, "-V")
+	if !bytes.Contains(out, []byte("#define WITH_UDPLITE 1")) {
+		t.Fatalf("missing WITH_UDPLITE 1:\n%s", out)
+	}
+	h := capabilityOutput(t, "-h")
+	if !bytes.Contains(h, []byte("UDPLITE4-")) {
+		t.Fatalf("help missing UDPLITE4-: %s", h)
+	}
+	hh := capabilityOutput(t, "-hh")
+	for _, opt := range []string{"udplite-send-cscov", "udplite-recv-cscov"} {
+		if !bytes.Contains(hh, []byte(" "+opt+" ")) {
+			t.Fatalf("help missing %s:\n%s", opt, hh)
+		}
+	}
+}
+
+func TestUDPLITE4Echo(t *testing.T) {
+	skipUnlessLinux(t)
+	bin := socatBin(t)
+	probe := exec.Command(bin, os.DevNull, "UDPLITE4-L:0,accept-timeout=0.05")
+	if err := probe.Run(); err != nil {
+		t.Skipf("kernel UDP-Lite not usable: %v", err)
+	}
+	port := freeUDPPort(t)
+	srv := exec.Command(bin, fmt.Sprintf("UDPLITE4-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1", port), "PIPE")
+	var stderr bytes.Buffer
+	srv.Stderr = &stderr
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = srv.Process.Kill()
+		_, _ = srv.Process.Wait()
+	}()
+	time.Sleep(150 * time.Millisecond)
+
+	payload := fmt.Sprintf("test UDPLITE4 %d\n", time.Now().UnixNano())
+	pr, pw := io.Pipe()
+	go func() {
+		_, _ = io.WriteString(pw, payload)
+		time.Sleep(400 * time.Millisecond)
+		_ = pw.Close()
+	}()
+	cli := exec.Command(bin, "-", fmt.Sprintf("UDPLITE4:127.0.0.1:%d", port))
+	cli.Stdin = pr
+	var out, errb bytes.Buffer
+	cli.Stdout = &out
+	cli.Stderr = &errb
+	if err := cli.Run(); err != nil {
+		t.Fatalf("client: %v server=%s client=%s", err, stderr.String(), errb.String())
+	}
+	if !bytes.Contains(out.Bytes(), []byte(strings.TrimSpace(payload))) && !bytes.Contains(out.Bytes(), []byte(payload)) {
+		t.Fatalf("echo mismatch out=%q server=%s client=%s", out.Bytes(), stderr.String(), errb.String())
+	}
+}
+
 func TestVersionHasSCTP(t *testing.T) {
 	skipUnlessLinux(t)
 	out := capabilityOutput(t, "-V")

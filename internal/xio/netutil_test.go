@@ -255,6 +255,9 @@ func TestReuseaddrListenDefault(t *testing.T) {
 		{name: "udp6-listen", spec: "UDP4-LISTEN:1", network: "udp6"},
 		{name: "udp-listen-fork", spec: "UDP4-LISTEN:1,fork", network: "udp4", want: true},
 		{name: "udp-l-alias-fork", spec: "UDP-L:1,fork", network: "udp4", want: true},
+		{name: "udplite-listen-fork", spec: "UDPLITE4-LISTEN:1,fork", network: "udp4", want: true},
+		{name: "udplite-l-alias-fork", spec: "UDPLITE-L:1,fork", network: "udp4", want: true},
+		{name: "udplite-listen", spec: "UDPLITE4-LISTEN:1", network: "udp4"},
 		{name: "udp4-l-alias-fork", spec: "UDP4-L:1,fork", network: "udp4", want: true},
 		{name: "udp6-l-alias-fork", spec: "UDP6-L:1,fork", network: "udp6", want: true},
 		// Default is on because of fork; ApplyReuse still honors reuseaddr=0.
@@ -286,6 +289,8 @@ func TestUDPForkPortReuse(t *testing.T) {
 	}{
 		{name: "udp-listen-fork", spec: "UDP4-LISTEN:1,fork", want: true},
 		{name: "udp-l-alias-fork", spec: "UDP-L:1,fork", want: true},
+		{name: "udplite-listen-fork", spec: "UDPLITE4-LISTEN:1,fork", want: true},
+		{name: "udplite-l-alias-fork", spec: "UDPLITE-L:1,fork", want: true},
 		{name: "udp-listen-fork-reuseaddr", spec: "UDP4-LISTEN:1,fork,reuseaddr", want: true},
 		{name: "udp-listen-fork-reuseaddr-0", spec: "UDP4-LISTEN:1,fork,reuseaddr=0"},
 		{name: "udp-listen", spec: "UDP4-LISTEN:1"},

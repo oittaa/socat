@@ -42,10 +42,7 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		}
 		conn, err = dialUDPLowport(ctx, network, bind, addr, s, g)
 	} else {
-		d := net.Dialer{
-			Timeout: xio.ConnectTimeout(s),
-			Control: xio.DialControl(s, network, nil),
-		}
+		var laddr net.Addr
 		if bind != "" || sp != "" {
 			bind, err = xio.ListenBindHost(network, bind)
 			if err != nil {
@@ -58,9 +55,9 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 			if resolveErr != nil {
 				return nil, resolveErr
 			}
-			d.LocalAddr = ba
+			laddr = ba
 		}
-		conn, err = d.DialContext(ctx, network, addr)
+		conn, err = dialUDPForSpec(ctx, network, laddr, addr, s, nil, xio.ConnectTimeout(s))
 	}
 	if err != nil {
 		return nil, err
@@ -93,12 +90,7 @@ func dialUDPLowport(ctx context.Context, network, bind, remote string, s parse.S
 		if err != nil {
 			return err
 		}
-		d := net.Dialer{
-			Timeout:   xio.ConnectTimeout(s),
-			LocalAddr: laddr,
-			Control:   xio.DialControl(s, network, nil),
-		}
-		conn, err = d.DialContext(ctx, network, remote)
+		conn, err = dialUDPForSpec(ctx, network, laddr, remote, s, nil, xio.ConnectTimeout(s))
 		return err
 	})
 	if err != nil {

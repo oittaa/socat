@@ -95,8 +95,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 			return nil, err
 		}
 	}
-	cfg := udpListenConfig(s)
-	pc, err := cfg.ListenPacket(ctx, network, laddrString(network, laddr))
+	pc, err := listenPacketForSpec(ctx, network, laddrString(network, laddr), s)
 	if err != nil {
 		return nil, err
 	}
@@ -193,8 +192,7 @@ func bindUDPLowport(ctx context.Context, network, bind string, s parse.Spec, g *
 		if err != nil {
 			return err
 		}
-		cfg := udpListenConfig(s)
-		pc, err := cfg.ListenPacket(ctx, network, addr.String())
+		pc, err := listenPacketForSpec(ctx, network, addr.String(), s)
 		if err != nil {
 			return err
 		}
@@ -235,7 +233,7 @@ func openUDP6Recvfrom(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 
 func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, network string, recvfrom bool) (*xio.Opened, error) {
 	if len(s.Params) < 1 || s.Params[0] == "" {
-		return nil, fmt.Errorf("UDP-RECV requires port")
+		return nil, fmt.Errorf("%s requires port", s.Type)
 	}
 	port := s.Params[0]
 	host, err := xio.ListenBindHost(network, s.OptionValue("bind", ""))
@@ -409,10 +407,7 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 	// PH_PASTSOCKET then PH_PREBIND run in Control after socket() and before
 	// bind() (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
 	// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
-	cfg := net.ListenConfig{
-		Control: udpListenControl(s),
-	}
-	pc, err := cfg.ListenPacket(context.Background(), network, laddr.String())
+	pc, err := listenPacketForSpec(context.Background(), network, laddr.String(), s)
 	if err != nil {
 		return nil, err
 	}

@@ -137,6 +137,12 @@ func TestClassicAllowsOption(t *testing.T) {
 		{"UDP4", "ip-multicast-ttl", true},
 		{"TCP", "ip-freebind", true},
 		{"TCP", "ip-transparent", true},
+		{"UDPLITE-CONNECT", "udplite-send-cscov", true},
+		{"UDPLITE-CONNECT", "udplite-recv-cscov", true},
+		{"UDPLITE-LISTEN", "udplite-send-cscov", true},
+		{"UDPLITE4-RECVFROM", "udplite-recv-cscov", true},
+		{"TCP-CONNECT", "udplite-send-cscov", false},
+		{"UDP-CONNECT", "udplite-send-cscov", false},
 	}
 	for _, tc := range cases {
 		got := ClassicAllowsOption(tc.addr, tc.opt)

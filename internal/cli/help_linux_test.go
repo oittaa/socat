@@ -52,6 +52,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"f-setlk", "lock", "bytes", "crlf", "cd", "sid", "close", "maxchildren",
 		"intervall", "ipv6only", "v6only", "termios-cfmakeraw", "crterase",
 		"tun-no-pi", "multicast", "proxy-auth", "resolv",
+		"udplite-send-cscov", "udplite-recv-cscov",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)
@@ -68,6 +69,12 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 	for _, addr := range []string{
 		"VSOCK-CONNECT:<cid>:<port>",
 		"VSOCK-LISTEN:<port>",
+		"UDPLITE4-LISTEN:<port>",
+		"UDPLITE4:<host>:<port>",
+		"UDPLITE4-SENDTO:<host>:<port>",
+		"UDPLITE4-DATAGRAM:<host>:<port>",
+		"UDPLITE4-RECV:<port>",
+		"UDPLITE4-RECVFROM:<port>",
 	} {
 		if !strings.Contains(help, addr) {
 			t.Errorf("help missing %q", addr)
