@@ -541,7 +541,10 @@ func probeIPOptionsAppend(t *testing.T, hexOpt string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := appendSockoptIPOptions(fd, extra); err != nil {
+	// Probe the kernel directly. Calling appendSockoptIPOptions here would
+	// make a defect in the helper under test look like an unsupported kernel
+	// and incorrectly skip the regression test.
+	if err := unix.SetsockoptString(fd, unix.IPPROTO_IP, unix.IP_OPTIONS, string(extra)); err != nil {
 		if errors.Is(err, unix.EINVAL) || errors.Is(err, unix.ENOPROTOOPT) {
 			t.Skipf("IP_OPTIONS not usable on this kernel/socket: %v", err)
 		}

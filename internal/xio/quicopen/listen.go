@@ -7,6 +7,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/quic-go/quic-go"
 
@@ -15,6 +16,10 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
+
+// quicHandshakeIdleTimeoutDisabled aliases the shared mapping used by
+// PROXY HTTP/3 and QUIC. See xio.QUICHandshakeIdleTimeoutDisabled.
+const quicHandshakeIdleTimeoutDisabled = xio.QUICHandshakeIdleTimeoutDisabled
 
 func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	_, port, err := quicTarget(s, true)
@@ -66,21 +71,35 @@ type quicSetup struct {
 	cfg *quic.Config
 }
 
+func quicHandshakeIdleTimeout(s parse.Spec) time.Duration {
+	return xio.QUICHandshakeIdleTimeout(s)
+}
+
 func quicConfig(s parse.Spec, tlsCfg *tls.Config) (quicSetup, error) {
 	quicTLS, err := withALPN(tlsCfg, s)
 	if err != nil {
 		return quicSetup{}, err
 	}
-	cfg := &quic.Config{}
-	if t := xio.ConnectTimeout(s); t > 0 {
-		cfg.HandshakeIdleTimeout = t
-	}
+	// HandshakeIdleTimeout is the Go handshake-timeout extra. Classic
+	// OPTION_CONNECT_TIMEOUT (tag-1.8.1.3 12c08bf) aborts a connection
+	// attempt only; it must not be reused as the QUIC handshake idle bound.
+	// handshake-timeout=0 is mapped through quicHandshakeIdleTimeout so
+	// quic-go does not treat 0 as its 5s default.
+	cfg := &quic.Config{HandshakeIdleTimeout: quicHandshakeIdleTimeout(s)}
 	return quicSetup{tls: quicTLS, cfg: cfg}, nil
 }
 
 func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.PacketConn, error) {
 	// ListenControl applies PH_PASTSOCKET send-side IP options once, after
 	// socket() and before bind. Do not call ApplyIPSendOptsToPacketConn here.
+	// connect-timeout bounds this local UDP bind. It is not a substitute
+	// for bounding remote QUIC establishment; the client also applies it
+	// to Transport.Dial (see quicDialAttemptTimeout).
+	if t := xio.ConnectTimeout(s); t > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, t)
+		defer cancel()
+	}
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	pc, err := lc.ListenPacket(ctx, network, addr)
 	if err != nil {

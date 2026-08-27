@@ -352,21 +352,25 @@ func dialUDPSession(network string, local, remote *net.UDPAddr, s parse.Spec) (*
 	// SO_REUSEADDR so we can bind the same local port as the parent listener.
 	// Skip when reuseaddr=0: classic applies the explicit zero and does not
 	// enable SO_REUSEPORT for parent/child sharing.
+	reuseControl := func(_ string, _ string, c syscall.RawConn) error {
+		var optionErr error
+		controlErr := c.Control(func(fd uintptr) {
+			if !xio.UDPForkPortReuse(s) {
+				return
+			}
+			optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+			if optionErr == nil {
+				optionErr = enableUDPForkPortReuse(int(fd))
+			}
+		})
+		return errors.Join(controlErr, optionErr)
+	}
 	d := net.Dialer{
 		LocalAddr: local,
-		Control: func(network, address string, c syscall.RawConn) error {
-			var optionErr error
-			controlErr := c.Control(func(fd uintptr) {
-				if !xio.UDPForkPortReuse(s) {
-					return
-				}
-				optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-				if optionErr == nil {
-					optionErr = enableUDPForkPortReuse(int(fd))
-				}
-			})
-			return errors.Join(controlErr, optionErr)
-		},
+		// The child is a new socket, not the parent listener fd. Apply every
+		// PH_PASTSOCKET option again on this fd before bind/connect, then the
+		// fork-specific PREBIND reuse flags.
+		Control: xio.DialControl(s, network, reuseControl),
 	}
 	c, err := d.Dial(network, remote.String())
 	if err != nil {

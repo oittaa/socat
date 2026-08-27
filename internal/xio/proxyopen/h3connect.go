@@ -71,37 +71,50 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 	}
 	tlsCfg.NextProtos = []string{proxyALPN(s, http3.NextProtoH3)}
 
-	pc, network, err := listenH3Packet(ctx, s, g, t.proxyHost)
-	if err != nil {
-		return nil, err
-	}
-	if h := testHookH3PacketConn; h != nil {
-		h(pc)
-	}
-	qtr := &quic.Transport{Conn: pc}
-	tr := &http3.Transport{
-		TLSClientConfig: tlsCfg,
-		Dial: func(dctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
-			raddr, e := net.ResolveUDPAddr(network, addr)
-			if e != nil {
-				return nil, e
-			}
-			return qtr.Dial(dctx, raddr, tlsCfg, cfg)
-		},
-	}
-	closeH3 := func() error {
-		_ = tr.Close()
-		_ = qtr.Close()
-		return pc.Close()
-	}
-
 	u := "https://" + net.JoinHostPort(xio.StripBrackets(t.proxyHost), t.proxyPort) + "/"
 	authority := net.JoinHostPort(t.connectHost, t.targetPort)
+	attemptTimeout := xio.CombinedConnectHandshakeTimeout(s)
+	idle := xio.QUICHandshakeIdleTimeout(s)
 
 	var conn net.Conn
 	err = xio.WithRetry(ctx, s, g, "PROXY-CONNECT", func() error {
+		cctx, stopTimer, cancelHandshake := proxyHandshakeContext(ctx, attemptTimeout)
+		pc, network, e := listenH3Packet(cctx, s, g, t.proxyHost)
+		if e != nil {
+			stopTimer()
+			cancelHandshake()
+			return e
+		}
+		if h := testHookH3PacketConn; h != nil {
+			h(pc)
+		}
+		qtr := &quic.Transport{Conn: pc}
+		tr := &http3.Transport{
+			TLSClientConfig: tlsCfg.Clone(),
+			QUICConfig:      &quic.Config{HandshakeIdleTimeout: idle},
+			Dial: func(dctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
+				raddr, resolveErr := net.ResolveUDPAddr(network, addr)
+				if resolveErr != nil {
+					return nil, resolveErr
+				}
+				return qtr.Dial(dctx, raddr, tlsCfg, cfg)
+			},
+		}
+		closeH3 := func() error {
+			_ = tr.Close()
+			_ = qtr.Close()
+			return pc.Close()
+		}
+		success := false
+		defer func() {
+			if !success {
+				stopTimer()
+				cancelHandshake()
+				_ = closeH3()
+			}
+		}()
 		pr, pw := io.Pipe()
-		req, e := http.NewRequestWithContext(ctx, http.MethodConnect, u, pr)
+		req, e := http.NewRequestWithContext(cctx, http.MethodConnect, u, pr)
 		if e != nil {
 			_ = pw.Close()
 			return e
@@ -124,17 +137,23 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 			_ = resp.Body.Close()
 			return fmt.Errorf("proxy CONNECT failed: %s", resp.Status)
 		}
+		if e := finishCONNECTHandshake(cctx, stopTimer, pw, resp); e != nil {
+			return e
+		}
+		success = true
 		conn = &pipeConn{
 			r:      resp.Body,
 			w:      pw,
 			local:  staticAddr("h3", u),
 			remote: staticAddr("h3", authority),
-			extra:  []io.Closer{closerFunc(closeH3)},
+			extra: []io.Closer{closerFunc(func() error {
+				cancelHandshake()
+				return closeH3()
+			})},
 		}
 		return nil
 	})
 	if err != nil {
-		_ = closeH3()
 		return nil, err
 	}
 	return conn, nil

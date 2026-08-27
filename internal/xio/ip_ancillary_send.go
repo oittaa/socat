@@ -1,12 +1,15 @@
 package xio
 
 import (
-	"encoding/hex"
 	"fmt"
 	"strings"
 
 	"github.com/oittaa/socat/internal/parse"
 )
+
+// Classic parseopts_table uses a 256-byte buffer for TYPE_BIN, and
+// OFUNC_SOCKOPT_APPEND uses the same limit for the accumulated IP_OPTIONS.
+const maxIPOptions = 256
 
 // ApplyIPSendOpts sets classic send-side IP options on an INET fd.
 // Production INET sockets apply send and recv IP/ancillary options together
@@ -161,14 +164,16 @@ func applyOneIPSendOpt(fd int, e IPAncillaryEntry, option parse.Option, family i
 	return nil
 }
 
-// ParseHexOpt decodes a classic ip-options= hex dump (optional x / 0x prefix).
+// ParseHexOpt parses classic ip-options= TYPE_BIN data. Classic dalan uses
+// default type 'i', so x0102 is two hex bytes while an unprefixed 1 is one
+// native C int; treating the leading x as optional silently changes values.
 func ParseHexOpt(v string) ([]byte, error) {
-	v = strings.TrimSpace(v)
-	if strings.HasPrefix(v, "x") || strings.HasPrefix(v, "X") {
-		v = v[1:]
+	data, _, err := ParseDalan(strings.TrimSpace(v), 'i')
+	if err != nil {
+		return nil, err
 	}
-	if strings.HasPrefix(v, "0x") || strings.HasPrefix(v, "0X") {
-		v = v[2:]
+	if len(data) > maxIPOptions {
+		return nil, fmt.Errorf("value exceeds %d bytes", maxIPOptions)
 	}
-	return hex.DecodeString(v)
+	return data, nil
 }

@@ -15,8 +15,6 @@ const (
 	ipOptTOS         = unix.IP_TOS
 	ipLevelIPv6      = unix.IPPROTO_IPV6
 	ipOptUnicastHops = unix.IPV6_UNICAST_HOPS
-	// classic applyopt_sockopt_append TYPE_BIN uses a 256-byte getsockopt buffer.
-	maxIPOptions = 256
 )
 
 func socketIPFamily(fd int) (ipFamily, error) {
