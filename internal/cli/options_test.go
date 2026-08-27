@@ -70,6 +70,8 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "vintr-on-stdio", spec: "STDIO,vintr=3", windowsErr: "not supported on this platform"},
 		{name: "sane-on-stdio", spec: "STDIO,sane", windowsErr: "not supported on this platform"},
 		{name: "intr-alias-on-stdio", spec: "STDIO,intr=3", windowsErr: "not supported on this platform"},
+		{name: "icanon-on-stdio", spec: "STDIO,icanon=0", windowsErr: "not supported on this platform"},
+		{name: "ispeed-on-stdio", spec: "STDIO,ispeed=9600", windowsErr: "not supported on this platform"},
 		{name: "pipes-on-tcp", spec: "TCP:localhost:1,pipes", wantErr: "not supported"},
 		{name: "fork-on-udp-connect", spec: "UDP:localhost:1,fork", wantErr: "not supported"},
 		{name: "fork-on-tcp-connect", spec: "TCP:localhost:1,fork"},
@@ -612,6 +614,18 @@ func TestValidateSpecOptionsUsesOriginalSpellingNotFoldedName(t *testing.T) {
 	err := validateSpecOptions(spec)
 	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("folded Name must not bypass spelling groups: %v", err)
+	}
+}
+
+func TestTermiosOptionsRecognizedWhenUnsupported(t *testing.T) {
+	if xio.FeatureTERMIOS {
+		t.Skip("termios is implemented on this platform")
+	}
+	table := buildSupportedAddressOptions()
+	for _, name := range []string{"vintr", "intr", "icanon", "ispeed", "ospeed", "b115200"} {
+		if _, ok := table[name]; !ok {
+			t.Errorf("option table missing %q on a platform without termios", name)
+		}
 	}
 }
 

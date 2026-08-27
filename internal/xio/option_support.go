@@ -1,6 +1,7 @@
 package xio
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -39,6 +40,23 @@ func ClassicOptionGroupsFor(optionName string) ([]string, bool) {
 		}
 	}
 	return nil, false
+}
+
+// ClassicTermiosOptionNames returns classic option spellings whose GROUP_* set
+// includes termios (tag-1.8.1.3 optionnames[] / xioopts.c). Used to recognize
+// TERMIOS options on platforms that reject them instead of applying termios.
+func ClassicTermiosOptionNames() []string {
+	var out []string
+	for name, groups := range ClassicOptionGroups {
+		for _, g := range groups {
+			if g == "termios" {
+				out = append(out, name)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ClassicAllowsOption reports whether classic socat 1.8.1.3 would accept

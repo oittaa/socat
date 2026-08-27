@@ -62,6 +62,17 @@ func buildSupportedAddressOptions() map[string]addressOption {
 	for _, name := range []string{"openssl-method", "opensslmethod"} {
 		options[name] = addressOption{addressGroups: tlsOptionAddressGroups()}
 	}
+	// GROUP_TERMIOS keywords are recognized where termios is unavailable
+	// (Windows) so validation can reject them with a precise error instead
+	// of "unknown option". They are not advertised: hideOptGroup omits the
+	// PTY/TERMIOS help section and TermiosHelpNames is empty there.
+	if !xio.FeatureTERMIOS {
+		for _, name := range xio.ClassicTermiosOptionNames() {
+			if _, ok := options[name]; !ok {
+				options[name] = addressOption{}
+			}
+		}
+	}
 	return options
 }
 
