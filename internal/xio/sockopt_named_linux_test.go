@@ -392,8 +392,13 @@ func TestApplySocketOptionsPriorityPasscredNocheckLinux(t *testing.T) {
 	// Classic xio-socket.c opt_so_priority / opt_so_passcred / opt_so_no_check
 	// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 	// af5388c898c7bb60997935aee93c223deba60c4a): GROUP_SOCKET, PH_PASTSOCKET,
-	// TYPE_INT, OFUNC_SOCKOPT, SOL_SOCKET. This kernel accepts all three on
-	// TCP, UDP, and UNIX.
+	// TYPE_INT, OFUNC_SOCKOPT, SOL_SOCKET.
+	//
+	// SO_PRIORITY and SO_NO_CHECK stick on AF_INET here. SO_PASSCRED is a
+	// UNIX-domain credential option: some kernels (GitHub Actions) return
+	// EOPNOTSUPP on TCP/UDP. Classic still applies it on GROUP_SOCKET and
+	// surfaces the kernel error; tests require success on UNIX and accept
+	// a precise ENOPROTOOPT/EOPNOTSUPP on INET (never a silent no-op).
 	for _, tc := range []struct {
 		name    string
 		network int
@@ -404,8 +409,6 @@ func TestApplySocketOptionsPriorityPasscredNocheckLinux(t *testing.T) {
 	}{
 		{name: "tcp-priority", network: unix.SOCK_STREAM, proto: 0, spec: "TCP:127.0.0.1:9,so-priority=6", opt: unix.SO_PRIORITY, want: 6},
 		{name: "udp-priority-alias", network: unix.SOCK_DGRAM, proto: unix.IPPROTO_UDP, spec: "UDP:127.0.0.1:9,priority=3", opt: unix.SO_PRIORITY, want: 3},
-		{name: "tcp-passcred", network: unix.SOCK_STREAM, proto: 0, spec: "TCP:127.0.0.1:9,so-passcred", opt: unix.SO_PASSCRED, want: 1},
-		{name: "udp-passcred-clear", network: unix.SOCK_DGRAM, proto: unix.IPPROTO_UDP, spec: "UDP:127.0.0.1:9,passcred=0", opt: unix.SO_PASSCRED, want: 0},
 		{name: "udp-nocheck", network: unix.SOCK_DGRAM, proto: unix.IPPROTO_UDP, spec: "UDP:127.0.0.1:9,nocheck", opt: unix.SO_NO_CHECK, want: 1},
 		{name: "tcp-no-check-alias", network: unix.SOCK_STREAM, proto: 0, spec: "TCP:127.0.0.1:9,no-check=1", opt: unix.SO_NO_CHECK, want: 1},
 	} {
@@ -432,23 +435,64 @@ func TestApplySocketOptionsPriorityPasscredNocheckLinux(t *testing.T) {
 		})
 	}
 
-	fd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = unix.Close(fd) })
-	spec, err := parse.ParseSpec("UNIX-CONNECT:/tmp/sock,so-passcred=1,so-priority=4")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplySocketOptions(fd, spec); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_PASSCRED); err != nil || got != 1 {
-		t.Fatalf("UNIX SO_PASSCRED=%d err=%v want 1", got, err)
-	}
-	if got, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_PRIORITY); err != nil || got != 4 {
-		t.Fatalf("UNIX SO_PRIORITY=%d err=%v want 4", got, err)
+	t.Run("unix-passcred-priority", func(t *testing.T) {
+		fd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = unix.Close(fd) })
+		spec, err := parse.ParseSpec("UNIX-CONNECT:/tmp/sock,so-passcred=1,so-priority=4")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ApplySocketOptions(fd, spec); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_PASSCRED); err != nil || got != 1 {
+			t.Fatalf("UNIX SO_PASSCRED=%d err=%v want 1", got, err)
+		}
+		if got, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_PRIORITY); err != nil || got != 4 {
+			t.Fatalf("UNIX SO_PRIORITY=%d err=%v want 4", got, err)
+		}
+	})
+}
+
+func TestApplySocketOptionsPasscredOnINETLinux(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		network int
+		proto   int
+		spec    string
+		want    int
+	}{
+		{name: "tcp-passcred", network: unix.SOCK_STREAM, proto: 0, spec: "TCP:127.0.0.1:9,so-passcred", want: 1},
+		{name: "udp-passcred-clear", network: unix.SOCK_DGRAM, proto: unix.IPPROTO_UDP, spec: "UDP:127.0.0.1:9,passcred=0", want: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fd, err := unix.Socket(unix.AF_INET, tc.network, tc.proto)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = unix.Close(fd) })
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = ApplySocketOptions(fd, spec)
+			if err != nil {
+				if errors.Is(err, unix.ENOPROTOOPT) || errors.Is(err, unix.EOPNOTSUPP) {
+					return
+				}
+				t.Fatal(err)
+			}
+			got, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_PASSCRED)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("getsockopt SO_PASSCRED=%d want %d", got, tc.want)
+			}
+		})
 	}
 }
 
