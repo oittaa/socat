@@ -14,6 +14,7 @@ import (
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
@@ -64,6 +65,9 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 		Label:       s.Type + ":" + u.Host + path,
 		Dial:        dialOnce,
 		RememberTLS: scheme == "wss",
+		Wrap: func(c net.Conn) (relay.Stream, error) {
+			return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
+		},
 	})
 }
 

@@ -66,6 +66,10 @@ func listenSCTP(_ context.Context, network, host, port string, s parse.Spec) (ne
 		_ = unix.Close(fd)
 		return nil, err
 	}
+	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhasePrebind); err != nil {
+		_ = unix.Close(fd)
+		return nil, err
+	}
 	if family == unix.AF_INET6 {
 		v6only := 1
 		if network == "sctp" {

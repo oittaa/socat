@@ -185,7 +185,10 @@ func applySocketOpts(fd int, s parse.Spec) error {
 	if err := xio.ApplyReuse(fd, s, false); err != nil {
 		return err
 	}
-	return xio.ApplySocketOptions(fd, s)
+	if err := xio.ApplySocketOptions(fd, s); err != nil {
+		return err
+	}
+	return xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhasePrebind)
 }
 
 func osNewFile(fd int, name string) *os.File {

@@ -427,13 +427,15 @@ func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 			return
 		}
 		optionErr = ApplyIPSendOpts(int(fd), s, network)
-		if optionErr == nil {
-			optionErr = ApplySocketOptions(int(fd), s)
-		}
 		// PH_LATE so-sndbuf-late / so-rcvbuf-late on the raw UDP fd after
 		// bind/connect, before packet-session wrapping (udpRecvFromConn).
+		// PH_PASTSOCKET (ApplySocketOptions / setsockopt-socket / broadcast)
+		// is applied in listen/dial Control before bind/connect.
 		if optionErr == nil {
 			optionErr = ApplyLateSocketOptions(int(fd), s)
+		}
+		if optionErr == nil {
+			optionErr = ApplyGenericSetsockopt(int(fd), s, SockoptPhaseConnected)
 		}
 	})
 	return errors.Join(controlErr, optionErr)

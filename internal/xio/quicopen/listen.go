@@ -107,6 +107,10 @@ func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
+	if err := xio.ApplyGenericSetsockoptToPacketConn(pc, s, xio.SockoptPhaseConnected); err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
 	return pc, nil
 }
 

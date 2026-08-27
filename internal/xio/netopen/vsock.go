@@ -7,7 +7,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
@@ -45,27 +44,12 @@ func openVSOCKConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Glob
 	}
 	timeout := xio.ConnectTimeout(s)
 
-	var setSockErr error
-	var control func(network, address string, c syscall.RawConn) error
-	if raw := s.OptionValue("setsockopt", ""); raw != "" {
-		control = func(network, address string, c syscall.RawConn) error {
-			return c.Control(func(fd uintptr) {
-				setSockErr = xio.ApplySetsockoptFD(int(fd), raw)
-			})
-		}
-	}
-
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := xio.WithRetry(dctx, s, g, "vsock connect", func() error {
-			setSockErr = nil
-			c, e := dialVSOCK(dctx, remote, s, g, timeout, control)
+			c, e := dialVSOCK(dctx, remote, s, g, timeout, nil)
 			if e != nil {
 				return e
-			}
-			if setSockErr != nil {
-				logx.CloseQuiet(c)
-				return setSockErr
 			}
 			conn = c
 			return nil

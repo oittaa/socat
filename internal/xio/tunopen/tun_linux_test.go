@@ -6,8 +6,10 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -15,6 +17,8 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
 )
+
+var _ syscall.Conn = (*packetRawStream)(nil)
 
 func TestHtons(t *testing.T) {
 	// ETH_P_ALL is 0x0003; sockaddr_ll.Protocol is network byte order.
@@ -161,5 +165,57 @@ func TestTUNOpenStaysAlive(t *testing.T) {
 		}
 	case <-time.After(200 * time.Millisecond):
 		// blocked in Read: the Go netpoller is not involved
+	}
+}
+
+func TestInterfaceSyscallConnAndConnectedOnceLinux(t *testing.T) {
+	spec, err := parse.ParseSpec(fmt.Sprintf("INTERFACE:lo,setsockopt-int=%d:%d:1", unix.SOL_SOCKET, unix.SO_KEEPALIVE))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	restore := xio.SetSockoptTestHook(func(c xio.SockoptCall) {
+		if c.Opt == unix.SO_KEEPALIVE {
+			n++
+		}
+	})
+	defer restore()
+	o, err := openINTERFACE(context.Background(), spec, xio.ModeRDWR, nil)
+	if err != nil {
+		if errors.Is(err, unix.EPERM) || errors.Is(err, unix.EACCES) {
+			t.Skip(err)
+		}
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	st, ok := o.Stream.(interface {
+		SyscallConn() (syscall.RawConn, error)
+	})
+	if !ok {
+		// WrapCommon may wrap the stream (timeouts, crnl, …).
+		if n != 1 {
+			t.Fatalf("SO_KEEPALIVE setsockopt count=%d want 1", n)
+		}
+		return
+	}
+	raw, err := st.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got int
+	var gerr error
+	if err := raw.Control(func(fd uintptr) {
+		got, gerr = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_KEEPALIVE)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	if got == 0 {
+		t.Fatalf("SO_KEEPALIVE=%d want enabled", got)
+	}
+	if n != 1 {
+		t.Fatalf("SO_KEEPALIVE setsockopt count=%d want 1", n)
 	}
 }

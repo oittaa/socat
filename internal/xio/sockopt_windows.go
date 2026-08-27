@@ -24,6 +24,7 @@ const (
 	soSndtimeo  = 0x1005
 	soSndbuf    = windows.SO_SNDBUF
 	soRcvbuf    = windows.SO_RCVBUF
+	soKeepalive = windows.SO_KEEPALIVE
 	soBroadcast = windows.SO_BROADCAST
 )
 
@@ -32,7 +33,23 @@ func isNotSocketError(err error) bool {
 }
 
 func setSockoptInt(fd, level, opt, value int) error {
+	recordSockoptInt(fd, level, opt, value)
 	return windows.SetsockoptInt(windows.Handle(fd), level, opt, value)
+}
+
+func setSockoptBytes(fd, level, opt int, value []byte) error {
+	recordSockoptBytes(fd, level, opt, value)
+	if level < math.MinInt32 || level > math.MaxInt32 || opt < math.MinInt32 || opt > math.MaxInt32 {
+		return fmt.Errorf("setsockopt: level or opt out of range")
+	}
+	if len(value) > math.MaxInt32 {
+		return fmt.Errorf("setsockopt: value too long")
+	}
+	var p *byte
+	if len(value) > 0 {
+		p = &value[0]
+	}
+	return windows.Setsockopt(windows.Handle(fd), int32(level), int32(opt), p, int32(len(value)))
 }
 
 func SetSockoptInt(fd, level, opt, value int) error {
@@ -68,9 +85,10 @@ func ApplySocketTimeos(fd int, s parse.Spec) error {
 	return nil
 }
 
-// ApplySocketOptions applies the SOL_SOCKET options shared by raw descriptors
-// and Go net sockets.
-func ApplySocketOptions(fd int, s parse.Spec) error {
+// ApplySocketOptionsWithoutGeneric applies the named SOL_SOCKET options but
+// leaves the generic setsockopt family untouched. PH_ALL constructors such as
+// SOCKETPAIR use it before applying all generic actions in command-line order.
+func ApplySocketOptionsWithoutGeneric(fd int, s parse.Spec) error {
 	if err := ApplySocketTimeos(fd, s); err != nil {
 		return err
 	}
@@ -90,7 +108,16 @@ func ApplySocketOptions(fd int, s parse.Spec) error {
 			return fmt.Errorf("so-linger: %w", err)
 		}
 	}
-	return applyPastSocketBuffersAndDevice(fd, s)
+	return applyPastSocketBuffersAndDeviceWithoutGeneric(fd, s)
+}
+
+// ApplySocketOptions applies the SOL_SOCKET options shared by raw descriptors
+// and Go net sockets, including generic PH_PASTSOCKET actions.
+func ApplySocketOptions(fd int, s parse.Spec) error {
+	if err := ApplySocketOptionsWithoutGeneric(fd, s); err != nil {
+		return err
+	}
+	return ApplyGenericSetsockopt(fd, s, SockoptPhasePastSocket)
 }
 
 func windowsTimeoutMillis(v string) (uint32, error) {
