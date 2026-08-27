@@ -4,6 +4,7 @@ package quicopen
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"syscall"
 	"testing"
@@ -67,6 +68,26 @@ func TestListenPacketAppliesIPTTLUnix(t *testing.T) {
 	}
 	if ttl != 9 {
 		t.Fatalf("IP_TTL=%d want 9", ttl)
+	}
+}
+
+func TestListenPacketAppliesSetsockoptUnix(t *testing.T) {
+	spec, err := parse.ParseSpec(fmt.Sprintf("QUIC-LISTEN:0,setsockopt=%d:%d:1", unix.SOL_SOCKET, unix.SO_KEEPALIVE))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pc, err := listenPacket(context.Background(), "udp4", "127.0.0.1:0", spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	sc, ok := pc.(syscall.Conn)
+	if !ok {
+		t.Fatalf("PacketConn type %T is not syscall.Conn", pc)
+	}
+	if got := packetSockoptInt(t, sc, unix.SO_KEEPALIVE); got == 0 {
+		// Darwin getsockopt returns the so_options bit (8), not 1.
+		t.Fatalf("SO_KEEPALIVE=%d want enabled after listenPacket setsockopt", got)
 	}
 }
 

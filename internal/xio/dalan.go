@@ -384,3 +384,9 @@ func appendNative(buf []byte, u uint64, nbytes int) []byte {
 	}
 	return append(buf, b...)
 }
+func nativeCInt(data []byte) int {
+	if len(data) < sizeCInt {
+		return 0
+	}
+	return int(int32(binary.NativeEndian.Uint32(data[:sizeCInt]))) // #nosec G115 -- C int is 32-bit two's complement
+}

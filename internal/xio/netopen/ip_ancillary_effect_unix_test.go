@@ -77,7 +77,7 @@ func TestRawIPSendTTL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pc, err := listenRawIP(t.Context(), "ip4:255", &net.IPAddr{IP: net.IPv4zero}, spec)
+	pc, err := listenRawIP(t.Context(), "ip4:255", "ip4", &net.IPAddr{IP: net.IPv4zero}, spec)
 	skipIfRawIPPermissionDenied(t, err)
 	if err != nil {
 		t.Fatal(err)

@@ -30,7 +30,7 @@ func applyOneIPRecvOpt(_ int, e IPAncillaryEntry, _ parse.Option, family ipFamil
 	return rejectIPAncillaryApply(e.Canonical, family)
 }
 
-func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
+func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, _ string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
 		return err
@@ -39,9 +39,9 @@ func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 	controlErr := raw.Control(func(fd uintptr) {
 		// Send and recv IP/ancillary options are PH_PASTSOCKET
 		// (DialControl / ListenControl → ApplyPastSocketPhase).
-		optionErr = ApplySocketOptions(int(fd), s)
+		optionErr = ApplyLateSocketOptions(int(fd), s)
 		if optionErr == nil {
-			optionErr = ApplyLateSocketOptions(int(fd), s)
+			optionErr = ApplyGenericSetsockopt(int(fd), s, SockoptPhaseConnected)
 		}
 	})
 	return errors.Join(controlErr, optionErr)

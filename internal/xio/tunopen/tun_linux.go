@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -366,9 +367,16 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		return nil, fmt.Errorf("socket(AF_PACKET): %w", err)
 	}
 	// Packet sockets are real sockets: classic IF_SOCKET options apply.
+	// PH_PASTSOCKET immediately after socket() (tag-1.8.1.3
+	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+	// af5388c898c7bb60997935aee93c223deba60c4a is the same).
 	if err := xio.ApplySocketOptions(int(fd), s); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("socket options: %w", err)
+	}
+	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhasePrebind); err != nil {
+		logx.CloseErr(unix.Close(fd))
+		return nil, err
 	}
 
 	// Apply interface flags / MTU if requested (shared with TUN).
@@ -386,6 +394,10 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("bind(AF_PACKET, %s): %w", ifname, err)
 	}
+	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhaseConnected); err != nil {
+		logx.CloseErr(unix.Close(fd))
+		return nil, err
+	}
 
 	// Classic: ignore locally originated packets (INTERFACE_IGNOREOUTGOING).
 	if err := unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_IGNORE_OUTGOING, 1); err != nil {
@@ -402,7 +414,7 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		ifindex: ifi.Index,
 		proto:   proto,
 	})
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(f)
 		return nil, err
@@ -491,6 +503,17 @@ func (p *packetRawStream) ShutdownWrite() error {
 
 // Fd exposes the packet socket for relay backpressure/poll.
 func (p *packetRawStream) Fd() uintptr { return uintptr(p.fd) }
+
+// SyscallConn exposes the packet socket so generic setsockopt fallbacks can
+// see the fd. Classic INTERFACE uses _xioopen_dgram_sendto (tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same).
+func (p *packetRawStream) SyscallConn() (syscall.RawConn, error) {
+	if p.f == nil {
+		return nil, os.ErrInvalid
+	}
+	return p.f.SyscallConn()
+}
 
 // htons converts a host uint16 to network byte order.
 func htons(v uint16) uint16 {

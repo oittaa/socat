@@ -48,10 +48,10 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 			}
 		}
 		laddr := &net.UnixAddr{Name: bound, Net: "unixgram"}
-		c, err = net.ListenUnixgram("unixgram", laddr)
+		c, err = listenUnixgramBound(s, laddr, false)
 	} else {
 		// Unbound unixgram: DialUnix without local name (kernel assigns ephemeral).
-		c, err = net.DialUnix("unixgram", nil, raddr)
+		c, err = dialUnixgram(s, raddr)
 		if err == nil {
 			if err := applyUnixgramSocketOptions(c, s); err != nil {
 				logx.CloseQuiet(c)
@@ -59,7 +59,7 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 			}
 			// Connected socket: use NetStream (Write goes to peer).
 			st := relay.Stream(relay.NetStream{Conn: c})
-			st, err = xio.WrapCommon(s, st)
+			st, err = xio.WrapCommonAfterConnected(s, st)
 			if err != nil {
 				logx.CloseQuiet(c)
 				return nil, err
@@ -70,7 +70,7 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 			return &xio.Opened{Stream: st, Label: "UNIX-SENDTO:" + remote}, nil
 		}
 		// Fallback: raw socket unbound
-		c, err = listenUnixgramUnbound()
+		c, err = listenUnixgramUnbound(s)
 	}
 	if err != nil {
 		return nil, err
@@ -85,7 +85,7 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 		return nil, err
 	}
 	st := &unixgramConn{UnixConn: c, raddr: raddr}
-	wrapped, err := xio.WrapCommon(s, st)
+	wrapped, err := xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		life.drop(c)
 		return nil, err
@@ -98,17 +98,70 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 	return o, nil
 }
 
-// listenUnixgramUnbound creates an unbound AF_UNIX SOCK_DGRAM socket.
-func listenUnixgramUnbound() (*net.UnixConn, error) {
+// listenUnixgramUnbound creates an unbound AF_UNIX SOCK_DGRAM socket and
+// applies PH_PASTSOCKET then PH_PREBIND (tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same).
+func listenUnixgramUnbound(s parse.Spec) (*net.UnixConn, error) {
 	fd, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_DGRAM, 0)
 	if err != nil {
 		return nil, err
 	}
-	f := os.NewFile(uintptr(fd), "unixgram-unbound")
-	c, err := net.FilePacketConn(f)
-	logx.CloseQuiet(f)
+	// syscall.Socket returns int on Unix and syscall.Handle (uintptr) on Windows.
+	if err := xio.ApplyPastSocketThenPrebind(int(fd), s, "unixgram"); err != nil {
+		logx.CloseErr(syscall.Close(fd))
+		return nil, err
+	}
+	return unixConnFromFD(uintptr(fd), "unixgram-unbound")
+}
+
+func listenUnixgramBound(s parse.Spec, laddr *net.UnixAddr, applyUmask bool) (*net.UnixConn, error) {
+	fd, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_DGRAM, 0)
+	if err != nil {
+		return nil, err
+	}
+	if err := xio.ApplyPastSocketThenPrebind(int(fd), s, "unixgram"); err != nil {
+		logx.CloseErr(syscall.Close(fd))
+		return nil, err
+	}
+	bind := func() error {
+		return syscall.Bind(fd, &syscall.SockaddrUnix{Name: laddr.Name})
+	}
+	if applyUmask {
+		err = xio.WithUmask(s, bind)
+	} else {
+		err = bind()
+	}
 	if err != nil {
 		logx.CloseErr(syscall.Close(fd))
+		return nil, err
+	}
+	return unixConnFromFD(uintptr(fd), "unixgram")
+}
+
+func dialUnixgram(s parse.Spec, raddr *net.UnixAddr) (*net.UnixConn, error) {
+	d := net.Dialer{Control: xio.DialControl(s, "unixgram", nil)}
+	c, err := d.Dial("unixgram", raddr.Name)
+	if err != nil {
+		return nil, err
+	}
+	uc, ok := c.(*net.UnixConn)
+	if !ok {
+		logx.CloseQuiet(c)
+		return nil, fmt.Errorf("not a UnixConn")
+	}
+	return uc, nil
+}
+
+func unixConnFromFD(fd uintptr, name string) (*net.UnixConn, error) {
+	f := os.NewFile(fd, name)
+	if f == nil {
+		return nil, fmt.Errorf("invalid socket fd")
+	}
+	c, err := net.FilePacketConn(f)
+	// NewFile owns fd; FilePacketConn dups it. Close the original either way.
+	logx.CloseQuiet(f)
+	if err != nil {
 		return nil, err
 	}
 	uc, ok := c.(*net.UnixConn)
@@ -139,12 +192,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		return nil, err
 	}
 	laddr := &net.UnixAddr{Name: path, Net: "unixgram"}
-	var c *net.UnixConn
-	err := xio.WithUmask(s, func() error {
-		var e error
-		c, e = net.ListenUnixgram("unixgram", laddr)
-		return e
-	})
+	c, err := listenUnixgramBound(s, laddr, true)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +225,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			Label:       label,
 			MaxChildren: maxChildren,
 			WrapDial: func(conn net.Conn) (relay.Stream, error) {
-				return xio.WrapCommon(s, relay.NetStream{Conn: conn})
+				return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: conn})
 			},
 		}
 		life.attach(o)
@@ -192,7 +240,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			return nil, err
 		}
 		st := relay.Stream(&unixRecvStream{c: c, from: true, peer: peer, first: first, firstEOF: true})
-		wrapped, err := xio.WrapCommon(s, st)
+		wrapped, err := xio.WrapCommonAfterConnected(s, st)
 		if err != nil {
 			life.drop(c)
 			return nil, err
@@ -204,7 +252,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	}
 
 	st := &unixRecvStream{c: c, from: from}
-	wrapped, err := xio.WrapCommon(s, st)
+	wrapped, err := xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		life.drop(c)
 		return nil, err
@@ -286,6 +334,9 @@ func (u *unixRecvStream) SetReadDeadline(t time.Time) error {
 }
 func (u *unixRecvStream) SetWriteDeadline(t time.Time) error {
 	return u.c.SetWriteDeadline(t)
+}
+func (u *unixRecvStream) SyscallConn() (syscall.RawConn, error) {
+	return u.c.SyscallConn()
 }
 
 // unixgramListener turns RECVFROM,fork into accept-like sessions per packet.
@@ -439,13 +490,13 @@ func openAbstractSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	// Prefer bind local abstract name then WriteTo (classic client with bind=).
 	var c *net.UnixConn
 	if laddr != nil {
-		c, err = net.ListenUnixgram("unixgram", laddr)
+		c, err = listenUnixgramBound(s, laddr, false)
 		if err != nil {
 			return nil, err
 		}
 	} else {
 		// Unbound abstract sendto: create unbound unixgram.
-		c, err = listenUnixgramUnbound()
+		c, err = listenUnixgramUnbound(s)
 		if err != nil {
 			return nil, err
 		}
@@ -455,7 +506,7 @@ func openAbstractSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		return nil, err
 	}
 	st := &unixgramConn{UnixConn: c, raddr: raddr}
-	wrapped, err := xio.WrapCommon(s, st)
+	wrapped, err := xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(c)
 		return nil, err
@@ -473,9 +524,11 @@ func applyUnixgramSocketOptions(c *net.UnixConn, s parse.Spec) error {
 	}
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
-		optionErr = xio.ApplySocketOptions(int(fd), s)
+		// PH_PASTSOCKET (ApplySocketOptions / setsockopt-socket) is applied
+		// after socket() in listen/dial Control or listenUnixgramUnbound.
+		optionErr = xio.ApplyLateSocketOptions(int(fd), s)
 		if optionErr == nil {
-			optionErr = xio.ApplyLateSocketOptions(int(fd), s)
+			optionErr = xio.ApplyGenericSetsockopt(int(fd), s, xio.SockoptPhaseConnected)
 		}
 	})
 	return errors.Join(controlErr, optionErr)

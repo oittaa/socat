@@ -348,10 +348,10 @@ func ancillaryRecvOptionInt(o parse.Option) (int, error) {
 	return n, nil
 }
 
-// ancillaryRecvInt returns the TYPE_INT value classic OFUNC_SOCKOPT would
-// pass to setsockopt. Presence without a value is 1; =0/false/no/off is 0.
-// OptionNamed's reverse scan implements last-wins for NeedAncillary
-// (ip-recvttl=1,recvttl=0 disables ReadMsg). APPLY walks every occurrence.
+// ancillaryRecvInt returns the final TYPE_INT value after canonical alias
+// folding. NeedAncillary uses the same last-wins view to decide whether the
+// I/O path must call recvmsg; the phase application itself still walks every
+// occurrence in command-line order.
 func ancillaryRecvInt(s parse.Spec, names ...string) (int, bool, error) {
 	for _, name := range names {
 		o, ok := s.OptionNamed(name)

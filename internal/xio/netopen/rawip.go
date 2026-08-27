@@ -179,7 +179,7 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 		return nil, err
 	}
 	netw := ipNetwork(network, proto)
-	c, err := dialRawIP(ctx, netw, laddr, raddr, s, network)
+	c, err := dialRawIP(ctx, netw, network, laddr, raddr, s)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +190,7 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	// Connected IPv4 Read() keeps the IP header; strip for classic parity.
 	v4 := network == "ip4" || raddr.IP.To4() != nil
 	st := relay.Stream(&rawIPConn{IPConn: c, peer: raddr, v4: v4, wantCtrl: xio.NeedAncillary(s), g: g})
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(c)
 		return nil, err
@@ -227,7 +227,7 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		laddr = &net.IPAddr{IP: lip}
 	}
 	netw := ipNetwork(network, proto)
-	pc, err := listenRawIP(ctx, netw, laddr, s)
+	pc, err := listenRawIP(ctx, netw, network, laddr, s)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +237,7 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	}
 	v4 := network == "ip4" || raddr.IP.To4() != nil
 	st := relay.Stream(&rawIPDatagramConn{c: pc, raddr: raddr, v4: v4, wantCtrl: xio.NeedAncillary(s), g: g})
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -263,7 +263,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		laddr = &net.IPAddr{IP: lip}
 	}
 	netw := ipNetwork(network, proto)
-	pc, err := listenRawIP(ctx, netw, laddr, s)
+	pc, err := listenRawIP(ctx, netw, network, laddr, s)
 	if err != nil {
 		return nil, err
 	}
@@ -315,7 +315,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 			v4:       network == "ip4",
 			g:        g,
 		})
-		st, err = xio.WrapCommon(s, st)
+		st, err = xio.WrapCommonAfterConnected(s, st)
 		if err != nil {
 			logx.CloseQuiet(pc)
 			return nil, err
@@ -335,7 +335,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		wantCtrl: wantCtrl,
 		v4:       network == "ip4",
 	})
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -364,11 +364,11 @@ func rawIPListenAddr(netw string, laddr *net.IPAddr) string {
 // Control after PH_PASTSOCKET options and before bind/connect.
 var testHookAfterRawIPPastSocket func(network, address string, c syscall.RawConn) error
 
-func dialRawIP(ctx context.Context, netw string, laddr, raddr *net.IPAddr, s parse.Spec, optionNetwork string) (*net.IPConn, error) {
+func dialRawIP(ctx context.Context, netw, network string, laddr, raddr *net.IPAddr, s parse.Spec) (*net.IPConn, error) {
 	d := net.Dialer{
 		Timeout:   xio.ConnectTimeout(s),
 		LocalAddr: laddr,
-		Control:   xio.DialControl(s, optionNetwork, testHookAfterRawIPPastSocket),
+		Control:   xio.DialControl(s, network, testHookAfterRawIPPastSocket),
 	}
 	c, err := d.DialContext(ctx, netw, raddr.String())
 	if err != nil {
@@ -382,7 +382,7 @@ func dialRawIP(ctx context.Context, netw string, laddr, raddr *net.IPAddr, s par
 	return ic, nil
 }
 
-func listenRawIP(ctx context.Context, netw string, laddr *net.IPAddr, s parse.Spec) (*net.IPConn, error) {
+func listenRawIP(ctx context.Context, netw, _ string, laddr *net.IPAddr, s parse.Spec) (*net.IPConn, error) {
 	inner := xio.ListenControl(s)
 	lc := net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {
@@ -420,7 +420,7 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, _ string) error {
 	}
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
-		if optionErr = xio.ApplySocketOptions(int(fd), s); optionErr != nil {
+		if optionErr = xio.ApplyGenericSetsockopt(int(fd), s, xio.SockoptPhaseConnected); optionErr != nil {
 			return
 		}
 		// classic often sets reuse on raw too
@@ -517,6 +517,9 @@ func (r *rawIPDatagramConn) Close() error         { return r.c.Close() }
 func (r *rawIPDatagramConn) ShutdownWrite() error { return nil }
 func (r *rawIPDatagramConn) LocalAddr() net.Addr  { return r.c.LocalAddr() }
 func (r *rawIPDatagramConn) RemoteAddr() net.Addr { return r.raddr }
+func (r *rawIPDatagramConn) SyscallConn() (syscall.RawConn, error) {
+	return r.c.SyscallConn()
+}
 
 // rawIPConn: sendto-style connected IPConn (SELF echo, SENDTO client).
 // Do not embed Read from *net.IPConn — connected Read keeps the IPv4 header.
@@ -606,6 +609,9 @@ func (r *rawIPRecvFrom) SetReadDeadline(t time.Time) error {
 func (r *rawIPRecvFrom) SetWriteDeadline(t time.Time) error {
 	return r.c.SetWriteDeadline(t)
 }
+func (r *rawIPRecvFrom) SyscallConn() (syscall.RawConn, error) {
+	return r.c.SyscallConn()
+}
 
 // rawIPFilteredRecv: continuous RECV with peer filters + ancillary.
 type rawIPFilteredRecv struct {
@@ -642,3 +648,6 @@ func (r *rawIPFilteredRecv) Close() error              { return r.c.Close() }
 func (r *rawIPFilteredRecv) ShutdownWrite() error      { return nil }
 func (r *rawIPFilteredRecv) LocalAddr() net.Addr       { return r.c.LocalAddr() }
 func (r *rawIPFilteredRecv) RemoteAddr() net.Addr      { return nil }
+func (r *rawIPFilteredRecv) SyscallConn() (syscall.RawConn, error) {
+	return r.c.SyscallConn()
+}

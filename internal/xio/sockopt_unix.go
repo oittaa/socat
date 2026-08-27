@@ -21,6 +21,7 @@ const (
 	soSndtimeo  = unix.SO_SNDTIMEO
 	soSndbuf    = unix.SO_SNDBUF
 	soRcvbuf    = unix.SO_RCVBUF
+	soKeepalive = unix.SO_KEEPALIVE
 	soBroadcast = unix.SO_BROADCAST
 )
 
@@ -29,8 +30,13 @@ func isNotSocketError(err error) bool {
 }
 
 func setSockoptInt(fd, level, opt, value int) error {
-	invokeSetSockoptIntHook(fd, level, opt, value)
+	recordSockoptInt(fd, level, opt, value)
 	return unix.SetsockoptInt(fd, level, opt, value)
+}
+
+func setSockoptBytes(fd, level, opt int, value []byte) error {
+	recordSockoptBytes(fd, level, opt, value)
+	return unix.SetsockoptString(fd, level, opt, string(value))
 }
 
 func SetSockoptInt(fd, level, opt, value int) error {
@@ -68,9 +74,10 @@ func ApplySocketTimeos(fd int, s parse.Spec) error {
 	return nil
 }
 
-// ApplySocketOptions applies the SOL_SOCKET options shared by raw descriptors
-// and Go net sockets.
-func ApplySocketOptions(fd int, s parse.Spec) error {
+// ApplySocketOptionsWithoutGeneric applies the named SOL_SOCKET options but
+// leaves the generic setsockopt family untouched. PH_ALL constructors such as
+// SOCKETPAIR use it before applying all generic actions in command-line order.
+func ApplySocketOptionsWithoutGeneric(fd int, s parse.Spec) error {
 	if err := ApplySocketTimeos(fd, s); err != nil {
 		return err
 	}
@@ -90,7 +97,16 @@ func ApplySocketOptions(fd int, s parse.Spec) error {
 			return fmt.Errorf("so-linger: %w", err)
 		}
 	}
-	return applyPastSocketBuffersAndDevice(fd, s)
+	return applyPastSocketBuffersAndDeviceWithoutGeneric(fd, s)
+}
+
+// ApplySocketOptions applies the SOL_SOCKET options shared by raw descriptors
+// and Go net sockets, including generic PH_PASTSOCKET actions.
+func ApplySocketOptions(fd int, s parse.Spec) error {
+	if err := ApplySocketOptionsWithoutGeneric(fd, s); err != nil {
+		return err
+	}
+	return ApplyGenericSetsockopt(fd, s, SockoptPhasePastSocket)
 }
 
 func timevalFromSpec(v string) (*unix.Timeval, error) {

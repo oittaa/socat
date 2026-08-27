@@ -70,7 +70,7 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		if err != nil {
 			return nil, err
 		}
-		return xio.WrapCommon(s, relay.NetStream{Conn: uc})
+		return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: uc})
 	}
 
 	var setAcceptDeadline func(time.Time) error

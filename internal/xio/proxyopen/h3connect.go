@@ -57,6 +57,10 @@ func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost 
 		_ = pc.Close()
 		return nil, "", err
 	}
+	if err := xio.ApplyGenericSetsockoptToPacketConn(pc, s, xio.SockoptPhaseConnected); err != nil {
+		_ = pc.Close()
+		return nil, "", err
+	}
 	return pc, network, nil
 }
 

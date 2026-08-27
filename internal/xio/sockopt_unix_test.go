@@ -544,21 +544,19 @@ func TestApplySocketOptionsBroadcastUnix(t *testing.T) {
 	}
 }
 
-func TestApplyListenOptionsBroadcastUnix(t *testing.T) {
-	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = unix.Close(fd) })
-
+func TestListenControlAppliesBroadcastUnix(t *testing.T) {
 	spec, err := parse.ParseSpec("UDP-LISTEN:0,broadcast=0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyListenOptions(fd, spec, "udp4"); err != nil {
+	lc := net.ListenConfig{Control: ListenControl(spec)}
+	pc, err := lc.ListenPacket(context.Background(), "udp4", "127.0.0.1:0")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got := unixSockoptInt(t, fd, unix.SO_BROADCAST); got != 0 {
+	t.Cleanup(func() { _ = pc.Close() })
+	uc := pc.(*net.UDPConn)
+	if got := udpSockoptInt(t, uc, unix.SO_BROADCAST); got != 0 {
 		t.Fatalf("broadcast=0 SO_BROADCAST=%d want 0", got)
 	}
 
@@ -566,10 +564,35 @@ func TestApplyListenOptionsBroadcastUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	lc = net.ListenConfig{Control: ListenControl(spec)}
+	pc, err = lc.ListenPacket(context.Background(), "udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	uc = pc.(*net.UDPConn)
+	assertBroadcast(t, udpSockoptInt(t, uc, unix.SO_BROADCAST), true)
+}
+
+func TestApplyListenOptionsDoesNotApplyBroadcastUnix(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_BROADCAST, 0); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := parse.ParseSpec("UDP-LISTEN:0,so-broadcast")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := ApplyListenOptions(fd, spec, "udp4"); err != nil {
 		t.Fatal(err)
 	}
-	assertBroadcast(t, unixSockoptInt(t, fd, unix.SO_BROADCAST), true)
+	if got := unixSockoptInt(t, fd, unix.SO_BROADCAST); got != 0 {
+		t.Fatalf("ApplyListenOptions applied PH_PASTSOCKET broadcast: SO_BROADCAST=%d", got)
+	}
 }
 
 func TestDialControlAppliesBroadcastUnix(t *testing.T) {
@@ -605,15 +628,28 @@ func TestDialControlAppliesBroadcastUnix(t *testing.T) {
 	assertBroadcast(t, udpSockoptInt(t, uc, unix.SO_BROADCAST), true)
 }
 
-func TestApplyUDPConnOptsBroadcastUnix(t *testing.T) {
+func TestApplyUDPConnOptsDoesNotApplyBroadcastUnix(t *testing.T) {
 	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pc.Close() })
 	uc := pc.(*net.UDPConn)
+	raw, err := uc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var setErr error
+	if err := raw.Control(func(fd uintptr) {
+		setErr = unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_BROADCAST, 0)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if setErr != nil {
+		t.Fatal(setErr)
+	}
 
-	spec, err := parse.ParseSpec("UDP-RECV:0,broadcast=0")
+	spec, err := parse.ParseSpec("UDP-RECV:0,broadcast=1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -621,15 +657,6 @@ func TestApplyUDPConnOptsBroadcastUnix(t *testing.T) {
 		t.Fatalf("ApplyUDPConnOpts: %v", err)
 	}
 	if got := udpSockoptInt(t, uc, unix.SO_BROADCAST); got != 0 {
-		t.Fatalf("broadcast=0 SO_BROADCAST=%d want 0", got)
+		t.Fatalf("ApplyUDPConnOpts applied PH_PASTSOCKET broadcast: SO_BROADCAST=%d", got)
 	}
-
-	spec, err = parse.ParseSpec("UDP-RECV:0,broadcast=1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplyUDPConnOpts(uc, spec, "udp4"); err != nil {
-		t.Fatalf("ApplyUDPConnOpts: %v", err)
-	}
-	assertBroadcast(t, udpSockoptInt(t, uc, unix.SO_BROADCAST), true)
 }

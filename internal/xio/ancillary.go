@@ -324,18 +324,22 @@ func ReadUDPMsg(c *net.UDPConn, p []byte, wantCtrl bool) (n int, oob []byte, add
 // on a live UDPConn. Send and recv IP/ancillary options are PH_PASTSOCKET
 // (DialControl / ListenControl → ApplyPastSocketPhase) and must not be
 // re-applied here after bind/connect.
-func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
+func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, _ string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
 		return err
 	}
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
-		optionErr = ApplySocketOptions(int(fd), s)
 		// PH_LATE so-sndbuf-late / so-rcvbuf-late on the raw UDP fd after
 		// bind/connect, before packet-session wrapping (udpRecvFromConn).
+		// PH_PASTSOCKET (ApplySocketOptions / setsockopt-socket / broadcast)
+		// is applied in listen/dial Control before bind/connect.
 		if optionErr == nil {
 			optionErr = ApplyLateSocketOptions(int(fd), s)
+		}
+		if optionErr == nil {
+			optionErr = ApplyGenericSetsockopt(int(fd), s, SockoptPhaseConnected)
 		}
 	})
 	return errors.Join(controlErr, optionErr)

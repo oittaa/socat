@@ -296,6 +296,31 @@ func TestClassicCompatibilityOptionAliases(t *testing.T) {
 	}
 }
 
+func TestGenericSetsockoptAliases(t *testing.T) {
+	s, err := ParseSpec("TCP:localhost:1,sockopt=1:9:1,sockopt-int=1:9:1,sockopt-bin=1:9:x01,sockopt-string=1:1:lo,sockopt-sock=1:9:1,sockopt-conn=1:9:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.OptionValue("setsockopt", ""); got != "1:9:1" {
+		t.Fatalf("setsockopt=%q", got)
+	}
+	if got := s.OptionValue("setsockopt-int", ""); got != "1:9:1" {
+		t.Fatalf("setsockopt-int=%q", got)
+	}
+	if got := s.OptionValue("setsockopt-bin", ""); got != "1:9:x01" {
+		t.Fatalf("setsockopt-bin=%q", got)
+	}
+	if got := s.OptionValue("setsockopt-string", ""); got != "1:1:lo" {
+		t.Fatalf("setsockopt-string=%q", got)
+	}
+	if got := s.OptionValue("setsockopt-socket", ""); got != "1:9:1" {
+		t.Fatalf("setsockopt-socket=%q", got)
+	}
+	if got := s.OptionValue("setsockopt-connected", ""); got != "1:9:1" {
+		t.Fatalf("setsockopt-connected=%q", got)
+	}
+}
+
 func TestDirectAndFSNoatimeAliases(t *testing.T) {
 	s, err := ParseSpec("OPEN:file,direct")
 	if err != nil {

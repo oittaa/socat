@@ -5,6 +5,7 @@ package xio
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -27,12 +28,15 @@ type sockoptLog struct {
 func collectSetSockopt(t *testing.T) *sockoptLog {
 	t.Helper()
 	log := &sockoptLog{}
-	setTestHookSetSockoptInt(func(fd, level, opt, value int) {
+	restore := SetSockoptTestHook(func(call SockoptCall) {
+		if !call.AsInt {
+			return
+		}
 		log.mu.Lock()
-		log.calls = append(log.calls, sockoptCall{level: level, opt: opt, value: value})
+		log.calls = append(log.calls, sockoptCall{level: call.Level, opt: call.Opt, value: call.IntValue})
 		log.mu.Unlock()
 	})
-	t.Cleanup(func() { setTestHookSetSockoptInt(nil) })
+	t.Cleanup(restore)
 	return log
 }
 
@@ -487,6 +491,49 @@ func TestPastSocketMixedRecvSendCommandLineOrder(t *testing.T) {
 			after := ipMixedRecvSendSeq(calls.snapshot())
 			if strings.Join(after, ",") != strings.Join(tc.want, ",") {
 				t.Fatalf("ApplyUDPConnOpts reapplied IP options: %v want %v", after, tc.want)
+			}
+		})
+	}
+}
+
+func TestPastSocketNamedAndGenericCommandLineOrder(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		options string
+		want    []int
+	}{
+		{
+			name:    "named-then-generic",
+			options: fmt.Sprintf("ip-ttl=64,setsockopt-socket=%d:%d:65", unix.IPPROTO_IP, unix.IP_TTL),
+			want:    []int{64, 65},
+		},
+		{
+			name:    "generic-then-named",
+			options: fmt.Sprintf("setsockopt-socket=%d:%d:65,ip-ttl=64", unix.IPPROTO_IP, unix.IP_TTL),
+			want:    []int{65, 64},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, err := parse.ParseSpec("UDP4:127.0.0.1:1," + tc.options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := collectSetSockopt(t)
+			lc := net.ListenConfig{Control: ListenControl(spec)}
+			pc, err := lc.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = pc.Close() })
+
+			var got []int
+			for _, call := range calls.snapshot() {
+				if call.level == unix.IPPROTO_IP && call.opt == unix.IP_TTL {
+					got = append(got, call.value)
+				}
+			}
+			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+				t.Fatalf("IP_TTL values=%v want %v", got, tc.want)
 			}
 		})
 	}

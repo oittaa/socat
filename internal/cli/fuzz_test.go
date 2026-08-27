@@ -58,6 +58,7 @@ func FuzzValidateChannelOptions(f *testing.F) {
 		"UNIX:file,socktype=stream",
 		"OPEN:file,ftruncate=-1",
 		"TCP-LISTEN:1,setsockopt-listen=1:2",
+		"TCP:localhost:1,setsockopt-bin=1:9:x01000000",
 		"TLS:localhost:443,ciphers",
 		"TCP4:127.0.0.1:80,reuseaddr",
 		"STDIN!!STDOUT",

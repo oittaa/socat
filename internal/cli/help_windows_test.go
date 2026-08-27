@@ -27,6 +27,8 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 	}
 	for _, name := range []string{
 		"reuseaddr", "broadcast", "setsockopt", "setsockopt-listen",
+		"setsockopt-int", "setsockopt-bin", "setsockopt-string",
+		"setsockopt-socket", "setsockopt-connected",
 		"rcvtimeo", "sndtimeo", "sndbuf", "rcvbuf", "sndbuf-late", "rcvbuf-late",
 		"ciphers", "chdir", "end-close",
 		"ip-ttl", "ip-tos",

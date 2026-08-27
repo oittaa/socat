@@ -8,6 +8,7 @@ import (
 	"net"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -925,5 +926,46 @@ func TestUDPRecvfromForkDoesNotImplyReuseaddr(t *testing.T) {
 	if err == nil {
 		_ = second.Close()
 		t.Fatal("second UDP4-RECVFROM,fork bound successfully")
+	}
+}
+
+func TestUDPRecvFromConnWrapCommonSetsockopt(t *testing.T) {
+	c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	// SO_BROADCAST is valid on UDP on Windows; SO_KEEPALIVE is not.
+	spec, err := parse.ParseSpec(fmt.Sprintf("UDP4-LISTEN:0,setsockopt=%d:%d:1", syscall.SOL_SOCKET, syscall.SO_BROADCAST))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := xio.WrapCommon(spec, &udpRecvFromConn{uc: c}); err != nil {
+		t.Fatalf("WrapCommon on UDP session wrapper must not fail after raw apply: %v", err)
+	}
+}
+
+func TestUDPListenPastSocketThenPrebind(t *testing.T) {
+	spec, err := parse.ParseSpec(fmt.Sprintf(
+		"UDP4-LISTEN:0,bind=127.0.0.1,setsockopt-socket=%d:%d:1,setsockopt-listen=%d:%d:0",
+		syscall.SOL_SOCKET, syscall.SO_BROADCAST, syscall.SOL_SOCKET, syscall.SO_BROADCAST,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var values []int
+	restore := xio.SetSockoptTestHook(func(c xio.SockoptCall) {
+		if c.Opt == syscall.SO_BROADCAST {
+			values = append(values, c.IntValue)
+		}
+	})
+	defer restore()
+	uc, err := listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = uc.Close() })
+	if len(values) != 2 || values[0] != 1 || values[1] != 0 {
+		t.Fatalf("SO_BROADCAST values=%v want PASTSOCKET 1 then PREBIND 0", values)
 	}
 }

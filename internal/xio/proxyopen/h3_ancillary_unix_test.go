@@ -60,6 +60,29 @@ func packetConnIPv6UnicastHops(t *testing.T, pc net.PacketConn) int {
 	return hops
 }
 
+func packetConnSockoptInt(t *testing.T, pc net.PacketConn, level, opt int) int {
+	t.Helper()
+	sc, ok := pc.(syscall.Conn)
+	if !ok {
+		t.Fatalf("PacketConn type %T is not syscall.Conn", pc)
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value int
+	var getErr error
+	if err := raw.Control(func(fd uintptr) {
+		value, getErr = unix.GetsockoptInt(int(fd), level, opt)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	return value
+}
+
 func TestH3CONNECTAppliesIPTTLOnPacketConn(t *testing.T) {
 	certs := writeTrustCerts(t)
 	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
@@ -111,6 +134,32 @@ func TestH3CONNECTAppliesIPv6UnicastHopsOnPacketConn(t *testing.T) {
 	))
 	if hops != 9 {
 		t.Fatalf("HTTP/3 UDP IPV6_UNICAST_HOPS=%d want 9", hops)
+	}
+}
+
+func TestH3CONNECTAppliesConnectedSetsockoptOnPacketConn(t *testing.T) {
+	certs := writeTrustCerts(t)
+	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := strconv.Itoa(pc.LocalAddr().(*net.UDPAddr).Port)
+	srv := &http3.Server{TLSConfig: serverH3TLS(certs), Handler: connectEchoHandler()}
+	go func() { _ = srv.Serve(pc) }()
+	t.Cleanup(func() { _ = srv.Close() })
+
+	var keepalive int
+	testHookH3PacketConn = func(c net.PacketConn) {
+		keepalive = packetConnSockoptInt(t, c, unix.SOL_SOCKET, unix.SO_KEEPALIVE)
+	}
+	t.Cleanup(func() { testHookH3PacketConn = nil })
+
+	echoViaPROXY(t, fmt.Sprintf(
+		"PROXY:127.0.0.1:127.0.0.1:9,http-version=3,proxyport=%s,verify=0,setsockopt=%d:%d:1",
+		port, unix.SOL_SOCKET, unix.SO_KEEPALIVE,
+	))
+	if keepalive == 0 {
+		t.Fatal("HTTP/3 UDP SO_KEEPALIVE is disabled after PH_CONNECTED setsockopt")
 	}
 }
 
