@@ -35,6 +35,8 @@ func TestApplyFDOptionsWindowsRejectsInheritedPermUserGroupAppend(t *testing.T) 
 		{raw: "FD:3,ioctl-intp=1:0", wantSub: "not supported"},
 		{raw: "FD:3,ioctl-bin=1:x01", wantSub: "not supported"},
 		{raw: "FD:3,ioctl-string=1:x", wantSub: "not supported"},
+		{raw: "FD:3,cloexec", wantSub: "F_SETFD"},
+		{raw: "FD:3,cloexec=0", wantSub: "F_SETFD"},
 		{raw: "FD:3,ioctl-void=4294967296", wantSub: "invalid ioctl-void"},
 		{raw: "FD:3,ioctl-bin=1:not-a-dalan", wantSub: "invalid ioctl-bin"},
 		{raw: "FD:3,perm-late=0600", wantSub: "fchmod"},

@@ -42,6 +42,14 @@ import (
 //   - ioctl-void / ioctl, ioctl-int, ioctl-intp, ioctl-bin, ioctl-string:
 //     GROUP_FD, PH_FD, OFUNC_IOCTL_GENERIC (xio-fd.c / applyopt_ioctl_generic).
 //     Unix including Darwin; not Linux-only. Windows hides and rejects.
+//   - cloexec: GROUP_FD, PH_LATE, TYPE_BOOL, OFUNC_FCNTL F_SETFD FD_CLOEXEC
+//     (xio-fd.c). applyopt_fcntl GETFD then flag|=FD_CLOEXEC or
+//     flag&=~FD_CLOEXEC, so cloexec=0 clears the bit. Bare cloexec is true.
+//     Man vs C: applyopts_cloexec (xioopts.c) always F_SETFD FD_CLOEXEC and
+//     retropt_bool consumes the option, so PH_LATE never runs and cloexec=0
+//     still sets CLOEXEC. doc/socat.yo OPTION_CLOEXEC applies the bool.
+//     Runtime follows the man page and the OFUNC_FCNTL record. Windows hides
+//     and rejects (HANDLE_FLAG_INHERIT is the separate noinherit family).
 //
 // Classic applyopts walks every matching option in original command-line
 // order for one phase (PH_FD then PH_LATE). Each occurrence is applied,
@@ -207,6 +215,8 @@ func hasFDLifecycleOptions(s parse.Spec) bool {
 		case "flock", "flock-nb", "flock-sh", "flock-sh-nb":
 			return true
 		case "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string":
+			return true
+		case "cloexec":
 			return true
 		}
 	}
