@@ -296,6 +296,31 @@ func TestClassicCompatibilityOptionAliases(t *testing.T) {
 	}
 }
 
+func TestGenericSetsockoptAliases(t *testing.T) {
+	s, err := ParseSpec("TCP:localhost:1,sockopt=1:9:1,sockopt-int=1:9:1,sockopt-bin=1:9:x01,sockopt-string=1:1:lo,sockopt-sock=1:9:1,sockopt-conn=1:9:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.OptionValue("setsockopt", ""); got != "1:9:1" {
+		t.Fatalf("setsockopt=%q", got)
+	}
+	if got := s.OptionValue("setsockopt-int", ""); got != "1:9:1" {
+		t.Fatalf("setsockopt-int=%q", got)
+	}
+	if got := s.OptionValue("setsockopt-bin", ""); got != "1:9:x01" {
+		t.Fatalf("setsockopt-bin=%q", got)
+	}
+	if got := s.OptionValue("setsockopt-string", ""); got != "1:1:lo" {
+		t.Fatalf("setsockopt-string=%q", got)
+	}
+	if got := s.OptionValue("setsockopt-socket", ""); got != "1:9:1" {
+		t.Fatalf("setsockopt-socket=%q", got)
+	}
+	if got := s.OptionValue("setsockopt-connected", ""); got != "1:9:1" {
+		t.Fatalf("setsockopt-connected=%q", got)
+	}
+}
+
 func TestDirectAndFSNoatimeAliases(t *testing.T) {
 	s, err := ParseSpec("OPEN:file,direct")
 	if err != nil {
@@ -445,6 +470,32 @@ func TestOptionSpellingPreserved(t *testing.T) {
 	}
 	if s.Options[0].OriginalSpelling() != "so-type" {
 		t.Fatalf("OriginalSpelling=%q", s.Options[0].OriginalSpelling())
+	}
+}
+
+func TestIPAncillaryAliasesFoldForLastWins(t *testing.T) {
+	s, err := ParseSpec("UDP:127.0.0.1:1,ippktinfo,ip-recvttl=1,recvttl=0,ipoptions=x00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Options) != 4 {
+		t.Fatalf("options=%v", s.Options)
+	}
+	if s.Options[0].Name != "ip-pktinfo" || s.Options[0].Spelling != "ippktinfo" {
+		t.Fatalf("ippktinfo stored as %+v", s.Options[0])
+	}
+	if s.Options[1].Name != "ip-recvttl" || s.Options[2].Name != "ip-recvttl" {
+		t.Fatalf("recvttl aliases stored as %+v %+v", s.Options[1], s.Options[2])
+	}
+	got, ok := s.OptionNamed("ip-recvttl")
+	if !ok || got.Value != "0" {
+		t.Fatalf("last-wins ip-recvttl=%+v", got)
+	}
+	if s.Options[3].Name != "ip-options" || s.Options[3].Spelling != "ipoptions" {
+		t.Fatalf("ipoptions stored as %+v", s.Options[3])
+	}
+	if CanonicalOptionName("ttl") != "ip-ttl" || CanonicalOptionName("tos") != "ip-tos" {
+		t.Fatalf("ttl/tos canonical=%q %q", CanonicalOptionName("ttl"), CanonicalOptionName("tos"))
 	}
 }
 

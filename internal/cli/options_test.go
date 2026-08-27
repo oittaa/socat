@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/oittaa/socat/internal/classiccatalog"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestParseDurationRejectsMalformedValues(t *testing.T) {
@@ -45,9 +47,10 @@ func TestParseSignalLogMask(t *testing.T) {
 
 func TestValidateAddressOptions(t *testing.T) {
 	tests := []struct {
-		name    string
-		spec    string
-		wantErr string
+		name       string
+		spec       string
+		wantErr    string
+		windowsErr string
 	}{
 		{name: "create-excl", spec: "CREATE:file,excl", wantErr: "not supported"},
 		{name: "open-excl", spec: "OPEN:file,excl"},
@@ -86,6 +89,19 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "interface-timeouts", spec: "INTERFACE:lo,rcvtimeo=0.1,sndtimeo=0.1"},
 		{name: "tls-timeouts", spec: "TLS:localhost:1,rcvtimeo=0.1,sndtimeo=0.1"},
 		{name: "listen-sockopt-alias", spec: "TCP-LISTEN:1,sockopt-listen=1:2:1"},
+		{name: "setsockopt-int", spec: "TCP:localhost:1,setsockopt-int=1:9:1"},
+		{name: "sockopt-int-alias", spec: "TCP:localhost:1,sockopt-int=1:9:1"},
+		{name: "setsockopt-bin-hex", spec: "TCP:localhost:1,setsockopt-bin=1:9:x01000000"},
+		{name: "setsockopt-bin-garbage", spec: "TCP:localhost:1,setsockopt-bin=1:9:not-a-dalan-path", wantErr: "invalid setsockopt-bin"},
+		{name: "setsockopt-bin-leftover", spec: "TCP:localhost:1,setsockopt-bin=1:9:512junk", wantErr: "invalid setsockopt-bin"},
+		{name: "sockopt-bin-alias", spec: "UDP:localhost:1,sockopt-bin=1:9:1"},
+		{name: "setsockopt-string", spec: "TCP:localhost:1,setsockopt-string=1:1:lo"},
+		{name: "sockopt-string-alias", spec: "TCP:localhost:1,sockopt-string=1:1:lo"},
+		{name: "setsockopt-socket", spec: "TCP-LISTEN:1,setsockopt-socket=1:9:1"},
+		{name: "sockopt-sock-alias", spec: "TCP-LISTEN:1,sockopt-sock=1:9:1"},
+		{name: "setsockopt-connected", spec: "TCP:localhost:1,setsockopt-connected=1:9:1"},
+		{name: "sockopt-conn-alias", spec: "TCP:localhost:1,sockopt-conn=1:9:1"},
+		{name: "sockopt-alias", spec: "TCP:localhost:1,sockopt=1:9:1"},
 		{name: "openssl-cipher-alias", spec: "OPENSSL:localhost:443,cipher=ECDHE-ECDSA-AES256-GCM-SHA384"},
 		{name: "proxy-tls-option", spec: "PROXY:localhost:example.com:443,verify=0"},
 		{name: "classic-keepalive-aliases", spec: "TCP:localhost:1,tcp-keepidle=7,tcp-keepintvl=9,tcp-keepcnt=3"},
@@ -134,9 +150,26 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "vsock-range", spec: "VSOCK-LISTEN:9,range=127.0.0.1/32", wantErr: "not supported"},
 		{name: "vsock-sourceport", spec: "VSOCK-CONNECT:1:9,sourceport=1", wantErr: "not supported"},
 		{name: "fs-noatime-on-exec", spec: "EXEC:true,fs-noatime", wantErr: "not supported"},
-		{name: "pktinfo-on-udp4", spec: "UDP4:localhost:1,pktinfo"},
-		{name: "tls-version-bounds", spec: "TLS:localhost:443,min-version=TLS1.2,max-version=TLS1.3"},
+		{name: "pktinfo-on-udp4", spec: "UDP4:localhost:1,pktinfo", windowsErr: "not supported on this platform"},
+		{name: "pktinfo-on-udp-connect", spec: "UDP-CONNECT:localhost:1,ip-pktinfo", windowsErr: "not supported on this platform"},
+		{name: "pktinfo-on-tcp", spec: "TCP:localhost:1,ip-pktinfo", wantErr: "not supported"},
+		{name: "timestamp-on-tcp", spec: "TCP:localhost:1,so-timestamp", wantErr: "not supported"},
+		{name: "recvttl-on-quic", spec: "QUIC:localhost:1,ip-recvttl", wantErr: "not supported"},
+		{name: "pktinfo-on-unix", spec: "UNIX-CONNECT:sock,ip-pktinfo", wantErr: "not supported"},
+		{name: "timestamp-on-unix", spec: "UNIX-CONNECT:sock,so-timestamp", wantErr: "not supported"},
+		{name: "ttl-on-quic", spec: "QUIC:localhost:1,ip-ttl=9"},
+		{name: "ttl-on-tcp", spec: "TCP:localhost:1,ip-ttl=9"},
+		{name: "ttl-on-tcp6", spec: "TCP6:localhost:1,ip-ttl=9"},
+		{name: "tos-on-tcp6", spec: "TCP6:localhost:1,ip-tos=16"},
+		{name: "tclass-on-tcp4", spec: "TCP4:localhost:1,ipv6-tclass=16", wantErr: "not supported on IPv4", windowsErr: "not supported on this platform"},
+		{name: "unicast-hops-on-tcp4", spec: "TCP4:localhost:1,ipv6-unicast-hops=9", wantErr: "not supported on IPv4", windowsErr: "not supported on this platform"},
+		{name: "tclass-on-tcp6", spec: "TCP6:localhost:1,ipv6-tclass=16", windowsErr: "not supported on this platform"},
+		{name: "pktinfo-on-udp6", spec: "UDP6:localhost:1,ip-pktinfo", wantErr: "not supported on IPv6", windowsErr: "not supported on this platform"},
+		{name: "recvhoplimit-on-udp4", spec: "UDP4:localhost:1,ipv6-recvhoplimit", wantErr: "not supported on IPv4", windowsErr: "not supported on this platform"},
+		{name: "concat-ippktinfo", spec: "UDP4:localhost:1,ippktinfo", windowsErr: "not supported on this platform"},
+		{name: "recvttl-alias-last-wins", spec: "UDP4:localhost:1,ip-recvttl=1,recvttl=0", windowsErr: "not supported on this platform"},
 		{name: "classic-ip-aliases", spec: "TCP:localhost:1,ipttl=9,iptos=16"},
+		{name: "tls-version-bounds", spec: "TLS:localhost:443,min-version=TLS1.2,max-version=TLS1.3"},
 		{name: "tcp-options-on-wss", spec: "WSS:localhost:1,nodelay,keepalive"},
 		{name: "tls-options-on-wss", spec: "WSS:localhost:1,verify=0"},
 		{name: "alpn-on-quic", spec: "QUIC:localhost:1,alpn=socat"},
@@ -180,6 +213,22 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "socket-timeout-on-quic", spec: "QUIC:localhost:1,sndtimeo=0.1"},
 		{name: "wrong-mq-family", spec: "TCP:localhost:1,mq-prio=1", wantErr: "not supported"},
 		{name: "wrong-tun-family", spec: "CREATE:file,tun-name=tun0", wantErr: "not supported"},
+		{name: "handshake-timeout-on-tcp", spec: "TCP:host:port,handshake-timeout=1", wantErr: "not supported"},
+		{name: "handshake-timeout-on-tcp-listen", spec: "TCP-LISTEN:1,handshake-timeout=1", wantErr: "not supported"},
+		{name: "handshake-timeout-on-udp", spec: "UDP:localhost:1,handshake-timeout=1", wantErr: "not supported"},
+		{name: "handshake-timeout-on-open", spec: "OPEN:file,handshake-timeout=1", wantErr: "not supported"},
+		{name: "handshake-timeout-on-exec", spec: "EXEC:true,handshake-timeout=1", wantErr: "not supported"},
+		{name: "handshake-timeout-on-tls", spec: "TLS:localhost:1,handshake-timeout=1"},
+		{name: "handshake-timeout-on-tls-listen", spec: "TLS-LISTEN:1,handshake-timeout=0.2"},
+		{name: "handshake-timeout-on-openssl", spec: "OPENSSL:localhost:1,handshake-timeout=1"},
+		{name: "handshake-timeout-on-quic", spec: "QUIC:localhost:1,handshake-timeout=1"},
+		{name: "handshake-timeout-on-quic-listen", spec: "QUIC-LISTEN:1,handshake-timeout=0.2"},
+		{name: "handshake-timeout-on-ws", spec: "WS:localhost:1,handshake-timeout=1"},
+		{name: "handshake-timeout-on-wss", spec: "WSS:localhost:1,handshake-timeout=1"},
+		{name: "handshake-timeout-on-proxy", spec: "PROXY:localhost:example.com:443,handshake-timeout=1"},
+		{name: "handshake-timeout-on-socks4", spec: "SOCKS4:localhost:example.com:80,handshake-timeout=1"},
+		{name: "handshake-timeout-on-socks5", spec: "SOCKS5:localhost:example.com:443,handshake-timeout=1"},
+		{name: "handshake-timeout-zero-on-tls", spec: "TLS:localhost:1,handshake-timeout=0"},
 		{name: "unknown", spec: "CREATE:file,totally-unknown=1", wantErr: "unknown option"},
 		{name: "bad-perm", spec: "CREATE:file,perm=xyz", wantErr: "invalid perm"},
 		{name: "readbytes-hex", spec: "OPEN:file,readbytes=0x10"},
@@ -194,7 +243,10 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "bad-ftruncate", spec: "OPEN:file,ftruncate=-1", wantErr: "invalid ftruncate"},
 		{name: "bad-listen-sockopt-fields", spec: "TCP-LISTEN:1,setsockopt-listen=1:2", wantErr: "level:optname:value"},
 		{name: "bad-listen-sockopt-number", spec: "TCP-LISTEN:1,setsockopt-listen=1:name:1", wantErr: "integer"},
+		{name: "bad-setsockopt-int-hex-value", spec: "TCP:localhost:1,setsockopt-int=1:9:x01", wantErr: "integer"},
+		{name: "bad-setsockopt-arity", spec: "TCP:localhost:1,setsockopt=1:9", wantErr: "level:optname:value"},
 		{name: "missing-ciphers", spec: "TLS:localhost:443,ciphers", wantErr: "requires a value"},
+		{name: "missing-ip-options", spec: "UDP:localhost:1,ip-options", wantErr: "requires a value"},
 		{name: "missing-linger", spec: "TCP:localhost:1,so-linger", wantErr: "requires a value"},
 		{name: "missing-sndbuf", spec: "TCP:localhost:1,sndbuf", wantErr: "requires a value"},
 		{name: "negative-sndbuf", spec: "TCP:localhost:1,sndbuf=-1", wantErr: "invalid sndbuf"},
@@ -213,14 +265,18 @@ func TestValidateAddressOptions(t *testing.T) {
 				t.Fatal(err)
 			}
 			err = validateChannelOptions(ch)
-			if tc.wantErr == "" {
+			wantErr := tc.wantErr
+			if runtime.GOOS == "windows" && tc.windowsErr != "" {
+				wantErr = tc.windowsErr
+			}
+			if wantErr == "" {
 				if err != nil {
 					t.Fatal(err)
 				}
 				return
 			}
-			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
-				t.Fatalf("error=%v want substring %q", err, tc.wantErr)
+			if err == nil || !strings.Contains(err.Error(), wantErr) {
+				t.Fatalf("error=%v want substring %q", err, wantErr)
 			}
 		})
 	}
@@ -353,6 +409,21 @@ func TestCatalogLifecyclePhasesForAdvertisedFDOptions(t *testing.T) {
 		}
 		if strings.Join(e.Groups, ",") != strings.Join(tt.groups, ",") {
 			t.Errorf("%q groups=%v want %v", tt.spelling, e.Groups, tt.groups)
+		}
+	}
+}
+
+func TestIPAncillaryMatrixWiredIntoCLI(t *testing.T) {
+	table := buildSupportedAddressOptions()
+	for _, name := range xio.IPAncillaryNames() {
+		got, ok := table[name]
+		if !ok {
+			t.Errorf("matrix option %q missing from CLI table", name)
+			continue
+		}
+		want := xio.IPAncillaryImplementationGroups(name)
+		if strings.Join(got.implementationGroups, ",") != strings.Join(want, ",") {
+			t.Errorf("%q implementationGroups=%v want %v", name, got.implementationGroups, want)
 		}
 	}
 }

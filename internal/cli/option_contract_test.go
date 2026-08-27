@@ -30,8 +30,8 @@ import (
 //     baudNamed, TermiosHelpNames
 //   - iff-* interface flags: tunopen/tun_linux.go parseIffOpts
 //   - tcpwrap family: xio/tcpwrap.go parseTCPWrap name loop
-//   - ancillary recv pairs (both spellings): xio/ancillary.go NeedAncillary /
-//     ApplyAncillaryRecvOpts
+//   - ancillary recv pairs (both spellings): xio/ip_ancillary_matrix.go and
+//     xio/ancillary.go NeedAncillary / ApplyAncillaryRecvOpts
 //   - whole-file locks: fileopen/lock.go applyFileLocks
 var dynamicallyReadOptions = map[string]string{
 	// termios flag/baud/control names are merged in at runtime from
@@ -62,6 +62,15 @@ var dynamicallyReadOptions = map[string]string{
 	"ip-recvttl": "xio/ancillary.go", "ip-recvtos": "xio/ancillary.go",
 	"ip-recvopts": "xio/ancillary.go", "ipv6-recvpktinfo": "xio/ancillary.go",
 	"ipv6-recvhoplimit": "xio/ancillary.go", "ipv6-recvtclass": "xio/ancillary.go",
+	"ippktinfo": "xio/ancillary.go", "iprecvttl": "xio/ancillary.go",
+	"iprecvtos": "xio/ancillary.go", "iprecvopts": "xio/ancillary.go",
+
+	"ip-ttl": "xio/ip_ancillary_send.go", "ip-tos": "xio/ip_ancillary_send.go",
+	"ip-options": "xio/ip_ancillary_send.go", "ipoptions": "xio/ip_ancillary_send.go",
+	"ipv6-unicast-hops": "xio/ip_ancillary_send.go", "ipv6-tclass": "xio/ip_ancillary_send.go",
+	"ttl": "xio/ip_ancillary_send.go", "tos": "xio/ip_ancillary_send.go",
+	"ipttl": "xio/ip_ancillary_send.go", "iptos": "xio/ip_ancillary_send.go",
+	"unicast-hops": "xio/ip_ancillary_send.go", "tclass": "xio/ip_ancillary_send.go",
 
 	"setlk": "fileopen/lock.go", "setlkw": "fileopen/lock.go",
 	"setlk-rd": "fileopen/lock.go", "setlkw-rd": "fileopen/lock.go",

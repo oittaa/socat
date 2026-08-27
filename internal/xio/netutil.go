@@ -173,14 +173,11 @@ func ApplyReuseAndV6Only(fd int, s parse.Spec, network string) error {
 	return nil
 }
 
-// ApplyListenOptions applies socket options that must be set before bind.
+// ApplyListenOptions applies socket options that must be set before bind
+// (classic PH_PREBIND: reuseaddr/reuseport/ipv6-v6only plus setsockopt-listen).
+// PH_PASTSOCKET options including so-broadcast live in ApplySocketOptions and
+// must run first (DialControl / ListenControl / listenUDP Control).
 func ApplyListenOptions(fd int, s parse.Spec, network string) error {
-	// Classic so-broadcast is PH_PASTSOCKET (after socket, before PREBIND).
-	// UDP ListenConfig.Control paths call this helper and not ApplySocketOptions
-	// until after bind, so apply it here as well as in ApplySocketOptions.
-	if err := applyBroadcast(fd, s); err != nil {
-		return err
-	}
 	// Windows AF_UNIX sockets reject SO_REUSEADDR and can remain unusable
 	// after the failed call. UNIX path reuse is handled by the opener instead.
 	if !strings.HasPrefix(network, "unix") {
@@ -188,20 +185,43 @@ func ApplyListenOptions(fd int, s parse.Spec, network string) error {
 			return err
 		}
 	}
-	if s.HasOption("setsockopt-listen") {
-		return ApplySetsockoptFD(fd, s.OptionValue("setsockopt-listen", ""))
-	}
-	return nil
+	return ApplyPrebindPhase(fd, s)
 }
 
-// ListenControl is a net.ListenConfig.Control that applies pre-bind options.
+// ApplyPastSocketPhase applies classic PH_PASTSOCKET immediately after
+// socket() (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+// official master af5388c898c7bb60997935aee93c223deba60c4a is the same):
+// SOL_SOCKET buffers/broadcast/bindtodevice plus setsockopt-socket, and
+// ip-ttl/tos on TCP/SCTP.
+func ApplyPastSocketPhase(fd int, s parse.Spec, network string) error {
+	return ApplyNetworkSocketOptions(fd, s, network)
+}
+
+// ApplyPrebindPhase applies classic PH_PREBIND generic setsockopt-listen
+// before bind()/connect().
+func ApplyPrebindPhase(fd int, s parse.Spec) error {
+	return ApplyGenericSetsockopt(fd, s, SockoptPhasePrebind)
+}
+
+// ApplyPastSocketThenPrebind is the Control-hook order used by net.Dialer
+// and net.ListenConfig: PASTSOCKET after socket(), then PREBIND, then
+// return so connect()/bind() happens after both phases.
+func ApplyPastSocketThenPrebind(fd int, s parse.Spec, network string) error {
+	if err := ApplyPastSocketPhase(fd, s, network); err != nil {
+		return err
+	}
+	return ApplyPrebindPhase(fd, s)
+}
+
+// ListenControl is a net.ListenConfig.Control that applies PASTSOCKET then
+// PREBIND before bind().
 func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) error {
 		var optionErr error
 		controlErr := c.Control(func(fd uintptr) {
-			optionErr = ApplyListenOptions(int(fd), s, network)
+			optionErr = ApplyPastSocketPhase(int(fd), s, network)
 			if optionErr == nil {
-				optionErr = ApplyNetworkSocketOptions(int(fd), s, network)
+				optionErr = ApplyListenOptions(int(fd), s, network)
 			}
 		})
 		return errors.Join(controlErr, optionErr)
@@ -209,12 +229,13 @@ func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn
 }
 
 // ApplyNetworkSocketOptions applies the post-socket options shared by Go net
-// listeners/dialers and raw SCTP sockets.
+// listeners/dialers and raw SCTP sockets, including the unified PH_PASTSOCKET
+// IP/ancillary pass (send and recv, once; not again after connect/bind).
 func ApplyNetworkSocketOptions(fd int, s parse.Spec, network string) error {
-	if err := ApplySocketOptions(fd, s); err != nil {
+	if err := ApplySocketOptionsWithoutGeneric(fd, s); err != nil {
 		return err
 	}
-	return applyIPTTLTOS(fd, s, network)
+	return applyOrderedPastSocketPhaseOptions(fd, s, network)
 }
 
 // ApplyListenBacklog updates the pending-connection queue of an existing TCP
@@ -237,9 +258,12 @@ func ApplyListenBacklog(ln net.Listener, backlog int) error {
 	return errors.Join(controlErr, optionErr)
 }
 
-// DialControl merges spec-driven socket options (rcvtimeo/sndtimeo, and
-// ip-ttl/ip-tos on tcp networks) with an optional caller-provided Control,
-// producing a single net.Dialer.Control.
+// DialControl merges spec-driven socket options with an optional
+// caller-provided Control. Classic _xioopen_connect applies
+// PH_PASTSOCKET then PH_PREBIND (setsockopt-listen) before connect()
+// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same). Go's Control
+// hook runs after socket() and before connect(), so both phases go here.
 func DialControl(s parse.Spec, network string, caller func(string, string, syscall.RawConn) error) func(string, string, syscall.RawConn) error {
 	return func(nw, addr string, c syscall.RawConn) error {
 		optionNetwork := network
@@ -248,7 +272,7 @@ func DialControl(s parse.Spec, network string, caller func(string, string, sysca
 		}
 		var optErr error
 		controlErr := c.Control(func(fd uintptr) {
-			optErr = ApplyNetworkSocketOptions(int(fd), s, optionNetwork)
+			optErr = ApplyPastSocketThenPrebind(int(fd), s, optionNetwork)
 		})
 		if err := errors.Join(controlErr, optErr); err != nil {
 			return err
@@ -490,73 +514,35 @@ func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 	return nil
 }
 
-// ApplyTCPConnOpts parses classic setsockopt=level:optname:value (ints) and applies it.
-// SETSOCKOPT test uses setsockopt=6:TCP_MAXSEG:512 (IPPROTO_TCP + TCP_MAXSEG).
+// ApplyTCPConnOpts applies TCP keepalive/nodelay plus classic PH_CONNECTED
+// generic setsockopt on the unwrapped raw conn. IP TTL/TOS and other
+// PH_PASTSOCKET options were already applied by DialControl/ListenControl.
+// SETSOCKOPT uses
+// setsockopt=6:TCP_MAXSEG:512 (IPPROTO_TCP + TCP_MAXSEG) after connect.
+// Non-TCP connections that expose a socket fd still get generic setsockopt;
+// a present option is never ignored because the conn is not *net.TCPConn.
 func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
-	for {
-		unwrapper, ok := c.(interface{ NetConn() net.Conn })
-		if !ok {
-			break
+	c = unwrapNetConn(c)
+	if tc, ok := c.(*net.TCPConn); ok {
+		if err := applyKeepAliveConfig(s, tc); err != nil {
+			return err
 		}
-		inner := unwrapper.NetConn()
-		if inner == nil || inner == c {
-			break
-		}
-		c = inner
-	}
-	tc, ok := c.(*net.TCPConn)
-	if !ok {
-		return nil
-	}
-	if la, ok := tc.LocalAddr().(*net.TCPAddr); ok {
-		network := "tcp6"
-		if la.IP.To4() != nil {
-			network = "tcp4"
-		}
-		if raw, rerr := tc.SyscallConn(); rerr == nil {
-			var optErr error
-			_ = raw.Control(func(fd uintptr) {
-				optErr = applyIPTTLTOS(int(fd), s, network)
-			})
-			if optErr != nil {
-				return optErr
+		if s.HasOption("nodelay") || s.HasOption("tcp-nodelay") {
+			enabled := s.BoolOption("nodelay") || s.BoolOption("tcp-nodelay")
+			if err := tc.SetNoDelay(enabled); err != nil {
+				return fmt.Errorf("nodelay: %w", err)
 			}
 		}
-	}
-	if err := applyKeepAliveConfig(s, tc); err != nil {
-		return err
-	}
-	if s.HasOption("nodelay") || s.HasOption("tcp-nodelay") {
-		enabled := s.BoolOption("nodelay") || s.BoolOption("tcp-nodelay")
-		if err := tc.SetNoDelay(enabled); err != nil {
-			return fmt.Errorf("nodelay: %w", err)
+		if err := ApplyGenericSetsockoptToNetConn(tc, s, SockoptPhaseConnected); err != nil {
+			return err
 		}
+		// Classic PH_LATE so-sndbuf-late / so-rcvbuf-late on the raw TCP fd
+		// after connect()/accept(), before TLS/PROXY handshake. WrapCommon
+		// still applies the same options on UNIX/UDP streams; a second
+		// SO_SNDBUF set on this TCP conn is harmless.
+		return ApplyLateSocketOptionsToConn(tc, s)
 	}
-	// Classic PH_LATE so-sndbuf-late / so-rcvbuf-late on the raw TCP fd
-	// after connect()/accept(), before TLS/PROXY handshake. WrapCommon
-	// still applies the same options on UNIX/UDP streams; a second
-	// SO_SNDBUF set on this TCP conn is harmless.
-	return ApplyLateSocketOptionsToConn(tc, s)
-}
-
-func ApplySetsockoptFD(fd int, spec string) error {
-	parts := strings.Split(spec, ":")
-	if len(parts) != 3 {
-		return fmt.Errorf("setsockopt requires level:optname:value")
-	}
-	level, err := strconv.Atoi(parts[0])
-	if err != nil {
-		return fmt.Errorf("setsockopt level: %w", err)
-	}
-	opt, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return fmt.Errorf("setsockopt optname: %w", err)
-	}
-	val, err := strconv.Atoi(parts[2])
-	if err != nil {
-		return fmt.Errorf("setsockopt value: %w", err)
-	}
-	return setSockoptInt(fd, level, opt, val)
+	return ApplyGenericSetsockoptToNetConn(c, s, SockoptPhaseConnected)
 }
 
 // FormatSocatAddr matches classic env formatting (IPv6 in brackets).

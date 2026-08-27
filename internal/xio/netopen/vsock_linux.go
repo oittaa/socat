@@ -47,11 +47,9 @@ func listenVSOCK(_ context.Context, port uint32, s parse.Spec, g *xio.Global) (n
 		_ = unix.Close(fd)
 		return nil, err
 	}
-	if s.HasOption("setsockopt-listen") {
-		if err := xio.ApplySetsockoptFD(fd, s.OptionValue("setsockopt-listen", "")); err != nil {
-			_ = unix.Close(fd)
-			return nil, err
-		}
+	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhasePrebind); err != nil {
+		_ = unix.Close(fd)
+		return nil, err
 	}
 	if err := unix.Bind(fd, &unix.SockaddrVM{CID: cid, Port: port}); err != nil {
 		logx.CloseErr(unix.Close(fd))
@@ -106,6 +104,10 @@ func dialVSOCK(ctx context.Context, remote vsockEndpoint, s parse.Spec, g *xio.G
 		return nil, err
 	}
 	if err := xio.ApplyNetworkSocketOptions(fd, s, "vsock"); err != nil {
+		logx.CloseErr(unix.Close(fd))
+		return nil, err
+	}
+	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhasePrebind); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}

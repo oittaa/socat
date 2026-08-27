@@ -72,3 +72,14 @@ func TestApplyFDLifecycleToPacketConnRejectsNonSocket(t *testing.T) {
 		t.Fatalf("error=%v want packet connection does not expose a socket", err)
 	}
 }
+
+func TestApplyIPSendOptsToPacketConnRejectsNonSocket(t *testing.T) {
+	spec, err := parse.ParseSpec("QUIC:127.0.0.1:1,ip-ttl=9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ApplyIPSendOptsToPacketConn(stubPacketConn{}, spec, "udp4")
+	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
+		t.Fatalf("error=%v want packet connection does not expose a socket", err)
+	}
+}

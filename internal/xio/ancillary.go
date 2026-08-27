@@ -4,12 +4,10 @@ package xio
 
 import (
 	"encoding/binary"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -17,175 +15,73 @@ import (
 )
 
 // NeedAncillary reports whether the address requests control messages on recv.
+// TYPE_INT recv flags use BoolOption: pktinfo=0 does not enable ReadMsg;
+// presence or =1 does.
 func NeedAncillary(s parse.Spec) bool {
-	for _, name := range []string{
-		"so-timestamp", "timestamp",
-		"ip-pktinfo", "pktinfo",
-		"ip-recvttl", "recvttl",
-		"ip-recvtos", "recvtos",
-		"ip-recvopts", "recvopts",
-		"ipv6-recvpktinfo", "recvpktinfo",
-		"ipv6-recvhoplimit", "recvhoplimit",
-		"ipv6-recvtclass", "recvtclass",
-	} {
-		if s.BoolOption(name) {
-			return true
-		}
-	}
-	return false
+	return ancillaryRecvRequested(s)
 }
 
 // ApplyAncillaryRecvOpts enables kernel delivery of control messages on fd.
+// Classic TYPE_INT OFUNC_SOCKOPT (tag-1.8.1.3 12c08bf): presence setsockopt 1,
+// an explicit integer is passed through, =0 disables. Each matching option
+// in s.Options is applied in command-line order (ippktinfo then ip-pktinfo=0
+// is two setsockopt calls).
 func ApplyAncillaryRecvOpts(fd int, s parse.Spec) error {
-	on := func(name string) bool {
-		return s.BoolOption(name)
+	family, err := socketIPFamily(fd)
+	if err != nil {
+		return err
 	}
-	set := func(name string, level, option int) error {
-		if err := unix.SetsockoptInt(fd, level, option, 1); err != nil {
-			return fmt.Errorf("%s: %w", name, err)
+	for _, option := range s.Options {
+		e, ok := lookupIPAncillary(specOptionName(option))
+		if !ok || e.Kind&IPAncillaryRecv == 0 {
+			continue
 		}
+		if err := applyOneIPRecvOpt(fd, e, option, family); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func applyOneIPRecvOpt(fd int, e IPAncillaryEntry, option parse.Option, family ipFamily) error {
+	n, err := ancillaryRecvOptionInt(option)
+	if err != nil {
+		return fmt.Errorf("%s: %w", e.Canonical, err)
+	}
+	if err := rejectIPAncillaryApply(e.Canonical, family); err != nil {
+		return err
+	}
+	level, opt, ok := ancillaryRecvSockopt(e.Canonical)
+	if !ok {
 		return nil
 	}
-	if on("so-timestamp") || on("timestamp") {
-		if err := set("so-timestamp", unix.SOL_SOCKET, unix.SO_TIMESTAMP); err != nil {
-			return err
-		}
-	}
-	if on("ip-pktinfo") || on("pktinfo") {
-		if err := set("ip-pktinfo", unix.IPPROTO_IP, unix.IP_PKTINFO); err != nil {
-			return err
-		}
-	}
-	if on("ip-recvttl") || on("recvttl") {
-		if err := set("ip-recvttl", unix.IPPROTO_IP, unix.IP_RECVTTL); err != nil {
-			return err
-		}
-	}
-	if on("ip-recvtos") || on("recvtos") {
-		if err := set("ip-recvtos", unix.IPPROTO_IP, unix.IP_RECVTOS); err != nil {
-			return err
-		}
-	}
-	if on("ip-recvopts") || on("recvopts") {
-		if err := set("ip-recvopts", unix.IPPROTO_IP, unix.IP_RECVOPTS); err != nil {
-			return err
-		}
-	}
-	if on("ipv6-recvpktinfo") || on("recvpktinfo") {
-		if err := set("ipv6-recvpktinfo", unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO); err != nil {
-			return err
-		}
-	}
-	if on("ipv6-recvhoplimit") || on("recvhoplimit") {
-		if err := set("ipv6-recvhoplimit", unix.IPPROTO_IPV6, unix.IPV6_RECVHOPLIMIT); err != nil {
-			return err
-		}
-	}
-	if on("ipv6-recvtclass") || on("recvtclass") {
-		if err := set("ipv6-recvtclass", unix.IPPROTO_IPV6, unix.IPV6_RECVTCLASS); err != nil {
-			return err
-		}
+	if err := setSockoptInt(fd, level, opt, n); err != nil {
+		return fmt.Errorf("%s: %w", e.Canonical, err)
 	}
 	return nil
 }
 
-// ApplyIPSendOpts sets classic send-side IP options on a UDP/IP socket.
-func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
-	if v := s.OptionValue("ip-ttl", ""); v != "" {
-		n, err := ParseIntAny(v)
-		if err != nil {
-			return fmt.Errorf("ip-ttl: %w", err)
-		}
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TTL, n); err != nil {
-			return fmt.Errorf("ip-ttl: %w", err)
-		}
-	} else if v := s.OptionValue("ttl", ""); v != "" {
-		n, err := ParseIntAny(v)
-		if err != nil {
-			return fmt.Errorf("ttl: %w", err)
-		}
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TTL, n); err != nil {
-			return fmt.Errorf("ttl: %w", err)
-		}
+func ancillaryRecvSockopt(canonical string) (level, opt int, ok bool) {
+	switch canonical {
+	case "so-timestamp":
+		return unix.SOL_SOCKET, unix.SO_TIMESTAMP, true
+	case "ip-pktinfo":
+		return unix.IPPROTO_IP, unix.IP_PKTINFO, true
+	case "ip-recvttl":
+		return unix.IPPROTO_IP, unix.IP_RECVTTL, true
+	case "ip-recvtos":
+		return unix.IPPROTO_IP, unix.IP_RECVTOS, true
+	case "ip-recvopts":
+		return unix.IPPROTO_IP, unix.IP_RECVOPTS, true
+	case "ipv6-recvpktinfo":
+		return unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO, true
+	case "ipv6-recvhoplimit":
+		return unix.IPPROTO_IPV6, unix.IPV6_RECVHOPLIMIT, true
+	case "ipv6-recvtclass":
+		return unix.IPPROTO_IPV6, unix.IPV6_RECVTCLASS, true
+	default:
+		return 0, 0, false
 	}
-	if v := s.OptionValue("ip-tos", ""); v != "" {
-		n, err := ParseIntAny(v)
-		if err != nil {
-			return fmt.Errorf("ip-tos: %w", err)
-		}
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TOS, n); err != nil {
-			return fmt.Errorf("ip-tos: %w", err)
-		}
-	} else if v := s.OptionValue("tos", ""); v != "" {
-		n, err := ParseIntAny(v)
-		if err != nil {
-			return fmt.Errorf("tos: %w", err)
-		}
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_TOS, n); err != nil {
-			return fmt.Errorf("tos: %w", err)
-		}
-	}
-	if v := s.OptionValue("ip-options", ""); v != "" {
-		// classic ip-options=x01000000 hex dump of IP options bytes
-		b, err := ParseHexOpt(v)
-		if err != nil {
-			return fmt.Errorf("ip-options: %w", err)
-		}
-		if len(b) == 0 {
-			return fmt.Errorf("ip-options: empty value")
-		}
-		if err := unix.SetsockoptString(fd, unix.IPPROTO_IP, unix.IP_OPTIONS, string(b)); err != nil {
-			return fmt.Errorf("ip-options: %w", err)
-		}
-	}
-	if strings.Contains(network, "6") {
-		if v := s.OptionValue("ipv6-unicast-hops", ""); v != "" {
-			n, err := ParseIntAny(v)
-			if err != nil {
-				return fmt.Errorf("ipv6-unicast-hops: %w", err)
-			}
-			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, n); err != nil {
-				return fmt.Errorf("ipv6-unicast-hops: %w", err)
-			}
-		} else if v := s.OptionValue("unicast-hops", ""); v != "" {
-			n, err := ParseIntAny(v)
-			if err != nil {
-				return fmt.Errorf("unicast-hops: %w", err)
-			}
-			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_UNICAST_HOPS, n); err != nil {
-				return fmt.Errorf("unicast-hops: %w", err)
-			}
-		}
-		if v := s.OptionValue("ipv6-tclass", ""); v != "" {
-			n, err := ParseIntAny(v)
-			if err != nil {
-				return fmt.Errorf("ipv6-tclass: %w", err)
-			}
-			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_TCLASS, n); err != nil {
-				return fmt.Errorf("ipv6-tclass: %w", err)
-			}
-		} else if v := s.OptionValue("tclass", ""); v != "" {
-			n, err := ParseIntAny(v)
-			if err != nil {
-				return fmt.Errorf("tclass: %w", err)
-			}
-			if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_TCLASS, n); err != nil {
-				return fmt.Errorf("tclass: %w", err)
-			}
-		}
-	}
-	return nil
-}
-
-func ParseHexOpt(v string) ([]byte, error) {
-	v = strings.TrimSpace(v)
-	if strings.HasPrefix(v, "x") || strings.HasPrefix(v, "X") {
-		v = v[1:]
-	}
-	if strings.HasPrefix(v, "0x") || strings.HasPrefix(v, "0X") {
-		v = v[2:]
-	}
-	return hex.DecodeString(v)
 }
 
 // ProcessAncillary parses oob from recvmsg, logs classic Info lines, and sets
@@ -296,21 +192,31 @@ func cmsgInt(data []byte) int {
 }
 
 func handleIPv4Cmsg(typ int32, data []byte, g *Global) {
-	switch typ {
-	case unix.IP_TTL:
+	// Do not use a combined switch case for IP_TTL/IP_RECVTTL: the constants
+	// are equal on some UNIXes and Go rejects duplicate cases. Classic
+	// xio-ip.c (tag-1.8.1.3 12c08bf) treats Linux IP_TTL and BSD IP_RECVTTL
+	// as the same received-TTL cmsg (env IP_TTL).
+	if typ == unix.IP_TTL || typ == unix.IP_RECVTTL {
 		val := strconv.Itoa(cmsgInt(data))
 		logAncillary(g, "IP_TTL", "ttl", val)
 		SetSessionEnv(g, "IP_TTL", val)
 		if g != nil && g.Log != nil {
 			g.Log.Noticef("Ancillary message: ttl=%s", val)
 		}
-	case unix.IP_TOS:
+		return
+	}
+	// Solaris delivers TOS as IP_RECVTOS; Linux/Darwin typically use IP_TOS
+	// (classic xio-ip.c: IP_RECVTOS when XIO_ANCILLARY_TYPE_SOLARIS).
+	if typ == unix.IP_TOS || typ == unix.IP_RECVTOS {
 		val := strconv.Itoa(cmsgInt(data))
 		logAncillary(g, "IP_TOS", "tos", val)
 		SetSessionEnv(g, "IP_TOS", val)
 		if g != nil && g.Log != nil {
 			g.Log.Noticef("Ancillary message: tos=%s", val)
 		}
+		return
+	}
+	switch typ {
 	case unix.IP_PKTINFO:
 		ifi, specDst, dstIP, ok := parseInet4Pktinfo(data)
 		if !ok {
@@ -414,26 +320,26 @@ func ReadUDPMsg(c *net.UDPConn, p []byte, wantCtrl bool) (n int, oob []byte, add
 	return n, oob[:oobn], addr, nil
 }
 
-// ApplyUDPConnOpts applies ancillary + send IP options on a live UDPConn.
-func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
+// ApplyUDPConnOpts applies PH_LATE buffers (and remaining SOL_SOCKET options)
+// on a live UDPConn. Send and recv IP/ancillary options are PH_PASTSOCKET
+// (DialControl / ListenControl → ApplyPastSocketPhase) and must not be
+// re-applied here after bind/connect.
+func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, _ string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
 		return err
 	}
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
-		if err := ApplyAncillaryRecvOpts(int(fd), s); err != nil {
-			optionErr = err
-			return
-		}
-		optionErr = ApplyIPSendOpts(int(fd), s, network)
-		if optionErr == nil {
-			optionErr = ApplySocketOptions(int(fd), s)
-		}
 		// PH_LATE so-sndbuf-late / so-rcvbuf-late on the raw UDP fd after
 		// bind/connect, before packet-session wrapping (udpRecvFromConn).
+		// PH_PASTSOCKET (ApplySocketOptions / setsockopt-socket / broadcast)
+		// is applied in listen/dial Control before bind/connect.
 		if optionErr == nil {
 			optionErr = ApplyLateSocketOptions(int(fd), s)
+		}
+		if optionErr == nil {
+			optionErr = ApplyGenericSetsockopt(int(fd), s, SockoptPhaseConnected)
 		}
 	})
 	if err := errors.Join(controlErr, optionErr); err != nil {

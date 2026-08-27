@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
@@ -35,6 +36,7 @@ func WrapAccepted(s parse.Spec, c net.Conn, extra func(net.Conn) error) (relay.S
 		if err := extra(c); err != nil {
 			return nil, err
 		}
+		return WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
 	}
 	return WrapCommon(s, relay.NetStream{Conn: c})
 }
@@ -90,6 +92,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 	}
 	o.AcceptTimeout = AcceptTimeout(s)
 	o.AddCleanup(func() { _ = closeLn() })
+	noteListenBound()
 
 	if fork {
 		go func() {
@@ -200,5 +203,34 @@ func acceptOne(ctx context.Context, ln net.Listener, accept func(context.Context
 		return nil, ctx.Err()
 	case a := <-ch:
 		return a.c, a.err
+	}
+}
+
+var (
+	listenBoundHookMu sync.Mutex
+	listenBoundHook   func()
+)
+
+// SetListenBoundTestHook installs a test-only callback fired after a stream
+// listener is bound and before the accept loop. The returned function
+// restores the previous hook.
+func SetListenBoundTestHook(h func()) func() {
+	listenBoundHookMu.Lock()
+	prev := listenBoundHook
+	listenBoundHook = h
+	listenBoundHookMu.Unlock()
+	return func() {
+		listenBoundHookMu.Lock()
+		listenBoundHook = prev
+		listenBoundHookMu.Unlock()
+	}
+}
+
+func noteListenBound() {
+	listenBoundHookMu.Lock()
+	h := listenBoundHook
+	listenBoundHookMu.Unlock()
+	if h != nil {
+		h()
 	}
 }

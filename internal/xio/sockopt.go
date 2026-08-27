@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"sync"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -59,13 +60,14 @@ func applyBroadcast(fd int, s parse.Spec) error {
 	return nil
 }
 
-// applyPastSocketBuffersAndDevice is the PH_PASTSOCKET half of classic
+// applyPastSocketBuffersAndDeviceWithoutGeneric is the non-generic
+// PH_PASTSOCKET half of classic
 // opt_so_broadcast / opt_so_sndbuf / opt_so_rcvbuf / opt_so_bindtodevice.
 // Late buffer variants are applied in ApplyTCPConnOpts (raw TCP after
 // connect/accept, before TLS/PROXY handshake), ApplyUDPConnOpts /
 // applyUnixgramSocketOptions (raw UDP/UNIX after bind or connect, before
 // packet-session wrapping), and WrapCommon (streams that expose a socket fd).
-func applyPastSocketBuffersAndDevice(fd int, s parse.Spec) error {
+func applyPastSocketBuffersAndDeviceWithoutGeneric(fd int, s parse.Spec) error {
 	if err := applyBroadcast(fd, s); err != nil {
 		return err
 	}
@@ -77,7 +79,10 @@ func applyPastSocketBuffersAndDevice(fd int, s parse.Spec) error {
 	if err := applySocketBufferOpt(fd, "rcvbuf", o, ok, soRcvbuf); err != nil {
 		return err
 	}
-	return applyBindToDevice(fd, s)
+	if err := applyBindToDevice(fd, s); err != nil {
+		return err
+	}
+	return nil
 }
 
 // ApplyLateSocketOptions applies classic so-sndbuf-late / so-rcvbuf-late
@@ -130,12 +135,80 @@ func ApplyLateSocketOptionsToPacketConn(pc net.PacketConn, s parse.Spec) error {
 	return ApplyLateSocketOptionsToConn(sc, s)
 }
 
+// ApplyIPSendOptsToPacketConn applies send-side IP options on a UDP PacketConn
+// that was not created with ListenControl (tests, leftover callers). QUIC,
+// HTTP/3, and raw IP apply the same options once in ListenControl / DialControl
+// at PH_PASTSOCKET.
+func ApplyIPSendOptsToPacketConn(pc net.PacketConn, s parse.Spec, network string) error {
+	if pc == nil || !ipSendRequested(s) {
+		return nil
+	}
+	sc, ok := pc.(syscall.Conn)
+	if !ok {
+		return fmt.Errorf("ip-ttl/ip-tos: packet connection does not expose a socket")
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var optErr error
+	ctrlErr := raw.Control(func(fd uintptr) {
+		optErr = ApplyIPSendOpts(int(fd), s, network)
+	})
+	return errors.Join(ctrlErr, optErr)
+}
+
 func hasLateSocketBuffers(s parse.Spec) bool {
 	if _, ok := s.OptionNamed("sndbuf-late"); ok {
 		return true
 	}
 	_, ok := s.OptionNamed("rcvbuf-late")
 	return ok
+}
+
+// SockoptCall is one test-only observation of setSockoptInt / setSockoptBytes.
+type SockoptCall struct {
+	FD, Level, Opt int
+	AsInt          bool
+	IntValue       int
+	Bytes          []byte
+}
+
+var (
+	sockoptHookMu sync.Mutex
+	sockoptHook   func(SockoptCall)
+)
+
+// SetSockoptTestHook installs a test-only observer around setSockoptInt and
+// setSockoptBytes. The returned function restores the previous hook.
+func SetSockoptTestHook(h func(SockoptCall)) func() {
+	sockoptHookMu.Lock()
+	prev := sockoptHook
+	sockoptHook = h
+	sockoptHookMu.Unlock()
+	return func() {
+		sockoptHookMu.Lock()
+		sockoptHook = prev
+		sockoptHookMu.Unlock()
+	}
+}
+
+func recordSockoptInt(fd, level, opt, value int) {
+	sockoptHookMu.Lock()
+	h := sockoptHook
+	sockoptHookMu.Unlock()
+	if h != nil {
+		h(SockoptCall{FD: fd, Level: level, Opt: opt, AsInt: true, IntValue: value})
+	}
+}
+
+func recordSockoptBytes(fd, level, opt int, value []byte) {
+	sockoptHookMu.Lock()
+	h := sockoptHook
+	sockoptHookMu.Unlock()
+	if h != nil {
+		h(SockoptCall{FD: fd, Level: level, Opt: opt, Bytes: append([]byte(nil), value...)})
+	}
 }
 
 func applyLateSocketOptionsToStream(s parse.Spec, stream relay.Stream) error {

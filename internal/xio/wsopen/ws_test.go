@@ -42,6 +42,74 @@ func TestUpgradeConnHandshakeTimeout(t *testing.T) {
 	}
 }
 
+func TestWSConnectHandshakeTimeoutStalledPeer(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		time.Sleep(5 * time.Second)
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	s, err := parse.ParseSpec(fmt.Sprintf("WS:127.0.0.1:%d,handshake-timeout=0.2", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	_, err = openWSConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	if err == nil {
+		t.Fatal("stalled WebSocket peer did not time out")
+	}
+	elapsed := time.Since(started)
+	if elapsed < 150*time.Millisecond {
+		t.Fatalf("failed too quickly (%s); handshake-timeout may not have been applied: %v", elapsed, err)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("handshake timeout took %s: %v", elapsed, err)
+	}
+}
+
+func TestWSConnectHandshakeTimeoutDoesNotTruncateTCPConnect(t *testing.T) {
+	hosts := []string{"192.0.2.1", "198.51.100.1", "203.0.113.1"}
+	var lastElapsed time.Duration
+	var lastErr error
+	var lastHost string
+	for _, host := range hosts {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		s, err := parse.ParseSpec(fmt.Sprintf("WS:%s:1,connect-timeout=1,handshake-timeout=0.2", host))
+		if err != nil {
+			cancel()
+			t.Fatal(err)
+		}
+		started := time.Now()
+		_, err = openWSConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+		elapsed := time.Since(started)
+		cancel()
+		lastElapsed, lastErr, lastHost = elapsed, err, host
+		if elapsed < 700*time.Millisecond {
+			t.Logf("%s completed in %s (likely RST); trying next TEST-NET address: %v", host, elapsed, err)
+			continue
+		}
+		if err == nil {
+			t.Fatalf("%s: expected connect failure against non-completing SYN, elapsed %s", host, elapsed)
+		}
+		if elapsed > 2500*time.Millisecond {
+			t.Fatalf("%s: connect-timeout took %s: %v", host, elapsed, err)
+		}
+		return
+	}
+	t.Fatalf("no TEST-NET address blackholed SYN (last %s elapsed %s: %v); handshake-timeout must not be tested against an immediate RST", lastHost, lastElapsed, lastErr)
+}
+
 func echoWSHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})

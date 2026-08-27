@@ -217,6 +217,72 @@ func TestChdirCreatesRelativeAddressInRequestedDirectory(t *testing.T) {
 	}
 }
 
+func TestTLSClientHandshakeTimeoutStalledPeer(t *testing.T) {
+	bin := socatBin(t)
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		time.Sleep(5 * time.Second)
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+	started := time.Now()
+	out, err := runWithTimeout(t, exec.Command(bin, "-u",
+		fmt.Sprintf("TLS:127.0.0.1:%d,verify=0,handshake-timeout=0.2", port),
+		"PIPE",
+	), 3*time.Second)
+	if err == nil {
+		t.Fatalf("expected handshake timeout, got success: %s", out)
+	}
+	elapsed := time.Since(started)
+	if elapsed < 150*time.Millisecond {
+		t.Fatalf("failed too quickly (%s): %s", elapsed, out)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("handshake timeout took %s: %s", elapsed, out)
+	}
+}
+
+func TestWSClientHandshakeTimeoutStalledPeer(t *testing.T) {
+	bin := socatBin(t)
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = c.Close() }()
+		time.Sleep(5 * time.Second)
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+	started := time.Now()
+	out, err := runWithTimeout(t, exec.Command(bin, "-u",
+		fmt.Sprintf("WS:127.0.0.1:%d,handshake-timeout=0.2", port),
+		"PIPE",
+	), 3*time.Second)
+	if err == nil {
+		t.Fatalf("expected handshake timeout, got success: %s", out)
+	}
+	elapsed := time.Since(started)
+	if elapsed < 150*time.Millisecond {
+		t.Fatalf("failed too quickly (%s): %s", elapsed, out)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("handshake timeout took %s: %s", elapsed, out)
+	}
+}
+
 func TestTLSHandshakeTimeoutClosesSilentPeer(t *testing.T) {
 	bin := socatBin(t)
 	port := freePort(t)

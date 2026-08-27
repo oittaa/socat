@@ -474,17 +474,31 @@ func applySocketTimeouts(s parse.Spec, stream relay.Stream) (relay.Stream, error
 
 // WrapCommon applies socket timeouts plus the common stream transformations.
 func WrapCommon(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, true)
+	return wrapCommon(s, stream, true, false)
+}
+
+// WrapCommonAfterConnected is WrapCommon for streams whose opener already
+// handled PH_CONNECTED: it was applied for socket constructors, or explicitly
+// rejected for FD. A skip flag is used instead of wrapping the stream so type
+// assertions on the concrete opener type stay valid.
+func WrapCommonAfterConnected(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
+	return wrapCommon(s, stream, true, true)
 }
 
 // WrapCommonWithSocketTimeoutsApplied is used by framed transports that must
 // absorb socket timeouts below their record layer before applying the remaining
 // common stream transformations.
 func WrapCommonWithSocketTimeoutsApplied(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, false)
+	return wrapCommon(s, stream, false, false)
 }
 
-func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts bool) (relay.Stream, error) {
+// WrapCommonAfterConnectedTimeoutsApplied skips PH_CONNECTED and socket
+// timeouts (already applied on the raw fd / below the record layer).
+func WrapCommonAfterConnectedTimeoutsApplied(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
+	return wrapCommon(s, stream, false, true)
+}
+
+func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected bool) (relay.Stream, error) {
 	// PH_LATE so-sndbuf-late / so-rcvbuf-late on streams that expose a
 	// socket fd (syscall.Conn). TLS crypto/tls.Conn is not a syscall.Conn;
 	// ApplyTCPConnOpts applies the same options on the unwrapped raw TCP
@@ -503,8 +517,18 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts bool) (relay.St
 	if err := applyFDLifecycleToStream(s, stream); err != nil {
 		return nil, err
 	}
+	// Classic PH_CONNECTED generic setsockopt* follow the same split:
+	// ApplyTCPConnOpts (including TLS/WS/proxy/SOCKS unwrap),
+	// ApplyUDPConnOpts, applyUnixgramSocketOptions, QUIC PacketConn, and
+	// WrapCommon as a fallback for streams that expose a socket fd and have
+	// not already applied CONNECTED (INTERFACE, FD, SOCKETPAIR, UNIX stream).
 	if err := applyLateSocketOptionsToStream(s, stream); err != nil {
 		return nil, err
+	}
+	if !skipConnected {
+		if err := applyGenericSetsockoptToStream(s, stream, SockoptPhaseConnected); err != nil {
+			return nil, err
+		}
 	}
 	var err error
 	if applyTimeouts {

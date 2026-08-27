@@ -240,8 +240,14 @@ func openUnixDgramClient(ctx context.Context, s parse.Spec, mode xio.Mode, g *xi
 		}
 		g.PeerAddr = path
 	}
+	if uc, ok := conn.(*net.UnixConn); ok {
+		if err := applyUnixgramSocketOptions(uc, s); err != nil {
+			life.drop(conn)
+			return nil, err
+		}
+	}
 	st := relay.Stream(relay.NetStream{Conn: conn})
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		life.drop(conn)
 		return nil, err

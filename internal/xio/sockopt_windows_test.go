@@ -3,9 +3,12 @@
 package xio
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net"
 	"strings"
+	"syscall"
 	"testing"
 	"unsafe"
 
@@ -13,6 +16,50 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/windows"
 )
+
+func TestApplyUDPConnOptsAppliesSetsockoptWindows(t *testing.T) {
+	c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	spec, err := parse.ParseSpec(fmt.Sprintf("UDP:127.0.0.1:9,setsockopt=%d:%d:1", solSocket, windows.SO_BROADCAST))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyUDPConnOpts(c, spec, "udp4"); err != nil {
+		t.Fatalf("UDP setsockopt must apply, not no-op: %v", err)
+	}
+	got, err := windowsSocketOption(c, windows.SO_BROADCAST)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == 0 {
+		t.Fatalf("SO_BROADCAST=%d want enabled", got)
+	}
+}
+
+func TestApplyTCPConnOptsAppliesSetsockoptOnUDPWindows(t *testing.T) {
+	c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	spec, err := parse.ParseSpec(fmt.Sprintf("UDP:127.0.0.1:9,setsockopt-int=%d:%d:1", solSocket, windows.SO_BROADCAST))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyTCPConnOpts(spec, c); err != nil {
+		t.Fatalf("UDP setsockopt must apply, not no-op: %v", err)
+	}
+	got, err := windowsSocketOption(c, windows.SO_BROADCAST)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == 0 {
+		t.Fatalf("SO_BROADCAST=%d want enabled", got)
+	}
+}
 
 func TestWindowsTimeoutMillis(t *testing.T) {
 	tests := []struct {
@@ -74,7 +121,7 @@ func TestApplyUDPConnOptsAppliesLateWindows(t *testing.T) {
 	}
 }
 
-func TestApplyUDPConnOptsWindowsTimeos(t *testing.T) {
+func TestApplySocketTimeosWindows(t *testing.T) {
 	c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +134,15 @@ func TestApplyUDPConnOptsWindowsTimeos(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ApplyUDPConnOpts(c, spec, "udp4"); err != nil {
+		raw, err := c.SyscallConn()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var optionErr error
+		controlErr := raw.Control(func(fd uintptr) {
+			optionErr = ApplySocketTimeos(int(fd), spec)
+		})
+		if err := errors.Join(controlErr, optionErr); err != nil {
 			t.Fatal(err)
 		}
 		for _, tc := range []struct {
@@ -114,6 +169,70 @@ func TestApplyUDPConnOptsWindowsTimeos(t *testing.T) {
 	apply("UDP:127.0.0.1:9,rcvtimeo=0,sndtimeo=0", 0, 0)
 }
 
+func TestListenControlAppliesTimeosWindows(t *testing.T) {
+	spec, err := parse.ParseSpec("UDP4-LISTEN:0,rcvtimeo=1.25,sndtimeo=2.5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lc := net.ListenConfig{Control: ListenControl(spec)}
+	pc, err := lc.ListenPacket(context.Background(), "udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	c, ok := pc.(*net.UDPConn)
+	if !ok {
+		t.Fatalf("ListenPacket type %T want *net.UDPConn", pc)
+	}
+	got, err := windowsSocketOption(c, soRcvtimeo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 1250 {
+		t.Fatalf("SO_RCVTIMEO=%dms want 1250ms after ListenControl", got)
+	}
+	got, err = windowsSocketOption(c, soSndtimeo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 2500 {
+		t.Fatalf("SO_SNDTIMEO=%dms want 2500ms after ListenControl", got)
+	}
+}
+
+func TestApplyUDPConnOptsDoesNotApplyTimeosWindows(t *testing.T) {
+	c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	spec, err := parse.ParseSpec("UDP:127.0.0.1:9,rcvtimeo=1.25,sndtimeo=2.5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyUDPConnOpts(c, spec, "udp4"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		opt  int
+	}{
+		{name: "receive", opt: soRcvtimeo},
+		{name: "send", opt: soSndtimeo},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := windowsSocketOption(c, tc.opt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != 0 {
+				t.Fatalf("ApplyUDPConnOpts applied PH_PASTSOCKET %s timeout: %dms", tc.name, got)
+			}
+		})
+	}
+}
+
 func TestApplyTCPConnOptsWindowsTTLAndTOS(t *testing.T) {
 	ln, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
@@ -125,21 +244,22 @@ func TestApplyTCPConnOptsWindowsTTLAndTOS(t *testing.T) {
 		conn, _ := ln.AcceptTCP()
 		accepted <- conn
 	}()
-	client, err := net.DialTCP("tcp4", nil, ln.Addr().(*net.TCPAddr))
+	spec, err := parse.ParseSpec("TCP4:127.0.0.1:1,ip-ttl=9,ip-tos=0x10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &net.Dialer{Control: DialControl(spec, "tcp4", nil)}
+	client, err := d.Dial("tcp4", ln.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	server := <-accepted
 	t.Cleanup(func() { _ = server.Close() })
-	spec, err := parse.ParseSpec("TCP4:127.0.0.1:1,ip-ttl=9,ip-tos=0x10")
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := ApplyTCPConnOpts(spec, client); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := client.SyscallConn()
+	raw, err := client.(syscall.Conn).SyscallConn()
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -66,6 +66,22 @@ func TestOptionSupportedOnAddressClassicAndGoExtras(t *testing.T) {
 		t.Fatal("path must be rejected on TCP")
 	}
 
+	handshakeTypes := []string{
+		"TLS", "TLS-CONNECT", "TLS-LISTEN", "OPENSSL", "WS", "WSS", "QUIC", "PROXY", "SOCKS5",
+	}
+	if !OptionSupportedOnAddress(proxy, "handshake-timeout", nil, handshakeTypes, nil) {
+		t.Fatal("Go extra: handshake-timeout on PROXY")
+	}
+	if !OptionSupportedOnAddress(ws, "handshake-timeout", nil, handshakeTypes, nil) {
+		t.Fatal("Go extra: handshake-timeout on WS")
+	}
+	if OptionSupportedOnAddress(tcp, "handshake-timeout", nil, handshakeTypes, nil) {
+		t.Fatal("handshake-timeout must stay rejected on TCP")
+	}
+	if OptionSupportedOnAddress(open, "handshake-timeout", nil, handshakeTypes, nil) {
+		t.Fatal("handshake-timeout must stay rejected on OPEN")
+	}
+
 	reg := AddressRegistration{Name: "TCP-LISTEN-X", Group: GroupTCP, OptionCaps: DerivedOptionCaps("TCP-LISTEN-X", GroupTCP)}
 	if !OptionCapsAllowed(reg.OptionCaps, []string{OptCapListen}) {
 		t.Fatalf("fallback listen cap missing: %v", reg.OptionCaps)

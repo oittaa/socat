@@ -98,7 +98,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			MaxChildren: maxChildren,
 			PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
 			WrapDial: func(c net.Conn) (relay.Stream, error) {
-				return xio.WrapCommon(s, relay.NetStream{Conn: c})
+				return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
 			},
 		}, nil
 	}
@@ -163,8 +163,10 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		peer:     raddr,
 		first:    append([]byte(nil), buf[:n]...),
 		closeEOF: true, // next read after first payload → EOF (unidirectional capture)
+		wantCtrl: wantCtrl,
+		g:        g,
 	})
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -313,11 +315,13 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 		}
 		xio.ProcessAncillary(oob, session)
 		child := &udpSessionConn{
-			peer:    cloneUDPAddr(a),
-			first:   append([]byte(nil), buf[:rn]...),
-			env:     session.SessionVars,
-			oneShot: l.oneShot,
-			writeMu: &l.writeMu,
+			peer:     cloneUDPAddr(a),
+			first:    append([]byte(nil), buf[:rn]...),
+			env:      session.SessionVars,
+			oneShot:  l.oneShot,
+			writeMu:  &l.writeMu,
+			wantCtrl: wantCtrl,
+			g:        session,
 		}
 		if l.oneShot {
 			// Share the parent socket (classic XIODATA_RECVFROM_ONE). A
@@ -348,21 +352,25 @@ func dialUDPSession(network string, local, remote *net.UDPAddr, s parse.Spec) (*
 	// SO_REUSEADDR so we can bind the same local port as the parent listener.
 	// Skip when reuseaddr=0: classic applies the explicit zero and does not
 	// enable SO_REUSEPORT for parent/child sharing.
+	reuseControl := func(_ string, _ string, c syscall.RawConn) error {
+		var optionErr error
+		controlErr := c.Control(func(fd uintptr) {
+			if !xio.UDPForkPortReuse(s) {
+				return
+			}
+			optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+			if optionErr == nil {
+				optionErr = enableUDPForkPortReuse(int(fd))
+			}
+		})
+		return errors.Join(controlErr, optionErr)
+	}
 	d := net.Dialer{
 		LocalAddr: local,
-		Control: func(network, address string, c syscall.RawConn) error {
-			var optionErr error
-			controlErr := c.Control(func(fd uintptr) {
-				if !xio.UDPForkPortReuse(s) {
-					return
-				}
-				optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
-				if optionErr == nil {
-					optionErr = enableUDPForkPortReuse(int(fd))
-				}
-			})
-			return errors.Join(controlErr, optionErr)
-		},
+		// The child is a new socket, not the parent listener fd. Apply every
+		// PH_PASTSOCKET option again on this fd before bind/connect, then the
+		// fork-specific PREBIND reuse flags.
+		Control: xio.DialControl(s, network, reuseControl),
 	}
 	c, err := d.Dial(network, remote.String())
 	if err != nil {
@@ -438,6 +446,8 @@ type udpSessionConn struct {
 	deadlineMu    sync.Mutex
 	writeDeadline time.Time
 	releaseListen func()
+	wantCtrl      bool
+	g             *xio.Global
 }
 
 func (u *udpSessionConn) SessionEnvironment() map[string]string { return u.env }
@@ -459,6 +469,14 @@ func (u *udpSessionConn) Read(p []byte) (int, error) {
 	if u.conn == nil {
 		return 0, net.ErrClosed
 	}
+	if u.wantCtrl {
+		n, oob, _, err := xio.ReadUDPMsg(u.conn, p, true)
+		if err != nil {
+			return n, err
+		}
+		xio.ProcessAncillary(oob, u.g)
+		return n, nil
+	}
 	return u.conn.Read(p)
 }
 
@@ -467,11 +485,14 @@ func (u *udpSessionConn) readHandedOff(p []byte) (int, error) {
 		return 0, net.ErrClosed
 	}
 	for {
-		n, addr, err := u.pc.ReadFromUDP(p)
+		n, oob, addr, err := xio.ReadUDPMsg(u.pc, p, u.wantCtrl)
 		if err != nil {
 			return n, err
 		}
 		if u.peer != nil && addr != nil && addr.String() == u.peer.String() {
+			if u.wantCtrl {
+				xio.ProcessAncillary(oob, u.g)
+			}
 			return n, nil
 		}
 	}
@@ -629,4 +650,7 @@ func (u *udpRecvFromConn) SetReadDeadline(t time.Time) error {
 }
 func (u *udpRecvFromConn) SetWriteDeadline(t time.Time) error {
 	return u.uc.SetWriteDeadline(t)
+}
+func (u *udpRecvFromConn) SyscallConn() (syscall.RawConn, error) {
+	return u.uc.SyscallConn()
 }

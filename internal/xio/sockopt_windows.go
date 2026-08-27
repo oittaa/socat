@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -24,6 +23,7 @@ const (
 	soSndtimeo  = 0x1005
 	soSndbuf    = windows.SO_SNDBUF
 	soRcvbuf    = windows.SO_RCVBUF
+	soKeepalive = windows.SO_KEEPALIVE
 	soBroadcast = windows.SO_BROADCAST
 )
 
@@ -32,7 +32,23 @@ func isNotSocketError(err error) bool {
 }
 
 func setSockoptInt(fd, level, opt, value int) error {
+	recordSockoptInt(fd, level, opt, value)
 	return windows.SetsockoptInt(windows.Handle(fd), level, opt, value)
+}
+
+func setSockoptBytes(fd, level, opt int, value []byte) error {
+	recordSockoptBytes(fd, level, opt, value)
+	if level < math.MinInt32 || level > math.MaxInt32 || opt < math.MinInt32 || opt > math.MaxInt32 {
+		return fmt.Errorf("setsockopt: level or opt out of range")
+	}
+	if len(value) > math.MaxInt32 {
+		return fmt.Errorf("setsockopt: value too long")
+	}
+	var p *byte
+	if len(value) > 0 {
+		p = &value[0]
+	}
+	return windows.Setsockopt(windows.Handle(fd), int32(level), int32(opt), p, int32(len(value)))
 }
 
 func SetSockoptInt(fd, level, opt, value int) error {
@@ -68,9 +84,10 @@ func ApplySocketTimeos(fd int, s parse.Spec) error {
 	return nil
 }
 
-// ApplySocketOptions applies the SOL_SOCKET options shared by raw descriptors
-// and Go net sockets.
-func ApplySocketOptions(fd int, s parse.Spec) error {
+// ApplySocketOptionsWithoutGeneric applies the named SOL_SOCKET options but
+// leaves the generic setsockopt family untouched. PH_ALL constructors such as
+// SOCKETPAIR use it before applying all generic actions in command-line order.
+func ApplySocketOptionsWithoutGeneric(fd int, s parse.Spec) error {
 	if err := ApplySocketTimeos(fd, s); err != nil {
 		return err
 	}
@@ -90,7 +107,16 @@ func ApplySocketOptions(fd int, s parse.Spec) error {
 			return fmt.Errorf("so-linger: %w", err)
 		}
 	}
-	return applyPastSocketBuffersAndDevice(fd, s)
+	return applyPastSocketBuffersAndDeviceWithoutGeneric(fd, s)
+}
+
+// ApplySocketOptions applies the SOL_SOCKET options shared by raw descriptors
+// and Go net sockets, including generic PH_PASTSOCKET actions.
+func ApplySocketOptions(fd int, s parse.Spec) error {
+	if err := ApplySocketOptionsWithoutGeneric(fd, s); err != nil {
+		return err
+	}
+	return ApplyGenericSetsockopt(fd, s, SockoptPhasePastSocket)
 }
 
 func windowsTimeoutMillis(v string) (uint32, error) {
@@ -106,42 +132,4 @@ func windowsTimeoutMillis(v string) (uint32, error) {
 		return 0, fmt.Errorf("timeout %q exceeds Winsock's DWORD milliseconds", v)
 	}
 	return uint32(ms), nil
-}
-
-func applyIPTTLTOS(fd int, s parse.Spec, network string) error {
-	if !strings.HasPrefix(network, "tcp") && !strings.HasPrefix(network, "udp") {
-		return nil
-	}
-	is6 := strings.HasSuffix(network, "6")
-	option := func(names ...string) (string, bool) {
-		for _, name := range names {
-			if o, ok := s.OptionNamed(name); ok && o.Has && strings.TrimSpace(o.Value) != "" {
-				return o.Value, true
-			}
-		}
-		return "", false
-	}
-	if value, ok := option("ip-ttl", "ttl"); ok {
-		n, err := ParseIntAny(value)
-		if err != nil {
-			return fmt.Errorf("ip-ttl: %w", err)
-		}
-		level, opt := windows.IPPROTO_IP, windows.IP_TTL
-		if is6 {
-			level, opt = windows.IPPROTO_IPV6, windows.IPV6_UNICAST_HOPS
-		}
-		if err := windows.SetsockoptInt(windows.Handle(fd), level, opt, n); err != nil {
-			return fmt.Errorf("ip-ttl: %w", err)
-		}
-	}
-	if value, ok := option("ip-tos", "tos"); ok && !is6 {
-		n, err := ParseIntAny(value)
-		if err != nil {
-			return fmt.Errorf("ip-tos: %w", err)
-		}
-		if err := windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IP, windows.IP_TOS, n); err != nil {
-			return fmt.Errorf("ip-tos: %w", err)
-		}
-	}
-	return nil
 }

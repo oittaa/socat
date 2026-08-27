@@ -61,8 +61,8 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 				_ = c.Close()
 				return nil, err
 			}
-			st := &udpDatagramConn{UDPConn: c, raddr: raddr}
-			wrapped, err := xio.WrapCommon(s, st)
+			st := &udpDatagramConn{UDPConn: c, raddr: raddr, g: g, wantCtrl: xio.NeedAncillary(s)}
+			wrapped, err := xio.WrapCommonAfterConnected(s, st)
 			if err != nil {
 				logx.CloseQuiet(c)
 				return nil, err
@@ -105,30 +105,45 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("UDP: unexpected packet conn type")
 	}
-	// Send-side IP options (ip-ttl, ip-tos, ipv6-tclass, …) for SENDTO/DATAGRAM.
+	// PH_LATE buffers. Send and recv IP/ancillary options were applied
+	// at PH_PASTSOCKET by ListenControl.
 	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
 		_ = c.Close()
 		return nil, err
 	}
-	st := &udpDatagramConn{UDPConn: c, raddr: raddr}
-	wrapped, err := xio.WrapCommon(s, st)
+	st := &udpDatagramConn{UDPConn: c, raddr: raddr, g: g, wantCtrl: xio.NeedAncillary(s)}
+	wrapped, err := xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(c)
 		return nil, err
 	}
-	_ = g
 	return &xio.Opened{Stream: wrapped, Label: "UDP-DATAGRAM:" + raddr.String()}, nil
 }
 
 func udpListenConfig(s parse.Spec) net.ListenConfig {
 	return net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
-			var optionErr error
-			controlErr := c.Control(func(fd uintptr) {
-				optionErr = xio.ApplyListenOptions(int(fd), s, network)
-			})
-			return errors.Join(controlErr, optionErr)
-		},
+		Control: udpListenControl(s),
+	}
+}
+
+// udpListenControl applies classic PH_PASTSOCKET then PH_PREBIND after
+// socket() and before bind() (tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same). Go's
+// ListenConfig.Control runs in that window.
+func udpListenControl(s parse.Spec) func(network, address string, c syscall.RawConn) error {
+	return func(network, address string, c syscall.RawConn) error {
+		if err := xio.ListenControl(s)(network, address, c); err != nil {
+			return err
+		}
+		if !xio.UDPForkPortReuse(s) {
+			return nil
+		}
+		var optionErr error
+		controlErr := c.Control(func(fd uintptr) {
+			optionErr = enableUDPForkPortReuse(int(fd))
+		})
+		return errors.Join(controlErr, optionErr)
 	}
 }
 
@@ -145,7 +160,20 @@ func laddrString(network string, laddr *net.UDPAddr) string {
 // udpDatagramConn writes always to raddr; reads from anyone (optional filter later).
 type udpDatagramConn struct {
 	*net.UDPConn
-	raddr *net.UDPAddr
+	raddr    *net.UDPAddr
+	g        *xio.Global
+	wantCtrl bool
+}
+
+func (u *udpDatagramConn) Read(p []byte) (int, error) {
+	n, oob, _, err := xio.ReadUDPMsg(u.UDPConn, p, u.wantCtrl)
+	if err != nil {
+		return n, err
+	}
+	if u.wantCtrl {
+		xio.ProcessAncillary(oob, u.g)
+	}
+	return n, nil
 }
 
 func (u *udpDatagramConn) Write(p []byte) (int, error) {
@@ -250,7 +278,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				MaxChildren: maxChildren,
 				PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
 				WrapDial: func(c net.Conn) (relay.Stream, error) {
-					return xio.WrapCommon(s, relay.NetStream{Conn: c})
+					return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
 				},
 			}, nil
 		}
@@ -307,7 +335,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			wantCtrl: wantCtrl,
 			g:        g,
 		})
-		st, err = xio.WrapCommon(s, st)
+		st, err = xio.WrapCommonAfterConnected(s, st)
 		if err != nil {
 			logx.CloseQuiet(pc)
 			return nil, err
@@ -328,7 +356,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		g:        g,
 		wantCtrl: xio.NeedAncillary(s),
 	})
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -378,30 +406,19 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 	// present; UDP-RECV/RECVFROM only when the option is present.
 	// BSD SO_REUSEPORT is enabled only for UDP-LISTEN fork when reuseaddr is
 	// not explicitly disabled, so reuseaddr=0 stays exclusive.
+	// PH_PASTSOCKET then PH_PREBIND run in Control after socket() and before
+	// bind() (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+	// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
 	cfg := net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
-			var optionErr error
-			controlErr := c.Control(func(fd uintptr) {
-				optionErr = xio.ApplyListenOptions(int(fd), s, network)
-				if optionErr != nil {
-					return
-				}
-				if xio.UDPForkPortReuse(s) {
-					optionErr = enableUDPForkPortReuse(int(fd))
-					if optionErr != nil {
-						return
-					}
-				}
-			})
-			return errors.Join(controlErr, optionErr)
-		},
+		Control: udpListenControl(s),
 	}
 	pc, err := cfg.ListenPacket(context.Background(), network, laddr.String())
 	if err != nil {
 		return nil, err
 	}
 	c := pc.(*net.UDPConn)
-	// Ancillary recv opts (so-timestamp, ip-recvttl, …) and send-side IP opts.
+	// PH_LATE buffers. Send and recv IP/ancillary options were applied
+	// at PH_PASTSOCKET by ListenControl.
 	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
 		_ = c.Close()
 		return nil, err
