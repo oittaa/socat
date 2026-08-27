@@ -22,9 +22,9 @@ const fsNoatimeFL = 0x00000080
 // is not applied here.
 //
 // Classic phases (xio-fd.c / applyopt_fcntl, tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba): PH_FD perm/user/group and
-// o-noatime, then PH_LATE append/ftruncate. ApplyFDOptions owns those
-// lifecycle syscalls for this *os.File; WrapCommon skips the same open.
+// 12c08bf66d709fba17035ce95d85bd218428d9ba): PH_FD perm/user/group/flock and
+// o-noatime, then PH_LATE append/async/ftruncate/lseek/perm-late. ApplyFDOptions
+// owns those lifecycle syscalls for this *os.File; WrapCommon skips the same open.
 func ApplyFDOptions(f *os.File, s parse.Spec) error {
 	if f == nil {
 		return nil

@@ -22,6 +22,7 @@ func TestOptionCapabilityRestrictions(t *testing.T) {
 		{name: "fork-on-udp", left: "UDP:127.0.0.1:1,fork", wantErr: "not supported"},
 		{name: "excl-on-create", left: "CREATE:file,excl", wantErr: "not supported"},
 		{name: "o-direct-on-create", left: "CREATE:file,o-direct", wantErr: "not supported"},
+		{name: "o-sync-on-create", left: "CREATE:file,o-sync", wantErr: "not supported"},
 		{name: "accept-timeout-on-recvfrom", left: "UDP-RECVFROM:1,accept-timeout=0.1", wantErr: "not supported"},
 		{name: "handshake-timeout-on-tcp", left: "TCP:host:port,handshake-timeout=1", wantErr: "not supported"},
 		{name: "handshake-timeout-on-open", left: "OPEN:file,handshake-timeout=1", wantErr: "not supported"},

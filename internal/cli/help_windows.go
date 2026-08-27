@@ -14,7 +14,10 @@ func hideOpt(name string) bool {
 		"ipv6-unicast-hops", "ipv6-tclass",
 		"nonblock", "o-noatime", "o-direct", "fs-noatime", "f-setpipe-sz", "umask", "user", "group",
 		"perm-early", "user-early", "group-early",
+		"o-sync", "o-dsync", "o-rsync", "o-noctty", "o-nofollow", "o-directory", "o-largefile",
+		"async", "perm-late", "user-late", "group-late",
 		"setlk", "setlkw", "setlk-rd", "setlkw-rd",
+		"flock", "flock-nb", "flock-sh", "flock-sh-nb",
 		"pipes", "pty", "setsid", "stderr", "fdin", "fdout", "shell", "shut-none",
 		"bindtodevice":
 		return true
