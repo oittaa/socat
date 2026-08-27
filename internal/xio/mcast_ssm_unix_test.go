@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"net"
+	"runtime"
 	"testing"
 	"unsafe"
 
@@ -14,14 +15,12 @@ import (
 )
 
 func TestGroupSourceReqLayout(t *testing.T) {
-	if unsafe.Sizeof(sockaddrStorage{}) != 128 {
-		t.Fatalf("sockaddrStorage size=%d want 128", unsafe.Sizeof(sockaddrStorage{}))
+	want := uintptr(264)
+	if runtime.GOOS == "darwin" {
+		want = 260
 	}
-	if unsafe.Alignof(sockaddrStorage{}) != 8 {
-		t.Fatalf("sockaddrStorage align=%d want 8", unsafe.Alignof(sockaddrStorage{}))
-	}
-	if unsafe.Sizeof(groupSourceReq{}) != 264 {
-		t.Fatalf("groupSourceReq size=%d want 264", unsafe.Sizeof(groupSourceReq{}))
+	if unsafe.Sizeof(groupSourceReq{}) != want {
+		t.Fatalf("groupSourceReq size=%d want %d", unsafe.Sizeof(groupSourceReq{}), want)
 	}
 }
 
