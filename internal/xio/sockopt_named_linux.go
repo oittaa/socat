@@ -24,6 +24,12 @@ const (
 // parseopts_table (xioopts.c): no '=' → 1, '=' → Strtoul. The documented
 // bare spelling therefore enables SCTP_NODELAY. Integer values including 0
 // are accepted because that is what C parses, not a guessed TYPE_BOOL.
+//
+// Man vs C for so-priority / so-passcred / so-no-check: doc/socat.yo
+// documents priority=<priority> (OPTION_PRIORITY) while passcred and
+// nocheck are COMMENT'd out. C optionnames[] and -hhh nevertheless expose
+// so-priority/priority, so-passcred/passcred, and so-no-check/no-check/
+// nocheck as TYPE_INT (bare stores 1). This port follows C.
 func lookupNamedPastSocketInt(name string) (level, opt int, ok bool, err error) {
 	switch name {
 	case "so-debug":

@@ -401,6 +401,8 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "so-dontroute-on-udp", spec: "UDP:localhost:1,dontroute"},
 		{name: "so-oobinline-on-tcp", spec: "TCP:localhost:1,so-oobinline=1"},
 		{name: "so-priority-on-tcp", spec: "TCP:localhost:1,so-priority=6"},
+		{name: "so-priority-on-stdio", spec: "STDIO,so-priority=3"},
+		{name: "so-priority-on-exec", spec: "EXEC:true,so-priority=5"},
 		{name: "priority-alias-on-udp", spec: "UDP:localhost:1,priority"},
 		{name: "so-passcred-on-unix", spec: "UNIX-CONNECT:/tmp/sock,passcred"},
 		{name: "so-no-check-on-udp", spec: "UDP:localhost:1,nocheck"},

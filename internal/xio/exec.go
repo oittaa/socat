@@ -625,6 +625,24 @@ func startCmdSocketpair(s parse.Spec, cmd *exec.Cmd) (relay.Stream, []func(), *o
 	}
 	parent := os.NewFile(uintptr(fds[0]), "exec-parent")
 	child := os.NewFile(uintptr(fds[1]), "exec-child")
+	// Classic xio-progcall.c applies PH_PASTSOCKET with copts on sv[0]
+	// (parent) and popts on sv[1] (child) (tag-1.8.1.3
+	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+	// af5388c898c7bb60997935aee93c223deba60c4a is the same). After moveopts,
+	// GROUP_SOCKET options remain in popts, so classic mainly mutates the
+	// child end. This port applies the same Spec.Options PASTSOCKET walk to
+	// both socketpair ends so options such as so-priority take effect on
+	// the parent stream instead of being accepted as a silent no-op.
+	if err := ApplySocketOptions(int(parent.Fd()), s); err != nil {
+		_ = parent.Close()
+		_ = child.Close()
+		return nil, nil, nil, err
+	}
+	if err := ApplySocketOptions(int(child.Fd()), s); err != nil {
+		_ = parent.Close()
+		_ = child.Close()
+		return nil, nil, nil, err
+	}
 	cmd.Stdin = child
 	cmd.Stdout = child
 	if s.BoolOption("stderr") {

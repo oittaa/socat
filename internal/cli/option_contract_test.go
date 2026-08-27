@@ -86,8 +86,13 @@ var dynamicallyReadOptions = map[string]string{
 
 	// Canonical/alias families selected by last-option-wins helper loops.
 	"rdonly": "fileopen/file.go OpenFlags", "wronly": "fileopen/file.go OpenFlags", "rdwr": "fileopen/file.go OpenFlags",
-	"so-linger": "xio/options.go", "linger": "xio/options.go",
-	"o-noatime": "xio/fdopts_linux.go", "noatime": "xio/fdopts_linux.go",
+	// PH_PASTSOCKET action options walked in Spec.Options order (not OptionNamed).
+	"so-linger": "xio/sockopt.go applyFixedPastSocketOption", "linger": "xio/sockopt.go applyFixedPastSocketOption",
+	"broadcast":    "xio/sockopt.go applyFixedPastSocketOption",
+	"sndbuf":       "xio/sockopt.go applyFixedPastSocketOption",
+	"rcvbuf":       "xio/sockopt.go applyFixedPastSocketOption",
+	"bindtodevice": "xio/sockopt.go applyFixedPastSocketOption",
+	"o-noatime":    "xio/fdopts_linux.go", "noatime": "xio/fdopts_linux.go",
 	"f-setpipe-sz": "xio/fdopts_linux.go", "pipesz": "xio/fdopts_linux.go",
 	// Linux ext FS_*_FL ioctl-mask walk (command-line order, not OptionNamed).
 	"fs-append": "xio/fdopts_fsflags.go", "fs-compr": "xio/fdopts_fsflags.go",

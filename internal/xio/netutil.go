@@ -262,9 +262,10 @@ func NewTCPListenConfig(s parse.Spec) net.ListenConfig {
 }
 
 // ApplyNetworkSocketOptions applies the post-socket options shared by Go net
-// listeners/dialers and raw SCTP sockets, including the unified PH_PASTSOCKET
-// generic, IP/ancillary, and multicast-membership pass. Every occurrence is
-// applied once in command-line order, before bind/connect.
+// listeners/dialers and raw SCTP sockets. Every PH_PASTSOCKET action option
+// (fixed SOL_SOCKET, named SOL_SOCKET/TCP/SCTP, generic setsockopt-socket,
+// and IP/ancillary/membership) is applied once in command-line order before
+// bind/connect.
 func ApplyNetworkSocketOptions(fd int, s parse.Spec, network string) error {
 	if err := ApplySocketOptionsWithoutGeneric(fd, s); err != nil {
 		return err

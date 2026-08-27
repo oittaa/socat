@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strconv"
 	"syscall"
 	"testing"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
@@ -629,5 +631,131 @@ func TestApplyTCPConnOptsMaxsegLateThroughNetConnUnwrapLinux(t *testing.T) {
 	err = ApplyTCPConnOpts(spec, netConnUnwrapper{Conn: cli})
 	if err == nil {
 		t.Fatal("tcp-maxseg-late through NetConn unwrap must reach the kernel")
+	}
+}
+
+func TestApplySocketOptionsPastSocketPriorityAndSndbufOrderLinux(t *testing.T) {
+	type step struct{ opt, value int }
+	for _, tc := range []struct {
+		name    string
+		options string
+		want    []step
+	}{
+		{
+			name:    "priority-then-sndbuf",
+			options: "so-priority=3,sndbuf=4096",
+			want:    []step{{unix.SO_PRIORITY, 3}, {unix.SO_SNDBUF, 4096}},
+		},
+		{
+			name:    "sndbuf-then-priority",
+			options: "sndbuf=4096,so-priority=3",
+			want:    []step{{unix.SO_SNDBUF, 4096}, {unix.SO_PRIORITY, 3}},
+		},
+		{
+			name:    "broadcast-then-priority",
+			options: "broadcast,so-priority=3",
+			want:    []step{{unix.SO_BROADCAST, 1}, {unix.SO_PRIORITY, 3}},
+		},
+		{
+			name:    "repeated-sndbuf",
+			options: "so-priority=3,sndbuf=4096,sndbuf=8192",
+			want:    []step{{unix.SO_PRIORITY, 3}, {unix.SO_SNDBUF, 4096}, {unix.SO_SNDBUF, 8192}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = unix.Close(fd) })
+			spec, err := parse.ParseSpec("TCP:127.0.0.1:9," + tc.options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []step
+			restore := SetSockoptTestHook(func(call SockoptCall) {
+				if call.Level != unix.SOL_SOCKET || !call.AsInt {
+					return
+				}
+				switch call.Opt {
+				case unix.SO_PRIORITY, unix.SO_SNDBUF, unix.SO_BROADCAST:
+					got = append(got, step{call.Opt, call.IntValue})
+				}
+			})
+			t.Cleanup(restore)
+			if err := ApplySocketOptions(fd, spec); err != nil {
+				t.Fatal(err)
+			}
+			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+				t.Fatalf("setsockopt order=%v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestApplyGenericSetsockoptAllPriorityAndSndbufOrderLinux(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	spec, err := parse.ParseSpec("SOCKETPAIR,so-priority=3,sndbuf=4096")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type step struct{ opt, value int }
+	var got []step
+	restore := SetSockoptTestHook(func(call SockoptCall) {
+		if call.Level != unix.SOL_SOCKET || !call.AsInt {
+			return
+		}
+		switch call.Opt {
+		case unix.SO_PRIORITY, unix.SO_SNDBUF:
+			got = append(got, step{call.Opt, call.IntValue})
+		}
+	})
+	t.Cleanup(restore)
+	if err := ApplyGenericSetsockoptAll(fd, spec); err != nil {
+		t.Fatal(err)
+	}
+	want := []step{{unix.SO_PRIORITY, 3}, {unix.SO_SNDBUF, 4096}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("SOCKETPAIR PH_ALL order=%v want %v", got, want)
+	}
+}
+
+func TestOpenSpecEXECSocketpairAppliesSOPriorityLinux(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	if _, err := os.Stat("/bin/true"); err != nil {
+		t.Skip("/bin/true not available")
+	}
+	spec, err := parse.ParseSpec("EXEC:/bin/true,so-priority=5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type hit struct{ fd, value int }
+	var hits []hit
+	restore := SetSockoptTestHook(func(c SockoptCall) {
+		if c.AsInt && c.Level == unix.SOL_SOCKET && c.Opt == unix.SO_PRIORITY {
+			hits = append(hits, hit{fd: c.FD, value: c.IntValue})
+		}
+	})
+	t.Cleanup(restore)
+	o, err := OpenSpec(context.Background(), spec, ModeRDWR, &Global{Log: logx.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	fds := map[int]int{}
+	for _, h := range hits {
+		if h.value != 5 {
+			t.Fatalf("SO_PRIORITY value=%d want 5", h.value)
+		}
+		fds[h.fd]++
+	}
+	if len(fds) != 2 {
+		t.Fatalf("SO_PRIORITY applied on %d fds want 2 socketpair ends: %v", len(fds), hits)
 	}
 }

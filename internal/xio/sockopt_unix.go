@@ -87,30 +87,50 @@ func ApplySocketTimeos(fd int, s parse.Spec) error {
 	return nil
 }
 
-// ApplySocketOptionsWithoutGeneric applies fixed SOL_SOCKET options but leaves
-// command-ordered named and generic setsockopt actions untouched. PH_ALL
-// constructors such as SOCKETPAIR apply those together afterward.
-func ApplySocketOptionsWithoutGeneric(fd int, s parse.Spec) error {
-	if err := ApplySocketTimeos(fd, s); err != nil {
-		return err
+// applyLingerOption is classic opt_so_linger (PH_PASTSOCKET, TYPE_INT).
+func applyLingerOption(fd int, o parse.Option) error {
+	if !o.Has {
+		return fmt.Errorf("so-linger: requires a value")
 	}
-	if value, ok := optionValueAny(s, "so-linger", "linger"); ok {
-		seconds, err := ParseIntAny(value)
-		if err != nil || seconds < 0 {
-			return fmt.Errorf("so-linger: invalid value %q", value)
-		}
-		if seconds > math.MaxInt32 {
-			return fmt.Errorf("so-linger: value %q is out of range", value)
-		}
-		linger := &unix.Linger{
-			Onoff:  1,
-			Linger: int32(seconds), // #nosec G115 -- bounded by MaxInt32 above
-		}
-		if err := unix.SetsockoptLinger(fd, solSocket, unix.SO_LINGER, linger); err != nil {
-			return fmt.Errorf("so-linger: %w", err)
-		}
+	seconds, err := ParseIntAny(o.Value)
+	if err != nil || seconds < 0 {
+		return fmt.Errorf("so-linger: invalid value %q", o.Value)
 	}
-	return applyPastSocketBuffersAndDeviceWithoutGeneric(fd, s)
+	if seconds > math.MaxInt32 {
+		return fmt.Errorf("so-linger: value %q is out of range", o.Value)
+	}
+	linger := &unix.Linger{
+		Onoff:  1,
+		Linger: int32(seconds), // #nosec G115 -- bounded by MaxInt32 above
+	}
+	if err := unix.SetsockoptLinger(fd, solSocket, unix.SO_LINGER, linger); err != nil {
+		return fmt.Errorf("so-linger: %w", err)
+	}
+	return nil
+}
+
+// applySocketTimeoOption is one rcvtimeo=/sndtimeo= occurrence.
+func applySocketTimeoOption(fd int, o parse.Option) error {
+	tv, err := timevalFromSpec(o.Value)
+	if err != nil {
+		return fmt.Errorf("%s: %w", o.Name, err)
+	}
+	opt := soRcvtimeo
+	if o.Name == "sndtimeo" {
+		opt = soSndtimeo
+	}
+	if err := unix.SetsockoptTimeval(fd, solSocket, opt, tv); err != nil {
+		return fmt.Errorf("%s: %w", o.Name, err)
+	}
+	return nil
+}
+
+// ApplySocketOptionsWithoutGeneric is kept for SOCKETPAIR / network
+// constructors that still split PH_ALL around the generic walk. All
+// PH_PASTSOCKET action options now live in applyOrderedPastSocketPhaseOptions
+// and ApplyGenericSetsockoptAll, so this helper is a no-op.
+func ApplySocketOptionsWithoutGeneric(_ int, _ parse.Spec) error {
+	return nil
 }
 
 // ApplySocketOptions applies the SOL_SOCKET options shared by raw descriptors

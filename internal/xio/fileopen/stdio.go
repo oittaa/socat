@@ -25,12 +25,12 @@ func openSTDIO(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 		return nil, err
 	}
 	if mode != xio.ModeWrite {
-		if err := xio.ApplyFDOptions(os.Stdin, s); err != nil {
+		if err := applyInheritedFDAndSocket(os.Stdin, s); err != nil {
 			return nil, err
 		}
 	}
 	if mode != xio.ModeRead {
-		if err := xio.ApplyFDOptions(os.Stdout, s); err != nil {
+		if err := applyInheritedFDAndSocket(os.Stdout, s); err != nil {
 			return nil, err
 		}
 	}
@@ -79,7 +79,7 @@ func openSTDIN(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 	if err := applyFileLocks(s, os.Stdin, nil); err != nil {
 		return nil, err
 	}
-	if err := xio.ApplyFDOptions(os.Stdin, s); err != nil {
+	if err := applyInheritedFDAndSocket(os.Stdin, s); err != nil {
 		return nil, err
 	}
 	st, err := xio.WrapCommon(s, relay.FDStream{R: os.Stdin, W: io.Discard, C: xio.NopCloser{}})
@@ -101,7 +101,7 @@ func openSTDOUT(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	if err := applyFileLocks(s, nil, os.Stdout); err != nil {
 		return nil, err
 	}
-	if err := xio.ApplyFDOptions(os.Stdout, s); err != nil {
+	if err := applyInheritedFDAndSocket(os.Stdout, s); err != nil {
 		return nil, err
 	}
 	st, err := xio.WrapCommon(s, relay.FDStream{R: xio.EOFReader{}, W: os.Stdout, C: xio.NopCloser{}})
@@ -123,7 +123,7 @@ func openSTDERR(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	if err := applyFileLocks(s, nil, os.Stderr); err != nil {
 		return nil, err
 	}
-	if err := xio.ApplyFDOptions(os.Stderr, s); err != nil {
+	if err := applyInheritedFDAndSocket(os.Stderr, s); err != nil {
 		return nil, err
 	}
 	st, err := xio.WrapCommon(s, relay.FDStream{R: xio.EOFReader{}, W: os.Stderr, C: xio.NopCloser{}})
@@ -182,6 +182,20 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Op
 		return nil, err
 	}
 	return o, nil
+}
+
+// applyInheritedFDAndSocket is classic xioopen_fd applyopts2(PH_INIT, PH_FD)
+// (xio-fdnum.c at tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
+// That range includes PH_PASTSOCKET. Bidirectional STDIO applies PH_ALL on
+// both fd 0 and 1 (xio-stdio.c xioopen_stdio_bi). WrapCommon is PH_LATE plus
+// a PH_CONNECTED fallback, so GROUP_SOCKET PASTSOCKET options such as
+// so-priority must run here exactly once per used descriptor.
+func applyInheritedFDAndSocket(f *os.File, s parse.Spec) error {
+	if err := xio.ApplyFDOptions(f, s); err != nil {
+		return err
+	}
+	return xio.ApplySocketOptions(int(f.Fd()), s)
 }
 
 func attachTermios(o *xio.Opened, s parse.Spec, files ...*os.File) error {

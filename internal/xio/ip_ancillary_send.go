@@ -20,14 +20,14 @@ func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
 	return applyClassicIPSendOpts(fd, s, ipFamilyFromNetwork(network))
 }
 
-// applyOrderedPastSocketPhaseOptions applies generic and IP/ancillary
-// PH_PASTSOCKET options in one pass over Spec.Options, after socket() and
-// before bind/connect. Send (IP_TTL, IP_TOS, IP_OPTIONS, …), recv
-// (IP_RECVTTL, IP_PKTINFO, …), and setsockopt-socket are applied in original
-// command-line order, including when a generic option targets the same kernel
-// setting as a named option.
-// Classic: xio-ip.c / xio-ip6.c OFUNC_SOCKOPT / OFUNC_SOCKOPT_APPEND at
-// PH_PASTSOCKET; applyopts in xioopts.c (tag-1.8.1.3
+// applyOrderedPastSocketPhaseOptions applies every PH_PASTSOCKET action
+// option in one pass over Spec.Options, after socket() and before
+// bind/connect: fixed SOL_SOCKET options (broadcast, sndbuf/rcvbuf,
+// bindtodevice, linger, timeos), named SOL_SOCKET/TCP/SCTP TYPE_INT
+// options, generic setsockopt-socket, and IP/ancillary/membership options.
+// Occurrences keep original command-line order, including when a generic
+// option targets the same kernel setting as a named option.
+// Classic: applyopts in xioopts.c (tag-1.8.1.3
 // 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 // af5388c898c7bb60997935aee93c223deba60c4a is the same tree).
 func applyOrderedPastSocketPhaseOptions(fd int, s parse.Spec, network string) error {
@@ -35,6 +35,12 @@ func applyOrderedPastSocketPhaseOptions(fd int, s parse.Spec, network string) er
 	family := ipFamilyFromNetwork(network)
 	familyResolved := family != ipFamilyUnknown
 	for _, option := range s.Options {
+		if matched, err := applyFixedPastSocketOption(fd, option); matched {
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		if matched, err := applyNamedPastSocketSockopt(fd, option); matched {
 			if err != nil {
 				return err

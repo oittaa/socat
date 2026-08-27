@@ -58,8 +58,8 @@ func applyNamedIntSockopt(fd int, o parse.Option, level, opt int) error {
 
 // applyNamedPastSocketSockopt applies one classic PH_PASTSOCKET named
 // SOL_SOCKET, TCP, or Linux SCTP TYPE_INT option. Its callers walk
-// Spec.Options so named, generic setsockopt-socket, and IP options retain
-// command-line order.
+// Spec.Options so named, fixed PASTSOCKET (broadcast/sndbuf/linger/…),
+// generic setsockopt-socket, and IP options retain command-line order.
 func applyNamedPastSocketSockopt(fd int, o parse.Option) (bool, error) {
 	level, opt, ok, err := lookupNamedPastSocketInt(o.Name)
 	if !ok {
