@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -126,6 +127,16 @@ func (h *halfCloseWriter) closeWrite() {
 	h.mu.Lock()
 	h.done = true
 	h.mu.Unlock()
+}
+
+// SyscallConn exposes the underlying *os.File so one-way EXEC/PTY streams
+// (writer-only halfCloseWriter) still receive PH_FD/PH_LATE options.
+func (h *halfCloseWriter) SyscallConn() (syscall.RawConn, error) {
+	sc, ok := h.w.(syscall.Conn)
+	if !ok {
+		return nil, fmt.Errorf("half-close writer does not expose a descriptor")
+	}
+	return sc.SyscallConn()
 }
 
 // readBytesWrap limits total bytes read (classic readbytes=N).
@@ -463,7 +474,7 @@ func applySocketTimeouts(s parse.Spec, stream relay.Stream) (relay.Stream, error
 
 // WrapCommon applies socket timeouts plus the common stream transformations.
 func WrapCommon(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, true, false)
+	return wrapCommon(s, stream, true, false, false)
 }
 
 // WrapCommonAfterConnected is WrapCommon for streams whose opener already
@@ -471,23 +482,31 @@ func WrapCommon(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 // rejected for FD. A skip flag is used instead of wrapping the stream so type
 // assertions on the concrete opener type stay valid.
 func WrapCommonAfterConnected(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, true, true)
+	return wrapCommon(s, stream, true, true, false)
+}
+
+// WrapCommonAfterConnectedFDLifecycleApplied is for logical streams whose
+// opener already applied descriptor lifecycle options to a hidden transport
+// descriptor. HTTP/2 and HTTP/3 CONNECT use it after configuring their TCP or
+// UDP transport, because the returned request stream does not expose that fd.
+func WrapCommonAfterConnectedFDLifecycleApplied(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
+	return wrapCommon(s, stream, true, true, true)
 }
 
 // WrapCommonWithSocketTimeoutsApplied is used by framed transports that must
 // absorb socket timeouts below their record layer before applying the remaining
 // common stream transformations.
 func WrapCommonWithSocketTimeoutsApplied(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, false, false)
+	return wrapCommon(s, stream, false, false, false)
 }
 
 // WrapCommonAfterConnectedTimeoutsApplied skips PH_CONNECTED and socket
 // timeouts (already applied on the raw fd / below the record layer).
 func WrapCommonAfterConnectedTimeoutsApplied(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, false, true)
+	return wrapCommon(s, stream, false, true, false)
 }
 
-func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected bool) (relay.Stream, error) {
+func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected, skipFDLifecycle bool) (relay.Stream, error) {
 	// PH_LATE so-sndbuf-late / so-rcvbuf-late on streams that expose a
 	// socket fd (syscall.Conn). TLS crypto/tls.Conn is not a syscall.Conn;
 	// ApplyTCPConnOpts applies the same options on the unwrapped raw TCP
@@ -496,6 +515,18 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected 
 	// those fds); late buffers are set on the raw socket after bind/connect
 	// in ApplyUDPConnOpts / applyUnixgramSocketOptions. QUIC applies them
 	// on the transport PacketConn before wrapping.
+	//
+	// append / ftruncate / perm / user / group (classic PH_FD then PH_LATE)
+	// on unique syscall.Conn fds in this call. ApplyFDOptions is the owner
+	// for already-open files and marks that *os.File so this path skips
+	// the same open (not a process-global fd-number cache). UDP/UNIX datagram
+	// wrappers, POSIX MQ, and QUIC streams hide the fd; those call sites
+	// apply on the raw socket/mqd before wrapping.
+	if !skipFDLifecycle {
+		if err := applyFDLifecycleToStream(s, stream); err != nil {
+			return nil, err
+		}
+	}
 	// Classic PH_CONNECTED generic setsockopt* follow the same split:
 	// ApplyTCPConnOpts (including TLS/WS/proxy/SOCKS unwrap),
 	// ApplyUDPConnOpts, applyUnixgramSocketOptions, QUIC PacketConn, and

@@ -514,14 +514,95 @@ func ApplyPerm(path string, s parse.Spec, f *os.File) error {
 	return os.Chmod(path, mode)
 }
 
-// ApplyNamedAttrs applies classic NAMED perm= then user=/group= after bind or
-// PTY slave create (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same NAMED
-// order). Do not use this on regular files or FIFOs: those pass perm= to
-// open(2)/mkfifo so umask still applies.
+// ApplyNamedAttrs applies classic applyopts_named PH_FD in command-line
+// order (xio-named.c, tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+// official master af5388c898c7bb60997935aee93c223deba60c4a is the same tree):
+// each perm=/mode= is chmod(2) of the filesystem name, each user=/uid=/owner=
+// is chown(uid,-1), each group=/gid= is chown(-1,gid). Order matters for
+// setuid/setgid (`user=,perm=04755` keeps setuid; reverse clears it).
+// Do not use this on regular files or FIFOs as create-mode: those pass perm=
+// to open(2)/mkfifo so umask still applies.
 func ApplyNamedAttrs(path string, s parse.Spec, f *os.File) error {
-	if err := ApplyPerm(path, s, f); err != nil {
+	for _, o := range s.Options {
+		switch parse.CanonicalOptionName(o.Name) {
+		case "perm":
+			if err := applyNamedPerm(path, f, o); err != nil {
+				return err
+			}
+		case "user":
+			if err := applyNamedUser(path, f, o); err != nil {
+				return err
+			}
+		case "group":
+			if err := applyNamedGroup(path, f, o); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func applyNamedPerm(path string, f *os.File, o parse.Option) error {
+	if !o.Has {
+		return fmt.Errorf("%s: invalid value %q", o.OriginalSpelling(), o.Value)
+	}
+	mode, err := parseModeT(o.OriginalSpelling(), o.Value)
+	if err != nil {
 		return err
 	}
-	return ApplyOwner(path, s, f)
+	noteLifecycleSyscall("chmod")
+	if path != "" {
+		return os.Chmod(path, mode)
+	}
+	if f != nil {
+		return f.Chmod(mode)
+	}
+	return nil
+}
+
+func applyNamedUser(path string, f *os.File, o parse.Option) error {
+	v, err := requiredLifecycleOptionValue(o)
+	if err != nil {
+		return err
+	}
+	uid, hasU, err := resolveUID(v)
+	if err != nil {
+		return err
+	}
+	if !hasU {
+		return nil
+	}
+	noteLifecycleSyscall("chown")
+	return namedChown(path, f, uid, -1)
+}
+
+func applyNamedGroup(path string, f *os.File, o parse.Option) error {
+	v, err := requiredLifecycleOptionValue(o)
+	if err != nil {
+		return err
+	}
+	gid, hasG, err := resolveGID(v)
+	if err != nil {
+		return err
+	}
+	if !hasG {
+		return nil
+	}
+	noteLifecycleSyscall("chown")
+	return namedChown(path, f, -1, gid)
+}
+
+func namedChown(path string, f *os.File, uid, gid int) error {
+	if path != "" {
+		if err := os.Chown(path, uid, gid); err != nil {
+			return fmt.Errorf("chown %s: %w", path, err)
+		}
+		return nil
+	}
+	if f != nil {
+		if err := f.Chown(uid, gid); err != nil {
+			return fmt.Errorf("fchown: %w", err)
+		}
+	}
+	return nil
 }

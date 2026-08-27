@@ -5,50 +5,34 @@ import (
 	"os"
 	"os/user"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// ApplyOwner applies classic user= / group= via chown/fchown after create/bind.
-// Empty options are no-ops. Numeric and name forms are accepted.
+// ApplyOwner applies every classic user=/uid=/owner= and group=/gid=
+// occurrence to a named object in command-line order. perm=/mode= is omitted
+// because regular files and FIFOs already consumed it as their creation mode.
 func ApplyOwner(path string, s parse.Spec, f *os.File) error {
-	uid, hasU, err := resolveUID(s.OptionValue("user", ""))
-	if err != nil {
-		return err
-	}
-	gid, hasG, err := resolveGID(s.OptionValue("group", ""))
-	if err != nil {
-		return err
-	}
-	if !hasU && !hasG {
+	// CREATE/CREAT use creat(2), then classic applyopts2 applies user/group
+	// to the descriptor at PH_FD. ApplyFDOptions owns that path; do not also
+	// chown the pathname here. OPEN/FILE/GOPEN and named FIFOs use NAMED.
+	switch strings.ToUpper(s.Type) {
+	case "CREATE", "CREAT":
 		return nil
 	}
-	// Linux: -1 leaves that id unchanged.
-	u, g := -1, -1
-	if hasU {
-		u = uid
-	}
-	if hasG {
-		g = gid
-	}
-	if f != nil {
-		if err := f.Chown(u, g); err != nil {
-			if path != "" {
-				if e2 := os.Chown(path, u, g); e2 != nil {
-					return fmt.Errorf("chown %s: %w", path, err)
-				}
-				return nil
+	for _, o := range s.Options {
+		switch parse.CanonicalOptionName(o.Name) {
+		case "user":
+			if err := applyNamedUser(path, f, o); err != nil {
+				return err
 			}
-			return fmt.Errorf("fchown: %w", err)
+		case "group":
+			if err := applyNamedGroup(path, f, o); err != nil {
+				return err
+			}
 		}
-		return nil
-	}
-	if path == "" {
-		return nil
-	}
-	if err := os.Chown(path, u, g); err != nil {
-		return fmt.Errorf("chown %s: %w", path, err)
 	}
 	return nil
 }

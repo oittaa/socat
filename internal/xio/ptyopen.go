@@ -47,6 +47,11 @@ func startOnPTY(cmd *exec.Cmd, s parse.Spec) (*os.File, error) {
 		logx.CloseQuiet(slave)
 		return nil, err
 	}
+	if err := ApplyNamedAttrs(slave.Name(), s, slave); err != nil {
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
+		return nil, err
+	}
 	if err := startWithChildUmask(s, cmd); err != nil {
 		logx.CloseQuiet(master)
 		return nil, fmt.Errorf("start on pty: %w", err)

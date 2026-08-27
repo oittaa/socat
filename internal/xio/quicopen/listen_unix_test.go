@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
 )
 
@@ -141,4 +142,49 @@ func packetSockoptInt(t *testing.T, sc syscall.Conn, opt int) int {
 		t.Fatal(gerr)
 	}
 	return v
+}
+
+func TestListenPacketAppendFcntlOnce(t *testing.T) {
+	spec, err := parse.ParseSpec("QUIC-LISTEN:0,append")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ops []string
+	restore := xio.InstallLifecycleSyscallHook(func(op string) { ops = append(ops, op) })
+	t.Cleanup(restore)
+	pc, err := listenPacket(context.Background(), "udp4", "127.0.0.1:0", spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	n := 0
+	for _, op := range ops {
+		if op == "F_SETFL" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("F_SETFL count=%d want 1 (ops=%v)", n, ops)
+	}
+	sc, ok := pc.(syscall.Conn)
+	if !ok {
+		t.Fatalf("PacketConn type %T is not syscall.Conn", pc)
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var flags int
+	var ferr error
+	if err := raw.Control(func(fd uintptr) {
+		flags, ferr = unix.FcntlInt(fd, unix.F_GETFL, 0)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if ferr != nil {
+		t.Fatal(ferr)
+	}
+	if flags&unix.O_APPEND == 0 {
+		t.Fatal("QUIC transport append did not set O_APPEND")
+	}
 }

@@ -59,6 +59,28 @@ func TestListenH3PacketAppliesMembershipExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestListenH3PacketAppliesAppendToTransportOnce(t *testing.T) {
+	spec, err := parse.ParseSpec("PROXY:127.0.0.1:127.0.0.1:9,http-version=3,append")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var calls int
+	restore := xio.InstallLifecycleSyscallHook(func(op string) {
+		if op == "F_SETFL" {
+			calls++
+		}
+	})
+	t.Cleanup(restore)
+	pc, _, err := listenH3Packet(context.Background(), spec, &xio.Global{}, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	if calls != 1 {
+		t.Fatalf("HTTP/3 transport append calls=%d want 1", calls)
+	}
+}
+
 func TestListenH3PacketLowport(t *testing.T) {
 	spec, err := parse.ParseSpec("PROXY:127.0.0.1:127.0.0.1:9,http-version=3,lowport,bind=127.0.0.1")
 	if err != nil {

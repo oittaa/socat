@@ -73,20 +73,29 @@ func ApplyNamedPreopen(path string, s parse.Spec) error {
 // ApplyNamedAfterBind applies GROUP_NAMED options to a filesystem UNIX
 // socket after bind, matching classic xio-listen.c / xio-socket.c
 // (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree):
-// applyopts_named(PH_FD) then applyopts_named(PH_PREOPEN).
+// af5388c898c7bb60997935aee93c223deba60c4a is the same tree).
+//
+// applyopts_named(PH_FD) runs only for filesystem UNIX-LISTEN / UNIX-RECV /
+// UNIX-RECVFROM. UNIX-CONNECT and UNIX-SENDTO apply PH_FD to the socket
+// descriptor (_xioopen_connect / _xioopen_dgram_sendto). Abstract names have
+// no filesystem entry: listen uses applyopts(PH_FD) on the descriptor.
 //
 // Classic xio-unix.c documents that perm-early is useless before bind
 // because the directory entry does not exist yet; after bind it chmods the
-// new socket. PH_PREOPEN after PH_FD means perm-early wins over perm=.
-// unlink= at this phase would remove the just-bound name (classic would
-// too). Abstract names have no filesystem entry and are skipped.
+// new socket. PH_PREOPEN after PH_FD means perm-early wins over perm= on
+// listen/recv names. unlink= at this phase would remove the just-bound name
+// (classic would too).
 func ApplyNamedAfterBind(path string, s parse.Spec, f *os.File) error {
 	if path == "" || IsAbstract(path) {
 		return nil
 	}
-	if err := ApplyNamedAttrs(path, s, f); err != nil {
-		return err
+	// applyopts_named(PH_FD) after bind only for filesystem UNIX-LISTEN /
+	// UNIX-RECV / UNIX-RECVFROM (xio-listen.c / xio-socket.c). UNIX-CONNECT
+	// and UNIX-SENDTO apply PH_FD to the socket descriptor instead.
+	if namedFilesystemUnixPHFD(s) {
+		if err := ApplyNamedAttrs(path, s, f); err != nil {
+			return err
+		}
 	}
 	return ApplyNamedPreopen(path, s)
 }

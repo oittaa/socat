@@ -551,3 +551,30 @@ func assertPOSIXMQWrapDialReadbytes(t *testing.T, o *xio.Opened) {
 		t.Fatalf("readbytes wrap got %q want hell", got)
 	}
 }
+
+func TestPOSIXMQAppendFcntlOnce(t *testing.T) {
+	q := testQueue(t)
+	var ops []string
+	restore := xio.InstallLifecycleSyscallHook(func(op string) { ops = append(ops, op) })
+	t.Cleanup(restore)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ch, err := parse.ParseChannel(fmt.Sprintf("POSIXMQ-SEND:%s,append", q))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := xio.OpenChannel(ctx, ch, xio.ModeWrite, testGlobal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	n := 0
+	for _, op := range ops {
+		if op == "F_SETFL" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("F_SETFL count=%d want 1 (ops=%v)", n, ops)
+	}
+}

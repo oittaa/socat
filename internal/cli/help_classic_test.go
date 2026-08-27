@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -31,5 +32,48 @@ func TestHelpListsSoBroadcastAlias(t *testing.T) {
 	}
 	if !strings.Contains(help, "alias of broadcast") {
 		t.Error("-hhh missing so-broadcast alias line")
+	}
+}
+
+func TestHelpListsDescriptorLifecycleAliases(t *testing.T) {
+	var output bytes.Buffer
+	if err := printHelp(&output, 3); err != nil {
+		t.Fatal(err)
+	}
+	help := output.String()
+	canonical := []string{"perm", "ftruncate"}
+	aliases := map[string]string{
+		"mode":        "perm",
+		"truncate":    "ftruncate",
+		"ftruncate32": "ftruncate",
+		"ftruncate64": "ftruncate",
+	}
+	// Windows has no fchmod/fchown on inherited FDs; user/group stay
+	// rejected and hidden from -hhh (same rule as membership). Unix
+	// advertises classic uid/owner/gid spellings.
+	if runtime.GOOS != "windows" {
+		canonical = append(canonical, "user", "group")
+		aliases["uid"] = "user"
+		aliases["owner"] = "user"
+		aliases["gid"] = "group"
+	}
+	for _, name := range canonical {
+		if !strings.Contains(help, "    "+name+" ") {
+			t.Errorf("-hhh missing canonical %q", name)
+		}
+	}
+	for alias, canon := range aliases {
+		want := "alias of " + canon
+		found := false
+		for _, line := range strings.Split(help, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) > 0 && fields[0] == alias && strings.Contains(line, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("-hhh missing %q as %s", alias, want)
+		}
 	}
 }

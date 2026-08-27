@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
@@ -43,6 +44,15 @@ func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 	err := xio.WithRetry(ctx, s, g, "PROXY-CONNECT", func() error {
 		raw, e := xio.DialTCPAll(ctx, network, xio.StripBrackets(t.proxyHost), t.proxyPort, s, g, connectTimeout, nil)
 		if e != nil {
+			return e
+		}
+		sc, ok := raw.(syscall.Conn)
+		if !ok {
+			logx.CloseQuiet(raw)
+			return fmt.Errorf("HTTP/2 proxy transport does not expose a descriptor")
+		}
+		if e := xio.ApplyFDLifecycleToConn(sc, s); e != nil {
+			logx.CloseQuiet(raw)
 			return e
 		}
 		if handshakeTimeout > 0 {

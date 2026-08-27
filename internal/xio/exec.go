@@ -618,6 +618,14 @@ func openExecPTYPair(cmd *exec.Cmd, s parse.Spec) (*os.File, *os.File, error) {
 		logx.CloseQuiet(slave)
 		return nil, nil, err
 	}
+	// Classic moves GROUP_NAMED perm/user/group to the PTY slave. Applying
+	// them to the master changes the wrong descriptor and can fail differently
+	// across platforms.
+	if err := ApplyNamedAttrs(slave.Name(), s, slave); err != nil {
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
+		return nil, nil, err
+	}
 	return master, slave, nil
 }
 
@@ -657,7 +665,12 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 			return nil, err
 		}
 		logx.CloseQuiet(slave)
-		applyPtyOpts(s, ptmx)
+		if err := applyPtyMasterLifecycle(s, ptmx); err != nil {
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+			logx.CloseQuiet(ptmx)
+			return nil, err
+		}
 		w := &halfCloseWriter{w: ptmx}
 		stream := relay.FDStream{
 			R:      EOFReader{},
@@ -687,7 +700,12 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 			return nil, err
 		}
 		logx.CloseQuiet(slave)
-		applyPtyOpts(s, ptmx)
+		if err := applyPtyMasterLifecycle(s, ptmx); err != nil {
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+			logx.CloseQuiet(ptmx)
+			return nil, err
+		}
 		stream := relay.FDStream{
 			R:      ptmx,
 			W:      io.Discard,
@@ -701,13 +719,23 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, er
 		if err != nil {
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}
-		applyPtyOpts(s, ptmx)
+		if err := applyPtyMasterLifecycle(s, ptmx); err != nil {
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+			logx.CloseQuiet(ptmx)
+			return nil, err
+		}
 		return finishExec(s, g, cmd, PtyExecStream(ptmx), []func(){func() { logx.CloseQuiet(ptmx) }}, false)
 	}
 }
 
 func applyPtyOpts(s parse.Spec, ptmx *os.File) {
 	_ = ApplyTermios(int(ptmx.Fd()), s)
+}
+
+func applyPtyMasterLifecycle(s parse.Spec, ptmx *os.File) error {
+	applyPtyOpts(s, ptmx)
+	return ApplyFDOptions(ptmx, s)
 }
 
 func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func(), waitChild bool) (*Opened, error) {

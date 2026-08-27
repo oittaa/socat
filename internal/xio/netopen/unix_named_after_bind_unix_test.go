@@ -5,6 +5,8 @@ package netopen
 import (
 	"context"
 	"os"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -84,13 +86,36 @@ func TestUnixConnectBindPermEarlyChmodsSocket(t *testing.T) {
 }
 
 func TestUnixConnectBindPermEarlyWinsOverPerm(t *testing.T) {
+	// Classic UNIX-CONNECT applyopts_named after bind is PH_PREOPEN only
+	// (perm-early on the bind path). perm= is PH_FD fchmod on the socket
+	// descriptor via _xioopen_connect (tag-1.8.1.3
+	// 12c08bf66d709fba17035ce95d85bd218428d9ba). Darwin fchmod on UNIX
+	// sockets returns EINVAL; that error must propagate.
 	listen := unixSocketTestPath(t, "listen.sock")
 	bind := unixSocketTestPath(t, "client.sock")
 	startUnixStreamPeer(t, listen)
-	o := openBoundUnixConnect(t, listen, bind,
-		parse.Option{Name: "perm", Value: "0777", Has: true},
-		parse.Option{Name: "perm-early", Value: "0600", Has: true},
-	)
+	spec := parse.Spec{
+		Type:   "UNIX-CONNECT",
+		Params: []string{listen},
+		Options: []parse.Option{
+			{Name: "bind", Value: bind, Has: true},
+			{Name: "perm", Value: "0777", Has: true},
+			{Name: "perm-early", Value: "0600", Has: true},
+		},
+	}
+	o, err := openUnixConnect(context.Background(), spec, xio.ModeRDWR, nil)
+	if runtime.GOOS != "linux" {
+		if err == nil {
+			t.Fatal("expected fchmod error on UNIX-CONNECT socket")
+		}
+		if !strings.Contains(err.Error(), "fchmod") {
+			t.Fatalf("error=%v want fchmod EINVAL", err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = o.Close() })
 	assertUnixSocketPerm(t, bind, 0o600)
 }
@@ -108,6 +133,33 @@ func TestUnixListenAbstractPermEarlyNoError(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
+}
+
+func TestAbstractListenPermAppliesToListenerDescriptorBeforeAccept(t *testing.T) {
+	if !xio.FeatureABSTRACT {
+		t.Skip("ABSTRACT UNIX not enabled")
+	}
+	var ops []string
+	restore := xio.InstallLifecycleSyscallHook(func(op string) { ops = append(ops, op) })
+	t.Cleanup(restore)
+	spec, err := parse.ParseSpec("ABSTRACT-LISTEN:" + t.Name() + ",fork,perm=0600")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openAbstractListen(context.Background(), spec, xio.ModeRDWR, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	var fchmods int
+	for _, op := range ops {
+		if op == "fchmod" {
+			fchmods++
+		}
+	}
+	if fchmods != 1 {
+		t.Fatalf("listener fchmod count=%d want 1 before accept (ops=%v)", fchmods, ops)
+	}
 }
 
 func assertUnixSocketPerm(t *testing.T, path string, want os.FileMode) {

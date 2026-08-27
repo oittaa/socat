@@ -387,10 +387,6 @@ func handshakeAddressTypes() []string {
 	return types
 }
 
-func fileOpenAddressTypes() []string {
-	return []string{"OPEN", "FILE", "CREATE", "CREAT", "GOPEN"}
-}
-
 func fdOptionAddressTypes() []string {
 	return []string{
 		"STDIO", "STDIN", "STDOUT", "STDERR", "FD",

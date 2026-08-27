@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"sync"
 	"syscall"
 
@@ -229,15 +230,53 @@ func applyLateSocketOptionsToStream(s parse.Spec, stream relay.Stream) error {
 }
 
 func streamSyscallConns(stream relay.Stream) []syscall.RawConn {
-	var out []syscall.RawConn
+	targets := streamSyscallConnTargets(stream)
+	out := make([]syscall.RawConn, len(targets))
+	for i, t := range targets {
+		out[i] = t.raw
+	}
+	return out
+}
+
+// syscallConnTarget is one syscall.Conn extracted from a stream, with the
+// *os.File identity when the stream component is a file. Descriptor lifecycle
+// uses the file or conn pointer (not the fd number) to skip a second apply
+// after ApplyFDOptions / ApplyFDLifecycleToConn: the kernel reuses fd
+// numbers after close.
+type syscallConnTarget struct {
+	file *os.File
+	conn syscall.Conn
+	raw  syscall.RawConn
+}
+
+func streamSyscallConnTargets(stream relay.Stream) []syscallConnTarget {
+	var out []syscallConnTarget
 	add := func(v any) {
+		var file *os.File
+		if f, ok := v.(*os.File); ok {
+			file = f
+		}
 		for hops := 0; v != nil && hops < 8; hops++ {
+			if h, ok := v.(*halfCloseWriter); ok {
+				v = h.w
+				if file == nil {
+					if f, ok := v.(*os.File); ok {
+						file = f
+					}
+				}
+				continue
+			}
 			if sc, ok := v.(syscall.Conn); ok {
 				raw, err := sc.SyscallConn()
 				if err != nil || raw == nil {
 					return
 				}
-				out = append(out, raw)
+				if file == nil {
+					if f, ok := v.(*os.File); ok {
+						file = f
+					}
+				}
+				out = append(out, syscallConnTarget{file: file, conn: sc, raw: raw})
 				return
 			}
 			unwrapper, ok := v.(interface{ NetConn() net.Conn })
@@ -249,6 +288,11 @@ func streamSyscallConns(stream relay.Stream) []syscall.RawConn {
 				return
 			}
 			v = next
+			if file == nil {
+				if f, ok := v.(*os.File); ok {
+					file = f
+				}
+			}
 		}
 	}
 	switch s := stream.(type) {

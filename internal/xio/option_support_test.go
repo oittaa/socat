@@ -96,6 +96,25 @@ func TestClassicOptionGroupsForAliases(t *testing.T) {
 	if parse.CanonicalOptionName("o-append") != "append" {
 		t.Fatal("canonical o-append")
 	}
+	if parse.CanonicalOptionName("truncate") != "ftruncate" {
+		t.Fatal("canonical truncate")
+	}
+	if parse.CanonicalOptionName("mode") != "perm" {
+		t.Fatal("canonical mode")
+	}
+	if parse.CanonicalOptionName("uid") != "user" || parse.CanonicalOptionName("owner") != "user" {
+		t.Fatal("canonical uid/owner")
+	}
+	if parse.CanonicalOptionName("gid") != "group" {
+		t.Fatal("canonical gid")
+	}
+	if parse.CanonicalOptionName("ftruncate32") != "ftruncate" || parse.CanonicalOptionName("ftruncate64") != "ftruncate" {
+		t.Fatal("canonical ftruncate32/64")
+	}
+	modeGroups, ok := ClassicOptionGroupsFor("mode")
+	if !ok || !reflect.DeepEqual(modeGroups, ClassicOptionGroups["perm"]) {
+		t.Fatalf("mode groups=%v ok=%v", modeGroups, ok)
+	}
 	joinGroups, ok := ClassicOptionGroupsFor("ipv6-join-group")
 	if !ok || !reflect.DeepEqual(joinGroups, ClassicOptionGroups["ipv6-join-group"]) {
 		t.Fatalf("ipv6-join-group groups=%v ok=%v", joinGroups, ok)

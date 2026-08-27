@@ -426,7 +426,10 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, _ string) error {
 		// classic often sets reuse on raw too
 		optionErr = xio.ApplyReuse(int(fd), s, true)
 	})
-	return errors.Join(controlErr, optionErr)
+	if err := errors.Join(controlErr, optionErr); err != nil {
+		return err
+	}
+	return xio.ApplyFDLifecycleToConn(c, s)
 }
 
 func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob []byte, addr net.Addr, err error) {
