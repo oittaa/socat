@@ -56,13 +56,30 @@ func buildSupportedAddressOptions() map[string]addressOption {
 	for _, name := range extraHelpNames(true) {
 		options[strings.ToLower(name)] = addressOption{}
 	}
-	// These names are deliberately recognized so the relevant opener can
-	// return a precise "not supported" error. They must not be advertised as
-	// honored options in -hh/-hhh.
-	for _, name := range []string{"openssl-method", "opensslmethod"} {
-		options[name] = addressOption{addressGroups: tlsOptionAddressGroups()}
+	// These names are deliberately recognized so tlsopen can return a precise
+	// "not supported" error. They must not be advertised as honored options
+	// in -hh/-hhh. Parse aliases fold nicknames onto the openssl-* keys;
+	// listing both keeps constructed Spec values working too.
+	unsupported := addressOption{addressGroups: tlsOptionAddressGroups()}
+	for _, name := range recognizedUnsupportedTLSNames {
+		options[name] = unsupported
 	}
 	return options
+}
+
+// recognizedUnsupportedTLSNames are classic OPENSSL spellings Go crypto/tls
+// cannot honor. Parsed for a precise reject; never listed in -hhh as working.
+// Classic baseline: tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+// official master af5388c898c7bb60997935aee93c223deba60c4a is the same tree.
+var recognizedUnsupportedTLSNames = []string{
+	"openssl-method", "opensslmethod", "method",
+	"openssl-fips", "fips",
+	"openssl-compress", "compress",
+	"openssl-egd", "egd",
+	"openssl-pseudo", "pseudo",
+	"openssl-dhparam", "openssl-dhparams", "dhparam", "dhparams", "dh",
+	"openssl-maxfraglen", "maxfraglen",
+	"openssl-maxsendfrag", "maxsendfrag",
 }
 
 // optionAddressGroups limits only protocol-specific option families. Classic

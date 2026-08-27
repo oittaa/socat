@@ -80,9 +80,9 @@ var dynamicallyReadOptions = map[string]string{
 	"o-noatime": "xio/options.go", "noatime": "xio/options.go",
 	"f-setpipe-sz": "xio/options.go", "pipesz": "xio/options.go",
 	"children-shutup": "xio/options.go", "child-shutup": "xio/options.go",
-	"openssl-min-proto-version": "tlsopen/tls.go", "min-version": "tlsopen/tls.go",
-	"openssl-max-proto-version": "tlsopen/tls.go", "max-version": "tlsopen/tls.go",
-	"so-protocol": "netopen/vsock.go parseVsockProtocolOption",
+	"openssl-min-proto-version": "tlsopen/tls.go",
+	"openssl-max-proto-version": "tlsopen/tls.go",
+	"so-protocol":               "netopen/vsock.go parseVsockProtocolOption",
 
 	"perm": "xio/run.go", "mode": "xio/run.go",
 	"user": "xio/fdopts_lifecycle.go", "uid": "xio/fdopts_lifecycle.go", "owner": "xio/fdopts_lifecycle.go",
@@ -104,8 +104,14 @@ var dynamicallyReadOptions = map[string]string{
 // opener can return a precise "not supported" error; helpOptionGroups keeps the
 // authoritative list and routes them to that error.
 var recognizedUnsupportedOptions = map[string]string{
-	"openssl-method": "stream TLS only; rejected with a precise error",
-	"opensslmethod":  "stream TLS only; rejected with a precise error",
+	"openssl-method":      "stream TLS only; rejected with a precise error",
+	"openssl-fips":        "Go crypto/tls has no OpenSSL FIPS module",
+	"openssl-compress":    "Go crypto/tls has no TLS compression",
+	"openssl-egd":         "Go does not use EGD for randomness",
+	"openssl-pseudo":      "Go crypto/tls does not use OpenSSL pseudo-random bytes",
+	"openssl-dhparam":     "Go crypto/tls does not load DH parameters",
+	"openssl-maxfraglen":  "Go crypto/tls has no max fragment length option",
+	"openssl-maxsendfrag": "Go crypto/tls has no max send fragment option",
 }
 
 var compatNoOptions = map[string]string{

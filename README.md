@@ -180,7 +180,7 @@ aliases and termios / baud names.
 | Transfer | `crnl`, `crlf`, `ignoreeof`, `readbytes`, `retry`/`forever`/`interval` |
 | IP send | `ip-ttl`/`ttl`/`ipttl`, `ip-tos`/`tos`/`iptos`, `ip-options`/`ipoptions`, `ipv6-unicast-hops`, `ipv6-tclass` on TCP, UDP, raw IP, SCTP, TLS/WS/PROXY, and QUIC’s UDP PacketConn. `ip-ttl`/`ip-tos` use `SOL_IP`; family mismatches and Windows-unimplemented send opts error |
 | IP recv ancillary | `so-timestamp`, `ip-pktinfo`/`ippktinfo`, `ip-recvttl`/`iprecvttl`/`ip-recvtos`/`ip-recvopts`, `ipv6-recvpktinfo`/`ipv6-recvhoplimit`/`ipv6-recvtclass` on Unix UDP and raw IP (`ReadMsg`). Rejected on TCP/QUIC/stream sockets, Windows, and the wrong IP family instead of being accepted as no-ops |
-| TLS | `cert`, `key`, `cafile`/`ca`, `capath`, `verify`, `commonname`, `snihost`, `nosni`, `ciphers`, `openssl-min-proto-version`/`min-version`, `openssl-max-proto-version`/`max-version` (also classic `cipher`, `openssl-*`, and `tls-*` aliases) |
+| TLS | `cert`/`certificate`/`openssl-certificate`, `key`/`openssl-key`, `cafile`/`ca`/`openssl-cafile`, `capath`, `verify`/`openssl-verify`, `commonname`/`cn`, `snihost`, `nosni`/`no-sni`, `ciphers`/`cipher`/`cipherlist`, `openssl-min-proto-version`/`min-proto-version`/`min-version`, `openssl-max-proto-version`/`max-proto-version`/`max-version` (also classic `openssl-*` and Go `tls-*` aliases of the same options) |
 | WebSocket | `path`, `origin`, `protocol` (binary frames; WSS reuses TLS options) |
 | QUIC | `alpn` (default `socat`; not `h3`); reuses TLS options; one bidirectional stream |
 | PROXY / SOCKS | `proxyport`, `http-version` (`1.0`/`1.1`/`2`/`3`), `h2c`, `proxy-authorization` / `proxy-authorization-file`, `socksport`, `socksuser` |
@@ -235,8 +235,13 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 |-------|--------|------------------|
 | **DSA certificates / keys** | Rejected | DSA is obsolete; Go `crypto/tls` does not parse DSA keys. Classic `OPENSSLLISTENDSA` fails by design. Use RSA, ECDSA, Ed25519, or ML-DSA (TLS 1.3 / QUIC). See [Go crypto/tls](https://pkg.go.dev/crypto/tls), [crypto/mldsa](https://pkg.go.dev/crypto/mldsa), and [NIST SP 800-57 / deprecation of DSA](https://csrc.nist.gov/publications/detail/sp/800-57-part-1/rev-5/final). |
 | **DCCP, readline** | Not implemented | `#undef` in `-V`. No DCCP or GNU readline address type. |
-| **DTLS** | Not implemented | Not available in Go `crypto/tls` (stream TLS only). `openssl-method=DTLS*` is rejected instead of silently using TCP TLS. See [crypto/tls package docs](https://pkg.go.dev/crypto/tls). |
-| **SSLv3 / weak ciphers** | Not offered | Go TLS defaults reject obsolete protocols/ciphers. Unsupported `openssl-method=` selections are rejected. See [Go TLS cipher suites](https://go.dev/blog/tls-cipher-suites) and [crypto/tls Config](https://pkg.go.dev/crypto/tls#Config). |
+| **DTLS** | Not implemented | Not available in Go `crypto/tls` (stream TLS only). `method=` / `openssl-method=DTLS*` is rejected instead of silently using TCP TLS. Classic `OPENSSL-DTLS-*` address types are not implemented. See [crypto/tls package docs](https://pkg.go.dev/crypto/tls). |
+| **SSLv3 / weak ciphers** | Not offered | Go TLS defaults reject obsolete protocols/ciphers. Unsupported `method=` / `openssl-method=` selections are rejected. See [Go TLS cipher suites](https://go.dev/blog/tls-cipher-suites) and [crypto/tls Config](https://pkg.go.dev/crypto/tls#Config). |
+| **OpenSSL `method` / `fips`** | Rejected | Classic `method=` needs `--enable-openssl-method`; `fips=` needs `--enable-fips`. This port has no OpenSSL engine or FIPS module. `method`, `openssl-method`, `fips`, and `openssl-fips` are parsed and rejected; they are not advertised in `-hhh` as honored. |
+| **TLS compression** | Rejected | `openssl-compress` / `compress` select OpenSSL `SSL_COMP_*`. Go `crypto/tls` has no TLS compression (CRIME). Rejected instead of a no-op. |
+| **EGD / OpenSSL pseudo-random** | Rejected | `openssl-egd` / `egd` and `openssl-pseudo` / `pseudo` feed OpenSSL's RNG. Go uses `crypto/rand`. Rejected instead of a no-op. |
+| **DH parameters** | Rejected | `openssl-dhparam` / `dhparam` / `dh` / `dhparams` load an OpenSSL DH PEM for `SSL_CTX_set_tmp_dh`. Go `crypto/tls` does not load DH params. Rejected instead of a no-op. |
+| **Max fragment length** | Rejected | `openssl-maxfraglen` / `maxfraglen` (`SSL_CTX_set_tlsext_max_fragment_length`) and `openssl-maxsendfrag` / `maxsendfrag` (`SSL_CTX_set_max_send_fragment`) are not exposed by Go `crypto/tls`. Rejected instead of a no-op. |
 | **libwrap / TCP wrappers** | Implemented (pure Go) | No CGO/libwrap0; reads `hosts.allow`/`hosts.deny` (or `tcpwrap-etc=`). Subset: daemon ALL/name, client ALL/IP/hostname/`[ipv6]`. |
 
 ## Environment compatibility

@@ -86,9 +86,6 @@ func splitCertKeyPEM(data []byte) (certPEM, keyPEM []byte) {
 
 func loadCAPool(s parse.Spec) (*x509.CertPool, error) {
 	cafile := s.OptionValue("cafile", "")
-	if cafile == "" {
-		cafile = s.OptionValue("ca", "")
-	}
 	capath := s.OptionValue("capath", "")
 	if cafile == "" && capath == "" {
 		return nil, nil

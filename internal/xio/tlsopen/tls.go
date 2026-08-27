@@ -184,24 +184,41 @@ func TLSServerConfig(s parse.Spec) (*tls.Config, error) {
 	return tlsServerConfig(s)
 }
 
-func rejectUnsupportedTLSMethod(s parse.Spec) error {
-	// crypto/tls implements stream TLS only. Silently accepting this classic
-	// socat option could turn a requested DTLS transport into TCP TLS, or make
-	// an obsolete SSL method appear to have been selected when it was not.
-	for _, name := range []string{"openssl-method", "opensslmethod"} {
-		if option, ok := s.OptionNamed(name); ok {
-			typ := s.Type
-			if typ == "" {
-				typ = "TLS"
-			}
-			return fmt.Errorf("%s: option %q is not supported (stream TLS only)", typ, option.Name)
+// unsupportedOpenSSLReason maps Go-canonical OPENSSL option names onto the
+// reason they are rejected. Classic tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba and official master
+// af5388c898c7bb60997935aee93c223deba60c4a implement these via OpenSSL;
+// Go crypto/tls cannot honor them. Accepting them as no-ops would hide a
+// requested DTLS method, FIPS mode, compression, DH params, or fragment
+// bound. method/fips also need classic --enable-openssl-method/--enable-fips.
+var unsupportedOpenSSLReason = map[string]string{
+	"openssl-method":      "stream TLS only",
+	"openssl-fips":        "Go crypto/tls has no OpenSSL FIPS module",
+	"openssl-compress":    "Go crypto/tls has no TLS compression",
+	"openssl-egd":         "Go does not use EGD for randomness",
+	"openssl-pseudo":      "Go crypto/tls does not use OpenSSL pseudo-random bytes",
+	"openssl-dhparam":     "Go crypto/tls does not load DH parameters",
+	"openssl-maxfraglen":  "Go crypto/tls has no max fragment length option",
+	"openssl-maxsendfrag": "Go crypto/tls has no max send fragment option",
+}
+
+func rejectUnsupportedOpenSSLOptions(s parse.Spec) error {
+	typ := s.Type
+	if typ == "" {
+		typ = "TLS"
+	}
+	for _, option := range s.Options {
+		reason, ok := unsupportedOpenSSLReason[parse.CanonicalOptionName(option.Name)]
+		if !ok {
+			continue
 		}
+		return fmt.Errorf("%s: option %q is not supported (%s)", typ, option.OriginalSpelling(), reason)
 	}
 	return nil
 }
 
 func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
-	if err := rejectUnsupportedTLSMethod(s); err != nil {
+	if err := rejectUnsupportedOpenSSLOptions(s); err != nil {
 		return nil, err
 	}
 	cfg := &tls.Config{
@@ -227,11 +244,8 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 	// SNI: nosni / snihost (openssl-no-sni / openssl-snihost aliases).
 	// OPENSSL_SNI / OPENSSL_NO_SNI: badssl.com needs SNI to succeed / fail.
 	// Empty commonname= does not clear SNI; use snihost= / nosni for that.
-	noSNI := s.BoolOption("openssl-no-sni") || s.BoolOption("nosni")
-	sniHost := s.OptionValue("openssl-snihost", "")
-	if sniHost == "" {
-		sniHost = s.OptionValue("snihost", "")
-	}
+	noSNI := s.BoolOption("nosni")
+	sniHost := s.OptionValue("snihost", "")
 	if !noSNI {
 		if sniHost != "" {
 			cfg.ServerName = sniHost
@@ -271,7 +285,7 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 }
 
 func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
-	if err := rejectUnsupportedTLSMethod(s); err != nil {
+	if err := rejectUnsupportedOpenSSLOptions(s); err != nil {
 		return nil, err
 	}
 	certPath := s.OptionValue("cert", "")
@@ -325,15 +339,15 @@ func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 }
 
 func applyProtocolVersions(cfg *tls.Config, s parse.Spec) error {
-	if value, ok := tlsOptionValueAny(s, "openssl-min-proto-version", "min-version"); ok {
-		version, err := parseProtocolVersion(value)
+	if opt, ok := s.OptionNamed("openssl-min-proto-version"); ok {
+		version, err := parseProtocolVersion(opt.Value)
 		if err != nil {
 			return fmt.Errorf("openssl-min-proto-version: %w", err)
 		}
 		cfg.MinVersion = version
 	}
-	if value, ok := tlsOptionValueAny(s, "openssl-max-proto-version", "max-version"); ok {
-		version, err := parseProtocolVersion(value)
+	if opt, ok := s.OptionNamed("openssl-max-proto-version"); ok {
+		version, err := parseProtocolVersion(opt.Value)
 		if err != nil {
 			return fmt.Errorf("openssl-max-proto-version: %w", err)
 		}
@@ -358,15 +372,4 @@ func parseProtocolVersion(value string) (uint16, error) {
 	default:
 		return 0, fmt.Errorf("unsupported protocol version %q", value)
 	}
-}
-
-func tlsOptionValueAny(s parse.Spec, names ...string) (string, bool) {
-	for i := len(s.Options) - 1; i >= 0; i-- {
-		for _, name := range names {
-			if strings.EqualFold(s.Options[i].Name, name) {
-				return s.OptionValue(s.Options[i].Name, ""), true
-			}
-		}
-	}
-	return "", false
 }
