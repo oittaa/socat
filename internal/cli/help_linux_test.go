@@ -62,6 +62,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"ext2-append", "ext3-append", "compr", "nodump", "notail", "journal-data",
 		"shut-down",
 		"lockfile", "waitlock",
+		"cloexec",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)
@@ -104,6 +105,7 @@ func TestLinuxHHHIncludesClassicOptionMetadata(t *testing.T) {
 		"udplite-recv-cscov":       {"groups=UDPLITE", "phase=FD", "type=INT"},
 		"ioctl-string":             {"groups=FD", "phase=FD", "type=INT:STRING"},
 		"lockfile":                 {"groups=APPL", "phase=INIT", "type=STRING"},
+		"cloexec":                  {"groups=FD", "phase=LATE", "type=BOOL"},
 	} {
 		var line string
 		for _, candidate := range strings.Split(help, "\n") {

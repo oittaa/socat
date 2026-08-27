@@ -36,6 +36,7 @@ func hideOpt(name string) bool {
 		"async", "perm-late", "user-late", "group-late",
 		"setlk", "setlkw", "setlk-rd", "setlkw-rd",
 		"flock", "flock-nb", "flock-sh", "flock-sh-nb",
+		"cloexec",
 		"pipes", "pty", "setsid", "stderr", "fdin", "fdout", "shell", "shut-none",
 		"bindtodevice",
 		"tcp-cork", "tcp-defer-accept", "tcp-linger2", "tcp-maxseg",

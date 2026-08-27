@@ -34,6 +34,7 @@ func TestUnixOtherHelpHidesLinuxSCTP(t *testing.T) {
 	}
 	for _, name := range []string{
 		"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string",
+		"cloexec",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)

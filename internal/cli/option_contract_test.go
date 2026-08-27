@@ -119,6 +119,7 @@ var dynamicallyReadOptions = map[string]string{
 	"ioctl-intp":   "xio/fdopts_lifecycle_unix.go applyFDPhaseLifecycleOptions",
 	"ioctl-bin":    "xio/fdopts_lifecycle_unix.go applyFDPhaseLifecycleOptions",
 	"ioctl-string": "xio/fdopts_lifecycle_unix.go applyFDPhaseLifecycleOptions",
+	"cloexec":      "xio/fdopts_lifecycle_unix.go applyLateLifecycle",
 	"lseek":        "xio/fdopts_lifecycle.go", "lseek64": "xio/fdopts_lifecycle.go", "lseek64-set": "xio/fdopts_lifecycle.go",
 	"seek": "xio/fdopts_lifecycle.go", "seek-set": "xio/fdopts_lifecycle.go",
 	"lseek32": "xio/fdopts_lifecycle.go", "lseek32-set": "xio/fdopts_lifecycle.go",
