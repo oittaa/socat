@@ -274,14 +274,14 @@ func TestApplyFDOptionsPHFDCommandLineOrderCrossFamily(t *testing.T) {
 	restore := InstallLifecycleSyscallHook(func(op string) { ops = append(ops, op) })
 	t.Cleanup(restore)
 
-	spec, err := parse.ParseSpec("FD:3,perm=0600,fs-nodump,o-noatime,nodump=0")
+	spec, err := parse.ParseSpec("FD:3,perm=0600,flock,fs-nodump,o-noatime,nodump=0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := ApplyFDOptions(f, spec); err != nil {
 		t.Skipf("mixed PH_FD apply: %v", err)
 	}
-	want := []string{"fchmod", "FS_IOC_SETFLAGS", "F_SETFL", "FS_IOC_SETFLAGS"}
+	want := []string{"fchmod", "flock", "FS_IOC_SETFLAGS", "F_SETFL", "FS_IOC_SETFLAGS"}
 	if len(ops) != len(want) {
 		t.Fatalf("ops=%v want %v", ops, want)
 	}
@@ -310,14 +310,14 @@ func TestApplyFDOptionsPHFDCommandLineOrderCrossFamily(t *testing.T) {
 
 	f2 := openFSFlagProbe(t)
 	ops = nil
-	spec, err = parse.ParseSpec("FD:3,fs-nodump,perm=0640,o-noatime")
+	spec, err = parse.ParseSpec("FD:3,fs-nodump,flock,perm=0640,o-noatime")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := ApplyFDOptions(f2, spec); err != nil {
 		t.Fatal(err)
 	}
-	want = []string{"FS_IOC_SETFLAGS", "fchmod", "F_SETFL"}
+	want = []string{"FS_IOC_SETFLAGS", "flock", "fchmod", "F_SETFL"}
 	if len(ops) != len(want) {
 		t.Fatalf("reversed ops=%v want %v", ops, want)
 	}
