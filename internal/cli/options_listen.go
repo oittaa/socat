@@ -42,8 +42,8 @@ func listenOptionGroups() []helpOptGroup {
 func transferOptionGroups() []helpOptGroup {
 	return []helpOptGroup{
 		{"Transfer", []helpOpt{
-			{name: "cr", desc: "convert NL to/from CR"},
-			{name: "crnl", desc: "convert CR/NL", aliases: []string{"crlf"}},
+			{name: "cr", desc: "convert NL to/from CR", validate: validateNoValue},
+			{name: "crnl", desc: "convert CR/NL", aliases: []string{"crlf"}, validate: validateNoValue},
 			{name: "crorlf", desc: "convert CR or LF"},
 			{name: "ignoreeof", desc: "do not close on EOF", aliases: []string{"ignoreof"}},
 			{name: "null-eof", desc: "treat a zero-length read as EOF"},

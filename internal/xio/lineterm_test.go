@@ -13,7 +13,7 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-func TestSelectedLineTermOrderAndZero(t *testing.T) {
+func TestSelectedLineTermOrder(t *testing.T) {
 	tests := []struct {
 		spec string
 		want lineTermMode
@@ -31,11 +31,8 @@ func TestSelectedLineTermOrderAndZero(t *testing.T) {
 		{spec: "TCP:127.0.0.1:9,crorlf,cr", want: lineTermCR},
 		{spec: "TCP:127.0.0.1:9,crnl,crorlf", want: lineTermCRorLF},
 		{spec: "TCP:127.0.0.1:9,crorlf,crnl", want: lineTermCRNL},
-		{spec: "TCP:127.0.0.1:9,crnl,cr=0", want: lineTermCRNL},
-		{spec: "TCP:127.0.0.1:9,cr,crnl=0", want: lineTermCR},
-		{spec: "TCP:127.0.0.1:9,crlf,crnl=0", want: lineTermRaw},
-		{spec: "TCP:127.0.0.1:9,crorlf,crnl=0", want: lineTermCRorLF},
-		{spec: "TCP:127.0.0.1:9,cr=0", want: lineTermRaw},
+		{spec: "TCP:127.0.0.1:9,crorlf=0", want: lineTermRaw},
+		{spec: "TCP:127.0.0.1:9,cr,crorlf=0", want: lineTermCR},
 	}
 	for _, tc := range tests {
 		t.Run(tc.spec, func(t *testing.T) {
@@ -259,18 +256,28 @@ func TestWantCRNLAliasLastWins(t *testing.T) {
 	if !wantCRNL(on) {
 		t.Fatal("crlf alias should enable CRNL conversion")
 	}
-	off, err := parse.ParseSpec("TCP:127.0.0.1:9,crlf,crnl=0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if wantCRNL(off) {
-		t.Fatal("last-wins crnl=0 should disable CRNL conversion")
-	}
 	crorlf, err := parse.ParseSpec("TCP:127.0.0.1:9,crorlf")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if wantCRNL(crorlf) {
 		t.Fatal("crorlf must stay distinct from crnl")
+	}
+}
+
+func TestClassicCRRejectsAssignment(t *testing.T) {
+	inner := relay.FDStream{R: bytes.NewReader(nil), W: io.Discard, C: NopCloser{}, CloseW: func() error { return nil }}
+	for _, spec := range []string{
+		"TCP:127.0.0.1:9,cr=0",
+		"TCP:127.0.0.1:9,crnl=false",
+		"TCP:127.0.0.1:9,crlf=1",
+	} {
+		s, err := parse.ParseSpec(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := WrapCommon(s, inner); err == nil || !strings.Contains(err.Error(), "no value permitted") {
+			t.Fatalf("%s: err=%v want no value permitted", spec, err)
+		}
 	}
 }

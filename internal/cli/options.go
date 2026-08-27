@@ -332,6 +332,13 @@ func validateOptionalBool(option parse.Option) error {
 	return nil
 }
 
+func validateNoValue(option parse.Option) error {
+	if option.Has {
+		return fmt.Errorf("%s: no value permitted", option.Name)
+	}
+	return nil
+}
+
 func validateShutOption(option parse.Option) error {
 	if !option.Has {
 		return fmt.Errorf("shut: value required (none, down, close, or null)")

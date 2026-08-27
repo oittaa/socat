@@ -16,8 +16,9 @@ import (
 // C TYPE_CONST rejects any assignment ("no value permitted") in parseopts
 // (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 // af5388c898c7bb60997935aee93c223deba60c4a is the same arm). This port follows
-// the documented bool form: omitted value selects the policy; =0/false/no/off
-// does not. Last active occurrence across shut-* and Go-only shut= wins.
+// the documented bool form: omitted value or =1 selects the policy; =0 does
+// not. Other assignments are rejected. Last active occurrence across shut-*
+// and Go-only shut=none|down|close|null wins.
 type shutPolicy int
 
 const (
@@ -29,6 +30,15 @@ const (
 )
 
 func selectedShutPolicy(s parse.Spec) (shutPolicy, error) {
+	for _, o := range s.Options {
+		name := parse.CanonicalOptionName(o.Name)
+		switch name {
+		case "shut-none", "shut-down", "shut-close", "shut-null":
+			if err := validateClassicOptionalBool(o); err != nil {
+				return shutUnspecified, err
+			}
+		}
+	}
 	for _, o := range s.Options {
 		if parse.CanonicalOptionName(o.Name) != "shut" || !o.Active() {
 			continue
@@ -66,6 +76,20 @@ func selectedShutPolicy(s parse.Spec) (shutPolicy, error) {
 		return p, nil
 	}
 	return shutUnspecified, nil
+}
+
+func validateClassicOptionalBool(o parse.Option) error {
+	if !o.Has {
+		return nil
+	}
+	v := strings.TrimSpace(o.Value)
+	if v == "" {
+		return fmt.Errorf("invalid %s %q", o.OriginalSpelling(), o.Value)
+	}
+	if v != "0" && v != "1" {
+		return fmt.Errorf("invalid %s %q", o.OriginalSpelling(), o.Value)
+	}
+	return nil
 }
 
 func shutPolicyNamed(name, value string) (shutPolicy, bool) {
@@ -130,16 +154,22 @@ func (s shutNoneStream) UnwrapZeroCopyStream() relay.Stream {
 	return s.Stream
 }
 
-// shutDownStream performs socket-style ShutdownWrite (classic XIOSHUT_DOWN).
+// shutDownStream performs socket shutdown(SHUT_WR) (classic XIOSHUT_DOWN).
 type shutDownStream struct{ relay.Stream }
 
-func (s shutDownStream) ShutdownWrite() error       { return shutdownWritePolicy(s.Stream) }
+func (s shutDownStream) ShutdownWrite() error {
+	if err := shutdownWritePolicy(s.Stream); err != nil {
+		return fmt.Errorf("shut-down: %w", err)
+	}
+	return nil
+}
 func (s shutDownStream) UnwrapStream() relay.Stream { return s.Stream }
 func (s shutDownStream) UnwrapZeroCopyStream() relay.Stream {
 	return s.Stream
 }
 
-// shutNullStream sends a 0-byte Write on ShutdownWrite (classic XIOSHUT_NULL).
+// shutNullStream sends a 0-byte Write on ShutdownWrite (classic XIOSHUT_NULL:
+// xiowrite(..., 0) then return; it does not also Shutdown).
 type shutNullStream struct {
 	relay.Stream
 }
@@ -150,8 +180,8 @@ func (s shutNullStream) UnwrapZeroCopyStream() relay.Stream {
 }
 
 func (s shutNullStream) ShutdownWrite() error {
-	_, _ = s.Write(nil) // 0-byte datagram
-	return s.Stream.ShutdownWrite()
+	_, err := s.Write(nil) // 0-byte datagram; report write errors, do not also half-close
+	return err
 }
 
 // shutCloseStream turns a directional half-close into a full descriptor

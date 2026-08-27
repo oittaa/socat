@@ -303,11 +303,11 @@ func (c crnlReader) Read(p []byte) (int, error) {
 // crorlf. cr and crnl/crlf share one ordered field; last active occurrence
 // wins. crorlf is a distinct conversion and is not folded into cr/crnl.
 //
-// Classic man documents cr as a flag; crnl the same. C TYPE_CONST rejects any
+// Classic man documents cr and crnl as bare flags. C TYPE_CONST rejects any
 // assignment (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official
 // master af5388c898c7bb60997935aee93c223deba60c4a is the same parseopts arm).
-// This port follows the documented bool form used for shut-*: omitted value
-// selects; =0/false/no/off does not.
+// Assignments are rejected. Go-only crorlf still uses omitted/=1 to select
+// and =0 to leave the previous conversion.
 type lineTermMode int
 
 const (
@@ -431,21 +431,29 @@ func (s *lineTermStream) Read(p []byte) (int, error)  { return s.r.Read(p) }
 func (s *lineTermStream) Write(p []byte) (int, error) { return s.w.Write(p) }
 func (s *lineTermStream) UnwrapStream() relay.Stream  { return s.Stream }
 
-func applyLineTerm(s parse.Spec, stream relay.Stream) relay.Stream {
+func applyLineTerm(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
+	for _, o := range s.Options {
+		switch parse.CanonicalOptionName(o.Name) {
+		case "cr", "crnl":
+			if o.Has {
+				return nil, fmt.Errorf("%s: no value permitted", o.OriginalSpelling())
+			}
+		}
+	}
 	switch selectedLineTerm(s) {
 	case lineTermCR:
-		return &lineTermStream{Stream: stream, r: crReader{r: stream}, w: &crWriter{w: stream}}
+		return &lineTermStream{Stream: stream, r: crReader{r: stream}, w: &crWriter{w: stream}}, nil
 	case lineTermCRNL:
-		return &lineTermStream{Stream: stream, r: crnlReader{r: stream}, w: &crnlWriter{w: stream}}
+		return &lineTermStream{Stream: stream, r: crnlReader{r: stream}, w: &crnlWriter{w: stream}}, nil
 	case lineTermCRorLF:
-		return &lineTermStream{Stream: stream, r: &crorlfReader{r: stream}, w: &crnlWriter{w: stream}}
+		return &lineTermStream{Stream: stream, r: &crorlfReader{r: stream}, w: &crnlWriter{w: stream}}, nil
 	default:
-		return stream
+		return stream, nil
 	}
 }
 
 // ApplyCRNL wraps a stream with the selected classic/Go line-termination mode.
-func ApplyCRNL(s parse.Spec, stream relay.Stream) relay.Stream {
+func ApplyCRNL(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	return applyLineTerm(s, stream)
 }
 
@@ -671,7 +679,10 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected,
 	if err != nil {
 		return nil, err
 	}
-	stream = ApplyCRNL(s, stream)
+	stream, err = ApplyCRNL(s, stream)
+	if err != nil {
+		return nil, err
+	}
 	stream, err = ApplyEscape(s, stream)
 	if err != nil {
 		return nil, err
