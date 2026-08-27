@@ -4,6 +4,7 @@ package fileopen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -563,6 +564,15 @@ func unixListenOwned(t *testing.T, socktype int, name string) (fd int, path stri
 	path = testutil.UnixSocketPath(t, name)
 	fd, err := unix.Socket(unix.AF_UNIX, socktype, 0)
 	if err != nil {
+		// Darwin has no AF_UNIX SOCK_SEQPACKET (EPROTONOSUPPORT / "protocol not supported").
+		if socktype != unix.SOCK_STREAM &&
+			(errors.Is(err, unix.EPROTONOSUPPORT) ||
+				errors.Is(err, unix.EPROTOTYPE) ||
+				errors.Is(err, unix.EAFNOSUPPORT) ||
+				errors.Is(err, unix.EOPNOTSUPP) ||
+				strings.Contains(err.Error(), "protocol not supported")) {
+			t.Skipf("socket type %d: %v", socktype, err)
+		}
 		t.Fatalf("socket: %v", err)
 	}
 	if err := unix.Bind(fd, &unix.SockaddrUnix{Name: path}); err != nil {
