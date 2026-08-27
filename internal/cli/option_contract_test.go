@@ -94,8 +94,16 @@ var dynamicallyReadOptions = map[string]string{
 	"group-early": "xio/named_preopen.go", "unlink": "xio/named_preopen.go",
 
 	// PH_PASTSOCKET membership walk in option order (not last-wins).
-	"ip-add-membership": "xio/mcast_opt.go membershipJoins",
-	"ipv6-join-group":   "xio/mcast_opt.go membershipJoins",
+	"ip-add-membership":        "xio/mcast_opt.go membershipJoins",
+	"ipv6-join-group":          "xio/mcast_opt.go membershipJoins",
+	"ip-multicast-if":          "xio/mcast_opt.go applyMulticastNamedOption",
+	"ip-multicast-loop":        "xio/mcast_opt.go applyMulticastNamedOption",
+	"ip-multicast-ttl":         "xio/mcast_opt.go applyMulticastNamedOption",
+	"ipv6-multicast-loop":      "xio/mcast_opt.go applyMulticastNamedOption",
+	"ip-add-source-membership": "xio/mcast_opt.go applySourceMembershipOption",
+	"ipv6-join-source-group":   "xio/mcast_opt.go applySourceMembershipOption",
+	"ip-freebind":              "xio/mcast_opt.go applyFreebindOption",
+	"ip-transparent":           "xio/mcast_opt.go applyTransparentOption",
 }
 
 // compatNoOptions are advertised deliberately as classic-compat spellings
@@ -106,6 +114,10 @@ var dynamicallyReadOptions = map[string]string{
 var recognizedUnsupportedOptions = map[string]string{
 	"openssl-method": "stream TLS only; rejected with a precise error",
 	"opensslmethod":  "stream TLS only; rejected with a precise error",
+	"ip-recverr":     "MSG_ERRQUEUE is not implemented on the ReadMsg path",
+	"recverr":        "MSG_ERRQUEUE is not implemented on the ReadMsg path",
+	"iprecverr":      "MSG_ERRQUEUE is not implemented on the ReadMsg path",
+	"ipv6-recverr":   "MSG_ERRQUEUE is not implemented on the ReadMsg path",
 }
 
 var compatNoOptions = map[string]string{

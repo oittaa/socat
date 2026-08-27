@@ -120,3 +120,69 @@ func TestMembershipFamilyPrefersOriginalSpelling(t *testing.T) {
 		t.Fatalf("family=%v name=%q ok=%v", family, name, ok)
 	}
 }
+
+func TestSourceMembershipFamilyStaysDistinct(t *testing.T) {
+	s, err := parse.ParseSpec("UDP6-RECV:1,ipv6-join-source-group=[ff3e::1]:lo:[::1]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.HasOption("ip-add-source-membership") {
+		t.Fatal("ipv6-join-source-group must not fold onto ip-add-source-membership")
+	}
+	family, name, ok := sourceMembershipOf(s.Options[0])
+	if !ok || family != membershipFamilyIPv6 || name != "ipv6-join-source-group" {
+		t.Fatalf("family=%v name=%q ok=%v", family, name, ok)
+	}
+
+	s, err = parse.ParseSpec("UDP4-RECV:1,source-membership=232.1.1.1:127.0.0.1:127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	family, name, ok = sourceMembershipOf(s.Options[0])
+	if !ok || family != membershipFamilyIPv4 || name != "ip-add-source-membership" {
+		t.Fatalf("alias family=%v name=%q ok=%v", family, name, ok)
+	}
+}
+
+func TestMulticastNamedAliases(t *testing.T) {
+	s, err := parse.ParseSpec("UDP4:localhost:1,mcloop=0,multicast-ttl=9,multicast-if=127.0.0.1,mcloop6=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, o := range s.Options {
+		kind, name, ok := multicastNamedOf(o)
+		if !ok {
+			t.Fatalf("unrecognized %+v", o)
+		}
+		got[name] = o.Value
+		if name == "ipv6-multicast-loop" && kind != multicastNamedIPv6Loop {
+			t.Fatalf("mcloop6 kind=%v", kind)
+		}
+	}
+	if got["ip-multicast-loop"] != "0" || got["ip-multicast-ttl"] != "9" || got["ip-multicast-if"] != "127.0.0.1" || got["ipv6-multicast-loop"] != "1" {
+		t.Fatalf("got=%v", got)
+	}
+}
+
+func TestClassicFlagInt(t *testing.T) {
+	n, err := classicFlagInt(parse.Option{}, 255)
+	if err != nil || n != 1 {
+		t.Fatalf("bare flag: n=%d err=%v want 1", n, err)
+	}
+	n, err = classicFlagInt(parse.Option{Has: true, Value: "false"}, 255)
+	if err != nil || n != 0 {
+		t.Fatalf("false: n=%d err=%v", n, err)
+	}
+	n, err = classicFlagInt(parse.Option{Has: true, Value: "9"}, 255)
+	if err != nil || n != 9 {
+		t.Fatalf("9: n=%d err=%v", n, err)
+	}
+	if _, err := classicFlagInt(parse.Option{Has: true, Value: "256"}, 255); err == nil {
+		t.Fatal("TYPE_BYTE 256 must be rejected")
+	}
+	n, err = classicFlagInt(parse.Option{Has: true, Value: "2"}, -1)
+	if err != nil || n != 2 {
+		t.Fatalf("TYPE_INT 2: n=%d err=%v", n, err)
+	}
+}

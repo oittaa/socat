@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
 
@@ -95,6 +96,8 @@ func parseMcastGroup(field, optionName string) (net.IP, error) {
 	// For names, use the family selected by the distinct classic spelling.
 	network := "ip4"
 	if family, _, ok := membershipFamilyName(optionName); ok && family == membershipFamilyIPv6 {
+		network = "ip6"
+	} else if family, _, ok := sourceMembershipName(optionName); ok && family == membershipFamilyIPv6 {
 		network = "ip6"
 	}
 	addr, err := net.ResolveIPAddr(network, field)
@@ -195,6 +198,56 @@ func joinMulticastFD(fd int, join membershipJoin) error {
 		return fmt.Errorf("%s: expected interface name or index", name)
 	}
 	return setIPv6MembershipFD(fd, parsed.group, idx)
+}
+
+func applyMulticastNamedFD(fd int, kind multicastNamedKind, name string, o parse.Option) error {
+	switch kind {
+	case multicastNamedIf:
+		if !o.Has || strings.TrimSpace(o.Value) == "" {
+			return fmt.Errorf("%s: expected IPv4 hostname or address", name)
+		}
+		addr, err := resolveMcastIPv4Address(o.Value)
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		var ip4 [4]byte
+		copy(ip4[:], addr.To4())
+		if err := setSockoptInet4Addr(fd, unix.IPPROTO_IP, unix.IP_MULTICAST_IF, ip4); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		return nil
+	case multicastNamedLoop, multicastNamedTTL:
+		n, err := classicFlagInt(o, 255)
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		opt := unix.IP_MULTICAST_LOOP
+		if kind == multicastNamedTTL {
+			opt = unix.IP_MULTICAST_TTL
+		}
+		if err := setSockoptByte(fd, unix.IPPROTO_IP, opt, byte(n)); err != nil { // #nosec G115 -- classicFlagInt max 255
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		return nil
+	case multicastNamedIPv6Loop:
+		family, err := socketIPFamily(fd)
+		if err != nil {
+			return err
+		}
+		if family == ipFamilyV4 {
+			return fmt.Errorf("%s: not supported on IPv4", name)
+		}
+		n, err := classicFlagInt(o, -1)
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		if err := setSockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_MULTICAST_LOOP, n); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("%s: internal error", name)
+	}
 }
 
 func (p parsedMcast) fieldsThree() bool {

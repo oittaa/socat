@@ -106,6 +106,19 @@ func TestClassicAllowsOption(t *testing.T) {
 		{"UDP6", "join-group", true},
 		{"UDP4", "add-membership", true},
 		{"UDP4", "membership", true},
+		{"UDP4", "ipv6-multicast-loop", false},
+		{"UDP6", "ipv6-multicast-loop", true},
+		{"TCP4", "mcloop6", false},
+		{"TCP6", "mcloop6", true},
+		{"UDP4", "ipv6-join-source-group", false},
+		{"UDP6", "ipv6-join-source-group", true},
+		{"UDP4", "join-source-group", false},
+		{"UDP6", "join-source-group", true},
+		{"UDP4", "ip-add-source-membership", true},
+		{"UDP6", "ip-add-source-membership", true},
+		{"UDP4", "ip-multicast-ttl", true},
+		{"TCP", "ip-freebind", true},
+		{"TCP", "ip-transparent", true},
 	}
 	for _, tc := range cases {
 		got := ClassicAllowsOption(tc.addr, tc.opt)

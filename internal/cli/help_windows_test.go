@@ -49,6 +49,9 @@ func TestWindowsHelpHHHOmitsMembershipSpellings(t *testing.T) {
 	for _, name := range []string{
 		"ip-add-membership", "add-membership", "ip-membership", "membership",
 		"ipv6-join-group", "ipv6-add-membership", "join-group",
+		"ip-multicast-if", "ip-multicast-loop", "ip-multicast-ttl",
+		"ipv6-multicast-loop", "ip-add-source-membership", "ipv6-join-source-group",
+		"ip-freebind", "ip-transparent",
 	} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("unsupported membership spelling %q is listed in -hhh", name)

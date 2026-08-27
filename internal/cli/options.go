@@ -62,6 +62,9 @@ func buildSupportedAddressOptions() map[string]addressOption {
 	for _, name := range []string{"openssl-method", "opensslmethod"} {
 		options[name] = addressOption{addressGroups: tlsOptionAddressGroups()}
 	}
+	for _, name := range []string{"ip-recverr", "recverr", "iprecverr", "ipv6-recverr"} {
+		options[name] = addressOption{}
+	}
 	return options
 }
 
@@ -124,6 +127,9 @@ func validateSpecOptions(spec parse.Spec) error {
 		}
 	}
 	if err := xio.RejectUnsupportedIPAncillary(spec); err != nil {
+		return err
+	}
+	if err := xio.RejectUnsupportedRecvErr(spec); err != nil {
 		return err
 	}
 	for _, option := range spec.Options {
@@ -240,6 +246,21 @@ func validateOptionalInteger(min int64) func(parse.Option) error {
 		}
 		return validateInteger(min)(option)
 	}
+}
+
+func validateOptionalByte(option parse.Option) error {
+	if !option.Has {
+		return nil
+	}
+	value, err := requiredOptionValue(option)
+	if err != nil {
+		return err
+	}
+	n, err := strconv.ParseInt(value, 0, 64)
+	if err != nil || n < 0 || n > 255 {
+		return fmt.Errorf("invalid %s %q", option.Name, value)
+	}
+	return nil
 }
 
 func validateInt64(requirePositive bool) func(parse.Option) error {

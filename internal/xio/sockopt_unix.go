@@ -39,6 +39,16 @@ func setSockoptBytes(fd, level, opt int, value []byte) error {
 	return unix.SetsockoptString(fd, level, opt, string(value))
 }
 
+func setSockoptByte(fd, level, opt int, value byte) error {
+	recordSockoptBytes(fd, level, opt, []byte{value})
+	return unix.SetsockoptByte(fd, level, opt, value)
+}
+
+func setSockoptInet4Addr(fd, level, opt int, value [4]byte) error {
+	recordSockoptBytes(fd, level, opt, value[:])
+	return unix.SetsockoptInet4Addr(fd, level, opt, value)
+}
+
 func SetSockoptInt(fd, level, opt, value int) error {
 	return setSockoptInt(fd, level, opt, value)
 }

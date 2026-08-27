@@ -125,6 +125,12 @@ func TestClassicOptionGroupsForAliases(t *testing.T) {
 	if parse.CanonicalOptionName("join-group") != "ipv6-join-group" {
 		t.Fatalf("join-group canonical=%q", parse.CanonicalOptionName("join-group"))
 	}
+	if parse.CanonicalOptionName("join-source-group") != "ipv6-join-source-group" {
+		t.Fatalf("join-source-group canonical=%q", parse.CanonicalOptionName("join-source-group"))
+	}
+	if parse.CanonicalOptionName("mcloop6") != "ipv6-multicast-loop" || parse.CanonicalOptionName("mcloop") != "ip-multicast-loop" {
+		t.Fatalf("mcloop=%q mcloop6=%q", parse.CanonicalOptionName("mcloop"), parse.CanonicalOptionName("mcloop6"))
+	}
 	if parse.CanonicalOptionName("add-membership") != "ip-add-membership" {
 		t.Fatalf("add-membership canonical=%q", parse.CanonicalOptionName("add-membership"))
 	}

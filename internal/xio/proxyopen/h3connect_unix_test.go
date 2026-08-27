@@ -59,6 +59,31 @@ func TestListenH3PacketAppliesMembershipExactlyOnce(t *testing.T) {
 	}
 }
 
+func TestListenH3PacketAppliesMulticastTTL(t *testing.T) {
+	spec, err := parse.ParseSpec("PROXY:127.0.0.1:127.0.0.1:9,http-version=3,ip-multicast-ttl=9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ttlCalls int
+	restore := xio.SetSockoptTestHook(func(call xio.SockoptCall) {
+		if !call.AsInt && len(call.Bytes) == 1 && call.Bytes[0] == 9 {
+			ttlCalls++
+		}
+	})
+	t.Cleanup(restore)
+	pc, network, err := listenH3Packet(context.Background(), spec, &xio.Global{}, "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	if network != "udp4" {
+		t.Fatalf("network=%q, want udp4", network)
+	}
+	if ttlCalls != 1 {
+		t.Fatalf("HTTP/3 UDP IP_MULTICAST_TTL setsockopt calls=%d, want 1", ttlCalls)
+	}
+}
+
 func TestListenH3PacketAppliesAppendToTransportOnce(t *testing.T) {
 	spec, err := parse.ParseSpec("PROXY:127.0.0.1:127.0.0.1:9,http-version=3,append")
 	if err != nil {
