@@ -287,9 +287,10 @@ func TestWrapCommonPermOnAnonymousSocketPropagatesFchmodError(t *testing.T) {
 	_ = srv
 }
 
-func TestWrapCommonNamedUNIXTypeSkipsDescriptorFchmod(t *testing.T) {
-	// Darwin sun_path is 104 bytes. t.TempDir() includes the test name and
-	// fails bind with EINVAL on macOS CI (same as named_attrs_test.go).
+func TestWrapCommonUNIXConnectAppliesDescriptorFchmod(t *testing.T) {
+	// Classic _xioopen_connect applyopts(PH_FD) fchmods the socket descriptor
+	// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba). Darwin fchmod
+	// on UNIX sockets returns EINVAL; that error must propagate.
 	dir, err := os.MkdirTemp("/tmp", "socat-perm-")
 	if err != nil {
 		t.Fatal(err)
@@ -314,8 +315,22 @@ func TestWrapCommonNamedUNIXTypeSkipsDescriptorFchmod(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = cli.Close() })
 	spec := mustSpec(t, "UNIX-CONNECT:"+listen+",perm=0600")
-	if _, err := WrapCommon(spec, relay.NetStream{Conn: cli}); err != nil {
-		t.Fatalf("named UNIX type must skip descriptor fchmod: %v", err)
+	ops := captureLifecycleSyscalls(t)
+	_, err = WrapCommon(spec, relay.NetStream{Conn: cli})
+	if runtime.GOOS != "linux" {
+		if err == nil {
+			t.Fatal("expected fchmod error on UNIX-CONNECT socket")
+		}
+		if !strings.Contains(err.Error(), "fchmod") && !errors.Is(err, unix.EINVAL) {
+			t.Fatalf("error=%v want fchmod EINVAL", err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := countOp(*ops, "fchmod"); n != 1 {
+		t.Fatalf("fchmod count=%d want 1", n)
 	}
 }
 
@@ -571,10 +586,10 @@ func TestApplyFDOptionsFtruncate32And64LastWins(t *testing.T) {
 func captureLifecycleSyscalls(t *testing.T) *[]string {
 	t.Helper()
 	var ops []string
-	lifecycleSyscallTestHook = func(op string) {
+	restore := InstallLifecycleSyscallHook(func(op string) {
 		ops = append(ops, op)
-	}
-	t.Cleanup(func() { lifecycleSyscallTestHook = nil })
+	})
+	t.Cleanup(restore)
 	return &ops
 }
 
@@ -828,5 +843,77 @@ func TestApplyFDOptionsPhaseOrderPermBeforeAppend(t *testing.T) {
 	}
 	if len(*ops) != 2 || (*ops)[0] != "fchmod" || (*ops)[1] != "F_SETFL" {
 		t.Fatalf("ops=%v want [fchmod F_SETFL] (PH_FD before PH_LATE)", *ops)
+	}
+}
+
+func TestApplyUDPConnOptsAppendFcntlOnce(t *testing.T) {
+	pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	ops := captureLifecycleSyscalls(t)
+	spec := mustSpec(t, "UDP-RECV:0,append")
+	if err := ApplyUDPConnOpts(pc, spec, "udp4"); err != nil {
+		t.Fatal(err)
+	}
+	if n := countOp(*ops, "F_SETFL"); n != 1 {
+		t.Fatalf("F_SETFL count=%d want 1 (ops=%v)", n, *ops)
+	}
+	if connFcntlFlags(t, pc)&unix.O_APPEND == 0 {
+		t.Fatal("UDP-RECV append did not set O_APPEND")
+	}
+}
+
+func TestWrapCommonEXECPtyWriteOnlyAppliesAppendOnce(t *testing.T) {
+	master, slave, err := OpenPTYPair()
+	if err != nil {
+		t.Skipf("no pty: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = master.Close()
+		_ = slave.Close()
+	})
+	w := &halfCloseWriter{w: master}
+	stream := relay.FDStream{
+		R:      EOFReader{},
+		W:      w,
+		C:      NewMultiCloser(nil, nil),
+		CloseW: func() error { w.closeWrite(); return nil },
+	}
+	ops := captureLifecycleSyscalls(t)
+	if _, err := WrapCommon(mustSpec(t, "EXEC:/bin/true,pty,append"), stream); err != nil {
+		t.Fatal(err)
+	}
+	if n := countOp(*ops, "F_SETFL"); n != 1 {
+		t.Fatalf("F_SETFL count=%d want 1 (ops=%v)", n, *ops)
+	}
+	if fcntlFlags(t, master)&unix.O_APPEND == 0 {
+		t.Fatal("EXEC pty write-only append did not set O_APPEND")
+	}
+}
+
+func TestApplyNamedFileFtruncateRepeatsEachOccurrence(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "named-ftruncate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	if _, err := f.WriteString("0123456789"); err != nil {
+		t.Fatal(err)
+	}
+	ops := captureLifecycleSyscalls(t)
+	if err := ApplyNamedFileFtruncate(f, mustSpec(t, "OPEN:f,ftruncate=8,ftruncate=3")); err != nil {
+		t.Fatal(err)
+	}
+	if n := countOp(*ops, "ftruncate"); n != 2 {
+		t.Fatalf("ftruncate count=%d want 2 (ops=%v)", n, *ops)
+	}
+	st, err := f.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Size() != 3 {
+		t.Fatalf("size=%d want 3", st.Size())
 	}
 }

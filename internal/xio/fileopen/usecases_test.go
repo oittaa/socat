@@ -170,3 +170,30 @@ func TestCREATAlias(t *testing.T) {
 		t.Fatalf("CREAT got %q", got)
 	}
 }
+
+func TestOPENRepeatedFtruncateAppliesEachOccurrence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "named")
+	if err := os.WriteFile(path, []byte("0123456789"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var ops []string
+	restore := xio.InstallLifecycleSyscallHook(func(op string) { ops = append(ops, op) })
+	t.Cleanup(restore)
+	_ = openUse(t, "OPEN:"+path+",ftruncate=8,ftruncate=3", xio.ModeWrite)
+	n := 0
+	for _, op := range ops {
+		if op == "ftruncate" {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Fatalf("ftruncate count=%d want 2 (ops=%v)", n, ops)
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Size() != 3 {
+		t.Fatalf("size=%d want 3", st.Size())
+	}
+}

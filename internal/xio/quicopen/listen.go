@@ -88,6 +88,12 @@ func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
+	// Descriptor lifecycle on the transport UDP socket before quic-go wrapping
+	// (classic has no QUIC; never accept append/perm on the stream wrapper).
+	if err := xio.ApplyFDLifecycleToPacketConn(pc, s); err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
 	return pc, nil
 }
 

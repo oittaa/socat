@@ -167,10 +167,12 @@ func streamSyscallConns(stream relay.Stream) []syscall.RawConn {
 
 // syscallConnTarget is one syscall.Conn extracted from a stream, with the
 // *os.File identity when the stream component is a file. Descriptor lifecycle
-// uses the file pointer (not the fd number) to skip a second apply after
-// ApplyFDOptions: the kernel reuses fd numbers after close.
+// uses the file or conn pointer (not the fd number) to skip a second apply
+// after ApplyFDOptions / ApplyFDLifecycleToConn: the kernel reuses fd
+// numbers after close.
 type syscallConnTarget struct {
 	file *os.File
+	conn syscall.Conn
 	raw  syscall.RawConn
 }
 
@@ -182,12 +184,26 @@ func streamSyscallConnTargets(stream relay.Stream) []syscallConnTarget {
 			file = f
 		}
 		for hops := 0; v != nil && hops < 8; hops++ {
+			if h, ok := v.(*halfCloseWriter); ok {
+				v = h.w
+				if file == nil {
+					if f, ok := v.(*os.File); ok {
+						file = f
+					}
+				}
+				continue
+			}
 			if sc, ok := v.(syscall.Conn); ok {
 				raw, err := sc.SyscallConn()
 				if err != nil || raw == nil {
 					return
 				}
-				out = append(out, syscallConnTarget{file: file, raw: raw})
+				if file == nil {
+					if f, ok := v.(*os.File); ok {
+						file = f
+					}
+				}
+				out = append(out, syscallConnTarget{file: file, conn: sc, raw: raw})
 				return
 			}
 			unwrapper, ok := v.(interface{ NetConn() net.Conn })

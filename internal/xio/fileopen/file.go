@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strconv"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -584,18 +583,12 @@ func applyOpenTruncate(f *os.File, s parse.Spec) error {
 	// Named-file ftruncate stays here so OPEN/CREATE/GOPEN still truncate
 	// once (ApplyFDOptions skips these types) and Windows keeps working.
 	// FD:n / inherited descriptors use ftruncate(2) in ApplyFDOptions.
-	if v := s.OptionValue("ftruncate", ""); s.HasOption("ftruncate") {
-		if v == "" {
-			return fmt.Errorf("ftruncate: invalid value %q", v)
-		}
-		n, e := strconv.ParseInt(v, 0, 64)
-		if e != nil || n < 0 {
-			return fmt.Errorf("ftruncate: invalid value %q", v)
-		}
-		if e := f.Truncate(n); e != nil {
-			return fmt.Errorf("ftruncate: %w", e)
-		}
-		return nil
+	// Classic applyopts PH_LATE issues every ftruncate/truncate/ftruncate32/64
+	// occurrence in command-line order (tag-1.8.1.3
+	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+	// af5388c898c7bb60997935aee93c223deba60c4a).
+	if s.HasOption("ftruncate") {
+		return xio.ApplyNamedFileFtruncate(f, s)
 	}
 	if s.BoolOption("trunc") {
 		if e := f.Truncate(0); e != nil {

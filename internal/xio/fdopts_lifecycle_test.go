@@ -16,20 +16,33 @@ func mustSpec(t *testing.T, raw string) parse.Spec {
 }
 
 func TestSkipDescriptorOwnerOptsClassicTypes(t *testing.T) {
-	skip := []string{
-		"OPEN", "FILE", "CREATE", "CREAT", "GOPEN", "PIPE", "FIFO", "ECHO", "PTY",
-		"UNIX", "UNIX-CONNECT", "UNIX-LISTEN", "UNIX-SENDTO",
-		"ABSTRACT-LISTEN", "abstract-connect",
+	skip := []parse.Spec{
+		{Type: "OPEN"}, {Type: "FILE"}, {Type: "CREATE"}, {Type: "CREAT"},
+		{Type: "GOPEN"}, {Type: "PIPE"}, {Type: "FIFO"}, {Type: "ECHO"}, {Type: "PTY"},
+		{Type: "POSIXMQ"}, {Type: "POSIXMQ-SEND"}, {Type: "POSIXMQ-RECV"},
+		{Type: "UNIX-LISTEN", Params: []string{"/tmp/x.sock"}},
+		{Type: "UNIX-L", Params: []string{"/tmp/x.sock"}},
+		{Type: "UNIX-RECV", Params: []string{"/tmp/x.sock"}},
+		{Type: "UNIX-RECVFROM", Params: []string{"/tmp/x.sock"}},
 	}
-	for _, typ := range skip {
-		if !skipDescriptorOwnerOpts(typ) {
-			t.Errorf("skipDescriptorOwnerOpts(%q)=false want true", typ)
+	for _, spec := range skip {
+		if !skipDescriptorOwnerOpts(spec) {
+			t.Errorf("skipDescriptorOwnerOpts(%q params=%v)=false want true", spec.Type, spec.Params)
 		}
 	}
-	apply := []string{"FD", "STDIO", "STDIN", "STDOUT", "TCP", "TCP4", "EXEC", "SYSTEM"}
-	for _, typ := range apply {
-		if skipDescriptorOwnerOpts(typ) {
-			t.Errorf("skipDescriptorOwnerOpts(%q)=true want false", typ)
+	apply := []parse.Spec{
+		{Type: "FD"}, {Type: "STDIO"}, {Type: "STDIN"}, {Type: "STDOUT"},
+		{Type: "TCP"}, {Type: "TCP4"}, {Type: "EXEC"}, {Type: "SYSTEM"},
+		{Type: "UNIX"}, {Type: "UNIX-CONNECT", Params: []string{"/tmp/x.sock"}},
+		{Type: "UNIX-SENDTO", Params: []string{"/tmp/x.sock"}},
+		{Type: "UNIX-LISTEN", Params: []string{"@abs"}},
+		{Type: "ABSTRACT-LISTEN", Params: []string{"foo"}},
+		{Type: "ABSTRACT-CONNECT", Params: []string{"foo"}},
+		{Type: "UDP-RECV"}, {Type: "QUIC-LISTEN"},
+	}
+	for _, spec := range apply {
+		if skipDescriptorOwnerOpts(spec) {
+			t.Errorf("skipDescriptorOwnerOpts(%q params=%v)=true want false", spec.Type, spec.Params)
 		}
 	}
 }

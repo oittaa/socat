@@ -409,3 +409,50 @@ func TestApplyUnixgramSocketOptionsAppliesLateUnix(t *testing.T) {
 		t.Fatalf("SO_RCVBUF=%d want >= 65536 after applyUnixgramSocketOptions", got)
 	}
 }
+
+func TestUnixRecvAppendFcntlOnce(t *testing.T) {
+	if !xio.FeatureUNIXDatagram {
+		t.Skip("UNIX datagram not enabled")
+	}
+	c, err := listenUnixgramUnbound()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	spec, err := parse.ParseSpec("UNIX-RECV:/tmp/x,append")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ops []string
+	restore := xio.InstallLifecycleSyscallHook(func(op string) { ops = append(ops, op) })
+	t.Cleanup(restore)
+	if err := applyUnixgramSocketOptions(c, spec); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, op := range ops {
+		if op == "F_SETFL" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("F_SETFL count=%d want 1 (ops=%v)", n, ops)
+	}
+	raw, err := c.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var flags int
+	var ferr error
+	if err := raw.Control(func(fd uintptr) {
+		flags, ferr = unix.FcntlInt(fd, unix.F_GETFL, 0)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if ferr != nil {
+		t.Fatal(ferr)
+	}
+	if flags&unix.O_APPEND == 0 {
+		t.Fatal("UNIX-RECV append did not set O_APPEND")
+	}
+}

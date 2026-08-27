@@ -375,6 +375,9 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 	if err := errors.Join(controlErr, optionErr); err != nil {
 		return err
 	}
+	if err := xio.ApplyFDLifecycleToConn(c, s); err != nil {
+		return err
+	}
 	// Multicast join (IP4MULTICAST_* classic tests).
 	if v := s.OptionValue("ip-add-membership", ""); v != "" {
 		if err := joinMulticast(c, v); err != nil {

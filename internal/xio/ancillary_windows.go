@@ -39,5 +39,8 @@ func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 			optionErr = ApplyLateSocketOptions(int(fd), s)
 		}
 	})
-	return errors.Join(controlErr, optionErr)
+	if err := errors.Join(controlErr, optionErr); err != nil {
+		return err
+	}
+	return ApplyFDLifecycleToConn(c, s)
 }

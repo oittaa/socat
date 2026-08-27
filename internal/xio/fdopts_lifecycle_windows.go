@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"strings"
+	"syscall"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
@@ -37,9 +39,16 @@ func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
 	if !hasFDLifecycleOptions(s) {
 		return nil
 	}
+	if wrapHidesDescriptor(s.Type) {
+		return nil
+	}
+	targets := streamSyscallConnTargets(stream)
+	if len(targets) == 0 {
+		return fmt.Errorf("append/perm/user/group/ftruncate: stream does not expose a descriptor")
+	}
 	seen := make(map[uintptr]struct{})
-	for _, t := range streamSyscallConnTargets(stream) {
-		if isFDLifecycleApplied(t.file) {
+	for _, t := range targets {
+		if isFDLifecycleApplied(t.file) || isConnLifecycleApplied(t.conn) {
 			continue
 		}
 		var fdErr error
@@ -53,8 +62,50 @@ func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
 		if err := errors.Join(ctrlErr, fdErr); err != nil {
 			return err
 		}
+		markFDLifecycleApplied(t.file)
+		markConnLifecycleApplied(t.conn)
 	}
 	return nil
+}
+
+// ApplyFDLifecycleToConn applies PH_FD then PH_LATE on a live syscall.Conn.
+func ApplyFDLifecycleToConn(c syscall.Conn, s parse.Spec) error {
+	if c == nil || !hasFDLifecycleOptions(s) {
+		return nil
+	}
+	if isConnLifecycleApplied(c) {
+		return nil
+	}
+	raw, err := c.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var optionErr error
+	ctrlErr := raw.Control(func(fd uintptr) {
+		optionErr = applyFDLifecycleOnHandle(fd, s)
+	})
+	if err := errors.Join(ctrlErr, optionErr); err != nil {
+		return err
+	}
+	markConnLifecycleApplied(c)
+	return nil
+}
+
+// ApplyFDLifecycleToPacketConn applies descriptor lifecycle on a PacketConn.
+func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s parse.Spec) error {
+	if pc == nil || !hasFDLifecycleOptions(s) {
+		return nil
+	}
+	sc, ok := pc.(syscall.Conn)
+	if !ok {
+		return fmt.Errorf("append/perm/user/group/ftruncate: packet connection does not expose a socket")
+	}
+	return ApplyFDLifecycleToConn(sc, s)
+}
+
+// ApplyFDLifecycleOnFD applies PH_FD then PH_LATE on a raw handle.
+func ApplyFDLifecycleOnFD(fd int, s parse.Spec) error {
+	return applyFDLifecycleOnHandle(uintptr(fd), s)
 }
 
 func applyFDLifecycleOnHandle(fd uintptr, s parse.Spec) error {
@@ -65,7 +116,7 @@ func applyFDLifecycleOnHandle(fd uintptr, s parse.Spec) error {
 }
 
 func applyWindowsFDPhase(s parse.Spec) error {
-	skipOwner := skipDescriptorOwnerOpts(s.Type)
+	skipOwner := skipDescriptorOwnerOpts(s)
 	for _, o := range s.Options {
 		switch parse.CanonicalOptionName(o.Name) {
 		case "perm":

@@ -478,7 +478,12 @@ func applyUnixgramSocketOptions(c *net.UnixConn, s parse.Spec) error {
 			optionErr = xio.ApplyLateSocketOptions(int(fd), s)
 		}
 	})
-	return errors.Join(controlErr, optionErr)
+	if err := errors.Join(controlErr, optionErr); err != nil {
+		return err
+	}
+	// PH_FD then PH_LATE on the unixgram fd before wrapping (classic
+	// _xioopen_dgram_sendto applyopts PH_FD; RECV named PH_FD is the path).
+	return xio.ApplyFDLifecycleToConn(c, s)
 }
 
 type unixgramConn struct {

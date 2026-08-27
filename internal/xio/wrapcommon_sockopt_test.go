@@ -10,6 +10,22 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
+func TestWrapCommonRejectsLifecycleWithoutDescriptor(t *testing.T) {
+	a, b := net.Pipe()
+	t.Cleanup(func() {
+		_ = a.Close()
+		_ = b.Close()
+	})
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,append")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = WrapCommon(spec, relay.NetStream{Conn: a})
+	if err == nil || !strings.Contains(err.Error(), "does not expose a descriptor") {
+		t.Fatalf("error=%v want stream does not expose a descriptor", err)
+	}
+}
+
 func TestWrapCommonSkipsLateOptionsWithoutSocketFD(t *testing.T) {
 	a, b := net.Pipe()
 	t.Cleanup(func() {
@@ -41,6 +57,17 @@ func TestApplyLateSocketOptionsToPacketConnRejectsNonSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = ApplyLateSocketOptionsToPacketConn(stubPacketConn{}, spec)
+	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
+		t.Fatalf("error=%v want packet connection does not expose a socket", err)
+	}
+}
+
+func TestApplyFDLifecycleToPacketConnRejectsNonSocket(t *testing.T) {
+	spec, err := parse.ParseSpec("QUIC-LISTEN:0,append")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ApplyFDLifecycleToPacketConn(stubPacketConn{}, spec)
 	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
 		t.Fatalf("error=%v want packet connection does not expose a socket", err)
 	}

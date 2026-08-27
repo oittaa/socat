@@ -436,5 +436,13 @@ func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, network string) error {
 			optionErr = ApplyLateSocketOptions(int(fd), s)
 		}
 	})
-	return errors.Join(controlErr, optionErr)
+	if err := errors.Join(controlErr, optionErr); err != nil {
+		return err
+	}
+	// PH_FD/PH_LATE append/perm/user/group/ftruncate on the raw UDP socket
+	// before packet-session wrapping (udpFilteredRecv / udpRecvFromConn).
+	// Classic _xio_openlate applies PH_LATE on this fd (tag-1.8.1.3
+	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+	// af5388c898c7bb60997935aee93c223deba60c4a).
+	return ApplyFDLifecycleToConn(c, s)
 }

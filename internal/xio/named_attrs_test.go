@@ -162,6 +162,77 @@ func assertPathPerm(t *testing.T, path string, want os.FileMode) {
 	}
 }
 
+func TestApplyNamedAttrsRepeatsPermChmod(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "named")
+	if err := os.WriteFile(path, []byte("x"), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	var ops []string
+	restore := InstallLifecycleSyscallHook(func(op string) { ops = append(ops, op) })
+	t.Cleanup(restore)
+	spec, err := parse.ParseSpec("UNIX-LISTEN:" + path + ",perm=0644,perm=0600")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyNamedAttrs(path, spec, nil); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, op := range ops {
+		if op == "chmod" {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Fatalf("chmod count=%d want 2 (ops=%v)", n, ops)
+	}
+	assertPathPerm(t, path, 0o600)
+}
+
+func TestApplyNamedAttrsPermUserOrderSetuidBits(t *testing.T) {
+	uid := strconv.Itoa(os.Getuid())
+	const wantSetid uint32 = 0o4755
+	const wantCleared uint32 = 0o0755
+
+	tests := []struct {
+		name string
+		opts string
+		want uint32
+	}{
+		{name: "user then perm keeps setuid", opts: ",user=" + uid + ",perm=04755", want: wantSetid},
+		{name: "perm then user clears setuid", opts: ",perm=04755,user=" + uid, want: wantCleared},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "named")
+			if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			spec, err := parse.ParseSpec("UNIX-LISTEN:" + path + tc.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ApplyNamedAttrs(path, spec, nil); err != nil {
+				if strings.Contains(err.Error(), "operation not permitted") || strings.Contains(err.Error(), "permission denied") {
+					t.Skipf("%v", err)
+				}
+				t.Fatal(err)
+			}
+			fi, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := FileModeToUnix(fi.Mode()) & 0o7777
+			if got&0o4000 == 0 && tc.want&0o4000 != 0 {
+				t.Skipf("setuid bit did not stick (mode=%#o); filesystem may be nosuid", got)
+			}
+			if got != tc.want {
+				t.Fatalf("mode=%#o want %#o", got, tc.want)
+			}
+		})
+	}
+}
+
 func pathOwner(t *testing.T, path string) (uid, gid int) {
 	t.Helper()
 	info, err := os.Lstat(path)

@@ -2,11 +2,13 @@ package xio
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"weak"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -54,10 +56,20 @@ func noteLifecycleSyscall(op string) {
 	}
 }
 
+// InstallLifecycleSyscallHook installs a test observer invoked immediately
+// before each lifecycle syscall (F_SETFL, ftruncate, fchmod, fchown, chmod,
+// chown). Tests restore the previous hook with the returned function.
+func InstallLifecycleSyscallHook(f func(op string)) func() {
+	prev := lifecycleSyscallTestHook
+	lifecycleSyscallTestHook = f
+	return func() { lifecycleSyscallTestHook = prev }
+}
+
 // fdLifecycleAppliedFiles is per-open state keyed by *os.File identity, not
 // by fd number. A closed file's number may be reused by a new *os.File; that
 // new object is a different key and still receives lifecycle options.
 var fdLifecycleAppliedFiles sync.Map // weak.Pointer[os.File] -> struct{}
+var fdLifecycleAppliedConns sync.Map // weak.Pointer[net.UDPConn|UnixConn|TCPConn|IPConn] -> struct{}
 
 func markFDLifecycleApplied(f *os.File) {
 	if f == nil {
@@ -78,8 +90,65 @@ func isFDLifecycleApplied(f *os.File) bool {
 	return ok
 }
 
+func markConnLifecycleApplied(c syscall.Conn) {
+	if c == nil {
+		return
+	}
+	switch v := c.(type) {
+	case *os.File:
+		markFDLifecycleApplied(v)
+	case *net.UDPConn:
+		markWeakConn(v)
+	case *net.UnixConn:
+		markWeakConn(v)
+	case *net.TCPConn:
+		markWeakConn(v)
+	case *net.IPConn:
+		markWeakConn(v)
+	}
+}
+
+func isConnLifecycleApplied(c syscall.Conn) bool {
+	if c == nil {
+		return false
+	}
+	switch v := c.(type) {
+	case *os.File:
+		return isFDLifecycleApplied(v)
+	case *net.UDPConn:
+		return isWeakConnApplied(v)
+	case *net.UnixConn:
+		return isWeakConnApplied(v)
+	case *net.TCPConn:
+		return isWeakConnApplied(v)
+	case *net.IPConn:
+		return isWeakConnApplied(v)
+	default:
+		return false
+	}
+}
+
+func markWeakConn[T any](p *T) {
+	if p == nil {
+		return
+	}
+	wp := weak.Make(p)
+	fdLifecycleAppliedConns.Store(wp, struct{}{})
+	runtime.AddCleanup(p, func(wp weak.Pointer[T]) {
+		fdLifecycleAppliedConns.Delete(wp)
+	}, wp)
+}
+
+func isWeakConnApplied[T any](p *T) bool {
+	if p == nil {
+		return false
+	}
+	_, ok := fdLifecycleAppliedConns.Load(weak.Make(p))
+	return ok
+}
+
 func hasFDLifecycleOptions(s parse.Spec) bool {
-	skipOwner := skipDescriptorOwnerOpts(s.Type)
+	skipOwner := skipDescriptorOwnerOpts(s)
 	skipTrunc := skipNamedFileFtruncate(s.Type)
 	for _, o := range s.Options {
 		switch parse.CanonicalOptionName(o.Name) {
@@ -98,20 +167,63 @@ func hasFDLifecycleOptions(s parse.Spec) bool {
 	return false
 }
 
-// skipDescriptorOwnerOpts reports address types that already consume perm=/
+// skipDescriptorOwnerOpts reports call sites that already consume perm=/
 // user=/group= as create mode or named chmod/chown (classic retropt_modet /
-// ApplyNamedAttrs / ApplyNamedAfterBind). Applying fchmod here would undo
-// umask on regular files and fchmod a PTY master instead of the slave.
-// Named UNIX*/ABSTRACT* keep path chmod; Darwin fchmod on those sockets may
-// still return EINVAL. Anonymous sockets (FD/TCP/STDIO/EXEC) still apply
-// fchmod/fchown and must propagate EINVAL — do not swallow it.
-func skipDescriptorOwnerOpts(addrType string) bool {
-	t := strings.ToUpper(addrType)
+// applyopts_named PH_FD). Applying fchmod here would undo umask on regular
+// files and fchmod a PTY master instead of the slave.
+//
+// Classic tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba (official
+// master af5388c898c7bb60997935aee93c223deba60c4a is the same tree):
+// applyopts_named(PH_FD) is used after bind on a filesystem UNIX-LISTEN /
+// UNIX-RECV / UNIX-RECVFROM name (xio-listen.c, xio-socket.c). ABSTRACT
+// endpoints and UNIX-CONNECT apply PH_FD to the socket descriptor
+// (_xioopen_connect / abstract listen branch). Do not skip those.
+func skipDescriptorOwnerOpts(s parse.Spec) bool {
+	t := strings.ToUpper(s.Type)
 	switch t {
 	case "OPEN", "FILE", "CREATE", "CREAT", "GOPEN", "PIPE", "FIFO", "ECHO", "PTY":
 		return true
 	}
-	if strings.HasPrefix(t, "UNIX") || strings.HasPrefix(t, "ABSTRACT") {
+	if strings.HasPrefix(t, "POSIXMQ") {
+		// perm= is mq_open(3) mode (classic retropt_mode), not fchmod.
+		return true
+	}
+	return namedFilesystemUnixPHFD(s)
+}
+
+// namedFilesystemUnixPHFD is classic applyopts_named(PH_FD) after bind of a
+// filesystem UNIX listen/recv name. Abstract names have no directory entry
+// (xio-listen.c sun_path[0]=='\0' uses applyopts PH_FD on the descriptor).
+func namedFilesystemUnixPHFD(s parse.Spec) bool {
+	t := strings.ToUpper(s.Type)
+	switch t {
+	case "UNIX-LISTEN", "UNIX-L", "UNIX-RECV", "UNIX-RECVFROM":
+	default:
+		return false
+	}
+	if len(s.Params) > 0 && IsAbstract(s.Params[0]) {
+		return false
+	}
+	return true
+}
+
+// wrapHidesDescriptor reports stream types whose WrapCommon view is not a
+// syscall.Conn (datagram/QUIC/POSIX MQ wrappers; relay would splice those
+// fds). Lifecycle options are applied on the parent socket or mqd before
+// wrapping. Never treat an accepted option as a silent no-op: other types
+// with no discoverable fd are rejected.
+func wrapHidesDescriptor(addrType string) bool {
+	t := strings.ToUpper(addrType)
+	if strings.HasPrefix(t, "QUIC") || strings.HasPrefix(t, "POSIXMQ") {
+		return true
+	}
+	if strings.Contains(t, "RECV") || strings.Contains(t, "SENDTO") || strings.Contains(t, "DATAGRAM") {
+		return true
+	}
+	if strings.Contains(t, "UDP") && strings.Contains(t, "LISTEN") {
+		return true
+	}
+	if strings.Contains(t, "UDP") && strings.HasSuffix(t, "-SEND") {
 		return true
 	}
 	return false
@@ -166,4 +278,35 @@ func parseFtruncateLength(s parse.Spec) (int64, bool, error) {
 		return 0, true, err
 	}
 	return n, true, nil
+}
+
+func optionString(o parse.Option) string {
+	if !o.Has {
+		return "1"
+	}
+	return o.Value
+}
+
+// ApplyNamedFileFtruncate applies every ftruncate/truncate/ftruncate32/64
+// occurrence in command-line order (classic applyopts PH_LATE). Named
+// OPEN/CREATE/GOPEN use this instead of ApplyFDOptions so the file is not
+// truncated twice and Windows keeps working.
+func ApplyNamedFileFtruncate(f *os.File, s parse.Spec) error {
+	if f == nil {
+		return nil
+	}
+	for _, o := range s.Options {
+		if parse.CanonicalOptionName(o.Name) != "ftruncate" {
+			continue
+		}
+		n, err := parseFtruncateOption(o)
+		if err != nil {
+			return err
+		}
+		noteLifecycleSyscall("ftruncate")
+		if err := f.Truncate(n); err != nil {
+			return fmt.Errorf("ftruncate: %w", err)
+		}
+	}
+	return nil
 }

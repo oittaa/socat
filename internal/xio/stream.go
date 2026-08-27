@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -126,6 +127,16 @@ func (h *halfCloseWriter) closeWrite() {
 	h.mu.Lock()
 	h.done = true
 	h.mu.Unlock()
+}
+
+// SyscallConn exposes the underlying *os.File so one-way EXEC/PTY streams
+// (writer-only halfCloseWriter) still receive PH_FD/PH_LATE options.
+func (h *halfCloseWriter) SyscallConn() (syscall.RawConn, error) {
+	sc, ok := h.w.(syscall.Conn)
+	if !ok {
+		return nil, fmt.Errorf("half-close writer does not expose a descriptor")
+	}
+	return sc.SyscallConn()
 }
 
 // readBytesWrap limits total bytes read (classic readbytes=N).
@@ -486,7 +497,9 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts bool) (relay.St
 	// append / ftruncate / perm / user / group (classic PH_FD then PH_LATE)
 	// on unique syscall.Conn fds in this call. ApplyFDOptions is the owner
 	// for already-open files and marks that *os.File so this path skips
-	// the same open (not a process-global fd-number cache).
+	// the same open (not a process-global fd-number cache). UDP/UNIX datagram
+	// wrappers, POSIX MQ, and QUIC streams hide the fd; those call sites
+	// apply on the raw socket/mqd before wrapping.
 	if err := applyFDLifecycleToStream(s, stream); err != nil {
 		return nil, err
 	}
