@@ -84,6 +84,13 @@ var dynamicallyReadOptions = map[string]string{
 	"so-linger": "xio/options.go", "linger": "xio/options.go",
 	"o-noatime": "xio/options.go", "noatime": "xio/options.go",
 	"f-setpipe-sz": "xio/options.go", "pipesz": "xio/options.go",
+	// Linux ext FS_*_FL ioctl-mask walk (command-line order, not OptionNamed).
+	"fs-append": "xio/fdopts_fsflags.go", "fs-compr": "xio/fdopts_fsflags.go",
+	"fs-dirsync": "xio/fdopts_fsflags.go", "fs-immutable": "xio/fdopts_fsflags.go",
+	"fs-journal-data": "xio/fdopts_fsflags.go", "fs-noatime": "xio/fdopts_fsflags.go",
+	"fs-nodump": "xio/fdopts_fsflags.go", "fs-notail": "xio/fdopts_fsflags.go",
+	"fs-secrm": "xio/fdopts_fsflags.go", "fs-sync": "xio/fdopts_fsflags.go",
+	"fs-topdir": "xio/fdopts_fsflags.go", "fs-unrm": "xio/fdopts_fsflags.go",
 	"children-shutup": "xio/options.go", "child-shutup": "xio/options.go",
 	"openssl-min-proto-version": "tlsopen/tls.go",
 	"openssl-max-proto-version": "tlsopen/tls.go",

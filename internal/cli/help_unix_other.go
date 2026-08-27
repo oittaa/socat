@@ -14,8 +14,11 @@ func hideOpt(name string) bool {
 	if (name == "flock" || name == "flock-nb" || name == "flock-sh" || name == "flock-sh-nb") && !xio.FeatureFlock {
 		return true
 	}
+	if xio.LinuxExtFSFlagOption(name) {
+		return true
+	}
 	switch name {
-	case "o-noatime", "o-direct", "o-rsync", "o-largefile", "fs-noatime", "f-setpipe-sz", "bindtodevice",
+	case "o-noatime", "o-direct", "o-rsync", "o-largefile", "f-setpipe-sz", "bindtodevice",
 		"ip-freebind", "freebind", "ipfreebind",
 		"ip-transparent", "transparent",
 		"ip-mtu-discover", "mtudiscover", "ipmtudiscover",

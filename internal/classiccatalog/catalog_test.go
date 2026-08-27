@@ -247,6 +247,15 @@ func TestFeatureCompleteCanaries(t *testing.T) {
 	if DocsOnlyNotInThisBinary["b7200"] != "" {
 		t.Fatal("b7200 is advertised; remove it from DocsOnlyNotInThisBinary")
 	}
+	if _, ok := Lookup("notail"); ok {
+		t.Fatal("classic -hhh dump does not advertise notail; keep it out of Options")
+	}
+	if DocsOnlyNotInThisBinary["notail"] != "" {
+		t.Fatal("notail is implemented and advertised; remove it from DocsOnlyNotInThisBinary")
+	}
+	if GoOnlyHelpAllowlist["notail"] == "" {
+		t.Fatal("implemented notail nickname must stay on GoOnlyHelpAllowlist")
+	}
 }
 
 func TestDocsOnlyNotInAdvertisedCatalog(t *testing.T) {

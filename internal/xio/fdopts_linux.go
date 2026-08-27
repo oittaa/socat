@@ -12,10 +12,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// fsNoatimeFL is linux/fs.h FS_NOATIME_FL. golang.org/x/sys v0.47.0 exports
-// unix.FS_IOC_GETFLAGS / unix.FS_IOC_SETFLAGS but not unix.FS_NOATIME_FL.
-const fsNoatimeFL = 0x00000080
-
 // ApplyFDOptions applies descriptor-phase options to an already open file.
 // O_NOATIME is deliberately set with F_SETFL so inherited descriptors work
 // the same way as descriptors opened by socat. o-direct is PH_OPEN only and
@@ -25,13 +21,15 @@ const fsNoatimeFL = 0x00000080
 // 12c08bf66d709fba17035ce95d85bd218428d9ba): PH_FD perm/user/group/flock and
 // o-noatime, then PH_LATE append/async/ftruncate/lseek/perm-late. ApplyFDOptions
 // owns those lifecycle syscalls for this *os.File; WrapCommon skips the same open.
+// Linux ext FS_*_FL options (xio-fs.c OFUNC_IOCTL_MASK_LONG, same tag and
+// official master af5388c898c7bb60997935aee93c223deba60c4a) run at PH_FD via
+// FS_IOC_GETFLAGS/SETFLAGS. Each occurrence is applied in command-line order.
 func ApplyFDOptions(f *os.File, s parse.Spec) error {
 	if f == nil {
 		return nil
 	}
 	noatime, _ := optionBoolAny(s, "o-noatime", "noatime")
-	fsNoatimeSet := s.HasOption("fs-noatime")
-	fsNoatime := s.BoolOption("fs-noatime")
+	fsOps := linuxExtFSFlagOps(s)
 	pipeSizeValue, setPipeSize := optionValueAny(s, "f-setpipe-sz", "pipesz")
 	pipeSize := 0
 	if setPipeSize {
@@ -42,7 +40,7 @@ func ApplyFDOptions(f *os.File, s parse.Spec) error {
 		}
 	}
 	needLifecycle := hasFDLifecycleOptions(s)
-	if !noatime && !setPipeSize && !fsNoatimeSet {
+	if !noatime && !setPipeSize && len(fsOps) == 0 {
 		return applyFDLifecycleToFile(f, s)
 	}
 	raw, err := f.SyscallConn()
@@ -71,9 +69,9 @@ func ApplyFDOptions(f *os.File, s parse.Spec) error {
 				return
 			}
 		}
-		if fsNoatimeSet {
-			if e := applyFSNoatime(n, fsNoatime); e != nil {
-				optionErr = fmt.Errorf("fs-noatime: %w", e)
+		for _, op := range fsOps {
+			if e := applyFSIoctlMask(n, op.mask, op.enable); e != nil {
+				optionErr = fmt.Errorf("%s: %w", op.name, e)
 				return
 			}
 		}
@@ -98,19 +96,18 @@ func ApplyFDOptions(f *os.File, s parse.Spec) error {
 	return nil
 }
 
-// applyFSNoatime implements classic applyopt_ioctl_mask_long for FS_NOATIME_FL
+// applyFSIoctlMask implements classic applyopt_ioctl_mask_long
 // (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 // af5388c898c7bb60997935aee93c223deba60c4a): GETFLAGS, val &= ~mask, if bool
-// val |= mask, SETFLAGS. fs-noatime=0 therefore clears the flag.
-func applyFSNoatime(fd int, enable bool) error {
+// val |= mask, SETFLAGS. =0 therefore clears only the requested bit.
+// Privileged flags (FS_APPEND_FL, FS_IMMUTABLE_FL, …) return the kernel
+// error; it is never swallowed.
+func applyFSIoctlMask(fd int, mask int, enable bool) error {
 	val, err := unix.IoctlGetInt(fd, unix.FS_IOC_GETFLAGS)
 	if err != nil {
 		return err
 	}
-	val &^= fsNoatimeFL
-	if enable {
-		val |= fsNoatimeFL
-	}
+	val = applyFSFlagMask(val, mask, enable)
 	return ioctlSetLong(fd, unix.FS_IOC_SETFLAGS, val)
 }
 

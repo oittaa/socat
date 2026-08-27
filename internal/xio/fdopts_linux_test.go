@@ -4,6 +4,7 @@ package xio
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -99,6 +100,136 @@ func TestApplyFDOptionsFSNoatime(t *testing.T) {
 	}
 	if flags&fsNoatimeFL != 0 {
 		t.Fatalf("fs-noatime=0 left FS_NOATIME_FL set (flags=%#x)", flags)
+	}
+}
+
+func openFSFlagProbe(t *testing.T) *os.File {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "fs-flags")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	if _, err := unix.IoctlGetInt(int(f.Fd()), unix.FS_IOC_GETFLAGS); err != nil {
+		t.Skipf("FS_IOC_GETFLAGS: %v", err)
+	}
+	return f
+}
+
+func inodeFlags(t *testing.T, f *os.File) int {
+	t.Helper()
+	flags, err := unix.IoctlGetInt(int(f.Fd()), unix.FS_IOC_GETFLAGS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return flags
+}
+
+func TestApplyFDOptionsFSNodumpSetClearLastWins(t *testing.T) {
+	f := openFSFlagProbe(t)
+	before := inodeFlags(t, f)
+
+	spec, err := parse.ParseSpec("FD:3,fs-nodump")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyFDOptions(f, spec); err != nil {
+		t.Skipf("fs-nodump: %v", err)
+	}
+	afterSet := inodeFlags(t, f)
+	if afterSet&fsNodumpFL == 0 {
+		t.Fatalf("inode flags=%#x do not contain FS_NODUMP_FL", afterSet)
+	}
+	if afterSet&^fsNodumpFL != before&^fsNodumpFL {
+		t.Fatalf("unrelated bits changed: before=%#x after=%#x", before, afterSet)
+	}
+
+	clear, err := parse.ParseSpec("FD:3,nodump=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyFDOptions(f, clear); err != nil {
+		t.Fatal(err)
+	}
+	afterClear := inodeFlags(t, f)
+	if afterClear&fsNodumpFL != 0 {
+		t.Fatalf("nodump=0 left FS_NODUMP_FL set (flags=%#x)", afterClear)
+	}
+	if afterClear&^fsNodumpFL != afterSet&^fsNodumpFL {
+		t.Fatalf("clear changed unrelated bits: set=%#x clear=%#x", afterSet, afterClear)
+	}
+
+	lastWins, err := parse.ParseSpec("FD:3,fs-nodump,ext2-nodump=0,nodump")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyFDOptions(f, lastWins); err != nil {
+		t.Fatal(err)
+	}
+	if inodeFlags(t, f)&fsNodumpFL == 0 {
+		t.Fatal("last nodump must win")
+	}
+}
+
+func TestApplyFDOptionsFSAppendIsNotOAppend(t *testing.T) {
+	f := openFSFlagProbe(t)
+	spec, err := parse.ParseSpec("FD:3,append")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyFDOptions(f, spec); err != nil {
+		t.Fatal(err)
+	}
+	fcntlFlags, err := unix.FcntlInt(f.Fd(), unix.F_GETFL, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fcntlFlags&unix.O_APPEND == 0 {
+		t.Fatalf("append must set O_APPEND (fcntl flags=%#x)", fcntlFlags)
+	}
+	if inodeFlags(t, f)&fsAppendFL != 0 {
+		t.Fatalf("append must not set FS_APPEND_FL (inode flags=%#x)", inodeFlags(t, f))
+	}
+
+	f2 := openFSFlagProbe(t)
+	fsSpec, err := parse.ParseSpec("FD:3,fs-append")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ApplyFDOptions(f2, fsSpec)
+	fcntlFlags, ferr := unix.FcntlInt(f2.Fd(), unix.F_GETFL, 0)
+	if ferr != nil {
+		t.Fatal(ferr)
+	}
+	if fcntlFlags&unix.O_APPEND != 0 {
+		t.Fatalf("fs-append must not set O_APPEND (fcntl flags=%#x)", fcntlFlags)
+	}
+	if err != nil {
+		if !strings.Contains(err.Error(), "fs-append") {
+			t.Fatalf("error %q must name fs-append", err)
+		}
+		return
+	}
+	if inodeFlags(t, f2)&fsAppendFL == 0 {
+		t.Fatal("fs-append succeeded without FS_APPEND_FL")
+	}
+}
+
+func TestApplyFDOptionsFSImmutableReturnsKernelError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can set FS_IMMUTABLE_FL")
+	}
+	f := openFSFlagProbe(t)
+	spec, err := parse.ParseSpec("FD:3,fs-immutable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ApplyFDOptions(f, spec)
+	if err == nil {
+		t.Fatal("unprivileged fs-immutable succeeded")
+	}
+	if !strings.Contains(err.Error(), "fs-immutable") {
+		t.Fatalf("error %q must name fs-immutable", err)
 	}
 }
 

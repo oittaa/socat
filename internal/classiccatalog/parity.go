@@ -153,7 +153,6 @@ func expectedMissingSources() []map[string]Gap {
 		expectedMissingParent,
 		expectedMissingProcess,
 		expectedMissingPTY,
-		expectedMissingReg,
 		expectedMissingResolver,
 		expectedMissingSocket,
 		expectedMissingTCP,
