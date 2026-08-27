@@ -20,6 +20,10 @@ import (
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
+// testHookH3PacketConn, when set, sees the HTTP/3 UDP PacketConn after
+// ListenControl applied PH_PASTSOCKET options and before QUIC dials on it.
+var testHookH3PacketConn func(net.PacketConn)
+
 func tcpToUDPNetwork(tcpNet string) string {
 	switch strings.ToLower(tcpNet) {
 	case "tcp4":
@@ -32,11 +36,9 @@ func tcpToUDPNetwork(tcpNet string) string {
 }
 
 // listenH3Packet binds the HTTP/3 UDP socket with ListenControl so PH_PASTSOCKET
-// options including ip-add-membership / ipv6-join-group apply on that fd
-// before bind. http3.Transport would otherwise create its own UDP socket and
-// silently ignore membership (classic tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a apply membership at PH_PASTSOCKET).
+// options, including send-side IP/ancillary options and multicast joins,
+// apply once after socket() and before bind. http3.Transport would otherwise
+// create its own UDP socket and silently ignore those requested options.
 func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost string) (net.PacketConn, string, error) {
 	network := tcpToUDPNetwork(xio.ConnectNetworkForType(g, s, proxyHost, "tcp"))
 	bindHost, err := xio.ListenBindHost(network, s.OptionValue("bind", ""))
@@ -108,6 +110,9 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 			stopTimer()
 			cancelHandshake()
 			return e
+		}
+		if h := testHookH3PacketConn; h != nil {
+			h(pc)
 		}
 		qtr := &quic.Transport{Conn: pc}
 		tr := &http3.Transport{

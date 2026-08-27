@@ -384,7 +384,6 @@ func appendNative(buf []byte, u uint64, nbytes int) []byte {
 	}
 	return append(buf, b...)
 }
-
 func nativeCInt(data []byte) int {
 	if len(data) < sizeCInt {
 		return 0

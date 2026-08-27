@@ -7,6 +7,7 @@ import (
 	"net"
 	"testing"
 
+	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
 
@@ -65,5 +66,167 @@ func TestAncillaryEnvironmentIsSessionScoped(t *testing.T) {
 	handleIPv4Cmsg(unix.IP_TTL, data[:], g)
 	if got := g.SessionVars["IP_TTL"]; got != "42" {
 		t.Fatalf("IP_TTL=%q", got)
+	}
+}
+
+func TestAncillaryBSDRecvTTLSetsIPTTL(t *testing.T) {
+	// Darwin/FreeBSD recvmsg delivers TTL as IP_RECVTTL (byte or int), not
+	// Linux IP_TTL. The session env name stays IP_TTL (classic xio-ip.c).
+	g := &Global{}
+	handleIPv4Cmsg(unix.IP_RECVTTL, []byte{64}, g)
+	if got := g.SessionVars["IP_TTL"]; got != "64" {
+		t.Fatalf("session env=%v want IP_TTL=64", g.SessionVars)
+	}
+}
+
+func TestAncillaryRecvTOSSetsIPTOS(t *testing.T) {
+	g := &Global{}
+	handleIPv4Cmsg(unix.IP_RECVTOS, []byte{0x10}, g)
+	if got := g.SessionVars["IP_TOS"]; got != "16" {
+		t.Fatalf("session env=%v want IP_TOS=16", g.SessionVars)
+	}
+}
+
+func TestNeedAncillaryBoolOption(t *testing.T) {
+	on, err := parse.ParseSpec("UDP4:127.0.0.1:1,pktinfo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !NeedAncillary(on) {
+		t.Fatal("pktinfo presence must enable ReadMsg")
+	}
+	off, err := parse.ParseSpec("UDP4:127.0.0.1:1,pktinfo=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if NeedAncillary(off) {
+		t.Fatal("pktinfo=0 must not enable ReadMsg")
+	}
+	valued, err := parse.ParseSpec("UDP4:127.0.0.1:1,ip-recvttl=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !NeedAncillary(valued) {
+		t.Fatal("ip-recvttl=1 must enable ReadMsg")
+	}
+}
+
+func TestUDPRecvTTLAncillary(t *testing.T) {
+	spec, err := parse.ParseSpec("UDP-RECV:0,ip-recvttl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lc := net.ListenConfig{Control: ListenControl(spec)}
+	pc, err := lc.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	recv, ok := pc.(*net.UDPConn)
+	if !ok {
+		t.Fatalf("PacketConn type %T", pc)
+	}
+	t.Cleanup(func() { _ = recv.Close() })
+	raw, err := recv.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var enabled int
+	var gerr error
+	_ = raw.Control(func(fd uintptr) {
+		enabled, gerr = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_RECVTTL)
+	})
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	if enabled == 0 {
+		t.Fatal("IP_RECVTTL not enabled")
+	}
+
+	send, err := net.DialUDP("udp4", nil, recv.LocalAddr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = send.Close() })
+	if _, err := send.Write([]byte("ttl")); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 16)
+	n, oob, _, err := ReadUDPMsg(recv, buf, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(buf[:n]) != "ttl" {
+		t.Fatalf("payload=%q", buf[:n])
+	}
+	if len(oob) == 0 {
+		t.Fatal("expected IP_TTL cmsg")
+	}
+	g := &Global{}
+	ProcessAncillary(oob, g)
+	if g.SessionVars["IP_TTL"] == "" {
+		msgs, _ := unix.ParseSocketControlMessage(oob)
+		types := make([]int32, 0, len(msgs))
+		for _, m := range msgs {
+			types = append(types, m.Header.Type)
+		}
+		t.Fatalf("session env=%v want IP_TTL; cmsg types=%v IP_TTL=%d IP_RECVTTL=%d",
+			g.SessionVars, types, unix.IP_TTL, unix.IP_RECVTTL)
+	}
+}
+
+func TestTCPConnIPTTL(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	accept := make(chan net.Conn, 1)
+	go func() {
+		c, err := ln.Accept()
+		if err != nil {
+			accept <- nil
+			return
+		}
+		accept <- c
+	}()
+	spec, err := parse.ParseSpec("TCP4:127.0.0.1:1,ip-ttl=9,ip-tos=0x10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &net.Dialer{Control: DialControl(spec, "tcp4", nil)}
+	cli, err := d.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cli.Close() })
+	srv := <-accept
+	if srv == nil {
+		t.Fatal("accept failed")
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+	if err := ApplyTCPConnOpts(spec, cli); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := cli.(*net.TCPConn).SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ttl, tos int
+	var gerr error
+	_ = raw.Control(func(fd uintptr) {
+		ttl, gerr = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_TTL)
+		if gerr != nil {
+			return
+		}
+		tos, gerr = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_TOS)
+	})
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	if ttl != 9 {
+		t.Fatalf("IP_TTL=%d want 9", ttl)
+	}
+	if tos != 0x10 {
+		t.Fatalf("IP_TOS=%#x want 0x10", tos)
 	}
 }

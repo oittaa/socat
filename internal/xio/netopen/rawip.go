@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -188,7 +189,7 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	}
 	// Connected IPv4 Read() keeps the IP header; strip for classic parity.
 	v4 := network == "ip4" || raddr.IP.To4() != nil
-	st := relay.Stream(&rawIPConn{IPConn: c, peer: raddr, v4: v4})
+	st := relay.Stream(&rawIPConn{IPConn: c, peer: raddr, v4: v4, wantCtrl: xio.NeedAncillary(s), g: g})
 	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(c)
@@ -235,7 +236,7 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return nil, err
 	}
 	v4 := network == "ip4" || raddr.IP.To4() != nil
-	st := relay.Stream(&rawIPDatagramConn{c: pc, raddr: raddr, v4: v4})
+	st := relay.Stream(&rawIPDatagramConn{c: pc, raddr: raddr, v4: v4, wantCtrl: xio.NeedAncillary(s), g: g})
 	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
@@ -349,14 +350,70 @@ func ipLookupNet(network string) string {
 	return "ip4"
 }
 
-// applyIPConnOpts sets connected-phase generic options, ancillary receive
-// options, and send IP options. Membership is PH_PASTSOCKET and is already
-// applied exactly once by DialControl / ListenControl before connect or bind.
-// PH_PASTSOCKET (ApplySocketOptions / setsockopt-socket / broadcast) is
-// applied in dial/listen Control after socket() and before bind/connect
-// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same).
-func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
+func rawIPListenAddr(netw string, laddr *net.IPAddr) string {
+	if laddr != nil && laddr.IP != nil {
+		return laddr.String()
+	}
+	if strings.HasPrefix(netw, "ip6") {
+		return "::"
+	}
+	return "0.0.0.0"
+}
+
+// testHookAfterRawIPPastSocket, when set, runs inside Dialer/ListenConfig
+// Control after PH_PASTSOCKET options and before bind/connect.
+var testHookAfterRawIPPastSocket func(network, address string, c syscall.RawConn) error
+
+func dialRawIP(ctx context.Context, netw, network string, laddr, raddr *net.IPAddr, s parse.Spec) (*net.IPConn, error) {
+	d := net.Dialer{
+		Timeout:   xio.ConnectTimeout(s),
+		LocalAddr: laddr,
+		Control:   xio.DialControl(s, network, testHookAfterRawIPPastSocket),
+	}
+	c, err := d.DialContext(ctx, netw, raddr.String())
+	if err != nil {
+		return nil, err
+	}
+	ic, ok := c.(*net.IPConn)
+	if !ok {
+		logx.CloseQuiet(c)
+		return nil, fmt.Errorf("%s: unexpected conn type %T", netw, c)
+	}
+	return ic, nil
+}
+
+func listenRawIP(ctx context.Context, netw, _ string, laddr *net.IPAddr, s parse.Spec) (*net.IPConn, error) {
+	inner := xio.ListenControl(s)
+	lc := net.ListenConfig{
+		Control: func(network, address string, c syscall.RawConn) error {
+			if err := inner(network, address, c); err != nil {
+				return err
+			}
+			if h := testHookAfterRawIPPastSocket; h != nil {
+				return h(network, address, c)
+			}
+			return nil
+		},
+	}
+	pc, err := lc.ListenPacket(ctx, netw, rawIPListenAddr(netw, laddr))
+	if err != nil {
+		return nil, err
+	}
+	ic, ok := pc.(*net.IPConn)
+	if !ok {
+		logx.CloseQuiet(pc)
+		return nil, fmt.Errorf("%s: unexpected packet conn type %T", netw, pc)
+	}
+	return ic, nil
+}
+
+// applyIPConnOpts applies remaining connected-phase SOL_SOCKET options.
+// Send and recv IP/ancillary options and multicast joins are PH_PASTSOCKET
+// (dialRawIP/listenRawIP Control → ApplyPastSocketPhase) and must not be re-applied
+// here after DialIP/ListenIP-equivalent bind/connect.
+// SO_BROADCAST is applied with other PH_PASTSOCKET SOL_SOCKET options via
+// ApplySocketOptions (classic TYPE_INT; broadcast=0 is a real setsockopt).
+func applyIPConnOpts(c *net.IPConn, s parse.Spec, _ string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
 		return err
@@ -366,51 +423,10 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, network string) error {
 		if optionErr = xio.ApplyGenericSetsockopt(int(fd), s, xio.SockoptPhaseConnected); optionErr != nil {
 			return
 		}
-		if optionErr = xio.ApplyAncillaryRecvOpts(int(fd), s); optionErr != nil {
-			return
-		}
-		if optionErr = xio.ApplyIPSendOpts(int(fd), s, network); optionErr != nil {
-			return
-		}
 		// classic often sets reuse on raw too
 		optionErr = xio.ApplyReuse(int(fd), s, true)
 	})
 	return errors.Join(controlErr, optionErr)
-}
-
-func dialRawIP(ctx context.Context, netw, network string, laddr, raddr *net.IPAddr, s parse.Spec) (*net.IPConn, error) {
-	d := net.Dialer{Control: xio.DialControl(s, network, nil)}
-	if laddr != nil {
-		d.LocalAddr = laddr
-	}
-	c, err := d.DialContext(ctx, netw, raddr.String())
-	if err != nil {
-		return nil, err
-	}
-	ic, ok := c.(*net.IPConn)
-	if !ok {
-		logx.CloseQuiet(c)
-		return nil, fmt.Errorf("raw IP: unexpected conn type %T", c)
-	}
-	return ic, nil
-}
-
-func listenRawIP(ctx context.Context, netw, network string, laddr *net.IPAddr, s parse.Spec) (*net.IPConn, error) {
-	cfg := net.ListenConfig{Control: xio.ListenControl(s)}
-	addr := ""
-	if laddr != nil {
-		addr = laddr.String()
-	}
-	pc, err := cfg.ListenPacket(ctx, netw, addr)
-	if err != nil {
-		return nil, err
-	}
-	ic, ok := pc.(*net.IPConn)
-	if !ok {
-		logx.CloseQuiet(pc)
-		return nil, fmt.Errorf("raw IP: unexpected packet conn type %T", pc)
-	}
-	return ic, nil
 }
 
 func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob []byte, addr net.Addr, err error) {
@@ -464,18 +480,20 @@ func skipIPv4HeaderIfPresent(p []byte, n int) int {
 
 // rawIPDatagramConn: unconnected SOCK_RAW; writes always go to raddr.
 type rawIPDatagramConn struct {
-	c     *net.IPConn
-	raddr *net.IPAddr
-	v4    bool
+	c        *net.IPConn
+	raddr    *net.IPAddr
+	v4       bool
+	wantCtrl bool
+	g        *xio.Global
 }
 
 func (r *rawIPDatagramConn) Read(p []byte) (int, error) {
-	n, _, err := r.c.ReadFrom(p)
+	n, oob, _, err := ReadIPMsg(r.c, p, r.wantCtrl, r.v4)
 	if err != nil {
 		return n, err
 	}
-	if r.v4 {
-		n = skipIPv4HeaderIfPresent(p, n)
+	if r.wantCtrl {
+		xio.ProcessAncillary(oob, r.g)
 	}
 	return n, nil
 }
@@ -496,11 +514,21 @@ func (r *rawIPDatagramConn) SyscallConn() (syscall.RawConn, error) {
 // Do not embed Read from *net.IPConn — connected Read keeps the IPv4 header.
 type rawIPConn struct {
 	*net.IPConn
-	peer *net.IPAddr
-	v4   bool
+	peer     *net.IPAddr
+	v4       bool
+	wantCtrl bool
+	g        *xio.Global
 }
 
 func (r *rawIPConn) Read(p []byte) (int, error) {
+	if r.wantCtrl {
+		n, oob, _, err := ReadIPMsg(r.IPConn, p, true, r.v4)
+		if err != nil {
+			return n, err
+		}
+		xio.ProcessAncillary(oob, r.g)
+		return n, nil
+	}
 	n, err := r.IPConn.Read(p)
 	if err != nil {
 		return n, err

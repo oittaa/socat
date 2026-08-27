@@ -61,7 +61,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 				_ = c.Close()
 				return nil, err
 			}
-			st := &udpDatagramConn{UDPConn: c, raddr: raddr}
+			st := &udpDatagramConn{UDPConn: c, raddr: raddr, g: g, wantCtrl: xio.NeedAncillary(s)}
 			wrapped, err := xio.WrapCommonAfterConnected(s, st)
 			if err != nil {
 				logx.CloseQuiet(c)
@@ -105,18 +105,18 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("UDP: unexpected packet conn type")
 	}
-	// Send-side IP options (ip-ttl, ip-tos, ipv6-tclass, …) for SENDTO/DATAGRAM.
+	// PH_LATE buffers. Send and recv IP/ancillary options were applied
+	// at PH_PASTSOCKET by ListenControl.
 	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
 		_ = c.Close()
 		return nil, err
 	}
-	st := &udpDatagramConn{UDPConn: c, raddr: raddr}
+	st := &udpDatagramConn{UDPConn: c, raddr: raddr, g: g, wantCtrl: xio.NeedAncillary(s)}
 	wrapped, err := xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(c)
 		return nil, err
 	}
-	_ = g
 	return &xio.Opened{Stream: wrapped, Label: "UDP-DATAGRAM:" + raddr.String()}, nil
 }
 
@@ -160,7 +160,20 @@ func laddrString(network string, laddr *net.UDPAddr) string {
 // udpDatagramConn writes always to raddr; reads from anyone (optional filter later).
 type udpDatagramConn struct {
 	*net.UDPConn
-	raddr *net.UDPAddr
+	raddr    *net.UDPAddr
+	g        *xio.Global
+	wantCtrl bool
+}
+
+func (u *udpDatagramConn) Read(p []byte) (int, error) {
+	n, oob, _, err := xio.ReadUDPMsg(u.UDPConn, p, u.wantCtrl)
+	if err != nil {
+		return n, err
+	}
+	if u.wantCtrl {
+		xio.ProcessAncillary(oob, u.g)
+	}
+	return n, nil
 }
 
 func (u *udpDatagramConn) Write(p []byte) (int, error) {
@@ -404,7 +417,8 @@ func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, 
 		return nil, err
 	}
 	c := pc.(*net.UDPConn)
-	// Ancillary recv opts (so-timestamp, ip-recvttl, …) and send-side IP opts.
+	// PH_LATE buffers. Send and recv IP/ancillary options were applied
+	// at PH_PASTSOCKET by ListenControl.
 	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
 		_ = c.Close()
 		return nil, err

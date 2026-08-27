@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"syscall"
 	"testing"
 	"unsafe"
 
@@ -243,21 +244,22 @@ func TestApplyTCPConnOptsWindowsTTLAndTOS(t *testing.T) {
 		conn, _ := ln.AcceptTCP()
 		accepted <- conn
 	}()
-	client, err := net.DialTCP("tcp4", nil, ln.Addr().(*net.TCPAddr))
+	spec, err := parse.ParseSpec("TCP4:127.0.0.1:1,ip-ttl=9,ip-tos=0x10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &net.Dialer{Control: DialControl(spec, "tcp4", nil)}
+	client, err := d.Dial("tcp4", ln.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
 	server := <-accepted
 	t.Cleanup(func() { _ = server.Close() })
-	spec, err := parse.ParseSpec("TCP4:127.0.0.1:1,ip-ttl=9,ip-tos=0x10")
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := ApplyTCPConnOpts(spec, client); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := client.SyscallConn()
+	raw, err := client.(syscall.Conn).SyscallConn()
 	if err != nil {
 		t.Fatal(err)
 	}

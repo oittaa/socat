@@ -229,19 +229,14 @@ func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn
 }
 
 // ApplyNetworkSocketOptions applies the post-socket options shared by Go net
-// listeners/dialers and raw SCTP sockets. Membership (PH_PASTSOCKET
-// IP_ADD_MEMBERSHIP / IPV6_JOIN_GROUP) is applied here so DialControl and
-// ListenControl cover UDP connect, TCP connect, and TCP listen. Classic
-// tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same option tree.
+// listeners/dialers and raw SCTP sockets, including the unified PH_PASTSOCKET
+// generic, IP/ancillary, and multicast-membership pass. Every occurrence is
+// applied once in command-line order, before bind/connect.
 func ApplyNetworkSocketOptions(fd int, s parse.Spec, network string) error {
-	if err := ApplySocketOptions(fd, s); err != nil {
+	if err := ApplySocketOptionsWithoutGeneric(fd, s); err != nil {
 		return err
 	}
-	if err := applyIPTTLTOS(fd, s, network); err != nil {
-		return err
-	}
-	return ApplyMembershipJoins(fd, s)
+	return applyOrderedPastSocketPhaseOptions(fd, s, network)
 }
 
 // ApplyListenBacklog updates the pending-connection queue of an existing TCP
@@ -264,9 +259,8 @@ func ApplyListenBacklog(ln net.Listener, backlog int) error {
 	return errors.Join(controlErr, optionErr)
 }
 
-// DialControl merges spec-driven socket options (rcvtimeo/sndtimeo, and
-// ip-ttl/ip-tos on tcp networks) with an optional caller-provided Control,
-// producing a single net.Dialer.Control. Classic _xioopen_connect applies
+// DialControl merges spec-driven socket options with an optional
+// caller-provided Control. Classic _xioopen_connect applies
 // PH_PASTSOCKET then PH_PREBIND (setsockopt-listen) before connect()
 // (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 // af5388c898c7bb60997935aee93c223deba60c4a is the same). Go's Control
@@ -521,29 +515,16 @@ func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 	return nil
 }
 
-// ApplyTCPConnOpts applies TCP keepalive/nodelay/ttl plus classic PH_CONNECTED
-// generic setsockopt on the unwrapped raw conn. SETSOCKOPT uses
+// ApplyTCPConnOpts applies TCP keepalive/nodelay plus classic PH_CONNECTED
+// generic setsockopt on the unwrapped raw conn. IP TTL/TOS and other
+// PH_PASTSOCKET options were already applied by DialControl/ListenControl.
+// SETSOCKOPT uses
 // setsockopt=6:TCP_MAXSEG:512 (IPPROTO_TCP + TCP_MAXSEG) after connect.
 // Non-TCP connections that expose a socket fd still get generic setsockopt;
 // a present option is never ignored because the conn is not *net.TCPConn.
 func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
 	c = unwrapNetConn(c)
 	if tc, ok := c.(*net.TCPConn); ok {
-		if la, ok := tc.LocalAddr().(*net.TCPAddr); ok {
-			network := "tcp6"
-			if la.IP.To4() != nil {
-				network = "tcp4"
-			}
-			if raw, rerr := tc.SyscallConn(); rerr == nil {
-				var optErr error
-				_ = raw.Control(func(fd uintptr) {
-					optErr = applyIPTTLTOS(int(fd), s, network)
-				})
-				if optErr != nil {
-					return optErr
-				}
-			}
-		}
 		if err := applyKeepAliveConfig(s, tc); err != nil {
 			return err
 		}

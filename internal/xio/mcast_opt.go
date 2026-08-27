@@ -45,6 +45,18 @@ func ApplyMembershipJoins(fd int, s parse.Spec) error {
 	return applyMembershipJoins(fd, joins)
 }
 
+// applyMembershipOption applies one membership occurrence. Keeping this
+// helper OS-neutral lets the unified PH_PASTSOCKET pass interleave multicast
+// joins with generic and ancillary options in original command-line order.
+func applyMembershipOption(fd int, o parse.Option) (bool, error) {
+	family, name, ok := membershipFamilyOf(o)
+	if !ok {
+		return false, nil
+	}
+	join := membershipJoin{family: family, spec: o.Value, name: name}
+	return true, applyMembershipJoins(fd, []membershipJoin{join})
+}
+
 // membershipJoins collects every membership option in command-line order.
 // OriginalSpelling selects the classic IPv4/IPv6 descriptor; Name is the
 // fallback for constructed specs that do not preserve spelling.

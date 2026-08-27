@@ -2,8 +2,6 @@ package parse
 
 func init() {
 	registerOptionAliases(map[string]string{
-		"so-reuseaddr": "reuseaddr",
-		"so-reuseport": "reuseport",
 		// ipv6-join-group is a distinct classic option (GROUP_IP6 only,
 		// tag-1.8.1.3 / 12c08bf). Do not fold it onto ip-add-membership
 		// (IP4+IP6); validation is spelling-specific. Same-group nicknames
@@ -13,6 +11,8 @@ func init() {
 		"membership":          "ip-add-membership",
 		"ipv6-add-membership": "ipv6-join-group",
 		"join-group":          "ipv6-join-group",
+		"so-reuseaddr":        "reuseaddr",
+		"so-reuseport":        "reuseport",
 		"so-keepalive":        "keepalive",
 		"so-bindtodevice":     "bindtodevice",
 		"if":                  "bindtodevice",
@@ -35,7 +35,24 @@ func init() {
 		"tcp-keepintvl":       "keepintvl",
 		"tcp-keepcnt":         "keepcnt",
 		"ipttl":               "ip-ttl",
+		"ttl":                 "ip-ttl",
 		"iptos":               "ip-tos",
+		"tos":                 "ip-tos",
+		"ipoptions":           "ip-options",
+		"pktinfo":             "ip-pktinfo",
+		"ippktinfo":           "ip-pktinfo",
+		"recvttl":             "ip-recvttl",
+		"iprecvttl":           "ip-recvttl",
+		"recvtos":             "ip-recvtos",
+		"iprecvtos":           "ip-recvtos",
+		"recvopts":            "ip-recvopts",
+		"iprecvopts":          "ip-recvopts",
+		"timestamp":           "so-timestamp",
+		"recvpktinfo":         "ipv6-recvpktinfo",
+		"recvhoplimit":        "ipv6-recvhoplimit",
+		"recvtclass":          "ipv6-recvtclass",
+		"unicast-hops":        "ipv6-unicast-hops",
+		"tclass":              "ipv6-tclass",
 		"sp":                  "sourceport",
 		"sourceport":          "sourceport",
 		"sockopt-listen":      "setsockopt-listen",

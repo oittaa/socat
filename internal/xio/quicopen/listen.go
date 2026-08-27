@@ -90,6 +90,8 @@ func quicConfig(s parse.Spec, tlsCfg *tls.Config) (quicSetup, error) {
 }
 
 func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.PacketConn, error) {
+	// ListenControl applies PH_PASTSOCKET send-side IP options once, after
+	// socket() and before bind. Do not call ApplyIPSendOptsToPacketConn here.
 	// connect-timeout bounds this local UDP bind. It is not a substitute
 	// for bounding remote QUIC establishment; the client also applies it
 	// to Transport.Dial (see quicDialAttemptTimeout).
