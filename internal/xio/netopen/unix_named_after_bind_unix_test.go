@@ -5,6 +5,8 @@ package netopen
 import (
 	"context"
 	"os"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -84,13 +86,36 @@ func TestUnixConnectBindPermEarlyChmodsSocket(t *testing.T) {
 }
 
 func TestUnixConnectBindPermEarlyWinsOverPerm(t *testing.T) {
+	// Classic UNIX-CONNECT applyopts_named after bind is PH_PREOPEN only
+	// (perm-early on the bind path). perm= is PH_FD fchmod on the socket
+	// descriptor via _xioopen_connect (tag-1.8.1.3
+	// 12c08bf66d709fba17035ce95d85bd218428d9ba). Darwin fchmod on UNIX
+	// sockets returns EINVAL; that error must propagate.
 	listen := unixSocketTestPath(t, "listen.sock")
 	bind := unixSocketTestPath(t, "client.sock")
 	startUnixStreamPeer(t, listen)
-	o := openBoundUnixConnect(t, listen, bind,
-		parse.Option{Name: "perm", Value: "0777", Has: true},
-		parse.Option{Name: "perm-early", Value: "0600", Has: true},
-	)
+	spec := parse.Spec{
+		Type:   "UNIX-CONNECT",
+		Params: []string{listen},
+		Options: []parse.Option{
+			{Name: "bind", Value: bind, Has: true},
+			{Name: "perm", Value: "0777", Has: true},
+			{Name: "perm-early", Value: "0600", Has: true},
+		},
+	}
+	o, err := openUnixConnect(context.Background(), spec, xio.ModeRDWR, nil)
+	if runtime.GOOS != "linux" {
+		if err == nil {
+			t.Fatal("expected fchmod error on UNIX-CONNECT socket")
+		}
+		if !strings.Contains(err.Error(), "fchmod") {
+			t.Fatalf("error=%v want fchmod EINVAL", err)
+		}
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = o.Close() })
 	assertUnixSocketPerm(t, bind, 0o600)
 }
