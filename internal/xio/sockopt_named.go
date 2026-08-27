@@ -7,8 +7,8 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// Named SOL_SOCKET and TCP options from classic xio-socket.c / xio-tcp.c
-// (https://repo.or.cz/socat.git tag-1.8.1.3
+// Named SOL_SOCKET, TCP, and Linux SCTP options from classic xio-socket.c /
+// xio-tcp.c / xio-sctp.c (https://repo.or.cz/socat.git tag-1.8.1.3
 // 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 // af5388c898c7bb60997935aee93c223deba60c4a is the same option/help tree).
 //
@@ -18,6 +18,7 @@ import (
 //	tcp-cork / cork, tcp-defer-accept / defer-accept, tcp-linger2 / linger2,
 //	tcp-maxseg / maxseg / mss, tcp-quickack / quickack, tcp-syncnt / syncnt,
 //	tcp-window-clamp / window-clamp
+//	sctp-nodelay, sctp-maxseg (Linux SOL_SCTP; not TCP_NODELAY / TCP_MAXSEG)
 //
 // PH_CONNECTED TYPE_INT OFUNC_SOCKOPT:
 //
@@ -27,6 +28,7 @@ import (
 // call. so-bsdcompat is catalog-advertised on Linux glibc but this kernel
 // accepts setsockopt and leaves getsockopt at 0, so it is not implemented
 // (do not advertise a no-op). tcp-info and tcp-md5sig are later PRs.
+// sctp-maxseg-late is not implemented (undocumented optionnames[] alias).
 var errNamedOptUnsupported = errors.New("not supported on this platform")
 
 func parseTypeIntSockopt(o parse.Option) (int, error) {
@@ -52,8 +54,9 @@ func applyNamedIntSockopt(fd int, o parse.Option, level, opt int) error {
 }
 
 // applyNamedPastSocketSockopt applies one classic PH_PASTSOCKET named
-// SOL_SOCKET or TCP TYPE_INT option. Its callers walk Spec.Options so named,
-// generic setsockopt-socket, and IP options retain command-line order.
+// SOL_SOCKET, TCP, or Linux SCTP TYPE_INT option. Its callers walk
+// Spec.Options so named, generic setsockopt-socket, and IP options retain
+// command-line order.
 func applyNamedPastSocketSockopt(fd int, o parse.Option) (bool, error) {
 	level, opt, ok, err := lookupNamedPastSocketInt(o.Name)
 	if !ok {

@@ -29,6 +29,7 @@ func tlsOptionGroups() []helpOptGroup {
 			{name: "proxyport", desc: "HTTP proxy port", addressTypes: proxyAddressTypes()},
 			{name: "http-version", desc: "CONNECT HTTP version (1.0, 1.1, 2, 3)", addressTypes: proxyAddressTypes()},
 			{name: "h2c", desc: "cleartext HTTP/2 CONNECT", addressTypes: proxyAddressTypes()},
+			{name: "ignorecr", desc: "accept LF as HTTP CONNECT response line terminator", addressTypes: proxyAddressTypes(), validate: validateOptionalBool},
 			{name: "proxy-resolve", desc: "resolve CONNECT target locally", aliases: []string{"resolve", "resolv"}, addressTypes: proxyAddressTypes()},
 			{name: "proxy-authorization", desc: "proxy basic auth user:pass", aliases: []string{"proxyauth", "proxy-auth"}, addressTypes: proxyAddressTypes()},
 			{name: "proxy-authorization-file", desc: "read proxy auth from a file", aliases: []string{"proxyauthfile"}, addressTypes: proxyAddressTypes()},

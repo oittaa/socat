@@ -17,16 +17,3 @@ func optionValueAny(s parse.Spec, names ...string) (string, bool) {
 	}
 	return "", false
 }
-
-func optionBoolAny(s parse.Spec, names ...string) (bool, bool) {
-	value, ok := optionValueAny(s, names...)
-	if !ok {
-		return false, false
-	}
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "0", "false", "no", "off":
-		return false, true
-	default:
-		return true, true
-	}
-}

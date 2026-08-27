@@ -66,10 +66,17 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"nopush", "linux", ClassForeign},
 		{"ip-recvif", "darwin", ClassExpectedMissing},
 		{"ip-recvif", "linux", ClassForeign},
-		{"fs-append", "linux", ClassExpectedMissing},
-		{"fs-append", "windows", ClassForeign},
-		{"sctp-nodelay", "linux", ClassExpectedMissing},
-		{"sctp-nodelay", "darwin", ClassForeign},
+		{"fs-append", "linux", ClassMustAdvertise},
+		{"fs-append", "windows", ClassMustAdvertise},
+		{"notail", "linux", ClassMustAdvertise},
+		{"notail", "windows", ClassMustAdvertise},
+		{"sctp-nodelay", "linux", ClassMustAdvertise},
+		{"sctp-nodelay", "darwin", ClassMustAdvertise},
+		{"sctp-nodelay", "windows", ClassMustAdvertise},
+		{"sctp-maxseg", "linux", ClassMustAdvertise},
+		{"sctp-maxseg", "darwin", ClassMustAdvertise},
+		{"sctp-maxseg", "windows", ClassMustAdvertise},
+		{"sctp-maxseg-late", "linux", ClassOptionalParserOnly},
 		{"abort-threshold", "linux", ClassForeign},
 		{"abort-threshold", "windows", ClassForeign},
 		{"cr", "linux", ClassMustAdvertise},
@@ -123,6 +130,18 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	if _, ok := linux["udplite-recv-cscov"]; ok {
 		t.Fatal("linux backlog must not include implemented udplite-recv-cscov (#101)")
 	}
+	if _, ok := linux["sctp-nodelay"]; ok {
+		t.Fatal("linux backlog must not include implemented sctp-nodelay")
+	}
+	if _, ok := linux["sctp-maxseg"]; ok {
+		t.Fatal("linux backlog must not include implemented sctp-maxseg")
+	}
+	if _, ok := linux["fs-append"]; ok {
+		t.Fatal("linux backlog must not include implemented fs-append")
+	}
+	if _, ok := linux["notail"]; ok {
+		t.Fatal("linux backlog must not include implemented notail")
+	}
 	if _, ok := linux["binary"]; ok {
 		t.Fatal("linux backlog must not include Windows-only binary")
 	}
@@ -143,6 +162,18 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	if _, ok := darwin["udplite-send-cscov"]; ok {
 		t.Fatal("darwin backlog must not include Linux UDP-Lite cscov")
 	}
+	if _, ok := darwin["sctp-nodelay"]; ok {
+		t.Fatal("darwin backlog must not include implemented sctp-nodelay")
+	}
+	if _, ok := darwin["sctp-maxseg"]; ok {
+		t.Fatal("darwin backlog must not include implemented sctp-maxseg")
+	}
+	if _, ok := win["sctp-nodelay"]; ok {
+		t.Fatal("windows backlog must not include implemented sctp-nodelay")
+	}
+	if _, ok := win["sctp-maxseg"]; ok {
+		t.Fatal("windows backlog must not include implemented sctp-maxseg")
+	}
 	if _, ok := win["udplite-recv-cscov"]; ok {
 		t.Fatal("windows backlog must not include Linux UDP-Lite cscov")
 	}
@@ -150,8 +181,12 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 
 func TestAddressClassificationSeparatesUnsupportedFromAliases(t *testing.T) {
 	class, _ := ClassifyAddress("ABSTRACT", "linux")
-	if class != AddrExpectedMissingAlias {
-		t.Fatalf("ABSTRACT: %s", class)
+	if class != AddrMustRegister {
+		t.Fatalf("ABSTRACT: %s (resolved to ABSTRACT-CLIENT by PR C)", class)
+	}
+	class, _ = ClassifyAddress("UDP-DGRAM", "linux")
+	if class != AddrMustRegister {
+		t.Fatalf("UDP-DGRAM: %s (resolved to UDP-DATAGRAM by PR C)", class)
 	}
 	class, _ = ClassifyAddress("DCCP", "linux")
 	if class != AddrUnsupportedFamily {
@@ -183,7 +218,7 @@ func TestAddressClassificationSeparatesUnsupportedFromAliases(t *testing.T) {
 	}
 	class, _ = ClassifyAddress("UDPLITE-DGRAM", "linux")
 	if class != AddrMustRegister {
-		t.Fatalf("UDPLITE-DGRAM: %s (registered with the family in #101; UDP-DGRAM remains alias backlog)", class)
+		t.Fatalf("UDPLITE-DGRAM: %s (registered with the family in #101)", class)
 	}
 	class, _ = ClassifyAddress("UDPLITE-CONNECT", "darwin")
 	if class != AddrMustRegister {
@@ -208,8 +243,8 @@ func TestAddressClassificationSeparatesUnsupportedFromAliases(t *testing.T) {
 	if _, ok := ExpectedMissingAddressAliases["DCCP"]; ok {
 		t.Fatal("DCCP must not be in the supported-alias backlog")
 	}
-	if got := len(ExpectedMissingAddressAliases); got != 26 {
-		t.Fatalf("supported missing aliases=%d, want 26", got)
+	if got := len(ExpectedMissingAddressAliases); got != 0 {
+		t.Fatalf("supported missing aliases=%d, want 0 (PR C resolved the backlog)", got)
 	}
 }
 
@@ -217,12 +252,14 @@ func TestDocsOnlyNamesAreClassified(t *testing.T) {
 	for name := range DocsOnlyNotInThisBinary {
 		class, reason := ClassifyOption(name, "linux")
 		switch class {
+		case ClassMustAdvertise:
+			// This port implements dump-omitted documented names (notail, sctp-nodelay).
 		case ClassExpectedMissing, ClassUnsupported, ClassForeign:
 			if reason == "" {
 				t.Errorf("docs-only %q classified %s with empty reason", name, class)
 			}
 		default:
-			t.Errorf("docs-only %q class=%s; need expected-missing, unsupported, or foreign", name, class)
+			t.Errorf("docs-only %q class=%s; need expected-missing, unsupported, foreign, or must-advertise", name, class)
 		}
 	}
 }
@@ -231,6 +268,21 @@ func TestExpectedMissingReasonsNonEmpty(t *testing.T) {
 	for name, gap := range ExpectedMissingAll() {
 		if strings.TrimSpace(gap.Reason) == "" {
 			t.Errorf("expected-missing %q has no reason", name)
+		}
+	}
+}
+
+func TestIgnoreCRIsMustAdvertise(t *testing.T) {
+	if _, ok := ExpectedMissingAll()["ignorecr"]; ok {
+		t.Fatal("ignorecr must not remain expected-missing after HTTP/1 CONNECT parser support")
+	}
+	for _, goos := range []string{"linux", "darwin", "windows"} {
+		class, reason := ClassifyOption("ignorecr", goos)
+		if class != ClassMustAdvertise {
+			t.Errorf("%s: class=%s reason=%q; want must-advertise", goos, class, reason)
+		}
+		if _, ok := ImplementationBacklog(goos)["ignorecr"]; ok {
+			t.Errorf("%s backlog still lists ignorecr", goos)
 		}
 	}
 }

@@ -439,6 +439,64 @@ func TestDirectAndFSNoatimeAliases(t *testing.T) {
 	}
 }
 
+func TestLinuxExtFSFlagAliases(t *testing.T) {
+	tests := []struct {
+		raw, canonical string
+	}{
+		{"OPEN:file,fs-append", "fs-append"},
+		{"OPEN:file,ext2-append", "fs-append"},
+		{"OPEN:file,ext3-append", "fs-append"},
+		{"OPEN:file,compr", "fs-compr"},
+		{"OPEN:file,dirsync", "fs-dirsync"},
+		{"OPEN:file,immutable", "fs-immutable"},
+		{"OPEN:file,journal", "fs-journal-data"},
+		{"OPEN:file,journal-data", "fs-journal-data"},
+		{"OPEN:file,nodump", "fs-nodump"},
+		{"OPEN:file,notail", "fs-notail"},
+		{"OPEN:file,ext2-notail", "fs-notail"},
+		{"OPEN:file,secrm", "fs-secrm"},
+		{"OPEN:file,ext2-sync", "fs-sync"},
+		{"OPEN:file,topdir", "fs-topdir"},
+		{"OPEN:file,unrm", "fs-unrm"},
+	}
+	for _, tc := range tests {
+		s, err := ParseSpec(tc.raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !s.BoolOption(tc.canonical) {
+			t.Errorf("%s did not set %s", tc.raw, tc.canonical)
+		}
+	}
+	s, err := ParseSpec("OPEN:file,append")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.BoolOption("fs-append") {
+		t.Fatal("append must not alias fs-append")
+	}
+	s, err = ParseSpec("OPEN:file,sync")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.BoolOption("fs-sync") {
+		t.Fatal("sync must not alias fs-sync")
+	}
+	if CanonicalOptionName("sync") != "o-sync" {
+		t.Fatalf("sync canonicalized to %q", CanonicalOptionName("sync"))
+	}
+	s, err = ParseSpec("OPEN:file,fs-nodump=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.BoolOption("fs-nodump") {
+		t.Fatal("fs-nodump=0 must be false")
+	}
+	if !s.HasOption("fs-nodump") {
+		t.Fatal("fs-nodump=0 must be present")
+	}
+}
+
 func TestTruncateAlias(t *testing.T) {
 	s, err := ParseSpec("FD:3,truncate=4")
 	if err != nil {

@@ -66,6 +66,11 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "lowport-on-quic", spec: "QUIC:localhost:1,lowport"},
 		{name: "sourceport-on-quic", spec: "QUIC:localhost:1,sourceport=1"},
 		{name: "pty-on-tcp", spec: "TCP:localhost:1,pty", wantErr: "not supported"},
+		{name: "pty-on-inet-alias", spec: "INET:localhost:1,pty", wantErr: "not supported"},
+		{name: "nodelay-on-inet-alias", spec: "INET:localhost:1,nodelay"},
+		{name: "backlog-on-inet-listen-alias", spec: "INET-LISTEN:1,backlog=10"},
+		{name: "socksuser-on-socks-alias", spec: "SOCKS:localhost:example.com:80,socksuser=user"},
+		{name: "pty-on-udp-dgram-alias", spec: "UDP-DGRAM:localhost:1,pty", wantErr: "not supported"},
 		{name: "echo-on-stdio", spec: "STDIO,echo", windowsErr: "not supported on this platform"},
 		{name: "vintr-on-stdio", spec: "STDIO,vintr=3", windowsErr: "not supported on this platform"},
 		{name: "sane-on-stdio", spec: "STDIO,sane", windowsErr: "not supported on this platform"},
@@ -247,6 +252,20 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "ext3-noatime-alias", spec: "FD:3,ext3-noatime"},
 		{name: "fs-noatime-on-tcp", spec: "TCP:localhost:1,fs-noatime", wantErr: "not supported"},
 		{name: "fs-noatime-on-pipe", spec: "PIPE:file,fs-noatime", wantErr: "not supported"},
+		{name: "fs-append-on-open", spec: "OPEN:file,fs-append"},
+		{name: "fs-append-zero", spec: "OPEN:file,fs-append=0"},
+		{name: "fs-append-one", spec: "OPEN:file,fs-append=1"},
+		{name: "fs-nodump-garbage", spec: "OPEN:file,fs-nodump=garbage", wantErr: "invalid"},
+		{name: "fs-nodump-bool-range", spec: "OPEN:file,fs-nodump=2", wantErr: "invalid"},
+		{name: "fs-nodump-bool-word", spec: "OPEN:file,fs-nodump=true", wantErr: "invalid"},
+		{name: "nodump-garbage-alias", spec: "OPEN:file,nodump=garbage", wantErr: "invalid"},
+		{name: "ext2-append-alias", spec: "FD:3,ext2-append"},
+		{name: "nodump-on-create", spec: "CREATE:file,nodump"},
+		{name: "notail-on-open", spec: "OPEN:file,notail"},
+		{name: "fs-append-on-tcp", spec: "TCP:localhost:1,fs-append", wantErr: "not supported"},
+		{name: "fs-append-on-pipe", spec: "PIPE:file,fs-append", wantErr: "not supported"},
+		{name: "fs-append-on-exec", spec: "EXEC:true,fs-append", wantErr: "not supported"},
+		{name: "nodump-on-tcp", spec: "TCP:localhost:1,nodump", wantErr: "not supported"},
 		{name: "vsock-connect-bind", spec: "VSOCK-CONNECT:1:9,bind=:5555"},
 		{name: "vsock-listen-fork", spec: "VSOCK-LISTEN:9,fork,reuseaddr,backlog=16"},
 		{name: "vsock-sndbuf", spec: "VSOCK-CONNECT:1:9,sndbuf=4096,connect-timeout=1"},
@@ -319,6 +338,12 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "path-on-ws", spec: "WS:localhost:1,path=/socket"},
 		{name: "wrong-proxy-family", spec: "UDP:localhost:1,socksuser=user", wantErr: "not supported"},
 		{name: "proxy-option-on-socks", spec: "SOCKS4:localhost:example.com:80,proxyport=8080", wantErr: "not supported"},
+		{name: "ignorecr-on-proxy", spec: "PROXY:localhost:example.com:80,ignorecr"},
+		{name: "ignorecr-zero-on-proxy", spec: "PROXY:localhost:example.com:80,ignorecr=0"},
+		{name: "ignorecr-one-on-proxy", spec: "PROXY:localhost:example.com:80,ignorecr=1"},
+		{name: "ignorecr-bool-range", spec: "PROXY:localhost:example.com:80,ignorecr=2", wantErr: "invalid"},
+		{name: "ignorecr-on-socks", spec: "SOCKS4:localhost:example.com:80,ignorecr", wantErr: "not supported"},
+		{name: "ignorecr-on-tcp", spec: "TCP:localhost:1,ignorecr", wantErr: "not supported"},
 		{name: "socks-option-on-proxy", spec: "PROXY:localhost:example.com:80,socksuser=user", wantErr: "not supported"},
 		{name: "backlog-on-tcp", spec: "TCP-LISTEN:1,backlog=10"},
 		{name: "hex-max-children", spec: "TCP-LISTEN:1,fork,max-children=0x10"},
@@ -337,6 +362,14 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "tcp-maxseg-on-udp", spec: "UDP:localhost:1,maxseg=512", wantErr: "not supported"},
 		{name: "tcp-cork-on-sctp", spec: "SCTP:localhost:1,tcp-cork", wantErr: "not supported"},
 		{name: "tcp-maxseg-late-on-sctp", spec: "SCTP4:localhost:1,tcp-maxseg-late=512", wantErr: "not supported"},
+		{name: "sctp-nodelay-on-sctp", spec: "SCTP:localhost:1,sctp-nodelay"},
+		{name: "sctp-maxseg-on-sctp4", spec: "SCTP4:localhost:1,sctp-maxseg=1400"},
+		{name: "sctp-nodelay-on-sctp-listen", spec: "SCTP-LISTEN:1,sctp-nodelay"},
+		{name: "sctp-maxseg-on-sctp4-listen", spec: "SCTP4-LISTEN:1,sctp-maxseg=1400"},
+		{name: "sctp-nodelay-on-tcp", spec: "TCP:localhost:1,sctp-nodelay", wantErr: "not supported"},
+		{name: "sctp-maxseg-on-udp", spec: "UDP:localhost:1,sctp-maxseg=1400", wantErr: "not supported"},
+		{name: "sctp-nodelay-on-quic", spec: "QUIC:localhost:1,sctp-nodelay", wantErr: "not supported"},
+		{name: "sctp-maxseg-on-file", spec: "OPEN:file,sctp-maxseg=1400", wantErr: "not supported"},
 		{name: "tcp-cork-on-file", spec: "OPEN:file,tcp-cork", wantErr: "not supported"},
 		{name: "append-on-tcp", spec: "TCP:localhost:1,append"},
 		{name: "append-on-fd", spec: "FD:3,append"},
@@ -430,6 +463,26 @@ func TestValidateAddressOptions(t *testing.T) {
 			}
 			if err == nil || !strings.Contains(err.Error(), wantErr) {
 				t.Fatalf("error=%v want substring %q", err, wantErr)
+			}
+		})
+	}
+}
+
+func TestFSFlagOptionsRejectNonBoolValues(t *testing.T) {
+	names := []string{
+		"fs-append", "fs-compr", "fs-dirsync", "fs-immutable", "fs-journal-data",
+		"fs-noatime", "fs-nodump", "fs-notail", "fs-secrm", "fs-sync", "fs-topdir", "fs-unrm",
+		"nodump",
+	}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			ch, err := parse.ParseChannel("OPEN:file," + name + "=garbage")
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = validateChannelOptions(ch)
+			if err == nil || !strings.Contains(err.Error(), "invalid") {
+				t.Fatalf("error=%v want invalid", err)
 			}
 		})
 	}

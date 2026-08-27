@@ -23,6 +23,8 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"bindtodevice",
 		"ip-pktinfo", "ip-options", "ipv6-tclass", "ipv6-unicast-hops",
 		"tcp-cork", "tcp-maxseg", "tcp-maxseg-late",
+		"sctp-nodelay", "sctp-maxseg",
+		"fs-append", "fs-nodump", "fs-notail", "nodump", "notail",
 	} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("unsupported option %q is listed", name)

@@ -51,8 +51,12 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"o-rdonly", "o-creat", "o-excl", "o-wronly", "o-rdwr", "o-trunc", "ndelay", "o-ndelay",
 		"f-setlk", "lock", "bytes", "cr", "crlf", "cd", "sid", "close", "maxchildren",
 		"intervall", "ipv6only", "v6only", "termios-cfmakeraw", "crterase",
-		"tun-no-pi", "multicast", "proxy-auth", "resolv",
+		"tun-no-pi", "multicast", "proxy-auth", "resolv", "ignorecr",
 		"udplite-send-cscov", "udplite-recv-cscov",
+		"sctp-nodelay", "sctp-maxseg",
+		"fs-append", "fs-compr", "fs-dirsync", "fs-immutable", "fs-journal-data",
+		"fs-nodump", "fs-notail", "fs-secrm", "fs-sync", "fs-topdir", "fs-unrm",
+		"ext2-append", "ext3-append", "compr", "nodump", "notail", "journal-data",
 		"shut-down",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {

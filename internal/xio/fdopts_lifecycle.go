@@ -35,6 +35,10 @@ import (
 //     PH_LATE, lseek(2). Last-wins across aliases via command-line order.
 //   - flock / flock-nb / flock-sh / flock-sh-nb: GROUP_FD, PH_FD, flock(2).
 //     Independent of setlk* fcntl locks (fileopen/lock.go).
+//   - o-noatime / noatime: GROUP_FD|GROUP_OPEN, PH_FD, F_SETFL O_NOATIME (Linux).
+//   - f-setpipe-sz / pipesz: GROUP_FIFO, PH_FD, F_SETPIPE_SZ (Linux).
+//   - fs-* / ext2-* / ext3-* ioctl flags: GROUP_REG, PH_FD,
+//     OFUNC_IOCTL_MASK_LONG FS_IOC_GETFLAGS/SETFLAGS (Linux; xio-fs.c).
 //
 // Classic applyopts walks every matching option in original command-line
 // order for one phase (PH_FD then PH_LATE). Each occurrence is applied,

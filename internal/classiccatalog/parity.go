@@ -95,11 +95,13 @@ func (c OptionClass) String() string {
 type AddressClass int
 
 const (
-	// AddrMustRegister: canonical or already-registered alias; opener must exist.
+	// AddrMustRegister: canonical or alias whose opener must exist (directly
+	// registered or resolved through ClassicAddressAliases).
 	AddrMustRegister AddressClass = iota
 	// AddrExpectedMissingCanonical: canonical address not yet implemented.
 	AddrExpectedMissingCanonical
-	// AddrExpectedMissingAlias: alias of an implemented canonical (PR C).
+	// AddrExpectedMissingAlias: alias of an implemented canonical that is
+	// still on the supported-alias backlog. Empty after PR C.
 	AddrExpectedMissingAlias
 	// AddrUnsupportedFamily: DCCP, DTLS, or readline.
 	AddrUnsupportedFamily
@@ -143,7 +145,6 @@ func expectedMissingSources() []map[string]Gap {
 		expectedMissingAppl,
 		expectedMissingExec,
 		expectedMissingFD,
-		expectedMissingHTTP,
 		expectedMissingIOCTL,
 		expectedMissingIP,
 		expectedMissingIP6,
@@ -152,9 +153,7 @@ func expectedMissingSources() []map[string]Gap {
 		expectedMissingParent,
 		expectedMissingProcess,
 		expectedMissingPTY,
-		expectedMissingReg,
 		expectedMissingResolver,
-		expectedMissingSCTP,
 		expectedMissingSocket,
 		expectedMissingTCP,
 		expectedMissingTCPBSD,
@@ -397,11 +396,14 @@ func ValidateParityManifests() error {
 	for name := range DocsOnlyNotInThisBinary {
 		class, _ := ClassifyOption(name, "linux")
 		switch class {
-		case ClassExpectedMissing, ClassUnsupported, ClassForeign, ClassOptionalParserOnly:
+		case ClassExpectedMissing, ClassUnsupported, ClassForeign, ClassOptionalParserOnly, ClassMustAdvertise:
+			// ClassMustAdvertise is this port implementing a dump-omitted
+			// documented name (notail / Linux FS_NOTAIL_FL, or Linux
+			// SCTP_NODELAY/SCTP_MAXSEG). Do not forge those spellings into
+			// catalog_gen.go. Hide them on other GOOS the same way as
+			// implemented Linux UDP-Lite / fs-noatime.
 		default:
-			// Docs-only names are never advertised by the Linux reference
-			// binary, so they cannot be ClassMustAdvertise without a map entry.
-			errs = append(errs, "docs-only "+name+" is not classified (expected-missing, unsupported, or foreign)")
+			errs = append(errs, "docs-only "+name+" is not classified (expected-missing, unsupported, foreign, or implemented)")
 		}
 	}
 	if err := validateAddressManifests(); err != nil {
