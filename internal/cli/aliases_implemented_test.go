@@ -60,6 +60,23 @@ var implementedAliasHelp = []struct {
 	{"resolv", "proxy-resolve"},
 }
 
+// deferredImplementedTLSAliases are public classic spellings for TLS behavior
+// Go already has, but whose help/parse aliases are intentionally owned by the
+// later TLS compatibility PR. Keep this exact: a blanket OPENSSL-group skip
+// would also hide newly missed aliases and unsupported OpenSSL features.
+var deferredImplementedTLSAliases = map[string]string{
+	"certificate":         "cert",
+	"openssl-certificate": "cert",
+	"openssl-key":         "key",
+	"openssl-cafile":      "cafile",
+	"openssl-verify":      "verify",
+	"cn":                  "commonname",
+	"cipherlist":          "ciphers",
+	"min-proto-version":   "openssl-min-proto-version",
+	"max-proto-version":   "openssl-max-proto-version",
+	"no-sni":              "nosni",
+}
+
 func TestImplementedAliasesHHHNotHH(t *testing.T) {
 	var hh, hhh bytes.Buffer
 	if err := printHelp(&hh, 2); err != nil {
@@ -91,6 +108,31 @@ func TestImplementedAliasesHHHNotHH(t *testing.T) {
 	}
 }
 
+func TestRawHelpRemainsDistinctFromCFMakeRaw(t *testing.T) {
+	if hideOpt("raw") || hideOptGroupForAlias("raw") {
+		return
+	}
+	var hhh bytes.Buffer
+	if err := printHelp(&hhh, 3); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(hhh.String(), "\n")
+	foundRaw := false
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) == 0 || fields[0] != "raw" {
+			continue
+		}
+		foundRaw = true
+		if strings.Contains(line, "alias of") {
+			t.Fatalf("raw must be a distinct classic operation, got help line %q", line)
+		}
+	}
+	if !foundRaw {
+		t.Fatal("-hhh missing distinct raw option")
+	}
+}
+
 func helpLineNames(help string) map[string]bool {
 	out := map[string]bool{}
 	for _, line := range strings.Split(help, "\n") {
@@ -116,6 +158,17 @@ func hideOptGroupForAlias(canonical string) bool {
 
 func TestCatalogAliasesOfAdvertisedCanonicalsAreAdvertised(t *testing.T) {
 	advertised := advertisedHelpNames(true)
+	for spelling, canonical := range deferredImplementedTLSAliases {
+		if _, ok := classiccatalog.Lookup(spelling); !ok {
+			t.Errorf("deferred TLS spelling %q is not in the classic catalog", spelling)
+		}
+		if _, ok := advertised[spelling]; ok {
+			t.Errorf("deferred TLS spelling %q is now advertised; remove it from deferredImplementedTLSAliases", spelling)
+		}
+		if _, ok := advertised[canonical]; !ok {
+			t.Errorf("deferred TLS spelling %q targets unadvertised Go option %q", spelling, canonical)
+		}
+	}
 	var missing []string
 	for spelling, e := range classiccatalog.Options {
 		if _, ok := advertised[spelling]; ok {
@@ -124,14 +177,7 @@ func TestCatalogAliasesOfAdvertisedCanonicalsAreAdvertised(t *testing.T) {
 		if _, omit := classiccatalog.IntentionalPublicOmissions[spelling]; omit {
 			continue
 		}
-		openssl := false
-		for _, g := range e.Groups {
-			if g == "OPENSSL" {
-				openssl = true
-				break
-			}
-		}
-		if openssl {
+		if _, deferred := deferredImplementedTLSAliases[spelling]; deferred {
 			continue
 		}
 		goCanon := parse.CanonicalOptionName(spelling)

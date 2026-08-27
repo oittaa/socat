@@ -11,12 +11,9 @@ func init() {
 		"cd":            "chdir",
 		"sid":           "setsid",
 		"close":         "end-close",
-		// raw is a distinct classic optdesc (Canonical "raw") with the same
-		// TERMIOS/FD groups as cfmakeraw. Help already lists it as an alias
-		// of cfmakeraw (same applyCombo; tag-1.8.1.3
-		// 12c08bf66d709fba17035ce95d85bd218428d9ba). Fold at parse so
-		// last-option-wins matches that help table.
-		"raw":               "cfmakeraw",
+		// Classic raw is a distinct, obsolete TERMIOS combination. It does
+		// not use the cfmakeraw mask (notably, raw leaves ECHO unchanged).
+		// Keep raw canonical so ApplyTermios can preserve that behavior.
 		"termios-cfmakeraw": "cfmakeraw",
 		"termios-rawer":     "rawer",
 		"crterase":          "echoe",

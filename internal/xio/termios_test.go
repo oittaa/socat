@@ -163,3 +163,71 @@ func TestApplyTermiosCatalogAliases(t *testing.T) {
 		t.Fatalf("hup/tandem did not fold: options=%v", s.Options)
 	}
 }
+
+func TestRawAndCFMakeRawRemainDistinct(t *testing.T) {
+	base := unix.Termios{
+		Iflag: termiosBits(unix.IXOFF | unix.IMAXBEL),
+		Cflag: termiosBits(unix.PARENB | unix.CS7),
+		Lflag: termiosBits(unix.ECHO | unix.IEXTEN | unix.ISIG | unix.ICANON),
+	}
+
+	raw := base
+	applyCombo(&raw, "raw")
+	if raw.Iflag&termiosBits(unix.IXOFF|unix.IMAXBEL) != 0 {
+		t.Fatalf("raw left classic input processing enabled: Iflag=%#x", raw.Iflag)
+	}
+	if raw.Lflag&termiosBits(unix.ECHO|unix.IEXTEN) != termiosBits(unix.ECHO|unix.IEXTEN) {
+		t.Fatalf("raw unexpectedly changed ECHO/IEXTEN: Lflag=%#x", raw.Lflag)
+	}
+	if raw.Cflag != base.Cflag {
+		t.Fatalf("raw unexpectedly changed character size/parity: Cflag=%#x want %#x", raw.Cflag, base.Cflag)
+	}
+
+	cfmake := base
+	applyCombo(&cfmake, "cfmakeraw")
+	if cfmake.Iflag&termiosBits(unix.IXOFF|unix.IMAXBEL) != termiosBits(unix.IXOFF|unix.IMAXBEL) {
+		t.Fatalf("cfmakeraw unexpectedly used classic raw input mask: Iflag=%#x", cfmake.Iflag)
+	}
+	if cfmake.Lflag&termiosBits(unix.ECHO|unix.IEXTEN) != 0 {
+		t.Fatalf("cfmakeraw left ECHO/IEXTEN enabled: Lflag=%#x", cfmake.Lflag)
+	}
+	if cfmake.Cflag&termiosBits(unix.PARENB|unix.CSIZE) != termiosBits(unix.CS8) {
+		t.Fatalf("cfmakeraw did not select eight-bit no-parity mode: Cflag=%#x", cfmake.Cflag)
+	}
+}
+
+func TestApplyTermiosUsesCommandLineOrder(t *testing.T) {
+	master, slave, err := OpenPTYPair()
+	if err != nil {
+		t.Skipf("pty: %v", err)
+	}
+	defer func() { _ = master.Close() }()
+	defer func() { _ = slave.Close() }()
+
+	for _, tc := range []struct {
+		spec     string
+		wantEcho bool
+	}{
+		{spec: "PTY,echo=0,sane", wantEcho: true},
+		{spec: "PTY,sane,echo=0", wantEcho: false},
+		{spec: "PTY,cfmakeraw,sane", wantEcho: true},
+		{spec: "PTY,sane,cfmakeraw", wantEcho: false},
+	} {
+		t.Run(tc.spec, func(t *testing.T) {
+			s, parseErr := parse.ParseSpec(tc.spec)
+			if parseErr != nil {
+				t.Fatal(parseErr)
+			}
+			if applyErr := ApplyTermios(int(slave.Fd()), s); applyErr != nil {
+				t.Fatal(applyErr)
+			}
+			tio, getErr := getTermios(int(slave.Fd()))
+			if getErr != nil {
+				t.Fatal(getErr)
+			}
+			if got := tio.Lflag&unix.ECHO != 0; got != tc.wantEcho {
+				t.Fatalf("ECHO=%v want %v (Lflag=%#x)", got, tc.wantEcho, tio.Lflag)
+			}
+		})
+	}
+}

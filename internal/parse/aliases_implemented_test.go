@@ -43,6 +43,7 @@ func TestImplementedOpenFlagAndLockAliasesParse(t *testing.T) {
 		{spec: "TCP6-LISTEN:1,ipv6only", opt: "ipv6-v6only"},
 		{spec: "TCP6-LISTEN:1,v6only", opt: "ipv6-v6only"},
 		{spec: "PTY,termios-cfmakeraw", opt: "cfmakeraw"},
+		{spec: "PTY,raw", opt: "raw"},
 		{spec: "PTY,termios-rawer", opt: "rawer"},
 		{spec: "PTY,crterase", opt: "echoe"},
 		{spec: "PTY,crtkill", opt: "echoke"},
@@ -108,5 +109,14 @@ func TestCatalogOpenFlagAliasesShareClassicGroups(t *testing.T) {
 		if se.Phase != ce.Phase {
 			t.Errorf("%s/%s phase %q vs %q", alias, canon, se.Phase, ce.Phase)
 		}
+	}
+}
+
+func TestRawRemainsDistinctFromCFMakeRaw(t *testing.T) {
+	if got := CanonicalOptionName("raw"); got != "raw" {
+		t.Fatalf("CanonicalOptionName(raw)=%q want raw", got)
+	}
+	if got := CanonicalOptionName("termios-cfmakeraw"); got != "cfmakeraw" {
+		t.Fatalf("CanonicalOptionName(termios-cfmakeraw)=%q want cfmakeraw", got)
 	}
 }

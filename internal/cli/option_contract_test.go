@@ -80,6 +80,7 @@ var dynamicallyReadOptions = map[string]string{
 	"lock": "fileopen/lock.go", "lockw": "fileopen/lock.go",
 
 	// Canonical/alias families selected by last-option-wins helper loops.
+	"rdonly": "fileopen/file.go OpenFlags", "wronly": "fileopen/file.go OpenFlags",
 	"so-linger": "xio/options.go", "linger": "xio/options.go",
 	"o-noatime": "xio/options.go", "noatime": "xio/options.go",
 	"f-setpipe-sz": "xio/options.go", "pipesz": "xio/options.go",
@@ -191,7 +192,7 @@ func termiosFamilyNames(t *testing.T) map[string]string {
 	}
 	// These common help spellings remain visible on platforms where termios is
 	// unavailable; the address opener rejects the unsupported PTY at runtime.
-	for _, name := range []string{"cfmakeraw", "raw", "rawer", "sane", "echo", "echoe", "echoke", "echoctl", "hupcl", "ixoff", "opost", "winsz", "waitslave"} {
+	for _, name := range []string{"cfmakeraw", "raw", "rawer", "sane", "echo", "echoe", "echoke", "echoctl", "hupcl", "ixoff", "opost", "ispeed", "ospeed", "winsz", "waitslave"} {
 		out[name] = "common termios help"
 	}
 	return out

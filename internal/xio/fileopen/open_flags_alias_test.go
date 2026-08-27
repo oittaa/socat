@@ -24,6 +24,8 @@ func TestOpenFlagsClassicAliases(t *testing.T) {
 		{name: "o-excl", spec: "OPEN:x,o-excl", mode: xio.ModeWrite, access: -1, bit: os.O_EXCL},
 		{name: "o-trunc", spec: "OPEN:x,o-trunc", mode: xio.ModeWrite, access: -1, bit: os.O_TRUNC},
 		{name: "last-wins-wronly", spec: "OPEN:x,o-rdonly,o-wronly", mode: xio.ModeRead, access: os.O_WRONLY},
+		{name: "last-wins-rdonly", spec: "OPEN:x,o-wronly,o-rdonly", mode: xio.ModeWrite, access: os.O_RDONLY},
+		{name: "disabled-rdonly-does-not-replace", spec: "OPEN:x,o-wronly,o-rdonly=0", mode: xio.ModeRead, access: os.O_WRONLY},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
