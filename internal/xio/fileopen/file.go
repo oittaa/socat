@@ -67,7 +67,10 @@ func openCREATE(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	path := s.Params[0]
 	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	if s.BoolOption("append") {
-		flags = os.O_WRONLY | os.O_CREATE | os.O_APPEND
+		// Classic CREATE uses creat(2), so it always truncates first. append is
+		// a separate GROUP_FD/PH_LATE option; O_TRUNC|O_APPEND has the same
+		// resulting descriptor semantics without preserving stale contents.
+		flags |= os.O_APPEND
 	}
 	// Classic CREATE is GROUP_FD|GROUP_NAMED|GROUP_FILE, not GROUP_OPEN
 	// (xio-creat.c, tag-1.8.1.3). o-direct is GROUP_OPEN / PH_OPEN, so it
@@ -247,13 +250,19 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		created = true
 	}
-	// Existing FIFOs receive the same explicit ownership treatment. A
-	// failed open must not leave behind a FIFO that this invocation created.
-	if err := xio.ApplyOwner(path, s, nil); err != nil {
-		if created {
+	// Classic applies ownership to a newly created FIFO immediately, but to
+	// an existing FIFO only after open succeeds at PH_FD.
+	if created {
+		if err := xio.ApplyOwner(path, s, nil); err != nil {
 			_ = xio.Unlink(path)
+			return nil, err
 		}
-		return nil, err
+	}
+	applyExistingOwner := func() error {
+		if created {
+			return nil
+		}
+		return xio.ApplyOwner(path, s, nil)
 	}
 
 	// Classic xio-pipe.c (tag-1.8.1.3,
@@ -304,6 +313,11 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 			removeCreated()
 			return nil, err
 		}
+		if err := applyExistingOwner(); err != nil {
+			logx.CloseQuiet(f)
+			removeCreated()
+			return nil, err
+		}
 		if err := applyNamedUnlinkLate(path, s); err != nil {
 			logx.CloseQuiet(f)
 			removeCreated()
@@ -340,6 +354,11 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		clearNB(w)
 		logx.CloseQuiet(r)
+		if err := applyExistingOwner(); err != nil {
+			logx.CloseQuiet(w)
+			removeCreated()
+			return nil, err
+		}
 		if err := applyNamedUnlinkLate(path, s); err != nil {
 			logx.CloseQuiet(w)
 			removeCreated()
@@ -374,6 +393,12 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		clearNB(r)
 		clearNB(w)
+		if err := applyExistingOwner(); err != nil {
+			logx.CloseQuiet(r)
+			logx.CloseQuiet(w)
+			removeCreated()
+			return nil, err
+		}
 		if err := applyNamedUnlinkLate(path, s); err != nil {
 			logx.CloseQuiet(r)
 			logx.CloseQuiet(w)
@@ -621,19 +646,19 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 		guard.drop()
 		return nil, err
 	}
-	if err := applyOpenTruncate(f, s); err != nil {
+	// OPEN/FILE/GOPEN run applyopts_named(PH_FD) before descriptor PH_FD;
+	// CREATE ownership is descriptor-owned and ApplyOwner deliberately skips it.
+	if err := xio.ApplyOwner(path, s, f); err != nil {
 		return fail(err)
 	}
 	if err := xio.ApplyFDOptions(f, s); err != nil {
 		return fail(err)
 	}
-	// Classic perm=/user= after open apply to named sockets and PTY slaves.
-	// Regular files use perm=/mode= as the open(2) creation mode so umask
-	// still masks the result (umask=077,perm=0666 → 0600).
-	if err := xio.ApplyOwner(path, s, f); err != nil {
+	if err := applyFileLocks(s, f, f); err != nil {
 		return fail(err)
 	}
-	if err := applyFileLocks(s, f, f); err != nil {
+	// ftruncate is PH_LATE and therefore follows all PH_FD owner/lock work.
+	if err := applyOpenTruncate(f, s); err != nil {
 		return fail(err)
 	}
 	// ignoreeof is applied centrally by xio.WrapCommon now.

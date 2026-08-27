@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -345,6 +346,20 @@ func TestWrapCommonAppendOnSocket(t *testing.T) {
 		t.Fatalf("socket flags=%#x do not contain O_APPEND", flags)
 	}
 	_ = srv
+}
+
+func TestWrapCommonDoesNotSkipGenericSocketRecvDescriptor(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "socket-recv-visible-fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	if _, err := WrapCommon(mustSpec(t, "SOCKET-RECV:2:2:0:x00,append"), FileStream(f)); err != nil {
+		t.Fatal(err)
+	}
+	if fcntlFlags(t, f)&unix.O_APPEND == 0 {
+		t.Fatal("SOCKET-RECV descriptor was skipped by datagram wrapper detection")
+	}
 }
 
 func localTCPPair(t *testing.T) (net.Conn, net.Conn) {
@@ -890,6 +905,35 @@ func TestWrapCommonEXECPtyWriteOnlyAppliesAppendOnce(t *testing.T) {
 	}
 	if fcntlFlags(t, master)&unix.O_APPEND == 0 {
 		t.Fatal("EXEC pty write-only append did not set O_APPEND")
+	}
+}
+
+func TestEXECPtyOwnerOptionsApplyToSlaveOnly(t *testing.T) {
+	spec := mustSpec(t, "EXEC:true,pty,perm=0600")
+	ops := captureLifecycleSyscalls(t)
+	master, slave, err := openExecPTYPair(&exec.Cmd{}, spec)
+	if err != nil {
+		t.Skipf("no pty: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = master.Close()
+		_ = slave.Close()
+	})
+	st, err := slave.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Mode().Perm() != 0o600 {
+		t.Fatalf("PTY slave mode=%#o want 0600", st.Mode().Perm())
+	}
+	if err := ApplyFDOptions(master, spec); err != nil {
+		t.Fatal(err)
+	}
+	if got := countOp(*ops, "chmod"); got != 1 {
+		t.Fatalf("PTY slave chmod count=%d want 1 (ops=%v)", got, *ops)
+	}
+	if got := countOp(*ops, "fchmod"); got != 0 {
+		t.Fatalf("PTY master unexpectedly received fchmod (ops=%v)", *ops)
 	}
 }
 

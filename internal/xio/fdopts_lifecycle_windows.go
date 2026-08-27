@@ -39,7 +39,7 @@ func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
 	if !hasFDLifecycleOptions(s) {
 		return nil
 	}
-	if wrapHidesDescriptor(s.Type) {
+	if wrapHidesDescriptor(s) {
 		return nil
 	}
 	targets := streamSyscallConnTargets(stream)
@@ -91,6 +91,22 @@ func ApplyFDLifecycleToConn(c syscall.Conn, s parse.Spec) error {
 	return nil
 }
 
+// ApplyFDPhaseLifecycleToConn applies only PH_FD owner options.
+func ApplyFDPhaseLifecycleToConn(c syscall.Conn, s parse.Spec) error {
+	if c == nil {
+		return nil
+	}
+	raw, err := c.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var optionErr error
+	ctrlErr := raw.Control(func(_ uintptr) {
+		optionErr = applyWindowsFDPhaseOptions(s, false)
+	})
+	return errors.Join(ctrlErr, optionErr)
+}
+
 // ApplyFDLifecycleToPacketConn applies descriptor lifecycle on a PacketConn.
 func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s parse.Spec) error {
 	if pc == nil || !hasFDLifecycleOptions(s) {
@@ -116,21 +132,25 @@ func applyFDLifecycleOnHandle(fd uintptr, s parse.Spec) error {
 }
 
 func applyWindowsFDPhase(s parse.Spec) error {
-	skipOwner := skipDescriptorOwnerOpts(s)
+	return applyWindowsFDPhaseOptions(s, true)
+}
+
+func applyWindowsFDPhaseOptions(s parse.Spec, honorTargetSkip bool) error {
 	for _, o := range s.Options {
-		switch parse.CanonicalOptionName(o.Name) {
+		name := parse.CanonicalOptionName(o.Name)
+		switch name {
 		case "perm":
-			if skipOwner {
+			if honorTargetSkip && skipDescriptorOwnerOption(s, name) {
 				continue
 			}
 			return fmt.Errorf("perm: fchmod is not supported on windows")
 		case "user":
-			if skipOwner {
+			if honorTargetSkip && skipDescriptorOwnerOption(s, name) {
 				continue
 			}
 			return fmt.Errorf("user: not supported on windows")
 		case "group":
-			if skipOwner {
+			if honorTargetSkip && skipDescriptorOwnerOption(s, name) {
 				continue
 			}
 			return fmt.Errorf("group: not supported on windows")
@@ -141,9 +161,13 @@ func applyWindowsFDPhase(s parse.Spec) error {
 
 func applyWindowsLate(fd uintptr, s parse.Spec) error {
 	skipTrunc := skipNamedFileFtruncate(s.Type)
+	skipAppend := skipNamedFileAppend(s.Type)
 	for _, o := range s.Options {
 		switch parse.CanonicalOptionName(o.Name) {
 		case "append":
+			if skipAppend {
+				continue
+			}
 			if err := applyWindowsOneAppend(s); err != nil {
 				return err
 			}

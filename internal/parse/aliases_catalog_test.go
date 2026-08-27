@@ -10,13 +10,10 @@ import (
 )
 
 func TestGoAliasesWhoseClassicGroupsDifferFromCanonical(t *testing.T) {
-	// Go currently folds these spellings onto a different runtime name.
-	// Classic groups/phases for the spelling differ from that target, so
-	// validation must eventually use Spelling (not Name). Expected set is
-	// the follow-up work list; do not grow it without a dedicated PR.
-	want := map[string]string{
-		"ipv6-join-group": "ip-add-membership",
-	}
+	// Parse must not fold a spelling onto a runtime name whose classic
+	// groups/phases differ (ipv6-join-group is GROUP_IP6; ip-add-membership
+	// is IP4+IP6). Validation uses OriginalSpelling. Keep this set empty.
+	want := map[string]string{}
 	got := map[string]string{}
 	for spelling, canonical := range optionAliases {
 		se, sok := classiccatalog.Lookup(spelling)

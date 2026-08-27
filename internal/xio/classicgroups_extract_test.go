@@ -21,6 +21,12 @@ func TestClassicAllowsOptionAmbiguousAliases(t *testing.T) {
 	if !ClassicAllowsOption("UDP4", "pktinfo") {
 		t.Fatal(`ClassicAllowsOption("UDP4", "pktinfo") must be true; optionnames[] maps pktinfo to opt_ip_pktinfo (IPv4+IPv6)`)
 	}
+	if ClassicAllowsOption("UDP4", "ipv6-join-group") {
+		t.Fatal(`ClassicAllowsOption("UDP4", "ipv6-join-group") must be false; optionnames[] maps ipv6-join-group to GROUP_SOCK_IP6`)
+	}
+	if !ClassicAllowsOption("UDP6", "ipv6-join-group") {
+		t.Fatal(`ClassicAllowsOption("UDP6", "ipv6-join-group") must be true`)
+	}
 }
 
 func TestExtractClassicGroupsOptionnamesWinOverNicknames(t *testing.T) {

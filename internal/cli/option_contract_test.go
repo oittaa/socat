@@ -85,13 +85,17 @@ var dynamicallyReadOptions = map[string]string{
 	"so-protocol": "netopen/vsock.go parseVsockProtocolOption",
 
 	"perm": "xio/run.go", "mode": "xio/run.go",
-	"uid": "xio/fdopts_lifecycle.go", "owner": "xio/fdopts_lifecycle.go",
-	"gid":         "xio/fdopts_lifecycle.go",
+	"user": "xio/fdopts_lifecycle.go", "uid": "xio/fdopts_lifecycle.go", "owner": "xio/fdopts_lifecycle.go",
+	"group": "xio/fdopts_lifecycle.go", "gid": "xio/fdopts_lifecycle.go",
 	"ftruncate32": "xio/fdopts_lifecycle.go", "ftruncate64": "xio/fdopts_lifecycle.go",
 
 	// PH_PREOPEN NAMED walk in ApplyNamedPreopen (command-line order).
 	"perm-early": "xio/named_preopen.go", "user-early": "xio/named_preopen.go",
 	"group-early": "xio/named_preopen.go", "unlink": "xio/named_preopen.go",
+
+	// PH_PASTSOCKET membership walk in option order (not last-wins).
+	"ip-add-membership": "xio/mcast_opt.go membershipJoins",
+	"ipv6-join-group":   "xio/mcast_opt.go membershipJoins",
 }
 
 // compatNoOptions are advertised deliberately as classic-compat spellings

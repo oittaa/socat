@@ -618,6 +618,14 @@ func openExecPTYPair(cmd *exec.Cmd, s parse.Spec) (*os.File, *os.File, error) {
 		logx.CloseQuiet(slave)
 		return nil, nil, err
 	}
+	// Classic moves GROUP_NAMED perm/user/group to the PTY slave. Applying
+	// them to the master changes the wrong descriptor and can fail differently
+	// across platforms.
+	if err := ApplyNamedAttrs(slave.Name(), s, slave); err != nil {
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
+		return nil, nil, err
+	}
 	return master, slave, nil
 }
 

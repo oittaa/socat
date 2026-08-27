@@ -44,6 +44,12 @@ func applyOrderedPastSocketPhaseOptions(fd int, s parse.Spec, network string) er
 		if !applyIP {
 			continue
 		}
+		if matched, err := applyMembershipOption(fd, option); matched {
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		e, ok := lookupIPAncillary(specOptionName(option))
 		if !ok {
 			continue

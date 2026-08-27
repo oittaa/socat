@@ -135,6 +135,33 @@ func TestUnixListenAbstractPermEarlyNoError(t *testing.T) {
 	t.Cleanup(func() { _ = o.Close() })
 }
 
+func TestAbstractListenPermAppliesToListenerDescriptorBeforeAccept(t *testing.T) {
+	if !xio.FeatureABSTRACT {
+		t.Skip("ABSTRACT UNIX not enabled")
+	}
+	var ops []string
+	restore := xio.InstallLifecycleSyscallHook(func(op string) { ops = append(ops, op) })
+	t.Cleanup(restore)
+	spec, err := parse.ParseSpec("ABSTRACT-LISTEN:" + t.Name() + ",fork,perm=0600")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openAbstractListen(context.Background(), spec, xio.ModeRDWR, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	var fchmods int
+	for _, op := range ops {
+		if op == "fchmod" {
+			fchmods++
+		}
+	}
+	if fchmods != 1 {
+		t.Fatalf("listener fchmod count=%d want 1 before accept (ops=%v)", fchmods, ops)
+	}
+}
+
 func assertUnixSocketPerm(t *testing.T, path string, want os.FileMode) {
 	t.Helper()
 	fi, err := os.Lstat(path)

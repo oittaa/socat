@@ -57,6 +57,27 @@ func TestCREATEThenOPENRoundtrip(t *testing.T) {
 	}
 }
 
+func TestCREATEAppendStillTruncatesExistingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "create-append.bin")
+	if err := os.WriteFile(path, []byte("stale-data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	w := openUse(t, "CREATE:"+path+",append", xio.ModeWrite)
+	if _, err := io.WriteString(w.Stream, "new"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "new" {
+		t.Fatalf("CREATE,append preserved stale contents: got %q", got)
+	}
+}
+
 func TestGOPENCreatesAndAppends(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gopen.bin")
 	w := openUse(t, "GOPEN:"+path, xio.ModeWrite)

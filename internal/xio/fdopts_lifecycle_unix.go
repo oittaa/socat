@@ -62,7 +62,7 @@ func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
 	// embed one after the parent already applied on the raw socket. Skip here
 	// so a promoted SyscallConn cannot double-apply. Never treat a visible
 	// stream with no fd as success.
-	if wrapHidesDescriptor(s.Type) {
+	if wrapHidesDescriptor(s) {
 		return nil
 	}
 	targets := streamSyscallConnTargets(stream)
@@ -117,6 +117,24 @@ func ApplyFDLifecycleToConn(c syscall.Conn, s parse.Spec) error {
 	return nil
 }
 
+// ApplyFDPhaseLifecycleToConn applies only classic PH_FD owner options to a
+// descriptor that is not the eventual transfer stream. Abstract UNIX stream
+// listeners use this before accept; PH_LATE remains for the accepted socket.
+func ApplyFDPhaseLifecycleToConn(c syscall.Conn, s parse.Spec) error {
+	if c == nil {
+		return nil
+	}
+	raw, err := c.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var optionErr error
+	ctrlErr := raw.Control(func(fd uintptr) {
+		optionErr = applyFDPhaseLifecycleAll(int(fd), s)
+	})
+	return errors.Join(ctrlErr, optionErr)
+}
+
 // ApplyFDLifecycleToPacketConn applies descriptor lifecycle on a UDP
 // PacketConn (QUIC transport) before quic-go wrapping. Rejects enabled
 // options when the conn does not expose a socket.
@@ -138,25 +156,37 @@ func ApplyFDLifecycleOnFD(fd int, s parse.Spec) error {
 }
 
 func applyFDPhaseLifecycle(fd int, s parse.Spec) error {
-	skipOwner := skipDescriptorOwnerOpts(s)
+	return applyFDPhaseLifecycleOptions(fd, s, true)
+}
+
+// applyFDPhaseLifecycleAll is for the actual descriptor that owns PH_FD
+// options even when the eventual transfer stream must skip them. Abstract
+// UNIX listeners are configured here before accept; accepted children must
+// not receive the same perm/user/group options again.
+func applyFDPhaseLifecycleAll(fd int, s parse.Spec) error {
+	return applyFDPhaseLifecycleOptions(fd, s, false)
+}
+
+func applyFDPhaseLifecycleOptions(fd int, s parse.Spec, honorTargetSkip bool) error {
 	for _, o := range s.Options {
-		switch parse.CanonicalOptionName(o.Name) {
+		name := parse.CanonicalOptionName(o.Name)
+		switch name {
 		case "perm":
-			if skipOwner {
+			if honorTargetSkip && skipDescriptorOwnerOption(s, name) {
 				continue
 			}
 			if err := applyOnePerm(fd, o); err != nil {
 				return err
 			}
 		case "user":
-			if skipOwner {
+			if honorTargetSkip && skipDescriptorOwnerOption(s, name) {
 				continue
 			}
 			if err := applyOneUser(fd, o); err != nil {
 				return err
 			}
 		case "group":
-			if skipOwner {
+			if honorTargetSkip && skipDescriptorOwnerOption(s, name) {
 				continue
 			}
 			if err := applyOneGroup(fd, o); err != nil {
@@ -169,9 +199,13 @@ func applyFDPhaseLifecycle(fd int, s parse.Spec) error {
 
 func applyLateLifecycle(fd int, s parse.Spec) error {
 	skipTrunc := skipNamedFileFtruncate(s.Type)
+	skipAppend := skipNamedFileAppend(s.Type)
 	for _, o := range s.Options {
 		switch parse.CanonicalOptionName(o.Name) {
 		case "append":
+			if skipAppend {
+				continue
+			}
 			if err := applyOneAppend(fd, o); err != nil {
 				return err
 			}
@@ -240,7 +274,11 @@ func applyOnePerm(fd int, o parse.Option) error {
 }
 
 func applyOneUser(fd int, o parse.Option) error {
-	uid, hasU, err := resolveUID(optionString(o))
+	v, err := requiredLifecycleOptionValue(o)
+	if err != nil {
+		return err
+	}
+	uid, hasU, err := resolveUID(v)
 	if err != nil {
 		return err
 	}
@@ -255,7 +293,11 @@ func applyOneUser(fd int, o parse.Option) error {
 }
 
 func applyOneGroup(fd int, o parse.Option) error {
-	gid, hasG, err := resolveGID(optionString(o))
+	v, err := requiredLifecycleOptionValue(o)
+	if err != nil {
+		return err
+	}
+	gid, hasG, err := resolveGID(v)
 	if err != nil {
 		return err
 	}

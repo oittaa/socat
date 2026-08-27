@@ -539,6 +539,37 @@ func TestPastSocketNamedAndGenericCommandLineOrder(t *testing.T) {
 	}
 }
 
+func TestPastSocketMembershipInterleavesInCommandLineOrder(t *testing.T) {
+	spec, err := parse.ParseSpec(fmt.Sprintf(
+		"UDP4-RECV:0,setsockopt-socket=%d:%d:61,ip-add-membership=224.0.0.251:127.0.0.1,ip-ttl=63",
+		unix.IPPROTO_IP, unix.IP_TTL,
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	restore := SetSockoptTestHook(func(call SockoptCall) {
+		switch {
+		case call.Level == unix.IPPROTO_IP && call.Opt == unix.IP_TTL && call.AsInt:
+			got = append(got, fmt.Sprintf("ttl=%d", call.IntValue))
+		case call.Level == unix.IPPROTO_IP && call.Opt == unix.IP_ADD_MEMBERSHIP:
+			got = append(got, "membership")
+		}
+	})
+	t.Cleanup(restore)
+
+	lc := net.ListenConfig{Control: ListenControl(spec)}
+	pc, err := lc.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	want := []string{"ttl=61", "membership", "ttl=63"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("PH_PASTSOCKET order=%v want %v", got, want)
+	}
+}
+
 func TestIPOptionsOccurrencesAppend(t *testing.T) {
 	// BSD kernels (including Darwin) reject IP_OPTIONS whose length is not a
 	// multiple of 4. x01000000 is IPOPT_NOP plus padding; Linux accepts it too.

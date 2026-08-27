@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -199,6 +200,30 @@ func TestH3CONNECTEcho(t *testing.T) {
 		"PROXY:127.0.0.1:127.0.0.1:9,http-version=3,proxyport=%s,verify=0",
 		port,
 	))
+}
+
+func TestH3CONNECTInvalidMembershipInterface(t *testing.T) {
+	const missing = "no-such-iface-socat-test"
+	s, err := parse.ParseSpec(
+		"PROXY:127.0.0.1:127.0.0.1:9,http-version=3,proxyport=1,verify=0,ipv6-join-group=[ff02::1]:" + missing,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	start := time.Now()
+	_, err = openProxyConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("HTTP/3 PROXY ignored ipv6-join-group (silent no-op)")
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("membership error took %v; option was processed after HTTP/3 negotiation", elapsed)
+	}
+	if !strings.Contains(err.Error(), missing) && !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("error=%v want %q or Windows unsupported", err, missing)
+	}
 }
 
 func TestH3CONNECTVerifySuccess(t *testing.T) {

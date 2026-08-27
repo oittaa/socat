@@ -16,33 +16,62 @@ func mustSpec(t *testing.T, raw string) parse.Spec {
 }
 
 func TestSkipDescriptorOwnerOptsClassicTypes(t *testing.T) {
-	skip := []parse.Spec{
-		{Type: "OPEN"}, {Type: "FILE"}, {Type: "CREATE"}, {Type: "CREAT"},
-		{Type: "GOPEN"}, {Type: "PIPE"}, {Type: "FIFO"}, {Type: "ECHO"}, {Type: "PTY"},
-		{Type: "POSIXMQ"}, {Type: "POSIXMQ-SEND"}, {Type: "POSIXMQ-RECV"},
-		{Type: "UNIX-LISTEN", Params: []string{"/tmp/x.sock"}},
-		{Type: "UNIX-L", Params: []string{"/tmp/x.sock"}},
-		{Type: "UNIX-RECV", Params: []string{"/tmp/x.sock"}},
-		{Type: "UNIX-RECVFROM", Params: []string{"/tmp/x.sock"}},
+	tests := []struct {
+		spec parse.Spec
+		name string
+		skip bool
+	}{
+		{spec: parse.Spec{Type: "OPEN"}, name: "perm", skip: true},
+		{spec: parse.Spec{Type: "CREATE"}, name: "perm", skip: true},
+		{spec: parse.Spec{Type: "CREATE"}, name: "user", skip: false},
+		{spec: parse.Spec{Type: "PIPE", Params: []string{"/tmp/p"}}, name: "user", skip: true},
+		{spec: parse.Spec{Type: "PIPE"}, name: "perm", skip: false},
+		{spec: parse.Spec{Type: "ECHO"}, name: "group", skip: false},
+		{spec: parse.Spec{Type: "PTY"}, name: "perm", skip: true},
+		{spec: mustSpec(t, "EXEC:true,pty"), name: "user", skip: true},
+		{spec: parse.Spec{Type: "EXEC"}, name: "user", skip: false},
+		{spec: parse.Spec{Type: "POSIXMQ-RECV"}, name: "perm", skip: true},
+		{spec: parse.Spec{Type: "POSIXMQ-RECV"}, name: "user", skip: false},
+		{spec: parse.Spec{Type: "UNIX-LISTEN", Params: []string{"/tmp/x.sock"}}, name: "perm", skip: true},
+		{spec: parse.Spec{Type: "UNIX-LISTEN", Params: []string{"@abs"}}, name: "perm", skip: true},
+		{spec: parse.Spec{Type: "ABSTRACT-LISTEN", Params: []string{"foo"}}, name: "user", skip: true},
+		{spec: parse.Spec{Type: "ABSTRACT-CONNECT", Params: []string{"foo"}}, name: "user", skip: false},
+		{spec: parse.Spec{Type: "UDP-RECV"}, name: "perm", skip: false},
 	}
-	for _, spec := range skip {
-		if !skipDescriptorOwnerOpts(spec) {
-			t.Errorf("skipDescriptorOwnerOpts(%q params=%v)=false want true", spec.Type, spec.Params)
+	for _, tc := range tests {
+		if got := skipDescriptorOwnerOption(tc.spec, tc.name); got != tc.skip {
+			t.Errorf("skipDescriptorOwnerOption(%q params=%v, %q)=%v want %v", tc.spec.Type, tc.spec.Params, tc.name, got, tc.skip)
 		}
 	}
-	apply := []parse.Spec{
-		{Type: "FD"}, {Type: "STDIO"}, {Type: "STDIN"}, {Type: "STDOUT"},
-		{Type: "TCP"}, {Type: "TCP4"}, {Type: "EXEC"}, {Type: "SYSTEM"},
-		{Type: "UNIX"}, {Type: "UNIX-CONNECT", Params: []string{"/tmp/x.sock"}},
-		{Type: "UNIX-SENDTO", Params: []string{"/tmp/x.sock"}},
-		{Type: "UNIX-LISTEN", Params: []string{"@abs"}},
-		{Type: "ABSTRACT-LISTEN", Params: []string{"foo"}},
-		{Type: "ABSTRACT-CONNECT", Params: []string{"foo"}},
-		{Type: "UDP-RECV"}, {Type: "QUIC-LISTEN"},
+}
+
+func TestWrapHidesDescriptorUsesExactAddressFamilies(t *testing.T) {
+	tests := []struct {
+		raw  string
+		want bool
+	}{
+		{raw: "UDP-RECV:1", want: true},
+		{raw: "UNIX-RECV:/tmp/x", want: true},
+		{raw: "IP-RECV:1", want: true},
+		{raw: "QUIC:localhost:1", want: true},
+		{raw: "SOCKET-RECV:2:2:0:x00", want: false},
+		{raw: "SOCKET-DATAGRAM:2:2:0:x00", want: false},
+		{raw: "PROXY:p:h:1,http-version=2", want: false},
+		{raw: "PROXY:p:h:1,http-version=3", want: false},
 	}
-	for _, spec := range apply {
-		if skipDescriptorOwnerOpts(spec) {
-			t.Errorf("skipDescriptorOwnerOpts(%q params=%v)=true want false", spec.Type, spec.Params)
+	for _, tc := range tests {
+		spec := mustSpec(t, tc.raw)
+		if got := wrapHidesDescriptor(spec); got != tc.want {
+			t.Errorf("wrapHidesDescriptor(%q)=%v want %v", tc.raw, got, tc.want)
+		}
+	}
+}
+
+func TestRequiredLifecycleOptionValueRejectsMissingValue(t *testing.T) {
+	for _, raw := range []string{"FD:3,user", "FD:3,group", "FD:3,owner", "FD:3,gid"} {
+		spec := mustSpec(t, raw)
+		if _, err := requiredLifecycleOptionValue(spec.Options[0]); err == nil {
+			t.Errorf("%s: missing value accepted", raw)
 		}
 	}
 }

@@ -73,11 +73,11 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	}
 	switch major {
 	case httpVer2:
-		return openProxyDial(ctx, s, mode, g, t, func(dctx context.Context) (net.Conn, error) {
+		return openProxyDial(ctx, s, mode, g, t, true, func(dctx context.Context) (net.Conn, error) {
 			return dialH2CONNECT(dctx, s, g, t)
 		})
 	case httpVer3:
-		return openProxyDial(ctx, s, mode, g, t, func(dctx context.Context) (net.Conn, error) {
+		return openProxyDial(ctx, s, mode, g, t, true, func(dctx context.Context) (net.Conn, error) {
 			return dialH3CONNECT(dctx, s, g, t)
 		})
 	}
@@ -110,7 +110,7 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		return conn, e
 	}
 
-	return openProxyDial(ctx, s, mode, g, t, dialOnce)
+	return openProxyDial(ctx, s, mode, g, t, false, dialOnce)
 }
 
 func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, version string) (net.Conn, error) {
@@ -176,12 +176,15 @@ type proxyTarget struct {
 	label                  string
 }
 
-func openProxyDial(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, t proxyTarget, dialOnce func(context.Context) (net.Conn, error)) (*xio.Opened, error) {
+func openProxyDial(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, t proxyTarget, transportLifecycleApplied bool, dialOnce func(context.Context) (net.Conn, error)) (*xio.Opened, error) {
 	_ = mode
 	return xio.OpenDialed(ctx, s, g, xio.Dialed{
 		Label: t.label,
 		Dial:  dialOnce,
 		Wrap: func(c net.Conn) (relay.Stream, error) {
+			if transportLifecycleApplied {
+				return xio.WrapCommonAfterConnectedFDLifecycleApplied(s, relay.NetStream{Conn: c})
+			}
 			return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
 		},
 	})

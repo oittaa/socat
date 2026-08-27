@@ -230,7 +230,8 @@ func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn
 
 // ApplyNetworkSocketOptions applies the post-socket options shared by Go net
 // listeners/dialers and raw SCTP sockets, including the unified PH_PASTSOCKET
-// IP/ancillary pass (send and recv, once; not again after connect/bind).
+// generic, IP/ancillary, and multicast-membership pass. Every occurrence is
+// applied once in command-line order, before bind/connect.
 func ApplyNetworkSocketOptions(fd int, s parse.Spec, network string) error {
 	if err := ApplySocketOptionsWithoutGeneric(fd, s); err != nil {
 		return err

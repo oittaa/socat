@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -62,6 +63,12 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 			_ = xio.Unlink(path)
 		}
 		return nil, err
+	}
+	if xio.IsAbstract(path) {
+		if err := applyAbstractListenerFDPhase(ln, s); err != nil {
+			_ = ln.Close()
+			return nil, err
+		}
 	}
 
 	// Ensure path is removed on SIGTERM (SetUnlinkOnClose only runs on Close).
@@ -200,6 +207,10 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	if err != nil {
 		return nil, err
 	}
+	if err := applyAbstractListenerFDPhase(ln, s); err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
 	fork, maxChildren, ferr := xio.ForkLimits(s)
 	if ferr != nil {
 		logx.CloseQuiet(ln)
@@ -267,4 +278,12 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		o.Stream = st
 		return o, nil
 	}
+}
+
+func applyAbstractListenerFDPhase(ln net.Listener, s parse.Spec) error {
+	sc, ok := ln.(syscall.Conn)
+	if !ok {
+		return fmt.Errorf("%s: listener does not expose a descriptor", s.Type)
+	}
+	return xio.ApplyFDPhaseLifecycleToConn(sc, s)
 }

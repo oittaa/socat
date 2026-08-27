@@ -561,7 +561,11 @@ func applyNamedPerm(path string, f *os.File, o parse.Option) error {
 }
 
 func applyNamedUser(path string, f *os.File, o parse.Option) error {
-	uid, hasU, err := resolveUID(optionString(o))
+	v, err := requiredLifecycleOptionValue(o)
+	if err != nil {
+		return err
+	}
+	uid, hasU, err := resolveUID(v)
 	if err != nil {
 		return err
 	}
@@ -573,7 +577,11 @@ func applyNamedUser(path string, f *os.File, o parse.Option) error {
 }
 
 func applyNamedGroup(path string, f *os.File, o parse.Option) error {
-	gid, hasG, err := resolveGID(optionString(o))
+	v, err := requiredLifecycleOptionValue(o)
+	if err != nil {
+		return err
+	}
+	gid, hasG, err := resolveGID(v)
 	if err != nil {
 		return err
 	}

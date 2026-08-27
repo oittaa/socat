@@ -39,3 +39,19 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowsHelpHHHOmitsMembershipSpellings(t *testing.T) {
+	var b bytes.Buffer
+	if err := printHelp(&b, 3); err != nil {
+		t.Fatal(err)
+	}
+	help := b.String()
+	for _, name := range []string{
+		"ip-add-membership", "add-membership", "ip-membership", "membership",
+		"ipv6-join-group", "ipv6-add-membership", "join-group",
+	} {
+		if strings.Contains(help, "    "+name+" ") {
+			t.Errorf("unsupported membership spelling %q is listed in -hhh", name)
+		}
+	}
+}

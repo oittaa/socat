@@ -148,18 +148,20 @@ func isWeakConnApplied[T any](p *T) bool {
 }
 
 func hasFDLifecycleOptions(s parse.Spec) bool {
-	skipOwner := skipDescriptorOwnerOpts(s)
 	skipTrunc := skipNamedFileFtruncate(s.Type)
+	skipAppend := skipNamedFileAppend(s.Type)
 	for _, o := range s.Options {
 		switch parse.CanonicalOptionName(o.Name) {
 		case "append":
-			return true
+			if !skipAppend {
+				return true
+			}
 		case "ftruncate":
 			if !skipTrunc {
 				return true
 			}
 		case "perm", "user", "group":
-			if !skipOwner {
+			if !skipDescriptorOwnerOption(s, parse.CanonicalOptionName(o.Name)) {
 				return true
 			}
 		}
@@ -167,8 +169,8 @@ func hasFDLifecycleOptions(s parse.Spec) bool {
 	return false
 }
 
-// skipDescriptorOwnerOpts reports call sites that already consume perm=/
-// user=/group= as create mode or named chmod/chown (classic retropt_modet /
+// skipDescriptorOwnerOption reports call sites that consume one owner option
+// as create mode or named chmod/chown (classic retropt_modet /
 // applyopts_named PH_FD). Applying fchmod here would undo umask on regular
 // files and fchmod a PTY master instead of the slave.
 //
@@ -178,17 +180,46 @@ func hasFDLifecycleOptions(s parse.Spec) bool {
 // UNIX-RECV / UNIX-RECVFROM name (xio-listen.c, xio-socket.c). ABSTRACT
 // endpoints and UNIX-CONNECT apply PH_FD to the socket descriptor
 // (_xioopen_connect / abstract listen branch). Do not skip those.
-func skipDescriptorOwnerOpts(s parse.Spec) bool {
+func skipDescriptorOwnerOption(s parse.Spec, name string) bool {
 	t := strings.ToUpper(s.Type)
 	switch t {
-	case "OPEN", "FILE", "CREATE", "CREAT", "GOPEN", "PIPE", "FIFO", "ECHO", "PTY":
+	case "OPEN", "FILE", "GOPEN", "PTY":
 		return true
+	case "CREATE", "CREAT":
+		// CREATE consumes perm as the creat(2) mode, but classic applies user
+		// and group to the opened descriptor through applyopts2(PH_FD).
+		return name == "perm"
+	case "PIPE", "FIFO":
+		// A named FIFO consumes perm as mkfifo/open mode and applies ownership
+		// to the filesystem entry. Anonymous PIPE/FIFO (and ECHO) have no name;
+		// their GROUP_FD options belong on the pipe descriptor.
+		return len(s.Params) > 0 && s.Params[0] != ""
+	case "EXEC", "SYSTEM", "SHELL":
+		// With pty, classic moves GROUP_NAMED perm/user/group to the slave
+		// node. The master retains FD-only options such as append.
+		return s.BoolOption("pty")
 	}
 	if strings.HasPrefix(t, "POSIXMQ") {
-		// perm= is mq_open(3) mode (classic retropt_mode), not fchmod.
+		// perm= is mq_open(3) mode (classic retropt_mode), not fchmod. user=/
+		// group= remain descriptor options and must not become silent no-ops.
+		return name == "perm"
+	}
+	if unixStreamListenPHFDOwner(s) {
+		// Filesystem listeners apply PH_FD to the name. Abstract listeners
+		// apply it to the listening descriptor before accept. In both cases
+		// the accepted stream must not apply owner options again.
 		return true
 	}
 	return namedFilesystemUnixPHFD(s)
+}
+
+func unixStreamListenPHFDOwner(s parse.Spec) bool {
+	switch strings.ToUpper(s.Type) {
+	case "UNIX-LISTEN", "UNIX-L", "ABSTRACT-LISTEN", "ABSTRACT-L":
+		return true
+	default:
+		return false
+	}
 }
 
 // namedFilesystemUnixPHFD is classic applyopts_named(PH_FD) after bind of a
@@ -212,21 +243,29 @@ func namedFilesystemUnixPHFD(s parse.Spec) bool {
 // fds). Lifecycle options are applied on the parent socket or mqd before
 // wrapping. Never treat an accepted option as a silent no-op: other types
 // with no discoverable fd are rejected.
-func wrapHidesDescriptor(addrType string) bool {
-	t := strings.ToUpper(addrType)
+func wrapHidesDescriptor(s parse.Spec) bool {
+	t := strings.ToUpper(s.Type)
 	if strings.HasPrefix(t, "QUIC") || strings.HasPrefix(t, "POSIXMQ") {
 		return true
 	}
-	if strings.Contains(t, "RECV") || strings.Contains(t, "SENDTO") || strings.Contains(t, "DATAGRAM") {
+	if strings.HasPrefix(t, "UDP") || strings.HasPrefix(t, "IP") {
 		return true
 	}
-	if strings.Contains(t, "UDP") && strings.Contains(t, "LISTEN") {
-		return true
-	}
-	if strings.Contains(t, "UDP") && strings.HasSuffix(t, "-SEND") {
+	switch t {
+	case "UNIX-SENDTO", "UNIX-SEND", "UNIX-RECV", "UNIX-RECVFROM", "UNIX-DATAGRAM",
+		"ABSTRACT-SENDTO", "ABSTRACT-SEND", "ABSTRACT-RECV", "ABSTRACT-RECVFROM":
 		return true
 	}
 	return false
+}
+
+func skipNamedFileAppend(addrType string) bool {
+	switch strings.ToUpper(addrType) {
+	case "OPEN", "FILE", "CREATE", "CREAT", "GOPEN":
+		return true
+	default:
+		return false
+	}
 }
 
 func skipNamedFileFtruncate(addrType string) bool {
@@ -280,11 +319,12 @@ func parseFtruncateLength(s parse.Spec) (int64, bool, error) {
 	return n, true, nil
 }
 
-func optionString(o parse.Option) string {
-	if !o.Has {
-		return "1"
+func requiredLifecycleOptionValue(o parse.Option) (string, error) {
+	v := strings.TrimSpace(o.Value)
+	if !o.Has || v == "" {
+		return "", fmt.Errorf("%s: value required", o.OriginalSpelling())
 	}
-	return o.Value
+	return v, nil
 }
 
 // ApplyNamedFileFtruncate applies every ftruncate/truncate/ftruncate32/64
