@@ -61,9 +61,10 @@ func Lookup(spelling string) (Entry, bool) {
 
 // RequiredPublicSpellings is the union of advertised -hhh names and
 // documented public spellings that this binary does not print, minus
-// IntentionalPublicOmissions. Missing Go coverage is calculated from this
-// set. Undocumented parser-only aliases are not included; see
-// OptionalParserOnlyAliases.
+// IntentionalPublicOmissions. ClassifyOption splits this set into
+// must-advertise, expected-missing (implementation backlog), unsupported,
+// and foreign-on-this-GOOS. Undocumented parser-only aliases are not
+// included; see OptionalParserOnlyAliases.
 func RequiredPublicSpellings() map[string]struct{} {
 	out := make(map[string]struct{}, len(Options)+len(DocsOnlyNotInThisBinary))
 	for name := range Options {

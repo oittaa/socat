@@ -162,6 +162,9 @@ func TestCatalogAliasesOfAdvertisedCanonicalsAreAdvertised(t *testing.T) {
 		if _, omit := classiccatalog.IntentionalPublicOmissions[spelling]; omit {
 			continue
 		}
+		if class, _ := classiccatalog.ClassifyOption(spelling, runtime.GOOS); class == classiccatalog.ClassUnsupported {
+			continue
+		}
 		goCanon := parse.CanonicalOptionName(spelling)
 		if goCanon == spelling {
 			goCanon = parse.CanonicalOptionName(e.Canonical)

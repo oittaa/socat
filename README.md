@@ -281,6 +281,14 @@ PR comments) when `CODECOV_TOKEN` is set, and as HTML artifacts. A weekly workfl
 native fuzz campaigns and the live relay matrix, and can be dispatched
 manually.
 
+Classic option and address parity is enforced in `go test`. Expected gaps
+are classified by family (implementation backlog vs unsupported vs
+foreign-platform). CI fails if an implemented public spelling disappears, a
+new unclassified gap appears, an exclusion lacks a reason, or an implemented
+name remains in a missing manifest. OpenSSL `method`/`fips`/EGD/pseudo/DH/max-fragment
+options are unsupported exclusions, not backlog items.
+
+
 Parser fuzz campaigns and the live relay matrix also run locally:
 
 ```bash

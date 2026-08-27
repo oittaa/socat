@@ -8,8 +8,10 @@ package classiccatalog
 // These names are required inputs for later compatibility work, but they
 // must not be forged into the advertised -hhh catalog. RequiredPublicSpellings
 // unions this set with Options, minus IntentionalPublicOmissions.
-// Parser-only optionnames[] aliases that the man page does not document
-// (including openssl-fips and openssl-method) belong in OptionalParserOnlyAliases.
+// ClassifyOption then marks each name expected-missing (on the GOOS that
+// should implement it), unsupported, or foreign. Parser-only optionnames[]
+// aliases that the man page does not document (including openssl-fips and
+// openssl-method) belong in OptionalParserOnlyAliases.
 var DocsOnlyNotInThisBinary = map[string]string{
 	"abort-threshold":      "documented; compiled only with HP-UX TCP_ABORT_THRESHOLD",
 	"b3600":                "HP-UX B3600; not defined on Linux glibc",
