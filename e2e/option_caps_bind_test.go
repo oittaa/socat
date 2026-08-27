@@ -23,6 +23,12 @@ func TestOptionCapabilityRestrictions(t *testing.T) {
 		{name: "excl-on-create", left: "CREATE:file,excl", wantErr: "not supported"},
 		{name: "o-direct-on-create", left: "CREATE:file,o-direct", wantErr: "not supported"},
 		{name: "accept-timeout-on-recvfrom", left: "UDP-RECVFROM:1,accept-timeout=0.1", wantErr: "not supported"},
+		{name: "handshake-timeout-on-tcp", left: "TCP:host:port,handshake-timeout=1", wantErr: "not supported"},
+		{name: "handshake-timeout-on-open", left: "OPEN:file,handshake-timeout=1", wantErr: "not supported"},
+		{name: "handshake-timeout-on-exec", left: "EXEC:true,handshake-timeout=1", wantErr: "not supported"},
+		{name: "handshake-timeout-on-tls", left: "TLS:127.0.0.1:1,handshake-timeout=1"},
+		{name: "handshake-timeout-on-quic", left: "QUIC:127.0.0.1:1,handshake-timeout=1"},
+		{name: "handshake-timeout-on-ws", left: "WS:127.0.0.1:1,handshake-timeout=1"},
 		{name: "append-on-tcp-accepted", left: "TCP:127.0.0.1:1,append"},
 		{name: "readbytes-on-tcp-accepted", left: "TCP:127.0.0.1:1,readbytes=4"},
 	}

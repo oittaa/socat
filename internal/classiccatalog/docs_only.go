@@ -138,7 +138,7 @@ var GoOnlyHelpAllowlist = map[string]string{ // #nosec G101 -- option names and 
 	"child-shutup":      "Go advertised alias of children-shutup (C nickname, not in optionnames[])",
 	"crorlf":            "Go CR-or-LF line conversion extra",
 	"h2c":               "Go cleartext HTTP/2 CONNECT extra",
-	"handshake-timeout": "Go TLS, WebSocket, proxy, or SOCKS handshake bound extra",
+	"handshake-timeout": "Go TLS, WebSocket, QUIC, PROXY, or SOCKS handshake bound extra",
 	"origin":            "Go WebSocket Origin header extra",
 	"recvtclass":        "Go alias of ipv6-recvtclass (C nickname, not in optionnames[])",
 	"shut":              "Go shut=none|close|null extra; classic advertises shut-* names",

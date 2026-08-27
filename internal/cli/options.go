@@ -302,6 +302,35 @@ func alpnAddressTypes() []string {
 	}
 }
 
+func wsAddressTypes() []string {
+	return []string{
+		"WS", "WS-CONNECT", "WS-LISTEN", "WS-L",
+		"WSS", "WSS-CONNECT", "WSS-LISTEN", "WSS-L",
+	}
+}
+
+// handshakeAddressTypes is the Go extra handshake-timeout allow-list:
+// addresses that actually perform TLS, WebSocket, QUIC, PROXY, or SOCKS
+// negotiation. TCP/UDP/OPEN/EXEC and other non-handshake types must reject
+// the option rather than silently ignore it.
+func handshakeAddressTypes() []string {
+	seen := make(map[string]bool)
+	var types []string
+	add := func(names []string) {
+		for _, name := range names {
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			types = append(types, name)
+		}
+	}
+	add(tlsAddressTypes())
+	add(wsAddressTypes())
+	add(socksAddressTypes())
+	return types
+}
+
 func fileOpenAddressTypes() []string {
 	return []string{"OPEN", "FILE", "CREATE", "CREAT", "GOPEN"}
 }
