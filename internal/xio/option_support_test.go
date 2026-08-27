@@ -88,6 +88,22 @@ func TestOptionSupportedOnAddressClassicAndGoExtras(t *testing.T) {
 	}
 }
 
+func TestClassicTermiosOptionNames(t *testing.T) {
+	names := ClassicTermiosOptionNames()
+	have := make(map[string]bool, len(names))
+	for _, name := range names {
+		have[name] = true
+	}
+	for _, name := range []string{"vintr", "intr", "ispeed", "ospeed", "icanon", "echo", "sane", "b115200"} {
+		if !have[name] {
+			t.Errorf("ClassicTermiosOptionNames missing %q", name)
+		}
+	}
+	if len(names) < 50 {
+		t.Fatalf("ClassicTermiosOptionNames returned %d names, want a full GROUP_TERMIOS set", len(names))
+	}
+}
+
 func TestClassicOptionGroupsForAliases(t *testing.T) {
 	appendGroups, ok := ClassicOptionGroupsFor("o-append")
 	if !ok || !reflect.DeepEqual(appendGroups, ClassicOptionGroups["append"]) {
@@ -124,6 +140,15 @@ func TestClassicOptionGroupsForAliases(t *testing.T) {
 	}
 	if parse.CanonicalOptionName("join-group") != "ipv6-join-group" {
 		t.Fatalf("join-group canonical=%q", parse.CanonicalOptionName("join-group"))
+	}
+	if parse.CanonicalOptionName("join-source-group") != "ipv6-join-source-group" {
+		t.Fatalf("join-source-group canonical=%q", parse.CanonicalOptionName("join-source-group"))
+	}
+	if parse.CanonicalOptionName("mcloop6") != "ipv6-multicast-loop" || parse.CanonicalOptionName("mcloop") != "ip-multicast-loop" {
+		t.Fatalf("mcloop=%q mcloop6=%q", parse.CanonicalOptionName("mcloop"), parse.CanonicalOptionName("mcloop6"))
+	}
+	if parse.CanonicalOptionName("mtudiscover") != "ip-mtu-discover" || parse.CanonicalOptionName("mtudiscover6") != "ipv6-mtu-discover" {
+		t.Fatalf("mtudiscover=%q mtudiscover6=%q", parse.CanonicalOptionName("mtudiscover"), parse.CanonicalOptionName("mtudiscover6"))
 	}
 	if parse.CanonicalOptionName("add-membership") != "ip-add-membership" {
 		t.Fatalf("add-membership canonical=%q", parse.CanonicalOptionName("add-membership"))

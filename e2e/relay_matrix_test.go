@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/oittaa/socat/internal/testutil"
 )
 
 const (
@@ -361,7 +363,7 @@ func udpListenSpec(listenType, connectType string) func(t *testing.T) (string, s
 }
 
 func unixListenSpec(t *testing.T) (string, string) {
-	path := filepath.Join(t.TempDir(), "echo.sock")
+	path := testutil.UnixSocketPath(t, "echo.sock")
 	return fmt.Sprintf("UNIX-LISTEN:%s,unlink-early", path), "UNIX-CONNECT:" + path
 }
 
@@ -473,7 +475,7 @@ func runSCTPEchoClient(t *testing.T, payload []byte, args ...string) (stdout, st
 }
 
 func unixEchoPeer(t *testing.T) (connect string, stop func()) {
-	path := filepath.Join(t.TempDir(), "echo.sock")
+	path := testutil.UnixSocketPath(t, "echo.sock")
 	stderr := &bytes.Buffer{}
 	cmd := startSocat(t, stderr, fmt.Sprintf("UNIX-LISTEN:%s,unlink-early,fork", path), "PIPE")
 	waitUnixPath(t, "UNIX-LISTEN:"+path)

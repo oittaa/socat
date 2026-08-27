@@ -20,7 +20,7 @@ func TestTLSConfigsRejectUnsupportedOpenSSLOptions(t *testing.T) {
 		{option: "method=DTLS1.2", want: "method"},
 		{option: "fips", want: "fips"},
 		{option: "openssl-fips=1", want: "openssl-fips"},
-		{option: "compress=none", want: "compress"},
+		{option: "compress=auto", want: "compress"},
 		{option: "openssl-compress=zlib", want: "openssl-compress"},
 		{option: "egd=/tmp/egd", want: "egd"},
 		{option: "openssl-egd=/tmp/egd", want: "openssl-egd"},
@@ -60,6 +60,48 @@ func TestTLSConfigsRejectUnsupportedOpenSSLOptions(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "not supported") {
 				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestTLSConfigsAcceptCompatibleDisabledOpenSSLOptions(t *testing.T) {
+	for _, options := range []string{
+		"fips=0",
+		"openssl-fips=0",
+		"pseudo=0",
+		"openssl-pseudo=0",
+		"compress=none",
+		"openssl-compress=NONE",
+		"fips,fips=0",
+		"compress=auto,compress=none",
+	} {
+		t.Run(options, func(t *testing.T) {
+			spec, err := parse.ParseSpec("OPENSSL:localhost:443,verify=0," + options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := tlsClientConfig(spec, "localhost"); err != nil {
+				t.Fatalf("compatible disabled option rejected: %v", err)
+			}
+		})
+	}
+}
+
+func TestTLSConfigsUseLastUnsupportedOpenSSLOptionValue(t *testing.T) {
+	for _, options := range []string{
+		"fips=0,fips",
+		"pseudo=0,pseudo=1",
+		"compress=none,compress=auto",
+	} {
+		t.Run(options, func(t *testing.T) {
+			spec, err := parse.ParseSpec("OPENSSL:localhost:443,verify=0," + options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = tlsClientConfig(spec, "localhost")
+			if err == nil || !strings.Contains(err.Error(), "not supported") {
+				t.Fatalf("effective enabled option was not rejected: %v", err)
 			}
 		})
 	}

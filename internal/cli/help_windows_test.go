@@ -18,9 +18,11 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"reuseport", "ip-add-membership", "so-timestamp",
 		"nonblock", "umask", "user", "group", "uid", "owner", "gid",
 		"perm-early", "user-early", "group-early",
+		"o-sync", "async", "flock", "perm-late", "user-late",
 		"setsid", "pty", "setlk",
 		"bindtodevice",
 		"ip-pktinfo", "ip-options", "ipv6-tclass", "ipv6-unicast-hops",
+		"tcp-cork", "tcp-maxseg", "tcp-maxseg-late",
 	} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("unsupported option %q is listed", name)
@@ -33,9 +35,28 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"rcvtimeo", "sndtimeo", "sndbuf", "rcvbuf", "sndbuf-late", "rcvbuf-late",
 		"ciphers", "chdir", "end-close",
 		"ip-ttl", "ip-tos",
+		"so-debug", "so-dontroute", "so-oobinline",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("supported option %q is missing", name)
+		}
+	}
+}
+
+func TestWindowsHelpOmitsTermiosSpellings(t *testing.T) {
+	for _, level := range []int{2, 3} {
+		var b bytes.Buffer
+		if err := printHelp(&b, level); err != nil {
+			t.Fatal(err)
+		}
+		help := b.String()
+		for _, name := range []string{
+			"vintr", "intr", "icanon", "ispeed", "ospeed", "sane", "echo",
+			"cfmakeraw", "b115200", "tiocswinsz",
+		} {
+			if strings.Contains(help, "    "+name+" ") {
+				t.Errorf("level %d lists unsupported termios option %q", level, name)
+			}
 		}
 	}
 }
@@ -49,6 +70,12 @@ func TestWindowsHelpHHHOmitsMembershipSpellings(t *testing.T) {
 	for _, name := range []string{
 		"ip-add-membership", "add-membership", "ip-membership", "membership",
 		"ipv6-join-group", "ipv6-add-membership", "join-group",
+		"ip-multicast-if", "ip-multicast-loop", "ip-multicast-ttl",
+		"ipmulticastloop", "multicastloop", "ipmulticastttl", "multicastttl",
+		"ipv6-multicast-loop", "ip-add-source-membership", "ipv6-join-source-group",
+		"ip-freebind", "ip-transparent",
+		"ip-mtu-discover", "mtudiscover", "ipmtudiscover",
+		"ipv6-mtu-discover", "mtudiscover6",
 	} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("unsupported membership spelling %q is listed in -hhh", name)

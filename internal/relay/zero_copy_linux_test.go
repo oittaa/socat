@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/oittaa/socat/internal/testutil"
 )
 
 func TestPrepareZeroCopyEndpointMatrix(t *testing.T) {
@@ -39,7 +41,7 @@ func TestPrepareZeroCopyEndpointMatrix(t *testing.T) {
 	})
 
 	t.Run("UNIX datagram", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "socket")
+		path := testutil.UnixSocketPath(t, "socket")
 		server, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: path, Net: "unixgram"})
 		if err != nil {
 			t.Fatal(err)
@@ -71,7 +73,7 @@ func TestRecordUnixSocketsPreserveConfiguredBlocks(t *testing.T) {
 	payload := bytes.Repeat([]byte("0123456789"), 2000) // 20,000 bytes
 
 	t.Run("datagram", func(t *testing.T) {
-		path := filepath.Join(t.TempDir(), "socket")
+		path := testutil.UnixSocketPath(t, "socket")
 		server, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: path, Net: "unixgram"})
 		if err != nil {
 			t.Fatal(err)
@@ -254,7 +256,7 @@ func tcpPair(t *testing.T) (net.Conn, net.Conn) {
 
 func unixStreamPair(t *testing.T, network string) (net.Conn, net.Conn) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "socket")
+	path := testutil.UnixSocketPath(t, "socket")
 	ln, err := net.Listen(network, path)
 	if err != nil {
 		t.Fatal(err)

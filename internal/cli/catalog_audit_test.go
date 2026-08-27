@@ -113,7 +113,6 @@ func TestCatalogVsGoHelp(t *testing.T) {
 	}
 	for _, name := range []string{
 		"method", "fips", "openssl-method", "openssl-fips",
-		"openssl-compress", "compress",
 		"openssl-egd", "egd", "openssl-pseudo", "pseudo",
 		"openssl-dhparam", "dhparam", "dh", "dhparams",
 		"openssl-maxfraglen", "maxfraglen",

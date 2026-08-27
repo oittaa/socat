@@ -57,12 +57,35 @@ func buildSupportedAddressOptions() map[string]addressOption {
 		options[strings.ToLower(name)] = addressOption{}
 	}
 	// These names are deliberately recognized so tlsopen can return a precise
-	// "not supported" error. They must not be advertised as honored options
-	// in -hh/-hhh. Parse aliases fold nicknames onto the openssl-* keys;
-	// listing both keeps constructed Spec values working too.
-	unsupported := addressOption{addressGroups: tlsOptionAddressGroups()}
+	// "not supported" error when their effective value requests unavailable
+	// OpenSSL behavior. They must not be advertised as honored options in
+	// -hh/-hhh. Parse aliases fold nicknames onto the openssl-* keys; listing
+	// both keeps constructed Spec values working too.
 	for _, name := range recognizedUnsupportedTLSNames {
-		options[name] = unsupported
+		option := addressOption{addressGroups: tlsOptionAddressGroups()}
+		switch parse.CanonicalOptionName(name) {
+		case "openssl-fips", "openssl-pseudo":
+			option.validate = validateOptionalBool
+		case "openssl-method", "openssl-egd", "openssl-dhparam":
+			option.validate = validateRequiredString
+		case "openssl-maxfraglen", "openssl-maxsendfrag":
+			option.validate = validateOptionalSignedInteger
+		}
+		options[name] = option
+	}
+	// GROUP_TERMIOS keywords are recognized where termios is unavailable
+	// (Windows) so validation can reject them with a precise error instead
+	// of "unknown option". They are not advertised: hideOptGroup omits the
+	// PTY/TERMIOS help section and TermiosHelpNames is empty there.
+	if !xio.FeatureTERMIOS {
+		for _, name := range xio.ClassicTermiosOptionNames() {
+			if _, ok := options[name]; !ok {
+				options[name] = addressOption{}
+			}
+		}
+	}
+	for _, name := range []string{"ip-recverr", "recverr", "iprecverr", "ipv6-recverr"} {
+		options[name] = addressOption{}
 	}
 	return options
 }
@@ -74,7 +97,6 @@ func buildSupportedAddressOptions() map[string]addressOption {
 var recognizedUnsupportedTLSNames = []string{
 	"openssl-method", "opensslmethod", "method",
 	"openssl-fips", "fips",
-	"openssl-compress", "compress",
 	"openssl-egd", "egd",
 	"openssl-pseudo", "pseudo",
 	"openssl-dhparam", "openssl-dhparams", "dhparam", "dhparams", "dh",
@@ -143,6 +165,12 @@ func validateSpecOptions(spec parse.Spec) error {
 	if err := xio.RejectUnsupportedIPAncillary(spec); err != nil {
 		return err
 	}
+	if err := xio.RejectUnsupportedTermios(spec); err != nil {
+		return err
+	}
+	if err := xio.RejectUnsupportedRecvErr(spec); err != nil {
+		return err
+	}
 	for _, option := range spec.Options {
 		name := strings.ToLower(option.Name)
 		spelling := strings.ToLower(option.OriginalSpelling())
@@ -179,9 +207,11 @@ func optionImplementedForGroup(group string, implementationGroups []string) bool
 func validateAddressOptionValue(option parse.Option) error {
 	name := strings.ToLower(option.Name)
 	if optionSpec, ok := supportedAddressOptions[name]; ok && optionSpec.validate != nil {
-		return optionSpec.validate(option)
+		if err := optionSpec.validate(option); err != nil {
+			return err
+		}
 	}
-	return nil
+	return xio.ValidateTermiosOption(option)
 }
 
 func requiredOptionValue(option parse.Option) (string, error) {
@@ -259,6 +289,63 @@ func validateOptionalInteger(min int64) func(parse.Option) error {
 	}
 }
 
+func validateOptionalSignedInteger(option parse.Option) error {
+	if !option.Has {
+		return nil
+	}
+	value, err := requiredOptionValue(option)
+	if err != nil {
+		return err
+	}
+	if _, err := strconv.ParseInt(value, 0, 64); err != nil {
+		return fmt.Errorf("invalid %s %q", option.Name, value)
+	}
+	return nil
+}
+
+func validateOptionalByte(option parse.Option) error {
+	if !option.Has {
+		return nil
+	}
+	value, err := requiredOptionValue(option)
+	if err != nil {
+		return err
+	}
+	n, err := strconv.ParseInt(value, 0, 64)
+	if err != nil || n < 0 || n > 255 {
+		return fmt.Errorf("invalid %s %q", option.Name, value)
+	}
+	return nil
+}
+
+func validateOptionalBool(option parse.Option) error {
+	if !option.Has {
+		return nil
+	}
+	value, err := requiredOptionValue(option)
+	if err != nil {
+		return err
+	}
+	if value != "0" && value != "1" {
+		return fmt.Errorf("invalid %s %q", option.Name, value)
+	}
+	return nil
+}
+
+func validateIntegerRange(min, max int64) func(parse.Option) error {
+	return func(option parse.Option) error {
+		value, err := requiredOptionValue(option)
+		if err != nil {
+			return err
+		}
+		n, err := strconv.ParseInt(value, 0, 64)
+		if err != nil || n < min || n > max {
+			return fmt.Errorf("invalid %s %q", option.Name, value)
+		}
+		return nil
+	}
+}
+
 func validateInt64(requirePositive bool) func(parse.Option) error {
 	return func(option parse.Option) error {
 		name := strings.ToLower(option.Name)
@@ -272,6 +359,15 @@ func validateInt64(requirePositive bool) func(parse.Option) error {
 		}
 		return nil
 	}
+}
+
+// validateOptionalInt64 matches classic TYPE_OFF32/TYPE_OFF64 parsing for
+// seek options: a bare option is accepted and defaults to offset 1.
+func validateOptionalInt64(option parse.Option) error {
+	if !option.Has {
+		return nil
+	}
+	return validateInt64(false)(option)
 }
 
 func splitSockoptOption(option parse.Option) (name, level, opt, rest string, err error) {

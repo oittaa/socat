@@ -17,6 +17,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/oittaa/socat/internal/testutil"
 )
 
 var capabilityCache = struct {
@@ -404,8 +406,7 @@ func TestTCPTestServerRetriesEarlyExit(t *testing.T) {
 // UNIXSTREAM — echo via unix stream socket
 func TestUnixStreamEcho(t *testing.T) {
 	bin := socatBin(t)
-	dir := t.TempDir()
-	sock := filepath.Join(dir, "echo.sock")
+	sock := testutil.UnixSocketPath(t, "echo.sock")
 
 	srv := exec.Command(bin, fmt.Sprintf("UNIX-LISTEN:%s,unlink-early", sock), "PIPE")
 	if err := srv.Start(); err != nil {
@@ -727,7 +728,7 @@ func TestTLSRejectsOpenSSLMethod(t *testing.T) {
 	}
 
 	hhh := capabilityOutput(t, "-hhh")
-	for _, name := range []string{"openssl-method", "openssl-fips", "openssl-compress", "openssl-egd", "openssl-dhparam", "openssl-maxfraglen", "openssl-maxsendfrag"} {
+	for _, name := range []string{"openssl-method", "openssl-fips", "openssl-egd", "openssl-dhparam", "openssl-maxfraglen", "openssl-maxsendfrag"} {
 		if bytes.Contains(hhh, []byte("    "+name+" ")) {
 			t.Fatalf("-hhh advertises unsupported %s:\n%s", name, hhh)
 		}
@@ -737,7 +738,7 @@ func TestTLSRejectsOpenSSLMethod(t *testing.T) {
 func TestTLSRejectsUnsupportedOpenSSLOptions(t *testing.T) {
 	bin := socatBin(t)
 	for _, option := range []string{
-		"fips", "openssl-fips=1", "compress=none", "egd=/tmp/egd", "pseudo",
+		"fips", "openssl-fips=1", "compress=auto", "egd=/tmp/egd", "pseudo",
 		"dhparam=dh.pem", "maxfraglen=512", "maxsendfrag=1024",
 	} {
 		out, err := exec.Command(bin,
@@ -757,7 +758,7 @@ func TestHelpListsTLSPublicCatalogAliases(t *testing.T) {
 	hhh := capabilityOutput(t, "-hhh")
 	for _, name := range []string{
 		"certificate", "openssl-certificate", "openssl-key", "openssl-cafile",
-		"openssl-verify", "cn", "cipherlist", "no-sni",
+		"openssl-verify", "cn", "cipherlist", "openssl-compress", "compress", "no-sni",
 		"min-proto-version", "max-proto-version",
 	} {
 		if !bytes.Contains(hhh, []byte("    "+name+" ")) {

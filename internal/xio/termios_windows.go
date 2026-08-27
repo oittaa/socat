@@ -13,9 +13,15 @@ var FeatureTERMIOS = false
 
 func TermiosHelpNames() []string { return nil }
 
-func ApplyTermios(int, parse.Spec) error { return nil }
+func ValidateTermiosOption(parse.Option) error { return nil }
 
-func AttachTermios(*Opened, int, parse.Spec) error { return nil }
+func ApplyTermios(_ int, s parse.Spec) error {
+	return RejectUnsupportedTermios(s)
+}
+
+func AttachTermios(_ *Opened, _ int, s parse.Spec) error {
+	return RejectUnsupportedTermios(s)
+}
 
 func WaitPTYSlave(int, time.Duration) error { return nil }
 

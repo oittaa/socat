@@ -73,8 +73,8 @@ func openCREATE(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 		flags |= os.O_APPEND
 	}
 	// Classic CREATE is GROUP_FD|GROUP_NAMED|GROUP_FILE, not GROUP_OPEN
-	// (xio-creat.c, tag-1.8.1.3). o-direct is GROUP_OPEN / PH_OPEN, so it
-	// is rejected at option validation rather than applied here.
+	// (xio-creat.c, tag-1.8.1.3). GROUP_OPEN OFUNC_FLAG bits (o-direct,
+	// o-sync, …) are rejected at option validation rather than applied here.
 	perm, err := xio.ParseFileMode(s, xio.DefaultCreateMode)
 	if err != nil {
 		return nil, err
@@ -107,7 +107,7 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 		case xio.ModeWrite:
 			flags = os.O_WRONLY | os.O_CREATE
 		}
-		flags, ferr := applyODirectFlag(s, flags)
+		flags, ferr := applyOpenFlags(s, flags)
 		if ferr != nil {
 			return nil, ferr
 		}
@@ -124,6 +124,9 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 	// UNIX domain socket? Uses the pre-unlink Stat snapshot: PH_PREOPEN
 	// unlink does not reclassify a socket as a missing create-path.
 	if early.mode&os.ModeSocket != 0 {
+		if err := rejectGOPENSocketOpenFlags(s); err != nil {
+			return nil, err
+		}
 		o, err := xio.OpenSpec(ctx, parse.Spec{
 			// GOPEN is a generic client: classic probes stream, seqpacket,
 			// and datagram sockets instead of imposing UNIX-CONNECT semantics.
@@ -181,7 +184,7 @@ func openPIPE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 	if len(s.Params) >= 1 && s.Params[0] != "" {
 		return openNamedPIPE(s, mode)
 	}
-	if err := rejectUnnamedPIPEODirect(s); err != nil {
+	if err := rejectUnnamedPIPEOpenFlags(s); err != nil {
 		return nil, err
 	}
 
@@ -550,11 +553,21 @@ func OpenFlags(s parse.Spec, mode xio.Mode) (int, error) {
 	default:
 		flags = os.O_RDWR
 	}
-	if s.BoolOption("rdonly") {
-		flags = os.O_RDONLY
-	}
-	if s.BoolOption("wronly") {
-		flags = os.O_WRONLY
+	// Classic OFUNC_FLAG_PATTERN walks access-mode options in command-line
+	// order and replaces O_ACCMODE for each one. Preserve that ordering across
+	// canonical/alias mixtures instead of making wronly win unconditionally.
+	for _, o := range s.Options {
+		if !fileOptionEnabled(o) {
+			continue
+		}
+		switch parse.CanonicalOptionName(o.Name) {
+		case "rdonly":
+			flags = os.O_RDONLY
+		case "wronly":
+			flags = os.O_WRONLY
+		case "rdwr":
+			flags = os.O_RDWR
+		}
 	}
 	if s.BoolOption("creat") || s.BoolOption("create") {
 		flags |= os.O_CREATE
@@ -571,58 +584,35 @@ func OpenFlags(s parse.Spec, mode xio.Mode) (int, error) {
 	if s.BoolOption("nonblock") {
 		flags |= oNonblock
 	}
-	// o-direct is classic PH_OPEN / OFUNC_FLAG (xio-file.c). Apply only at
-	// open(2); do not F_SETFL it onto inherited descriptors (contrast
-	// o-noatime, which is PH_FD).
-	return applyODirectFlag(s, flags)
+	// GROUP_OPEN OFUNC_FLAG bits (o-direct, o-sync, …) and O_ASYNC are
+	// classic PH_OPEN / _xioopen_open (xio-file.c / xio-named.c). Apply
+	// only at open(2); do not F_SETFL o-direct onto inherited descriptors
+	// (contrast o-noatime, which is PH_FD).
+	return applyOpenFlags(s, flags)
 }
 
-func applyODirectFlag(s parse.Spec, flags int) (int, error) {
-	if !s.BoolOption("o-direct") {
-		return flags, nil
-	}
-	if oDirect == 0 {
-		return 0, fmt.Errorf("o-direct: not supported on this platform")
-	}
-	return flags | oDirect, nil
-}
-
-// openFIFO opens a named FIFO. Classic PIPE is GROUP_OPEN, so o-direct
-// (PH_OPEN / OFUNC_FLAG in xio-file.c) is OR'd into open(2) the same way
+// openFIFO opens a named FIFO. Classic PIPE is GROUP_OPEN, so PH_OPEN
+// OFUNC_FLAG bits (o-direct, o-sync, …) are OR'd into open(2) the same way
 // _xioopen_open does (xio-pipe.c, tag-1.8.1.3
 // 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 // af5388c898c7bb60997935aee93c223deba60c4a).
 func openFIFO(path string, flags int, s parse.Spec) (*os.File, error) {
-	flags, err := applyODirectFlag(s, flags)
+	flags, err := applyOpenFlags(s, flags)
 	if err != nil {
 		return nil, err
 	}
 	return openUserFile(path, flags, 0)
 }
 
-// rejectUnnamedPIPEODirect matches classic leftover-option failure: unnamed
-// PIPE uses pipe(2), not open(2), so PH_OPEN OFUNC_FLAG o-direct is never
-// consumed. Do not F_SETFL O_DIRECT onto the pipe fds.
-func rejectUnnamedPIPEODirect(s parse.Spec) error {
-	if !s.BoolOption("o-direct") {
-		return nil
-	}
-	if oDirect == 0 {
-		return fmt.Errorf("o-direct: not supported on this platform")
-	}
-	return fmt.Errorf("o-direct: not supported on unnamed PIPE")
-}
-
 func applyOpenTruncate(f *os.File, s parse.Spec) error {
-	// Named-file ftruncate stays here so OPEN/CREATE/GOPEN still truncate
-	// once (ApplyFDOptions skips these types) and Windows keeps working.
-	// FD:n / inherited descriptors use ftruncate(2) in ApplyFDOptions.
-	// Classic applyopts PH_LATE issues every ftruncate/truncate/ftruncate32/64
-	// occurrence in command-line order (tag-1.8.1.3
+	// ftruncate is classic PH_LATE and is applied by ApplyFDOptions in
+	// command-line order with lseek / perm-late / async (tag-1.8.1.3
 	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-	// af5388c898c7bb60997935aee93c223deba60c4a).
+	// af5388c898c7bb60997935aee93c223deba60c4a). Named OPEN/CREATE/GOPEN
+	// used to truncate here to avoid a second apply; that walk now lives
+	// in ApplyFDOptions so mixed PH_LATE options keep classic order.
 	if s.HasOption("ftruncate") {
-		return xio.ApplyNamedFileFtruncate(f, s)
+		return nil
 	}
 	if s.BoolOption("trunc") {
 		if e := f.Truncate(0); e != nil {
@@ -651,13 +641,16 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 	if err := xio.ApplyOwner(path, s, f); err != nil {
 		return fail(err)
 	}
-	if err := xio.ApplyFDOptions(f, s); err != nil {
-		return fail(err)
-	}
 	if err := applyFileLocks(s, f, f); err != nil {
 		return fail(err)
 	}
-	// ftruncate is PH_LATE and therefore follows all PH_FD owner/lock work.
+	// All PH_FD locks must complete before PH_LATE ftruncate/lseek/async.
+	// Applying lifecycle first could mutate the file before a PH_FD lock
+	// failure, which is the opposite of classic phase ordering.
+	if err := xio.ApplyFDOptions(f, s); err != nil {
+		return fail(err)
+	}
+	// trunc= leftover after ApplyFDOptions PH_LATE ftruncate/lseek/perm-late.
 	if err := applyOpenTruncate(f, s); err != nil {
 		return fail(err)
 	}

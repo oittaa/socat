@@ -3,7 +3,10 @@ package parse
 func init() {
 	registerOptionAliases(map[string]string{
 		"proxyauth":     "proxy-authorization",
+		"proxy-auth":    "proxy-authorization",
 		"proxyauthfile": "proxy-authorization-file",
+		"resolve":       "proxy-resolve",
+		"resolv":        "proxy-resolve",
 
 		// Public OPENSSL catalog nicknames for implemented TLS options.
 		// Classic baseline: tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;

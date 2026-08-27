@@ -86,7 +86,7 @@ func TestHelpListsTLSPublicAliases(t *testing.T) {
 	help := output.String()
 	canonical := []string{
 		"cert", "key", "cafile", "verify", "commonname", "nosni", "ciphers",
-		"openssl-min-proto-version", "openssl-max-proto-version",
+		"openssl-compress", "openssl-min-proto-version", "openssl-max-proto-version",
 	}
 	aliases := map[string]string{
 		"certificate":         "cert",
@@ -96,6 +96,7 @@ func TestHelpListsTLSPublicAliases(t *testing.T) {
 		"openssl-verify":      "verify",
 		"cn":                  "commonname",
 		"cipherlist":          "ciphers",
+		"compress":            "openssl-compress",
 		"no-sni":              "nosni",
 		"min-proto-version":   "openssl-min-proto-version",
 		"max-proto-version":   "openssl-max-proto-version",
@@ -130,7 +131,6 @@ func TestHelpDoesNotAdvertiseUnsupportedOpenSSL(t *testing.T) {
 	for _, name := range []string{
 		"openssl-method", "opensslmethod", "method",
 		"openssl-fips", "fips",
-		"openssl-compress", "compress",
 		"openssl-egd", "egd",
 		"openssl-pseudo", "pseudo",
 		"openssl-dhparam", "dhparam", "dhparams", "dh",

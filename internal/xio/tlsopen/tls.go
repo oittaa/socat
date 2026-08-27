@@ -123,7 +123,7 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, err
 	}
 
-	lc := net.ListenConfig{Control: xio.ListenControl(s)}
+	lc := xio.NewTCPListenConfig(s)
 	ln, err := lc.Listen(ctx, network, addr)
 	if err != nil {
 		return nil, err
@@ -188,9 +188,11 @@ func TLSServerConfig(s parse.Spec) (*tls.Config, error) {
 // reason they are rejected. Classic tag-1.8.1.3
 // 12c08bf66d709fba17035ce95d85bd218428d9ba and official master
 // af5388c898c7bb60997935aee93c223deba60c4a implement these via OpenSSL;
-// Go crypto/tls cannot honor them. Accepting them as no-ops would hide a
-// requested DTLS method, FIPS mode, compression, DH params, or fragment
-// bound. method/fips also need classic --enable-openssl-method/--enable-fips.
+// Go crypto/tls cannot honor them. Accepting enabled requests as no-ops would
+// hide a requested DTLS method, FIPS mode, compression, DH params, or fragment
+// bound. Disabled bool values and compress=none are compatible because Go TLS
+// already leaves those features off. method/fips also need classic
+// --enable-openssl-method/--enable-fips.
 var unsupportedOpenSSLReason = map[string]string{
 	"openssl-method":      "stream TLS only",
 	"openssl-fips":        "Go crypto/tls has no OpenSSL FIPS module",
@@ -207,14 +209,36 @@ func rejectUnsupportedOpenSSLOptions(s parse.Spec) error {
 	if typ == "" {
 		typ = "TLS"
 	}
-	for _, option := range s.Options {
-		reason, ok := unsupportedOpenSSLReason[parse.CanonicalOptionName(option.Name)]
+	seen := make(map[string]struct{})
+	for i := len(s.Options) - 1; i >= 0; i-- {
+		option := s.Options[i]
+		canonical := parse.CanonicalOptionName(option.Name)
+		reason, ok := unsupportedOpenSSLReason[canonical]
 		if !ok {
+			continue
+		}
+		if _, ok := seen[canonical]; ok {
+			continue
+		}
+		seen[canonical] = struct{}{}
+		if compatibleDisabledOpenSSLOption(canonical, option) {
 			continue
 		}
 		return fmt.Errorf("%s: option %q is not supported (%s)", typ, option.OriginalSpelling(), reason)
 	}
 	return nil
+}
+
+func compatibleDisabledOpenSSLOption(canonical string, option parse.Option) bool {
+	switch canonical {
+	case "openssl-fips", "openssl-pseudo":
+		one := parse.Spec{Options: []parse.Option{option}}
+		return !one.BoolOption(canonical)
+	case "openssl-compress":
+		return option.Has && strings.EqualFold(strings.TrimSpace(option.Value), "none")
+	default:
+		return false
+	}
 }
 
 func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {

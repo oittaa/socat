@@ -191,16 +191,33 @@ func ApplyListenOptions(fd int, s parse.Spec, network string) error {
 // ApplyPastSocketPhase applies classic PH_PASTSOCKET immediately after
 // socket() (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
 // official master af5388c898c7bb60997935aee93c223deba60c4a is the same):
-// SOL_SOCKET buffers/broadcast/bindtodevice plus setsockopt-socket, and
-// ip-ttl/tos on TCP/SCTP.
+// SOL_SOCKET buffers/broadcast/bindtodevice/so-debug plus named TCP
+// (tcp-cork, tcp-maxseg, …), setsockopt-socket, and ip-ttl/tos on TCP/SCTP.
 func ApplyPastSocketPhase(fd int, s parse.Spec, network string) error {
 	return ApplyNetworkSocketOptions(fd, s, network)
 }
 
-// ApplyPrebindPhase applies classic PH_PREBIND generic setsockopt-listen
-// before bind()/connect().
+// ApplyPrebindPhase applies classic PH_PREBIND before bind()/connect():
+// generic setsockopt-listen and ip-transparent (xio-ip.c PH_PREBIND TYPE_BOOL
+// OFUNC_SOCKOPT SOL_IP IP_TRANSPARENT; tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same tree). Occurrences are
+// applied in command-line order.
 func ApplyPrebindPhase(fd int, s parse.Spec) error {
-	return ApplyGenericSetsockopt(fd, s, SockoptPhasePrebind)
+	for _, o := range s.Options {
+		if kind, ok := genericSetsockoptKind(o.Name, SockoptPhasePrebind); ok {
+			if err := applyGenericSetsockoptOption(fd, o, kind); err != nil {
+				return err
+			}
+			continue
+		}
+		if matched, err := applyTransparentOption(fd, o); matched {
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // ApplyPastSocketThenPrebind is the Control-hook order used by net.Dialer
@@ -226,6 +243,19 @@ func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn
 		})
 		return errors.Join(controlErr, optionErr)
 	}
+}
+
+// NewTCPListenConfig is ListenConfig for classic TCP/TLS/WS listen.
+// Go 1.21+ may create IPPROTO_MPTCP sockets by default; classic TCP-LISTEN
+// is IPPROTO_TCP (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
+// MPTCP silently no-ops SO_DONTROUTE (setsockopt succeeds, getsockopt stays 0)
+// and rejects TCP_MAXSEG (ENOPROTOOPT), so named PASTSOCKET options would not
+// have kernel effect. Stay on TCP.
+func NewTCPListenConfig(s parse.Spec) net.ListenConfig {
+	lc := net.ListenConfig{Control: ListenControl(s)}
+	lc.SetMultipathTCP(false)
+	return lc
 }
 
 // ApplyNetworkSocketOptions applies the post-socket options shared by Go net
@@ -516,12 +546,13 @@ func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 }
 
 // ApplyTCPConnOpts applies TCP keepalive/nodelay plus classic PH_CONNECTED
-// generic setsockopt on the unwrapped raw conn. IP TTL/TOS and other
-// PH_PASTSOCKET options were already applied by DialControl/ListenControl.
-// SETSOCKOPT uses
+// generic setsockopt and named tcp-maxseg-late on the unwrapped raw conn.
+// IP TTL/TOS, so-debug/tcp-cork, and other PH_PASTSOCKET options were already
+// applied by DialControl/ListenControl. SETSOCKOPT uses
 // setsockopt=6:TCP_MAXSEG:512 (IPPROTO_TCP + TCP_MAXSEG) after connect.
-// Non-TCP connections that expose a socket fd still get generic setsockopt;
-// a present option is never ignored because the conn is not *net.TCPConn.
+// Non-TCP connections that expose a socket fd still get generic setsockopt
+// and named CONNECTED TCP opts; a present option is never ignored because
+// the conn is not *net.TCPConn (TCP_* on UDP/SCTP fails clearly).
 func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
 	c = unwrapNetConn(c)
 	if tc, ok := c.(*net.TCPConn); ok {

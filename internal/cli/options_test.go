@@ -66,7 +66,12 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "lowport-on-quic", spec: "QUIC:localhost:1,lowport"},
 		{name: "sourceport-on-quic", spec: "QUIC:localhost:1,sourceport=1"},
 		{name: "pty-on-tcp", spec: "TCP:localhost:1,pty", wantErr: "not supported"},
-		{name: "echo-on-tcp", spec: "TCP:localhost:1,echo", wantErr: "not supported"},
+		{name: "echo-on-stdio", spec: "STDIO,echo", windowsErr: "not supported on this platform"},
+		{name: "vintr-on-stdio", spec: "STDIO,vintr=3", windowsErr: "not supported on this platform"},
+		{name: "sane-on-stdio", spec: "STDIO,sane", windowsErr: "not supported on this platform"},
+		{name: "intr-alias-on-stdio", spec: "STDIO,intr=3", windowsErr: "not supported on this platform"},
+		{name: "icanon-on-stdio", spec: "STDIO,icanon=0", windowsErr: "not supported on this platform"},
+		{name: "ispeed-on-stdio", spec: "STDIO,ispeed=9600", windowsErr: "not supported on this platform"},
 		{name: "pipes-on-tcp", spec: "TCP:localhost:1,pipes", wantErr: "not supported"},
 		{name: "fork-on-udp-connect", spec: "UDP:localhost:1,fork", wantErr: "not supported"},
 		{name: "fork-on-tcp-connect", spec: "TCP:localhost:1,fork"},
@@ -76,6 +81,15 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "open-unlink", spec: "OPEN:file,unlink"},
 		{name: "open-delete-alias", spec: "OPEN:file,delete"},
 		{name: "open-remove-alias", spec: "OPEN:file,remove"},
+		{name: "open-o-rdonly", spec: "OPEN:file,o-rdonly"},
+		{name: "open-ndelay", spec: "OPEN:file,ndelay"},
+		{name: "open-lock-alias", spec: "OPEN:file,lock"},
+		{name: "open-new-alias", spec: "OPEN:file,new"},
+		{name: "bytes-alias", spec: "TCP:localhost:1,bytes=4"},
+		{name: "crlf-alias", spec: "TCP:localhost:1,crlf"},
+		{name: "close-alias", spec: "TCP:localhost:1,close"},
+		{name: "cd-alias", spec: "SYSTEM:true,cd=/tmp"},
+		{name: "create-o-excl", spec: "CREATE:file,o-excl", wantErr: "not supported"},
 		{name: "open-perm-early", spec: "OPEN:file,perm-early=0600"},
 		{name: "open-user-early-alias", spec: "OPEN:file,uid-e=0"},
 		{name: "open-group-early-alias", spec: "OPEN:file,gid-e=0"},
@@ -125,6 +139,46 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "ipv6-add-membership-alias-on-udp6", spec: "UDP6:localhost:1,ipv6-add-membership=[ff02::2]:lo"},
 		{name: "join-group-alias-on-udp4", spec: "UDP4:localhost:1,join-group=[ff02::2]:lo", wantErr: "not supported"},
 		{name: "ipv6-add-membership-alias-on-tcp4", spec: "TCP4:localhost:1,ipv6-add-membership=[ff02::2]:lo", wantErr: "not supported"},
+		{name: "ip-multicast-ttl", spec: "UDP4:localhost:1,ip-multicast-ttl=9"},
+		{name: "multicast-ttl-alias", spec: "UDP4:localhost:1,multicast-ttl=4"},
+		{name: "ip-multicast-loop-flag", spec: "UDP4:localhost:1,ip-multicast-loop"},
+		{name: "mcloop-alias", spec: "UDP4:localhost:1,mcloop=0"},
+		{name: "ip-multicast-if", spec: "UDP4:localhost:1,ip-multicast-if=127.0.0.1"},
+		{name: "ipv6-multicast-loop-on-udp6", spec: "UDP6:localhost:1,ipv6-multicast-loop=0"},
+		{name: "mcloop6-on-tcp6", spec: "TCP6:localhost:1,mcloop6"},
+		{name: "ipv6-multicast-loop-on-udp4", spec: "UDP4:localhost:1,ipv6-multicast-loop", wantErr: "not supported"},
+		{name: "mcloop6-on-tcp4", spec: "TCP4:localhost:1,mcloop6=0", wantErr: "not supported"},
+		{name: "ip-add-source-membership", spec: "UDP4:localhost:1,ip-add-source-membership=232.1.1.1:127.0.0.1:127.0.0.1"},
+		{name: "source-membership-alias", spec: "UDP4-RECV:1,source-membership=232.1.1.1:127.0.0.1:127.0.0.1"},
+		{name: "ipv6-join-source-group", spec: "UDP6:localhost:1,ipv6-join-source-group=[ff3e::1]:lo:[::1]"},
+		{name: "join-source-group-on-udp4", spec: "UDP4:localhost:1,join-source-group=[ff3e::1]:lo:[::1]", wantErr: "not supported"},
+		{name: "ipv6-join-source-group-on-tcp4", spec: "TCP4:localhost:1,ipv6-join-source-group=[ff3e::1]:lo:[::1]", wantErr: "not supported"},
+		{name: "ip-freebind", spec: "TCP4-LISTEN:1,ip-freebind"},
+		{name: "freebind-alias", spec: "UDP:localhost:1,freebind=1"},
+		{name: "freebind-signed-type-int", spec: "UDP:localhost:1,ip-freebind=-1"},
+		{name: "freebind-invalid-word", spec: "UDP:localhost:1,ip-freebind=true", wantErr: "invalid"},
+		{name: "ip-transparent", spec: "TCP4-LISTEN:1,ip-transparent"},
+		{name: "transparent-alias", spec: "TCP:localhost:1,transparent=0"},
+		{name: "ip-transparent-bool-range", spec: "TCP:localhost:1,ip-transparent=2", wantErr: "invalid"},
+		{name: "ip-transparent-bool-word", spec: "TCP:localhost:1,ip-transparent=true", wantErr: "invalid"},
+		{name: "ip-mtu-discover", spec: "UDP4:localhost:1,ip-mtu-discover=2"},
+		{name: "mtudiscover-alias", spec: "UDP4:localhost:1,mtudiscover=1"},
+		{name: "ipmtudiscover-alias", spec: "TCP4:localhost:1,ipmtudiscover=0"},
+		{name: "ipv6-mtu-discover", spec: "UDP6:localhost:1,ipv6-mtu-discover=2"},
+		{name: "mtudiscover6-alias", spec: "TCP6:localhost:1,mtudiscover6=1"},
+		{name: "mtu-discover-requires-value", spec: "UDP4:localhost:1,ip-mtu-discover", wantErr: "requires a value"},
+		{name: "mtu-discover-range", spec: "UDP4:localhost:1,ip-mtu-discover=3", wantErr: "invalid"},
+		{name: "mtu-discover6-range", spec: "UDP6:localhost:1,ipv6-mtu-discover=-1", wantErr: "invalid"},
+		{name: "ip-recverr-rejected", spec: "UDP4:localhost:1,ip-recverr", wantErr: "not supported"},
+		{name: "recverr-alias-rejected", spec: "UDP:localhost:1,recverr=1", wantErr: "not supported"},
+		{name: "ipv6-recverr-rejected", spec: "UDP6:localhost:1,ipv6-recverr", wantErr: "not supported"},
+		{name: "ip-recverr-on-tcp-rejected", spec: "TCP:localhost:1,ip-recverr", wantErr: "not supported"},
+		{name: "ip-multicast-ttl-too-large", spec: "UDP4:localhost:1,ip-multicast-ttl=256", wantErr: "invalid"},
+		{name: "ip-multicast-loop-bool-range", spec: "UDP4:localhost:1,ip-multicast-loop=2", wantErr: "invalid"},
+		{name: "ip-multicast-loop-bool-word", spec: "UDP4:localhost:1,ip-multicast-loop=true", wantErr: "invalid"},
+		{name: "ipv6-multicast-loop-bool-range", spec: "UDP6:localhost:1,ipv6-multicast-loop=2", wantErr: "invalid"},
+		{name: "ipv6-multicast-loop-bool-word", spec: "UDP6:localhost:1,ipv6-multicast-loop=true", wantErr: "invalid"},
+		{name: "ip-add-source-membership-requires-value", spec: "UDP4:localhost:1,ip-add-source-membership", wantErr: "requires a value"},
 		{name: "classic-linger-alias", spec: "TCP:localhost:1,linger=0"},
 		{name: "sndbuf", spec: "TCP:localhost:1,sndbuf=4096"},
 		{name: "rcvbuf-alias", spec: "TCP:localhost:1,so-rcvbuf=8192"},
@@ -139,6 +193,7 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "linux-fd-options", spec: "STDIN,o-noatime,f-setpipe-sz=4096"},
 		{name: "noatime-on-tcp", spec: "TCP:localhost:1,noatime"},
 		{name: "o-direct-on-open", spec: "OPEN:file,o-direct"},
+		{name: "o-rdwr-on-open", spec: "OPEN:file,o-rdwr"},
 		{name: "o-direct-alias", spec: "FILE:file,direct"},
 		{name: "o-direct-underscore", spec: "GOPEN:file,o_direct"},
 		{name: "o-direct-on-create", spec: "CREATE:file,o-direct", wantErr: "not supported"},
@@ -146,6 +201,29 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "o-direct-on-fifo", spec: "FIFO:file,o-direct"},
 		{name: "o-direct-on-tcp", spec: "TCP:localhost:1,o-direct", wantErr: "not supported"},
 		{name: "o-direct-on-fd", spec: "FD:3,o-direct", wantErr: "not supported"},
+		{name: "o-sync-on-open", spec: "OPEN:file,o-sync"},
+		{name: "sync-alias-on-open", spec: "OPEN:file,sync"},
+		{name: "o-sync-on-create", spec: "CREATE:file,o-sync", wantErr: "not supported"},
+		{name: "o-sync-on-tcp", spec: "TCP:localhost:1,o-sync", wantErr: "not supported"},
+		{name: "o-dsync-on-open", spec: "OPEN:file,o-dsync"},
+		{name: "o-rsync-on-open", spec: "OPEN:file,o-rsync"},
+		{name: "o-noctty-on-open", spec: "OPEN:file,noctty"},
+		{name: "o-nofollow-on-open", spec: "OPEN:file,o-nofollow"},
+		{name: "o-directory-on-open", spec: "OPEN:file,directory"},
+		{name: "o-largefile-on-open", spec: "OPEN:file,largefile"},
+		{name: "async-on-fd", spec: "FD:3,async"},
+		{name: "o-async-on-tcp", spec: "TCP:localhost:1,o-async"},
+		{name: "lseek-on-fd", spec: "FD:3,lseek=0"},
+		{name: "seek-cur-on-open", spec: "OPEN:file,seek-cur=-1"},
+		{name: "lseek-on-tcp", spec: "TCP:localhost:1,lseek=0", wantErr: "not supported"},
+		{name: "flock-on-fd", spec: "FD:3,flock"},
+		{name: "flock-ex-on-open", spec: "OPEN:file,flock-ex"},
+		{name: "perm-late-on-fd", spec: "FD:3,perm-late=0600"},
+		{name: "perm-late-on-open", spec: "OPEN:file,perm-late=0600"},
+		{name: "user-late-on-fd", spec: "FD:3,uid-l=0"},
+		{name: "group-late-on-fd", spec: "FD:3,gid-l=0"},
+		{name: "missing-perm-late", spec: "FD:3,perm-late", wantErr: "requires a value"},
+		{name: "bare-lseek-defaults-to-one", spec: "FD:3,lseek"},
 		{name: "fs-noatime-on-open", spec: "OPEN:file,fs-noatime"},
 		{name: "fs-noatime-on-create", spec: "CREATE:file,fs-noatime"},
 		{name: "ext2-noatime-alias", spec: "OPEN:file,ext2-noatime"},
@@ -200,11 +278,15 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "method-on-tls", spec: "TLS:localhost:443,method=DTLS1"},
 		{name: "fips-on-tls", spec: "TLS:localhost:443,fips"},
 		{name: "openssl-fips-on-tls", spec: "OPENSSL:localhost:443,openssl-fips=1"},
+		{name: "invalid-fips-value", spec: "TLS:localhost:443,fips=2", wantErr: "invalid"},
 		{name: "compress-on-tls", spec: "TLS:localhost:443,compress=none"},
+		{name: "compress-requires-value", spec: "TLS:localhost:443,compress", wantErr: "requires a value"},
 		{name: "egd-on-tls", spec: "TLS:localhost:443,egd=/dev/urandom"},
+		{name: "method-requires-value", spec: "TLS:localhost:443,method", wantErr: "requires a value"},
 		{name: "pseudo-on-tls", spec: "TLS:localhost:443,pseudo"},
 		{name: "dhparam-on-tls", spec: "TLS:localhost:443,dhparam=dh.pem"},
 		{name: "maxfraglen-on-tls", spec: "TLS:localhost:443,maxfraglen=512"},
+		{name: "invalid-maxfraglen", spec: "TLS:localhost:443,maxfraglen=bad", wantErr: "invalid"},
 		{name: "maxsendfrag-on-tls", spec: "TLS:localhost:443,maxsendfrag=1024"},
 		{name: "compress-on-tcp", spec: "TCP:localhost:1,compress=none", wantErr: "not supported"},
 		{name: "method-on-tcp", spec: "TCP:localhost:1,method=DTLS1", wantErr: "not supported"},
@@ -229,6 +311,16 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "nodelay-on-file", spec: "CREATE:file,nodelay", wantErr: "not supported"},
 		{name: "keepalive-on-udp", spec: "UDP:localhost:1,keepalive"},
 		{name: "nodelay-on-udp", spec: "UDP:localhost:1,nodelay", wantErr: "not supported"},
+		{name: "tcp-cork-on-tcp", spec: "TCP:localhost:1,tcp-cork"},
+		{name: "cork-alias-on-tls", spec: "TLS:localhost:1,cork=1"},
+		{name: "tcp-maxseg-late-on-wss", spec: "WSS:localhost:1,maxseg-late=512"},
+		{name: "so-dontroute-on-udp", spec: "UDP:localhost:1,dontroute"},
+		{name: "so-oobinline-on-tcp", spec: "TCP:localhost:1,so-oobinline=1"},
+		{name: "tcp-cork-on-udp", spec: "UDP:localhost:1,tcp-cork", wantErr: "not supported"},
+		{name: "tcp-maxseg-on-udp", spec: "UDP:localhost:1,maxseg=512", wantErr: "not supported"},
+		{name: "tcp-cork-on-sctp", spec: "SCTP:localhost:1,tcp-cork", wantErr: "not supported"},
+		{name: "tcp-maxseg-late-on-sctp", spec: "SCTP4:localhost:1,tcp-maxseg-late=512", wantErr: "not supported"},
+		{name: "tcp-cork-on-file", spec: "OPEN:file,tcp-cork", wantErr: "not supported"},
 		{name: "append-on-tcp", spec: "TCP:localhost:1,append"},
 		{name: "append-on-fd", spec: "FD:3,append"},
 		{name: "append-on-stdio", spec: "STDIO,append"},
@@ -441,6 +533,15 @@ func TestCatalogLifecyclePhasesForAdvertisedFDOptions(t *testing.T) {
 		{spelling: "owner", phase: "FD", groups: []string{"FD", "NAMED"}},
 		{spelling: "group", phase: "FD", groups: []string{"FD", "NAMED"}},
 		{spelling: "gid", phase: "FD", groups: []string{"FD", "NAMED"}},
+		{spelling: "perm-late", phase: "LATE", groups: []string{"FD"}},
+		{spelling: "user-late", phase: "LATE", groups: []string{"FD"}},
+		{spelling: "group-late", phase: "LATE", groups: []string{"FD"}},
+		{spelling: "async", phase: "LATE", groups: []string{"FD", "OPEN"}},
+		{spelling: "o-async", phase: "LATE", groups: []string{"FD", "OPEN"}},
+		{spelling: "o-sync", phase: "OPEN", groups: []string{"OPEN"}},
+		{spelling: "lseek", phase: "LATE", groups: []string{"BLK", "REG"}},
+		{spelling: "flock", phase: "FD", groups: []string{"FD"}},
+		{spelling: "flock-ex", phase: "FD", groups: []string{"FD"}},
 	}
 	for _, tt := range tests {
 		e, ok := classiccatalog.Lookup(tt.spelling)
@@ -544,6 +645,8 @@ func TestAdvertisedAliasClassicGroupMismatches(t *testing.T) {
 		switch spelling {
 		case "ipv6-join-group", "ip-add-membership":
 			return "[ff02::2]:lo"
+		case "ipv6-join-source-group", "ip-add-source-membership":
+			return "[ff3e::1]:lo:[::1]"
 		default:
 			return "1"
 		}
@@ -576,6 +679,26 @@ func TestAdvertisedAliasClassicGroupMismatches(t *testing.T) {
 		}
 		if rejected == 0 {
 			t.Errorf("%s -> %s: no sample address is in canonical groups but not alias groups", m.alias, m.canonical)
+		}
+	}
+}
+
+func TestMulticastRemainingOptionsAccepted(t *testing.T) {
+	for _, spec := range []string{
+		"UDP6:localhost:1,ipv6-multicast-loop=0",
+		"UDP6:localhost:1,mcloop6",
+		"UDP6:localhost:1,ipv6-join-source-group=[ff3e::1]:lo:[::1]",
+		"UDP6:localhost:1,join-source-group=[ff3e::1]:lo:[::1]",
+		"UDP4:localhost:1,ip-add-source-membership=232.1.1.1:127.0.0.1:127.0.0.1",
+		"UDP4:localhost:1,ip-multicast-ttl=9,ip-multicast-loop=0,ip-multicast-if=127.0.0.1",
+		"TCP4-LISTEN:1,ip-freebind,ip-transparent",
+	} {
+		ch, err := parse.ParseChannel(spec)
+		if err != nil {
+			t.Fatalf("%s: %v", spec, err)
+		}
+		if err := validateChannelOptions(ch); err != nil {
+			t.Errorf("%s: %v", spec, err)
 		}
 	}
 }
@@ -631,6 +754,63 @@ func TestValidateSpecOptionsUsesOriginalSpellingNotFoldedName(t *testing.T) {
 	err := validateSpecOptions(spec)
 	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("folded Name must not bypass spelling groups: %v", err)
+	}
+}
+
+func TestTermiosOptionsRecognizedWhenUnsupported(t *testing.T) {
+	if xio.FeatureTERMIOS {
+		t.Skip("termios is implemented on this platform")
+	}
+	table := buildSupportedAddressOptions()
+	for _, name := range []string{"vintr", "intr", "icanon", "ispeed", "ospeed", "b115200"} {
+		if _, ok := table[name]; !ok {
+			t.Errorf("option table missing %q on a platform without termios", name)
+		}
+	}
+}
+
+func TestTermiosOptionTypesAreValidated(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows rejects the entire TERMIOS group")
+	}
+	tests := []struct {
+		spec    string
+		wantErr bool
+	}{
+		{spec: "PTY,echo"},
+		{spec: "PTY,echo=0"},
+		{spec: "PTY,echo=1"},
+		{spec: "PTY,echo=false", wantErr: true},
+		{spec: "PTY,echo=", wantErr: true},
+		{spec: "PTY,raw"},
+		{spec: "PTY,raw=0", wantErr: true},
+		{spec: "PTY,b9600"},
+		{spec: "PTY,b9600=0", wantErr: true},
+		{spec: "PTY,vintr=3"},
+		{spec: "PTY,vintr", wantErr: true},
+		{spec: "PTY,ispeed=9600"},
+		{spec: "PTY,ispeed=garbage", wantErr: true},
+		{spec: "PTY,tiocswinsz=80:24"},
+		{spec: "PTY,tiocswinsz", wantErr: true},
+		{spec: "PTY,ctty=0"},
+		{spec: "PTY,ctty=off", wantErr: true},
+		{spec: "PTY,termios-setflags=0:1"},
+		{spec: "PTY,termios-setflags=4:1", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.spec, func(t *testing.T) {
+			s, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = validateSpecOptions(s)
+			if tc.wantErr && err == nil {
+				t.Fatal("validation succeeded")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("validation failed: %v", err)
+			}
+		})
 	}
 }
 
