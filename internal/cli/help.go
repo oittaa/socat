@@ -35,7 +35,7 @@ func printHelp(w io.Writer, level int) error {
 	b.Printf("  socat TLS-LISTEN:8443,reuseaddr,fork,cert=s.crt,key=s.key,verify=0 TCP:127.0.0.1:8080\n\n")
 
 	printHelpFlags(&b)
-	printHelpAddresses(&b)
+	printHelpAddresses(&b, level >= 3)
 	if level >= 2 {
 		printHelpOptions(&b, level >= 3)
 	}
@@ -68,13 +68,20 @@ func printHelpFlags(b *outbuf.Buf) {
 	b.Printf("  --experimental allow experimental options (netns)\n")
 }
 
-func printHelpAddresses(b *outbuf.Buf) {
+func printHelpAddresses(b *outbuf.Buf, aliases bool) {
 	b.Printf("\nAddress types:\n")
 	for _, g := range xio.HelpAddressGroups() {
 		width := 0
 		for _, a := range g.Addrs {
 			if n := len(a.Syntax); n > width {
 				width = n
+			}
+			if aliases {
+				for _, al := range a.Aliases {
+					if n := len(al); n > width {
+						width = n
+					}
+				}
 			}
 		}
 		if len(g.Addrs) == 0 {
@@ -83,6 +90,11 @@ func printHelpAddresses(b *outbuf.Buf) {
 		b.Printf("\n  %s\n", g.Title)
 		for _, a := range g.Addrs {
 			b.Printf("    %-*s  %s\n", width, a.Syntax, a.Desc)
+			if aliases {
+				for _, al := range a.Aliases {
+					printOptLine(b, al, "alias of "+a.Name, width)
+				}
+			}
 		}
 	}
 }

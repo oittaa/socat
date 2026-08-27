@@ -121,8 +121,10 @@ A two-container walk-through is in [examples/lab/README.md](examples/lab/README.
 
 ## Address types
 
-Implemented types only. Aliases share a row. `./socat -h` prints syntax for
-every name. DCCP and readline are not implemented (see
+Implemented types only. Directly registered names (including `TCP-L` style
+spellings) share a `-h` row. Classic `addressnames[]` aliases of those types
+(`INET`, `LOCAL`, `UDP-DGRAM`, …) open the canonical type and appear in
+`./socat -hhh` as `alias of <canonical>`. DCCP and readline are not implemented (see
 [Unsupported / security-related](#unsupported--security-related)).
 
 | Type | Syntax | Notes |

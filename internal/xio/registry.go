@@ -28,8 +28,10 @@ const (
 
 // HelpAddr represents a single address entry in help output.
 type HelpAddr struct {
-	Syntax string
-	Desc   string
+	Name    string // Registered keyword, e.g. "TCP-CONNECT"
+	Syntax  string
+	Desc    string
+	Aliases []string // Unregistered classic addressnames[] aliases; printed at -hhh
 }
 
 // HelpAddrGroup represents a section of address types in help output.
@@ -127,10 +129,56 @@ func Register(name string, fn Opener) {
 }
 
 func lookupOpener(typ string) (Opener, bool) {
-	registeredAddresses.mu.RLock()
-	defer registeredAddresses.mu.RUnlock()
-	fn, ok := registeredAddresses.openers[strings.ToUpper(typ)]
-	return fn, ok
+	return registeredAddresses.opener(typ)
+}
+
+func (r *addressRegistry) opener(typ string) (Opener, bool) {
+	d, ok := r.resolve(typ)
+	if !ok || d.Opener == nil {
+		return nil, false
+	}
+	return d.Opener, true
+}
+
+// resolve returns the registered descriptor for typ. Direct RegisterAddress
+// entries win. Otherwise ClassicAddressAliases is applied when the canonical
+// opener is registered (classic addressnames[] in xioopen.c; tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a). Unsupported families (DCCP,
+// DTLS, readline) and unimplemented canonicals (ACCEPT-FD) stay unknown
+// because their dest is not registered. Parser shorthand "-" → STDIO is
+// handled in parse.ParseSpec, not here.
+func (r *addressRegistry) resolve(typ string) (AddressDesc, bool) {
+	name := strings.ToUpper(strings.TrimSpace(typ))
+	if name == "" || name == "-" {
+		return AddressDesc{}, false
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if d, ok := r.descsByName[name]; ok {
+		return d, true
+	}
+	if alias, ok := ClassicAddressAliases[name]; ok && alias != name {
+		if d, ok := r.descsByName[alias]; ok {
+			return d, true
+		}
+	}
+	return AddressDesc{}, false
+}
+
+func (r *addressRegistry) unregisteredClassicAliasesLocked(canonical string) []string {
+	var out []string
+	for alias, dest := range ClassicAddressAliases {
+		if dest != canonical || alias == canonical || alias == "-" {
+			continue
+		}
+		if _, exists := r.descsByName[alias]; exists {
+			continue
+		}
+		out = append(out, alias)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // DefaultHelpGroupOrder is the -h section order.
@@ -148,15 +196,15 @@ type AddressRegistration struct {
 }
 
 // AddressRegistrationForType returns the registered metadata for one address
-// keyword. It is used by the CLI to validate protocol-specific option scopes.
+// keyword, including classic addressnames[] aliases whose canonical opener is
+// registered. Direct RegisterAddress entries win over alias fallback. It is
+// used by the CLI to validate protocol-specific option scopes.
 func AddressRegistrationForType(typ string) (AddressRegistration, bool) {
 	return registeredAddresses.registration(typ)
 }
 
 func (r *addressRegistry) registration(typ string) (AddressRegistration, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	d, ok := r.descsByName[strings.ToUpper(typ)]
+	d, ok := r.resolve(typ)
 	if !ok {
 		return AddressRegistration{}, false
 	}
@@ -221,8 +269,10 @@ func HelpAddressGroups() []HelpAddrGroup {
 				desc = a.DynamicDesc()
 			}
 			list = append(list, HelpAddr{
-				Syntax: a.Syntax,
-				Desc:   desc,
+				Name:    a.Name,
+				Syntax:  a.Syntax,
+				Desc:    desc,
+				Aliases: registeredAddresses.unregisteredClassicAliasesLocked(a.Name),
 			})
 		}
 		if len(list) > 0 {

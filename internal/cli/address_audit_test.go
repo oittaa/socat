@@ -16,6 +16,11 @@ func registeredAddressNames() map[string]bool {
 	for _, r := range xio.AddressRegistrations() {
 		out[r.Name] = true
 	}
+	for alias := range xio.ClassicAddressAliases {
+		if _, ok := xio.AddressRegistrationForType(alias); ok {
+			out[alias] = true
+		}
+	}
 	return out
 }
 
@@ -164,25 +169,16 @@ func TestAddressParityFailsIfImplementedAliasDisappears(t *testing.T) {
 	}
 }
 
-func TestAddressParityFailsIfImplementedAliasStaysInMissingManifest(t *testing.T) {
-	registered := registeredAddressNames()
-	const name = "ABSTRACT"
-	if _, ok := classiccatalog.ExpectedMissingAddressAliases[name]; !ok {
-		t.Fatalf("%q is not in the supported-alias backlog", name)
-	}
-	registered[name] = true
-	problems := addressParityProblems(runtime.GOOS, registered)
-	if len(problems) == 0 {
-		t.Fatal("expected audit failure when a missing alias is registered")
-	}
-	found := false
-	for _, p := range problems {
-		if strings.Contains(p, name) && strings.Contains(p, "missing manifest") {
-			found = true
-			break
+func TestImplementedClassicAliasesAreNotInMissingManifest(t *testing.T) {
+	for alias, canon := range xio.ClassicAddressAliases {
+		if _, ok := xio.AddressRegistrationForType(alias); !ok {
+			continue
+		}
+		if _, ok := classiccatalog.ExpectedMissingAddressAliases[alias]; ok {
+			t.Errorf("implemented alias %q of %q remains in ExpectedMissingAddressAliases", alias, canon)
 		}
 	}
-	if !found {
-		t.Fatalf("audit problems do not mention stale alias %q: %s", name, strings.Join(problems, "; "))
+	if _, ok := xio.AddressRegistrationForType("ABSTRACT"); !ok {
+		t.Fatal("ABSTRACT must resolve to ABSTRACT-CLIENT")
 	}
 }

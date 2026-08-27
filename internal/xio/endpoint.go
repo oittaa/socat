@@ -378,12 +378,19 @@ func openDual(ctx context.Context, d *parse.Dual, g *Global) (*Opened, error) {
 
 // OpenSpec opens a single address type.
 func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	s.Type = strings.ToUpper(s.Type)
+	orig := strings.ToUpper(s.Type)
+	s.Type = orig
 	fn, ok := lookupOpener(s.Type)
 	if !ok {
 		// Message text must match classic for test.sh testaddrs():
 		// grep "E unknown device/address"
-		return nil, fmt.Errorf("unknown device/address \"%s\"", s.Type)
+		return nil, fmt.Errorf("unknown device/address \"%s\"", orig)
+	}
+	// Rewrite to the registered keyword so Type-based opener logic (chdir
+	// UNIX paths, ABSTRACT-CLIENT autodetect, family openers) sees the
+	// canonical name. Direct registrations such as TCP-L keep their own name.
+	if d, ok := registeredAddresses.resolve(s.Type); ok {
+		s.Type = d.Name
 	}
 	var err error
 	s, err = ResolveChdirPaths(s)
