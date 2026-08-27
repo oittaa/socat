@@ -17,6 +17,8 @@ func TestDerivedOptionCaps(t *testing.T) {
 		{name: "TCP-LISTEN", group: GroupTCP, want: uniqueCaps([]string{"fd", "socket", "sock-ip4", "sock-ip6", "ip-tcp", "listen", "child", "range", "retry"})},
 		{name: "SOCKET-LISTEN", group: GroupSocket, want: uniqueCaps([]string{"fd", "socket", "listen", "range", "child", "retry"})},
 		{name: "OPEN", group: GroupFiles, want: uniqueCaps([]string{"fd", "fifo", "chr", "blk", "reg", "named", "open", "termios"})},
+		{name: "ACCEPT-FD", group: GroupFiles, want: uniqueCaps([]string{"fd", "socket", "sock-unix", "sock-ip4", "sock-ip6", "ip-udp", "ip-tcp", "ip-sctp", "ip-dccp", "ip-udplite", "child", "range", "retry"})},
+		{name: "ACCEPT", group: GroupFiles, want: uniqueCaps([]string{"fd", "socket", "sock-unix", "sock-ip4", "sock-ip6", "ip-udp", "ip-tcp", "ip-sctp", "ip-dccp", "ip-udplite", "child", "range", "retry"})},
 		{name: "CREATE", group: GroupFiles, want: uniqueCaps([]string{"fd", "named", "reg"})},
 		{name: "POSIXMQ-RECV", group: GroupPOSIXMQ, want: uniqueCaps([]string{"fd", "open", "named", "posixmq", "retry", "child"})},
 		{name: "UDP", group: GroupUDP, want: uniqueCaps([]string{"fd", "socket", "sock-ip4", "sock-ip6", "ip-udp"})},
@@ -156,6 +158,17 @@ func TestClassicAllowsOption(t *testing.T) {
 		{"UDPLITE4-RECVFROM", "udplite-recv-cscov", true},
 		{"TCP-CONNECT", "udplite-send-cscov", false},
 		{"UDP-CONNECT", "udplite-send-cscov", false},
+		{"ACCEPT-FD", "fork", true},
+		{"ACCEPT-FD", "range", true},
+		{"ACCEPT-FD", "sourceport", true},
+		{"ACCEPT-FD", "lowport", true},
+		{"ACCEPT-FD", "tcpwrap", true},
+		{"ACCEPT-FD", "backlog", false},
+		{"ACCEPT-FD", "accept-timeout", false},
+		{"ACCEPT-FD", "pty", false},
+		{"ACCEPT-FD", "unlink-early", false},
+		{"ACCEPT", "fork", true},
+		{"ACCEPT", "excl", false},
 	}
 	for _, tc := range cases {
 		got := ClassicAllowsOption(tc.addr, tc.opt)

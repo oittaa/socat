@@ -82,6 +82,8 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"UDPLITE4-DATAGRAM:<host>:<port>",
 		"UDPLITE4-RECV:<port>",
 		"UDPLITE4-RECVFROM:<port>",
+		"ACCEPT-FD:<fdnum>",
+		"ACCEPT:<fdnum>",
 	} {
 		if !strings.Contains(help, addr) {
 			t.Errorf("help missing %q", addr)

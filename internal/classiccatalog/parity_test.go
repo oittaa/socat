@@ -219,12 +219,16 @@ func TestAddressClassificationSeparatesUnsupportedFromAliases(t *testing.T) {
 		t.Fatalf("READLINE: %s", class)
 	}
 	class, _ = ClassifyAddress("ACCEPT-FD", "linux")
-	if class != AddrExpectedMissingCanonical {
-		t.Fatalf("ACCEPT-FD on linux: %s", class)
+	if class != AddrMustRegister {
+		t.Fatalf("ACCEPT-FD on linux: %s (implemented PR F)", class)
 	}
 	class, _ = ClassifyAddress("ACCEPT-FD", "windows")
-	if class != AddrForeign {
-		t.Fatalf("ACCEPT-FD on windows: %s (Unix-only)", class)
+	if class != AddrMustRegister {
+		t.Fatalf("ACCEPT-FD on windows: %s (registered, help hidden like UDPLITE)", class)
+	}
+	class, _ = ClassifyAddress("ACCEPT", "linux")
+	if class != AddrMustRegister {
+		t.Fatalf("ACCEPT alias: %s (registered with ACCEPT-FD)", class)
 	}
 	class, _ = ClassifyAddress("UDPLITE-CONNECT", "linux")
 	if class != AddrMustRegister {
@@ -245,15 +249,15 @@ func TestAddressClassificationSeparatesUnsupportedFromAliases(t *testing.T) {
 	if _, ok := ExpectedMissingCanonicalAddresses["UDPLITE-CONNECT"]; ok {
 		t.Fatal("UDPLITE-CONNECT is implemented (#101); remove it from ExpectedMissingCanonicalAddresses")
 	}
-	if got := len(ExpectedMissingCanonicalAddresses); got != 1 {
-		t.Fatalf("expected-missing canonicals=%d, want 1 (ACCEPT-FD)", got)
+	if got := len(ExpectedMissingCanonicalAddresses); got != 0 {
+		t.Fatalf("expected-missing canonicals=%d, want 0", got)
 	}
 	class, _ = ClassifyAddress("-", runtime.GOOS)
 	if class != AddrParserShorthand {
 		t.Fatalf("-: %s", class)
 	}
 	if _, ok := ExpectedMissingAddressAliases["ACCEPT"]; ok {
-		t.Fatal("ACCEPT must not be in the supported-alias backlog; its canonical ACCEPT-FD is unimplemented")
+		t.Fatal("ACCEPT must not be in the supported-alias backlog; ACCEPT-FD is implemented")
 	}
 	if _, ok := ExpectedMissingAddressAliases["UDPLITE"]; ok {
 		t.Fatal("UDPLITE must not be in the supported-alias backlog")

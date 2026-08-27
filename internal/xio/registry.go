@@ -145,9 +145,8 @@ func (r *addressRegistry) opener(typ string) (Opener, bool) {
 // opener is registered (classic addressnames[] in xioopen.c; tag-1.8.1.3
 // 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 // af5388c898c7bb60997935aee93c223deba60c4a). Unsupported families (DCCP,
-// DTLS, readline) and unimplemented canonicals (ACCEPT-FD) stay unknown
-// because their dest is not registered. Parser shorthand "-" → STDIO is
-// handled in parse.ParseSpec, not here.
+// DTLS, readline) stay unknown because their dest is not registered.
+// Parser shorthand "-" → STDIO is handled in parse.ParseSpec, not here.
 func (r *addressRegistry) resolve(typ string) (AddressDesc, bool) {
 	name := strings.ToUpper(strings.TrimSpace(typ))
 	if name == "" || name == "-" {
