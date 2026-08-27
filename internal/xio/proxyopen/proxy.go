@@ -2,6 +2,7 @@ package proxyopen
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -38,6 +39,12 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	}
 	if s.BoolOption("h2c") && major != httpVer2 {
 		return nil, fmt.Errorf("h2c requires http-version=2")
+	}
+	// ignorecr is HTTP/1 CONNECT response parsing only (classic xio-proxy.c).
+	// HTTP/2 and HTTP/3 have no CRLF status/header reader, so an enabled
+	// ignorecr would be a silent no-op. Reject it instead.
+	if s.BoolOption("ignorecr") && major != httpVer1 {
+		return nil, fmt.Errorf("ignorecr applies only to HTTP/1 CONNECT responses")
 	}
 	ver := s.OptionValue("http-version", "1.0")
 	if ver == "" {
@@ -114,7 +121,7 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 }
 
 func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, version string) (net.Conn, error) {
-	// CONNECT host:port HTTP/1.x\r\n[auth]\r\n  (classic always CRLF)
+	// CONNECT host:port HTTP/1.x\r\n[auth]\r\n  (classic always CRLF, even with ignorecr)
 	req := fmt.Sprintf("CONNECT %s HTTP/%s\r\n", net.JoinHostPort(connectHost, targetPort), version)
 	auth, err := proxyAuthHeader(s)
 	if err != nil {
@@ -127,9 +134,17 @@ func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, vers
 	if _, err := c.Write([]byte(req)); err != nil {
 		return nil, err
 	}
+	// ignorecr is classic TYPE_BOOL GROUP_HTTP PH_LATE (xio-proxy.c opt_ignorecr
+	// / retropt_bool). tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba and
+	// official master af5388c898c7bb60997935aee93c223deba60c4a are the same
+	// parser: LF terminates a response line, and CR is ignored while reading
+	// the answer. doc/socat.yo presents a flag without [=<bool>]; the C type is
+	// BOOL, so this port uses BoolOption (bare / =1 enable, =0 disable; last
+	// occurrence wins). Requests still use CR+NL.
+	ignoreCR := s.BoolOption("ignorecr")
 	br := bufio.NewReaderSize(c, maxHTTP1ProxyResponseBytes+1)
 	total := 0
-	status, err := readProxyResponseLine(br, &total)
+	status, err := readProxyResponseLine(br, &total, ignoreCR)
 	if err != nil {
 		return nil, fmt.Errorf("proxy response: %w", err)
 	}
@@ -139,11 +154,11 @@ func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, vers
 	}
 	// Drain headers until blank line.
 	for {
-		line, err := readProxyResponseLine(br, &total)
+		line, err := readProxyResponseLine(br, &total, ignoreCR)
 		if err != nil {
 			return nil, err
 		}
-		if line == "\r\n" || line == "\n" {
+		if proxyHTTP1BlankLine(line) {
 			break
 		}
 	}
@@ -157,7 +172,9 @@ func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, vers
 	return &prefixConn{Conn: c, prefix: buffered}, nil
 }
 
-func readProxyResponseLine(br *bufio.Reader, total *int) (string, error) {
+func readProxyResponseLine(br *bufio.Reader, total *int, ignoreCR bool) (string, error) {
+	// ReadSlice('\n') keeps classic byte-at-a-time CR-then-LF behavior: a
+	// lone CR stays buffered until LF arrives on a later read.
 	line, err := br.ReadSlice('\n')
 	*total += len(line)
 	if *total > maxHTTP1ProxyResponseBytes {
@@ -166,7 +183,20 @@ func readProxyResponseLine(br *bufio.Reader, total *int) (string, error) {
 	if errors.Is(err, bufio.ErrBufferFull) {
 		return "", fmt.Errorf("proxy response header line exceeds %d bytes", maxHTTP1ProxyResponseBytes)
 	}
-	return string(line), err
+	if err != nil {
+		return string(line), err
+	}
+	if ignoreCR {
+		return string(bytes.ReplaceAll(line, []byte{'\r'}, nil)), nil
+	}
+	if !bytes.HasSuffix(line, []byte("\r\n")) {
+		return "", fmt.Errorf("proxy response line is not CRLF-terminated (use ignorecr to allow LF)")
+	}
+	return string(line), nil
+}
+
+func proxyHTTP1BlankLine(line string) bool {
+	return line == "\r\n" || line == "\n"
 }
 
 type proxyTarget struct {

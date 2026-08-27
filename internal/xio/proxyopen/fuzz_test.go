@@ -30,10 +30,12 @@ func FuzzProxyResponseLine(f *testing.F) {
 		if len(data) > maxHTTP1ProxyResponseBytes+2 {
 			t.Skip()
 		}
-		total := 0
-		_, _ = readProxyResponseLine(bufio.NewReaderSize(bytes.NewReader(data), maxHTTP1ProxyResponseBytes+1), &total)
-		if total > len(data) {
-			t.Fatalf("parser consumed %d bytes from %d-byte input", total, len(data))
+		for _, ignoreCR := range []bool{false, true} {
+			total := 0
+			_, _ = readProxyResponseLine(bufio.NewReaderSize(bytes.NewReader(data), maxHTTP1ProxyResponseBytes+1), &total, ignoreCR)
+			if total > len(data) {
+				t.Fatalf("ignorecr=%v parser consumed %d bytes from %d-byte input", ignoreCR, total, len(data))
+			}
 		}
 	})
 }
