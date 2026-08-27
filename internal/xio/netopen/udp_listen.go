@@ -149,7 +149,11 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 				g.SockPort = p
 				lip := net.ParseIP(xio.StripBrackets(host))
 				if lip != nil && lip.IsUnspecified() && raddr != nil {
-					g.SockAddr = xio.FormatSocatAddr(raddr.IP.String())
+					localIP := udpRouteLocalIP(network, raddr)
+					if localIP == nil {
+						localIP = lip
+					}
+					g.SockAddr = xio.FormatSocatAddr(localIP.String())
 				} else {
 					g.SockAddr = xio.FormatSocatAddr(host)
 				}
@@ -172,6 +176,25 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, err
 	}
 	return &xio.Opened{Stream: st, Label: "UDP-LISTEN"}, nil
+}
+
+// udpRouteLocalIP mirrors the getsockname result classic observes after it
+// connects a wildcard listener to the first peer. A route-only UDP dial does
+// not send a packet, but selects the same local interface address. Falling
+// back to the bound address is preferable to misreporting the peer as local.
+func udpRouteLocalIP(network string, peer *net.UDPAddr) net.IP {
+	if peer == nil {
+		return nil
+	}
+	c, err := net.DialUDP(network, nil, peer)
+	if err != nil {
+		return nil
+	}
+	defer logx.CloseQuiet(c)
+	if local, ok := c.LocalAddr().(*net.UDPAddr); ok {
+		return local.IP
+	}
+	return nil
 }
 
 // udpForkListener implements net.Listener for UDP-LISTEN/RECVFROM,fork:
@@ -648,6 +671,9 @@ func (u *udpRecvFromConn) SetReadDeadline(t time.Time) error {
 func (u *udpRecvFromConn) SetWriteDeadline(t time.Time) error {
 	return u.uc.SetWriteDeadline(t)
 }
-func (u *udpRecvFromConn) SyscallConn() (syscall.RawConn, error) {
-	return u.uc.SyscallConn()
-}
+
+// NetConn exposes the socket to xio's option lifecycle without making this
+// pre-buffered stream a syscall.Conn. The relay must consume first before it
+// polls the underlying socket, which is no longer readable after the opener's
+// initial recvfrom.
+func (u *udpRecvFromConn) NetConn() net.Conn { return u.uc }

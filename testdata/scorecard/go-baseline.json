@@ -1,24 +1,24 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-08-15T23:28:40Z",
-    "hostname": "gmktec",
-    "platform": "Linux-6.8.0-137-generic-x86_64-with-glibc2.39",
-    "socat": "/home/eero/src/socat/socat",
-    "socat_version": "socat version 0.1.0-dev on 2026-08-15T23:28:40Z",
-    "test_sh": "/home/eero/src/socat/testdata/tmp/src/socat-1.8.1.3/test.sh",
-    "git": "16458a7",
-    "out_dir": ".scorecard/host",
-    "val_t": "auto",
+    "timestamp": "2026-08-27T21:16:07Z",
+    "hostname": "socat-classic",
+    "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.43",
+    "socat": "/home/socat-user/socat-scorecard-9373570/socat",
+    "socat_version": "socat version 1.0.2-dev on 2026-08-27T21:16:07Z",
+    "test_sh": "/opt/socat-classic/test.sh",
+    "git": "9373570",
+    "out_dir": ".scorecard/vm-host-final",
+    "val_t": "0.5",
     "jobs": "1",
-    "shard_timeout": "7200"
+    "shard_timeout": "3600"
   },
   "summary": {
-    "ok": 449,
+    "ok": 483,
     "failed": 6,
-    "cant": 148,
+    "cant": 116,
     "timeout": 0,
-    "unknown": 2,
+    "unknown": 0,
     "total_recorded": 605,
     "shard_timeouts": []
   },
@@ -738,10 +738,10 @@
       "id": 80,
       "name": "OPENSSL_COMPRESS",
       "description": "OpenSSL compression",
-      "status": "CANT",
-      "detail": "OPENSSL compression option not available",
+      "status": "FAILED",
+      "detail": "/home/socat-user/socat-scorecard-9373570/socat:",
       "shard": 0,
-      "raw": "test  80 OPENSSL_COMPRESS: OpenSSL compression... OPENSSL compression option not available"
+      "raw": "test  80 OPENSSL_COMPRESS: OpenSSL compression... FAILED:  /home/socat-user/socat-scorecard-9373570/socat:"
     },
     "81": {
       "id": 81,
@@ -948,7 +948,7 @@
       "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 105 INTRANETRIPPER: gender changer via SSL through HTTP proxy, daemons... OK"
+      "raw": "test 105 INTRANETRIPPER: gender changer via SSL through HTTP proxy, daemons... OK (partial failure)"
     },
     "106": {
       "id": 106,
@@ -1326,7 +1326,7 @@
       "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 147 EXITCODESIGTERM: exit status when dying on SIGTERM... OK"
+      "raw": "test 147 EXITCODESIGTERM: exit status when dying on SIGTERM... /tmp/socat-shard-0.1bISIl/test.sh: line 6519: kill: (299674) - No such process | OK"
     },
     "148": {
       "id": 148,
@@ -1800,28 +1800,28 @@
       "id": 200,
       "name": "O_NOATIME_FILE",
       "description": "option O_NOATIME on file",
-      "status": "CANT",
-      "detail": "o-noatime not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 200 O_NOATIME_FILE: option O_NOATIME on file... o-noatime not available"
+      "raw": "test 200 O_NOATIME_FILE: option O_NOATIME on file... OK"
     },
     "201": {
       "id": 201,
       "name": "O_NOATIME_FD",
       "description": "option O_NOATIME on file descriptor",
-      "status": "CANT",
-      "detail": "o-noatime not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 201 O_NOATIME_FD: option O_NOATIME on file descriptor... o-noatime not available"
+      "raw": "test 201 O_NOATIME_FD: option O_NOATIME on file descriptor... OK"
     },
     "202": {
       "id": 202,
       "name": "FS_NOATIME",
       "description": "extended file system options using fs noatime option",
-      "status": "CANT",
-      "detail": "fs-noatime not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 202 FS_NOATIME: extended file system options using fs noatime option... fs-noatime not available"
+      "raw": "test 202 FS_NOATIME: extended file system options using fs noatime option... OK"
     },
     "203": {
       "id": 203,
@@ -1944,10 +1944,10 @@
       "id": 216,
       "name": "UDP6MULTICAST_UNIDIR",
       "description": "UDP/IPv6 multicast",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 216 UDP6MULTICAST_UNIDIR: UDP/IPv6 multicast... FAILED"
+      "raw": "test 216 UDP6MULTICAST_UNIDIR: UDP/IPv6 multicast... OK"
     },
     "217": {
       "id": 217,
@@ -2042,9 +2042,9 @@
     "227": {
       "id": 227,
       "name": "EXECPTYKILL",
-      "description": "exec:",
-      "status": "UNKNOWN",
-      "detail": ",pty explicitly kills sub process... OK",
+      "description": "exec:...,pty explicitly kills sub process",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
       "raw": "test 227 EXECPTYKILL: exec:...,pty explicitly kills sub process... OK"
     },
@@ -2736,10 +2736,10 @@
       "id": 304,
       "name": "IOCTL_VOID",
       "description": "test the ioctl-void option",
-      "status": "CANT",
-      "detail": "Option ioctl-void not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 304 IOCTL_VOID: test the ioctl-void option... Option ioctl-void not available in /home/eero/src/socat/socat"
+      "raw": "test 304 IOCTL_VOID: test the ioctl-void option... OK"
     },
     "305": {
       "id": 305,
@@ -2782,18 +2782,18 @@
       "name": "OPENSSLRENEG1",
       "description": "OpenSSL connections survive renogotiation",
       "status": "CANT",
-      "detail": "not with OpenSSL 3.0.13",
+      "detail": "not with OpenSSL 3.5.5",
       "shard": 0,
-      "raw": "test 309 OPENSSLRENEG1: OpenSSL connections survive renogotiation... not with OpenSSL 3.0.13"
+      "raw": "test 309 OPENSSLRENEG1: OpenSSL connections survive renogotiation... not with OpenSSL 3.5.5"
     },
     "310": {
       "id": 310,
       "name": "OPENSSLRENEG2",
       "description": "OpenSSL connections do not block after renogotiation",
       "status": "CANT",
-      "detail": "not with OpenSSL 3.0.13",
+      "detail": "not with OpenSSL 3.5.5",
       "shard": 0,
-      "raw": "test 310 OPENSSLRENEG2: OpenSSL connections do not block after renogotiation... not with OpenSSL 3.0.13"
+      "raw": "test 310 OPENSSLRENEG2: OpenSSL connections do not block after renogotiation... not with OpenSSL 3.5.5"
     },
     "311": {
       "id": 311,
@@ -3411,10 +3411,10 @@
       "id": 379,
       "name": "OPENSSL_MIN_VERSION",
       "description": "security of OpenSSL server with openssl-min-proto-version",
-      "status": "CANT",
-      "detail": "openssl-min-proto-version not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 379 OPENSSL_MIN_VERSION: security of OpenSSL server with openssl-min-proto-version... openssl-min-proto-version not available"
+      "raw": "test 379 OPENSSL_MIN_VERSION: security of OpenSSL server with openssl-min-proto-version... OK"
     },
     "380": {
       "id": 380,
@@ -3564,10 +3564,10 @@
       "id": 396,
       "name": "O_DIRECT",
       "description": "echo via file with o-direct",
-      "status": "CANT",
-      "detail": "o-direct not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 396 O_DIRECT: echo via file with o-direct... o-direct not available"
+      "raw": "test 396 O_DIRECT: echo via file with o-direct... OK"
     },
     "397": {
       "id": 397,
@@ -3690,10 +3690,10 @@
       "id": 410,
       "name": "VSOCK_ECHO",
       "description": "test communication via VSOCK loopback socket",
-      "status": "CANT",
-      "detail": "VSOCK not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 410 VSOCK_ECHO: test communication via VSOCK loopback socket... VSOCK not available"
+      "raw": "test 410 VSOCK_ECHO: test communication via VSOCK loopback socket... OK"
     },
     "411": {
       "id": 411,
@@ -3825,19 +3825,19 @@
       "id": 425,
       "name": "CONNECT_TO_DGRAM",
       "description": "Failure handling on connect access to dgram",
-      "status": "CANT",
-      "detail": "not with eero",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 425 CONNECT_TO_DGRAM: Failure handling on connect access to dgram... not with eero"
+      "raw": "test 425 CONNECT_TO_DGRAM: Failure handling on connect access to dgram... OK"
     },
     "426": {
       "id": 426,
       "name": "CONNECT_TO_SEQPACKET",
       "description": "Failure handling on connect access to seqpacket",
-      "status": "CANT",
-      "detail": "not with eero",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 426 CONNECT_TO_SEQPACKET: Failure handling on connect access to seqpacket... not with eero"
+      "raw": "test 426 CONNECT_TO_SEQPACKET: Failure handling on connect access to seqpacket... OK"
     },
     "427": {
       "id": 427,
@@ -4014,19 +4014,19 @@
       "id": 446,
       "name": "SEQPACKET_TO_STREAM",
       "description": "Failure handling on seqpacket access to stream",
-      "status": "CANT",
-      "detail": "not with eero",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 446 SEQPACKET_TO_STREAM: Failure handling on seqpacket access to stream... not with eero"
+      "raw": "test 446 SEQPACKET_TO_STREAM: Failure handling on seqpacket access to stream... OK"
     },
     "447": {
       "id": 447,
       "name": "SEQPACKET_TO_DGRAM",
       "description": "Failure handling on seqpacket access to dgram",
-      "status": "CANT",
-      "detail": "not with eero",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 447 SEQPACKET_TO_DGRAM: Failure handling on seqpacket access to dgram... not with eero"
+      "raw": "test 447 SEQPACKET_TO_DGRAM: Failure handling on seqpacket access to dgram... OK"
     },
     "448": {
       "id": 448,
@@ -4248,19 +4248,19 @@
       "id": 472,
       "name": "SIGTERM_NOLOG",
       "description": "Option -S can turn off logging of SIGTERM",
-      "status": "CANT",
-      "detail": "Option -S not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 472 SIGTERM_NOLOG: Option -S can turn off logging of SIGTERM... Option -S not available"
+      "raw": "test 472 SIGTERM_NOLOG: Option -S can turn off logging of SIGTERM... OK"
     },
     "473": {
       "id": 473,
       "name": "SIG31_LOG",
       "description": "Option -S can turn on logging of signal 31",
-      "status": "CANT",
-      "detail": "Option -S not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 473 SIG31_LOG: Option -S can turn on logging of signal 31... Option -S not available"
+      "raw": "test 473 SIG31_LOG: Option -S can turn on logging of signal 31... OK"
     },
     "474": {
       "id": 474,
@@ -4276,9 +4276,9 @@
       "name": "RCVTIMEO_DTLS",
       "description": "test the so-rcvtimeo option with DTLS",
       "status": "CANT",
-      "detail": "Address DTLS not available in /home/eero/src/socat/socat",
+      "detail": "Address DTLS not available in /home/socat-user/socat-scorecard-9373570/socat",
       "shard": 0,
-      "raw": "test 475 RCVTIMEO_DTLS: test the so-rcvtimeo option with DTLS... Address DTLS not available in /home/eero/src/socat/socat"
+      "raw": "test 475 RCVTIMEO_DTLS: test the so-rcvtimeo option with DTLS... Address DTLS not available in /home/socat-user/socat-scorecard-9373570/socat"
     },
     "476": {
       "id": 476,
@@ -4311,10 +4311,10 @@
       "id": 479,
       "name": "CHILDREN_SHUTUP",
       "description": "test the children-shutup option",
-      "status": "CANT",
-      "detail": "Option children-shutup not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 479 CHILDREN_SHUTUP: test the children-shutup option... Option children-shutup not available"
+      "raw": "test 479 CHILDREN_SHUTUP: test the children-shutup option... OK"
     },
     "480": {
       "id": 480,
@@ -4373,20 +4373,20 @@
     "486": {
       "id": 486,
       "name": "NETNS",
-      "description": "option netns (net namespace socat-966791-test486)",
+      "description": "option netns (net namespace socat-290465-test486)",
       "status": "CANT",
       "detail": "Must be root",
       "shard": 0,
-      "raw": "test 486 NETNS: option netns (net namespace socat-966791-test486)... Must be root"
+      "raw": "test 486 NETNS: option netns (net namespace socat-290465-test486)... Must be root"
     },
     "487": {
       "id": 487,
       "name": "NETNS_EXEC",
-      "description": "option netns with EXEC (net namespace socat-966791-test487)",
+      "description": "option netns with EXEC (net namespace socat-290465-test487)",
       "status": "CANT",
       "detail": "Must be root",
       "shard": 0,
-      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-966791-test487)... Must be root"
+      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-290465-test487)... Must be root"
     },
     "488": {
       "id": 488,
@@ -4419,19 +4419,19 @@
       "id": 491,
       "name": "SOCKETPAIR_BOUNDARIES",
       "description": "Internal socketpair keeps packet boundaries",
-      "status": "CANT",
-      "detail": "Option socktype not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 491 SOCKETPAIR_BOUNDARIES: Internal socketpair keeps packet boundaries... Option socktype not available in /home/eero/src/socat/socat"
+      "raw": "test 491 SOCKETPAIR_BOUNDARIES: Internal socketpair keeps packet boundaries... OK"
     },
     "492": {
       "id": 492,
       "name": "ACCEPT_FD",
       "description": "ACCEPT-FD address",
-      "status": "CANT",
-      "detail": "Address ACCEPT-FD not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 492 ACCEPT_FD: ACCEPT-FD address... Address ACCEPT-FD not available"
+      "raw": "test 492 ACCEPT_FD: ACCEPT-FD address... OK"
     },
     "493": {
       "id": 493,
@@ -4474,9 +4474,9 @@
       "name": "SHELL_SIGINT",
       "description": "sigint option with SHELL",
       "status": "CANT",
-      "detail": "Option sigint not available in /home/eero/src/socat/socat",
+      "detail": "Option sigint not available in /home/socat-user/socat-scorecard-9373570/socat",
       "shard": 0,
-      "raw": "test 497 SHELL_SIGINT: sigint option with SHELL... Option sigint not available in /home/eero/src/socat/socat"
+      "raw": "test 497 SHELL_SIGINT: sigint option with SHELL... Option sigint not available in /home/socat-user/socat-scorecard-9373570/socat"
     },
     "498": {
       "id": 498,
@@ -4528,18 +4528,18 @@
       "name": "SYSTEM_SIGINT",
       "description": "sigint option with SYSTEM",
       "status": "CANT",
-      "detail": "Feature SYCLS not configured in /home/eero/src/socat/socat",
+      "detail": "Feature SYCLS not configured in /home/socat-user/socat-scorecard-9373570/socat",
       "shard": 0,
-      "raw": "test 503 SYSTEM_SIGINT: sigint option with SYSTEM... Feature SYCLS not configured in /home/eero/src/socat/socat"
+      "raw": "test 503 SYSTEM_SIGINT: sigint option with SYSTEM... Feature SYCLS not configured in /home/socat-user/socat-scorecard-9373570/socat"
     },
     "504": {
       "id": 504,
       "name": "RES_NSADDR",
       "description": "test the res-nsaddr option",
       "status": "CANT",
-      "detail": "Option res-nsaddr not available in /home/eero/src/socat/socat",
+      "detail": "Option res-nsaddr not available in /home/socat-user/socat-scorecard-9373570/socat",
       "shard": 0,
-      "raw": "test 504 RES_NSADDR: test the res-nsaddr option... Option res-nsaddr not available in /home/eero/src/socat/socat"
+      "raw": "test 504 RES_NSADDR: test the res-nsaddr option... Option res-nsaddr not available in /home/socat-user/socat-scorecard-9373570/socat"
     },
     "505": {
       "id": 505,
@@ -4662,97 +4662,97 @@
       "id": 518,
       "name": "STDIN_F_SETPIPE_SZ",
       "description": "f-setpipe-sz on STDIN",
-      "status": "CANT",
-      "detail": "Option f-setpipe-sz not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 518 STDIN_F_SETPIPE_SZ: f-setpipe-sz on STDIN... Option f-setpipe-sz not available in /home/eero/src/socat/socat"
+      "raw": "test 518 STDIN_F_SETPIPE_SZ: f-setpipe-sz on STDIN... OK"
     },
     "519": {
       "id": 519,
       "name": "EXEC_F_SETPIPE_SZ",
       "description": "f-setpipe-sz on EXEC with pipes",
-      "status": "CANT",
-      "detail": "Option f-setpipe-sz not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 519 EXEC_F_SETPIPE_SZ: f-setpipe-sz on EXEC with pipes... Option f-setpipe-sz not available in /home/eero/src/socat/socat"
+      "raw": "test 519 EXEC_F_SETPIPE_SZ: f-setpipe-sz on EXEC with pipes... OK"
     },
     "520": {
       "id": 520,
       "name": "DCCP4",
       "description": "DCCP over IPv4",
       "status": "CANT",
-      "detail": "Feature DCCP not configured in /home/eero/src/socat/socat",
+      "detail": "Feature DCCP not configured in /home/socat-user/socat-scorecard-9373570/socat",
       "shard": 0,
-      "raw": "test 520 DCCP4: DCCP over IPv4... Feature DCCP not configured in /home/eero/src/socat/socat"
+      "raw": "test 520 DCCP4: DCCP over IPv4... Feature DCCP not configured in /home/socat-user/socat-scorecard-9373570/socat"
     },
     "521": {
       "id": 521,
       "name": "UDPLITE4STREAM",
       "description": "echo via connection to UDP-Lite IPv4 socket",
-      "status": "CANT",
-      "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 521 UDPLITE4STREAM: echo via connection to UDP-Lite IPv4 socket... Feature UDPLITE not configured in /home/eero/src/socat/socat"
+      "raw": "test 521 UDPLITE4STREAM: echo via connection to UDP-Lite IPv4 socket... OK"
     },
     "522": {
       "id": 522,
       "name": "UDPLITE4STREAM",
       "description": "echo via connection to UDP-Lite IPv4 socket",
-      "status": "CANT",
-      "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 522 UDPLITE4STREAM: echo via connection to UDP-Lite IPv4 socket... Feature UDPLITE not configured in /home/eero/src/socat/socat"
+      "raw": "test 522 UDPLITE4STREAM: echo via connection to UDP-Lite IPv4 socket... OK"
     },
     "523": {
       "id": 523,
       "name": "UDPLITE6STREAM",
       "description": "echo via connection to UDP-Lite IPv6 socket",
-      "status": "CANT",
-      "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 523 UDPLITE6STREAM: echo via connection to UDP-Lite IPv6 socket... Feature UDPLITE not configured in /home/eero/src/socat/socat"
+      "raw": "test 523 UDPLITE6STREAM: echo via connection to UDP-Lite IPv6 socket... OK"
     },
     "524": {
       "id": 524,
       "name": "UDPLITE4LISTENENV",
       "description": "UDPLITE4-LISTEN sets environment variables with socket addresses",
-      "status": "CANT",
-      "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 524 UDPLITE4LISTENENV: UDPLITE4-LISTEN sets environment variables with socket addresses... Feature UDPLITE not configured in /home/eero/src/socat/socat"
+      "raw": "test 524 UDPLITE4LISTENENV: UDPLITE4-LISTEN sets environment variables with socket addresses... OK"
     },
     "525": {
       "id": 525,
       "name": "UDPLITE6LISTENENV",
       "description": "UDPLITE6-LISTEN sets environment variables with socket addresses",
-      "status": "CANT",
-      "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 525 UDPLITE6LISTENENV: UDPLITE6-LISTEN sets environment variables with socket addresses... Feature UDPLITE not configured in /home/eero/src/socat/socat"
+      "raw": "test 525 UDPLITE6LISTENENV: UDPLITE6-LISTEN sets environment variables with socket addresses... OK"
     },
     "526": {
       "id": 526,
       "name": "UDPLITE4_L_MAXCHILDREN",
       "description": "max-children option with UDPLITE4-LISTEN",
-      "status": "CANT",
-      "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 526 UDPLITE4_L_MAXCHILDREN: max-children option with UDPLITE4-LISTEN... Feature UDPLITE not configured in /home/eero/src/socat/socat"
+      "raw": "test 526 UDPLITE4_L_MAXCHILDREN: max-children option with UDPLITE4-LISTEN... OK"
     },
     "527": {
       "id": 527,
       "name": "UDPLITE6_L_MAXCHILDREN",
       "description": "max-children option with UDPLITE6-LISTEN",
-      "status": "CANT",
-      "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 527 UDPLITE6_L_MAXCHILDREN: max-children option with UDPLITE6-LISTEN... Feature UDPLITE not configured in /home/eero/src/socat/socat"
+      "raw": "test 527 UDPLITE6_L_MAXCHILDREN: max-children option with UDPLITE6-LISTEN... OK"
     },
     "528": {
       "id": 528,
       "name": "PROCAN_CTTY",
       "description": "test procan controlling terminal output",
-      "status": "UNKNOWN",
+      "status": "CANT",
       "detail": "must run in tty",
       "shard": 0,
       "raw": "test 528 PROCAN_CTTY: test procan controlling terminal output... must run in tty"
@@ -4879,18 +4879,18 @@
       "name": "V1800_DCCP_LISTEN_RANGE",
       "description": "test regression of DCCP-LISTEN with IPv4 RANGE",
       "status": "CANT",
-      "detail": "Feature DCCP not configured in /home/eero/src/socat/socat",
+      "detail": "Feature DCCP not configured in /home/socat-user/socat-scorecard-9373570/socat",
       "shard": 0,
-      "raw": "test 542 V1800_DCCP_LISTEN_RANGE: test regression of DCCP-LISTEN with IPv4 RANGE... Feature DCCP not configured in /home/eero/src/socat/socat"
+      "raw": "test 542 V1800_DCCP_LISTEN_RANGE: test regression of DCCP-LISTEN with IPv4 RANGE... Feature DCCP not configured in /home/socat-user/socat-scorecard-9373570/socat"
     },
     "543": {
       "id": 543,
       "name": "V1800_DCCP_LISTEN_BIND",
       "description": "test regression of DCCP-LISTEN with IPv4 BIND",
       "status": "CANT",
-      "detail": "Feature DCCP not configured in /home/eero/src/socat/socat",
+      "detail": "Feature DCCP not configured in /home/socat-user/socat-scorecard-9373570/socat",
       "shard": 0,
-      "raw": "test 543 V1800_DCCP_LISTEN_BIND: test regression of DCCP-LISTEN with IPv4 BIND... Feature DCCP not configured in /home/eero/src/socat/socat"
+      "raw": "test 543 V1800_DCCP_LISTEN_BIND: test regression of DCCP-LISTEN with IPv4 BIND... Feature DCCP not configured in /home/socat-user/socat-scorecard-9373570/socat"
     },
     "544": {
       "id": 544,
@@ -4950,37 +4950,37 @@
       "id": 550,
       "name": "V1800_UDPLITE_LISTEN_RANGE",
       "description": "test regression of UDPLITE-LISTEN with IPv4 RANGE",
-      "status": "CANT",
-      "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 550 V1800_UDPLITE_LISTEN_RANGE: test regression of UDPLITE-LISTEN with IPv4 RANGE... Feature UDPLITE not configured in /home/eero/src/socat/socat"
+      "raw": "test 550 V1800_UDPLITE_LISTEN_RANGE: test regression of UDPLITE-LISTEN with IPv4 RANGE... OK"
     },
     "551": {
       "id": 551,
       "name": "V1800_UDPLITE_LISTEN_BIND",
       "description": "test regression of UDPLITE-LISTEN with IPv4 BIND",
-      "status": "CANT",
-      "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 551 V1800_UDPLITE_LISTEN_BIND: test regression of UDPLITE-LISTEN with IPv4 BIND... Feature UDPLITE not configured in /home/eero/src/socat/socat"
+      "raw": "test 551 V1800_UDPLITE_LISTEN_BIND: test regression of UDPLITE-LISTEN with IPv4 BIND... OK"
     },
     "552": {
       "id": 552,
       "name": "V1800_UDPLITE_RECVFROM_RANGE",
       "description": "test regression of UDPLITE-RECVFROM with IPv4 RANGE",
-      "status": "CANT",
-      "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 552 V1800_UDPLITE_RECVFROM_RANGE: test regression of UDPLITE-RECVFROM with IPv4 RANGE... Feature UDPLITE not configured in /home/eero/src/socat/socat"
+      "raw": "test 552 V1800_UDPLITE_RECVFROM_RANGE: test regression of UDPLITE-RECVFROM with IPv4 RANGE... OK"
     },
     "553": {
       "id": 553,
       "name": "V1800_UDPLITE_RECVFROM_BIND",
       "description": "test regression of UDPLITE-RECVFROM with IPv4 BIND",
-      "status": "CANT",
-      "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 553 V1800_UDPLITE_RECVFROM_BIND: test regression of UDPLITE-RECVFROM with IPv4 BIND... Feature UDPLITE not configured in /home/eero/src/socat/socat"
+      "raw": "test 553 V1800_UDPLITE_RECVFROM_BIND: test regression of UDPLITE-RECVFROM with IPv4 BIND... OK"
     },
     "554": {
       "id": 554,
@@ -5004,19 +5004,19 @@
       "id": 556,
       "name": "V1800_UDPLITE_DATAGRAM_RANGE",
       "description": "test regression of UDPLITE-DATAGRAM:1.2.3.4 with IPv4 RANGE",
-      "status": "CANT",
-      "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 556 V1800_UDPLITE_DATAGRAM_RANGE: test regression of UDPLITE-DATAGRAM:1.2.3.4 with IPv4 RANGE... Feature UDPLITE not configured in /home/eero/src/socat/socat"
+      "raw": "test 556 V1800_UDPLITE_DATAGRAM_RANGE: test regression of UDPLITE-DATAGRAM:1.2.3.4 with IPv4 RANGE... OK"
     },
     "557": {
       "id": 557,
       "name": "V1800_UDPLITE_DATAGRAM_BIND",
       "description": "test regression of UDPLITE-DATAGRAM:1.2.3.4 with IPv4 BIND",
-      "status": "CANT",
-      "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 557 V1800_UDPLITE_DATAGRAM_BIND: test regression of UDPLITE-DATAGRAM:1.2.3.4 with IPv4 BIND... Feature UDPLITE not configured in /home/eero/src/socat/socat"
+      "raw": "test 557 V1800_UDPLITE_DATAGRAM_BIND: test regression of UDPLITE-DATAGRAM:1.2.3.4 with IPv4 BIND... OK"
     },
     "558": {
       "id": 558,
@@ -5041,54 +5041,54 @@
       "name": "V1800_UDP_SENDTO_RESOLV_6_4",
       "description": "test regression of UDP-SENDTO with IPv6,4 and binding to IPv4",
       "status": "CANT",
-      "detail": "Feature DEVTESTS not configured in /home/eero/src/socat/socat",
+      "detail": "Feature DEVTESTS not configured in /home/socat-user/socat-scorecard-9373570/socat",
       "shard": 0,
-      "raw": "test 560 V1800_UDP_SENDTO_RESOLV_6_4: test regression of UDP-SENDTO with IPv6,4 and binding to IPv4... Feature DEVTESTS not configured in /home/eero/src/socat/socat"
+      "raw": "test 560 V1800_UDP_SENDTO_RESOLV_6_4: test regression of UDP-SENDTO with IPv6,4 and binding to IPv4... Feature DEVTESTS not configured in /home/socat-user/socat-scorecard-9373570/socat"
     },
     "561": {
       "id": 561,
       "name": "V1800_UDPLITE_SENDTO_RESOLV_6_4",
       "description": "test regression of UDPLITE-SENDTO with IPv6,4 and binding to IPv4",
       "status": "CANT",
-      "detail": "Feature UDPLITE not configured in /home/eero/src/socat/socat",
+      "detail": "Feature DEVTESTS not configured in /home/socat-user/socat-scorecard-9373570/socat",
       "shard": 0,
-      "raw": "test 561 V1800_UDPLITE_SENDTO_RESOLV_6_4: test regression of UDPLITE-SENDTO with IPv6,4 and binding to IPv4... Feature UDPLITE not configured in /home/eero/src/socat/socat"
+      "raw": "test 561 V1800_UDPLITE_SENDTO_RESOLV_6_4: test regression of UDPLITE-SENDTO with IPv6,4 and binding to IPv4... Feature DEVTESTS not configured in /home/socat-user/socat-scorecard-9373570/socat"
     },
     "562": {
       "id": 562,
       "name": "V1800_IP_SENDTO_RESOLV_6_4",
       "description": "test regression of IP-SENDTO with IPv6,4 and binding to IPv4",
       "status": "CANT",
-      "detail": "Feature DEVTESTS not configured in /home/eero/src/socat/socat",
+      "detail": "Feature DEVTESTS not configured in /home/socat-user/socat-scorecard-9373570/socat",
       "shard": 0,
-      "raw": "test 562 V1800_IP_SENDTO_RESOLV_6_4: test regression of IP-SENDTO with IPv6,4 and binding to IPv4... Feature DEVTESTS not configured in /home/eero/src/socat/socat"
+      "raw": "test 562 V1800_IP_SENDTO_RESOLV_6_4: test regression of IP-SENDTO with IPv6,4 and binding to IPv4... Feature DEVTESTS not configured in /home/socat-user/socat-scorecard-9373570/socat"
     },
     "563": {
       "id": 563,
       "name": "V1800_TCP_CONNECT_CONNECT_6_4",
       "description": "test regression of TCP-CONNECT with IPv6,4 and binding to IPv4",
       "status": "CANT",
-      "detail": "Feature DEVTESTS not configured in /home/eero/src/socat/socat",
+      "detail": "Feature DEVTESTS not configured in /home/socat-user/socat-scorecard-9373570/socat",
       "shard": 0,
-      "raw": "test 563 V1800_TCP_CONNECT_CONNECT_6_4: test regression of TCP-CONNECT with IPv6,4 and binding to IPv4... Feature DEVTESTS not configured in /home/eero/src/socat/socat"
+      "raw": "test 563 V1800_TCP_CONNECT_CONNECT_6_4: test regression of TCP-CONNECT with IPv6,4 and binding to IPv4... Feature DEVTESTS not configured in /home/socat-user/socat-scorecard-9373570/socat"
     },
     "564": {
       "id": 564,
       "name": "V1800_SCTP_CONNECT_CONNECT_6_4",
       "description": "test regression of SCTP-CONNECT with IPv6,4 and binding to IPv4",
       "status": "CANT",
-      "detail": "Feature DEVTESTS not configured in /home/eero/src/socat/socat",
+      "detail": "Feature DEVTESTS not configured in /home/socat-user/socat-scorecard-9373570/socat",
       "shard": 0,
-      "raw": "test 564 V1800_SCTP_CONNECT_CONNECT_6_4: test regression of SCTP-CONNECT with IPv6,4 and binding to IPv4... Feature DEVTESTS not configured in /home/eero/src/socat/socat"
+      "raw": "test 564 V1800_SCTP_CONNECT_CONNECT_6_4: test regression of SCTP-CONNECT with IPv6,4 and binding to IPv4... Feature DEVTESTS not configured in /home/socat-user/socat-scorecard-9373570/socat"
     },
     "565": {
       "id": 565,
       "name": "V1800_DCCP_CONNECT_CONNECT_6_4",
       "description": "test regression of DCCP-CONNECT with IPv6,4 and binding to IPv4",
       "status": "CANT",
-      "detail": "Feature DCCP not configured in /home/eero/src/socat/socat",
+      "detail": "Feature DCCP not configured in /home/socat-user/socat-scorecard-9373570/socat",
       "shard": 0,
-      "raw": "test 565 V1800_DCCP_CONNECT_CONNECT_6_4: test regression of DCCP-CONNECT with IPv6,4 and binding to IPv4... Feature DCCP not configured in /home/eero/src/socat/socat"
+      "raw": "test 565 V1800_DCCP_CONNECT_CONNECT_6_4: test regression of DCCP-CONNECT with IPv6,4 and binding to IPv4... Feature DCCP not configured in /home/socat-user/socat-scorecard-9373570/socat"
     },
     "566": {
       "id": 566,
@@ -5158,9 +5158,9 @@
       "name": "DCCP_CONNECT_BIND_6_4",
       "description": "DCCP bind chooses matching IPv",
       "status": "CANT",
-      "detail": "Feature DCCP not configured in /home/eero/src/socat/socat",
+      "detail": "Feature DCCP not configured in /home/socat-user/socat-scorecard-9373570/socat",
       "shard": 0,
-      "raw": "test 573 DCCP_CONNECT_BIND_6_4: DCCP bind chooses matching IPv... Feature DCCP not configured in /home/eero/src/socat/socat"
+      "raw": "test 573 DCCP_CONNECT_BIND_6_4: DCCP bind chooses matching IPv... Feature DCCP not configured in /home/socat-user/socat-scorecard-9373570/socat"
     },
     "574": {
       "id": 574,
@@ -5239,9 +5239,9 @@
       "name": "DCCP_CONNECT_RETRY",
       "description": "DCCP can retry",
       "status": "CANT",
-      "detail": "Feature DCCP not configured in /home/eero/src/socat/socat",
+      "detail": "Feature DCCP not configured in /home/socat-user/socat-scorecard-9373570/socat",
       "shard": 0,
-      "raw": "test 582 DCCP_CONNECT_RETRY: DCCP can retry... Feature DCCP not configured in /home/eero/src/socat/socat"
+      "raw": "test 582 DCCP_CONNECT_RETRY: DCCP can retry... Feature DCCP not configured in /home/socat-user/socat-scorecard-9373570/socat"
     },
     "583": {
       "id": 583,
@@ -5302,9 +5302,9 @@
       "name": "DCCP_CONNECT_MAXCHILDREN",
       "description": "DCCP with fork,max-children",
       "status": "CANT",
-      "detail": "Feature DCCP not configured in /home/eero/src/socat/socat",
+      "detail": "Feature DCCP not configured in /home/socat-user/socat-scorecard-9373570/socat",
       "shard": 0,
-      "raw": "test 589 DCCP_CONNECT_MAXCHILDREN: DCCP with fork,max-children... Feature DCCP not configured in /home/eero/src/socat/socat"
+      "raw": "test 589 DCCP_CONNECT_MAXCHILDREN: DCCP with fork,max-children... Feature DCCP not configured in /home/socat-user/socat-scorecard-9373570/socat"
     },
     "590": {
       "id": 590,
@@ -5364,10 +5364,10 @@
       "id": 596,
       "name": "SOCKS4_SIGSEGV",
       "description": "test for SOCKS4 SIGSEGV on RST",
-      "status": "CANT",
-      "detail": "Option so-linger not available in /home/eero/src/socat/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 596 SOCKS4_SIGSEGV: test for SOCKS4 SIGSEGV on RST... Option so-linger not available in /home/eero/src/socat/socat"
+      "raw": "test 596 SOCKS4_SIGSEGV: test for SOCKS4 SIGSEGV on RST... OK"
     },
     "597": {
       "id": 597,

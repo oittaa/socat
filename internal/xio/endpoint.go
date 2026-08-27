@@ -233,6 +233,10 @@ type Opened struct {
 	Write relay.Stream
 	// NoForkSpec: EXEC/SYSTEM,nofork — process started in Run with peer FD as stdio.
 	NoForkSpec *parse.Spec
+	// childDone closes when an EXEC/SYSTEM/SHELL child exits. Fork loops with
+	// max-children retain their slot until that process, not just its relay,
+	// has finished.
+	childDone <-chan struct{}
 	// ttyRestore runs before Stream.Close so termios restore still sees the fd.
 	ttyRestore []func()
 	closeOnce  sync.Once

@@ -343,10 +343,21 @@ func parseTermiosByte(name string, o parse.Option) (byte, error) {
 func parseTermiosUint(name string, o parse.Option) (uint32, error) {
 	v := strings.TrimSpace(o.Value)
 	if !o.Has || v == "" {
-		return 0, fmt.Errorf("%s: value required", name)
+		return 0, fmt.Errorf("option %q: missing numerical value", name)
 	}
 	n, err := strconv.ParseUint(v, 0, 32)
 	if err != nil {
+		// Classic's TYPE_UINT parser distinguishes a value with no numeric
+		// prefix from a valid prefix followed by junk. test.sh treats these
+		// diagnostics as part of the command-line compatibility contract.
+		for i := len(v) - 1; i > 0; i-- {
+			if _, prefixErr := strconv.ParseUint(v[:i], 0, 32); prefixErr == nil {
+				return 0, fmt.Errorf("option %q: trailing garbage %q", name, v[i:])
+			}
+		}
+		if v[0] < '0' || v[0] > '9' {
+			return 0, fmt.Errorf("option %q: missing numerical value", name)
+		}
 		return 0, fmt.Errorf("%s: invalid unsigned value %q", name, v)
 	}
 	return uint32(n), nil

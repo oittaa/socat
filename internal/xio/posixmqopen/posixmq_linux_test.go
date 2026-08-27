@@ -402,8 +402,9 @@ func TestPOSIXMQRecvMaxChildren(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Sleep after consume so the third message waits for a free slot.
-	right, err := parse.ParseChannel(`SHELL:cat >>` + out + `; sleep 0.4`)
+	// Sleep beyond finishExec's ordinary one-second close grace. max-children
+	// must follow the actual child lifetime, not merely relay completion.
+	right, err := parse.ParseChannel(`SHELL:cat >>` + out + `; sleep 2`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,6 +445,7 @@ func TestPOSIXMQRecvMaxChildren(t *testing.T) {
 		<-errc
 		t.Fatalf("first two messages: %q", got)
 	}
+	time.Sleep(1300 * time.Millisecond)
 
 	f, err := os.OpenFile(out, os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {

@@ -3,6 +3,7 @@
 package xio_test
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -34,6 +35,105 @@ func TestUNIXListenPIPEEcho(t *testing.T) {
 	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork")
 	cli := openClient(t, ctx, g, "UNIX-CONNECT:"+path)
 	echoLive(t, streamOf(t, cli), []byte("unix-hello"))
+}
+
+// Non-fork datagram listeners receive the first packet while opening the
+// address. The relay must drain that buffered packet before polling the now
+// empty socket descriptor.
+func TestUDP4ListenNonForkPIPEEcho(t *testing.T) {
+	ctx := testCtx(t)
+	port := freeUDP4Port(t)
+	done := make(chan error, 1)
+	go func() {
+		done <- xio.Run(ctx,
+			mustParse(t, fmt.Sprintf("UDP4-LISTEN:%d,reuseaddr=0,bind=127.0.0.1", port)),
+			mustParse(t, "PIPE"), cloneGlobal(nil))
+	}()
+
+	client, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	payload := []byte("udp-nonfork")
+	buf := make([]byte, len(payload))
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := client.Write(payload); err != nil {
+			t.Fatal(err)
+		}
+		_ = client.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		n, err := client.Read(buf)
+		if err == nil {
+			if string(buf[:n]) != string(payload) {
+				t.Fatalf("echo got %q want %q", buf[:n], payload)
+			}
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("non-fork UDP relay did not exit")
+			}
+			return
+		}
+		// A first send can beat bind and report ICMP port-unreachable on a
+		// connected UDP socket. Retry until the fixed-port listener is ready.
+	}
+	t.Fatal("timed out waiting for non-fork UDP echo")
+}
+
+func TestUNIXRecvfromNonForkPIPEEcho(t *testing.T) {
+	ctx := testCtx(t)
+	serverPath := testutil.UnixSocketPath(t, "recvfrom.sock")
+	clientPath := testutil.UnixSocketPath(t, "client.sock")
+	done := make(chan error, 1)
+	go func() {
+		done <- xio.Run(ctx,
+			mustParse(t, "UNIX-RECVFROM:"+serverPath+",unlink-early"),
+			mustParse(t, "PIPE"), cloneGlobal(nil))
+	}()
+
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Lstat(serverPath); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("UNIX-RECVFROM socket was not created")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	client, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: clientPath, Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = client.Close()
+		_ = os.Remove(clientPath)
+	})
+	payload := []byte("unix-nonfork")
+	if _, err := client.WriteToUnix(payload, &net.UnixAddr{Name: serverPath, Net: "unixgram"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = client.SetReadDeadline(time.Now().Add(3 * time.Second))
+	buf := make([]byte, len(payload))
+	n, _, err := client.ReadFromUnix(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(buf[:n]) != string(payload) {
+		t.Fatalf("echo got %q want %q", buf[:n], payload)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("non-fork UNIX-RECVFROM relay did not exit")
+	}
 }
 
 func TestUNIXListenMode(t *testing.T) {

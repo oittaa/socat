@@ -380,6 +380,24 @@ func TestApplyTermiosRejectsInvalidOptionTypes(t *testing.T) {
 	}
 }
 
+func TestValidateTermiosOptionClassicIntegerDiagnostics(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  string
+	}{
+		{value: "b19200", want: "missing numerical value"},
+		{value: "19200B", want: "trailing garbage"},
+	} {
+		err := ValidateTermiosOption(parse.Option{Name: "ispeed", Value: tc.value, Has: true})
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("ispeed=%q: err=%v want %q", tc.value, err, tc.want)
+		}
+	}
+	if err := ValidateTermiosOption(parse.Option{Name: "ispeed", Value: "0x2580", Has: true}); err != nil {
+		t.Fatalf("base-0 ispeed: %v", err)
+	}
+}
+
 func TestApplyTermiosDoesNotIgnoreStateOptionsOnNonTTY(t *testing.T) {
 	pipeFDs := []int{0, 0}
 	if err := unix.Pipe(pipeFDs); err != nil {

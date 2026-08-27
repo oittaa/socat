@@ -118,8 +118,20 @@ func runConnectFork(ctx context.Context, lo *Opened, right parse.Channel, rMode 
 			return err
 		}
 		defer func() { _ = ro.Close() }()
-		return transferStreams(cctx, left, ro.EffectiveStream(), cg)
+		err = transferStreams(cctx, left, ro.EffectiveStream(), cg)
+		waitForkChild(cctx, lo.MaxChildren, ro)
+		return err
 	})
+}
+
+func waitForkChild(ctx context.Context, maxChildren int, opened *Opened) {
+	if maxChildren <= 0 || opened == nil || opened.childDone == nil {
+		return
+	}
+	select {
+	case <-opened.childDone:
+	case <-ctx.Done():
+	}
 }
 
 // runConnectForkWithLeft handles CONNECT,fork on the right address with left
@@ -323,21 +335,26 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 				logx.CloseQuiet(ro)
 				return
 			}
+			bridgeDone := make(chan struct{})
 			go func() {
+				defer close(bridgeDone)
 				defer func() { _ = sp1.Close() }()
 				defer func() { _ = ro.Close() }()
 				_ = transferStreams(ctx, FileStream(sp1), ro.EffectiveStream(), cg)
+				waitForkChild(ctx, lo.MaxChildren, ro)
 			}()
 			defer func() { _ = sp0.Close() }()
 			if err := transferStreams(ctx, leftStream, FileStream(sp0), cg); err != nil {
 				cg.Log.Debugf("transfer: %s", err)
 			}
+			<-bridgeDone
 			return
 		}
 		defer func() { _ = ro.Close() }()
 		if err := transferStreams(ctx, leftStream, ro.EffectiveStream(), cg); err != nil {
 			cg.Log.Debugf("transfer: %s", err)
 		}
+		waitForkChild(ctx, lo.MaxChildren, ro)
 	})
 }
 
