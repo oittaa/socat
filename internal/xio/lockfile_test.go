@@ -93,7 +93,7 @@ func TestCreateLockFileWritesPID(t *testing.T) {
 
 func TestHoldLockFileDoesNotRemoveReplacement(t *testing.T) {
 	path := testutil.UnixSocketPath(t, "socat.lock")
-	release, err := HoldLockFile(context.Background(), path, false)
+	release, err := HoldLockFile(context.Background(), path, false, CLILockPollInterval)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestHoldLockFileDoesNotRemoveReplacement(t *testing.T) {
 
 func TestHoldLockFileRemovesAcquiredName(t *testing.T) {
 	path := testutil.UnixSocketPath(t, "socat.lock")
-	release, err := HoldLockFile(context.Background(), path, false)
+	release, err := HoldLockFile(context.Background(), path, false, CLILockPollInterval)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,10 +120,45 @@ func TestHoldLockFileRemovesAcquiredName(t *testing.T) {
 	}
 }
 
+func TestLockPollIntervals(t *testing.T) {
+	if AddressWaitLockPollInterval != time.Second {
+		t.Fatalf("address waitlock interval=%v want 1s (classic xiowaitlock)", AddressWaitLockPollInterval)
+	}
+	if CLILockPollInterval != 100*time.Millisecond {
+		t.Fatalf("CLI -W interval=%v want 100ms", CLILockPollInterval)
+	}
+}
+
+func TestHoldLockFileSignalCleanupDoesNotRemoveReplacement(t *testing.T) {
+	path := testutil.UnixSocketPath(t, "socat.lock")
+	release, err := HoldLockFile(context.Background(), path, false, CLILockPollInterval)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(release)
+	replaceAtPath(t, path, []byte("replacement"), 0o600)
+	UnlinkRegisteredPaths()
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("signal cleanup removed replacement: %v", err)
+	}
+	if string(got) != "replacement" {
+		t.Fatalf("contents=%q", got)
+	}
+	release()
+	got, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("normal release removed replacement: %v", err)
+	}
+	if string(got) != "replacement" {
+		t.Fatalf("contents=%q", got)
+	}
+}
+
 func TestHoldLockFileIdempotentRelease(t *testing.T) {
 	dir := filepath.Dir(testutil.UnixSocketPath(t, "x"))
 	path := filepath.Join(dir, "socat.lock")
-	release, err := HoldLockFile(context.Background(), path, false)
+	release, err := HoldLockFile(context.Background(), path, false, CLILockPollInterval)
 	if err != nil {
 		t.Fatal(err)
 	}

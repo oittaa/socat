@@ -443,11 +443,14 @@ func setupLogger(cfg *Config) (*logx.Logger, func(), error) {
 
 // acquireLockFiles creates the -L lock file and, after -W's poll-wait, the
 // -W lock file. Acquire and identity-safe release are shared with address
-// options lockfile=/waitlock= (internal/xio HoldLockFile).
+// options lockfile=/waitlock= (internal/xio HoldLockFile). CLI -W polls at
+// CLILockPollInterval (100ms); address waitlock= uses classic's 1s.
+// Classic allows only one of -L/-W; this port still accepts both (separate
+// from per-address lockfile=/waitlock= validation).
 func acquireLockFiles(ctx context.Context, cfg *Config) (func(), error) {
 	var cleanups []func()
 	add := func(path string, wait bool) error {
-		release, err := xio.HoldLockFile(ctx, path, wait)
+		release, err := xio.HoldLockFile(ctx, path, wait, xio.CLILockPollInterval)
 		if err != nil {
 			return err
 		}

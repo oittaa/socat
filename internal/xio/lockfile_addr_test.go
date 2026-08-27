@@ -93,7 +93,7 @@ func TestWaitlockWaitsThenAcquires(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(2 * time.Second):
+	case <-time.After(3 * time.Second):
 		t.Fatal("waitlock did not acquire after release")
 	}
 	t.Cleanup(func() {
@@ -180,16 +180,80 @@ func TestLockfileAndWaitlockTogetherError(t *testing.T) {
 
 func TestTwoLockfileOccurrencesError(t *testing.T) {
 	dir := lockTestDir(t)
+	a := filepath.Join(dir, "a.lock")
+	b := filepath.Join(dir, "b.lock")
 	spec := parse.Spec{
 		Type: "ECHO",
 		Options: []parse.Option{
-			{Name: "lockfile", Value: filepath.Join(dir, "a.lock"), Has: true},
-			{Name: "lockfile", Value: filepath.Join(dir, "b.lock"), Has: true},
+			{Name: "lockfile", Value: a, Has: true},
+			{Name: "lockfile", Value: b, Has: true},
 		},
 	}
 	_, err := xio.OpenSpec(context.Background(), spec, xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err == nil || !strings.Contains(err.Error(), "only one use of options lockfile and waitlock allowed") {
 		t.Fatalf("error=%v want only one use", err)
+	}
+	if _, err := os.Stat(a); !os.IsNotExist(err) {
+		t.Fatalf("first lockfile was created: %v", err)
+	}
+	if _, err := os.Stat(b); !os.IsNotExist(err) {
+		t.Fatalf("second lockfile was created: %v", err)
+	}
+}
+
+func TestDuplicateLockOptionsFailBeforeAcquire(t *testing.T) {
+	dir := lockTestDir(t)
+	a := filepath.Join(dir, "a.lock")
+	b := filepath.Join(dir, "b.lock")
+	if err := os.WriteFile(a, []byte("held\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	spec := parse.Spec{
+		Type: "ECHO",
+		Options: []parse.Option{
+			{Name: "lockfile", Value: a, Has: true},
+			{Name: "waitlock", Value: b, Has: true},
+		},
+	}
+	_, err := xio.OpenSpec(context.Background(), spec, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	if err == nil || !strings.Contains(err.Error(), "only one use of options lockfile and waitlock allowed") {
+		t.Fatalf("error=%v want only one use (not lockfile exists)", err)
+	}
+	got, err := os.ReadFile(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "held\n" {
+		t.Fatalf("pre-existing lockfile was modified: %q", got)
+	}
+	if _, err := os.Stat(b); !os.IsNotExist(err) {
+		t.Fatalf("waitlock was created: %v", err)
+	}
+}
+
+func TestLeftLockReleasedWhenRightOpenFails(t *testing.T) {
+	dir := lockTestDir(t)
+	leftLock := filepath.Join(dir, "left.lock")
+	rightLock := filepath.Join(dir, "right.lock")
+	missing := filepath.Join(dir, "missing.txt")
+	left := parse.Channel{Single: &parse.Spec{
+		Type:    "ECHO",
+		Options: []parse.Option{{Name: "lockfile", Value: leftLock, Has: true}},
+	}}
+	right := parse.Channel{Single: &parse.Spec{
+		Type:    "OPEN",
+		Params:  []string{missing},
+		Options: []parse.Option{{Name: "lockfile", Value: rightLock, Has: true}},
+	}}
+	err := xio.Run(context.Background(), left, right, testGlobal())
+	if err == nil {
+		t.Fatal("right OPEN of missing file succeeded")
+	}
+	if _, err := os.Stat(leftLock); !os.IsNotExist(err) {
+		t.Fatalf("left lock survived right failure: %v", err)
+	}
+	if _, err := os.Stat(rightLock); !os.IsNotExist(err) {
+		t.Fatalf("right lock survived failed opener: %v", err)
 	}
 }
 

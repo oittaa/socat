@@ -49,7 +49,7 @@ func transferOptionGroups() []helpOptGroup {
 			{name: "null-eof", desc: "treat a zero-length read as EOF"},
 			{name: "readbytes", desc: "read at most N bytes", aliases: []string{"bytes"}, validate: validateSizeT},
 			{name: "lockfile", desc: "create lock file or fail if it exists (like -L)", validate: validateRequiredString},
-			{name: "waitlock", desc: "wait until lock file is gone, then create it (like -W)", validate: validateRequiredString},
+			{name: "waitlock", desc: "wait until lock file is gone, then create it (1s poll; CLI -W uses 100ms)", validate: validateRequiredString},
 		}},
 	}
 }
