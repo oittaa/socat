@@ -116,5 +116,6 @@ func init() {
 		"lseek32-end":       "seek-end",
 		"uid-l":             "user-late",
 		"gid-l":             "group-late",
+		"ioctl":             "ioctl-void",
 	})
 }

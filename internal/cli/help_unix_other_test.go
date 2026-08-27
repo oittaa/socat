@@ -19,4 +19,11 @@ func TestUnixOtherHelpHidesLinuxSCTP(t *testing.T) {
 			t.Errorf("unsupported option %q is listed", name)
 		}
 	}
+	for _, name := range []string{
+		"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string",
+	} {
+		if !strings.Contains(help, "    "+name+" ") {
+			t.Errorf("honored option %q is missing from -hhh", name)
+		}
+	}
 }

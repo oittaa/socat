@@ -65,6 +65,14 @@ func fileOptionGroups() []helpOptGroup {
 			{name: "flock-nb", desc: "nonblocking exclusive flock(2) lock", aliases: []string{"flock-ex-nb"}},
 			{name: "flock-sh", desc: "shared flock(2) lock"},
 			{name: "flock-sh-nb", desc: "nonblocking shared flock(2) lock"},
+			// GROUP_FD, PH_FD, OFUNC_IOCTL_GENERIC (xio-fd.c). Do not list
+			// address types: classic group intersection allows FD/STDIO/EXEC/
+			// sockets. ioctl is an alias of ioctl-void (optionnames[]).
+			{name: "ioctl-void", desc: "ioctl() with request and NULL as the third argument", aliases: []string{"ioctl"}, validate: xio.ValidateGenericIoctl},
+			{name: "ioctl-int", desc: "ioctl() with request and integer value", validate: xio.ValidateGenericIoctl},
+			{name: "ioctl-intp", desc: "ioctl() with request and pointer to integer", validate: xio.ValidateGenericIoctl},
+			{name: "ioctl-bin", desc: "ioctl() with request and pointer to dalan bytes", validate: xio.ValidateGenericIoctl},
+			{name: "ioctl-string", desc: "ioctl() with request and pointer to C string (not dalan)", validate: xio.ValidateGenericIoctl},
 			{name: "umask", desc: "umask during open or EXEC start", validate: validateOctal(0o777)},
 			{name: "user", desc: "file owner", aliases: []string{"uid", "owner"}, validate: validateRequiredString},
 			{name: "group", desc: "file group", aliases: []string{"gid"}, validate: validateRequiredString},

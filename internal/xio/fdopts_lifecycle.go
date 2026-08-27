@@ -39,6 +39,9 @@ import (
 //   - f-setpipe-sz / pipesz: GROUP_FIFO, PH_FD, F_SETPIPE_SZ (Linux).
 //   - fs-* / ext2-* / ext3-* ioctl flags: GROUP_REG, PH_FD,
 //     OFUNC_IOCTL_MASK_LONG FS_IOC_GETFLAGS/SETFLAGS (Linux; xio-fs.c).
+//   - ioctl-void / ioctl, ioctl-int, ioctl-intp, ioctl-bin, ioctl-string:
+//     GROUP_FD, PH_FD, OFUNC_IOCTL_GENERIC (xio-fd.c / applyopt_ioctl_generic).
+//     Unix including Darwin; not Linux-only. Windows hides and rejects.
 //
 // Classic applyopts walks every matching option in original command-line
 // order for one phase (PH_FD then PH_LATE). Each occurrence is applied,
@@ -182,6 +185,8 @@ func hasFDLifecycleOptions(s parse.Spec) bool {
 		case "perm-late", "user-late", "group-late":
 			return true
 		case "flock", "flock-nb", "flock-sh", "flock-sh-nb":
+			return true
+		case "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string":
 			return true
 		}
 	}

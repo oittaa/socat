@@ -48,14 +48,12 @@ func TestHelpListsDescriptorLifecycleAliases(t *testing.T) {
 		"ftruncate32": "ftruncate",
 		"ftruncate64": "ftruncate",
 	}
-	// Windows has no fchmod/fchown on inherited FDs; user/group stay
-	// rejected and hidden from -hhh (same rule as membership). Unix
-	// advertises classic uid/owner/gid spellings.
 	if runtime.GOOS != "windows" {
-		canonical = append(canonical, "user", "group")
+		canonical = append(canonical, "user", "group", "ioctl-void")
 		aliases["uid"] = "user"
 		aliases["owner"] = "user"
 		aliases["gid"] = "group"
+		aliases["ioctl"] = "ioctl-void"
 	}
 	for _, name := range canonical {
 		if !strings.Contains(help, "    "+name+" ") {

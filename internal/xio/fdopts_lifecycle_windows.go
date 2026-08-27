@@ -159,6 +159,10 @@ func applyWindowsFDPhaseOptions(s parse.Spec, honorTargetSkip bool) error {
 				continue
 			}
 			return fmt.Errorf("%s: flock is not supported on windows", o.OriginalSpelling())
+		case "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string":
+			if err := applyGenericIoctlOption(0, o); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

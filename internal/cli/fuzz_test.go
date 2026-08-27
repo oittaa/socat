@@ -65,6 +65,15 @@ func FuzzValidateChannelOptions(f *testing.F) {
 		"CREATE:file,totally-unknown=1",
 		`EXEC:"echo hi",pty`,
 		"WS:127.0.0.1:80,path=/echo",
+		"FD:3,ioctl-void=4294967296",
+		"OPEN:file,ioctl-int=1",
+		"TCP:localhost:1,ioctl-bin=1:not-a-dalan",
+		"STDIN,ioctl-string=1:hello",
+		"TCP:localhost:1,ioctl=0x541B",
+		"FD:3,ioctl-void=0x100000000",
+		"OPEN:file,ioctl-intp=1:",
+		"FD:3,ioctl-bin=1:",
+		"FD:3,ioctl-int=1:4294967296",
 	} {
 		f.Add(seed)
 	}
