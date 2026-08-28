@@ -39,6 +39,14 @@ var unsupportedDCCP = map[string]string{
 	"dccp-set-ccid": "DCCP is not implemented",
 }
 
+// unsupportedUDPLITE contains the public UDP-Lite socket options retained in
+// the classic catalog. Linux removed UDP-Lite in 7.1; this intentional
+// compatibility exception is documented in README.md.
+var unsupportedUDPLITE = map[string]string{
+	"udplite-send-cscov": "UDP-Lite is intentionally unsupported (removed from Linux 7.1)",
+	"udplite-recv-cscov": "UDP-Lite is intentionally unsupported (removed from Linux 7.1)",
+}
+
 // unsupportedNoopSockopts are catalog-advertised on Linux classic but would
 // be silent no-ops here. Do not advertise them until a real implementation
 // exists (do not invent incompatible semantics).

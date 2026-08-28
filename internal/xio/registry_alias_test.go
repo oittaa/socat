@@ -14,7 +14,7 @@ import (
 // classicFallbackAliases are classic addressnames[] spellings whose canonical
 // Go opener is registered but the alias itself is not a RegisterAddress
 // entry. Resolution is central in xio (PR C). Direct registrations such as
-// TCP-L and UDPLITE-DGRAM are omitted. Classic baseline: tag-1.8.1.3
+// TCP-L are omitted. Classic baseline: tag-1.8.1.3
 // 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 // af5388c898c7bb60997935aee93c223deba60c4a.
 var classicFallbackAliases = map[string]string{
@@ -92,10 +92,6 @@ func TestDirectRegistrationBeatsClassicAlias(t *testing.T) {
 	if !ok || reg.Name != "TCP-L" {
 		t.Fatalf("TCP-L=%+v ok=%v; direct RegisterAddress must win over TCP-LISTEN alias", reg, ok)
 	}
-	reg, ok = xio.AddressRegistrationForType("UDPLITE-DGRAM")
-	if !ok || reg.Name != "UDPLITE-DGRAM" {
-		t.Fatalf("UDPLITE-DGRAM=%+v ok=%v; #101 direct registration must not become a fallback alias", reg, ok)
-	}
 	reg, ok = xio.AddressRegistrationForType("ACCEPT")
 	if !ok || reg.Name != "ACCEPT" {
 		t.Fatalf("ACCEPT=%+v ok=%v; direct RegisterAddress must win over ACCEPT-FD alias", reg, ok)
@@ -103,7 +99,7 @@ func TestDirectRegistrationBeatsClassicAlias(t *testing.T) {
 }
 
 func TestUnsupportedFamilyAliasesRemainUnknown(t *testing.T) {
-	for _, name := range []string{"DCCP", "DCCP-CONNECT", "DTLS", "READLINE"} {
+	for _, name := range []string{"DCCP", "DCCP-CONNECT", "DTLS", "READLINE", "UDPLITE", "UDPLITE4-LISTEN", "UDPLITE6-DGRAM"} {
 		if _, ok := xio.AddressRegistrationForType(name); ok {
 			t.Errorf("%s must remain unknown", name)
 		}
