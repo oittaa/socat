@@ -94,7 +94,7 @@ fuzz:
 fuzz-matrix: build
 	go test $(GOFLAGS) -tags=e2e,relaymatrix -run '^TestRelayMatrix' ./e2e/ -count=1 -timeout=10m
 
-# Root netns= tests. Host skips without root; Docker uses --privileged.
+# Root netns= and IP4-RECVFROM tests. Host skips without root; Docker uses --privileged.
 test-netns-docker:
 	./scripts/docker-netns-test.sh
 

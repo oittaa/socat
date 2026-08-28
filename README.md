@@ -294,7 +294,7 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 make check         # complete pre-commit: lint, gosec, unit tests, and e2e
 make test          # gofmt + unit tests
 make e2e           # after build; local processes on 127.0.0.1
-make test-netns-docker  # root netns= tests in a privileged container
+make test-netns-docker  # root netns= and IP4-RECVFROM tests in a privileged container
 make lint          # gofmt, go vet, golangci-lint, gosec
 ```
 
