@@ -99,8 +99,6 @@ var OptionalParserOnlyAliases = map[string]string{
 	"tcp-abort-threshold":      "optionnames[] alias of abort-threshold",
 	"tcp-conn-abort-threshold": "optionnames[] alias of conn-abort-threshold",
 	"tcp-keepinit":             "optionnames[] alias of keepinit",
-	"tcp-noopt":                "optionnames[] alias of noopt",
-	"tcp-nopush":               "optionnames[] alias of nopush",
 	"tcp-paws":                 "optionnames[] alias of paws",
 	"tcp-rfc1323":              "optionnames[] alias of rfc1323",
 	"tcp-sack-disable":         "optionnames[] alias of sack-disable",
@@ -155,4 +153,8 @@ var GoOnlyHelpAllowlist = map[string]string{ // #nosec G101 -- option names and 
 	"tls-snihost":       "Go tls-* alias of snihost",
 	"sctp-maxseg":       "documented SCTP_MAXSEG; Linux reference -hhh omitted it (no SCTP_MAXSEG in that binary)",
 	"sctp-nodelay":      "documented SCTP_NODELAY; Linux reference -hhh omitted it (no SCTP_NODELAY in that binary)",
+	"nopush":            "documented TCP_NOPUSH; Linux reference -hhh omitted it. Advertised on Darwin; hidden elsewhere.",
+	"noopt":             "documented TCP_NOOPT; Linux reference -hhh omitted it. Advertised on Darwin; hidden elsewhere.",
+	"tcp-nopush":        "optionnames[] alias of nopush; dump-omitted. Advertised on Darwin; hidden elsewhere.",
+	"tcp-noopt":         "optionnames[] alias of noopt; dump-omitted. Advertised on Darwin; hidden elsewhere.",
 }

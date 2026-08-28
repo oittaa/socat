@@ -91,6 +91,8 @@ var implementedAliasHelp = []struct {
 	{"passcred", "so-passcred"},
 	{"nocheck", "so-no-check"},
 	{"no-check", "so-no-check"},
+	{"tcp-nopush", "nopush"},
+	{"tcp-noopt", "noopt"},
 }
 
 func TestImplementedAliasesHHHNotHH(t *testing.T) {
