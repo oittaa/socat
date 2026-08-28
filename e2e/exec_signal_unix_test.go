@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -156,11 +157,13 @@ func TestEXECListenForkFiveSessionsSIGHUP(t *testing.T) {
 	port := freePort(t)
 	dir := t.TempDir()
 	pidsPath := filepath.Join(dir, "pids")
+	readyPath := filepath.Join(dir, "ready")
 	gotPath := filepath.Join(dir, "got")
 	script := filepath.Join(dir, "child.sh")
 	body := "#!/bin/sh\n" +
 		"trap 'echo got >>\"" + gotPath + "\"' HUP\n" +
 		"echo $$ >>\"" + pidsPath + "\"\n" +
+		"read dummy && echo ready >>\"" + readyPath + "\"\n" +
 		"while true; do read dummy || sleep 0.05; done\n"
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
@@ -190,6 +193,15 @@ func TestEXECListenForkFiveSessionsSIGHUP(t *testing.T) {
 		conns = append(conns, c)
 	}
 	waitFileLines(t, pidsPath, n, proc, stderrPath, 5*time.Second)
+	for i, c := range conns {
+		if _, err := io.WriteString(c, "ready\n"); err != nil {
+			t.Fatalf("write readiness token %d: %v stderr=%s", i, err, readFile(t, stderrPath))
+		}
+	}
+	// A child can write its PID immediately after cmd.Start, before the parent
+	// registers that child for SIGHUP forwarding. Reading a token through the
+	// relay proves openEXEC has returned and signal registration is complete.
+	waitFileLines(t, readyPath, n, proc, stderrPath, 5*time.Second)
 	if strings.Contains(readFile(t, stderrPath), "too many sub processes") {
 		t.Fatalf("five LISTEN,fork sessions must each have four slots stderr=%s", readFile(t, stderrPath))
 	}
