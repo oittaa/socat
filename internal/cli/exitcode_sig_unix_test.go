@@ -81,3 +81,49 @@ func TestSignalHandlersPassThroughKeepsRunning(t *testing.T) {
 		t.Fatal("SIGTERM did not exit after pass-through")
 	}
 }
+
+func TestSignalHandlersPassThroughBurstDoesNotDropTerm(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sigCh := make(chan os.Signal, exitSignalChanSize)
+	const nHUP = 8
+	for i := 0; i < nHUP; i++ {
+		notifySignalNonblock(t, sigCh, syscall.SIGHUP)
+	}
+	notifySignalNonblock(t, sigCh, syscall.SIGTERM)
+
+	exitCode := make(chan int, 1)
+	var forwarded int
+	stop := startSignalHandlers(ctx, cancel, logx.New(), defaultSignalLogMask(), func(code int) {
+		exitCode <- code
+	}, sigCh, make(chan os.Signal), func(sig os.Signal) bool {
+		if sig == syscall.SIGHUP {
+			forwarded++
+			return true
+		}
+		return false
+	})
+	t.Cleanup(stop)
+
+	select {
+	case code := <-exitCode:
+		if code != 128+int(syscall.SIGTERM) {
+			t.Fatalf("exit code=%d want %d", code, 128+int(syscall.SIGTERM))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("SIGTERM was dropped after pass-through SIGHUPs")
+	}
+	if forwarded != nHUP {
+		t.Fatalf("forwarded %d SIGHUPs want %d", forwarded, nHUP)
+	}
+}
+
+// notifySignalNonblock matches os/signal.Notify: send with default, drop if full.
+func notifySignalNonblock(t *testing.T, ch chan os.Signal, sig os.Signal) {
+	t.Helper()
+	select {
+	case ch <- sig:
+	default:
+		t.Fatalf("os/signal would drop %v (chan cap %d)", sig, cap(ch))
+	}
+}

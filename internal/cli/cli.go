@@ -530,12 +530,18 @@ func ipVersionFromFlags(cfg *Config) xio.IPVersion {
 	}
 }
 
+// exitSignalChanSize is the Notify buffer for EXITCODESIG* / OFUNC_SIGNAL.
+// os/signal sends with default and drops when the channel is full. After
+// sighup/sigint/sigquit the handler continues, so a following TERM must
+// still fit; capacity 1 dropped that burst.
+const exitSignalChanSize = 64
+
 // installSignalHandling wires the two classic signal behaviors: exit signals
 // cancel the context, unlink registered FS entries and exit 128+signum
 // (EXITCODESIG*), and SIGUSR1 prints live transfer statistics. The returned
 // stop releases both signal channels.
 func installSignalHandling(ctx context.Context, cancel context.CancelFunc, log *logx.Logger, signalLogMask uint64, signalExit func(int)) func() {
-	sigCh := make(chan os.Signal, 1)
+	sigCh := make(chan os.Signal, exitSignalChanSize)
 	notifyExitSignals(sigCh, signalLogMask)
 	usr1 := make(chan os.Signal, 1)
 	notifyStatsSignal(usr1)
