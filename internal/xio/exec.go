@@ -449,12 +449,21 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 	userPipes := s.BoolOption("pipes")
 	userPty := s.BoolOption("pty")
-	// Default: socketpair for full duplex; pipes when requested or unidirectional
-	// so unused direction can inherit process stdio (classic LISTENENV / single-exec).
-	usePipes := userPipes || mode == ModeRead || mode == ModeWrite
+	// Classic xio-progcall.c (tag-1.8.1.3
+	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+	// af5388c898c7bb60997935aee93c223deba60c4a is the same): forked
+	// EXEC/SYSTEM/SHELL defaults to socketpair, including unidirectional
+	// mode and fdin/fdout. fdin/fdout only change Dup2 targets. pipes and
+	// pty are user-selected transports; pipes+pty ignores pipes.
+	usePipes := userPipes
 	usePty := userPty
+	if usePipes && usePty {
+		if g != nil && g.Log != nil {
+			g.Log.Warningf("options \"pipes\" and \"pty\" must not be specified together; ignoring \"pipes\"")
+		}
+		usePipes = false
+	}
 
-	// fdin/fdout: map socat's pipe/socket ends onto child FDs via a shell exec redirect.
 	fdin := s.OptionValue("fdin", "")
 	fdout := s.OptionValue("fdout", "")
 	if err := validateProcessFDOptions(mode, fdin, fdout); err != nil {
@@ -469,29 +478,18 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	if err != nil {
 		return nil, err
 	}
-	if fdin != "" || fdout != "" {
-		usePipes = true
-		usePty = false
-	}
 
 	// end-close + shared LISTEN,fork: a single socketpair FD cannot be half-closed
 	// per session and poll deadlines on the shared FD race with later accepts.
 	// Separate pipes keep stdin/stdout independent (classic still works; our
-	// goroutine accept model needs this for EXECENDCLOSE).
+	// goroutine accept model needs this for EXECENDCLOSE). Do not cancel PTY.
 	endClose := s.BoolOption("end-close")
-	if endClose && !usePipes {
+	if endClose && !usePipes && !usePty {
 		usePipes = true
 	}
 
-	// PASTSOCKET needs a child socket (classic popts on sv[1]). Use socketpair
-	// for unidirectional EXEC and fdin/fdout. Do not cancel the end-close
-	// pipe safeguard — there is no equivalent safe shared socketpair here.
-	if specHasPastSocketActionOption(s) && !userPipes && !userPty && !endClose {
-		usePipes = false
-	}
-
-	// Classic leftover-rejects PH_PASTSOCKET only on user-selected pipes, pty,
-	// or nofork. end-close pipes are this port's EXECENDCLOSE workaround, so
+	// Classic leftover-rejects PH_PASTSOCKET on user-selected pipes, pty, or
+	// nofork. end-close pipes are this port's EXECENDCLOSE workaround, so
 	// leftover GROUP_SOCKET options fail the same way rather than a no-op.
 	if usePipes || usePty {
 		if err := rejectUnusedExecPastSocketOptions(s); err != nil {
@@ -502,11 +500,9 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	fdRedirect := fdin != "" || fdout != ""
 	if fdRedirect {
 		if usePipes {
-			cmd = rebuildWithFDRedirect(ctx, cmd, fdin, fdout)
+			cmd = rebuildWithPipeFDRedirect(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
 		} else {
-			// Classic duplicates the socketpair child directly onto fdi/fdo and
-			// leaves unrelated standard descriptors inherited. Pass the socket
-			// as child fd 3; the shell wrapper performs those exact dup mappings.
+			// Socketpair and PTY: one child data fd at ExtraFiles[0] (fd 3).
 			cmd = rebuildWithSocketFDRedirect(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
 		}
 	}
@@ -529,7 +525,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 
 	if usePty {
-		return startCmdPty(s, mode, g, cmd)
+		return startCmdPty(s, mode, g, cmd, fdRedirect)
 	}
 
 	// Classic: child stderr inherits socat's stderr unless option stderr
@@ -543,7 +539,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	var cleanup []func()
 	var childFiles []*os.File
 	if usePipes {
-		stream, cleanup, childFiles, err = startCmdPipes(s, mode, cmd, fdin, fdout)
+		stream, cleanup, childFiles, err = startCmdPipes(s, mode, cmd, fdRedirect)
 	} else {
 		var child *os.File
 		stream, cleanup, child, err = startCmdSocketpair(s, mode, cmd, fdRedirect)
@@ -594,8 +590,8 @@ func normalizeProcessFD(value, name string) (string, error) {
 	return strconv.Itoa(n), nil
 }
 
-func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdin, fdout string) (relay.Stream, []func(), []*os.File, error) {
-	needIn, needOut := pipeDirections(mode, fdin, fdout)
+func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdRedirect bool) (relay.Stream, []func(), []*os.File, error) {
+	needIn, needOut := pipeDirections(mode)
 	var stdin io.WriteCloser
 	var stdout io.ReadCloser
 	var parentFiles []*os.File
@@ -611,7 +607,6 @@ func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdin, fdout string) (
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		cmd.Stdin = childStdin
 		stdin = parentStdin
 		childFiles = append(childFiles, childStdin)
 		parentFiles = append(parentFiles, parentStdin)
@@ -620,8 +615,6 @@ func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdin, fdout string) (
 			closeFiles(childFiles)
 			return nil, nil, nil, err
 		}
-	} else {
-		cmd.Stdin = os.Stdin
 	}
 	if needOut {
 		parentStdout, childStdout, err := os.Pipe()
@@ -629,10 +622,6 @@ func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdin, fdout string) (
 			closeFiles(parentFiles)
 			closeFiles(childFiles)
 			return nil, nil, nil, err
-		}
-		cmd.Stdout = childStdout
-		if s.BoolOption("stderr") {
-			cmd.Stderr = childStdout
 		}
 		stdout = parentStdout
 		childFiles = append(childFiles, childStdout)
@@ -642,8 +631,33 @@ func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdin, fdout string) (
 			closeFiles(childFiles)
 			return nil, nil, nil, err
 		}
-	} else {
+	}
+
+	if fdRedirect {
+		// rebuildWithPipeFDRedirect expects ExtraFiles fd 3 (input) and fd 4
+		// (output when both directions exist). Keep 0/1/2 inherited.
+		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.ExtraFiles = append([]*os.File(nil), childFiles...)
+	} else {
+		if needIn {
+			cmd.Stdin = childFiles[0]
+		} else {
+			cmd.Stdin = os.Stdin
+		}
+		if needOut {
+			out := childFiles[len(childFiles)-1]
+			cmd.Stdout = out
+			if s.BoolOption("stderr") {
+				cmd.Stderr = out
+			}
+		} else {
+			cmd.Stdout = os.Stdout
+			if s.BoolOption("stderr") {
+				cmd.Stderr = os.Stdout
+			}
+		}
 	}
 
 	var r io.Reader = stdout
@@ -841,6 +855,59 @@ func closeExecPTY(master, slave *os.File) {
 	logx.CloseQuiet(slave)
 }
 
+// startCmdPtyFDRedirect keeps the PTY slave as ExtraFiles fd 3 and lets
+// rebuildWithSocketFDRedirect Dup2 it onto fdi/fdo. Classic does not make
+// fdin/fdout select pipes (xio-progcall.c; empirical tag-1.8.1.3
+// SYSTEM:printf O; printf D >&4,pty,fdin=3,fdout=4).
+func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
+	master, slave, err := openExecPTYPair(cmd, s)
+	if err != nil {
+		return nil, err
+	}
+	cmd.ExtraFiles = []*os.File{slave}
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Ctty = 3
+	if err := startWithChildUmask(s, cmd); err != nil {
+		closeExecPTY(master, slave)
+		return nil, err
+	}
+	logx.CloseQuiet(slave)
+	if err := applyPtyMasterLifecycle(s, master); err != nil {
+		_ = cmd.Process.Kill()
+		_, _ = cmd.Process.Wait()
+		logx.CloseQuiet(master)
+		return nil, err
+	}
+	var stream relay.Stream
+	waitChild := false
+	switch mode {
+	case ModeWrite:
+		w := &halfCloseWriter{w: master}
+		stream = relay.FDStream{
+			R:      EOFReader{},
+			W:      w,
+			C:      NewMultiCloser(nil, nil),
+			CloseW: func() error { w.closeWrite(); return nil },
+		}
+		waitChild = true
+	case ModeRead:
+		stream = relay.FDStream{
+			R:      master,
+			W:      io.Discard,
+			C:      NewMultiCloser(nil, nil),
+			CloseW: func() error { return nil },
+		}
+	default:
+		stream = PtyExecStream(master)
+	}
+	return finishExec(s, g, cmd, stream, []func(){func() { logx.CloseQuiet(master) }}, waitChild)
+}
+
 // startCmdPty runs the child with a pseudo-terminal (classic EXEC/SYSTEM,pty).
 //
 // Unidirectional dual forms inherit the unused stdio of the socat process:
@@ -849,7 +916,10 @@ func closeExecPTY(master, slave *os.File) {
 //	ModeRead  (EXEC,pty!!-): child stdin←os.Stdin (inherit), child stdout→PTY
 //
 // Full duplex: both directions on the PTY slave (startOnPTY).
-func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
+func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect bool) (*Opened, error) {
+	if fdRedirect {
+		return startCmdPtyFDRedirect(s, mode, g, cmd)
+	}
 	var ptmx *os.File
 	var err error
 
@@ -1045,22 +1115,11 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 	return o, nil
 }
 
-func pipeDirections(mode Mode, fdin, fdout string) (needIn, needOut bool) {
-	if fdin != "" && fdout == "" {
-		return true, false
-	}
-	if fdout != "" && fdin == "" {
-		return false, true
-	}
-	if fdin != "" && fdout != "" {
-		return true, true
-	}
+func pipeDirections(mode Mode) (needIn, needOut bool) {
 	switch mode {
 	case ModeRead:
-		// Only reading from child: inherit process stdin for the child.
 		return false, true
 	case ModeWrite:
-		// Only writing to child: inherit process stdout from the child.
 		return true, false
 	default:
 		return true, true

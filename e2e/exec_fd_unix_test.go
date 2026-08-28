@@ -1,0 +1,158 @@
+//go:build e2e && unix
+
+package e2e_test
+
+import (
+	"bytes"
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+)
+
+func runSocat(t *testing.T, stdin string, args ...string) (stdout, stderr string, err error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	argv := append([]string{"-t", "1"}, args...)
+	cmd := exec.CommandContext(ctx, socatBin(t), argv...)
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	err = cmd.Run()
+	return out.String(), errb.String(), err
+}
+
+func TestEXECUnidirectionalCat(t *testing.T) {
+	if _, err := os.Stat("/bin/cat"); err != nil {
+		t.Skip("/bin/cat not available")
+	}
+	const payload = "hello"
+	t.Run("exec-to-stdout", func(t *testing.T) {
+		out, errb, err := runSocat(t, payload, "-u", "EXEC:/bin/cat", "STDOUT")
+		if err != nil {
+			t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
+		}
+		if out != payload {
+			t.Fatalf("got %q want %q", out, payload)
+		}
+	})
+	t.Run("stdin-to-exec", func(t *testing.T) {
+		out, errb, err := runSocat(t, payload, "-u", "STDIN", "EXEC:/bin/cat")
+		if err != nil {
+			t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
+		}
+		if out != payload {
+			t.Fatalf("got %q want %q", out, payload)
+		}
+	})
+}
+
+func TestEXECfdinFdoutInherit(t *testing.T) {
+	tests := []struct {
+		name string
+		left string
+	}{
+		{name: "socketpair", left: "SYSTEM:printf O; printf D >&4,fdin=3,fdout=4"},
+		{name: "pipes", left: "SYSTEM:printf O; printf D >&4,pipes,fdin=3,fdout=4"},
+		{name: "pty", left: "SYSTEM:printf O; printf D >&4,pty,fdin=3,fdout=4,raw,echo=0"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sink := filepath.Join(t.TempDir(), "relayed")
+			out, errb, err := runSocat(t, "", tc.left, "SYSTEM:cat >"+sink)
+			if err != nil {
+				t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
+			}
+			if out != "O" {
+				t.Fatalf("inherited stdout %q want O", out)
+			}
+			data, err := os.ReadFile(sink)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := string(data); got != "D" {
+				t.Fatalf("relayed %q want D", got)
+			}
+		})
+	}
+}
+
+func TestEXECfdinOnlyWrite(t *testing.T) {
+	out, errb, err := runSocat(t, "hello", "-u", "STDIN", "SYSTEM:cat <&3,fdin=3")
+	if err != nil {
+		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
+	}
+	if out != "hello" {
+		t.Fatalf("got %q want hello", out)
+	}
+}
+
+func TestEXECfdoutOnlyRead(t *testing.T) {
+	out, errb, err := runSocat(t, "hello", "-u", "SYSTEM:cat >&4,fdout=4", "STDOUT")
+	if err != nil {
+		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
+	}
+	if out != "hello" {
+		t.Fatalf("got %q want hello", out)
+	}
+}
+
+func TestEXECStderrCustomFDOut(t *testing.T) {
+	sink := filepath.Join(t.TempDir(), "relayed")
+	out, errb, err := runSocat(t, "", "SYSTEM:printf O; printf D >&4; printf E >&2,fdin=3,fdout=4,stderr", "SYSTEM:cat >"+sink)
+	if err != nil {
+		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
+	}
+	if out != "O" {
+		t.Fatalf("inherited stdout %q want O", out)
+	}
+	data, err := os.ReadFile(sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(data); got != "DE" {
+		t.Fatalf("relayed %q want DE", got)
+	}
+}
+
+func TestEXECChdirFDInFDOut(t *testing.T) {
+	dir := t.TempDir()
+	out, errb, err := runSocat(t, "", "SYSTEM:pwd,chdir="+dir+",fdin=3,fdout=4", "STDOUT")
+	if err != nil {
+		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
+	}
+	got := strings.TrimSpace(out)
+	want, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		want = dir
+	}
+	gotEval, err := filepath.EvalSymlinks(got)
+	if err != nil {
+		gotEval = got
+	}
+	if gotEval != want {
+		t.Fatalf("pwd %q want %q (stderr=%s)", got, dir, errb)
+	}
+}
+
+func TestEXECSocktypeDgram(t *testing.T) {
+	if _, err := os.Stat("/bin/cat"); err != nil {
+		t.Skip("/bin/cat not available")
+	}
+	out, errb, err := runSocat(t, "hello", "-u", "STDIN", "EXEC:/bin/cat,socktype="+strconv.Itoa(syscall.SOCK_DGRAM))
+	if err != nil {
+		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
+	}
+	if out != "hello" {
+		t.Fatalf("got %q want hello", out)
+	}
+}

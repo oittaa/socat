@@ -780,8 +780,7 @@ func TestOpenSpecEXECSocketpairAppliesSOPriorityLinux(t *testing.T) {
 }
 
 func TestOpenSpecEXECClassicSocketpairAppliesSOPriorityLinux(t *testing.T) {
-	// Classic still uses socketpair (not pipes) for these; Go's internal
-	// pipe workaround must not leftover-reject PASTSOCKET.
+	// Classic uses socketpair for these (including without PASTSOCKET).
 	tests := []struct {
 		name string
 		spec string
@@ -809,8 +808,10 @@ func TestOpenSpecEXECNonSocketpairRejectsPastSocketOptionsLinux(t *testing.T) {
 		optName string
 	}{
 		{name: "pipes", spec: "EXEC:/bin/true,pipes,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "pipes-fdin-fdout", spec: "EXEC:/bin/true,pipes,fdin=3,fdout=4,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "pipes-priority-alias", spec: "EXEC:/bin/true,pipes,priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "pty", spec: "EXEC:/bin/true,pty,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "pty-fdin-fdout", spec: "EXEC:/bin/true,pty,fdin=3,fdout=4,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "nofork", spec: "EXEC:/bin/true,nofork,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "end-close", spec: "EXEC:/bin/true,end-close,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "system-pipes", spec: "SYSTEM:/bin/true,pipes,so-priority=5", mode: ModeRDWR, optName: "so-priority"},

@@ -99,15 +99,6 @@ func isPastSocketActionOption(o parse.Option) bool {
 	return ok
 }
 
-func specHasPastSocketActionOption(s parse.Spec) bool {
-	for _, o := range s.Options {
-		if isPastSocketActionOption(o) {
-			return true
-		}
-	}
-	return false
-}
-
 // ApplyLateSocketOptions applies classic so-sndbuf-late / so-rcvbuf-late
 // (PH_LATE, same SO_SNDBUF / SO_RCVBUF constants).
 func ApplyLateSocketOptions(fd int, s parse.Spec) error {
