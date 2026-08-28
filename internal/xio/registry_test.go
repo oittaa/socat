@@ -83,10 +83,6 @@ func TestRegisteredAddressOptionCaps(t *testing.T) {
 		{name: "WS", must: []string{"ip-tcp", "socket"}},
 		{name: "VSOCK-CONNECT", must: []string{"socket", "child", "retry"}, not: []string{"listen", "range", "ip-tcp"}},
 		{name: "VSOCK-LISTEN", must: []string{"listen", "socket", "child", "retry"}, not: []string{"range", "ip-tcp"}},
-		{name: "UDPLITE-LISTEN", must: []string{"listen", "range", "ip-udplite", "ip-udp", "child"}, not: []string{"termios", "pty", "open"}},
-		{name: "UDPLITE-CONNECT", must: []string{"ip-udplite", "ip-udp"}, not: []string{"listen"}},
-		{name: "UDPLITE-RECVFROM", must: []string{"range", "ip-udplite", "child"}, not: []string{"listen"}},
-		{name: "UDPLITE-RECV", must: []string{"range", "ip-udplite"}, not: []string{"listen"}},
 		{name: "ACCEPT-FD", must: []string{"fd", "socket", "child", "range", "retry", "ip-tcp"}, not: []string{"listen", "pty", "open", "named"}},
 		{name: "ACCEPT", must: []string{"fd", "socket", "child", "range", "ip-tcp"}, not: []string{"listen"}},
 	}

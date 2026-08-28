@@ -68,8 +68,6 @@ func TestForcedFamilyBindRejectedAndAccepted(t *testing.T) {
 		{name: "ws-connect-v6-wildcard", spec: "WS:127.0.0.1:9,bind=::", wantErr: "address family"},
 		{name: "sctp4-listen-v6-wildcard", spec: "SCTP4-LISTEN:0,bind=::,reuseaddr,fork", wantErr: "address family mismatch", sctp: true},
 		{name: "sctp4-connect-v6-wildcard", spec: "SCTP4:127.0.0.1:9,bind=::", wantErr: "address family", sctp: true},
-		{name: "udplite4-listen-v6-wildcard", spec: "UDPLITE4-LISTEN:0,bind=::,reuseaddr,fork", wantErr: "address family mismatch"},
-		{name: "udplite4-connect-v6-wildcard", spec: "UDPLITE4:127.0.0.1:9,bind=::", wantErr: "address family mismatch"},
 		// IPv6
 		{name: "tcp6-listen-v6", spec: "TCP6-LISTEN:0,bind=::1,reuseaddr,fork", ipv6: true},
 		{name: "tcp6-listen-v4-wildcard", spec: "TCP6-LISTEN:0,bind=0.0.0.0,reuseaddr,fork", wantErr: "address family mismatch", ipv6: true},

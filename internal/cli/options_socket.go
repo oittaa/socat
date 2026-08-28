@@ -12,8 +12,6 @@ func socketOptionGroups() []helpOptGroup {
 			{name: "keepintvl", desc: "TCP_KEEPINTVL probe interval", aliases: []string{"so-keepintvl", "tcp-keepintvl"}, addressTypes: tcpStreamAddressTypes(), validate: validateDurationOption},
 			{name: "keepcnt", desc: "TCP_KEEPCNT probe count", aliases: []string{"so-keepcnt", "tcp-keepcnt"}, addressTypes: tcpStreamAddressTypes(), validate: validateInteger(1)},
 			{name: "broadcast", desc: "SO_BROADCAST", aliases: []string{"so-broadcast"}},
-			{name: "udplite-send-cscov", desc: "UDP-Lite sender checksum coverage", validate: validateInteger(0)},
-			{name: "udplite-recv-cscov", desc: "UDP-Lite receiver checksum coverage", validate: validateInteger(0)},
 			{name: "so-debug", desc: "SO_DEBUG", aliases: []string{"debug"}},
 			{name: "so-dontroute", desc: "SO_DONTROUTE", aliases: []string{"dontroute"}},
 			{name: "so-oobinline", desc: "SO_OOBINLINE", aliases: []string{"oobinline"}},

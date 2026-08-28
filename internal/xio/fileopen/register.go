@@ -41,7 +41,7 @@ func init() {
 	// Classic addressnames[] ACCEPT and addrdesc ACCEPT-FD (xioopen.c /
 	// xio-fdnum.c; tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
 	// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
-	// Unix only; FeatureACCEPTFD hides -h on Windows (VSOCK/UDPLITE).
+	// Unix only; FeatureACCEPTFD hides -h on Windows (like VSOCK).
 	acceptFDEnabled := func() bool { return xio.FeatureACCEPTFD }
 	xio.RegisterAddress(xio.AddressDesc{
 		Group:   xio.GroupFiles,
