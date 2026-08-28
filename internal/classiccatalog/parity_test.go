@@ -57,11 +57,15 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		name, goos string
 		want       OptionClass
 	}{
-		{"binary", "windows", ClassExpectedMissing},
+		{"binary", "windows", ClassMustAdvertise},
 		{"binary", "linux", ClassForeign},
-		{"text", "windows", ClassExpectedMissing},
+		{"text", "windows", ClassMustAdvertise},
 		{"text", "darwin", ClassForeign},
-		{"noinherit", "windows", ClassExpectedMissing},
+		{"noinherit", "windows", ClassMustAdvertise},
+		{"bin", "windows", ClassMustAdvertise},
+		{"o-binary", "linux", ClassForeign},
+		{"o-text", "windows", ClassMustAdvertise},
+		{"o-noinherit", "darwin", ClassForeign},
 		{"nopush", "darwin", ClassExpectedMissing},
 		{"nopush", "linux", ClassForeign},
 		{"ip-recvif", "darwin", ClassExpectedMissing},
@@ -88,6 +92,12 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"setpgid", "linux", ClassMustAdvertise},
 		{"setpgid", "windows", ClassMustAdvertise},
 		{"pgid", "linux", ClassMustAdvertise},
+		{"sighup", "linux", ClassMustAdvertise},
+		{"sighup", "darwin", ClassMustAdvertise},
+		{"sighup", "windows", ClassMustAdvertise},
+		{"sigint", "linux", ClassMustAdvertise},
+		{"sigquit", "linux", ClassMustAdvertise},
+		{"retrieve-vlan", "linux", ClassMustAdvertise},
 		{"sctp-maxseg", "linux", ClassMustAdvertise},
 		{"sctp-maxseg", "darwin", ClassMustAdvertise},
 		{"sctp-maxseg", "windows", ClassMustAdvertise},
@@ -101,6 +111,12 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"udp-ignore-peerport", "linux", ClassUnsupported},
 		{"udp-ignore-peerport", "darwin", ClassUnsupported},
 		{"udp-ignore-peerport", "windows", ClassUnsupported},
+		{"iff-dynamic", "linux", ClassUnsupported},
+		{"iff-dynamic", "darwin", ClassUnsupported},
+		{"iff-notrailers", "linux", ClassMustAdvertise},
+		{"iff-master", "linux", ClassMustAdvertise},
+		{"notrailers", "linux", ClassMustAdvertise},
+		{"master", "linux", ClassMustAdvertise},
 		{"udplite-send-cscov", "linux", ClassMustAdvertise},
 		{"udplite-recv-cscov", "linux", ClassMustAdvertise},
 		{"udplite-send-cscov", "darwin", ClassMustAdvertise},
@@ -160,6 +176,15 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	if _, ok := linux["udp-ignore-peerport"]; ok {
 		t.Fatal("linux backlog must not include udp-ignore-peerport (documented but never implemented by classic)")
 	}
+	if _, ok := linux["iff-dynamic"]; ok {
+		t.Fatal("linux backlog must not include iff-dynamic (commented out of classic optionnames[])")
+	}
+	if _, ok := linux["iff-notrailers"]; ok {
+		t.Fatal("linux backlog must not include implemented iff-notrailers")
+	}
+	if _, ok := linux["retrieve-vlan"]; ok {
+		t.Fatal("linux backlog must not include implemented retrieve-vlan")
+	}
 	if _, ok := linux["udplite-send-cscov"]; ok {
 		t.Fatal("linux backlog must not include implemented udplite-send-cscov (#101)")
 	}
@@ -182,8 +207,8 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 		t.Fatal("linux backlog must not include Windows-only binary")
 	}
 	win := ImplementationBacklog("windows")
-	if _, ok := win["binary"]; !ok {
-		t.Fatal("windows backlog must include binary")
+	if _, ok := win["binary"]; ok {
+		t.Fatal("windows backlog must not include implemented binary")
 	}
 	if _, ok := win["fs-append"]; ok {
 		t.Fatal("windows backlog must not include Linux fs-append")

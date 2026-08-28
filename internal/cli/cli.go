@@ -530,16 +530,22 @@ func ipVersionFromFlags(cfg *Config) xio.IPVersion {
 	}
 }
 
+// exitSignalChanSize is the Notify buffer for EXITCODESIG* / OFUNC_SIGNAL.
+// os/signal sends with default and drops when the channel is full. After
+// sighup/sigint/sigquit the handler continues, so a following TERM must
+// still fit; capacity 1 dropped that burst.
+const exitSignalChanSize = 64
+
 // installSignalHandling wires the two classic signal behaviors: exit signals
 // cancel the context, unlink registered FS entries and exit 128+signum
 // (EXITCODESIG*), and SIGUSR1 prints live transfer statistics. The returned
 // stop releases both signal channels.
 func installSignalHandling(ctx context.Context, cancel context.CancelFunc, log *logx.Logger, signalLogMask uint64, signalExit func(int)) func() {
-	sigCh := make(chan os.Signal, 1)
+	sigCh := make(chan os.Signal, exitSignalChanSize)
 	notifyExitSignals(sigCh, signalLogMask)
 	usr1 := make(chan os.Signal, 1)
 	notifyStatsSignal(usr1)
-	stopHandlers := startSignalHandlers(ctx, cancel, log, signalLogMask, signalExit, sigCh, usr1)
+	stopHandlers := startSignalHandlers(ctx, cancel, log, signalLogMask, signalExit, sigCh, usr1, childSignalPass)
 	return func() {
 		signal.Stop(sigCh)
 		signal.Stop(usr1)
@@ -547,31 +553,46 @@ func installSignalHandling(ctx context.Context, cancel context.CancelFunc, log *
 	}
 }
 
-func startSignalHandlers(ctx context.Context, cancel context.CancelFunc, log *logx.Logger, signalLogMask uint64, signalExit func(int), sigCh, usr1 <-chan os.Signal) func() {
+// childSignalPass is classic socatsignalpass for SIGHUP/SIGINT/SIGQUIT when an
+// EXEC/SYSTEM/SHELL address registered those PARENT options. Tests replace it.
+var childSignalPass = xio.ForwardRegisteredChildSignal
+
+func startSignalHandlers(ctx context.Context, cancel context.CancelFunc, log *logx.Logger, signalLogMask uint64, signalExit func(int), sigCh, usr1 <-chan os.Signal, pass func(os.Signal) bool) func() {
 	done := make(chan struct{})
 	var once sync.Once
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		select {
-		case sig := <-sigCh:
-			cancel()
-			xio.UnlinkRegisteredPaths()
-			if ss, ok := sig.(syscall.Signal); ok && ss > 0 {
-				if int(ss) < 64 && signalLogMask&(uint64(1)<<uint(ss)) != 0 && log != nil {
-					// Classic logs ordinary termination signals below Error;
-					// CHILDREN_SHUTUP checks must not mistake parent SIGTERM cleanup
-					// for a child connection failure.
-					log.Warningf("exiting on signal %d", ss)
+		if pass == nil {
+			pass = func(os.Signal) bool { return false }
+		}
+		for {
+			select {
+			case sig := <-sigCh:
+				if pass(sig) {
+					continue
 				}
-				// Exit immediately so Wait()-blocked nofork paths still report classic status.
-				if signalExit != nil {
-					signalExit(128 + int(ss))
+				cancel()
+				xio.UnlinkRegisteredPaths()
+				if ss, ok := sig.(syscall.Signal); ok && ss > 0 {
+					if int(ss) < 64 && signalLogMask&(uint64(1)<<uint(ss)) != 0 && log != nil {
+						// Classic logs ordinary termination signals below Error;
+						// CHILDREN_SHUTUP checks must not mistake parent SIGTERM cleanup
+						// for a child connection failure.
+						log.Warningf("exiting on signal %d", ss)
+					}
+					// Exit immediately so Wait()-blocked nofork paths still report classic status.
+					if signalExit != nil {
+						signalExit(128 + int(ss))
+					}
 				}
+				return
+			case <-ctx.Done():
+				return
+			case <-done:
+				return
 			}
-		case <-ctx.Done():
-		case <-done:
 		}
 	}()
 	go func() {

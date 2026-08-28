@@ -206,8 +206,14 @@ func splitExecArgs(s string) []string {
 }
 
 // runExecNoFork runs EXEC/SYSTEM/SHELL with nofork on an already-open peer stream
-// (classic: no relay — child inherits peer FDs as stdin/stdout).
+// (classic: no relay — the command inherits the peer as its data descriptors).
 // mode is the EXEC address mode: RDWR (echo), Write (-u right), Read (-u left).
+//
+// Default fdi/fdo are 0 and 1 (classic xio-progcall.c !withfork). Custom
+// fdin/fdout reuse the forked child mapper: ExtraFiles sources plus Dup2 of
+// WRFD onto fdo, then RDFD onto fdi, then stderr from fdo. Unrelated 0/1/2
+// stay inherited. Mapping runs in the child so a failed Start cannot leave
+// this process half-remapped (classic Dup2's then exec's in-place).
 func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Global, mode Mode) error {
 	cmdStr := strings.Join(s.Params, ":")
 	var cmd *exec.Cmd
@@ -224,6 +230,40 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 		}
 		cmd = exec.CommandContext(ctx, parts[0], parts[1:]...) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
 	}
+	if err := rejectUnusedExecPastSocketOptions(s); err != nil {
+		return err
+	}
+	fdin, fdout, err := processFDPair(s, mode)
+	if err != nil {
+		return err
+	}
+	fdRedirect := fdin != "" || fdout != ""
+
+	var extra []*os.File
+	closeExtra := func() {
+		for _, f := range extra {
+			logx.CloseQuiet(f)
+		}
+		extra = nil
+	}
+	defer closeExtra()
+
+	if fdRedirect {
+		var sameFD bool
+		extra, sameFD, err = noForkPeerExtraFiles(peer, mode)
+		if err != nil {
+			return err
+		}
+		// dash/login rewrite the target argv[0] before the helper wraps it.
+		if err := applyDashArgv0(s, cmd); err != nil {
+			return err
+		}
+		cmd, err = wrapNoForkFDCommand(ctx, cmd, mode, fdin, fdout, sameFD, s.BoolOption("stderr"))
+		if err != nil {
+			return err
+		}
+	}
+
 	cmd.Dir = s.OptionValue("chdir", "")
 	if s.BoolOption("setsid") {
 		if cmd.SysProcAttr == nil {
@@ -231,46 +271,97 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 		}
 		cmd.SysProcAttr.Setsid = true
 	}
-	if err := rejectUnusedExecPastSocketOptions(s); err != nil {
+	if fdRedirect {
+		if err := applySetpgid(s, cmd); err != nil {
+			return err
+		}
+	} else if err := applyExecChildOptions(s, cmd); err != nil {
 		return err
 	}
-	if err := applyExecChildOptions(s, cmd); err != nil {
-		return err
-	}
-	// Classic nofork FD wiring (xio-progcall !withfork):
-	//   RDWR:  stdin=peer.R, stdout=peer.W  (STDIO: 0 and 1; socket: same FD twice)
-	//   WRONLY (-u right EXEC): stdin=peer.R, stdout=process stdout (so echo appears)
-	//   RDONLY (-u left EXEC):  stdin=process stdin, stdout=peer.W
-	in, out, err := peerStdioFiles(peer, mode)
-	if err != nil {
-		return err
-	}
-	cmd.Stdin = in
-	cmd.Stdout = out
-	if s.BoolOption("stderr") {
-		cmd.Stderr = out
-	} else {
+
+	if fdRedirect {
+		// Preserve unrelated 0/1/2; ExtraFiles become child fd 3+ and the
+		// mapper Dup2's them onto fdi/fdo (tag-1.8.1.3
+		// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+		// af5388c898c7bb60997935aee93c223deba60c4a is the same).
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+		cmd.ExtraFiles = extra
+	} else {
+		// Classic nofork defaults (fdi=0, fdo=1):
+		//   RDWR:  stdin=peer.R, stdout=peer.W  (STDIO: 0 and 1; socket: same FD twice)
+		//   WRONLY (-u right EXEC): stdin=peer.R, stdout=process stdout (so echo appears)
+		//   RDONLY (-u left EXEC):  stdin=process stdin, stdout=peer.W
+		in, out, err := peerStdioFiles(peer, mode)
+		if err != nil {
+			return err
+		}
+		cmd.Stdin = in
+		cmd.Stdout = out
+		if s.BoolOption("stderr") {
+			cmd.Stderr = out
+		} else {
+			cmd.Stderr = os.Stderr
+		}
 	}
 	if g != nil {
 		cmd.Env = childEnviron(g)
 	}
-	if err := startWithChildUmask(s, cmd); err != nil {
+	if fdRedirect {
+		cmd.Env = withExecFDHelperEnv(cmd.Env)
+	}
+	if err := startWithChildUmask(s, cmd, g); err != nil {
 		return err
 	}
+	closeExtra()
 	waitErr := cmd.Wait()
-	if waitErr == nil {
-		return nil
+	if cmd.Process != nil {
+		unregisterChildSignals(cmd.Process.Pid)
 	}
-	if ee, ok := waitErr.(*exec.ExitError); ok {
-		code := ee.ExitCode()
-		if g != nil {
-			g.ChildExitCode = code
-		}
-		// Signal deaths are reported via exit 128+n already by Wait on Unix.
-		return nil
+	code, ok := childWaitExitCode(waitErr)
+	if !ok {
+		return waitErr
 	}
-	return waitErr
+	if g != nil {
+		g.ChildExitCode = code
+	}
+	return nil
+}
+
+// wrapNoForkFDCommand applies the child dup2 helper to a nofork command.
+// sameFD is a socket-like peer (one ExtraFiles source at fd 3); otherwise
+// the peer is two pipes (fd 3 input, fd 4 output).
+func wrapNoForkFDCommand(
+	ctx context.Context,
+	cmd *exec.Cmd,
+	mode Mode,
+	fdin, fdout string,
+	sameFD, withStderr bool,
+) (*exec.Cmd, error) {
+	if sameFD {
+		return rebuildWithSocketFDHelper(ctx, cmd, mode, fdin, fdout, withStderr)
+	}
+	return rebuildWithPipeFDHelper(ctx, cmd, mode, fdin, fdout, withStderr)
+}
+
+// childWaitExitCode maps cmd.Wait to a process exit status. Go's
+// exec.ExitError.ExitCode is -1 when the child was signaled; classic nofork
+// (in-place exec) and POSIX shells report 128+signum. Forked EXEC still
+// skips those statuses in finishExec so a PTY-master SIGHUP does not become
+// EXEC_RC.
+func childWaitExitCode(err error) (int, bool) {
+	if err == nil {
+		return 0, true
+	}
+	ee, ok := err.(*exec.ExitError)
+	if !ok {
+		return 0, false
+	}
+	if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return 128 + int(ws.Signal()), true
+	}
+	return ee.ExitCode(), true
 }
 
 // peerStdioFiles returns child stdin/stdout Files for nofork, matching classic.
@@ -339,6 +430,88 @@ func peerStdioFiles(st relay.Stream, mode Mode) (in, out *os.File, err error) {
 		}
 		return in, out, nil
 	}
+}
+
+// noForkPeerExtraFiles dups the peer's data descriptors for ExtraFiles so
+// classic fdin/fdout mapping can run in the child. sameFD is a socket-like
+// peer (one ExtraFiles slot at child fd 3). Two distinct pipes use fd 3
+// (input) then fd 4 (output), matching extraSources. streamRWFiles may dup a
+// conn into single; that copy is closed here after the ExtraFiles dup.
+func noForkPeerExtraFiles(st relay.Stream, mode Mode) (files []*os.File, sameFD bool, err error) {
+	r, w, single, err := streamRWFiles(st)
+	if err != nil {
+		return nil, false, err
+	}
+	owned := single
+	defer func() {
+		if owned != nil {
+			logx.CloseQuiet(owned)
+		}
+	}()
+
+	srcIn, srcOut := r, w
+	if single != nil {
+		srcIn, srcOut = single, single
+		sameFD = true
+	} else if r != nil && w != nil && r.Fd() == w.Fd() {
+		srcOut = r
+		sameFD = true
+	}
+
+	closeFiles := func() {
+		for _, f := range files {
+			logx.CloseQuiet(f)
+		}
+		files = nil
+	}
+	add := func(f *os.File, name string) error {
+		d, err := dupNoForkExtra(f, name)
+		if err != nil {
+			closeFiles()
+			return err
+		}
+		files = append(files, d)
+		return nil
+	}
+
+	switch mode {
+	case ModeWrite:
+		if err := add(srcIn, "in"); err != nil {
+			return nil, false, err
+		}
+		return files, false, nil
+	case ModeRead:
+		if err := add(srcOut, "out"); err != nil {
+			return nil, false, err
+		}
+		return files, false, nil
+	default:
+		if sameFD {
+			if err := add(srcIn, "rw"); err != nil {
+				return nil, false, err
+			}
+			return files, true, nil
+		}
+		if err := add(srcIn, "in"); err != nil {
+			return nil, false, err
+		}
+		if err := add(srcOut, "out"); err != nil {
+			return nil, false, err
+		}
+		return files, false, nil
+	}
+}
+
+func dupNoForkExtra(f *os.File, name string) (*os.File, error) {
+	if f == nil {
+		return nil, fmt.Errorf("nofork: missing %s fd", name)
+	}
+	nfd, err := syscall.Dup(int(f.Fd()))
+	if err != nil {
+		return nil, err
+	}
+	CloseOnExec(nfd)
+	return os.NewFile(uintptr(nfd), "nofork-"+name), nil
 }
 
 // streamRWFiles unwraps peer stream to read-file, write-file, and/or a single duplex FD.
@@ -437,6 +610,10 @@ func rejectUnusedExecPastSocketOptions(s parse.Spec) error {
 }
 
 func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
+	fdin, fdout, err := processFDPair(s, mode)
+	if err != nil {
+		return nil, err
+	}
 	// nofork: defer start until Run has the peer stream (runExecNoFork).
 	// Placeholder Opened; Stream is nil — Run must not transferPair this alone.
 	if s.BoolOption("nofork") {
@@ -463,21 +640,6 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		usePipes = false
 	}
 
-	fdin := s.OptionValue("fdin", "")
-	fdout := s.OptionValue("fdout", "")
-	if err := validateProcessFDOptions(mode, fdin, fdout); err != nil {
-		return nil, err
-	}
-	var err error
-	fdin, err = normalizeProcessFD(fdin, "fdin")
-	if err != nil {
-		return nil, err
-	}
-	fdout, err = normalizeProcessFD(fdout, "fdout")
-	if err != nil {
-		return nil, err
-	}
-
 	// Classic xio-progcall.c: end-close (howtoend=END_CLOSE) is not usepipes.
 	// Keep the default socketpair (and PTY when the user asked for it). Shared
 	// LISTEN,fork reuse is serialized in runForkListenRight (leftMu +
@@ -494,31 +656,25 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 
 	fdRedirect := fdin != "" || fdout != ""
-	useFDHelper := fdRedirect && processFDNeedsHelper(fdin, fdout)
 	if fdRedirect {
-		if useFDHelper {
-			// dash changes the target's argv[0], not the internal helper used to
-			// place fdi/fdo. Apply it before wrapping the target command.
-			if err := applyDashArgv0(s, cmd); err != nil {
-				return nil, err
-			}
-			if usePipes {
-				cmd, err = rebuildWithPipeFDHelper(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
-			} else {
-				// Socketpair and PTY share ExtraFiles[0] (child fd 3).
-				cmd, err = rebuildWithSocketFDHelper(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
-			}
-			if err != nil {
-				return nil, err
-			}
-		} else if usePipes {
-			cmd = rebuildWithPipeFDRedirect(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
+		// dash changes the target's argv[0], not the internal helper used to
+		// place fdi/fdo. Apply it before wrapping. Every custom fdin/fdout
+		// uses the child dup2 helper so bare SHELL and dash stay on the
+		// target instead of a /bin/sh reconstruction.
+		if err := applyDashArgv0(s, cmd); err != nil {
+			return nil, err
+		}
+		if usePipes {
+			cmd, err = rebuildWithPipeFDHelper(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
 		} else {
-			// Socketpair and PTY: one child data fd at ExtraFiles[0] (fd 3).
-			cmd = rebuildWithSocketFDRedirect(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
+			// Socketpair and PTY share ExtraFiles[0] (child fd 3).
+			cmd, err = rebuildWithSocketFDHelper(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
+		}
+		if err != nil {
+			return nil, err
 		}
 	}
-	// Rebuilding through /bin/sh must not discard chdir=.
+	// Rebuilding through the helper must not discard chdir=.
 	cmd.Dir = s.OptionValue("chdir", "")
 
 	if s.BoolOption("setsid") {
@@ -527,7 +683,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		}
 		cmd.SysProcAttr.Setsid = true
 	}
-	if useFDHelper {
+	if fdRedirect {
 		// applyDashArgv0 already ran on the target before it was wrapped.
 		if err := applySetpgid(s, cmd); err != nil {
 			return nil, err
@@ -542,7 +698,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	if g != nil {
 		cmd.Env = childEnviron(g)
 	}
-	if useFDHelper {
+	if fdRedirect {
 		cmd.Env = withExecFDHelperEnv(cmd.Env)
 	}
 
@@ -574,7 +730,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 
 	// EXEC_FDS: only FDs 0/1/2 may remain in the child.
-	startErr := startWithChildUmask(s, cmd)
+	startErr := startWithChildUmask(s, cmd, g)
 	if startErr != nil {
 		for _, f := range cleanup {
 			f()
@@ -601,8 +757,24 @@ func validateProcessFDOptions(mode Mode, fdin, fdout string) error {
 	return nil
 }
 
+func processFDPair(s parse.Spec, mode Mode) (fdin, fdout string, err error) {
+	fdin = s.OptionValue("fdin", "")
+	fdout = s.OptionValue("fdout", "")
+	if err = validateProcessFDOptions(mode, fdin, fdout); err != nil {
+		return "", "", err
+	}
+	if fdin, err = normalizeProcessFD(fdin, "fdin"); err != nil {
+		return "", "", err
+	}
+	if fdout, err = normalizeProcessFD(fdout, "fdout"); err != nil {
+		return "", "", err
+	}
+	return fdin, fdout, nil
+}
+
 // dashFDRedirectMax is the largest descriptor dash (Ubuntu /bin/sh) accepts
-// as a redirection prefix. Higher descriptors use the child-side dup2 helper.
+// as a redirection prefix. Runtime mapping no longer uses that grammar;
+// unusedFDNumbers still keeps historical prefix temps in 3–9.
 const dashFDRedirectMax = 9
 
 // Classic's compiled option catalog advertises fdin/fdout as TYPE_USHORT
@@ -624,19 +796,6 @@ func normalizeProcessFD(value, name string) (string, error) {
 		return "", fmt.Errorf("%s: file descriptor %d exceeds unsigned-short range", name, n)
 	}
 	return strconv.Itoa(n), nil
-}
-
-func processFDNeedsHelper(fdin, fdout string) bool {
-	for _, value := range []string{fdin, fdout} {
-		if value == "" {
-			continue
-		}
-		n, err := strconv.Atoi(value)
-		if err == nil && n > dashFDRedirectMax {
-			return true
-		}
-	}
-	return false
 }
 
 func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdRedirect bool) (relay.Stream, []func(), []*os.File, error) {
@@ -830,8 +989,12 @@ func execSocketpairParentStream(mode Mode, parent *os.File, stype int) relay.Str
 
 // startWithChildUmask applies classic umask= around cmd.Start and marks FDs ≥3
 // CLOEXEC so EXEC children inherit only 0/1/2 plus explicitly mapped fdi/fdo
-// descriptors (EXEC_FDS / EXEC_SNIFF).
-func startWithChildUmask(s parse.Spec, cmd *exec.Cmd) error {
+// descriptors (EXEC_FDS / EXEC_SNIFF), then registers sighup/sigint/sigquit
+// (classic PH_LATE OFUNC_SIGNAL after pid is known).
+func startWithChildUmask(s parse.Spec, cmd *exec.Cmd, g *Global) error {
+	if err := validateExecParentSignals(s); err != nil {
+		return err
+	}
 	// Mark ALL FDs ≥3 CLOEXEC (including the socketpair/pipe/PTY ends we pass
 	// as Stdin/Stdout). Go's fork/exec dup2's them to 0/1/2 first, then closes
 	// CLOEXEC descriptors, so the high-numbered originals are not leaked.
@@ -843,7 +1006,28 @@ func startWithChildUmask(s parse.Spec, cmd *exec.Cmd) error {
 	}); err != nil {
 		return err
 	}
-	return startErr
+	if startErr != nil {
+		return startErr
+	}
+	if err := registerExecParentSignals(s, cmd, g); err != nil {
+		killWaitUnregisterChild(cmd)
+		return err
+	}
+	return nil
+}
+
+// killWaitUnregisterChild reaps a started EXEC child and drops OFUNC_SIGNAL
+// registrations. Post-Start failures (PTY master lifecycle, WrapCommon, too
+// many pids) must not leave the pid in the four-slot tables: a later
+// LISTEN,fork child can reuse the number and receive a stale kill.
+func killWaitUnregisterChild(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	pid := cmd.Process.Pid
+	_ = cmd.Process.Kill()
+	_, _ = cmd.Process.Wait()
+	unregisterChildSignals(pid)
 }
 
 func setCloexecAllFrom(from int) {
@@ -922,14 +1106,13 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.Ctty = 3
-	if err := startWithChildUmask(s, cmd); err != nil {
+	if err := startWithChildUmask(s, cmd, g); err != nil {
 		closeExecPTY(master, slave)
 		return nil, err
 	}
 	logx.CloseQuiet(slave)
 	if err := applyPtyMasterLifecycle(s, master); err != nil {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		killWaitUnregisterChild(cmd)
 		logx.CloseQuiet(master)
 		return nil, err
 	}
@@ -986,14 +1169,13 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 		if s.BoolOption("stderr") {
 			cmd.Stderr = slave
 		}
-		if err := startWithChildUmask(s, cmd); err != nil {
+		if err := startWithChildUmask(s, cmd, g); err != nil {
 			closeExecPTY(master, slave)
 			return nil, err
 		}
 		logx.CloseQuiet(slave)
 		if err := applyPtyMasterLifecycle(s, ptmx); err != nil {
-			_ = cmd.Process.Kill()
-			_, _ = cmd.Process.Wait()
+			killWaitUnregisterChild(cmd)
 			logx.CloseQuiet(ptmx)
 			return nil, err
 		}
@@ -1021,14 +1203,13 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 		// Controlling tty is stdout/stderr slave; Setctty needs a child FD.
 		// With stdin inherited, Ctty 1 (stdout) is the slave after setup.
 		cmd.SysProcAttr.Ctty = 1
-		if err := startWithChildUmask(s, cmd); err != nil {
+		if err := startWithChildUmask(s, cmd, g); err != nil {
 			closeExecPTY(master, slave)
 			return nil, err
 		}
 		logx.CloseQuiet(slave)
 		if err := applyPtyMasterLifecycle(s, ptmx); err != nil {
-			_ = cmd.Process.Kill()
-			_, _ = cmd.Process.Wait()
+			killWaitUnregisterChild(cmd)
 			logx.CloseQuiet(ptmx)
 			return nil, err
 		}
@@ -1041,13 +1222,12 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 		return finishExec(s, g, cmd, stream, []func(){func() { logx.CloseQuiet(ptmx) }}, false)
 
 	default:
-		ptmx, err = startOnPTY(cmd, s)
+		ptmx, err = startOnPTY(cmd, s, g)
 		if err != nil {
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}
 		if err := applyPtyMasterLifecycle(s, ptmx); err != nil {
-			_ = cmd.Process.Kill()
-			_, _ = cmd.Process.Wait()
+			killWaitUnregisterChild(cmd)
 			logx.CloseQuiet(ptmx)
 			return nil, err
 		}
@@ -1065,10 +1245,13 @@ func applyPtyMasterLifecycle(s parse.Spec, ptmx *os.File) error {
 }
 
 func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func(), waitChild bool) (*Opened, error) {
+	pid := 0
+	if cmd != nil && cmd.Process != nil {
+		pid = cmd.Process.Pid
+	}
 	st, err := WrapCommon(s, stream)
 	if err != nil {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		killWaitUnregisterChild(cmd)
 		for _, f := range cleanup {
 			f()
 		}
@@ -1082,6 +1265,7 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 	done := make(chan struct{})
 	go func() {
 		err := cmd.Wait()
+		unregisterChildSignals(pid)
 		mu.Lock()
 		waitErr = err
 		if err == nil {

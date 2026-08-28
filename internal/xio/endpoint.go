@@ -96,7 +96,10 @@ type Global struct {
 	Dump         io.Writer
 	Statistics   bool
 	statsPrinted *atomic.Bool // pointer so forkSession can copy Global without copying a lock
-	Experimental bool         // --experimental (classic netns= warning)
+	// childSignals is this logical session's OFUNC_SIGNAL four-slot table.
+	// forkSession nils it so LISTEN,fork goroutines do not share one table.
+	childSignals *childSignalSession
+	Experimental bool // --experimental (classic netns= warning)
 
 	// Peer info from the most recently accepted/connected socket (for SOCAT_* env).
 	SockAddr string
@@ -138,6 +141,7 @@ func (g *Global) forkSession() *Global {
 	cg := *g
 	cg.TLSVars = cloneStringMap(g.TLSVars)
 	cg.SessionVars = cloneStringMap(g.SessionVars)
+	cg.childSignals = nil
 	if cg.statsPrinted == nil {
 		cg.statsPrinted = new(atomic.Bool)
 	}

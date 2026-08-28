@@ -34,6 +34,7 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"o-sync", "async", "flock", "perm-late", "user-late",
 		"setsid", "pty", "setlk",
 		"dash", "setpgid",
+		"sighup", "sigint", "sigquit",
 		"bindtodevice",
 		"ip-pktinfo", "ip-options", "ipv6-tclass", "ipv6-unicast-hops",
 		"tcp-cork", "tcp-maxseg", "tcp-maxseg-late",
@@ -56,11 +57,36 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"lockfile", "waitlock",
 		"ip-ttl", "ip-tos",
 		"so-debug", "so-dontroute", "so-oobinline",
+		"binary", "text", "noinherit",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("supported option %q is missing", name)
 		}
 	}
+}
+
+func TestWindowsHelpHHHListsDescriptorModeAliases(t *testing.T) {
+	var b bytes.Buffer
+	if err := printHelp(&b, 3); err != nil {
+		t.Fatal(err)
+	}
+	help := b.String()
+	for _, name := range []string{"bin", "binary", "o-binary", "text", "o-text", "noinherit", "o-noinherit"} {
+		if !strings.Contains(help, "    "+name+" ") {
+			t.Errorf("supported Windows descriptor option %q is missing", name)
+		}
+	}
+	for _, line := range strings.Split(help, "\n") {
+		if strings.HasPrefix(line, "    binary ") {
+			for _, want := range []string{"groups=FD,OPEN", "phase=OPEN", "type=BOOL"} {
+				if !strings.Contains(line, want) {
+					t.Errorf("binary metadata line %q missing %q", line, want)
+				}
+			}
+			return
+		}
+	}
+	t.Error("binary metadata line is missing")
 }
 
 func TestWindowsHelpOmitsTermiosSpellings(t *testing.T) {

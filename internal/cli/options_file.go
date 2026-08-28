@@ -6,6 +6,13 @@ import "github.com/oittaa/socat/internal/xio"
 func fileOptionGroups() []helpOptGroup {
 	return []helpOptGroup{
 		{"Files and UNIX", []helpOpt{
+			// Cygwin-only GROUP_OPEN|GROUP_FD, PH_OPEN TYPE_BOOL options from
+			// official classic xio-fd.c. Native Go uses Win32 handles rather
+			// than the C runtime, so xio emulates text translation and applies
+			// HANDLE_FLAG_INHERIT directly. Hidden and rejected off Windows.
+			{name: "binary", desc: "use Windows binary descriptor mode", aliases: []string{"bin", "o-binary"}, validate: validateOptionalBool},
+			{name: "text", desc: "translate Windows CRLF text on descriptor I/O", aliases: []string{"o-text"}, validate: validateOptionalBool},
+			{name: "noinherit", desc: "clear Windows HANDLE_FLAG_INHERIT", aliases: []string{"o-noinherit"}, validate: validateOptionalBool},
 			{name: "rdonly", desc: "open read-only", aliases: []string{"o-rdonly", "o_rdonly"}},
 			{name: "wronly", desc: "open write-only", aliases: []string{"o-wronly", "o_wronly"}},
 			{name: "rdwr", desc: "open read-write", aliases: []string{"o-rdwr", "o_rdwr"}},

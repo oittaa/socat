@@ -192,6 +192,9 @@ func isWeakConnApplied[T any](p *T) bool {
 }
 
 func hasFDLifecycleOptions(s parse.Spec) bool {
+	if hasPlatformFDLifecycleOptions(s) {
+		return true
+	}
 	skipAppend := skipNamedFileAppend(s.Type)
 	skipAsync := skipNamedFileAsync(s.Type)
 	for _, o := range s.Options {

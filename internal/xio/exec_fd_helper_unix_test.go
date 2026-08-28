@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -139,6 +140,58 @@ func TestRunExecFDHelperRejectsMalformedArguments(t *testing.T) {
 				t.Fatalf("error=%v want substring %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestResolvedExecPathLookPathAndMissing(t *testing.T) {
+	trueCmd := exec.Command("true")
+	got := resolvedExecPath(trueCmd)
+	if got == "" || filepath.Base(got) == got {
+		t.Fatalf("resolvedExecPath(true)=%q want an absolute PATH lookup", got)
+	}
+	missing := exec.Command("socat-exec-fd-helper-missing-basename")
+	if got := resolvedExecPath(missing); got != "socat-exec-fd-helper-missing-basename" && got != missing.Path {
+		t.Fatalf("missing basename resolvedExecPath=%q Path=%q", got, missing.Path)
+	}
+}
+
+func runFDHelperProcess(t *testing.T, helperArgs []string) *exec.ExitError {
+	t.Helper()
+	helper, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(helper, helperArgs...)
+	cmd.Env = withExecFDHelperEnv(nil)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	if err == nil {
+		t.Fatalf("helper succeeded; stderr=%s", stderr.Bytes())
+	}
+	ee, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("helper err=%v stderr=%s", err, stderr.Bytes())
+	}
+	return ee
+}
+
+func TestExecFDHelperMissingTargetExitsOne(t *testing.T) {
+	ee := runFDHelperProcess(t, []string{
+		execFDHelperMarker,
+		"-1", "-1", "-1", "-1", "0",
+		"/no/such/socat-exec-fd-helper-missing",
+		"missing",
+	})
+	if ee.ExitCode() != 1 {
+		t.Fatalf("exit=%d want 1 (classic execvp Exit(1))", ee.ExitCode())
+	}
+}
+
+func TestExecFDHelperMalformedArgsExit127(t *testing.T) {
+	ee := runFDHelperProcess(t, []string{execFDHelperMarker, "bad"})
+	if ee.ExitCode() != 127 {
+		t.Fatalf("exit=%d want 127 for helper setup failure", ee.ExitCode())
 	}
 }
 

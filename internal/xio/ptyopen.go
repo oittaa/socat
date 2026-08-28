@@ -16,7 +16,7 @@ import (
 // with the slave as controlling TTY, starts cmd, closes the slave in the parent,
 // and returns the master. Matches classic EXEC,pty / creack pty.Start behaviour
 // for linux and darwin.
-func startOnPTY(cmd *exec.Cmd, s parse.Spec) (*os.File, error) {
+func startOnPTY(cmd *exec.Cmd, s parse.Spec, g *Global) (*os.File, error) {
 	master, slave, err := OpenPTYPair()
 	if err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func startOnPTY(cmd *exec.Cmd, s parse.Spec) (*os.File, error) {
 		logx.CloseQuiet(slave)
 		return nil, err
 	}
-	if err := startWithChildUmask(s, cmd); err != nil {
+	if err := startWithChildUmask(s, cmd, g); err != nil {
 		logx.CloseQuiet(master)
 		return nil, fmt.Errorf("start on pty: %w", err)
 	}

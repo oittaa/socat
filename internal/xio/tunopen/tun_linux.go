@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"unsafe"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -28,6 +29,13 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	addrSpec, err := tunPositional(s)
 	if err != nil {
 		return nil, err
+	}
+	if s.BoolOption("retrieve-vlan") {
+		// Classic xio-tun.c still calls _interface_retrieve_vlan on the TUN
+		// char device; setsockopt(SOL_PACKET) Error()s and the helper returns
+		// 0, so open continues as a no-op. Fail closed instead of advertising
+		// a PACKET_AUXDATA restore that cannot run on TUN.
+		return nil, fmt.Errorf("retrieve-vlan: not supported on TUN (requires an AF_PACKET INTERFACE socket)")
 	}
 	name := s.OptionValue("tun-name", "")
 	if name != "" && !validIfaceName(name) {
@@ -303,6 +311,11 @@ func parseIffOpts(s parse.Spec) (set, clear uint16) {
 		{[]string{"iff-promisc", "promisc"}, unix.IFF_PROMISC},
 		{[]string{"iff-allmulti", "allmulti"}, unix.IFF_ALLMULTI},
 		{[]string{"iff-multicast", "multicast"}, unix.IFF_MULTICAST},
+		{[]string{"iff-notrailers", "notrailers"}, unix.IFF_NOTRAILERS},
+		{[]string{"iff-master", "master"}, unix.IFF_MASTER},
+		{[]string{"iff-slave", "slave"}, unix.IFF_SLAVE},
+		{[]string{"iff-portsel", "portsel"}, unix.IFF_PORTSEL},
+		{[]string{"iff-automedia", "automedia"}, unix.IFF_AUTOMEDIA},
 	}
 	for _, o := range opts {
 		for _, n := range o.names {
@@ -407,12 +420,25 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		}
 	}
 
+	retrieveVLAN := s.BoolOption("retrieve-vlan")
+	if retrieveVLAN {
+		// Classic PH_LATE TYPE_CONST OFUNC_SPEC: PACKET_AUXDATA so xioread.c
+		// can restore the 802.1Q tag the kernel stripped (tag-1.8.1.3
+		// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+		// af5388c898c7bb60997935aee93c223deba60c4a is the same).
+		if err := unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_AUXDATA, 1); err != nil {
+			logx.CloseErr(unix.Close(fd))
+			return nil, fmt.Errorf("retrieve-vlan: setsockopt(PACKET_AUXDATA): %w", err)
+		}
+	}
+
 	f := os.NewFile(uintptr(fd), "interface:"+ifname)
 	st := relay.Stream(&packetRawStream{
-		f:       f,
-		fd:      fd,
-		ifindex: ifi.Index,
-		proto:   proto,
+		f:            f,
+		fd:           fd,
+		ifindex:      ifi.Index,
+		proto:        proto,
+		retrieveVLAN: retrieveVLAN,
 	})
 	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
@@ -450,16 +476,17 @@ func disableIPv6OnIface(ifname string) {
 // packetRawStream is AF_PACKET SOCK_RAW read/write for INTERFACE.
 // Read drops PACKET_OUTGOING when the kernel option is unavailable.
 type packetRawStream struct {
-	f       *os.File
-	fd      int
-	ifindex int
-	proto   uint16
-	closed  bool
+	f            *os.File
+	fd           int
+	ifindex      int
+	proto        uint16
+	retrieveVLAN bool
+	closed       bool
 }
 
 func (p *packetRawStream) Read(b []byte) (int, error) {
 	for {
-		n, from, err := unix.Recvfrom(p.fd, b, 0)
+		n, from, oob, err := p.recv(b)
 		if err != nil {
 			return 0, err
 		}
@@ -469,8 +496,74 @@ func (p *packetRawStream) Read(b []byte) (int, error) {
 				continue
 			}
 		}
+		if p.retrieveVLAN {
+			n, err = restoreVLANFromAuxdata(b, n, oob)
+			if err != nil {
+				return 0, err
+			}
+		}
 		return n, nil
 	}
+}
+
+func (p *packetRawStream) recv(b []byte) (n int, from unix.Sockaddr, oob []byte, err error) {
+	if !p.retrieveVLAN {
+		n, from, err = unix.Recvfrom(p.fd, b, 0)
+		return n, from, nil, err
+	}
+	oob = make([]byte, unix.CmsgSpace(int(unsafe.Sizeof(unix.TpacketAuxdata{}))))
+	var oobn int
+	n, oobn, _, from, err = unix.Recvmsg(p.fd, b, oob, 0)
+	if err != nil {
+		return 0, nil, nil, err
+	}
+	return n, from, oob[:oobn], nil
+}
+
+// restoreVLANFromAuxdata inserts an 802.1Q tag at Ethernet offset 12 when
+// PACKET_AUXDATA reports a non-zero tp_vlan_tci (classic xioread.c).
+func restoreVLANFromAuxdata(b []byte, n int, oob []byte) (int, error) {
+	tci, ok := packetAuxVLANTCI(oob)
+	if !ok || tci == 0 {
+		return n, nil
+	}
+	return insertVLANTag(b, n, tci)
+}
+
+func packetAuxVLANTCI(oob []byte) (uint16, bool) {
+	if len(oob) == 0 {
+		return 0, false
+	}
+	msgs, err := unix.ParseSocketControlMessage(oob)
+	if err != nil {
+		return 0, false
+	}
+	for _, m := range msgs {
+		if m.Header.Level != unix.SOL_PACKET || int(m.Header.Type) != unix.PACKET_AUXDATA {
+			continue
+		}
+		if len(m.Data) < int(unsafe.Sizeof(unix.TpacketAuxdata{})) {
+			return 0, false
+		}
+		aux := *(*unix.TpacketAuxdata)(unsafe.Pointer(&m.Data[0])) // #nosec G103 -- overlay PACKET_AUXDATA cmsg bytes onto TpacketAuxdata; Vlan_tci is the classic tp_vlan_tci field
+		return aux.Vlan_tci, true
+	}
+	return 0, false
+}
+
+func insertVLANTag(b []byte, n int, tci uint16) (int, error) {
+	const offs = 12
+	const etherHeader = 14
+	if n < etherHeader {
+		return n, nil
+	}
+	if n+4 > len(b) {
+		return 0, fmt.Errorf("buffer too small to restore VLAN id")
+	}
+	copy(b[offs+4:n+4], b[offs:n])
+	binary.BigEndian.PutUint16(b[offs:offs+2], uint16(unix.ETH_P_8021Q))
+	binary.BigEndian.PutUint16(b[offs+2:offs+4], tci)
+	return n + 4, nil
 }
 
 func (p *packetRawStream) Write(b []byte) (int, error) {

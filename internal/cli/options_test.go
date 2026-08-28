@@ -66,6 +66,12 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "lowport-on-quic", spec: "QUIC:localhost:1,lowport"},
 		{name: "sourceport-on-quic", spec: "QUIC:localhost:1,sourceport=1"},
 		{name: "pty-on-tcp", spec: "TCP:localhost:1,pty", wantErr: "not supported"},
+		{name: "retrieve-vlan-on-tcp", spec: "TCP:localhost:1,retrieve-vlan", wantErr: "not supported"},
+		{name: "retrieve-vlan-on-interface", spec: "INTERFACE:lo,retrieve-vlan"},
+		{name: "retrieve-vlan-on-if-alias", spec: "IF:lo,retrieve-vlan"},
+		{name: "retrieve-vlan-on-tun", spec: "TUN,retrieve-vlan", wantErr: "not supported"},
+		{name: "retrieve-vlan-assignment", spec: "INTERFACE:lo,retrieve-vlan=0", wantErr: "no value permitted"},
+		{name: "retrieve-vlan-garbage", spec: "INTERFACE:lo,retrieve-vlan=garbage", wantErr: "no value permitted"},
 		{name: "pty-on-inet-alias", spec: "INET:localhost:1,pty", wantErr: "not supported"},
 		{name: "nodelay-on-inet-alias", spec: "INET:localhost:1,nodelay"},
 		{name: "backlog-on-inet-listen-alias", spec: "INET-LISTEN:1,backlog=10"},
@@ -137,6 +143,13 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "dash-on-file", spec: "OPEN:file,login", wantErr: "not supported"},
 		{name: "setpgid-on-file", spec: "OPEN:file,pgid=0", wantErr: "not supported"},
 		{name: "setpgid-garbage", spec: "EXEC:true,setpgid=no", wantErr: "invalid"},
+		{name: "sighup-on-exec", spec: "EXEC:true,sighup"},
+		{name: "sigint-on-system", spec: "SYSTEM:true,sigint"},
+		{name: "sigquit-on-shell", spec: "SHELL:true,sigquit"},
+		{name: "sighup-assignment", spec: "EXEC:true,sighup=0", wantErr: "no value permitted"},
+		{name: "sigint-false", spec: "EXEC:true,sigint=false", wantErr: "no value permitted"},
+		{name: "sighup-on-tcp", spec: "TCP:localhost:1,sighup", wantErr: "not supported"},
+		{name: "sigint-on-file", spec: "OPEN:file,sigint", wantErr: "not supported"},
 		{name: "readbytes-on-tcp", spec: "TCP:localhost:1,readbytes=4"},
 		{name: "lockfile-on-tcp", spec: "TCP:localhost:1,lockfile=/tmp/x"},
 		{name: "waitlock-on-stdio", spec: "STDIO,waitlock=/tmp/x"},
@@ -452,6 +465,13 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "socket-timeout-on-quic", spec: "QUIC:localhost:1,sndtimeo=0.1"},
 		{name: "wrong-mq-family", spec: "TCP:localhost:1,mq-prio=1", wantErr: "not supported"},
 		{name: "wrong-tun-family", spec: "CREATE:file,tun-name=tun0", wantErr: "not supported"},
+		{name: "iff-master-garbage", spec: "INTERFACE:lo,iff-master=garbage", wantErr: "invalid"},
+		{name: "iff-up-garbage", spec: "INTERFACE:lo,iff-up=garbage", wantErr: "invalid"},
+		{name: "master-alias-garbage", spec: "INTERFACE:lo,master=garbage", wantErr: "invalid"},
+		{name: "iff-master-zero", spec: "INTERFACE:lo,iff-master=0"},
+		{name: "iff-master-one", spec: "INTERFACE:lo,iff-master=1"},
+		{name: "iff-master-bare", spec: "INTERFACE:lo,iff-master"},
+		{name: "iff-up-zero", spec: "TUN,iff-up=0"},
 		{name: "handshake-timeout-on-tcp", spec: "TCP:host:port,handshake-timeout=1", wantErr: "not supported"},
 		{name: "handshake-timeout-on-tcp-listen", spec: "TCP-LISTEN:1,handshake-timeout=1", wantErr: "not supported"},
 		{name: "handshake-timeout-on-udp", spec: "UDP:localhost:1,handshake-timeout=1", wantErr: "not supported"},
@@ -521,6 +541,32 @@ func TestValidateAddressOptions(t *testing.T) {
 			}
 			if err == nil || !strings.Contains(err.Error(), wantErr) {
 				t.Fatalf("error=%v want substring %q", err, wantErr)
+			}
+		})
+	}
+}
+
+func TestIffFlagOptionsRejectNonBoolValues(t *testing.T) {
+	// Classic iff-* flags are TYPE_BOOL (xio-interface.c, tag-1.8.1.3
+	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+	// af5388c898c7bb60997935aee93c223deba60c4a is the same). Assigned values
+	// other than 0/1 must fail rather than Active() treating garbage as true.
+	names := []string{
+		"iff-no-pi", "iff-up", "iff-broadcast", "iff-debug", "iff-loopback",
+		"iff-pointopoint", "iff-running", "iff-noarp", "iff-promisc",
+		"iff-allmulti", "iff-multicast", "iff-notrailers", "iff-master",
+		"iff-slave", "iff-portsel", "iff-automedia",
+		"master", "up", "notrailers",
+	}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			ch, err := parse.ParseChannel("INTERFACE:lo," + name + "=garbage")
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = validateChannelOptions(ch)
+			if err == nil || !strings.Contains(err.Error(), "invalid") {
+				t.Fatalf("error=%v want invalid", err)
 			}
 		})
 	}
@@ -651,6 +697,13 @@ func TestCatalogLifecyclePhasesForAdvertisedFDOptions(t *testing.T) {
 		{spelling: "append", phase: "LATE", groups: []string{"FD", "OPEN"}},
 		{spelling: "o-append", phase: "LATE", groups: []string{"FD", "OPEN"}},
 		{spelling: "cloexec", phase: "LATE", groups: []string{"FD"}},
+		{spelling: "bin", phase: "OPEN", groups: []string{"FD", "OPEN"}},
+		{spelling: "binary", phase: "OPEN", groups: []string{"FD", "OPEN"}},
+		{spelling: "o-binary", phase: "OPEN", groups: []string{"FD", "OPEN"}},
+		{spelling: "text", phase: "OPEN", groups: []string{"FD", "OPEN"}},
+		{spelling: "o-text", phase: "OPEN", groups: []string{"FD", "OPEN"}},
+		{spelling: "noinherit", phase: "OPEN", groups: []string{"FD", "OPEN"}},
+		{spelling: "o-noinherit", phase: "OPEN", groups: []string{"FD", "OPEN"}},
 		{spelling: "ftruncate", phase: "LATE", groups: []string{"REG"}},
 		{spelling: "truncate", phase: "LATE", groups: []string{"REG"}},
 		{spelling: "ftruncate32", phase: "LATE", groups: []string{"REG"}},

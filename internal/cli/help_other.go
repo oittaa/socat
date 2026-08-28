@@ -2,4 +2,11 @@
 
 package cli
 
-func hideOpt(string) bool { return false }
+func hideOpt(name string) bool {
+	switch name {
+	case "binary", "text", "noinherit":
+		return true
+	default:
+		return false
+	}
+}
