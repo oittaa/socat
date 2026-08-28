@@ -25,7 +25,7 @@ func tunOptionGroups() []helpOptGroup {
 			{name: "iff-allmulti", desc: "IFF_ALLMULTI", aliases: []string{"allmulti"}},
 			{name: "iff-multicast", desc: "IFF_MULTICAST", aliases: []string{"multicast"}},
 			{name: "if-mtu", desc: "interface MTU", aliases: []string{"interface-mtu"}, validate: validateInt64(true)},
-			{name: "retrieve-vlan", desc: "restore 802.1Q from PACKET_AUXDATA on INTERFACE"},
+			{name: "retrieve-vlan", desc: "restore 802.1Q from PACKET_AUXDATA on INTERFACE", addressTypes: []string{"INTERFACE"}, restrictAddressTypes: true, validate: validateNoValue},
 		}},
 		{"Namespaces", []helpOpt{
 			{name: "netns", desc: "open this address in a Linux network namespace"},

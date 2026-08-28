@@ -15,6 +15,7 @@ type helpOpt struct {
 	desc                 string
 	aliases              []string
 	addressTypes         []string
+	restrictAddressTypes bool
 	optionCaps           []string
 	implementationGroups []string
 	dynamicDesc          func() string
@@ -30,6 +31,7 @@ type addressOption struct {
 	validate             func(parse.Option) error
 	addressGroups        []string
 	addressTypes         []string
+	restrictAddressTypes bool
 	optionCaps           []string
 	implementationGroups []string
 }
@@ -45,6 +47,7 @@ func buildSupportedAddressOptions() map[string]addressOption {
 		for _, option := range group.opts {
 			spec.validate = option.validate
 			spec.addressTypes = option.addressTypes
+			spec.restrictAddressTypes = option.restrictAddressTypes
 			spec.optionCaps = option.optionCaps
 			spec.implementationGroups = option.implementationGroups
 			options[strings.ToLower(option.name)] = spec
@@ -187,8 +190,27 @@ func validateSpecOptions(spec parse.Spec) error {
 		if registered && !xio.OptionSupportedOnAddress(registration, spelling, optionSpec.addressGroups, optionSpec.addressTypes, optionSpec.optionCaps) {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
+		// Classic GROUP_INTERFACE also matches TUN. Options that set
+		// restrictAddressTypes (retrieve-vlan) keep the declared type
+		// list as a hard allow-list so TUN is rejected at CLI rather
+		// than during open.
+		if registered && optionSpec.restrictAddressTypes && !addressTypeAllowed(registration.Name, optionSpec.addressTypes) {
+			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
+		}
 	}
 	return nil
+}
+
+func addressTypeAllowed(addressType string, allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, candidate := range allowed {
+		if strings.EqualFold(addressType, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 // implementationGroups narrows classic socket-wide options to the address

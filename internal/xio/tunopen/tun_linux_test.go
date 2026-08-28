@@ -167,6 +167,28 @@ func TestInsertVLANTag(t *testing.T) {
 	if got, err := insertVLANTag(buf, 8, 1); err != nil || got != 8 {
 		t.Fatalf("short frame: n=%d err=%v", got, err)
 	}
+	if got, err := insertVLANTag(buf, 12, 1); err != nil || got != 12 {
+		t.Fatalf("12-byte frame: n=%d err=%v", got, err)
+	}
+	hdr := make([]byte, 64)
+	copy(hdr, orig[:14])
+	got, err = insertVLANTag(hdr, 14, 0x00a1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 18 {
+		t.Fatalf("14-byte frame len=%d want 18", got)
+	}
+	want14 := []byte{
+		0, 1, 2, 3, 4, 5,
+		6, 7, 8, 9, 10, 11,
+		0x81, 0x00,
+		0x00, 0xa1,
+		0x08, 0x00,
+	}
+	if string(hdr[:got]) != string(want14) {
+		t.Fatalf("14-byte frame got %x want %x", hdr[:got], want14)
+	}
 }
 
 func TestPacketAuxVLANTCIEmpty(t *testing.T) {

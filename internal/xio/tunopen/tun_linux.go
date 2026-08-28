@@ -548,7 +548,8 @@ func packetAuxVLANTCI(oob []byte) (uint16, bool) {
 
 func insertVLANTag(b []byte, n int, tci uint16) (int, error) {
 	const offs = 12
-	if n < offs {
+	const etherHeader = 14
+	if n < etherHeader {
 		return n, nil
 	}
 	if n+4 > len(b) {
