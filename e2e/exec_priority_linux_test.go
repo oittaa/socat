@@ -84,3 +84,38 @@ func TestEXECSOPriorityFDInFDOutInheritStandardStreams(t *testing.T) {
 		t.Fatalf("relayed fdout got %q want %q", got, "D")
 	}
 }
+
+func TestEXECEndCloseSOPriorityApplies(t *testing.T) {
+	if _, err := os.Stat("/bin/cat"); err != nil {
+		t.Skip("/bin/cat not available")
+	}
+	const payload = "hello"
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, socatBin(t), "-t", "1", "-u", "EXEC:/bin/cat,end-close,so-priority=5", "STDOUT")
+	cmd.Stdin = strings.NewReader(payload)
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb.Bytes(), out.Bytes())
+	}
+	if got := out.String(); got != payload {
+		t.Fatalf("got %q want %q", got, payload)
+	}
+}
+
+func TestEXECPipesEndCloseSOPriorityLeftoverRejects(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, socatBin(t), "-t", "1", "EXEC:/bin/true,pipes,end-close,so-priority=5", "STDOUT")
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err == nil {
+		t.Fatalf("expected leftover PASTSOCKET error, stdout=%q stderr=%s", out.Bytes(), errb.Bytes())
+	}
+	if !strings.Contains(errb.String(), `option "so-priority" not inquired`) {
+		t.Fatalf("stderr=%q want option %q not inquired", errb.String(), "so-priority")
+	}
+}

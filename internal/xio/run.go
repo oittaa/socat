@@ -374,10 +374,12 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 	// Shared left (e.g. FILE,o-append) must stay open across all fork children.
 	// Classic max-children + -U FILE:... LISTEN,fork appends each session in order.
 	// max-children applies to the listen address (right side here).
-	// Shared left stream (FILE append, EXEC end-close) cannot safely run concurrent
-	// bidirectional transfers on one FD pair — serialize accept sessions.
-	// sessionWrap.Close pokes a short deadline and returns immediately; the next
-	// wrap, started only after Transfer returns, clears that leftover.
+	// Shared left stream (FILE append, EXEC socketpair with end-close) cannot
+	// safely run concurrent bidirectional transfers on one FD pair — serialize
+	// accept sessions. sessionWrap.Close pokes a short deadline and returns
+	// immediately; the next wrap, started only after Transfer returns, clears
+	// that leftover. Classic end-close still uses socketpair (not pipes);
+	// serialization is the Go-side ownership model for one process.
 	var leftMu sync.Mutex
 	go func() {
 		<-ctx.Done()

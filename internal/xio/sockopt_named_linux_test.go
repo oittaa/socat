@@ -789,6 +789,8 @@ func TestOpenSpecEXECClassicSocketpairAppliesSOPriorityLinux(t *testing.T) {
 		{name: "fdin-fdout", spec: "EXEC:/bin/true,fdin=3,fdout=4,so-priority=5", mode: ModeRDWR},
 		{name: "implicit-read", spec: "EXEC:/bin/true,so-priority=5", mode: ModeRead},
 		{name: "implicit-write", spec: "EXEC:/bin/true,so-priority=5", mode: ModeWrite},
+		{name: "end-close", spec: "EXEC:/bin/true,end-close,so-priority=5", mode: ModeRDWR},
+		{name: "end-close-fdin-fdout", spec: "EXEC:/bin/true,end-close,fdin=3,fdout=4,so-priority=5", mode: ModeRDWR},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -812,8 +814,9 @@ func TestOpenSpecEXECNonSocketpairRejectsPastSocketOptionsLinux(t *testing.T) {
 		{name: "pipes-priority-alias", spec: "EXEC:/bin/true,pipes,priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "pty", spec: "EXEC:/bin/true,pty,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "pty-fdin-fdout", spec: "EXEC:/bin/true,pty,fdin=3,fdout=4,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "pty-end-close", spec: "EXEC:/bin/true,pty,end-close,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "nofork", spec: "EXEC:/bin/true,nofork,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
-		{name: "end-close", spec: "EXEC:/bin/true,end-close,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "pipes-end-close", spec: "EXEC:/bin/true,pipes,end-close,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "system-pipes", spec: "SYSTEM:/bin/true,pipes,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "setsockopt-socket-pipes", spec: "EXEC:/bin/true,pipes,setsockopt-socket=1:12:1", mode: ModeRDWR, optName: "setsockopt-socket"},
 	}

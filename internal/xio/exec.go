@@ -424,10 +424,9 @@ func asOSFile(x any) *os.File {
 // Classic leftover-rejects those options on user-selected pipes/pty/nofork
 // (xio-progcall.c usepipes/usepty/nofork at tag-1.8.1.3
 // 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same). This port also
-// uses pipes for EXECENDCLOSE (end-close + LISTEN,fork), so leftover
-// GROUP_SOCKET options fail the same way there. Canonical Name is classic
-// defname after alias fold.
+// af5388c898c7bb60997935aee93c223deba60c4a is the same). Canonical Name is
+// classic defname after alias fold. end-close is not usepipes; it keeps the
+// default socketpair and applies popts on sv[1].
 func rejectUnusedExecPastSocketOptions(s parse.Spec) error {
 	for _, o := range s.Options {
 		if isPastSocketActionOption(o) {
@@ -479,18 +478,15 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		return nil, err
 	}
 
-	// end-close + shared LISTEN,fork: a single socketpair FD cannot be half-closed
-	// per session and poll deadlines on the shared FD race with later accepts.
-	// Separate pipes keep stdin/stdout independent (classic still works; our
-	// goroutine accept model needs this for EXECENDCLOSE). Do not cancel PTY.
-	endClose := s.BoolOption("end-close")
-	if endClose && !usePipes && !usePty {
-		usePipes = true
-	}
+	// Classic xio-progcall.c: end-close (howtoend=END_CLOSE) is not usepipes.
+	// Keep the default socketpair (and PTY when the user asked for it). Shared
+	// LISTEN,fork reuse is serialized in runForkListenRight (leftMu +
+	// sessionWrap) so a Close poke cannot leave an expired deadline on the
+	// next accept. Do not switch transport here to paper over that.
 
 	// Classic leftover-rejects PH_PASTSOCKET on user-selected pipes, pty, or
-	// nofork. end-close pipes are this port's EXECENDCLOSE workaround, so
-	// leftover GROUP_SOCKET options fail the same way rather than a no-op.
+	// nofork. Socketpair (including end-close) applies those options on the
+	// child endpoint instead of a silent no-op.
 	if usePipes || usePty {
 		if err := rejectUnusedExecPastSocketOptions(s); err != nil {
 			return nil, err

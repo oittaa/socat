@@ -325,6 +325,60 @@ func TestTCPListenEXECCat(t *testing.T) {
 	}
 }
 
+// TestTCPListenEXECCatEndClose is inetd with end-close: TCP4-LISTEN,fork
+// EXEC:cat,end-close. Classic still uses socketpair per child.
+func TestTCPListenEXECCatEndClose(t *testing.T) {
+	if !xio.FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	cat := lookPath(t, "cat")
+	ctx, g := testCtx(t), testGlobal()
+	srv := startListenRight(t, ctx, g,
+		"TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1",
+		"EXEC:"+cat+",end-close")
+	cli := openClient(t, ctx, g, "TCP4:127.0.0.1:"+tcpPort(t, srv)+",connect-timeout=2")
+	const payload = "inetd-end-close"
+	mustWrite(t, cli.Stream, []byte(payload))
+	if err := cli.Stream.ShutdownWrite(); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(readFull(t, cli.Stream, len(payload))); got != payload {
+		t.Fatalf("EXEC cat,end-close got %q", got)
+	}
+}
+
+// TestEXECEndCloseToTCPListenForkSequentialClients is the shared-FD shape:
+// EXEC:cat,end-close TCP-LISTEN,fork. Two sequential clients reuse one
+// socketpair; runForkListenRight serializes sessions on leftMu.
+func TestEXECEndCloseToTCPListenForkSequentialClients(t *testing.T) {
+	if !xio.FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	cat := lookPath(t, "cat")
+	ctx, g := testCtx(t), testGlobal()
+	left, err := xio.OpenChannel(ctx, mustParse(t, "EXEC:"+cat+",end-close"), xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := freeTCP4Port(t)
+	go func() {
+		_ = xio.RunOpened(ctx, left, mustParse(t, fmt.Sprintf("TCP-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1", port)), cloneGlobal(nil))
+	}()
+	for _, payload := range []string{"first-session", "second-session"} {
+		cli := openClient(t, ctx, testGlobal(), fmt.Sprintf("TCP:127.0.0.1:%d,connect-timeout=2", port))
+		mustWrite(t, cli.Stream, []byte(payload))
+		if err := cli.Stream.ShutdownWrite(); err != nil {
+			t.Fatal(err)
+		}
+		if got := string(readFull(t, cli.Stream, len(payload))); got != payload {
+			t.Fatalf("shared EXEC,end-close got %q want %q", got, payload)
+		}
+		if err := cli.Stream.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func TestEXECPtyRoundtrip(t *testing.T) {
 	if !xio.FeatureEXEC || !xio.FeaturePTY {
 		t.Skip("EXEC/PTY not enabled")
