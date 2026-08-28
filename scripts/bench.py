@@ -27,11 +27,23 @@ MIB = 1024 * 1024
 _AES_KEY = "0123456789abcdeffedcba9876543210"
 _AES_IV = "00000000000000000000000000000000"
 
-DEFAULT_CASES = ("tcp", "unix", "tls", "quic", "tcp-rr", "tls-rr", "quic-rr", "tls-hs")
-STREAM_CASES = {"tcp", "unix", "tls", "quic"}
+DEFAULT_CASES = (
+    "tcp",
+    "unix",
+    "udplite",
+    "tls",
+    "quic",
+    "tcp-rr",
+    "tls-rr",
+    "quic-rr",
+    "tls-hs",
+)
+STREAM_CASES = {"tcp", "unix", "udplite", "tls", "quic"}
 RR_CASES = {"tcp-rr", "tls-rr", "quic-rr"}
 HS_CASES = {"tls-hs"}
 GO_ONLY = {"quic", "quic-rr"}
+UDPLITE_CASES = {"udplite"}
+IPPROTO_UDPLITE = getattr(socket, "IPPROTO_UDPLITE", 136)
 
 
 def parse_size(text: str) -> int:
@@ -429,6 +441,29 @@ def wait_udp(port: int, timeout: float = 5.0) -> None:
     raise TimeoutError(f"UDP listen on 127.0.0.1:{port} did not appear")
 
 
+def wait_udplite(port: int, timeout: float = 5.0) -> None:
+    # UDP and UDP-Lite have distinct protocol/port namespaces.
+    deadline = time.monotonic() + timeout
+    addr = ("127.0.0.1", port)
+    while time.monotonic() < deadline:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, IPPROTO_UDPLITE) as s:
+                s.bind(addr)
+        except OSError:
+            return
+        time.sleep(0.02)
+    raise TimeoutError(f"UDP-Lite listen on 127.0.0.1:{port} did not appear")
+
+
+def udplite_available() -> bool:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, IPPROTO_UDPLITE)
+    except OSError:
+        return False
+    s.close()
+    return True
+
+
 def wait_unix(path: Path, timeout: float = 5.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -576,6 +611,13 @@ def stream_addrs(case: str, port: int, sock: Path, certs: dict[str, Path], impl:
             f"QUIC-LISTEN:{port},reuseaddr,bind=127.0.0.1,cert={crt},key={key},verify=0",
             f"QUIC:127.0.0.1:{port},verify=1,cafile={ca},commonname=localhost",
         )
+    if case == "udplite":
+        # RECV+SENDTO: a stream of datagrams. Non-fork *-LISTEN is one-shot
+        # (first packet then EOF) on this port; classic LISTEN stays connected.
+        return (
+            f"UDPLITE4-RECV:{port},reuseaddr,bind=127.0.0.1,rcvbuf=8388608,sndbuf=8388608",
+            f"UDPLITE4-SENDTO:127.0.0.1:{port},sndbuf=8388608,rcvbuf=8388608",
+        )
     raise ValueError(case)
 
 
@@ -584,6 +626,8 @@ def listen_wait(case: str, port: int, sock: Path) -> None:
         wait_unix(sock)
     elif case == "quic":
         wait_udp(port)
+    elif case == "udplite":
+        wait_udplite(port)
     else:
         wait_tcp(port)
 
@@ -622,10 +666,20 @@ def run_stream_once(
             kill_proc(client)
             raise TimeoutError("client socat timed out") from None
         elapsed = time.perf_counter() - t0
-        try:
-            server.wait(timeout=15)
-        except subprocess.TimeoutExpired:
+        if case == "udplite":
+            # Datagram listen has no peer-close EOF. Wait briefly for the last
+            # packets, then stop the listener so a 15s hang is not part of the run.
+            deadline = time.monotonic() + 10.0
+            while time.monotonic() < deadline:
+                if sink.exists() and sink.stat().st_size >= size:
+                    break
+                time.sleep(0.02)
             kill_proc(server)
+        else:
+            try:
+                server.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                kill_proc(server)
         peak = sampler.stop()
         if rc != 0:
             return {
@@ -984,6 +1038,17 @@ def main() -> int:
                     }
                 )
                 print(f"  skip {case}/{impl} (no QUIC in classic)", flush=True)
+                continue
+            if case in UDPLITE_CASES and (platform.system() != "Linux" or not udplite_available()):
+                doc["cases"].append(
+                    {
+                        "id": case,
+                        "impl": impl,
+                        "status": "skip",
+                        "detail": "UDP-Lite not available (Linux IPPROTO_UDPLITE)",
+                    }
+                )
+                print(f"  skip {case}/{impl} (no UDP-Lite)", flush=True)
                 continue
             print(f"  run  {case}/{impl} ...", flush=True)
             samples: list[dict[str, Any]] = []

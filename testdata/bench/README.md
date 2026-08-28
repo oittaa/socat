@@ -59,6 +59,7 @@ the **median**.
 |----|------------------|----------|
 | `tcp` | TCP4-LISTEN / TCP4 | classic, go |
 | `unix` | UNIX-LISTEN / UNIX-CONNECT | classic, go |
+| `udplite` | UDPLITE4-RECV / UDPLITE4-SENDTO | classic, go (Linux) |
 | `tls` | TLS-LISTEN / TLS (classic: OPENSSL-LISTEN / OPENSSL) | classic, go |
 | `quic` | QUIC-LISTEN / QUIC | go only |
 
@@ -81,6 +82,14 @@ installed.
 
 QUIC is a UDP byte tunnel (`alpn=socat`). It is not TLS and not HTTP/3.
 Classic socat has no QUIC.
+
+UDP-Lite (`IPPROTO_UDPLITE`) is Linux-only, matching this port and classic
+`WITH_UDPLITE`. The kernel must accept `SOCK_DGRAM` + protocol 136. Bulk
+`udplite` uses `UDPLITE4-RECV` / `UDPLITE4-SENDTO` (a stream of `-b`-sized
+datagrams) with 8 MiB `rcvbuf`/`sndbuf` so a fast sender does not drop
+packets. Non-fork `*-LISTEN` is one-shot on this port, so it is not used
+here. There is no connection EOF; the runner stops the receiver once the sink
+has `SIZE` bytes.
 
 ## Environment
 
@@ -163,6 +172,9 @@ Recorded handshakes (same binaries as the table; see `meta.tls` in `host.json`):
 - Bulk TLS also used different ciphers: classic **AES-256-GCM**, Go **AES-128-GCM**.
 - `tls-hs` (classic) is a Go client to a classic listener, so that column is P-256. The Go `tls-hs` column is X25519MLKEM768. The rate gap is also classic `fork(2)` vs Go goroutines.
 - QUIC is a UDP byte tunnel (`alpn=socat`). It is not HTTP/3 and not OpenSSL.
+- UDP-Lite (`udplite`) is in the suite as of this tree; the snapshot table
+  above was recorded before that case. Re-run
+  `SAVE_BASELINE=testdata/bench/host.json` on the snapshot host to fill it.
 - These numbers are one machine. Run the script on your host. JSON: `host.json`.
 
 ## Refresh the committed snapshot
