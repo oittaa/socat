@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"syscall"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -39,5 +40,17 @@ func TestRawIPListenPastSocketThenPrebindUnix(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 	if len(values) != 2 || values[0] != 1 || values[1] != 0 {
 		t.Fatalf("SO_KEEPALIVE values=%v want PASTSOCKET 1 then PREBIND 0", values)
+	}
+}
+
+func TestRawIPRecvFromIsNotSyscallConn(t *testing.T) {
+	var s any = &rawIPRecvFrom{}
+	if _, ok := s.(interface {
+		SyscallConn() (syscall.RawConn, error)
+	}); ok {
+		t.Fatal("rawIPRecvFrom must not implement syscall.Conn; relay would poll an empty socket")
+	}
+	if _, ok := s.(interface{ NetConn() net.Conn }); !ok {
+		t.Fatal("rawIPRecvFrom must expose NetConn for option lifecycle")
 	}
 }
