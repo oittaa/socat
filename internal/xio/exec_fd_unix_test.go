@@ -4,6 +4,7 @@ package xio
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/relay"
 )
 
 func openEXECSpec(t *testing.T, specText string, mode Mode) *Opened {
@@ -428,5 +430,337 @@ func TestOpenSpecEXECPipesIsNotSocketUnix(t *testing.T) {
 	o := openEXECSpec(t, "EXEC:true,pipes", ModeRDWR)
 	if _, err := parentSocketType(t, o); err == nil {
 		t.Fatal("pipes parent unexpectedly is a socket")
+	}
+}
+
+func TestOpenSpecNoForkValidatesFDOptionsUnix(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	tests := []struct {
+		spec string
+		mode Mode
+		want string
+	}{
+		{spec: "EXEC:true,nofork,fdin=3", mode: ModeRead, want: "fdin"},
+		{spec: "EXEC:true,nofork,fdout=4", mode: ModeWrite, want: "fdout"},
+		{spec: "EXEC:true,nofork,fdin=65536", mode: ModeRDWR, want: "unsigned-short range"},
+		{spec: "EXEC:true,nofork,fdout=65536", mode: ModeRDWR, want: "unsigned-short range"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.spec, func(t *testing.T) {
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			o, err := OpenSpec(context.Background(), spec, tc.mode, &Global{Log: logx.New(), Linger: time.Second})
+			if err == nil {
+				_ = o.Close()
+				t.Fatalf("accepted %s", tc.spec)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error=%v want substring %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func noForkPipePeer(t *testing.T) (peer relay.Stream, inW, outR, outW *os.File) {
+	t.Helper()
+	inR, inW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outR, outW, err = os.Pipe()
+	if err != nil {
+		_ = inR.Close()
+		_ = inW.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = inR.Close()
+		_ = inW.Close()
+		_ = outR.Close()
+		_ = outW.Close()
+	})
+	return relay.FDStream{R: inR, W: outW, C: NopCloser{}}, inW, outR, outW
+}
+
+func parseNoForkSpec(t *testing.T, spec string) parse.Spec {
+	t.Helper()
+	s, err := parse.ParseSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func TestRunExecNoForkFDInFDOutInheritUnix(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	peer, _, outR, outW := noForkPipePeer(t)
+	var relayed string
+	inherited := captureInheritedStdout(t, func() {
+		s := parseNoForkSpec(t, "SYSTEM:printf O; printf D >&4,nofork,fdin=3,fdout=4")
+		if err := runExecNoFork(context.Background(), peer, s, nil, ModeRDWR); err != nil {
+			t.Fatal(err)
+		}
+		_ = outW.Close()
+		relayed = string(readStreamBytes(t, outR, 3*time.Second))
+	})
+	if inherited != "O" {
+		t.Fatalf("inherited stdout %q want O", inherited)
+	}
+	if relayed != "D" {
+		t.Fatalf("relayed fdout %q want D", relayed)
+	}
+}
+
+func TestRunExecNoForkFDInFDOutHighDescriptorsUnix(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skip("/bin/bash not available")
+	}
+	const payload = "high-fd-payload"
+	peer, inW, outR, outW := noForkPipePeer(t)
+	if _, err := inW.Write([]byte(payload)); err != nil {
+		t.Fatal(err)
+	}
+	if err := inW.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s := parseNoForkSpec(t, "EXEC:/bin/bash -c \\\"cat <&9 >&10\\\",nofork,fdin=9,fdout=10")
+	if err := runExecNoFork(context.Background(), peer, s, nil, ModeRDWR); err != nil {
+		t.Fatal(err)
+	}
+	_ = outW.Close()
+	if got := string(readStreamBytes(t, outR, 3*time.Second)); got != payload {
+		t.Fatalf("relayed %q want %q", got, payload)
+	}
+}
+
+func TestRunExecNoForkFDInOnlyModeWriteUnix(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	const payload = "hello"
+	peer, inW, _, _ := noForkPipePeer(t)
+	if _, err := inW.Write([]byte(payload)); err != nil {
+		t.Fatal(err)
+	}
+	if err := inW.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got := captureInheritedStdout(t, func() {
+		s := parseNoForkSpec(t, "SYSTEM:cat <&3,nofork,fdin=3")
+		if err := runExecNoFork(context.Background(), peer, s, nil, ModeWrite); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got != payload {
+		t.Fatalf("inherited stdout %q want %q", got, payload)
+	}
+}
+
+func TestRunExecNoForkFDOutOnlyModeReadUnix(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	const payload = "hello"
+	peer, _, outR, outW := noForkPipePeer(t)
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdin
+	os.Stdin = pr
+	t.Cleanup(func() {
+		os.Stdin = old
+		_ = pw.Close()
+		_ = pr.Close()
+	})
+	if _, err := pw.Write([]byte(payload)); err != nil {
+		t.Fatal(err)
+	}
+	if err := pw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s := parseNoForkSpec(t, "SYSTEM:cat >&4,nofork,fdout=4")
+	if err := runExecNoFork(context.Background(), peer, s, nil, ModeRead); err != nil {
+		t.Fatal(err)
+	}
+	_ = outW.Close()
+	if got := string(readStreamBytes(t, outR, 3*time.Second)); got != payload {
+		t.Fatalf("relayed %q want %q", got, payload)
+	}
+}
+
+func TestRunExecNoForkStderrCustomFDOutUnix(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	peer, _, outR, outW := noForkPipePeer(t)
+	oldErr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stderr = w
+	t.Cleanup(func() {
+		os.Stderr = oldErr
+		_ = w.Close()
+		_ = r.Close()
+	})
+	s := parseNoForkSpec(t, "SYSTEM:printf D >&4; printf E >&2,nofork,fdin=3,fdout=4,stderr")
+	if err := runExecNoFork(context.Background(), peer, s, nil, ModeRDWR); err != nil {
+		t.Fatal(err)
+	}
+	_ = outW.Close()
+	os.Stderr = oldErr
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	stderrData, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(readStreamBytes(t, outR, 3*time.Second)); got != "DE" {
+		t.Fatalf("relayed %q want DE (process stderr=%q)", got, stderrData)
+	}
+	if strings.Contains(string(stderrData), "E") {
+		t.Fatalf("stderr option leaked E onto process stderr: %q", stderrData)
+	}
+}
+
+func TestRunExecNoForkPipesSameFDInputWinsUnix(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	script := filepath.Join(t.TempDir(), "same-fd.sh")
+	body := "#!/bin/sh\nIFS= read -r line <&5\nprintf '%s' \"$line\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	peer, inW, _, _ := noForkPipePeer(t)
+	if _, err := inW.Write([]byte("input-wins\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := inW.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got := captureInheritedStdout(t, func() {
+		s := parseNoForkSpec(t, "EXEC:"+script+",nofork,fdin=5,fdout=5")
+		if err := runExecNoFork(context.Background(), peer, s, nil, ModeRDWR); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got != "input-wins" {
+		t.Fatalf("inherited stdout=%q want input-wins", got)
+	}
+}
+
+func TestRunExecNoForkSocketFDInFDOutUnix(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := os.NewFile(uintptr(fds[0]), "nofork-parent")
+	child := os.NewFile(uintptr(fds[1]), "nofork-child")
+	t.Cleanup(func() {
+		_ = parent.Close()
+		_ = child.Close()
+	})
+	peer := relay.FDStream{R: child, W: child, C: NopCloser{}}
+	const payload = "socket-payload"
+	done := make(chan error, 1)
+	go func() {
+		if _, err := parent.Write([]byte(payload)); err != nil {
+			done <- err
+			return
+		}
+		_ = parent.Close()
+		done <- nil
+	}()
+	got := captureInheritedStdout(t, func() {
+		s := parseNoForkSpec(t, "SYSTEM:cat <&3,nofork,fdin=3")
+		if err := runExecNoFork(context.Background(), peer, s, nil, ModeWrite); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got != payload {
+		t.Fatalf("inherited stdout %q want %q", got, payload)
+	}
+}
+
+func TestRunExecNoForkFailedStartLeavesParentFDsUnix(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	marker, err := os.CreateTemp(t.TempDir(), "parent-fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = marker.Close() })
+	const keep = "parent-marker"
+	if _, err := marker.WriteString(keep); err != nil {
+		t.Fatal(err)
+	}
+	peer := relay.FDStream{R: strings.NewReader(""), W: io.Discard, C: NopCloser{}}
+	fdin := int(marker.Fd())
+	s := parseNoForkSpec(t, fmt.Sprintf("EXEC:/bin/true,nofork,fdin=%d,fdout=4", fdin))
+	err = runExecNoFork(context.Background(), peer, s, nil, ModeRDWR)
+	if err == nil {
+		t.Fatal("peer without a file descriptor must fail before Start")
+	}
+	if !strings.Contains(err.Error(), "no file descriptor") {
+		t.Fatalf("error=%v want no file descriptor", err)
+	}
+	got := make([]byte, len(keep)+8)
+	n, readErr := marker.ReadAt(got, 0)
+	if readErr != nil && readErr != io.EOF {
+		t.Fatal(readErr)
+	}
+	if string(got[:n]) != keep {
+		t.Fatalf("parent fd %d remapped: %q err=%v", fdin, got[:n], err)
+	}
+}
+
+func TestRunExecNoForkExecFailureLeavesParentFDsUnix(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	marker, err := os.CreateTemp(t.TempDir(), "parent-fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = marker.Close() })
+	const keep = "parent-marker"
+	if _, err := marker.WriteString(keep); err != nil {
+		t.Fatal(err)
+	}
+	peer, _, _, _ := noForkPipePeer(t)
+	fdin := int(marker.Fd())
+	g := &Global{Log: logx.New()}
+	s := parseNoForkSpec(t, fmt.Sprintf("EXEC:/no/such/socat-nofork-missing,nofork,fdin=%d,fdout=4", fdin))
+	err = runExecNoFork(context.Background(), peer, s, g, ModeRDWR)
+	if err == nil && g.ChildExitCode != 127 {
+		t.Fatalf("missing binary: err=%v ChildExitCode=%d want 127", err, g.ChildExitCode)
+	}
+	got := make([]byte, len(keep)+8)
+	n, readErr := marker.ReadAt(got, 0)
+	if readErr != nil && readErr != io.EOF {
+		t.Fatal(readErr)
+	}
+	if string(got[:n]) != keep {
+		t.Fatalf("parent fd %d remapped: %q", fdin, got[:n])
 	}
 }

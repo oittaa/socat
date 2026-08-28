@@ -206,8 +206,14 @@ func splitExecArgs(s string) []string {
 }
 
 // runExecNoFork runs EXEC/SYSTEM/SHELL with nofork on an already-open peer stream
-// (classic: no relay — child inherits peer FDs as stdin/stdout).
+// (classic: no relay — the command inherits the peer as its data descriptors).
 // mode is the EXEC address mode: RDWR (echo), Write (-u right), Read (-u left).
+//
+// Default fdi/fdo are 0 and 1 (classic xio-progcall.c !withfork). Custom
+// fdin/fdout reuse the forked child mapper: ExtraFiles sources plus Dup2 of
+// WRFD onto fdo, then RDFD onto fdi, then stderr from fdo. Unrelated 0/1/2
+// stay inherited. Mapping runs in the child so a failed Start cannot leave
+// this process half-remapped (classic Dup2's then exec's in-place).
 func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Global, mode Mode) error {
 	cmdStr := strings.Join(s.Params, ":")
 	var cmd *exec.Cmd
@@ -224,6 +230,42 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 		}
 		cmd = exec.CommandContext(ctx, parts[0], parts[1:]...) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
 	}
+	if err := rejectUnusedExecPastSocketOptions(s); err != nil {
+		return err
+	}
+	fdin, fdout, err := processFDPair(s, mode)
+	if err != nil {
+		return err
+	}
+	fdRedirect := fdin != "" || fdout != ""
+	useFDHelper := fdRedirect && processFDNeedsHelper(fdin, fdout)
+
+	var extra []*os.File
+	closeExtra := func() {
+		for _, f := range extra {
+			logx.CloseQuiet(f)
+		}
+		extra = nil
+	}
+	defer closeExtra()
+
+	if fdRedirect {
+		var sameFD bool
+		extra, sameFD, err = noForkPeerExtraFiles(peer, mode)
+		if err != nil {
+			return err
+		}
+		if useFDHelper {
+			if err := applyDashArgv0(s, cmd); err != nil {
+				return err
+			}
+		}
+		cmd, err = wrapNoForkFDCommand(ctx, cmd, mode, fdin, fdout, sameFD, s.BoolOption("stderr"), useFDHelper)
+		if err != nil {
+			return err
+		}
+	}
+
 	cmd.Dir = s.OptionValue("chdir", "")
 	if s.BoolOption("setsid") {
 		if cmd.SysProcAttr == nil {
@@ -231,33 +273,50 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 		}
 		cmd.SysProcAttr.Setsid = true
 	}
-	if err := rejectUnusedExecPastSocketOptions(s); err != nil {
+	if useFDHelper {
+		if err := applySetpgid(s, cmd); err != nil {
+			return err
+		}
+	} else if err := applyExecChildOptions(s, cmd); err != nil {
 		return err
 	}
-	if err := applyExecChildOptions(s, cmd); err != nil {
-		return err
-	}
-	// Classic nofork FD wiring (xio-progcall !withfork):
-	//   RDWR:  stdin=peer.R, stdout=peer.W  (STDIO: 0 and 1; socket: same FD twice)
-	//   WRONLY (-u right EXEC): stdin=peer.R, stdout=process stdout (so echo appears)
-	//   RDONLY (-u left EXEC):  stdin=process stdin, stdout=peer.W
-	in, out, err := peerStdioFiles(peer, mode)
-	if err != nil {
-		return err
-	}
-	cmd.Stdin = in
-	cmd.Stdout = out
-	if s.BoolOption("stderr") {
-		cmd.Stderr = out
-	} else {
+
+	if fdRedirect {
+		// Preserve unrelated 0/1/2; ExtraFiles become child fd 3+ and the
+		// mapper Dup2's them onto fdi/fdo (tag-1.8.1.3
+		// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+		// af5388c898c7bb60997935aee93c223deba60c4a is the same).
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+		cmd.ExtraFiles = extra
+	} else {
+		// Classic nofork defaults (fdi=0, fdo=1):
+		//   RDWR:  stdin=peer.R, stdout=peer.W  (STDIO: 0 and 1; socket: same FD twice)
+		//   WRONLY (-u right EXEC): stdin=peer.R, stdout=process stdout (so echo appears)
+		//   RDONLY (-u left EXEC):  stdin=process stdin, stdout=peer.W
+		in, out, err := peerStdioFiles(peer, mode)
+		if err != nil {
+			return err
+		}
+		cmd.Stdin = in
+		cmd.Stdout = out
+		if s.BoolOption("stderr") {
+			cmd.Stderr = out
+		} else {
+			cmd.Stderr = os.Stderr
+		}
 	}
 	if g != nil {
 		cmd.Env = childEnviron(g)
 	}
+	if useFDHelper {
+		cmd.Env = withExecFDHelperEnv(cmd.Env)
+	}
 	if err := startWithChildUmask(s, cmd, g); err != nil {
 		return err
 	}
+	closeExtra()
 	waitErr := cmd.Wait()
 	if cmd.Process != nil {
 		unregisterChildSignals(cmd.Process.Pid)
@@ -270,6 +329,28 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 		g.ChildExitCode = code
 	}
 	return nil
+}
+
+// wrapNoForkFDCommand applies the forked EXEC fdin/fdout mapper to a nofork
+// command. sameFD is a socket-like peer (one ExtraFiles source at fd 3);
+// otherwise the peer is two pipes (fd 3 input, fd 4 output).
+func wrapNoForkFDCommand(
+	ctx context.Context,
+	cmd *exec.Cmd,
+	mode Mode,
+	fdin, fdout string,
+	sameFD, withStderr, useHelper bool,
+) (*exec.Cmd, error) {
+	if useHelper {
+		if sameFD {
+			return rebuildWithSocketFDHelper(ctx, cmd, mode, fdin, fdout, withStderr)
+		}
+		return rebuildWithPipeFDHelper(ctx, cmd, mode, fdin, fdout, withStderr)
+	}
+	if sameFD {
+		return rebuildWithSocketFDRedirect(ctx, cmd, mode, fdin, fdout, withStderr), nil
+	}
+	return rebuildWithPipeFDRedirect(ctx, cmd, mode, fdin, fdout, withStderr), nil
 }
 
 // childWaitExitCode maps cmd.Wait to a process exit status. Go's
@@ -357,6 +438,88 @@ func peerStdioFiles(st relay.Stream, mode Mode) (in, out *os.File, err error) {
 		}
 		return in, out, nil
 	}
+}
+
+// noForkPeerExtraFiles dups the peer's data descriptors for ExtraFiles so
+// classic fdin/fdout mapping can run in the child. sameFD is a socket-like
+// peer (one ExtraFiles slot at child fd 3). Two distinct pipes use fd 3
+// (input) then fd 4 (output), matching extraSources. streamRWFiles may dup a
+// conn into single; that copy is closed here after the ExtraFiles dup.
+func noForkPeerExtraFiles(st relay.Stream, mode Mode) (files []*os.File, sameFD bool, err error) {
+	r, w, single, err := streamRWFiles(st)
+	if err != nil {
+		return nil, false, err
+	}
+	owned := single
+	defer func() {
+		if owned != nil {
+			logx.CloseQuiet(owned)
+		}
+	}()
+
+	srcIn, srcOut := r, w
+	if single != nil {
+		srcIn, srcOut = single, single
+		sameFD = true
+	} else if r != nil && w != nil && r.Fd() == w.Fd() {
+		srcOut = r
+		sameFD = true
+	}
+
+	closeFiles := func() {
+		for _, f := range files {
+			logx.CloseQuiet(f)
+		}
+		files = nil
+	}
+	add := func(f *os.File, name string) error {
+		d, err := dupNoForkExtra(f, name)
+		if err != nil {
+			closeFiles()
+			return err
+		}
+		files = append(files, d)
+		return nil
+	}
+
+	switch mode {
+	case ModeWrite:
+		if err := add(srcIn, "in"); err != nil {
+			return nil, false, err
+		}
+		return files, false, nil
+	case ModeRead:
+		if err := add(srcOut, "out"); err != nil {
+			return nil, false, err
+		}
+		return files, false, nil
+	default:
+		if sameFD {
+			if err := add(srcIn, "rw"); err != nil {
+				return nil, false, err
+			}
+			return files, true, nil
+		}
+		if err := add(srcIn, "in"); err != nil {
+			return nil, false, err
+		}
+		if err := add(srcOut, "out"); err != nil {
+			return nil, false, err
+		}
+		return files, false, nil
+	}
+}
+
+func dupNoForkExtra(f *os.File, name string) (*os.File, error) {
+	if f == nil {
+		return nil, fmt.Errorf("nofork: missing %s fd", name)
+	}
+	nfd, err := syscall.Dup(int(f.Fd()))
+	if err != nil {
+		return nil, err
+	}
+	CloseOnExec(nfd)
+	return os.NewFile(uintptr(nfd), "nofork-"+name), nil
 }
 
 // streamRWFiles unwraps peer stream to read-file, write-file, and/or a single duplex FD.
@@ -455,6 +618,10 @@ func rejectUnusedExecPastSocketOptions(s parse.Spec) error {
 }
 
 func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
+	fdin, fdout, err := processFDPair(s, mode)
+	if err != nil {
+		return nil, err
+	}
 	// nofork: defer start until Run has the peer stream (runExecNoFork).
 	// Placeholder Opened; Stream is nil — Run must not transferPair this alone.
 	if s.BoolOption("nofork") {
@@ -479,21 +646,6 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 			g.Log.Warningf("options \"pipes\" and \"pty\" must not be specified together; ignoring \"pipes\"")
 		}
 		usePipes = false
-	}
-
-	fdin := s.OptionValue("fdin", "")
-	fdout := s.OptionValue("fdout", "")
-	if err := validateProcessFDOptions(mode, fdin, fdout); err != nil {
-		return nil, err
-	}
-	var err error
-	fdin, err = normalizeProcessFD(fdin, "fdin")
-	if err != nil {
-		return nil, err
-	}
-	fdout, err = normalizeProcessFD(fdout, "fdout")
-	if err != nil {
-		return nil, err
 	}
 
 	// Classic xio-progcall.c: end-close (howtoend=END_CLOSE) is not usepipes.
@@ -617,6 +769,21 @@ func validateProcessFDOptions(mode Mode, fdin, fdout string) error {
 		return fmt.Errorf("fdin is not valid in a read-only process address")
 	}
 	return nil
+}
+
+func processFDPair(s parse.Spec, mode Mode) (fdin, fdout string, err error) {
+	fdin = s.OptionValue("fdin", "")
+	fdout = s.OptionValue("fdout", "")
+	if err = validateProcessFDOptions(mode, fdin, fdout); err != nil {
+		return "", "", err
+	}
+	if fdin, err = normalizeProcessFD(fdin, "fdin"); err != nil {
+		return "", "", err
+	}
+	if fdout, err = normalizeProcessFD(fdout, "fdout"); err != nil {
+		return "", "", err
+	}
+	return fdin, fdout, nil
 }
 
 // dashFDRedirectMax is the largest descriptor dash (Ubuntu /bin/sh) accepts
