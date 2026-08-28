@@ -57,11 +57,15 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		name, goos string
 		want       OptionClass
 	}{
-		{"binary", "windows", ClassExpectedMissing},
+		{"binary", "windows", ClassMustAdvertise},
 		{"binary", "linux", ClassForeign},
-		{"text", "windows", ClassExpectedMissing},
+		{"text", "windows", ClassMustAdvertise},
 		{"text", "darwin", ClassForeign},
-		{"noinherit", "windows", ClassExpectedMissing},
+		{"noinherit", "windows", ClassMustAdvertise},
+		{"bin", "windows", ClassMustAdvertise},
+		{"o-binary", "linux", ClassForeign},
+		{"o-text", "windows", ClassMustAdvertise},
+		{"o-noinherit", "darwin", ClassForeign},
 		{"nopush", "darwin", ClassExpectedMissing},
 		{"nopush", "linux", ClassForeign},
 		{"ip-recvif", "darwin", ClassExpectedMissing},
@@ -187,8 +191,8 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 		t.Fatal("linux backlog must not include Windows-only binary")
 	}
 	win := ImplementationBacklog("windows")
-	if _, ok := win["binary"]; !ok {
-		t.Fatal("windows backlog must include binary")
+	if _, ok := win["binary"]; ok {
+		t.Fatal("windows backlog must not include implemented binary")
 	}
 	if _, ok := win["fs-append"]; ok {
 		t.Fatal("windows backlog must not include Linux fs-append")

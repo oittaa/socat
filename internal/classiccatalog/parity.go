@@ -302,6 +302,12 @@ func ClassifyOption(name, goos string) (OptionClass, string) {
 	if reason, ok := unsupportedMerged()[name]; ok {
 		return ClassUnsupported, reason
 	}
+	if option, ok := PlatformOnlyOptions[name]; ok {
+		if option.Platforms.Has(goos) {
+			return ClassMustAdvertise, ""
+		}
+		return ClassForeign, option.Reason
+	}
 	if gap, ok := expectedMissingMerged()[name]; ok {
 		if gap.Platforms.Has(goos) {
 			return ClassExpectedMissing, gap.Reason
@@ -367,6 +373,18 @@ func ValidateParityManifests() error {
 		}
 		check(name, "expected-missing")
 	}
+	for name, option := range PlatformOnlyOptions {
+		if option.Reason == "" {
+			errs = append(errs, "platform-only option "+name+" has no reason")
+		}
+		if option.Platforms == PlatNone {
+			errs = append(errs, "platform-only option "+name+" has no platform")
+		}
+		if option.Spelling != name || option.Canonical == "" || option.Phase == "" || option.Type == "" || len(option.Groups) == 0 {
+			errs = append(errs, "platform-only option "+name+" has incomplete catalog metadata")
+		}
+		check(name, "platform-only")
+	}
 	for name, reason := range unsupportedMerged() {
 		if reason == "" {
 			errs = append(errs, "unsupported "+name+" has no reason")
@@ -418,6 +436,9 @@ func ValidateParityManifests() error {
 
 func knownPublicSpelling(name string) bool {
 	if _, ok := Options[name]; ok {
+		return true
+	}
+	if _, ok := PlatformOnlyOptions[name]; ok {
 		return true
 	}
 	if _, ok := DocsOnlyNotInThisBinary[name]; ok {

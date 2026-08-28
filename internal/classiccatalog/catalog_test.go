@@ -286,6 +286,11 @@ func TestRequiredPublicSpellingsUnion(t *testing.T) {
 	if _, ok := required["fips"]; !ok {
 		t.Fatal("RequiredPublicSpellings must include documented fips")
 	}
+	for _, name := range []string{"bin", "binary", "o-binary", "text", "o-text", "noinherit", "o-noinherit"} {
+		if _, ok := required[name]; !ok {
+			t.Errorf("RequiredPublicSpellings must include platform-advertised %s", name)
+		}
+	}
 	if _, ok := required["openssl-method"]; ok {
 		t.Fatal("openssl-method is a parser-only alias, not a documented public spelling")
 	}
@@ -314,8 +319,20 @@ func TestRequiredPublicSpellingsUnion(t *testing.T) {
 		}
 		want++
 	}
+	for name := range PlatformOnlyOptions {
+		if _, omit := IntentionalPublicOmissions[name]; omit {
+			continue
+		}
+		if _, dup := Options[name]; dup {
+			continue
+		}
+		if _, dup := DocsOnlyNotInThisBinary[name]; dup {
+			continue
+		}
+		want++
+	}
 	if got := len(required); got != want {
-		t.Fatalf("RequiredPublicSpellings has %d names, want %d (Options ∪ DocsOnly, minus IntentionalPublicOmissions)", got, want)
+		t.Fatalf("RequiredPublicSpellings has %d names, want %d (Options ∪ DocsOnly ∪ PlatformOnly, minus IntentionalPublicOmissions)", got, want)
 	}
 	for name := range Options {
 		if _, omit := IntentionalPublicOmissions[name]; omit {
@@ -328,6 +345,27 @@ func TestRequiredPublicSpellingsUnion(t *testing.T) {
 	for name := range DocsOnlyNotInThisBinary {
 		if _, ok := required[name]; !ok {
 			t.Errorf("documented %q missing from RequiredPublicSpellings", name)
+		}
+	}
+	for name := range PlatformOnlyOptions {
+		if _, ok := required[name]; !ok {
+			t.Errorf("platform-advertised %q missing from RequiredPublicSpellings", name)
+		}
+	}
+}
+
+func TestPlatformOnlyOptions(t *testing.T) {
+	for _, name := range []string{"bin", "binary", "o-binary", "text", "o-text", "noinherit", "o-noinherit"} {
+		option, ok := PlatformOnlyOptions[name]
+		if !ok {
+			t.Errorf("missing platform-only option %q", name)
+			continue
+		}
+		if option.Platforms != PlatWindows || option.Phase != "OPEN" || option.Type != "BOOL" {
+			t.Errorf("%s: platforms=%v phase=%q type=%q", name, option.Platforms, option.Phase, option.Type)
+		}
+		if _, ok := Lookup(name); !ok {
+			t.Errorf("Lookup(%q) must include platform-only advertised options", name)
 		}
 	}
 }

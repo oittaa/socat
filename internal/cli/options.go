@@ -171,6 +171,9 @@ func validateSpecOptions(spec parse.Spec) error {
 	if err := xio.RejectUnsupportedRecvErr(spec); err != nil {
 		return err
 	}
+	if err := xio.ValidateDescriptorModeOptions(spec); err != nil {
+		return err
+	}
 	for _, option := range spec.Options {
 		name := strings.ToLower(option.Name)
 		spelling := strings.ToLower(option.OriginalSpelling())

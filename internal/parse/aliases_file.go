@@ -2,6 +2,10 @@ package parse
 
 func init() {
 	registerOptionAliases(map[string]string{
+		"bin":           "binary",
+		"o-binary":      "binary",
+		"o-text":        "text",
+		"o-noinherit":   "noinherit",
 		"bind-tempname": "unix-bind-tempname",
 		"o-nonblock":    "nonblock",
 		"ndelay":        "nonblock",
