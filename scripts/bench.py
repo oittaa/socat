@@ -373,7 +373,7 @@ def ensure_udplite_payload(payload: Path, size: int, buffer: int) -> tuple[Path,
     wire_size = frame_count * buffer
     stat = payload.stat()
     cache_key = hashlib.sha256(
-        f"{payload.resolve()}:{stat.st_size}:{stat.st_mtime_ns}".encode("utf-8")
+        f"{payload.resolve()}:{stat.st_size}:{stat.st_mtime_ns}:{size}".encode("utf-8")
     ).hexdigest()[:12]
     dest = payload.with_name(f"{payload.name}.udplite-v1.{buffer}.{cache_key}")
     if dest.is_file() and dest.stat().st_size == wire_size:

@@ -68,6 +68,23 @@ class UDPLiteFrameTest(unittest.TestCase):
         self.assertEqual(metrics["received_payload_bytes"], size)
         self.assertEqual(metrics["corrupt_datagrams"], 0)
 
+    def test_cache_distinguishes_sizes_with_the_same_frame_count(self) -> None:
+        payload = self.root / "payload"
+        payload.write_bytes(bytes(range(self.payload_per_frame)))
+        first_size = self.payload_per_frame - 2
+        second_size = self.payload_per_frame - 1
+
+        first, _, _ = bench.ensure_udplite_payload(payload, first_size, self.buffer)
+        second, _, _ = bench.ensure_udplite_payload(payload, second_size, self.buffer)
+
+        self.assertNotEqual(first, second)
+        self.assertEqual(
+            bench.analyze_udplite_sink(first, first_size, self.buffer)["corrupt_datagrams"], 0
+        )
+        self.assertEqual(
+            bench.analyze_udplite_sink(second, second_size, self.buffer)["corrupt_datagrams"], 0
+        )
+
     def test_corruption_and_partial_frames_are_rejected(self) -> None:
         framed, _, _, size = self.framed_payload(frames=1)
         frame = bytearray(framed.read_bytes())
