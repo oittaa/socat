@@ -5,6 +5,9 @@ package cli
 import "github.com/oittaa/socat/internal/xio"
 
 func hideOpt(name string) bool {
+	if hideDarwinOnlyIPRecv(name, "windows") {
+		return true
+	}
 	if xio.LinuxExtFSFlagOption(name) {
 		return true
 	}
@@ -27,7 +30,6 @@ func hideOpt(name string) bool {
 		"ip-mtu-discover", "mtudiscover", "ipmtudiscover",
 		"ipv6-mtu-discover", "mtudiscover6",
 		"so-timestamp", "ip-pktinfo", "ip-recvttl", "ip-recvtos", "ip-recvopts",
-		"ip-recvdstaddr", "ip-recvif", "recvdstaddr", "iprecvdstaddr", "recvif",
 		"ip-options",
 		"ipv6-recvpktinfo", "ipv6-recvhoplimit", "ipv6-recvtclass",
 		"ipv6-unicast-hops", "ipv6-tclass",

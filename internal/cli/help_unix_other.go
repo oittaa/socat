@@ -2,9 +2,16 @@
 
 package cli
 
-import "github.com/oittaa/socat/internal/xio"
+import (
+	"runtime"
+
+	"github.com/oittaa/socat/internal/xio"
+)
 
 func hideOpt(name string) bool {
+	if hideDarwinOnlyIPRecv(name, runtime.GOOS) {
+		return true
+	}
 	if (name == "udplite-send-cscov" || name == "udplite-recv-cscov") && !xio.FeatureUDPLITE {
 		return true
 	}

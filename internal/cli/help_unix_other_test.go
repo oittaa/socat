@@ -4,6 +4,7 @@ package cli
 
 import (
 	"bytes"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -32,14 +33,24 @@ func TestUnixOtherHelpHidesLinuxSCTP(t *testing.T) {
 			t.Errorf("unsupported option %q is listed", name)
 		}
 	}
-	for _, name := range []string{
+	honored := []string{
 		"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string",
 		"cloexec",
-		"ip-recvdstaddr", "ip-recvif",
 		"nopush", "noopt",
-	} {
+	}
+	if runtime.GOOS == "darwin" {
+		honored = append(honored, "ip-recvdstaddr", "ip-recvif")
+	}
+	for _, name := range honored {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)
+		}
+	}
+	if runtime.GOOS != "darwin" {
+		for _, name := range []string{"ip-recvdstaddr", "ip-recvif", "recvdstaddr", "iprecvdstaddr", "recvif"} {
+			if strings.Contains(help, "    "+name+" ") {
+				t.Errorf("Darwin-only option %q must not be advertised on %s", name, runtime.GOOS)
+			}
 		}
 	}
 }
