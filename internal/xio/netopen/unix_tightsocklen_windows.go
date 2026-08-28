@@ -34,5 +34,5 @@ func bindUnixPath(fd int, name string, tight bool) error {
 	if !tight {
 		return fmt.Errorf("unix-tightsocklen=0: not supported on this platform")
 	}
-	return syscall.Bind(fd, &syscall.SockaddrUnix{Name: name})
+	return syscall.Bind(syscall.Handle(fd), &syscall.SockaddrUnix{Name: name})
 }
