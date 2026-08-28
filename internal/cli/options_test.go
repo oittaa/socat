@@ -465,6 +465,13 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "socket-timeout-on-quic", spec: "QUIC:localhost:1,sndtimeo=0.1"},
 		{name: "wrong-mq-family", spec: "TCP:localhost:1,mq-prio=1", wantErr: "not supported"},
 		{name: "wrong-tun-family", spec: "CREATE:file,tun-name=tun0", wantErr: "not supported"},
+		{name: "iff-master-garbage", spec: "INTERFACE:lo,iff-master=garbage", wantErr: "invalid"},
+		{name: "iff-up-garbage", spec: "INTERFACE:lo,iff-up=garbage", wantErr: "invalid"},
+		{name: "master-alias-garbage", spec: "INTERFACE:lo,master=garbage", wantErr: "invalid"},
+		{name: "iff-master-zero", spec: "INTERFACE:lo,iff-master=0"},
+		{name: "iff-master-one", spec: "INTERFACE:lo,iff-master=1"},
+		{name: "iff-master-bare", spec: "INTERFACE:lo,iff-master"},
+		{name: "iff-up-zero", spec: "TUN,iff-up=0"},
 		{name: "handshake-timeout-on-tcp", spec: "TCP:host:port,handshake-timeout=1", wantErr: "not supported"},
 		{name: "handshake-timeout-on-tcp-listen", spec: "TCP-LISTEN:1,handshake-timeout=1", wantErr: "not supported"},
 		{name: "handshake-timeout-on-udp", spec: "UDP:localhost:1,handshake-timeout=1", wantErr: "not supported"},
@@ -534,6 +541,32 @@ func TestValidateAddressOptions(t *testing.T) {
 			}
 			if err == nil || !strings.Contains(err.Error(), wantErr) {
 				t.Fatalf("error=%v want substring %q", err, wantErr)
+			}
+		})
+	}
+}
+
+func TestIffFlagOptionsRejectNonBoolValues(t *testing.T) {
+	// Classic iff-* flags are TYPE_BOOL (xio-interface.c, tag-1.8.1.3
+	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+	// af5388c898c7bb60997935aee93c223deba60c4a is the same). Assigned values
+	// other than 0/1 must fail rather than Active() treating garbage as true.
+	names := []string{
+		"iff-no-pi", "iff-up", "iff-broadcast", "iff-debug", "iff-loopback",
+		"iff-pointopoint", "iff-running", "iff-noarp", "iff-promisc",
+		"iff-allmulti", "iff-multicast", "iff-notrailers", "iff-master",
+		"iff-slave", "iff-portsel", "iff-automedia",
+		"master", "up", "notrailers",
+	}
+	for _, name := range names {
+		t.Run(name, func(t *testing.T) {
+			ch, err := parse.ParseChannel("INTERFACE:lo," + name + "=garbage")
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = validateChannelOptions(ch)
+			if err == nil || !strings.Contains(err.Error(), "invalid") {
+				t.Fatalf("error=%v want invalid", err)
 			}
 		})
 	}

@@ -311,6 +311,11 @@ func parseIffOpts(s parse.Spec) (set, clear uint16) {
 		{[]string{"iff-promisc", "promisc"}, unix.IFF_PROMISC},
 		{[]string{"iff-allmulti", "allmulti"}, unix.IFF_ALLMULTI},
 		{[]string{"iff-multicast", "multicast"}, unix.IFF_MULTICAST},
+		{[]string{"iff-notrailers", "notrailers"}, unix.IFF_NOTRAILERS},
+		{[]string{"iff-master", "master"}, unix.IFF_MASTER},
+		{[]string{"iff-slave", "slave"}, unix.IFF_SLAVE},
+		{[]string{"iff-portsel", "portsel"}, unix.IFF_PORTSEL},
+		{[]string{"iff-automedia", "automedia"}, unix.IFF_AUTOMEDIA},
 	}
 	for _, o := range opts {
 		for _, n := range o.names {
