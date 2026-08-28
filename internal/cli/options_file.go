@@ -97,6 +97,7 @@ func fileOptionGroups() []helpOptGroup {
 			{name: "unlink-close", desc: "unlink on close"},
 			{name: "unlink-late", desc: "unlink immediately after open"},
 			{name: "unix-bind-tempname", desc: "bind a temporary UNIX name", aliases: []string{"bind-tempname"}},
+			{name: "unix-tightsocklen", desc: "use a tight sockaddr_un length (classic default)", aliases: []string{"tightsocklen"}, validate: validateOptionalBool},
 			{name: "socktype", dynamicDesc: xio.UnixSocktypeHelp, aliases: []string{"so-type", "type"}, validate: validateInteger(-1)},
 		}},
 	}

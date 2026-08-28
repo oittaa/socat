@@ -7,6 +7,7 @@ func init() {
 		"o-text":        "text",
 		"o-noinherit":   "noinherit",
 		"bind-tempname": "unix-bind-tempname",
+		"tightsocklen":  "unix-tightsocklen",
 		"o-nonblock":    "nonblock",
 		"ndelay":        "nonblock",
 		"o-ndelay":      "nonblock",

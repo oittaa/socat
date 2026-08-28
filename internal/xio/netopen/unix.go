@@ -178,6 +178,9 @@ func genericUnixClient(typ string) bool {
 }
 
 func dialUnixNetwork(ctx context.Context, s parse.Spec, g *xio.Global, network, path, bindPath string) (net.Conn, error) {
+	if !unixTightSocklen(s) {
+		return dialUnixUntight(ctx, s, g, network, path, bindPath)
+	}
 	var conn net.Conn
 	err := xio.WithRetry(ctx, s, g, s.Type, func() error {
 		d := net.Dialer{
