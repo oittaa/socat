@@ -21,6 +21,8 @@ import (
 //	tcp-cork / cork, tcp-defer-accept / defer-accept, tcp-linger2 / linger2,
 //	tcp-maxseg / maxseg / mss, tcp-quickack / quickack, tcp-syncnt / syncnt,
 //	tcp-window-clamp / window-clamp
+//	nopush / tcp-nopush, noopt / tcp-noopt (Darwin/BSD TCP_NOPUSH / TCP_NOOPT;
+//	Linux and Windows reject instead of no-op)
 //	sctp-nodelay, sctp-maxseg (Linux SOL_SCTP; not TCP_NODELAY / TCP_MAXSEG)
 //
 // PH_CONNECTED TYPE_INT OFUNC_SOCKOPT:

@@ -78,33 +78,49 @@ func (c closerFunc) Close() error { return c() }
 // PtyStream wraps a PTY master. ShutdownWrite does NOT close the master FD
 // (unlike FileStream on non-sockets), so the reverse direction can still read
 // child output until full Close. Closing the master early SIGIO/SIGHUPs the child.
-func PtyStream(f *os.File) relay.Stream {
+func PtyStream(f *os.File, s parse.Spec) (relay.Stream, error) {
+	r, err := ptyMasterReader(f, s)
+	if err != nil {
+		return nil, err
+	}
 	w := &halfCloseWriter{w: f}
 	return relay.FDStream{
-		R: f,
+		R: r,
 		W: w,
 		C: f,
 		CloseW: func() error {
 			w.closeWrite()
 			return nil
 		},
-	}
+	}, nil
 }
 
 // PtyExecStream is a PTY master for EXEC/SYSTEM. Close does not drop the
 // master; finishExec waits for the child first, then closes (avoids SIGHUP
 // before a SYSTEM script finishes, classic RESTORE_TTY).
-func PtyExecStream(f *os.File) relay.Stream {
+func PtyExecStream(f *os.File, s parse.Spec) (relay.Stream, error) {
+	r, err := ptyMasterReader(f, s)
+	if err != nil {
+		return nil, err
+	}
 	w := &halfCloseWriter{w: f}
 	return relay.FDStream{
-		R: f,
+		R: r,
 		W: w,
 		C: NopCloser{},
 		CloseW: func() error {
 			w.closeWrite()
 			return nil
 		},
+	}, nil
+}
+
+func ptyMasterReader(f *os.File, s parse.Spec) (io.Reader, error) {
+	d, err := SitoutEIO(s)
+	if err != nil {
+		return nil, err
 	}
+	return wrapSitoutEIORead(f, d), nil
 }
 
 // halfCloseWriter rejects Writes after closeWrite without closing the underlying file.

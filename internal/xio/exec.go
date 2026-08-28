@@ -1129,14 +1129,26 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 		}
 		waitChild = true
 	case ModeRead:
+		r, rerr := ptyMasterReader(master, s)
+		if rerr != nil {
+			killWaitUnregisterChild(cmd)
+			logx.CloseQuiet(master)
+			return nil, rerr
+		}
 		stream = relay.FDStream{
-			R:      master,
+			R:      r,
 			W:      io.Discard,
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { return nil },
 		}
 	default:
-		stream = PtyExecStream(master)
+		var rerr error
+		stream, rerr = PtyExecStream(master, s)
+		if rerr != nil {
+			killWaitUnregisterChild(cmd)
+			logx.CloseQuiet(master)
+			return nil, rerr
+		}
 	}
 	return finishExec(s, g, cmd, stream, []func(){func() { logx.CloseQuiet(master) }}, waitChild)
 }
@@ -1213,8 +1225,14 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 			logx.CloseQuiet(ptmx)
 			return nil, err
 		}
+		r, rerr := ptyMasterReader(ptmx, s)
+		if rerr != nil {
+			killWaitUnregisterChild(cmd)
+			logx.CloseQuiet(ptmx)
+			return nil, rerr
+		}
 		stream := relay.FDStream{
-			R:      ptmx,
+			R:      r,
 			W:      io.Discard,
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { return nil },
@@ -1231,7 +1249,13 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 			logx.CloseQuiet(ptmx)
 			return nil, err
 		}
-		return finishExec(s, g, cmd, PtyExecStream(ptmx), []func(){func() { logx.CloseQuiet(ptmx) }}, false)
+		st, rerr := PtyExecStream(ptmx, s)
+		if rerr != nil {
+			killWaitUnregisterChild(cmd)
+			logx.CloseQuiet(ptmx)
+			return nil, rerr
+		}
+		return finishExec(s, g, cmd, st, []func(){func() { logx.CloseQuiet(ptmx) }}, false)
 	}
 }
 

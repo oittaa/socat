@@ -66,8 +66,14 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"o-binary", "linux", ClassForeign},
 		{"o-text", "windows", ClassMustAdvertise},
 		{"o-noinherit", "darwin", ClassForeign},
-		{"nopush", "darwin", ClassExpectedMissing},
-		{"nopush", "linux", ClassForeign},
+		{"nopush", "darwin", ClassMustAdvertise},
+		{"nopush", "linux", ClassMustAdvertise},
+		{"nopush", "windows", ClassMustAdvertise},
+		{"noopt", "darwin", ClassMustAdvertise},
+		{"noopt", "linux", ClassMustAdvertise},
+		{"tcp-nopush", "linux", ClassMustAdvertise},
+		{"tcp-nopush", "darwin", ClassMustAdvertise},
+		{"tcp-noopt", "darwin", ClassMustAdvertise},
 		{"ip-recvif", "darwin", ClassExpectedMissing},
 		{"ip-recvif", "linux", ClassForeign},
 		{"fs-append", "linux", ClassMustAdvertise},
@@ -97,6 +103,9 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"sighup", "windows", ClassMustAdvertise},
 		{"sigint", "linux", ClassMustAdvertise},
 		{"sigquit", "linux", ClassMustAdvertise},
+		{"sitout-eio", "linux", ClassMustAdvertise},
+		{"sitout-eio", "darwin", ClassMustAdvertise},
+		{"sitout-eio", "windows", ClassMustAdvertise},
 		{"retrieve-vlan", "linux", ClassMustAdvertise},
 		{"sctp-maxseg", "linux", ClassMustAdvertise},
 		{"sctp-maxseg", "darwin", ClassMustAdvertise},
@@ -203,6 +212,9 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	if _, ok := linux["notail"]; ok {
 		t.Fatal("linux backlog must not include implemented notail")
 	}
+	if _, ok := linux["sitout-eio"]; ok {
+		t.Fatal("linux backlog must not include implemented sitout-eio")
+	}
 	if _, ok := linux["binary"]; ok {
 		t.Fatal("linux backlog must not include Windows-only binary")
 	}
@@ -213,9 +225,18 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	if _, ok := win["fs-append"]; ok {
 		t.Fatal("windows backlog must not include Linux fs-append")
 	}
+	if _, ok := linux["nopush"]; ok {
+		t.Fatal("linux backlog must not include implemented nopush")
+	}
+	if _, ok := linux["noopt"]; ok {
+		t.Fatal("linux backlog must not include implemented noopt")
+	}
 	darwin := ImplementationBacklog("darwin")
-	if _, ok := darwin["nopush"]; !ok {
-		t.Fatal("darwin backlog must include nopush")
+	if _, ok := darwin["nopush"]; ok {
+		t.Fatal("darwin backlog must not include implemented nopush")
+	}
+	if _, ok := darwin["noopt"]; ok {
+		t.Fatal("darwin backlog must not include implemented noopt")
 	}
 	if _, ok := darwin["fs-append"]; ok {
 		t.Fatal("darwin backlog must not include Linux fs-append")
@@ -228,6 +249,12 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	}
 	if _, ok := darwin["sctp-maxseg"]; ok {
 		t.Fatal("darwin backlog must not include implemented sctp-maxseg")
+	}
+	if _, ok := darwin["sitout-eio"]; ok {
+		t.Fatal("darwin backlog must not include implemented sitout-eio")
+	}
+	if _, ok := win["sitout-eio"]; ok {
+		t.Fatal("windows backlog must not include implemented sitout-eio")
 	}
 	if _, ok := win["sctp-nodelay"]; ok {
 		t.Fatal("windows backlog must not include implemented sctp-nodelay")

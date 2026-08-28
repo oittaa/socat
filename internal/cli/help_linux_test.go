@@ -62,6 +62,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"sctp-nodelay", "sctp-maxseg",
 		"dash", "login", "setpgid", "pgid",
 		"sighup", "sigint", "sigquit",
+		"sitout-eio",
 		"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string",
 		"fs-append", "fs-compr", "fs-dirsync", "fs-immutable", "fs-journal-data",
 		"fs-nodump", "fs-notail", "fs-secrm", "fs-sync", "fs-topdir", "fs-unrm",
@@ -77,7 +78,8 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 	if strings.Contains(help, "    dsusp ") || strings.Contains(help, "    vdsusp ") {
 		t.Error("HP-UX dsusp/vdsusp must not be advertised")
 	}
-	for _, name := range []string{"ip-recverr", "recverr", "iprecverr", "ipv6-recverr", "ipv6-multicast-hops"} {
+	for _, name := range []string{"ip-recverr", "recverr", "iprecverr", "ipv6-recverr", "ipv6-multicast-hops",
+		"nopush", "noopt", "tcp-nopush", "tcp-noopt"} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("rejected or unknown option %q must not be advertised in -hhh", name)
 		}

@@ -42,6 +42,7 @@ func processOptionGroups() []helpOptGroup {
 			{name: "tiocswinsz", desc: "window size cols:rows", aliases: []string{"winsz"}},
 			{name: "pty-wait-slave", desc: "wait until the slave is open", aliases: []string{"wait-slave", "waitslave"}},
 			{name: "pty-interval", desc: "poll interval while waiting for slave", aliases: []string{"pty-intervall"}, validate: validateDurationOption},
+			{name: "sitout-eio", desc: "wait this long on PTY master EIO after the slave closes", validate: validateDurationOption},
 			{name: "ctty", desc: "make the PTY the controlling tty", aliases: []string{"tiocsctty"}},
 			// Classic compat spellings: accepted as no-ops. The PTY master
 			// always comes from the platform default (/dev/ptmx or openpty),
