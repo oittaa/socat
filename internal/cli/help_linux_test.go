@@ -70,6 +70,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"shut-down",
 		"lockfile", "waitlock",
 		"cloexec",
+		"unix-tightsocklen", "tightsocklen",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)

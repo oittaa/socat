@@ -178,26 +178,7 @@ func genericUnixClient(typ string) bool {
 }
 
 func dialUnixNetwork(ctx context.Context, s parse.Spec, g *xio.Global, network, path, bindPath string) (net.Conn, error) {
-	var conn net.Conn
-	err := xio.WithRetry(ctx, s, g, s.Type, func() error {
-		d := net.Dialer{
-			Timeout: xio.ConnectTimeout(s),
-			Control: xio.DialControl(s, network, nil),
-		}
-		if bindPath != "" {
-			// A failed protocol probe may have bound the path already.
-			cleanupUnixBind(bindPath)
-			d.LocalAddr = &net.UnixAddr{Name: bindPath, Net: network}
-		}
-		c, err := d.DialContext(ctx, network, path)
-		if err != nil {
-			cleanupUnixBind(bindPath)
-			return err
-		}
-		conn = c
-		return nil
-	})
-	return conn, err
+	return dialUnixSocklen(ctx, s, g, network, path, bindPath)
 }
 
 func cleanupUnixBind(path string) {

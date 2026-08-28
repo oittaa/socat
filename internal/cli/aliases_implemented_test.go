@@ -91,6 +91,7 @@ var implementedAliasHelp = []struct {
 	{"passcred", "so-passcred"},
 	{"nocheck", "so-no-check"},
 	{"no-check", "so-no-check"},
+	{"tightsocklen", "unix-tightsocklen"},
 	{"tcp-nopush", "nopush"},
 	{"tcp-noopt", "noopt"},
 }

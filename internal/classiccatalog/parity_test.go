@@ -91,6 +91,12 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"so-no-check", "linux", ClassMustAdvertise},
 		{"nocheck", "linux", ClassMustAdvertise},
 		{"no-check", "linux", ClassMustAdvertise},
+		{"unix-tightsocklen", "linux", ClassMustAdvertise},
+		{"unix-tightsocklen", "darwin", ClassMustAdvertise},
+		{"unix-tightsocklen", "windows", ClassMustAdvertise},
+		{"tightsocklen", "linux", ClassMustAdvertise},
+		{"tightsocklen", "darwin", ClassMustAdvertise},
+		{"tightsocklen", "windows", ClassMustAdvertise},
 		{"dash", "linux", ClassMustAdvertise},
 		{"dash", "darwin", ClassMustAdvertise},
 		{"dash", "windows", ClassMustAdvertise},
@@ -212,6 +218,9 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	if _, ok := linux["notail"]; ok {
 		t.Fatal("linux backlog must not include implemented notail")
 	}
+	if _, ok := linux["unix-tightsocklen"]; ok {
+		t.Fatal("linux backlog must not include implemented unix-tightsocklen")
+	}
 	if _, ok := linux["sitout-eio"]; ok {
 		t.Fatal("linux backlog must not include implemented sitout-eio")
 	}
@@ -249,6 +258,12 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	}
 	if _, ok := darwin["sctp-maxseg"]; ok {
 		t.Fatal("darwin backlog must not include implemented sctp-maxseg")
+	}
+	if _, ok := darwin["unix-tightsocklen"]; ok {
+		t.Fatal("darwin backlog must not include implemented unix-tightsocklen")
+	}
+	if _, ok := win["unix-tightsocklen"]; ok {
+		t.Fatal("windows backlog must not include implemented unix-tightsocklen")
 	}
 	if _, ok := darwin["sitout-eio"]; ok {
 		t.Fatal("darwin backlog must not include implemented sitout-eio")
