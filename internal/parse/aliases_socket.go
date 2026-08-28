@@ -46,6 +46,8 @@ func init() {
 		"so-sndbuf-late":             "sndbuf-late",
 		"so-rcvtimeo":                "rcvtimeo",
 		"so-sndtimeo":                "sndtimeo",
+		"rcvlowat":                   "so-rcvlowat",
+		"sndlowat":                   "so-sndlowat",
 		"so-prototype":               "so-protocol",
 		"prototype":                  "so-protocol",
 		"tcp-nodelay":                "nodelay",

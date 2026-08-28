@@ -173,6 +173,8 @@ var dynamicallyReadOptions = map[string]string{
 	"so-debug": "xio/sockopt_named.go", "debug": "xio/sockopt_named.go",
 	"so-dontroute": "xio/sockopt_named.go", "dontroute": "xio/sockopt_named.go",
 	"so-oobinline": "xio/sockopt_named.go", "oobinline": "xio/sockopt_named.go",
+	"so-rcvlowat": "xio/sockopt_named.go", "rcvlowat": "xio/sockopt_named.go",
+	"so-sndlowat": "xio/sockopt_named.go", "sndlowat": "xio/sockopt_named.go",
 	"tcp-cork": "xio/sockopt_named.go", "cork": "xio/sockopt_named.go",
 	"tcp-defer-accept": "xio/sockopt_named.go", "defer-accept": "xio/sockopt_named.go",
 	"tcp-linger2": "xio/sockopt_named.go", "linger2": "xio/sockopt_named.go",

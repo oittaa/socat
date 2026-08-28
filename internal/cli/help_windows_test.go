@@ -41,6 +41,7 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"tcp-cork", "tcp-maxseg", "tcp-maxseg-late",
 		"nopush", "noopt", "tcp-nopush", "tcp-noopt",
 		"sctp-nodelay", "sctp-maxseg",
+		"so-rcvlowat", "rcvlowat", "so-sndlowat", "sndlowat",
 		"so-priority", "so-passcred", "so-no-check",
 		"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string",
 		"cloexec",

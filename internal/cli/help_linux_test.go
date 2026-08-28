@@ -43,6 +43,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"b7200", "nldly", "crdly", "tabdly", "bsdly", "vtdly", "ffdly", "csize", "xtabs",
 		"echoprt", "prterase", "flusho", "termios-setflags", "setflags", "termios-rawer",
 		"so-debug", "debug", "so-dontroute", "dontroute", "so-oobinline", "oobinline",
+		"so-rcvlowat", "rcvlowat",
 		"so-priority", "priority", "so-passcred", "passcred",
 		"so-no-check", "no-check", "nocheck",
 		"tcp-cork", "cork", "tcp-defer-accept", "defer-accept",
@@ -80,7 +81,8 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 	}
 	for _, name := range []string{"ip-recverr", "recverr", "iprecverr", "ipv6-recverr", "ipv6-multicast-hops",
 		"ip-recvdstaddr", "ip-recvif", "recvdstaddr", "iprecvdstaddr", "recvif",
-		"nopush", "noopt", "tcp-nopush", "tcp-noopt"} {
+		"nopush", "noopt", "tcp-nopush", "tcp-noopt",
+		"so-sndlowat", "sndlowat"} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("rejected or unknown option %q must not be advertised in -hhh", name)
 		}

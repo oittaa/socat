@@ -14,6 +14,10 @@ func lookupNamedPastSocketInt(name string) (level, opt int, ok bool, err error) 
 		return solSocket, soDontroute, true, nil
 	case "so-oobinline":
 		return solSocket, soOobinline, true, nil
+	case "so-rcvlowat":
+		return solSocket, unix.SO_RCVLOWAT, true, nil
+	case "so-sndlowat":
+		return solSocket, unix.SO_SNDLOWAT, true, nil
 	case "tcp-maxseg":
 		return unix.IPPROTO_TCP, unix.TCP_MAXSEG, true, nil
 	case "nopush", "noopt", "tcp-nopush", "tcp-noopt",

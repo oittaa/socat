@@ -68,6 +68,8 @@ func TestImplementedOpenFlagAndLockAliasesParse(t *testing.T) {
 		{spec: "TCP:127.0.0.1:9,passcred", opt: "so-passcred"},
 		{spec: "UDP:127.0.0.1:9,nocheck", opt: "so-no-check"},
 		{spec: "UDP:127.0.0.1:9,no-check=1", opt: "so-no-check"},
+		{spec: "TCP:127.0.0.1:9,rcvlowat=64", opt: "so-rcvlowat"},
+		{spec: "UDP:127.0.0.1:9,sndlowat", opt: "so-sndlowat"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.spec, func(t *testing.T) {
@@ -119,6 +121,8 @@ func TestCatalogOpenFlagAliasesShareClassicGroups(t *testing.T) {
 		{"passcred", "so-passcred"},
 		{"nocheck", "so-no-check"},
 		{"no-check", "so-no-check"},
+		{"rcvlowat", "so-rcvlowat"},
+		{"sndlowat", "so-sndlowat"},
 	}
 	for _, pair := range pairs {
 		alias, canon := pair[0], pair[1]

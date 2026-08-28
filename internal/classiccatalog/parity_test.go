@@ -92,6 +92,14 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"so-priority", "darwin", ClassMustAdvertise},
 		{"so-priority", "windows", ClassMustAdvertise},
 		{"priority", "linux", ClassMustAdvertise},
+		{"so-rcvlowat", "linux", ClassMustAdvertise},
+		{"so-rcvlowat", "darwin", ClassMustAdvertise},
+		{"so-rcvlowat", "windows", ClassMustAdvertise},
+		{"rcvlowat", "linux", ClassMustAdvertise},
+		{"so-sndlowat", "linux", ClassMustAdvertise},
+		{"so-sndlowat", "darwin", ClassMustAdvertise},
+		{"so-sndlowat", "windows", ClassMustAdvertise},
+		{"sndlowat", "linux", ClassMustAdvertise},
 		{"so-passcred", "linux", ClassMustAdvertise},
 		{"so-no-check", "linux", ClassMustAdvertise},
 		{"nocheck", "linux", ClassMustAdvertise},
@@ -245,6 +253,11 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	if _, ok := linux["noopt"]; ok {
 		t.Fatal("linux backlog must not include implemented noopt")
 	}
+	for _, name := range []string{"so-rcvlowat", "rcvlowat", "so-sndlowat", "sndlowat"} {
+		if _, ok := linux[name]; ok {
+			t.Fatalf("linux backlog must not include recognized low-water option %q", name)
+		}
+	}
 	darwin := ImplementationBacklog("darwin")
 	if _, ok := darwin["ip-recvif"]; ok {
 		t.Fatal("darwin backlog must not include implemented ip-recvif")
@@ -257,6 +270,11 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	}
 	if _, ok := darwin["noopt"]; ok {
 		t.Fatal("darwin backlog must not include implemented noopt")
+	}
+	for _, name := range []string{"so-rcvlowat", "rcvlowat", "so-sndlowat", "sndlowat"} {
+		if _, ok := darwin[name]; ok {
+			t.Fatalf("darwin backlog must not include implemented low-water option %q", name)
+		}
 	}
 	if _, ok := darwin["fs-append"]; ok {
 		t.Fatal("darwin backlog must not include Linux fs-append")

@@ -8,7 +8,8 @@ func hideOpt(name string) bool {
 	}
 	switch name {
 	case "binary", "text", "noinherit",
-		"nopush", "noopt", "tcp-nopush", "tcp-noopt":
+		"nopush", "noopt", "tcp-nopush", "tcp-noopt",
+		"so-sndlowat":
 		return true
 	default:
 		return false
