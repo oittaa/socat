@@ -137,10 +137,10 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"iff-master", "linux", ClassMustAdvertise},
 		{"notrailers", "linux", ClassMustAdvertise},
 		{"master", "linux", ClassMustAdvertise},
-		{"udplite-send-cscov", "linux", ClassMustAdvertise},
-		{"udplite-recv-cscov", "linux", ClassMustAdvertise},
-		{"udplite-send-cscov", "darwin", ClassMustAdvertise},
-		{"udplite-send-cscov", "windows", ClassMustAdvertise},
+		{"udplite-send-cscov", "linux", ClassUnsupported},
+		{"udplite-recv-cscov", "linux", ClassUnsupported},
+		{"udplite-send-cscov", "darwin", ClassUnsupported},
+		{"udplite-recv-cscov", "windows", ClassUnsupported},
 		{"ioctl", "linux", ClassMustAdvertise},
 		{"ioctl", "darwin", ClassMustAdvertise},
 		{"ioctl", "windows", ClassMustAdvertise},
@@ -205,12 +205,6 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	if _, ok := linux["retrieve-vlan"]; ok {
 		t.Fatal("linux backlog must not include implemented retrieve-vlan")
 	}
-	if _, ok := linux["udplite-send-cscov"]; ok {
-		t.Fatal("linux backlog must not include implemented udplite-send-cscov (#101)")
-	}
-	if _, ok := linux["udplite-recv-cscov"]; ok {
-		t.Fatal("linux backlog must not include implemented udplite-recv-cscov (#101)")
-	}
 	if _, ok := linux["sctp-nodelay"]; ok {
 		t.Fatal("linux backlog must not include implemented sctp-nodelay")
 	}
@@ -267,9 +261,6 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	if _, ok := darwin["fs-append"]; ok {
 		t.Fatal("darwin backlog must not include Linux fs-append")
 	}
-	if _, ok := darwin["udplite-send-cscov"]; ok {
-		t.Fatal("darwin backlog must not include Linux UDP-Lite cscov")
-	}
 	if _, ok := darwin["sctp-nodelay"]; ok {
 		t.Fatal("darwin backlog must not include implemented sctp-nodelay")
 	}
@@ -293,9 +284,6 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	}
 	if _, ok := win["sctp-maxseg"]; ok {
 		t.Fatal("windows backlog must not include implemented sctp-maxseg")
-	}
-	if _, ok := win["udplite-recv-cscov"]; ok {
-		t.Fatal("windows backlog must not include Linux UDP-Lite cscov")
 	}
 }
 
@@ -326,30 +314,19 @@ func TestAddressClassificationSeparatesUnsupportedFromAliases(t *testing.T) {
 	}
 	class, _ = ClassifyAddress("ACCEPT-FD", "windows")
 	if class != AddrMustRegister {
-		t.Fatalf("ACCEPT-FD on windows: %s (registered, help hidden like UDPLITE)", class)
+		t.Fatalf("ACCEPT-FD on windows: %s (registered, help hidden)", class)
 	}
 	class, _ = ClassifyAddress("ACCEPT", "linux")
 	if class != AddrMustRegister {
 		t.Fatalf("ACCEPT alias: %s (registered with ACCEPT-FD)", class)
 	}
-	class, _ = ClassifyAddress("UDPLITE-CONNECT", "linux")
-	if class != AddrMustRegister {
-		t.Fatalf("UDPLITE-CONNECT: %s (implemented in #101)", class)
-	}
-	class, _ = ClassifyAddress("UDPLITE", "linux")
-	if class != AddrMustRegister {
-		t.Fatalf("UDPLITE alias: %s (registered with the family in #101)", class)
-	}
-	class, _ = ClassifyAddress("UDPLITE-DGRAM", "linux")
-	if class != AddrMustRegister {
-		t.Fatalf("UDPLITE-DGRAM: %s (registered with the family in #101)", class)
-	}
-	class, _ = ClassifyAddress("UDPLITE-CONNECT", "darwin")
-	if class != AddrMustRegister {
-		t.Fatalf("UDPLITE-CONNECT on darwin: %s (registered, FeatureUDPLITE-gated like VSOCK)", class)
-	}
-	if _, ok := ExpectedMissingCanonicalAddresses["UDPLITE-CONNECT"]; ok {
-		t.Fatal("UDPLITE-CONNECT is implemented (#101); remove it from ExpectedMissingCanonicalAddresses")
+	for _, goos := range []string{"linux", "darwin", "windows"} {
+		for _, name := range []string{"UDPLITE", "UDPLITE-CONNECT", "UDPLITE-DGRAM", "UDPLITE6-RECVFROM"} {
+			class, reason := ClassifyAddress(name, goos)
+			if class != AddrUnsupportedFamily || reason == "" {
+				t.Errorf("%s on %s: class=%s reason=%q; want unsupported-family", name, goos, class, reason)
+			}
+		}
 	}
 	if got := len(ExpectedMissingCanonicalAddresses); got != 0 {
 		t.Fatalf("expected-missing canonicals=%d, want 0", got)

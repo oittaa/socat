@@ -390,8 +390,7 @@ func dialUDPSession(ctx context.Context, network string, local, remote *net.UDPA
 	}
 	// The child is a new socket, not the parent listener fd. Apply every
 	// PH_PASTSOCKET option again on this fd before bind/connect, then the
-	// fork-specific PREBIND reuse flags. UDPLITE fork sessions must keep
-	// IPPROTO_UDPLITE; net.Dial("udp") would create IPPROTO_UDP.
+	// fork-specific PREBIND reuse flags.
 	c, err := dialUDPForSpec(ctx, network, local, remote.String(), s, reuseControl, 0)
 	if err != nil {
 		return nil, err

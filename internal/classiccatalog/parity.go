@@ -103,7 +103,7 @@ const (
 	// AddrExpectedMissingAlias: alias of an implemented canonical that is
 	// still on the supported-alias backlog. Empty after PR C.
 	AddrExpectedMissingAlias
-	// AddrUnsupportedFamily: DCCP, DTLS, or readline.
+	// AddrUnsupportedFamily: DCCP, DTLS, UDP-Lite, or readline.
 	AddrUnsupportedFamily
 	// AddrParserShorthand: "-" → STDIO in the parser, not the address registry.
 	AddrParserShorthand
@@ -167,6 +167,7 @@ func unsupportedSources() []map[string]string {
 		unsupportedOpenSSL,
 		unsupportedReadline,
 		unsupportedDCCP,
+		unsupportedUDPLITE,
 		unsupportedNoopSockopts,
 		unsupportedClassicUnimplemented,
 	}
@@ -260,7 +261,7 @@ func ExpectedMissingAll() map[string]Gap {
 
 // UnsupportedPublic is documented public spellings this port must not
 // advertise and must not list as implementation backlog. It includes
-// IntentionalPublicOmissions plus OpenSSL/readline/DCCP/no-op exclusions
+// IntentionalPublicOmissions plus OpenSSL/readline/DCCP/UDP-Lite/no-op exclusions
 // and documented spellings classic C never implemented.
 func UnsupportedPublic() map[string]string {
 	src := unsupportedMerged()
@@ -419,7 +420,7 @@ func ValidateParityManifests() error {
 			// documented name (notail / Linux FS_NOTAIL_FL, or Linux
 			// SCTP_NODELAY/SCTP_MAXSEG). Do not forge those spellings into
 			// catalog_gen.go. Hide them on other GOOS the same way as
-			// implemented Linux UDP-Lite / fs-noatime.
+			// implemented dump-omitted names such as Linux fs-noatime.
 		default:
 			errs = append(errs, "docs-only "+name+" is not classified (expected-missing, unsupported, foreign, or implemented)")
 		}
