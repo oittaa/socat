@@ -330,11 +330,23 @@ func parentSocketType(t *testing.T, o *Opened) (int, error) {
 	if f == nil {
 		t.Fatal("parent EXEC stream has no *os.File")
 	}
-	return syscall.GetsockoptInt(int(f.Fd()), syscall.SOL_SOCKET, syscall.SO_TYPE)
+	sc, err := f.SyscallConn()
+	if err != nil {
+		return 0, err
+	}
+	var typ int
+	var sockErr error
+	if err := sc.Control(func(fd uintptr) {
+		typ, sockErr = syscall.GetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_TYPE)
+	}); err != nil {
+		return 0, err
+	}
+	return typ, sockErr
 }
 
 func TestOpenSpecEXECEndCloseUsesSocketpairUnix(t *testing.T) {
-	o := openEXECSpec(t, "EXEC:/bin/true,end-close", ModeRDWR)
+	// EXEC:true uses PATH. macOS has /usr/bin/true and no /bin/true.
+	o := openEXECSpec(t, "EXEC:true,end-close", ModeRDWR)
 	typ, err := parentSocketType(t, o)
 	if err != nil {
 		t.Fatalf("end-close parent is not a socket: %v", err)
@@ -345,7 +357,7 @@ func TestOpenSpecEXECEndCloseUsesSocketpairUnix(t *testing.T) {
 }
 
 func TestOpenSpecEXECPipesIsNotSocketUnix(t *testing.T) {
-	o := openEXECSpec(t, "EXEC:/bin/true,pipes", ModeRDWR)
+	o := openEXECSpec(t, "EXEC:true,pipes", ModeRDWR)
 	if _, err := parentSocketType(t, o); err == nil {
 		t.Fatal("pipes parent unexpectedly is a socket")
 	}
