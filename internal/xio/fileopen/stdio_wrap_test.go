@@ -4,7 +4,6 @@ import (
 	"context"
 	"io"
 	"os"
-	"strconv"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -24,11 +23,14 @@ func TestFDAppliesReadbytes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spec.Params = []string{itoaFD(r)}
+	fdParam, closeFD := duplicateFDForOpen(t, r)
+	spec.Params = []string{fdParam}
 	o, err := openFD(context.Background(), spec, xio.ModeRead, nil)
 	if err != nil {
+		_ = closeFD()
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = o.Close() })
 	go func() {
 		_, _ = w.Write([]byte("hello"))
 		_ = w.Close()
@@ -40,8 +42,4 @@ func TestFDAppliesReadbytes(t *testing.T) {
 	if string(got) != "hell" {
 		t.Fatalf("got %q want hell", got)
 	}
-}
-
-func itoaFD(f *os.File) string {
-	return strconv.Itoa(int(f.Fd()))
 }
