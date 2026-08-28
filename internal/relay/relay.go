@@ -339,6 +339,13 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 		}
 		if usePoll {
 			if err := waitReadableAndWritable(ctx, t.srcFD, t.dstFD); err != nil {
+				// Darwin socketpair/pipe HUP often arrives without POLLOUT, so
+				// poll returns ErrClosedPipe before Read. That is the same
+				// peer-gone case isBenignClose already accepts on Write.
+				if isBenignClose(err) {
+					results <- dirResult{err: nil, dir: t.dir}
+					return
+				}
 				results <- dirResult{err: err, dir: t.dir}
 				return
 			}

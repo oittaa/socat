@@ -118,3 +118,46 @@ func fillPipeForPollTest(t *testing.T, pipe *os.File) {
 		t.Fatal(fillErr)
 	}
 }
+
+// nvalDest is a write endpoint whose poll fd is already closed. Darwin
+// socketpair HUP after an EXEC child exits looks the same: POLLHUP/POLLNVAL
+// without POLLOUT, so waitReadableAndWritable returns ErrClosedPipe.
+type nvalDest int
+
+func (d nvalDest) Fd() uintptr { return uintptr(d) }
+
+func (d nvalDest) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+
+func TestTransferPollClosedDestinationIsClean(t *testing.T) {
+	srcR, srcW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = srcR.Close() }()
+	defer func() { _ = srcW.Close() }()
+
+	dstR, dstW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	nval, err := unix.Dup(int(dstW.Fd()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = dstR.Close()
+	_ = dstW.Close()
+	if err := unix.Close(nval); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err = Transfer(ctx,
+		FDStream{R: srcR, W: io.Discard, C: nopCloser{}},
+		FDStream{R: eofReader{}, W: nvalDest(nval), C: nopCloser{}},
+		Config{BufferSize: 32, LeftToRight: true, Linger: 50 * time.Millisecond},
+	)
+	if err != nil {
+		t.Fatalf("closed destination must be a clean EOF, got %v", err)
+	}
+}
