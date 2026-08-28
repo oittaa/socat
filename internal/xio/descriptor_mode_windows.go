@@ -61,7 +61,10 @@ func (r *windowsTextReader) Read(p []byte) (int, error) {
 				_, _ = r.r.ReadByte()
 				b = '\n'
 			} else if err != nil && err != io.EOF {
-				return written, err
+				// ReadByte already consumed the CR. Preserve it as a lone CR
+				// before surfacing a deadline, cancellation, or I/O error.
+				p[written] = b
+				return written + 1, err
 			}
 		}
 		p[written] = b

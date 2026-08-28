@@ -34,6 +34,20 @@ func (r oneByteReader) Read(p []byte) (int, error) {
 	return r.r.Read(p)
 }
 
+type crThenErrorReader struct {
+	err  error
+	done bool
+}
+
+func (r *crThenErrorReader) Read(p []byte) (int, error) {
+	if r.done {
+		return 0, r.err
+	}
+	r.done = true
+	p[0] = '\r'
+	return 1, nil
+}
+
 func TestWindowsTextDescriptorModeRead(t *testing.T) {
 	inner := &descriptorModeTestStream{r: oneByteReader{r: strings.NewReader("a\r\nb\rc\r\n")}}
 	stream, err := applyDescriptorMode(mustSpec(t, "FD:3,text"), inner)
@@ -46,6 +60,19 @@ func TestWindowsTextDescriptorModeRead(t *testing.T) {
 	}
 	if want := "a\nb\rc\n"; string(got) != want {
 		t.Fatalf("translated read=%q want %q", got, want)
+	}
+}
+
+func TestWindowsTextDescriptorModePreservesCRWhenPeekFails(t *testing.T) {
+	wantErr := errors.New("peek failed")
+	reader := newWindowsTextReader(&crThenErrorReader{err: wantErr})
+	buf := make([]byte, 8)
+	n, err := reader.Read(buf)
+	if n != 1 || buf[0] != '\r' {
+		t.Fatalf("Read=(%d, %q), want consumed CR", n, buf[:n])
+	}
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("error=%v want %v", err, wantErr)
 	}
 }
 
