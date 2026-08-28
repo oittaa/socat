@@ -152,6 +152,16 @@ func TestEXECDashWithHighFDOutRewritesTargetArgv0(t *testing.T) {
 	}
 }
 
+func TestEXECDashWithLowFDOutRewritesTargetArgv0(t *testing.T) {
+	bin := buildArgv0Helper(t)
+	got := strings.TrimSpace(captureInheritedStdout(t, func() {
+		_ = openEXECSpec(t, "EXEC:"+bin+",dash,fdin=3,fdout=4", ModeRDWR)
+	}))
+	if got != "x-argv0" {
+		t.Fatalf("dash argv0=%q want x-argv0 (wrapper must not steal dash)", got)
+	}
+}
+
 func buildArgv0FDHelper(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

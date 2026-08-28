@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -60,12 +61,6 @@ func TestNormalizeProcessFDClassicUShortRange(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "unsigned-short range") {
 		t.Fatalf("fdin=65536 error=%v", err)
 	}
-	if processFDNeedsHelper("9", "") {
-		t.Fatal("single-digit fd unexpectedly selected helper")
-	}
-	if !processFDNeedsHelper("9", "10") {
-		t.Fatal("fdout=10 did not select helper")
-	}
 }
 
 func TestStreamRWFilesFindsNestedDualFiles(t *testing.T) {
@@ -105,6 +100,51 @@ func TestShellCommandEmptyRunsInteractive(t *testing.T) {
 	cmd := shellCommand(context.Background(), s, "", false)
 	if len(cmd.Args) != 1 || cmd.Args[0] != "sh" {
 		t.Fatalf("interactive args=%q want [sh]", cmd.Args)
+	}
+}
+
+func TestRebuildWithFDHelperKeepsBareShellArgv(t *testing.T) {
+	s, err := parse.ParseSpec("SHELL,shell=/bin/sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := shellCommand(context.Background(), s, "", false)
+	wrapped, err := rebuildWithFDHelper(context.Background(), cmd, "3", "", "3", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx := -1
+	for i, a := range wrapped.Args {
+		if a == execFDHelperMarker {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatalf("missing helper marker in %q", wrapped.Args)
+	}
+	if len(wrapped.Args) != idx+8 {
+		t.Fatalf("args=%q want helper + path + argv0 only (no -c)", wrapped.Args)
+	}
+	if wrapped.Args[idx+7] != "sh" {
+		t.Fatalf("argv0=%q want sh", wrapped.Args[idx+7])
+	}
+	for _, a := range wrapped.Args {
+		if a == "-c" {
+			t.Fatalf("bare SHELL grew -c in %q", wrapped.Args)
+		}
+	}
+}
+
+func TestRebuildWithFDHelperPreservesDashArgv0(t *testing.T) {
+	cmd := exec.Command("/bin/true")
+	cmd.Args[0] = "-true"
+	wrapped, err := rebuildWithFDHelper(context.Background(), cmd, "3", "4", "3", "4", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wrapped.Args[len(wrapped.Args)-1] != "-true" {
+		t.Fatalf("helper target argv0=%q want -true in %q", wrapped.Args[len(wrapped.Args)-1], wrapped.Args)
 	}
 }
 

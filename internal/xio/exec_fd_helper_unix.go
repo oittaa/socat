@@ -4,18 +4,22 @@ package xio
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"golang.org/x/sys/unix"
 )
 
-// execFDHelperMarker selects the child-only descriptor remapper. The helper is
-// needed when fdi/fdo exceed the single-digit redirection grammar of dash. It
-// runs in a separate process, so dup2 never mutates socat's descriptor table.
+// execFDHelperMarker selects the child-only descriptor remapper. Custom
+// fdin/fdout always use this helper so dup2 never mutates socat's table,
+// bare SHELL keeps its argv, and dash/login rewrite the target argv[0]
+// rather than a /bin/sh wrapper. The parent adds a private environment
+// handshake; the helper removes it before exec.
 const (
 	execFDHelperMarker = "--socat-internal-exec-fd-helper"
 	execFDHelperEnv    = "SOCAT_INTERNAL_EXEC_FD_HELPER"
@@ -24,13 +28,22 @@ const (
 func init() {
 	// The argv marker alone is intentionally insufficient: xio is a library
 	// package, so importing it must not turn an ordinary public argument into
-	// an init-time process takeover. The parent adds this private environment
-	// handshake only to the helper and the helper removes it before exec.
+	// an init-time process takeover.
 	if len(os.Args) < 2 || os.Args[1] != execFDHelperMarker || os.Getenv(execFDHelperEnv) != "1" {
 		return
 	}
 	if err := runExecFDHelper(os.Args[2:]); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "socat exec fd helper: %v\n", err)
+		var te *execTargetError
+		if errors.As(err, &te) {
+			// Classic xio-exec.c Exit(1) after a failed execvp
+			// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+			// official master af5388c898c7bb60997935aee93c223deba60c4a
+			// is the same). A target that itself exits 127 still reports
+			// 127 because unix.Exec replaced this process.
+			os.Exit(1)
+		}
+		os.Exit(127)
 	}
 	os.Exit(127)
 }
@@ -66,7 +79,9 @@ func rebuildWithFDHelper(
 	if cmd == nil || len(cmd.Args) == 0 {
 		return nil, fmt.Errorf("exec fd helper: missing target command")
 	}
-	if cmd.Err != nil {
+	// LookPath failure is reported by the helper's unix.Exec as classic
+	// execvp → Exit(1). Other Command errors (bad Path, etc.) stay here.
+	if cmd.Err != nil && !errors.Is(cmd.Err, exec.ErrNotFound) {
 		return nil, cmd.Err
 	}
 	helperPath, err := os.Executable()
@@ -99,11 +114,51 @@ func rebuildWithFDHelper(
 		inTarget,
 		outTarget,
 		stderrFlag,
-		cmd.Path,
+		resolvedExecPath(cmd),
 		cmd.Args[0],
 	}
 	args = append(args, cmd.Args[1:]...)
 	return exec.CommandContext(ctx, helperPath, args...), nil // #nosec G204 -- helper path is the current executable; target is the user-requested EXEC/SYSTEM command
+}
+
+func resolvedExecPath(cmd *exec.Cmd) string {
+	if cmd == nil {
+		return ""
+	}
+	path := cmd.Path
+	if path == "" || filepath.Base(path) != path {
+		return path
+	}
+	lp, err := exec.LookPath(path)
+	if err != nil {
+		// Leave the basename so unix.Exec fails like classic execvp → Exit(1).
+		return path
+	}
+	return lp
+}
+
+type execTargetError struct {
+	path  string
+	argv0 string
+	err   error
+}
+
+func (e *execTargetError) Error() string {
+	if e == nil {
+		return "execvp failed"
+	}
+	argv0 := e.argv0
+	if argv0 == "" {
+		argv0 = e.path
+	}
+	return fmt.Sprintf("execvp(\"%s\", \"%s\"): %v", e.path, argv0, e.err)
+}
+
+func (e *execTargetError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
 }
 
 func runExecFDHelper(args []string) error {
@@ -129,7 +184,11 @@ func runExecFDHelper(args []string) error {
 	if err := remapExecFDs(values[0], values[1], values[2], values[3], values[4] == 1); err != nil {
 		return err
 	}
-	return unix.Exec(targetPath, targetArgv, withoutExecFDHelperEnv(os.Environ()))
+	err := unix.Exec(targetPath, targetArgv, withoutExecFDHelperEnv(os.Environ()))
+	if err != nil {
+		return &execTargetError{path: targetPath, argv0: targetArgv[0], err: err}
+	}
+	return nil
 }
 
 func withExecFDHelperEnv(env []string) []string {

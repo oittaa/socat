@@ -175,3 +175,138 @@ func TestEXECfdinFdoutHighDescriptors(t *testing.T) {
 		t.Fatalf("got %q want %q", out, payload)
 	}
 }
+
+func TestEXECNoForkfdinFdoutInherit(t *testing.T) {
+	sink := filepath.Join(t.TempDir(), "relayed")
+	out, errb, err := runSocat(t, "", "SYSTEM:printf O; printf D >&4,nofork,fdin=3,fdout=4", "SYSTEM:cat >"+sink)
+	if err != nil {
+		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
+	}
+	if out != "O" {
+		t.Fatalf("inherited stdout %q want O", out)
+	}
+	data, err := os.ReadFile(sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(data); got != "D" {
+		t.Fatalf("relayed %q want D", got)
+	}
+}
+
+func TestEXECNoForkfdinOnlyWrite(t *testing.T) {
+	out, errb, err := runSocat(t, "hello", "-u", "STDIN", "SYSTEM:cat <&3,nofork,fdin=3")
+	if err != nil {
+		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
+	}
+	if out != "hello" {
+		t.Fatalf("got %q want hello", out)
+	}
+}
+
+func TestEXECNoForkfdoutOnlyRead(t *testing.T) {
+	out, errb, err := runSocat(t, "hello", "-u", "SYSTEM:cat >&4,nofork,fdout=4", "STDOUT")
+	if err != nil {
+		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
+	}
+	if out != "hello" {
+		t.Fatalf("got %q want hello", out)
+	}
+}
+
+func TestEXECNoForkStderrCustomFDOut(t *testing.T) {
+	sink := filepath.Join(t.TempDir(), "relayed")
+	out, errb, err := runSocat(t, "", "SYSTEM:printf D >&4; printf E >&2,nofork,fdin=3,fdout=4,stderr", "SYSTEM:cat >"+sink)
+	if err != nil {
+		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
+	}
+	data, err := os.ReadFile(sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(data); got != "DE" {
+		t.Fatalf("relayed %q want DE (stdout=%q stderr=%s)", got, out, errb)
+	}
+}
+
+func TestEXECNoForkfdinFdoutHighDescriptors(t *testing.T) {
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skip("/bin/bash not available")
+	}
+	const payload = "high-fd-payload"
+	out, errb, err := runSocat(t, payload, "STDIO", "EXEC:/bin/bash -c \\\"cat <&9 >&10\\\",nofork,fdin=9,fdout=10")
+	if err != nil {
+		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
+	}
+	if out != payload {
+		t.Fatalf("got %q want %q (stderr=%s)", out, payload, errb)
+	}
+}
+
+func TestEXECExecFailureStatus(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want int
+	}{
+		{name: "nofork-low", args: []string{"PIPE", "EXEC:/no/such/socat-exec-missing,nofork,fdin=3,fdout=4"}, want: 1},
+		{name: "nofork-high", args: []string{"PIPE", "EXEC:/no/such/socat-exec-missing,nofork,fdin=10,fdout=11"}, want: 1},
+		{name: "forked-low", args: []string{"PIPE", "EXEC:/no/such/socat-exec-missing,fdin=3,fdout=4"}, want: 1},
+		{name: "system-nofork", args: []string{"PIPE", "SYSTEM:socat-exec-missing-cmd,nofork,fdin=3,fdout=4"}, want: 127},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			out, errb, err := runSocat(t, "", tc.args...)
+			if err == nil {
+				t.Fatalf("missing command succeeded stdout=%q stderr=%s", out, errb)
+			}
+			ee, ok := err.(*exec.ExitError)
+			if !ok {
+				t.Fatalf("err=%v stderr=%s", err, errb)
+			}
+			if ee.ExitCode() != tc.want {
+				t.Fatalf("exit=%d want %d stderr=%s", ee.ExitCode(), tc.want, errb)
+			}
+		})
+	}
+}
+
+func TestEXECTargetExit127Preserved(t *testing.T) {
+	for _, spec := range []string{
+		"SYSTEM:exit 127,nofork,fdin=3,fdout=4",
+		"SYSTEM:exit 127,fdin=3,fdout=4",
+		"EXEC:/bin/sh -c \\\"exit 127\\\",nofork,fdin=3,fdout=4",
+		"EXEC:/bin/sh -c \\\"exit 127\\\",fdin=3,fdout=4",
+	} {
+		t.Run(spec, func(t *testing.T) {
+			out, errb, err := runSocat(t, "", "PIPE", spec)
+			if err == nil {
+				t.Fatalf("exit 127 succeeded stdout=%q stderr=%s", out, errb)
+			}
+			ee, ok := err.(*exec.ExitError)
+			if !ok {
+				t.Fatalf("err=%v stderr=%s", err, errb)
+			}
+			if ee.ExitCode() != 127 {
+				t.Fatalf("exit=%d want 127 stdout=%q stderr=%s", ee.ExitCode(), out, errb)
+			}
+		})
+	}
+}
+
+func TestSHELLNoForkBareFDIn(t *testing.T) {
+	out, errb, err := runSocat(t, "printf OK\nexit\n", "-u", "STDIN", "SHELL,nofork,fdin=3,shell=/bin/sh")
+	if err != nil {
+		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
+	}
+	if out != "OK" {
+		t.Fatalf("got %q want OK (stderr=%s)", out, errb)
+	}
+}
+
+func TestEXECTrueNoForkCustomFDs(t *testing.T) {
+	out, errb, err := runSocat(t, "", "PIPE", "EXEC:true,nofork,fdin=3,fdout=4")
+	if err != nil {
+		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
+	}
+}
