@@ -173,6 +173,8 @@ var dynamicallyReadOptions = map[string]string{
 	"tcp-quickack": "xio/sockopt_named.go", "quickack": "xio/sockopt_named.go",
 	"tcp-syncnt": "xio/sockopt_named.go", "syncnt": "xio/sockopt_named.go",
 	"tcp-window-clamp": "xio/sockopt_named.go", "window-clamp": "xio/sockopt_named.go",
+	"nopush": "xio/sockopt_named.go", "tcp-nopush": "xio/sockopt_named.go",
+	"noopt": "xio/sockopt_named.go", "tcp-noopt": "xio/sockopt_named.go",
 	"sctp-nodelay": "xio/sockopt_named.go", "sctp-maxseg": "xio/sockopt_named.go",
 	"so-priority": "xio/sockopt_named.go", "priority": "xio/sockopt_named.go",
 	"so-passcred": "xio/sockopt_named.go", "passcred": "xio/sockopt_named.go",

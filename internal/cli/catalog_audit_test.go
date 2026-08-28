@@ -191,6 +191,9 @@ func TestCatalogVsGoHelp(t *testing.T) {
 			stale = append(stale, name)
 		}
 		if _, ok := advertised[name]; !ok {
+			if optionHiddenOnThisPlatform(name) {
+				continue
+			}
 			unadvertised = append(unadvertised, name)
 		}
 	}

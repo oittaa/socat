@@ -58,6 +58,8 @@ func lookupNamedPastSocketInt(name string) (level, opt int, ok bool, err error) 
 		return unix.IPPROTO_TCP, unix.TCP_SYNCNT, true, nil
 	case "tcp-window-clamp":
 		return unix.IPPROTO_TCP, unix.TCP_WINDOW_CLAMP, true, nil
+	case "nopush", "noopt", "tcp-nopush", "tcp-noopt":
+		return 0, 0, true, errNamedOptUnsupported
 	case "sctp-nodelay":
 		return solSCTP, sctpNodelay, true, nil
 	case "sctp-maxseg":

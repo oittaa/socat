@@ -38,6 +38,7 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"bindtodevice",
 		"ip-pktinfo", "ip-options", "ipv6-tclass", "ipv6-unicast-hops",
 		"tcp-cork", "tcp-maxseg", "tcp-maxseg-late",
+		"nopush", "noopt", "tcp-nopush", "tcp-noopt",
 		"sctp-nodelay", "sctp-maxseg",
 		"so-priority", "so-passcred", "so-no-check",
 		"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string",
