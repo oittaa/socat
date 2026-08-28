@@ -51,11 +51,16 @@ func LookupResolver(s parse.Spec) *net.Resolver {
 		return &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+				// Classic TYPE_IP4SOCK resolves the nameserver with AF_INET
+				// (xioopts.c / xioresolve at tag-1.8.1.3
+				// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+				// af5388c898c7bb60997935aee93c223deba60c4a). Dual-stack
+				// "udp"/"tcp" would let res-nsaddr=localhost prefer ::1.
 				switch {
 				case strings.HasPrefix(network, "udp"):
-					network = "udp"
+					network = "udp4"
 				case strings.HasPrefix(network, "tcp"):
-					network = "tcp"
+					network = "tcp4"
 				default:
 					return nil, fmt.Errorf("res-nsaddr: unsupported DNS transport %q", network)
 				}

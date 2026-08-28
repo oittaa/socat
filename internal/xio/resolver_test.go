@@ -408,6 +408,50 @@ func TestLookupResolverCombinesNetNSAndResNSAddr(t *testing.T) {
 	}
 }
 
+func TestResNSAddrHostnameNameserverUsesIPv4(t *testing.T) {
+	server, err := startFakeDNS(t, "127.0.0.1", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port, err := net.SplitHostPort(server.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var decoyHits atomic.Int32
+	decoy, decoyErr := net.ListenPacket("udp6", net.JoinHostPort("::1", port))
+	if decoyErr != nil {
+		t.Logf("no IPv6 loopback decoy: %v", decoyErr)
+	} else {
+		t.Cleanup(func() { _ = decoy.Close() })
+		go func() {
+			buf := make([]byte, 512)
+			for {
+				_, _, readErr := decoy.ReadFrom(buf)
+				if readErr != nil {
+					return
+				}
+				decoyHits.Add(1)
+			}
+		}()
+	}
+
+	ips, err := LookupResolver(resNSAddrSpec(net.JoinHostPort("localhost", port))).LookupIP(
+		t.Context(), "ip4", "hostname-ns-res-nsaddr.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ips) != 1 || !ips[0].Equal(net.IPv4(127, 0, 0, 1)) {
+		t.Fatalf("LookupIP=%v want 127.0.0.1", ips)
+	}
+	if server.udpQueries.Load()+server.tcpQueries.Load() == 0 {
+		t.Fatal("IPv4-only nameserver received no query for res-nsaddr=localhost")
+	}
+	if n := decoyHits.Load(); n != 0 {
+		t.Fatalf("nameserver hostname contacted IPv6 %d times; want AF_INET only", n)
+	}
+}
+
 func TestResolveUDPAddrUsesResNSAddr(t *testing.T) {
 	server, err := startFakeDNS(t, "127.0.0.1", false, false)
 	if err != nil {
