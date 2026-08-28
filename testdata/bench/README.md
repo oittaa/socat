@@ -44,13 +44,13 @@ SIZE=1G RUNS=7 WARMUP=2 SAVE_BASELINE=testdata/bench/host.json ./scripts/bench.s
 
 ## Cases
 
-### Bulk stream (socat to socat)
+### Bulk transfer (socat to socat)
 
 `dd` is not in the timed path. The client is
 `socat -u OPEN:payload,rdonly PROTO:...`. The server is
 `socat -u PROTO-LISTEN OPEN:sink,creat,trunc,wronly`.
-The sink is on tmpfs (`/dev/shm`) when possible so we can check the byte count
-without a disk write as the main cost.
+The sink is on tmpfs (`/dev/shm`) when possible so disk writes are not the main
+cost. Stream cases require the exact byte count.
 
 Default size is 256 MiB. Default is 1 warmup + 5 timed runs. The report uses
 the **median**.
@@ -84,12 +84,19 @@ QUIC is a UDP byte tunnel (`alpn=socat`). It is not TLS and not HTTP/3.
 Classic socat has no QUIC.
 
 UDP-Lite (`IPPROTO_UDPLITE`) is Linux-only, matching this port and classic
-`WITH_UDPLITE`. The kernel must accept `SOCK_DGRAM` + protocol 136. Bulk
-`udplite` uses `UDPLITE4-RECV` / `UDPLITE4-SENDTO` (a stream of `-b`-sized
-datagrams) with 8 MiB `rcvbuf`/`sndbuf` so a fast sender does not drop
-packets. Non-fork `*-LISTEN` is one-shot on this port, so it is not used
-here. There is no connection EOF; the runner stops the receiver once the sink
-has `SIZE` bytes.
+`WITH_UDPLITE`. The kernel must accept `SOCK_DGRAM` + protocol 136. The case
+uses `UDPLITE4-RECV` / `UDPLITE4-SENDTO`; non-fork `*-LISTEN` is one-shot on
+this port, so it is not used here.
+
+UDP-Lite is an unreliable datagram transport. The runner does not pretend that
+larger socket buffers make it lossless. It frames the incompressible payload
+into fixed `BUF`-byte datagrams with a sequence number, payload length, and
+CRC32. After the sender exits, it waits until the sink is quiet, then reports
+logical-payload sender and delivered-receiver MiB/s plus loss, duplicates,
+reordering, and corruption. Loss and reordering are measurements; malformed or
+corrupt frames fail the run. `SIZE` is the logical payload size, excluding
+frame headers and final-frame padding. There is no connection EOF, so the
+receiver is terminated after the quiet interval.
 
 ## Environment
 
@@ -101,7 +108,7 @@ has `SIZE` bytes.
 | `SIZE` | `256M` | Stream payload (MiB if `M`) |
 | `RUNS` | `5` | Timed runs |
 | `WARMUP` | `1` | Untimed runs |
-| `BUF` | `8192` | socat `-b` |
+| `BUF` | `8192` | socat `-b`; UDP-Lite requires 21..65507 |
 | `BENCH_PAYLOAD` | AES-CTR blob | Optional file, ≥ `SIZE` |
 | `SAVE_BASELINE` | empty | Copy JSON + summary here |
 | `RR_N` / `RR_WARMUP` / `RR_SIZE` | 20000 / 1000 / 64 | Ping-pong |
@@ -115,6 +122,8 @@ Both binaries use `-b 8192` and bind `127.0.0.1`.
 
 Each run writes JSON (`meta` + `cases`) and a text summary. Structured JSON is
 the source of truth. The table below must match `testdata/bench/host.json`.
+UDP-Lite rows contain separate `send_mib_s` and `receive_mib_s` distributions
+and datagram delivery counters rather than the stream-only `mib_s` field.
 
 `meta` records: time, git, host, kernel, CPU, nproc, Go version, classic
 version, OpenSSL version, size, runs, payload kind, payload hash, and
