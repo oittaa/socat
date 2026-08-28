@@ -259,6 +259,9 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 		return err
 	}
 	waitErr := cmd.Wait()
+	if cmd.Process != nil {
+		unregisterChildSignals(cmd.Process.Pid)
+	}
 	if waitErr == nil {
 		return nil
 	}
@@ -830,8 +833,12 @@ func execSocketpairParentStream(mode Mode, parent *os.File, stype int) relay.Str
 
 // startWithChildUmask applies classic umask= around cmd.Start and marks FDs ≥3
 // CLOEXEC so EXEC children inherit only 0/1/2 plus explicitly mapped fdi/fdo
-// descriptors (EXEC_FDS / EXEC_SNIFF).
+// descriptors (EXEC_FDS / EXEC_SNIFF), then registers sighup/sigint/sigquit
+// (classic PH_LATE OFUNC_SIGNAL after pid is known).
 func startWithChildUmask(s parse.Spec, cmd *exec.Cmd) error {
+	if err := validateExecParentSignals(s); err != nil {
+		return err
+	}
 	// Mark ALL FDs ≥3 CLOEXEC (including the socketpair/pipe/PTY ends we pass
 	// as Stdin/Stdout). Go's fork/exec dup2's them to 0/1/2 first, then closes
 	// CLOEXEC descriptors, so the high-numbered originals are not leaked.
@@ -843,7 +850,19 @@ func startWithChildUmask(s parse.Spec, cmd *exec.Cmd) error {
 	}); err != nil {
 		return err
 	}
-	return startErr
+	if startErr != nil {
+		return startErr
+	}
+	if err := registerExecParentSignals(s, cmd); err != nil {
+		if cmd.Process != nil {
+			pid := cmd.Process.Pid
+			_ = cmd.Process.Kill()
+			_, _ = cmd.Process.Wait()
+			unregisterChildSignals(pid)
+		}
+		return err
+	}
+	return nil
 }
 
 func setCloexecAllFrom(from int) {
@@ -1065,10 +1084,15 @@ func applyPtyMasterLifecycle(s parse.Spec, ptmx *os.File) error {
 }
 
 func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func(), waitChild bool) (*Opened, error) {
+	pid := 0
+	if cmd != nil && cmd.Process != nil {
+		pid = cmd.Process.Pid
+	}
 	st, err := WrapCommon(s, stream)
 	if err != nil {
 		_ = cmd.Process.Kill()
 		_, _ = cmd.Process.Wait()
+		unregisterChildSignals(pid)
 		for _, f := range cleanup {
 			f()
 		}
@@ -1082,6 +1106,7 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 	done := make(chan struct{})
 	go func() {
 		err := cmd.Wait()
+		unregisterChildSignals(pid)
 		mu.Lock()
 		waitErr = err
 		if err == nil {

@@ -19,7 +19,7 @@ func TestSignalHandlersDeliverExitAndStop(t *testing.T) {
 	exitCode := make(chan int, 1)
 	stop := startSignalHandlers(ctx, cancel, logx.New(), 0, func(code int) {
 		exitCode <- code
-	}, sigCh, usr1)
+	}, sigCh, usr1, nil)
 
 	sigCh <- syscall.SIGTERM
 	select {
@@ -55,7 +55,7 @@ func TestSignalLogMaskControlsExitMessage(t *testing.T) {
 			logger.SetOutput(&output)
 			sigCh := make(chan os.Signal, 1)
 			exited := make(chan struct{}, 1)
-			stop := startSignalHandlers(ctx, cancel, logger, tc.mask, func(int) { exited <- struct{}{} }, sigCh, make(chan os.Signal))
+			stop := startSignalHandlers(ctx, cancel, logger, tc.mask, func(int) { exited <- struct{}{} }, sigCh, make(chan os.Signal), nil)
 			sigCh <- syscall.SIGTERM
 			select {
 			case <-exited:
@@ -74,7 +74,7 @@ func TestSignalLogMaskControlsExitMessage(t *testing.T) {
 func TestSignalHandlersStopWithoutSignal(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	stop := startSignalHandlers(ctx, cancel, logx.New(), defaultSignalLogMask(), nil, make(chan os.Signal), make(chan os.Signal))
+	stop := startSignalHandlers(ctx, cancel, logx.New(), defaultSignalLogMask(), nil, make(chan os.Signal), make(chan os.Signal), nil)
 	done := make(chan struct{})
 	go func() {
 		stop()
