@@ -54,6 +54,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"f-setlk", "lock", "bytes", "cr", "crlf", "cd", "sid", "close", "maxchildren",
 		"intervall", "ipv6only", "v6only", "termios-cfmakeraw", "crterase",
 		"tun-no-pi", "multicast", "proxy-auth", "resolv", "ignorecr",
+		"retrieve-vlan",
 		"iff-notrailers", "notrailers", "iff-master", "master",
 		"iff-slave", "slave", "iff-portsel", "portsel",
 		"iff-automedia", "automedia",
