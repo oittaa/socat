@@ -1,6 +1,12 @@
 package cli
 
-import "github.com/oittaa/socat/internal/xio"
+import (
+	"fmt"
+	"runtime"
+
+	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
+)
 
 // File, FD, and UNIX options.
 func fileOptionGroups() []helpOptGroup {
@@ -97,8 +103,18 @@ func fileOptionGroups() []helpOptGroup {
 			{name: "unlink-close", desc: "unlink on close"},
 			{name: "unlink-late", desc: "unlink immediately after open"},
 			{name: "unix-bind-tempname", desc: "bind a temporary UNIX name", aliases: []string{"bind-tempname"}},
-			{name: "unix-tightsocklen", desc: "use a tight sockaddr_un length (classic default)", aliases: []string{"tightsocklen"}, validate: validateOptionalBool},
+			{name: "unix-tightsocklen", desc: "use a tight sockaddr_un length (classic default)", aliases: []string{"tightsocklen"}, validate: validateUnixTightSocklen},
 			{name: "socktype", dynamicDesc: xio.UnixSocktypeHelp, aliases: []string{"so-type", "type"}, validate: validateInteger(-1)},
 		}},
 	}
+}
+
+func validateUnixTightSocklen(option parse.Option) error {
+	if err := validateOptionalBool(option); err != nil {
+		return err
+	}
+	if runtime.GOOS == "windows" {
+		return fmt.Errorf("%s: not supported on this platform", option.Name)
+	}
+	return nil
 }

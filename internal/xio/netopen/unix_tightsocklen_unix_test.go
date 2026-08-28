@@ -4,6 +4,7 @@ package netopen
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -82,5 +83,56 @@ func TestClassicUnixSockaddrLenMatchesThisPlatform(t *testing.T) {
 	sunPath := len(unix.RawSockaddrUnix{}.Path)
 	if got := classicUnixSockaddrLen(5, sunPath, sizeofUn, false, false); got != sizeofUn {
 		t.Fatalf("untight=%d want sizeof=%d", got, sizeofUn)
+	}
+}
+
+func TestUnixRawSockaddrUsesClassicLen(t *testing.T) {
+	sizeofUn := unix.SizeofSockaddrUnix
+	sunPath := len(unix.RawSockaddrUnix{}.Path)
+	_, n, err := unixRawSockaddr("hello", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := classicUnixSockaddrLen(len("hello"), sunPath, sizeofUn, false, true)
+	if n != want {
+		t.Fatalf("pathname tight=%d want %d (Go net includes a terminator)", n, want)
+	}
+	_, n, err = unixRawSockaddr("hello", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != sizeofUn {
+		t.Fatalf("pathname untight=%d want %d", n, sizeofUn)
+	}
+	_, n, err = unixRawSockaddr("\x00abc", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = classicUnixSockaddrLen(3, sunPath, sizeofUn, true, true)
+	if n != want {
+		t.Fatalf("abstract tight=%d want %d", n, want)
+	}
+}
+
+func TestUnixConnectHonorsCanceledContext(t *testing.T) {
+	path := unixSocketTestPath(t, "cancel.sock")
+	spec, err := parse.ParseSpec("UNIX-CONNECT:" + path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := listenUnixNetwork(context.Background(), spec, "unix", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	conn, err := dialUnixSocklen(ctx, spec, nil, "unix", path, "")
+	if conn != nil {
+		_ = conn.Close()
+	}
+	if err == nil || !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v want context.Canceled", err)
 	}
 }

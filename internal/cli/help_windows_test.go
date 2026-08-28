@@ -42,6 +42,7 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"so-priority", "so-passcred", "so-no-check",
 		"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string",
 		"cloexec",
+		"unix-tightsocklen", "tightsocklen",
 		"fs-append", "fs-nodump", "fs-notail", "nodump", "notail",
 	} {
 		if strings.Contains(help, "    "+name+" ") {

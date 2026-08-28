@@ -1,19 +1,33 @@
 package netopen
 
-import "github.com/oittaa/socat/internal/parse"
+import (
+	"runtime"
+
+	"github.com/oittaa/socat/internal/parse"
+)
 
 // unixTightSocklen is classic unix-tightsocklen / tightsocklen (xio-unix.c
-// PH_PREBIND TYPE_BOOL, default UNIX_TIGHTSOCKLEN). tag-1.8.1.3
+// PH_PREBIND TYPE_BOOL, default UNIX_TIGHTSOCKLEN in compat.h). tag-1.8.1.3
 // 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 // af5388c898c7bb60997935aee93c223deba60c4a is the same.
 //
-// Linux and Darwin default true. Omitted and =1 keep Go's net.Listen/Dial
-// bind length. =0 uses sizeof(sockaddr_un).
+// Classic UNIX_TIGHTSOCKLEN is false on FreeBSD and OpenBSD and true
+// elsewhere. Both modes bind and connect with xiosetunix's explicit socklen:
+// tight pathname length excludes the terminator Go's net routines include.
 func unixTightSocklen(s parse.Spec) bool {
 	if !s.HasOption("unix-tightsocklen") {
-		return true
+		return unixTightSocklenDefault(runtime.GOOS)
 	}
 	return s.BoolOption("unix-tightsocklen")
+}
+
+func unixTightSocklenDefault(goos string) bool {
+	switch goos {
+	case "freebsd", "openbsd":
+		return false
+	default:
+		return true
+	}
 }
 
 // classicUnixSockaddrLen is xiosetunix's returned socklen_t.

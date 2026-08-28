@@ -140,20 +140,7 @@ func listenUnixgramBound(s parse.Spec, laddr *net.UnixAddr, applyUmask bool) (*n
 }
 
 func dialUnixgram(s parse.Spec, raddr *net.UnixAddr) (*net.UnixConn, error) {
-	if !unixTightSocklen(s) {
-		c, err := dialUnixUntight(context.Background(), s, nil, "unixgram", raddr.Name, "")
-		if err != nil {
-			return nil, err
-		}
-		uc, ok := c.(*net.UnixConn)
-		if !ok {
-			logx.CloseQuiet(c)
-			return nil, fmt.Errorf("not a UnixConn")
-		}
-		return uc, nil
-	}
-	d := net.Dialer{Control: xio.DialControl(s, "unixgram", nil)}
-	c, err := d.Dial("unixgram", raddr.Name)
+	c, err := dialUnixSocklen(context.Background(), s, nil, "unixgram", raddr.Name, "")
 	if err != nil {
 		return nil, err
 	}

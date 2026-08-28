@@ -16,66 +16,79 @@ import (
 )
 
 func bindUnixPath(fd int, name string, tight bool) error {
-	if tight {
-		return unix.Bind(fd, &unix.SockaddrUnix{Name: name})
-	}
-	return unixBindUntight(fd, name)
+	return unixBindPath(fd, name, tight)
 }
 
-func unixBindUntight(fd int, name string) error {
-	sa, err := fillRawSockaddrUnix(name)
+func unixBindPath(fd int, name string, tight bool) error {
+	sa, n, err := unixRawSockaddr(name, tight)
 	if err != nil {
 		return err
 	}
-	_, _, errno := unix.Syscall(unix.SYS_BIND, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(unix.SizeofSockaddrUnix)) // #nosec G103 -- bind(2) length is sizeof(sockaddr_un); x/sys Bind always uses a tight socklen
+	_, _, errno := unix.Syscall(unix.SYS_BIND, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(n)) // #nosec G103 -- bind(2) length is xiosetunix's socklen_t
 	if errno != 0 {
 		return errno
 	}
 	return nil
 }
 
-func unixConnectUntight(fd int, name string) error {
-	sa, err := fillRawSockaddrUnix(name)
+func unixConnectPath(ctx context.Context, fd int, name string, tight bool) error {
+	sa, n, err := unixRawSockaddr(name, tight)
 	if err != nil {
 		return err
 	}
-	_, _, errno := unix.Syscall(unix.SYS_CONNECT, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(unix.SizeofSockaddrUnix)) // #nosec G103 -- connect(2) length is sizeof(sockaddr_un); x/sys Connect always uses a tight socklen
-	if errno != 0 {
-		return errno
+	if err := ctx.Err(); err != nil {
+		return err
 	}
-	return nil
+	done := make(chan error, 1)
+	go func() {
+		_, _, errno := unix.Syscall(unix.SYS_CONNECT, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(n)) // #nosec G103 -- connect(2) length is xiosetunix's socklen_t
+		if errno != 0 {
+			done <- errno
+			return
+		}
+		done <- nil
+	}()
+	select {
+	case <-ctx.Done():
+		_ = unix.Shutdown(fd, unix.SHUT_RDWR)
+		<-done
+		return ctx.Err()
+	case err := <-done:
+		return err
+	}
 }
 
-func fillRawSockaddrUnix(name string) (unix.RawSockaddrUnix, error) {
+func unixRawSockaddr(name string, tight bool) (unix.RawSockaddrUnix, int, error) {
 	var sa unix.RawSockaddrUnix
 	sa.Family = unix.AF_UNIX
+	abstract := name != "" && (name[0] == '@' || name[0] == 0)
+	path := name
 	if name != "" && name[0] == '@' {
-		name = string([]byte{0}) + name[1:]
+		path = string([]byte{0}) + name[1:]
 	}
-	if len(name) > len(sa.Path) {
-		return sa, fmt.Errorf("unix socket path too long")
+	if len(path) > len(sa.Path) {
+		return sa, 0, fmt.Errorf("unix socket path too long")
 	}
-	for i := 0; i < len(name); i++ {
-		sa.Path[i] = int8(name[i]) // #nosec G115 -- sockaddr_un.sun_path is a C char[]; pathname bytes are stored as-is
+	for i := 0; i < len(path); i++ {
+		sa.Path[i] = int8(path[i]) // #nosec G115 -- sockaddr_un.sun_path is a C char[]; pathname bytes are stored as-is
 	}
-	return sa, nil
+	pathlen := len(path)
+	if abstract {
+		if pathlen > 0 {
+			pathlen--
+		}
+	}
+	n := classicUnixSockaddrLen(pathlen, len(sa.Path), unix.SizeofSockaddrUnix, abstract, tight)
+	if tight {
+		setUnixSockaddrLen(&sa, n)
+	}
+	return sa, n, nil
 }
 
 func listenUnixNetwork(ctx context.Context, s parse.Spec, network, path string) (net.Listener, error) {
-	if unixTightSocklen(s) {
-		lc := net.ListenConfig{Control: xio.ListenControl(s)}
-		var ln net.Listener
-		err := xio.WithUmask(s, func() error {
-			var e error
-			ln, e = lc.Listen(ctx, network, path)
-			return e
-		})
-		return ln, err
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	return listenUnixUntight(s, network, path)
-}
-
-func listenUnixUntight(s parse.Spec, network, path string) (net.Listener, error) {
 	typ, err := unixNetworkSocktype(network)
 	if err != nil {
 		return nil, err
@@ -91,8 +104,9 @@ func listenUnixUntight(s parse.Spec, network, path string) (net.Listener, error)
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
+	tight := unixTightSocklen(s)
 	err = xio.WithUmask(s, func() error {
-		return unixBindUntight(fd, path)
+		return unixBindPath(fd, path, tight)
 	})
 	if err != nil {
 		logx.CloseErr(unix.Close(fd))
@@ -130,13 +144,19 @@ func unixNetworkSocktype(network string) (int, error) {
 	}
 }
 
-func dialUnixUntight(ctx context.Context, s parse.Spec, g *xio.Global, network, path, bindPath string) (net.Conn, error) {
+func dialUnixSocklen(ctx context.Context, s parse.Spec, g *xio.Global, network, path, bindPath string) (net.Conn, error) {
 	typ, err := unixNetworkSocktype(network)
 	if err != nil {
 		return nil, err
 	}
 	var conn net.Conn
 	err = xio.WithRetry(ctx, s, g, s.Type, func() error {
+		cctx := ctx
+		var cancel context.CancelFunc
+		if timeout := xio.ConnectTimeout(s); timeout > 0 {
+			cctx, cancel = context.WithTimeout(ctx, timeout)
+			defer cancel()
+		}
 		if bindPath != "" {
 			cleanupUnixBind(bindPath)
 		}
@@ -151,14 +171,15 @@ func dialUnixUntight(ctx context.Context, s parse.Spec, g *xio.Global, network, 
 			logx.CloseErr(unix.Close(fd))
 			return err
 		}
+		tight := unixTightSocklen(s)
 		if bindPath != "" {
-			if err := unixBindUntight(fd, bindPath); err != nil {
+			if err := unixBindPath(fd, bindPath, tight); err != nil {
 				logx.CloseErr(unix.Close(fd))
 				cleanupUnixBind(bindPath)
 				return err
 			}
 		}
-		if err := unixConnectUntight(fd, path); err != nil {
+		if err := unixConnectPath(cctx, fd, path, tight); err != nil {
 			logx.CloseErr(unix.Close(fd))
 			cleanupUnixBind(bindPath)
 			return err

@@ -43,7 +43,8 @@ func hideOpt(name string) bool {
 		"tcp-maxseg-late", "tcp-quickack", "tcp-syncnt", "tcp-window-clamp",
 		"sctp-nodelay", "sctp-maxseg",
 		"so-priority", "so-passcred", "so-no-check",
-		"udplite-send-cscov", "udplite-recv-cscov":
+		"udplite-send-cscov", "udplite-recv-cscov",
+		"unix-tightsocklen", "tightsocklen":
 		return true
 	default:
 		return false
