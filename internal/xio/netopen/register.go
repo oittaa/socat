@@ -46,43 +46,6 @@ func init() {
 	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-RECVFROM", Syntax: "UDP4-RECVFROM:<port>", Desc: "IPv4 UDP recvfrom", Opener: openUDP4Recvfrom})
 	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-RECVFROM", Syntax: "UDP6-RECVFROM:<port>", Desc: "IPv6 UDP recvfrom", Opener: openUDP6Recvfrom})
 
-	// UDP-Lite. Classic xio-udplite.c (tag-1.8.1.3
-	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-	// af5388c898c7bb60997935aee93c223deba60c4a is the same file) reuses the
-	// UDP CONNECT/LISTEN/SENDTO/RECV/RECVFROM/DATAGRAM openers with
-	// SOCK_DGRAM + IPPROTO_UDPLITE. Linux only; -V WITH_UDPLITE.
-	udpliteEnabled := func() bool { return xio.FeatureUDPLITE }
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE", Syntax: "UDPLITE:<host>:<port>", Desc: "UDP-Lite client", Enabled: udpliteEnabled, Opener: openUDPConnect})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE-CONNECT", Syntax: "UDPLITE-CONNECT:<host>:<port>", Desc: "same as UDPLITE", Enabled: udpliteEnabled, Opener: openUDPConnect})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE4", Syntax: "UDPLITE4:<host>:<port>", Desc: "IPv4 UDP-Lite client", Enabled: udpliteEnabled, Opener: openUDP4Connect})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE4-CONNECT", Syntax: "UDPLITE4-CONNECT:<host>:<port>", Desc: "same as UDPLITE4", Enabled: udpliteEnabled, Opener: openUDP4Connect})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE6", Syntax: "UDPLITE6:<host>:<port>", Desc: "IPv6 UDP-Lite client", Enabled: udpliteEnabled, Opener: openUDP6Connect})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE6-CONNECT", Syntax: "UDPLITE6-CONNECT:<host>:<port>", Desc: "same as UDPLITE6", Enabled: udpliteEnabled, Opener: openUDP6Connect})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE-LISTEN", Syntax: "UDPLITE-LISTEN:<port>", Desc: "UDP-Lite server", Enabled: udpliteEnabled, Opener: openUDPListen})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE-L", Syntax: "UDPLITE-L:<port>", Desc: "same as UDPLITE-LISTEN", Enabled: udpliteEnabled, Opener: openUDPListen})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE4-LISTEN", Syntax: "UDPLITE4-LISTEN:<port>", Desc: "IPv4 UDP-Lite server", Enabled: udpliteEnabled, Opener: openUDP4Listen})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE4-L", Syntax: "UDPLITE4-L:<port>", Desc: "same as UDPLITE4-LISTEN", Enabled: udpliteEnabled, Opener: openUDP4Listen})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE6-LISTEN", Syntax: "UDPLITE6-LISTEN:<port>", Desc: "IPv6 UDP-Lite server", Enabled: udpliteEnabled, Opener: openUDP6Listen})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE6-L", Syntax: "UDPLITE6-L:<port>", Desc: "same as UDPLITE6-LISTEN", Enabled: udpliteEnabled, Opener: openUDP6Listen})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE-SENDTO", Syntax: "UDPLITE-SENDTO:<host>:<port>", Desc: "UDP-Lite send to one peer", Enabled: udpliteEnabled, Opener: openUDPSendto})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE-SEND", Syntax: "UDPLITE-SEND:<host>:<port>", Desc: "same as UDPLITE-SENDTO", Enabled: udpliteEnabled, Opener: openUDPSendto})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE4-SENDTO", Syntax: "UDPLITE4-SENDTO:<host>:<port>", Desc: "IPv4 UDP-Lite send to one peer", Enabled: udpliteEnabled, Opener: openUDP4Sendto})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE4-SEND", Syntax: "UDPLITE4-SEND:<host>:<port>", Desc: "same as UDPLITE4-SENDTO", Enabled: udpliteEnabled, Opener: openUDP4Sendto})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE6-SENDTO", Syntax: "UDPLITE6-SENDTO:<host>:<port>", Desc: "IPv6 UDP-Lite send to one peer", Enabled: udpliteEnabled, Opener: openUDP6Sendto})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE6-SEND", Syntax: "UDPLITE6-SEND:<host>:<port>", Desc: "same as UDPLITE6-SENDTO", Enabled: udpliteEnabled, Opener: openUDP6Sendto})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE-DATAGRAM", Syntax: "UDPLITE-DATAGRAM:<host>:<port>", Desc: "UDP-Lite datagram", Enabled: udpliteEnabled, Opener: openUDPDatagram})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE-DGRAM", Syntax: "UDPLITE-DGRAM:<host>:<port>", Desc: "same as UDPLITE-DATAGRAM", Enabled: udpliteEnabled, Opener: openUDPDatagram})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE4-DATAGRAM", Syntax: "UDPLITE4-DATAGRAM:<host>:<port>", Desc: "IPv4 UDP-Lite datagram", Enabled: udpliteEnabled, Opener: openUDP4Datagram})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE4-DGRAM", Syntax: "UDPLITE4-DGRAM:<host>:<port>", Desc: "same as UDPLITE4-DATAGRAM", Enabled: udpliteEnabled, Opener: openUDP4Datagram})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE6-DATAGRAM", Syntax: "UDPLITE6-DATAGRAM:<host>:<port>", Desc: "IPv6 UDP-Lite datagram", Enabled: udpliteEnabled, Opener: openUDP6Datagram})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE6-DGRAM", Syntax: "UDPLITE6-DGRAM:<host>:<port>", Desc: "same as UDPLITE6-DATAGRAM", Enabled: udpliteEnabled, Opener: openUDP6Datagram})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE-RECV", Syntax: "UDPLITE-RECV:<port>", Desc: "receive UDP-Lite; ignore source", Enabled: udpliteEnabled, Opener: openUDPRecv})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE4-RECV", Syntax: "UDPLITE4-RECV:<port>", Desc: "IPv4 UDP-Lite receive", Enabled: udpliteEnabled, Opener: openUDP4Recv})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE6-RECV", Syntax: "UDPLITE6-RECV:<port>", Desc: "IPv6 UDP-Lite receive", Enabled: udpliteEnabled, Opener: openUDP6Recv})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE-RECVFROM", Syntax: "UDPLITE-RECVFROM:<port>", Desc: "receive one UDP-Lite datagram, reply to sender", Enabled: udpliteEnabled, Opener: openUDPRecvfrom})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE4-RECVFROM", Syntax: "UDPLITE4-RECVFROM:<port>", Desc: "IPv4 UDP-Lite recvfrom", Enabled: udpliteEnabled, Opener: openUDP4Recvfrom})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDPLITE6-RECVFROM", Syntax: "UDPLITE6-RECVFROM:<port>", Desc: "IPv6 UDP-Lite recvfrom", Enabled: udpliteEnabled, Opener: openUDP6Recvfrom})
-
 	// Raw IP
 	rawIPEnabled := func() bool { return xio.FeatureRAWIP }
 	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupRawIP, Name: "IP", Syntax: "IP:<host>:<protocol>", Desc: "raw IP send/receive", Enabled: rawIPEnabled, Opener: openIP})

@@ -60,7 +60,6 @@ the **median**.
 | `tcp` | TCP4-LISTEN / TCP4 | classic, go |
 | `unix` | UNIX-LISTEN / UNIX-CONNECT | classic, go |
 | `udp` | UDP4-RECV / UDP4-SENDTO | classic, go |
-| `udplite` | UDPLITE4-RECV / UDPLITE4-SENDTO | classic, go (Linux) |
 | `tls` | TLS-LISTEN / TLS (classic: OPENSSL-LISTEN / OPENSSL) | classic, go |
 | `quic` | QUIC-LISTEN / QUIC | go only |
 
@@ -84,12 +83,9 @@ installed.
 QUIC is a UDP byte tunnel (`alpn=socat`). It is not TLS and not HTTP/3.
 Classic socat has no QUIC.
 
-`udp` and `udplite` are unreliable datagram transports. `udp` is standard
-UDP (`IPPROTO_UDP`). UDP-Lite (`IPPROTO_UDPLITE`) is Linux-only, matching
-this port and classic `WITH_UDPLITE`; the kernel must accept `SOCK_DGRAM` +
-protocol 136. Both cases use `UDP4-RECV` / `UDP4-SENDTO` or
-`UDPLITE4-RECV` / `UDPLITE4-SENDTO`. Non-fork `*-LISTEN` is one-shot on this
-port, so it is not used here.
+`udp` is an unreliable datagram transport using standard UDP
+(`IPPROTO_UDP`) with `UDP4-RECV` / `UDP4-SENDTO`. Non-fork `UDP-LISTEN` is
+one-shot on this port, so it is not used here.
 
 The runner does not pretend that larger socket buffers make datagrams
 lossless. It frames the incompressible payload into fixed `BUF`-byte
@@ -125,7 +121,7 @@ Both binaries use `-b 8192` and bind `127.0.0.1`.
 
 Each run writes JSON (`meta` + `cases`) and a text summary. Structured JSON is
 the source of truth. The table below must match `testdata/bench/host.json`.
-Datagram rows (`udp`, `udplite`) contain separate `send_mib_s` and
+Datagram rows (`udp`) contain separate `send_mib_s` and
 `receive_mib_s` distributions and datagram delivery counters rather than the
 stream-only `mib_s` field.
 
@@ -185,9 +181,9 @@ Recorded handshakes (same binaries as the table; see `meta.tls` in `host.json`):
 - Bulk TLS also used different ciphers: classic **AES-256-GCM**, Go **AES-128-GCM**.
 - `tls-hs` (classic) is a Go client to a classic listener, so that column is P-256. The Go `tls-hs` column is X25519MLKEM768. The rate gap is also classic `fork(2)` vs Go goroutines.
 - QUIC is a UDP byte tunnel (`alpn=socat`). It is not HTTP/3 and not OpenSSL.
-- UDP (`udp`) and UDP-Lite (`udplite`) are in the suite as of this tree; the
-  snapshot table above was recorded before those cases. Re-run
-  `SAVE_BASELINE=testdata/bench/host.json` on the snapshot host to fill them.
+- UDP (`udp`) is in the suite as of this tree; the snapshot table above was
+  recorded before that case. Re-run `SAVE_BASELINE=testdata/bench/host.json`
+  on the snapshot host to fill it.
 - These numbers are one machine. Run the script on your host. JSON: `host.json`.
 
 ## Refresh the committed snapshot
