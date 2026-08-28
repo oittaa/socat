@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -52,4 +53,34 @@ func TestEXECSOPriorityUnidirectionalCat(t *testing.T) {
 			t.Fatalf("got %q want %q", got, payload)
 		}
 	})
+}
+
+func TestEXECSOPriorityFDInFDOutInheritStandardStreams(t *testing.T) {
+	bin := socatBin(t)
+	sink := filepath.Join(t.TempDir(), "relayed")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(
+		ctx,
+		bin,
+		"-t", "1",
+		"SYSTEM:printf O; printf D >&4,fdin=3,fdout=4,so-priority=5",
+		"SYSTEM:cat >"+sink,
+	)
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb.Bytes(), out.Bytes())
+	}
+	if got := out.String(); got != "O" {
+		t.Fatalf("inherited stdout got %q want %q", got, "O")
+	}
+	data, err := os.ReadFile(sink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(data); got != "D" {
+		t.Fatalf("relayed fdout got %q want %q", got, "D")
+	}
 }

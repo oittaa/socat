@@ -447,7 +447,6 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		spec := s
 		return &Opened{Kind: KindExec, Label: "EXEC-nofork", NoForkSpec: &spec}, nil
 	}
-	cmd.Dir = s.OptionValue("chdir", "")
 	userPipes := s.BoolOption("pipes")
 	userPty := s.BoolOption("pty")
 	// Default: socketpair for full duplex; pipes when requested or unidirectional
@@ -473,7 +472,6 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	if fdin != "" || fdout != "" {
 		usePipes = true
 		usePty = false
-		cmd = rebuildWithFDRedirect(ctx, cmd, fdin, fdout)
 	}
 
 	// end-close + shared LISTEN,fork: a single socketpair FD cannot be half-closed
@@ -500,6 +498,20 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 			return nil, err
 		}
 	}
+
+	fdRedirect := fdin != "" || fdout != ""
+	if fdRedirect {
+		if usePipes {
+			cmd = rebuildWithFDRedirect(ctx, cmd, fdin, fdout)
+		} else {
+			// Classic duplicates the socketpair child directly onto fdi/fdo and
+			// leaves unrelated standard descriptors inherited. Pass the socket
+			// as child fd 3; the shell wrapper performs those exact dup mappings.
+			cmd = rebuildWithSocketFDRedirect(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
+		}
+	}
+	// Rebuilding through /bin/sh must not discard chdir=.
+	cmd.Dir = s.OptionValue("chdir", "")
 
 	if s.BoolOption("setsid") {
 		if cmd.SysProcAttr == nil {
@@ -534,7 +546,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		stream, cleanup, childFiles, err = startCmdPipes(s, mode, cmd, fdin, fdout)
 	} else {
 		var child *os.File
-		stream, cleanup, child, err = startCmdSocketpair(s, mode, cmd)
+		stream, cleanup, child, err = startCmdSocketpair(s, mode, cmd, fdRedirect)
 		if child != nil {
 			childFiles = append(childFiles, child)
 		}
@@ -657,7 +669,7 @@ func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdin, fdout string) (
 	return st, cleanup, childFiles, nil
 }
 
-func startCmdSocketpair(s parse.Spec, mode Mode, cmd *exec.Cmd) (relay.Stream, []func(), *os.File, error) {
+func startCmdSocketpair(s parse.Spec, mode Mode, cmd *exec.Cmd, fdRedirect bool) (relay.Stream, []func(), *os.File, error) {
 	stype, _, err := SocketTypeOption(s, syscall.SOCK_STREAM)
 	if err != nil {
 		return nil, nil, nil, err
@@ -681,28 +693,38 @@ func startCmdSocketpair(s parse.Spec, mode Mode, cmd *exec.Cmd) (relay.Stream, [
 		_ = child.Close()
 		return nil, nil, nil, err
 	}
-	// Classic child wiring (xio-progcall.c): Dup2(sv[1], fdi) only when
-	// rw != XIO_RDONLY, Dup2(sv[1], fdo) only when rw != XIO_WRONLY.
-	// Unused stdio stays inherited so `socat -u EXEC:cat STDOUT` reads
-	// process stdin and `socat -u STDIN EXEC:cat` writes process stdout.
-	switch mode {
-	case ModeWrite:
-		cmd.Stdin = child
-		cmd.Stdout = os.Stdout
-		if s.BoolOption("stderr") {
-			cmd.Stderr = os.Stdout
-		}
-	case ModeRead:
+	if fdRedirect {
+		// rebuildWithSocketFDRedirect expects its socket at child fd 3.
+		// Keep 0/1/2 inherited until that wrapper duplicates fd 3 onto the
+		// selected fdi/fdo descriptors (and stderr, when requested).
+		cmd.ExtraFiles = []*os.File{child}
 		cmd.Stdin = os.Stdin
-		cmd.Stdout = child
-		if s.BoolOption("stderr") {
-			cmd.Stderr = child
-		}
-	default:
-		cmd.Stdin = child
-		cmd.Stdout = child
-		if s.BoolOption("stderr") {
-			cmd.Stderr = child
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		// Classic child wiring (xio-progcall.c): Dup2(sv[1], fdi) only when
+		// rw != XIO_RDONLY, Dup2(sv[1], fdo) only when rw != XIO_WRONLY.
+		// Unused stdio stays inherited so `socat -u EXEC:cat STDOUT` reads
+		// process stdin and `socat -u STDIN EXEC:cat` writes process stdout.
+		switch mode {
+		case ModeWrite:
+			cmd.Stdin = child
+			cmd.Stdout = os.Stdout
+			if s.BoolOption("stderr") {
+				cmd.Stderr = os.Stdout
+			}
+		case ModeRead:
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = child
+			if s.BoolOption("stderr") {
+				cmd.Stderr = child
+			}
+		default:
+			cmd.Stdin = child
+			cmd.Stdout = child
+			if s.BoolOption("stderr") {
+				cmd.Stderr = child
+			}
 		}
 	}
 	st := execSocketpairParentStream(mode, parent, stype)
