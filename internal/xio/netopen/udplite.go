@@ -31,15 +31,15 @@ func ipDgramProto(s parse.Spec) int {
 }
 
 func listenPacketForSpec(ctx context.Context, network, address string, s parse.Spec) (net.PacketConn, error) {
+	laddr, err := xio.ResolveUDPAddr(ctx, s, network, address)
+	if err != nil {
+		return nil, err
+	}
 	if proto := ipDgramProto(s); proto != 0 {
-		laddr, err := net.ResolveUDPAddr(network, address)
-		if err != nil {
-			return nil, err
-		}
 		return listenIPDgram(ctx, network, laddr, s, proto)
 	}
 	lc := udpListenConfig(s)
-	return lc.ListenPacket(ctx, network, address)
+	return lc.ListenPacket(ctx, network, laddr.String())
 }
 
 func dialUDPForSpec(ctx context.Context, network string, laddr net.Addr, remote string, s parse.Spec, extra func(string, string, syscall.RawConn) error, timeout time.Duration) (net.Conn, error) {
@@ -52,7 +52,7 @@ func dialUDPForSpec(ctx context.Context, network string, laddr net.Addr, remote 
 				return nil, fmt.Errorf("UDPLITE: unexpected local addr type %T", laddr)
 			}
 		}
-		ra, err := net.ResolveUDPAddr(network, remote)
+		ra, err := xio.ResolveUDPAddr(ctx, s, network, remote)
 		if err != nil {
 			return nil, err
 		}
@@ -62,6 +62,7 @@ func dialUDPForSpec(ctx context.Context, network string, laddr net.Addr, remote 
 		Timeout:   timeout,
 		LocalAddr: laddr,
 		Control:   xio.DialControl(s, network, extra),
+		Resolver:  xio.LookupResolver(s),
 	}
 	return d.DialContext(ctx, network, remote)
 }

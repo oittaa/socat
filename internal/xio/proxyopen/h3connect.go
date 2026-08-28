@@ -49,7 +49,11 @@ func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost 
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	listen := func(port string) (net.PacketConn, error) {
 		laddr := net.JoinHostPort(xio.StripBrackets(bindHost), port)
-		return lc.ListenPacket(ctx, network, laddr)
+		resolved, resolveErr := xio.ResolveUDPAddr(ctx, s, network, laddr)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		return lc.ListenPacket(ctx, network, resolved.String())
 	}
 	var pc net.PacketConn
 	if s.BoolOption("lowport") && (sourceport == "" || sourceport == "0") {
@@ -125,7 +129,7 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 			TLSClientConfig: tlsCfg.Clone(),
 			QUICConfig:      &quic.Config{HandshakeIdleTimeout: idle},
 			Dial: func(dctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
-				raddr, resolveErr := net.ResolveUDPAddr(network, addr)
+				raddr, resolveErr := xio.ResolveUDPAddr(dctx, s, network, addr)
 				if resolveErr != nil {
 					return nil, resolveErr
 				}

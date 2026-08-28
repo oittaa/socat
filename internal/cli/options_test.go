@@ -166,6 +166,15 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "fork-on-exec", spec: "EXEC:true,fork", wantErr: "not supported"},
 		{name: "known-alias", spec: "TCP-LISTEN:1,so-reuseaddr"},
 		{name: "zero-socket-timeouts", spec: "UDP:localhost:1,rcvtimeo=0,sndtimeo=0"},
+		{name: "res-nsaddr-ipv4", spec: "TCP:localhost:1,res-nsaddr=127.0.0.1:5353"},
+		{name: "res-nsaddr-ipv6", spec: "TCP:localhost:1,res-nsaddr=[::1]:5353"},
+		{name: "res-nsaddr-dns-alias", spec: "UDP:localhost:1,dns=127.0.0.1"},
+		{name: "res-nsaddr-nameserver-alias", spec: "IP-SENDTO:localhost:1,nameserver=127.0.0.1"},
+		{name: "res-nsaddr-nsaddr-alias", spec: "TCP:localhost:1,nsaddr=127.0.0.1:0"},
+		{name: "res-nsaddr-missing", spec: "TCP:localhost:1,res-nsaddr", wantErr: "requires a value"},
+		{name: "res-nsaddr-bad-host", spec: "TCP:localhost:1,res-nsaddr=bad host", wantErr: "invalid nameserver host"},
+		{name: "res-nsaddr-bad-port", spec: "TCP:localhost:1,res-nsaddr=127.0.0.1:70000", wantErr: "invalid DNS port"},
+		{name: "res-nsaddr-on-file", spec: "OPEN:file,res-nsaddr=127.0.0.1", wantErr: "not supported"},
 		{name: "socketpair-timeouts", spec: "SOCKETPAIR,rcvtimeo=0.1,sndtimeo=0.1"},
 		{name: "interface-timeouts", spec: "INTERFACE:lo,rcvtimeo=0.1,sndtimeo=0.1"},
 		{name: "tls-timeouts", spec: "TLS:localhost:1,rcvtimeo=0.1,sndtimeo=0.1"},
@@ -1025,6 +1034,19 @@ func TestIPAncillaryMatrixWiredIntoCLI(t *testing.T) {
 		want := xio.IPAncillaryImplementationGroups(name)
 		if strings.Join(got.implementationGroups, ",") != strings.Join(want, ",") {
 			t.Errorf("%q implementationGroups=%v want %v", name, got.implementationGroups, want)
+		}
+	}
+}
+
+func TestResNSAddrImplementationGroups(t *testing.T) {
+	got := buildSupportedAddressOptions()["res-nsaddr"].implementationGroups
+	want := resolverImplementationGroups()
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("res-nsaddr implementationGroups=%v want %v", got, want)
+	}
+	for _, group := range []string{xio.GroupUnix, xio.GroupProcess, xio.GroupFiles} {
+		if optionImplementedForGroup(group, got) {
+			t.Errorf("res-nsaddr unexpectedly applies to %s", group)
 		}
 	}
 }
