@@ -494,8 +494,24 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 
 	fdRedirect := fdin != "" || fdout != ""
+	useFDHelper := fdRedirect && processFDNeedsHelper(fdin, fdout)
 	if fdRedirect {
-		if usePipes {
+		if useFDHelper {
+			// dash changes the target's argv[0], not the internal helper used to
+			// place fdi/fdo. Apply it before wrapping the target command.
+			if err := applyDashArgv0(s, cmd); err != nil {
+				return nil, err
+			}
+			if usePipes {
+				cmd, err = rebuildWithPipeFDHelper(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
+			} else {
+				// Socketpair and PTY share ExtraFiles[0] (child fd 3).
+				cmd, err = rebuildWithSocketFDHelper(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
+			}
+			if err != nil {
+				return nil, err
+			}
+		} else if usePipes {
 			cmd = rebuildWithPipeFDRedirect(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
 		} else {
 			// Socketpair and PTY: one child data fd at ExtraFiles[0] (fd 3).
@@ -511,13 +527,23 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		}
 		cmd.SysProcAttr.Setsid = true
 	}
-	if err := applyExecChildOptions(s, cmd); err != nil {
-		return nil, err
+	if useFDHelper {
+		// applyDashArgv0 already ran on the target before it was wrapped.
+		if err := applySetpgid(s, cmd); err != nil {
+			return nil, err
+		}
+	} else {
+		if err := applyExecChildOptions(s, cmd); err != nil {
+			return nil, err
+		}
 	}
 
 	// Inject classic SOCAT_* connection environment for SYSTEM/EXEC children.
 	if g != nil {
 		cmd.Env = childEnviron(g)
+	}
+	if useFDHelper {
+		cmd.Env = withExecFDHelperEnv(cmd.Env)
 	}
 
 	if usePty {
@@ -576,9 +602,15 @@ func validateProcessFDOptions(mode Mode, fdin, fdout string) error {
 }
 
 // dashFDRedirectMax is the largest descriptor dash (Ubuntu /bin/sh) accepts
-// as a redirection prefix. Mapping uses ExtraFiles plus `exec n<&m`, not
-// classic dup2(unsigned short).
+// as a redirection prefix. Higher descriptors use the child-side dup2 helper.
 const dashFDRedirectMax = 9
+
+// Classic's compiled option catalog advertises fdin/fdout as TYPE_USHORT
+// before xio-progcall.c calls dup2. The man page describes fdnum more broadly
+// as an unsigned int, while C silently truncates overflow on assignment to the
+// ushort option value. Follow the advertised type but reject overflow instead
+// of wrapping it onto an unrelated descriptor.
+const maxProcessFD = 1<<16 - 1
 
 func normalizeProcessFD(value, name string) (string, error) {
 	if value == "" {
@@ -588,10 +620,23 @@ func normalizeProcessFD(value, name string) (string, error) {
 	if err != nil || n < 0 {
 		return "", fmt.Errorf("%s: invalid file descriptor %q", name, value)
 	}
-	if n > dashFDRedirectMax {
-		return "", fmt.Errorf("%s: file descriptor %d cannot be applied through /bin/sh redirection", name, n)
+	if n > maxProcessFD {
+		return "", fmt.Errorf("%s: file descriptor %d exceeds unsigned-short range", name, n)
 	}
 	return strconv.Itoa(n), nil
+}
+
+func processFDNeedsHelper(fdin, fdout string) bool {
+	for _, value := range []string{fdin, fdout} {
+		if value == "" {
+			continue
+		}
+		n, err := strconv.Atoi(value)
+		if err == nil && n > dashFDRedirectMax {
+			return true
+		}
+	}
+	return false
 }
 
 func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdRedirect bool) (relay.Stream, []func(), []*os.File, error) {
@@ -638,7 +683,7 @@ func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdRedirect bool) (rel
 	}
 
 	if fdRedirect {
-		// rebuildWithPipeFDRedirect expects ExtraFiles fd 3 (input) and fd 4
+		// The descriptor mapper expects ExtraFiles fd 3 (input) and fd 4
 		// (output when both directions exist). Keep 0/1/2 inherited.
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
@@ -712,8 +757,8 @@ func startCmdSocketpair(s parse.Spec, mode Mode, cmd *exec.Cmd, fdRedirect bool)
 		return nil, nil, nil, err
 	}
 	if fdRedirect {
-		// rebuildWithSocketFDRedirect expects its socket at child fd 3.
-		// Keep 0/1/2 inherited until that wrapper duplicates fd 3 onto the
+		// The descriptor mapper expects its socket at child fd 3. Keep 0/1/2
+		// inherited until it duplicates fd 3 onto the
 		// selected fdi/fdo descriptors (and stderr, when requested).
 		cmd.ExtraFiles = []*os.File{child}
 		cmd.Stdin = os.Stdin
@@ -784,7 +829,8 @@ func execSocketpairParentStream(mode Mode, parent *os.File, stype int) relay.Str
 }
 
 // startWithChildUmask applies classic umask= around cmd.Start and marks FDs ≥3
-// CLOEXEC so EXEC children inherit only 0/1/2 (EXEC_FDS / EXEC_SNIFF).
+// CLOEXEC so EXEC children inherit only 0/1/2 plus explicitly mapped fdi/fdo
+// descriptors (EXEC_FDS / EXEC_SNIFF).
 func startWithChildUmask(s parse.Spec, cmd *exec.Cmd) error {
 	// Mark ALL FDs ≥3 CLOEXEC (including the socketpair/pipe/PTY ends we pass
 	// as Stdin/Stdout). Go's fork/exec dup2's them to 0/1/2 first, then closes
@@ -859,8 +905,8 @@ func closeExecPTY(master, slave *os.File) {
 	logx.CloseQuiet(slave)
 }
 
-// startCmdPtyFDRedirect keeps the PTY slave as ExtraFiles fd 3 and lets
-// rebuildWithSocketFDRedirect Dup2 it onto fdi/fdo. Classic does not make
+// startCmdPtyFDRedirect keeps the PTY slave as ExtraFiles fd 3 and lets the
+// descriptor mapper duplicate it onto fdi/fdo. Classic does not make
 // fdin/fdout select pipes (xio-progcall.c; empirical tag-1.8.1.3
 // SYSTEM:printf O; printf D >&4,pty,fdin=3,fdout=4).
 func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {

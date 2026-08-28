@@ -30,7 +30,7 @@ func TestChildFDRedirectPrefix(t *testing.T) {
 			outSrc: "3",
 			fdin:   "5",
 			fdout:  "6",
-			want:   "exec 5<&3 6>&3 3>&-",
+			want:   "exec 6>&3 5<&3 3>&-",
 		},
 		{
 			name:   "socket-mode-read-fdout4",
@@ -74,7 +74,7 @@ func TestChildFDRedirectPrefix(t *testing.T) {
 			outSrc: "4",
 			fdin:   "4",
 			fdout:  "5",
-			want:   "exec 6<&3 7<&4 4<&6 5>&7 3>&- 6>&- 7>&-",
+			want:   "exec 6<&3 7<&4 5>&7 4<&6 3>&- 6>&- 7>&-",
 		},
 		{
 			name:   "pipes-overlap-swap",
@@ -82,7 +82,15 @@ func TestChildFDRedirectPrefix(t *testing.T) {
 			outSrc: "4",
 			fdin:   "4",
 			fdout:  "3",
-			want:   "exec 5<&3 6<&4 4<&5 3>&6 5>&- 6>&-",
+			want:   "exec 5<&3 6<&4 3>&6 4<&5 5>&- 6>&-",
+		},
+		{
+			name:   "pipes-same-target-input-wins",
+			inSrc:  "3",
+			outSrc: "4",
+			fdin:   "5",
+			fdout:  "5",
+			want:   "exec 5>&4 5<&3 3>&- 4>&-",
 		},
 	}
 	for _, tc := range tests {
