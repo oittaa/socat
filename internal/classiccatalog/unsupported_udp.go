@@ -25,4 +25,5 @@ package classiccatalog
 // Do not implement this spelling without an explicit compatibility decision.
 var unsupportedClassicUnimplemented = map[string]string{
 	"udp-ignore-peerport": "documented OPTION_UDP_IGNORE_PEERPORT; classic C never implemented it (man/C disagreement). Not backlog; do not advertise or implement without an explicit compatibility decision (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master af5388c898c7bb60997935aee93c223deba60c4a)",
+	"iff-dynamic":         "documented IFF_DYNAMIC; commented out of classic optionnames[] (xioopts.c). Not backlog; do not advertise or implement a silent flag (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master af5388c898c7bb60997935aee93c223deba60c4a)",
 }

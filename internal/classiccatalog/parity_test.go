@@ -115,6 +115,12 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"udp-ignore-peerport", "linux", ClassUnsupported},
 		{"udp-ignore-peerport", "darwin", ClassUnsupported},
 		{"udp-ignore-peerport", "windows", ClassUnsupported},
+		{"iff-dynamic", "linux", ClassUnsupported},
+		{"iff-dynamic", "darwin", ClassUnsupported},
+		{"iff-notrailers", "linux", ClassMustAdvertise},
+		{"iff-master", "linux", ClassMustAdvertise},
+		{"notrailers", "linux", ClassMustAdvertise},
+		{"master", "linux", ClassMustAdvertise},
 		{"udplite-send-cscov", "linux", ClassMustAdvertise},
 		{"udplite-recv-cscov", "linux", ClassMustAdvertise},
 		{"udplite-send-cscov", "darwin", ClassMustAdvertise},
@@ -173,6 +179,12 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	linux := ImplementationBacklog("linux")
 	if _, ok := linux["udp-ignore-peerport"]; ok {
 		t.Fatal("linux backlog must not include udp-ignore-peerport (documented but never implemented by classic)")
+	}
+	if _, ok := linux["iff-dynamic"]; ok {
+		t.Fatal("linux backlog must not include iff-dynamic (commented out of classic optionnames[])")
+	}
+	if _, ok := linux["iff-notrailers"]; ok {
+		t.Fatal("linux backlog must not include implemented iff-notrailers")
 	}
 	if _, ok := linux["udplite-send-cscov"]; ok {
 		t.Fatal("linux backlog must not include implemented udplite-send-cscov (#101)")
