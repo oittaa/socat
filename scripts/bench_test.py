@@ -106,6 +106,19 @@ class UDPLiteFrameTest(unittest.TestCase):
             bench.udplite_frame_count(1, bench.UDPLITE_MAX_DATAGRAM + 1)
 
 
+class DatagramAddrTest(unittest.TestCase):
+    def test_udp_and_udplite_use_recv_sendto(self) -> None:
+        certs = {"crt": Path("c"), "key": Path("k"), "ca": Path("a")}
+        udp_listen, udp_connect = bench.stream_addrs("udp", 9, Path("sock"), certs)
+        lite_listen, lite_connect = bench.stream_addrs("udplite", 9, Path("sock"), certs)
+
+        self.assertTrue(udp_listen.startswith("UDP4-RECV:9,"))
+        self.assertTrue(udp_connect.startswith("UDP4-SENDTO:127.0.0.1:9,"))
+        self.assertTrue(lite_listen.startswith("UDPLITE4-RECV:9,"))
+        self.assertTrue(lite_connect.startswith("UDPLITE4-SENDTO:127.0.0.1:9,"))
+        self.assertEqual(bench.DATAGRAM_CASES, {"udp", "udplite"})
+
+
 class UDPLiteSummaryTest(unittest.TestCase):
     def test_summary_keeps_rate_and_delivery_metrics(self) -> None:
         runs = []

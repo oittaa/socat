@@ -32,6 +32,7 @@ _AES_IV = "00000000000000000000000000000000"
 DEFAULT_CASES = (
     "tcp",
     "unix",
+    "udp",
     "udplite",
     "tls",
     "quic",
@@ -41,7 +42,7 @@ DEFAULT_CASES = (
     "tls-hs",
 )
 STREAM_CASES = {"tcp", "unix", "tls", "quic"}
-DATAGRAM_CASES = {"udplite"}
+DATAGRAM_CASES = {"udp", "udplite"}
 RR_CASES = {"tcp-rr", "tls-rr", "quic-rr"}
 HS_CASES = {"tls-hs"}
 GO_ONLY = {"quic", "quic-rr"}
@@ -524,6 +525,12 @@ def free_tcp_port() -> int:
         return int(s.getsockname()[1])
 
 
+def free_udp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
 def free_udplite_port() -> int:
     # UDP-Lite has its own protocol/port namespace; a free TCP or UDP port
     # says nothing about whether this port is available for protocol 136.
@@ -727,9 +734,15 @@ def stream_addrs(case: str, port: int, sock: Path, certs: dict[str, Path], impl:
             f"QUIC-LISTEN:{port},reuseaddr,bind=127.0.0.1,cert={crt},key={key},verify=0",
             f"QUIC:127.0.0.1:{port},verify=1,cafile={ca},commonname=localhost",
         )
-    if case == "udplite":
+    if case == "udp":
         # RECV+SENDTO: a stream of datagrams. Non-fork *-LISTEN is one-shot
         # (first packet then EOF) on this port; classic LISTEN stays connected.
+        return (
+            f"UDP4-RECV:{port},reuseaddr,bind=127.0.0.1,rcvbuf=8388608,sndbuf=8388608",
+            f"UDP4-SENDTO:127.0.0.1:{port},sndbuf=8388608,rcvbuf=8388608",
+        )
+    if case == "udplite":
+        # Same RECV+SENDTO shape as udp; protocol 136 instead of 17.
         return (
             f"UDPLITE4-RECV:{port},reuseaddr,bind=127.0.0.1,rcvbuf=8388608,sndbuf=8388608",
             f"UDPLITE4-SENDTO:127.0.0.1:{port},sndbuf=8388608,rcvbuf=8388608",
@@ -740,7 +753,7 @@ def stream_addrs(case: str, port: int, sock: Path, certs: dict[str, Path], impl:
 def listen_wait(case: str, port: int, sock: Path) -> None:
     if case == "unix":
         wait_unix(sock)
-    elif case == "quic":
+    elif case in {"quic", "udp"}:
         wait_udp(port)
     elif case == "udplite":
         wait_udplite(port)
@@ -768,8 +781,9 @@ def wait_file_quiet(
         time.sleep(0.01)
 
 
-def run_udplite_once(
+def run_datagram_once(
     *,
+    case: str,
     bin_path: str,
     payload: Path,
     size: int,
@@ -778,18 +792,21 @@ def run_udplite_once(
     workdir: Path,
     tag: str,
 ) -> dict[str, Any]:
+    if case not in DATAGRAM_CASES:
+        raise ValueError(case)
     framed_payload, _, wire_size = ensure_udplite_payload(payload, size, buffer)
-    port = free_udplite_port()
+    port = free_udplite_port() if case == "udplite" else free_udp_port()
     sock = workdir / f"{tag}.sock"
     sink = sink_dir() / f"socat-bench-sink.{tag}"
     sink.unlink(missing_ok=True)
-    listen, connect = stream_addrs("udplite", port, sock, certs)
+    listen, connect = stream_addrs(case, port, sock, certs)
     slog = workdir / "logs" / f"{tag}.server.log"
     clog = workdir / "logs" / f"{tag}.client.log"
     server = start_socat(bin_path, ["-u", listen, f"OPEN:{sink},creat,trunc,wronly"], slog)
     sampler: RSSSampler | None = None
+    label = "UDP-Lite" if case == "udplite" else "UDP"
     try:
-        wait_udplite(port)
+        listen_wait(case, port, sock)
         sampler = RSSSampler([server.pid])
         sampler.start()
         t0 = time.perf_counter()
@@ -799,7 +816,7 @@ def run_udplite_once(
             rc = client.wait(timeout=120)
         except subprocess.TimeoutExpired:
             kill_proc(client)
-            raise TimeoutError("UDP-Lite client socat timed out") from None
+            raise TimeoutError(f"{label} client socat timed out") from None
         send_elapsed = time.perf_counter() - t0
         _, receive_completed_at = wait_file_quiet(sink)
         receive_elapsed = receive_completed_at - t0
@@ -834,7 +851,7 @@ def run_udplite_once(
         }
         if delivery["unique_datagrams"] == 0:
             result["status"] = "fail"
-            result["detail"] = "no valid UDP-Lite datagrams reached the sink"
+            result["detail"] = f"no valid {label} datagrams reached the sink"
         elif delivery["corrupt_datagrams"] or delivery["trailing_bytes"]:
             result["status"] = "fail"
             result["detail"] = (
@@ -847,6 +864,28 @@ def run_udplite_once(
         if sampler is not None:
             sampler.stop()
         sink.unlink(missing_ok=True)
+
+
+def run_udplite_once(
+    *,
+    bin_path: str,
+    payload: Path,
+    size: int,
+    buffer: int,
+    certs: dict[str, Path],
+    workdir: Path,
+    tag: str,
+) -> dict[str, Any]:
+    return run_datagram_once(
+        case="udplite",
+        bin_path=bin_path,
+        payload=payload,
+        size=size,
+        buffer=buffer,
+        certs=certs,
+        workdir=workdir,
+        tag=tag,
+    )
 
 
 def run_stream_once(
@@ -1292,7 +1331,7 @@ def main() -> int:
                 )
                 print(f"  skip {case}/{impl} (no QUIC in classic)", flush=True)
                 continue
-            if case in DATAGRAM_CASES and (platform.system() != "Linux" or not udplite_available()):
+            if case == "udplite" and (platform.system() != "Linux" or not udplite_available()):
                 doc["cases"].append(
                     {
                         "id": case,
@@ -1334,7 +1373,8 @@ def main() -> int:
                     summary = summarize_stream(samples)
                 elif case in DATAGRAM_CASES:
                     for i in range(warmup):
-                        run_udplite_once(
+                        run_datagram_once(
+                            case=case,
                             bin_path=bin_path,
                             payload=payload,
                             size=size,
@@ -1345,7 +1385,8 @@ def main() -> int:
                         )
                     for i in range(runs):
                         samples.append(
-                            run_udplite_once(
+                            run_datagram_once(
+                                case=case,
                                 bin_path=bin_path,
                                 payload=payload,
                                 size=size,

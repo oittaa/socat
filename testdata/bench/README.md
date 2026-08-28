@@ -59,6 +59,7 @@ the **median**.
 |----|------------------|----------|
 | `tcp` | TCP4-LISTEN / TCP4 | classic, go |
 | `unix` | UNIX-LISTEN / UNIX-CONNECT | classic, go |
+| `udp` | UDP4-RECV / UDP4-SENDTO | classic, go |
 | `udplite` | UDPLITE4-RECV / UDPLITE4-SENDTO | classic, go (Linux) |
 | `tls` | TLS-LISTEN / TLS (classic: OPENSSL-LISTEN / OPENSSL) | classic, go |
 | `quic` | QUIC-LISTEN / QUIC | go only |
@@ -83,19 +84,21 @@ installed.
 QUIC is a UDP byte tunnel (`alpn=socat`). It is not TLS and not HTTP/3.
 Classic socat has no QUIC.
 
-UDP-Lite (`IPPROTO_UDPLITE`) is Linux-only, matching this port and classic
-`WITH_UDPLITE`. The kernel must accept `SOCK_DGRAM` + protocol 136. The case
-uses `UDPLITE4-RECV` / `UDPLITE4-SENDTO`; non-fork `*-LISTEN` is one-shot on
-this port, so it is not used here.
+`udp` and `udplite` are unreliable datagram transports. `udp` is standard
+UDP (`IPPROTO_UDP`). UDP-Lite (`IPPROTO_UDPLITE`) is Linux-only, matching
+this port and classic `WITH_UDPLITE`; the kernel must accept `SOCK_DGRAM` +
+protocol 136. Both cases use `UDP4-RECV` / `UDP4-SENDTO` or
+`UDPLITE4-RECV` / `UDPLITE4-SENDTO`. Non-fork `*-LISTEN` is one-shot on this
+port, so it is not used here.
 
-UDP-Lite is an unreliable datagram transport. The runner does not pretend that
-larger socket buffers make it lossless. It frames the incompressible payload
-into fixed `BUF`-byte datagrams with a sequence number, payload length, and
-CRC32. After the sender exits, it waits until the sink is quiet, then reports
-logical-payload sender and delivered-receiver MiB/s plus loss, duplicates,
-reordering, and corruption. Loss and reordering are measurements; malformed or
-corrupt frames fail the run. `SIZE` is the logical payload size, excluding
-frame headers and final-frame padding. There is no connection EOF, so the
+The runner does not pretend that larger socket buffers make datagrams
+lossless. It frames the incompressible payload into fixed `BUF`-byte
+datagrams with a sequence number, payload length, and CRC32. After the
+sender exits, it waits until the sink is quiet, then reports logical-payload
+sender and delivered-receiver MiB/s plus loss, duplicates, reordering, and
+corruption. Loss and reordering are measurements; malformed or corrupt
+frames fail the run. `SIZE` is the logical payload size, excluding frame
+headers and final-frame padding. There is no connection EOF, so the
 receiver is terminated after the quiet interval.
 
 ## Environment
@@ -108,7 +111,7 @@ receiver is terminated after the quiet interval.
 | `SIZE` | `256M` | Stream payload (MiB if `M`) |
 | `RUNS` | `5` | Timed runs |
 | `WARMUP` | `1` | Untimed runs |
-| `BUF` | `8192` | socat `-b`; UDP-Lite requires 21..65507 |
+| `BUF` | `8192` | socat `-b`; datagram cases require 21..65507 |
 | `BENCH_PAYLOAD` | AES-CTR blob | Optional file, ≥ `SIZE` |
 | `SAVE_BASELINE` | empty | Copy JSON + summary here |
 | `RR_N` / `RR_WARMUP` / `RR_SIZE` | 20000 / 1000 / 64 | Ping-pong |
@@ -122,8 +125,9 @@ Both binaries use `-b 8192` and bind `127.0.0.1`.
 
 Each run writes JSON (`meta` + `cases`) and a text summary. Structured JSON is
 the source of truth. The table below must match `testdata/bench/host.json`.
-UDP-Lite rows contain separate `send_mib_s` and `receive_mib_s` distributions
-and datagram delivery counters rather than the stream-only `mib_s` field.
+Datagram rows (`udp`, `udplite`) contain separate `send_mib_s` and
+`receive_mib_s` distributions and datagram delivery counters rather than the
+stream-only `mib_s` field.
 
 `meta` records: time, git, host, kernel, CPU, nproc, Go version, classic
 version, OpenSSL version, size, runs, payload kind, payload hash, and
@@ -181,9 +185,9 @@ Recorded handshakes (same binaries as the table; see `meta.tls` in `host.json`):
 - Bulk TLS also used different ciphers: classic **AES-256-GCM**, Go **AES-128-GCM**.
 - `tls-hs` (classic) is a Go client to a classic listener, so that column is P-256. The Go `tls-hs` column is X25519MLKEM768. The rate gap is also classic `fork(2)` vs Go goroutines.
 - QUIC is a UDP byte tunnel (`alpn=socat`). It is not HTTP/3 and not OpenSSL.
-- UDP-Lite (`udplite`) is in the suite as of this tree; the snapshot table
-  above was recorded before that case. Re-run
-  `SAVE_BASELINE=testdata/bench/host.json` on the snapshot host to fill it.
+- UDP (`udp`) and UDP-Lite (`udplite`) are in the suite as of this tree; the
+  snapshot table above was recorded before those cases. Re-run
+  `SAVE_BASELINE=testdata/bench/host.json` on the snapshot host to fill them.
 - These numbers are one machine. Run the script on your host. JSON: `host.json`.
 
 ## Refresh the committed snapshot
