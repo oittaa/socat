@@ -5,8 +5,10 @@ package netopen
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"os"
+	"time"
 	"unsafe"
 
 	"github.com/oittaa/socat/internal/logx"
@@ -39,23 +41,109 @@ func unixConnectPath(ctx context.Context, fd int, name string, tight bool) error
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	done := make(chan error, 1)
-	go func() {
-		_, _, errno := unix.Syscall(unix.SYS_CONNECT, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(n)) // #nosec G103 -- connect(2) length is xiosetunix's socklen_t
-		if errno != 0 {
-			done <- errno
-			return
-		}
-		done <- nil
-	}()
-	select {
-	case <-ctx.Done():
-		_ = unix.Shutdown(fd, unix.SHUT_RDWR)
-		<-done
-		return ctx.Err()
-	case err := <-done:
+	// Classic xio-socket.c sets O_NONBLOCK when connect-timeout is set, then
+	// connect(2)+xiopoll(POLLOUT|POLLERR). Always do that here so a canceled
+	// context can abort without relying on shutdown(2), which does not
+	// interrupt an unconnected blocking socket. tag-1.8.1.3
+	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+	// af5388c898c7bb60997935aee93c223deba60c4a is the same.
+	if err := unix.SetNonblock(fd, true); err != nil {
 		return err
 	}
+	_, _, errno := unix.Syscall(unix.SYS_CONNECT, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(n)) // #nosec G103 -- connect(2) length is xiosetunix's socklen_t
+	for {
+		if errno == 0 {
+			return nil
+		}
+		if errno == unix.EINPROGRESS {
+			return waitUnixConnect(ctx, fd)
+		}
+		if errno != unix.EAGAIN && errno != unix.EWOULDBLOCK {
+			return errno
+		}
+		// AF_UNIX returns EAGAIN when the listen queue is full: connect(2) was
+		// not started, so POLLOUT/SO_ERROR would be a false completion. Retry
+		// until the context deadline (classic connect-timeout) or cancel.
+		if err := waitUnixConnectRetry(ctx); err != nil {
+			return err
+		}
+		_, _, errno = unix.Syscall(unix.SYS_CONNECT, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(n)) // #nosec G103 -- connect(2) length is xiosetunix's socklen_t
+	}
+}
+
+func waitUnixConnectRetry(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	timeout := time.Duration(unixConnectCancelPollMs) * time.Millisecond
+	if deadline, ok := ctx.Deadline(); ok {
+		rem := time.Until(deadline)
+		if rem <= 0 {
+			return ctx.Err()
+		}
+		if rem < timeout {
+			timeout = rem
+		}
+	}
+	t := time.NewTimer(timeout)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+const unixConnectCancelPollMs = 25
+
+func waitUnixConnect(ctx context.Context, fd int) error {
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		timeout := unixConnectCancelPollMs
+		if deadline, ok := ctx.Deadline(); ok {
+			rem := time.Until(deadline)
+			if rem <= 0 {
+				return ctx.Err()
+			}
+			ms := int(rem / time.Millisecond)
+			if ms < 1 {
+				ms = 1
+			}
+			timeout = ms
+		}
+		pfd := []unix.PollFd{{Fd: unixConnectPollFd(fd), Events: unix.POLLOUT | unix.POLLERR}}
+		n, err := unix.Poll(pfd, timeout)
+		if err != nil {
+			if err == unix.EINTR {
+				continue
+			}
+			return err
+		}
+		if n == 0 {
+			continue
+		}
+		if pfd[0].Revents&unix.POLLNVAL != 0 {
+			return unix.EBADF
+		}
+		soerr, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ERROR)
+		if err != nil {
+			return err
+		}
+		if soerr != 0 {
+			return unix.Errno(soerr)
+		}
+		return nil
+	}
+}
+
+func unixConnectPollFd(fd int) int32 {
+	if fd < 0 || fd > math.MaxInt32 {
+		return -1
+	}
+	return int32(fd) // #nosec G115 -- bounded to MaxInt32
 }
 
 func unixRawSockaddr(name string, tight bool) (unix.RawSockaddrUnix, int, error) {
@@ -79,9 +167,7 @@ func unixRawSockaddr(name string, tight bool) (unix.RawSockaddrUnix, int, error)
 		}
 	}
 	n := classicUnixSockaddrLen(pathlen, len(sa.Path), unix.SizeofSockaddrUnix, abstract, tight)
-	if tight {
-		setUnixSockaddrLen(&sa, n)
-	}
+	setUnixSockaddrLen(&sa, n)
 	return sa, n, nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"io"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
@@ -135,4 +136,160 @@ func TestUnixConnectHonorsCanceledContext(t *testing.T) {
 	if err == nil || !errors.Is(err, context.Canceled) {
 		t.Fatalf("err=%v want context.Canceled", err)
 	}
+}
+
+func TestUnixConnectTimeoutDoesNotHang(t *testing.T) {
+	path, cleanup := listenUnixBacklog(t, 1)
+	t.Cleanup(cleanup)
+	fillers := occupyUnixListenQueue(t, path)
+	t.Cleanup(func() {
+		for _, fd := range fillers {
+			_ = unix.Close(fd)
+		}
+	})
+	if !unixListenQueueIsFull(t, path, &fillers) {
+		t.Skip("kernel did not block extra AF_UNIX connects")
+	}
+
+	cfd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM|sockCloexec, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(cfd) })
+	if sockCloexec == 0 {
+		unix.CloseOnExec(cfd)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err = unixConnectPath(ctx, cfd, path, true)
+	elapsed := time.Since(start)
+	if elapsed > time.Second {
+		t.Fatalf("connect-timeout hung for %s", elapsed)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err=%v want context.DeadlineExceeded (elapsed %s)", err, elapsed)
+	}
+
+	spec, err := parse.ParseSpec("UNIX-CONNECT:" + path + ",connect-timeout=0.15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start = time.Now()
+	conn, err := dialUnixSocklen(context.Background(), spec, nil, "unix", path, "")
+	elapsed = time.Since(start)
+	if conn != nil {
+		_ = conn.Close()
+	}
+	if elapsed > time.Second {
+		t.Fatalf("dial connect-timeout hung for %s", elapsed)
+	}
+	if err == nil {
+		t.Fatal("dial with full listen queue succeeded")
+	}
+}
+
+func TestUnixConnectCancelDuringWait(t *testing.T) {
+	path, cleanup := listenUnixBacklog(t, 1)
+	t.Cleanup(cleanup)
+	fillers := occupyUnixListenQueue(t, path)
+	t.Cleanup(func() {
+		for _, fd := range fillers {
+			_ = unix.Close(fd)
+		}
+	})
+	if !unixListenQueueIsFull(t, path, &fillers) {
+		t.Skip("kernel did not block extra AF_UNIX connects")
+	}
+
+	cfd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM|sockCloexec, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(cfd) })
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(50*time.Millisecond, cancel)
+	start := time.Now()
+	err = unixConnectPath(ctx, cfd, path, true)
+	elapsed := time.Since(start)
+	if elapsed > time.Second {
+		t.Fatalf("canceled connect hung for %s", elapsed)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v want context.Canceled (elapsed %s)", err, elapsed)
+	}
+}
+
+func listenUnixBacklog(t *testing.T, backlog int) (path string, cleanup func()) {
+	t.Helper()
+	path = unixSocketTestPath(t, "backlog.sock")
+	lfd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM|sockCloexec, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sockCloexec == 0 {
+		unix.CloseOnExec(lfd)
+	}
+	if err := unixBindPath(lfd, path, true); err != nil {
+		_ = unix.Close(lfd)
+		t.Fatal(err)
+	}
+	if err := unix.Listen(lfd, backlog); err != nil {
+		_ = unix.Close(lfd)
+		t.Fatal(err)
+	}
+	return path, func() { _ = unix.Close(lfd) }
+}
+
+func occupyUnixListenQueue(t *testing.T, path string) []int {
+	t.Helper()
+	var fds []int
+	for i := 0; i < 32; i++ {
+		fd, errno := unixConnectNonblock(t, path)
+		fds = append(fds, fd)
+		if unixConnectInProgress(errno) {
+			return fds
+		}
+		if errno != 0 {
+			return fds
+		}
+	}
+	return fds
+}
+
+func unixListenQueueIsFull(t *testing.T, path string, fillers *[]int) bool {
+	t.Helper()
+	fd, errno := unixConnectNonblock(t, path)
+	*fillers = append(*fillers, fd)
+	return unixConnectInProgress(errno)
+}
+
+func unixConnectNonblock(t *testing.T, path string) (int, unix.Errno) {
+	t.Helper()
+	fd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM|sockCloexec, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sockCloexec == 0 {
+		unix.CloseOnExec(fd)
+	}
+	if err := unix.SetNonblock(fd, true); err != nil {
+		_ = unix.Close(fd)
+		t.Fatal(err)
+	}
+	return fd, unixConnectOnce(t, fd, path)
+}
+
+func unixConnectOnce(t *testing.T, fd int, path string) unix.Errno {
+	t.Helper()
+	sa, n, err := unixRawSockaddr(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, errno := unix.Syscall(unix.SYS_CONNECT, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(n)) // #nosec G103 -- test uses the same socklen as unixConnectPath
+	return errno
+}
+
+func unixConnectInProgress(errno unix.Errno) bool {
+	return errno == unix.EINPROGRESS || errno == unix.EAGAIN || errno == unix.EWOULDBLOCK
 }
