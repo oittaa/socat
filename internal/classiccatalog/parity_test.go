@@ -97,6 +97,7 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"sighup", "windows", ClassMustAdvertise},
 		{"sigint", "linux", ClassMustAdvertise},
 		{"sigquit", "linux", ClassMustAdvertise},
+		{"retrieve-vlan", "linux", ClassMustAdvertise},
 		{"sctp-maxseg", "linux", ClassMustAdvertise},
 		{"sctp-maxseg", "darwin", ClassMustAdvertise},
 		{"sctp-maxseg", "windows", ClassMustAdvertise},

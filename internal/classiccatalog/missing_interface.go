@@ -1,6 +1,6 @@
 package classiccatalog
 
-// Remaining INTERFACE / TUN flags (later iff-* / retrieve-vlan work).
+// Remaining INTERFACE / TUN flags (later iff-* work). retrieve-vlan is implemented.
 var expectedMissingInterface = map[string]Gap{
 	"iff-automedia":  {Reason: "IFF_AUTOMEDIA on INTERFACE/TUN", Platforms: PlatLinux},
 	"automedia":      {Reason: "alias of iff-automedia", Platforms: PlatLinux},
@@ -13,5 +13,4 @@ var expectedMissingInterface = map[string]Gap{
 	"iff-slave":      {Reason: "IFF_SLAVE on INTERFACE/TUN", Platforms: PlatLinux},
 	"slave":          {Reason: "alias of iff-slave", Platforms: PlatLinux},
 	"iff-dynamic":    {Reason: "documented IFF_DYNAMIC; commented out of classic optionnames[]", Platforms: PlatLinux},
-	"retrieve-vlan":  {Reason: "PACKET_AUXDATA VLAN reconstruction on AF_PACKET", Platforms: PlatLinux},
 }

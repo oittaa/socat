@@ -131,6 +131,114 @@ func TestParseIffOpts(t *testing.T) {
 	}
 }
 
+func TestInsertVLANTag(t *testing.T) {
+	orig := []byte{
+		0, 1, 2, 3, 4, 5,
+		6, 7, 8, 9, 10, 11,
+		0x08, 0x00,
+		0xaa, 0xbb,
+	}
+	buf := make([]byte, 64)
+	n := copy(buf, orig)
+	got, err := insertVLANTag(buf, n, 0x00a1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != n+4 {
+		t.Fatalf("len=%d want %d", got, n+4)
+	}
+	want := []byte{
+		0, 1, 2, 3, 4, 5,
+		6, 7, 8, 9, 10, 11,
+		0x81, 0x00,
+		0x00, 0xa1,
+		0x08, 0x00,
+		0xaa, 0xbb,
+	}
+	if string(buf[:got]) != string(want) {
+		t.Fatalf("got %x want %x", buf[:got], want)
+	}
+
+	tiny := make([]byte, n)
+	copy(tiny, orig)
+	if _, err := insertVLANTag(tiny, n, 1); err == nil {
+		t.Fatal("expected buffer too small")
+	}
+	if got, err := insertVLANTag(buf, 8, 1); err != nil || got != 8 {
+		t.Fatalf("short frame: n=%d err=%v", got, err)
+	}
+}
+
+func TestPacketAuxVLANTCIEmpty(t *testing.T) {
+	if tci, ok := packetAuxVLANTCI(nil); ok || tci != 0 {
+		t.Fatalf("empty oob: tci=%d ok=%v", tci, ok)
+	}
+	n, err := restoreVLANFromAuxdata(make([]byte, 64), 20, nil)
+	if err != nil || n != 20 {
+		t.Fatalf("empty auxdata n=%d err=%v", n, err)
+	}
+}
+
+func TestINTERFACERetrieveVLANSetsockopt(t *testing.T) {
+	spec, err := parse.ParseSpec("INTERFACE:lo,retrieve-vlan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openINTERFACE(context.Background(), spec, xio.ModeRDWR, nil)
+	if err != nil {
+		if errors.Is(err, unix.EPERM) || errors.Is(err, unix.EACCES) {
+			t.Skip(err)
+		}
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	st, ok := o.Stream.(interface {
+		SyscallConn() (syscall.RawConn, error)
+	})
+	if !ok {
+		t.Skip("stream wrapper hides SyscallConn")
+	}
+	raw, err := st.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got int
+	var gerr error
+	if err := raw.Control(func(fd uintptr) {
+		got, gerr = unix.GetsockoptInt(int(fd), unix.SOL_PACKET, unix.PACKET_AUXDATA)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	if got == 0 {
+		t.Fatalf("PACKET_AUXDATA=%d want enabled", got)
+	}
+}
+
+func TestTUNRetrieveVLANRejected(t *testing.T) {
+	s, err := parse.ParseSpec("TUN,retrieve-vlan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = openTUN(context.Background(), s, xio.ModeRDWR, nil)
+	if err == nil || !strings.Contains(err.Error(), "AF_PACKET") {
+		t.Fatalf("err=%v want AF_PACKET INTERFACE error", err)
+	}
+}
+
+func TestPACKETAuxdataSetsockopt(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW|unix.SOCK_CLOEXEC, int(htons(uint16(unix.ETH_P_ALL))))
+	if err != nil {
+		t.Skipf("AF_PACKET: %v", err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	if err := unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_AUXDATA, 1); err != nil {
+		t.Fatalf("PACKET_AUXDATA: %v", err)
+	}
+}
+
 func TestTUNOpenStaysAlive(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("need root for TUN")
