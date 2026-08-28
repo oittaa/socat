@@ -59,7 +59,6 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"iff-notrailers", "notrailers", "iff-master", "master",
 		"iff-slave", "slave", "iff-portsel", "portsel",
 		"iff-automedia", "automedia",
-		"udplite-send-cscov", "udplite-recv-cscov",
 		"sctp-nodelay", "sctp-maxseg",
 		"dash", "login", "setpgid", "pgid",
 		"sighup", "sigint", "sigquit",
@@ -91,12 +90,6 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 	for _, addr := range []string{
 		"VSOCK-CONNECT:<cid>:<port>",
 		"VSOCK-LISTEN:<port>",
-		"UDPLITE4-LISTEN:<port>",
-		"UDPLITE4:<host>:<port>",
-		"UDPLITE4-SENDTO:<host>:<port>",
-		"UDPLITE4-DATAGRAM:<host>:<port>",
-		"UDPLITE4-RECV:<port>",
-		"UDPLITE4-RECVFROM:<port>",
 		"ACCEPT-FD:<fdnum>",
 		"ACCEPT:<fdnum>",
 	} {
@@ -114,7 +107,6 @@ func TestLinuxHHHIncludesClassicOptionMetadata(t *testing.T) {
 	help := b.String()
 	for name, fields := range map[string][]string{
 		"ip-add-source-membership": {"groups=IP4,IP6", "phase=PASTSOCKET", "type=IP-MREQ-SOURCE"},
-		"udplite-recv-cscov":       {"groups=UDPLITE", "phase=FD", "type=INT"},
 		"ioctl-string":             {"groups=FD", "phase=FD", "type=INT:STRING"},
 		"lockfile":                 {"groups=APPL", "phase=INIT", "type=STRING"},
 		"dash":                     {"groups=EXEC", "phase=PREEXEC", "type=BOOL"},

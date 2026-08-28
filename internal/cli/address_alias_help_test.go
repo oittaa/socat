@@ -79,36 +79,6 @@ func TestClassicAddressAliasesHHHNotH(t *testing.T) {
 	}
 }
 
-func TestUDPLITEDgramStaysDirectHelpRow(t *testing.T) {
-	reg, ok := xio.AddressRegistrationForType("UDPLITE-DGRAM")
-	if !ok {
-		t.Fatal("UDPLITE-DGRAM not registered")
-	}
-	var h, hhh bytes.Buffer
-	if err := printHelp(&h, 1); err != nil {
-		t.Fatal(err)
-	}
-	if err := printHelp(&hhh, 3); err != nil {
-		t.Fatal(err)
-	}
-	hText, hhhText := h.String(), hhh.String()
-	if !reg.Enabled {
-		if strings.Contains(hText, "UDPLITE-DGRAM:") {
-			t.Fatal("-h lists disabled UDPLITE-DGRAM")
-		}
-		return
-	}
-	if !strings.Contains(hText, "UDPLITE-DGRAM:") {
-		t.Fatal("-h missing directly registered UDPLITE-DGRAM syntax")
-	}
-	for _, line := range strings.Split(hhhText, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) > 0 && fields[0] == "UDPLITE-DGRAM" && strings.Contains(line, "alias of") {
-			t.Fatalf("UDPLITE-DGRAM must not be reprinted as an alias line: %q", line)
-		}
-	}
-}
-
 func TestTCPLStaysDirectHelpRow(t *testing.T) {
 	var h bytes.Buffer
 	if err := printHelp(&h, 1); err != nil {
