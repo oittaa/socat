@@ -40,18 +40,31 @@ func TestValidateProcessFDOptions(t *testing.T) {
 	}
 }
 
-func TestNormalizeProcessFDDashRange(t *testing.T) {
-	got, err := normalizeProcessFD("9", "fdin")
-	if err != nil || got != "9" {
-		t.Fatalf("fdin=9: got %q err=%v", got, err)
+func TestNormalizeProcessFDClassicUShortRange(t *testing.T) {
+	for _, tc := range []struct {
+		value string
+		want  string
+	}{
+		{value: "9", want: "9"},
+		{value: "10", want: "10"},
+		{value: "0x10", want: "16"},
+		{value: "017", want: "15"},
+		{value: "65535", want: "65535"},
+	} {
+		got, err := normalizeProcessFD(tc.value, "fdin")
+		if err != nil || got != tc.want {
+			t.Fatalf("fdin=%s: got %q err=%v want %q", tc.value, got, err, tc.want)
+		}
 	}
-	_, err = normalizeProcessFD("10", "fdin")
-	if err == nil || !strings.Contains(err.Error(), "cannot be applied through /bin/sh redirection") {
-		t.Fatalf("fdin=10 error=%v", err)
+	_, err := normalizeProcessFD("65536", "fdin")
+	if err == nil || !strings.Contains(err.Error(), "unsigned-short range") {
+		t.Fatalf("fdin=65536 error=%v", err)
 	}
-	_, err = normalizeProcessFD("10", "fdout")
-	if err == nil || !strings.Contains(err.Error(), "fdout") {
-		t.Fatalf("fdout=10 error=%v", err)
+	if processFDNeedsHelper("9", "") {
+		t.Fatal("single-digit fd unexpectedly selected helper")
+	}
+	if !processFDNeedsHelper("9", "10") {
+		t.Fatal("fdout=10 did not select helper")
 	}
 }
 

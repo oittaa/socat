@@ -65,7 +65,10 @@ func TestEXECfdinFdoutInherit(t *testing.T) {
 		{name: "pipes", left: "SYSTEM:printf O; printf D >&4,pipes,fdin=3,fdout=4"},
 		{name: "pipes-overlap-fdin4-fdout5", left: "SYSTEM:printf O; printf D >&5,pipes,fdin=4,fdout=5"},
 		{name: "pipes-overlap-swap-fdin4-fdout3", left: "SYSTEM:printf O; printf D >&3,pipes,fdin=4,fdout=3"},
+		{name: "socketpair-high-fdout", left: "EXEC:/bin/bash -c \\\"printf O; printf D >&10\\\",fdin=9,fdout=10"},
+		{name: "pipes-high-fdout", left: "EXEC:/bin/bash -c \\\"printf O; printf D >&10\\\",pipes,fdin=9,fdout=10"},
 		{name: "pty", left: "SYSTEM:printf O; printf D >&4,pty,fdin=3,fdout=4,raw,echo=0"},
+		{name: "pty-high-fdout", left: "EXEC:/bin/bash -c \\\"printf O; printf D >&10\\\",pty,fdin=9,fdout=10,raw,echo=0"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -159,12 +162,16 @@ func TestEXECSocktypeDgram(t *testing.T) {
 	}
 }
 
-func TestEXECfdinHighDescriptorRejected(t *testing.T) {
-	out, errb, err := runSocat(t, "", "SYSTEM:true,fdin=10", "STDOUT")
-	if err == nil {
-		t.Fatalf("expected rejection stdout=%q stderr=%s", out, errb)
+func TestEXECfdinFdoutHighDescriptors(t *testing.T) {
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skip("/bin/bash not available")
 	}
-	if !strings.Contains(errb, "cannot be applied through /bin/sh redirection") {
-		t.Fatalf("stderr=%s want /bin/sh redirection rejection", errb)
+	const payload = "high-fd-payload"
+	out, errb, err := runSocat(t, payload, "STDIO", "EXEC:/bin/bash -c \\\"cat <&9 >&10\\\",fdin=9,fdout=10")
+	if err != nil {
+		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
+	}
+	if out != payload {
+		t.Fatalf("got %q want %q", out, payload)
 	}
 }

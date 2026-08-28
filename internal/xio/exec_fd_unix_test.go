@@ -156,7 +156,10 @@ func TestOpenSpecFDInFDOutInheritStdoutUnix(t *testing.T) {
 		{name: "pipes", spec: "SYSTEM:printf O; printf D >&4,pipes,fdin=3,fdout=4"},
 		{name: "pipes-overlap-fdin4-fdout5", spec: "SYSTEM:printf O; printf D >&5,pipes,fdin=4,fdout=5"},
 		{name: "pipes-overlap-swap-fdin4-fdout3", spec: "SYSTEM:printf O; printf D >&3,pipes,fdin=4,fdout=3"},
+		{name: "socketpair-high-fdout", spec: "EXEC:/bin/bash -c \\\"printf O; printf D >&10\\\",fdin=9,fdout=10"},
+		{name: "pipes-high-fdout", spec: "EXEC:/bin/bash -c \\\"printf O; printf D >&10\\\",pipes,fdin=9,fdout=10"},
 		{name: "pty", spec: "SYSTEM:printf O; printf D >&4,pty,fdin=3,fdout=4,raw,echo=0", skip: func() bool { return !FeaturePTY }},
+		{name: "pty-high-fdout", spec: "EXEC:/bin/bash -c \\\"printf O; printf D >&10\\\",pty,fdin=9,fdout=10,raw,echo=0", skip: func() bool { return !FeaturePTY }},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -234,6 +237,23 @@ func TestOpenSpecStderrCustomFDOutUnix(t *testing.T) {
 	}
 }
 
+func TestOpenSpecStderrHighFDOutUnix(t *testing.T) {
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skip("/bin/bash not available")
+	}
+	var inherited, relayed string
+	inherited = captureInheritedStdout(t, func() {
+		o := openEXECSpec(t, "EXEC:/bin/bash -c \\\"printf O; printf D >&10; printf E >&2\\\",fdin=9,fdout=10,stderr", ModeRDWR)
+		relayed = string(readStreamBytes(t, o.Stream, 3*time.Second))
+	})
+	if inherited != "O" {
+		t.Fatalf("inherited stdout %q want O", inherited)
+	}
+	if relayed != "DE" {
+		t.Fatalf("relayed %q want DE", relayed)
+	}
+}
+
 func TestOpenSpecChdirWithFDInFDOutUnix(t *testing.T) {
 	dir := t.TempDir()
 	got := captureInheritedStdout(t, func() {
@@ -253,25 +273,73 @@ func TestOpenSpecChdirWithFDInFDOutUnix(t *testing.T) {
 	}
 }
 
-func TestOpenSpecFDInFDOutHighDescriptorRejectedUnix(t *testing.T) {
-	if !FeatureEXEC {
-		t.Skip("EXEC not enabled")
+func TestOpenSpecChdirWithHighFDOutUnix(t *testing.T) {
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skip("/bin/bash not available")
 	}
-	for _, specText := range []string{
-		"SYSTEM:true,fdin=10",
-		"SYSTEM:true,fdout=10",
-		"EXEC:/bin/true,pipes,fdin=4,fdout=10",
+	dir := t.TempDir()
+	o := openEXECSpec(t, "EXEC:/bin/bash -c \\\"pwd >&10\\\",chdir="+dir+",fdout=10", ModeRead)
+	got := strings.TrimSpace(string(readStreamBytes(t, o.Stream, 3*time.Second)))
+	want, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		want = dir
+	}
+	gotEval, err := filepath.EvalSymlinks(got)
+	if err != nil {
+		gotEval = got
+	}
+	if gotEval != want {
+		t.Fatalf("pwd %q want %q", got, dir)
+	}
+}
+
+func TestOpenSpecFDInFDOutHighDescriptorsUnix(t *testing.T) {
+	if _, err := os.Stat("/bin/bash"); err != nil {
+		t.Skip("/bin/bash not available")
+	}
+	const payload = "high-fd-payload"
+	for _, tc := range []struct {
+		name string
+		spec string
+	}{
+		{name: "socketpair", spec: "EXEC:/bin/bash -c \\\"cat <&9 >&10\\\",fdin=9,fdout=10"},
+		{name: "pipes", spec: "EXEC:/bin/bash -c \\\"cat <&9 >&10\\\",pipes,fdin=9,fdout=10"},
 	} {
-		t.Run(specText, func(t *testing.T) {
-			spec, err := parse.ParseSpec(specText)
-			if err != nil {
+		t.Run(tc.name, func(t *testing.T) {
+			o := openEXECSpec(t, tc.spec, ModeRDWR)
+			if _, err := o.Stream.Write([]byte(payload)); err != nil {
 				t.Fatal(err)
 			}
-			_, err = OpenSpec(context.Background(), spec, ModeRDWR, &Global{Log: logx.New(), Linger: time.Second})
-			if err == nil || !strings.Contains(err.Error(), "cannot be applied through /bin/sh redirection") {
-				t.Fatalf("error=%v", err)
+			if err := o.Stream.ShutdownWrite(); err != nil {
+				t.Fatal(err)
+			}
+			if got := string(readStreamBytes(t, o.Stream, 3*time.Second)); got != payload {
+				t.Fatalf("relayed %q want %q", got, payload)
 			}
 		})
+	}
+}
+
+func TestOpenSpecPipesSameFDInputWinsUnix(t *testing.T) {
+	script := filepath.Join(t.TempDir(), "same-fd.sh")
+	body := "#!/bin/sh\nIFS= read -r line <&5\nprintf '%s' \"$line\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got := captureInheritedStdout(t, func() {
+		o := openEXECSpec(t, "EXEC:"+script+",pipes,fdin=5,fdout=5", ModeRDWR)
+		if _, err := o.Stream.Write([]byte("input-wins\n")); err != nil {
+			t.Fatal(err)
+		}
+		if err := o.Stream.ShutdownWrite(); err != nil {
+			t.Fatal(err)
+		}
+		if err := o.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got != "input-wins" {
+		t.Fatalf("inherited stdout=%q want input-wins", got)
 	}
 }
 

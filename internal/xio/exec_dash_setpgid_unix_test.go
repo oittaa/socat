@@ -144,6 +144,30 @@ func TestEXECDashPrintsLoginArgv0(t *testing.T) {
 	}
 }
 
+func TestEXECDashWithHighFDOutRewritesTargetArgv0(t *testing.T) {
+	bin := buildArgv0FDHelper(t)
+	got := readExecStdout(t, "EXEC:"+bin+",dash,fdout=10")
+	if got != "x-argv0fd" {
+		t.Fatalf("dash argv0=%q want x-argv0fd", got)
+	}
+}
+
+func buildArgv0FDHelper(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "argv0fd.c")
+	body := "#include <stdio.h>\nint main(int argc, char **argv){ (void)argc; dprintf(10, \"x%s\\n\", argv[0] ? argv[0] : \"\"); return 0; }\n"
+	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "argv0fd")
+	out, err := exec.Command("gcc", "-o", bin, src).CombinedOutput()
+	if err != nil {
+		t.Skipf("gcc unavailable: %v (%s)", err, out)
+	}
+	return bin
+}
+
 func buildArgv0Helper(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

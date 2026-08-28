@@ -70,7 +70,9 @@ func defaultFDO(fdout string) string {
 // xio-progcall.c Dup2 of the child data fd(s) onto fdi/fdo (tag-1.8.1.3
 // 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 // af5388c898c7bb60997935aee93c223deba60c4a is the same). Unrelated 0/1/2
-// stay inherited. stderr is Dup2'd from the effective fdo when requested.
+// stay inherited. Classic maps the output endpoint first and the input
+// endpoint second, which matters for pipes when fdin == fdout: input wins.
+// stderr is Dup2'd from the effective fdo when requested.
 func childFDRedirectPrefix(inSrc, outSrc, fdin, fdout string, withStderr bool) string {
 	var inT, outT string
 	if inSrc != "" {
@@ -104,11 +106,11 @@ func childFDRedirectPrefix(inSrc, outSrc, fdin, fdout string, withStderr bool) s
 		}
 	}
 
-	if inT != "" && inSrc != "" && inT != inSrc {
-		redir += " " + inT + "<&" + inSrc
-	}
 	if outT != "" && outSrc != "" && outT != outSrc {
 		redir += " " + outT + ">&" + outSrc
+	}
+	if inT != "" && inSrc != "" && inT != inSrc {
+		redir += " " + inT + "<&" + inSrc
 	}
 	if withStderr {
 		if outT != "" {
