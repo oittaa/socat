@@ -40,6 +40,21 @@ func TestValidateProcessFDOptions(t *testing.T) {
 	}
 }
 
+func TestNormalizeProcessFDDashRange(t *testing.T) {
+	got, err := normalizeProcessFD("9", "fdin")
+	if err != nil || got != "9" {
+		t.Fatalf("fdin=9: got %q err=%v", got, err)
+	}
+	_, err = normalizeProcessFD("10", "fdin")
+	if err == nil || !strings.Contains(err.Error(), "cannot be applied through /bin/sh redirection") {
+		t.Fatalf("fdin=10 error=%v", err)
+	}
+	_, err = normalizeProcessFD("10", "fdout")
+	if err == nil || !strings.Contains(err.Error(), "fdout") {
+		t.Fatalf("fdout=10 error=%v", err)
+	}
+}
+
 func TestStreamRWFilesFindsNestedDualFiles(t *testing.T) {
 	stream := relay.FDStream{
 		R: relay.FDStream{R: os.Stdin, W: io.Discard, C: NopCloser{}},

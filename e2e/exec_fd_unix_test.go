@@ -63,6 +63,8 @@ func TestEXECfdinFdoutInherit(t *testing.T) {
 	}{
 		{name: "socketpair", left: "SYSTEM:printf O; printf D >&4,fdin=3,fdout=4"},
 		{name: "pipes", left: "SYSTEM:printf O; printf D >&4,pipes,fdin=3,fdout=4"},
+		{name: "pipes-overlap-fdin4-fdout5", left: "SYSTEM:printf O; printf D >&5,pipes,fdin=4,fdout=5"},
+		{name: "pipes-overlap-swap-fdin4-fdout3", left: "SYSTEM:printf O; printf D >&3,pipes,fdin=4,fdout=3"},
 		{name: "pty", left: "SYSTEM:printf O; printf D >&4,pty,fdin=3,fdout=4,raw,echo=0"},
 	}
 	for _, tc := range tests {
@@ -154,5 +156,15 @@ func TestEXECSocktypeDgram(t *testing.T) {
 	}
 	if out != "hello" {
 		t.Fatalf("got %q want hello", out)
+	}
+}
+
+func TestEXECfdinHighDescriptorRejected(t *testing.T) {
+	out, errb, err := runSocat(t, "", "SYSTEM:true,fdin=10", "STDOUT")
+	if err == nil {
+		t.Fatalf("expected rejection stdout=%q stderr=%s", out, errb)
+	}
+	if !strings.Contains(errb, "cannot be applied through /bin/sh redirection") {
+		t.Fatalf("stderr=%s want /bin/sh redirection rejection", errb)
 	}
 }

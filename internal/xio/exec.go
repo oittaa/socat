@@ -579,6 +579,11 @@ func validateProcessFDOptions(mode Mode, fdin, fdout string) error {
 	return nil
 }
 
+// dashFDRedirectMax is the largest descriptor dash (Ubuntu /bin/sh) accepts
+// as a redirection prefix. Mapping uses ExtraFiles plus `exec n<&m`, not
+// classic dup2(unsigned short).
+const dashFDRedirectMax = 9
+
 func normalizeProcessFD(value, name string) (string, error) {
 	if value == "" {
 		return "", nil
@@ -586,6 +591,9 @@ func normalizeProcessFD(value, name string) (string, error) {
 	n, err := ParseIntAny(value)
 	if err != nil || n < 0 {
 		return "", fmt.Errorf("%s: invalid file descriptor %q", name, value)
+	}
+	if n > dashFDRedirectMax {
+		return "", fmt.Errorf("%s: file descriptor %d cannot be applied through /bin/sh redirection", name, n)
 	}
 	return strconv.Itoa(n), nil
 }

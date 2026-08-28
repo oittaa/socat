@@ -154,6 +154,8 @@ func TestOpenSpecFDInFDOutInheritStdoutUnix(t *testing.T) {
 	}{
 		{name: "socketpair", spec: "SYSTEM:printf O; printf D >&4,fdin=3,fdout=4"},
 		{name: "pipes", spec: "SYSTEM:printf O; printf D >&4,pipes,fdin=3,fdout=4"},
+		{name: "pipes-overlap-fdin4-fdout5", spec: "SYSTEM:printf O; printf D >&5,pipes,fdin=4,fdout=5"},
+		{name: "pipes-overlap-swap-fdin4-fdout3", spec: "SYSTEM:printf O; printf D >&3,pipes,fdin=4,fdout=3"},
 		{name: "pty", spec: "SYSTEM:printf O; printf D >&4,pty,fdin=3,fdout=4,raw,echo=0", skip: func() bool { return !FeaturePTY }},
 	}
 	for _, tc := range tests {
@@ -248,6 +250,28 @@ func TestOpenSpecChdirWithFDInFDOutUnix(t *testing.T) {
 	}
 	if gotEval != want {
 		t.Fatalf("pwd %q want %q", got, dir)
+	}
+}
+
+func TestOpenSpecFDInFDOutHighDescriptorRejectedUnix(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	for _, specText := range []string{
+		"SYSTEM:true,fdin=10",
+		"SYSTEM:true,fdout=10",
+		"EXEC:/bin/true,pipes,fdin=4,fdout=10",
+	} {
+		t.Run(specText, func(t *testing.T) {
+			spec, err := parse.ParseSpec(specText)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = OpenSpec(context.Background(), spec, ModeRDWR, &Global{Log: logx.New(), Linger: time.Second})
+			if err == nil || !strings.Contains(err.Error(), "cannot be applied through /bin/sh redirection") {
+				t.Fatalf("error=%v", err)
+			}
+		})
 	}
 }
 

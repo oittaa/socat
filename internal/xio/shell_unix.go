@@ -136,7 +136,13 @@ func unusedFDNumbers(avoid ...string) (string, string) {
 		}
 	}
 	found := make([]string, 0, 2)
-	for i := 10; i < 200 && len(found) < 2; i++ {
+	// Ubuntu /bin/sh is dash; its redirection grammar only accepts a
+	// single-digit descriptor prefix (`10<&3` is a syntax error). Classic
+	// dup2 takes an unsigned short. Temps stay in 3–9: the caller avoids at
+	// most two ExtraFiles sources and two fdi/fdo targets, so two slots
+	// remain (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+	// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
+	for i := 3; i <= dashFDRedirectMax && len(found) < 2; i++ {
 		s := strconv.Itoa(i)
 		if !taken[s] {
 			found = append(found, s)
