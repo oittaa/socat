@@ -752,8 +752,11 @@ func TestRunExecNoForkExecFailureLeavesParentFDsUnix(t *testing.T) {
 	g := &Global{Log: logx.New()}
 	s := parseNoForkSpec(t, fmt.Sprintf("EXEC:/no/such/socat-nofork-missing,nofork,fdin=%d,fdout=4", fdin))
 	err = runExecNoFork(context.Background(), peer, s, g, ModeRDWR)
-	if err == nil && g.ChildExitCode != 127 {
-		t.Fatalf("missing binary: err=%v ChildExitCode=%d want 127", err, g.ChildExitCode)
+	if err != nil {
+		t.Fatalf("missing binary: err=%v want ChildExitCode 1", err)
+	}
+	if g.ChildExitCode != 1 {
+		t.Fatalf("missing binary: ChildExitCode=%d want 1 (classic execvp Exit(1))", g.ChildExitCode)
 	}
 	got := make([]byte, len(keep)+8)
 	n, readErr := marker.ReadAt(got, 0)
@@ -762,5 +765,92 @@ func TestRunExecNoForkExecFailureLeavesParentFDsUnix(t *testing.T) {
 	}
 	if string(got[:n]) != keep {
 		t.Fatalf("parent fd %d remapped: %q", fdin, got[:n])
+	}
+}
+
+func TestRunExecNoForkBareSHELLReadsStdinUnix(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		t.Skip("/bin/sh not available")
+	}
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdin
+	os.Stdin = pr
+	t.Cleanup(func() {
+		os.Stdin = old
+		_ = pw.Close()
+		_ = pr.Close()
+	})
+	if _, err := pw.Write([]byte("printf OK\nexit\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := pw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	peer, _, _, _ := noForkPipePeer(t)
+	got := captureInheritedStdout(t, func() {
+		s := parseNoForkSpec(t, "SHELL,nofork,fdin=3,shell=/bin/sh")
+		if err := runExecNoFork(context.Background(), peer, s, nil, ModeWrite); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got != "OK" {
+		t.Fatalf("bare SHELL inherited stdout=%q want OK", got)
+	}
+}
+
+func TestRunExecNoForkTrueWithCustomFDsUnix(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	peer, _, _, _ := noForkPipePeer(t)
+	s := parseNoForkSpec(t, "EXEC:true,nofork,fdin=3,fdout=4")
+	g := &Global{Log: logx.New()}
+	if err := runExecNoFork(context.Background(), peer, s, g, ModeRDWR); err != nil {
+		t.Fatal(err)
+	}
+	if g.ChildExitCode != 0 {
+		t.Fatalf("EXEC:true ChildExitCode=%d want 0 (helper must LookPath the basename)", g.ChildExitCode)
+	}
+}
+
+func TestRunExecNoForkTargetExit127Unix(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	script := filepath.Join(t.TempDir(), "exit127")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 127\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	peer, _, _, _ := noForkPipePeer(t)
+	s := parseNoForkSpec(t, "EXEC:"+script+",nofork,fdin=3,fdout=4")
+	g := &Global{Log: logx.New()}
+	if err := runExecNoFork(context.Background(), peer, s, g, ModeRDWR); err != nil {
+		t.Fatal(err)
+	}
+	if g.ChildExitCode != 127 {
+		t.Fatalf("target exit 127: ChildExitCode=%d want 127", g.ChildExitCode)
+	}
+}
+
+func TestRunExecNoForkDashRewritesTargetArgv0Unix(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	bin := buildArgv0Helper(t)
+	peer, _, _, _ := noForkPipePeer(t)
+	got := strings.TrimSpace(captureInheritedStdout(t, func() {
+		s := parseNoForkSpec(t, "EXEC:"+bin+",dash,nofork,fdin=3,fdout=4")
+		if err := runExecNoFork(context.Background(), peer, s, nil, ModeRDWR); err != nil {
+			t.Fatal(err)
+		}
+	}))
+	if got != "x-argv0" {
+		t.Fatalf("nofork dash argv0=%q want x-argv0", got)
 	}
 }

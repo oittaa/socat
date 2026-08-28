@@ -3,37 +3,15 @@
 package xio
 
 import (
-	"context"
-	"os/exec"
 	"strconv"
-	"strings"
 )
 
-// Shell command assembly for EXEC/SYSTEM fdin=/fdout= redirection. The child
-// is relaunched under /bin/sh so ExtraFiles (fd 3+) can be Dup2'd onto the
-// classic fdi/fdo targets without leaving extra copies on stdin/stdout.
-
-func rebuildWithSocketFDRedirect(
-	ctx context.Context,
-	cmd *exec.Cmd,
-	mode Mode,
-	fdin, fdout string,
-	withStderr bool,
-) *exec.Cmd {
-	inSrc, outSrc := extraSources(mode, true)
-	return rebuildWithShellPrefix(ctx, cmd, childFDRedirectPrefix(inSrc, outSrc, fdin, fdout, withStderr))
-}
-
-func rebuildWithPipeFDRedirect(
-	ctx context.Context,
-	cmd *exec.Cmd,
-	mode Mode,
-	fdin, fdout string,
-	withStderr bool,
-) *exec.Cmd {
-	inSrc, outSrc := extraSources(mode, false)
-	return rebuildWithShellPrefix(ctx, cmd, childFDRedirectPrefix(inSrc, outSrc, fdin, fdout, withStderr))
-}
+// ExtraFiles sources and classic fdi/fdo numbering for EXEC/SYSTEM/SHELL.
+// Runtime remapping is ExtraFiles plus the child dup2 helper
+// (exec_fd_helper_unix.go), not a /bin/sh reconstruction, so bare SHELL
+// keeps its argv and dash/login rewrite the target. childFDRedirectPrefix
+// documents the equivalent dash-safe shell grammar previously used for
+// single-digit descriptors.
 
 // extraSources returns ExtraFiles numbers for the child-side data descriptors.
 // Socket/PTY share ExtraFiles[0] (fd 3) for both directions. Pipes use fd 3
@@ -151,35 +129,4 @@ func unusedFDNumbers(avoid ...string) (string, string) {
 		}
 	}
 	return found[0], found[1]
-}
-
-func rebuildWithShellPrefix(ctx context.Context, cmd *exec.Cmd, prefix string) *exec.Cmd {
-	orig := ""
-	if len(cmd.Args) > 0 {
-		if cmd.Args[0] == "/bin/sh" || cmd.Args[0] == "sh" || strings.HasSuffix(cmd.Path, "/sh") {
-			if len(cmd.Args) >= 3 && cmd.Args[1] == "-c" {
-				orig = cmd.Args[2]
-			}
-		} else {
-			orig = shellJoin(cmd.Args)
-		}
-	}
-	return exec.CommandContext(ctx, "/bin/sh", "-c", prefix+"; "+orig) // #nosec G204 -- EXEC/SYSTEM runs the user command; prefix contains validated numeric FDs only
-}
-
-func shellJoin(args []string) string {
-	var b strings.Builder
-	for i, a := range args {
-		if i > 0 {
-			b.WriteByte(' ')
-		}
-		if strings.ContainsAny(a, " \t'\"\\$`") {
-			b.WriteByte('\'')
-			b.WriteString(strings.ReplaceAll(a, "'", `'\''`))
-			b.WriteByte('\'')
-		} else {
-			b.WriteString(a)
-		}
-	}
-	return b.String()
 }

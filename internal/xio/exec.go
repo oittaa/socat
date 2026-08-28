@@ -238,7 +238,6 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 		return err
 	}
 	fdRedirect := fdin != "" || fdout != ""
-	useFDHelper := fdRedirect && processFDNeedsHelper(fdin, fdout)
 
 	var extra []*os.File
 	closeExtra := func() {
@@ -255,12 +254,11 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 		if err != nil {
 			return err
 		}
-		if useFDHelper {
-			if err := applyDashArgv0(s, cmd); err != nil {
-				return err
-			}
+		// dash/login rewrite the target argv[0] before the helper wraps it.
+		if err := applyDashArgv0(s, cmd); err != nil {
+			return err
 		}
-		cmd, err = wrapNoForkFDCommand(ctx, cmd, mode, fdin, fdout, sameFD, s.BoolOption("stderr"), useFDHelper)
+		cmd, err = wrapNoForkFDCommand(ctx, cmd, mode, fdin, fdout, sameFD, s.BoolOption("stderr"))
 		if err != nil {
 			return err
 		}
@@ -273,7 +271,7 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 		}
 		cmd.SysProcAttr.Setsid = true
 	}
-	if useFDHelper {
+	if fdRedirect {
 		if err := applySetpgid(s, cmd); err != nil {
 			return err
 		}
@@ -310,7 +308,7 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 	if g != nil {
 		cmd.Env = childEnviron(g)
 	}
-	if useFDHelper {
+	if fdRedirect {
 		cmd.Env = withExecFDHelperEnv(cmd.Env)
 	}
 	if err := startWithChildUmask(s, cmd, g); err != nil {
@@ -331,26 +329,20 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 	return nil
 }
 
-// wrapNoForkFDCommand applies the forked EXEC fdin/fdout mapper to a nofork
-// command. sameFD is a socket-like peer (one ExtraFiles source at fd 3);
-// otherwise the peer is two pipes (fd 3 input, fd 4 output).
+// wrapNoForkFDCommand applies the child dup2 helper to a nofork command.
+// sameFD is a socket-like peer (one ExtraFiles source at fd 3); otherwise
+// the peer is two pipes (fd 3 input, fd 4 output).
 func wrapNoForkFDCommand(
 	ctx context.Context,
 	cmd *exec.Cmd,
 	mode Mode,
 	fdin, fdout string,
-	sameFD, withStderr, useHelper bool,
+	sameFD, withStderr bool,
 ) (*exec.Cmd, error) {
-	if useHelper {
-		if sameFD {
-			return rebuildWithSocketFDHelper(ctx, cmd, mode, fdin, fdout, withStderr)
-		}
-		return rebuildWithPipeFDHelper(ctx, cmd, mode, fdin, fdout, withStderr)
-	}
 	if sameFD {
-		return rebuildWithSocketFDRedirect(ctx, cmd, mode, fdin, fdout, withStderr), nil
+		return rebuildWithSocketFDHelper(ctx, cmd, mode, fdin, fdout, withStderr)
 	}
-	return rebuildWithPipeFDRedirect(ctx, cmd, mode, fdin, fdout, withStderr), nil
+	return rebuildWithPipeFDHelper(ctx, cmd, mode, fdin, fdout, withStderr)
 }
 
 // childWaitExitCode maps cmd.Wait to a process exit status. Go's
@@ -664,31 +656,25 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 
 	fdRedirect := fdin != "" || fdout != ""
-	useFDHelper := fdRedirect && processFDNeedsHelper(fdin, fdout)
 	if fdRedirect {
-		if useFDHelper {
-			// dash changes the target's argv[0], not the internal helper used to
-			// place fdi/fdo. Apply it before wrapping the target command.
-			if err := applyDashArgv0(s, cmd); err != nil {
-				return nil, err
-			}
-			if usePipes {
-				cmd, err = rebuildWithPipeFDHelper(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
-			} else {
-				// Socketpair and PTY share ExtraFiles[0] (child fd 3).
-				cmd, err = rebuildWithSocketFDHelper(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
-			}
-			if err != nil {
-				return nil, err
-			}
-		} else if usePipes {
-			cmd = rebuildWithPipeFDRedirect(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
+		// dash changes the target's argv[0], not the internal helper used to
+		// place fdi/fdo. Apply it before wrapping. Every custom fdin/fdout
+		// uses the child dup2 helper so bare SHELL and dash stay on the
+		// target instead of a /bin/sh reconstruction.
+		if err := applyDashArgv0(s, cmd); err != nil {
+			return nil, err
+		}
+		if usePipes {
+			cmd, err = rebuildWithPipeFDHelper(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
 		} else {
-			// Socketpair and PTY: one child data fd at ExtraFiles[0] (fd 3).
-			cmd = rebuildWithSocketFDRedirect(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
+			// Socketpair and PTY share ExtraFiles[0] (child fd 3).
+			cmd, err = rebuildWithSocketFDHelper(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
+		}
+		if err != nil {
+			return nil, err
 		}
 	}
-	// Rebuilding through /bin/sh must not discard chdir=.
+	// Rebuilding through the helper must not discard chdir=.
 	cmd.Dir = s.OptionValue("chdir", "")
 
 	if s.BoolOption("setsid") {
@@ -697,7 +683,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		}
 		cmd.SysProcAttr.Setsid = true
 	}
-	if useFDHelper {
+	if fdRedirect {
 		// applyDashArgv0 already ran on the target before it was wrapped.
 		if err := applySetpgid(s, cmd); err != nil {
 			return nil, err
@@ -712,7 +698,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	if g != nil {
 		cmd.Env = childEnviron(g)
 	}
-	if useFDHelper {
+	if fdRedirect {
 		cmd.Env = withExecFDHelperEnv(cmd.Env)
 	}
 
@@ -787,7 +773,8 @@ func processFDPair(s parse.Spec, mode Mode) (fdin, fdout string, err error) {
 }
 
 // dashFDRedirectMax is the largest descriptor dash (Ubuntu /bin/sh) accepts
-// as a redirection prefix. Higher descriptors use the child-side dup2 helper.
+// as a redirection prefix. Runtime mapping no longer uses that grammar;
+// unusedFDNumbers still keeps historical prefix temps in 3–9.
 const dashFDRedirectMax = 9
 
 // Classic's compiled option catalog advertises fdin/fdout as TYPE_USHORT
@@ -809,19 +796,6 @@ func normalizeProcessFD(value, name string) (string, error) {
 		return "", fmt.Errorf("%s: file descriptor %d exceeds unsigned-short range", name, n)
 	}
 	return strconv.Itoa(n), nil
-}
-
-func processFDNeedsHelper(fdin, fdout string) bool {
-	for _, value := range []string{fdin, fdout} {
-		if value == "" {
-			continue
-		}
-		n, err := strconv.Atoi(value)
-		if err == nil && n > dashFDRedirectMax {
-			return true
-		}
-	}
-	return false
 }
 
 func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdRedirect bool) (relay.Stream, []func(), []*os.File, error) {
