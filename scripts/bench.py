@@ -13,10 +13,12 @@ import platform
 import signal
 import socket
 import statistics
+import struct
 import subprocess
 import sys
 import threading
 import time
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -27,11 +29,28 @@ MIB = 1024 * 1024
 _AES_KEY = "0123456789abcdeffedcba9876543210"
 _AES_IV = "00000000000000000000000000000000"
 
-DEFAULT_CASES = ("tcp", "unix", "tls", "quic", "tcp-rr", "tls-rr", "quic-rr", "tls-hs")
+DEFAULT_CASES = (
+    "tcp",
+    "unix",
+    "udp",
+    "udplite",
+    "tls",
+    "quic",
+    "tcp-rr",
+    "tls-rr",
+    "quic-rr",
+    "tls-hs",
+)
 STREAM_CASES = {"tcp", "unix", "tls", "quic"}
+DATAGRAM_CASES = {"udp", "udplite"}
 RR_CASES = {"tcp-rr", "tls-rr", "quic-rr"}
 HS_CASES = {"tls-hs"}
 GO_ONLY = {"quic", "quic-rr"}
+IPPROTO_UDPLITE = getattr(socket, "IPPROTO_UDPLITE", 136)
+UDPLITE_MAGIC = b"SCL1"
+UDPLITE_HEADER = struct.Struct("!4sQII")  # magic, sequence, payload length, CRC32
+UDPLITE_MAX_DATAGRAM = 65507
+UDPLITE_QUIET_SECONDS = 0.25
 
 
 def parse_size(text: str) -> int:
@@ -338,6 +357,108 @@ def ensure_payload(workdir: Path, size: int) -> tuple[Path, str]:
     return dest, "aes-128-ctr (incompressible)"
 
 
+def udplite_frame_count(size: int, buffer: int) -> int:
+    if size <= 0:
+        raise ValueError("UDP-Lite benchmark SIZE must be positive")
+    if buffer <= UDPLITE_HEADER.size:
+        raise ValueError(f"UDP-Lite BUF must exceed the {UDPLITE_HEADER.size}-byte frame header")
+    if buffer > UDPLITE_MAX_DATAGRAM:
+        raise ValueError(f"UDP-Lite BUF must not exceed {UDPLITE_MAX_DATAGRAM}")
+    payload_per_frame = buffer - UDPLITE_HEADER.size
+    return (size + payload_per_frame - 1) // payload_per_frame
+
+
+def ensure_udplite_payload(payload: Path, size: int, buffer: int) -> tuple[Path, int, int]:
+    """Frame SIZE source bytes into fixed-size, self-validating datagrams."""
+    frame_count = udplite_frame_count(size, buffer)
+    wire_size = frame_count * buffer
+    stat = payload.stat()
+    cache_key = hashlib.sha256(
+        f"{payload.resolve()}:{stat.st_size}:{stat.st_mtime_ns}:{size}".encode("utf-8")
+    ).hexdigest()[:12]
+    dest = payload.with_name(f"{payload.name}.udplite-v1.{buffer}.{cache_key}")
+    if dest.is_file() and dest.stat().st_size == wire_size:
+        return dest, frame_count, wire_size
+
+    payload_per_frame = buffer - UDPLITE_HEADER.size
+    tmp = dest.with_suffix(dest.suffix + ".tmp")
+    written = 0
+    with payload.open("rb") as source, tmp.open("wb") as out:
+        for sequence in range(frame_count):
+            payload_len = min(payload_per_frame, size - written)
+            data = source.read(payload_len)
+            if len(data) != payload_len:
+                tmp.unlink(missing_ok=True)
+                raise ValueError(f"UDP-Lite payload ended after {written + len(data)} bytes; want {size}")
+            out.write(UDPLITE_HEADER.pack(UDPLITE_MAGIC, sequence, payload_len, zlib.crc32(data)))
+            out.write(data)
+            out.write(b"\x00" * (payload_per_frame - payload_len))
+            written += payload_len
+    if written != size or tmp.stat().st_size != wire_size:
+        tmp.unlink(missing_ok=True)
+        raise ValueError(f"failed to frame {size} UDP-Lite payload bytes")
+    tmp.replace(dest)
+    return dest, frame_count, wire_size
+
+
+def analyze_udplite_sink(sink: Path, size: int, buffer: int) -> dict[str, Any]:
+    """Validate fixed-size frames and report datagram delivery properties."""
+    expected = udplite_frame_count(size, buffer)
+    payload_per_frame = buffer - UDPLITE_HEADER.size
+    seen: set[int] = set()
+    received = duplicates = reordered = corrupt = trailing = 0
+    received_payload = 0
+    highest_sequence = -1
+
+    if sink.is_file():
+        with sink.open("rb") as source:
+            while True:
+                frame = source.read(buffer)
+                if not frame:
+                    break
+                if len(frame) != buffer:
+                    trailing = len(frame)
+                    corrupt += 1
+                    break
+                magic, sequence, payload_len, checksum = UDPLITE_HEADER.unpack_from(frame)
+                expected_len = 0
+                if sequence < expected:
+                    expected_len = min(payload_per_frame, size - sequence * payload_per_frame)
+                data = frame[UDPLITE_HEADER.size : UDPLITE_HEADER.size + payload_len]
+                if (
+                    magic != UDPLITE_MAGIC
+                    or sequence >= expected
+                    or payload_len != expected_len
+                    or zlib.crc32(data) != checksum
+                ):
+                    corrupt += 1
+                    continue
+                received += 1
+                if sequence in seen:
+                    duplicates += 1
+                    continue
+                if sequence < highest_sequence:
+                    reordered += 1
+                highest_sequence = max(highest_sequence, sequence)
+                seen.add(sequence)
+                received_payload += payload_len
+
+    missing = expected - len(seen)
+    return {
+        "expected_datagrams": expected,
+        "received_datagrams": received,
+        "unique_datagrams": len(seen),
+        "missing_datagrams": missing,
+        "duplicate_datagrams": duplicates,
+        "reordered_datagrams": reordered,
+        "corrupt_datagrams": corrupt,
+        "trailing_bytes": trailing,
+        "loss_pct": 100.0 * missing / expected,
+        "received_payload_bytes": received_payload,
+        "received_wire_bytes": len(seen) * buffer,
+    }
+
+
 def copy_prefix(src: Path, dest: Path, size: int) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".tmp")
@@ -404,6 +525,20 @@ def free_tcp_port() -> int:
         return int(s.getsockname()[1])
 
 
+def free_udp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+def free_udplite_port() -> int:
+    # UDP-Lite has its own protocol/port namespace; a free TCP or UDP port
+    # says nothing about whether this port is available for protocol 136.
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, IPPROTO_UDPLITE) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
 def wait_tcp(port: int, timeout: float = 5.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -427,6 +562,29 @@ def wait_udp(port: int, timeout: float = 5.0) -> None:
             return
         time.sleep(0.02)
     raise TimeoutError(f"UDP listen on 127.0.0.1:{port} did not appear")
+
+
+def wait_udplite(port: int, timeout: float = 5.0) -> None:
+    # UDP and UDP-Lite have distinct protocol/port namespaces.
+    deadline = time.monotonic() + timeout
+    addr = ("127.0.0.1", port)
+    while time.monotonic() < deadline:
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, IPPROTO_UDPLITE) as s:
+                s.bind(addr)
+        except OSError:
+            return
+        time.sleep(0.02)
+    raise TimeoutError(f"UDP-Lite listen on 127.0.0.1:{port} did not appear")
+
+
+def udplite_available() -> bool:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, IPPROTO_UDPLITE)
+    except OSError:
+        return False
+    s.close()
+    return True
 
 
 def wait_unix(path: Path, timeout: float = 5.0) -> None:
@@ -576,16 +734,158 @@ def stream_addrs(case: str, port: int, sock: Path, certs: dict[str, Path], impl:
             f"QUIC-LISTEN:{port},reuseaddr,bind=127.0.0.1,cert={crt},key={key},verify=0",
             f"QUIC:127.0.0.1:{port},verify=1,cafile={ca},commonname=localhost",
         )
+    if case == "udp":
+        # RECV+SENDTO: a stream of datagrams. Non-fork *-LISTEN is one-shot
+        # (first packet then EOF) on this port; classic LISTEN stays connected.
+        return (
+            f"UDP4-RECV:{port},reuseaddr,bind=127.0.0.1,rcvbuf=8388608,sndbuf=8388608",
+            f"UDP4-SENDTO:127.0.0.1:{port},sndbuf=8388608,rcvbuf=8388608",
+        )
+    if case == "udplite":
+        # Same RECV+SENDTO shape as udp; protocol 136 instead of 17.
+        return (
+            f"UDPLITE4-RECV:{port},reuseaddr,bind=127.0.0.1,rcvbuf=8388608,sndbuf=8388608",
+            f"UDPLITE4-SENDTO:127.0.0.1:{port},sndbuf=8388608,rcvbuf=8388608",
+        )
     raise ValueError(case)
 
 
 def listen_wait(case: str, port: int, sock: Path) -> None:
     if case == "unix":
         wait_unix(sock)
-    elif case == "quic":
+    elif case in {"quic", "udp"}:
         wait_udp(port)
+    elif case == "udplite":
+        wait_udplite(port)
     else:
         wait_tcp(port)
+
+
+def wait_file_quiet(
+    path: Path, timeout: float = 10.0, quiet: float = UDPLITE_QUIET_SECONDS
+) -> tuple[int, float]:
+    """Return the final size and observed completion time after the sink is quiet."""
+    deadline = time.perf_counter() + timeout
+    last_change = time.perf_counter()
+    last_size = -1
+    while True:
+        size = path.stat().st_size if path.exists() else 0
+        now = time.perf_counter()
+        if size != last_size:
+            last_size = size
+            last_change = now
+        elif now - last_change >= quiet:
+            return size, last_change
+        if now >= deadline:
+            raise TimeoutError(f"datagram sink did not become quiet within {timeout:.1f}s")
+        time.sleep(0.01)
+
+
+def run_datagram_once(
+    *,
+    case: str,
+    bin_path: str,
+    payload: Path,
+    size: int,
+    buffer: int,
+    certs: dict[str, Path],
+    workdir: Path,
+    tag: str,
+) -> dict[str, Any]:
+    if case not in DATAGRAM_CASES:
+        raise ValueError(case)
+    framed_payload, _, wire_size = ensure_udplite_payload(payload, size, buffer)
+    port = free_udplite_port() if case == "udplite" else free_udp_port()
+    sock = workdir / f"{tag}.sock"
+    sink = sink_dir() / f"socat-bench-sink.{tag}"
+    sink.unlink(missing_ok=True)
+    listen, connect = stream_addrs(case, port, sock, certs)
+    slog = workdir / "logs" / f"{tag}.server.log"
+    clog = workdir / "logs" / f"{tag}.client.log"
+    server = start_socat(bin_path, ["-u", listen, f"OPEN:{sink},creat,trunc,wronly"], slog)
+    sampler: RSSSampler | None = None
+    label = "UDP-Lite" if case == "udplite" else "UDP"
+    try:
+        listen_wait(case, port, sock)
+        sampler = RSSSampler([server.pid])
+        sampler.start()
+        t0 = time.perf_counter()
+        client = start_socat(bin_path, ["-u", f"OPEN:{framed_payload},rdonly", connect], clog)
+        sampler.pids.append(client.pid)
+        try:
+            rc = client.wait(timeout=120)
+        except subprocess.TimeoutExpired:
+            kill_proc(client)
+            raise TimeoutError(f"{label} client socat timed out") from None
+        send_elapsed = time.perf_counter() - t0
+        _, receive_completed_at = wait_file_quiet(sink)
+        receive_elapsed = receive_completed_at - t0
+        server_rc = server.poll()
+        kill_proc(server)
+        peak = sampler.stop()
+        sampler = None
+        if rc != 0:
+            return {
+                "status": "fail",
+                "detail": f"client exit {rc}: {clog.read_text(encoding='utf-8', errors='replace')[-400:]}",
+            }
+        if server_rc not in {None, 0}:
+            return {
+                "status": "fail",
+                "detail": f"server exit {server_rc}: {slog.read_text(encoding='utf-8', errors='replace')[-400:]}",
+            }
+
+        delivery = analyze_udplite_sink(sink, size, buffer)
+        result: dict[str, Any] = {
+            "status": "ok",
+            "send_elapsed_s": send_elapsed,
+            "receive_elapsed_s": receive_elapsed,
+            "send_mib_s": (size / MIB) / send_elapsed if send_elapsed > 0 else 0.0,
+            "receive_mib_s": (delivery["received_payload_bytes"] / MIB) / receive_elapsed
+            if receive_elapsed > 0
+            else 0.0,
+            "peak_rss_kib": peak,
+            "payload_bytes": size,
+            "wire_bytes": wire_size,
+            **delivery,
+        }
+        if delivery["unique_datagrams"] == 0:
+            result["status"] = "fail"
+            result["detail"] = f"no valid {label} datagrams reached the sink"
+        elif delivery["corrupt_datagrams"] or delivery["trailing_bytes"]:
+            result["status"] = "fail"
+            result["detail"] = (
+                f"corrupt datagrams={delivery['corrupt_datagrams']} "
+                f"trailing bytes={delivery['trailing_bytes']}"
+            )
+        return result
+    finally:
+        kill_proc(server)
+        if sampler is not None:
+            sampler.stop()
+        sink.unlink(missing_ok=True)
+
+
+def run_udplite_once(
+    *,
+    bin_path: str,
+    payload: Path,
+    size: int,
+    buffer: int,
+    certs: dict[str, Path],
+    workdir: Path,
+    tag: str,
+) -> dict[str, Any]:
+    return run_datagram_once(
+        case="udplite",
+        bin_path=bin_path,
+        payload=payload,
+        size=size,
+        buffer=buffer,
+        certs=certs,
+        workdir=workdir,
+        tag=tag,
+    )
 
 
 def run_stream_once(
@@ -785,6 +1085,39 @@ def summarize_stream(runs: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def summarize_datagram(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    oks = [r for r in runs if r.get("status") == "ok"]
+    if not oks:
+        return {
+            "status": "fail",
+            "detail": runs[-1].get("detail", "all runs failed") if runs else "no runs",
+        }
+
+    def rates(name: str) -> dict[str, Any]:
+        values = [float(r[name]) for r in oks]
+        return {"median": median(values), "min": min(values), "max": max(values), "runs": values}
+
+    def counts(name: str) -> dict[str, Any]:
+        values = [int(r[name]) for r in oks]
+        return {"total": sum(values), "max": max(values), "runs": values}
+
+    return {
+        "status": "ok" if len(oks) == len(runs) else "fail",
+        "kind": "datagram",
+        "send_mib_s": rates("send_mib_s"),
+        "receive_mib_s": rates("receive_mib_s"),
+        "loss_pct": rates("loss_pct"),
+        "duplicate_datagrams": counts("duplicate_datagrams"),
+        "reordered_datagrams": counts("reordered_datagrams"),
+        "corrupt_datagrams": counts("corrupt_datagrams"),
+        "expected_datagrams": int(oks[0]["expected_datagrams"]),
+        "peak_rss_kib": max(int(r["peak_rss_kib"]) for r in oks),
+        "ok_runs": len(oks),
+        "n_runs": len(runs),
+        "detail": "" if len(oks) == len(runs) else runs[-1].get("detail", ""),
+    }
+
+
 def summarize_rr(runs: list[dict[str, Any]]) -> dict[str, Any]:
     oks = [r for r in runs if r.get("status") == "ok"]
     if not oks:
@@ -874,6 +1207,19 @@ def write_summary(doc: dict[str, Any], path: Path) -> None:
                 f"(min {ms['min']:.1f} max {ms['max']:.1f}) "
                 f"peak_rss_kib={c['peak_rss_kib']}"
             )
+        elif c.get("kind") == "datagram":
+            send = c["send_mib_s"]
+            receive = c["receive_mib_s"]
+            loss = c["loss_pct"]
+            lines.append(
+                f"{ident}: send={send['median']:.1f} MiB/s "
+                f"receive={receive['median']:.1f} MiB/s "
+                f"loss={loss['median']:.3f}% "
+                f"duplicate={c['duplicate_datagrams']['total']} "
+                f"reordered={c['reordered_datagrams']['total']} "
+                f"corrupt={c['corrupt_datagrams']['total']} "
+                f"peak_rss_kib={c['peak_rss_kib']}"
+            )
         elif c.get("kind") == "rr":
             r = c["rtt_us"]
             lines.append(
@@ -910,7 +1256,7 @@ def main() -> int:
     probe_only = os.environ.get("PROBE_ONLY", "") == "1"
     wanted = tuple(sys.argv[1:] or (() if probe_only else DEFAULT_CASES))
     for c in wanted:
-        if c not in STREAM_CASES | RR_CASES | HS_CASES:
+        if c not in STREAM_CASES | DATAGRAM_CASES | RR_CASES | HS_CASES:
             raise SystemExit(f"unknown case {c}; want {', '.join(DEFAULT_CASES)}")
 
     if probe_only:
@@ -985,6 +1331,17 @@ def main() -> int:
                 )
                 print(f"  skip {case}/{impl} (no QUIC in classic)", flush=True)
                 continue
+            if case == "udplite" and (platform.system() != "Linux" or not udplite_available()):
+                doc["cases"].append(
+                    {
+                        "id": case,
+                        "impl": impl,
+                        "status": "skip",
+                        "detail": "UDP-Lite not available (Linux IPPROTO_UDPLITE)",
+                    }
+                )
+                print(f"  skip {case}/{impl} (no UDP-Lite)", flush=True)
+                continue
             print(f"  run  {case}/{impl} ...", flush=True)
             samples: list[dict[str, Any]] = []
             try:
@@ -1014,6 +1371,32 @@ def main() -> int:
                             )
                         )
                     summary = summarize_stream(samples)
+                elif case in DATAGRAM_CASES:
+                    for i in range(warmup):
+                        run_datagram_once(
+                            case=case,
+                            bin_path=bin_path,
+                            payload=payload,
+                            size=size,
+                            buffer=buffer,
+                            certs=certs,
+                            workdir=workdir,
+                            tag=f"{case}.{impl}.warmup{i}",
+                        )
+                    for i in range(runs):
+                        samples.append(
+                            run_datagram_once(
+                                case=case,
+                                bin_path=bin_path,
+                                payload=payload,
+                                size=size,
+                                buffer=buffer,
+                                certs=certs,
+                                workdir=workdir,
+                                tag=f"{case}.{impl}.{i}",
+                            )
+                        )
+                    summary = summarize_datagram(samples)
                 elif case in RR_CASES:
                     for i in range(warmup):
                         run_client_once(
@@ -1085,6 +1468,17 @@ def main() -> int:
             if row.get("status") == "ok" and row.get("kind") == "stream":
                 print(
                     f"       {row['mib_s']['median']:.1f} MiB/s  "
+                    f"rss={row['peak_rss_kib']} KiB",
+                    flush=True,
+                )
+            elif row.get("status") == "ok" and row.get("kind") == "datagram":
+                print(
+                    f"       send={row['send_mib_s']['median']:.1f} MiB/s  "
+                    f"receive={row['receive_mib_s']['median']:.1f} MiB/s  "
+                    f"loss={row['loss_pct']['median']:.3f}%  "
+                    f"dup={row['duplicate_datagrams']['total']}  "
+                    f"reorder={row['reordered_datagrams']['total']}  "
+                    f"corrupt={row['corrupt_datagrams']['total']}  "
                     f"rss={row['peak_rss_kib']} KiB",
                     flush=True,
                 )

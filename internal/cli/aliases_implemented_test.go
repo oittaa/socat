@@ -94,6 +94,7 @@ var implementedAliasHelp = []struct {
 	{"recvdstaddr", "ip-recvdstaddr"},
 	{"iprecvdstaddr", "ip-recvdstaddr"},
 	{"recvif", "ip-recvif"},
+	{"tightsocklen", "unix-tightsocklen"},
 	{"tcp-nopush", "nopush"},
 	{"tcp-noopt", "noopt"},
 }

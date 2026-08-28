@@ -37,13 +37,7 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		return nil, err
 	}
 
-	lc := net.ListenConfig{Control: xio.ListenControl(s)}
-	var ln net.Listener
-	err = xio.WithUmask(s, func() error {
-		var e error
-		ln, e = lc.Listen(ctx, network, path)
-		return e
-	})
+	ln, err := listenUnixNetwork(ctx, s, network, path)
 	if err != nil {
 		return nil, err
 	}
@@ -202,8 +196,7 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	if network == "unixgram" {
 		return nil, fmt.Errorf("%s: SOCK_DGRAM does not support listen; use ABSTRACT-RECV or ABSTRACT-RECVFROM", s.Type)
 	}
-	lc := net.ListenConfig{Control: xio.ListenControl(s)}
-	ln, err := lc.Listen(ctx, network, path)
+	ln, err := listenUnixNetwork(ctx, s, network, path)
 	if err != nil {
 		return nil, err
 	}
