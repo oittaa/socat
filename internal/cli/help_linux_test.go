@@ -73,7 +73,8 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 	if strings.Contains(help, "    dsusp ") || strings.Contains(help, "    vdsusp ") {
 		t.Error("HP-UX dsusp/vdsusp must not be advertised")
 	}
-	for _, name := range []string{"ip-recverr", "recverr", "iprecverr", "ipv6-recverr", "ipv6-multicast-hops"} {
+	for _, name := range []string{"ip-recverr", "recverr", "iprecverr", "ipv6-recverr", "ipv6-multicast-hops",
+		"ip-recvdstaddr", "ip-recvif", "recvdstaddr", "iprecvdstaddr", "recvif"} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("rejected or unknown option %q must not be advertised in -hhh", name)
 		}

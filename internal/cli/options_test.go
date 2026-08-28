@@ -977,3 +977,43 @@ func TestIPAncillaryMatrixWiredIntoCLI(t *testing.T) {
 		}
 	}
 }
+
+func TestLeftoverIPRecvdstaddrRecvifPlatform(t *testing.T) {
+	udp := []string{
+		"UDP4:localhost:1,ip-recvdstaddr",
+		"UDP4:localhost:1,ip-recvif",
+		"UDP4:localhost:1,recvdstaddr",
+		"UDP4:localhost:1,iprecvdstaddr",
+		"UDP4:localhost:1,recvif",
+	}
+	for _, spec := range udp {
+		ch, err := parse.ParseChannel(spec)
+		if err != nil {
+			t.Fatalf("%s: %v", spec, err)
+		}
+		err = validateChannelOptions(ch)
+		if runtime.GOOS == "darwin" {
+			if err != nil {
+				t.Errorf("%s: %v", spec, err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), "not supported on this platform") {
+			t.Errorf("%s: err=%v want not supported on this platform", spec, err)
+		}
+	}
+	tcp := []string{
+		"TCP:localhost:1,ip-recvdstaddr",
+		"TCP:localhost:1,ip-recvif",
+	}
+	for _, spec := range tcp {
+		ch, err := parse.ParseChannel(spec)
+		if err != nil {
+			t.Fatalf("%s: %v", spec, err)
+		}
+		err = validateChannelOptions(ch)
+		if err == nil || !strings.Contains(err.Error(), "not supported") {
+			t.Errorf("%s: err=%v want not supported", spec, err)
+		}
+	}
+}

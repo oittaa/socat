@@ -4,7 +4,8 @@ package cli
 
 func hideOpt(name string) bool {
 	switch name {
-	case "binary", "text", "noinherit":
+	case "binary", "text", "noinherit",
+		"ip-recvdstaddr", "ip-recvif", "recvdstaddr", "iprecvdstaddr", "recvif":
 		return true
 	default:
 		return false

@@ -68,8 +68,13 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"o-noinherit", "darwin", ClassForeign},
 		{"nopush", "darwin", ClassExpectedMissing},
 		{"nopush", "linux", ClassForeign},
-		{"ip-recvif", "darwin", ClassExpectedMissing},
-		{"ip-recvif", "linux", ClassForeign},
+		{"ip-recvif", "darwin", ClassMustAdvertise},
+		{"ip-recvif", "linux", ClassMustAdvertise},
+		{"ip-recvif", "windows", ClassMustAdvertise},
+		{"ip-recvdstaddr", "darwin", ClassMustAdvertise},
+		{"ip-recvdstaddr", "linux", ClassMustAdvertise},
+		{"recvdstaddr", "darwin", ClassMustAdvertise},
+		{"recvif", "linux", ClassMustAdvertise},
 		{"fs-append", "linux", ClassMustAdvertise},
 		{"fs-append", "windows", ClassMustAdvertise},
 		{"notail", "linux", ClassMustAdvertise},
@@ -197,7 +202,19 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	if _, ok := win["fs-append"]; ok {
 		t.Fatal("windows backlog must not include Linux fs-append")
 	}
+	if _, ok := linux["ip-recvdstaddr"]; ok {
+		t.Fatal("linux backlog must not include implemented ip-recvdstaddr")
+	}
+	if _, ok := linux["ip-recvif"]; ok {
+		t.Fatal("linux backlog must not include implemented ip-recvif")
+	}
 	darwin := ImplementationBacklog("darwin")
+	if _, ok := darwin["ip-recvif"]; ok {
+		t.Fatal("darwin backlog must not include implemented ip-recvif")
+	}
+	if _, ok := darwin["ip-recvdstaddr"]; ok {
+		t.Fatal("darwin backlog must not include implemented ip-recvdstaddr")
+	}
 	if _, ok := darwin["nopush"]; !ok {
 		t.Fatal("darwin backlog must include nopush")
 	}

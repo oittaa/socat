@@ -24,6 +24,12 @@ func TestIPAncillarySupportedMatrix(t *testing.T) {
 		{GroupTCP, "ip-tos", true},
 		{GroupTCP, "ipv6-tclass", true},
 		{GroupTCP, "ip-pktinfo", false},
+		{GroupUDP, "ip-recvdstaddr", true},
+		{GroupUDP, "recvdstaddr", true},
+		{GroupUDP, "ip-recvif", true},
+		{GroupRawIP, "ip-recvif", true},
+		{GroupTCP, "ip-recvdstaddr", false},
+		{GroupTCP, "ip-recvif", false},
 		{GroupTCP, "so-timestamp", false},
 		{GroupTCP, "ip-recvttl", false},
 		{GroupQUIC, "ip-ttl", true},
@@ -174,5 +180,29 @@ func TestAncillaryRecvIntAliasLastWins(t *testing.T) {
 	n, ok, err = ancillaryRecvInt(on, "ip-recvttl")
 	if err != nil || !ok || n != 1 {
 		t.Fatalf("recvttl=0,iprecvttl=1 n=%d ok=%v err=%v want 1", n, ok, err)
+	}
+}
+
+func TestRejectUnsupportedIPRecvdstaddrRecvif(t *testing.T) {
+	udp, err := parse.ParseSpec("UDP4:127.0.0.1:1,ip-recvdstaddr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RejectUnsupportedIPAncillary(udp)
+	if runtime.GOOS == "darwin" {
+		if err != nil {
+			t.Fatalf("darwin UDP ip-recvdstaddr: %v", err)
+		}
+	} else if err == nil || !strings.Contains(err.Error(), "not supported on this platform") {
+		t.Fatalf("err=%v want not supported on this platform", err)
+	}
+
+	tcp, err := parse.ParseSpec("TCP:127.0.0.1:1,ip-recvif")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RejectUnsupportedIPAncillary(tcp)
+	if err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("TCP ip-recvif err=%v want not supported", err)
 	}
 }
