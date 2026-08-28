@@ -269,7 +269,6 @@ func TestAcceptFDRejectedPeerKeepsListenFD(t *testing.T) {
 func TestAcceptFDRejectedPeer10Net(t *testing.T) {
 	fd, addr := tcp4ListenOwned(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	errCh := make(chan error, 1)
 	go func() {
 		s := parseAcceptSpec(t, "ACCEPT-FD:0,range=10.0.0.0/8", fd)
@@ -299,10 +298,29 @@ func TestAcceptFDRejectedPeer10Net(t *testing.T) {
 	}
 	_ = c2.Close()
 	cancel()
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("accept after cancel: %v; want context canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ACCEPT-FD did not stop after context cancellation")
+	}
 }
 
 func TestAcceptFDCloseDoesNotDoubleClose(t *testing.T) {
-	fd, _ := tcp4ListenOwned(t)
+	lowFD, _ := tcp4ListenOwned(t)
+	// Move the listener away from the low descriptor range used by concurrent
+	// runtime and test activity. Checking whether a low numeric fd is valid
+	// after close is racy: an unrelated open can immediately reuse it.
+	fd, err := unix.FcntlInt(uintptr(lowFD), unix.F_DUPFD, 128)
+	if err != nil {
+		_ = unix.Close(lowFD)
+		t.Fatal(err)
+	}
+	unix.CloseOnExec(fd)
+	_ = unix.Close(lowFD)
+	t.Cleanup(func() { _ = unix.Close(fd) })
 	// fork returns before accept so we can inspect the listen fd without an
 	// accepted conn reusing the original number.
 	o, err := openAcceptFD(context.Background(), parseAcceptSpec(t, "ACCEPT-FD:0,fork", fd), xio.ModeRDWR, nil)
@@ -316,12 +334,18 @@ func TestAcceptFDCloseDoesNotDoubleClose(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = unix.Close(newfd) })
+	if newfd != fd {
+		if err := unix.Dup2(newfd, fd); err != nil {
+			_ = unix.Close(newfd)
+			t.Fatal(err)
+		}
+		_ = unix.Close(newfd)
+	}
 	if err := o.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := unix.FcntlInt(uintptr(newfd), unix.F_GETFD, 0); err != nil {
-		t.Fatalf("Opened.Close closed recycled descriptor old=%d new=%d: %v", fd, newfd, err)
+	if _, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0); err != nil {
+		t.Fatalf("Opened.Close closed replacement descriptor %d: %v", fd, err)
 	}
 }
 
