@@ -163,7 +163,7 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "known-alias", spec: "TCP-LISTEN:1,so-reuseaddr"},
 		{name: "zero-socket-timeouts", spec: "UDP:localhost:1,rcvtimeo=0,sndtimeo=0"},
 		{name: "res-nsaddr-ipv4", spec: "TCP:localhost:1,res-nsaddr=127.0.0.1:5353"},
-		{name: "res-nsaddr-ipv6", spec: "TCP:localhost:1,res-nsaddr=[::1]:5353"},
+		{name: "res-nsaddr-ipv6", spec: "TCP:localhost:1,res-nsaddr=[::1]:5353", wantErr: "IPv6 nameserver"},
 		{name: "res-nsaddr-dns-alias", spec: "UDP:localhost:1,dns=127.0.0.1"},
 		{name: "res-nsaddr-nameserver-alias", spec: "IP-SENDTO:localhost:1,nameserver=127.0.0.1"},
 		{name: "res-nsaddr-nsaddr-alias", spec: "TCP:localhost:1,nsaddr=127.0.0.1:0"},

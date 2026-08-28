@@ -14,9 +14,12 @@ import (
 const defaultDNSPort = 53
 
 // ParseResNSAddr validates res-nsaddr and returns a dialable host:port.
-// Classic TYPE_IP4SOCK accepts an IPv4 address or hostname plus an optional
-// port. This port additionally accepts IPv6 literals; an IPv6 port must use
-// [addr]:port so an unbracketed literal remains unambiguous.
+// Classic TYPE_IP4SOCK (xioopts.c at tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is unchanged) accepts an IPv4
+// address or hostname plus an optional port, stored in sockaddr_in
+// _res.nsaddr_list[0]. IPv6 nameserver literals are rejected to match that
+// public interface.
 func ParseResNSAddr(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -70,18 +73,21 @@ func splitResNSAddr(value string) (host, port string, err error) {
 	if strings.Count(value, ":") == 1 {
 		host, port, err = net.SplitHostPort(value)
 		if err != nil || host == "" || port == "" {
-			return "", "", fmt.Errorf("res-nsaddr: invalid nameserver %q (want host[:port] or [ipv6]:port)", value)
+			return "", "", fmt.Errorf("res-nsaddr: invalid nameserver %q (want ipv4[:port] or hostname[:port])", value)
 		}
 		return host, port, nil
 	}
 	if strings.Contains(value, ":") {
-		return "", "", fmt.Errorf("res-nsaddr: invalid IPv6 nameserver %q (use [addr]:port when specifying a port)", value)
+		return "", "", fmt.Errorf("res-nsaddr: IPv6 nameserver is not supported (classic TYPE_IP4SOCK)")
 	}
 	return value, "", nil
 }
 
 func validateResNSHost(host string) error {
-	if _, err := netip.ParseAddr(host); err == nil {
+	if addr, err := netip.ParseAddr(host); err == nil {
+		if !addr.Is4() {
+			return fmt.Errorf("res-nsaddr: IPv6 nameserver is not supported (classic TYPE_IP4SOCK)")
+		}
 		return nil
 	}
 

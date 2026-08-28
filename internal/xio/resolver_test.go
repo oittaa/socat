@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -234,10 +235,6 @@ func TestParseResNSAddrForms(t *testing.T) {
 		{"127.0.0.1:5353", "127.0.0.1:5353"},
 		{"localhost", "localhost:53"},
 		{"localhost:domain", "localhost:53"},
-		{"::1", "[::1]:53"},
-		{"[::1]", "[::1]:53"},
-		{"[::1]:0", "[::1]:53"},
-		{"[::1]:5353", "[::1]:5353"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
@@ -262,6 +259,9 @@ func TestParseResNSAddrErrors(t *testing.T) {
 		"[::1",
 		"[::1]:",
 		"[::1]extra",
+		"::1",
+		"[::1]",
+		"[::1]:5353",
 		"::1::",
 	} {
 		t.Run(input, func(t *testing.T) {
@@ -269,6 +269,15 @@ func TestParseResNSAddrErrors(t *testing.T) {
 				t.Fatalf("ParseResNSAddr(%q) succeeded", input)
 			}
 		})
+	}
+}
+
+func TestParseResNSAddrRejectsIPv6(t *testing.T) {
+	for _, input := range []string{"::1", "[::1]", "[::1]:53", "[2001:db8::1]:5353"} {
+		_, err := ParseResNSAddr(input)
+		if err == nil || !strings.Contains(err.Error(), "IPv6 nameserver is not supported") {
+			t.Errorf("ParseResNSAddr(%q) err=%v want IPv6 nameserver is not supported", input, err)
+		}
 	}
 }
 
@@ -341,23 +350,6 @@ func TestResNSAddrLiteralConnectDoesNotQueryDNS(t *testing.T) {
 	_ = conn.Close()
 	if got := server.udpQueries.Load() + server.tcpQueries.Load(); got != 0 {
 		t.Fatalf("literal IP caused %d DNS queries", got)
-	}
-}
-
-func TestResNSAddrIPv6Nameserver(t *testing.T) {
-	server, err := startFakeDNS(t, "::1", false, false)
-	if err != nil {
-		t.Skipf("IPv6 loopback cannot host UDP and TCP DNS listeners: %v", err)
-	}
-	ips, err := LookupResolver(resNSAddrSpec(server.addr)).LookupIP(t.Context(), "ip4", "ipv6-res-nsaddr.test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ips) != 1 || !ips[0].Equal(net.IPv4(127, 0, 0, 1)) {
-		t.Fatalf("LookupIP=%v want 127.0.0.1", ips)
-	}
-	if server.udpQueries.Load() == 0 {
-		t.Fatal("IPv6 nameserver received no query")
 	}
 }
 
@@ -469,7 +461,7 @@ func TestTCPWrapReverseVerificationUsesResNSAddr(t *testing.T) {
 }
 
 func ExampleParseResNSAddr() {
-	addr, _ := ParseResNSAddr("[2001:db8::53]:5353")
+	addr, _ := ParseResNSAddr("127.0.0.1:5353")
 	fmt.Println(addr)
-	// Output: [2001:db8::53]:5353
+	// Output: 127.0.0.1:5353
 }
