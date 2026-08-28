@@ -112,7 +112,13 @@ func waitUnixConnect(ctx context.Context, fd int) error {
 			if ms < 1 {
 				ms = 1
 			}
-			timeout = ms
+			// Cap Poll at 25 ms even when the context deadline is far
+			// away so ctx cancel is noticed promptly (classic xiopoll
+			// is similarly interruptible). A long remaining deadline
+			// must not become a single uninterruptible Poll wait.
+			if ms < timeout {
+				timeout = ms
+			}
 		}
 		pfd := []unix.PollFd{{Fd: unixConnectPollFd(fd), Events: unix.POLLOUT | unix.POLLERR}}
 		n, err := unix.Poll(pfd, timeout)

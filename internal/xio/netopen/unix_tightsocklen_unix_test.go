@@ -220,6 +220,85 @@ func TestUnixConnectCancelDuringWait(t *testing.T) {
 	}
 }
 
+func TestUnixConnectCancelDuringWaitWithLongDeadline(t *testing.T) {
+	path, cleanup := listenUnixBacklog(t, 1)
+	t.Cleanup(cleanup)
+	fillers := occupyUnixListenQueue(t, path)
+	t.Cleanup(func() {
+		for _, fd := range fillers {
+			_ = unix.Close(fd)
+		}
+	})
+	if !unixListenQueueIsFull(t, path, &fillers) {
+		t.Skip("kernel did not block extra AF_UNIX connects")
+	}
+
+	cfd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM|sockCloexec, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(cfd) })
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	time.AfterFunc(50*time.Millisecond, cancel)
+	start := time.Now()
+	err = unixConnectPath(ctx, cfd, path, true)
+	elapsed := time.Since(start)
+	if elapsed > time.Second {
+		t.Fatalf("canceled connect with 30s deadline hung for %s", elapsed)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v want context.Canceled (elapsed %s)", err, elapsed)
+	}
+}
+
+func TestWaitUnixConnectCancelWithLongDeadline(t *testing.T) {
+	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM|sockCloexec, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = unix.Close(fds[0])
+		_ = unix.Close(fds[1])
+	})
+	if sockCloexec == 0 {
+		unix.CloseOnExec(fds[0])
+		unix.CloseOnExec(fds[1])
+	}
+	if err := unix.SetNonblock(fds[0], true); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.SetsockoptInt(fds[0], unix.SOL_SOCKET, unix.SO_SNDBUF, 4096); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 1024)
+	filled := false
+	for i := 0; i < 1<<20; i++ {
+		_, err := unix.Write(fds[0], buf)
+		if err == unix.EAGAIN || err == unix.EWOULDBLOCK {
+			filled = true
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !filled {
+		t.Skip("could not fill socketpair send buffer")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	time.AfterFunc(50*time.Millisecond, cancel)
+	start := time.Now()
+	err = waitUnixConnect(ctx, fds[0])
+	elapsed := time.Since(start)
+	if elapsed > time.Second {
+		t.Fatalf("waitUnixConnect with 30s deadline ignored cancel for %s", elapsed)
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v want context.Canceled (elapsed %s)", err, elapsed)
+	}
+}
+
 func listenUnixBacklog(t *testing.T, backlog int) (path string, cleanup func()) {
 	t.Helper()
 	path = unixSocketTestPath(t, "backlog.sock")
