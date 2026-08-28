@@ -30,6 +30,7 @@ func tunOptionGroups() []helpOptGroup {
 			{name: "iff-portsel", desc: "IFF_PORTSEL", aliases: []string{"portsel"}, validate: validateOptionalBool},
 			{name: "iff-automedia", desc: "IFF_AUTOMEDIA", aliases: []string{"automedia"}, validate: validateOptionalBool},
 			{name: "if-mtu", desc: "interface MTU", aliases: []string{"interface-mtu"}, validate: validateInt64(true)},
+			{name: "retrieve-vlan", desc: "restore 802.1Q from PACKET_AUXDATA on INTERFACE", addressTypes: []string{"INTERFACE"}, restrictAddressTypes: true, validate: validateNoValue},
 		}},
 		{"Namespaces", []helpOpt{
 			{name: "netns", desc: "open this address in a Linux network namespace"},
