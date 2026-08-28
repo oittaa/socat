@@ -97,6 +97,7 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"sighup", "windows", ClassMustAdvertise},
 		{"sigint", "linux", ClassMustAdvertise},
 		{"sigquit", "linux", ClassMustAdvertise},
+		{"retrieve-vlan", "linux", ClassMustAdvertise},
 		{"sctp-maxseg", "linux", ClassMustAdvertise},
 		{"sctp-maxseg", "darwin", ClassMustAdvertise},
 		{"sctp-maxseg", "windows", ClassMustAdvertise},
@@ -180,6 +181,9 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	}
 	if _, ok := linux["iff-notrailers"]; ok {
 		t.Fatal("linux backlog must not include implemented iff-notrailers")
+	}
+	if _, ok := linux["retrieve-vlan"]; ok {
+		t.Fatal("linux backlog must not include implemented retrieve-vlan")
 	}
 	if _, ok := linux["udplite-send-cscov"]; ok {
 		t.Fatal("linux backlog must not include implemented udplite-send-cscov (#101)")

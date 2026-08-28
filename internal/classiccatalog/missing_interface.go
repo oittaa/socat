@@ -1,7 +1,8 @@
 package classiccatalog
 
-// Remaining INTERFACE / TUN names. iff-dynamic is unsupportedClassicUnimplemented
-// (documented, commented out of classic optionnames[]). retrieve-vlan is a later PR.
+// Remaining INTERFACE / TUN names. retrieve-vlan and the iff-* flags are
+// implemented. iff-dynamic is unsupportedClassicUnimplemented (documented,
+// commented out of classic optionnames[]).
 var expectedMissingInterface = map[string]Gap{
-	"retrieve-vlan": {Reason: "PACKET_AUXDATA VLAN reconstruction on AF_PACKET", Platforms: PlatLinux},
+	// Empty: INTERFACE retrieve-vlan and TUN/INTERFACE iff-* flags are honored.
 }
