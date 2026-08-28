@@ -18,7 +18,8 @@ func hideOpt(name string) bool {
 		return true
 	}
 	switch name {
-	case "o-noatime", "o-direct", "o-rsync", "o-largefile", "f-setpipe-sz", "bindtodevice",
+	case "binary", "text", "noinherit",
+		"o-noatime", "o-direct", "o-rsync", "o-largefile", "f-setpipe-sz", "bindtodevice",
 		"ip-freebind", "freebind", "ipfreebind",
 		"ip-transparent", "transparent",
 		"ip-mtu-discover", "mtudiscover", "ipmtudiscover",

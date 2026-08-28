@@ -55,18 +55,23 @@ func (e Entry) IsAlias() bool {
 
 // Lookup returns the catalog entry for an advertised spelling.
 func Lookup(spelling string) (Entry, bool) {
-	e, ok := Options[strings.ToLower(spelling)]
-	return e, ok
+	name := strings.ToLower(spelling)
+	if e, ok := Options[name]; ok {
+		return e, true
+	}
+	p, ok := PlatformOnlyOptions[name]
+	return p.Entry, ok
 }
 
-// RequiredPublicSpellings is the union of advertised -hhh names and
-// documented public spellings that this binary does not print, minus
-// IntentionalPublicOmissions. ClassifyOption splits this set into
+// RequiredPublicSpellings is the union of the reference -hhh names,
+// platform-only advertised names, and documented public spellings that the
+// reference binary does not print, minus IntentionalPublicOmissions.
+// ClassifyOption splits this set into
 // must-advertise, expected-missing (implementation backlog), unsupported,
 // and foreign-on-this-GOOS. Undocumented parser-only aliases are not
 // included; see OptionalParserOnlyAliases.
 func RequiredPublicSpellings() map[string]struct{} {
-	out := make(map[string]struct{}, len(Options)+len(DocsOnlyNotInThisBinary))
+	out := make(map[string]struct{}, len(Options)+len(PlatformOnlyOptions)+len(DocsOnlyNotInThisBinary))
 	for name := range Options {
 		if _, omit := IntentionalPublicOmissions[name]; omit {
 			continue
@@ -74,6 +79,12 @@ func RequiredPublicSpellings() map[string]struct{} {
 		out[name] = struct{}{}
 	}
 	for name := range DocsOnlyNotInThisBinary {
+		if _, omit := IntentionalPublicOmissions[name]; omit {
+			continue
+		}
+		out[name] = struct{}{}
+	}
+	for name := range PlatformOnlyOptions {
 		if _, omit := IntentionalPublicOmissions[name]; omit {
 			continue
 		}

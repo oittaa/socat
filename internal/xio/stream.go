@@ -678,6 +678,13 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected,
 		}
 	}
 	var err error
+	// O_BINARY/O_TEXT are descriptor-level conversions. Keep this wrapper
+	// inside user-requested cr/crnl, readbytes, escape, and ignoreeof layers,
+	// and do not let zero-copy bypass it.
+	stream, err = applyDescriptorMode(s, stream)
+	if err != nil {
+		return nil, err
+	}
 	if applyTimeouts {
 		stream, err = applySocketTimeouts(s, stream)
 		if err != nil {
