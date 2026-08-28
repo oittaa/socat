@@ -16,6 +16,11 @@ func init() {
 		"promisc":          "iff-promisc",
 		"allmulti":         "iff-allmulti",
 		"multicast":        "iff-multicast",
+		"notrailers":       "iff-notrailers",
+		"master":           "iff-master",
+		"slave":            "iff-slave",
+		"portsel":          "iff-portsel",
+		"automedia":        "iff-automedia",
 		"interface-mtu":    "if-mtu",
 	})
 }
