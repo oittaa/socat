@@ -416,6 +416,51 @@ func TestUDPIgnorePeerportIsUnsupportedNotBacklog(t *testing.T) {
 	}
 }
 
+func TestTCPBSDCompileGatedOptionsAreForeignNotBacklog(t *testing.T) {
+	options := map[string]string{
+		"rfc1323":          "tcp-rfc1323",
+		"sack-disable":     "tcp-sack-disable",
+		"stdurg":           "tcp-stdurg",
+		"signature-enable": "tcp-signature-enable",
+	}
+	for name, parserAlias := range options {
+		if _, ok := DocsOnlyNotInThisBinary[name]; !ok {
+			t.Errorf("%s must stay in DocsOnlyNotInThisBinary", name)
+		}
+		if _, ok := RequiredPublicSpellings()[name]; !ok {
+			t.Errorf("documented %s must stay in RequiredPublicSpellings", name)
+		}
+		if _, ok := ExpectedMissingAll()[name]; ok {
+			t.Errorf("%s must not be expected-missing; classic compile-gates it for another Unix", name)
+		}
+		gap, ok := ForeignPublic()[name]
+		if !ok {
+			t.Errorf("%s must be in ForeignPublic", name)
+		} else if gap.Platforms != PlatNone || strings.TrimSpace(gap.Reason) == "" {
+			t.Errorf("%s foreign gap=%+v; want PlatNone and a reason", name, gap)
+		}
+		if _, ok := OptionalParserOnlyAliases[parserAlias]; !ok {
+			t.Errorf("%s must stay an optional parser-only alias", parserAlias)
+		}
+		aliasClass, aliasReason := ClassifyOption(parserAlias, "darwin")
+		if aliasClass != ClassOptionalParserOnly || strings.TrimSpace(aliasReason) == "" {
+			t.Errorf("%s class=%s reason=%q; want parser-only with reason", parserAlias, aliasClass, aliasReason)
+		}
+		for _, goos := range []string{"linux", "darwin", "windows"} {
+			class, reason := ClassifyOption(name, goos)
+			if class != ClassForeign {
+				t.Errorf("%s on %s: class=%s reason=%q; want foreign", name, goos, class, reason)
+			}
+			if strings.TrimSpace(reason) == "" {
+				t.Errorf("%s on %s: foreign reason is empty", name, goos)
+			}
+			if _, ok := ImplementationBacklog(goos)[name]; ok {
+				t.Errorf("%s backlog includes foreign option %s", goos, name)
+			}
+		}
+	}
+}
+
 func TestMergeStringMapsRejectsDuplicateNames(t *testing.T) {
 	_, err := mergeStringMaps([]map[string]string{
 		{"foo": "same reason"},
