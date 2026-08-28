@@ -99,7 +99,12 @@ func TestDirectRegistrationBeatsClassicAlias(t *testing.T) {
 }
 
 func TestUnsupportedFamilyAliasesRemainUnknown(t *testing.T) {
-	for _, name := range []string{"DCCP", "DCCP-CONNECT", "DTLS", "READLINE", "UDPLITE", "UDPLITE4-LISTEN", "UDPLITE6-DGRAM"} {
+	for _, name := range []string{
+		"DCCP", "DCCP-CONNECT", "DCCP-L", "DCCP-LISTEN",
+		"DCCP4", "DCCP4-CONNECT", "DCCP4-L", "DCCP4-LISTEN",
+		"DCCP6", "DCCP6-CONNECT", "DCCP6-L", "DCCP6-LISTEN",
+		"DTLS", "READLINE", "UDPLITE", "UDPLITE4-LISTEN", "UDPLITE6-DGRAM",
+	} {
 		if _, ok := xio.AddressRegistrationForType(name); ok {
 			t.Errorf("%s must remain unknown", name)
 		}

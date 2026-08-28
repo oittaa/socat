@@ -637,6 +637,49 @@ func TestVersionAndHelpOmitUDPLITE(t *testing.T) {
 	}
 }
 
+func TestVersionAndHelpOmitDCCP(t *testing.T) {
+	out := capabilityOutput(t, "-V")
+	if !bytes.Contains(out, []byte("#undef WITH_DCCP")) {
+		t.Fatalf("missing #undef WITH_DCCP:\n%s", out)
+	}
+	for _, arg := range []string{"-h", "-hh", "-hhh"} {
+		help := capabilityOutput(t, arg)
+		upper := bytes.ToUpper(help)
+		if bytes.Contains(upper, []byte("\n    DCCP")) ||
+			bytes.Contains(help, []byte(" dccp-set-ccid ")) ||
+			bytes.Contains(help, []byte(" ccid ")) {
+			t.Fatalf("%s advertises intentionally unsupported DCCP:\n%s", arg, help)
+		}
+	}
+}
+
+func TestDCCPAddressAndOptionsRejected(t *testing.T) {
+	bin := socatBin(t)
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "connect", args: []string{"DCCP:127.0.0.1:1", "-"}, want: "unknown device/address"},
+		{name: "listen", args: []string{"-", "DCCP-LISTEN:1"}, want: "unknown device/address"},
+		{name: "dccp4", args: []string{"DCCP4:127.0.0.1:1", "-"}, want: "unknown device/address"},
+		{name: "dccp6-listen", args: []string{"-", "DCCP6-LISTEN:1"}, want: "unknown device/address"},
+		{name: "ccid", args: []string{"TCP:127.0.0.1:1,ccid=2", "-"}, want: "unknown option"},
+		{name: "dccp-set-ccid", args: []string{"TCP:127.0.0.1:1,dccp-set-ccid=2", "-"}, want: "unknown option"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := exec.Command(bin, tc.args...).CombinedOutput()
+			if err == nil {
+				t.Fatalf("command succeeded: %s", out)
+			}
+			if !bytes.Contains(out, []byte(tc.want)) {
+				t.Fatalf("output %q does not contain %q", out, tc.want)
+			}
+		})
+	}
+}
+
 func TestVersionHasSCTP(t *testing.T) {
 	skipUnlessLinux(t)
 	out := capabilityOutput(t, "-V")

@@ -505,6 +505,8 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "handshake-timeout-on-socks5", spec: "SOCKS5:localhost:example.com:443,handshake-timeout=1"},
 		{name: "handshake-timeout-zero-on-tls", spec: "TLS:localhost:1,handshake-timeout=0"},
 		{name: "unknown", spec: "CREATE:file,totally-unknown=1", wantErr: "unknown option"},
+		{name: "dccp-ccid", spec: "TCP:localhost:1,ccid=2", wantErr: "unknown option"},
+		{name: "dccp-set-ccid", spec: "TCP:localhost:1,dccp-set-ccid=2", wantErr: "unknown option"},
 		{name: "bad-perm", spec: "CREATE:file,perm=xyz", wantErr: "invalid perm"},
 		{name: "readbytes-hex", spec: "OPEN:file,readbytes=0x10"},
 		{name: "readbytes-octal", spec: "OPEN:file,readbytes=010"},

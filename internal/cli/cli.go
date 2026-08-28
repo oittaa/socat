@@ -652,6 +652,9 @@ func printVersion(w io.Writer) error {
 		{"TCP", true},
 		{"UDP", true},
 		{"SCTP", xio.FeatureSCTP},
+		// DCCP is an intentional compatibility exception: Linux orphaned,
+		// deprecated, and removed the socket implementation in 6.16. Do not
+		// emulate DCCP over TCP or UDP (README Unsupported / security-related).
 		{"DCCP", false},
 		{"UDPLITE", false},
 		{"LISTEN", true},
