@@ -255,22 +255,40 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 	if g != nil {
 		cmd.Env = childEnviron(g)
 	}
-	if err := startWithChildUmask(s, cmd); err != nil {
+	if err := startWithChildUmask(s, cmd, g); err != nil {
 		return err
 	}
 	waitErr := cmd.Wait()
-	if waitErr == nil {
-		return nil
+	if cmd.Process != nil {
+		unregisterChildSignals(cmd.Process.Pid)
 	}
-	if ee, ok := waitErr.(*exec.ExitError); ok {
-		code := ee.ExitCode()
-		if g != nil {
-			g.ChildExitCode = code
-		}
-		// Signal deaths are reported via exit 128+n already by Wait on Unix.
-		return nil
+	code, ok := childWaitExitCode(waitErr)
+	if !ok {
+		return waitErr
 	}
-	return waitErr
+	if g != nil {
+		g.ChildExitCode = code
+	}
+	return nil
+}
+
+// childWaitExitCode maps cmd.Wait to a process exit status. Go's
+// exec.ExitError.ExitCode is -1 when the child was signaled; classic nofork
+// (in-place exec) and POSIX shells report 128+signum. Forked EXEC still
+// skips those statuses in finishExec so a PTY-master SIGHUP does not become
+// EXEC_RC.
+func childWaitExitCode(err error) (int, bool) {
+	if err == nil {
+		return 0, true
+	}
+	ee, ok := err.(*exec.ExitError)
+	if !ok {
+		return 0, false
+	}
+	if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
+		return 128 + int(ws.Signal()), true
+	}
+	return ee.ExitCode(), true
 }
 
 // peerStdioFiles returns child stdin/stdout Files for nofork, matching classic.
@@ -574,7 +592,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 
 	// EXEC_FDS: only FDs 0/1/2 may remain in the child.
-	startErr := startWithChildUmask(s, cmd)
+	startErr := startWithChildUmask(s, cmd, g)
 	if startErr != nil {
 		for _, f := range cleanup {
 			f()
@@ -830,8 +848,12 @@ func execSocketpairParentStream(mode Mode, parent *os.File, stype int) relay.Str
 
 // startWithChildUmask applies classic umask= around cmd.Start and marks FDs ≥3
 // CLOEXEC so EXEC children inherit only 0/1/2 plus explicitly mapped fdi/fdo
-// descriptors (EXEC_FDS / EXEC_SNIFF).
-func startWithChildUmask(s parse.Spec, cmd *exec.Cmd) error {
+// descriptors (EXEC_FDS / EXEC_SNIFF), then registers sighup/sigint/sigquit
+// (classic PH_LATE OFUNC_SIGNAL after pid is known).
+func startWithChildUmask(s parse.Spec, cmd *exec.Cmd, g *Global) error {
+	if err := validateExecParentSignals(s); err != nil {
+		return err
+	}
 	// Mark ALL FDs ≥3 CLOEXEC (including the socketpair/pipe/PTY ends we pass
 	// as Stdin/Stdout). Go's fork/exec dup2's them to 0/1/2 first, then closes
 	// CLOEXEC descriptors, so the high-numbered originals are not leaked.
@@ -843,7 +865,28 @@ func startWithChildUmask(s parse.Spec, cmd *exec.Cmd) error {
 	}); err != nil {
 		return err
 	}
-	return startErr
+	if startErr != nil {
+		return startErr
+	}
+	if err := registerExecParentSignals(s, cmd, g); err != nil {
+		killWaitUnregisterChild(cmd)
+		return err
+	}
+	return nil
+}
+
+// killWaitUnregisterChild reaps a started EXEC child and drops OFUNC_SIGNAL
+// registrations. Post-Start failures (PTY master lifecycle, WrapCommon, too
+// many pids) must not leave the pid in the four-slot tables: a later
+// LISTEN,fork child can reuse the number and receive a stale kill.
+func killWaitUnregisterChild(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	pid := cmd.Process.Pid
+	_ = cmd.Process.Kill()
+	_, _ = cmd.Process.Wait()
+	unregisterChildSignals(pid)
 }
 
 func setCloexecAllFrom(from int) {
@@ -922,14 +965,13 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.Ctty = 3
-	if err := startWithChildUmask(s, cmd); err != nil {
+	if err := startWithChildUmask(s, cmd, g); err != nil {
 		closeExecPTY(master, slave)
 		return nil, err
 	}
 	logx.CloseQuiet(slave)
 	if err := applyPtyMasterLifecycle(s, master); err != nil {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		killWaitUnregisterChild(cmd)
 		logx.CloseQuiet(master)
 		return nil, err
 	}
@@ -986,14 +1028,13 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 		if s.BoolOption("stderr") {
 			cmd.Stderr = slave
 		}
-		if err := startWithChildUmask(s, cmd); err != nil {
+		if err := startWithChildUmask(s, cmd, g); err != nil {
 			closeExecPTY(master, slave)
 			return nil, err
 		}
 		logx.CloseQuiet(slave)
 		if err := applyPtyMasterLifecycle(s, ptmx); err != nil {
-			_ = cmd.Process.Kill()
-			_, _ = cmd.Process.Wait()
+			killWaitUnregisterChild(cmd)
 			logx.CloseQuiet(ptmx)
 			return nil, err
 		}
@@ -1021,14 +1062,13 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 		// Controlling tty is stdout/stderr slave; Setctty needs a child FD.
 		// With stdin inherited, Ctty 1 (stdout) is the slave after setup.
 		cmd.SysProcAttr.Ctty = 1
-		if err := startWithChildUmask(s, cmd); err != nil {
+		if err := startWithChildUmask(s, cmd, g); err != nil {
 			closeExecPTY(master, slave)
 			return nil, err
 		}
 		logx.CloseQuiet(slave)
 		if err := applyPtyMasterLifecycle(s, ptmx); err != nil {
-			_ = cmd.Process.Kill()
-			_, _ = cmd.Process.Wait()
+			killWaitUnregisterChild(cmd)
 			logx.CloseQuiet(ptmx)
 			return nil, err
 		}
@@ -1041,13 +1081,12 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 		return finishExec(s, g, cmd, stream, []func(){func() { logx.CloseQuiet(ptmx) }}, false)
 
 	default:
-		ptmx, err = startOnPTY(cmd, s)
+		ptmx, err = startOnPTY(cmd, s, g)
 		if err != nil {
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}
 		if err := applyPtyMasterLifecycle(s, ptmx); err != nil {
-			_ = cmd.Process.Kill()
-			_, _ = cmd.Process.Wait()
+			killWaitUnregisterChild(cmd)
 			logx.CloseQuiet(ptmx)
 			return nil, err
 		}
@@ -1065,10 +1104,13 @@ func applyPtyMasterLifecycle(s parse.Spec, ptmx *os.File) error {
 }
 
 func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func(), waitChild bool) (*Opened, error) {
+	pid := 0
+	if cmd != nil && cmd.Process != nil {
+		pid = cmd.Process.Pid
+	}
 	st, err := WrapCommon(s, stream)
 	if err != nil {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		killWaitUnregisterChild(cmd)
 		for _, f := range cleanup {
 			f()
 		}
@@ -1082,6 +1124,7 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 	done := make(chan struct{})
 	go func() {
 		err := cmd.Wait()
+		unregisterChildSignals(pid)
 		mu.Lock()
 		waitErr = err
 		if err == nil {

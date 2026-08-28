@@ -1,8 +1,6 @@
 package classiccatalog
 
-// PARENT signal policy for EXEC children.
-var expectedMissingParent = map[string]Gap{
-	"sighup":  {Reason: "PARENT SIGHUP policy for EXEC", Platforms: PlatUnix},
-	"sigint":  {Reason: "PARENT SIGINT policy for EXEC", Platforms: PlatUnix},
-	"sigquit": {Reason: "PARENT SIGQUIT policy for EXEC", Platforms: PlatUnix},
-}
+// PARENT signal policy for EXEC children. sighup/sigint/sigquit are
+// implemented on Unix (GROUP_PARENT, PH_LATE, OFUNC_SIGNAL). Windows hides
+// the names (help_windows.go hideOpt) like dash/setpgid.
+var expectedMissingParent = map[string]Gap{}
