@@ -309,6 +309,12 @@ func TestAcceptFDRejectedPeer10Net(t *testing.T) {
 }
 
 func TestAcceptFDCloseDoesNotDoubleClose(t *testing.T) {
+	if testing.CoverMode() != "" {
+		// Dup2 onto a recycled listen fd can close Go's coverage meta files
+		// and fail the linux-amd64 job with "error generating coverage report:
+		// seek ... bad file descriptor" after tests already passed.
+		t.Skip("dup2 onto a recycled fd races with coverage meta files")
+	}
 	lowFD, _ := tcp4ListenOwned(t)
 	// Move the listener away from the low descriptor range used by concurrent
 	// runtime and test activity. Checking whether a low numeric fd is valid
