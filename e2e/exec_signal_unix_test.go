@@ -22,8 +22,8 @@ func TestEXECParentSignalPassThrough(t *testing.T) {
 	// builtin, so SIGHUP runs the trap while the shell is the EXEC child.
 	// Loop so an interrupted read does not exit and tear down the socketpair.
 	body := "#!/bin/sh\n" +
-		"echo $$ >\"" + ready + "\"\n" +
 		"trap 'echo got >\"" + got + "\"' HUP INT QUIT\n" +
+		"echo $$ >\"" + ready + "\"\n" +
 		"while true; do read dummy; done\n"
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
@@ -95,5 +95,44 @@ func TestEXECParentSignalAbsentStillExits(t *testing.T) {
 	}
 	if !strings.Contains(readFile(t, stderrPath), "exiting on signal 1") {
 		t.Fatalf("missing exiting on signal 1 in stderr=%s", readFile(t, stderrPath))
+	}
+}
+
+func TestEXECNoForkSIGHUPExitStatus(t *testing.T) {
+	bin := socatBin(t)
+	dir := t.TempDir()
+	ready := filepath.Join(dir, "ready")
+	script := filepath.Join(dir, "child.sh")
+	body := "#!/bin/sh\necho $$ >\"" + ready + "\"\nexec sleep 30\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "PIPE", "EXEC:"+script+",nofork,sighup")
+	stderrPath := attachStderrFile(t, cmd)
+	proc, err := startTestProcess(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		proc.stop()
+		killPIDFile(ready)
+	})
+
+	waitPath(t, ready, proc, stderrPath, 5*time.Second)
+	if err := cmd.Process.Signal(syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-proc.done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("socat did not exit after nofork SIGHUP stderr=%s", readFile(t, stderrPath))
+	}
+	got := exitStatus(proc)
+	want := 128 + int(syscall.SIGHUP)
+	if got != want {
+		t.Fatalf("exit=%d want %d stderr=%s", got, want, readFile(t, stderrPath))
+	}
+	if strings.Contains(readFile(t, stderrPath), "exiting on signal 1") {
+		t.Fatalf("nofork,sighup must forward SIGHUP, not self-exit stderr=%s", readFile(t, stderrPath))
 	}
 }

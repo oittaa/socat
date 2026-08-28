@@ -109,3 +109,65 @@ func TestRegisterExecParentSignalsTooManyKillsChild(t *testing.T) {
 		t.Fatalf("error=%v want too many", err)
 	}
 }
+
+func TestChildWaitExitCodeSignaled(t *testing.T) {
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if cmd.ProcessState == nil && cmd.Process != nil {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		}
+	})
+	if err := cmd.Process.Signal(syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	err := cmd.Wait()
+	ee, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("Wait err=%v want ExitError", err)
+	}
+	if ee.ExitCode() != -1 {
+		t.Fatalf("Go ExitCode()=%d want -1 for a signaled child", ee.ExitCode())
+	}
+	code, ok := childWaitExitCode(err)
+	if !ok || code != 128+int(syscall.SIGHUP) {
+		t.Fatalf("childWaitExitCode=%d ok=%v want 129", code, ok)
+	}
+}
+
+func TestChildWaitExitCodeNormal(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "exit 7")
+	err := cmd.Run()
+	code, ok := childWaitExitCode(err)
+	if !ok || code != 7 {
+		t.Fatalf("childWaitExitCode=%d ok=%v err=%v want 7", code, ok, err)
+	}
+	code, ok = childWaitExitCode(nil)
+	if !ok || code != 0 {
+		t.Fatalf("nil wait code=%d ok=%v want 0", code, ok)
+	}
+}
+
+func TestOpenEXECPtyOptionFailureUnregistersSignals(t *testing.T) {
+	resetChildSignalPassForTest()
+	t.Cleanup(resetChildSignalPassForTest)
+
+	spec, err := parse.ParseSpec("EXEC:sleep 30,pty,sighup,ioctl-int=0:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = OpenSpec(context.Background(), spec, ModeRDWR, &Global{Log: logx.New(), Linger: time.Second})
+	if err == nil || !strings.Contains(err.Error(), "ioctl-int") {
+		t.Fatalf("error=%v want ioctl-int PTY master failure after Start", err)
+	}
+	enabled, n, pids := childSignalPassStateForTest(syscall.SIGHUP)
+	if !enabled {
+		t.Fatal("PTY ioctl failure happened before OFUNC_SIGNAL registration")
+	}
+	if n != 0 {
+		t.Fatalf("stale registered pids after PTY failure: n=%d pids=%v", n, pids)
+	}
+}
