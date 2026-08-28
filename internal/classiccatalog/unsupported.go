@@ -33,10 +33,14 @@ var unsupportedReadline = map[string]string{
 	"prompt":       "READLINE is not implemented",
 }
 
-// unsupportedDCCP is GROUP_DCCP. DCCP addresses are not implemented.
+// unsupportedDCCP is GROUP_DCCP. Classic still compiles WITH_DCCP; this port
+// documents the family as an intentional compatibility exception because
+// Linux orphaned, deprecated, and removed DCCP sockets (README Unsupported /
+// security-related). Public spellings stay catalogued as unsupported, not
+// implementation backlog.
 var unsupportedDCCP = map[string]string{
-	"ccid":          "DCCP is not implemented",
-	"dccp-set-ccid": "DCCP is not implemented",
+	"ccid":          "DCCP is an intentional compatibility exception (removed from Linux 6.16)",
+	"dccp-set-ccid": "DCCP is an intentional compatibility exception (removed from Linux 6.16)",
 }
 
 // unsupportedUDPLITE contains the public UDP-Lite socket options retained in

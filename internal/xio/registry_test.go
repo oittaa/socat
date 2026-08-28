@@ -15,6 +15,21 @@ func helpKeyword(syntax string) string {
 	return strings.ToUpper(syntax)
 }
 
+func TestHelpOmitsDCCP(t *testing.T) {
+	for _, g := range xio.HelpAddressGroups() {
+		for _, a := range g.Addrs {
+			if kw := helpKeyword(a.Syntax); strings.HasPrefix(kw, "DCCP") {
+				t.Errorf("help lists DCCP type %q", a.Syntax)
+			}
+			for _, al := range a.Aliases {
+				if strings.HasPrefix(strings.ToUpper(al), "DCCP") {
+					t.Errorf("help lists DCCP alias %q", al)
+				}
+			}
+		}
+	}
+}
+
 func TestOpenersHaveHelpOrAreDisabled(t *testing.T) {
 	regs := xio.AddressRegistrations()
 	if len(regs) == 0 {

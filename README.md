@@ -124,8 +124,8 @@ A two-container walk-through is in [examples/lab/README.md](examples/lab/README.
 Implemented types only. Directly registered names (including `TCP-L` style
 spellings) share a `-h` row. Classic `addressnames[]` aliases of those types
 (`INET`, `LOCAL`, `UDP-DGRAM`, …) open the canonical type and appear in
-`./socat -hhh` as `alias of <canonical>`. DCCP, UDP-Lite, and readline are not implemented (see
-[Unsupported / security-related](#unsupported--security-related)).
+`./socat -hhh` as `alias of <canonical>`. DCCP, UDP-Lite, and GNU readline
+are omitted (see [Unsupported / security-related](#unsupported--security-related)).
 
 | Type | Syntax | Notes |
 |------|--------|--------|
@@ -281,7 +281,7 @@ We do **not** re-implement features that Go’s standard libraries removed or ne
 | Topic | Status | Why / reference |
 |-------|--------|------------------|
 | **DSA certificates / keys** | Rejected | DSA is obsolete; Go `crypto/tls` does not parse DSA keys. Classic `OPENSSLLISTENDSA` fails by design. Use RSA, ECDSA, Ed25519, or ML-DSA (TLS 1.3 / QUIC). See [Go crypto/tls](https://pkg.go.dev/crypto/tls), [crypto/mldsa](https://pkg.go.dev/crypto/mldsa), and [NIST SP 800-57 / deprecation of DSA](https://csrc.nist.gov/publications/detail/sp/800-57-part-1/rev-5/final). |
-| **DCCP** | Intentionally unsupported | Linux deprecated DCCP and this project does not emulate a retired Linux-only transport on Windows or macOS. `#undef WITH_DCCP` in `-V`; public classic spellings remain catalogued but are not advertised. |
+| **DCCP** | Intentionally unsupported | Classic still compiles `WITH_DCCP` at tag-1.8.1.3 `12c08bf66d709fba17035ce95d85bd218428d9ba` and master `af5388c898c7bb60997935aee93c223deba60c4a` (`xio-dccp.c`: `DCCP`/`DCCP4`/`DCCP6` connect and listen aliases, `dccp-set-ccid`/`ccid`). Linux orphaned DCCP, deprecated it in 2023 (`b144fcaf46d43b1471ad6e4de66235b8cebb3c87`), and removed the socket implementation in Linux 6.16 (`2a63dd0edf388802074f1d4d6b588a3b4c380688`). Native DCCP is unavailable on Windows and macOS. This port reports `#undef WITH_DCCP`, keeps the public classic spellings catalogued as unsupported (rejected, omitted from `-h`/`-hh`/`-hhh`, not an implementation backlog), and does not emulate DCCP over TCP or UDP. |
 | **UDP-Lite** | Intentionally unsupported | Classic exposes `UDPLITE*` addresses and checksum-coverage options at tag-1.8.1.3 `12c08bf66d709fba17035ce95d85bd218428d9ba` and master `af5388c898c7bb60997935aee93c223deba60c4a`. Linux deprecated UDP-Lite in 2023 and removed its IPv4/IPv6 socket support in Linux 7.1 (`86a41d957ba058932d58c2d7729451afe8625ce9`, `62554a51c5844feebe0466d8b31980e110b481de`); Windows and macOS have no native equivalent. This port reports `#undef WITH_UDPLITE`, does not advertise the public spellings, and does not emulate UDP-Lite over UDP. |
 | **readline** | Not implemented | `#undef WITH_READLINE` in `-V`. No GNU readline address type. |
 | **DTLS** | Not implemented | Not available in Go `crypto/tls` (stream TLS only). `method=` / `openssl-method=DTLS*` is rejected instead of silently using TCP TLS. Classic `OPENSSL-DTLS-*` address types are not implemented. See [crypto/tls package docs](https://pkg.go.dev/crypto/tls). |

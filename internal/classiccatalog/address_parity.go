@@ -17,18 +17,22 @@ var ParserAddressShorthands = map[string]string{
 var UnsupportedAddressNames = map[string]string{
 	"READLINE": "GNU readline is not implemented (#undef WITH_READLINE)",
 
-	"DCCP":          "DCCP is not implemented (#undef WITH_DCCP)",
-	"DCCP-CONNECT":  "DCCP is not implemented",
-	"DCCP-L":        "DCCP is not implemented",
-	"DCCP-LISTEN":   "DCCP is not implemented",
-	"DCCP4":         "DCCP is not implemented",
-	"DCCP4-CONNECT": "DCCP is not implemented",
-	"DCCP4-L":       "DCCP is not implemented",
-	"DCCP4-LISTEN":  "DCCP is not implemented",
-	"DCCP6":         "DCCP is not implemented",
-	"DCCP6-CONNECT": "DCCP is not implemented",
-	"DCCP6-L":       "DCCP is not implemented",
-	"DCCP6-LISTEN":  "DCCP is not implemented",
+	// Intentional compatibility exception: Linux orphaned DCCP, deprecated
+	// it in 2023, and removed the socket implementation in Linux 6.16.
+	// Native Windows and Darwin do not provide it, so this port does not
+	// emulate DCCP over TCP or UDP. See README Unsupported / security-related.
+	"DCCP":          "DCCP is an intentional compatibility exception (orphaned, deprecated, removed from Linux 6.16)",
+	"DCCP-CONNECT":  "DCCP is an intentional compatibility exception",
+	"DCCP-L":        "DCCP is an intentional compatibility exception",
+	"DCCP-LISTEN":   "DCCP is an intentional compatibility exception",
+	"DCCP4":         "DCCP is an intentional compatibility exception",
+	"DCCP4-CONNECT": "DCCP is an intentional compatibility exception",
+	"DCCP4-L":       "DCCP is an intentional compatibility exception",
+	"DCCP4-LISTEN":  "DCCP is an intentional compatibility exception",
+	"DCCP6":         "DCCP is an intentional compatibility exception",
+	"DCCP6-CONNECT": "DCCP is an intentional compatibility exception",
+	"DCCP6-L":       "DCCP is an intentional compatibility exception",
+	"DCCP6-LISTEN":  "DCCP is an intentional compatibility exception",
 
 	// Intentional compatibility exception: Linux deprecated UDP-Lite in
 	// 2023 and removed its IPv4/IPv6 socket support in Linux 7.1. Native
@@ -84,9 +88,9 @@ var ExpectedMissingCanonicalAddresses = map[string]Gap{}
 // ExpectedMissingAddressAliases are classic addressnames[] aliases whose
 // canonical Go opener is already registered but the alias is not yet
 // resolved by the address registry. Empty after PR C (central alias
-// resolution in xio). Do not add DCCP, DTLS, or readline here: those
-// families stay unsupported. ACCEPT is a public alias of ACCEPT-FD and is
-// registered with Syntax on Unix (PR F).
+// resolution in xio). Do not add DCCP, UDP-Lite, DTLS, or readline here:
+// those families stay unsupported, not an implementation backlog. ACCEPT is a
+// public alias of ACCEPT-FD and is registered with Syntax on Unix (PR F).
 //
 // Classic baseline: tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
 // official master af5388c898c7bb60997935aee93c223deba60c4a.

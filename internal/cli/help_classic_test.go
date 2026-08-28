@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	_ "github.com/oittaa/socat/internal/xio/all"
 )
 
 func TestHelpDoesNotTriggerClassicOptionArraySentinel(t *testing.T) {
@@ -116,6 +118,33 @@ func TestHelpListsTLSPublicAliases(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("-hhh missing %q as %s", alias, want)
+		}
+	}
+}
+
+func TestHelpDoesNotAdvertiseDCCP(t *testing.T) {
+	var version bytes.Buffer
+	if err := printVersion(&version); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(version.String(), "#undef WITH_DCCP") {
+		t.Fatalf("missing #undef WITH_DCCP:\n%s", version.String())
+	}
+	for _, level := range []int{1, 2, 3} {
+		var output bytes.Buffer
+		if err := printHelp(&output, level); err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(output.String(), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) == 0 {
+				continue
+			}
+			name := fields[0]
+			upper := strings.ToUpper(name)
+			if strings.HasPrefix(upper, "DCCP") || name == "ccid" || name == "dccp-set-ccid" {
+				t.Errorf("-h%s advertises DCCP spelling %q: %s", strings.Repeat("h", level-1), name, strings.TrimSpace(line))
+			}
 		}
 	}
 }

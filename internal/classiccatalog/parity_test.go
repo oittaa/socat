@@ -172,7 +172,12 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"cloexec", "windows", ClassMustAdvertise},
 		{"so-bsdcompat", "linux", ClassUnsupported},
 		{"history-file", "linux", ClassUnsupported},
+		{"ccid", "linux", ClassUnsupported},
+		{"ccid", "darwin", ClassUnsupported},
+		{"ccid", "windows", ClassUnsupported},
 		{"dccp-set-ccid", "linux", ClassUnsupported},
+		{"dccp-set-ccid", "darwin", ClassUnsupported},
+		{"dccp-set-ccid", "windows", ClassUnsupported},
 		{"cool-write", "linux", ClassUnsupported},
 	}
 	for _, tc := range tests {
@@ -512,5 +517,84 @@ func TestMergeStringMapsRejectsDuplicateNames(t *testing.T) {
 	}, "unsupported option")
 	if err == nil || !strings.Contains(err.Error(), "without a reason") {
 		t.Fatalf("empty reason should fail, got %v", err)
+	}
+}
+
+// dccpAddressNames is every classic addressnames[] DCCP spelling
+// (xioopen.c at tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
+// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
+var dccpAddressNames = []string{
+	"DCCP", "DCCP-CONNECT", "DCCP-L", "DCCP-LISTEN",
+	"DCCP4", "DCCP4-CONNECT", "DCCP4-L", "DCCP4-LISTEN",
+	"DCCP6", "DCCP6-CONNECT", "DCCP6-L", "DCCP6-LISTEN",
+}
+
+var dccpOptionNames = []string{"ccid", "dccp-set-ccid"}
+
+func TestDCCPIsUnsupportedNotBacklog(t *testing.T) {
+	seen := map[string]bool{}
+	for name, reason := range UnsupportedAddressNames {
+		if !strings.HasPrefix(name, "DCCP") {
+			continue
+		}
+		seen[name] = true
+		if !strings.Contains(reason, "intentional compatibility exception") {
+			t.Errorf("unsupported address %q reason=%q; want intentional compatibility exception", name, reason)
+		}
+	}
+	if len(seen) != len(dccpAddressNames) {
+		t.Fatalf("UnsupportedAddressNames has %d DCCP spellings, want %d", len(seen), len(dccpAddressNames))
+	}
+	reason, ok := UnsupportedAddressNames["DCCP"]
+	if !ok {
+		t.Fatal("DCCP missing from UnsupportedAddressNames")
+	}
+	for _, want := range []string{"orphaned", "deprecated", "removed"} {
+		if !strings.Contains(reason, want) {
+			t.Errorf("DCCP reason=%q; want %q (intentional exception, not backlog)", reason, want)
+		}
+	}
+	for _, name := range dccpAddressNames {
+		if !seen[name] {
+			t.Errorf("classic DCCP spelling %q missing from UnsupportedAddressNames", name)
+		}
+		if _, ok := ExpectedMissingCanonicalAddresses[name]; ok {
+			t.Errorf("%s must not re-enter ExpectedMissingCanonicalAddresses", name)
+		}
+		if _, ok := ExpectedMissingAddressAliases[name]; ok {
+			t.Errorf("%s must not re-enter ExpectedMissingAddressAliases", name)
+		}
+		for _, goos := range []string{"linux", "darwin", "windows"} {
+			class, reason := ClassifyAddress(name, goos)
+			if class != AddrUnsupportedFamily {
+				t.Errorf("%s on %s: class=%s reason=%q; want unsupported-family", name, goos, class, reason)
+			}
+			if !strings.Contains(reason, "intentional compatibility exception") {
+				t.Errorf("%s on %s: reason=%q; want intentional compatibility exception", name, goos, reason)
+			}
+		}
+	}
+
+	for _, name := range dccpOptionNames {
+		reason, ok := UnsupportedPublic()[name]
+		if !ok {
+			t.Errorf("DCCP option %q missing from UnsupportedPublic", name)
+			continue
+		}
+		if !strings.Contains(reason, "intentional compatibility exception") {
+			t.Errorf("DCCP option %q reason=%q; want intentional compatibility exception", name, reason)
+		}
+		if _, ok := ExpectedMissingAll()[name]; ok {
+			t.Errorf("%s must not re-enter the expected-missing option backlog", name)
+		}
+		for _, goos := range []string{"linux", "darwin", "windows"} {
+			class, classReason := ClassifyOption(name, goos)
+			if class != ClassUnsupported {
+				t.Errorf("%s on %s: class=%s reason=%q; want unsupported", name, goos, class, classReason)
+			}
+			if _, ok := ImplementationBacklog(goos)[name]; ok {
+				t.Errorf("%s backlog includes DCCP option %q; it is not an implementation item", goos, name)
+			}
+		}
 	}
 }
