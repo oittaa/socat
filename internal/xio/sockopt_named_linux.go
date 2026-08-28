@@ -38,6 +38,12 @@ func lookupNamedPastSocketInt(name string) (level, opt int, ok bool, err error) 
 		return solSocket, soDontroute, true, nil
 	case "so-oobinline":
 		return solSocket, soOobinline, true, nil
+	case "so-rcvlowat":
+		return solSocket, unix.SO_RCVLOWAT, true, nil
+	case "so-sndlowat":
+		// Linux exposes SO_SNDLOWAT but rejects setsockopt with ENOPROTOOPT.
+		// Reject before the syscall so this never appears to be a silent no-op.
+		return 0, 0, true, errNamedOptUnsupported
 	case "so-priority":
 		return solSocket, unix.SO_PRIORITY, true, nil
 	case "so-passcred":

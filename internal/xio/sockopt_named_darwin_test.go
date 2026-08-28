@@ -48,6 +48,39 @@ func TestApplySocketOptionsNopushNooptDarwin(t *testing.T) {
 	}
 }
 
+func TestApplySocketOptionsLowWaterDarwin(t *testing.T) {
+	for _, tc := range []struct {
+		name, spec string
+		sockType   int
+		proto      int
+		rcv, snd   int
+	}{
+		{name: "tcp", spec: "TCP:127.0.0.1:9,so-rcvlowat=512,so-sndlowat=256", sockType: unix.SOCK_STREAM, rcv: 512, snd: 256},
+		{name: "udp-aliases", spec: "UDP:127.0.0.1:9,rcvlowat=64,sndlowat=32", sockType: unix.SOCK_DGRAM, proto: unix.IPPROTO_UDP, rcv: 64, snd: 32},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fd, err := unix.Socket(unix.AF_INET, tc.sockType, tc.proto)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = unix.Close(fd) })
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ApplySocketOptions(fd, spec); err != nil {
+				t.Fatal(err)
+			}
+			if got := unixSockoptInt(t, fd, unix.SO_RCVLOWAT); got != tc.rcv {
+				t.Fatalf("SO_RCVLOWAT=%d want %d", got, tc.rcv)
+			}
+			if got := unixSockoptInt(t, fd, unix.SO_SNDLOWAT); got != tc.snd {
+				t.Fatalf("SO_SNDLOWAT=%d want %d", got, tc.snd)
+			}
+		})
+	}
+}
+
 func fdTCPSockoptIntDarwin(t *testing.T, fd, opt int) int {
 	t.Helper()
 	v, err := unix.GetsockoptInt(fd, unix.IPPROTO_TCP, opt)

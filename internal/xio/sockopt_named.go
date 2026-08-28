@@ -14,7 +14,8 @@ import (
 //
 // PH_PASTSOCKET TYPE_INT OFUNC_SOCKOPT:
 //
-//	so-debug / debug, so-dontroute / dontroute, so-oobinline / oobinline
+//	so-debug / debug, so-dontroute / dontroute, so-oobinline / oobinline,
+//	so-rcvlowat / rcvlowat, so-sndlowat / sndlowat
 //	so-priority / priority, so-passcred / passcred,
 //	so-no-check / no-check / nocheck (Linux SO_PRIORITY / SO_PASSCRED /
 //	SO_NO_CHECK; classic xio-socket.c #ifdef SO_*)
@@ -30,7 +31,9 @@ import (
 //	tcp-maxseg-late / maxseg-late / mss-late (same TCP_MAXSEG as tcp-maxseg)
 //
 // Bare flag → 1 (classic TYPE_INT without '='). Kernel rejection fails the
-// call. so-bsdcompat is catalog-advertised on Linux glibc but this kernel
+// call. Linux SO_SNDLOWAT is recognized but rejected because the kernel
+// returns ENOPROTOOPT for every value. so-bsdcompat is catalog-advertised on
+// Linux glibc but this kernel
 // accepts setsockopt and leaves getsockopt at 0, so it is not implemented
 // (do not advertise a no-op). tcp-info and tcp-md5sig are later PRs.
 // sctp-maxseg-late is not implemented (undocumented optionnames[] alias).

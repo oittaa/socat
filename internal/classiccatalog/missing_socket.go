@@ -1,13 +1,9 @@
 package classiccatalog
 
-// Named SOL_SOCKET options not yet implemented. Probe low-water and
-// read-only sockopts on each OS before advertising; do not advertise a no-op.
+// Named SOL_SOCKET options not yet implemented. Probe read-only sockopts on
+// each OS before advertising; do not advertise a no-op.
 // so-bsdcompat is unsupportedNoopSockopts, not this map.
 var expectedMissingSocket = map[string]Gap{
-	"so-rcvlowat":                      {Reason: "SO_RCVLOWAT; probe before advertising", Platforms: PlatUnix},
-	"rcvlowat":                         {Reason: "alias of so-rcvlowat", Platforms: PlatUnix},
-	"so-sndlowat":                      {Reason: "SO_SNDLOWAT; probe before advertising", Platforms: PlatUnix},
-	"sndlowat":                         {Reason: "alias of so-sndlowat", Platforms: PlatUnix},
 	"so-error":                         {Reason: "SO_ERROR is get-only; classic passes an int — probe before implementing", Platforms: PlatUnix},
 	"error":                            {Reason: "alias of so-error", Platforms: PlatUnix},
 	"so-acceptconn":                    {Reason: "SO_ACCEPTCONN is get-only; classic passes an int — probe before implementing", Platforms: PlatUnix},

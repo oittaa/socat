@@ -17,6 +17,8 @@ func socketOptionGroups() []helpOptGroup {
 			{name: "so-debug", desc: "SO_DEBUG", aliases: []string{"debug"}},
 			{name: "so-dontroute", desc: "SO_DONTROUTE", aliases: []string{"dontroute"}},
 			{name: "so-oobinline", desc: "SO_OOBINLINE", aliases: []string{"oobinline"}},
+			{name: "so-rcvlowat", desc: "SO_RCVLOWAT receive low-water mark", aliases: []string{"rcvlowat"}, validate: validateOptionalSignedInteger},
+			{name: "so-sndlowat", desc: "SO_SNDLOWAT send low-water mark", aliases: []string{"sndlowat"}, validate: validateOptionalSignedInteger},
 			{name: "so-priority", desc: "SO_PRIORITY (Linux)", aliases: []string{"priority"}},
 			{name: "so-passcred", desc: "SO_PASSCRED (Linux)", aliases: []string{"passcred"}},
 			{name: "so-no-check", desc: "SO_NO_CHECK (Linux)", aliases: []string{"no-check", "nocheck"}},

@@ -140,6 +140,104 @@ func TestDarwinTCPNopushUnsupportedOnLinux(t *testing.T) {
 	}
 }
 
+func TestApplySocketOptionsRcvlowatLinux(t *testing.T) {
+	for _, tc := range []struct {
+		name, spec string
+		sockType   int
+		proto      int
+		want       int
+	}{
+		{name: "tcp-canonical", spec: "TCP:127.0.0.1:9,so-rcvlowat=64", sockType: unix.SOCK_STREAM, want: 64},
+		{name: "udp-alias", spec: "UDP:127.0.0.1:9,rcvlowat=512", sockType: unix.SOCK_DGRAM, proto: unix.IPPROTO_UDP, want: 512},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fd, err := unix.Socket(unix.AF_INET, tc.sockType, tc.proto)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = unix.Close(fd) })
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ApplySocketOptions(fd, spec); err != nil {
+				t.Fatal(err)
+			}
+			if got := unixSockoptInt(t, fd, unix.SO_RCVLOWAT); got != tc.want {
+				t.Fatalf("SO_RCVLOWAT=%d want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestApplySocketOptionsBareRcvlowatLinux(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_RCVLOWAT, 8); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,so-rcvlowat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplySocketOptions(fd, spec); err != nil {
+		t.Fatal(err)
+	}
+	if got := unixSockoptInt(t, fd, unix.SO_RCVLOWAT); got != 1 {
+		t.Fatalf("bare so-rcvlowat set SO_RCVLOWAT=%d want 1", got)
+	}
+}
+
+func TestApplySocketOptionsSndlowatUnsupportedLinux(t *testing.T) {
+	for _, tc := range []struct {
+		name, spec string
+		sockType   int
+		proto      int
+	}{
+		{name: "tcp-canonical", spec: "TCP:127.0.0.1:9,so-sndlowat=64", sockType: unix.SOCK_STREAM},
+		{name: "udp-alias", spec: "UDP:127.0.0.1:9,sndlowat=512", sockType: unix.SOCK_DGRAM, proto: unix.IPPROTO_UDP},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fd, err := unix.Socket(unix.AF_INET, tc.sockType, tc.proto)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = unix.Close(fd) })
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = ApplySocketOptions(fd, spec)
+			if err == nil || !errors.Is(err, errNamedOptUnsupported) {
+				t.Fatalf("%s: error=%v want %v", tc.spec, err, errNamedOptUnsupported)
+			}
+		})
+	}
+}
+
+func TestApplySocketOptionsRejectsInvalidRcvlowatLinux(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	for _, specText := range []string{
+		"TCP:127.0.0.1:9,so-rcvlowat=no",
+		"TCP:127.0.0.1:9,rcvlowat=",
+	} {
+		spec, err := parse.ParseSpec(specText)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ApplySocketOptions(fd, spec); err == nil {
+			t.Fatalf("%s: expected invalid value", specText)
+		}
+	}
+}
+
 func TestPastSocketTCPNamedAndGenericCommandLineOrderLinux(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

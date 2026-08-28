@@ -37,6 +37,7 @@ func TestUnixOtherHelpHidesLinuxSCTP(t *testing.T) {
 		"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string",
 		"cloexec",
 		"nopush", "noopt",
+		"so-rcvlowat", "rcvlowat", "so-sndlowat", "sndlowat",
 	}
 	if runtime.GOOS == "darwin" {
 		honored = append(honored, "ip-recvdstaddr", "ip-recvif")
