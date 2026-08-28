@@ -38,6 +38,7 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"ip-pktinfo", "ip-options", "ipv6-tclass", "ipv6-unicast-hops",
 		"tcp-cork", "tcp-maxseg", "tcp-maxseg-late",
 		"sctp-nodelay", "sctp-maxseg",
+		"so-priority", "so-passcred", "so-no-check",
 		"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string",
 		"cloexec",
 		"fs-append", "fs-nodump", "fs-notail", "nodump", "notail",

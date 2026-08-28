@@ -461,6 +461,8 @@ func openSocketpair(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) 
 		// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 		// af5388c898c7bb60997935aee93c223deba60c4a is the same). Thus every
 		// generic phase is applied once per fd in original option order.
+		// ApplyGenericSetsockoptAll also walks fixed PH_PASTSOCKET options
+		// (broadcast, sndbuf, linger, …) so they keep that order.
 		if err := xio.ApplyGenericSetsockoptAll(int(conn.Fd()), s); err != nil {
 			logx.CloseQuiet(c1)
 			logx.CloseQuiet(c2)

@@ -6,11 +6,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"strconv"
+	"strings"
 	"syscall"
 	"testing"
+	"time"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
@@ -388,6 +393,238 @@ func TestDialTCPAllAppliesPastSocketCorkOnceLinux(t *testing.T) {
 	}
 }
 
+func TestApplySocketOptionsPriorityPasscredNocheckLinux(t *testing.T) {
+	// Classic xio-socket.c opt_so_priority / opt_so_passcred / opt_so_no_check
+	// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+	// af5388c898c7bb60997935aee93c223deba60c4a): GROUP_SOCKET, PH_PASTSOCKET,
+	// TYPE_INT, OFUNC_SOCKOPT, SOL_SOCKET.
+	//
+	// SO_PRIORITY and SO_NO_CHECK stick on AF_INET here. SO_PASSCRED is a
+	// UNIX-domain credential option: some kernels (GitHub Actions) return
+	// EOPNOTSUPP on TCP/UDP. Classic still applies it on GROUP_SOCKET and
+	// surfaces the kernel error; tests require success on UNIX and accept
+	// a precise ENOPROTOOPT/EOPNOTSUPP on INET (never a silent no-op).
+	for _, tc := range []struct {
+		name    string
+		network int
+		proto   int
+		spec    string
+		opt     int
+		want    int
+	}{
+		{name: "tcp-priority", network: unix.SOCK_STREAM, proto: 0, spec: "TCP:127.0.0.1:9,so-priority=6", opt: unix.SO_PRIORITY, want: 6},
+		{name: "udp-priority-alias", network: unix.SOCK_DGRAM, proto: unix.IPPROTO_UDP, spec: "UDP:127.0.0.1:9,priority=3", opt: unix.SO_PRIORITY, want: 3},
+		{name: "udp-nocheck", network: unix.SOCK_DGRAM, proto: unix.IPPROTO_UDP, spec: "UDP:127.0.0.1:9,nocheck", opt: unix.SO_NO_CHECK, want: 1},
+		{name: "tcp-no-check-alias", network: unix.SOCK_STREAM, proto: 0, spec: "TCP:127.0.0.1:9,no-check=1", opt: unix.SO_NO_CHECK, want: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fd, err := unix.Socket(unix.AF_INET, tc.network, tc.proto)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = unix.Close(fd) })
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ApplySocketOptions(fd, spec); err != nil {
+				t.Fatal(err)
+			}
+			got, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, tc.opt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("getsockopt=%d want %d", got, tc.want)
+			}
+		})
+	}
+
+	t.Run("unix-passcred-priority", func(t *testing.T) {
+		fd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = unix.Close(fd) })
+		spec, err := parse.ParseSpec("UNIX-CONNECT:/tmp/sock,so-passcred=1,so-priority=4")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := ApplySocketOptions(fd, spec); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_PASSCRED); err != nil || got != 1 {
+			t.Fatalf("UNIX SO_PASSCRED=%d err=%v want 1", got, err)
+		}
+		if got, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_PRIORITY); err != nil || got != 4 {
+			t.Fatalf("UNIX SO_PRIORITY=%d err=%v want 4", got, err)
+		}
+	})
+}
+
+func TestApplySocketOptionsPasscredOnINETLinux(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		network int
+		proto   int
+		spec    string
+		want    int
+	}{
+		{name: "tcp-passcred", network: unix.SOCK_STREAM, proto: 0, spec: "TCP:127.0.0.1:9,so-passcred", want: 1},
+		{name: "udp-passcred-clear", network: unix.SOCK_DGRAM, proto: unix.IPPROTO_UDP, spec: "UDP:127.0.0.1:9,passcred=0", want: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fd, err := unix.Socket(unix.AF_INET, tc.network, tc.proto)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = unix.Close(fd) })
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = ApplySocketOptions(fd, spec)
+			if err != nil {
+				if errors.Is(err, unix.ENOPROTOOPT) || errors.Is(err, unix.EOPNOTSUPP) {
+					return
+				}
+				t.Fatal(err)
+			}
+			got, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_PASSCRED)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("getsockopt SO_PASSCRED=%d want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPastSocketPriorityAndGenericCommandLineOrderLinux(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		options string
+		want    []int
+	}{
+		{
+			name:    "named-then-generic",
+			options: fmt.Sprintf("so-priority=6,setsockopt-socket=%d:%d:1", unix.SOL_SOCKET, unix.SO_PRIORITY),
+			want:    []int{6, 1},
+		},
+		{
+			name:    "generic-then-named",
+			options: fmt.Sprintf("setsockopt-socket=%d:%d:1,priority=6", unix.SOL_SOCKET, unix.SO_PRIORITY),
+			want:    []int{1, 6},
+		},
+		{
+			name:    "alias-then-canonical",
+			options: "priority=1,so-priority=6",
+			want:    []int{1, 6},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = unix.Close(fd) })
+			spec, err := parse.ParseSpec("TCP:127.0.0.1:9," + tc.options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []int
+			restore := SetSockoptTestHook(func(call SockoptCall) {
+				if call.Level == unix.SOL_SOCKET && call.Opt == unix.SO_PRIORITY {
+					got = append(got, call.IntValue)
+				}
+			})
+			t.Cleanup(restore)
+			if err := ApplySocketOptions(fd, spec); err != nil {
+				t.Fatal(err)
+			}
+			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+				t.Fatalf("SO_PRIORITY values=%v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestApplySocketOptionsRejectsInvalidPriorityLinux(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,so-priority=no")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplySocketOptions(fd, spec); err == nil {
+		t.Fatal("so-priority=no must fail")
+	}
+}
+
+func TestListenControlAppliesPriorityLinux(t *testing.T) {
+	spec, err := parse.ParseSpec("TCP4-LISTEN:0,so-priority=5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lc := NewTCPListenConfig(spec)
+	ln, err := lc.Listen(context.Background(), "tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	sc, ok := ln.(syscall.Conn)
+	if !ok {
+		t.Fatalf("listener type %T is not syscall.Conn", ln)
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got int
+	var gerr error
+	if err := raw.Control(func(fd uintptr) {
+		got, gerr = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_PRIORITY)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	if got != 5 {
+		t.Fatalf("listener SO_PRIORITY=%d want 5", got)
+	}
+}
+
+func TestApplyTCPConnOptsDoesNotApplyPastSocketPriorityLinux(t *testing.T) {
+	cli, _ := tcpPair(t)
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,so-priority=6")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := cli.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var before int
+	_ = raw.Control(func(fd uintptr) {
+		before, _ = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_PRIORITY)
+	})
+	if err := ApplyTCPConnOpts(spec, cli); err != nil {
+		t.Fatal(err)
+	}
+	var after int
+	_ = raw.Control(func(fd uintptr) {
+		after, _ = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_PRIORITY)
+	})
+	if after != before {
+		t.Fatalf("ApplyTCPConnOpts applied PH_PASTSOCKET so-priority: %d → %d", before, after)
+	}
+}
+
 func TestApplyTCPConnOptsMaxsegLateThroughNetConnUnwrapLinux(t *testing.T) {
 	cli, _ := tcpPair(t)
 	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,tcp-maxseg-late=1")
@@ -398,4 +635,330 @@ func TestApplyTCPConnOptsMaxsegLateThroughNetConnUnwrapLinux(t *testing.T) {
 	if err == nil {
 		t.Fatal("tcp-maxseg-late through NetConn unwrap must reach the kernel")
 	}
+}
+
+func TestApplySocketOptionsPastSocketPriorityAndSndbufOrderLinux(t *testing.T) {
+	type step struct{ opt, value int }
+	for _, tc := range []struct {
+		name    string
+		options string
+		want    []step
+	}{
+		{
+			name:    "priority-then-sndbuf",
+			options: "so-priority=3,sndbuf=4096",
+			want:    []step{{unix.SO_PRIORITY, 3}, {unix.SO_SNDBUF, 4096}},
+		},
+		{
+			name:    "sndbuf-then-priority",
+			options: "sndbuf=4096,so-priority=3",
+			want:    []step{{unix.SO_SNDBUF, 4096}, {unix.SO_PRIORITY, 3}},
+		},
+		{
+			name:    "broadcast-then-priority",
+			options: "broadcast,so-priority=3",
+			want:    []step{{unix.SO_BROADCAST, 1}, {unix.SO_PRIORITY, 3}},
+		},
+		{
+			name:    "repeated-sndbuf",
+			options: "so-priority=3,sndbuf=4096,sndbuf=8192",
+			want:    []step{{unix.SO_PRIORITY, 3}, {unix.SO_SNDBUF, 4096}, {unix.SO_SNDBUF, 8192}},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = unix.Close(fd) })
+			spec, err := parse.ParseSpec("TCP:127.0.0.1:9," + tc.options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []step
+			restore := SetSockoptTestHook(func(call SockoptCall) {
+				if call.Level != unix.SOL_SOCKET || !call.AsInt {
+					return
+				}
+				switch call.Opt {
+				case unix.SO_PRIORITY, unix.SO_SNDBUF, unix.SO_BROADCAST:
+					got = append(got, step{call.Opt, call.IntValue})
+				}
+			})
+			t.Cleanup(restore)
+			if err := ApplySocketOptions(fd, spec); err != nil {
+				t.Fatal(err)
+			}
+			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
+				t.Fatalf("setsockopt order=%v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestApplyGenericSetsockoptAllPriorityAndSndbufOrderLinux(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	spec, err := parse.ParseSpec("SOCKETPAIR,so-priority=3,sndbuf=4096")
+	if err != nil {
+		t.Fatal(err)
+	}
+	type step struct{ opt, value int }
+	var got []step
+	restore := SetSockoptTestHook(func(call SockoptCall) {
+		if call.Level != unix.SOL_SOCKET || !call.AsInt {
+			return
+		}
+		switch call.Opt {
+		case unix.SO_PRIORITY, unix.SO_SNDBUF:
+			got = append(got, step{call.Opt, call.IntValue})
+		}
+	})
+	t.Cleanup(restore)
+	if err := ApplyGenericSetsockoptAll(fd, spec); err != nil {
+		t.Fatal(err)
+	}
+	want := []step{{unix.SO_PRIORITY, 3}, {unix.SO_SNDBUF, 4096}}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("SOCKETPAIR PH_ALL order=%v want %v", got, want)
+	}
+}
+
+func assertOpenSpecEXECChildSOPriority(t *testing.T, specText string, mode Mode) {
+	t.Helper()
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	if _, err := os.Stat("/bin/true"); err != nil {
+		t.Skip("/bin/true not available")
+	}
+	spec, err := parse.ParseSpec(specText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type hit struct{ fd, value int }
+	var hits []hit
+	restore := SetSockoptTestHook(func(c SockoptCall) {
+		if c.AsInt && c.Level == unix.SOL_SOCKET && c.Opt == unix.SO_PRIORITY {
+			hits = append(hits, hit{fd: c.FD, value: c.IntValue})
+		}
+	})
+	t.Cleanup(restore)
+	o, err := OpenSpec(context.Background(), spec, mode, &Global{Log: logx.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	if len(hits) != 1 {
+		t.Fatalf("SO_PRIORITY applied %d times want 1 (child endpoint): %v", len(hits), hits)
+	}
+	if hits[0].value != 5 {
+		t.Fatalf("SO_PRIORITY value=%d want 5", hits[0].value)
+	}
+	parent := asOSFile(o.Stream)
+	if parent == nil {
+		t.Fatal("parent EXEC stream has no *os.File")
+	}
+	parentFD := int(parent.Fd())
+	if hits[0].fd == parentFD {
+		t.Fatalf("SO_PRIORITY applied on parent fd %d", parentFD)
+	}
+	got, err := unix.GetsockoptInt(parentFD, unix.SOL_SOCKET, unix.SO_PRIORITY)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 0 {
+		t.Fatalf("parent SO_PRIORITY=%d want 0 (classic popts on child only)", got)
+	}
+}
+
+func TestOpenSpecEXECSocketpairAppliesSOPriorityLinux(t *testing.T) {
+	assertOpenSpecEXECChildSOPriority(t, "EXEC:/bin/true,so-priority=5", ModeRDWR)
+}
+
+func TestOpenSpecEXECClassicSocketpairAppliesSOPriorityLinux(t *testing.T) {
+	// Classic still uses socketpair (not pipes) for these; Go's internal
+	// pipe workaround must not leftover-reject PASTSOCKET.
+	tests := []struct {
+		name string
+		spec string
+		mode Mode
+	}{
+		{name: "fdin-fdout", spec: "EXEC:/bin/true,fdin=3,fdout=4,so-priority=5", mode: ModeRDWR},
+		{name: "implicit-read", spec: "EXEC:/bin/true,so-priority=5", mode: ModeRead},
+		{name: "implicit-write", spec: "EXEC:/bin/true,so-priority=5", mode: ModeWrite},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assertOpenSpecEXECChildSOPriority(t, tc.spec, tc.mode)
+		})
+	}
+}
+
+func TestOpenSpecEXECNonSocketpairRejectsPastSocketOptionsLinux(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	tests := []struct {
+		name    string
+		spec    string
+		mode    Mode
+		optName string
+	}{
+		{name: "pipes", spec: "EXEC:/bin/true,pipes,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "pipes-priority-alias", spec: "EXEC:/bin/true,pipes,priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "pty", spec: "EXEC:/bin/true,pty,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "nofork", spec: "EXEC:/bin/true,nofork,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "end-close", spec: "EXEC:/bin/true,end-close,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "system-pipes", spec: "SYSTEM:/bin/true,pipes,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "setsockopt-socket-pipes", spec: "EXEC:/bin/true,pipes,setsockopt-socket=1:12:1", mode: ModeRDWR, optName: "setsockopt-socket"},
+	}
+	want := func(name string) string {
+		return fmt.Sprintf("option %q not inquired", name)
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = OpenSpec(context.Background(), spec, tc.mode, &Global{Log: logx.New()})
+			if err == nil {
+				t.Fatal("expected leftover PASTSOCKET error")
+			}
+			if !strings.Contains(err.Error(), want(tc.optName)) {
+				t.Fatalf("err=%v want %s", err, want(tc.optName))
+			}
+		})
+	}
+}
+
+func TestRunExecNoForkRejectsPastSocketOptionsLinux(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	spec, err := parse.ParseSpec("EXEC:/bin/true,nofork,so-priority=5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = runExecNoFork(context.Background(), nil, spec, &Global{Log: logx.New()}, ModeRDWR)
+	if err == nil {
+		t.Fatal("expected leftover PASTSOCKET error")
+	}
+	if !strings.Contains(err.Error(), `option "so-priority" not inquired`) {
+		t.Fatalf("err=%v want option %q not inquired", err, "so-priority")
+	}
+}
+
+func readEXECBytes(t *testing.T, r io.Reader, d time.Duration) []byte {
+	t.Helper()
+	if f, ok := r.(interface{ SetReadDeadline(time.Time) error }); ok {
+		_ = f.SetReadDeadline(time.Now().Add(d))
+	}
+	done := make(chan struct {
+		b   []byte
+		err error
+	}, 1)
+	go func() {
+		b, err := io.ReadAll(r)
+		done <- struct {
+			b   []byte
+			err error
+		}{b, err}
+	}()
+	select {
+	case got := <-done:
+		if got.err != nil && len(got.b) == 0 {
+			t.Fatalf("read EXEC: %v", got.err)
+		}
+		return got.b
+	case <-time.After(d + time.Second):
+		t.Fatal("timed out reading EXEC stream")
+		return nil
+	}
+}
+
+func TestOpenSpecEXECSOPriorityUnidirectionalCatLinux(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	if _, err := os.Stat("/bin/cat"); err != nil {
+		t.Skip("/bin/cat not available")
+	}
+	const payload = "hello"
+
+	t.Run("mode-read-inherit-stdin", func(t *testing.T) {
+		// printf hello | socat -u EXEC:/bin/cat,so-priority=5 STDOUT
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		old := os.Stdin
+		os.Stdin = pr
+		t.Cleanup(func() {
+			os.Stdin = old
+			_ = pw.Close()
+			_ = pr.Close()
+		})
+		if _, err := pw.Write([]byte(payload)); err != nil {
+			t.Fatal(err)
+		}
+		if err := pw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		spec, err := parse.ParseSpec("EXEC:/bin/cat,so-priority=5")
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, err := OpenSpec(context.Background(), spec, ModeRead, &Global{Log: logx.New()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = o.Close() })
+		got := string(readEXECBytes(t, o.Stream, 3*time.Second))
+		if got != payload {
+			t.Fatalf("EXEC ModeRead cat got %q want %q", got, payload)
+		}
+	})
+
+	t.Run("mode-write-inherit-stdout", func(t *testing.T) {
+		// printf hello | socat -u STDIN EXEC:/bin/cat,so-priority=5
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		old := os.Stdout
+		os.Stdout = pw
+		t.Cleanup(func() {
+			os.Stdout = old
+			_ = pw.Close()
+			_ = pr.Close()
+		})
+		spec, err := parse.ParseSpec("EXEC:/bin/cat,so-priority=5")
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, err := OpenSpec(context.Background(), spec, ModeWrite, &Global{Log: logx.New()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = o.Close() })
+		if _, err := o.Stream.Write([]byte(payload)); err != nil {
+			t.Fatal(err)
+		}
+		if err := o.Stream.ShutdownWrite(); err != nil {
+			t.Fatal(err)
+		}
+		os.Stdout = old
+		if err := pw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		got := string(readEXECBytes(t, pr, 3*time.Second))
+		if got != payload {
+			t.Fatalf("EXEC ModeWrite cat got %q want %q", got, payload)
+		}
+	})
 }

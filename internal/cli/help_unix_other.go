@@ -25,7 +25,8 @@ func hideOpt(name string) bool {
 		"ipv6-mtu-discover", "mtudiscover6",
 		"tcp-cork", "tcp-defer-accept", "tcp-linger2",
 		"tcp-quickack", "tcp-syncnt", "tcp-window-clamp",
-		"sctp-nodelay", "sctp-maxseg":
+		"sctp-nodelay", "sctp-maxseg",
+		"so-priority", "so-passcred", "so-no-check":
 		return true
 	default:
 		return false

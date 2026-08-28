@@ -35,17 +35,13 @@ func applySocketBufferOpt(fd int, name string, o parse.Option, present bool, opt
 	return nil
 }
 
-// applyBroadcast is classic opt_so_broadcast from xio-socket.c
+// applyBroadcastOption is classic opt_so_broadcast from xio-socket.c
 // (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 // af5388c898c7bb60997935aee93c223deba60c4a is the same tree): GROUP_SOCKET,
 // PH_PASTSOCKET, TYPE_INT, OFUNC_SOCKOPT, SOL_SOCKET, SO_BROADCAST.
 // Bare flag → 1; with '=' → integer (Strtoul). Presence always applies,
 // including broadcast=0. BoolOption is wrong here because it skips false.
-func applyBroadcast(fd int, s parse.Spec) error {
-	o, ok := s.OptionNamed("broadcast")
-	if !ok {
-		return nil
-	}
+func applyBroadcastOption(fd int, o parse.Option) error {
 	n := 1
 	if o.Has {
 		v, err := ParseIntAny(o.Value)
@@ -60,31 +56,56 @@ func applyBroadcast(fd int, s parse.Spec) error {
 	return nil
 }
 
-// applyPastSocketBuffersAndDeviceWithoutGeneric is the non-generic
-// PH_PASTSOCKET half of classic
-// opt_so_broadcast / opt_so_sndbuf / opt_so_rcvbuf / opt_so_bindtodevice
-// options. Named SOL_SOCKET/TCP TYPE_INT options are applied in the ordered
-// PH_PASTSOCKET pass with generic and IP options. Late buffer variants and
-// tcp-maxseg-late are applied in ApplyTCPConnOpts
-// (raw TCP after connect/accept, before TLS/PROXY handshake), ApplyUDPConnOpts /
-// applyUnixgramSocketOptions (raw UDP/UNIX after bind or connect, before
-// packet-session wrapping), and WrapCommon (streams that expose a socket fd).
-func applyPastSocketBuffersAndDeviceWithoutGeneric(fd int, s parse.Spec) error {
-	if err := applyBroadcast(fd, s); err != nil {
-		return err
+// applyFixedPastSocketOption applies one classic PH_PASTSOCKET action option
+// that used to live in a last-wins helper pass (broadcast, sndbuf/rcvbuf,
+// bindtodevice, so-linger, rcvtimeo/sndtimeo). Callers walk Spec.Options so
+// these keep command-line order with named SOL_SOCKET/TCP options, generic
+// setsockopt-socket, and IP/ancillary options.
+// Late buffer variants (sndbuf-late / rcvbuf-late) stay PH_LATE.
+func applyFixedPastSocketOption(fd int, o parse.Option) (bool, error) {
+	switch o.Name {
+	case "broadcast":
+		return true, applyBroadcastOption(fd, o)
+	case "sndbuf":
+		return true, applySocketBufferOpt(fd, "sndbuf", o, true, soSndbuf)
+	case "rcvbuf":
+		return true, applySocketBufferOpt(fd, "rcvbuf", o, true, soRcvbuf)
+	case "bindtodevice":
+		return true, applyBindToDeviceOption(fd, o)
+	case "so-linger", "linger":
+		return true, applyLingerOption(fd, o)
+	case "rcvtimeo", "sndtimeo":
+		return true, applySocketTimeoOption(fd, o)
+	default:
+		return false, nil
 	}
-	o, ok := s.OptionNamed("sndbuf")
-	if err := applySocketBufferOpt(fd, "sndbuf", o, ok, soSndbuf); err != nil {
-		return err
+}
+
+// isPastSocketActionOption reports whether o would be consumed by
+// ApplySocketOptions (classic PH_PASTSOCKET). That is the leftover set
+// user-selected EXEC pipes/pty/nofork must reject instead of silently
+// ignoring. PH_LATE sndbuf-late/rcvbuf-late and PH_CONNECTED
+// tcp-maxseg-late are not included.
+func isPastSocketActionOption(o parse.Option) bool {
+	switch o.Name {
+	case "broadcast", "sndbuf", "rcvbuf", "bindtodevice",
+		"so-linger", "linger", "rcvtimeo", "sndtimeo":
+		return true
 	}
-	o, ok = s.OptionNamed("rcvbuf")
-	if err := applySocketBufferOpt(fd, "rcvbuf", o, ok, soRcvbuf); err != nil {
-		return err
+	if _, _, ok, _ := lookupNamedPastSocketInt(o.Name); ok {
+		return true
 	}
-	if err := applyBindToDevice(fd, s); err != nil {
-		return err
+	_, ok := genericSetsockoptKind(o.Name, SockoptPhasePastSocket)
+	return ok
+}
+
+func specHasPastSocketActionOption(s parse.Spec) bool {
+	for _, o := range s.Options {
+		if isPastSocketActionOption(o) {
+			return true
+		}
 	}
-	return nil
+	return false
 }
 
 // ApplyLateSocketOptions applies classic so-sndbuf-late / so-rcvbuf-late

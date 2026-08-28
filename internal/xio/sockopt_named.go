@@ -15,6 +15,9 @@ import (
 // PH_PASTSOCKET TYPE_INT OFUNC_SOCKOPT:
 //
 //	so-debug / debug, so-dontroute / dontroute, so-oobinline / oobinline
+//	so-priority / priority, so-passcred / passcred,
+//	so-no-check / no-check / nocheck (Linux SO_PRIORITY / SO_PASSCRED /
+//	SO_NO_CHECK; classic xio-socket.c #ifdef SO_*)
 //	tcp-cork / cork, tcp-defer-accept / defer-accept, tcp-linger2 / linger2,
 //	tcp-maxseg / maxseg / mss, tcp-quickack / quickack, tcp-syncnt / syncnt,
 //	tcp-window-clamp / window-clamp
@@ -55,8 +58,8 @@ func applyNamedIntSockopt(fd int, o parse.Option, level, opt int) error {
 
 // applyNamedPastSocketSockopt applies one classic PH_PASTSOCKET named
 // SOL_SOCKET, TCP, or Linux SCTP TYPE_INT option. Its callers walk
-// Spec.Options so named, generic setsockopt-socket, and IP options retain
-// command-line order.
+// Spec.Options so named, fixed PASTSOCKET (broadcast/sndbuf/linger/…),
+// generic setsockopt-socket, and IP options retain command-line order.
 func applyNamedPastSocketSockopt(fd int, o parse.Option) (bool, error) {
 	level, opt, ok, err := lookupNamedPastSocketInt(o.Name)
 	if !ok {
