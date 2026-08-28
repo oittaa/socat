@@ -103,6 +103,9 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"sighup", "windows", ClassMustAdvertise},
 		{"sigint", "linux", ClassMustAdvertise},
 		{"sigquit", "linux", ClassMustAdvertise},
+		{"sitout-eio", "linux", ClassMustAdvertise},
+		{"sitout-eio", "darwin", ClassMustAdvertise},
+		{"sitout-eio", "windows", ClassMustAdvertise},
 		{"retrieve-vlan", "linux", ClassMustAdvertise},
 		{"sctp-maxseg", "linux", ClassMustAdvertise},
 		{"sctp-maxseg", "darwin", ClassMustAdvertise},
@@ -209,6 +212,9 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	if _, ok := linux["notail"]; ok {
 		t.Fatal("linux backlog must not include implemented notail")
 	}
+	if _, ok := linux["sitout-eio"]; ok {
+		t.Fatal("linux backlog must not include implemented sitout-eio")
+	}
 	if _, ok := linux["binary"]; ok {
 		t.Fatal("linux backlog must not include Windows-only binary")
 	}
@@ -243,6 +249,12 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	}
 	if _, ok := darwin["sctp-maxseg"]; ok {
 		t.Fatal("darwin backlog must not include implemented sctp-maxseg")
+	}
+	if _, ok := darwin["sitout-eio"]; ok {
+		t.Fatal("darwin backlog must not include implemented sitout-eio")
+	}
+	if _, ok := win["sitout-eio"]; ok {
+		t.Fatal("windows backlog must not include implemented sitout-eio")
 	}
 	if _, ok := win["sctp-nodelay"]; ok {
 		t.Fatal("windows backlog must not include implemented sctp-nodelay")

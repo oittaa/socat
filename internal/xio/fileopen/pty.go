@@ -66,7 +66,15 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 	}
 
 	// Use xio.PtyStream so half-close does not xio.Close the master (xio.FileStream would).
-	st := xio.PtyStream(master)
+	st, err := xio.PtyStream(master, s)
+	if err != nil {
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
+		if link != "" {
+			_ = os.Remove(link)
+		}
+		return nil, err
+	}
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
 		logx.CloseQuiet(master)

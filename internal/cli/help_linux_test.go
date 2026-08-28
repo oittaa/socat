@@ -62,6 +62,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"sctp-nodelay", "sctp-maxseg",
 		"dash", "login", "setpgid", "pgid",
 		"sighup", "sigint", "sigquit",
+		"sitout-eio",
 		"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string",
 		"fs-append", "fs-compr", "fs-dirsync", "fs-immutable", "fs-journal-data",
 		"fs-nodump", "fs-notail", "fs-secrm", "fs-sync", "fs-topdir", "fs-unrm",
