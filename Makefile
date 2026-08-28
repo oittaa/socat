@@ -1,4 +1,4 @@
-.PHONY: all build fmt fmt-check lint gosec test e2e e2e-cover coverage check fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
+.PHONY: all build fmt fmt-check lint gosec test test-scripts e2e e2e-cover coverage check fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -40,6 +40,7 @@ lint: fmt-check
 #   // #nosec Gxxx -- reason
 # Do not exclude a whole rule.
 GOSEC ?= gosec
+PYTHON ?= python3
 
 gosec:
 	$(GOSEC) -exclude-dir=testdata \
@@ -48,6 +49,10 @@ gosec:
 
 test: fmt-check
 	go test $(GOFLAGS) ./...
+	$(MAKE) test-scripts
+
+test-scripts:
+	$(PYTHON) -B -m unittest discover -s scripts -p '*_test.py'
 
 e2e: build
 	go test $(GOFLAGS) -tags=e2e ./e2e/...
@@ -94,7 +99,7 @@ fuzz:
 fuzz-matrix: build
 	go test $(GOFLAGS) -tags=e2e,relaymatrix -run '^TestRelayMatrix' ./e2e/ -count=1 -timeout=10m
 
-# Root netns= tests. Host skips without root; Docker uses --privileged.
+# Root netns= and IP4-RECVFROM tests. Host skips without root; Docker uses --privileged.
 test-netns-docker:
 	./scripts/docker-netns-test.sh
 
