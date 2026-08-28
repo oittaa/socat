@@ -69,6 +69,8 @@ var dynamicallyReadOptions = map[string]string{
 	"ip-recvttl": "xio/ancillary.go", "ip-recvtos": "xio/ancillary.go",
 	"ip-recvopts": "xio/ancillary.go", "ipv6-recvpktinfo": "xio/ancillary.go",
 	"ipv6-recvhoplimit": "xio/ancillary.go", "ipv6-recvtclass": "xio/ancillary.go",
+	"ip-recvdstaddr": "xio/ancillary.go", "ip-recvif": "xio/ancillary.go",
+	"recvdstaddr": "xio/ancillary.go", "iprecvdstaddr": "xio/ancillary.go", "recvif": "xio/ancillary.go",
 	"ippktinfo": "xio/ancillary.go", "iprecvttl": "xio/ancillary.go",
 	"iprecvtos": "xio/ancillary.go", "iprecvopts": "xio/ancillary.go",
 

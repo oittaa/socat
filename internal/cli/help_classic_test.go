@@ -143,3 +143,23 @@ func TestHelpDoesNotAdvertiseUnsupportedOpenSSL(t *testing.T) {
 		}
 	}
 }
+
+func TestHideDarwinOnlyIPRecv(t *testing.T) {
+	names := []string{"ip-recvdstaddr", "ip-recvif", "recvdstaddr", "iprecvdstaddr", "recvif"}
+	for _, name := range names {
+		if hideDarwinOnlyIPRecv(name, "darwin") {
+			t.Errorf("%q hidden on darwin", name)
+		}
+		for _, goos := range []string{"linux", "windows", "freebsd", "openbsd", "netbsd", "dragonfly", "aix", "solaris"} {
+			if !hideDarwinOnlyIPRecv(name, goos) {
+				t.Errorf("%q not hidden on %s", name, goos)
+			}
+		}
+	}
+	if hideDarwinOnlyIPRecv("nopush", "freebsd") {
+		t.Fatal("nopush is not a Darwin-only IP recv option")
+	}
+	if hideDarwinOnlyIPRecv("so-timestamp", "linux") {
+		t.Fatal("so-timestamp is not Darwin-only")
+	}
+}

@@ -62,6 +62,9 @@ func applyOneIPRecvOpt(fd int, e IPAncillaryEntry, option parse.Option, family i
 }
 
 func ancillaryRecvSockopt(canonical string) (level, opt int, ok bool) {
+	if level, opt, ok := ancillaryRecvSockoptPlatform(canonical); ok {
+		return level, opt, true
+	}
 	switch canonical {
 	case "so-timestamp":
 		return unix.SOL_SOCKET, unix.SO_TIMESTAMP, true
@@ -192,6 +195,9 @@ func cmsgInt(data []byte) int {
 }
 
 func handleIPv4Cmsg(typ int32, data []byte, g *Global) {
+	if handleIPv4CmsgBSD(typ, data, g) {
+		return
+	}
 	// Do not use a combined switch case for IP_TTL/IP_RECVTTL: the constants
 	// are equal on some UNIXes and Go rejects duplicate cases. Classic
 	// xio-ip.c (tag-1.8.1.3 12c08bf) treats Linux IP_TTL and BSD IP_RECVTTL

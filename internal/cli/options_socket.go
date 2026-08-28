@@ -56,6 +56,8 @@ func socketOptionGroups() []helpOptGroup {
 			{name: "ip-recvttl", desc: "IP_RECVTTL", aliases: []string{"recvttl", "iprecvttl"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-recvttl")},
 			{name: "ip-recvtos", desc: "IP_RECVTOS", aliases: []string{"recvtos", "iprecvtos"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-recvtos")},
 			{name: "ip-recvopts", desc: "IP_RECVOPTS", aliases: []string{"recvopts", "iprecvopts"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-recvopts")},
+			{name: "ip-recvdstaddr", desc: "IP_RECVDSTADDR (Darwin)", aliases: []string{"recvdstaddr", "iprecvdstaddr"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-recvdstaddr")},
+			{name: "ip-recvif", desc: "IP_RECVIF (Darwin)", aliases: []string{"recvif"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-recvif")},
 			{name: "ip-ttl", desc: "IP_TTL", aliases: []string{"ttl", "ipttl"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-ttl"), validate: validateInteger(-1)},
 			{name: "ip-tos", desc: "IP_TOS", aliases: []string{"tos", "iptos"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-tos"), validate: validateInt64(false)},
 			{name: "ip-options", desc: "IP_OPTIONS", aliases: []string{"ipoptions"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-options"), validate: validateRequiredString},

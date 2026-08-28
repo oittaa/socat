@@ -19,6 +19,4 @@ var expectedMissingIP = map[string]Gap{
 	"ip-router-alert": {Reason: "IP_ROUTER_ALERT", Platforms: PlatUnix},
 	"iprouteralert":   {Reason: "alias of ip-router-alert", Platforms: PlatUnix},
 	"routeralert":     {Reason: "alias of ip-router-alert", Platforms: PlatUnix},
-	"ip-recvdstaddr":  {Reason: "documented IP_RECVDSTADDR (BSD/Darwin)", Platforms: PlatDarwin},
-	"ip-recvif":       {Reason: "documented IP_RECVIF (BSD/Darwin)", Platforms: PlatDarwin},
 }

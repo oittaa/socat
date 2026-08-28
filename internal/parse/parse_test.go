@@ -685,6 +685,12 @@ func TestIPAncillaryAliasesFoldForLastWins(t *testing.T) {
 	if CanonicalOptionName("ttl") != "ip-ttl" || CanonicalOptionName("tos") != "ip-tos" {
 		t.Fatalf("ttl/tos canonical=%q %q", CanonicalOptionName("ttl"), CanonicalOptionName("tos"))
 	}
+	if CanonicalOptionName("recvdstaddr") != "ip-recvdstaddr" || CanonicalOptionName("iprecvdstaddr") != "ip-recvdstaddr" {
+		t.Fatalf("recvdstaddr=%q iprecvdstaddr=%q", CanonicalOptionName("recvdstaddr"), CanonicalOptionName("iprecvdstaddr"))
+	}
+	if CanonicalOptionName("recvif") != "ip-recvif" {
+		t.Fatalf("recvif=%q", CanonicalOptionName("recvif"))
+	}
 }
 
 func TestSoProtocolAliases(t *testing.T) {

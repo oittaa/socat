@@ -5,6 +5,9 @@ package cli
 import "github.com/oittaa/socat/internal/xio"
 
 func hideOpt(name string) bool {
+	if hideDarwinOnlyIPRecv(name, "windows") {
+		return true
+	}
 	if xio.LinuxExtFSFlagOption(name) {
 		return true
 	}

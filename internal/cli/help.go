@@ -10,6 +10,18 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
+// hideDarwinOnlyIPRecv hides ip-recvdstaddr / ip-recvif (and aliases) on every
+// GOOS except Darwin. Runtime support is Darwin-only (IP_RECVDSTADDR /
+// IP_RECVIF cmsg extraction); other Unix must not advertise names it rejects.
+func hideDarwinOnlyIPRecv(name, goos string) bool {
+	switch name {
+	case "ip-recvdstaddr", "ip-recvif", "recvdstaddr", "iprecvdstaddr", "recvif":
+		return goos != "darwin"
+	default:
+		return false
+	}
+}
+
 func hideOptGroup(title string) bool {
 	switch title {
 	case "PTY and TERMIOS":

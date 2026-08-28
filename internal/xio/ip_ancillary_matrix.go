@@ -34,6 +34,7 @@ type ipAncillaryPlatform uint8
 const (
 	ipAncillaryUnix ipAncillaryPlatform = 1 << iota
 	ipAncillaryWindows
+	ipAncillaryDarwin
 )
 
 type ipFamily uint8
@@ -73,6 +74,7 @@ var ipAncillarySendGroups = []string{
 var (
 	ipAncillaryUnixOnly    = ipAncillaryUnix
 	ipAncillaryUnixWindows = ipAncillaryUnix | ipAncillaryWindows
+	ipAncillaryDarwinOnly  = ipAncillaryDarwin
 	ipAncillaryIPv4        = ipAncillaryFamilyV4
 	ipAncillaryIPv6        = ipAncillaryFamilyV6
 	ipAncillaryIPv4AndIPv6 = ipAncillaryFamilyAny
@@ -93,9 +95,10 @@ var (
 // IPV6_UNICAST_HOPS translation and not a silent skip of TOS on v6.
 // ipv6-unicast-hops/ipv6-tclass and ipv6 recv opts are IPv6-only.
 //
-// Not listed, and therefore not advertised: ip-recvdstaddr, ip-retopts,
+// Not listed, and therefore not advertised: ip-retopts,
 // ipv6-recvhopopts, ipv6-recvdstopts, and the other classic SOCK_IP flags
-// this port does not implement. ip-recverr / ipv6-recverr are recognized
+// this port does not implement. ip-recvdstaddr / ip-recvif are Darwin-only
+// (IP_RECVDSTADDR / IP_RECVIF). ip-recverr / ipv6-recverr are recognized
 // and rejected (no MSG_ERRQUEUE ReadMsg path) instead of being silent no-ops.
 var ipAncillaryMatrix = []IPAncillaryEntry{
 	{Canonical: "so-timestamp", Aliases: []string{"timestamp"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixOnly},
@@ -103,6 +106,8 @@ var ipAncillaryMatrix = []IPAncillaryEntry{
 	{Canonical: "ip-recvttl", Aliases: []string{"recvttl", "iprecvttl"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
 	{Canonical: "ip-recvtos", Aliases: []string{"recvtos", "iprecvtos"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
 	{Canonical: "ip-recvopts", Aliases: []string{"recvopts", "iprecvopts"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
+	{Canonical: "ip-recvdstaddr", Aliases: []string{"recvdstaddr", "iprecvdstaddr"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryDarwinOnly},
+	{Canonical: "ip-recvif", Aliases: []string{"recvif"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryDarwinOnly},
 	{Canonical: "ipv6-recvpktinfo", Aliases: []string{"recvpktinfo"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
 	{Canonical: "ipv6-recvhoplimit", Aliases: []string{"recvhoplimit"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
 	{Canonical: "ipv6-recvtclass", Aliases: []string{"recvtclass"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
@@ -178,6 +183,12 @@ func (e IPAncillaryEntry) supportedOnThisPlatform() bool {
 	}
 	if runtime.GOOS == "windows" {
 		return e.platforms&ipAncillaryWindows != 0
+	}
+	if runtime.GOOS == "darwin" {
+		if e.platforms&ipAncillaryDarwin != 0 {
+			return true
+		}
+		return e.platforms&ipAncillaryUnix != 0
 	}
 	return e.platforms&ipAncillaryUnix != 0
 }
