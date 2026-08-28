@@ -131,6 +131,30 @@ func TestParseIffOpts(t *testing.T) {
 	}
 }
 
+func TestParseIffOptsRemainingClassicFlags(t *testing.T) {
+	s, err := parse.ParseSpec("TUN,iff-notrailers,master,iff-slave=1,portsel=0,automedia")
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, clear := parseIffOpts(s)
+	for name, bit := range map[string]uint16{
+		"iff-notrailers": unix.IFF_NOTRAILERS,
+		"master":         unix.IFF_MASTER,
+		"iff-slave":      unix.IFF_SLAVE,
+		"automedia":      unix.IFF_AUTOMEDIA,
+	} {
+		if set&bit == 0 {
+			t.Errorf("%s not set in 0x%x", name, set)
+		}
+	}
+	if clear&unix.IFF_PORTSEL == 0 {
+		t.Fatal("portsel=0 not cleared")
+	}
+	if set&unix.IFF_PORTSEL != 0 {
+		t.Fatal("portsel=0 must not also set IFF_PORTSEL")
+	}
+}
+
 func TestTUNOpenStaysAlive(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("need root for TUN")

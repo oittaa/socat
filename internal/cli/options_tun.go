@@ -24,6 +24,11 @@ func tunOptionGroups() []helpOptGroup {
 			{name: "iff-promisc", desc: "IFF_PROMISC", aliases: []string{"promisc"}},
 			{name: "iff-allmulti", desc: "IFF_ALLMULTI", aliases: []string{"allmulti"}},
 			{name: "iff-multicast", desc: "IFF_MULTICAST", aliases: []string{"multicast"}},
+			{name: "iff-notrailers", desc: "IFF_NOTRAILERS", aliases: []string{"notrailers"}},
+			{name: "iff-master", desc: "IFF_MASTER", aliases: []string{"master"}},
+			{name: "iff-slave", desc: "IFF_SLAVE", aliases: []string{"slave"}},
+			{name: "iff-portsel", desc: "IFF_PORTSEL", aliases: []string{"portsel"}},
+			{name: "iff-automedia", desc: "IFF_AUTOMEDIA", aliases: []string{"automedia"}},
 			{name: "if-mtu", desc: "interface MTU", aliases: []string{"interface-mtu"}, validate: validateInt64(true)},
 		}},
 		{"Namespaces", []helpOpt{
