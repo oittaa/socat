@@ -177,17 +177,17 @@ recorded in stable sequential mode on the `socat-classic-ubuntu2604` VM.
 | classic 1.8.1.3 (host) | 475 | 24 | 103 |
 | classic 1.8.1.3 (Docker, root) | 552 | 8 | 42 |
 | go (this tree, host) | 483 | 6 | 116 |
-| go (this tree, Docker, root, privileged, `--internet`) | 533 | 5 | 65 |
+| go (this tree, Docker, root, privileged, `--internet`) | 550 | 7 | 48 |
 
 Go host FAILED: `OPENSSL_COMPRESS` (`compress=auto` is intentionally rejected),
 `OPENSSLLISTENDSA` (DSA, by design), `REUSEADDR_NULL` (NO RESULT),
 `OPENSSL_ANULL`, `V1800_OPENSSL_LISTEN_RANGE`, and
 `V1800_OPENSSL_LISTEN_BIND` (listen requires `cert=`). It records no UNKNOWN
-or TIMEOUT results. Go Docker FAILED: `OPENSSLLISTENDSA`, `REUSEADDR_NULL`
-(NO RESULT), `OPENSSL_ANULL`, `V1800_OPENSSL_LISTEN_RANGE`, and
-`V1800_OPENSSL_LISTEN_BIND` (listen requires `cert=`). `SOCKETPAIR_BOUNDARIES`
-is OK. The older Docker baseline still records UNKNOWN=2 (`EXECPTYKILL` parse
-quirk, `PROCAN_CTTY`); refresh it separately with the improved parser.
+or TIMEOUT results. Go Docker FAILED: `OPENSSL_COMPRESS` (same `compress=auto`
+reject), `OPENSSLLISTENDSA`, `IOCTL_VOID` (fails as root, same as classic
+Docker), `REUSEADDR_NULL` (NO RESULT), `OPENSSL_ANULL`,
+`V1800_OPENSSL_LISTEN_RANGE`, and `V1800_OPENSSL_LISTEN_BIND` (listen requires
+`cert=`). `SOCKETPAIR_BOUNDARIES` is OK. Both Go runs record UNKNOWN=0.
 
 `OPENPTYWAITSLAVE` can `TIMEOUT` in a long sequential Docker run; an isolated
 `ONLY=OPENPTYWAITSLAVE` re-run is OK. The committed Docker baseline records it
@@ -202,12 +202,17 @@ socketpair boundaries, `ACCEPT-FD`, pipe sizing, UDPLITE, POSIX-MQ
 max-children, and the SOCKS4 regression case. Parser corrections also remove
 the two UNKNOWN results.
 
-Vs the previous Go Docker baseline (524 OK / 5 FAILED / 74 CANT), this refresh
-moves nine tests from CANT to OK: `O_NOATIME_FILE`, `O_NOATIME_FD`,
-`OPENSSL_MIN_VERSION`, `SIGTERM_NOLOG`, `SIG31_LOG`, `CHILDREN_SHUTUP`,
-`STDIN_F_SETPIPE_SZ`, `EXEC_F_SETPIPE_SZ`, and `SOCKS4_SIGSEGV`. Classic
-`cool-write` is deprecated (use `children-shutup`); this port does not
-advertise it, so `COOLWRITE` / `COOLSTDIO` stay CANT.
+Vs the previous Go Docker baseline (533 OK / 5 FAILED / 65 CANT / 2 UNKNOWN),
+this refresh has no regressions and moves 17 tests to OK: `FS_NOATIME`,
+`O_DIRECT`, `VSOCK_ECHO`, `EXECPTYKILL` (parser), and the UDPLITE stream /
+listen-env / max-children / v1.8.0.0 range-bind cases. `OPENSSL_COMPRESS`
+moves CANT→FAILED because the option is now advertised and `compress=auto` is
+rejected (same as host). `IOCTL_VOID` moves CANT→FAILED under root (same as
+classic Docker). `PROCAN_CTTY` is CANT (`must run in tty`) instead of UNKNOWN.
+Classic `cool-write` is deprecated (use `children-shutup`); this port does not
+advertise it, so `COOLWRITE` / `COOLSTDIO` stay CANT. Host-only OK that Docker
+does not get: `GOPEN_TO_DENIED` (not with root) and `ACCEPT_FD` (no
+`systemd-socket-activate`).
 
 Use `go-baseline.json` + `REGRESSION_EXIT=1` after a **MODE=classic** run
 to catch real Go regressions with less noise.

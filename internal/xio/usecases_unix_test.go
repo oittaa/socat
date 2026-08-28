@@ -84,6 +84,74 @@ func TestUDP4ListenNonForkPIPEEcho(t *testing.T) {
 	t.Fatal("timed out waiting for non-fork UDP echo")
 }
 
+// IP4-RECVFROM buffers the first datagram while opening, same as UDP-LISTEN
+// without fork. Relaying that packet through PIPE needs NetConn, not
+// SyscallConn, or poll waits on the already-drained raw socket.
+func TestIP4RecvfromNonForkPIPEEcho(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("raw IP requires root")
+	}
+	ctx := testCtx(t)
+	const proto = 253
+	done := make(chan error, 1)
+	go func() {
+		done <- xio.Run(ctx,
+			mustParse(t, fmt.Sprintf("IP4-RECVFROM:%d,reuseaddr,bind=127.0.0.1", proto)),
+			mustParse(t, "PIPE"), cloneGlobal(nil))
+	}()
+
+	raddr := &net.IPAddr{IP: net.IPv4(127, 0, 0, 1)}
+	laddr := &net.IPAddr{IP: net.IPv4(127, 1, 0, 1)}
+	var client *net.IPConn
+	deadline := time.Now().Add(4 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case err := <-done:
+			t.Fatal(err)
+		default:
+		}
+		c, err := net.DialIP(fmt.Sprintf("ip4:%d", proto), laddr, raddr)
+		if err != nil {
+			time.Sleep(20 * time.Millisecond)
+			continue
+		}
+		client = c
+		break
+	}
+	if client == nil {
+		t.Fatal("could not dial raw IP peer")
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	payload := []byte("rawip-nonfork")
+	buf := make([]byte, 64)
+	for time.Now().Before(deadline) {
+		if _, err := client.Write(payload); err != nil {
+			t.Fatal(err)
+		}
+		_ = client.SetReadDeadline(time.Now().Add(150 * time.Millisecond))
+		n, err := client.Read(buf)
+		if err == nil {
+			got := buf[:n]
+			if len(got) >= 20 && got[0]>>4 == 4 {
+				got = got[20:]
+			}
+			if string(got) != string(payload) {
+				t.Fatalf("echo got %q want %q", got, payload)
+			}
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("non-fork IP4-RECVFROM relay did not exit")
+			}
+			return
+		}
+	}
+	t.Fatal("timed out waiting for non-fork raw IP echo")
+}
+
 func TestUNIXRecvfromNonForkPIPEEcho(t *testing.T) {
 	ctx := testCtx(t)
 	serverPath := testutil.UnixSocketPath(t, "recvfrom.sock")

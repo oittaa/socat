@@ -1,7 +1,12 @@
 {
   "classic_docker_ok": 552,
-  "go_ok": 533,
+  "go_ok": 550,
   "parity_fail": [
+    {
+      "id": "80",
+      "name": "OPENSSL_COMPRESS",
+      "status": "FAILED"
+    },
     {
       "id": "146",
       "name": "OPENSSLLISTENDSA",
@@ -20,18 +25,8 @@
   ],
   "parity_cant": [
     {
-      "id": "80",
-      "name": "OPENSSL_COMPRESS",
-      "status": "CANT"
-    },
-    {
       "id": "102",
       "name": "READLINE",
-      "status": "CANT"
-    },
-    {
-      "id": "202",
-      "name": "FS_NOATIME",
       "status": "CANT"
     },
     {
@@ -47,11 +42,6 @@
     {
       "id": "326",
       "name": "READLINE_OVFL",
-      "status": "CANT"
-    },
-    {
-      "id": "396",
-      "name": "O_DIRECT",
       "status": "CANT"
     },
     {
@@ -100,41 +90,6 @@
       "status": "CANT"
     },
     {
-      "id": "521",
-      "name": "UDPLITE4STREAM",
-      "status": "CANT"
-    },
-    {
-      "id": "522",
-      "name": "UDPLITE4STREAM",
-      "status": "CANT"
-    },
-    {
-      "id": "523",
-      "name": "UDPLITE6STREAM",
-      "status": "CANT"
-    },
-    {
-      "id": "524",
-      "name": "UDPLITE4LISTENENV",
-      "status": "CANT"
-    },
-    {
-      "id": "525",
-      "name": "UDPLITE6LISTENENV",
-      "status": "CANT"
-    },
-    {
-      "id": "526",
-      "name": "UDPLITE4_L_MAXCHILDREN",
-      "status": "CANT"
-    },
-    {
-      "id": "527",
-      "name": "UDPLITE6_L_MAXCHILDREN",
-      "status": "CANT"
-    },
-    {
       "id": "542",
       "name": "V1800_DCCP_LISTEN_RANGE",
       "status": "CANT"
@@ -145,43 +100,13 @@
       "status": "CANT"
     },
     {
-      "id": "550",
-      "name": "V1800_UDPLITE_LISTEN_RANGE",
-      "status": "CANT"
-    },
-    {
-      "id": "551",
-      "name": "V1800_UDPLITE_LISTEN_BIND",
-      "status": "CANT"
-    },
-    {
-      "id": "552",
-      "name": "V1800_UDPLITE_RECVFROM_RANGE",
-      "status": "CANT"
-    },
-    {
-      "id": "553",
-      "name": "V1800_UDPLITE_RECVFROM_BIND",
-      "status": "CANT"
-    },
-    {
-      "id": "556",
-      "name": "V1800_UDPLITE_DATAGRAM_RANGE",
-      "status": "CANT"
-    },
-    {
-      "id": "557",
-      "name": "V1800_UDPLITE_DATAGRAM_BIND",
-      "status": "CANT"
-    },
-    {
       "id": "582",
       "name": "DCCP_CONNECT_RETRY",
       "status": "CANT"
     }
   ],
   "parity_other": [],
-  "parity_gap_total": 35,
+  "parity_gap_total": 20,
   "new_ok_vs_classic_docker": [
     {
       "id": "216",
@@ -194,6 +119,11 @@
       "was": "FAILED"
     },
     {
+      "id": "227",
+      "name": "EXECPTYKILL",
+      "was": "UNKNOWN"
+    },
+    {
       "id": "405",
       "name": "OPENSSL_SNI",
       "was": "CANT"
@@ -202,6 +132,11 @@
       "id": "406",
       "name": "OPENSSL_NO_SNI",
       "was": "CANT"
+    },
+    {
+      "id": "410",
+      "name": "VSOCK_ECHO",
+      "was": "FAILED"
     },
     {
       "id": "484",

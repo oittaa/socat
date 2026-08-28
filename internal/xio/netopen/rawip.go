@@ -601,9 +601,12 @@ func (r *rawIPRecvFrom) SetReadDeadline(t time.Time) error {
 func (r *rawIPRecvFrom) SetWriteDeadline(t time.Time) error {
 	return r.c.SetWriteDeadline(t)
 }
-func (r *rawIPRecvFrom) SyscallConn() (syscall.RawConn, error) {
-	return r.c.SyscallConn()
-}
+
+// NetConn exposes the socket to xio's option lifecycle without making this
+// pre-buffered stream a syscall.Conn. The relay must consume first before it
+// polls the underlying socket, which is no longer readable after the opener's
+// initial recvfrom.
+func (r *rawIPRecvFrom) NetConn() net.Conn { return r.c }
 
 // rawIPFilteredRecv: continuous RECV with peer filters + ancillary.
 type rawIPFilteredRecv struct {
