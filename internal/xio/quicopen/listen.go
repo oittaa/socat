@@ -100,8 +100,12 @@ func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.
 		ctx, cancel = context.WithTimeout(ctx, t)
 		defer cancel()
 	}
+	laddr, err := xio.ResolveUDPAddr(ctx, s, network, addr)
+	if err != nil {
+		return nil, err
+	}
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
-	pc, err := lc.ListenPacket(ctx, network, addr)
+	pc, err := lc.ListenPacket(ctx, network, laddr.String())
 	if err != nil {
 		return nil, err
 	}

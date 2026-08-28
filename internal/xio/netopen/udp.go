@@ -51,7 +51,7 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 			if sp == "" {
 				sp = "0"
 			}
-			ba, resolveErr := net.ResolveUDPAddr(network, xio.BindPort(bind, sp))
+			ba, resolveErr := xio.ResolveUDPAddr(ctx, s, network, xio.BindPort(bind, sp))
 			if resolveErr != nil {
 				return nil, resolveErr
 			}
@@ -86,7 +86,7 @@ func dialUDPLowport(ctx context.Context, network, bind, remote string, s parse.S
 		if g != nil && g.Log != nil {
 			g.Log.Debugf("bind(%s:%d)", bind, port)
 		}
-		laddr, err := net.ResolveUDPAddr(network, xio.BindPort(bind, fmt.Sprintf("%d", port)))
+		laddr, err := xio.ResolveUDPAddr(ctx, s, network, xio.BindPort(bind, fmt.Sprintf("%d", port)))
 		if err != nil {
 			return err
 		}

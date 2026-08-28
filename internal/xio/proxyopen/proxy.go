@@ -61,10 +61,15 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		doResolve = s.BoolOption("resolve")
 	}
 	if doResolve {
-		if ip := net.ParseIP(connectHost); ip == nil || ip.To4() == nil {
-			if ips, e := xio.LookupResolver(s).LookupIP(ctx, "ip4", connectHost); e == nil && len(ips) > 0 {
-				connectHost = ips[0].String()
+		if ip := net.ParseIP(connectHost); ip == nil {
+			ips, resolveErr := xio.LookupResolver(s).LookupIP(ctx, "ip4", connectHost)
+			if resolveErr != nil {
+				return nil, fmt.Errorf("PROXY: resolve target %s: %w", targetHost, resolveErr)
 			}
+			if len(ips) == 0 {
+				return nil, fmt.Errorf("PROXY: resolve target %s: no IPv4 addresses", targetHost)
+			}
+			connectHost = ips[0].String()
 		} else if ip4 := ip.To4(); ip4 != nil {
 			connectHost = ip4.String()
 		}

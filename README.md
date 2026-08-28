@@ -243,6 +243,7 @@ aliases and termios / baud names.
 
 ## Intentional differences from classic socat
 
+- **`res-nsaddr` resolver isolation** — classic `xio-ip.c` temporarily replaces process-global `_res.nsaddr_list[0]` and restores it after resolution (`tag-1.8.1.3` `12c08bf66d709fba17035ce95d85bd218428d9ba`; official master `af5388c898c7bb60997935aee93c223deba60c4a` is unchanged). This port uses a per-address Go resolver whose UDP and TCP DNS connections both dial only the selected nameserver; it never mutates `net.DefaultResolver` or libc `_res`. The nameserver remains classic `TYPE_IP4SOCK` (`res-nsaddr=<ipaddr>[:<port>]`, IPv4 address or hostname); IPv6 nameserver literals are rejected. Omitted and zero ports select DNS port 53.
 - **Windows `binary,text` conflict** — classic passes both `O_BINARY` and `O_TEXT` through to Cygwin without defining which conversion wins. This port rejects the conflicting active modes instead of depending on CRT-specific flag resolution; `binary,text=0` and `binary=0,text` remain valid.
 - **WebSocket (WS/WSS)** is a Go extra (classic has no WS). Uses `github.com/coder/websocket` (`NetConn` + binary frames), not frozen `golang.org/x/net/websocket`.
 - **QUIC** is a Go extra (classic has no QUIC). Uses `github.com/quic-go/quic-go` (same stack as HTTP/3 CONNECT). One **client-initiated** bidirectional stream as a byte pipe. A receive-only client (`-u`/`-U`) still opens that stream and half-closes write so the listener can send. Not HTTP/3 (`alpn` default `socat`). 0-RTT is off.

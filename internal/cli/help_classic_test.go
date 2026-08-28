@@ -37,6 +37,30 @@ func TestHelpListsSoBroadcastAlias(t *testing.T) {
 	}
 }
 
+func TestHelpListsResNSAddrAndAliases(t *testing.T) {
+	var output bytes.Buffer
+	if err := printHelp(&output, 3); err != nil {
+		t.Fatal(err)
+	}
+	help := output.String()
+	if !strings.Contains(help, "    res-nsaddr ") {
+		t.Fatal("-hhh missing res-nsaddr")
+	}
+	for _, alias := range []string{"dns", "nameserver", "nsaddr"} {
+		found := false
+		for _, line := range strings.Split(help, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) > 0 && fields[0] == alias && strings.Contains(line, "alias of res-nsaddr") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("-hhh missing %q as alias of res-nsaddr", alias)
+		}
+	}
+}
+
 func TestHelpListsDescriptorLifecycleAliases(t *testing.T) {
 	var output bytes.Buffer
 	if err := printHelp(&output, 3); err != nil {

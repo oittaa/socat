@@ -66,6 +66,7 @@ func socketOptionGroups() []helpOptGroup {
 			{name: "ipv6-recvtclass", desc: "IPV6_RECVTCLASS", aliases: []string{"recvtclass"}, implementationGroups: xio.IPAncillaryImplementationGroups("ipv6-recvtclass")},
 			{name: "ipv6-unicast-hops", desc: "IPV6_UNICAST_HOPS", aliases: []string{"unicast-hops"}, implementationGroups: xio.IPAncillaryImplementationGroups("ipv6-unicast-hops"), validate: validateInteger(-1)},
 			{name: "ipv6-tclass", desc: "IPV6_TCLASS", aliases: []string{"tclass"}, implementationGroups: xio.IPAncillaryImplementationGroups("ipv6-tclass"), validate: validateInt64(false)},
+			{name: "res-nsaddr", desc: "per-address IPv4 DNS nameserver host[:port]", aliases: []string{"dns", "nameserver", "nsaddr"}, addressTypes: resolverAddressTypes(), implementationGroups: resolverImplementationGroups(), validate: validateResNSAddr},
 			{name: "rcvtimeo", desc: "per-operation socket receive timeout; retry after expiration", aliases: []string{"so-rcvtimeo"}, addressTypes: socketTimeoutAddressTypes(), validate: validateDurationOption},
 			{name: "sndtimeo", desc: "per-operation socket send timeout; retry after expiration", aliases: []string{"so-sndtimeo"}, addressTypes: socketTimeoutAddressTypes(), validate: validateDurationOption},
 			{name: "so-linger", desc: "SO_LINGER timeout in seconds", aliases: []string{"linger"}, addressTypes: socketTimeoutAddressTypes(), validate: validateInteger(0)},

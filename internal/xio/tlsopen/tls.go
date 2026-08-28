@@ -116,6 +116,10 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	if err != nil {
 		return nil, err
 	}
+	host, err = xio.ResolveIPHost(ctx, s, network, host)
+	if err != nil {
+		return nil, err
+	}
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
 	tlsCfg, err := tlsServerConfig(s)

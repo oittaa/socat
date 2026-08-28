@@ -1,6 +1,7 @@
 package xio
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -50,7 +51,7 @@ func PeerAllowedG(s parse.Spec, conn net.Conn, g *Global) error {
 		// Non-IP (e.g. unix) — range/sourceport/lowport do not apply.
 		// Still run tcpwrap if enabled (unlikely for unix).
 		if tw := parseTCPWrap(s, g); tw.enabled {
-			return tcpwrapAllowed(tw, ra, conn.LocalAddr())
+			return tcpwrapAllowedForSpec(s, tw, ra, conn.LocalAddr())
 		}
 		return nil
 	}
@@ -64,7 +65,7 @@ func PeerAllowedG(s parse.Spec, conn net.Conn, g *Global) error {
 		if ip == nil {
 			return fmt.Errorf("range: peer has no IP")
 		}
-		ok, perr := ipInRange(ip, s.OptionValue("range", ""))
+		ok, perr := ipInRangeWithResolver(ip, s.OptionValue("range", ""), LookupResolver(s))
 		if perr != nil {
 			return perr
 		}
@@ -89,7 +90,7 @@ func PeerAllowedG(s parse.Spec, conn net.Conn, g *Global) error {
 
 	// TCP wrappers (hosts.allow / hosts.deny).
 	if tw := parseTCPWrap(s, g); tw.enabled {
-		if err := tcpwrapAllowed(tw, ra, conn.LocalAddr()); err != nil {
+		if err := tcpwrapAllowedForSpec(s, tw, ra, conn.LocalAddr()); err != nil {
 			return err
 		}
 	}
@@ -104,6 +105,10 @@ func PeerAllowedG(s parse.Spec, conn net.Conn, g *Global) error {
 //	[ipv6]/bits
 //	xPORTxIP:xPORTxMASK  classic generic SOCKET hex (port prefix ignored)
 func ipInRange(ip net.IP, spec string) (bool, error) {
+	return ipInRangeWithResolver(ip, spec, net.DefaultResolver)
+}
+
+func ipInRangeWithResolver(ip net.IP, spec string, resolver *net.Resolver) (bool, error) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" {
 		return true, nil
@@ -126,7 +131,7 @@ func ipInRange(ip net.IP, spec string) (bool, error) {
 
 	// Classic SOCKET hex: x0000x7f000000:x0000xffffffff (sockaddr data net:mask)
 	if strings.Contains(spec, "x") || strings.Contains(spec, "X") {
-		if ok, err, handled := ipInHexSockRange(ip, spec); handled {
+		if ok, err, handled := ipInHexSockRange(ip, spec, resolver); handled {
 			return ok, err
 		}
 	}
@@ -138,7 +143,7 @@ func ipInRange(ip net.IP, spec string) (bool, error) {
 		if end := strings.Index(spec, "]"); end > 0 && end+1 < len(spec) && spec[end+1] == ':' {
 			addrPart := StripBrackets(spec[:end+1])
 			maskPart := spec[end+2:]
-			return matchAddrMask(ip, addrPart, maskPart)
+			return matchAddrMask(ip, addrPart, maskPart, resolver)
 		}
 	}
 
@@ -148,7 +153,7 @@ func ipInRange(ip net.IP, spec string) (bool, error) {
 		addrPart := StripBrackets(spec[:i])
 		maskPart := spec[i+1:]
 		if strings.Count(maskPart, ".") == 3 {
-			return matchAddrMask(ip, addrPart, maskPart)
+			return matchAddrMask(ip, addrPart, maskPart, resolver)
 		}
 	}
 
@@ -156,7 +161,9 @@ func ipInRange(ip net.IP, spec string) (bool, error) {
 	base := net.ParseIP(StripBrackets(spec))
 	if base == nil {
 		// Resolve hostname once for exact match.
-		if ips, err := net.LookupIP(StripBrackets(spec)); err == nil {
+		// PeerAllowedG has no lookup context in its established API; retain its
+		// previous lifetime while still using the address-scoped resolver.
+		if ips, err := resolver.LookupIP(context.Background(), "ip", StripBrackets(spec)); err == nil {
 			for _, cand := range ips {
 				if cand.Equal(ip) {
 					return true, nil
@@ -174,7 +181,7 @@ func ipInRange(ip net.IP, spec string) (bool, error) {
 
 // ipInHexSockRange parses xPORTxIP:xPORTxMASK (classic generic socket range).
 // handled=false if the form does not look like hex sockaddr range.
-func ipInHexSockRange(ip net.IP, spec string) (ok bool, err error, handled bool) {
+func ipInHexSockRange(ip net.IP, spec string, resolver *net.Resolver) (ok bool, err error, handled bool) {
 	// Split net:mask on the colon that separates the two hex groups.
 	// Each side typically looks like x0000x7f000000 (port + IPv4) or longer for IPv6.
 	idx := -1
@@ -209,21 +216,21 @@ func ipInHexSockRange(ip net.IP, spec string) (ok bool, err error, handled bool)
 		}
 		base := net.IP(netBytes[6:22])
 		mask := net.IP(maskBytes[6:22])
-		ok, err = matchAddrMask(ip, base.String(), mask.String())
+		ok, err = matchAddrMask(ip, base.String(), mask.String(), resolver)
 		return ok, err, true
 	}
 	// IPv4
 	base := net.IPv4(netBytes[2], netBytes[3], netBytes[4], netBytes[5])
 	mask := net.IPv4(maskBytes[2], maskBytes[3], maskBytes[4], maskBytes[5])
-	ok, err = matchAddrMask(ip, base.String(), mask.String())
+	ok, err = matchAddrMask(ip, base.String(), mask.String(), resolver)
 	return ok, err, true
 }
 
-func matchAddrMask(ip net.IP, addrPart, maskPart string) (bool, error) {
+func matchAddrMask(ip net.IP, addrPart, maskPart string, resolver *net.Resolver) (bool, error) {
 	base := net.ParseIP(StripBrackets(addrPart))
 	if base == nil {
 		// Hostname in range= (classic range=localhost:255.255.255.255).
-		ips, err := net.LookupIP(StripBrackets(addrPart))
+		ips, err := resolver.LookupIP(context.Background(), "ip", StripBrackets(addrPart))
 		if err != nil || len(ips) == 0 {
 			return false, fmt.Errorf("range: resolve %s: %v", addrPart, err)
 		}

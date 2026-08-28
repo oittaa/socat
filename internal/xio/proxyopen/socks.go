@@ -51,12 +51,13 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 		copy(ip4[:], v4)
 	} else {
 		ips, e := xio.LookupResolver(s).LookupIP(ctx, "ip4", hostName)
-		if e == nil {
-			for _, ip := range ips {
-				if v4 := ip.To4(); v4 != nil {
-					copy(ip4[:], v4)
-					break
-				}
+		if e != nil {
+			return nil, fmt.Errorf("SOCKS4: resolve %s: %w", targetHost, e)
+		}
+		for _, ip := range ips {
+			if v4 := ip.To4(); v4 != nil {
+				copy(ip4[:], v4)
+				break
 			}
 		}
 		if ip4 == [4]byte{} {

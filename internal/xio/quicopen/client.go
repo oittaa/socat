@@ -75,7 +75,7 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 				cctx, cancel = context.WithTimeout(dctx, attemptTimeout)
 				defer cancel()
 			}
-			raddr, e := net.ResolveUDPAddr(network, dest)
+			raddr, e := xio.ResolveUDPAddr(cctx, s, network, dest)
 			if e != nil {
 				return e
 			}

@@ -252,6 +252,15 @@ func validateRequiredString(option parse.Option) error {
 	return err
 }
 
+func validateResNSAddr(option parse.Option) error {
+	value, err := requiredOptionValue(option)
+	if err != nil {
+		return err
+	}
+	_, err = xio.ParseResNSAddr(value)
+	return err
+}
+
 func validateOctal(max uint64) func(parse.Option) error {
 	return func(option parse.Option) error {
 		value, err := requiredOptionValue(option)
@@ -499,6 +508,34 @@ func tcpStreamAddressTypes() []string {
 		"PROXY", "PROXY-CONNECT",
 		"SOCKS4", "SOCKS4A", "SOCKS5", "SOCKS5-CONNECT", "SOCKS5-LISTEN", "SOCKS5-BIND",
 	}
+}
+
+func resolverImplementationGroups() []string {
+	return []string{
+		xio.GroupTCP,
+		xio.GroupUDP,
+		xio.GroupRawIP,
+		xio.GroupTLS,
+		xio.GroupProxy,
+		xio.GroupWebSocket,
+		xio.GroupQUIC,
+		xio.GroupSCTP,
+	}
+}
+
+func resolverAddressTypes() []string {
+	allowed := make(map[string]bool)
+	for _, group := range resolverImplementationGroups() {
+		allowed[group] = true
+	}
+	var names []string
+	for _, registration := range xio.AddressRegistrations() {
+		if allowed[registration.Group] {
+			names = append(names, registration.Name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 func tlsAddressTypes() []string {

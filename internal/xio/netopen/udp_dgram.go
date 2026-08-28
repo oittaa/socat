@@ -42,7 +42,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 	if err != nil {
 		return nil, err
 	}
-	raddr, err := net.ResolveUDPAddr(network, net.JoinHostPort(xio.StripBrackets(host), port))
+	raddr, err := xio.ResolveUDPAddr(ctx, s, network, net.JoinHostPort(xio.StripBrackets(host), port))
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		if sp != "" {
 			ba = xio.BindPort(bind, sp)
 		}
-		laddr, err = net.ResolveUDPAddr(network, ba)
+		laddr, err = xio.ResolveUDPAddr(ctx, s, network, ba)
 		if err != nil {
 			return nil, err
 		}
@@ -279,7 +279,7 @@ func bindUDPLowport(ctx context.Context, network, bind string, s parse.Spec, g *
 		if g != nil && g.Log != nil {
 			g.Log.Debugf("bind({AF=2 %s:%d}, 16)", bind, port)
 		}
-		addr, err := net.ResolveUDPAddr(network, net.JoinHostPort(xio.StripBrackets(bind), strconv.Itoa(port)))
+		addr, err := xio.ResolveUDPAddr(ctx, s, network, net.JoinHostPort(xio.StripBrackets(bind), strconv.Itoa(port)))
 		if err != nil {
 			return err
 		}
@@ -331,7 +331,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	if err != nil {
 		return nil, err
 	}
-	laddr, err := net.ResolveUDPAddr(network, net.JoinHostPort(xio.StripBrackets(host), port))
+	laddr, err := xio.ResolveUDPAddr(ctx, s, network, net.JoinHostPort(xio.StripBrackets(host), port))
 	if err != nil {
 		return nil, err
 	}

@@ -92,6 +92,10 @@ func openSCTPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	if err != nil {
 		return nil, err
 	}
+	host, err = xio.ResolveIPHost(ctx, s, network, host)
+	if err != nil {
+		return nil, err
+	}
 	ln, err := listenSCTP(ctx, network, host, port, s)
 	if err != nil {
 		return nil, err

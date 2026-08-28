@@ -2,6 +2,7 @@ package xio
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -103,6 +104,10 @@ func FirstNonEmpty(vals ...string) string {
 // tcpwrapAllowed returns nil if the peer is allowed, or an error to refuse.
 // Classic hosts_access: allow table first; then deny; default permit if neither matches.
 func tcpwrapAllowed(cfg tcpwrapConfig, peer net.Addr, local net.Addr) error {
+	return tcpwrapAllowedForSpec(parse.Spec{}, cfg, peer, local)
+}
+
+func tcpwrapAllowedForSpec(s parse.Spec, cfg tcpwrapConfig, peer net.Addr, local net.Addr) error {
 	if !cfg.enabled {
 		return nil
 	}
@@ -127,7 +132,7 @@ func tcpwrapAllowed(cfg tcpwrapConfig, peer net.Addr, local net.Addr) error {
 	// Only reverse-lookup when tables may name hosts (TCP4WRAPPERS_NAME).
 	clientHost := ""
 	if clientIP != "" && hostsLinesMayNeedHostname(allowLines, denyLines) {
-		clientHost = reverseHost(clientIP)
+		clientHost = reverseHost(s, clientIP)
 		if clientHost != "" && matchHostsLines(allowLines, cfg.daemon, clientIP, clientHost) {
 			return nil
 		}
@@ -158,18 +163,21 @@ func peerIPOnly(peer net.Addr) (ipStr, bare string) {
 // Classic/libwrap-style: name is only trusted when it forward-resolves back
 // to the client IP. Without this, systems that map all 127/8 to "localhost"
 // would falsely pass TCP4WRAPPERS_NAME (allow localhost, client SECONDADDR).
-func reverseHost(ipStr string) string {
+func reverseHost(s parse.Spec, ipStr string) string {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
 		return ""
 	}
-	names, err := net.LookupAddr(ipStr)
+	// tcpwrapAllowed has no caller context; preserve its established lifetime
+	// while scoping both reverse and forward verification to this address.
+	resolver := LookupResolver(s)
+	names, err := resolver.LookupAddr(context.Background(), ipStr)
 	if err != nil || len(names) == 0 {
 		return ""
 	}
 	for _, name := range names {
 		name = strings.TrimSuffix(name, ".")
-		ips, err := net.LookupIP(name)
+		ips, err := resolver.LookupIP(context.Background(), "ip", name)
 		if err != nil {
 			continue
 		}
