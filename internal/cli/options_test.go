@@ -66,6 +66,8 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "lowport-on-quic", spec: "QUIC:localhost:1,lowport"},
 		{name: "sourceport-on-quic", spec: "QUIC:localhost:1,sourceport=1"},
 		{name: "pty-on-tcp", spec: "TCP:localhost:1,pty", wantErr: "not supported"},
+		{name: "sitout-eio-on-tcp", spec: "TCP:localhost:1,sitout-eio=1", wantErr: "not supported"},
+		{name: "sitout-eio-on-exec", spec: "EXEC:true,sitout-eio=1"},
 		{name: "pty-on-inet-alias", spec: "INET:localhost:1,pty", wantErr: "not supported"},
 		{name: "nodelay-on-inet-alias", spec: "INET:localhost:1,nodelay"},
 		{name: "backlog-on-inet-listen-alias", spec: "INET-LISTEN:1,backlog=10"},
