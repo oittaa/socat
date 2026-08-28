@@ -94,6 +94,8 @@ var implementedAliasHelp = []struct {
 	{"recvdstaddr", "ip-recvdstaddr"},
 	{"iprecvdstaddr", "ip-recvdstaddr"},
 	{"recvif", "ip-recvif"},
+	{"tcp-nopush", "nopush"},
+	{"tcp-noopt", "noopt"},
 }
 
 func TestImplementedAliasesHHHNotHH(t *testing.T) {

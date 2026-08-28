@@ -54,6 +54,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"f-setlk", "lock", "bytes", "cr", "crlf", "cd", "sid", "close", "maxchildren",
 		"intervall", "ipv6only", "v6only", "termios-cfmakeraw", "crterase",
 		"tun-no-pi", "multicast", "proxy-auth", "resolv", "ignorecr",
+		"retrieve-vlan",
 		"iff-notrailers", "notrailers", "iff-master", "master",
 		"iff-slave", "slave", "iff-portsel", "portsel",
 		"iff-automedia", "automedia",
@@ -77,7 +78,8 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		t.Error("HP-UX dsusp/vdsusp must not be advertised")
 	}
 	for _, name := range []string{"ip-recverr", "recverr", "iprecverr", "ipv6-recverr", "ipv6-multicast-hops",
-		"ip-recvdstaddr", "ip-recvif", "recvdstaddr", "iprecvdstaddr", "recvif"} {
+		"ip-recvdstaddr", "ip-recvif", "recvdstaddr", "iprecvdstaddr", "recvif",
+		"nopush", "noopt", "tcp-nopush", "tcp-noopt"} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("rejected or unknown option %q must not be advertised in -hhh", name)
 		}

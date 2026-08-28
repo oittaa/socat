@@ -66,8 +66,14 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"o-binary", "linux", ClassForeign},
 		{"o-text", "windows", ClassMustAdvertise},
 		{"o-noinherit", "darwin", ClassForeign},
-		{"nopush", "darwin", ClassExpectedMissing},
-		{"nopush", "linux", ClassForeign},
+		{"nopush", "darwin", ClassMustAdvertise},
+		{"nopush", "linux", ClassMustAdvertise},
+		{"nopush", "windows", ClassMustAdvertise},
+		{"noopt", "darwin", ClassMustAdvertise},
+		{"noopt", "linux", ClassMustAdvertise},
+		{"tcp-nopush", "linux", ClassMustAdvertise},
+		{"tcp-nopush", "darwin", ClassMustAdvertise},
+		{"tcp-noopt", "darwin", ClassMustAdvertise},
 		{"ip-recvif", "darwin", ClassMustAdvertise},
 		{"ip-recvif", "linux", ClassMustAdvertise},
 		{"ip-recvif", "windows", ClassMustAdvertise},
@@ -102,6 +108,7 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"sighup", "windows", ClassMustAdvertise},
 		{"sigint", "linux", ClassMustAdvertise},
 		{"sigquit", "linux", ClassMustAdvertise},
+		{"retrieve-vlan", "linux", ClassMustAdvertise},
 		{"sctp-maxseg", "linux", ClassMustAdvertise},
 		{"sctp-maxseg", "darwin", ClassMustAdvertise},
 		{"sctp-maxseg", "windows", ClassMustAdvertise},
@@ -186,6 +193,9 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	if _, ok := linux["iff-notrailers"]; ok {
 		t.Fatal("linux backlog must not include implemented iff-notrailers")
 	}
+	if _, ok := linux["retrieve-vlan"]; ok {
+		t.Fatal("linux backlog must not include implemented retrieve-vlan")
+	}
 	if _, ok := linux["udplite-send-cscov"]; ok {
 		t.Fatal("linux backlog must not include implemented udplite-send-cscov (#101)")
 	}
@@ -220,6 +230,12 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	if _, ok := linux["ip-recvif"]; ok {
 		t.Fatal("linux backlog must not include implemented ip-recvif")
 	}
+	if _, ok := linux["nopush"]; ok {
+		t.Fatal("linux backlog must not include implemented nopush")
+	}
+	if _, ok := linux["noopt"]; ok {
+		t.Fatal("linux backlog must not include implemented noopt")
+	}
 	darwin := ImplementationBacklog("darwin")
 	if _, ok := darwin["ip-recvif"]; ok {
 		t.Fatal("darwin backlog must not include implemented ip-recvif")
@@ -227,8 +243,11 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	if _, ok := darwin["ip-recvdstaddr"]; ok {
 		t.Fatal("darwin backlog must not include implemented ip-recvdstaddr")
 	}
-	if _, ok := darwin["nopush"]; !ok {
-		t.Fatal("darwin backlog must include nopush")
+	if _, ok := darwin["nopush"]; ok {
+		t.Fatal("darwin backlog must not include implemented nopush")
+	}
+	if _, ok := darwin["noopt"]; ok {
+		t.Fatal("darwin backlog must not include implemented noopt")
 	}
 	if _, ok := darwin["fs-append"]; ok {
 		t.Fatal("darwin backlog must not include Linux fs-append")
