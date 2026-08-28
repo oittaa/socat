@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -308,13 +309,38 @@ func TestAcceptFDRejectedPeer10Net(t *testing.T) {
 	}
 }
 
+const acceptFDDup2HelperEnv = "SOCAT_TEST_ACCEPT_FD_DUP2_HELPER"
+
+// TestAcceptFDCloseDoesNotDoubleClose asserts that Opened.Close does not
+// close a descriptor number that was reused after the original listen fd
+// was handed to FileListener. Dup2 onto that recycled number races with
+// Go coverage meta files in the parent test process, so the assertion
+// runs in an isolated helper subprocess without GOCOVERDIR.
 func TestAcceptFDCloseDoesNotDoubleClose(t *testing.T) {
-	if testing.CoverMode() != "" {
-		// Dup2 onto a recycled listen fd can close Go's coverage meta files
-		// and fail the linux-amd64 job with "error generating coverage report:
-		// seek ... bad file descriptor" after tests already passed.
-		t.Skip("dup2 onto a recycled fd races with coverage meta files")
+	if os.Getenv(acceptFDDup2HelperEnv) == "1" {
+		acceptFDCloseDoesNotDoubleClose(t)
+		return
 	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestAcceptFDCloseDoesNotDoubleClose$", "-test.v", "-test.count=1") // #nosec G204 -- re-exec this test binary without a shell
+	cmd.Env = append(withoutCoverEnv(os.Environ()), acceptFDDup2HelperEnv+"=1")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("ACCEPT-FD dup2 helper failed: %v\n%s", err, output)
+	}
+}
+
+func withoutCoverEnv(env []string) []string {
+	out := make([]string, 0, len(env)+1)
+	for _, e := range env {
+		if strings.HasPrefix(e, "GOCOVERDIR=") {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func acceptFDCloseDoesNotDoubleClose(t *testing.T) {
+	t.Helper()
 	lowFD, _ := tcp4ListenOwned(t)
 	// Move the listener away from the low descriptor range used by concurrent
 	// runtime and test activity. Checking whether a low numeric fd is valid
