@@ -6,12 +6,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
@@ -785,7 +787,6 @@ func TestOpenSpecEXECClassicSocketpairAppliesSOPriorityLinux(t *testing.T) {
 		spec string
 		mode Mode
 	}{
-		{name: "end-close", spec: "EXEC:/bin/true,end-close,so-priority=5", mode: ModeRDWR},
 		{name: "fdin-fdout", spec: "EXEC:/bin/true,fdin=3,fdout=4,so-priority=5", mode: ModeRDWR},
 		{name: "implicit-read", spec: "EXEC:/bin/true,so-priority=5", mode: ModeRead},
 		{name: "implicit-write", spec: "EXEC:/bin/true,so-priority=5", mode: ModeWrite},
@@ -811,6 +812,7 @@ func TestOpenSpecEXECNonSocketpairRejectsPastSocketOptionsLinux(t *testing.T) {
 		{name: "pipes-priority-alias", spec: "EXEC:/bin/true,pipes,priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "pty", spec: "EXEC:/bin/true,pty,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "nofork", spec: "EXEC:/bin/true,nofork,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
+		{name: "end-close", spec: "EXEC:/bin/true,end-close,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "system-pipes", spec: "SYSTEM:/bin/true,pipes,so-priority=5", mode: ModeRDWR, optName: "so-priority"},
 		{name: "setsockopt-socket-pipes", spec: "EXEC:/bin/true,pipes,setsockopt-socket=1:12:1", mode: ModeRDWR, optName: "setsockopt-socket"},
 	}
@@ -849,4 +851,114 @@ func TestRunExecNoForkRejectsPastSocketOptionsLinux(t *testing.T) {
 	if !strings.Contains(err.Error(), `option "so-priority" not inquired`) {
 		t.Fatalf("err=%v want option %q not inquired", err, "so-priority")
 	}
+}
+
+func readEXECBytes(t *testing.T, r io.Reader, d time.Duration) []byte {
+	t.Helper()
+	if f, ok := r.(interface{ SetReadDeadline(time.Time) error }); ok {
+		_ = f.SetReadDeadline(time.Now().Add(d))
+	}
+	done := make(chan struct {
+		b   []byte
+		err error
+	}, 1)
+	go func() {
+		b, err := io.ReadAll(r)
+		done <- struct {
+			b   []byte
+			err error
+		}{b, err}
+	}()
+	select {
+	case got := <-done:
+		if got.err != nil && len(got.b) == 0 {
+			t.Fatalf("read EXEC: %v", got.err)
+		}
+		return got.b
+	case <-time.After(d + time.Second):
+		t.Fatal("timed out reading EXEC stream")
+		return nil
+	}
+}
+
+func TestOpenSpecEXECSOPriorityUnidirectionalCatLinux(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	if _, err := os.Stat("/bin/cat"); err != nil {
+		t.Skip("/bin/cat not available")
+	}
+	const payload = "hello"
+
+	t.Run("mode-read-inherit-stdin", func(t *testing.T) {
+		// printf hello | socat -u EXEC:/bin/cat,so-priority=5 STDOUT
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		old := os.Stdin
+		os.Stdin = pr
+		t.Cleanup(func() {
+			os.Stdin = old
+			_ = pw.Close()
+			_ = pr.Close()
+		})
+		if _, err := pw.Write([]byte(payload)); err != nil {
+			t.Fatal(err)
+		}
+		if err := pw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		spec, err := parse.ParseSpec("EXEC:/bin/cat,so-priority=5")
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, err := OpenSpec(context.Background(), spec, ModeRead, &Global{Log: logx.New()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = o.Close() })
+		got := string(readEXECBytes(t, o.Stream, 3*time.Second))
+		if got != payload {
+			t.Fatalf("EXEC ModeRead cat got %q want %q", got, payload)
+		}
+	})
+
+	t.Run("mode-write-inherit-stdout", func(t *testing.T) {
+		// printf hello | socat -u STDIN EXEC:/bin/cat,so-priority=5
+		pr, pw, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		old := os.Stdout
+		os.Stdout = pw
+		t.Cleanup(func() {
+			os.Stdout = old
+			_ = pw.Close()
+			_ = pr.Close()
+		})
+		spec, err := parse.ParseSpec("EXEC:/bin/cat,so-priority=5")
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, err := OpenSpec(context.Background(), spec, ModeWrite, &Global{Log: logx.New()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = o.Close() })
+		if _, err := o.Stream.Write([]byte(payload)); err != nil {
+			t.Fatal(err)
+		}
+		if err := o.Stream.ShutdownWrite(); err != nil {
+			t.Fatal(err)
+		}
+		os.Stdout = old
+		if err := pw.Close(); err != nil {
+			t.Fatal(err)
+		}
+		got := string(readEXECBytes(t, pr, 3*time.Second))
+		if got != payload {
+			t.Fatalf("EXEC ModeWrite cat got %q want %q", got, payload)
+		}
+	})
 }

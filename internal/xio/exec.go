@@ -420,13 +420,14 @@ func asOSFile(x any) *os.File {
 }
 
 // rejectUnusedExecPastSocketOptions fails when a PH_PASTSOCKET socket option
-// would be silently ignored on user-selected EXEC/SYSTEM/SHELL pipes, pty, or
-// nofork. Classic selects those non-socket transports only from those
-// options (xio-progcall.c usepipes/usepty/nofork at tag-1.8.1.3
+// would be silently ignored on EXEC/SYSTEM/SHELL pipes, pty, or nofork.
+// Classic leftover-rejects those options on user-selected pipes/pty/nofork
+// (xio-progcall.c usepipes/usepty/nofork at tag-1.8.1.3
 // 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same), never from
-// unidirectional mode, fdin/fdout, or end-close. Leftover popts abort via
-// showleft / leftopts. Canonical Name is classic defname after alias fold.
+// af5388c898c7bb60997935aee93c223deba60c4a is the same). This port also
+// uses pipes for EXECENDCLOSE (end-close + LISTEN,fork), so leftover
+// GROUP_SOCKET options fail the same way there. Canonical Name is classic
+// defname after alias fold.
 func rejectUnusedExecPastSocketOptions(s parse.Spec) error {
 	for _, o := range s.Options {
 		if isPastSocketActionOption(o) {
@@ -449,14 +450,6 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	cmd.Dir = s.OptionValue("chdir", "")
 	userPipes := s.BoolOption("pipes")
 	userPty := s.BoolOption("pty")
-	// Classic leftover-rejects PH_PASTSOCKET only when the user asked for
-	// pipes, pty, or nofork. Unidirectional mode, fdin/fdout, and end-close
-	// still use socketpair in classic (popts on sv[1]).
-	if userPipes || userPty {
-		if err := rejectUnusedExecPastSocketOptions(s); err != nil {
-			return nil, err
-		}
-	}
 	// Default: socketpair for full duplex; pipes when requested or unidirectional
 	// so unused direction can inherit process stdio (classic LISTENENV / single-exec).
 	usePipes := userPipes || mode == ModeRead || mode == ModeWrite
@@ -487,15 +480,25 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	// per session and poll deadlines on the shared FD race with later accepts.
 	// Separate pipes keep stdin/stdout independent (classic still works; our
 	// goroutine accept model needs this for EXECENDCLOSE).
-	if s.BoolOption("end-close") && !usePipes {
+	endClose := s.BoolOption("end-close")
+	if endClose && !usePipes {
 		usePipes = true
 	}
 
-	// When PASTSOCKET options are present, use classic socketpair so they
-	// apply on the child endpoint instead of following the Go pipe
-	// workaround. Explicit pipes/pty already rejected leftover options.
-	if specHasPastSocketActionOption(s) && !userPipes && !userPty {
+	// PASTSOCKET needs a child socket (classic popts on sv[1]). Use socketpair
+	// for unidirectional EXEC and fdin/fdout. Do not cancel the end-close
+	// pipe safeguard — there is no equivalent safe shared socketpair here.
+	if specHasPastSocketActionOption(s) && !userPipes && !userPty && !endClose {
 		usePipes = false
+	}
+
+	// Classic leftover-rejects PH_PASTSOCKET only on user-selected pipes, pty,
+	// or nofork. end-close pipes are this port's EXECENDCLOSE workaround, so
+	// leftover GROUP_SOCKET options fail the same way rather than a no-op.
+	if usePipes || usePty {
+		if err := rejectUnusedExecPastSocketOptions(s); err != nil {
+			return nil, err
+		}
 	}
 
 	if s.BoolOption("setsid") {
@@ -531,7 +534,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		stream, cleanup, childFiles, err = startCmdPipes(s, mode, cmd, fdin, fdout)
 	} else {
 		var child *os.File
-		stream, cleanup, child, err = startCmdSocketpair(s, cmd)
+		stream, cleanup, child, err = startCmdSocketpair(s, mode, cmd)
 		if child != nil {
 			childFiles = append(childFiles, child)
 		}
@@ -654,7 +657,7 @@ func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdin, fdout string) (
 	return st, cleanup, childFiles, nil
 }
 
-func startCmdSocketpair(s parse.Spec, cmd *exec.Cmd) (relay.Stream, []func(), *os.File, error) {
+func startCmdSocketpair(s parse.Spec, mode Mode, cmd *exec.Cmd) (relay.Stream, []func(), *os.File, error) {
 	stype, _, err := SocketTypeOption(s, syscall.SOCK_STREAM)
 	if err != nil {
 		return nil, nil, nil, err
@@ -678,21 +681,66 @@ func startCmdSocketpair(s parse.Spec, cmd *exec.Cmd) (relay.Stream, []func(), *o
 		_ = child.Close()
 		return nil, nil, nil, err
 	}
-	cmd.Stdin = child
-	cmd.Stdout = child
-	if s.BoolOption("stderr") {
-		cmd.Stderr = child
+	// Classic child wiring (xio-progcall.c): Dup2(sv[1], fdi) only when
+	// rw != XIO_RDONLY, Dup2(sv[1], fdo) only when rw != XIO_WRONLY.
+	// Unused stdio stays inherited so `socat -u EXEC:cat STDOUT` reads
+	// process stdin and `socat -u STDIN EXEC:cat` writes process stdout.
+	switch mode {
+	case ModeWrite:
+		cmd.Stdin = child
+		cmd.Stdout = os.Stdout
+		if s.BoolOption("stderr") {
+			cmd.Stderr = os.Stdout
+		}
+	case ModeRead:
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = child
+		if s.BoolOption("stderr") {
+			cmd.Stderr = child
+		}
+	default:
+		cmd.Stdin = child
+		cmd.Stdout = child
+		if s.BoolOption("stderr") {
+			cmd.Stderr = child
+		}
 	}
-	var st relay.Stream
-	if stype == syscall.SOCK_DGRAM {
-		st = DgramPairStream(parent)
-	} else {
-		st = FileStream(parent)
-	}
+	st := execSocketpairParentStream(mode, parent, stype)
 	cleanup := []func(){func() {
 		logx.CloseQuiet(parent)
 	}}
 	return st, cleanup, child, nil
+}
+
+func execSocketpairParentStream(mode Mode, parent *os.File, stype int) relay.Stream {
+	switch mode {
+	case ModeWrite:
+		closeW := func() error { return shutdownWriteFile(parent) }
+		if stype == syscall.SOCK_DGRAM {
+			closeW = func() error {
+				_, err := parent.Write(nil)
+				return err
+			}
+		}
+		return relay.FDStream{
+			R:      EOFReader{},
+			W:      parent,
+			C:      NewMultiCloser(nil, nil),
+			CloseW: closeW,
+		}
+	case ModeRead:
+		return relay.FDStream{
+			R:      parent,
+			W:      io.Discard,
+			C:      NewMultiCloser(nil, nil),
+			CloseW: func() error { return nil },
+		}
+	default:
+		if stype == syscall.SOCK_DGRAM {
+			return DgramPairStream(parent)
+		}
+		return FileStream(parent)
+	}
 }
 
 // startWithChildUmask applies classic umask= around cmd.Start and marks FDs ≥3
