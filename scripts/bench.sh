@@ -5,7 +5,7 @@
 # Usage:
 #   ./scripts/bench.sh
 #   CLASSIC_SOCAT=/tmp/socat-1.8.1.3/bin/socat ./scripts/bench.sh
-#   SIZE=64M RUNS=3 ./scripts/bench.sh tcp tls quic
+#   SIZE=64M RUNS=3 ./scripts/bench.sh tcp udp udplite tls quic
 #   SAVE_BASELINE=testdata/bench/host.json ./scripts/bench.sh
 set -euo pipefail
 

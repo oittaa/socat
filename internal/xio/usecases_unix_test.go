@@ -89,6 +89,9 @@ func TestUDP4ListenNonForkPIPEEcho(t *testing.T) {
 // SyscallConn, or poll waits on the already-drained raw socket.
 func TestIP4RecvfromNonForkPIPEEcho(t *testing.T) {
 	if os.Geteuid() != 0 {
+		if os.Getenv("SOCAT_REQUIRE_RAWIP") != "" {
+			t.Fatal("raw IP requires root; SOCAT_REQUIRE_RAWIP forbids skip")
+		}
 		t.Skip("raw IP requires root")
 	}
 	ctx := testCtx(t)
@@ -138,6 +141,7 @@ func TestIP4RecvfromNonForkPIPEEcho(t *testing.T) {
 			if string(got) != string(payload) {
 				t.Fatalf("echo got %q want %q", got, payload)
 			}
+			t.Logf("echoed %q via IP4-RECVFROM PIPE", payload)
 			select {
 			case err := <-done:
 				if err != nil {
