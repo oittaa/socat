@@ -323,3 +323,30 @@ func TestOpenSpecEXECSocktypeDgramUnix(t *testing.T) {
 		t.Fatalf("got %q want %q", got, payload)
 	}
 }
+
+func parentSocketType(t *testing.T, o *Opened) (int, error) {
+	t.Helper()
+	f := asOSFile(o.Stream)
+	if f == nil {
+		t.Fatal("parent EXEC stream has no *os.File")
+	}
+	return syscall.GetsockoptInt(int(f.Fd()), syscall.SOL_SOCKET, syscall.SO_TYPE)
+}
+
+func TestOpenSpecEXECEndCloseUsesSocketpairUnix(t *testing.T) {
+	o := openEXECSpec(t, "EXEC:/bin/true,end-close", ModeRDWR)
+	typ, err := parentSocketType(t, o)
+	if err != nil {
+		t.Fatalf("end-close parent is not a socket: %v", err)
+	}
+	if typ != syscall.SOCK_STREAM {
+		t.Fatalf("end-close SO_TYPE=%d want SOCK_STREAM", typ)
+	}
+}
+
+func TestOpenSpecEXECPipesIsNotSocketUnix(t *testing.T) {
+	o := openEXECSpec(t, "EXEC:/bin/true,pipes", ModeRDWR)
+	if _, err := parentSocketType(t, o); err == nil {
+		t.Fatal("pipes parent unexpectedly is a socket")
+	}
+}
