@@ -92,6 +92,8 @@ var implementedAliasHelp = []struct {
 	{"nocheck", "so-no-check"},
 	{"no-check", "so-no-check"},
 	{"tightsocklen", "unix-tightsocklen"},
+	{"tcp-nopush", "nopush"},
+	{"tcp-noopt", "noopt"},
 }
 
 func TestImplementedAliasesHHHNotHH(t *testing.T) {

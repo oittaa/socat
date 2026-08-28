@@ -101,5 +101,7 @@ func init() {
 		"quickack":                   "tcp-quickack",
 		"syncnt":                     "tcp-syncnt",
 		"window-clamp":               "tcp-window-clamp",
+		"tcp-nopush":                 "nopush",
+		"tcp-noopt":                  "noopt",
 	})
 }

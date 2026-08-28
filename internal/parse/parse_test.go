@@ -171,6 +171,8 @@ func TestLastOptionWins(t *testing.T) {
 		{name: "max-proto-version", spec: "TLS:127.0.0.1:443,max-proto-version=TLS1.3", opt: "openssl-max-proto-version", want: "TLS1.3"},
 		{name: "so-debug-alias", spec: "TCP:127.0.0.1:9,debug=1", opt: "so-debug", want: "1"},
 		{name: "cork-alias", spec: "TCP:127.0.0.1:9,cork=1", opt: "tcp-cork", want: "1"},
+		{name: "tcp-nopush-alias", spec: "TCP:127.0.0.1:9,tcp-nopush=1", opt: "nopush", want: "1"},
+		{name: "tcp-noopt-alias", spec: "TCP:127.0.0.1:9,tcp-noopt=1", opt: "noopt", want: "1"},
 		{name: "priority-alias", spec: "TCP:127.0.0.1:9,priority=6", opt: "so-priority", want: "6"},
 		{name: "passcred-alias", spec: "TCP:127.0.0.1:9,passcred=1", opt: "so-passcred", want: "1"},
 		{name: "nocheck-alias", spec: "UDP:127.0.0.1:9,nocheck=1", opt: "so-no-check", want: "1"},
