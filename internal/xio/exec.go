@@ -255,7 +255,7 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 	if g != nil {
 		cmd.Env = childEnviron(g)
 	}
-	if err := startWithChildUmask(s, cmd); err != nil {
+	if err := startWithChildUmask(s, cmd, g); err != nil {
 		return err
 	}
 	waitErr := cmd.Wait()
@@ -592,7 +592,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 
 	// EXEC_FDS: only FDs 0/1/2 may remain in the child.
-	startErr := startWithChildUmask(s, cmd)
+	startErr := startWithChildUmask(s, cmd, g)
 	if startErr != nil {
 		for _, f := range cleanup {
 			f()
@@ -850,7 +850,7 @@ func execSocketpairParentStream(mode Mode, parent *os.File, stype int) relay.Str
 // CLOEXEC so EXEC children inherit only 0/1/2 plus explicitly mapped fdi/fdo
 // descriptors (EXEC_FDS / EXEC_SNIFF), then registers sighup/sigint/sigquit
 // (classic PH_LATE OFUNC_SIGNAL after pid is known).
-func startWithChildUmask(s parse.Spec, cmd *exec.Cmd) error {
+func startWithChildUmask(s parse.Spec, cmd *exec.Cmd, g *Global) error {
 	if err := validateExecParentSignals(s); err != nil {
 		return err
 	}
@@ -868,7 +868,7 @@ func startWithChildUmask(s parse.Spec, cmd *exec.Cmd) error {
 	if startErr != nil {
 		return startErr
 	}
-	if err := registerExecParentSignals(s, cmd); err != nil {
+	if err := registerExecParentSignals(s, cmd, g); err != nil {
 		killWaitUnregisterChild(cmd)
 		return err
 	}
@@ -965,7 +965,7 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.Ctty = 3
-	if err := startWithChildUmask(s, cmd); err != nil {
+	if err := startWithChildUmask(s, cmd, g); err != nil {
 		closeExecPTY(master, slave)
 		return nil, err
 	}
@@ -1028,7 +1028,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 		if s.BoolOption("stderr") {
 			cmd.Stderr = slave
 		}
-		if err := startWithChildUmask(s, cmd); err != nil {
+		if err := startWithChildUmask(s, cmd, g); err != nil {
 			closeExecPTY(master, slave)
 			return nil, err
 		}
@@ -1062,7 +1062,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 		// Controlling tty is stdout/stderr slave; Setctty needs a child FD.
 		// With stdin inherited, Ctty 1 (stdout) is the slave after setup.
 		cmd.SysProcAttr.Ctty = 1
-		if err := startWithChildUmask(s, cmd); err != nil {
+		if err := startWithChildUmask(s, cmd, g); err != nil {
 			closeExecPTY(master, slave)
 			return nil, err
 		}
@@ -1081,7 +1081,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 		return finishExec(s, g, cmd, stream, []func(){func() { logx.CloseQuiet(ptmx) }}, false)
 
 	default:
-		ptmx, err = startOnPTY(cmd, s)
+		ptmx, err = startOnPTY(cmd, s, g)
 		if err != nil {
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}

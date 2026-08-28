@@ -14,36 +14,42 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// socatMaxPids is classic SOCAT_MAXPIDS in xiosignal.c.
-const socatMaxPids = 4
-
-type childSigDesc struct {
-	enabled bool // first registration installs pass-through for this signum
-	n       int
-	pids    [socatMaxPids]int
-}
-
+// liveSessions holds every per-logical-process OFUNC_SIGNAL table that
+// currently has a pid (classic xiosignal.c at tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same). LISTEN,fork uses
+// goroutines, so each forkSession Global owns a table; the process handler
+// aggregates every live table's pids.
 var (
 	childSignalMu       sync.Mutex
-	childSIGHUP         childSigDesc
-	childSIGINT         childSigDesc
-	childSIGQUIT        childSigDesc
+	processSession      childSignalSession
+	liveSessions        = map[*childSignalSession]struct{}{}
 	killRegisteredChild = func(pid int, sig syscall.Signal) error {
 		return syscall.Kill(pid, sig)
 	}
 )
 
-func childSigDescFor(sig syscall.Signal) *childSigDesc {
+func sigIndex(sig syscall.Signal) (int, bool) {
 	switch sig {
 	case syscall.SIGHUP:
-		return &childSIGHUP
+		return sigIdxHUP, true
 	case syscall.SIGINT:
-		return &childSIGINT
+		return sigIdxINT, true
 	case syscall.SIGQUIT:
-		return &childSIGQUIT
+		return sigIdxQUIT, true
 	default:
-		return nil
+		return 0, false
 	}
+}
+
+func sessionForLocked(g *Global) *childSignalSession {
+	if g == nil {
+		return &processSession
+	}
+	if g.childSignals == nil {
+		g.childSignals = &childSignalSession{}
+	}
+	return g.childSignals
 }
 
 func parentSignalName(o parse.Option) (syscall.Signal, bool) {
@@ -83,13 +89,14 @@ func validateExecParentSignals(s parse.Spec) error {
 // sfd->para.exec.pid = pid (xio-progcall.c / xioopts.c applyopt, same SHAs as
 // ForwardRegisteredChildSignal). Each occurrence registers once, so two
 // `sighup` flags on one address occupy two of the four slots (classic
-// applyopts walks remaining opts).
+// applyopts walks remaining opts). The four-slot limit is per logical session
+// (classic per-process table). g's forkSession copy is that session.
 //
 // Classic withfork+pipes also applies PH_LATE before fork while pid is still
 // 0. kill(0, sig) would signal the process group. This port registers the
 // real child pid after Start on every transport, including pipes, pty, and
 // nofork (Go nofork still has a parent that Wait()s).
-func registerExecParentSignals(s parse.Spec, cmd *exec.Cmd) error {
+func registerExecParentSignals(s parse.Spec, cmd *exec.Cmd, g *Global) error {
 	if err := validateExecParentSignals(s); err != nil {
 		return err
 	}
@@ -105,7 +112,7 @@ func registerExecParentSignals(s parse.Spec, cmd *exec.Cmd) error {
 		if !ok {
 			continue
 		}
-		if err := registerChildSignal(pid, sig); err != nil {
+		if err := registerChildSignalOn(g, pid, sig); err != nil {
 			return err
 		}
 	}
@@ -113,21 +120,26 @@ func registerExecParentSignals(s parse.Spec, cmd *exec.Cmd) error {
 }
 
 func registerChildSignal(pid int, sig syscall.Signal) error {
+	return registerChildSignalOn(nil, pid, sig)
+}
+
+func registerChildSignalOn(g *Global, pid int, sig syscall.Signal) error {
 	if pid <= 0 {
 		return nil
 	}
 	childSignalMu.Lock()
 	defer childSignalMu.Unlock()
-	d := childSigDescFor(sig)
-	if d == nil {
+	idx, ok := sigIndex(sig)
+	if !ok {
 		return fmt.Errorf("sub process registered for unsupported signal")
 	}
-	if d.n >= socatMaxPids {
+	sess := sessionForLocked(g)
+	if sess.n[idx] >= socatMaxPids {
 		return fmt.Errorf("too many sub processes registered for signal %d", int(sig))
 	}
-	d.enabled = true
-	d.pids[d.n] = pid
-	d.n++
+	sess.pids[idx][sess.n[idx]] = pid
+	sess.n[idx]++
+	liveSessions[sess] = struct{}{}
 	return nil
 }
 
@@ -137,21 +149,45 @@ func unregisterChildSignals(pid int) {
 	}
 	childSignalMu.Lock()
 	defer childSignalMu.Unlock()
-	for _, d := range []*childSigDesc{&childSIGHUP, &childSIGINT, &childSIGQUIT} {
-		j := 0
-		for i := 0; i < d.n; i++ {
-			if d.pids[i] != pid {
-				d.pids[j] = d.pids[i]
-				j++
+	for sess := range liveSessions {
+		for idx := 0; idx < sigIdxCount; idx++ {
+			j := 0
+			for i := 0; i < sess.n[idx]; i++ {
+				if sess.pids[idx][i] != pid {
+					sess.pids[idx][j] = sess.pids[idx][i]
+					j++
+				}
+			}
+			for i := j; i < sess.n[idx]; i++ {
+				sess.pids[idx][i] = 0
+			}
+			sess.n[idx] = j
+		}
+		if sessionEmpty(sess) {
+			delete(liveSessions, sess)
+		}
+	}
+}
+
+func sessionEmpty(s *childSignalSession) bool {
+	for idx := 0; idx < sigIdxCount; idx++ {
+		if s.n[idx] > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func collectPidsLocked(idx int) []int {
+	var pids []int
+	for sess := range liveSessions {
+		for i := 0; i < sess.n[idx]; i++ {
+			if pid := sess.pids[idx][i]; pid != 0 {
+				pids = append(pids, pid)
 			}
 		}
-		for i := j; i < d.n; i++ {
-			d.pids[i] = 0
-		}
-		d.n = j
-		// enabled stays set: classic never restores the default terminate
-		// handler after the first xio_opt_signal.
 	}
+	return pids
 }
 
 func forwardRegisteredChildSignal(sig os.Signal) bool {
@@ -159,25 +195,27 @@ func forwardRegisteredChildSignal(sig os.Signal) bool {
 	if !ok {
 		return false
 	}
-	childSignalMu.Lock()
-	d := childSigDescFor(ss)
-	if d == nil || !d.enabled {
-		childSignalMu.Unlock()
+	idx, ok := sigIndex(ss)
+	if !ok {
 		return false
 	}
-	pids := d.pids
-	n := d.n
+	childSignalMu.Lock()
+	pids := collectPidsLocked(idx)
 	childSignalMu.Unlock()
+	// Pass-through only while at least one pid is registered. Classic
+	// socatsignalpass stays installed for the life of the process, but that
+	// process is a fork(2) worker. This port's listener shares the process
+	// with goroutine sessions, so an empty table restores terminate-on-signal
+	// like classic's listener parent.
+	if len(pids) == 0 {
+		return false
+	}
 
 	if log := logx.Default(); log != nil {
 		log.Noticef("socatsignalpass(sig=%d)", int(ss))
 	}
 	sent := 0
-	for i := 0; i < n; i++ {
-		pid := pids[i]
-		if pid == 0 {
-			continue
-		}
+	for _, pid := range pids {
 		sent++
 		if err := killRegisteredChild(pid, ss); err != nil {
 			if log := logx.Default(); log != nil {
@@ -194,17 +232,18 @@ func forwardRegisteredChildSignal(sig os.Signal) bool {
 func resetChildSignalPassForTest() {
 	childSignalMu.Lock()
 	defer childSignalMu.Unlock()
-	childSIGHUP = childSigDesc{}
-	childSIGINT = childSigDesc{}
-	childSIGQUIT = childSigDesc{}
+	processSession = childSignalSession{}
+	liveSessions = map[*childSignalSession]struct{}{}
 }
 
 func childSignalPassStateForTest(sig syscall.Signal) (enabled bool, n int, pids []int) {
 	childSignalMu.Lock()
 	defer childSignalMu.Unlock()
-	d := childSigDescFor(sig)
-	if d == nil {
+	idx, ok := sigIndex(sig)
+	if !ok {
 		return false, 0, nil
 	}
-	return d.enabled, d.n, append([]int(nil), d.pids[:d.n]...)
+	pids = collectPidsLocked(idx)
+	n = len(pids)
+	return n > 0, n, pids
 }

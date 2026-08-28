@@ -62,18 +62,46 @@ func TestForwardRegisteredChildSignalKillsAndDoesNotClearMode(t *testing.T) {
 	}
 	unregisterChildSignals(4242)
 	enabled, n, _ := childSignalPassStateForTest(syscall.SIGHUP)
-	if !enabled || n != 0 {
-		t.Fatalf("enabled=%v n=%d want enabled with empty pid list", enabled, n)
+	if enabled || n != 0 {
+		t.Fatalf("enabled=%v n=%d want empty table after unregister", enabled, n)
 	}
 	got = nil
-	if !ForwardRegisteredChildSignal(syscall.SIGHUP) {
-		t.Fatal("classic never restores terminate-on-SIGHUP after the first registration")
+	if ForwardRegisteredChildSignal(syscall.SIGHUP) {
+		t.Fatal("empty table must restore terminate-on-SIGHUP (classic listener parent)")
 	}
 	if len(got) != 0 {
 		t.Fatalf("dead pid must not be killed again: %v", got)
 	}
 	if ForwardRegisteredChildSignal(syscall.SIGTERM) {
 		t.Fatal("SIGTERM is not OFUNC_SIGNAL")
+	}
+}
+
+func TestRegisterChildSignalPerSessionLimit(t *testing.T) {
+	resetChildSignalPassForTest()
+	t.Cleanup(resetChildSignalPassForTest)
+
+	parent := &Global{}
+	for i := 0; i < 5; i++ {
+		g := parent.forkSession()
+		if err := registerChildSignalOn(g, 2000+i, syscall.SIGHUP); err != nil {
+			t.Fatalf("session %d: %v", i, err)
+		}
+	}
+	enabled, n, pids := childSignalPassStateForTest(syscall.SIGHUP)
+	if !enabled || n != 5 {
+		t.Fatalf("enabled=%v n=%d pids=%v want 5 concurrent sessions", enabled, n, pids)
+	}
+
+	one := &Global{}
+	for i := 0; i < socatMaxPids; i++ {
+		if err := registerChildSignalOn(one, 77, syscall.SIGHUP); err != nil {
+			t.Fatalf("occurrence %d: %v", i, err)
+		}
+	}
+	err := registerChildSignalOn(one, 77, syscall.SIGHUP)
+	if err == nil || !strings.Contains(err.Error(), "too many sub processes registered for signal 1") {
+		t.Fatalf("error=%v want too many on a fifth occurrence in one session", err)
 	}
 }
 
@@ -104,7 +132,7 @@ func TestRegisterExecParentSignalsCountsOccurrences(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := &exec.Cmd{Process: &os.Process{Pid: 77}}
-	if err := registerExecParentSignals(spec, cmd); err != nil {
+	if err := registerExecParentSignals(spec, cmd, nil); err != nil {
 		t.Fatal(err)
 	}
 	_, nHUP, pids := childSignalPassStateForTest(syscall.SIGHUP)

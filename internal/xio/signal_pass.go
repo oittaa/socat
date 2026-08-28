@@ -2,6 +2,24 @@ package xio
 
 import "os"
 
+// socatMaxPids is classic SOCAT_MAXPIDS in xiosignal.c.
+const socatMaxPids = 4
+
+const (
+	sigIdxHUP = iota
+	sigIdxINT
+	sigIdxQUIT
+	sigIdxCount
+)
+
+// childSignalSession is classic's per-process four-slot OFUNC_SIGNAL table.
+// LISTEN,fork uses goroutines, so each forkSession owns a table. The Unix
+// dispatcher aggregates live tables; other platforms never register.
+type childSignalSession struct {
+	n    [sigIdxCount]int
+	pids [sigIdxCount][socatMaxPids]int
+}
+
 // ForwardRegisteredChildSignal implements classic socatsignalpass for SIGHUP,
 // SIGINT, and SIGQUIT after an EXEC/SYSTEM/SHELL address used those PARENT
 // options (xiosignal.c at tag-1.8.1.3
