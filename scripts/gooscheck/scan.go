@@ -72,7 +72,7 @@ func findModuleRoot(start string) (string, error) {
 
 func scanTree(root string) ([]finding, error) {
 	var out []finding
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error { // #nosec G703 -- walks the module tree from go.mod, not a user path
 		if err != nil {
 			return err
 		}
@@ -101,7 +101,7 @@ func scanTree(root string) ([]finding, error) {
 }
 
 func scanFile(rel, abs string) ([]finding, error) {
-	src, err := os.ReadFile(abs)
+	src, err := os.ReadFile(abs) // #nosec G304 -- abs is a *.go path produced by WalkDir under the module root
 	if err != nil {
 		return nil, err
 	}
