@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestUnixOtherHelpListsAcceptFD(t *testing.T) {
+func TestDarwinHelpListsAcceptFD(t *testing.T) {
 	var b bytes.Buffer
 	if err := printHelp(&b, 1); err != nil {
 		t.Fatal(err)
@@ -22,7 +22,7 @@ func TestUnixOtherHelpListsAcceptFD(t *testing.T) {
 	}
 }
 
-func TestUnixOtherHelpHidesLinuxSCTP(t *testing.T) {
+func TestDarwinHelpHidesLinuxSCTP(t *testing.T) {
 	var b bytes.Buffer
 	if err := printHelp(&b, 3); err != nil {
 		t.Fatal(err)

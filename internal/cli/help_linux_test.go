@@ -118,24 +118,24 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 	}
 }
 
-func TestLinuxHHHIncludesClassicOptionMetadata(t *testing.T) {
+func TestLinuxHelpOmitsInternalOptionMetadata(t *testing.T) {
 	var b bytes.Buffer
 	if err := printHelp(&b, 3); err != nil {
 		t.Fatal(err)
 	}
 	help := b.String()
-	for name, fields := range map[string][]string{
-		"ip-add-source-membership": {"groups=IP4,IP6", "phase=PASTSOCKET", "type=IP-MREQ-SOURCE"},
-		"ip-hdrincl":               {"groups=IP4,IP6", "phase=PASTSOCKET", "type=INT"},
-		"ioctl-string":             {"groups=FD", "phase=FD", "type=INT:STRING"},
-		"lockfile":                 {"groups=APPL", "phase=INIT", "type=STRING"},
-		"dash":                     {"groups=EXEC", "phase=PREEXEC", "type=BOOL"},
-		"setpgid":                  {"groups=FORK", "phase=LATE", "type=INT"},
-		"sighup":                   {"groups=PARENT", "phase=LATE", "type=CONST"},
-		"cloexec":                  {"groups=FD", "phase=LATE", "type=BOOL"},
-		"fiosetown":                {"groups=SOCKET", "phase=PASTSOCKET", "type=INT"},
-		"siocspgrp":                {"groups=SOCKET", "phase=PASTSOCKET", "type=INT"},
-		"so-detach-filter":         {"groups=SOCKET", "phase=PASTSOCKET", "type=INT"},
+	for _, name := range []string{
+		"ip-add-source-membership",
+		"ip-hdrincl",
+		"ioctl-string",
+		"lockfile",
+		"dash",
+		"setpgid",
+		"sighup",
+		"cloexec",
+		"fiosetown",
+		"siocspgrp",
+		"so-detach-filter",
 	} {
 		var line string
 		for _, candidate := range strings.Split(help, "\n") {
@@ -148,9 +148,9 @@ func TestLinuxHHHIncludesClassicOptionMetadata(t *testing.T) {
 			t.Errorf("-hhh missing %q", name)
 			continue
 		}
-		for _, field := range fields {
-			if !strings.Contains(line, field) {
-				t.Errorf("%s line %q missing %q", name, line, field)
+		for _, field := range []string{"groups=", "phase=", "type="} {
+			if strings.Contains(line, field) {
+				t.Errorf("%s line %q still contains %q", name, line, field)
 			}
 		}
 	}
