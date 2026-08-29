@@ -34,6 +34,8 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"ip-transparent", "transparent",
 		"ip-mtu-discover", "mtudiscover", "ipmtudiscover",
 		"ipv6-mtu-discover", "mtudiscover6",
+		"ip-retopts", "retopts", "ipretopts",
+		"ip-router-alert", "iprouteralert", "routeralert",
 		"setsockopt", "setsockopt-int", "setsockopt-bin", "setsockopt-string",
 		"setsockopt-listen", "setsockopt-socket", "setsockopt-connected",
 		"sockopt", "sockopt-int", "sockopt-bin", "sockopt-string",
@@ -84,7 +86,9 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"ip-recvdstaddr", "ip-recvif", "recvdstaddr", "iprecvdstaddr", "recvif",
 		"nopush", "noopt", "tcp-nopush", "tcp-noopt",
 		"so-sndlowat", "sndlowat",
-		"ccid", "dccp-set-ccid"} {
+		"ccid", "dccp-set-ccid",
+		"ip-mtu", "ipmtu", "mtu",
+		"ip-pktoptions", "ippktoptions", "pktoptions", "pktopts"} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("rejected or unknown option %q must not be advertised in -hhh", name)
 		}

@@ -60,6 +60,7 @@ var dynamicallyReadOptions = map[string]string{
 	"recvttl": "xio/ancillary.go", "recvtos": "xio/ancillary.go",
 	"recvopts": "xio/ancillary.go", "recvpktinfo": "xio/ancillary.go",
 	"recvtclass": "xio/ancillary.go", "recvhoplimit": "xio/ancillary.go",
+	"retopts": "xio/ancillary.go", "ipretopts": "xio/ancillary.go",
 
 	"tcpwrap": "xio/tcpwrap.go", "tcpwrappers": "xio/tcpwrap.go",
 	"tcpwrapper": "xio/tcpwrap.go", "libwrap": "xio/tcpwrap.go",
@@ -69,6 +70,7 @@ var dynamicallyReadOptions = map[string]string{
 	"ip-recvttl": "xio/ancillary.go", "ip-recvtos": "xio/ancillary.go",
 	"ip-recvopts": "xio/ancillary.go", "ipv6-recvpktinfo": "xio/ancillary.go",
 	"ipv6-recvhoplimit": "xio/ancillary.go", "ipv6-recvtclass": "xio/ancillary.go",
+	"ip-retopts":     "xio/ancillary.go",
 	"ip-recvdstaddr": "xio/ancillary.go", "ip-recvif": "xio/ancillary.go",
 	"recvdstaddr": "xio/ancillary.go", "iprecvdstaddr": "xio/ancillary.go", "recvif": "xio/ancillary.go",
 	"ippktinfo": "xio/ancillary.go", "iprecvttl": "xio/ancillary.go",
@@ -168,6 +170,7 @@ var dynamicallyReadOptions = map[string]string{
 	"ip-transparent":           "xio/mcast_opt.go applyTransparentOption",
 	"ip-mtu-discover":          "xio/mcast_opt.go applyMTUDiscoveryOption",
 	"ipv6-mtu-discover":        "xio/mcast_opt.go applyMTUDiscoveryOption",
+	"ip-router-alert":          "xio/ip_remaining.go applyRouterAlertOption",
 
 	// PH_PASTSOCKET named SOL_SOCKET/TCP and PH_CONNECTED tcp-maxseg-late
 	// walks in sockopt_named.go (command-line order, not OptionNamed).
@@ -220,6 +223,13 @@ var recognizedUnsupportedOptions = map[string]string{
 	"recverr":             "MSG_ERRQUEUE is not implemented on the ReadMsg path",
 	"iprecverr":           "MSG_ERRQUEUE is not implemented on the ReadMsg path",
 	"ipv6-recverr":        "MSG_ERRQUEUE is not implemented on the ReadMsg path",
+	"ip-mtu":              "IP_MTU is get-only; rejected instead of a setter no-op",
+	"ipmtu":               "IP_MTU is get-only; rejected instead of a setter no-op",
+	"mtu":                 "IP_MTU is get-only; rejected instead of a setter no-op",
+	"ip-pktoptions":       "IP_PKTOPTIONS is get-only; rejected instead of a setter no-op",
+	"ippktoptions":        "IP_PKTOPTIONS is get-only; rejected instead of a setter no-op",
+	"pktoptions":          "IP_PKTOPTIONS is get-only; rejected instead of a setter no-op",
+	"pktopts":             "IP_PKTOPTIONS is get-only; rejected instead of a setter no-op",
 }
 
 var compatNoOptions = map[string]string{

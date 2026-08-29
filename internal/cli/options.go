@@ -90,6 +90,9 @@ func buildSupportedAddressOptions() map[string]addressOption {
 	for _, name := range []string{"ip-recverr", "recverr", "iprecverr", "ipv6-recverr"} {
 		options[name] = addressOption{}
 	}
+	for _, name := range xio.GetOnlyIPv4OptionNames() {
+		options[name] = addressOption{}
+	}
 	return options
 }
 
@@ -197,6 +200,9 @@ func validateSpecOptions(spec parse.Spec) error {
 		if registered && optionSpec.restrictAddressTypes && !addressTypeAllowed(registration.Name, optionSpec.addressTypes) {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
+	}
+	if err := xio.RejectUnsupportedRemainingIPv4(spec); err != nil {
+		return err
 	}
 	return nil
 }

@@ -48,6 +48,10 @@ func TestIPAncillarySupportedMatrix(t *testing.T) {
 		{GroupProxy, "ip-ttl", true},
 		{GroupSCTP, "ip-ttl", true},
 		{GroupSCTP, "ip-recvopts", false},
+		{GroupUDP, "ip-retopts", true},
+		{GroupRawIP, "ip-retopts", true},
+		{GroupTCP, "ip-retopts", false},
+		{GroupQUIC, "ip-retopts", false},
 		{GroupUnix, "so-timestamp", false},
 		{GroupUnix, "ip-ttl", false},
 		{GroupVSOCK, "ip-pktinfo", false},
@@ -87,6 +91,13 @@ func TestIPAncillaryImplementationGroupsAliases(t *testing.T) {
 	}
 	if !reflect.DeepEqual(IPAncillaryImplementationGroups("iphdrincl"), hdrincl) {
 		t.Fatalf("iphdrincl groups=%v want %v", IPAncillaryImplementationGroups("iphdrincl"), hdrincl)
+	}
+	retopts := IPAncillaryImplementationGroups("ip-retopts")
+	if !reflect.DeepEqual(retopts, ipAncillaryRecvGroups) {
+		t.Fatalf("ip-retopts groups=%v want recv groups %v", retopts, ipAncillaryRecvGroups)
+	}
+	if !reflect.DeepEqual(IPAncillaryImplementationGroups("retopts"), retopts) {
+		t.Fatalf("retopts groups=%v want %v", IPAncillaryImplementationGroups("retopts"), retopts)
 	}
 	if IPAncillaryImplementationGroups("nodelay") != nil {
 		t.Fatal("non-matrix option must not grow implementationGroups")
@@ -220,5 +231,42 @@ func TestRejectUnsupportedIPRecvdstaddrRecvif(t *testing.T) {
 	err = RejectUnsupportedIPAncillary(tcp)
 	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("TCP ip-recvif err=%v want not supported", err)
+	}
+}
+
+func TestRejectUnsupportedIPRetopts(t *testing.T) {
+	udp, err := parse.ParseSpec("UDP4:127.0.0.1:1,ip-retopts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RejectUnsupportedIPAncillary(udp)
+	if runtime.GOOS == "linux" {
+		if err != nil {
+			t.Fatalf("linux UDP ip-retopts: %v", err)
+		}
+	} else if err == nil || !strings.Contains(err.Error(), "not supported on this platform") {
+		t.Fatalf("err=%v want not supported on this platform", err)
+	}
+
+	udp6, err := parse.ParseSpec("UDP6:[::1]:1,ip-retopts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RejectUnsupportedIPAncillary(udp6)
+	want := "not supported on IPv6"
+	if runtime.GOOS != "linux" {
+		want = "not supported on this platform"
+	}
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("UDP6 ip-retopts err=%v want %q", err, want)
+	}
+
+	tcp, err := parse.ParseSpec("TCP:127.0.0.1:1,ip-retopts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RejectUnsupportedIPAncillary(tcp)
+	if err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("TCP ip-retopts err=%v want not supported", err)
 	}
 }

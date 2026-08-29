@@ -35,6 +35,7 @@ const (
 	ipAncillaryUnix ipAncillaryPlatform = 1 << iota
 	ipAncillaryWindows
 	ipAncillaryDarwin
+	ipAncillaryLinux
 )
 
 type ipFamily uint8
@@ -75,6 +76,7 @@ var (
 	ipAncillaryUnixOnly    = ipAncillaryUnix
 	ipAncillaryUnixWindows = ipAncillaryUnix | ipAncillaryWindows
 	ipAncillaryDarwinOnly  = ipAncillaryDarwin
+	ipAncillaryLinuxOnly   = ipAncillaryLinux
 	ipAncillaryIPv4        = ipAncillaryFamilyV4
 	ipAncillaryIPv6        = ipAncillaryFamilyV6
 	ipAncillaryIPv4AndIPv6 = ipAncillaryFamilyAny
@@ -103,17 +105,24 @@ var (
 // this port advertises and applies it only there and rejects TCP, UDP, QUIC,
 // IPv6, Windows, and other non-raw address types.
 //
-// Not listed, and therefore not advertised: ip-retopts,
-// ipv6-recvhopopts, ipv6-recvdstopts, and the other classic SOCK_IP flags
-// this port does not implement. ip-recvdstaddr / ip-recvif are Darwin-only
-// (IP_RECVDSTADDR / IP_RECVIF). ip-recverr / ipv6-recverr are recognized
-// and rejected (no MSG_ERRQUEUE ReadMsg path) instead of being silent no-ops.
+// ip-retopts is Linux-only recv ancillary (IP_RETOPTS as a TYPE_INT boolean
+// like IP_RECVOPTS). Darwin IP_RETOPTS is an IP-options blob, not that
+// boolean, so the name is hidden and rejected there rather than applied as
+// an int. Not listed: ipv6-recvhopopts, ipv6-recvdstopts, and the other
+// classic SOCK_IP flags this port does not implement. ip-recvdstaddr /
+// ip-recvif are Darwin-only (IP_RECVDSTADDR / IP_RECVIF). ip-recverr /
+// ipv6-recverr are recognized and rejected (no MSG_ERRQUEUE ReadMsg path)
+// instead of being silent no-ops. ip-mtu and ip-pktoptions are recognized
+// get-only names, not this matrix. ip-router-alert is a Linux raw-IPv4
+// setter outside this matrix (see ip_remaining.go).
+
 var ipAncillaryMatrix = []IPAncillaryEntry{
 	{Canonical: "so-timestamp", Aliases: []string{"timestamp"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixOnly},
 	{Canonical: "ip-pktinfo", Aliases: []string{"pktinfo", "ippktinfo"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
 	{Canonical: "ip-recvttl", Aliases: []string{"recvttl", "iprecvttl"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
 	{Canonical: "ip-recvtos", Aliases: []string{"recvtos", "iprecvtos"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
 	{Canonical: "ip-recvopts", Aliases: []string{"recvopts", "iprecvopts"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
+	{Canonical: "ip-retopts", Aliases: []string{"retopts", "ipretopts"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryLinuxOnly},
 	{Canonical: "ip-recvdstaddr", Aliases: []string{"recvdstaddr", "iprecvdstaddr"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryDarwinOnly},
 	{Canonical: "ip-recvif", Aliases: []string{"recvif"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryDarwinOnly},
 	{Canonical: "ipv6-recvpktinfo", Aliases: []string{"recvpktinfo"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
@@ -192,6 +201,9 @@ func (e IPAncillaryEntry) supportedOnThisPlatform() bool {
 	}
 	if runtime.GOOS == "windows" {
 		return e.platforms&ipAncillaryWindows != 0
+	}
+	if e.platforms&ipAncillaryLinux != 0 && runtime.GOOS == "linux" {
+		return true
 	}
 	if runtime.GOOS == "darwin" {
 		if e.platforms&ipAncillaryDarwin != 0 {
