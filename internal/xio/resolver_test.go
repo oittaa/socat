@@ -565,27 +565,6 @@ func TestTCPWrapReverseVerificationUsesResNSAddr(t *testing.T) {
 	}
 }
 
-func TestLookupResolverForIPPrefersGoWithoutMutatingDefault(t *testing.T) {
-	before := net.DefaultResolver
-	if before.PreferGo {
-		t.Fatal("precondition: net.DefaultResolver.PreferGo is already true")
-	}
-	r := lookupResolverForIP(parse.Spec{})
-	if r == nil || r == net.DefaultResolver {
-		t.Fatal("LookupIP resolver must be a PreferGo copy, not net.DefaultResolver")
-	}
-	if !r.PreferGo {
-		t.Fatal("LookupIP resolver must PreferGo so cgo cannot force AI_V4MAPPED|AI_ALL")
-	}
-	if net.DefaultResolver != before || before.PreferGo {
-		t.Fatal("lookupResolverForIP mutated net.DefaultResolver")
-	}
-	plain := LookupResolver(parse.Spec{})
-	if plain != net.DefaultResolver || plain.PreferGo {
-		t.Fatal("LookupResolver(parse.Spec{}) must stay net.DefaultResolver without PreferGo")
-	}
-}
-
 func TestIPv6OnlyDropsMappedAndIPv4(t *testing.T) {
 	got := ipv6Only([]net.IP{
 		net.ParseIP("2001:db8::1"),

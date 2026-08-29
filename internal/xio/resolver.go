@@ -294,36 +294,16 @@ func ipv6Only(addrs []net.IP) []net.IP {
 	return out
 }
 
-// preferGoCopy returns a resolver that uses Go's DNS implementation.
-// Linux and Darwin cgo resolvers always pass AI_V4MAPPED|AI_ALL
-// (src/net/cgo_linux.go, cgo_darwin.go), which would map A records when
-// ai-v4mapped is omitted or =0 and ignore ai-all=0. The copy is used only
-// by LookupIP; LookupResolver(parse.Spec{}) stays net.DefaultResolver.
-func preferGoCopy(r *net.Resolver) *net.Resolver {
-	if r == nil {
-		return &net.Resolver{PreferGo: true}
-	}
-	if r.PreferGo {
-		return r
-	}
-	// Copy exported fields only: *Resolver would copy singleflight.Group's mutex.
-	return &net.Resolver{
-		PreferGo:     true,
-		StrictErrors: r.StrictErrors,
-		Dial:         r.Dial,
-	}
-}
-
-func lookupResolverForIP(s parse.Spec) *net.Resolver {
-	return preferGoCopy(LookupResolver(s))
-}
-
 // LookupIP resolves host with the per-address resolver and getaddrinfo flags
 // Go can reproduce: AI_V4MAPPED/AI_ALL on ip6 when set, AI_ADDRCONFIG (default
 // on for hint "ip"), and AI_PASSIVE IPv6-first order on dual-stack lookups.
 // It never mutates net.DefaultResolver. Literals skip DNS.
 //
-// Lookups use a PreferGo resolver copy so libc cannot inject AI_V4MAPPED|AI_ALL.
+// Linux and Darwin cgo resolvers always pass AI_V4MAPPED|AI_ALL. ipv6Only
+// drops those implicit mapped results when mapping is off; lookupIPv6Mapped
+// rebuilds mapping explicitly when it is on. PreferGo is not forced, so
+// macOS system resolution and Linux NSS (mDNS, LDAP, SSSD) stay available.
+//
 // IPv4-mapped results are dialed as AF_INET: Go unmaps ::ffff: addresses
 // (README Intentional differences / ai-v4mapped dial family).
 func LookupIP(ctx context.Context, s parse.Spec, hint, host string) ([]net.IP, error) {
@@ -340,7 +320,7 @@ func LookupIP(ctx context.Context, s parse.Spec, hint, host string) ([]net.IP, e
 		}
 	}
 
-	resolver := lookupResolverForIP(s)
+	resolver := LookupResolver(s)
 	var (
 		ips []net.IP
 		err error
