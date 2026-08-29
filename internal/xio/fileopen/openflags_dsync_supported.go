@@ -1,4 +1,4 @@
-//go:build darwin || netbsd || openbsd || aix || solaris
+//go:build darwin
 
 package fileopen
 

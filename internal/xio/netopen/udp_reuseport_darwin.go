@@ -1,4 +1,4 @@
-//go:build darwin || dragonfly || freebsd || netbsd || openbsd
+//go:build darwin
 
 package netopen
 
@@ -8,7 +8,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// BSD kernels require SO_REUSEPORT on every socket that binds an identical
+// Darwin requires SO_REUSEPORT on every socket that binds an identical
 // UDP address and port. UDP-LISTEN fork sessions need this on both the parent
 // listener and each connected child socket when reuseaddr is allowed.
 func enableUDPForkPortReuse(fd int) error {

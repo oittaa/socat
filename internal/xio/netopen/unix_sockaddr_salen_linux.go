@@ -1,4 +1,4 @@
-//go:build unix && !darwin && !freebsd && !openbsd && !netbsd && !dragonfly && !aix
+//go:build linux
 
 package netopen
 
