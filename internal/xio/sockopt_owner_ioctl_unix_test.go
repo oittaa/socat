@@ -4,6 +4,7 @@ package xio
 
 import (
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -27,9 +28,7 @@ func TestApplySocketOptionsOwnerIoctlUnix(t *testing.T) {
 	if err := ApplySocketOptions(fd, spec); err != nil {
 		t.Fatal(err)
 	}
-	if got := ownerIoctlGet(t, fd, ownerIoctlFIOGETOWN); got != pid {
-		t.Fatalf("FIOGETOWN=%d want %d", got, pid)
-	}
+	assertSocketOwner(t, fd, pid)
 
 	spec, err = parse.ParseSpec("TCP:127.0.0.1:9,siocspgrp=" + strconv.Itoa(pid))
 	if err != nil {
@@ -38,9 +37,7 @@ func TestApplySocketOptionsOwnerIoctlUnix(t *testing.T) {
 	if err := ApplySocketOptions(fd, spec); err != nil {
 		t.Fatal(err)
 	}
-	if got := ownerIoctlGet(t, fd, uint(unix.SIOCGPGRP)); got != pid {
-		t.Fatalf("SIOCGPGRP=%d want %d", got, pid)
-	}
+	assertSocketOwner(t, fd, pid)
 
 	spec, err = parse.ParseSpec("TCP:127.0.0.1:9,fiosetown")
 	if err != nil {
@@ -49,9 +46,7 @@ func TestApplySocketOptionsOwnerIoctlUnix(t *testing.T) {
 	if err := ApplySocketOptions(fd, spec); err != nil {
 		t.Fatal(err)
 	}
-	if got := ownerIoctlGet(t, fd, ownerIoctlFIOGETOWN); got != 1 {
-		t.Fatalf("bare fiosetown FIOGETOWN=%d want 1", got)
-	}
+	assertSocketOwner(t, fd, 1)
 }
 
 func TestApplySocketOptionsOwnerIoctlCommandLineOrderUnix(t *testing.T) {
@@ -68,9 +63,7 @@ func TestApplySocketOptionsOwnerIoctlCommandLineOrderUnix(t *testing.T) {
 	if err := ApplySocketOptions(fd, spec); err != nil {
 		t.Fatal(err)
 	}
-	if got := ownerIoctlGet(t, fd, uint(unix.SIOCGPGRP)); got != pid {
-		t.Fatalf("last siocspgrp SIOCGPGRP=%d want %d", got, pid)
-	}
+	assertSocketOwner(t, fd, pid)
 }
 
 func TestApplySocketOptionsOwnerIoctlInvalidUnix(t *testing.T) {
@@ -91,6 +84,28 @@ func TestApplySocketOptionsOwnerIoctlInvalidUnix(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "invalid value") {
 			t.Fatalf("%s: err=%v want invalid value", specText, err)
 		}
+	}
+}
+
+func assertSocketOwner(t *testing.T, fd, want int) {
+	t.Helper()
+	got, err := unix.FcntlInt(uintptr(fd), unix.F_GETOWN, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("F_GETOWN=%d want %d", got, want)
+	}
+	if got := ownerIoctlGet(t, fd, uint(unix.SIOCGPGRP)); got != want {
+		t.Fatalf("SIOCGPGRP=%d want %d", got, want)
+	}
+	if runtime.GOOS == "darwin" {
+		// FIOGETOWN SET works; GET does not copy out (see
+		// sockopt_owner_ioctl_bsd.go). Verify with F_GETOWN / SIOCGPGRP.
+		return
+	}
+	if got := ownerIoctlGet(t, fd, ownerIoctlFIOGETOWN); got != want {
+		t.Fatalf("FIOGETOWN=%d want %d", got, want)
 	}
 }
 
