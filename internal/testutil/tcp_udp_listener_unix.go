@@ -1,12 +1,12 @@
 //go:build linux || darwin
 
-package xio
+package testutil
 
 import (
 	"errors"
 	"syscall"
 )
 
-func retryableTestBindError(err error) bool {
+func retryableBindError(err error) bool {
 	return errors.Is(err, syscall.EADDRINUSE) || errors.Is(err, syscall.EACCES)
 }
