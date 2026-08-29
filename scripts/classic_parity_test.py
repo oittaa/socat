@@ -1163,8 +1163,9 @@ class RunCommandTest(unittest.TestCase):
             self.assertEqual(sync.call_count, 1)
             self.assertEqual(build.call_count, 2)
             self.assertEqual(compare.call_count, 1)
-            rel = workdir / "worktrees" / f"release-{BASELINE['release_commit']}"
-            mas = workdir / "worktrees" / f"master-{BASELINE['reviewed_master_commit']}"
+            resolved = workdir.resolve()
+            rel = resolved / "worktrees" / f"release-{BASELINE['release_commit']}"
+            mas = resolved / "worktrees" / f"master-{BASELINE['reviewed_master_commit']}"
             self.assertEqual(build.call_args_list[0][0][0], rel)
             self.assertEqual(build.call_args_list[1][0][0], mas)
             text = buf.getvalue()
