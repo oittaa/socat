@@ -87,7 +87,7 @@ func TestScanSkipsTestdata(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(hits) != 0 {
-		t.Fatalf("testdata/vendor must be skipped: %s", joinFindings(hits))
+		t.Fatalf("unexpected findings:\n%s", joinFindings(hits))
 	}
 }
 
@@ -104,7 +104,7 @@ func TestScanSkipsDotAndUnderscoreDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(hits) != 0 {
-		t.Fatalf(". and _ directories must be skipped: %s", joinFindings(hits))
+		t.Fatalf("unexpected findings:\n%s", joinFindings(hits))
 	}
 }
 
