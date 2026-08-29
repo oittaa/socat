@@ -109,7 +109,11 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"recvpathmtu",
 		"ipv6-authhdr", "authhdr", "ipv6-dstopts", "dstopts",
 		"ipv6-hoplimit", "hoplimit", "ipv6-hopopts", "hopopts",
-		"ipv6-pktinfo", "ipv6-rthdr", "rthdr"} {
+		"ipv6-pktinfo", "ipv6-rthdr", "rthdr",
+		"tcp-info", "info", "tcp-md5sig", "md5sig",
+		"chroot", "chroot-early",
+		"setgid", "setgid-early", "setuid", "setuid-early",
+		"substuser", "su", "substuser-delayed", "su-d", "substuser-early", "su-e"} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("rejected or unknown option %q must not be advertised in -hhh", name)
 		}

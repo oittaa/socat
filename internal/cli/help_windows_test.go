@@ -43,6 +43,8 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"ipv6-recvdstopts", "ipv6-recvhopopts", "ipv6-recvrthdr", "ipv6-recvpathmtu",
 		"tcp-cork", "tcp-maxseg", "tcp-maxseg-late",
 		"nopush", "noopt", "tcp-nopush", "tcp-noopt",
+		"tcp-info", "info", "tcp-md5sig", "md5sig",
+		"chroot", "chroot-early", "setuid", "setgid", "substuser", "su",
 		"sctp-nodelay", "sctp-maxseg",
 		"so-rcvlowat", "rcvlowat", "so-sndlowat", "sndlowat",
 		"so-priority", "so-passcred", "so-no-check",

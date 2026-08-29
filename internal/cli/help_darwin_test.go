@@ -39,9 +39,13 @@ func TestDarwinHelpHidesLinuxSCTP(t *testing.T) {
 		"ip-freebind", "ip-mtu-discover",
 		"ipv6-recvdstopts", "recvdstopts",
 		"ipv6-recvhopopts", "recvhopopts",
+		"tcp-info", "info", "tcp-md5sig", "md5sig",
+		"chroot", "chroot-early",
+		"setgid", "setgid-early", "setuid", "setuid-early",
+		"substuser", "su", "substuser-delayed", "su-d", "substuser-early", "su-e",
 	} {
 		if strings.Contains(help, "    "+name+" ") {
-			t.Errorf("Linux-only option %q must not be advertised on %s", name, runtime.GOOS)
+			t.Errorf("unsupported or Linux-only option %q must not be advertised on %s", name, runtime.GOOS)
 		}
 	}
 	honored := []string{
