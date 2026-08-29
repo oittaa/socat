@@ -11,6 +11,9 @@ func hideOpt(name string) bool {
 	if hideLinuxOnlyRemainingIPv4(name, "windows") {
 		return true
 	}
+	if hideLinuxOnlyIPv6RecvExt(name, "windows") {
+		return true
+	}
 	if xio.LinuxExtFSFlagOption(name) {
 		return true
 	}

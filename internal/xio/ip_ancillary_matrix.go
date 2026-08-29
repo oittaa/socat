@@ -105,6 +105,10 @@ var (
 // ReadMsg path) instead of being silent no-ops. ip-mtu and ip-pktoptions
 // are recognized get-only names, not this matrix. ip-router-alert is a
 // Linux raw-IPv4 setter outside this matrix (see ip_remaining.go).
+//
+// ipv6-recvdstopts / ipv6-recvhopopts / ipv6-recvrthdr / ipv6-recvpathmtu
+// are Linux-only int recv flags. They stay hidden on Darwin until a native
+// setsockopt probe succeeds. There is no recvpathmtu parser alias.
 
 var ipAncillaryMatrix = []IPAncillaryEntry{
 	{Canonical: "so-timestamp", Aliases: []string{"timestamp"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixOnly},
@@ -118,6 +122,10 @@ var ipAncillaryMatrix = []IPAncillaryEntry{
 	{Canonical: "ipv6-recvpktinfo", Aliases: []string{"recvpktinfo"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
 	{Canonical: "ipv6-recvhoplimit", Aliases: []string{"recvhoplimit"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
 	{Canonical: "ipv6-recvtclass", Aliases: []string{"recvtclass"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
+	{Canonical: "ipv6-recvdstopts", Aliases: []string{"recvdstopts"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryLinuxOnly},
+	{Canonical: "ipv6-recvhopopts", Aliases: []string{"recvhopopts"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryLinuxOnly},
+	{Canonical: "ipv6-recvrthdr", Aliases: []string{"recvrthdr"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryLinuxOnly},
+	{Canonical: "ipv6-recvpathmtu", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryLinuxOnly},
 
 	{Canonical: "ip-ttl", Aliases: []string{"ttl", "ipttl"}, Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixWindows},
 	{Canonical: "ip-tos", Aliases: []string{"tos", "iptos"}, Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixWindows},

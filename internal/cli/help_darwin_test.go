@@ -37,6 +37,10 @@ func TestDarwinHelpHidesLinuxSCTP(t *testing.T) {
 		"ip-retopts", "retopts", "ipretopts",
 		"ip-router-alert", "iprouteralert", "routeralert",
 		"ip-freebind", "ip-mtu-discover",
+		"ipv6-recvdstopts", "recvdstopts",
+		"ipv6-recvhopopts", "recvhopopts",
+		"ipv6-recvrthdr", "recvrthdr",
+		"ipv6-recvpathmtu",
 	} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("Linux-only option %q must not be advertised on %s", name, runtime.GOOS)

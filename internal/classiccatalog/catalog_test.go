@@ -394,6 +394,18 @@ func TestIntentionalPublicOmissions(t *testing.T) {
 	}
 }
 
+func TestRecvpathmtuIsNotAPublicSpelling(t *testing.T) {
+	if _, ok := Lookup("recvpathmtu"); ok {
+		t.Fatal("recvpathmtu is a C nickname, not a public optionnames[] spelling")
+	}
+	if _, ok := Lookup("ipv6-recvpathmtu"); !ok {
+		t.Fatal("ipv6-recvpathmtu is binary-advertised and must stay in the catalog")
+	}
+	if _, ok := RequiredPublicSpellings()["recvpathmtu"]; ok {
+		t.Fatal("recvpathmtu must not be a required public spelling")
+	}
+}
+
 func TestOptionalParserOnlyAliasesNotRequired(t *testing.T) {
 	required := RequiredPublicSpellings()
 	for name := range OptionalParserOnlyAliases {

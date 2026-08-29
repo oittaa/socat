@@ -316,6 +316,15 @@ func TestOptionAliases(t *testing.T) {
 	if CanonicalOptionName("recverr") != "ip-recverr" || CanonicalOptionName("ipv6-recverr") != "ipv6-recverr" {
 		t.Fatalf("recverr=%q ipv6-recverr=%q", CanonicalOptionName("recverr"), CanonicalOptionName("ipv6-recverr"))
 	}
+	if CanonicalOptionName("recvdstopts") != "ipv6-recvdstopts" || CanonicalOptionName("recvhopopts") != "ipv6-recvhopopts" {
+		t.Fatalf("recvdstopts=%q recvhpopts=%q", CanonicalOptionName("recvdstopts"), CanonicalOptionName("recvhopopts"))
+	}
+	if CanonicalOptionName("recvrthdr") != "ipv6-recvrthdr" {
+		t.Fatalf("recvrthdr=%q", CanonicalOptionName("recvrthdr"))
+	}
+	if CanonicalOptionName("recvpathmtu") != "recvpathmtu" {
+		t.Fatalf("recvpathmtu must not fold onto ipv6-recvpathmtu: %q", CanonicalOptionName("recvpathmtu"))
+	}
 	if !s.HasOption("unix-bind-tempname") || !s.HasOption("bind-tempname") {
 		t.Fatal("bind-tempname alias")
 	}

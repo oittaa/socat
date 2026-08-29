@@ -104,3 +104,64 @@ func TestUDPRecvDstaddrLiveDarwin(t *testing.T) {
 		t.Fatalf("ip-recvdstaddr/ip-recvif were a no-op; session env=%v oob=%d", g.SessionVars, len(oob))
 	}
 }
+
+func TestDarwinIPv6RecvExtSockoptProbe(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET6, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	opts := []struct {
+		name string
+		opt  int
+	}{
+		{"IPV6_RECVDSTOPTS", unix.IPV6_RECVDSTOPTS},
+		{"IPV6_RECVHOPOPTS", unix.IPV6_RECVHOPOPTS},
+		{"IPV6_RECVRTHDR", unix.IPV6_RECVRTHDR},
+		{"IPV6_RECVPATHMTU", unix.IPV6_RECVPATHMTU},
+	}
+	var ok, fail []string
+	for _, o := range opts {
+		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, o.opt, 1); err != nil {
+			fail = append(fail, o.name+": "+err.Error())
+			continue
+		}
+		ok = append(ok, o.name)
+	}
+	e, found := lookupIPAncillary("ipv6-recvdstopts")
+	if !found {
+		t.Fatal("ipv6-recvdstopts missing from the ancillary matrix")
+	}
+	advertised := e.supportedOnThisPlatform()
+	switch {
+	case len(ok) == len(opts) && !advertised:
+		t.Fatalf("native setsockopt succeeded for %v; advertise these options on Darwin instead of Linux-only", ok)
+	case len(fail) > 0 && advertised:
+		t.Fatalf("advertised on Darwin but native setsockopt failed: %v", fail)
+	case len(ok) > 0 && len(fail) > 0:
+		t.Fatalf("mixed Darwin setsockopt results ok=%v fail=%v; do not claim uniform Unix support", ok, fail)
+	}
+}
+
+func TestDarwinIPv6BlobIntSetsockoptProbe(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET6, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	opts := []struct {
+		name string
+		opt  int
+	}{
+		{"IPV6_DSTOPTS", unix.IPV6_DSTOPTS},
+		{"IPV6_HOPOPTS", unix.IPV6_HOPOPTS},
+		{"IPV6_RTHDR", unix.IPV6_RTHDR},
+		{"IPV6_HOPLIMIT", unix.IPV6_HOPLIMIT},
+		{"IPV6_PKTINFO", unix.IPV6_PKTINFO},
+	}
+	for _, o := range opts {
+		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, o.opt, 1); err == nil {
+			t.Errorf("%s int setsockopt succeeded on Darwin; do not classify the public TYPE_INT name as an unimplementable blob without implementing it", o.name)
+		}
+	}
+}

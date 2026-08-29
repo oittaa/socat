@@ -86,6 +86,14 @@ func ancillaryRecvSockopt(canonical string) (level, opt int, ok bool) {
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVHOPLIMIT, true
 	case "ipv6-recvtclass":
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVTCLASS, true
+	case "ipv6-recvdstopts":
+		return unix.IPPROTO_IPV6, unix.IPV6_RECVDSTOPTS, true
+	case "ipv6-recvhopopts":
+		return unix.IPPROTO_IPV6, unix.IPV6_RECVHOPOPTS, true
+	case "ipv6-recvrthdr":
+		return unix.IPPROTO_IPV6, unix.IPV6_RECVRTHDR, true
+	case "ipv6-recvpathmtu":
+		return unix.IPPROTO_IPV6, unix.IPV6_RECVPATHMTU, true
 	default:
 		return 0, 0, false
 	}
@@ -255,7 +263,7 @@ func handleIPv4Cmsg(typ int32, data []byte, g *Global) {
 }
 
 func handleIPv4OptionsCmsg(data []byte, g *Global) {
-	val := "x" + fmt.Sprintf("%x", data)
+	val := hexCmsg(data)
 	logAncillary(g, "IP_OPTIONS", "options", val)
 	SetSessionEnv(g, "IP_OPTIONS", val)
 }
@@ -289,7 +297,27 @@ func handleIPv6Cmsg(typ int32, data []byte, g *Global) {
 		val := fmt.Sprintf("x%08x", u)
 		logAncillary(g, "IPV6_TCLASS", "tclass", val)
 		SetSessionEnv(g, "IPV6_TCLASS", val)
+	case unix.IPV6_DSTOPTS:
+		handleIPv6ExtHdrCmsg("IPV6_DSTOPTS", "dstopts", data, g)
+	case unix.IPV6_HOPOPTS:
+		handleIPv6ExtHdrCmsg("IPV6_HOPOPTS", "hopopts", data, g)
+	case unix.IPV6_RTHDR:
+		handleIPv6ExtHdrCmsg("IPV6_RTHDR", "rthdr", data, g)
+	case unix.IPV6_PATHMTU:
+		handleIPv6GenericCmsg(typ, data, g)
 	}
+}
+
+func handleIPv6ExtHdrCmsg(typeName, shortName string, data []byte, g *Global) {
+	logAncillary(g, typeName, shortName, hexCmsg(data))
+}
+
+func handleIPv6GenericCmsg(typ int32, data []byte, g *Global) {
+	logAncillary(g, fmt.Sprintf("IPV6.%d", typ), "data", hexCmsg(data))
+}
+
+func hexCmsg(data []byte) string {
+	return "x" + fmt.Sprintf("%x", data)
 }
 
 func logAncillary(g *Global, typ, name, val string) {
@@ -320,6 +348,21 @@ func ExpandIPv6Full(ip net.IP) string {
 		ip[8], ip[9], ip[10], ip[11], ip[12], ip[13], ip[14], ip[15])
 }
 
+// ControlMessageBytes returns the usable control-message bytes from recvmsg.
+// MSG_CTRUNC means the kernel truncated ancillary data; do not parse it.
+func ControlMessageBytes(oob []byte, oobn, flags int) []byte {
+	if flags&unix.MSG_CTRUNC != 0 {
+		return nil
+	}
+	if oobn <= 0 {
+		return nil
+	}
+	if oobn > len(oob) {
+		oobn = len(oob)
+	}
+	return oob[:oobn]
+}
+
 // ReadUDPMsg reads one datagram with control messages when needed.
 func ReadUDPMsg(c *net.UDPConn, p []byte, wantCtrl bool) (n int, oob []byte, addr *net.UDPAddr, err error) {
 	if !wantCtrl {
@@ -327,12 +370,12 @@ func ReadUDPMsg(c *net.UDPConn, p []byte, wantCtrl bool) (n int, oob []byte, add
 		return n, nil, addr, err
 	}
 	oob = make([]byte, 1024)
-	var oobn int
-	n, oobn, _, addr, err = c.ReadMsgUDP(p, oob)
+	var oobn, flags int
+	n, oobn, flags, addr, err = c.ReadMsgUDP(p, oob)
 	if err != nil {
 		return n, nil, nil, err
 	}
-	return n, oob[:oobn], addr, nil
+	return n, ControlMessageBytes(oob, oobn, flags), addr, nil
 }
 
 // ApplyUDPConnOpts applies late buffers and remaining SOL_SOCKET options
