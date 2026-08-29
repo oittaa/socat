@@ -5,7 +5,7 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-// PrintStats writes classic WITH_STATS lines (forced to Info, plus the
+// PrintStats writes STATISTICS lines (forced to Info, plus the
 // experimental warning). Tests grep the substring STATISTICS.
 func PrintStats(log *logx.Logger, st relay.Stats, l2r, r2l bool, started bool) {
 	if log == nil {

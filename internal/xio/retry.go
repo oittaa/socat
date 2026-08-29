@@ -9,7 +9,7 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// RetryPolicy from classic retry=N, forever, interval=seconds.
+// RetryPolicy from retry=N, forever, interval=seconds.
 type RetryPolicy struct {
 	// maxAttempts: 1 = no retry, 0 = forever
 	MaxAttempts int
@@ -24,7 +24,7 @@ func ParseRetry(s parse.Spec) RetryPolicy {
 	if v := s.OptionValue("retry", ""); v != "" {
 		n, err := ParseIntAny(v)
 		if err == nil {
-			// classic: retry=N means N retries after the first try → N+1 attempts
+			// retry=N means N retries after the first try → N+1 attempts
 			if n < 0 {
 				p.MaxAttempts = 0
 			} else {

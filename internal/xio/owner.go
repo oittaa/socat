@@ -11,13 +11,12 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// ApplyOwner applies every classic user=/uid=/owner= and group=/gid=
+// ApplyOwner applies every user=/uid=/owner= and group=/gid=
 // occurrence to a named object in command-line order. perm=/mode= is omitted
 // because regular files and FIFOs already consumed it as their creation mode.
 func ApplyOwner(path string, s parse.Spec, f *os.File) error {
-	// CREATE/CREAT use creat(2), then classic applyopts2 applies user/group
-	// to the descriptor at PH_FD. ApplyFDOptions owns that path; do not also
-	// chown the pathname here. OPEN/FILE/GOPEN and named FIFOs use NAMED.
+	// CREATE/CREAT use creat(2); ApplyFDOptions applies user/group on the
+	// descriptor. Do not also chown the pathname here.
 	switch strings.ToUpper(s.Type) {
 	case "CREATE", "CREAT":
 		return nil
@@ -75,7 +74,7 @@ func resolveGID(name string) (int, bool, error) {
 	return n, true, nil
 }
 
-// --- path unlink registry: classic removes named FS entries on process exit ---
+// --- path unlink registry: named FS entries are removed on process exit ---
 
 var (
 	unlinkMu     sync.Mutex
@@ -90,9 +89,8 @@ type unlinkEntry struct {
 }
 
 // RegisterUnlinkPath records a filesystem path to remove on process signal exit
-// (SIGTERM etc.). Classic xio_close calls unlink(2) on the stored name; our
-// signal path uses os.Exit and would otherwise leave UNIX/PIPE/PTY entries
-// (REMOVE* tests).
+// (SIGTERM etc.). The signal path uses os.Exit and would otherwise leave
+// UNIX/PIPE/PTY entries.
 func RegisterUnlinkPath(path string) func() {
 	if path == "" || IsAbstract(path) {
 		return func() {}
@@ -202,8 +200,7 @@ func snapshotRegisteredIdentity(info os.FileInfo) bool {
 // registered. unlink(2) removes a directory entry, not an inode; if the name
 // now refers to a different file (st_dev/st_ino, or Windows volume+file index
 // via os.SameFile), leave it. Mode/size/mtime are not part of that identity:
-// they change on the live object (open, chmod, write) and must not skip
-// PIPE_REMOVE.
+// they change on the live object (open, chmod, write) and must not skip unlink.
 func sameRegisteredFile(original, current os.FileInfo) bool {
 	return original != nil && current != nil && os.SameFile(original, current)
 }

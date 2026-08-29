@@ -11,25 +11,16 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// ApplyFDOptions applies descriptor-phase options to an already open file.
-// Classic applyopts walks the original option list once per phase (xio-fd.c /
-// xio-fs.c, tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official
-// master af5388c898c7bb60997935aee93c223deba60c4a is the same tree). PH_FD
-// therefore applies perm/user/group/flock, generic ioctl-*, o-noatime,
-// f-setpipe-sz, and FS_IOC_* fs-* flags in command-line order, then PH_LATE
-// append/async/ftruncate/lseek/perm-late. ApplyFDOptions owns those syscalls
-// for this *os.File; WrapCommon skips the same open.
-//
-// o-direct is PH_OPEN only and is not applied here. o-noatime uses F_SETFL
-// so inherited descriptors match descriptors opened by socat. Linux ext
-// FS_*_FL options (OFUNC_IOCTL_MASK_LONG) use FS_IOC_GETFLAGS/SETFLAGS.
+// ApplyFDOptions applies descriptor options to an already open file in
+// command-line order (after open, then late). WrapCommon skips the same
+// *os.File. o-direct is open(2) only. o-noatime uses F_SETFL; fs-* uses FS_IOC_*.
 func ApplyFDOptions(f *os.File, s parse.Spec) error {
 	return applyFDLifecycleToFile(f, s)
 }
 
-// applyLinuxPHFDOption applies Linux-only PH_FD options (o-noatime,
-// f-setpipe-sz, FS_IOC_* fs-*) during the shared applyopts-style walk in
-// applyFDPhaseLifecycleOptions. Unknown names are ignored.
+// applyLinuxPHFDOption applies Linux-only after-open options (o-noatime,
+// f-setpipe-sz, fs-* ioctl flags) during applyFDPhaseLifecycleOptions.
+// Unknown names are ignored.
 func applyLinuxPHFDOption(fd int, o parse.Option) error {
 	name := parse.CanonicalOptionName(o.Name)
 	if mask, ok := linuxExtFSFlagMasks[name]; ok {
@@ -78,12 +69,9 @@ func applyOnePipeSize(fd int, o parse.Option) error {
 	return nil
 }
 
-// applyFSIoctlMask implements classic applyopt_ioctl_mask_long
-// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a): GETFLAGS, val &= ~mask, if bool
-// val |= mask, SETFLAGS. =0 therefore clears only the requested bit.
-// Privileged flags (FS_APPEND_FL, FS_IMMUTABLE_FL, …) return the kernel
-// error; it is never swallowed.
+// applyFSIoctlMask does GETFLAGS, val &= ~mask, then |= mask when enable,
+// then SETFLAGS. =0 clears only the requested bit. Privileged flags
+// (FS_APPEND_FL, FS_IMMUTABLE_FL, …) return the kernel error.
 func applyFSIoctlMask(fd int, mask int, enable bool) error {
 	val, err := unix.IoctlGetInt(fd, unix.FS_IOC_GETFLAGS)
 	if err != nil {

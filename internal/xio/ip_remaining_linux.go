@@ -9,14 +9,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// applyRouterAlertFD is classic OFUNC_SOCKOPT SOL_IP IP_ROUTER_ALERT
-// (xio-ip.c TYPE_INT PH_PASTSOCKET; tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree). Linux accepts
-// the option on SOCK_RAW IPv4 sockets except protocol 255 (IPPROTO_RAW),
-// where setsockopt returns EINVAL. TCP/UDP return EINVAL. IPv6 raw with
-// SOL_IP returns ENOPROTOOPT. This port rejects those cases instead of
-// forwarding the kernel error as a generic setsockopt failure.
+// applyRouterAlertFD sets IPPROTO_IP IP_ROUTER_ALERT. Linux accepts it on
+// SOCK_RAW IPv4 except protocol 255 (IPPROTO_RAW), where setsockopt returns
+// EINVAL. TCP/UDP return EINVAL. IPv6 raw with IPPROTO_IP returns
+// ENOPROTOOPT. Those cases are rejected instead of forwarding the kernel
+// error as a generic setsockopt failure.
 func applyRouterAlertFD(fd int, o parse.Option) error {
 	spelling := optionSpelling(o)
 	n, err := classicFlagInt(o, -1)

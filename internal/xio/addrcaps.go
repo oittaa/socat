@@ -6,7 +6,6 @@ import (
 )
 
 // Option capability names used by address registrations and CLI validation.
-// These match classic socat 1.8.1.3 GROUP_* atoms (see classicgroups_gen.go).
 const (
 	OptCapListen = "listen"
 	OptCapOpen   = "open"
@@ -14,7 +13,7 @@ const (
 )
 
 // GoAddressClassicAlias maps Go-only or renamed address keywords onto the
-// classic 1.8.1.3 addrdesc whose GROUP_* set they follow.
+// address whose option groups they follow.
 var GoAddressClassicAlias = map[string]string{
 	"TLS":          "OPENSSL",
 	"TLS-CONNECT":  "OPENSSL",
@@ -34,8 +33,8 @@ var GoAddressClassicAlias = map[string]string{
 	"QUIC-LISTEN":  "OPENSSL-DTLS-SERVER",
 }
 
-// ClassicAddressCaps returns the expanded classic GROUP_* set for an address
-// keyword, applying Go extras then classic addressnames[] aliases.
+// ClassicAddressCaps returns the expanded option-group set for an address
+// keyword, applying Go extras then aliases.
 func ClassicAddressCaps(name string) []string {
 	key := strings.ToUpper(strings.TrimSpace(name))
 	if alias, ok := GoAddressClassicAlias[key]; ok {
@@ -54,7 +53,7 @@ func ClassicAddressCaps(name string) []string {
 
 // DerivedOptionCaps infers option capabilities from an address keyword and
 // help-section group. RegisterAddress uses this when merging AddressDesc.OptionCaps
-// so new addresses pick up classic 1.8.1.3 groups without a second table.
+// so new addresses pick up catalog groups without a second table.
 func DerivedOptionCaps(name, group string) []string {
 	caps := ClassicAddressCaps(name)
 	if len(caps) == 0 {
@@ -63,8 +62,8 @@ func DerivedOptionCaps(name, group string) []string {
 	return uniqueCaps(caps)
 }
 
-// fallbackOptionCaps covers synthetic or Go-only keywords that have no classic
-// addrdesc. It uses classic GROUP_* atom names so option intersection still works.
+// fallbackOptionCaps covers synthetic or Go-only keywords that have no catalog
+// entry. It uses the same group atom names so option intersection still works.
 func fallbackOptionCaps(name, group string) []string {
 	n := strings.ToUpper(strings.TrimSpace(name))
 	var caps []string

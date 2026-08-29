@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// preferredResolveVersion applies the classic resolver preference. Explicit
+// preferredResolveVersion applies the resolver preference. Explicit
 // -4, -6, and -0 settings in Global take precedence over the environment.
 func preferredResolveVersion(g *Global) IPVersion {
 	if g != nil && g.IPVersion != IPv4Default {
@@ -25,8 +25,8 @@ func preferredResolveVersion(g *Global) IPVersion {
 	}
 }
 
-// WaitFromEnv implements classic's integer-second diagnostic wait variables.
-// Invalid, zero, and negative values are treated like atoi(...)=0.
+// WaitFromEnv implements integer-second diagnostic wait variables.
+// Invalid, zero, and negative values are treated as 0.
 func WaitFromEnv(name string) {
 	if delay := environmentWaitDuration(os.Getenv(name)); delay > 0 {
 		time.Sleep(delay)

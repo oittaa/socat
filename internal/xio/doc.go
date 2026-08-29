@@ -8,12 +8,12 @@
 //	proxyopen — PROXY, SOCKS4/4A/5
 //	fileopen  — STDIO, FILE, PIPE, PTY, TEXT, STALL
 //	tunopen   — TUN, INTERFACE (Linux)
-//	wsopen    — WS / WSS (coder/websocket; not in classic socat)
-//	quicopen  — QUIC (quic-go; not in classic socat; not HTTP/3)
+//	wsopen    — WS / WSS (coder/websocket)
+//	quicopen  — QUIC (quic-go; not HTTP/3)
 //
 // EXEC/SYSTEM/SHELL stay in this package (tightly coupled to Run / nofork).
 // Import internal/xio/all from main/cli so opener registration runs.
 //
-// Classic OPENSSL/SSL type names and SOCAT_OPENSSL_X509_* env stay as aliases
-// so test.sh and existing scripts keep matching.
+// OPENSSL/SSL type names and SOCAT_OPENSSL_X509_* env stay as aliases
+// so existing scripts keep matching.
 package xio

@@ -57,16 +57,17 @@ func applyFDLifecycleOnFD(fd int, s parse.Spec) error {
 }
 
 // applyFDLifecycleToStream applies descriptor lifecycle options once per
-// unique underlying fd in this call. Files already handled by ApplyFDOptions
-// are skipped via per-open *os.File identity (not a process-global fd-number
-// cache). FileStream R/W/C sharing one unmarked fd still apply once via seen.
+// unique underlying fd. Files already handled by ApplyFDOptions are skipped
+// via per-open *os.File identity (not a process-global fd-number cache).
+// FileStream R/W/C sharing one unmarked fd still apply once via seen.
 func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
 	return applyFDLifecycleToStreamMode(s, stream, false)
 }
 
-// applyFDLifecycleLateToStream applies only classic PH_LATE descriptor options.
-// ACCEPT-FD applies PH_FD before PH_PASTSOCKET/PH_CONNECTED; WrapCommon then
-// uses this so PH_LATE is not applied early with PH_FD.
+// applyFDLifecycleLateToStream applies only late descriptor options.
+// ACCEPT-FD applies after-open options before after-socket and after
+// connect/accept; WrapCommon then applies late here, not together with
+// after-open.
 func applyFDLifecycleLateToStream(s parse.Spec, stream relay.Stream) error {
 	return applyFDLifecycleToStreamMode(s, stream, true)
 }
@@ -113,9 +114,9 @@ func applyFDLifecycleToStreamMode(s parse.Spec, stream relay.Stream, lateOnly bo
 	return nil
 }
 
-// ApplyFDLifecycleToConn applies PH_FD then PH_LATE on a live syscall.Conn
-// (UDP/UNIX/QUIC transport, before wrapping). Marks the conn so WrapCommon
-// does not apply twice on streams that still expose the same object.
+// ApplyFDLifecycleToConn applies after-open then late options on a live
+// syscall.Conn (UDP/UNIX/QUIC transport, before wrapping). Marks the conn so
+// WrapCommon does not apply twice on streams that still expose the same object.
 func ApplyFDLifecycleToConn(c syscall.Conn, s parse.Spec) error {
 	if c == nil || !hasFDLifecycleOptions(s) {
 		return nil
@@ -138,9 +139,9 @@ func ApplyFDLifecycleToConn(c syscall.Conn, s parse.Spec) error {
 	return nil
 }
 
-// ApplyFDPhaseLifecycleToConn applies only classic PH_FD owner options to a
+// ApplyFDPhaseLifecycleToConn applies only after-open owner options to a
 // descriptor that is not the eventual transfer stream. Abstract UNIX stream
-// listeners use this before accept; PH_LATE remains for the accepted socket.
+// listeners use this before accept; late options remain for the accepted socket.
 func ApplyFDPhaseLifecycleToConn(c syscall.Conn, s parse.Spec) error {
 	if c == nil {
 		return nil
@@ -170,8 +171,8 @@ func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s parse.Spec) error {
 	return ApplyFDLifecycleToConn(sc, s)
 }
 
-// ApplyFDLifecycleOnFD applies PH_FD then PH_LATE on a raw descriptor
-// (POSIX MQ mqd, listen sockets). Caller applies once on the parent.
+// ApplyFDLifecycleOnFD applies after-open then late options on a raw
+// descriptor (POSIX MQ mqd, listen sockets). Caller applies once on the parent.
 func ApplyFDLifecycleOnFD(fd int, s parse.Spec) error {
 	return applyFDLifecycleOnFD(fd, s)
 }
@@ -180,7 +181,7 @@ func applyFDPhaseLifecycle(fd int, s parse.Spec) error {
 	return applyFDPhaseLifecycleOptions(fd, s, true)
 }
 
-// applyFDPhaseLifecycleAll is for the actual descriptor that owns PH_FD
+// applyFDPhaseLifecycleAll is for the actual descriptor that owns after-open
 // options even when the eventual transfer stream must skip them. Abstract
 // UNIX listeners are configured here before accept; accepted children must
 // not receive the same perm/user/group options again.
@@ -231,8 +232,8 @@ func applyFDPhaseLifecycleOptions(fd int, s parse.Spec, honorTargetSkip bool) er
 				return err
 			}
 		case "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string":
-			// Same PH_FD walk as perm/user/group/flock so mixed options keep
-			// command-line order. Do not apply generic ioctl only in
+			// Same after-open walk as perm/user/group/flock so mixed options
+			// keep command-line order. Do not apply generic ioctl only in
 			// applyLinuxPHFDOption (Linux-only; ioctl is Unix including Darwin).
 			if err := applyGenericIoctlOption(fd, o); err != nil {
 				return err
@@ -304,10 +305,9 @@ func applyLateLifecycle(fd int, s parse.Spec) error {
 }
 
 func applyOneCloexec(fd int, o parse.Option) error {
-	// Classic applyopt_fcntl TYPE_BOOL: Fcntl(fd, F_SETFD-1) is F_GETFD,
-	// then |= or &=~ FD_CLOEXEC, then F_SETFD. Clearing Go's default
-	// CLOEXEC is limited to descriptors this walk owns (ApplyFDOptions /
-	// WrapCommon / ApplyFDLifecycleToConn). Streams with no fd reject.
+	// F_GETFD, then |= or &=~ FD_CLOEXEC, then F_SETFD. Clearing Go's default
+	// CLOEXEC is limited to descriptors owned by ApplyFDOptions /
+	// WrapCommon / ApplyFDLifecycleToConn. Streams with no fd reject.
 	enable := optionEnabled(o)
 	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
 	if err != nil {

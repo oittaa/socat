@@ -9,16 +9,12 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-// shutPolicy is classic howtoshut (xio.h XIOSHUT_*). Unspecified keeps the
-// address-dependent default (TCP half-close, UDP no-op in this port).
+// shutPolicy selects how ShutdownWrite behaves. Unspecified keeps the
+// address-dependent default (TCP half-close, UDP no-op).
 //
-// Classic man documents shut-none[=<bool>] (and the other shut-* the same way).
-// C TYPE_CONST rejects any assignment ("no value permitted") in parseopts
-// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same arm). This port follows
-// the documented bool form: omitted value or =1 selects the policy; =0 does
-// not. Other assignments are rejected. Last active occurrence across shut-*
-// and Go-only shut=none|down|close|null wins.
+// shut-none[=<bool>] (and the other shut-* the same way): omitted value or
+// =1 selects the policy; =0 does not. Other assignments are rejected. Last
+// active occurrence across shut-* and Go-only shut=none|down|close|null wins.
 type shutPolicy int
 
 const (
@@ -139,13 +135,14 @@ func wrapShutPolicy(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	}
 }
 
-// ShutNoneSelected reports classic howtoshut=none for EXEC child cleanup.
+// ShutNoneSelected reports that shut-none (or shut=none) is selected, for
+// EXEC child cleanup.
 func ShutNoneSelected(s parse.Spec) bool {
 	p, err := selectedShutPolicy(s)
 	return err == nil && p == shutNone
 }
 
-// shutNoneStream makes ShutdownWrite a no-op (classic XIOSHUT_NONE).
+// shutNoneStream makes ShutdownWrite a no-op.
 type shutNoneStream struct{ relay.Stream }
 
 func (s shutNoneStream) ShutdownWrite() error       { return nil }
@@ -154,7 +151,7 @@ func (s shutNoneStream) UnwrapZeroCopyStream() relay.Stream {
 	return s.Stream
 }
 
-// shutDownStream performs socket shutdown(SHUT_WR) (classic XIOSHUT_DOWN).
+// shutDownStream performs socket shutdown(SHUT_WR).
 type shutDownStream struct{ relay.Stream }
 
 func (s shutDownStream) ShutdownWrite() error {
@@ -168,11 +165,8 @@ func (s shutDownStream) UnwrapZeroCopyStream() relay.Stream {
 	return s.Stream
 }
 
-// shutNullStream sends a 0-byte Write on ShutdownWrite (classic XIOSHUT_NULL
-// in xioshutdown.c, tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same):
-// xiowrite(..., 0) then return 0. The write result is ignored; ShutdownWrite
-// of the underlying stream is not called.
+// shutNullStream sends a 0-byte Write on ShutdownWrite. The write result
+// is ignored; ShutdownWrite of the underlying stream is not called.
 type shutNullStream struct {
 	relay.Stream
 }
@@ -183,13 +177,12 @@ func (s shutNullStream) UnwrapZeroCopyStream() relay.Stream {
 }
 
 func (s shutNullStream) ShutdownWrite() error {
-	_, _ = s.Write(nil) // classic xiowrite(..., 0); result ignored; do not also half-close
+	_, _ = s.Write(nil) // result ignored; do not also half-close
 	return nil
 }
 
 // shutCloseStream turns a directional half-close into a full descriptor
-// close. This is required for SO_LINGER=0 to generate the immediate reset
-// requested by classic shut-close (XIOSHUT_CLOSE).
+// close so SO_LINGER=0 can generate an immediate reset.
 type shutCloseStream struct {
 	relay.Stream
 	once sync.Once

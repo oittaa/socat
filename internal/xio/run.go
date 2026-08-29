@@ -32,10 +32,10 @@ func channelModes(g *Global) (lMode, rMode Mode) {
 func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
 	lMode, _ := channelModes(g)
 
-	// Open left first (classic order)
+	// Open left first.
 	lo, err := OpenChannel(ctx, left, lMode, g)
 	if err != nil {
-		// Preserve classic "unknown device/address" text for test.sh testaddrs().
+		// Preserve "unknown device/address" text.
 		return err
 	}
 	return RunOpened(ctx, lo, right, g)
@@ -56,7 +56,7 @@ func RunOpened(ctx context.Context, lo *Opened, right parse.Channel, g *Global) 
 		}
 		return runForkListen(ctx, lo, right, rMode, g)
 	case KindDial:
-		// Client CONNECT/TLS-CONNECT with fork (classic xio-ipapp loop).
+		// Client CONNECT/TLS-CONNECT with fork.
 		return runConnectFork(ctx, lo, right, rMode, g)
 	case KindExec:
 		if lo.NoForkSpec == nil {
@@ -105,7 +105,7 @@ func streamFromDial(o *Opened, c net.Conn) (relay.Stream, error) {
 	return relay.NetStream{Conn: c}, nil
 }
 
-// runConnectFork is the classic CONNECT,fork parent loop: dial, spawn child
+// runConnectFork is the CONNECT,fork parent loop: dial, spawn child
 // transfer, sleep interval, honour max-children, repeat until ctx cancel.
 func runConnectFork(ctx context.Context, lo *Opened, right parse.Channel, rMode Mode, g *Global) error {
 	return runConnectForkLoop(ctx, lo, g, func(cctx context.Context, cg *Global, c net.Conn) error {
@@ -152,8 +152,8 @@ func runConnectForkWithLeft(ctx context.Context, left relay.Stream, ro *Opened, 
 	})
 }
 
-// childSlots bounds concurrent fork sessions (nil = unlimited, classic
-// default when max-children is unset).
+// childSlots bounds concurrent fork sessions (nil = unlimited when
+// max-children is unset).
 type childSlots chan struct{}
 
 func newChildSlots(maxChildren int) childSlots {
@@ -198,8 +198,8 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 		if err != nil {
 			slots.release()
 			if errors.Is(err, ErrAcceptTimeout) {
-				// Classic closes the parent listener, then waits for an accepted
-				// fork child to finish. Our children are goroutines in the same
+				// Close the parent listener, then wait for accepted
+				// sessions to finish. Children are goroutines in the same
 				// process, so returning immediately would kill active sessions.
 				children.Wait()
 				return ErrAcceptTimeout
@@ -252,8 +252,8 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 		if ctx.Err() != nil {
 			return nil
 		}
-		// Wait for a free child slot before dial (classic: parent blocks when
-		// num_child >= max-children, then connects again).
+		// Wait for a free child slot before dial (parent blocks when
+		// at max-children, then connects again).
 		if !slots.acquire(ctx) {
 			return nil
 		}
@@ -289,7 +289,7 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 				}
 			}
 		}(conn)
-		// Classic parent always sleeps interval before the next connect attempt.
+		// Sleep interval before the next connect attempt.
 		t := time.NewTimer(interval)
 		select {
 		case <-ctx.Done():
@@ -320,14 +320,13 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 		}
 		ro, err := OpenChannel(ctx, right, rMode, cg)
 		if err != nil {
-			// Classic greps `E open(` for RECVFROM_FORK_LOOP — no "right address:" prefix.
+			// No "right address:" prefix on the open error.
 			cg.Log.Errorf("%s", err)
 			return
 		}
-		// Classic RECVFROM,fork creates a socketpair per child (FD-leak / loop tests).
-		// Stream listens (TCP-LISTEN,fork PIPE) transfer directly — a bridge would
-		// open -r/-R sniff files twice per session (VARS_IN_SNIFFPATH expects 4 files
-		// for 2 clients, not 8).
+		// RECVFROM,fork creates a socketpair per child. Stream listens
+		// (TCP-LISTEN,fork PIPE) transfer directly — a bridge would open
+		// -r/-R sniff files twice per session.
 		if needsForkSocketpair(lo) {
 			sp0, sp1, spErr := unixSocketpairLogged(cg)
 			if spErr != nil {
@@ -358,8 +357,8 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 	})
 }
 
-// needsForkSocketpair is true for datagram RECVFROM,fork (classic creates a
-// socketpair per child). Stream acceptors transfer the accepted conn directly.
+// needsForkSocketpair is true for datagram RECVFROM,fork (a socketpair per
+// child). Stream acceptors transfer the accepted conn directly.
 func needsForkSocketpair(lo *Opened) bool {
 	if lo == nil {
 		return false
@@ -372,14 +371,12 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 	ln := ro.Listener
 	left := lo.EffectiveStream()
 	// Shared left (e.g. FILE,o-append) must stay open across all fork children.
-	// Classic max-children + -U FILE:... LISTEN,fork appends each session in order.
 	// max-children applies to the listen address (right side here).
 	// Shared left stream (FILE append, EXEC socketpair with end-close) cannot
 	// safely run concurrent bidirectional transfers on one FD pair — serialize
 	// accept sessions. sessionWrap.Close pokes a short deadline and returns
 	// immediately; the next wrap, started only after Transfer returns, clears
-	// that leftover. Classic end-close still uses socketpair (not pipes);
-	// serialization is the Go-side ownership model for one process.
+	// that leftover. end-close still uses socketpair (not pipes).
 	var leftMu sync.Mutex
 	go func() {
 		<-ctx.Done()
@@ -418,7 +415,7 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 		return fmt.Errorf("nil stream")
 	}
 	WaitFromEnv("SOCAT_TRANSFER_WAIT")
-	// Classic opens -r/-R sniff files at transfer start (after peer env is set).
+	// Open -r/-R sniff files at transfer start (after peer env is set).
 	if g != nil && (g.RawLeftPath != "" || g.RawRightPath != "") {
 		if err := openSniffFiles(g); err != nil {
 			return err
@@ -464,7 +461,7 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 			g.markStatsPrinted()
 		}
 	}
-	// Classic MULTIPLE_EOF greps: "socket 2 (fd .*) is at EOF" (Notice once per side).
+	// Notice once per side: "socket N (fd M) is at EOF".
 	if g != nil && g.Log != nil {
 		var eofOnce [3]sync.Once // index 1 and 2
 		cfg.OnEOF = func(sock, fd int) {
@@ -482,10 +479,10 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 	return relay.Transfer(ctx, left, right, cfg)
 }
 
-// DefaultCreateMode is classic open/creat/mkfifo mode (0666 before umask).
+// DefaultCreateMode is open/creat/mkfifo mode (0666 before umask).
 const DefaultCreateMode os.FileMode = 0o666
 
-// ParseFileMode applies perm= or mode= (octal, classic TYPE_MODET), else def.
+// ParseFileMode applies perm= or mode= (octal), else def.
 func ParseFileMode(s parse.Spec, def os.FileMode) (os.FileMode, error) {
 	m, ok, err := explicitFileMode(s)
 	if err != nil {
@@ -497,7 +494,7 @@ func ParseFileMode(s parse.Spec, def os.FileMode) (os.FileMode, error) {
 	return def, nil
 }
 
-// explicitFileMode returns perm= or mode= when set (octal, classic TYPE_MODET).
+// explicitFileMode returns perm= or mode= when set (octal).
 func explicitFileMode(s parse.Spec) (os.FileMode, bool, error) {
 	m, ok, err := explicitUnixMode(s)
 	if err != nil || !ok {
@@ -506,9 +503,8 @@ func explicitFileMode(s parse.Spec) (os.FileMode, bool, error) {
 	return UnixModeToFileMode(m), true, nil
 }
 
-// ApplyPerm sets exact permissions on named sockets and PTY slaves after bind
-// (classic NAMED fchmod). Regular files use perm=/mode= as the open(2) mode
-// instead, so umask still applies.
+// ApplyPerm sets exact permissions on named sockets and PTY slaves after bind.
+// Regular files use perm=/mode= as the open(2) mode instead, so umask still applies.
 func ApplyPerm(path string, s parse.Spec, f *os.File) error {
 	mode, ok, err := explicitFileMode(s)
 	if err != nil {
@@ -533,14 +529,12 @@ func ApplyPerm(path string, s parse.Spec, f *os.File) error {
 	return os.Chmod(path, mode)
 }
 
-// ApplyNamedAttrs applies classic applyopts_named PH_FD in command-line
-// order (xio-named.c, tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same tree):
-// each perm=/mode= is chmod(2) of the filesystem name, each user=/uid=/owner=
-// is chown(uid,-1), each group=/gid= is chown(-1,gid). Order matters for
-// setuid/setgid (`user=,perm=04755` keeps setuid; reverse clears it).
-// Do not use this on regular files or FIFOs as create-mode: those pass perm=
-// to open(2)/mkfifo so umask still applies.
+// ApplyNamedAttrs applies perm/user/group to a filesystem name in
+// command-line order: each perm=/mode= is chmod of the name, each
+// user=/uid=/owner= is chown(uid,-1), each group=/gid= is chown(-1,gid).
+// Order matters for setuid/setgid (`user=,perm=04755` keeps setuid; reverse
+// clears it). Regular files and FIFOs pass perm= to open(2)/mkfifo so umask
+// still applies; do not use ApplyNamedAttrs as create-mode for those.
 func ApplyNamedAttrs(path string, s parse.Spec, f *os.File) error {
 	for _, o := range s.Options {
 		switch parse.CanonicalOptionName(o.Name) {

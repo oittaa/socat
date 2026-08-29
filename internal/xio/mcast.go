@@ -12,11 +12,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// parsedMcast is one classic TYPE_IP_MREQN value.
+// parsedMcast is one ip-add-membership / ipv6-join-group value.
 //
-// Documented IPv4 forms (doc/socat.yo OPTION_IP_ADD_MEMBERSHIP, tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is unchanged):
+// Documented IPv4 forms:
 //
 //	group:iface-address
 //	group:iface-name
@@ -24,16 +22,15 @@ import (
 //	group:iface-address:iface-name
 //	group:iface-address:iface-index
 //
-// IPv6 (OPTION_IPV6_JOIN_GROUP) is two fields: group plus name or index.
-// Classic's C parser for the three-field name form SIGSEGVs on some hosts
-// (upstream bug); this port implements the documented interface safely.
+// IPv6 is two fields: group plus name or index. The three-field name form
+// is implemented as documented (the C parser SIGSEGVs on some hosts).
 type parsedMcast struct {
 	group     net.IP
 	ifaceAddr net.IP // optional IPv4 interface address (imr_address)
 	token     string // remaining name or index; empty when only ifaceAddr
 }
 
-// parseMcastSpec parses classic ip-add-membership / ipv6-join-group.
+// parseMcastSpec parses ip-add-membership / ipv6-join-group.
 func parseMcastSpec(spec, optionName string) (parsedMcast, error) {
 	if optionName == "" {
 		optionName = "ip-add-membership"
@@ -67,8 +64,7 @@ func parseMcastSpec(spec, optionName string) (parsedMcast, error) {
 		return parsedMcast{group: group, token: token}, nil
 	}
 
-	// Three-field IPv4 form. Classic xiotype_ip_add_membership stores
-	// field 2 as interface address and field 3 as name/index (HAVE_STRUCT_IP_MREQN).
+	// Three-field IPv4 form: field 2 is interface address, field 3 is name/index.
 	addrTok := strings.TrimSpace(fields[1])
 	nameTok := strings.TrimSpace(fields[2])
 	if addrTok == "" || nameTok == "" {
@@ -92,8 +88,7 @@ func parseMcastGroup(field, optionName string) (net.IP, error) {
 	if gip := net.ParseIP(field); gip != nil {
 		return gip, nil
 	}
-	// Classic defers this field to xioresolve(), so hostnames are valid too.
-	// For names, use the family selected by the distinct classic spelling.
+	// Hostnames are valid. For names, use the family selected by the option spelling.
 	network := "ip4"
 	if family, _, ok := membershipFamilyName(optionName); ok && family == membershipFamilyIPv6 {
 		network = "ip6"
@@ -115,7 +110,7 @@ func resolveMcastIPv4Address(field string) (net.IP, error) {
 	return addr.IP.To4(), nil
 }
 
-// splitMcastFields splits on ':' outside '[' ']' (classic nestlex nests).
+// splitMcastFields splits on ':' outside '[' ']' (nested brackets).
 // IPv6 groups therefore use the bracketed form, e.g. [ff02::2]:eth0.
 func splitMcastFields(spec string) ([]string, error) {
 	if i := strings.IndexByte(spec, '%'); i > 0 && !strings.Contains(spec, ":") {
@@ -180,8 +175,8 @@ func joinMulticastFD(fd int, join membershipJoin) error {
 
 	idx, idxSet, err := resolveMcastInterface(parsed, name)
 	if err != nil && join.family == membershipFamilyIPv4 && !parsed.fieldsThree() {
-		// Classic tries ifindex() first and then xioresolve() for the two-field
-		// IPv4 form, so an address may also be supplied as a resolvable name.
+		// Two-field IPv4: try numeric index / if_nametoindex first, then
+		// treat the token as a resolvable IPv4 address.
 		if addr, addrErr := resolveMcastIPv4Address(parsed.token); addrErr == nil {
 			parsed.ifaceAddr = addr
 			parsed.token = ""
@@ -219,10 +214,8 @@ func applyMulticastNamedFD(fd int, kind multicastNamedKind, name string, o parse
 	case multicastNamedLoop, multicastNamedTTL:
 		max := 255
 		if kind == multicastNamedLoop {
-			// doc/socat.yo documents ip-multicast-loop[=<bool>] even
-			// though the optdesc storage type is TYPE_BYTE. Honor the
-			// documented 0/1 interface, per the repository compatibility
-			// policy; ip-multicast-ttl remains the full byte option.
+			// ip-multicast-loop[=<bool>] is 0/1; ip-multicast-ttl remains
+			// the full byte option.
 			max = 1
 		}
 		n, err := classicFlagInt(o, max)
@@ -245,8 +238,7 @@ func applyMulticastNamedFD(fd int, kind multicastNamedKind, name string, o parse
 		if family == ipFamilyV4 {
 			return fmt.Errorf("%s: not supported on IPv4", name)
 		}
-		// doc/socat.yo documents ipv6-multicast-loop[=<bool>] even
-		// though its optdesc storage type is TYPE_INT.
+		// ipv6-multicast-loop[=<bool>] is 0/1.
 		n, err := classicFlagInt(o, 1)
 		if err != nil {
 			return fmt.Errorf("%s: %w", name, err)
@@ -264,9 +256,8 @@ func (p parsedMcast) fieldsThree() bool {
 	return p.ifaceAddr != nil && p.token != ""
 }
 
-// resolveMcastInterface implements classic ifindex() from sysutils.c:
-// a fully-consumed base-0 C integer token is the numeric index (no existence
-// lookup); otherwise if_nametoindex / InterfaceByName.
+// resolveMcastInterface: a fully-consumed base-0 integer token is the
+// numeric index (no existence lookup); otherwise InterfaceByName.
 func resolveMcastInterface(p parsedMcast, optionName string) (uint32, bool, error) {
 	if p.token == "" {
 		return 0, false, nil
@@ -289,8 +280,8 @@ func parseClassicInterfaceIndex(s string) (uint32, bool) {
 	if s == "" {
 		return 0, false
 	}
-	// strconv's base-0 grammar additionally accepts Go's 0b/0o prefixes and
-	// underscores; C strtol(..., 0), which classic uses, accepts none of them.
+	// Reject Go-only 0b/0o prefixes and underscores; the token is a C-style
+	// base-0 integer (decimal, octal, or hex).
 	unsigned := s
 	if unsigned[0] == '+' || unsigned[0] == '-' {
 		unsigned = unsigned[1:]
@@ -304,10 +295,9 @@ func parseClassicInterfaceIndex(s string) (uint32, bool) {
 	if err != nil {
 		return 0, false
 	}
-	// Classic assigns the signed long directly to unsigned int. Preserve that
-	// conversion, including negative values and high-bit interface indices;
-	// the kernel remains responsible for accepting or rejecting the result.
-	return uint32(n), true // #nosec G115 -- deliberate classic strtol-to-unsigned-int conversion
+	// Assign the signed value to unsigned int, including negative values and
+	// high-bit indices; the kernel accepts or rejects the result.
+	return uint32(n), true // #nosec G115 -- signed-to-unsigned index conversion
 }
 
 func setIPv6MembershipFD(fd int, group net.IP, ifindex uint32) error {

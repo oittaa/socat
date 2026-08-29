@@ -11,24 +11,11 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-// Classic generic setsockopt family (xio-socket.c opt_setsockopt*).
-// Baseline: https://repo.or.cz/socat.git tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba. Official master
-// af5388c898c7bb60997935aee93c223deba60c4a has the same option/help tree
-// (xio-socket.c opt_setsockopt* and applyopt_sockopt_generic).
-//
-// Phases:
-//
-//	PREBIND:    setsockopt-listen
-//	PASTSOCKET: setsockopt-socket
-//	CONNECTED:  setsockopt, setsockopt-bin, setsockopt-int, setsockopt-string,
-//	            setsockopt-connected
-//
-// Types (classic applyopt_sockopt_generic):
-//
-//	INT:INT:INT    → setsockopt(level, opt, &int, sizeof(int))
-//	INT:INT:BIN    → dalan third field (decimal 512 is a C int; xHH is bytes)
-//	INT:INT:STRING → C string including the terminating NUL
+// Generic setsockopt options: setsockopt-listen before bind, setsockopt-socket
+// after socket(), and setsockopt / setsockopt-bin / setsockopt-int /
+// setsockopt-string / setsockopt-connected after connect.
+// Value forms: level:opt:int, level:opt:dalan (decimal 512 is a C int; xHH
+// is bytes), and level:opt:string (including the terminating NUL).
 type SockoptPhase int
 
 const (
@@ -45,15 +32,10 @@ const (
 	sockoptKindString
 )
 
-// ApplyGenericSetsockopt applies the classic generic setsockopt options that
-// belong to phase. Kernel rejection fails the call (classic SETSOCKOPT MSS=1).
-//
-// Classic applyopts walks the option list in original command-line order
-// (xioopts.c applyopts; tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same). Every matching
-// occurrence is applied, including alias+canonical mixtures (aliases are
-// already folded to the canonical Name).
+// ApplyGenericSetsockopt applies generic setsockopt options that belong to
+// phase. Kernel rejection fails the call. Every matching occurrence is
+// applied in original command-line order (aliases are already folded to
+// the canonical Name).
 func ApplyGenericSetsockopt(fd int, s parse.Spec, phase SockoptPhase) error {
 	for _, o := range s.Options {
 		if kind, ok := genericSetsockoptKind(o.Name, phase); ok {
@@ -62,8 +44,8 @@ func ApplyGenericSetsockopt(fd int, s parse.Spec, phase SockoptPhase) error {
 			}
 			continue
 		}
-		// Named PH_CONNECTED TCP options (tcp-maxseg-late) share this walk
-		// so they apply once with generic CONNECTED setsockopt, including
+		// Named TCP options after connect (tcp-maxseg-late) share this walk
+		// so they apply once with generic connected setsockopt, including
 		// on TLS/WS/proxy/SOCKS via ApplyTCPConnOpts.
 		if phase == SockoptPhaseConnected {
 			if handled, err := applyNamedConnectedSockopt(fd, o); handled {
@@ -78,8 +60,7 @@ func ApplyGenericSetsockopt(fd int, s parse.Spec, phase SockoptPhase) error {
 
 // ApplyGenericSetsockoptAll applies every named or generic setsockopt action
 // in original command-line order, regardless of its normal lifecycle phase.
-// Classic SOCKETPAIR uses applyopts(PH_ALL) on each descriptor, so it needs
-// this behavior rather than phase-grouped passes. Fixed PH_PASTSOCKET
+// SOCKETPAIR needs this rather than phase-grouped passes. Fixed post-socket()
 // options (broadcast, sndbuf, linger, …) share this walk so they are not
 // applied before named/generic occurrences.
 func ApplyGenericSetsockoptAll(fd int, s parse.Spec) error {
@@ -143,8 +124,8 @@ func genericSetsockoptDescriptor(name string) (SockoptPhase, sockoptValueKind, b
 }
 
 // RejectGenericSetsockoptPhases fails an address/phase combination before it
-// can be accepted and silently ignored. Classic FD only processes phases from
-// PH_INIT through PH_FD, which includes PASTSOCKET but not PREBIND/CONNECTED.
+// can be accepted and silently ignored. FD includes post-socket() options
+// but not listen-time or post-connect generic setsockopt.
 func RejectGenericSetsockoptPhases(s parse.Spec, address string, phases ...SockoptPhase) error {
 	for _, o := range s.Options {
 		phase, _, ok := genericSetsockoptDescriptor(o.Name)
@@ -163,9 +144,8 @@ func RejectGenericSetsockoptPhases(s parse.Spec, address string, phases ...Socko
 	return nil
 }
 
-// ApplySetsockoptFD applies a classic INT:INT:BIN setsockopt spec
-// (level:opt:dalan). Decimal third fields such as 512 stay C ints, matching
-// SETSOCKOPT (setsockopt=6:TCP_MAXSEG:512).
+// ApplySetsockoptFD applies a level:opt:dalan setsockopt spec. Decimal
+// third fields such as 512 stay C ints (setsockopt=6:TCP_MAXSEG:512).
 func ApplySetsockoptFD(fd int, spec string) error {
 	return applyGenericSetsockoptValue(fd, "setsockopt", spec, sockoptKindBin)
 }
@@ -218,10 +198,10 @@ func applyGenericSetsockoptValue(fd int, name, spec string, kind sockoptValueKin
 	}
 }
 
-// parseSockoptBin implements classic TYPE_INT_INT_BIN: dalan with default type
-// 'i', so a bare decimal such as 512 is sizeof(int) rather than ASCII bytes.
-// Syntax errors are returned; unknown typed expressions are never treated as
-// ASCII paths (ParseSocatData is for SOCKET address data only).
+// parseSockoptBin parses dalan with default type 'i', so a bare decimal
+// such as 512 is sizeof(int) rather than ASCII bytes. Syntax errors are
+// returned; unknown typed expressions are never treated as ASCII paths
+// (ParseSocatData is for SOCKET address data only).
 func parseSockoptBin(rest string) (useInt bool, n int, data []byte, err error) {
 	data, singleInt, err := ParseDalan(rest, 'i')
 	if err != nil {
@@ -310,10 +290,10 @@ func applyGenericSetsockoptToStream(s parse.Spec, stream relay.Stream, phase Soc
 	conns := streamSyscallConns(stream)
 	if len(conns) == 0 {
 		// Packet-session / TLS / WS / QUIC wrappers are often not
-		// syscall.Conn. Those openers apply PH_CONNECTED on the raw fd or
-		// PacketConn before wrapping (same split as late buffers). A present
-		// option on a live socket must still fail in ApplyTCPConnOpts /
-		// ApplyGenericSetsockoptToPacketConn when the conn has no fd.
+		// syscall.Conn. Those openers apply connected options on the raw fd
+		// or PacketConn before wrapping (same split as late buffers). A
+		// present option on a live socket must still fail in ApplyTCPConnOpts
+		// / ApplyGenericSetsockoptToPacketConn when the conn has no fd.
 		return nil
 	}
 	for _, raw := range conns {

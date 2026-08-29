@@ -7,30 +7,27 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// Classic parseopts_table uses a 256-byte buffer for TYPE_BIN, and
-// OFUNC_SOCKOPT_APPEND uses the same limit for the accumulated IP_OPTIONS.
+// maxIPOptions is the accumulated IP_OPTIONS byte cap (getsockopt buffer
+// and append).
 const maxIPOptions = 256
 
-// ApplyIPSendOpts sets classic send-side IP options on an INET fd.
-// Production INET sockets apply send and recv IP/ancillary options together
-// at PH_PASTSOCKET via ApplyPastSocketPhase (DialControl / ListenControl,
-// including raw IP). This send-only helper remains for leftover callers
-// such as ApplyIPSendOptsToPacketConn.
+// ApplyIPSendOpts sets send-side IP options on an INET fd. Production INET
+// sockets apply send and recv IP/ancillary options together after socket()
+// via ApplyPastSocketPhase (DialControl / ListenControl, including raw IP).
+// This send-only helper remains for leftover callers such as
+// ApplyIPSendOptsToPacketConn.
 func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
 	return applyClassicIPSendOpts(fd, s, ipFamilyFromNetwork(network))
 }
 
-// applyOrderedPastSocketPhaseOptions applies every PH_PASTSOCKET action
+// applyOrderedPastSocketPhaseOptions applies every post-socket() action
 // option in one pass over Spec.Options, after socket() and before
 // bind/connect: fixed SOL_SOCKET options (broadcast, sndbuf/rcvbuf,
-// bindtodevice, linger, timeos), named SOL_SOCKET/TCP/SCTP TYPE_INT
-// options, FIOSETOWN/SIOCSPGRP owner ioctls, generic setsockopt-socket,
-// and IP/ancillary/membership options.
-// Occurrences keep original command-line order, including when a generic
-// option targets the same kernel setting as a named option.
-// Classic: applyopts in xioopts.c (tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree).
+// bindtodevice, linger, timeos), named SOL_SOCKET/TCP/SCTP options,
+// FIOSETOWN/SIOCSPGRP owner ioctls, generic setsockopt-socket, and
+// IP/ancillary/membership options. Occurrences keep original command-line
+// order, including when a generic option targets the same kernel setting
+// as a named option.
 func applyOrderedPastSocketPhaseOptions(fd int, s parse.Spec, network string) error {
 	applyIP := ipSendAppliesToNetwork(network)
 	family := ipFamilyFromNetwork(network)
@@ -166,18 +163,13 @@ func resolveApplyIPFamily(fd int, family ipFamily) (ipFamily, error) {
 	return socketIPFamily(fd)
 }
 
-// applyClassicIPSendOpts applies send-side IP options with classic levels from
-// xio-ip.c / xio-ip6.c (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same tree):
-// ip-ttl/ip-tos use OFUNC_SOCKOPT SOL_IP (IPPROTO_IP) IP_TTL/IP_TOS even on
-// IPv6 sockets. ip-options uses OFUNC_SOCKOPT_APPEND SOL_IP IP_OPTIONS.
-// ipv6-unicast-hops/ipv6-tclass use SOL_IPV6 and are rejected on IPv4 rather
-// than skipped. ip-hdrincl uses SOL_IP IP_HDRINCL on raw IPv4 only; TYPE_INT
-// omitted stores 1.
-//
-// Classic applyopts walks every matching option in command-line order, so
-// ttl=1,ip-ttl=64 is two setsockopt calls (not OptionNamed last-wins). An
-// earlier kernel-invalid value still fails even if a later value is valid.
+// applyClassicIPSendOpts applies send-side IP options in command-line
+// order: ip-ttl/ip-tos use IPPROTO_IP IP_TTL/IP_TOS even on IPv6 sockets;
+// ip-options appends to IP_OPTIONS; ipv6-unicast-hops/ipv6-tclass use
+// IPPROTO_IPV6 and are rejected on IPv4 rather than skipped; ip-hdrincl
+// uses IP_HDRINCL on raw IPv4 only (bare flag → 1). ttl=1,ip-ttl=64 is two
+// setsockopt calls, not last-wins. An earlier kernel-invalid value still
+// fails even if a later value is valid.
 func applyClassicIPSendOpts(fd int, s parse.Spec, family ipFamily) error {
 	got, err := resolveApplyIPFamily(fd, family)
 	if err != nil {
@@ -208,14 +200,14 @@ func applyOneIPSendOpt(fd int, e IPAncillaryEntry, option parse.Option, family i
 		if v == "" {
 			return nil
 		}
-		// Each occurrence appends (classic OFUNC_SOCKOPT_APPEND); stop on error.
+		// Each occurrence appends; stop on error.
 		if err := applyIPOptions(fd, v); err != nil {
 			return fmt.Errorf("ip-options: %w", err)
 		}
 		return nil
 	}
 	if e.Canonical == "ip-hdrincl" {
-		// Classic TYPE_INT: omitted stores 1 (xioopts.c parseopts_table).
+		// Bare flag → 1.
 		n := 1
 		if option.Has {
 			v := strings.TrimSpace(option.Value)
@@ -257,9 +249,9 @@ func applyOneIPSendOpt(fd int, e IPAncillaryEntry, option parse.Option, family i
 	return nil
 }
 
-// ParseHexOpt parses classic ip-options= TYPE_BIN data. Classic dalan uses
-// default type 'i', so x0102 is two hex bytes while an unprefixed 1 is one
-// native C int; treating the leading x as optional silently changes values.
+// ParseHexOpt parses ip-options= dalan data. Default type is 'i', so x0102
+// is two hex bytes while an unprefixed 1 is one native C int; treating the
+// leading x as optional silently changes values.
 func ParseHexOpt(v string) ([]byte, error) {
 	data, _, err := ParseDalan(strings.TrimSpace(v), 'i')
 	if err != nil {

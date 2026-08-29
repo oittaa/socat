@@ -97,7 +97,7 @@ func PtyStream(f *os.File, s parse.Spec) (relay.Stream, error) {
 
 // PtyExecStream is a PTY master for EXEC/SYSTEM. Close does not drop the
 // master; finishExec waits for the child first, then closes (avoids SIGHUP
-// before a SYSTEM script finishes, classic RESTORE_TTY).
+// before a SYSTEM script finishes).
 func PtyExecStream(f *os.File, s parse.Spec) (relay.Stream, error) {
 	r, err := ptyMasterReader(f, s)
 	if err != nil {
@@ -146,7 +146,7 @@ func (h *halfCloseWriter) closeWrite() {
 }
 
 // SyscallConn exposes the underlying *os.File so one-way EXEC/PTY streams
-// (writer-only halfCloseWriter) still receive PH_FD/PH_LATE options.
+// (writer-only halfCloseWriter) still receive after-open and late options.
 func (h *halfCloseWriter) SyscallConn() (syscall.RawConn, error) {
 	sc, ok := h.w.(syscall.Conn)
 	if !ok {
@@ -155,7 +155,7 @@ func (h *halfCloseWriter) SyscallConn() (syscall.RawConn, error) {
 	return sc.SyscallConn()
 }
 
-// readBytesWrap limits total bytes read (classic readbytes=N).
+// readBytesWrap limits total bytes read (readbytes=N).
 type readBytesWrap struct {
 	r    io.Reader
 	left uint64
@@ -179,7 +179,7 @@ func (r *readBytesWrap) Read(p []byte) (int, error) {
 }
 
 // ApplyReadBytes wraps a stream if the address has readbytes=N.
-// Classic TYPE_SIZE_T is parsed with base 0 (decimal, 0x hex, 0 octal).
+// Size is parsed with base 0 (decimal, 0x hex, 0 octal).
 // readbytes=0 means unlimited and leaves the stream unwrapped.
 func ApplyReadBytes(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	v := s.OptionValue("readbytes", "")
@@ -203,7 +203,7 @@ func ApplyReadBytes(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	}, nil
 }
 
-// crnlWriter converts LF → CRLF on write (classic crlf/crnl: internal RAW → external CRNL).
+// crnlWriter converts LF → CRLF on write (internal RAW → external CRNL).
 type crnlWriter struct {
 	w         io.Writer
 	pendingLF bool
@@ -283,8 +283,8 @@ func (c *crnlWriter) Write(p []byte) (int, error) {
 	return written, nil
 }
 
-// crnlReader converts external CRNL → internal RAW (classic cv_newline CRNL→RAW):
-// strip every CR; leave LF and other bytes unchanged.
+// crnlReader converts external CRNL → internal RAW: strip every CR; leave
+// LF and other bytes unchanged.
 type crnlReader struct {
 	r io.Reader
 }
@@ -293,7 +293,7 @@ func (c crnlReader) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	// Keep reading until we produce at least one non-CR byte or hit error/EOF.
+	// Keep reading until at least one non-CR byte is produced or error/EOF.
 	// A pure-CR chunk would otherwise return (0, nil) and confuse some loops.
 	tmp := make([]byte, len(p))
 	out := 0
@@ -315,15 +315,12 @@ func (c crnlReader) Read(p []byte) (int, error) {
 	return out, err
 }
 
-// lineTermMode is classic lineterm (xio.h LINETERM_RAW/CR/CRNL) plus Go-only
-// crorlf. cr and crnl/crlf share one ordered field; last active occurrence
-// wins. crorlf is a distinct conversion and is not folded into cr/crnl.
+// lineTermMode is lineterm (raw/cr/crnl) plus Go-only crorlf. cr and
+// crnl/crlf share one ordered field; last active occurrence wins. crorlf
+// is a distinct conversion and is not folded into cr/crnl.
 //
-// Classic man documents cr and crnl as bare flags. C TYPE_CONST rejects any
-// assignment (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official
-// master af5388c898c7bb60997935aee93c223deba60c4a is the same parseopts arm).
-// Assignments are rejected. Go-only crorlf still uses omitted/=1 to select
-// and =0 to leave the previous conversion.
+// cr and crnl are bare flags; assignments are rejected. Go-only crorlf
+// uses omitted/=1 to select and =0 to leave the previous conversion.
 type lineTermMode int
 
 const (
@@ -361,12 +358,12 @@ func selectedLineTerm(s parse.Spec) lineTermMode {
 	return lineTermRaw
 }
 
-// wantCRNL reports classic crlf/crnl (not Go-only crorlf) line conversion.
+// wantCRNL reports crlf/crnl (not Go-only crorlf) line conversion.
 func wantCRNL(s parse.Spec) bool {
 	return selectedLineTerm(s) == lineTermCRNL
 }
 
-// crWriter converts NL → CR on write (classic lineterm CR: RAW → CR).
+// crWriter converts NL → CR on write (RAW → CR).
 type crWriter struct{ w io.Writer }
 
 func (c *crWriter) Write(p []byte) (int, error) {
@@ -383,7 +380,7 @@ func (c *crWriter) Write(p []byte) (int, error) {
 	return c.w.Write(buf)
 }
 
-// crReader converts CR → NL on read (classic lineterm CR: CR → RAW).
+// crReader converts CR → NL on read (CR → RAW).
 type crReader struct{ r io.Reader }
 
 func (c crReader) Read(p []byte) (int, error) {
@@ -396,8 +393,8 @@ func (c crReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// crorlfReader converts CR, LF, or CRLF → NL. Distinct from classic crnl
-// (which strips CR) and classic cr (which is a 1:1 CR↔NL swap).
+// crorlfReader converts CR, LF, or CRLF → NL. Distinct from crnl (which
+// strips CR) and cr (which is a 1:1 CR↔NL swap).
 type crorlfReader struct {
 	r     io.Reader
 	sawCR bool
@@ -468,12 +465,12 @@ func applyLineTerm(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	}
 }
 
-// ApplyCRNL wraps a stream with the selected classic/Go line-termination mode.
+// ApplyCRNL wraps a stream with the selected line-termination mode.
 func ApplyCRNL(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	return applyLineTerm(s, stream)
 }
 
-// escapeReader stops with EOF when the escape byte is seen (classic escape=N).
+// escapeReader stops with EOF when the escape byte is seen (escape=N).
 type escapeReader struct {
 	r   io.Reader
 	esc byte
@@ -516,9 +513,9 @@ func ApplyEscape(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	}, nil
 }
 
-// parseEscapeByte accepts classic escape values: decimal (27), hex with a 0x
-// prefix (0x1b), or a single character. strconv.ParseUint base 0 is required
-// for the hex form; fmt.Sscanf %x stops at the 'x' and would silently yield 0.
+// parseEscapeByte accepts decimal (27), hex with a 0x prefix (0x1b), or a
+// single character. strconv.ParseUint base 0 is required for the hex form;
+// fmt.Sscanf %x stops at the 'x' and would silently yield 0.
 func parseEscapeByte(v string) (byte, error) {
 	if n, err := strconv.ParseUint(v, 0, 8); err == nil {
 		return byte(n), nil
@@ -529,7 +526,7 @@ func parseEscapeByte(v string) (byte, error) {
 	return 0, fmt.Errorf("escape: invalid value %q", v)
 }
 
-// nullEOFReader treats a zero-length successful Read as EOF (classic null-eof).
+// nullEOFReader treats a zero-length successful Read as EOF (null-eof).
 // Used with datagram sockets where a 0-byte packet signals end-of-stream.
 type nullEOFReader struct {
 	r io.Reader
@@ -617,9 +614,9 @@ func WrapCommon(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 }
 
 // WrapCommonAfterConnected is WrapCommon for streams whose opener already
-// handled PH_CONNECTED: it was applied for socket constructors, or explicitly
-// rejected for FD. A skip flag is used instead of wrapping the stream so type
-// assertions on the concrete opener type stay valid.
+// applied after-connect/accept options, or rejected them for FD. A skip
+// flag is used instead of wrapping the stream so type assertions on the
+// concrete opener type stay valid.
 func WrapCommonAfterConnected(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	return wrapCommon(s, stream, true, true, false, false)
 }
@@ -632,12 +629,10 @@ func WrapCommonAfterConnectedFDLifecycleApplied(s parse.Spec, stream relay.Strea
 	return wrapCommon(s, stream, true, true, true, false)
 }
 
-// WrapCommonAfterConnectedFDPhaseApplied skips PH_FD and PH_CONNECTED. Use it
-// when the opener already applied classic PH_FD (and PH_CONNECTED) so PH_LATE
-// still runs here. ACCEPT-FD uses this to match _xioopen_accept_fd
-// (xio-listen.c at tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same):
-// PH_FD → PH_PASTSOCKET → PH_CONNECTED → PH_LATE.
+// WrapCommonAfterConnectedFDPhaseApplied skips after-open and after
+// connect/accept options. Use it when the opener already applied those so
+// late still runs here. ACCEPT-FD uses this: after open → after socket() →
+// after connect/accept → late.
 func WrapCommonAfterConnectedFDPhaseApplied(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	return wrapCommon(s, stream, true, true, false, true)
 }
@@ -649,28 +644,22 @@ func WrapCommonWithSocketTimeoutsApplied(s parse.Spec, stream relay.Stream) (rel
 	return wrapCommon(s, stream, false, false, false, false)
 }
 
-// WrapCommonAfterConnectedTimeoutsApplied skips PH_CONNECTED and socket
-// timeouts (already applied on the raw fd / below the record layer).
+// WrapCommonAfterConnectedTimeoutsApplied skips after-connect/accept options
+// and socket timeouts (already applied on the raw fd / below the record layer).
 func WrapCommonAfterConnectedTimeoutsApplied(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	return wrapCommon(s, stream, false, true, false, false)
 }
 
 func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected, skipFDLifecycle, skipFDPhase bool) (relay.Stream, error) {
-	// PH_LATE so-sndbuf-late / so-rcvbuf-late on streams that expose a
-	// socket fd (syscall.Conn). TLS crypto/tls.Conn is not a syscall.Conn;
-	// ApplyTCPConnOpts applies the same options on the unwrapped raw TCP
-	// fd after connect/accept (client: before TLS/PROXY handshake).
-	// UDP/UNIX datagram wrappers are not syscall.Conn (relay would splice
-	// those fds); late buffers are set on the raw socket after bind/connect
-	// in ApplyUDPConnOpts / applyUnixgramSocketOptions. QUIC applies them
-	// on the transport PacketConn before wrapping.
+	// Late so-sndbuf-late / so-rcvbuf-late on streams that expose a socket
+	// fd. TLS is not a syscall.Conn; ApplyTCPConnOpts applies on the unwrapped
+	// TCP fd after connect/accept. UDP/UNIX datagram wrappers and QUIC apply
+	// on the raw socket/PacketConn before wrapping.
 	//
-	// append / ftruncate / perm / user / group (classic PH_FD then PH_LATE)
-	// on unique syscall.Conn fds in this call. ApplyFDOptions is the owner
-	// for already-open files and marks that *os.File so this path skips
-	// the same open (not a process-global fd-number cache). UDP/UNIX datagram
-	// wrappers, POSIX MQ, and QUIC streams hide the fd; those call sites
-	// apply on the raw socket/mqd before wrapping.
+	// append / ftruncate / perm / user / group (after open, then late) on
+	// unique syscall.Conn fds. ApplyFDOptions marks already-open *os.File so
+	// WrapCommon skips it. Hidden fds (datagram, POSIX MQ, QUIC) apply on
+	// the parent before wrapping.
 	if !skipFDLifecycle {
 		apply := applyFDLifecycleToStream
 		if skipFDPhase {
@@ -680,11 +669,10 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected,
 			return nil, err
 		}
 	}
-	// Classic PH_CONNECTED generic setsockopt* and tcp-maxseg-late follow
-	// the same split: ApplyTCPConnOpts (including TLS/WS/proxy/SOCKS unwrap),
-	// ApplyUDPConnOpts, applyUnixgramSocketOptions, QUIC PacketConn, and
-	// WrapCommon as a fallback for streams that expose a socket fd and have
-	// not already applied CONNECTED (INTERFACE, FD, SOCKETPAIR, UNIX stream).
+	// After connect/accept, generic setsockopt* and tcp-maxseg-late follow
+	// the same split: ApplyTCPConnOpts, ApplyUDPConnOpts,
+	// applyUnixgramSocketOptions, QUIC PacketConn, and WrapCommon as fallback
+	// (INTERFACE, FD, SOCKETPAIR, UNIX stream).
 	if err := applyLateSocketOptionsToStream(s, stream); err != nil {
 		return nil, err
 	}
@@ -694,7 +682,7 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected,
 		}
 	}
 	var err error
-	// O_BINARY/O_TEXT are descriptor-level conversions. Keep this wrapper
+	// O_BINARY/O_TEXT are descriptor-level conversions. Keep the wrapper
 	// inside user-requested cr/crnl, readbytes, escape, and ignoreeof layers,
 	// and do not let zero-copy bypass it.
 	stream, err = applyDescriptorMode(s, stream)
@@ -707,8 +695,8 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected,
 			return nil, err
 		}
 	}
-	// ignoreeof first so it wraps the raw source: EOF is retried (classic
-	// semantics) while outer byte caps like readbytes still terminate.
+	// ignoreeof first so it wraps the raw source: EOF is retried while
+	// outer byte caps like readbytes still terminate.
 	if s.BoolOption("ignoreeof") {
 		stream = newIgnoreEOFStream(stream)
 	}
@@ -739,7 +727,7 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected,
 		return nil, err
 	}
 	// end-close: do not half-close or fully close the underlying FD when the
-	// transfer finishes (classic TCP4ENDCLOSE / EXECENDCLOSE).
+	// transfer finishes.
 	if s.BoolOption("end-close") {
 		stream = endCloseStream{Stream: stream}
 	}
@@ -759,7 +747,7 @@ func (e endCloseStream) UnwrapZeroCopyStream() relay.Stream {
 	return e.Stream
 }
 
-// streamIsEndClose reports whether s (or a wrapper) is classic end-close.
+// StreamIsEndClose reports whether s (or a wrapper) is end-close.
 func StreamIsEndClose(s relay.Stream) bool {
 	type endCloser interface{ IsEndClose() bool }
 	if e, ok := s.(endCloser); ok && e.IsEndClose() {
@@ -768,9 +756,9 @@ func StreamIsEndClose(s relay.Stream) bool {
 	return false
 }
 
-// ignoreEOFReader retries Read after EOF with a short, bounded backoff
-// (classic ignoreeof). Cancellation closes the underlying stream, making the
-// next Read return a non-EOF error; ignoreeof itself has no artificial cutoff.
+// ignoreEOFReader retries Read after EOF with a short, bounded backoff.
+// Cancellation closes the underlying stream, making the next Read return a
+// non-EOF error; ignoreeof itself has no artificial cutoff.
 type ignoreEOFReader struct {
 	r        io.Reader
 	minDelay time.Duration

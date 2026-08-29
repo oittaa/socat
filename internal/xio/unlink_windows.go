@@ -14,7 +14,7 @@ import (
 // removes the link rather than its target.
 //
 // os.Remove also rmdirs empty directories and, on ACCESS_DENIED, retries after
-// clearing FILE_ATTRIBUTE_READONLY. Classic unlink(2) unlinks a mode-0400 file
+// clearing FILE_ATTRIBUTE_READONLY. unlink(2) unlinks a mode-0400 file
 // (directory write permission is enough) but refuses directories, so we keep
 // the readonly retry and skip RemoveDirectory.
 func Unlink(path string) error {

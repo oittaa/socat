@@ -31,7 +31,7 @@ type HelpAddr struct {
 	Name    string // Registered keyword, e.g. "TCP-CONNECT"
 	Syntax  string
 	Desc    string
-	Aliases []string // Unregistered classic addressnames[] aliases; printed at -hhh
+	Aliases []string // Unregistered address aliases; printed at -hhh
 }
 
 // HelpAddrGroup represents a section of address types in help output.
@@ -41,7 +41,7 @@ type HelpAddrGroup struct {
 }
 
 // AddressDesc describes a registered address type.
-// Each help line is its own descriptor (including classic aliases such as TCP-L).
+// Each help line is its own descriptor (including aliases such as TCP-L).
 type AddressDesc struct {
 	Group       string        // Section title; use Group* constants
 	Name        string        // Keyword, e.g. "TCP" or "TCP-L"
@@ -119,7 +119,7 @@ func (r *addressRegistry) register(desc AddressDesc) {
 	}
 }
 
-// Register associates a classic address type name with an opener.
+// Register associates an address type name with an opener.
 // It does not add a -h line; prefer RegisterAddress with Syntax set.
 func Register(name string, fn Opener) {
 	RegisterAddress(AddressDesc{
@@ -142,12 +142,10 @@ func (r *addressRegistry) opener(typ string) (Opener, bool) {
 
 // resolve returns the registered descriptor for typ. Direct RegisterAddress
 // entries win. Otherwise ClassicAddressAliases is applied when the canonical
-// opener is registered (classic addressnames[] in xioopen.c; tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a). Unsupported families (DCCP,
-// UDP-Lite, DTLS, readline) stay unknown because their dest is not
-// registered. DCCP is an intentional compatibility exception, not backlog.
-// Parser shorthand "-" → STDIO is handled in parse.ParseSpec, not here.
+// opener is registered. Unsupported families (DCCP, UDP-Lite, DTLS, readline)
+// stay unknown because their dest is not registered. DCCP is an intentional
+// compatibility exception, not backlog. Parser shorthand "-" → STDIO is
+// handled in parse.ParseSpec, not here.
 func (r *addressRegistry) resolve(typ string) (AddressDesc, bool) {
 	name := strings.ToUpper(strings.TrimSpace(typ))
 	if name == "" || name == "-" {
@@ -196,9 +194,9 @@ type AddressRegistration struct {
 }
 
 // AddressRegistrationForType returns the registered metadata for one address
-// keyword, including classic addressnames[] aliases whose canonical opener is
-// registered. Direct RegisterAddress entries win over alias fallback. It is
-// used by the CLI to validate protocol-specific option scopes.
+// keyword, including aliases whose canonical opener is registered. Direct
+// RegisterAddress entries win over alias fallback. It is used by the CLI to
+// validate protocol-specific option scopes.
 func AddressRegistrationForType(typ string) (AddressRegistration, bool) {
 	return registeredAddresses.registration(typ)
 }

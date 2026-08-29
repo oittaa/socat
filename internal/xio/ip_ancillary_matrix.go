@@ -8,8 +8,8 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// IPAncillaryKind is a bitmask of runtime effects this port actually implements
-// for one IP/ancillary option. Combinations that are not listed are rejected
+// IPAncillaryKind is a bitmask of runtime effects implemented for one
+// IP/ancillary option. Combinations that are not listed are rejected
 // instead of being accepted as no-ops.
 type IPAncillaryKind uint8
 
@@ -47,10 +47,7 @@ const (
 )
 
 // IPAncillaryEntry is one row of the address-family × option runtime matrix.
-// Classic GROUP_* metadata (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same tree)
-// is broader — SOCKET and SOCK_IP match TCP, UNIX, QUIC, and generic sockets —
-// but this port only honors the groups, platforms, and IP families listed here.
+// Only the groups, platforms, and IP families listed here are honored.
 type IPAncillaryEntry struct {
 	Canonical string
 	Aliases   []string
@@ -65,7 +62,7 @@ type IPAncillaryEntry struct {
 var ipAncillaryRecvGroups = []string{GroupUDP, GroupRawIP}
 
 // ipAncillarySendGroups are families that apply send-side IP socket options
-// on the underlying INET fd once at PH_PASTSOCKET (DialControl /
+// on the underlying INET fd once after socket() (DialControl /
 // ListenControl → ApplyNetworkSocketOptions / ApplyPastSocketPhase).
 var ipAncillarySendGroups = []string{
 	GroupUDP, GroupRawIP, GroupTCP, GroupSCTP,
@@ -92,29 +89,22 @@ var (
 // cmsg delivery. Empty implementationGroups means unrestricted, so Windows
 // recv rows keep UDP/raw-IP groups and are rejected by platform instead.
 //
-// ip-ttl/ip-tos/ip-options use classic xio-ip.c OFUNC_SOCKOPT SOL_IP
-// (IPPROTO_IP) IP_TTL/IP_TOS/IP_OPTIONS on both IPv4 and IPv6 sockets — not
-// IPV6_UNICAST_HOPS translation and not a silent skip of TOS on v6.
-// ipv6-unicast-hops/ipv6-tclass and ipv6 recv opts are IPv6-only.
+// ip-ttl/ip-tos/ip-options use IPPROTO_IP IP_TTL/IP_TOS/IP_OPTIONS on both
+// IPv4 and IPv6 sockets — not IPV6_UNICAST_HOPS translation and not a silent
+// skip of TOS on v6. ipv6-unicast-hops/ipv6-tclass and ipv6 recv opts are
+// IPv6-only.
 //
-// ip-hdrincl is classic GROUP_SOCK_IP PH_PASTSOCKET TYPE_INT OFUNC_SOCKOPT
-// SOL_IP IP_HDRINCL (xio-ip.c; tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree). Classic would
-// parse it on TCP/UDP. IP_HDRINCL is only meaningful on SOCK_RAW IPv4, so
-// this port advertises and applies it only there and rejects TCP, UDP, QUIC,
-// IPv6, Windows, and other non-raw address types.
+// IP_HDRINCL is only meaningful on SOCK_RAW IPv4, so ip-hdrincl is advertised
+// and applied only there and rejected on TCP, UDP, QUIC, IPv6, Windows, and
+// other non-raw address types.
 //
-// ip-retopts is Linux-only recv ancillary (IP_RETOPTS as a TYPE_INT boolean
-// like IP_RECVOPTS). Darwin IP_RETOPTS is an IP-options blob, not that
-// boolean, so the name is hidden and rejected there rather than applied as
-// an int. Not listed: ipv6-recvhopopts, ipv6-recvdstopts, and the other
-// classic SOCK_IP flags this port does not implement. ip-recvdstaddr /
-// ip-recvif are Darwin-only (IP_RECVDSTADDR / IP_RECVIF). ip-recverr /
-// ipv6-recverr are recognized and rejected (no MSG_ERRQUEUE ReadMsg path)
-// instead of being silent no-ops. ip-mtu and ip-pktoptions are recognized
-// get-only names, not this matrix. ip-router-alert is a Linux raw-IPv4
-// setter outside this matrix (see ip_remaining.go).
+// ip-retopts is Linux-only recv ancillary (IP_RETOPTS as an int flag like
+// IP_RECVOPTS). Darwin IP_RETOPTS is an IP-options blob, so the name is
+// hidden and rejected there. ip-recvdstaddr / ip-recvif are Darwin-only.
+// ip-recverr / ipv6-recverr are recognized and rejected (no MSG_ERRQUEUE
+// ReadMsg path) instead of being silent no-ops. ip-mtu and ip-pktoptions
+// are recognized get-only names, not this matrix. ip-router-alert is a
+// Linux raw-IPv4 setter outside this matrix (see ip_remaining.go).
 
 var ipAncillaryMatrix = []IPAncillaryEntry{
 	{Canonical: "so-timestamp", Aliases: []string{"timestamp"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixOnly},
@@ -178,10 +168,10 @@ func IPAncillaryImplementationGroups(optionName string) []string {
 	return append([]string(nil), e.Groups...)
 }
 
-// IPAncillarySupported reports whether this port implements optionName on the
-// address help-section group. Options that are not in the matrix are unrestricted
-// here (classic GROUP_* / addressTypes still apply). Platform and IP-family
-// checks live in RejectUnsupportedIPAncillary.
+// IPAncillarySupported reports whether optionName is implemented on the
+// address help-section group. Options that are not in the matrix are
+// unrestricted here. Platform and IP-family checks live in
+// RejectUnsupportedIPAncillary.
 func IPAncillarySupported(group, optionName string) bool {
 	e, ok := lookupIPAncillary(optionName)
 	if !ok {
@@ -300,9 +290,9 @@ func rejectIPAncillaryApply(optionName string, family ipFamily) error {
 }
 
 // RejectUnsupportedIPAncillary fails fast when a spec requests an IP/ancillary
-// option this opener group, platform, or forced IP family does not implement.
+// option the opener group, platform, or forced IP family does not implement.
 // Same combinations the CLI rejects via implementationGroups, plus Windows
-// recv/ip-options/ipv6-* and IPv4/IPv6 mismatches that used to be silent skips.
+// recv/ip-options/ipv6-* and IPv4/IPv6 mismatches.
 func RejectUnsupportedIPAncillary(s parse.Spec) error {
 	reg, ok := AddressRegistrationForType(s.Type)
 	if !ok {
@@ -381,10 +371,10 @@ func ancillaryRecvOptionInt(o parse.Option) (int, error) {
 	return n, nil
 }
 
-// ancillaryRecvInt returns the final TYPE_INT value after canonical alias
+// ancillaryRecvInt returns the final int value after canonical alias
 // folding. NeedAncillary uses the same last-wins view to decide whether the
-// I/O path must call recvmsg; the phase application itself still walks every
-// occurrence in command-line order.
+// I/O path must call recvmsg; the apply path still walks every occurrence
+// in command-line order.
 func ancillaryRecvInt(s parse.Spec, names ...string) (int, bool, error) {
 	for _, name := range names {
 		o, ok := s.OptionNamed(name)

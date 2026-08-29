@@ -12,12 +12,9 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-// applySocketBufferOpt sets SO_SNDBUF or SO_RCVBUF (classic xio-socket.c
-// TYPE_INT). so-sndbuf/so-rcvbuf are PH_PASTSOCKET; so-sndbuf-late/
-// so-rcvbuf-late are PH_LATE. Linux often doubles the stored value for
-// bookkeeping; callers must not require exact equality.
-// Classic: tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same tree.
+// applySocketBufferOpt sets SO_SNDBUF or SO_RCVBUF. so-sndbuf/so-rcvbuf
+// apply after socket(); so-sndbuf-late/so-rcvbuf-late apply later.
+// Linux often doubles the stored value; callers must not require exact equality.
 func applySocketBufferOpt(fd int, name string, o parse.Option, present bool, opt int) error {
 	if !present {
 		return nil
@@ -35,12 +32,9 @@ func applySocketBufferOpt(fd int, name string, o parse.Option, present bool, opt
 	return nil
 }
 
-// applyBroadcastOption is classic opt_so_broadcast from xio-socket.c
-// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree): GROUP_SOCKET,
-// PH_PASTSOCKET, TYPE_INT, OFUNC_SOCKOPT, SOL_SOCKET, SO_BROADCAST.
-// Bare flag → 1; with '=' → integer (Strtoul). Presence always applies,
-// including broadcast=0. BoolOption is wrong here because it skips false.
+// applyBroadcastOption sets SO_BROADCAST. Bare flag → 1; with '=' → integer.
+// Presence always applies, including broadcast=0. BoolOption is wrong here
+// because it skips false.
 func applyBroadcastOption(fd int, o parse.Option) error {
 	n := 1
 	if o.Has {
@@ -56,12 +50,11 @@ func applyBroadcastOption(fd int, o parse.Option) error {
 	return nil
 }
 
-// applyFixedPastSocketOption applies one classic PH_PASTSOCKET action option
-// that used to live in a last-wins helper pass (broadcast, sndbuf/rcvbuf,
-// bindtodevice, so-linger, rcvtimeo/sndtimeo). Callers walk Spec.Options so
-// these keep command-line order with named SOL_SOCKET/TCP options, generic
-// setsockopt-socket, and IP/ancillary options.
-// Late buffer variants (sndbuf-late / rcvbuf-late) stay PH_LATE.
+// applyFixedPastSocketOption applies one post-socket() option: broadcast,
+// sndbuf/rcvbuf, bindtodevice, so-linger, or rcvtimeo/sndtimeo. Callers walk
+// Spec.Options so these keep command-line order with named SOL_SOCKET/TCP
+// options, generic setsockopt-socket, and IP/ancillary options.
+// sndbuf-late / rcvbuf-late apply later.
 func applyFixedPastSocketOption(fd int, o parse.Option) (bool, error) {
 	switch o.Name {
 	case "broadcast":
@@ -82,9 +75,8 @@ func applyFixedPastSocketOption(fd int, o parse.Option) (bool, error) {
 }
 
 // isPastSocketActionOption reports whether o would be consumed by
-// ApplySocketOptions (classic PH_PASTSOCKET). That is the leftover set
-// user-selected EXEC pipes/pty/nofork must reject instead of silently
-// ignoring. PH_LATE sndbuf-late/rcvbuf-late and PH_CONNECTED
+// ApplySocketOptions. User-selected EXEC pipes/pty/nofork must reject this
+// leftover set instead of silently ignoring it. sndbuf-late/rcvbuf-late and
 // tcp-maxseg-late are not included.
 func isPastSocketActionOption(o parse.Option) bool {
 	switch o.Name {
@@ -100,8 +92,8 @@ func isPastSocketActionOption(o parse.Option) bool {
 	return ok
 }
 
-// ApplyLateSocketOptions applies classic so-sndbuf-late / so-rcvbuf-late
-// (PH_LATE, same SO_SNDBUF / SO_RCVBUF constants).
+// ApplyLateSocketOptions applies so-sndbuf-late / so-rcvbuf-late
+// (same SO_SNDBUF / SO_RCVBUF constants).
 func ApplyLateSocketOptions(fd int, s parse.Spec) error {
 	o, ok := s.OptionNamed("sndbuf-late")
 	if err := applySocketBufferOpt(fd, "sndbuf-late", o, ok, soSndbuf); err != nil {
@@ -111,9 +103,9 @@ func ApplyLateSocketOptions(fd int, s parse.Spec) error {
 	return applySocketBufferOpt(fd, "rcvbuf-late", o, ok, soRcvbuf)
 }
 
-// ApplyLateSocketOptionsToConn applies PH_LATE so-sndbuf-late / so-rcvbuf-late
-// on a connected or accepted socket. Classic applies these on the raw fd
-// after connect()/accept(), before SSL/PROXY handshake.
+// ApplyLateSocketOptionsToConn applies so-sndbuf-late / so-rcvbuf-late
+// on a connected or accepted socket, after connect/accept and before
+// SSL/PROXY handshake.
 func ApplyLateSocketOptionsToConn(conn syscall.Conn, s parse.Spec) error {
 	if conn == nil {
 		return nil
@@ -136,7 +128,7 @@ func ApplyLateSocketOptionsToConn(conn syscall.Conn, s parse.Spec) error {
 	return err
 }
 
-// ApplyLateSocketOptionsToPacketConn applies PH_LATE buffers on a UDP
+// ApplyLateSocketOptionsToPacketConn applies late buffers on a UDP
 // PacketConn (QUIC transport, ListenPacket). Rejects enabled late options
 // when the conn does not expose a socket fd.
 func ApplyLateSocketOptionsToPacketConn(pc net.PacketConn, s parse.Spec) error {
@@ -153,7 +145,7 @@ func ApplyLateSocketOptionsToPacketConn(pc net.PacketConn, s parse.Spec) error {
 // ApplyIPSendOptsToPacketConn applies send-side IP options on a UDP PacketConn
 // that was not created with ListenControl (tests, leftover callers). QUIC,
 // HTTP/3, and raw IP apply the same options once in ListenControl / DialControl
-// at PH_PASTSOCKET.
+// after socket().
 func ApplyIPSendOptsToPacketConn(pc net.PacketConn, s parse.Spec, network string) error {
 	if pc == nil || !ipSendRequested(s) {
 		return nil

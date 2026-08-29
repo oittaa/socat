@@ -12,18 +12,17 @@ const defaultHandshakeTimeout = 30 * time.Second
 // QUICHandshakeIdleTimeoutDisabled is HandshakeIdleTimeout when
 // handshake-timeout=0 (disable the bound). quic-go v0.61.0 populateConfig
 // substitutes protocol.DefaultHandshakeIdleTimeout (5s) when the field is
-// 0, and handshakeTimeout() returns 2*HandshakeIdleTimeout, so this must be
-// nonzero and 2*duration must not overflow int64. One year is effectively
+// 0, and handshakeTimeout() returns 2*HandshakeIdleTimeout, so the value must
+// be nonzero and 2*duration must not overflow int64. One year is effectively
 // unbounded for a handshake.
 const QUICHandshakeIdleTimeoutDisabled = 365 * 24 * time.Hour
 
 // HandshakeTimeout bounds protocol negotiation after a connection is
-// established. This is a Go extra (not classic OPTION_CONNECT_TIMEOUT).
-// handshake-timeout=0 explicitly disables the bound. When the option is
-// omitted, a 30s default applies so a stalled TLS/WS/QUIC/PROXY/SOCKS
-// handshake cannot hang forever. connect-timeout is never reused here; it
-// remains the dialing/connection-establishment bound only. accept-timeout
-// is the accept-side bound.
+// established (Go extra; not connect-timeout). handshake-timeout=0
+// explicitly disables the bound. When omitted, a 30s default applies so a
+// stalled TLS/WS/QUIC/PROXY/SOCKS handshake cannot hang forever.
+// connect-timeout remains the dial bound only. accept-timeout is the
+// accept-side bound.
 func HandshakeTimeout(s parse.Spec) time.Duration {
 	if s.HasOption("handshake-timeout") {
 		return ParseTimeval(s.OptionValue("handshake-timeout", ""))

@@ -46,7 +46,7 @@ func applyIPOptions(fd int, value string) error {
 func sockoptIPOptions(fd int) ([]byte, error) {
 	buf := make([]byte, maxIPOptions)
 	vallen := uint32(len(buf))        // #nosec G115 -- maxIPOptions is 256, within uint32
-	optval := unsafe.Pointer(&buf[0]) // #nosec G103 -- classic OFUNC_SOCKOPT_APPEND reads IP_OPTIONS bytes; GetsockoptString truncates at NUL padding
+	optval := unsafe.Pointer(&buf[0]) // #nosec G103 -- reads IP_OPTIONS bytes; GetsockoptString truncates at NUL padding
 	optlen := unsafe.Pointer(&vallen) // #nosec G103 -- socklen_t pointer for getsockopt
 	_, _, errno := unix.Syscall6(unix.SYS_GETSOCKOPT, uintptr(fd), uintptr(unix.IPPROTO_IP), uintptr(unix.IP_OPTIONS), uintptr(optval), uintptr(optlen), 0)
 	if errno != 0 {
@@ -61,13 +61,9 @@ func sockoptIPOptions(fd int) ([]byte, error) {
 	return out, nil
 }
 
-// appendSockoptIPOptions is classic OFUNC_SOCKOPT_APPEND for IP_OPTIONS
-// (xioopts.c applyopt_sockopt_append TYPE_BIN; xio-ip.c opt_ip_options;
-// tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree): getsockopt the
-// current value into a 256-byte buffer, memcpy-append the new occurrence
-// (capped at 256), then setsockopt the combined data. Each ip-options=
-// occurrence appends; they do not replace each other.
+// appendSockoptIPOptions gets the current IP_OPTIONS into a 256-byte
+// buffer, appends extra (capped at 256), then setsockopt the combined
+// data. Each ip-options= occurrence appends; they do not replace each other.
 func appendSockoptIPOptions(fd int, extra []byte) error {
 	old, err := sockoptIPOptions(fd)
 	if err != nil {
@@ -87,10 +83,7 @@ func applyIPv6Tclass(fd, n int) error {
 	return setSockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_TCLASS, n)
 }
 
-// applyIPHdrincl is classic xio-ip.c opt_ip_hdrincl OFUNC_SOCKOPT SOL_IP
-// IP_HDRINCL at PH_PASTSOCKET (tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree).
+// applyIPHdrincl sets IPPROTO_IP IP_HDRINCL after socket().
 func applyIPHdrincl(fd, n int) error {
 	return setSockoptInt(fd, unix.IPPROTO_IP, unix.IP_HDRINCL, n)
 }

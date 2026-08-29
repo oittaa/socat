@@ -17,19 +17,16 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// Classic lowport bind range from xio-socket.c xiobind (tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same): 640 through 1023.
+// Lowport bind range: 640 through 1023.
 const (
 	LowportMin = 640
 	LowportMax = 1023
 )
 
-// FirstAvailableLowport selects a random start in [LowportMin, LowportMax]
-// (classic: 640 + random() % 384), then walks downward, wrapping from
-// LowportMin to LowportMax, and stops after one full pass. Matching classic
-// xiobind, only EADDRINUSE advances to another port; permission and
-// configuration errors fail immediately instead of being hidden by retries.
+// FirstAvailableLowport selects a random start in [LowportMin, LowportMax],
+// then walks downward, wrapping from LowportMin to LowportMax, and stops
+// after one full pass. Only EADDRINUSE advances to another port; permission
+// and configuration errors fail immediately instead of being hidden by retries.
 func FirstAvailableLowport(bind func(int) error) (int, error) {
 	return firstAvailableLowportFrom(randomLowport(), bind)
 }
@@ -71,14 +68,9 @@ func firstAvailableLowportFrom(start int, bind func(int) error) (int, error) {
 }
 
 // reuseaddrListenDefault is the SO_REUSEADDR default before bind.
-// Classic xiosock_reuseaddr (tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree) turns it on for
-// TCP listen. Classic _xioopen_ipdgram_listen (UDP-LISTEN, UDP4-LISTEN, and
-// UDP6-LISTEN, including aliases UDP-L, UDP4-L, UDP6-L) sets it when fork is
-// on. Other UDP-backed addresses (UDP-RECVFROM, QUIC-LISTEN, …) only set it
-// when reuseaddr is present. Classic 1.7.2.0 treated always-on UDP-LISTEN
-// reuse as a bug.
+// TCP listen turns it on. UDP-LISTEN (including UDP-L / UDP4-L / UDP6-L)
+// sets it when fork is on. Other UDP-backed addresses (UDP-RECVFROM,
+// QUIC-LISTEN, …) only set it when reuseaddr is present.
 func reuseaddrListenDefault(s parse.Spec, network string) bool {
 	if udpListenAddress(s.Type) {
 		return s.BoolOption("fork")
@@ -91,9 +83,9 @@ func reuseaddrListenDefault(s parse.Spec, network string) bool {
 	}
 }
 
-// udpListenAddress reports whether addrType is classic UDP-LISTEN after
-// addressnames[] alias expansion. Do not use GoAddressClassicAlias: QUIC-LISTEN
-// maps to OPENSSL-DTLS-SERVER for option groups, not for this default.
+// udpListenAddress reports whether addrType is UDP-LISTEN after alias
+// expansion. Do not use GoAddressClassicAlias: QUIC-LISTEN maps to
+// OPENSSL-DTLS-SERVER for option groups, not for this default.
 func udpListenAddress(addrType string) bool {
 	t := strings.ToUpper(strings.TrimSpace(addrType))
 	if alias, ok := ClassicAddressAliases[t]; ok {
@@ -109,10 +101,9 @@ func udpListenAddress(addrType string) bool {
 
 // UDPForkPortReuse reports whether a UDP-LISTEN fork session may share the
 // parent's port (SO_REUSEPORT on BSD; SO_REUSEADDR on connected child sockets).
-// Classic does not set SO_REUSEPORT; the Go port needs equivalent port reuse so
-// a connected child can bind the same local port while the parent stays
-// listening. Explicit reuseaddr=0 disables sharing; the first session then
-// takes the listen socket (classic child inherits the fd) instead of dropping
+// A connected child needs equivalent port reuse so it can bind the same local
+// port while the parent stays listening. Explicit reuseaddr=0 disables
+// sharing; the first session then takes the listen socket instead of dropping
 // the datagram.
 func UDPForkPortReuse(s parse.Spec) bool {
 	if !udpListenAddress(s.Type) || !s.BoolOption("fork") {
@@ -174,8 +165,8 @@ func ApplyReuseAndV6Only(fd int, s parse.Spec, network string) error {
 }
 
 // ApplyListenOptions applies socket options that must be set before bind
-// (classic PH_PREBIND: reuseaddr/reuseport/ipv6-v6only plus setsockopt-listen).
-// PH_PASTSOCKET options including so-broadcast live in ApplySocketOptions and
+// (reuseaddr/reuseport/ipv6-v6only plus setsockopt-listen).
+// so-broadcast and other post-socket options live in ApplySocketOptions and
 // must run first (DialControl / ListenControl / listenUDP Control).
 func ApplyListenOptions(fd int, s parse.Spec, network string) error {
 	// Windows AF_UNIX sockets reject SO_REUSEADDR and can remain unusable
@@ -188,10 +179,8 @@ func ApplyListenOptions(fd int, s parse.Spec, network string) error {
 	return ApplyPrebindPhase(fd, s)
 }
 
-// ApplyPastSocketPhase applies classic PH_PASTSOCKET immediately after
-// socket() (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same):
-// SOL_SOCKET buffers/broadcast/bindtodevice/so-debug plus named TCP
+// ApplyPastSocketPhase applies post-socket options immediately after
+// socket(): SOL_SOCKET buffers/broadcast/bindtodevice/so-debug plus named TCP
 // (tcp-cork, tcp-maxseg, …) and Linux SCTP (sctp-nodelay, sctp-maxseg),
 // setsockopt-socket, and ip-ttl/tos on TCP/SCTP.
 func ApplyPastSocketPhase(fd int, s parse.Spec, network string) error {
@@ -199,12 +188,8 @@ func ApplyPastSocketPhase(fd int, s parse.Spec, network string) error {
 	return ApplyNetworkSocketOptions(fd, s, network)
 }
 
-// ApplyPrebindPhase applies classic PH_PREBIND before bind()/connect():
-// generic setsockopt-listen and ip-transparent (xio-ip.c PH_PREBIND TYPE_BOOL
-// OFUNC_SOCKOPT SOL_IP IP_TRANSPARENT; tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree). Occurrences are
-// applied in command-line order.
+// ApplyPrebindPhase applies generic setsockopt-listen and ip-transparent
+// before bind()/connect(), in command-line order.
 func ApplyPrebindPhase(fd int, s parse.Spec) error {
 	for _, o := range s.Options {
 		if kind, ok := genericSetsockoptKind(o.Name, SockoptPhasePrebind); ok {
@@ -223,8 +208,8 @@ func ApplyPrebindPhase(fd int, s parse.Spec) error {
 }
 
 // ApplyPastSocketThenPrebind is the Control-hook order used by net.Dialer
-// and net.ListenConfig: PASTSOCKET after socket(), then PREBIND, then
-// return so connect()/bind() happens after both phases.
+// and net.ListenConfig: ApplyPastSocketPhase after socket(), then
+// ApplyPrebindPhase, then return so connect()/bind() happens after both.
 func ApplyPastSocketThenPrebind(fd int, s parse.Spec, network string) error {
 	if err := ApplyPastSocketPhase(fd, s, network); err != nil {
 		return err
@@ -232,8 +217,8 @@ func ApplyPastSocketThenPrebind(fd int, s parse.Spec, network string) error {
 	return ApplyPrebindPhase(fd, s)
 }
 
-// ListenControl is a net.ListenConfig.Control that applies PASTSOCKET then
-// PREBIND before bind().
+// ListenControl is a net.ListenConfig.Control that applies
+// ApplyPastSocketPhase then ApplyListenOptions before bind().
 func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) error {
 		var optionErr error
@@ -247,13 +232,11 @@ func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn
 	}
 }
 
-// NewTCPListenConfig is ListenConfig for classic TCP/TLS/WS listen.
-// Go 1.21+ may create IPPROTO_MPTCP sockets by default; classic TCP-LISTEN
-// is IPPROTO_TCP (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
-// MPTCP silently no-ops SO_DONTROUTE (setsockopt succeeds, getsockopt stays 0)
-// and rejects TCP_MAXSEG (ENOPROTOOPT), so named PASTSOCKET options would not
-// have kernel effect. Stay on TCP.
+// NewTCPListenConfig is ListenConfig for TCP/TLS/WS listen.
+// Go 1.21+ may create IPPROTO_MPTCP sockets by default; TCP-LISTEN is
+// IPPROTO_TCP. MPTCP silently no-ops SO_DONTROUTE (setsockopt succeeds,
+// getsockopt stays 0) and rejects TCP_MAXSEG (ENOPROTOOPT), so named
+// post-socket options would not have kernel effect. Stay on TCP.
 func NewTCPListenConfig(s parse.Spec) net.ListenConfig {
 	lc := net.ListenConfig{Control: ListenControl(s)}
 	lc.SetMultipathTCP(false)
@@ -261,10 +244,9 @@ func NewTCPListenConfig(s parse.Spec) net.ListenConfig {
 }
 
 // ApplyNetworkSocketOptions applies the post-socket options shared by Go net
-// listeners/dialers and raw SCTP sockets. Every PH_PASTSOCKET action option
-// (fixed SOL_SOCKET, named SOL_SOCKET/TCP/SCTP, generic setsockopt-socket,
-// and IP/ancillary/membership) is applied once in command-line order before
-// bind/connect.
+// listeners/dialers and raw SCTP sockets. Fixed SOL_SOCKET, named
+// SOL_SOCKET/TCP/SCTP, generic setsockopt-socket, and IP/ancillary/membership
+// options are applied once in command-line order before bind/connect.
 func ApplyNetworkSocketOptions(fd int, s parse.Spec, network string) error {
 	if err := ApplySocketOptionsWithoutGeneric(fd, s); err != nil {
 		return err
@@ -293,11 +275,8 @@ func ApplyListenBacklog(ln net.Listener, backlog int) error {
 }
 
 // DialControl merges spec-driven socket options with an optional
-// caller-provided Control. Classic _xioopen_connect applies
-// PH_PASTSOCKET then PH_PREBIND (setsockopt-listen) before connect()
-// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same). Go's Control
-// hook runs after socket() and before connect(), so both phases go here.
+// caller-provided Control. Go's Control hook runs after socket() and before
+// connect(), so both post-socket and pre-bind phases go here.
 func DialControl(s parse.Spec, network string, caller func(string, string, syscall.RawConn) error) func(string, string, syscall.RawConn) error {
 	return func(nw, addr string, c syscall.RawConn) error {
 		optionNetwork := network
@@ -349,11 +328,8 @@ func listenAIPassive(s parse.Spec) bool {
 // Forced-family combinations that would otherwise fail inside the OS resolver
 // (TCP4/UDP4 vs ::, TCP6 vs 0.0.0.0) return a clear error.
 //
-// Classic auto-sets getaddrinfo AI_PASSIVE for LISTEN/RECV/bind unless
-// ai-passive=0 (xio-ipapp.c / xio-udp.c at tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is unchanged). AI_PASSIVE with an
-// empty node is the wildcard; unset is loopback.
+// LISTEN/RECV/bind set getaddrinfo AI_PASSIVE unless ai-passive=0.
+// AI_PASSIVE with an empty node is the wildcard; unset is loopback.
 func ListenBindHost(s parse.Spec, network, bind string) (string, error) {
 	if bind == "" {
 		if listenAIPassive(s) {
@@ -426,7 +402,7 @@ func ConnectTimeout(s parse.Spec) time.Duration {
 	return ParseTimeval(v)
 }
 
-// pfVersion maps classic pf= names (and PF_* numbers) to a family.
+// pfVersion maps pf= names (and PF_* numbers) to a family.
 var pfVersion = map[string]IPVersion{
 	"4": IPv4, "ip4": IPv4, "ipv4": IPv4, "inet": IPv4, "2": IPv4, // 2 = PF_INET
 	"6": IPv6, "ip6": IPv6, "ipv6": IPv6, "inet6": IPv6, "10": IPv6, // 10 = PF_INET6
@@ -501,7 +477,7 @@ func IsTimeoutErr(err error) bool {
 	return errors.As(err, &ne) && ne.Timeout()
 }
 
-// applyKeepAliveConfig builds net.KeepAliveConfig from the classic keepalive
+// applyKeepAliveConfig builds net.KeepAliveConfig from the keepalive
 // family: keepalive/so-keepalive toggle, keepidle/keepintvl/keepcnt values.
 // Any sub-option implies enable; an explicit keepalive=0 disables even when
 // sub-options are present. Unset fields keep their platform defaults.
@@ -522,7 +498,7 @@ func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 	}
 	// Negative values preserve the current OS settings. Zero would replace
 	// omitted fields with Go's defaults (15s/15s/9), which is not what a
-	// single classic tcp-keep* option requests.
+	// single tcp-keep* option requests.
 	cfg := net.KeepAliveConfig{
 		Enable:   enable,
 		Idle:     -1,
@@ -567,13 +543,13 @@ func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 	return nil
 }
 
-// ApplyTCPConnOpts applies TCP keepalive/nodelay plus classic PH_CONNECTED
-// generic setsockopt and named tcp-maxseg-late on the unwrapped raw conn.
-// IP TTL/TOS, so-debug/tcp-cork, and other PH_PASTSOCKET options were already
+// ApplyTCPConnOpts applies TCP keepalive/nodelay plus post-connect generic
+// setsockopt and named tcp-maxseg-late on the unwrapped raw conn.
+// IP TTL/TOS, so-debug/tcp-cork, and other post-socket options were already
 // applied by DialControl/ListenControl. SETSOCKOPT uses
 // setsockopt=6:TCP_MAXSEG:512 (IPPROTO_TCP + TCP_MAXSEG) after connect.
 // Non-TCP connections that expose a socket fd still get generic setsockopt
-// and named CONNECTED TCP opts; a present option is never ignored because
+// and named connected TCP opts; a present option is never ignored because
 // the conn is not *net.TCPConn (TCP_* on UDP/SCTP fails clearly).
 func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
 	noteOptionPhase("CONNECTED")
@@ -591,16 +567,14 @@ func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
 		if err := ApplyGenericSetsockoptToNetConn(tc, s, SockoptPhaseConnected); err != nil {
 			return err
 		}
-		// Classic PH_LATE so-sndbuf-late / so-rcvbuf-late on the raw TCP fd
-		// after connect()/accept(), before TLS/PROXY handshake. WrapCommon
+		// so-sndbuf-late / so-rcvbuf-late on the raw TCP fd after
+		// connect()/accept(), before TLS/PROXY handshake. WrapCommon
 		// still applies the same options on UNIX/UDP streams; a second
 		// SO_SNDBUF set on this TCP conn is harmless.
 		return ApplyLateSocketOptionsToConn(tc, s)
 	}
 	return ApplyGenericSetsockoptToNetConn(c, s, SockoptPhaseConnected)
 }
-
-// FormatSocatAddr matches classic env formatting (IPv6 in brackets).
 
 func ParsePositiveInt(v string) (int, error) {
 	n, err := ParseIntAny(v)
@@ -621,9 +595,9 @@ func ParseIntAny(v string) (int, error) {
 	return int(n), nil
 }
 
-// ParseSizeT matches classic's strtoul-based TYPE_SIZE_T parser. In
-// particular, an optional minus sign is converted modulo 2^64, so
-// readbytes=-1 means the largest possible limit rather than a parse failure.
+// ParseSizeT parses an unsigned size. An optional minus sign is converted
+// modulo 2^64, so readbytes=-1 means the largest possible limit rather than
+// a parse failure.
 func ParseSizeT(v string) (uint64, error) {
 	v = strings.TrimSpace(v)
 	if v == "" {
@@ -654,7 +628,7 @@ func FirstHost(s parse.Spec) string {
 }
 
 func parseTimeval(v string) (time.Duration, error) {
-	// classic timeval: seconds with optional fractional part
+	// timeval: seconds with optional fractional part
 	v = strings.TrimSpace(v)
 	if v == "" {
 		return 0, fmt.Errorf("empty timeout")
@@ -680,7 +654,7 @@ func ParseTimeval(v string) time.Duration {
 }
 
 // RecvTimeoutFromSpec parses so-rcvtimeo / rcvtimeo. An empty value means
-// unlimited; a present but invalid value is an error (classic fail-closed).
+// unlimited; a present but invalid value is an error.
 func RecvTimeoutFromSpec(s parse.Spec) (time.Duration, error) {
 	v := s.OptionValue("rcvtimeo", "")
 	if v == "" {

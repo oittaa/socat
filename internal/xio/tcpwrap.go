@@ -12,7 +12,7 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// tcpwrapConfig holds classic libwrap / tcpwrappers options for peer checks.
+// tcpwrapConfig holds libwrap / tcpwrappers options for peer checks.
 type tcpwrapConfig struct {
 	enabled       bool
 	daemon        string // service name in hosts.* (default: progname / "socat")
@@ -23,7 +23,7 @@ type tcpwrapConfig struct {
 }
 
 // parseTCPWrap extracts hosts-allow / hosts-deny / tcpwrap-etc / tcpwrap options.
-// Any of these enables the filter (classic dolibwrap).
+// Any of these enables the filter.
 func parseTCPWrap(s parse.Spec, g *Global) tcpwrapConfig {
 	cfg := tcpwrapConfig{}
 	// Explicit table paths
@@ -82,7 +82,7 @@ func parseTCPWrap(s parse.Spec, g *Global) tcpwrapConfig {
 			cfg.daemon = "socat"
 		}
 	}
-	// Default system tables if none set (classic).
+	// Default system tables if none set.
 	if cfg.allow == "" {
 		cfg.allow = "/etc/hosts.allow"
 	}
@@ -102,7 +102,7 @@ func FirstNonEmpty(vals ...string) string {
 }
 
 // tcpwrapAllowed returns nil if the peer is allowed, or an error to refuse.
-// Classic hosts_access: allow table first; then deny; default permit if neither matches.
+// Allow table first; then deny; default permit if neither matches.
 func tcpwrapAllowed(cfg tcpwrapConfig, peer net.Addr, local net.Addr) error {
 	return tcpwrapAllowedForSpec(parse.Spec{}, cfg, peer, local)
 }
@@ -111,13 +111,13 @@ func tcpwrapAllowedForSpec(s parse.Spec, cfg tcpwrapConfig, peer net.Addr, local
 	if !cfg.enabled {
 		return nil
 	}
-	_ = local // classic passes server sin for libwrap; we match client only
+	_ = local // libwrap receives the server address; we match client only
 	clientIP, bareHost := peerIPOnly(peer)
 	if clientIP == "" && bareHost == "" {
 		return fmt.Errorf("refusing connection from %s due to tcpwrapper option", peer)
 	}
 	// Match by IP first (no reverse DNS) so reject is fast enough that the
-	// client has not written yet — avoids RST vs FIN (TCP4WRAPPERS_* expect 0).
+	// client has not written yet — avoids RST vs FIN.
 	allowLines, err := readHostsTable(cfg.allow, cfg.allowRequired)
 	if err != nil {
 		return err
@@ -129,7 +129,7 @@ func tcpwrapAllowedForSpec(s parse.Spec, cfg tcpwrapConfig, peer net.Addr, local
 	if matchHostsLines(allowLines, cfg.daemon, clientIP, "") {
 		return nil
 	}
-	// Only reverse-lookup when tables may name hosts (TCP4WRAPPERS_NAME).
+	// Only reverse-lookup when tables may name hosts.
 	clientHost := ""
 	if clientIP != "" && hostsLinesMayNeedHostname(allowLines, denyLines) {
 		clientHost = reverseHost(s, clientIP)
@@ -140,7 +140,7 @@ func tcpwrapAllowedForSpec(s parse.Spec, cfg tcpwrapConfig, peer net.Addr, local
 	if matchHostsLines(denyLines, cfg.daemon, clientIP, clientHost) {
 		return fmt.Errorf("refusing connection from %s due to tcpwrapper option", peer)
 	}
-	// Classic default: permit if not denied
+	// Default: permit if not denied
 	return nil
 }
 
@@ -160,9 +160,9 @@ func peerIPOnly(peer net.Addr) (ipStr, bare string) {
 }
 
 // reverseHost returns a verified reverse-DNS name for ipStr, or "".
-// Classic/libwrap-style: name is only trusted when it forward-resolves back
-// to the client IP. Without this, systems that map all 127/8 to "localhost"
-// would falsely pass TCP4WRAPPERS_NAME (allow localhost, client SECONDADDR).
+// The name is only trusted when it forward-resolves back to the client IP.
+// Without this, systems that map all 127/8 to "localhost" would falsely
+// allow a client that is not localhost.
 func reverseHost(s parse.Spec, ipStr string) string {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
@@ -235,7 +235,7 @@ func readHostsTable(path string, required bool) ([]string, error) {
 }
 
 // matchHostsTable returns true if daemon+client match a non-comment line.
-// Supports classic subset: daemon_list: client_list [: shell_command]
+// Supports subset: daemon_list: client_list [: shell_command]
 // daemon ALL / exact name; client ALL / IP / hostname / [ipv6] (case-insensitive).
 func matchHostsTable(path, daemon, clientIP, clientHost string) bool {
 	lines, err := readHostsTable(path, false)
@@ -318,7 +318,7 @@ func listMatchesClient(list, clientIP, clientHost string) bool {
 		if strings.EqualFold(tok, "ALL") {
 			return true
 		}
-		// Strip brackets for IPv6 tokens like [::1] (TCPWRAPPERS_TCP6ADDR).
+		// Strip brackets for IPv6 tokens like [::1].
 		tokIP := StripBrackets(tok)
 		// Exact IP string
 		if clientIP != "" && (tok == clientIP || tokIP == clientIP) {
@@ -347,7 +347,7 @@ func listMatchesClient(list, clientIP, clientHost string) bool {
 }
 
 func splitHostsList(s string) []string {
-	// Comma or space separated (classic allows both).
+	// Comma or space separated.
 	s = strings.ReplaceAll(s, ",", " ")
 	fields := strings.Fields(s)
 	out := make([]string, 0, len(fields))

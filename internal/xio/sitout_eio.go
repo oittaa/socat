@@ -14,14 +14,10 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// SitoutEIO is classic PTY sitout-eio (xio-progcall.c OFUNC_OFFSET into
-// para.exec.sitout_eio; xioread.c XIOREAD_PTY). tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same.
-//
-// Omitted or 0: EIO on the PTY master is EOF (login closed the slave).
-// Positive timeval: poll 10ms loops for 100*sec + ceil(usec/10000) ticks,
-// then return the EIO. The last tick sleeps without another Read.
+// SitoutEIO is PTY sitout-eio. Omitted or 0: EIO on the PTY master is EOF
+// (login closed the slave). Positive timeval: poll 10ms loops for
+// 100*sec + ceil(usec/10000) ticks, then return the EIO. The last tick
+// sleeps without another Read.
 func SitoutEIO(s parse.Spec) (time.Duration, error) {
 	if !s.HasOption("sitout-eio") {
 		return 0, nil

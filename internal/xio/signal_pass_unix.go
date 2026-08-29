@@ -14,12 +14,9 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// liveSessions holds every per-logical-process OFUNC_SIGNAL table that
-// currently has a pid (classic xiosignal.c at tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same). LISTEN,fork uses
-// goroutines, so each forkSession Global owns a table; the process handler
-// aggregates every live table's pids.
+// liveSessions holds every per-logical-process signal table that currently
+// has a pid. LISTEN,fork uses goroutines, so each forkSession Global owns a
+// table; the process handler aggregates every live table's pids.
 var (
 	childSignalMu       sync.Mutex
 	processSession      childSignalSession
@@ -70,8 +67,8 @@ func execParentSignalRequested(s parse.Spec) bool {
 	return s.HasOption("sighup") || s.HasOption("sigint") || s.HasOption("sigquit")
 }
 
-// validateExecParentSignals is classic TYPE_CONST: any assignment is
-// "no value permitted" (parseopts_table), including sighup=0.
+// validateExecParentSignals rejects any assignment, including sighup=0
+// ("no value permitted").
 func validateExecParentSignals(s parse.Spec) error {
 	_ = execParentSignalRequested(s)
 	for _, o := range s.Options {
@@ -85,17 +82,11 @@ func validateExecParentSignals(s parse.Spec) error {
 	return nil
 }
 
-// registerExecParentSignals is classic PH_LATE OFUNC_SIGNAL after
-// sfd->para.exec.pid = pid (xio-progcall.c / xioopts.c applyopt, same SHAs as
-// ForwardRegisteredChildSignal). Each occurrence registers once, so two
-// `sighup` flags on one address occupy two of the four slots (classic
-// applyopts walks remaining opts). The four-slot limit is per logical session
-// (classic per-process table). g's forkSession copy is that session.
-//
-// Classic withfork+pipes also applies PH_LATE before fork while pid is still
-// 0. kill(0, sig) would signal the process group. This port registers the
-// real child pid after Start on every transport, including pipes, pty, and
-// nofork (Go nofork still has a parent that Wait()s).
+// registerExecParentSignals registers the child pid for each sighup/sigint/
+// sigquit occurrence after Start. Each occurrence registers once, so two
+// `sighup` flags occupy two of the four slots. The four-slot limit is per
+// logical session (g's forkSession copy). Register after Start so pid is
+// known; pid 0 would signal the process group. nofork still Wait()s.
 func registerExecParentSignals(s parse.Spec, cmd *exec.Cmd, g *Global) error {
 	if err := validateExecParentSignals(s); err != nil {
 		return err
@@ -202,11 +193,9 @@ func forwardRegisteredChildSignal(sig os.Signal) bool {
 	childSignalMu.Lock()
 	pids := collectPidsLocked(idx)
 	childSignalMu.Unlock()
-	// Pass-through only while at least one pid is registered. Classic
-	// socatsignalpass stays installed for the life of the process, but that
-	// process is a fork(2) worker. This port's listener shares the process
-	// with goroutine sessions, so an empty table restores terminate-on-signal
-	// like classic's listener parent.
+	// Pass-through only while at least one pid is registered. The listener
+	// shares the process with goroutine sessions, so an empty table restores
+	// terminate-on-signal.
 	if len(pids) == 0 {
 		return false
 	}

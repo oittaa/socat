@@ -19,8 +19,8 @@ func isClassicTermiosOption(name string) bool {
 	return false
 }
 
-// RejectUnsupportedTermios fails when a spec requests a GROUP_TERMIOS option
-// on a platform that does not implement termios (Windows). Same shape as
+// RejectUnsupportedTermios fails when a spec requests a termios option on a
+// platform that does not implement termios (Windows). Same shape as
 // RejectUnsupportedIPAncillary: do not accept the option as a silent no-op.
 func RejectUnsupportedTermios(s parse.Spec) error {
 	if FeatureTERMIOS {

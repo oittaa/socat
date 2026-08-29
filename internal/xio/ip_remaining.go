@@ -8,7 +8,7 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// Linux IPPROTO_RAW. Classic IP4-SENDTO:host:255 uses this protocol;
+// Linux IPPROTO_RAW. IP4-SENDTO:host:255 uses this protocol;
 // IP_ROUTER_ALERT returns EINVAL there (not a silent no-op).
 const ipprotoRaw = 255
 
@@ -53,7 +53,7 @@ func routerAlertOptionName(name string) bool {
 	}
 }
 
-// GetOnlyIPv4OptionNames are classic ip-mtu / ip-pktoptions spellings.
+// GetOnlyIPv4OptionNames are ip-mtu / ip-pktoptions spellings.
 // They are recognized so validation can reject them as get-only instead of
 // "unknown option". They are never advertised.
 func GetOnlyIPv4OptionNames() []string {
@@ -129,12 +129,9 @@ func specRawIPProtocolNumber(s parse.Spec) (int, bool) {
 }
 
 // RejectUnsupportedRemainingIPv4 fails fast for get-only ip-mtu /
-// ip-pktoptions and for ip-router-alert combinations this port does not
-// implement (IPv6, non-raw addresses, IPPROTO_RAW). Classic models all four
-// remaining IPv4 names as TYPE_INT OFUNC_SOCKOPT setters in xio-ip.c
-// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree). Linux IP_MTU
-// and IP_PKTOPTIONS are get-only; this port does not advertise a setter.
+// ip-pktoptions and for ip-router-alert combinations that are not
+// implemented (IPv6, non-raw addresses, IPPROTO_RAW). Linux IP_MTU and
+// IP_PKTOPTIONS are get-only; they are not advertised as setters.
 func RejectUnsupportedRemainingIPv4(s parse.Spec) error {
 	for _, o := range s.Options {
 		if _, kernel, spelling, ok := getOnlyIPOptionName(o); ok {

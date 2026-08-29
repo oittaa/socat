@@ -15,12 +15,8 @@ import (
 const defaultDNSPort = 53
 
 // ParseResNSAddr validates res-nsaddr and returns a dialable host:port.
-// Classic TYPE_IP4SOCK (xioopts.c at tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is unchanged) accepts an IPv4
-// address or hostname plus an optional port, stored in sockaddr_in
-// _res.nsaddr_list[0]. IPv6 nameserver literals are rejected to match that
-// public interface.
+// Accepts an IPv4 address or hostname plus an optional port. IPv6
+// nameserver literals are rejected.
 func ParseResNSAddr(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -253,18 +249,16 @@ func ipv4MappedAddrs(ips []net.IP) []net.IP {
 }
 
 func v4mappedEnabled(s parse.Spec) bool {
-	// Official C never ORs AI_V4MAPPED (xiogetaddrinfo in xio-ip.c at
-	// tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-	// af5388c898c7bb60997935aee93c223deba60c4a is unchanged). The man page
-	// says IPv6 addresses default it to 1. Follow C for drop-in runtime
-	// parity: off unless ai-v4mapped is set truthily.
+	// Off unless ai-v4mapped is set truthily. The man page says IPv6
+	// addresses default it to 1; remaining off unless requested keeps
+	// drop-in runtime parity.
 	return s.HasOption("ai-v4mapped") && s.BoolOption("ai-v4mapped")
 }
 
 func addrconfigEnabled(s parse.Spec, hint string) bool {
-	// Classic CHANGES / xio-ip.c: AI_ADDRCONFIG defaults on when the
-	// resolver has no address-family hint (PF_UNSPEC). ai-addrconfig=0
-	// clears it; a present truthy value sets it for any hint.
+	// AI_ADDRCONFIG defaults on when the resolver has no address-family
+	// hint. ai-addrconfig=0 clears it; a present truthy value sets it for
+	// any hint.
 	if s.HasOption("ai-addrconfig") {
 		return s.BoolOption("ai-addrconfig")
 	}
@@ -390,7 +384,7 @@ func finishMappedLookup(s parse.Spec, host string, ips []net.IP) ([]net.IP, erro
 }
 
 // ResolveIPHost resolves one host with the resolver scoped to s. Literals are
-// returned without a lookup, preserving the classic no-DNS literal fast path.
+// returned without a lookup, preserving the no-DNS literal fast path.
 func ResolveIPHost(ctx context.Context, s parse.Spec, network, host string) (string, error) {
 	host = StripBrackets(host)
 	if host == "" {

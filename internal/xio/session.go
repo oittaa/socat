@@ -12,7 +12,7 @@ import (
 )
 
 // RememberAddrs fills SOCAT_* environment fields on g from a live connection.
-// Also exports classic process env used by -r/-R path expansion ($SERVER0_PEERADDR).
+// Also exports process env used by -r/-R path expansion ($SERVER0_PEERADDR).
 func RememberAddrs(g *Global, c net.Conn) {
 	if g == nil || c == nil {
 		return
@@ -56,7 +56,7 @@ func SetSessionEnv(g *Global, name, value string) {
 	g.SessionVars[name] = value
 }
 
-// sessionEnv returns classic SOCAT_* / PROGNAME_* values from this session.
+// sessionEnv returns SOCAT_* / PROGNAME_* values from this session.
 func sessionEnv(g *Global) []string {
 	if g == nil {
 		return nil
@@ -202,7 +202,7 @@ func ExpandIPv6(ip net.IP) string {
 	if ip == nil {
 		return ""
 	}
-	// Classic often prints full zero-padded form for ::1
+	// Full zero-padded form for ::1.
 	return fmt.Sprintf("%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x:%02x%02x",
 		ip[0], ip[1], ip[2], ip[3], ip[4], ip[5], ip[6], ip[7],
 		ip[8], ip[9], ip[10], ip[11], ip[12], ip[13], ip[14], ip[15])

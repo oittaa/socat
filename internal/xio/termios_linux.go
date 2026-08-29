@@ -10,13 +10,12 @@ const (
 	// x/sys defines unix.Termios from Linux struct termios2. Use the matching
 	// ioctls so c_ispeed/c_ospeed are transferred as well as the flag words;
 	// traditional TCGETS/TCSETS silently discard those fields and make BOTHER
-	// rates such as the classic b7200 option read back as B0.
+	// rates such as b7200 read back as B0.
 	termiosGet = unix.TCGETS2
 	termiosSet = unix.TCSETS2
 )
 
-// Extra iflag/oflag/lflag bits from Linux glibc <termios.h>, advertised in
-// classic tag-1.8.1.3 -hhh. Proved via tcsetattr/tcgetattr on a PTY.
+// Extra iflag/oflag/lflag bits from Linux glibc <termios.h>.
 const (
 	termiosIUCLC   = termiosBits(unix.IUCLC)
 	termiosOLCUC   = termiosBits(unix.OLCUC)

@@ -10,10 +10,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// applyBindToDeviceOption sets SO_BINDTODEVICE (classic opt_so_bindtodevice,
-// aliases so-bindtodevice / if / interface). PH_PASTSOCKET, TYPE_NAME, Linux only.
-// Classic: tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same tree.
+// applyBindToDeviceOption sets SO_BINDTODEVICE (aliases so-bindtodevice /
+// if / interface). Linux only; applies after socket().
 func applyBindToDeviceOption(fd int, o parse.Option) error {
 	name := strings.TrimSpace(o.Value)
 	if !o.Has || name == "" {

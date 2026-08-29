@@ -13,15 +13,12 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// AddressWaitLockPollInterval is classic xiowaitlock's 1s poll for address
-// waitlock= (xioopts.c OPT_WAITLOCK sets lock.intervall.tv_sec = 1 at
-// tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same xiolockfile.c /
-// xioopts.c). Cancellation is still checked before each create.
+// AddressWaitLockPollInterval is the 1s poll for address waitlock=.
+// Cancellation is still checked before each create.
 const AddressWaitLockPollInterval = time.Second
 
-// CLILockPollInterval is this port's CLI -W retry interval (100ms). Classic
-// -W also uses 1s (socat.c); matching that for -W is a separate change.
+// CLILockPollInterval is the CLI -W retry interval (100ms). Address
+// waitlock= uses 1s; matching 1s for -W is a separate change.
 const CLILockPollInterval = 100 * time.Millisecond
 
 // DefaultLockPollInterval is the AcquireLockFile fallback when interval <= 0.
@@ -84,22 +81,19 @@ func AcquireLockFile(ctx context.Context, path string, wait bool, interval time.
 }
 
 // CreateLockFile atomically creates path (O_CREATE|O_EXCL) with mode 0644 and
-// writes pid\n. Classic xiogetlock uses mkstemp + Fchmod(fd, 0644) + link(2)
-// (xiolockfile.c at tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
-// OpenFile's mode is umask-masked, so this port fchmod(0644)s the still-open
-// descriptor like classic. Identity is f.Stat() while that fd is open; a
-// later Lstat must still name the same object before success is returned.
+// writes pid\n. OpenFile's mode is umask-masked, so this fchmod(0644)s the
+// still-open descriptor. Identity is f.Stat() while that fd is open; a later
+// Lstat must still name the same object before success is returned.
 // Write/close/chmod failure unlinks only when lstat still names that object.
 func CreateLockFile(path string) (os.FileInfo, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644) // #nosec G302 G304 -- lockfile=/waitlock=/-L/-W path comes from the user; 0644 matches classic socat
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644) // #nosec G302 G304 -- lockfile=/waitlock=/-L/-W path comes from the user; 0644 lockfile mode
 	if err != nil {
 		return nil, err
 	}
 	_, werr := fmt.Fprintf(f, "%d\n", os.Getpid())
 	if werr == nil {
-		// Classic Fchmod(fd, 0644) after write, before close. os.OpenFile's
-		// 0644 is umask-masked; this restores the classic lock mode.
+		// fchmod(0644) after write, before close. os.OpenFile's 0644 is
+		// umask-masked; this restores the lock mode.
 		werr = f.Chmod(0o644)
 	}
 	info, statErr := f.Stat()
@@ -166,10 +160,8 @@ func verifyLockIdentity(path string, original os.FileInfo) error {
 
 // releaseLockFile unlinks path only when it still names the acquired object.
 //
-// Security exception: classic xiounlock (tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a) is a blind unlink(2) of the stored
-// name. This port skips the name when lstat/os.SameFile shows a replacement.
+// Security exception: unlink only when the name still refers to the acquired
+// object. A replacement at the same path is left in place.
 func releaseLockFile(path string, original os.FileInfo) {
 	current, err := os.Lstat(path)
 	if err != nil || !sameRegisteredFile(original, current) {
@@ -178,12 +170,9 @@ func releaseLockFile(path string, original os.FileInfo) {
 	_ = Unlink(path)
 }
 
-// applyAddressLock implements classic PH_INIT GROUP_APPL lockfile=/waitlock=
-// (xioopts.c OPT_LOCKFILE/OPT_WAITLOCK at tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree). Call after
-// ResolveChdirPaths and before the opener so a failed open still releases and
-// relative paths follow chdir=.
+// applyAddressLock applies lockfile=/waitlock= after ResolveChdirPaths and
+// before the opener so a failed open still releases and relative paths follow
+// chdir=.
 func applyAddressLock(ctx context.Context, s parse.Spec) (func(), error) {
 	if !s.HasOption("lockfile") && !s.HasOption("waitlock") {
 		return nil, nil
@@ -199,10 +188,7 @@ func applyAddressLock(ctx context.Context, s parse.Spec) (func(), error) {
 }
 
 func addressLockRequest(s parse.Spec) (path string, wait bool, err error) {
-	// Classic xioopts.c OPT_LOCKFILE/OPT_WAITLOCK Error()s a second
-	// occurrence then continues and overwrites the stored pointer (leaking
-	// the first strdup, and still calling xiolock). Do not reproduce that:
-	// collect every occurrence first and fail before acquire.
+	// Reject a second lockfile=/waitlock= before acquire.
 	var locks []parse.Option
 	for _, o := range s.Options {
 		switch parse.CanonicalOptionName(o.Name) {

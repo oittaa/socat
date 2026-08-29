@@ -7,7 +7,7 @@ import "golang.org/x/sys/unix"
 var platformBaudNamed = []baudOption{
 	// glibc 2.41+ exposes B7200 as the numeric rate while x/sys/unix does not
 	// export it. Use Linux BOTHER with c_ispeed/c_ospeed for a real 7200-baud
-	// setting rather than omitting the classic advertised option.
+	// setting rather than omitting the advertised option.
 	{"b7200", 7200},
 	{"b460800", 460800},
 	{"b500000", 500000},

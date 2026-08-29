@@ -11,13 +11,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// IPv4 source-specific multicast is classic TYPE_IP_MREQ_SOURCE
-// (xio-ip.c xiotype_ip_add_source_membership / xioapply_ip_add_source_membership).
-// IPv6 is TYPE_GROUP_SOURCE_REQ / MCAST_JOIN_SOURCE_GROUP
-// (xio-ip6.c; keep ipv6-join-source-group as its own option, not folded onto
-// ip-add-source-membership). tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree.
+// IPv4 source-specific multicast is group:iface-addr:source
+// (IP_ADD_SOURCE_MEMBERSHIP). IPv6 is group:iface-name-or-index:source
+// (MCAST_JOIN_SOURCE_GROUP). Keep ipv6-join-source-group as its own option,
+// not folded onto ip-add-source-membership.
 
 type parsedSourceMcast struct {
 	group     net.IP
