@@ -39,8 +39,8 @@ internals (`groups=`, `phase=`, `type=`, `PH_*`, `TYPE_*`, `GROUP_*`,
 
 Runtime comments stay short. Do not narrate classic C control flow, commit
 hashes, or C function names in production files. Compatibility evidence belongs
-in PR descriptions, focused tests, README exceptions, and
-`internal/classiccatalog`.
+in PR descriptions, focused tests, README exceptions,
+`scripts/classic-policy.json`, and `scripts/classic-parity.py` reports.
 
 ## Classic socat compatibility
 
@@ -73,6 +73,12 @@ comment at the call site.
 
 If a change would diverge from classic behavior for any other reason,
 ask before implementing it.
+
+Live comparison against official release and master is
+`scripts/classic-parity.py`. It is not part of ordinary `go test` or
+`make check`. Do not check in official `-hhh`/`-V` dumps or a generated
+option catalog. Policy classifications (unsupported, foreign, parser-only,
+platform-specific, Go-only) live in `scripts/classic-policy.json`.
 
 ## Required pre-commit validation
 

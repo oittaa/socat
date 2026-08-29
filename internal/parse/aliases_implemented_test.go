@@ -2,8 +2,6 @@ package parse
 
 import (
 	"testing"
-
-	"github.com/oittaa/socat/internal/classiccatalog"
 )
 
 func TestImplementedOpenFlagAndLockAliasesParse(t *testing.T) {
@@ -91,7 +89,7 @@ func TestImplementedOpenFlagAndLockAliasesParse(t *testing.T) {
 	}
 }
 
-func TestCatalogOpenFlagAliasesShareClassicGroups(t *testing.T) {
+func TestImplementedOpenFlagAliasesCanonicalNames(t *testing.T) {
 	pairs := [][2]string{
 		{"o-rdonly", "rdonly"},
 		{"o-wronly", "wronly"},
@@ -134,15 +132,6 @@ func TestCatalogOpenFlagAliasesShareClassicGroups(t *testing.T) {
 		alias, canon := pair[0], pair[1]
 		if CanonicalOptionName(alias) != canon {
 			t.Errorf("CanonicalOptionName(%q)=%q want %q", alias, CanonicalOptionName(alias), canon)
-		}
-		se, sok := classiccatalog.Lookup(alias)
-		ce, cok := classiccatalog.Lookup(canon)
-		if !sok || !cok {
-			t.Errorf("catalog lookup %q ok=%v %q ok=%v", alias, sok, canon, cok)
-			continue
-		}
-		if se.Phase != ce.Phase {
-			t.Errorf("%s/%s phase %q vs %q", alias, canon, se.Phase, ce.Phase)
 		}
 	}
 }

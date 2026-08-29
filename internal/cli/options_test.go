@@ -1,14 +1,11 @@
 package cli
 
 import (
-	"reflect"
 	"runtime"
-	"sort"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/oittaa/socat/internal/classiccatalog"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
@@ -602,6 +599,9 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "unknown", spec: "CREATE:file,totally-unknown=1", wantErr: "unknown option"},
 		{name: "dccp-ccid", spec: "TCP:localhost:1,ccid=2", wantErr: "unknown option"},
 		{name: "dccp-set-ccid", spec: "TCP:localhost:1,dccp-set-ccid=2", wantErr: "unknown option"},
+		{name: "cool-write-unknown", spec: "TCP:localhost:1,cool-write", wantErr: "unknown option"},
+		{name: "udp-ignore-peerport-unknown", spec: "UDP:localhost:1,udp-ignore-peerport", wantErr: "unknown option"},
+		{name: "so-bsdcompat-unknown", spec: "TCP:localhost:1,so-bsdcompat", wantErr: "unknown option"},
 		{name: "bad-perm", spec: "CREATE:file,perm=xyz", wantErr: "invalid perm"},
 		{name: "readbytes-hex", spec: "OPEN:file,readbytes=0x10"},
 		{name: "readbytes-octal", spec: "OPEN:file,readbytes=010"},
@@ -762,14 +762,21 @@ func TestBroadcastHelpAdvertisesSoBroadcast(t *testing.T) {
 }
 
 func TestHelpDoesNotAdvertiseCoolWrite(t *testing.T) {
+	forbidden := map[string]struct{}{
+		"cool-write":          {},
+		"coolwrite":           {},
+		"udp-ignore-peerport": {},
+		"so-bsdcompat":        {},
+		"bsdcompat":           {},
+	}
 	for _, group := range helpOptionGroups() {
 		for _, option := range group.opts {
-			if option.name == "cool-write" {
-				t.Fatal("cool-write must not be advertised")
+			if _, hit := forbidden[option.name]; hit {
+				t.Errorf("%q must not be advertised", option.name)
 			}
 			for _, alias := range option.aliases {
-				if alias == "cool-write" {
-					t.Fatal("cool-write must not be advertised as an alias")
+				if _, hit := forbidden[alias]; hit {
+					t.Errorf("%q must not be advertised as an alias", alias)
 				}
 			}
 		}
@@ -798,189 +805,6 @@ func TestHelpOptionGroupOrder(t *testing.T) {
 	}
 	if strings.Join(titles, ",") != strings.Join(want, ",") {
 		t.Fatalf("help group order=%v want %v", titles, want)
-	}
-}
-
-func TestCatalogLifecyclePhasesForAdvertisedFDOptions(t *testing.T) {
-	tests := []struct {
-		spelling string
-		phase    string
-		groups   []string
-	}{
-		{spelling: "append", phase: "LATE", groups: []string{"FD", "OPEN"}},
-		{spelling: "o-append", phase: "LATE", groups: []string{"FD", "OPEN"}},
-		{spelling: "cloexec", phase: "LATE", groups: []string{"FD"}},
-		{spelling: "bin", phase: "OPEN", groups: []string{"FD", "OPEN"}},
-		{spelling: "binary", phase: "OPEN", groups: []string{"FD", "OPEN"}},
-		{spelling: "o-binary", phase: "OPEN", groups: []string{"FD", "OPEN"}},
-		{spelling: "text", phase: "OPEN", groups: []string{"FD", "OPEN"}},
-		{spelling: "o-text", phase: "OPEN", groups: []string{"FD", "OPEN"}},
-		{spelling: "noinherit", phase: "OPEN", groups: []string{"FD", "OPEN"}},
-		{spelling: "o-noinherit", phase: "OPEN", groups: []string{"FD", "OPEN"}},
-		{spelling: "ftruncate", phase: "LATE", groups: []string{"REG"}},
-		{spelling: "truncate", phase: "LATE", groups: []string{"REG"}},
-		{spelling: "ftruncate32", phase: "LATE", groups: []string{"REG"}},
-		{spelling: "ftruncate64", phase: "LATE", groups: []string{"REG"}},
-		{spelling: "perm", phase: "FD", groups: []string{"FD", "NAMED"}},
-		{spelling: "mode", phase: "FD", groups: []string{"FD", "NAMED"}},
-		{spelling: "user", phase: "FD", groups: []string{"FD", "NAMED"}},
-		{spelling: "uid", phase: "FD", groups: []string{"FD", "NAMED"}},
-		{spelling: "owner", phase: "FD", groups: []string{"FD", "NAMED"}},
-		{spelling: "group", phase: "FD", groups: []string{"FD", "NAMED"}},
-		{spelling: "gid", phase: "FD", groups: []string{"FD", "NAMED"}},
-		{spelling: "perm-late", phase: "LATE", groups: []string{"FD"}},
-		{spelling: "user-late", phase: "LATE", groups: []string{"FD"}},
-		{spelling: "group-late", phase: "LATE", groups: []string{"FD"}},
-		{spelling: "async", phase: "LATE", groups: []string{"FD", "OPEN"}},
-		{spelling: "o-async", phase: "LATE", groups: []string{"FD", "OPEN"}},
-		{spelling: "o-sync", phase: "OPEN", groups: []string{"OPEN"}},
-		{spelling: "lseek", phase: "LATE", groups: []string{"BLK", "REG"}},
-		{spelling: "flock", phase: "FD", groups: []string{"FD"}},
-		{spelling: "flock-ex", phase: "FD", groups: []string{"FD"}},
-		{spelling: "ioctl", phase: "FD", groups: []string{"FD"}},
-		{spelling: "ioctl-void", phase: "FD", groups: []string{"FD"}},
-		{spelling: "ioctl-int", phase: "FD", groups: []string{"FD"}},
-		{spelling: "ioctl-intp", phase: "FD", groups: []string{"FD"}},
-		{spelling: "ioctl-bin", phase: "FD", groups: []string{"FD"}},
-		{spelling: "ioctl-string", phase: "FD", groups: []string{"FD"}},
-	}
-	for _, tt := range tests {
-		e, ok := classiccatalog.Lookup(tt.spelling)
-		if !ok {
-			t.Errorf("%q missing from classic catalog", tt.spelling)
-			continue
-		}
-		if e.Phase != tt.phase {
-			t.Errorf("%q phase=%q want %q", tt.spelling, e.Phase, tt.phase)
-		}
-		if strings.Join(e.Groups, ",") != strings.Join(tt.groups, ",") {
-			t.Errorf("%q groups=%v want %v", tt.spelling, e.Groups, tt.groups)
-		}
-	}
-}
-
-type aliasCanonicalGroups struct {
-	alias, canonical string
-	aliasGroups      []string
-	canonicalGroups  []string
-}
-
-// advertisedAliasesWithDifferentClassicGroups returns advertised Go aliases
-// (helpOpt.aliases plus parse aliases that are in classiccatalog.Options)
-// whose catalog Groups differ from the Go canonical target's Groups.
-func advertisedAliasesWithDifferentClassicGroups() []aliasCanonicalGroups {
-	pairs := map[string]string{}
-	for _, group := range helpOptionGroups() {
-		for _, option := range group.opts {
-			for _, alias := range option.aliases {
-				pairs[strings.ToLower(alias)] = strings.ToLower(option.name)
-			}
-		}
-	}
-	for spelling := range classiccatalog.Options {
-		canon := parse.CanonicalOptionName(spelling)
-		if canon != spelling {
-			pairs[spelling] = canon
-		}
-	}
-	var out []aliasCanonicalGroups
-	for alias, canonical := range pairs {
-		if alias == canonical {
-			continue
-		}
-		se, sok := classiccatalog.Lookup(alias)
-		ce, cok := classiccatalog.Lookup(canonical)
-		if !sok || !cok {
-			continue
-		}
-		if reflect.DeepEqual(se.Groups, ce.Groups) {
-			continue
-		}
-		out = append(out, aliasCanonicalGroups{
-			alias: alias, canonical: canonical,
-			aliasGroups: se.Groups, canonicalGroups: ce.Groups,
-		})
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].alias != out[j].alias {
-			return out[i].alias < out[j].alias
-		}
-		return out[i].canonical < out[j].canonical
-	})
-	return out
-}
-
-var spellingGroupAddressSpecs = []string{
-	"UDP4:localhost:1",
-	"UDP4-RECV:1",
-	"TCP4:localhost:1",
-	"IP4:127.0.0.1:1",
-	"UDP6:localhost:1",
-	"UDP6-RECV:1",
-	"TCP6:localhost:1",
-	"IP6:[::1]:1",
-}
-
-func TestAdvertisedAliasClassicGroupMismatches(t *testing.T) {
-	discovered := advertisedAliasesWithDifferentClassicGroups()
-	if len(discovered) != 0 {
-		t.Fatalf("unexpected Go alias/canonical group mismatches (do not fold distinct classic options): %v", discovered)
-	}
-	// ipv6-join-group is advertised as its own option, not a parse/help alias
-	// of ip-add-membership. Classic groups still differ (IP6 vs IP4+IP6).
-	join, ok := classiccatalog.Lookup("ipv6-join-group")
-	if !ok {
-		t.Fatal("ipv6-join-group")
-	}
-	member, ok := classiccatalog.Lookup("ip-add-membership")
-	if !ok {
-		t.Fatal("ip-add-membership")
-	}
-	mismatches := []aliasCanonicalGroups{{
-		alias: "ipv6-join-group", canonical: "ip-add-membership",
-		aliasGroups: join.Groups, canonicalGroups: member.Groups,
-	}}
-	t.Logf("covered alias/canonical group mismatches: ipv6-join-group %v vs ip-add-membership %v", join.Groups, member.Groups)
-
-	dummyValue := func(spelling string) string {
-		switch spelling {
-		case "ipv6-join-group", "ip-add-membership":
-			return "[ff02::2]:lo"
-		case "ipv6-join-source-group", "ip-add-source-membership":
-			return "[ff3e::1]:lo:[::1]"
-		default:
-			return "1"
-		}
-	}
-
-	for _, m := range mismatches {
-		rejected := 0
-		for _, base := range spellingGroupAddressSpecs {
-			ch, err := parse.ParseChannel(base)
-			if err != nil {
-				t.Fatalf("%s: %v", base, err)
-			}
-			addrType := ch.Single.Type
-			canonOK := optionAllowedOnAddress(addrType, m.canonical)
-			aliasOK := optionAllowedOnAddress(addrType, m.alias)
-			if !canonOK || aliasOK {
-				continue
-			}
-			rejected++
-			spec := base + "," + m.alias + "=" + dummyValue(m.alias)
-			ch, err = parse.ParseChannel(spec)
-			if err != nil {
-				t.Fatalf("%s: %v", spec, err)
-			}
-			err = validateChannelOptions(ch)
-			if err == nil || !strings.Contains(err.Error(), "not supported") {
-				t.Errorf("%s: error=%v want not supported (alias groups=%v canonical groups=%v)",
-					spec, err, m.aliasGroups, m.canonicalGroups)
-			}
-		}
-		if rejected == 0 {
-			t.Errorf("%s -> %s: no sample address is in canonical groups but not alias groups", m.alias, m.canonical)
-		}
 	}
 }
 
