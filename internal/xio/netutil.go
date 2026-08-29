@@ -100,7 +100,7 @@ func udpListenAddress(addrType string) bool {
 }
 
 // UDPForkPortReuse reports whether a UDP-LISTEN fork session may share the
-// parent's port (SO_REUSEPORT on BSD; SO_REUSEADDR on connected child sockets).
+// parent's port (SO_REUSEPORT on macOS; SO_REUSEADDR on connected child sockets).
 // A connected child needs equivalent port reuse so it can bind the same local
 // port while the parent stays listening. Explicit reuseaddr=0 disables
 // sharing; the first session then takes the listen socket instead of dropping

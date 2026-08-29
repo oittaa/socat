@@ -2,7 +2,7 @@
 
 package xio
 
-// MIPS Linux uses BSD-style filio/sockios numbers
+// Architecture-specific MIPS Linux ioctl numbers
 // (arch/mips/include/uapi/asm/sockios.h), not asm-generic 0x8901.
 // FIOSETOWN _IOW('f', 124, int) = 0x8004667c,
 // FIOGETOWN _IOR('f', 123, int) = 0x4004667b.
