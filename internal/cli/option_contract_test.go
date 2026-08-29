@@ -193,6 +193,8 @@ var dynamicallyReadOptions = map[string]string{
 	"so-priority": "xio/sockopt_named.go", "priority": "xio/sockopt_named.go",
 	"so-passcred": "xio/sockopt_named.go", "passcred": "xio/sockopt_named.go",
 	"so-no-check": "xio/sockopt_named.go", "no-check": "xio/sockopt_named.go", "nocheck": "xio/sockopt_named.go",
+	"fiosetown": "xio/sockopt_owner_ioctl.go applyOwnerIoctlOption",
+	"siocspgrp": "xio/sockopt_owner_ioctl.go applyOwnerIoctlOption",
 
 	// Ordered howtoshut / lineterm: last active occurrence wins (stream.go / shut.go).
 	"shut-none":  "xio/shut.go selectedShutPolicy",

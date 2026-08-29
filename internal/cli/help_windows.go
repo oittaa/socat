@@ -51,6 +51,7 @@ func hideOpt(name string) bool {
 		"sctp-nodelay", "sctp-maxseg",
 		"so-rcvlowat", "so-sndlowat",
 		"so-priority", "so-passcred", "so-no-check",
+		"fiosetown", "siocspgrp",
 		"unix-tightsocklen", "tightsocklen":
 		return true
 	default:
