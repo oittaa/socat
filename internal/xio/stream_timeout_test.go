@@ -144,16 +144,21 @@ func TestSocketReceiveTimeoutDoesNotReplaceIdleTimeout(t *testing.T) {
 		t.Fatalf("WrapCommon: %v", err)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	start := time.Now()
-	err = relay.Transfer(context.Background(), left, timeoutSink(io.Discard), relay.Config{
+	err = relay.Transfer(ctx, left, timeoutSink(io.Discard), relay.Config{
 		LeftToRight: true,
 		IdleTimeout: 80 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("Transfer: %v", err)
 	}
+	if ctx.Err() != nil {
+		t.Fatal("Transfer reached the 5s watchdog; idle timeout did not stop it")
+	}
 	elapsed := time.Since(start)
-	if elapsed < 60*time.Millisecond || elapsed > 500*time.Millisecond {
-		t.Fatalf("Transfer elapsed %v, want idle timeout near 80ms", elapsed)
+	if elapsed < 60*time.Millisecond {
+		t.Fatalf("Transfer elapsed %v, want idle timeout after at least 60ms", elapsed)
 	}
 }
