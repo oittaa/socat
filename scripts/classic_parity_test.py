@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import io
 import json
 import os
 import shlex
@@ -16,7 +17,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).resolve().parent / "classic-parity.py"
@@ -227,6 +230,13 @@ class HhhParserTest(unittest.TestCase):
         self.assertEqual(got.addresses, set())
         self.assertIn("frob", got.options)
 
+    def test_optional_bracket_address_form(self) -> None:
+        got = parity.parse_classic_hhh(
+            "      TUN[:<x>]\t\t\tgroups=FD,CHR,OPEN,INTERFACE\n"
+        )
+        self.assertIn("TUN", got.addresses)
+        self.assertEqual(got.address_groups["TUN"], "FD,CHR,OPEN,INTERFACE")
+
 
 class GoHelpParserTest(unittest.TestCase):
     def test_flags_addresses_options_and_aliases(self) -> None:
@@ -263,6 +273,18 @@ class VersionFeaturesTest(unittest.TestCase):
     def test_missing_openssl_is_reported(self) -> None:
         text = "  #undef WITH_OPENSSL\n  #define WITH_READLINE 1\n  #define WITH_LIBWRAP 1\n"
         self.assertEqual(parity.missing_feature_complete(text), ["WITH_OPENSSL"])
+
+    def test_darwin_does_not_require_libwrap(self) -> None:
+        text = (
+            "  #define WITH_OPENSSL 1\n"
+            "  #define WITH_READLINE 1\n"
+            "  #undef WITH_LIBWRAP\n"
+        )
+        self.assertEqual(parity.missing_feature_complete(text, goos="darwin"), [])
+        self.assertEqual(parity.missing_feature_complete(text, goos="macos"), [])
+        self.assertEqual(parity.missing_feature_complete(text, goos="linux"), ["WITH_LIBWRAP"])
+        self.assertIn("WITH_LIBWRAP", parity.feature_complete_defines_for("linux"))
+        self.assertNotIn("WITH_LIBWRAP", parity.feature_complete_defines_for("darwin"))
 
 
 class CompareTest(unittest.TestCase):
@@ -448,6 +470,133 @@ class CompareTest(unittest.TestCase):
         report = self._report(master_docs=master, master_hhh=None)
         self.assertIn("newer", report.release_master_option_drift)
 
+    def test_unsupported_flag_is_not_missing(self) -> None:
+        still = self._report()
+        self.assertIn("-ly", still.missing_flags)
+        policy = copy.deepcopy(POLICY)
+        policy["unsupported_flags"] = {"-ly": "no syslog"}
+        report = self._report(policy=policy)
+        self.assertNotIn("-ly", report.missing_flags)
+
+    def test_go_only_tls_family_is_not_unexpected(self) -> None:
+        policy = copy.deepcopy(POLICY)
+        policy["go_only_addresses"]["TLS"] = "openssl name"
+        go = parity.parse_go_help(
+            SYNTHETIC_GO_HELP
+            + "    TLS:<host>              tls client\n"
+            + "    TLS-CONNECT:<host>      alias of TLS\n"
+        )
+        report = self._report(go_help=go, policy=policy)
+        self.assertNotIn("TLS", report.unexpected_addresses)
+        self.assertNotIn("TLS-CONNECT", report.unexpected_addresses)
+
+    def test_lseek32_merged_into_lseek_is_same_class(self) -> None:
+        hhh = parity.parse_classic_hhh(
+            SYNTHETIC_HHH
+            + "      lseek32\t\tis an alias for lseek32-set\n"
+            + "      lseek32-set\tgroups=REG\t\tphase=LATE\t\ttype=INT\n"
+            + "      lseek\t\tis an alias for lseek64-set\n"
+            + "      lseek64-set\tgroups=REG\t\tphase=LATE\t\ttype=INT\n"
+        )
+        go = parity.parse_go_help(
+            SYNTHETIC_GO_HELP
+            + "    lseek         seek set\n"
+            + "    lseek32       alias of lseek\n"
+            + "    lseek32-set   alias of lseek\n"
+            + "    lseek64-set   alias of lseek\n"
+        )
+        policy = copy.deepcopy(POLICY)
+        policy["option_canonical_equivalences"] = [
+            ["lseek", "lseek32-set", "lseek64-set"]
+        ]
+        report = self._report(release_hhh=hhh, go_help=go, policy=policy)
+        self.assertFalse(
+            any(m["alias"] == "lseek32" for m in report.option_alias_mismatches)
+        )
+
+    def test_unrelated_canonical_collapse_is_mismatch_without_equivalence(self) -> None:
+        hhh = parity.parse_classic_hhh(
+            SYNTHETIC_HHH
+            + "      lseek32\t\tis an alias for lseek32-set\n"
+            + "      lseek32-set\tgroups=REG\t\tphase=LATE\t\ttype=INT\n"
+            + "      lseek\t\tis an alias for lseek64-set\n"
+            + "      lseek64-set\tgroups=REG\t\tphase=LATE\t\ttype=INT\n"
+        )
+        go = parity.parse_go_help(
+            SYNTHETIC_GO_HELP
+            + "    lseek         seek set\n"
+            + "    lseek32       alias of lseek\n"
+            + "    lseek32-set   alias of lseek\n"
+            + "    lseek64-set   alias of lseek\n"
+        )
+        without = self._report(release_hhh=hhh, go_help=go)
+        self.assertTrue(
+            any(m["alias"] == "lseek32" for m in without.option_alias_mismatches)
+        )
+        policy = copy.deepcopy(POLICY)
+        policy["option_canonical_equivalences"] = [
+            ["lseek", "lseek32-set", "lseek64-set"]
+        ]
+        with_eq = self._report(release_hhh=hhh, go_help=go, policy=policy)
+        self.assertFalse(
+            any(m["alias"] == "lseek32" for m in with_eq.option_alias_mismatches)
+        )
+
+    def test_alias_target_mismatch_not_saved_by_unrelated_equivalence(self) -> None:
+        policy = copy.deepcopy(POLICY)
+        policy["option_canonical_equivalences"] = [
+            ["lseek", "lseek32-set", "lseek64-set"]
+        ]
+        go_text = SYNTHETIC_GO_HELP.replace("vis       alias of visible", "vis       alias of frob")
+        report = self._report(go_help=parity.parse_go_help(go_text), policy=policy)
+        self.assertTrue(report.option_alias_mismatches)
+        self.assertEqual(report.option_alias_mismatches[0]["alias"], "vis")
+
+    def test_platform_unsupported_so_sndlowat(self) -> None:
+        hhh = parity.parse_classic_hhh(
+            SYNTHETIC_HHH
+            + "      so-sndlowat\tgroups=SOCKET\t\tphase=LATE\t\ttype=INT\n"
+            + "      sndlowat\t\tis an alias for so-sndlowat\n"
+        )
+        policy = copy.deepcopy(POLICY)
+        policy["platform_unsupported_options"] = {
+            "linux": {"so-sndlowat": "Linux does not allow changing SO_SNDLOWAT"},
+            "darwin": {},
+            "windows": {"so-sndlowat": "not advertised on Windows"},
+        }
+        missing_go = parity.parse_go_help(SYNTHETIC_GO_HELP)
+        linux = self._report(release_hhh=hhh, go_help=missing_go, policy=policy, goos="linux")
+        self.assertNotIn("so-sndlowat", linux.missing_options)
+        self.assertNotIn("sndlowat", linux.missing_options)
+        self.assertFalse(
+            any(m["alias"] in {"so-sndlowat", "sndlowat"} for m in linux.option_alias_mismatches)
+        )
+        darwin_missing = self._report(
+            release_hhh=hhh, go_help=missing_go, policy=policy, goos="darwin"
+        )
+        self.assertIn("so-sndlowat", darwin_missing.missing_options)
+        present_go = parity.parse_go_help(
+            SYNTHETIC_GO_HELP
+            + "    so-sndlowat  send low-water mark\n"
+            + "    sndlowat     alias of so-sndlowat\n"
+        )
+        darwin_present = self._report(
+            release_hhh=hhh, go_help=present_go, policy=policy, goos="darwin"
+        )
+        self.assertNotIn("so-sndlowat", darwin_present.missing_options)
+        self.assertNotIn("sndlowat", darwin_present.missing_options)
+        self.assertFalse(
+            any(
+                m["alias"] in {"so-sndlowat", "sndlowat"}
+                for m in darwin_present.option_alias_mismatches
+            )
+        )
+        windows = self._report(
+            release_hhh=hhh, go_help=missing_go, policy=policy, goos="windows"
+        )
+        self.assertNotIn("so-sndlowat", windows.missing_options)
+        self.assertNotIn("sndlowat", windows.missing_options)
+
 
 class CaptureHelpTest(unittest.TestCase):
     def _script(self, directory: Path, v_text: str, hhh_text: str) -> Path:
@@ -506,6 +655,19 @@ class CaptureHelpTest(unittest.TestCase):
             self.assertIn("WITH_OPENSSL", str(ctx.exception))
             self.assertFalse((root / "out" / "socat-hhh.txt").exists())
 
+    def test_capture_on_darwin_allows_missing_libwrap(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            v = (
+                "  #define WITH_OPENSSL 1\n"
+                "  #define WITH_READLINE 1\n"
+                "  #undef WITH_LIBWRAP\n"
+            )
+            binary = self._script(root, v, SYNTHETIC_HHH)
+            with patch.object(parity.sys, "platform", "darwin"):
+                info = parity.capture_classic_help(binary, root / "out")
+            self.assertTrue(Path(info["hhh_path"]).is_file())
+
 
 class WorktreeSafetyTest(unittest.TestCase):
     def test_ensure_worktree_does_not_delete_caller_path(self) -> None:
@@ -533,6 +695,87 @@ class WorktreeSafetyTest(unittest.TestCase):
                 parity.sync_classic(workdir, BASELINE)
             self.assertIn("refusing to delete", str(ctx.exception))
             self.assertTrue(marker.exists())
+
+    def test_worktree_path_is_commit_specific(self) -> None:
+        workdir = Path("/tmp/parity-wd")
+        a = "a" * 40
+        b = "b" * 40
+        rel_a = parity.worktree_path(workdir, "release", a)
+        rel_b = parity.worktree_path(workdir, "release", b)
+        mas_a = parity.worktree_path(workdir, "master", a)
+        self.assertEqual(rel_a, workdir / "worktrees" / f"release-{a}")
+        self.assertEqual(rel_b, workdir / "worktrees" / f"release-{b}")
+        self.assertNotEqual(rel_a, rel_b)
+        self.assertNotEqual(rel_a, mas_a)
+        self.assertEqual(
+            parity.baseline_worktree(workdir, BASELINE, "release"),
+            workdir / "worktrees" / f"release-{BASELINE['release_commit']}",
+        )
+        self.assertEqual(
+            parity.baseline_worktree(workdir, BASELINE, "master"),
+            workdir / "worktrees" / f"master-{BASELINE['reviewed_master_commit']}",
+        )
+
+    def test_new_commit_worktree_does_not_disturb_existing(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            src = root / "src"
+            src.mkdir()
+            subprocess.run(["git", "init"], cwd=src, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "config", "user.email", "test@example.com"],
+                cwd=src,
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "config", "user.name", "Test"],
+                cwd=src,
+                check=True,
+                capture_output=True,
+            )
+            (src / "file").write_text("one\n", encoding="utf-8")
+            subprocess.run(["git", "add", "file"], cwd=src, check=True, capture_output=True)
+            subprocess.run(
+                ["git", "commit", "-m", "first"], cwd=src, check=True, capture_output=True
+            )
+            sha1 = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=src,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            (src / "file").write_text("two\n", encoding="utf-8")
+            subprocess.run(
+                ["git", "commit", "-am", "second"], cwd=src, check=True, capture_output=True
+            )
+            sha2 = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=src,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertNotEqual(sha1, sha2)
+            workdir = root / "workdir"
+            dest1 = parity.worktree_path(workdir, "master", sha1)
+            dest2 = parity.worktree_path(workdir, "master", sha2)
+            parity.ensure_worktree(src, dest1, sha1)
+            marker = dest1 / "keep-me"
+            marker.write_text("precious\n", encoding="utf-8")
+            parity.ensure_worktree(src, dest2, sha2)
+            self.assertTrue(marker.exists())
+            self.assertEqual(marker.read_text(encoding="utf-8"), "precious\n")
+            self.assertEqual(parity.git_head(dest1), sha1)
+            self.assertEqual(parity.git_head(dest2), sha2)
+            self.assertEqual((dest1 / "file").read_text(encoding="utf-8"), "one\n")
+            self.assertEqual((dest2 / "file").read_text(encoding="utf-8"), "two\n")
+            with self.assertRaises(SystemExit) as ctx:
+                parity.ensure_worktree(src, dest1, sha2)
+            self.assertIn("refusing to delete", str(ctx.exception))
+            self.assertTrue(marker.exists())
+            self.assertEqual(parity.git_head(dest1), sha1)
 
 
 class CliTest(unittest.TestCase):
@@ -697,6 +940,8 @@ class RepoPolicyTest(unittest.TestCase):
         "go_only_addresses",
         "go_only_options",
         "platform_options",
+        "platform_unsupported_options",
+        "option_canonical_equivalences",
     )
 
     def test_repo_policy_loads(self) -> None:
@@ -708,8 +953,26 @@ class RepoPolicyTest(unittest.TestCase):
         self.assertNotIn("expected_missing_addresses", policy)
         for family in ("DCCP", "READLINE", "DTLS", "UDPLITE"):
             self.assertIn(family, policy["unsupported_addresses"])
-        for extra in ("WS", "WSS", "QUIC"):
+        for extra in ("WS", "WSS", "QUIC", "TLS"):
             self.assertIn(extra, policy["go_only_addresses"])
+        self.assertIn("-ly", policy["unsupported_flags"])
+        self.assertIn("b7200", policy["go_only_options"])
+        self.assertNotIn("so-sndlowat", policy["unsupported_options"])
+        plat_unsup = policy["platform_unsupported_options"]
+        self.assertIn("linux", plat_unsup)
+        self.assertIn("darwin", plat_unsup)
+        self.assertIn("windows", plat_unsup)
+        self.assertIn("so-sndlowat", plat_unsup["linux"])
+        self.assertIn("so-sndlowat", plat_unsup["windows"])
+        self.assertNotIn("so-sndlowat", plat_unsup.get("darwin") or {})
+        linux_reason = str(plat_unsup["linux"]["so-sndlowat"]).lower()
+        self.assertNotIn("no-op", linux_reason)
+        self.assertIn("does not allow changing", linux_reason)
+        lseek_groups = [
+            {str(n).lower() for n in block}
+            for block in policy["option_canonical_equivalences"]
+        ]
+        self.assertIn({"lseek", "lseek32-set", "lseek64-set"}, lseek_groups)
         platforms = policy["platform_options"]
         self.assertIn("linux", platforms)
         self.assertIn("darwin", platforms)
@@ -766,6 +1029,222 @@ class OriginSafetyTest(unittest.TestCase):
             with self.assertRaises(SystemExit) as ctx:
                 parity.sync_classic(workdir, BASELINE)
             self.assertIn("official repository", str(ctx.exception))
+
+
+class FormatReportTest(unittest.TestCase):
+    def _report(self, **kwargs) -> parity.CompareReport:
+        values = dict(
+            release_tag="tag-0.0.0",
+            release_commit="a" * 40,
+            reviewed_master_commit="b" * 40,
+            goos="linux",
+            current_master_commit="b" * 40,
+        )
+        values.update(kwargs)
+        return parity.CompareReport(**values)
+
+    def test_ok_report_lists_commits_and_goos(self) -> None:
+        text = parity.format_parity_report(self._report())
+        self.assertIn("GOOS: linux", text)
+        self.assertIn("tag-0.0.0", text)
+        self.assertIn("a" * 40, text)
+        self.assertIn("reviewed master: " + "b" * 40, text)
+        self.assertIn("current official master: " + "b" * 40, text)
+        self.assertIn("master review drift: no", text)
+        self.assertIn("result: ok", text)
+
+    def test_fail_report_includes_drift_guidance(self) -> None:
+        report = self._report(current_master_commit="c" * 40, missing_options=["frob"])
+        report.master_review_drift = True
+        text = parity.format_parity_report(report)
+        self.assertIn("result: FAIL", text)
+        self.assertIn("master review drift: yes", text)
+        self.assertIn("current official master: " + "c" * 40, text)
+        self.assertIn("classic-baseline.json", text)
+        self.assertIn("frob", text)
+
+
+class CompareFromWorkdirTest(unittest.TestCase):
+    def test_reads_ignored_layout_without_network(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            workdir = Path(td)
+            release_yo = (
+                workdir
+                / "worktrees"
+                / f"release-{BASELINE['release_commit']}"
+                / "doc"
+                / "socat.yo"
+            )
+            master_yo = (
+                workdir
+                / "worktrees"
+                / f"master-{BASELINE['reviewed_master_commit']}"
+                / "doc"
+                / "socat.yo"
+            )
+            release_out = workdir / "out" / "release"
+            master_out = workdir / "out" / "master"
+            release_yo.parent.mkdir(parents=True)
+            master_yo.parent.mkdir(parents=True)
+            release_out.mkdir(parents=True)
+            master_out.mkdir(parents=True)
+            release_yo.write_text(SYNTHETIC_YO, encoding="utf-8")
+            master_yo.write_text(SYNTHETIC_YO, encoding="utf-8")
+            v = (
+                "  #define WITH_OPENSSL 1\n"
+                "  #define WITH_READLINE 1\n"
+                "  #define WITH_LIBWRAP 1\n"
+            )
+            (release_out / "socat-hhh.txt").write_text(SYNTHETIC_HHH, encoding="utf-8")
+            (release_out / "socat-V.txt").write_text(v, encoding="utf-8")
+            (master_out / "socat-hhh.txt").write_text(SYNTHETIC_HHH, encoding="utf-8")
+            (master_out / "socat-V.txt").write_text(v, encoding="utf-8")
+            go = workdir / "go.hhh"
+            go.write_text(SYNTHETIC_GO_HELP, encoding="utf-8")
+            report = parity.compare_from_workdir(
+                workdir=workdir,
+                baseline=BASELINE,
+                policy=POLICY,
+                goos="linux",
+                go_help=str(go),
+            )
+            self.assertEqual(report.goos, "linux")
+            self.assertEqual(report.release_tag, BASELINE["release_tag"])
+            self.assertEqual(report.release_commit, BASELINE["release_commit"])
+            self.assertNotIn("frob", report.missing_options)
+            self.assertEqual(report.feature_defines_missing, [])
+            self.assertFalse(report.master_review_drift)
+
+
+class RunCommandTest(unittest.TestCase):
+    def _report(self, **kwargs) -> parity.CompareReport:
+        values = dict(
+            release_tag="tag-0.0.0",
+            release_commit="a" * 40,
+            reviewed_master_commit="b" * 40,
+            goos="linux",
+            current_master_commit="b" * 40,
+        )
+        values.update(kwargs)
+        return parity.CompareReport(**values)
+
+    def test_run_prints_summary_and_fails_on_diff(self) -> None:
+        report = self._report(missing_options=["frob"])
+        with tempfile.TemporaryDirectory() as td:
+            workdir = Path(td)
+            out = workdir / "report.json"
+            baseline_path = workdir / "baseline.json"
+            policy_path = workdir / "policy.json"
+            baseline_path.write_text(json.dumps(BASELINE), encoding="utf-8")
+            policy_path.write_text(json.dumps(POLICY), encoding="utf-8")
+            with (
+                patch.object(parity, "sync_classic", return_value={}) as sync,
+                patch.object(parity, "build_classic", return_value={}) as build,
+                patch.object(parity, "compare_from_workdir", return_value=report) as compare,
+            ):
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    rc = parity.main(
+                        [
+                            "run",
+                            "--workdir",
+                            str(workdir),
+                            "--goos",
+                            "linux",
+                            "--out",
+                            str(out),
+                            "--baseline",
+                            str(baseline_path),
+                            "--policy",
+                            str(policy_path),
+                        ]
+                    )
+            self.assertEqual(rc, 1)
+            self.assertEqual(sync.call_count, 1)
+            self.assertEqual(build.call_count, 2)
+            self.assertEqual(compare.call_count, 1)
+            resolved = workdir.resolve()
+            rel = resolved / "worktrees" / f"release-{BASELINE['release_commit']}"
+            mas = resolved / "worktrees" / f"master-{BASELINE['reviewed_master_commit']}"
+            self.assertEqual(build.call_args_list[0][0][0], rel)
+            self.assertEqual(build.call_args_list[1][0][0], mas)
+            text = buf.getvalue()
+            self.assertIn("classic parity", text)
+            self.assertIn("result: FAIL", text)
+            self.assertIn("frob", text)
+            self.assertNotIn("{", text)
+            payload = json.loads(out.read_text(encoding="utf-8"))
+            self.assertEqual(payload["missing_options"], ["frob"])
+
+    def test_run_ok_when_compare_has_no_failures(self) -> None:
+        report = self._report()
+        with tempfile.TemporaryDirectory() as td:
+            workdir = Path(td)
+            baseline_path = workdir / "baseline.json"
+            policy_path = workdir / "policy.json"
+            baseline_path.write_text(json.dumps(BASELINE), encoding="utf-8")
+            policy_path.write_text(json.dumps(POLICY), encoding="utf-8")
+            with (
+                patch.object(parity, "sync_classic", return_value={}),
+                patch.object(parity, "build_classic", return_value={}),
+                patch.object(parity, "compare_from_workdir", return_value=report),
+            ):
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    rc = parity.main(
+                        [
+                            "run",
+                            "--workdir",
+                            str(workdir),
+                            "--goos",
+                            "linux",
+                            "--baseline",
+                            str(baseline_path),
+                            "--policy",
+                            str(policy_path),
+                        ]
+                    )
+            self.assertEqual(rc, 0)
+            self.assertIn("result: ok", buf.getvalue())
+
+
+class MakeAndWorkflowPolicyTest(unittest.TestCase):
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def test_check_does_not_run_classic_parity(self) -> None:
+        text = (self.ROOT / "Makefile").read_text(encoding="utf-8")
+        self.assertRegex(text, r"(?m)^classic-parity:")
+        lines = text.splitlines()
+        body: list[str] = []
+        in_check = False
+        for line in lines:
+            if in_check:
+                if line.startswith("\t"):
+                    body.append(line)
+                    continue
+                break
+            if line.startswith("check:"):
+                in_check = True
+                body.append(line)
+        self.assertTrue(in_check)
+        self.assertNotIn("classic-parity", "\n".join(body))
+
+    def test_workflow_is_manual_only_without_artifacts(self) -> None:
+        path = self.ROOT / ".github" / "workflows" / "classic-parity.yml"
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", text)
+        self.assertNotIn("schedule:", text)
+        self.assertNotIn("cron:", text)
+        self.assertRegex(text, r"(?m)^\s+contents:\s+read\s*$")
+        self.assertNotRegex(text, r"(?m)^\s+push:")
+        self.assertNotRegex(text, r"(?m)^\s+pull_request:")
+        self.assertNotIn("actions/upload-artifact", text)
+        self.assertNotIn("actions/cache@", text)
+        self.assertNotIn("GOOS=", text)
+        self.assertNotIn("GOARCH=", text)
+        self.assertIn("make classic-parity", text)
+        self.assertIn("macos-latest", text)
+        self.assertIn("ubuntu-latest", text)
 
 
 class BuildPlanTest(unittest.TestCase):

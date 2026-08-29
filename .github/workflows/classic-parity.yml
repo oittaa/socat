@@ -1,0 +1,56 @@
+# Native Go vs official classic socat. Manual dispatch only; not ordinary CI.
+# Official source, binaries, -hhh/-V dumps, and rendered docs stay in the
+# gitignored workdir. Do not upload them as artifacts or cache them.
+name: classic-parity
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: classic-parity-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  linux:
+    name: classic parity (linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install classic build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential autoconf pkg-config \
+            libssl-dev libreadline-dev libwrap0-dev
+      - name: Classic parity
+        run: make classic-parity
+
+  macos:
+    name: classic parity (darwin)
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Install classic build dependencies
+        run: brew install autoconf openssl@3 readline
+      - name: Classic parity
+        # Native Darwin binaries and native -hhh. Do not set GOOS/GOARCH.
+        run: |
+          OPENSSL="$(brew --prefix openssl@3)"
+          READLINE="$(brew --prefix readline)"
+          export CPPFLAGS="-I${OPENSSL}/include -I${READLINE}/include ${CPPFLAGS:-}"
+          export LDFLAGS="-L${OPENSSL}/lib -L${READLINE}/lib ${LDFLAGS:-}"
+          export PKG_CONFIG_PATH="${OPENSSL}/lib/pkgconfig:${READLINE}/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+          make classic-parity

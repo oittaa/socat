@@ -246,10 +246,15 @@ make check              # platform policy, lint, security, unit, and e2e tests
 make test               # formatting and unit tests
 make e2e                # local end-to-end tests
 make test-netns-docker  # privileged Linux namespace and raw-IP tests
+make classic-parity     # native Go vs official release and reviewed master
 ```
 
+`make check` does not contact repo.or.cz. `make classic-parity` does: it
+syncs the official repository into a gitignored working directory.
+
 CI runs unit and end-to-end tests on Linux amd64/arm64, macOS, and Windows
-amd64/arm64. Weekly jobs run fuzzing and the live relay matrix.
+amd64/arm64. Weekly jobs run fuzzing and the live relay matrix. Official
+classic parity is a manual workflow only.
 
 Classic `test.sh` is run separately because hosted CI cannot provide every
 required kernel feature and privilege. Results and reproduction instructions

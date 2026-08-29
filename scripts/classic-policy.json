@@ -146,8 +146,28 @@
   "go_only_addresses": {
     "WS": "WebSocket extension",
     "WSS": "WebSocket TLS extension",
-    "QUIC": "QUIC extension"
+    "QUIC": "QUIC extension",
+    "TLS": "documented name for OPENSSL/SSL stream TLS",
+    "ABSTRACT-L": "short alias of ABSTRACT-LISTEN",
+    "OPENSSL-L": "short alias of OPENSSL-LISTEN",
+    "SSL-CONNECT": "SSL alias of TLS-CONNECT",
+    "SSL-LISTEN": "SSL alias of TLS-LISTEN",
+    "UNIX-DATAGRAM": "combined UNIX datagram form"
   },
+  "unsupported_flags": {
+    "-s": "continue-on-error has no portable recoverable-I/O subset; accepted as a no-op",
+    "-g": "option-group usefulness check is not implemented; accepted as a no-op",
+    "-D": "pre-transfer file-descriptor dump is not implemented; accepted as a no-op",
+    "-ly": "syslog is not implemented",
+    "-lm": "mixed stderr/syslog logging is not implemented"
+  },
+  "address_canonical_equivalences": [
+    ["OPENSSL", "TLS", "TLS-CONNECT"],
+    ["OPENSSL-LISTEN", "TLS-LISTEN", "TLS-L"]
+  ],
+  "option_canonical_equivalences": [
+    ["lseek", "lseek32-set", "lseek64-set"]
+  ],
   "go_only_options": {
     "alpn": "QUIC and HTTP/2/3 extra",
     "h2c": "cleartext HTTP/2 CONNECT extra",
@@ -166,7 +186,8 @@
     "tls-capath": "tls-* alias of capath",
     "tls-commonname": "tls-* alias of commonname",
     "tls-no-sni": "tls-* alias of nosni",
-    "tls-snihost": "tls-* alias of snihost"
+    "tls-snihost": "tls-* alias of snihost",
+    "b7200": "B7200 baud name; not in official -hhh"
   },
   "platform_options": {
     "linux": [
@@ -194,5 +215,14 @@
       "o-text",
       "o-noinherit"
     ]
+  },
+  "platform_unsupported_options": {
+    "linux": {
+      "so-sndlowat": "Linux does not allow changing SO_SNDLOWAT; setsockopt returns ENOPROTOOPT"
+    },
+    "darwin": {},
+    "windows": {
+      "so-sndlowat": "not advertised on Windows"
+    }
   }
 }

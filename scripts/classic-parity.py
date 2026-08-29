@@ -37,7 +37,7 @@ HHH_OPT_DETAIL_RE = re.compile(
 )
 HHH_OPT_ALIAS_RE = re.compile(r"^\s{6}(\S+)\s+is an alias for (\S+)\s*$")
 HHH_ADDR_DETAIL_RE = re.compile(
-    r"^\s{6}([A-Za-z][A-Za-z0-9.+_-]*)(?::\S*)?\s+groups=(\S+)\s*$"
+    r"^\s{6}([A-Za-z][A-Za-z0-9.+_-]*)(?:[:\[].*?)?\s+groups=(\S+)\s*$"
 )
 HHH_ADDR_ALIAS_RE = re.compile(
     r"^\s{6}([A-Za-z][A-Za-z0-9.+_-]*)\s+is an alias name for ([A-Za-z][A-Za-z0-9.+_-]*)\s*$"
@@ -379,8 +379,24 @@ def feature_defined(text: str, name: str) -> bool:
     return False
 
 
-def missing_feature_complete(text: str) -> list[str]:
-    return [name for name in FEATURE_COMPLETE_DEFINES if not feature_defined(text, name)]
+def feature_complete_defines_for(goos: str | None = None) -> tuple[str, ...]:
+    """Defines required before trusting a native classic -hhh dump.
+
+    Linux reference builds include tcp-wrappers. Darwin typically does not
+    ship libwrap; OpenSSL and readline are still required there.
+    """
+    plat = (goos or sys.platform).lower()
+    if plat in ("darwin", "macos"):
+        return ("WITH_OPENSSL", "WITH_READLINE")
+    return FEATURE_COMPLETE_DEFINES
+
+
+def missing_feature_complete(text: str, *, goos: str | None = None) -> list[str]:
+    return [
+        name
+        for name in feature_complete_defines_for(goos)
+        if not feature_defined(text, name)
+    ]
 
 
 def parse_go_flag_field(field: str) -> list[str]:
@@ -475,8 +491,7 @@ def policy_name_set(policy: dict[str, Any], *keys: str) -> set[str]:
     return names
 
 
-def platform_option_set(policy: dict[str, Any], goos: str) -> set[str]:
-    plat = policy.get("platform_options") or {}
+def _platform_block_names(plat: dict[str, Any], goos: str) -> set[str]:
     block = plat.get(goos) or {}
     if isinstance(block, dict):
         return set(block.keys())
@@ -485,16 +500,23 @@ def platform_option_set(policy: dict[str, Any], goos: str) -> set[str]:
     return set()
 
 
+def platform_option_set(policy: dict[str, Any], goos: str) -> set[str]:
+    plat = policy.get("platform_options") or {}
+    return _platform_block_names(plat, goos)
+
+
+def platform_unsupported_option_set(policy: dict[str, Any], goos: str) -> set[str]:
+    plat = policy.get("platform_unsupported_options") or {}
+    return _platform_block_names(plat, goos)
+
+
 def other_platform_options(policy: dict[str, Any], goos: str) -> set[str]:
     plat = policy.get("platform_options") or {}
     names: set[str] = set()
-    for other, block in plat.items():
+    for other in plat:
         if other == goos:
             continue
-        if isinstance(block, dict):
-            names.update(block.keys())
-        elif isinstance(block, list):
-            names.update(block)
+        names.update(_platform_block_names(plat, other))
     return names
 
 
@@ -562,13 +584,34 @@ def expand_policy_spellings(
     return out
 
 
+def equivalence_groups(policy: dict[str, Any], key: str, *, upper: bool) -> list[set[str]]:
+    """Named canonical groups that should compare as one alias class."""
+    out: list[set[str]] = []
+    for block in policy.get(key) or []:
+        if not isinstance(block, list):
+            continue
+        names = {str(n).upper() if upper else str(n).lower() for n in block if n}
+        if names:
+            out.append(names)
+    return out
+
+
 def same_alias_class(
-    alias: str, classic_aliases: dict[str, str], go_aliases: dict[str, str]
+    alias: str,
+    classic_aliases: dict[str, str],
+    go_aliases: dict[str, str],
+    extra_groups: Iterable[set[str]] | None = None,
 ) -> bool:
     """True when Go's chosen canonical is in the same classic alias class."""
     go_canon = resolve_alias(go_aliases, alias)
     classic_canon = resolve_alias(classic_aliases, alias)
-    return resolve_alias(classic_aliases, go_canon) == classic_canon
+    if resolve_alias(classic_aliases, go_canon) == classic_canon:
+        return True
+    if extra_groups:
+        for group in extra_groups:
+            if go_canon in group and classic_canon in group:
+                return True
+    return False
 
 
 def name_matches_family(name: str, family: str) -> bool:
@@ -733,6 +776,47 @@ class CompareReport:
         }
 
 
+def _fmt_name_list(names: list[str], limit: int = 12) -> str:
+    if not names:
+        return "(none)"
+    shown = ", ".join(names[:limit])
+    extra = len(names) - limit
+    if extra > 0:
+        shown += f" ... (+{extra})"
+    return f"{len(names)}: {shown}"
+
+
+def format_parity_report(report: CompareReport) -> str:
+    """Human-readable summary for `make classic-parity`."""
+    drift = "yes" if report.master_review_drift else "no"
+    result = "FAIL" if report.has_failures() else "ok"
+    lines = [
+        "classic parity",
+        f"  GOOS: {report.goos}",
+        f"  release: {report.release_tag} ({report.release_commit})",
+        f"  reviewed master: {report.reviewed_master_commit}",
+        f"  current official master: {report.current_master_commit or '(unknown)'}",
+        f"  master review drift: {drift}",
+        f"  missing options: {_fmt_name_list(report.missing_options)}",
+        f"  missing addresses: {_fmt_name_list(report.missing_addresses)}",
+        f"  missing flags: {_fmt_name_list(report.missing_flags)}",
+        f"  unexpected options: {_fmt_name_list(report.unexpected_options)}",
+        f"  unexpected addresses: {_fmt_name_list(report.unexpected_addresses)}",
+        f"  unexpected flags: {_fmt_name_list(report.unexpected_flags)}",
+        f"  option alias mismatches: {len(report.option_alias_mismatches)}",
+        f"  address alias mismatches: {len(report.address_alias_mismatches)}",
+        f"  feature defines missing: {_fmt_name_list(report.feature_defines_missing)}",
+        f"  master feature defines missing: {_fmt_name_list(report.master_feature_defines_missing)}",
+        f"  result: {result}",
+    ]
+    if report.master_review_drift:
+        lines.append(
+            "  official master moved past the reviewed commit; "
+            "review the drift and update scripts/classic-baseline.json"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def compare_interfaces(
     *,
     release_docs: ExtractedInterface,
@@ -778,6 +862,11 @@ def compare_interfaces(
         official_opt_aliases,
         include_canonical=True,
     )
+    plat_unsup = expand_policy_spellings(
+        {n.lower() for n in platform_unsupported_option_set(policy, goos)},
+        official_opt_aliases,
+        include_canonical=True,
+    )
     family_seeds = {n.upper() for n in policy_name_set(policy, "unsupported_addresses")}
     unsupported_addrs = expand_address_families(
         family_seeds, merge_extracted(release_public, master_public)
@@ -786,6 +875,10 @@ def compare_interfaces(
         {n.upper() for n in policy_name_set(policy, "go_only_addresses")},
         go_help.addresses,
     )
+    unsupported_flags = policy_name_set(policy, "unsupported_flags")
+    go_only_flags = policy_name_set(policy, "go_only_flags")
+    option_equiv = equivalence_groups(policy, "option_canonical_equivalences", upper=False)
+    address_equiv = equivalence_groups(policy, "address_canonical_equivalences", upper=True)
 
     advertised_opts = set(release_public.options)
     advertised_addrs = set(release_public.addresses)
@@ -810,7 +903,7 @@ def compare_interfaces(
         if name in parser_only:
             report.parser_only_ignored.append(name)
             continue
-        if name in unsupported_opts or name in other_plat:
+        if name in unsupported_opts or name in other_plat or name in plat_unsup:
             continue
         report.missing_options.append(name)
 
@@ -822,8 +915,11 @@ def compare_interfaces(
         report.missing_addresses.append(name)
 
     for name in sorted(advertised_flags):
-        if name not in go_help.flags:
-            report.missing_flags.append(name)
+        if name in go_help.flags:
+            continue
+        if name in unsupported_flags:
+            continue
+        report.missing_flags.append(name)
 
     for name in sorted(go_help.options):
         if name in advertised_opts:
@@ -846,6 +942,8 @@ def compare_interfaces(
     for name in sorted(go_help.flags):
         if name in advertised_flags:
             continue
+        if name in go_only_flags:
+            continue
         if name in master_public.flags:
             continue
         report.unexpected_flags.append(name)
@@ -856,7 +954,7 @@ def compare_interfaces(
                 report.parser_only_ignored.append(alias)
             continue
         if alias not in go_help.options and (
-            alias in unsupported_opts or alias in other_plat
+            alias in unsupported_opts or alias in other_plat or alias in plat_unsup
         ):
             continue
         if alias not in go_help.option_aliases:
@@ -864,7 +962,10 @@ def compare_interfaces(
         go_canon = resolve_alias(go_help.option_aliases, alias)
         classic_canon = resolve_alias(release_public.option_aliases, alias)
         if not same_alias_class(
-            alias, release_public.option_aliases, go_help.option_aliases
+            alias,
+            release_public.option_aliases,
+            go_help.option_aliases,
+            option_equiv,
         ):
             report.option_alias_mismatches.append(
                 {"alias": alias, "classic": classic_canon, "go": go_canon}
@@ -877,8 +978,12 @@ def compare_interfaces(
             continue
         go_canon = resolve_alias(go_help.address_aliases, alias)
         classic_canon = resolve_alias(release_public.address_aliases, alias)
-        mapped = resolve_alias(release_public.address_aliases, go_canon)
-        if mapped != classic_canon:
+        if not same_alias_class(
+            alias,
+            release_public.address_aliases,
+            go_help.address_aliases,
+            address_equiv,
+        ):
             report.address_alias_mismatches.append(
                 {"alias": alias, "classic": classic_canon, "go": go_canon}
             )
@@ -964,6 +1069,21 @@ def is_git_repo(path: Path) -> bool:
     return proc.returncode == 0
 
 
+def worktree_path(workdir: Path, kind: str, commit: str) -> Path:
+    """Checkout path for one baseline pin. Commit-specific so pin updates do not reuse dest."""
+    return workdir / "worktrees" / f"{kind}-{commit}"
+
+
+def baseline_worktree(workdir: Path, baseline: dict[str, Any], kind: str) -> Path:
+    if kind == "release":
+        commit = str(baseline["release_commit"])
+    elif kind == "master":
+        commit = str(baseline["reviewed_master_commit"])
+    else:
+        raise SystemExit(f"unknown worktree kind {kind!r}")
+    return worktree_path(workdir, kind, commit)
+
+
 def sync_classic(workdir: Path, baseline: dict[str, Any]) -> dict[str, Any]:
     """Clone/fetch official socat. Never deletes workdir or caller paths."""
     workdir.mkdir(parents=True, exist_ok=True)
@@ -1024,8 +1144,8 @@ def sync_classic(workdir: Path, baseline: dict[str, Any]) -> dict[str, Any]:
 
     wt_root = workdir / "worktrees"
     wt_root.mkdir(parents=True, exist_ok=True)
-    release_wt = wt_root / "release"
-    master_wt = wt_root / "master"
+    release_wt = worktree_path(workdir, "release", release_commit)
+    master_wt = worktree_path(workdir, "master", master_commit)
     ensure_worktree(repo, release_wt, release_commit)
     ensure_worktree(repo, master_wt, master_commit)
     return {
@@ -1064,7 +1184,7 @@ def capture_classic_help(binary: Path, outdir: Path) -> dict[str, str]:
     """Run socat -V/-hhh into outdir. Refuse -hhh if feature defines are missing."""
     outdir.mkdir(parents=True, exist_ok=True)
     v_text = run_cmd([str(binary), "-V"]).stdout
-    missing = missing_feature_complete(v_text)
+    missing = missing_feature_complete(v_text, goos=sys.platform)
     if missing:
         raise SystemExit(
             "classic binary is not feature-complete; missing "
@@ -1149,7 +1269,9 @@ def extract_from_paths(
     return merge_extracted(*parts)
 
 
-def inspect_classic_v(v_path: Path | None, hhh_used: bool) -> list[str]:
+def inspect_classic_v(
+    v_path: Path | None, hhh_used: bool, *, goos: str | None = None
+) -> list[str]:
     """Fail closed: -hhh is untrusted without a complete -V dump."""
     if not hhh_used:
         return []
@@ -1158,7 +1280,7 @@ def inspect_classic_v(v_path: Path | None, hhh_used: bool) -> list[str]:
     text = v_path.read_text(encoding="utf-8", errors="replace")
     if not text.strip():
         return ["socat -V output empty"]
-    return missing_feature_complete(text)
+    return missing_feature_complete(text, goos=goos)
 
 
 def read_current_master_commit(workdir: Path) -> str:
@@ -1196,7 +1318,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
 
 def cmd_build(args: argparse.Namespace) -> int:
     workdir = Path(args.workdir).resolve()
-    tree = workdir / "worktrees" / args.tree
+    baseline = load_baseline(Path(args.baseline) if args.baseline else None)
+    tree = baseline_worktree(workdir, baseline, args.tree)
     if not tree.exists():
         raise SystemExit(f"missing worktree {tree}; run sync first")
     outdir = workdir / "out" / args.tree
@@ -1211,7 +1334,8 @@ def cmd_extract(args: argparse.Namespace) -> int:
     hhh = Path(args.hhh) if args.hhh else None
     if yo is None and hhh is None:
         workdir = Path(args.workdir).resolve()
-        tree = workdir / "worktrees" / args.tree
+        baseline = load_baseline(Path(args.baseline) if args.baseline else None)
+        tree = baseline_worktree(workdir, baseline, args.tree)
         yo = tree / "doc" / "socat.yo"
         hhh_candidate = workdir / "out" / args.tree / "socat-hhh.txt"
         hhh = hhh_candidate if hhh_candidate.exists() else None
@@ -1228,90 +1352,112 @@ def cmd_extract(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_compare(args: argparse.Namespace) -> int:
+def compare_from_workdir(
+    *,
+    workdir: Path,
+    baseline: dict[str, Any],
+    policy: dict[str, Any],
+    goos: str | None = None,
+    go_binary: str | None = None,
+    go_help: str | None = None,
+    release_yo: str | None = None,
+    master_yo: str | None = None,
+    release_hhh: str | None = None,
+    master_hhh: str | None = None,
+    release_v: str | None = None,
+    master_v: str | None = None,
+) -> CompareReport:
     root = repo_root()
-    workdir = Path(args.workdir).resolve()
-    baseline = load_baseline(Path(args.baseline) if args.baseline else None)
-    policy = load_policy(Path(args.policy) if args.policy else None)
-    if args.goos:
-        goos = args.goos
-    else:
+    if not goos:
         goos = run_cmd(["go", "env", "GOOS"], cwd=root).stdout.strip()
 
-    release_yo = (
-        Path(args.release_yo)
-        if args.release_yo
-        else workdir / "worktrees" / "release" / "doc" / "socat.yo"
+    release_yo_path = (
+        Path(release_yo)
+        if release_yo
+        else baseline_worktree(workdir, baseline, "release") / "doc" / "socat.yo"
     )
-    master_yo = (
-        Path(args.master_yo)
-        if args.master_yo
-        else workdir / "worktrees" / "master" / "doc" / "socat.yo"
+    master_yo_path = (
+        Path(master_yo)
+        if master_yo
+        else baseline_worktree(workdir, baseline, "master") / "doc" / "socat.yo"
     )
     release_hhh_path = (
-        Path(args.release_hhh)
-        if args.release_hhh
-        else workdir / "out" / "release" / "socat-hhh.txt"
+        Path(release_hhh) if release_hhh else workdir / "out" / "release" / "socat-hhh.txt"
     )
     master_hhh_path = (
-        Path(args.master_hhh)
-        if args.master_hhh
-        else workdir / "out" / "master" / "socat-hhh.txt"
+        Path(master_hhh) if master_hhh else workdir / "out" / "master" / "socat-hhh.txt"
     )
     release_v_path = resolve_v_path(
-        args.release_v,
+        release_v,
         release_hhh_path,
         workdir / "out" / "release" / "socat-V.txt",
     )
     master_v_path = resolve_v_path(
-        args.master_v,
+        master_v,
         master_hhh_path,
         workdir / "out" / "master" / "socat-V.txt",
     )
 
-    if not release_yo.exists():
-        raise SystemExit(f"missing {release_yo}; run sync first")
-    release_docs = parse_socat_yo(release_yo.read_text(encoding="utf-8", errors="replace"))
+    if not release_yo_path.exists():
+        raise SystemExit(f"missing {release_yo_path}; run sync first")
+    release_docs = parse_socat_yo(release_yo_path.read_text(encoding="utf-8", errors="replace"))
     master_docs = None
-    if master_yo.exists():
-        master_docs = parse_socat_yo(master_yo.read_text(encoding="utf-8", errors="replace"))
+    if master_yo_path.exists():
+        master_docs = parse_socat_yo(master_yo_path.read_text(encoding="utf-8", errors="replace"))
 
-    release_hhh = None
+    release_hhh_iface = None
     feature_missing: list[str] = []
     if release_hhh_path.exists():
-        release_hhh = parse_classic_hhh(
+        release_hhh_iface = parse_classic_hhh(
             release_hhh_path.read_text(encoding="utf-8", errors="replace")
         )
-        feature_missing = inspect_classic_v(release_v_path, True)
-    master_hhh = None
+        feature_missing = inspect_classic_v(release_v_path, True, goos=goos)
+    master_hhh_iface = None
     master_feature_missing: list[str] = []
     if master_hhh_path.exists():
-        master_hhh = parse_classic_hhh(
+        master_hhh_iface = parse_classic_hhh(
             master_hhh_path.read_text(encoding="utf-8", errors="replace")
         )
-        master_feature_missing = inspect_classic_v(master_v_path, True)
+        master_feature_missing = inspect_classic_v(master_v_path, True, goos=goos)
 
-    if args.go_help:
-        go_text = Path(args.go_help).read_text(encoding="utf-8", errors="replace")
-    elif args.go_binary:
-        go_text = run_cmd([str(Path(args.go_binary)), "-hhh"]).stdout
+    if go_help:
+        go_text = Path(go_help).read_text(encoding="utf-8", errors="replace")
+    elif go_binary:
+        go_text = run_cmd([str(Path(go_binary)), "-hhh"]).stdout
     else:
         go_bin = build_go_binary(root, workdir / "out" / "go-socat")
         go_text = run_cmd([str(go_bin), "-hhh"]).stdout
-    go_help = parse_go_help(go_text)
+    go_iface = parse_go_help(go_text)
 
-    report = compare_interfaces(
+    return compare_interfaces(
         release_docs=release_docs,
-        release_hhh=release_hhh,
+        release_hhh=release_hhh_iface,
         master_docs=master_docs,
-        master_hhh=master_hhh,
-        go_help=go_help,
+        master_hhh=master_hhh_iface,
+        go_help=go_iface,
         policy=policy,
         baseline=baseline,
         goos=goos,
         feature_defines_missing=feature_missing,
         master_feature_defines_missing=master_feature_missing,
         current_master_commit=read_current_master_commit(workdir),
+    )
+
+
+def cmd_compare(args: argparse.Namespace) -> int:
+    report = compare_from_workdir(
+        workdir=Path(args.workdir).resolve(),
+        baseline=load_baseline(Path(args.baseline) if args.baseline else None),
+        policy=load_policy(Path(args.policy) if args.policy else None),
+        goos=args.goos,
+        go_binary=args.go_binary,
+        go_help=args.go_help,
+        release_yo=args.release_yo,
+        master_yo=args.master_yo,
+        release_hhh=args.release_hhh,
+        master_hhh=args.master_hhh,
+        release_v=args.release_v,
+        master_v=args.master_v,
     )
     payload = report.to_json()
     if args.out:
@@ -1323,6 +1469,34 @@ def cmd_compare(args: argparse.Namespace) -> int:
     if args.fail_on_diff and report.has_failures():
         return 1
     return 0
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    """Sync, build official trees, compare native Go -hhh, print a summary."""
+    workdir = Path(args.workdir).resolve()
+    baseline = load_baseline(Path(args.baseline) if args.baseline else None)
+    policy = load_policy(Path(args.policy) if args.policy else None)
+    sync_classic(workdir, baseline)
+    build_classic(
+        baseline_worktree(workdir, baseline, "release"), workdir / "out" / "release"
+    )
+    build_classic(
+        baseline_worktree(workdir, baseline, "master"), workdir / "out" / "master"
+    )
+    report = compare_from_workdir(
+        workdir=workdir,
+        baseline=baseline,
+        policy=policy,
+        goos=args.goos,
+        go_binary=args.go_binary,
+        go_help=args.go_help,
+    )
+    sys.stdout.write(format_parity_report(report))
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report.to_json(), indent=2) + "\n", encoding="utf-8")
+    return 1 if report.has_failures() else 0
 
 
 def add_common_args(p: argparse.ArgumentParser) -> None:
@@ -1376,6 +1550,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="exit 1 on name/alias diffs, incomplete -V, or official master SHA drift",
     )
     compare.set_defaults(func=cmd_compare)
+
+    run = sub.add_parser(
+        "run",
+        help=(
+            "sync, build official trees, and compare native Go -hhh "
+            "(make classic-parity; always fails on diffs or master drift)"
+        ),
+    )
+    add_common_args(run)
+    run.add_argument("--policy")
+    run.add_argument("--goos")
+    run.add_argument("--go-binary")
+    run.add_argument("--go-help")
+    run.add_argument("--out", help="optional JSON report path under the workdir")
+    run.set_defaults(func=cmd_run)
     return p
 
 
