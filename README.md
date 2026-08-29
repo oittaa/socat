@@ -39,6 +39,8 @@ HTTP/2·3 proxy) ship alongside.
 - **Honesty** — `-V` / `-hhh` only advertise features and options that are enforced
 - **Companions** — `filan` and `procan` included
 
+Supported platforms: Linux, macOS, and Windows.
+
 ## Build
 
 Requires **Go 1.27+** (the `toolchain` directive will fetch it if needed):

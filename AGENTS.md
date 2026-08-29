@@ -1,5 +1,44 @@
 # Repository Agent Instructions
 
+## Supported platforms
+
+Only Linux (`linux`), macOS (`darwin`), and Windows (`windows`) are supported.
+Unsupported `GOOS` builds are allowed to fail. Never add AIX, Solaris,
+illumos, FreeBSD, OpenBSD, NetBSD, or DragonFly support, tests, constants,
+wrappers, or fallback implementations, and do not make those platforms
+compile.
+
+**Unix** in this project means Linux + macOS only. Go’s broad `unix` build
+tag includes unsupported systems and must not be used in new or edited
+files.
+
+Build constraints for new or edited files:
+
+- Shared Linux/macOS files: `//go:build linux || darwin`
+- OS-specific files: `//go:build linux`, `//go:build darwin`, or `//go:build windows`
+- Do not use broad negatives (`!windows`, `!linux`, `!darwin`, `!unix`)
+- If a stub is needed by more than one supported OS, list those OS names
+  explicitly (for example `darwin || windows`)
+
+Existing `unix` tags, BSD/AIX/Solaris/illumos constraints, and broad negatives
+are cleanup debt. Do not introduce new ones. Cleanup work replaces them with
+explicit supported-OS lists or deletes unsupported-OS-only files.
+
+`golang.org/x/sys/unix` is fine; the restriction is platform scope, not the
+package name. Do not create portability abstractions for hypothetical future
+platforms.
+
+## CLI help and comments
+
+`socat -h` / `-hh` / `-hhh` describe behavior only. Do not mention classic C
+internals (`groups=`, `phase=`, `type=`, `PH_*`, `TYPE_*`, `GROUP_*`,
+`OFUNC_*`) or the word “classic”.
+
+Runtime comments stay short. Do not narrate classic C control flow, commit
+hashes, or C function names in production files. Compatibility evidence belongs
+in PR descriptions, focused tests, README exceptions, and
+`internal/classiccatalog`.
+
 ## Classic socat compatibility
 
 Stay a drop-in replacement for classic socat
