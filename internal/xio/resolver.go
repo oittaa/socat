@@ -123,37 +123,26 @@ func IPHint(network string) string {
 }
 
 // FormatIPForNetwork stringifies ip for Dial/Listen on network.
-// IPv4-mapped results of an IPv6 lookup must stay in ::ffff: form so tcp6
-// and udp6 do not treat them as AF_INET (net.IP.String prints mapped as dotted
-// IPv4).
+// IPv4-mapped addresses stringify as dotted IPv4 because Go's net package
+// unmaps them (IP.String, Dial("tcp6")); connect uses AF_INET for those
+// results (README Intentional differences).
 func FormatIPForNetwork(network string, ip net.IP) string {
-	if !WantIPv4(network, ip) {
-		if lit, ok := ipv4MappedLiteral(ip); ok {
-			return lit
+	if WantIPv4(network, ip) {
+		if ip4 := ip.To4(); ip4 != nil {
+			return ip4.String()
 		}
 	}
 	return ip.String()
 }
 
 // WantIPv4 reports whether ip is used as AF_INET on network.
-// IPv4-mapped addresses from an ip6 lookup stay AF_INET6 (classic
-// AI_V4MAPPED / sockaddr_in6).
+// IPv4-mapped AI_V4MAPPED results have a To4() form; Go cannot Dial them on
+// tcp6 ("no suitable address found"), so they stay AF_INET.
 func WantIPv4(network string, ip net.IP) bool {
-	if forcedIPv6Network(network) {
-		return false
-	}
-	if forcedIPv4Network(network) {
+	if ip.To4() != nil {
 		return true
 	}
-	return ip.To4() != nil
-}
-
-func ipv4MappedLiteral(ip net.IP) (string, bool) {
-	ip4 := ip.To4()
-	if ip4 == nil {
-		return "", false
-	}
-	return fmt.Sprintf("::ffff:%s", ip4.String()), true
+	return forcedIPv4Network(network)
 }
 
 func ipv4MappedAddrs(ips []net.IP) []net.IP {
@@ -192,6 +181,9 @@ func applyAIAddrConfig(s parse.Spec, ips []net.IP) []net.IP {
 // LookupIP resolves host with the per-address resolver and getaddrinfo flags
 // Go can reproduce: AI_V4MAPPED/AI_ALL on ip6, and AI_ADDRCONFIG when set.
 // It never mutates net.DefaultResolver. Literals skip DNS.
+//
+// IPv4-mapped results are dialed as AF_INET: Go unmaps ::ffff: addresses
+// (README Intentional differences / ai-v4mapped dial family).
 func LookupIP(ctx context.Context, s parse.Spec, hint, host string) ([]net.IP, error) {
 	host = StripBrackets(host)
 	if host == "" {

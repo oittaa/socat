@@ -552,8 +552,8 @@ func TestLookupIPV4MappedDefault(t *testing.T) {
 	if len(ips) != 1 || !ips[0].Equal(net.ParseIP("::ffff:127.0.0.1")) {
 		t.Fatalf("LookupIP=%v want ::ffff:127.0.0.1", ips)
 	}
-	if got := FormatIPForNetwork("tcp6", ips[0]); got != "::ffff:127.0.0.1" {
-		t.Fatalf("FormatIPForNetwork=%q", got)
+	if got := FormatIPForNetwork("tcp6", ips[0]); got != "127.0.0.1" {
+		t.Fatalf("FormatIPForNetwork=%q want 127.0.0.1 (Go unmaps IPv4-mapped)", got)
 	}
 }
 
@@ -674,9 +674,9 @@ func TestResUseVCAndV4MappedDoNotMutateDefaultResolver(t *testing.T) {
 }
 
 func TestDialTCPAllV4MappedConnects(t *testing.T) {
-	ln, err := net.Listen("tcp6", "[::ffff:127.0.0.1]:0")
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
-		t.Skip(err)
+		t.Fatal(err)
 	}
 	defer func() { _ = ln.Close() }()
 	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
