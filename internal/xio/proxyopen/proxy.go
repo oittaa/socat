@@ -22,7 +22,7 @@ import (
 const maxHTTP1ProxyResponseBytes = 64 << 10
 
 // PROXY / PROXY-CONNECT:proxy:targethost:targetport[,proxyport=N][,http-version=1.0|2|3][,resolve]
-// HTTP CONNECT through a proxy. Default is classic HTTP/1.0.
+// HTTP CONNECT through a proxy. Default is HTTP/1.0.
 func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	// Params: proxyhost, targethost, targetport  (or combined from parser)
 	proxyHost, targetHost, targetPort, err := proxyParams(s)
@@ -40,7 +40,7 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	if s.BoolOption("h2c") && major != httpVer2 {
 		return nil, fmt.Errorf("h2c requires http-version=2")
 	}
-	// ignorecr is HTTP/1 CONNECT response parsing only (classic xio-proxy.c).
+	// ignorecr is HTTP/1 CONNECT response parsing only.
 	// HTTP/2 and HTTP/3 have no CRLF status/header reader, so an enabled
 	// ignorecr would be a silent no-op. Reject it instead.
 	if s.BoolOption("ignorecr") && major != httpVer1 {
@@ -51,8 +51,8 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		ver = "1.0"
 	}
 
-	// Classic proxy-resolve / resolve (default true): put IPv4 in CONNECT target.
-	// proxyecho.sh and many proxies expect "CONNECT a.b.c.d:port HTTP/x.y".
+	// proxy-resolve / resolve (default true): put IPv4 in the CONNECT target.
+	// Many proxies expect "CONNECT a.b.c.d:port HTTP/x.y".
 	connectHost := xio.StripBrackets(targetHost)
 	doResolve := true
 	if s.HasOption("proxy-resolve") {
@@ -126,7 +126,7 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 }
 
 func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, version string) (net.Conn, error) {
-	// CONNECT host:port HTTP/1.x\r\n[auth]\r\n  (classic always CRLF, even with ignorecr)
+	// CONNECT host:port HTTP/1.x\r\n[auth]\r\n  (always CRLF, even with ignorecr)
 	req := fmt.Sprintf("CONNECT %s HTTP/%s\r\n", net.JoinHostPort(connectHost, targetPort), version)
 	auth, err := proxyAuthHeader(s)
 	if err != nil {
@@ -139,13 +139,9 @@ func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, vers
 	if _, err := c.Write([]byte(req)); err != nil {
 		return nil, err
 	}
-	// ignorecr is classic TYPE_BOOL GROUP_HTTP PH_LATE (xio-proxy.c opt_ignorecr
-	// / retropt_bool). tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba and
-	// official master af5388c898c7bb60997935aee93c223deba60c4a are the same
-	// parser: LF terminates a response line, and CR is ignored while reading
-	// the answer. doc/socat.yo presents a flag without [=<bool>]; the C type is
-	// BOOL, so this port uses BoolOption (bare / =1 enable, =0 disable; last
-	// occurrence wins). Requests still use CR+NL.
+	// ignorecr is HTTP/1 response parsing: LF ends a line; CR is ignored.
+	// Bare ignorecr or =1 enables; =0 disables (last occurrence wins).
+	// CONNECT requests still use CR+LF.
 	ignoreCR := s.BoolOption("ignorecr")
 	br := bufio.NewReaderSize(c, maxHTTP1ProxyResponseBytes+1)
 	total := 0
@@ -153,7 +149,7 @@ func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, vers
 	if err != nil {
 		return nil, fmt.Errorf("proxy response: %w", err)
 	}
-	// Classic: accept HTTP/1.0 or 1.1, skip multiple spaces, require code 200.
+	// Status line: HTTP/1.0 or 1.1, skip spaces, require 200.
 	if !proxyStatusOK(status) {
 		return nil, fmt.Errorf("proxy CONNECT failed: %s", strings.TrimSpace(status))
 	}
@@ -178,8 +174,7 @@ func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, vers
 }
 
 func readProxyResponseLine(br *bufio.Reader, total *int, ignoreCR bool) (string, error) {
-	// ReadSlice('\n') keeps classic byte-at-a-time CR-then-LF behavior: a
-	// lone CR stays buffered until LF arrives on a later read.
+	// ReadSlice('\n'): a lone CR stays buffered until LF arrives.
 	line, err := br.ReadSlice('\n')
 	*total += len(line)
 	if *total > maxHTTP1ProxyResponseBytes {
@@ -225,7 +220,7 @@ func openProxyDial(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glob
 	})
 }
 
-// proxyAuthHeader returns classic "Proxy-authorization: Basic …\r\n" or "".
+// proxyAuthHeader returns "Proxy-authorization: Basic …\r\n" or "".
 func proxyAuthHeader(s parse.Spec) (string, error) {
 	raw, err := proxyAuthString(s)
 	if err != nil || raw == "" {
@@ -256,7 +251,7 @@ func proxyAuthString(s parse.Spec) (string, error) {
 	return inline, nil
 }
 
-// proxyStatusOK matches classic xio-proxy.c: HTTP/1.0|1.1, skip spaces, "200".
+// proxyStatusOK: HTTP/1.0 or HTTP/1.1, skip spaces, status 200.
 func proxyStatusOK(status string) bool {
 	line := strings.TrimRight(status, "\r\n")
 	var rest string

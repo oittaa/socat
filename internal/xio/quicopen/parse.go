@@ -1,6 +1,5 @@
-// Package quicopen implements QUIC (RFC 9000) connect and listen.
-// Classic socat has no QUIC. This is a raw byte relay on one bidirectional
-// stream via github.com/quic-go/quic-go — not HTTP/3.
+// Package quicopen implements raw QUIC byte relay (RFC 9000) connect and listen.
+// One bidirectional stream via github.com/quic-go/quic-go — not HTTP/3.
 package quicopen
 
 import (

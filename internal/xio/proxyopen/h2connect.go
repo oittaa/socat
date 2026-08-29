@@ -189,14 +189,10 @@ func finishCONNECTHandshake(ctx context.Context, stopTimer func(), pw *io.PipeWr
 	return nil
 }
 
-// proxyHandshakeContext bounds RoundTrip until CONNECT succeeds. HTTP/2 and
-// HTTP/3 abort the stream if the request context is cancelled, so success
-// stops the timer without cancelling; cancel runs on Close. Timer.Stop does
-// not wait for an already-running AfterFunc; completed serializes that
-// callback with stop so a late fire cannot cancel after stop returns.
-// handshake-timeout is a Go extra (classic tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba and official master
-// af5388c898c7bb60997935aee93c223deba60c4a have no equivalent).
+// proxyHandshakeContext bounds RoundTrip until CONNECT succeeds. Success
+// stops the timer without cancelling (HTTP/2/3 abort CONNECT if cancelled).
+// completed serializes AfterFunc with stop so a late fire cannot cancel after stop.
+// handshake-timeout has no C equivalent.
 func proxyHandshakeContext(parent context.Context, timeout time.Duration) (ctx context.Context, stopTimer, cancel context.CancelFunc) {
 	if timeout <= 0 {
 		return parent, func() {}, func() {}

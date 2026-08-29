@@ -1,6 +1,6 @@
 // TLS endpoints via crypto/tls — not OpenSSL/CGO.
 // Canonical types: TLS, TLS-CONNECT, TLS-LISTEN.
-// OPENSSL/SSL names are classic aliases.
+// OPENSSL/SSL names are aliases of those types.
 package tlsopen
 
 import (
@@ -44,8 +44,8 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	timeout := xio.ConnectTimeout(s)
 	handshakeTimeout := xio.HandshakeTimeout(s)
 
-	// Classic OPENSSL-CONNECT (alias of TLS-CONNECT) forks after the handshake.
-	// TCP multi-address walk first, then TLS on the winning socket.
+	// TLS-CONNECT forks after the handshake. TCP multi-address walk first,
+	// then TLS on the winning socket.
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := xio.WithRetry(dctx, s, g, s.Type, func() error {
@@ -188,15 +188,9 @@ func TLSServerConfig(s parse.Spec) (*tls.Config, error) {
 	return tlsServerConfig(s)
 }
 
-// unsupportedOpenSSLReason maps Go-canonical OPENSSL option names onto the
-// reason they are rejected. Classic tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba and official master
-// af5388c898c7bb60997935aee93c223deba60c4a implement these via OpenSSL;
-// Go crypto/tls cannot honor them. Accepting enabled requests as no-ops would
-// hide a requested DTLS method, FIPS mode, compression, DH params, or fragment
-// bound. Disabled bool values and compress=none are compatible because Go TLS
-// already leaves those features off. method/fips also need classic
-// --enable-openssl-method/--enable-fips.
+// unsupportedOpenSSLReason maps OPENSSL option names to why they are rejected.
+// crypto/tls cannot honor DTLS method, FIPS, compression, DH params, or fragment
+// bounds. Disabled bools and compress=none are compatible (Go TLS already off).
 var unsupportedOpenSSLReason = map[string]string{
 	"openssl-method":      "stream TLS only",
 	"openssl-fips":        "Go crypto/tls has no OpenSSL FIPS module",
@@ -259,9 +253,8 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 		return nil, err
 	}
 	// Name used for hostname check / SNI.
-	// OPENSSL_CN_CLIENT_SECURITY: commonname=$LOCALHOST while connecting to 127.0.0.1.
 	// Without commonname, verify against the dial host (IP must not auto-pass).
-	// Empty commonname= skips the name check (classic openssl-commonname="").
+	// Empty commonname= skips the name check.
 	dialHost := xio.StripBrackets(serverName)
 	cnOpt, cnSet := commonNameOption(s)
 	checkName := dialHost
@@ -270,7 +263,6 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 	}
 
 	// SNI: nosni / snihost (openssl-no-sni / openssl-snihost aliases).
-	// OPENSSL_SNI / OPENSSL_NO_SNI: badssl.com needs SNI to succeed / fail.
 	// Empty commonname= does not clear SNI; use snihost= / nosni for that.
 	noSNI := s.BoolOption("nosni")
 	sniHost := s.OptionValue("snihost", "")
@@ -289,9 +281,9 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		// Manual verify: classic CN-only certs + RFC 6125 name (no IP→any-CN shortcut).
-		// VerifyConnection is required as well: VerifyPeerCertificate is not
-		// called on a resumed session (gosec G123).
+		// Manual verify: CN-only certs still match when there are no SANs;
+		// IP literals must not match any CN. VerifyConnection is required:
+		// VerifyPeerCertificate is not called on a resumed session (gosec G123).
 		cfg.InsecureSkipVerify = true
 		attachPeerVerify(cfg, makeVerifyPeer(roots, checkName))
 		if roots != nil {
@@ -323,9 +315,8 @@ func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 		if typ == "" {
 			typ = "TLS-LISTEN"
 		}
-		// Classic warns, binds, then SSL_accept fails ("no shared cipher").
-		// We refuse to start. Go crypto/tls cannot serve without a certificate,
-		// and we do not invent a dummy cert.
+		// crypto/tls cannot serve without a certificate; refuse to start
+		// rather than bind and fail later. Do not invent a dummy cert.
 		return nil, fmt.Errorf("%s: option \"cert\" is required", typ)
 	}
 	cert, err := loadKeyPair(certPath, keyPath)
@@ -343,16 +334,15 @@ func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 		return nil, err
 	}
 
-	// Classic: verify=0 is SSL_VERIFY_NONE. The server does not request a
-	// client certificate, and commonname is ignored (name check runs only
-	// when openssl-verify is on).
+	// verify=0 does not request a client cert; commonname is ignored
+	// (name check runs only when verify is on).
 	if !verifyEnabled(s) {
 		cfg.ClientAuth = tls.NoClientCert
 		return cfg, nil
 	}
 
 	cnWant, _ := commonNameOption(s)
-	// Classic: SSL_CTX_set_default_verify_paths when cafile/capath are unset.
+	// Empty cafile/capath uses the system verify pool.
 	roots, err := loadVerifyRoots(s)
 	if err != nil {
 		return nil, err

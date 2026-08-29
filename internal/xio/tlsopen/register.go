@@ -9,7 +9,7 @@ func init() {
 	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupTLS, Name: "TLS-LISTEN", Syntax: "TLS-LISTEN:<port>", Desc: "TLS server; requires cert=", Opener: openTLSListen})
 	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupTLS, Name: "TLS-L", Syntax: "TLS-L:<port>", Desc: "same as TLS-LISTEN", Opener: openTLSListen})
 
-	// Classic drop-in aliases (test.sh and existing scripts).
+	// OPENSSL/SSL names are aliases of TLS / TLS-CONNECT / TLS-LISTEN / TLS-L.
 	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupTLS, Name: "OPENSSL", Syntax: "OPENSSL:<host>:<port>", Desc: "alias of TLS", Opener: openTLSConnect})
 	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupTLS, Name: "OPENSSL-CONNECT", Syntax: "OPENSSL-CONNECT:<host>:<port>", Desc: "alias of TLS-CONNECT", Opener: openTLSConnect})
 	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupTLS, Name: "OPENSSL-LISTEN", Syntax: "OPENSSL-LISTEN:<port>", Desc: "alias of TLS-LISTEN", Opener: openTLSListen})

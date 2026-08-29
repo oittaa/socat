@@ -21,7 +21,7 @@ import (
 )
 
 // testHookH3PacketConn, when set, sees the HTTP/3 UDP PacketConn after
-// ListenControl applied PH_PASTSOCKET options and before QUIC dials on it.
+// ListenControl socket options and before QUIC dials on it.
 var testHookH3PacketConn func(net.PacketConn)
 
 func tcpToUDPNetwork(tcpNet string) string {
@@ -35,10 +35,9 @@ func tcpToUDPNetwork(tcpNet string) string {
 	}
 }
 
-// listenH3Packet binds the HTTP/3 UDP socket with ListenControl so PH_PASTSOCKET
-// options, including send-side IP/ancillary options and multicast joins,
-// apply once after socket() and before bind. http3.Transport would otherwise
-// create its own UDP socket and silently ignore those requested options.
+// listenH3Packet binds the HTTP/3 UDP socket with ListenControl so send-side
+// IP/ancillary options apply after socket() and before bind, instead of
+// http3.Transport creating its own UDP socket and ignoring those options.
 func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost string) (net.PacketConn, string, error) {
 	network := tcpToUDPNetwork(xio.ConnectNetworkForType(g, s, proxyHost, "tcp"))
 	netw, err := xio.PacketNetworkForHost(ctx, s, network, proxyHost)
@@ -88,8 +87,8 @@ func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost 
 		_ = pc.Close()
 		return nil, "", err
 	}
-	// Descriptor lifecycle on the HTTP/3 UDP socket before quic-go wrapping
-	// (classic has no HTTP/3; never accept append/perm on the stream wrapper).
+	// Descriptor lifecycle on the HTTP/3 UDP socket before quic-go wrapping.
+	// Never accept append/perm on the stream wrapper.
 	if err := xio.ApplyFDLifecycleToPacketConn(pc, s); err != nil {
 		_ = pc.Close()
 		return nil, "", err

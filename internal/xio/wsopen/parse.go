@@ -1,4 +1,4 @@
-// Package wsopen implements WS / WSS connect and listen (not in classic socat).
+// Package wsopen implements WS / WSS connect and listen.
 // The byte relay uses github.com/coder/websocket NetConn with binary frames.
 package wsopen
 

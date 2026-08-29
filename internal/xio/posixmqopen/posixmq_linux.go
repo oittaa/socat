@@ -175,10 +175,8 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		unregister = xio.RegisterExitHook(func() { _ = mqUnlink(n) })
 	}
 
-	// PH_LATE append (and any other remaining lifecycle opts except perm, which
-	// is mq_open mode) once on the parent mqd before wrapping or fork sessions.
-	// Classic xio-posixmq.c simple path returns without PH_FD/PH_LATE; applying
-	// here avoids silently dropping accepted options on mqStream.
+	// perm= is mq_open mode. Apply remaining lifecycle options on the mqd
+	// before wrapping or fork sessions so they are not dropped on mqStream.
 	if err := xio.ApplyFDLifecycleOnFD(fd, s); err != nil {
 		cleanup()
 		return nil, err
