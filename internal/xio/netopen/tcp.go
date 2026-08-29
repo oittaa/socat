@@ -18,7 +18,7 @@ func openTCPConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 	if len(s.Params) >= 1 {
 		host = s.Params[0]
 	}
-	// Generic TCP: dual-stack resolve; -4/-6 only reorder (classic preference).
+	// Generic TCP: dual-stack resolve; -4/-6 only reorder preference.
 	return openTCPConnectNetwork(ctx, s, mode, g, xio.ConnectNetworkForType(g, s, host, "tcp"))
 }
 
@@ -68,7 +68,7 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 }
 
 func openTCPListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	// Classic precedence for listen address family:
+	// Listen address family:
 	//   1) address option pf=
 	//   2) explicit -4 / -6 / -0
 	//   3) env SOCAT_DEFAULT_LISTEN_IP
@@ -137,5 +137,3 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		},
 	})
 }
-
-// xio.ApplyTCPConnOpts sets classic TCP/socket options on an accepted or dialed conn.

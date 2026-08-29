@@ -12,6 +12,7 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
+// unix-tightsocklen is rejected on Windows; bindUnixPath also rejects tight=false.
 func listenUnixNetwork(ctx context.Context, s parse.Spec, network, path string) (net.Listener, error) {
 	if s.HasOption("unix-tightsocklen") {
 		return nil, fmt.Errorf("unix-tightsocklen: not supported on this platform")

@@ -22,7 +22,7 @@ import (
 )
 
 // SOCKET-CONNECT:<domain>:<protocol>:<remote-address>
-// Generic raw sockaddr connect (classic). Address is hex/data without sa_family.
+// Generic raw sockaddr connect. Address is hex/data without sa_family.
 func openSocketConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	domain, proto, addrData, err := parseSocketParams(s, 3)
 	if err != nil {

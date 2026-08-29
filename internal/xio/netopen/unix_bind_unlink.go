@@ -11,9 +11,7 @@ import (
 )
 
 // unixBoundUnlink owns a bound filesystem UNIX path for close and SIGTERM.
-// Classic xio_close unlinks NAMED unix sockets unless unlink-close=0
-// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a has the same NAMED unlink policy).
+// Close unlinks named unix sockets unless unlink-close=0 (bare flag → 1).
 // Abstract names have no directory entry.
 type unixBoundUnlink struct {
 	path     string
@@ -34,17 +32,15 @@ func trackUnixBind(path string, s parse.Spec) unixBoundUnlink {
 	return u
 }
 
-// prepareUnixFilesystemPath matches classic xio-unix.c (tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree):
-// unlink-early removes the name (ENOENT is informational); otherwise an
-// existing filesystem entry is an error. reuseaddr does not unlink.
+// prepareUnixFilesystemPath: unlink-early removes the name (ENOENT is
+// informational); otherwise an existing filesystem entry is an error.
+// reuseaddr does not unlink.
 func prepareUnixFilesystemPath(path string, s parse.Spec) error {
 	if path == "" || xio.IsAbstract(path) {
 		return nil
 	}
 	if s.BoolOption("unlink-early") {
-		// unlink(2), not os.Remove: classic Unlink() refuses directories
+		// unlink(2), not os.Remove: Unlink refuses directories
 		// (EISDIR). os.Remove would rmdir an empty directory.
 		if err := xio.Unlink(path); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("unlink %s: %w", path, err)

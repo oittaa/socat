@@ -11,23 +11,17 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
-// Classic VSOCK-CONNECT / VSOCK-LISTEN (Linux AF_VSOCK stream).
-//
-// Baseline: official socat tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a has the same tree (xio-vsock.c,
-// sockaddr_vm_parse, and the man page are identical).
+// VSOCK-CONNECT / VSOCK-LISTEN (Linux AF_VSOCK stream).
 //
 // Go's net.FileConn / net.FileListener reject AF_VSOCK (golang/go#69769), so
 // we drive unix.Socket + a small net.Conn/net.Listener on golang.org/x/sys/unix
 // instead of importing github.com/mdlayher/vsock (which would pull
-// github.com/mdlayher/socket). Classic listen binds VMADDR_CID_ANY; mdlayher
-// Listen() uses the local CID from ioctl — we match classic.
+// github.com/mdlayher/socket). Listen binds VMADDR_CID_ANY; mdlayher
+// Listen() uses the local CID from ioctl — bind ANY instead.
 //
 // Listen port 0 is passed through to bind(2). Linux rejects vsock port 0
-// with EACCES (classic: "Permission denied"). Do not map 0 to
-// VMADDR_PORT_ANY; that is a non-security classic divergence.
-// Ephemeral listen is classic VSOCK-LISTEN:-1 (uint32 0xffffffff).
+// with EACCES. Do not map 0 to VMADDR_PORT_ANY.
+// Ephemeral listen is VSOCK-LISTEN:-1 (uint32 0xffffffff).
 
 const (
 	vsockCIDAny  = 0xffffffff
@@ -114,9 +108,8 @@ func parseVsockListenPort(s parse.Spec) (uint32, error) {
 	return port, nil
 }
 
-// parseVsockBindOption parses classic bind= [cid][:(port)].
-// Listen passes portAllowed=false (retropt_bind feats=1): a colon is rejected
-// and only the CID is applied. Connect passes portAllowed=true (feats=3).
+// parseVsockBindOption parses bind= [cid][:(port)].
+// Listen rejects a colon (CID only). Connect allows cid:port.
 func parseVsockBindOption(s parse.Spec, portAllowed bool) (ep vsockEndpoint, set bool, err error) {
 	raw, ok := s.OptionNamed("bind")
 	if !ok {
@@ -164,8 +157,7 @@ type vsockSocketArgs struct {
 	protocol int
 }
 
-// parseVsockSocketArgs matches classic xioopen_vsock_* : retropt_socket_pf,
-// OPT_SO_TYPE, OPT_SO_PROTOTYPE before socket().
+// parseVsockSocketArgs reads pf=, socktype, and so-protocol/protocol before socket().
 func parseVsockSocketArgs(s parse.Spec) (vsockSocketArgs, error) {
 	args := vsockSocketArgs{
 		family:   vsockDefaultFamily,
@@ -194,8 +186,7 @@ func parseVsockSocketArgs(s parse.Spec) (vsockSocketArgs, error) {
 	return args, nil
 }
 
-// parseClassicSocketPF matches retropt_socket_pf in xio-socket.c (tag-1.8.1.3):
-// a leading digit is strtoul base 0; inet/inet4/ip4/ipv4 → PF_INET;
+// parseClassicSocketPF: a leading digit is base 0; inet/inet4/ip4/ipv4 → PF_INET;
 // inet6/ip6/ipv6 → PF_INET6; anything else is an error.
 func parseClassicSocketPF(name string) (int, error) {
 	name = strings.TrimSpace(name)
@@ -222,7 +213,7 @@ func parseClassicSocketPF(name string) (int, error) {
 func parseVsockProtocolOption(s parse.Spec) (int, error) {
 	// protocol= is also the WebSocket subprotocol option, so it cannot be
 	// globally canonicalized to so-protocol. Within a VSOCK address it has the
-	// classic socket() meaning. Walk backwards so mixed aliases remain
+	// socket() meaning. Walk backwards so mixed aliases remain
 	// last-option-wins like the rest of Spec's option accessors.
 	for i := len(s.Options) - 1; i >= 0; i-- {
 		o := s.Options[i]
@@ -245,8 +236,7 @@ func parseVsockSocketInt(o parse.Option, name string) (int, error) {
 	return n, nil
 }
 
-// parseVsockU32 matches classic sockaddr_vm_parse: strtoul(..., 0) stored in
-// uint32 (so -1 becomes VMADDR_*_ANY).
+// parseVsockU32: ParseSizeT stored in uint32 (so -1 becomes VMADDR_*_ANY).
 func parseVsockU32(s string) (uint32, error) {
 	if s == "" {
 		return 0, nil
@@ -255,5 +245,5 @@ func parseVsockU32(s string) (uint32, error) {
 	if err != nil {
 		return 0, err
 	}
-	return uint32(n), nil // #nosec G115 -- classic strtoul assigned to uint32
+	return uint32(n), nil // #nosec G115 -- ParseSizeT truncates to uint32 (so -1 is 0xffffffff)
 }

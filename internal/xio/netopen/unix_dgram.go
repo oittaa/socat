@@ -33,9 +33,9 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 	bound := ""
 	if bindPath != "" {
 		bound = unixAddr(bindPath)
-		// Client bind for SENDTO / UNIX dgram: remove stale path (classic creates
-		// a fresh local name). Do not follow a symlink target (TEMPNAME_SEC):
-		// if bp is a symlink, Leave it and let bind fail with EADDRINUSE.
+		// Client bind for SENDTO / UNIX dgram: remove a stale path so bind can
+		// create a fresh local name. Do not follow a symlink target: if bp is
+		// a symlink, leave it and let bind fail with EADDRINUSE.
 		if !xio.IsAbstract(bound) {
 			if fi, e := os.Lstat(bound); e == nil && fi.Mode()&os.ModeSymlink == 0 {
 				_ = os.Remove(bound)
@@ -99,9 +99,7 @@ func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 }
 
 // listenUnixgramUnbound creates an unbound AF_UNIX SOCK_DGRAM socket and
-// applies PH_PASTSOCKET then PH_PREBIND (tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same).
+// applies after-socket then before-bind options.
 func listenUnixgramUnbound(s parse.Spec) (*net.UnixConn, error) {
 	fd, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_DGRAM, 0)
 	if err != nil {
@@ -172,7 +170,7 @@ func unixConnFromFD(fd uintptr, name string) (*net.UnixConn, error) {
 }
 
 // openUnixRecvfrom: UNIX-RECVFROM:path — bind, first packet peer for replies.
-// With fork: each datagram is a child session (classic).
+// With fork: each datagram is a child session.
 func openUnixRecvfrom(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUnixRecvCommon(ctx, s, mode, g, true)
 }
@@ -291,7 +289,7 @@ func waitUnixRecvfromPacket(ctx context.Context, c *net.UnixConn, g *xio.Global)
 }
 
 // unixRecvStream: first Recvfrom captures peer when from=true; Write replies to peer.
-// Classic non-fork RECVFROM: after the first datagram is delivered, further
+// Non-fork RECVFROM: after the first datagram is delivered, further
 // Read returns EOF so one-shot echo servers (RECVFROM PIPE) exit.
 type unixRecvStream struct {
 	c        *net.UnixConn
@@ -409,7 +407,7 @@ func (u *unixPacketConn) Read(p []byte) (int, error) {
 		u.first = nil
 		return n, nil
 	}
-	// Classic UNIX-RECVFROM,fork is one-shot (XIODATA_RECVFROM_ONE): the
+	// UNIX-RECVFROM,fork is one-shot: the
 	// accepted datagram is already in first. Never read the shared parent
 	// socket again — that would steal other peers' packets.
 	return 0, io.EOF
@@ -489,7 +487,7 @@ func openAbstractSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		laddr = &net.UnixAddr{Name: abstractName(bindOpt), Net: "unixgram"}
 	}
 	raddr := &net.UnixAddr{Name: target, Net: "unixgram"}
-	// Prefer bind local abstract name then WriteTo (classic client with bind=).
+	// Prefer bind local abstract name then WriteTo (client with bind=).
 	var c *net.UnixConn
 	if laddr != nil {
 		c, err = listenUnixgramBound(s, laddr, false)
@@ -526,7 +524,7 @@ func applyUnixgramSocketOptions(c *net.UnixConn, s parse.Spec) error {
 	}
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
-		// PH_PASTSOCKET (ApplySocketOptions / setsockopt-socket) is applied
+		// After-socket options (ApplySocketOptions / setsockopt-socket) are applied
 		// after socket() in listen/dial Control or listenUnixgramUnbound.
 		optionErr = xio.ApplyLateSocketOptions(int(fd), s)
 		if optionErr == nil {
@@ -536,8 +534,7 @@ func applyUnixgramSocketOptions(c *net.UnixConn, s parse.Spec) error {
 	if err := errors.Join(controlErr, optionErr); err != nil {
 		return err
 	}
-	// PH_FD then PH_LATE on the unixgram fd before wrapping (classic
-	// _xioopen_dgram_sendto applyopts PH_FD; RECV named PH_FD is the path).
+	// FD then late options on the unixgram fd before wrapping.
 	return xio.ApplyFDLifecycleToConn(c, s)
 }
 

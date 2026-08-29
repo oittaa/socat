@@ -14,7 +14,7 @@ import (
 
 // Windows documents delivery between SO_REUSEADDR sockets as indeterminate.
 // Keep one socket responsible for receiving and demultiplex packets by peer in
-// user space so UDP-LISTEN,fork has the same session semantics as classic.
+// user space so UDP-LISTEN,fork keeps per-peer sessions.
 const (
 	udpDispatchAcceptQueueSize = 256
 	udpDispatchPacketQueueSize = 64
@@ -34,7 +34,7 @@ type udpDispatchListener struct {
 	writeMu  sync.Mutex
 
 	// peerRejected is a coalesced signal that Accept should restart
-	// accept-timeout after a refused peer (classic TCP listen behavior).
+	// accept-timeout after a refused peer (same as TCP listen).
 	peerRejected chan struct{}
 }
 

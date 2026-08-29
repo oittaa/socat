@@ -6,14 +6,10 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// unixTightSocklen is classic unix-tightsocklen / tightsocklen (xio-unix.c
-// PH_PREBIND TYPE_BOOL, default UNIX_TIGHTSOCKLEN in compat.h). tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same.
-//
-// Classic UNIX_TIGHTSOCKLEN is false on FreeBSD and OpenBSD and true
-// elsewhere. Both modes bind and connect with xiosetunix's explicit socklen:
-// tight pathname length excludes the terminator Go's net routines include.
+// unixTightSocklen is unix-tightsocklen / tightsocklen. Bare flag → 1;
+// unix-tightsocklen=0 still applies. Default is tight on Linux and macOS;
+// Windows listen/dial reject the option, and bindUnixPath rejects =0.
+// Tight pathname length excludes the terminator Go's net routines include.
 func unixTightSocklen(s parse.Spec) bool {
 	if !s.HasOption("unix-tightsocklen") {
 		return unixTightSocklenDefault(runtime.GOOS)
@@ -30,9 +26,10 @@ func unixTightSocklenDefault(goos string) bool {
 	}
 }
 
-// classicUnixSockaddrLen is xiosetunix's returned socklen_t.
-// sizeofUn is sizeof(struct sockaddr_un); sunPath is sizeof(sun_path).
-// abstract pathlen is strlen of the name without the leading NUL.
+// classicUnixSockaddrLen is the bind/connect socklen for a pathname or
+// abstract name. sizeofUn is sizeof(struct sockaddr_un); sunPath is
+// sizeof(sun_path). abstract pathlen is strlen of the name without the
+// leading NUL.
 func classicUnixSockaddrLen(pathlen, sunPath, sizeofUn int, abstract, tight bool) int {
 	if !tight {
 		return sizeofUn

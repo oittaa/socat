@@ -4,7 +4,7 @@ package netopen
 
 import "golang.org/x/sys/unix"
 
-// Darwin sockaddr_un requires sun_len.
+// macOS sockaddr_un requires sun_len.
 func setUnixSockaddrLen(sa *unix.RawSockaddrUnix, n int) {
 	if n < 0 {
 		n = 0
