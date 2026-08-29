@@ -1,5 +1,33 @@
 # Repository Agent Instructions
 
+## Supported platforms
+
+Only these operating systems are supported:
+
+- Linux (`linux`)
+- macOS (`darwin`)
+- Windows (`windows`)
+
+Unsupported `GOOS` builds are allowed to fail. Never add AIX, Solaris,
+illumos, FreeBSD, OpenBSD, NetBSD, or DragonFly support, tests, constants,
+wrappers, or fallback implementations, and do not make those platforms
+compile.
+
+**Unix** in this project means Linux + macOS only. Go’s broad `unix` build
+tag includes unsupported systems and must not be used.
+
+Build constraints:
+
+- Shared Linux/macOS files: `//go:build linux || darwin`
+- OS-specific files: `//go:build linux`, `//go:build darwin`, or `//go:build windows`
+- Do not use broad negatives (`!windows`, `!linux`, `!darwin`, `!unix`)
+- If a stub is needed by more than one supported OS, list those OS names
+  explicitly (for example `darwin || windows`)
+
+`golang.org/x/sys/unix` is fine; the restriction is platform scope, not the
+package name. Do not create portability abstractions for hypothetical future
+platforms.
+
 ## Classic socat compatibility
 
 Stay a drop-in replacement for classic socat

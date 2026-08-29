@@ -15,6 +15,7 @@ HTTP/2·3 proxy) ship alongside.
 ## Table of contents
 
 - [Goals](#goals)
+- [Supported platforms](#supported-platforms)
 - [Build](#build)
 - [Usage](#usage)
 - [Encrypt a legacy TCP service](#encrypt-a-legacy-tcp-service)
@@ -38,6 +39,21 @@ HTTP/2·3 proxy) ship alongside.
 - **Security** — memory-safe implementation; peer filters (`range`, `sourceport`, `lowport`) on listen/recv
 - **Honesty** — `-V` / `-hhh` only advertise features and options that are enforced
 - **Companions** — `filan` and `procan` included
+
+## Supported platforms
+
+Supported operating systems: **Linux**, **macOS** (`darwin`), and **Windows**.
+
+Unsupported `GOOS` values (AIX, Solaris, illumos, FreeBSD, OpenBSD, NetBSD,
+DragonFly, and others) are allowed to fail. This repository does not ship
+code, tests, or stubs for them.
+
+In this project, **Unix** means Linux + macOS. Go’s `unix` build tag is
+broader and is not used. Shared Linux/macOS sources use
+`//go:build linux || darwin`. OS-specific files name `linux`, `darwin`, or
+`windows`. Broad negatives (`!windows`, `!linux`, `!darwin`, `!unix`) are
+not used. Importing `golang.org/x/sys/unix` is not a support claim. Do not
+create portability abstractions for hypothetical future platforms.
 
 ## Build
 
@@ -317,7 +333,8 @@ make lint          # gofmt, go vet, golangci-lint, gosec
 ```
 
 Per-commit CI runs lint, gosec, unit tests, and e2e on Linux amd64/arm64,
-macOS, and Windows amd64/arm64. linux-amd64 uploads unit and e2e coverage
+macOS, and Windows amd64/arm64. Other `GOOS` values are not built or tested.
+linux-amd64 uploads unit and e2e coverage
 to [Codecov](https://codecov.io/gh/oittaa/socat) (file-level reports and
 PR comments) when `CODECOV_TOKEN` is set, and as HTML artifacts. A weekly workflow additionally runs
 native fuzz campaigns and the live relay matrix, and can be dispatched
