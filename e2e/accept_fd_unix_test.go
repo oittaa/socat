@@ -1,4 +1,4 @@
-//go:build e2e && unix
+//go:build e2e && (linux || darwin)
 
 package e2e_test
 

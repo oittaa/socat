@@ -1,5 +1,5 @@
 // procan — process analyzer (classic socat companion).
-//go:build unix
+//go:build linux || darwin
 
 package main
 
