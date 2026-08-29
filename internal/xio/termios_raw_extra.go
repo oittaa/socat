@@ -1,11 +1,10 @@
-//go:build unix && (linux || aix || openbsd || solaris)
+//go:build linux
 
 package xio
 
 import "golang.org/x/sys/unix"
 
-// Classic defines missing legacy termios flags to zero. These platforms
-// expose IUCLC and XCASE through x/sys/unix, so retain their real masks.
+// Linux exposes IUCLC and XCASE through x/sys/unix; retain their real masks.
 const (
 	rawExtraIflag = termiosBits(unix.IUCLC)
 	rawExtraLflag = termiosBits(unix.XCASE)

@@ -1,4 +1,4 @@
-//go:build unix
+//go:build linux || darwin
 
 package xio
 
@@ -200,12 +200,12 @@ func cmsgInt(data []byte) int {
 }
 
 func handleIPv4Cmsg(typ int32, data []byte, g *Global) {
-	if handleIPv4CmsgBSD(typ, data, g) {
+	if handleIPv4CmsgDarwin(typ, data, g) {
 		return
 	}
 	// Do not use a combined switch case for IP_TTL/IP_RECVTTL: the constants
 	// are equal on some UNIXes and Go rejects duplicate cases. Classic
-	// xio-ip.c (tag-1.8.1.3 12c08bf) treats Linux IP_TTL and BSD IP_RECVTTL
+	// xio-ip.c (tag-1.8.1.3 12c08bf) treats Linux IP_TTL and Darwin IP_RECVTTL
 	// as the same received-TTL cmsg (env IP_TTL).
 	if typ == unix.IP_TTL || typ == unix.IP_RECVTTL {
 		val := strconv.Itoa(cmsgInt(data))

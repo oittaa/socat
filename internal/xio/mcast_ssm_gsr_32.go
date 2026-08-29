@@ -1,4 +1,4 @@
-//go:build (linux && (386 || arm || mips || mipsle || ppc)) || (freebsd && 386)
+//go:build linux && (386 || arm || mips || mipsle || ppc)
 
 package xio
 

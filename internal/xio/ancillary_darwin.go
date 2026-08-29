@@ -19,9 +19,8 @@ func ancillaryRecvSockoptPlatform(canonical string) (level, opt int, ok bool) {
 	}
 }
 
-// handleIPv4CmsgBSD is classic xio-ip.c IP_RECVDSTADDR / IP_RECVIF
-// (tag-1.8.1.3 12c08bf; official master af5388c is the same).
-func handleIPv4CmsgBSD(typ int32, data []byte, g *Global) bool {
+// handleIPv4CmsgDarwin handles IP_RECVDSTADDR / IP_RECVIF.
+func handleIPv4CmsgDarwin(typ int32, data []byte, g *Global) bool {
 	switch typ {
 	case unix.IP_RECVDSTADDR:
 		if len(data) < 4 {

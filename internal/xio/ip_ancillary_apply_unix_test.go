@@ -1,4 +1,4 @@
-//go:build unix
+//go:build linux || darwin
 
 package xio
 
@@ -571,7 +571,7 @@ func TestPastSocketMembershipInterleavesInCommandLineOrder(t *testing.T) {
 }
 
 func TestIPOptionsOccurrencesAppend(t *testing.T) {
-	// BSD kernels (including Darwin) reject IP_OPTIONS whose length is not a
+	// Darwin rejects IP_OPTIONS whose length is not a
 	// multiple of 4. x01000000 is IPOPT_NOP plus padding; Linux accepts it too.
 	const oneHex = "x01000000"
 	const twoHex = "x01010000"

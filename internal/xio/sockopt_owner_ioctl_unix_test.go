@@ -1,4 +1,4 @@
-//go:build unix && !aix && !solaris
+//go:build linux || darwin
 
 package xio
 
