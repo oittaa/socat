@@ -9,9 +9,9 @@ other endpoints.
 [![Go](https://img.shields.io/badge/Go-1.27%2B-00ADD8?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-The command line and address syntax aim to remain compatible with classic
-socat. The project supports Linux, macOS, and Windows, and also includes
-WebSocket, QUIC, and HTTP/2 and HTTP/3 proxy support.
+The command line and address syntax follow classic socat except for the
+documented differences below. The project supports Linux, macOS, and Windows,
+and also includes WebSocket, QUIC, and HTTP/2 and HTTP/3 proxy support.
 
 ## Build
 
@@ -85,10 +85,10 @@ The following groups summarize the implemented address families. Run
 
 | Group | Address types |
 |---|---|
-| Standard streams and descriptors | `STDIO`, `STDIN`, `STDOUT`, `STDERR`, `FD`, `ACCEPT-FD` |
+| Standard streams and descriptors | `STDIO`, `STDIN`, `STDOUT`, `STDERR`, `FD`; `ACCEPT-FD` on Linux and macOS |
 | Files and local I/O | `OPEN`, `CREATE`, `GOPEN`, `PIPE`, `FIFO`, `ECHO`, `SOCKETPAIR`, `TEXT`, `STALL`, `PTY` |
 | IP networking | TCP connect/listen, UDP connect/listen/send/receive/datagram, raw IP, generic `SOCKET` |
-| Local networking | Unix stream/datagram sockets and Linux abstract sockets |
+| Local networking | Unix stream/datagram sockets on Linux and macOS; Linux abstract sockets |
 | Processes | `EXEC`, `SYSTEM`, `SHELL` |
 | Encryption and proxies | TLS, HTTP CONNECT, SOCKS4/4A/5, SOCKS5 BIND |
 | Go extensions | WebSocket (`WS`/`WSS`), QUIC, HTTP/2 and HTTP/3 CONNECT |
@@ -137,9 +137,10 @@ TLS listeners require a certificate. `verify=1` is the default; clients use
 the system trust store unless `cafile=` or `capath=` is supplied.
 
 ```bash
-# Create a test certificate.
-openssl req -x509 -newkey rsa:2048 -sha256 -days 365 -nodes \
-  -keyout server.key -out server.crt -subj "/CN=server.example"
+# Create a test certificate with an ECDSA P-256 key.
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+  -sha256 -days 365 -nodes -keyout server.key -out server.crt \
+  -subj "/CN=server.example" -addext "subjectAltName=DNS:server.example"
 
 # Publish a local TCP service over TLS.
 ./socat TLS-LISTEN:8443,reuseaddr,fork,cert=server.crt,key=server.key,verify=0 \
@@ -164,36 +165,50 @@ options:
 The default QUIC ALPN is `socat`. Use `alpn=` when both endpoints require a
 different value.
 
-## Compatibility
+## Intentional differences from classic socat
 
 Compatibility is checked against the latest classic socat release and current
 master from the [official repository](https://repo.or.cz/socat.git). Public
 address and option spellings are audited automatically. The
 [scorecard](testdata/scorecard/README.md) tracks the classic `test.sh` suite.
 
-Important intentional differences:
-
 - `fork` sessions use goroutines rather than worker processes.
 - Unknown options, malformed values, and unsupported combinations fail
   explicitly instead of becoming no-ops.
 - DNS overrides use a per-address resolver and never mutate process-global
   resolver state.
+- `ai-v4mapped` is off unless requested, matching classic runtime behavior
+  rather than the man-page default. Go dials mapped results as IPv4.
 - `handshake-timeout` separately limits TLS, WebSocket, proxy, SOCKS, and QUIC
   negotiation.
 - WebSocket, QUIC, and HTTP/2 and HTTP/3 CONNECT are Go-specific extensions.
 - TLS listeners fail immediately when `cert=` is missing.
+- TLS peer names use `VerifyHostname`; empty `commonname=` skips only the name
+  check, and `capath=` loads every parseable certificate file rather than only
+  OpenSSL hash-named entries.
 - Child descriptor remapping happens in the child, so a failed `EXEC` cannot
   leave the parent process partially remapped.
+- Omitted `setpgid`, `setpgid=0`, and `setpgid=1` all create a new process
+  group as documented.
 - Lock files and unlink-on-close paths are removed only if they still refer to
   the object created by this process.
 - Boolean unlink options honor `=0`; they do not delete merely because the
   option was present.
+- `ACCEPT-FD` supports `fork`, `range`, `sourceport`, `lowport`, and `tcpwrap`
+  matching classic runtime behavior despite the narrower man page. It is
+  Linux/macOS only.
+- `TUN,retrieve-vlan` is rejected instead of succeeding without restoring VLAN
+  tags; `retrieve-vlan` is supported on Linux `INTERFACE` addresses.
+- Windows rejects simultaneously enabled `binary` and `text` modes instead of
+  relying on an unspecified conversion order.
+- Generic ioctl request and integer values outside their 32-bit range are
+  rejected instead of wrapping into a different operation.
 - Multicast membership rejects unresolved interface names instead of falling
   back to an unintended interface.
 - On macOS, SIGILL follows the Go runtime's fatal-signal behavior rather than
   the classic caught-signal exit code.
 
-## Unsupported and security-related features
+## Unsupported / security-related
 
 Unsupported names are omitted from help and rejected if used. They are not
 silently emulated with a different protocol.
@@ -227,7 +242,7 @@ as `SOCAT_TLS_*`, with `SOCAT_OPENSSL_*` aliases for compatible scripts.
 ## Testing
 
 ```bash
-make check              # lint, security checks, unit tests, and e2e tests
+make check              # platform policy, lint, security, unit, and e2e tests
 make test               # formatting and unit tests
 make e2e                # local end-to-end tests
 make test-netns-docker  # privileged Linux namespace and raw-IP tests

@@ -11,18 +11,20 @@ mkdir -p "$OUT"
 cd "$OUT"
 
 umask 077
-openssl req -x509 -newkey rsa:2048 -sha256 -days 2 -nodes \
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+  -sha256 -days 2 -nodes \
   -keyout ca.key -out ca.pem \
   -subj "/CN=socat-lab-ca" >/dev/null 2>&1
 
-openssl req -newkey rsa:2048 -sha256 -nodes \
+openssl req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+  -sha256 -nodes \
   -keyout server.key -out server.csr \
   -subj "/CN=server" >/dev/null 2>&1
 
 cat >server.ext <<'EOF'
 subjectAltName=DNS:server
 basicConstraints=CA:FALSE
-keyUsage=digitalSignature,keyEncipherment
+keyUsage=digitalSignature
 extendedKeyUsage=serverAuth
 EOF
 
