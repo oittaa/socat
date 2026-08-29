@@ -42,9 +42,24 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 	if err != nil {
 		return nil, err
 	}
-	raddr, err := xio.ResolveUDPAddr(ctx, s, network, net.JoinHostPort(xio.StripBrackets(host), port))
+	stripped := xio.StripBrackets(host)
+	netw, ip, err := xio.LookupDialIP(ctx, s, network, stripped)
 	if err != nil {
 		return nil, err
+	}
+	if ip == nil {
+		return nil, fmt.Errorf("%s: invalid host", s.Type)
+	}
+	if net.ParseIP(stripped) == nil {
+		network = netw
+	}
+	portNum, err := xio.ResolvePortNum(network, port)
+	if err != nil {
+		return nil, err
+	}
+	raddr := &net.UDPAddr{IP: ip, Port: portNum}
+	if ip4 := ip.To4(); ip4 != nil && strings.HasSuffix(network, "4") {
+		raddr.IP = ip4
 	}
 	bind := s.OptionValue("bind", "")
 	// Classic xioopen_udp_datagram consumes OPT_SOURCEPORT before

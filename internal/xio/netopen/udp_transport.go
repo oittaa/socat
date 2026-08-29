@@ -20,16 +20,24 @@ func listenPacketForSpec(ctx context.Context, network, address string, s parse.S
 }
 
 func dialUDPForSpec(ctx context.Context, network string, laddr net.Addr, remote string, s parse.Spec, extra func(string, string, syscall.RawConn) error, timeout time.Duration) (net.Conn, error) {
-	if host, port, err := net.SplitHostPort(remote); err == nil && net.ParseIP(xio.StripBrackets(host)) == nil {
-		resolved, resolveErr := xio.ResolveIPHost(ctx, s, network, host)
+	if host, port, err := net.SplitHostPort(remote); err == nil {
+		stripped := xio.StripBrackets(host)
+		netw, ip, resolveErr := xio.LookupDialIP(ctx, s, network, stripped)
 		if resolveErr != nil {
 			return nil, resolveErr
 		}
-		remote = net.JoinHostPort(resolved, port)
+		if ip != nil && net.ParseIP(stripped) == nil {
+			network = netw
+			remote = net.JoinHostPort(xio.FormatIPForNetwork(network, ip), port)
+		}
+	}
+	matched, err := xio.MatchLocalPacketAddr(network, laddr)
+	if err != nil {
+		return nil, err
 	}
 	d := net.Dialer{
 		Timeout:   timeout,
-		LocalAddr: laddr,
+		LocalAddr: matched,
 		Control:   xio.DialControl(s, network, extra),
 		// UDP connect still carries a resolver so a leftover hostname (or
 		// Dialer internals) cannot fall back to DefaultResolver.

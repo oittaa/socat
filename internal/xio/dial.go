@@ -156,10 +156,7 @@ func formatTCPAddr(network string, ip net.IP, port int) string {
 }
 
 func tcpDialNetwork(network string, ip net.IP) string {
-	if WantIPv4(network, ip) {
-		return "tcp4"
-	}
-	return "tcp6"
+	return DialNetwork(network, ip)
 }
 
 func afForNetwork(network string, ip net.IP) int {
@@ -231,7 +228,11 @@ func filterAIAddrConfig(ips []net.IP) []net.IP {
 	return out
 }
 
-func localIPFamilies() (v4, v6 bool) {
+// localIPFamilies reports whether the host has a non-unspecified IPv4 and IPv6
+// address. Tests may replace it.
+var localIPFamilies = localIPFamiliesFromSystem
+
+func localIPFamiliesFromSystem() (v4, v6 bool) {
 	ifaces, err := net.InterfaceAddrs()
 	if err != nil {
 		return true, true
