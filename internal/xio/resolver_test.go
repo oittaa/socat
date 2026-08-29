@@ -754,18 +754,17 @@ func TestResUseVCZeroTruncatedUDPRetriesTCP(t *testing.T) {
 	}
 	s := resNSAddrSpec(server.addr)
 	s.Options = append(s.Options, parse.Option{Name: "res-usevc", Value: "0", Has: true})
-	ips, err := LookupIP(t.Context(), s, "ip4", "usevc-off-truncate.test")
+	// Trailing dot keeps the name absolute so resolv.conf search does not
+	// add extra queries that would loosen the UDP/TCP counts.
+	ips, err := LookupIP(t.Context(), s, "ip4", "usevc-off-truncate.test.")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(ips) != 1 || !ips[0].Equal(net.IPv4(127, 0, 0, 1)) {
 		t.Fatalf("LookupIP=%v", ips)
 	}
-	if server.udpQueries.Load() == 0 {
-		t.Fatal("res-usevc=0 truncated lookup made no UDP DNS queries")
-	}
-	if server.tcpQueries.Load() == 0 {
-		t.Fatal("truncated UDP response did not retry over TCP")
+	if udp, tcp := server.udpQueries.Load(), server.tcpQueries.Load(); udp != 1 || tcp != 1 {
+		t.Fatalf("res-usevc=0 truncated lookup made %d UDP and %d TCP queries; want 1 and 1 (not UDP→UDP→TCP)", udp, tcp)
 	}
 }
 
@@ -824,11 +823,8 @@ func TestResUseVCZeroTCPDialRetriesTruncatedUDP(t *testing.T) {
 	if dnsMessageTruncated(resp) {
 		t.Fatal("TCP-framed response still truncated")
 	}
-	if server.udpQueries.Load() == 0 {
-		t.Fatal("res-usevc=0 TCP Dial made no UDP query")
-	}
-	if server.tcpQueries.Load() == 0 {
-		t.Fatal("truncated UDP response did not retry over TCP")
+	if udp, tcp := server.udpQueries.Load(), server.tcpQueries.Load(); udp != 1 || tcp != 1 {
+		t.Fatalf("res-usevc=0 TCP Dial made %d UDP and %d TCP queries; want 1 and 1", udp, tcp)
 	}
 }
 

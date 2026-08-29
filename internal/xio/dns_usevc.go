@@ -9,6 +9,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,11 +19,13 @@ type resolverDialFunc func(ctx context.Context, network, address string) (net.Co
 // mutating process-global _res. Setting Dial implies PreferGo.
 //
 // forceTCP true (res-usevc): rewrite udp* to tcp* so DNS is TCP-only.
-// forceTCP false (res-usevc=0): clear RES_USEVC. UDP Dials stay UDP. TCP Dials
-// (resolv.conf use-vc, or Go's truncation retry) speak DNS-over-TCP framing to
-// the caller while the first query is sent over UDP; a truncated UDP response
-// is retried over a real TCP connection. Returning a UDP PacketConn for a TCP
-// Dial would make Go skip that retry (it already believes it used TCP).
+// forceTCP false (res-usevc=0): clear RES_USEVC. UDP Dials stay UDP. A TCP
+// Dial after that UDP (Go's truncation retry) uses real TCP so the sequence
+// is UDP then TCP, not UDP then another UDP-then-TCP. A TCP Dial with no
+// prior UDP (resolv.conf use-vc) still speaks DNS-over-TCP framing to the
+// caller, sends the first query over UDP, and retries over TCP when the UDP
+// response has the TC bit. Returning a UDP PacketConn for a TCP Dial would
+// make Go skip that retry (it already believes it used TCP).
 func resolverRewriteDNSTransport(base *net.Resolver, forceTCP bool) *net.Resolver {
 	if base == nil {
 		base = net.DefaultResolver
@@ -35,6 +38,9 @@ func resolverRewriteDNSTransport(base *net.Resolver, forceTCP bool) *net.Resolve
 		var d net.Dialer
 		return d.DialContext(ctx, network, address)
 	}
+	// Per LookupResolver Dial closure, not process-global: parallel lookups
+	// each get their own resolver from resolverRewriteDNSTransport.
+	var usedUDP atomic.Bool
 	return &net.Resolver{
 		PreferGo:     true,
 		StrictErrors: base.StrictErrors,
@@ -46,9 +52,13 @@ func resolverRewriteDNSTransport(base *net.Resolver, forceTCP bool) *net.Resolve
 				return dial(ctx, network, address)
 			}
 			if strings.HasPrefix(network, "udp") {
+				usedUDP.Store(true)
 				return dial(ctx, network, address)
 			}
 			if strings.HasPrefix(network, "tcp") {
+				if usedUDP.Load() {
+					return dial(ctx, network, address)
+				}
 				return newDNSUDPThenTCPConn(ctx, dial, network, address), nil
 			}
 			return dial(ctx, network, address)
