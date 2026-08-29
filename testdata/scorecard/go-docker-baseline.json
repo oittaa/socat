@@ -1,22 +1,22 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-08-28T03:36:40Z",
-    "hostname": "ab16185fc9b0",
-    "platform": "Linux-6.8.0-138-generic-x86_64-with-glibc2.43",
+    "timestamp": "2026-08-29T07:33:13Z",
+    "hostname": "56a9235e11f9",
+    "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.43",
     "socat": "/opt/go/socat",
-    "socat_version": "socat version 1.0.2-dev on 2026-08-28T03:36:40Z",
+    "socat_version": "socat version 1.0.2-dev on 2026-08-29T07:33:13Z",
     "test_sh": "/opt/classic-src/test.sh",
-    "git": "a7fe7a0",
+    "git": "01ec0bd",
     "out_dir": "/out",
     "val_t": "auto",
     "jobs": "1",
     "shard_timeout": "7200"
   },
   "summary": {
-    "ok": 550,
-    "failed": 7,
-    "cant": 48,
+    "ok": 538,
+    "failed": 8,
+    "cant": 59,
     "timeout": 0,
     "unknown": 0,
     "total_recorded": 605,
@@ -1326,7 +1326,7 @@
       "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 147 EXITCODESIGTERM: exit status when dying on SIGTERM... /tmp/socat-shard-0.lmG9If/test.sh: line 6519: kill: (9302) - No such process | OK"
+      "raw": "test 147 EXITCODESIGTERM: exit status when dying on SIGTERM... /tmp/socat-shard-0.wzhRgZ/test.sh: line 6519: kill: (9820) - No such process | OK"
     },
     "148": {
       "id": 148,
@@ -1335,7 +1335,7 @@
       "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 148 EXITCODESIGILL: exit status when dying on SIGILL... /tmp/socat-shard-0.lmG9If/test.sh: line 6519: kill: (9336) - No such process | OK"
+      "raw": "test 148 EXITCODESIGILL: exit status when dying on SIGILL... /tmp/socat-shard-0.wzhRgZ/test.sh: line 6519: kill: (9856) - No such process | OK"
     },
     "149": {
       "id": 149,
@@ -4373,20 +4373,20 @@
     "486": {
       "id": 486,
       "name": "NETNS",
-      "description": "option netns (net namespace socat-362-test486)",
+      "description": "option netns (net namespace socat-364-test486)",
       "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 486 NETNS: option netns (net namespace socat-362-test486)... OK"
+      "raw": "test 486 NETNS: option netns (net namespace socat-364-test486)... OK"
     },
     "487": {
       "id": 487,
       "name": "NETNS_EXEC",
-      "description": "option netns with EXEC (net namespace socat-362-test487)",
+      "description": "option netns with EXEC (net namespace socat-364-test487)",
       "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-362-test487)... OK"
+      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-364-test487)... OK"
     },
     "488": {
       "id": 488,
@@ -4473,10 +4473,10 @@
       "id": 497,
       "name": "SHELL_SIGINT",
       "description": "sigint option with SHELL",
-      "status": "CANT",
-      "detail": "Option sigint not available in /opt/go/socat",
+      "status": "FAILED",
+      "detail": "",
       "shard": 0,
-      "raw": "test 497 SHELL_SIGINT: sigint option with SHELL... Option sigint not available in /opt/go/socat"
+      "raw": "test 497 SHELL_SIGINT: sigint option with SHELL... FAILED"
     },
     "498": {
       "id": 498,
@@ -4536,10 +4536,10 @@
       "id": 504,
       "name": "RES_NSADDR",
       "description": "test the res-nsaddr option",
-      "status": "CANT",
-      "detail": "Option res-nsaddr not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 504 RES_NSADDR: test the res-nsaddr option... Option res-nsaddr not available in /opt/go/socat"
+      "raw": "test 504 RES_NSADDR: test the res-nsaddr option... OK"
     },
     "505": {
       "id": 505,
@@ -4689,64 +4689,64 @@
       "id": 521,
       "name": "UDPLITE4STREAM",
       "description": "echo via connection to UDP-Lite IPv4 socket",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "Feature UDPLITE not configured in /opt/go/socat",
       "shard": 0,
-      "raw": "test 521 UDPLITE4STREAM: echo via connection to UDP-Lite IPv4 socket... OK"
+      "raw": "test 521 UDPLITE4STREAM: echo via connection to UDP-Lite IPv4 socket... Feature UDPLITE not configured in /opt/go/socat"
     },
     "522": {
       "id": 522,
       "name": "UDPLITE4STREAM",
       "description": "echo via connection to UDP-Lite IPv4 socket",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "Feature UDPLITE not configured in /opt/go/socat",
       "shard": 0,
-      "raw": "test 522 UDPLITE4STREAM: echo via connection to UDP-Lite IPv4 socket... OK"
+      "raw": "test 522 UDPLITE4STREAM: echo via connection to UDP-Lite IPv4 socket... Feature UDPLITE not configured in /opt/go/socat"
     },
     "523": {
       "id": 523,
       "name": "UDPLITE6STREAM",
       "description": "echo via connection to UDP-Lite IPv6 socket",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "Feature UDPLITE not configured in /opt/go/socat",
       "shard": 0,
-      "raw": "test 523 UDPLITE6STREAM: echo via connection to UDP-Lite IPv6 socket... OK"
+      "raw": "test 523 UDPLITE6STREAM: echo via connection to UDP-Lite IPv6 socket... Feature UDPLITE not configured in /opt/go/socat"
     },
     "524": {
       "id": 524,
       "name": "UDPLITE4LISTENENV",
       "description": "UDPLITE4-LISTEN sets environment variables with socket addresses",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "Feature UDPLITE not configured in /opt/go/socat",
       "shard": 0,
-      "raw": "test 524 UDPLITE4LISTENENV: UDPLITE4-LISTEN sets environment variables with socket addresses... OK"
+      "raw": "test 524 UDPLITE4LISTENENV: UDPLITE4-LISTEN sets environment variables with socket addresses... Feature UDPLITE not configured in /opt/go/socat"
     },
     "525": {
       "id": 525,
       "name": "UDPLITE6LISTENENV",
       "description": "UDPLITE6-LISTEN sets environment variables with socket addresses",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "Feature UDPLITE not configured in /opt/go/socat",
       "shard": 0,
-      "raw": "test 525 UDPLITE6LISTENENV: UDPLITE6-LISTEN sets environment variables with socket addresses... OK"
+      "raw": "test 525 UDPLITE6LISTENENV: UDPLITE6-LISTEN sets environment variables with socket addresses... Feature UDPLITE not configured in /opt/go/socat"
     },
     "526": {
       "id": 526,
       "name": "UDPLITE4_L_MAXCHILDREN",
       "description": "max-children option with UDPLITE4-LISTEN",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "Feature UDPLITE not configured in /opt/go/socat",
       "shard": 0,
-      "raw": "test 526 UDPLITE4_L_MAXCHILDREN: max-children option with UDPLITE4-LISTEN... OK"
+      "raw": "test 526 UDPLITE4_L_MAXCHILDREN: max-children option with UDPLITE4-LISTEN... Feature UDPLITE not configured in /opt/go/socat"
     },
     "527": {
       "id": 527,
       "name": "UDPLITE6_L_MAXCHILDREN",
       "description": "max-children option with UDPLITE6-LISTEN",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "Feature UDPLITE not configured in /opt/go/socat",
       "shard": 0,
-      "raw": "test 527 UDPLITE6_L_MAXCHILDREN: max-children option with UDPLITE6-LISTEN... OK"
+      "raw": "test 527 UDPLITE6_L_MAXCHILDREN: max-children option with UDPLITE6-LISTEN... Feature UDPLITE not configured in /opt/go/socat"
     },
     "528": {
       "id": 528,
@@ -4950,37 +4950,37 @@
       "id": 550,
       "name": "V1800_UDPLITE_LISTEN_RANGE",
       "description": "test regression of UDPLITE-LISTEN with IPv4 RANGE",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "Feature UDPLITE not configured in /opt/go/socat",
       "shard": 0,
-      "raw": "test 550 V1800_UDPLITE_LISTEN_RANGE: test regression of UDPLITE-LISTEN with IPv4 RANGE... OK"
+      "raw": "test 550 V1800_UDPLITE_LISTEN_RANGE: test regression of UDPLITE-LISTEN with IPv4 RANGE... Feature UDPLITE not configured in /opt/go/socat"
     },
     "551": {
       "id": 551,
       "name": "V1800_UDPLITE_LISTEN_BIND",
       "description": "test regression of UDPLITE-LISTEN with IPv4 BIND",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "Feature UDPLITE not configured in /opt/go/socat",
       "shard": 0,
-      "raw": "test 551 V1800_UDPLITE_LISTEN_BIND: test regression of UDPLITE-LISTEN with IPv4 BIND... OK"
+      "raw": "test 551 V1800_UDPLITE_LISTEN_BIND: test regression of UDPLITE-LISTEN with IPv4 BIND... Feature UDPLITE not configured in /opt/go/socat"
     },
     "552": {
       "id": 552,
       "name": "V1800_UDPLITE_RECVFROM_RANGE",
       "description": "test regression of UDPLITE-RECVFROM with IPv4 RANGE",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "Feature UDPLITE not configured in /opt/go/socat",
       "shard": 0,
-      "raw": "test 552 V1800_UDPLITE_RECVFROM_RANGE: test regression of UDPLITE-RECVFROM with IPv4 RANGE... OK"
+      "raw": "test 552 V1800_UDPLITE_RECVFROM_RANGE: test regression of UDPLITE-RECVFROM with IPv4 RANGE... Feature UDPLITE not configured in /opt/go/socat"
     },
     "553": {
       "id": 553,
       "name": "V1800_UDPLITE_RECVFROM_BIND",
       "description": "test regression of UDPLITE-RECVFROM with IPv4 BIND",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "Feature UDPLITE not configured in /opt/go/socat",
       "shard": 0,
-      "raw": "test 553 V1800_UDPLITE_RECVFROM_BIND: test regression of UDPLITE-RECVFROM with IPv4 BIND... OK"
+      "raw": "test 553 V1800_UDPLITE_RECVFROM_BIND: test regression of UDPLITE-RECVFROM with IPv4 BIND... Feature UDPLITE not configured in /opt/go/socat"
     },
     "554": {
       "id": 554,
@@ -5004,19 +5004,19 @@
       "id": 556,
       "name": "V1800_UDPLITE_DATAGRAM_RANGE",
       "description": "test regression of UDPLITE-DATAGRAM:1.2.3.4 with IPv4 RANGE",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "Feature UDPLITE not configured in /opt/go/socat",
       "shard": 0,
-      "raw": "test 556 V1800_UDPLITE_DATAGRAM_RANGE: test regression of UDPLITE-DATAGRAM:1.2.3.4 with IPv4 RANGE... OK"
+      "raw": "test 556 V1800_UDPLITE_DATAGRAM_RANGE: test regression of UDPLITE-DATAGRAM:1.2.3.4 with IPv4 RANGE... Feature UDPLITE not configured in /opt/go/socat"
     },
     "557": {
       "id": 557,
       "name": "V1800_UDPLITE_DATAGRAM_BIND",
       "description": "test regression of UDPLITE-DATAGRAM:1.2.3.4 with IPv4 BIND",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "Feature UDPLITE not configured in /opt/go/socat",
       "shard": 0,
-      "raw": "test 557 V1800_UDPLITE_DATAGRAM_BIND: test regression of UDPLITE-DATAGRAM:1.2.3.4 with IPv4 BIND... OK"
+      "raw": "test 557 V1800_UDPLITE_DATAGRAM_BIND: test regression of UDPLITE-DATAGRAM:1.2.3.4 with IPv4 BIND... Feature UDPLITE not configured in /opt/go/socat"
     },
     "558": {
       "id": 558,
@@ -5050,9 +5050,9 @@
       "name": "V1800_UDPLITE_SENDTO_RESOLV_6_4",
       "description": "test regression of UDPLITE-SENDTO with IPv6,4 and binding to IPv4",
       "status": "CANT",
-      "detail": "Feature DEVTESTS not configured in /opt/go/socat",
+      "detail": "Feature UDPLITE not configured in /opt/go/socat",
       "shard": 0,
-      "raw": "test 561 V1800_UDPLITE_SENDTO_RESOLV_6_4: test regression of UDPLITE-SENDTO with IPv6,4 and binding to IPv4... Feature DEVTESTS not configured in /opt/go/socat"
+      "raw": "test 561 V1800_UDPLITE_SENDTO_RESOLV_6_4: test regression of UDPLITE-SENDTO with IPv6,4 and binding to IPv4... Feature UDPLITE not configured in /opt/go/socat"
     },
     "562": {
       "id": 562,

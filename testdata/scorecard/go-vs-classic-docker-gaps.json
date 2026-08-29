@@ -1,6 +1,6 @@
 {
   "classic_docker_ok": 552,
-  "go_ok": 550,
+  "go_ok": 538,
   "parity_fail": [
     {
       "id": "80",
@@ -10,6 +10,11 @@
     {
       "id": "146",
       "name": "OPENSSLLISTENDSA",
+      "status": "FAILED"
+    },
+    {
+      "id": "497",
+      "name": "SHELL_SIGINT",
       "status": "FAILED"
     },
     {
@@ -75,18 +80,43 @@
       "status": "CANT"
     },
     {
-      "id": "497",
-      "name": "SHELL_SIGINT",
-      "status": "CANT"
-    },
-    {
-      "id": "504",
-      "name": "RES_NSADDR",
-      "status": "CANT"
-    },
-    {
       "id": "520",
       "name": "DCCP4",
+      "status": "CANT"
+    },
+    {
+      "id": "521",
+      "name": "UDPLITE4STREAM",
+      "status": "CANT"
+    },
+    {
+      "id": "522",
+      "name": "UDPLITE4STREAM",
+      "status": "CANT"
+    },
+    {
+      "id": "523",
+      "name": "UDPLITE6STREAM",
+      "status": "CANT"
+    },
+    {
+      "id": "524",
+      "name": "UDPLITE4LISTENENV",
+      "status": "CANT"
+    },
+    {
+      "id": "525",
+      "name": "UDPLITE6LISTENENV",
+      "status": "CANT"
+    },
+    {
+      "id": "526",
+      "name": "UDPLITE4_L_MAXCHILDREN",
+      "status": "CANT"
+    },
+    {
+      "id": "527",
+      "name": "UDPLITE6_L_MAXCHILDREN",
       "status": "CANT"
     },
     {
@@ -100,13 +130,43 @@
       "status": "CANT"
     },
     {
+      "id": "550",
+      "name": "V1800_UDPLITE_LISTEN_RANGE",
+      "status": "CANT"
+    },
+    {
+      "id": "551",
+      "name": "V1800_UDPLITE_LISTEN_BIND",
+      "status": "CANT"
+    },
+    {
+      "id": "552",
+      "name": "V1800_UDPLITE_RECVFROM_RANGE",
+      "status": "CANT"
+    },
+    {
+      "id": "553",
+      "name": "V1800_UDPLITE_RECVFROM_BIND",
+      "status": "CANT"
+    },
+    {
+      "id": "556",
+      "name": "V1800_UDPLITE_DATAGRAM_RANGE",
+      "status": "CANT"
+    },
+    {
+      "id": "557",
+      "name": "V1800_UDPLITE_DATAGRAM_BIND",
+      "status": "CANT"
+    },
+    {
       "id": "582",
       "name": "DCCP_CONNECT_RETRY",
       "status": "CANT"
     }
   ],
   "parity_other": [],
-  "parity_gap_total": 20,
+  "parity_gap_total": 32,
   "new_ok_vs_classic_docker": [
     {
       "id": "216",
