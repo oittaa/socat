@@ -230,6 +230,13 @@ class HhhParserTest(unittest.TestCase):
         self.assertEqual(got.addresses, set())
         self.assertIn("frob", got.options)
 
+    def test_optional_bracket_address_form(self) -> None:
+        got = parity.parse_classic_hhh(
+            "      TUN[:<x>]\t\t\tgroups=FD,CHR,OPEN,INTERFACE\n"
+        )
+        self.assertIn("TUN", got.addresses)
+        self.assertEqual(got.address_groups["TUN"], "FD,CHR,OPEN,INTERFACE")
+
 
 class GoHelpParserTest(unittest.TestCase):
     def test_flags_addresses_options_and_aliases(self) -> None:
@@ -462,6 +469,46 @@ class CompareTest(unittest.TestCase):
         )
         report = self._report(master_docs=master, master_hhh=None)
         self.assertIn("newer", report.release_master_option_drift)
+
+    def test_unsupported_flag_is_not_missing(self) -> None:
+        still = self._report()
+        self.assertIn("-ly", still.missing_flags)
+        policy = copy.deepcopy(POLICY)
+        policy["unsupported_flags"] = {"-ly": "no syslog"}
+        report = self._report(policy=policy)
+        self.assertNotIn("-ly", report.missing_flags)
+
+    def test_go_only_tls_family_is_not_unexpected(self) -> None:
+        policy = copy.deepcopy(POLICY)
+        policy["go_only_addresses"]["TLS"] = "openssl name"
+        go = parity.parse_go_help(
+            SYNTHETIC_GO_HELP
+            + "    TLS:<host>              tls client\n"
+            + "    TLS-CONNECT:<host>      alias of TLS\n"
+        )
+        report = self._report(go_help=go, policy=policy)
+        self.assertNotIn("TLS", report.unexpected_addresses)
+        self.assertNotIn("TLS-CONNECT", report.unexpected_addresses)
+
+    def test_lseek32_merged_into_lseek_is_same_class(self) -> None:
+        hhh = parity.parse_classic_hhh(
+            SYNTHETIC_HHH
+            + "      lseek32\t\tis an alias for lseek32-set\n"
+            + "      lseek32-set\tgroups=REG\t\tphase=LATE\t\ttype=INT\n"
+            + "      lseek\t\tis an alias for lseek64-set\n"
+            + "      lseek64-set\tgroups=REG\t\tphase=LATE\t\ttype=INT\n"
+        )
+        go = parity.parse_go_help(
+            SYNTHETIC_GO_HELP
+            + "    lseek         seek set\n"
+            + "    lseek32       alias of lseek\n"
+            + "    lseek32-set   alias of lseek\n"
+            + "    lseek64-set   alias of lseek\n"
+        )
+        report = self._report(release_hhh=hhh, go_help=go)
+        self.assertFalse(
+            any(m["alias"] == "lseek32" for m in report.option_alias_mismatches)
+        )
 
 
 class CaptureHelpTest(unittest.TestCase):
@@ -736,8 +783,11 @@ class RepoPolicyTest(unittest.TestCase):
         self.assertNotIn("expected_missing_addresses", policy)
         for family in ("DCCP", "READLINE", "DTLS", "UDPLITE"):
             self.assertIn(family, policy["unsupported_addresses"])
-        for extra in ("WS", "WSS", "QUIC"):
+        for extra in ("WS", "WSS", "QUIC", "TLS"):
             self.assertIn(extra, policy["go_only_addresses"])
+        self.assertIn("-ly", policy["unsupported_flags"])
+        self.assertIn("b7200", policy["go_only_options"])
+        self.assertIn("so-sndlowat", policy["unsupported_options"])
         platforms = policy["platform_options"]
         self.assertIn("linux", platforms)
         self.assertIn("darwin", platforms)

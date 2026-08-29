@@ -42,6 +42,30 @@ func TestHelpOmitsInternalMetadata(t *testing.T) {
 	}
 }
 
+func TestHelpListsImplementedCLIFlags(t *testing.T) {
+	var output bytes.Buffer
+	if err := printHelp(&output, 1); err != nil {
+		t.Fatal(err)
+	}
+	help := output.String()
+	for _, token := range []string{
+		"-hh|-??",
+		"-hhh|-???",
+		"-d|-dd|-ddd|-dddd|-d0|-d2|-d3|-d4",
+		"-L<file>",
+		"-W<file>",
+		"-lf<file>",
+		"-lp<name>",
+		"-lh",
+		"-lu",
+		"-ls",
+	} {
+		if !strings.Contains(help, token) {
+			t.Errorf("-h missing %q", token)
+		}
+	}
+}
+
 func TestHelpListsSoBroadcastAlias(t *testing.T) {
 	var output bytes.Buffer
 	if err := printHelp(&output, 3); err != nil {

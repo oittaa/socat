@@ -37,7 +37,7 @@ HHH_OPT_DETAIL_RE = re.compile(
 )
 HHH_OPT_ALIAS_RE = re.compile(r"^\s{6}(\S+)\s+is an alias for (\S+)\s*$")
 HHH_ADDR_DETAIL_RE = re.compile(
-    r"^\s{6}([A-Za-z][A-Za-z0-9.+_-]*)(?::\S*)?\s+groups=(\S+)\s*$"
+    r"^\s{6}([A-Za-z][A-Za-z0-9.+_-]*)(?:[:\[].*?)?\s+groups=(\S+)\s*$"
 )
 HHH_ADDR_ALIAS_RE = re.compile(
     r"^\s{6}([A-Za-z][A-Za-z0-9.+_-]*)\s+is an alias name for ([A-Za-z][A-Za-z0-9.+_-]*)\s*$"
@@ -578,13 +578,36 @@ def expand_policy_spellings(
     return out
 
 
+def equivalence_groups(policy: dict[str, Any], key: str, *, upper: bool) -> list[set[str]]:
+    """Named canonical groups that should compare as one alias class."""
+    out: list[set[str]] = []
+    for block in policy.get(key) or []:
+        if not isinstance(block, list):
+            continue
+        names = {str(n).upper() if upper else str(n).lower() for n in block if n}
+        if names:
+            out.append(names)
+    return out
+
+
 def same_alias_class(
-    alias: str, classic_aliases: dict[str, str], go_aliases: dict[str, str]
+    alias: str,
+    classic_aliases: dict[str, str],
+    go_aliases: dict[str, str],
+    extra_groups: Iterable[set[str]] | None = None,
 ) -> bool:
     """True when Go's chosen canonical is in the same classic alias class."""
     go_canon = resolve_alias(go_aliases, alias)
     classic_canon = resolve_alias(classic_aliases, alias)
-    return resolve_alias(classic_aliases, go_canon) == classic_canon
+    if resolve_alias(classic_aliases, go_canon) == classic_canon:
+        return True
+    if resolve_alias(go_aliases, classic_canon) == go_canon:
+        return True
+    if extra_groups:
+        for group in extra_groups:
+            if go_canon in group and classic_canon in group:
+                return True
+    return False
 
 
 def name_matches_family(name: str, family: str) -> bool:
@@ -843,6 +866,10 @@ def compare_interfaces(
         {n.upper() for n in policy_name_set(policy, "go_only_addresses")},
         go_help.addresses,
     )
+    unsupported_flags = policy_name_set(policy, "unsupported_flags")
+    go_only_flags = policy_name_set(policy, "go_only_flags")
+    option_equiv = equivalence_groups(policy, "option_canonical_equivalences", upper=False)
+    address_equiv = equivalence_groups(policy, "address_canonical_equivalences", upper=True)
 
     advertised_opts = set(release_public.options)
     advertised_addrs = set(release_public.addresses)
@@ -879,8 +906,11 @@ def compare_interfaces(
         report.missing_addresses.append(name)
 
     for name in sorted(advertised_flags):
-        if name not in go_help.flags:
-            report.missing_flags.append(name)
+        if name in go_help.flags:
+            continue
+        if name in unsupported_flags:
+            continue
+        report.missing_flags.append(name)
 
     for name in sorted(go_help.options):
         if name in advertised_opts:
@@ -903,6 +933,8 @@ def compare_interfaces(
     for name in sorted(go_help.flags):
         if name in advertised_flags:
             continue
+        if name in go_only_flags:
+            continue
         if name in master_public.flags:
             continue
         report.unexpected_flags.append(name)
@@ -921,7 +953,10 @@ def compare_interfaces(
         go_canon = resolve_alias(go_help.option_aliases, alias)
         classic_canon = resolve_alias(release_public.option_aliases, alias)
         if not same_alias_class(
-            alias, release_public.option_aliases, go_help.option_aliases
+            alias,
+            release_public.option_aliases,
+            go_help.option_aliases,
+            option_equiv,
         ):
             report.option_alias_mismatches.append(
                 {"alias": alias, "classic": classic_canon, "go": go_canon}
@@ -934,8 +969,12 @@ def compare_interfaces(
             continue
         go_canon = resolve_alias(go_help.address_aliases, alias)
         classic_canon = resolve_alias(release_public.address_aliases, alias)
-        mapped = resolve_alias(release_public.address_aliases, go_canon)
-        if mapped != classic_canon:
+        if not same_alias_class(
+            alias,
+            release_public.address_aliases,
+            go_help.address_aliases,
+            address_equiv,
+        ):
             report.address_alias_mismatches.append(
                 {"alias": alias, "classic": classic_canon, "go": go_canon}
             )
