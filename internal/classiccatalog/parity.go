@@ -20,7 +20,7 @@ import (
 // only the file they implement.
 
 // Platforms is a bit set of GOOS values this port tests (linux, darwin, windows).
-// Other Unix GOOS values use the darwin bit (same help gating as help_unix_other.go).
+// Unknown GOOS values have no bit; they are not treated as Darwin.
 type Platforms uint8
 
 const (
@@ -41,10 +41,12 @@ func platformBit(goos string) Platforms {
 	switch goos {
 	case "linux":
 		return PlatLinux
+	case "darwin":
+		return PlatDarwin
 	case "windows":
 		return PlatWindows
 	default:
-		return PlatDarwin
+		return PlatNone
 	}
 }
 

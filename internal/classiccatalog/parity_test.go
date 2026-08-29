@@ -12,6 +12,53 @@ func TestValidateParityManifests(t *testing.T) {
 	}
 }
 
+func TestPlatformBitMapsOnlySupportedGOOS(t *testing.T) {
+	if got := platformBit("linux"); got != PlatLinux {
+		t.Errorf("linux: platformBit=%d want PlatLinux", got)
+	}
+	if got := platformBit("darwin"); got != PlatDarwin {
+		t.Errorf("darwin: platformBit=%d want PlatDarwin", got)
+	}
+	if got := platformBit("windows"); got != PlatWindows {
+		t.Errorf("windows: platformBit=%d want PlatWindows", got)
+	}
+	for _, goos := range []string{"freebsd", "openbsd", "netbsd", "dragonfly", "aix", "solaris", "plan9", "js", ""} {
+		if got := platformBit(goos); got != PlatNone {
+			t.Errorf("%q: platformBit=%d want PlatNone (not Darwin)", goos, got)
+		}
+		if PlatLinux.Has(goos) || PlatDarwin.Has(goos) || PlatWindows.Has(goos) || PlatUnix.Has(goos) || PlatAll.Has(goos) {
+			t.Errorf("%q must not match linux, darwin, windows, PlatUnix, or PlatAll", goos)
+		}
+		if PlatNone.Has(goos) {
+			t.Errorf("PlatNone.Has(%q) must be false", goos)
+		}
+		if len(ImplementationBacklog(goos)) != 0 {
+			t.Errorf("ImplementationBacklog(%q)=%v; unknown GOOS is not a target", goos, ImplementationBacklog(goos))
+		}
+	}
+	if !PlatUnix.Has("linux") || !PlatUnix.Has("darwin") || PlatUnix.Has("windows") {
+		t.Fatal("PlatUnix is linux|darwin, not windows")
+	}
+	if !PlatAll.Has("linux") || !PlatAll.Has("darwin") || !PlatAll.Has("windows") {
+		t.Fatal("PlatAll must include linux, darwin, and windows")
+	}
+	unix := Gap{Platforms: PlatUnix, Reason: "unix-only gap"}
+	if unix.Platforms.Has("freebsd") || unix.Platforms.Has("openbsd") {
+		t.Fatal("PlatUnix must not treat other Unix GOOS values as Darwin")
+	}
+	if !unix.Platforms.Has("linux") || !unix.Platforms.Has("darwin") {
+		t.Fatal("PlatUnix must match linux and darwin")
+	}
+	class, _ := ClassifyOption("binary", "freebsd")
+	if class != ClassForeign {
+		t.Fatalf("binary on freebsd: class=%s; want foreign (Windows-only, not Darwin)", class)
+	}
+	class, _ = ClassifyOption("tcp-info", "openbsd")
+	if class != ClassUnsupported {
+		t.Fatalf("tcp-info on openbsd: class=%s; want unsupported", class)
+	}
+}
+
 func TestOpenSSLExclusionsAreUnsupportedNotBacklog(t *testing.T) {
 	for _, name := range []string{
 		"method", "fips",
