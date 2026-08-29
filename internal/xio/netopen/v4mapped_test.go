@@ -45,6 +45,47 @@ func TestDialUDP6V4MappedConnects(t *testing.T) {
 	}
 }
 
+func TestDialUDP6V4MappedBindHostnameConnects(t *testing.T) {
+	ln, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	done := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 8)
+		_ = ln.SetReadDeadline(time.Now().Add(2 * time.Second))
+		_, _, err := ln.ReadFrom(buf)
+		done <- err
+	}()
+
+	dns := startARecordDNS(t)
+	port := strconv.Itoa(ln.LocalAddr().(*net.UDPAddr).Port)
+	spec, err := parse.ParseSpec(
+		"UDP6:udp6-v4mapped-bind.test:" + port +
+			",ai-v4mapped,bind=udp6-v4mapped-bind.test,res-nsaddr=" + dns.addr,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened, err := openUDP6Connect(t.Context(), spec, xio.ModeRDWR, useGlobal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = opened.Close() })
+	if _, err := opened.Stream.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	if local, ok := opened.Stream.(interface{ LocalAddr() net.Addr }); !ok {
+		t.Fatalf("stream %T has no LocalAddr", opened.Stream)
+	} else if ua, ok := local.LocalAddr().(*net.UDPAddr); !ok || ua.IP.To4() == nil {
+		t.Fatalf("UDP6+ai-v4mapped,bind=hostname local %v want IPv4 socket", local.LocalAddr())
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("udp4 listener did not receive mapped UDP bind-hostname payload: %v", err)
+	}
+}
+
 func TestDialUDP6IPv4LiteralKeepsFamily(t *testing.T) {
 	ln, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {

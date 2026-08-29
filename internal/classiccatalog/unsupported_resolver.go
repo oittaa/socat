@@ -12,7 +12,7 @@ package classiccatalog
 // this port never mutates net.DefaultResolver or libc _res.
 //
 // Implemented per-address instead: res-nsaddr (custom Dial), res-usevc
-// (UDP DNS rewritten to TCP via Resolver.Dial), and getaddrinfo AI_V4MAPPED /
+// (TCP-only via Resolver.Dial; =0 restores UDP-then-TCP), and getaddrinfo AI_V4MAPPED /
 // AI_ALL / AI_PASSIVE / AI_ADDRCONFIG. res-aaonly / res-primary stay foreign
 // (WITH_AA_ONLY / WITH_RES_PRIMARY).
 var unsupportedResolver = map[string]string{

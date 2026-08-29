@@ -30,7 +30,18 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	if host == "" || port == "" {
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
-	addr := net.JoinHostPort(xio.StripBrackets(host), port)
+	stripped := xio.StripBrackets(host)
+	// Select the mapped remote network before resolving bind=. UDP6 to an
+	// A-only hostname with ai-v4mapped switches udp6→udp4; resolving
+	// bind=<A-only-host> on udp6 first fails with "no suitable address".
+	if net.ParseIP(stripped) == nil {
+		netw, netErr := xio.PacketNetworkForHost(ctx, s, network, stripped)
+		if netErr != nil {
+			return nil, netErr
+		}
+		network = netw
+	}
+	addr := net.JoinHostPort(stripped, port)
 	bind := s.OptionValue("bind", "")
 	sp := s.OptionValue("sourceport", "")
 	lowport := s.BoolOption("lowport") && (sp == "" || sp == "0")

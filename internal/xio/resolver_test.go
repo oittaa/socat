@@ -709,30 +709,93 @@ func TestResUseVCZeroKeepsUDP(t *testing.T) {
 	if server.udpQueries.Load() == 0 {
 		t.Fatal("res-usevc=0 made no UDP DNS queries")
 	}
+	if server.tcpQueries.Load() != 0 {
+		t.Fatalf("res-usevc=0 made %d TCP queries; want 0 for a non-truncated UDP answer", server.tcpQueries.Load())
+	}
 }
 
-func TestResUseVCZeroRewritesTCPDialToUDP(t *testing.T) {
-	before := net.DefaultResolver
-	s := parse.Spec{Options: []parse.Option{{Name: "res-usevc", Value: "0", Has: true}}}
+func TestResUseVCZeroTruncatedUDPRetriesTCP(t *testing.T) {
+	server, err := startFakeDNS(t, "127.0.0.1", true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := resNSAddrSpec(server.addr)
+	s.Options = append(s.Options, parse.Option{Name: "res-usevc", Value: "0", Has: true})
+	ips, err := LookupIP(t.Context(), s, "ip4", "usevc-off-truncate.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ips) != 1 || !ips[0].Equal(net.IPv4(127, 0, 0, 1)) {
+		t.Fatalf("LookupIP=%v", ips)
+	}
+	if server.udpQueries.Load() == 0 {
+		t.Fatal("res-usevc=0 truncated lookup made no UDP DNS queries")
+	}
+	if server.tcpQueries.Load() == 0 {
+		t.Fatal("truncated UDP response did not retry over TCP")
+	}
+}
+
+func TestResUseVCZeroTCPDialRetriesTruncatedUDP(t *testing.T) {
+	server, err := startFakeDNS(t, "127.0.0.1", true, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := resNSAddrSpec(server.addr)
+	s.Options = append(s.Options, parse.Option{Name: "res-usevc", Value: "0", Has: true})
 	r := LookupResolver(s)
-	if r == before {
+	if r == net.DefaultResolver {
 		t.Fatal("res-usevc=0 returned process-global DefaultResolver; cannot clear resolv.conf use-vc")
 	}
 	if r.Dial == nil {
 		t.Fatal("res-usevc=0 resolver has no Dial rewrite")
 	}
-	ln, err := net.ListenPacket("udp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = ln.Close() }()
-	c, err := r.Dial(t.Context(), "tcp4", ln.LocalAddr().String())
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	c, err := r.Dial(ctx, "tcp4", server.addr)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = c.Close() }()
-	if _, ok := c.(net.PacketConn); !ok {
-		t.Fatalf("res-usevc=0 Dial(tcp4) type %T want PacketConn (UDP)", c)
+	if _, ok := c.(net.PacketConn); ok {
+		t.Fatalf("res-usevc=0 Dial(tcp4) type %T is PacketConn; Go would skip TCP fallback", c)
+	}
+	_ = c.SetDeadline(time.Now().Add(3 * time.Second))
+	name, err := dnsmessage.NewName("usevc-tcp-truncate.test.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder := dnsmessage.NewBuilder(nil, dnsmessage.Header{ID: 1, RecursionDesired: true})
+	if err := builder.StartQuestions(); err != nil {
+		t.Fatal(err)
+	}
+	if err := builder.Question(dnsmessage.Question{Name: name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET}); err != nil {
+		t.Fatal(err)
+	}
+	query, err := builder.Finish()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hdr [2]byte
+	binary.BigEndian.PutUint16(hdr[:], uint16(len(query)))
+	if _, err := c.Write(append(hdr[:], query...)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(c, hdr[:]); err != nil {
+		t.Fatal(err)
+	}
+	resp := make([]byte, int(binary.BigEndian.Uint16(hdr[:])))
+	if _, err := io.ReadFull(c, resp); err != nil {
+		t.Fatal(err)
+	}
+	if dnsMessageTruncated(resp) {
+		t.Fatal("TCP-framed response still truncated")
+	}
+	if server.udpQueries.Load() == 0 {
+		t.Fatal("res-usevc=0 TCP Dial made no UDP query")
+	}
+	if server.tcpQueries.Load() == 0 {
+		t.Fatal("truncated UDP response did not retry over TCP")
 	}
 }
 
@@ -787,6 +850,61 @@ func TestLookupIPAIAddrConfigOmittedFiltersUnspecifiedHint(t *testing.T) {
 	}
 	if len(both) < 2 {
 		t.Fatalf("ai-addrconfig=0 ips=%v want both families", both)
+	}
+}
+
+func TestLocalIPFamiliesFromAddrsSkipLoopback(t *testing.T) {
+	loopbackOnly := []net.Addr{
+		&net.IPNet{IP: net.ParseIP("127.0.0.1"), Mask: net.CIDRMask(8, 32)},
+		&net.IPNet{IP: net.ParseIP("::1"), Mask: net.CIDRMask(128, 128)},
+	}
+	v4, v6 := localIPFamiliesFromAddrs(loopbackOnly)
+	if v4 || v6 {
+		t.Fatalf("loopback-only families v4=%v v6=%v; Linux AI_ADDRCONFIG ignores loopback", v4, v6)
+	}
+
+	v4Only := []net.Addr{
+		&net.IPNet{IP: net.ParseIP("127.0.0.1"), Mask: net.CIDRMask(8, 32)},
+		&net.IPNet{IP: net.ParseIP("::1"), Mask: net.CIDRMask(128, 128)},
+		&net.IPNet{IP: net.ParseIP("192.0.2.1"), Mask: net.CIDRMask(24, 32)},
+	}
+	v4, v6 = localIPFamiliesFromAddrs(v4Only)
+	if !v4 || v6 {
+		t.Fatalf("non-loopback IPv4 only: v4=%v v6=%v want v4 only", v4, v6)
+	}
+
+	v6Only := []net.Addr{
+		&net.IPNet{IP: net.ParseIP("127.0.0.1"), Mask: net.CIDRMask(8, 32)},
+		&net.IPNet{IP: net.ParseIP("2001:db8::1"), Mask: net.CIDRMask(64, 128)},
+	}
+	v4, v6 = localIPFamiliesFromAddrs(v6Only)
+	if v4 || !v6 {
+		t.Fatalf("non-loopback IPv6 only: v4=%v v6=%v want v6 only", v4, v6)
+	}
+}
+
+func TestLookupIPAIAddrConfigLoopbackOnlyFamily(t *testing.T) {
+	restore := localIPFamilies
+	t.Cleanup(func() { localIPFamilies = restore })
+	localIPFamilies = func() (bool, bool) {
+		return localIPFamiliesFromAddrs([]net.Addr{
+			&net.IPNet{IP: net.ParseIP("127.0.0.1"), Mask: net.CIDRMask(8, 32)},
+			&net.IPNet{IP: net.ParseIP("2001:db8::1"), Mask: net.CIDRMask(64, 128)},
+		})
+	}
+
+	server, err := startFakeDNSWithAnswer(t, "127.0.0.1", net.IPv4(127, 0, 0, 1), "", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.setAnswers([]net.IP{net.IPv4(192, 0, 2, 1), net.ParseIP("2001:db8::1")})
+	s := resNSAddrSpec(server.addr)
+	ips, err := LookupIP(t.Context(), s, "ip", "addrconfig-loopback-v4.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ips) != 1 || ips[0].To4() != nil {
+		t.Fatalf("AI_ADDRCONFIG with loopback-only IPv4 ips=%v want only IPv6", ips)
 	}
 }
 

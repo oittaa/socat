@@ -39,8 +39,8 @@ func warnNetNSExperimental(g *Global) {
 // security-related port difference uses a per-address resolver and never
 // mutates net.DefaultResolver or libc _res. Remaining libc res-* flags
 // (debug, search, retry, retrans, …) are rejected rather than applied
-// globally; res-usevc is implemented here via Resolver.Dial (`=0` rewrites
-// TCP DNS back to UDP so resolv.conf use-vc is cleared).
+// globally; res-usevc is implemented here via Resolver.Dial (`=0` restores
+// UDP-then-TCP, including when resolv.conf has use-vc).
 func LookupResolver(s parse.Spec) *net.Resolver {
 	r := lookupResolverBase(s)
 	if !s.HasOption("res-usevc") {
@@ -85,40 +85,6 @@ func lookupResolverBase(s parse.Spec) *net.Resolver {
 		return &net.Resolver{PreferGo: true}
 	}
 	return net.DefaultResolver
-}
-
-// resolverRewriteDNSTransport implements classic xio_res_init RES_USEVC without
-// mutating process-global _res. Setting Dial implies PreferGo.
-//
-// forceTCP true (res-usevc): rewrite udp* to tcp* so DNS is TCP-only.
-// forceTCP false (res-usevc=0): rewrite tcp* to udp* so a resolv.conf use-vc /
-// Go cfg.useTCP default is cleared, matching classic clearing RES_USEVC.
-// Truncation still retries TCP only when Go's resolver asked for udp then tcp
-// (no system use-vc); with system use-vc Go's loop is tcp-only, so the rewrite
-// yields UDP queries without a TCP fallback.
-func resolverRewriteDNSTransport(base *net.Resolver, forceTCP bool) *net.Resolver {
-	if base == nil {
-		base = net.DefaultResolver
-	}
-	inner := base.Dial
-	return &net.Resolver{
-		PreferGo:     true,
-		StrictErrors: base.StrictErrors,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			if forceTCP {
-				if strings.HasPrefix(network, "udp") {
-					network = "tcp" + strings.TrimPrefix(network, "udp")
-				}
-			} else if strings.HasPrefix(network, "tcp") {
-				network = "udp" + strings.TrimPrefix(network, "tcp")
-			}
-			if inner != nil {
-				return inner(ctx, network, address)
-			}
-			var d net.Dialer
-			return d.DialContext(ctx, network, address)
-		},
-	}
 }
 
 // WrapNetNSDial runs dial inside WithNetNS so CONNECT,fork reconnects stay in

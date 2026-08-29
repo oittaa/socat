@@ -228,16 +228,21 @@ func filterAIAddrConfig(ips []net.IP) []net.IP {
 	return out
 }
 
-// localIPFamilies reports whether the host has a non-unspecified IPv4 and IPv6
-// address. Tests may replace it.
+// localIPFamilies reports whether the host has a non-loopback, non-unspecified
+// IPv4 and IPv6 address. Linux getaddrinfo(AI_ADDRCONFIG) ignores loopback
+// (getaddrinfo(3)). Tests may replace it.
 var localIPFamilies = localIPFamiliesFromSystem
 
 func localIPFamiliesFromSystem() (v4, v6 bool) {
-	ifaces, err := net.InterfaceAddrs()
+	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		return true, true
 	}
-	for _, a := range ifaces {
+	return localIPFamiliesFromAddrs(addrs)
+}
+
+func localIPFamiliesFromAddrs(addrs []net.Addr) (v4, v6 bool) {
+	for _, a := range addrs {
 		var ip net.IP
 		switch t := a.(type) {
 		case *net.IPNet:
@@ -245,13 +250,16 @@ func localIPFamiliesFromSystem() (v4, v6 bool) {
 		case *net.IPAddr:
 			ip = t.IP
 		}
-		if ip == nil || ip.IsUnspecified() {
+		if ip == nil || ip.IsUnspecified() || ip.IsLoopback() {
 			continue
 		}
 		if ip.To4() != nil {
 			v4 = true
 		} else {
 			v6 = true
+		}
+		if v4 && v6 {
+			return v4, v6
 		}
 	}
 	return v4, v6
