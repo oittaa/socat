@@ -22,8 +22,8 @@ func init() {
 }
 
 // openAcceptFDNum implements ACCEPT-FD / ACCEPT on Linux and macOS.
-// The fd must already be a listening stream socket. After accept: after
-// open → after socket() → after connect/accept; late is WrapCommon.
+// The fd must already be a listening stream socket. After accept, apply
+// descriptor, socket, and connected options; WrapCommon applies late options.
 // fork, range, sourceport, lowport, and tcpwrap apply to IP and UNIX
 // listeners, not only TCP. ACCEPT is the public alias of ACCEPT-FD.
 func openAcceptFDNum(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, fd int) (*xio.Opened, error) {
