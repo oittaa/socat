@@ -22,8 +22,6 @@ type fakeDNSServer struct {
 	udp         net.PacketConn
 	tcp         net.Listener
 	addr        string
-	answer      net.IP
-	answers     []net.IP
 	ptrName     string
 	truncateUDP bool
 	drop        bool
@@ -31,6 +29,10 @@ type fakeDNSServer struct {
 	tcpQueries  atomic.Int32
 	queried     chan struct{}
 	wg          sync.WaitGroup
+
+	mu      sync.Mutex
+	answer  net.IP
+	answers []net.IP
 }
 
 func startFakeDNS(t *testing.T, ip string, truncateUDP, drop bool) (*fakeDNSServer, error) {
@@ -82,7 +84,7 @@ func startFakeDNSWithAnswer(t *testing.T, ip string, answer net.IP, ptrName stri
 		udp:         udp,
 		tcp:         tcp,
 		addr:        addr,
-		answer:      answer,
+		answer:      cloneIP(answer),
 		ptrName:     ptrName,
 		truncateUDP: truncateUDP,
 		drop:        drop,
@@ -159,14 +161,38 @@ func (s *fakeDNSServer) serveTCPConn(conn net.Conn) {
 	_, _ = conn.Write(append(size[:], response...))
 }
 
+func (s *fakeDNSServer) setAnswers(ips []net.IP) {
+	cloned := cloneIPs(ips)
+	s.mu.Lock()
+	s.answers = cloned
+	s.mu.Unlock()
+}
+
 func (s *fakeDNSServer) records() []net.IP {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if len(s.answers) > 0 {
-		return s.answers
+		return cloneIPs(s.answers)
 	}
 	if s.answer != nil {
-		return []net.IP{s.answer}
+		return []net.IP{cloneIP(s.answer)}
 	}
 	return nil
+}
+
+func cloneIPs(ips []net.IP) []net.IP {
+	out := make([]net.IP, len(ips))
+	for i, ip := range ips {
+		out[i] = cloneIP(ip)
+	}
+	return out
+}
+
+func cloneIP(ip net.IP) net.IP {
+	if ip == nil {
+		return nil
+	}
+	return append(net.IP(nil), ip...)
 }
 
 func makeDNSResponse(query []byte, answers []net.IP, ptrName string, truncated bool) ([]byte, error) {
@@ -575,7 +601,7 @@ func TestLookupIPAIAllAppendsMapped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.answers = []net.IP{net.IPv4(192, 0, 2, 1), net.ParseIP("2001:db8::1")}
+	server.setAnswers([]net.IP{net.IPv4(192, 0, 2, 1), net.ParseIP("2001:db8::1")})
 	s := resNSAddrSpec(server.addr)
 	s.Options = append(s.Options, parse.Option{Name: "ai-all"})
 	ips, err := LookupIP(t.Context(), s, "ip6", "ai-all.test")
@@ -601,7 +627,7 @@ func TestLookupIPWithoutAIAllKeepsNativeOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.answers = []net.IP{net.IPv4(192, 0, 2, 1), net.ParseIP("2001:db8::1")}
+	server.setAnswers([]net.IP{net.IPv4(192, 0, 2, 1), net.ParseIP("2001:db8::1")})
 	s := resNSAddrSpec(server.addr)
 	ips, err := LookupIP(t.Context(), s, "ip6", "no-ai-all.test")
 	if err != nil {
