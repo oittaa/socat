@@ -39,35 +39,59 @@ func startFakeDNS(t *testing.T, ip string, truncateUDP, drop bool) (*fakeDNSServ
 	return startFakeDNSWithAnswer(t, ip, net.IPv4(127, 0, 0, 1), "", truncateUDP, drop)
 }
 
-// listenTCPAndUDP binds TCP and UDP on the same port. Windows Hyper-V
-// excluded port ranges can make Listen(":0") or the follow-up bind on the
-// sibling protocol fail with WSAEACCES ("access permissions"); retry until
-// both succeed.
+const (
+	dnsDynamicPortFirst  = 49152
+	dnsDynamicPortCount  = 1 << 14
+	dnsDynamicPortStride = 7919
+)
+
+// dnsDynamicPort walks every dynamic port in a scattered order. The odd
+// stride is coprime with the power-of-two range, so no candidate repeats.
+func dnsDynamicPort(seed uint64, attempt int) int {
+	offset := (int(seed&uint64(dnsDynamicPortCount-1)) + attempt*dnsDynamicPortStride) & (dnsDynamicPortCount - 1)
+	return dnsDynamicPortFirst + offset
+}
+
+// listenTCPAndUDP binds TCP and UDP on the same dynamic port. Windows can
+// reserve different ranges for each protocol, so candidates are scattered
+// instead of relying on one protocol's sequential :0 allocator.
 func listenTCPAndUDP(ip, suffix string) (tcp net.Listener, udp net.PacketConn, addr string, err error) {
-	const attempts = 64
-	hostport0 := net.JoinHostPort(ip, "0")
+	seed := uint64(time.Now().UnixNano())
 	var last error
-	for i := 0; i < attempts; i++ {
-		tcp, last = net.Listen("tcp"+suffix, hostport0)
+	for attempt := 0; attempt < dnsDynamicPortCount; attempt++ {
+		port := strconv.Itoa(dnsDynamicPort(seed, attempt))
+		addr = net.JoinHostPort(ip, port)
+		tcp, last = net.Listen("tcp"+suffix, addr)
 		if last != nil {
+			if !retryableTestBindError(last) {
+				return nil, nil, "", last
+			}
 			continue
 		}
-		_, port, splitErr := net.SplitHostPort(tcp.Addr().String())
-		if splitErr != nil {
-			_ = tcp.Close()
-			return nil, nil, "", splitErr
-		}
-		addr = net.JoinHostPort(ip, port)
 		udp, last = net.ListenPacket("udp"+suffix, addr)
 		if last == nil {
 			return tcp, udp, addr, nil
 		}
 		_ = tcp.Close()
+		if !retryableTestBindError(last) {
+			return nil, nil, "", last
+		}
 	}
-	if last == nil {
-		last = fmt.Errorf("listen tcp+udp %s: no port after %d attempts", net.JoinHostPort(ip, "0"), attempts)
+	return nil, nil, "", fmt.Errorf("listen tcp+udp %s: no common dynamic port: %w", ip, last)
+}
+
+func TestDNSDynamicPortVisitsEveryCandidateOnce(t *testing.T) {
+	seen := make(map[int]struct{}, dnsDynamicPortCount)
+	for attempt := 0; attempt < dnsDynamicPortCount; attempt++ {
+		port := dnsDynamicPort(1234, attempt)
+		if port < dnsDynamicPortFirst || port >= dnsDynamicPortFirst+dnsDynamicPortCount {
+			t.Fatalf("candidate %d is outside the dynamic range", port)
+		}
+		if _, duplicate := seen[port]; duplicate {
+			t.Fatalf("candidate %d repeated at attempt %d", port, attempt)
+		}
+		seen[port] = struct{}{}
 	}
-	return nil, nil, "", last
 }
 
 func startFakeDNSWithAnswer(t *testing.T, ip string, answer net.IP, ptrName string, truncateUDP, drop bool) (*fakeDNSServer, error) {
