@@ -33,21 +33,6 @@ func hideLinuxOnlyRemainingIPv4(name, goos string) bool {
 	}
 }
 
-// hideLinuxOnlyIPv6RecvExt hides Linux-only IPv6 extension-header recv
-// flags except on Linux. Darwin is not advertised until a native
-// setsockopt probe succeeds. recvpathmtu is not a public alias.
-func hideLinuxOnlyIPv6RecvExt(name, goos string) bool {
-	switch name {
-	case "ipv6-recvdstopts", "recvdstopts",
-		"ipv6-recvhopopts", "recvhopopts",
-		"ipv6-recvrthdr", "recvrthdr",
-		"ipv6-recvpathmtu":
-		return goos != "linux"
-	default:
-		return false
-	}
-}
-
 func hideOptGroup(title string) bool {
 	switch title {
 	case "PTY and TERMIOS":

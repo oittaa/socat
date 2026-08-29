@@ -302,12 +302,12 @@ func TestRejectUnsupportedIPv6RecvExt(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = RejectUnsupportedIPAncillary(udp6)
-	if runtime.GOOS == "linux" {
-		if err != nil {
-			t.Fatalf("linux UDP6 ipv6-recvdstopts: %v", err)
+	if runtime.GOOS == "windows" {
+		if err == nil || !strings.Contains(err.Error(), "not supported on this platform") {
+			t.Fatalf("err=%v want not supported on this platform", err)
 		}
-	} else if err == nil || !strings.Contains(err.Error(), "not supported on this platform") {
-		t.Fatalf("err=%v want not supported on this platform", err)
+	} else if err != nil {
+		t.Fatalf("UDP6 ipv6-recvdstopts: %v", err)
 	}
 
 	raw, err := parse.ParseSpec("IP6-RECV:58,ipv6-recvpathmtu")
@@ -315,12 +315,12 @@ func TestRejectUnsupportedIPv6RecvExt(t *testing.T) {
 		t.Fatal(err)
 	}
 	err = RejectUnsupportedIPAncillary(raw)
-	if runtime.GOOS == "linux" {
-		if err != nil {
-			t.Fatalf("linux IP6-RECV ipv6-recvpathmtu: %v", err)
+	if runtime.GOOS == "windows" {
+		if err == nil || !strings.Contains(err.Error(), "not supported on this platform") {
+			t.Fatalf("err=%v want not supported on this platform", err)
 		}
-	} else if err == nil || !strings.Contains(err.Error(), "not supported on this platform") {
-		t.Fatalf("err=%v want not supported on this platform", err)
+	} else if err != nil {
+		t.Fatalf("IP6-RECV ipv6-recvpathmtu: %v", err)
 	}
 
 	udp4, err := parse.ParseSpec("UDP4:127.0.0.1:1,ipv6-recvdstopts")
@@ -329,7 +329,7 @@ func TestRejectUnsupportedIPv6RecvExt(t *testing.T) {
 	}
 	err = RejectUnsupportedIPAncillary(udp4)
 	want := "not supported on IPv4"
-	if runtime.GOOS != "linux" {
+	if runtime.GOOS == "windows" {
 		want = "not supported on this platform"
 	}
 	if err == nil || !strings.Contains(err.Error(), want) {

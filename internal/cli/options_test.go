@@ -1230,14 +1230,14 @@ func TestIPv6RecvExtHeaderPlatform(t *testing.T) {
 			t.Fatalf("%s: %v", spec, err)
 		}
 		err = validateChannelOptions(ch)
-		if runtime.GOOS == "linux" {
-			if err != nil {
-				t.Errorf("%s: %v", spec, err)
+		if runtime.GOOS == "windows" {
+			if err == nil || !strings.Contains(err.Error(), "not supported on this platform") {
+				t.Errorf("%s: err=%v want not supported on this platform", spec, err)
 			}
 			continue
 		}
-		if err == nil || !strings.Contains(err.Error(), "not supported on this platform") {
-			t.Errorf("%s: err=%v want not supported on this platform", spec, err)
+		if err != nil {
+			t.Errorf("%s: %v", spec, err)
 		}
 	}
 	for _, spec := range []string{
