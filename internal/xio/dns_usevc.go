@@ -3,6 +3,7 @@ package xio
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
 	"strings"
@@ -118,10 +119,11 @@ func (c *dnsUDPThenTCPConn) flushLocked() error {
 		if err != nil {
 			return err
 		}
-		var hdr [2]byte
-		binary.BigEndian.PutUint16(hdr[:], uint16(len(resp)))
-		c.readBuf = append(c.readBuf, hdr[:]...)
-		c.readBuf = append(c.readBuf, resp...)
+		framed, err := frameDNSTCPMessage(resp)
+		if err != nil {
+			return err
+		}
+		c.readBuf = append(c.readBuf, framed...)
 	}
 }
 
@@ -160,9 +162,10 @@ func (c *dnsUDPThenTCPConn) exchangeTCPLocked(query []byte) ([]byte, error) {
 	if err := c.applyDeadlinesLocked(tcp); err != nil {
 		return nil, err
 	}
-	framed := make([]byte, 2+len(query))
-	binary.BigEndian.PutUint16(framed[:2], uint16(len(query)))
-	copy(framed[2:], query)
+	framed, err := frameDNSTCPMessage(query)
+	if err != nil {
+		return nil, err
+	}
 	if _, err := tcp.Write(framed); err != nil {
 		return nil, err
 	}
@@ -281,3 +284,18 @@ func (c *dnsUDPThenTCPConn) SetWriteDeadline(t time.Time) error {
 func dnsMessageTruncated(msg []byte) bool {
 	return len(msg) >= 3 && msg[2]&0x02 != 0
 }
+
+const maxDNSTCPMessage = 0xffff
+
+func frameDNSTCPMessage(msg []byte) ([]byte, error) {
+	n := len(msg)
+	if n > maxDNSTCPMessage {
+		return nil, errDNSTCPTooLong
+	}
+	framed := make([]byte, 2+n)
+	binary.BigEndian.PutUint16(framed[:2], uint16(n)) // #nosec G115 -- n checked against maxDNSTCPMessage
+	copy(framed[2:], msg)
+	return framed, nil
+}
+
+var errDNSTCPTooLong = errors.New("dns: message exceeds 16-bit TCP length")
