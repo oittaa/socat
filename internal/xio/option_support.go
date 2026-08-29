@@ -7,9 +7,9 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// ClassicOptionUnrestricted is true when the option is accepted on every
-// address type (empty groups, or process/appl).
-func ClassicOptionUnrestricted(optGroups []string) bool {
+// optionUnrestricted is true when the option is accepted on every
+// address type (empty required caps, or process/appl tokens).
+func optionUnrestricted(optGroups []string) bool {
 	if len(optGroups) == 0 {
 		return true
 	}
@@ -21,35 +21,35 @@ func ClassicOptionUnrestricted(optGroups []string) bool {
 	return false
 }
 
-// ClassicOptionGroupsFor returns the expanded group set for an option
-// keyword or nickname. The given spelling is looked up first so names such as
-// ipv6-join-group keep their own groups; only unknown nicknames fall
-// back to parse.CanonicalOptionName (o-append → append).
-func ClassicOptionGroupsFor(optionName string) ([]string, bool) {
+// OptionCapsFor returns the capability tokens an option requires.
+// The given spelling is looked up first so names such as ipv6-join-group
+// keep their own caps; only unknown nicknames fall back to
+// parse.CanonicalOptionName (o-append → append).
+func OptionCapsFor(optionName string) ([]string, bool) {
 	name := strings.ToLower(strings.TrimSpace(optionName))
 	if name == "" {
 		return nil, false
 	}
-	if groups, ok := ClassicOptionGroups[name]; ok {
+	if groups, ok := optionRequiredCaps[name]; ok {
 		return groups, true
 	}
 	canon := parse.CanonicalOptionName(name)
 	if canon != name {
-		if groups, ok := ClassicOptionGroups[canon]; ok {
+		if groups, ok := optionRequiredCaps[canon]; ok {
 			return groups, true
 		}
 	}
 	return nil, false
 }
 
-// ClassicTermiosOptionNames returns option spellings whose groups include
+// TermiosOptionNames returns option spellings whose required caps include
 // termios. Used to recognize TERMIOS options on platforms that reject them
 // instead of applying termios.
-func ClassicTermiosOptionNames() []string {
+func TermiosOptionNames() []string {
 	var out []string
-	for name, groups := range ClassicOptionGroups {
+	for name, groups := range optionRequiredCaps {
 		for _, g := range groups {
-			if g == "termios" {
+			if g == CapTermios {
 				out = append(out, name)
 				break
 			}
@@ -59,17 +59,21 @@ func ClassicTermiosOptionNames() []string {
 	return out
 }
 
-// ClassicAllowsOption reports whether the catalog would accept
-// optionName on addrType (group intersection).
-func ClassicAllowsOption(addrType, optionName string) bool {
-	optGroups, ok := ClassicOptionGroupsFor(optionName)
+// AddressAllowsOption reports whether optionName is in scope for addrType
+// using registered address capabilities and OptionCapsFor.
+func AddressAllowsOption(addrType, optionName string) bool {
+	reg, ok := AddressRegistrationForType(addrType)
 	if !ok {
 		return false
 	}
-	if ClassicOptionUnrestricted(optGroups) {
+	optGroups, ok := OptionCapsFor(optionName)
+	if !ok {
+		return false
+	}
+	if optionUnrestricted(optGroups) {
 		return true
 	}
-	return OptionCapsAllowed(ClassicAddressCaps(addrType), optGroups)
+	return OptionCapsAllowed(reg.OptionCaps, optGroups)
 }
 
 func addressGroupAllowed(group string, allowed []string) bool {
@@ -112,11 +116,11 @@ func goExtraAllows(reg AddressRegistration, goGroups, goTypes []string) bool {
 // OptionSupportedOnAddress is the registry-level check used by the CLI.
 // optionName should be the original spelling (parse.Option.OriginalSpelling).
 // Extra allow-lists (TLS on PROXY, WebSocket path, …) can still accept a
-// combination the catalog would reject. Go-only options use address
+// combination the capability filter would reject. Go-only options use address
 // group/type/cap restrictions as declared in the option table.
 func OptionSupportedOnAddress(reg AddressRegistration, optionName string, goGroups, goTypes, goCaps []string) bool {
-	if optGroups, ok := ClassicOptionGroupsFor(optionName); ok {
-		if ClassicOptionUnrestricted(optGroups) || OptionCapsAllowed(reg.OptionCaps, optGroups) {
+	if optGroups, ok := OptionCapsFor(optionName); ok {
+		if optionUnrestricted(optGroups) || OptionCapsAllowed(reg.OptionCaps, optGroups) {
 			return true
 		}
 		return goExtraAllows(reg, goGroups, goTypes)

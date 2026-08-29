@@ -98,7 +98,7 @@ type AddressClass int
 
 const (
 	// AddrMustRegister: canonical or alias whose opener must exist (directly
-	// registered or resolved through ClassicAddressAliases).
+	// registered or resolved through AddressAliasMap).
 	AddrMustRegister AddressClass = iota
 	// AddrExpectedMissingCanonical: canonical address not yet implemented.
 	AddrExpectedMissingCanonical

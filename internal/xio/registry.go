@@ -50,13 +50,15 @@ type AddressDesc struct {
 	DynamicDesc func() string // Optional dynamic help description (e.g. UNIX capabilities)
 	Enabled     func() bool   // Optional feature predicate. If nil, considered enabled.
 	Opener      Opener        // Opener function handling this address
-	OptionCaps  []string      // Extra option capabilities merged with DerivedOptionCaps
+	OptionCaps  []string      // Address capability tokens for option-scope checks
+	Aliases     []string      // Extra keywords that resolve to this descriptor; -hhh only
 }
 
 type addressRegistry struct {
 	mu           sync.RWMutex
 	openers      map[string]Opener
 	descsByName  map[string]AddressDesc
+	aliases      map[string]string // alias → registered Name
 	addrsByGroup map[string][]AddressDesc
 	groupOrder   []string
 }
@@ -65,6 +67,7 @@ func newAddressRegistry() *addressRegistry {
 	return &addressRegistry{
 		openers:      make(map[string]Opener),
 		descsByName:  make(map[string]AddressDesc),
+		aliases:      make(map[string]string),
 		addrsByGroup: make(map[string][]AddressDesc),
 	}
 }
@@ -99,14 +102,47 @@ func (r *addressRegistry) register(desc AddressDesc) {
 	if name == "" {
 		panic("xio: address registration requires a name")
 	}
+	if name == "-" {
+		panic("xio: parser shorthand - must not be registered")
+	}
 	desc.Name = name
-	desc.OptionCaps = mergeOptionCaps(DerivedOptionCaps(desc.Name, desc.Group), desc.OptionCaps)
+	desc.OptionCaps = uniqueCaps(desc.OptionCaps)
+	if len(desc.OptionCaps) == 0 {
+		panic("xio: address registration requires OptionCaps: " + name)
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, exists := r.descsByName[name]; exists {
 		panic("xio: duplicate address registration: " + name)
 	}
+	if _, exists := r.aliases[name]; exists {
+		panic("xio: address registration collides with alias: " + name)
+	}
+
+	aliases := make([]string, 0, len(desc.Aliases))
+	seen := map[string]bool{}
+	for _, raw := range desc.Aliases {
+		alias := strings.ToUpper(strings.TrimSpace(raw))
+		if alias == "" || alias == name || alias == "-" {
+			continue
+		}
+		if seen[alias] {
+			continue
+		}
+		seen[alias] = true
+		if _, exists := r.descsByName[alias]; exists {
+			panic("xio: alias collides with registered address: " + alias)
+		}
+		if dest, exists := r.aliases[alias]; exists {
+			panic("xio: duplicate address alias " + alias + " (already " + dest + ")")
+		}
+		r.aliases[alias] = name
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+	desc.Aliases = aliases
+
 	r.descsByName[name] = desc
 	if desc.Opener != nil {
 		r.openers[name] = desc.Opener
@@ -123,8 +159,9 @@ func (r *addressRegistry) register(desc AddressDesc) {
 // It does not add a -h line; prefer RegisterAddress with Syntax set.
 func Register(name string, fn Opener) {
 	RegisterAddress(AddressDesc{
-		Name:   name,
-		Opener: fn,
+		Name:       name,
+		Opener:     fn,
+		OptionCaps: CapsFD,
 	})
 }
 
@@ -141,11 +178,10 @@ func (r *addressRegistry) opener(typ string) (Opener, bool) {
 }
 
 // resolve returns the registered descriptor for typ. Direct RegisterAddress
-// entries win. Otherwise ClassicAddressAliases is applied when the canonical
-// opener is registered. Unsupported families (DCCP, UDP-Lite, DTLS, readline)
-// stay unknown because their dest is not registered. DCCP is an intentional
-// compatibility exception, not backlog. Parser shorthand "-" → STDIO is
-// handled in parse.ParseSpec, not here.
+// entries win. Otherwise Aliases on a registered descriptor are applied.
+// Unsupported families (DCCP, UDP-Lite, DTLS, readline) stay unknown because
+// they are not registered. DCCP is an intentional compatibility exception,
+// not backlog. Parser shorthand "-" → STDIO is handled in parse.ParseSpec.
 func (r *addressRegistry) resolve(typ string) (AddressDesc, bool) {
 	name := strings.ToUpper(strings.TrimSpace(typ))
 	if name == "" || name == "-" {
@@ -156,26 +192,27 @@ func (r *addressRegistry) resolve(typ string) (AddressDesc, bool) {
 	if d, ok := r.descsByName[name]; ok {
 		return d, true
 	}
-	if alias, ok := ClassicAddressAliases[name]; ok && alias != name {
-		if d, ok := r.descsByName[alias]; ok {
+	if dest, ok := r.aliases[name]; ok {
+		if d, ok := r.descsByName[dest]; ok {
 			return d, true
 		}
 	}
 	return AddressDesc{}, false
 }
 
-func (r *addressRegistry) unregisteredClassicAliasesLocked(canonical string) []string {
-	var out []string
-	for alias, dest := range ClassicAddressAliases {
-		if dest != canonical || alias == canonical || alias == "-" {
-			continue
-		}
-		if _, exists := r.descsByName[alias]; exists {
-			continue
-		}
-		out = append(out, alias)
+// AddressAliasMap returns alias → registered keyword for every alias this
+// process registered. Direct RegisterAddress names are omitted.
+func AddressAliasMap() map[string]string {
+	return registeredAddresses.aliasMap()
+}
+
+func (r *addressRegistry) aliasMap() map[string]string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make(map[string]string, len(r.aliases))
+	for alias, dest := range r.aliases {
+		out[alias] = dest
 	}
-	sort.Strings(out)
 	return out
 }
 
@@ -270,7 +307,7 @@ func HelpAddressGroups() []HelpAddrGroup {
 				Name:    a.Name,
 				Syntax:  a.Syntax,
 				Desc:    desc,
-				Aliases: registeredAddresses.unregisteredClassicAliasesLocked(a.Name),
+				Aliases: append([]string(nil), a.Aliases...),
 			})
 		}
 		if len(list) > 0 {

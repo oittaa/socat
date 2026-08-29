@@ -319,9 +319,9 @@ func termiosFamilyNames(t *testing.T) map[string]string {
 	// Classic GROUP_TERMIOS spellings cover Windows (recognized then rejected)
 	// and leftover PTY/TERMIOS help-group names such as ispeed/ospeed that stay
 	// in the option table even when that help section is hidden.
-	for _, name := range xio.ClassicTermiosOptionNames() {
-		out[name] = "classic GROUP_TERMIOS"
-		out[parse.CanonicalOptionName(name)] = "classic GROUP_TERMIOS"
+	for _, name := range xio.TermiosOptionNames() {
+		out[name] = "termios option caps"
+		out[parse.CanonicalOptionName(name)] = "termios option caps"
 	}
 	// These common help spellings remain visible on platforms where termios is
 	// unavailable; the address opener rejects the unsupported PTY at runtime.

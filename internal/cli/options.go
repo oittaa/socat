@@ -80,7 +80,7 @@ func buildSupportedAddressOptions() map[string]addressOption {
 	// can be rejected, not silently accepted. They are not advertised:
 	// hideOptGroup omits PTY/TERMIOS and TermiosHelpNames is empty there.
 	if !xio.FeatureTERMIOS {
-		for _, name := range xio.ClassicTermiosOptionNames() {
+		for _, name := range xio.TermiosOptionNames() {
 			if _, ok := options[name]; !ok {
 				options[name] = addressOption{}
 			}

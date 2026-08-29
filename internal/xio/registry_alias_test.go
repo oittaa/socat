@@ -11,10 +11,9 @@ import (
 	_ "github.com/oittaa/socat/internal/xio/all"
 )
 
-// classicFallbackAliases are classic addressnames[] spellings whose canonical
-// Go opener is registered but the alias itself is not a RegisterAddress
-// entry. Resolution is central in xio (PR C). Direct registrations such as
-// TCP-L are omitted. Classic baseline: tag-1.8.1.3
+// classicFallbackAliases are official addressnames[] spellings whose canonical
+// opener is registered but the alias itself is not a RegisterAddress entry.
+// Direct registrations such as TCP-L are omitted. Baseline: tag-1.8.1.3
 // 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 // af5388c898c7bb60997935aee93c223deba60c4a.
 var classicFallbackAliases = map[string]string{
@@ -52,7 +51,7 @@ func TestClassicFallbackAliasesResolveToCanonical(t *testing.T) {
 		direct[r.Name] = true
 	}
 	got := map[string]string{}
-	for alias, dest := range xio.ClassicAddressAliases {
+	for alias, dest := range xio.AddressAliasMap() {
 		if alias == "-" || alias == dest || direct[alias] {
 			continue
 		}

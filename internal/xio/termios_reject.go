@@ -6,13 +6,13 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func isClassicTermiosOption(name string) bool {
-	groups, ok := ClassicOptionGroupsFor(name)
+func isTermiosOption(name string) bool {
+	groups, ok := OptionCapsFor(name)
 	if !ok {
 		return false
 	}
 	for _, g := range groups {
-		if g == "termios" {
+		if g == CapTermios {
 			return true
 		}
 	}
@@ -27,7 +27,7 @@ func RejectUnsupportedTermios(s parse.Spec) error {
 		return nil
 	}
 	for _, option := range s.Options {
-		if isClassicTermiosOption(option.OriginalSpelling()) || isClassicTermiosOption(option.Name) {
+		if isTermiosOption(option.OriginalSpelling()) || isTermiosOption(option.Name) {
 			return fmt.Errorf("%s: option %q is not supported on this platform", s.Type, option.Name)
 		}
 	}

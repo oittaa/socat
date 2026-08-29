@@ -16,7 +16,7 @@ func registeredAddressNames() map[string]bool {
 	for _, r := range xio.AddressRegistrations() {
 		out[r.Name] = true
 	}
-	for alias := range xio.ClassicAddressAliases {
+	for alias := range xio.AddressAliasMap() {
 		if _, ok := xio.AddressRegistrationForType(alias); ok {
 			out[alias] = true
 		}
@@ -29,9 +29,42 @@ func addressEnabled(name string) bool {
 	return ok && reg.Enabled
 }
 
+func addressNamesToAudit() []string {
+	seen := map[string]bool{}
+	var names []string
+	add := func(name string) {
+		name = strings.ToUpper(strings.TrimSpace(name))
+		if name == "" || seen[name] {
+			return
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	for _, r := range xio.AddressRegistrations() {
+		add(r.Name)
+	}
+	for alias := range xio.AddressAliasMap() {
+		add(alias)
+	}
+	for name := range classiccatalog.UnsupportedAddressNames {
+		add(name)
+	}
+	for name := range classiccatalog.ExpectedMissingCanonicalAddresses {
+		add(name)
+	}
+	for name := range classiccatalog.ExpectedMissingAddressAliases {
+		add(name)
+	}
+	for name := range classiccatalog.ParserAddressShorthands {
+		add(name)
+	}
+	return names
+}
+
 func addressParityProblems(goos string, registered map[string]bool) []string {
 	var problems []string
-	for name := range xio.ClassicAddressGroups {
+	aliases := xio.AddressAliasMap()
+	for _, name := range addressNamesToAudit() {
 		class, reason := classiccatalog.ClassifyAddress(name, goos)
 		switch class {
 		case classiccatalog.AddrParserShorthand:
@@ -61,7 +94,7 @@ func addressParityProblems(goos string, registered map[string]bool) []string {
 			}
 			continue
 		case classiccatalog.AddrMustRegister:
-			if alias, ok := xio.ClassicAddressAliases[name]; ok && alias != name {
+			if alias, ok := aliases[name]; ok && alias != name {
 				if _, unsup := classiccatalog.UnsupportedAddressNames[alias]; unsup {
 					problems = append(problems, fmt.Sprintf("alias %q of unsupported %q is not classified as unsupported", name, alias))
 					continue
@@ -102,14 +135,6 @@ func TestClassicAddressNameAudit(t *testing.T) {
 	}
 
 	for alias, canon := range classiccatalog.ExpectedMissingAddressAliases {
-		classicCanon, ok := xio.ClassicAddressAliases[alias]
-		if !ok {
-			t.Errorf("supported missing alias %q is not in ClassicAddressAliases", alias)
-			continue
-		}
-		if classicCanon != canon {
-			t.Errorf("supported missing alias %q: catalog canonical %q, classic %q", alias, canon, classicCanon)
-		}
 		if !registered[canon] {
 			t.Errorf("supported missing alias %q: canonical %q is not registered", alias, canon)
 		}
@@ -125,19 +150,14 @@ func TestClassicAddressNameAudit(t *testing.T) {
 	}
 
 	for name := range classiccatalog.UnsupportedAddressNames {
-		if _, ok := xio.ClassicAddressGroups[name]; !ok {
-			t.Errorf("unsupported address %q is not in ClassicAddressGroups", name)
-		}
 		if registered[name] {
 			t.Errorf("unsupported address %q is registered", name)
 		}
 	}
+	aliases := xio.AddressAliasMap()
 	for name := range classiccatalog.ExpectedMissingCanonicalAddresses {
-		if _, ok := xio.ClassicAddressGroups[name]; !ok {
-			t.Errorf("expected-missing canonical %q is not in ClassicAddressGroups", name)
-		}
-		if _, ok := xio.ClassicAddressAliases[name]; ok {
-			t.Errorf("expected-missing canonical %q is a classic alias key; list it as an alias", name)
+		if _, ok := aliases[name]; ok {
+			t.Errorf("expected-missing canonical %q is an alias key; list it as an alias", name)
 		}
 	}
 
@@ -169,8 +189,8 @@ func TestAddressParityFailsIfImplementedAliasDisappears(t *testing.T) {
 	}
 }
 
-func TestImplementedClassicAliasesAreNotInMissingManifest(t *testing.T) {
-	for alias, canon := range xio.ClassicAddressAliases {
+func TestImplementedAddressAliasesAreNotInMissingManifest(t *testing.T) {
+	for alias, canon := range xio.AddressAliasMap() {
 		if _, ok := xio.AddressRegistrationForType(alias); !ok {
 			continue
 		}

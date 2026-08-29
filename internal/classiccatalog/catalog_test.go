@@ -168,31 +168,29 @@ func TestSpellingSpecificGroupsDifferFromCanonicalTarget(t *testing.T) {
 	}
 }
 
-func TestCatalogGroupsMatchClassicOptionGroups(t *testing.T) {
+func TestCatalogGroupsMatchOptionCaps(t *testing.T) {
 	var missing, mismatch []string
 	for spelling, e := range Options {
-		want, ok := xio.ClassicOptionGroups[spelling]
+		want, ok := xio.OptionCapsFor(spelling)
 		if !ok {
 			missing = append(missing, spelling)
 			continue
 		}
 		got := helpGroupsToInternal(e.Groups)
-		if len(want) == 0 {
-			// extract-classic-groups.py can miss GROUP_* after OPT_GROUP_*
-			// tokens (gid-e, group-late, …). The -hhh catalog is authoritative.
+		if len(want) == 0 && len(got) == 0 {
 			continue
 		}
 		if !sameStringSet(got, want) {
-			mismatch = append(mismatch, spelling+": catalog="+strings.Join(got, ",")+" classicgroups="+strings.Join(want, ","))
+			mismatch = append(mismatch, spelling+": catalog="+strings.Join(got, ",")+" optioncaps="+strings.Join(want, ","))
 		}
 	}
 	if len(missing) > 0 {
 		sort.Strings(missing)
-		t.Errorf("catalog spellings missing from ClassicOptionGroups: %s", strings.Join(missing, ", "))
+		t.Errorf("catalog spellings missing from OptionCapsFor: %s", strings.Join(missing, ", "))
 	}
 	if len(mismatch) > 0 {
 		sort.Strings(mismatch)
-		t.Errorf("help groups disagree with ClassicOptionGroups:\n  %s", strings.Join(mismatch, "\n  "))
+		t.Errorf("help groups disagree with OptionCapsFor:\n  %s", strings.Join(mismatch, "\n  "))
 	}
 }
 
@@ -609,7 +607,7 @@ func sameStringSet(a, b []string) bool {
 	return true
 }
 
-// helpGroupToInternal maps classic -hhh group names to ClassicOptionGroups tokens.
+// helpGroupToInternal maps classic -hhh group names to optionRequiredCaps tokens.
 var helpGroupToInternal = map[string]string{
 	"FD": "fd", "FIFO": "fifo", "CHR": "chr", "BLK": "blk", "REG": "reg",
 	"SOCKET": "socket", "READLINE": "readline", "NAMED": "named", "OPEN": "open",

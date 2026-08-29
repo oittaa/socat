@@ -11,22 +11,22 @@ func TestOptionSupportedOnAddressClassicAndGoExtras(t *testing.T) {
 	tcp := AddressRegistration{
 		Name:       "TCP",
 		Group:      GroupTCP,
-		OptionCaps: ClassicAddressCaps("TCP"),
+		OptionCaps: CapsTCPConnect,
 	}
 	open := AddressRegistration{
 		Name:       "OPEN",
 		Group:      GroupFiles,
-		OptionCaps: ClassicAddressCaps("OPEN"),
+		OptionCaps: CapsOpen,
 	}
 	proxy := AddressRegistration{
 		Name:       "PROXY",
 		Group:      GroupProxy,
-		OptionCaps: ClassicAddressCaps("PROXY"),
+		OptionCaps: CapsProxy,
 	}
 	ws := AddressRegistration{
 		Name:       "WS",
 		Group:      GroupWebSocket,
-		OptionCaps: ClassicAddressCaps("WS"),
+		OptionCaps: CapsTCPConnect,
 	}
 
 	if !OptionSupportedOnAddress(tcp, "append", nil, nil, nil) {
@@ -53,7 +53,7 @@ func TestOptionSupportedOnAddressClassicAndGoExtras(t *testing.T) {
 	if OptionSupportedOnAddress(tcp, "verify", tlsGroups, tlsTypes, nil) {
 		t.Fatal("verify must stay rejected on TCP")
 	}
-	wsReg := AddressRegistration{Name: "WS", Group: GroupWebSocket, OptionCaps: ClassicAddressCaps("WS")}
+	wsReg := AddressRegistration{Name: "WS", Group: GroupWebSocket, OptionCaps: CapsTCPConnect}
 	if OptionSupportedOnAddress(wsReg, "cert", tlsGroups, tlsTypes, nil) {
 		t.Fatal("cert must stay rejected on plain WS even though WSS shares the help section")
 	}
@@ -82,31 +82,31 @@ func TestOptionSupportedOnAddressClassicAndGoExtras(t *testing.T) {
 		t.Fatal("handshake-timeout must stay rejected on OPEN")
 	}
 
-	reg := AddressRegistration{Name: "TCP-LISTEN-X", Group: GroupTCP, OptionCaps: DerivedOptionCaps("TCP-LISTEN-X", GroupTCP)}
+	reg := AddressRegistration{Name: "TCP-LISTEN", Group: GroupTCP, OptionCaps: CapsTCPListen}
 	if !OptionCapsAllowed(reg.OptionCaps, []string{OptCapListen}) {
-		t.Fatalf("fallback listen cap missing: %v", reg.OptionCaps)
+		t.Fatalf("listen cap missing: %v", reg.OptionCaps)
 	}
 }
 
-func TestClassicTermiosOptionNames(t *testing.T) {
-	names := ClassicTermiosOptionNames()
+func TestTermiosOptionNames(t *testing.T) {
+	names := TermiosOptionNames()
 	have := make(map[string]bool, len(names))
 	for _, name := range names {
 		have[name] = true
 	}
 	for _, name := range []string{"vintr", "intr", "ispeed", "ospeed", "icanon", "echo", "sane", "b115200"} {
 		if !have[name] {
-			t.Errorf("ClassicTermiosOptionNames missing %q", name)
+			t.Errorf("TermiosOptionNames missing %q", name)
 		}
 	}
 	if len(names) < 50 {
-		t.Fatalf("ClassicTermiosOptionNames returned %d names, want a full GROUP_TERMIOS set", len(names))
+		t.Fatalf("TermiosOptionNames returned %d names, want a full termios set", len(names))
 	}
 }
 
-func TestClassicOptionGroupsForAliases(t *testing.T) {
-	appendGroups, ok := ClassicOptionGroupsFor("o-append")
-	if !ok || !reflect.DeepEqual(appendGroups, ClassicOptionGroups["append"]) {
+func TestOptionCapsForAliases(t *testing.T) {
+	appendGroups, ok := OptionCapsFor("o-append")
+	if !ok || !reflect.DeepEqual(appendGroups, optionRequiredCaps["append"]) {
 		t.Fatalf("o-append groups=%v ok=%v", appendGroups, ok)
 	}
 	if parse.CanonicalOptionName("o-append") != "append" {
@@ -127,12 +127,12 @@ func TestClassicOptionGroupsForAliases(t *testing.T) {
 	if parse.CanonicalOptionName("ftruncate32") != "ftruncate" || parse.CanonicalOptionName("ftruncate64") != "ftruncate" {
 		t.Fatal("canonical ftruncate32/64")
 	}
-	modeGroups, ok := ClassicOptionGroupsFor("mode")
-	if !ok || !reflect.DeepEqual(modeGroups, ClassicOptionGroups["perm"]) {
+	modeGroups, ok := OptionCapsFor("mode")
+	if !ok || !reflect.DeepEqual(modeGroups, optionRequiredCaps["perm"]) {
 		t.Fatalf("mode groups=%v ok=%v", modeGroups, ok)
 	}
-	joinGroups, ok := ClassicOptionGroupsFor("ipv6-join-group")
-	if !ok || !reflect.DeepEqual(joinGroups, ClassicOptionGroups["ipv6-join-group"]) {
+	joinGroups, ok := OptionCapsFor("ipv6-join-group")
+	if !ok || !reflect.DeepEqual(joinGroups, optionRequiredCaps["ipv6-join-group"]) {
 		t.Fatalf("ipv6-join-group groups=%v ok=%v", joinGroups, ok)
 	}
 	if parse.CanonicalOptionName("ipv6-join-group") != "ipv6-join-group" {
@@ -159,20 +159,20 @@ func TestClassicOptionGroupsForAliases(t *testing.T) {
 	if parse.CanonicalOptionName("notail") != "fs-notail" {
 		t.Fatalf("notail canonical=%q", parse.CanonicalOptionName("notail"))
 	}
-	appendFS, ok := ClassicOptionGroupsFor("fs-append")
+	appendFS, ok := OptionCapsFor("fs-append")
 	if !ok || !reflect.DeepEqual(appendFS, []string{"reg"}) {
 		t.Fatalf("fs-append groups=%v ok=%v", appendFS, ok)
 	}
-	notailGroups, ok := ClassicOptionGroupsFor("notail")
-	if !ok || !reflect.DeepEqual(notailGroups, ClassicOptionGroups["fs-notail"]) {
+	notailGroups, ok := OptionCapsFor("notail")
+	if !ok || !reflect.DeepEqual(notailGroups, optionRequiredCaps["fs-notail"]) {
 		t.Fatalf("notail groups=%v ok=%v", notailGroups, ok)
 	}
-	memberGroups, ok := ClassicOptionGroupsFor("ip-add-membership")
+	memberGroups, ok := OptionCapsFor("ip-add-membership")
 	if !ok || reflect.DeepEqual(joinGroups, memberGroups) {
 		t.Fatalf("ipv6-join-group groups=%v ip-add-membership groups=%v", joinGroups, memberGroups)
 	}
-	joinAliasGroups, ok := ClassicOptionGroupsFor("join-group")
-	if !ok || !reflect.DeepEqual(joinAliasGroups, ClassicOptionGroups["join-group"]) {
+	joinAliasGroups, ok := OptionCapsFor("join-group")
+	if !ok || !reflect.DeepEqual(joinAliasGroups, optionRequiredCaps["join-group"]) {
 		t.Fatalf("join-group groups=%v ok=%v", joinAliasGroups, ok)
 	}
 }
