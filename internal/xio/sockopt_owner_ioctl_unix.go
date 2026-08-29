@@ -10,8 +10,9 @@ func applyOwnerIoctlPlatform(fd int, name string, pid int) error {
 		return err
 	}
 	// Pointer-to-int32, matching classic applyopt_ioctl
-	// (Ioctl(fd, major, (void *)&opt->value)).
-	return unix.IoctlSetPointerInt(fd, req, pid)
+	// (Ioctl(fd, major, (void *)&opt->value)). ioctlSetPointerInt wraps
+	// unix.IoctlSetPointerInt across uint vs int request ABIs.
+	return ioctlSetPointerInt(fd, req, pid)
 }
 
 func ownerIoctlRequest(name string) (uint, error) {

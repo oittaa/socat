@@ -33,14 +33,14 @@ func applyGenericIoctlOption(fd int, o parse.Option) error {
 			return fmt.Errorf("%s: ioctl(%d, 0x%x, NULL): %w", spec.name, fd, spec.req, err)
 		}
 	case ioctlKindInt:
-		if err := unix.IoctlSetInt(fd, spec.req, spec.intVal); err != nil {
+		if err := ioctlSetInt(fd, spec.req, spec.intVal); err != nil {
 			return fmt.Errorf("%s: ioctl(%d, 0x%x, 0x%x): %w", spec.name, fd, spec.req, spec.intVal, err)
 		}
 	case ioctlKindIntp:
-		// IoctlSetPointerInt stores int32, matching classic pointer-to-C-int
+		// ioctlSetPointerInt stores int32, matching classic pointer-to-C-int
 		// (opt->value2.u_int). C int is 32-bit on linux/darwin; a Go int
 		// pointer would be the wrong width on amd64.
-		if err := unix.IoctlSetPointerInt(fd, spec.req, spec.intVal); err != nil {
+		if err := ioctlSetPointerInt(fd, spec.req, spec.intVal); err != nil {
 			return fmt.Errorf("%s: ioctl(%d, 0x%x, int*): %w", spec.name, fd, spec.req, err)
 		}
 	case ioctlKindBin:
