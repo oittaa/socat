@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/net/dns/dnsmessage"
 )
@@ -26,19 +27,8 @@ type fakeARecordDNS struct {
 
 func startARecordDNS(t *testing.T) *fakeARecordDNS {
 	t.Helper()
-	udp, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	tcp, udp, addr, err := testutil.ListenTCPAndUDP("127.0.0.1", "4")
 	if err != nil {
-		t.Fatal(err)
-	}
-	_, port, err := net.SplitHostPort(udp.LocalAddr().String())
-	if err != nil {
-		_ = udp.Close()
-		t.Fatal(err)
-	}
-	addr := net.JoinHostPort("127.0.0.1", port)
-	tcp, err := net.Listen("tcp4", addr)
-	if err != nil {
-		_ = udp.Close()
 		t.Fatal(err)
 	}
 	s := &fakeARecordDNS{udp: udp, tcp: tcp, addr: addr}
