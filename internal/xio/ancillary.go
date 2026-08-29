@@ -76,6 +76,11 @@ func ancillaryRecvSockopt(canonical string) (level, opt int, ok bool) {
 		return unix.IPPROTO_IP, unix.IP_RECVTOS, true
 	case "ip-recvopts":
 		return unix.IPPROTO_IP, unix.IP_RECVOPTS, true
+	case "ip-retopts":
+		// Linux IP_RETOPTS is the TYPE_INT recv-cmsg flag (same shape as
+		// IP_RECVOPTS). Darwin's IP_RETOPTS is an IP-options blob; the
+		// matrix hides and rejects the name there.
+		return unix.IPPROTO_IP, unix.IP_RETOPTS, true
 	case "ipv6-recvpktinfo":
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO, true
 	case "ipv6-recvhoplimit":
@@ -222,6 +227,17 @@ func handleIPv4Cmsg(typ int32, data []byte, g *Global) {
 		}
 		return
 	}
+	// Do not combine IP_OPTIONS / IP_RECVOPTS / IP_RETOPTS in one switch
+	// case: the constants collide on some UNIXes and Go rejects
+	// duplicate cases (same reason as IP_TTL / IP_RECVTTL above).
+	// Linux delivers received IP options as IP_RECVOPTS (6) or
+	// IP_RETOPTS (7). Classic xiolog_ancillary_ip only switches
+	// IP_OPTIONS / IP_RECVOPTS, so IP_RETOPTS would log as type_7;
+	// this port surfaces them as IP_OPTIONS like the recv-opts path.
+	if typ == unix.IP_OPTIONS || typ == unix.IP_RECVOPTS || typ == unix.IP_RETOPTS {
+		handleIPv4OptionsCmsg(data, g)
+		return
+	}
 	switch typ {
 	case unix.IP_PKTINFO:
 		ifi, specDst, dstIP, ok := parseInet4Pktinfo(data)
@@ -240,13 +256,13 @@ func handleIPv4Cmsg(typ int32, data []byte, g *Global) {
 		if g != nil && g.Log != nil {
 			g.Log.Noticef("Ancillary message: interface %q, locaddr=%s, dstaddr=%s", ifname, loc, dst)
 		}
-	case unix.IP_OPTIONS, unix.IP_RECVOPTS:
-		// Linux delivers received IP options as cmsg type IP_RECVOPTS (6).
-		// classic xiodump: x + lowercase hex of option bytes
-		val := "x" + fmt.Sprintf("%x", data)
-		logAncillary(g, "IP_OPTIONS", "options", val)
-		SetSessionEnv(g, "IP_OPTIONS", val)
 	}
+}
+
+func handleIPv4OptionsCmsg(data []byte, g *Global) {
+	val := "x" + fmt.Sprintf("%x", data)
+	logAncillary(g, "IP_OPTIONS", "options", val)
+	SetSessionEnv(g, "IP_OPTIONS", val)
 }
 
 func handleIPv6Cmsg(typ int32, data []byte, g *Global) {

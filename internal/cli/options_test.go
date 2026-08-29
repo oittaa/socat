@@ -243,6 +243,23 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "recverr-alias-rejected", spec: "UDP:localhost:1,recverr=1", wantErr: "not supported"},
 		{name: "ipv6-recverr-rejected", spec: "UDP6:localhost:1,ipv6-recverr", wantErr: "not supported"},
 		{name: "ip-recverr-on-tcp-rejected", spec: "TCP:localhost:1,ip-recverr", wantErr: "not supported"},
+		{name: "ip-mtu-get-only", spec: "UDP4:localhost:1,ip-mtu", wantErr: "get-only"},
+		{name: "mtu-alias-get-only", spec: "UDP4:localhost:1,mtu=1", wantErr: "get-only"},
+		{name: "ipmtu-alias-get-only", spec: "TCP:localhost:1,ipmtu", wantErr: "get-only"},
+		{name: "ip-pktoptions-get-only", spec: "UDP4:localhost:1,ip-pktoptions", wantErr: "get-only"},
+		{name: "pktopts-alias-get-only", spec: "UDP:localhost:1,pktopts", wantErr: "get-only"},
+		{name: "pktoptions-alias-get-only", spec: "TCP:localhost:1,pktoptions=1", wantErr: "get-only"},
+		{name: "ip-pktopts-unknown-man-comment", spec: "UDP4:localhost:1,ip-pktopts", wantErr: "unknown option"},
+		{name: "mtu-on-tun", spec: "TUN,mtu=1500", wantErr: "not supported"},
+		{name: "ip-retopts-on-tcp", spec: "TCP:localhost:1,ip-retopts", wantErr: "not supported"},
+		{name: "ip-retopts-on-quic", spec: "QUIC:localhost:1,ip-retopts", wantErr: "not supported"},
+		{name: "ip-router-alert-on-tcp", spec: "TCP4:localhost:1,ip-router-alert", wantErr: "not supported"},
+		{name: "ip-router-alert-on-udp", spec: "UDP4:localhost:1,ip-router-alert", wantErr: "not supported"},
+		{name: "ip-router-alert-on-quic", spec: "QUIC:localhost:1,ip-router-alert", wantErr: "not supported"},
+		{name: "ip-router-alert-on-ip6", spec: "IP6-SENDTO:[::1]:1,ip-router-alert", wantErr: "not supported on IPv6"},
+		{name: "ip-router-alert-on-ipproto-raw", spec: "IP4-SENDTO:127.0.0.1:255,ip-router-alert", wantErr: "IPPROTO_RAW"},
+		{name: "ip-router-alert-on-ip4-icmp", spec: "IP4-SENDTO:127.0.0.1:1,ip-router-alert"},
+		{name: "routeralert-alias-on-ip4", spec: "IP4-SENDTO:127.0.0.1:1,routeralert=1"},
 		{name: "ip-multicast-ttl-too-large", spec: "UDP4:localhost:1,ip-multicast-ttl=256", wantErr: "invalid"},
 		{name: "ip-multicast-loop-bool-range", spec: "UDP4:localhost:1,ip-multicast-loop=2", wantErr: "invalid"},
 		{name: "ip-multicast-loop-bool-word", spec: "UDP4:localhost:1,ip-multicast-loop=true", wantErr: "invalid"},
@@ -1106,5 +1123,42 @@ func TestLeftoverIPRecvdstaddrRecvifPlatform(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "not supported") {
 			t.Errorf("%s: err=%v want not supported", spec, err)
 		}
+	}
+}
+
+func TestIPRetoptsAndRouterAlertPlatform(t *testing.T) {
+	udp := []string{
+		"UDP4:localhost:1,ip-retopts",
+		"UDP4:localhost:1,retopts",
+		"UDP4:localhost:1,ipretopts",
+	}
+	for _, spec := range udp {
+		ch, err := parse.ParseChannel(spec)
+		if err != nil {
+			t.Fatalf("%s: %v", spec, err)
+		}
+		err = validateChannelOptions(ch)
+		if runtime.GOOS == "linux" {
+			if err != nil {
+				t.Errorf("%s: %v", spec, err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), "not supported on this platform") {
+			t.Errorf("%s: err=%v want not supported on this platform", spec, err)
+		}
+	}
+	udp6 := "UDP6:localhost:1,ip-retopts"
+	ch, err := parse.ParseChannel(udp6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = validateChannelOptions(ch)
+	want := "not supported on IPv6"
+	if runtime.GOOS != "linux" {
+		want = "not supported on this platform"
+	}
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("%s: err=%v want %q", udp6, err, want)
 	}
 }

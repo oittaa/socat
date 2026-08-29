@@ -183,6 +183,21 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"cloexec", "darwin", ClassMustAdvertise},
 		{"cloexec", "windows", ClassMustAdvertise},
 		{"so-bsdcompat", "linux", ClassUnsupported},
+		{"ip-freebind", "linux", ClassMustAdvertise},
+		{"ip-retopts", "linux", ClassMustAdvertise},
+		{"ip-retopts", "darwin", ClassMustAdvertise},
+		{"ip-retopts", "windows", ClassMustAdvertise},
+		{"retopts", "linux", ClassMustAdvertise},
+		{"ip-router-alert", "linux", ClassMustAdvertise},
+		{"ip-router-alert", "darwin", ClassMustAdvertise},
+		{"routeralert", "linux", ClassMustAdvertise},
+		{"ip-mtu", "linux", ClassUnsupported},
+		{"ip-mtu", "darwin", ClassUnsupported},
+		{"ip-mtu", "windows", ClassUnsupported},
+		{"mtu", "linux", ClassUnsupported},
+		{"ip-pktoptions", "linux", ClassUnsupported},
+		{"pktopts", "linux", ClassUnsupported},
+		{"ip-hdrincl", "linux", ClassMustAdvertise},
 		{"history-file", "linux", ClassUnsupported},
 		{"ccid", "linux", ClassUnsupported},
 		{"ccid", "darwin", ClassUnsupported},
@@ -273,6 +288,15 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	for _, name := range []string{"so-rcvlowat", "rcvlowat", "so-sndlowat", "sndlowat"} {
 		if _, ok := linux[name]; ok {
 			t.Fatalf("linux backlog must not include recognized low-water option %q", name)
+		}
+	}
+	for _, name := range []string{
+		"ip-mtu", "mtu", "ip-pktoptions", "pktopts",
+		"ip-retopts", "retopts", "ip-router-alert", "routeralert",
+		"ip-hdrincl", "hdrincl",
+	} {
+		if _, ok := linux[name]; ok {
+			t.Fatalf("linux backlog must not include remaining-IPv4 option %q", name)
 		}
 	}
 	darwin := ImplementationBacklog("darwin")

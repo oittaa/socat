@@ -33,6 +33,15 @@ func TestUnixOtherHelpHidesLinuxSCTP(t *testing.T) {
 			t.Errorf("unsupported option %q is listed", name)
 		}
 	}
+	for _, name := range []string{
+		"ip-retopts", "retopts", "ipretopts",
+		"ip-router-alert", "iprouteralert", "routeralert",
+		"ip-freebind", "ip-mtu-discover",
+	} {
+		if strings.Contains(help, "    "+name+" ") {
+			t.Errorf("Linux-only option %q must not be advertised on %s", name, runtime.GOOS)
+		}
+	}
 	honored := []string{
 		"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string",
 		"cloexec",

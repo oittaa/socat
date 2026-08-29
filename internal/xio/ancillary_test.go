@@ -87,6 +87,14 @@ func TestAncillaryRecvTOSSetsIPTOS(t *testing.T) {
 	}
 }
 
+func TestAncillaryIPRetoptsSetsIPOptions(t *testing.T) {
+	g := &Global{}
+	handleIPv4Cmsg(unix.IP_RETOPTS, []byte{0x01, 0x00}, g)
+	if got := g.SessionVars["IP_OPTIONS"]; got != "x0100" {
+		t.Fatalf("session env=%v want IP_OPTIONS=x0100", g.SessionVars)
+	}
+}
+
 func TestNeedAncillaryBoolOption(t *testing.T) {
 	on, err := parse.ParseSpec("UDP4:127.0.0.1:1,pktinfo")
 	if err != nil {
@@ -94,6 +102,13 @@ func TestNeedAncillaryBoolOption(t *testing.T) {
 	}
 	if !NeedAncillary(on) {
 		t.Fatal("pktinfo presence must enable ReadMsg")
+	}
+	retopts, err := parse.ParseSpec("UDP4:127.0.0.1:1,ip-retopts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !NeedAncillary(retopts) {
+		t.Fatal("ip-retopts presence must enable ReadMsg")
 	}
 	off, err := parse.ParseSpec("UDP4:127.0.0.1:1,pktinfo=0")
 	if err != nil {

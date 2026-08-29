@@ -216,3 +216,23 @@ func TestHideDarwinOnlyIPRecv(t *testing.T) {
 		t.Fatal("so-timestamp is not Darwin-only")
 	}
 }
+
+func TestHideLinuxOnlyRemainingIPv4(t *testing.T) {
+	names := []string{
+		"ip-retopts", "retopts", "ipretopts",
+		"ip-router-alert", "iprouteralert", "routeralert",
+	}
+	for _, name := range names {
+		if hideLinuxOnlyRemainingIPv4(name, "linux") {
+			t.Errorf("%q hidden on linux", name)
+		}
+		for _, goos := range []string{"darwin", "windows", "freebsd", "openbsd", "netbsd"} {
+			if !hideLinuxOnlyRemainingIPv4(name, goos) {
+				t.Errorf("%q not hidden on %s", name, goos)
+			}
+		}
+	}
+	if hideLinuxOnlyRemainingIPv4("ip-recvopts", "darwin") {
+		t.Fatal("ip-recvopts is not a Linux-only remaining IPv4 option")
+	}
+}

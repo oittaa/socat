@@ -22,6 +22,20 @@ func hideDarwinOnlyIPRecv(name, goos string) bool {
 	}
 }
 
+// hideLinuxOnlyRemainingIPv4 hides Linux-only remaining IPv4 options
+// (ip-retopts recv ancillary and ip-router-alert) on every GOOS except
+// Linux. Darwin IP_RETOPTS is an IP-options blob, not the Linux TYPE_INT
+// recv flag, so the name must not be advertised there.
+func hideLinuxOnlyRemainingIPv4(name, goos string) bool {
+	switch name {
+	case "ip-retopts", "ipretopts", "retopts",
+		"ip-router-alert", "iprouteralert", "routeralert":
+		return goos != "linux"
+	default:
+		return false
+	}
+}
+
 func hideOptGroup(title string) bool {
 	switch title {
 	case "PTY and TERMIOS":

@@ -36,25 +36,45 @@ func startFakeDNS(t *testing.T, ip string, truncateUDP, drop bool) (*fakeDNSServ
 	return startFakeDNSWithAnswer(t, ip, net.IPv4(127, 0, 0, 1), "", truncateUDP, drop)
 }
 
+// listenTCPAndUDP binds TCP and UDP on the same port. Windows Hyper-V
+// excluded port ranges can make Listen(":0") or the follow-up bind on the
+// sibling protocol fail with WSAEACCES ("access permissions"); retry until
+// both succeed.
+func listenTCPAndUDP(ip, suffix string) (tcp net.Listener, udp net.PacketConn, addr string, err error) {
+	const attempts = 64
+	hostport0 := net.JoinHostPort(ip, "0")
+	var last error
+	for i := 0; i < attempts; i++ {
+		tcp, last = net.Listen("tcp"+suffix, hostport0)
+		if last != nil {
+			continue
+		}
+		_, port, splitErr := net.SplitHostPort(tcp.Addr().String())
+		if splitErr != nil {
+			_ = tcp.Close()
+			return nil, nil, "", splitErr
+		}
+		addr = net.JoinHostPort(ip, port)
+		udp, last = net.ListenPacket("udp"+suffix, addr)
+		if last == nil {
+			return tcp, udp, addr, nil
+		}
+		_ = tcp.Close()
+	}
+	if last == nil {
+		last = fmt.Errorf("listen tcp+udp %s: no port after %d attempts", net.JoinHostPort(ip, "0"), attempts)
+	}
+	return nil, nil, "", last
+}
+
 func startFakeDNSWithAnswer(t *testing.T, ip string, answer net.IP, ptrName string, truncateUDP, drop bool) (*fakeDNSServer, error) {
 	t.Helper()
 	suffix := "4"
 	if net.ParseIP(ip).To4() == nil {
 		suffix = "6"
 	}
-	udp, err := net.ListenPacket("udp"+suffix, net.JoinHostPort(ip, "0"))
+	tcp, udp, addr, err := listenTCPAndUDP(ip, suffix)
 	if err != nil {
-		return nil, err
-	}
-	_, port, err := net.SplitHostPort(udp.LocalAddr().String())
-	if err != nil {
-		_ = udp.Close()
-		return nil, err
-	}
-	addr := net.JoinHostPort(ip, port)
-	tcp, err := net.Listen("tcp"+suffix, addr)
-	if err != nil {
-		_ = udp.Close()
 		return nil, err
 	}
 	s := &fakeDNSServer{
