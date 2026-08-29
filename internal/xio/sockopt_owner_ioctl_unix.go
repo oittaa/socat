@@ -2,8 +2,6 @@
 
 package xio
 
-import "golang.org/x/sys/unix"
-
 func applyOwnerIoctlPlatform(fd int, name string, pid int) error {
 	req, err := ownerIoctlRequest(name)
 	if err != nil {
@@ -15,12 +13,12 @@ func applyOwnerIoctlPlatform(fd int, name string, pid int) error {
 	return ioctlSetPointerInt(fd, req, pid)
 }
 
-func ownerIoctlRequest(name string) (uint, error) {
+func ownerIoctlRequest(name string) (ioctlReq, error) {
 	switch name {
 	case "fiosetown":
-		return ownerIoctlFIOSETOWN, nil
+		return ioctlReqFromBits(ownerIoctlFIOSETOWN), nil
 	case "siocspgrp":
-		return uint(unix.SIOCSPGRP), nil
+		return ioctlReqSIOCSPGRP(), nil
 	default:
 		return 0, errNamedOptUnsupported
 	}
