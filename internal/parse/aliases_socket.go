@@ -110,6 +110,8 @@ func init() {
 		"passcred":                   "so-passcred",
 		"nocheck":                    "so-no-check",
 		"no-check":                   "so-no-check",
+		"detach-filter":              "so-detach-filter",
+		"detachfilter":               "so-detach-filter",
 		"cork":                       "tcp-cork",
 		"defer-accept":               "tcp-defer-accept",
 		"linger2":                    "tcp-linger2",

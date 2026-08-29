@@ -89,7 +89,8 @@ func applyFixedPastSocketOption(fd int, o parse.Option) (bool, error) {
 func isPastSocketActionOption(o parse.Option) bool {
 	switch o.Name {
 	case "broadcast", "sndbuf", "rcvbuf", "bindtodevice",
-		"so-linger", "linger", "rcvtimeo", "sndtimeo":
+		"so-linger", "linger", "rcvtimeo", "sndtimeo",
+		"fiosetown", "siocspgrp":
 		return true
 	}
 	if _, _, ok, _ := lookupNamedPastSocketInt(o.Name); ok {

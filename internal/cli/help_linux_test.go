@@ -48,6 +48,8 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"so-rcvlowat", "rcvlowat",
 		"so-priority", "priority", "so-passcred", "passcred",
 		"so-no-check", "no-check", "nocheck",
+		"so-detach-filter", "detach-filter", "detachfilter",
+		"fiosetown", "siocspgrp",
 		"tcp-cork", "cork", "tcp-defer-accept", "defer-accept",
 		"tcp-linger2", "linger2", "tcp-maxseg", "maxseg", "mss",
 		"tcp-maxseg-late", "maxseg-late", "mss-late",
@@ -88,7 +90,13 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"so-sndlowat", "sndlowat",
 		"ccid", "dccp-set-ccid",
 		"ip-mtu", "ipmtu", "mtu",
-		"ip-pktoptions", "ippktoptions", "pktoptions", "pktopts"} {
+		"ip-pktoptions", "ippktoptions", "pktoptions", "pktopts",
+		"so-error", "error", "so-acceptconn", "acceptconn",
+		"so-peercred", "peercred",
+		"so-attach-filter", "attach-filter", "attachfilter",
+		"so-security-authentication", "security-authentication", "securityauthentication",
+		"so-security-encryption-network", "security-encryption-network", "securityencryptionnetwork",
+		"so-security-encryption-transport", "security-encryption-transport", "securityencryptiontransport"} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("rejected or unknown option %q must not be advertised in -hhh", name)
 		}
@@ -120,6 +128,9 @@ func TestLinuxHHHIncludesClassicOptionMetadata(t *testing.T) {
 		"setpgid":                  {"groups=FORK", "phase=LATE", "type=INT"},
 		"sighup":                   {"groups=PARENT", "phase=LATE", "type=CONST"},
 		"cloexec":                  {"groups=FD", "phase=LATE", "type=BOOL"},
+		"fiosetown":                {"groups=SOCKET", "phase=PASTSOCKET", "type=INT"},
+		"siocspgrp":                {"groups=SOCKET", "phase=PASTSOCKET", "type=INT"},
+		"so-detach-filter":         {"groups=SOCKET", "phase=PASTSOCKET", "type=INT"},
 	} {
 		var line string
 		for _, candidate := range strings.Split(help, "\n") {

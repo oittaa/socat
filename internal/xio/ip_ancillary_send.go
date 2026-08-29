@@ -24,7 +24,8 @@ func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
 // option in one pass over Spec.Options, after socket() and before
 // bind/connect: fixed SOL_SOCKET options (broadcast, sndbuf/rcvbuf,
 // bindtodevice, linger, timeos), named SOL_SOCKET/TCP/SCTP TYPE_INT
-// options, generic setsockopt-socket, and IP/ancillary/membership options.
+// options, FIOSETOWN/SIOCSPGRP owner ioctls, generic setsockopt-socket,
+// and IP/ancillary/membership options.
 // Occurrences keep original command-line order, including when a generic
 // option targets the same kernel setting as a named option.
 // Classic: applyopts in xioopts.c (tag-1.8.1.3
@@ -42,6 +43,12 @@ func applyOrderedPastSocketPhaseOptions(fd int, s parse.Spec, network string) er
 			continue
 		}
 		if matched, err := applyNamedPastSocketSockopt(fd, option); matched {
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		if matched, err := applyOwnerIoctlOption(fd, option); matched {
 			if err != nil {
 				return err
 			}

@@ -28,7 +28,7 @@ func lookupNamedPastSocketInt(name string) (level, opt int, ok bool, err error) 
 		return unix.IPPROTO_TCP, unix.TCP_NOOPT, true, nil
 	case "tcp-cork", "tcp-defer-accept", "tcp-linger2", "tcp-quickack", "tcp-syncnt", "tcp-window-clamp",
 		"sctp-nodelay", "sctp-maxseg",
-		"so-priority", "so-passcred", "so-no-check":
+		"so-priority", "so-passcred", "so-no-check", "so-detach-filter":
 		return 0, 0, true, errNamedOptUnsupported
 	default:
 		return 0, 0, false, nil

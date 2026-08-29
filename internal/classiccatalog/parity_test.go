@@ -205,6 +205,33 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"dccp-set-ccid", "linux", ClassUnsupported},
 		{"dccp-set-ccid", "darwin", ClassUnsupported},
 		{"dccp-set-ccid", "windows", ClassUnsupported},
+		{"fiosetown", "linux", ClassMustAdvertise},
+		{"fiosetown", "darwin", ClassMustAdvertise},
+		{"fiosetown", "windows", ClassMustAdvertise},
+		{"siocspgrp", "linux", ClassMustAdvertise},
+		{"siocspgrp", "darwin", ClassMustAdvertise},
+		{"siocspgrp", "windows", ClassMustAdvertise},
+		{"so-error", "linux", ClassUnsupported},
+		{"so-error", "darwin", ClassUnsupported},
+		{"so-error", "windows", ClassUnsupported},
+		{"error", "linux", ClassUnsupported},
+		{"so-acceptconn", "linux", ClassUnsupported},
+		{"acceptconn", "linux", ClassUnsupported},
+		{"so-peercred", "linux", ClassUnsupported},
+		{"so-peercred", "darwin", ClassUnsupported},
+		{"peercred", "linux", ClassUnsupported},
+		{"so-attach-filter", "linux", ClassUnsupported},
+		{"attach-filter", "linux", ClassUnsupported},
+		{"attachfilter", "linux", ClassUnsupported},
+		{"so-detach-filter", "linux", ClassMustAdvertise},
+		{"so-detach-filter", "darwin", ClassMustAdvertise},
+		{"so-detach-filter", "windows", ClassMustAdvertise},
+		{"detachfilter", "linux", ClassMustAdvertise},
+		{"so-security-authentication", "linux", ClassUnsupported},
+		{"securityauthentication", "linux", ClassUnsupported},
+		{"so-security-encryption-network", "linux", ClassUnsupported},
+		{"so-security-encryption-transport", "linux", ClassUnsupported},
+		{"securityencryptiontransport", "windows", ClassUnsupported},
 		{"cool-write", "linux", ClassUnsupported},
 	}
 	for _, tc := range tests {
@@ -250,6 +277,25 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 	}
 	if _, ok := linux["sctp-maxseg"]; ok {
 		t.Fatal("linux backlog must not include implemented sctp-maxseg")
+	}
+	for _, name := range []string{
+		"fiosetown", "siocspgrp",
+		"so-error", "error", "so-acceptconn", "acceptconn",
+		"so-peercred", "peercred",
+		"so-attach-filter", "attach-filter", "attachfilter",
+		"so-detach-filter", "detach-filter", "detachfilter",
+		"so-security-authentication", "so-security-encryption-network",
+		"so-security-encryption-transport",
+	} {
+		if _, ok := linux[name]; ok {
+			t.Fatalf("linux backlog must not include socket ioctl audit name %q", name)
+		}
+		if _, ok := ImplementationBacklog("darwin")[name]; ok {
+			t.Fatalf("darwin backlog must not include socket ioctl audit name %q", name)
+		}
+		if _, ok := ImplementationBacklog("windows")[name]; ok {
+			t.Fatalf("windows backlog must not include socket ioctl audit name %q", name)
+		}
 	}
 	if _, ok := linux["fs-append"]; ok {
 		t.Fatal("linux backlog must not include implemented fs-append")
