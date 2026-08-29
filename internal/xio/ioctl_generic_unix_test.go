@@ -19,7 +19,7 @@ func fionreadRequest() uint {
 		// in x/sys/unix, so this file uses the numeric request for darwin compile.
 		return 0x541b
 	}
-	// Darwin/BSD FIONREAD: _IOR('f', 127, int) = 0x4004667f.
+	// Darwin FIONREAD: _IOR('f', 127, int) = 0x4004667f.
 	return 0x4004667f
 }
 

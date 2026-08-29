@@ -480,7 +480,7 @@ func udpSockoptInt(t *testing.T, uc *net.UDPConn, opt int) int {
 }
 
 // broadcastFlagOn reports whether SO_BROADCAST is enabled. Linux getsockopt
-// returns 1; Darwin/BSD return the so_options bit (SO_BROADCAST is 0x20).
+// returns 1; Darwin returns the so_options bit (SO_BROADCAST is 0x20).
 func broadcastFlagOn(v int) bool { return v != 0 }
 
 func assertBroadcast(t *testing.T, got int, wantOn bool) {

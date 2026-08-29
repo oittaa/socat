@@ -283,7 +283,7 @@ func TestWrapCommonFtruncateRejectsTCP(t *testing.T) {
 
 func TestWrapCommonPermOnAnonymousSocketPropagatesFchmodError(t *testing.T) {
 	// Type TCP so skipDescriptorOwnerOpts does not skip. Classic applyopt_spec
-	// Fchmod reports EINVAL on Darwin/BSD sockets; that error must propagate.
+	// Fchmod reports EINVAL on Darwin sockets; that error must propagate.
 	cli, srv := localTCPPair(t)
 	spec := mustSpec(t, "TCP:127.0.0.1:1,perm=0600")
 	_, err := WrapCommon(spec, relay.NetStream{Conn: cli})

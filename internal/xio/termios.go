@@ -484,9 +484,9 @@ func specHasTermiosState(s parse.Spec) bool {
 func applyCombo(t *unix.Termios, name string) {
 	switch name {
 	case "raw":
-		// Classic OPT_RAW is deliberately not cfmakeraw. xio-termios.c
-		// clears the full legacy input-processing set and canonical/signal
-		// processing, but leaves ECHO, IEXTEN, CSIZE, and parity unchanged.
+		// raw is not cfmakeraw: it clears the legacy input-processing set
+		// and canonical/signal processing, but leaves ECHO, IEXTEN, CSIZE,
+		// and parity unchanged.
 		t.Iflag &^= termiosBits(unix.IGNBRK | unix.BRKINT | unix.IGNPAR | unix.PARMRK |
 			unix.INPCK | unix.ISTRIP | unix.INLCR | unix.IGNCR | unix.ICRNL |
 			unix.IXON | unix.IXOFF | unix.IXANY | unix.IMAXBEL)

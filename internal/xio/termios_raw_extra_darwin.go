@@ -2,8 +2,7 @@
 
 package xio
 
-// Classic substitutes zero when the platform headers lack these legacy
-// termios flags. x/sys/unix likewise does not expose them on these systems.
+// Darwin headers lack these legacy termios flags; substitute zero.
 const (
 	rawExtraIflag termiosBits = 0
 	rawExtraLflag termiosBits = 0

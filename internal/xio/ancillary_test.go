@@ -69,9 +69,9 @@ func TestAncillaryEnvironmentIsSessionScoped(t *testing.T) {
 	}
 }
 
-func TestAncillaryBSDRecvTTLSetsIPTTL(t *testing.T) {
-	// Darwin/FreeBSD recvmsg delivers TTL as IP_RECVTTL (byte or int), not
-	// Linux IP_TTL. The session env name stays IP_TTL (classic xio-ip.c).
+func TestAncillaryDarwinRecvTTLSetsIPTTL(t *testing.T) {
+	// Darwin recvmsg delivers TTL as IP_RECVTTL (byte or int), not
+	// Linux IP_TTL. The session env name stays IP_TTL.
 	g := &Global{}
 	handleIPv4Cmsg(unix.IP_RECVTTL, []byte{64}, g)
 	if got := g.SessionVars["IP_TTL"]; got != "64" {
