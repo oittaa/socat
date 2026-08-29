@@ -1,4 +1,4 @@
-.PHONY: all build fmt fmt-check lint gosec test test-scripts e2e e2e-cover coverage check fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
+.PHONY: all build fmt fmt-check lint gosec goos-check test test-scripts e2e e2e-cover coverage check fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -8,7 +8,7 @@ GOFLAGS ?=
 LDFLAGS ?= -s -w -X github.com/oittaa/socat.Version=$(VERSION)
 
 # Project Go (exclude testdata/ clones).
-GOFMT_DIRS := cmd e2e internal scripts/benchclient scripts/fuzzall version.go
+GOFMT_DIRS := cmd e2e internal scripts/benchclient scripts/fuzzall scripts/gooscheck version.go
 
 all: build
 
@@ -46,6 +46,12 @@ gosec:
 	$(GOSEC) -exclude-dir=testdata \
 		-nosec-require-rules -nosec-require-justification \
 		./...
+
+# Reject Go's unix tag, unsupported GOOS names, and !linux/!darwin/!windows/!unix
+# in *.go files. Filename suffixes that imply those GOOS values fail too.
+# *_unix.go is not an implicit unix tag (Go does not filename-match unix).
+goos-check:
+	go run $(GOFLAGS) ./scripts/gooscheck
 
 test: fmt-check
 	go test $(GOFLAGS) ./...
@@ -85,6 +91,7 @@ e2e-cover:
 check:
 	$(MAKE) lint
 	$(MAKE) gosec
+	$(MAKE) goos-check
 	$(MAKE) test
 	$(MAKE) e2e
 

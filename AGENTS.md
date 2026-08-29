@@ -9,10 +9,9 @@ wrappers, or fallback implementations, and do not make those platforms
 compile.
 
 **Unix** in this project means Linux + macOS only. Go’s broad `unix` build
-tag includes unsupported systems and must not be used in new or edited
-files.
+tag includes unsupported systems and must not be used.
 
-Build constraints for new or edited files:
+Build constraints:
 
 - Shared Linux/macOS files: `//go:build linux || darwin`
 - OS-specific files: `//go:build linux`, `//go:build darwin`, or `//go:build windows`
@@ -20,9 +19,13 @@ Build constraints for new or edited files:
 - If a stub is needed by more than one supported OS, list those OS names
   explicitly (for example `darwin || windows`)
 
-Existing `unix` tags, BSD/AIX/Solaris/illumos constraints, and broad negatives
-are cleanup debt. Do not introduce new ones. Cleanup work replaces them with
-explicit supported-OS lists or deletes unsupported-OS-only files.
+`make check` (`goos-check`) rejects the `unix` tag, unsupported GOOS names
+(AIX, Solaris, illumos, FreeBSD, OpenBSD, NetBSD, DragonFly, and other
+KnownOS values besides linux/darwin/windows), and those broad negatives in
+`*.go` files, including filename suffixes that imply those GOOS values.
+`*_unix.go` is not an implicit `unix` tag (Go does not filename-match `unix`).
+POSIX spellings such as `BSDLY` / `bsdly` / `so-bsdcompat` are option names,
+not platform lists.
 
 `golang.org/x/sys/unix` is fine; the restriction is platform scope, not the
 package name. Do not create portability abstractions for hypothetical future
