@@ -12,6 +12,35 @@ func TestValidateParityManifests(t *testing.T) {
 	}
 }
 
+func TestPlatformBitMapsOnlySupportedGOOS(t *testing.T) {
+	if got := platformBit("linux"); got != PlatLinux {
+		t.Errorf("linux: platformBit=%d want PlatLinux", got)
+	}
+	if got := platformBit("darwin"); got != PlatDarwin {
+		t.Errorf("darwin: platformBit=%d want PlatDarwin", got)
+	}
+	if got := platformBit("windows"); got != PlatWindows {
+		t.Errorf("windows: platformBit=%d want PlatWindows", got)
+	}
+	if !PlatUnix.Has("linux") || !PlatUnix.Has("darwin") || PlatUnix.Has("windows") {
+		t.Fatal("PlatUnix is linux|darwin, not windows")
+	}
+	if !PlatAll.Has("linux") || !PlatAll.Has("darwin") || !PlatAll.Has("windows") {
+		t.Fatal("PlatAll must include linux, darwin, and windows")
+	}
+
+	const unknown = "unsupported"
+	if got := platformBit(unknown); got != PlatNone {
+		t.Errorf("%q: platformBit=%d want PlatNone", unknown, got)
+	}
+	if PlatLinux.Has(unknown) || PlatDarwin.Has(unknown) || PlatWindows.Has(unknown) || PlatUnix.Has(unknown) || PlatAll.Has(unknown) {
+		t.Errorf("%q must not match a supported platform bit", unknown)
+	}
+	if len(ImplementationBacklog(unknown)) != 0 {
+		t.Errorf("ImplementationBacklog(%q) must be empty", unknown)
+	}
+}
+
 func TestOpenSSLExclusionsAreUnsupportedNotBacklog(t *testing.T) {
 	for _, name := range []string{
 		"method", "fips",
