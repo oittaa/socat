@@ -40,6 +40,7 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"ip-hdrincl", "hdrincl", "iphdrincl",
 		"ip-recvdstaddr", "ip-recvif",
 		"ip-retopts", "ip-router-alert",
+		"ipv6-recvdstopts", "ipv6-recvhopopts", "ipv6-recvrthdr", "ipv6-recvpathmtu",
 		"tcp-cork", "tcp-maxseg", "tcp-maxseg-late",
 		"nopush", "noopt", "tcp-nopush", "tcp-noopt",
 		"sctp-nodelay", "sctp-maxseg",
@@ -127,6 +128,7 @@ func TestWindowsHelpHHHOmitsMembershipSpellings(t *testing.T) {
 	for _, name := range []string{
 		"ip-retopts", "retopts", "ipretopts",
 		"ip-router-alert", "iprouteralert", "routeralert",
+		"ipv6-recvdstopts", "recvdstopts", "ipv6-recvpathmtu",
 		"ip-mtu", "ip-pktoptions",
 	} {
 		if strings.Contains(help, "    "+name+" ") {

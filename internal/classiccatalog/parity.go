@@ -170,6 +170,7 @@ func unsupportedSources() []map[string]string {
 		unsupportedUDPLITE,
 		unsupportedNoopSockopts,
 		unsupportedGetOnlyIP,
+		unsupportedBlobIP6,
 		unsupportedSocketIoctl,
 		unsupportedClassicUnimplemented,
 		unsupportedResolver,
@@ -265,9 +266,9 @@ func ExpectedMissingAll() map[string]Gap {
 // UnsupportedPublic is documented public spellings this port must not
 // advertise and must not list as implementation backlog. It includes
 // IntentionalPublicOmissions plus OpenSSL/readline/DCCP/UDP-Lite/no-op
-// exclusions, get-only IPv4 sockopts, get-only/BPF/obsolete SOL_SOCKET
-// names, libc resolver res_* flags, and documented spellings classic C
-// never implemented.
+// exclusions, get-only IPv4 sockopts, IPv6 blob/send-side TYPE_INT names,
+// get-only/BPF/obsolete SOL_SOCKET names, libc resolver res_* flags, and
+// documented spellings classic C never implemented.
 func UnsupportedPublic() map[string]string {
 	src := unsupportedMerged()
 	out := make(map[string]string, len(src))

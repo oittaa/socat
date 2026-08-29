@@ -220,6 +220,24 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"ip-pktoptions", "linux", ClassUnsupported},
 		{"pktopts", "linux", ClassUnsupported},
 		{"ip-hdrincl", "linux", ClassMustAdvertise},
+		{"ipv6-recvdstopts", "linux", ClassMustAdvertise},
+		{"recvdstopts", "linux", ClassMustAdvertise},
+		{"ipv6-recvhopopts", "darwin", ClassMustAdvertise},
+		{"recvhopopts", "windows", ClassMustAdvertise},
+		{"ipv6-recvrthdr", "linux", ClassMustAdvertise},
+		{"ipv6-recvpathmtu", "linux", ClassMustAdvertise},
+		{"ipv6-authhdr", "linux", ClassUnsupported},
+		{"authhdr", "darwin", ClassUnsupported},
+		{"ipv6-dstopts", "linux", ClassUnsupported},
+		{"dstopts", "windows", ClassUnsupported},
+		{"ipv6-hoplimit", "linux", ClassUnsupported},
+		{"hoplimit", "darwin", ClassUnsupported},
+		{"ipv6-hopopts", "linux", ClassUnsupported},
+		{"hopopts", "windows", ClassUnsupported},
+		{"ipv6-pktinfo", "linux", ClassUnsupported},
+		{"ipv6-pktinfo", "darwin", ClassUnsupported},
+		{"ipv6-rthdr", "linux", ClassUnsupported},
+		{"rthdr", "windows", ClassUnsupported},
 		{"history-file", "linux", ClassUnsupported},
 		{"ccid", "linux", ClassUnsupported},
 		{"ccid", "darwin", ClassUnsupported},
@@ -372,9 +390,20 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 		"ip-mtu", "mtu", "ip-pktoptions", "pktopts",
 		"ip-retopts", "retopts", "ip-router-alert", "routeralert",
 		"ip-hdrincl", "hdrincl",
+		"ipv6-recvdstopts", "recvdstopts", "ipv6-recvhopopts", "recvhopopts",
+		"ipv6-recvrthdr", "recvrthdr", "ipv6-recvpathmtu",
+		"ipv6-authhdr", "authhdr", "ipv6-dstopts", "dstopts",
+		"ipv6-hoplimit", "hoplimit", "ipv6-hopopts", "hopopts",
+		"ipv6-pktinfo", "ipv6-rthdr", "rthdr",
 	} {
 		if _, ok := linux[name]; ok {
-			t.Fatalf("linux backlog must not include remaining-IPv4 option %q", name)
+			t.Fatalf("linux backlog must not include remaining-IP option %q", name)
+		}
+		if _, ok := ImplementationBacklog("darwin")[name]; ok {
+			t.Fatalf("darwin backlog must not include remaining-IP option %q", name)
+		}
+		if _, ok := ImplementationBacklog("windows")[name]; ok {
+			t.Fatalf("windows backlog must not include remaining-IP option %q", name)
 		}
 	}
 	darwin := ImplementationBacklog("darwin")

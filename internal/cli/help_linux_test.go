@@ -36,6 +36,10 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"ipv6-mtu-discover", "mtudiscover6",
 		"ip-retopts", "retopts", "ipretopts",
 		"ip-router-alert", "iprouteralert", "routeralert",
+		"ipv6-recvdstopts", "recvdstopts",
+		"ipv6-recvhopopts", "recvhopopts",
+		"ipv6-recvrthdr", "recvrthdr",
+		"ipv6-recvpathmtu",
 		"setsockopt", "setsockopt-int", "setsockopt-bin", "setsockopt-string",
 		"setsockopt-listen", "setsockopt-socket", "setsockopt-connected",
 		"sockopt", "sockopt-int", "sockopt-bin", "sockopt-string",
@@ -101,7 +105,11 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"so-security-encryption-transport", "security-encryption-transport", "securityencryptiontransport",
 		"res-debug", "res-defnames", "defnames", "res-dnsrch", "dnsrch",
 		"res-igntc", "igntc", "res-recurse", "recurse", "res-stayopen", "stayopen",
-		"res-retrans", "res-maxretrans", "retrans", "res-retry", "res-maxretry"} {
+		"res-retrans", "res-maxretrans", "retrans", "res-retry", "res-maxretry",
+		"recvpathmtu",
+		"ipv6-authhdr", "authhdr", "ipv6-dstopts", "dstopts",
+		"ipv6-hoplimit", "hoplimit", "ipv6-hopopts", "hopopts",
+		"ipv6-pktinfo", "ipv6-rthdr", "rthdr"} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("rejected or unknown option %q must not be advertised in -hhh", name)
 		}

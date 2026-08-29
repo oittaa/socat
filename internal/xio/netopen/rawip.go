@@ -483,15 +483,15 @@ func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob
 	// ReadMsgIP returns the full IPv4 packet (header + payload). Strip the
 	// header so user data starts at payload.
 	oob = make([]byte, 1024)
-	var oobn int
-	n, oobn, _, addr, err = c.ReadMsgIP(p, oob)
+	var oobn, flags int
+	n, oobn, flags, addr, err = c.ReadMsgIP(p, oob)
 	if err != nil {
 		return n, nil, nil, err
 	}
 	if stripV4 {
 		n = skipIPv4HeaderIfPresent(p, n)
 	}
-	return n, oob[:oobn], addr, nil
+	return n, xio.ControlMessageBytes(oob, oobn, flags), addr, nil
 }
 
 // skipIPv4HeaderIfPresent drops a leading IPv4 header when the buffer looks like

@@ -26,6 +26,18 @@ func ReadUDPMsg(c *net.UDPConn, p []byte, _ bool) (int, []byte, *net.UDPAddr, er
 	return n, nil, addr, err
 }
 
+// ControlMessageBytes returns oob[:oobn]. Windows recv paths do not enable
+// ReadMsg control-message delivery.
+func ControlMessageBytes(oob []byte, oobn, _ int) []byte {
+	if oobn <= 0 {
+		return nil
+	}
+	if oobn > len(oob) {
+		oobn = len(oob)
+	}
+	return oob[:oobn]
+}
+
 func applyOneIPRecvOpt(_ int, e IPAncillaryEntry, _ parse.Option, family ipFamily) error {
 	return rejectIPAncillaryApply(e.Canonical, family)
 }

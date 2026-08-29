@@ -394,6 +394,18 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "tclass-on-tcp6", spec: "TCP6:localhost:1,ipv6-tclass=16", windowsErr: "not supported on this platform"},
 		{name: "pktinfo-on-udp6", spec: "UDP6:localhost:1,ip-pktinfo", wantErr: "not supported on IPv6", windowsErr: "not supported on this platform"},
 		{name: "recvhoplimit-on-udp4", spec: "UDP4:localhost:1,ipv6-recvhoplimit", wantErr: "not supported on IPv4", windowsErr: "not supported on this platform"},
+		{name: "recvdstopts-on-udp4", spec: "UDP4:localhost:1,ipv6-recvdstopts", wantErr: "not supported"},
+		{name: "recvhopopts-on-tcp", spec: "TCP6:localhost:1,ipv6-recvhopopts", wantErr: "not supported"},
+		{name: "recvrthdr-on-quic", spec: "QUIC:localhost:1,ipv6-recvrthdr", wantErr: "not supported"},
+		{name: "recvpathmtu-on-unix", spec: "UNIX-CONNECT:sock,ipv6-recvpathmtu", wantErr: "not supported"},
+		{name: "recvpathmtu-alias-unknown", spec: "UDP6:localhost:1,recvpathmtu", wantErr: "unknown option"},
+		{name: "ipv6-dstopts-unknown", spec: "UDP6:localhost:1,ipv6-dstopts", wantErr: "unknown option"},
+		{name: "dstopts-unknown", spec: "UDP6:localhost:1,dstopts", wantErr: "unknown option"},
+		{name: "ipv6-pktinfo-unknown", spec: "UDP6:localhost:1,ipv6-pktinfo", wantErr: "unknown option"},
+		{name: "ipv6-authhdr-unknown", spec: "UDP6:localhost:1,ipv6-authhdr", wantErr: "unknown option"},
+		{name: "ipv6-hoplimit-unknown", spec: "UDP6:localhost:1,ipv6-hoplimit", wantErr: "unknown option"},
+		{name: "ipv6-hopopts-unknown", spec: "UDP6:localhost:1,ipv6-hopopts", wantErr: "unknown option"},
+		{name: "ipv6-rthdr-unknown", spec: "UDP6:localhost:1,ipv6-rthdr", wantErr: "unknown option"},
 		{name: "concat-ippktinfo", spec: "UDP4:localhost:1,ippktinfo", windowsErr: "not supported on this platform"},
 		{name: "recvttl-alias-last-wins", spec: "UDP4:localhost:1,ip-recvttl=1,recvttl=0", windowsErr: "not supported on this platform"},
 		{name: "classic-ip-aliases", spec: "TCP:localhost:1,ipttl=9,iptos=16"},
@@ -1198,5 +1210,68 @@ func TestIPRetoptsAndRouterAlertPlatform(t *testing.T) {
 	}
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Errorf("%s: err=%v want %q", udp6, err, want)
+	}
+}
+
+func TestIPv6RecvExtHeaderPlatform(t *testing.T) {
+	linuxOnly := []string{
+		"UDP6:localhost:1,ipv6-recvdstopts",
+		"UDP6:localhost:1,recvdstopts",
+		"UDP6:localhost:1,ipv6-recvhopopts",
+		"UDP6:localhost:1,recvhopopts",
+		"IP6-RECV:58,ipv6-recvdstopts",
+	}
+	for _, spec := range linuxOnly {
+		ch, err := parse.ParseChannel(spec)
+		if err != nil {
+			t.Fatalf("%s: %v", spec, err)
+		}
+		err = validateChannelOptions(ch)
+		if runtime.GOOS == "linux" {
+			if err != nil {
+				t.Errorf("%s: %v", spec, err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), "not supported on this platform") {
+			t.Errorf("%s: err=%v want not supported on this platform", spec, err)
+		}
+	}
+	unix := []string{
+		"UDP6:localhost:1,ipv6-recvrthdr",
+		"UDP6:localhost:1,recvrthdr",
+		"UDP6:localhost:1,ipv6-recvpathmtu",
+		"IP6-RECV:58,ipv6-recvpathmtu",
+	}
+	for _, spec := range unix {
+		ch, err := parse.ParseChannel(spec)
+		if err != nil {
+			t.Fatalf("%s: %v", spec, err)
+		}
+		err = validateChannelOptions(ch)
+		if runtime.GOOS == "windows" {
+			if err == nil || !strings.Contains(err.Error(), "not supported on this platform") {
+				t.Errorf("%s: err=%v want not supported on this platform", spec, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: %v", spec, err)
+		}
+	}
+	for _, spec := range []string{
+		"UDP4:localhost:1,ipv6-recvdstopts",
+		"TCP6:localhost:1,ipv6-recvhopopts",
+		"QUIC:localhost:1,ipv6-recvrthdr",
+		"OPEN:file,ipv6-recvpathmtu",
+	} {
+		ch, err := parse.ParseChannel(spec)
+		if err != nil {
+			t.Fatalf("%s: %v", spec, err)
+		}
+		err = validateChannelOptions(ch)
+		if err == nil || !strings.Contains(err.Error(), "not supported") {
+			t.Errorf("%s: err=%v want not supported", spec, err)
+		}
 	}
 }

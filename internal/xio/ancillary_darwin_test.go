@@ -104,3 +104,60 @@ func TestUDPRecvDstaddrLiveDarwin(t *testing.T) {
 		t.Fatalf("ip-recvdstaddr/ip-recvif were a no-op; session env=%v oob=%d", g.SessionVars, len(oob))
 	}
 }
+
+func TestDarwinIPv6RecvExtSockoptProbe(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET6, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	opts := []struct {
+		name   string
+		option string
+		opt    int
+	}{
+		{"IPV6_RECVDSTOPTS", "ipv6-recvdstopts", unix.IPV6_RECVDSTOPTS},
+		{"IPV6_RECVHOPOPTS", "ipv6-recvhopopts", unix.IPV6_RECVHOPOPTS},
+		{"IPV6_RECVRTHDR", "ipv6-recvrthdr", unix.IPV6_RECVRTHDR},
+		{"IPV6_RECVPATHMTU", "ipv6-recvpathmtu", unix.IPV6_RECVPATHMTU},
+	}
+	for _, o := range opts {
+		e, found := lookupIPAncillary(o.option)
+		if !found {
+			t.Fatalf("%s missing from the ancillary matrix", o.option)
+		}
+		setErr := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, o.opt, 1)
+		got, getErr := unix.GetsockoptInt(fd, unix.IPPROTO_IPV6, o.opt)
+		roundTrip := setErr == nil && getErr == nil && got != 0
+		advertised := e.supportedOnThisPlatform()
+		switch {
+		case roundTrip && !advertised:
+			t.Errorf("%s setsockopt/getsockopt round-trips; advertise %s on Darwin", o.name, o.option)
+		case advertised && !roundTrip:
+			t.Errorf("%s advertised on Darwin but set=%v get=%d geterr=%v", o.name, setErr, got, getErr)
+		}
+	}
+}
+
+func TestDarwinIPv6BlobIntSetsockoptProbe(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET6, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	opts := []struct {
+		name string
+		opt  int
+	}{
+		{"IPV6_DSTOPTS", unix.IPV6_DSTOPTS},
+		{"IPV6_HOPOPTS", unix.IPV6_HOPOPTS},
+		{"IPV6_RTHDR", unix.IPV6_RTHDR},
+		{"IPV6_HOPLIMIT", unix.IPV6_HOPLIMIT},
+		{"IPV6_PKTINFO", unix.IPV6_PKTINFO},
+	}
+	for _, o := range opts {
+		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, o.opt, 1); err == nil {
+			t.Errorf("%s int setsockopt succeeded on Darwin; do not classify the public TYPE_INT name as an unimplementable blob without implementing it", o.name)
+		}
+	}
+}

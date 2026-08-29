@@ -11,6 +11,9 @@ func hideOpt(name string) bool {
 	if hideLinuxOnlyRemainingIPv4(name, "windows") {
 		return true
 	}
+	if hideLinuxOnlyIPv6RecvExt(name, "windows") {
+		return true
+	}
 	if xio.LinuxExtFSFlagOption(name) {
 		return true
 	}
@@ -35,6 +38,10 @@ func hideOpt(name string) bool {
 		"so-timestamp", "ip-pktinfo", "ip-recvttl", "ip-recvtos", "ip-recvopts",
 		"ip-options", "ip-hdrincl", "hdrincl", "iphdrincl",
 		"ipv6-recvpktinfo", "ipv6-recvhoplimit", "ipv6-recvtclass",
+		"ipv6-recvdstopts", "recvdstopts",
+		"ipv6-recvhopopts", "recvhopopts",
+		"ipv6-recvrthdr", "recvrthdr",
+		"ipv6-recvpathmtu",
 		"ipv6-unicast-hops", "ipv6-tclass",
 		"nonblock", "o-noatime", "o-direct", "f-setpipe-sz", "umask", "user", "group",
 		"perm-early", "user-early", "group-early",

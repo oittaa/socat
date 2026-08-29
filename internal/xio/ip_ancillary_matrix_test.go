@@ -52,6 +52,18 @@ func TestIPAncillarySupportedMatrix(t *testing.T) {
 		{GroupRawIP, "ip-retopts", true},
 		{GroupTCP, "ip-retopts", false},
 		{GroupQUIC, "ip-retopts", false},
+		{GroupUDP, "ipv6-recvdstopts", true},
+		{GroupUDP, "recvdstopts", true},
+		{GroupRawIP, "ipv6-recvhopopts", true},
+		{GroupRawIP, "recvhopopts", true},
+		{GroupUDP, "ipv6-recvrthdr", true},
+		{GroupUDP, "recvrthdr", true},
+		{GroupUDP, "ipv6-recvpathmtu", true},
+		{GroupRawIP, "ipv6-recvpathmtu", true},
+		{GroupTCP, "ipv6-recvdstopts", false},
+		{GroupQUIC, "ipv6-recvhopopts", false},
+		{GroupTCP, "ipv6-recvrthdr", false},
+		{GroupQUIC, "ipv6-recvpathmtu", false},
 		{GroupUnix, "so-timestamp", false},
 		{GroupUnix, "ip-ttl", false},
 		{GroupVSOCK, "ip-pktinfo", false},
@@ -98,6 +110,19 @@ func TestIPAncillaryImplementationGroupsAliases(t *testing.T) {
 	}
 	if !reflect.DeepEqual(IPAncillaryImplementationGroups("retopts"), retopts) {
 		t.Fatalf("retopts groups=%v want %v", IPAncillaryImplementationGroups("retopts"), retopts)
+	}
+	dstopts := IPAncillaryImplementationGroups("ipv6-recvdstopts")
+	if !reflect.DeepEqual(dstopts, ipAncillaryRecvGroups) {
+		t.Fatalf("ipv6-recvdstopts groups=%v want recv groups %v", dstopts, ipAncillaryRecvGroups)
+	}
+	if !reflect.DeepEqual(IPAncillaryImplementationGroups("recvdstopts"), dstopts) {
+		t.Fatalf("recvdstopts groups=%v want %v", IPAncillaryImplementationGroups("recvdstopts"), dstopts)
+	}
+	if !reflect.DeepEqual(IPAncillaryImplementationGroups("ipv6-recvpathmtu"), dstopts) {
+		t.Fatalf("ipv6-recvpathmtu groups=%v want %v", IPAncillaryImplementationGroups("ipv6-recvpathmtu"), dstopts)
+	}
+	if IPAncillaryImplementationGroups("recvpathmtu") != nil {
+		t.Fatal("recvpathmtu must not be a matrix alias")
 	}
 	if IPAncillaryImplementationGroups("nodelay") != nil {
 		t.Fatal("non-matrix option must not grow implementationGroups")
@@ -268,5 +293,64 @@ func TestRejectUnsupportedIPRetopts(t *testing.T) {
 	err = RejectUnsupportedIPAncillary(tcp)
 	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("TCP ip-retopts err=%v want not supported", err)
+	}
+}
+
+func TestRejectUnsupportedIPv6RecvExt(t *testing.T) {
+	udp6, err := parse.ParseSpec("UDP6:[::1]:1,ipv6-recvdstopts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RejectUnsupportedIPAncillary(udp6)
+	if runtime.GOOS == "linux" {
+		if err != nil {
+			t.Fatalf("linux UDP6 ipv6-recvdstopts: %v", err)
+		}
+	} else if err == nil || !strings.Contains(err.Error(), "not supported on this platform") {
+		t.Fatalf("err=%v want not supported on this platform", err)
+	}
+
+	raw, err := parse.ParseSpec("IP6-RECV:58,ipv6-recvpathmtu")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RejectUnsupportedIPAncillary(raw)
+	if runtime.GOOS == "windows" {
+		if err == nil || !strings.Contains(err.Error(), "not supported on this platform") {
+			t.Fatalf("err=%v want not supported on this platform", err)
+		}
+	} else if err != nil {
+		t.Fatalf("IP6-RECV ipv6-recvpathmtu: %v", err)
+	}
+
+	udp4, err := parse.ParseSpec("UDP4:127.0.0.1:1,ipv6-recvdstopts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RejectUnsupportedIPAncillary(udp4)
+	want := "not supported on IPv4"
+	if runtime.GOOS != "linux" {
+		want = "not supported on this platform"
+	}
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("UDP4 ipv6-recvdstopts err=%v want %q", err, want)
+	}
+
+	tcp, err := parse.ParseSpec("TCP6:[::1]:1,ipv6-recvhopopts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RejectUnsupportedIPAncillary(tcp)
+	if err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("TCP ipv6-recvhopopts err=%v want not supported", err)
+	}
+
+	quic, err := parse.ParseSpec("QUIC:[::1]:1,ipv6-recvrthdr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RejectUnsupportedIPAncillary(quic)
+	if err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("QUIC ipv6-recvrthdr err=%v want not supported", err)
 	}
 }

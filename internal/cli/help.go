@@ -33,6 +33,19 @@ func hideLinuxOnlyRemainingIPv4(name, goos string) bool {
 	}
 }
 
+// hideLinuxOnlyIPv6RecvExt hides ipv6-recvdstopts / ipv6-recvhopopts except
+// on Linux. Darwin accepts setsockopt for those names but getsockopt stays 0.
+// ipv6-recvrthdr / ipv6-recvpathmtu are advertised on Darwin.
+func hideLinuxOnlyIPv6RecvExt(name, goos string) bool {
+	switch name {
+	case "ipv6-recvdstopts", "recvdstopts",
+		"ipv6-recvhopopts", "recvhopopts":
+		return goos != "linux"
+	default:
+		return false
+	}
+}
+
 func hideOptGroup(title string) bool {
 	switch title {
 	case "PTY and TERMIOS":
