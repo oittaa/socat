@@ -1,6 +1,8 @@
-//go:build unix
+//go:build unix && !aix && !solaris
 
 package xio
+
+import "golang.org/x/sys/unix"
 
 func applyOwnerIoctlPlatform(fd int, name string, pid int) error {
 	req, err := ownerIoctlRequest(name)
@@ -8,17 +10,16 @@ func applyOwnerIoctlPlatform(fd int, name string, pid int) error {
 		return err
 	}
 	// Pointer-to-int32, matching classic applyopt_ioctl
-	// (Ioctl(fd, major, (void *)&opt->value)). ioctlSetPointerInt wraps
-	// unix.IoctlSetPointerInt across uint vs int request ABIs.
-	return ioctlSetPointerInt(fd, req, pid)
+	// (Ioctl(fd, major, (void *)&opt->value)).
+	return unix.IoctlSetPointerInt(fd, req, pid)
 }
 
-func ownerIoctlRequest(name string) (ioctlReq, error) {
+func ownerIoctlRequest(name string) (uint, error) {
 	switch name {
 	case "fiosetown":
-		return ioctlReqFromBits(ownerIoctlFIOSETOWN), nil
+		return ownerIoctlFIOSETOWN, nil
 	case "siocspgrp":
-		return ioctlReqSIOCSPGRP(), nil
+		return uint(unix.SIOCSPGRP), nil
 	default:
 		return 0, errNamedOptUnsupported
 	}
