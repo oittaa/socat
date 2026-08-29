@@ -37,7 +37,6 @@
     "ipv6-recverr": "no MSG_ERRQUEUE receive path",
     "cool-write": "deprecated; use children-shutup",
     "so-bsdcompat": "Linux SO_BSDCOMPAT is a kernel no-op; not advertised",
-    "so-sndlowat": "Linux SO_SNDLOWAT is a kernel no-op; not advertised on Linux or Windows",
     "tcp-info": "TCP_INFO is get-only structured state; not advertised as a setter",
     "tcp-md5sig": "TCP_MD5SIG needs a kernel struct; not advertised as an int setter",
     "ip-mtu": "IP_MTU is get-only; not advertised as a setter",
@@ -166,6 +165,9 @@
     ["OPENSSL", "TLS", "TLS-CONNECT"],
     ["OPENSSL-LISTEN", "TLS-LISTEN", "TLS-L"]
   ],
+  "option_canonical_equivalences": [
+    ["lseek", "lseek32-set", "lseek64-set"]
+  ],
   "go_only_options": {
     "alpn": "QUIC and HTTP/2/3 extra",
     "h2c": "cleartext HTTP/2 CONNECT extra",
@@ -213,5 +215,14 @@
       "o-text",
       "o-noinherit"
     ]
+  },
+  "platform_unsupported_options": {
+    "linux": {
+      "so-sndlowat": "Linux does not allow changing SO_SNDLOWAT; setsockopt returns ENOPROTOOPT"
+    },
+    "darwin": {},
+    "windows": {
+      "so-sndlowat": "not advertised on Windows"
+    }
   }
 }

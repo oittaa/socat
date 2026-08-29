@@ -491,8 +491,7 @@ def policy_name_set(policy: dict[str, Any], *keys: str) -> set[str]:
     return names
 
 
-def platform_option_set(policy: dict[str, Any], goos: str) -> set[str]:
-    plat = policy.get("platform_options") or {}
+def _platform_block_names(plat: dict[str, Any], goos: str) -> set[str]:
     block = plat.get(goos) or {}
     if isinstance(block, dict):
         return set(block.keys())
@@ -501,16 +500,23 @@ def platform_option_set(policy: dict[str, Any], goos: str) -> set[str]:
     return set()
 
 
+def platform_option_set(policy: dict[str, Any], goos: str) -> set[str]:
+    plat = policy.get("platform_options") or {}
+    return _platform_block_names(plat, goos)
+
+
+def platform_unsupported_option_set(policy: dict[str, Any], goos: str) -> set[str]:
+    plat = policy.get("platform_unsupported_options") or {}
+    return _platform_block_names(plat, goos)
+
+
 def other_platform_options(policy: dict[str, Any], goos: str) -> set[str]:
     plat = policy.get("platform_options") or {}
     names: set[str] = set()
-    for other, block in plat.items():
+    for other in plat:
         if other == goos:
             continue
-        if isinstance(block, dict):
-            names.update(block.keys())
-        elif isinstance(block, list):
-            names.update(block)
+        names.update(_platform_block_names(plat, other))
     return names
 
 
@@ -600,8 +606,6 @@ def same_alias_class(
     go_canon = resolve_alias(go_aliases, alias)
     classic_canon = resolve_alias(classic_aliases, alias)
     if resolve_alias(classic_aliases, go_canon) == classic_canon:
-        return True
-    if resolve_alias(go_aliases, classic_canon) == go_canon:
         return True
     if extra_groups:
         for group in extra_groups:
@@ -858,6 +862,11 @@ def compare_interfaces(
         official_opt_aliases,
         include_canonical=True,
     )
+    plat_unsup = expand_policy_spellings(
+        {n.lower() for n in platform_unsupported_option_set(policy, goos)},
+        official_opt_aliases,
+        include_canonical=True,
+    )
     family_seeds = {n.upper() for n in policy_name_set(policy, "unsupported_addresses")}
     unsupported_addrs = expand_address_families(
         family_seeds, merge_extracted(release_public, master_public)
@@ -894,7 +903,7 @@ def compare_interfaces(
         if name in parser_only:
             report.parser_only_ignored.append(name)
             continue
-        if name in unsupported_opts or name in other_plat:
+        if name in unsupported_opts or name in other_plat or name in plat_unsup:
             continue
         report.missing_options.append(name)
 
@@ -945,7 +954,7 @@ def compare_interfaces(
                 report.parser_only_ignored.append(alias)
             continue
         if alias not in go_help.options and (
-            alias in unsupported_opts or alias in other_plat
+            alias in unsupported_opts or alias in other_plat or alias in plat_unsup
         ):
             continue
         if alias not in go_help.option_aliases:
@@ -1060,6 +1069,21 @@ def is_git_repo(path: Path) -> bool:
     return proc.returncode == 0
 
 
+def worktree_path(workdir: Path, kind: str, commit: str) -> Path:
+    """Checkout path for one baseline pin. Commit-specific so pin updates do not reuse dest."""
+    return workdir / "worktrees" / f"{kind}-{commit}"
+
+
+def baseline_worktree(workdir: Path, baseline: dict[str, Any], kind: str) -> Path:
+    if kind == "release":
+        commit = str(baseline["release_commit"])
+    elif kind == "master":
+        commit = str(baseline["reviewed_master_commit"])
+    else:
+        raise SystemExit(f"unknown worktree kind {kind!r}")
+    return worktree_path(workdir, kind, commit)
+
+
 def sync_classic(workdir: Path, baseline: dict[str, Any]) -> dict[str, Any]:
     """Clone/fetch official socat. Never deletes workdir or caller paths."""
     workdir.mkdir(parents=True, exist_ok=True)
@@ -1120,8 +1144,8 @@ def sync_classic(workdir: Path, baseline: dict[str, Any]) -> dict[str, Any]:
 
     wt_root = workdir / "worktrees"
     wt_root.mkdir(parents=True, exist_ok=True)
-    release_wt = wt_root / "release"
-    master_wt = wt_root / "master"
+    release_wt = worktree_path(workdir, "release", release_commit)
+    master_wt = worktree_path(workdir, "master", master_commit)
     ensure_worktree(repo, release_wt, release_commit)
     ensure_worktree(repo, master_wt, master_commit)
     return {
@@ -1294,7 +1318,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
 
 def cmd_build(args: argparse.Namespace) -> int:
     workdir = Path(args.workdir).resolve()
-    tree = workdir / "worktrees" / args.tree
+    baseline = load_baseline(Path(args.baseline) if args.baseline else None)
+    tree = baseline_worktree(workdir, baseline, args.tree)
     if not tree.exists():
         raise SystemExit(f"missing worktree {tree}; run sync first")
     outdir = workdir / "out" / args.tree
@@ -1309,7 +1334,8 @@ def cmd_extract(args: argparse.Namespace) -> int:
     hhh = Path(args.hhh) if args.hhh else None
     if yo is None and hhh is None:
         workdir = Path(args.workdir).resolve()
-        tree = workdir / "worktrees" / args.tree
+        baseline = load_baseline(Path(args.baseline) if args.baseline else None)
+        tree = baseline_worktree(workdir, baseline, args.tree)
         yo = tree / "doc" / "socat.yo"
         hhh_candidate = workdir / "out" / args.tree / "socat-hhh.txt"
         hhh = hhh_candidate if hhh_candidate.exists() else None
@@ -1346,10 +1372,14 @@ def compare_from_workdir(
         goos = run_cmd(["go", "env", "GOOS"], cwd=root).stdout.strip()
 
     release_yo_path = (
-        Path(release_yo) if release_yo else workdir / "worktrees" / "release" / "doc" / "socat.yo"
+        Path(release_yo)
+        if release_yo
+        else baseline_worktree(workdir, baseline, "release") / "doc" / "socat.yo"
     )
     master_yo_path = (
-        Path(master_yo) if master_yo else workdir / "worktrees" / "master" / "doc" / "socat.yo"
+        Path(master_yo)
+        if master_yo
+        else baseline_worktree(workdir, baseline, "master") / "doc" / "socat.yo"
     )
     release_hhh_path = (
         Path(release_hhh) if release_hhh else workdir / "out" / "release" / "socat-hhh.txt"
@@ -1447,8 +1477,12 @@ def cmd_run(args: argparse.Namespace) -> int:
     baseline = load_baseline(Path(args.baseline) if args.baseline else None)
     policy = load_policy(Path(args.policy) if args.policy else None)
     sync_classic(workdir, baseline)
-    build_classic(workdir / "worktrees" / "release", workdir / "out" / "release")
-    build_classic(workdir / "worktrees" / "master", workdir / "out" / "master")
+    build_classic(
+        baseline_worktree(workdir, baseline, "release"), workdir / "out" / "release"
+    )
+    build_classic(
+        baseline_worktree(workdir, baseline, "master"), workdir / "out" / "master"
+    )
     report = compare_from_workdir(
         workdir=workdir,
         baseline=baseline,
