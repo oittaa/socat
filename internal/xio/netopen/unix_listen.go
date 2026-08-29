@@ -17,12 +17,12 @@ import (
 
 func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	if len(s.Params) < 1 || s.Params[0] == "" {
-		// Fail fast: classic testaddrs uses UNIX-LISTEN::::: probes.
+		// Fail fast: testaddrs uses UNIX-LISTEN::::: probes.
 		return nil, fmt.Errorf("UNIX-LISTEN requires path")
 	}
 	path := s.Params[0]
 	if s.HasOption("bind") {
-		// Classic: bind= on UNIX-LISTEN is invalid (must not bind twice).
+		// bind= on UNIX-LISTEN is invalid (must not bind twice).
 		return nil, fmt.Errorf("option \"bind\" with UNIX-LISTEN is not supported")
 	}
 	network, _, err := unixSocketNetwork(s)
@@ -42,7 +42,7 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		return nil, err
 	}
 
-	// Go's UnixListener unlinks the path on Close by default. Match classic
+	// Go's UnixListener unlinks the path on Close by default. Match
 	// unlink-close: default true; unlink-close=0 keeps the filesystem entry.
 	doUnlink := !s.HasOption("unlink-close") || s.BoolOption("unlink-close")
 	if ul, ok := ln.(*net.UnixListener); ok {
@@ -50,7 +50,7 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	}
 
 	// mode/perm/user then perm-early/user-early/group-early on the socket
-	// file (classic applyopts_named PH_FD then PH_PREOPEN after bind).
+	// file after bind.
 	if err := xio.ApplyNamedAfterBind(path, s, nil); err != nil {
 		_ = ln.Close()
 		if !xio.IsAbstract(path) {
@@ -229,7 +229,7 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		}()
 		return o, nil
 	}
-	// Non-fork: accept one; honour accept-timeout (classic ABSTRACT_USER etc.).
+	// Non-fork: accept one; honour accept-timeout.
 	at := xio.AcceptTimeout(s)
 	var deadline time.Time
 	if at > 0 {

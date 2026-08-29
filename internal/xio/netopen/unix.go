@@ -18,7 +18,7 @@ import (
 
 const unixTempChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
-// resolveUnixBind returns bind= or a unique unix-bind-tempname path (classic).
+// resolveUnixBind returns bind= or a unique unix-bind-tempname path.
 func resolveUnixBind(s parse.Spec) (string, error) {
 	hasTemp := s.HasOption("unix-bind-tempname")
 	hasBind := s.HasOption("bind")
@@ -36,7 +36,7 @@ func resolveUnixBind(s parse.Spec) (string, error) {
 	return unixTempnam(pat)
 }
 
-// unixTempnam fills XXXXXX like classic xio_tempnam / tempnam(3).
+// unixTempnam fills XXXXXX like tempnam(3).
 func unixTempnam(pattern string) (string, error) {
 	if pattern == "" {
 		pattern = "/tmp/socat-bind.XXXXXX"
@@ -124,11 +124,9 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 		}
 		g.PeerAddr = path
 	}
-	// Classic xioopen_unix_connect (tag-1.8.1.3
-	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-	// af5388c898c7bb60997935aee93c223deba60c4a is the same): filesystem
-	// (non-ABSTRACT) clients default unlink-close=1 after a successful bind.
-	// Same helper as datagram; ABSTRACT / unlink-close=0 skip the unlink.
+	// Filesystem (non-ABSTRACT) clients default unlink-close=1 after a
+	// successful bind. Same helper as datagram; ABSTRACT / unlink-close=0 skip
+	// the unlink.
 	life := trackUnixBind(bindPath, s)
 	if err := xio.ApplyNamedAfterBind(bindPath, s, nil); err != nil {
 		life.drop(conn)
@@ -239,7 +237,7 @@ func openUnixDgramClient(ctx context.Context, s parse.Spec, mode xio.Mode, g *xi
 	return o, nil
 }
 
-// abstract unix (Linux): classic ABSTRACT-* and @path / \0path forms.
+// abstract unix (Linux): ABSTRACT-* and @path / \0path forms.
 // Go net uses a leading NUL byte for abstract namespace names.
 func unixAddr(path string) string {
 	if path == "" {
@@ -269,13 +267,13 @@ func openAbstractConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xi
 	return openUnixConnect(ctx, ps, mode, g)
 }
 
-// abstractName maps classic ABSTRACT-*:path (even if path is a filesystem path
+// abstractName maps ABSTRACT-*:path (even if path is a filesystem path
 // that was touch'ed so non-abstract would fail) to the abstract namespace name.
 func abstractName(raw string) string {
 	if xio.IsAbstract(raw) {
 		return unixAddr(raw)
 	}
-	// Classic: ABSTRACT-RECVFROM:/tmp/foo uses abstract name equal to the string
+	// ABSTRACT-RECVFROM:/tmp/foo uses abstract name equal to the string
 	// (with leading NUL), not a filesystem socket.
 	return "\x00" + raw
 }

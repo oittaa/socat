@@ -137,7 +137,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, fmt.Errorf("accept-timeout: clear deadline: %w", err)
 	}
 	// SOCAT_* env for EXEC/SYSTEM children (UDP6LISTENENV etc.).
-	// When bound to unspecified (:: / 0.0.0.0), classic still reports the
+	// When bound to unspecified (:: / 0.0.0.0), still report the
 	// local address used for this peer (loopback peer → loopback sock).
 	if g != nil {
 		if raddr != nil {
@@ -160,7 +160,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			}
 		}
 	}
-	// One-shot listen (UDP_CONNECT_EOF): after first packet, do not keep the
+	// One-shot listen: after first packet, do not keep the
 	// socket open forever waiting for more. Connected-style session ends on EOF.
 	st := relay.Stream(&udpRecvFromConn{
 		uc:       pc,
@@ -178,10 +178,10 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	return &xio.Opened{Stream: st, Label: "UDP-LISTEN"}, nil
 }
 
-// udpRouteLocalIP mirrors the getsockname result classic observes after it
-// connects a wildcard listener to the first peer. A route-only UDP dial does
-// not send a packet, but selects the same local interface address. Falling
-// back to the bound address is preferable to misreporting the peer as local.
+// udpRouteLocalIP is the local address a wildcard listener would use for this
+// peer. A route-only UDP dial does not send a packet, but selects the same
+// local interface address. Falling back to the bound address is preferable
+// to misreporting the peer as local.
 func udpRouteLocalIP(network string, peer *net.UDPAddr) net.IP {
 	if peer == nil {
 		return nil
@@ -208,7 +208,7 @@ type udpForkListener struct {
 	ctx           context.Context
 	rcvTimeout    time.Duration
 	acceptTimeout time.Duration
-	oneShot       bool // UDP-RECVFROM,fork: XIODATA_RECVFROM_ONE
+	oneShot       bool // UDP-RECVFROM,fork: one datagram then EOF
 	writeMu       sync.Mutex
 
 	mu            sync.Mutex
@@ -255,15 +255,10 @@ func (l *udpForkListener) signalExclusiveDone() {
 }
 
 func (l *udpForkListener) handoffListenSocket(child *udpSessionConn) (net.Conn, error) {
-	// Classic _xioopen_ipdgram_listen (tag-1.8.1.3
-	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-	// af5388c898c7bb60997935aee93c223deba60c4a is the same) MSG_PEEKs, forks,
-	// then Connect()s the inherited fd to the peer. The parent closes and
-	// rebinds; reuseaddr=0 makes that rebind fail, but the child still has
-	// the first datagram. The Go port cannot bind a second exclusive socket,
-	// so the first session takes this listen fd instead of dropping the packet.
-	// The fd stays a ListenUDP socket (Go will not treat a later connect(2)
-	// as connected), so replies use WriteToUDP.
+	// reuseaddr=0: the first session takes this listen fd instead of dropping
+	// the packet. A second exclusive bind would fail. The fd stays a ListenUDP
+	// socket (Go will not treat a later connect(2) as connected), so replies
+	// use WriteToUDP.
 	_ = l.pc.SetReadDeadline(time.Time{})
 	l.mu.Lock()
 	if l.listenClosed {
@@ -299,7 +294,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 	for {
 		switch {
 		case !acceptDeadline.IsZero():
-			// Classic restarts the listen accept-timeout after a refused peer.
+			// Restart the listen accept-timeout after a refused peer.
 			_ = l.pc.SetReadDeadline(acceptDeadline)
 		case l.rcvTimeout > 0:
 			_ = l.pc.SetReadDeadline(time.Now().Add(l.rcvTimeout))
@@ -312,7 +307,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 				return nil, err
 			}
 			// Keep the listener alive across its periodic receive deadline;
-			// classic's poll loop likewise continues waiting while idle.
+			// continue waiting while idle.
 			if l.rcvTimeout > 0 && acceptDeadline.IsZero() && xio.IsTimeoutErr(err) {
 				continue
 			}
@@ -325,7 +320,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			if l.g != nil && l.g.Log != nil {
 				l.g.Log.Noticef("%s", err)
 			}
-			// Classic restarts the listen accept-timeout after a refused peer.
+			// Restart the listen accept-timeout after a refused peer.
 			if l.acceptTimeout > 0 {
 				acceptDeadline = time.Now().Add(l.acceptTimeout)
 			}
@@ -347,7 +342,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			g:        session,
 		}
 		if l.oneShot {
-			// Share the parent socket (classic XIODATA_RECVFROM_ONE). A
+			// Share the parent socket (one-shot). A
 			// connected child on the same port would steal later datagrams.
 			child.pc = l.pc
 			return child, nil
@@ -373,7 +368,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 
 func dialUDPSession(ctx context.Context, network string, local, remote *net.UDPAddr, s parse.Spec) (*net.UDPConn, error) {
 	// SO_REUSEADDR so we can bind the same local port as the parent listener.
-	// Skip when reuseaddr=0: classic applies the explicit zero and does not
+	// Skip when reuseaddr=0: the explicit zero stays exclusive and does not
 	// enable SO_REUSEPORT for parent/child sharing.
 	reuseControl := func(_ string, _ string, c syscall.RawConn) error {
 		var optionErr error
@@ -389,8 +384,8 @@ func dialUDPSession(ctx context.Context, network string, local, remote *net.UDPA
 		return errors.Join(controlErr, optionErr)
 	}
 	// The child is a new socket, not the parent listener fd. Apply every
-	// PH_PASTSOCKET option again on this fd before bind/connect, then the
-	// fork-specific PREBIND reuse flags.
+	// after-socket option again on this fd before bind/connect, then the
+	// fork-specific reuse flags.
 	c, err := dialUDPForSpec(ctx, network, local, remote.String(), s, reuseControl, 0)
 	if err != nil {
 		return nil, err
@@ -479,7 +474,7 @@ func (u *udpSessionConn) Read(p []byte) (int, error) {
 		return n, nil
 	}
 	if u.oneShot {
-		// Classic UDP-RECVFROM,fork is XIODATA_RECVFROM_ONE.
+		// UDP-RECVFROM,fork is one-shot: drain first, then EOF.
 		return 0, io.EOF
 	}
 	if u.ownsListen {
@@ -633,7 +628,7 @@ func (u *udpRecvFromConn) Read(p []byte) (int, error) {
 		return n, nil
 	}
 	if u.closeEOF {
-		// UDP_CONNECT_EOF: one-shot listen ends after the first datagram.
+		// One-shot listen ends after the first datagram.
 		return 0, io.EOF
 	}
 	for {

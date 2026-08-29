@@ -66,16 +66,9 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 		err := xio.WithRetry(dctx, s, g, s.Type, func() error {
 			cctx := dctx
 			var cancel context.CancelFunc
-			// QUIC has no separate remote connect syscall: Transport.Dial
-			// establishes the path and runs the cryptographic handshake.
-			// connect-timeout (when > 0) caps that whole attempt.
-			// handshake-timeout (when > 0, including the 30s omitted
-			// default) is also a Dial-context candidate;
-			// handshake-timeout=0 disables only that candidate. The
-			// earlier positive deadline wins. Applied inside WithRetry
-			// from time.Now() so retry/forever gets a fresh budget per
-			// attempt. Local UDP bind still uses connect-timeout in
-			// listenPacket. Handshake idle stays on HandshakeIdleTimeout.
+			// Transport.Dial does path setup and the TLS handshake.
+			// connect-timeout and handshake-timeout share that budget
+			// (handshake-timeout=0 drops only the handshake candidate).
 			if attemptTimeout > 0 {
 				cctx, cancel = context.WithTimeout(dctx, attemptTimeout)
 				defer cancel()

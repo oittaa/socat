@@ -10,8 +10,7 @@ import (
 )
 
 // applyCipherSuites translates OpenSSL cipher-list names to Go's configurable
-// TLS 1.0-1.2 suites. TLS 1.3 suites deliberately remain managed by crypto/tls,
-// as they do not belong to OpenSSL's SSL_CTX_set_cipher_list setting either.
+// TLS 1.0-1.2 suites. TLS 1.3 suites stay under crypto/tls (ciphers= does not set them).
 func applyCipherSuites(cfg *tls.Config, s parse.Spec) error {
 	value := strings.TrimSpace(s.OptionValue("ciphers", ""))
 	if value == "" {

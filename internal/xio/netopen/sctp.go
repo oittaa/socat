@@ -10,7 +10,7 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
-// Classic SCTP (RFC 9260) one-to-one style: SOCK_STREAM + IPPROTO_SCTP.
+// SCTP (RFC 9260) one-to-one style: SOCK_STREAM + IPPROTO_SCTP.
 // The kernel implements the association (INIT/COOKIE four-way, SACK, SHUTDOWN).
 // We do not implement the packet format in userspace. The Linux wrappers
 // github.com/ishidawataru/sctp and github.com/georgeyanev/go-sctp use the

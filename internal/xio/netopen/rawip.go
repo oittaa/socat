@@ -18,7 +18,7 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-// Raw IP (SOCK_RAW) addresses — classic IP4/IP6-SENDTO/RECV/RECVFROM.
+// Raw IP (SOCK_RAW) addresses: IP4/IP6-SENDTO/RECV/RECVFROM.
 // Requires CAP_NET_RAW (root). Used by ancillary SCM/ENV tests with KEYW=IP4/IP6.
 
 func openIPSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
@@ -31,7 +31,7 @@ func openIP6Sendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glob
 	return openIPSendtoNetwork(ctx, s, mode, g, "ip6")
 }
 
-// IP*-DATAGRAM is unconnected (classic sendto/recvfrom), not DialIP.
+// IP*-DATAGRAM is unconnected (sendto/recvfrom), not DialIP.
 // Required for broadcast/multicast and for bind= to a local addr with a remote host.
 func openIPDatagram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openIPDatagramNetwork(ctx, s, mode, g, NetworkIP(g, s, "ip4"))
@@ -63,7 +63,7 @@ func openIP6Recvfrom(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	return openIPRecvNetwork(ctx, s, mode, g, "ip6", true)
 }
 
-// Classic bare IP:host:proto — family from pf=, host address, or global -4/-6.
+// IP:host:proto — family from pf=, host address, or global -4/-6.
 func openIP(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	netw := NetworkIPFromHost(g, s, "ip4")
 	return openIPSendtoNetwork(ctx, s, mode, g, netw)
@@ -141,9 +141,7 @@ func resolveRawIPTarget(ctx context.Context, s parse.Spec, network, host string)
 	return &net.IPAddr{IP: ips[0]}, nil
 }
 
-// resolveRawIPBind resolves bind= with the address-local resolver (classic
-// retropt_bind_ip runs xioresolve while xio_res_init has replaced
-// _res.nsaddr_list[0]). Literals skip DNS.
+// resolveRawIPBind resolves bind= with the address-local resolver. Literals skip DNS.
 func resolveRawIPBind(ctx context.Context, s parse.Spec, network, bind string) (*net.IPAddr, error) {
 	addr, err := resolveRawIPTarget(ctx, s, network, xio.StripBrackets(bind))
 	if err != nil {
@@ -204,7 +202,7 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 		logx.CloseQuiet(c)
 		return nil, err
 	}
-	// Connected IPv4 Read() keeps the IP header; strip for classic parity.
+	// Connected IPv4 Read() keeps the IP header; strip so user data starts at payload.
 	v4 := network == "ip4" || raddr.IP.To4() != nil
 	st := relay.Stream(&rawIPConn{IPConn: c, peer: raddr, v4: v4, wantCtrl: xio.NeedAncillary(s), g: g})
 	st, err = xio.WrapCommonAfterConnected(s, st)
@@ -296,7 +294,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 
 	wantCtrl := xio.NeedAncillary(s)
 	if recvfrom {
-		// One packet then connected-style session (classic RECVFROM).
+		// One packet then connected-style session (RECVFROM).
 		buf := make([]byte, max(g.BlockSize, 65535))
 		stripV4 := network == "ip4"
 		var n int
@@ -331,7 +329,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 			peer:  peerIP,
 			first: append([]byte(nil), buf[:n]...),
 			// Keep socket open for reply writes (RECVFROM|PIPE echo); further
-			// reads return EOF after the first datagram (classic one-shot).
+			// reads return EOF after the first datagram (one-shot).
 			closeEOF: true,
 			wantCtrl: wantCtrl,
 			v4:       network == "ip4",
@@ -399,7 +397,7 @@ func rawIPListenAddr(netw string, laddr *net.IPAddr) string {
 }
 
 // testHookAfterRawIPPastSocket, when set, runs inside Dialer/ListenConfig
-// Control after PH_PASTSOCKET options and before bind/connect.
+// Control after socket() options and before bind/connect.
 var testHookAfterRawIPPastSocket func(network, address string, c syscall.RawConn) error
 
 func dialRawIP(ctx context.Context, netw, network string, laddr, raddr *net.IPAddr, s parse.Spec) (*net.IPConn, error) {
@@ -446,11 +444,11 @@ func listenRawIP(ctx context.Context, netw, _ string, laddr *net.IPAddr, s parse
 }
 
 // applyIPConnOpts applies remaining connected-phase SOL_SOCKET options.
-// Send and recv IP/ancillary options and multicast joins are PH_PASTSOCKET
-// (dialRawIP/listenRawIP Control → ApplyPastSocketPhase) and must not be re-applied
-// here after DialIP/ListenIP-equivalent bind/connect.
-// SO_BROADCAST is applied with other PH_PASTSOCKET SOL_SOCKET options via
-// ApplySocketOptions (classic TYPE_INT; broadcast=0 is a real setsockopt).
+// Send and recv IP/ancillary options and multicast joins apply after socket()
+// (dialRawIP/listenRawIP Control → ApplyPastSocketPhase) and must not be
+// re-applied here after DialIP/ListenIP-equivalent bind/connect.
+// SO_BROADCAST is applied with other after-socket SOL_SOCKET options via
+// ApplySocketOptions (bare flag → 1; broadcast=0 still setsockopt).
 func applyIPConnOpts(c *net.IPConn, s parse.Spec, _ string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
@@ -461,7 +459,7 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, _ string) error {
 		if optionErr = xio.ApplyGenericSetsockopt(int(fd), s, xio.SockoptPhaseConnected); optionErr != nil {
 			return
 		}
-		// classic often sets reuse on raw too
+		// reuseaddr applies on raw sockets too when present.
 		optionErr = xio.ApplyReuse(int(fd), s, true)
 	})
 	if err := errors.Join(controlErr, optionErr); err != nil {
@@ -482,8 +480,8 @@ func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob
 		}
 		return n, nil, addr, err
 	}
-	// ReadMsgIP returns the full IPv4 packet (header + payload). Classic
-	// XIODATA_RECV_SKIPIP strips the header so user data starts at payload.
+	// ReadMsgIP returns the full IPv4 packet (header + payload). Strip the
+	// header so user data starts at payload.
 	oob = make([]byte, 1024)
 	var oobn int
 	n, oobn, _, addr, err = c.ReadMsgIP(p, oob)
@@ -497,8 +495,8 @@ func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob
 }
 
 // skipIPv4HeaderIfPresent drops a leading IPv4 header when the buffer looks like
-// a complete IP packet (classic RECV_SKIPIP). Connected IPConn.Read() on Linux
-// returns header+payload; unconnected ReadFrom often returns payload only.
+// a complete IP packet. Connected IPConn.Read() on Linux returns header+payload;
+// unconnected ReadFrom often returns payload only.
 func skipIPv4HeaderIfPresent(p []byte, n int) int {
 	if n < 20 {
 		return n

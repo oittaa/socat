@@ -22,7 +22,7 @@ func readUserPEM(path string) ([]byte, error) {
 	return os.ReadFile(path) // #nosec G304 -- cert= must open the path the user gave
 }
 
-// loadKeyPair loads cert+key from separate files or a combined PEM (classic .pem).
+// loadKeyPair loads cert+key from separate files or a combined PEM.
 func loadKeyPair(certPath, keyPath string) (tls.Certificate, error) {
 	if keyPath == "" {
 		// Combined PEM: PRIVATE KEY + CERTIFICATE (+ optional DH)
@@ -112,8 +112,7 @@ func loadCAPool(s parse.Spec) (*x509.CertPool, error) {
 	return pool, nil
 }
 
-// loadVerifyRoots is the trust store for verify=1: cafile/capath, else the system pool
-// (classic SSL_CTX_set_default_verify_paths).
+// loadVerifyRoots is the trust store for verify=1: cafile/capath, else the system pool.
 func loadVerifyRoots(s parse.Spec) (*x509.CertPool, error) {
 	pool, err := loadCAPool(s)
 	if err != nil {

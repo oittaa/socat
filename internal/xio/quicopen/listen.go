@@ -80,21 +80,17 @@ func quicConfig(s parse.Spec, tlsCfg *tls.Config) (quicSetup, error) {
 	if err != nil {
 		return quicSetup{}, err
 	}
-	// HandshakeIdleTimeout is the Go handshake-timeout extra. Classic
-	// OPTION_CONNECT_TIMEOUT (tag-1.8.1.3 12c08bf) aborts a connection
-	// attempt only; it must not be reused as the QUIC handshake idle bound.
-	// handshake-timeout=0 is mapped through quicHandshakeIdleTimeout so
-	// quic-go does not treat 0 as its 5s default.
+	// HandshakeIdleTimeout is the handshake-timeout extra (no C equivalent).
+	// Do not reuse connect-timeout as the QUIC handshake idle bound.
+	// handshake-timeout=0 must not become quic-go's 5s default.
 	cfg := &quic.Config{HandshakeIdleTimeout: quicHandshakeIdleTimeout(s)}
 	return quicSetup{tls: quicTLS, cfg: cfg}, nil
 }
 
 func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.PacketConn, error) {
-	// ListenControl applies PH_PASTSOCKET send-side IP options once, after
-	// socket() and before bind. Do not call ApplyIPSendOptsToPacketConn here.
-	// connect-timeout bounds this local UDP bind. It is not a substitute
-	// for bounding remote QUIC establishment; the client also applies it
-	// to Transport.Dial (see quicDialAttemptTimeout).
+	// ListenControl applies send-side IP options once, after socket() and
+	// before bind. Do not call ApplyIPSendOptsToPacketConn here.
+	// connect-timeout bounds this local UDP bind, not remote QUIC dial.
 	if t := xio.ConnectTimeout(s); t > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, t)
@@ -113,8 +109,8 @@ func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	// Descriptor lifecycle on the transport UDP socket before quic-go wrapping
-	// (classic has no QUIC; never accept append/perm on the stream wrapper).
+	// Descriptor lifecycle on the transport UDP socket before quic-go wrapping.
+	// Never accept append/perm on the stream wrapper.
 	if err := xio.ApplyFDLifecycleToPacketConn(pc, s); err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err

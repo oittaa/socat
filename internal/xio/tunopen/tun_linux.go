@@ -22,19 +22,17 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// openTUN creates a Linux TUN/TAP device (classic TUN:addr/bits).
+// openTUN creates a Linux TUN/TAP device (TUN[:addr/bits]).
 // Syntax: TUN[:<ipv4>/<bits>][,tun-name=…][,tun-type=tun|tap][,iff-up][,if-mtu=N]…
 func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	// Classic allows 0 or 1 positional (CIDR). testaddrs probes TUN::::: must fail fast.
+	// Zero or one positional (CIDR). TUN::::: must fail fast.
 	addrSpec, err := tunPositional(s)
 	if err != nil {
 		return nil, err
 	}
 	if s.BoolOption("retrieve-vlan") {
-		// Classic xio-tun.c still calls _interface_retrieve_vlan on the TUN
-		// char device; setsockopt(SOL_PACKET) Error()s and the helper returns
-		// 0, so open continues as a no-op. Fail closed instead of advertising
-		// a PACKET_AUXDATA restore that cannot run on TUN.
+		// retrieve-vlan needs PACKET_AUXDATA on an AF_PACKET socket; TUN is
+		// a char device, so fail closed instead of a silent no-op.
 		return nil, fmt.Errorf("retrieve-vlan: not supported on TUN (requires an AF_PACKET INTERFACE socket)")
 	}
 	name := s.OptionValue("tun-name", "")
@@ -116,7 +114,7 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 
 	_ = mode
 	// Wrap TUN fd: drop IPv6 link-local multicast (MLD/ND) so TUN…PIPE does
-	// not re-inject them into INTERFACE (classic TUNINTERFACE).
+	// not re-inject them into INTERFACE (TUNINTERFACE).
 	noPI := flags&unix.IFF_NO_PI != 0
 	ts := &tunStream{fd: fd, noPI: noPI}
 	st, err := xio.WrapCommon(s, relay.Stream(ts))
@@ -235,7 +233,7 @@ func setTunIPv4(sock int, ifname, spec string) error {
 		if ip == nil {
 			return fmt.Errorf("TUN address %q: IPv4 required", spec)
 		}
-		mask = net.CIDRMask(24, 32) // classic default when only ifaddr given
+		mask = net.CIDRMask(24, 32) // /24 when only ifaddr is given
 	}
 
 	ifr, err := unix.NewIfreq(ifname)
@@ -293,7 +291,7 @@ func applyInterfaceOpts(sock int, ifname string, s parse.Spec) error {
 	return nil
 }
 
-// parseIffOpts maps classic iff-up / iff-noarp / … to set and clear masks.
+// parseIffOpts maps iff-up / iff-noarp / … to set and clear masks.
 // Bare flag or =1 sets the bit; =0 clears it.
 func parseIffOpts(s parse.Spec) (set, clear uint16) {
 	type iffOpt struct {
@@ -362,7 +360,7 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	if len(s.Params) != 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("INTERFACE requires interface name")
 	}
-	// Extra empty fields from INTERFACE:foo:::: — still wrong arity for classic.
+	// Extra empty fields from INTERFACE:foo:::: are still wrong arity.
 	// (Parse of INTERFACE::::: is params=["","","","",""] → caught above.)
 	ifname := s.Params[0]
 	if !validIfaceName(ifname) {
@@ -379,10 +377,7 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	if err != nil {
 		return nil, fmt.Errorf("socket(AF_PACKET): %w", err)
 	}
-	// Packet sockets are real sockets: classic IF_SOCKET options apply.
-	// PH_PASTSOCKET immediately after socket() (tag-1.8.1.3
-	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-	// af5388c898c7bb60997935aee93c223deba60c4a is the same).
+	// Packet sockets are real sockets: apply socket options after socket().
 	if err := xio.ApplySocketOptions(int(fd), s); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("socket options: %w", err)
@@ -412,7 +407,7 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		return nil, err
 	}
 
-	// Classic: ignore locally originated packets (INTERFACE_IGNOREOUTGOING).
+	// Ignore locally originated packets (INTERFACE_IGNOREOUTGOING).
 	if err := unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_IGNORE_OUTGOING, 1); err != nil {
 		// Non-fatal: older kernels; filter in userspace below.
 		if g != nil && g.Log != nil {
@@ -422,10 +417,7 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 
 	retrieveVLAN := s.BoolOption("retrieve-vlan")
 	if retrieveVLAN {
-		// Classic PH_LATE TYPE_CONST OFUNC_SPEC: PACKET_AUXDATA so xioread.c
-		// can restore the 802.1Q tag the kernel stripped (tag-1.8.1.3
-		// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-		// af5388c898c7bb60997935aee93c223deba60c4a is the same).
+		// PACKET_AUXDATA restores 802.1Q tags the kernel stripped.
 		if err := unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_AUXDATA, 1); err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, fmt.Errorf("retrieve-vlan: setsockopt(PACKET_AUXDATA): %w", err)
@@ -521,7 +513,7 @@ func (p *packetRawStream) recv(b []byte) (n int, from unix.Sockaddr, oob []byte,
 }
 
 // restoreVLANFromAuxdata inserts an 802.1Q tag at Ethernet offset 12 when
-// PACKET_AUXDATA reports a non-zero tp_vlan_tci (classic xioread.c).
+// PACKET_AUXDATA reports a non-zero VLAN TCI.
 func restoreVLANFromAuxdata(b []byte, n int, oob []byte) (int, error) {
 	tci, ok := packetAuxVLANTCI(oob)
 	if !ok || tci == 0 {
@@ -545,7 +537,7 @@ func packetAuxVLANTCI(oob []byte) (uint16, bool) {
 		if len(m.Data) < int(unsafe.Sizeof(unix.TpacketAuxdata{})) {
 			return 0, false
 		}
-		aux := *(*unix.TpacketAuxdata)(unsafe.Pointer(&m.Data[0])) // #nosec G103 -- overlay PACKET_AUXDATA cmsg bytes onto TpacketAuxdata; Vlan_tci is the classic tp_vlan_tci field
+		aux := *(*unix.TpacketAuxdata)(unsafe.Pointer(&m.Data[0])) // #nosec G103 -- overlay PACKET_AUXDATA cmsg bytes onto TpacketAuxdata; Vlan_tci is the kernel tp_vlan_tci field
 		return aux.Vlan_tci, true
 	}
 	return 0, false
@@ -598,9 +590,7 @@ func (p *packetRawStream) ShutdownWrite() error {
 func (p *packetRawStream) Fd() uintptr { return uintptr(p.fd) }
 
 // SyscallConn exposes the packet socket so generic setsockopt fallbacks can
-// see the fd. Classic INTERFACE uses _xioopen_dgram_sendto (tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same).
+// see the fd.
 func (p *packetRawStream) SyscallConn() (syscall.RawConn, error) {
 	if p.f == nil {
 		return nil, os.ErrInvalid

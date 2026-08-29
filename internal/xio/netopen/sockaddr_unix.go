@@ -19,7 +19,7 @@ func parseSocketParams(s parse.Spec, n int) (domain, proto int, addr []byte, err
 	if len(s.Params) < n {
 		return 0, 0, nil, fmt.Errorf("%s requires %d parameters", s.Type, n)
 	}
-	// Empty domain is tolerated (classic tests expand $PF_INET6 from procan -c;
+	// Empty domain is tolerated (testaddrs expands $PF_INET6 from procan -c;
 	// if empty, infer from address length).
 	if s.Params[0] == "" {
 		domain = 0
@@ -37,7 +37,7 @@ func parseSocketParams(s parse.Spec, n int) (domain, proto int, addr []byte, err
 			return 0, 0, nil, fmt.Errorf("protocol: %w", err)
 		}
 	}
-	// Prefer raw address text so classic dalan quote forms (and syntax errors)
+	// Prefer raw address text so dalan quote forms (and syntax errors)
 	// survive parse unquote. Fall back to joined Params.
 	addrText := rawSocketAddress(s, 2)
 	if addrText == "" {
@@ -130,7 +130,7 @@ func splitColonNoUnquote(s string) []string {
 	return parts
 }
 
-// buildSockaddr builds unix.Sockaddr from domain + classic data (without family).
+// buildSockaddr builds unix.Sockaddr from domain + address data (without family).
 func buildSockaddr(domain int, data []byte) (unix.Sockaddr, int, error) {
 	if len(data) == 0 {
 		return nil, 0, fmt.Errorf("empty socket address")
@@ -147,7 +147,7 @@ func buildSockaddr(domain int, data []byte) (unix.Sockaddr, int, error) {
 		copy(sa.Addr[:], ip.To4())
 		return sa, unix.SizeofSockaddrInet4, nil
 	case unix.AF_INET6:
-		// port(2) + flowinfo(4) + addr(16) + scope(4) — classic may omit family
+		// port(2) + flowinfo(4) + addr(16) + scope(4) — family may be omitted
 		if len(data) < 2+4+16 {
 			return nil, 0, fmt.Errorf("AF_INET6 address too short (%d)", len(data))
 		}

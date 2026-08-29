@@ -26,7 +26,7 @@ func unixBindPath(fd int, name string, tight bool) error {
 	if err != nil {
 		return err
 	}
-	_, _, errno := unix.Syscall(unix.SYS_BIND, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(n)) // #nosec G103 -- bind(2) length is xiosetunix's socklen_t
+	_, _, errno := unix.Syscall(unix.SYS_BIND, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(n)) // #nosec G103 -- bind(2) length is classicUnixSockaddrLen
 	if errno != 0 {
 		return errno
 	}
@@ -41,16 +41,13 @@ func unixConnectPath(ctx context.Context, fd int, name string, tight bool) error
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// Classic xio-socket.c sets O_NONBLOCK when connect-timeout is set, then
-	// connect(2)+xiopoll(POLLOUT|POLLERR). Always do that here so a canceled
-	// context can abort without relying on shutdown(2), which does not
-	// interrupt an unconnected blocking socket. tag-1.8.1.3
-	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-	// af5388c898c7bb60997935aee93c223deba60c4a is the same.
+	// Always set O_NONBLOCK so a canceled context can abort without relying
+	// on shutdown(2), which does not interrupt an unconnected blocking socket.
+	// Wait for POLLOUT|POLLERR after EINPROGRESS.
 	if err := unix.SetNonblock(fd, true); err != nil {
 		return err
 	}
-	_, _, errno := unix.Syscall(unix.SYS_CONNECT, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(n)) // #nosec G103 -- connect(2) length is xiosetunix's socklen_t
+	_, _, errno := unix.Syscall(unix.SYS_CONNECT, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(n)) // #nosec G103 -- connect(2) length is classicUnixSockaddrLen
 	for {
 		if errno == 0 {
 			return nil
@@ -63,11 +60,11 @@ func unixConnectPath(ctx context.Context, fd int, name string, tight bool) error
 		}
 		// AF_UNIX returns EAGAIN when the listen queue is full: connect(2) was
 		// not started, so POLLOUT/SO_ERROR would be a false completion. Retry
-		// until the context deadline (classic connect-timeout) or cancel.
+		// until the context deadline (connect-timeout) or cancel.
 		if err := waitUnixConnectRetry(ctx); err != nil {
 			return err
 		}
-		_, _, errno = unix.Syscall(unix.SYS_CONNECT, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(n)) // #nosec G103 -- connect(2) length is xiosetunix's socklen_t
+		_, _, errno = unix.Syscall(unix.SYS_CONNECT, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(n)) // #nosec G103 -- connect(2) length is classicUnixSockaddrLen
 	}
 }
 
@@ -113,9 +110,8 @@ func waitUnixConnect(ctx context.Context, fd int) error {
 				ms = 1
 			}
 			// Cap Poll at 25 ms even when the context deadline is far
-			// away so ctx cancel is noticed promptly (classic xiopoll
-			// is similarly interruptible). A long remaining deadline
-			// must not become a single uninterruptible Poll wait.
+			// away so ctx cancel is noticed promptly. A long remaining
+			// deadline must not become a single uninterruptible Poll wait.
 			if ms < timeout {
 				timeout = ms
 			}

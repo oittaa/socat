@@ -8,7 +8,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Darwin requires SO_REUSEPORT on every socket that binds an identical
+// macOS requires SO_REUSEPORT on every socket that binds an identical
 // UDP address and port. UDP-LISTEN fork sessions need this on both the parent
 // listener and each connected child socket when reuseaddr is allowed.
 func enableUDPForkPortReuse(fd int) error {

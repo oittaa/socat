@@ -62,16 +62,13 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		raddr.IP = ip4
 	}
 	bind := s.OptionValue("bind", "")
-	// Classic xioopen_udp_datagram consumes OPT_SOURCEPORT before
-	// _xioopen_udp_sendto (tag-1.8.1.3 xio-udp.c; official master
-	// af5388c898c7bb60997935aee93c223deba60c4a is the same), so DATAGRAM
-	// never binds it. SENDTO still uses it as the local port.
+	// DATAGRAM ignores sourceport for the local bind; SENDTO uses it as the local port.
 	sp := ""
 	if exactPeer {
 		sp = s.OptionValue("sourceport", "")
 	}
 	var laddr *net.UDPAddr
-	// classic lowport: bind a port in 640..1023 (log even if EACCES).
+	// lowport: bind a port in 640..1023 (log even if EACCES).
 	if s.BoolOption("lowport") && sp == "" {
 		bind, err = xio.ListenBindHost(s, network, bind)
 		if err != nil {
@@ -127,8 +124,8 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("UDP: unexpected packet conn type")
 	}
-	// PH_LATE buffers. Send and recv IP/ancillary options were applied
-	// at PH_PASTSOCKET by ListenControl.
+	// Late buffers. Send and recv IP/ancillary options were applied
+	// after socket() by ListenControl.
 	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
 		_ = c.Close()
 		return nil, err
@@ -148,11 +145,8 @@ func udpListenConfig(s parse.Spec) net.ListenConfig {
 	}
 }
 
-// udpListenControl applies classic PH_PASTSOCKET then PH_PREBIND after
-// socket() and before bind() (tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same). Go's
-// ListenConfig.Control runs in that window.
+// udpListenControl runs after socket() and before bind().
+// Go's ListenConfig.Control is that window.
 func udpListenControl(s parse.Spec) func(network, address string, c syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) error {
 		if err := xio.ListenControl(s)(network, address, c); err != nil {
@@ -180,10 +174,9 @@ func laddrString(network string, laddr *net.UDPAddr) string {
 }
 
 // udpDatagramConn writes always to raddr.
-// SENDTO (exactPeer) accepts only the configured peer (classic XIODATA_RECVFROM
-// in xioread.c / tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba).
-// DATAGRAM accepts any sender by default and applies xiocheckpeer filters
-// (range, tcpwrap, lowport; sourceport means dest-port, xio-udp.c).
+// SENDTO (exactPeer) accepts only the configured peer.
+// DATAGRAM accepts any sender by default and applies range/tcpwrap/lowport
+// filters; sourceport means dest-port of the sender.
 type udpDatagramConn struct {
 	*net.UDPConn
 	raddr     *net.UDPAddr
@@ -238,8 +231,7 @@ func (u *udpDatagramConn) checkPeer(addr *net.UDPAddr) error {
 		}
 		return nil
 	}
-	// Classic xioopen_udp_datagram consumes OPT_SOURCEPORT before bind, then
-	// overwrites the stored value with peersa (the configured destination).
+	// DATAGRAM sourceport is the configured destination port, not the local bind.
 	if u.spec.HasOption("sourceport") {
 		if addr == nil || u.raddr == nil || addr.Port != u.raddr.Port {
 			return fmt.Errorf("refusing connection from %s, sourceport mismatch", addr)
@@ -286,11 +278,11 @@ func (u *udpDatagramConn) Write(p []byte) (int, error) {
 	return u.WriteToUDP(p, u.raddr)
 }
 
-// bindUDPLowport binds a classic lowport via FirstAvailableLowport. Logs bind like SYCLS for tests.
+// bindUDPLowport binds a port in 640..1023 via FirstAvailableLowport. Logs bind for tests.
 func bindUDPLowport(ctx context.Context, network, bind string, s parse.Spec, g *xio.Global) (*net.UDPConn, int, error) {
 	var conn *net.UDPConn
 	port, err := xio.FirstAvailableLowport(func(port int) error {
-		// Classic test greps: [DE] bind(.*:PORT
+		// test.sh greps: [DE] bind(.*:PORT
 		if g != nil && g.Log != nil {
 			g.Log.Debugf("bind({AF=2 %s:%d}, 16)", bind, port)
 		}
@@ -355,7 +347,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		return nil, err
 	}
 	if recvfrom {
-		// fork: keep listening, one SYSTEM/child per datagram (classic UDP4_FORK).
+		// fork: keep listening, one SYSTEM/child per datagram.
 		if s.BoolOption("fork") {
 			_, maxChildren, ferr := xio.ForkLimits(s)
 			if ferr != nil {
@@ -386,10 +378,10 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				},
 			}, nil
 		}
-		// Classic UDP-RECVFROM is not GROUP_LISTEN: wait for the first
-		// permitted datagram with no accept-timeout.
-		// One permitted packet, then use the *same* listening socket for replies
-		// (classic). DialUDP(local, peer) after Close fails with EADDRINUSE.
+		// UDP-RECVFROM is not a listen address: wait for the first permitted
+		// datagram with no accept-timeout.
+		// One permitted packet, then use the *same* listening socket for replies.
+		// DialUDP(local, peer) after Close fails with EADDRINUSE.
 		// When ancillary options are set, use recvmsg so we can log/set env
 		// before SYSTEM/EXEC children start (UDP*ENV tests).
 		buf := make([]byte, max(g.BlockSize, 65535))
@@ -429,7 +421,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			}
 			break
 		}
-		// Classic non-fork RECVFROM: one datagram then EOF on further reads
+		// Non-fork RECVFROM: one datagram then EOF on further reads
 		// (so RECVFROM|PIPE echo servers exit after one client exchange).
 		st := relay.Stream(&udpRecvFromConn{
 			uc:       pc,
@@ -506,20 +498,18 @@ func (u *udpFilteredRecv) LocalAddr() net.Addr       { return u.conn.LocalAddr()
 func (u *udpFilteredRecv) RemoteAddr() net.Addr      { return nil }
 
 func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, error) {
-	// Classic UDP-LISTEN sets SO_REUSEADDR when fork is on or reuseaddr is
+	// UDP-LISTEN sets SO_REUSEADDR when fork is on or reuseaddr is
 	// present; UDP-RECV/RECVFROM only when the option is present.
-	// BSD SO_REUSEPORT is enabled only for UDP-LISTEN fork when reuseaddr is
+	// macOS SO_REUSEPORT is enabled only for UDP-LISTEN fork when reuseaddr is
 	// not explicitly disabled, so reuseaddr=0 stays exclusive.
-	// PH_PASTSOCKET then PH_PREBIND run in Control after socket() and before
-	// bind() (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-	// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
+	// After-socket then before-bind options run in Control.
 	pc, err := listenPacketForSpec(context.Background(), network, laddr.String(), s)
 	if err != nil {
 		return nil, err
 	}
 	c := pc.(*net.UDPConn)
-	// PH_LATE buffers. Send and recv IP/ancillary options were applied
-	// at PH_PASTSOCKET by ListenControl.
+	// Late buffers. Send and recv IP/ancillary options were applied
+	// after socket() by ListenControl.
 	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
 		_ = c.Close()
 		return nil, err

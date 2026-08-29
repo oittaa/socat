@@ -36,9 +36,8 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 		return nil, fmt.Errorf("socks target port: %w", err)
 	}
 
-	// SOCKS4A (classic xio-socks.c): dest IP is always 0.0.0.1 and the
-	// hostname is appended after the userid NUL. Do not resolve the target.
-	// SOCKS4: resolve target to IPv4; no hostname trailer.
+	// SOCKS4A: dest IP is 0.0.0.1 and the hostname follows the userid NUL.
+	// Do not resolve the target. SOCKS4: resolve to IPv4; no hostname trailer.
 	var ip4 [4]byte
 	hostName := xio.StripBrackets(targetHost)
 	if socks4a {
@@ -268,10 +267,9 @@ func socksParams(s parse.Spec) (socksHost, socksPort, targetHost, targetPort str
 	return "", "", "", "", fmt.Errorf("%s requires socks-server, host, and port", s.Type)
 }
 
-// socks5Credentials matches classic xio-socks5.c: if either socksuser or
-// sockspass is present, offer username/password in addition to no-auth.
-// sockspass without socksuser falls back to user "anonymous"; socksuser
-// without sockspass uses an empty password.
+// socks5Credentials: if socksuser or sockspass is set, offer username/password
+// in addition to no-auth. sockspass without socksuser uses user "anonymous";
+// socksuser without sockspass uses an empty password.
 func socks5Credentials(s parse.Spec) (user, pass string, offerUserPass bool) {
 	hasUser := s.HasOption("socksuser")
 	hasPass := s.HasOption("sockspass") || s.HasOption("sockspassword")
@@ -292,10 +290,9 @@ func socks5Credentials(s parse.Spec) (user, pass string, offerUserPass bool) {
 	return user, pass, true
 }
 
-// socks5AuthMethods is the RFC 1928 method list. Classic always offers
-// no-auth (method 0) and, when credentials options are set, also username/
-// password (method 2): 05 02 00 02. Do not drop method 0; classic test 604
-// (SOCKS5_USER_PASS / socks5server-auth.sh) requires that greeting.
+// socks5AuthMethods is the RFC 1928 method list: always no-auth (method 0)
+// and, with credentials, also username/password (method 2): 05 02 00 02.
+// Do not drop method 0.
 func socks5AuthMethods(offerUserPass bool) []byte {
 	if offerUserPass {
 		return []byte{0, 2}
@@ -326,7 +323,7 @@ func socks5Handshake(c net.Conn, cmd byte, user, pass string, offerUserPass bool
 	}
 	switch hello[1] {
 	case 0:
-		// Classic accepts no-auth even when it also offered method 2.
+		// Accept no-auth even when method 2 was also offered.
 	case 2:
 		if !offerUserPass {
 			return fmt.Errorf("socks5: authentication with SOCKS5 server failed")

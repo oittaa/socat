@@ -8,7 +8,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// fillPipe writes zeros until the pipe buffer is full (classic STALL write side).
+// fillPipe writes zeros until the pipe buffer is full (STALL write side).
 func fillPipe(pw *os.File) {
 	sz := pipeBufSize(pw)
 	raw, err := pw.SyscallConn()

@@ -37,8 +37,8 @@ func listenVSOCK(_ context.Context, port uint32, s parse.Spec, g *xio.Global) (n
 	if err != nil {
 		return nil, err
 	}
-	// Classic opt_so_reuseaddr has no default; do not turn SO_REUSEADDR on
-	// unless reuseaddr is present (unlike TCP/SCTP listen in this port).
+	// Do not turn SO_REUSEADDR on unless reuseaddr is present
+	// (unlike TCP/SCTP listen in this port).
 	if err := xio.ApplyReuse(fd, s, false); err != nil {
 		_ = unix.Close(fd)
 		return nil, err

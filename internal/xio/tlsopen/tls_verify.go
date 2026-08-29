@@ -13,8 +13,8 @@ import (
 )
 
 func verifyEnabled(s parse.Spec) bool {
-	// Classic default verify=1; verify=0 disables peer verification.
-	// Bare "verify" without value is true (flag).
+	// Default verify=1; verify=0 disables peer verification.
+	// Bare "verify" without a value is true.
 	if !s.HasOption("verify") {
 		return true
 	}
@@ -23,8 +23,8 @@ func verifyEnabled(s parse.Spec) bool {
 
 // commonNameOption returns openssl-commonname / commonname when the option
 // is present with an explicit value, including the empty string.
-// Classic: unset → check the dial host; commonname= (empty) → skip the name
-// check; commonname=foo → check foo. verify=1 still checks trust.
+// Unset checks the dial host; empty commonname= skips the name check;
+// commonname=foo checks foo. verify=1 still checks trust.
 func commonNameOption(s parse.Spec) (name string, set bool) {
 	o, ok := s.OptionNamed("commonname")
 	if !ok || !o.Has {
@@ -110,8 +110,8 @@ func sniName(checkName, dialHost string) string {
 }
 
 // makeVerifyPeer verifies the leaf against roots and checks name via SAN or CN.
-// Empty checkName skips the name check (classic empty commonname=).
-// Classic test certs often lack SANs; we still allow CN match for the check name.
+// Empty checkName skips the name check (empty commonname=).
+// CN-only certs still match when there are no SANs.
 func makeVerifyPeer(roots *x509.CertPool, checkName string) func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 	return func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 		if len(rawCerts) == 0 {
@@ -144,34 +144,30 @@ func makeVerifyPeer(roots *x509.CertPool, checkName string) func(rawCerts [][]by
 			return err
 		}
 		if checkName == "" {
-			// Classic: empty commonname / empty peername skips the name check.
+			// Empty commonname= skips the name check.
 			return nil
 		}
-		// RFC 6125 name check (Go VerifyHostname). Classic OPENSSL uses strcmp
-		// plus a looser *.domain rule; we keep the Go rules.
+		// RFC 6125 name check (Go VerifyHostname).
 		if err := leaf.VerifyHostname(checkName); err == nil {
 			return nil
 		}
-		// RFC 6125 §6.4.4 / OpenSSL X509_check_host parity: the CN fallback
-		// applies only when the certificate carries no subjectAltName entries
-		// at all (classic test certs). A certificate with SANs must match via
-		// its SANs; a matching CN beside non-matching SANs must fail.
+		// CN fallback only when the certificate has no SANs. A cert with SANs
+		// must match via SANs; a matching CN beside non-matching SANs must fail.
 		if len(leaf.DNSNames) == 0 && len(leaf.IPAddresses) == 0 && cnMatches(leaf, checkName) {
 			return nil
 		}
-		// Without a matching SAN/CN, fail (OPENSSL_CN_CLIENT_SECURITY:
-		// connect 127.0.0.1 without commonname must fail).
+		// IP literals must not match any CN.
 		return fmt.Errorf("tls: certificate hostname mismatch (CN=%q name=%q)", leaf.Subject.CommonName, checkName)
 	}
 }
 
-// cnMatches compares the certificate subject CN with want (classic strcmp on
-// the CN). Only reached when the certificate has no SANs; see makeVerifyPeer.
+// cnMatches compares the certificate subject CN with want (case-insensitive).
+// Only reached when the certificate has no SANs; see makeVerifyPeer.
 func cnMatches(leaf *x509.Certificate, want string) bool {
 	if leaf == nil || want == "" {
 		return false
 	}
-	// OPENSSLTCP6_*: classic test certs use CN="[::1]" while dial name is ::1.
+	// Bracketed IPv6 CNs ([::1]) match the unbracketed dial name ::1.
 	want = xio.StripBrackets(want)
 	cn := xio.StripBrackets(leaf.Subject.CommonName)
 	return strings.EqualFold(cn, want)
