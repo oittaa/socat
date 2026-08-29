@@ -17,7 +17,7 @@ func registerOptionAliases(m map[string]string) {
 	}
 }
 
-// normalizeOptionName maps classic aliases (so-*, o-*, etc.) to canonical names.
+// normalizeOptionName maps aliases (so-*, o-*, etc.) onto canonical names.
 func normalizeOptionName(name string) string {
 	n := strings.ToLower(name)
 	if c, ok := optionAliases[n]; ok {
@@ -26,7 +26,7 @@ func normalizeOptionName(name string) string {
 	return n
 }
 
-// CanonicalOptionName resolves classic aliases (so-*, o-*, tls-*, …) to the
+// CanonicalOptionName resolves aliases (so-*, o-*, tls-*, …) onto the
 // canonical spelling implementations look up. Exported for tooling that
 // audits the option table against real consumption.
 func CanonicalOptionName(name string) string {

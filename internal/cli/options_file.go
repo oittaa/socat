@@ -12,10 +12,8 @@ import (
 func fileOptionGroups() []helpOptGroup {
 	return []helpOptGroup{
 		{"Files and UNIX", []helpOpt{
-			// Cygwin-only GROUP_OPEN|GROUP_FD, PH_OPEN TYPE_BOOL options from
-			// official classic xio-fd.c. Native Go uses Win32 handles rather
-			// than the C runtime, so xio emulates text translation and applies
-			// HANDLE_FLAG_INHERIT directly. Hidden and rejected off Windows.
+			// Windows-only; hidden and rejected off Windows. Applies
+			// HANDLE_FLAG_INHERIT / text vs binary.
 			{name: "binary", desc: "use Windows binary descriptor mode", aliases: []string{"bin", "o-binary"}, validate: validateOptionalBool},
 			{name: "text", desc: "translate Windows CRLF text on descriptor I/O", aliases: []string{"o-text"}, validate: validateOptionalBool},
 			{name: "noinherit", desc: "clear Windows HANDLE_FLAG_INHERIT", aliases: []string{"o-noinherit"}, validate: validateOptionalBool},
@@ -24,19 +22,15 @@ func fileOptionGroups() []helpOptGroup {
 			{name: "rdwr", desc: "open read-write", aliases: []string{"o-rdwr", "o_rdwr"}},
 			{name: "creat", desc: "create the file", aliases: []string{"create", "o-creat", "o-create", "o_creat", "o_create"}},
 			{name: "excl", desc: "fail if the file exists", aliases: []string{"o-excl", "o_excl"}},
-			// GROUP_FD|GROUP_OPEN (xio-fd.c). Do not list address types:
-			// classic group intersection allows FD/STDIO/EXEC/sockets and
-			// rejects combinations that lack those groups.
+			// Do not list address types: catalog intersection is authoritative.
 			{name: "append", desc: "open append or fcntl O_APPEND on an exposed fd", aliases: []string{"o-append"}},
-			// GROUP_FD, PH_LATE, OFUNC_FCNTL F_SETFD FD_CLOEXEC (xio-fd.c).
-			// Do not list address types: classic group intersection allows
-			// FD/STDIO/EXEC/sockets. cloexec=0 clears Go's default CLOEXEC
-			// only on an exposed descriptor this process owns.
+			// cloexec=0 clears Go's default CLOEXEC only on an exposed
+			// descriptor this process owns. Do not list address types.
 			{name: "cloexec", desc: "fcntl FD_CLOEXEC on an exposed fd (cloexec=0 clears it)", validate: validateOptionalBool},
 			{name: "trunc", desc: "truncate on open", aliases: []string{"o-trunc"}},
 			{name: "nonblock", desc: "O_NONBLOCK", aliases: []string{"o-nonblock", "ndelay", "o-ndelay", "o_ndelay"}},
-			// GROUP_OPEN only (xio-file.c). A FILE/OPEN type list would widen
-			// to CREATE, which classic rejects; intersection is authoritative.
+			// Do not list address types: catalog intersection is authoritative
+			// (CREATE would wrongly get o-direct).
 			{name: "o-direct", desc: "set O_DIRECT at open", aliases: []string{"direct", "o_direct"}},
 			{name: "o-sync", desc: "set O_SYNC at open", aliases: []string{"sync", "o_sync"}},
 			{name: "o-dsync", desc: "set O_DSYNC at open", aliases: []string{"dsync", "o_dsync"}},
@@ -45,16 +39,11 @@ func fileOptionGroups() []helpOptGroup {
 			{name: "o-nofollow", desc: "set O_NOFOLLOW at open", aliases: []string{"nofollow", "o_nofollow"}},
 			{name: "o-directory", desc: "set O_DIRECTORY at open", aliases: []string{"directory", "o_directory"}},
 			{name: "o-largefile", desc: "set O_LARGEFILE at open", aliases: []string{"largefile", "o_largefile"}},
-			// GROUP_OPEN|GROUP_FD, PH_LATE OFUNC_FCNTL (xio-fd.c). Named OPEN
-			// also ORs O_ASYNC into open(2) like classic _xioopen_open.
+			// fcntl O_ASYNC; named OPEN also ORs O_ASYNC into open(2).
 			{name: "async", desc: "fcntl O_ASYNC on the descriptor", aliases: []string{"o-async"}},
 			{name: "o-noatime", desc: "set O_NOATIME on the opened descriptor", aliases: []string{"noatime"}, addressTypes: fdOptionAddressTypes()},
-			// GROUP_REG only (xio-fs.c OFUNC_IOCTL_MASK_LONG). Classic
-			// tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-			// official master af5388c898c7bb60997935aee93c223deba60c4a.
-			// fdOptionAddressTypes would widen to PIPE/EXEC, which
-			// classic rejects; intersection is authoritative.
-			// fs-append is FS_APPEND_FL, not open(2) O_APPEND.
+			// fs-* are FS_*_FL ioctls, not open(2) flags. Do not list PIPE/EXEC.
+			// fs-append is FS_APPEND_FL, not O_APPEND.
 			{name: "fs-append", desc: "set FS_APPEND_FL on the file (not O_APPEND)", aliases: []string{"ext2-append", "ext3-append"}, validate: validateOptionalBool},
 			{name: "fs-compr", desc: "set FS_COMPR_FL on the file", aliases: []string{"compr", "ext2-compr", "ext3-compr"}, validate: validateOptionalBool},
 			{name: "fs-dirsync", desc: "set FS_DIRSYNC_FL on the file", aliases: []string{"dirsync", "ext2-dirsync", "ext3-dirsync"}, validate: validateOptionalBool},
@@ -83,9 +72,8 @@ func fileOptionGroups() []helpOptGroup {
 			{name: "flock-nb", desc: "nonblocking exclusive flock(2) lock", aliases: []string{"flock-ex-nb"}},
 			{name: "flock-sh", desc: "shared flock(2) lock"},
 			{name: "flock-sh-nb", desc: "nonblocking shared flock(2) lock"},
-			// GROUP_FD, PH_FD, OFUNC_IOCTL_GENERIC (xio-fd.c). Do not list
-			// address types: classic group intersection allows FD/STDIO/EXEC/
-			// sockets. ioctl is an alias of ioctl-void (optionnames[]).
+			// Do not list address types: catalog intersection is authoritative.
+			// ioctl is an alias of ioctl-void.
 			{name: "ioctl-void", desc: "ioctl() with request and NULL as the third argument", aliases: []string{"ioctl"}, validate: xio.ValidateGenericIoctl},
 			{name: "ioctl-int", desc: "ioctl() with request and integer value", validate: xio.ValidateGenericIoctl},
 			{name: "ioctl-intp", desc: "ioctl() with request and pointer to integer", validate: xio.ValidateGenericIoctl},

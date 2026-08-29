@@ -71,7 +71,7 @@ func ParseArgs(args []string) (*Config, error) {
 			break
 		}
 		// Addresses may start with '-' (STDIO synonym), '-,opts', or dual forms like '-!!-'.
-		// Classic: "-,escape=27" is STDIO with options, not a CLI flag.
+		// "-,escape=27" is STDIO with options, not a CLI flag.
 		if !strings.HasPrefix(a, "-") || a == "-" || strings.HasPrefix(a, "-,") ||
 			strings.HasPrefix(a, "-!!") || strings.Contains(a, "!!") {
 			cfg.Addresses = append(cfg.Addresses, a)
@@ -108,7 +108,7 @@ var cliBoolFlags = map[string]func(*Config){
 	"-V":     func(cfg *Config) { cfg.Version = true },
 	"-v":     func(cfg *Config) { cfg.Verbose = true },
 	"-x":     func(cfg *Config) { cfg.Hex = true },
-	"-s":     func(cfg *Config) {}, // classic -s; Go stream APIs have no portable subset of recoverable I/O errors
+	"-s":     func(cfg *Config) {}, // -s: Go stream APIs have no portable recoverable-I/O subset
 	"-u":     func(cfg *Config) { cfg.LeftToRight = true },
 	"-U":     func(cfg *Config) { cfg.RightToLeft = true },
 	"-4":     func(cfg *Config) { cfg.IP4 = true },
@@ -209,11 +209,11 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 }
 
 func setBlockSize(cfg *Config, v string) error {
-	// Classic: bare/missing -b → "missing numerical value of option "-b""
+	// Bare/missing -b → "missing numerical value of option "-b"".
 	if v == "" {
 		return fmt.Errorf("parseopts(): missing numerical value of option \"-b\"")
 	}
-	// Parse as unsigned; overflow → "to big" (classic).
+	// Parse as unsigned; overflow wording is "to big".
 	n, err := strconv.ParseUint(v, 10, 64)
 	if err != nil {
 		// value larger than uint64 or non-numeric
@@ -222,7 +222,7 @@ func setBlockSize(cfg *Config, v string) error {
 		}
 		return fmt.Errorf("parseopts(): missing numerical value of option \"-b\"")
 	}
-	// max is math.MaxInt64 for signed size math in classic (SIZE_T related)
+	// Cap at MaxInt64 because later size math is signed.
 	const maxBuf = uint64(1<<63 - 1)
 	if n == 0 || n > maxBuf {
 		return fmt.Errorf("buffer size option (-b) to big")
@@ -260,10 +260,10 @@ func setIdleFlag(cfg *Config, v string) error {
 
 func levelFromN(n int) logx.Level {
 	// n = number of -d or -dn value
-	// 0: error only (no warning)? classic -d0 fatal+error
+	// 0: error only (no warning); -d0 is fatal+error
 	// 1: +notice
 	// 2: +info
-	// 3: +debug? man: -ddd is info, -dddd debug
+	// 3+: debug (-ddd is info, -dddd debug)
 	switch {
 	case n <= 0:
 		return logx.Error
@@ -400,7 +400,7 @@ func Run(args []string, signalExit func(int)) int {
 			}
 			return 0
 		}
-		// Classic socat exits 0 when accept-timeout fires with no peer.
+		// accept-timeout with no peer exits 0.
 		if runErr == xio.ErrAcceptTimeout {
 			return 0
 		}
@@ -441,12 +441,9 @@ func setupLogger(cfg *Config) (*logx.Logger, func(), error) {
 	return log, closeLog, nil
 }
 
-// acquireLockFiles creates the -L lock file and, after -W's poll-wait, the
-// -W lock file. Acquire and identity-safe release are shared with address
-// options lockfile=/waitlock= (internal/xio HoldLockFile). CLI -W polls at
-// CLILockPollInterval (100ms); address waitlock= uses classic's 1s.
-// Classic allows only one of -L/-W; this port still accepts both (separate
-// from per-address lockfile=/waitlock= validation).
+// acquireLockFiles creates the -L lock and, after poll-wait, the -W lock.
+// CLI -L/-W poll at 100ms; address waitlock= uses 1s. This port still
+// accepts both -L and -W as separate locks (HoldLockFile with lockfile=/waitlock=).
 func acquireLockFiles(ctx context.Context, cfg *Config) (func(), error) {
 	var cleanups []func()
 	add := func(path string, wait bool) error {
@@ -495,8 +492,8 @@ func buildGlobal(cfg *Config, log *logx.Logger) *xio.Global {
 		RightToLeft:  cfg.RightToLeft,
 	}
 	g.EnsureStatsFlag()
-	// Classic -r / -R: path templates; opened at transfer start with expandenv
-	// ($PROGNAME, $TIMESTAMP, $MICROS, $$, $PEER env after accept).
+	// -r / -R path templates expand at transfer start ($PROGNAME,
+	// $TIMESTAMP, $MICROS, $$, $PEER env after accept).
 	g.RawLeftPath = cfg.RawLeft
 	g.RawRightPath = cfg.RawRight
 	if cfg.Progname != "" {
@@ -530,16 +527,14 @@ func ipVersionFromFlags(cfg *Config) xio.IPVersion {
 	}
 }
 
-// exitSignalChanSize is the Notify buffer for EXITCODESIG* / OFUNC_SIGNAL.
-// os/signal sends with default and drops when the channel is full. After
-// sighup/sigint/sigquit the handler continues, so a following TERM must
-// still fit; capacity 1 dropped that burst.
+// exitSignalChanSize is the Notify buffer for exit-on-signal. os/signal
+// drops when full; after sighup/sigint/sigquit a following TERM must still
+// fit (capacity 1 dropped that burst).
 const exitSignalChanSize = 64
 
-// installSignalHandling wires the two classic signal behaviors: exit signals
-// cancel the context, unlink registered FS entries and exit 128+signum
-// (EXITCODESIG*), and SIGUSR1 prints live transfer statistics. The returned
-// stop releases both signal channels.
+// installSignalHandling: exit signals cancel the context, unlink registered
+// FS entries and exit 128+signum, and SIGUSR1 prints live transfer statistics.
+// The returned stop releases both signal channels.
 func installSignalHandling(ctx context.Context, cancel context.CancelFunc, log *logx.Logger, signalLogMask uint64, signalExit func(int)) func() {
 	sigCh := make(chan os.Signal, exitSignalChanSize)
 	notifyExitSignals(sigCh, signalLogMask)
@@ -553,8 +548,8 @@ func installSignalHandling(ctx context.Context, cancel context.CancelFunc, log *
 	}
 }
 
-// childSignalPass is classic socatsignalpass for SIGHUP/SIGINT/SIGQUIT when an
-// EXEC/SYSTEM/SHELL address registered those PARENT options. Tests replace it.
+// childSignalPass forwards SIGHUP/SIGINT/SIGQUIT when an EXEC/SYSTEM/SHELL
+// address registered those PARENT options. Tests replace it.
 var childSignalPass = xio.ForwardRegisteredChildSignal
 
 func startSignalHandlers(ctx context.Context, cancel context.CancelFunc, log *logx.Logger, signalLogMask uint64, signalExit func(int), sigCh, usr1 <-chan os.Signal, pass func(os.Signal) bool) func() {
@@ -577,12 +572,11 @@ func startSignalHandlers(ctx context.Context, cancel context.CancelFunc, log *lo
 				xio.UnlinkRegisteredPaths()
 				if ss, ok := sig.(syscall.Signal); ok && ss > 0 {
 					if int(ss) < 64 && signalLogMask&(uint64(1)<<uint(ss)) != 0 && log != nil {
-						// Classic logs ordinary termination signals below Error;
-						// CHILDREN_SHUTUP checks must not mistake parent SIGTERM cleanup
-						// for a child connection failure.
+						// Log ordinary termination below Error so children-shutup
+						// checks do not treat parent SIGTERM as a child failure.
 						log.Warningf("exiting on signal %d", ss)
 					}
-					// Exit immediately so Wait()-blocked nofork paths still report classic status.
+					// Exit immediately so Wait()-blocked nofork paths still report 128+signum.
 					if signalExit != nil {
 						signalExit(128 + int(ss))
 					}
@@ -616,12 +610,11 @@ func startSignalHandlers(ctx context.Context, cancel context.CancelFunc, log *lo
 
 func printVersion(w io.Writer) error {
 	var b outbuf.Buf
-	// Format compatible with classic test.sh testfeats() which greps:
-	//   #define WITH_FOO 1
+	// test.sh testfeats() greps: #define WITH_FOO 1
 	b.Printf("socat version %s on %s\n", socat.Version, time.Now().Format(time.RFC3339))
 	b.Printf("   running on Go reimplementation (github.com/oittaa/socat)\n")
 	b.Println("features:")
-	// Implemented = 1, not yet = 0. Keep names aligned with classic socat -V.
+	// Implemented = 1, not yet = 0. Keep names aligned with what test.sh greps.
 	feats := []struct {
 		name string
 		on   bool
@@ -640,7 +633,7 @@ func printVersion(w io.Writer) error {
 		{"TEXT", true},
 		{"SOCKETPAIR", xio.FeatureSOCKETPAIR},
 		{"UNIX", true},
-		// Go-specific detail flags. Classic only exposes the coarser WITH_UNIX.
+		// Go extras (WITH_UNIX_DGRAM / WITH_UNIX_SEQPACKET); WITH_UNIX stays on.
 		{"UNIX_DGRAM", xio.FeatureUNIXDatagram},
 		{"UNIX_SEQPACKET", xio.FeatureUNIXSeqpacket},
 		{"ABSTRACT_UNIXSOCKET", xio.FeatureABSTRACT},
@@ -672,11 +665,11 @@ func printVersion(w io.Writer) error {
 		{"TUN", xio.FeatureTUN},
 		{"PTY", xio.FeaturePTY},
 		{"TLS", true},     // stream TLS via crypto/tls (not DTLS)
-		{"OPENSSL", true}, // alias of TLS (classic drop-in)
+		{"OPENSSL", true}, // TLS OPENSSL alias
 		{"FIPS", false},
 		{"LIBWRAP", true},   // pure-Go hosts.allow/deny (no CGO libwrap)
-		{"WEBSOCKET", true}, // WS/WSS via coder/websocket (not in classic socat)
-		{"QUIC", true},      // RFC 9000 via quic-go (not HTTP/3; not in classic)
+		{"WEBSOCKET", true}, // WS/WSS via coder/websocket
+		{"QUIC", true},      // RFC 9000 via quic-go (not HTTP/3)
 	}
 	for _, f := range feats {
 		if f.on {

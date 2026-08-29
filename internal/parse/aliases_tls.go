@@ -8,10 +8,7 @@ func init() {
 		"resolve":       "proxy-resolve",
 		"resolv":        "proxy-resolve",
 
-		// Public OPENSSL catalog nicknames for implemented TLS options.
-		// Classic baseline: tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-		// official master af5388c898c7bb60997935aee93c223deba60c4a is the same
-		// optionnames[] set for these spellings (xioopts.c / xio-openssl.c).
+		// Alias map so openssl-* / tls-* nicknames fold onto canonical names.
 		"certificate":         "cert",
 		"openssl-certificate": "cert",
 		"openssl-key":         "key",
@@ -36,9 +33,9 @@ func init() {
 		"max-proto-version":   "openssl-max-proto-version",
 		"max-version":         "openssl-max-proto-version",
 
-		// Classic OPENSSL options Go crypto/tls cannot honor. Folded so
-		// last-option-wins still applies; tlsopen rejects them instead of
-		// accepting a no-op. Do not advertise these as working in -hhh.
+		// OPENSSL options Go crypto/tls cannot honor are still folded so CLI
+		// validation can reject them (last-wins still applies; tlsopen rejects
+		// instead of a no-op). Do not advertise these as working in -hhh.
 		"method":           "openssl-method",
 		"opensslmethod":    "openssl-method",
 		"fips":             "openssl-fips",

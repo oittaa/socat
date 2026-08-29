@@ -14,13 +14,13 @@ import (
 	"time"
 )
 
-// DefaultLinger is the classic -t default: how long the second direction may
+// DefaultLinger is the -t default: how long the second direction may
 // keep flushing after the first side EOFs (0.5s).
 const DefaultLinger = 500 * time.Millisecond
 
 // Config controls transfer behavior.
 type Config struct {
-	// BufferSize is the max bytes per read (classic -b, default 8192).
+	// BufferSize is the max bytes per read (-b, default 8192).
 	BufferSize int
 	// Linger is how long to wait after one side EOFs for the other direction (-t).
 	Linger time.Duration
@@ -35,7 +35,7 @@ type Config struct {
 	Hex bool
 	// Dump is where -v/-x output goes (usually stderr).
 	Dump io.Writer
-	// RawLeft/RawRight: classic -r / -R binary dumps of transferred data.
+	// RawLeft/RawRight: -r / -R binary dumps of transferred data.
 	RawLeft  io.Writer // left→right
 	RawRight io.Writer // right→left
 	// Tracker receives live counters (SIGUSR1 / --statistics). If nil, Transfer
@@ -44,9 +44,9 @@ type Config struct {
 	// OnStats is called with final counters if non-nil.
 	OnStats func(Stats)
 	// OnEOF is called once per direction when that side reaches EOF
-	// (classic MULTIPLE_EOF: "socket N (fd X) is at EOF"). sock is 1=left, 2=right.
+	// (MULTIPLE_EOF: "socket N (fd X) is at EOF"). sock is 1=left, 2=right.
 	OnEOF func(sock int, fd int)
-	// NoCloseLeft/Right: on cancel, do not Close that stream (classic end-close
+	// NoCloseLeft/Right: on cancel, do not Close that stream (end-close
 	// shared address across fork children).
 	NoCloseLeft  bool
 	NoCloseRight bool
@@ -95,7 +95,7 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	var wg sync.WaitGroup
 
 	// Session wrappers: when NoClose*, cancel closes only the wrapper so a
-	// shared end-close stream is not destroyed (classic EXECENDCLOSE).
+	// shared end-close stream is not destroyed (EXECENDCLOSE).
 	if cfg.NoCloseLeft {
 		left = newSessionWrap(left)
 	}
@@ -339,7 +339,7 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 		}
 		if usePoll {
 			if err := waitReadableAndWritable(ctx, t.srcFD, t.dstFD); err != nil {
-				// Darwin socketpair/pipe HUP often arrives without POLLOUT, so
+				// macOS socketpair/pipe HUP often arrives without POLLOUT, so
 				// poll returns ErrClosedPipe before Read. That is the same
 				// peer-gone case isBenignClose already accepts on Write.
 				if isBenignClose(err) {
@@ -409,8 +409,8 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 	}
 }
 
-// writeBlock preserves partial progress across classic-style retryable send
-// errors. The block count is owned by the caller and advances once when any
+// writeBlock preserves partial progress across retryable send errors.
+// The block count is owned by the caller and advances once when any
 // bytes from this source read were written, rather than once per retry.
 func writeBlock(ctx context.Context, dst Stream, dstFD int, data []byte, bytes *atomic.Uint64) (bool, error) {
 	written := 0

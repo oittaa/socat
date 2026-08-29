@@ -17,11 +17,8 @@ func init() {
 		"o_direct":      "o-direct",
 		"ext2-noatime":  "fs-noatime",
 		"ext3-noatime":  "fs-noatime",
-		// Linux ext FS_*_FL (xio-fs.c). Classic optionnames[] maps append,
-		// sync, and noatime to O_APPEND / O_SYNC / O_NOATIME, not these
-		// ioctl flags. Short nicknames that optionnames[] does register
-		// (and the documented notail nickname omitted from optionnames[])
-		// fold onto the fs-* canonicals.
+		// Linux ext FS_*_FL ioctl flags. append/sync/noatime stay O_APPEND/O_SYNC/O_NOATIME;
+		// short nicknames (including notail) fold onto the fs-* canonicals.
 		"ext2-append":       "fs-append",
 		"ext3-append":       "fs-append",
 		"compr":             "fs-compr",

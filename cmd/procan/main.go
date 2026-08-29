@@ -1,4 +1,4 @@
-// procan — process analyzer (classic socat companion).
+// procan — process analyzer.
 //go:build linux || darwin
 
 package main
@@ -131,7 +131,7 @@ func procan(w io.Writer) error {
 	printRlimit(&b, "max locked-in-memory address space", unix.RLIMIT_MEMLOCK)
 	printRlimit(&b, "virtual memory (kbytes)", unix.RLIMIT_AS)
 
-	// environment (subset / hostan-like)
+	// environment (hostname, cwd, PATH, HOME, SHELL)
 	b.Println()
 	b.Println("ENVIRONMENT")
 	if h, err := os.Hostname(); err == nil {
@@ -149,7 +149,7 @@ func procan(w io.Writer) error {
 	}
 	b.Printf("time = %s\n", time.Now().Format(time.RFC3339))
 
-	// Classic procan emits sizeof lines used by test.sh SIZE_T extraction:
+	// sizeof lines; test.sh greps size_t for SIZE_T extraction:
 	//   SIZE_T=$($PROCAN |grep "^[^[:space:]]*size_t" |awk '{print($3);}')
 	b.Println()
 	b.Printf("sizeof(int)       = %d\n", strconv.IntSize/8)
@@ -186,9 +186,9 @@ func mustGetwd() string {
 
 func printCdefs(w io.Writer) error {
 	var b outbuf.Buf
-	// Classic test.sh greps `^#define NAME value` from procan -c for SOCK_DGRAM,
-	// PF_INET6, SOL_SOCKET, SO_REUSEADDR, TCP_MAXSEG, TIOCEXCL, FOPEN_MAX.
-	// Emit both human-readable lines and classic-style defines.
+	// procan -c emits #define NAME value; test.sh greps SOCK_DGRAM, PF_INET6,
+	// SOL_SOCKET, SO_REUSEADDR, TCP_MAXSEG, TIOCEXCL, FOPEN_MAX.
+	// Also emit human-readable NAME = value lines.
 	b.Println("/* Go/unix constants (classic-compatible #define lines for test.sh) */")
 	b.Printf("sizeof(int) ~= %d\n", strconv.IntSize/8)
 	// test.sh: SIZE_T=$($PROCAN |grep size_t |awk '{print($3);}')
@@ -207,7 +207,7 @@ func printCdefs(w io.Writer) error {
 	b.Printf("IPPROTO_TCP = %d\n", unix.IPPROTO_TCP)
 	b.Printf("IPPROTO_UDP = %d\n", unix.IPPROTO_UDP)
 
-	// Classic #define form (PF_* aliases AF_* on Linux)
+	// #define NAME value form (PF_* aliases AF_* on Linux)
 	b.Printf("#define PF_UNSPEC %d\n", unix.AF_UNSPEC)
 	b.Printf("#define PF_UNIX %d\n", unix.AF_UNIX)
 	b.Printf("#define PF_INET %d\n", unix.AF_INET)

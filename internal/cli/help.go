@@ -9,8 +9,8 @@ import (
 )
 
 // hideDarwinOnlyIPRecv hides ip-recvdstaddr / ip-recvif (and aliases) on every
-// GOOS except Darwin. Runtime support is Darwin-only (IP_RECVDSTADDR /
-// IP_RECVIF cmsg extraction); other Unix must not advertise names it rejects.
+// GOOS except macOS. Runtime support is macOS-only (IP_RECVDSTADDR /
+// IP_RECVIF cmsg extraction); Linux and Windows must not advertise names they reject.
 func hideDarwinOnlyIPRecv(name, goos string) bool {
 	switch name {
 	case "ip-recvdstaddr", "ip-recvif", "recvdstaddr", "iprecvdstaddr", "recvif":
@@ -21,9 +21,8 @@ func hideDarwinOnlyIPRecv(name, goos string) bool {
 }
 
 // hideLinuxOnlyRemainingIPv4 hides Linux-only remaining IPv4 options
-// (ip-retopts recv ancillary and ip-router-alert) on every GOOS except
-// Linux. Darwin IP_RETOPTS is an IP-options blob, not the Linux TYPE_INT
-// recv flag, so the name must not be advertised there.
+// (ip-retopts recv ancillary and ip-router-alert) except on Linux. macOS
+// IP_RETOPTS is an IP-options blob, not Linux's recv flag.
 func hideLinuxOnlyRemainingIPv4(name, goos string) bool {
 	switch name {
 	case "ip-retopts", "ipretopts", "retopts",
@@ -83,10 +82,10 @@ func printHelpFlags(b *outbuf.Buf) {
 	b.Printf("  -S<mask>        log these signal numbers (bitmap)\n")
 	b.Printf("  -u              unidirectional left→right\n")
 	b.Printf("  -U              unidirectional right→left\n")
-	// Classic test.sh OPTION_RAW_DUMP greps: [[:space:]]-[rR][[:space:]]
+	// test.sh OPTION_RAW_DUMP greps [[:space:]]-[rR][[:space:]]; keep the spaces.
 	b.Printf("  -r <file>       dump left-to-right raw data\n")
 	b.Printf("  -R <file>       dump right-to-left raw data\n")
-	// Classic test.sh greps: [[:space:]]-4[[:space:]], -6, -0 on separate lines.
+	// test.sh greps [[:space:]]-4[[:space:]], -6, -0 on separate lines.
 	b.Printf("  -4     prefer IPv4 if version is not explicitly specified\n")
 	b.Printf("  -6     prefer IPv6 if version is not explicitly specified\n")
 	b.Printf("  -0     do not prefer an IP version\n")

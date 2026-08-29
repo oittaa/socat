@@ -1,6 +1,6 @@
 //go:build linux || darwin
 
-// filan — file descriptor analyzer (classic socat companion).
+// filan — file descriptor analyzer.
 package main
 
 import (
@@ -176,12 +176,10 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 	if cfg.singleFD {
 		cfg.n = cfg.m + 1
 	} else if cfg.n == 0 {
-		// Classic treats -n0 as the useful one-descriptor case despite its
-		// help describing an exclusive upper bound. test.sh relies on it when
-		// probing stdin pipe capacity.
+		// -n0 analyzes fd 0 only; test.sh greps stdin pipe capacity.
 		cfg.n = 1
 	}
-	// Classic header line (LISTEN_KEEPALIVE uses tail -n +2 to skip it).
+	// Header line; test.sh LISTEN_KEEPALIVE skips it with tail -n +2.
 	if cfg.style != 1 {
 		report.Println("  FD  typedeviceinodemodelinksuidgidrdevsizeblksizeblocksatimemtimectimecloexecflagssigownsigio")
 	}
@@ -262,9 +260,9 @@ func (cfg *filanConfig) filanFile(path string, b *outbuf.Buf) error {
 		return err
 	}
 	fd := -1
-	// Symlinks and sockets: do not open (classic prints LINKTARGET for symlinks
-	// when statfd < 0). Opening a socket path fails; opening a symlink would
-	// follow it and lose the link type without -L.
+	// Do not open sockets or symlinks: opening a socket path fails; opening a
+	// symlink would follow it and lose the link type without -L. LINKTARGET is
+	// printed later when fd stays -1.
 	switch st.Mode & unix.S_IFMT {
 	case unix.S_IFSOCK, unix.S_IFLNK:
 		// leave fd = -1
@@ -276,8 +274,7 @@ func (cfg *filanConfig) filanFile(path string, b *outbuf.Buf) error {
 		}
 	}
 	cfg.printStat(-1, fd, &st, b)
-	// Classic FILANSYMLINK: when analyzing a symlink path with lstat, append
-	// LINKTARGET=... (no space before the keyword).
+	// FILANSYMLINK: after lstat of a symlink path, append LINKTARGET=... with no space before the keyword.
 	if !cfg.followSymlinks && st.Mode&unix.S_IFMT == unix.S_IFLNK {
 		if target, err := os.Readlink(path); err == nil {
 			b.Printf("LINKTARGET=%s", target)
@@ -291,7 +288,7 @@ func (cfg *filanConfig) filanFD(fd int, b *outbuf.Buf) {
 	var st unix.Stat_t
 	err := unix.Fstat(fd, &st)
 	if err != nil {
-		return // skip closed FDs silently like classic often does for gaps
+		return // skip closed FDs silently so gaps in the range stay quiet
 	}
 	cfg.printStat(fd, fd, &st, b)
 
@@ -361,7 +358,7 @@ func (cfg *filanConfig) printTime(b *outbuf.Buf, sec int64) {
 	b.Printf("\t%s", t.Format("2006-01-02 15:04:05"))
 }
 
-// fileTypeString matches classic filan getfiletypestring() (test.sh greps these).
+// fileTypeString returns file/dir/symlink/chrdev/blkdev/pipe/socket/undef; test.sh greps these.
 func fileTypeString(mode uint32) string {
 	switch mode & unix.S_IFMT {
 	case unix.S_IFREG:
@@ -409,7 +406,7 @@ func printSocket(fd int, b *outbuf.Buf) {
 			b.Printf("\ttype=%d", v)
 		}
 	}
-	// Classic sockopts used by test.sh (LISTEN_KEEPALIVE greps KEEPALIVE=).
+	// Socket options; test.sh LISTEN_KEEPALIVE greps KEEPALIVE=.
 	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_DEBUG, "DEBUG")
 	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, "REUSEADDR")
 	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_TYPE, "TYPE")
@@ -432,7 +429,7 @@ func printSockoptInt(b *outbuf.Buf, fd, level, opt int, name string) {
 	if err != nil {
 		return
 	}
-	// Classic separates sockopts with TAB so test.sh sed can strip after KEEPALIVE=1.
+	// TAB-separated NAME=value so test.sh sed can strip after KEEPALIVE=1.
 	b.Printf("\t%s=%d", name, v)
 }
 
@@ -471,9 +468,8 @@ func fdname(fd int, b *outbuf.Buf) {
 	if err := unix.Fstat(fd, &st); err != nil {
 		return
 	}
-	// Classic -s (fdname.c sockname style 's'): "tcp", "udp", "unix", …
-	// not the generic "socket" from getfiletypestring. FILAN_SHORT_TCP greps
-	// the second field as "tcp".
+	// -s prints "tcp"/"udp"/"unix"/… as the type, not generic "socket".
+	// test.sh FILAN_SHORT_TCP greps the second field as "tcp".
 	typ := fileTypeString(uint32(st.Mode))
 	path := ""
 	if st.Mode&unix.S_IFMT == unix.S_IFSOCK {
@@ -481,8 +477,7 @@ func fdname(fd int, b *outbuf.Buf) {
 	} else if p, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd)); err == nil {
 		path = p
 	}
-	// Go runtime / systemd often open cgroup and epoll FDs after exec. Classic
-	// C filan has only 0/1/2 after a clean EXEC. Skip those so EXEC_FDS /
+	// Skip Go runtime / systemd cgroup and epoll FDs after exec so EXEC_FDS /
 	// EXEC_SNIFF still detect real socat leaks (extra sockets, -r/-R files).
 	if fd >= 3 && isRuntimeNoisePath(path) {
 		return
@@ -490,8 +485,7 @@ func fdname(fd int, b *outbuf.Buf) {
 	b.Printf("%5d %s %s\n", fd, typ, path)
 }
 
-// shortSocketName matches classic filan -s sockname() for AF_INET/INET6/UNIX.
-// Returns type string ("tcp", "udp", "unix", …) and "local peer" address text.
+// shortSocketName returns -s type ("tcp", "udp", "unix", …) and "local peer" address text for AF_INET/INET6/UNIX.
 func shortSocketName(fd int) (typ, addrs string) {
 	typ = "socket"
 	proto, err := socketProtocol(fd)

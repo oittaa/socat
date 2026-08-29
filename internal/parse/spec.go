@@ -48,9 +48,8 @@ func (c Channel) IsDual() bool { return c.Dual != nil }
 // OptionNamed returns the option with the given name (case-insensitive), if any.
 func (s Spec) OptionNamed(name string) (Option, bool) {
 	name = normalizeOptionName(name)
-	// Classic socat applies options in command-line order, so a later option
-	// overrides an earlier one. Scan backwards to preserve that behavior even
-	// when aliases normalize to the same canonical name.
+	// Options apply in command-line order (last-wins). Scan backwards so a later
+	// option overrides an earlier one even when aliases fold onto the same name.
 	for i := len(s.Options) - 1; i >= 0; i-- {
 		o := s.Options[i]
 		if normalizeOptionName(o.Name) == name {
@@ -78,8 +77,8 @@ func (s Spec) OptionValue(name, def string) string {
 	return o.Value
 }
 
-// Active reports whether this occurrence selects a CONST/BOOL-style policy.
-// Omitted value means true; =0/false/no/off and empty "=" do not select.
+// Active reports whether this occurrence is truthy.
+// Bare flag → true; =0/false/no/off and empty "=" → false.
 func (o Option) Active() bool {
 	if !o.Has {
 		return true
@@ -92,7 +91,7 @@ func (o Option) Active() bool {
 }
 
 // BoolOption returns whether an option is set truthily.
-// Classic: bare flag → true; =0/false/no/off → false; empty value (=) → false
+// Bare flag → true; =0/false/no/off → false; empty value (=) → false
 // (so-reuseaddr= disables SO_REUSEADDR).
 func (s Spec) BoolOption(name string) bool {
 	o, ok := s.OptionNamed(name)

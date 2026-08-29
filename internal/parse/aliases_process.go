@@ -13,9 +13,9 @@ func init() {
 		"login":         "dash",
 		"pgid":          "setpgid",
 		"close":         "end-close",
-		// Classic raw is a distinct, obsolete TERMIOS combination. It does
-		// not use the cfmakeraw mask (notably, raw leaves ECHO unchanged).
-		// Keep raw canonical so ApplyTermios can preserve that behavior.
+		// raw is a distinct TERMIOS combination; it does not use the cfmakeraw mask
+		// (raw leaves ECHO unchanged). Keep raw canonical so ApplyTermios can
+		// preserve that behavior.
 		"termios-cfmakeraw": "cfmakeraw",
 		"termios-rawer":     "rawer",
 		"setflags":          "termios-setflags",
@@ -25,7 +25,7 @@ func init() {
 		"hup":               "hupcl",
 		"prterase":          "echoprt",
 		"tandem":            "ixoff",
-		// Newly implemented GROUP_TERMIOS c_cc names (classic optionnames[]).
+		// TERMIOS c_cc nicknames fold onto v* canonical names.
 		"intr":    "vintr",
 		"quit":    "vquit",
 		"erase":   "verase",
