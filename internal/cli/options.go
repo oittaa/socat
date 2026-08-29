@@ -76,10 +76,9 @@ func buildSupportedAddressOptions() map[string]addressOption {
 		}
 		options[name] = option
 	}
-	// GROUP_TERMIOS keywords are recognized where termios is unavailable
-	// (Windows) so validation can reject them with a precise error instead
-	// of "unknown option". They are not advertised: hideOptGroup omits the
-	// PTY/TERMIOS help section and TermiosHelpNames is empty there.
+	// Termios keywords are recognized where termios is unavailable so they
+	// can be rejected, not silently accepted. They are not advertised:
+	// hideOptGroup omits PTY/TERMIOS and TermiosHelpNames is empty there.
 	if !xio.FeatureTERMIOS {
 		for _, name := range xio.ClassicTermiosOptionNames() {
 			if _, ok := options[name]; !ok {
@@ -96,10 +95,8 @@ func buildSupportedAddressOptions() map[string]addressOption {
 	return options
 }
 
-// recognizedUnsupportedTLSNames are classic OPENSSL spellings Go crypto/tls
-// cannot honor. Parsed for a precise reject; never listed in -hhh as working.
-// Classic baseline: tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same tree.
+// recognizedUnsupportedTLSNames are OPENSSL spellings Go crypto/tls cannot
+// honor. Parsed for a precise reject; never listed in -hhh as working.
 var recognizedUnsupportedTLSNames = []string{
 	"openssl-method", "opensslmethod", "method",
 	"openssl-fips", "fips",
@@ -110,9 +107,8 @@ var recognizedUnsupportedTLSNames = []string{
 	"openssl-maxsendfrag", "maxsendfrag",
 }
 
-// optionAddressGroups limits only protocol-specific option families. Classic
-// cross-cutting options remain broadly accepted because many are applied by
-// common wrappers rather than by one opener package.
+// optionAddressGroups limits only protocol-specific option families.
+// Cross-cutting options stay broadly accepted: common wrappers apply them.
 func optionAddressGroups(title string) []string {
 	switch title {
 	case "TLS, WSS, and QUIC":
@@ -187,16 +183,13 @@ func validateSpecOptions(spec parse.Spec) error {
 		if !ok {
 			optionSpec = supportedAddressOptions[spelling]
 		}
-		// Classic group intersection is spelling-specific (tag-1.8.1.3 /
-		// 12c08bf): ipv6-join-group is GROUP_IP6 only, while
-		// ip-add-membership is GROUP_IP4+IP6.
+		// Catalog intersection is spelling-specific: ipv6-join-group is
+		// IPv6-only; ip-add-membership is IPv4+IPv6.
 		if registered && !xio.OptionSupportedOnAddress(registration, spelling, optionSpec.addressGroups, optionSpec.addressTypes, optionSpec.optionCaps) {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
-		// Classic GROUP_INTERFACE also matches TUN. Options that set
-		// restrictAddressTypes (retrieve-vlan) keep the declared type
-		// list as a hard allow-list so TUN is rejected at CLI rather
-		// than during open.
+		// INTERFACE options also match TUN. restrictAddressTypes
+		// (retrieve-vlan) is a hard allow-list so TUN is rejected at CLI.
 		if registered && optionSpec.restrictAddressTypes && !addressTypeAllowed(registration.Name, optionSpec.addressTypes) {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
@@ -219,10 +212,9 @@ func addressTypeAllowed(addressType string, allowed []string) bool {
 	return false
 }
 
-// implementationGroups narrows classic socket-wide options to the address
-// families that currently apply them. Without this guard, classic's broad
-// GROUP_SOCKET metadata would make the CLI accept options that an opener then
-// silently ignores.
+// optionImplementedForGroup narrows socket-wide options to the address
+// families that currently apply them. Without this guard the CLI would
+// accept options an opener then silently ignores.
 func optionImplementedForGroup(group string, implementationGroups []string) bool {
 	if len(implementationGroups) == 0 {
 		return true
@@ -307,7 +299,7 @@ func validateInteger(min int64) func(parse.Option) error {
 	}
 }
 
-// validateSizeT matches classic TYPE_SIZE_T: base-0 parse, zero allowed.
+// validateSizeT: base-0 parse, zero allowed.
 func validateSizeT(option parse.Option) error {
 	value, err := requiredOptionValue(option)
 	if err != nil {
@@ -424,8 +416,8 @@ func validateInt64(requirePositive bool) func(parse.Option) error {
 	}
 }
 
-// validateOptionalInt64 matches classic TYPE_OFF32/TYPE_OFF64 parsing for
-// seek options: a bare option is accepted and defaults to offset 1.
+// validateOptionalInt64 parses lseek/ftruncate offsets: a bare option is
+// accepted and defaults to offset 1.
 func validateOptionalInt64(option parse.Option) error {
 	if !option.Has {
 		return nil

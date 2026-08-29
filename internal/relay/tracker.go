@@ -5,7 +5,7 @@ import (
 	"sync/atomic"
 )
 
-// Tracker holds live transfer counters (classic WITH_STATS).
+// Tracker holds live transfer counters (WITH_STATS).
 type Tracker struct {
 	BytesLR, BytesRL   atomic.Uint64
 	BlocksLR, BlocksRL atomic.Uint64

@@ -31,8 +31,15 @@ func TestRunCompileDefinitions(t *testing.T) {
 	if code := runWithIO([]string{"-c"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit code=%d stderr=%s", code, stderr.String())
 	}
+	out := stdout.String()
+	if !strings.Contains(out, "/* Go/Unix constants */") {
+		t.Fatalf("procan -c missing heading, got %q", out)
+	}
+	if strings.Contains(strings.ToLower(out), "classic") {
+		t.Fatalf("procan -c still mentions classic: %q", out)
+	}
 	for _, want := range []string{"#define PF_INET ", "#define SOCK_DGRAM ", "#define SO_REUSEADDR "} {
-		if !strings.Contains(stdout.String(), want) {
+		if !strings.Contains(out, want) {
 			t.Fatalf("procan -c missing %q", want)
 		}
 	}

@@ -20,9 +20,9 @@ func defaultSignalLogMask() uint64 {
 }
 
 func notifyExitSignals(ch chan<- os.Signal, logMask uint64) {
-	// SIGILL is included so Linux kill(SIGILL) matches classic EXITCODESIGILL
-	// (128+4). On Darwin the Go runtime still treats SIGILL as a crash dump
-	// (os/signal.Notify cannot intercept it; see README).
+	// SIGILL is included so Linux kill(SIGILL) matches EXITCODESIGILL
+	// tests (128+4). On macOS the Go runtime still treats SIGILL as a
+	// crash dump (os/signal.Notify cannot intercept it; see README).
 	signals := []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGILL, syscall.SIGQUIT, syscall.SIGHUP}
 	for number := 1; number < 64; number++ {
 		if logMask&(uint64(1)<<uint(number)) == 0 || number == int(syscall.SIGKILL) || number == int(syscall.SIGSTOP) {

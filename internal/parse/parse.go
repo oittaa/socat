@@ -1,4 +1,4 @@
-// Package parse implements classic socat address specification parsing.
+// Package parse implements address specification parsing.
 package parse
 
 import (
@@ -134,7 +134,7 @@ func splitParamsAndOptions(s string, pathParam bool) (params []string, opts []Op
 
 	// Find first comma at depth 0 that starts the options section.
 	// Params use ':' separators; options use ','.
-	// Classic: TCP:host:port,reuseaddr,bind=1.2.3.4
+	// Example: TCP:host:port,reuseaddr,bind=1.2.3.4
 	optStart := findOptionsStart(s)
 	var paramPart, optPart string
 	if optStart < 0 {
@@ -260,7 +260,7 @@ func unquote(s string, pathValue bool) string {
 			return expandSlashEscapes(s)
 		}
 	}
-	// Strip nesting quotes used to hide commas/colons (classic nestlex).
+	// Strip nesting quotes used to hide commas/colons.
 	// e.g. (,)[,]{,}","([),]) → (,)[,]{,},([),])
 	if strings.ContainsAny(s, `"'`) {
 		s = stripNestingQuotes(s)
@@ -291,7 +291,7 @@ func stripNestingQuotes(s string) string {
 	return b.String()
 }
 
-// checkBalancedQuotes returns an error if s has an unclosed quote (classic syntax error).
+// checkBalancedQuotes returns an error if s has an unclosed quote.
 func checkBalancedQuotes(s string) error {
 	sc := NewSpecScanner(s, false)
 	for {
@@ -305,7 +305,7 @@ func checkBalancedQuotes(s string) error {
 	return nil
 }
 
-// expandSlashEscapes handles classic \n \r \t \0 \\ and \xHH sequences.
+// expandSlashEscapes handles \n \r \t \0 \\ and \xHH sequences.
 func expandSlashEscapes(s string) string {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
@@ -336,7 +336,7 @@ func expandSlashEscapes(s string) string {
 			}
 			b.WriteByte('x')
 		default:
-			// keep unknown escape as the escaped char (classic-ish)
+			// keep unknown escape as the escaped char
 			b.WriteByte(s[i])
 		}
 	}

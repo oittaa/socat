@@ -2,10 +2,8 @@ package parse
 
 func init() {
 	registerOptionAliases(map[string]string{
-		// ipv6-join-group is a distinct classic option (GROUP_IP6 only,
-		// tag-1.8.1.3 / 12c08bf). Do not fold it onto ip-add-membership
-		// (IP4+IP6); validation is spelling-specific. Same-group nicknames
-		// from classic -hhh fold onto their canonical descriptor.
+		// ipv6-join-group is a distinct option; do not fold it onto ip-add-membership.
+		// Validation is spelling-specific. Other nicknames fold onto their canonical names.
 		"add-membership":             "ip-add-membership",
 		"ip-membership":              "ip-add-membership",
 		"membership":                 "ip-add-membership",

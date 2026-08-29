@@ -5,7 +5,7 @@ import (
 )
 
 func looksLikePath(s string) bool {
-	// Classic: if '/' before first ':' or ',', assume GOPEN.
+	// If '/' before first ':' or ',', assume GOPEN.
 	// Native Windows: C:\..., C:/..., or UNC \\server\share.
 	if hasWindowsVolume(s) {
 		return true
@@ -29,8 +29,7 @@ func looksLikeWindowsPath(s string) bool {
 		return true
 	}
 	// A single leading backslash and separator-containing relative paths are
-	// native Windows forms. Do not reinterpret them on Unix, where backslash
-	// remains the classic socat escape character.
+	// native Windows forms. Do not reinterpret them on Unix, where \ is the escape.
 	return nativeWindowsPathSeparators && strings.Contains(s, `\`)
 }
 
@@ -67,9 +66,9 @@ func pathParamType(typeName string) bool {
 	case "OPEN", "FILE", "CREATE", "CREAT", "GOPEN", "PIPE", "FIFO", "ECHO":
 		return true
 	}
-	// Classic UNIX addresses use ':' as the positional-parameter separator;
-	// test.sh relies on UNIX-LISTEN::::: failing immediately. Preserve the
-	// whole value only on Windows, where a native drive path must stay intact.
+	// ':' is the UNIX positional separator; test.sh relies on UNIX-LISTEN:::::
+	// failing immediately. Preserve the whole value only on Windows, where a
+	// native drive path must stay intact.
 	return nativeWindowsPathSeparators && strings.HasPrefix(n, "UNIX")
 }
 

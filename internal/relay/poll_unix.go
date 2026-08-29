@@ -62,7 +62,7 @@ func waitPollRead(fd int, timeoutMs int) error {
 }
 
 // waitReadableAndWritable waits until src is readable and dst is writable
-// (classic select backpressure). If dst is closed/errored without being writable,
+// (select-style STALL backpressure). If dst is closed/errored without being writable,
 // return an error without reading (preserve unread peer data — needed for STALL).
 func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 	for {

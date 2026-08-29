@@ -16,14 +16,9 @@ const (
 	ClassDelim
 )
 
-// SpecScanner walks an address specification applying the classic rules
-// shared by every parser entry point: backslash escapes the next byte unless
-// inside single quotes, single and double quotes toggle independently, and —
-// when nesting is tracked — (), {}, [] may hide separators.
-//
-// It replaces several hand-rolled copies of the same loop; the exported form
-// also serves packages that re-parse raw address text (classic SOCKET dalan
-// forms in netopen).
+// SpecScanner walks an address specification: \ escapes the next byte unless
+// inside single quotes; ' and " toggle independently; tracked (), {}, [] hide separators.
+// Other packages reuse it for SOCKET dalan forms in netopen.
 type SpecScanner struct {
 	s            string
 	i            int // index one past the most recent Step()ed byte
