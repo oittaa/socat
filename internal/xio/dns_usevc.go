@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math"
 	"net"
 	"strings"
 	"sync"
@@ -285,15 +286,13 @@ func dnsMessageTruncated(msg []byte) bool {
 	return len(msg) >= 3 && msg[2]&0x02 != 0
 }
 
-const maxDNSTCPMessage = 0xffff
-
 func frameDNSTCPMessage(msg []byte) ([]byte, error) {
 	n := len(msg)
-	if n > maxDNSTCPMessage {
+	if n > math.MaxUint16 {
 		return nil, errDNSTCPTooLong
 	}
 	framed := make([]byte, 2+n)
-	binary.BigEndian.PutUint16(framed[:2], uint16(n)) // #nosec G115 -- n checked against maxDNSTCPMessage
+	binary.BigEndian.PutUint16(framed[:2], uint16(n))
 	copy(framed[2:], msg)
 	return framed, nil
 }
