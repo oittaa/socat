@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import shlex
 import stat
 import subprocess
 import sys
@@ -45,6 +47,11 @@ enddit()
 label(ADDRESS_TYPES)
 label(ADDRESS_WIDGET)dit(bf(tt(WIDGET:<path>)) (bf(tt(WIDG:<path>))))
 label(ADDRESS_STDIN)dit(bf(tt(STDIN)))
+label(ADDRESS_PIPE)dit(bf(tt(PIPE:<filename>)))
+label(ADDRESS_SHELL)dit(bf(tt(SHELL:<shell-command>)))
+label(ADDRESS_DCCP)dit(bf(tt(DCCP-CONNECT:<host>:<port>)) (bf(tt(DCCP:<host>:<port>))))
+label(ADDRESS_DCCP4_LISTEN)dit(bf(tt(DCCP4-LISTEN:<port>)))
+label(ADDRESS_DTLS)dit(bf(tt(OPENSSL-DTLS-CLIENT:<host>:<port>)))
 COMMENT(label(ADDRESS_HIDDEN)dit(bf(tt(HIDDEN:<x>))))
 label(OPTION_FROB)dit(bf(tt(frob[=<bool>])))
 label(OPTION_VISIBLE)dit(bf(tt(visible[=<bool>])) (bf(tt(vis[=<bool>]))))
@@ -59,10 +66,21 @@ socat by test
       WIDGET:<path>			groups=FD,NAMED
       WIDG				is an alias name for WIDGET
       STDIN				groups=FD
+      PIPE:<filename>			groups=FD,NAMED,FIFO
+      DCCP-CONNECT:<host>:<port>	groups=FD,SOCKET,DCCP
+      DCCP4-LISTEN:<port>		groups=FD,SOCKET,LISTEN,DCCP
+      OPENSSL-DTLS-CLIENT:<host>:<port>	groups=FD,SOCKET,OPENSSL
+      FOO:<x>				groups=FD,DCCP
    opts:
       frob		groups=FD		phase=LATE		type=BOOL
       vis		is an alias for visible
       visible		groups=FD		phase=LATE		type=BOOL
+      o-creat		groups=OPEN,FD		phase=LATE		type=BOOL
+      creat		is an alias for o-creat
+      create		is an alias for o-creat
+      binary		groups=OPEN		phase=LATE		type=BOOL
+      bin		is an alias for binary
+      o-binary		is an alias for binary
       glued		groups=FD,IPAPP,UDPLITEphase=LATE		type=BOOL
       openssl-method	is an alias for method
 """
@@ -85,13 +103,19 @@ Address types:
     WIDGET:<path>  a widget
     WIDG           alias of WIDGET
     STDIN          standard input
+    PIPE[:<filename>]  a pipe
+    SHELL[:<command>]  a shell
     WS:<url>       websocket extra
+    WS-LISTEN:<port>  websocket extra listen
 
 Address options:
   Form: option or option=value.
     frob      frobnicate
     visible   show it
     vis       alias of visible
+    creat     create if missing
+    create    alias of creat
+    o-creat   alias of creat
     alpn      go-only extra
 """
 
@@ -103,7 +127,12 @@ BASELINE = {
 }
 
 POLICY = {
-    "unsupported_addresses": {},
+    "unsupported_addresses": {
+        "DCCP": "intentional exception",
+        "DTLS": "stream TLS only",
+        "UDPLITE": "intentional exception",
+        "READLINE": "not implemented",
+    },
     "unsupported_options": {
         "udp-ignore-peerport": "documented but never implemented",
     },
@@ -113,7 +142,11 @@ POLICY = {
     },
     "go_only_addresses": {"WS": "extension"},
     "go_only_options": {"alpn": "extension"},
-    "platform_options": {"linux": [], "darwin": ["ip-recvif"], "windows": []},
+    "platform_options": {
+        "linux": [],
+        "darwin": ["ip-recvif"],
+        "windows": ["binary"],
+    },
 }
 
 
@@ -139,6 +172,10 @@ class YoParserTest(unittest.TestCase):
         self.assertIn("WIDGET", self.got.addresses)
         self.assertIn("WIDG", self.got.addresses)
         self.assertIn("STDIN", self.got.addresses)
+        self.assertIn("PIPE", self.got.addresses)
+        self.assertIn("SHELL", self.got.addresses)
+        self.assertIn("DCCP4-LISTEN", self.got.addresses)
+        self.assertIn("OPENSSL-DTLS-CLIENT", self.got.addresses)
         self.assertEqual(self.got.address_aliases["WIDG"], "WIDGET")
 
     def test_section_labels_are_not_addresses(self) -> None:
@@ -172,6 +209,8 @@ class HhhParserTest(unittest.TestCase):
         self.assertIn("WIDG", self.got.addresses)
         self.assertEqual(self.got.address_aliases["WIDG"], "WIDGET")
         self.assertEqual(self.got.address_groups["WIDGET"], "FD,NAMED")
+        self.assertEqual(self.got.address_groups["FOO"], "FD,DCCP")
+        self.assertEqual(self.got.option_aliases["create"], "o-creat")
 
     def test_options_aliases_and_glued_groups(self) -> None:
         self.assertIn("frob", self.got.options)
@@ -198,7 +237,12 @@ class GoHelpParserTest(unittest.TestCase):
         self.assertIn("WIDGET", got.addresses)
         self.assertEqual(got.address_aliases["WIDG"], "WIDGET")
         self.assertIn("WS", got.addresses)
+        self.assertIn("PIPE", got.addresses)
+        self.assertIn("SHELL", got.addresses)
+        self.assertNotIn("PIPE[", got.addresses)
+        self.assertNotIn("SHELL[", got.addresses)
         self.assertEqual(got.option_aliases["vis"], "visible")
+        self.assertEqual(got.option_aliases["create"], "creat")
         self.assertIn("alpn", got.options)
 
 
@@ -242,10 +286,43 @@ class CompareTest(unittest.TestCase):
         report = self._report()
         self.assertNotIn("frob", report.missing_options)
         self.assertNotIn("WIDGET", report.missing_addresses)
+        self.assertNotIn("PIPE", report.missing_addresses)
+        self.assertNotIn("SHELL", report.missing_addresses)
+        self.assertNotIn("DCCP-CONNECT", report.missing_addresses)
+        self.assertNotIn("DCCP4-LISTEN", report.missing_addresses)
+        self.assertNotIn("OPENSSL-DTLS-CLIENT", report.missing_addresses)
+        self.assertNotIn("FOO", report.missing_addresses)
         self.assertNotIn("WS", report.unexpected_addresses)
+        self.assertNotIn("WS-LISTEN", report.unexpected_addresses)
         self.assertNotIn("alpn", report.unexpected_options)
+        self.assertNotIn("create", report.unexpected_options)
+        self.assertNotIn("o-creat", report.unexpected_options)
+        self.assertNotIn("binary", report.missing_options)
         self.assertEqual(report.option_alias_mismatches, [])
         self.assertEqual(report.address_alias_mismatches, [])
+
+    def test_creat_create_o_creat_are_one_alias_class(self) -> None:
+        report = self._report()
+        self.assertFalse(
+            any(m["alias"] in {"create", "creat", "o-creat"} for m in report.option_alias_mismatches)
+        )
+
+    def test_windows_binary_covers_bin_and_o_binary(self) -> None:
+        go = parity.parse_go_help(SYNTHETIC_GO_HELP + "    binary     windows mode\n    bin        alias of binary\n")
+        report = self._report(go_help=go, goos="windows")
+        self.assertNotIn("binary", report.unexpected_options)
+        self.assertNotIn("bin", report.unexpected_options)
+        self.assertNotIn("o-binary", report.missing_options)
+        linux = self._report(goos="linux")
+        self.assertNotIn("binary", linux.missing_options)
+        self.assertNotIn("bin", linux.missing_options)
+        self.assertNotIn("o-binary", linux.missing_options)
+
+    def test_incomplete_v_is_a_failure(self) -> None:
+        report = self._report(feature_defines_missing=["WITH_OPENSSL"])
+        self.assertTrue(report.has_failures())
+        report_ok = self._report(feature_defines_missing=[])
+        self.assertFalse(report_ok.feature_defines_missing)
 
     def test_parser_only_does_not_fail_audit(self) -> None:
         report = self._report()
@@ -288,21 +365,35 @@ class CompareTest(unittest.TestCase):
 
 class CaptureHelpTest(unittest.TestCase):
     def _script(self, directory: Path, v_text: str, hhh_text: str) -> Path:
-        path = directory / "fake-socat"
-        path.write_text(
-            "#!/bin/sh\n"
-            'if [ "$1" = "-V" ]; then cat <<\'EOF\'\n'
-            f"{v_text}"
-            "EOF\n"
-            'elif [ "$1" = "-hhh" ]; then cat <<\'EOF\'\n'
-            f"{hhh_text}"
-            "EOF\n"
-            "else exit 2\n"
-            "fi\n",
+        py = directory / "fake_socat.py"
+        py.write_text(
+            "import sys\n"
+            f"V = {v_text!r}\n"
+            f"HHH = {hhh_text!r}\n"
+            "arg = sys.argv[1] if len(sys.argv) > 1 else ''\n"
+            "if arg == '-V':\n"
+            "    sys.stdout.write(V)\n"
+            "elif arg == '-hhh':\n"
+            "    sys.stdout.write(HHH)\n"
+            "else:\n"
+            "    raise SystemExit(2)\n",
             encoding="utf-8",
         )
-        path.chmod(path.stat().st_mode | stat.S_IEXEC)
-        return path
+        if os.name == "nt":
+            wrapper = directory / "fake-socat.cmd"
+            wrapper.write_text(
+                f'@echo off\r\n"{sys.executable}" "{py}" %*\r\n',
+                encoding="utf-8",
+            )
+            return wrapper
+        wrapper = directory / "fake-socat"
+        wrapper.write_text(
+            "#!/bin/sh\n"
+            f"exec {shlex.quote(sys.executable)} {shlex.quote(str(py))} \"$@\"\n",
+            encoding="utf-8",
+        )
+        wrapper.chmod(wrapper.stat().st_mode | stat.S_IEXEC)
+        return wrapper
 
     def test_capture_writes_only_under_outdir(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -370,6 +461,13 @@ class CliTest(unittest.TestCase):
             yo.write_text(SYNTHETIC_YO, encoding="utf-8")
             hhh.write_text(SYNTHETIC_HHH, encoding="utf-8")
             go.write_text(SYNTHETIC_GO_HELP, encoding="utf-8")
+            vpath = root / "socat-V.txt"
+            vpath.write_text(
+                "  #define WITH_OPENSSL 1\n"
+                "  #define WITH_READLINE 1\n"
+                "  #define WITH_LIBWRAP 1\n",
+                encoding="utf-8",
+            )
             policy.write_text(json.dumps(POLICY), encoding="utf-8")
             baseline.write_text(json.dumps(BASELINE), encoding="utf-8")
             extract = subprocess.run(
@@ -391,6 +489,8 @@ class CliTest(unittest.TestCase):
                     str(yo),
                     "--release-hhh",
                     str(hhh),
+                    "--release-v",
+                    str(vpath),
                     "--master-yo",
                     str(yo),
                     "--go-help",
@@ -412,6 +512,7 @@ class CliTest(unittest.TestCase):
             self.assertEqual(report["reviewed_master_commit"], BASELINE["reviewed_master_commit"])
             self.assertIn("openssl-method", report["parser_only_ignored"])
             self.assertNotIn("frob", report["missing_options"])
+            self.assertEqual(report["feature_defines_missing"], [])
 
     def test_compare_fail_on_diff(self) -> None:
         with tempfile.TemporaryDirectory() as td:
@@ -447,6 +548,92 @@ class CliTest(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(proc.returncode, 1)
+
+    def test_compare_fail_on_diff_when_hhh_lacks_v(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            yo = root / "socat.yo"
+            hhh = root / "socat.hhh"
+            go = root / "go.hhh"
+            policy = root / "policy.json"
+            baseline = root / "baseline.json"
+            yo.write_text(SYNTHETIC_YO, encoding="utf-8")
+            hhh.write_text(SYNTHETIC_HHH, encoding="utf-8")
+            go.write_text(SYNTHETIC_GO_HELP, encoding="utf-8")
+            policy.write_text(json.dumps(POLICY), encoding="utf-8")
+            baseline.write_text(json.dumps(BASELINE), encoding="utf-8")
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "compare",
+                    "--release-yo",
+                    str(yo),
+                    "--release-hhh",
+                    str(hhh),
+                    "--go-help",
+                    str(go),
+                    "--policy",
+                    str(policy),
+                    "--baseline",
+                    str(baseline),
+                    "--goos",
+                    "linux",
+                    "--fail-on-diff",
+                    "--workdir",
+                    str(root / "workdir"),
+                ],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(proc.returncode, 1)
+            report = json.loads(proc.stdout)
+            self.assertIn("socat -V output missing", report["feature_defines_missing"])
+
+
+class GitUrlTest(unittest.TestCase):
+    def test_https_and_git_protocol_are_the_same_official_repo(self) -> None:
+        https = "https://repo.or.cz/socat.git"
+        git = "git://repo.or.cz/socat.git"
+        self.assertTrue(parity.origin_is_official(git, https))
+        self.assertTrue(parity.origin_is_official(https + "/", git))
+        self.assertFalse(
+            parity.origin_is_official("https://github.com/dest-unreach/socat.git", https)
+        )
+
+
+class OriginSafetyTest(unittest.TestCase):
+    def test_wrong_origin_is_rejected_before_fetch(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            workdir = Path(td)
+            repo = workdir / "repo"
+            subprocess.run(["git", "init", "--bare", str(repo)], check=True, capture_output=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "remote", "add", "origin", "https://github.com/example/socat.git"],
+                check=True,
+                capture_output=True,
+            )
+            with self.assertRaises(SystemExit) as ctx:
+                parity.sync_classic(workdir, BASELINE)
+            self.assertIn("official repository", str(ctx.exception))
+
+
+class BuildPlanTest(unittest.TestCase):
+    def test_existing_makefile_plans_distclean_then_configure(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tree = Path(td)
+            (tree / "configure").write_text("#!/bin/sh\n", encoding="utf-8")
+            (tree / "Makefile").write_text("all:\n", encoding="utf-8")
+            self.assertEqual(
+                parity.classic_build_plan(tree),
+                ["distclean", "configure", "make"],
+            )
+
+    def test_fresh_tree_configures_without_distclean(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            tree = Path(td)
+            (tree / "configure").write_text("#!/bin/sh\n", encoding="utf-8")
+            self.assertEqual(parity.classic_build_plan(tree), ["configure", "make"])
 
 
 if __name__ == "__main__":
