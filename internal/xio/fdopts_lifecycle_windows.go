@@ -80,8 +80,8 @@ func applyFDLifecycleToStreamMode(s parse.Spec, stream relay.Stream, lateOnly bo
 	return nil
 }
 
-// ApplyFDLifecycleToConn applies PH_OPEN, PH_FD, then PH_LATE on a live
-// syscall.Conn.
+// ApplyFDLifecycleToConn applies after-open, after-fd, then late options
+// on a live syscall.Conn.
 func ApplyFDLifecycleToConn(c syscall.Conn, s parse.Spec) error {
 	if c == nil || !hasFDLifecycleOptions(s) {
 		return nil
@@ -104,7 +104,7 @@ func ApplyFDLifecycleToConn(c syscall.Conn, s parse.Spec) error {
 	return nil
 }
 
-// ApplyFDPhaseLifecycleToConn applies only PH_FD owner options.
+// ApplyFDPhaseLifecycleToConn applies after-fd owner options.
 func ApplyFDPhaseLifecycleToConn(c syscall.Conn, s parse.Spec) error {
 	if c == nil {
 		return nil
@@ -132,7 +132,8 @@ func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s parse.Spec) error {
 	return ApplyFDLifecycleToConn(sc, s)
 }
 
-// ApplyFDLifecycleOnFD applies PH_OPEN, PH_FD, then PH_LATE on a raw handle.
+// ApplyFDLifecycleOnFD applies after-open, after-fd, then late options on
+// a raw handle.
 func ApplyFDLifecycleOnFD(fd int, s parse.Spec) error {
 	return applyFDLifecycleOnHandle(uintptr(fd), s)
 }
@@ -147,9 +148,8 @@ func applyFDLifecycleOnHandle(fd uintptr, s parse.Spec) error {
 	return applyWindowsLate(fd, s)
 }
 
-// applyWindowsOpen implements classic's PH_OPEN O_NOINHERIT option on the
-// native Win32 handle. Go does not use Cygwin's fcntl/open flag layer, so the
-// equivalent operation is HANDLE_FLAG_INHERIT itself.
+// applyWindowsOpen applies noinherit on the native Win32 handle via
+// HANDLE_FLAG_INHERIT.
 func applyWindowsOpen(fd uintptr, s parse.Spec) error {
 	noteOptionPhase("OPEN")
 	for _, o := range s.Options {

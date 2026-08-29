@@ -18,7 +18,7 @@ import (
 var umaskMu sync.Mutex
 
 // WithUmask temporarily sets the process umask for named file/socket creation
-// (classic option umask=octal). Restores the previous mask afterward.
+// (umask=octal). Restores the previous mask afterward.
 func WithUmask(s parse.Spec, fn func() error) error {
 	umaskMu.Lock()
 	defer umaskMu.Unlock()
@@ -30,7 +30,7 @@ func WithUmask(s parse.Spec, fn func() error) error {
 	if !o.Has || v == "" {
 		return fmt.Errorf("%s: option %q requires a value", s.Type, o.Name)
 	}
-	// Classic TYPE_MODET is octal (umask=177 → 0o177).
+	// umask= is octal (177 → 0o177).
 	mask, err := strconv.ParseUint(v, 8, 32)
 	if err != nil || mask > 0o777 {
 		return fmt.Errorf("%s: invalid umask %q", s.Type, v)

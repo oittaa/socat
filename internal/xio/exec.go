@@ -24,7 +24,7 @@ func openEXEC(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 	if len(s.Params) < 1 {
 		return nil, fmt.Errorf("EXEC requires command")
 	}
-	// Classic: spaces separate argv; our parser may have split on ':' so rejoin.
+	// Spaces separate argv; the address parser may have split on ':' so rejoin.
 	// Quoted commands land as a single param (e.g. EXEC:"ls -l").
 	cmdStr := strings.Join(s.Params, ":")
 	return startProcess(ctx, s, mode, g, cmdStr, false)
@@ -44,9 +44,9 @@ func openSHELL(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened
 	return startCmd(ctx, s, mode, g, shellCommand(ctx, s, cmdStr, hasCommand))
 }
 
-// shellCommand matches classic SHELL: execl($SHELL, basename, [-c, command], NULL).
-// nofork rebuilds the command in runExecNoFork, so this helper is the single
-// place that honors shell= and $SHELL.
+// shellCommand builds SHELL as $SHELL (or shell=/bin/sh) with argv0 as the
+// basename and optional -c command. nofork rebuilds via runExecNoFork, so
+// shell= and $SHELL are honored in one place.
 func shellCommand(ctx context.Context, s parse.Spec, cmdStr string, hasCommand bool) *exec.Cmd {
 	shell := s.OptionValue("shell", "")
 	if shell == "" {
@@ -71,7 +71,7 @@ func startProcess(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmdSt
 	if useShell {
 		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
 	} else {
-		// Split on whitespace for argv; classic EXEC uses simple space separation.
+		// Split on whitespace for argv.
 		parts := splitExecArgs(cmdStr)
 		if len(parts) == 0 {
 			return nil, fmt.Errorf("empty EXEC command")
@@ -81,25 +81,10 @@ func startProcess(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmdSt
 	return startCmd(ctx, s, mode, g, cmd)
 }
 
-// applyExecChildOptions applies classic dash/login (GROUP_EXEC, PH_PREEXEC)
-// and setpgid/pgid (GROUP_FORK, PH_LATE) on the child *exec.Cmd only.
-//
-// Classic baselines: tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba
-// and official master af5388c898c7bb60997935aee93c223deba60c4a.
-//
-// dash (xio-exec.c): basename of argv[0], then prefix '-' when the bool is
-// set; execvp still uses the original path. login is the nickname. GROUP_EXEC
-// is also on SYSTEM and SHELL, so parse accepts the option there, but only
-// xioopen_exec consumes it. SYSTEM/SHELL leave it unused and abort with
-// "option(s) remained unused" (xio-system.c / xio-shell.c). This port rejects
-// dash/login on SYSTEM/SHELL instead of turning them into login shells.
-//
-// setpgid (xio-process.c / xioopts.c OPT_SETPGID): PH_LATE on the child.
-// TYPE_INT: bare flag stores 1. Official doc/socat.yo OPTION_SETPGID says
-// omitted, 0, and 1 all make the process leader of a new process group. C
-// calls setpgid(0, value); on Linux setpgid(0, 1) is EPERM and classic
-// Warn()s then continues without a new group. Go SysProcAttr.Setpgid turns
-// that into a hard Start failure, so omitted/0/1 map to Pgid=0 (new group).
+// applyExecChildOptions applies dash/login and setpgid on the child *exec.Cmd.
+// dash prefixes argv[0] with '-' on EXEC only; SYSTEM/SHELL reject it.
+// setpgid: omitted, 0, and 1 all make a new process group (Pgid=0). Do not
+// pass Pgid=1: Linux setpgid(0, 1) is EPERM and would fail Start.
 func applyExecChildOptions(s parse.Spec, cmd *exec.Cmd) error {
 	if err := applyDashArgv0(s, cmd); err != nil {
 		return err
@@ -136,7 +121,7 @@ func applySetpgid(s parse.Spec, cmd *exec.Cmd) error {
 	if !ok {
 		return nil
 	}
-	n := 1 // classic TYPE_INT with no '=': parseopts_table stores 1
+	n := 1 // bare flag stores 1
 	if o.Has {
 		v, err := ParseIntAny(o.Value)
 		if err != nil {
@@ -144,8 +129,8 @@ func applySetpgid(s parse.Spec, cmd *exec.Cmd) error {
 		}
 		n = v
 	}
-	// Man page: omitted, 0, and 1 → new process group. Go Pgid=0 is
-	// setpgid(0, 0). Do not pass Pgid=1: Linux setpgid(0, 1) is EPERM.
+	// Omitted, 0, and 1 → new process group. Pgid=0 is setpgid(0, 0).
+	// Do not pass Pgid=1: Linux setpgid(0, 1) is EPERM.
 	pgid := n
 	if n == 0 || n == 1 {
 		pgid = 0
@@ -158,10 +143,10 @@ func applySetpgid(s parse.Spec, cmd *exec.Cmd) error {
 	return nil
 }
 
-// splitExecArgs splits an EXEC command line like classic nestlex/argv:
-// unquoted runs of spaces separate args (no empty args from bare spaces);
-// double-quoted segments keep spaces and may be empty ("" → empty arg);
-// \" inside quotes is a literal quote (so -c 'echo "$1"' works).
+// splitExecArgs splits an EXEC command line: unquoted runs of spaces
+// separate args (no empty args from bare spaces); double-quoted segments
+// keep spaces and may be empty ("" → empty arg); \" inside quotes is a
+// literal quote (so -c 'echo "$1"' works).
 func splitExecArgs(s string) []string {
 	var args []string
 	var cur strings.Builder
@@ -205,15 +190,13 @@ func splitExecArgs(s string) []string {
 	return args
 }
 
-// runExecNoFork runs EXEC/SYSTEM/SHELL with nofork on an already-open peer stream
-// (classic: no relay — the command inherits the peer as its data descriptors).
+// runExecNoFork runs EXEC/SYSTEM/SHELL with nofork on an already-open peer
+// stream (no relay — the command inherits the peer as its data descriptors).
 // mode is the EXEC address mode: RDWR (echo), Write (-u right), Read (-u left).
-//
-// Default fdi/fdo are 0 and 1 (classic xio-progcall.c !withfork). Custom
-// fdin/fdout reuse the forked child mapper: ExtraFiles sources plus Dup2 of
-// WRFD onto fdo, then RDFD onto fdi, then stderr from fdo. Unrelated 0/1/2
-// stay inherited. Mapping runs in the child so a failed Start cannot leave
-// this process half-remapped (classic Dup2's then exec's in-place).
+// Default fdi/fdo are 0 and 1. Custom fdin/fdout reuse the forked child
+// mapper: ExtraFiles sources plus Dup2 of WRFD onto fdo, then RDFD onto fdi,
+// then stderr from fdo. Unrelated 0/1/2 stay inherited. Mapping runs in the
+// child so a failed Start cannot leave the parent half-remapped.
 func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Global, mode Mode) error {
 	cmdStr := strings.Join(s.Params, ":")
 	var cmd *exec.Cmd
@@ -281,15 +264,13 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 
 	if fdRedirect {
 		// Preserve unrelated 0/1/2; ExtraFiles become child fd 3+ and the
-		// mapper Dup2's them onto fdi/fdo (tag-1.8.1.3
-		// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-		// af5388c898c7bb60997935aee93c223deba60c4a is the same).
+		// mapper Dup2's them onto fdi/fdo.
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.ExtraFiles = extra
 	} else {
-		// Classic nofork defaults (fdi=0, fdo=1):
+		// nofork defaults (fdi=0, fdo=1):
 		//   RDWR:  stdin=peer.R, stdout=peer.W  (STDIO: 0 and 1; socket: same FD twice)
 		//   WRONLY (-u right EXEC): stdin=peer.R, stdout=process stdout (so echo appears)
 		//   RDONLY (-u left EXEC):  stdin=process stdin, stdout=peer.W
@@ -346,10 +327,9 @@ func wrapNoForkFDCommand(
 }
 
 // childWaitExitCode maps cmd.Wait to a process exit status. Go's
-// exec.ExitError.ExitCode is -1 when the child was signaled; classic nofork
-// (in-place exec) and POSIX shells report 128+signum. Forked EXEC still
-// skips those statuses in finishExec so a PTY-master SIGHUP does not become
-// EXEC_RC.
+// exec.ExitError.ExitCode is -1 when the child was signaled; POSIX shells
+// report 128+signum. Forked EXEC still skips those statuses in finishExec
+// so a PTY-master SIGHUP does not become EXEC_RC.
 func childWaitExitCode(err error) (int, bool) {
 	if err == nil {
 		return 0, true
@@ -364,7 +344,7 @@ func childWaitExitCode(err error) (int, bool) {
 	return ee.ExitCode(), true
 }
 
-// peerStdioFiles returns child stdin/stdout Files for nofork, matching classic.
+// peerStdioFiles returns child stdin/stdout Files for nofork.
 func peerStdioFiles(st relay.Stream, mode Mode) (in, out *os.File, err error) {
 	r, w, single, err := streamRWFiles(st)
 	if err != nil {
@@ -433,10 +413,10 @@ func peerStdioFiles(st relay.Stream, mode Mode) (in, out *os.File, err error) {
 }
 
 // noForkPeerExtraFiles dups the peer's data descriptors for ExtraFiles so
-// classic fdin/fdout mapping can run in the child. sameFD is a socket-like
-// peer (one ExtraFiles slot at child fd 3). Two distinct pipes use fd 3
-// (input) then fd 4 (output), matching extraSources. streamRWFiles may dup a
-// conn into single; that copy is closed here after the ExtraFiles dup.
+// fdin/fdout mapping can run in the child. sameFD is a socket-like peer
+// (one ExtraFiles slot at child fd 3). Two distinct pipes use fd 3 (input)
+// then fd 4 (output), matching extraSources. streamRWFiles may dup a conn
+// into single; that copy is closed here after the ExtraFiles dup.
 func noForkPeerExtraFiles(st relay.Stream, mode Mode) (files []*os.File, sameFD bool, err error) {
 	r, w, single, err := streamRWFiles(st)
 	if err != nil {
@@ -592,14 +572,10 @@ func asOSFile(x any) *os.File {
 	return nil
 }
 
-// rejectUnusedExecPastSocketOptions fails when a PH_PASTSOCKET socket option
-// would be silently ignored on EXEC/SYSTEM/SHELL pipes, pty, or nofork.
-// Classic leftover-rejects those options on user-selected pipes/pty/nofork
-// (xio-progcall.c usepipes/usepty/nofork at tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same). Canonical Name is
-// classic defname after alias fold. end-close is not usepipes; it keeps the
-// default socketpair and applies popts on sv[1].
+// rejectUnusedExecPastSocketOptions fails when an after-socket option would
+// be silently ignored on EXEC/SYSTEM/SHELL pipes, pty, or nofork. Canonical
+// Name is after alias fold. end-close is not pipes; it keeps the default
+// socketpair and applies those options on the child endpoint.
 func rejectUnusedExecPastSocketOptions(s parse.Spec) error {
 	for _, o := range s.Options {
 		if isPastSocketActionOption(o) {
@@ -625,10 +601,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 	userPipes := s.BoolOption("pipes")
 	userPty := s.BoolOption("pty")
-	// Classic xio-progcall.c (tag-1.8.1.3
-	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-	// af5388c898c7bb60997935aee93c223deba60c4a is the same): forked
-	// EXEC/SYSTEM/SHELL defaults to socketpair, including unidirectional
+	// Forked EXEC/SYSTEM/SHELL defaults to socketpair, including unidirectional
 	// mode and fdin/fdout. fdin/fdout only change Dup2 targets. pipes and
 	// pty are user-selected transports; pipes+pty ignores pipes.
 	usePipes := userPipes
@@ -640,15 +613,14 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		usePipes = false
 	}
 
-	// Classic xio-progcall.c: end-close (howtoend=END_CLOSE) is not usepipes.
-	// Keep the default socketpair (and PTY when the user asked for it). Shared
-	// LISTEN,fork reuse is serialized in runForkListenRight (leftMu +
-	// sessionWrap) so a Close poke cannot leave an expired deadline on the
-	// next accept. Do not switch transport here to paper over that.
+	// end-close is not pipes. Keep the default socketpair (and PTY when the
+	// user asked for it). Shared LISTEN,fork reuse is serialized in
+	// runForkListenRight (leftMu + sessionWrap) so a Close poke cannot leave
+	// an expired deadline on the next accept. Do not switch transport here.
 
-	// Classic leftover-rejects PH_PASTSOCKET on user-selected pipes, pty, or
-	// nofork. Socketpair (including end-close) applies those options on the
-	// child endpoint instead of a silent no-op.
+	// Reject after-socket options on user-selected pipes, pty, or nofork.
+	// Socketpair (including end-close) applies those options on the child
+	// endpoint instead of a silent no-op.
 	if usePipes || usePty {
 		if err := rejectUnusedExecPastSocketOptions(s); err != nil {
 			return nil, err
@@ -694,7 +666,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		}
 	}
 
-	// Inject classic SOCAT_* connection environment for SYSTEM/EXEC children.
+	// Inject SOCAT_* connection environment for SYSTEM/EXEC children.
 	if g != nil {
 		cmd.Env = childEnviron(g)
 	}
@@ -706,9 +678,9 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		return startCmdPty(s, mode, g, cmd, fdRedirect)
 	}
 
-	// Classic: child stderr inherits socat's stderr unless option stderr
-	// redirects it onto the data channel. Merging stderr into the data FD
-	// corrupts binary protocols (SOCKS4 echo scripts write diagnostics to stderr).
+	// Child stderr inherits socat's stderr unless option stderr redirects it
+	// onto the data channel. Merging stderr into the data FD corrupts binary
+	// protocols (SOCKS4 echo scripts write diagnostics to stderr).
 	if !s.BoolOption("stderr") {
 		cmd.Stderr = os.Stderr
 	}
@@ -729,7 +701,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		return nil, err
 	}
 
-	// EXEC_FDS: only FDs 0/1/2 may remain in the child.
+	// Only FDs 0/1/2 may remain in the child.
 	startErr := startWithChildUmask(s, cmd, g)
 	if startErr != nil {
 		for _, f := range cleanup {
@@ -777,11 +749,8 @@ func processFDPair(s parse.Spec, mode Mode) (fdin, fdout string, err error) {
 // unusedFDNumbers still keeps historical prefix temps in 3–9.
 const dashFDRedirectMax = 9
 
-// Classic's compiled option catalog advertises fdin/fdout as TYPE_USHORT
-// before xio-progcall.c calls dup2. The man page describes fdnum more broadly
-// as an unsigned int, while C silently truncates overflow on assignment to the
-// ushort option value. Follow the advertised type but reject overflow instead
-// of wrapping it onto an unrelated descriptor.
+// fdin/fdout are unsigned short (0..65535). Overflow is rejected instead of
+// wrapping onto an unrelated descriptor.
 const maxProcessFD = 1<<16 - 1
 
 func normalizeProcessFD(value, name string) (string, error) {
@@ -902,14 +871,8 @@ func startCmdSocketpair(s parse.Spec, mode Mode, cmd *exec.Cmd, fdRedirect bool)
 	}
 	parent := os.NewFile(uintptr(fds[0]), "exec-parent")
 	child := os.NewFile(uintptr(fds[1]), "exec-child")
-	// Classic xio-progcall.c applies PH_PASTSOCKET with copts on sv[0]
-	// (parent) and popts on sv[1] (child) (tag-1.8.1.3
-	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-	// af5388c898c7bb60997935aee93c223deba60c4a is the same). After
-	// moveopts(GROUP_FORK|GROUP_EXEC|GROUP_PROCESS), GROUP_SOCKET options
-	// remain only in popts, so they affect the child endpoint. Apply the
-	// Spec.Options PASTSOCKET walk to child only. Standalone SOCKETPAIR
-	// still applies PH_ALL to both descriptors.
+	// After socket(), apply Spec.Options to the child endpoint only.
+	// Standalone SOCKETPAIR still applies to both descriptors.
 	if err := ApplySocketOptions(int(child.Fd()), s); err != nil {
 		_ = parent.Close()
 		_ = child.Close()
@@ -924,8 +887,6 @@ func startCmdSocketpair(s parse.Spec, mode Mode, cmd *exec.Cmd, fdRedirect bool)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	} else {
-		// Classic child wiring (xio-progcall.c): Dup2(sv[1], fdi) only when
-		// rw != XIO_RDONLY, Dup2(sv[1], fdo) only when rw != XIO_WRONLY.
 		// Unused stdio stays inherited so `socat -u EXEC:cat STDOUT` reads
 		// process stdin and `socat -u STDIN EXEC:cat` writes process stdout.
 		switch mode {
@@ -987,15 +948,14 @@ func execSocketpairParentStream(mode Mode, parent *os.File, stype int) relay.Str
 	}
 }
 
-// startWithChildUmask applies classic umask= around cmd.Start and marks FDs ≥3
+// startWithChildUmask applies umask= around cmd.Start and marks FDs ≥3
 // CLOEXEC so EXEC children inherit only 0/1/2 plus explicitly mapped fdi/fdo
-// descriptors (EXEC_FDS / EXEC_SNIFF), then registers sighup/sigint/sigquit
-// (classic PH_LATE OFUNC_SIGNAL after pid is known).
+// descriptors, then registers sighup/sigint/sigquit after pid is known.
 func startWithChildUmask(s parse.Spec, cmd *exec.Cmd, g *Global) error {
 	if err := validateExecParentSignals(s); err != nil {
 		return err
 	}
-	// Mark ALL FDs ≥3 CLOEXEC (including the socketpair/pipe/PTY ends we pass
+	// Mark ALL FDs ≥3 CLOEXEC (including the socketpair/pipe/PTY ends passed
 	// as Stdin/Stdout). Go's fork/exec dup2's them to 0/1/2 first, then closes
 	// CLOEXEC descriptors, so the high-numbered originals are not leaked.
 	setCloexecAllFrom(3)
@@ -1016,7 +976,7 @@ func startWithChildUmask(s parse.Spec, cmd *exec.Cmd, g *Global) error {
 	return nil
 }
 
-// killWaitUnregisterChild reaps a started EXEC child and drops OFUNC_SIGNAL
+// killWaitUnregisterChild reaps a started EXEC child and drops signal
 // registrations. Post-Start failures (PTY master lifecycle, WrapCommon, too
 // many pids) must not leave the pid in the four-slot tables: a later
 // LISTEN,fork child can reuse the number and receive a stale kill.
@@ -1055,8 +1015,8 @@ func setCloexecAllFrom(from int) {
 	}
 }
 
-// openExecPTYPair allocates a PTY pair for an EXEC child, applies the classic
-// session/controlling-terminal attributes, and configures slave termios.
+// openExecPTYPair allocates a PTY pair for an EXEC child, applies session/
+// controlling-terminal attributes, and configures slave termios.
 func openExecPTYPair(cmd *exec.Cmd, s parse.Spec) (*os.File, *os.File, error) {
 	master, slave, err := OpenPTYPair()
 	if err != nil {
@@ -1072,9 +1032,8 @@ func openExecPTYPair(cmd *exec.Cmd, s parse.Spec) (*os.File, *os.File, error) {
 		logx.CloseQuiet(slave)
 		return nil, nil, err
 	}
-	// Classic moves GROUP_NAMED perm/user/group to the PTY slave. Applying
-	// them to the master changes the wrong descriptor and can fail differently
-	// across platforms.
+	// perm/user/group apply to the PTY slave. Applying them to the master
+	// changes the wrong descriptor and can fail differently across platforms.
 	if err := ApplyNamedAttrs(slave.Name(), s, slave); err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
@@ -1090,9 +1049,7 @@ func closeExecPTY(master, slave *os.File) {
 }
 
 // startCmdPtyFDRedirect keeps the PTY slave as ExtraFiles fd 3 and lets the
-// descriptor mapper duplicate it onto fdi/fdo. Classic does not make
-// fdin/fdout select pipes (xio-progcall.c; empirical tag-1.8.1.3
-// SYSTEM:printf O; printf D >&4,pty,fdin=3,fdout=4).
+// descriptor mapper duplicate it onto fdi/fdo. fdin/fdout do not select pipes.
 func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
 	master, slave, err := openExecPTYPair(cmd, s)
 	if err != nil {
@@ -1153,7 +1110,7 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 	return finishExec(s, g, cmd, stream, []func(){func() { logx.CloseQuiet(master) }}, waitChild)
 }
 
-// startCmdPty runs the child with a pseudo-terminal (classic EXEC/SYSTEM,pty).
+// startCmdPty runs the child with a pseudo-terminal.
 //
 // Unidirectional dual forms inherit the unused stdio of the socat process:
 //
@@ -1303,13 +1260,13 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 		close(done)
 	}()
 
-	// How long to wait for child flush after transfer ends (classic -t linger).
+	// How long to wait for child flush after transfer ends (-t linger).
 	linger := 500 * time.Millisecond
 	if g != nil && g.Linger > 0 {
 		linger = g.Linger
 	}
 	// shut-none: do not kill the child; wait for natural exit (with a cap).
-	// Derived from the same ordered howtoshut selector as WrapCommon.
+	// Derived from the same ordered shut-* selector as WrapCommon.
 	shutNone := ShutNoneSelected(s)
 
 	o := &Opened{
@@ -1324,14 +1281,13 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 		// Give write-only children (od -c) time to flush after stdin EOF.
 		waitFor := linger
 		if waitChild {
-			// Classic xioshutdown(END_SHUTDOWN_KILL) on a write-only
-			// EXEC/SHELL: Alarm(1); waitpid. Holds max-children slots
-			// until the child finishes (POSIXMQ_RECV_MAXCHILDREN).
+			// Write-only EXEC/SHELL: wait at most one second (holds
+			// max-children slots until the child finishes).
 			waitFor = time.Second
 		}
 		if s.BoolOption("pty") {
-			// Extra second so SYSTEM,pty scripts (RESTORE_TTY) can finish
-			// after transfer linger, before we close the PTY master.
+			// Extra second so SYSTEM,pty scripts can finish after transfer
+			// linger, before the PTY master closes.
 			waitFor = linger + time.Second
 		}
 		if shutNone {
@@ -1359,8 +1315,8 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 			return
 		}
 		if code != 0 && g != nil {
-			// Signal deaths: Go reports -1; classic 128+n. Not EXEC_RC failures
-			// (PTY master close often SIGHUPs cat after a successful echo).
+			// Signal deaths: Go reports -1; 128+n is the POSIX status.
+			// Not EXEC_RC failures (PTY master close often SIGHUPs cat).
 			if code < 0 || code >= 128 {
 				return
 			}

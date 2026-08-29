@@ -15,15 +15,15 @@ import (
 
 type resolverDialFunc func(ctx context.Context, network, address string) (net.Conn, error)
 
-// resolverRewriteDNSTransport implements classic xio_res_init RES_USEVC without
-// mutating process-global _res. Setting Dial implies PreferGo.
+// resolverRewriteDNSTransport implements res-usevc without mutating the
+// process-global resolver. Setting Dial implies PreferGo.
 //
 // forceTCP true (res-usevc): rewrite udp* to tcp* so DNS is TCP-only.
-// forceTCP false (res-usevc=0): clear RES_USEVC. UDP Dials stay UDP. A TCP
-// Dial after that UDP (Go's truncation retry) uses real TCP so the sequence
-// is UDP then TCP, not UDP then another UDP-then-TCP. A TCP Dial with no
-// prior UDP (resolv.conf use-vc) still speaks DNS-over-TCP framing to the
-// caller, sends the first query over UDP, and retries over TCP when the UDP
+// forceTCP false (res-usevc=0): UDP Dials stay UDP. A TCP Dial after that
+// UDP (truncation retry) uses real TCP so the sequence is UDP then TCP,
+// not UDP then another UDP-then-TCP. A TCP Dial with no prior UDP
+// (resolv.conf use-vc) still speaks DNS-over-TCP framing to the caller,
+// sends the first query over UDP, and retries over TCP when the UDP
 // response has the TC bit. Returning a UDP PacketConn for a TCP Dial would
 // make Go skip that retry (it already believes it used TCP).
 func resolverRewriteDNSTransport(base *net.Resolver, forceTCP bool) *net.Resolver {
@@ -82,7 +82,7 @@ func newDNSUDPThenTCPConn(ctx context.Context, dial resolverDialFunc, tcpNetwork
 	}
 }
 
-// dnsUDPThenTCPConn is a DNS-over-TCP stream that clears RES_USEVC: the first
+// dnsUDPThenTCPConn is a DNS-over-TCP stream for res-usevc=0: the first
 // query is UDP, and a TC-bit response is retried over TCP with length prefixes.
 // It must not implement net.PacketConn.
 type dnsUDPThenTCPConn struct {

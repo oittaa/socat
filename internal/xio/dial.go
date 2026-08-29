@@ -14,16 +14,15 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// Linux AF_* values used in classic "opening connection to AF=N …" logs.
-// test.sh greps these lines for multi-address connect coverage.
+// Linux AF_* values used in "opening connection to AF=N …" logs.
 const (
 	afINET  = 2  // AF_INET
 	afINET6 = 10 // AF_INET6 on Linux (and most Unix)
 )
 
-// DialTCPAll resolves host and tries each address in order (classic multi-A/AAAA).
+// DialTCPAll resolves host and tries each address in order.
 // network is "tcp", "tcp4", or "tcp6". Logs Notice "opening connection to AF=…"
-// for each attempt so TRY_ADDRS_* tests pass.
+// for each attempt.
 // port may be numeric or a /etc/services name (TCP4SERVICE).
 func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g *Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
 	host = StripBrackets(host)
@@ -48,7 +47,7 @@ func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 		af := afForNetwork(network, ip)
 		raddr := &net.TCPAddr{IP: ip, Port: portNum}
 		if g != nil && g.Log != nil {
-			// Match classic: "opening connection to AF=2 127.0.0.1:9"
+			// "opening connection to AF=2 127.0.0.1:9"
 			g.Log.Noticef("opening connection to AF=%d %s", af, formatTCPAddr(network, ip, raddr.Port))
 		}
 
@@ -93,7 +92,7 @@ func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {
-				// Classic uses Notice for intermediate failures, Warning for last.
+				// Notice for intermediate failures, Warning for last.
 				g.Log.Noticef("connect AF=%d %s: %s", af, formatTCPAddr(netw, ip, raddr.Port), err)
 			}
 			continue
@@ -111,7 +110,7 @@ func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 	return nil, lastErr
 }
 
-// resolvePortNum accepts a numeric port or /etc/services name (classic TCP:host:http).
+// resolvePortNum accepts a numeric port or /etc/services name (TCP:host:http).
 func ResolvePortNum(network, port string) (int, error) {
 	if port == "" {
 		return 0, fmt.Errorf("empty port")
@@ -127,7 +126,7 @@ func ResolvePortNum(network, port string) (int, error) {
 	case strings.HasPrefix(network, "udp"):
 		proto = "udp"
 	case strings.HasPrefix(network, "sctp"):
-		// Classic SCTP_SERVICENAME: try SCTP, then TCP names from /etc/services.
+		// SCTP: try SCTP, then TCP names from /etc/services.
 		if p, err := net.LookupPort("sctp", port); err == nil {
 			return p, nil
 		}
@@ -136,7 +135,7 @@ func ResolvePortNum(network, port string) (int, error) {
 	return net.LookupPort(proto, port)
 }
 
-// ResolveConnectIPs returns remote IPs in classic try order.
+// ResolveConnectIPs returns remote IPs in try order.
 // network may be tcp/tcp4/tcp6 or sctp/sctp4/sctp6 (SCTP uses the TCP hint).
 func ResolveConnectIPs(ctx context.Context, network, host string, s parse.Spec, g *Global) ([]net.IP, error) {
 	switch network {
@@ -166,7 +165,7 @@ func afForNetwork(network string, ip net.IP) int {
 	return afINET6
 }
 
-// resolveConnectIPs returns remote IPs in classic try order.
+// resolveConnectIPs returns remote IPs in try order.
 func resolveConnectIPs(ctx context.Context, network, host string, s parse.Spec, g *Global) ([]net.IP, error) {
 	// Literal IP: single address, no DNS.
 	if ip := net.ParseIP(host); ip != nil {
@@ -189,9 +188,9 @@ func resolveConnectIPs(ctx context.Context, network, host string, s parse.Spec, 
 		return nil, err
 	}
 
-	// Preference order for dual-stack ("tcp"): explicit ai-passive (classic
-	// xioresolve prefers IPv6 when AI_PASSIVE && pf==UNSPEC), then -4/-6/-0,
-	// SOCAT_PREFERRED_RESOLVE_IP, then the IPv4 build default.
+	// Preference order for dual-stack ("tcp"): explicit ai-passive prefers
+	// IPv6 when set, then -4/-6/-0, SOCAT_PREFERRED_RESOLVE_IP, then the
+	// IPv4 default.
 	if hint == "ip" && len(ips) > 1 {
 		if s.BoolOption("ai-passive") {
 			sort.SliceStable(ips, func(i, j int) bool {
@@ -266,7 +265,7 @@ func localIPFamiliesFromAddrs(addrs []net.Addr) (v4, v6 bool) {
 }
 
 // BindTCPAddrForRemote picks a local TCPAddr matching remote's family.
-// bindOpt may be host, [ipv6], or host:port / [ipv6]:port (classic bind=).
+// bindOpt may be host, [ipv6], or host:port / [ipv6]:port (bind=).
 // sourceport is used when bind has no port. skip=true means try next remote.
 func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bindOpt, sourceport, network string) (laddr *net.TCPAddr, skip bool, err error) {
 	if bindOpt == "" && (sourceport == "" || sourceport == "0") {
@@ -297,7 +296,7 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bind
 
 	if bindHost == "" {
 		// sourceport only: wildcard of matching family, or loopback when
-		// classic AI_PASSIVE is explicitly unset (ai-passive=0).
+		// ai-passive=0.
 		if listenAIPassive(s) {
 			if want4 {
 				return &net.TCPAddr{IP: net.IPv4zero, Port: port}, false, nil
@@ -312,7 +311,7 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bind
 
 	bindHost = StripBrackets(bindHost)
 	if ip := net.ParseIP(bindHost); ip != nil {
-		// Classic forced-IPv4 resolves bind= as AF_INET; an IPv6 wildcard
+		// Forced-IPv4 resolves bind= as AF_INET; an IPv6 wildcard
 		// does not become 0.0.0.0. Skip this remote and try the next.
 		if (ip.To4() != nil) != want4 {
 			return nil, true, nil
@@ -345,8 +344,8 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bind
 	return &net.TCPAddr{IP: ips[0], Port: port}, false, nil
 }
 
-// dialTCPLowport binds a classic lowport (random start in 640-1023, walk down
-// with wrap) then connects. Classic fails closed when no privileged port is
+// dialTCPLowport binds a lowport (random start in 640-1023, walk down
+// with wrap) then connects. Fail closed when no privileged port is
 // available instead of falling back to an ephemeral port.
 func dialTCPLowport(ctx context.Context, network string, raddr, laddr *net.TCPAddr, timeout time.Duration, control func(network, address string, c syscall.RawConn) error, g *Global) (net.Conn, error) {
 	ip := net.IPv4zero

@@ -37,7 +37,7 @@ func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, _ string) error {
 	}
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
-		// Send and recv IP/ancillary options are PH_PASTSOCKET
+		// Send and recv IP/ancillary options apply after socket()
 		// (DialControl / ListenControl → ApplyPastSocketPhase).
 		optionErr = ApplyLateSocketOptions(int(fd), s)
 		if optionErr == nil {

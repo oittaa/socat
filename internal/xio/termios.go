@@ -30,8 +30,8 @@ type termiosFlag struct {
 	name string
 	word termiosWord
 	mask termiosBits
-	// clr, when non-zero, is a field mask: classic OFUNC_TERMIOS_PATTERN
-	// (cs8, nl1, …). Apply clears clr then ORs mask. BOOL flags leave clr=0.
+	// clr, when non-zero, is a field mask (cs8, nl1, …). Apply clears clr
+	// then ORs mask. BOOL flags leave clr=0.
 	clr termiosBits
 }
 
@@ -52,10 +52,7 @@ type termiosSetFlags struct {
 	flags termiosBits
 }
 
-// Flags we honor (classic names). Advertise only these.
-// Classic baseline: https://repo.or.cz/socat.git tag-1.8.1.3
-// (12c08bf66d709fba17035ce95d85bd218428d9ba); official master
-// af5388c898c7bb60997935aee93c223deba60c4a has the same xio-termios.c.
+// Flags we honor. Advertise only these.
 var termiosFlags = []termiosFlag{
 	{"ignbrk", wordI, termiosBits(unix.IGNBRK), 0},
 	{"brkint", wordI, termiosBits(unix.BRKINT), 0},
@@ -99,8 +96,7 @@ var termiosFlags = []termiosFlag{
 	{"iexten", wordL, termiosBits(unix.IEXTEN), 0},
 }
 
-// Linux glibc c_cc indices advertised in the tag-1.8.1.3 -hhh dump.
-// HP-UX vdsusp/dsusp stays docs-only (not defined here).
+// Linux glibc c_cc indices we advertise. HP-UX vdsusp/dsusp stays docs-only.
 var termiosChars = []termiosCC{
 	{"vintr", unix.VINTR},
 	{"vquit", unix.VQUIT},
@@ -127,7 +123,7 @@ func allTermiosChars() []termiosCC {
 	return out
 }
 
-// termiosCharAliases are classic optionnames[] nicknames of termiosChars.
+// termiosCharAliases are nicknames of termiosChars.
 // Folded at parse time; listed in -hhh via TermiosHelpNames.
 var termiosCharAliases = []string{
 	"intr", "quit", "erase", "kill", "eof", "eol", "eol2",
@@ -322,10 +318,8 @@ func parseTermiosBool(o parse.Option) (bool, error) {
 }
 
 func parseTermiosByte(name string, o parse.Option) (byte, error) {
-	// The man page documents every control character as name=<byte>. Classic's
-	// C parser happens to turn a bare TYPE_BYTE into 1, but the documented
-	// interface is authoritative here. Numeric overflow otherwise follows
-	// classic and clamps to UCHAR_MAX.
+	// The man page documents every control character as name=<byte>. A bare
+	// flag is rejected here. Overflow clamps to 255.
 	v := strings.TrimSpace(o.Value)
 	if !o.Has || v == "" {
 		return 0, fmt.Errorf("%s: value required", name)
@@ -347,9 +341,8 @@ func parseTermiosUint(name string, o parse.Option) (uint32, error) {
 	}
 	n, err := strconv.ParseUint(v, 0, 32)
 	if err != nil {
-		// Classic's TYPE_UINT parser distinguishes a value with no numeric
-		// prefix from a valid prefix followed by junk. test.sh treats these
-		// diagnostics as part of the command-line compatibility contract.
+		// Distinguish a value with no numeric prefix from a valid prefix
+		// followed by junk (different diagnostics).
 		for i := len(v) - 1; i > 0; i-- {
 			if _, prefixErr := strconv.ParseUint(v[:i], 0, 32); prefixErr == nil {
 				return 0, fmt.Errorf("option %q: trailing garbage %q", name, v[i:])
@@ -389,15 +382,13 @@ func parseTermiosSetFlags(o parse.Option) (termiosSetFlags, error) {
 	if err != nil || word < 0 || word > 3 {
 		return termiosSetFlags{}, fmt.Errorf("%s: word must be 0..3", o.Name)
 	}
-	// Classic parses TYPE_INT_ULONG at the host unsigned-long width, then its
-	// OFUNC_TERMIOS_SETFLAGS path reads the low unsigned-int member and passes
-	// that to tcflag_t. Preserve that truncation on platforms whose termios
-	// flag word is narrower than unsigned long.
+	// Parse flags at host unsigned-long width, then truncate to tcflag_t when
+	// the termios word is narrower.
 	flags64, err := strconv.ParseUint(strings.TrimSpace(parts[1]), 0, strconv.IntSize)
 	if err != nil {
 		return termiosSetFlags{}, fmt.Errorf("%s: invalid flags %q", o.Name, strings.TrimSpace(parts[1]))
 	}
-	flags := termiosBits(flags64) // #nosec G115 -- intentional classic unsigned-long to tcflag_t truncation.
+	flags := termiosBits(flags64) // #nosec G115 -- unsigned-long to tcflag_t truncation.
 	return termiosSetFlags{word: int(word), flags: flags}, nil
 }
 
@@ -408,8 +399,8 @@ func validateTermiosConst(o parse.Option) error {
 	return nil
 }
 
-// ValidateTermiosOption enforces the official option type for implemented
-// GROUP_TERMIOS options. Non-termios options are ignored.
+// ValidateTermiosOption enforces the documented option type. Non-termios
+// options are ignored.
 func ValidateTermiosOption(o parse.Option) error {
 	name := parse.CanonicalOptionName(o.Name)
 	if isTermiosCombo(name) {
@@ -497,7 +488,7 @@ func applyCombo(t *unix.Termios, name string) {
 		t.Cc[unix.VMIN] = 1
 		t.Cc[unix.VTIME] = 0
 	case "cfmakeraw":
-		// Linux cfmakeraw(3) / classic OPT_TERMIOS_CFMAKERAW fallback.
+		// Linux cfmakeraw(3) fallback.
 		t.Iflag &^= termiosBits(unix.IGNBRK | unix.BRKINT | unix.PARMRK | unix.ISTRIP |
 			unix.INLCR | unix.IGNCR | unix.ICRNL | unix.IXON)
 		t.Oflag &^= termiosBits(unix.OPOST)
@@ -606,8 +597,7 @@ func setTermios(fd int, t *unix.Termios) error {
 }
 
 // ApplyTermios mutates fd termios from spec. Options are applied in
-// command-line order at classic PH_FD (applyopts / OFUNC_TERMIOS_* in
-// xioopts.c). A termios state option on a non-TTY is an error, as in classic;
+// command-line order. A termios state option on a non-TTY is an error;
 // specs without termios state options remain valid on ordinary descriptors.
 func ApplyTermios(fd int, s parse.Spec) error {
 	if err := RejectUnsupportedTermios(s); err != nil {
@@ -759,7 +749,7 @@ func WaitPTYSlave(masterFD int, interval time.Duration) error {
 	}
 }
 
-// PTYWaitInterval is pty-interval (classic default 1s).
+// PTYWaitInterval is pty-interval (default 1s).
 func PTYWaitInterval(s parse.Spec) time.Duration {
 	if !s.HasOption("pty-interval") {
 		return time.Second

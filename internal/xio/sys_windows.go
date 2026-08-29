@@ -12,12 +12,8 @@ const soType = 0x1008
 
 func CloseOnExec(int) {}
 
-// ShutdownWrite is Winsock shutdown(SD_SEND). Classic XIOSHUT_DOWN calls
-// Shutdown(fd, how) (xioshutdown.c, tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree). A no-op here
-// made connected UDP shut-down silently do nothing because *net.UDPConn has
-// no CloseWrite.
+// ShutdownWrite is Winsock shutdown(SD_SEND). A no-op here made connected
+// UDP shut-down silently do nothing because *net.UDPConn has no CloseWrite.
 //
 // Probe SO_TYPE before shutdown. Microsoft documents that getsockopt SO_TYPE
 // returns WSAENOTSOCK for a non-socket descriptor. Calling shutdown(SD_SEND)

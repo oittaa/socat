@@ -10,7 +10,7 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// SocketTimeoutConn applies classic rcvtimeo/sndtimeo below framed transports
+// SocketTimeoutConn applies rcvtimeo/sndtimeo below framed transports
 // such as crypto/tls. Its own deadline expirations are retried internally so a
 // record layer never observes and permanently latches a transient socket
 // timeout. Deadlines explicitly set by the transport remain terminating.

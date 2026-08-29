@@ -14,7 +14,7 @@ import (
 
 // startOnPTY assigns a PTY slave to cmd stdio (nil slots), starts a new session
 // with the slave as controlling TTY, starts cmd, closes the slave in the parent,
-// and returns the master. Matches classic EXEC,pty / creack pty.Start behaviour
+// and returns the master. Matches EXEC,pty / creack pty.Start behaviour
 // for linux and darwin.
 func startOnPTY(cmd *exec.Cmd, s parse.Spec, g *Global) (*os.File, error) {
 	master, slave, err := OpenPTYPair()
@@ -30,7 +30,7 @@ func startOnPTY(cmd *exec.Cmd, s parse.Spec, g *Global) (*os.File, error) {
 	if cmd.Stdout == nil {
 		cmd.Stdout = slave
 	}
-	// Classic: stderr stays on the parent unless option stderr.
+	// stderr stays on the parent unless option stderr.
 	if cmd.Stderr == nil && s.BoolOption("stderr") {
 		cmd.Stderr = slave
 	}

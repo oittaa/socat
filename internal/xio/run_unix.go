@@ -7,8 +7,8 @@ import (
 	"syscall"
 )
 
-// unixSocketpairLogged creates AF_UNIX SOCK_STREAM pair and logs classic
-// `I socketpair(1, 1, 0, {a,b}) -> 0` (RECVFROM_FORK_LEAK).
+// unixSocketpairLogged creates an AF_UNIX SOCK_STREAM pair and logs
+// `socketpair(1, 1, 0, {a,b}) -> 0` (RECVFROM_FORK_LEAK).
 func unixSocketpairLogged(g *Global) (a, b *os.File, err error) {
 	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM, 0)
 	if err != nil {

@@ -6,12 +6,8 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// linux/fs.h FS_*_FL masks used by classic xio-fs.c OFUNC_IOCTL_MASK_LONG
-// (https://repo.or.cz/socat.git tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same xio-fs.c tree).
-// golang.org/x/sys/unix exports FS_IOC_GETFLAGS / FS_IOC_SETFLAGS but not
-// these flag bits.
+// linux/fs.h FS_*_FL masks. golang.org/x/sys/unix exports FS_IOC_GETFLAGS /
+// FS_IOC_SETFLAGS but not these flag bits.
 const (
 	fsSecrmFL       = 0x00000001
 	fsUnrmFL        = 0x00000002
@@ -27,9 +23,9 @@ const (
 	fsTopdirFL      = 0x00020000
 )
 
-// linuxExtFSFlagMasks maps canonical GROUP_REG fs-* names to FS_*_FL.
-// Short nicknames append/sync/noatime are not keys: classic optionnames[]
-// maps those spellings to O_APPEND / O_SYNC / O_NOATIME.
+// linuxExtFSFlagMasks maps canonical fs-* names to FS_*_FL. Short nicknames
+// append/sync/noatime are not keys: those spellings map to O_APPEND / O_SYNC /
+// O_NOATIME.
 var linuxExtFSFlagMasks = map[string]int{
 	"fs-secrm":        fsSecrmFL,
 	"fs-unrm":         fsUnrmFL,
@@ -59,11 +55,11 @@ func LinuxExtFSFlagOption(name string) bool {
 	return ok
 }
 
-// hasLinuxPHFDOptions reports whether spec has Linux PH_FD options that
-// share the applyopts walk with perm/user/group/flock (o-noatime,
-// f-setpipe-sz, FS_IOC_* fs-*). Other GOOS values still call this to decide
-// whether applyFDLifecycleToFile should enter; applyLinuxPHFDOption is a
-// no-op there after ApplyFDOptions rejects enabled names.
+// hasLinuxPHFDOptions reports whether spec has Linux after-open options that
+// share the walk with perm/user/group/flock (o-noatime, f-setpipe-sz, fs-*).
+// Other GOOS values still call this to decide whether applyFDLifecycleToFile
+// should enter; applyLinuxPHFDOption is a no-op there after ApplyFDOptions
+// rejects enabled names.
 func hasLinuxPHFDOptions(s parse.Spec) bool {
 	for _, o := range s.Options {
 		name := parse.CanonicalOptionName(o.Name)
@@ -91,8 +87,8 @@ func linuxExtFSFlagOps(s parse.Spec) []linuxExtFSFlagOp {
 	return out
 }
 
-// applyFSFlagMask implements classic applyopt_ioctl_mask_long's in-memory
-// step: val &= ~mask, then if bool val |= mask. Unrelated bits are kept.
+// applyFSFlagMask: val &= ~mask, then |= mask when enable. Unrelated bits
+// are kept.
 func applyFSFlagMask(val, mask int, enable bool) int {
 	val &^= mask
 	if enable {

@@ -32,14 +32,10 @@ func warnNetNSExperimental(g *Global) {
 // LookupResolver returns the resolver scoped to one address. With netns= it
 // uses Go DNS so sockets are created after LockOSThread+setns.
 //
-// Classic baseline: tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba
-// xio-ip.c opt_res_nsaddr/xio_res_init; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is unchanged. Classic temporarily
-// replaces process-global _res.nsaddr_list[0] and other _res fields. This
-// security-related port difference uses a per-address resolver and never
-// mutates net.DefaultResolver or libc _res. Remaining libc res-* flags
-// (debug, search, retry, retrans, …) are rejected rather than applied
-// globally; res-usevc is implemented here via Resolver.Dial (`=0` restores
+// Security-related difference: a per-address resolver, never mutating
+// net.DefaultResolver or libc _res. Remaining libc res-* flags (debug,
+// search, retry, retrans, …) are rejected rather than applied globally;
+// res-usevc is implemented here via Resolver.Dial (`=0` restores
 // UDP-then-TCP, including when resolv.conf has use-vc).
 func LookupResolver(s parse.Spec) *net.Resolver {
 	r := lookupResolverBase(s)
@@ -63,11 +59,8 @@ func lookupResolverBase(s parse.Spec) *net.Resolver {
 		return &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
-				// Classic TYPE_IP4SOCK resolves the nameserver with AF_INET
-				// (xioopts.c / xioresolve at tag-1.8.1.3
-				// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-				// af5388c898c7bb60997935aee93c223deba60c4a). Dual-stack
-				// "udp"/"tcp" would let res-nsaddr=localhost prefer ::1.
+				// res-nsaddr resolves the nameserver as IPv4 so
+				// res-nsaddr=localhost does not prefer ::1.
 				switch {
 				case strings.HasPrefix(network, "udp"):
 					network = "udp4"

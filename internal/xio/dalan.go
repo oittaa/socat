@@ -1,6 +1,5 @@
-// Classic dalan address-data parsing: quoted strings with C-style escapes
-// ("path\0"), hex segments (xHHHH), and single-character forms ('c'), as
-// consumed by ParseSocatData for SOCKET addresses.
+// SOCKET address data uses quoted strings with C-style escapes ("path\0"),
+// hex segments (xHHHH), and single-character forms ('c').
 package xio
 
 import (
@@ -11,26 +10,24 @@ import (
 	"strings"
 )
 
-// ParseSocatData parses classic dalan-ish SOCKET address data:
+// ParseSocatData parses SOCKET address data:
 //
 //	"path\0"  double-quoted string with C-style escapes
-//	\"path\0\"  same after shell leaves backslash-quotes (test.sh SOCKET_CONNECT_UNIX)
+//	\"path\0\"  same after the shell leaves backslash-quotes
 //	xHHHH...  hex (segments may be separated by extra 'x')
-//	'c'       single character only (classic dalan; multi-char → syntax error)
+//	'c'       single character only (multi-char → syntax error)
 //
 // Raw unquoted paths are also accepted for AF_UNIX convenience.
-// Returns an error on classic-style syntax errors (DALAN_NO_SIGSEGV expects rc=1).
 func ParseSocatData(s string) ([]byte, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil, nil
 	}
-	// Shell-escaped double quotes: \"...\" (classic test.sh leaves these in argv).
+	// Shell-escaped double quotes: \"...\" may remain in argv.
 	if strings.HasPrefix(s, `\"`) {
 		s = unescapeShellQuotes(s)
 	}
-	// Classic dalan: leading ' is a single character, not a quoted string.
-	// SOCKET-LISTEN:1:1:'/tmp/sock' is intentionally a syntax error (DALAN_NO_SIGSEGV).
+	// Leading ' is a single character, not a quoted string.
 	if s[0] == '\'' {
 		if len(s) < 3 || s[len(s)-1] != '\'' {
 			return nil, fmt.Errorf("syntax error in %q", s)
@@ -45,7 +42,7 @@ func ParseSocatData(s string) ([]byte, error) {
 		}
 		return nil, fmt.Errorf("syntax error in %q", s)
 	}
-	// Double-quoted string (classic UNIX SOCKET address form).
+	// Double-quoted string.
 	if s[0] == '"' {
 		out, rest, err := parseDalanString(s)
 		if err != nil {
@@ -74,7 +71,7 @@ func ParseSocatData(s string) ([]byte, error) {
 				continue
 			}
 			if len(part)%2 == 1 {
-				// classic: odd number of hex digits is a syntax error
+				// Odd number of hex digits is a syntax error.
 				return nil, fmt.Errorf("syntax error in %q", s)
 			}
 			b, err := hex.DecodeString(part)
@@ -170,7 +167,6 @@ func escapeByte(c byte) byte {
 	}
 }
 
-// C type widths for classic dalan (dalan.c dalan_opts / sizeof).
 // int and short are 32/16-bit on every supported platform. long follows
 // LP64 (Unix) vs LLP64 (Windows).
 const (
@@ -185,18 +181,10 @@ const (
 	dalanNotType
 )
 
-// ParseDalan implements classic dalan() from
-// https://repo.or.cz/socat.git tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba (official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same dalan.c).
-//
-// deflt is the default type for untyped numbers (classic setsockopt-bin
-// uses 'i'). Concatenation is packed at the current offset with native
-// widths and native endianness and no extra alignment. After a successful
-// typed item, that type becomes the default for following untyped numbers.
-//
-// singleInt is true when the input is exactly one native C int (bare
-// decimal or iN only), so callers may use SetsockoptInt.
+// ParseDalan packs typed items at the current offset with native widths and
+// endianness and no extra alignment. deflt is the default type for untyped
+// numbers (setsockopt-bin uses 'i'); a successful typed item becomes the default.
+// singleInt is true for exactly one native C int (bare decimal or iN only).
 func ParseDalan(s string, deflt byte) (data []byte, singleInt bool, err error) {
 	if deflt == 0 {
 		deflt = 'i'
@@ -265,11 +253,8 @@ func dalanItem(c byte, line string) (out []byte, rest string, rc int) {
 	case 'S':
 		return dalanNumber(line, sizeCShort, false)
 	case 'b':
-		// Classic dalan.c (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-		// official master af5388c898c7bb60997935aee93c223deba60c4a is
-		// the same) intentionally remains our byte-for-byte baseline. Its
-		// missing break falls through to B and writes a second byte. When no
-		// second number starts at the remainder, strtoul writes zero without
+		// 'b' writes a signed byte then an unsigned byte. When no second
+		// number starts at the remainder, the second byte is 0 without
 		// advancing the input.
 		first, rest, rc := dalanNumber(line, 1, true)
 		if rc != dalanOK {
@@ -363,7 +348,7 @@ func parseDalanInt(line string) (int64, string, bool) {
 		if uerr != nil {
 			return 0, line, false
 		}
-		return int64(u), line[i:], true // #nosec G115 -- C strtoul into signed storage
+		return int64(u), line[i:], true // #nosec G115 -- unsigned-to-signed store
 	}
 	return n, line[i:], true
 }
@@ -372,11 +357,11 @@ func appendNative(buf []byte, u uint64, nbytes int) []byte {
 	b := make([]byte, nbytes)
 	switch nbytes {
 	case 1:
-		b[0] = byte(u) // #nosec G115 -- classic dalan truncates to the C width
+		b[0] = byte(u) // #nosec G115 -- truncate to the C width
 	case 2:
-		binary.NativeEndian.PutUint16(b, uint16(u)) // #nosec G115 -- classic dalan truncates to the C width
+		binary.NativeEndian.PutUint16(b, uint16(u)) // #nosec G115 -- truncate to the C width
 	case 4:
-		binary.NativeEndian.PutUint32(b, uint32(u)) // #nosec G115 -- classic dalan truncates to the C width
+		binary.NativeEndian.PutUint32(b, uint32(u)) // #nosec G115 -- truncate to the C width
 	case 8:
 		binary.NativeEndian.PutUint64(b, u)
 	default:

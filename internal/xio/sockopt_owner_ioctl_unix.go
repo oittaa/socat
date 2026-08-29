@@ -9,8 +9,7 @@ func applyOwnerIoctlPlatform(fd int, name string, pid int) error {
 	if err != nil {
 		return err
 	}
-	// Pointer-to-int32, matching classic applyopt_ioctl
-	// (Ioctl(fd, major, (void *)&opt->value)).
+	// Pointer to int32.
 	return unix.IoctlSetPointerInt(fd, req, pid)
 }
 

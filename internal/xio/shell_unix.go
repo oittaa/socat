@@ -6,7 +6,7 @@ import (
 	"strconv"
 )
 
-// ExtraFiles sources and classic fdi/fdo numbering for EXEC/SYSTEM/SHELL.
+// ExtraFiles sources and fdi/fdo numbering for EXEC/SYSTEM/SHELL.
 // Runtime remapping is ExtraFiles plus the child dup2 helper
 // (exec_fd_helper_unix.go), not a /bin/sh reconstruction, so bare SHELL
 // keeps its argv and dash/login rewrite the target. childFDRedirectPrefix
@@ -44,13 +44,10 @@ func defaultFDO(fdout string) string {
 	return fdout
 }
 
-// childFDRedirectPrefix builds `exec` redirections matching classic
-// xio-progcall.c Dup2 of the child data fd(s) onto fdi/fdo (tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same). Unrelated 0/1/2
-// stay inherited. Classic maps the output endpoint first and the input
-// endpoint second, which matters for pipes when fdin == fdout: input wins.
-// stderr is Dup2'd from the effective fdo when requested.
+// childFDRedirectPrefix builds `exec` redirections of the child data fd(s)
+// onto fdi/fdo. Unrelated 0/1/2 stay inherited. Output is mapped first and
+// input second, which matters for pipes when fdin == fdout: input wins.
+// stderr is duplicated from the effective fdo when requested.
 func childFDRedirectPrefix(inSrc, outSrc, fdin, fdout string, withStderr bool) string {
 	var inT, outT string
 	if inSrc != "" {
@@ -117,11 +114,9 @@ func unusedFDNumbers(avoid ...string) (string, string) {
 	}
 	found := make([]string, 0, 2)
 	// Ubuntu /bin/sh is dash; its redirection grammar only accepts a
-	// single-digit descriptor prefix (`10<&3` is a syntax error). Classic
-	// dup2 takes an unsigned short. Temps stay in 3–9: the caller avoids at
-	// most two ExtraFiles sources and two fdi/fdo targets, so two slots
-	// remain (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-	// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
+	// single-digit descriptor prefix (`10<&3` is a syntax error). Temps
+	// stay in 3–9: the caller avoids at most two ExtraFiles sources and
+	// two fdi/fdo targets, so two slots remain.
 	for i := 3; i <= dashFDRedirectMax && len(found) < 2; i++ {
 		s := strconv.Itoa(i)
 		if !taken[s] {

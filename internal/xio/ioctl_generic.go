@@ -8,29 +8,18 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// Classic generic ioctl family (xio-fd.c opt_ioctl_* / xioopts.c
-// applyopt_ioctl_generic). Baseline: https://repo.or.cz/socat.git
-// tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba. Official master
-// af5388c898c7bb60997935aee93c223deba60c4a has the same option records and
-// applyopt_ioctl_generic. GROUP_FD, PH_FD, OFUNC_IOCTL_GENERIC.
+// Generic ioctl options, applied after open:
 //
-//	ioctl-void / ioctl  TYPE_INT         → ioctl(fd, request, NULL)
-//	ioctl-int           TYPE_INT_INT     → ioctl(fd, request, int value)
-//	ioctl-intp          TYPE_INT_INTP    → ioctl(fd, request, &int)
-//	ioctl-bin           TYPE_INT_BIN     → ioctl(fd, request, dalan bytes)
-//	ioctl-string        TYPE_INT_STRING  → ioctl(fd, request, C string)
+//	ioctl-void / ioctl  → ioctl(fd, request, NULL)
+//	ioctl-int           → ioctl(fd, request, int value)
+//	ioctl-intp          → ioctl(fd, request, &int)
+//	ioctl-bin           → ioctl(fd, request, dalan bytes)
+//	ioctl-string        → ioctl(fd, request, C string)
 //
-// Official man ioctl-string (doc/socat.yo) says “pointer to the given string”
-// then a stray “dalan form” line copied from ioctl-bin. C TYPE_INT_STRING
-// strdup’s the rest after the first colon; this port follows C, not dalan.
-//
-// Official man ioctl-void is ioctl-void=<request>. Classic TYPE_INT without
-// `=` stores 1 (ioctl request 1). This port requires a request (README).
-//
-// Integer fields are overflow-safe C int (strconv bitSize 32, matching
-// sizeof(int) on linux/darwin/windows). Classic parseopts_table uses
-// Strtoul/strtoul into int and wraps; wrapping a request number can issue
-// an unintended ioctl. Reject overflow instead (README + this comment).
+// ioctl-string is the rest after the first colon, not dalan. ioctl-void
+// requires a request (bare flag is not request 1). Integer fields reject
+// overflow instead of wrapping a request number into an unintended ioctl
+// (README).
 
 const classicCIntBits = 32
 
@@ -53,8 +42,8 @@ type ioctlGenericSpec struct {
 	str    string
 }
 
-// GenericIoctlOption reports whether name is a classic generic ioctl
-// spelling (canonical or the ioctl → ioctl-void alias).
+// GenericIoctlOption reports whether name is a generic ioctl spelling
+// (canonical or the ioctl → ioctl-void alias).
 func GenericIoctlOption(name string) bool {
 	_, ok := genericIoctlKind(name)
 	return ok
@@ -77,8 +66,8 @@ func genericIoctlKind(name string) (ioctlGenericKind, bool) {
 	}
 }
 
-// ValidateGenericIoctl parses a classic generic ioctl option without
-// issuing ioctl(2). Shared by the CLI table and the PH_FD apply path.
+// ValidateGenericIoctl parses a generic ioctl option without issuing
+// ioctl(2). Shared by the CLI table and the post-open apply path.
 func ValidateGenericIoctl(o parse.Option) error {
 	_, err := parseGenericIoctl(o)
 	return err
@@ -141,10 +130,8 @@ func parseGenericIoctl(o parse.Option) (ioctlGenericSpec, error) {
 
 func requiredIoctlValue(o parse.Option) (string, error) {
 	// Trim only to decide whether a value is present. Return the original
-	// string so TYPE_INT_STRING (ioctl-string) keeps trailing spaces/tabs/
-	// newlines after the first colon, matching classic strdup(rest)
-	// (xioopts.c at tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-	// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
+	// string so ioctl-string keeps trailing spaces/tabs/newlines after
+	// the first colon.
 	if !o.Has || strings.TrimSpace(o.Value) == "" {
 		return "", fmt.Errorf("option %q requires a value", o.OriginalSpelling())
 	}
@@ -193,10 +180,10 @@ func splitIoctlRequestRest(o parse.Option, trimRest bool) (req uint, rest string
 	return req, rest, nil
 }
 
-// parseClassicCInt parses classic TYPE_INT with overflow rejection.
-// bitSize 32 matches C int. Signed values use ParseInt; unsigned 32-bit
-// patterns (ioctl request numbers with the high bit set) use ParseUint
-// and are stored as the native int with the C two's-complement bit pattern.
+// parseClassicCInt parses a 32-bit C int with overflow rejection.
+// Signed values use ParseInt; unsigned 32-bit patterns (ioctl request
+// numbers with the high bit set) use ParseUint and are stored as the
+// native int with the C two's-complement bit pattern.
 func parseClassicCInt(s string) (int, error) {
 	s = strings.TrimSpace(s)
 	if s == "" {

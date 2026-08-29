@@ -10,7 +10,7 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// SitoutEIO is classic PTY sitout-eio. Windows has no PTY master EIO path;
+// SitoutEIO is PTY sitout-eio. Windows has no PTY master EIO path;
 // reject the option instead of ignoring it.
 func SitoutEIO(s parse.Spec) (time.Duration, error) {
 	if s.HasOption("sitout-eio") {

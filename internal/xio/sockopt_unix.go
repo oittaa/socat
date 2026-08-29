@@ -60,11 +60,9 @@ func setListenBacklog(fd, backlog int) error {
 	return unix.Listen(fd, backlog)
 }
 
-// ApplySocketTimeos applies classic rcvtimeo=/sndtimeo= as kernel
-// SO_RCVTIMEO/SO_SNDTIMEO (TYPE_TIMEVAL, SOL_SOCKET), matching xioopts.c's
-// IF_SOCKET handling. Only raw blocking-fd paths observe these on our port —
-// Go netpoll conns run nonblocking, where the equivalent is read/write
-// deadlines at the call site.
+// ApplySocketTimeos applies rcvtimeo=/sndtimeo= as kernel SO_RCVTIMEO/
+// SO_SNDTIMEO. Only raw blocking-fd paths observe these; Go netpoll conns
+// run nonblocking, so use read/write deadlines at the call site.
 func ApplySocketTimeos(fd int, s parse.Spec) error {
 	if v := s.OptionValue("rcvtimeo", ""); v != "" {
 		tv, err := timevalFromSpec(v)
@@ -87,7 +85,7 @@ func ApplySocketTimeos(fd int, s parse.Spec) error {
 	return nil
 }
 
-// applyLingerOption is classic opt_so_linger (PH_PASTSOCKET, TYPE_INT).
+// applyLingerOption sets SO_LINGER (onoff=1) from a non-negative seconds value.
 func applyLingerOption(fd int, o parse.Option) error {
 	if !o.Has {
 		return fmt.Errorf("so-linger: requires a value")
@@ -126,15 +124,15 @@ func applySocketTimeoOption(fd int, o parse.Option) error {
 }
 
 // ApplySocketOptionsWithoutGeneric is kept for SOCKETPAIR / network
-// constructors that still split PH_ALL around the generic walk. All
-// PH_PASTSOCKET action options now live in applyOrderedPastSocketPhaseOptions
+// constructors that still split a full option walk around the generic pass.
+// Past-socket action options now live in applyOrderedPastSocketPhaseOptions
 // and ApplyGenericSetsockoptAll, so this helper is a no-op.
 func ApplySocketOptionsWithoutGeneric(_ int, _ parse.Spec) error {
 	return nil
 }
 
 // ApplySocketOptions applies the SOL_SOCKET options shared by raw descriptors
-// and Go net sockets, including generic PH_PASTSOCKET actions.
+// and Go net sockets, including generic setsockopt-socket actions.
 func ApplySocketOptions(fd int, s parse.Spec) error {
 	if err := ApplySocketOptionsWithoutGeneric(fd, s); err != nil {
 		return err

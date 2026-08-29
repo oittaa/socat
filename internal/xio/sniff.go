@@ -11,9 +11,8 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// expandSniffPath expands classic -r/-R path variables (sysutils.c expandenv).
-// Special: $$ pid, $PROGNAME, $TIMESTAMP (%Y%m%dT%H%M%S), $MICROS; else getenv.
-// \$ yields a literal $.
+// expandSniffPath expands -r/-R path variables: $$ pid, $PROGNAME,
+// $TIMESTAMP (%Y%m%dT%H%M%S), $MICROS; else getenv. \$ yields a literal $.
 func expandSniffPath(src string, progname string, now time.Time, g *Global) (string, error) {
 	if progname == "" {
 		progname = "socat"
@@ -23,7 +22,7 @@ func expandSniffPath(src string, progname string, now time.Time, g *Global) (str
 	for i := 0; i < len(src); {
 		c := src[i]
 		if c == '\\' && i+1 < len(src) {
-			// Only \$ is special; other escapes keep the next char (classic).
+			// Only \$ is special; other escapes keep the next char.
 			if src[i+1] == '$' {
 				b.WriteByte('$')
 				i += 2
@@ -94,7 +93,7 @@ func expandSniffPath(src string, progname string, now time.Time, g *Global) (str
 				val = os.Getenv(name)
 			}
 		}
-		// Missing env vars expand to empty (classic skips them).
+		// Missing env vars expand to empty.
 		b.WriteString(val)
 		i = j
 	}
@@ -102,7 +101,7 @@ func expandSniffPath(src string, progname string, now time.Time, g *Global) (str
 }
 
 // openSniffFiles opens -r/-R dump files for this transfer after expanding paths.
-// Uses O_APPEND|O_CREAT|O_CLOEXEC like classic xio_opensnifffile.
+// Uses O_APPEND|O_CREAT|O_CLOEXEC.
 func openSniffFiles(g *Global) error {
 	return WithUmask(parse.Spec{}, func() error {
 		return openSniffFilesLocked(g)

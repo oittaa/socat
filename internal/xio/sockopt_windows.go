@@ -87,7 +87,7 @@ func ApplySocketTimeos(fd int, s parse.Spec) error {
 	return nil
 }
 
-// applyLingerOption is classic opt_so_linger (PH_PASTSOCKET, TYPE_INT).
+// applyLingerOption sets SO_LINGER (onoff=1) from a non-negative seconds value.
 func applyLingerOption(fd int, o parse.Option) error {
 	if !o.Has {
 		return fmt.Errorf("so-linger: requires a value")
@@ -126,15 +126,15 @@ func applySocketTimeoOption(fd int, o parse.Option) error {
 }
 
 // ApplySocketOptionsWithoutGeneric is kept for SOCKETPAIR / network
-// constructors that still split PH_ALL around the generic walk. All
-// PH_PASTSOCKET action options now live in applyOrderedPastSocketPhaseOptions
+// constructors that still split a full option walk around the generic pass.
+// Past-socket action options now live in applyOrderedPastSocketPhaseOptions
 // and ApplyGenericSetsockoptAll, so this helper is a no-op.
 func ApplySocketOptionsWithoutGeneric(_ int, _ parse.Spec) error {
 	return nil
 }
 
 // ApplySocketOptions applies the SOL_SOCKET options shared by raw descriptors
-// and Go net sockets, including generic PH_PASTSOCKET actions.
+// and Go net sockets, including generic setsockopt-socket actions.
 func ApplySocketOptions(fd int, s parse.Spec) error {
 	if err := ApplySocketOptionsWithoutGeneric(fd, s); err != nil {
 		return err

@@ -6,9 +6,8 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// ForkLimits reads the classic fork and max-children options. A present but
-// invalid max-children value, or max-children without fork, is a classic-style
-// error (xioopts rejects both instead of ignoring them).
+// ForkLimits reads fork and max-children. A present but invalid
+// max-children value, or max-children without fork, is an error.
 func ForkLimits(s parse.Spec) (fork bool, maxChildren int, err error) {
 	fork = s.BoolOption("fork")
 	if v := s.OptionValue("max-children", ""); v != "" {

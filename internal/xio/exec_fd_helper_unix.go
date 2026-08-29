@@ -16,7 +16,7 @@ import (
 )
 
 // execFDHelperMarker selects the child-only descriptor remapper. Custom
-// fdin/fdout always use this helper so dup2 never mutates socat's table,
+// fdin/fdout always remap in the child so dup2 never mutates socat's table,
 // bare SHELL keeps its argv, and dash/login rewrite the target argv[0]
 // rather than a /bin/sh wrapper. The parent adds a private environment
 // handshake; the helper removes it before exec.
@@ -36,11 +36,8 @@ func init() {
 		_, _ = fmt.Fprintf(os.Stderr, "socat exec fd helper: %v\n", err)
 		var te *execTargetError
 		if errors.As(err, &te) {
-			// Classic xio-exec.c Exit(1) after a failed execvp
-			// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-			// official master af5388c898c7bb60997935aee93c223deba60c4a
-			// is the same). A target that itself exits 127 still reports
-			// 127 because unix.Exec replaced this process.
+			// unix.Exec failed: exit 1. A target that itself exits 127
+			// still reports 127 because unix.Exec replaced the helper.
 			os.Exit(1)
 		}
 		os.Exit(127)
@@ -79,8 +76,8 @@ func rebuildWithFDHelper(
 	if cmd == nil || len(cmd.Args) == 0 {
 		return nil, fmt.Errorf("exec fd helper: missing target command")
 	}
-	// LookPath failure is reported by the helper's unix.Exec as classic
-	// execvp → Exit(1). Other Command errors (bad Path, etc.) stay here.
+	// LookPath failure is reported by the helper's unix.Exec as missing
+	// PATH → exit 1. Other Command errors (bad Path, etc.) stay here.
 	if cmd.Err != nil && !errors.Is(cmd.Err, exec.ErrNotFound) {
 		return nil, cmd.Err
 	}
@@ -131,7 +128,7 @@ func resolvedExecPath(cmd *exec.Cmd) string {
 	}
 	lp, err := exec.LookPath(path)
 	if err != nil {
-		// Leave the basename so unix.Exec fails like classic execvp → Exit(1).
+		// Leave the basename so unix.Exec fails like a missing PATH entry.
 		return path
 	}
 	return lp
@@ -216,14 +213,12 @@ type execFDMove struct {
 	target int
 }
 
-// remapExecFDs mirrors classic xio-progcall.c: duplicate the output endpoint
-// first, then the input endpoint, optionally duplicate fdo onto stderr, and
-// close child-side source descriptors that are not final targets. This order
-// matters for full-duplex pipes when fdin == fdout: classic's input mapping
-// wins. Socketpair and PTY use one source for both directions. Sources are
-// copied before applying any move so swaps such as 3->4 and 4->3 are safe.
-// Baselines: tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same.
+// remapExecFDs duplicates the output endpoint first, then the input
+// endpoint, optionally duplicates fdo onto stderr, and closes child-side
+// source descriptors that are not final targets. When fdin == fdout on
+// full-duplex pipes, the input mapping wins. Socketpair and PTY use one
+// source for both directions. Sources are copied before applying any move
+// so swaps such as 3->4 and 4->3 are safe.
 func remapExecFDs(inSrc, outSrc, inTarget, outTarget int, withStderr bool) error {
 	moves := make([]execFDMove, 0, 2)
 	if outSrc >= 0 {

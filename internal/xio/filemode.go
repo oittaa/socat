@@ -8,7 +8,7 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// UnixModeToFileMode converts classic TYPE_MODET bits (07777) to os.FileMode.
+// UnixModeToFileMode converts Unix 07777 mode bits to os.FileMode.
 // os.FileMode(04755) drops setuid/setgid/sticky; those live in dedicated Mode*
 // bits and must be set explicitly so Chmod/OpenFile can round-trip them.
 func UnixModeToFileMode(m uint32) os.FileMode {
@@ -25,7 +25,7 @@ func UnixModeToFileMode(m uint32) os.FileMode {
 	return mode
 }
 
-// FileModeToUnix converts os.FileMode back to classic TYPE_MODET bits.
+// FileModeToUnix converts os.FileMode back to Unix 07777 bits.
 func FileModeToUnix(mode os.FileMode) uint32 {
 	m := uint32(mode.Perm())
 	if mode&os.ModeSetuid != 0 {
@@ -40,7 +40,7 @@ func FileModeToUnix(mode os.FileMode) uint32 {
 	return m
 }
 
-// ParseUnixMode returns perm=/mode= as classic 07777 bits, else def.
+// ParseUnixMode returns perm=/mode= as 07777 bits, else def.
 func ParseUnixMode(s parse.Spec, def uint32) (uint32, error) {
 	m, ok, err := explicitUnixMode(s)
 	if err != nil {

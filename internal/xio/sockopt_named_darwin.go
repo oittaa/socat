@@ -4,9 +4,8 @@ package xio
 
 import "golang.org/x/sys/unix"
 
-// Darwin TCP_MAXSEG plus TCP_NOPUSH / TCP_NOOPT (classic xio-tcp.c
-// #ifdef TCP_NOPUSH / TCP_NOOPT, tag-1.8.1.3 12c08bf; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same). Linux-only TCP_*
+// lookupNamedPastSocketInt maps a named option to level/opt after socket().
+// Darwin supports TCP_MAXSEG, TCP_NOPUSH, and TCP_NOOPT. Linux-only TCP_*
 // names fail instead of becoming no-ops.
 func lookupNamedPastSocketInt(name string) (level, opt int, ok bool, err error) {
 	switch name {

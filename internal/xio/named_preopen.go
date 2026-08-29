@@ -9,21 +9,12 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// ApplyNamedPreopen applies classic PH_PREOPEN NAMED options in command-line
-// order (applyopts_named in xio-named.c, tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree).
+// ApplyNamedPreopen applies perm-early / user-early / group-early and unlink
+// to an existing filesystem path, in command-line order, before open.
+// unlink=0 does not delete.
 //
-// Despite the "-early" names, perm-early / user-early / group-early are
-// PH_PREOPEN, not PH_EARLY. They chmod/chown the existing filesystem path
-// before open. unlink/delete/remove at this phase honor documented TYPE_BOOL
-// (unlink=0 does not delete). Classic applyopts_named unlinks on presence;
-// that is an intentional documented difference.
-//
-// Callers must invoke this only when the name exists. Classic
-// _xioopen_named_early drops PH_PREOPEN when the path is missing so chmod,
-// chown, and unlink are not attempted on a non-existent name. UNIX bind
-// paths call ApplyNamedAfterBind once the directory entry exists.
+// Callers must invoke this only when the name exists. UNIX bind paths call
+// ApplyNamedAfterBind once the directory entry exists.
 func ApplyNamedPreopen(path string, s parse.Spec) error {
 	for _, o := range s.Options {
 		switch parse.CanonicalOptionName(o.Name) {
@@ -58,7 +49,7 @@ func ApplyNamedPreopen(path string, s parse.Spec) error {
 				return fmt.Errorf("chown %s: %w", path, err)
 			}
 		case "unlink":
-			// Same classic applyopts_named presence bug as unlink=0; honor the bool.
+			// unlink=0 does not delete.
 			if !optionEnabled(o) {
 				continue
 			}
@@ -70,28 +61,20 @@ func ApplyNamedPreopen(path string, s parse.Spec) error {
 	return nil
 }
 
-// ApplyNamedAfterBind applies GROUP_NAMED options to a filesystem UNIX
-// socket after bind, matching classic xio-listen.c / xio-socket.c
-// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree).
+// ApplyNamedAfterBind applies named options to a filesystem UNIX socket
+// after bind. UNIX-CONNECT and UNIX-SENDTO apply those options to the
+// socket descriptor instead. Abstract names have no filesystem entry.
 //
-// applyopts_named(PH_FD) runs only for filesystem UNIX-LISTEN / UNIX-RECV /
-// UNIX-RECVFROM. UNIX-CONNECT and UNIX-SENDTO apply PH_FD to the socket
-// descriptor (_xioopen_connect / _xioopen_dgram_sendto). Abstract names have
-// no filesystem entry: listen uses applyopts(PH_FD) on the descriptor.
-//
-// Classic xio-unix.c documents that perm-early is useless before bind
-// because the directory entry does not exist yet; after bind it chmods the
-// new socket. PH_PREOPEN after PH_FD means perm-early wins over perm= on
-// listen/recv names. unlink= at this phase would remove the just-bound name
-// (classic would too).
+// perm-early is a no-op before bind because the directory entry does not
+// exist yet; after bind it chmods the new socket and wins over perm= on
+// listen/recv names. unlink= at this phase would remove the just-bound name.
 func ApplyNamedAfterBind(path string, s parse.Spec, f *os.File) error {
 	if path == "" || IsAbstract(path) {
 		return nil
 	}
-	// applyopts_named(PH_FD) after bind only for filesystem UNIX-LISTEN /
-	// UNIX-RECV / UNIX-RECVFROM (xio-listen.c / xio-socket.c). UNIX-CONNECT
-	// and UNIX-SENDTO apply PH_FD to the socket descriptor instead.
+	// Named path attrs after bind only for filesystem UNIX-LISTEN /
+	// UNIX-RECV / UNIX-RECVFROM. UNIX-CONNECT and UNIX-SENDTO apply them
+	// to the socket descriptor instead.
 	if namedFilesystemUnixPHFD(s) {
 		if err := ApplyNamedAttrs(path, s, f); err != nil {
 			return err

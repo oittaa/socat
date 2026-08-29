@@ -7,8 +7,8 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// ClassicOptionUnrestricted reports whether classic socat 1.8.1.3 accepts the
-// option on every address type: GROUP_ADDR (empty) or GROUP_ANY (process|appl).
+// ClassicOptionUnrestricted is true when the option is accepted on every
+// address type (empty groups, or process/appl).
 func ClassicOptionUnrestricted(optGroups []string) bool {
 	if len(optGroups) == 0 {
 		return true
@@ -21,9 +21,9 @@ func ClassicOptionUnrestricted(optGroups []string) bool {
 	return false
 }
 
-// ClassicOptionGroupsFor returns the expanded GROUP_* set for an option
+// ClassicOptionGroupsFor returns the expanded group set for an option
 // keyword or nickname. The given spelling is looked up first so names such as
-// ipv6-join-group keep their own classic groups; only unknown nicknames fall
+// ipv6-join-group keep their own groups; only unknown nicknames fall
 // back to parse.CanonicalOptionName (o-append → append).
 func ClassicOptionGroupsFor(optionName string) ([]string, bool) {
 	name := strings.ToLower(strings.TrimSpace(optionName))
@@ -42,9 +42,9 @@ func ClassicOptionGroupsFor(optionName string) ([]string, bool) {
 	return nil, false
 }
 
-// ClassicTermiosOptionNames returns classic option spellings whose GROUP_* set
-// includes termios (tag-1.8.1.3 optionnames[] / xioopts.c). Used to recognize
-// TERMIOS options on platforms that reject them instead of applying termios.
+// ClassicTermiosOptionNames returns option spellings whose groups include
+// termios. Used to recognize TERMIOS options on platforms that reject them
+// instead of applying termios.
 func ClassicTermiosOptionNames() []string {
 	var out []string
 	for name, groups := range ClassicOptionGroups {
@@ -59,8 +59,8 @@ func ClassicTermiosOptionNames() []string {
 	return out
 }
 
-// ClassicAllowsOption reports whether classic socat 1.8.1.3 would accept
-// optionName on addrType (parseopts group intersection).
+// ClassicAllowsOption reports whether the catalog would accept
+// optionName on addrType (group intersection).
 func ClassicAllowsOption(addrType, optionName string) bool {
 	optGroups, ok := ClassicOptionGroupsFor(optionName)
 	if !ok {
@@ -110,11 +110,10 @@ func goExtraAllows(reg AddressRegistration, goGroups, goTypes []string) bool {
 }
 
 // OptionSupportedOnAddress is the registry-level check used by the CLI.
-// optionName should be the original spelling (parse.Option.OriginalSpelling):
-// classic 1.8.1.3 group intersection is authoritative for that keyword.
-// Go extra allow-lists (TLS on PROXY, WebSocket path, …) can still accept a
-// combination classic would reject. Go-only options use address group/type/cap
-// restrictions exactly as declared in the option table.
+// optionName should be the original spelling (parse.Option.OriginalSpelling).
+// Extra allow-lists (TLS on PROXY, WebSocket path, …) can still accept a
+// combination the catalog would reject. Go-only options use address
+// group/type/cap restrictions as declared in the option table.
 func OptionSupportedOnAddress(reg AddressRegistration, optionName string, goGroups, goTypes, goCaps []string) bool {
 	if optGroups, ok := ClassicOptionGroupsFor(optionName); ok {
 		if ClassicOptionUnrestricted(optGroups) || OptionCapsAllowed(reg.OptionCaps, optGroups) {

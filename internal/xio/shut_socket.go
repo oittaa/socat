@@ -7,16 +7,11 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-// shutdownWritePolicy is classic XIOSHUT_DOWN: shutdown(fd, SHUT_WR) on the
-// underlying socket (xioshutdown.c, tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree). It does not
-// fall back to Stream.ShutdownWrite: that would CloseWrite a pipe or send TLS
-// close-notify. Non-sockets return the kernel ENOTSOCK/WSAENOTSOCK. Wrappers
-// that hide the fd (crypto/tls.Conn, rcvtimeo) must expose NetConn() so this
-// walk can reach the socket. Windows probes SO_TYPE before shutdown(SD_SEND)
-// so a pipe returns WSAENOTSOCK instead of a flaky WSAENOTCONN; a real
-// unconnected socket still surfaces WSAENOTCONN (see ShutdownWrite).
+// shutdownWritePolicy issues shutdown(fd, SHUT_WR) on the underlying socket.
+// It does not fall back to Stream.ShutdownWrite: that would CloseWrite a pipe
+// or send TLS close-notify. Non-sockets return ENOTSOCK/WSAENOTSOCK.
+// Wrappers that hide the fd (crypto/tls.Conn, rcvtimeo) must expose NetConn().
+// Windows probes SO_TYPE first so a pipe returns WSAENOTSOCK, not WSAENOTCONN.
 func shutdownWritePolicy(stream relay.Stream) error {
 	return shutdownFrom(stream)
 }

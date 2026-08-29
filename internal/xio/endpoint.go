@@ -18,7 +18,7 @@ import (
 )
 
 // ErrAcceptTimeout is returned when accept-timeout expires with no connection.
-// Classic socat exits 0 in this case (not an error for the process).
+// The process still exits 0 in this case.
 var ErrAcceptTimeout = errors.New("accept timeout")
 
 type acceptResult struct {
@@ -27,8 +27,8 @@ type acceptResult struct {
 }
 
 // AcceptWithTimeout accepts one connection and aborts the listener when the
-// timeout expires. Closing is intentional: classic accept-timeout terminates
-// the listen address, and it also makes the timeout work for wrapped listeners
+// timeout expires. Closing is intentional: accept-timeout terminates the
+// listen address, and it also makes the timeout work for wrapped listeners
 // such as TLS and QUIC that do not expose SetDeadline.
 func AcceptWithTimeout(ctx context.Context, ln net.Listener, timeout time.Duration) (net.Conn, error) {
 	if timeout <= 0 {
@@ -74,8 +74,8 @@ const (
 type IPVersion int
 
 const (
-	// IPv4Default is the classic default since 1.8.0.1 (same preference as -4).
-	// Listen still honours SOCAT_DEFAULT_LISTEN_IP; explicit IPv4 (-4) does not.
+	// IPv4Default matches -4. Listen still honours SOCAT_DEFAULT_LISTEN_IP;
+	// explicit IPv4 (-4) does not.
 	IPv4Default IPVersion = iota
 	IPv4
 	IPv6
@@ -96,10 +96,10 @@ type Global struct {
 	Dump         io.Writer
 	Statistics   bool
 	statsPrinted *atomic.Bool // pointer so forkSession can copy Global without copying a lock
-	// childSignals is this logical session's OFUNC_SIGNAL four-slot table.
+	// childSignals is this logical session's four-slot signal table.
 	// forkSession nils it so LISTEN,fork goroutines do not share one table.
 	childSignals *childSignalSession
-	Experimental bool // --experimental (classic netns= warning)
+	Experimental bool // --experimental (netns= warning)
 
 	// Peer info from the most recently accepted/connected socket (for SOCAT_* env).
 	SockAddr string
@@ -108,8 +108,8 @@ type Global struct {
 	PeerPort string
 
 	// TLSVars contains TLS session metadata without the TLS_/OPENSSL_ prefix.
-	// Children receive both the preferred *_TLS_* names and classic
-	// *_OPENSSL_* compatibility aliases.
+	// Children receive both the preferred *_TLS_* names and *_OPENSSL_*
+	// compatibility aliases.
 	TLSVars map[string]string
 
 	// SessionVars contains other per-session output variables without the
@@ -120,7 +120,7 @@ type Global struct {
 	ChildExitCode int
 	ChildErr      error
 
-	// Classic -r / -R raw transfer dumps (left→right / right→left).
+	// -r / -R raw transfer dumps (left→right / right→left).
 	// Path templates may contain $PROGNAME, $TIMESTAMP, $MICROS, $$, $ENV.
 	// Files are opened at transfer start (after peer is known) with CLOEXEC.
 	RawLeftPath  string
@@ -215,7 +215,7 @@ type Opened struct {
 	Cleanup  []func()
 	// PeerFilter rejects accepted connections (range/sourceport/lowport).
 	PeerFilter func(net.Conn) error
-	// MaxChildren limits concurrent fork children (0 = unlimited). Classic max-children.
+	// MaxChildren limits concurrent fork children (0 = unlimited).
 	MaxChildren int
 	// ChildrenShutup demotes fork-child diagnostic severity without changing
 	// the parent or sibling sessions.
@@ -225,11 +225,11 @@ type Opened struct {
 	Dial func(ctx context.Context) (net.Conn, error)
 	// WrapDial wraps each accepted or dialed conn for transfer (crlf, escape, …). Optional.
 	WrapDial func(net.Conn) (relay.Stream, error)
-	// Interval between parent connect iterations (classic interval= seconds).
+	// Interval between parent connect iterations (interval= seconds).
 	Interval time.Duration
 	// HandshakeTimeout bounds accepted TLS/WebSocket protocol negotiation.
 	HandshakeTimeout time.Duration
-	// AcceptTimeout aborts waiting for a connection (classic accept-timeout);
+	// AcceptTimeout aborts waiting for a connection (accept-timeout);
 	// honored by fork accept loops as well as single-shot accepts.
 	AcceptTimeout time.Duration
 	// For dual: separate read/write streams
@@ -390,8 +390,6 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 	s.Type = orig
 	fn, ok := lookupOpener(s.Type)
 	if !ok {
-		// Message text must match classic for test.sh testaddrs():
-		// grep "E unknown device/address"
 		return nil, fmt.Errorf("unknown device/address \"%s\"", orig)
 	}
 	// Rewrite to the registered keyword so Type-based opener logic (chdir
@@ -417,11 +415,8 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 	if err := RejectUnsupportedRemainingIPv4(s); err != nil {
 		return nil, err
 	}
-	// Classic PH_INIT GROUP_APPL lockfile=/waitlock= (xioopts.c OPT_LOCKFILE /
-	// OPT_WAITLOCK at tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-	// official master af5388c898c7bb60997935aee93c223deba60c4a is the same
-	// xiolockfile.c / xioopts.c). Apply after chdir= rewrite and before the
-	// opener so a failed open still releases.
+	// lockfile=/waitlock= after chdir= rewrite and before the opener so a
+	// failed open still releases.
 	release, err := applyAddressLock(ctx, s)
 	if err != nil {
 		return nil, err

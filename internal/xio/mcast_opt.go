@@ -7,11 +7,9 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// membershipFamily selects the classic sockopt descriptor, not the multicast
-// address family. ip-add-membership is always IP_ADD_MEMBERSHIP; ipv6-join-group
-// is always IPV6_JOIN_GROUP. Classic tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same option tree.
+// membershipFamily selects the sockopt, not the multicast address family.
+// ip-add-membership is always IP_ADD_MEMBERSHIP; ipv6-join-group is always
+// IPV6_JOIN_GROUP.
 type membershipFamily int
 
 const (
@@ -36,8 +34,8 @@ func (j membershipJoin) optionName() string {
 }
 
 // ApplyMembershipJoins applies every ip-add-membership / ipv6-join-group
-// request in option order (classic applies each supplied option; it does not
-// last-wins). PH_PASTSOCKET. No-op when none are present.
+// request in option order (each supplied option; not last-wins).
+// No-op when none are present.
 func ApplyMembershipJoins(fd int, s parse.Spec) error {
 	joins := membershipJoins(s)
 	if len(joins) == 0 {
@@ -47,7 +45,7 @@ func ApplyMembershipJoins(fd int, s parse.Spec) error {
 }
 
 // applyMembershipOption applies one membership occurrence. Keeping this
-// helper OS-neutral lets the unified PH_PASTSOCKET pass interleave multicast
+// helper OS-neutral lets the unified post-socket pass interleave multicast
 // joins with generic and ancillary options in original command-line order.
 func applyMembershipOption(fd int, o parse.Option) (bool, error) {
 	family, name, ok := membershipFamilyOf(o)
@@ -59,8 +57,8 @@ func applyMembershipOption(fd int, o parse.Option) (bool, error) {
 }
 
 // membershipJoins collects every membership option in command-line order.
-// OriginalSpelling selects the classic IPv4/IPv6 descriptor; Name is the
-// fallback for constructed specs that do not preserve spelling.
+// Original spelling selects the IPv4/IPv6 sockopt; Name is the fallback
+// for constructed specs that do not preserve spelling.
 func membershipJoins(s parse.Spec) []membershipJoin {
 	var out []membershipJoin
 	for _, o := range s.Options {
@@ -74,9 +72,9 @@ func membershipJoins(s parse.Spec) []membershipJoin {
 }
 
 func membershipFamilyOf(o parse.Option) (membershipFamily, string, bool) {
-	// Original spelling is authoritative because these two classic
-	// descriptors have different socket families. This also keeps manually
-	// constructed legacy Specs safe if Name was folded incorrectly.
+	// Original spelling is authoritative because these two options have
+	// different socket families. This also keeps manually constructed
+	// Specs safe if Name was folded incorrectly.
 	if family, name, ok := membershipFamilyName(o.OriginalSpelling()); ok {
 		return family, name, true
 	}
@@ -252,10 +250,8 @@ func recvErrSpelling(name string) (string, bool) {
 }
 
 // RejectUnsupportedRecvErr fails fast for ip-recverr / ipv6-recverr.
-// Classic OFUNC_SOCKOPT IP_RECVERR only enables MSG_ERRQUEUE; this port's
-// ReadMsg path does not drain that queue, so advertising the option would be
-// a no-op. tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official
-// master af5388c898c7bb60997935aee93c223deba60c4a is the same optdesc.
+// IP_RECVERR only enables MSG_ERRQUEUE; this ReadMsg path does not drain
+// that queue, so advertising the option would be a no-op.
 func RejectUnsupportedRecvErr(s parse.Spec) error {
 	for _, o := range s.Options {
 		_, ok := recvErrOptionName(o)
@@ -275,9 +271,8 @@ func RejectUnsupportedRecvErr(s parse.Spec) error {
 	return nil
 }
 
-// classicFlagInt is TYPE_INT / TYPE_BYTE / TYPE_BOOL sockopt parsing:
-// bare flag → 1; assigned value is base-0. max>=0 rejects values above max
-// (TYPE_BYTE is 0..255). Classic tag-1.8.1.3 xioopts.c parseopts.
+// classicFlagInt: bare flag → 1; assigned value is base-0. max>=0 rejects
+// values above max (bytes are 0..255).
 func classicFlagInt(o parse.Option, max int) (int, error) {
 	if !o.Has {
 		return 1, nil
