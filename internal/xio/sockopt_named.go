@@ -17,8 +17,9 @@ import (
 //	so-debug / debug, so-dontroute / dontroute, so-oobinline / oobinline,
 //	so-rcvlowat / rcvlowat, so-sndlowat / sndlowat
 //	so-priority / priority, so-passcred / passcred,
-//	so-no-check / no-check / nocheck (Linux SO_PRIORITY / SO_PASSCRED /
-//	SO_NO_CHECK; classic xio-socket.c #ifdef SO_*)
+//	so-no-check / no-check / nocheck, so-detach-filter / detach-filter /
+//	detachfilter (Linux SO_PRIORITY / SO_PASSCRED / SO_NO_CHECK /
+//	SO_DETACH_FILTER; classic xio-socket.c #ifdef SO_*)
 //	tcp-cork / cork, tcp-defer-accept / defer-accept, tcp-linger2 / linger2,
 //	tcp-maxseg / maxseg / mss, tcp-quickack / quickack, tcp-syncnt / syncnt,
 //	tcp-window-clamp / window-clamp

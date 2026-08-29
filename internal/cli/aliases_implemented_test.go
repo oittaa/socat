@@ -91,6 +91,8 @@ var implementedAliasHelp = []struct {
 	{"passcred", "so-passcred"},
 	{"nocheck", "so-no-check"},
 	{"no-check", "so-no-check"},
+	{"detach-filter", "so-detach-filter"},
+	{"detachfilter", "so-detach-filter"},
 	{"rcvlowat", "so-rcvlowat"},
 	{"sndlowat", "so-sndlowat"},
 	{"recvdstaddr", "ip-recvdstaddr"},

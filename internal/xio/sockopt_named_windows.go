@@ -16,7 +16,7 @@ func lookupNamedPastSocketInt(name string) (level, opt int, ok bool, err error) 
 		"tcp-quickack", "tcp-syncnt", "tcp-window-clamp",
 		"nopush", "noopt", "tcp-nopush", "tcp-noopt",
 		"sctp-nodelay", "sctp-maxseg",
-		"so-priority", "so-passcred", "so-no-check":
+		"so-priority", "so-passcred", "so-no-check", "so-detach-filter":
 		return 0, 0, true, errNamedOptUnsupported
 	default:
 		return 0, 0, false, nil

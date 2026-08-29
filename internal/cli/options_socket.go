@@ -20,6 +20,7 @@ func socketOptionGroups() []helpOptGroup {
 			{name: "so-priority", desc: "SO_PRIORITY (Linux)", aliases: []string{"priority"}},
 			{name: "so-passcred", desc: "SO_PASSCRED (Linux)", aliases: []string{"passcred"}},
 			{name: "so-no-check", desc: "SO_NO_CHECK (Linux)", aliases: []string{"no-check", "nocheck"}},
+			{name: "so-detach-filter", desc: "SO_DETACH_FILTER (Linux)", aliases: []string{"detach-filter", "detachfilter"}, validate: validateOptionalSignedInteger},
 			{name: "fiosetown", desc: "FIOSETOWN SIGIO owner pid", validate: validateOptionalSignedInteger},
 			{name: "siocspgrp", desc: "SIOCSPGRP SIGIO process group", validate: validateOptionalSignedInteger},
 			{name: "tcp-cork", desc: "TCP_CORK (Linux)", aliases: []string{"cork"}, addressTypes: tcpStreamAddressTypes()},

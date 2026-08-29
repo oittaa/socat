@@ -938,6 +938,7 @@ func TestOpenSpecEXECNonSocketpairRejectsPastSocketOptionsLinux(t *testing.T) {
 		{name: "pipes-fiosetown", spec: "EXEC:/bin/true,pipes,fiosetown=1", mode: ModeRDWR, optName: "fiosetown"},
 		{name: "pty-siocspgrp", spec: "EXEC:/bin/true,pty,siocspgrp", mode: ModeRDWR, optName: "siocspgrp"},
 		{name: "nofork-fiosetown", spec: "EXEC:/bin/true,nofork,fiosetown", mode: ModeRDWR, optName: "fiosetown"},
+		{name: "pipes-so-detach-filter", spec: "EXEC:/bin/true,pipes,so-detach-filter", mode: ModeRDWR, optName: "so-detach-filter"},
 	}
 	want := func(name string) string {
 		return fmt.Sprintf("option %q not inquired", name)
