@@ -307,22 +307,65 @@ class CompareTest(unittest.TestCase):
             any(m["alias"] in {"create", "creat", "o-creat"} for m in report.option_alias_mismatches)
         )
 
-    def test_windows_binary_covers_bin_and_o_binary(self) -> None:
-        go = parity.parse_go_help(SYNTHETIC_GO_HELP + "    binary     windows mode\n    bin        alias of binary\n")
+    def test_dropped_create_alias_is_missing_even_when_creat_remains(self) -> None:
+        go = parity.parse_go_help(
+            SYNTHETIC_GO_HELP.replace("    create    alias of creat\n", "")
+        )
+        self.assertIn("creat", go.options)
+        self.assertNotIn("create", go.options)
+        report = self._report(go_help=go)
+        self.assertIn("create", report.missing_options)
+        self.assertNotIn("creat", report.missing_options)
+
+    def test_windows_binary_requires_each_official_spelling(self) -> None:
+        go = parity.parse_go_help(
+            SYNTHETIC_GO_HELP + "    binary     windows mode\n    bin        alias of binary\n"
+        )
         report = self._report(go_help=go, goos="windows")
         self.assertNotIn("binary", report.unexpected_options)
         self.assertNotIn("bin", report.unexpected_options)
-        self.assertNotIn("o-binary", report.missing_options)
+        self.assertIn("o-binary", report.missing_options)
+        present = parity.parse_go_help(
+            SYNTHETIC_GO_HELP
+            + "    binary     windows mode\n"
+            + "    bin        alias of binary\n"
+            + "    o-binary   alias of binary\n"
+        )
+        complete = self._report(go_help=present, goos="windows")
+        self.assertNotIn("o-binary", complete.missing_options)
         linux = self._report(goos="linux")
         self.assertNotIn("binary", linux.missing_options)
         self.assertNotIn("bin", linux.missing_options)
         self.assertNotIn("o-binary", linux.missing_options)
+
+    def test_go_alias_does_not_expand_policy_allowlist(self) -> None:
+        go = parity.parse_go_help(SYNTHETIC_GO_HELP + "    typo       alias of alpn\n")
+        report = self._report(go_help=go)
+        self.assertIn("typo", report.unexpected_options)
+        self.assertNotIn("alpn", report.unexpected_options)
+        win = parity.parse_go_help(
+            SYNTHETIC_GO_HELP
+            + "    binary     windows mode\n"
+            + "    bin        alias of binary\n"
+            + "    o-binary   alias of binary\n"
+            + "    typo       alias of binary\n"
+        )
+        win_report = self._report(go_help=win, goos="windows")
+        self.assertIn("typo", win_report.unexpected_options)
+        self.assertNotIn("binary", win_report.unexpected_options)
 
     def test_incomplete_v_is_a_failure(self) -> None:
         report = self._report(feature_defines_missing=["WITH_OPENSSL"])
         self.assertTrue(report.has_failures())
         report_ok = self._report(feature_defines_missing=[])
         self.assertFalse(report_ok.feature_defines_missing)
+
+    def test_master_review_drift_is_a_failure(self) -> None:
+        drifted = self._report(current_master_commit="c" * 40)
+        self.assertTrue(drifted.master_review_drift)
+        self.assertTrue(drifted.has_failures())
+        pinned = self._report(current_master_commit=BASELINE["reviewed_master_commit"])
+        self.assertFalse(pinned.master_review_drift)
 
     def test_parser_only_does_not_fail_audit(self) -> None:
         report = self._report()

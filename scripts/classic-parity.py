@@ -520,11 +520,18 @@ def spellings_for_policy_seed(
 ) -> set[str]:
     """Names covered by one policy entry.
 
-    include_canonical=True (unsupported/platform/go-only): the seed, its
-    resolved canonical, and every spelling that resolves to that canonical.
+    Pass official (classic) alias maps only. Do not pass the Go
+    implementation's alias map: that would let it expand its own allowlist.
 
-    include_canonical=False (parser-only aliases): the seed and spellings
-    that resolve *to the seed*, not the documented canonical it points at.
+    include_canonical=True (unsupported/foreign/platform): the seed, its
+    resolved canonical, and every official spelling that resolves to that
+    canonical.
+
+    include_canonical=False (parser-only aliases): the seed and official
+    spellings that resolve *to the seed*, not the documented canonical it
+    points at.
+
+    Go-only names are listed explicitly; call this with no alias maps.
     """
     out = {seed}
     for aliases in maps:
@@ -564,45 +571,6 @@ def same_alias_class(
     return resolve_alias(classic_aliases, go_canon) == classic_canon
 
 
-def classic_projects_to(name: str, go_aliases: dict[str, str], classic_aliases: dict[str, str]) -> str:
-    return resolve_alias(classic_aliases, resolve_alias(go_aliases, name))
-
-
-def go_covers_name(
-    classic_name: str,
-    go_names: set[str],
-    go_aliases: dict[str, str],
-    classic_aliases: dict[str, str],
-) -> bool:
-    if classic_name in go_names:
-        return True
-    want = resolve_alias(classic_aliases, classic_name)
-    for got in go_names:
-        if classic_projects_to(got, go_aliases, classic_aliases) == want:
-            return True
-        if resolve_alias(go_aliases, got) == classic_name:
-            return True
-        if resolve_alias(classic_aliases, got) == want:
-            return True
-    return False
-
-
-def classic_covers_name(
-    go_name: str,
-    classic_names: set[str],
-    go_aliases: dict[str, str],
-    classic_aliases: dict[str, str],
-) -> bool:
-    if go_name in classic_names:
-        return True
-    projected = classic_projects_to(go_name, go_aliases, classic_aliases)
-    if projected in classic_names:
-        return True
-    if resolve_alias(go_aliases, go_name) in classic_names:
-        return True
-    return False
-
-
 def name_matches_family(name: str, family: str) -> bool:
     """Match DCCP4-LISTEN to DCCP, OPENSSL-DTLS-CLIENT to DTLS, UDPLITE6 to UDPLITE."""
     name = name.upper()
@@ -625,13 +593,11 @@ def group_tokens(groups: str) -> set[str]:
 def expand_address_families(
     families: set[str],
     extracted: ExtractedInterface,
-    extra_names: Iterable[str] = (),
 ) -> set[str]:
-    """Propagate policy family names through address aliases and -hhh groups."""
+    """Propagate policy family names through official aliases and -hhh groups."""
     if not families:
         return set()
     names = set(extracted.addresses)
-    names.update(extra_names)
     names.update(extracted.address_aliases.keys())
     names.update(extracted.address_aliases.values())
     unsupported: set[str] = set()
@@ -659,15 +625,15 @@ def expand_address_families(
     return unsupported
 
 
-def expand_go_only_addresses(seeds: set[str], extracted: ExtractedInterface) -> set[str]:
-    out = set(seeds)
-    for name in extracted.addresses | alias_universe(extracted.address_aliases):
-        if any(name_matches_family(name, seed) for seed in seeds):
-            out.add(name)
-    out |= expand_policy_spellings(
-        seeds, extracted.address_aliases, include_canonical=True
-    )
-    return {n.upper() for n in out}
+def expand_go_only_addresses(seeds: set[str], advertised: Iterable[str]) -> set[str]:
+    """Family roots only: WS covers WS-LISTEN, not WSS. No alias-map expansion."""
+    seeds_u = {s.upper() for s in seeds if s}
+    out = set(seeds_u)
+    for name in advertised:
+        upper = name.upper()
+        if any(name_matches_family(upper, seed) for seed in seeds_u):
+            out.add(upper)
+    return out
 
 
 def normalize_git_url(url: str) -> str:
@@ -740,6 +706,7 @@ class CompareReport:
             or self.address_alias_mismatches
             or self.feature_defines_missing
             or self.master_feature_defines_missing
+            or self.master_review_drift
         )
 
     def to_json(self) -> dict[str, Any]:
@@ -784,41 +751,40 @@ def compare_interfaces(
     master_public = merge_extracted(
         master_docs or ExtractedInterface(), master_hhh or ExtractedInterface()
     )
-    opt_alias_maps = (release_public.option_aliases, go_help.option_aliases)
-    addr_alias_maps = (release_public.address_aliases, go_help.address_aliases)
+    official_opt_aliases = merge_extracted(
+        release_public, master_public
+    ).option_aliases
     unsupported_opts = expand_policy_spellings(
         {n.lower() for n in policy_name_set(policy, "unsupported_options", "foreign_options")},
-        *opt_alias_maps,
+        official_opt_aliases,
         include_canonical=True,
     )
     parser_only = expand_policy_spellings(
         {n.lower() for n in policy_name_set(policy, "parser_only_options")},
-        *opt_alias_maps,
+        official_opt_aliases,
         include_canonical=False,
     )
     go_only_opts = expand_policy_spellings(
         {n.lower() for n in policy_name_set(policy, "go_only_options")},
-        *opt_alias_maps,
         include_canonical=True,
     )
     other_plat = expand_policy_spellings(
         {n.lower() for n in other_platform_options(policy, goos)},
-        *opt_alias_maps,
+        official_opt_aliases,
         include_canonical=True,
     )
     this_plat = expand_policy_spellings(
         {n.lower() for n in platform_option_set(policy, goos)},
-        *opt_alias_maps,
+        official_opt_aliases,
         include_canonical=True,
     )
     family_seeds = {n.upper() for n in policy_name_set(policy, "unsupported_addresses")}
-    family_extracted = merge_extracted(release_public, go_help, master_public)
     unsupported_addrs = expand_address_families(
-        family_seeds, family_extracted, extra_names=go_help.addresses
+        family_seeds, merge_extracted(release_public, master_public)
     )
     go_only_addrs = expand_go_only_addresses(
         {n.upper() for n in policy_name_set(policy, "go_only_addresses")},
-        merge_extracted(go_help, release_public),
+        go_help.addresses,
     )
 
     advertised_opts = set(release_public.options)
@@ -839,9 +805,7 @@ def compare_interfaces(
     )
 
     for name in sorted(advertised_opts):
-        if go_covers_name(
-            name, go_help.options, go_help.option_aliases, release_public.option_aliases
-        ):
+        if name in go_help.options:
             continue
         if name in parser_only:
             report.parser_only_ignored.append(name)
@@ -851,9 +815,7 @@ def compare_interfaces(
         report.missing_options.append(name)
 
     for name in sorted(advertised_addrs):
-        if go_covers_name(
-            name, go_help.addresses, go_help.address_aliases, release_public.address_aliases
-        ):
+        if name in go_help.addresses:
             continue
         if name in unsupported_addrs:
             continue
@@ -864,32 +826,20 @@ def compare_interfaces(
             report.missing_flags.append(name)
 
     for name in sorted(go_help.options):
-        if classic_covers_name(
-            name, advertised_opts, go_help.option_aliases, release_public.option_aliases
-        ):
+        if name in advertised_opts:
             continue
         if name in go_only_opts or name in this_plat:
             continue
         if name in master_public.options:
             continue
-        if classic_covers_name(
-            name, master_public.options, go_help.option_aliases, master_public.option_aliases
-        ):
-            continue
         report.unexpected_options.append(name)
 
     for name in sorted(go_help.addresses):
-        if classic_covers_name(
-            name, advertised_addrs, go_help.address_aliases, release_public.address_aliases
-        ):
+        if name in advertised_addrs:
             continue
         if name in go_only_addrs:
             continue
         if name in master_public.addresses:
-            continue
-        if classic_covers_name(
-            name, master_public.addresses, go_help.address_aliases, master_public.address_aliases
-        ):
             continue
         report.unexpected_addresses.append(name)
 
@@ -1160,12 +1110,18 @@ def build_classic(tree: Path, outdir: Path) -> dict[str, str]:
         else:
             run_cmd(["autoconf"], cwd=tree, env=env)
 
-    ensure_configure()
-    if (tree / "Makefile").exists():
-        run_cmd(["make", "distclean"], cwd=tree, env=env, check=False)
-        ensure_configure()
-    run_cmd(["./configure"], cwd=tree, env=env)
-    run_cmd(["make"], cwd=tree, env=env)
+    for step in classic_build_plan(tree):
+        if step == "autoconf":
+            ensure_configure()
+        elif step == "distclean":
+            run_cmd(["make", "distclean"], cwd=tree, env=env, check=False)
+            ensure_configure()
+        elif step == "configure":
+            run_cmd(["./configure"], cwd=tree, env=env)
+        elif step == "make":
+            run_cmd(["make"], cwd=tree, env=env)
+        else:
+            raise SystemExit(f"unknown classic build step {step!r}")
     binary = tree / "socat"
     if not binary.exists():
         raise SystemExit(f"classic build produced no binary at {binary}")
@@ -1417,7 +1373,7 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument(
         "--fail-on-diff",
         action="store_true",
-        help="exit 1 on name/alias diffs, or when a used -hhh dump lacks a complete -V",
+        help="exit 1 on name/alias diffs, incomplete -V, or official master SHA drift",
     )
     compare.set_defaults(func=cmd_compare)
     return p
