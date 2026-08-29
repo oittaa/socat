@@ -1,7 +1,6 @@
 package xio
 
 // Address capability tokens used for option-scope intersection.
-// optionRequiredCaps refers to the same tokens.
 const (
 	CapFD        = "fd"
 	CapFIFO      = "fifo"
@@ -27,8 +26,6 @@ const (
 	CapIPTCP     = "ip-tcp"
 	CapIPUDP     = "ip-udp"
 	CapIPSCTP    = "ip-sctp"
-	CapIPDCCP    = "ip-dccp"
-	CapIPUDPLite = "ip-udplite"
 	CapOpenSSL   = "openssl"
 	CapHTTP      = "http"
 	CapSocks     = "socks"
@@ -44,9 +41,9 @@ func capset(names ...string) []string {
 // (or a deliberate one-off) instead of inferring groups from the address name.
 var (
 	CapsFD = capset(CapFD, CapFIFO, CapCHR, CapBLK, CapREG, CapSocket, CapTermios,
-		CapSockUNIX, CapSockIP4, CapSockIP6, CapIPUDP, CapIPTCP, CapIPSCTP, CapIPDCCP, CapIPUDPLite)
+		CapSockUNIX, CapSockIP4, CapSockIP6, CapIPUDP, CapIPTCP, CapIPSCTP)
 	CapsAcceptFD = capset(CapFD, CapSocket, CapSockUNIX, CapSockIP4, CapSockIP6,
-		CapIPUDP, CapIPTCP, CapIPSCTP, CapIPDCCP, CapIPUDPLite, CapChild, CapRange, CapRetry)
+		CapIPUDP, CapIPTCP, CapIPSCTP, CapChild, CapRange, CapRetry)
 	CapsPIPE   = capset(CapFD, CapNamed, CapOpen, CapFIFO)
 	CapsOpen   = capset(CapFD, CapFIFO, CapCHR, CapBLK, CapREG, CapNamed, CapOpen, CapTermios)
 	CapsCreate = capset(CapFD, CapNamed, CapREG)

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"io"
+	"strings"
 
 	"github.com/oittaa/socat"
 	"github.com/oittaa/socat/internal/outbuf"
@@ -215,18 +216,19 @@ func extraHelpNames(all bool) []string {
 	skip := map[string]struct{}{}
 	for _, g := range helpOptionGroups() {
 		for _, o := range g.opts {
-			skip[o.name] = struct{}{}
+			skip[strings.ToLower(o.name)] = struct{}{}
 			for _, al := range o.aliases {
-				skip[al] = struct{}{}
+				skip[strings.ToLower(al)] = struct{}{}
 			}
 		}
 	}
 	var out []string
 	for _, name := range xio.TermiosHelpNames() {
-		if _, dup := skip[name]; dup {
+		key := strings.ToLower(name)
+		if _, dup := skip[key]; dup {
 			continue
 		}
-		skip[name] = struct{}{}
+		skip[key] = struct{}{}
 		out = append(out, name)
 	}
 	return out

@@ -6,19 +6,6 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func isTermiosOption(name string) bool {
-	groups, ok := OptionCapsFor(name)
-	if !ok {
-		return false
-	}
-	for _, g := range groups {
-		if g == CapTermios {
-			return true
-		}
-	}
-	return false
-}
-
 // RejectUnsupportedTermios fails when a spec requests a termios option on a
 // platform that does not implement termios (Windows). Same shape as
 // RejectUnsupportedIPAncillary: do not accept the option as a silent no-op.

@@ -18,7 +18,7 @@ func TestNamedOptionCaps(t *testing.T) {
 		{name: "CapsTCPListen", got: CapsTCPListen, want: uniqueCaps([]string{"fd", "socket", "sock-ip4", "sock-ip6", "ip-tcp", "listen", "child", "range", "retry"})},
 		{name: "CapsSocketListen", got: CapsSocketListen, want: uniqueCaps([]string{"fd", "socket", "listen", "range", "child", "retry"})},
 		{name: "CapsOpen", got: CapsOpen, want: uniqueCaps([]string{"fd", "fifo", "chr", "blk", "reg", "named", "open", "termios"})},
-		{name: "CapsAcceptFD", got: CapsAcceptFD, want: uniqueCaps([]string{"fd", "socket", "sock-unix", "sock-ip4", "sock-ip6", "ip-udp", "ip-tcp", "ip-sctp", "ip-dccp", "ip-udplite", "child", "range", "retry"})},
+		{name: "CapsAcceptFD", got: CapsAcceptFD, want: uniqueCaps([]string{"fd", "socket", "sock-unix", "sock-ip4", "sock-ip6", "ip-udp", "ip-tcp", "ip-sctp", "child", "range", "retry"})},
 		{name: "CapsCreate", got: CapsCreate, want: uniqueCaps([]string{"fd", "named", "reg"})},
 		{name: "CapsPOSIXMQChild", got: CapsPOSIXMQChild, want: uniqueCaps([]string{"fd", "open", "named", "posixmq", "retry", "child"})},
 		{name: "CapsUDPConnect", got: CapsUDPConnect, want: uniqueCaps([]string{"fd", "socket", "sock-ip4", "sock-ip6", "ip-udp"})},

@@ -1,10 +1,11 @@
-package xio_test
+package cli
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/oittaa/socat/internal/xio"
-	_ "github.com/oittaa/socat/internal/xio/all"
 )
 
 func TestAddressAllowsOption(t *testing.T) {
@@ -149,9 +150,100 @@ func TestAddressAllowsOption(t *testing.T) {
 		{"UNIX-DATAGRAM", "unlink-early", true},
 	}
 	for _, tc := range cases {
-		got := xio.AddressAllowsOption(tc.addr, tc.opt)
+		got := optionAllowedOnAddress(tc.addr, tc.opt)
 		if got != tc.want {
-			t.Errorf("AddressAllowsOption(%s, %s)=%v want %v", tc.addr, tc.opt, got, tc.want)
+			t.Errorf("optionAllowedOnAddress(%s, %s)=%v want %v", tc.addr, tc.opt, got, tc.want)
+		}
+	}
+}
+
+func TestOptionCapsAliasInheritance(t *testing.T) {
+	for _, group := range helpOptionGroups() {
+		for _, option := range group.opts {
+			canon, ok := supportedAddressOptions[strings.ToLower(option.name)]
+			if !ok {
+				t.Errorf("canonical %q missing from supportedAddressOptions", option.name)
+				continue
+			}
+			for _, alias := range option.aliases {
+				got, ok := supportedAddressOptions[strings.ToLower(alias)]
+				if !ok {
+					t.Errorf("%s alias %q missing from supportedAddressOptions", option.name, alias)
+					continue
+				}
+				if !reflect.DeepEqual(got.optionCaps, canon.optionCaps) {
+					t.Errorf("%s alias %s caps=%v want canonical %v", option.name, alias, got.optionCaps, canon.optionCaps)
+				}
+			}
+		}
+	}
+
+	join := supportedAddressOptions["ipv6-join-group"].optionCaps
+	if got := supportedAddressOptions["join-group"].optionCaps; !reflect.DeepEqual(got, join) {
+		t.Fatalf("join-group caps=%v want ipv6-join-group %v", got, join)
+	}
+	member := supportedAddressOptions["ip-add-membership"].optionCaps
+	if reflect.DeepEqual(join, member) {
+		t.Fatalf("ipv6-join-group and ip-add-membership must keep distinct caps: %v", join)
+	}
+	if !reflect.DeepEqual(join, capIP6) {
+		t.Fatalf("ipv6-join-group caps=%v want %v", join, capIP6)
+	}
+	if !reflect.DeepEqual(member, capIP4IP6) {
+		t.Fatalf("ip-add-membership caps=%v want %v", member, capIP4IP6)
+	}
+
+	srcJoin := supportedAddressOptions["ipv6-join-source-group"].optionCaps
+	srcMember := supportedAddressOptions["ip-add-source-membership"].optionCaps
+	if reflect.DeepEqual(srcJoin, srcMember) {
+		t.Fatalf("ipv6-join-source-group and ip-add-source-membership must keep distinct caps: %v", srcJoin)
+	}
+	if !reflect.DeepEqual(srcJoin, capIP6) {
+		t.Fatalf("ipv6-join-source-group caps=%v want %v", srcJoin, capIP6)
+	}
+	if !reflect.DeepEqual(srcMember, capIP4IP6) {
+		t.Fatalf("ip-add-source-membership caps=%v want %v", srcMember, capIP4IP6)
+	}
+}
+
+func TestAdvertisedOptionsHaveDeliberateScope(t *testing.T) {
+	var missing []string
+	for _, group := range helpOptionGroups() {
+		sectionGroups := optionAddressGroups(group.title)
+		for _, option := range group.opts {
+			if option.unrestricted {
+				if len(option.optionCaps) > 0 {
+					t.Errorf("%s: unrestricted options must not set optionCaps", option.name)
+				}
+				continue
+			}
+			if len(option.optionCaps) > 0 || len(option.addressTypes) > 0 || len(sectionGroups) > 0 {
+				continue
+			}
+			missing = append(missing, option.name)
+		}
+	}
+	if len(missing) > 0 {
+		t.Fatalf("advertised options missing scope metadata (optionCaps, unrestricted, addressTypes, or section groups): %v", missing)
+	}
+	for _, name := range extraHelpNames(true) {
+		spec, ok := supportedAddressOptions[strings.ToLower(name)]
+		if !ok || !reflect.DeepEqual(spec.optionCaps, capTermios) {
+			t.Errorf("extra termios name %q caps=%v ok=%v want termios", name, spec.optionCaps, ok)
+		}
+	}
+	for _, name := range xio.TermiosOptionNames() {
+		spec, ok := supportedAddressOptions[strings.ToLower(name)]
+		if !ok || !reflect.DeepEqual(spec.optionCaps, capTermios) {
+			t.Errorf("recognized termios name %q caps=%v ok=%v want termios", name, spec.optionCaps, ok)
+		}
+	}
+	for name, spec := range supportedAddressOptions {
+		for _, cap := range spec.optionCaps {
+			switch cap {
+			case "ip-dccp", "ip-udplite":
+				t.Errorf("%s optionCaps includes unsupported %q", name, cap)
+			}
 		}
 	}
 }
