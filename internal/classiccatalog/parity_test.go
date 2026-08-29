@@ -52,6 +52,76 @@ func TestOpenSSLExclusionsAreUnsupportedNotBacklog(t *testing.T) {
 	}
 }
 
+func TestTCPInfoAndMD5SigAreUnsupportedNotBacklog(t *testing.T) {
+	for _, name := range []string{"tcp-info", "info", "tcp-md5sig"} {
+		reason, ok := UnsupportedPublic()[name]
+		if !ok {
+			t.Errorf("%q missing from UnsupportedPublic", name)
+			continue
+		}
+		if strings.TrimSpace(reason) == "" {
+			t.Errorf("%q unsupported reason is empty", name)
+		}
+		if _, ok := ExpectedMissingAll()[name]; ok {
+			t.Errorf("%q must not remain expected-missing; TYPE_INT cannot represent the kernel struct", name)
+		}
+		for _, goos := range []string{"linux", "darwin", "windows"} {
+			class, classReason := ClassifyOption(name, goos)
+			if class != ClassUnsupported {
+				t.Errorf("%s on %s: class=%s reason=%q; want unsupported", name, goos, class, classReason)
+			}
+			if _, ok := ImplementationBacklog(goos)[name]; ok {
+				t.Errorf("%s backlog includes %q; it is not an implementation item", goos, name)
+			}
+		}
+	}
+	if _, ok := UnsupportedPublic()["md5sig"]; ok {
+		t.Fatal("md5sig is documented TCP_MD5SUM, not a tcp-md5sig alias; keep it foreign")
+	}
+	for _, goos := range []string{"linux", "darwin", "windows"} {
+		class, reason := ClassifyOption("md5sig", goos)
+		if class != ClassForeign {
+			t.Errorf("md5sig on %s: class=%s reason=%q; want foreign", goos, class, reason)
+		}
+		if reason == "" {
+			t.Errorf("md5sig on %s: foreign reason is empty", goos)
+		}
+		if _, ok := ImplementationBacklog(goos)["md5sig"]; ok {
+			t.Errorf("%s backlog includes md5sig; it is foreign TCP_MD5SUM", goos)
+		}
+	}
+}
+
+func TestProcessPrivilegeOptionsAreUnsupportedNotBacklog(t *testing.T) {
+	names := []string{
+		"chroot", "chroot-early",
+		"setgid", "setgid-early", "setuid", "setuid-early",
+		"substuser", "su", "substuser-delayed", "su-d", "substuser-early", "su-e",
+	}
+	for _, name := range names {
+		reason, ok := UnsupportedPublic()[name]
+		if !ok {
+			t.Errorf("%q missing from UnsupportedPublic", name)
+			continue
+		}
+		if strings.TrimSpace(reason) == "" {
+			t.Errorf("%q unsupported reason is empty", name)
+		}
+		if _, ok := ExpectedMissingAll()[name]; ok {
+			t.Errorf("%q must not remain expected-missing; process-wide credentials need isolation", name)
+		}
+		for _, goos := range []string{"linux", "darwin", "windows"} {
+			class, classReason := ClassifyOption(name, goos)
+			if class != ClassUnsupported {
+				t.Errorf("%s on %s: class=%s reason=%q; want unsupported", name, goos, class, classReason)
+			}
+			if _, ok := ImplementationBacklog(goos)[name]; ok {
+				t.Errorf("%s backlog includes %q; it is not an implementation item", goos, name)
+			}
+		}
+	}
+}
+
 func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 	tests := []struct {
 		name, goos string
@@ -238,6 +308,35 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"ipv6-pktinfo", "darwin", ClassUnsupported},
 		{"ipv6-rthdr", "linux", ClassUnsupported},
 		{"rthdr", "windows", ClassUnsupported},
+		{"tcp-info", "linux", ClassUnsupported},
+		{"tcp-info", "darwin", ClassUnsupported},
+		{"tcp-info", "windows", ClassUnsupported},
+		{"info", "linux", ClassUnsupported},
+		{"tcp-md5sig", "linux", ClassUnsupported},
+		{"tcp-md5sig", "darwin", ClassUnsupported},
+		{"tcp-md5sig", "windows", ClassUnsupported},
+		{"md5sig", "linux", ClassForeign},
+		{"md5sig", "darwin", ClassForeign},
+		{"md5sig", "windows", ClassForeign},
+		{"chroot", "linux", ClassUnsupported},
+		{"chroot", "darwin", ClassUnsupported},
+		{"chroot", "windows", ClassUnsupported},
+		{"chroot-early", "linux", ClassUnsupported},
+		{"setgid", "linux", ClassUnsupported},
+		{"setgid", "windows", ClassUnsupported},
+		{"setgid-early", "darwin", ClassUnsupported},
+		{"setuid", "linux", ClassUnsupported},
+		{"setuid", "darwin", ClassUnsupported},
+		{"setuid", "windows", ClassUnsupported},
+		{"setuid-early", "linux", ClassUnsupported},
+		{"substuser", "linux", ClassUnsupported},
+		{"substuser", "darwin", ClassUnsupported},
+		{"substuser", "windows", ClassUnsupported},
+		{"su", "linux", ClassUnsupported},
+		{"substuser-delayed", "linux", ClassUnsupported},
+		{"su-d", "windows", ClassUnsupported},
+		{"substuser-early", "darwin", ClassUnsupported},
+		{"su-e", "linux", ClassUnsupported},
 		{"history-file", "linux", ClassUnsupported},
 		{"ccid", "linux", ClassUnsupported},
 		{"ccid", "darwin", ClassUnsupported},
@@ -404,6 +503,22 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 		}
 		if _, ok := ImplementationBacklog("windows")[name]; ok {
 			t.Fatalf("windows backlog must not include remaining-IP option %q", name)
+		}
+	}
+	for _, name := range []string{
+		"tcp-info", "info", "tcp-md5sig",
+		"chroot", "chroot-early",
+		"setgid", "setgid-early", "setuid", "setuid-early",
+		"substuser", "su", "substuser-delayed", "su-d", "substuser-early", "su-e",
+	} {
+		if _, ok := linux[name]; ok {
+			t.Fatalf("linux backlog must not include TCP/process option %q", name)
+		}
+		if _, ok := ImplementationBacklog("darwin")[name]; ok {
+			t.Fatalf("darwin backlog must not include TCP/process option %q", name)
+		}
+		if _, ok := ImplementationBacklog("windows")[name]; ok {
+			t.Fatalf("windows backlog must not include TCP/process option %q", name)
 		}
 	}
 	darwin := ImplementationBacklog("darwin")
