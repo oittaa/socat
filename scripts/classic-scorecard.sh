@@ -91,9 +91,17 @@ TEST_SH_ARGS="${TEST_SH_ARGS:-}"       # extra test.sh flags, e.g. --internet
 export TEST_SH_ARGS
 
 TEST_SH="${1:-${CLASSIC_TEST_SH:-}}"
+if [[ -z "$TEST_SH" ]] && command -v python3 >/dev/null 2>&1; then
+  parity_workdir="${SOCAT_CLASSIC_PARITY_WORKDIR:-$ROOT/testdata/tmp/classic-parity}"
+  release_commit="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["release_commit"])' "$ROOT/scripts/classic-baseline.json")"
+  cached_test_sh="$parity_workdir/worktrees/release-$release_commit/test.sh"
+  if [[ -f "$cached_test_sh" ]]; then
+    TEST_SH="$cached_test_sh"
+  fi
+fi
 if [[ -z "$TEST_SH" || ! -f "$TEST_SH" ]]; then
   echo "usage: $0 /path/to/classic/test.sh" >&2
-  echo "Clone: git clone --depth 1 https://repo.or.cz/socat.git /tmp/socat-master" >&2
+  echo "Run make classic-parity first, or set CLASSIC_TEST_SH." >&2
   exit 2
 fi
 TEST_SH="$(cd "$(dirname "$TEST_SH")" && pwd)/$(basename "$TEST_SH")"

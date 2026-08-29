@@ -4,14 +4,18 @@ set -euo pipefail
 GO_VERSION="${GO_VERSION:-1.27.0}"
 GOLANGCI_LINT_VERSION="${GOLANGCI_LINT_VERSION:-v2.13.1}"
 GOSEC_VERSION="${GOSEC_VERSION:-v2.28.0}"
-CLASSIC_TAG="${CLASSIC_TAG:-tag-1.8.1.3}"
-CLASSIC_REPO="${CLASSIC_REPO:-https://repo.or.cz/socat.git}"
-CLASSIC_DIR="${CLASSIC_DIR:-/opt/socat-classic}"
+GUEST_USER="${SOCAT_GUEST_USER:-socat-user}"
+CLASSIC_PARITY_WORKDIR='/var/lib/socat-lab/classic-parity'
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "guest-provision.sh must run as root" >&2
   exit 2
 fi
+if [[ ! "$GUEST_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] || ! id "$GUEST_USER" >/dev/null 2>&1; then
+  echo "invalid guest user: $GUEST_USER" >&2
+  exit 2
+fi
+GUEST_GROUP="$(id -gn "$GUEST_USER")"
 
 export DEBIAN_FRONTEND=noninteractive
 
@@ -118,26 +122,8 @@ GOBIN=/usr/local/bin GOTOOLCHAIN="go${GO_VERSION}" /usr/local/go/bin/go install 
 GOBIN=/usr/local/bin GOTOOLCHAIN="go${GO_VERSION}" /usr/local/go/bin/go install \
   "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
 
-if [[ ! -d "$CLASSIC_DIR/.git" ]]; then
-  rm -rf "$CLASSIC_DIR"
-  git clone "$CLASSIC_REPO" "$CLASSIC_DIR"
-fi
-
-git -C "$CLASSIC_DIR" fetch --tags --prune origin
-git -C "$CLASSIC_DIR" checkout --force "$CLASSIC_TAG"
-
-cd "$CLASSIC_DIR"
-if [[ ! -x ./configure ]]; then
-  # The upstream Git tag keeps config.h.in but not the generated configure
-  # script.  Running the full autoreconf chain invokes autoheader, which
-  # rejects upstream's legacy templates on modern Ubuntu.  Autoconf alone is
-  # sufficient and matches the build inputs shipped by classic socat.
-  autoconf -f
-fi
-./configure
-make -j"$(nproc)"
-
 install -d -m 0755 /var/lib/socat-lab
+install -d -m 0755 -o "$GUEST_USER" -g "$GUEST_GROUP" "$CLASSIC_PARITY_WORKDIR"
 if command -v lsb_release >/dev/null 2>&1; then
   ubuntu_release="$(lsb_release -ds)"
 else
@@ -151,8 +137,7 @@ kernel=$(uname -r)
 go=$(/usr/local/go/bin/go version)
 golangci_lint_version=$GOLANGCI_LINT_VERSION
 gosec_version=$GOSEC_VERSION
-classic_tag=$CLASSIC_TAG
-classic_commit=$(git -C "$CLASSIC_DIR" rev-parse HEAD)
+classic_parity_workdir=$CLASSIC_PARITY_WORKDIR
 provisioned_at=$(date --iso-8601=seconds)
 EOF
 

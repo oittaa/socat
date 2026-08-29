@@ -43,10 +43,10 @@ Run these from a PowerShell process that can manage Hyper-V:
 
 `download` verifies Canonical's pinned SHA-256. `create` refuses to overwrite an
 existing VM or disk. `provision` installs the Go toolchain, the CI-pinned
-`golangci-lint` and `gosec` tools needed by `make check`, and classic socat
-`tag-1.8.1.3`, including available optional protocol libraries. `checkpoint`
-requires successful provisioning, performs a clean guest shutdown, detaches the
-cloud-init seed, and records a powered-off `clean-provisioned` checkpoint.
+`golangci-lint` and `gosec` tools needed by `make check`, plus the build
+dependencies used by `make classic-parity`. `checkpoint` requires successful
+provisioning, performs a clean guest shutdown, detaches the cloud-init seed, and
+records a powered-off `clean-provisioned` checkpoint.
 
 ## Routine use
 
@@ -54,6 +54,7 @@ cloud-init seed, and records a powered-off `clean-provisioned` checkpoint.
 ./scripts/hyperv/socat-classic-lab.ps1 status
 ./scripts/hyperv/socat-classic-lab.ps1 reset
 ./scripts/hyperv/socat-classic-lab.ps1 check
+./scripts/hyperv/socat-classic-lab.ps1 parity
 ```
 
 `reset` deliberately discards changes since `clean-provisioned`, starts the VM,
@@ -63,10 +64,14 @@ resetting it.
 `check` packages the current Windows working tree into an isolated guest
 directory and runs the complete Linux `make check`. It loads the kernel's real
 AF_VSOCK loopback transport and then reruns every `TestVSOCK` with caching
-disabled; any VSOCK skip fails the check. The official classic checkout already
-provisioned at `/opt/socat-classic` is used by the generator-consistency test,
-so routine validation does not clone repo.or.cz or wait for its network timeout.
-The guest directory is removed after the run.
+disabled; any VSOCK skip fails the check. It does not contact repo.or.cz. The
+guest directory is removed after the run.
+
+`parity` runs `make classic-parity` in the same kind of isolated guest directory.
+Its official source cache is persistent at
+`/var/lib/socat-lab/classic-parity`; the repository URL, release, and reviewed
+master commits come only from `scripts/classic-baseline.json`. The first run
+clones the official repository, and later runs fetch into that same cache.
 
 By default `check` reuses the running VM and its Go caches. Use
 `-ResetBeforeCheck` for validation from the `clean-provisioned` checkpoint, or
@@ -77,7 +82,7 @@ By default `check` reuses the running VM and its Go caches. Use
 ./scripts/hyperv/socat-classic-lab.ps1 check -KeepGuestWorktree
 ```
 
-The runner verifies that Go, `golangci-lint`, `gosec`, and the classic checkout
-exist before copying the workspace. If an older checkpoint lacks the currently
-pinned tools, it runs `provision` automatically; subsequent checks that reuse
-the running VM keep the warm caches and skip this setup.
+The runner verifies that Go, `golangci-lint`, and `gosec` exist before copying
+the workspace. `parity` also requires its persistent cache directory. If an
+older checkpoint lacks the required setup, the runner provisions it
+automatically; subsequent runs keep the warm caches.
