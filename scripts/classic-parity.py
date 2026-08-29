@@ -379,8 +379,24 @@ def feature_defined(text: str, name: str) -> bool:
     return False
 
 
-def missing_feature_complete(text: str) -> list[str]:
-    return [name for name in FEATURE_COMPLETE_DEFINES if not feature_defined(text, name)]
+def feature_complete_defines_for(goos: str | None = None) -> tuple[str, ...]:
+    """Defines required before trusting a native classic -hhh dump.
+
+    Linux reference builds include tcp-wrappers. Darwin typically does not
+    ship libwrap; OpenSSL and readline are still required there.
+    """
+    plat = (goos or sys.platform).lower()
+    if plat in ("darwin", "macos"):
+        return ("WITH_OPENSSL", "WITH_READLINE")
+    return FEATURE_COMPLETE_DEFINES
+
+
+def missing_feature_complete(text: str, *, goos: str | None = None) -> list[str]:
+    return [
+        name
+        for name in feature_complete_defines_for(goos)
+        if not feature_defined(text, name)
+    ]
 
 
 def parse_go_flag_field(field: str) -> list[str]:
@@ -733,6 +749,47 @@ class CompareReport:
         }
 
 
+def _fmt_name_list(names: list[str], limit: int = 12) -> str:
+    if not names:
+        return "(none)"
+    shown = ", ".join(names[:limit])
+    extra = len(names) - limit
+    if extra > 0:
+        shown += f" ... (+{extra})"
+    return f"{len(names)}: {shown}"
+
+
+def format_parity_report(report: CompareReport) -> str:
+    """Human-readable summary for `make classic-parity`."""
+    drift = "yes" if report.master_review_drift else "no"
+    result = "FAIL" if report.has_failures() else "ok"
+    lines = [
+        "classic parity",
+        f"  GOOS: {report.goos}",
+        f"  release: {report.release_tag} ({report.release_commit})",
+        f"  reviewed master: {report.reviewed_master_commit}",
+        f"  current official master: {report.current_master_commit or '(unknown)'}",
+        f"  master review drift: {drift}",
+        f"  missing options: {_fmt_name_list(report.missing_options)}",
+        f"  missing addresses: {_fmt_name_list(report.missing_addresses)}",
+        f"  missing flags: {_fmt_name_list(report.missing_flags)}",
+        f"  unexpected options: {_fmt_name_list(report.unexpected_options)}",
+        f"  unexpected addresses: {_fmt_name_list(report.unexpected_addresses)}",
+        f"  unexpected flags: {_fmt_name_list(report.unexpected_flags)}",
+        f"  option alias mismatches: {len(report.option_alias_mismatches)}",
+        f"  address alias mismatches: {len(report.address_alias_mismatches)}",
+        f"  feature defines missing: {_fmt_name_list(report.feature_defines_missing)}",
+        f"  master feature defines missing: {_fmt_name_list(report.master_feature_defines_missing)}",
+        f"  result: {result}",
+    ]
+    if report.master_review_drift:
+        lines.append(
+            "  official master moved past the reviewed commit; "
+            "review the drift and update scripts/classic-baseline.json"
+        )
+    return "\n".join(lines) + "\n"
+
+
 def compare_interfaces(
     *,
     release_docs: ExtractedInterface,
@@ -1064,7 +1121,7 @@ def capture_classic_help(binary: Path, outdir: Path) -> dict[str, str]:
     """Run socat -V/-hhh into outdir. Refuse -hhh if feature defines are missing."""
     outdir.mkdir(parents=True, exist_ok=True)
     v_text = run_cmd([str(binary), "-V"]).stdout
-    missing = missing_feature_complete(v_text)
+    missing = missing_feature_complete(v_text, goos=sys.platform)
     if missing:
         raise SystemExit(
             "classic binary is not feature-complete; missing "
@@ -1149,7 +1206,9 @@ def extract_from_paths(
     return merge_extracted(*parts)
 
 
-def inspect_classic_v(v_path: Path | None, hhh_used: bool) -> list[str]:
+def inspect_classic_v(
+    v_path: Path | None, hhh_used: bool, *, goos: str | None = None
+) -> list[str]:
     """Fail closed: -hhh is untrusted without a complete -V dump."""
     if not hhh_used:
         return []
@@ -1158,7 +1217,7 @@ def inspect_classic_v(v_path: Path | None, hhh_used: bool) -> list[str]:
     text = v_path.read_text(encoding="utf-8", errors="replace")
     if not text.strip():
         return ["socat -V output empty"]
-    return missing_feature_complete(text)
+    return missing_feature_complete(text, goos=goos)
 
 
 def read_current_master_commit(workdir: Path) -> str:
@@ -1228,90 +1287,108 @@ def cmd_extract(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_compare(args: argparse.Namespace) -> int:
+def compare_from_workdir(
+    *,
+    workdir: Path,
+    baseline: dict[str, Any],
+    policy: dict[str, Any],
+    goos: str | None = None,
+    go_binary: str | None = None,
+    go_help: str | None = None,
+    release_yo: str | None = None,
+    master_yo: str | None = None,
+    release_hhh: str | None = None,
+    master_hhh: str | None = None,
+    release_v: str | None = None,
+    master_v: str | None = None,
+) -> CompareReport:
     root = repo_root()
-    workdir = Path(args.workdir).resolve()
-    baseline = load_baseline(Path(args.baseline) if args.baseline else None)
-    policy = load_policy(Path(args.policy) if args.policy else None)
-    if args.goos:
-        goos = args.goos
-    else:
+    if not goos:
         goos = run_cmd(["go", "env", "GOOS"], cwd=root).stdout.strip()
 
-    release_yo = (
-        Path(args.release_yo)
-        if args.release_yo
-        else workdir / "worktrees" / "release" / "doc" / "socat.yo"
+    release_yo_path = (
+        Path(release_yo) if release_yo else workdir / "worktrees" / "release" / "doc" / "socat.yo"
     )
-    master_yo = (
-        Path(args.master_yo)
-        if args.master_yo
-        else workdir / "worktrees" / "master" / "doc" / "socat.yo"
+    master_yo_path = (
+        Path(master_yo) if master_yo else workdir / "worktrees" / "master" / "doc" / "socat.yo"
     )
     release_hhh_path = (
-        Path(args.release_hhh)
-        if args.release_hhh
-        else workdir / "out" / "release" / "socat-hhh.txt"
+        Path(release_hhh) if release_hhh else workdir / "out" / "release" / "socat-hhh.txt"
     )
     master_hhh_path = (
-        Path(args.master_hhh)
-        if args.master_hhh
-        else workdir / "out" / "master" / "socat-hhh.txt"
+        Path(master_hhh) if master_hhh else workdir / "out" / "master" / "socat-hhh.txt"
     )
     release_v_path = resolve_v_path(
-        args.release_v,
+        release_v,
         release_hhh_path,
         workdir / "out" / "release" / "socat-V.txt",
     )
     master_v_path = resolve_v_path(
-        args.master_v,
+        master_v,
         master_hhh_path,
         workdir / "out" / "master" / "socat-V.txt",
     )
 
-    if not release_yo.exists():
-        raise SystemExit(f"missing {release_yo}; run sync first")
-    release_docs = parse_socat_yo(release_yo.read_text(encoding="utf-8", errors="replace"))
+    if not release_yo_path.exists():
+        raise SystemExit(f"missing {release_yo_path}; run sync first")
+    release_docs = parse_socat_yo(release_yo_path.read_text(encoding="utf-8", errors="replace"))
     master_docs = None
-    if master_yo.exists():
-        master_docs = parse_socat_yo(master_yo.read_text(encoding="utf-8", errors="replace"))
+    if master_yo_path.exists():
+        master_docs = parse_socat_yo(master_yo_path.read_text(encoding="utf-8", errors="replace"))
 
-    release_hhh = None
+    release_hhh_iface = None
     feature_missing: list[str] = []
     if release_hhh_path.exists():
-        release_hhh = parse_classic_hhh(
+        release_hhh_iface = parse_classic_hhh(
             release_hhh_path.read_text(encoding="utf-8", errors="replace")
         )
-        feature_missing = inspect_classic_v(release_v_path, True)
-    master_hhh = None
+        feature_missing = inspect_classic_v(release_v_path, True, goos=goos)
+    master_hhh_iface = None
     master_feature_missing: list[str] = []
     if master_hhh_path.exists():
-        master_hhh = parse_classic_hhh(
+        master_hhh_iface = parse_classic_hhh(
             master_hhh_path.read_text(encoding="utf-8", errors="replace")
         )
-        master_feature_missing = inspect_classic_v(master_v_path, True)
+        master_feature_missing = inspect_classic_v(master_v_path, True, goos=goos)
 
-    if args.go_help:
-        go_text = Path(args.go_help).read_text(encoding="utf-8", errors="replace")
-    elif args.go_binary:
-        go_text = run_cmd([str(Path(args.go_binary)), "-hhh"]).stdout
+    if go_help:
+        go_text = Path(go_help).read_text(encoding="utf-8", errors="replace")
+    elif go_binary:
+        go_text = run_cmd([str(Path(go_binary)), "-hhh"]).stdout
     else:
         go_bin = build_go_binary(root, workdir / "out" / "go-socat")
         go_text = run_cmd([str(go_bin), "-hhh"]).stdout
-    go_help = parse_go_help(go_text)
+    go_iface = parse_go_help(go_text)
 
-    report = compare_interfaces(
+    return compare_interfaces(
         release_docs=release_docs,
-        release_hhh=release_hhh,
+        release_hhh=release_hhh_iface,
         master_docs=master_docs,
-        master_hhh=master_hhh,
-        go_help=go_help,
+        master_hhh=master_hhh_iface,
+        go_help=go_iface,
         policy=policy,
         baseline=baseline,
         goos=goos,
         feature_defines_missing=feature_missing,
         master_feature_defines_missing=master_feature_missing,
         current_master_commit=read_current_master_commit(workdir),
+    )
+
+
+def cmd_compare(args: argparse.Namespace) -> int:
+    report = compare_from_workdir(
+        workdir=Path(args.workdir).resolve(),
+        baseline=load_baseline(Path(args.baseline) if args.baseline else None),
+        policy=load_policy(Path(args.policy) if args.policy else None),
+        goos=args.goos,
+        go_binary=args.go_binary,
+        go_help=args.go_help,
+        release_yo=args.release_yo,
+        master_yo=args.master_yo,
+        release_hhh=args.release_hhh,
+        master_hhh=args.master_hhh,
+        release_v=args.release_v,
+        master_v=args.master_v,
     )
     payload = report.to_json()
     if args.out:
@@ -1323,6 +1400,30 @@ def cmd_compare(args: argparse.Namespace) -> int:
     if args.fail_on_diff and report.has_failures():
         return 1
     return 0
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    """Sync, build official trees, compare native Go -hhh, print a summary."""
+    workdir = Path(args.workdir).resolve()
+    baseline = load_baseline(Path(args.baseline) if args.baseline else None)
+    policy = load_policy(Path(args.policy) if args.policy else None)
+    sync_classic(workdir, baseline)
+    build_classic(workdir / "worktrees" / "release", workdir / "out" / "release")
+    build_classic(workdir / "worktrees" / "master", workdir / "out" / "master")
+    report = compare_from_workdir(
+        workdir=workdir,
+        baseline=baseline,
+        policy=policy,
+        goos=args.goos,
+        go_binary=args.go_binary,
+        go_help=args.go_help,
+    )
+    sys.stdout.write(format_parity_report(report))
+    if args.out:
+        out = Path(args.out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report.to_json(), indent=2) + "\n", encoding="utf-8")
+    return 1 if report.has_failures() else 0
 
 
 def add_common_args(p: argparse.ArgumentParser) -> None:
@@ -1376,6 +1477,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="exit 1 on name/alias diffs, incomplete -V, or official master SHA drift",
     )
     compare.set_defaults(func=cmd_compare)
+
+    run = sub.add_parser(
+        "run",
+        help=(
+            "sync, build official trees, and compare native Go -hhh "
+            "(make classic-parity; always fails on diffs or master drift)"
+        ),
+    )
+    add_common_args(run)
+    run.add_argument("--policy")
+    run.add_argument("--goos")
+    run.add_argument("--go-binary")
+    run.add_argument("--go-help")
+    run.add_argument("--out", help="optional JSON report path under the workdir")
+    run.set_defaults(func=cmd_run)
     return p
 
 

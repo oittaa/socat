@@ -1,4 +1,4 @@
-.PHONY: all build fmt fmt-check lint gosec goos-check test test-scripts e2e e2e-cover coverage check fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
+.PHONY: all build fmt fmt-check lint gosec goos-check test test-scripts e2e e2e-cover coverage check classic-parity fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -94,6 +94,12 @@ check:
 	$(MAKE) goos-check
 	$(MAKE) test
 	$(MAKE) e2e
+
+# Native Go vs official release and reviewed master. Needs repo.or.cz.
+# Not part of check: ordinary development stays offline from that host.
+# Working trees, binaries, and -hhh/-V dumps stay under testdata/tmp/.
+classic-parity:
+	$(PYTHON) -B scripts/classic-parity.py run
 
 # Native Go fuzz campaigns. Weekly/manual in deep-tests.yml, not per-commit CI.
 # Windows: go run ./scripts/fuzzall -fuzztime=30s

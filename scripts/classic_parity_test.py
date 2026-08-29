@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import io
 import json
 import os
 import shlex
@@ -16,7 +17,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).resolve().parent / "classic-parity.py"
@@ -264,6 +267,18 @@ class VersionFeaturesTest(unittest.TestCase):
         text = "  #undef WITH_OPENSSL\n  #define WITH_READLINE 1\n  #define WITH_LIBWRAP 1\n"
         self.assertEqual(parity.missing_feature_complete(text), ["WITH_OPENSSL"])
 
+    def test_darwin_does_not_require_libwrap(self) -> None:
+        text = (
+            "  #define WITH_OPENSSL 1\n"
+            "  #define WITH_READLINE 1\n"
+            "  #undef WITH_LIBWRAP\n"
+        )
+        self.assertEqual(parity.missing_feature_complete(text, goos="darwin"), [])
+        self.assertEqual(parity.missing_feature_complete(text, goos="macos"), [])
+        self.assertEqual(parity.missing_feature_complete(text, goos="linux"), ["WITH_LIBWRAP"])
+        self.assertIn("WITH_LIBWRAP", parity.feature_complete_defines_for("linux"))
+        self.assertNotIn("WITH_LIBWRAP", parity.feature_complete_defines_for("darwin"))
+
 
 class CompareTest(unittest.TestCase):
     def _report(self, **kwargs):
@@ -505,6 +520,19 @@ class CaptureHelpTest(unittest.TestCase):
                 parity.capture_classic_help(binary, root / "out")
             self.assertIn("WITH_OPENSSL", str(ctx.exception))
             self.assertFalse((root / "out" / "socat-hhh.txt").exists())
+
+    def test_capture_on_darwin_allows_missing_libwrap(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            v = (
+                "  #define WITH_OPENSSL 1\n"
+                "  #define WITH_READLINE 1\n"
+                "  #undef WITH_LIBWRAP\n"
+            )
+            binary = self._script(root, v, SYNTHETIC_HHH)
+            with patch.object(parity.sys, "platform", "darwin"):
+                info = parity.capture_classic_help(binary, root / "out")
+            self.assertTrue(Path(info["hhh_path"]).is_file())
 
 
 class WorktreeSafetyTest(unittest.TestCase):
@@ -766,6 +794,180 @@ class OriginSafetyTest(unittest.TestCase):
             with self.assertRaises(SystemExit) as ctx:
                 parity.sync_classic(workdir, BASELINE)
             self.assertIn("official repository", str(ctx.exception))
+
+
+class FormatReportTest(unittest.TestCase):
+    def _report(self, **kwargs) -> parity.CompareReport:
+        values = dict(
+            release_tag="tag-0.0.0",
+            release_commit="a" * 40,
+            reviewed_master_commit="b" * 40,
+            goos="linux",
+            current_master_commit="b" * 40,
+        )
+        values.update(kwargs)
+        return parity.CompareReport(**values)
+
+    def test_ok_report_lists_commits_and_goos(self) -> None:
+        text = parity.format_parity_report(self._report())
+        self.assertIn("GOOS: linux", text)
+        self.assertIn("tag-0.0.0", text)
+        self.assertIn("a" * 40, text)
+        self.assertIn("reviewed master: " + "b" * 40, text)
+        self.assertIn("current official master: " + "b" * 40, text)
+        self.assertIn("master review drift: no", text)
+        self.assertIn("result: ok", text)
+
+    def test_fail_report_includes_drift_guidance(self) -> None:
+        report = self._report(current_master_commit="c" * 40, missing_options=["frob"])
+        report.master_review_drift = True
+        text = parity.format_parity_report(report)
+        self.assertIn("result: FAIL", text)
+        self.assertIn("master review drift: yes", text)
+        self.assertIn("current official master: " + "c" * 40, text)
+        self.assertIn("classic-baseline.json", text)
+        self.assertIn("frob", text)
+
+
+class CompareFromWorkdirTest(unittest.TestCase):
+    def test_reads_ignored_layout_without_network(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            workdir = Path(td)
+            release_yo = workdir / "worktrees" / "release" / "doc" / "socat.yo"
+            master_yo = workdir / "worktrees" / "master" / "doc" / "socat.yo"
+            release_out = workdir / "out" / "release"
+            master_out = workdir / "out" / "master"
+            release_yo.parent.mkdir(parents=True)
+            master_yo.parent.mkdir(parents=True)
+            release_out.mkdir(parents=True)
+            master_out.mkdir(parents=True)
+            release_yo.write_text(SYNTHETIC_YO, encoding="utf-8")
+            master_yo.write_text(SYNTHETIC_YO, encoding="utf-8")
+            v = (
+                "  #define WITH_OPENSSL 1\n"
+                "  #define WITH_READLINE 1\n"
+                "  #define WITH_LIBWRAP 1\n"
+            )
+            (release_out / "socat-hhh.txt").write_text(SYNTHETIC_HHH, encoding="utf-8")
+            (release_out / "socat-V.txt").write_text(v, encoding="utf-8")
+            (master_out / "socat-hhh.txt").write_text(SYNTHETIC_HHH, encoding="utf-8")
+            (master_out / "socat-V.txt").write_text(v, encoding="utf-8")
+            go = workdir / "go.hhh"
+            go.write_text(SYNTHETIC_GO_HELP, encoding="utf-8")
+            report = parity.compare_from_workdir(
+                workdir=workdir,
+                baseline=BASELINE,
+                policy=POLICY,
+                goos="linux",
+                go_help=str(go),
+            )
+            self.assertEqual(report.goos, "linux")
+            self.assertEqual(report.release_tag, BASELINE["release_tag"])
+            self.assertEqual(report.release_commit, BASELINE["release_commit"])
+            self.assertNotIn("frob", report.missing_options)
+            self.assertEqual(report.feature_defines_missing, [])
+            self.assertFalse(report.master_review_drift)
+
+
+class RunCommandTest(unittest.TestCase):
+    def _report(self, **kwargs) -> parity.CompareReport:
+        values = dict(
+            release_tag="tag-0.0.0",
+            release_commit="a" * 40,
+            reviewed_master_commit="b" * 40,
+            goos="linux",
+            current_master_commit="b" * 40,
+        )
+        values.update(kwargs)
+        return parity.CompareReport(**values)
+
+    def test_run_prints_summary_and_fails_on_diff(self) -> None:
+        report = self._report(missing_options=["frob"])
+        with tempfile.TemporaryDirectory() as td:
+            workdir = Path(td)
+            out = workdir / "report.json"
+            with (
+                patch.object(parity, "sync_classic", return_value={}) as sync,
+                patch.object(parity, "build_classic", return_value={}) as build,
+                patch.object(parity, "compare_from_workdir", return_value=report) as compare,
+            ):
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    rc = parity.main(
+                        [
+                            "run",
+                            "--workdir",
+                            str(workdir),
+                            "--goos",
+                            "linux",
+                            "--out",
+                            str(out),
+                        ]
+                    )
+            self.assertEqual(rc, 1)
+            self.assertEqual(sync.call_count, 1)
+            self.assertEqual(build.call_count, 2)
+            self.assertEqual(compare.call_count, 1)
+            text = buf.getvalue()
+            self.assertIn("classic parity", text)
+            self.assertIn("result: FAIL", text)
+            self.assertIn("frob", text)
+            self.assertNotIn("{", text)
+            payload = json.loads(out.read_text(encoding="utf-8"))
+            self.assertEqual(payload["missing_options"], ["frob"])
+
+    def test_run_ok_when_compare_has_no_failures(self) -> None:
+        report = self._report()
+        with tempfile.TemporaryDirectory() as td:
+            workdir = Path(td)
+            with (
+                patch.object(parity, "sync_classic", return_value={}),
+                patch.object(parity, "build_classic", return_value={}),
+                patch.object(parity, "compare_from_workdir", return_value=report),
+            ):
+                buf = io.StringIO()
+                with redirect_stdout(buf):
+                    rc = parity.main(["run", "--workdir", str(workdir), "--goos", "linux"])
+            self.assertEqual(rc, 0)
+            self.assertIn("result: ok", buf.getvalue())
+
+
+class MakeAndWorkflowPolicyTest(unittest.TestCase):
+    ROOT = Path(__file__).resolve().parent.parent
+
+    def test_check_does_not_run_classic_parity(self) -> None:
+        text = (self.ROOT / "Makefile").read_text(encoding="utf-8")
+        self.assertRegex(text, r"(?m)^classic-parity:")
+        lines = text.splitlines()
+        body: list[str] = []
+        in_check = False
+        for line in lines:
+            if in_check:
+                if line.startswith("\t"):
+                    body.append(line)
+                    continue
+                break
+            if line.startswith("check:"):
+                in_check = True
+                body.append(line)
+        self.assertTrue(in_check)
+        self.assertNotIn("classic-parity", "\n".join(body))
+
+    def test_workflow_is_manual_and_scheduled_without_artifacts(self) -> None:
+        path = self.ROOT / ".github" / "workflows" / "classic-parity.yml"
+        text = path.read_text(encoding="utf-8")
+        self.assertIn("workflow_dispatch:", text)
+        self.assertIn("schedule:", text)
+        self.assertRegex(text, r"(?m)^\s+contents:\s+read\s*$")
+        self.assertNotRegex(text, r"(?m)^\s+push:")
+        self.assertNotRegex(text, r"(?m)^\s+pull_request:")
+        self.assertNotIn("actions/upload-artifact", text)
+        self.assertNotIn("actions/cache@", text)
+        self.assertNotIn("GOOS=", text)
+        self.assertNotIn("GOARCH=", text)
+        self.assertIn("make classic-parity", text)
+        self.assertIn("macos-latest", text)
+        self.assertIn("ubuntu-latest", text)
 
 
 class BuildPlanTest(unittest.TestCase):

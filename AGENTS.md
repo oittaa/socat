@@ -75,10 +75,13 @@ If a change would diverge from classic behavior for any other reason,
 ask before implementing it.
 
 Live comparison against official release and master is
-`scripts/classic-parity.py`. It is not part of ordinary `go test` or
-`make check`. Do not check in official `-hhh`/`-V` dumps or a generated
-option catalog. Policy classifications (unsupported, foreign, parser-only,
-platform-specific, Go-only) live in `scripts/classic-policy.json`.
+`make classic-parity` (`scripts/classic-parity.py run`). Compatibility-changing
+PRs should run it explicitly. Ordinary `make check` stays offline from
+repo.or.cz. Scheduled parity failures caused by official master drift
+require review and an intentional update of `scripts/classic-baseline.json`.
+Do not check in official `-hhh`/`-V` dumps or a generated option catalog.
+Policy classifications (unsupported, foreign, parser-only, platform-specific,
+Go-only) live in `scripts/classic-policy.json`.
 
 ## Required pre-commit validation
 
