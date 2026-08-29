@@ -89,6 +89,7 @@ func init() {
 		"dns":                        "res-nsaddr",
 		"nameserver":                 "res-nsaddr",
 		"nsaddr":                     "res-nsaddr",
+		"usevc":                      "res-usevc",
 		"recvpktinfo":                "ipv6-recvpktinfo",
 		"recvhoplimit":               "ipv6-recvhoplimit",
 		"recvtclass":                 "ipv6-recvtclass",

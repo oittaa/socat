@@ -61,6 +61,37 @@ func TestHelpListsResNSAddrAndAliases(t *testing.T) {
 	}
 }
 
+func TestHelpListsResolverGetaddrinfoOptions(t *testing.T) {
+	var output bytes.Buffer
+	if err := printHelp(&output, 3); err != nil {
+		t.Fatal(err)
+	}
+	help := output.String()
+	for _, name := range []string{"ai-all", "ai-passive", "ai-v4mapped", "res-usevc"} {
+		if !strings.Contains(help, "    "+name+" ") {
+			t.Errorf("-hhh missing %q", name)
+		}
+	}
+	aliases := map[string]string{
+		"passive":  "ai-passive",
+		"v4mapped": "ai-v4mapped",
+		"usevc":    "res-usevc",
+	}
+	for alias, canonical := range aliases {
+		found := false
+		for _, line := range strings.Split(help, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) > 0 && fields[0] == alias && strings.Contains(line, "alias of "+canonical) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("-hhh missing %q as alias of %s", alias, canonical)
+		}
+	}
+}
+
 func TestHelpListsDescriptorLifecycleAliases(t *testing.T) {
 	var output bytes.Buffer
 	if err := printHelp(&output, 3); err != nil {

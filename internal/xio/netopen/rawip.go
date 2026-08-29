@@ -134,7 +134,7 @@ func resolveRawIPTarget(ctx context.Context, s parse.Spec, network, host string)
 	if ip := net.ParseIP(host); ip != nil {
 		return &net.IPAddr{IP: ip}, nil
 	}
-	ips, err := xio.LookupResolver(s).LookupIP(ctx, ipLookupNet(network), host)
+	ips, err := xio.LookupIP(ctx, s, ipLookupNet(network), host)
 	if err != nil || len(ips) == 0 {
 		return nil, fmt.Errorf("%s: resolve %q: %w", s.Type, host, err)
 	}
@@ -178,6 +178,12 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	if err != nil {
 		return nil, err
 	}
+	if net.ParseIP(host) == nil {
+		network = xio.DialNetwork(network, raddr.IP)
+		if ip4 := raddr.IP.To4(); ip4 != nil {
+			raddr = &net.IPAddr{IP: ip4}
+		}
+	}
 	var laddr *net.IPAddr
 	if bind := s.OptionValue("bind", ""); bind != "" {
 		laddr, err = resolveRawIPBind(ctx, s, network, bind)
@@ -185,6 +191,7 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 			return nil, err
 		}
 	}
+	laddr = matchRawLocalIP(network, laddr)
 	if err := requireRawIPFamily(s.Type, network, raddr, host); err != nil {
 		return nil, err
 	}
@@ -222,6 +229,12 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	if err != nil {
 		return nil, err
 	}
+	if net.ParseIP(host) == nil {
+		network = xio.DialNetwork(network, raddr.IP)
+		if ip4 := raddr.IP.To4(); ip4 != nil {
+			raddr = &net.IPAddr{IP: ip4}
+		}
+	}
 	if err := requireRawIPFamily(s.Type, network, raddr, host); err != nil {
 		return nil, err
 	}
@@ -235,6 +248,7 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 			return nil, err
 		}
 	}
+	laddr = matchRawLocalIP(network, laddr)
 	netw := ipNetwork(network, proto)
 	pc, err := listenRawIP(ctx, netw, network, laddr, s)
 	if err != nil {
@@ -356,6 +370,22 @@ func ipLookupNet(network string) string {
 		return "ip6"
 	}
 	return "ip4"
+}
+
+func matchRawLocalIP(network string, laddr *net.IPAddr) *net.IPAddr {
+	if laddr == nil {
+		return nil
+	}
+	want4 := network == "ip4"
+	if laddr.IP == nil || laddr.IP.IsUnspecified() {
+		if want4 {
+			return &net.IPAddr{IP: net.IPv4zero, Zone: laddr.Zone}
+		}
+		if network == "ip6" {
+			return &net.IPAddr{IP: net.IPv6zero, Zone: laddr.Zone}
+		}
+	}
+	return laddr
 }
 
 func rawIPListenAddr(netw string, laddr *net.IPAddr) string {

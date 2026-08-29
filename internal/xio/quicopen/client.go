@@ -31,6 +31,11 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	}
 	network := udpNetwork(xio.ConnectNetworkForType(g, s, host, "tcp"))
 	dest := net.JoinHostPort(xio.StripBrackets(host), port)
+	netw, err := xio.PacketNetworkForHost(ctx, s, network, host)
+	if err != nil {
+		return nil, err
+	}
+	network = netw
 
 	tlsCfg, err := tlsopen.TLSClientConfig(s, host)
 	if err != nil {
@@ -41,7 +46,7 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 		return nil, err
 	}
 
-	bindHost, err := xio.ListenBindHost(network, s.OptionValue("bind", ""))
+	bindHost, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
 	if err != nil {
 		return nil, err
 	}

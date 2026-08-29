@@ -35,9 +35,21 @@ func warnNetNSExperimental(g *Global) {
 // Classic baseline: tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba
 // xio-ip.c opt_res_nsaddr/xio_res_init; official master
 // af5388c898c7bb60997935aee93c223deba60c4a is unchanged. Classic temporarily
-// replaces process-global _res.nsaddr_list[0]. This security-related port
-// difference uses a per-address resolver and never mutates net.DefaultResolver.
+// replaces process-global _res.nsaddr_list[0] and other _res fields. This
+// security-related port difference uses a per-address resolver and never
+// mutates net.DefaultResolver or libc _res. Remaining libc res-* flags
+// (debug, search, retry, retrans, …) are rejected rather than applied
+// globally; res-usevc is implemented here via Resolver.Dial (`=0` restores
+// UDP-then-TCP, including when resolv.conf has use-vc).
 func LookupResolver(s parse.Spec) *net.Resolver {
+	r := lookupResolverBase(s)
+	if !s.HasOption("res-usevc") {
+		return r
+	}
+	return resolverRewriteDNSTransport(r, s.BoolOption("res-usevc"))
+}
+
+func lookupResolverBase(s parse.Spec) *net.Resolver {
 	if s.HasOption("res-nsaddr") {
 		nsAddr, err := ParseResNSAddr(s.OptionValue("res-nsaddr", ""))
 		if err != nil {

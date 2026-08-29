@@ -31,7 +31,7 @@ func listenSCTP(_ context.Context, network, host, port string, s parse.Spec) (ne
 	switch network {
 	case "sctp6":
 		family = unix.AF_INET6
-		if ip != nil && ip.To4() != nil {
+		if ip != nil && xio.WantIPv4(network, ip) {
 			return nil, fmt.Errorf("bind: address family mismatch (%s on %s)", host, network)
 		}
 		if ip == nil {
@@ -86,7 +86,7 @@ func listenSCTP(_ context.Context, network, host, port string, s parse.Spec) (ne
 			return nil, fmt.Errorf("ipv6-v6only: %w", err)
 		}
 	}
-	sa, err := ipPortSockaddr(ip, portNum)
+	sa, err := ipPortSockaddr(family, ip, portNum)
 	if err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
@@ -129,13 +129,13 @@ func dialSCTPAll(ctx context.Context, network, host, port string, s parse.Spec, 
 	var lastErr error
 	for _, ip := range ips {
 		af := 2
-		if ip.To4() == nil {
+		if !xio.WantIPv4(network, ip) {
 			af = 10
 		}
 		if g != nil && g.Log != nil {
-			g.Log.Noticef("opening connection to AF=%d %s", af, net.JoinHostPort(ip.String(), fmt.Sprintf("%d", portNum)))
+			g.Log.Noticef("opening connection to AF=%d %s", af, net.JoinHostPort(xio.FormatIPForNetwork(network, ip), fmt.Sprintf("%d", portNum)))
 		}
-		laddr, skip, err := xio.BindTCPAddrForRemote(ctx, ip, s, bindOpt, sp)
+		laddr, skip, err := xio.BindTCPAddrForRemote(ctx, ip, s, bindOpt, sp, network)
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {
@@ -152,7 +152,7 @@ func dialSCTPAll(ctx context.Context, network, host, port string, s parse.Spec, 
 		}
 		raddr := &net.TCPAddr{IP: ip, Port: portNum}
 		optionNetwork := "sctp4"
-		if ip.To4() == nil {
+		if !xio.WantIPv4(network, ip) {
 			optionNetwork = "sctp6"
 		}
 		// Merge spec-driven rcvtimeo/sndtimeo with any setsockopt= control.
@@ -174,7 +174,7 @@ func dialSCTPAll(ctx context.Context, network, host, port string, s parse.Spec, 
 
 func connectSCTP(ctx context.Context, network string, laddr, raddr *net.TCPAddr, timeout time.Duration, lowport bool, g *xio.Global, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
 	family := unix.AF_INET
-	if raddr.IP.To4() == nil {
+	if !xio.WantIPv4(network, raddr.IP) {
 		family = unix.AF_INET6
 	}
 	fd, err := newSocket(family, unix.SOCK_STREAM, unix.IPPROTO_SCTP)
@@ -193,7 +193,7 @@ func connectSCTP(ctx context.Context, network string, laddr, raddr *net.TCPAddr,
 			return nil, fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", xio.LowportMin, xio.LowportMax, err)
 		}
 	} else if laddr != nil {
-		sa, err := ipPortSockaddr(laddr.IP, laddr.Port)
+		sa, err := ipPortSockaddr(family, laddr.IP, laddr.Port)
 		if err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, err
@@ -203,7 +203,7 @@ func connectSCTP(ctx context.Context, network string, laddr, raddr *net.TCPAddr,
 			return nil, fmt.Errorf("sctp bind: %w", err)
 		}
 	}
-	sa, err := ipPortSockaddr(raddr.IP, raddr.Port)
+	sa, err := ipPortSockaddr(family, raddr.IP, raddr.Port)
 	if err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
@@ -237,7 +237,7 @@ func bindSCTPLowport(fd, family int, laddr *net.TCPAddr, g *xio.Global) (int, er
 			}
 			g.Log.Debugf("bind({AF=%d %s:%d}, 16)", af, ip.String(), port)
 		}
-		sa, err := ipPortSockaddr(ip, port)
+		sa, err := ipPortSockaddr(family, ip, port)
 		if err != nil {
 			return err
 		}
@@ -299,13 +299,25 @@ func fileConn(fd int, name string) (net.Conn, error) {
 	return c, nil
 }
 
-func ipPortSockaddr(ip net.IP, port int) (unix.Sockaddr, error) {
+func ipPortSockaddr(family int, ip net.IP, port int) (unix.Sockaddr, error) {
 	if ip == nil {
 		return nil, fmt.Errorf("sctp: empty address")
 	}
+	if family != unix.AF_INET6 {
+		if v4 := ip.To4(); v4 != nil {
+			sa := &unix.SockaddrInet4{Port: port}
+			copy(sa.Addr[:], v4)
+			return sa, nil
+		}
+		if family == unix.AF_INET {
+			return nil, fmt.Errorf("sctp: not IPv4 %s", ip)
+		}
+	}
 	if v4 := ip.To4(); v4 != nil {
-		sa := &unix.SockaddrInet4{Port: port}
-		copy(sa.Addr[:], v4)
+		sa := &unix.SockaddrInet6{Port: port}
+		sa.Addr[10] = 0xff
+		sa.Addr[11] = 0xff
+		copy(sa.Addr[12:], v4)
 		return sa, nil
 	}
 	v6 := ip.To16()

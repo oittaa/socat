@@ -171,6 +171,19 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "res-nsaddr-bad-host", spec: "TCP:localhost:1,res-nsaddr=bad host", wantErr: "invalid nameserver host"},
 		{name: "res-nsaddr-bad-port", spec: "TCP:localhost:1,res-nsaddr=127.0.0.1:70000", wantErr: "invalid DNS port"},
 		{name: "res-nsaddr-on-file", spec: "OPEN:file,res-nsaddr=127.0.0.1", wantErr: "not supported"},
+		{name: "res-usevc", spec: "TCP:localhost:1,res-usevc"},
+		{name: "res-usevc-zero", spec: "UDP:localhost:1,res-usevc=0"},
+		{name: "res-usevc-alias", spec: "TCP:localhost:1,usevc"},
+		{name: "res-usevc-on-file", spec: "OPEN:file,res-usevc", wantErr: "not supported"},
+		{name: "ai-all", spec: "TCP:localhost:1,ai-all"},
+		{name: "ai-all-zero", spec: "TCP6:localhost:1,ai-all=0"},
+		{name: "ai-passive-zero", spec: "TCP-LISTEN:1,ai-passive=0"},
+		{name: "ai-passive-alias", spec: "UDP-LISTEN:1,passive"},
+		{name: "ai-v4mapped-zero", spec: "TCP6:localhost:1,v4mapped=0"},
+		{name: "ai-all-on-file", spec: "OPEN:file,ai-all", wantErr: "not supported"},
+		{name: "res-debug-unknown", spec: "TCP:localhost:1,res-debug", wantErr: "unknown option"},
+		{name: "res-retry-unknown", spec: "TCP:localhost:1,res-retry=3", wantErr: "unknown option"},
+		{name: "res-defnames-unknown", spec: "TCP:localhost:1,defnames", wantErr: "unknown option"},
 		{name: "socketpair-timeouts", spec: "SOCKETPAIR,rcvtimeo=0.1,sndtimeo=0.1"},
 		{name: "interface-timeouts", spec: "INTERFACE:lo,rcvtimeo=0.1,sndtimeo=0.1"},
 		{name: "tls-timeouts", spec: "TLS:localhost:1,rcvtimeo=0.1,sndtimeo=0.1"},
@@ -1097,14 +1110,16 @@ func TestIPAncillaryMatrixWiredIntoCLI(t *testing.T) {
 }
 
 func TestResNSAddrImplementationGroups(t *testing.T) {
-	got := buildSupportedAddressOptions()["res-nsaddr"].implementationGroups
-	want := resolverImplementationGroups()
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Fatalf("res-nsaddr implementationGroups=%v want %v", got, want)
-	}
-	for _, group := range []string{xio.GroupUnix, xio.GroupProcess, xio.GroupFiles} {
-		if optionImplementedForGroup(group, got) {
-			t.Errorf("res-nsaddr unexpectedly applies to %s", group)
+	for _, name := range []string{"res-nsaddr", "res-usevc", "ai-all", "ai-passive", "ai-v4mapped", "ai-addrconfig"} {
+		got := buildSupportedAddressOptions()[name].implementationGroups
+		want := resolverImplementationGroups()
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("%s implementationGroups=%v want %v", name, got, want)
+		}
+		for _, group := range []string{xio.GroupUnix, xio.GroupProcess, xio.GroupFiles} {
+			if optionImplementedForGroup(group, got) {
+				t.Errorf("%s unexpectedly applies to %s", name, group)
+			}
 		}
 	}
 }

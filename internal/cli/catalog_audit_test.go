@@ -281,7 +281,16 @@ func TestParityFailsIfImplementedOptionDisappears(t *testing.T) {
 
 func TestParityFailsIfImplementedOptionStaysInMissingManifest(t *testing.T) {
 	advertised := advertisedHelpNames(true)
-	const name = "ai-all"
+	backlog := classiccatalog.ImplementationBacklog(runtime.GOOS)
+	if len(backlog) == 0 {
+		t.Skip("no expected-missing options on " + runtime.GOOS)
+	}
+	names := make([]string, 0, len(backlog))
+	for name := range backlog {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	name := names[0]
 	class, _ := classiccatalog.ClassifyOption(name, runtime.GOOS)
 	if class != classiccatalog.ClassExpectedMissing {
 		t.Fatalf("%q class=%s on %s; want expected-missing", name, class, runtime.GOOS)

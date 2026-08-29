@@ -180,7 +180,7 @@ func TestListenBindHost(t *testing.T) {
 		{network: "tcp6", bind: "0.0.0.0", wantErr: true},
 	}
 	for _, tc := range cases {
-		got, err := ListenBindHost(tc.network, tc.bind)
+		got, err := ListenBindHost(parse.Spec{}, tc.network, tc.bind)
 		if tc.wantErr {
 			if err == nil {
 				t.Errorf("ListenBindHost(%q, %q) = %q, want error", tc.network, tc.bind, got)
@@ -190,6 +190,38 @@ func TestListenBindHost(t *testing.T) {
 		if err != nil || got != tc.want {
 			t.Errorf("ListenBindHost(%q, %q) = %q, %v, want %q", tc.network, tc.bind, got, err, tc.want)
 		}
+	}
+
+	off := parse.Spec{Options: []parse.Option{{Name: "ai-passive", Value: "0", Has: true}}}
+	for _, tc := range []struct{ network, want string }{
+		{"tcp4", "127.0.0.1"},
+		{"udp4", "127.0.0.1"},
+		{"tcp6", "::1"},
+		{"tcp", "::1"},
+	} {
+		got, err := ListenBindHost(off, tc.network, "")
+		if err != nil || got != tc.want {
+			t.Errorf("ai-passive=0 ListenBindHost(%q) = %q, %v, want %q", tc.network, got, err, tc.want)
+		}
+	}
+	on := parse.Spec{Options: []parse.Option{{Name: "ai-passive"}}}
+	got, err := ListenBindHost(on, "tcp4", "")
+	if err != nil || got != "0.0.0.0" {
+		t.Errorf("ai-passive ListenBindHost(tcp4) = %q, %v, want 0.0.0.0", got, err)
+	}
+
+	host, err := ListenBindHost(off, "tcp4", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp4", net.JoinHostPort(host, "0"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	addr := ln.Addr().(*net.TCPAddr)
+	if !addr.IP.Equal(net.IPv4(127, 0, 0, 1)) {
+		t.Fatalf("ai-passive=0 listen addr=%s want 127.0.0.1", addr.IP)
 	}
 }
 

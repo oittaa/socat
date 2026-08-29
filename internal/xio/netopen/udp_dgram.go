@@ -42,9 +42,24 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 	if err != nil {
 		return nil, err
 	}
-	raddr, err := xio.ResolveUDPAddr(ctx, s, network, net.JoinHostPort(xio.StripBrackets(host), port))
+	stripped := xio.StripBrackets(host)
+	netw, ip, err := xio.LookupDialIP(ctx, s, network, stripped)
 	if err != nil {
 		return nil, err
+	}
+	if ip == nil {
+		return nil, fmt.Errorf("%s: invalid host", s.Type)
+	}
+	if net.ParseIP(stripped) == nil {
+		network = netw
+	}
+	portNum, err := xio.ResolvePortNum(network, port)
+	if err != nil {
+		return nil, err
+	}
+	raddr := &net.UDPAddr{IP: ip, Port: portNum}
+	if ip4 := ip.To4(); ip4 != nil && strings.HasSuffix(network, "4") {
+		raddr.IP = ip4
 	}
 	bind := s.OptionValue("bind", "")
 	// Classic xioopen_udp_datagram consumes OPT_SOURCEPORT before
@@ -58,7 +73,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 	var laddr *net.UDPAddr
 	// classic lowport: bind a port in 640..1023 (log even if EACCES).
 	if s.BoolOption("lowport") && sp == "" {
-		bind, err = xio.ListenBindHost(network, bind)
+		bind, err = xio.ListenBindHost(s, network, bind)
 		if err != nil {
 			return nil, err
 		}
@@ -84,7 +99,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		return nil, fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", xio.LowportMin, xio.LowportMax, berr)
 	}
 	if bind != "" || sp != "" {
-		bind, err = xio.ListenBindHost(network, bind)
+		bind, err = xio.ListenBindHost(s, network, bind)
 		if err != nil {
 			return nil, err
 		}
@@ -327,7 +342,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		return nil, fmt.Errorf("%s requires port", s.Type)
 	}
 	port := s.Params[0]
-	host, err := xio.ListenBindHost(network, s.OptionValue("bind", ""))
+	host, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
 	if err != nil {
 		return nil, err
 	}

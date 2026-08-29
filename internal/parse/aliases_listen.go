@@ -5,6 +5,8 @@ func init() {
 		"listen-timeout":            "accept-timeout",
 		"ignoreof":                  "ignoreeof",
 		"addrconfig":                "ai-addrconfig",
+		"passive":                   "ai-passive",
+		"v4mapped":                  "ai-v4mapped",
 		"protocol-family":           "pf",
 		"bytes":                     "readbytes",
 		"crlf":                      "crnl",

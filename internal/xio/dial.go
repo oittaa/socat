@@ -45,14 +45,14 @@ func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 
 	var lastErr error
 	for _, ip := range ips {
-		af := afForIP(ip)
+		af := afForNetwork(network, ip)
 		raddr := &net.TCPAddr{IP: ip, Port: portNum}
 		if g != nil && g.Log != nil {
 			// Match classic: "opening connection to AF=2 127.0.0.1:9"
-			g.Log.Noticef("opening connection to AF=%d %s", af, formatTCPAddr(ip, raddr.Port))
+			g.Log.Noticef("opening connection to AF=%d %s", af, formatTCPAddr(network, ip, raddr.Port))
 		}
 
-		laddr, skip, err := BindTCPAddrForRemote(ctx, ip, s, bindOpt, sp)
+		laddr, skip, err := BindTCPAddrForRemote(ctx, ip, s, bindOpt, sp, network)
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {
@@ -68,10 +68,7 @@ func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 			continue
 		}
 
-		netw := "tcp4"
-		if ip.To4() == nil {
-			netw = "tcp6"
-		}
+		netw := tcpDialNetwork(network, ip)
 		controlFn := DialControl(s, netw, control)
 		var c net.Conn
 		if lowport {
@@ -88,7 +85,7 @@ func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 			if timeout > 0 {
 				cctx, cancel = context.WithTimeout(ctx, timeout)
 			}
-			c, err = d.DialContext(cctx, netw, raddr.String())
+			c, err = d.DialContext(cctx, netw, formatTCPAddr(netw, ip, raddr.Port))
 			if cancel != nil {
 				cancel()
 			}
@@ -97,7 +94,7 @@ func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 			lastErr = err
 			if g != nil && g.Log != nil {
 				// Classic uses Notice for intermediate failures, Warning for last.
-				g.Log.Noticef("connect AF=%d %s: %s", af, formatTCPAddr(ip, raddr.Port), err)
+				g.Log.Noticef("connect AF=%d %s: %s", af, formatTCPAddr(netw, ip, raddr.Port), err)
 			}
 			continue
 		}
@@ -153,15 +150,17 @@ func ResolveConnectIPs(ctx context.Context, network, host string, s parse.Spec, 
 	return resolveConnectIPs(ctx, network, host, s, g)
 }
 
-func formatTCPAddr(ip net.IP, port int) string {
-	if ip.To4() == nil {
-		return fmt.Sprintf("[%s]:%d", ip.String(), port)
-	}
-	return fmt.Sprintf("%s:%d", ip.String(), port)
+func formatTCPAddr(network string, ip net.IP, port int) string {
+	host := FormatIPForNetwork(network, ip)
+	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
-func afForIP(ip net.IP) int {
-	if ip.To4() != nil {
+func tcpDialNetwork(network string, ip net.IP) string {
+	return DialNetwork(network, ip)
+}
+
+func afForNetwork(network string, ip net.IP) int {
+	if WantIPv4(network, ip) {
 		return afINET
 	}
 	return afINET6
@@ -184,37 +183,31 @@ func resolveConnectIPs(ctx context.Context, network, host string, s parse.Spec, 
 		return []net.IP{ip}, nil
 	}
 
-	hint := "ip"
-	switch network {
-	case "tcp4":
-		hint = "ip4"
-	case "tcp6":
-		hint = "ip6"
-	}
-
-	ips, err := LookupResolver(s).LookupIP(ctx, hint, host)
+	hint := IPHint(network)
+	ips, err := LookupIP(ctx, s, hint, host)
 	if err != nil {
 		return nil, err
 	}
 
-	// ai-addrconfig: only keep families that have a configured local address.
-	// Default off when option absent (Go resolver already reflects system policy).
-	if s.HasOption("ai-addrconfig") && s.BoolOption("ai-addrconfig") {
-		ips = filterAIAddrConfig(ips)
-	}
-
-	// Preference order for dual-stack ("tcp"): explicit -4/-6/-0, then
+	// Preference order for dual-stack ("tcp"): explicit ai-passive (classic
+	// xioresolve prefers IPv6 when AI_PASSIVE && pf==UNSPEC), then -4/-6/-0,
 	// SOCAT_PREFERRED_RESOLVE_IP, then the IPv4 build default.
 	if hint == "ip" && len(ips) > 1 {
-		switch preferredResolveVersion(g) {
-		case IPv6:
+		if s.BoolOption("ai-passive") {
 			sort.SliceStable(ips, func(i, j int) bool {
 				return ips[i].To4() == nil && ips[j].To4() != nil
 			})
-		case IPv4, IPv4Default:
-			sort.SliceStable(ips, func(i, j int) bool {
-				return ips[i].To4() != nil && ips[j].To4() == nil
-			})
+		} else {
+			switch preferredResolveVersion(g) {
+			case IPv6:
+				sort.SliceStable(ips, func(i, j int) bool {
+					return ips[i].To4() == nil && ips[j].To4() != nil
+				})
+			case IPv4, IPv4Default:
+				sort.SliceStable(ips, func(i, j int) bool {
+					return ips[i].To4() != nil && ips[j].To4() == nil
+				})
+			}
 		}
 	}
 	return ips, nil
@@ -235,12 +228,21 @@ func filterAIAddrConfig(ips []net.IP) []net.IP {
 	return out
 }
 
-func localIPFamilies() (v4, v6 bool) {
-	ifaces, err := net.InterfaceAddrs()
+// localIPFamilies reports whether the host has a non-loopback, non-unspecified
+// IPv4 and IPv6 address. Linux getaddrinfo(AI_ADDRCONFIG) ignores loopback
+// (getaddrinfo(3)). Tests may replace it.
+var localIPFamilies = localIPFamiliesFromSystem
+
+func localIPFamiliesFromSystem() (v4, v6 bool) {
+	addrs, err := net.InterfaceAddrs()
 	if err != nil {
 		return true, true
 	}
-	for _, a := range ifaces {
+	return localIPFamiliesFromAddrs(addrs)
+}
+
+func localIPFamiliesFromAddrs(addrs []net.Addr) (v4, v6 bool) {
+	for _, a := range addrs {
 		var ip net.IP
 		switch t := a.(type) {
 		case *net.IPNet:
@@ -248,13 +250,16 @@ func localIPFamilies() (v4, v6 bool) {
 		case *net.IPAddr:
 			ip = t.IP
 		}
-		if ip == nil || ip.IsUnspecified() {
+		if ip == nil || ip.IsUnspecified() || ip.IsLoopback() {
 			continue
 		}
 		if ip.To4() != nil {
 			v4 = true
 		} else {
 			v6 = true
+		}
+		if v4 && v6 {
+			return v4, v6
 		}
 	}
 	return v4, v6
@@ -263,7 +268,7 @@ func localIPFamilies() (v4, v6 bool) {
 // BindTCPAddrForRemote picks a local TCPAddr matching remote's family.
 // bindOpt may be host, [ipv6], or host:port / [ipv6]:port (classic bind=).
 // sourceport is used when bind has no port. skip=true means try next remote.
-func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bindOpt, sourceport string) (laddr *net.TCPAddr, skip bool, err error) {
+func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bindOpt, sourceport, network string) (laddr *net.TCPAddr, skip bool, err error) {
 	if bindOpt == "" && (sourceport == "" || sourceport == "0") {
 		return nil, false, nil
 	}
@@ -288,14 +293,21 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bind
 	} else if BindPort == "0" || BindPort == "" {
 		port = 0
 	}
-	want4 := remote.To4() != nil
+	want4 := WantIPv4(network, remote)
 
 	if bindHost == "" {
-		// sourceport only: wildcard of matching family
-		if want4 {
-			return &net.TCPAddr{IP: net.IPv4zero, Port: port}, false, nil
+		// sourceport only: wildcard of matching family, or loopback when
+		// classic AI_PASSIVE is explicitly unset (ai-passive=0).
+		if listenAIPassive(s) {
+			if want4 {
+				return &net.TCPAddr{IP: net.IPv4zero, Port: port}, false, nil
+			}
+			return &net.TCPAddr{IP: net.IPv6zero, Port: port}, false, nil
 		}
-		return &net.TCPAddr{IP: net.IPv6zero, Port: port}, false, nil
+		if want4 {
+			return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}, false, nil
+		}
+		return &net.TCPAddr{IP: net.IPv6loopback, Port: port}, false, nil
 	}
 
 	bindHost = StripBrackets(bindHost)
@@ -313,15 +325,15 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bind
 	if want4 {
 		hint = "ip4"
 	}
-	ips, err := LookupResolver(s).LookupIP(ctx, hint, bindHost)
+	ips, err := LookupIP(ctx, s, hint, bindHost)
 	if err != nil {
 		// Fallback: full lookup then filter
-		all, err2 := LookupResolver(s).LookupIP(ctx, "ip", bindHost)
+		all, err2 := LookupIP(ctx, s, "ip", bindHost)
 		if err2 != nil {
 			return nil, false, fmt.Errorf("bind %s: %w", bindOpt, err)
 		}
 		for _, ip := range all {
-			if (ip.To4() != nil) == want4 {
+			if WantIPv4(network, ip) == want4 {
 				return &net.TCPAddr{IP: ip, Port: port}, false, nil
 			}
 		}
@@ -338,7 +350,7 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bind
 // available instead of falling back to an ephemeral port.
 func dialTCPLowport(ctx context.Context, network string, raddr, laddr *net.TCPAddr, timeout time.Duration, control func(network, address string, c syscall.RawConn) error, g *Global) (net.Conn, error) {
 	ip := net.IPv4zero
-	if raddr != nil && raddr.IP.To4() == nil {
+	if raddr != nil && !WantIPv4(network, raddr.IP) {
 		ip = net.IPv6zero
 	}
 	if laddr != nil && laddr.IP != nil {
@@ -347,7 +359,7 @@ func dialTCPLowport(ctx context.Context, network string, raddr, laddr *net.TCPAd
 	var conn net.Conn
 	_, err := FirstAvailableLowport(func(port int) error {
 		if g != nil && g.Log != nil {
-			g.Log.Debugf("bind({AF=%d %s:%d}, 16)", afForIP(ip), ip.String(), port)
+			g.Log.Debugf("bind({AF=%d %s:%d}, 16)", afForNetwork(network, ip), FormatIPForNetwork(network, ip), port)
 		}
 		d := &net.Dialer{
 			Timeout:   timeout,
@@ -360,7 +372,7 @@ func dialTCPLowport(ctx context.Context, network string, raddr, laddr *net.TCPAd
 		if timeout > 0 {
 			cctx, cancel = context.WithTimeout(ctx, timeout)
 		}
-		c, err := d.DialContext(cctx, network, raddr.String())
+		c, err := d.DialContext(cctx, network, formatTCPAddr(network, raddr.IP, raddr.Port))
 		if cancel != nil {
 			cancel()
 		}
