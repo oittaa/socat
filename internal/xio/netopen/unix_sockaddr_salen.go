@@ -1,4 +1,4 @@
-//go:build darwin || freebsd || openbsd || netbsd || dragonfly || aix
+//go:build darwin
 
 package netopen
 
