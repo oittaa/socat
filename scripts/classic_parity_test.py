@@ -6,6 +6,7 @@ help text or man-page paragraphs.
 
 from __future__ import annotations
 
+import copy
 import importlib.util
 import json
 import os
@@ -386,6 +387,48 @@ class CompareTest(unittest.TestCase):
         report = self._report(release_docs=docs, release_hhh=None)
         self.assertNotIn("ip-recvif", report.missing_options)
 
+    def test_other_platform_option_advertised_here_is_unexpected(self) -> None:
+        go = parity.parse_go_help(SYNTHETIC_GO_HELP + "    ip-recvif   darwin recv\n")
+        linux = self._report(go_help=go, goos="linux")
+        self.assertIn("ip-recvif", linux.unexpected_options)
+        darwin = self._report(go_help=go, goos="darwin")
+        self.assertNotIn("ip-recvif", darwin.unexpected_options)
+
+    def test_platform_option_is_not_unexpected_on_its_goos(self) -> None:
+        policy = copy.deepcopy(POLICY)
+        policy["platform_options"]["linux"] = ["sctp-maxseg"]
+        go = parity.parse_go_help(SYNTHETIC_GO_HELP + "    sctp-maxseg  sctp mss\n")
+        linux = self._report(go_help=go, goos="linux", policy=policy)
+        self.assertNotIn("sctp-maxseg", linux.unexpected_options)
+        darwin = self._report(go_help=go, goos="darwin", policy=policy)
+        self.assertIn("sctp-maxseg", darwin.unexpected_options)
+
+    def test_unlisted_platform_alias_is_unexpected_when_official_omits_it(self) -> None:
+        opts_only = parity.parse_classic_hhh(
+            "   opts:\n      frob\tgroups=FD\t\tphase=LATE\t\ttype=BOOL\n"
+        )
+        go = parity.parse_go_help(
+            SYNTHETIC_GO_HELP
+            + "    binary     windows mode\n"
+            + "    bin        alias of binary\n"
+            + "    o-binary   alias of binary\n"
+        )
+        listed = copy.deepcopy(POLICY)
+        listed["platform_options"]["windows"] = ["binary", "bin", "o-binary"]
+        covered = self._report(
+            go_help=go, goos="windows", policy=listed, release_hhh=opts_only
+        )
+        for name in ("binary", "bin", "o-binary"):
+            self.assertNotIn(name, covered.unexpected_options)
+        canonical_only = copy.deepcopy(POLICY)
+        canonical_only["platform_options"]["windows"] = ["binary"]
+        thin = self._report(
+            go_help=go, goos="windows", policy=canonical_only, release_hhh=opts_only
+        )
+        self.assertNotIn("binary", thin.unexpected_options)
+        self.assertIn("bin", thin.unexpected_options)
+        self.assertIn("o-binary", thin.unexpected_options)
+
     def test_missing_option_is_reported(self) -> None:
         go = parity.parse_go_help(SYNTHETIC_GO_HELP.replace("    frob      frobnicate\n", ""))
         report = self._report(go_help=go)
@@ -671,8 +714,42 @@ class RepoPolicyTest(unittest.TestCase):
         self.assertIn("linux", platforms)
         self.assertIn("darwin", platforms)
         self.assertIn("windows", platforms)
-        self.assertIn("binary", platforms["windows"])
-        self.assertIn("ip-recvif", platforms["darwin"])
+        for name in ("notail", "sctp-maxseg", "sctp-nodelay"):
+            self.assertIn(name, platforms["linux"])
+        for name in (
+            "ip-recvif",
+            "ip-recvdstaddr",
+            "recvif",
+            "recvdstaddr",
+            "iprecvdstaddr",
+            "nopush",
+            "noopt",
+            "tcp-nopush",
+            "tcp-noopt",
+        ):
+            self.assertIn(name, platforms["darwin"])
+        for name in (
+            "binary",
+            "text",
+            "noinherit",
+            "bin",
+            "o-binary",
+            "o-text",
+            "o-noinherit",
+        ):
+            self.assertIn(name, platforms["windows"])
+
+    def test_go_only_and_platform_sets_are_disjoint(self) -> None:
+        policy = parity.load_policy()
+        go_only = {name.lower() for name in (policy.get("go_only_options") or {})}
+        platform: set[str] = set()
+        for block in (policy.get("platform_options") or {}).values():
+            if isinstance(block, dict):
+                platform.update(name.lower() for name in block)
+            elif isinstance(block, list):
+                platform.update(name.lower() for name in block)
+        overlap = go_only & platform
+        self.assertEqual(overlap, set(), f"go_only_options overlap platform_options: {sorted(overlap)}")
 
 
 class OriginSafetyTest(unittest.TestCase):

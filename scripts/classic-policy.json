@@ -156,7 +156,6 @@
     "crorlf": "CR-or-LF line conversion extra",
     "ca": "short alias of cafile",
     "child-shutup": "advertised alias of children-shutup",
-    "notail": "fs-notail nickname advertised on Linux",
     "recvtclass": "alias of ipv6-recvtclass",
     "shut": "shut=none|down|close|null extra",
     "so-keepcnt": "so-* alias of keepcnt",
@@ -167,31 +166,33 @@
     "tls-capath": "tls-* alias of capath",
     "tls-commonname": "tls-* alias of commonname",
     "tls-no-sni": "tls-* alias of nosni",
-    "tls-snihost": "tls-* alias of snihost",
-    "sctp-maxseg": "documented SCTP_MAXSEG; advertised on Linux",
-    "sctp-nodelay": "documented SCTP_NODELAY; advertised on Linux",
-    "ip-recvdstaddr": "documented IP_RECVDSTADDR; advertised on Darwin",
-    "ip-recvif": "documented IP_RECVIF; advertised on Darwin",
-    "recvdstaddr": "alias of ip-recvdstaddr; advertised on Darwin",
-    "iprecvdstaddr": "alias of ip-recvdstaddr; advertised on Darwin",
-    "recvif": "alias of ip-recvif; advertised on Darwin",
-    "nopush": "documented TCP_NOPUSH; advertised on Darwin",
-    "noopt": "documented TCP_NOOPT; advertised on Darwin",
-    "tcp-nopush": "alias of nopush; advertised on Darwin",
-    "tcp-noopt": "alias of noopt; advertised on Darwin"
+    "tls-snihost": "tls-* alias of snihost"
   },
   "platform_options": {
+    "linux": [
+      "notail",
+      "sctp-maxseg",
+      "sctp-nodelay"
+    ],
     "darwin": [
       "ip-recvif",
       "ip-recvdstaddr",
+      "recvif",
+      "recvdstaddr",
+      "iprecvdstaddr",
       "nopush",
-      "noopt"
+      "noopt",
+      "tcp-nopush",
+      "tcp-noopt"
     ],
     "windows": [
       "binary",
       "text",
-      "noinherit"
-    ],
-    "linux": []
+      "noinherit",
+      "bin",
+      "o-binary",
+      "o-text",
+      "o-noinherit"
+    ]
   }
 }
