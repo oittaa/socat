@@ -691,6 +691,9 @@ func TestIPAncillaryAliasesFoldForLastWins(t *testing.T) {
 	if CanonicalOptionName("recvif") != "ip-recvif" {
 		t.Fatalf("recvif=%q", CanonicalOptionName("recvif"))
 	}
+	if CanonicalOptionName("hdrincl") != "ip-hdrincl" || CanonicalOptionName("iphdrincl") != "ip-hdrincl" {
+		t.Fatalf("hdrincl=%q iphdrincl=%q", CanonicalOptionName("hdrincl"), CanonicalOptionName("iphdrincl"))
+	}
 }
 
 func TestSoProtocolAliases(t *testing.T) {

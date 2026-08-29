@@ -63,6 +63,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"dash", "login", "setpgid", "pgid",
 		"sighup", "sigint", "sigquit",
 		"sitout-eio",
+		"ip-hdrincl", "hdrincl", "iphdrincl",
 		"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string",
 		"fs-append", "fs-compr", "fs-dirsync", "fs-immutable", "fs-journal-data",
 		"fs-nodump", "fs-notail", "fs-secrm", "fs-sync", "fs-topdir", "fs-unrm",
@@ -108,6 +109,7 @@ func TestLinuxHHHIncludesClassicOptionMetadata(t *testing.T) {
 	help := b.String()
 	for name, fields := range map[string][]string{
 		"ip-add-source-membership": {"groups=IP4,IP6", "phase=PASTSOCKET", "type=IP-MREQ-SOURCE"},
+		"ip-hdrincl":               {"groups=IP4,IP6", "phase=PASTSOCKET", "type=INT"},
 		"ioctl-string":             {"groups=FD", "phase=FD", "type=INT:STRING"},
 		"lockfile":                 {"groups=APPL", "phase=INIT", "type=STRING"},
 		"dash":                     {"groups=EXEC", "phase=PREEXEC", "type=BOOL"},

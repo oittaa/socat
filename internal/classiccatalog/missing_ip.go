@@ -1,11 +1,8 @@
 package classiccatalog
 
-// IPv4/IPv6 settable sockopts still unimplemented (not the recv ancillary
-// matrix already shipped). Later remaining-IP work.
+// Remaining IPv4/IPv6 settable sockopts still unimplemented (not recv
+// ancillary and not ip-hdrincl). Later remaining-IP work (PR C).
 var expectedMissingIP = map[string]Gap{
-	"ip-hdrincl":      {Reason: "IP_HDRINCL", Platforms: PlatUnix},
-	"hdrincl":         {Reason: "alias of ip-hdrincl", Platforms: PlatUnix},
-	"iphdrincl":       {Reason: "alias of ip-hdrincl", Platforms: PlatUnix},
 	"ip-mtu":          {Reason: "IP_MTU", Platforms: PlatUnix},
 	"ipmtu":           {Reason: "alias of ip-mtu", Platforms: PlatUnix},
 	"mtu":             {Reason: "alias of ip-mtu", Platforms: PlatUnix},

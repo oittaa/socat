@@ -38,3 +38,7 @@ func applyIPOptions(int, string) error {
 func applyIPv6Tclass(int, int) error {
 	return fmt.Errorf("not supported on this platform")
 }
+
+func applyIPHdrincl(int, int) error {
+	return fmt.Errorf("not supported on this platform")
+}

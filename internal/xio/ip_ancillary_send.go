@@ -153,7 +153,8 @@ func resolveApplyIPFamily(fd int, family ipFamily) (ipFamily, error) {
 // ip-ttl/ip-tos use OFUNC_SOCKOPT SOL_IP (IPPROTO_IP) IP_TTL/IP_TOS even on
 // IPv6 sockets. ip-options uses OFUNC_SOCKOPT_APPEND SOL_IP IP_OPTIONS.
 // ipv6-unicast-hops/ipv6-tclass use SOL_IPV6 and are rejected on IPv4 rather
-// than skipped.
+// than skipped. ip-hdrincl uses SOL_IP IP_HDRINCL on raw IPv4 only; TYPE_INT
+// omitted stores 1.
 //
 // Classic applyopts walks every matching option in command-line order, so
 // ttl=1,ip-ttl=64 is two setsockopt calls (not OptionNamed last-wins). An
@@ -191,6 +192,24 @@ func applyOneIPSendOpt(fd int, e IPAncillaryEntry, option parse.Option, family i
 		// Each occurrence appends (classic OFUNC_SOCKOPT_APPEND); stop on error.
 		if err := applyIPOptions(fd, v); err != nil {
 			return fmt.Errorf("ip-options: %w", err)
+		}
+		return nil
+	}
+	if e.Canonical == "ip-hdrincl" {
+		// Classic TYPE_INT: omitted stores 1 (xioopts.c parseopts_table).
+		n := 1
+		if option.Has {
+			v := strings.TrimSpace(option.Value)
+			if v != "" {
+				parsed, err := ParseIntAny(v)
+				if err != nil {
+					return fmt.Errorf("%s: %w", e.Canonical, err)
+				}
+				n = parsed
+			}
+		}
+		if err := applyIPHdrincl(fd, n); err != nil {
+			return fmt.Errorf("%s: %w", e.Canonical, err)
 		}
 		return nil
 	}

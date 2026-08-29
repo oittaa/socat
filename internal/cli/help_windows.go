@@ -30,7 +30,7 @@ func hideOpt(name string) bool {
 		"ip-mtu-discover", "mtudiscover", "ipmtudiscover",
 		"ipv6-mtu-discover", "mtudiscover6",
 		"so-timestamp", "ip-pktinfo", "ip-recvttl", "ip-recvtos", "ip-recvopts",
-		"ip-options",
+		"ip-options", "ip-hdrincl", "hdrincl", "iphdrincl",
 		"ipv6-recvpktinfo", "ipv6-recvhoplimit", "ipv6-recvtclass",
 		"ipv6-unicast-hops", "ipv6-tclass",
 		"nonblock", "o-noatime", "o-direct", "f-setpipe-sz", "umask", "user", "group",

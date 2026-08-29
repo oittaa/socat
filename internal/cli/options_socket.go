@@ -61,6 +61,7 @@ func socketOptionGroups() []helpOptGroup {
 			{name: "ip-ttl", desc: "IP_TTL", aliases: []string{"ttl", "ipttl"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-ttl"), validate: validateInteger(-1)},
 			{name: "ip-tos", desc: "IP_TOS", aliases: []string{"tos", "iptos"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-tos"), validate: validateInt64(false)},
 			{name: "ip-options", desc: "IP_OPTIONS", aliases: []string{"ipoptions"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-options"), validate: validateRequiredString},
+			{name: "ip-hdrincl", desc: "IP_HDRINCL (raw IPv4)", aliases: []string{"hdrincl", "iphdrincl"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-hdrincl"), validate: validateOptionalSignedInteger},
 			{name: "ipv6-recvpktinfo", desc: "IPV6_RECVPKTINFO", aliases: []string{"recvpktinfo"}, implementationGroups: xio.IPAncillaryImplementationGroups("ipv6-recvpktinfo")},
 			{name: "ipv6-recvhoplimit", desc: "IPV6_RECVHOPLIMIT", aliases: []string{"recvhoplimit"}, implementationGroups: xio.IPAncillaryImplementationGroups("ipv6-recvhoplimit")},
 			{name: "ipv6-recvtclass", desc: "IPV6_RECVTCLASS", aliases: []string{"recvtclass"}, implementationGroups: xio.IPAncillaryImplementationGroups("ipv6-recvtclass")},
