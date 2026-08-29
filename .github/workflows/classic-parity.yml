@@ -1,11 +1,9 @@
-# Native Go vs official classic socat. Not part of ordinary CI.
+# Native Go vs official classic socat. Manual dispatch only; not ordinary CI.
 # Official source, binaries, -hhh/-V dumps, and rendered docs stay in the
 # gitignored workdir. Do not upload them as artifacts or cache them.
 name: classic-parity
 
 on:
-  schedule:
-    - cron: "41 4 * * 1"
   workflow_dispatch:
 
 permissions:

@@ -77,8 +77,8 @@ ask before implementing it.
 Live comparison against official release and master is
 `make classic-parity` (`scripts/classic-parity.py run`). Compatibility-changing
 PRs should run it explicitly. Ordinary `make check` stays offline from
-repo.or.cz. Scheduled parity failures caused by official master drift
-require review and an intentional update of `scripts/classic-baseline.json`.
+repo.or.cz. If official master has moved past the reviewed commit, review the
+drift and update `scripts/classic-baseline.json` intentionally.
 Do not check in official `-hhh`/`-V` dumps or a generated option catalog.
 Policy classifications (unsupported, foreign, parser-only, platform-specific,
 Go-only) live in `scripts/classic-policy.json`.

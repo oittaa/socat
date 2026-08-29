@@ -953,11 +953,12 @@ class MakeAndWorkflowPolicyTest(unittest.TestCase):
         self.assertTrue(in_check)
         self.assertNotIn("classic-parity", "\n".join(body))
 
-    def test_workflow_is_manual_and_scheduled_without_artifacts(self) -> None:
+    def test_workflow_is_manual_only_without_artifacts(self) -> None:
         path = self.ROOT / ".github" / "workflows" / "classic-parity.yml"
         text = path.read_text(encoding="utf-8")
         self.assertIn("workflow_dispatch:", text)
-        self.assertIn("schedule:", text)
+        self.assertNotIn("schedule:", text)
+        self.assertNotIn("cron:", text)
         self.assertRegex(text, r"(?m)^\s+contents:\s+read\s*$")
         self.assertNotRegex(text, r"(?m)^\s+push:")
         self.assertNotRegex(text, r"(?m)^\s+pull_request:")

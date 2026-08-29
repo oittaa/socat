@@ -254,7 +254,7 @@ syncs the official repository into a gitignored working directory.
 
 CI runs unit and end-to-end tests on Linux amd64/arm64, macOS, and Windows
 amd64/arm64. Weekly jobs run fuzzing and the live relay matrix. Official
-classic parity is weekly and manual only.
+classic parity is a manual workflow only.
 
 Classic `test.sh` is run separately because hosted CI cannot provide every
 required kernel feature and privilege. Results and reproduction instructions
