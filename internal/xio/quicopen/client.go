@@ -41,7 +41,7 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 		return nil, err
 	}
 
-	bindHost, err := xio.ListenBindHost(network, s.OptionValue("bind", ""))
+	bindHost, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
 	if err != nil {
 		return nil, err
 	}

@@ -41,7 +41,7 @@ func tcpToUDPNetwork(tcpNet string) string {
 // create its own UDP socket and silently ignore those requested options.
 func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost string) (net.PacketConn, string, error) {
 	network := tcpToUDPNetwork(xio.ConnectNetworkForType(g, s, proxyHost, "tcp"))
-	bindHost, err := xio.ListenBindHost(network, s.OptionValue("bind", ""))
+	bindHost, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
 	if err != nil {
 		return nil, "", err
 	}

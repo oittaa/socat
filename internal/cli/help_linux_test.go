@@ -76,6 +76,8 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"lockfile", "waitlock",
 		"cloexec",
 		"unix-tightsocklen", "tightsocklen",
+		"ai-addrconfig", "addrconfig", "ai-passive", "passive", "ai-v4mapped", "v4mapped", "ai-all",
+		"res-nsaddr", "dns", "nameserver", "nsaddr", "res-usevc", "usevc",
 	} {
 		if !strings.Contains(help, "    "+name+" ") {
 			t.Errorf("honored option %q is missing from -hhh", name)
@@ -96,7 +98,10 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"so-attach-filter", "attach-filter", "attachfilter",
 		"so-security-authentication", "security-authentication", "securityauthentication",
 		"so-security-encryption-network", "security-encryption-network", "securityencryptionnetwork",
-		"so-security-encryption-transport", "security-encryption-transport", "securityencryptiontransport"} {
+		"so-security-encryption-transport", "security-encryption-transport", "securityencryptiontransport",
+		"res-debug", "res-defnames", "defnames", "res-dnsrch", "dnsrch",
+		"res-igntc", "igntc", "res-recurse", "recurse", "res-stayopen", "stayopen",
+		"res-retrans", "res-maxretrans", "retrans", "res-retry", "res-maxretry"} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("rejected or unknown option %q must not be advertised in -hhh", name)
 		}

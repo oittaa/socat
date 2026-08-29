@@ -32,7 +32,7 @@ func TestResolvePortNumSCTPFallsBackToTCP(t *testing.T) {
 func TestBindTCPAddrForRemoteFamily(t *testing.T) {
 	ctx := context.Background()
 	// IPv4 bind + IPv6 remote → skip
-	_, skip, err := BindTCPAddrForRemote(ctx, net.ParseIP("::1"), parse.Spec{}, "127.0.0.1", "0")
+	_, skip, err := BindTCPAddrForRemote(ctx, net.ParseIP("::1"), parse.Spec{}, "127.0.0.1", "0", "tcp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,26 +40,26 @@ func TestBindTCPAddrForRemoteFamily(t *testing.T) {
 		t.Fatal("expected skip for IPv4 bind vs IPv6 remote")
 	}
 	// IPv4 bind + IPv4 remote → ok
-	la, skip, err := BindTCPAddrForRemote(ctx, net.ParseIP("127.0.0.1"), parse.Spec{}, "127.0.0.1", "0")
+	la, skip, err := BindTCPAddrForRemote(ctx, net.ParseIP("127.0.0.1"), parse.Spec{}, "127.0.0.1", "0", "tcp")
 	if err != nil || skip || la == nil || la.IP.To4() == nil {
 		t.Fatalf("v4 bind: la=%v skip=%v err=%v", la, skip, err)
 	}
 	// IPv6 bind + IPv6 remote
-	la, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("::1"), parse.Spec{}, "::1", "0")
+	la, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("::1"), parse.Spec{}, "::1", "0", "tcp")
 	if err != nil || skip || la == nil || la.IP.To4() != nil {
 		t.Fatalf("v6 bind: la=%v skip=%v err=%v", la, skip, err)
 	}
 	// bind=host:port form
-	la, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("127.0.0.1"), parse.Spec{}, "127.0.0.1:0", "")
+	la, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("127.0.0.1"), parse.Spec{}, "127.0.0.1:0", "", "tcp")
 	if err != nil || skip || la == nil {
 		t.Fatalf("bind host:port: la=%v skip=%v err=%v", la, skip, err)
 	}
 	// Classic AF_INET connect does not rewrite bind=:: to 0.0.0.0.
-	_, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("127.0.0.1"), parse.Spec{}, "::", "0")
+	_, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("127.0.0.1"), parse.Spec{}, "::", "0", "tcp")
 	if err != nil || !skip {
 		t.Fatalf("bind=:: v4 remote: skip=%v err=%v want skip", skip, err)
 	}
-	_, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("::1"), parse.Spec{}, "0.0.0.0", "0")
+	_, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("::1"), parse.Spec{}, "0.0.0.0", "0", "tcp")
 	if err != nil || !skip {
 		t.Fatalf("bind=0.0.0.0 v6 remote: skip=%v err=%v want skip", skip, err)
 	}

@@ -23,6 +23,7 @@ type fakeDNSServer struct {
 	tcp         net.Listener
 	addr        string
 	answer      net.IP
+	answers     []net.IP
 	ptrName     string
 	truncateUDP bool
 	drop        bool
@@ -118,7 +119,7 @@ func (s *fakeDNSServer) serveUDP() {
 		if s.drop {
 			continue
 		}
-		response, err := makeDNSResponse(buf[:n], s.answer, s.ptrName, s.truncateUDP)
+		response, err := makeDNSResponse(buf[:n], s.records(), s.ptrName, s.truncateUDP)
 		if err == nil {
 			_, _ = s.udp.WriteTo(response, peer)
 		}
@@ -150,7 +151,7 @@ func (s *fakeDNSServer) serveTCPConn(conn net.Conn) {
 	if s.drop {
 		return
 	}
-	response, err := makeDNSResponse(query, s.answer, s.ptrName, false)
+	response, err := makeDNSResponse(query, s.records(), s.ptrName, false)
 	if err != nil {
 		return
 	}
@@ -158,7 +159,17 @@ func (s *fakeDNSServer) serveTCPConn(conn net.Conn) {
 	_, _ = conn.Write(append(size[:], response...))
 }
 
-func makeDNSResponse(query []byte, answer net.IP, ptrName string, truncated bool) ([]byte, error) {
+func (s *fakeDNSServer) records() []net.IP {
+	if len(s.answers) > 0 {
+		return s.answers
+	}
+	if s.answer != nil {
+		return []net.IP{s.answer}
+	}
+	return nil
+}
+
+func makeDNSResponse(query []byte, answers []net.IP, ptrName string, truncated bool) ([]byte, error) {
 	var parser dnsmessage.Parser
 	header, err := parser.Start(query)
 	if err != nil {
@@ -199,27 +210,31 @@ func makeDNSResponse(query []byte, answer net.IP, ptrName string, truncated bool
 		}
 		switch question.Type {
 		case dnsmessage.TypeA:
-			ip4 := answer.To4()
-			if ip4 == nil {
-				continue
-			}
-			var a [4]byte
-			copy(a[:], ip4)
-			if err := builder.AResource(resourceHeader, dnsmessage.AResource{A: a}); err != nil {
-				return nil, err
+			for _, answer := range answers {
+				ip4 := answer.To4()
+				if ip4 == nil {
+					continue
+				}
+				var a [4]byte
+				copy(a[:], ip4)
+				if err := builder.AResource(resourceHeader, dnsmessage.AResource{A: a}); err != nil {
+					return nil, err
+				}
 			}
 		case dnsmessage.TypeAAAA:
-			if answer.To4() != nil {
-				continue
-			}
-			ip16 := answer.To16()
-			if ip16 == nil {
-				continue
-			}
-			var aaaa [16]byte
-			copy(aaaa[:], ip16)
-			if err := builder.AAAAResource(resourceHeader, dnsmessage.AAAAResource{AAAA: aaaa}); err != nil {
-				return nil, err
+			for _, answer := range answers {
+				if answer.To4() != nil {
+					continue
+				}
+				ip16 := answer.To16()
+				if ip16 == nil {
+					continue
+				}
+				var aaaa [16]byte
+				copy(aaaa[:], ip16)
+				if err := builder.AAAAResource(resourceHeader, dnsmessage.AAAAResource{AAAA: aaaa}); err != nil {
+					return nil, err
+				}
 			}
 		case dnsmessage.TypePTR:
 			if ptrName == "" {
@@ -522,6 +537,169 @@ func TestTCPWrapReverseVerificationUsesResNSAddr(t *testing.T) {
 	if server.udpQueries.Load() < 2 {
 		t.Fatalf("reverse and forward verification made %d DNS queries; want at least 2", server.udpQueries.Load())
 	}
+}
+
+func TestLookupIPV4MappedDefault(t *testing.T) {
+	server, err := startFakeDNS(t, "127.0.0.1", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := resNSAddrSpec(server.addr)
+	ips, err := LookupIP(t.Context(), s, "ip6", "v4mapped-default.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ips) != 1 || !ips[0].Equal(net.ParseIP("::ffff:127.0.0.1")) {
+		t.Fatalf("LookupIP=%v want ::ffff:127.0.0.1", ips)
+	}
+	if got := FormatIPForNetwork("tcp6", ips[0]); got != "::ffff:127.0.0.1" {
+		t.Fatalf("FormatIPForNetwork=%q", got)
+	}
+}
+
+func TestLookupIPV4MappedDisabled(t *testing.T) {
+	server, err := startFakeDNS(t, "127.0.0.1", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := resNSAddrSpec(server.addr)
+	s.Options = append(s.Options, parse.Option{Name: "ai-v4mapped", Value: "0", Has: true})
+	_, err = LookupIP(t.Context(), s, "ip6", "v4mapped-off.test")
+	if err == nil {
+		t.Fatal("ai-v4mapped=0 on A-only name succeeded")
+	}
+}
+
+func TestLookupIPAIAllAppendsMapped(t *testing.T) {
+	server, err := startFakeDNSWithAnswer(t, "127.0.0.1", net.IPv4(127, 0, 0, 1), "", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.answers = []net.IP{net.IPv4(192, 0, 2, 1), net.ParseIP("2001:db8::1")}
+	s := resNSAddrSpec(server.addr)
+	s.Options = append(s.Options, parse.Option{Name: "ai-all"})
+	ips, err := LookupIP(t.Context(), s, "ip6", "ai-all.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var have6, haveMapped bool
+	for _, ip := range ips {
+		if ip.Equal(net.ParseIP("2001:db8::1")) {
+			have6 = true
+		}
+		if ip.Equal(net.ParseIP("::ffff:192.0.2.1")) {
+			haveMapped = true
+		}
+	}
+	if !have6 || !haveMapped {
+		t.Fatalf("ai-all ips=%v want native IPv6 and mapped A", ips)
+	}
+}
+
+func TestLookupIPWithoutAIAllKeepsNativeOnly(t *testing.T) {
+	server, err := startFakeDNSWithAnswer(t, "127.0.0.1", net.IPv4(127, 0, 0, 1), "", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.answers = []net.IP{net.IPv4(192, 0, 2, 1), net.ParseIP("2001:db8::1")}
+	s := resNSAddrSpec(server.addr)
+	ips, err := LookupIP(t.Context(), s, "ip6", "no-ai-all.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ips) != 1 || !ips[0].Equal(net.ParseIP("2001:db8::1")) {
+		t.Fatalf("without ai-all ips=%v want only 2001:db8::1", ips)
+	}
+}
+
+func TestResUseVCQueriesTCP(t *testing.T) {
+	server, err := startFakeDNS(t, "127.0.0.1", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := resNSAddrSpec(server.addr)
+	s.Options = append(s.Options, parse.Option{Name: "res-usevc"})
+	ips, err := LookupIP(t.Context(), s, "ip4", "usevc.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ips) != 1 || !ips[0].Equal(net.IPv4(127, 0, 0, 1)) {
+		t.Fatalf("LookupIP=%v", ips)
+	}
+	if server.tcpQueries.Load() == 0 {
+		t.Fatal("res-usevc made no TCP DNS queries")
+	}
+	if server.udpQueries.Load() != 0 {
+		t.Fatalf("res-usevc made %d UDP queries; want 0", server.udpQueries.Load())
+	}
+}
+
+func TestResUseVCZeroKeepsUDP(t *testing.T) {
+	server, err := startFakeDNS(t, "127.0.0.1", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := resNSAddrSpec(server.addr)
+	s.Options = append(s.Options, parse.Option{Name: "res-usevc", Value: "0", Has: true})
+	if _, err := LookupIP(t.Context(), s, "ip4", "usevc-off.test"); err != nil {
+		t.Fatal(err)
+	}
+	if server.udpQueries.Load() == 0 {
+		t.Fatal("res-usevc=0 made no UDP DNS queries")
+	}
+}
+
+func TestResUseVCAndV4MappedDoNotMutateDefaultResolver(t *testing.T) {
+	before := net.DefaultResolver
+	server, err := startFakeDNS(t, "127.0.0.1", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := parse.Spec{Options: []parse.Option{
+		{Name: "res-usevc"},
+		{Name: "ai-v4mapped"},
+		{Name: "ai-all"},
+	}}
+	resolver := LookupResolver(s)
+	if resolver == before {
+		t.Fatal("res-usevc returned process-global DefaultResolver")
+	}
+	s.Options = append(s.Options, parse.Option{Name: "res-nsaddr", Value: server.addr, Has: true})
+	if _, err := LookupIP(t.Context(), s, "ip4", "isolated-usevc.test"); err != nil {
+		t.Fatal(err)
+	}
+	if net.DefaultResolver != before {
+		t.Fatal("resolver options replaced net.DefaultResolver")
+	}
+}
+
+func TestDialTCPAllV4MappedConnects(t *testing.T) {
+	ln, err := net.Listen("tcp6", "[::ffff:127.0.0.1]:0")
+	if err != nil {
+		t.Skip(err)
+	}
+	defer func() { _ = ln.Close() }()
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c, err := ln.Accept()
+		if err == nil {
+			_ = c.Close()
+		}
+	}()
+	server, err := startFakeDNS(t, "127.0.0.1", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := resNSAddrSpec(server.addr)
+	s.Type = "TCP6"
+	c, err := DialTCPAll(t.Context(), "tcp6", "v4mapped-dial.test", port, s, nil, time.Second, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = c.Close()
+	<-done
 }
 
 func ExampleParseResNSAddr() {

@@ -50,7 +50,7 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 		}
 		copy(ip4[:], v4)
 	} else {
-		ips, e := xio.LookupResolver(s).LookupIP(ctx, "ip4", hostName)
+		ips, e := xio.LookupIP(ctx, s, "ip4", hostName)
 		if e != nil {
 			return nil, fmt.Errorf("SOCKS4: resolve %s: %w", targetHost, e)
 		}

@@ -134,7 +134,7 @@ func resolveRawIPTarget(ctx context.Context, s parse.Spec, network, host string)
 	if ip := net.ParseIP(host); ip != nil {
 		return &net.IPAddr{IP: ip}, nil
 	}
-	ips, err := xio.LookupResolver(s).LookupIP(ctx, ipLookupNet(network), host)
+	ips, err := xio.LookupIP(ctx, s, ipLookupNet(network), host)
 	if err != nil || len(ips) == 0 {
 		return nil, fmt.Errorf("%s: resolve %q: %w", s.Type, host, err)
 	}

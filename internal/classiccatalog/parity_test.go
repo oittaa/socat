@@ -78,6 +78,28 @@ func TestPlatformSpecificNamesStayRequiredOnTheirGOOS(t *testing.T) {
 		{"nsaddr", "linux", ClassMustAdvertise},
 		{"nsaddr", "darwin", ClassMustAdvertise},
 		{"nsaddr", "windows", ClassMustAdvertise},
+		{"res-usevc", "linux", ClassMustAdvertise},
+		{"res-usevc", "darwin", ClassMustAdvertise},
+		{"res-usevc", "windows", ClassMustAdvertise},
+		{"usevc", "linux", ClassMustAdvertise},
+		{"usevc", "darwin", ClassMustAdvertise},
+		{"usevc", "windows", ClassMustAdvertise},
+		{"ai-all", "linux", ClassMustAdvertise},
+		{"ai-all", "darwin", ClassMustAdvertise},
+		{"ai-all", "windows", ClassMustAdvertise},
+		{"ai-passive", "linux", ClassMustAdvertise},
+		{"ai-passive", "darwin", ClassMustAdvertise},
+		{"ai-passive", "windows", ClassMustAdvertise},
+		{"passive", "linux", ClassMustAdvertise},
+		{"ai-v4mapped", "linux", ClassMustAdvertise},
+		{"ai-v4mapped", "windows", ClassMustAdvertise},
+		{"v4mapped", "linux", ClassMustAdvertise},
+		{"res-debug", "linux", ClassUnsupported},
+		{"res-debug", "darwin", ClassUnsupported},
+		{"res-debug", "windows", ClassUnsupported},
+		{"res-retry", "linux", ClassUnsupported},
+		{"defnames", "linux", ClassUnsupported},
+		{"res-retrans", "windows", ClassUnsupported},
 		{"nopush", "darwin", ClassMustAdvertise},
 		{"nopush", "linux", ClassMustAdvertise},
 		{"nopush", "windows", ClassMustAdvertise},
@@ -295,6 +317,16 @@ func TestImplementationBacklogOmitsExclusions(t *testing.T) {
 		}
 		if _, ok := ImplementationBacklog("windows")[name]; ok {
 			t.Fatalf("windows backlog must not include socket ioctl audit name %q", name)
+		}
+	}
+	for _, name := range []string{"ai-all", "ai-passive", "passive", "ai-v4mapped", "v4mapped", "res-usevc", "usevc", "res-nsaddr"} {
+		if _, ok := linux[name]; ok {
+			t.Fatalf("linux backlog must not include implemented resolver option %q", name)
+		}
+	}
+	for _, name := range []string{"res-debug", "res-defnames", "defnames", "res-dnsrch", "res-retry", "res-retrans"} {
+		if _, ok := linux[name]; ok {
+			t.Fatalf("linux backlog must not include unsupported libc res_* option %q", name)
 		}
 	}
 	if _, ok := linux["fs-append"]; ok {
@@ -690,6 +722,50 @@ func TestDCCPIsUnsupportedNotBacklog(t *testing.T) {
 			}
 			if _, ok := ImplementationBacklog(goos)[name]; ok {
 				t.Errorf("%s backlog includes DCCP option %q; it is not an implementation item", goos, name)
+			}
+		}
+	}
+}
+
+func TestLibcResFlagsAreUnsupportedNotBacklog(t *testing.T) {
+	names := []string{
+		"res-debug", "res-defnames", "defnames", "res-dnsrch", "dnsrch",
+		"res-igntc", "igntc", "res-recurse", "recurse", "res-stayopen", "stayopen",
+		"res-retrans", "res-maxretrans", "retrans", "res-retry", "res-maxretry",
+	}
+	for _, name := range names {
+		if _, ok := ExpectedMissingAll()[name]; ok {
+			t.Errorf("%s must not remain expected-missing; libc _res is not mutated", name)
+		}
+		reason, ok := UnsupportedPublic()[name]
+		if !ok {
+			t.Errorf("%s missing from UnsupportedPublic", name)
+			continue
+		}
+		if strings.TrimSpace(reason) == "" {
+			t.Errorf("%s unsupported reason is empty", name)
+		}
+		for _, goos := range []string{"linux", "darwin", "windows"} {
+			class, classReason := ClassifyOption(name, goos)
+			if class != ClassUnsupported {
+				t.Errorf("%s on %s: class=%s reason=%q; want unsupported", name, goos, class, classReason)
+			}
+			if _, ok := ImplementationBacklog(goos)[name]; ok {
+				t.Errorf("%s backlog includes %q", goos, name)
+			}
+		}
+	}
+	for _, name := range []string{"ai-all", "ai-passive", "passive", "ai-v4mapped", "v4mapped", "res-usevc", "usevc"} {
+		if _, ok := ExpectedMissingAll()[name]; ok {
+			t.Errorf("%s must not remain expected-missing after per-address implementation", name)
+		}
+		if _, ok := UnsupportedPublic()[name]; ok {
+			t.Errorf("%s must not be classified unsupported after implementation", name)
+		}
+		for _, goos := range []string{"linux", "darwin", "windows"} {
+			class, reason := ClassifyOption(name, goos)
+			if class != ClassMustAdvertise {
+				t.Errorf("%s on %s: class=%s reason=%q; want must-advertise", name, goos, class, reason)
 			}
 		}
 	}

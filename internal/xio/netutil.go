@@ -336,17 +336,36 @@ func forcedIPv6Network(network string) bool {
 	}
 }
 
+func listenAIPassive(s parse.Spec) bool {
+	if s.HasOption("ai-passive") {
+		return s.BoolOption("ai-passive")
+	}
+	return true
+}
+
 // ListenBindHost resolves the bind host for listen and local-bind paths.
 // An explicit bind= value is returned unchanged: never rewrite :: to 0.0.0.0.
 // A family wildcard is supplied only when bind is absent.
 // Forced-family combinations that would otherwise fail inside the OS resolver
 // (TCP4/UDP4 vs ::, TCP6 vs 0.0.0.0) return a clear error.
-func ListenBindHost(network, bind string) (string, error) {
+//
+// Classic auto-sets getaddrinfo AI_PASSIVE for LISTEN/RECV/bind unless
+// ai-passive=0 (xio-ipapp.c / xio-udp.c at tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is unchanged). AI_PASSIVE with an
+// empty node is the wildcard; unset is loopback.
+func ListenBindHost(s parse.Spec, network, bind string) (string, error) {
 	if bind == "" {
-		if forcedIPv4Network(network) {
-			return "0.0.0.0", nil
+		if listenAIPassive(s) {
+			if forcedIPv4Network(network) {
+				return "0.0.0.0", nil
+			}
+			return "::", nil
 		}
-		return "::", nil
+		if forcedIPv4Network(network) {
+			return "127.0.0.1", nil
+		}
+		return "::1", nil
 	}
 	host := StripBrackets(bind)
 	if h, _, err := net.SplitHostPort(bind); err == nil {
