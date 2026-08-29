@@ -80,13 +80,31 @@ func TestScanSkipsTestdata(t *testing.T) {
 	dir := t.TempDir()
 	writeGo(t, dir, "ok.go", "package p\n")
 	writeGo(t, dir, "testdata/unix.go", "//go:build unix\n\npackage p\n")
+	writeGo(t, dir, "vendor/unix.go", "//go:build unix\n\npackage p\n")
 
 	hits, err := scanTree(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(hits) != 0 {
-		t.Fatalf("testdata must be skipped: %s", joinFindings(hits))
+		t.Fatalf("testdata/vendor must be skipped: %s", joinFindings(hits))
+	}
+}
+
+func TestScanSkipsDotAndUnderscoreDirs(t *testing.T) {
+	dir := t.TempDir()
+	writeGo(t, dir, "ok.go", "package p\n")
+	forbidden := "//go:build unix\n\npackage p\n"
+	writeGo(t, dir, ".codex-review/example.go", forbidden)
+	writeGo(t, dir, "_scratch/example.go", forbidden)
+	writeGo(t, dir, ".codex-review-old/unix.go", forbidden)
+
+	hits, err := scanTree(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 0 {
+		t.Fatalf(". and _ directories must be skipped: %s", joinFindings(hits))
 	}
 }
 

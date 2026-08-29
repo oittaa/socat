@@ -77,8 +77,14 @@ func scanTree(root string) ([]finding, error) {
 			return err
 		}
 		if d.IsDir() {
-			switch d.Name() {
-			case "testdata", ".git", "vendor":
+			if path == root {
+				return nil
+			}
+			name := d.Name()
+			// testdata/vendor plus Go's package-discovery skip of . and _ dirs
+			// (.codex-review-*, _scratch, .git, …).
+			if name == "testdata" || name == "vendor" ||
+				strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
 				return fs.SkipDir
 			}
 			return nil
