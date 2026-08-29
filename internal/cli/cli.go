@@ -263,7 +263,7 @@ func levelFromN(n int) logx.Level {
 	// 0: error only (no warning); -d0 is fatal+error
 	// 1: +notice
 	// 2: +info
-	// 3+: debug (-ddd is info, -dddd debug)
+	// 3+: debug
 	switch {
 	case n <= 0:
 		return logx.Error

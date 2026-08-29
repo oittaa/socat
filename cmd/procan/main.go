@@ -186,10 +186,10 @@ func mustGetwd() string {
 
 func printCdefs(w io.Writer) error {
 	var b outbuf.Buf
-	// procan -c emits #define NAME value; test.sh greps SOCK_DGRAM, PF_INET6,
-	// SOL_SOCKET, SO_REUSEADDR, TCP_MAXSEG, TIOCEXCL, FOPEN_MAX.
+	// procan -c emits #define NAME value; test.sh greps those lines
+	// (SOCK_DGRAM, PF_INET6, SOL_SOCKET, SO_REUSEADDR, TCP_MAXSEG, TIOCEXCL, FOPEN_MAX).
 	// Also emit human-readable NAME = value lines.
-	b.Println("/* Go/unix constants (classic-compatible #define lines for test.sh) */")
+	b.Println("/* Go/Unix constants */")
 	b.Printf("sizeof(int) ~= %d\n", strconv.IntSize/8)
 	// test.sh: SIZE_T=$($PROCAN |grep size_t |awk '{print($3);}')
 	b.Printf("sizeof(size_t)    = %d\n", int(unsafe.Sizeof(uintptr(0))))
