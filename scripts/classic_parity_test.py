@@ -645,6 +645,36 @@ class GitUrlTest(unittest.TestCase):
         )
 
 
+class RepoPolicyTest(unittest.TestCase):
+    REQUIRED_KEYS = (
+        "unsupported_addresses",
+        "unsupported_options",
+        "foreign_options",
+        "parser_only_options",
+        "go_only_addresses",
+        "go_only_options",
+        "platform_options",
+    )
+
+    def test_repo_policy_loads(self) -> None:
+        policy = parity.load_policy()
+        for key in self.REQUIRED_KEYS:
+            self.assertIn(key, policy, key)
+        self.assertNotIn("expected_missing", policy)
+        self.assertNotIn("expected_missing_options", policy)
+        self.assertNotIn("expected_missing_addresses", policy)
+        for family in ("DCCP", "READLINE", "DTLS", "UDPLITE"):
+            self.assertIn(family, policy["unsupported_addresses"])
+        for extra in ("WS", "WSS", "QUIC"):
+            self.assertIn(extra, policy["go_only_addresses"])
+        platforms = policy["platform_options"]
+        self.assertIn("linux", platforms)
+        self.assertIn("darwin", platforms)
+        self.assertIn("windows", platforms)
+        self.assertIn("binary", platforms["windows"])
+        self.assertIn("ip-recvif", platforms["darwin"])
+
+
 class OriginSafetyTest(unittest.TestCase):
     def test_wrong_origin_is_rejected_before_fetch(self) -> None:
         with tempfile.TemporaryDirectory() as td:

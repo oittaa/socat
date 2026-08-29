@@ -1,204 +1,48 @@
 package cli
 
 import (
-	"fmt"
-	"runtime"
-	"sort"
 	"strings"
 	"testing"
 
-	"github.com/oittaa/socat/internal/classiccatalog"
+	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
 
-func registeredAddressNames() map[string]bool {
-	out := map[string]bool{}
-	for _, r := range xio.AddressRegistrations() {
-		out[r.Name] = true
-	}
-	for alias := range xio.AddressAliasMap() {
-		if _, ok := xio.AddressRegistrationForType(alias); ok {
-			out[alias] = true
+func TestUnsupportedAddressFamiliesStayUnregistered(t *testing.T) {
+	for _, name := range []string{
+		"DCCP", "DCCP-CONNECT", "DCCP-L", "DCCP-LISTEN",
+		"DCCP4", "DCCP4-CONNECT", "DCCP4-L", "DCCP4-LISTEN",
+		"DCCP6", "DCCP6-CONNECT", "DCCP6-L", "DCCP6-LISTEN",
+		"UDPLITE", "UDPLITE-CONNECT", "UDPLITE-LISTEN", "UDPLITE4-LISTEN", "UDPLITE6-DGRAM",
+		"DTLS", "DTLS-CONNECT", "OPENSSL-DTLS-CLIENT", "OPENSSL-DTLS-LISTEN",
+		"READLINE",
+	} {
+		if _, ok := xio.AddressRegistrationForType(name); ok {
+			t.Errorf("%s must stay unregistered", name)
 		}
 	}
-	return out
 }
 
-func addressEnabled(name string) bool {
-	reg, ok := xio.AddressRegistrationForType(name)
-	return ok && reg.Enabled
-}
-
-func addressNamesToAudit() []string {
-	seen := map[string]bool{}
-	var names []string
-	add := func(name string) {
-		name = strings.ToUpper(strings.TrimSpace(name))
-		if name == "" || seen[name] {
-			return
-		}
-		seen[name] = true
-		names = append(names, name)
-	}
-	for _, r := range xio.AddressRegistrations() {
-		add(r.Name)
-	}
-	for alias := range xio.AddressAliasMap() {
-		add(alias)
-	}
-	for name := range classiccatalog.UnsupportedAddressNames {
-		add(name)
-	}
-	for name := range classiccatalog.ExpectedMissingCanonicalAddresses {
-		add(name)
-	}
-	for name := range classiccatalog.ExpectedMissingAddressAliases {
-		add(name)
-	}
-	for name := range classiccatalog.ParserAddressShorthands {
-		add(name)
-	}
-	return names
-}
-
-func addressParityProblems(goos string, registered map[string]bool) []string {
-	var problems []string
-	aliases := xio.AddressAliasMap()
-	for _, name := range addressNamesToAudit() {
-		class, reason := classiccatalog.ClassifyAddress(name, goos)
-		switch class {
-		case classiccatalog.AddrParserShorthand:
-			continue
-		case classiccatalog.AddrUnsupportedFamily:
-			if registered[name] {
-				problems = append(problems, fmt.Sprintf("unsupported address %q is registered (%s)", name, reason))
-			}
-			continue
-		case classiccatalog.AddrExpectedMissingCanonical:
-			if registered[name] {
-				problems = append(problems, fmt.Sprintf("implemented canonical address %q remains in the missing manifest (%s)", name, reason))
-			}
-			continue
-		case classiccatalog.AddrExpectedMissingAlias:
-			if registered[name] {
-				problems = append(problems, fmt.Sprintf("implemented address alias %q remains in the missing manifest (%s)", name, reason))
-			}
-			canon := classiccatalog.ExpectedMissingAddressAliases[name]
-			if !registered[canon] {
-				problems = append(problems, fmt.Sprintf("supported alias %q listed but canonical %q is not registered", name, canon))
-			}
-			continue
-		case classiccatalog.AddrForeign:
-			if addressEnabled(name) {
-				problems = append(problems, fmt.Sprintf("foreign-on-%s address %q is enabled (%s)", goos, name, reason))
-			}
-			continue
-		case classiccatalog.AddrMustRegister:
-			if alias, ok := aliases[name]; ok && alias != name {
-				if _, unsup := classiccatalog.UnsupportedAddressNames[alias]; unsup {
-					problems = append(problems, fmt.Sprintf("alias %q of unsupported %q is not classified as unsupported", name, alias))
-					continue
-				}
-				if _, missing := classiccatalog.ExpectedMissingCanonicalAddresses[alias]; missing {
-					if registered[name] {
-						problems = append(problems, fmt.Sprintf("alias %q of unimplemented %q is registered", name, alias))
-					}
-					continue
-				}
-				if registered[name] {
-					continue
-				}
-				if registered[alias] {
-					problems = append(problems, fmt.Sprintf("new missing alias %q of implemented %q", name, alias))
-					continue
-				}
-				problems = append(problems, fmt.Sprintf("missing alias %q and canonical %q", name, alias))
-				continue
-			}
-			if registered[name] {
-				continue
-			}
-			problems = append(problems, fmt.Sprintf("implemented canonical address %q disappeared or is a new unclassified gap", name))
+func TestNativeAddressesAndAliasesResolve(t *testing.T) {
+	for _, name := range []string{
+		"STDIO", "TCP", "TCP-CONNECT", "TCP-L", "TCP-LISTEN",
+		"ABSTRACT", "ACCEPT-FD", "ACCEPT", "INET", "OPENSSL",
+	} {
+		if _, ok := xio.AddressRegistrationForType(name); !ok {
+			t.Errorf("%s must resolve", name)
 		}
 	}
-	sort.Strings(problems)
-	return problems
 }
 
-func TestClassicAddressNameAudit(t *testing.T) {
-	if err := classiccatalog.ValidateParityManifests(); err != nil {
+func TestParserStdioShorthand(t *testing.T) {
+	s, err := parse.ParseSpec("-")
+	if err != nil {
 		t.Fatal(err)
 	}
-	registered := registeredAddressNames()
-	if problems := addressParityProblems(runtime.GOOS, registered); len(problems) > 0 {
-		t.Fatalf("address parity audit failed:\n  %s", strings.Join(problems, "\n  "))
+	if !strings.EqualFold(s.Type, "STDIO") {
+		t.Fatalf("-=%q want STDIO", s.Type)
 	}
-
-	for alias, canon := range classiccatalog.ExpectedMissingAddressAliases {
-		if !registered[canon] {
-			t.Errorf("supported missing alias %q: canonical %q is not registered", alias, canon)
-		}
-		if registered[alias] {
-			t.Errorf("supported missing alias %q is already registered; remove it from ExpectedMissingAddressAliases", alias)
-		}
-		if _, ok := classiccatalog.UnsupportedAddressNames[alias]; ok {
-			t.Errorf("supported missing alias %q is listed as an unsupported family", alias)
-		}
-		if _, ok := classiccatalog.ExpectedMissingCanonicalAddresses[canon]; ok {
-			t.Errorf("supported missing alias %q points at unimplemented %q", alias, canon)
-		}
-	}
-
-	for name := range classiccatalog.UnsupportedAddressNames {
-		if registered[name] {
-			t.Errorf("unsupported address %q is registered", name)
-		}
-	}
-	aliases := xio.AddressAliasMap()
-	for name := range classiccatalog.ExpectedMissingCanonicalAddresses {
-		if _, ok := aliases[name]; ok {
-			t.Errorf("expected-missing canonical %q is an alias key; list it as an alias", name)
-		}
-	}
-
-	if _, ok := xio.AddressRegistrationForType("STDIO"); !ok {
-		t.Fatal("STDIO opener missing")
-	}
-}
-
-func TestAddressParityFailsIfImplementedAliasDisappears(t *testing.T) {
-	registered := registeredAddressNames()
-	const name = "TCP-L"
-	if !registered[name] {
-		t.Fatalf("%q is not registered", name)
-	}
-	delete(registered, name)
-	problems := addressParityProblems(runtime.GOOS, registered)
-	if len(problems) == 0 {
-		t.Fatal("expected audit failure after removing an implemented address alias")
-	}
-	found := false
-	for _, p := range problems {
-		if strings.Contains(p, name) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("audit problems do not mention %q: %s", name, strings.Join(problems, "; "))
-	}
-}
-
-func TestImplementedAddressAliasesAreNotInMissingManifest(t *testing.T) {
-	for alias, canon := range xio.AddressAliasMap() {
-		if _, ok := xio.AddressRegistrationForType(alias); !ok {
-			continue
-		}
-		if _, ok := classiccatalog.ExpectedMissingAddressAliases[alias]; ok {
-			t.Errorf("implemented alias %q of %q remains in ExpectedMissingAddressAliases", alias, canon)
-		}
-	}
-	if _, ok := xio.AddressRegistrationForType("ABSTRACT"); !ok {
-		t.Fatal("ABSTRACT must resolve to ABSTRACT-CLIENT")
+	if _, ok := xio.AddressRegistrationForType("-"); ok {
+		t.Fatal("parser shorthand - must not be an address registry key")
 	}
 }

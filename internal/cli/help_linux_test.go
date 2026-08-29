@@ -4,11 +4,10 @@ package cli
 
 import (
 	"bytes"
-	"sort"
 	"strings"
 	"testing"
 
-	"github.com/oittaa/socat/internal/classiccatalog"
+	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
@@ -107,6 +106,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"res-igntc", "igntc", "res-recurse", "recurse", "res-stayopen", "stayopen",
 		"res-retrans", "res-maxretrans", "retrans", "res-retry", "res-maxretry",
 		"recvpathmtu",
+		"cool-write", "coolwrite", "udp-ignore-peerport", "so-bsdcompat", "bsdcompat",
 		"ipv6-authhdr", "authhdr", "ipv6-dstopts", "dstopts",
 		"ipv6-hoplimit", "hoplimit", "ipv6-hopopts", "hopopts",
 		"ipv6-pktinfo", "ipv6-rthdr", "rthdr",
@@ -168,26 +168,20 @@ func TestLinuxHelpOmitsInternalOptionMetadata(t *testing.T) {
 	}
 }
 
-func TestLinuxHelpListsEveryClassicTermiosSpelling(t *testing.T) {
-	advertised := advertisedHelpNames(true)
+func TestLinuxHelpListsEveryRegisteredTermiosSpelling(t *testing.T) {
+	var b bytes.Buffer
+	if err := printHelp(&b, 3); err != nil {
+		t.Fatal(err)
+	}
+	advertised := helpLineNames(b.String())
 	var missing []string
-	for spelling, entry := range classiccatalog.Options {
-		isTermios := false
-		for _, group := range entry.Groups {
-			if group == "TERMIOS" {
-				isTermios = true
-				break
-			}
-		}
-		if isTermios {
-			if _, ok := advertised[spelling]; !ok {
-				missing = append(missing, spelling)
-			}
+	for _, name := range xio.TermiosHelpNames() {
+		if !advertised[name] {
+			missing = append(missing, name)
 		}
 	}
-	sort.Strings(missing)
 	if len(missing) > 0 {
-		t.Fatalf("Linux -hhh is missing classic TERMIOS spellings: %s", strings.Join(missing, ", "))
+		t.Fatalf("linux -hhh missing registered TERMIOS spellings: %s", strings.Join(missing, ", "))
 	}
 }
 

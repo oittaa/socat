@@ -3,16 +3,14 @@ package cli
 import (
 	"bytes"
 	"runtime"
-	"sort"
 	"strings"
 	"testing"
 
-	"github.com/oittaa/socat/internal/classiccatalog"
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// implementedAliasHelp is catalog spellings this PR advertises on an already
-// implemented help row. Aliases appear in -hhh as "alias of <canonical>".
+// implementedAliasHelp is Go-advertised aliases of implemented options.
+// Aliases appear in -hhh as "alias of <canonical>".
 var implementedAliasHelp = []struct {
 	alias, canonical string
 }{
@@ -196,38 +194,6 @@ func hideOptGroupForAlias(canonical string) bool {
 		}
 	}
 	return false
-}
-
-func TestCatalogAliasesOfAdvertisedCanonicalsAreAdvertised(t *testing.T) {
-	advertised := advertisedHelpNames(true)
-	var missing []string
-	for spelling, e := range classiccatalog.Options {
-		if _, ok := advertised[spelling]; ok {
-			continue
-		}
-		if _, omit := classiccatalog.IntentionalPublicOmissions[spelling]; omit {
-			continue
-		}
-		if class, _ := classiccatalog.ClassifyOption(spelling, runtime.GOOS); class == classiccatalog.ClassUnsupported {
-			continue
-		}
-		goCanon := parse.CanonicalOptionName(spelling)
-		if goCanon == spelling {
-			goCanon = parse.CanonicalOptionName(e.Canonical)
-		}
-		if goCanon == spelling {
-			continue
-		}
-		if _, ok := advertised[goCanon]; !ok {
-			continue
-		}
-		missing = append(missing, spelling+"->"+goCanon)
-	}
-	sort.Strings(missing)
-	if len(missing) > 0 {
-		t.Fatalf("catalog aliases of advertised implemented options missing from Go -hhh (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba): %s",
-			strings.Join(missing, ", "))
-	}
 }
 
 func TestImplementedAliasesRejectedWithCanonicalGroups(t *testing.T) {
