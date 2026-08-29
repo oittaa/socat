@@ -1,0 +1,6 @@
+{
+  "repository": "https://repo.or.cz/socat.git",
+  "release_tag": "tag-1.8.1.3",
+  "release_commit": "12c08bf66d709fba17035ce95d85bd218428d9ba",
+  "reviewed_master_commit": "af5388c898c7bb60997935aee93c223deba60c4a"
+}

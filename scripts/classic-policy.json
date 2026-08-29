@@ -1,0 +1,49 @@
+{
+  "unsupported_addresses": {
+    "DCCP": "intentional exception: removed from modern Linux; no native macOS or Windows equivalent",
+    "READLINE": "GNU readline is not implemented",
+    "DTLS": "Go crypto/tls is stream TLS only",
+    "UDPLITE": "intentional exception: removed from modern Linux; no native macOS or Windows equivalent"
+  },
+  "unsupported_options": {
+    "history": "readline is not implemented",
+    "ccid": "DCCP is an intentional exception",
+    "dccp-set-ccid": "DCCP is an intentional exception",
+    "udplite-send-cscov": "UDP-Lite is an intentional exception",
+    "udplite-recv-cscov": "UDP-Lite is an intentional exception",
+    "method": "no OpenSSL engine / fips module",
+    "fips": "no OpenSSL engine / fips module",
+    "chroot": "process-wide credentials; requires isolation",
+    "setuid": "process-wide credentials; requires isolation",
+    "setgid": "process-wide credentials; requires isolation",
+    "substuser": "process-wide credentials; requires isolation",
+    "udp-ignore-peerport": "documented but never implemented by the C binary",
+    "ip-recverr": "no MSG_ERRQUEUE receive path",
+    "ipv6-recverr": "no MSG_ERRQUEUE receive path"
+  },
+  "foreign_options": {
+    "rfc1323": "compile-gated; not a linux/darwin/windows requirement",
+    "md5sig": "documented TCP_MD5SUM, not Linux tcp-md5sig"
+  },
+  "parser_only_options": {
+    "openssl-method": "C parser alias of documented method; not advertised",
+    "openssl-fips": "C parser alias of documented fips; not advertised"
+  },
+  "go_only_addresses": {
+    "WS": "WebSocket extension",
+    "WSS": "WebSocket TLS extension",
+    "QUIC": "QUIC extension"
+  },
+  "go_only_options": {
+    "alpn": "QUIC and HTTP/2/3 extra",
+    "h2c": "cleartext HTTP/2 CONNECT extra",
+    "origin": "WebSocket Origin extra",
+    "handshake-timeout": "TLS/WebSocket/QUIC/proxy/SOCKS extra",
+    "crorlf": "CR-or-LF line conversion extra"
+  },
+  "platform_options": {
+    "darwin": ["ip-recvif", "ip-recvdstaddr", "nopush", "noopt"],
+    "windows": ["binary", "text", "noinherit"],
+    "linux": []
+  }
+}

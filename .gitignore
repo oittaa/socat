@@ -7,6 +7,14 @@
 *.out
 /tmp/
 /testdata/tmp/
+
+# Transient official classic checkout used by scripts/classic-parity.py
+/testdata/tmp/classic-parity/
+
+# Python unittest cache (scripts/*_test.py)
+**/__pycache__/
+*.py[cod]
+
 .DS_Store
 coverage.out
 coverage.html
