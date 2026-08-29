@@ -11,7 +11,7 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// openPTY implements classic PTY address: allocate a pseudo-terminal, optionally
+// openPTY implements PTY: allocate a pseudo-terminal, optionally
 // create a symlink to the slave (link=), optionally put master in raw mode (cfmakeraw).
 // The transfer stream is the master side; peers open the slave path via the link.
 func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
@@ -25,7 +25,7 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 	}
 	// Keep the slave open for the address lifetime. If the last slave FD is
 	// closed, reads on the master return EIO and FAKEPTY-style servers exit
-	// immediately (classic keeps a slave FD open while waiting for clients).
+	// immediately. Keep a slave FD open while waiting for clients.
 	slaveName := slave.Name()
 
 	if g != nil && g.Log != nil {
@@ -55,7 +55,7 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 			return nil, fmt.Errorf("PTY link: %w", err)
 		}
 	}
-	// Classic perm=/user= on PTY applies to the slave node (stat -L follows link).
+	// perm=/user= on PTY apply to the slave node (stat -L follows link).
 	if err := xio.ApplyNamedAttrs(slaveName, s, slave); err != nil {
 		_ = master.Close()
 		_ = slave.Close()

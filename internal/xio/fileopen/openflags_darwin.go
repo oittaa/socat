@@ -4,7 +4,7 @@ package fileopen
 
 import "golang.org/x/sys/unix"
 
-// Darwin does not expose O_DIRECT, O_RSYNC, or O_LARGEFILE. Reject them rather than no-op.
+// macOS does not expose O_DIRECT, O_RSYNC, or O_LARGEFILE. Reject them rather than no-op.
 var openFlagTable = []openFlag{
 	{name: "o-direct", bit: 0, supported: false},
 	{name: "o-sync", bit: unix.O_SYNC, supported: true},

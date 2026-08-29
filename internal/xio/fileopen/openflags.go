@@ -7,20 +7,17 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// openFlag is one classic GROUP_OPEN OFUNC_FLAG bit (xio-file.c) or the mixed
-// GROUP_OPEN|GROUP_FD O_ASYNC flag that _xioopen_open ORs into open(2)
-// (xio-named.c, tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same tree).
+// openFlag is one open(2) bit (o-direct, o-sync, …) or async (O_ASYNC),
+// OR'd into the open flags.
 type openFlag struct {
 	name      string
 	bit       int
 	supported bool
 }
 
-// applyOpenFlags applies classic PH_OPEN OFUNC_FLAG bits (and O_ASYNC) in
-// command-line order. The order matters for overlapping flags such as Linux
-// O_SYNC/O_DSYNC/O_RSYNC, and a false boolean must clear its bit just as
-// classic applyopts_flags does.
+// applyOpenFlags ORs o-direct / o-sync / async bits into open flags in
+// command-line order. Order matters for overlapping Linux O_SYNC/O_DSYNC/
+// O_RSYNC. Bare flag stores 1; =0 still applies (clears the bit).
 func applyOpenFlags(s parse.Spec, flags int) (int, error) {
 	byName := make(map[string]openFlag, len(openFlagTable))
 	for _, f := range openFlagTable {
@@ -55,9 +52,9 @@ func fileOptionEnabled(o parse.Option) bool {
 	return v != "0" && v != "false" && v != "no" && v != "off"
 }
 
-// rejectUnnamedPIPEOpenFlags matches classic leftover-option failure: unnamed
-// PIPE uses pipe(2), not open(2), so GROUP_OPEN OFUNC_FLAG options are never
-// consumed. async is GROUP_FD as well and is applied with F_SETFL at PH_LATE.
+// rejectUnnamedPIPEOpenFlags rejects enabled o-direct / o-sync / … on
+// unnamed PIPE: pipe(2) has no open(2) phase, so those flags would be
+// dropped. async is applied later with F_SETFL.
 func rejectUnnamedPIPEOpenFlags(s parse.Spec) error {
 	for _, f := range openFlagTable {
 		if f.name == "async" {
@@ -74,10 +71,9 @@ func rejectUnnamedPIPEOpenFlags(s parse.Spec) error {
 	return nil
 }
 
-// GOPEN delegates an existing socket path to the UNIX address implementation,
-// which has no open(2) phase. Reject enabled pure GROUP_OPEN flags instead of
-// silently losing them during that dispatch. async is also GROUP_FD and remains
-// meaningful on the connected socket.
+// GOPEN delegates an existing socket path to the UNIX address, which has
+// no open(2) phase. Reject enabled o-direct / o-sync / … instead of
+// silently dropping them. async remains meaningful on the connected socket.
 func rejectGOPENSocketOpenFlags(s parse.Spec) error {
 	for _, o := range s.Options {
 		name := parse.CanonicalOptionName(o.Name)

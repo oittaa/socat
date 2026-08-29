@@ -14,8 +14,8 @@ import (
 )
 
 func openSTDIO(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
-	// Classic MAINSETSID: -,setsid calls setsid(2) in the main process
-	// (session leader) before opening EXEC/etc. children.
+	// setsid= calls setsid(2) in the main process (session leader) before
+	// opening EXEC/etc. children.
 	if s.BoolOption("setsid") {
 		if err := xio.Setsid(); err != nil {
 			return nil, fmt.Errorf("setsid: %w", err)
@@ -34,7 +34,7 @@ func openSTDIO(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 			return nil, err
 		}
 	}
-	// Classic STDIO: fd 0 read, fd 1 write; options like escape= apply via xio.WrapCommon.
+	// STDIO: fd 0 read, fd 1 write; options like escape= apply via xio.WrapCommon.
 	var stream relay.Stream
 	switch mode {
 	case xio.ModeRead:
@@ -142,10 +142,9 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Op
 	if len(s.Params) < 1 {
 		return nil, fmt.Errorf("FD requires fd number")
 	}
-	// Classic xioopen_fd applies the contiguous PH_INIT..PH_FD range. That
-	// includes PH_PASTSOCKET, but neither PH_PREBIND nor PH_CONNECTED.
-	// Reject those combinations explicitly instead of applying them to an
-	// existing socket or silently ignoring them on another fd type.
+	// FD applies after-open and after-socket() options, not before-bind or
+	// after-connect/accept. Reject those combinations instead of applying
+	// them to an existing socket or silently ignoring them.
 	if err := xio.RejectGenericSetsockoptPhases(s, "FD", xio.SockoptPhasePrebind, xio.SockoptPhaseConnected); err != nil {
 		return nil, err
 	}
@@ -163,9 +162,7 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Op
 	if err := xio.ApplyFDOptions(f, s); err != nil {
 		return nil, err
 	}
-	// Classic xioopen_fd applyopts2(PH_INIT, PH_FD) includes PH_PASTSOCKET
-	// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-	// af5388c898c7bb60997935aee93c223deba60c4a is the same).
+	// After socket() options (so-priority, …) apply to the inherited fd.
 	if err := xio.ApplySocketOptions(int(f.Fd()), s); err != nil {
 		return nil, err
 	}
@@ -184,13 +181,11 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Op
 	return o, nil
 }
 
-// applyInheritedFDAndSocket is classic xioopen_fd applyopts2(PH_INIT, PH_FD)
-// (xio-fdnum.c at tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
-// That range includes PH_PASTSOCKET. Bidirectional STDIO applies PH_ALL on
-// both fd 0 and 1 (xio-stdio.c xioopen_stdio_bi). WrapCommon is PH_LATE plus
-// a PH_CONNECTED fallback, so GROUP_SOCKET PASTSOCKET options such as
-// so-priority must run here exactly once per used descriptor.
+// applyInheritedFDAndSocket applies after-open and after-socket() options
+// on an inherited descriptor. Bidirectional STDIO applies them on both
+// fd 0 and 1. WrapCommon is late plus an after-connect/accept fallback, so
+// after-socket() options such as so-priority must run here exactly once
+// per used descriptor.
 func applyInheritedFDAndSocket(f *os.File, s parse.Spec) error {
 	if err := xio.ApplyFDOptions(f, s); err != nil {
 		return err

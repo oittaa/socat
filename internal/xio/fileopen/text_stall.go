@@ -15,7 +15,7 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-// TEXT:<string> — input is the string (with classic escapes); output goes to stdout.
+// TEXT:<string> — input is the string (parser escapes); output goes to stdout.
 func openTEXT(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
 	if len(s.Params) < 1 {
 		return nil, fmt.Errorf("TEXT requires string parameter")
@@ -48,18 +48,16 @@ func openTEXT(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*x
 	return &xio.Opened{Stream: st, Label: "TEXT"}, nil
 }
 
-// STALL — never readable, never writable (classic: pipes that never become ready).
-//
-// Classic fills the write-end pipe to capacity so poll/select never marks it
-// writable; that prevents the transfer loop from reading the peer (backpressure).
-// xio.Read side is a pipe whose write end is never written, so it never becomes readable.
-// Closing the FDs (idle -T, process exit) unblocks I/O.
+// STALL — never readable, never writable (pipes that never become ready).
+// Fill the write-end pipe so poll/select never marks it writable
+// (backpressure). The read side is a pipe whose write end is never
+// written. Closing the FDs (idle -T, process exit) unblocks I/O.
 func openSTALL(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
 	if !xio.FeatureSTALL {
 		return nil, fmt.Errorf("STALL is not supported on this platform")
 	}
-	// Classic STALL takes no parameters. testaddrs probes with STALL::::: and
-	// expects a parse/syntax failure so the process does not hang transferring.
+	// STALL takes no parameters. STALL::::: is a syntax error so the process
+	// does not hang transferring.
 	if len(s.Params) > 0 {
 		return nil, fmt.Errorf("STALL: wrong number of parameters (expected 0)")
 	}

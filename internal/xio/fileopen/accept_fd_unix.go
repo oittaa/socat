@@ -21,24 +21,11 @@ func init() {
 	xio.FeatureACCEPTFD = true
 }
 
-// openAcceptFDNum implements classic ACCEPT-FD / ACCEPT on Unix.
-//
-// Classic: xioopen_accept_fd in xio-fdnum.c then _xioopen_accept_fd in
-// xio-listen.c (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba;
-// official master af5388c898c7bb60997935aee93c223deba60c4a is the same).
-// Parse fd; F_SETFD FD_CLOEXEC (warn); getsockname (warn); Accept; xiocheckpeer
-// (range/sourceport/lowport/tcpwrap); CloseRefused peer and continue; fork
-// keeps the listen fd else close it and use the accepted socket; applyopts
-// PH_FD / PH_PASTSOCKET / PH_CONNECTED; SOCK/PEER env.
-//
-// Man lists groups FD, SOCKET, TCP, CHILD, RETRY. C addrdesc is
-// GROUP_FD|GROUP_SOCKET|GROUP_SOCK_UNIX|GROUP_SOCK_IP|GROUP_IPAPP|GROUP_CHILD|
-// GROUP_RANGE|GROUP_RETRY. GROUP_IPAPP is the C union of UDP, TCP, SCTP,
-// DCCP, and UDP-Lite (xioopts.h); it is broader than man GROUP_TCP, not a
-// short form of TCP. This is a man/C group discrepancy: we follow C so
-// documented useful options (fork, range, sourceport, lowport, tcpwrap)
-// work for IP and UNIX listeners. ACCEPT is the public addressnames[] alias.
-// The fd must already be a listening stream socket; we accept(2) on it.
+// openAcceptFDNum implements ACCEPT-FD / ACCEPT on Linux and macOS.
+// The fd must already be a listening stream socket. After accept: after
+// open → after socket() → after connect/accept; late is WrapCommon.
+// fork, range, sourceport, lowport, and tcpwrap apply to IP and UNIX
+// listeners, not only TCP. ACCEPT is the public alias of ACCEPT-FD.
 func openAcceptFDNum(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, fd int) (*xio.Opened, error) {
 	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFD, unix.FD_CLOEXEC); err != nil {
 		if g != nil && g.Log != nil {
@@ -65,18 +52,17 @@ func openAcceptFDNum(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 			if err := applyAcceptFDAcceptedOpts(s, c); err != nil {
 				return nil, err
 			}
-			// Classic _xioopen_accept_fd applies PH_FD before PH_PASTSOCKET /
-			// PH_CONNECTED / PH_LATE (xio-listen.c). Skip PH_FD here so LATE
-			// is not applied early with the descriptor walk.
+			// After open, after socket(), and after connect/accept already
+			// ran. Skip them here so late is not applied early.
 			return xio.WrapCommonAfterConnectedFDPhaseApplied(s, relay.NetStream{Conn: c})
 		},
 	})
 }
 
 // fileListenerFromFD wraps a listening stream socket. net.FileListener dups
-// the fd; closing the *os.File afterwards does not affect the Listener (Go
-// net.FileListener docs). Classic then owns that listen fd until a non-fork
-// accept closes it (OpenListenSession) or process exit.
+// the fd; closing the *os.File afterwards does not affect the Listener.
+// OpenListenSession owns that listen fd until a non-fork accept closes it
+// or the process exits.
 func fileListenerFromFD(fd int) (net.Listener, error) {
 	typ, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_TYPE)
 	if err != nil {
@@ -113,12 +99,9 @@ func acceptConnProbeUnsupported(err error) bool {
 }
 
 // rejectIfNotListening rejects a connected or never-listen()ed stream socket.
-//
-// Classic _xioopen_accept_fd does not probe SO_ACCEPTCONN; it accept(2)s.
-// Linux SO_ACCEPTCONN is 0 for a connected socket. Darwin ExtraFiles TCP
-// listeners often return ENOPROTOOPT for that probe (filan ignores it too).
-// On that path Darwin FileListener will still wrap a connected TCP fd, then
-// Accept returns EINVAL ("invalid argument"). A listener has no peer
+// Linux SO_ACCEPTCONN is 0 for a connected socket. macOS ExtraFiles TCP
+// listeners often return ENOPROTOOPT; FileListener would then wrap a
+// connected TCP fd and Accept returns EINVAL. A listener has no peer
 // (getpeername → ENOTCONN); a connected socket does.
 func rejectIfNotListening(fd int) error {
 	listening, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ACCEPTCONN)
@@ -142,10 +125,8 @@ func rejectIfNotListening(fd int) error {
 
 func applyAcceptFDAcceptedOpts(s parse.Spec, c net.Conn) error {
 	if sc, ok := c.(syscall.Conn); ok {
-		// Classic _xioopen_accept_fd (xio-listen.c tag-1.8.1.3
-		// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-		// af5388c898c7bb60997935aee93c223deba60c4a is the same): PH_FD, then
-		// PH_PASTSOCKET, then PH_CONNECTED. PH_LATE is WrapCommon.
+		// After open, then after socket(), then after connect/accept.
+		// Late is WrapCommon.
 		if err := xio.ApplyFDPhaseLifecycleToConn(sc, s); err != nil {
 			return err
 		}

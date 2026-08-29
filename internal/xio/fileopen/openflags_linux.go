@@ -4,8 +4,8 @@ package fileopen
 
 import "golang.org/x/sys/unix"
 
-// Linux glibc open(2) bits. O_RSYNC equals O_SYNC; O_LARGEFILE is 0 on 64-bit
-// but the option is still advertised and accepted (classic -hhh).
+// Linux glibc open(2) bits. O_RSYNC equals O_SYNC; O_LARGEFILE is 0 on
+// 64-bit but the option is still advertised and accepted (-hhh).
 var openFlagTable = []openFlag{
 	{name: "o-direct", bit: unix.O_DIRECT, supported: true},
 	{name: "o-sync", bit: unix.O_SYNC, supported: true},

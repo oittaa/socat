@@ -20,7 +20,7 @@ func openUserFile(path string, flags int, perm os.FileMode) (*os.File, error) {
 	return os.OpenFile(path, flags, perm) // #nosec G304 -- OPEN/FILE/cert= must open the path the user gave
 }
 
-// openUserFileWithUmask opens path under the process umask (classic umask=).
+// openUserFileWithUmask opens path under the process umask (umask=).
 // Use this for CREATE/OPEN and GOPEN's create path. Existing-file opens and
 // FIFO open(2) after mkfifo use openUserFile; mkfifo has its own WithUmask.
 func openUserFileWithUmask(s parse.Spec, path string, flags int, perm os.FileMode) (*os.File, error) {
@@ -51,7 +51,7 @@ func openOPEN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 	}
 	f, err := openUserFileWithUmask(s, path, flags, perm)
 	if err != nil {
-		// Classic format for RECVFROM_FORK_LOOP: `E open("path", …): …`
+		// Error text is open("path", …) so RECVFROM_FORK_LOOP parsers match it.
 		return nil, fmt.Errorf("open(%q, %02o, %04o): %w", path, flags, xio.FileModeToUnix(perm), err)
 	}
 	return FileOpened(f, s, path)
@@ -67,14 +67,13 @@ func openCREATE(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	path := s.Params[0]
 	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	if s.BoolOption("append") {
-		// Classic CREATE uses creat(2), so it always truncates first. append is
-		// a separate GROUP_FD/PH_LATE option; O_TRUNC|O_APPEND has the same
-		// resulting descriptor semantics without preserving stale contents.
+		// CREATE uses creat(2) semantics (always truncates first). append is
+		// late; O_TRUNC|O_APPEND has the same descriptor semantics without
+		// preserving stale contents.
 		flags |= os.O_APPEND
 	}
-	// Classic CREATE is GROUP_FD|GROUP_NAMED|GROUP_FILE, not GROUP_OPEN
-	// (xio-creat.c, tag-1.8.1.3). GROUP_OPEN OFUNC_FLAG bits (o-direct,
-	// o-sync, …) are rejected at option validation rather than applied here.
+	// CREATE does not take open(2) flags (o-direct, o-sync, …); those are
+	// rejected at option validation rather than applied here.
 	perm, err := xio.ParseFileMode(s, xio.DefaultCreateMode)
 	if err != nil {
 		return nil, err
@@ -121,15 +120,16 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 		}
 		return FileOpened(f, s, path)
 	}
-	// UNIX domain socket? Uses the pre-unlink Stat snapshot: PH_PREOPEN
-	// unlink does not reclassify a socket as a missing create-path.
+	// UNIX domain socket? Uses the pre-unlink os.Stat snapshot: unlink
+	// after the name exists, before open, does not reclassify a socket as
+	// a missing create-path.
 	if early.mode&os.ModeSocket != 0 {
 		if err := rejectGOPENSocketOpenFlags(s); err != nil {
 			return nil, err
 		}
 		o, err := xio.OpenSpec(ctx, parse.Spec{
-			// GOPEN is a generic client: classic probes stream, seqpacket,
-			// and datagram sockets instead of imposing UNIX-CONNECT semantics.
+			// GOPEN is a generic client: it probes stream, seqpacket, and
+			// datagram sockets instead of imposing UNIX-CONNECT semantics.
 			Type:    "UNIX",
 			Params:  []string{path},
 			Options: s.Options,
@@ -138,8 +138,8 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 		if err != nil {
 			return nil, err
 		}
-		// Classic GOPEN of a socket applies PH_PASTOPEN unlink-late on the
-		// path after connect; unlink-close is only armed for non-sockets.
+		// GOPEN of a socket applies unlink-late after connect; unlink-close
+		// is only armed for non-sockets.
 		if err := applyNamedUnlinkLate(path, s); err != nil {
 			logx.CloseQuiet(o)
 			return nil, err
@@ -150,7 +150,7 @@ func openGOPEN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) 
 	if err != nil {
 		return nil, err
 	}
-	// Classic GOPEN defaults to O_APPEND on existing regular files only.
+	// GOPEN defaults to O_APPEND on existing regular files only.
 	// Devices (PTY slaves via FAKEPTY link=), fifos, etc. must not get O_APPEND.
 	isReg := early.mode.IsRegular()
 	if mode != xio.ModeRead && isReg {
@@ -224,18 +224,16 @@ func openPIPE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 // read and write FDs so xio.ShutdownWrite can close the writer and deliver EOF.
 func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 	path := s.Params[0]
-	// Classic xio-pipe.c (tag-1.8.1.3
-	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-	// af5388c898c7bb60997935aee93c223deba60c4a): unlink-early Unlink()s
-	// even when the name is missing; ENOENT aborts before mkfifo. OPEN /
-	// CREATE / GOPEN instead share namedOpenEarly (exists && unlink-early).
+	// unlink-early unlinks even when the name is missing; ENOENT aborts
+	// before mkfifo. OPEN / CREATE / GOPEN instead share namedOpenEarly
+	// (exists && unlink-early).
 	if s.BoolOption("unlink-early") {
 		if err := xio.Unlink(path); err != nil {
 			return nil, fmt.Errorf("unlink %s: %w", path, err)
 		}
 	}
-	// PH_PREOPEN (perm-early / user-early / group-early / unlink) in
-	// command-line order when the name still exists after unlink-early.
+	// perm-early / user-early / group-early / unlink in command-line order
+	// when the name still exists after unlink-early.
 	if _, err := namedOpenEarly(path, s); err != nil {
 		return nil, err
 	}
@@ -253,8 +251,8 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		}
 		created = true
 	}
-	// Classic applies ownership to a newly created FIFO immediately, but to
-	// an existing FIFO only after open succeeds at PH_FD.
+	// Ownership applies to a newly created FIFO immediately, but to an
+	// existing FIFO only after open succeeds.
 	if created {
 		if err := xio.ApplyOwner(path, s, nil); err != nil {
 			_ = xio.Unlink(path)
@@ -268,11 +266,8 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		return xio.ApplyOwner(path, s, nil)
 	}
 
-	// Classic xio-pipe.c (tag-1.8.1.3,
-	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-	// af5388c898c7bb60997935aee93c223deba60c4a): after Mkfifo, before the
-	// possibly blocking open, record unlink_close so SIGTERM removes the FIFO
-	// (test.sh PIPE_REMOVE). Only the creating process unlinks, and
+	// After mkfifo, before the possibly blocking open, register unlink-close
+	// so SIGTERM removes the FIFO. Only the creating process unlinks;
 	// unlink-close=0 keeps the entry.
 	doUnlink := created && (!s.HasOption("unlink-close") || s.BoolOption("unlink-close"))
 	unregister := func() {}
@@ -342,8 +337,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 		return o, nil
 	case xio.ModeWrite:
 		// Need a reader end open first for O_WRONLY on FIFO. The dummy reader
-		// is not a classic fd; o-direct applies only to the user-facing writer
-		// (xio-pipe.c → _xioopen_open).
+		// is not an address fd; o-direct applies only to the user-facing writer.
 		r, err := openUserFile(path, os.O_RDONLY|oNonblock, 0)
 		if err != nil {
 			removeCreated()
@@ -457,39 +451,14 @@ func openSocketpair(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) 
 			logx.CloseQuiet(c2)
 			return nil, fmt.Errorf("socket options: %w", err)
 		}
-		// Classic xiosocketpair applyopts(PH_ALL) on both fds (tag-1.8.1.3
-		// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-		// af5388c898c7bb60997935aee93c223deba60c4a is the same). Thus every
-		// generic phase is applied once per fd in original option order.
-		// ApplyGenericSetsockoptAll also walks fixed PH_PASTSOCKET options
-		// (broadcast, sndbuf, linger, …) so they keep that order.
+		// Apply every generic setsockopt phase once per fd, in original option
+		// order (broadcast, sndbuf, linger, … included).
 		if err := xio.ApplyGenericSetsockoptAll(int(conn.Fd()), s); err != nil {
 			logx.CloseQuiet(c1)
 			logx.CloseQuiet(c2)
 			return nil, fmt.Errorf("setsockopt: %w", err)
 		}
 	}
-	// Use one end only as the stream; the other end is paired so writes loop back...
-	// Actually for echo we need to use BOTH ends incorrectly as one FD.
-	// Classic SOCKETPAIR creates a pair and uses one "side" that is both ends merged via
-	// the fact that data written to one end is read from the other — but socat uses BOTH
-	// fds of the pair as a single bi-directional channel by... reading from one writing to other?
-	// From man: "uses it for reading and writing. It works as an echo".
-	// So they poll both and cross-connect? Looking at classic behavior: they open socketpair
-	// and the address is one endpoint — writing to the address and reading from it echoes
-	// because... hmm.
-	//
-	// Actual classic: xiosocketpair creates pair, keeps both FDs in the xio structure
-	// as sockin/sockout or uses one FD with SOCK_DGRAM which might be different.
-	//
-	// For PIPE echo service used in tests:
-	//   socat TCP4-LISTEN:port,reuseaddr PIPE
-	// Data received on TCP is written to PIPE and read back from PIPE (echo).
-	// The anonymous pipe in classic is opened with both ends: they use pipefd[0] for read
-	// and pipefd[1] for write, so write goes to the pipe and read gets it — that's echo!
-	//
-	// So FDStream with R=pipe[0], W=pipe[1] is correct for anonymous PIPE.
-
 	// Echo: write to c2 is readable on c1.
 	stream, err := socketpairEchoStream(c1, c2, typ)
 	if err != nil {
@@ -555,9 +524,9 @@ func OpenFlags(s parse.Spec, mode xio.Mode) (int, error) {
 	default:
 		flags = os.O_RDWR
 	}
-	// Classic OFUNC_FLAG_PATTERN walks access-mode options in command-line
-	// order and replaces O_ACCMODE for each one. Preserve that ordering across
-	// canonical/alias mixtures instead of making wronly win unconditionally.
+	// Walk rdonly/wronly/rdwr in command-line order; each one replaces the
+	// access mode. Preserve that ordering across aliases instead of making
+	// wronly win unconditionally.
 	for _, o := range s.Options {
 		if !fileOptionEnabled(o) {
 			continue
@@ -586,18 +555,14 @@ func OpenFlags(s parse.Spec, mode xio.Mode) (int, error) {
 	if s.BoolOption("nonblock") {
 		flags |= oNonblock
 	}
-	// GROUP_OPEN OFUNC_FLAG bits (o-direct, o-sync, …) and O_ASYNC are
-	// classic PH_OPEN / _xioopen_open (xio-file.c / xio-named.c). Apply
-	// only at open(2); do not F_SETFL o-direct onto inherited descriptors
-	// (contrast o-noatime, which is PH_FD).
+	// o-direct, o-sync, … and async apply only at open(2); do not F_SETFL
+	// o-direct onto inherited descriptors (contrast o-noatime, which is
+	// after open, on the descriptor).
 	return applyOpenFlags(s, flags)
 }
 
-// openFIFO opens a named FIFO. Classic PIPE is GROUP_OPEN, so PH_OPEN
-// OFUNC_FLAG bits (o-direct, o-sync, …) are OR'd into open(2) the same way
-// _xioopen_open does (xio-pipe.c, tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a).
+// openFIFO opens a named FIFO. o-direct, o-sync, … and async are OR'd
+// into open(2).
 func openFIFO(path string, flags int, s parse.Spec) (*os.File, error) {
 	flags, err := applyOpenFlags(s, flags)
 	if err != nil {
@@ -607,12 +572,9 @@ func openFIFO(path string, flags int, s parse.Spec) (*os.File, error) {
 }
 
 func applyOpenTruncate(f *os.File, s parse.Spec) error {
-	// ftruncate is classic PH_LATE and is applied by ApplyFDOptions in
-	// command-line order with lseek / perm-late / async (tag-1.8.1.3
-	// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-	// af5388c898c7bb60997935aee93c223deba60c4a). Named OPEN/CREATE/GOPEN
-	// used to truncate here to avoid a second apply; that walk now lives
-	// in ApplyFDOptions so mixed PH_LATE options keep classic order.
+	// ftruncate is late and is applied by ApplyFDOptions in command-line
+	// order with lseek / perm-late / async. Do not truncate here; mixed
+	// late options keep that order.
 	if s.HasOption("ftruncate") {
 		return nil
 	}
@@ -625,9 +587,8 @@ func applyOpenTruncate(f *os.File, s parse.Spec) error {
 }
 
 func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
-	// Classic _xioopen_open applies PH_PASTOPEN unlink-late immediately after
-	// open(2). unlink-close is armed before FD/owner/lock/wrap/termios so a
-	// later failure still removes the name (xio-file.c / xio-gopen.c).
+	// unlink-late runs immediately after open. unlink-close is armed before
+	// owner/lock/wrap/termios so a later failure still removes the name.
 	guard, err := namedAfterOpen(path, s)
 	if err != nil {
 		logx.CloseQuiet(f)
@@ -638,21 +599,20 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 		guard.drop()
 		return nil, err
 	}
-	// OPEN/FILE/GOPEN run applyopts_named(PH_FD) before descriptor PH_FD;
-	// CREATE ownership is descriptor-owned and ApplyOwner deliberately skips it.
+	// OPEN/FILE/GOPEN apply path ownership after open, before descriptor
+	// options; CREATE ownership is descriptor-owned and ApplyOwner skips it.
 	if err := xio.ApplyOwner(path, s, f); err != nil {
 		return fail(err)
 	}
 	if err := applyFileLocks(s, f, f); err != nil {
 		return fail(err)
 	}
-	// All PH_FD locks must complete before PH_LATE ftruncate/lseek/async.
-	// Applying lifecycle first could mutate the file before a PH_FD lock
-	// failure, which is the opposite of classic phase ordering.
+	// Locks after open must complete before late ftruncate/lseek/async.
+	// Applying lifecycle first could mutate the file before a lock failure.
 	if err := xio.ApplyFDOptions(f, s); err != nil {
 		return fail(err)
 	}
-	// trunc= leftover after ApplyFDOptions PH_LATE ftruncate/lseek/perm-late.
+	// trunc= after ApplyFDOptions late ftruncate/lseek/perm-late.
 	if err := applyOpenTruncate(f, s); err != nil {
 		return fail(err)
 	}

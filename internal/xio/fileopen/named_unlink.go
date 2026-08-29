@@ -8,16 +8,10 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
-// namedEarly is classic _xioopen_named_early (xio-named.c, tag-1.8.1.3
-// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
-// af5388c898c7bb60997935aee93c223deba60c4a is the same tree).
-//
-// os.Stat follows symlinks, matching classic Stat(). unlink-early (PH_EARLY)
-// may set exists false. If the name still exists, applyopts_named PH_PREOPEN
-// walks s.Options in command-line order (perm-early, user-early, group-early,
-// unlink). Those ops do not change exists or the recorded type, so GOPEN
-// keeps the original existing-file / socket classification. A missing name
-// drops PH_PREOPEN (classic dropopts): no chmod/chown/unlink of a hole.
+// namedEarly is the pre-open os.Stat snapshot. os.Stat follows symlinks.
+// unlink-early may set exists false. If the name still exists, perm-early /
+// user-early / group-early / unlink run in command-line order without
+// changing exists or type. A missing name skips those ops.
 type namedEarly struct {
 	exists bool
 	mode   os.FileMode
@@ -51,29 +45,27 @@ func namedOpenEarly(path string, s parse.Spec) (namedEarly, error) {
 }
 
 func unlinkNamed(path string) error {
-	// unlink(2), not os.Remove: classic Unlink() refuses directories.
+	// unlink(2), not os.Remove: Unlink refuses directories.
 	if err := xio.Unlink(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("unlink %s: %w", path, err)
 	}
 	return nil
 }
 
-// applyNamedUnlinkLate is classic PH_PASTOPEN unlink-late. ENOENT is a warning
-// in xio-named.c; any other Unlink() error is Error() and aborts (exitlevel
-// E_ERROR).
+// applyNamedUnlinkLate is unlink-late immediately after open. ENOENT is
+// ignored; any other Unlink error aborts.
 func applyNamedUnlinkLate(path string, s parse.Spec) error {
-	// Same classic applyopts_named presence bug as unlink=0; honor the bool.
+	// unlink-late=0 does not delete (documented boolean; presence is not enough).
 	if !s.BoolOption("unlink-late") {
 		return nil
 	}
 	return unlinkNamed(path)
 }
 
-// namedUnlinkGuard is classic unlink-close (PH_LATE): armed after a successful
-// open/connect so later setup failures still remove the name, then transferred
-// to Opened.Cleanup once construction succeeds. OPEN/CREATE/GOPEN default it
-// off. unlink-late (PH_PASTOPEN) is applied immediately after open, before
-// this guard is installed.
+// namedUnlinkGuard is unlink-close: armed after a successful open/connect
+// so later setup failures still remove the name, then transferred to
+// Opened.Cleanup. OPEN/CREATE/GOPEN default it off. unlink-late runs
+// immediately after open, before this guard is installed.
 type namedUnlinkGuard struct {
 	path    string
 	closeOn bool

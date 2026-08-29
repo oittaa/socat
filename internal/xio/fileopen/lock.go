@@ -7,7 +7,7 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// applyFileLocks implements classic socat's whole-file fcntl lock options.
+// applyFileLocks implements whole-file fcntl lock options.
 // Write locks belong to the address's output descriptor and read locks to its
 // input descriptor. A regular FILE/OPEN descriptor is commonly both.
 func applyFileLocks(s parse.Spec, readFile, writeFile *os.File) error {
