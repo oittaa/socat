@@ -1,4 +1,4 @@
-//go:build unix
+//go:build linux || darwin
 
 // filan — file descriptor analyzer (classic socat companion).
 package main
