@@ -63,6 +63,8 @@ func init() {
 		"iptos":                      "ip-tos",
 		"tos":                        "ip-tos",
 		"ipoptions":                  "ip-options",
+		"hdrincl":                    "ip-hdrincl",
+		"iphdrincl":                  "ip-hdrincl",
 		"pktinfo":                    "ip-pktinfo",
 		"ippktinfo":                  "ip-pktinfo",
 		"recvttl":                    "ip-recvttl",

@@ -76,6 +76,7 @@ var dynamicallyReadOptions = map[string]string{
 
 	"ip-ttl": "xio/ip_ancillary_send.go", "ip-tos": "xio/ip_ancillary_send.go",
 	"ip-options": "xio/ip_ancillary_send.go", "ipoptions": "xio/ip_ancillary_send.go",
+	"ip-hdrincl": "xio/ip_ancillary_send.go", "hdrincl": "xio/ip_ancillary_send.go", "iphdrincl": "xio/ip_ancillary_send.go",
 	"ipv6-unicast-hops": "xio/ip_ancillary_send.go", "ipv6-tclass": "xio/ip_ancillary_send.go",
 	"ttl": "xio/ip_ancillary_send.go", "tos": "xio/ip_ancillary_send.go",
 	"ipttl": "xio/ip_ancillary_send.go", "iptos": "xio/ip_ancillary_send.go",

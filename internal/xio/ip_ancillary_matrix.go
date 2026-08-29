@@ -95,6 +95,14 @@ var (
 // IPV6_UNICAST_HOPS translation and not a silent skip of TOS on v6.
 // ipv6-unicast-hops/ipv6-tclass and ipv6 recv opts are IPv6-only.
 //
+// ip-hdrincl is classic GROUP_SOCK_IP PH_PASTSOCKET TYPE_INT OFUNC_SOCKOPT
+// SOL_IP IP_HDRINCL (xio-ip.c; tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same tree). Classic would
+// parse it on TCP/UDP. IP_HDRINCL is only meaningful on SOCK_RAW IPv4, so
+// this port advertises and applies it only there and rejects TCP, UDP, QUIC,
+// IPv6, Windows, and other non-raw address types.
+//
 // Not listed, and therefore not advertised: ip-retopts,
 // ipv6-recvhopopts, ipv6-recvdstopts, and the other classic SOCK_IP flags
 // this port does not implement. ip-recvdstaddr / ip-recvif are Darwin-only
@@ -115,6 +123,7 @@ var ipAncillaryMatrix = []IPAncillaryEntry{
 	{Canonical: "ip-ttl", Aliases: []string{"ttl", "ipttl"}, Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixWindows},
 	{Canonical: "ip-tos", Aliases: []string{"tos", "iptos"}, Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixWindows},
 	{Canonical: "ip-options", Aliases: []string{"ipoptions"}, Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixOnly},
+	{Canonical: "ip-hdrincl", Aliases: []string{"hdrincl", "iphdrincl"}, Kind: IPAncillarySend, Groups: []string{GroupRawIP}, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
 	{Canonical: "ipv6-unicast-hops", Aliases: []string{"unicast-hops"}, Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
 	{Canonical: "ipv6-tclass", Aliases: []string{"tclass"}, Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
 }

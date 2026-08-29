@@ -70,6 +70,8 @@ func TestImplementedOpenFlagAndLockAliasesParse(t *testing.T) {
 		{spec: "UDP:127.0.0.1:9,no-check=1", opt: "so-no-check"},
 		{spec: "TCP:127.0.0.1:9,rcvlowat=64", opt: "so-rcvlowat"},
 		{spec: "UDP:127.0.0.1:9,sndlowat", opt: "so-sndlowat"},
+		{spec: "IP4-SENDTO:127.0.0.1:255,hdrincl", opt: "ip-hdrincl"},
+		{spec: "IP4-SENDTO:127.0.0.1:255,iphdrincl=1", opt: "ip-hdrincl"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.spec, func(t *testing.T) {

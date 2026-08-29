@@ -176,3 +176,97 @@ func TestRawIPRecvAppliesTTLBeforeBind(t *testing.T) {
 		t.Fatalf("IP_TTL during Control=%d want 64 (before bind)", ttlDuring)
 	}
 }
+
+func TestOpenSpecRejectsTCPHdrincl(t *testing.T) {
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:1,ip-hdrincl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = xio.OpenSpec(context.Background(), spec, xio.ModeRDWR, useGlobal())
+	if err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("err=%v want not supported", err)
+	}
+}
+
+func TestRawIPHdrinclAppliesBeforeConnect(t *testing.T) {
+	var hdrinclDuring int
+	var sawControl bool
+	testHookAfterRawIPPastSocket = func(network, address string, c syscall.RawConn) error {
+		sawControl = true
+		return c.Control(func(fd uintptr) {
+			hdrinclDuring, _ = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_HDRINCL)
+		})
+	}
+	t.Cleanup(func() { testHookAfterRawIPPastSocket = nil })
+
+	spec, err := parse.ParseSpec("IP4-SENDTO:127.0.0.1:253,ip-hdrincl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	opened, err := openIPSendtoNetwork(ctx, spec, xio.ModeRDWR, useGlobal(), "ip4")
+	skipIfRawIPPermissionDenied(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = opened.Close() })
+	if !sawControl {
+		t.Fatal("raw-IP DialControl did not run; PH_PASTSOCKET options must apply before connect")
+	}
+	if hdrinclDuring == 0 {
+		t.Fatal("IP_HDRINCL unset during Control; classic TYPE_INT omitted stores 1 at PH_PASTSOCKET")
+	}
+}
+
+func TestRawIPHdrinclZeroClears(t *testing.T) {
+	var hdrinclDuring int
+	testHookAfterRawIPPastSocket = func(network, address string, c syscall.RawConn) error {
+		return c.Control(func(fd uintptr) {
+			hdrinclDuring, _ = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_HDRINCL)
+		})
+	}
+	t.Cleanup(func() { testHookAfterRawIPPastSocket = nil })
+
+	spec, err := parse.ParseSpec("IP4-SENDTO:127.0.0.1:253,ip-hdrincl=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	opened, err := openIPSendtoNetwork(ctx, spec, xio.ModeRDWR, useGlobal(), "ip4")
+	skipIfRawIPPermissionDenied(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = opened.Close() })
+	if hdrinclDuring != 0 {
+		t.Fatalf("IP_HDRINCL during Control=%d want 0", hdrinclDuring)
+	}
+}
+
+func TestRawIPHdrinclAliasApplies(t *testing.T) {
+	var hdrinclDuring int
+	testHookAfterRawIPPastSocket = func(network, address string, c syscall.RawConn) error {
+		return c.Control(func(fd uintptr) {
+			hdrinclDuring, _ = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_HDRINCL)
+		})
+	}
+	t.Cleanup(func() { testHookAfterRawIPPastSocket = nil })
+
+	spec, err := parse.ParseSpec("IP4-SENDTO:127.0.0.1:253,iphdrincl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	opened, err := openIPSendtoNetwork(ctx, spec, xio.ModeRDWR, useGlobal(), "ip4")
+	skipIfRawIPPermissionDenied(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = opened.Close() })
+	if hdrinclDuring == 0 {
+		t.Fatal("iphdrincl did not set IP_HDRINCL")
+	}
+}

@@ -408,6 +408,20 @@ func TestExpectedMissingReasonsNonEmpty(t *testing.T) {
 	}
 }
 
+func TestIPHdrinclIsMustAdvertise(t *testing.T) {
+	for _, name := range []string{"ip-hdrincl", "hdrincl", "iphdrincl"} {
+		if _, ok := ExpectedMissingAll()[name]; ok {
+			t.Errorf("%q must not remain expected-missing after IP_HDRINCL support", name)
+		}
+		for _, goos := range []string{"linux", "darwin", "windows"} {
+			class, reason := ClassifyOption(name, goos)
+			if class != ClassMustAdvertise {
+				t.Errorf("%s %s: class=%s reason=%q; want must-advertise", goos, name, class, reason)
+			}
+		}
+	}
+}
+
 func TestIgnoreCRIsMustAdvertise(t *testing.T) {
 	if _, ok := ExpectedMissingAll()["ignorecr"]; ok {
 		t.Fatal("ignorecr must not remain expected-missing after HTTP/1 CONNECT parser support")

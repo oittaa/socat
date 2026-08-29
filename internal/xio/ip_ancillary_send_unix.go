@@ -86,3 +86,11 @@ func appendSockoptIPOptions(fd int, extra []byte) error {
 func applyIPv6Tclass(fd, n int) error {
 	return setSockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_TCLASS, n)
 }
+
+// applyIPHdrincl is classic xio-ip.c opt_ip_hdrincl OFUNC_SOCKOPT SOL_IP
+// IP_HDRINCL at PH_PASTSOCKET (tag-1.8.1.3
+// 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
+// af5388c898c7bb60997935aee93c223deba60c4a is the same tree).
+func applyIPHdrincl(fd, n int) error {
+	return setSockoptInt(fd, unix.IPPROTO_IP, unix.IP_HDRINCL, n)
+}

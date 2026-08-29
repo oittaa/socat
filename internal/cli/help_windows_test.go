@@ -37,6 +37,7 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"sighup", "sigint", "sigquit",
 		"bindtodevice",
 		"ip-pktinfo", "ip-options", "ipv6-tclass", "ipv6-unicast-hops",
+		"ip-hdrincl", "hdrincl", "iphdrincl",
 		"ip-recvdstaddr", "ip-recvif",
 		"tcp-cork", "tcp-maxseg", "tcp-maxseg-late",
 		"nopush", "noopt", "tcp-nopush", "tcp-noopt",

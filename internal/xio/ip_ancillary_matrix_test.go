@@ -20,6 +20,12 @@ func TestIPAncillarySupportedMatrix(t *testing.T) {
 		{GroupUDP, "ip-ttl", true},
 		{GroupRawIP, "ip-recvttl", true},
 		{GroupRawIP, "ip-options", true},
+		{GroupRawIP, "ip-hdrincl", true},
+		{GroupRawIP, "hdrincl", true},
+		{GroupRawIP, "iphdrincl", true},
+		{GroupTCP, "ip-hdrincl", false},
+		{GroupUDP, "ip-hdrincl", false},
+		{GroupQUIC, "ip-hdrincl", false},
 		{GroupTCP, "ip-ttl", true},
 		{GroupTCP, "ip-tos", true},
 		{GroupTCP, "ipv6-tclass", true},
@@ -71,6 +77,16 @@ func TestIPAncillaryImplementationGroupsAliases(t *testing.T) {
 	ttl := IPAncillaryImplementationGroups("ipttl")
 	if !reflect.DeepEqual(ttl, ipAncillarySendGroups) {
 		t.Fatalf("ipttl groups=%v want send groups %v", ttl, ipAncillarySendGroups)
+	}
+	hdrincl := IPAncillaryImplementationGroups("ip-hdrincl")
+	if !reflect.DeepEqual(hdrincl, []string{GroupRawIP}) {
+		t.Fatalf("ip-hdrincl groups=%v want [%s]", hdrincl, GroupRawIP)
+	}
+	if !reflect.DeepEqual(IPAncillaryImplementationGroups("hdrincl"), hdrincl) {
+		t.Fatalf("hdrincl groups=%v want %v", IPAncillaryImplementationGroups("hdrincl"), hdrincl)
+	}
+	if !reflect.DeepEqual(IPAncillaryImplementationGroups("iphdrincl"), hdrincl) {
+		t.Fatalf("iphdrincl groups=%v want %v", IPAncillaryImplementationGroups("iphdrincl"), hdrincl)
 	}
 	if IPAncillaryImplementationGroups("nodelay") != nil {
 		t.Fatal("non-matrix option must not grow implementationGroups")
