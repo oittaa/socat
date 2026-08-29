@@ -7,11 +7,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
-	"sort"
 	"strings"
 	"testing"
-
-	"github.com/oittaa/socat/internal/xio"
 )
 
 func testdataHHH(t *testing.T) string {
@@ -165,34 +162,6 @@ func TestSpellingSpecificGroupsDifferFromCanonicalTarget(t *testing.T) {
 	}
 	if !reflect.DeepEqual(member.Groups, []string{"IP4", "IP6"}) {
 		t.Fatalf("ip-add-membership groups=%v", member.Groups)
-	}
-}
-
-func TestCatalogGroupsMatchClassicOptionGroups(t *testing.T) {
-	var missing, mismatch []string
-	for spelling, e := range Options {
-		want, ok := xio.ClassicOptionGroups[spelling]
-		if !ok {
-			missing = append(missing, spelling)
-			continue
-		}
-		got := helpGroupsToInternal(e.Groups)
-		if len(want) == 0 {
-			// extract-classic-groups.py can miss GROUP_* after OPT_GROUP_*
-			// tokens (gid-e, group-late, …). The -hhh catalog is authoritative.
-			continue
-		}
-		if !sameStringSet(got, want) {
-			mismatch = append(mismatch, spelling+": catalog="+strings.Join(got, ",")+" classicgroups="+strings.Join(want, ","))
-		}
-	}
-	if len(missing) > 0 {
-		sort.Strings(missing)
-		t.Errorf("catalog spellings missing from ClassicOptionGroups: %s", strings.Join(missing, ", "))
-	}
-	if len(mismatch) > 0 {
-		sort.Strings(mismatch)
-		t.Errorf("help groups disagree with ClassicOptionGroups:\n  %s", strings.Join(mismatch, "\n  "))
 	}
 }
 
@@ -570,54 +539,4 @@ func TestBuildClassicHelpCatalogScriptDoesNotForgeB7200(t *testing.T) {
 	if !bytes.Contains(b, []byte("Do not pass CPPFLAGS=-DB7200=7200U")) {
 		t.Fatal("rebuild script must fail with a prerequisite message instead of forging B7200")
 	}
-}
-
-func helpGroupsToInternal(groups []string) []string {
-	out := make([]string, 0, len(groups))
-	seen := map[string]struct{}{}
-	for _, g := range groups {
-		if g == "(all)" {
-			return nil
-		}
-		name := helpGroupToInternal[g]
-		if name == "" {
-			continue
-		}
-		if _, ok := seen[name]; ok {
-			continue
-		}
-		seen[name] = struct{}{}
-		out = append(out, name)
-	}
-	return out
-}
-
-func sameStringSet(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	counts := map[string]int{}
-	for _, s := range a {
-		counts[s]++
-	}
-	for _, s := range b {
-		counts[s]--
-		if counts[s] < 0 {
-			return false
-		}
-	}
-	return true
-}
-
-// helpGroupToInternal maps classic -hhh group names to ClassicOptionGroups tokens.
-var helpGroupToInternal = map[string]string{
-	"FD": "fd", "FIFO": "fifo", "CHR": "chr", "BLK": "blk", "REG": "reg",
-	"SOCKET": "socket", "READLINE": "readline", "NAMED": "named", "OPEN": "open",
-	"EXEC": "exec", "FORK": "fork", "LISTEN": "listen", "SHELL": "shell",
-	"CHILD": "child", "RETRY": "retry", "TERMIOS": "termios", "RANGE": "range",
-	"PTY": "pty", "PARENT": "parent", "UNIX": "sock-unix", "IP4": "sock-ip4",
-	"IP6": "sock-ip6", "INTERFACE": "interface", "UDP": "ip-udp", "TCP": "ip-tcp",
-	"SOCKS": "socks", "OPENSSL": "openssl", "PROCESS": "process", "APPL": "appl",
-	"HTTP": "http", "POSIXMQ": "posixmq", "SCTP": "ip-sctp", "DCCP": "ip-dccp",
-	"UDPLITE": "ip-udplite",
 }

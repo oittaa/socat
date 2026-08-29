@@ -1,178 +1,130 @@
 package xio
 
 import (
-	"reflect"
 	"testing"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
 func TestOptionSupportedOnAddressClassicAndGoExtras(t *testing.T) {
 	tcp := AddressRegistration{
 		Name:       "TCP",
 		Group:      GroupTCP,
-		OptionCaps: ClassicAddressCaps("TCP"),
+		OptionCaps: CapsTCPConnect,
 	}
 	open := AddressRegistration{
 		Name:       "OPEN",
 		Group:      GroupFiles,
-		OptionCaps: ClassicAddressCaps("OPEN"),
+		OptionCaps: CapsOpen,
 	}
 	proxy := AddressRegistration{
 		Name:       "PROXY",
 		Group:      GroupProxy,
-		OptionCaps: ClassicAddressCaps("PROXY"),
+		OptionCaps: CapsProxy,
 	}
 	ws := AddressRegistration{
 		Name:       "WS",
 		Group:      GroupWebSocket,
-		OptionCaps: ClassicAddressCaps("WS"),
+		OptionCaps: CapsTCPConnect,
 	}
 
-	if !OptionSupportedOnAddress(tcp, "append", nil, nil, nil) {
-		t.Fatal("classic append (open|fd) must be allowed on TCP")
+	if !OptionSupportedOnAddress(tcp, nil, nil, []string{CapOpen, CapFD}) {
+		t.Fatal("append (open|fd) must be allowed on TCP")
 	}
-	if OptionSupportedOnAddress(tcp, "pty", nil, nil, nil) {
-		t.Fatal("pty must be rejected on TCP")
+	if OptionSupportedOnAddress(tcp, nil, nil, []string{CapFork}) {
+		t.Fatal("pty (fork) must be rejected on TCP")
 	}
-	if OptionSupportedOnAddress(tcp, "echo", nil, nil, nil) {
-		t.Fatal("echo must be rejected on TCP")
+	if OptionSupportedOnAddress(tcp, nil, nil, []string{CapTermios}) {
+		t.Fatal("echo (termios) must be rejected on TCP")
 	}
-	if !OptionSupportedOnAddress(tcp, "readbytes", nil, nil, nil) {
-		t.Fatal("readbytes is GROUP_APPL")
+	if !OptionSupportedOnAddress(tcp, nil, nil, nil) {
+		t.Fatal("unrestricted options must be allowed on TCP")
 	}
-	if OptionSupportedOnAddress(open, "lowport", nil, nil, nil) {
+	if OptionSupportedOnAddress(open, nil, nil, []string{CapIPUDP, CapIPTCP, CapIPSCTP}) {
 		t.Fatal("lowport must be rejected on OPEN")
 	}
 
 	tlsTypes := []string{"TLS", "PROXY", "WSS", "QUIC"}
 	tlsGroups := []string{GroupTLS, GroupWebSocket, GroupQUIC, GroupProxy}
-	if !OptionSupportedOnAddress(proxy, "verify", tlsGroups, tlsTypes, nil) {
+	if !OptionSupportedOnAddress(proxy, tlsGroups, tlsTypes, []string{CapOpenSSL}) {
 		t.Fatal("Go extra: verify on PROXY")
 	}
-	if OptionSupportedOnAddress(tcp, "verify", tlsGroups, tlsTypes, nil) {
+	if OptionSupportedOnAddress(tcp, tlsGroups, tlsTypes, []string{CapOpenSSL}) {
 		t.Fatal("verify must stay rejected on TCP")
 	}
-	wsReg := AddressRegistration{Name: "WS", Group: GroupWebSocket, OptionCaps: ClassicAddressCaps("WS")}
-	if OptionSupportedOnAddress(wsReg, "cert", tlsGroups, tlsTypes, nil) {
+	wsReg := AddressRegistration{Name: "WS", Group: GroupWebSocket, OptionCaps: CapsTCPConnect}
+	if OptionSupportedOnAddress(wsReg, tlsGroups, tlsTypes, []string{CapOpenSSL}) {
 		t.Fatal("cert must stay rejected on plain WS even though WSS shares the help section")
 	}
 
 	wsGroups := []string{GroupWebSocket}
-	if !OptionSupportedOnAddress(ws, "path", wsGroups, nil, nil) {
+	if !OptionSupportedOnAddress(ws, wsGroups, nil, []string{CapExec}) {
 		t.Fatal("Go extra: path on WS")
 	}
-	if OptionSupportedOnAddress(tcp, "path", wsGroups, nil, nil) {
+	if OptionSupportedOnAddress(tcp, wsGroups, nil, []string{CapExec}) {
 		t.Fatal("path must be rejected on TCP")
 	}
 
 	handshakeTypes := []string{
 		"TLS", "TLS-CONNECT", "TLS-LISTEN", "OPENSSL", "WS", "WSS", "QUIC", "PROXY", "SOCKS5",
 	}
-	if !OptionSupportedOnAddress(proxy, "handshake-timeout", nil, handshakeTypes, nil) {
+	if !OptionSupportedOnAddress(proxy, nil, handshakeTypes, nil) {
 		t.Fatal("Go extra: handshake-timeout on PROXY")
 	}
-	if !OptionSupportedOnAddress(ws, "handshake-timeout", nil, handshakeTypes, nil) {
+	if !OptionSupportedOnAddress(ws, nil, handshakeTypes, nil) {
 		t.Fatal("Go extra: handshake-timeout on WS")
 	}
-	if OptionSupportedOnAddress(tcp, "handshake-timeout", nil, handshakeTypes, nil) {
+	if OptionSupportedOnAddress(tcp, nil, handshakeTypes, nil) {
 		t.Fatal("handshake-timeout must stay rejected on TCP")
 	}
-	if OptionSupportedOnAddress(open, "handshake-timeout", nil, handshakeTypes, nil) {
+	if OptionSupportedOnAddress(open, nil, handshakeTypes, nil) {
 		t.Fatal("handshake-timeout must stay rejected on OPEN")
 	}
 
-	reg := AddressRegistration{Name: "TCP-LISTEN-X", Group: GroupTCP, OptionCaps: DerivedOptionCaps("TCP-LISTEN-X", GroupTCP)}
+	reg := AddressRegistration{Name: "TCP-LISTEN", Group: GroupTCP, OptionCaps: CapsTCPListen}
 	if !OptionCapsAllowed(reg.OptionCaps, []string{OptCapListen}) {
-		t.Fatalf("fallback listen cap missing: %v", reg.OptionCaps)
+		t.Fatalf("listen cap missing: %v", reg.OptionCaps)
 	}
 }
 
-func TestClassicTermiosOptionNames(t *testing.T) {
-	names := ClassicTermiosOptionNames()
+func TestTermiosOptionNames(t *testing.T) {
+	names := TermiosOptionNames()
 	have := make(map[string]bool, len(names))
 	for _, name := range names {
 		have[name] = true
 	}
 	for _, name := range []string{"vintr", "intr", "ispeed", "ospeed", "icanon", "echo", "sane", "b115200"} {
 		if !have[name] {
-			t.Errorf("ClassicTermiosOptionNames missing %q", name)
+			t.Errorf("TermiosOptionNames missing %q", name)
+		}
+	}
+	for _, name := range []string{"dsusp", "vdsusp", "b900", "b3600", "ccid", "udplite-send-cscov", "ptmx", "openpty", "pty-wait-slave"} {
+		if have[name] {
+			t.Errorf("TermiosOptionNames must not include %q", name)
 		}
 	}
 	if len(names) < 50 {
-		t.Fatalf("ClassicTermiosOptionNames returned %d names, want a full GROUP_TERMIOS set", len(names))
+		t.Fatalf("TermiosOptionNames returned %d names, want a full termios set", len(names))
 	}
 }
 
-func TestClassicOptionGroupsForAliases(t *testing.T) {
-	appendGroups, ok := ClassicOptionGroupsFor("o-append")
-	if !ok || !reflect.DeepEqual(appendGroups, ClassicOptionGroups["append"]) {
-		t.Fatalf("o-append groups=%v ok=%v", appendGroups, ok)
+func TestTermiosHelpNamesAreRecognized(t *testing.T) {
+	pty := map[string]bool{
+		"ptmx": true, "openpty": true,
+		"pty-wait-slave": true, "wait-slave": true, "waitslave": true,
+		"pty-interval": true, "pty-intervall": true,
 	}
-	if parse.CanonicalOptionName("o-append") != "append" {
-		t.Fatal("canonical o-append")
+	have := make(map[string]bool)
+	for _, name := range TermiosOptionNames() {
+		have[name] = true
 	}
-	if parse.CanonicalOptionName("truncate") != "ftruncate" {
-		t.Fatal("canonical truncate")
-	}
-	if parse.CanonicalOptionName("mode") != "perm" {
-		t.Fatal("canonical mode")
-	}
-	if parse.CanonicalOptionName("uid") != "user" || parse.CanonicalOptionName("owner") != "user" {
-		t.Fatal("canonical uid/owner")
-	}
-	if parse.CanonicalOptionName("gid") != "group" {
-		t.Fatal("canonical gid")
-	}
-	if parse.CanonicalOptionName("ftruncate32") != "ftruncate" || parse.CanonicalOptionName("ftruncate64") != "ftruncate" {
-		t.Fatal("canonical ftruncate32/64")
-	}
-	modeGroups, ok := ClassicOptionGroupsFor("mode")
-	if !ok || !reflect.DeepEqual(modeGroups, ClassicOptionGroups["perm"]) {
-		t.Fatalf("mode groups=%v ok=%v", modeGroups, ok)
-	}
-	joinGroups, ok := ClassicOptionGroupsFor("ipv6-join-group")
-	if !ok || !reflect.DeepEqual(joinGroups, ClassicOptionGroups["ipv6-join-group"]) {
-		t.Fatalf("ipv6-join-group groups=%v ok=%v", joinGroups, ok)
-	}
-	if parse.CanonicalOptionName("ipv6-join-group") != "ipv6-join-group" {
-		t.Fatalf("ipv6-join-group must not fold; got %q", parse.CanonicalOptionName("ipv6-join-group"))
-	}
-	if parse.CanonicalOptionName("join-group") != "ipv6-join-group" {
-		t.Fatalf("join-group canonical=%q", parse.CanonicalOptionName("join-group"))
-	}
-	if parse.CanonicalOptionName("join-source-group") != "ipv6-join-source-group" {
-		t.Fatalf("join-source-group canonical=%q", parse.CanonicalOptionName("join-source-group"))
-	}
-	if parse.CanonicalOptionName("mcloop6") != "ipv6-multicast-loop" || parse.CanonicalOptionName("mcloop") != "ip-multicast-loop" {
-		t.Fatalf("mcloop=%q mcloop6=%q", parse.CanonicalOptionName("mcloop"), parse.CanonicalOptionName("mcloop6"))
-	}
-	if parse.CanonicalOptionName("mtudiscover") != "ip-mtu-discover" || parse.CanonicalOptionName("mtudiscover6") != "ipv6-mtu-discover" {
-		t.Fatalf("mtudiscover=%q mtudiscover6=%q", parse.CanonicalOptionName("mtudiscover"), parse.CanonicalOptionName("mtudiscover6"))
-	}
-	if parse.CanonicalOptionName("add-membership") != "ip-add-membership" {
-		t.Fatalf("add-membership canonical=%q", parse.CanonicalOptionName("add-membership"))
-	}
-	if parse.CanonicalOptionName("ext2-append") != "fs-append" || parse.CanonicalOptionName("nodump") != "fs-nodump" {
-		t.Fatalf("ext2-append=%q nodump=%q", parse.CanonicalOptionName("ext2-append"), parse.CanonicalOptionName("nodump"))
-	}
-	if parse.CanonicalOptionName("notail") != "fs-notail" {
-		t.Fatalf("notail canonical=%q", parse.CanonicalOptionName("notail"))
-	}
-	appendFS, ok := ClassicOptionGroupsFor("fs-append")
-	if !ok || !reflect.DeepEqual(appendFS, []string{"reg"}) {
-		t.Fatalf("fs-append groups=%v ok=%v", appendFS, ok)
-	}
-	notailGroups, ok := ClassicOptionGroupsFor("notail")
-	if !ok || !reflect.DeepEqual(notailGroups, ClassicOptionGroups["fs-notail"]) {
-		t.Fatalf("notail groups=%v ok=%v", notailGroups, ok)
-	}
-	memberGroups, ok := ClassicOptionGroupsFor("ip-add-membership")
-	if !ok || reflect.DeepEqual(joinGroups, memberGroups) {
-		t.Fatalf("ipv6-join-group groups=%v ip-add-membership groups=%v", joinGroups, memberGroups)
-	}
-	joinAliasGroups, ok := ClassicOptionGroupsFor("join-group")
-	if !ok || !reflect.DeepEqual(joinAliasGroups, ClassicOptionGroups["join-group"]) {
-		t.Fatalf("join-group groups=%v ok=%v", joinAliasGroups, ok)
+	for _, name := range TermiosHelpNames() {
+		if pty[name] {
+			if have[name] {
+				t.Errorf("PTY name %q must not be in TermiosOptionNames", name)
+			}
+			continue
+		}
+		if !have[name] {
+			t.Errorf("advertised termios name %q missing from TermiosOptionNames", name)
+		}
 	}
 }

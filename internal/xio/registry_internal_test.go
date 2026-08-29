@@ -10,9 +10,20 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
+func TestAddressRegistryRequiresOptionCaps(t *testing.T) {
+	r := newAddressRegistry()
+	defer func() {
+		got := recover()
+		if got == nil || !strings.Contains(fmt.Sprint(got), "requires OptionCaps") {
+			t.Fatalf("panic=%v", got)
+		}
+	}()
+	r.register(AddressDesc{Name: "TCP", Group: GroupTCP, Syntax: "TCP:<host>:<port>"})
+}
+
 func TestAddressRegistryRejectsDuplicateNames(t *testing.T) {
 	r := newAddressRegistry()
-	r.register(AddressDesc{Name: "TCP", Group: GroupTCP, Syntax: "TCP:<host>:<port>"})
+	r.register(AddressDesc{Name: "TCP", Group: GroupTCP, Syntax: "TCP:<host>:<port>", OptionCaps: []string{"fd"}})
 
 	defer func() {
 		got := recover()
@@ -20,7 +31,7 @@ func TestAddressRegistryRejectsDuplicateNames(t *testing.T) {
 			t.Fatalf("panic=%v", got)
 		}
 	}()
-	r.register(AddressDesc{Name: "tcp", Group: GroupTCP, Syntax: "tcp:<host>:<port>"})
+	r.register(AddressDesc{Name: "tcp", Group: GroupTCP, Syntax: "tcp:<host>:<port>", OptionCaps: []string{"fd"}})
 }
 
 func TestAddressRegistrySnapshotsAreDeterministic(t *testing.T) {
@@ -28,10 +39,10 @@ func TestAddressRegistrySnapshotsAreDeterministic(t *testing.T) {
 	opener := func(context.Context, parse.Spec, Mode, *Global) (*Opened, error) {
 		return nil, nil
 	}
-	r.register(AddressDesc{Name: "UDP-Z", Group: GroupUDP, Syntax: "UDP-Z:<port>"})
-	r.register(AddressDesc{Name: "TCP-A", Group: GroupTCP, Syntax: "TCP-A:<port>"})
-	r.register(AddressDesc{Name: "HIDDEN-Z", Opener: opener})
-	r.register(AddressDesc{Name: "HIDDEN-A", Opener: opener})
+	r.register(AddressDesc{Name: "UDP-Z", Group: GroupUDP, Syntax: "UDP-Z:<port>", OptionCaps: []string{"fd"}})
+	r.register(AddressDesc{Name: "TCP-A", Group: GroupTCP, Syntax: "TCP-A:<port>", OptionCaps: []string{"fd"}})
+	r.register(AddressDesc{Name: "HIDDEN-Z", Opener: opener, OptionCaps: []string{"fd"}})
+	r.register(AddressDesc{Name: "HIDDEN-A", Opener: opener, OptionCaps: []string{"fd"}})
 
 	regs := r.registrations()
 	got := make([]string, 0, len(regs))
@@ -58,12 +69,25 @@ func TestAddressRegistryAliasFallbackAndDirectWins(t *testing.T) {
 	}
 
 	r := newAddressRegistry()
-	r.register(AddressDesc{Name: "TCP-LISTEN", Group: GroupTCP, Syntax: "TCP-LISTEN:<port>", Opener: canonOpener})
-	r.register(AddressDesc{Name: "TCP-L", Group: GroupTCP, Syntax: "TCP-L:<port>", Opener: directOpener})
+	r.register(AddressDesc{
+		Name:       "TCP-LISTEN",
+		Group:      GroupTCP,
+		Syntax:     "TCP-LISTEN:<port>",
+		Opener:     canonOpener,
+		OptionCaps: CapsTCPListen,
+		Aliases:    []string{"INET-L", "INET-LISTEN"},
+	})
+	r.register(AddressDesc{
+		Name:       "TCP-L",
+		Group:      GroupTCP,
+		Syntax:     "TCP-L:<port>",
+		Opener:     directOpener,
+		OptionCaps: CapsTCPListen,
+	})
 
 	d, ok := r.resolve("inet-l")
 	if !ok || d.Name != "TCP-LISTEN" {
-		t.Fatalf("INET-L resolve=%+v ok=%v; want TCP-LISTEN (classic addressnames[] tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba / master af5388c898c7bb60997935aee93c223deba60c4a)", d, ok)
+		t.Fatalf("INET-L resolve=%+v ok=%v; want TCP-LISTEN (tag-1.8.1.3 addressnames[] INET-L)", d, ok)
 	}
 	fn, ok := r.opener("INET-LISTEN")
 	if !ok {
@@ -109,11 +133,13 @@ func TestAddressRegistryUnknownAndDisabledAliases(t *testing.T) {
 	}
 
 	r.register(AddressDesc{
-		Name:    "INTERFACE",
-		Group:   GroupTUN,
-		Syntax:  "INTERFACE:<ifname>",
-		Enabled: func() bool { return false },
-		Opener:  func(context.Context, parse.Spec, Mode, *Global) (*Opened, error) { return nil, nil },
+		Name:       "INTERFACE",
+		Group:      GroupTUN,
+		Syntax:     "INTERFACE:<ifname>",
+		Enabled:    func() bool { return false },
+		Opener:     func(context.Context, parse.Spec, Mode, *Global) (*Opened, error) { return nil, nil },
+		OptionCaps: CapsINTERFACE,
+		Aliases:    []string{"IF"},
 	})
 	reg, ok := r.registration("IF")
 	if !ok {
@@ -127,15 +153,15 @@ func TestAddressRegistryUnknownAndDisabledAliases(t *testing.T) {
 	}
 }
 
-func TestAddressRegistryMergesDerivedOptionCaps(t *testing.T) {
+func TestAddressRegistryKeepsExplicitOptionCaps(t *testing.T) {
 	r := newAddressRegistry()
 	r.register(AddressDesc{Name: "TCP-LISTEN-X", Group: GroupTCP, Syntax: "TCP-LISTEN-X:<port>", OptionCaps: []string{"extra"}})
 	reg, ok := r.registration("tcp-listen-x")
 	if !ok {
 		t.Fatal("missing registration")
 	}
-	want := uniqueCaps([]string{OptCapListen, OptCapRange, "ip-tcp", "extra"})
+	want := uniqueCaps([]string{"extra"})
 	if !reflect.DeepEqual(reg.OptionCaps, want) {
-		t.Fatalf("OptionCaps=%v want %v", reg.OptionCaps, want)
+		t.Fatalf("OptionCaps=%v want %v (explicit caps must not be merged with name heuristics)", reg.OptionCaps, want)
 	}
 }

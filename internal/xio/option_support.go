@@ -1,75 +1,13 @@
 package xio
 
 import (
-	"sort"
 	"strings"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
-// ClassicOptionUnrestricted is true when the option is accepted on every
-// address type (empty groups, or process/appl).
-func ClassicOptionUnrestricted(optGroups []string) bool {
-	if len(optGroups) == 0 {
-		return true
-	}
-	for _, g := range optGroups {
-		if g == "appl" || g == "process" {
-			return true
-		}
-	}
-	return false
-}
-
-// ClassicOptionGroupsFor returns the expanded group set for an option
-// keyword or nickname. The given spelling is looked up first so names such as
-// ipv6-join-group keep their own groups; only unknown nicknames fall
-// back to parse.CanonicalOptionName (o-append → append).
-func ClassicOptionGroupsFor(optionName string) ([]string, bool) {
-	name := strings.ToLower(strings.TrimSpace(optionName))
-	if name == "" {
-		return nil, false
-	}
-	if groups, ok := ClassicOptionGroups[name]; ok {
-		return groups, true
-	}
-	canon := parse.CanonicalOptionName(name)
-	if canon != name {
-		if groups, ok := ClassicOptionGroups[canon]; ok {
-			return groups, true
-		}
-	}
-	return nil, false
-}
-
-// ClassicTermiosOptionNames returns option spellings whose groups include
-// termios. Used to recognize TERMIOS options on platforms that reject them
-// instead of applying termios.
-func ClassicTermiosOptionNames() []string {
-	var out []string
-	for name, groups := range ClassicOptionGroups {
-		for _, g := range groups {
-			if g == "termios" {
-				out = append(out, name)
-				break
-			}
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// ClassicAllowsOption reports whether the catalog would accept
-// optionName on addrType (group intersection).
-func ClassicAllowsOption(addrType, optionName string) bool {
-	optGroups, ok := ClassicOptionGroupsFor(optionName)
-	if !ok {
-		return false
-	}
-	if ClassicOptionUnrestricted(optGroups) {
-		return true
-	}
-	return OptionCapsAllowed(ClassicAddressCaps(addrType), optGroups)
+// optionUnrestricted is true when the option is accepted on every
+// address type (empty required caps).
+func optionUnrestricted(optCaps []string) bool {
+	return len(optCaps) == 0
 }
 
 func addressGroupAllowed(group string, allowed []string) bool {
@@ -97,7 +35,7 @@ func addressTypeAllowed(addressType string, allowed []string) bool {
 }
 
 func goExtraAllows(reg AddressRegistration, goGroups, goTypes []string) bool {
-	// Address-type lists are the precise Go extra (TLS on PROXY, ALPN on QUIC).
+	// Address-type lists are the precise extra (TLS on PROXY, ALPN on QUIC).
 	// Help-section groups are broader (TLS+WSS share a section) and are only
 	// used when no type list is declared, e.g. WebSocket path/origin/protocol.
 	if len(goTypes) > 0 {
@@ -110,22 +48,18 @@ func goExtraAllows(reg AddressRegistration, goGroups, goTypes []string) bool {
 }
 
 // OptionSupportedOnAddress is the registry-level check used by the CLI.
-// optionName should be the original spelling (parse.Option.OriginalSpelling).
-// Extra allow-lists (TLS on PROXY, WebSocket path, …) can still accept a
-// combination the catalog would reject. Go-only options use address
-// group/type/cap restrictions as declared in the option table.
-func OptionSupportedOnAddress(reg AddressRegistration, optionName string, goGroups, goTypes, goCaps []string) bool {
-	if optGroups, ok := ClassicOptionGroupsFor(optionName); ok {
-		if ClassicOptionUnrestricted(optGroups) || OptionCapsAllowed(reg.OptionCaps, optGroups) {
+// goCaps are the option's required address capabilities from the option
+// definition. Empty goCaps are unrestricted unless goGroups or goTypes bind
+// the option to an extra allow-list (TLS on PROXY, WebSocket path, …).
+func OptionSupportedOnAddress(reg AddressRegistration, goGroups, goTypes, goCaps []string) bool {
+	if optionUnrestricted(goCaps) {
+		if len(goTypes) == 0 && len(goGroups) == 0 {
 			return true
 		}
 		return goExtraAllows(reg, goGroups, goTypes)
 	}
-	if !addressGroupAllowed(reg.Group, goGroups) {
-		return false
+	if OptionCapsAllowed(reg.OptionCaps, goCaps) {
+		return true
 	}
-	if !addressTypeAllowed(reg.Name, goTypes) {
-		return false
-	}
-	return OptionCapsAllowed(reg.OptionCaps, goCaps)
+	return goExtraAllows(reg, goGroups, goTypes)
 }

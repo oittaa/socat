@@ -38,7 +38,7 @@ func TestClassicAddressAliasesHHHNotH(t *testing.T) {
 	}
 
 	seen := map[string]int{}
-	for alias, dest := range xio.ClassicAddressAliases {
+	for alias, dest := range xio.AddressAliasMap() {
 		if alias == "-" || alias == dest || direct[alias] {
 			continue
 		}

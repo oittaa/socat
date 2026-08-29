@@ -83,16 +83,14 @@ func reuseaddrListenDefault(s parse.Spec, network string) bool {
 	}
 }
 
-// udpListenAddress reports whether addrType is UDP-LISTEN after alias
-// expansion. Do not use GoAddressClassicAlias: QUIC-LISTEN maps to
-// OPENSSL-DTLS-SERVER for option groups, not for this default.
+// udpListenAddress reports whether addrType is a UDP listen keyword
+// (including UDP-L / UDP4-L / UDP6-L). QUIC-LISTEN is not UDP-LISTEN.
 func udpListenAddress(addrType string) bool {
-	t := strings.ToUpper(strings.TrimSpace(addrType))
-	if alias, ok := ClassicAddressAliases[t]; ok {
-		t = alias
+	if reg, ok := AddressRegistrationForType(addrType); ok {
+		addrType = reg.Name
 	}
-	switch t {
-	case "UDP-LISTEN", "UDP4-LISTEN", "UDP6-LISTEN":
+	switch strings.ToUpper(strings.TrimSpace(addrType)) {
+	case "UDP-LISTEN", "UDP-L", "UDP4-LISTEN", "UDP4-L", "UDP6-LISTEN", "UDP6-L":
 		return true
 	default:
 		return false

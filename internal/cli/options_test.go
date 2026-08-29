@@ -961,8 +961,8 @@ func TestAdvertisedAliasClassicGroupMismatches(t *testing.T) {
 				t.Fatalf("%s: %v", base, err)
 			}
 			addrType := ch.Single.Type
-			canonOK := xio.ClassicAllowsOption(addrType, m.canonical)
-			aliasOK := xio.ClassicAllowsOption(addrType, m.alias)
+			canonOK := optionAllowedOnAddress(addrType, m.canonical)
+			aliasOK := optionAllowedOnAddress(addrType, m.alias)
 			if !canonOK || aliasOK {
 				continue
 			}

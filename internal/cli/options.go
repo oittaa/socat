@@ -17,6 +17,7 @@ type helpOpt struct {
 	addressTypes         []string
 	restrictAddressTypes bool
 	optionCaps           []string
+	unrestricted         bool // accepted on every address type
 	implementationGroups []string
 	dynamicDesc          func() string
 	validate             func(parse.Option) error
@@ -49,6 +50,9 @@ func buildSupportedAddressOptions() map[string]addressOption {
 			spec.addressTypes = option.addressTypes
 			spec.restrictAddressTypes = option.restrictAddressTypes
 			spec.optionCaps = option.optionCaps
+			if option.unrestricted {
+				spec.optionCaps = nil
+			}
 			spec.implementationGroups = option.implementationGroups
 			options[strings.ToLower(option.name)] = spec
 			for _, alias := range option.aliases {
@@ -56,8 +60,12 @@ func buildSupportedAddressOptions() map[string]addressOption {
 			}
 		}
 	}
-	for _, name := range extraHelpNames(true) {
-		options[strings.ToLower(name)] = addressOption{}
+	for _, name := range xio.TermiosOptionNames() {
+		key := strings.ToLower(name)
+		if _, ok := options[key]; ok {
+			continue
+		}
+		options[key] = addressOption{optionCaps: capTermios}
 	}
 	// These names are deliberately recognized so tlsopen can return a precise
 	// "not supported" error when their effective value requests unavailable
@@ -65,7 +73,7 @@ func buildSupportedAddressOptions() map[string]addressOption {
 	// -hh/-hhh. Parse aliases fold nicknames onto the openssl-* keys; listing
 	// both keeps constructed Spec values working too.
 	for _, name := range recognizedUnsupportedTLSNames {
-		option := addressOption{addressGroups: tlsOptionAddressGroups()}
+		option := addressOption{addressGroups: tlsOptionAddressGroups(), optionCaps: capOpenSSL}
 		switch parse.CanonicalOptionName(name) {
 		case "openssl-fips", "openssl-pseudo":
 			option.validate = validateOptionalBool
@@ -76,21 +84,20 @@ func buildSupportedAddressOptions() map[string]addressOption {
 		}
 		options[name] = option
 	}
-	// Termios keywords are recognized where termios is unavailable so they
-	// can be rejected, not silently accepted. They are not advertised:
-	// hideOptGroup omits PTY/TERMIOS and TermiosHelpNames is empty there.
-	if !xio.FeatureTERMIOS {
-		for _, name := range xio.ClassicTermiosOptionNames() {
-			if _, ok := options[name]; !ok {
-				options[name] = addressOption{}
-			}
+	for _, name := range []string{"ip-recverr", "recverr", "iprecverr"} {
+		if _, ok := options[name]; ok {
+			continue
 		}
+		options[name] = addressOption{optionCaps: capIP4IP6}
 	}
-	for _, name := range []string{"ip-recverr", "recverr", "iprecverr", "ipv6-recverr"} {
-		options[name] = addressOption{}
+	if _, ok := options["ipv6-recverr"]; !ok {
+		options["ipv6-recverr"] = addressOption{optionCaps: capIP6}
 	}
 	for _, name := range xio.GetOnlyIPv4OptionNames() {
-		options[name] = addressOption{}
+		if _, ok := options[name]; ok {
+			continue
+		}
+		options[name] = addressOption{optionCaps: capIP4IP6}
 	}
 	return options
 }
@@ -148,12 +155,7 @@ func validateChannelOptions(ch parse.Channel) error {
 func validateSpecOptions(spec parse.Spec) error {
 	registration, registered := xio.AddressRegistrationForType(spec.Type)
 	for _, option := range spec.Options {
-		name := strings.ToLower(option.Name)
-		spelling := strings.ToLower(option.OriginalSpelling())
-		optionSpec, ok := supportedAddressOptions[name]
-		if !ok {
-			optionSpec, ok = supportedAddressOptions[spelling]
-		}
+		optionSpec, ok := lookupAddressOption(option)
 		if !ok {
 			return fmt.Errorf("%s: unknown option %q", spec.Type, option.Name)
 		}
@@ -177,15 +179,13 @@ func validateSpecOptions(spec parse.Spec) error {
 		return err
 	}
 	for _, option := range spec.Options {
-		name := strings.ToLower(option.Name)
-		spelling := strings.ToLower(option.OriginalSpelling())
-		optionSpec, ok := supportedAddressOptions[name]
+		optionSpec, ok := lookupAddressOption(option)
 		if !ok {
-			optionSpec = supportedAddressOptions[spelling]
+			return fmt.Errorf("%s: unknown option %q", spec.Type, option.Name)
 		}
-		// Catalog intersection is spelling-specific: ipv6-join-group is
-		// IPv6-only; ip-add-membership is IPv4+IPv6.
-		if registered && !xio.OptionSupportedOnAddress(registration, spelling, optionSpec.addressGroups, optionSpec.addressTypes, optionSpec.optionCaps) {
+		// Prefer the public spelling so ipv6-join-group stays IPv6-only
+		// even if Name was folded onto ip-add-membership.
+		if registered && !xio.OptionSupportedOnAddress(registration, optionSpec.addressGroups, optionSpec.addressTypes, optionSpec.optionCaps) {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
 		// INTERFACE options also match TUN. restrictAddressTypes
@@ -198,6 +198,34 @@ func validateSpecOptions(spec parse.Spec) error {
 		return err
 	}
 	return nil
+}
+
+// lookupAddressOption prefers the original spelling so public names that
+// share a parse fold still keep their own optionCaps. Unknown parse aliases
+// fall back to the canonical Name.
+func lookupAddressOption(option parse.Option) (addressOption, bool) {
+	spelling := strings.ToLower(option.OriginalSpelling())
+	if spec, ok := supportedAddressOptions[spelling]; ok {
+		return spec, true
+	}
+	spec, ok := supportedAddressOptions[strings.ToLower(option.Name)]
+	return spec, ok
+}
+
+func optionAllowedOnAddress(addrType, optionName string) bool {
+	reg, ok := xio.AddressRegistrationForType(addrType)
+	if !ok {
+		return false
+	}
+	name := strings.ToLower(optionName)
+	spec, ok := supportedAddressOptions[name]
+	if !ok {
+		spec, ok = supportedAddressOptions[strings.ToLower(parse.CanonicalOptionName(name))]
+	}
+	if !ok {
+		return false
+	}
+	return xio.OptionSupportedOnAddress(reg, spec.addressGroups, spec.addressTypes, spec.optionCaps)
 }
 
 func addressTypeAllowed(addressType string, allowed []string) bool {

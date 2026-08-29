@@ -124,20 +124,10 @@ func TestRegisteredAddressOptionCaps(t *testing.T) {
 	}
 }
 
-func TestRegisteredAddressesCarryClassicGroups(t *testing.T) {
+func TestRegisteredAddressesHaveOptionCaps(t *testing.T) {
 	for _, reg := range xio.AddressRegistrations() {
-		classic := xio.ClassicAddressCaps(reg.Name)
-		if len(classic) == 0 {
-			continue
-		}
-		have := map[string]bool{}
-		for _, c := range reg.OptionCaps {
-			have[c] = true
-		}
-		for _, g := range classic {
-			if !have[g] {
-				t.Errorf("%s missing classic group %q; OptionCaps=%v", reg.Name, g, reg.OptionCaps)
-			}
+		if len(reg.OptionCaps) == 0 {
+			t.Errorf("%s has empty OptionCaps", reg.Name)
 		}
 	}
 }
