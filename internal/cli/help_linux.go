@@ -9,6 +9,9 @@ func hideOpt(name string) bool {
 	if hideLinuxOnlyRemainingIPv4(name, "linux") {
 		return true
 	}
+	if hideLinuxOnlyIPv6RecvExt(name, "linux") {
+		return true
+	}
 	switch name {
 	case "binary", "text", "noinherit",
 		"nopush", "noopt", "tcp-nopush", "tcp-noopt",

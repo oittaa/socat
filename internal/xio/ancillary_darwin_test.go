@@ -112,34 +112,30 @@ func TestDarwinIPv6RecvExtSockoptProbe(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = unix.Close(fd) })
 	opts := []struct {
-		name string
-		opt  int
+		name   string
+		option string
+		opt    int
 	}{
-		{"IPV6_RECVDSTOPTS", unix.IPV6_RECVDSTOPTS},
-		{"IPV6_RECVHOPOPTS", unix.IPV6_RECVHOPOPTS},
-		{"IPV6_RECVRTHDR", unix.IPV6_RECVRTHDR},
-		{"IPV6_RECVPATHMTU", unix.IPV6_RECVPATHMTU},
+		{"IPV6_RECVDSTOPTS", "ipv6-recvdstopts", unix.IPV6_RECVDSTOPTS},
+		{"IPV6_RECVHOPOPTS", "ipv6-recvhopopts", unix.IPV6_RECVHOPOPTS},
+		{"IPV6_RECVRTHDR", "ipv6-recvrthdr", unix.IPV6_RECVRTHDR},
+		{"IPV6_RECVPATHMTU", "ipv6-recvpathmtu", unix.IPV6_RECVPATHMTU},
 	}
-	var ok, fail []string
 	for _, o := range opts {
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, o.opt, 1); err != nil {
-			fail = append(fail, o.name+": "+err.Error())
-			continue
+		e, found := lookupIPAncillary(o.option)
+		if !found {
+			t.Fatalf("%s missing from the ancillary matrix", o.option)
 		}
-		ok = append(ok, o.name)
-	}
-	e, found := lookupIPAncillary("ipv6-recvdstopts")
-	if !found {
-		t.Fatal("ipv6-recvdstopts missing from the ancillary matrix")
-	}
-	advertised := e.supportedOnThisPlatform()
-	switch {
-	case len(ok) == len(opts) && !advertised:
-		t.Fatalf("native setsockopt succeeded for %v; advertise these options on Darwin instead of Linux-only", ok)
-	case len(fail) > 0 && advertised:
-		t.Fatalf("advertised on Darwin but native setsockopt failed: %v", fail)
-	case len(ok) > 0 && len(fail) > 0:
-		t.Fatalf("mixed Darwin setsockopt results ok=%v fail=%v; do not claim uniform Unix support", ok, fail)
+		setErr := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, o.opt, 1)
+		got, getErr := unix.GetsockoptInt(fd, unix.IPPROTO_IPV6, o.opt)
+		roundTrip := setErr == nil && getErr == nil && got != 0
+		advertised := e.supportedOnThisPlatform()
+		switch {
+		case roundTrip && !advertised:
+			t.Errorf("%s setsockopt/getsockopt round-trips; advertise %s on Darwin", o.name, o.option)
+		case advertised && !roundTrip:
+			t.Errorf("%s advertised on Darwin but set=%v get=%d geterr=%v", o.name, setErr, got, getErr)
+		}
 	}
 }
 

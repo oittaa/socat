@@ -288,3 +288,25 @@ func TestHideLinuxOnlyRemainingIPv4(t *testing.T) {
 		t.Fatal("ip-recvopts is not a Linux-only remaining IPv4 option")
 	}
 }
+
+func TestHideLinuxOnlyIPv6RecvExt(t *testing.T) {
+	linuxOnly := []string{"ipv6-recvdstopts", "recvdstopts", "ipv6-recvhopopts", "recvhopopts"}
+	for _, name := range linuxOnly {
+		if hideLinuxOnlyIPv6RecvExt(name, "linux") {
+			t.Errorf("%q hidden on linux", name)
+		}
+		for _, goos := range []string{"darwin", "windows"} {
+			if !hideLinuxOnlyIPv6RecvExt(name, goos) {
+				t.Errorf("%q not hidden on %s", name, goos)
+			}
+		}
+	}
+	for _, name := range []string{"ipv6-recvrthdr", "recvrthdr", "ipv6-recvpathmtu", "ipv6-recvpktinfo"} {
+		if hideLinuxOnlyIPv6RecvExt(name, "darwin") {
+			t.Errorf("%q must not be in the Linux-only dstopts/hopopts hide list", name)
+		}
+	}
+	if hideLinuxOnlyIPv6RecvExt("recvpathmtu", "darwin") {
+		t.Fatal("recvpathmtu is not a public alias and is not in the hide list")
+	}
+}

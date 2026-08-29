@@ -1214,17 +1214,36 @@ func TestIPRetoptsAndRouterAlertPlatform(t *testing.T) {
 }
 
 func TestIPv6RecvExtHeaderPlatform(t *testing.T) {
-	udp6 := []string{
+	linuxOnly := []string{
 		"UDP6:localhost:1,ipv6-recvdstopts",
 		"UDP6:localhost:1,recvdstopts",
 		"UDP6:localhost:1,ipv6-recvhopopts",
 		"UDP6:localhost:1,recvhopopts",
+		"IP6-RECV:58,ipv6-recvdstopts",
+	}
+	for _, spec := range linuxOnly {
+		ch, err := parse.ParseChannel(spec)
+		if err != nil {
+			t.Fatalf("%s: %v", spec, err)
+		}
+		err = validateChannelOptions(ch)
+		if runtime.GOOS == "linux" {
+			if err != nil {
+				t.Errorf("%s: %v", spec, err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), "not supported on this platform") {
+			t.Errorf("%s: err=%v want not supported on this platform", spec, err)
+		}
+	}
+	unix := []string{
 		"UDP6:localhost:1,ipv6-recvrthdr",
 		"UDP6:localhost:1,recvrthdr",
 		"UDP6:localhost:1,ipv6-recvpathmtu",
-		"IP6-RECV:58,ipv6-recvdstopts",
+		"IP6-RECV:58,ipv6-recvpathmtu",
 	}
-	for _, spec := range udp6 {
+	for _, spec := range unix {
 		ch, err := parse.ParseChannel(spec)
 		if err != nil {
 			t.Fatalf("%s: %v", spec, err)

@@ -30,7 +30,32 @@ func TestControlMessageBytesTruncated(t *testing.T) {
 }
 
 func TestIPv6RecvExtSetsockopt(t *testing.T) {
-	spec, err := parse.ParseSpec("UDP6:[::1]:1,ipv6-recvdstopts,recvhopopts=1,ipv6-recvrthdr,ipv6-recvpathmtu=1")
+	type flag struct {
+		specName string
+		name     string
+		opt      int
+	}
+	all := []flag{
+		{"ipv6-recvdstopts", "IPV6_RECVDSTOPTS", unix.IPV6_RECVDSTOPTS},
+		{"recvhopopts=1", "IPV6_RECVHOPOPTS", unix.IPV6_RECVHOPOPTS},
+		{"ipv6-recvrthdr", "IPV6_RECVRTHDR", unix.IPV6_RECVRTHDR},
+		{"ipv6-recvpathmtu=1", "IPV6_RECVPATHMTU", unix.IPV6_RECVPATHMTU},
+	}
+	var enabled []flag
+	var parts []string
+	for _, o := range all {
+		canon := strings.Split(o.specName, "=")[0]
+		e, ok := lookupIPAncillary(canon)
+		if !ok || !e.supportedOnThisPlatform() {
+			continue
+		}
+		enabled = append(enabled, o)
+		parts = append(parts, o.specName)
+	}
+	if len(enabled) == 0 {
+		t.Fatal("no IPv6 recv-ext flags are advertised on this platform")
+	}
+	spec, err := parse.ParseSpec("UDP6:[::1]:1," + strings.Join(parts, ","))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,18 +77,9 @@ func TestIPv6RecvExtSetsockopt(t *testing.T) {
 	if optionErr != nil {
 		t.Fatal(optionErr)
 	}
-	want := []struct {
-		name string
-		opt  int
-	}{
-		{"IPV6_RECVDSTOPTS", unix.IPV6_RECVDSTOPTS},
-		{"IPV6_RECVHOPOPTS", unix.IPV6_RECVHOPOPTS},
-		{"IPV6_RECVRTHDR", unix.IPV6_RECVRTHDR},
-		{"IPV6_RECVPATHMTU", unix.IPV6_RECVPATHMTU},
-	}
 	var gerr error
 	_ = raw.Control(func(fd uintptr) {
-		for _, o := range want {
+		for _, o := range enabled {
 			got, err := unix.GetsockoptInt(int(fd), unix.IPPROTO_IPV6, o.opt)
 			if err != nil {
 				gerr = err
@@ -80,12 +96,12 @@ func TestIPv6RecvExtSetsockopt(t *testing.T) {
 }
 
 func TestIPv6RecvExtLastOccurrence(t *testing.T) {
-	spec, err := parse.ParseSpec("UDP6:[::1]:1,ipv6-recvdstopts=1,recvdstopts=0")
+	spec, err := parse.ParseSpec("UDP6:[::1]:1,ipv6-recvrthdr=1,recvrthdr=0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if NeedAncillary(spec) {
-		t.Fatal("last recvdstopts=0 must disable ReadMsg")
+		t.Fatal("last recvrthdr=0 must disable ReadMsg")
 	}
 	pc, err := net.ListenUDP("udp6", &net.UDPAddr{IP: net.IPv6loopback})
 	if err != nil {
@@ -106,20 +122,20 @@ func TestIPv6RecvExtLastOccurrence(t *testing.T) {
 	if optionErr != nil {
 		t.Fatal(optionErr)
 	}
-	n := countLevelOpt(calls.snapshot(), unix.IPPROTO_IPV6, unix.IPV6_RECVDSTOPTS)
+	n := countLevelOpt(calls.snapshot(), unix.IPPROTO_IPV6, unix.IPV6_RECVRTHDR)
 	if n != 2 {
-		t.Fatalf("IPV6_RECVDSTOPTS setsockopt count=%d want 2", n)
+		t.Fatalf("IPV6_RECVRTHDR setsockopt count=%d want 2", n)
 	}
 	var got int
 	var gerr error
 	_ = raw.Control(func(fd uintptr) {
-		got, gerr = unix.GetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_RECVDSTOPTS)
+		got, gerr = unix.GetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_RECVRTHDR)
 	})
 	if gerr != nil {
 		t.Fatal(gerr)
 	}
 	if got != 0 {
-		t.Fatalf("IPV6_RECVDSTOPTS=%d want 0 (last occurrence)", got)
+		t.Fatalf("IPV6_RECVRTHDR=%d want 0 (last occurrence)", got)
 	}
 }
 
