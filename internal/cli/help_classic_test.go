@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -18,6 +19,26 @@ func TestHelpDoesNotTriggerClassicOptionArraySentinel(t *testing.T) {
 	// sentinel. Human-readable descriptions must not accidentally match it.
 	if strings.Contains(output.String(), "opt:") {
 		t.Fatal("-hhh output contains classic test.sh's internal option-array sentinel \"opt:\"")
+	}
+}
+
+// helpInternalTerm matches catalog/internal tokens that must not appear in
+// -h/-hh/-hhh. type= is matched without a preceding identifier so socktype=
+// in UNIX address descriptions is allowed.
+var helpInternalTerm = regexp.MustCompile(`(?i)\bclassic\b|groups=|(?:^|[^A-Za-z0-9-])type=|phase=|\bPH_[A-Z0-9]+|\bTYPE_[A-Z0-9]+|\bGROUP_[A-Z0-9]+|\bOFUNC_[A-Z0-9]+`)
+
+func TestHelpOmitsInternalMetadata(t *testing.T) {
+	for _, level := range []int{1, 2, 3} {
+		var output bytes.Buffer
+		if err := printHelp(&output, level); err != nil {
+			t.Fatal(err)
+		}
+		flag := "-h" + strings.Repeat("h", level-1)
+		for i, line := range strings.Split(output.String(), "\n") {
+			if loc := helpInternalTerm.FindStringIndex(line); loc != nil {
+				t.Errorf("%s line %d contains %q: %s", flag, i+1, line[loc[0]:loc[1]], strings.TrimSpace(line))
+			}
+		}
 	}
 }
 

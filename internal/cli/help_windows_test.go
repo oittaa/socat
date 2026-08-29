@@ -84,17 +84,6 @@ func TestWindowsHelpHHHListsDescriptorModeAliases(t *testing.T) {
 			t.Errorf("supported Windows descriptor option %q is missing", name)
 		}
 	}
-	for _, line := range strings.Split(help, "\n") {
-		if strings.HasPrefix(line, "    binary ") {
-			for _, want := range []string{"groups=FD,OPEN", "phase=OPEN", "type=BOOL"} {
-				if !strings.Contains(line, want) {
-					t.Errorf("binary metadata line %q missing %q", line, want)
-				}
-			}
-			return
-		}
-	}
-	t.Error("binary metadata line is missing")
 }
 
 func TestWindowsHelpOmitsTermiosSpellings(t *testing.T) {
