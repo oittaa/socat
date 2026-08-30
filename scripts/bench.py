@@ -1000,12 +1000,19 @@ def run_client_once(
         kill_proc(server)
 
 
+def last_failure_detail(runs: list[dict[str, Any]]) -> str:
+    for run in reversed(runs):
+        if run.get("status") != "ok" and run.get("detail"):
+            return str(run["detail"])
+    return "all runs failed" if runs else "no runs"
+
+
 def summarize_stream(runs: list[dict[str, Any]]) -> dict[str, Any]:
     oks = [r for r in runs if r.get("status") == "ok"]
     if not oks:
         return {
             "status": "fail",
-            "detail": runs[-1].get("detail", "all runs failed") if runs else "no runs",
+            "detail": last_failure_detail(runs),
         }
     mibs = [float(r["mib_s"]) for r in oks]
     rss = [int(r["peak_rss_kib"]) for r in oks]
@@ -1018,7 +1025,7 @@ def summarize_stream(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "peak_rss_kib": max(rss),
         "ok_runs": len(oks),
         "n_runs": len(runs),
-        "detail": "" if len(oks) == len(runs) else runs[-1].get("detail", ""),
+        "detail": "" if len(oks) == len(runs) else last_failure_detail(runs),
     }
 
 
@@ -1027,7 +1034,7 @@ def summarize_datagram(runs: list[dict[str, Any]]) -> dict[str, Any]:
     if not oks:
         return {
             "status": "fail",
-            "detail": runs[-1].get("detail", "all runs failed") if runs else "no runs",
+            "detail": last_failure_detail(runs),
         }
 
     def rates(name: str) -> dict[str, Any]:
@@ -1051,7 +1058,7 @@ def summarize_datagram(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "peak_rss_kib": max(int(r["peak_rss_kib"]) for r in oks),
         "ok_runs": len(oks),
         "n_runs": len(runs),
-        "detail": "" if len(oks) == len(runs) else runs[-1].get("detail", ""),
+        "detail": "" if len(oks) == len(runs) else last_failure_detail(runs),
     }
 
 
@@ -1060,7 +1067,7 @@ def summarize_rr(runs: list[dict[str, Any]]) -> dict[str, Any]:
     if not oks:
         return {
             "status": "fail",
-            "detail": runs[-1].get("detail", "all runs failed") if runs else "no runs",
+            "detail": last_failure_detail(runs),
         }
     med = [float(r["rtt_us"]["median"]) for r in oks]
     p99 = [float(r["rtt_us"]["p99"]) for r in oks]
@@ -1080,7 +1087,7 @@ def summarize_rr(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "peak_rss_kib": max(rss),
         "ok_runs": len(oks),
         "n_runs": len(runs),
-        "detail": "" if len(oks) == len(runs) else runs[-1].get("detail", ""),
+        "detail": "" if len(oks) == len(runs) else last_failure_detail(runs),
     }
 
 
@@ -1089,7 +1096,7 @@ def summarize_hs(runs: list[dict[str, Any]]) -> dict[str, Any]:
     if not oks:
         return {
             "status": "fail",
-            "detail": runs[-1].get("detail", "all runs failed") if runs else "no runs",
+            "detail": last_failure_detail(runs),
         }
     rate = [float(r["hs_s"]) for r in oks]
     rss = [int(r["peak_rss_kib"]) for r in oks]
@@ -1100,7 +1107,7 @@ def summarize_hs(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "peak_rss_kib": max(rss),
         "ok_runs": len(oks),
         "n_runs": len(runs),
-        "detail": "" if len(oks) == len(runs) else runs[-1].get("detail", ""),
+        "detail": "" if len(oks) == len(runs) else last_failure_detail(runs),
     }
 
 

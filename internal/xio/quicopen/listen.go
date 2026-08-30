@@ -21,7 +21,7 @@ import (
 // PROXY HTTP/3 and QUIC. See xio.QUICHandshakeIdleTimeoutDisabled.
 const quicHandshakeIdleTimeoutDisabled = xio.QUICHandshakeIdleTimeoutDisabled
 
-func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openQUICListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	_, port, err := quicTarget(s, true)
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func openQUICListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		return nil, err
 	}
 
-	ln := newQUICListener(ctx, qln, pc)
+	ln := newQUICListener(ctx, qln, pc, mode)
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
 		Listener:               ln,
 		Label:                  s.Type + ":" + port,
@@ -160,14 +160,15 @@ func listenQUICLowport(ctx context.Context, network, bind string, s parse.Spec, 
 type quicListener struct {
 	ln     *quic.Listener
 	pc     net.PacketConn
+	mode   xio.Mode
 	ctx    context.Context
 	cancel context.CancelFunc
 	once   sync.Once
 }
 
-func newQUICListener(parent context.Context, ln *quic.Listener, pc net.PacketConn) *quicListener {
+func newQUICListener(parent context.Context, ln *quic.Listener, pc net.PacketConn, mode xio.Mode) *quicListener {
 	ctx, cancel := context.WithCancel(parent)
-	return &quicListener{ln: ln, pc: pc, ctx: ctx, cancel: cancel}
+	return &quicListener{ln: ln, pc: pc, mode: mode, ctx: ctx, cancel: cancel}
 }
 
 func (l *quicListener) Accept() (net.Conn, error) {
@@ -184,7 +185,9 @@ func (l *quicListener) AcceptContext(ctx context.Context) (net.Conn, error) {
 		_ = qc.CloseWithError(0, "")
 		return nil, err
 	}
-	return wrapQUIC(qc, st), nil
+	nc := wrapQUIC(qc, st)
+	nc.waitPeerClose = l.mode == xio.ModeWrite
+	return nc, nil
 }
 
 func (l *quicListener) Close() error {

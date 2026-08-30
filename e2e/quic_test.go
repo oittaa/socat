@@ -78,6 +78,44 @@ func TestQUICEcho(t *testing.T) {
 	t.Fatalf("got %q want %q (srv=%s)", out, payload, srvErr.String())
 }
 
+func TestQUICOneWaySenderWaitsForCompleteSink(t *testing.T) {
+	bin := socatBin(t)
+	port := freeUDPPort(t)
+	path := filepath.Join(t.TempDir(), "sink.bin")
+	cert := listenCert(t)
+
+	srv := exec.Command(bin, "-t", "5", "-u",
+		fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert),
+		"CREATE:"+path,
+	)
+	var srvErr bytes.Buffer
+	srv.Stderr = &srvErr
+	if err := srv.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_ = srv.Process.Kill()
+		_, _ = srv.Process.Wait()
+	}()
+	waitUDPListen(t, port, 2*time.Second, srv)
+
+	payload := bytes.Repeat([]byte{0xa5}, 8<<20)
+	cli := exec.Command(bin, "-t", "5", "-u", "STDIN",
+		fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0", port),
+	)
+	cli.Stdin = bytes.NewReader(payload)
+	if out, err := cli.CombinedOutput(); err != nil {
+		t.Fatalf("client: %v: %s (server: %s)", err, out, srvErr.String())
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("sink received %d bytes, want %d (server: %s)", len(got), len(payload), srvErr.String())
+	}
+}
+
 func TestQUICVerifyFail(t *testing.T) {
 	bin := socatBin(t)
 	port := freeUDPPort(t)
