@@ -1316,6 +1316,13 @@ def cmd_sync(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_path(args: argparse.Namespace) -> int:
+    workdir = Path(args.workdir).resolve()
+    baseline = load_baseline(Path(args.baseline) if args.baseline else None)
+    sys.stdout.write(str(baseline_worktree(workdir, baseline, args.tree)) + "\n")
+    return 0
+
+
 def cmd_build(args: argparse.Namespace) -> int:
     workdir = Path(args.workdir).resolve()
     baseline = load_baseline(Path(args.baseline) if args.baseline else None)
@@ -1517,6 +1524,11 @@ def build_parser() -> argparse.ArgumentParser:
     sync = sub.add_parser("sync", help="clone/fetch official socat into the workdir")
     add_common_args(sync)
     sync.set_defaults(func=cmd_sync)
+
+    path = sub.add_parser("path", help="print a pinned classic worktree path")
+    add_common_args(path)
+    path.add_argument("--tree", choices=("release", "master"), default="release")
+    path.set_defaults(func=cmd_path)
 
     build = sub.add_parser("build", help="build classic inside the ignored workdir")
     add_common_args(build)

@@ -127,34 +127,34 @@ address-order tests call `nslookup` / `host`.
 ## Commands
 
 ```bash
-# Obtain classic tree
-git clone --depth 1 https://repo.or.cz/socat.git /tmp/socat-master
-# Use a built classic binary, e.g. /tmp/socat-1.8.1.3/socat
+# Sync and build the pinned release in the shared parity cache.
+make classic-parity
+CLASSIC_TREE="$(python3 -B scripts/classic-parity.py path --tree release)"
 
 # 1) Record classic baseline — sequential like upstream (recommended)
-SOCAT=/tmp/socat-1.8.1.3/socat \
-  FILAN=/tmp/socat-1.8.1.3/filan \
-  PROCAN=/tmp/socat-1.8.1.3/procan \
+SOCAT="$CLASSIC_TREE/socat" \
+  FILAN="$CLASSIC_TREE/filan" \
+  PROCAN="$CLASSIC_TREE/procan" \
   SKIP_BUILD=1 LABEL=classic MODE=classic \
   SAVE_BASELINE=testdata/scorecard/classic-baseline.json \
-  ./scripts/classic-scorecard.sh /tmp/socat-1.8.1.3/test.sh
+  ./scripts/classic-scorecard.sh
 
 # 2) Go parity run (same classic-like shape; low flake)
 MODE=classic \
   BASELINE=testdata/scorecard/classic-baseline.json \
   LABEL=go REGRESSION_EXIT=0 \
-  ./scripts/classic-scorecard.sh /tmp/socat-1.8.1.3/test.sh
+  ./scripts/classic-scorecard.sh
 
 # 3) Update Go baseline after intentional improvements
 MODE=classic \
   SAVE_BASELINE=testdata/scorecard/go-baseline.json \
   BASELINE=testdata/scorecard/go-baseline.json \
   REGRESSION_EXIT=1 \
-  ./scripts/classic-scorecard.sh /tmp/socat-1.8.1.3/test.sh
+  ./scripts/classic-scorecard.sh
 
 # Fast parallel smoke only
 JOBS=8 VAL_T=0.1 SHARD_TIMEOUT=300 \
-  ./scripts/classic-scorecard.sh /tmp/socat-1.8.1.3/test.sh
+  ./scripts/classic-scorecard.sh
 
 # Offline compare only
 ./scripts/scorecard-compare.py \
