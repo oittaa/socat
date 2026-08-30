@@ -34,17 +34,19 @@ DEFAULT_CASES = (
     "unix",
     "udp",
     "tls",
+    "ws",
+    "wss",
     "quic",
     "tcp-rr",
     "tls-rr",
     "quic-rr",
     "tls-hs",
 )
-STREAM_CASES = {"tcp", "unix", "tls", "quic"}
+STREAM_CASES = {"tcp", "unix", "tls", "ws", "wss", "quic"}
 DATAGRAM_CASES = {"udp"}
 RR_CASES = {"tcp-rr", "tls-rr", "quic-rr"}
 HS_CASES = {"tls-hs"}
-GO_ONLY = {"quic", "quic-rr"}
+GO_ONLY = {"ws", "wss", "quic", "quic-rr"}
 DATAGRAM_MAGIC = b"SCL1"
 DATAGRAM_HEADER = struct.Struct("!4sQII")  # magic, sequence, payload length, CRC32
 DATAGRAM_MAX_SIZE = 65507
@@ -696,6 +698,16 @@ def stream_addrs(case: str, port: int, sock: Path, certs: dict[str, Path], impl:
             f"{listen_t}:{port},reuseaddr,bind=127.0.0.1,cert={crt},key={key},verify=0",
             f"{conn_t}:127.0.0.1:{port},verify=1,cafile={ca},commonname=localhost",
         )
+    if case == "ws":
+        return (
+            f"WS-LISTEN:{port},reuseaddr,bind=127.0.0.1",
+            f"WS:127.0.0.1:{port}",
+        )
+    if case == "wss":
+        return (
+            f"WSS-LISTEN:{port},reuseaddr,bind=127.0.0.1,cert={crt},key={key},verify=0",
+            f"WSS:127.0.0.1:{port},verify=1,cafile={ca},commonname=localhost",
+        )
     if case == "quic":
         return (
             f"QUIC-LISTEN:{port},reuseaddr,bind=127.0.0.1,cert={crt},key={key},verify=0",
@@ -858,16 +870,33 @@ def run_stream_once(
         except subprocess.TimeoutExpired:
             kill_proc(client)
             raise TimeoutError("client socat timed out") from None
-        elapsed = time.perf_counter() - t0
+        server_timed_out = False
         try:
-            server.wait(timeout=15)
+            server_rc = server.wait(timeout=15)
         except subprocess.TimeoutExpired:
+            server_timed_out = True
             kill_proc(server)
+            server_rc = server.returncode
+        elapsed = time.perf_counter() - t0
         peak = sampler.stop()
         if rc != 0:
             return {
                 "status": "fail",
                 "detail": f"client exit {rc}: {clog.read_text(encoding='utf-8', errors='replace')[-400:]}",
+            }
+        if server_timed_out:
+            return {
+                "status": "fail",
+                "detail": "server socat timed out before completing the sink",
+                "elapsed_s": elapsed,
+                "peak_rss_kib": peak,
+            }
+        if server_rc != 0:
+            return {
+                "status": "fail",
+                "detail": f"server exit {server_rc}: {slog.read_text(encoding='utf-8', errors='replace')[-400:]}",
+                "elapsed_s": elapsed,
+                "peak_rss_kib": peak,
             }
         got = sink.stat().st_size if sink.exists() else 0
         if got != size:

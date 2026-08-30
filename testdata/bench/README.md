@@ -50,7 +50,8 @@ SIZE=1G RUNS=7 WARMUP=2 SAVE_BASELINE=testdata/bench/host.json ./scripts/bench.s
 `socat -u OPEN:payload,rdonly PROTO:...`. The server is
 `socat -u PROTO-LISTEN OPEN:sink,creat,trunc,wronly`.
 The sink is on tmpfs (`/dev/shm`) when possible so disk writes are not the main
-cost. Stream cases require the exact byte count.
+cost. Stream timing ends only after the receiver exits, and cases require the
+exact byte count.
 
 Default size is 256 MiB. Default is 1 warmup + 5 timed runs. The report uses
 the **median**.
@@ -61,9 +62,11 @@ the **median**.
 | `unix` | UNIX-LISTEN / UNIX-CONNECT | classic, go |
 | `udp` | UDP4-RECV / UDP4-SENDTO | classic, go |
 | `tls` | TLS-LISTEN / TLS (classic: OPENSSL-LISTEN / OPENSSL) | classic, go |
+| `ws` | WS-LISTEN / WS | go only |
+| `wss` | WSS-LISTEN / WSS | go only |
 | `quic` | QUIC-LISTEN / QUIC | go only |
 
-TLS and QUIC use the same RSA-2048 cert (SAN `DNS:localhost`, `IP:127.0.0.1`).
+TLS, WSS, and QUIC use the same RSA-2048 cert (SAN `DNS:localhost`, `IP:127.0.0.1`).
 The client sets `verify=1,cafile=,commonname=localhost`. The listener sets
 `verify=0` (no client certificate).
 
