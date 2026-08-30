@@ -98,11 +98,7 @@ func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost 
 		_ = pc.Close()
 		return nil, "", err
 	}
-	var log *logx.Logger
-	if g != nil {
-		log = g.Log
-	}
-	xio.PrepareQUICUDPConn(pc, log)
+	xio.HushQUICGoUDPBufferWarning()
 	return pc, network, nil
 }
 
@@ -143,7 +139,13 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 				if resolveErr != nil {
 					return nil, resolveErr
 				}
-				return qtr.Dial(dctx, raddr, tlsCfg, cfg)
+				qc, err := qtr.Dial(dctx, raddr, tlsCfg, cfg)
+				var log *logx.Logger
+				if g != nil {
+					log = g.Log
+				}
+				xio.ReportQUICUDPBufferCap(pc, log)
+				return qc, err
 			},
 		}
 		closeH3 := func() error {

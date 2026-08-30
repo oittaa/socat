@@ -7,9 +7,9 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -84,15 +84,37 @@ func TestQUICListenConnectEcho(t *testing.T) {
 	echoRoundtrip(t, o.Stream, []byte("quic-roundtrip"))
 }
 
-func TestQUICListenHushesStdlibBufferLog(t *testing.T) {
-	t.Setenv("QUIC_GO_DISABLE_RECEIVE_BUFFER_WARNING", "true")
-	if err := os.Unsetenv("QUIC_GO_DISABLE_RECEIVE_BUFFER_WARNING"); err != nil {
-		t.Fatal(err)
-	}
-	var std bytes.Buffer
-	log.SetOutput(&std)
-	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+const quicHushStdlibChildEnv = "SOCAT_TEST_QUIC_HUSH_STDLIB_CHILD"
 
+func TestQUICListenHushesStdlibBufferLog(t *testing.T) {
+	if os.Getenv(quicHushStdlibChildEnv) == "1" {
+		quicListenHushesStdlibBufferLogChild(t)
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestQUICListenHushesStdlibBufferLog$", "-test.v", "-test.count=1") // #nosec G204 -- re-exec this test binary without a shell
+	cmd.Env = append(withoutQUICGoBufferWarnEnv(os.Environ()), quicHushStdlibChildEnv+"=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("child: %v\n%s", err, out)
+	}
+	if bytes.Contains(out, []byte("receive buffer")) || bytes.Contains(out, []byte("send buffer")) {
+		t.Fatalf("quic-go standard log still printed a UDP buffer warning:\n%s", out)
+	}
+}
+
+func withoutQUICGoBufferWarnEnv(env []string) []string {
+	out := make([]string, 0, len(env)+1)
+	for _, e := range env {
+		if strings.HasPrefix(e, "QUIC_GO_DISABLE_RECEIVE_BUFFER_WARNING=") {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func quicListenHushesStdlibBufferLogChild(t *testing.T) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	port := startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:0,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", listenCert(t)))
@@ -107,11 +129,6 @@ func TestQUICListenHushesStdlibBufferLog(t *testing.T) {
 	}
 	defer func() { _ = o.Close() }()
 	echoRoundtrip(t, o.Stream, []byte("hush"))
-
-	out := std.String()
-	if strings.Contains(out, "receive buffer") || strings.Contains(out, "send buffer") {
-		t.Fatalf("quic-go standard log still printed a UDP buffer warning:\n%s", out)
-	}
 }
 
 func TestQUICVerifyFailsWithoutTrust(t *testing.T) {

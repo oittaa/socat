@@ -269,7 +269,7 @@ func probeQUIC(addr string, tlsCfg *tls.Config) (result, error) {
 	if err != nil {
 		return out, err
 	}
-	xio.PrepareQUICUDPConn(pc, nil)
+	xio.HushQUICGoUDPBufferWarning()
 	tr := &quic.Transport{Conn: pc}
 	defer func() {
 		_ = tr.Close()
@@ -307,7 +307,7 @@ func dialQUIC(addr string, tlsCfg *tls.Config) (connIO, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	xio.PrepareQUICUDPConn(pc, nil)
+	xio.HushQUICGoUDPBufferWarning()
 	tr := &quic.Transport{Conn: pc}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

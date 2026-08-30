@@ -16,7 +16,7 @@ func TestHushQUICGoUDPBufferWarningSetsEnvWhenUnset(t *testing.T) {
 	if err := os.Unsetenv(quicGoDisableRecvBufWarn); err != nil {
 		t.Fatal(err)
 	}
-	hushQUICGoUDPBufferWarning()
+	HushQUICGoUDPBufferWarning()
 	if v, ok := os.LookupEnv(quicGoDisableRecvBufWarn); !ok || v != "true" {
 		t.Fatalf("env %s=%q ok=%v want true", quicGoDisableRecvBufWarn, v, ok)
 	}
@@ -24,13 +24,13 @@ func TestHushQUICGoUDPBufferWarningSetsEnvWhenUnset(t *testing.T) {
 
 func TestHushQUICGoUDPBufferWarningKeepsExplicitValue(t *testing.T) {
 	t.Setenv(quicGoDisableRecvBufWarn, "false")
-	hushQUICGoUDPBufferWarning()
+	HushQUICGoUDPBufferWarning()
 	if v := os.Getenv(quicGoDisableRecvBufWarn); v != "false" {
 		t.Fatalf("env %s=%q want false (operator override)", quicGoDisableRecvBufWarn, v)
 	}
 }
 
-func TestPrepareQUICUDPConnNoticeWhenKernelCaps(t *testing.T) {
+func TestReportQUICUDPBufferCapNoticeWhenSmall(t *testing.T) {
 	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -42,11 +42,11 @@ func TestPrepareQUICUDPConnNoticeWhenKernelCaps(t *testing.T) {
 	var buf bytes.Buffer
 	lg.SetOutput(&buf)
 	lg.SetLevel(logx.Notice)
-	PrepareQUICUDPConn(pc, lg)
+	ReportQUICUDPBufferCap(pc, lg)
 
-	rcv, snd, ok := udpSocketBuffers(pc)
-	if !ok {
-		t.Fatal("could not inspect UDP buffers")
+	rcv, snd, err := udpSocketBuffers(pc)
+	if err != nil {
+		t.Fatal(err)
 	}
 	msg := buf.String()
 	if rcv >= quicDesiredUDPBuffer && snd >= quicDesiredUDPBuffer {
@@ -63,7 +63,7 @@ func TestPrepareQUICUDPConnNoticeWhenKernelCaps(t *testing.T) {
 	}
 }
 
-func TestPrepareQUICUDPConnDefaultLevelHidesNotice(t *testing.T) {
+func TestReportQUICUDPBufferCapDefaultLevelHidesNotice(t *testing.T) {
 	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -74,8 +74,25 @@ func TestPrepareQUICUDPConnDefaultLevelHidesNotice(t *testing.T) {
 	lg := logx.New()
 	var buf bytes.Buffer
 	lg.SetOutput(&buf)
-	PrepareQUICUDPConn(pc, lg)
+	ReportQUICUDPBufferCap(pc, lg)
 	if strings.Contains(buf.String(), "QUIC UDP buffer") {
 		t.Fatalf("notice printed at default Warning level: %s", buf.String())
+	}
+}
+
+func TestUDPSocketBuffersPropagatesGetsockoptError(t *testing.T) {
+	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := pc.Close(); err != nil {
+		t.Fatal(err)
+	}
+	rcv, snd, err := udpSocketBuffers(pc)
+	if err == nil {
+		t.Fatalf("closed conn: rcv=%d snd=%d err=nil", rcv, snd)
+	}
+	if rcv != 0 || snd != 0 {
+		t.Fatalf("closed conn leaked sizes rcv=%d snd=%d err=%v", rcv, snd, err)
 	}
 }

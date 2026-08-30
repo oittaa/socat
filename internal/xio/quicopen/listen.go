@@ -45,7 +45,7 @@ func openQUICListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 		return nil, err
 	}
 
-	pc, err := listenPacket(ctx, network, addr, s, logFromGlobal(g))
+	pc, err := listenPacket(ctx, network, addr, s)
 	if err != nil {
 		return nil, err
 	}
@@ -54,6 +54,7 @@ func openQUICListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
+	xio.ReportQUICUDPBufferCap(pc, logFromGlobal(g))
 
 	ln := newQUICListener(ctx, qln, pc, mode)
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
@@ -94,7 +95,7 @@ func logFromGlobal(g *xio.Global) *logx.Logger {
 	return g.Log
 }
 
-func listenPacket(ctx context.Context, network, addr string, s parse.Spec, log *logx.Logger) (net.PacketConn, error) {
+func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.PacketConn, error) {
 	// ListenControl applies send-side IP options once, after socket() and
 	// before bind. Do not call ApplyIPSendOptsToPacketConn here.
 	// connect-timeout bounds this local UDP bind, not remote QUIC dial.
@@ -126,7 +127,7 @@ func listenPacket(ctx context.Context, network, addr string, s parse.Spec, log *
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	xio.PrepareQUICUDPConn(pc, log)
+	xio.HushQUICGoUDPBufferWarning()
 	return pc, nil
 }
 
@@ -142,7 +143,7 @@ func listenQUICClientPacket(ctx context.Context, network, bindHost, sourceport s
 		sourceport = "0"
 	}
 	laddr := net.JoinHostPort(xio.StripBrackets(bindHost), sourceport)
-	return listenPacket(ctx, network, laddr, s, logFromGlobal(g))
+	return listenPacket(ctx, network, laddr, s)
 }
 
 func listenQUICLowport(ctx context.Context, network, bind string, s parse.Spec, g *xio.Global) (net.PacketConn, error) {
@@ -152,7 +153,7 @@ func listenQUICLowport(ctx context.Context, network, bind string, s parse.Spec, 
 			g.Log.Debugf("bind(%s:%d)", bind, port)
 		}
 		addr := net.JoinHostPort(xio.StripBrackets(bind), strconv.Itoa(port))
-		c, err := listenPacket(ctx, network, addr, s, logFromGlobal(g))
+		c, err := listenPacket(ctx, network, addr, s)
 		if err != nil {
 			return err
 		}

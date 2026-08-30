@@ -78,6 +78,7 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 				return e
 			}
 			qc, e := tr.Dial(cctx, raddr, setup.tls.Clone(), setup.cfg)
+			xio.ReportQUICUDPBufferCap(pc, logFromGlobal(g))
 			if e != nil {
 				return e
 			}
