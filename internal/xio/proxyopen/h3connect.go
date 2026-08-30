@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"strconv"
-	"strings"
 
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
@@ -25,14 +24,7 @@ import (
 var testHookH3PacketConn func(net.PacketConn)
 
 func tcpToUDPNetwork(tcpNet string) string {
-	switch strings.ToLower(tcpNet) {
-	case "tcp4":
-		return "udp4"
-	case "tcp6":
-		return "udp6"
-	default:
-		return "udp"
-	}
+	return xio.TCPToUDPNetwork(tcpNet)
 }
 
 // listenH3Packet binds the HTTP/3 UDP socket with ListenControl so send-side

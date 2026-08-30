@@ -119,6 +119,9 @@ func TestUDPNetwork(t *testing.T) {
 	if udpNetwork("tcp4") != "udp4" || udpNetwork("tcp6") != "udp6" || udpNetwork("tcp") != "udp" {
 		t.Fatal(udpNetwork("tcp4"), udpNetwork("tcp6"), udpNetwork("tcp"))
 	}
+	if xio.TCPToUDPNetwork("TCP4") != "udp4" {
+		t.Fatal(xio.TCPToUDPNetwork("TCP4"))
+	}
 }
 
 func TestQUICConfigHandshakeIdleTimeoutFromHandshakeTimeout(t *testing.T) {

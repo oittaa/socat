@@ -69,7 +69,7 @@ func resolverRewriteDNSTransport(base *net.Resolver, forceTCP bool) *net.Resolve
 var _ net.Conn = (*dnsUDPThenTCPConn)(nil)
 
 func dnsUDPNetwork(tcpNetwork string) string {
-	return "udp" + strings.TrimPrefix(tcpNetwork, "tcp")
+	return TCPToUDPNetwork(tcpNetwork)
 }
 
 func newDNSUDPThenTCPConn(ctx context.Context, dial resolverDialFunc, tcpNetwork, address string) *dnsUDPThenTCPConn {

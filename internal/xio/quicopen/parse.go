@@ -5,7 +5,6 @@ package quicopen
 import (
 	"crypto/tls"
 	"fmt"
-	"strings"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
@@ -50,12 +49,5 @@ func withALPN(cfg *tls.Config, s parse.Spec) (*tls.Config, error) {
 }
 
 func udpNetwork(tcpNet string) string {
-	switch strings.ToLower(tcpNet) {
-	case "tcp4":
-		return "udp4"
-	case "tcp6":
-		return "udp6"
-	default:
-		return "udp"
-	}
+	return xio.TCPToUDPNetwork(tcpNet)
 }

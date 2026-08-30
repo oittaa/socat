@@ -429,6 +429,19 @@ func NetworkFromPF(pf, proto, def string) string {
 	}
 }
 
+// TCPToUDPNetwork maps a TCP network name onto the corresponding UDP name.
+// tcp4/tcp6 become udp4/udp6; tcp, empty, and unknown names become udp.
+func TCPToUDPNetwork(tcpNet string) string {
+	switch strings.ToLower(tcpNet) {
+	case "tcp4":
+		return "udp4"
+	case "tcp6":
+		return "udp6"
+	default:
+		return "udp"
+	}
+}
+
 func ListenNetwork(g *Global, s parse.Spec) string {
 	if pf := s.OptionValue("pf", ""); pf != "" {
 		if n := NetworkFromPF(pf, "tcp", ""); n != "" {
