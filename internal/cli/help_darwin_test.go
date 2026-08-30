@@ -43,6 +43,7 @@ func TestDarwinHelpHidesLinuxSCTP(t *testing.T) {
 		"chroot", "chroot-early",
 		"setgid", "setgid-early", "setuid", "setuid-early",
 		"substuser", "su", "substuser-delayed", "su-d", "substuser-early", "su-e",
+		"tabdly", "xtabs", "vswtc", "swtc", "swtch", "iuclc", "olcuc", "xcase",
 	} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("unsupported or Linux-only option %q must not be advertised on %s", name, runtime.GOOS)
@@ -52,6 +53,7 @@ func TestDarwinHelpHidesLinuxSCTP(t *testing.T) {
 		"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string",
 		"cloexec",
 		"nopush", "noopt",
+		"nldly", "crdly", "bsdly", "vtdly", "ffdly", "csize",
 		"so-rcvlowat", "rcvlowat", "so-sndlowat", "sndlowat",
 		"ip-hdrincl", "hdrincl", "iphdrincl",
 		"fiosetown", "siocspgrp",

@@ -72,8 +72,5 @@ var platformTermiosFlags = []termiosFlag{
 var platformTermiosChars = []termiosCC{{"vswtc", unix.VSWTC}}
 var platformTermiosCharAliases = []string{"swtc", "swtch"}
 
-var platformTermiosValues = []termiosValue{
-	{"crdly", wordO, termiosCRDLY, 9},
-	{"tabdly", wordO, termiosTABDLY, 11},
-	{"csize", wordC, termiosBits(unix.CSIZE), 4},
-}
+// crdly, tabdly, and csize come from posixTermiosValues (2-bit field masks).
+var platformTermiosValues []termiosValue

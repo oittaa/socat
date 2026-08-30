@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/bits"
 	"strconv"
 	"strings"
 	"time"
@@ -179,10 +180,41 @@ func allTermiosFlags() []termiosFlag {
 }
 
 func allTermiosValues() []termiosValue {
-	out := make([]termiosValue, len(platformTermiosValues))
-	copy(out, platformTermiosValues)
+	out := make([]termiosValue, 0, len(posixTermiosValueTable)+len(platformTermiosValues))
+	out = append(out, posixTermiosValueTable...)
+	out = append(out, platformTermiosValues...)
 	return out
 }
+
+// termiosTwoBitShift reports the shift of a 2-bit termios field (mask must
+// equal 3<<shift). Masks that mix unrelated bits, such as Darwin TABDLY
+// (TAB3 aliases OXTABS), are not a field.
+func termiosTwoBitShift(mask termiosBits) (uint, bool) {
+	if mask == 0 {
+		return 0, false
+	}
+	shift := uint(bits.TrailingZeros64(uint64(mask)))
+	if mask != termiosBits(3)<<shift {
+		return 0, false
+	}
+	return shift, true
+}
+
+func posixTermiosValues() []termiosValue {
+	var out []termiosValue
+	if shift, ok := termiosTwoBitShift(termiosCRDLY); ok {
+		out = append(out, termiosValue{name: "crdly", word: wordO, mask: termiosCRDLY, shift: shift})
+	}
+	if shift, ok := termiosTwoBitShift(termiosTABDLY); ok {
+		out = append(out, termiosValue{name: "tabdly", word: wordO, mask: termiosTABDLY, shift: shift})
+	}
+	if shift, ok := termiosTwoBitShift(termiosBits(unix.CSIZE)); ok {
+		out = append(out, termiosValue{name: "csize", word: wordC, mask: termiosBits(unix.CSIZE), shift: shift})
+	}
+	return out
+}
+
+var posixTermiosValueTable = posixTermiosValues()
 
 // TermiosHelpNames are option names we enforce (for -hh).
 func TermiosHelpNames() []string {

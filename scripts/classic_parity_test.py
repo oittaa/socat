@@ -1098,13 +1098,16 @@ class RepoPolicyTest(unittest.TestCase):
             "compr",
             "noatime",
             "fs-append",
-            "bsdly",
+            "tabdly",
+            "xtabs",
             "netns",
             "iff-up",
             "posixmq-priority",
             "tun-device",
         ):
             self.assertIn(name, platforms["linux"])
+        for name in ("nldly", "crdly", "csize", "bsdly", "vtdly", "ffdly"):
+            self.assertNotIn(name, platforms["linux"])
         self.assertIn("b110", platforms["darwin"])
         self.assertIn("cr0", platforms["darwin"])
         self.assertIn("cs5", platforms["darwin"])
