@@ -460,6 +460,22 @@ class CompareTest(unittest.TestCase):
         linux = self._report(release_docs=docs, release_hhh=None, policy=policy, goos="linux")
         self.assertIn("SCTP-CONNECT", linux.missing_addresses)
 
+    def test_platform_address_family_does_not_hide_invented_go_names(self) -> None:
+        policy = copy.deepcopy(POLICY)
+        policy["platform_addresses"] = {"linux": ["SCTP"], "darwin": [], "windows": []}
+        go = parity.parse_go_help(
+            SYNTHETIC_GO_HELP.replace(
+                "Address options:\n",
+                "    SCTP-TYPO:<host>     invented address\n\nAddress options:\n",
+            )
+        )
+        self.assertIn("SCTP", parity.platform_address_set(policy, "linux"))
+        self.assertIn("SCTP-TYPO", go.addresses)
+        linux = self._report(go_help=go, policy=policy, goos="linux")
+        self.assertIn("SCTP-TYPO", linux.unexpected_addresses)
+        darwin = self._report(go_help=go, policy=policy, goos="darwin")
+        self.assertIn("SCTP-TYPO", darwin.unexpected_addresses)
+
     def test_yo_short_name_is_not_covered_by_a_different_canonical_seed(self) -> None:
         docs = parity.parse_socat_yo(
             SYNTHETIC_YO + "\nlabel(OPTION_CORK)dit(bf(tt(cork[=<bool>])))\n"
