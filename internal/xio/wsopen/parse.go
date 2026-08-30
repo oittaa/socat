@@ -1,5 +1,5 @@
 // Package wsopen implements WS / WSS connect and listen.
-// The byte relay uses github.com/coder/websocket NetConn with binary frames.
+// The byte relay carries binary WebSocket messages as a stream.
 package wsopen
 
 import (

@@ -146,6 +146,19 @@ class DatagramSummaryTest(unittest.TestCase):
 
 
 class StreamSummaryTest(unittest.TestCase):
+    def test_websocket_addresses_are_go_only_stream_cases(self) -> None:
+        certs = {"crt": Path("server.crt"), "key": Path("server.key"), "ca": Path("ca.pem")}
+
+        ws_listen, ws_connect = bench.stream_addrs("ws", 9, Path("sock"), certs)
+        wss_listen, wss_connect = bench.stream_addrs("wss", 10, Path("sock"), certs)
+
+        self.assertEqual(ws_listen, "WS-LISTEN:9,reuseaddr,bind=127.0.0.1")
+        self.assertEqual(ws_connect, "WS:127.0.0.1:9")
+        self.assertIn("cert=server.crt,key=server.key", wss_listen)
+        self.assertIn("verify=1,cafile=ca.pem,commonname=localhost", wss_connect)
+        self.assertTrue({"ws", "wss"} <= bench.STREAM_CASES)
+        self.assertTrue({"ws", "wss"} <= bench.GO_ONLY)
+
     def test_partial_failure_keeps_failure_detail(self) -> None:
         summary = bench.summarize_stream(
             [

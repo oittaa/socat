@@ -133,5 +133,5 @@ func upgradeConnNow(c net.Conn, wantPath, origin, proto string) (net.Conn, error
 	if err != nil {
 		return nil, err
 	}
-	return websocket.NetConn(context.Background(), wc, websocket.MessageBinary), nil
+	return newWSNetConn(c, wc), nil
 }

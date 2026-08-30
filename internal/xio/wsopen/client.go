@@ -132,8 +132,7 @@ func dialWS(ctx context.Context, network, host, port, rawURL string, s parse.Spe
 	}
 	_ = raw.SetDeadline(time.Time{})
 	owned = true
-	// Background: NetConn must outlive the dial timeout; Close ends the session.
-	return websocket.NetConn(context.Background(), c, websocket.MessageBinary), nil
+	return newWSNetConn(raw, c), nil
 }
 
 func alreadyDialed(c net.Conn) func(context.Context, string, string) (net.Conn, error) {
