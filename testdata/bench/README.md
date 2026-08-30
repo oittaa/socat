@@ -3,7 +3,7 @@
 Optional loopback measures. They are not `make test` and not `make e2e`.
 
 The suite starts real socat processes. It compares this Go binary with classic
-C socat when `CLASSIC_SOCAT` is set.
+C socat found on `PATH`. `SOCAT_CLASSIC_BIN` overrides automatic detection.
 
 Classic TLS uses the **distro OpenSSL** (this host: 3.5.5) and an unpatched
 classic 1.8.1.3. That binary pins P-256 via `SSL_CTX_set_tmp_ecdh`. Go
@@ -19,8 +19,8 @@ zero stream look much faster than real data. The default payload is a cached
 **AES-128-CTR** blob of the requested size (zeros go into the cipher only).
 That ciphertext does not compress.
 
-Set `BENCH_PAYLOAD=/path/to/file` to use your own file. The file must be at
-least `SIZE` bytes. The runner copies the first `SIZE` bytes.
+Set `SOCAT_BENCH_PAYLOAD=/path/to/file` to use your own file. The file must be
+at least `SOCAT_BENCH_SIZE` bytes. The runner copies that many bytes.
 
 Working files live under `testdata/tmp/bench/` (gitignored). The payload may
 also sit in `/dev/shm` when that directory is writable.
@@ -31,13 +31,14 @@ also sit in `/dev/shm` when that directory is writable.
 # From the repo root
 make bench
 # or
-CLASSIC_SOCAT=/path/to/classic/socat ./scripts/bench.sh
+SOCAT_CLASSIC_BIN=/path/to/classic/socat ./scripts/bench.sh
 
 # Subset and smaller size
-SIZE=64M RUNS=3 ./scripts/bench.sh tcp tls quic
+SOCAT_BENCH_SIZE=64M SOCAT_BENCH_RUNS=3 ./scripts/bench.sh tcp tls quic
 
 # Record the committed snapshot
-SIZE=1G RUNS=7 WARMUP=2 SAVE_BASELINE=testdata/bench/host.json ./scripts/bench.sh
+SOCAT_BENCH_SIZE=1G SOCAT_BENCH_RUNS=7 SOCAT_BENCH_WARMUP=2 \
+  SOCAT_BENCH_SAVE_BASELINE=testdata/bench/host.json ./scripts/bench.sh
 ```
 
 `make bench` does not run from `make test` or `make e2e`.
@@ -92,32 +93,32 @@ Classic socat has no QUIC.
 one-shot on this port, so it is not used here.
 
 The runner does not pretend that larger socket buffers make datagrams
-lossless. It frames the incompressible payload into fixed `BUF`-byte
-datagrams with a sequence number, payload length, and CRC32. After the
+lossless. It frames the incompressible payload into fixed-size records with a
+sequence number, payload length, and CRC32. After the
 sender exits, it waits until the sink is quiet, then reports logical-payload
 sender and delivered-receiver MiB/s plus loss, duplicates, reordering, and
 corruption. Loss and reordering are measurements; malformed or corrupt
-frames fail the run. `SIZE` is the logical payload size, excluding frame
-headers and final-frame padding. There is no connection EOF, so the
+frames fail the run. `SOCAT_BENCH_SIZE` is the logical payload size, excluding
+frame headers and final-frame padding. There is no connection EOF, so the
 receiver is terminated after the quiet interval.
 
 ## Environment
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `SOCAT` | `./socat` | Go binary |
-| `CLASSIC_SOCAT` | search common paths | Classic C binary |
-| `OPENSSL_BIN` | `openssl` on PATH | Distro OpenSSL (certs, payload, probe) |
-| `SIZE` | `256M` | Stream payload (MiB if `M`) |
-| `RUNS` | `5` | Timed runs |
-| `WARMUP` | `1` | Untimed runs |
-| `BUF` | `8192` | socat `-b`; datagram cases require 21..65507 |
-| `BENCH_PAYLOAD` | AES-CTR blob | Optional file, ≥ `SIZE` |
-| `SAVE_BASELINE` | empty | Copy JSON + summary here |
-| `RR_N` / `RR_WARMUP` / `RR_SIZE` | 20000 / 1000 / 64 | Ping-pong |
-| `HS_N` / `HS_WARMUP` | 200 / 20 | Handshakes |
-| `SKIP_BUILD` | `0` | Skip `make build` |
-| `PROBE_ONLY` | `0` | Handshake probe only; merge `meta.tls` into `SAVE_BASELINE` |
+| `SOCAT_BIN` | `./socat` | Go binary |
+| `SOCAT_CLASSIC_BIN` | `socat` on PATH | Classic C binary override |
+| `SOCAT_BENCH_OPENSSL_BIN` | `openssl` on PATH | Distro OpenSSL (certs, payload, probe) |
+| `SOCAT_BENCH_SIZE` | `256M` | Stream payload (MiB if `M`) |
+| `SOCAT_BENCH_RUNS` | `5` | Timed runs |
+| `SOCAT_BENCH_WARMUP` | `1` | Untimed runs |
+| `SOCAT_BENCH_BUFFER` | `8192` | socat `-b`; datagram cases require 21..65507 |
+| `SOCAT_BENCH_PAYLOAD` | AES-CTR blob | Optional file, ≥ `SOCAT_BENCH_SIZE` |
+| `SOCAT_BENCH_SAVE_BASELINE` | empty | Copy JSON + summary here |
+| `SOCAT_BENCH_RR_N` / `SOCAT_BENCH_RR_WARMUP` / `SOCAT_BENCH_RR_SIZE` | 20000 / 1000 / 64 | Ping-pong |
+| `SOCAT_BENCH_HS_N` / `SOCAT_BENCH_HS_WARMUP` | 200 / 20 | Handshakes |
+| `SOCAT_BENCH_SKIP_BUILD` | `0` | Skip `make build` |
+| `SOCAT_BENCH_PROBE_ONLY` | `0` | Handshake probe only; merge `meta.tls` into `SOCAT_BENCH_SAVE_BASELINE` |
 
 Both binaries use `-b 8192` and bind `127.0.0.1`.
 
@@ -191,7 +192,8 @@ Recorded handshakes (same binaries as the table; see `meta.tls` in `host.json`):
 ## Refresh the committed snapshot
 
 ```bash
-SIZE=1G RUNS=7 WARMUP=2 SAVE_BASELINE=testdata/bench/host.json ./scripts/bench.sh
+SOCAT_BENCH_SIZE=1G SOCAT_BENCH_RUNS=7 SOCAT_BENCH_WARMUP=2 \
+  SOCAT_BENCH_SAVE_BASELINE=testdata/bench/host.json ./scripts/bench.sh
 ```
 
 Then copy the medians from `testdata/bench/host.summary.txt` into the

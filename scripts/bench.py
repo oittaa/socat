@@ -46,7 +46,12 @@ STREAM_CASES = {"tcp", "unix", "tls", "ws", "wss", "quic"}
 DATAGRAM_CASES = {"udp"}
 RR_CASES = {"tcp-rr", "tls-rr", "quic-rr"}
 HS_CASES = {"tls-hs"}
-GO_ONLY = {"ws", "wss", "quic", "quic-rr"}
+GO_ONLY = {
+    "ws": "WebSocket",
+    "wss": "WebSocket",
+    "quic": "QUIC",
+    "quic-rr": "QUIC",
+}
 DATAGRAM_MAGIC = b"SCL1"
 DATAGRAM_HEADER = struct.Struct("!4sQII")  # magic, sequence, payload length, CRC32
 DATAGRAM_MAX_SIZE = 65507
@@ -85,6 +90,18 @@ def first_line(cmd: list[str]) -> str:
     except (OSError, subprocess.TimeoutExpired):
         return ""
     return out.splitlines()[0] if out else ""
+
+
+def socat_version(cmd: list[str]) -> str:
+    try:
+        out = run_cmd(cmd)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    lines = [line.strip() for line in out.splitlines() if line.strip()]
+    for line in lines:
+        if line.lower().startswith("socat version "):
+            return line
+    return lines[0] if lines else ""
 
 
 def cpu_model() -> str:
@@ -211,7 +228,7 @@ def probe_openssl_sclient(
     server = start_socat(server_bin, [listen, "PIPE"], slog)
     try:
         wait_tcp(port)
-        openssl_bin = os.environ.get("OPENSSL_BIN", "openssl")
+        openssl_bin = os.environ.get("SOCAT_BENCH_OPENSSL_BIN", "openssl")
         p = subprocess.run(
             [
                 openssl_bin,
@@ -302,11 +319,13 @@ def collect_meta(args: dict[str, Any]) -> dict[str, Any]:
         "nproc": os.cpu_count() or 0,
         "go_version": first_line(["go", "version"]),
         "go_socat": go_bin,
-        "go_socat_version": first_line([go_bin, "-V"]),
+        "go_socat_version": socat_version([go_bin, "-V"]),
         "classic_socat": classic or "",
-        "classic_socat_version": first_line([classic, "-V"]) if classic else "",
-        "openssl_bin": os.environ.get("OPENSSL_BIN", "openssl"),
-        "openssl_version": first_line([os.environ.get("OPENSSL_BIN", "openssl"), "version"]),
+        "classic_socat_version": socat_version([classic, "-V"]) if classic else "",
+        "openssl_bin": os.environ.get("SOCAT_BENCH_OPENSSL_BIN", "openssl"),
+        "openssl_version": first_line(
+            [os.environ.get("SOCAT_BENCH_OPENSSL_BIN", "openssl"), "version"]
+        ),
         "size_bytes": args["size"],
         "runs": args["runs"],
         "warmup": args["warmup"],
@@ -331,15 +350,15 @@ def payload_sha256(path: Path, limit: int = 1024 * 1024) -> str:
 
 
 def ensure_payload(workdir: Path, size: int) -> tuple[Path, str]:
-    given = os.environ.get("BENCH_PAYLOAD", "").strip()
+    given = os.environ.get("SOCAT_BENCH_PAYLOAD", "").strip()
     if given:
         src = Path(given)
         if not src.is_file():
-            raise SystemExit(f"BENCH_PAYLOAD is not a file: {src}")
+            raise SystemExit(f"SOCAT_BENCH_PAYLOAD is not a file: {src}")
         st = src.stat().st_size
         if st < size:
             raise SystemExit(
-                f"BENCH_PAYLOAD {src} is {st} bytes; need at least {size}. "
+                f"SOCAT_BENCH_PAYLOAD {src} is {st} bytes; need at least {size}. "
                 "Do not use /dev/zero (compressible)."
             )
         dest = workdir / f"payload.{size}"
@@ -359,17 +378,19 @@ def ensure_payload(workdir: Path, size: int) -> tuple[Path, str]:
 
 def datagram_frame_count(size: int, buffer: int) -> int:
     if size <= 0:
-        raise ValueError("datagram benchmark SIZE must be positive")
+        raise ValueError("SOCAT_BENCH_SIZE must be positive")
     if buffer <= DATAGRAM_HEADER.size:
-        raise ValueError(f"datagram BUF must exceed the {DATAGRAM_HEADER.size}-byte frame header")
+        raise ValueError(
+            f"SOCAT_BENCH_BUFFER must exceed the {DATAGRAM_HEADER.size}-byte frame header"
+        )
     if buffer > DATAGRAM_MAX_SIZE:
-        raise ValueError(f"datagram BUF must not exceed {DATAGRAM_MAX_SIZE}")
+        raise ValueError(f"SOCAT_BENCH_BUFFER must not exceed {DATAGRAM_MAX_SIZE}")
     payload_per_frame = buffer - DATAGRAM_HEADER.size
     return (size + payload_per_frame - 1) // payload_per_frame
 
 
 def ensure_datagram_payload(payload: Path, size: int, buffer: int) -> tuple[Path, int, int]:
-    """Frame SIZE source bytes into fixed-size, self-validating datagrams."""
+    """Frame source bytes into fixed-size, self-validating datagrams."""
     frame_count = datagram_frame_count(size, buffer)
     wire_size = frame_count * buffer
     stat = payload.stat()
@@ -477,7 +498,7 @@ def copy_prefix(src: Path, dest: Path, size: int) -> None:
 
 
 def generate_aes_ctr(dest: Path, size: int) -> None:
-    """Write SIZE bytes of AES-128-CTR(zeros). Fast to make; does not compress."""
+    """Write AES-128-CTR-encrypted zeros. Fast to make; does not compress."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + ".tmp")
     # Read zeros only as the cipher input. The file we keep is ciphertext.
@@ -488,7 +509,7 @@ def generate_aes_ctr(dest: Path, size: int) -> None:
     assert dd.stdout is not None
     enc = subprocess.Popen(
         [
-            os.environ.get("OPENSSL_BIN", "openssl"),
+            os.environ.get("SOCAT_BENCH_OPENSSL_BIN", "openssl"),
             "enc",
             "-aes-128-ctr",
             "-nosalt",
@@ -633,7 +654,16 @@ class RSSSampler:
 
 
 def start_socat(bin_path: str, extra: list[str], log: Path) -> subprocess.Popen:
-    args = [bin_path, "-b", os.environ.get("BUF", "8192"), "-t", "2", "-T", "60", *extra]
+    args = [
+        bin_path,
+        "-b",
+        os.environ.get("SOCAT_BENCH_BUFFER", "8192"),
+        "-t",
+        "2",
+        "-T",
+        "60",
+        *extra,
+    ]
     log.parent.mkdir(parents=True, exist_ok=True)
     fh = log.open("w", encoding="utf-8")
     try:
@@ -671,7 +701,7 @@ def kill_proc(p: subprocess.Popen | None) -> None:
 def sink_dir() -> Path:
     if os.access("/dev/shm", os.W_OK):
         return Path("/dev/shm")
-    return Path(os.environ["WORKDIR"])
+    return Path(os.environ["SOCAT_BENCH_WORKDIR"])
 
 
 def tls_type_names(impl: str) -> tuple[str, str]:
@@ -1150,6 +1180,7 @@ def write_summary(doc: dict[str, Any], path: Path) -> None:
         f"cpu_model={m.get('cpu_model')}",
         f"nproc={m.get('nproc')}",
         f"go_version={m.get('go_version')}",
+        f"go_socat_version={m.get('go_socat_version')}",
         f"classic_socat_version={m.get('classic_socat_version')}",
         f"size_bytes={m.get('size_bytes')}",
         f"runs={m.get('runs')}",
@@ -1212,21 +1243,23 @@ def write_summary(doc: dict[str, Any], path: Path) -> None:
 
 
 def main() -> int:
-    workdir = Path(os.environ.get("WORKDIR", str(ROOT / "testdata/tmp/bench")))
+    workdir = Path(os.environ.get("SOCAT_BENCH_WORKDIR", str(ROOT / "testdata/tmp/bench")))
     workdir.mkdir(parents=True, exist_ok=True)
-    size = parse_size(os.environ.get("SIZE", "256M"))
-    runs = int(os.environ.get("RUNS", "5"))
-    warmup = int(os.environ.get("WARMUP", "1"))
-    buffer = int(os.environ.get("BUF", "8192"))
-    socat = os.environ.get("SOCAT", str(ROOT / "socat"))
-    classic = os.environ.get("CLASSIC_SOCAT", "").strip()
-    benchclient = Path(os.environ.get("BENCHCLIENT", str(workdir / "benchclient")))
+    size = parse_size(os.environ.get("SOCAT_BENCH_SIZE", "256M"))
+    runs = int(os.environ.get("SOCAT_BENCH_RUNS", "5"))
+    warmup = int(os.environ.get("SOCAT_BENCH_WARMUP", "1"))
+    buffer = int(os.environ.get("SOCAT_BENCH_BUFFER", "8192"))
+    socat = os.environ.get("SOCAT_BIN", str(ROOT / "socat"))
+    classic = os.environ.get("SOCAT_CLASSIC_BIN", "").strip()
+    benchclient = Path(
+        os.environ.get("SOCAT_BENCH_CLIENT_BIN", str(workdir / "benchclient"))
+    )
     certs = {
-        "ca": Path(os.environ["BENCH_CA"]),
-        "crt": Path(os.environ["BENCH_CERT"]),
-        "key": Path(os.environ["BENCH_KEY"]),
+        "ca": Path(os.environ["SOCAT_BENCH_CA"]),
+        "crt": Path(os.environ["SOCAT_BENCH_CERT"]),
+        "key": Path(os.environ["SOCAT_BENCH_KEY"]),
     }
-    probe_only = os.environ.get("PROBE_ONLY", "") == "1"
+    probe_only = os.environ.get("SOCAT_BENCH_PROBE_ONLY", "") == "1"
     wanted = tuple(sys.argv[1:] or (() if probe_only else DEFAULT_CASES))
     for c in wanted:
         if c not in STREAM_CASES | DATAGRAM_CASES | RR_CASES | HS_CASES:
@@ -1242,7 +1275,7 @@ def main() -> int:
             benchclient=benchclient,
         )
         print(json.dumps(tls, indent=2), flush=True)
-        save = os.environ.get("SAVE_BASELINE", "").strip()
+        save = os.environ.get("SOCAT_BENCH_SAVE_BASELINE", "").strip()
         if save and Path(save).is_file():
             doc = json.loads(Path(save).read_text(encoding="utf-8"))
             doc.setdefault("meta", {})["tls"] = tls
@@ -1278,11 +1311,11 @@ def main() -> int:
         impls_for.append(("classic", classic))
     impls_for.append(("go", socat))
 
-    rr_n = int(os.environ.get("RR_N", "20000"))
-    rr_warmup = int(os.environ.get("RR_WARMUP", "1000"))
-    rr_size = int(os.environ.get("RR_SIZE", "64"))
-    hs_n = int(os.environ.get("HS_N", "200"))
-    hs_warmup = int(os.environ.get("HS_WARMUP", "20"))
+    rr_n = int(os.environ.get("SOCAT_BENCH_RR_N", "20000"))
+    rr_warmup = int(os.environ.get("SOCAT_BENCH_RR_WARMUP", "1000"))
+    rr_size = int(os.environ.get("SOCAT_BENCH_RR_SIZE", "64"))
+    hs_n = int(os.environ.get("SOCAT_BENCH_HS_N", "200"))
+    hs_warmup = int(os.environ.get("SOCAT_BENCH_HS_WARMUP", "20"))
 
     print(
         f"payload={payload} ({payload_note}, {size} bytes)\n"
@@ -1294,15 +1327,16 @@ def main() -> int:
     for case in wanted:
         for impl, bin_path in impls_for:
             if case in GO_ONLY and impl != "go":
+                protocol = GO_ONLY[case]
                 doc["cases"].append(
                     {
                         "id": case,
                         "impl": impl,
                         "status": "skip",
-                        "detail": "classic has no QUIC",
+                        "detail": f"{protocol} is not available in classic",
                     }
                 )
-                print(f"  skip {case}/{impl} (no QUIC in classic)", flush=True)
+                print(f"  skip {case}/{impl} ({protocol} is not available in classic)", flush=True)
                 continue
             print(f"  run  {case}/{impl} ...", flush=True)
             samples: list[dict[str, Any]] = []
@@ -1460,12 +1494,12 @@ def main() -> int:
             else:
                 print(f"       {row.get('status')} {row.get('detail', '')}", flush=True)
 
-    out_json = Path(os.environ.get("BENCH_OUT", str(workdir / "results.json")))
+    out_json = Path(os.environ.get("SOCAT_BENCH_OUT", str(workdir / "results.json")))
     out_json.parent.mkdir(parents=True, exist_ok=True)
     out_json.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
     summary_path = out_json.with_suffix(".summary.txt")
     write_summary(doc, summary_path)
-    save = os.environ.get("SAVE_BASELINE", "").strip()
+    save = os.environ.get("SOCAT_BENCH_SAVE_BASELINE", "").strip()
     if save:
         dest = Path(save)
         dest.parent.mkdir(parents=True, exist_ok=True)
