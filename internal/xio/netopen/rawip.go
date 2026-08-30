@@ -474,6 +474,8 @@ func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob
 	return ReadIPMsgWithBuffer(c, p, wantCtrl, stripV4, nil)
 }
 
+// ReadIPMsgWithBuffer returns control data backed by oobBuffer.
+// Callers must consume it before reusing the buffer.
 func ReadIPMsgWithBuffer(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool, oobBuffer []byte) (n int, oob []byte, addr net.Addr, err error) {
 	if !wantCtrl {
 		n, addr, err = c.ReadFrom(p)

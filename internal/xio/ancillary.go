@@ -369,6 +369,7 @@ func ReadUDPMsg(c *net.UDPConn, p []byte, wantCtrl bool) (n int, oob []byte, add
 }
 
 // ReadUDPMsgWithBuffer reuses oobBuffer when control messages are enabled.
+// The returned oob slice aliases that buffer and is valid until its next use.
 func ReadUDPMsgWithBuffer(c *net.UDPConn, p []byte, wantCtrl bool, oobBuffer []byte) (n int, oob []byte, addr *net.UDPAddr, err error) {
 	if !wantCtrl {
 		n, addr, err = c.ReadFromUDP(p)

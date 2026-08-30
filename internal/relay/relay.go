@@ -90,7 +90,7 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	stopIdle := startIdleWatch(ctx, cancel, cfg.IdleTimeout, tr)
+	touch, stopIdle := startIdleWatch(ctx, cancel, cfg.IdleTimeout)
 	defer stopIdle()
 
 	results := make(chan dirResult, 2)
@@ -159,12 +159,12 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	if cfg.LeftToRight {
 		nDirs++
 		wg.Add(1)
-		go copyDir(ctx, dirTask{dir: ">", dst: right, src: left, dstFD: lrDstFD, srcFD: lrSrcFD, plan: lrZeroCopy, bytes: &tr.BytesLR, blocks: &tr.BlocksLR}, cfg, results, &wg)
+		go copyDir(ctx, dirTask{dir: ">", dst: right, src: left, dstFD: lrDstFD, srcFD: lrSrcFD, plan: lrZeroCopy, bytes: &tr.BytesLR, blocks: &tr.BlocksLR}, cfg, touch, results, &wg)
 	}
 	if cfg.RightToLeft {
 		nDirs++
 		wg.Add(1)
-		go copyDir(ctx, dirTask{dir: "<", dst: left, src: right, dstFD: rlDstFD, srcFD: rlSrcFD, plan: rlZeroCopy, bytes: &tr.BytesRL, blocks: &tr.BlocksRL}, cfg, results, &wg)
+		go copyDir(ctx, dirTask{dir: "<", dst: left, src: right, dstFD: rlDstFD, srcFD: rlSrcFD, plan: rlZeroCopy, bytes: &tr.BytesRL, blocks: &tr.BlocksRL}, cfg, touch, results, &wg)
 	}
 
 	// Wait for first direction to finish; then linger for the other.
@@ -223,19 +223,19 @@ type dirResult struct {
 	dir string
 }
 
-func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Duration, tr *Tracker) (stop func()) {
+func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Duration) (touch, stop func()) {
+	nop := func() {}
 	if idle <= 0 {
-		return func() {}
+		return nop, nop
 	}
 	started := time.Now()
+	var lastActivity atomic.Int64
 	done := make(chan struct{})
 	var once sync.Once
 	stop = func() { once.Do(func() { close(done) }) }
 	clock := processIdleClock.subscribe()
 	go func() {
 		defer clock.close()
-		lastActivity := started
-		lastBytes := tr.BytesLR.Load() + tr.BytesRL.Load()
 		for {
 			select {
 			case <-ctx.Done():
@@ -243,18 +243,11 @@ func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Du
 			case <-done:
 				return
 			case <-clock.next():
-				now := time.Now()
-				bytes := tr.BytesLR.Load() + tr.BytesRL.Load()
-				if bytes != lastBytes {
-					lastBytes = bytes
-					lastActivity = now
-					continue
-				}
-				if now.Sub(lastActivity) >= idle {
+				elapsed := time.Since(started)
+				last := time.Duration(lastActivity.Load())
+				if elapsed-last >= idle {
 					// Do not expire progress that raced with this tick.
-					if current := tr.BytesLR.Load() + tr.BytesRL.Load(); current != bytes {
-						lastBytes = current
-						lastActivity = now
+					if current := lastActivity.Load(); current != int64(last) {
 						continue
 					}
 					cancel()
@@ -263,7 +256,16 @@ func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Du
 			}
 		}
 	}()
-	return stop
+	touch = func() {
+		now := int64(time.Since(started))
+		for {
+			last := lastActivity.Load()
+			if now <= last || lastActivity.CompareAndSwap(last, now) {
+				return
+			}
+		}
+	}
+	return touch, stop
 }
 
 // dirTask bundles one transfer direction: source and destination streams, the
@@ -279,7 +281,7 @@ type dirTask struct {
 	blocks   *atomic.Uint64
 }
 
-func copyDir(ctx context.Context, t dirTask, cfg Config, results chan<- dirResult, wg *sync.WaitGroup) {
+func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results chan<- dirResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	if t.plan != nil {
 		defer func() { _ = t.plan.Close() }()
@@ -287,6 +289,7 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, results chan<- dirResul
 			if n <= 0 {
 				return
 			}
+			touch()
 			t.blocks.Add(configuredBlockCount(n, cfg.BufferSize))
 		}
 		onWrite := func(n int64) {
@@ -358,6 +361,7 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, results chan<- dirResul
 		}
 		nr, er := t.src.Read(buf)
 		if nr > 0 {
+			touch()
 			data := buf[:nr]
 			if cfg.Verbose || cfg.Hex {
 				if err := dump(cfg, t.dir, data); err != nil {
