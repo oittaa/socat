@@ -3,8 +3,7 @@
 Optional loopback measures. They are not `make test` and not `make e2e`.
 
 The suite starts real socat processes. It compares this Go binary with classic
-C socat found on `PATH` or in a common installation path. `CLASSIC_SOCAT`
-overrides automatic detection.
+C socat found on `PATH`. `CLASSIC_SOCAT` overrides automatic detection.
 
 Classic TLS uses the **distro OpenSSL** (this host: 3.5.5) and an unpatched
 classic 1.8.1.3. That binary pins P-256 via `SSL_CTX_set_tmp_ecdh`. Go
@@ -107,7 +106,7 @@ receiver is terminated after the quiet interval.
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `SOCAT` | `./socat` | Go binary |
-| `CLASSIC_SOCAT` | `socat` on PATH, then common paths | Classic C binary override |
+| `CLASSIC_SOCAT` | `socat` on PATH | Classic C binary override |
 | `OPENSSL_BIN` | `openssl` on PATH | Distro OpenSSL (certs, payload, probe) |
 | `SIZE` | `256M` | Stream payload (MiB if `M`) |
 | `RUNS` | `5` | Timed runs |

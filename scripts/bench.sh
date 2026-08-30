@@ -32,19 +32,6 @@ if [[ -z "$CLASSIC_SOCAT" ]]; then
     CLASSIC_SOCAT="$path_socat"
   fi
 fi
-if [[ -z "$CLASSIC_SOCAT" ]]; then
-  for c in \
-    /tmp/socat-1.8.1.3/bin/socat \
-    /tmp/socat-1.8.1.3/socat \
-    /opt/classic/bin/socat
-  do
-    if [[ -x "$c" ]]; then
-      CLASSIC_SOCAT="$c"
-      break
-    fi
-  done
-fi
-
 WORKDIR="${WORKDIR:-$ROOT/testdata/tmp/bench}"
 mkdir -p "$WORKDIR/certs" "$WORKDIR/logs"
 
