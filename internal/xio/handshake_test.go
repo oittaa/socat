@@ -1,6 +1,7 @@
 package xio
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"math"
@@ -159,6 +160,56 @@ func TestQUICHandshakeIdleTimeoutDisabledDoesNotOverflowWhenDoubled(t *testing.T
 	}
 	if QUICHandshakeIdleTimeoutDisabled > time.Duration(math.MaxInt64/2) {
 		t.Fatalf("2*%s would overflow int64; quic-go handshakeTimeout doubles HandshakeIdleTimeout", QUICHandshakeIdleTimeoutDisabled)
+	}
+}
+
+func TestWithHandshakeDeadlineClearsAfterSuccess(t *testing.T) {
+	client, server := net.Pipe()
+	defer func() { _ = client.Close() }()
+	defer func() { _ = server.Close() }()
+
+	if err := WithHandshakeDeadline(client, time.Hour, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		var b [1]byte
+		_, err := client.Read(b[:])
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("handshake deadline was left on the connection: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if _, err := server.Write([]byte{1}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("read after cleared deadline: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("read did not complete after peer wrote")
+	}
+}
+
+func TestSingleUseDialerRejectsSecondUse(t *testing.T) {
+	c1, c2 := net.Pipe()
+	defer func() { _ = c1.Close() }()
+	defer func() { _ = c2.Close() }()
+	reused := errors.New("already used")
+	d := SingleUseDialer(c1, reused)
+	got, err := d(context.Background(), "tcp", "ignored")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != c1 {
+		t.Fatal("first dial did not return the connection")
+	}
+	if _, err := d(context.Background(), "tcp", "ignored"); !errors.Is(err, reused) {
+		t.Fatalf("second dial error=%v want %v", err, reused)
 	}
 }
 

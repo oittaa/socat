@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -83,76 +82,63 @@ func dialWS(ctx context.Context, network, host, port, rawURL string, s parse.Spe
 		}
 	}()
 
-	if handshakeTimeout > 0 {
-		if err := raw.SetDeadline(time.Now().Add(handshakeTimeout)); err != nil {
-			return nil, err
+	var conn net.Conn
+	err = xio.WithHandshakeDeadline(raw, handshakeTimeout, func() error {
+		hctx := ctx
+		var cancel context.CancelFunc
+		if handshakeTimeout > 0 {
+			hctx, cancel = context.WithTimeout(ctx, handshakeTimeout)
+			defer cancel()
 		}
-	}
 
-	hctx := ctx
-	var cancel context.CancelFunc
-	if handshakeTimeout > 0 {
-		hctx, cancel = context.WithTimeout(ctx, handshakeTimeout)
-		defer cancel()
-	}
-
-	take := alreadyDialed(raw)
-	var tlsState tls.ConnectionState
-	var hasTLSState bool
-	tr := &http.Transport{
-		DialContext: take,
-	}
-	if tlsCfg != nil {
-		attemptTLS := tlsCfg.Clone()
-		tr.TLSClientConfig = attemptTLS
-		tr.DialTLSContext = func(dctx context.Context, _, _ string) (net.Conn, error) {
-			c, e := take(dctx, "", "")
-			if e != nil {
-				return nil, e
-			}
-			tc := tls.Client(c, attemptTLS.Clone())
-			if e := tc.HandshakeContext(dctx); e != nil {
-				logx.CloseQuiet(c)
-				return nil, e
-			}
-			tlsState = tc.ConnectionState()
-			hasTLSState = true
-			return tc, nil
+		take := xio.SingleUseDialer(raw, fmt.Errorf("websocket TCP connection already used"))
+		var tlsState tls.ConnectionState
+		var hasTLSState bool
+		tr := &http.Transport{
+			DialContext: take,
 		}
-	}
-	opts := &websocket.DialOptions{
-		HTTPClient: &http.Client{Transport: tr},
-	}
-	if origin := s.OptionValue("origin", ""); origin != "" {
-		opts.HTTPHeader = make(http.Header)
-		opts.HTTPHeader.Set("Origin", origin)
-	}
-	if proto := s.OptionValue("protocol", ""); proto != "" {
-		opts.Subprotocols = []string{proto}
-	}
-	c, _, err := websocket.Dial(hctx, rawURL, opts)
+		if tlsCfg != nil {
+			attemptTLS := tlsCfg.Clone()
+			tr.TLSClientConfig = attemptTLS
+			tr.DialTLSContext = func(dctx context.Context, _, _ string) (net.Conn, error) {
+				c, e := take(dctx, "", "")
+				if e != nil {
+					return nil, e
+				}
+				tc := tls.Client(c, attemptTLS.Clone())
+				if e := tc.HandshakeContext(dctx); e != nil {
+					logx.CloseQuiet(c)
+					return nil, e
+				}
+				tlsState = tc.ConnectionState()
+				hasTLSState = true
+				return tc, nil
+			}
+		}
+		opts := &websocket.DialOptions{
+			HTTPClient: &http.Client{Transport: tr},
+		}
+		if origin := s.OptionValue("origin", ""); origin != "" {
+			opts.HTTPHeader = make(http.Header)
+			opts.HTTPHeader.Set("Origin", origin)
+		}
+		if proto := s.OptionValue("protocol", ""); proto != "" {
+			opts.Subprotocols = []string{proto}
+		}
+		c, _, err := websocket.Dial(hctx, rawURL, opts)
+		if err != nil {
+			return err
+		}
+		ws := newWSNetConn(raw, c)
+		if hasTLSState {
+			ws.rememberTLSState(tlsState)
+		}
+		conn = ws
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	_ = raw.SetDeadline(time.Time{})
 	owned = true
-	conn := newWSNetConn(raw, c)
-	if hasTLSState {
-		conn.rememberTLSState(tlsState)
-	}
 	return conn, nil
-}
-
-func alreadyDialed(c net.Conn) func(context.Context, string, string) (net.Conn, error) {
-	var mu sync.Mutex
-	return func(context.Context, string, string) (net.Conn, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if c == nil {
-			return nil, fmt.Errorf("websocket TCP connection already used")
-		}
-		out := c
-		c = nil
-		return out, nil
-	}
 }
