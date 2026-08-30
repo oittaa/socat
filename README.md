@@ -165,6 +165,14 @@ options:
 The default QUIC ALPN is `socat`. Use `alpn=` when both endpoints require a
 different value.
 
+QUIC and HTTP/3 CONNECT use UDP. The QUIC stack wants 7 MiB kernel
+receive/send buffers. Linux `net.core.rmem_max` / `wmem_max` often default
+to about 200 kiB, which caps `SO_RCVBUF` / `SO_SNDBUF`. That is a host
+limit, not a Go module problem. Raise those sysctls (see
+[UDP Buffer Sizes](https://github.com/quic-go/quic-go/wiki/UDP-Buffer-Sizes))
+or pass `rcvbuf=` / `sndbuf=` up to the kernel max. With `-d`, socat
+prints a notice when the kernel still caps the buffer.
+
 ## Intentional differences from classic socat
 
 Compatibility is checked against the latest classic socat release and current

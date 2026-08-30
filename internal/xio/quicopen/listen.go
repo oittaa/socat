@@ -45,7 +45,7 @@ func openQUICListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 		return nil, err
 	}
 
-	pc, err := listenPacket(ctx, network, addr, s)
+	pc, err := listenPacket(ctx, network, addr, s, logFromGlobal(g))
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +87,14 @@ func quicConfig(s parse.Spec, tlsCfg *tls.Config) (quicSetup, error) {
 	return quicSetup{tls: quicTLS, cfg: cfg}, nil
 }
 
-func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.PacketConn, error) {
+func logFromGlobal(g *xio.Global) *logx.Logger {
+	if g == nil {
+		return nil
+	}
+	return g.Log
+}
+
+func listenPacket(ctx context.Context, network, addr string, s parse.Spec, log *logx.Logger) (net.PacketConn, error) {
 	// ListenControl applies send-side IP options once, after socket() and
 	// before bind. Do not call ApplyIPSendOptsToPacketConn here.
 	// connect-timeout bounds this local UDP bind, not remote QUIC dial.
@@ -119,6 +126,7 @@ func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
+	xio.PrepareQUICUDPConn(pc, log)
 	return pc, nil
 }
 
@@ -134,7 +142,7 @@ func listenQUICClientPacket(ctx context.Context, network, bindHost, sourceport s
 		sourceport = "0"
 	}
 	laddr := net.JoinHostPort(xio.StripBrackets(bindHost), sourceport)
-	return listenPacket(ctx, network, laddr, s)
+	return listenPacket(ctx, network, laddr, s, logFromGlobal(g))
 }
 
 func listenQUICLowport(ctx context.Context, network, bind string, s parse.Spec, g *xio.Global) (net.PacketConn, error) {
@@ -144,7 +152,7 @@ func listenQUICLowport(ctx context.Context, network, bind string, s parse.Spec, 
 			g.Log.Debugf("bind(%s:%d)", bind, port)
 		}
 		addr := net.JoinHostPort(xio.StripBrackets(bind), strconv.Itoa(port))
-		c, err := listenPacket(ctx, network, addr, s)
+		c, err := listenPacket(ctx, network, addr, s, logFromGlobal(g))
 		if err != nil {
 			return err
 		}

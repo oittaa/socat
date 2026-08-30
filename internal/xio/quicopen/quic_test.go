@@ -1,11 +1,13 @@
 package quicopen
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -80,6 +82,36 @@ func TestQUICListenConnectEcho(t *testing.T) {
 	}
 	defer func() { _ = o.Close() }()
 	echoRoundtrip(t, o.Stream, []byte("quic-roundtrip"))
+}
+
+func TestQUICListenHushesStdlibBufferLog(t *testing.T) {
+	t.Setenv("QUIC_GO_DISABLE_RECEIVE_BUFFER_WARNING", "true")
+	if err := os.Unsetenv("QUIC_GO_DISABLE_RECEIVE_BUFFER_WARNING"); err != nil {
+		t.Fatal(err)
+	}
+	var std bytes.Buffer
+	log.SetOutput(&std)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	port := startListenPIPE(t, ctx, fmt.Sprintf("QUIC-LISTEN:0,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", listenCert(t)))
+
+	cs, err := parse.ParseSpec(fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openQUICConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = o.Close() }()
+	echoRoundtrip(t, o.Stream, []byte("hush"))
+
+	out := std.String()
+	if strings.Contains(out, "receive buffer") || strings.Contains(out, "send buffer") {
+		t.Fatalf("quic-go standard log still printed a UDP buffer warning:\n%s", out)
+	}
 }
 
 func TestQUICVerifyFailsWithoutTrust(t *testing.T) {

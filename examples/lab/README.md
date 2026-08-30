@@ -75,6 +75,12 @@ socat TCP4-LISTEN:8080,reuseaddr,fork,bind=127.0.0.1 \
 curl http://127.0.0.1:8080/
 ```
 
+A small UDP receive buffer is a kernel `rmem_max` cap, not a failed import.
+The tunnel still works. `socat -d` prints a notice. Raise
+`net.core.rmem_max` and `net.core.wmem_max` on the host (Docker usually
+cannot change those from a container). See
+[UDP Buffer Sizes](https://github.com/quic-go/quic-go/wiki/UDP-Buffer-Sizes).
+
 ### SOCKS5 client
 
 This socat is a SOCKS5 client. **microsocks** is the SOCKS daemon.

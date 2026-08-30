@@ -15,6 +15,7 @@ import (
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
@@ -97,6 +98,11 @@ func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost 
 		_ = pc.Close()
 		return nil, "", err
 	}
+	var log *logx.Logger
+	if g != nil {
+		log = g.Log
+	}
+	xio.PrepareQUICUDPConn(pc, log)
 	return pc, network, nil
 }
 
