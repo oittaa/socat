@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Loopback benchmarks: this Go socat vs classic C (when CLASSIC_SOCAT is set).
+# Loopback benchmarks: this Go socat vs classic C when available.
 # Not part of make test or make e2e.
 #
 # Usage:
@@ -26,6 +26,12 @@ fi
 OPENSSL_BIN="${OPENSSL_BIN:-$(command -v openssl || true)}"
 
 CLASSIC_SOCAT="${CLASSIC_SOCAT:-}"
+if [[ -z "$CLASSIC_SOCAT" ]]; then
+  path_socat="$(command -v socat || true)"
+  if [[ -n "$path_socat" && -x "$path_socat" ]] && ! [[ "$path_socat" -ef "$SOCAT" ]]; then
+    CLASSIC_SOCAT="$path_socat"
+  fi
+fi
 if [[ -z "$CLASSIC_SOCAT" ]]; then
   for c in \
     /tmp/socat-1.8.1.3/bin/socat \
