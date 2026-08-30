@@ -325,7 +325,40 @@
       "nopush",
       "noopt",
       "tcp-nopush",
-      "tcp-noopt",
+      "tcp-noopt"
+    ],
+    "windows": [
+      "binary",
+      "text",
+      "noinherit",
+      "bin",
+      "o-binary",
+      "o-text",
+      "o-noinherit"
+    ]
+  },
+  "platform_extra_options": {
+    "linux": [],
+    "darwin": [
+      "tcp-keepidle",
+      "ipv6-recvpathmtu",
+      "recvpktinfo",
+      "recvhoplimit",
+      "recvrthdr",
+      "tcpwrappers",
+      "tcpwrapper",
+      "libwrap",
+      "wrap",
+      "tcpwrap-dir",
+      "hosts-allow",
+      "hosts-deny",
+      "tcpwrap-hosts-allow-table",
+      "tcpwrap-hosts-deny-table",
+      "ftruncate64",
+      "lseek64",
+      "lseek64-set",
+      "lseek64-cur",
+      "lseek64-end",
       "b50",
       "b75",
       "b110",
@@ -352,15 +385,7 @@
       "cs7",
       "cs8"
     ],
-    "windows": [
-      "binary",
-      "text",
-      "noinherit",
-      "bin",
-      "o-binary",
-      "o-text",
-      "o-noinherit"
-    ]
+    "windows": []
   },
   "platform_addresses": {
     "linux": [
