@@ -10,11 +10,9 @@ import (
 const defaultHandshakeTimeout = 30 * time.Second
 
 // QUICHandshakeIdleTimeoutDisabled is HandshakeIdleTimeout when
-// handshake-timeout=0 (disable the bound). quic-go v0.61.0 populateConfig
-// substitutes protocol.DefaultHandshakeIdleTimeout (5s) when the field is
-// 0, and handshakeTimeout() returns 2*HandshakeIdleTimeout, so the value must
-// be nonzero and 2*duration must not overflow int64. One year is effectively
-// unbounded for a handshake.
+// handshake-timeout=0 (disable the bound). quic-go substitutes its default
+// when the field is zero and doubles this timeout internally, so the value
+// must be nonzero and safe to double. One year is effectively unbounded.
 const QUICHandshakeIdleTimeoutDisabled = 365 * 24 * time.Hour
 
 // HandshakeTimeout bounds protocol negotiation after a connection is

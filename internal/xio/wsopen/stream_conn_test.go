@@ -83,6 +83,7 @@ func closeWSTestConn(conn net.Conn) {
 
 func TestWSNetConnReadDeadline(t *testing.T) {
 	_, server := newWSTestPair(t)
+	ws := server.(*wsNetConn)
 	if err := server.SetReadDeadline(time.Now().Add(30 * time.Millisecond)); err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +98,9 @@ func TestWSNetConnReadDeadline(t *testing.T) {
 	}
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("read deadline took %s", elapsed)
+	}
+	if err := ws.raw.SetDeadline(time.Time{}); err == nil {
+		t.Fatal("read timeout left the raw connection open")
 	}
 	started = time.Now()
 	_ = server.Close()

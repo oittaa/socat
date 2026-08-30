@@ -47,6 +47,9 @@ func (c *wsNetConn) Read(p []byte) (int, error) {
 					c.readEOF = true
 					return 0, io.EOF
 				}
+				if xio.IsTimeoutErr(err) {
+					_ = c.raw.Close()
+				}
 				return 0, err
 			}
 			if typ != websocket.MessageBinary {
