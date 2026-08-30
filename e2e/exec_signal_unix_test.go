@@ -189,7 +189,10 @@ func TestEXECListenForkFiveSessionsSIGHUP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(proc.stop)
+	t.Cleanup(func() {
+		killPIDFile(pidsPath)
+		proc.stop()
+	})
 	waitTCPListen(t, port, 5*time.Second)
 
 	conns := make([]net.Conn, 0, n)
@@ -286,7 +289,10 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(proc.stop)
+		t.Cleanup(func() {
+			killPIDFile(ready)
+			proc.stop()
+		})
 		waitTCPListen(t, port, 5*time.Second)
 		c, err := net.DialTimeout("tcp4", fmt.Sprintf("127.0.0.1:%d", port), 2*time.Second)
 		if err != nil {

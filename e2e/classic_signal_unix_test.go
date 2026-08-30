@@ -229,9 +229,11 @@ func killPIDFile(path string) {
 	if err != nil {
 		return
 	}
-	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
-	if err != nil || pid <= 1 {
-		return
+	for _, field := range strings.Fields(string(b)) {
+		pid, err := strconv.Atoi(field)
+		if err != nil || pid <= 1 {
+			continue
+		}
+		_ = syscall.Kill(pid, syscall.SIGKILL)
 	}
-	_ = syscall.Kill(pid, syscall.SIGKILL)
 }
