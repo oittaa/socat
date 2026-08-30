@@ -425,6 +425,111 @@ class CompareTest(unittest.TestCase):
         darwin = self._report(go_help=go, goos="darwin", policy=policy)
         self.assertIn("sctp-maxseg", darwin.unexpected_options)
 
+    def test_linux_only_option_missing_on_darwin_is_accepted(self) -> None:
+        hhh = parity.parse_classic_hhh(
+            SYNTHETIC_HHH
+            + "      bindtodevice\tgroups=SOCKET\t\tphase=LATE\t\ttype=STRING\n"
+            + "      so-bindtodevice\tis an alias for bindtodevice\n"
+        )
+        policy = copy.deepcopy(POLICY)
+        policy["platform_options"]["linux"] = ["bindtodevice"]
+        missing_go = parity.parse_go_help(SYNTHETIC_GO_HELP)
+        darwin = self._report(release_hhh=hhh, go_help=missing_go, policy=policy, goos="darwin")
+        self.assertNotIn("bindtodevice", darwin.missing_options)
+        self.assertNotIn("so-bindtodevice", darwin.missing_options)
+        linux = self._report(release_hhh=hhh, go_help=missing_go, policy=policy, goos="linux")
+        self.assertIn("bindtodevice", linux.missing_options)
+
+    def test_darwin_baud_extra_is_not_unexpected_on_darwin(self) -> None:
+        policy = copy.deepcopy(POLICY)
+        policy["platform_options"]["darwin"] = ["b110"]
+        go = parity.parse_go_help(SYNTHETIC_GO_HELP + "    b110         110 baud\n")
+        darwin = self._report(go_help=go, goos="darwin", policy=policy)
+        self.assertNotIn("b110", darwin.unexpected_options)
+        linux = self._report(go_help=go, goos="linux", policy=policy)
+        self.assertIn("b110", linux.unexpected_options)
+
+    def test_linux_only_address_missing_on_darwin_is_accepted(self) -> None:
+        docs = parity.parse_socat_yo(
+            SYNTHETIC_YO + "\nlabel(ADDRESS_SCTP_CONNECT)dit(bf(tt(SCTP-CONNECT:<host>:<port>)))\n"
+        )
+        policy = copy.deepcopy(POLICY)
+        policy["platform_addresses"] = {"linux": ["SCTP"], "darwin": [], "windows": []}
+        darwin = self._report(release_docs=docs, release_hhh=None, policy=policy, goos="darwin")
+        self.assertNotIn("SCTP-CONNECT", darwin.missing_addresses)
+        linux = self._report(release_docs=docs, release_hhh=None, policy=policy, goos="linux")
+        self.assertIn("SCTP-CONNECT", linux.missing_addresses)
+
+    def test_platform_address_family_does_not_hide_invented_go_names(self) -> None:
+        policy = copy.deepcopy(POLICY)
+        policy["platform_addresses"] = {"linux": ["SCTP"], "darwin": [], "windows": []}
+        go = parity.parse_go_help(
+            SYNTHETIC_GO_HELP.replace(
+                "Address options:\n",
+                "    SCTP-TYPO:<host>     invented address\n\nAddress options:\n",
+            )
+        )
+        self.assertIn("SCTP", parity.platform_address_set(policy, "linux"))
+        self.assertIn("SCTP-TYPO", go.addresses)
+        linux = self._report(go_help=go, policy=policy, goos="linux")
+        self.assertIn("SCTP-TYPO", linux.unexpected_addresses)
+        darwin = self._report(go_help=go, policy=policy, goos="darwin")
+        self.assertIn("SCTP-TYPO", darwin.unexpected_addresses)
+
+    def test_yo_short_name_is_not_covered_by_a_different_canonical_seed(self) -> None:
+        docs = parity.parse_socat_yo(
+            SYNTHETIC_YO + "\nlabel(OPTION_CORK)dit(bf(tt(cork[=<bool>])))\n"
+        )
+        policy = copy.deepcopy(POLICY)
+        policy["platform_options"]["linux"] = ["tcp-cork"]
+        darwin = self._report(
+            release_docs=docs, release_hhh=None, policy=policy, goos="darwin"
+        )
+        self.assertIn("cork", darwin.missing_options)
+        policy["platform_options"]["linux"] = ["cork"]
+        covered = self._report(
+            release_docs=docs, release_hhh=None, policy=policy, goos="darwin"
+        )
+        self.assertNotIn("cork", covered.missing_options)
+        linux = self._report(
+            release_docs=docs, release_hhh=None, policy=policy, goos="linux"
+        )
+        self.assertIn("cork", linux.missing_options)
+
+    def test_yo_short_unsupported_name_is_not_missing_without_hhh_alias(self) -> None:
+        docs = parity.parse_socat_yo(
+            SYNTHETIC_YO + "\nlabel(OPTION_SUBSTUSER)dit(bf(tt(su=<user>)))\n"
+        )
+        policy = copy.deepcopy(POLICY)
+        policy["unsupported_options"]["substuser"] = "process-wide credentials"
+        darwin = self._report(
+            release_docs=docs, release_hhh=None, policy=policy, goos="darwin"
+        )
+        self.assertIn("su", darwin.missing_options)
+        policy["unsupported_options"]["su"] = "documented name for substuser"
+        covered = self._report(
+            release_docs=docs, release_hhh=None, policy=policy, goos="darwin"
+        )
+        self.assertNotIn("su", covered.missing_options)
+
+    def test_linux_address_option_missing_on_darwin_is_accepted(self) -> None:
+        docs = parity.parse_socat_yo(
+            SYNTHETIC_YO
+            + "\nlabel(OPTION_NETNS)dit(bf(tt(netns=<path>)))\n"
+            + "label(OPTION_IFF_UP)dit(bf(tt(iff-up[=<bool>])))\n"
+        )
+        policy = copy.deepcopy(POLICY)
+        policy["platform_options"]["linux"] = ["netns", "iff-up"]
+        darwin = self._report(
+            release_docs=docs, release_hhh=None, policy=policy, goos="darwin"
+        )
+        self.assertNotIn("netns", darwin.missing_options)
+        self.assertNotIn("iff-up", darwin.missing_options)
+        linux = self._report(
+            release_docs=docs, release_hhh=None, policy=policy, goos="linux"
+        )
+        self.assertIn("netns", linux.missing_options)
+
     def test_unlisted_platform_alias_is_unexpected_when_official_omits_it(self) -> None:
         opts_only = parity.parse_classic_hhh(
             "   opts:\n      frob\tgroups=FD\t\tphase=LATE\t\ttype=BOOL\n"
@@ -966,6 +1071,7 @@ class RepoPolicyTest(unittest.TestCase):
         "go_only_options",
         "platform_options",
         "platform_unsupported_options",
+        "platform_addresses",
         "option_canonical_equivalences",
     )
 
@@ -1026,6 +1132,32 @@ class RepoPolicyTest(unittest.TestCase):
             "o-noinherit",
         ):
             self.assertIn(name, platforms["windows"])
+        for name in (
+            "bindtodevice",
+            "tcp-cork",
+            "cork",
+            "compr",
+            "noatime",
+            "fs-append",
+            "tabdly",
+            "xtabs",
+            "netns",
+            "iff-up",
+            "posixmq-priority",
+            "tun-device",
+        ):
+            self.assertIn(name, platforms["linux"])
+        for name in ("nldly", "crdly", "csize", "bsdly", "vtdly", "ffdly"):
+            self.assertNotIn(name, platforms["linux"])
+        self.assertIn("b110", platforms["darwin"])
+        self.assertIn("cr0", platforms["darwin"])
+        self.assertIn("cs5", platforms["darwin"])
+        self.assertIn("su", policy["unsupported_options"])
+        self.assertIn("egd", policy["unsupported_options"])
+        self.assertIn("dhparams", policy["unsupported_options"])
+        plat_addrs = policy["platform_addresses"]
+        for family in ("INTERFACE", "TUN", "POSIXMQ", "SCTP", "VSOCK"):
+            self.assertIn(family, plat_addrs["linux"])
 
     def test_go_only_and_platform_sets_are_disjoint(self) -> None:
         policy = parity.load_policy()

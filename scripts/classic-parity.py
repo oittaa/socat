@@ -520,6 +520,21 @@ def other_platform_options(policy: dict[str, Any], goos: str) -> set[str]:
     return names
 
 
+def platform_address_set(policy: dict[str, Any], goos: str) -> set[str]:
+    plat = policy.get("platform_addresses") or {}
+    return {n.upper() for n in _platform_block_names(plat, goos)}
+
+
+def other_platform_addresses(policy: dict[str, Any], goos: str) -> set[str]:
+    plat = policy.get("platform_addresses") or {}
+    names: set[str] = set()
+    for other in plat:
+        if other == goos:
+            continue
+        names.update(_platform_block_names(plat, other))
+    return {n.upper() for n in names}
+
+
 def resolve_alias(aliases: dict[str, str], name: str) -> str:
     seen: set[str] = set()
     cur = name
@@ -669,7 +684,11 @@ def expand_address_families(
 
 
 def expand_go_only_addresses(seeds: set[str], advertised: Iterable[str]) -> set[str]:
-    """Family roots only: WS covers WS-LISTEN, not WSS. No alias-map expansion."""
+    """Family roots only: WS covers WS-LISTEN, not WSS. No alias-map expansion.
+
+    Call only for go_only_addresses. platform_addresses must not use this:
+    a Linux family seed such as SCTP would hide invented Go names like SCTP-TYPO.
+    """
     seeds_u = {s.upper() for s in seeds if s}
     out = set(seeds_u)
     for name in advertised:
@@ -776,14 +795,14 @@ class CompareReport:
         }
 
 
-def _fmt_name_list(names: list[str], limit: int = 12) -> str:
+def _fmt_name_list(names: list[str], limit: int | None = None) -> str:
     if not names:
         return "(none)"
-    shown = ", ".join(names[:limit])
-    extra = len(names) - limit
-    if extra > 0:
-        shown += f" ... (+{extra})"
-    return f"{len(names)}: {shown}"
+    if limit is not None and len(names) > limit:
+        shown = ", ".join(names[:limit])
+        shown += f" ... (+{len(names) - limit})"
+        return f"{len(names)}: {shown}"
+    return f"{len(names)}: {', '.join(names)}"
 
 
 def format_parity_report(report: CompareReport) -> str:
@@ -867,9 +886,13 @@ def compare_interfaces(
         official_opt_aliases,
         include_canonical=True,
     )
+    official_merged = merge_extracted(release_public, master_public)
     family_seeds = {n.upper() for n in policy_name_set(policy, "unsupported_addresses")}
-    unsupported_addrs = expand_address_families(
-        family_seeds, merge_extracted(release_public, master_public)
+    unsupported_addrs = expand_address_families(family_seeds, official_merged)
+    # Platform families waive official Linux-only addresses as missing on
+    # Darwin/Windows. They must not waive extra Go spellings on this GOOS.
+    other_plat_addrs = expand_address_families(
+        other_platform_addresses(policy, goos), official_merged
     )
     go_only_addrs = expand_go_only_addresses(
         {n.upper() for n in policy_name_set(policy, "go_only_addresses")},
@@ -910,7 +933,7 @@ def compare_interfaces(
     for name in sorted(advertised_addrs):
         if name in go_help.addresses:
             continue
-        if name in unsupported_addrs:
+        if name in unsupported_addrs or name in other_plat_addrs:
             continue
         report.missing_addresses.append(name)
 
@@ -972,7 +995,7 @@ def compare_interfaces(
             )
 
     for alias, _target in sorted(release_public.address_aliases.items()):
-        if alias in unsupported_addrs:
+        if alias in unsupported_addrs or alias in other_plat_addrs:
             continue
         if alias not in go_help.address_aliases:
             continue
