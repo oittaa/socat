@@ -252,8 +252,8 @@ func ApplyGenericSetsockoptToConn(conn syscall.Conn, s parse.Spec, phase Sockopt
 	return errors.Join(ctrlErr, optErr)
 }
 
-// ApplyGenericSetsockoptToNetConn unwraps NetConn() wrappers (TLS, WS, timeout)
-// then applies phase options. A present option on a non-socket fails.
+// ApplyGenericSetsockoptToNetConn unwraps NetConn() wrappers, then applies
+// phase options. A present option on a non-socket fails.
 func ApplyGenericSetsockoptToNetConn(c net.Conn, s parse.Spec, phase SockoptPhase) error {
 	if !hasGenericSetsockopt(s, phase) {
 		return nil

@@ -18,6 +18,14 @@ func RememberTLSPeer(g *Global, c net.Conn, timeout time.Duration) error {
 	if c == nil {
 		return nil
 	}
+	if p, ok := c.(interface {
+		TLSConnectionState() (tls.ConnectionState, bool)
+	}); ok {
+		if st, ok := p.TLSConnectionState(); ok {
+			rememberTLSState(g, st)
+			return nil
+		}
+	}
 	tc, ok := c.(*tls.Conn)
 	if !ok {
 		// tls.NewListener returns *tls.Conn; still handle wrappers.

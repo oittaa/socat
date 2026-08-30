@@ -2,6 +2,7 @@ package wsopen
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
@@ -25,11 +26,23 @@ type wsNetConn struct {
 	writeMu sync.Mutex
 	reader  io.Reader
 	readEOF bool
+
+	tlsState    tls.ConnectionState
+	hasTLSState bool
 }
 
-func newWSNetConn(raw net.Conn, ws *websocket.Conn) net.Conn {
+func newWSNetConn(raw net.Conn, ws *websocket.Conn) *wsNetConn {
 	ws.SetReadLimit(-1)
 	return &wsNetConn{ws: ws, raw: raw}
+}
+
+func (c *wsNetConn) rememberTLSState(st tls.ConnectionState) {
+	c.tlsState = st
+	c.hasTLSState = true
+}
+
+func (c *wsNetConn) TLSConnectionState() (tls.ConnectionState, bool) {
+	return c.tlsState, c.hasTLSState
 }
 
 func (c *wsNetConn) Read(p []byte) (int, error) {
