@@ -66,7 +66,8 @@ the **median**.
 | `wss` | WSS-LISTEN / WSS | go only |
 | `quic` | QUIC-LISTEN / QUIC | go only |
 
-TLS, WSS, and QUIC use the same RSA-2048 cert (SAN `DNS:localhost`, `IP:127.0.0.1`).
+TLS, WSS, and QUIC use the same freshly generated ECDSA P-256 certificate
+(SAN `DNS:localhost`, `IP:127.0.0.1`).
 The client sets `verify=1,cafile=,commonname=localhost`. The listener sets
 `verify=0` (no client certificate).
 
