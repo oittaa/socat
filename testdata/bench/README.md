@@ -158,15 +158,15 @@ distro OpenSSL 3.5.5. Payload: 1 GiB AES-128-CTR (incompressible; not
 
 | Case | classic | go | Peak RSS (classic / go) |
 |------|---------|----|-------------------------|
-| TCP 1 GiB | 833.8 MiB/s | 1660.4 MiB/s | 10.4 / 26.0 MiB |
-| UNIX 1 GiB | 545.6 MiB/s | 1537.3 MiB/s | 10.2 / 26.1 MiB |
-| UDP 1 GiB (send / receive / loss) | 621.2 / 514.1 MiB/s / 18.462% | 593.1 / 542.2 MiB/s / 7.412% | 10.4 / 30.6 MiB |
-| TLS 1 GiB | 629.2 MiB/s | 715.6 MiB/s | 21.1 / 28.7 MiB |
-| QUIC 1 GiB | n/a | 171.4 MiB/s | n/a / 40.7 MiB |
-| TCP 64 B RTT (median / p99) | 21.8 / 64.6 µs | 23.5 / 3469.2 µs | 5.2 / 13.4 MiB |
-| TLS 64 B RTT (median / p99) | 23.2 / 75.2 µs | 24.3 / 76.0 µs | 11.0 / 14.4 MiB |
-| QUIC 64 B RTT (median / p99) | n/a | 62.5 / 883.6 µs | n/a / 18.8 MiB |
-| TLS handshake | 22.2 /s | 512.7 /s | 25.1 / 19.0 MiB |
+| TCP 1 GiB | 917.5 MiB/s | 1988.7 MiB/s | 10.5 / 26.0 MiB |
+| UNIX 1 GiB | 878.1 MiB/s | 1664.5 MiB/s | 10.2 / 25.9 MiB |
+| UDP 1 GiB (send / receive / loss) | 1182.8 / 1168.3 MiB/s / 1.199% | 451.4 / 451.4 MiB/s / 0.000% | 10.4 / 30.3 MiB |
+| TLS 1 GiB | 917.1 MiB/s | 1117.9 MiB/s | 21.1 / 28.6 MiB |
+| QUIC 1 GiB | n/a | 483.3 MiB/s | n/a / 39.0 MiB |
+| TCP 64 B RTT (median / p99) | 88.7 / 162.5 µs | 68.0 / 158.4 µs | 5.2 / 13.2 MiB |
+| TLS 64 B RTT (median / p99) | 95.2 / 177.2 µs | 139.4 / 214.1 µs | 11.0 / 14.6 MiB |
+| QUIC 64 B RTT (median / p99) | n/a | 327.1 / 468.4 µs | n/a / 18.7 MiB |
+| TLS handshake | 23.4 /s | 631.4 /s | 25.4 / 19.4 MiB |
 
 Recorded handshakes (same binaries as the table; see `meta.tls` in `host.json`):
 
