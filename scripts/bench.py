@@ -46,7 +46,12 @@ STREAM_CASES = {"tcp", "unix", "tls", "ws", "wss", "quic"}
 DATAGRAM_CASES = {"udp"}
 RR_CASES = {"tcp-rr", "tls-rr", "quic-rr"}
 HS_CASES = {"tls-hs"}
-GO_ONLY = {"ws", "wss", "quic", "quic-rr"}
+GO_ONLY = {
+    "ws": "WebSocket",
+    "wss": "WebSocket",
+    "quic": "QUIC",
+    "quic-rr": "QUIC",
+}
 DATAGRAM_MAGIC = b"SCL1"
 DATAGRAM_HEADER = struct.Struct("!4sQII")  # magic, sequence, payload length, CRC32
 DATAGRAM_MAX_SIZE = 65507
@@ -1322,15 +1327,16 @@ def main() -> int:
     for case in wanted:
         for impl, bin_path in impls_for:
             if case in GO_ONLY and impl != "go":
+                protocol = GO_ONLY[case]
                 doc["cases"].append(
                     {
                         "id": case,
                         "impl": impl,
                         "status": "skip",
-                        "detail": "classic has no QUIC",
+                        "detail": f"{protocol} is not available in classic",
                     }
                 )
-                print(f"  skip {case}/{impl} (no QUIC in classic)", flush=True)
+                print(f"  skip {case}/{impl} ({protocol} is not available in classic)", flush=True)
                 continue
             print(f"  run  {case}/{impl} ...", flush=True)
             samples: list[dict[str, Any]] = []

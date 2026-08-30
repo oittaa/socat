@@ -186,7 +186,10 @@ class StreamSummaryTest(unittest.TestCase):
         self.assertIn("cert=server.crt,key=server.key", wss_listen)
         self.assertIn("verify=1,cafile=ca.pem,commonname=localhost", wss_connect)
         self.assertTrue({"ws", "wss"} <= bench.STREAM_CASES)
-        self.assertTrue({"ws", "wss"} <= bench.GO_ONLY)
+        self.assertTrue({"ws", "wss"} <= set(bench.GO_ONLY))
+        self.assertEqual(bench.GO_ONLY["ws"], "WebSocket")
+        self.assertEqual(bench.GO_ONLY["wss"], "WebSocket")
+        self.assertEqual(bench.GO_ONLY["quic"], "QUIC")
 
     def test_partial_failure_keeps_failure_detail(self) -> None:
         summary = bench.summarize_stream(
