@@ -3,9 +3,9 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"os/signal"
 	"strconv"
@@ -293,21 +293,16 @@ func optArg(a, key string, args []string, i *int) (string, error) {
 }
 
 func parseDuration(v string) (time.Duration, error) {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return 0, fmt.Errorf("empty duration")
-	}
-	f, err := strconv.ParseFloat(v, 64)
-	if err == nil {
-		secondsLimit := float64(math.MaxInt64) / float64(time.Second)
-		if math.IsNaN(f) || math.IsInf(f, 0) || f > secondsLimit || f < -secondsLimit {
-			return 0, fmt.Errorf("duration out of range")
-		}
-		return time.Duration(f * float64(time.Second)), nil
-	}
-	d, err := time.ParseDuration(v)
+	d, err := xio.ParseDurationValue(v)
 	if err != nil {
-		return 0, err
+		switch {
+		case errors.Is(err, xio.ErrEmptyDuration):
+			return 0, fmt.Errorf("empty duration")
+		case errors.Is(err, xio.ErrDurationOutOfRange):
+			return 0, fmt.Errorf("duration out of range")
+		default:
+			return 0, err
+		}
 	}
 	return d, nil
 }

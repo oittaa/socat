@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/relay"
 )
 
 // Lowport bind range: 640 through 1023.
@@ -465,14 +466,9 @@ func AcceptTimeout(s parse.Spec) time.Duration {
 }
 
 func IsTimeoutErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	if os.IsTimeout(err) || errors.Is(err, os.ErrDeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
-		return true
-	}
-	var ne net.Error
-	return errors.As(err, &ne) && ne.Timeout()
+	// Broader than net.Error: any wrapped Timeout() bool is a timeout.
+	// Child packages keep calling this helper so they do not import relay.
+	return relay.IsTimeoutErr(err)
 }
 
 // applyKeepAliveConfig builds net.KeepAliveConfig from the keepalive
@@ -625,23 +621,44 @@ func FirstHost(s parse.Spec) string {
 	return ""
 }
 
-func parseTimeval(v string) (time.Duration, error) {
-	// timeval: seconds with optional fractional part
+var (
+	// ErrEmptyDuration is returned by ParseDurationValue for an empty or
+	// whitespace-only input.
+	ErrEmptyDuration = errors.New("empty duration value")
+	// ErrDurationOutOfRange is returned for NaN, infinity, or a value that
+	// cannot be represented as time.Duration.
+	ErrDurationOutOfRange = errors.New("duration out of range")
+)
+
+// ParseDurationValue parses trimmed floating-point seconds or Go duration
+// syntax. Empty, NaN, infinity, and overflow are errors.
+func ParseDurationValue(v string) (time.Duration, error) {
 	v = strings.TrimSpace(v)
 	if v == "" {
-		return 0, fmt.Errorf("empty timeout")
+		return 0, ErrEmptyDuration
 	}
 	f, err := strconv.ParseFloat(v, 64)
 	if err == nil {
 		secondsLimit := float64(math.MaxInt64) / float64(time.Second)
 		if math.IsNaN(f) || math.IsInf(f, 0) || f > secondsLimit || f < -secondsLimit {
-			return 0, fmt.Errorf("timeout out of range")
+			return 0, ErrDurationOutOfRange
 		}
 		return time.Duration(f * float64(time.Second)), nil
 	}
-	d, err := time.ParseDuration(v)
+	return time.ParseDuration(v)
+}
+
+func parseTimeval(v string) (time.Duration, error) {
+	d, err := ParseDurationValue(v)
 	if err != nil {
-		return 0, err
+		switch {
+		case errors.Is(err, ErrEmptyDuration):
+			return 0, fmt.Errorf("empty timeout")
+		case errors.Is(err, ErrDurationOutOfRange):
+			return 0, fmt.Errorf("timeout out of range")
+		default:
+			return 0, err
+		}
 	}
 	return d, nil
 }

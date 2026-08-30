@@ -3,7 +3,6 @@ package xio
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -33,9 +32,8 @@ func ParseRetry(s parse.Spec) RetryPolicy {
 		}
 	}
 	if v := s.OptionValue("interval", ""); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 {
-			p.Interval = time.Duration(f * float64(time.Second))
-		} else if d, err := time.ParseDuration(v); err == nil {
+		d, err := ParseDurationValue(v)
+		if err == nil && d >= 0 {
 			p.Interval = d
 		}
 	}
