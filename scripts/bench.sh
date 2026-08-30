@@ -48,27 +48,25 @@ if [[ -z "${OPENSSL_BIN:-}" || ! -x "$OPENSSL_BIN" ]]; then
 fi
 
 CERT_DIR="$WORKDIR/certs"
-if [[ ! -f "$CERT_DIR/ca.pem" || ! -f "$CERT_DIR/server.crt" || ! -f "$CERT_DIR/server.key" ]]; then
-  umask 077
-  "$OPENSSL_BIN" req -x509 -newkey rsa:2048 -sha256 -days 2 -nodes \
-    -keyout "$CERT_DIR/ca.key" -out "$CERT_DIR/ca.pem" \
-    -subj "/CN=socat-bench-ca" >/dev/null 2>&1
-  "$OPENSSL_BIN" req -newkey rsa:2048 -sha256 -nodes \
-    -keyout "$CERT_DIR/server.key" -out "$CERT_DIR/server.csr" \
-    -subj "/CN=localhost" >/dev/null 2>&1
-  cat >"$CERT_DIR/server.ext" <<'EOF'
+umask 077
+"$OPENSSL_BIN" req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -sha256 -days 2 -nodes \
+  -keyout "$CERT_DIR/ca.key" -out "$CERT_DIR/ca.pem" \
+  -subj "/CN=socat-bench-ca" >/dev/null 2>&1
+"$OPENSSL_BIN" req -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -sha256 -nodes \
+  -keyout "$CERT_DIR/server.key" -out "$CERT_DIR/server.csr" \
+  -subj "/CN=localhost" >/dev/null 2>&1
+cat >"$CERT_DIR/server.ext" <<'EOF'
 subjectAltName=DNS:localhost,IP:127.0.0.1
 basicConstraints=CA:FALSE
-keyUsage=digitalSignature,keyEncipherment
+keyUsage=digitalSignature
 extendedKeyUsage=serverAuth
 EOF
-  "$OPENSSL_BIN" x509 -req -in "$CERT_DIR/server.csr" -CA "$CERT_DIR/ca.pem" -CAkey "$CERT_DIR/ca.key" \
-    -CAcreateserial -out "$CERT_DIR/server.crt" -days 2 \
-    -extfile "$CERT_DIR/server.ext" >/dev/null 2>&1
-  rm -f "$CERT_DIR/server.csr" "$CERT_DIR/server.ext" "$CERT_DIR/ca.srl"
-  chmod 644 "$CERT_DIR/ca.pem" "$CERT_DIR/server.crt"
-  chmod 600 "$CERT_DIR/server.key" "$CERT_DIR/ca.key"
-fi
+"$OPENSSL_BIN" x509 -req -in "$CERT_DIR/server.csr" -CA "$CERT_DIR/ca.pem" -CAkey "$CERT_DIR/ca.key" \
+  -CAcreateserial -out "$CERT_DIR/server.crt" -days 2 \
+  -extfile "$CERT_DIR/server.ext" >/dev/null 2>&1
+rm -f "$CERT_DIR/server.csr" "$CERT_DIR/server.ext" "$CERT_DIR/ca.srl"
+chmod 644 "$CERT_DIR/ca.pem" "$CERT_DIR/server.crt"
+chmod 600 "$CERT_DIR/server.key" "$CERT_DIR/ca.key"
 
 BENCHCLIENT="${BENCHCLIENT:-$WORKDIR/benchclient}"
 if [[ "${SKIP_CLIENT_BUILD:-0}" != "1" ]]; then

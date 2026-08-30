@@ -189,6 +189,15 @@ func TestWSSClientHTTPtest(t *testing.T) {
 	if string(got) != string(payload) {
 		t.Fatalf("got %q", got)
 	}
+	if g.TLSVars["PROTO_VERSION"] == "" {
+		t.Fatal("WSS client did not record the negotiated TLS version")
+	}
+	if g.TLSVars["CIPHER"] == "" {
+		t.Fatal("WSS client did not record the negotiated cipher")
+	}
+	if g.TLSVars["X509_SUBJECT"] == "" {
+		t.Fatal("WSS client did not record the peer certificate subject")
+	}
 }
 
 func TestWSSClientVerifyCA(t *testing.T) {

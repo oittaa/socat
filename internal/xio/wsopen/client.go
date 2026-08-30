@@ -97,6 +97,8 @@ func dialWS(ctx context.Context, network, host, port, rawURL string, s parse.Spe
 	}
 
 	take := alreadyDialed(raw)
+	var tlsState tls.ConnectionState
+	var hasTLSState bool
 	tr := &http.Transport{
 		DialContext: take,
 	}
@@ -113,6 +115,8 @@ func dialWS(ctx context.Context, network, host, port, rawURL string, s parse.Spe
 				logx.CloseQuiet(c)
 				return nil, e
 			}
+			tlsState = tc.ConnectionState()
+			hasTLSState = true
 			return tc, nil
 		}
 	}
@@ -132,7 +136,11 @@ func dialWS(ctx context.Context, network, host, port, rawURL string, s parse.Spe
 	}
 	_ = raw.SetDeadline(time.Time{})
 	owned = true
-	return newWSNetConn(raw, c), nil
+	conn := newWSNetConn(raw, c)
+	if hasTLSState {
+		conn.rememberTLSState(tlsState)
+	}
+	return conn, nil
 }
 
 func alreadyDialed(c net.Conn) func(context.Context, string, string) (net.Conn, error) {
