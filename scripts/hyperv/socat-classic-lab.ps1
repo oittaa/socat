@@ -1,7 +1,7 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('download', 'seed', 'create', 'status', 'wait', 'provision', 'checkpoint', 'reset', 'check')]
+    [ValidateSet('download', 'seed', 'create', 'status', 'wait', 'provision', 'checkpoint', 'reset', 'check', 'parity')]
     [string] $Action = 'status',
 
     [string] $VMName = 'socat-classic-ubuntu2604',
@@ -38,6 +38,7 @@ $KnownHostsPath = Join-Path $KeyDirectory 'known_hosts'
 $StatePath = Join-Path $StateDirectory "$VMName.json"
 $GuestProvisionPath = Join-Path $ScriptRoot 'guest-provision.sh'
 $RepositoryRoot = (Resolve-Path (Join-Path $ScriptRoot '..\..')).Path
+$ClassicParityWorkdir = '/var/lib/socat-lab/classic-parity'
 
 function Set-Utf8NoBom {
     param(
@@ -360,7 +361,8 @@ function Invoke-LabProvision {
     )
     Invoke-Native ssh.exe @sshArguments "$GuestUser@$address" 'sudo cloud-init status --wait'
     Invoke-Native scp.exe @scpArguments
-    Invoke-Native ssh.exe @sshArguments "$GuestUser@$address" 'sudo bash /tmp/guest-provision.sh'
+    $provisionCommand = "sudo env SOCAT_GUEST_USER='$GuestUser' bash /tmp/guest-provision.sh"
+    Invoke-Native ssh.exe @sshArguments "$GuestUser@$address" $provisionCommand
 }
 
 function New-CleanCheckpoint {
@@ -447,16 +449,28 @@ function New-WorkspaceArchive {
 }
 
 function Test-LabCheckTools {
-    param([Parameter(Mandatory)] [string] $Address)
+    param(
+        [Parameter(Mandatory)] [string] $Address,
+        [switch] $RequireParityCache
+    )
 
     $sshArguments = @(Get-SSHArguments)
     $target = "${GuestUser}@${Address}"
-    $command = "bash -lc 'command -v go >/dev/null && command -v golangci-lint >/dev/null && command -v gosec >/dev/null && test -d /opt/socat-classic/.git'"
+    $cacheCheck = if ($RequireParityCache) {
+        " && test -d '$ClassicParityWorkdir' && test -w '$ClassicParityWorkdir'"
+    }
+    else {
+        ''
+    }
+    $command = "bash -lc 'command -v go >/dev/null && command -v golangci-lint >/dev/null && command -v gosec >/dev/null$cacheCheck'"
     & ssh.exe @sshArguments $target $command
     return $LASTEXITCODE -eq 0
 }
 
 function Invoke-LabCheck {
+    param([switch] $ClassicParity)
+
+    $taskName = if ($ClassicParity) { 'parity' } else { 'check' }
     if ($ResetBeforeCheck) {
         Reset-LabVM
     }
@@ -464,20 +478,20 @@ function Invoke-LabCheck {
         Start-LabVMIfNeeded
     }
     $address = Wait-LabSSH
-    if (-not (Test-LabCheckTools -Address $address)) {
-        Write-Host 'guest check tools are missing or stale; provisioning the lab'
+    if (-not (Test-LabCheckTools -Address $address -RequireParityCache:$ClassicParity)) {
+        Write-Host "guest $taskName tools are missing or stale; provisioning the lab"
         Invoke-LabProvision
         $address = Wait-LabSSH
-        if (-not (Test-LabCheckTools -Address $address)) {
-            throw 'guest check tools are unavailable after provisioning'
+        if (-not (Test-LabCheckTools -Address $address -RequireParityCache:$ClassicParity)) {
+            throw "guest $taskName tools are unavailable after provisioning"
         }
     }
     $sshArguments = @(Get-SSHArguments)
     $target = "${GuestUser}@${address}"
     $runID = [guid]::NewGuid().ToString('N')
-    $remoteDirectory = "/home/$GuestUser/socat-check-$runID"
-    $remoteArchive = "/tmp/socat-check-$runID.tar"
-    $localDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "socat-check-$runID"
+    $remoteDirectory = "/home/$GuestUser/socat-$taskName-$runID"
+    $remoteArchive = "/tmp/socat-$taskName-$runID.tar"
+    $localDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "socat-$taskName-$runID"
     $localArchive = Join-Path $localDirectory 'workspace.tar'
     $localList = Join-Path $localDirectory 'files.txt'
     $remoteArchiveCopied = $false
@@ -502,10 +516,15 @@ function Invoke-LabCheck {
         Invoke-Native ssh.exe @sshArguments $target $prepareCommand
         $remoteCreated = $true
 
-        $checkCommand = "bash -lc `"cd '$remoteDirectory' && bash scripts/hyperv/guest-check.sh`""
+        $checkCommand = if ($ClassicParity) {
+            "bash -lc `"cd '$remoteDirectory' && SOCAT_CLASSIC_PARITY_WORKDIR='$ClassicParityWorkdir' make classic-parity`""
+        }
+        else {
+            "bash -lc `"cd '$remoteDirectory' && bash scripts/hyperv/guest-check.sh`""
+        }
         Invoke-Native ssh.exe @sshArguments $target $checkCommand
         $timer.Stop()
-        Write-Host ("Hyper-V check passed in {0:n2}s" -f $timer.Elapsed.TotalSeconds)
+        Write-Host ("Hyper-V {0} passed in {1:n2}s" -f $taskName, $timer.Elapsed.TotalSeconds)
     }
     finally {
         if ($remoteArchiveCopied) {
@@ -566,4 +585,5 @@ switch ($Action) {
     'checkpoint' { New-CleanCheckpoint }
     'reset' { Reset-LabVM }
     'check' { Invoke-LabCheck }
+    'parity' { Invoke-LabCheck -ClassicParity }
 }

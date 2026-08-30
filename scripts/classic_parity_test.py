@@ -716,6 +716,31 @@ class WorktreeSafetyTest(unittest.TestCase):
             workdir / "worktrees" / f"master-{BASELINE['reviewed_master_commit']}",
         )
 
+    def test_path_command_prints_pinned_release_worktree(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            baseline_path = root / "baseline.json"
+            baseline_path.write_text(json.dumps(BASELINE), encoding="utf-8")
+            workdir = root / "cache"
+            args = parity.build_parser().parse_args(
+                [
+                    "path",
+                    "--workdir",
+                    str(workdir),
+                    "--baseline",
+                    str(baseline_path),
+                ]
+            )
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(args.func(args), 0)
+            expected = (
+                workdir.resolve()
+                / "worktrees"
+                / f"release-{BASELINE['release_commit']}"
+            )
+            self.assertEqual(Path(out.getvalue().strip()), expected)
+
     def test_new_commit_worktree_does_not_disturb_existing(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

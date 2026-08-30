@@ -91,9 +91,15 @@ TEST_SH_ARGS="${TEST_SH_ARGS:-}"       # extra test.sh flags, e.g. --internet
 export TEST_SH_ARGS
 
 TEST_SH="${1:-${CLASSIC_TEST_SH:-}}"
+if [[ -z "$TEST_SH" ]] && command -v python3 >/dev/null 2>&1; then
+  cached_tree="$(python3 -B "$ROOT/scripts/classic-parity.py" path --tree release)"
+  cached_test_sh="$cached_tree/test.sh"
+  if [[ -f "$cached_test_sh" ]]; then
+    TEST_SH="$cached_test_sh"
+  fi
+fi
 if [[ -z "$TEST_SH" || ! -f "$TEST_SH" ]]; then
-  echo "usage: $0 /path/to/classic/test.sh" >&2
-  echo "Clone: git clone --depth 1 https://repo.or.cz/socat.git /tmp/socat-master" >&2
+  echo "classic test.sh not found; run make classic-parity or pass its path" >&2
   exit 2
 fi
 TEST_SH="$(cd "$(dirname "$TEST_SH")" && pwd)/$(basename "$TEST_SH")"
