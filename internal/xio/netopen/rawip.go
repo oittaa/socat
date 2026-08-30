@@ -299,9 +299,11 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		stripV4 := network == "ip4"
 		var n int
 		var raddr net.Addr
+		peerFilter := xio.NewPeerFilter(s, g)
+		var oobBuffer [xio.AncillaryBufferSize]byte
 		for {
 			rn, oob, a, err := xio.RecvOneCtx(ctx, func() (int, []byte, net.Addr, error) {
-				return ReadIPMsg(pc, buf, wantCtrl, stripV4)
+				return ReadIPMsgWithBuffer(pc, buf, wantCtrl, stripV4, oobBuffer[:])
 			})
 			if err != nil {
 				logx.CloseQuiet(pc)
@@ -309,7 +311,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 			}
 			// peer filter uses UDP-style helper via fake addr when possible
 			if ia, ok := a.(*net.IPAddr); ok {
-				if ferr := xio.PeerAllowedG(s, &udpPeerConn{addr: &net.UDPAddr{IP: ia.IP}}, g); ferr != nil {
+				if ferr := peerFilter.AllowAddr(&net.UDPAddr{IP: ia.IP}, pc.LocalAddr()); ferr != nil {
 					if g != nil && g.Log != nil {
 						g.Log.Noticef("%s", ferr)
 					}
@@ -350,7 +352,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 	}
 	st := relay.Stream(&rawIPFilteredRecv{
 		c:        pc,
-		spec:     s,
+		filter:   xio.NewPeerFilter(s, g),
 		g:        g,
 		wantCtrl: wantCtrl,
 		v4:       network == "ip4",
@@ -469,6 +471,10 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, _ string) error {
 }
 
 func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob []byte, addr net.Addr, err error) {
+	return ReadIPMsgWithBuffer(c, p, wantCtrl, stripV4, nil)
+}
+
+func ReadIPMsgWithBuffer(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool, oobBuffer []byte) (n int, oob []byte, addr net.Addr, err error) {
 	if !wantCtrl {
 		n, addr, err = c.ReadFrom(p)
 		if err != nil {
@@ -482,16 +488,18 @@ func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob
 	}
 	// ReadMsgIP returns the full IPv4 packet (header + payload). Strip the
 	// header so user data starts at payload.
-	oob = make([]byte, 1024)
+	if len(oobBuffer) < xio.AncillaryBufferSize {
+		oobBuffer = make([]byte, xio.AncillaryBufferSize)
+	}
 	var oobn, flags int
-	n, oobn, flags, addr, err = c.ReadMsgIP(p, oob)
+	n, oobn, flags, addr, err = c.ReadMsgIP(p, oobBuffer)
 	if err != nil {
 		return n, nil, nil, err
 	}
 	if stripV4 {
 		n = skipIPv4HeaderIfPresent(p, n)
 	}
-	return n, xio.ControlMessageBytes(oob, oobn, flags), addr, nil
+	return n, xio.ControlMessageBytes(oobBuffer, oobn, flags), addr, nil
 }
 
 // skipIPv4HeaderIfPresent drops a leading IPv4 header when the buffer looks like
@@ -524,10 +532,11 @@ type rawIPDatagramConn struct {
 	v4       bool
 	wantCtrl bool
 	g        *xio.Global
+	oob      []byte
 }
 
 func (r *rawIPDatagramConn) Read(p []byte) (int, error) {
-	n, oob, _, err := ReadIPMsg(r.c, p, r.wantCtrl, r.v4)
+	n, oob, _, err := ReadIPMsgWithBuffer(r.c, p, r.wantCtrl, r.v4, ancillaryBuffer(&r.oob, r.wantCtrl))
 	if err != nil {
 		return n, err
 	}
@@ -557,11 +566,12 @@ type rawIPConn struct {
 	v4       bool
 	wantCtrl bool
 	g        *xio.Global
+	oob      []byte
 }
 
 func (r *rawIPConn) Read(p []byte) (int, error) {
 	if r.wantCtrl {
-		n, oob, _, err := ReadIPMsg(r.IPConn, p, true, r.v4)
+		n, oob, _, err := ReadIPMsgWithBuffer(r.IPConn, p, true, r.v4, ancillaryBuffer(&r.oob, true))
 		if err != nil {
 			return n, err
 		}
@@ -589,6 +599,7 @@ type rawIPRecvFrom struct {
 	wantCtrl bool
 	v4       bool
 	g        *xio.Global
+	oob      []byte
 }
 
 func (r *rawIPRecvFrom) Read(p []byte) (int, error) {
@@ -601,7 +612,7 @@ func (r *rawIPRecvFrom) Read(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 	for {
-		n, oob, addr, err := ReadIPMsg(r.c, p, r.wantCtrl, r.v4)
+		n, oob, addr, err := ReadIPMsgWithBuffer(r.c, p, r.wantCtrl, r.v4, ancillaryBuffer(&r.oob, r.wantCtrl))
 		if err != nil {
 			return n, err
 		}
@@ -647,20 +658,21 @@ func (r *rawIPRecvFrom) NetConn() net.Conn { return r.c }
 // rawIPFilteredRecv: continuous RECV with peer filters + ancillary.
 type rawIPFilteredRecv struct {
 	c        *net.IPConn
-	spec     parse.Spec
+	filter   *xio.PeerFilter
 	g        *xio.Global
 	wantCtrl bool
 	v4       bool
+	oob      []byte
 }
 
 func (r *rawIPFilteredRecv) Read(p []byte) (int, error) {
 	for {
-		n, oob, addr, err := ReadIPMsg(r.c, p, r.wantCtrl, r.v4)
+		n, oob, addr, err := ReadIPMsgWithBuffer(r.c, p, r.wantCtrl, r.v4, ancillaryBuffer(&r.oob, r.wantCtrl))
 		if err != nil {
 			return n, err
 		}
 		if ia, ok := addr.(*net.IPAddr); ok {
-			if err := xio.PeerAllowedG(r.spec, &udpPeerConn{addr: &net.UDPAddr{IP: ia.IP}}, r.g); err != nil {
+			if err := r.filter.AllowAddr(&net.UDPAddr{IP: ia.IP}, r.c.LocalAddr()); err != nil {
 				if r.g != nil && r.g.Log != nil {
 					r.g.Log.Noticef("%s", err)
 				}

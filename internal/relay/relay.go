@@ -88,7 +88,7 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	touch, stopIdle := startIdleWatch(ctx, cancel, cfg.IdleTimeout)
+	stopIdle := startIdleWatch(ctx, cancel, cfg.IdleTimeout, tr)
 	defer stopIdle()
 
 	results := make(chan dirResult, 2)
@@ -157,12 +157,12 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	if cfg.LeftToRight {
 		nDirs++
 		wg.Add(1)
-		go copyDir(ctx, dirTask{dir: ">", dst: right, src: left, dstFD: lrDstFD, srcFD: lrSrcFD, plan: lrZeroCopy, bytes: &tr.BytesLR, blocks: &tr.BlocksLR}, cfg, touch, results, &wg)
+		go copyDir(ctx, dirTask{dir: ">", dst: right, src: left, dstFD: lrDstFD, srcFD: lrSrcFD, plan: lrZeroCopy, bytes: &tr.BytesLR, blocks: &tr.BlocksLR}, cfg, results, &wg)
 	}
 	if cfg.RightToLeft {
 		nDirs++
 		wg.Add(1)
-		go copyDir(ctx, dirTask{dir: "<", dst: left, src: right, dstFD: rlDstFD, srcFD: rlSrcFD, plan: rlZeroCopy, bytes: &tr.BytesRL, blocks: &tr.BlocksRL}, cfg, touch, results, &wg)
+		go copyDir(ctx, dirTask{dir: "<", dst: left, src: right, dstFD: rlDstFD, srcFD: rlSrcFD, plan: rlZeroCopy, bytes: &tr.BytesRL, blocks: &tr.BlocksRL}, cfg, results, &wg)
 	}
 
 	// Wait for first direction to finish; then linger for the other.
@@ -221,42 +221,46 @@ type dirResult struct {
 	dir string
 }
 
-func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Duration) (touch, stop func()) {
-	nop := func() {}
+func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Duration, tr *Tracker) (stop func()) {
 	if idle <= 0 {
-		return nop, nop
+		return func() {}
 	}
-	var mu sync.Mutex
-	last := time.Now()
+	started := time.Now()
 	done := make(chan struct{})
 	var once sync.Once
 	stop = func() { once.Do(func() { close(done) }) }
 	go func() {
 		t := time.NewTicker(100 * time.Millisecond)
 		defer t.Stop()
+		lastActivity := started
+		lastBytes := tr.BytesLR.Load() + tr.BytesRL.Load()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-done:
 				return
-			case <-t.C:
-				mu.Lock()
-				since := time.Since(last)
-				mu.Unlock()
-				if since >= idle {
+			case now := <-t.C:
+				bytes := tr.BytesLR.Load() + tr.BytesRL.Load()
+				if bytes != lastBytes {
+					lastBytes = bytes
+					lastActivity = now
+					continue
+				}
+				if now.Sub(lastActivity) >= idle {
+					// Do not expire progress that raced with this tick.
+					if current := tr.BytesLR.Load() + tr.BytesRL.Load(); current != bytes {
+						lastBytes = current
+						lastActivity = now
+						continue
+					}
 					cancel()
 					return
 				}
 			}
 		}
 	}()
-	touch = func() {
-		mu.Lock()
-		last = time.Now()
-		mu.Unlock()
-	}
-	return touch, stop
+	return stop
 }
 
 // dirTask bundles one transfer direction: source and destination streams, the
@@ -272,7 +276,7 @@ type dirTask struct {
 	blocks   *atomic.Uint64
 }
 
-func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results chan<- dirResult, wg *sync.WaitGroup) {
+func copyDir(ctx context.Context, t dirTask, cfg Config, results chan<- dirResult, wg *sync.WaitGroup) {
 	defer wg.Done()
 	if t.plan != nil {
 		defer func() { _ = t.plan.Close() }()
@@ -280,7 +284,6 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 			if n <= 0 {
 				return
 			}
-			touch()
 			t.blocks.Add(configuredBlockCount(n, cfg.BufferSize))
 		}
 		onWrite := func(n int64) {
@@ -352,7 +355,6 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 		}
 		nr, er := t.src.Read(buf)
 		if nr > 0 {
-			touch()
 			data := buf[:nr]
 			if cfg.Verbose || cfg.Hex {
 				if err := dump(cfg, t.dir, data); err != nil {

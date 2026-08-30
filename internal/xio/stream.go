@@ -207,6 +207,8 @@ func ApplyReadBytes(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 type crnlWriter struct {
 	w         io.Writer
 	pendingLF bool
+	lf        [1]byte
+	crlf      [2]byte
 }
 
 func (c *crnlWriter) Write(p []byte) (int, error) {
@@ -214,8 +216,10 @@ func (c *crnlWriter) Write(p []byte) (int, error) {
 	// If \r of a CRLF is written and \n is not, remember that so a retry of
 	// the same input byte cannot emit a second \r (sndtimeo short writes).
 	written := 0
+	c.lf[0] = '\n'
+	c.crlf[0], c.crlf[1] = '\r', '\n'
 	if c.pendingLF {
-		n, err := c.w.Write([]byte{'\n'})
+		n, err := c.w.Write(c.lf[:])
 		if n == 1 {
 			c.pendingLF = false
 			if len(p) > 0 && p[0] == '\n' {
@@ -249,7 +253,7 @@ func (c *crnlWriter) Write(p []byte) (int, error) {
 			p = p[i:]
 		}
 		if len(p) > 0 && p[0] == '\n' {
-			n, err := c.w.Write([]byte{'\r', '\n'})
+			n, err := c.w.Write(c.crlf[:])
 			switch n {
 			case 0:
 				if err == nil {
@@ -261,7 +265,7 @@ func (c *crnlWriter) Write(p []byte) (int, error) {
 				if err != nil {
 					return written, err
 				}
-				n, err = c.w.Write([]byte{'\n'})
+				n, err = c.w.Write(c.lf[:])
 				if n != 1 {
 					if err == nil {
 						err = io.ErrShortWrite
@@ -286,26 +290,27 @@ func (c *crnlWriter) Write(p []byte) (int, error) {
 // crnlReader converts external CRNL → internal RAW: strip every CR; leave
 // LF and other bytes unchanged.
 type crnlReader struct {
-	r io.Reader
+	r   io.Reader
+	tmp []byte
 }
 
-func (c crnlReader) Read(p []byte) (int, error) {
+func (c *crnlReader) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
 	// Keep reading until at least one non-CR byte is produced or error/EOF.
 	// A pure-CR chunk would otherwise return (0, nil) and confuse some loops.
-	tmp := make([]byte, len(p))
+	c.tmp = resizeScratch(c.tmp, len(p))
 	out := 0
 	var err error
 	for out == 0 {
 		var n int
-		n, err = c.r.Read(tmp)
+		n, err = c.r.Read(c.tmp)
 		for i := 0; i < n; i++ {
-			if tmp[i] == '\r' {
+			if c.tmp[i] == '\r' {
 				continue
 			}
-			p[out] = tmp[i]
+			p[out] = c.tmp[i]
 			out++
 		}
 		if err != nil || n == 0 {
@@ -364,20 +369,23 @@ func wantCRNL(s parse.Spec) bool {
 }
 
 // crWriter converts NL → CR on write (RAW → CR).
-type crWriter struct{ w io.Writer }
+type crWriter struct {
+	w   io.Writer
+	buf []byte
+}
 
 func (c *crWriter) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	buf := make([]byte, len(p))
-	copy(buf, p)
-	for i, b := range buf {
+	c.buf = resizeScratch(c.buf, len(p))
+	copy(c.buf, p)
+	for i, b := range c.buf {
 		if b == '\n' {
-			buf[i] = '\r'
+			c.buf[i] = '\r'
 		}
 	}
-	return c.w.Write(buf)
+	return c.w.Write(c.buf)
 }
 
 // crReader converts CR → NL on read (CR → RAW).
@@ -398,20 +406,21 @@ func (c crReader) Read(p []byte) (int, error) {
 type crorlfReader struct {
 	r     io.Reader
 	sawCR bool
+	tmp   []byte
 }
 
 func (c *crorlfReader) Read(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	tmp := make([]byte, len(p))
+	c.tmp = resizeScratch(c.tmp, len(p))
 	out := 0
 	var err error
 	for out == 0 {
 		var n int
-		n, err = c.r.Read(tmp)
+		n, err = c.r.Read(c.tmp)
 		for i := 0; i < n && out < len(p); i++ {
-			b := tmp[i]
+			b := c.tmp[i]
 			if c.sawCR && b == '\n' {
 				c.sawCR = false
 				continue
@@ -429,6 +438,13 @@ func (c *crorlfReader) Read(p []byte) (int, error) {
 		}
 	}
 	return out, err
+}
+
+func resizeScratch(buf []byte, size int) []byte {
+	if cap(buf) < size {
+		return make([]byte, size)
+	}
+	return buf[:size]
 }
 
 // lineTermStream applies read/write converters without exposing UnwrapZeroCopy
@@ -457,7 +473,7 @@ func applyLineTerm(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	case lineTermCR:
 		return &lineTermStream{Stream: stream, r: crReader{r: stream}, w: &crWriter{w: stream}}, nil
 	case lineTermCRNL:
-		return &lineTermStream{Stream: stream, r: crnlReader{r: stream}, w: &crnlWriter{w: stream}}, nil
+		return &lineTermStream{Stream: stream, r: &crnlReader{r: stream}, w: &crnlWriter{w: stream}}, nil
 	case lineTermCRorLF:
 		return &lineTermStream{Stream: stream, r: &crorlfReader{r: stream}, w: &crnlWriter{w: stream}}, nil
 	default:

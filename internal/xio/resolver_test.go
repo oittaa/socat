@@ -521,6 +521,34 @@ func TestPeerRangeHostnameUsesResNSAddr(t *testing.T) {
 	}
 }
 
+func TestPeerFilterResolvesRangeOnce(t *testing.T) {
+	server, err := startFakeDNS(t, "127.0.0.1", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := resNSAddrSpec(server.addr)
+	s.Options = append(s.Options, parse.Option{
+		Name:  "range",
+		Value: "range-res-nsaddr.test:255.255.255.255",
+		Has:   true,
+	})
+	filter := NewPeerFilter(s, nil)
+	peer := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1234}
+	if err := filter.AllowAddr(peer, nil); err != nil {
+		t.Fatal(err)
+	}
+	queries := server.udpQueries.Load() + server.tcpQueries.Load()
+	if queries == 0 {
+		t.Fatal("range hostname was not resolved")
+	}
+	if err := filter.AllowAddr(peer, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := server.udpQueries.Load() + server.tcpQueries.Load(); got != queries {
+		t.Fatalf("second peer check made another DNS query: got %d, want %d", got, queries)
+	}
+}
+
 func TestTCPWrapReverseVerificationUsesResNSAddr(t *testing.T) {
 	const ptrName = "peer-res-nsaddr.test"
 	server, err := startFakeDNSWithAnswer(t, "127.0.0.1", net.IPv4(192, 0, 2, 55), ptrName, false, false)

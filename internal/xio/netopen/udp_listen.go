@@ -78,6 +78,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			logx.CloseQuiet(pc)
 			return nil, ferr
 		}
+		peerFilter := xio.NewPeerFilter(s, g)
 		base := &udpForkListener{
 			pc:      pc,
 			network: network,
@@ -85,6 +86,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			spec:    s,
 			g:       g,
 			ctx:     ctx,
+			filter:  peerFilter,
 		}
 		if err := applyUDPForkTimeouts(base, s); err != nil {
 			logx.CloseQuiet(pc)
@@ -96,7 +98,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			Listener:    ln,
 			Label:       "UDP-LISTEN",
 			MaxChildren: maxChildren,
-			PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
+			PeerFilter:  peerFilter.AllowConn,
 			WrapDial: func(c net.Conn) (relay.Stream, error) {
 				return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
 			},
@@ -113,16 +115,17 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	wantCtrl := xio.NeedAncillary(s)
 	var n int
 	var raddr *net.UDPAddr
+	peerFilter := xio.NewPeerFilter(s, g)
+	var oobBuffer [xio.AncillaryBufferSize]byte
 	for {
 		rn, oob, a, err := xio.RecvOneCtx(ctx, func() (int, []byte, *net.UDPAddr, error) {
-			return xio.ReadUDPMsg(pc, buf, wantCtrl)
+			return xio.ReadUDPMsgWithBuffer(pc, buf, wantCtrl, oobBuffer[:])
 		})
 		if err != nil {
 			logx.CloseQuiet(pc)
 			return nil, udpAcceptError(err, timeoutSet)
 		}
-		fake := &udpPeerConn{addr: a}
-		if ferr := xio.PeerAllowedG(s, fake, g); ferr != nil {
+		if ferr := peerFilter.AllowAddr(a, pc.LocalAddr()); ferr != nil {
 			if g != nil && g.Log != nil {
 				g.Log.Noticef("%s", ferr)
 			}
@@ -209,6 +212,7 @@ type udpForkListener struct {
 	rcvTimeout    time.Duration
 	acceptTimeout time.Duration
 	oneShot       bool // UDP-RECVFROM,fork: one datagram then EOF
+	filter        *xio.PeerFilter
 	writeMu       sync.Mutex
 
 	mu            sync.Mutex
@@ -287,6 +291,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 	}
 	buf := make([]byte, 65535)
 	wantCtrl := xio.NeedAncillary(l.spec)
+	var oobBuffer [xio.AncillaryBufferSize]byte
 	var acceptDeadline time.Time
 	if l.acceptTimeout > 0 {
 		acceptDeadline = time.Now().Add(l.acceptTimeout)
@@ -300,7 +305,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			_ = l.pc.SetReadDeadline(time.Now().Add(l.rcvTimeout))
 		}
 		rn, oob, a, err := xio.RecvOneCtx(l.ctx, func() (int, []byte, *net.UDPAddr, error) {
-			return xio.ReadUDPMsg(l.pc, buf, wantCtrl)
+			return xio.ReadUDPMsgWithBuffer(l.pc, buf, wantCtrl, oobBuffer[:])
 		})
 		if err != nil {
 			if l.ctx.Err() != nil {
@@ -316,7 +321,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			}
 			return nil, err
 		}
-		if err := xio.PeerAllowedG(l.spec, &udpPeerConn{addr: a}, l.g); err != nil {
+		if err := l.peerAllowed(a); err != nil {
 			if l.g != nil && l.g.Log != nil {
 				l.g.Log.Noticef("%s", err)
 			}
@@ -364,6 +369,13 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 		child.conn = conn
 		return child, nil
 	}
+}
+
+func (l *udpForkListener) peerAllowed(addr *net.UDPAddr) error {
+	if l.filter == nil {
+		l.filter = xio.NewPeerFilter(l.spec, l.g)
+	}
+	return l.filter.AllowAddr(addr, l.pc.LocalAddr())
 }
 
 func dialUDPSession(ctx context.Context, network string, local, remote *net.UDPAddr, s parse.Spec) (*net.UDPConn, error) {
@@ -462,6 +474,7 @@ type udpSessionConn struct {
 	releaseListen func()
 	wantCtrl      bool
 	g             *xio.Global
+	oob           []byte
 }
 
 func (u *udpSessionConn) SessionEnvironment() map[string]string { return u.env }
@@ -484,7 +497,7 @@ func (u *udpSessionConn) Read(p []byte) (int, error) {
 		return 0, net.ErrClosed
 	}
 	if u.wantCtrl {
-		n, oob, _, err := xio.ReadUDPMsg(u.conn, p, true)
+		n, oob, _, err := xio.ReadUDPMsgWithBuffer(u.conn, p, true, ancillaryBuffer(&u.oob, true))
 		if err != nil {
 			return n, err
 		}
@@ -499,11 +512,11 @@ func (u *udpSessionConn) readHandedOff(p []byte) (int, error) {
 		return 0, net.ErrClosed
 	}
 	for {
-		n, oob, addr, err := xio.ReadUDPMsg(u.pc, p, u.wantCtrl)
+		n, oob, addr, err := xio.ReadUDPMsgWithBuffer(u.pc, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
 		if err != nil {
 			return n, err
 		}
-		if u.peer != nil && addr != nil && addr.String() == u.peer.String() {
+		if udpAddrIsPeer(addr, u.peer) {
 			if u.wantCtrl {
 				xio.ProcessAncillary(oob, u.g)
 			}
@@ -595,20 +608,6 @@ func (u *udpSessionConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-// udpPeerConn is a minimal net.Conn exposing only RemoteAddr for peer filters.
-type udpPeerConn struct {
-	addr net.Addr
-}
-
-func (c *udpPeerConn) Read([]byte) (int, error)         { return 0, net.ErrClosed }
-func (c *udpPeerConn) Write([]byte) (int, error)        { return 0, net.ErrClosed }
-func (c *udpPeerConn) Close() error                     { return nil }
-func (c *udpPeerConn) LocalAddr() net.Addr              { return nil }
-func (c *udpPeerConn) RemoteAddr() net.Addr             { return c.addr }
-func (c *udpPeerConn) SetDeadline(time.Time) error      { return nil }
-func (c *udpPeerConn) SetReadDeadline(time.Time) error  { return nil }
-func (c *udpPeerConn) SetWriteDeadline(time.Time) error { return nil }
-
 // udpRecvFromConn: first datagram already received; further Read/Write use the
 // listening socket with WriteTo to the peer (no rebinding).
 // Named field (not embed) so poll does not wait for POLLIN while first is buffered.
@@ -619,6 +618,7 @@ type udpRecvFromConn struct {
 	closeEOF bool // after first payload: further Read → EOF (one-shot UDP-LISTEN)
 	wantCtrl bool
 	g        *xio.Global
+	oob      []byte
 }
 
 func (u *udpRecvFromConn) Read(p []byte) (int, error) {
@@ -632,11 +632,11 @@ func (u *udpRecvFromConn) Read(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 	for {
-		n, oob, addr, err := xio.ReadUDPMsg(u.uc, p, u.wantCtrl)
+		n, oob, addr, err := xio.ReadUDPMsgWithBuffer(u.uc, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
 		if err != nil {
 			return n, err
 		}
-		if u.peer != nil && addr != nil && addr.String() == u.peer.String() {
+		if udpAddrIsPeer(addr, u.peer) {
 			if u.wantCtrl {
 				xio.ProcessAncillary(oob, u.g)
 			}

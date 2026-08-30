@@ -84,12 +84,13 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
 		return xio.WrapCommon(s, relay.NetStream{Conn: c})
 	}
+	peerFilter := xio.NewPeerFilter(s, g)
 	o := &xio.Opened{
 		Kind:        xio.ListenKind(fork),
 		Listener:    ln,
 		Label:       "UNIX-LISTEN:" + path,
 		MaxChildren: maxChildren,
-		PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
+		PeerFilter:  peerFilter.AllowConn,
 		WrapDial:    wrapConn,
 	}
 	o.AcceptTimeout = xio.AcceptTimeout(s)
@@ -212,12 +213,13 @@ func openAbstractListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
 		return xio.WrapCommon(s, relay.NetStream{Conn: c})
 	}
+	peerFilter := xio.NewPeerFilter(s, g)
 	o := &xio.Opened{
 		Kind:        xio.ListenKind(fork),
 		Listener:    ln,
 		Label:       "ABSTRACT-LISTEN:" + name,
 		MaxChildren: maxChildren,
-		PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
+		PeerFilter:  peerFilter.AllowConn,
 		WrapDial:    wrapConn,
 	}
 	o.AcceptTimeout = xio.AcceptTimeout(s)

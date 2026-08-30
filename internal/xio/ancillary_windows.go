@@ -26,6 +26,11 @@ func ReadUDPMsg(c *net.UDPConn, p []byte, _ bool) (int, []byte, *net.UDPAddr, er
 	return n, nil, addr, err
 }
 
+func ReadUDPMsgWithBuffer(c *net.UDPConn, p []byte, _ bool, _ []byte) (int, []byte, *net.UDPAddr, error) {
+	n, addr, err := c.ReadFromUDP(p)
+	return n, nil, addr, err
+}
+
 // ControlMessageBytes returns oob[:oobn]. Windows recv paths do not enable
 // ReadMsg control-message delivery.
 func ControlMessageBytes(oob []byte, oobn, _ int) []byte {

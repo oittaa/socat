@@ -21,11 +21,12 @@ func WrapUDPAncillary(c *net.UDPConn, s parse.Spec, g *Global) net.Conn {
 
 type udpAncillaryConn struct {
 	*net.UDPConn
-	g *Global
+	g   *Global
+	oob [AncillaryBufferSize]byte
 }
 
 func (c *udpAncillaryConn) Read(p []byte) (int, error) {
-	n, oob, _, err := ReadUDPMsg(c.UDPConn, p, true)
+	n, oob, _, err := ReadUDPMsgWithBuffer(c.UDPConn, p, true, c.oob[:])
 	if err != nil {
 		return n, err
 	}

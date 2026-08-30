@@ -150,11 +150,12 @@ func (*udpDispatchListener) oneShotMode() bool { return false }
 func (l *udpDispatchListener) readLoop() {
 	buf := make([]byte, 65535)
 	wantCtrl := xio.NeedAncillary(l.base.spec)
+	var oobBuffer [xio.AncillaryBufferSize]byte
 	for {
 		if l.base.rcvTimeout > 0 {
 			_ = l.base.pc.SetReadDeadline(time.Now().Add(l.base.rcvTimeout))
 		}
-		rn, oob, peer, err := xio.ReadUDPMsg(l.base.pc, buf, wantCtrl)
+		rn, oob, peer, err := xio.ReadUDPMsgWithBuffer(l.base.pc, buf, wantCtrl, oobBuffer[:])
 		if err != nil {
 			select {
 			case <-l.done:
@@ -167,7 +168,7 @@ func (l *udpDispatchListener) readLoop() {
 			_ = l.shutdown(err)
 			return
 		}
-		if err := xio.PeerAllowedG(l.base.spec, &udpPeerConn{addr: peer}, l.base.g); err != nil {
+		if err := l.base.peerAllowed(peer); err != nil {
 			if l.base.g != nil && l.base.g.Log != nil {
 				l.base.g.Log.Noticef("%s", err)
 			}
