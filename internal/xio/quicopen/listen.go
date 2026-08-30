@@ -26,7 +26,7 @@ func openQUICListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 	if err != nil {
 		return nil, err
 	}
-	network := udpNetwork(xio.ListenNetwork(g, s))
+	network := xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
 	if network == "udp6" && s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
 		network = "udp"
 	}

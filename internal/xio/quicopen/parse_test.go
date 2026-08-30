@@ -115,12 +115,6 @@ func TestQUICConfigEnforcesTLS13Minimum(t *testing.T) {
 	}
 }
 
-func TestUDPNetwork(t *testing.T) {
-	if udpNetwork("tcp4") != "udp4" || udpNetwork("tcp6") != "udp6" || udpNetwork("tcp") != "udp" {
-		t.Fatal(udpNetwork("tcp4"), udpNetwork("tcp6"), udpNetwork("tcp"))
-	}
-}
-
 func TestQUICConfigHandshakeIdleTimeoutFromHandshakeTimeout(t *testing.T) {
 	s, err := parse.ParseSpec("QUIC:h:1,handshake-timeout=0.2")
 	if err != nil {
