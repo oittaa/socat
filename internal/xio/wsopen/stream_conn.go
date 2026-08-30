@@ -2,7 +2,6 @@ package wsopen
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -10,13 +9,16 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/oittaa/socat/internal/xio"
 )
 
 // wsNetConn exposes binary WebSocket messages as a byte stream. Deadlines are
-// applied to the owned network connection, avoiding a cancellation context for
-// every WebSocket frame when no deadline is active.
+// applied to the owned network connection, avoiding per-message cancellation
+// hooks on a connection-lifetime context.
 type wsNetConn struct {
-	ws  *websocket.Conn
+	ws *websocket.Conn
+	// For WSS clients, raw is the TCP connection beneath TLS.
 	raw net.Conn
 
 	readMu  sync.Mutex
@@ -63,7 +65,7 @@ func (c *wsNetConn) Read(p []byte) (int, error) {
 			}
 			continue
 		}
-		if isTimeout(err) {
+		if xio.IsTimeoutErr(err) {
 			_ = c.raw.Close()
 		}
 		return n, err
@@ -75,7 +77,7 @@ func (c *wsNetConn) Write(p []byte) (int, error) {
 	defer c.writeMu.Unlock()
 
 	if err := c.ws.Write(context.Background(), websocket.MessageBinary, p); err != nil {
-		if isTimeout(err) {
+		if xio.IsTimeoutErr(err) {
 			_ = c.raw.Close()
 		}
 		return 0, err
@@ -93,15 +95,6 @@ func (c *wsNetConn) RemoteAddr() net.Addr { return c.raw.RemoteAddr() }
 func (c *wsNetConn) SetDeadline(t time.Time) error      { return c.raw.SetDeadline(t) }
 func (c *wsNetConn) SetReadDeadline(t time.Time) error  { return c.raw.SetReadDeadline(t) }
 func (c *wsNetConn) SetWriteDeadline(t time.Time) error { return c.raw.SetWriteDeadline(t) }
-
-func isTimeout(err error) bool {
-	if err == nil {
-		return false
-	}
-	type timeout interface{ Timeout() bool }
-	var target timeout
-	return errors.As(err, &target) && target.Timeout()
-}
 
 func normalWebSocketClose(err error) bool {
 	switch websocket.CloseStatus(err) {
