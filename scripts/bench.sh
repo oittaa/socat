@@ -4,7 +4,7 @@
 #
 # Usage:
 #   ./scripts/bench.sh
-#   CLASSIC_SOCAT=/tmp/socat-1.8.1.3/bin/socat ./scripts/bench.sh
+#   SOCAT_CLASSIC_BIN=/path/to/classic/socat ./scripts/bench.sh
 #   SIZE=64M RUNS=3 ./scripts/bench.sh tcp udp tls ws wss quic
 #   SAVE_BASELINE=testdata/bench/host.json ./scripts/bench.sh
 set -euo pipefail
@@ -25,11 +25,11 @@ fi
 
 OPENSSL_BIN="${OPENSSL_BIN:-$(command -v openssl || true)}"
 
-CLASSIC_SOCAT="${CLASSIC_SOCAT:-}"
-if [[ -z "$CLASSIC_SOCAT" ]]; then
+SOCAT_CLASSIC_BIN="${SOCAT_CLASSIC_BIN:-}"
+if [[ -z "$SOCAT_CLASSIC_BIN" ]]; then
   path_socat="$(command -v socat || true)"
   if [[ -n "$path_socat" && -x "$path_socat" ]] && ! [[ "$path_socat" -ef "$SOCAT" ]]; then
-    CLASSIC_SOCAT="$path_socat"
+    SOCAT_CLASSIC_BIN="$path_socat"
   fi
 fi
 WORKDIR="${WORKDIR:-$ROOT/testdata/tmp/bench}"
@@ -70,7 +70,7 @@ if [[ ! -x "$BENCHCLIENT" ]]; then
   exit 2
 fi
 
-export SOCAT CLASSIC_SOCAT OPENSSL_BIN WORKDIR BENCHCLIENT
+export SOCAT SOCAT_CLASSIC_BIN OPENSSL_BIN WORKDIR BENCHCLIENT
 export SIZE="${SIZE:-256M}"
 export RUNS="${RUNS:-5}"
 export WARMUP="${WARMUP:-1}"
@@ -82,8 +82,8 @@ export BENCH_OUT="${BENCH_OUT:-$WORKDIR/results.json}"
 export SAVE_BASELINE="${SAVE_BASELINE:-}"
 export BENCH_PAYLOAD="${BENCH_PAYLOAD:-}"
 
-if [[ -z "${CLASSIC_SOCAT:-}" ]]; then
-  echo "CLASSIC_SOCAT is unset; classic columns will be skipped." >&2
+if [[ -z "${SOCAT_CLASSIC_BIN:-}" ]]; then
+  echo "SOCAT_CLASSIC_BIN is unset and socat was not found on PATH; classic columns will be skipped." >&2
 fi
 
 exec python3 "$ROOT/scripts/bench.py" "$@"

@@ -87,6 +87,18 @@ def first_line(cmd: list[str]) -> str:
     return out.splitlines()[0] if out else ""
 
 
+def socat_version(cmd: list[str]) -> str:
+    try:
+        out = run_cmd(cmd)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    lines = [line.strip() for line in out.splitlines() if line.strip()]
+    for line in lines:
+        if line.lower().startswith("socat version "):
+            return line
+    return lines[0] if lines else ""
+
+
 def cpu_model() -> str:
     try:
         for line in Path("/proc/cpuinfo").read_text(encoding="ascii", errors="ignore").splitlines():
@@ -302,9 +314,9 @@ def collect_meta(args: dict[str, Any]) -> dict[str, Any]:
         "nproc": os.cpu_count() or 0,
         "go_version": first_line(["go", "version"]),
         "go_socat": go_bin,
-        "go_socat_version": first_line([go_bin, "-V"]),
+        "go_socat_version": socat_version([go_bin, "-V"]),
         "classic_socat": classic or "",
-        "classic_socat_version": first_line([classic, "-V"]) if classic else "",
+        "classic_socat_version": socat_version([classic, "-V"]) if classic else "",
         "openssl_bin": os.environ.get("OPENSSL_BIN", "openssl"),
         "openssl_version": first_line([os.environ.get("OPENSSL_BIN", "openssl"), "version"]),
         "size_bytes": args["size"],
@@ -1150,6 +1162,7 @@ def write_summary(doc: dict[str, Any], path: Path) -> None:
         f"cpu_model={m.get('cpu_model')}",
         f"nproc={m.get('nproc')}",
         f"go_version={m.get('go_version')}",
+        f"go_socat_version={m.get('go_socat_version')}",
         f"classic_socat_version={m.get('classic_socat_version')}",
         f"size_bytes={m.get('size_bytes')}",
         f"runs={m.get('runs')}",
@@ -1219,7 +1232,7 @@ def main() -> int:
     warmup = int(os.environ.get("WARMUP", "1"))
     buffer = int(os.environ.get("BUF", "8192"))
     socat = os.environ.get("SOCAT", str(ROOT / "socat"))
-    classic = os.environ.get("CLASSIC_SOCAT", "").strip()
+    classic = os.environ.get("SOCAT_CLASSIC_BIN", "").strip()
     benchclient = Path(os.environ.get("BENCHCLIENT", str(workdir / "benchclient")))
     certs = {
         "ca": Path(os.environ["BENCH_CA"]),

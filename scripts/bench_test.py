@@ -1,8 +1,37 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import bench
+
+
+class MetadataTest(unittest.TestCase):
+    def test_socat_version_uses_version_line(self) -> None:
+        output = (
+            "socat by Gerhard Rieger and contributors - see www.dest-unreach.org\n"
+            "socat version 1.8.1.3\n"
+            "features:\n"
+        )
+        with mock.patch.object(bench, "run_cmd", return_value=output):
+            self.assertEqual(bench.socat_version(["socat", "-V"]), "socat version 1.8.1.3")
+
+    def test_summary_records_both_socat_versions(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            path = Path(tempdir) / "summary.txt"
+            bench.write_summary(
+                {
+                    "meta": {
+                        "go_socat_version": "socat version 1.0.2-dev",
+                        "classic_socat_version": "socat version 1.8.1.3",
+                    },
+                    "cases": [],
+                },
+                path,
+            )
+            summary = path.read_text(encoding="utf-8")
+            self.assertIn("go_socat_version=socat version 1.0.2-dev", summary)
+            self.assertIn("classic_socat_version=socat version 1.8.1.3", summary)
 
 
 class DatagramFrameTest(unittest.TestCase):
