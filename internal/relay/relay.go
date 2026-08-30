@@ -18,6 +18,8 @@ import (
 // keep flushing after the first side EOFs (0.5s).
 const DefaultLinger = 500 * time.Millisecond
 
+const idleWatchInterval = 100 * time.Millisecond
+
 // Config controls transfer behavior.
 type Config struct {
 	// BufferSize is the max bytes per read (-b, default 8192).
@@ -229,9 +231,9 @@ func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Du
 	done := make(chan struct{})
 	var once sync.Once
 	stop = func() { once.Do(func() { close(done) }) }
+	clock := processIdleClock.subscribe()
 	go func() {
-		t := time.NewTicker(100 * time.Millisecond)
-		defer t.Stop()
+		defer clock.close()
 		lastActivity := started
 		lastBytes := tr.BytesLR.Load() + tr.BytesRL.Load()
 		for {
@@ -240,7 +242,8 @@ func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Du
 				return
 			case <-done:
 				return
-			case now := <-t.C:
+			case <-clock.next():
+				now := time.Now()
 				bytes := tr.BytesLR.Load() + tr.BytesRL.Load()
 				if bytes != lastBytes {
 					lastBytes = bytes

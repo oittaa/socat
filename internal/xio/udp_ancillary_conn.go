@@ -6,6 +6,8 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
+const AncillaryBufferSize = 1024
+
 // WrapUDPAncillary returns c unchanged unless recv ancillary options are
 // enabled; then Read uses ReadMsgUDP so cmsgs are observed (UDP-CONNECT and
 // any other connected UDP path that would otherwise call Conn.Read).
