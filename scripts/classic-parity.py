@@ -505,6 +505,11 @@ def platform_option_set(policy: dict[str, Any], goos: str) -> set[str]:
     return _platform_block_names(plat, goos)
 
 
+def platform_extra_option_set(policy: dict[str, Any], goos: str) -> set[str]:
+    plat = policy.get("platform_extra_options") or {}
+    return _platform_block_names(plat, goos)
+
+
 def platform_unsupported_option_set(policy: dict[str, Any], goos: str) -> set[str]:
     plat = policy.get("platform_unsupported_options") or {}
     return _platform_block_names(plat, goos)
@@ -881,6 +886,9 @@ def compare_interfaces(
         official_opt_aliases,
         include_canonical=True,
     )
+    this_plat_extras = {
+        n.lower() for n in platform_extra_option_set(policy, goos)
+    }
     plat_unsup = expand_policy_spellings(
         {n.lower() for n in platform_unsupported_option_set(policy, goos)},
         official_opt_aliases,
@@ -947,7 +955,7 @@ def compare_interfaces(
     for name in sorted(go_help.options):
         if name in advertised_opts:
             continue
-        if name in go_only_opts or name in this_plat:
+        if name in go_only_opts or name in this_plat or name in this_plat_extras:
             continue
         if name in master_public.options:
             continue

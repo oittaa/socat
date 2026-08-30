@@ -151,6 +151,11 @@ POLICY = {
         "darwin": ["ip-recvif"],
         "windows": ["binary"],
     },
+    "platform_extra_options": {
+        "linux": [],
+        "darwin": [],
+        "windows": [],
+    },
 }
 
 
@@ -442,12 +447,38 @@ class CompareTest(unittest.TestCase):
 
     def test_darwin_baud_extra_is_not_unexpected_on_darwin(self) -> None:
         policy = copy.deepcopy(POLICY)
-        policy["platform_options"]["darwin"] = ["b110"]
+        policy["platform_extra_options"]["darwin"] = ["b110"]
         go = parity.parse_go_help(SYNTHETIC_GO_HELP + "    b110         110 baud\n")
         darwin = self._report(go_help=go, goos="darwin", policy=policy)
         self.assertNotIn("b110", darwin.unexpected_options)
         linux = self._report(go_help=go, goos="linux", policy=policy)
         self.assertIn("b110", linux.unexpected_options)
+
+    def test_darwin_extra_does_not_hide_missing_linux_alias(self) -> None:
+        hhh = parity.parse_classic_hhh(
+            SYNTHETIC_HHH
+            + "      tcpwrap\tgroups=RANGE\t\tphase=PASTSOCKET\t\ttype=STRING\n"
+            + "      wrap\tis an alias for tcpwrap\n"
+        )
+        policy = copy.deepcopy(POLICY)
+        policy["platform_extra_options"]["darwin"] = ["wrap"]
+
+        darwin_go = parity.parse_go_help(
+            SYNTHETIC_GO_HELP
+            + "    wrap        extra alias\n"
+            + "    libwrap     unlisted extra alias\n"
+        )
+        darwin = self._report(
+            release_hhh=None,
+            go_help=darwin_go,
+            goos="darwin",
+            policy=policy,
+        )
+        self.assertNotIn("wrap", darwin.unexpected_options)
+        self.assertIn("libwrap", darwin.unexpected_options)
+
+        linux = self._report(release_hhh=hhh, goos="linux", policy=policy)
+        self.assertIn("wrap", linux.missing_options)
 
     def test_linux_only_address_missing_on_darwin_is_accepted(self) -> None:
         docs = parity.parse_socat_yo(
@@ -1070,6 +1101,7 @@ class RepoPolicyTest(unittest.TestCase):
         "go_only_addresses",
         "go_only_options",
         "platform_options",
+        "platform_extra_options",
         "platform_unsupported_options",
         "platform_addresses",
         "option_canonical_equivalences",
@@ -1105,6 +1137,7 @@ class RepoPolicyTest(unittest.TestCase):
         ]
         self.assertIn({"lseek", "lseek32-set", "lseek64-set"}, lseek_groups)
         platforms = policy["platform_options"]
+        platform_extras = policy["platform_extra_options"]
         self.assertIn("linux", platforms)
         self.assertIn("darwin", platforms)
         self.assertIn("windows", platforms)
@@ -1149,9 +1182,11 @@ class RepoPolicyTest(unittest.TestCase):
             self.assertIn(name, platforms["linux"])
         for name in ("nldly", "crdly", "csize", "bsdly", "vtdly", "ffdly"):
             self.assertNotIn(name, platforms["linux"])
-        self.assertIn("b110", platforms["darwin"])
-        self.assertIn("cr0", platforms["darwin"])
-        self.assertIn("cs5", platforms["darwin"])
+        self.assertIn("b110", platform_extras["darwin"])
+        self.assertIn("cr0", platform_extras["darwin"])
+        self.assertIn("cs5", platform_extras["darwin"])
+        self.assertIn("wrap", platform_extras["darwin"])
+        self.assertNotIn("wrap", platforms["darwin"])
         self.assertIn("su", policy["unsupported_options"])
         self.assertIn("egd", policy["unsupported_options"])
         self.assertIn("dhparams", policy["unsupported_options"])
@@ -1163,13 +1198,23 @@ class RepoPolicyTest(unittest.TestCase):
         policy = parity.load_policy()
         go_only = {name.lower() for name in (policy.get("go_only_options") or {})}
         platform: set[str] = set()
-        for block in (policy.get("platform_options") or {}).values():
-            if isinstance(block, dict):
-                platform.update(name.lower() for name in block)
-            elif isinstance(block, list):
-                platform.update(name.lower() for name in block)
+        for key in ("platform_options", "platform_extra_options"):
+            for block in (policy.get(key) or {}).values():
+                if isinstance(block, dict):
+                    platform.update(name.lower() for name in block)
+                elif isinstance(block, list):
+                    platform.update(name.lower() for name in block)
         overlap = go_only & platform
-        self.assertEqual(overlap, set(), f"go_only_options overlap platform_options: {sorted(overlap)}")
+        self.assertEqual(overlap, set(), f"go_only_options overlap platform policy: {sorted(overlap)}")
+
+    def test_platform_and_platform_extra_sets_are_disjoint(self) -> None:
+        policy = parity.load_policy()
+        platforms = policy["platform_options"]
+        extras = policy["platform_extra_options"]
+        for goos in ("linux", "darwin", "windows"):
+            official = {name.lower() for name in platforms[goos]}
+            extensions = {name.lower() for name in extras[goos]}
+            self.assertEqual(official & extensions, set(), goos)
 
 
 class OriginSafetyTest(unittest.TestCase):
