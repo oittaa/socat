@@ -47,7 +47,3 @@ func withALPN(cfg *tls.Config, s parse.Spec) (*tls.Config, error) {
 	}
 	return cfg, nil
 }
-
-func udpNetwork(tcpNet string) string {
-	return xio.TCPToUDPNetwork(tcpNet)
-}

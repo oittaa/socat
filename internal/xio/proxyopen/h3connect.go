@@ -23,15 +23,11 @@ import (
 // ListenControl socket options and before QUIC dials on it.
 var testHookH3PacketConn func(net.PacketConn)
 
-func tcpToUDPNetwork(tcpNet string) string {
-	return xio.TCPToUDPNetwork(tcpNet)
-}
-
 // listenH3Packet binds the HTTP/3 UDP socket with ListenControl so send-side
 // IP/ancillary options apply after socket() and before bind, instead of
 // http3.Transport creating its own UDP socket and ignoring those options.
 func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost string) (net.PacketConn, string, error) {
-	network := tcpToUDPNetwork(xio.ConnectNetworkForType(g, s, proxyHost, "tcp"))
+	network := xio.TCPToUDPNetwork(xio.ConnectNetworkForType(g, s, proxyHost, "tcp"))
 	netw, err := xio.PacketNetworkForHost(ctx, s, network, proxyHost)
 	if err != nil {
 		return nil, "", err
