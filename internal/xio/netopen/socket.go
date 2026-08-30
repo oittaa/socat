@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -144,42 +142,15 @@ func openSocketDatagram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 }
 
 func openSocketDgram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, connected bool) (*xio.Opened, error) {
-	if len(s.Params) < 4 {
-		return nil, fmt.Errorf("%s requires domain:type:protocol:address", s.Type)
-	}
-	domain, err := strconv.Atoi(s.Params[0])
-	if err != nil {
-		return nil, fmt.Errorf("domain: %w", err)
-	}
-	// Empty type (SOCKET-SENDTO:2::17:...) → SOCK_DGRAM
-	typ := unix.SOCK_DGRAM
-	if s.Params[1] != "" {
-		typ, err = strconv.Atoi(s.Params[1])
-		if err != nil {
-			return nil, fmt.Errorf("type: %w", err)
-		}
-	}
-	proto, err := strconv.Atoi(s.Params[2])
-	if err != nil {
-		// empty protocol → 0
-		if s.Params[2] != "" {
-			return nil, fmt.Errorf("protocol: %w", err)
-		}
-		proto = 0
-	}
-	addrText := rawSocketAddress(s, 3)
-	if addrText == "" {
-		addrText = strings.Join(s.Params[3:], ":")
-	}
-	addrData, err := xio.ParseSocatData(addrText)
+	p, err := parseSocketDgramParams(s)
 	if err != nil {
 		return nil, err
 	}
-	sa, salen, err := buildSockaddr(domain, addrData)
+	sa, salen, err := buildSockaddr(p.domain, p.addr)
 	if err != nil {
 		return nil, err
 	}
-	fd, err := newSocket(domain, typ, proto)
+	fd, err := newSocket(p.domain, p.typ, p.proto)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +164,7 @@ func openSocketDgram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 			logx.CloseErr(unix.Close(fd))
 			return nil, berr
 		}
-		bsa, blen, err := buildSockaddr(domain, bdata)
+		bsa, blen, err := buildSockaddr(p.domain, bdata)
 		if err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, err
@@ -240,31 +211,15 @@ func openSocketRecvfrom(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 }
 
 func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, from bool) (*xio.Opened, error) {
-	if len(s.Params) < 4 {
-		return nil, fmt.Errorf("%s requires domain:type:protocol:address", s.Type)
-	}
-	domain, _ := strconv.Atoi(s.Params[0])
-	typ := unix.SOCK_DGRAM
-	if s.Params[1] != "" {
-		typ, _ = strconv.Atoi(s.Params[1])
-	}
-	proto := 0
-	if s.Params[2] != "" {
-		proto, _ = strconv.Atoi(s.Params[2])
-	}
-	addrText := rawSocketAddress(s, 3)
-	if addrText == "" {
-		addrText = strings.Join(s.Params[3:], ":")
-	}
-	addrData, err := xio.ParseSocatData(addrText)
+	p, err := parseSocketDgramParams(s)
 	if err != nil {
 		return nil, err
 	}
-	sa, salen, err := buildSockaddr(domain, addrData)
+	sa, salen, err := buildSockaddr(p.domain, p.addr)
 	if err != nil {
 		return nil, err
 	}
-	fd, err := newSocket(domain, typ, proto)
+	fd, err := newSocket(p.domain, p.typ, p.proto)
 	if err != nil {
 		return nil, err
 	}

@@ -65,6 +65,54 @@ func parseSocketParams(s parse.Spec, n int) (domain, proto int, addr []byte, err
 	return domain, proto, addr, nil
 }
 
+type socketDgramParams struct {
+	domain, typ, proto int
+	addr               []byte
+}
+
+// parseSocketDgramParams parses SOCKET-SENDTO / SOCKET-DATAGRAM /
+// SOCKET-RECV / SOCKET-RECVFROM domain:type:protocol:address.
+// Empty domain is 0 (PF_UNSPEC). Empty type is SOCK_DGRAM. Empty protocol is 0.
+// Malformed non-empty integers are rejected with a field-specific error.
+func parseSocketDgramParams(s parse.Spec) (socketDgramParams, error) {
+	var out socketDgramParams
+	if len(s.Params) < 4 {
+		return out, fmt.Errorf("%s requires domain:type:protocol:address", s.Type)
+	}
+	if s.Params[0] != "" {
+		domain, err := strconv.Atoi(s.Params[0])
+		if err != nil {
+			return out, fmt.Errorf("domain: %w", err)
+		}
+		out.domain = domain
+	}
+	out.typ = unix.SOCK_DGRAM
+	if s.Params[1] != "" {
+		typ, err := strconv.Atoi(s.Params[1])
+		if err != nil {
+			return out, fmt.Errorf("type: %w", err)
+		}
+		out.typ = typ
+	}
+	if s.Params[2] != "" {
+		proto, err := strconv.Atoi(s.Params[2])
+		if err != nil {
+			return out, fmt.Errorf("protocol: %w", err)
+		}
+		out.proto = proto
+	}
+	addrText := rawSocketAddress(s, 3)
+	if addrText == "" {
+		addrText = strings.Join(s.Params[3:], ":")
+	}
+	addr, err := xio.ParseSocatData(addrText)
+	if err != nil {
+		return out, err
+	}
+	out.addr = addr
+	return out, nil
+}
+
 // rawSocketAddress extracts the address parameter from Spec.Raw without unquote.
 // paramIndex is 0-based among TYPE:p0:p1:p2... (e.g. 2 for CONNECT domain:proto:addr).
 // Strips trailing ,options only.
