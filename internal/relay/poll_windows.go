@@ -5,9 +5,15 @@ package relay
 import (
 	"context"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 func canPoll() bool { return false }
+
+func idleClockSleep() {
+	windows.SleepEx(uint32(idleWatchInterval.Milliseconds()), false)
+}
 
 // waitPollRead has no WSAPoll in x/sys/windows. Callers must use canPoll()
 // and the SetReadDeadline loop; this stub must not claim the fd is ready.

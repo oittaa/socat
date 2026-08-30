@@ -91,12 +91,16 @@ func TestUDPRecvDstaddrLiveDarwin(t *testing.T) {
 		t.Fatal(err)
 	}
 	buf := make([]byte, 16)
-	n, oob, _, err := ReadUDPMsg(recv, buf, true)
+	oobBuffer := make([]byte, AncillaryBufferSize)
+	n, oob, _, err := ReadUDPMsgWithBuffer(recv, buf, true, oobBuffer)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(buf[:n]) != "hi" {
 		t.Fatalf("payload=%q", buf[:n])
+	}
+	if len(oob) > 0 && &oob[0] != &oobBuffer[0] {
+		t.Fatal("ReadUDPMsgWithBuffer did not reuse the supplied buffer")
 	}
 	g := &Global{}
 	ProcessAncillary(oob, g)

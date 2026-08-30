@@ -179,21 +179,25 @@ func laddrString(network string, laddr *net.UDPAddr) string {
 // filters; sourceport means dest-port of the sender.
 type udpDatagramConn struct {
 	*net.UDPConn
-	raddr     *net.UDPAddr
-	spec      parse.Spec
-	g         *xio.Global
-	wantCtrl  bool
-	exactPeer bool
+	raddr            *net.UDPAddr
+	filter           *xio.PeerFilter
+	g                *xio.Global
+	wantCtrl         bool
+	exactPeer        bool
+	sourcePortFilter bool
+	oob              []byte
 }
 
 func newUDPDatagramConn(c *net.UDPConn, raddr *net.UDPAddr, s parse.Spec, g *xio.Global, exactPeer bool) *udpDatagramConn {
+	_, sourcePortFilter := s.OptionNamed("sourceport")
 	return &udpDatagramConn{
-		UDPConn:   c,
-		raddr:     raddr,
-		spec:      s,
-		g:         g,
-		wantCtrl:  xio.NeedAncillary(s),
-		exactPeer: exactPeer,
+		UDPConn:          c,
+		raddr:            raddr,
+		filter:           xio.NewPeerFilter(specWithoutSourceport(s), g),
+		g:                g,
+		wantCtrl:         xio.NeedAncillary(s),
+		exactPeer:        exactPeer,
+		sourcePortFilter: sourcePortFilter,
 	}
 }
 
@@ -207,7 +211,7 @@ func datagramLabel(exactPeer bool, raddr *net.UDPAddr) string {
 
 func (u *udpDatagramConn) Read(p []byte) (int, error) {
 	for {
-		n, oob, addr, err := xio.ReadUDPMsg(u.UDPConn, p, u.wantCtrl)
+		n, oob, addr, err := xio.ReadUDPMsgWithBuffer(u.UDPConn, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
 		if err != nil {
 			return n, err
 		}
@@ -232,12 +236,12 @@ func (u *udpDatagramConn) checkPeer(addr *net.UDPAddr) error {
 		return nil
 	}
 	// DATAGRAM sourceport is the configured destination port, not the local bind.
-	if u.spec.HasOption("sourceport") {
+	if u.sourcePortFilter {
 		if addr == nil || u.raddr == nil || addr.Port != u.raddr.Port {
 			return fmt.Errorf("refusing connection from %s, sourceport mismatch", addr)
 		}
 	}
-	return xio.PeerAllowedG(specWithoutSourceport(u.spec), &udpPeerConn{addr: addr}, u.g)
+	return u.filter.AllowAddr(addr, u.LocalAddr())
 }
 
 func udpAddrIsPeer(got, want *net.UDPAddr) bool {
@@ -354,6 +358,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				logx.CloseQuiet(pc)
 				return nil, ferr
 			}
+			peerFilter := xio.NewPeerFilter(s, g)
 			ln := &udpForkListener{
 				pc:      pc,
 				network: network,
@@ -362,6 +367,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				g:       g,
 				ctx:     ctx,
 				oneShot: true,
+				filter:  peerFilter,
 			}
 			if err := applyUDPForkTimeouts(ln, s); err != nil {
 				logx.CloseQuiet(pc)
@@ -372,7 +378,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				Listener:    ln,
 				Label:       "UDP-RECVFROM",
 				MaxChildren: maxChildren,
-				PeerFilter:  func(c net.Conn) error { return xio.PeerAllowedG(s, c, g) },
+				PeerFilter:  peerFilter.AllowConn,
 				WrapDial: func(c net.Conn) (relay.Stream, error) {
 					return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
 				},
@@ -394,10 +400,12 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		}
 		var n int
 		var raddr *net.UDPAddr
+		peerFilter := xio.NewPeerFilter(s, g)
+		var oobBuffer [xio.AncillaryBufferSize]byte
 		for {
 			ch := make(chan res, 1)
 			go func() {
-				nn, oob, a, err := xio.ReadUDPMsg(pc, buf, wantCtrl)
+				nn, oob, a, err := xio.ReadUDPMsgWithBuffer(pc, buf, wantCtrl, oobBuffer[:])
 				ch <- res{nn, a, oob, err}
 			}()
 			select {
@@ -409,7 +417,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 					logx.CloseQuiet(pc)
 					return nil, udpAcceptError(r.e, false)
 				}
-				if err := xio.PeerAllowedG(s, &udpPeerConn{addr: r.a}, g); err != nil {
+				if err := peerFilter.AllowAddr(r.a, pc.LocalAddr()); err != nil {
 					if g != nil && g.Log != nil {
 						g.Log.Noticef("%s", err)
 					}
@@ -448,7 +456,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	}
 	st := relay.Stream(&udpFilteredRecv{
 		conn:     pc,
-		spec:     s,
+		filter:   xio.NewPeerFilter(s, g),
 		g:        g,
 		wantCtrl: xio.NeedAncillary(s),
 	})
@@ -467,18 +475,19 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 // When wantCtrl is set, uses ReadMsgUDP and logs/sets ancillary env.
 type udpFilteredRecv struct {
 	conn     *net.UDPConn
-	spec     parse.Spec
+	filter   *xio.PeerFilter
 	g        *xio.Global
 	wantCtrl bool
+	oob      []byte
 }
 
 func (u *udpFilteredRecv) Read(p []byte) (int, error) {
 	for {
-		n, oob, addr, err := xio.ReadUDPMsg(u.conn, p, u.wantCtrl)
+		n, oob, addr, err := xio.ReadUDPMsgWithBuffer(u.conn, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
 		if err != nil {
 			return n, err
 		}
-		if err := xio.PeerAllowedG(u.spec, &udpPeerConn{addr: addr}, u.g); err != nil {
+		if err := u.filter.AllowAddr(addr, u.conn.LocalAddr()); err != nil {
 			if u.g != nil && u.g.Log != nil {
 				u.g.Log.Noticef("%s", err)
 			}

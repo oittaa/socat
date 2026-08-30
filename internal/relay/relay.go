@@ -18,6 +18,8 @@ import (
 // keep flushing after the first side EOFs (0.5s).
 const DefaultLinger = 500 * time.Millisecond
 
+const idleWatchInterval = 100 * time.Millisecond
+
 // Config controls transfer behavior.
 type Config struct {
 	// BufferSize is the max bytes per read (-b, default 8192).
@@ -226,25 +228,28 @@ func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Du
 	if idle <= 0 {
 		return nop, nop
 	}
-	var mu sync.Mutex
-	last := time.Now()
+	started := time.Now()
+	var lastActivity atomic.Int64
 	done := make(chan struct{})
 	var once sync.Once
 	stop = func() { once.Do(func() { close(done) }) }
+	clock := processIdleClock.subscribe()
 	go func() {
-		t := time.NewTicker(100 * time.Millisecond)
-		defer t.Stop()
+		defer clock.close()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-done:
 				return
-			case <-t.C:
-				mu.Lock()
-				since := time.Since(last)
-				mu.Unlock()
-				if since >= idle {
+			case <-clock.next():
+				elapsed := time.Since(started)
+				last := time.Duration(lastActivity.Load())
+				if elapsed-last >= idle {
+					// Do not expire progress that raced with this tick.
+					if current := lastActivity.Load(); current != int64(last) {
+						continue
+					}
 					cancel()
 					return
 				}
@@ -252,9 +257,13 @@ func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Du
 		}
 	}()
 	touch = func() {
-		mu.Lock()
-		last = time.Now()
-		mu.Unlock()
+		now := int64(time.Since(started))
+		for {
+			last := lastActivity.Load()
+			if now <= last || lastActivity.CompareAndSwap(last, now) {
+				return
+			}
+		}
 	}
 	return touch, stop
 }

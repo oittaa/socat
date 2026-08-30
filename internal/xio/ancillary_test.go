@@ -166,7 +166,8 @@ func TestUDPRecvTTLAncillary(t *testing.T) {
 		t.Fatal(err)
 	}
 	buf := make([]byte, 16)
-	n, oob, _, err := ReadUDPMsg(recv, buf, true)
+	oobBuffer := make([]byte, AncillaryBufferSize)
+	n, oob, _, err := ReadUDPMsgWithBuffer(recv, buf, true, oobBuffer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,6 +176,9 @@ func TestUDPRecvTTLAncillary(t *testing.T) {
 	}
 	if len(oob) == 0 {
 		t.Fatal("expected IP_TTL cmsg")
+	}
+	if &oob[0] != &oobBuffer[0] {
+		t.Fatal("ReadUDPMsgWithBuffer did not reuse the supplied buffer")
 	}
 	g := &Global{}
 	ProcessAncillary(oob, g)

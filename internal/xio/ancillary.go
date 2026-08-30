@@ -365,17 +365,25 @@ func ControlMessageBytes(oob []byte, oobn, flags int) []byte {
 
 // ReadUDPMsg reads one datagram with control messages when needed.
 func ReadUDPMsg(c *net.UDPConn, p []byte, wantCtrl bool) (n int, oob []byte, addr *net.UDPAddr, err error) {
+	return ReadUDPMsgWithBuffer(c, p, wantCtrl, nil)
+}
+
+// ReadUDPMsgWithBuffer reuses oobBuffer when control messages are enabled.
+// The returned oob slice aliases that buffer and is valid until its next use.
+func ReadUDPMsgWithBuffer(c *net.UDPConn, p []byte, wantCtrl bool, oobBuffer []byte) (n int, oob []byte, addr *net.UDPAddr, err error) {
 	if !wantCtrl {
 		n, addr, err = c.ReadFromUDP(p)
 		return n, nil, addr, err
 	}
-	oob = make([]byte, 1024)
+	if len(oobBuffer) < AncillaryBufferSize {
+		oobBuffer = make([]byte, AncillaryBufferSize)
+	}
 	var oobn, flags int
-	n, oobn, flags, addr, err = c.ReadMsgUDP(p, oob)
+	n, oobn, flags, addr, err = c.ReadMsgUDP(p, oobBuffer)
 	if err != nil {
 		return n, nil, nil, err
 	}
-	return n, ControlMessageBytes(oob, oobn, flags), addr, nil
+	return n, ControlMessageBytes(oobBuffer, oobn, flags), addr, nil
 }
 
 // ApplyUDPConnOpts applies late buffers and remaining SOL_SOCKET options

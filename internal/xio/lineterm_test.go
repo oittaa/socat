@@ -248,6 +248,45 @@ func TestCrWriterPartialMatchesLength(t *testing.T) {
 	}
 }
 
+func TestLineTermConvertersReuseScratchBuffers(t *testing.T) {
+	input := []byte("one\r\ntwo\n")
+	out := make([]byte, len(input))
+
+	crw := &crWriter{w: io.Discard}
+	_, _ = crw.Write(input)
+	if got := testing.AllocsPerRun(1000, func() { _, _ = crw.Write(input) }); got != 0 {
+		t.Fatalf("cr writer allocations = %v, want 0 after warmup", got)
+	}
+
+	cnw := &crnlWriter{w: io.Discard}
+	_, _ = cnw.Write(input)
+	if got := testing.AllocsPerRun(1000, func() { _, _ = cnw.Write(input) }); got != 0 {
+		t.Fatalf("crnl writer allocations = %v, want 0 after warmup", got)
+	}
+
+	var source bytes.Reader
+	cnr := &crnlReader{r: &source}
+	source.Reset(input)
+	_, _ = cnr.Read(out)
+	if got := testing.AllocsPerRun(1000, func() {
+		source.Reset(input)
+		_, _ = cnr.Read(out)
+	}); got != 0 {
+		t.Fatalf("crnl reader allocations = %v, want 0 after warmup", got)
+	}
+
+	cor := &crorlfReader{r: &source}
+	source.Reset(input)
+	_, _ = cor.Read(out)
+	if got := testing.AllocsPerRun(1000, func() {
+		source.Reset(input)
+		cor.sawCR = false
+		_, _ = cor.Read(out)
+	}); got != 0 {
+		t.Fatalf("crorlf reader allocations = %v, want 0 after warmup", got)
+	}
+}
+
 func TestWantCRNLAliasLastWins(t *testing.T) {
 	on, err := parse.ParseSpec("TCP:127.0.0.1:9,crlf")
 	if err != nil {

@@ -474,6 +474,7 @@ type packetRawStream struct {
 	proto        uint16
 	retrieveVLAN bool
 	closed       bool
+	oob          []byte
 }
 
 func (p *packetRawStream) Read(b []byte) (int, error) {
@@ -503,7 +504,10 @@ func (p *packetRawStream) recv(b []byte) (n int, from unix.Sockaddr, oob []byte,
 		n, from, err = unix.Recvfrom(p.fd, b, 0)
 		return n, from, nil, err
 	}
-	oob = make([]byte, unix.CmsgSpace(int(unsafe.Sizeof(unix.TpacketAuxdata{}))))
+	if p.oob == nil {
+		p.oob = make([]byte, unix.CmsgSpace(int(unsafe.Sizeof(unix.TpacketAuxdata{}))))
+	}
+	oob = p.oob
 	var oobn int
 	n, oobn, _, from, err = unix.Recvmsg(p.fd, b, oob, 0)
 	if err != nil {

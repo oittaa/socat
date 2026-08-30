@@ -7,6 +7,7 @@ import (
 	"io"
 	"math"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -30,6 +31,20 @@ func pollFd(fd int, events int16) (unix.PollFd, bool) {
 
 func poll(fds []unix.PollFd, timeoutMs int) (int, error) {
 	return unix.Poll(fds, timeoutMs)
+}
+
+func idleClockSleep() {
+	deadline := time.Now().Add(idleWatchInterval)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return
+		}
+		timeoutMs := int((remaining + time.Millisecond - 1) / time.Millisecond)
+		if _, err := poll(nil, timeoutMs); err != syscall.EINTR {
+			return
+		}
+	}
 }
 
 // waitPollRead waits until fd is readable. errPollIdle means retry.
