@@ -3,91 +3,75 @@
 ## Supported platforms
 
 Only Linux (`linux`), macOS (`darwin`), and Windows (`windows`) are supported.
-Unsupported `GOOS` builds are allowed to fail. Never add AIX, Solaris,
-illumos, FreeBSD, OpenBSD, NetBSD, or DragonFly support, tests, constants,
-wrappers, or fallback implementations, and do not make those platforms
-compile.
+Unsupported `GOOS` builds may fail. Do not add code, tests, constants,
+fallbacks, or build support for other operating systems.
 
-**Unix** in this project means Linux + macOS only. Go’s broad `unix` build
-tag includes unsupported systems and must not be used.
+“Unix” means Linux and macOS only. Do not use Go’s broad `unix` build tag.
 
 Build constraints:
 
-- Shared Linux/macOS files: `//go:build linux || darwin`
-- OS-specific files: `//go:build linux`, `//go:build darwin`, or `//go:build windows`
-- Do not use broad negatives (`!windows`, `!linux`, `!darwin`, `!unix`)
-- If a stub is needed by more than one supported OS, list those OS names
-  explicitly (for example `darwin || windows`)
+- Shared Linux/macOS: `//go:build linux || darwin`
+- OS-specific: `//go:build linux`, `darwin`, or `windows`
+- Multi-platform stubs must list each supported OS explicitly
+- Do not use broad negative constraints such as `!windows`
 
-`make check` (`goos-check`) rejects the `unix` tag, unsupported GOOS names
-(AIX, Solaris, illumos, FreeBSD, OpenBSD, NetBSD, DragonFly, and other
-KnownOS values besides linux/darwin/windows), and those broad negatives in
-`*.go` files, including filename suffixes that imply those GOOS values.
-`*_unix.go` is not an implicit `unix` tag (Go does not filename-match `unix`).
-POSIX spellings such as `BSDLY` / `bsdly` / `so-bsdcompat` are option names,
-not platform lists.
+`*_unix.go` is an ordinary filename; Go does not treat `unix` as a filename
+platform suffix. `golang.org/x/sys/unix` is allowed. Names such as `BSDLY`,
+`bsdly`, and `so-bsdcompat` are options, not platform support.
 
-`golang.org/x/sys/unix` is fine; the restriction is platform scope, not the
-package name. Do not create portability abstractions for hypothetical future
-platforms.
+Do not create portability abstractions for unsupported or hypothetical
+platforms. `make check` enforces these rules through `goos-check`.
 
-## CLI help and comments
+## Help and comments
 
-`socat -h` / `-hh` / `-hhh` describe behavior only. Do not mention classic C
-internals (`groups=`, `phase=`, `type=`, `PH_*`, `TYPE_*`, `GROUP_*`,
-`OFUNC_*`) or the word “classic”.
+`socat -h`, `-hh`, and `-hhh` describe behavior only. Do not mention “classic”
+or implementation details such as C function names, phases, groups, internal
+types, or commit hashes.
 
-Runtime comments stay short. Do not narrate classic C control flow, commit
-hashes, or C function names in production files. Compatibility evidence belongs
-in PR descriptions, focused tests, README exceptions,
-`scripts/classic-policy.json`, and `scripts/classic-parity.py` reports.
+Keep runtime comments short. Put compatibility evidence in PR descriptions,
+focused tests, README exceptions, and parity reports.
 
 ## Classic socat compatibility
 
-Stay a drop-in replacement for classic socat
-(`git://repo.or.cz/socat.git`, https://repo.or.cz/socat.git) unless a
-change is a documented security exception.
+Remain compatible with official classic socat unless a difference is an
+intentional, documented security exception.
 
-Use the latest released tag from the official repository as the primary
-compatibility baseline, and also check current master for newer behavior.
-Cite the exact tag or commit used. Do not use third-party mirrors when the
-official repository is available. If the latest release and master differ,
-report the difference before implementing.
+Official repository:
 
-Also read the official man page from that same repository. `doc/socat.yo`
-is the YODL source (https://repo.or.cz/socat.git/blob_plain/HEAD:/doc/socat.yo
-is current master). Prefer `git show <tag>:doc/socat.yo` for the same tag
-or commit used as the C-source baseline. The rendered HTML is
-http://www.dest-unreach.org/socat/doc/socat.html. Do not use third-party
-man-page mirrors when these are available.
+- `https://repo.or.cz/socat.git`
+- `git://repo.or.cz/socat.git`
 
-The man page is the documented option interface, including types such as
-`[=<bool>]` (value `"0"` or `"1"`; omitted value means `"1"`). Classic C
-call sites sometimes only test whether the option is present. If the man
-page and the C parser disagree, report the difference before implementing;
-do not copy a presence-only check as the documented boolean interface.
+Use the latest released tag as the primary baseline and current master as the
+secondary baseline. Record exact commits and report release/master differences
+before implementing.
 
-Security-related deviations belong in README ("Intentional differences
-from classic socat" / "Unsupported / security-related") and in a code
-comment at the call site.
+Read `doc/socat.yo` from the same tag or commit. Do not use third-party source
+or man-page mirrors when the official repository is available.
 
-If a change would diverge from classic behavior for any other reason,
-ask before implementing it.
+Treat the man page as the documented interface. For `[=<bool>]`, accept `0`,
+`1`, or omission meaning `1`. If documentation and implementation disagree,
+report it before choosing behavior.
 
-Live comparison against official release and master is
-`make classic-parity` (`scripts/classic-parity.py run`). Compatibility-changing
-PRs should run it explicitly. Ordinary `make check` stays offline from
-repo.or.cz. If official master has moved past the reviewed commit, review the
-drift and update `scripts/classic-baseline.json` intentionally.
-Do not check in official `-hhh`/`-V` dumps or a generated option catalog.
-Policy classifications (unsupported, foreign, parser-only, platform-specific,
-Go-only) live in `scripts/classic-policy.json`.
+Document security deviations in the README under “Intentional differences from
+classic socat” or “Unsupported / security-related”, and add a short comment at
+the relevant call site. Ask before introducing any other incompatibility.
 
-## Required pre-commit validation
+Run `make classic-parity` for compatibility-changing work. It compares against
+the pinned release and reviewed master in `scripts/classic-baseline.json`.
+Review master drift before updating that file.
 
-Before committing, run `make check` from the repository root in a Linux
-environment and require it to pass. When working from Windows, also run
-`go test ./...` natively on Windows to catch platform-specific failures.
+Do not commit official source extracts, binaries, generated catalogs, or
+`-hhh`/`-V` dumps. Compatibility classifications belong in
+`scripts/classic-policy.json`.
 
-Do not commit with a failing check. A check may be skipped only when the user
-explicitly authorizes it; report every skipped check in the final response.
+Ordinary `make check` must remain independent of repo.or.cz.
+
+## Required validation
+
+Before committing:
+
+- Run `make check` on Linux.
+- When working from Windows, also run native `go test ./...`.
+
+Do not commit failing checks. Skip a required check only with explicit user
+authorization, and report every skipped check.
