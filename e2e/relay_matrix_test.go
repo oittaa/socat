@@ -69,10 +69,6 @@ func TestRelayMatrixQUIC(t *testing.T) {
 		clientArgs:  []string{"-t", "2"},
 		serverArgs:  []string{"-t", "2"},
 		retries:     3,
-		// bidir matches TestQUICEcho (fork + PIPE). One-way listen+CREATE is
-		// racy (client can finish before accept opens the file). -U works
-		// because a read-only QUIC client half-closes send after OpenStream.
-		skipOneWay: true,
 	})
 }
 

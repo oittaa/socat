@@ -151,21 +151,22 @@ RSS is the peak `VmRSS` of the socat process tree (50 ms sample). For
 
 ## Recorded snapshot
 
-Recorded 2026-08-20 in an Ubuntu 26.04 Hyper-V guest (6 vCPUs) backed by an
-AMD Ryzen 7 9800X3D, Linux 7.0.0-28, Go 1.26.7, classic socat 1.8.1.3, and
+Recorded 2026-08-30 in an Ubuntu 26.04 Hyper-V guest (6 vCPUs) backed by an
+AMD Ryzen 7 9800X3D, Linux 7.0.0-30, Go 1.27.0, classic socat 1.8.1.3, and
 distro OpenSSL 3.5.5. Payload: 1 GiB AES-128-CTR (incompressible; not
-`/dev/zero`). Median of 7 timed runs after 1 warmup, `-b 8192`.
+`/dev/zero`). Median of 7 timed runs after 2 warmups, `-b 8192`.
 
 | Case | classic | go | Peak RSS (classic / go) |
 |------|---------|----|-------------------------|
-| TCP 1 GiB | 878.2 MiB/s | 1988.8 MiB/s | 10.4 / 20.9 MiB |
-| UNIX 1 GiB | 777.8 MiB/s | 1989.1 MiB/s | 10.2 / 21.2 MiB |
-| TLS 1 GiB | 878.1 MiB/s | 1060.3 MiB/s | 21.1 / 24.8 MiB |
-| QUIC 1 GiB | n/a | 579.3 MiB/s | n/a / 36.7 MiB |
-| TCP 64 B RTT | 89.5 µs | 68.1 µs | 5.2 / 10.6 MiB |
-| TLS 64 B RTT | 94.9 µs | 138.7 µs | 10.9 / 12.3 MiB |
-| QUIC 64 B RTT | n/a | 324.8 µs | n/a / 17.2 MiB |
-| TLS handshake | 23.6 /s | 661.9 /s | 25.2 / 18.1 MiB |
+| TCP 1 GiB | 917.5 MiB/s | 1988.7 MiB/s | 10.5 / 26.0 MiB |
+| UNIX 1 GiB | 878.1 MiB/s | 1664.5 MiB/s | 10.2 / 25.9 MiB |
+| UDP 1 GiB (send / receive / loss) | 1182.8 / 1168.3 MiB/s / 1.199% | 451.4 / 451.4 MiB/s / 0.000% | 10.4 / 30.3 MiB |
+| TLS 1 GiB | 917.1 MiB/s | 1117.9 MiB/s | 21.1 / 28.6 MiB |
+| QUIC 1 GiB | n/a | 483.3 MiB/s | n/a / 39.0 MiB |
+| TCP 64 B RTT (median / p99) | 88.7 / 162.5 µs | 68.0 / 158.4 µs | 5.2 / 13.2 MiB |
+| TLS 64 B RTT (median / p99) | 95.2 / 177.2 µs | 139.4 / 214.1 µs | 11.0 / 14.6 MiB |
+| QUIC 64 B RTT (median / p99) | n/a | 327.1 / 468.4 µs | n/a / 18.7 MiB |
+| TLS handshake | 23.4 /s | 631.4 /s | 25.4 / 19.4 MiB |
 
 Recorded handshakes (same binaries as the table; see `meta.tls` in `host.json`):
 
@@ -181,9 +182,6 @@ Recorded handshakes (same binaries as the table; see `meta.tls` in `host.json`):
 - Bulk TLS also used different ciphers: classic **AES-256-GCM**, Go **AES-128-GCM**.
 - `tls-hs` (classic) is a Go client to a classic listener, so that column is P-256. The Go `tls-hs` column is X25519MLKEM768. The rate gap is also classic `fork(2)` vs Go goroutines.
 - QUIC is a UDP byte tunnel (`alpn=socat`). It is not HTTP/3 and not OpenSSL.
-- UDP (`udp`) is in the suite as of this tree; the snapshot table above was
-  recorded before that case. Re-run `SAVE_BASELINE=testdata/bench/host.json`
-  on the snapshot host to fill it.
 - These numbers are one machine. Run the script on your host. JSON: `host.json`.
 
 ## Refresh the committed snapshot

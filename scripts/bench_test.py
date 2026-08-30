@@ -145,5 +145,23 @@ class DatagramSummaryTest(unittest.TestCase):
         self.assertEqual(summary["reordered_datagrams"]["total"], 4)
 
 
+class StreamSummaryTest(unittest.TestCase):
+    def test_partial_failure_keeps_failure_detail(self) -> None:
+        summary = bench.summarize_stream(
+            [
+                {"status": "fail", "detail": "sink was short"},
+                {
+                    "status": "ok",
+                    "mib_s": 100.0,
+                    "elapsed_s": 1.0,
+                    "peak_rss_kib": 100,
+                },
+            ]
+        )
+
+        self.assertEqual(summary["status"], "fail")
+        self.assertEqual(summary["detail"], "sink was short")
+
+
 if __name__ == "__main__":
     unittest.main()

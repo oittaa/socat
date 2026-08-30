@@ -97,6 +97,7 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 			}
 			nc := wrapQUIC(qc, st)
 			nc.transportDrain = &drain
+			nc.waitPeerClose = mode == xio.ModeWrite
 			if mode == xio.ModeRead {
 				// The FIN was queued on st directly; record it so Close
 				// keeps the drain delay and the FIN is not dropped.
