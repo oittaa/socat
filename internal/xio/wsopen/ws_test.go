@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -197,6 +198,37 @@ func TestWSSClientHTTPtest(t *testing.T) {
 	}
 	if g.TLSVars["X509_SUBJECT"] == "" {
 		t.Fatal("WSS client did not record the peer certificate subject")
+	}
+}
+
+func TestWSNetConnAbortOnTimeoutClosesRaw(t *testing.T) {
+	raw, peer := net.Pipe()
+	defer func() { _ = peer.Close() }()
+	c := &wsNetConn{raw: raw}
+	c.abortOnTimeout(os.ErrDeadlineExceeded)
+	_ = peer.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	var b [1]byte
+	if _, err := peer.Read(b[:]); err == nil {
+		t.Fatal("timeout abort did not close the raw connection")
+	}
+}
+
+func TestWSNetConnAbortOnTimeoutIgnoresOtherErrors(t *testing.T) {
+	raw, peer := net.Pipe()
+	defer func() { _ = raw.Close() }()
+	defer func() { _ = peer.Close() }()
+	c := &wsNetConn{raw: raw}
+	c.abortOnTimeout(io.EOF)
+	done := make(chan struct{})
+	go func() {
+		var b [1]byte
+		_, _ = peer.Read(b[:])
+		close(done)
+	}()
+	select {
+	case <-done:
+		t.Fatal("non-timeout error closed the raw connection")
+	case <-time.After(50 * time.Millisecond):
 	}
 }
 

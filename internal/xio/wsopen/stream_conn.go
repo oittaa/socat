@@ -60,9 +60,7 @@ func (c *wsNetConn) Read(p []byte) (int, error) {
 					c.readEOF = true
 					return 0, io.EOF
 				}
-				if xio.IsTimeoutErr(err) {
-					_ = c.raw.Close()
-				}
+				c.abortOnTimeout(err)
 				return 0, err
 			}
 			if typ != websocket.MessageBinary {
@@ -81,9 +79,7 @@ func (c *wsNetConn) Read(p []byte) (int, error) {
 			}
 			continue
 		}
-		if xio.IsTimeoutErr(err) {
-			_ = c.raw.Close()
-		}
+		c.abortOnTimeout(err)
 		return n, err
 	}
 }
@@ -93,9 +89,7 @@ func (c *wsNetConn) Write(p []byte) (int, error) {
 	defer c.writeMu.Unlock()
 
 	if err := c.ws.Write(context.Background(), websocket.MessageBinary, p); err != nil {
-		if xio.IsTimeoutErr(err) {
-			_ = c.raw.Close()
-		}
+		c.abortOnTimeout(err)
 		return 0, err
 	}
 	return len(p), nil
@@ -111,6 +105,12 @@ func (c *wsNetConn) RemoteAddr() net.Addr { return c.raw.RemoteAddr() }
 func (c *wsNetConn) SetDeadline(t time.Time) error      { return c.raw.SetDeadline(t) }
 func (c *wsNetConn) SetReadDeadline(t time.Time) error  { return c.raw.SetReadDeadline(t) }
 func (c *wsNetConn) SetWriteDeadline(t time.Time) error { return c.raw.SetWriteDeadline(t) }
+
+func (c *wsNetConn) abortOnTimeout(err error) {
+	if xio.IsTimeoutErr(err) {
+		_ = c.raw.Close()
+	}
+}
 
 func normalWebSocketClose(err error) bool {
 	switch websocket.CloseStatus(err) {

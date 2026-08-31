@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -415,4 +416,24 @@ func ConnectNetworkForType(g *Global, s parse.Spec, host, forced string) string 
 	}
 	// Generic TCP: dual-stack resolve; -4/-6 only reorder.
 	return "tcp"
+}
+
+// SingleUseDialer returns a DialContext that yields conn once. A second call
+// returns reusedErr. The caller constructs reusedErr so WS and HTTP CONNECT
+// can keep distinct messages.
+func SingleUseDialer(conn net.Conn, reusedErr error) func(context.Context, string, string) (net.Conn, error) {
+	var mu sync.Mutex
+	return func(context.Context, string, string) (net.Conn, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if conn == nil {
+			if reusedErr != nil {
+				return nil, reusedErr
+			}
+			return nil, errors.New("connection already used")
+		}
+		out := conn
+		conn = nil
+		return out, nil
+	}
 }

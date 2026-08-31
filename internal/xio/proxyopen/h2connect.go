@@ -55,12 +55,6 @@ func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 			logx.CloseQuiet(raw)
 			return e
 		}
-		if handshakeTimeout > 0 {
-			if e := raw.SetDeadline(time.Now().Add(handshakeTimeout)); e != nil {
-				logx.CloseQuiet(raw)
-				return e
-			}
-		}
 
 		hctx, stopTimer, cancelHandshake := proxyHandshakeContext(ctx, handshakeTimeout)
 		success := false
@@ -72,79 +66,84 @@ func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 			}
 		}()
 
-		take := alreadyDialed(raw)
-		tr := &http.Transport{
-			DialContext:       take,
-			ForceAttemptHTTP2: true,
-			DisableKeepAlives: true,
-		}
-		var protos http.Protocols
-		if h2c {
-			protos.SetHTTP1(false)
-			protos.SetUnencryptedHTTP2(true)
-		} else {
-			protos.SetHTTP1(false)
-			protos.SetHTTP2(true)
-			attemptTLS := tlsCfg.Clone()
-			tr.TLSClientConfig = attemptTLS
-			tr.DialTLSContext = func(dctx context.Context, _, _ string) (net.Conn, error) {
-				c, e := take(dctx, "", "")
-				if e != nil {
-					return nil, e
-				}
-				tc := tls.Client(c, attemptTLS.Clone())
-				if e := tc.HandshakeContext(dctx); e != nil {
-					logx.CloseQuiet(c)
-					return nil, e
-				}
-				return tc, nil
+		e = xio.WithHandshakeDeadline(raw, handshakeTimeout, func() error {
+			take := xio.SingleUseDialer(raw, fmt.Errorf("proxy TCP connection already used"))
+			tr := &http.Transport{
+				DialContext:       take,
+				ForceAttemptHTTP2: true,
+				DisableKeepAlives: true,
 			}
-		}
-		tr.Protocols = &protos
+			var protos http.Protocols
+			if h2c {
+				protos.SetHTTP1(false)
+				protos.SetUnencryptedHTTP2(true)
+			} else {
+				protos.SetHTTP1(false)
+				protos.SetHTTP2(true)
+				attemptTLS := tlsCfg.Clone()
+				tr.TLSClientConfig = attemptTLS
+				tr.DialTLSContext = func(dctx context.Context, _, _ string) (net.Conn, error) {
+					c, e := take(dctx, "", "")
+					if e != nil {
+						return nil, e
+					}
+					tc := tls.Client(c, attemptTLS.Clone())
+					if e := tc.HandshakeContext(dctx); e != nil {
+						logx.CloseQuiet(c)
+						return nil, e
+					}
+					return tc, nil
+				}
+			}
+			tr.Protocols = &protos
 
-		pr, pw := io.Pipe()
-		req, e := http.NewRequestWithContext(hctx, http.MethodConnect, u, pr)
-		if e != nil {
-			_ = pw.Close()
-			return e
-		}
-		req.Host = authority
-		req.ContentLength = -1
-		if auth, e := proxyAuthString(s); e != nil {
-			_ = pw.Close()
-			return e
-		} else if auth != "" {
-			req.Header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(auth)))
-		}
-		resp, e := tr.RoundTrip(req)
-		if e != nil {
-			_ = pw.Close()
-			tr.CloseIdleConnections()
-			return e
-		}
-		if resp.StatusCode < 200 || resp.StatusCode > 299 {
-			_ = pw.Close()
-			_ = resp.Body.Close()
-			tr.CloseIdleConnections()
-			return fmt.Errorf("proxy CONNECT failed: %s", resp.Status)
-		}
-		if e := finishCONNECTHandshake(hctx, stopTimer, pw, resp); e != nil {
-			tr.CloseIdleConnections()
-			return e
-		}
-		_ = raw.SetDeadline(time.Time{})
-		success = true
-		conn = &pipeConn{
-			r:      resp.Body,
-			w:      pw,
-			local:  staticAddr("h2", u),
-			remote: staticAddr("h2", authority),
-			extra: []io.Closer{closerFunc(func() error {
-				cancelHandshake()
+			pr, pw := io.Pipe()
+			req, e := http.NewRequestWithContext(hctx, http.MethodConnect, u, pr)
+			if e != nil {
+				_ = pw.Close()
+				return e
+			}
+			req.Host = authority
+			req.ContentLength = -1
+			if auth, e := proxyAuthString(s); e != nil {
+				_ = pw.Close()
+				return e
+			} else if auth != "" {
+				req.Header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(auth)))
+			}
+			resp, e := tr.RoundTrip(req)
+			if e != nil {
+				_ = pw.Close()
 				tr.CloseIdleConnections()
-				return nil
-			})},
+				return e
+			}
+			if resp.StatusCode < 200 || resp.StatusCode > 299 {
+				_ = pw.Close()
+				_ = resp.Body.Close()
+				tr.CloseIdleConnections()
+				return fmt.Errorf("proxy CONNECT failed: %s", resp.Status)
+			}
+			if e := finishCONNECTHandshake(hctx, stopTimer, pw, resp); e != nil {
+				tr.CloseIdleConnections()
+				return e
+			}
+			conn = &pipeConn{
+				r:      resp.Body,
+				w:      pw,
+				local:  staticAddr("h2", u),
+				remote: staticAddr("h2", authority),
+				extra: []io.Closer{closerFunc(func() error {
+					cancelHandshake()
+					tr.CloseIdleConnections()
+					return nil
+				})},
+			}
+			return nil
+		})
+		if e != nil {
+			return e
 		}
+		success = true
 		return nil
 	})
 	if err != nil {
@@ -221,18 +220,4 @@ func proxyHandshakeContext(parent context.Context, timeout time.Duration) (ctx c
 		}
 	}
 	return ctx, stopTimer, cancel
-}
-
-func alreadyDialed(c net.Conn) func(context.Context, string, string) (net.Conn, error) {
-	var mu sync.Mutex
-	return func(context.Context, string, string) (net.Conn, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		if c == nil {
-			return nil, fmt.Errorf("proxy TCP connection already used")
-		}
-		out := c
-		c = nil
-		return out, nil
-	}
 }
