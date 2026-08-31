@@ -184,12 +184,12 @@ func (s childSlots) release() {
 }
 
 // forEachAccepted runs body in a new goroutine per accepted connection under
-// max-children accounting and the peer filter. It returns nil on ctx
-// completion and the accept error otherwise. g.Log must be non-nil (the CLI
-// always installs a logger).
+// max-children accounting and the peer filter. It waits for active sessions
+// before returning. g.Log must be non-nil (the CLI always installs a logger).
 func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global, logAccept bool, body func(c net.Conn, cg *Global)) error {
 	slots := newChildSlots(o.MaxChildren)
 	var children sync.WaitGroup
+	defer children.Wait()
 	for {
 		if !slots.acquire(ctx) {
 			return nil
@@ -201,7 +201,6 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 				// Close the parent listener, then wait for accepted
 				// sessions to finish. Children are goroutines in the same
 				// process, so returning immediately would kill active sessions.
-				children.Wait()
 				return ErrAcceptTimeout
 			}
 			if ctx.Err() != nil {
@@ -248,6 +247,8 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 		interval = time.Second
 	}
 	slots := newChildSlots(o.MaxChildren)
+	var children sync.WaitGroup
+	defer children.Wait()
 	if g != nil && g.Log != nil {
 		g.Log.Noticef("starting connect loop (%s)", o.Label)
 	}
@@ -272,9 +273,13 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 			g.Log.Infof("successfully connected from %s to %s", conn.LocalAddr(), conn.RemoteAddr())
 		}
 		WaitFromEnv("SOCAT_FORK_WAIT")
+		children.Add(1)
 		go func(c net.Conn) {
+			defer children.Done()
 			defer func() { _ = c.Close() }()
 			defer slots.release()
+			stopClose := context.AfterFunc(ctx, func() { _ = c.Close() })
+			defer stopClose()
 			cg := g.forkSession()
 			if o.ChildrenShutup > 0 && cg.Log != nil {
 				cg.Log = cg.Log.WithShutup(o.ChildrenShutup)
