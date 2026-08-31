@@ -34,6 +34,83 @@ class MetadataTest(unittest.TestCase):
             self.assertIn("classic_socat_version=socat version 1.8.1.3", summary)
 
 
+class RSSSamplerTest(unittest.TestCase):
+    def test_unavailable_rss_is_reported_as_na(self) -> None:
+        with mock.patch.object(bench, "rss_available", return_value=False):
+            sampler = bench.RSSSampler([123])
+            sampler.start()
+            self.assertIsNone(sampler.stop())
+
+        summary = bench.summarize_stream(
+            [
+                {
+                    "status": "ok",
+                    "mib_s": 100.0,
+                    "elapsed_s": 1.0,
+                    "peak_rss_kib": None,
+                }
+            ]
+        )
+        self.assertIsNone(summary["peak_rss_kib"])
+        self.assertEqual(bench.rss_text(summary["peak_rss_kib"]), "n/a")
+        self.assertEqual(bench.rss_value(summary["peak_rss_kib"]), "n/a")
+
+
+class StorageTest(unittest.TestCase):
+    def test_storage_removes_run_files_but_keeps_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            workdir = Path(tempdir) / "work"
+            root = Path(tempdir) / "storage"
+            stale = root / "run-stale"
+            stale.mkdir(parents=True)
+            (stale / "sink").write_bytes(b"stale")
+
+            with mock.patch.object(bench, "benchmark_storage_root", return_value=root):
+                with bench.benchmark_storage(workdir) as (_, cache, run):
+                    cached = cache / "payload"
+                    cached.write_bytes(b"keep")
+                    (run / "sink").write_bytes(b"temporary")
+                    self.assertFalse(stale.exists())
+
+            self.assertFalse(run.exists())
+            self.assertEqual(cached.read_bytes(), b"keep")
+
+    def test_prepare_payload_reuses_one_raw_and_framed_variant(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            cache = root / "cache"
+            cache.mkdir()
+            size = 256
+            buffer = 64
+            payload = cache / f"payload.aes-ctr.{size}"
+            payload.write_bytes(bytes(range(size)))
+            (cache / "payload.aes-ctr.123").write_bytes(b"old")
+            (cache / "old.datagram-v1.64.deadbeef").write_bytes(b"old")
+
+            first, _ = bench.prepare_payload(root, cache, size, buffer, ("udp",))
+            framed, _, _ = bench.datagram_payload_target(first, size, buffer)
+            framed_mtime = framed.stat().st_mtime_ns
+            second, note = bench.prepare_payload(root, cache, size, buffer, ("udp",))
+
+            self.assertEqual(first, second)
+            self.assertIn("cached", note)
+            self.assertEqual(framed.stat().st_mtime_ns, framed_mtime)
+            self.assertEqual(set(cache.iterdir()), {payload, framed})
+
+    def test_prepare_payload_fails_before_filling_storage(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            cache = root / "cache"
+            cache.mkdir()
+            size = 256
+            (cache / f"payload.aes-ctr.{size}").write_bytes(bytes(range(size)))
+            usage = mock.Mock(free=0)
+
+            with mock.patch.object(bench.shutil, "disk_usage", return_value=usage):
+                with self.assertRaisesRegex(SystemExit, "reduce SOCAT_BENCH_SIZE"):
+                    bench.prepare_payload(root, cache, size, 64, ("tcp",))
+
+
 class DatagramFrameTest(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
