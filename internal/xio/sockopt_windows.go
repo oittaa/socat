@@ -62,31 +62,6 @@ func setListenBacklog(fd, backlog int) error {
 	return windows.Listen(windows.Handle(fd), backlog)
 }
 
-// ApplySocketTimeos applies rcvtimeo=/sndtimeo= using Winsock's millisecond
-// DWORD values. Zero disables the timeout; positive sub-millisecond values are
-// rounded up so they do not turn into zero accidentally.
-func ApplySocketTimeos(fd int, s parse.Spec) error {
-	if v := s.OptionValue("rcvtimeo", ""); v != "" {
-		ms, err := windowsTimeoutMillis(v)
-		if err != nil {
-			return fmt.Errorf("rcvtimeo: %w", err)
-		}
-		if err := windows.SetsockoptInt(windows.Handle(fd), solSocket, soRcvtimeo, int(ms)); err != nil {
-			return fmt.Errorf("rcvtimeo: %w", err)
-		}
-	}
-	if v := s.OptionValue("sndtimeo", ""); v != "" {
-		ms, err := windowsTimeoutMillis(v)
-		if err != nil {
-			return fmt.Errorf("sndtimeo: %w", err)
-		}
-		if err := windows.SetsockoptInt(windows.Handle(fd), solSocket, soSndtimeo, int(ms)); err != nil {
-			return fmt.Errorf("sndtimeo: %w", err)
-		}
-	}
-	return nil
-}
-
 // applyLingerOption sets SO_LINGER (onoff=1) from a non-negative seconds value.
 func applyLingerOption(fd int, o parse.Option) error {
 	if !o.Has {
@@ -109,7 +84,8 @@ func applyLingerOption(fd int, o parse.Option) error {
 	return nil
 }
 
-// applySocketTimeoOption is one rcvtimeo=/sndtimeo= occurrence.
+// applySocketTimeoOption is one rcvtimeo=/sndtimeo= occurrence using
+// Winsock's millisecond DWORD values.
 func applySocketTimeoOption(fd int, o parse.Option) error {
 	ms, err := windowsTimeoutMillis(o.Value)
 	if err != nil {
@@ -125,23 +101,9 @@ func applySocketTimeoOption(fd int, o parse.Option) error {
 	return nil
 }
 
-// ApplySocketOptionsWithoutGeneric is kept for SOCKETPAIR / network
-// constructors that still split a full option walk around the generic pass.
-// Past-socket action options now live in applyOrderedPastSocketPhaseOptions
-// and ApplyGenericSetsockoptAll, so this helper is a no-op.
-func ApplySocketOptionsWithoutGeneric(_ int, _ parse.Spec) error {
-	return nil
-}
-
-// ApplySocketOptions applies the SOL_SOCKET options shared by raw descriptors
-// and Go net sockets, including generic setsockopt-socket actions.
-func ApplySocketOptions(fd int, s parse.Spec) error {
-	if err := ApplySocketOptionsWithoutGeneric(fd, s); err != nil {
-		return err
-	}
-	return applyOrderedPastSocketPhaseOptions(fd, s, "")
-}
-
+// windowsTimeoutMillis converts a timeout spec to Winsock's millisecond
+// DWORD. Zero disables the timeout; positive sub-millisecond values are
+// rounded up so they do not turn into zero accidentally.
 func windowsTimeoutMillis(v string) (uint32, error) {
 	d, err := parseTimeval(v)
 	if err != nil || d < 0 {

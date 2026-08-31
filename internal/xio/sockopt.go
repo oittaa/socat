@@ -74,6 +74,16 @@ func applyFixedPastSocketOption(fd int, o parse.Option) (bool, error) {
 	}
 }
 
+// ApplySocketOptions applies post-socket() options on a raw descriptor
+// whose network is unknown here: fixed SOL_SOCKET options (broadcast,
+// sndbuf/rcvbuf, bindtodevice, linger, timeos), named SOL_SOCKET/TCP/SCTP
+// options, owner ioctls, and generic setsockopt-socket. IP/ancillary/
+// membership options are skipped. Go net sockets and raw SCTP use
+// ApplyNetworkSocketOptions with the actual network name.
+func ApplySocketOptions(fd int, s parse.Spec) error {
+	return applyOrderedPastSocketPhaseOptions(fd, s, "")
+}
+
 // isPastSocketActionOption reports whether o would be consumed by
 // ApplySocketOptions. User-selected EXEC pipes/pty/nofork must reject this
 // leftover set instead of silently ignoring it. sndbuf-late/rcvbuf-late and

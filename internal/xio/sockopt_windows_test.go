@@ -121,56 +121,62 @@ func TestApplyUDPConnOptsAppliesLateWindows(t *testing.T) {
 	}
 }
 
-func TestApplySocketTimeosWindows(t *testing.T) {
+func TestApplySocketOptionsTimeosWindows(t *testing.T) {
 	c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
 
-	apply := func(specText string, rcvWant, sndWant int) {
-		t.Helper()
-		spec, err := parse.ParseSpec(specText)
-		if err != nil {
-			t.Fatal(err)
-		}
-		raw, err := c.SyscallConn()
-		if err != nil {
-			t.Fatal(err)
-		}
-		var optionErr error
-		controlErr := raw.Control(func(fd uintptr) {
-			optionErr = ApplySocketTimeos(int(fd), spec)
-		})
-		if err := errors.Join(controlErr, optionErr); err != nil {
-			t.Fatal(err)
-		}
-		for _, tc := range []struct {
-			name string
-			opt  int
-			want int
-		}{
-			{name: "receive", opt: soRcvtimeo, want: rcvWant},
-			{name: "send", opt: soSndtimeo, want: sndWant},
-		} {
-			t.Run(tc.name, func(t *testing.T) {
-				got, err := windowsSocketOption(c, tc.opt)
+	for _, tc := range []struct {
+		name    string
+		spec    string
+		rcvWant int
+		sndWant int
+	}{
+		{name: "fractional-millis", spec: "UDP:127.0.0.1:9,rcvtimeo=1.25,sndtimeo=2.5", rcvWant: 1250, sndWant: 2500},
+		{name: "zero", spec: "UDP:127.0.0.1:9,rcvtimeo=0,sndtimeo=0"},
+		{name: "last-wins", spec: "UDP:127.0.0.1:9,rcvtimeo=9,sndtimeo=8,rcvtimeo=1.25,sndtimeo=2.5", rcvWant: 1250, sndWant: 2500},
+		{name: "alias-then-canonical-last-wins", spec: "UDP:127.0.0.1:9,so-rcvtimeo=9,so-sndtimeo=8,rcvtimeo=1.25,sndtimeo=2.5", rcvWant: 1250, sndWant: 2500},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := c.SyscallConn()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var optionErr error
+			controlErr := raw.Control(func(fd uintptr) {
+				optionErr = ApplySocketOptions(int(fd), spec)
+			})
+			if err := errors.Join(controlErr, optionErr); err != nil {
+				t.Fatal(err)
+			}
+			for _, got := range []struct {
+				name string
+				opt  int
+				want int
+			}{
+				{name: "receive", opt: soRcvtimeo, want: tc.rcvWant},
+				{name: "send", opt: soSndtimeo, want: tc.sndWant},
+			} {
+				v, err := windowsSocketOption(c, got.opt)
 				if err != nil {
 					t.Fatal(err)
 				}
-				if got != tc.want {
-					t.Fatalf("timeout=%dms want %dms", got, tc.want)
+				if v != got.want {
+					t.Fatalf("%s timeout=%dms want %dms", got.name, v, got.want)
 				}
-			})
-		}
+			}
+		})
 	}
-
-	apply("UDP:127.0.0.1:9,rcvtimeo=1.25,sndtimeo=2.5", 1250, 2500)
-	apply("UDP:127.0.0.1:9,rcvtimeo=0,sndtimeo=0", 0, 0)
 }
 
 func TestListenControlAppliesTimeosWindows(t *testing.T) {
-	spec, err := parse.ParseSpec("UDP4-LISTEN:0,rcvtimeo=1.25,sndtimeo=2.5")
+	spec, err := parse.ParseSpec("UDP4-LISTEN:0,rcvtimeo=9,sndtimeo=8,rcvtimeo=1.25,sndtimeo=2.5")
 	if err != nil {
 		t.Fatal(err)
 	}

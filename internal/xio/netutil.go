@@ -247,9 +247,6 @@ func NewTCPListenConfig(s parse.Spec) net.ListenConfig {
 // SOL_SOCKET/TCP/SCTP, generic setsockopt-socket, and IP/ancillary/membership
 // options are applied once in command-line order before bind/connect.
 func ApplyNetworkSocketOptions(fd int, s parse.Spec, network string) error {
-	if err := ApplySocketOptionsWithoutGeneric(fd, s); err != nil {
-		return err
-	}
 	return applyOrderedPastSocketPhaseOptions(fd, s, network)
 }
 
