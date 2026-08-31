@@ -182,6 +182,7 @@ type udpDatagramConn struct {
 	raddr            *net.UDPAddr
 	filter           *xio.PeerFilter
 	g                *xio.Global
+	ctx              context.Context
 	wantCtrl         bool
 	exactPeer        bool
 	sourcePortFilter bool
@@ -195,6 +196,7 @@ func newUDPDatagramConn(ctx context.Context, c *net.UDPConn, raddr *net.UDPAddr,
 		raddr:            raddr,
 		filter:           xio.NewPeerFilter(ctx, specWithoutSourceport(s), g),
 		g:                g,
+		ctx:              ctx,
 		wantCtrl:         xio.NeedAncillary(s),
 		exactPeer:        exactPeer,
 		sourcePortFilter: sourcePortFilter,
@@ -209,9 +211,11 @@ func datagramLabel(exactPeer bool, raddr *net.UDPAddr) string {
 	return kind + ":" + raddr.String()
 }
 
-func logOrStopPeerFilter(g *xio.Global, err error) error {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return err
+func logOrStopPeerFilter(ctx context.Context, g *xio.Global, err error) error {
+	// Stop only when the session itself is done. A resolver timeout can
+	// surface as context.DeadlineExceeded while the listener is still live.
+	if ctx != nil && ctx.Err() != nil {
+		return ctx.Err()
 	}
 	if g != nil && g.Log != nil {
 		g.Log.Noticef("%s", err)
@@ -226,7 +230,7 @@ func (u *udpDatagramConn) Read(p []byte) (int, error) {
 			return n, err
 		}
 		if err := u.checkPeer(addr); err != nil {
-			if stop := logOrStopPeerFilter(u.g, err); stop != nil {
+			if stop := logOrStopPeerFilter(u.ctx, u.g, err); stop != nil {
 				return 0, stop
 			}
 			continue
@@ -428,7 +432,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 					return nil, udpAcceptError(r.e, false)
 				}
 				if err := peerFilter.AllowAddr(r.a, pc.LocalAddr()); err != nil {
-					if stop := logOrStopPeerFilter(g, err); stop != nil {
+					if stop := logOrStopPeerFilter(ctx, g, err); stop != nil {
 						logx.CloseQuiet(pc)
 						return nil, stop
 					}
@@ -469,6 +473,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		conn:     pc,
 		filter:   xio.NewPeerFilter(ctx, s, g),
 		g:        g,
+		ctx:      ctx,
 		wantCtrl: xio.NeedAncillary(s),
 	})
 	st, err = xio.WrapCommonAfterConnected(s, st)
@@ -488,6 +493,7 @@ type udpFilteredRecv struct {
 	conn     *net.UDPConn
 	filter   *xio.PeerFilter
 	g        *xio.Global
+	ctx      context.Context
 	wantCtrl bool
 	oob      []byte
 }
@@ -499,7 +505,7 @@ func (u *udpFilteredRecv) Read(p []byte) (int, error) {
 			return n, err
 		}
 		if err := u.filter.AllowAddr(addr, u.conn.LocalAddr()); err != nil {
-			if stop := logOrStopPeerFilter(u.g, err); stop != nil {
+			if stop := logOrStopPeerFilter(u.ctx, u.g, err); stop != nil {
 				return 0, stop
 			}
 			continue

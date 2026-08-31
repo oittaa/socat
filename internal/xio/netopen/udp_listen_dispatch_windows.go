@@ -169,7 +169,7 @@ func (l *udpDispatchListener) readLoop() {
 			return
 		}
 		if err := l.base.peerAllowed(peer); err != nil {
-			if stop := logOrStopPeerFilter(l.base.g, err); stop != nil {
+			if stop := logOrStopPeerFilter(l.base.ctx, l.base.g, err); stop != nil {
 				_ = l.shutdown(stop)
 				return
 			}

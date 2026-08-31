@@ -2,7 +2,6 @@ package xio
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -39,10 +38,9 @@ type PeerFilter struct {
 	spec          parse.Spec
 	hasRange      bool
 	rangeSpec     string
-	rangeMu       sync.Mutex
+	rangeOnce     sync.Once
 	rangeMatcher  ipRangeMatcher
 	rangeErr      error
-	rangeReady    bool
 	hasSourcePort bool
 	sourcePort    string
 	lowport       bool
@@ -107,7 +105,7 @@ func (f *PeerFilter) AllowAddr(remote, local net.Addr) error {
 		if ip == nil {
 			return fmt.Errorf("range: peer has no IP")
 		}
-		matcher, err := f.compiledRange(ctx)
+		matcher, err := f.compiledRange()
 		if err != nil {
 			return err
 		}
@@ -141,32 +139,11 @@ func (f *PeerFilter) AllowAddr(remote, local net.Addr) error {
 	return nil
 }
 
-func (f *PeerFilter) compiledRange(ctx context.Context) (ipRangeMatcher, error) {
-	f.rangeMu.Lock()
-	if f.rangeReady {
-		matcher, err := f.rangeMatcher, f.rangeErr
-		f.rangeMu.Unlock()
-		return matcher, err
-	}
-	f.rangeMu.Unlock()
-
-	matcher, err := compileIPRange(ctx, f.rangeSpec, LookupResolver(f.spec))
-
-	f.rangeMu.Lock()
-	defer f.rangeMu.Unlock()
-	if f.rangeReady {
-		return f.rangeMatcher, f.rangeErr
-	}
-	if err == nil || !isContextErr(err) {
-		f.rangeMatcher = matcher
-		f.rangeErr = err
-		f.rangeReady = true
-	}
-	return matcher, err
-}
-
-func isContextErr(err error) bool {
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+func (f *PeerFilter) compiledRange() (ipRangeMatcher, error) {
+	f.rangeOnce.Do(func() {
+		f.rangeMatcher, f.rangeErr = compileIPRange(f.ctx, f.rangeSpec, LookupResolver(f.spec))
+	})
+	return f.rangeMatcher, f.rangeErr
 }
 
 func peerIPPort(addr net.Addr) (net.IP, int, string, bool) {

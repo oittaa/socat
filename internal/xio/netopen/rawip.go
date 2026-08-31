@@ -312,7 +312,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 			// peer filter uses UDP-style helper via fake addr when possible
 			if ia, ok := a.(*net.IPAddr); ok {
 				if ferr := peerFilter.AllowAddr(&net.UDPAddr{IP: ia.IP}, pc.LocalAddr()); ferr != nil {
-					if stop := logOrStopPeerFilter(g, ferr); stop != nil {
+					if stop := logOrStopPeerFilter(ctx, g, ferr); stop != nil {
 						logx.CloseQuiet(pc)
 						return nil, stop
 					}
@@ -355,6 +355,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		c:        pc,
 		filter:   xio.NewPeerFilter(ctx, s, g),
 		g:        g,
+		ctx:      ctx,
 		wantCtrl: wantCtrl,
 		v4:       network == "ip4",
 	})
@@ -663,6 +664,7 @@ type rawIPFilteredRecv struct {
 	c        *net.IPConn
 	filter   *xio.PeerFilter
 	g        *xio.Global
+	ctx      context.Context
 	wantCtrl bool
 	v4       bool
 	oob      []byte
@@ -676,7 +678,7 @@ func (r *rawIPFilteredRecv) Read(p []byte) (int, error) {
 		}
 		if ia, ok := addr.(*net.IPAddr); ok {
 			if err := r.filter.AllowAddr(&net.UDPAddr{IP: ia.IP}, r.c.LocalAddr()); err != nil {
-				if stop := logOrStopPeerFilter(r.g, err); stop != nil {
+				if stop := logOrStopPeerFilter(r.ctx, r.g, err); stop != nil {
 					return 0, stop
 				}
 				continue

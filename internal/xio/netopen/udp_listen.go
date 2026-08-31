@@ -126,7 +126,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			return nil, udpAcceptError(err, timeoutSet)
 		}
 		if ferr := peerFilter.AllowAddr(a, pc.LocalAddr()); ferr != nil {
-			if stop := logOrStopPeerFilter(g, ferr); stop != nil {
+			if stop := logOrStopPeerFilter(ctx, g, ferr); stop != nil {
 				logx.CloseQuiet(pc)
 				return nil, udpAcceptError(stop, timeoutSet)
 			}
@@ -323,7 +323,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			return nil, err
 		}
 		if err := l.peerAllowed(a); err != nil {
-			if stop := logOrStopPeerFilter(l.g, err); stop != nil {
+			if stop := logOrStopPeerFilter(l.ctx, l.g, err); stop != nil {
 				return nil, stop
 			}
 			// Restart the listen accept-timeout after a refused peer.

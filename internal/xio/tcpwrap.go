@@ -152,23 +152,20 @@ func reverseHost(ctx context.Context, s parse.Spec, ipStr string) (string, error
 		ctx = context.Background()
 	}
 	resolver := LookupResolver(s)
-	names, err := lookupAddrCtx(ctx, resolver, ipStr)
-	if err != nil {
-		if isContextErr(err) {
-			return "", err
-		}
-		return "", nil
+	names, err := resolver.LookupAddr(ctx, ipStr)
+	if ctx.Err() != nil {
+		return "", ctx.Err()
 	}
-	if len(names) == 0 {
+	if err != nil || len(names) == 0 {
 		return "", nil
 	}
 	for _, name := range names {
 		name = strings.TrimSuffix(name, ".")
-		ips, err := lookupIPCtx(ctx, resolver, name)
+		ips, err := resolver.LookupIP(ctx, "ip", name)
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		if err != nil {
-			if isContextErr(err) {
-				return "", err
-			}
 			continue
 		}
 		for _, resolved := range ips {
@@ -178,42 +175,6 @@ func reverseHost(ctx context.Context, s parse.Spec, ipStr string) (string, error
 		}
 	}
 	return "", nil
-}
-
-func lookupAddrCtx(ctx context.Context, resolver *net.Resolver, ipStr string) ([]string, error) {
-	type result struct {
-		names []string
-		err   error
-	}
-	ch := make(chan result, 1)
-	go func() {
-		names, err := resolver.LookupAddr(ctx, ipStr)
-		ch <- result{names, err}
-	}()
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case r := <-ch:
-		return r.names, r.err
-	}
-}
-
-func lookupIPCtx(ctx context.Context, resolver *net.Resolver, host string) ([]net.IP, error) {
-	type result struct {
-		ips []net.IP
-		err error
-	}
-	ch := make(chan result, 1)
-	go func() {
-		ips, err := resolver.LookupIP(ctx, "ip", host)
-		ch <- result{ips, err}
-	}()
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case r := <-ch:
-		return r.ips, r.err
-	}
 }
 
 func hostsLinesMayNeedHostname(tables ...[]string) bool {

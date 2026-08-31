@@ -144,13 +144,10 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 		}
 		if err := filter(c); err != nil {
 			CloseRefusedPeer(c)
-			if isContextErr(err) || ctx.Err() != nil {
+			if ctx.Err() != nil {
 				_ = closeLn()
 				o.Listener = nil
-				if ctx.Err() != nil {
-					return nil, ctx.Err()
-				}
-				return nil, err
+				return nil, ctx.Err()
 			}
 			if g != nil && g.Log != nil {
 				g.Log.Noticef("%s", err)
