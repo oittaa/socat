@@ -122,6 +122,7 @@ receiver is terminated after the quiet interval.
 |----------|---------|---------|
 | `SOCAT_BIN` | `./socat` | Go binary |
 | `SOCAT_CLASSIC_BIN` | `socat` on PATH | Classic C binary override |
+| `SOCAT_BENCH_CLIENT_BIN` | work directory `benchclient` | Benchmark helper binary override |
 | `SOCAT_BENCH_OPENSSL_BIN` | `openssl` on PATH | Optional classic TLS probe client |
 | `SOCAT_BENCH_SIZE` | `256M` | Stream payload (MiB if `M`) |
 | `SOCAT_BENCH_RUNS` | `5` | Timed runs |
@@ -132,7 +133,8 @@ receiver is terminated after the quiet interval.
 | `SOCAT_BENCH_SAVE_BASELINE` | empty | Copy JSON + summary here |
 | `SOCAT_BENCH_RR_N` / `SOCAT_BENCH_RR_WARMUP` / `SOCAT_BENCH_RR_SIZE` | 20000 / 1000 / 64 | Ping-pong |
 | `SOCAT_BENCH_HS_N` / `SOCAT_BENCH_HS_WARMUP` | 200 / 20 | Handshakes |
-| `SOCAT_BENCH_SKIP_BUILD` | `0` | Skip `make build` |
+| `SOCAT_BENCH_SKIP_BUILD` | `0` | Reuse `SOCAT_BIN` instead of running `go build` |
+| `SOCAT_BENCH_SKIP_CLIENT_BUILD` | `0` | Reuse `SOCAT_BENCH_CLIENT_BIN` instead of running `go build` |
 | `SOCAT_BENCH_PROBE_ONLY` | `0` | Handshake probe only; merge `meta.tls` into `SOCAT_BENCH_SAVE_BASELINE` |
 
 Both binaries use `-b 8192` and bind `127.0.0.1`.
@@ -179,17 +181,17 @@ distro OpenSSL 3.5.5. Payload: 1 GiB AES-128-CTR (incompressible; not
 
 | Case | classic | go | Peak RSS (classic / go) |
 |------|---------|----|-------------------------|
-| TCP 1 GiB | 1060.2 MiB/s | 2198.9 MiB/s | 10.5 / 26.1 MiB |
-| UNIX 1 GiB | 876.8 MiB/s | 2199.1 MiB/s | 10.2 / 26.1 MiB |
-| UDP 1 GiB (send / receive / loss) | 1115.9 / 1115.8 MiB/s / 0.000% | 1180.6 / 1180.6 MiB/s / 0.000% | 10.4 / 29.8 MiB |
-| TLS 1 GiB | 808.1 MiB/s | 1252.4 MiB/s | 21.0 / 28.8 MiB |
-| WS 1 GiB | n/a | 1113.7 MiB/s | n/a / 27.0 MiB |
-| WSS 1 GiB | n/a | 562.5 MiB/s | n/a / 29.5 MiB |
-| QUIC 1 GiB | n/a | 362.6 MiB/s | n/a / 40.9 MiB |
-| TCP 64 B RTT (median / p99) | 84.4 / 153.8 µs | 51.3 / 363.6 µs | 5.2 / 13.4 MiB |
-| TLS 64 B RTT (median / p99) | 91.9 / 174.9 µs | 99.7 / 206.8 µs | 11.0 / 14.6 MiB |
-| QUIC 64 B RTT (median / p99) | n/a | 240.3 / 426.4 µs | n/a / 19.0 MiB |
-| TLS handshake | 23.5 /s | 1007.7 /s | 24.9 / 18.5 MiB |
+| TCP 1 GiB | 1057.7 MiB/s | 1986.0 MiB/s | 10.5 / 26.1 MiB |
+| UNIX 1 GiB | 807.4 MiB/s | 1986.8 MiB/s | 10.2 / 26.1 MiB |
+| UDP 1 GiB (send / receive / loss) | 1116.6 / 1116.3 MiB/s / 0.000% | 1252.3 / 1251.8 MiB/s / 0.000% | 10.3 / 30.0 MiB |
+| TLS 1 GiB | 912.5 MiB/s | 1248.9 MiB/s | 20.9 / 28.6 MiB |
+| WS 1 GiB | n/a | 1059.2 MiB/s | n/a / 27.1 MiB |
+| WSS 1 GiB | n/a | 1002.7 MiB/s | n/a / 29.2 MiB |
+| QUIC 1 GiB | n/a | 368.9 MiB/s | n/a / 40.1 MiB |
+| TCP 64 B RTT (median / p99) | 85.5 / 176.4 µs | 50.3 / 435.3 µs | 5.2 / 13.4 MiB |
+| TLS 64 B RTT (median / p99) | 91.9 / 168.4 µs | 98.6 / 193.1 µs | 10.9 / 14.5 MiB |
+| QUIC 64 B RTT (median / p99) | n/a | 240.2 / 432.2 µs | n/a / 19.4 MiB |
+| TLS handshake | 23.5 /s | 999.7 /s | 25.0 / 18.8 MiB |
 
 Recorded handshakes (same binaries as the table; see `meta.tls` in `host.json`):
 
