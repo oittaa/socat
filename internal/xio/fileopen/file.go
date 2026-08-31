@@ -446,13 +446,11 @@ func openSocketpair(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) 
 		return nil, err
 	}
 	for _, conn := range []*os.File{c1, c2} {
-		if err := xio.ApplySocketOptionsWithoutGeneric(int(conn.Fd()), s); err != nil {
-			logx.CloseQuiet(c1)
-			logx.CloseQuiet(c2)
-			return nil, fmt.Errorf("socket options: %w", err)
-		}
-		// Apply every generic setsockopt phase once per fd, in original option
-		// order (broadcast, sndbuf, linger, … included).
+		// SOCKETPAIR is not phase-grouped: apply every named or generic
+		// setsockopt action once per fd in original option order (broadcast,
+		// sndbuf, linger, timeos, connected-phase options, …).
+		// ApplySocketOptions is past-socket only and would drop connected-phase
+		// options.
 		if err := xio.ApplyGenericSetsockoptAll(int(conn.Fd()), s); err != nil {
 			logx.CloseQuiet(c1)
 			logx.CloseQuiet(c2)

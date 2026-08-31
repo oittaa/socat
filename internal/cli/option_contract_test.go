@@ -107,6 +107,8 @@ var dynamicallyReadOptions = map[string]string{
 	"sndbuf":       "xio/sockopt.go applyFixedPastSocketOption",
 	"rcvbuf":       "xio/sockopt.go applyFixedPastSocketOption",
 	"bindtodevice": "xio/sockopt.go applyFixedPastSocketOption",
+	"rcvtimeo":     "xio/sockopt.go applyFixedPastSocketOption",
+	"sndtimeo":     "xio/sockopt.go applyFixedPastSocketOption",
 	"o-noatime":    "xio/fdopts_linux.go", "noatime": "xio/fdopts_linux.go",
 	"f-setpipe-sz": "xio/fdopts_linux.go", "pipesz": "xio/fdopts_linux.go",
 	// Linux ext FS_*_FL ioctl-mask walk (command-line order, not OptionNamed).

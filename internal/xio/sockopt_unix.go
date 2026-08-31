@@ -60,31 +60,6 @@ func setListenBacklog(fd, backlog int) error {
 	return unix.Listen(fd, backlog)
 }
 
-// ApplySocketTimeos applies rcvtimeo=/sndtimeo= as kernel SO_RCVTIMEO/
-// SO_SNDTIMEO. Only raw blocking-fd paths observe these; Go netpoll conns
-// run nonblocking, so use read/write deadlines at the call site.
-func ApplySocketTimeos(fd int, s parse.Spec) error {
-	if v := s.OptionValue("rcvtimeo", ""); v != "" {
-		tv, err := timevalFromSpec(v)
-		if err != nil {
-			return fmt.Errorf("rcvtimeo: %w", err)
-		}
-		if err := unix.SetsockoptTimeval(fd, solSocket, soRcvtimeo, tv); err != nil {
-			return fmt.Errorf("rcvtimeo: %w", err)
-		}
-	}
-	if v := s.OptionValue("sndtimeo", ""); v != "" {
-		tv, err := timevalFromSpec(v)
-		if err != nil {
-			return fmt.Errorf("sndtimeo: %w", err)
-		}
-		if err := unix.SetsockoptTimeval(fd, solSocket, soSndtimeo, tv); err != nil {
-			return fmt.Errorf("sndtimeo: %w", err)
-		}
-	}
-	return nil
-}
-
 // applyLingerOption sets SO_LINGER (onoff=1) from a non-negative seconds value.
 func applyLingerOption(fd int, o parse.Option) error {
 	if !o.Has {
@@ -107,7 +82,9 @@ func applyLingerOption(fd int, o parse.Option) error {
 	return nil
 }
 
-// applySocketTimeoOption is one rcvtimeo=/sndtimeo= occurrence.
+// applySocketTimeoOption is one rcvtimeo=/sndtimeo= occurrence as kernel
+// SO_RCVTIMEO / SO_SNDTIMEO. Only raw blocking-fd paths observe these; Go
+// netpoll conns run nonblocking, so use read/write deadlines at the call site.
 func applySocketTimeoOption(fd int, o parse.Option) error {
 	tv, err := timevalFromSpec(o.Value)
 	if err != nil {
@@ -121,23 +98,6 @@ func applySocketTimeoOption(fd int, o parse.Option) error {
 		return fmt.Errorf("%s: %w", o.Name, err)
 	}
 	return nil
-}
-
-// ApplySocketOptionsWithoutGeneric is kept for SOCKETPAIR / network
-// constructors that still split a full option walk around the generic pass.
-// Past-socket action options now live in applyOrderedPastSocketPhaseOptions
-// and ApplyGenericSetsockoptAll, so this helper is a no-op.
-func ApplySocketOptionsWithoutGeneric(_ int, _ parse.Spec) error {
-	return nil
-}
-
-// ApplySocketOptions applies the SOL_SOCKET options shared by raw descriptors
-// and Go net sockets, including generic setsockopt-socket actions.
-func ApplySocketOptions(fd int, s parse.Spec) error {
-	if err := ApplySocketOptionsWithoutGeneric(fd, s); err != nil {
-		return err
-	}
-	return applyOrderedPastSocketPhaseOptions(fd, s, "")
 }
 
 func timevalFromSpec(v string) (*unix.Timeval, error) {

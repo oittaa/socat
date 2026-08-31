@@ -16,48 +16,54 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestApplySocketTimeosUnix(t *testing.T) {
+func TestApplySocketOptionsTimeosUnix(t *testing.T) {
 	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = unix.Close(fd) })
 
-	apply := func(specText string, rcvWant, sndWant time.Duration) {
-		t.Helper()
-		spec, err := parse.ParseSpec(specText)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := ApplySocketTimeos(fd, spec); err != nil {
-			t.Fatal(err)
-		}
-		for _, tc := range []struct {
-			name string
-			opt  int
-			want time.Duration
-		}{
-			{name: "receive", opt: soRcvtimeo, want: rcvWant},
-			{name: "send", opt: soSndtimeo, want: sndWant},
-		} {
-			t.Run(tc.name, func(t *testing.T) {
-				tv, err := unix.GetsockoptTimeval(fd, solSocket, tc.opt)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if got := time.Duration(unix.TimevalToNsec(*tv)); got != tc.want {
-					t.Fatalf("timeout=%v want %v", got, tc.want)
-				}
-			})
-		}
-	}
-
 	// Whole seconds so the getsockopt round-trip is independent of kernel HZ
 	// (SO_RCVTIMEO/SO_SNDTIMEO are stored in jiffies). Distinct values prove
 	// rcvtimeo and sndtimeo are wired to different option constants.
 	// Fractional conversion is covered by TestTimevalFromSpec.
-	apply("UDP:127.0.0.1:9,rcvtimeo=1,sndtimeo=2", 1*time.Second, 2*time.Second)
-	apply("UDP:127.0.0.1:9,rcvtimeo=0,sndtimeo=0", 0, 0)
+	for _, tc := range []struct {
+		name    string
+		spec    string
+		rcvWant time.Duration
+		sndWant time.Duration
+	}{
+		{name: "distinct-seconds", spec: "UDP:127.0.0.1:9,rcvtimeo=1,sndtimeo=2", rcvWant: time.Second, sndWant: 2 * time.Second},
+		{name: "zero", spec: "UDP:127.0.0.1:9,rcvtimeo=0,sndtimeo=0"},
+		{name: "last-wins", spec: "UDP:127.0.0.1:9,rcvtimeo=9,sndtimeo=8,rcvtimeo=1,sndtimeo=2", rcvWant: time.Second, sndWant: 2 * time.Second},
+		{name: "alias-then-canonical-last-wins", spec: "UDP:127.0.0.1:9,so-rcvtimeo=9,so-sndtimeo=8,rcvtimeo=1,sndtimeo=2", rcvWant: time.Second, sndWant: 2 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ApplySocketOptions(fd, spec); err != nil {
+				t.Fatal(err)
+			}
+			for _, got := range []struct {
+				name string
+				opt  int
+				want time.Duration
+			}{
+				{name: "receive", opt: soRcvtimeo, want: tc.rcvWant},
+				{name: "send", opt: soSndtimeo, want: tc.sndWant},
+			} {
+				tv, err := unix.GetsockoptTimeval(fd, solSocket, got.opt)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if d := time.Duration(unix.TimevalToNsec(*tv)); d != got.want {
+					t.Fatalf("%s timeout=%v want %v", got.name, d, got.want)
+				}
+			}
+		})
+	}
 }
 
 func TestTimevalFromSpec(t *testing.T) {
@@ -368,7 +374,7 @@ func TestDialControlAppliesTimeosAndTTL(t *testing.T) {
 		ch <- res{c, err}
 	}()
 
-	spec, err := parse.ParseSpec("TCP4:127.0.0.1:1,rcvtimeo=1,sndtimeo=1,ip-ttl=9,ip-tos=0x10")
+	spec, err := parse.ParseSpec("TCP4:127.0.0.1:1,rcvtimeo=9,sndtimeo=8,rcvtimeo=1,sndtimeo=1,ip-ttl=9,ip-tos=0x10")
 	if err != nil {
 		t.Fatal(err)
 	}
