@@ -1,8 +1,13 @@
 package xio
 
 import (
+	"errors"
+	"io"
 	"net"
+	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/oittaa/socat/internal/parse"
 )
@@ -62,4 +67,70 @@ func TestCompiledIPRangeForms(t *testing.T) {
 			}
 		})
 	}
+}
+
+// nestNetConn is a TLS-like wrapper: NetConn() returns the next layer.
+type nestNetConn struct {
+	net.Conn
+}
+
+func (c nestNetConn) NetConn() net.Conn { return c.Conn }
+
+func TestCloseRefusedPeerNil(t *testing.T) {
+	CloseRefusedPeer(nil)
+}
+
+func TestCloseRefusedPeerDrainsNestedTCPWrappers(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	client, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = client.Close() }()
+
+	payload := []byte("already-wrote")
+	if _, err := client.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+
+	accepted, err := ln.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	timeoutConn, err := NewSocketTimeoutConn(parse.Spec{}, accepted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// TLS-LISTEN Accept yields tls.Conn → SocketTimeoutConn → TCPConn.
+	refused := nestNetConn{Conn: nestNetConn{Conn: timeoutConn}}
+	if unwrapNetConn(refused) != accepted {
+		t.Fatalf("unwrapNetConn stopped at %T, want %T", unwrapNetConn(refused), accepted)
+	}
+
+	CloseRefusedPeer(refused)
+
+	_ = client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 8)
+	_, err = client.Read(buf)
+	if isConnReset(err) {
+		t.Fatalf("client that already wrote saw a reset: %v", err)
+	}
+	if err != nil && !errors.Is(err, io.EOF) {
+		t.Fatalf("client read after refusal: %v", err)
+	}
+}
+
+func isConnReset(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, syscall.ECONNRESET) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "connection reset")
 }

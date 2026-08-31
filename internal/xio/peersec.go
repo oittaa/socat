@@ -20,14 +20,10 @@ func CloseRefusedPeer(c net.Conn) {
 	if c == nil {
 		return
 	}
-	// Unwrap TLS so we can drain the TCP socket.
-	type netConner interface{ NetConn() net.Conn }
-	raw := c
-	if nc, ok := c.(netConner); ok {
-		if inner := nc.NetConn(); inner != nil {
-			raw = inner
-		}
-	}
+	// Walk nested NetConn wrappers (TLS → SocketTimeoutConn → TCPConn)
+	// so the TCP socket is drained. WebSocket connections stay opaque:
+	// wsNetConn does not implement NetConn().
+	raw := unwrapNetConn(c)
 	if tc, ok := raw.(*net.TCPConn); ok {
 		_ = tc.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
 		_, _ = io.Copy(io.Discard, tc)
