@@ -426,4 +426,3 @@ func TestTUNNoPIAndMTUAliasLastWins(t *testing.T) {
 		t.Fatal("tun-no-pi=0 should be inactive")
 	}
 }
-
