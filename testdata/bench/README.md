@@ -22,8 +22,12 @@ That ciphertext does not compress.
 Set `SOCAT_BENCH_PAYLOAD=/path/to/file` to use your own file. The file must be
 at least `SOCAT_BENCH_SIZE` bytes. The runner copies that many bytes.
 
-Working files live under `testdata/tmp/bench/` (gitignored). The payload may
-also sit in `/dev/shm` when that directory is writable.
+Working files live under `testdata/tmp/bench/` (gitignored). On Linux, payloads
+and sinks use `/dev/shm` when it is writable. The runner keeps at most one raw
+payload and its matching UDP-framed variant, removes obsolete cache variants,
+and cleans temporary sinks on exit or at the next start after an interrupted
+run. It also checks available space before creating large files and fails
+early when the selected payload will not fit.
 
 ## Run
 
@@ -31,17 +35,27 @@ also sit in `/dev/shm` when that directory is writable.
 # From the repo root
 make bench
 # or
-SOCAT_CLASSIC_BIN=/path/to/classic/socat ./scripts/bench.sh
+SOCAT_CLASSIC_BIN=/path/to/classic/socat python3 -B scripts/bench.py
 
 # Subset and smaller size
-SOCAT_BENCH_SIZE=64M SOCAT_BENCH_RUNS=3 ./scripts/bench.sh tcp tls quic
+SOCAT_BENCH_SIZE=64M SOCAT_BENCH_RUNS=3 python3 -B scripts/bench.py tcp tls quic
 
 # Record the committed snapshot
 SOCAT_BENCH_SIZE=1G SOCAT_BENCH_RUNS=7 SOCAT_BENCH_WARMUP=2 \
-  SOCAT_BENCH_SAVE_BASELINE=testdata/bench/host.json ./scripts/bench.sh
+  SOCAT_BENCH_SAVE_BASELINE=testdata/bench/host.json python3 -B scripts/bench.py
 ```
 
 `make bench` does not run from `make test` or `make e2e`.
+The Python runner builds the Go socat and its benchmark helper unless their
+respective skip-build variables are enabled.
+
+PowerShell uses the same runner:
+
+```powershell
+$env:SOCAT_BENCH_SIZE = "64M"
+$env:SOCAT_BENCH_RUNS = "3"
+python -B scripts/bench.py tcp udp tls ws wss quic
+```
 
 ## Cases
 
@@ -108,16 +122,19 @@ receiver is terminated after the quiet interval.
 |----------|---------|---------|
 | `SOCAT_BIN` | `./socat` | Go binary |
 | `SOCAT_CLASSIC_BIN` | `socat` on PATH | Classic C binary override |
-| `SOCAT_BENCH_OPENSSL_BIN` | `openssl` on PATH | Distro OpenSSL (certs, payload, probe) |
+| `SOCAT_BENCH_CLIENT_BIN` | work directory `benchclient` | Benchmark helper binary override |
+| `SOCAT_BENCH_OPENSSL_BIN` | `openssl` on PATH | Optional classic TLS probe client |
 | `SOCAT_BENCH_SIZE` | `256M` | Stream payload (MiB if `M`) |
 | `SOCAT_BENCH_RUNS` | `5` | Timed runs |
 | `SOCAT_BENCH_WARMUP` | `1` | Untimed runs |
 | `SOCAT_BENCH_BUFFER` | `8192` | socat `-b`; datagram cases require 21..65507 |
 | `SOCAT_BENCH_PAYLOAD` | AES-CTR blob | Optional file, ≥ `SOCAT_BENCH_SIZE` |
+| `SOCAT_BENCH_GIT_COMMIT` | current checkout | Commit recorded when benchmarking an exported source tree |
 | `SOCAT_BENCH_SAVE_BASELINE` | empty | Copy JSON + summary here |
 | `SOCAT_BENCH_RR_N` / `SOCAT_BENCH_RR_WARMUP` / `SOCAT_BENCH_RR_SIZE` | 20000 / 1000 / 64 | Ping-pong |
 | `SOCAT_BENCH_HS_N` / `SOCAT_BENCH_HS_WARMUP` | 200 / 20 | Handshakes |
-| `SOCAT_BENCH_SKIP_BUILD` | `0` | Skip `make build` |
+| `SOCAT_BENCH_SKIP_BUILD` | `0` | Reuse `SOCAT_BIN` instead of running `go build` |
+| `SOCAT_BENCH_SKIP_CLIENT_BUILD` | `0` | Reuse `SOCAT_BENCH_CLIENT_BIN` instead of running `go build` |
 | `SOCAT_BENCH_PROBE_ONLY` | `0` | Handshake probe only; merge `meta.tls` into `SOCAT_BENCH_SAVE_BASELINE` |
 
 Both binaries use `-b 8192` and bind `127.0.0.1`.
@@ -138,6 +155,7 @@ listen command as the timed case. Do not write “may be” for those values.
 
 RSS is the peak `VmRSS` of the socat process tree (50 ms sample). For
 `tls-hs` that includes classic child processes.
+Platforms without `/proc` report RSS as `n/a` (`null` in JSON).
 
 ## Honesty
 
@@ -156,22 +174,24 @@ RSS is the peak `VmRSS` of the socat process tree (50 ms sample). For
 
 ## Recorded snapshot
 
-Recorded 2026-08-30 in an Ubuntu 26.04 Hyper-V guest (6 vCPUs) backed by an
+Recorded 2026-08-31 in an Ubuntu 26.04 Hyper-V guest (6 vCPUs) backed by an
 AMD Ryzen 7 9800X3D, Linux 7.0.0-30, Go 1.27.0, classic socat 1.8.1.3, and
 distro OpenSSL 3.5.5. Payload: 1 GiB AES-128-CTR (incompressible; not
 `/dev/zero`). Median of 7 timed runs after 2 warmups, `-b 8192`.
 
 | Case | classic | go | Peak RSS (classic / go) |
 |------|---------|----|-------------------------|
-| TCP 1 GiB | 917.5 MiB/s | 1988.7 MiB/s | 10.5 / 26.0 MiB |
-| UNIX 1 GiB | 878.1 MiB/s | 1664.5 MiB/s | 10.2 / 25.9 MiB |
-| UDP 1 GiB (send / receive / loss) | 1182.8 / 1168.3 MiB/s / 1.199% | 451.4 / 451.4 MiB/s / 0.000% | 10.4 / 30.3 MiB |
-| TLS 1 GiB | 917.1 MiB/s | 1117.9 MiB/s | 21.1 / 28.6 MiB |
-| QUIC 1 GiB | n/a | 483.3 MiB/s | n/a / 39.0 MiB |
-| TCP 64 B RTT (median / p99) | 88.7 / 162.5 µs | 68.0 / 158.4 µs | 5.2 / 13.2 MiB |
-| TLS 64 B RTT (median / p99) | 95.2 / 177.2 µs | 139.4 / 214.1 µs | 11.0 / 14.6 MiB |
-| QUIC 64 B RTT (median / p99) | n/a | 327.1 / 468.4 µs | n/a / 18.7 MiB |
-| TLS handshake | 23.4 /s | 631.4 /s | 25.4 / 19.4 MiB |
+| TCP 1 GiB | 1057.7 MiB/s | 1986.0 MiB/s | 10.5 / 26.1 MiB |
+| UNIX 1 GiB | 807.4 MiB/s | 1986.8 MiB/s | 10.2 / 26.1 MiB |
+| UDP 1 GiB (send / receive / loss) | 1116.6 / 1116.3 MiB/s / 0.000% | 1252.3 / 1251.8 MiB/s / 0.000% | 10.3 / 30.0 MiB |
+| TLS 1 GiB | 912.5 MiB/s | 1248.9 MiB/s | 20.9 / 28.6 MiB |
+| WS 1 GiB | n/a | 1059.2 MiB/s | n/a / 27.1 MiB |
+| WSS 1 GiB | n/a | 1002.7 MiB/s | n/a / 29.2 MiB |
+| QUIC 1 GiB | n/a | 368.9 MiB/s | n/a / 40.1 MiB |
+| TCP 64 B RTT (median / p99) | 85.5 / 176.4 µs | 50.3 / 435.3 µs | 5.2 / 13.4 MiB |
+| TLS 64 B RTT (median / p99) | 91.9 / 168.4 µs | 98.6 / 193.1 µs | 10.9 / 14.5 MiB |
+| QUIC 64 B RTT (median / p99) | n/a | 240.2 / 432.2 µs | n/a / 19.4 MiB |
+| TLS handshake | 23.5 /s | 999.7 /s | 25.0 / 18.8 MiB |
 
 Recorded handshakes (same binaries as the table; see `meta.tls` in `host.json`):
 
@@ -193,7 +213,7 @@ Recorded handshakes (same binaries as the table; see `meta.tls` in `host.json`):
 
 ```bash
 SOCAT_BENCH_SIZE=1G SOCAT_BENCH_RUNS=7 SOCAT_BENCH_WARMUP=2 \
-  SOCAT_BENCH_SAVE_BASELINE=testdata/bench/host.json ./scripts/bench.sh
+  SOCAT_BENCH_SAVE_BASELINE=testdata/bench/host.json python3 -B scripts/bench.py
 ```
 
 Then copy the medians from `testdata/bench/host.summary.txt` into the

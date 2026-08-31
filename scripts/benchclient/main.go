@@ -1,17 +1,27 @@
-// Command benchclient is a measure tool for scripts/bench.sh (TCP / TLS / QUIC).
+// Command benchclient supports scripts/bench.py (TCP / TLS / QUIC).
 // It is not a user CLI and is not installed.
 package main
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"os"
+	"path/filepath"
 	"sort"
 	"time"
 
@@ -44,7 +54,7 @@ type stats struct {
 
 func main() {
 	var (
-		mode       = flag.String("mode", "rr", "rr or hs")
+		mode       = flag.String("mode", "rr", "rr, hs, probe, cert, or payload")
 		proto      = flag.String("proto", "tcp", "tcp, tls, or quic")
 		addr       = flag.String("addr", "", "host:port")
 		n          = flag.Int("n", 20000, "timed messages or handshakes")
@@ -53,8 +63,24 @@ func main() {
 		caPath     = flag.String("ca", "", "PEM CA file (tls/quic verify)")
 		serverName = flag.String("servername", "localhost", "TLS/QUIC server name")
 		alpn       = flag.String("alpn", "socat", "QUIC ALPN")
+		certDir    = flag.String("cert-dir", "", "output directory for cert mode")
+		outPath    = flag.String("out", "", "output file for payload mode")
 	)
 	flag.Parse()
+	switch *mode {
+	case "cert":
+		if err := writeBenchCerts(*certDir); err != nil {
+			fail(result{Mode: *mode, Error: err.Error()})
+		}
+		succeed(result{Mode: *mode})
+		return
+	case "payload":
+		if err := writePayload(*outPath, int64(*size)); err != nil {
+			fail(result{Mode: *mode, Error: err.Error()})
+		}
+		succeed(result{Mode: *mode, Size: *size})
+		return
+	}
 	if *addr == "" {
 		fail(result{Mode: *mode, Proto: *proto, Error: "missing -addr"})
 	}
@@ -79,7 +105,7 @@ func main() {
 	case "probe":
 		out, err = runProbe(*proto, *addr, tlsCfg)
 	default:
-		fail(result{Mode: *mode, Proto: *proto, Error: "mode must be rr, hs, or probe"})
+		fail(result{Mode: *mode, Proto: *proto, Error: "unknown mode"})
 	}
 	if err != nil {
 		out.OK = false
@@ -87,16 +113,143 @@ func main() {
 		fail(out)
 	}
 	out.OK = true
-	enc := json.NewEncoder(os.Stdout)
-	if err := enc.Encode(out); err != nil {
-		os.Exit(2)
-	}
+	succeed(out)
 }
 
 func fail(r result) {
 	r.OK = false
 	_ = json.NewEncoder(os.Stdout).Encode(r)
 	os.Exit(1)
+}
+
+func succeed(r result) {
+	r.OK = true
+	if err := json.NewEncoder(os.Stdout).Encode(r); err != nil {
+		os.Exit(2)
+	}
+}
+
+func writeBenchCerts(dir string) error {
+	if dir == "" {
+		return fmt.Errorf("missing -cert-dir")
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	caTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "socat-bench-ca"},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.Add(48 * time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+	}
+	caDER, err := x509.CreateCertificate(
+		rand.Reader, caTemplate, caTemplate, &caKey.PublicKey, caKey,
+	)
+	if err != nil {
+		return err
+	}
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return err
+	}
+	leafTemplate := &x509.Certificate{
+		SerialNumber:          big.NewInt(2),
+		Subject:               pkix.Name{CommonName: "localhost"},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.Add(48 * time.Hour),
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		DNSNames:              []string{"localhost"},
+		IPAddresses:           []net.IP{net.IPv4(127, 0, 0, 1)},
+	}
+	leafDER, err := x509.CreateCertificate(
+		rand.Reader, leafTemplate, caTemplate, &leafKey.PublicKey, caKey,
+	)
+	if err != nil {
+		return err
+	}
+	keyDER, err := x509.MarshalPKCS8PrivateKey(leafKey)
+	if err != nil {
+		return err
+	}
+	files := []struct {
+		name string
+		typ  string
+		der  []byte
+	}{
+		{"ca.pem", "CERTIFICATE", caDER},
+		{"server.crt", "CERTIFICATE", leafDER},
+		{"server.key", "PRIVATE KEY", keyDER},
+	}
+	for _, file := range files {
+		block := pem.EncodeToMemory(&pem.Block{Type: file.typ, Bytes: file.der})
+		if err := os.WriteFile(filepath.Join(dir, file.name), block, 0o600); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writePayload(path string, size int64) (err error) {
+	if path == "" {
+		return fmt.Errorf("missing -out")
+	}
+	if size < 1 {
+		return fmt.Errorf("payload size must be positive")
+	}
+	key, err := hex.DecodeString("0123456789abcdeffedcba9876543210")
+	if err != nil {
+		return err
+	}
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	defer func() {
+		if err != nil {
+			_ = os.Remove(tmp)
+		}
+	}()
+	// #nosec G304 -- the benchmark runner supplies this local output path.
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	// #nosec G407 -- reproducibility, not secrecy, requires this fixed stream.
+	stream := cipher.NewCTR(block, make([]byte, aes.BlockSize))
+	zeros := make([]byte, 1024*1024)
+	buf := make([]byte, len(zeros))
+	for written := int64(0); written < size; {
+		n := min(int64(len(buf)), size-written)
+		stream.XORKeyStream(buf[:n], zeros[:n])
+		var count int
+		if count, err = f.Write(buf[:n]); err != nil {
+			_ = f.Close()
+			return err
+		}
+		if int64(count) != n {
+			_ = f.Close()
+			return io.ErrShortWrite
+		}
+		written += n
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func clientTLS(caPath, serverName string, quic bool, alpn string) (*tls.Config, error) {
@@ -142,14 +295,14 @@ func runRR(proto, addr string, tlsCfg *tls.Config, n, warmup, size int) (result,
 	got := make([]byte, size)
 
 	ping := func() (time.Duration, error) {
-		t0 := time.Now()
+		t0 := benchmarkNow()
 		if _, err := c.Write(payload); err != nil {
 			return 0, err
 		}
 		if _, err := io.ReadFull(c, got); err != nil {
 			return 0, err
 		}
-		return time.Since(t0), nil
+		return benchmarkSince(t0), nil
 	}
 	for i := 0; i < warmup; i++ {
 		if _, err := ping(); err != nil {

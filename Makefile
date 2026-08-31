@@ -128,10 +128,10 @@ lab:
 
 # Optional loopback benches vs classic C (not part of test or e2e).
 bench:
-	./scripts/bench.sh
+	$(PYTHON) -B scripts/bench.py
 
 clean:
-	rm -f socat filan procan
+	rm -f socat socat.exe filan filan.exe procan procan.exe
 
 install: build
 	install -d $(BINDIR)
