@@ -50,6 +50,7 @@ type oneConnListener struct {
 	conn        net.Conn
 	closed      chan struct{}
 	waiting     chan struct{}
+	acceptErr   error
 	once        sync.Once
 	waitingOnce sync.Once
 	taken       atomic.Bool
@@ -61,6 +62,9 @@ func (l *oneConnListener) Accept() (net.Conn, error) {
 	}
 	if l.waiting != nil {
 		l.waitingOnce.Do(func() { close(l.waiting) })
+	}
+	if l.acceptErr != nil {
+		return nil, l.acceptErr
 	}
 	<-l.closed
 	return nil, net.ErrClosed
@@ -163,6 +167,96 @@ func TestForkContextCancellationWaitsForActiveSession(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("accept loop did not return after canceled session finished")
+	}
+}
+
+func TestForkAcceptErrorWaitsForActiveSession(t *testing.T) {
+	accepted, peer := net.Pipe()
+	t.Cleanup(func() { _ = accepted.Close() })
+	t.Cleanup(func() { _ = peer.Close() })
+	wantErr := errors.New("accept failed")
+	ln := &oneConnListener{
+		conn:      accepted,
+		closed:    make(chan struct{}),
+		acceptErr: wantErr,
+	}
+	opened := &Opened{}
+	g := &Global{Log: logx.New()}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		result <- opened.forEachAccepted(context.Background(), ln, g, false, func(net.Conn, *Global) {
+			close(started)
+			<-release
+		})
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("accepted session did not start")
+	}
+	select {
+	case err := <-result:
+		t.Fatalf("accept loop returned before active session finished: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case err := <-result:
+		if !errors.Is(err, wantErr) {
+			t.Fatalf("error=%v want %v", err, wantErr)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("accept loop did not return after active session finished")
+	}
+}
+
+func TestConnectForkContextCancellationClosesAndWaitsForActiveSession(t *testing.T) {
+	conn, peer := net.Pipe()
+	t.Cleanup(func() { _ = conn.Close() })
+	t.Cleanup(func() { _ = peer.Close() })
+	opened := &Opened{
+		Dial:     func(context.Context) (net.Conn, error) { return conn, nil },
+		Interval: time.Hour,
+	}
+	g := &Global{Log: logx.New()}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	started := make(chan struct{})
+	readErr := make(chan error, 1)
+	result := make(chan error, 1)
+	go func() {
+		result <- runConnectForkLoop(ctx, opened, g, func(_ context.Context, _ *Global, c net.Conn) error {
+			close(started)
+			var buf [1]byte
+			_, err := c.Read(buf[:])
+			readErr <- err
+			return err
+		})
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("connect session did not start")
+	}
+
+	cancel()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("error=%v want nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("connect loop did not stop after cancellation")
+	}
+	select {
+	case err := <-readErr:
+		if err == nil {
+			t.Fatal("child read succeeded after cancellation")
+		}
+	default:
+		t.Fatal("connect loop returned before active session finished")
 	}
 }
 
