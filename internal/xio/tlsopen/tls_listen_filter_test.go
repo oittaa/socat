@@ -21,15 +21,8 @@ func TestTLSListenNonForkRetriesRejectedPeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ln0, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := ln0.Addr().(*net.TCPAddr).Port
-	_ = ln0.Close()
-
 	spec, err := parse.ParseSpec(
-		"TLS-LISTEN:" + strconv.Itoa(port) + ",reuseaddr,bind=127.0.0.1,verify=0,cert=" + certPath + ",range=127.0.0.1,accept-timeout=2",
+		"TLS-LISTEN:0,reuseaddr,bind=127.0.0.1,verify=0,cert=" + certPath + ",range=127.0.0.1,accept-timeout=2",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -43,16 +36,16 @@ func TestTLSListenNonForkRetriesRejectedPeer(t *testing.T) {
 		err error
 	}
 	done := make(chan result, 1)
-	bound := make(chan struct{})
+	bound := make(chan net.Addr, 1)
 	var boundOnce sync.Once
-	defer xio.SetListenBoundTestHook(func() {
-		boundOnce.Do(func() { close(bound) })
+	defer xio.SetListenBoundTestHook(func(addr net.Addr) {
+		boundOnce.Do(func() { bound <- addr })
 	})()
 	go func() {
 		o, err := openTLSListen(ctx, spec, xio.ModeRDWR, g)
 		done <- result{o, err}
 	}()
-	waitListenBound(t, bound, done, 5*time.Second)
+	port := tcpBoundPort(t, waitListenBound(t, bound, done, 5*time.Second))
 
 	refuse := &net.Dialer{LocalAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 2)}}
 	raw, err := refuse.DialContext(ctx, "tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
@@ -93,15 +86,8 @@ func TestTLSListenNonForkRestartsAcceptTimeoutAfterRefusedPeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ln0, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := ln0.Addr().(*net.TCPAddr).Port
-	_ = ln0.Close()
-
 	spec, err := parse.ParseSpec(
-		"TLS-LISTEN:" + strconv.Itoa(port) + ",reuseaddr,bind=127.0.0.1,verify=0,cert=" + certPath + ",range=127.0.0.1,accept-timeout=0.30",
+		"TLS-LISTEN:0,reuseaddr,bind=127.0.0.1,verify=0,cert=" + certPath + ",range=127.0.0.1,accept-timeout=0.30",
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -111,16 +97,16 @@ func TestTLSListenNonForkRestartsAcceptTimeoutAfterRefusedPeer(t *testing.T) {
 	defer cancel()
 
 	errCh := make(chan error, 1)
-	bound := make(chan struct{})
+	bound := make(chan net.Addr, 1)
 	var boundOnce sync.Once
-	defer xio.SetListenBoundTestHook(func() {
-		boundOnce.Do(func() { close(bound) })
+	defer xio.SetListenBoundTestHook(func(addr net.Addr) {
+		boundOnce.Do(func() { bound <- addr })
 	})()
 	go func() {
 		_, err := openTLSListen(ctx, spec, xio.ModeRDWR, g)
 		errCh <- err
 	}()
-	waitListenBound(t, bound, errCh, 5*time.Second)
+	port := tcpBoundPort(t, waitListenBound(t, bound, errCh, 5*time.Second))
 	start := time.Now()
 	time.Sleep(180 * time.Millisecond)
 
@@ -150,13 +136,27 @@ func TestTLSListenNonForkRestartsAcceptTimeoutAfterRefusedPeer(t *testing.T) {
 	}
 }
 
-func waitListenBound[T any](t *testing.T, bound <-chan struct{}, failed <-chan T, timeout time.Duration) {
+func waitListenBound[T any](t *testing.T, bound <-chan net.Addr, failed <-chan T, timeout time.Duration) net.Addr {
 	t.Helper()
 	select {
-	case <-bound:
+	case addr := <-bound:
+		return addr
 	case v := <-failed:
 		t.Fatalf("listen returned before bind: %v", v)
 	case <-time.After(timeout):
 		t.Fatal("timeout waiting for TCP listen")
 	}
+	return nil
+}
+
+func tcpBoundPort(t *testing.T, addr net.Addr) int {
+	t.Helper()
+	ta, ok := addr.(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("listen addr %T", addr)
+	}
+	if ta.Port == 0 {
+		t.Fatal("listen bound port 0")
+	}
+	return ta.Port
 }

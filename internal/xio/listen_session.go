@@ -93,7 +93,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 	}
 	o.AcceptTimeout = AcceptTimeout(s)
 	o.AddCleanup(func() { _ = closeLn() })
-	noteListenBound()
+	NoteListenBound(ln.Addr())
 
 	if fork {
 		go func() {
@@ -214,13 +214,14 @@ func acceptOne(ctx context.Context, ln net.Listener, accept func(context.Context
 
 var (
 	listenBoundHookMu sync.Mutex
-	listenBoundHook   func()
+	listenBoundHook   func(net.Addr)
 )
 
-// SetListenBoundTestHook installs a test-only callback fired after a stream
-// listener is bound and before the accept loop. The returned function
-// restores the previous hook.
-func SetListenBoundTestHook(h func()) func() {
+// SetListenBoundTestHook installs a test-only callback fired after a listener
+// is bound and before accept or the first datagram. The callback receives the
+// bound address so tests can use port 0. The returned function restores the
+// previous hook.
+func SetListenBoundTestHook(h func(net.Addr)) func() {
 	listenBoundHookMu.Lock()
 	prev := listenBoundHook
 	listenBoundHook = h
@@ -232,11 +233,14 @@ func SetListenBoundTestHook(h func()) func() {
 	}
 }
 
-func noteListenBound() {
+// NoteListenBound fires the test hook after a bind. Stream sessions call this
+// from OpenListenSession. Datagram openers that bind without that helper call
+// it after ListenUDP so non-fork tests can learn an ephemeral port.
+func NoteListenBound(addr net.Addr) {
 	listenBoundHookMu.Lock()
 	h := listenBoundHook
 	listenBoundHookMu.Unlock()
 	if h != nil {
-		h()
+		h(addr)
 	}
 }

@@ -42,13 +42,15 @@ func TestUNIXListenPIPEEcho(t *testing.T) {
 // empty socket descriptor.
 func TestUDP4ListenNonForkPIPEEcho(t *testing.T) {
 	ctx := testCtx(t)
-	port := freeUDP4Port(t)
 	done := make(chan error, 1)
+	bound, restore := listenBoundPort(t)
+	defer restore()
 	go func() {
 		done <- xio.Run(ctx,
-			mustParse(t, fmt.Sprintf("UDP4-LISTEN:%d,reuseaddr=0,bind=127.0.0.1", port)),
+			mustParse(t, "UDP4-LISTEN:0,reuseaddr=0,bind=127.0.0.1"),
 			mustParse(t, "PIPE"), cloneGlobal(nil))
 	}()
+	port := waitBoundPort(t, bound, done)
 
 	client, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
 	if err != nil {
@@ -432,10 +434,13 @@ func TestEXECEndCloseToTCPListenForkSequentialClients(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	port := freeTCP4Port(t)
+	bound, restore := listenBoundPort(t)
+	defer restore()
+	errCh := make(chan error, 1)
 	go func() {
-		_ = xio.RunOpened(ctx, left, mustParse(t, fmt.Sprintf("TCP-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1", port)), cloneGlobal(nil))
+		errCh <- xio.RunOpened(ctx, left, mustParse(t, "TCP-LISTEN:0,reuseaddr,fork,bind=127.0.0.1"), cloneGlobal(nil))
 	}()
+	port := waitBoundPort(t, bound, errCh)
 	for _, payload := range []string{"first-session", "second-session"} {
 		cli := openClient(t, ctx, testGlobal(), fmt.Sprintf("TCP:127.0.0.1:%d,connect-timeout=2", port))
 		mustWrite(t, cli.Stream, []byte(payload))
