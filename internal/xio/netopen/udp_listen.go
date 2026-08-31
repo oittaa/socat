@@ -19,7 +19,7 @@ import (
 )
 
 func openUDPListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openUDPListenNetwork(ctx, s, mode, g, NetworkUDP(g, s, "udp4"))
+	return openUDPListenNetwork(ctx, s, mode, g, udpNetworkWithListenDefault(g, s))
 }
 func openUDP4Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPListenNetwork(ctx, s, mode, g, "udp4")

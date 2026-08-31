@@ -131,3 +131,7 @@ func NetworkUDP(g *xio.Global, s parse.Spec, def string) string {
 		return def
 	}
 }
+
+func udpNetworkWithListenDefault(g *xio.Global, s parse.Spec) string {
+	return xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
+}

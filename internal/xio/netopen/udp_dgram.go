@@ -28,7 +28,7 @@ func openUDP6Sendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 
 // UDP*-DATAGRAM: unconnected datagram to address (broadcast/multicast capable).
 func openUDPDatagram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openUDPDatagramNetwork(ctx, s, mode, g, NetworkUDP(g, s, "udp4"), false)
+	return openUDPDatagramNetwork(ctx, s, mode, g, udpNetworkWithListenDefault(g, s), false)
 }
 func openUDP4Datagram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPDatagramNetwork(ctx, s, mode, g, "udp4", false)
@@ -328,7 +328,7 @@ func bindUDPLowport(ctx context.Context, network, bind string, s parse.Spec, g *
 func (u *udpDatagramConn) ShutdownWrite() error { return nil }
 
 func openUDPRecv(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openUDPRecvNetwork(ctx, s, mode, g, NetworkUDP(g, s, "udp4"), false)
+	return openUDPRecvNetwork(ctx, s, mode, g, udpNetworkWithListenDefault(g, s), false)
 }
 func openUDP4Recv(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPRecvNetwork(ctx, s, mode, g, "udp4", false)
@@ -338,7 +338,7 @@ func openUDP6Recv(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Globa
 }
 
 func openUDPRecvfrom(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openUDPRecvNetwork(ctx, s, mode, g, NetworkUDP(g, s, "udp4"), true)
+	return openUDPRecvNetwork(ctx, s, mode, g, udpNetworkWithListenDefault(g, s), true)
 }
 func openUDP4Recvfrom(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPRecvNetwork(ctx, s, mode, g, "udp4", true)
