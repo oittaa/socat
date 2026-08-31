@@ -57,12 +57,59 @@ class RSSSamplerTest(unittest.TestCase):
 
 
 class StorageTest(unittest.TestCase):
-    def test_temporary_run_dir_is_removed(self) -> None:
-        with bench.temporary_run_dir(0) as run_dir:
-            marker = run_dir / "payload"
-            marker.write_bytes(b"gone")
-            self.assertTrue(run_dir.is_dir())
-        self.assertFalse(run_dir.exists())
+    def test_run_session_removes_stale_runs_and_current_dir(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            workdir = Path(tempdir) / "work"
+            workdir.mkdir()
+            unrelated = workdir / "storage"
+            unrelated.mkdir()
+            (unrelated / "keep").write_text("mine", encoding="utf-8")
+            root = Path(tempdir) / "owned"
+            stale = root / "run-stale"
+            stale.mkdir(parents=True)
+            (stale / "payload").write_bytes(b"old")
+
+            with mock.patch.object(bench, "benchmark_storage_root", return_value=root):
+                with bench.run_session(workdir, 0) as run_dir:
+                    self.assertEqual(run_dir.parent, root)
+                    self.assertTrue(run_dir.name.startswith("run-"))
+                    self.assertFalse(stale.exists())
+                    (run_dir / "payload").write_bytes(b"new")
+                    marker = run_dir
+
+            self.assertFalse(marker.exists())
+            self.assertTrue((root / ".lock").is_file())
+            self.assertEqual((unrelated / "keep").read_text(encoding="utf-8"), "mine")
+
+    def test_run_session_rejects_symlink_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            real = Path(tempdir) / "real"
+            real.mkdir()
+            link = Path(tempdir) / "link"
+            link.symlink_to(real)
+            with mock.patch.object(bench, "benchmark_storage_root", return_value=link):
+                with self.assertRaisesRegex(SystemExit, "must not be a symlink"):
+                    with bench.run_session(Path(tempdir), 0):
+                        pass
+
+    def test_run_session_checks_free_space_under_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            workdir = Path(tempdir) / "work"
+            root = Path(tempdir) / "owned"
+            with mock.patch.object(bench, "benchmark_storage_root", return_value=root):
+                with mock.patch.object(bench.shutil, "disk_usage", return_value=mock.Mock(free=0)):
+                    with self.assertRaisesRegex(SystemExit, "reduce SOCAT_BENCH_SIZE"):
+                        with bench.run_session(workdir, 256):
+                            pass
+            self.assertTrue((root / ".lock").is_file())
+            self.assertFalse(any(root.glob("run-*")))
+
+    def test_storage_root_falls_back_when_shm_cannot_exec(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            workdir = Path(tempdir)
+            with mock.patch.object(bench, "linux_shm_root", return_value=None):
+                self.assertEqual(bench.benchmark_storage_root(workdir), workdir / "storage")
+            self.assertTrue(bench.dir_allows_exec(workdir))
 
     def test_prepare_payload_writes_fresh_files(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

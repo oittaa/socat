@@ -24,7 +24,12 @@ import zlib
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
+
+if os.name == "nt":
+    import msvcrt
+else:
+    import fcntl
 
 ROOT = Path(__file__).resolve().parent.parent
 MIB = 1024 * 1024
@@ -216,9 +221,9 @@ def generate_certs(benchclient: Path, cert_dir: Path) -> dict[str, Path]:
     return certs
 
 
-def setup_benchmark(workdir: Path) -> None:
-    workdir.mkdir(parents=True, exist_ok=True)
-    (workdir / "logs").mkdir(exist_ok=True)
+def setup_benchmark(run_dir: Path) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "logs").mkdir(exist_ok=True)
 
     configured_socat = os.environ.get("SOCAT_BIN", "").strip()
     socat = Path(configured_socat) if configured_socat else ROOT / executable_name("socat")
@@ -229,14 +234,14 @@ def setup_benchmark(workdir: Path) -> None:
 
     configured_client = os.environ.get("SOCAT_BENCH_CLIENT_BIN", "").strip()
     benchclient = (
-        Path(configured_client) if configured_client else workdir / executable_name("benchclient")
+        Path(configured_client) if configured_client else run_dir / executable_name("benchclient")
     )
     if not env_enabled("SOCAT_BENCH_SKIP_CLIENT_BUILD") and not configured_client:
         build_go_binary(benchclient, "./scripts/benchclient")
     if not benchclient.is_file() or not os.access(benchclient, os.X_OK):
         raise SystemExit(f"benchclient not found: {benchclient}")
 
-    certs = generate_certs(benchclient, workdir / "certs")
+    certs = generate_certs(benchclient, run_dir / "certs")
     openssl = os.environ.get("SOCAT_BENCH_OPENSSL_BIN", "").strip() or shutil.which("openssl") or ""
 
     classic = discover_classic(socat)
@@ -300,14 +305,14 @@ def probe_go_client(
     server_bin: str,
     proto: str,
     certs: dict[str, Path],
-    workdir: Path,
+    run_dir: Path,
     benchclient: Path,
     tag: str,
     impl: str = "go",
 ) -> dict[str, Any]:
     port = free_tcp_port()
     listen = echo_listen(proto if proto != "quic" else "quic", port, certs, fork=True, impl=impl)
-    slog = workdir / "logs" / f"{tag}.server.log"
+    slog = run_dir / "logs" / f"{tag}.server.log"
     server = start_socat(server_bin, [listen, "PIPE"], slog)
     try:
         if proto == "quic":
@@ -352,12 +357,12 @@ def probe_openssl_sclient(
     *,
     server_bin: str,
     certs: dict[str, Path],
-    workdir: Path,
+    run_dir: Path,
     tag: str,
 ) -> dict[str, Any]:
     port = free_tcp_port()
     listen = echo_listen("tls", port, certs, fork=True, impl="classic")
-    slog = workdir / "logs" / f"{tag}.server.log"
+    slog = run_dir / "logs" / f"{tag}.server.log"
     server = start_socat(server_bin, [listen, "PIPE"], slog)
     try:
         wait_tcp(port)
@@ -395,7 +400,7 @@ def probe_all(
     go_bin: str,
     classic_bin: str | None,
     certs: dict[str, Path],
-    workdir: Path,
+    run_dir: Path,
     benchclient: Path,
 ) -> dict[str, Any]:
     """Record the handshake each bench pairing actually negotiates."""
@@ -405,7 +410,7 @@ def probe_all(
         server_bin=go_bin,
         proto="tls",
         certs=certs,
-        workdir=workdir,
+        run_dir=run_dir,
         benchclient=benchclient,
         tag="probe.go-go",
         impl="go",
@@ -415,7 +420,7 @@ def probe_all(
         server_bin=go_bin,
         proto="quic",
         certs=certs,
-        workdir=workdir,
+        run_dir=run_dir,
         benchclient=benchclient,
         tag="probe.go-quic",
     )
@@ -425,7 +430,7 @@ def probe_all(
             out["openssl_client_classic_server"] = probe_openssl_sclient(
                 server_bin=classic_bin,
                 certs=certs,
-                workdir=workdir,
+                run_dir=run_dir,
                 tag="probe.ossl-classic",
             )
         else:
@@ -438,7 +443,7 @@ def probe_all(
             server_bin=classic_bin,
             proto="tls",
             certs=certs,
-            workdir=workdir,
+            run_dir=run_dir,
             benchclient=benchclient,
             tag="probe.go-classic",
             impl="classic",
@@ -487,24 +492,75 @@ def payload_sha256(path: Path, limit: int = 1024 * 1024) -> str:
     return f"{h.hexdigest()} (first {n} bytes)"
 
 
-def shm_dir() -> Path | None:
+def dir_allows_exec(directory: Path) -> bool:
+    probe = directory / ".exec-probe"
+    try:
+        probe.write_bytes(b"")
+        probe.chmod(0o700)
+        return os.access(probe, os.X_OK)
+    except OSError:
+        return False
+    finally:
+        probe.unlink(missing_ok=True)
+
+
+def linux_shm_root() -> Path | None:
     shm = Path("/dev/shm")
-    if sys.platform.startswith("linux") and shm.is_dir() and os.access(shm, os.W_OK):
-        return shm
-    return None
+    if not (sys.platform.startswith("linux") and shm.is_dir() and os.access(shm, os.W_OK)):
+        return None
+    candidate = shm / f"socat-bench-{os.getuid()}"
+    try:
+        prepare_storage_root(candidate)
+    except SystemExit:
+        return None
+    if not dir_allows_exec(candidate):
+        return None
+    return candidate
 
 
-def remove_legacy_cache(workdir: Path) -> None:
-    shutil.rmtree(workdir / "storage", ignore_errors=True)
-    shm = shm_dir()
-    if shm is None:
-        return
-    shutil.rmtree(shm / f"socat-bench-{os.getuid()}", ignore_errors=True)
-    for path in shm.glob("socat-bench-payload.aes-ctr.*"):
-        if path.is_dir():
-            shutil.rmtree(path, ignore_errors=True)
-        else:
-            path.unlink(missing_ok=True)
+def benchmark_storage_root(workdir: Path) -> Path:
+    return linux_shm_root() or workdir / "storage"
+
+
+def prepare_storage_root(root: Path) -> None:
+    if os.name == "nt":
+        root.mkdir(parents=True, exist_ok=True)
+    else:
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if root.is_symlink():
+        raise SystemExit(f"benchmark storage must not be a symlink: {root}")
+    if os.name != "nt":
+        if root.stat().st_uid != os.getuid():
+            raise SystemExit(f"benchmark storage is owned by another user: {root}")
+        root.chmod(0o700)
+
+
+def lock_file(f: BinaryIO) -> None:
+    if os.name == "nt":
+        f.seek(0, os.SEEK_END)
+        if f.tell() == 0:
+            f.write(b"\0")
+            f.flush()
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)
+    else:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+
+
+def unlock_file(f: BinaryIO) -> None:
+    if os.name == "nt":
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+    else:
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+def remove_stale_runs(root: Path) -> None:
+    for stale in root.glob("run-*"):
+        if stale.is_symlink() or stale.is_file():
+            stale.unlink(missing_ok=True)
+        elif stale.is_dir():
+            shutil.rmtree(stale)
 
 
 def require_free_space(path: Path, needed: int) -> None:
@@ -530,25 +586,27 @@ def payload_budget(size: int, buffer: int, wanted: tuple[str, ...]) -> int:
 
 
 @contextmanager
-def temporary_run_dir(needed: int) -> Iterator[Path]:
-    """Payloads, framed UDP, and sinks. Removed on return, Ctrl+C, and SIGTERM."""
-    parent = None
-    shm = shm_dir()
-    if shm is not None and shutil.disk_usage(shm).free >= needed:
-        parent = str(shm)
-    kwargs: dict[str, Any] = {"prefix": "socat-bench-"}
-    if parent:
-        kwargs["dir"] = parent
-    try:
-        tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True, **kwargs)
-    except TypeError:
-        tmp = tempfile.TemporaryDirectory(**kwargs)
-    try:
-        run_dir = Path(tmp.name)
-        require_free_space(run_dir, needed)
-        yield run_dir
-    finally:
-        tmp.cleanup()
+def run_session(workdir: Path, needed: int) -> Iterator[Path]:
+    """Locked per-user root; scratch files live in a fresh run-* directory."""
+    root = benchmark_storage_root(workdir)
+    prepare_storage_root(root)
+    with (root / ".lock").open("a+b") as lock:
+        lock_file(lock)
+        tmp: tempfile.TemporaryDirectory[str] | None = None
+        try:
+            remove_stale_runs(root)
+            kwargs: dict[str, Any] = {"prefix": "run-", "dir": str(root)}
+            try:
+                tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True, **kwargs)
+            except TypeError:
+                tmp = tempfile.TemporaryDirectory(**kwargs)
+            run_dir = Path(tmp.name)
+            require_free_space(run_dir, needed)
+            yield run_dir
+        finally:
+            if tmp is not None:
+                tmp.cleanup()
+            unlock_file(lock)
 
 
 def datagram_frame_count(size: int, buffer: int) -> int:
@@ -973,7 +1031,6 @@ def run_datagram_once(
     size: int,
     buffer: int,
     certs: dict[str, Path],
-    workdir: Path,
     run_dir: Path,
     tag: str,
 ) -> dict[str, Any]:
@@ -985,8 +1042,8 @@ def run_datagram_once(
     sink = run_dir / f"sink.{tag}"
     sink.unlink(missing_ok=True)
     listen, connect = stream_addrs(case, port, sock, certs)
-    slog = workdir / "logs" / f"{tag}.server.log"
-    clog = workdir / "logs" / f"{tag}.client.log"
+    slog = run_dir / "logs" / f"{tag}.server.log"
+    clog = run_dir / "logs" / f"{tag}.client.log"
     server = start_socat(bin_path, ["-u", listen, f"OPEN:{sink},creat,trunc,wronly"], slog)
     sampler: RSSSampler | None = None
     label = "UDP"
@@ -1059,7 +1116,6 @@ def run_stream_once(
     payload: Path,
     size: int,
     certs: dict[str, Path],
-    workdir: Path,
     run_dir: Path,
     tag: str,
 ) -> dict[str, Any]:
@@ -1070,8 +1126,8 @@ def run_stream_once(
     if sock.exists():
         sock.unlink()
     listen, connect = stream_addrs(case, port, sock, certs, impl=impl)
-    slog = workdir / "logs" / f"{tag}.server.log"
-    clog = workdir / "logs" / f"{tag}.client.log"
+    slog = run_dir / "logs" / f"{tag}.server.log"
+    clog = run_dir / "logs" / f"{tag}.client.log"
     server = start_socat(bin_path, ["-u", listen, f"OPEN:{sink},creat,trunc,wronly"], slog)
     try:
         listen_wait(case, port, sock)
@@ -1170,7 +1226,7 @@ def run_client_once(
     bin_path: str,
     case: str,
     certs: dict[str, Path],
-    workdir: Path,
+    run_dir: Path,
     benchclient: Path,
     tag: str,
     mode: str,
@@ -1181,7 +1237,7 @@ def run_client_once(
     port = free_tcp_port()
     fork = mode == "hs"
     listen = echo_listen(case, port, certs, fork=fork, impl=impl)
-    slog = workdir / "logs" / f"{tag}.server.log"
+    slog = run_dir / "logs" / f"{tag}.server.log"
     server = start_socat(bin_path, [listen, "PIPE"], slog)
     try:
         if proto_of(case) == "quic":
@@ -1439,6 +1495,12 @@ def write_summary(doc: dict[str, Any], path: Path) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def publish_results(doc: dict[str, Any], dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    write_summary(doc, dest.with_suffix(".summary.txt"))
+
+
 def _exit_on_sigterm(signum: int, _frame: object) -> None:
     raise SystemExit(128 + signum)
 
@@ -1448,20 +1510,19 @@ def main() -> int:
     if os.name != "nt":
         signal.signal(signal.SIGTERM, _exit_on_sigterm)
     workdir = Path(os.environ.get("SOCAT_BENCH_WORKDIR", str(ROOT / "testdata/tmp/bench")))
-    remove_legacy_cache(workdir)
-    setup_benchmark(workdir)
     size = parse_size(os.environ.get("SOCAT_BENCH_SIZE", "256M"))
     buffer = int(os.environ.get("SOCAT_BENCH_BUFFER", "8192"))
     probe_only = os.environ.get("SOCAT_BENCH_PROBE_ONLY", "") == "1"
     wanted = tuple(sys.argv[1:] or (() if probe_only else DEFAULT_CASES))
     needed = 0 if probe_only else payload_budget(size, buffer, wanted)
-    with temporary_run_dir(needed) as run_dir:
-        return run_benchmark(workdir, run_dir, size, buffer, wanted, probe_only)
+    with run_session(workdir, needed) as run_dir:
+        setup_benchmark(run_dir)
+        return run_benchmark(run_dir, workdir, size, buffer, wanted, probe_only)
 
 
 def run_benchmark(
-    workdir: Path,
     run_dir: Path,
+    workdir: Path,
     size: int,
     buffer: int,
     wanted: tuple[str, ...],
@@ -1471,7 +1532,7 @@ def run_benchmark(
     warmup = int(os.environ.get("SOCAT_BENCH_WARMUP", "1"))
     socat = os.environ.get("SOCAT_BIN", str(ROOT / "socat"))
     classic = os.environ.get("SOCAT_CLASSIC_BIN", "").strip()
-    benchclient = Path(os.environ.get("SOCAT_BENCH_CLIENT_BIN", str(workdir / "benchclient")))
+    benchclient = Path(os.environ.get("SOCAT_BENCH_CLIENT_BIN", str(run_dir / "benchclient")))
     certs = {
         "ca": Path(os.environ["SOCAT_BENCH_CA"]),
         "crt": Path(os.environ["SOCAT_BENCH_CERT"]),
@@ -1487,7 +1548,7 @@ def run_benchmark(
             go_bin=socat,
             classic_bin=classic or None,
             certs=certs,
-            workdir=workdir,
+            run_dir=run_dir,
             benchclient=benchclient,
         )
         print(json.dumps(tls, indent=2), flush=True)
@@ -1495,8 +1556,7 @@ def run_benchmark(
         if save and Path(save).is_file():
             doc = json.loads(Path(save).read_text(encoding="utf-8"))
             doc.setdefault("meta", {})["tls"] = tls
-            Path(save).write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
-            write_summary(doc, Path(save).with_suffix(".summary.txt"))
+            publish_results(doc, Path(save))
             print(f"updated tls probe in {save}", flush=True)
         return 0 if all(v.get("ok") for v in tls.values() if isinstance(v, dict)) else 1
 
@@ -1520,7 +1580,7 @@ def run_benchmark(
         go_bin=socat,
         classic_bin=classic or None,
         certs=certs,
-        workdir=workdir,
+        run_dir=run_dir,
         benchclient=benchclient,
     )
 
@@ -1568,7 +1628,6 @@ def run_benchmark(
                             payload=payload,
                             size=size,
                             certs=certs,
-                            workdir=workdir,
                             run_dir=run_dir,
                             tag=f"{case}.{impl}.warmup{i}",
                         )
@@ -1581,7 +1640,6 @@ def run_benchmark(
                                 payload=payload,
                                 size=size,
                                 certs=certs,
-                                workdir=workdir,
                                 run_dir=run_dir,
                                 tag=f"{case}.{impl}.{i}",
                             )
@@ -1598,7 +1656,6 @@ def run_benchmark(
                             size=size,
                             buffer=buffer,
                             certs=certs,
-                            workdir=workdir,
                             run_dir=run_dir,
                             tag=f"{case}.{impl}.warmup{i}",
                         )
@@ -1611,7 +1668,6 @@ def run_benchmark(
                                 size=size,
                                 buffer=buffer,
                                 certs=certs,
-                                workdir=workdir,
                                 run_dir=run_dir,
                                 tag=f"{case}.{impl}.{i}",
                             )
@@ -1624,7 +1680,7 @@ def run_benchmark(
                             bin_path=bin_path,
                             case=case,
                             certs=certs,
-                            workdir=workdir,
+                            run_dir=run_dir,
                             benchclient=benchclient,
                             tag=f"{case}.{impl}.warmup{i}",
                             mode="rr",
@@ -1639,7 +1695,7 @@ def run_benchmark(
                                 bin_path=bin_path,
                                 case=case,
                                 certs=certs,
-                                workdir=workdir,
+                                run_dir=run_dir,
                                 benchclient=benchclient,
                                 tag=f"{case}.{impl}.{i}",
                                 mode="rr",
@@ -1656,7 +1712,7 @@ def run_benchmark(
                             bin_path=bin_path,
                             case=case,
                             certs=certs,
-                            workdir=workdir,
+                            run_dir=run_dir,
                             benchclient=benchclient,
                             tag=f"{case}.{impl}.warmup{i}",
                             mode="hs",
@@ -1671,7 +1727,7 @@ def run_benchmark(
                                 bin_path=bin_path,
                                 case=case,
                                 certs=certs,
-                                workdir=workdir,
+                                run_dir=run_dir,
                                 benchclient=benchclient,
                                 tag=f"{case}.{impl}.{i}",
                                 mode="hs",
@@ -1718,20 +1774,19 @@ def run_benchmark(
             else:
                 print(f"       {row.get('status')} {row.get('detail', '')}", flush=True)
 
+    scratch = run_dir / "results.json"
+    publish_results(doc, scratch)
     out_json = Path(os.environ.get("SOCAT_BENCH_OUT", str(workdir / "results.json")))
-    out_json.parent.mkdir(parents=True, exist_ok=True)
-    out_json.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
-    summary_path = out_json.with_suffix(".summary.txt")
-    write_summary(doc, summary_path)
+    if out_json.resolve() != scratch.resolve():
+        publish_results(doc, out_json)
     save = os.environ.get("SOCAT_BENCH_SAVE_BASELINE", "").strip()
     if save:
         dest = Path(save)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
-        write_summary(doc, dest.with_suffix(".summary.txt"))
+        if dest.resolve() != scratch.resolve() and dest.resolve() != out_json.resolve():
+            publish_results(doc, dest)
         print(f"saved baseline {dest}", flush=True)
     print(f"wrote {out_json}", flush=True)
-    print(f"wrote {summary_path}", flush=True)
+    print(f"wrote {out_json.with_suffix('.summary.txt')}", flush=True)
 
     failed = [c for c in doc["cases"] if c.get("status") == "fail"]
     return 1 if failed else 0
