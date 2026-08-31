@@ -112,6 +112,17 @@ func TestLookupResolverPreferGoWithNetNS(t *testing.T) {
 	if r == nil || !r.PreferGo {
 		t.Fatal("netns= must use PreferGo so DNS stays on the locked thread")
 	}
+	if r.Dial == nil {
+		t.Fatal("netns= must Dial so in-flight DNS reads close on cancel")
+	}
+}
+
+func TestLookupResolverLeavesDefaultResolverUnwrapped(t *testing.T) {
+	before := net.DefaultResolver
+	r := LookupResolver(parse.Spec{})
+	if r != before {
+		t.Fatal("empty spec must keep the process-global resolver")
+	}
 }
 
 func TestWrapNetNSDialNoOption(t *testing.T) {

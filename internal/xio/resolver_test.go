@@ -592,30 +592,95 @@ func TestPeerFilterRangeLookupCanceled(t *testing.T) {
 }
 
 func TestReverseHostLookupCanceled(t *testing.T) {
-	server, err := startFakeDNS(t, "127.0.0.1", false, true)
+	tests := []struct {
+		name  string
+		extra []parse.Option
+	}{
+		{name: "res-nsaddr"},
+		{name: "res-usevc", extra: []parse.Option{{Name: "res-usevc"}}},
+		{name: "res-usevc=0", extra: []parse.Option{{Name: "res-usevc", Value: "0", Has: true}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			server, err := startFakeDNS(t, "127.0.0.1", false, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			s := resNSAddrSpec(server.addr)
+			s.Options = append(s.Options, tc.extra...)
+			ctx, cancel := context.WithCancel(context.Background())
+			result := make(chan error, 1)
+			go func() {
+				_, err := reverseHost(ctx, s, "192.0.2.55")
+				result <- err
+			}()
+			select {
+			case <-server.queried:
+				cancel()
+			case <-time.After(time.Second):
+				cancel()
+				t.Fatal("reverseHost did not query selected nameserver")
+			}
+			select {
+			case err := <-result:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("reverseHost error=%v want context.Canceled", err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatal("reverseHost ignored context cancellation")
+			}
+		})
+	}
+}
+
+func TestLookupResolverWrapsCustomDialOnce(t *testing.T) {
+	server, err := startFakeDNS(t, "127.0.0.1", false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	result := make(chan error, 1)
-	go func() {
-		_, err := reverseHost(ctx, resNSAddrSpec(server.addr), "192.0.2.55")
-		result <- err
-	}()
-	select {
-	case <-server.queried:
-		cancel()
-	case <-time.After(time.Second):
-		cancel()
-		t.Fatal("reverseHost did not query selected nameserver")
+	tests := []struct {
+		name    string
+		extra   []parse.Option
+		network string
+		packet  bool
+	}{
+		{name: "res-nsaddr", network: "udp4", packet: true},
+		{name: "res-usevc", extra: []parse.Option{{Name: "res-usevc"}}, network: "udp4", packet: false},
+		{name: "res-usevc=0", extra: []parse.Option{{Name: "res-usevc", Value: "0", Has: true}}, network: "udp4", packet: true},
 	}
-	select {
-	case err := <-result:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("reverseHost error=%v want context.Canceled", err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("reverseHost ignored context cancellation")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s := resNSAddrSpec(server.addr)
+			s.Options = append(s.Options, tc.extra...)
+			c, err := LookupResolver(s).Dial(t.Context(), tc.network, server.addr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = c.Close() })
+			if tc.packet {
+				pc, ok := c.(*cancelPacketConn)
+				if !ok {
+					t.Fatalf("type %T want *cancelPacketConn", c)
+				}
+				if _, ok := pc.Conn.(*cancelConn); ok {
+					t.Fatal("wrapped more than once")
+				}
+				if _, ok := pc.Conn.(*cancelPacketConn); ok {
+					t.Fatal("wrapped more than once")
+				}
+				return
+			}
+			cc, ok := c.(*cancelConn)
+			if !ok {
+				t.Fatalf("type %T want *cancelConn", c)
+			}
+			if _, ok := cc.Conn.(*cancelConn); ok {
+				t.Fatal("wrapped more than once")
+			}
+			if _, ok := c.(net.PacketConn); ok {
+				t.Fatalf("TCP DNS conn %T is PacketConn", c)
+			}
+		})
 	}
 }
 

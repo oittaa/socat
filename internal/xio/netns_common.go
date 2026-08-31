@@ -29,20 +29,19 @@ func warnNetNSExperimental(g *Global) {
 	}
 }
 
-// LookupResolver returns the resolver scoped to one address. With netns= it
-// uses Go DNS so sockets are created after LockOSThread+setns.
-//
-// Security-related difference: a per-address resolver, never mutating
-// net.DefaultResolver or libc _res. Remaining libc res-* flags (debug,
-// search, retry, retrans, …) are rejected rather than applied globally;
-// res-usevc is implemented here via Resolver.Dial (`=0` restores
-// UDP-then-TCP, including when resolv.conf has use-vc).
+// LookupResolver returns the resolver scoped to one address. It never
+// mutates net.DefaultResolver or libc _res. Remaining libc res-* flags
+// (debug, search, retry, retrans, …) are rejected rather than applied
+// globally. Construction is: select the base (system default, res-nsaddr,
+// or PreferGo for netns), apply res-usevc transport policy, then wrap
+// custom Dial connections once so session cancel unblocks in-flight
+// DNS reads.
 func LookupResolver(s parse.Spec) *net.Resolver {
 	r := lookupResolverBase(s)
-	if !s.HasOption("res-usevc") {
-		return r
+	if s.HasOption("res-usevc") {
+		r = resolverRewriteDNSTransport(r, s.BoolOption("res-usevc"))
 	}
-	return resolverRewriteDNSTransport(r, s.BoolOption("res-usevc"))
+	return wrapDNSDialCloseWhenDone(r)
 }
 
 func lookupResolverBase(s parse.Spec) *net.Resolver {
@@ -70,11 +69,7 @@ func lookupResolverBase(s parse.Spec) *net.Resolver {
 					return nil, fmt.Errorf("res-nsaddr: unsupported DNS transport %q", network)
 				}
 				var d net.Dialer
-				c, err := d.DialContext(ctx, network, nsAddr)
-				if err != nil {
-					return nil, err
-				}
-				return closeConnWhenDone(ctx, c), nil
+				return d.DialContext(ctx, network, nsAddr)
 			},
 		}
 	}
@@ -101,6 +96,31 @@ func WrapNetNSDial(s parse.Spec, g *Global, dial func(context.Context) (net.Conn
 			return e
 		})
 		return c, err
+	}
+}
+
+func wrapDNSDialCloseWhenDone(r *net.Resolver) *net.Resolver {
+	if r == nil || r == net.DefaultResolver {
+		return r
+	}
+	inner := r.Dial
+	return &net.Resolver{
+		PreferGo:     true,
+		StrictErrors: r.StrictErrors,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			var c net.Conn
+			var err error
+			if inner != nil {
+				c, err = inner(ctx, network, address)
+			} else {
+				var d net.Dialer
+				c, err = d.DialContext(ctx, network, address)
+			}
+			if err != nil {
+				return nil, err
+			}
+			return closeConnWhenDone(ctx, c), nil
+		},
 	}
 }
 
