@@ -80,10 +80,10 @@ func parseTCPWrap(s parse.Spec, g *Global) tcpwrapConfig {
 // tcpwrapAllowed returns nil if the peer is allowed, or an error to refuse.
 // Allow table first; then deny; default permit if neither matches.
 func tcpwrapAllowed(cfg tcpwrapConfig, peer net.Addr, local net.Addr) error {
-	return tcpwrapAllowedForSpec(parse.Spec{}, cfg, peer, local)
+	return tcpwrapAllowedForSpec(context.Background(), parse.Spec{}, cfg, peer, local)
 }
 
-func tcpwrapAllowedForSpec(s parse.Spec, cfg tcpwrapConfig, peer net.Addr, local net.Addr) error {
+func tcpwrapAllowedForSpec(ctx context.Context, s parse.Spec, cfg tcpwrapConfig, peer net.Addr, local net.Addr) error {
 	if !cfg.enabled {
 		return nil
 	}
@@ -108,7 +108,10 @@ func tcpwrapAllowedForSpec(s parse.Spec, cfg tcpwrapConfig, peer net.Addr, local
 	// Only reverse-lookup when tables may name hosts.
 	clientHost := ""
 	if clientIP != "" && hostsLinesMayNeedHostname(allowLines, denyLines) {
-		clientHost = reverseHost(s, clientIP)
+		clientHost, err = reverseHost(ctx, s, clientIP)
+		if err != nil {
+			return err
+		}
 		if clientHost != "" && matchHostsLines(allowLines, cfg.daemon, clientIP, clientHost) {
 			return nil
 		}
@@ -138,32 +141,40 @@ func peerIPOnly(peer net.Addr) (ipStr, bare string) {
 // reverseHost returns a verified reverse-DNS name for ipStr, or "".
 // The name is only trusted when it forward-resolves back to the client IP.
 // Without this, systems that map all 127/8 to "localhost" would falsely
-// allow a client that is not localhost.
-func reverseHost(s parse.Spec, ipStr string) string {
+// allow a client that is not localhost. Context cancellation is returned so
+// a shutting-down listener does not treat a canceled lookup as "no name".
+func reverseHost(ctx context.Context, s parse.Spec, ipStr string) (string, error) {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
-		return ""
+		return "", nil
 	}
-	// tcpwrapAllowed has no caller context; preserve its established lifetime
-	// while scoping both reverse and forward verification to this address.
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	resolver := LookupResolver(s)
-	names, err := resolver.LookupAddr(context.Background(), ipStr)
+	names, err := resolver.LookupAddr(ctx, ipStr)
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
 	if err != nil || len(names) == 0 {
-		return ""
+		return "", nil
 	}
 	for _, name := range names {
 		name = strings.TrimSuffix(name, ".")
-		ips, err := resolver.LookupIP(context.Background(), "ip", name)
+		ips, err := resolver.LookupIP(ctx, "ip", name)
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		if err != nil {
 			continue
 		}
 		for _, resolved := range ips {
 			if resolved.Equal(ip) {
-				return name
+				return name, nil
 			}
 		}
 	}
-	return ""
+	return "", nil
 }
 
 func hostsLinesMayNeedHostname(tables ...[]string) bool {

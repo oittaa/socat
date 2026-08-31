@@ -2,6 +2,8 @@ package netopen
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -227,5 +229,19 @@ func testDatagramTCPWrapFilter(t *testing.T, typ string, listen func(*testing.T)
 	writeTo(t, impostor, "wrapped", local)
 	if _, err := readDgram(t, st.Stream, 200*time.Millisecond); err == nil {
 		t.Fatalf("%s tcpwrap deny ALL accepted a packet", typ)
+	}
+}
+
+func TestLogOrStopPeerFilterUsesSessionContext(t *testing.T) {
+	if err := logOrStopPeerFilter(context.Background(), nil, context.DeadlineExceeded); err != nil {
+		t.Fatalf("live session with resolver deadline: %v", err)
+	}
+	if err := logOrStopPeerFilter(context.Background(), nil, context.Canceled); err != nil {
+		t.Fatalf("live session with canceled resolver error: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := logOrStopPeerFilter(ctx, nil, fmt.Errorf("range lookup")); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled session: %v", err)
 	}
 }

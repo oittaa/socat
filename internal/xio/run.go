@@ -211,9 +211,12 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 		}
 		if o.PeerFilter != nil {
 			if ferr := o.PeerFilter(conn); ferr != nil {
-				g.Log.Noticef("%s", ferr)
 				CloseRefusedPeer(conn)
 				slots.release()
+				if ctx.Err() != nil {
+					return nil
+				}
+				g.Log.Noticef("%s", ferr)
 				continue
 			}
 		}

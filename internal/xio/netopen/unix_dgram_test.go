@@ -213,6 +213,32 @@ func TestUnixRecvfromWaitsForDatagramThenEOF(t *testing.T) {
 	}
 }
 
+func TestUnixRecvfromCanceledWhileWaiting(t *testing.T) {
+	path := unixSocketTestPath(t, "recv-cancel.sock")
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec, err := parse.ParseSpec("UNIX-RECVFROM:" + path + ",unlink-early")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	done := make(chan error, 1)
+	go func() {
+		_, err := openUnixRecvfrom(ctx, spec, xio.ModeRDWR, g)
+		done <- err
+	}()
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("openUnixRecvfrom error=%v want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("UNIX-RECVFROM ignored context cancellation")
+	}
+}
+
 func TestUnixRecvfromForkHasWrapDial(t *testing.T) {
 	path := unixSocketTestPath(t, "recv.sock")
 	g := &xio.Global{BlockSize: 8192, Log: logx.New()}

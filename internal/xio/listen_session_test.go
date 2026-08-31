@@ -6,6 +6,7 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
@@ -79,5 +80,49 @@ func TestOpenListenSessionClosesKeptListenerOnWrapError(t *testing.T) {
 	case <-ln.closed:
 	default:
 		t.Fatal("kept listener was not closed after wrap failure")
+	}
+}
+
+func TestOpenListenSessionCancelsPeerFilterLookup(t *testing.T) {
+	server, err := startFakeDNS(t, "127.0.0.1", false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := parseSpecForListenSession(t, "TCP-LISTEN:0,range=cancel-listen.test:255.255.255.255,res-nsaddr="+server.addr)
+	restore := SetListenBoundTestHook(func() {
+		go func() {
+			c, derr := net.Dial("tcp", ln.Addr().String())
+			if derr == nil {
+				_ = c.Close()
+			}
+		}()
+	})
+	t.Cleanup(restore)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	done := make(chan error, 1)
+	go func() {
+		_, openErr := OpenListenSession(ctx, spec, nil, ListenSession{Listener: ln, Label: "TCP-LISTEN"})
+		done <- openErr
+	}()
+	select {
+	case <-server.queried:
+		cancel()
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("peer filter did not query selected nameserver")
+	}
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("OpenListenSession error=%v want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("listen session ignored cancellation during peer-filter DNS")
 	}
 }

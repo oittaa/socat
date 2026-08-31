@@ -983,3 +983,71 @@ func TestUDPListenPastSocketThenPrebind(t *testing.T) {
 		t.Fatalf("SO_BROADCAST values=%v want PASTSOCKET 1 then PREBIND 0", values)
 	}
 }
+
+func TestUDPListenCancelsPeerFilterLookup(t *testing.T) {
+	dns, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = dns.Close() })
+	queried := make(chan struct{}, 1)
+	go func() {
+		buf := make([]byte, 512)
+		for {
+			_, _, readErr := dns.ReadFrom(buf)
+			if readErr != nil {
+				return
+			}
+			select {
+			case queried <- struct{}{}:
+			default:
+			}
+		}
+	}()
+
+	spec, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1,fork,range=cancel-udp.test:255.255.255.255,res-nsaddr=" + dns.LocalAddr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	o, err := openUDP4Listen(ctx, spec, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+
+	result := make(chan error, 1)
+	go func() {
+		conn, acceptErr := o.Listener.Accept()
+		if conn != nil {
+			_ = conn.Close()
+		}
+		result <- acceptErr
+	}()
+
+	client, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	if _, err := client.WriteTo([]byte("x"), o.Listener.Addr()); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-queried:
+		cancel()
+	case <-time.After(2 * time.Second):
+		cancel()
+		t.Fatal("UDP peer filter did not query selected nameserver")
+	}
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Accept error=%v want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("UDP-LISTEN ignored cancellation during peer-filter DNS")
+	}
+}

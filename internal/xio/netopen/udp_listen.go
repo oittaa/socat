@@ -78,7 +78,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			logx.CloseQuiet(pc)
 			return nil, ferr
 		}
-		peerFilter := xio.NewPeerFilter(s, g)
+		peerFilter := xio.NewPeerFilter(ctx, s, g)
 		base := &udpForkListener{
 			pc:      pc,
 			network: network,
@@ -115,7 +115,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	wantCtrl := xio.NeedAncillary(s)
 	var n int
 	var raddr *net.UDPAddr
-	peerFilter := xio.NewPeerFilter(s, g)
+	peerFilter := xio.NewPeerFilter(ctx, s, g)
 	var oobBuffer [xio.AncillaryBufferSize]byte
 	for {
 		rn, oob, a, err := xio.RecvOneCtx(ctx, func() (int, []byte, *net.UDPAddr, error) {
@@ -126,8 +126,9 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			return nil, udpAcceptError(err, timeoutSet)
 		}
 		if ferr := peerFilter.AllowAddr(a, pc.LocalAddr()); ferr != nil {
-			if g != nil && g.Log != nil {
-				g.Log.Noticef("%s", ferr)
+			if stop := logOrStopPeerFilter(ctx, g, ferr); stop != nil {
+				logx.CloseQuiet(pc)
+				return nil, udpAcceptError(stop, timeoutSet)
 			}
 			continue
 		}
@@ -322,8 +323,8 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			return nil, err
 		}
 		if err := l.peerAllowed(a); err != nil {
-			if l.g != nil && l.g.Log != nil {
-				l.g.Log.Noticef("%s", err)
+			if stop := logOrStopPeerFilter(l.ctx, l.g, err); stop != nil {
+				return nil, stop
 			}
 			// Restart the listen accept-timeout after a refused peer.
 			if l.acceptTimeout > 0 {
@@ -373,7 +374,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 
 func (l *udpForkListener) peerAllowed(addr *net.UDPAddr) error {
 	if l.filter == nil {
-		l.filter = xio.NewPeerFilter(l.spec, l.g)
+		l.filter = xio.NewPeerFilter(l.ctx, l.spec, l.g)
 	}
 	return l.filter.AllowAddr(addr, l.pc.LocalAddr())
 }

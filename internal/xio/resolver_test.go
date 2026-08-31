@@ -88,7 +88,7 @@ func (s *fakeDNSServer) serveUDP() {
 			return
 		}
 		s.noteQuery(&s.udpQueries)
-		if s.drop {
+		if s.dropping() {
 			continue
 		}
 		response, err := makeDNSResponse(buf[:n], s.records(), s.ptrName, s.truncateUDP)
@@ -120,7 +120,7 @@ func (s *fakeDNSServer) serveTCPConn(conn net.Conn) {
 		return
 	}
 	s.noteQuery(&s.tcpQueries)
-	if s.drop {
+	if s.dropping() {
 		return
 	}
 	response, err := makeDNSResponse(query, s.records(), s.ptrName, false)
@@ -129,6 +129,12 @@ func (s *fakeDNSServer) serveTCPConn(conn net.Conn) {
 	}
 	binary.BigEndian.PutUint16(size[:], uint16(len(response)))
 	_, _ = conn.Write(append(size[:], response...))
+}
+
+func (s *fakeDNSServer) dropping() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.drop
 }
 
 func (s *fakeDNSServer) setAnswers(ips []net.IP) {
@@ -506,6 +512,7 @@ func TestPeerRangeHostnameUsesResNSAddr(t *testing.T) {
 		t.Fatal(err)
 	}
 	ok, err := ipInRangeWithResolver(
+		t.Context(),
 		net.IPv4(127, 0, 0, 1),
 		"range-res-nsaddr.test:255.255.255.255",
 		LookupResolver(resNSAddrSpec(server.addr)),
@@ -532,7 +539,7 @@ func TestPeerFilterResolvesRangeOnce(t *testing.T) {
 		Value: "range-res-nsaddr.test:255.255.255.255",
 		Has:   true,
 	})
-	filter := NewPeerFilter(s, nil)
+	filter := NewPeerFilter(t.Context(), s, nil)
 	peer := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1234}
 	if err := filter.AllowAddr(peer, nil); err != nil {
 		t.Fatal(err)
@@ -549,13 +556,65 @@ func TestPeerFilterResolvesRangeOnce(t *testing.T) {
 	}
 }
 
+func TestPeerFilterRangeLookupCanceled(t *testing.T) {
+	server, err := startFakeDNS(t, "127.0.0.1", false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := resNSAddrSpec(server.addr)
+	s.Options = append(s.Options, parse.Option{
+		Name:  "range",
+		Value: "cancel-range.test:255.255.255.255",
+		Has:   true,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	filter := NewPeerFilter(ctx, s, nil)
+	peer := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1234}
+	result := make(chan error, 1)
+	go func() {
+		result <- filter.AllowAddr(peer, nil)
+	}()
+	select {
+	case <-server.queried:
+		cancel()
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("range hostname did not query selected nameserver")
+	}
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("AllowAddr error=%v want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("peer filter ignored context cancellation")
+	}
+}
+
+func TestReverseHostLookupCanceled(t *testing.T) {
+	server, err := startFakeDNS(t, "127.0.0.1", false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = reverseHost(ctx, resNSAddrSpec(server.addr), "192.0.2.55")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("reverseHost error=%v want context.Canceled", err)
+	}
+}
+
 func TestTCPWrapReverseVerificationUsesResNSAddr(t *testing.T) {
 	const ptrName = "peer-res-nsaddr.test"
 	server, err := startFakeDNSWithAnswer(t, "127.0.0.1", net.IPv4(192, 0, 2, 55), ptrName, false, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := reverseHost(resNSAddrSpec(server.addr), "192.0.2.55"); got != ptrName {
+	got, err := reverseHost(t.Context(), resNSAddrSpec(server.addr), "192.0.2.55")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != ptrName {
 		t.Fatalf("reverseHost=%q want %q", got, ptrName)
 	}
 	if server.udpQueries.Load() < 2 {
