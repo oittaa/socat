@@ -90,6 +90,18 @@ func TestNetNSName(t *testing.T) {
 	}
 }
 
+func TestCloseConnWhenDonePreservesPacketConn(t *testing.T) {
+	c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	got := closeConnWhenDone(context.Background(), c)
+	if _, ok := got.(net.PacketConn); !ok {
+		t.Fatalf("%T is not net.PacketConn; Go DNS would use TCP framing on UDP", got)
+	}
+}
+
 func TestLookupResolverPreferGoWithNetNS(t *testing.T) {
 	plain := LookupResolver(parse.Spec{})
 	if plain.PreferGo {

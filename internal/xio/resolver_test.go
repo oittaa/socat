@@ -597,10 +597,25 @@ func TestReverseHostLookupCanceled(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err = reverseHost(ctx, resNSAddrSpec(server.addr), "192.0.2.55")
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("reverseHost error=%v want context.Canceled", err)
+	result := make(chan error, 1)
+	go func() {
+		_, err := reverseHost(ctx, resNSAddrSpec(server.addr), "192.0.2.55")
+		result <- err
+	}()
+	select {
+	case <-server.queried:
+		cancel()
+	case <-time.After(time.Second):
+		cancel()
+		t.Fatal("reverseHost did not query selected nameserver")
+	}
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("reverseHost error=%v want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("reverseHost ignored context cancellation")
 	}
 }
 

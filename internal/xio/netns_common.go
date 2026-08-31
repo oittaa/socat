@@ -70,7 +70,11 @@ func lookupResolverBase(s parse.Spec) *net.Resolver {
 					return nil, fmt.Errorf("res-nsaddr: unsupported DNS transport %q", network)
 				}
 				var d net.Dialer
-				return d.DialContext(ctx, network, nsAddr)
+				c, err := d.DialContext(ctx, network, nsAddr)
+				if err != nil {
+					return nil, err
+				}
+				return closeConnWhenDone(ctx, c), nil
 			},
 		}
 	}
@@ -99,3 +103,43 @@ func WrapNetNSDial(s parse.Spec, g *Global, dial func(context.Context) (net.Conn
 		return c, err
 	}
 }
+
+// closeConnWhenDone closes c when ctx is done so a blocking DNS Read returns.
+// LookupAddr does not watch ctx.Done() after Dial; LookupIP does.
+func closeConnWhenDone(ctx context.Context, c net.Conn) net.Conn {
+	stop := context.AfterFunc(ctx, func() { _ = c.Close() })
+	cc := &cancelConn{Conn: c, stop: stop}
+	if _, ok := c.(net.PacketConn); ok {
+		return &cancelPacketConn{cancelConn: cc}
+	}
+	return cc
+}
+
+type cancelConn struct {
+	net.Conn
+	stop func() bool
+}
+
+func (c *cancelConn) Close() error {
+	c.stop()
+	return c.Conn.Close()
+}
+
+// cancelPacketConn keeps the PacketConn type so Go DNS uses UDP framing.
+type cancelPacketConn struct {
+	*cancelConn
+}
+
+func (c *cancelPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
+	return c.Conn.(net.PacketConn).ReadFrom(p)
+}
+
+func (c *cancelPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
+	return c.Conn.(net.PacketConn).WriteTo(p, addr)
+}
+
+var (
+	_ net.Conn       = (*cancelConn)(nil)
+	_ net.Conn       = (*cancelPacketConn)(nil)
+	_ net.PacketConn = (*cancelPacketConn)(nil)
+)
