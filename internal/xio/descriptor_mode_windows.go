@@ -19,9 +19,9 @@ func descriptorTextModes(s parse.Spec) (binary, text bool) {
 	for _, o := range s.Options {
 		switch parse.CanonicalOptionName(o.Name) {
 		case "binary":
-			binary = optionEnabled(o)
+			binary = o.Active()
 		case "text":
-			text = optionEnabled(o)
+			text = o.Active()
 		}
 	}
 	return binary, text

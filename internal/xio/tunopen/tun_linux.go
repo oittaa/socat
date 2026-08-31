@@ -65,8 +65,8 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("unknown tun-type %q", tunType)
 	}
-	if s.HasOption("iff-no-pi") || s.HasOption("no-pi") {
-		if s.BoolOption("iff-no-pi") || s.BoolOption("no-pi") {
+	if s.HasOption("iff-no-pi") {
+		if s.BoolOption("iff-no-pi") {
 			flags |= unix.IFF_NO_PI
 		}
 	}
@@ -255,7 +255,7 @@ func setTunIPv4(sock int, ifname, spec string) error {
 	return nil
 }
 
-// applyInterfaceOpts applies iff-* flags and if-mtu / interface-mtu.
+// applyInterfaceOpts applies iff-* flags and if-mtu.
 func applyInterfaceOpts(sock int, ifname string, s parse.Spec) error {
 	ifr, err := unix.NewIfreq(ifname)
 	if err != nil {
@@ -273,7 +273,7 @@ func applyInterfaceOpts(sock int, ifname string, s parse.Spec) error {
 		return fmt.Errorf("ioctl(SIOCSIFFLAGS, %s): %w", ifname, err)
 	}
 
-	mtuStr := xio.FirstNonEmpty(s.OptionValue("if-mtu", ""), s.OptionValue("interface-mtu", ""))
+	mtuStr := s.OptionValue("if-mtu", "")
 	if mtuStr != "" {
 		mtu, err := strconv.ParseUint(mtuStr, 0, 32)
 		if err != nil || mtu == 0 {
@@ -295,37 +295,34 @@ func applyInterfaceOpts(sock int, ifname string, s parse.Spec) error {
 // Bare flag or =1 sets the bit; =0 clears it.
 func parseIffOpts(s parse.Spec) (set, clear uint16) {
 	type iffOpt struct {
-		names []string
-		bit   uint16
+		name string
+		bit  uint16
 	}
 	opts := []iffOpt{
-		{[]string{"iff-up", "up"}, unix.IFF_UP},
-		{[]string{"iff-broadcast"}, unix.IFF_BROADCAST},
-		{[]string{"iff-debug"}, unix.IFF_DEBUG},
-		{[]string{"iff-loopback", "loopback"}, unix.IFF_LOOPBACK},
-		{[]string{"iff-pointopoint", "pointopoint"}, unix.IFF_POINTOPOINT},
-		{[]string{"iff-running", "running"}, unix.IFF_RUNNING},
-		{[]string{"iff-noarp", "noarp"}, unix.IFF_NOARP},
-		{[]string{"iff-promisc", "promisc"}, unix.IFF_PROMISC},
-		{[]string{"iff-allmulti", "allmulti"}, unix.IFF_ALLMULTI},
-		{[]string{"iff-multicast", "multicast"}, unix.IFF_MULTICAST},
-		{[]string{"iff-notrailers", "notrailers"}, unix.IFF_NOTRAILERS},
-		{[]string{"iff-master", "master"}, unix.IFF_MASTER},
-		{[]string{"iff-slave", "slave"}, unix.IFF_SLAVE},
-		{[]string{"iff-portsel", "portsel"}, unix.IFF_PORTSEL},
-		{[]string{"iff-automedia", "automedia"}, unix.IFF_AUTOMEDIA},
+		{"iff-up", unix.IFF_UP},
+		{"iff-broadcast", unix.IFF_BROADCAST},
+		{"iff-debug", unix.IFF_DEBUG},
+		{"iff-loopback", unix.IFF_LOOPBACK},
+		{"iff-pointopoint", unix.IFF_POINTOPOINT},
+		{"iff-running", unix.IFF_RUNNING},
+		{"iff-noarp", unix.IFF_NOARP},
+		{"iff-promisc", unix.IFF_PROMISC},
+		{"iff-allmulti", unix.IFF_ALLMULTI},
+		{"iff-multicast", unix.IFF_MULTICAST},
+		{"iff-notrailers", unix.IFF_NOTRAILERS},
+		{"iff-master", unix.IFF_MASTER},
+		{"iff-slave", unix.IFF_SLAVE},
+		{"iff-portsel", unix.IFF_PORTSEL},
+		{"iff-automedia", unix.IFF_AUTOMEDIA},
 	}
 	for _, o := range opts {
-		for _, n := range o.names {
-			if !s.HasOption(n) {
-				continue
-			}
-			if s.BoolOption(n) {
-				set |= o.bit
-			} else {
-				clear |= o.bit
-			}
-			break
+		if !s.HasOption(o.name) {
+			continue
+		}
+		if s.BoolOption(o.name) {
+			set |= o.bit
+		} else {
+			clear |= o.bit
 		}
 	}
 	return set, clear

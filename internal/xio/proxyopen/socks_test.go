@@ -256,6 +256,35 @@ func TestSOCKS5CredentialsClassicFallback(t *testing.T) {
 	}
 }
 
+func TestSOCKS5CredentialsPasswordAliasLastWins(t *testing.T) {
+	s, err := parse.ParseSpec("SOCKS5:127.0.0.1:127.0.0.1:80,sockspassword=p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, pass, offer := socks5Credentials(s)
+	if user != "anonymous" || pass != "p" || !offer {
+		t.Fatalf("alias only: user=%q pass=%q offer=%v want anonymous/p/true", user, pass, offer)
+	}
+
+	s, err = parse.ParseSpec("SOCKS5:127.0.0.1:127.0.0.1:80,sockspass=first,sockspassword=second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, pass, offer = socks5Credentials(s)
+	if pass != "second" || !offer {
+		t.Fatalf("last alias=%q offer=%v want second/true", pass, offer)
+	}
+
+	s, err = parse.ParseSpec("SOCKS5:127.0.0.1:127.0.0.1:80,socksuser=u,sockspass=secret,sockspassword=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	user, pass, offer = socks5Credentials(s)
+	if user != "u" || pass != "" || !offer {
+		t.Fatalf("empty last alias: user=%q pass=%q offer=%v want u/empty/true", user, pass, offer)
+	}
+}
+
 func TestSOCKS5ConnectWithCredentialsOffersClassicHello(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

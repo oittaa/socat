@@ -146,6 +146,77 @@ func TestApplyKeepAliveExplicitDisableWins(t *testing.T) {
 	}
 }
 
+func TestApplyTCPConnOptsAliasZeroWins(t *testing.T) {
+	tc := tcpPairForKeepalive(t)
+	spec, err := parse.ParseSpec("TCP4:127.0.0.1:1,keepalive,so-keepalive=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyTCPConnOpts(spec, tc); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := tc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var keepalive int
+	var gerr error
+	_ = raw.Control(func(fd uintptr) {
+		keepalive, gerr = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_KEEPALIVE)
+	})
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	if keepalive != 0 {
+		t.Fatalf("SO_KEEPALIVE=%d want 0 after so-keepalive=0", keepalive)
+	}
+
+	spec, err = parse.ParseSpec("TCP4:127.0.0.1:1,nodelay,tcp-nodelay=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tc = tcpPairForKeepalive(t)
+	if err := ApplyTCPConnOpts(spec, tc); err != nil {
+		t.Fatal(err)
+	}
+	raw, err = tc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nodelay int
+	_ = raw.Control(func(fd uintptr) {
+		nodelay, gerr = unix.GetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_NODELAY)
+	})
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	if nodelay != 0 {
+		t.Fatalf("TCP_NODELAY=%d want 0 after tcp-nodelay=0", nodelay)
+	}
+
+	spec, err = parse.ParseSpec("TCP4:127.0.0.1:1,tcp-nodelay=0,nodelay")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tc = tcpPairForKeepalive(t)
+	if err := ApplyTCPConnOpts(spec, tc); err != nil {
+		t.Fatal(err)
+	}
+	raw, err = tc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = raw.Control(func(fd uintptr) {
+		nodelay, gerr = unix.GetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_NODELAY)
+	})
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	if nodelay == 0 {
+		t.Fatal("TCP_NODELAY still 0 after later nodelay")
+	}
+}
+
 func TestDialControlIPv6TTL(t *testing.T) {
 	ln, err := net.ListenTCP("tcp6", &net.TCPAddr{IP: net.IPv6loopback})
 	if err != nil {

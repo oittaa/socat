@@ -173,7 +173,7 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 		if !s.HasOption("socksuser") {
 			g.Log.Warningf("SOCKS5 password without username, falling back to \"anonymous\"")
 		}
-		if !s.HasOption("sockspass") && !s.HasOption("sockspassword") {
+		if !s.HasOption("sockspass") {
 			g.Log.Warningf("SOCKS5 username without password")
 		}
 	}
@@ -272,7 +272,7 @@ func socksParams(s parse.Spec) (socksHost, socksPort, targetHost, targetPort str
 // socksuser without sockspass uses an empty password.
 func socks5Credentials(s parse.Spec) (user, pass string, offerUserPass bool) {
 	hasUser := s.HasOption("socksuser")
-	hasPass := s.HasOption("sockspass") || s.HasOption("sockspassword")
+	hasPass := s.HasOption("sockspass")
 	if !hasUser && !hasPass {
 		return "", "", false
 	}
@@ -283,9 +283,6 @@ func socks5Credentials(s parse.Spec) (user, pass string, offerUserPass bool) {
 	}
 	if hasPass {
 		pass = s.OptionValue("sockspass", "")
-		if pass == "" {
-			pass = s.OptionValue("sockspassword", "")
-		}
 	}
 	return user, pass, true
 }

@@ -27,30 +27,18 @@ type tcpwrapConfig struct {
 func parseTCPWrap(s parse.Spec, g *Global) tcpwrapConfig {
 	cfg := tcpwrapConfig{}
 	// Explicit table paths
-	if s.HasOption("hosts-allow") || s.HasOption("allow-table") || s.HasOption("tcpwrap-hosts-allow-table") {
+	if s.HasOption("hosts-allow") {
 		cfg.enabled = true
 		cfg.allowRequired = true
-		cfg.allow = FirstNonEmpty(
-			s.OptionValue("hosts-allow", ""),
-			s.OptionValue("allow-table", ""),
-			s.OptionValue("tcpwrap-hosts-allow-table", ""),
-		)
+		cfg.allow = s.OptionValue("hosts-allow", "")
 	}
-	if s.HasOption("hosts-deny") || s.HasOption("deny-table") || s.HasOption("tcpwrap-hosts-deny-table") {
+	if s.HasOption("hosts-deny") {
 		cfg.enabled = true
 		cfg.denyRequired = true
-		cfg.deny = FirstNonEmpty(
-			s.OptionValue("hosts-deny", ""),
-			s.OptionValue("deny-table", ""),
-			s.OptionValue("tcpwrap-hosts-deny-table", ""),
-		)
+		cfg.deny = s.OptionValue("hosts-deny", "")
 	}
 	// Directory containing hosts.allow / hosts.deny
-	etc := FirstNonEmpty(
-		s.OptionValue("tcpwrap-etc", ""),
-		s.OptionValue("tcpwrap-dir", ""),
-	)
-	if etc != "" {
+	if etc := s.OptionValue("tcpwrap-etc", ""); etc != "" {
 		cfg.enabled = true
 		if cfg.allow == "" {
 			cfg.allow = filepath.Join(etc, "hosts.allow")
@@ -63,13 +51,10 @@ func parseTCPWrap(s parse.Spec, g *Global) tcpwrapConfig {
 	}
 	// Bare tcpwrap / libwrap / wrap / tcpwrappers enables with default tables
 	// and optional daemon name as the option value.
-	for _, name := range []string{"tcpwrap", "tcpwrappers", "tcpwrapper", "libwrap", "wrap"} {
-		if s.HasOption(name) {
-			cfg.enabled = true
-			if v := s.OptionValue(name, ""); v != "" && v != "1" {
-				cfg.daemon = v
-			}
-			break
+	if s.HasOption("tcpwrap") {
+		cfg.enabled = true
+		if v := s.OptionValue("tcpwrap", ""); v != "" && v != "1" {
+			cfg.daemon = v
 		}
 	}
 	if !cfg.enabled {
@@ -90,15 +75,6 @@ func parseTCPWrap(s parse.Spec, g *Global) tcpwrapConfig {
 		cfg.deny = "/etc/hosts.deny"
 	}
 	return cfg
-}
-
-func FirstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 // tcpwrapAllowed returns nil if the peer is allowed, or an error to refuse.

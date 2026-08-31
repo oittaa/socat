@@ -2,7 +2,6 @@ package fileopen
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/oittaa/socat/internal/parse"
 )
@@ -15,20 +14,24 @@ type openFlag struct {
 	supported bool
 }
 
+var openFlagByName = make(map[string]openFlag, len(openFlagTable))
+
+func init() {
+	for _, f := range openFlagTable {
+		openFlagByName[f.name] = f
+	}
+}
+
 // applyOpenFlags ORs o-direct / o-sync / async bits into open flags in
 // command-line order. Order matters for overlapping Linux O_SYNC/O_DSYNC/
 // O_RSYNC. Bare flag stores 1; =0 still applies (clears the bit).
 func applyOpenFlags(s parse.Spec, flags int) (int, error) {
-	byName := make(map[string]openFlag, len(openFlagTable))
-	for _, f := range openFlagTable {
-		byName[f.name] = f
-	}
 	for _, o := range s.Options {
-		f, ok := byName[parse.CanonicalOptionName(o.Name)]
+		f, ok := openFlagByName[parse.CanonicalOptionName(o.Name)]
 		if !ok {
 			continue
 		}
-		enable := fileOptionEnabled(o)
+		enable := o.Active()
 		if enable && !f.supported {
 			return 0, fmt.Errorf("%s: not supported on this platform", o.OriginalSpelling())
 		}
@@ -39,17 +42,6 @@ func applyOpenFlags(s parse.Spec, flags int) (int, error) {
 		}
 	}
 	return flags, nil
-}
-
-func fileOptionEnabled(o parse.Option) bool {
-	if !o.Has {
-		return true
-	}
-	v := strings.ToLower(strings.TrimSpace(o.Value))
-	if v == "" {
-		return false
-	}
-	return v != "0" && v != "false" && v != "no" && v != "off"
 }
 
 // rejectUnnamedPIPEOpenFlags rejects enabled o-direct / o-sync / … on
@@ -76,16 +68,14 @@ func rejectUnnamedPIPEOpenFlags(s parse.Spec) error {
 // silently dropping them. async remains meaningful on the connected socket.
 func rejectGOPENSocketOpenFlags(s parse.Spec) error {
 	for _, o := range s.Options {
-		name := parse.CanonicalOptionName(o.Name)
-		for _, f := range openFlagTable {
-			if f.name != name || f.name == "async" || !fileOptionEnabled(o) {
-				continue
-			}
-			if !f.supported {
-				return fmt.Errorf("%s: not supported on this platform", o.OriginalSpelling())
-			}
-			return fmt.Errorf("%s: not supported when GOPEN resolves to a socket", o.OriginalSpelling())
+		f, ok := openFlagByName[parse.CanonicalOptionName(o.Name)]
+		if !ok || f.name == "async" || !o.Active() {
+			continue
 		}
+		if !f.supported {
+			return fmt.Errorf("%s: not supported on this platform", o.OriginalSpelling())
+		}
+		return fmt.Errorf("%s: not supported when GOPEN resolves to a socket", o.OriginalSpelling())
 	}
 	return nil
 }

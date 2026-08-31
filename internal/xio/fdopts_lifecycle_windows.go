@@ -157,7 +157,7 @@ func applyWindowsOpen(fd uintptr, s parse.Spec) error {
 			continue
 		}
 		flags := uint32(0)
-		if !optionEnabled(o) {
+		if !o.Active() {
 			flags = windows.HANDLE_FLAG_INHERIT
 		}
 		noteLifecycleSyscall("SetHandleInformation")
@@ -193,7 +193,7 @@ func applyWindowsFDPhaseOptions(s parse.Spec, honorTargetSkip bool) error {
 			}
 			return fmt.Errorf("group: not supported on windows")
 		case "flock", "flock-nb", "flock-sh", "flock-sh-nb":
-			if !optionEnabled(o) {
+			if !o.Active() {
 				continue
 			}
 			return fmt.Errorf("%s: flock is not supported on windows", o.OriginalSpelling())
@@ -223,7 +223,7 @@ func applyWindowsLate(fd uintptr, s parse.Spec) error {
 			if skipAsync {
 				continue
 			}
-			if !optionEnabled(o) {
+			if !o.Active() {
 				continue
 			}
 			return fmt.Errorf("%s: fcntl O_ASYNC is not supported on windows", o.OriginalSpelling())
