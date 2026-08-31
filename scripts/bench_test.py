@@ -57,58 +57,42 @@ class RSSSamplerTest(unittest.TestCase):
 
 
 class StorageTest(unittest.TestCase):
-    def test_storage_removes_run_files_but_keeps_cache(self) -> None:
+    def test_temporary_run_dir_is_removed(self) -> None:
+        with bench.temporary_run_dir(0) as run_dir:
+            marker = run_dir / "payload"
+            marker.write_bytes(b"gone")
+            self.assertTrue(run_dir.is_dir())
+        self.assertFalse(run_dir.exists())
+
+    def test_prepare_payload_writes_fresh_files(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            workdir = Path(tempdir) / "work"
-            root = Path(tempdir) / "storage"
-            stale = root / "run-stale"
-            stale.mkdir(parents=True)
-            (stale / "sink").write_bytes(b"stale")
-
-            with mock.patch.object(bench, "benchmark_storage_root", return_value=root):
-                with bench.benchmark_storage(workdir) as (_, cache, run):
-                    cached = cache / "payload"
-                    cached.write_bytes(b"keep")
-                    (run / "sink").write_bytes(b"temporary")
-                    self.assertFalse(stale.exists())
-
-            self.assertFalse(run.exists())
-            self.assertEqual(cached.read_bytes(), b"keep")
-
-    def test_prepare_payload_reuses_one_raw_and_framed_variant(self) -> None:
-        with tempfile.TemporaryDirectory() as tempdir:
-            root = Path(tempdir)
-            cache = root / "cache"
-            cache.mkdir()
+            run_dir = Path(tempdir)
             size = 256
             buffer = 64
-            payload = cache / f"payload.aes-ctr.{size}"
-            payload.write_bytes(bytes(range(size)))
-            (cache / "payload.aes-ctr.123").write_bytes(b"old")
-            (cache / "old.datagram-v1.64.deadbeef").write_bytes(b"old")
 
-            first, _ = bench.prepare_payload(root, cache, size, buffer, ("udp",))
-            framed, _, _ = bench.datagram_payload_target(first, size, buffer)
-            framed_mtime = framed.stat().st_mtime_ns
-            second, note = bench.prepare_payload(root, cache, size, buffer, ("udp",))
+            def fake_generate(_client: Path, dest: Path, n: int) -> None:
+                dest.write_bytes(bytes(range(n)))
 
-            self.assertEqual(first, second)
-            self.assertIn("cached", note)
-            self.assertEqual(framed.stat().st_mtime_ns, framed_mtime)
-            self.assertEqual(set(cache.iterdir()), {payload, framed})
+            with mock.patch.object(bench, "generate_aes_ctr", side_effect=fake_generate) as gen:
+                with mock.patch.object(bench.shutil, "disk_usage", return_value=mock.Mock(free=10**12)):
+                    payload, note, framed = bench.prepare_payload(
+                        run_dir, size, buffer, ("udp",), Path("benchclient")
+                    )
+
+            self.assertEqual(gen.call_count, 1)
+            self.assertEqual(note, "aes-128-ctr (incompressible)")
+            self.assertEqual(payload, run_dir / "payload")
+            self.assertEqual(framed, run_dir / "payload.dgram")
+            self.assertEqual(payload.stat().st_size, size)
+            self.assertGreater(framed.stat().st_size, size)
 
     def test_prepare_payload_fails_before_filling_storage(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            root = Path(tempdir)
-            cache = root / "cache"
-            cache.mkdir()
-            size = 256
-            (cache / f"payload.aes-ctr.{size}").write_bytes(bytes(range(size)))
+            run_dir = Path(tempdir)
             usage = mock.Mock(free=0)
-
             with mock.patch.object(bench.shutil, "disk_usage", return_value=usage):
                 with self.assertRaisesRegex(SystemExit, "reduce SOCAT_BENCH_SIZE"):
-                    bench.prepare_payload(root, cache, size, 64, ("tcp",))
+                    bench.require_free_space(run_dir, 256)
 
 
 class DatagramFrameTest(unittest.TestCase):
@@ -125,7 +109,8 @@ class DatagramFrameTest(unittest.TestCase):
         size = self.payload_per_frame * frames
         payload = self.root / "payload"
         payload.write_bytes(bytes((i % 251) + 1 for i in range(size)))
-        framed, frame_count, wire_size = bench.ensure_datagram_payload(payload, size, self.buffer)
+        framed = self.root / "framed"
+        frame_count, wire_size = bench.write_datagram_payload(payload, framed, size, self.buffer)
         return framed, frame_count, wire_size, size
 
     def chunks(self, framed: Path) -> list[bytes]:
@@ -165,7 +150,8 @@ class DatagramFrameTest(unittest.TestCase):
         size = self.payload_per_frame * 2 + 7
         payload = self.root / "payload"
         payload.write_bytes(bytes((i % 251) + 1 for i in range(size)))
-        framed, frame_count, _ = bench.ensure_datagram_payload(payload, size, self.buffer)
+        framed = self.root / "framed"
+        frame_count, _ = bench.write_datagram_payload(payload, framed, size, self.buffer)
 
         metrics = bench.analyze_datagram_sink(framed, size, self.buffer)
 
@@ -174,16 +160,18 @@ class DatagramFrameTest(unittest.TestCase):
         self.assertEqual(metrics["received_payload_bytes"], size)
         self.assertEqual(metrics["corrupt_datagrams"], 0)
 
-    def test_cache_distinguishes_sizes_with_the_same_frame_count(self) -> None:
+    def test_partial_frames_with_the_same_frame_count_differ(self) -> None:
         payload = self.root / "payload"
         payload.write_bytes(bytes(range(self.payload_per_frame)))
         first_size = self.payload_per_frame - 2
         second_size = self.payload_per_frame - 1
+        first = self.root / "first"
+        second = self.root / "second"
 
-        first, _, _ = bench.ensure_datagram_payload(payload, first_size, self.buffer)
-        second, _, _ = bench.ensure_datagram_payload(payload, second_size, self.buffer)
+        bench.write_datagram_payload(payload, first, first_size, self.buffer)
+        bench.write_datagram_payload(payload, second, second_size, self.buffer)
 
-        self.assertNotEqual(first, second)
+        self.assertNotEqual(first.read_bytes(), second.read_bytes())
         self.assertEqual(
             bench.analyze_datagram_sink(first, first_size, self.buffer)["corrupt_datagrams"], 0
         )

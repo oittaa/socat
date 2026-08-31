@@ -15,19 +15,19 @@ values. Do not guess.
 The stream cases do **not** read `/dev/zero`.
 
 A compress option (classic `OPENSSL` compress, or a later flag) would make a
-zero stream look much faster than real data. The default payload is a cached
+zero stream look much faster than real data. The default payload is a fresh
 **AES-128-CTR** blob of the requested size (zeros go into the cipher only).
-That ciphertext does not compress.
+That ciphertext does not compress. It is generated at the start of each run.
 
 Set `SOCAT_BENCH_PAYLOAD=/path/to/file` to use your own file. The file must be
 at least `SOCAT_BENCH_SIZE` bytes. The runner copies that many bytes.
 
-Working files live under `testdata/tmp/bench/` (gitignored). On Linux, payloads
-and sinks use `/dev/shm` when it is writable. The runner keeps at most one raw
-payload and its matching UDP-framed variant, removes obsolete cache variants,
-and cleans temporary sinks on exit or at the next start after an interrupted
-run. It also checks available space before creating large files and fails
-early when the selected payload will not fit.
+Payloads, framed UDP, and sinks live in a `tempfile.TemporaryDirectory` and
+are deleted when the runner exits, including Ctrl+C. On Linux that directory
+is under `/dev/shm` when it has enough space. Logs, certs, `benchclient`, and
+the JSON/summary stay under `testdata/tmp/bench/` (gitignored). The runner
+checks free space before creating large files and fails early when the
+selected payload will not fit.
 
 ## Run
 
