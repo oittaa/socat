@@ -134,7 +134,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
-			if IsTimeoutErr(err) || errors.Is(err, context.DeadlineExceeded) || errors.Is(actx.Err(), context.DeadlineExceeded) {
+			if IsTimeoutErr(err) || errors.Is(actx.Err(), context.DeadlineExceeded) {
 				if g != nil && g.Log != nil {
 					g.Log.Warningf("accept: Connection timed out")
 				}

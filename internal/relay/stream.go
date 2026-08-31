@@ -168,7 +168,7 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 		if err == nil {
 			return nr, nil
 		}
-		if isTimeoutErr(err) {
+		if IsTimeoutErr(err) {
 			continue
 		}
 		return nr, err
@@ -195,7 +195,7 @@ func (s *sessionWrap) Write(p []byte) (int, error) {
 		if written == len(p) {
 			return written, nil
 		}
-		if deadlineSet && isTimeoutErr(err) {
+		if deadlineSet && IsTimeoutErr(err) {
 			continue
 		}
 		return written, err
@@ -274,7 +274,10 @@ func setStreamWriteDeadline(s Stream, deadline time.Time) bool {
 	return found && err == nil
 }
 
-func isTimeoutErr(err error) bool {
+// IsTimeoutErr reports whether err is a timeout. nil is false. It
+// recognizes os.ErrDeadlineExceeded, context.DeadlineExceeded, os.IsTimeout,
+// and any wrapped error that implements Timeout() bool — not only net.Error.
+func IsTimeoutErr(err error) bool {
 	if err == nil {
 		return false
 	}
