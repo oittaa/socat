@@ -387,6 +387,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				logx.CloseQuiet(pc)
 				return nil, err
 			}
+			xio.NoteListenBound(pc.LocalAddr())
 			return &xio.Opened{
 				Kind:        xio.KindListen,
 				Listener:    ln,
@@ -398,6 +399,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				},
 			}, nil
 		}
+		xio.NoteListenBound(pc.LocalAddr())
 		// UDP-RECVFROM is not a listen address: wait for the first permitted
 		// datagram with no accept-timeout.
 		// One permitted packet, then use the *same* listening socket for replies.

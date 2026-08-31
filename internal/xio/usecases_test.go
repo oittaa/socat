@@ -212,6 +212,51 @@ func tcpPort(t *testing.T, o *xio.Opened) string {
 	return strconv.Itoa(listenerPort(t, o))
 }
 
+func sockaddrPort(t *testing.T, addr net.Addr) int {
+	t.Helper()
+	switch a := addr.(type) {
+	case *net.TCPAddr:
+		return a.Port
+	case *net.UDPAddr:
+		return a.Port
+	default:
+		t.Fatalf("listen addr %T", addr)
+		return 0
+	}
+}
+
+func listenBoundPort(t *testing.T) (<-chan net.Addr, func()) {
+	t.Helper()
+	bound := make(chan net.Addr, 1)
+	restore := xio.SetListenBoundTestHook(func(addr net.Addr) {
+		select {
+		case bound <- addr:
+		default:
+		}
+	})
+	return bound, restore
+}
+
+func waitBoundPort(t *testing.T, bound <-chan net.Addr, failed <-chan error) int {
+	t.Helper()
+	select {
+	case addr := <-bound:
+		port := sockaddrPort(t, addr)
+		if port == 0 {
+			t.Fatal("listen bound port 0")
+		}
+		return port
+	case err := <-failed:
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Fatal("listen returned before bind")
+	case <-time.After(4 * time.Second):
+		t.Fatal("listen did not bind")
+	}
+	return 0
+}
+
 func localUDPPort(t *testing.T, o *xio.Opened) int {
 	t.Helper()
 	type localAddrer interface{ LocalAddr() net.Addr }
@@ -239,19 +284,6 @@ func skipNoIPv6(t *testing.T) {
 		t.Skipf("no IPv6 loopback: %v", err)
 	}
 	_ = ln.Close()
-}
-
-func freeTCP4Port(t *testing.T) int {
-	t.Helper()
-	ln, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	if err := ln.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return port
 }
 
 func waitDialTCP4(t *testing.T, port int) net.Conn {
@@ -462,31 +494,15 @@ func TestUDP4SendtoToRecv(t *testing.T) {
 	}
 }
 
-func freeUDP4Port(t *testing.T) int {
-	t.Helper()
-	pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := pc.LocalAddr().(*net.UDPAddr).Port
-	if err := pc.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return port
-}
-
 // TestUDP4RecvfromReply is one-shot UDP-RECVFROM (no fork): wait for a datagram
 // and reply to the sender. fork+PIPE needs socketpair, which Windows does not have.
 func TestUDP4RecvfromReply(t *testing.T) {
 	ctx := testCtx(t)
-	port := freeUDP4Port(t)
-	// Do not allow this free-port probe to share a port that another package
-	// claimed between closing the probe and binding the RECVFROM socket. Go
-	// tests packages concurrently, and a shared UDP port could route our retry
-	// datagrams into the unrelated test process.
-	spec := mustParse(t, fmt.Sprintf("UDP4-RECVFROM:%d,bind=127.0.0.1,reuseaddr=0", port))
+	spec := mustParse(t, "UDP4-RECVFROM:0,bind=127.0.0.1,reuseaddr=0")
 	opened := make(chan *xio.Opened, 1)
 	errCh := make(chan error, 1)
+	bound, restore := listenBoundPort(t)
+	defer restore()
 	go func() {
 		o, err := xio.OpenChannel(ctx, spec, xio.ModeRDWR, cloneGlobal(nil))
 		if err != nil {
@@ -495,6 +511,7 @@ func TestUDP4RecvfromReply(t *testing.T) {
 		}
 		opened <- o
 	}()
+	port := waitBoundPort(t, bound, errCh)
 	cli, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
 	if err != nil {
 		t.Fatal(err)
@@ -651,14 +668,17 @@ func TestTCPListenDumpsToCREATE(t *testing.T) {
 // `socat PIPE TCP-LISTEN:port,reuseaddr,fork` (runForkListenRight).
 func TestPIPEToTCPListenFork(t *testing.T) {
 	ctx := testCtx(t)
-	port := freeTCP4Port(t)
 	left, err := xio.OpenChannel(ctx, mustParse(t, "PIPE"), xio.ModeRDWR, cloneGlobal(nil))
 	if err != nil {
 		t.Fatal(err)
 	}
+	bound, restore := listenBoundPort(t)
+	defer restore()
+	errCh := make(chan error, 1)
 	go func() {
-		_ = xio.RunOpened(ctx, left, mustParse(t, fmt.Sprintf("TCP-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1", port)), cloneGlobal(nil))
+		errCh <- xio.RunOpened(ctx, left, mustParse(t, "TCP-LISTEN:0,reuseaddr,fork,bind=127.0.0.1"), cloneGlobal(nil))
 	}()
+	port := waitBoundPort(t, bound, errCh)
 	cli := openClient(t, ctx, testGlobal(), fmt.Sprintf("TCP:127.0.0.1:%d,connect-timeout=2", port))
 	echoLive(t, streamOf(t, cli), []byte("right-listen"))
 }
@@ -667,17 +687,19 @@ func TestPIPEToTCPListenFork(t *testing.T) {
 // (no fork): OpenChannel accepts a single connection, then RunOpened transfers.
 func TestTCPListenNoForkEcho(t *testing.T) {
 	ctx := testCtx(t)
-	port := freeTCP4Port(t)
 	opened := make(chan *xio.Opened, 1)
 	errCh := make(chan error, 1)
+	bound, restore := listenBoundPort(t)
+	defer restore()
 	go func() {
-		o, err := xio.OpenChannel(ctx, mustParse(t, fmt.Sprintf("TCP-LISTEN:%d,reuseaddr,bind=127.0.0.1", port)), xio.ModeRDWR, cloneGlobal(nil))
+		o, err := xio.OpenChannel(ctx, mustParse(t, "TCP-LISTEN:0,reuseaddr,bind=127.0.0.1"), xio.ModeRDWR, cloneGlobal(nil))
 		if err != nil {
 			errCh <- err
 			return
 		}
 		opened <- o
 	}()
+	port := waitBoundPort(t, bound, errCh)
 	c := waitDialTCP4(t, port)
 	var lo *xio.Opened
 	select {
@@ -719,8 +741,39 @@ func TestTCPListenRangeRejects(t *testing.T) {
 }
 
 func TestTCPConnectRetryWaitsForListener(t *testing.T) {
-	ctx := testCtx(t)
-	port := freeTCP4Port(t)
+	var last error
+	for attempt := 1; attempt <= 3; attempt++ {
+		err := tcpConnectRetryOnce(t)
+		if err == nil {
+			return
+		}
+		last = err
+		t.Logf("attempt %d: %v", attempt, err)
+	}
+	t.Fatalf("retry connect failed: %v", last)
+}
+
+func tcpConnectRetryOnce(t *testing.T) error {
+	t.Helper()
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	if err := ln.Close(); err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	success := false
+	defer func() {
+		if !success {
+			cancel()
+		} else {
+			t.Cleanup(cancel)
+		}
+	}()
+
 	done := make(chan *xio.Opened, 1)
 	errCh := make(chan error, 1)
 	go func() {
@@ -732,17 +785,25 @@ func TestTCPConnectRetryWaitsForListener(t *testing.T) {
 		done <- o
 	}()
 	time.Sleep(150 * time.Millisecond)
-	startForkListenPIPE(t, ctx, testGlobal(), fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1", port))
+	srv, err := xio.OpenChannel(ctx, mustParse(t, fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1", port)), xio.ModeRDWR, cloneGlobal(nil))
+	if err != nil {
+		return fmt.Errorf("listen %d: %w", port, err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+	go func() { _ = xio.RunOpened(ctx, srv, mustParse(t, "PIPE"), cloneGlobal(nil)) }()
+
 	var cli *xio.Opened
 	select {
 	case cli = <-done:
 		t.Cleanup(func() { _ = cli.Close() })
 	case err := <-errCh:
-		t.Fatal(err)
+		return err
 	case <-time.After(6 * time.Second):
-		t.Fatal("retry connect timed out")
+		return fmt.Errorf("retry connect timed out")
 	}
 	echoLive(t, streamOf(t, cli), []byte("retried"))
+	success = true
+	return nil
 }
 
 func TestTCPConnectReadbytes(t *testing.T) {

@@ -117,7 +117,7 @@ func TestUnixListenCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	bound := make(chan struct{})
 	var boundOnce sync.Once
-	defer xio.SetListenBoundTestHook(func() {
+	defer xio.SetListenBoundTestHook(func(net.Addr) {
 		boundOnce.Do(func() { close(bound) })
 	})()
 	done := make(chan error, 1)
@@ -212,7 +212,7 @@ func openUnixListenOnce(t *testing.T, raw string, g *xio.Global, afterBind func(
 	}
 	bound := make(chan struct{})
 	var boundOnce sync.Once
-	defer xio.SetListenBoundTestHook(func() {
+	defer xio.SetListenBoundTestHook(func(net.Addr) {
 		boundOnce.Do(func() { close(bound) })
 	})()
 	type result struct {

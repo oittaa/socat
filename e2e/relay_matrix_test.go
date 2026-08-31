@@ -25,17 +25,17 @@ const (
 
 func TestRelayMatrixTCP4(t *testing.T) {
 	runStreamFamilyMatrix(t, streamFamily{
-		name:   "TCP4",
-		listen: tcpListenSpec("TCP4-LISTEN", "TCP4"),
-		wait:   waitTCPPort,
+		name:        "TCP4",
+		listenType:  "TCP4-LISTEN",
+		connectType: "TCP4",
+		startPort:   startTCPTestServer,
 	})
 }
 
 func TestRelayMatrixUNIX(t *testing.T) {
 	runStreamFamilyMatrix(t, streamFamily{
-		name:   "UNIX",
-		listen: unixListenSpec,
-		wait:   waitUnixPath,
+		name: "UNIX",
+		unix: true,
 	})
 }
 
@@ -43,18 +43,20 @@ func TestRelayMatrixTLS(t *testing.T) {
 	cert := listenCert(t)
 	runStreamFamilyMatrix(t, streamFamily{
 		name:        "TLS",
-		listen:      tcpListenSpec("TLS-LISTEN", "TLS"),
+		listenType:  "TLS-LISTEN",
+		connectType: "TLS",
 		listenExtra: fmt.Sprintf("verify=0,cert=%s", cert),
 		connectOpt:  "verify=0",
-		wait:        waitTCPPort,
+		startPort:   startTCPTestServer,
 	})
 }
 
 func TestRelayMatrixWS(t *testing.T) {
 	runStreamFamilyMatrix(t, streamFamily{
-		name:   "WS",
-		listen: tcpListenSpec("WS-LISTEN", "WS"),
-		wait:   waitTCPPort,
+		name:        "WS",
+		listenType:  "WS-LISTEN",
+		connectType: "WS",
+		startPort:   startTCPTestServer,
 	})
 }
 
@@ -62,10 +64,11 @@ func TestRelayMatrixQUIC(t *testing.T) {
 	cert := listenCert(t)
 	runStreamFamilyMatrix(t, streamFamily{
 		name:        "QUIC",
-		listen:      udpListenSpec("QUIC-LISTEN", "QUIC"),
+		listenType:  "QUIC-LISTEN",
+		connectType: "QUIC",
 		listenExtra: fmt.Sprintf("fork,verify=0,cert=%s", cert),
 		connectOpt:  "verify=0",
-		wait:        waitUDPPort,
+		startPort:   startQUICTestServer,
 		clientArgs:  []string{"-t", "2"},
 		serverArgs:  []string{"-t", "2"},
 		retries:     3,
@@ -79,12 +82,13 @@ func TestRelayMatrixSCTP4(t *testing.T) {
 		t.Skipf("kernel SCTP not usable: %v", err)
 	}
 	runStreamFamilyMatrix(t, streamFamily{
-		name:       "SCTP4",
-		listen:     tcpListenSpec("SCTP4-LISTEN", "SCTP4"),
-		wait:       waitSleep,
-		sctpEcho:   true,
-		clientArgs: []string{"-t", "2"},
-		serverArgs: []string{"-t", "2"},
+		name:        "SCTP4",
+		listenType:  "SCTP4-LISTEN",
+		connectType: "SCTP4",
+		startPort:   startSCTPTestServer,
+		sctpEcho:    true,
+		clientArgs:  []string{"-t", "2"},
+		serverArgs:  []string{"-t", "2"},
 	})
 }
 
@@ -117,18 +121,17 @@ func TestRelayMatrixFILE(t *testing.T) {
 }
 
 func TestRelayMatrixUDP4OneWay(t *testing.T) {
-	port := freeUDPPort(t)
 	path := filepath.Join(t.TempDir(), "udp.bin")
-	stderr := &bytes.Buffer{}
-	cmd := startSocat(t, stderr, "-t", "2", "-u",
-		fmt.Sprintf("UDP4-RECVFROM:%d,reuseaddr,bind=127.0.0.1", port),
-		"CREATE:"+path,
-	)
-	waitUDPListen(t, port, 2*time.Second, cmd)
+	port, srv := startUDPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(socatBin(t), "-t", "2", "-u",
+			fmt.Sprintf("UDP4-RECVFROM:%d,reuseaddr,bind=127.0.0.1", port),
+			"CREATE:"+path,
+		)
+	})
 	_, errb, err := runSocat(t, []byte(matrixPayload), "-t", "2", "-u", "STDIN",
 		fmt.Sprintf("UDP4-SENDTO:127.0.0.1:%d", port))
 	if err != nil {
-		t.Fatalf("UDP send: %v err=%s srv=%s", err, errb, stderr)
+		t.Fatalf("UDP send: %v err=%s srv=%s", err, errb, srv.stderr.String())
 	}
 	deadline := time.Now().Add(2 * time.Second)
 	var got []byte
@@ -139,7 +142,7 @@ func TestRelayMatrixUDP4OneWay(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("UDP file %q err=%v srv=%s", got, err, stderr)
+	t.Fatalf("UDP file %q err=%v srv=%s", got, err, srv.stderr.String())
 }
 
 func TestRelayMatrixBridgeTCPUNIX(t *testing.T) {
@@ -149,15 +152,12 @@ func TestRelayMatrixBridgeTCPUNIX(t *testing.T) {
 func TestRelayMatrixBridgeTCPTLS(t *testing.T) {
 	cert := listenCert(t)
 	runTCPBridge(t, func(t *testing.T) (connect string, stop func()) {
-		port := freePort(t)
-		stderr := &bytes.Buffer{}
-		cmd := startSocat(t, stderr, fmt.Sprintf("TLS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert), "PIPE")
-		waitTCPListen(t, port, tcpListenerStartupTimeout)
+		port, proc := startTCPTestServer(t, func(port int) *exec.Cmd {
+			return exec.Command(socatBin(t), fmt.Sprintf("TLS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert), "PIPE")
+		})
 		return fmt.Sprintf("TLS:127.0.0.1:%d,verify=0", port), func() {
-			_ = cmd.Process.Kill()
-			_, _ = cmd.Process.Wait()
 			if t.Failed() {
-				t.Log(stderr.String())
+				t.Log(proc.stderr.String())
 			}
 		}
 	})
@@ -165,15 +165,12 @@ func TestRelayMatrixBridgeTCPTLS(t *testing.T) {
 
 func TestRelayMatrixBridgeTCPWS(t *testing.T) {
 	runTCPBridge(t, func(t *testing.T) (connect string, stop func()) {
-		port := freePort(t)
-		stderr := &bytes.Buffer{}
-		cmd := startSocat(t, stderr, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port), "PIPE")
-		waitTCPListen(t, port, tcpListenerStartupTimeout)
+		port, proc := startTCPTestServer(t, func(port int) *exec.Cmd {
+			return exec.Command(socatBin(t), fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port), "PIPE")
+		})
 		return fmt.Sprintf("WS:127.0.0.1:%d", port), func() {
-			_ = cmd.Process.Kill()
-			_, _ = cmd.Process.Wait()
 			if t.Failed() {
-				t.Log(stderr.String())
+				t.Log(proc.stderr.String())
 			}
 		}
 	})
@@ -182,15 +179,12 @@ func TestRelayMatrixBridgeTCPWS(t *testing.T) {
 func TestRelayMatrixBridgeTCPQUIC(t *testing.T) {
 	cert := listenCert(t)
 	runTCPBridge(t, func(t *testing.T) (connect string, stop func()) {
-		port := freeUDPPort(t)
-		stderr := &bytes.Buffer{}
-		cmd := startSocat(t, stderr, "-t", "2", fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert), "PIPE")
-		waitUDPListen(t, port, 2*time.Second, cmd)
+		port, proc := startQUICTestServer(t, func(port int) *exec.Cmd {
+			return exec.Command(socatBin(t), "-t", "2", fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert), "PIPE")
+		})
 		return fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0", port), func() {
-			_ = cmd.Process.Kill()
-			_, _ = cmd.Process.Wait()
 			if t.Failed() {
-				t.Log(stderr.String())
+				t.Log(proc.stderr.String())
 			}
 		}
 	})
@@ -198,10 +192,12 @@ func TestRelayMatrixBridgeTCPQUIC(t *testing.T) {
 
 type streamFamily struct {
 	name        string
-	listen      func(t *testing.T) (listenSpec, connectSpec string)
+	listenType  string
+	connectType string
 	listenExtra string
 	connectOpt  string
-	wait        func(t *testing.T, listenSpec string)
+	startPort   func(t *testing.T, command func(int) *exec.Cmd) (int, *testProcess)
+	unix        bool
 	clientArgs  []string
 	serverArgs  []string
 	retries     int
@@ -210,21 +206,37 @@ type streamFamily struct {
 	skipOneWay  bool
 }
 
-func (f streamFamily) withListenOpts(spec string) string {
+func (f streamFamily) listenSpec(port int) string {
+	spec := fmt.Sprintf("%s:%d,reuseaddr,bind=127.0.0.1", f.listenType, port)
 	if f.listenExtra == "" {
 		return spec
-	}
-	if strings.Contains(spec, ",") {
-		return spec + "," + f.listenExtra
 	}
 	return spec + "," + f.listenExtra
 }
 
-func (f streamFamily) withConnectOpts(spec string) string {
+func (f streamFamily) connectSpec(port int) string {
+	spec := fmt.Sprintf("%s:127.0.0.1:%d", f.connectType, port)
 	if f.connectOpt == "" {
 		return spec
 	}
 	return spec + "," + f.connectOpt
+}
+
+func startFamilyServer(t *testing.T, f streamFamily, extraLeft []string, right string) (connectSpec string, serverErr func() string) {
+	t.Helper()
+	if f.unix {
+		listenSpec, connectSpec := unixListenSpec(t)
+		stderr := &bytes.Buffer{}
+		args := append(append([]string{}, extraLeft...), listenSpec, right)
+		startSocat(t, stderr, args...)
+		waitUnixPath(t, listenSpec)
+		return connectSpec, stderr.String
+	}
+	port, proc := f.startPort(t, func(port int) *exec.Cmd {
+		args := append(append([]string{}, extraLeft...), f.listenSpec(port), right)
+		return exec.Command(socatBin(t), args...)
+	})
+	return f.connectSpec(port), proc.stderr.String
 }
 
 func runStreamFamilyMatrix(t *testing.T, f streamFamily) {
@@ -246,13 +258,7 @@ func runStreamFamilyMatrix(t *testing.T, f streamFamily) {
 
 func matrixBidir(t *testing.T, f streamFamily) {
 	t.Helper()
-	listenSpec, connectSpec := f.listen(t)
-	listenSpec = f.withListenOpts(listenSpec)
-	connectSpec = f.withConnectOpts(connectSpec)
-	stderr := &bytes.Buffer{}
-	args := append(append([]string{}, f.serverArgs...), listenSpec, "PIPE")
-	startSocat(t, stderr, args...)
-	f.wait(t, listenSpec)
+	connectSpec, serverErr := startFamilyServer(t, f, f.serverArgs, "PIPE")
 
 	payload := []byte(matrixPayload)
 	clientBase := append([]string{}, f.clientArgs...)
@@ -273,19 +279,13 @@ func matrixBidir(t *testing.T, f streamFamily) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("bidir %s: %v out=%q err=%s srv=%s", f.name, err, out, errb, stderr)
+	t.Fatalf("bidir %s: %v out=%q err=%s srv=%s", f.name, err, out, errb, serverErr())
 }
 
 func matrixOneWayToFile(t *testing.T, f streamFamily) {
 	t.Helper()
-	listenSpec, connectSpec := f.listen(t)
-	listenSpec = f.withListenOpts(listenSpec)
-	connectSpec = f.withConnectOpts(connectSpec)
 	path := filepath.Join(t.TempDir(), "oneway.bin")
-	stderr := &bytes.Buffer{}
-	args := append(append([]string{}, f.serverArgs...), "-u", listenSpec, "CREATE:"+path)
-	startSocat(t, stderr, args...)
-	f.wait(t, listenSpec)
+	connectSpec, serverErr := startFamilyServer(t, f, append(append([]string{}, f.serverArgs...), "-u"), "CREATE:"+path)
 
 	payload := []byte(matrixPayload)
 	tries := f.retries
@@ -302,7 +302,7 @@ func matrixOneWayToFile(t *testing.T, f streamFamily) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	if err != nil {
-		t.Fatalf("-u %s send: %v err=%s srv=%s", f.name, err, errb, stderr)
+		t.Fatalf("-u %s send: %v err=%s srv=%s", f.name, err, errb, serverErr())
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	var got []byte
@@ -313,18 +313,12 @@ func matrixOneWayToFile(t *testing.T, f streamFamily) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("-u %s file %q err=%v client=%s srv=%s", f.name, got, err, errb, stderr)
+	t.Fatalf("-u %s file %q err=%v client=%s srv=%s", f.name, got, err, errb, serverErr())
 }
 
 func matrixOneWayFromText(t *testing.T, f streamFamily) {
 	t.Helper()
-	listenSpec, connectSpec := f.listen(t)
-	listenSpec = f.withListenOpts(listenSpec)
-	connectSpec = f.withConnectOpts(connectSpec)
-	stderr := &bytes.Buffer{}
-	args := append(append([]string{}, f.serverArgs...), "-U", listenSpec, "TEXT:"+strings.TrimSuffix(matrixPayload, "\n"))
-	startSocat(t, stderr, args...)
-	f.wait(t, listenSpec)
+	connectSpec, serverErr := startFamilyServer(t, f, append(append([]string{}, f.serverArgs...), "-U"), "TEXT:"+strings.TrimSuffix(matrixPayload, "\n"))
 
 	tries := f.retries
 	if tries < 1 {
@@ -339,49 +333,12 @@ func matrixOneWayFromText(t *testing.T, f streamFamily) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Fatalf("-U %s: %v out=%q err=%s srv=%s", f.name, err, out, errb, stderr)
-}
-
-func tcpListenSpec(listenType, connectType string) func(t *testing.T) (string, string) {
-	return func(t *testing.T) (string, string) {
-		port := freePort(t)
-		return fmt.Sprintf("%s:%d,reuseaddr,bind=127.0.0.1", listenType, port),
-			fmt.Sprintf("%s:127.0.0.1:%d", connectType, port)
-	}
-}
-
-func udpListenSpec(listenType, connectType string) func(t *testing.T) (string, string) {
-	return func(t *testing.T) (string, string) {
-		port := freeUDPPort(t)
-		return fmt.Sprintf("%s:%d,reuseaddr,bind=127.0.0.1", listenType, port),
-			fmt.Sprintf("%s:127.0.0.1:%d", connectType, port)
-	}
+	t.Fatalf("-U %s: %v out=%q err=%s srv=%s", f.name, err, out, errb, serverErr())
 }
 
 func unixListenSpec(t *testing.T) (string, string) {
 	path := testutil.UnixSocketPath(t, "echo.sock")
 	return fmt.Sprintf("UNIX-LISTEN:%s,unlink-early", path), "UNIX-CONNECT:" + path
-}
-
-func waitTCPPort(t *testing.T, listenSpec string) {
-	t.Helper()
-	port, ok := portFromListenSpec(listenSpec)
-	if !ok {
-		t.Fatalf("no port in %q", listenSpec)
-	}
-	waitTCPListen(t, port, tcpListenerStartupTimeout)
-}
-
-func waitUDPPort(t *testing.T, listenSpec string) {
-	t.Helper()
-	port, ok := portFromListenSpec(listenSpec)
-	if !ok {
-		t.Fatalf("no port in %q", listenSpec)
-	}
-	waitUDPListen(t, port, 2*time.Second)
-	// QUIC accept is not visible as a TCP bind. Give the server a short
-	// extra window after the UDP port probe.
-	time.Sleep(250 * time.Millisecond)
 }
 
 func waitUnixPath(t *testing.T, listenSpec string) {
@@ -402,24 +359,6 @@ func waitUnixPath(t *testing.T, listenSpec string) {
 		t.Skipf("UNIX listen path %q did not appear", path)
 	}
 	t.Fatalf("timeout waiting for UNIX %s", path)
-}
-
-func waitSleep(t *testing.T, _ string) {
-	t.Helper()
-	time.Sleep(150 * time.Millisecond)
-}
-
-func portFromListenSpec(spec string) (int, bool) {
-	_, rest, ok := strings.Cut(spec, ":")
-	if !ok {
-		return 0, false
-	}
-	num, _, _ := strings.Cut(rest, ",")
-	var port int
-	if _, err := fmt.Sscanf(num, "%d", &port); err != nil || port <= 0 {
-		return 0, false
-	}
-	return port, true
 }
 
 func startSocat(t *testing.T, stderr *bytes.Buffer, args ...string) *exec.Cmd {
@@ -488,12 +427,11 @@ func runTCPBridge(t *testing.T, peer func(t *testing.T) (connect string, stop fu
 	t.Helper()
 	connect, stop := peer(t)
 	defer stop()
-	port := freePort(t)
-	stderr := &bytes.Buffer{}
-	startSocat(t, stderr, fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port), connect)
-	waitTCPListen(t, port, tcpListenerStartupTimeout)
+	port, proc := startTCPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(socatBin(t), fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port), connect)
+	})
 	out, errb, err := runSocat(t, []byte(matrixPayload), "stdin!!stdout", fmt.Sprintf("TCP4:127.0.0.1:%d", port))
 	if err != nil || string(out) != matrixPayload {
-		t.Fatalf("bridge: %v out=%q err=%s srv=%s", err, out, errb, stderr)
+		t.Fatalf("bridge: %v out=%q err=%s srv=%s", err, out, errb, proc.stderr.String())
 	}
 }

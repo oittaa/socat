@@ -52,21 +52,12 @@ func TestMLDSAEcho(t *testing.T) {
 	})
 
 	t.Run("QUIC", func(t *testing.T) {
-		port := freeUDPPort(t)
-		srv := exec.Command(bin, "-t", "2", fmt.Sprintf(
-			"QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=1,cert=%s,key=%s,cafile=%s",
-			port, certs.ServerCert, certs.ServerKey, certs.CAFile,
-		), "PIPE")
-		var srvErr bytes.Buffer
-		srv.Stderr = &srvErr
-		if err := srv.Start(); err != nil {
-			t.Fatal(err)
-		}
-		defer func() {
-			_ = srv.Process.Kill()
-			_, _ = srv.Process.Wait()
-		}()
-		waitUDPListen(t, port, 2*time.Second, srv)
+		port, srv := startQUICTestServer(t, func(port int) *exec.Cmd {
+			return exec.Command(bin, "-t", "2", fmt.Sprintf(
+				"QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=1,cert=%s,key=%s,cafile=%s",
+				port, certs.ServerCert, certs.ServerKey, certs.CAFile,
+			), "PIPE")
+		})
 
 		payload := fmt.Sprintf("mldsa-quic %d\n", time.Now().UnixNano())
 		cli := exec.Command(bin, "-t", "2", "stdin!!stdout", fmt.Sprintf(
@@ -78,10 +69,10 @@ func TestMLDSAEcho(t *testing.T) {
 		cli.Stderr = &cliErr
 		out, err := cli.Output()
 		if err != nil {
-			t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srvErr.String())
+			t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
 		}
 		if string(out) != payload {
-			t.Fatalf("got %q want %q (srv=%s)", out, payload, srvErr.String())
+			t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
 		}
 	})
 }

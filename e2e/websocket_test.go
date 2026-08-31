@@ -37,19 +37,9 @@ func TestWSHelpTypes(t *testing.T) {
 // TestWSEcho — WS-LISTEN + PIPE echo; client uses stdin!!stdout.
 func TestWSEcho(t *testing.T) {
 	bin := socatBin(t)
-	port := freePort(t)
-
-	srv := exec.Command(bin, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1", port), "PIPE")
-	var srvErr bytes.Buffer
-	srv.Stderr = &srvErr
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = srv.Process.Kill()
-		_, _ = srv.Process.Wait()
-	}()
-	waitTCPListen(t, port, tcpListenerStartupTimeout)
+	port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1", port), "PIPE")
+	})
 
 	payload := fmt.Sprintf("ws-echo %d\n", time.Now().UnixNano())
 	cli := exec.Command(bin, "stdin!!stdout", fmt.Sprintf("WS:127.0.0.1:%d", port))
@@ -58,30 +48,20 @@ func TestWSEcho(t *testing.T) {
 	cli.Stderr = &cliErr
 	out, err := cli.Output()
 	if err != nil {
-		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srvErr.String())
+		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
 	}
 	if string(out) != payload {
-		t.Fatalf("got %q want %q (srv=%s)", out, payload, srvErr.String())
+		t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
 	}
 }
 
 // TestWSSEcho — WSS-LISTEN with a throwaway cert; client verify=0.
 func TestWSSEcho(t *testing.T) {
 	bin := socatBin(t)
-	port := freePort(t)
 	cert := listenCert(t)
-
-	srv := exec.Command(bin, fmt.Sprintf("WSS-LISTEN:%d,reuseaddr,bind=127.0.0.1,verify=0,cert=%s", port, cert), "PIPE")
-	var srvErr bytes.Buffer
-	srv.Stderr = &srvErr
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = srv.Process.Kill()
-		_, _ = srv.Process.Wait()
-	}()
-	waitTCPListen(t, port, tcpListenerStartupTimeout)
+	port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, fmt.Sprintf("WSS-LISTEN:%d,reuseaddr,bind=127.0.0.1,verify=0,cert=%s", port, cert), "PIPE")
+	})
 
 	payload := fmt.Sprintf("wss-echo %d\n", time.Now().UnixNano())
 	cli := exec.Command(bin, "stdin!!stdout", fmt.Sprintf("WSS:127.0.0.1:%d,verify=0", port))
@@ -90,34 +70,24 @@ func TestWSSEcho(t *testing.T) {
 	cli.Stderr = &cliErr
 	out, err := cli.Output()
 	if err != nil {
-		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srvErr.String())
+		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
 	}
 	if string(out) != payload {
-		t.Fatalf("got %q want %q (srv=%s)", out, payload, srvErr.String())
+		t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
 	}
 }
 
 // TestWSPath — path in the address and path= option; wrong path fails.
 func TestWSPath(t *testing.T) {
 	bin := socatBin(t)
-	port := freePort(t)
-
-	srv := exec.Command(bin, fmt.Sprintf("WS-LISTEN:%d/echo,reuseaddr,bind=127.0.0.1,fork", port), "PIPE")
-	var srvErr bytes.Buffer
-	srv.Stderr = &srvErr
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = srv.Process.Kill()
-		_, _ = srv.Process.Wait()
-	}()
-	waitTCPListen(t, port, tcpListenerStartupTimeout)
+	port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, fmt.Sprintf("WS-LISTEN:%d/echo,reuseaddr,bind=127.0.0.1,fork", port), "PIPE")
+	})
 
 	bad := exec.Command(bin, "stdin!!stdout", fmt.Sprintf("WS:127.0.0.1:%d/other", port))
 	bad.Stdin = bytes.NewBufferString("nope")
 	if out, err := bad.CombinedOutput(); err == nil {
-		t.Fatalf("expected path mismatch, got %q srv=%s", out, srvErr.String())
+		t.Fatalf("expected path mismatch, got %q srv=%s", out, srv.stderr.String())
 	}
 
 	payload := "path-ok\n"
@@ -127,18 +97,16 @@ func TestWSPath(t *testing.T) {
 	cli.Stderr = &cliErr
 	out, err := cli.Output()
 	if err != nil {
-		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srvErr.String())
+		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
 	}
 	if string(out) != payload {
-		t.Fatalf("got %q want %q (srv=%s)", out, payload, srvErr.String())
+		t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
 	}
 }
 
 // TestTCPToWSBridge — raw TCP client through TCP-LISTEN → WS client → WS-LISTEN echo.
 func TestTCPToWSBridge(t *testing.T) {
 	bin := socatBin(t)
-	// Use startTCPTestServer: waitTCPListen ignores a child that exits before
-	// bind, so a port race on slow Windows ARM64 CI looks like a 10s timeout.
 	wsPort, echo := startTCPTestServer(t, func(port int) *exec.Cmd {
 		return exec.Command(bin, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port), "PIPE")
 	})
@@ -166,17 +134,9 @@ func TestTCPToWSBridge(t *testing.T) {
 // TestWSOriginReject — server origin= rejects a non-matching Origin header.
 func TestWSOriginReject(t *testing.T) {
 	bin := socatBin(t)
-	port := freePort(t)
-
-	srv := exec.Command(bin, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,origin=example.com", port), "PIPE")
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = srv.Process.Kill()
-		_, _ = srv.Process.Wait()
-	}()
-	waitTCPListen(t, port, tcpListenerStartupTimeout)
+	port, _ := startTCPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,origin=example.com", port), "PIPE")
+	})
 
 	bad := exec.Command(bin, "stdin!!stdout", fmt.Sprintf("WS:127.0.0.1:%d,origin=http://evil.com", port))
 	bad.Stdin = bytes.NewBufferString("x")

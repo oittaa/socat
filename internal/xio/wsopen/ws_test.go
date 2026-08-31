@@ -254,18 +254,7 @@ func TestWSSClientVerifyCA(t *testing.T) {
 	}
 }
 
-func freeTCPPort(t *testing.T) int {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
-	return port
-}
-
-func startListenPIPE(t *testing.T, ctx context.Context, spec string) {
+func startListenPIPE(t *testing.T, ctx context.Context, spec string) *xio.Opened {
 	t.Helper()
 	ls, err := parse.ParseChannel(spec)
 	if err != nil {
@@ -276,12 +265,29 @@ func startListenPIPE(t *testing.T, ctx context.Context, spec string) {
 		t.Fatal(err)
 	}
 	g := &xio.Global{Log: logx.New(), Linger: 200 * time.Millisecond}
-	// Bind here so a readiness probe cannot steal the TCP port (macOS CI flake).
 	lo, err := xio.OpenChannel(ctx, ls, xio.ModeRDWR, g)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if lo.Listener == nil {
+		_ = lo.Close()
+		t.Fatal("listen address did not return a listener (use fork)")
+	}
+	t.Cleanup(func() { _ = lo.Close() })
 	go func() { _ = xio.RunOpened(ctx, lo, pipe, g) }()
+	return lo
+}
+
+func wsListenPort(t *testing.T, o *xio.Opened) int {
+	t.Helper()
+	ta, ok := o.Listener.Addr().(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("WS-LISTEN addr %T", o.Listener.Addr())
+	}
+	if ta.Port == 0 {
+		t.Fatal("WS-LISTEN bound port 0")
+	}
+	return ta.Port
 }
 
 func echoRoundtrip(t *testing.T, st io.ReadWriter, payload []byte) {
@@ -299,10 +305,9 @@ func echoRoundtrip(t *testing.T, st io.ReadWriter, payload []byte) {
 }
 
 func TestWSListenConnectEcho(t *testing.T) {
-	port := freeTCPPort(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	startListenPIPE(t, ctx, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port))
+	port := wsListenPort(t, startListenPIPE(t, ctx, "WS-LISTEN:0,reuseaddr,bind=127.0.0.1,fork"))
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("WS:127.0.0.1:%d", port))
 	if err != nil {
@@ -317,10 +322,9 @@ func TestWSListenConnectEcho(t *testing.T) {
 }
 
 func TestWSListenPathMismatch(t *testing.T) {
-	port := freeTCPPort(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	startListenPIPE(t, ctx, fmt.Sprintf("WS-LISTEN:%d/echo,reuseaddr,bind=127.0.0.1,fork", port))
+	port := wsListenPort(t, startListenPIPE(t, ctx, "WS-LISTEN:0/echo,reuseaddr,bind=127.0.0.1,fork"))
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("WS:127.0.0.1:%d/other", port))
 	if err != nil {
@@ -344,10 +348,9 @@ func TestWSListenPathMismatch(t *testing.T) {
 }
 
 func TestWSListenPathOption(t *testing.T) {
-	port := freeTCPPort(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	startListenPIPE(t, ctx, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,path=/ws", port))
+	port := wsListenPort(t, startListenPIPE(t, ctx, "WS-LISTEN:0,reuseaddr,bind=127.0.0.1,fork,path=/ws"))
 
 	ok, err := parse.ParseSpec(fmt.Sprintf("WS:127.0.0.1:%d,path=/ws", port))
 	if err != nil {
@@ -362,10 +365,9 @@ func TestWSListenPathOption(t *testing.T) {
 }
 
 func TestWSListenForkTwoClients(t *testing.T) {
-	port := freeTCPPort(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	startListenPIPE(t, ctx, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port))
+	port := wsListenPort(t, startListenPIPE(t, ctx, "WS-LISTEN:0,reuseaddr,bind=127.0.0.1,fork"))
 
 	for i, msg := range []string{"one", "two"} {
 		cs, err := parse.ParseSpec(fmt.Sprintf("WS:127.0.0.1:%d", port))
@@ -382,10 +384,9 @@ func TestWSListenForkTwoClients(t *testing.T) {
 }
 
 func TestWSSListenConnectEcho(t *testing.T) {
-	port := freeTCPPort(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	startListenPIPE(t, ctx, fmt.Sprintf("WSS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, listenCert(t)))
+	port := wsListenPort(t, startListenPIPE(t, ctx, fmt.Sprintf("WSS-LISTEN:0,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", listenCert(t))))
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("WSS:127.0.0.1:%d,verify=0", port))
 	if err != nil {
@@ -400,10 +401,9 @@ func TestWSSListenConnectEcho(t *testing.T) {
 }
 
 func TestWSListenOriginReject(t *testing.T) {
-	port := freeTCPPort(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	startListenPIPE(t, ctx, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,origin=example.com", port))
+	port := wsListenPort(t, startListenPIPE(t, ctx, "WS-LISTEN:0,reuseaddr,bind=127.0.0.1,fork,origin=example.com"))
 
 	bad, err := parse.ParseSpec(fmt.Sprintf("WS:127.0.0.1:%d,origin=http://evil.com", port))
 	if err != nil {
@@ -426,10 +426,9 @@ func TestWSListenOriginReject(t *testing.T) {
 }
 
 func TestWSListenProtocol(t *testing.T) {
-	port := freeTCPPort(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	startListenPIPE(t, ctx, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,protocol=chat", port))
+	port := wsListenPort(t, startListenPIPE(t, ctx, "WS-LISTEN:0,reuseaddr,bind=127.0.0.1,fork,protocol=chat"))
 
 	cs, err := parse.ParseSpec(fmt.Sprintf("WS:127.0.0.1:%d,protocol=chat", port))
 	if err != nil {

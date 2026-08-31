@@ -42,20 +42,10 @@ func TestQUICHelpTypes(t *testing.T) {
 
 func TestQUICEcho(t *testing.T) {
 	bin := socatBin(t)
-	port := freeUDPPort(t)
-
 	cert := listenCert(t)
-	srv := exec.Command(bin, "-t", "2", fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert), "PIPE")
-	var srvErr bytes.Buffer
-	srv.Stderr = &srvErr
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = srv.Process.Kill()
-		_, _ = srv.Process.Wait()
-	}()
-	waitUDPListen(t, port, 2*time.Second, srv)
+	port, srv := startQUICTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, "-t", "2", fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert), "PIPE")
+	})
 
 	payload := fmt.Sprintf("quic-echo %d\n", time.Now().UnixNano())
 	var out []byte
@@ -73,31 +63,21 @@ func TestQUICEcho(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	if err != nil {
-		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srvErr.String())
+		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
 	}
-	t.Fatalf("got %q want %q (srv=%s)", out, payload, srvErr.String())
+	t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
 }
 
 func TestQUICOneWaySenderWaitsForCompleteSink(t *testing.T) {
 	bin := socatBin(t)
-	port := freeUDPPort(t)
 	path := filepath.Join(t.TempDir(), "sink.bin")
 	cert := listenCert(t)
-
-	srv := exec.Command(bin, "-t", "5", "-u",
-		fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert),
-		"CREATE:"+path,
-	)
-	var srvErr bytes.Buffer
-	srv.Stderr = &srvErr
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = srv.Process.Kill()
-		_, _ = srv.Process.Wait()
-	}()
-	waitUDPListen(t, port, 2*time.Second, srv)
+	port, srv := startQUICTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, "-t", "5", "-u",
+			fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert),
+			"CREATE:"+path,
+		)
+	})
 
 	payload := bytes.Repeat([]byte{0xa5}, 8<<20)
 	cli := exec.Command(bin, "-t", "5", "-u", "STDIN",
@@ -105,31 +85,23 @@ func TestQUICOneWaySenderWaitsForCompleteSink(t *testing.T) {
 	)
 	cli.Stdin = bytes.NewReader(payload)
 	if out, err := cli.CombinedOutput(); err != nil {
-		t.Fatalf("client: %v: %s (server: %s)", err, out, srvErr.String())
+		t.Fatalf("client: %v: %s (server: %s)", err, out, srv.stderr.String())
 	}
 	got, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(got, payload) {
-		t.Fatalf("sink received %d bytes, want %d (server: %s)", len(got), len(payload), srvErr.String())
+		t.Fatalf("sink received %d bytes, want %d (server: %s)", len(got), len(payload), srv.stderr.String())
 	}
 }
 
 func TestQUICVerifyFail(t *testing.T) {
 	bin := socatBin(t)
-	port := freeUDPPort(t)
-
 	cert := listenCert(t)
-	srv := exec.Command(bin, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert), "PIPE")
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = srv.Process.Kill()
-		_, _ = srv.Process.Wait()
-	}()
-	waitUDPListen(t, port, 2*time.Second, srv)
+	port, _ := startQUICTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert), "PIPE")
+	})
 
 	cli := exec.Command(bin, "stdin!!stdout", fmt.Sprintf("QUIC:127.0.0.1:%d,verify=1", port))
 	cli.Stdin = bytes.NewBufferString("nope")
@@ -140,23 +112,13 @@ func TestQUICVerifyFail(t *testing.T) {
 
 func TestQUICVerifySuccess(t *testing.T) {
 	bin := socatBin(t)
-	port := freeUDPPort(t)
 	certs := writeE2ETrustCerts(t)
-
-	srv := exec.Command(bin, "-t", "2", fmt.Sprintf(
-		"QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=1,cert=%s,key=%s,cafile=%s",
-		port, certs.serverCert, certs.serverKey, certs.caFile,
-	), "PIPE")
-	var srvErr bytes.Buffer
-	srv.Stderr = &srvErr
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = srv.Process.Kill()
-		_, _ = srv.Process.Wait()
-	}()
-	waitUDPListen(t, port, 2*time.Second, srv)
+	port, srv := startQUICTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, "-t", "2", fmt.Sprintf(
+			"QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=1,cert=%s,key=%s,cafile=%s",
+			port, certs.serverCert, certs.serverKey, certs.caFile,
+		), "PIPE")
+	})
 
 	payload := "quic-mtls\n"
 	cli := exec.Command(bin, "-t", "2", "stdin!!stdout", fmt.Sprintf(
@@ -168,45 +130,25 @@ func TestQUICVerifySuccess(t *testing.T) {
 	cli.Stderr = &cliErr
 	out, err := cli.Output()
 	if err != nil {
-		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srvErr.String())
+		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
 	}
 	if string(out) != payload {
-		t.Fatalf("got %q want %q (srv=%s)", out, payload, srvErr.String())
+		t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
 	}
 }
 
 func TestTCPToQUICBridge(t *testing.T) {
 	bin := socatBin(t)
-	quicPort := freeUDPPort(t)
-	tcpPort := freePort(t)
-
 	cert := listenCert(t)
-	echo := exec.Command(bin, "-t", "2", fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", quicPort, cert), "PIPE")
-	var echoErr bytes.Buffer
-	echo.Stderr = &echoErr
-	if err := echo.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = echo.Process.Kill()
-		_, _ = echo.Process.Wait()
-	}()
-	waitUDPListen(t, quicPort, 2*time.Second, echo)
-
-	bridge := exec.Command(bin, "-t", "2",
-		fmt.Sprintf("TCP-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", tcpPort),
-		fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0", quicPort),
-	)
-	var bridgeErr bytes.Buffer
-	bridge.Stderr = &bridgeErr
-	if err := bridge.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = bridge.Process.Kill()
-		_, _ = bridge.Process.Wait()
-	}()
-	waitTCPListen(t, tcpPort, tcpListenerStartupTimeout)
+	quicPort, echo := startQUICTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, "-t", "2", fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=%s", port, cert), "PIPE")
+	})
+	tcpPort, bridge := startTCPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, "-t", "2",
+			fmt.Sprintf("TCP-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port),
+			fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0", quicPort),
+		)
+	})
 
 	payload := fmt.Sprintf("tcp-quic %d\n", time.Now().UnixNano())
 	cli := exec.Command(bin, "-t", "2", "stdin!!stdout", fmt.Sprintf("TCP:127.0.0.1:%d", tcpPort))
@@ -215,16 +157,16 @@ func TestTCPToQUICBridge(t *testing.T) {
 	cli.Stderr = &cliErr
 	out, err := cli.Output()
 	if err != nil {
-		t.Fatalf("client: %v cli=%s bridge=%s echo=%s", err, cliErr.String(), bridgeErr.String(), echoErr.String())
+		t.Fatalf("client: %v cli=%s bridge=%s echo=%s", err, cliErr.String(), bridge.stderr.String(), echo.stderr.String())
 	}
 	if string(out) != payload {
-		t.Fatalf("got %q want %q bridge=%s echo=%s", out, payload, bridgeErr.String(), echoErr.String())
+		t.Fatalf("got %q want %q bridge=%s echo=%s", out, payload, bridge.stderr.String(), echo.stderr.String())
 	}
 }
 
 func TestWaitUDPListenDetectsEarlyExit(t *testing.T) {
 	bin := socatBin(t)
-	port := freeUDPPort(t)
+	port := 9
 	cmd := exec.Command(bin, "NOT-A-REAL-ADDRESS", "PIPE")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)

@@ -164,10 +164,22 @@ func TestEXECFiveSIGHUPOccurrencesRejected(t *testing.T) {
 	}
 }
 
+func startEXECListenFork(t *testing.T, bin, execSpec string) (port int, proc *testProcess, stderrPath string) {
+	t.Helper()
+	var path string
+	port, proc = startTCPTestServer(t, func(port int) *exec.Cmd {
+		cmd := exec.Command(bin,
+			fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port),
+			execSpec)
+		path = attachStderrFile(t, cmd)
+		return cmd
+	})
+	return port, proc, path
+}
+
 func TestEXECListenForkFiveSessionsSIGHUP(t *testing.T) {
 	const n = 5
 	bin := socatBin(t)
-	port := freePort(t)
 	dir := t.TempDir()
 	pidsPath := filepath.Join(dir, "pids")
 	readyPath := filepath.Join(dir, "ready")
@@ -181,19 +193,8 @@ func TestEXECListenForkFiveSessionsSIGHUP(t *testing.T) {
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(bin,
-		fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port),
-		"EXEC:"+script+",sighup")
-	stderrPath := attachStderrFile(t, cmd)
-	proc, err := startTestProcess(cmd)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		killPIDFile(pidsPath)
-		proc.stop()
-	})
-	waitTCPListen(t, port, 5*time.Second)
+	port, proc, stderrPath := startEXECListenFork(t, bin, "EXEC:"+script+",sighup")
+	t.Cleanup(func() { killPIDFile(pidsPath) })
 
 	conns := make([]net.Conn, 0, n)
 	t.Cleanup(func() {
@@ -221,7 +222,7 @@ func TestEXECListenForkFiveSessionsSIGHUP(t *testing.T) {
 	if strings.Contains(readFile(t, stderrPath), "too many sub processes") {
 		t.Fatalf("five LISTEN,fork sessions must each have four slots stderr=%s", readFile(t, stderrPath))
 	}
-	if err := cmd.Process.Signal(syscall.SIGHUP); err != nil {
+	if err := proc.cmd.Process.Signal(syscall.SIGHUP); err != nil {
 		t.Fatal(err)
 	}
 	waitFileLines(t, gotPath, n, proc, stderrPath, 5*time.Second)
@@ -234,23 +235,13 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 	bin := socatBin(t)
 
 	t.Run("before", func(t *testing.T) {
-		port := freePort(t)
 		dir := t.TempDir()
 		script := filepath.Join(dir, "child.sh")
 		if err := os.WriteFile(script, []byte("#!/bin/sh\nexec sleep 30\n"), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command(bin,
-			fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port),
-			"EXEC:"+script+",sighup")
-		stderrPath := attachStderrFile(t, cmd)
-		proc, err := startTestProcess(cmd)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(proc.stop)
-		waitTCPListen(t, port, 5*time.Second)
-		if err := cmd.Process.Signal(syscall.SIGHUP); err != nil {
+		_, proc, stderrPath := startEXECListenFork(t, bin, "EXEC:"+script+",sighup")
+		if err := proc.cmd.Process.Signal(syscall.SIGHUP); err != nil {
 			t.Fatal(err)
 		}
 		select {
@@ -269,7 +260,6 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 	})
 
 	t.Run("during", func(t *testing.T) {
-		port := freePort(t)
 		dir := t.TempDir()
 		ready := filepath.Join(dir, "ready")
 		got := filepath.Join(dir, "got")
@@ -281,26 +271,15 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 		if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command(bin,
-			fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port),
-			"EXEC:"+script+",sighup")
-		stderrPath := attachStderrFile(t, cmd)
-		proc, err := startTestProcess(cmd)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() {
-			killPIDFile(ready)
-			proc.stop()
-		})
-		waitTCPListen(t, port, 5*time.Second)
+		port, proc, stderrPath := startEXECListenFork(t, bin, "EXEC:"+script+",sighup")
+		t.Cleanup(func() { killPIDFile(ready) })
 		c, err := net.DialTimeout("tcp4", fmt.Sprintf("127.0.0.1:%d", port), 2*time.Second)
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = c.Close() })
 		waitPath(t, ready, proc, stderrPath, 5*time.Second)
-		if err := cmd.Process.Signal(syscall.SIGHUP); err != nil {
+		if err := proc.cmd.Process.Signal(syscall.SIGHUP); err != nil {
 			t.Fatal(err)
 		}
 		waitPath(t, got, proc, stderrPath, 5*time.Second)
@@ -310,7 +289,6 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 	})
 
 	t.Run("after", func(t *testing.T) {
-		port := freePort(t)
 		dir := t.TempDir()
 		ready := filepath.Join(dir, "ready")
 		done := filepath.Join(dir, "done")
@@ -322,16 +300,7 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 		if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command(bin,
-			fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port),
-			"EXEC:"+script+",sighup")
-		stderrPath := attachStderrFile(t, cmd)
-		proc, err := startTestProcess(cmd)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(proc.stop)
-		waitTCPListen(t, port, 5*time.Second)
+		port, proc, stderrPath := startEXECListenFork(t, bin, "EXEC:"+script+",sighup")
 		c, err := net.DialTimeout("tcp4", fmt.Sprintf("127.0.0.1:%d", port), 2*time.Second)
 		if err != nil {
 			t.Fatal(err)
@@ -341,7 +310,7 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 		waitPath(t, done, proc, stderrPath, 5*time.Second)
 		// Wait for Wait() to unregister the pid after cat exits.
 		time.Sleep(50 * time.Millisecond)
-		if err := cmd.Process.Signal(syscall.SIGHUP); err != nil {
+		if err := proc.cmd.Process.Signal(syscall.SIGHUP); err != nil {
 			t.Fatal(err)
 		}
 		select {

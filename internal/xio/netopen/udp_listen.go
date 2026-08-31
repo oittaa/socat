@@ -93,6 +93,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			return nil, err
 		}
 		ln := newUDPListenForkListener(base)
+		xio.NoteListenBound(pc.LocalAddr())
 		return &xio.Opened{
 			Kind:        xio.KindListen,
 			Listener:    ln,
@@ -109,6 +110,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
+	xio.NoteListenBound(pc.LocalAddr())
 
 	// Non-fork: one session then done (keep listen socket for reply like RECVFROM).
 	buf := make([]byte, max(g.BlockSize, 8192))

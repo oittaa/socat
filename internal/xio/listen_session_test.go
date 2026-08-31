@@ -93,7 +93,7 @@ func TestOpenListenSessionCancelsPeerFilterLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := parseSpecForListenSession(t, "TCP-LISTEN:0,range=cancel-listen.test:255.255.255.255,res-nsaddr="+server.addr)
-	restore := SetListenBoundTestHook(func() {
+	restore := SetListenBoundTestHook(func(net.Addr) {
 		go func() {
 			c, derr := net.Dial("tcp", ln.Addr().String())
 			if derr == nil {
