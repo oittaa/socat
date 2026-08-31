@@ -64,10 +64,16 @@ e2e: build
 	go test $(GOFLAGS) -tags=e2e ./e2e/...
 
 # Unit coverage (not part of make check). CI uploads the profile and HTML.
+# -coverpkg=./... credits integration tests (for example xio usecases) to the
+# packages they execute. go test writes one copy of each block per test
+# binary; merge-coverprofile.py combines them the same way go tool cover
+# does (OR for set, add for count/atomic) so Codecov heatmaps stay correct.
 COVERMODE ?= atomic
 COVERAGE_UNIT ?= coverage.unit.out
 coverage: fmt-check
-	go test $(GOFLAGS) -covermode=$(COVERMODE) -coverprofile=$(COVERAGE_UNIT) ./...
+	go test $(GOFLAGS) -coverpkg=./... -covermode=$(COVERMODE) -coverprofile=$(COVERAGE_UNIT).raw ./...
+	$(PYTHON) -B scripts/merge-coverprofile.py $(COVERAGE_UNIT).raw $(COVERAGE_UNIT)
+	rm -f $(COVERAGE_UNIT).raw
 	./scripts/coverage-summary.sh $(COVERAGE_UNIT)
 
 # E2E coverage of the socat binary (go build -cover + GOCOVERDIR). This is how
