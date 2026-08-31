@@ -24,34 +24,81 @@ def load_merge():
 merge = load_merge()
 
 
+def profile(mode: str, *rows: str) -> str:
+    return "\n".join((f"mode: {mode}", *rows, ""))
+
+
 class MergeCoverprofileTest(unittest.TestCase):
-    def test_max_count_wins(self):
-        raw = "\n".join(
-            [
-                "mode: atomic",
-                "a.go:1.1,2.1 2 0",
-                "a.go:1.1,2.1 2 5",
-                "b.go:3.1,4.1 1 1",
-                "a.go:1.1,2.1 2 3",
-                "",
-            ]
+    def test_set_ors_counts(self):
+        raw = profile(
+            "set",
+            "a.go:1.1,2.1 2 0",
+            "a.go:1.1,2.1 2 1",
+            "b.go:3.1,4.1 1 1",
+            "a.go:1.1,2.1 2 1",
         )
         got = merge.merge_coverprofile(raw)
         self.assertEqual(
             got,
-            "\n".join(
-                [
-                    "mode: atomic",
-                    "a.go:1.1,2.1 2 5",
-                    "b.go:3.1,4.1 1 1",
-                    "",
-                ]
+            profile(
+                "set",
+                "a.go:1.1,2.1 2 1",
+                "b.go:3.1,4.1 1 1",
             ),
         )
+
+    def test_count_adds_counts(self):
+        raw = profile(
+            "count",
+            "a.go:1.1,2.1 2 0",
+            "a.go:1.1,2.1 2 5",
+            "b.go:3.1,4.1 1 1",
+            "a.go:1.1,2.1 2 3",
+        )
+        got = merge.merge_coverprofile(raw)
+        self.assertEqual(
+            got,
+            profile(
+                "count",
+                "a.go:1.1,2.1 2 8",
+                "b.go:3.1,4.1 1 1",
+            ),
+        )
+
+    def test_atomic_adds_counts(self):
+        raw = profile(
+            "atomic",
+            "a.go:1.1,2.1 2 0",
+            "a.go:1.1,2.1 2 5",
+            "b.go:3.1,4.1 1 1",
+            "a.go:1.1,2.1 2 3",
+        )
+        got = merge.merge_coverprofile(raw)
+        self.assertEqual(
+            got,
+            profile(
+                "atomic",
+                "a.go:1.1,2.1 2 8",
+                "b.go:3.1,4.1 1 1",
+            ),
+        )
+
+    def test_inconsistent_numstmt_errors(self):
+        raw = profile(
+            "atomic",
+            "a.go:1.1,2.1 2 1",
+            "a.go:1.1,2.1 3 1",
+        )
+        with self.assertRaisesRegex(ValueError, r"inconsistent NumStmt: changed from 2 to 3"):
+            merge.merge_coverprofile(raw)
 
     def test_missing_mode_errors(self):
         with self.assertRaises(ValueError):
             merge.merge_coverprofile("a.go:1.1,2.1 1 1\n")
+
+    def test_unknown_mode_errors(self):
+        with self.assertRaisesRegex(ValueError, r"bad mode line"):
+            merge.merge_coverprofile("mode: banana\na.go:1.1,2.1 1 1\n")
 
     def test_malformed_record_errors(self):
         with self.assertRaises(ValueError):

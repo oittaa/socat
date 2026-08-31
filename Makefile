@@ -66,8 +66,8 @@ e2e: build
 # Unit coverage (not part of make check). CI uploads the profile and HTML.
 # -coverpkg=./... credits integration tests (for example xio usecases) to the
 # packages they execute. go test writes one copy of each block per test
-# binary; merge-coverprofile.py keeps max(count) so Codecov does not drop
-# those hits.
+# binary; merge-coverprofile.py combines them the same way go tool cover
+# does (OR for set, add for count/atomic) so Codecov heatmaps stay correct.
 COVERMODE ?= atomic
 COVERAGE_UNIT ?= coverage.unit.out
 coverage: fmt-check
