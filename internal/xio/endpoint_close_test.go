@@ -47,15 +47,20 @@ func TestAcceptWithTimeoutWithoutDeadlineSupport(t *testing.T) {
 }
 
 type oneConnListener struct {
-	conn   net.Conn
-	closed chan struct{}
-	once   sync.Once
-	taken  atomic.Bool
+	conn        net.Conn
+	closed      chan struct{}
+	waiting     chan struct{}
+	once        sync.Once
+	waitingOnce sync.Once
+	taken       atomic.Bool
 }
 
 func (l *oneConnListener) Accept() (net.Conn, error) {
 	if l.taken.CompareAndSwap(false, true) {
 		return l.conn, nil
+	}
+	if l.waiting != nil {
+		l.waitingOnce.Do(func() { close(l.waiting) })
 	}
 	<-l.closed
 	return nil, net.ErrClosed
@@ -102,6 +107,62 @@ func TestForkAcceptTimeoutWaitsForActiveSession(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("accept loop did not return after active session finished")
+	}
+}
+
+func TestForkContextCancellationWaitsForActiveSession(t *testing.T) {
+	accepted, peer := net.Pipe()
+	t.Cleanup(func() { _ = accepted.Close() })
+	t.Cleanup(func() { _ = peer.Close() })
+	waiting := make(chan struct{})
+	ln := &oneConnListener{
+		conn:    accepted,
+		closed:  make(chan struct{}),
+		waiting: waiting,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() {
+		<-ctx.Done()
+		_ = ln.Close()
+	}()
+
+	opened := &Opened{}
+	g := &Global{Log: logx.New()}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	result := make(chan error, 1)
+	go func() {
+		result <- opened.forEachAccepted(ctx, ln, g, false, func(net.Conn, *Global) {
+			close(started)
+			<-release
+		})
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("accepted session did not start")
+	}
+	select {
+	case <-waiting:
+	case <-time.After(time.Second):
+		t.Fatal("accept loop did not wait for another connection")
+	}
+
+	cancel()
+	select {
+	case err := <-result:
+		t.Fatalf("accept loop returned before canceled session finished: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("error=%v want nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("accept loop did not return after canceled session finished")
 	}
 }
 

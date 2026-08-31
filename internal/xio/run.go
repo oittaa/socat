@@ -184,14 +184,15 @@ func (s childSlots) release() {
 }
 
 // forEachAccepted runs body in a new goroutine per accepted connection under
-// max-children accounting and the peer filter. It returns nil on ctx
-// completion and the accept error otherwise. g.Log must be non-nil (the CLI
-// always installs a logger).
+// max-children accounting and the peer filter. On ctx completion it waits for
+// active sessions before returning. g.Log must be non-nil (the CLI always
+// installs a logger).
 func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global, logAccept bool, body func(c net.Conn, cg *Global)) error {
 	slots := newChildSlots(o.MaxChildren)
 	var children sync.WaitGroup
 	for {
 		if !slots.acquire(ctx) {
+			children.Wait()
 			return nil
 		}
 		conn, err := AcceptWithTimeout(ctx, ln, o.AcceptTimeout)
@@ -205,6 +206,7 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 				return ErrAcceptTimeout
 			}
 			if ctx.Err() != nil {
+				children.Wait()
 				return nil
 			}
 			return err
@@ -214,6 +216,7 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 				CloseRefusedPeer(conn)
 				slots.release()
 				if ctx.Err() != nil {
+					children.Wait()
 					return nil
 				}
 				g.Log.Noticef("%s", ferr)
