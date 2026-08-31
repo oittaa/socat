@@ -169,8 +169,9 @@ func (l *udpDispatchListener) readLoop() {
 			return
 		}
 		if err := l.base.peerAllowed(peer); err != nil {
-			if l.base.g != nil && l.base.g.Log != nil {
-				l.base.g.Log.Noticef("%s", err)
+			if stop := logOrStopPeerFilter(l.base.g, err); stop != nil {
+				_ = l.shutdown(stop)
+				return
 			}
 			select {
 			case l.peerRejected <- struct{}{}:

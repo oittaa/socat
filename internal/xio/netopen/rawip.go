@@ -299,7 +299,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		stripV4 := network == "ip4"
 		var n int
 		var raddr net.Addr
-		peerFilter := xio.NewPeerFilter(s, g)
+		peerFilter := xio.NewPeerFilter(ctx, s, g)
 		var oobBuffer [xio.AncillaryBufferSize]byte
 		for {
 			rn, oob, a, err := xio.RecvOneCtx(ctx, func() (int, []byte, net.Addr, error) {
@@ -312,8 +312,9 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 			// peer filter uses UDP-style helper via fake addr when possible
 			if ia, ok := a.(*net.IPAddr); ok {
 				if ferr := peerFilter.AllowAddr(&net.UDPAddr{IP: ia.IP}, pc.LocalAddr()); ferr != nil {
-					if g != nil && g.Log != nil {
-						g.Log.Noticef("%s", ferr)
+					if stop := logOrStopPeerFilter(g, ferr); stop != nil {
+						logx.CloseQuiet(pc)
+						return nil, stop
 					}
 					continue
 				}
@@ -352,7 +353,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 	}
 	st := relay.Stream(&rawIPFilteredRecv{
 		c:        pc,
-		filter:   xio.NewPeerFilter(s, g),
+		filter:   xio.NewPeerFilter(ctx, s, g),
 		g:        g,
 		wantCtrl: wantCtrl,
 		v4:       network == "ip4",
@@ -675,8 +676,8 @@ func (r *rawIPFilteredRecv) Read(p []byte) (int, error) {
 		}
 		if ia, ok := addr.(*net.IPAddr); ok {
 			if err := r.filter.AllowAddr(&net.UDPAddr{IP: ia.IP}, r.c.LocalAddr()); err != nil {
-				if r.g != nil && r.g.Log != nil {
-					r.g.Log.Noticef("%s", err)
+				if stop := logOrStopPeerFilter(r.g, err); stop != nil {
+					return 0, stop
 				}
 				continue
 			}

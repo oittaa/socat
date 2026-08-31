@@ -1,6 +1,7 @@
 package xio
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net"
@@ -11,6 +12,50 @@ import (
 
 	"github.com/oittaa/socat/internal/parse"
 )
+
+func TestRangeLookupIPs(t *testing.T) {
+	ctx := context.Background()
+	t.Run("wraps-lookup-error", func(t *testing.T) {
+		want := errors.New("resolver failed")
+		_, err := rangeLookupIPs(ctx, func(context.Context, string, string) ([]net.IP, error) {
+			return nil, want
+		}, "example.test")
+		if !errors.Is(err, want) {
+			t.Fatalf("err=%v want %v", err, want)
+		}
+	})
+	t.Run("empty-result-is-no-addresses", func(t *testing.T) {
+		_, err := rangeLookupIPs(ctx, func(context.Context, string, string) ([]net.IP, error) {
+			return nil, nil
+		}, "empty.test")
+		if err == nil || errors.Is(err, context.Canceled) {
+			t.Fatalf("err=%v want no addresses", err)
+		}
+		if !strings.Contains(err.Error(), `no addresses for "empty.test"`) {
+			t.Fatalf("err=%v want no addresses", err)
+		}
+	})
+	t.Run("returns-addresses", func(t *testing.T) {
+		want := net.IPv4(192, 0, 2, 1)
+		ips, err := rangeLookupIPs(ctx, func(context.Context, string, string) ([]net.IP, error) {
+			return []net.IP{want}, nil
+		}, "ok.test")
+		if err != nil || len(ips) != 1 || !ips[0].Equal(want) {
+			t.Fatalf("ips=%v err=%v", ips, err)
+		}
+	})
+}
+
+func TestCompileIPRangeWrapsLookupError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, spec := range []string{"blocked.test", "blocked.test:255.255.255.255"} {
+		_, err := compileIPRange(ctx, spec, net.DefaultResolver)
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("compileIPRange(%q) err=%v want context.Canceled", spec, err)
+		}
+	}
+}
 
 func TestIPInRangeHostnameMask(t *testing.T) {
 	// Classic FDLEAK: range=localhost:255.255.255.255
@@ -31,7 +76,7 @@ func TestIPInRangeHostnameMask(t *testing.T) {
 }
 
 func TestPeerFilterNoOptionsDoesNotAllocate(t *testing.T) {
-	filter := NewPeerFilter(parse.Spec{}, nil)
+	filter := NewPeerFilter(context.Background(), parse.Spec{}, nil)
 	peer := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1234}
 	if got := testing.AllocsPerRun(1000, func() {
 		if err := filter.AllowAddr(peer, nil); err != nil {
@@ -58,7 +103,7 @@ func TestCompiledIPRangeForms(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			matcher, err := compileIPRange(tc.spec, net.DefaultResolver)
+			matcher, err := compileIPRange(context.Background(), tc.spec, net.DefaultResolver)
 			if err != nil {
 				t.Fatal(err)
 			}
