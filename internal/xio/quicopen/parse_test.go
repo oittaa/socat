@@ -180,11 +180,27 @@ func TestQUICConfigHandshakeIdleTimeoutZeroDisablesBound(t *testing.T) {
 }
 
 func TestQUICDialAttemptTimeoutDelegates(t *testing.T) {
-	s, err := parse.ParseSpec("QUIC:h:1,connect-timeout=0.2,handshake-timeout=5")
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name string
+		spec string
+		want time.Duration
+	}{
+		{name: "connect-caps-handshake", spec: "QUIC:h:1,connect-timeout=0.2,handshake-timeout=5", want: 200 * time.Millisecond},
+		{name: "handshake-zero-unbounded", spec: "QUIC:h:1,handshake-timeout=0", want: 0},
 	}
-	if got, want := quicDialAttemptTimeout(s), xio.CombinedConnectHandshakeTimeout(s); got != want {
-		t.Fatalf("quicDialAttemptTimeout=%s want CombinedConnectHandshakeTimeout %s", got, want)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			s, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			shared := xio.CombinedConnectHandshakeTimeout(s)
+			if shared != tc.want {
+				t.Fatalf("CombinedConnectHandshakeTimeout(%q)=%s want %s", tc.spec, shared, tc.want)
+			}
+			if got := quicDialAttemptTimeout(s); got != shared {
+				t.Fatalf("quicDialAttemptTimeout(%q)=%s want CombinedConnectHandshakeTimeout %s", tc.spec, got, shared)
+			}
+		})
 	}
 }

@@ -81,7 +81,23 @@ func TestParseRetryInvalidIntervalKeepsDefault(t *testing.T) {
 }
 
 func TestIsTimeoutErrDelegates(t *testing.T) {
-	if IsTimeoutErr(os.ErrDeadlineExceeded) != relay.IsTimeoutErr(os.ErrDeadlineExceeded) {
-		t.Fatal("xio.IsTimeoutErr must match relay.IsTimeoutErr")
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "deadline", err: os.ErrDeadlineExceeded, want: true},
+		{name: "ordinary", err: errors.New("ordinary"), want: false},
+		{name: "nil", want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got, want := IsTimeoutErr(tc.err), relay.IsTimeoutErr(tc.err); got != want {
+				t.Fatalf("IsTimeoutErr(%v)=%v want relay.IsTimeoutErr=%v", tc.err, got, want)
+			}
+			if got := IsTimeoutErr(tc.err); got != tc.want {
+				t.Fatalf("IsTimeoutErr(%v)=%v want %v", tc.err, got, tc.want)
+			}
+		})
 	}
 }
