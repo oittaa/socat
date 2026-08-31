@@ -145,6 +145,21 @@ func waitUDPTestProcess(p *testProcess, port int, timeout time.Duration) error {
 	return fmt.Errorf("timeout waiting for UDP listen on %d", port)
 }
 
+func waitQUICTestProcess(p *testProcess, port int, timeout time.Duration) error {
+	marker := fmt.Sprintf("listening on 127.0.0.1:%d", port)
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if strings.Contains(p.stderr.String(), marker) {
+			return nil
+		}
+		if err, exited := p.status(); exited {
+			return fmt.Errorf("server exited before listening: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("timeout waiting for QUIC listen on %d", port)
+}
+
 func waitProcessWarmup(p *testProcess, _ int, timeout time.Duration) error {
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
@@ -175,11 +190,11 @@ func startUDPTestServer(t *testing.T, command func(port int) *exec.Cmd) (int, *t
 
 func startQUICTestServer(t *testing.T, command func(port int) *exec.Cmd) (int, *testProcess) {
 	t.Helper()
-	port, proc := startUDPTestServer(t, command)
-	// QUIC accept is not visible as a UDP bind. Give the server a short
-	// extra window after the port probe.
-	time.Sleep(250 * time.Millisecond)
-	return port, proc
+	return startPortTestServer(t, udpListenerStartAttempts, tcpListenerStartupTimeout, freeUDPPort, waitQUICTestProcess, func(port int) *exec.Cmd {
+		cmd := command(port)
+		cmd.Args = append([]string{cmd.Args[0], "-d"}, cmd.Args[1:]...)
+		return cmd
+	})
 }
 
 func startSCTPTestServer(t *testing.T, command func(port int) *exec.Cmd) (int, *testProcess) {
