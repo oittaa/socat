@@ -308,7 +308,7 @@ func applyOneCloexec(fd int, o parse.Option) error {
 	// F_GETFD, then |= or &=~ FD_CLOEXEC, then F_SETFD. Clearing Go's default
 	// CLOEXEC is limited to descriptors owned by ApplyFDOptions /
 	// WrapCommon / ApplyFDLifecycleToConn. Streams with no fd reject.
-	enable := optionEnabled(o)
+	enable := o.Active()
 	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
 	if err != nil {
 		return fmt.Errorf("cloexec: %w", err)
@@ -326,7 +326,7 @@ func applyOneCloexec(fd int, o parse.Option) error {
 }
 
 func applyOneAppend(fd int, o parse.Option) error {
-	enable := optionEnabled(o)
+	enable := o.Active()
 	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
 	if err != nil {
 		return fmt.Errorf("append: %w", err)
@@ -344,7 +344,7 @@ func applyOneAppend(fd int, o parse.Option) error {
 }
 
 func applyOneAsync(fd int, o parse.Option) error {
-	enable := optionEnabled(o)
+	enable := o.Active()
 	if enable && !FeatureFDAsync {
 		return fmt.Errorf("%s: not supported on this platform", o.OriginalSpelling())
 	}
@@ -368,7 +368,7 @@ func applyOneAsync(fd int, o parse.Option) error {
 }
 
 func applyOneFlock(fd int, o parse.Option, how int) error {
-	if !optionEnabled(o) {
+	if !o.Active() {
 		return nil
 	}
 	if !FeatureFlock {

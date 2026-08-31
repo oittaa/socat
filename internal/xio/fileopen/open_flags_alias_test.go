@@ -88,3 +88,17 @@ func TestOpenFlagsNdelayAlias(t *testing.T) {
 		t.Fatalf("last-wins nonblock=0 left O_NONBLOCK set (flags=%#x)", flags)
 	}
 }
+
+func TestOpenFlagsZeroAfterAlias(t *testing.T) {
+	spec, err := parse.ParseSpec("OPEN:x,o-rdonly,rdonly=0,o-wronly")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags, err := OpenFlags(spec, xio.ModeRead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags&os.O_WRONLY == 0 {
+		t.Fatalf("flags=%#x want write-only after rdonly=0,o-wronly", flags)
+	}
+}

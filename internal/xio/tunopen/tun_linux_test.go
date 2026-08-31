@@ -373,3 +373,56 @@ func TestInterfaceSyscallConnAndConnectedOnceLinux(t *testing.T) {
 		t.Fatalf("SO_KEEPALIVE setsockopt count=%d want 1", n)
 	}
 }
+
+func TestParseIffOptsAliasLastWins(t *testing.T) {
+	s, err := parse.ParseSpec("TUN,iff-up,up=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, clear := parseIffOpts(s)
+	if set&unix.IFF_UP != 0 {
+		t.Fatal("iff-up then up=0 left IFF_UP set")
+	}
+	if clear&unix.IFF_UP == 0 {
+		t.Fatal("want IFF_UP cleared after up=0")
+	}
+
+	s, err = parse.ParseSpec("TUN,up=0,iff-up")
+	if err != nil {
+		t.Fatal(err)
+	}
+	set, clear = parseIffOpts(s)
+	if set&unix.IFF_UP == 0 {
+		t.Fatal("later iff-up should set IFF_UP")
+	}
+	if clear&unix.IFF_UP != 0 {
+		t.Fatal("later iff-up should not clear IFF_UP")
+	}
+}
+
+func TestTUNNoPIAndMTUAliasLastWins(t *testing.T) {
+	s, err := parse.ParseSpec("TUN,no-pi,iff-no-pi=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.BoolOption("iff-no-pi") {
+		t.Fatal("iff-no-pi=0 after no-pi should disable")
+	}
+	s, err = parse.ParseSpec("TUN,if-mtu=1000,interface-mtu=888")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.OptionValue("if-mtu", ""); got != "888" {
+		t.Fatalf("if-mtu=%q want last alias 888", got)
+	}
+	s, err = parse.ParseSpec("TUN,tun-no-pi=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.HasOption("iff-no-pi") {
+		t.Fatal("tun-no-pi should fold onto iff-no-pi")
+	}
+	if s.BoolOption("iff-no-pi") {
+		t.Fatal("tun-no-pi=0 should be inactive")
+	}
+}

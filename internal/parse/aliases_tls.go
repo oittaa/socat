@@ -1,12 +1,13 @@
 package parse
 
 func init() {
-	registerOptionAliases(map[string]string{
+	registerOptionAliases(map[string]string{ // #nosec G101 -- option names, not secrets
 		"proxyauth":     "proxy-authorization",
 		"proxy-auth":    "proxy-authorization",
 		"proxyauthfile": "proxy-authorization-file",
 		"resolve":       "proxy-resolve",
 		"resolv":        "proxy-resolve",
+		"sockspassword": "sockspass",
 
 		// Alias map so openssl-* / tls-* nicknames fold onto canonical names.
 		"certificate":         "cert",

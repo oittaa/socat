@@ -82,7 +82,7 @@ func linuxExtFSFlagOps(s parse.Spec) []linuxExtFSFlagOp {
 		if !ok {
 			continue
 		}
-		out = append(out, linuxExtFSFlagOp{name: canon, mask: mask, enable: optionEnabled(o)})
+		out = append(out, linuxExtFSFlagOp{name: canon, mask: mask, enable: o.Active()})
 	}
 	return out
 }

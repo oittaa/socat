@@ -46,6 +46,36 @@ func TestParseTCPWrap(t *testing.T) {
 	}
 }
 
+func TestParseTCPWrapAliasLastWins(t *testing.T) {
+	s, err := parse.ParseSpec("TCP4-LISTEN:1234,hosts-allow=/tmp/a,allow-table=/tmp/b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := parseTCPWrap(s, nil)
+	if cfg.allow != "/tmp/b" {
+		t.Fatalf("allow=%q want last alias /tmp/b", cfg.allow)
+	}
+
+	s, err = parse.ParseSpec("TCP4-LISTEN:1234,tcpwrap=first,wrap=second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg = parseTCPWrap(s, &Global{Progname: "socat"})
+	if cfg.daemon != "second" {
+		t.Fatalf("daemon=%q want last alias second", cfg.daemon)
+	}
+
+	s, err = parse.ParseSpec("TCP4-LISTEN:1234,tcpwrap-etc=/etc/a,tcpwrap-dir=/etc/b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg = parseTCPWrap(s, nil)
+	wantAllow := filepath.Join("/etc/b", "hosts.allow")
+	if cfg.allow != wantAllow {
+		t.Fatalf("tcpwrap-dir last-wins allow=%q want %q", cfg.allow, wantAllow)
+	}
+}
+
 func TestMatchHostsTable(t *testing.T) {
 	dir := t.TempDir()
 	ha := filepath.Join(dir, "hosts.allow")

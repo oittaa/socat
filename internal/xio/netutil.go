@@ -485,13 +485,13 @@ func IsTimeoutErr(err error) bool {
 }
 
 // applyKeepAliveConfig builds net.KeepAliveConfig from the keepalive
-// family: keepalive/so-keepalive toggle, keepidle/keepintvl/keepcnt values.
+// family: keepalive toggle, keepidle/keepintvl/keepcnt values.
 // Any sub-option implies enable; an explicit keepalive=0 disables even when
 // sub-options are present. Unset fields keep their platform defaults.
 func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 	anyOpt := false
 	enable := true
-	for _, n := range []string{"keepalive", "so-keepalive", "keepidle", "keepintvl", "keepcnt"} {
+	for _, n := range []string{"keepalive", "keepidle", "keepintvl", "keepcnt"} {
 		if s.HasOption(n) {
 			anyOpt = true
 			break
@@ -500,8 +500,8 @@ func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 	if !anyOpt {
 		return nil
 	}
-	if s.HasOption("keepalive") || s.HasOption("so-keepalive") {
-		enable = s.BoolOption("keepalive") || s.BoolOption("so-keepalive")
+	if s.HasOption("keepalive") {
+		enable = s.BoolOption("keepalive")
 	}
 	// Negative values preserve the current OS settings. Zero would replace
 	// omitted fields with Go's defaults (15s/15s/9), which is not what a
@@ -565,8 +565,8 @@ func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
 		if err := applyKeepAliveConfig(s, tc); err != nil {
 			return err
 		}
-		if s.HasOption("nodelay") || s.HasOption("tcp-nodelay") {
-			enabled := s.BoolOption("nodelay") || s.BoolOption("tcp-nodelay")
+		if s.HasOption("nodelay") {
+			enabled := s.BoolOption("nodelay")
 			if err := tc.SetNoDelay(enabled); err != nil {
 				return fmt.Errorf("nodelay: %w", err)
 			}

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 
 	"github.com/oittaa/socat/internal/parse"
 )
@@ -50,7 +49,7 @@ func ApplyNamedPreopen(path string, s parse.Spec) error {
 			}
 		case "unlink":
 			// unlink=0 does not delete.
-			if !optionEnabled(o) {
+			if !o.Active() {
 				continue
 			}
 			if err := Unlink(path); err != nil && !os.IsNotExist(err) {
@@ -89,15 +88,4 @@ func parseModeT(name, v string) (os.FileMode, error) {
 		return 0, fmt.Errorf("invalid %s %q", name, v)
 	}
 	return UnixModeToFileMode(uint32(m)), nil
-}
-
-func optionEnabled(o parse.Option) bool {
-	if !o.Has {
-		return true
-	}
-	v := strings.ToLower(strings.TrimSpace(o.Value))
-	if v == "" {
-		return false
-	}
-	return v != "0" && v != "false" && v != "no" && v != "off"
 }

@@ -528,7 +528,7 @@ func OpenFlags(s parse.Spec, mode xio.Mode) (int, error) {
 	// access mode. Preserve that ordering across aliases instead of making
 	// wronly win unconditionally.
 	for _, o := range s.Options {
-		if !fileOptionEnabled(o) {
+		if !o.Active() {
 			continue
 		}
 		switch parse.CanonicalOptionName(o.Name) {

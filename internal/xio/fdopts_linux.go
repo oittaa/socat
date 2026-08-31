@@ -25,7 +25,7 @@ func applyLinuxPHFDOption(fd int, o parse.Option) error {
 	name := parse.CanonicalOptionName(o.Name)
 	if mask, ok := linuxExtFSFlagMasks[name]; ok {
 		noteLifecycleSyscall("FS_IOC_SETFLAGS")
-		if err := applyFSIoctlMask(fd, mask, optionEnabled(o)); err != nil {
+		if err := applyFSIoctlMask(fd, mask, o.Active()); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
 		return nil
@@ -40,7 +40,7 @@ func applyLinuxPHFDOption(fd int, o parse.Option) error {
 }
 
 func applyOneNoatime(fd int, o parse.Option) error {
-	enable := optionEnabled(o)
+	enable := o.Active()
 	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
 	if err != nil {
 		return fmt.Errorf("o-noatime: %w", err)
