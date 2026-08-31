@@ -15,19 +15,26 @@ values. Do not guess.
 The stream cases do **not** read `/dev/zero`.
 
 A compress option (classic `OPENSSL` compress, or a later flag) would make a
-zero stream look much faster than real data. The default payload is a cached
+zero stream look much faster than real data. The default payload is a fresh
 **AES-128-CTR** blob of the requested size (zeros go into the cipher only).
-That ciphertext does not compress.
+That ciphertext does not compress. It is generated at the start of each run.
 
 Set `SOCAT_BENCH_PAYLOAD=/path/to/file` to use your own file. The file must be
 at least `SOCAT_BENCH_SIZE` bytes. The runner copies that many bytes.
 
-Working files live under `testdata/tmp/bench/` (gitignored). On Linux, payloads
-and sinks use `/dev/shm` when it is writable. The runner keeps at most one raw
-payload and its matching UDP-framed variant, removes obsolete cache variants,
-and cleans temporary sinks on exit or at the next start after an interrupted
-run. It also checks available space before creating large files and fails
-early when the selected payload will not fit.
+Payloads, framed UDP, sinks, logs, certs, and `benchclient` live in a
+`tempfile.TemporaryDirectory` named `run-*` inside a locked per-user root.
+On Linux that root is `/dev/shm/socat-bench-<uid>` when `/dev/shm` is
+writable and allows executing binaries; otherwise it is
+`$SOCAT_BENCH_WORKDIR/storage`. The runner holds
+the lock for the whole run so concurrent jobs cannot both pass the free-space
+check, removes leftover `run-*` directories after taking the lock (SIGKILL
+survivors), and deletes the current run directory on exit, including Ctrl+C.
+JSON and summary are written only at the end, first into the run directory
+and then to `SOCAT_BENCH_OUT` (default `testdata/tmp/bench/`, gitignored) and
+`SOCAT_BENCH_SAVE_BASELINE` (the committed snapshot). The runner checks free
+space before creating large files and fails early when the selected payload
+will not fit.
 
 ## Run
 
@@ -122,8 +129,10 @@ receiver is terminated after the quiet interval.
 |----------|---------|---------|
 | `SOCAT_BIN` | `./socat` | Go binary |
 | `SOCAT_CLASSIC_BIN` | `socat` on PATH | Classic C binary override |
-| `SOCAT_BENCH_CLIENT_BIN` | work directory `benchclient` | Benchmark helper binary override |
+| `SOCAT_BENCH_CLIENT_BIN` | run directory `benchclient` | Benchmark helper binary override |
 | `SOCAT_BENCH_OPENSSL_BIN` | `openssl` on PATH | Optional classic TLS probe client |
+| `SOCAT_BENCH_WORKDIR` | `testdata/tmp/bench` | Default JSON/summary copy destination; fallback storage root |
+| `SOCAT_BENCH_OUT` | `$SOCAT_BENCH_WORKDIR/results.json` | JSON written at the end of a successful run |
 | `SOCAT_BENCH_SIZE` | `256M` | Stream payload (MiB if `M`) |
 | `SOCAT_BENCH_RUNS` | `5` | Timed runs |
 | `SOCAT_BENCH_WARMUP` | `1` | Untimed runs |
@@ -141,8 +150,9 @@ Both binaries use `-b 8192` and bind `127.0.0.1`.
 
 ## Output
 
-Each run writes JSON (`meta` + `cases`) and a text summary. Structured JSON is
-the source of truth. The table below must match `testdata/bench/host.json`.
+Each run writes JSON (`meta` + `cases`) and a text summary at the end.
+Structured JSON is the source of truth. The table below must match
+`testdata/bench/host.json`.
 Datagram rows (`udp`) contain separate `send_mib_s` and
 `receive_mib_s` distributions and datagram delivery counters rather than the
 stream-only `mib_s` field.

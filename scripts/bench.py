@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Loopback socat benchmarks: classic C vs this Go binary.
 
-Payload is a cached AES-128-CTR blob (incompressible). /dev/zero is not used
+Payload is a fresh AES-128-CTR blob (incompressible). /dev/zero is not used
 because any compress option would inflate those numbers.
 """
 from __future__ import annotations
@@ -21,9 +21,10 @@ import tempfile
 import threading
 import time
 import zlib
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, BinaryIO, Iterator
+from typing import Any, BinaryIO
 
 if os.name == "nt":
     import msvcrt
@@ -32,6 +33,7 @@ else:
 
 ROOT = Path(__file__).resolve().parent.parent
 MIB = 1024 * 1024
+STORAGE_RESERVE = 64 * MIB
 
 DEFAULT_CASES = (
     "tcp",
@@ -60,7 +62,6 @@ DATAGRAM_MAGIC = b"SCL1"
 DATAGRAM_HEADER = struct.Struct("!4sQII")  # magic, sequence, payload length, CRC32
 DATAGRAM_MAX_SIZE = 65507
 DATAGRAM_QUIET_SECONDS = 0.25
-STORAGE_RESERVE = 64 * MIB
 
 
 def parse_size(text: str) -> int:
@@ -124,9 +125,7 @@ def git_head(root: Path) -> str:
     if override:
         return override
     try:
-        commit = run_cmd(
-            ["git", "-C", str(root), "rev-parse", "--short", "HEAD"], timeout=5
-        )
+        commit = run_cmd(["git", "-C", str(root), "rev-parse", "--short", "HEAD"], timeout=5)
     except (OSError, subprocess.TimeoutExpired):
         return ""
     is_hex = all(char in "0123456789abcdef" for char in commit.lower())
@@ -157,9 +156,7 @@ def run_checked(cmd: list[str], *, cwd: Path = ROOT, quiet: bool = False) -> Non
         raise SystemExit(f"required executable not found: {cmd[0]}") from exc
     except subprocess.CalledProcessError as exc:
         detail = f": {(exc.stdout or '').strip()}" if quiet and exc.stdout else ""
-        raise SystemExit(
-            f"command failed ({exc.returncode}): {' '.join(cmd)}{detail}"
-        ) from exc
+        raise SystemExit(f"command failed ({exc.returncode}): {' '.join(cmd)}{detail}") from exc
     if quiet and not completed.stdout:
         raise SystemExit(f"command produced no result: {' '.join(cmd)}")
 
@@ -173,10 +170,7 @@ def build_go_binary(output: Path, package: str, *, versioned: bool = False) -> N
         )
         if not version or version.startswith("fatal:"):
             version = os.environ.get("SOCAT_BENCH_GIT_COMMIT", "dev") or "dev"
-        cmd += [
-            "-ldflags",
-            f"-s -w -X github.com/oittaa/socat.Version={version}",
-        ]
+        cmd += ["-ldflags", f"-s -w -X github.com/oittaa/socat.Version={version}"]
     cmd += ["-o", str(output), package]
     output.parent.mkdir(parents=True, exist_ok=True)
     run_checked(cmd)
@@ -215,9 +209,7 @@ def generate_certs(benchclient: Path, cert_dir: Path) -> dict[str, Path]:
         return certs
 
     cert_dir.mkdir(parents=True, exist_ok=True)
-    run_checked(
-        [str(benchclient), "-mode", "cert", "-cert-dir", str(cert_dir)], quiet=True
-    )
+    run_checked([str(benchclient), "-mode", "cert", "-cert-dir", str(cert_dir)], quiet=True)
     certs = {
         "ca": cert_dir / "ca.pem",
         "crt": cert_dir / "server.crt",
@@ -229,9 +221,9 @@ def generate_certs(benchclient: Path, cert_dir: Path) -> dict[str, Path]:
     return certs
 
 
-def setup_benchmark(workdir: Path) -> None:
-    workdir.mkdir(parents=True, exist_ok=True)
-    (workdir / "logs").mkdir(exist_ok=True)
+def setup_benchmark(run_dir: Path) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "logs").mkdir(exist_ok=True)
 
     configured_socat = os.environ.get("SOCAT_BIN", "").strip()
     socat = Path(configured_socat) if configured_socat else ROOT / executable_name("socat")
@@ -242,19 +234,15 @@ def setup_benchmark(workdir: Path) -> None:
 
     configured_client = os.environ.get("SOCAT_BENCH_CLIENT_BIN", "").strip()
     benchclient = (
-        Path(configured_client)
-        if configured_client
-        else workdir / executable_name("benchclient")
+        Path(configured_client) if configured_client else run_dir / executable_name("benchclient")
     )
     if not env_enabled("SOCAT_BENCH_SKIP_CLIENT_BUILD") and not configured_client:
         build_go_binary(benchclient, "./scripts/benchclient")
     if not benchclient.is_file() or not os.access(benchclient, os.X_OK):
         raise SystemExit(f"benchclient not found: {benchclient}")
 
-    certs = generate_certs(benchclient, workdir / "certs")
-    openssl = os.environ.get("SOCAT_BENCH_OPENSSL_BIN", "").strip()
-    if not openssl:
-        openssl = shutil.which("openssl") or ""
+    certs = generate_certs(benchclient, run_dir / "certs")
+    openssl = os.environ.get("SOCAT_BENCH_OPENSSL_BIN", "").strip() or shutil.which("openssl") or ""
 
     classic = discover_classic(socat)
     if classic and not Path(classic).is_file():
@@ -317,14 +305,14 @@ def probe_go_client(
     server_bin: str,
     proto: str,
     certs: dict[str, Path],
-    workdir: Path,
+    run_dir: Path,
     benchclient: Path,
     tag: str,
     impl: str = "go",
 ) -> dict[str, Any]:
     port = free_tcp_port()
     listen = echo_listen(proto if proto != "quic" else "quic", port, certs, fork=True, impl=impl)
-    slog = workdir / "logs" / f"{tag}.server.log"
+    slog = run_dir / "logs" / f"{tag}.server.log"
     server = start_socat(server_bin, [listen, "PIPE"], slog)
     try:
         if proto == "quic":
@@ -369,12 +357,12 @@ def probe_openssl_sclient(
     *,
     server_bin: str,
     certs: dict[str, Path],
-    workdir: Path,
+    run_dir: Path,
     tag: str,
 ) -> dict[str, Any]:
     port = free_tcp_port()
     listen = echo_listen("tls", port, certs, fork=True, impl="classic")
-    slog = workdir / "logs" / f"{tag}.server.log"
+    slog = run_dir / "logs" / f"{tag}.server.log"
     server = start_socat(server_bin, [listen, "PIPE"], slog)
     try:
         wait_tcp(port)
@@ -412,7 +400,7 @@ def probe_all(
     go_bin: str,
     classic_bin: str | None,
     certs: dict[str, Path],
-    workdir: Path,
+    run_dir: Path,
     benchclient: Path,
 ) -> dict[str, Any]:
     """Record the handshake each bench pairing actually negotiates."""
@@ -422,7 +410,7 @@ def probe_all(
         server_bin=go_bin,
         proto="tls",
         certs=certs,
-        workdir=workdir,
+        run_dir=run_dir,
         benchclient=benchclient,
         tag="probe.go-go",
         impl="go",
@@ -432,7 +420,7 @@ def probe_all(
         server_bin=go_bin,
         proto="quic",
         certs=certs,
-        workdir=workdir,
+        run_dir=run_dir,
         benchclient=benchclient,
         tag="probe.go-quic",
     )
@@ -442,7 +430,7 @@ def probe_all(
             out["openssl_client_classic_server"] = probe_openssl_sclient(
                 server_bin=classic_bin,
                 certs=certs,
-                workdir=workdir,
+                run_dir=run_dir,
                 tag="probe.ossl-classic",
             )
         else:
@@ -455,7 +443,7 @@ def probe_all(
             server_bin=classic_bin,
             proto="tls",
             certs=certs,
-            workdir=workdir,
+            run_dir=run_dir,
             benchclient=benchclient,
             tag="probe.go-classic",
             impl="classic",
@@ -504,11 +492,47 @@ def payload_sha256(path: Path, limit: int = 1024 * 1024) -> str:
     return f"{h.hexdigest()} (first {n} bytes)"
 
 
-def benchmark_storage_root(workdir: Path) -> Path:
+def dir_allows_exec(directory: Path) -> bool:
+    probe = directory / ".exec-probe"
+    try:
+        probe.write_bytes(b"")
+        probe.chmod(0o700)
+        return os.access(probe, os.X_OK)
+    except OSError:
+        return False
+    finally:
+        probe.unlink(missing_ok=True)
+
+
+def linux_shm_root() -> Path | None:
     shm = Path("/dev/shm")
-    if os.name != "nt" and shm.is_dir() and os.access(shm, os.W_OK):
-        return shm / f"socat-bench-{os.getuid()}"
-    return workdir / "storage"
+    if not (sys.platform.startswith("linux") and shm.is_dir() and os.access(shm, os.W_OK)):
+        return None
+    candidate = shm / f"socat-bench-{os.getuid()}"
+    try:
+        prepare_storage_root(candidate)
+    except SystemExit:
+        return None
+    if not dir_allows_exec(candidate):
+        return None
+    return candidate
+
+
+def benchmark_storage_root(workdir: Path) -> Path:
+    return linux_shm_root() or workdir / "storage"
+
+
+def prepare_storage_root(root: Path) -> None:
+    if os.name == "nt":
+        root.mkdir(parents=True, exist_ok=True)
+    else:
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if root.is_symlink():
+        raise SystemExit(f"benchmark storage must not be a symlink: {root}")
+    if os.name != "nt":
+        if root.stat().st_uid != os.getuid():
+            raise SystemExit(f"benchmark storage is owned by another user: {root}")
+        root.chmod(0o700)
 
 
 def lock_file(f: BinaryIO) -> None:
@@ -531,86 +555,12 @@ def unlock_file(f: BinaryIO) -> None:
         fcntl.flock(f.fileno(), fcntl.LOCK_UN)
 
 
-@contextmanager
-def benchmark_storage(workdir: Path) -> Iterator[tuple[Path, Path, Path]]:
-    root = benchmark_storage_root(workdir)
-    if os.name == "nt":
-        root.mkdir(parents=True, exist_ok=True)
-    else:
-        root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if root.is_symlink():
-        raise SystemExit(f"benchmark storage must not be a symlink: {root}")
-    if os.name != "nt":
-        if root.stat().st_uid != os.getuid():
-            raise SystemExit(f"benchmark storage is owned by another user: {root}")
-        root.chmod(0o700)
-
-    with (root / ".lock").open("a+b") as lock:
-        lock_file(lock)
-        run_dir: Path | None = None
-        try:
-            cache_dir = root / "cache"
-            if os.name == "nt":
-                cache_dir.mkdir(exist_ok=True)
-            else:
-                cache_dir.mkdir(mode=0o700, exist_ok=True)
-            for stale in root.glob("run-*"):
-                if stale.is_symlink() or stale.is_file():
-                    stale.unlink(missing_ok=True)
-                elif stale.is_dir():
-                    shutil.rmtree(stale)
-            run_dir = Path(tempfile.mkdtemp(prefix="run-", dir=root))
-            yield root, cache_dir, run_dir
-        finally:
-            if run_dir is not None:
-                shutil.rmtree(run_dir, ignore_errors=True)
-            unlock_file(lock)
-
-
-def payload_target(cache_dir: Path, size: int) -> tuple[Path, Path | None, str]:
-    given = os.environ.get("SOCAT_BENCH_PAYLOAD", "").strip()
-    if given:
-        src = Path(given)
-        if not src.is_file():
-            raise SystemExit(f"SOCAT_BENCH_PAYLOAD is not a file: {src}")
-        st = src.stat().st_size
-        if st < size:
-            raise SystemExit(
-                f"SOCAT_BENCH_PAYLOAD {src} is {st} bytes; need at least {size}. "
-                "Do not use /dev/zero (compressible)."
-            )
-        identity = hashlib.sha256(
-            f"{src.resolve()}:{st}:{src.stat().st_mtime_ns}:{size}".encode("utf-8")
-        ).hexdigest()[:12]
-        return cache_dir / f"payload.file.{size}.{identity}", src, f"file:{src}"
-
-    return cache_dir / f"payload.aes-ctr.{size}", None, "aes-128-ctr (incompressible)"
-
-
-def ensure_payload(cache_dir: Path, size: int) -> tuple[Path, str]:
-    dest, src, note = payload_target(cache_dir, size)
-    if dest.is_file() and dest.stat().st_size == size:
-        if src is None:
-            note = "aes-128-ctr (cached, incompressible)"
-        return dest, note
-    dest.unlink(missing_ok=True)
-
-    if src is not None:
-        copy_prefix(src, dest, size)
-    else:
-        generate_aes_ctr(dest, size)
-    return dest, note
-
-
-def prune_cache(cache_dir: Path, keep: set[Path]) -> None:
-    keep_resolved = {path.resolve() for path in keep}
-    for path in cache_dir.iterdir():
-        if path.resolve() in keep_resolved:
-            continue
-        if path.is_symlink() or path.is_file():
-            path.unlink(missing_ok=True)
-        elif path.is_dir():
-            shutil.rmtree(path)
+def remove_stale_runs(root: Path) -> None:
+    for stale in root.glob("run-*"):
+        if stale.is_symlink() or stale.is_file():
+            stale.unlink(missing_ok=True)
+        elif stale.is_dir():
+            shutil.rmtree(stale)
 
 
 def require_free_space(path: Path, needed: int) -> None:
@@ -621,6 +571,42 @@ def require_free_space(path: Path, needed: int) -> None:
         f"benchmark needs {needed / MIB:.0f} MiB free on {path} but only "
         f"{free / MIB:.0f} MiB is available; reduce SOCAT_BENCH_SIZE or free space"
     )
+
+
+def payload_budget(size: int, buffer: int, wanted: tuple[str, ...]) -> int:
+    needed = size
+    if "udp" in wanted:
+        needed += datagram_frame_count(size, buffer) * buffer
+    if any(case in STREAM_CASES or case in DATAGRAM_CASES for case in wanted):
+        sink = size
+        if "udp" in wanted:
+            sink = max(sink, datagram_frame_count(size, buffer) * buffer)
+        needed += sink
+    return needed + STORAGE_RESERVE
+
+
+@contextmanager
+def run_session(workdir: Path, needed: int) -> Iterator[Path]:
+    """Locked per-user root; scratch files live in a fresh run-* directory."""
+    root = benchmark_storage_root(workdir)
+    prepare_storage_root(root)
+    with (root / ".lock").open("a+b") as lock:
+        lock_file(lock)
+        tmp: tempfile.TemporaryDirectory[str] | None = None
+        try:
+            remove_stale_runs(root)
+            kwargs: dict[str, Any] = {"prefix": "run-", "dir": str(root)}
+            try:
+                tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True, **kwargs)
+            except TypeError:
+                tmp = tempfile.TemporaryDirectory(**kwargs)
+            run_dir = Path(tmp.name)
+            require_free_space(run_dir, needed)
+            yield run_dir
+        finally:
+            if tmp is not None:
+                tmp.cleanup()
+            unlock_file(lock)
 
 
 def datagram_frame_count(size: int, buffer: int) -> int:
@@ -636,92 +622,59 @@ def datagram_frame_count(size: int, buffer: int) -> int:
     return (size + payload_per_frame - 1) // payload_per_frame
 
 
-def datagram_payload_target(payload: Path, size: int, buffer: int) -> tuple[Path, int, int]:
+def write_datagram_payload(src: Path, dest: Path, size: int, buffer: int) -> tuple[int, int]:
+    """Frame source bytes into dest. Returns (frame_count, wire_size)."""
     frame_count = datagram_frame_count(size, buffer)
     wire_size = frame_count * buffer
-    stat = payload.stat()
-    cache_key = hashlib.sha256(
-        f"{payload.resolve()}:{stat.st_size}:{stat.st_mtime_ns}:{size}".encode("utf-8")
-    ).hexdigest()[:12]
-    dest = payload.with_name(f"{payload.name}.datagram-v1.{buffer}.{cache_key}")
-    return dest, frame_count, wire_size
-
-
-def ensure_datagram_payload(payload: Path, size: int, buffer: int) -> tuple[Path, int, int]:
-    """Frame source bytes into fixed-size, self-validating datagrams."""
-    dest, frame_count, wire_size = datagram_payload_target(payload, size, buffer)
-    if dest.is_file() and dest.stat().st_size == wire_size:
-        return dest, frame_count, wire_size
-    dest.unlink(missing_ok=True)
-
     payload_per_frame = buffer - DATAGRAM_HEADER.size
-    tmp = dest.with_suffix(dest.suffix + ".tmp")
     written = 0
-    with payload.open("rb") as source, tmp.open("wb") as out:
+    with src.open("rb") as source, dest.open("wb") as out:
         for sequence in range(frame_count):
             payload_len = min(payload_per_frame, size - written)
             data = source.read(payload_len)
             if len(data) != payload_len:
-                tmp.unlink(missing_ok=True)
+                dest.unlink(missing_ok=True)
                 raise ValueError(f"datagram payload ended after {written + len(data)} bytes; want {size}")
             out.write(DATAGRAM_HEADER.pack(DATAGRAM_MAGIC, sequence, payload_len, zlib.crc32(data)))
             out.write(data)
             out.write(b"\x00" * (payload_per_frame - payload_len))
             written += payload_len
-    if written != size or tmp.stat().st_size != wire_size:
-        tmp.unlink(missing_ok=True)
+    if written != size or dest.stat().st_size != wire_size:
+        dest.unlink(missing_ok=True)
         raise ValueError(f"failed to frame {size} datagram payload bytes")
-    tmp.replace(dest)
-    return dest, frame_count, wire_size
+    return frame_count, wire_size
 
 
 def prepare_payload(
-    storage_root: Path,
-    cache_dir: Path,
+    run_dir: Path,
     size: int,
     buffer: int,
     wanted: tuple[str, ...],
-) -> tuple[Path, str]:
-    target, _, _ = payload_target(cache_dir, size)
-    raw_cached = target.is_file() and target.stat().st_size == size
-    keep = {target}
-    framed_target: Path | None = None
-    framed_wire_size = 0
-    if raw_cached and "udp" in wanted:
-        framed_target, _, framed_wire_size = datagram_payload_target(target, size, buffer)
-        if framed_target.exists() and framed_target.stat().st_size != framed_wire_size:
-            framed_target.unlink()
-        keep.add(framed_target)
-    elif "udp" in wanted:
-        framed_wire_size = datagram_frame_count(size, buffer) * buffer
+    benchclient: Path,
+) -> tuple[Path, str, Path | None]:
+    dest = run_dir / "payload"
+    given = os.environ.get("SOCAT_BENCH_PAYLOAD", "").strip()
+    if given:
+        src = Path(given)
+        if not src.is_file():
+            raise SystemExit(f"SOCAT_BENCH_PAYLOAD is not a file: {src}")
+        st = src.stat().st_size
+        if st < size:
+            raise SystemExit(
+                f"SOCAT_BENCH_PAYLOAD {src} is {st} bytes; need at least {size}. "
+                "Do not use /dev/zero (compressible)."
+            )
+        copy_prefix(src, dest, size)
+        note = f"file:{src}"
+    else:
+        generate_aes_ctr(benchclient, dest, size)
+        note = "aes-128-ctr (incompressible)"
 
-    if target.exists() and not raw_cached:
-        target.unlink()
-
-    prune_cache(cache_dir, keep)
-
-    missing = 0 if raw_cached else size
-    if "udp" in wanted and (
-        framed_target is None
-        or not framed_target.is_file()
-        or framed_target.stat().st_size != framed_wire_size
-    ):
-        missing += framed_wire_size
-
-    sink_size = 0
-    if any(case in STREAM_CASES for case in wanted):
-        sink_size = size
+    framed: Path | None = None
     if "udp" in wanted:
-        sink_size = max(sink_size, framed_wire_size)
-    require_free_space(storage_root, missing + sink_size + STORAGE_RESERVE)
-
-    payload, note = ensure_payload(cache_dir, size)
-    keep = {payload}
-    if "udp" in wanted:
-        framed, _, _ = ensure_datagram_payload(payload, size, buffer)
-        keep.add(framed)
-    prune_cache(cache_dir, keep)
-    return payload, note
+        framed = run_dir / "payload.dgram"
+        write_datagram_payload(dest, framed, size, buffer)
+    return dest, note, framed
 
 
 def analyze_datagram_sink(sink: Path, size: int, buffer: int) -> dict[str, Any]:
@@ -783,9 +736,7 @@ def analyze_datagram_sink(sink: Path, size: int, buffer: int) -> dict[str, Any]:
 
 
 def copy_prefix(src: Path, dest: Path, size: int) -> None:
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest.with_suffix(dest.suffix + ".tmp")
-    with src.open("rb") as inf, tmp.open("wb") as out:
+    with src.open("rb") as inf, dest.open("wb") as out:
         left = size
         while left > 0:
             chunk = inf.read(min(1024 * 1024, left))
@@ -793,20 +744,14 @@ def copy_prefix(src: Path, dest: Path, size: int) -> None:
                 break
             out.write(chunk)
             left -= len(chunk)
-    if tmp.stat().st_size != size:
-        tmp.unlink(missing_ok=True)
+    if dest.stat().st_size != size:
+        dest.unlink(missing_ok=True)
         raise SystemExit(f"failed to copy {size} bytes from {src}")
-    tmp.replace(dest)
 
 
-def generate_aes_ctr(dest: Path, size: int) -> None:
-    """Write deterministic AES-128-CTR bytes using the benchmark helper."""
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    benchclient = os.environ.get("SOCAT_BENCH_CLIENT_BIN", "").strip()
-    if not benchclient:
-        raise SystemExit("SOCAT_BENCH_CLIENT_BIN is not configured")
+def generate_aes_ctr(benchclient: Path, dest: Path, size: int) -> None:
     run_checked(
-        [benchclient, "-mode", "payload", "-out", str(dest), "-size", str(size)],
+        [str(benchclient), "-mode", "payload", "-out", str(dest), "-size", str(size)],
         quiet=True,
     )
     if not dest.is_file() or dest.stat().st_size != size:
@@ -956,9 +901,8 @@ def start_socat(bin_path: str, extra: list[str], log: Path) -> subprocess.Popen:
     log.parent.mkdir(parents=True, exist_ok=True)
     fh = log.open("w", encoding="utf-8")
     try:
-        process_group: dict[str, Any]
         if os.name == "nt":
-            process_group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+            process_group: dict[str, Any] = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
         else:
             process_group = {"start_new_session": True}
         return subprocess.Popen(
@@ -1083,24 +1027,23 @@ def run_datagram_once(
     *,
     case: str,
     bin_path: str,
-    payload: Path,
+    framed_payload: Path,
     size: int,
     buffer: int,
     certs: dict[str, Path],
-    workdir: Path,
     run_dir: Path,
     tag: str,
 ) -> dict[str, Any]:
     if case not in DATAGRAM_CASES:
         raise ValueError(case)
-    framed_payload, _, wire_size = ensure_datagram_payload(payload, size, buffer)
+    wire_size = framed_payload.stat().st_size
     port = free_udp_port()
-    sock = workdir / f"{tag}.sock"
+    sock = run_dir / f"{tag}.sock"
     sink = run_dir / f"sink.{tag}"
     sink.unlink(missing_ok=True)
     listen, connect = stream_addrs(case, port, sock, certs)
-    slog = workdir / "logs" / f"{tag}.server.log"
-    clog = workdir / "logs" / f"{tag}.client.log"
+    slog = run_dir / "logs" / f"{tag}.server.log"
+    clog = run_dir / "logs" / f"{tag}.client.log"
     server = start_socat(bin_path, ["-u", listen, f"OPEN:{sink},creat,trunc,wronly"], slog)
     sampler: RSSSampler | None = None
     label = "UDP"
@@ -1173,19 +1116,18 @@ def run_stream_once(
     payload: Path,
     size: int,
     certs: dict[str, Path],
-    workdir: Path,
     run_dir: Path,
     tag: str,
 ) -> dict[str, Any]:
     port = free_tcp_port()
-    sock = workdir / f"{tag}.sock"
+    sock = run_dir / f"{tag}.sock"
     sink = run_dir / f"sink.{tag}"
     sink.unlink(missing_ok=True)
     if sock.exists():
         sock.unlink()
     listen, connect = stream_addrs(case, port, sock, certs, impl=impl)
-    slog = workdir / "logs" / f"{tag}.server.log"
-    clog = workdir / "logs" / f"{tag}.client.log"
+    slog = run_dir / "logs" / f"{tag}.server.log"
+    clog = run_dir / "logs" / f"{tag}.client.log"
     server = start_socat(bin_path, ["-u", listen, f"OPEN:{sink},creat,trunc,wronly"], slog)
     try:
         listen_wait(case, port, sock)
@@ -1284,7 +1226,7 @@ def run_client_once(
     bin_path: str,
     case: str,
     certs: dict[str, Path],
-    workdir: Path,
+    run_dir: Path,
     benchclient: Path,
     tag: str,
     mode: str,
@@ -1295,7 +1237,7 @@ def run_client_once(
     port = free_tcp_port()
     fork = mode == "hs"
     listen = echo_listen(case, port, certs, fork=fork, impl=impl)
-    slog = workdir / "logs" / f"{tag}.server.log"
+    slog = run_dir / "logs" / f"{tag}.server.log"
     server = start_socat(bin_path, [listen, "PIPE"], slog)
     try:
         if proto_of(case) == "quic":
@@ -1553,33 +1495,49 @@ def write_summary(doc: dict[str, Any], path: Path) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def publish_results(doc: dict[str, Any], dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
+    write_summary(doc, dest.with_suffix(".summary.txt"))
+
+
+def _exit_on_sigterm(signum: int, _frame: object) -> None:
+    raise SystemExit(128 + signum)
+
+
 def main() -> int:
     os.chdir(ROOT)
+    if os.name != "nt":
+        signal.signal(signal.SIGTERM, _exit_on_sigterm)
     workdir = Path(os.environ.get("SOCAT_BENCH_WORKDIR", str(ROOT / "testdata/tmp/bench")))
-    setup_benchmark(workdir)
-    with benchmark_storage(workdir) as (storage_root, cache_dir, run_dir):
-        return run_benchmark(workdir, storage_root, cache_dir, run_dir)
+    size = parse_size(os.environ.get("SOCAT_BENCH_SIZE", "256M"))
+    buffer = int(os.environ.get("SOCAT_BENCH_BUFFER", "8192"))
+    probe_only = os.environ.get("SOCAT_BENCH_PROBE_ONLY", "") == "1"
+    wanted = tuple(sys.argv[1:] or (() if probe_only else DEFAULT_CASES))
+    needed = 0 if probe_only else payload_budget(size, buffer, wanted)
+    with run_session(workdir, needed) as run_dir:
+        setup_benchmark(run_dir)
+        return run_benchmark(run_dir, workdir, size, buffer, wanted, probe_only)
 
 
 def run_benchmark(
-    workdir: Path, storage_root: Path, cache_dir: Path, run_dir: Path
+    run_dir: Path,
+    workdir: Path,
+    size: int,
+    buffer: int,
+    wanted: tuple[str, ...],
+    probe_only: bool,
 ) -> int:
-    size = parse_size(os.environ.get("SOCAT_BENCH_SIZE", "256M"))
     runs = int(os.environ.get("SOCAT_BENCH_RUNS", "5"))
     warmup = int(os.environ.get("SOCAT_BENCH_WARMUP", "1"))
-    buffer = int(os.environ.get("SOCAT_BENCH_BUFFER", "8192"))
     socat = os.environ.get("SOCAT_BIN", str(ROOT / "socat"))
     classic = os.environ.get("SOCAT_CLASSIC_BIN", "").strip()
-    benchclient = Path(
-        os.environ.get("SOCAT_BENCH_CLIENT_BIN", str(workdir / "benchclient"))
-    )
+    benchclient = Path(os.environ.get("SOCAT_BENCH_CLIENT_BIN", str(run_dir / "benchclient")))
     certs = {
         "ca": Path(os.environ["SOCAT_BENCH_CA"]),
         "crt": Path(os.environ["SOCAT_BENCH_CERT"]),
         "key": Path(os.environ["SOCAT_BENCH_KEY"]),
     }
-    probe_only = os.environ.get("SOCAT_BENCH_PROBE_ONLY", "") == "1"
-    wanted = tuple(sys.argv[1:] or (() if probe_only else DEFAULT_CASES))
     for c in wanted:
         if c not in STREAM_CASES | DATAGRAM_CASES | RR_CASES | HS_CASES:
             raise SystemExit(f"unknown case {c}; want {', '.join(DEFAULT_CASES)}")
@@ -1590,7 +1548,7 @@ def run_benchmark(
             go_bin=socat,
             classic_bin=classic or None,
             certs=certs,
-            workdir=workdir,
+            run_dir=run_dir,
             benchclient=benchclient,
         )
         print(json.dumps(tls, indent=2), flush=True)
@@ -1598,12 +1556,13 @@ def run_benchmark(
         if save and Path(save).is_file():
             doc = json.loads(Path(save).read_text(encoding="utf-8"))
             doc.setdefault("meta", {})["tls"] = tls
-            Path(save).write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
-            write_summary(doc, Path(save).with_suffix(".summary.txt"))
+            publish_results(doc, Path(save))
             print(f"updated tls probe in {save}", flush=True)
         return 0 if all(v.get("ok") for v in tls.values() if isinstance(v, dict)) else 1
 
-    payload, payload_note = prepare_payload(storage_root, cache_dir, size, buffer, wanted)
+    payload, payload_note, framed_payload = prepare_payload(
+        run_dir, size, buffer, wanted, benchclient
+    )
     args = {
         "socat": socat,
         "classic": classic or None,
@@ -1621,7 +1580,7 @@ def run_benchmark(
         go_bin=socat,
         classic_bin=classic or None,
         certs=certs,
-        workdir=workdir,
+        run_dir=run_dir,
         benchclient=benchclient,
     )
 
@@ -1669,7 +1628,6 @@ def run_benchmark(
                             payload=payload,
                             size=size,
                             certs=certs,
-                            workdir=workdir,
                             run_dir=run_dir,
                             tag=f"{case}.{impl}.warmup{i}",
                         )
@@ -1682,22 +1640,22 @@ def run_benchmark(
                                 payload=payload,
                                 size=size,
                                 certs=certs,
-                                workdir=workdir,
                                 run_dir=run_dir,
                                 tag=f"{case}.{impl}.{i}",
                             )
                         )
                     summary = summarize_stream(samples)
                 elif case in DATAGRAM_CASES:
+                    if framed_payload is None:
+                        raise RuntimeError("udp case is missing a framed payload")
                     for i in range(warmup):
                         run_datagram_once(
                             case=case,
                             bin_path=bin_path,
-                            payload=payload,
+                            framed_payload=framed_payload,
                             size=size,
                             buffer=buffer,
                             certs=certs,
-                            workdir=workdir,
                             run_dir=run_dir,
                             tag=f"{case}.{impl}.warmup{i}",
                         )
@@ -1706,11 +1664,10 @@ def run_benchmark(
                             run_datagram_once(
                                 case=case,
                                 bin_path=bin_path,
-                                payload=payload,
+                                framed_payload=framed_payload,
                                 size=size,
                                 buffer=buffer,
                                 certs=certs,
-                                workdir=workdir,
                                 run_dir=run_dir,
                                 tag=f"{case}.{impl}.{i}",
                             )
@@ -1723,7 +1680,7 @@ def run_benchmark(
                             bin_path=bin_path,
                             case=case,
                             certs=certs,
-                            workdir=workdir,
+                            run_dir=run_dir,
                             benchclient=benchclient,
                             tag=f"{case}.{impl}.warmup{i}",
                             mode="rr",
@@ -1738,7 +1695,7 @@ def run_benchmark(
                                 bin_path=bin_path,
                                 case=case,
                                 certs=certs,
-                                workdir=workdir,
+                                run_dir=run_dir,
                                 benchclient=benchclient,
                                 tag=f"{case}.{impl}.{i}",
                                 mode="rr",
@@ -1755,7 +1712,7 @@ def run_benchmark(
                             bin_path=bin_path,
                             case=case,
                             certs=certs,
-                            workdir=workdir,
+                            run_dir=run_dir,
                             benchclient=benchclient,
                             tag=f"{case}.{impl}.warmup{i}",
                             mode="hs",
@@ -1770,7 +1727,7 @@ def run_benchmark(
                                 bin_path=bin_path,
                                 case=case,
                                 certs=certs,
-                                workdir=workdir,
+                                run_dir=run_dir,
                                 benchclient=benchclient,
                                 tag=f"{case}.{impl}.{i}",
                                 mode="hs",
@@ -1817,20 +1774,19 @@ def run_benchmark(
             else:
                 print(f"       {row.get('status')} {row.get('detail', '')}", flush=True)
 
+    scratch = run_dir / "results.json"
+    publish_results(doc, scratch)
     out_json = Path(os.environ.get("SOCAT_BENCH_OUT", str(workdir / "results.json")))
-    out_json.parent.mkdir(parents=True, exist_ok=True)
-    out_json.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
-    summary_path = out_json.with_suffix(".summary.txt")
-    write_summary(doc, summary_path)
+    if out_json.resolve() != scratch.resolve():
+        publish_results(doc, out_json)
     save = os.environ.get("SOCAT_BENCH_SAVE_BASELINE", "").strip()
     if save:
         dest = Path(save)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(json.dumps(doc, indent=2) + "\n", encoding="utf-8")
-        write_summary(doc, dest.with_suffix(".summary.txt"))
+        if dest.resolve() != scratch.resolve() and dest.resolve() != out_json.resolve():
+            publish_results(doc, dest)
         print(f"saved baseline {dest}", flush=True)
     print(f"wrote {out_json}", flush=True)
-    print(f"wrote {summary_path}", flush=True)
+    print(f"wrote {out_json.with_suffix('.summary.txt')}", flush=True)
 
     failed = [c for c in doc["cases"] if c.get("status") == "fail"]
     return 1 if failed else 0
