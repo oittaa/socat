@@ -20,7 +20,9 @@ import (
 
 // Tests in this file open addresses through xio.OpenChannel / xio.RunOpened
 // and move bytes. They cover README and classic examples that unit tests
-// previously only parsed.
+// previously only parsed. Live-path echoes for a given address and option
+// set live here; opener packages keep tests that assert package-private
+// behavior.
 
 // cloneGlobal is a per-process copy. OpenChannel and forkSession write peer
 // fields on *Global, so a listener and a client must not share one.
@@ -304,21 +306,13 @@ func waitDialTCP4(t *testing.T, port int) net.Conn {
 	return nil
 }
 
-// TestTCP4ListenPIPEEcho is classic `socat TCP4-LISTEN:port,reuseaddr,fork,bind=127.0.0.1 PIPE`.
+// TestTCP4ListenPIPEEcho is classic `socat TCP4-LISTEN:port,reuseaddr,fork,bind=127.0.0.1 PIPE`
+// plus a TCP4 connect client.
 func TestTCP4ListenPIPEEcho(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
 	srv := startForkListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
 	cli := openClient(t, ctx, g, "TCP4:127.0.0.1:"+tcpPort(t, srv)+",connect-timeout=2")
 	echoLive(t, streamOf(t, cli), []byte("tcp-hello"))
-}
-
-// TestTCP4ListenConnectEcho uses both the listen and connect openers, as in
-// `socat - TCP4:127.0.0.1:port` talking to a TCP4-LISTEN peer.
-func TestTCP4ListenConnectEcho(t *testing.T) {
-	ctx, g := testCtx(t), testGlobal()
-	srv := startForkListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
-	cli := openClient(t, ctx, g, "TCP4:127.0.0.1:"+tcpPort(t, srv)+",connect-timeout=2")
-	echoLive(t, streamOf(t, cli), []byte("tcp4-connect"))
 }
 
 // TestTCPListenForwardsToTCP is `socat TCP4-LISTEN:front,fork TCP4:127.0.0.1:back`.
@@ -474,23 +468,27 @@ func TestUDP4ListenForkReuseaddrZeroPIPEEcho(t *testing.T) {
 	echoLive(t, streamOf(t, cli), []byte("udp-exclusive-hi"))
 }
 
-func TestUDP4SendtoToRecv(t *testing.T) {
-	ctx, g := testCtx(t), testGlobal()
-	recv, err := xio.OpenChannel(ctx, mustParse(t, "UDP4-RECV:0,bind=127.0.0.1"), xio.ModeRead, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = recv.Close() })
-	port := localUDPPort(t, recv)
-	send, err := xio.OpenChannel(ctx, mustParse(t, "UDP4-SENDTO:127.0.0.1:"+strconv.Itoa(port)), xio.ModeWrite, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = send.Close() })
-	const payload = "syslog-hi"
-	mustWrite(t, send.Stream, []byte(payload))
-	if got := string(readFull(t, recv.Stream, len(payload))); got != payload {
-		t.Fatalf("UDP-RECV got %q", got)
+func TestUDPSendtoToRecv(t *testing.T) {
+	for _, sendType := range []string{"UDP4-SENDTO", "UDP-SENDTO"} {
+		t.Run(sendType, func(t *testing.T) {
+			ctx, g := testCtx(t), testGlobal()
+			recv, err := xio.OpenChannel(ctx, mustParse(t, "UDP4-RECV:0,bind=127.0.0.1"), xio.ModeRead, g)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = recv.Close() })
+			port := localUDPPort(t, recv)
+			send, err := xio.OpenChannel(ctx, mustParse(t, sendType+":127.0.0.1:"+strconv.Itoa(port)), xio.ModeWrite, cloneGlobal(g))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = send.Close() })
+			const payload = "syslog-hi"
+			mustWrite(t, send.Stream, []byte(payload))
+			if got := string(readFull(t, recv.Stream, len(payload))); got != payload {
+				t.Fatalf("UDP-RECV got %q", got)
+			}
+		})
 	}
 }
 
@@ -587,6 +585,22 @@ func TestOPENSSLListenAliasEcho(t *testing.T) {
 	srv := startForkListenPIPE(t, ctx, g, "OPENSSL-LISTEN:0,reuseaddr,fork,bind=127.0.0.1,verify=0,cert="+cert)
 	cli := openClient(t, ctx, g, "OPENSSL:127.0.0.1:"+tcpPort(t, srv)+",verify=0,connect-timeout=2")
 	echoLive(t, streamOf(t, cli), []byte("openssl-alias"))
+}
+
+func TestTLSLAliasAndTLSConnectAlias(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	cert := listenCert(t)
+	srv := startForkListenPIPE(t, ctx, g, "TLS-L:0,reuseaddr,fork,bind=127.0.0.1,verify=0,cert="+cert)
+	cli := openClient(t, ctx, g, "TLS-CONNECT:127.0.0.1:"+tcpPort(t, srv)+",verify=0,connect-timeout=2")
+	echoLive(t, streamOf(t, cli), []byte("tls-aliases"))
+}
+
+func TestOPENSSLCertificateAliasEcho(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	cert := listenCert(t)
+	srv := startForkListenPIPE(t, ctx, g, "OPENSSL-LISTEN:0,reuseaddr,fork,bind=127.0.0.1,openssl-verify=0,openssl-certificate="+cert)
+	cli := openClient(t, ctx, g, "OPENSSL:127.0.0.1:"+tcpPort(t, srv)+",openssl-verify=0,connect-timeout=2")
+	echoLive(t, streamOf(t, cli), []byte("tls-cert-alias"))
 }
 
 // TestTLSListenForwardsToTCP is the README "encrypt a legacy TCP service" server:

@@ -1,22 +1,14 @@
 package xio
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/relay"
 )
-
-type boolTimeout struct {
-	error
-	timeout bool
-}
-
-func (e boolTimeout) Timeout() bool { return e.timeout }
 
 func TestParseDurationValue(t *testing.T) {
 	tests := []struct {
@@ -89,30 +81,7 @@ func TestParseRetryInvalidIntervalKeepsDefault(t *testing.T) {
 }
 
 func TestIsTimeoutErrDelegates(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{name: "nil", want: false},
-		{name: "deadline", err: os.ErrDeadlineExceeded, want: true},
-		{name: "context", err: context.DeadlineExceeded, want: true},
-		{
-			name: "wrapped",
-			err:  fmt.Errorf("wrap: %w", boolTimeout{error: errors.New("slow"), timeout: true}),
-			want: true,
-		},
-		{
-			name: "non-net",
-			err:  boolTimeout{error: errors.New("slow"), timeout: true},
-			want: true,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := IsTimeoutErr(tc.err); got != tc.want {
-				t.Fatalf("got %v want %v", got, tc.want)
-			}
-		})
+	if IsTimeoutErr(os.ErrDeadlineExceeded) != relay.IsTimeoutErr(os.ErrDeadlineExceeded) {
+		t.Fatal("xio.IsTimeoutErr must match relay.IsTimeoutErr")
 	}
 }

@@ -5,7 +5,6 @@ package netopen
 import (
 	"context"
 	"errors"
-	"io"
 	"net"
 	"sync"
 	"testing"
@@ -38,6 +37,9 @@ func TestUnixListenNonForkAccept(t *testing.T) {
 	}
 	if g.PeerAddr == "" {
 		t.Fatal("SOCAT_PEERADDR was not populated")
+	}
+	if g.SockPort != "" || g.PeerPort != "" {
+		t.Fatalf("ports SockPort=%q PeerPort=%q want empty", g.SockPort, g.PeerPort)
 	}
 }
 
@@ -172,31 +174,6 @@ func TestUnixListenAcceptTimeoutZeroAccepts(t *testing.T) {
 	})
 	if o.Stream == nil {
 		t.Fatal("accept-timeout=0 did not accept")
-	}
-}
-
-func TestUnixListenSessionEnv(t *testing.T) {
-	path := unixSocketTestPath(t, "listen.sock")
-	g := &xio.Global{Log: logx.New()}
-	o := openUnixListenOnce(t, "UNIX-LISTEN:"+path+",unlink-early", g, func() {
-		c, err := net.Dial("unix", path)
-		if err != nil {
-			t.Error(err)
-			return
-		}
-		t.Cleanup(func() { _ = c.Close() })
-	})
-	if _, err := o.Stream.Write([]byte("x")); err != nil && !errors.Is(err, io.EOF) {
-		t.Logf("write: %v", err)
-	}
-	if g.SockAddr != path {
-		t.Fatalf("SOCAT_SOCKADDR=%q want listen path", g.SockAddr)
-	}
-	if g.SockPort != "" || g.PeerPort != "" {
-		t.Fatalf("ports SockPort=%q PeerPort=%q want empty", g.SockPort, g.PeerPort)
-	}
-	if g.PeerAddr == "" {
-		t.Fatal("SOCAT_PEERADDR empty")
 	}
 }
 

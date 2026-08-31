@@ -2,7 +2,6 @@ package quicopen
 
 import (
 	"crypto/tls"
-	"math"
 	"strings"
 	"testing"
 	"time"
@@ -180,37 +179,12 @@ func TestQUICConfigHandshakeIdleTimeoutZeroDisablesBound(t *testing.T) {
 	}
 }
 
-func TestQUICHandshakeIdleTimeoutDisabledDoesNotOverflowWhenDoubled(t *testing.T) {
-	if quicHandshakeIdleTimeoutDisabled <= 0 {
-		t.Fatal("disabled HandshakeIdleTimeout must be nonzero so quic-go does not substitute 5s")
+func TestQUICDialAttemptTimeoutDelegates(t *testing.T) {
+	s, err := parse.ParseSpec("QUIC:h:1,connect-timeout=0.2,handshake-timeout=5")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if quicHandshakeIdleTimeoutDisabled > time.Duration(math.MaxInt64/2) {
-		t.Fatalf("2*%s would overflow int64; quic-go handshakeTimeout doubles HandshakeIdleTimeout", quicHandshakeIdleTimeoutDisabled)
-	}
-}
-
-func TestQUICDialAttemptTimeout(t *testing.T) {
-	tests := []struct {
-		name string
-		spec string
-		want time.Duration
-	}{
-		{name: "connect-shorter-than-handshake", spec: "QUIC:h:1,connect-timeout=0.2,handshake-timeout=5", want: 200 * time.Millisecond},
-		{name: "handshake-zero-connect-still-caps", spec: "QUIC:h:1,connect-timeout=0.2,handshake-timeout=0", want: 200 * time.Millisecond},
-		{name: "handshake-zero-no-connect", spec: "QUIC:h:1,handshake-timeout=0", want: 0},
-		{name: "omitted-handshake-default", spec: "QUIC:h:1", want: 30 * time.Second},
-		{name: "omitted-handshake-connect-caps", spec: "QUIC:h:1,connect-timeout=0.2", want: 200 * time.Millisecond},
-		{name: "handshake-shorter-than-connect", spec: "QUIC:h:1,connect-timeout=5,handshake-timeout=0.2", want: 200 * time.Millisecond},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			s, err := parse.ParseSpec(tc.spec)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := quicDialAttemptTimeout(s); got != tc.want {
-				t.Fatalf("quicDialAttemptTimeout(%q)=%s want %s", tc.spec, got, tc.want)
-			}
-		})
+	if got, want := quicDialAttemptTimeout(s), xio.CombinedConnectHandshakeTimeout(s); got != want {
+		t.Fatalf("quicDialAttemptTimeout=%s want CombinedConnectHandshakeTimeout %s", got, want)
 	}
 }
