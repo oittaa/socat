@@ -57,7 +57,6 @@ func TestSystemChdirUsesChildDirectory(t *testing.T) {
 // CONNECT,fork,max-children=2 with a slow EXEC producer and a forking listener.
 func TestTCPConnectMaxChildren(t *testing.T) {
 	bin := socatBin(t)
-	port := freePort(t)
 	dir := t.TempDir()
 	out := filepath.Join(dir, "out")
 	qdir := filepath.Join(dir, "q")
@@ -92,20 +91,12 @@ exit 1
 	}
 
 	// Reader: append accepted data to out.
-	srv := exec.Command(bin, "-U",
-		"CREATE:"+out+",append",
-		fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port),
-	)
-	var srvErr bytes.Buffer
-	srv.Stderr = &srvErr
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = srv.Process.Kill()
-		_, _ = srv.Process.Wait()
-	}()
-	waitTCPListen(t, port, tcpListenerStartupTimeout)
+	port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, "-U",
+			"CREATE:"+out+",append",
+			fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port),
+		)
+	})
 
 	// Client: CONNECT fork max-children=2, short interval; EXEC drains queue.
 	cli := exec.Command(bin, "-4",
@@ -134,7 +125,7 @@ exit 1
 		time.Sleep(50 * time.Millisecond)
 	}
 	if bytes.Count(got, []byte("msg")) < 3 {
-		t.Fatalf("expected 3 messages, got %q cli=%s srv=%s", got, cliErr.String(), srvErr.String())
+		t.Fatalf("expected 3 messages, got %q cli=%s srv=%s", got, cliErr.String(), srv.stderr.String())
 	}
 	if !bytes.Contains(got, []byte("msg1")) || !bytes.Contains(got, []byte("msg2")) || !bytes.Contains(got, []byte("msg3")) {
 		t.Fatalf("missing messages: %q", got)

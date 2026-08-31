@@ -29,6 +29,8 @@ var capabilityCache = struct {
 const (
 	tcpListenerStartupTimeout = 10 * time.Second
 	tcpListenerStartAttempts  = 3
+	udpListenerStartupTimeout = 2 * time.Second
+	udpListenerStartAttempts  = 3
 )
 
 type lockedBuffer struct {
@@ -121,19 +123,80 @@ func waitTCPTestProcess(p *testProcess, port int, timeout time.Duration) error {
 	return fmt.Errorf("timeout waiting for listen on %d", port)
 }
 
+func waitUDPTestProcess(p *testProcess, port int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if err, exited := p.status(); exited {
+			return fmt.Errorf("server exited before listening: %v", err)
+		}
+		pc, err := net.ListenPacket("udp4", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			select {
+			case <-p.done:
+				exitErr, _ := p.status()
+				return fmt.Errorf("server exited before listening: %v", exitErr)
+			case <-time.After(20 * time.Millisecond):
+			}
+			return nil
+		}
+		_ = pc.Close()
+		time.Sleep(20 * time.Millisecond)
+	}
+	return fmt.Errorf("timeout waiting for UDP listen on %d", port)
+}
+
+func waitProcessWarmup(p *testProcess, _ int, timeout time.Duration) error {
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-p.done:
+		err, _ := p.status()
+		return fmt.Errorf("server exited: %v", err)
+	case <-timer.C:
+		if err, exited := p.status(); exited {
+			return fmt.Errorf("server exited: %v", err)
+		}
+		return nil
+	}
+}
+
 // startTCPTestServer tolerates slow CI runners and the unavoidable race between
 // reserving a free port and binding it in a child process. Early child exits
 // retain stderr so a real startup failure is actionable instead of timing out.
 func startTCPTestServer(t *testing.T, command func(port int) *exec.Cmd) (int, *testProcess) {
 	t.Helper()
+	return startPortTestServer(t, tcpListenerStartAttempts, tcpListenerStartupTimeout, freeTCPPort, waitTCPTestProcess, command)
+}
+
+func startUDPTestServer(t *testing.T, command func(port int) *exec.Cmd) (int, *testProcess) {
+	t.Helper()
+	return startPortTestServer(t, udpListenerStartAttempts, udpListenerStartupTimeout, freeUDPPort, waitUDPTestProcess, command)
+}
+
+func startQUICTestServer(t *testing.T, command func(port int) *exec.Cmd) (int, *testProcess) {
+	t.Helper()
+	port, proc := startUDPTestServer(t, command)
+	// QUIC accept is not visible as a UDP bind. Give the server a short
+	// extra window after the port probe.
+	time.Sleep(250 * time.Millisecond)
+	return port, proc
+}
+
+func startSCTPTestServer(t *testing.T, command func(port int) *exec.Cmd) (int, *testProcess) {
+	t.Helper()
+	return startPortTestServer(t, tcpListenerStartAttempts, 150*time.Millisecond, freeTCPPort, waitProcessWarmup, command)
+}
+
+func startPortTestServer(t *testing.T, attempts int, timeout time.Duration, pickPort func(*testing.T) int, wait func(*testProcess, int, time.Duration) error, command func(port int) *exec.Cmd) (int, *testProcess) {
+	t.Helper()
 	var failures []string
-	for attempt := 1; attempt <= tcpListenerStartAttempts; attempt++ {
-		port := freePort(t)
+	for attempt := 1; attempt <= attempts; attempt++ {
+		port := pickPort(t)
 		process, err := startTestProcess(command(port))
 		if err != nil {
-			t.Fatalf("start TCP test server: %v", err)
+			t.Fatalf("start test server: %v", err)
 		}
-		err = waitTCPTestProcess(process, port, tcpListenerStartupTimeout)
+		err = wait(process, port, timeout)
 		if err == nil {
 			t.Cleanup(process.stop)
 			return port, process
@@ -141,11 +204,11 @@ func startTCPTestServer(t *testing.T, command func(port int) *exec.Cmd) (int, *t
 		process.stop()
 		failure := fmt.Sprintf("attempt %d port %d: %v; stderr=%s", attempt, port, err, process.stderr.String())
 		failures = append(failures, failure)
-		if attempt < tcpListenerStartAttempts {
-			t.Logf("TCP test server startup failed, retrying: %s", failure)
+		if attempt < attempts {
+			t.Logf("test server startup failed, retrying: %s", failure)
 		}
 	}
-	t.Fatalf("TCP test server failed after %d attempts: %s", tcpListenerStartAttempts, strings.Join(failures, "; "))
+	t.Fatalf("test server failed after %d attempts: %s", attempts, strings.Join(failures, "; "))
 	return 0, nil
 }
 
@@ -287,22 +350,13 @@ func TestWSClientHandshakeTimeoutStalledPeer(t *testing.T) {
 
 func TestTLSHandshakeTimeoutClosesSilentPeer(t *testing.T) {
 	bin := socatBin(t)
-	port := freePort(t)
 	cert := listenCert(t)
-	cmd := exec.Command(bin,
-		fmt.Sprintf("TLS-LISTEN:%d,bind=127.0.0.1,reuseaddr,fork,verify=0,cert=%s,handshake-timeout=0.1", port, cert),
-		"PIPE",
-	)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	}()
-	waitTCPListen(t, port, tcpListenerStartupTimeout)
+	port, proc := startTCPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin,
+			fmt.Sprintf("TLS-LISTEN:%d,bind=127.0.0.1,reuseaddr,fork,verify=0,cert=%s,handshake-timeout=0.1", port, cert),
+			"PIPE",
+		)
+	})
 
 	conn, err := net.DialTimeout("tcp4", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
 	if err != nil {
@@ -318,11 +372,13 @@ func TestTLSHandshakeTimeoutClosesSilentPeer(t *testing.T) {
 		t.Fatal("silent TLS peer remained open")
 	}
 	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-		t.Fatalf("TLS handshake timeout did not close the peer: %s", stderr.String())
+		t.Fatalf("TLS handshake timeout did not close the peer: %s", proc.stderr.String())
 	}
 }
 
-func freePort(t *testing.T) int {
+// freeTCPPort is only for startPortTestServer retries. Closing the probe
+// socket leaves a bind race; the caller must retry if the child bind fails.
+func freeTCPPort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -332,6 +388,8 @@ func freePort(t *testing.T) int {
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
+// freeUDPPort is only for startPortTestServer retries. Closing the probe
+// socket leaves a bind race; the caller must retry if the child bind fails.
 func freeUDPPort(t *testing.T) int {
 	t.Helper()
 	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
@@ -498,19 +556,9 @@ func TestSCTP4Echo(t *testing.T) {
 	if err := probe.Run(); err != nil {
 		t.Skipf("kernel SCTP not usable: %v", err)
 	}
-	// Use a TCP bind probe only to pick a free numeric port.
-	port := freePort(t)
-	srv := exec.Command(bin, fmt.Sprintf("SCTP4-LISTEN:%d,reuseaddr,bind=127.0.0.1", port), "PIPE")
-	var stderr bytes.Buffer
-	srv.Stderr = &stderr
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = srv.Process.Kill()
-		_, _ = srv.Process.Wait()
-	}()
-	time.Sleep(150 * time.Millisecond)
+	port, srv := startSCTPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, fmt.Sprintf("SCTP4-LISTEN:%d,reuseaddr,bind=127.0.0.1", port), "PIPE")
+	})
 
 	payload := fmt.Sprintf("test SCTP4 %d\n", time.Now().UnixNano())
 	pr, pw := io.Pipe()
@@ -526,10 +574,10 @@ func TestSCTP4Echo(t *testing.T) {
 	cli.Stdout = &out
 	cli.Stderr = &errb
 	if err := cli.Run(); err != nil {
-		t.Fatalf("client: %v server=%s client=%s", err, stderr.String(), errb.String())
+		t.Fatalf("client: %v server=%s client=%s", err, srv.stderr.String(), errb.String())
 	}
 	if !bytes.Contains(out.Bytes(), []byte(strings.TrimSpace(payload))) && !bytes.Contains(out.Bytes(), []byte(payload)) {
-		t.Fatalf("echo mismatch out=%q server=%s client=%s", out.Bytes(), stderr.String(), errb.String())
+		t.Fatalf("echo mismatch out=%q server=%s client=%s", out.Bytes(), srv.stderr.String(), errb.String())
 	}
 }
 
@@ -828,22 +876,13 @@ func TestHelpListsTLSPublicCatalogAliases(t *testing.T) {
 
 func TestTLSPublicCertificateAliasEcho(t *testing.T) {
 	bin := socatBin(t)
-	port := freePort(t)
 	cert := listenCert(t)
-	srv := exec.Command(bin,
-		fmt.Sprintf("OPENSSL-LISTEN:%d,reuseaddr,bind=127.0.0.1,openssl-verify=0,openssl-certificate=%s", port, cert),
-		"PIPE",
-	)
-	var srvErr bytes.Buffer
-	srv.Stderr = &srvErr
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = srv.Process.Kill()
-		_, _ = srv.Process.Wait()
-	}()
-	waitTCPListen(t, port, tcpListenerStartupTimeout)
+	port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin,
+			fmt.Sprintf("OPENSSL-LISTEN:%d,reuseaddr,bind=127.0.0.1,openssl-verify=0,openssl-certificate=%s", port, cert),
+			"PIPE",
+		)
+	})
 
 	payload := fmt.Sprintf("alias-tls %d\n", time.Now().UnixNano())
 	cli := exec.Command(bin, "stdin!!stdout",
@@ -854,10 +893,10 @@ func TestTLSPublicCertificateAliasEcho(t *testing.T) {
 	cli.Stderr = &cliErr
 	out, err := cli.Output()
 	if err != nil {
-		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srvErr.String())
+		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
 	}
 	if string(out) != payload {
-		t.Fatalf("got %q want %q (srv=%s)", out, payload, srvErr.String())
+		t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
 	}
 }
 
@@ -881,23 +920,13 @@ func TestHelpListsTLSAndOpenSSLAlias(t *testing.T) {
 // (X25519MLKEM768). Classic test.sh has no PQC cases.
 func TestTLSPQC(t *testing.T) {
 	bin := socatBin(t)
-	port := freePort(t)
-
 	cert := listenCert(t)
-	srv := exec.Command(bin,
-		fmt.Sprintf("TLS-LISTEN:%d,reuseaddr,bind=127.0.0.1,verify=0,cert=%s", port, cert),
-		"PIPE",
-	)
-	var srvErr bytes.Buffer
-	srv.Stderr = &srvErr
-	if err := srv.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		_ = srv.Process.Kill()
-		_, _ = srv.Process.Wait()
-	}()
-	waitTCPListen(t, port, tcpListenerStartupTimeout)
+	port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin,
+			fmt.Sprintf("TLS-LISTEN:%d,reuseaddr,bind=127.0.0.1,verify=0,cert=%s", port, cert),
+			"PIPE",
+		)
+	})
 
 	payload := fmt.Sprintf("pqc-tls %d\n", time.Now().UnixNano())
 	cli := exec.Command(bin, "stdin!!stdout",
@@ -908,9 +937,9 @@ func TestTLSPQC(t *testing.T) {
 	cli.Stderr = &cliErr
 	out, err := cli.Output()
 	if err != nil {
-		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srvErr.String())
+		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
 	}
 	if string(out) != payload {
-		t.Fatalf("got %q want %q (srv=%s)", out, payload, srvErr.String())
+		t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
 	}
 }
