@@ -4,6 +4,8 @@ package netopen
 
 import (
 	"context"
+	"errors"
+	"io"
 	"net"
 	"testing"
 	"time"
@@ -86,4 +88,76 @@ func ipv4HeaderInclPacket(src, dst net.IP, proto int, payload []byte) []byte {
 	copy(hdr[16:20], dst4)
 	copy(hdr[20:], payload)
 	return hdr
+}
+
+// TestIP4HeaderOnlyNoAncillaryIsEOF proves IP4-RECV without ancillary data
+// still sees the IPv4 header. ReadFrom would already report n=0 after Go
+// strips that header, which afterRawIPRecv would treat as kernel-empty
+// (0, nil). A header-only packet must be io.EOF.
+func TestIP4HeaderOnlyNoAncillaryIsEOF(t *testing.T) {
+	const proto = 252
+	recvSpec, err := parse.ParseSpec("IP4-RECV:252,bind=127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	pc, err := listenRawIP(ctx, "ip4:252", "ip4", &net.IPAddr{IP: net.IPv4(127, 0, 0, 1)}, recvSpec)
+	skipIfRawIPPermissionDenied(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+
+	sendSpec, err := parse.ParseSpec("IP4-SENDTO:127.0.0.1:252,ip-hdrincl,bind=127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	send, err := openIPSendtoNetwork(ctx, sendSpec, xio.ModeRDWR, useGlobal(), "ip4")
+	skipIfRawIPPermissionDenied(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = send.Close() })
+
+	pkt := ipv4HeaderInclPacket(net.IPv4(127, 0, 0, 1), net.IPv4(127, 0, 0, 1), proto, nil)
+	if len(pkt) != 20 {
+		t.Fatalf("header-only packet len=%d want 20", len(pkt))
+	}
+
+	_ = pc.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, err := send.Stream.Write(pkt); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 64)
+	n, _, _, err := readIPKernel(pc, buf, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n == 0 {
+		t.Fatal("header-only IPv4 packet returned n=0 with ancillary disabled; ReadFrom stripped the header")
+	}
+	kernelN := n
+	n = skipIPv4HeaderIfPresent(buf, n)
+	gotN, gotErr := afterRawIPRecv(n, kernelN, nil, len(buf))
+	if gotN != 0 || !errors.Is(gotErr, io.EOF) {
+		t.Fatalf("after strip kernelN=%d n=%d err=%v want EOF", kernelN, gotN, gotErr)
+	}
+
+	recv := &rawIPFilteredRecv{
+		c:        pc,
+		filter:   xio.NewPeerFilter(ctx, recvSpec, useGlobal()),
+		g:        useGlobal(),
+		ctx:      ctx,
+		wantCtrl: false,
+		v4:       true,
+	}
+	_ = pc.SetReadDeadline(time.Now().Add(3 * time.Second))
+	if _, err := send.Stream.Write(pkt); err != nil {
+		t.Fatal(err)
+	}
+	n, err = recv.Read(make([]byte, 64))
+	if n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("IP4-RECV header-only n=%d err=%v want EOF", n, err)
+	}
 }

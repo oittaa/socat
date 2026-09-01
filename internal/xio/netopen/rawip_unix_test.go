@@ -132,6 +132,9 @@ func TestSkipIPv4HeaderIfPresent(t *testing.T) {
 
 func TestAfterRawIPRecv(t *testing.T) {
 	t.Parallel()
+	// kernelN is supplied here. TestIP4HeaderOnlyNoAncillaryIsEOF exercises
+	// the real IPv4 ancillary-disabled read, where ReadFrom would already
+	// report n=0 after stripping the header.
 	n, err := afterRawIPRecv(0, 0, nil, 16)
 	if n != 0 || err != nil {
 		t.Fatalf("kernel empty n=%d err=%v want 0, nil", n, err)

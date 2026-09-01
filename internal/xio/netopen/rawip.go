@@ -529,18 +529,24 @@ func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob
 }
 
 // readIPKernel receives one raw IP datagram without stripping an IPv4 header.
+// IPConn.ReadFrom removes that header in the Go net package, so a header-only
+// IPv4 packet becomes n=0 and looks like a kernel-empty datagram. ReadMsgIP
+// returns the kernel packet unstripped, including when ancillary data is not
+// requested.
 func readIPKernel(c *net.IPConn, p []byte, wantCtrl bool, oobBuffer []byte) (n int, oob []byte, addr net.Addr, err error) {
-	if !wantCtrl {
-		n, addr, err = c.ReadFrom(p)
-		return n, nil, addr, err
-	}
-	if len(oobBuffer) < xio.AncillaryBufferSize {
+	if wantCtrl && len(oobBuffer) < xio.AncillaryBufferSize {
 		oobBuffer = make([]byte, xio.AncillaryBufferSize)
+	}
+	if !wantCtrl {
+		oobBuffer = nil
 	}
 	var oobn, flags int
 	n, oobn, flags, addr, err = c.ReadMsgIP(p, oobBuffer)
 	if err != nil {
-		return n, nil, nil, err
+		return n, nil, addr, err
+	}
+	if !wantCtrl {
+		return n, nil, addr, nil
 	}
 	return n, xio.ControlMessageBytes(oobBuffer, oobn, flags), addr, nil
 }
@@ -569,8 +575,8 @@ func afterRawIPRecv(n, kernelN int, err error, bufLen int) (int, error) {
 }
 
 // skipIPv4HeaderIfPresent drops a leading IPv4 header when the buffer looks like
-// a complete IP packet. Connected IPConn.Read() on Linux returns header+payload;
-// unconnected ReadFrom often returns payload only.
+// a complete IP packet. Connected IPConn.Read() and ReadMsgIP on Linux return
+// header+payload; IPConn.ReadFrom does not, so readIPKernel uses ReadMsgIP.
 func skipIPv4HeaderIfPresent(p []byte, n int) int {
 	if n < 20 {
 		return n
