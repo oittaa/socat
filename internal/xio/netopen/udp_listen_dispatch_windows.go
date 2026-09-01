@@ -92,6 +92,14 @@ func (l *udpDispatchListener) Accept() (net.Conn, error) {
 			case conn := <-l.accepts:
 				return conn, nil
 			default:
+			}
+			// A refused packet and the timer can become ready together. Give
+			// the packet the same timeout-reset semantics as when its signal
+			// wins the outer select.
+			select {
+			case <-l.peerRejected:
+				continue
+			default:
 				return nil, xio.ErrAcceptTimeout
 			}
 		case <-l.peerRejected:
