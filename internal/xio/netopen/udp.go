@@ -3,7 +3,6 @@ package netopen
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -147,7 +146,7 @@ type udpConnectStream struct {
 
 func (s udpConnectStream) Read(p []byte) (int, error) {
 	n, err := s.NetStream.Read(p)
-	return udpZeroDatagramEOF(n, err, len(p))
+	return xio.ZeroLengthMessageEOF(n, err, len(p))
 }
 
 func (s udpConnectStream) ShutdownWrite() error {
@@ -158,14 +157,3 @@ func (s udpConnectStream) ShutdownWrite() error {
 func (s udpConnectStream) NetConn() net.Conn { return s.Conn }
 
 func (s udpConnectStream) UnwrapStream() relay.Stream { return s.NetStream }
-
-// udpZeroDatagramEOF maps a successful empty datagram on a connected UDP
-// stream to io.EOF. A zero-length buffer is not a datagram and is left
-// unchanged. Unconnected datagram addresses still ignore empty packets
-// unless null-eof is set.
-func udpZeroDatagramEOF(n int, err error, bufLen int) (int, error) {
-	if n == 0 && err == nil && bufLen > 0 {
-		return 0, io.EOF
-	}
-	return n, err
-}

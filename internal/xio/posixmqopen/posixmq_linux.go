@@ -462,6 +462,10 @@ func (s *mqStream) Read(p []byte) (int, error) {
 		s.mu.Unlock()
 		return 0, net.ErrClosed
 	}
+	if len(p) == 0 {
+		s.mu.Unlock()
+		return 0, nil
+	}
 	deadline := s.rdeadline
 	nonblock := s.nonblock
 	s.mu.Unlock()
@@ -485,6 +489,10 @@ func (s *mqStream) Read(p []byte) (int, error) {
 	s.mu.Lock()
 	s.prio = prio
 	s.got = true
+	if n == 0 {
+		s.mu.Unlock()
+		return 0, io.EOF
+	}
 	m := copy(p, buf[:n])
 	if m < n {
 		s.leftover = append([]byte(nil), buf[m:n]...)

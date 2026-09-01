@@ -68,24 +68,16 @@ func TestRawIPSessionConnIsNotSyscallConn(t *testing.T) {
 func TestRawIPRecvFromEmptyFirstDatagram(t *testing.T) {
 	r := &rawIPRecvFrom{firstPending: true, closeEOF: true}
 	n, err := r.Read(make([]byte, 8))
-	if n != 0 || err != nil {
-		t.Fatalf("empty first n=%d err=%v", n, err)
-	}
-	n, err = r.Read(make([]byte, 8))
 	if n != 0 || !errors.Is(err, io.EOF) {
-		t.Fatalf("after empty first n=%d err=%v want EOF", n, err)
+		t.Fatalf("empty first n=%d err=%v want EOF", n, err)
 	}
 }
 
 func TestRawIPSessionConnEmptyFirstDatagram(t *testing.T) {
 	r := &rawIPSessionConn{firstPending: true}
 	n, err := r.Read(make([]byte, 8))
-	if n != 0 || err != nil {
-		t.Fatalf("empty first n=%d err=%v", n, err)
-	}
-	n, err = r.Read(make([]byte, 8))
 	if n != 0 || !errors.Is(err, io.EOF) {
-		t.Fatalf("after empty first n=%d err=%v want EOF", n, err)
+		t.Fatalf("empty first n=%d err=%v want EOF", n, err)
 	}
 }
 
@@ -99,5 +91,62 @@ func TestRawIPRecvFromShortReadDropsRemainder(t *testing.T) {
 	n, err = r.Read(buf)
 	if n != 0 || !errors.Is(err, io.EOF) {
 		t.Fatalf("remainder n=%d err=%v want EOF", n, err)
+	}
+}
+
+func TestSkipIPv4HeaderIfPresent(t *testing.T) {
+	t.Parallel()
+	headerOnly := make([]byte, 20)
+	headerOnly[0] = 0x45
+	headerOnly[3] = 20
+	if got := skipIPv4HeaderIfPresent(headerOnly, 20); got != 0 {
+		t.Fatalf("header-only n=%d want 0", got)
+	}
+
+	withPayload := make([]byte, 25)
+	withPayload[0] = 0x45
+	withPayload[3] = 25
+	copy(withPayload[20:], []byte("hello"))
+	if got := skipIPv4HeaderIfPresent(withPayload, 25); got != 5 || string(withPayload[:5]) != "hello" {
+		t.Fatalf("payload n=%d data=%q", got, withPayload[:got])
+	}
+
+	v6 := make([]byte, 40)
+	v6[0] = 0x60
+	if got := skipIPv4HeaderIfPresent(v6, 40); got != 40 {
+		t.Fatalf("IPv6 n=%d want 40", got)
+	}
+
+	short := []byte{0x45, 0, 0, 20}
+	if got := skipIPv4HeaderIfPresent(short, len(short)); got != len(short) {
+		t.Fatalf("short n=%d want %d", got, len(short))
+	}
+
+	mismatch := make([]byte, 20)
+	mismatch[0] = 0x45
+	mismatch[3] = 40
+	if got := skipIPv4HeaderIfPresent(mismatch, 20); got != 20 {
+		t.Fatalf("length mismatch n=%d want 20", got)
+	}
+}
+
+func TestAfterRawIPRecv(t *testing.T) {
+	t.Parallel()
+	n, err := afterRawIPRecv(0, 0, nil, 16)
+	if n != 0 || err != nil {
+		t.Fatalf("kernel empty n=%d err=%v want 0, nil", n, err)
+	}
+	n, err = afterRawIPRecv(0, 20, nil, 16)
+	if n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("header-only n=%d err=%v want EOF", n, err)
+	}
+	n, err = afterRawIPRecv(4, 24, nil, 16)
+	if n != 4 || err != nil {
+		t.Fatalf("payload n=%d err=%v", n, err)
+	}
+	sentinel := errors.New("recv")
+	n, err = afterRawIPRecv(0, 0, sentinel, 16)
+	if n != 0 || !errors.Is(err, sentinel) {
+		t.Fatalf("error n=%d err=%v", n, err)
 	}
 }

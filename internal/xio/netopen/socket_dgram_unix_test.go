@@ -651,6 +651,152 @@ func TestSocketRecvfromUnixOneShot(t *testing.T) {
 	}
 }
 
+func TestSocketRecvfromNonForkSkipsEmptyUnlessNullEOF(t *testing.T) {
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec := mustSocketSpec(t, socketDgramSpec("SOCKET-RECVFROM", unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP,
+		ipv4SocketHex(0, [4]byte{127, 0, 0, 1}), "reuseaddr"))
+	bound := make(chan net.Addr, 1)
+	var boundOnce sync.Once
+	defer xio.SetListenBoundTestHook(func(addr net.Addr) {
+		boundOnce.Do(func() { bound <- addr })
+	})()
+	opened := make(chan *xio.Opened, 1)
+	errc := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	go func() {
+		o, err := openSocketRecvfrom(ctx, spec, xio.ModeRDWR, g)
+		if err != nil {
+			errc <- err
+			return
+		}
+		opened <- o
+	}()
+	var addr net.Addr
+	select {
+	case addr = <-bound:
+	case err := <-errc:
+		t.Fatal(err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("SOCKET-RECVFROM did not bind")
+	}
+	port := dgramPort(t, addr)
+	src := listenSocketTestUDP(t)
+	dst := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}
+	if _, err := src.WriteTo(nil, dst); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.WriteTo([]byte("payload"), dst); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errc:
+		t.Fatal(err)
+	case o := <-opened:
+		t.Cleanup(func() { _ = o.Close() })
+		got, err := readSocketDeadline(t, o.Stream, 2*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != "payload" {
+			t.Fatalf("got %q want payload", got)
+		}
+	case <-ctx.Done():
+		t.Fatal("SOCKET-RECVFROM did not skip the empty datagram")
+	}
+}
+
+func TestSocketRecvfromNonForkNullEOFEmptyEndsSession(t *testing.T) {
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec := mustSocketSpec(t, socketDgramSpec("SOCKET-RECVFROM", unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP,
+		ipv4SocketHex(0, [4]byte{127, 0, 0, 1}), "reuseaddr,null-eof"))
+	bound := make(chan net.Addr, 1)
+	var boundOnce sync.Once
+	defer xio.SetListenBoundTestHook(func(addr net.Addr) {
+		boundOnce.Do(func() { bound <- addr })
+	})()
+	opened := make(chan *xio.Opened, 1)
+	errc := make(chan error, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	go func() {
+		o, err := openSocketRecvfrom(ctx, spec, xio.ModeRDWR, g)
+		if err != nil {
+			errc <- err
+			return
+		}
+		opened <- o
+	}()
+	var addr net.Addr
+	select {
+	case addr = <-bound:
+	case err := <-errc:
+		t.Fatal(err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("SOCKET-RECVFROM did not bind")
+	}
+	src := listenSocketTestUDP(t)
+	if _, err := src.WriteTo(nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: dgramPort(t, addr)}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errc:
+		t.Fatal(err)
+	case o := <-opened:
+		t.Cleanup(func() { _ = o.Close() })
+		n, err := o.Stream.Read(make([]byte, 8))
+		if n != 0 || !errors.Is(err, io.EOF) {
+			t.Fatalf("n=%d err=%v want EOF", n, err)
+		}
+	case <-ctx.Done():
+		t.Fatal("SOCKET-RECVFROM,null-eof did not complete on empty datagram")
+	}
+}
+
+func TestSocketRecvfromForkSkipsEmptyUnlessNullEOF(t *testing.T) {
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec := mustSocketSpec(t, socketDgramSpec("SOCKET-RECVFROM", unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP,
+		ipv4SocketHex(0, [4]byte{127, 0, 0, 1}), "reuseaddr,fork"))
+	o, err := openSocketRecvfrom(context.Background(), spec, xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	src := listenSocketTestUDP(t)
+	dst := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: dgramPort(t, o.Listener.Addr())}
+	accepted := make(chan net.Conn, 1)
+	errc := make(chan error, 1)
+	go func() {
+		c, err := o.Listener.Accept()
+		if err != nil {
+			errc <- err
+			return
+		}
+		accepted <- c
+	}()
+	if _, err := src.WriteTo(nil, dst); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.WriteTo([]byte("payload"), dst); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errc:
+		t.Fatal(err)
+	case conn := <-accepted:
+		t.Cleanup(func() { _ = conn.Close() })
+		got, err := readSocketDeadline(t, conn, 2*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != "payload" {
+			t.Fatalf("got %q want payload", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("SOCKET-RECVFROM,fork did not skip the empty datagram")
+	}
+}
+
 func assertUnconnected(t *testing.T, st any) {
 	t.Helper()
 	sc, ok := st.(syscall.Conn)

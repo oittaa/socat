@@ -826,3 +826,143 @@ func TestUDPListenIPvAnyConnectsIPv4Peer(t *testing.T) {
 		t.Skip("IPv4 datagram did not reach dual-stack UDP-LISTEN")
 	}
 }
+
+func openUDP4RecvfromAfter(t *testing.T, spec string, send func(*net.UDPConn)) *xio.Opened {
+	t.Helper()
+	parsed, err := parse.ParseSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound := make(chan net.Addr, 1)
+	restore := xio.SetListenBoundTestHook(func(addr net.Addr) {
+		select {
+		case bound <- addr:
+		default:
+		}
+	})
+	t.Cleanup(restore)
+	errc := make(chan error, 1)
+	opened := make(chan *xio.Opened, 1)
+	go func() {
+		o, err := openUDP4Recvfrom(context.Background(), parsed, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+		if err != nil {
+			errc <- err
+			return
+		}
+		opened <- o
+	}()
+	var addr net.Addr
+	select {
+	case addr = <-bound:
+	case err := <-errc:
+		t.Fatal(err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("UDP-RECVFROM did not bind")
+	}
+	client, err := net.DialUDP("udp4", nil, addr.(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	send(client)
+	select {
+	case err := <-errc:
+		t.Fatal(err)
+	case o := <-opened:
+		t.Cleanup(func() { _ = o.Close() })
+		return o
+	case <-time.After(3 * time.Second):
+		t.Fatal("UDP-RECVFROM did not receive")
+	}
+	return nil
+}
+
+func TestUDPRecvfromNonForkSkipsEmptyUnlessNullEOF(t *testing.T) {
+	o := openUDP4RecvfromAfter(t, "UDP4-RECVFROM:0,bind=127.0.0.1", func(client *net.UDPConn) {
+		if _, err := client.Write(nil); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.Write([]byte("payload")); err != nil {
+			t.Fatal(err)
+		}
+	})
+	got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
+	if err != nil || got != "payload" {
+		t.Fatalf("got %q err=%v want payload", got, err)
+	}
+	got, err = readStreamTimeout(t, o.Stream, 2*time.Second)
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("second=%q err=%v want EOF", got, err)
+	}
+}
+
+func TestUDPRecvfromNonForkNullEOFEmptyEndsSession(t *testing.T) {
+	o := openUDP4RecvfromAfter(t, "UDP4-RECVFROM:0,bind=127.0.0.1,null-eof", func(client *net.UDPConn) {
+		if _, err := client.Write(nil); err != nil {
+			t.Fatal(err)
+		}
+	})
+	got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("empty null-eof got %q err=%v want EOF", got, err)
+	}
+}
+
+func TestUDPRecvfromForkSkipsEmptyUnlessNullEOF(t *testing.T) {
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec, err := parse.ParseSpec("UDP4-RECVFROM:0,bind=127.0.0.1,reuseaddr,fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUDP4Recvfrom(context.Background(), spec, xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	client, err := net.DialUDP("udp4", nil, o.Listener.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	accepted := startUDPAccept(o.Listener)
+	if _, err := client.Write(nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Write([]byte("payload")); err != nil {
+		t.Fatal(err)
+	}
+	conn := waitUDPAccept(t, accepted, 2*time.Second, "recvfrom nonempty after empty")
+	t.Cleanup(func() { _ = conn.Close() })
+	got, err := readStreamTimeout(t, conn, 2*time.Second)
+	if err != nil || got != "payload" {
+		t.Fatalf("got %q err=%v want payload", got, err)
+	}
+}
+
+func TestUDPRecvfromForkNullEOFEmptyEndsSession(t *testing.T) {
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec, err := parse.ParseSpec("UDP4-RECVFROM:0,bind=127.0.0.1,reuseaddr,fork,null-eof")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUDP4Recvfrom(context.Background(), spec, xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	client, err := net.DialUDP("udp4", nil, o.Listener.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	accepted := startUDPAccept(o.Listener)
+	if _, err := client.Write(nil); err != nil {
+		t.Fatal(err)
+	}
+	conn := waitUDPAccept(t, accepted, 2*time.Second, "recvfrom null-eof empty")
+	t.Cleanup(func() { _ = conn.Close() })
+	got, err := readStreamTimeout(t, conn, 2*time.Second)
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("empty null-eof got %q err=%v want EOF", got, err)
+	}
+}

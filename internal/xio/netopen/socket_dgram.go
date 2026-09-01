@@ -207,6 +207,7 @@ func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f 
 		ctx:        ctx,
 		filter:     filter,
 		rcvTimeout: rcvTimeout,
+		nullEOF:    s.BoolOption("null-eof"),
 	}
 	return &xio.Opened{
 		Kind:        xio.KindListen,
@@ -221,7 +222,7 @@ func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f 
 
 func openSocketRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, f *os.File, filter *xio.PeerFilter, local net.Addr) (*xio.Opened, error) {
 	buf := make([]byte, dgramBufSize(g))
-	n, from, err := recvSocketFiltered(ctx, f, buf, filter, g, local)
+	n, from, err := recvSocketFiltered(ctx, f, buf, filter, g, local, s.BoolOption("null-eof"))
 	if err != nil {
 		logx.CloseQuiet(f)
 		return nil, err
@@ -242,7 +243,7 @@ func openSocketRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global,
 	return &xio.Opened{Stream: st, Label: s.Type}, nil
 }
 
-func recvSocketFiltered(ctx context.Context, f *os.File, buf []byte, filter *xio.PeerFilter, g *xio.Global, local net.Addr) (int, unix.Sockaddr, error) {
+func recvSocketFiltered(ctx context.Context, f *os.File, buf []byte, filter *xio.PeerFilter, g *xio.Global, local net.Addr, nullEOF bool) (int, unix.Sockaddr, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -258,6 +259,9 @@ func recvSocketFiltered(ctx context.Context, f *os.File, buf []byte, filter *xio
 			if stop := logOrStopPeerFilter(ctx, g, err); stop != nil {
 				return 0, nil, stop
 			}
+			continue
+		}
+		if xio.IgnoreEmptyDatagram(n, err, nullEOF) {
 			continue
 		}
 		return n, from, nil
@@ -633,9 +637,9 @@ type socketRecvfromStream struct {
 func (r *socketRecvfromStream) Read(p []byte) (int, error) {
 	if r.firstPending {
 		r.firstPending = false
-		n := copy(p, r.first)
+		first := r.first
 		r.first = nil
-		return n, nil
+		return copyOneshotFirst(p, first)
 	}
 	return 0, io.EOF
 }
@@ -661,6 +665,7 @@ type socketRecvfromListener struct {
 	ctx        context.Context
 	filter     *xio.PeerFilter
 	rcvTimeout time.Duration
+	nullEOF    bool
 	writeMu    sync.Mutex
 }
 
@@ -695,6 +700,9 @@ func (l *socketRecvfromListener) Accept() (net.Conn, error) {
 				continue
 			}
 			return nil, err
+		}
+		if xio.IgnoreEmptyDatagram(n, err, l.nullEOF) {
+			continue
 		}
 		local := filePacketAddr(l.f)
 		if err := l.filter.AllowAddr(packetAddrFromSockaddr(from), local); err != nil {
@@ -740,9 +748,9 @@ func (c *socketPacketConn) SessionEnvironment() map[string]string { return c.env
 func (c *socketPacketConn) Read(p []byte) (int, error) {
 	if c.firstPending {
 		c.firstPending = false
-		n := copy(p, c.first)
+		first := c.first
 		c.first = nil
-		return n, nil
+		return copyOneshotFirst(p, first)
 	}
 	return 0, io.EOF
 }

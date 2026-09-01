@@ -669,12 +669,8 @@ func TestUDPRecvFromConnShortReadDropsRemainder(t *testing.T) {
 func TestUDPSessionConnZeroLengthFirst(t *testing.T) {
 	u := &udpSessionConn{firstPending: true, oneShot: true}
 	n, err := u.Read(make([]byte, 8))
-	if n != 0 || err != nil {
-		t.Fatalf("zero-length first n=%d err=%v want 0, nil", n, err)
-	}
-	n, err = u.Read(make([]byte, 8))
 	if n != 0 || !errors.Is(err, io.EOF) {
-		t.Fatalf("after empty first n=%d err=%v want EOF", n, err)
+		t.Fatalf("zero-length first n=%d err=%v want EOF", n, err)
 	}
 }
 
@@ -697,12 +693,8 @@ func TestUDPSessionConnOneShotHidesSharedListener(t *testing.T) {
 func TestUDPRecvFromConnZeroLengthFirst(t *testing.T) {
 	u := &udpRecvFromConn{firstPending: true, closeEOF: true}
 	n, err := u.Read(make([]byte, 8))
-	if n != 0 || err != nil {
-		t.Fatalf("zero-length first n=%d err=%v want 0, nil", n, err)
-	}
-	n, err = u.Read(make([]byte, 8))
 	if n != 0 || !errors.Is(err, io.EOF) {
-		t.Fatalf("after empty first n=%d err=%v want EOF", n, err)
+		t.Fatalf("zero-length first n=%d err=%v want EOF", n, err)
 	}
 }
 

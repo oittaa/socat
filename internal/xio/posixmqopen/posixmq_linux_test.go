@@ -5,6 +5,7 @@ package posixmqopen
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -578,5 +579,51 @@ func TestPOSIXMQAppendFcntlOnce(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("F_SETFL count=%d want 1 (ops=%v)", n, ops)
+	}
+}
+
+func TestPOSIXMQEmptyMessageIsEOF(t *testing.T) {
+	q := testQueue(t)
+	sendMsg(t, q, "", 0)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ch, err := parse.ParseChannel("POSIXMQ-READ:" + q + ",unlink-close")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := xio.OpenChannel(ctx, ch, xio.ModeRead, testGlobal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = o.Close() }()
+	n, err := o.EffectiveStream().Read(make([]byte, 8))
+	if n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("empty MQ n=%d err=%v want EOF", n, err)
+	}
+}
+
+func TestPOSIXMQRecvEmptyOneshotIsEOF(t *testing.T) {
+	q := testQueue(t)
+	sendMsg(t, q, "", 3)
+	sendMsg(t, q, "kept", 0)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	ch, err := parse.ParseChannel("POSIXMQ-RECV:" + q)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := xio.OpenChannel(ctx, ch, xio.ModeRead, testGlobal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = o.Close() }()
+	b, err := io.ReadAll(o.EffectiveStream())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) != 0 {
+		t.Fatalf("oneshot empty got %q want EOF with no payload", b)
 	}
 }

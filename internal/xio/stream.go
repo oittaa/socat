@@ -544,11 +544,15 @@ func parseEscapeByte(v string) (byte, error) {
 
 // nullEOFReader treats a zero-length successful Read as EOF (null-eof).
 // Used with datagram sockets where a 0-byte packet signals end-of-stream.
+// A zero-length destination is not a read and is left unchanged.
 type nullEOFReader struct {
 	r io.Reader
 }
 
 func (n *nullEOFReader) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
 	nr, err := n.r.Read(p)
 	if err == nil && nr == 0 {
 		return 0, io.EOF

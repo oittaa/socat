@@ -213,6 +213,209 @@ func TestUnixRecvfromWaitsForDatagramThenEOF(t *testing.T) {
 	}
 }
 
+func TestUnixRecvfromSkipsEmptyUnlessNullEOF(t *testing.T) {
+	path := unixSocketTestPath(t, "recv-empty.sock")
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec, err := parse.ParseSpec("UNIX-RECVFROM:" + path + ",unlink-early")
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened := make(chan struct {
+		o   *xio.Opened
+		err error
+	}, 1)
+	go func() {
+		o, err := openUnixRecvfrom(context.Background(), spec, xio.ModeRDWR, g)
+		opened <- struct {
+			o   *xio.Opened
+			err error
+		}{o, err}
+	}()
+	time.Sleep(40 * time.Millisecond)
+	peer, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: unixSocketTestPath(t, "peer-empty.sock"), Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = peer.Close() })
+	dst := &net.UnixAddr{Name: path, Net: "unixgram"}
+	if _, err := peer.WriteToUnix(nil, dst); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := peer.WriteToUnix([]byte("payload"), dst); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-opened:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		t.Cleanup(func() { _ = result.o.Close() })
+		buf := make([]byte, 16)
+		n, err := result.o.Stream.Read(buf)
+		if err != nil || string(buf[:n]) != "payload" {
+			t.Fatalf("n=%d err=%v data=%q want payload", n, err, buf[:n])
+		}
+		n, err = result.o.Stream.Read(buf)
+		if n != 0 || !errors.Is(err, io.EOF) {
+			t.Fatalf("trailing n=%d err=%v want EOF", n, err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("UNIX-RECVFROM did not skip the empty datagram")
+	}
+}
+
+func TestUnixRecvfromNullEOFEmptyEndsSession(t *testing.T) {
+	path := unixSocketTestPath(t, "recv-nulleof.sock")
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec, err := parse.ParseSpec("UNIX-RECVFROM:" + path + ",unlink-early,null-eof")
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened := make(chan struct {
+		o   *xio.Opened
+		err error
+	}, 1)
+	go func() {
+		o, err := openUnixRecvfrom(context.Background(), spec, xio.ModeRDWR, g)
+		opened <- struct {
+			o   *xio.Opened
+			err error
+		}{o, err}
+	}()
+	time.Sleep(40 * time.Millisecond)
+	peer, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: unixSocketTestPath(t, "peer-nulleof.sock"), Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = peer.Close() })
+	if _, err := peer.WriteToUnix(nil, &net.UnixAddr{Name: path, Net: "unixgram"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case result := <-opened:
+		if result.err != nil {
+			t.Fatal(result.err)
+		}
+		t.Cleanup(func() { _ = result.o.Close() })
+		n, err := result.o.Stream.Read(make([]byte, 16))
+		if n != 0 || !errors.Is(err, io.EOF) {
+			t.Fatalf("n=%d err=%v want EOF", n, err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("UNIX-RECVFROM,null-eof did not complete on empty datagram")
+	}
+}
+
+func TestUnixRecvfromForkSkipsEmptyUnlessNullEOF(t *testing.T) {
+	path := unixSocketTestPath(t, "recv-fork-empty.sock")
+	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	spec, err := parse.ParseSpec("UNIX-RECVFROM:" + path + ",unlink-early,fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUnixRecvfrom(context.Background(), spec, xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	peer, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: unixSocketTestPath(t, "peer-fork-empty.sock"), Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = peer.Close() })
+	accepted := make(chan net.Conn, 1)
+	errc := make(chan error, 1)
+	go func() {
+		c, err := o.Listener.Accept()
+		if err != nil {
+			errc <- err
+			return
+		}
+		accepted <- c
+	}()
+	dst := &net.UnixAddr{Name: path, Net: "unixgram"}
+	if _, err := peer.WriteToUnix(nil, dst); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := peer.WriteToUnix([]byte("payload"), dst); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errc:
+		t.Fatal(err)
+	case conn := <-accepted:
+		t.Cleanup(func() { _ = conn.Close() })
+		buf := make([]byte, 16)
+		n, err := conn.Read(buf)
+		if err != nil || string(buf[:n]) != "payload" {
+			t.Fatalf("n=%d err=%v data=%q want payload", n, err, buf[:n])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("UNIX-RECVFROM,fork did not skip the empty datagram")
+	}
+}
+
+func TestUnixConnectDatagramEmptyIsEOF(t *testing.T) {
+	serverPath := unixSocketTestPath(t, "dgram-eof-srv.sock")
+	clientPath := unixSocketTestPath(t, "dgram-eof-cli.sock")
+	srv, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: serverPath, Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+	spec, err := parse.ParseSpec(fmt.Sprintf("UNIX-CONNECT:%s,socktype=%d,bind=%s,unlink-early", serverPath, unix.SOCK_DGRAM, clientPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUnixConnect(context.Background(), spec, xio.ModeRDWR, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	if _, err := srv.WriteToUnix(nil, &net.UnixAddr{Name: clientPath, Net: "unixgram"}); err != nil {
+		t.Fatal(err)
+	}
+	if d, ok := o.Stream.(interface{ SetReadDeadline(time.Time) error }); ok {
+		_ = d.SetReadDeadline(time.Now().Add(2 * time.Second))
+	}
+	n, err := o.Stream.Read(make([]byte, 8))
+	if n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("explicit unixgram n=%d err=%v want EOF", n, err)
+	}
+}
+
+func TestUnixClientAutodetectDatagramEmptyIsNotEOF(t *testing.T) {
+	serverPath := unixSocketTestPath(t, "dgram-auto-srv.sock")
+	clientPath := unixSocketTestPath(t, "dgram-auto-cli.sock")
+	srv, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: serverPath, Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+	spec, err := parse.ParseSpec("UNIX-CLIENT:" + serverPath + ",bind=" + clientPath + ",unlink-early")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUnixConnect(context.Background(), spec, xio.ModeRDWR, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	if _, err := srv.WriteToUnix(nil, &net.UnixAddr{Name: clientPath, Net: "unixgram"}); err != nil {
+		t.Fatal(err)
+	}
+	if d, ok := o.Stream.(interface{ SetReadDeadline(time.Time) error }); ok {
+		_ = d.SetReadDeadline(time.Now().Add(2 * time.Second))
+	}
+	n, err := o.Stream.Read(make([]byte, 8))
+	if errors.Is(err, io.EOF) {
+		t.Fatal("autodetect unixgram empty packet must not be EOF")
+	}
+	if n != 0 || err != nil {
+		t.Fatalf("autodetect unixgram n=%d err=%v want 0, nil", n, err)
+	}
+}
+
 func TestUnixRecvfromCanceledWhileWaiting(t *testing.T) {
 	path := unixSocketTestPath(t, "recv-cancel.sock")
 	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
@@ -267,6 +470,14 @@ func TestUnixRecvStreamShortReadDropsRemainder(t *testing.T) {
 	n, err = u.Read(buf)
 	if n != 0 || !errors.Is(err, io.EOF) {
 		t.Fatalf("remainder n=%d err=%v want EOF", n, err)
+	}
+}
+
+func TestUnixRecvStreamEmptyFirstIsEOF(t *testing.T) {
+	u := &unixRecvStream{from: true, firstEOF: true}
+	n, err := u.Read(make([]byte, 8))
+	if n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("empty first n=%d err=%v want EOF", n, err)
 	}
 }
 
