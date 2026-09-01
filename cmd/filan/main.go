@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"time"
@@ -16,16 +17,27 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const (
+	styleDetailed = 0
+	styleSimple   = 's'
+	styleLong     = 'S'
+)
+
 type filanConfig struct {
 	followSymlinks bool
 	rawOutput      bool
 	style          int
 	singleFD       bool
+	winch          bool
 	m, n           int
 	filename       string
 	waittime       time.Duration
 	outfname       string
+	log            *logx.Logger
 }
+
+// winchTestHook, when set, replaces SIGWINCH so tests can reprint then stop.
+var winchTestHook <-chan struct{}
 
 func main() {
 	os.Exit(run(os.Args[1:]))
@@ -59,11 +71,21 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 		case a == "-L":
 			cfg.followSymlinks = true
 		case a == "-s":
-			cfg.style = 1
+			cfg.style = styleSimple
+		case a == "-S":
+			cfg.style = styleLong
 		case a == "-r":
 			cfg.rawOutput = true
-		case a == "-d":
-			// verbosity ignored for now
+		case a == "-W":
+			cfg.winch = true
+		case strings.HasPrefix(a, "-d"):
+			if err := cfg.applyDebug(a, stderr); err != nil {
+				if err := writeMsg(stderr, "filan: unknown option %q\n", a); err != nil {
+					return 1
+				}
+				_ = usage(stderr)
+				return 1
+			}
 		case strings.HasPrefix(a, "-i"):
 			v, err := takeArg(a, "i", args, &i)
 			if err != nil {
@@ -72,9 +94,9 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 				}
 				return 1
 			}
-			fd, err := strconv.Atoi(v)
+			fd, err := parseBase0Int(v, "-i")
 			if err != nil {
-				if err := writeMsg(stderr, "filan: bad -i %q\n", v); err != nil {
+				if err := writeMsg(stderr, "%v\n", err); err != nil {
 					return 1
 				}
 				return 1
@@ -89,9 +111,9 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 				}
 				return 1
 			}
-			num, err := strconv.Atoi(v)
+			num, err := parseBase0Int(v, "-n")
 			if err != nil {
-				if err := writeMsg(stderr, "filan: bad -n %q\n", v); err != nil {
+				if err := writeMsg(stderr, "%v\n", err); err != nil {
 					return 1
 				}
 				return 1
@@ -159,41 +181,13 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 		time.Sleep(cfg.waittime)
 	}
 
-	var report outbuf.Buf
-	if cfg.filename != "" {
-		if err := cfg.filanFile(cfg.filename, &report); err != nil {
-			if err := writeMsg(stderr, "filan: %v\n", err); err != nil {
-				return 1
-			}
-			return 1
-		}
-		if err := report.Flush(out); err != nil {
-			return 1
-		}
-		return 0
-	}
-
-	if cfg.singleFD {
-		cfg.n = cfg.m + 1
-	} else if cfg.n == 0 {
-		// -n0 analyzes fd 0 only; test.sh greps stdin pipe capacity.
-		cfg.n = 1
-	}
-	// Header line; test.sh LISTEN_KEEPALIVE skips it with tail -n +2.
-	if cfg.style != 1 {
-		report.Println("  FD  typedeviceinodemodelinksuidgidrdevsizeblksizeblocksatimemtimectimecloexecflagssigownsigio")
-	}
-	for fd := cfg.m; fd < cfg.n; fd++ {
-		if cfg.style == 1 {
-			fdname(fd, &report)
-		} else {
-			cfg.filanFD(fd, &report)
-		}
-	}
-	if err := report.Flush(out); err != nil {
+	if err := cfg.analyzeOnce(out, stderr); err != nil {
 		return 1
 	}
-	return 0
+	if !cfg.winch {
+		return 0
+	}
+	return cfg.reprintOnWinch(out, stderr)
 }
 
 func takeArg(a, key string, args []string, i *int) (string, error) {
@@ -208,6 +202,91 @@ func takeArg(a, key string, args []string, i *int) (string, error) {
 	return a[len(prefix):], nil
 }
 
+func parseBase0Int(v, what string) (int, error) {
+	n, err := strconv.ParseUint(strings.TrimSpace(v), 0, 64)
+	if err != nil || n > uint64(^uint(0)>>1) {
+		return 0, fmt.Errorf("filan: bad %s %q", what, v)
+	}
+	return int(n), nil
+}
+
+func (cfg *filanConfig) applyDebug(a string, stderr io.Writer) error {
+	rest := strings.TrimPrefix(a, "-d")
+	if rest != "" && strings.Trim(rest, "d") != "" {
+		return fmt.Errorf("unknown")
+	}
+	if cfg.log == nil {
+		cfg.log = logx.New()
+		cfg.log.SetProgname("filan")
+		cfg.log.SetOutput(stderr)
+	}
+	n := 1 + len(rest)
+	for i := 0; i < n; i++ {
+		cfg.log.Increase()
+	}
+	return nil
+}
+
+func (cfg *filanConfig) debugf(format string, args ...any) {
+	if cfg.log != nil {
+		cfg.log.Debugf(format, args...)
+	}
+}
+
+func (cfg *filanConfig) analyzeOnce(out, stderr io.Writer) error {
+	var report outbuf.Buf
+	if cfg.filename != "" {
+		if err := cfg.filanFile(cfg.filename, &report); err != nil {
+			if err := writeMsg(stderr, "filan: %v\n", err); err != nil {
+				return err
+			}
+			return fmt.Errorf("filan file")
+		}
+		return report.Flush(out)
+	}
+
+	lo, hi := cfg.m, cfg.n
+	if cfg.singleFD {
+		hi = lo + 1
+	} else if hi == 0 {
+		// -n0 analyzes fd 0 only; test.sh greps stdin pipe capacity.
+		hi = 1
+	}
+	// Header line; test.sh LISTEN_KEEPALIVE skips it with tail -n +2.
+	if cfg.style == styleDetailed {
+		report.Println("  FD  typedeviceinodemodelinksuidgidrdevsizeblksizeblocksatimemtimectimecloexecflagssigownsigio")
+	}
+	for fd := lo; fd < hi; fd++ {
+		if cfg.style == styleSimple || cfg.style == styleLong {
+			cfg.fdname(fd, &report)
+		} else {
+			cfg.filanFD(fd, &report)
+		}
+	}
+	return report.Flush(out)
+}
+
+func (cfg *filanConfig) reprintOnWinch(out, stderr io.Writer) int {
+	ch := winchTestHook
+	if ch == nil {
+		sigs := make(chan os.Signal, 1)
+		signal.Notify(sigs, unix.SIGWINCH)
+		defer signal.Stop(sigs)
+		for range sigs {
+			if err := cfg.analyzeOnce(out, stderr); err != nil {
+				return 1
+			}
+		}
+		return 0
+	}
+	for range ch {
+		if err := cfg.analyzeOnce(out, stderr); err != nil {
+			return 1
+		}
+	}
+	return 0
+}
+
 func openOut(name string) (*os.File, error) {
 	switch name {
 	case "stdin":
@@ -218,7 +297,7 @@ func openOut(name string) (*os.File, error) {
 		return os.Stderr, nil
 	}
 	if strings.HasPrefix(name, "+") {
-		fd, err := strconv.Atoi(name[1:])
+		fd, err := parseBase0Int(name[1:], "-o")
 		if err != nil {
 			return nil, err
 		}
@@ -232,13 +311,16 @@ func usage(w io.Writer) error {
 	b.Println("filan by oittaa — analyze file descriptors (Go reimplementation of socat filan)")
 	b.Println("Usage: filan [options]")
 	b.Println("  -h|-?        help")
+	b.Println("  -d           increase verbosity (use up to 4 times)")
 	b.Println("  -i<fdnum>    only analyze this fd")
 	b.Println("  -n<fdnum>    analyze fds 0..fdnum-1")
 	b.Println("  -s           simple output")
+	b.Println("  -S           simple output with socket type and local-peer addresses")
 	b.Println("  -f<filename> analyze filesystem entry")
 	b.Println("  -T<seconds>  wait before analyzing")
 	b.Println("  -r           raw time/rdev output")
 	b.Println("  -L           follow symlinks")
+	b.Println("  -W           reprint on SIGWINCH")
 	b.Println("  -o<filename> output file")
 	return b.Flush(w)
 }
@@ -285,6 +367,7 @@ func (cfg *filanConfig) filanFile(path string, b *outbuf.Buf) error {
 }
 
 func (cfg *filanConfig) filanFD(fd int, b *outbuf.Buf) {
+	cfg.debugf("checking file descriptor %d", fd)
 	var st unix.Stat_t
 	err := unix.Fstat(fd, &st)
 	if err != nil {
@@ -463,7 +546,8 @@ func netIPv6(b [16]byte) string {
 	)
 }
 
-func fdname(fd int, b *outbuf.Buf) {
+func (cfg *filanConfig) fdname(fd int, b *outbuf.Buf) {
+	cfg.debugf("checking file descriptor %d", fd)
 	var st unix.Stat_t
 	if err := unix.Fstat(fd, &st); err != nil {
 		return
@@ -473,7 +557,7 @@ func fdname(fd int, b *outbuf.Buf) {
 	typ := fileTypeString(uint32(st.Mode))
 	path := ""
 	if st.Mode&unix.S_IFMT == unix.S_IFSOCK {
-		typ, path = shortSocketName(fd)
+		typ, path = shortSocketName(fd, cfg.style)
 	} else if p, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd)); err == nil {
 		path = p
 	}
@@ -485,8 +569,23 @@ func fdname(fd int, b *outbuf.Buf) {
 	b.Printf("%5d %s %s\n", fd, typ, path)
 }
 
-// shortSocketName returns -s type ("tcp", "udp", "unix", …) and "local peer" address text for AF_INET/INET6/UNIX.
-func shortSocketName(fd int) (typ, addrs string) {
+func socketTypeName(stype int) string {
+	switch stype {
+	case unix.SOCK_STREAM:
+		return "stream"
+	case unix.SOCK_DGRAM:
+		return "dgram"
+	case unix.SOCK_SEQPACKET:
+		return "seqpacket"
+	case unix.SOCK_RAW:
+		return "raw"
+	default:
+		return fmt.Sprintf("socktype%d", stype)
+	}
+}
+
+// shortSocketName returns -s/-S type ("tcp", "udp", "unix", …) and address text.
+func shortSocketName(fd int, style int) (typ, addrs string) {
 	typ = "socket"
 	proto, err := socketProtocol(fd)
 	if err != nil {
@@ -506,39 +605,69 @@ func shortSocketName(fd int) (typ, addrs string) {
 	if v, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ACCEPTCONN); err == nil && v != 0 {
 		listenTag = "(listening)"
 	}
-	switch sa.(type) {
-	case *unix.SockaddrInet4, *unix.SockaddrInet6:
-		switch proto {
-		case unix.IPPROTO_TCP:
-			typ = "tcp" + listenTag
-		case unix.IPPROTO_UDP:
-			typ = "udp"
-		case unix.IPPROTO_SCTP:
-			typ = "sctp" + listenTag
-		case unix.IPPROTO_RAW:
-			typ = "raw"
+	var protoName string
+	switch proto {
+	case unix.IPPROTO_TCP:
+		protoName = "tcp"
+	case unix.IPPROTO_UDP:
+		protoName = "udp"
+	case unix.IPPROTO_SCTP:
+		protoName = "sctp"
+	case unix.IPPROTO_RAW:
+		protoName = "raw"
+	default:
+		switch stype {
+		case unix.SOCK_STREAM:
+			protoName = "tcp"
+		case unix.SOCK_DGRAM:
+			protoName = "udp"
 		default:
-			switch stype {
-			case unix.SOCK_STREAM:
-				typ = "tcp" + listenTag
-			case unix.SOCK_DGRAM:
-				typ = "udp"
-			default:
-				typ = fmt.Sprintf("proto%d", proto)
+			protoName = fmt.Sprintf("proto%d", proto)
+		}
+	}
+	switch sa.(type) {
+	case *unix.SockaddrInet4:
+		if style == styleLong {
+			typ = protoName
+			if peer == "" {
+				peer = "0.0.0.0:0"
+			}
+			addrs = strings.TrimSpace(fmt.Sprintf("%s-%s (%s) %s", local, peer, socketTypeName(stype), listenTag))
+		} else {
+			typ = protoName + listenTag
+			if peer != "" {
+				addrs = local + " " + peer
+			} else {
+				addrs = local
 			}
 		}
-		if peer != "" {
-			addrs = local + " " + peer
+	case *unix.SockaddrInet6:
+		if style == styleLong {
+			typ = protoName + "6"
+			if peer == "" {
+				peer = "[::]:0"
+			}
+			addrs = strings.TrimSpace(fmt.Sprintf("%s-%s (%s) %s", local, peer, socketTypeName(stype), listenTag))
 		} else {
-			addrs = local
+			typ = protoName + listenTag
+			if peer != "" {
+				addrs = local + " " + peer
+			} else {
+				addrs = local
+			}
 		}
 	case *unix.SockaddrUnix:
-		if stype == unix.SOCK_DGRAM {
-			typ = "unixdatagram"
+		if style == styleLong {
+			typ = "unix"
+			addrs = strings.TrimSpace(fmt.Sprintf("%s-%s %s %s", local, peer, socketTypeName(stype), listenTag))
 		} else {
-			typ = "unix" + listenTag
+			if stype == unix.SOCK_DGRAM {
+				typ = "unixdatagram"
+			} else {
+				typ = "unix" + listenTag
+			}
+			addrs = local
 		}
-		addrs = local
 	default:
 		addrs = local
 	}
