@@ -147,6 +147,12 @@ func TestForkSessionSharesStatsFlag(t *testing.T) {
 	if !b.statsAlreadyPrinted() || !g.statsAlreadyPrinted() {
 		t.Fatal("stats flag must be shared so --statistics prints once")
 	}
+	if g.ForkChild {
+		t.Fatal("parent Global must not be marked as a fork child")
+	}
+	if !a.ForkChild || !b.ForkChild {
+		t.Fatal("forkSession must mark child Globals")
+	}
 }
 
 func TestPreferredResolveVersionFromEnvironment(t *testing.T) {

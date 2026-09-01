@@ -3,8 +3,10 @@
 package fileopen
 
 import (
+	"fmt"
 	"os"
 
+	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/windows"
 )
 
@@ -29,4 +31,18 @@ func closeInheritedFD(fd int) error {
 	return windows.CloseHandle(windows.Handle(fd))
 }
 
-func mirrorInheritedCloexec(int, *os.File) error { return nil }
+func mirrorInheritedFDFlags(orig int, _ *os.File, s parse.Spec) error {
+	for _, o := range s.Options {
+		if parse.CanonicalOptionName(o.Name) != "noinherit" {
+			continue
+		}
+		flags := uint32(0)
+		if !o.Active() {
+			flags = windows.HANDLE_FLAG_INHERIT
+		}
+		if err := windows.SetHandleInformation(windows.Handle(orig), windows.HANDLE_FLAG_INHERIT, flags); err != nil {
+			return fmt.Errorf("%s: SetHandleInformation: %w", o.OriginalSpelling(), err)
+		}
+	}
+	return nil
+}

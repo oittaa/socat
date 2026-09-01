@@ -13,8 +13,8 @@ import (
 // inherited FD. Tests use it to prove repeated opens do not leak wrappers.
 var inheritedSessionLive atomic.Int64
 
-// inheritedSession closes the per-session duplicate. With end-close it also
-// closes the original inherited descriptor.
+// inheritedSession closes the per-session duplicate. With end-close on a
+// non-fork open it also closes the original inherited descriptor.
 type inheritedSession struct {
 	session   *os.File
 	orig      int

@@ -210,3 +210,55 @@ func TestFDFailedOpenDoesNotKeepSessionWrapperUnix(t *testing.T) {
 		t.Fatalf("failed open closed inherited fd: %v", err)
 	}
 }
+
+func TestFDForkChildEndCloseLeavesInheritedDescriptorOpenUnix(t *testing.T) {
+	nfd, w := dupPipeFD(t)
+	parsed, err := parse.ParseSpec("FD:" + strconv.Itoa(nfd) + ",end-close")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openFD(context.Background(), parsed, xio.ModeRead, &xio.Global{ForkChild: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("ok")); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 2)
+	n, err := unix.Read(nfd, buf)
+	if err != nil {
+		t.Fatalf("fork-child end-close closed inherited fd: %v", err)
+	}
+	if n != 2 || string(buf) != "ok" {
+		t.Fatalf("read %q want ok", buf[:n])
+	}
+}
+
+func TestDuplicateInheritedFDSetsCLOEXECUnix(t *testing.T) {
+	nfd, _ := dupPipeFD(t)
+	if _, err := unix.FcntlInt(uintptr(nfd), unix.F_SETFD, 0); err != nil {
+		t.Fatal(err)
+	}
+	dup, err := duplicateInheritedFD(nfd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(dup) })
+	flags, err := unix.FcntlInt(uintptr(dup), unix.F_GETFD, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags&unix.FD_CLOEXEC == 0 {
+		t.Fatal("F_DUPFD_CLOEXEC left the duplicate inheritable")
+	}
+	orig, err := unix.FcntlInt(uintptr(nfd), unix.F_GETFD, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if orig&unix.FD_CLOEXEC != 0 {
+		t.Fatal("duplication set FD_CLOEXEC on the original")
+	}
+}

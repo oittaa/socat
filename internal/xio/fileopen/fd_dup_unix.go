@@ -6,18 +6,23 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
 
 func duplicateInheritedFD(fd int) (int, error) {
-	return unix.Dup(fd)
+	n, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 0)
+	if err != nil {
+		return -1, err
+	}
+	return n, nil
 }
 
 func closeInheritedFD(fd int) error {
 	return unix.Close(fd)
 }
 
-func mirrorInheritedCloexec(orig int, session *os.File) error {
+func mirrorInheritedFDFlags(orig int, session *os.File, _ parse.Spec) error {
 	flags, err := unix.FcntlInt(session.Fd(), unix.F_GETFD, 0)
 	if err != nil {
 		return fmt.Errorf("cloexec: %w", err)

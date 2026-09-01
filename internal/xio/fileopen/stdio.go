@@ -150,13 +150,12 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Op
 	}
 	// Default FD_CLOEXEC on the caller's descriptor before options, then
 	// I/O on a per-session duplicate so Close cannot close the original
-	// unless end-close is set.
+	// unless end-close is set on a non-fork open.
 	setInheritedFDCloexec(n, g)
 	dupFd, err := duplicateInheritedFD(n)
 	if err != nil {
 		return nil, fmt.Errorf("FD:%d: %w", n, err)
 	}
-	setInheritedFDCloexec(dupFd, g)
 	f := os.NewFile(uintptr(dupFd), fmt.Sprintf("fd:%d", n))
 	if f == nil {
 		_ = closeInheritedFD(dupFd)
@@ -173,14 +172,15 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Op
 	if err := xio.ApplyFDOptions(f, s); err != nil {
 		return fail(err)
 	}
-	if err := mirrorInheritedCloexec(n, f); err != nil {
+	if err := mirrorInheritedFDFlags(n, f, s); err != nil {
 		return fail(err)
 	}
 	// After socket() options (so-priority, …) apply to the inherited fd.
 	if err := xio.ApplySocketOptions(int(f.Fd()), s); err != nil {
 		return fail(err)
 	}
-	st, err := xio.WrapCommonAfterConnected(specWithoutEndClose(s), inheritedFDStream(f, n, s.BoolOption("end-close")))
+	closeOrig := s.BoolOption("end-close") && (g == nil || !g.ForkChild)
+	st, err := xio.WrapCommonAfterConnected(specWithoutEndClose(s), inheritedFDStream(f, n, closeOrig))
 	if err != nil {
 		return fail(err)
 	}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"unsafe"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
@@ -144,4 +145,103 @@ func TestFDFailedOpenDoesNotKeepSessionWrapperWindows(t *testing.T) {
 	if _, err := windows.GetFileType(windows.Handle(nfd)); err != nil {
 		t.Fatalf("failed open closed inherited handle: %v", err)
 	}
+}
+
+func TestFDForkChildEndCloseLeavesInheritedDescriptorOpenWindows(t *testing.T) {
+	nfd, w := dupPipeHandle(t)
+	parsed, err := parse.ParseSpec("FD:" + strconv.Itoa(nfd) + ",end-close")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openFD(context.Background(), parsed, xio.ModeRead, &xio.Global{ForkChild: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("ok")); err != nil {
+		t.Fatal(err)
+	}
+	buf, err := readInheritedHandle(t, nfd, 2)
+	if err != nil {
+		t.Fatalf("fork-child end-close closed inherited handle: %v", err)
+	}
+	if string(buf) != "ok" {
+		t.Fatalf("read %q want ok", buf)
+	}
+}
+
+func TestFDNoinheritMirrorsCallerHandleWindows(t *testing.T) {
+	tests := []struct {
+		raw         string
+		initial     uint32
+		wantInherit bool
+	}{
+		{raw: "noinherit", initial: windows.HANDLE_FLAG_INHERIT, wantInherit: false},
+		{raw: "o-noinherit", initial: windows.HANDLE_FLAG_INHERIT, wantInherit: false},
+		{raw: "noinherit=0", initial: 0, wantInherit: true},
+		{raw: "noinherit=0,noinherit", initial: 0, wantInherit: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.raw, func(t *testing.T) {
+			nfd, _ := dupPipeHandle(t)
+			if err := windows.SetHandleInformation(windows.Handle(nfd), windows.HANDLE_FLAG_INHERIT, tc.initial); err != nil {
+				t.Fatal(err)
+			}
+			parsed, err := parse.ParseSpec("FD:" + strconv.Itoa(nfd) + "," + tc.raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			o, err := openFD(context.Background(), parsed, xio.ModeRead, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = o.Close() })
+			flags, err := inheritedHandleFlags(windows.Handle(nfd))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := flags&windows.HANDLE_FLAG_INHERIT != 0; got != tc.wantInherit {
+				t.Fatalf("HANDLE_FLAG_INHERIT=%v want %v (flags=%#x)", got, tc.wantInherit, flags)
+			}
+		})
+	}
+}
+
+func TestFDWithoutNoinheritLeavesCallerInheritWindows(t *testing.T) {
+	nfd, _ := dupPipeHandle(t)
+	if err := windows.SetHandleInformation(windows.Handle(nfd), windows.HANDLE_FLAG_INHERIT, windows.HANDLE_FLAG_INHERIT); err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := parse.ParseSpec("FD:" + strconv.Itoa(nfd))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openFD(context.Background(), parsed, xio.ModeRead, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	flags, err := inheritedHandleFlags(windows.Handle(nfd))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags&windows.HANDLE_FLAG_INHERIT == 0 {
+		t.Fatal("FD without noinherit cleared HANDLE_FLAG_INHERIT on the caller handle")
+	}
+}
+
+var getHandleInformation = windows.NewLazySystemDLL("kernel32.dll").NewProc("GetHandleInformation")
+
+func inheritedHandleFlags(handle windows.Handle) (uint32, error) {
+	var flags uint32
+	ok, _, callErr := getHandleInformation.Call(uintptr(handle), uintptr(unsafe.Pointer(&flags)))
+	if ok == 0 {
+		if callErr != nil && callErr != windows.Errno(0) {
+			return 0, callErr
+		}
+		return 0, windows.ERROR_INVALID_HANDLE
+	}
+	return flags, nil
 }

@@ -455,6 +455,36 @@ func TestFDReadsPipe(t *testing.T) {
 	}
 }
 
+func TestTCPListenForkFDEndCloseServesTwoClients(t *testing.T) {
+	ctx, g := testCtx(t), testGlobal()
+	g.LeftToRight = true
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = r.Close()
+		_ = w.Close()
+	})
+	nfd := duplicateFDNumber(t, w)
+	_ = w.Close()
+	srv := startListenRight(t, ctx, g,
+		"TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1",
+		fmt.Sprintf("FD:%d,end-close", nfd))
+	addr := "TCP:127.0.0.1:" + tcpPort(t, srv) + ",connect-timeout=2"
+	for _, payload := range []string{"first", "second"} {
+		cli := openClient(t, ctx, g, addr)
+		mustWrite(t, cli.Stream, []byte(payload))
+		if err := cli.Stream.ShutdownWrite(); err != nil {
+			t.Fatal(err)
+		}
+		if got := string(readFull(t, r, len(payload))); got != payload {
+			t.Fatalf("got %q want %q", got, payload)
+		}
+		_ = cli.Close()
+	}
+}
+
 func TestUDP4ListenPIPEEcho(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
 	srv := startForkListenPIPE(t, ctx, g, "UDP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
