@@ -12,12 +12,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func newUDPListenForkListener(base *udpForkListener) net.Listener {
-	return base
-}
-
-func udpForkSharesListenSocket() bool { return false }
-
 func udpForkUsesPeekDial() bool { return true }
 
 // readUDPForkOpener leaves UDP-LISTEN's opener queued until the connected
