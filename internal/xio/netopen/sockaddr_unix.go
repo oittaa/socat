@@ -3,66 +3,112 @@
 package netopen
 
 import (
-	"encoding/binary"
+	"context"
 	"fmt"
-	"net"
 	"os"
-	"strconv"
+	"runtime"
 	"strings"
+	"unsafe"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
 )
 
-func parseSocketParams(s parse.Spec, n int) (domain, proto int, addr []byte, err error) {
-	if len(s.Params) < n {
-		return 0, 0, nil, fmt.Errorf("%s requires %d parameters", s.Type, n)
+const sockaddrStorageSize = 128
+
+type socketCall struct {
+	domain, typ, proto int
+	addr               []byte
+}
+
+type rawSockaddr struct {
+	buf []byte
+}
+
+func parseSocketPositional(field, v string) (int, error) {
+	if v == "" {
+		return 0, nil
 	}
-	// Empty domain is tolerated (testaddrs expands $PF_INET6 from procan -c;
-	// if empty, infer from address length).
-	if s.Params[0] == "" {
-		domain = 0
-	} else {
-		domain, err = strconv.Atoi(s.Params[0])
-		if err != nil {
-			return 0, 0, nil, fmt.Errorf("domain: %w", err)
-		}
-	}
-	if s.Params[1] == "" {
-		proto = 0
-	} else {
-		proto, err = strconv.Atoi(s.Params[1])
-		if err != nil {
-			return 0, 0, nil, fmt.Errorf("protocol: %w", err)
-		}
-	}
-	// Prefer raw address text so dalan quote forms (and syntax errors)
-	// survive parse unquote. Fall back to joined Params.
-	addrText := rawSocketAddress(s, 2)
-	if addrText == "" {
-		addrText = strings.Join(s.Params[2:], ":")
-	}
-	// testaddrs uses TYPE::::: — joined params become ":"/"::" with no real data.
-	if strings.Trim(addrText, ":") == "" {
-		return 0, 0, nil, fmt.Errorf("%s requires address", s.Type)
-	}
-	addr, err = xio.ParseSocatData(addrText)
+	n, err := xio.ParseIntAny(v)
 	if err != nil {
-		return 0, 0, nil, err
+		return 0, fmt.Errorf("%s: %w", field, err)
 	}
-	if domain == 0 {
-		// Heuristic: IPv6 sockaddr data is ~26 bytes; IPv4 ~14; else UNIX path.
-		switch {
-		case len(addr) >= 22:
-			domain = unix.AF_INET6
-		case len(addr) >= 6 && len(addr) <= 16:
-			domain = unix.AF_INET
-		default:
-			domain = unix.AF_UNIX
+	return n, nil
+}
+
+func applyGenericSocketOptions(s parse.Spec, domain, typ, proto int) (int, int, int, error) {
+	if v := s.OptionValue("pf", ""); v != "" {
+		pf, err := parseClassicSocketPF(v)
+		if err != nil {
+			return 0, 0, 0, err
 		}
+		domain = pf
 	}
-	return domain, proto, addr, nil
+	if o, ok := s.OptionNamed("socktype"); ok {
+		n, err := parseVsockSocketInt(o, "socktype")
+		if err != nil {
+			return 0, 0, 0, err
+		}
+		typ = n
+	}
+	return domain, typ, proto, nil
+}
+
+func finishSocketCall(s parse.Spec, domain, typ, proto int, addr []byte, inferEmptyDomain bool) (socketCall, error) {
+	domain, typ, proto, err := applyGenericSocketOptions(s, domain, typ, proto)
+	if err != nil {
+		return socketCall{}, err
+	}
+	if inferEmptyDomain && s.OptionValue("pf", "") == "" {
+		domain = inferSocketDomain(addr)
+	}
+	return socketCall{domain: domain, typ: typ, proto: proto, addr: addr}, nil
+}
+
+func inferSocketDomain(addr []byte) int {
+	switch {
+	case len(addr) >= 22:
+		return unix.AF_INET6
+	case len(addr) >= 6 && len(addr) <= 16:
+		return unix.AF_INET
+	default:
+		return unix.AF_UNIX
+	}
+}
+
+func parseSocketAddress(s parse.Spec, paramIndex int) ([]byte, error) {
+	addrText := rawSocketAddress(s, paramIndex)
+	if addrText == "" {
+		addrText = strings.Join(s.Params[paramIndex:], ":")
+	}
+	if strings.Trim(addrText, ":") == "" {
+		return nil, fmt.Errorf("%s requires address", s.Type)
+	}
+	return xio.ParseSocatData(addrText)
+}
+
+func parseSocketStreamCall(s parse.Spec) (socketCall, error) {
+	if len(s.Params) < 3 {
+		return socketCall{}, fmt.Errorf("%s requires %d parameters", s.Type, 3)
+	}
+	emptyDomain := s.Params[0] == ""
+	domain, err := parseSocketPositional("domain", s.Params[0])
+	if err != nil {
+		return socketCall{}, err
+	}
+	proto, err := parseSocketPositional("protocol", s.Params[1])
+	if err != nil {
+		return socketCall{}, err
+	}
+	addr, err := parseSocketAddress(s, 2)
+	if err != nil {
+		return socketCall{}, err
+	}
+	if len(addr) == 0 {
+		return socketCall{}, fmt.Errorf("%s requires address", s.Type)
+	}
+	return finishSocketCall(s, domain, unix.SOCK_STREAM, proto, addr, emptyDomain)
 }
 
 type socketDgramParams struct {
@@ -79,28 +125,24 @@ func parseSocketDgramParams(s parse.Spec) (socketDgramParams, error) {
 	if len(s.Params) < 4 {
 		return out, fmt.Errorf("%s requires domain:type:protocol:address", s.Type)
 	}
-	if s.Params[0] != "" {
-		domain, err := strconv.Atoi(s.Params[0])
-		if err != nil {
-			return out, fmt.Errorf("domain: %w", err)
-		}
-		out.domain = domain
+	domain, err := parseSocketPositional("domain", s.Params[0])
+	if err != nil {
+		return out, err
 	}
+	out.domain = domain
 	out.typ = unix.SOCK_DGRAM
 	if s.Params[1] != "" {
-		typ, err := strconv.Atoi(s.Params[1])
+		typ, err := parseSocketPositional("type", s.Params[1])
 		if err != nil {
-			return out, fmt.Errorf("type: %w", err)
+			return out, err
 		}
 		out.typ = typ
 	}
-	if s.Params[2] != "" {
-		proto, err := strconv.Atoi(s.Params[2])
-		if err != nil {
-			return out, fmt.Errorf("protocol: %w", err)
-		}
-		out.proto = proto
+	proto, err := parseSocketPositional("protocol", s.Params[2])
+	if err != nil {
+		return out, err
 	}
+	out.proto = proto
 	addrText := rawSocketAddress(s, 3)
 	if addrText == "" {
 		addrText = strings.Join(s.Params[3:], ":")
@@ -111,6 +153,14 @@ func parseSocketDgramParams(s parse.Spec) (socketDgramParams, error) {
 	}
 	out.addr = addr
 	return out, nil
+}
+
+func parseSocketDgramCall(s parse.Spec) (socketCall, error) {
+	p, err := parseSocketDgramParams(s)
+	if err != nil {
+		return socketCall{}, err
+	}
+	return finishSocketCall(s, p.domain, p.typ, p.proto, p.addr, false)
 }
 
 // rawSocketAddress extracts the address parameter from Spec.Raw without unquote.
@@ -178,55 +228,121 @@ func splitColonNoUnquote(s string) []string {
 	return parts
 }
 
-// buildSockaddr builds unix.Sockaddr from domain + address data (without family).
-func buildSockaddr(domain int, data []byte) (unix.Sockaddr, int, error) {
+func packRawSockaddr(family int, data []byte) (rawSockaddr, error) {
 	if len(data) == 0 {
-		return nil, 0, fmt.Errorf("empty socket address")
+		return rawSockaddr{}, fmt.Errorf("empty socket address")
 	}
-	switch domain {
-	case unix.AF_INET:
-		// sockaddr_in data: port(2 BE) + addr(4) + zero(8) = 14 bytes typically
-		if len(data) < 6 {
-			return nil, 0, fmt.Errorf("AF_INET address too short")
+	if family < 0 || family > sockaddrFamilyMax() {
+		return rawSockaddr{}, fmt.Errorf("domain %d out of range", family)
+	}
+	hdr := sockaddrHeader(family)
+	n := len(hdr) + len(data)
+	if n > sockaddrStorageSize {
+		return rawSockaddr{}, fmt.Errorf("data too long")
+	}
+	buf := make([]byte, n)
+	copy(buf, hdr)
+	copy(buf[len(hdr):], data)
+	setSockaddrLen(buf)
+	return rawSockaddr{buf: buf}, nil
+}
+
+func (sa rawSockaddr) withStorage(fn func(ptr unsafe.Pointer, n uintptr) error) error {
+	if len(sa.buf) == 0 {
+		return fmt.Errorf("empty socket address")
+	}
+	if len(sa.buf) > sockaddrStorageSize {
+		return fmt.Errorf("data too long")
+	}
+	var storage [sockaddrStorageSize]byte
+	copy(storage[:], sa.buf)
+	err := fn(unsafe.Pointer(&storage[0]), uintptr(len(sa.buf))) // #nosec G103 -- bind/connect/sendto need the packed bytes and exact length
+	runtime.KeepAlive(storage)
+	return err
+}
+
+func bindRaw(ctx context.Context, fd int, sa rawSockaddr) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return sa.withStorage(func(ptr unsafe.Pointer, n uintptr) error {
+		_, _, errno := unix.Syscall(unix.SYS_BIND, uintptr(fd), uintptr(ptr), n) // #nosec G103 -- bind(2) uses packed sockaddr bytes
+		if errno != 0 {
+			return errno
 		}
-		port := binary.BigEndian.Uint16(data[0:2])
-		ip := net.IPv4(data[2], data[3], data[4], data[5])
-		sa := &unix.SockaddrInet4{Port: int(port)}
-		copy(sa.Addr[:], ip.To4())
-		return sa, unix.SizeofSockaddrInet4, nil
-	case unix.AF_INET6:
-		// port(2) + flowinfo(4) + addr(16) + scope(4) — family may be omitted
-		if len(data) < 2+4+16 {
-			return nil, 0, fmt.Errorf("AF_INET6 address too short (%d)", len(data))
+		return nil
+	})
+}
+
+func connectRaw(ctx context.Context, fd int, sa rawSockaddr) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if ctx.Done() == nil {
+		return sysConnect(fd, sa)
+	}
+	if err := unix.SetNonblock(fd, true); err != nil {
+		return err
+	}
+	err := connectInterruptible(ctx, fd, sa)
+	if rerr := unix.SetNonblock(fd, false); err == nil {
+		err = rerr
+	}
+	return err
+}
+
+func sysConnect(fd int, sa rawSockaddr) error {
+	return sa.withStorage(func(ptr unsafe.Pointer, n uintptr) error {
+		_, _, errno := unix.Syscall(unix.SYS_CONNECT, uintptr(fd), uintptr(ptr), n) // #nosec G103 -- connect(2) uses packed sockaddr bytes
+		if errno != 0 {
+			return errno
 		}
-		port := binary.BigEndian.Uint16(data[0:2])
-		// skip flowinfo at 2:6
-		var addr [16]byte
-		copy(addr[:], data[6:22])
-		scope := uint32(0)
-		if len(data) >= 26 {
-			scope = binary.BigEndian.Uint32(data[22:26])
+		return nil
+	})
+}
+
+func connectInterruptible(ctx context.Context, fd int, sa rawSockaddr) error {
+	errno := connectErrno(fd, sa)
+	for {
+		if errno == 0 {
+			return nil
 		}
-		sa := &unix.SockaddrInet6{Port: int(port), ZoneId: scope, Addr: addr}
-		return sa, unix.SizeofSockaddrInet6, nil
-	case unix.AF_UNIX:
-		// path bytes, often NUL-terminated
-		path := string(data)
-		if i := strings.IndexByte(path, 0); i >= 0 {
-			path = path[:i]
+		if errno == unix.EINPROGRESS {
+			return waitUnixConnect(ctx, fd)
 		}
-		return &unix.SockaddrUnix{Name: path}, 2 + len(path) + 1, nil
-	default:
-		return nil, 0, fmt.Errorf("unsupported socket domain %d", domain)
+		if errno != unix.EAGAIN && errno != unix.EWOULDBLOCK {
+			return errno
+		}
+		if err := waitUnixConnectRetry(ctx); err != nil {
+			return err
+		}
+		errno = connectErrno(fd, sa)
 	}
 }
 
-func bindRaw(fd int, sa unix.Sockaddr, _ int) error {
-	return unix.Bind(fd, sa)
+func connectErrno(fd int, sa rawSockaddr) unix.Errno {
+	var out unix.Errno
+	_ = sa.withStorage(func(ptr unsafe.Pointer, n uintptr) error {
+		_, _, errno := unix.Syscall(unix.SYS_CONNECT, uintptr(fd), uintptr(ptr), n) // #nosec G103 -- connect(2) uses packed sockaddr bytes
+		out = errno
+		return nil
+	})
+	return out
 }
 
-func connectRaw(fd int, sa unix.Sockaddr, _ int) error {
-	return unix.Connect(fd, sa)
+func sendtoRaw(fd int, p []byte, sa rawSockaddr) error {
+	return sa.withStorage(func(ptr unsafe.Pointer, n uintptr) error {
+		var pptr unsafe.Pointer
+		if len(p) > 0 {
+			pptr = unsafe.Pointer(&p[0]) // #nosec G103 -- sendto(2) payload pointer
+		}
+		_, _, errno := unix.Syscall6(unix.SYS_SENDTO, uintptr(fd), uintptr(pptr), uintptr(len(p)), 0, uintptr(ptr), n) // #nosec G103 -- sendto(2) uses packed sockaddr bytes
+		runtime.KeepAlive(p)
+		if errno != 0 {
+			return errno
+		}
+		return nil
+	})
 }
 
 func applySocketOpts(fd int, s parse.Spec) error {

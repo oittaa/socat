@@ -22,18 +22,15 @@ import (
 // SOCKET-CONNECT:<domain>:<protocol>:<remote-address>
 // Generic raw sockaddr connect. Address is hex/data without sa_family.
 func openSocketConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	domain, proto, addrData, err := parseSocketParams(s, 3)
+	c, err := parseSocketStreamCall(s)
 	if err != nil {
 		return nil, err
 	}
-	if len(addrData) == 0 {
-		return nil, fmt.Errorf("SOCKET-CONNECT requires remote address")
-	}
-	sa, salen, err := buildSockaddr(domain, addrData)
+	sa, err := packRawSockaddr(c.domain, c.addr)
 	if err != nil {
 		return nil, err
 	}
-	fd, err := newSocket(domain, unix.SOCK_STREAM, proto)
+	fd, err := newSocket(c.domain, c.typ, c.proto)
 	if err != nil {
 		return nil, fmt.Errorf("socket: %w", err)
 	}
@@ -47,17 +44,17 @@ func openSocketConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 			logx.CloseErr(unix.Close(fd))
 			return nil, berr
 		}
-		bsa, _, err := buildSockaddr(domain, bdata)
+		bsa, err := packRawSockaddr(c.domain, bdata)
 		if err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, fmt.Errorf("bind: %w", err)
 		}
-		if err := unix.Bind(fd, bsa); err != nil {
+		if err := bindRaw(ctx, fd, bsa); err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, fmt.Errorf("bind: %w", err)
 		}
 	}
-	if err := connectRaw(fd, sa, salen); err != nil {
+	if err := connectRaw(ctx, fd, sa); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("connect: %w", err)
 	}
@@ -72,7 +69,6 @@ func openSocketConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		logx.CloseQuiet(f)
 		return nil, err
 	}
-	_ = ctx
 	_ = mode
 	_ = g
 	return &xio.Opened{Stream: st, Label: "SOCKET-CONNECT"}, nil
@@ -80,19 +76,15 @@ func openSocketConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 
 // SOCKET-LISTEN:<domain>:<protocol>:<local-address>
 func openSocketListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	domain, proto, addrData, err := parseSocketParams(s, 3)
+	c, err := parseSocketStreamCall(s)
 	if err != nil {
 		return nil, err
 	}
-	// testaddrs probes SOCKET-LISTEN::::: — must fail fast, not hang on accept.
-	if len(addrData) == 0 {
-		return nil, fmt.Errorf("SOCKET-LISTEN requires local address")
-	}
-	sa, salen, err := buildSockaddr(domain, addrData)
+	sa, err := packRawSockaddr(c.domain, c.addr)
 	if err != nil {
 		return nil, err
 	}
-	fd, err := newSocket(domain, unix.SOCK_STREAM, proto)
+	fd, err := newSocket(c.domain, c.typ, c.proto)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +96,7 @@ func openSocketListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Glob
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	if err := bindRaw(fd, sa, salen); err != nil {
+	if err := bindRaw(ctx, fd, sa); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("bind: %w", err)
 	}
@@ -121,7 +113,7 @@ func openSocketListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Glob
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	ln := &rawListener{fd: fd, domain: domain}
+	ln := &rawListener{fd: fd, domain: c.domain}
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
 		return xio.WrapCommon(s, relay.NetStream{Conn: c})
 	}
@@ -142,15 +134,15 @@ func openSocketDatagram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 }
 
 func openSocketDgram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, connected bool) (*xio.Opened, error) {
-	p, err := parseSocketDgramParams(s)
+	c, err := parseSocketDgramCall(s)
 	if err != nil {
 		return nil, err
 	}
-	sa, salen, err := buildSockaddr(p.domain, p.addr)
+	sa, err := packRawSockaddr(c.domain, c.addr)
 	if err != nil {
 		return nil, err
 	}
-	fd, err := newSocket(p.domain, p.typ, p.proto)
+	fd, err := newSocket(c.domain, c.typ, c.proto)
 	if err != nil {
 		return nil, err
 	}
@@ -164,18 +156,18 @@ func openSocketDgram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 			logx.CloseErr(unix.Close(fd))
 			return nil, berr
 		}
-		bsa, blen, err := buildSockaddr(p.domain, bdata)
+		bsa, err := packRawSockaddr(c.domain, bdata)
 		if err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, err
 		}
-		if err := bindRaw(fd, bsa, blen); err != nil {
+		if err := bindRaw(ctx, fd, bsa); err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, fmt.Errorf("bind: %w", err)
 		}
 	}
 	if connected {
-		if err := connectRaw(fd, sa, salen); err != nil {
+		if err := connectRaw(ctx, fd, sa); err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, err
 		}
@@ -189,14 +181,13 @@ func openSocketDgram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	if connected {
 		st = xio.FileStream(f)
 	} else {
-		st = &rawDgramStream{f: f, sa: sa, salen: salen}
+		st = &rawDgramStream{f: f, sa: sa}
 	}
 	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(f)
 		return nil, err
 	}
-	_ = ctx
 	_ = mode
 	_ = g
 	return &xio.Opened{Stream: st, Label: s.Type}, nil
@@ -211,15 +202,15 @@ func openSocketRecvfrom(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 }
 
 func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, from bool) (*xio.Opened, error) {
-	p, err := parseSocketDgramParams(s)
+	c, err := parseSocketDgramCall(s)
 	if err != nil {
 		return nil, err
 	}
-	sa, salen, err := buildSockaddr(p.domain, p.addr)
+	sa, err := packRawSockaddr(c.domain, c.addr)
 	if err != nil {
 		return nil, err
 	}
-	fd, err := newSocket(p.domain, p.typ, p.proto)
+	fd, err := newSocket(c.domain, c.typ, c.proto)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +226,7 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	if err := bindRaw(fd, sa, salen); err != nil {
+	if err := bindRaw(ctx, fd, sa); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
@@ -251,7 +242,6 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 		logx.CloseQuiet(f)
 		return nil, err
 	}
-	_ = ctx
 	_ = mode
 	_ = g
 	return &xio.Opened{Stream: wrapped, Label: s.Type}, nil
@@ -385,9 +375,8 @@ func (l *rawListener) Addr() net.Addr {
 }
 
 type rawDgramStream struct {
-	f     *os.File
-	sa    unix.Sockaddr
-	salen int
+	f  *os.File
+	sa rawSockaddr
 }
 
 // Read uses *os.File so SetReadDeadline / idle -T can unblock hung Recvfrom.
@@ -396,8 +385,7 @@ func (r *rawDgramStream) Read(p []byte) (int, error) {
 }
 func (r *rawDgramStream) Write(p []byte) (int, error) {
 	fd := int(r.f.Fd())
-	err := unix.Sendto(fd, p, 0, r.sa)
-	if err != nil {
+	if err := sendtoRaw(fd, p, r.sa); err != nil {
 		return 0, err
 	}
 	return len(p), nil
