@@ -110,11 +110,17 @@ func TestParseSocketStreamCallBase0AndOptions(t *testing.T) {
 		{"SOCKET-CONNECT:02:0:" + ipv4, unix.AF_INET, unix.SOCK_STREAM, 0},
 		{"SOCKET-CONNECT:2:0:" + ipv4 + ",socktype=2", unix.AF_INET, unix.SOCK_DGRAM, 0},
 		{"SOCKET-CONNECT:2:0:" + ipv4 + ",so-type=0x2", unix.AF_INET, unix.SOCK_DGRAM, 0},
-		{"SOCKET-CONNECT:2:0:" + ipv4 + ",pf=10", unix.AF_INET6, unix.SOCK_STREAM, 0},
+		{"SOCKET-CONNECT:2:0:" + ipv4 + ",pf=10", 10, unix.SOCK_STREAM, 0},
 		{"SOCKET-CONNECT:2:0:" + ipv4 + ",protocol-family=ip6", unix.AF_INET6, unix.SOCK_STREAM, 0},
 		{"SOCKET-CONNECT:2:6:" + ipv4 + ",socktype=2,pf=0xa", 10, unix.SOCK_DGRAM, 6},
-		{"SOCKET-CONNECT::0:" + ipv4, unix.AF_INET, unix.SOCK_STREAM, 0},
+		{"SOCKET-CONNECT::0:" + ipv4, 0, unix.SOCK_STREAM, 0},
 		{"SOCKET-CONNECT:16:0:x00", 16, unix.SOCK_STREAM, 0},
+		{"SOCKET-CONNECT:2:0:" + ipv4 + ",so-protocol=6", unix.AF_INET, unix.SOCK_STREAM, 6},
+		{"SOCKET-CONNECT:2:0:" + ipv4 + ",so-prototype=6", unix.AF_INET, unix.SOCK_STREAM, 6},
+		{"SOCKET-CONNECT:2:0:" + ipv4 + ",prototype=6", unix.AF_INET, unix.SOCK_STREAM, 6},
+		{"SOCKET-CONNECT:2:6:" + ipv4 + ",protocol=17", unix.AF_INET, unix.SOCK_STREAM, 17},
+		{"SOCKET-CONNECT:2:6:" + ipv4 + ",so-protocol=7,protocol=6", unix.AF_INET, unix.SOCK_STREAM, 6},
+		{"SOCKET-CONNECT:2:6:" + ipv4 + ",protocol=7,so-protocol=6", unix.AF_INET, unix.SOCK_STREAM, 6},
 	}
 	for _, tc := range tests {
 		t.Run(tc.raw, func(t *testing.T) {
@@ -137,6 +143,14 @@ func TestParseSocketDgramCallOverrides(t *testing.T) {
 	}
 	if c.domain != unix.AF_INET6 || c.typ != unix.SOCK_STREAM || c.proto != 17 {
 		t.Fatalf("got %+v", c)
+	}
+
+	c, err = parseSocketDgramCall(mustSocketSpec(t, "SOCKET-SENDTO::2:0:x00007f000001,so-protocol=17"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.domain != 0 || c.typ != unix.SOCK_DGRAM || c.proto != 17 {
+		t.Fatalf("empty domain so-protocol got %+v", c)
 	}
 }
 

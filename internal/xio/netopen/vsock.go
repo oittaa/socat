@@ -186,6 +186,27 @@ func parseVsockSocketArgs(s parse.Spec) (vsockSocketArgs, error) {
 	return args, nil
 }
 
+// parseSocketProtocolOption reads so-protocol (and so-prototype/prototype aliases)
+// plus protocol= as the socket() protocol number. protocol= is also the
+// WebSocket subprotocol option, so it cannot be globally canonicalized to
+// so-protocol. Walk backwards so mixed aliases remain last-option-wins like
+// the rest of Spec's option accessors. set is false when the option is absent
+// so a positional protocol is left unchanged.
+func parseSocketProtocolOption(s parse.Spec) (proto int, set bool, err error) {
+	for i := len(s.Options) - 1; i >= 0; i-- {
+		o := s.Options[i]
+		switch strings.ToLower(o.Name) {
+		case "so-protocol", "protocol":
+			n, err := parseVsockSocketInt(o, o.Name)
+			if err != nil {
+				return 0, false, err
+			}
+			return n, true, nil
+		}
+	}
+	return 0, false, nil
+}
+
 // parseClassicSocketPF: a leading digit is base 0; inet/inet4/ip4/ipv4 → PF_INET;
 // inet6/ip6/ipv6 → PF_INET6; anything else is an error.
 func parseClassicSocketPF(name string) (int, error) {
@@ -211,18 +232,8 @@ func parseClassicSocketPF(name string) (int, error) {
 }
 
 func parseVsockProtocolOption(s parse.Spec) (int, error) {
-	// protocol= is also the WebSocket subprotocol option, so it cannot be
-	// globally canonicalized to so-protocol. Within a VSOCK address it has the
-	// socket() meaning. Walk backwards so mixed aliases remain
-	// last-option-wins like the rest of Spec's option accessors.
-	for i := len(s.Options) - 1; i >= 0; i-- {
-		o := s.Options[i]
-		switch strings.ToLower(o.Name) {
-		case "so-protocol", "protocol":
-			return parseVsockSocketInt(o, o.Name)
-		}
-	}
-	return 0, nil
+	n, _, err := parseSocketProtocolOption(s)
+	return n, err
 }
 
 func parseVsockSocketInt(o parse.Option, name string) (int, error) {

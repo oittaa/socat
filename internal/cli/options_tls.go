@@ -23,7 +23,7 @@ func tlsOptionGroups() []helpOptGroup {
 		{"WebSocket", []helpOpt{
 			{name: "path", optionCaps: capExec, desc: "WebSocket URL path"},
 			{name: "origin", desc: "WebSocket Origin header"},
-			{name: "protocol", optionCaps: capSocket, desc: "WebSocket subprotocol; VSOCK socket() protocol number", implementationGroups: []string{xio.GroupWebSocket, xio.GroupVSOCK}},
+			{name: "protocol", optionCaps: capSocket, desc: "WebSocket subprotocol; VSOCK or SOCKET-* socket() protocol number", implementationGroups: []string{xio.GroupWebSocket, xio.GroupVSOCK, xio.GroupSocket}},
 		}},
 		{"PROXY and SOCKS", []helpOpt{
 			{name: "proxyport", optionCaps: capHTTP, desc: "HTTP proxy port", addressTypes: proxyAddressTypes()},

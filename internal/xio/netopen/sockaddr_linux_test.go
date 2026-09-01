@@ -37,9 +37,14 @@ func TestSocketConnectStraceSocketArgs(t *testing.T) {
 	}{
 		{spec: "SOCKET-CONNECT:2:0:x00", domain: unix.AF_INET, typ: unix.SOCK_STREAM, proto: 0},
 		{spec: "SOCKET-CONNECT:2:0:x00,socktype=2", domain: unix.AF_INET, typ: unix.SOCK_DGRAM, proto: 0},
-		{spec: "SOCKET-CONNECT:2:0:x00,pf=10", domain: unix.AF_INET6, typ: unix.SOCK_STREAM, proto: 0},
+		{spec: "SOCKET-CONNECT:2:0:x00,pf=10", domain: 10, typ: unix.SOCK_STREAM, proto: 0},
 		{spec: "SOCKET-CONNECT:16:0:x00", domain: 16, typ: unix.SOCK_STREAM, proto: 0},
 		{spec: "SOCKET-CONNECT:0x2:0x0:x00", domain: unix.AF_INET, typ: unix.SOCK_STREAM, proto: 0},
+		{spec: "SOCKET-CONNECT::0:x00", domain: 0, typ: unix.SOCK_STREAM, proto: 0},
+		{spec: "SOCKET-CONNECT:2:0:x00,so-protocol=6", domain: unix.AF_INET, typ: unix.SOCK_STREAM, proto: 6},
+		{spec: "SOCKET-CONNECT:2:0:x00,so-prototype=6", domain: unix.AF_INET, typ: unix.SOCK_STREAM, proto: 6},
+		{spec: "SOCKET-CONNECT:2:6:x00,protocol=17", domain: unix.AF_INET, typ: unix.SOCK_STREAM, proto: 17},
+		{spec: "SOCKET-CONNECT:2:6:x00,so-protocol=7,protocol=6", domain: unix.AF_INET, typ: unix.SOCK_STREAM, proto: 6},
 	}
 	for _, tc := range cases {
 		t.Run(tc.spec, func(t *testing.T) {

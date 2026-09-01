@@ -52,29 +52,20 @@ func applyGenericSocketOptions(s parse.Spec, domain, typ, proto int) (int, int, 
 		}
 		typ = n
 	}
+	if n, set, err := parseSocketProtocolOption(s); err != nil {
+		return 0, 0, 0, err
+	} else if set {
+		proto = n
+	}
 	return domain, typ, proto, nil
 }
 
-func finishSocketCall(s parse.Spec, domain, typ, proto int, addr []byte, inferEmptyDomain bool) (socketCall, error) {
+func finishSocketCall(s parse.Spec, domain, typ, proto int, addr []byte) (socketCall, error) {
 	domain, typ, proto, err := applyGenericSocketOptions(s, domain, typ, proto)
 	if err != nil {
 		return socketCall{}, err
 	}
-	if inferEmptyDomain && s.OptionValue("pf", "") == "" {
-		domain = inferSocketDomain(addr)
-	}
 	return socketCall{domain: domain, typ: typ, proto: proto, addr: addr}, nil
-}
-
-func inferSocketDomain(addr []byte) int {
-	switch {
-	case len(addr) >= 22:
-		return unix.AF_INET6
-	case len(addr) >= 6 && len(addr) <= 16:
-		return unix.AF_INET
-	default:
-		return unix.AF_UNIX
-	}
 }
 
 func parseSocketAddress(s parse.Spec, paramIndex int) ([]byte, error) {
@@ -92,7 +83,7 @@ func parseSocketStreamCall(s parse.Spec) (socketCall, error) {
 	if len(s.Params) < 3 {
 		return socketCall{}, fmt.Errorf("%s requires %d parameters", s.Type, 3)
 	}
-	emptyDomain := s.Params[0] == ""
+	// Empty domain is 0 (PF_UNSPEC). Empty protocol is 0.
 	domain, err := parseSocketPositional("domain", s.Params[0])
 	if err != nil {
 		return socketCall{}, err
@@ -108,7 +99,7 @@ func parseSocketStreamCall(s parse.Spec) (socketCall, error) {
 	if len(addr) == 0 {
 		return socketCall{}, fmt.Errorf("%s requires address", s.Type)
 	}
-	return finishSocketCall(s, domain, unix.SOCK_STREAM, proto, addr, emptyDomain)
+	return finishSocketCall(s, domain, unix.SOCK_STREAM, proto, addr)
 }
 
 type socketDgramParams struct {
@@ -160,7 +151,7 @@ func parseSocketDgramCall(s parse.Spec) (socketCall, error) {
 	if err != nil {
 		return socketCall{}, err
 	}
-	return finishSocketCall(s, p.domain, p.typ, p.proto, p.addr, false)
+	return finishSocketCall(s, p.domain, p.typ, p.proto, p.addr)
 }
 
 // rawSocketAddress extracts the address parameter from Spec.Raw without unquote.
