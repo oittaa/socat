@@ -126,8 +126,8 @@ func TestLockPollIntervals(t *testing.T) {
 	if AddressWaitLockPollInterval != time.Second {
 		t.Fatalf("address waitlock interval=%v want 1s (classic xiowaitlock)", AddressWaitLockPollInterval)
 	}
-	if CLILockPollInterval != 100*time.Millisecond {
-		t.Fatalf("CLI -W interval=%v want 100ms", CLILockPollInterval)
+	if CLILockPollInterval != time.Second {
+		t.Fatalf("CLI -W interval=%v want 1s", CLILockPollInterval)
 	}
 }
 

@@ -48,7 +48,7 @@ func transferOptionGroups() []helpOptGroup {
 			{name: "null-eof", optionCaps: capSocket, desc: "treat a zero-length read as EOF"},
 			{name: "readbytes", unrestricted: true, desc: "read at most N bytes", aliases: []string{"bytes"}, validate: validateSizeT},
 			{name: "lockfile", unrestricted: true, desc: "create lock file or fail if it exists (like -L)", validate: validateRequiredString},
-			{name: "waitlock", unrestricted: true, desc: "wait until lock file is gone, then create it (1s poll; CLI -W uses 100ms)", validate: validateRequiredString},
+			{name: "waitlock", unrestricted: true, desc: "wait until lock file is gone, then create it (1s poll)", validate: validateRequiredString},
 		}},
 	}
 }

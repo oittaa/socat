@@ -59,6 +59,7 @@ func TestFDSetsockoptPastSocketOnSocketUnix(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		_ = o.Close()
+		_ = syscall.Close(fds[0])
 		_ = syscall.Close(fds[1])
 	})
 	got, err := unix.GetsockoptInt(fds[0], unix.SOL_SOCKET, unix.SO_KEEPALIVE)

@@ -100,6 +100,10 @@ type Global struct {
 	// forkSession nils it so LISTEN,fork goroutines do not share one table.
 	childSignals *childSignalSession
 	Experimental bool // --experimental (netns= warning)
+	// ForkChild is set on LISTEN/CONNECT,fork session goroutines. FD,end-close
+	// then closes only the per-session duplicate, like a fork child's copy of
+	// the inherited descriptor.
+	ForkChild bool
 
 	// Peer info from the most recently accepted/connected socket (for SOCAT_* env).
 	SockAddr string
@@ -136,9 +140,10 @@ type Global struct {
 // Passing *g without a copy is not safe: RememberAddrs writes those fields.
 func (g *Global) forkSession() *Global {
 	if g == nil {
-		return &Global{statsPrinted: new(atomic.Bool)}
+		return &Global{statsPrinted: new(atomic.Bool), ForkChild: true}
 	}
 	cg := *g
+	cg.ForkChild = true
 	cg.TLSVars = cloneStringMap(g.TLSVars)
 	cg.SessionVars = cloneStringMap(g.SessionVars)
 	cg.childSignals = nil

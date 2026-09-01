@@ -17,9 +17,9 @@ import (
 // Cancellation is still checked before each create.
 const AddressWaitLockPollInterval = time.Second
 
-// CLILockPollInterval is the CLI -W retry interval (100ms). Address
-// waitlock= uses 1s; matching 1s for -W is a separate change.
-const CLILockPollInterval = 100 * time.Millisecond
+// CLILockPollInterval is the CLI -W retry interval (1s), matching
+// address waitlock=.
+const CLILockPollInterval = time.Second
 
 // DefaultLockPollInterval is the AcquireLockFile fallback when interval <= 0.
 const DefaultLockPollInterval = CLILockPollInterval

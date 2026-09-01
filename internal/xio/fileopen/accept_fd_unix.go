@@ -27,11 +27,7 @@ func init() {
 // fork, range, sourceport, lowport, and tcpwrap apply to IP and UNIX
 // listeners, not only TCP. ACCEPT is the public alias of ACCEPT-FD.
 func openAcceptFDNum(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, fd int) (*xio.Opened, error) {
-	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFD, unix.FD_CLOEXEC); err != nil {
-		if g != nil && g.Log != nil {
-			g.Log.Warningf("fcntl(%d, F_SETFD, FD_CLOEXEC): %s", fd, err)
-		}
-	}
+	setInheritedFDCloexec(fd, g)
 	if _, err := unix.Getsockname(fd); err != nil {
 		if g != nil && g.Log != nil {
 			g.Log.Warningf("getsockname(fd=%d, ...): %s", fd, err)
