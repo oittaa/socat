@@ -76,7 +76,7 @@ func waitUnixConnectRetry(ctx context.Context) error {
 	if deadline, ok := ctx.Deadline(); ok {
 		rem := time.Until(deadline)
 		if rem <= 0 {
-			return ctx.Err()
+			return deadlineExceeded(ctx)
 		}
 		if rem < timeout {
 			timeout = rem
@@ -103,7 +103,8 @@ func waitUnixConnect(ctx context.Context, fd int) error {
 		if deadline, ok := ctx.Deadline(); ok {
 			rem := time.Until(deadline)
 			if rem <= 0 {
-				return ctx.Err()
+				// time.Until can observe the deadline before ctx.Err() is set.
+				return deadlineExceeded(ctx)
 			}
 			ms := int(rem / time.Millisecond)
 			if ms < 1 {
@@ -146,6 +147,13 @@ func unixConnectPollFd(fd int) int32 {
 		return -1
 	}
 	return int32(fd) // #nosec G115 -- bounded to MaxInt32
+}
+
+func deadlineExceeded(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return context.DeadlineExceeded
 }
 
 func unixRawSockaddr(name string, tight bool) (unix.RawSockaddrUnix, int, error) {
