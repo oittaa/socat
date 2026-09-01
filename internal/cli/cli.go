@@ -47,6 +47,7 @@ type Config struct {
 	Experimental  bool
 	LockFile      string
 	LockWait      string
+	lockSet       bool   // true after any -L/-W, including an empty path
 	RawLeft       string // -r
 	RawRight      string // -R
 	SignalLogMask uint64 // -S: signals whose termination is logged
@@ -246,8 +247,16 @@ func setLockWaitFlag(cfg *Config, v string) error {
 }
 
 func setCLILock(cfg *Config, v string, wait bool) error {
-	if cfg.LockFile != "" || cfg.LockWait != "" {
+	if cfg.lockSet {
 		return fmt.Errorf("only one -L and -W option allowed")
+	}
+	cfg.lockSet = true
+	if v == "" {
+		name := "-L"
+		if wait {
+			name = "-W"
+		}
+		return fmt.Errorf("option %s requires an argument", name)
 	}
 	if wait {
 		cfg.LockWait = v

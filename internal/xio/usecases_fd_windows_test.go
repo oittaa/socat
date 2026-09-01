@@ -24,5 +24,6 @@ func duplicateFDNumber(t *testing.T, f *os.File) int {
 	); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = windows.CloseHandle(handle) })
 	return int(handle)
 }

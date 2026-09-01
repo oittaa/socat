@@ -99,9 +99,26 @@ func TestParseArgsLockExclusive(t *testing.T) {
 		{"-La", "-Lb"},
 		{"-Wa", "-Wb"},
 		{"-W", "a", "-L", "b"},
+		{"-L", "a", "-L", ""},
+		{"-W", "a", "-W", ""},
+		{"-L", "a", "-W", ""},
+		{"-W", "a", "-L", ""},
 	} {
 		if _, err := ParseArgs(args); err == nil || !strings.Contains(err.Error(), "only one -L and -W option allowed") {
-			t.Fatalf("ParseArgs(%q) error=%v", args, err)
+			t.Fatalf("ParseArgs(%q) error=%v want exclusivity", args, err)
+		}
+	}
+	for _, args := range [][]string{
+		{"-L"},
+		{"-W"},
+		{"-L", ""},
+		{"-W", ""},
+		{"-L", "", "STDIN", "STDOUT"},
+		{"-L", "", "-W", "b"},
+		{"-W", "", "-L", "b"},
+	} {
+		if _, err := ParseArgs(args); err == nil || !strings.Contains(err.Error(), "requires an argument") {
+			t.Fatalf("ParseArgs(%q) error=%v want requires an argument", args, err)
 		}
 	}
 }

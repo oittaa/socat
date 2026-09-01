@@ -24,13 +24,12 @@ func TestFDAppliesReadbytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	fdParam, closeFD := duplicateFDForOpen(t, r)
+	t.Cleanup(func() { _ = closeFD() })
 	spec.Params = []string{fdParam}
 	o, err := openFD(context.Background(), spec, xio.ModeRead, nil)
 	if err != nil {
-		_ = closeFD()
 		t.Fatal(err)
 	}
-	// openFD retains the wrapper for process lifetime; do not Close the dup.
 	t.Cleanup(func() { _ = o.Close() })
 	go func() {
 		_, _ = w.Write([]byte("hello"))

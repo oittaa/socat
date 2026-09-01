@@ -148,28 +148,41 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Op
 	if err := xio.RejectGenericSetsockoptPhases(s, s.Type, xio.SockoptPhasePrebind, xio.SockoptPhaseConnected); err != nil {
 		return nil, err
 	}
-	// Default FD_CLOEXEC before ApplyFDOptions so cloexec=0 can still clear it.
+	// Default FD_CLOEXEC on the caller's descriptor before options, then
+	// I/O on a per-session duplicate so Close cannot close the original
+	// unless end-close is set.
 	setInheritedFDCloexec(n, g)
-	f := os.NewFile(uintptr(n), fmt.Sprintf("fd:%d", n))
+	dupFd, err := duplicateInheritedFD(n)
+	if err != nil {
+		return nil, fmt.Errorf("FD:%d: %w", n, err)
+	}
+	setInheritedFDCloexec(dupFd, g)
+	f := os.NewFile(uintptr(dupFd), fmt.Sprintf("fd:%d", n))
 	if f == nil {
+		_ = closeInheritedFD(dupFd)
 		return nil, fmt.Errorf("FD:%d invalid", n)
 	}
-	// Inherited descriptors stay open after transfer. Keep the File
-	// reachable so the runtime poller is not left holding a closed fd.
-	retainInheritedFile(f)
-	if err := applyFileLocks(s, f, f); err != nil {
+	inheritedSessionLive.Add(1)
+	fail := func(err error) (*xio.Opened, error) {
+		closeSessionFile(f)
 		return nil, err
 	}
+	if err := applyFileLocks(s, f, f); err != nil {
+		return fail(err)
+	}
 	if err := xio.ApplyFDOptions(f, s); err != nil {
-		return nil, err
+		return fail(err)
+	}
+	if err := mirrorInheritedCloexec(n, f); err != nil {
+		return fail(err)
 	}
 	// After socket() options (so-priority, …) apply to the inherited fd.
 	if err := xio.ApplySocketOptions(int(f.Fd()), s); err != nil {
-		return nil, err
+		return fail(err)
 	}
-	st, err := xio.WrapCommonAfterConnected(s, relay.FDStream{R: f, W: f, C: xio.NopCloser{}})
+	st, err := xio.WrapCommonAfterConnected(specWithoutEndClose(s), inheritedFDStream(f, n, s.BoolOption("end-close")))
 	if err != nil {
-		return nil, err
+		return fail(err)
 	}
 	o := &xio.Opened{
 		Stream: st,

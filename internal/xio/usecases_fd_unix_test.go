@@ -15,5 +15,6 @@ func duplicateFDNumber(t *testing.T, f *os.File) int {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = unix.Close(nfd) })
 	return nfd
 }

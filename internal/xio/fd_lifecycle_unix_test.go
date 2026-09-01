@@ -28,7 +28,7 @@ func TestFD3AppendFtruncatePerm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// openFD retains the wrapper for process lifetime; do not Close nfd.
+	t.Cleanup(func() { _ = unix.Close(nfd) })
 
 	ctx, g := testCtx(t), testGlobal()
 	o, err := xio.OpenChannel(ctx, mustParse(t, fmt.Sprintf("FD:%d,append,ftruncate=6,perm=0600", nfd)), xio.ModeWrite, g)
@@ -85,7 +85,7 @@ func TestFDAppendZeroClearsInheritedOAPPEND(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// openFD retains the wrapper for process lifetime; do not Close nfd.
+	t.Cleanup(func() { _ = unix.Close(nfd) })
 
 	o, err := xio.OpenChannel(testCtx(t), mustParse(t, fmt.Sprintf("FD:%d,append=0", nfd)), xio.ModeWrite, testGlobal())
 	if err != nil {
