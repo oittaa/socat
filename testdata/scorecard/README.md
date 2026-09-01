@@ -201,19 +201,16 @@ as a behavior regression.
 as OK. Do not treat a full-run timeout of that name as a regression until you
 re-run it alone.
 
-Vs the previous Go host baseline (483 OK / 6 FAILED / 116 CANT), this refresh
-moves 13 UDPLITE tests OK→CANT after UDP-Lite addresses were removed (#135;
-Linux 7.1 retired the protocol). `RES_NSADDR` moves CANT→OK (`res-nsaddr`,
-#134). `SHELL_SIGINT` moves CANT→FAILED as above (the option is now
-advertised). Host `UDP6MULTICAST_UNIDIR` stays OK.
+Vs the previous Go host baseline (471 OK / 7 FAILED / 127 CANT), this refresh
+has the same counts. Host `UDP6MULTICAST_UNIDIR` stays OK (this machine's
+`enp3s0` join-group path failed in the full run; Docker records it OK).
 
-Vs the previous Go Docker baseline (550 OK / 7 FAILED / 48 CANT), the same
-UDPLITE, `RES_NSADDR`, and `SHELL_SIGINT` status changes apply. Docker
-`PROXY_CONNECT_MAXCHILDREN` stays OK (an earlier full-run FAILED was a flake;
-isolated re-run passed). Classic `cool-write` is deprecated (use
-`children-shutup`); this port does not advertise it, so `COOLWRITE` /
-`COOLSTDIO` stay CANT. Host-only OK that Docker does not get:
-`GOPEN_TO_DENIED` (not with root) and `ACCEPT_FD` (no
+Vs the previous Go Docker baseline (538 OK / 8 FAILED / 59 CANT), counts are
+unchanged. `UDPLISTENFORK` stays OK after the UDP-LISTEN,fork opener fix.
+`SYSTEMSOCKETPAIR` stays OK (full-run FAILED, isolated re-run passed).
+Classic `cool-write` is deprecated (use `children-shutup`); this port does
+not advertise it, so `COOLWRITE` / `COOLSTDIO` stay CANT. Host-only OK that
+Docker does not get: `GOPEN_TO_DENIED` (not with root) and `ACCEPT_FD` (no
 `systemd-socket-activate`). Vs classic Docker, Go has 538 OK against 552
 classic OK (`parity_gap_total` 32 in `go-vs-classic-docker-gaps.json`).
 

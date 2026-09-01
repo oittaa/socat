@@ -1,8 +1,13 @@
 label=go
-timestamp=2026-08-29T07:33:13Z
+timestamp=2026-09-01T19:05:09Z
+hostname=3a4b486fb155
+platform=Linux-7.0.0-30-generic-x86_64-with-glibc2.43
 socat=/opt/go/socat
-socat_version=socat version 1.0.2-dev on 2026-08-29T07:33:13Z
-git=01ec0bd
+socat_version=socat version 1.0.3-dev on 2026-09-01T19:05:09Z
+test_sh=/opt/classic-src/test.sh
+git=bcbb7f7
+val_t=auto
+jobs=1
 ok=538
 failed=8
 cant=59

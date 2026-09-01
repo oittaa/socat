@@ -642,6 +642,75 @@ func TestUDPListenForkEmptyFirstNullEOF(t *testing.T) {
 	}
 }
 
+func TestUDPListenForkIgnoresEmptyOpener(t *testing.T) {
+	parsed, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUDP4Listen(context.Background(), parsed, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	client, err := net.DialUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}, o.Listener.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	ch := startUDPAccept(o.Listener)
+	if _, err := client.Write(nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Write([]byte("payload")); err != nil {
+		t.Fatal(err)
+	}
+	sess := waitUDPAccept(t, ch, 2*time.Second, "payload after empty")
+	t.Cleanup(func() { _ = sess.Close() })
+	buf := make([]byte, 16)
+	n, err := sess.Read(buf)
+	if err != nil || string(buf[:n]) != "payload" {
+		t.Fatalf("n=%d err=%v data=%q want payload", n, err, buf[:n])
+	}
+}
+
+func TestUDPListenForkPayloadThenEmptyKeepsPayload(t *testing.T) {
+	for i := 0; i < 30; i++ {
+		parsed, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork")
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, err := openUDP4Listen(context.Background(), parsed, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		client, err := net.DialUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}, o.Listener.Addr().(*net.UDPAddr))
+		if err != nil {
+			_ = o.Close()
+			t.Fatal(err)
+		}
+		ch := startUDPAccept(o.Listener)
+		if _, err := client.Write([]byte("hi")); err != nil {
+			_ = client.Close()
+			_ = o.Close()
+			t.Fatal(err)
+		}
+		if _, err := client.Write(nil); err != nil {
+			_ = client.Close()
+			_ = o.Close()
+			t.Fatal(err)
+		}
+		sess := waitUDPAccept(t, ch, 2*time.Second, "payload then empty")
+		buf := make([]byte, 8)
+		n, err := sess.Read(buf)
+		_ = sess.Close()
+		_ = client.Close()
+		_ = o.Close()
+		if err != nil || string(buf[:n]) != "hi" {
+			t.Fatalf("iter %d n=%d err=%v data=%q want hi", i, n, err, buf[:n])
+		}
+	}
+}
+
 func TestUDPListenForkShutDownRejectedWhenShared(t *testing.T) {
 	for _, spec := range []string{
 		"UDP4-LISTEN:0,bind=127.0.0.1,fork,shut-down",

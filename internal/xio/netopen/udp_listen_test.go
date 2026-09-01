@@ -688,6 +688,14 @@ func TestUDPSessionConnOneShotHidesSharedListener(t *testing.T) {
 	if got := handed.NetConn(); got != parent {
 		t.Fatalf("handoff NetConn=%v want listener", got)
 	}
+	pending := &udpSessionConn{conn: parent, first: []byte("x"), firstPending: true}
+	if got := pending.NetConn(); got != nil {
+		t.Fatalf("firstPending NetConn=%v want nil", got)
+	}
+	pending.firstPending = false
+	if got := pending.NetConn(); got != parent {
+		t.Fatalf("drained NetConn=%v want child", got)
+	}
 }
 
 func TestUDPRecvFromConnZeroLengthFirst(t *testing.T) {

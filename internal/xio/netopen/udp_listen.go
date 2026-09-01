@@ -343,7 +343,8 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			}
 			continue
 		}
-		if l.oneShot && xio.IgnoreEmptyDatagram(rn, nil, l.spec.BoolOption("null-eof")) {
+		if xio.IgnoreEmptyDatagram(rn, nil, l.spec.BoolOption("null-eof")) {
+			// shut-null EOF from a connected client must not open a session.
 			continue
 		}
 		session := &xio.Global{}
@@ -380,7 +381,9 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			if l.g != nil && l.g.Log != nil {
 				l.g.Log.Noticef("UDP fork session dial: %s", err)
 			}
-			continue
+			// Keep the opener datagram: reply on the listen socket.
+			child.pc = l.pc
+			return child, nil
 		}
 		child.conn = conn
 		return child, nil
@@ -637,8 +640,8 @@ func (u *udpSessionConn) SetWriteDeadline(t time.Time) error {
 }
 
 func (u *udpSessionConn) NetConn() net.Conn {
-	if u.oneShot {
-		// UDP-RECVFROM,fork children share the parent listener.
+	if u.oneShot || u.firstPending {
+		// first[] is not on the child fd; poll/zero-copy would miss it.
 		return nil
 	}
 	if u.conn != nil {
