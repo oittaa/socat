@@ -437,7 +437,9 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 }
 
 func openSocketpair(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Opened, error) {
-	typ, _, err := xio.SocketTypeOption(s, syscall.SOCK_STREAM)
+	// Standalone SOCKETPAIR defaults to SOCK_DGRAM. EXEC/SYSTEM still
+	// request SOCK_STREAM for their internal pair.
+	typ, _, err := xio.SocketTypeOption(s, syscall.SOCK_DGRAM)
 	if err != nil {
 		return nil, err
 	}

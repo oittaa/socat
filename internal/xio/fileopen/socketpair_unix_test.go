@@ -19,67 +19,127 @@ import (
 )
 
 func TestSocketpairDatagramKeepsBoundaries(t *testing.T) {
-	o, err := openSocketpair(context.Background(), parse.Spec{
-		Type:    "SOCKETPAIR",
-		Options: []parse.Option{{Name: "socktype", Value: strconv.Itoa(syscall.SOCK_DGRAM), Has: true}},
-	}, xio.ModeRDWR, nil)
+	o, err := openSocketpair(context.Background(), parse.Spec{Type: "SOCKETPAIR"}, xio.ModeRDWR, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = o.Close() }()
+	if got := streamSOType(t, o.Stream); got != syscall.SOCK_DGRAM {
+		t.Fatalf("default SO_TYPE=%d want SOCK_DGRAM", got)
+	}
 
-	first := []byte("aaaaaaaaaaaaaaaaaaaa")
-	second := []byte("bbbbbbbbbbbbbbbbbb")
+	first := bytes.Repeat([]byte("a"), 20)
+	second := bytes.Repeat([]byte("b"), 20)
 	if _, err := o.Stream.Write(first); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := o.Stream.Write(second); err != nil {
 		t.Fatal(err)
 	}
-	buf := make([]byte, 64)
+	buf := make([]byte, 24)
 	n, err := o.Stream.Read(buf)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(buf[:n], first) {
-		t.Fatalf("first datagram %q want %q", buf[:n], first)
+	if n != 20 || !bytes.Equal(buf[:n], first) {
+		t.Fatalf("first datagram n=%d %q want 20-byte packet", n, buf[:n])
 	}
 	n, err = o.Stream.Read(buf)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(buf[:n], second) {
-		t.Fatalf("second datagram %q want %q", buf[:n], second)
+	if n != 20 || !bytes.Equal(buf[:n], second) {
+		t.Fatalf("second datagram n=%d %q want 20-byte packet", n, buf[:n])
 	}
 }
 
-func TestSocketpairStreamMayCoalesce(t *testing.T) {
-	o, err := openSocketpair(context.Background(), parse.Spec{Type: "SOCKETPAIR"}, xio.ModeRDWR, nil)
+func TestSocketpairExplicitStreamType(t *testing.T) {
+	o, err := openSocketpair(context.Background(), parse.Spec{
+		Type:    "SOCKETPAIR",
+		Options: []parse.Option{{Name: "socktype", Value: strconv.Itoa(syscall.SOCK_STREAM), Has: true}},
+	}, xio.ModeRDWR, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = o.Close() }()
+	if got := streamSOType(t, o.Stream); got != syscall.SOCK_STREAM {
+		t.Fatalf("explicit socktype SO_TYPE=%d want SOCK_STREAM", got)
+	}
 	if _, err := o.Stream.Write([]byte("aaaa")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := o.Stream.Write([]byte("bbbb")); err != nil {
 		t.Fatal(err)
 	}
-	buf := make([]byte, 64)
-	n, err := o.Stream.Read(buf)
+	var got []byte
+	buf := make([]byte, 8)
+	deadline := time.Now().Add(2 * time.Second)
+	for len(got) < 8 {
+		if time.Now().After(deadline) {
+			t.Fatalf("stream read %q want aaaabbbb", got)
+		}
+		n, err := o.Stream.Read(buf)
+		if err != nil {
+			t.Fatalf("stream read: %v (got %q)", err, got)
+		}
+		got = append(got, buf[:n]...)
+	}
+	if string(got) != "aaaabbbb" {
+		t.Fatalf("stream read %q want aaaabbbb", got)
+	}
+}
+
+func streamSOType(t *testing.T, st relay.Stream) int {
+	t.Helper()
+	var conn syscall.Conn
+	var walk func(any, int)
+	walk = func(v any, depth int) {
+		if conn != nil || v == nil || depth > 16 {
+			return
+		}
+		if c, ok := v.(syscall.Conn); ok {
+			conn = c
+			return
+		}
+		switch x := v.(type) {
+		case relay.FDStream:
+			walk(x.R, depth+1)
+			if conn == nil {
+				walk(x.W, depth+1)
+			}
+		case relay.NetStream:
+			walk(x.Conn, depth+1)
+		default:
+			if u, ok := v.(interface{ UnwrapStream() relay.Stream }); ok {
+				walk(u.UnwrapStream(), depth+1)
+			}
+		}
+	}
+	walk(st, 0)
+	if conn == nil {
+		t.Fatalf("no syscall.Conn on %T", st)
+	}
+	raw, err := conn.SyscallConn()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 8 || string(buf[:n]) != "aaaabbbb" {
-		t.Fatalf("stream read %q (n=%d) want coalesced aaaabbbb", buf[:n], n)
+	var typ int
+	var sockErr error
+	if err := raw.Control(func(fd uintptr) {
+		typ, sockErr = syscall.GetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_TYPE)
+	}); err != nil {
+		t.Fatal(err)
 	}
+	if sockErr != nil {
+		t.Fatal(sockErr)
+	}
+	return typ
 }
 
 func TestSocketpairDatagramEchoThroughTransfer(t *testing.T) {
 	pair, err := openSocketpair(context.Background(), parse.Spec{
 		Type: "SOCKETPAIR",
 		Options: []parse.Option{
-			{Name: "socktype", Value: strconv.Itoa(syscall.SOCK_DGRAM), Has: true},
 			{Name: "rcvtimeo", Value: "0.02", Has: true},
 			{Name: "sndtimeo", Value: "0.02", Has: true},
 		},
