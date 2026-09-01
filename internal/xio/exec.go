@@ -98,7 +98,7 @@ func applyDashArgv0(s parse.Spec, cmd *exec.Cmd) error {
 		return nil
 	}
 	if !strings.EqualFold(s.Type, "EXEC") {
-		return fmt.Errorf("%s: unused on %s (classic EXEC only)", o.OriginalSpelling(), s.Type)
+		return fmt.Errorf("%s: unused on %s", o.OriginalSpelling(), s.Type)
 	}
 	if !s.BoolOption("dash") {
 		return nil
@@ -214,6 +214,9 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 		cmd = exec.CommandContext(ctx, parts[0], parts[1:]...) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
 	}
 	if err := rejectUnusedExecPastSocketOptions(s); err != nil {
+		return err
+	}
+	if err := rejectExecUnsupportedPTYOptions(s); err != nil {
 		return err
 	}
 	fdin, fdout, err := processFDPair(s, mode)
@@ -599,13 +602,15 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		spec := s
 		return &Opened{Kind: KindExec, Label: "EXEC-nofork", NoForkSpec: &spec}, nil
 	}
+	if err := rejectExecUnsupportedPTYOptions(s); err != nil {
+		return nil, err
+	}
 	userPipes := s.BoolOption("pipes")
-	userPty := s.BoolOption("pty")
+	usePty := execUsesPTY(s)
 	// Forked EXEC/SYSTEM/SHELL defaults to socketpair, including unidirectional
 	// mode and fdin/fdout. fdin/fdout only change Dup2 targets. pipes and
-	// pty are user-selected transports; pipes+pty ignores pipes.
+	// pty/ptmx/openpty are user-selected transports; pipes+pty ignores pipes.
 	usePipes := userPipes
-	usePty := userPty
 	if usePipes && usePty {
 		if g != nil && g.Log != nil {
 			g.Log.Warningf("options \"pipes\" and \"pty\" must not be specified together; ignoring \"pipes\"")
@@ -1015,31 +1020,93 @@ func setCloexecAllFrom(from int) {
 	}
 }
 
-// openExecPTYPair allocates a PTY pair for an EXEC child, applies session/
-// controlling-terminal attributes, and configures slave termios.
-func openExecPTYPair(cmd *exec.Cmd, s parse.Spec) (*os.File, *os.File, error) {
-	master, slave, err := OpenPTYPair()
-	if err != nil {
-		return nil, nil, fmt.Errorf("EXEC pty: %w", err)
+// execUsesPTY reports whether EXEC/SYSTEM/SHELL should use a PTY instead of
+// the default socketpair. pty, ptmx, and openpty are equivalent selectors.
+func execUsesPTY(s parse.Spec) bool {
+	return s.BoolOption("pty") || s.BoolOption("ptmx") || s.BoolOption("openpty")
+}
+
+// rejectExecUnsupportedPTYOptions rejects wait-slave / pty-interval on
+// EXEC/SYSTEM/SHELL. Those options apply only to the PTY address.
+func rejectExecUnsupportedPTYOptions(s parse.Spec) error {
+	for _, name := range []string{"pty-wait-slave", "pty-interval"} {
+		if o, ok := s.OptionNamed(name); ok {
+			return fmt.Errorf("%s: %s is not supported", s.Type, o.OriginalSpelling())
+		}
 	}
+	return nil
+}
+
+// applyExecPtySession honors setsid and ctty independently. pty does not
+// start a session. ctty is opt-in and does not imply setsid. Go's Setctty
+// treats a failed TIOCSCTTY as a hard Start error, so ctty without setsid is
+// skipped and warned (the ioctl would fail because the child is not a
+// session leader).
+func applyExecPtySession(cmd *exec.Cmd, s parse.Spec, g *Global) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
-	cmd.SysProcAttr.Setsid = true
-	cmd.SysProcAttr.Setctty = !s.HasOption("ctty") || s.BoolOption("ctty")
+	cmd.SysProcAttr.Setsid = s.BoolOption("setsid")
+	wantCtty := s.BoolOption("ctty")
+	if wantCtty && cmd.SysProcAttr.Setsid {
+		cmd.SysProcAttr.Setctty = true
+		return
+	}
+	cmd.SysProcAttr.Setctty = false
+	if wantCtty && g != nil && g.Log != nil {
+		g.Log.Warningf("ctty: TIOCSCTTY skipped; child is not a session leader")
+	}
+}
+
+// applyExecPtyLink creates link= / symbolic-link to the PTY slave. The
+// returned func removes the symlink on close and on SIGTERM.
+func applyExecPtyLink(s parse.Spec, slaveName string) (func(), error) {
+	o, ok := s.OptionNamed("link")
+	if !ok {
+		return func() {}, nil
+	}
+	path := o.Value
+	if !o.Has || path == "" {
+		return func() {}, fmt.Errorf("link: path required")
+	}
+	_ = os.Remove(path)
+	if err := os.Symlink(slaveName, path); err != nil {
+		return func() {}, fmt.Errorf("link: %w", err)
+	}
+	unreg := RegisterUnlinkPath(path)
+	return func() {
+		unreg()
+		_ = os.Remove(path)
+	}, nil
+}
+
+// openExecPTYPair allocates a PTY pair for an EXEC child, applies session/
+// controlling-terminal attributes, and configures slave termios.
+func openExecPTYPair(cmd *exec.Cmd, s parse.Spec, g *Global) (*os.File, *os.File, func(), error) {
+	master, slave, err := OpenPTYPair()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("EXEC pty: %w", err)
+	}
+	applyExecPtySession(cmd, s, g)
 	if err := ApplyTermios(int(slave.Fd()), s); err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	// perm/user/group apply to the PTY slave. Applying them to the master
 	// changes the wrong descriptor and can fail differently across platforms.
 	if err := ApplyNamedAttrs(slave.Name(), s, slave); err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return master, slave, nil
+	unlink, err := applyExecPtyLink(s, slave.Name())
+	if err != nil {
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
+		return nil, nil, nil, err
+	}
+	return master, slave, unlink, nil
 }
 
 // closeExecPTY closes both PTY ends after a failed child start.
@@ -1051,7 +1118,7 @@ func closeExecPTY(master, slave *os.File) {
 // startCmdPtyFDRedirect keeps the PTY slave as ExtraFiles fd 3 and lets the
 // descriptor mapper duplicate it onto fdi/fdo. fdin/fdout do not select pipes.
 func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
-	master, slave, err := openExecPTYPair(cmd, s)
+	master, slave, unlink, err := openExecPTYPair(cmd, s, g)
 	if err != nil {
 		return nil, err
 	}
@@ -1064,12 +1131,18 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 	}
 	cmd.SysProcAttr.Ctty = 3
 	if err := startWithChildUmask(s, cmd, g); err != nil {
+		if unlink != nil {
+			unlink()
+		}
 		closeExecPTY(master, slave)
 		return nil, err
 	}
 	logx.CloseQuiet(slave)
 	if err := applyPtyMasterLifecycle(s, master); err != nil {
 		killWaitUnregisterChild(cmd)
+		if unlink != nil {
+			unlink()
+		}
 		logx.CloseQuiet(master)
 		return nil, err
 	}
@@ -1089,6 +1162,9 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 		r, rerr := ptyMasterReader(master, s)
 		if rerr != nil {
 			killWaitUnregisterChild(cmd)
+			if unlink != nil {
+				unlink()
+			}
 			logx.CloseQuiet(master)
 			return nil, rerr
 		}
@@ -1103,11 +1179,14 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 		stream, rerr = PtyExecStream(master, s)
 		if rerr != nil {
 			killWaitUnregisterChild(cmd)
+			if unlink != nil {
+				unlink()
+			}
 			logx.CloseQuiet(master)
 			return nil, rerr
 		}
 	}
-	return finishExec(s, g, cmd, stream, []func(){func() { logx.CloseQuiet(master) }}, waitChild)
+	return finishExec(s, g, cmd, stream, execPtyCleanup(master, unlink), waitChild)
 }
 
 // startCmdPty runs the child with a pseudo-terminal.
@@ -1123,15 +1202,17 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 		return startCmdPtyFDRedirect(s, mode, g, cmd)
 	}
 	var ptmx *os.File
+	var unlink func()
 	var err error
 
 	switch mode {
 	case ModeWrite:
 		// Inherit stdout/stderr; only stdin is the PTY slave.
-		master, slave, err := openExecPTYPair(cmd, s)
+		master, slave, u, err := openExecPTYPair(cmd, s, g)
 		if err != nil {
 			return nil, err
 		}
+		unlink = u
 		ptmx = master
 		cmd.Stdin = slave
 		cmd.Stdout = os.Stdout
@@ -1139,12 +1220,18 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 			cmd.Stderr = slave
 		}
 		if err := startWithChildUmask(s, cmd, g); err != nil {
+			if unlink != nil {
+				unlink()
+			}
 			closeExecPTY(master, slave)
 			return nil, err
 		}
 		logx.CloseQuiet(slave)
 		if err := applyPtyMasterLifecycle(s, ptmx); err != nil {
 			killWaitUnregisterChild(cmd)
+			if unlink != nil {
+				unlink()
+			}
 			logx.CloseQuiet(ptmx)
 			return nil, err
 		}
@@ -1155,14 +1242,15 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { w.closeWrite(); return nil },
 		}
-		return finishExec(s, g, cmd, stream, []func(){func() { logx.CloseQuiet(ptmx) }}, true)
+		return finishExec(s, g, cmd, stream, execPtyCleanup(ptmx, unlink), true)
 
 	case ModeRead:
 		// Inherit stdin; only stdout/stderr on PTY slave.
-		master, slave, err := openExecPTYPair(cmd, s)
+		master, slave, u, err := openExecPTYPair(cmd, s, g)
 		if err != nil {
 			return nil, err
 		}
+		unlink = u
 		ptmx = master
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = slave
@@ -1171,20 +1259,32 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 		}
 		// Controlling tty is stdout/stderr slave; Setctty needs a child FD.
 		// With stdin inherited, Ctty 1 (stdout) is the slave after setup.
+		if cmd.SysProcAttr == nil {
+			cmd.SysProcAttr = &syscall.SysProcAttr{}
+		}
 		cmd.SysProcAttr.Ctty = 1
 		if err := startWithChildUmask(s, cmd, g); err != nil {
+			if unlink != nil {
+				unlink()
+			}
 			closeExecPTY(master, slave)
 			return nil, err
 		}
 		logx.CloseQuiet(slave)
 		if err := applyPtyMasterLifecycle(s, ptmx); err != nil {
 			killWaitUnregisterChild(cmd)
+			if unlink != nil {
+				unlink()
+			}
 			logx.CloseQuiet(ptmx)
 			return nil, err
 		}
 		r, rerr := ptyMasterReader(ptmx, s)
 		if rerr != nil {
 			killWaitUnregisterChild(cmd)
+			if unlink != nil {
+				unlink()
+			}
 			logx.CloseQuiet(ptmx)
 			return nil, rerr
 		}
@@ -1194,26 +1294,40 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { return nil },
 		}
-		return finishExec(s, g, cmd, stream, []func(){func() { logx.CloseQuiet(ptmx) }}, false)
+		return finishExec(s, g, cmd, stream, execPtyCleanup(ptmx, unlink), false)
 
 	default:
-		ptmx, err = startOnPTY(cmd, s, g)
+		ptmx, unlink, err = startOnPTY(cmd, s, g)
 		if err != nil {
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}
 		if err := applyPtyMasterLifecycle(s, ptmx); err != nil {
 			killWaitUnregisterChild(cmd)
+			if unlink != nil {
+				unlink()
+			}
 			logx.CloseQuiet(ptmx)
 			return nil, err
 		}
 		st, rerr := PtyExecStream(ptmx, s)
 		if rerr != nil {
 			killWaitUnregisterChild(cmd)
+			if unlink != nil {
+				unlink()
+			}
 			logx.CloseQuiet(ptmx)
 			return nil, rerr
 		}
-		return finishExec(s, g, cmd, st, []func(){func() { logx.CloseQuiet(ptmx) }}, false)
+		return finishExec(s, g, cmd, st, execPtyCleanup(ptmx, unlink), false)
 	}
+}
+
+func execPtyCleanup(master *os.File, unlink func()) []func() {
+	out := []func(){func() { logx.CloseQuiet(master) }}
+	if unlink != nil {
+		out = append(out, unlink)
+	}
+	return out
 }
 
 func applyPtyOpts(s parse.Spec, ptmx *os.File) {
@@ -1285,7 +1399,7 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 			// max-children slots until the child finishes).
 			waitFor = time.Second
 		}
-		if s.BoolOption("pty") {
+		if execUsesPTY(s) {
 			// Extra second so SYSTEM,pty scripts can finish after transfer
 			// linger, before the PTY master closes.
 			waitFor = linger + time.Second

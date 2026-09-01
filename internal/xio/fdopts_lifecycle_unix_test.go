@@ -920,11 +920,14 @@ func TestWrapCommonEXECPtyWriteOnlyAppliesAppendOnce(t *testing.T) {
 func TestEXECPtyOwnerOptionsApplyToSlaveOnly(t *testing.T) {
 	spec := mustSpec(t, "EXEC:true,pty,perm=0600")
 	ops := captureLifecycleSyscalls(t)
-	master, slave, err := openExecPTYPair(&exec.Cmd{}, spec)
+	master, slave, cleanup, err := openExecPTYPair(&exec.Cmd{}, spec, nil)
 	if err != nil {
 		t.Skipf("no pty: %v", err)
 	}
 	t.Cleanup(func() {
+		if cleanup != nil {
+			cleanup()
+		}
 		_ = master.Close()
 		_ = slave.Close()
 	})

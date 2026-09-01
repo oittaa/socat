@@ -91,8 +91,8 @@ func TestApplyDashRejectedOnSystemAndShell(t *testing.T) {
 			t.Fatal(err)
 		}
 		err = applyExecChildOptions(spec, exec.Command("/bin/true"))
-		if err == nil || !strings.Contains(err.Error(), "unused") || !strings.Contains(err.Error(), "classic EXEC only") {
-			t.Fatalf("%s: error=%v want unused on SYSTEM/SHELL (classic EXEC only)", specText, err)
+		if err == nil || !strings.Contains(err.Error(), "unused") || !strings.Contains(err.Error(), spec.Type) {
+			t.Fatalf("%s: error=%v want unused on %s", specText, err, spec.Type)
 		}
 		if spec.Type == "SYSTEM" && spec.HasOption("dash") && !strings.Contains(err.Error(), "SYSTEM") {
 			t.Fatalf("%s: error=%v want address type SYSTEM", specText, err)
@@ -211,8 +211,8 @@ func TestSYSTEMAndSHELLDashRejectedAtOpen(t *testing.T) {
 			_ = o.Close()
 			t.Fatalf("%s: OpenChannel succeeded, want unused dash/login", specText)
 		}
-		if !strings.Contains(err.Error(), "unused") || !strings.Contains(err.Error(), "classic EXEC only") {
-			t.Fatalf("%s: error=%v want unused (classic EXEC only)", specText, err)
+		if !strings.Contains(err.Error(), "unused") {
+			t.Fatalf("%s: error=%v want unused", specText, err)
 		}
 	}
 }

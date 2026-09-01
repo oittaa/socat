@@ -241,10 +241,7 @@ var recognizedUnsupportedOptions = map[string]string{
 	"pktopts":             "IP_PKTOPTIONS is get-only; rejected instead of a setter no-op",
 }
 
-var compatNoOptions = map[string]string{
-	"ptmx":    "classic compat: /dev/ptmx is the platform default",
-	"openpty": "classic compat: openpty(3) semantics are the default",
-}
+var compatNoOptions = map[string]string{}
 
 type consumedSite struct {
 	pkg  string
