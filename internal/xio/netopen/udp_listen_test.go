@@ -186,10 +186,11 @@ func TestUDPSessionConnReadOneShotVsMulti(t *testing.T) {
 		t.Cleanup(func() { _ = peer.Close() })
 
 		u := &udpSessionConn{
-			pc:      parent,
-			peer:    peer.LocalAddr().(*net.UDPAddr),
-			first:   []byte("first"),
-			oneShot: true,
+			pc:           parent,
+			peer:         peer.LocalAddr().(*net.UDPAddr),
+			first:        []byte("first"),
+			firstPending: true,
+			oneShot:      true,
 		}
 		buf := make([]byte, 16)
 		n, err := u.Read(buf)
@@ -237,7 +238,7 @@ func TestUDPSessionConnReadOneShotVsMulti(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = child.Close() })
-		u := &udpSessionConn{conn: child, first: []byte("first"), oneShot: false}
+		u := &udpSessionConn{conn: child, first: []byte("first"), firstPending: true, oneShot: false}
 		buf := make([]byte, 16)
 		n, err := u.Read(buf)
 		if err != nil || string(buf[:n]) != "first" {
@@ -640,7 +641,7 @@ func TestUDPForkRecvfromWriteDeadlineDoesNotPoisonParent(t *testing.T) {
 }
 
 func TestUDPSessionConnShortReadDropsRemainder(t *testing.T) {
-	u := &udpSessionConn{first: []byte("abcd"), oneShot: true}
+	u := &udpSessionConn{first: []byte("abcd"), firstPending: true, oneShot: true}
 	buf := make([]byte, 1)
 	n, err := u.Read(buf)
 	if err != nil || n != 1 || buf[0] != 'a' {
@@ -653,7 +654,7 @@ func TestUDPSessionConnShortReadDropsRemainder(t *testing.T) {
 }
 
 func TestUDPRecvFromConnShortReadDropsRemainder(t *testing.T) {
-	u := &udpRecvFromConn{first: []byte("abcd"), closeEOF: true}
+	u := &udpRecvFromConn{first: []byte("abcd"), firstPending: true, closeEOF: true}
 	buf := make([]byte, 1)
 	n, err := u.Read(buf)
 	if err != nil || n != 1 || buf[0] != 'a' {
@@ -662,6 +663,30 @@ func TestUDPRecvFromConnShortReadDropsRemainder(t *testing.T) {
 	n, err = u.Read(buf)
 	if n != 0 || !errors.Is(err, io.EOF) {
 		t.Fatalf("remainder n=%d err=%v want EOF", n, err)
+	}
+}
+
+func TestUDPSessionConnZeroLengthFirst(t *testing.T) {
+	u := &udpSessionConn{firstPending: true, oneShot: true}
+	n, err := u.Read(make([]byte, 8))
+	if n != 0 || err != nil {
+		t.Fatalf("zero-length first n=%d err=%v want 0, nil", n, err)
+	}
+	n, err = u.Read(make([]byte, 8))
+	if n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("after empty first n=%d err=%v want EOF", n, err)
+	}
+}
+
+func TestUDPRecvFromConnZeroLengthFirst(t *testing.T) {
+	u := &udpRecvFromConn{firstPending: true, closeEOF: true}
+	n, err := u.Read(make([]byte, 8))
+	if n != 0 || err != nil {
+		t.Fatalf("zero-length first n=%d err=%v want 0, nil", n, err)
+	}
+	n, err = u.Read(make([]byte, 8))
+	if n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("after empty first n=%d err=%v want EOF", n, err)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -55,21 +56,18 @@ func openNonForkUDP4Listen(t *testing.T, spec string, first []byte) (*xio.Opened
 	}
 	t.Cleanup(func() { _ = client.Close() })
 
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := client.Write(first); err != nil {
-			t.Fatal(err)
-		}
-		select {
-		case err := <-errc:
-			t.Fatal(err)
-		case o := <-opened:
-			t.Cleanup(func() { _ = o.Close() })
-			return o, client
-		case <-time.After(20 * time.Millisecond):
-		}
+	if _, err := client.Write(first); err != nil {
+		t.Fatal(err)
 	}
-	t.Fatal("UDP-LISTEN did not receive the first datagram")
+	select {
+	case err := <-errc:
+		t.Fatal(err)
+	case o := <-opened:
+		t.Cleanup(func() { _ = o.Close() })
+		return o, client
+	case <-time.After(3 * time.Second):
+		t.Fatal("UDP-LISTEN did not receive the first datagram")
+	}
 	return nil, nil
 }
 
@@ -378,5 +376,199 @@ func TestUDPSendtoAndDatagramHaveNoImplicitShutNull(t *testing.T) {
 			}
 			assertNoUDP(t, peer, 150*time.Millisecond)
 		})
+	}
+}
+
+type shuttingStream interface {
+	io.ReadWriteCloser
+	ShutdownWrite() error
+}
+
+func openUDP4ConnectPeer(t *testing.T, opts string) (shuttingStream, *net.UDPConn) {
+	t.Helper()
+	peer, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = peer.Close() })
+	spec := "UDP4:127.0.0.1:" + strconv.Itoa(peer.LocalAddr().(*net.UDPAddr).Port)
+	if opts != "" {
+		spec += "," + opts
+	}
+	parsed, err := parse.ParseSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUDP4Connect(context.Background(), parsed, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	return o.Stream, peer
+}
+
+func openForkUDP4ListenStream(t *testing.T, spec string, first []byte) (shuttingStream, *net.UDPConn) {
+	t.Helper()
+	parsed, err := parse.ParseSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUDP4Listen(context.Background(), parsed, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	if o.WrapDial == nil {
+		t.Fatal("WrapDial is nil")
+	}
+	client, err := net.DialUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}, o.Listener.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	ch := startUDPAccept(o.Listener)
+	if _, err := client.Write(first); err != nil {
+		t.Fatal(err)
+	}
+	sess := waitUDPAccept(t, ch, 2*time.Second, "fork session")
+	st, err := o.WrapDial(sess)
+	if err != nil {
+		_ = sess.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	return st, client
+}
+
+func writeUDPReply(t *testing.T, pc *net.UDPConn, p []byte, addr *net.UDPAddr) {
+	t.Helper()
+	if pc.RemoteAddr() != nil {
+		if _, err := pc.Write(p); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	if _, err := pc.WriteToUDP(p, addr); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func checkUDPShutPolicy(t *testing.T, stream shuttingStream, peer *net.UDPConn, emptyPacket, writeAfter, readAfter bool) {
+	t.Helper()
+	if _, err := stream.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	if err := peer.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 16)
+	n, addr, err := peer.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("hello: %v", err)
+	}
+	if string(buf[:n]) != "hello" {
+		t.Fatalf("got %q want hello", buf[:n])
+	}
+	if err := stream.ShutdownWrite(); err != nil {
+		t.Fatalf("ShutdownWrite: %v", err)
+	}
+	if emptyPacket {
+		waitEmptyUDP(t, peer, 2*time.Second)
+	} else {
+		assertNoUDP(t, peer, 150*time.Millisecond)
+	}
+	if writeAfter {
+		if _, err := stream.Write([]byte("after")); err != nil {
+			t.Fatalf("write after shutdown: %v", err)
+		}
+		if err := peer.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		n, _, err := peer.ReadFromUDP(buf)
+		if err != nil {
+			t.Fatalf("after: %v", err)
+		}
+		if string(buf[:n]) != "after" {
+			t.Fatalf("got %q want after", buf[:n])
+		}
+	} else if _, err := stream.Write([]byte("after")); err == nil {
+		t.Fatal("write after shut-down succeeded")
+	}
+	if !readAfter {
+		return
+	}
+	writeUDPReply(t, peer, []byte("more"), addr)
+	got, err := readStreamTimeout(t, stream, 2*time.Second)
+	if err != nil || got != "more" {
+		t.Fatalf("read after shutdown=%q err=%v want more", got, err)
+	}
+}
+
+func TestUDPExplicitShutPolicies(t *testing.T) {
+	cases := []struct {
+		name        string
+		opts        string
+		emptyPacket bool
+		writeAfter  bool
+		readAfter   bool
+	}{
+		{name: "shut-none", opts: "shut-none", writeAfter: true, readAfter: true},
+		{name: "shut-down", opts: "shut-down", readAfter: true},
+		{name: "shut-close", opts: "shut-close"},
+		{name: "shut-null", opts: "shut-null", emptyPacket: true, writeAfter: true, readAfter: true},
+		{name: "shut-null,shut-down", opts: "shut-null,shut-down", readAfter: true},
+		{name: "shut-down,shut-null", opts: "shut-down,shut-null", emptyPacket: true, writeAfter: true, readAfter: true},
+	}
+	for _, tc := range cases {
+		t.Run("connect/"+tc.name, func(t *testing.T) {
+			stream, peer := openUDP4ConnectPeer(t, tc.opts)
+			checkUDPShutPolicy(t, stream, peer, tc.emptyPacket, tc.writeAfter, tc.readAfter)
+		})
+		t.Run("listen/"+tc.name, func(t *testing.T) {
+			o, client := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1,"+tc.opts, []byte("hi"))
+			got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
+			if err != nil || got != "hi" {
+				t.Fatalf("opener=%q err=%v", got, err)
+			}
+			checkUDPShutPolicy(t, o.Stream, client, tc.emptyPacket, tc.writeAfter, tc.readAfter)
+		})
+		t.Run("fork/"+tc.name, func(t *testing.T) {
+			if runtime.GOOS == "windows" {
+				t.Skip("UDP-LISTEN,fork shares the listen socket on Windows")
+			}
+			st, client := openForkUDP4ListenStream(t, "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork,"+tc.opts, []byte("hi"))
+			got, err := readStreamTimeout(t, st, 2*time.Second)
+			if err != nil || got != "hi" {
+				t.Fatalf("opener=%q err=%v", got, err)
+			}
+			checkUDPShutPolicy(t, st, client, tc.emptyPacket, tc.writeAfter, tc.readAfter)
+		})
+	}
+	t.Run("fork-handoff/shut-down", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("UDP-LISTEN,fork shares the listen socket on Windows")
+		}
+		st, client := openForkUDP4ListenStream(t, "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr=0,fork,shut-down", []byte("hi"))
+		got, err := readStreamTimeout(t, st, 2*time.Second)
+		if err != nil || got != "hi" {
+			t.Fatalf("opener=%q err=%v", got, err)
+		}
+		checkUDPShutPolicy(t, st, client, false, false, true)
+	})
+}
+
+func TestUDPListenNonForkEmptyFirstNullEOF(t *testing.T) {
+	o, _ := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1,null-eof", nil)
+	got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
+	if !errors.Is(err, io.EOF) || got != "" {
+		t.Fatalf("got %q err=%v want EOF", got, err)
+	}
+}
+
+func TestUDPListenForkEmptyFirstNullEOF(t *testing.T) {
+	st, _ := openForkUDP4ListenStream(t, "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork,null-eof", nil)
+	got, err := readStreamTimeout(t, st, 2*time.Second)
+	if !errors.Is(err, io.EOF) || got != "" {
+		t.Fatalf("got %q err=%v want EOF", got, err)
 	}
 }

@@ -147,3 +147,7 @@ func (s udpConnectStream) ShutdownWrite() error {
 	_, _ = s.Write(nil)
 	return nil
 }
+
+func (s udpConnectStream) NetConn() net.Conn { return s.Conn }
+
+func (s udpConnectStream) UnwrapStream() relay.Stream { return s.NetStream }

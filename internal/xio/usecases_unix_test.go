@@ -61,24 +61,18 @@ func TestUDP4ListenNonForkPIPEEcho(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 	echoUDP := func(payload []byte) {
 		t.Helper()
-		buf := make([]byte, len(payload))
-		deadline := time.Now().Add(4 * time.Second)
-		for time.Now().Before(deadline) {
-			if _, err := client.Write(payload); err != nil {
-				t.Fatal(err)
-			}
-			_ = client.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-			n, err := client.Read(buf)
-			if err == nil {
-				if string(buf[:n]) != string(payload) {
-					t.Fatalf("echo got %q want %q", buf[:n], payload)
-				}
-				return
-			}
-			// A first send can beat bind and report ICMP port-unreachable on a
-			// connected UDP socket. Retry until the fixed-port listener is ready.
+		if _, err := client.Write(payload); err != nil {
+			t.Fatal(err)
 		}
-		t.Fatalf("timed out waiting for non-fork UDP echo %q", payload)
+		buf := make([]byte, len(payload)+16)
+		_ = client.SetReadDeadline(time.Now().Add(4 * time.Second))
+		n, err := client.Read(buf)
+		if err != nil {
+			t.Fatalf("echo %q: %v", payload, err)
+		}
+		if string(buf[:n]) != string(payload) {
+			t.Fatalf("echo got %q want %q", buf[:n], payload)
+		}
 	}
 	echoUDP([]byte("udp-nonfork-1"))
 	select {
