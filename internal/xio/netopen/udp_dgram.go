@@ -440,6 +440,9 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 					}
 					continue
 				}
+				if xio.IgnoreEmptyDatagram(r.n, r.e, s.BoolOption("null-eof")) {
+					continue
+				}
 				n, raddr = r.n, r.a
 				// Process before returning so SYSTEM sees SOCAT_* env.
 				xio.ProcessAncillary(r.oob, g)

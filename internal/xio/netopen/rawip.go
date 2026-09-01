@@ -368,7 +368,7 @@ func openIPRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, pc 
 	buf := make([]byte, max(g.BlockSize, 65535))
 	stripV4 := network == "ip4"
 	peerFilter := xio.NewPeerFilter(ctx, s, g)
-	n, oob, raddr, err := recvRawIPFiltered(ctx, pc, buf, wantCtrl, stripV4, peerFilter, g)
+	n, oob, raddr, err := recvRawIPFiltered(ctx, pc, buf, wantCtrl, stripV4, s.BoolOption("null-eof"), peerFilter, g)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -394,11 +394,11 @@ func openIPRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, pc 
 	return &xio.Opened{Stream: st, Label: s.Type}, nil
 }
 
-func recvRawIPFiltered(ctx context.Context, pc *net.IPConn, buf []byte, wantCtrl, stripV4 bool, filter *xio.PeerFilter, g *xio.Global) (int, []byte, net.Addr, error) {
+func recvRawIPFiltered(ctx context.Context, pc *net.IPConn, buf []byte, wantCtrl, stripV4, nullEOF bool, filter *xio.PeerFilter, g *xio.Global) (int, []byte, net.Addr, error) {
 	var oobBuffer [xio.AncillaryBufferSize]byte
 	for {
 		rn, oob, a, err := xio.RecvOneCtx(ctx, func() (int, []byte, net.Addr, error) {
-			return ReadIPMsgWithBuffer(pc, buf, wantCtrl, stripV4, oobBuffer[:])
+			return readIPKernel(pc, buf, wantCtrl, oobBuffer[:])
 		})
 		if err != nil {
 			return 0, nil, nil, err
@@ -408,6 +408,12 @@ func recvRawIPFiltered(ctx context.Context, pc *net.IPConn, buf []byte, wantCtrl
 				return 0, nil, nil, stop
 			}
 			continue
+		}
+		if xio.IgnoreEmptyDatagram(rn, err, nullEOF) {
+			continue
+		}
+		if stripV4 {
+			rn = skipIPv4HeaderIfPresent(buf, rn)
 		}
 		return rn, oob, a, nil
 	}
@@ -522,39 +528,55 @@ func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob
 	return ReadIPMsgWithBuffer(c, p, wantCtrl, stripV4, nil)
 }
 
-// ReadIPMsgWithBuffer returns control data backed by oobBuffer.
-// Callers must consume it before reusing the buffer.
-func ReadIPMsgWithBuffer(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool, oobBuffer []byte) (n int, oob []byte, addr net.Addr, err error) {
-	if !wantCtrl {
-		n, addr, err = c.ReadFrom(p)
-		if err != nil {
-			return n, nil, addr, err
-		}
-		// ReadFrom usually strips IPv4 already; only strip when a full header is present.
-		if stripV4 {
-			n = skipIPv4HeaderIfPresent(p, n)
-		}
-		return n, nil, addr, err
-	}
-	// ReadMsgIP returns the full IPv4 packet (header + payload). Strip the
-	// header so user data starts at payload.
-	if len(oobBuffer) < xio.AncillaryBufferSize {
+// readIPKernel receives one raw IP datagram without stripping an IPv4 header.
+// IPConn.ReadFrom removes that header in the Go net package, so a header-only
+// IPv4 packet becomes n=0 and looks like a kernel-empty datagram. ReadMsgIP
+// returns the kernel packet unstripped, including when ancillary data is not
+// requested.
+func readIPKernel(c *net.IPConn, p []byte, wantCtrl bool, oobBuffer []byte) (n int, oob []byte, addr net.Addr, err error) {
+	if wantCtrl && len(oobBuffer) < xio.AncillaryBufferSize {
 		oobBuffer = make([]byte, xio.AncillaryBufferSize)
+	}
+	if !wantCtrl {
+		oobBuffer = nil
 	}
 	var oobn, flags int
 	n, oobn, flags, addr, err = c.ReadMsgIP(p, oobBuffer)
 	if err != nil {
-		return n, nil, nil, err
+		return n, nil, addr, err
 	}
-	if stripV4 {
-		n = skipIPv4HeaderIfPresent(p, n)
+	if !wantCtrl {
+		return n, nil, addr, nil
 	}
 	return n, xio.ControlMessageBytes(oobBuffer, oobn, flags), addr, nil
 }
 
+// ReadIPMsgWithBuffer returns control data backed by oobBuffer.
+// Callers must consume it before reusing the buffer.
+func ReadIPMsgWithBuffer(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool, oobBuffer []byte) (n int, oob []byte, addr net.Addr, err error) {
+	n, oob, addr, err = readIPKernel(c, p, wantCtrl, oobBuffer)
+	if err == nil && stripV4 {
+		n = skipIPv4HeaderIfPresent(p, n)
+	}
+	return n, oob, addr, err
+}
+
+// afterRawIPRecv maps a raw IP receive onto stream semantics. A kernel-empty
+// packet is left as (0, nil) so null-eof can convert it. A nonempty kernel
+// packet whose payload is empty after IPv4 header stripping is EOF.
+func afterRawIPRecv(n, kernelN int, err error, bufLen int) (int, error) {
+	if err != nil {
+		return n, err
+	}
+	if kernelN == 0 {
+		return 0, nil
+	}
+	return xio.ZeroLengthMessageEOF(n, nil, bufLen)
+}
+
 // skipIPv4HeaderIfPresent drops a leading IPv4 header when the buffer looks like
-// a complete IP packet. Connected IPConn.Read() on Linux returns header+payload;
-// unconnected ReadFrom often returns payload only.
+// a complete IP packet. Connected IPConn.Read() and ReadMsgIP on Linux return
+// header+payload; IPConn.ReadFrom does not, so readIPKernel uses ReadMsgIP.
 func skipIPv4HeaderIfPresent(p []byte, n int) int {
 	if n < 20 {
 		return n
@@ -590,7 +612,7 @@ type rawIPDatagramConn struct {
 
 func (r *rawIPDatagramConn) Read(p []byte) (int, error) {
 	for {
-		n, oob, addr, err := ReadIPMsgWithBuffer(r.c, p, r.wantCtrl, r.v4, ancillaryBuffer(&r.oob, r.wantCtrl))
+		n, oob, addr, err := readIPKernel(r.c, p, r.wantCtrl, ancillaryBuffer(&r.oob, r.wantCtrl))
 		if err != nil {
 			return n, err
 		}
@@ -600,10 +622,14 @@ func (r *rawIPDatagramConn) Read(p []byte) (int, error) {
 			}
 			continue
 		}
+		kernelN := n
+		if r.v4 {
+			n = skipIPv4HeaderIfPresent(p, n)
+		}
 		if r.wantCtrl {
 			xio.ProcessAncillary(oob, r.g)
 		}
-		return n, nil
+		return afterRawIPRecv(n, kernelN, nil, len(p))
 	}
 }
 
@@ -641,21 +667,26 @@ type rawIPConn struct {
 
 func (r *rawIPConn) Read(p []byte) (int, error) {
 	if r.wantCtrl {
-		n, oob, _, err := ReadIPMsgWithBuffer(r.IPConn, p, true, r.v4, ancillaryBuffer(&r.oob, true))
+		n, oob, _, err := readIPKernel(r.IPConn, p, true, ancillaryBuffer(&r.oob, true))
 		if err != nil {
 			return n, err
 		}
+		kernelN := n
+		if r.v4 {
+			n = skipIPv4HeaderIfPresent(p, n)
+		}
 		xio.ProcessAncillary(oob, r.g)
-		return n, nil
+		return afterRawIPRecv(n, kernelN, nil, len(p))
 	}
 	n, err := r.IPConn.Read(p)
 	if err != nil {
 		return n, err
 	}
+	kernelN := n
 	if r.v4 {
 		n = skipIPv4HeaderIfPresent(p, n)
 	}
-	return n, nil
+	return afterRawIPRecv(n, kernelN, nil, len(p))
 }
 
 func (r *rawIPConn) ShutdownWrite() error { return nil }
@@ -676,15 +707,15 @@ type rawIPRecvFrom struct {
 func (r *rawIPRecvFrom) Read(p []byte) (int, error) {
 	if r.firstPending {
 		r.firstPending = false
-		n := copy(p, r.first)
+		first := r.first
 		r.first = nil
-		return n, nil
+		return copyOneshotFirst(p, first)
 	}
 	if r.closeEOF {
 		return 0, io.EOF
 	}
 	for {
-		n, oob, addr, err := ReadIPMsgWithBuffer(r.c, p, r.wantCtrl, r.v4, ancillaryBuffer(&r.oob, r.wantCtrl))
+		n, oob, addr, err := readIPKernel(r.c, p, r.wantCtrl, ancillaryBuffer(&r.oob, r.wantCtrl))
 		if err != nil {
 			return n, err
 		}
@@ -693,10 +724,14 @@ func (r *rawIPRecvFrom) Read(p []byte) (int, error) {
 				continue
 			}
 		}
+		kernelN := n
+		if r.v4 {
+			n = skipIPv4HeaderIfPresent(p, n)
+		}
 		if r.wantCtrl {
 			xio.ProcessAncillary(oob, r.g)
 		}
-		return n, nil
+		return afterRawIPRecv(n, kernelN, nil, len(p))
 	}
 }
 
@@ -740,7 +775,7 @@ type rawIPFilteredRecv struct {
 
 func (r *rawIPFilteredRecv) Read(p []byte) (int, error) {
 	for {
-		n, oob, addr, err := ReadIPMsgWithBuffer(r.c, p, r.wantCtrl, r.v4, ancillaryBuffer(&r.oob, r.wantCtrl))
+		n, oob, addr, err := readIPKernel(r.c, p, r.wantCtrl, ancillaryBuffer(&r.oob, r.wantCtrl))
 		if err != nil {
 			return n, err
 		}
@@ -750,10 +785,14 @@ func (r *rawIPFilteredRecv) Read(p []byte) (int, error) {
 			}
 			continue
 		}
+		kernelN := n
+		if r.v4 {
+			n = skipIPv4HeaderIfPresent(p, n)
+		}
 		if r.wantCtrl {
 			xio.ProcessAncillary(oob, r.g)
 		}
-		return n, nil
+		return afterRawIPRecv(n, kernelN, nil, len(p))
 	}
 }
 
@@ -846,7 +885,7 @@ func (l *rawIPForkListener) Accept() (net.Conn, error) {
 			_ = l.pc.SetReadDeadline(time.Now().Add(l.rcvTimeout))
 		}
 		rn, oob, a, err := xio.RecvOneCtx(ctx, func() (int, []byte, net.Addr, error) {
-			return ReadIPMsgWithBuffer(l.pc, buf, wantCtrl, l.v4, oobBuffer[:])
+			return readIPKernel(l.pc, buf, wantCtrl, oobBuffer[:])
 		})
 		if err != nil {
 			if l.ctx != nil && l.ctx.Err() != nil {
@@ -862,6 +901,12 @@ func (l *rawIPForkListener) Accept() (net.Conn, error) {
 				return nil, stop
 			}
 			continue
+		}
+		if xio.IgnoreEmptyDatagram(rn, err, l.spec.BoolOption("null-eof")) {
+			continue
+		}
+		if l.v4 {
+			rn = skipIPv4HeaderIfPresent(buf, rn)
 		}
 		session := &xio.Global{}
 		if l.g != nil {
@@ -900,9 +945,9 @@ func (r *rawIPSessionConn) SessionEnvironment() map[string]string { return r.env
 func (r *rawIPSessionConn) Read(p []byte) (int, error) {
 	if r.firstPending {
 		r.firstPending = false
-		n := copy(p, r.first)
+		first := r.first
 		r.first = nil
-		return n, nil
+		return copyOneshotFirst(p, first)
 	}
 	return 0, io.EOF
 }

@@ -49,7 +49,8 @@ func openSocketConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Glo
 		Dial:  dialOnce,
 		LogOK: true,
 		Wrap: func(c net.Conn) (relay.Stream, error) {
-			return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
+			st := xio.WrapConnectedMessageEOF(call.typ, relay.NetStream{Conn: c})
+			return xio.WrapCommonAfterConnected(s, st)
 		},
 	})
 }

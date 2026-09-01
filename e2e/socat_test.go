@@ -958,3 +958,34 @@ func TestTLSPQC(t *testing.T) {
 		t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
 	}
 }
+
+func TestUDPConnectDefaultShutNullExitsListener(t *testing.T) {
+	bin := socatBin(t)
+	out := filepath.Join(t.TempDir(), "udp-connect-eof")
+	payload := "udp-connect-eof\n"
+	port, srv := startUDPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, "-u",
+			fmt.Sprintf("UDP4-LISTEN:%d,bind=127.0.0.1", port),
+			"CREATE:"+out,
+		)
+	})
+	cli := exec.Command(bin, "STDIO", fmt.Sprintf("UDP4:127.0.0.1:%d", port))
+	var cliErr bytes.Buffer
+	cli.Stdin = strings.NewReader(payload)
+	cli.Stderr = &cliErr
+	if err := cli.Run(); err != nil {
+		t.Fatalf("UDP-CONNECT client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
+	}
+	select {
+	case <-srv.done:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("UDP-LISTEN did not exit after default shut-null; stderr=%s", srv.stderr.String())
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != payload {
+		t.Fatalf("CREATE %q want %q; listener stderr=%s", got, payload, srv.stderr.String())
+	}
+}

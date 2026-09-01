@@ -343,6 +343,9 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			}
 			continue
 		}
+		if l.oneShot && xio.IgnoreEmptyDatagram(rn, nil, l.spec.BoolOption("null-eof")) {
+			continue
+		}
 		session := &xio.Global{}
 		if l.g != nil {
 			session.Log = l.g.Log
@@ -495,9 +498,13 @@ func (u *udpSessionConn) SessionEnvironment() map[string]string { return u.env }
 func (u *udpSessionConn) Read(p []byte) (int, error) {
 	if u.firstPending {
 		u.firstPending = false
-		n := copy(p, u.first)
+		first := u.first
 		u.first = nil
-		return n, nil
+		if u.oneShot {
+			return copyOneshotFirst(p, first)
+		}
+		n := copy(p, first)
+		return xio.ZeroLengthMessageEOF(n, nil, len(p))
 	}
 	if u.oneShot {
 		// UDP-RECVFROM,fork is one-shot: drain first, then EOF.
@@ -515,9 +522,10 @@ func (u *udpSessionConn) Read(p []byte) (int, error) {
 			return n, err
 		}
 		xio.ProcessAncillary(oob, u.g)
-		return n, nil
+		return xio.ZeroLengthMessageEOF(n, nil, len(p))
 	}
-	return u.conn.Read(p)
+	n, err := u.conn.Read(p)
+	return xio.ZeroLengthMessageEOF(n, err, len(p))
 }
 
 func (u *udpSessionConn) readHandedOff(p []byte) (int, error) {
@@ -533,7 +541,7 @@ func (u *udpSessionConn) readHandedOff(p []byte) (int, error) {
 			if u.wantCtrl {
 				xio.ProcessAncillary(oob, u.g)
 			}
-			return n, nil
+			return xio.ZeroLengthMessageEOF(n, nil, len(p))
 		}
 	}
 }
@@ -656,9 +664,13 @@ type udpRecvFromConn struct {
 func (u *udpRecvFromConn) Read(p []byte) (int, error) {
 	if u.firstPending {
 		u.firstPending = false
-		n := copy(p, u.first)
+		first := u.first
 		u.first = nil
-		return n, nil
+		if u.closeEOF {
+			return copyOneshotFirst(p, first)
+		}
+		n := copy(p, first)
+		return xio.ZeroLengthMessageEOF(n, nil, len(p))
 	}
 	if u.closeEOF {
 		// UDP-RECVFROM is one-shot: drain first, then EOF.
@@ -673,7 +685,7 @@ func (u *udpRecvFromConn) Read(p []byte) (int, error) {
 			if u.wantCtrl {
 				xio.ProcessAncillary(oob, u.g)
 			}
-			return n, nil
+			return xio.ZeroLengthMessageEOF(n, nil, len(p))
 		}
 	}
 }

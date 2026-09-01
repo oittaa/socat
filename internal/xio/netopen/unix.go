@@ -88,7 +88,7 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 		return nil, err
 	}
 	if network == "unixgram" {
-		return openUnixDgramClient(ctx, s, mode, g, path, bindPath)
+		return openUnixDgramClient(ctx, s, mode, g, path, bindPath, true)
 	}
 
 	networks := []string{network}
@@ -111,7 +111,7 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	}
 	if err != nil {
 		// Generic UNIX/UNIX-CLIENT/GOPEN probes stream, seqpacket, then dgram.
-		return openUnixDgramClient(ctx, s, mode, g, path, bindPath)
+		return openUnixDgramClient(ctx, s, mode, g, path, bindPath, false)
 	}
 	if g != nil && g.Log != nil {
 		g.Log.Infof("successfully connected to %s", path)
@@ -235,7 +235,10 @@ func unixTypeMismatch(err error, haveBind bool) bool {
 // openUnixDgramClient is UNIX:/UNIX-CONNECT as a connected datagram socket.
 // Unlike UNIX-SENDTO, it must not fall back to an unconnected socket when the
 // peer has an incompatible socket type: connect(2) failure is the open error.
-func openUnixDgramClient(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, path, bindPath string) (*xio.Opened, error) {
+// emptyIsEOF is set for an explicit datagram socktype, which is used as a
+// stream: a zero-length packet ends the transfer. Autodetect fallback to
+// datagram still ignores empty packets unless null-eof is set.
+func openUnixDgramClient(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, path, bindPath string, emptyIsEOF bool) (*xio.Opened, error) {
 	conn, err := dialUnixNetwork(ctx, s, g, "unixgram", path, bindPath)
 	if err != nil {
 		return nil, err
@@ -263,6 +266,9 @@ func openUnixDgramClient(ctx context.Context, s parse.Spec, mode xio.Mode, g *xi
 		}
 	}
 	st := relay.Stream(relay.NetStream{Conn: conn})
+	if emptyIsEOF {
+		st = xio.WrapMessageEOF(st)
+	}
 	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		life.drop(conn)

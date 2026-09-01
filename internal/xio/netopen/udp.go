@@ -138,9 +138,15 @@ func udpNetworkWithListenDefault(g *xio.Global, s parse.Spec) string {
 
 // udpConnectStream is UDP/UDP4/UDP6 CONNECT (and UDP-LISTEN,fork sessions).
 // Unspecified shut policy is shut-null: ShutdownWrite sends one zero-length
-// datagram. Explicit shut-* options still wrap this stream.
+// datagram. A successful zero-length Read is EOF so that packet ends the
+// peer transfer. Explicit shut-* options still wrap this stream.
 type udpConnectStream struct {
 	relay.NetStream
+}
+
+func (s udpConnectStream) Read(p []byte) (int, error) {
+	n, err := s.NetStream.Read(p)
+	return xio.ZeroLengthMessageEOF(n, err, len(p))
 }
 
 func (s udpConnectStream) ShutdownWrite() error {

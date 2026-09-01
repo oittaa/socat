@@ -290,6 +290,30 @@ func TestSocketConnectSocktypeDatagram(t *testing.T) {
 	if got := openedSOType(t, o.Stream); got != unix.SOCK_DGRAM {
 		t.Fatalf("SO_TYPE=%d want SOCK_DGRAM", got)
 	}
+	if _, err := o.Stream.Write([]byte("hi")); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 8)
+	if err := pc.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	n, addr, err := pc.ReadFrom(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(buf[:n]) != "hi" {
+		t.Fatalf("peer got %q", buf[:n])
+	}
+	if _, err := pc.WriteTo(nil, addr); err != nil {
+		t.Fatal(err)
+	}
+	if d, ok := o.Stream.(interface{ SetReadDeadline(time.Time) error }); ok {
+		_ = d.SetReadDeadline(time.Now().Add(2 * time.Second))
+	}
+	n, err = o.Stream.Read(make([]byte, 8))
+	if n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("empty datagram n=%d err=%v want EOF", n, err)
+	}
 }
 
 func openedSOType(t *testing.T, st relay.Stream) int {

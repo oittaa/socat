@@ -200,7 +200,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	}
 
 	if from {
-		first, peer, err := waitUnixRecvfromPacket(ctx, c, g)
+		first, peer, err := waitUnixRecvfromPacket(ctx, c, g, s.BoolOption("null-eof"))
 		if err != nil {
 			life.drop(c)
 			return nil, err
@@ -231,23 +231,28 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	return o, nil
 }
 
-func waitUnixRecvfromPacket(ctx context.Context, c *net.UnixConn, g *xio.Global) ([]byte, *net.UnixAddr, error) {
+func waitUnixRecvfromPacket(ctx context.Context, c *net.UnixConn, g *xio.Global, nullEOF bool) ([]byte, *net.UnixAddr, error) {
 	buf := make([]byte, 65536)
-	n, _, addr, err := xio.RecvOneCtx(ctx, func() (int, []byte, *net.UnixAddr, error) {
-		nn, a, e := c.ReadFromUnix(buf)
-		return nn, nil, a, e
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	if g != nil && addr != nil {
-		if addr.Name != "" {
-			g.PeerAddr = addr.Name
-		} else {
-			g.PeerAddr = addr.String()
+	for {
+		n, _, addr, err := xio.RecvOneCtx(ctx, func() (int, []byte, *net.UnixAddr, error) {
+			nn, a, e := c.ReadFromUnix(buf)
+			return nn, nil, a, e
+		})
+		if err != nil {
+			return nil, nil, err
 		}
+		if xio.IgnoreEmptyDatagram(n, err, nullEOF) {
+			continue
+		}
+		if g != nil && addr != nil {
+			if addr.Name != "" {
+				g.PeerAddr = addr.Name
+			} else {
+				g.PeerAddr = addr.String()
+			}
+		}
+		return append([]byte(nil), buf[:n]...), addr, nil
 	}
-	return append([]byte(nil), buf[:n]...), addr, nil
 }
 
 // unixRecvStream: first Recvfrom captures peer when from=true; Write replies to peer.
@@ -334,6 +339,9 @@ func (l *unixgramListener) Accept() (net.Conn, error) {
 				continue
 			}
 			return nil, err
+		}
+		if xio.IgnoreEmptyDatagram(n, err, l.spec.BoolOption("null-eof")) {
+			continue
 		}
 		return &unixPacketConn{
 			c:       l.c,
