@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -34,27 +33,35 @@ func dialUnixSocklen(ctx context.Context, s parse.Spec, g *xio.Global, network, 
 	}
 	var conn net.Conn
 	err := xio.WithRetry(ctx, s, g, s.Type, func() error {
-		d := net.Dialer{
-			Timeout: xio.ConnectTimeout(s),
-			Control: xio.DialControl(s, network, nil),
-		}
 		if err := prepareUnixClientBind(bindPath, s); err != nil {
 			return err
 		}
-		if bindPath != "" {
-			d.LocalAddr = &net.UnixAddr{Name: bindPath, Net: network}
-		}
-		createdBefore := false
-		if bindPath != "" && !xio.IsAbstract(bindPath) {
-			if _, err := os.Lstat(bindPath); err == nil {
-				createdBefore = true
-			}
+		// Bind in Control after socket() and snapshot that inode. Do not set
+		// LocalAddr: Dialer would bind again, and a pre-dial Lstat cannot prove
+		// this attempt created a path that appears during a failing connect.
+		var created unixBindCreated
+		d := net.Dialer{
+			Timeout: xio.ConnectTimeout(s),
+			Control: xio.DialControl(s, network, func(_ string, _ string, c syscall.RawConn) error {
+				if bindPath == "" {
+					return nil
+				}
+				var bindErr error
+				if err := c.Control(func(fd uintptr) {
+					bindErr = bindUnixPath(int(fd), bindPath, true)
+				}); err != nil {
+					return err
+				}
+				if bindErr != nil {
+					return bindErr
+				}
+				created = rememberUnixBindCreated(bindPath)
+				return nil
+			}),
 		}
 		c, err := d.DialContext(ctx, network, path)
 		if err != nil {
-			if !createdBefore {
-				rememberUnixBindCreated(bindPath).unlink()
-			}
+			created.unlink()
 			return err
 		}
 		conn = c

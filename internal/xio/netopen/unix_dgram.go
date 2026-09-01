@@ -512,16 +512,20 @@ func (u *unixgramConn) Read(p []byte) (int, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	// RecvOneCtx can return on cancel while ReadFromUnix is still blocked.
+	// Receive into storage owned by that goroutine so an abandoned read
+	// cannot write into a caller buffer the relay has already reused.
+	scratch := make([]byte, len(p))
 	for {
 		n, _, addr, err := xio.RecvOneCtx(ctx, func() (int, []byte, *net.UnixAddr, error) {
-			nn, a, e := u.ReadFromUnix(p)
+			nn, a, e := u.ReadFromUnix(scratch)
 			return nn, nil, a, e
 		})
 		if err != nil {
 			return n, err
 		}
 		if !u.filterPeer || unixgramAcceptSender(addr, u.raddr) {
-			return n, nil
+			return copy(p, scratch[:n]), nil
 		}
 	}
 }

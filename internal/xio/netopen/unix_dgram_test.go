@@ -548,3 +548,210 @@ func TestUnixgramListenPastSocketThenPrebindUnix(t *testing.T) {
 		t.Fatalf("SO_KEEPALIVE values=%v want PASTSOCKET 1 then PREBIND 0", values)
 	}
 }
+
+func TestUnixgramConnCanceledReadDoesNotMutateReusedBuffer(t *testing.T) {
+	local := unixSocketTestPath(t, "local.sock")
+	c, err := listenUnixgramBound(parse.Spec{Type: "UNIX-DATAGRAM"}, &net.UnixAddr{Name: local, Net: "unixgram"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+
+	peer, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: unixSocketTestPath(t, "peer.sock"), Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = peer.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	u := &unixgramConn{
+		UnixConn:   c,
+		raddr:      &net.UnixAddr{Name: "unused", Net: "unixgram"},
+		filterPeer: false,
+		ctx:        ctx,
+	}
+
+	buf := make([]byte, 32)
+	copy(buf, "caller-buffer")
+	done := make(chan error, 1)
+	go func() {
+		_, err := u.Read(buf)
+		done <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Read error=%v want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("canceled Read did not return")
+	}
+
+	const sentinel byte = 0xa5
+	for i := range buf {
+		buf[i] = sentinel
+	}
+	if _, err := peer.WriteToUnix([]byte("late-datagram"), &net.UnixAddr{Name: local, Net: "unixgram"}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(300 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		for i, b := range buf {
+			if b != sentinel {
+				t.Fatalf("abandoned receive mutated reused caller buffer at %d: %q", i, buf)
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestUnixDatagramOpensWithoutDestination(t *testing.T) {
+	if !xio.FeatureUNIXDatagram {
+		t.Skip("UNIX datagram not enabled")
+	}
+	remote := unixSocketTestPath(t, "late.sock")
+	spec, err := parse.ParseSpec("UNIX-DATAGRAM:" + remote + ",forever,interval=0.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	start := time.Now()
+	o, err := openUnixDatagram(ctx, spec, xio.ModeWrite, nil)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("DATAGRAM open waited %s for a missing destination", elapsed)
+	}
+}
+
+func TestUnixDatagramWriteReachesConfiguredDestination(t *testing.T) {
+	if !xio.FeatureUNIXDatagram {
+		t.Skip("UNIX datagram not enabled")
+	}
+	dest := unixSocketTestPath(t, "dest.sock")
+	spec, err := parse.ParseSpec("UNIX-DATAGRAM:" + dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUnixDatagram(context.Background(), spec, xio.ModeWrite, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+
+	recv, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: dest, Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = recv.Close() })
+	if _, err := o.Stream.Write([]byte("dest-write")); err != nil {
+		t.Fatal(err)
+	}
+	_ = recv.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 16)
+	n, _, err := recv.ReadFromUnix(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(buf[:n]) != "dest-write" {
+		t.Fatalf("got %q", buf[:n])
+	}
+}
+
+func TestUnixDatagramAcceptsNamedWrongPeer(t *testing.T) {
+	if !xio.FeatureUNIXDatagram {
+		t.Skip("UNIX datagram not enabled")
+	}
+	local := unixSocketTestPath(t, "local.sock")
+	dest := unixSocketTestPath(t, "dest.sock")
+	wrong := unixSocketTestPath(t, "wrong.sock")
+
+	destConn, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: dest, Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = destConn.Close() })
+	wrongConn, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: wrong, Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = wrongConn.Close() })
+
+	spec, err := parse.ParseSpec("UNIX-DATAGRAM:" + dest + ",bind=" + local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUnixDatagram(context.Background(), spec, xio.ModeRDWR, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+
+	laddr := &net.UnixAddr{Name: local, Net: "unixgram"}
+	if _, err := wrongConn.WriteToUnix([]byte("NAMED-WRONG\n"), laddr); err != nil {
+		t.Fatal(err)
+	}
+
+	_ = o.Stream.(interface{ SetReadDeadline(time.Time) error }).SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 32)
+	n, err := o.Stream.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(buf[:n]) != "NAMED-WRONG\n" {
+		t.Fatalf("read %q want NAMED-WRONG (UNIX-DATAGRAM must accept any sender)", buf[:n])
+	}
+}
+
+func TestUnixDatagramReceivesMultipleDatagrams(t *testing.T) {
+	if !xio.FeatureUNIXDatagram {
+		t.Skip("UNIX datagram not enabled")
+	}
+	local := unixSocketTestPath(t, "local.sock")
+	dest := unixSocketTestPath(t, "dest.sock")
+	destConn, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: dest, Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = destConn.Close() })
+
+	spec, err := parse.ParseSpec("UNIX-DATAGRAM:" + dest + ",bind=" + local)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUnixDatagram(context.Background(), spec, xio.ModeRDWR, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+
+	laddr := &net.UnixAddr{Name: local, Net: "unixgram"}
+	if _, err := destConn.WriteToUnix([]byte("one"), laddr); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := destConn.WriteToUnix([]byte("two"), laddr); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	got := make([]string, 0, 2)
+	buf := make([]byte, 8)
+	for len(got) < 2 {
+		_ = o.Stream.(interface{ SetReadDeadline(time.Time) error }).SetReadDeadline(deadline)
+		n, err := o.Stream.Read(buf)
+		if err != nil {
+			t.Fatalf("read %d: %v", len(got), err)
+		}
+		got = append(got, string(buf[:n]))
+	}
+	if got[0] != "one" || got[1] != "two" {
+		t.Fatalf("got %q want [one two] (UNIX-DATAGRAM is persistent, not one-shot)", got)
+	}
+}
