@@ -28,7 +28,7 @@ func TestEXECPtyKeepsParentSessionWithoutSetsid(t *testing.T) {
 	bin := buildSidCttyHelper(t)
 	for _, opt := range []string{"pty", "pty,setsid=0", "pty,ctty=0"} {
 		t.Run(opt, func(t *testing.T) {
-			sid, ctty := parseSidCtty(t, readExecPtyStdout(t, "EXEC:"+bin+","+opt+",rawer,echo=0"))
+			sid, ctty := parseSidCtty(t, readExecPtySessionProbe(t, bin, "EXEC:"+bin+","+opt+",rawer,echo=0"))
 			if sid != parent {
 				t.Fatalf("child sid=%d parent=%d want same session", sid, parent)
 			}
@@ -50,7 +50,7 @@ func TestEXECPtySetsidStartsNewSession(t *testing.T) {
 	bin := buildSidCttyHelper(t)
 	for _, opt := range []string{"pty,setsid", "pty,setsid=1", "pty,sid"} {
 		t.Run(opt, func(t *testing.T) {
-			sid, ctty := parseSidCtty(t, readExecPtyStdout(t, "EXEC:"+bin+","+opt+",rawer,echo=0"))
+			sid, ctty := parseSidCtty(t, readExecPtySessionProbe(t, bin, "EXEC:"+bin+","+opt+",rawer,echo=0"))
 			if sid == parent {
 				t.Fatalf("child sid=%d still parent session", sid)
 			}
@@ -70,7 +70,7 @@ func TestEXECPtyCttyDoesNotImplySetsid(t *testing.T) {
 		t.Fatal(err)
 	}
 	bin := buildSidCttyHelper(t)
-	sid, ctty := parseSidCtty(t, readExecPtyStdout(t, "EXEC:"+bin+",pty,ctty,rawer,echo=0"))
+	sid, ctty := parseSidCtty(t, readExecPtySessionProbe(t, bin, "EXEC:"+bin+",pty,ctty,rawer,echo=0"))
 	if sid != parent {
 		t.Fatalf("ctty without setsid changed sid %d → %d", parent, sid)
 	}
@@ -88,7 +88,7 @@ func TestEXECPtySetsidCttyTakesControllingTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	bin := buildSidCttyHelper(t)
-	sid, ctty := parseSidCtty(t, readExecPtyStdout(t, "EXEC:"+bin+",pty,setsid,ctty,rawer,echo=0"))
+	sid, ctty := parseSidCtty(t, readExecPtySessionProbe(t, bin, "EXEC:"+bin+",pty,setsid,ctty,rawer,echo=0"))
 	if sid == parent {
 		t.Fatal("setsid,ctty kept the parent session")
 	}
@@ -295,27 +295,89 @@ func readExecPtyStdout(t *testing.T, spec string) string {
 		t.Fatal(err)
 	}
 	defer func() { _ = o.Close() }()
-	var buf bytes.Buffer
-	tmp := make([]byte, 64)
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		n, err := o.Stream.Read(tmp)
-		if n > 0 {
-			buf.Write(tmp[:n])
-		}
-		if strings.Contains(buf.String(), "\n") {
-			break
-		}
-		if err != nil {
-			break
-		}
+	type readResult struct {
+		output string
+		err    error
 	}
-	_ = o.Close()
-	got := strings.TrimSpace(strings.ReplaceAll(buf.String(), "\r", ""))
+	readDone := make(chan readResult, 1)
+	go func() {
+		var buf bytes.Buffer
+		tmp := make([]byte, 64)
+		for {
+			n, readErr := o.Stream.Read(tmp)
+			if n > 0 {
+				buf.Write(tmp[:n])
+			}
+			if strings.Contains(buf.String(), "\n") || readErr != nil {
+				readDone <- readResult{output: buf.String(), err: readErr}
+				return
+			}
+		}
+	}()
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	var result readResult
+	select {
+	case result = <-readDone:
+	case <-timer.C:
+		cancel()
+		_ = o.Close()
+		t.Fatalf("timed out waiting for child output from %s", spec)
+	case <-ctx.Done():
+		_ = o.Close()
+		t.Fatalf("child output from %s: %v", spec, ctx.Err())
+	}
+	got := strings.TrimSpace(strings.ReplaceAll(result.output, "\r", ""))
 	if got == "" {
-		t.Fatalf("no child output from %s", spec)
+		t.Fatalf("no child output from %s (read: %v)", spec, result.err)
 	}
 	return got
+}
+
+// readExecPtySessionProbe uses a sidecar file for the session/ctty result.
+// Those tests exercise child process attributes, not PTY data transfer; using
+// PTY stdout made them susceptible to a Darwin master/slave startup race.
+func readExecPtySessionProbe(t *testing.T, bin, spec string) string {
+	t.Helper()
+	resultPath := bin + ".result"
+	if err := os.Remove(resultPath); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ch, err := parse.ParseChannel(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := OpenChannel(ctx, ch, ModeRDWR, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = o.Close() }()
+
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	for {
+		data, readErr := os.ReadFile(resultPath)
+		if readErr == nil && bytes.Contains(data, []byte("\n")) {
+			return strings.TrimSpace(string(data))
+		}
+		if readErr != nil && !os.IsNotExist(readErr) {
+			t.Fatal(readErr)
+		}
+		select {
+		case <-ticker.C:
+		case <-o.childDone:
+			data, _ = os.ReadFile(resultPath)
+			t.Fatalf("child exited before writing session probe for %s: %q", spec, data)
+		case <-timer.C:
+			t.Fatalf("timed out waiting for session probe from %s", spec)
+		case <-ctx.Done():
+			t.Fatalf("session probe from %s: %v", spec, ctx.Err())
+		}
+	}
 }
 
 func parseSidCtty(t *testing.T, got string) (sid int, ctty bool) {
@@ -343,7 +405,7 @@ func buildSidCttyHelper(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "sidtty.c")
-	body := "#include <fcntl.h>\n#include <stdio.h>\n#include <unistd.h>\nint main(void){ int tty=open(\"/dev/tty\",O_RDWR); char ch; printf(\"sid=%d ctty=%d\\n\", (int)getsid(0), tty>=0); fflush(stdout); (void)read(STDIN_FILENO,&ch,1); if(tty>=0) close(tty); return 0; }\n"
+	body := "#include <fcntl.h>\n#include <stdio.h>\n#include <unistd.h>\nint main(int argc,char **argv){ char path[4096]; int tty=open(\"/dev/tty\",O_RDWR|O_NONBLOCK); char ch; if(snprintf(path,sizeof(path),\"%s.result\",argv[0])<0) return 2; FILE *out=fopen(path,\"w\"); if(!out) return 3; fprintf(out,\"sid=%d ctty=%d\\n\",(int)getsid(0),tty>=0); if(fclose(out)!=0) return 4; (void)argc; (void)read(STDIN_FILENO,&ch,1); if(tty>=0) close(tty); return 0; }\n"
 	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -173,6 +173,10 @@ address and option spellings are audited automatically. The
 [scorecard](testdata/scorecard/README.md) tracks the classic `test.sh` suite.
 
 - `fork` sessions use goroutines rather than worker processes.
+- On macOS, `UDP-LISTEN,fork,shut-down` keeps connected child sockets because
+  `shutdown()` requires one. Concurrent peers can therefore have datagrams
+  delivered to another child and dropped; the default `shut-null` path uses
+  the shared-socket peer dispatcher instead.
 - Unknown options, malformed values, and unsupported combinations fail
   explicitly instead of becoming no-ops.
 - DNS overrides use a per-address resolver and never mutate process-global

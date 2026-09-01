@@ -12,10 +12,10 @@ import (
 
 func TestUDPDispatchConnShortReadDropsRemainder(t *testing.T) {
 	c := &udpDispatchConn{
-		packets:         make(chan []byte, 4),
+		packets:         make(chan udpForkPacket, 4),
 		done:            make(chan struct{}),
 		deadlineChanged: make(chan struct{}, 1),
-		pending:         []byte("abcd"),
+		pending:         udpForkPacket{data: []byte("abcd")},
 		havePending:     true,
 	}
 	buf := make([]byte, 1)
@@ -23,7 +23,7 @@ func TestUDPDispatchConnShortReadDropsRemainder(t *testing.T) {
 	if err != nil || n != 1 || buf[0] != 'a' {
 		t.Fatalf("short read n=%d err=%v data=%q", n, err, buf[:n])
 	}
-	if c.havePending || c.pending != nil {
+	if c.havePending || len(c.pending.data) != 0 || len(c.pending.oob) != 0 || c.pending.peer != nil {
 		t.Fatal("dispatcher kept the unread remainder of the datagram")
 	}
 	if err := c.SetReadDeadline(time.Now().Add(-time.Millisecond)); err != nil {
