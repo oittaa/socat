@@ -198,6 +198,10 @@ func (l *udpDispatchListener) readLoop() {
 		if child != nil && child.enqueue(packet) {
 			continue
 		}
+		if xio.IgnoreEmptyDatagram(rn, nil, l.base.spec.BoolOption("null-eof")) {
+			// shut-null EOF from a connected client must not open a session.
+			continue
+		}
 
 		session := &xio.Global{}
 		if l.base.g != nil {
