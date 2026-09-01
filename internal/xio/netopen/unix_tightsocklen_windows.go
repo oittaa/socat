@@ -21,14 +21,10 @@ func listenUnixNetwork(ctx context.Context, s parse.Spec, network, path string) 
 	var ln net.Listener
 	err := xio.WithUmask(s, func() error {
 		var e error
-		ln, e = lc.Listen(ctx, network, path)
+		ln, e = xio.ListenStream(ctx, lc, network, path, s)
 		return e
 	})
 	if err != nil {
-		return nil, err
-	}
-	if err := xio.ApplyListenBacklogFromSpec(ln, s); err != nil {
-		_ = ln.Close()
 		return nil, err
 	}
 	return ln, nil

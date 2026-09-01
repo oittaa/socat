@@ -250,57 +250,6 @@ func ApplyNetworkSocketOptions(fd int, s parse.Spec, network string) error {
 	return applyOrderedPastSocketPhaseOptions(fd, s, network)
 }
 
-// DefaultListenBacklog is the listen(2) queue length when backlog= is omitted.
-const DefaultListenBacklog = 5
-
-// ListenBacklog returns the listen(2) backlog for a stream listener.
-// Omitted backlog= is 5. Explicit values must be a positive base-0 integer.
-func ListenBacklog(s parse.Spec) (int, error) {
-	v := s.OptionValue("backlog", "")
-	if v == "" {
-		return DefaultListenBacklog, nil
-	}
-	n, err := ParseIntAny(v)
-	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("backlog: invalid value %q", v)
-	}
-	return n, nil
-}
-
-// ApplyListenBacklog updates the pending-connection queue of an existing
-// stream listener. Both POSIX and Winsock allow listen to be called again to
-// change the backlog; using the existing listener preserves Go's
-// platform-specific socket setup and dual-stack behavior.
-func ApplyListenBacklog(ln net.Listener, backlog int) error {
-	sc, ok := ln.(syscall.Conn)
-	if !ok {
-		return fmt.Errorf("listener does not expose its socket")
-	}
-	raw, err := sc.SyscallConn()
-	if err != nil {
-		return err
-	}
-	var optionErr error
-	controlErr := raw.Control(func(fd uintptr) {
-		optionErr = setListenBacklog(int(fd), backlog)
-	})
-	return errors.Join(controlErr, optionErr)
-}
-
-// ApplyListenBacklogFromSpec applies ListenBacklog to an already-bound
-// stream listener. Call this on the raw TCP or UNIX listener before wrapping
-// it in TLS or WebSocket.
-func ApplyListenBacklogFromSpec(ln net.Listener, s parse.Spec) error {
-	n, err := ListenBacklog(s)
-	if err != nil {
-		return err
-	}
-	if err := ApplyListenBacklog(ln, n); err != nil {
-		return fmt.Errorf("backlog: %w", err)
-	}
-	return nil
-}
-
 // DialControl merges spec-driven socket options with an optional
 // caller-provided Control. Go's Control hook runs after socket() and before
 // connect(), so both post-socket and pre-bind phases go here.

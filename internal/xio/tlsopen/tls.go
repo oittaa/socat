@@ -128,12 +128,8 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	}
 
 	lc := xio.NewTCPListenConfig(s)
-	ln, err := lc.Listen(ctx, network, addr)
+	ln, err := xio.ListenStream(ctx, lc, network, addr, s)
 	if err != nil {
-		return nil, err
-	}
-	if err := xio.ApplyListenBacklogFromSpec(ln, s); err != nil {
-		logx.CloseQuiet(ln)
 		return nil, err
 	}
 	tlsLn := tls.NewListener(&socketTimeoutListener{Listener: ln, spec: s}, tlsCfg)

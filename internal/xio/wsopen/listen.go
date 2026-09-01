@@ -48,12 +48,8 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
 	lc := xio.NewTCPListenConfig(s)
-	rawLn, err := lc.Listen(ctx, network, addr)
+	rawLn, err := xio.ListenStream(ctx, lc, network, addr, s)
 	if err != nil {
-		return nil, err
-	}
-	if err := xio.ApplyListenBacklogFromSpec(rawLn, s); err != nil {
-		logx.CloseQuiet(rawLn)
 		return nil, err
 	}
 	ln := net.Listener(rawLn)

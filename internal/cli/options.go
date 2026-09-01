@@ -178,6 +178,9 @@ func validateSpecOptions(spec parse.Spec) error {
 	if err := xio.ValidateDescriptorModeOptions(spec); err != nil {
 		return err
 	}
+	if err := xio.RejectUnsupportedListenBacklog(spec); err != nil {
+		return err
+	}
 	for _, option := range spec.Options {
 		optionSpec, ok := lookupAddressOption(option)
 		if !ok {

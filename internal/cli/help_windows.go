@@ -21,7 +21,7 @@ func hideOpt(name string) bool {
 		return true
 	}
 	switch name {
-	case "reuseport",
+	case "backlog", "reuseport",
 		"ip-add-membership", "ipv6-join-group",
 		"add-membership", "ip-membership", "membership",
 		"ipv6-add-membership", "join-group",
