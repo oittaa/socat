@@ -21,16 +21,45 @@ import (
 
 // SOCKET-CONNECT:<domain>:<protocol>:<remote-address>
 // Generic raw sockaddr connect. Address is hex/data without sa_family.
-func openSocketConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	c, err := parseSocketStreamCall(s)
+func openSocketConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	call, err := parseSocketStreamCall(s)
 	if err != nil {
 		return nil, err
 	}
-	sa, err := packRawSockaddr(c.domain, c.addr)
+	sa, err := packRawSockaddr(call.domain, call.addr)
 	if err != nil {
 		return nil, err
 	}
-	fd, err := newSocket(c.domain, c.typ, c.proto)
+	timeout := xio.ConnectTimeout(s)
+	dialOnce := func(dctx context.Context) (net.Conn, error) {
+		var conn net.Conn
+		err := xio.WithRetry(dctx, s, g, "socket connect", func() error {
+			c, e := dialRawSocket(dctx, call, sa, s, timeout)
+			if e != nil {
+				return e
+			}
+			conn = c
+			return nil
+		})
+		return conn, err
+	}
+	return xio.OpenDialed(ctx, s, g, xio.Dialed{
+		Label: "SOCKET-CONNECT",
+		Dial:  dialOnce,
+		LogOK: true,
+		Wrap: func(c net.Conn) (relay.Stream, error) {
+			return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
+		},
+	})
+}
+
+func dialRawSocket(ctx context.Context, call socketCall, sa rawSockaddr, s parse.Spec, timeout time.Duration) (net.Conn, error) {
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	fd, err := newSocket(call.domain, call.typ, call.proto)
 	if err != nil {
 		return nil, fmt.Errorf("socket: %w", err)
 	}
@@ -44,7 +73,7 @@ func openSocketConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 			logx.CloseErr(unix.Close(fd))
 			return nil, berr
 		}
-		bsa, err := packRawSockaddr(c.domain, bdata)
+		bsa, err := packRawSockaddr(call.domain, bdata)
 		if err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, fmt.Errorf("bind: %w", err)
@@ -62,16 +91,72 @@ func openSocketConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	f := osNewFile(fd, "socket-connect")
-	st := xio.FileStream(f)
-	st, err = xio.WrapCommonAfterConnected(s, st)
-	if err != nil {
+	return connFromFD(fd, "socket-connect")
+}
+
+func connFromFD(fd int, name string) (net.Conn, error) {
+	f := os.NewFile(uintptr(fd), name)
+	if f == nil {
+		logx.CloseErr(unix.Close(fd))
+		return nil, fmt.Errorf("invalid fd")
+	}
+	c, err := net.FileConn(f)
+	if err == nil {
+		logx.CloseQuiet(f)
+		return c, nil
+	}
+	local, remote := addrsFromFD(fd)
+	if err := unix.SetNonblock(fd, true); err != nil {
 		logx.CloseQuiet(f)
 		return nil, err
 	}
-	_ = mode
-	_ = g
-	return &xio.Opened{Stream: st, Label: "SOCKET-CONNECT"}, nil
+	return &rawFileConn{f: f, local: local, remote: remote}, nil
+}
+
+type rawFileConn struct {
+	f             *os.File
+	local, remote net.Addr
+}
+
+func (c *rawFileConn) Read(b []byte) (int, error)         { return c.f.Read(b) }
+func (c *rawFileConn) Write(b []byte) (int, error)        { return c.f.Write(b) }
+func (c *rawFileConn) Close() error                       { return c.f.Close() }
+func (c *rawFileConn) LocalAddr() net.Addr                { return c.local }
+func (c *rawFileConn) RemoteAddr() net.Addr               { return c.remote }
+func (c *rawFileConn) SetDeadline(t time.Time) error      { return c.f.SetDeadline(t) }
+func (c *rawFileConn) SetReadDeadline(t time.Time) error  { return c.f.SetReadDeadline(t) }
+func (c *rawFileConn) SetWriteDeadline(t time.Time) error { return c.f.SetWriteDeadline(t) }
+func (c *rawFileConn) SyscallConn() (syscall.RawConn, error) {
+	return c.f.SyscallConn()
+}
+
+func addrsFromFD(fd int) (local, remote net.Addr) {
+	if sa, err := unix.Getsockname(fd); err == nil {
+		local = sockAddrToNetAddr(sa)
+	}
+	if sa, err := unix.Getpeername(fd); err == nil {
+		remote = sockAddrToNetAddr(sa)
+	}
+	if local == nil {
+		local = &net.IPAddr{}
+	}
+	if remote == nil {
+		remote = &net.IPAddr{}
+	}
+	return local, remote
+}
+
+func sockAddrToNetAddr(sa unix.Sockaddr) net.Addr {
+	switch a := sa.(type) {
+	case *unix.SockaddrInet4:
+		return &net.TCPAddr{IP: net.IP(a.Addr[:]), Port: a.Port}
+	case *unix.SockaddrInet6:
+		return &net.TCPAddr{IP: net.IP(a.Addr[:]), Port: a.Port}
+	case *unix.SockaddrUnix:
+		return &net.UnixAddr{Name: a.Name, Net: "unix"}
+	default:
+		return &net.IPAddr{}
+	}
 }
 
 // SOCKET-LISTEN:<domain>:<protocol>:<local-address>
@@ -114,13 +199,14 @@ func openSocketListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Glob
 		return nil, err
 	}
 	ln := &rawListener{fd: fd, domain: c.domain}
-	wrapConn := func(c net.Conn) (relay.Stream, error) {
-		return xio.WrapCommon(s, relay.NetStream{Conn: c})
-	}
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
 		Listener: ln,
 		Label:    "SOCKET-LISTEN",
-		WrapDial: wrapConn,
+		WrapDial: func(c net.Conn) (relay.Stream, error) {
+			return xio.WrapAccepted(s, c, func(c net.Conn) error {
+				return xio.ApplyGenericSetsockoptToNetConn(c, s, xio.SockoptPhaseConnected)
+			})
+		},
 	})
 }
 
@@ -362,16 +448,7 @@ func (l *rawListener) Addr() net.Addr {
 	if err != nil {
 		return &net.IPAddr{}
 	}
-	switch a := sa.(type) {
-	case *unix.SockaddrInet4:
-		return &net.TCPAddr{IP: net.IP(a.Addr[:]), Port: a.Port}
-	case *unix.SockaddrInet6:
-		return &net.TCPAddr{IP: net.IP(a.Addr[:]), Port: a.Port}
-	case *unix.SockaddrUnix:
-		return &net.UnixAddr{Name: a.Name, Net: "unix"}
-	default:
-		return &net.IPAddr{}
-	}
+	return sockAddrToNetAddr(sa)
 }
 
 type rawDgramStream struct {

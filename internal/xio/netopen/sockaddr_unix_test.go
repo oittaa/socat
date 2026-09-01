@@ -310,6 +310,8 @@ func openedSOType(t *testing.T, st relay.Stream) int {
 			if conn == nil {
 				walk(x.W, depth+1)
 			}
+		case relay.NetStream:
+			walk(x.Conn, depth+1)
 		default:
 			if u, ok := v.(interface{ UnwrapStream() relay.Stream }); ok {
 				walk(u.UnwrapStream(), depth+1)
