@@ -231,8 +231,8 @@ func TestIP4RecvfromForkSessionsAndMaxChildren(t *testing.T) {
 	if o.MaxChildren != 2 {
 		t.Fatalf("MaxChildren=%d want 2", o.MaxChildren)
 	}
-	if o.PeerFilter == nil {
-		t.Fatal("fork RECVFROM must install PeerFilter")
+	if o.PeerFilter != nil {
+		t.Fatal("IP-RECVFROM,fork must filter in Accept only")
 	}
 	assertWrapDialReadbytes(t, o)
 

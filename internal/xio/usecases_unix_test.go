@@ -223,8 +223,12 @@ func TestIP4RecvfromForkEXECPeerAddr(t *testing.T) {
 	send(net.IPv4(127, 2, 0, 1))
 	cancel()
 	select {
-	case <-done:
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
 	case <-time.After(2 * time.Second):
+		t.Fatal("IP4-RECVFROM,fork EXEC did not shut down")
 	}
 }
 

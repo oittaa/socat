@@ -357,7 +357,6 @@ func openIPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *ne
 		Listener:    ln,
 		Label:       s.Type,
 		MaxChildren: maxChildren,
-		PeerFilter:  peerFilter.AllowConn,
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
 			return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
 		},
