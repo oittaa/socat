@@ -29,6 +29,8 @@ func TestSkipDescriptorOwnerOptsClassicTypes(t *testing.T) {
 		{spec: parse.Spec{Type: "ECHO"}, name: "group", skip: false},
 		{spec: parse.Spec{Type: "PTY"}, name: "perm", skip: true},
 		{spec: mustSpec(t, "EXEC:true,pty"), name: "user", skip: true},
+		{spec: mustSpec(t, "EXEC:true,ptmx"), name: "user", skip: true},
+		{spec: mustSpec(t, "EXEC:true,openpty"), name: "user", skip: true},
 		{spec: parse.Spec{Type: "EXEC"}, name: "user", skip: false},
 		{spec: parse.Spec{Type: "POSIXMQ-RECV"}, name: "perm", skip: true},
 		{spec: parse.Spec{Type: "POSIXMQ-RECV"}, name: "user", skip: false},

@@ -32,7 +32,7 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 		"nonblock", "umask", "user", "group", "uid", "owner", "gid",
 		"perm-early", "user-early", "group-early",
 		"o-sync", "async", "flock", "perm-late", "user-late",
-		"setsid", "pty", "setlk",
+		"setsid", "pty", "openpty", "setlk",
 		"dash", "setpgid",
 		"sighup", "sigint", "sigquit",
 		"bindtodevice",

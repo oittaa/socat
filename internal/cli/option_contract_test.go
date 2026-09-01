@@ -19,8 +19,8 @@ import (
 //
 // History justifying this test: keepidle was implemented but rejected by the
 // CLI, addrconfig was accepted but silently ignored, sndtimeo was canonicalized
-// but rejected by the option table, and ptmx/openpty carried compat semantics
-// that only classic test.sh exposed. Each class is caught here mechanically.
+// but rejected by the option table, and ptmx used to be a silent no-op. Each
+// class is caught here mechanically.
 
 // dynamicallyReadOptions are canonical names looked up through literal slices
 // in the implementations rather than inline string arguments, so AST scanning
@@ -214,8 +214,6 @@ var dynamicallyReadOptions = map[string]string{
 	"crorlf":     "xio/stream.go selectedLineTerm",
 }
 
-// compatNoOptions are advertised deliberately as classic-compat spellings
-// whose acceptance is the feature; nothing reads them.
 // recognizedUnsupportedOptions are deliberately accepted so the relevant
 // opener can return a precise "not supported" error; helpOptionGroups keeps the
 // authoritative list and routes them to that error.
@@ -239,11 +237,6 @@ var recognizedUnsupportedOptions = map[string]string{
 	"ippktoptions":        "IP_PKTOPTIONS is get-only; rejected instead of a setter no-op",
 	"pktoptions":          "IP_PKTOPTIONS is get-only; rejected instead of a setter no-op",
 	"pktopts":             "IP_PKTOPTIONS is get-only; rejected instead of a setter no-op",
-}
-
-var compatNoOptions = map[string]string{
-	"ptmx":    "classic compat: /dev/ptmx is the platform default",
-	"openpty": "classic compat: openpty(3) semantics are the default",
 }
 
 type consumedSite struct {
@@ -372,9 +365,6 @@ func TestOptionTableContract(t *testing.T) {
 		if _, ok := termiosNames[name]; ok {
 			continue
 		}
-		if _, ok := compatNoOptions[name]; ok {
-			continue
-		}
 		if _, ok := recognizedUnsupportedOptions[name]; ok {
 			continue
 		}
@@ -382,7 +372,7 @@ func TestOptionTableContract(t *testing.T) {
 	}
 	if len(unconsumed) > 0 {
 		sort.Strings(unconsumed)
-		t.Errorf("advertised options with no implementation consumer; implement, fold into dynamicallyReadOptions, or list in compatNoOptions:\n  %s",
+		t.Errorf("advertised options with no implementation consumer; implement, fold into dynamicallyReadOptions, or list in recognizedUnsupportedOptions:\n  %s",
 			strings.Join(unconsumed, "\n  "))
 	}
 

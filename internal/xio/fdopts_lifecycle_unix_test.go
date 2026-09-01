@@ -918,31 +918,38 @@ func TestWrapCommonEXECPtyWriteOnlyAppliesAppendOnce(t *testing.T) {
 }
 
 func TestEXECPtyOwnerOptionsApplyToSlaveOnly(t *testing.T) {
-	spec := mustSpec(t, "EXEC:true,pty,perm=0600")
-	ops := captureLifecycleSyscalls(t)
-	master, slave, err := openExecPTYPair(&exec.Cmd{}, spec)
-	if err != nil {
-		t.Skipf("no pty: %v", err)
-	}
-	t.Cleanup(func() {
-		_ = master.Close()
-		_ = slave.Close()
-	})
-	st, err := slave.Stat()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if st.Mode().Perm() != 0o600 {
-		t.Fatalf("PTY slave mode=%#o want 0600", st.Mode().Perm())
-	}
-	if err := ApplyFDOptions(master, spec); err != nil {
-		t.Fatal(err)
-	}
-	if got := countOp(*ops, "chmod"); got != 1 {
-		t.Fatalf("PTY slave chmod count=%d want 1 (ops=%v)", got, *ops)
-	}
-	if got := countOp(*ops, "fchmod"); got != 0 {
-		t.Fatalf("PTY master unexpectedly received fchmod (ops=%v)", *ops)
+	for _, selector := range []string{"pty", "ptmx", "openpty"} {
+		t.Run(selector, func(t *testing.T) {
+			spec := mustSpec(t, "EXEC:true,"+selector+",perm=0600")
+			ops := captureLifecycleSyscalls(t)
+			master, slave, cleanup, err := openExecPTYPair(&exec.Cmd{}, spec, nil)
+			if err != nil {
+				t.Skipf("no pty: %v", err)
+			}
+			t.Cleanup(func() {
+				if cleanup != nil {
+					cleanup()
+				}
+				_ = master.Close()
+				_ = slave.Close()
+			})
+			st, err := slave.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if st.Mode().Perm() != 0o600 {
+				t.Fatalf("PTY slave mode=%#o want 0600", st.Mode().Perm())
+			}
+			if err := ApplyFDOptions(master, spec); err != nil {
+				t.Fatal(err)
+			}
+			if got := countOp(*ops, "chmod"); got != 1 {
+				t.Fatalf("PTY slave chmod count=%d want 1 (ops=%v)", got, *ops)
+			}
+			if got := countOp(*ops, "fchmod"); got != 0 {
+				t.Fatalf("PTY master unexpectedly received fchmod (ops=%v)", *ops)
+			}
+		})
 	}
 }
 

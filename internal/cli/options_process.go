@@ -44,10 +44,8 @@ func processOptionGroups() []helpOptGroup {
 			{name: "pty-interval", optionCaps: capPTY, desc: "poll interval while waiting for slave", aliases: []string{"pty-intervall"}, validate: validateDurationOption},
 			{name: "sitout-eio", optionCaps: capPTY, desc: "wait this long on PTY master EIO after the slave closes", validate: validateDurationOption},
 			{name: "ctty", optionCaps: capTermios, desc: "make the PTY the controlling tty", aliases: []string{"tiocsctty"}},
-			// Accepted as no-ops: the PTY master always comes from the
-			// platform default (/dev/ptmx or openpty).
-			{name: "ptmx", optionCaps: capPTY, desc: "compat: /dev/ptmx is the default"},
-			{name: "openpty", optionCaps: capPTY, desc: "compat: openpty(3) semantics are the default"},
+			{name: "ptmx", optionCaps: capPTY, desc: "run on a pseudo-terminal via /dev/ptmx"},
+			{name: "openpty", optionCaps: capPTY, desc: "run on a pseudo-terminal"},
 			{name: "escape", unrestricted: true, desc: "escape character"},
 		}},
 	}
