@@ -239,6 +239,11 @@ type udpForkListener struct {
 	exclusiveDone chan struct{}
 }
 
+// A transient resource failure must not lose UDP-LISTEN's opener. Retry it
+// once, then discard that datagram so a persistent failure cannot spin on the
+// same MSG_PEEK result or prevent later peers from being served.
+const udpForkDialMaxAttempts = 2
+
 func applyUDPForkTimeouts(ln *udpForkListener, s parse.Spec) error {
 	d, err := xio.RecvTimeoutFromSpec(s)
 	if err != nil {
@@ -321,6 +326,8 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 	if l.acceptTimeout > 0 {
 		acceptDeadline = time.Now().Add(l.acceptTimeout)
 	}
+	var failedDialPeer *net.UDPAddr
+	failedDialAttempts := 0
 	for {
 		switch {
 		case !acceptDeadline.IsZero():
@@ -423,17 +430,58 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 		}
 		conn, err := dialSession(l.ctx, l.network, local, a, l.spec)
 		if err != nil {
-			if consumed {
-				l.pending = append([]udpForkPacket{packet}, l.pending...)
+			if udpAddrIsPeer(a, failedDialPeer) {
+				failedDialAttempts++
+			} else {
+				failedDialPeer = cloneUDPAddr(a)
+				failedDialAttempts = 1
 			}
-			return nil, fmt.Errorf("UDP fork session dial: %w", err)
+			if failedDialAttempts < udpForkDialMaxAttempts {
+				if consumed {
+					l.pending = append([]udpForkPacket{packet}, l.pending...)
+				}
+				if l.g != nil && l.g.Log != nil {
+					l.g.Log.Noticef("UDP fork session dial: %s; retrying opener", err)
+				}
+				continue
+			}
+			if !consumed {
+				// Remove the opener that MSG_PEEK left on the socket. Preserve an
+				// unexpected packet rather than dropping a different peer.
+				n, dropOOB, peer, ok, dropErr := readQueuedUDPForkPacket(pc, buf, wantCtrl, oobBuffer[:])
+				if dropErr != nil {
+					return nil, dropErr
+				}
+				if ok && !udpAddrIsPeer(peer, a) {
+					l.pending = append(l.pending, udpForkPacket{
+						data: append([]byte(nil), buf[:n]...),
+						oob:  append([]byte(nil), dropOOB...),
+						peer: cloneUDPAddr(peer),
+					})
+				}
+			}
+			if l.g != nil && l.g.Log != nil {
+				l.g.Log.Noticef("UDP fork session dial: %s; dropping opener after %d attempts", err, failedDialAttempts)
+			}
+			failedDialPeer = nil
+			failedDialAttempts = 0
+			continue
 		}
+		failedDialPeer = nil
+		failedDialAttempts = 0
 
 		if !consumed {
-			rn, oob, peer, err := xio.ReadUDPMsgWithBuffer(pc, buf, wantCtrl, oobBuffer[:])
+			rn, oob, peer, ok, err := readQueuedUDPForkPacket(pc, buf, wantCtrl, oobBuffer[:])
 			if err != nil {
 				logx.CloseQuiet(conn)
 				return nil, err
+			}
+			if !ok {
+				logx.CloseQuiet(conn)
+				if l.g != nil && l.g.Log != nil {
+					l.g.Log.Noticef("UDP fork opener disappeared before session handoff")
+				}
+				continue
 			}
 			packet = udpForkPacket{
 				data: append([]byte(nil), buf[:rn]...),
@@ -443,7 +491,10 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			if !udpAddrIsPeer(packet.peer, a) {
 				logx.CloseQuiet(conn)
 				l.pending = append(l.pending, packet)
-				return nil, fmt.Errorf("UDP fork opener changed from %s to %s", a, packet.peer)
+				if l.g != nil && l.g.Log != nil {
+					l.g.Log.Noticef("UDP fork opener changed from %s to %s; preserving received packet", a, packet.peer)
+				}
+				continue
 			}
 		}
 

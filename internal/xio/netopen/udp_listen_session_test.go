@@ -624,6 +624,8 @@ func TestUDPListenNonForkEmptyFirstNullEOF(t *testing.T) {
 }
 
 func TestUDPListenEmptyOpenerIsEOF(t *testing.T) {
+	// The payload after the empty opener is a sentinel: skipping the empty
+	// packet would expose "hello" and fail instead of merely timing out.
 	t.Run("nonfork", func(t *testing.T) {
 		o, _ := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1", nil, []byte("hello"))
 		got, err := readStreamTimeout(t, o.Stream, 2*time.Second)

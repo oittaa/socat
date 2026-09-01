@@ -8,6 +8,8 @@ import (
 )
 
 func udpForkUsesPacketDispatch(s parse.Spec) bool {
+	// shut-down needs a dedicated connected socket; reuseaddr=0 needs the
+	// exclusive listen-fd handoff. Other fork sessions use one receiver.
 	return !xio.ShutDownSelected(s) && (!s.HasOption("reuseaddr") || s.BoolOption("reuseaddr"))
 }
 

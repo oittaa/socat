@@ -191,7 +191,11 @@ func (l *udpDispatchListener) readLoop() {
 			continue
 		}
 
-		packet := append([]byte(nil), buf[:rn]...)
+		packet := udpForkPacket{
+			data: append([]byte(nil), buf[:rn]...),
+			oob:  append([]byte(nil), oob...),
+			peer: cloneUDPAddr(peer),
+		}
 		key := peer.String()
 		l.mu.Lock()
 		child := l.sessions[key]
@@ -204,7 +208,8 @@ func (l *udpDispatchListener) readLoop() {
 			session.Log = l.base.g.Log
 			session.Progname = l.base.g.Progname
 		}
-		xio.ProcessAncillary(oob, session)
+		xio.ProcessAncillary(packet.oob, session)
+		packet.oob = nil // opener ancillary is available before the child starts
 		child = &udpDispatchConn{
 			listener:        l,
 			pc:              l.base.pc,
@@ -212,10 +217,11 @@ func (l *udpDispatchListener) readLoop() {
 			key:             key,
 			pending:         packet,
 			havePending:     true,
-			packets:         make(chan []byte, udpDispatchPacketQueueSize),
+			packets:         make(chan udpForkPacket, udpDispatchPacketQueueSize),
 			done:            make(chan struct{}),
 			deadlineChanged: make(chan struct{}, 1),
 			env:             session.SessionVars,
+			g:               session,
 		}
 		l.mu.Lock()
 		select {
@@ -255,11 +261,12 @@ type udpDispatchConn struct {
 	peer     *net.UDPAddr
 	key      string
 	env      map[string]string
+	g        *xio.Global
 
 	readMu      sync.Mutex
-	pending     []byte
+	pending     udpForkPacket
 	havePending bool
-	packets     chan []byte
+	packets     chan udpForkPacket
 	done        chan struct{}
 	closeOnce   sync.Once
 
@@ -271,7 +278,11 @@ type udpDispatchConn struct {
 
 func (c *udpDispatchConn) SessionEnvironment() map[string]string { return c.env }
 
-func (c *udpDispatchConn) enqueue(packet []byte) bool {
+// NetConn exposes the shared socket for option application without making the
+// buffered session itself a syscall.Conn that the relay could poll directly.
+func (c *udpDispatchConn) NetConn() net.Conn { return c.pc }
+
+func (c *udpDispatchConn) enqueue(packet udpForkPacket) bool {
 	select {
 	case <-c.done:
 		return false
@@ -301,9 +312,11 @@ func (c *udpDispatchConn) Read(p []byte) (int, error) {
 	defer c.readMu.Unlock()
 	for {
 		if c.havePending {
-			n := copy(p, c.pending)
-			c.pending = nil
+			packet := c.pending
+			c.pending = udpForkPacket{}
 			c.havePending = false
+			xio.ProcessAncillary(packet.oob, c.g)
+			n := copy(p, packet.data)
 			return n, nil
 		}
 		packet, err := c.waitPacket()
@@ -315,7 +328,7 @@ func (c *udpDispatchConn) Read(p []byte) (int, error) {
 	}
 }
 
-func (c *udpDispatchConn) waitPacket() ([]byte, error) {
+func (c *udpDispatchConn) waitPacket() (udpForkPacket, error) {
 	for {
 		c.deadlineMu.Lock()
 		deadline := c.readDeadline
@@ -328,13 +341,13 @@ func (c *udpDispatchConn) waitPacket() ([]byte, error) {
 			case <-c.deadlineChanged:
 				continue
 			case <-c.done:
-				return nil, net.ErrClosed
+				return udpForkPacket{}, net.ErrClosed
 			}
 		}
 
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
-			return nil, os.ErrDeadlineExceeded
+			return udpForkPacket{}, os.ErrDeadlineExceeded
 		}
 		timer := time.NewTimer(remaining)
 		select {
@@ -346,9 +359,9 @@ func (c *udpDispatchConn) waitPacket() ([]byte, error) {
 			continue
 		case <-c.done:
 			stopUDPDispatchTimer(timer)
-			return nil, net.ErrClosed
+			return udpForkPacket{}, net.ErrClosed
 		case <-timer.C:
-			return nil, os.ErrDeadlineExceeded
+			return udpForkPacket{}, os.ErrDeadlineExceeded
 		}
 	}
 }

@@ -46,15 +46,14 @@ func TestUDPListenForkDialFailureKeepsOpener(t *testing.T) {
 	if _, err := client.Write([]byte("opener")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := listener.Accept(); !errors.Is(err, wantDialErr) {
-		t.Fatalf("first Accept error = %v, want %v", err, wantDialErr)
-	}
-
 	conn, err := listener.Accept()
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = conn.Close() })
+	if attempts != 2 {
+		t.Fatalf("dial attempts = %d, want 2 within one Accept", attempts)
+	}
 	got, err := io.ReadAll(io.LimitReader(conn, int64(len("opener"))))
 	if err != nil {
 		t.Fatal(err)
@@ -62,6 +61,95 @@ func TestUDPListenForkDialFailureKeepsOpener(t *testing.T) {
 	if string(got) != "opener" {
 		t.Fatalf("opener after retry = %q, want opener", got)
 	}
+}
+
+func TestUDPListenForkSlowDialKeepsPeekedOpener(t *testing.T) {
+	spec, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork,accept-timeout=0.03")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUDP4Listen(context.Background(), spec, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	listener := o.Listener.(*udpForkListener)
+	listener.dialSession = func(ctx context.Context, network string, local, remote *net.UDPAddr, s parse.Spec) (*net.UDPConn, error) {
+		time.Sleep(60 * time.Millisecond)
+		return dialUDPSession(ctx, network, local, remote, s)
+	}
+
+	client, err := net.DialUDP("udp4", nil, listener.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	if _, err := client.Write([]byte("opener")); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := listener.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	assertUDPRead(t, conn, "opener", nil)
+}
+
+func TestUDPListenForkPersistentDialFailureDropsOpenerAndServesNextPeer(t *testing.T) {
+	spec, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork,accept-timeout=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUDP4Listen(context.Background(), spec, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	listener := o.Listener.(*udpForkListener)
+
+	firstClient, err := net.DialUDP("udp4", nil, listener.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = firstClient.Close() })
+	secondClient, err := net.DialUDP("udp4", nil, listener.Addr().(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = secondClient.Close() })
+	firstPort := firstClient.LocalAddr().(*net.UDPAddr).Port
+	failedTwice := make(chan struct{})
+	firstFailures := 0
+	wantDialErr := errors.New("persistent child dial failure")
+	listener.dialSession = func(ctx context.Context, network string, local, remote *net.UDPAddr, s parse.Spec) (*net.UDPConn, error) {
+		if remote.Port == firstPort {
+			firstFailures++
+			if firstFailures == udpForkDialMaxAttempts {
+				close(failedTwice)
+			}
+			return nil, wantDialErr
+		}
+		return dialUDPSession(ctx, network, local, remote, s)
+	}
+
+	accepted := startUDPAccept(listener)
+	if _, err := firstClient.Write([]byte("drop-me")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-failedTwice:
+	case <-time.After(time.Second):
+		t.Fatal("listener did not stop retrying the failed opener")
+	}
+	if _, err := secondClient.Write([]byte("kept")); err != nil {
+		t.Fatal(err)
+	}
+	conn := waitUDPAccept(t, accepted, 2*time.Second, "second peer after failed opener")
+	t.Cleanup(func() { _ = conn.Close() })
+	if firstFailures != udpForkDialMaxAttempts {
+		t.Fatalf("failed opener dial attempts = %d, want %d", firstFailures, udpForkDialMaxAttempts)
+	}
+	assertUDPRead(t, conn, "kept", nil)
 }
 
 func TestUDPListenForkRoutesQueuedPeerPacketsToSession(t *testing.T) {
