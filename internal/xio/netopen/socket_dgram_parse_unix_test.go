@@ -92,6 +92,22 @@ func TestParseSocketDgramParams(t *testing.T) {
 			proto:  0,
 			addr:   []byte{0, 0, 127, 0, 0, 1},
 		},
+		{
+			name:   "hex-positionals",
+			raw:    "SOCKET-SENDTO:0x2:0x2:0x11:" + ipv4,
+			domain: unix.AF_INET,
+			typ:    unix.SOCK_DGRAM,
+			proto:  17,
+			addr:   []byte{0, 0, 127, 0, 0, 1},
+		},
+		{
+			name:   "octal-protocol",
+			raw:    "SOCKET-SENDTO:02:02:021:" + ipv4,
+			domain: unix.AF_INET,
+			typ:    unix.SOCK_DGRAM,
+			proto:  17,
+			addr:   []byte{0, 0, 127, 0, 0, 1},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
