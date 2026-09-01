@@ -6,6 +6,13 @@ func sockaddrHeader(family int) []byte {
 	return []byte{0, byte(family)} // #nosec G115 -- packRawSockaddr rejects family > 255; sa_family is uint8
 }
 
+func sockaddrFamily(buf []byte) int {
+	if len(buf) < 2 {
+		return 0
+	}
+	return int(buf[1])
+}
+
 func setSockaddrLen(buf []byte) {
 	if len(buf) == 0 {
 		return

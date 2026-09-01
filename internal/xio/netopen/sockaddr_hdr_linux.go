@@ -13,6 +13,13 @@ func sockaddrHeader(family int) []byte {
 	return hdr
 }
 
+func sockaddrFamily(buf []byte) int {
+	if len(buf) < 2 {
+		return 0
+	}
+	return int(binary.NativeEndian.Uint16(buf[:2]))
+}
+
 func setSockaddrLen([]byte) {}
 
 func sockaddrFamilyMax() int { return math.MaxUint16 }

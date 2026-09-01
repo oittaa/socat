@@ -5,7 +5,6 @@ package netopen
 import (
 	"context"
 	"fmt"
-	"os"
 	"runtime"
 	"strings"
 	"unsafe"
@@ -344,10 +343,6 @@ func applySocketOpts(fd int, s parse.Spec) error {
 		return err
 	}
 	return xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhasePrebind)
-}
-
-func osNewFile(fd int, name string) *os.File {
-	return os.NewFile(uintptr(fd), name)
 }
 
 func newSocket(domain, typ, proto int) (int, error) {

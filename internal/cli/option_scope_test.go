@@ -148,6 +148,12 @@ func TestAddressAllowsOption(t *testing.T) {
 		{"SSL-LISTEN", "cert", true},
 		{"ABSTRACT-L", "backlog", true},
 		{"UNIX-DATAGRAM", "unlink-early", true},
+		{"SOCKET-SENDTO", "range", false},
+		{"SOCKET-DATAGRAM", "range", true},
+		{"SOCKET-RECV", "range", true},
+		{"SOCKET-RECVFROM", "range", true},
+		{"SOCKET-RECVFROM", "fork", true},
+		{"SOCKET-RECV", "fork", false},
 	}
 	for _, tc := range cases {
 		got := optionAllowedOnAddress(tc.addr, tc.opt)
