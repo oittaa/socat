@@ -201,6 +201,8 @@ address and option spellings are audited automatically. The
   tags; `retrieve-vlan` is supported on Linux `INTERFACE` addresses.
 - Windows rejects simultaneously enabled `binary` and `text` modes instead of
   relying on an unspecified conversion order.
+- Windows uses the Winsock provider's listen queue size and rejects explicit
+  `backlog=` because Winsock cannot change it after Go creates the listener.
 - Generic ioctl request and integer values outside their 32-bit range are
   rejected instead of wrapping into a different operation.
 - Multicast membership rejects unresolved interface names instead of falling

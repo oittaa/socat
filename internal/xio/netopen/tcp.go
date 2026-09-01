@@ -8,7 +8,6 @@ import (
 
 	"github.com/oittaa/socat/internal/xio"
 
-	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -111,20 +110,9 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
 	lc := xio.NewTCPListenConfig(s)
-	ln, err := lc.Listen(ctx, network, addr)
+	ln, err := xio.ListenStream(ctx, lc, network, addr, s)
 	if err != nil {
 		return nil, err
-	}
-	if value := s.OptionValue("backlog", ""); value != "" {
-		backlog, parseErr := xio.ParseIntAny(value)
-		if parseErr != nil || backlog <= 0 {
-			logx.CloseQuiet(ln)
-			return nil, fmt.Errorf("backlog: invalid value %q", value)
-		}
-		if err := xio.ApplyListenBacklog(ln, backlog); err != nil {
-			logx.CloseQuiet(ln)
-			return nil, fmt.Errorf("backlog: %w", err)
-		}
 	}
 
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{

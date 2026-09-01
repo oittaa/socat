@@ -55,14 +55,10 @@ func listenVSOCK(_ context.Context, port uint32, s parse.Spec, g *xio.Global) (n
 		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("vsock bind: %w", err)
 	}
-	backlog := 5
-	if v := s.OptionValue("backlog", ""); v != "" {
-		n, e := xio.ParseIntAny(v)
-		if e != nil || n <= 0 {
-			logx.CloseErr(unix.Close(fd))
-			return nil, fmt.Errorf("backlog: invalid value %q", v)
-		}
-		backlog = n
+	backlog, err := xio.ListenBacklog(s)
+	if err != nil {
+		logx.CloseErr(unix.Close(fd))
+		return nil, err
 	}
 	if err := unix.Listen(fd, backlog); err != nil {
 		logx.CloseErr(unix.Close(fd))

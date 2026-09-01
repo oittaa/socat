@@ -178,6 +178,9 @@ func validateSpecOptions(spec parse.Spec) error {
 	if err := xio.ValidateDescriptorModeOptions(spec); err != nil {
 		return err
 	}
+	if err := xio.RejectUnsupportedListenBacklog(spec); err != nil {
+		return err
+	}
 	for _, option := range spec.Options {
 		optionSpec, ok := lookupAddressOption(option)
 		if !ok {
@@ -533,6 +536,22 @@ func tcpStreamAddressTypes() []string {
 		"WSS", "WSS-CONNECT", "WSS-LISTEN", "WSS-L",
 		"PROXY", "PROXY-CONNECT",
 		"SOCKS4", "SOCKS4A", "SOCKS5", "SOCKS5-CONNECT", "SOCKS5-LISTEN", "SOCKS5-BIND",
+	}
+}
+
+func backlogListenAddressTypes() []string {
+	return []string{
+		"TCP-LISTEN", "TCP-L", "TCP4-LISTEN", "TCP4-L", "TCP6-LISTEN", "TCP6-L",
+		"UNIX-LISTEN", "UNIX-L",
+		"ABSTRACT-LISTEN", "ABSTRACT-L",
+		"TLS-LISTEN", "TLS-L",
+		"OPENSSL-LISTEN", "OPENSSL-L",
+		"SSL-LISTEN", "SSL-L",
+		"WS-LISTEN", "WS-L",
+		"WSS-LISTEN", "WSS-L",
+		"SOCKET-LISTEN",
+		"SCTP-LISTEN", "SCTP-L", "SCTP4-LISTEN", "SCTP4-L", "SCTP6-LISTEN", "SCTP6-L",
+		"VSOCK-LISTEN", "VSOCK-L",
 	}
 }
 

@@ -250,26 +250,6 @@ func ApplyNetworkSocketOptions(fd int, s parse.Spec, network string) error {
 	return applyOrderedPastSocketPhaseOptions(fd, s, network)
 }
 
-// ApplyListenBacklog updates the pending-connection queue of an existing TCP
-// listener. Both POSIX and Winsock allow listen to be called again to change
-// the backlog; using the existing listener preserves Go's platform-specific
-// socket setup and dual-stack behavior.
-func ApplyListenBacklog(ln net.Listener, backlog int) error {
-	sc, ok := ln.(syscall.Conn)
-	if !ok {
-		return fmt.Errorf("listener does not expose its socket")
-	}
-	raw, err := sc.SyscallConn()
-	if err != nil {
-		return err
-	}
-	var optionErr error
-	controlErr := raw.Control(func(fd uintptr) {
-		optionErr = setListenBacklog(int(fd), backlog)
-	})
-	return errors.Join(controlErr, optionErr)
-}
-
 // DialControl merges spec-driven socket options with an optional
 // caller-provided Control. Go's Control hook runs after socket() and before
 // connect(), so both post-socket and pre-bind phases go here.

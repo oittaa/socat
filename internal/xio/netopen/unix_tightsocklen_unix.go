@@ -208,7 +208,12 @@ func listenUnixNetwork(ctx context.Context, s parse.Spec, network, path string) 
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	if err := unix.Listen(fd, unix.SOMAXCONN); err != nil {
+	backlog, err := xio.ListenBacklog(s)
+	if err != nil {
+		logx.CloseErr(unix.Close(fd))
+		return nil, err
+	}
+	if err := unix.Listen(fd, backlog); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}

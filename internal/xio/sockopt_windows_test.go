@@ -526,17 +526,6 @@ func TestBindToDeviceUnsupportedWindows(t *testing.T) {
 	}
 }
 
-func TestApplyListenBacklogWindows(t *testing.T) {
-	ln, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = ln.Close() })
-	if err := ApplyListenBacklog(ln, 3); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func windowsSocketOption(c *net.UDPConn, opt int) (int, error) {
 	raw, err := c.SyscallConn()
 	if err != nil {

@@ -58,10 +58,6 @@ func SetSockoptInt(fd, level, opt, value int) error {
 	return setSockoptInt(fd, level, opt, value)
 }
 
-func setListenBacklog(fd, backlog int) error {
-	return windows.Listen(windows.Handle(fd), backlog)
-}
-
 // applyLingerOption sets SO_LINGER (onoff=1) from a non-negative seconds value.
 func applyLingerOption(fd int, o parse.Option) error {
 	if !o.Has {

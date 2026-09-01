@@ -21,10 +21,13 @@ func listenUnixNetwork(ctx context.Context, s parse.Spec, network, path string) 
 	var ln net.Listener
 	err := xio.WithUmask(s, func() error {
 		var e error
-		ln, e = lc.Listen(ctx, network, path)
+		ln, e = xio.ListenStream(ctx, lc, network, path, s)
 		return e
 	})
-	return ln, err
+	if err != nil {
+		return nil, err
+	}
+	return ln, nil
 }
 
 func dialUnixSocklen(ctx context.Context, s parse.Spec, g *xio.Global, network, path, bindPath string) (net.Conn, error) {

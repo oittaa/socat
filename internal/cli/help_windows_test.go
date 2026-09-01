@@ -28,7 +28,7 @@ func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
 	}
 	help := b.String()
 	for _, name := range []string{
-		"reuseport", "ip-add-membership", "so-timestamp",
+		"backlog", "reuseport", "ip-add-membership", "so-timestamp",
 		"nonblock", "umask", "user", "group", "uid", "owner", "gid",
 		"perm-early", "user-early", "group-early",
 		"o-sync", "async", "flock", "perm-late", "user-late",
