@@ -239,10 +239,40 @@ type udpForkListener struct {
 	exclusiveDone chan struct{}
 }
 
-// A transient resource failure must not lose UDP-LISTEN's opener. Retry it
-// once, then discard that datagram so a persistent failure cannot spin on the
-// same MSG_PEEK result or prevent later peers from being served.
-const udpForkDialMaxAttempts = 2
+const (
+	// A transient resource failure must not lose UDP-LISTEN's opener. Retry it
+	// once, then discard that datagram so a persistent failure cannot spin.
+	udpForkDialMaxAttempts = 2
+
+	// Match the bounded Darwin/Windows dispatcher queues. The drain budget also
+	// keeps one Accept from copying an endless stream out of SO_RCVBUF.
+	udpForkSessionQueueSize = 64
+	udpForkPendingQueueSize = 256
+	udpForkDrainPacketLimit = 256
+)
+
+func (l *udpForkListener) appendPending(packet udpForkPacket) bool {
+	if len(l.pending) >= udpForkPendingQueueSize {
+		return false
+	}
+	l.pending = append(l.pending, packet)
+	return true
+}
+
+func (l *udpForkListener) prependPending(packet udpForkPacket) {
+	l.pending = append([]udpForkPacket{packet}, l.pending...)
+	if len(l.pending) > udpForkPendingQueueSize {
+		l.pending = l.pending[:udpForkPendingQueueSize]
+	}
+}
+
+func appendUDPForkSessionPacket(child *udpSessionConn, packet udpForkPacket) bool {
+	if len(child.queued) >= udpForkSessionQueueSize {
+		return false
+	}
+	child.queued = append(child.queued, packet)
+	return true
+}
 
 func applyUDPForkTimeouts(ln *udpForkListener, s parse.Spec) error {
 	d, err := xio.RecvTimeoutFromSpec(s)
@@ -438,7 +468,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			}
 			if failedDialAttempts < udpForkDialMaxAttempts {
 				if consumed {
-					l.pending = append([]udpForkPacket{packet}, l.pending...)
+					l.prependPending(packet)
 				}
 				if l.g != nil && l.g.Log != nil {
 					l.g.Log.Noticef("UDP fork session dial: %s; retrying opener", err)
@@ -453,7 +483,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 					return nil, dropErr
 				}
 				if ok && !udpAddrIsPeer(peer, a) {
-					l.pending = append(l.pending, udpForkPacket{
+					l.appendPending(udpForkPacket{
 						data: append([]byte(nil), buf[:n]...),
 						oob:  append([]byte(nil), dropOOB...),
 						peer: cloneUDPAddr(peer),
@@ -490,7 +520,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			}
 			if !udpAddrIsPeer(packet.peer, a) {
 				logx.CloseQuiet(conn)
-				l.pending = append(l.pending, packet)
+				l.appendPending(packet)
 				if l.g != nil && l.g.Log != nil {
 					l.g.Log.Noticef("UDP fork opener changed from %s to %s; preserving received packet", a, packet.peer)
 				}
@@ -505,14 +535,14 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			remaining := make([]udpForkPacket, 0, len(l.pending))
 			for _, queued := range l.pending {
 				if udpAddrIsPeer(queued.peer, child.peer) {
-					child.queued = append(child.queued, queued)
+					appendUDPForkSessionPacket(child, queued)
 				} else {
 					remaining = append(remaining, queued)
 				}
 			}
 			l.pending = remaining
 		}
-		for {
+		for range udpForkDrainPacketLimit {
 			n, queuedOOB, peer, ok, drainErr := readQueuedUDPForkPacket(pc, buf, wantCtrl, oobBuffer[:])
 			if drainErr != nil {
 				if l.g != nil && l.g.Log != nil {
@@ -529,9 +559,9 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 				peer: cloneUDPAddr(peer),
 			}
 			if udpAddrIsPeer(peer, child.peer) {
-				child.queued = append(child.queued, queued)
+				appendUDPForkSessionPacket(child, queued)
 			} else {
-				l.pending = append(l.pending, queued)
+				l.appendPending(queued)
 			}
 		}
 		return child, nil

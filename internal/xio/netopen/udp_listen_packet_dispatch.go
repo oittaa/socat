@@ -313,7 +313,7 @@ func (c *udpDispatchConn) Read(p []byte) (int, error) {
 			c.havePending = false
 			xio.ProcessAncillary(packet.oob, c.g)
 			n := copy(p, packet.data)
-			return n, nil
+			return xio.ZeroLengthMessageEOF(n, nil, len(p))
 		}
 		packet, err := c.waitPacket()
 		if err != nil {
