@@ -497,7 +497,10 @@ func (u *udpSessionConn) Read(p []byte) (int, error) {
 		u.firstPending = false
 		n := copy(p, u.first)
 		u.first = nil
-		return n, nil
+		if u.oneShot {
+			return n, nil
+		}
+		return udpZeroDatagramEOF(n, nil, len(p))
 	}
 	if u.oneShot {
 		// UDP-RECVFROM,fork is one-shot: drain first, then EOF.
@@ -515,9 +518,10 @@ func (u *udpSessionConn) Read(p []byte) (int, error) {
 			return n, err
 		}
 		xio.ProcessAncillary(oob, u.g)
-		return n, nil
+		return udpZeroDatagramEOF(n, nil, len(p))
 	}
-	return u.conn.Read(p)
+	n, err := u.conn.Read(p)
+	return udpZeroDatagramEOF(n, err, len(p))
 }
 
 func (u *udpSessionConn) readHandedOff(p []byte) (int, error) {
@@ -533,7 +537,7 @@ func (u *udpSessionConn) readHandedOff(p []byte) (int, error) {
 			if u.wantCtrl {
 				xio.ProcessAncillary(oob, u.g)
 			}
-			return n, nil
+			return udpZeroDatagramEOF(n, nil, len(p))
 		}
 	}
 }
@@ -658,7 +662,10 @@ func (u *udpRecvFromConn) Read(p []byte) (int, error) {
 		u.firstPending = false
 		n := copy(p, u.first)
 		u.first = nil
-		return n, nil
+		if u.closeEOF {
+			return n, nil
+		}
+		return udpZeroDatagramEOF(n, nil, len(p))
 	}
 	if u.closeEOF {
 		// UDP-RECVFROM is one-shot: drain first, then EOF.
@@ -673,7 +680,7 @@ func (u *udpRecvFromConn) Read(p []byte) (int, error) {
 			if u.wantCtrl {
 				xio.ProcessAncillary(oob, u.g)
 			}
-			return n, nil
+			return udpZeroDatagramEOF(n, nil, len(p))
 		}
 	}
 }

@@ -304,6 +304,39 @@ func TestUDPConnectDefaultShutNull(t *testing.T) {
 	waitEmptyUDP(t, peer, 2*time.Second)
 }
 
+func TestUDPConnectEmptyDatagramIsEOF(t *testing.T) {
+	peer, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = peer.Close() })
+	port := peer.LocalAddr().(*net.UDPAddr).Port
+	spec, err := parse.ParseSpec("UDP4:127.0.0.1:" + strconv.Itoa(port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUDP4Connect(context.Background(), spec, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	local, ok := o.Stream.(interface{ LocalAddr() net.Addr })
+	if !ok {
+		t.Fatalf("UDP-CONNECT stream %T has no LocalAddr", o.Stream)
+	}
+	la, ok := local.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		t.Fatalf("LocalAddr %T want *net.UDPAddr", local.LocalAddr())
+	}
+	if _, err := peer.WriteToUDP(nil, la); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
+	if !errors.Is(err, io.EOF) || got != "" {
+		t.Fatalf("got %q err=%v want EOF", got, err)
+	}
+}
+
 func TestUDPConnectShutNoneSendsNoDatagram(t *testing.T) {
 	peer, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
@@ -583,6 +616,21 @@ func TestUDPListenNonForkEmptyFirstNullEOF(t *testing.T) {
 	got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
 	if !errors.Is(err, io.EOF) || got != "" {
 		t.Fatalf("got %q err=%v want EOF", got, err)
+	}
+}
+
+func TestUDPListenConnectedEmptyDatagramIsEOF(t *testing.T) {
+	o, client := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1", []byte("hello"))
+	got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
+	if err != nil || got != "hello" {
+		t.Fatalf("first got %q err=%v want hello", got, err)
+	}
+	if _, err := client.Write(nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err = readStreamTimeout(t, o.Stream, 2*time.Second)
+	if !errors.Is(err, io.EOF) || got != "" {
+		t.Fatalf("empty datagram got %q err=%v want EOF", got, err)
 	}
 }
 

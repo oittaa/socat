@@ -3,6 +3,7 @@ package netopen
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -138,9 +139,15 @@ func udpNetworkWithListenDefault(g *xio.Global, s parse.Spec) string {
 
 // udpConnectStream is UDP/UDP4/UDP6 CONNECT (and UDP-LISTEN,fork sessions).
 // Unspecified shut policy is shut-null: ShutdownWrite sends one zero-length
-// datagram. Explicit shut-* options still wrap this stream.
+// datagram. A successful zero-length Read is EOF so that packet ends the
+// peer transfer. Explicit shut-* options still wrap this stream.
 type udpConnectStream struct {
 	relay.NetStream
+}
+
+func (s udpConnectStream) Read(p []byte) (int, error) {
+	n, err := s.NetStream.Read(p)
+	return udpZeroDatagramEOF(n, err, len(p))
 }
 
 func (s udpConnectStream) ShutdownWrite() error {
@@ -151,3 +158,14 @@ func (s udpConnectStream) ShutdownWrite() error {
 func (s udpConnectStream) NetConn() net.Conn { return s.Conn }
 
 func (s udpConnectStream) UnwrapStream() relay.Stream { return s.NetStream }
+
+// udpZeroDatagramEOF maps a successful empty datagram on a connected UDP
+// stream to io.EOF. A zero-length buffer is not a datagram and is left
+// unchanged. Unconnected datagram addresses still ignore empty packets
+// unless null-eof is set.
+func udpZeroDatagramEOF(n int, err error, bufLen int) (int, error) {
+	if n == 0 && err == nil && bufLen > 0 {
+		return 0, io.EOF
+	}
+	return n, err
+}
