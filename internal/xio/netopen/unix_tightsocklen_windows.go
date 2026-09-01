@@ -33,17 +33,35 @@ func dialUnixSocklen(ctx context.Context, s parse.Spec, g *xio.Global, network, 
 	}
 	var conn net.Conn
 	err := xio.WithRetry(ctx, s, g, s.Type, func() error {
+		if err := prepareUnixClientBind(bindPath, s); err != nil {
+			return err
+		}
+		// Bind in Control after socket() and snapshot that inode. Do not set
+		// LocalAddr: Dialer would bind again, and a pre-dial Lstat cannot prove
+		// this attempt created a path that appears during a failing connect.
+		var created unixBindCreated
 		d := net.Dialer{
 			Timeout: xio.ConnectTimeout(s),
-			Control: xio.DialControl(s, network, nil),
-		}
-		if bindPath != "" {
-			cleanupUnixBind(bindPath)
-			d.LocalAddr = &net.UnixAddr{Name: bindPath, Net: network}
+			Control: xio.DialControl(s, network, func(_ string, _ string, c syscall.RawConn) error {
+				if bindPath == "" {
+					return nil
+				}
+				var bindErr error
+				if err := c.Control(func(fd uintptr) {
+					bindErr = bindUnixPath(int(fd), bindPath, true)
+				}); err != nil {
+					return err
+				}
+				if bindErr != nil {
+					return bindErr
+				}
+				created = rememberUnixBindCreated(bindPath)
+				return nil
+			}),
 		}
 		c, err := d.DialContext(ctx, network, path)
 		if err != nil {
-			cleanupUnixBind(bindPath)
+			created.unlink()
 			return err
 		}
 		conn = c

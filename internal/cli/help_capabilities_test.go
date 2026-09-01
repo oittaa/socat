@@ -59,6 +59,12 @@ func TestUnixCapabilitiesMatchHelpAndVersion(t *testing.T) {
 	if strings.Contains(helpText, "UNIX-CONNECT:<filename>   same as UNIX") {
 		t.Error("help still claims strict UNIX-CONNECT is the same as generic UNIX")
 	}
+	if wantDatagram {
+		wantDatagramDesc := "UNIX datagram with a default write destination; receives from any sender"
+		if !strings.Contains(helpText, wantDatagramDesc) {
+			t.Errorf("help is missing %q", wantDatagramDesc)
+		}
+	}
 }
 
 func assertVersionFeature(t *testing.T, output, name string, enabled bool) {

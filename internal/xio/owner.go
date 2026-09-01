@@ -112,7 +112,7 @@ func RegisterUnlinkPathIdentity(path string, info os.FileInfo) func() {
 	if path == "" || IsAbstract(path) || info == nil {
 		return func() {}
 	}
-	if !snapshotRegisteredIdentity(info) {
+	if !SnapshotFileIdentity(info) {
 		return func() {}
 	}
 	unlinkMu.Lock()
@@ -178,7 +178,7 @@ func UnlinkRegisteredPaths() {
 	}
 }
 
-// snapshotRegisteredIdentity records enough identity in info for a later
+// SnapshotFileIdentity records enough identity in info for a later
 // os.SameFile check, without keeping a descriptor open.
 //
 // Extra fds were the wrong tool: Linux unlink(2) removes the name while any
@@ -192,7 +192,7 @@ func UnlinkRegisteredPaths() {
 // os/types_windows.go loadFileId) and would treat a replacement as the
 // original. Calling SameFile now snapshots the index while this object still
 // owns the name, then closes that brief handle.
-func snapshotRegisteredIdentity(info os.FileInfo) bool {
+func SnapshotFileIdentity(info os.FileInfo) bool {
 	return info != nil && os.SameFile(info, info)
 }
 
