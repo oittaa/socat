@@ -139,6 +139,9 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			}
 			continue
 		}
+		if xio.IgnoreEmptyDatagram(rn, nil, s.BoolOption("null-eof")) {
+			continue
+		}
 		n, raddr = rn, a
 		xio.ProcessAncillary(oob, g)
 		break
@@ -343,7 +346,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 			}
 			continue
 		}
-		if l.oneShot && xio.IgnoreEmptyDatagram(rn, nil, l.spec.BoolOption("null-eof")) {
+		if xio.IgnoreEmptyDatagram(rn, nil, l.spec.BoolOption("null-eof")) {
 			continue
 		}
 		session := &xio.Global{}
