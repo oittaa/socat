@@ -2,9 +2,31 @@ package netopen
 
 import (
 	"errors"
+	"io"
 	"sync"
 	"time"
+
+	"github.com/oittaa/socat/internal/xio"
 )
+
+func ancillaryBuffer(buf *[]byte, enabled bool) []byte {
+	if !enabled {
+		return nil
+	}
+	if *buf == nil {
+		*buf = make([]byte, xio.AncillaryBufferSize)
+	}
+	return *buf
+}
+
+// copyOneshotFirst delivers a buffered *-RECVFROM datagram. An empty packet
+// is EOF (null-eof, or a raw IPv4 header with no payload).
+func copyOneshotFirst(p, first []byte) (int, error) {
+	if len(first) == 0 {
+		return 0, io.EOF
+	}
+	return copy(p, first), nil
+}
 
 // writeSharedPacket serializes writes that share a listener socket. The
 // deadline belongs to the child session, so install it only while that child
