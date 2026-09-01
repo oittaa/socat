@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"syscall"
 	"testing"
@@ -52,5 +53,51 @@ func TestRawIPRecvFromIsNotSyscallConn(t *testing.T) {
 	}
 	if _, ok := s.(interface{ NetConn() net.Conn }); !ok {
 		t.Fatal("rawIPRecvFrom must expose NetConn for option lifecycle")
+	}
+}
+
+func TestRawIPSessionConnIsNotSyscallConn(t *testing.T) {
+	var s any = &rawIPSessionConn{}
+	if _, ok := s.(interface {
+		SyscallConn() (syscall.RawConn, error)
+	}); ok {
+		t.Fatal("rawIPSessionConn must not implement syscall.Conn; relay would poll the shared listener")
+	}
+}
+
+func TestRawIPRecvFromEmptyFirstDatagram(t *testing.T) {
+	r := &rawIPRecvFrom{firstPending: true, closeEOF: true}
+	n, err := r.Read(make([]byte, 8))
+	if n != 0 || err != nil {
+		t.Fatalf("empty first n=%d err=%v", n, err)
+	}
+	n, err = r.Read(make([]byte, 8))
+	if n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("after empty first n=%d err=%v want EOF", n, err)
+	}
+}
+
+func TestRawIPSessionConnEmptyFirstDatagram(t *testing.T) {
+	r := &rawIPSessionConn{firstPending: true}
+	n, err := r.Read(make([]byte, 8))
+	if n != 0 || err != nil {
+		t.Fatalf("empty first n=%d err=%v", n, err)
+	}
+	n, err = r.Read(make([]byte, 8))
+	if n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("after empty first n=%d err=%v want EOF", n, err)
+	}
+}
+
+func TestRawIPRecvFromShortReadDropsRemainder(t *testing.T) {
+	r := &rawIPRecvFrom{first: []byte("abcd"), firstPending: true, closeEOF: true}
+	buf := make([]byte, 1)
+	n, err := r.Read(buf)
+	if err != nil || n != 1 || buf[0] != 'a' {
+		t.Fatalf("short read n=%d err=%v data=%q", n, err, buf[:n])
+	}
+	n, err = r.Read(buf)
+	if n != 0 || !errors.Is(err, io.EOF) {
+		t.Fatalf("remainder n=%d err=%v want EOF", n, err)
 	}
 }

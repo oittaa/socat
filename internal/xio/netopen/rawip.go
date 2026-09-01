@@ -8,6 +8,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -257,7 +258,15 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return nil, err
 	}
 	v4 := network == "ip4" || raddr.IP.To4() != nil
-	st := relay.Stream(&rawIPDatagramConn{c: pc, raddr: raddr, v4: v4, wantCtrl: xio.NeedAncillary(s), g: g})
+	st := relay.Stream(&rawIPDatagramConn{
+		c:        pc,
+		raddr:    raddr,
+		v4:       v4,
+		wantCtrl: xio.NeedAncillary(s),
+		g:        g,
+		ctx:      ctx,
+		filter:   xio.NewPeerFilter(ctx, s, g),
+	})
 	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
@@ -294,56 +303,10 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 
 	wantCtrl := xio.NeedAncillary(s)
 	if recvfrom {
-		// One packet then connected-style session (RECVFROM).
-		buf := make([]byte, max(g.BlockSize, 65535))
-		stripV4 := network == "ip4"
-		var n int
-		var raddr net.Addr
-		peerFilter := xio.NewPeerFilter(ctx, s, g)
-		var oobBuffer [xio.AncillaryBufferSize]byte
-		for {
-			rn, oob, a, err := xio.RecvOneCtx(ctx, func() (int, []byte, net.Addr, error) {
-				return ReadIPMsgWithBuffer(pc, buf, wantCtrl, stripV4, oobBuffer[:])
-			})
-			if err != nil {
-				logx.CloseQuiet(pc)
-				return nil, err
-			}
-			// peer filter uses UDP-style helper via fake addr when possible
-			if ia, ok := a.(*net.IPAddr); ok {
-				if ferr := peerFilter.AllowAddr(&net.UDPAddr{IP: ia.IP}, pc.LocalAddr()); ferr != nil {
-					if stop := logOrStopPeerFilter(ctx, g, ferr); stop != nil {
-						logx.CloseQuiet(pc)
-						return nil, stop
-					}
-					continue
-				}
-			}
-			n, raddr = rn, a
-			xio.ProcessAncillary(oob, g)
-			break
+		if s.BoolOption("fork") {
+			return openIPRecvfromFork(ctx, s, g, pc, network)
 		}
-		peerIP := (*net.IPAddr)(nil)
-		if ia, ok := raddr.(*net.IPAddr); ok {
-			peerIP = ia
-		}
-		st := relay.Stream(&rawIPRecvFrom{
-			c:     pc,
-			peer:  peerIP,
-			first: append([]byte(nil), buf[:n]...),
-			// Keep socket open for reply writes (RECVFROM|PIPE echo); further
-			// reads return EOF after the first datagram (one-shot).
-			closeEOF: true,
-			wantCtrl: wantCtrl,
-			v4:       network == "ip4",
-			g:        g,
-		})
-		st, err = xio.WrapCommonAfterConnected(s, st)
-		if err != nil {
-			logx.CloseQuiet(pc)
-			return nil, err
-		}
-		return &xio.Opened{Stream: st, Label: s.Type}, nil
+		return openIPRecvfromOneShot(ctx, s, g, pc, network, wantCtrl)
 	}
 
 	// RECV: merge packets, read-only
@@ -365,6 +328,89 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		return nil, err
 	}
 	return &xio.Opened{Stream: st, Label: s.Type}, nil
+}
+
+func openIPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *net.IPConn, network string) (*xio.Opened, error) {
+	_, maxChildren, ferr := xio.ForkLimits(s)
+	if ferr != nil {
+		logx.CloseQuiet(pc)
+		return nil, ferr
+	}
+	rcvTimeout, err := xio.RecvTimeoutFromSpec(s)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
+	peerFilter := xio.NewPeerFilter(ctx, s, g)
+	ln := &rawIPForkListener{
+		pc:         pc,
+		spec:       s,
+		g:          g,
+		ctx:        ctx,
+		filter:     peerFilter,
+		rcvTimeout: rcvTimeout,
+		v4:         network == "ip4",
+	}
+	xio.NoteListenBound(pc.LocalAddr())
+	return &xio.Opened{
+		Kind:        xio.KindListen,
+		Listener:    ln,
+		Label:       s.Type,
+		MaxChildren: maxChildren,
+		WrapDial: func(c net.Conn) (relay.Stream, error) {
+			return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
+		},
+	}, nil
+}
+
+func openIPRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, pc *net.IPConn, network string, wantCtrl bool) (*xio.Opened, error) {
+	// One permitted packet, then EOF. Keep the socket for reply writes.
+	buf := make([]byte, max(g.BlockSize, 65535))
+	stripV4 := network == "ip4"
+	peerFilter := xio.NewPeerFilter(ctx, s, g)
+	n, oob, raddr, err := recvRawIPFiltered(ctx, pc, buf, wantCtrl, stripV4, peerFilter, g)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
+	xio.ProcessAncillary(oob, g)
+	peerIP := ipAddrFromNet(raddr)
+	rememberRawIPPeer(g, peerIP, pc.LocalAddr())
+	st := relay.Stream(&rawIPRecvFrom{
+		c:            pc,
+		peer:         peerIP,
+		first:        append([]byte(nil), buf[:n]...),
+		firstPending: true,
+		closeEOF:     true,
+		wantCtrl:     wantCtrl,
+		v4:           stripV4,
+		g:            g,
+	})
+	st, err = xio.WrapCommonAfterConnected(s, st)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
+	return &xio.Opened{Stream: st, Label: s.Type}, nil
+}
+
+func recvRawIPFiltered(ctx context.Context, pc *net.IPConn, buf []byte, wantCtrl, stripV4 bool, filter *xio.PeerFilter, g *xio.Global) (int, []byte, net.Addr, error) {
+	var oobBuffer [xio.AncillaryBufferSize]byte
+	for {
+		rn, oob, a, err := xio.RecvOneCtx(ctx, func() (int, []byte, net.Addr, error) {
+			return ReadIPMsgWithBuffer(pc, buf, wantCtrl, stripV4, oobBuffer[:])
+		})
+		if err != nil {
+			return 0, nil, nil, err
+		}
+		if ferr := filter.AllowAddr(a, pc.LocalAddr()); ferr != nil {
+			if stop := logOrStopPeerFilter(ctx, g, ferr); stop != nil {
+				return 0, nil, nil, stop
+			}
+			continue
+		}
+		return rn, oob, a, nil
+	}
 }
 
 func ipLookupNet(network string) string {
@@ -530,24 +576,35 @@ func skipIPv4HeaderIfPresent(p []byte, n int) int {
 }
 
 // rawIPDatagramConn: unconnected SOCK_RAW; writes always go to raddr.
+// Reads accept any sender unless range/tcpwrap (and related filters) refuse.
 type rawIPDatagramConn struct {
 	c        *net.IPConn
 	raddr    *net.IPAddr
 	v4       bool
 	wantCtrl bool
 	g        *xio.Global
+	ctx      context.Context
+	filter   *xio.PeerFilter
 	oob      []byte
 }
 
 func (r *rawIPDatagramConn) Read(p []byte) (int, error) {
-	n, oob, _, err := ReadIPMsgWithBuffer(r.c, p, r.wantCtrl, r.v4, ancillaryBuffer(&r.oob, r.wantCtrl))
-	if err != nil {
-		return n, err
+	for {
+		n, oob, addr, err := ReadIPMsgWithBuffer(r.c, p, r.wantCtrl, r.v4, ancillaryBuffer(&r.oob, r.wantCtrl))
+		if err != nil {
+			return n, err
+		}
+		if err := r.filter.AllowAddr(addr, r.c.LocalAddr()); err != nil {
+			if stop := logOrStopPeerFilter(r.ctx, r.g, err); stop != nil {
+				return 0, stop
+			}
+			continue
+		}
+		if r.wantCtrl {
+			xio.ProcessAncillary(oob, r.g)
+		}
+		return n, nil
 	}
-	if r.wantCtrl {
-		xio.ProcessAncillary(oob, r.g)
-	}
-	return n, nil
 }
 
 func (r *rawIPDatagramConn) Write(p []byte) (int, error) {
@@ -558,6 +615,15 @@ func (r *rawIPDatagramConn) Close() error         { return r.c.Close() }
 func (r *rawIPDatagramConn) ShutdownWrite() error { return nil }
 func (r *rawIPDatagramConn) LocalAddr() net.Addr  { return r.c.LocalAddr() }
 func (r *rawIPDatagramConn) RemoteAddr() net.Addr { return r.raddr }
+func (r *rawIPDatagramConn) SetDeadline(t time.Time) error {
+	return r.c.SetDeadline(t)
+}
+func (r *rawIPDatagramConn) SetReadDeadline(t time.Time) error {
+	return r.c.SetReadDeadline(t)
+}
+func (r *rawIPDatagramConn) SetWriteDeadline(t time.Time) error {
+	return r.c.SetWriteDeadline(t)
+}
 func (r *rawIPDatagramConn) SyscallConn() (syscall.RawConn, error) {
 	return r.c.SyscallConn()
 }
@@ -596,20 +662,22 @@ func (r *rawIPConn) ShutdownWrite() error { return nil }
 
 // rawIPRecvFrom: first datagram buffered; further reads EOF when one-shot.
 type rawIPRecvFrom struct {
-	c        *net.IPConn
-	peer     *net.IPAddr
-	first    []byte
-	closeEOF bool
-	wantCtrl bool
-	v4       bool
-	g        *xio.Global
-	oob      []byte
+	c            *net.IPConn
+	peer         *net.IPAddr
+	first        []byte
+	firstPending bool
+	closeEOF     bool
+	wantCtrl     bool
+	v4           bool
+	g            *xio.Global
+	oob          []byte
 }
 
 func (r *rawIPRecvFrom) Read(p []byte) (int, error) {
-	if len(r.first) > 0 {
+	if r.firstPending {
+		r.firstPending = false
 		n := copy(p, r.first)
-		r.first = r.first[n:]
+		r.first = nil
 		return n, nil
 	}
 	if r.closeEOF {
@@ -676,13 +744,11 @@ func (r *rawIPFilteredRecv) Read(p []byte) (int, error) {
 		if err != nil {
 			return n, err
 		}
-		if ia, ok := addr.(*net.IPAddr); ok {
-			if err := r.filter.AllowAddr(&net.UDPAddr{IP: ia.IP}, r.c.LocalAddr()); err != nil {
-				if stop := logOrStopPeerFilter(r.ctx, r.g, err); stop != nil {
-					return 0, stop
-				}
-				continue
+		if err := r.filter.AllowAddr(addr, r.c.LocalAddr()); err != nil {
+			if stop := logOrStopPeerFilter(r.ctx, r.g, err); stop != nil {
+				return 0, stop
 			}
+			continue
 		}
 		if r.wantCtrl {
 			xio.ProcessAncillary(oob, r.g)
@@ -698,4 +764,172 @@ func (r *rawIPFilteredRecv) LocalAddr() net.Addr       { return r.c.LocalAddr() 
 func (r *rawIPFilteredRecv) RemoteAddr() net.Addr      { return nil }
 func (r *rawIPFilteredRecv) SyscallConn() (syscall.RawConn, error) {
 	return r.c.SyscallConn()
+}
+
+func cloneIPAddr(a *net.IPAddr) *net.IPAddr {
+	if a == nil {
+		return nil
+	}
+	c := *a
+	if a.IP != nil {
+		c.IP = append(net.IP(nil), a.IP...)
+	}
+	return &c
+}
+
+func ipAddrFromNet(addr net.Addr) *net.IPAddr {
+	switch a := addr.(type) {
+	case *net.IPAddr:
+		return cloneIPAddr(a)
+	case *net.UDPAddr:
+		if a == nil {
+			return nil
+		}
+		ip := append(net.IP(nil), a.IP...)
+		return &net.IPAddr{IP: ip, Zone: a.Zone}
+	default:
+		return nil
+	}
+}
+
+func rememberRawIPPeer(g *xio.Global, peer *net.IPAddr, local net.Addr) {
+	if g == nil {
+		return
+	}
+	if peer != nil && peer.IP != nil {
+		g.PeerAddr = xio.FormatSocatAddr(peer.IP.String())
+		g.PeerPort = ""
+	}
+	if local == nil {
+		return
+	}
+	if ia, ok := local.(*net.IPAddr); ok && ia.IP != nil {
+		g.SockAddr = xio.FormatSocatAddr(ia.IP.String())
+		return
+	}
+	if host, _, err := net.SplitHostPort(local.String()); err == nil {
+		g.SockAddr = xio.FormatSocatAddr(host)
+	}
+}
+
+// rawIPForkListener is IP*-RECVFROM,fork: one session per permitted datagram.
+type rawIPForkListener struct {
+	pc         *net.IPConn
+	spec       parse.Spec
+	g          *xio.Global
+	ctx        context.Context
+	filter     *xio.PeerFilter
+	rcvTimeout time.Duration
+	writeMu    sync.Mutex
+	v4         bool
+}
+
+func (l *rawIPForkListener) Addr() net.Addr { return l.pc.LocalAddr() }
+
+func (l *rawIPForkListener) Close() error {
+	if l.pc == nil {
+		return nil
+	}
+	return l.pc.Close()
+}
+
+func (l *rawIPForkListener) Accept() (net.Conn, error) {
+	buf := make([]byte, 65535)
+	wantCtrl := xio.NeedAncillary(l.spec)
+	var oobBuffer [xio.AncillaryBufferSize]byte
+	ctx := l.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for {
+		if l.rcvTimeout > 0 {
+			_ = l.pc.SetReadDeadline(time.Now().Add(l.rcvTimeout))
+		}
+		rn, oob, a, err := xio.RecvOneCtx(ctx, func() (int, []byte, net.Addr, error) {
+			return ReadIPMsgWithBuffer(l.pc, buf, wantCtrl, l.v4, oobBuffer[:])
+		})
+		if err != nil {
+			if l.ctx != nil && l.ctx.Err() != nil {
+				return nil, err
+			}
+			if l.rcvTimeout > 0 && xio.IsTimeoutErr(err) {
+				continue
+			}
+			return nil, err
+		}
+		if err := l.filter.AllowAddr(a, l.pc.LocalAddr()); err != nil {
+			if stop := logOrStopPeerFilter(ctx, l.g, err); stop != nil {
+				return nil, stop
+			}
+			continue
+		}
+		session := &xio.Global{}
+		if l.g != nil {
+			session.Log = l.g.Log
+			session.Progname = l.g.Progname
+		}
+		xio.ProcessAncillary(oob, session)
+		peer := ipAddrFromNet(a)
+		rememberRawIPPeer(session, peer, l.pc.LocalAddr())
+		return &rawIPSessionConn{
+			pc:           l.pc,
+			peer:         peer,
+			first:        append([]byte(nil), buf[:rn]...),
+			firstPending: true,
+			env:          session.SessionVars,
+			writeMu:      &l.writeMu,
+		}, nil
+	}
+}
+
+// rawIPSessionConn is one IP-RECVFROM,fork datagram: drain first, then EOF,
+// and reply with WriteToIP. The parent owns the listen socket.
+type rawIPSessionConn struct {
+	pc            *net.IPConn
+	peer          *net.IPAddr
+	first         []byte
+	firstPending  bool
+	env           map[string]string
+	writeMu       *sync.Mutex
+	deadlineMu    sync.Mutex
+	writeDeadline time.Time
+}
+
+func (r *rawIPSessionConn) SessionEnvironment() map[string]string { return r.env }
+
+func (r *rawIPSessionConn) Read(p []byte) (int, error) {
+	if r.firstPending {
+		r.firstPending = false
+		n := copy(p, r.first)
+		r.first = nil
+		return n, nil
+	}
+	return 0, io.EOF
+}
+
+func (r *rawIPSessionConn) Write(p []byte) (int, error) {
+	if r.pc == nil || r.peer == nil {
+		return 0, net.ErrClosed
+	}
+	r.deadlineMu.Lock()
+	deadline := r.writeDeadline
+	r.deadlineMu.Unlock()
+	return writeSharedPacket(r.writeMu, deadline, r.pc.SetWriteDeadline, func() (int, error) {
+		return r.pc.WriteToIP(p, r.peer)
+	})
+}
+
+func (r *rawIPSessionConn) Close() error { return nil }
+
+func (r *rawIPSessionConn) LocalAddr() net.Addr  { return r.pc.LocalAddr() }
+func (r *rawIPSessionConn) RemoteAddr() net.Addr { return r.peer }
+func (r *rawIPSessionConn) SetDeadline(t time.Time) error {
+	return r.SetWriteDeadline(t)
+}
+func (r *rawIPSessionConn) SetReadDeadline(time.Time) error { return nil }
+func (r *rawIPSessionConn) SetWriteDeadline(t time.Time) error {
+	r.deadlineMu.Lock()
+	r.writeDeadline = t
+	r.deadlineMu.Unlock()
+	return nil
 }

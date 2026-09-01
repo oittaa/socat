@@ -87,6 +87,20 @@ func TestPeerFilterNoOptionsDoesNotAllocate(t *testing.T) {
 	}
 }
 
+func TestPeerFilterRangeAcceptsIPAddr(t *testing.T) {
+	spec, err := parse.ParseSpec("IP4-DATAGRAM:127.0.0.1:254,range=127.0.0.0/8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	filter := NewPeerFilter(context.Background(), spec, nil)
+	if err := filter.AllowAddr(&net.IPAddr{IP: net.IPv4(127, 1, 0, 1)}, nil); err != nil {
+		t.Fatalf("127.1.0.1 in 127.0.0.0/8: %v", err)
+	}
+	if err := filter.AllowAddr(&net.IPAddr{IP: net.IPv4(10, 0, 0, 1)}, nil); err == nil {
+		t.Fatal("10.0.0.1 must be refused by range=127.0.0.0/8")
+	}
+}
+
 func TestCompiledIPRangeForms(t *testing.T) {
 	tests := []struct {
 		name string
