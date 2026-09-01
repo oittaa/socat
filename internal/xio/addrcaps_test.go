@@ -25,6 +25,7 @@ func TestNamedOptionCaps(t *testing.T) {
 		{name: "CapsQUICConnect", got: CapsQUICConnect, want: uniqueCaps([]string{"fd", "socket", "sock-ip4", "sock-ip6", "ip-udp", "child", "openssl", "retry"})},
 		{name: "CapsTLSListen", got: CapsTLSListen, want: uniqueCaps([]string{"fd", "socket", "sock-ip4", "sock-ip6", "ip-tcp", "listen", "child", "range", "openssl", "retry"})},
 		{name: "CapsTCPConnect", got: CapsTCPConnect, want: uniqueCaps([]string{"fd", "socket", "sock-ip4", "sock-ip6", "ip-tcp", "child", "retry"})},
+		{name: "CapsSocketConnect", got: CapsSocketConnect, want: uniqueCaps([]string{"fd", "socket", "child", "retry"})},
 		{name: "CapsAbstractListen", got: CapsAbstractListen, want: uniqueCaps([]string{"fd", "socket", "sock-unix", "listen", "child", "retry"})},
 		{name: "CapsUNIXConnect", got: CapsUNIXConnect, want: uniqueCaps([]string{"fd", "named", "socket", "sock-unix", "retry"})},
 	}

@@ -343,7 +343,7 @@ func buildSidCttyHelper(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "sidtty.c")
-	body := "#include <fcntl.h>\n#include <stdio.h>\n#include <unistd.h>\nint main(void){ int tty=open(\"/dev/tty\",O_RDWR); printf(\"sid=%d ctty=%d\\n\", (int)getsid(0), tty>=0); if(tty>=0) close(tty); return 0; }\n"
+	body := "#include <fcntl.h>\n#include <stdio.h>\n#include <unistd.h>\nint main(void){ int tty=open(\"/dev/tty\",O_RDWR); char ch; printf(\"sid=%d ctty=%d\\n\", (int)getsid(0), tty>=0); fflush(stdout); (void)read(STDIN_FILENO,&ch,1); if(tty>=0) close(tty); return 0; }\n"
 	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
