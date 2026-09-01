@@ -3,6 +3,7 @@
 package xio_test
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -156,6 +157,75 @@ func TestIP4RecvfromNonForkPIPEEcho(t *testing.T) {
 		}
 	}
 	t.Fatal("timed out waiting for non-fork raw IP echo")
+}
+
+func TestIP4RecvfromForkEXECPeerAddr(t *testing.T) {
+	if os.Geteuid() != 0 {
+		if os.Getenv("SOCAT_REQUIRE_RAWIP") != "" {
+			t.Fatal("raw IP requires root; SOCAT_REQUIRE_RAWIP forbids skip")
+		}
+		t.Skip("raw IP requires root")
+	}
+	const proto = 252
+	dir := t.TempDir()
+	out := filepath.Join(dir, "peers")
+	script := filepath.Join(dir, "record.sh")
+	body := "#!/bin/sh\nprintf '%s\\n' \"$SOCAT_PEERADDR\" >> \"$1\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(testCtx(t), 8*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- xio.Run(ctx,
+			mustParse(t, fmt.Sprintf("IP4-RECVFROM:%d,reuseaddr,bind=127.0.0.1,fork", proto)),
+			mustParse(t, "EXEC:"+script+" "+out), cloneGlobal(nil))
+	}()
+
+	send := func(src net.IP) {
+		t.Helper()
+		deadline := time.Now().Add(4 * time.Second)
+		var client *net.IPConn
+		for time.Now().Before(deadline) {
+			select {
+			case err := <-done:
+				t.Fatal(err)
+			default:
+			}
+			c, err := net.DialIP(fmt.Sprintf("ip4:%d", proto), &net.IPAddr{IP: src}, &net.IPAddr{IP: net.IPv4(127, 0, 0, 1)})
+			if err != nil {
+				time.Sleep(20 * time.Millisecond)
+				continue
+			}
+			client = c
+			break
+		}
+		if client == nil {
+			t.Fatalf("could not dial raw IP from %s", src)
+		}
+		defer func() { _ = client.Close() }()
+		for time.Now().Before(deadline) {
+			if _, err := client.Write([]byte("pkt")); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(30 * time.Millisecond)
+			data, err := os.ReadFile(out)
+			if err == nil && strings.Contains(string(data), src.String()) {
+				return
+			}
+		}
+		t.Fatalf("EXEC did not record SOCAT_PEERADDR for %s", src)
+	}
+
+	send(net.IPv4(127, 1, 0, 1))
+	send(net.IPv4(127, 2, 0, 1))
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+	}
 }
 
 func TestUNIXRecvfromNonForkPIPEEcho(t *testing.T) {

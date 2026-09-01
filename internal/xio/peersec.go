@@ -152,6 +152,11 @@ func peerIPPort(addr net.Addr) (net.IP, int, string, bool) {
 		return a.IP, a.Port, "", true
 	case *net.TCPAddr:
 		return a.IP, a.Port, "", true
+	case *net.IPAddr:
+		if a == nil {
+			return nil, 0, "", false
+		}
+		return a.IP, 0, "", true
 	}
 	host, portStr, err := net.SplitHostPort(addr.String())
 	if err != nil {
