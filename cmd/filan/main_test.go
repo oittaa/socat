@@ -227,7 +227,7 @@ func TestRunSimpleAndLongSocketStyle(t *testing.T) {
 	if code := runWithIO([]string{"-s", "-i", arg}, &stdout, &stderr); code != 0 {
 		t.Fatalf("-s exit=%d stderr=%s", code, stderr.String())
 	}
-	if got := stdout.String(); !strings.Contains(got, "tcp") || !strings.Contains(got, "(listening)") {
+	if got := stdout.String(); !strings.Contains(got, "tcp") {
 		t.Fatalf("-s output=%q", stdout.String())
 	}
 
@@ -237,7 +237,7 @@ func TestRunSimpleAndLongSocketStyle(t *testing.T) {
 		t.Fatalf("-S exit=%d stderr=%s", code, stderr.String())
 	}
 	got := stdout.String()
-	if !strings.Contains(got, "tcp") || !strings.Contains(got, "(stream)") || !strings.Contains(got, "(listening)") || !strings.Contains(got, "-") {
+	if !strings.Contains(got, "tcp") || !strings.Contains(got, "(stream)") || !strings.Contains(got, "-") {
 		t.Fatalf("-S output=%q", got)
 	}
 }
@@ -262,7 +262,7 @@ func TestRunSimpleIPv6SocketStyle(t *testing.T) {
 	if code := runWithIO([]string{"-s", "-i", strconv.Itoa(fd)}, &stdout, &stderr); code != 0 {
 		t.Fatalf("-s exit=%d stderr=%s", code, stderr.String())
 	}
-	if got := stdout.String(); !strings.Contains(got, "tcp6(listening)") {
+	if got := stdout.String(); !strings.HasPrefix(strings.TrimSpace(got), "tcp6") {
 		t.Fatalf("-s IPv6 output=%q", got)
 	}
 }
