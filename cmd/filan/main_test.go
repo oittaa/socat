@@ -173,6 +173,16 @@ func TestRunBase0FDNumbers(t *testing.T) {
 	}
 }
 
+func TestRunBadOutputFDHasSinglePrefix(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runWithIO([]string{"-o", "+bad"}, &stdout, &stderr); code == 0 {
+		t.Fatal("expected invalid output fd to fail")
+	}
+	if got := stderr.String(); strings.Count(got, "filan:") != 1 || !strings.Contains(got, `bad -o "bad"`) {
+		t.Fatalf("stderr=%q", got)
+	}
+}
+
 func TestRunDebugIncreasesVerbosity(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := runWithIO([]string{"-d", "-d", "-d", "-i", "0"}, &stdout, &stderr); code != 0 {
@@ -180,6 +190,16 @@ func TestRunDebugIncreasesVerbosity(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "checking file descriptor 0") {
 		t.Fatalf("stderr=%q", stderr.String())
+	}
+}
+
+func TestRunClusteredDebugCountsAsOne(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runWithIO([]string{"-dd", "-d", "-i", "0"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit code=%d stderr=%s", code, stderr.String())
+	}
+	if strings.Contains(stderr.String(), "checking file descriptor 0") {
+		t.Fatalf("-dd increased verbosity more than once: %q", stderr.String())
 	}
 }
 
@@ -207,7 +227,7 @@ func TestRunSimpleAndLongSocketStyle(t *testing.T) {
 	if code := runWithIO([]string{"-s", "-i", arg}, &stdout, &stderr); code != 0 {
 		t.Fatalf("-s exit=%d stderr=%s", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "tcp") {
+	if got := stdout.String(); !strings.Contains(got, "tcp") || !strings.Contains(got, "(listening)") {
 		t.Fatalf("-s output=%q", stdout.String())
 	}
 
@@ -217,8 +237,33 @@ func TestRunSimpleAndLongSocketStyle(t *testing.T) {
 		t.Fatalf("-S exit=%d stderr=%s", code, stderr.String())
 	}
 	got := stdout.String()
-	if !strings.Contains(got, "tcp") || !strings.Contains(got, "(stream)") || !strings.Contains(got, "-") {
+	if !strings.Contains(got, "tcp") || !strings.Contains(got, "(stream)") || !strings.Contains(got, "(listening)") || !strings.Contains(got, "-") {
 		t.Fatalf("-S output=%q", got)
+	}
+}
+
+func TestRunSimpleIPv6SocketStyle(t *testing.T) {
+	ln, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		t.Skipf("IPv6 loopback unavailable: %v", err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	tcp := ln.(*net.TCPListener)
+	c, err := tcp.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fd int
+	if err := c.Control(func(h uintptr) { fd = int(h) }); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runWithIO([]string{"-s", "-i", strconv.Itoa(fd)}, &stdout, &stderr); code != 0 {
+		t.Fatalf("-s exit=%d stderr=%s", code, stderr.String())
+	}
+	if got := stdout.String(); !strings.Contains(got, "tcp6(listening)") {
+		t.Fatalf("-s IPv6 output=%q", got)
 	}
 }
 

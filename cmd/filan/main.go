@@ -95,7 +95,7 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 			}
 			fd, err := parseBase0Int(v, "-i")
 			if err != nil {
-				if err := writeMsg(stderr, "%v\n", err); err != nil {
+				if err := writeMsg(stderr, "filan: %v\n", err); err != nil {
 					return 1
 				}
 				return 1
@@ -111,7 +111,7 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 			}
 			num, err := parseBase0Int(v, "-n")
 			if err != nil {
-				if err := writeMsg(stderr, "%v\n", err); err != nil {
+				if err := writeMsg(stderr, "filan: %v\n", err); err != nil {
 					return 1
 				}
 				return 1
@@ -203,7 +203,7 @@ func takeArg(a, key string, args []string, i *int) (string, error) {
 func parseBase0Int(v, what string) (int, error) {
 	n, err := strconv.ParseUint(strings.TrimSpace(v), 0, 64)
 	if err != nil || n > uint64(^uint(0)>>1) {
-		return 0, fmt.Errorf("filan: bad %s %q", what, v)
+		return 0, fmt.Errorf("bad %s %q", what, v)
 	}
 	return int(n), nil
 }
@@ -218,10 +218,7 @@ func (cfg *filanConfig) applyDebug(a string, stderr io.Writer) error {
 		cfg.log.SetProgname("filan")
 		cfg.log.SetOutput(stderr)
 	}
-	n := 1 + len(rest)
-	for i := 0; i < n; i++ {
-		cfg.log.Increase()
-	}
+	cfg.log.Increase()
 	return nil
 }
 
@@ -669,7 +666,7 @@ func shortSocketName(fd int, style int) (typ, addrs string) {
 			}
 			addrs = strings.TrimSpace(fmt.Sprintf("%s-%s (%s) %s", local, peer, socketTypeName(stype), listenTag))
 		} else {
-			typ = protoName + listenTag
+			typ = protoName + "6" + listenTag
 			if peer != "" {
 				addrs = local + " " + peer
 			} else {
