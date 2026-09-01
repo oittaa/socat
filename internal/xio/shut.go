@@ -143,6 +143,12 @@ func ShutNoneSelected(s parse.Spec) bool {
 	return err == nil && p == shutNone
 }
 
+// ShutDownSelected reports that shut-down (or shut=down) is selected.
+func ShutDownSelected(s parse.Spec) bool {
+	p, err := selectedShutPolicy(s)
+	return err == nil && p == shutDown
+}
+
 // shutNoneStream makes ShutdownWrite a no-op.
 type shutNoneStream struct{ relay.Stream }
 

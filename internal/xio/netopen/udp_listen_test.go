@@ -678,6 +678,22 @@ func TestUDPSessionConnZeroLengthFirst(t *testing.T) {
 	}
 }
 
+func TestUDPSessionConnOneShotHidesSharedListener(t *testing.T) {
+	parent, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = parent.Close() })
+	u := &udpSessionConn{pc: parent, oneShot: true}
+	if got := u.NetConn(); got != nil {
+		t.Fatalf("oneShot NetConn=%v want nil", got)
+	}
+	handed := &udpSessionConn{pc: parent, ownsListen: true}
+	if got := handed.NetConn(); got != parent {
+		t.Fatalf("handoff NetConn=%v want listener", got)
+	}
+}
+
 func TestUDPRecvFromConnZeroLengthFirst(t *testing.T) {
 	u := &udpRecvFromConn{firstPending: true, closeEOF: true}
 	n, err := u.Read(make([]byte, 8))

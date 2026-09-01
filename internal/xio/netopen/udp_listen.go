@@ -73,6 +73,10 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 
 	// fork: keep listening and spawn a session per first-packet "connection".
 	if s.BoolOption("fork") {
+		if udpForkSharesListenSocket() && xio.ShutDownSelected(s) {
+			logx.CloseQuiet(pc)
+			return nil, fmt.Errorf("UDP-LISTEN,fork,shut-down: not supported")
+		}
 		_, maxChildren, ferr := xio.ForkLimits(s)
 		if ferr != nil {
 			logx.CloseQuiet(pc)
@@ -625,6 +629,10 @@ func (u *udpSessionConn) SetWriteDeadline(t time.Time) error {
 }
 
 func (u *udpSessionConn) NetConn() net.Conn {
+	if u.oneShot {
+		// UDP-RECVFROM,fork children share the parent listener.
+		return nil
+	}
 	if u.conn != nil {
 		return u.conn
 	}

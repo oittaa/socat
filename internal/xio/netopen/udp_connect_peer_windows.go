@@ -10,34 +10,35 @@ import (
 )
 
 func connectUDPPeerFD(fd uintptr, peer *net.UDPAddr) error {
-	sa, err := udpPeerSockaddr(peer)
+	sa, err := udpPeerSockaddr(windows.Handle(fd), peer)
 	if err != nil {
 		return err
 	}
 	return windows.Connect(windows.Handle(fd), sa)
 }
 
-func udpPeerSockaddr(peer *net.UDPAddr) (windows.Sockaddr, error) {
+func udpPeerSockaddr(fd windows.Handle, peer *net.UDPAddr) (windows.Sockaddr, error) {
 	if peer == nil {
 		return nil, net.ErrClosed
 	}
-	if ip4 := peer.IP.To4(); ip4 != nil {
-		sa := &windows.SockaddrInet4{Port: peer.Port}
-		copy(sa.Addr[:], ip4)
-		return sa, nil
+	local, err := windows.Getsockname(fd)
+	if err != nil {
+		return nil, err
 	}
-	ip6 := peer.IP.To16()
-	if ip6 == nil {
-		return nil, fmt.Errorf("UDP connect: invalid address %q", peer)
-	}
-	sa := &windows.SockaddrInet6{Port: peer.Port}
-	copy(sa.Addr[:], ip6)
-	if peer.Zone != "" {
-		ifi, err := net.InterfaceByName(peer.Zone)
+	switch local.(type) {
+	case *windows.SockaddrInet6:
+		addr, zone, err := udpPeerIPv6Addr(peer)
 		if err != nil {
-			return nil, fmt.Errorf("UDP connect: zone %q: %w", peer.Zone, err)
+			return nil, err
 		}
-		sa.ZoneId = uint32(ifi.Index) // #nosec G115 -- kernel ifindex is non-negative
+		return &windows.SockaddrInet6{Port: peer.Port, Addr: addr, ZoneId: zone}, nil
+	case *windows.SockaddrInet4:
+		addr, err := udpPeerIPv4Addr(peer)
+		if err != nil {
+			return nil, err
+		}
+		return &windows.SockaddrInet4{Port: peer.Port, Addr: addr}, nil
+	default:
+		return nil, fmt.Errorf("UDP connect: unsupported address family")
 	}
-	return sa, nil
 }
