@@ -668,6 +668,14 @@ func TestUDPListenForkIgnoresEmptyOpener(t *testing.T) {
 	t.Cleanup(func() { _ = sess.Close() })
 	buf := make([]byte, 16)
 	n, err := sess.Read(buf)
+	// Windows may still surface the empty datagram as the first Read on the
+	// accepted session; the payload must not be lost.
+	if n == 0 && err == nil {
+		if err := sess.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		n, err = sess.Read(buf)
+	}
 	if err != nil || string(buf[:n]) != "payload" {
 		t.Fatalf("n=%d err=%v data=%q want payload", n, err, buf[:n])
 	}
