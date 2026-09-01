@@ -199,7 +199,7 @@ func skipDescriptorOwnerOption(s parse.Spec, name string) bool {
 	case "EXEC", "SYSTEM", "SHELL":
 		// With pty, perm/user/group apply to the slave node. The master
 		// retains descriptor-only options such as append.
-		return s.BoolOption("pty") || s.BoolOption("ptmx")
+		return execUsesPTY(s)
 	}
 	if strings.HasPrefix(t, "POSIXMQ") {
 		// perm= is mq_open(3) mode, not fchmod. user=/group= remain

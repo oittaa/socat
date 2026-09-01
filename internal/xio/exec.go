@@ -1020,12 +1020,6 @@ func setCloexecAllFrom(from int) {
 	}
 }
 
-// execUsesPTY reports whether EXEC/SYSTEM/SHELL should use a PTY instead of
-// the default socketpair.
-func execUsesPTY(s parse.Spec) bool {
-	return s.BoolOption("pty") || s.BoolOption("ptmx") || s.BoolOption("openpty")
-}
-
 // rejectExecUnsupportedPTYOptions rejects wait-slave / pty-interval on
 // EXEC/SYSTEM/SHELL. Those options apply only to the PTY address.
 func rejectExecUnsupportedPTYOptions(s parse.Spec) error {
