@@ -442,7 +442,8 @@ func TestFDReadsPipe(t *testing.T) {
 		_ = r.Close()
 		_ = w.Close()
 	})
-	o, err := xio.OpenChannel(ctx, mustParse(t, fmt.Sprintf("FD:%d", int(r.Fd()))), xio.ModeRead, g)
+	nfd := duplicateFDNumber(t, r)
+	o, err := xio.OpenChannel(ctx, mustParse(t, fmt.Sprintf("FD:%d", nfd)), xio.ModeRead, g)
 	if err != nil {
 		t.Fatal(err)
 	}

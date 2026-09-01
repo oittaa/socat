@@ -9,11 +9,12 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
-func parseAcceptFDNum(s parse.Spec) (int, error) {
+// parseFDNum is the FD / ACCEPT-FD number parser: exactly one parameter,
+// base-0 (10, 0x10, 010), leftover garbage rejected.
+func parseFDNum(s parse.Spec) (int, error) {
 	if len(s.Params) != 1 || s.Params[0] == "" {
 		return -1, fmt.Errorf("%s: wrong number of parameters (%d instead of 1)", s.Type, len(s.Params))
 	}
-	// Base-0 ParseUint: 10, 0x10, and 010 are all valid FD numbers.
 	n, err := strconv.ParseUint(s.Params[0], 0, 32)
 	if err != nil {
 		return -1, fmt.Errorf("error in FD number %q", s.Params[0])
@@ -22,7 +23,7 @@ func parseAcceptFDNum(s parse.Spec) (int, error) {
 }
 
 func openAcceptFD(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	fd, err := parseAcceptFDNum(s)
+	fd, err := parseFDNum(s)
 	if err != nil {
 		return nil, err
 	}

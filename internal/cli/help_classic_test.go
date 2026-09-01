@@ -66,6 +66,20 @@ func TestHelpListsImplementedCLIFlags(t *testing.T) {
 	}
 }
 
+func TestHelpWaitlockPollInterval(t *testing.T) {
+	var output bytes.Buffer
+	if err := printHelp(&output, 2); err != nil {
+		t.Fatal(err)
+	}
+	help := output.String()
+	if strings.Contains(help, "100ms") {
+		t.Fatal("waitlock help still mentions a 100ms CLI -W interval")
+	}
+	if !strings.Contains(help, "1s poll") {
+		t.Fatal("waitlock help missing 1s poll")
+	}
+}
+
 func TestHelpListsSoBroadcastAlias(t *testing.T) {
 	var output bytes.Buffer
 	if err := printHelp(&output, 3); err != nil {

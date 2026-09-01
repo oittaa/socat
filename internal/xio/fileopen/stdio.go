@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -138,24 +137,26 @@ func openSTDERR(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	return o, nil
 }
 
-func openFD(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) < 1 {
-		return nil, fmt.Errorf("FD requires fd number")
+func openFD(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	n, err := parseFDNum(s)
+	if err != nil {
+		return nil, err
 	}
 	// FD applies after-open and after-socket() options, not before-bind or
 	// after-connect/accept. Reject those combinations instead of applying
 	// them to an existing socket or silently ignoring them.
-	if err := xio.RejectGenericSetsockoptPhases(s, "FD", xio.SockoptPhasePrebind, xio.SockoptPhaseConnected); err != nil {
+	if err := xio.RejectGenericSetsockoptPhases(s, s.Type, xio.SockoptPhasePrebind, xio.SockoptPhaseConnected); err != nil {
 		return nil, err
 	}
-	n, err := strconv.Atoi(s.Params[0])
-	if err != nil {
-		return nil, fmt.Errorf("FD: %w", err)
-	}
+	// Default FD_CLOEXEC before ApplyFDOptions so cloexec=0 can still clear it.
+	setInheritedFDCloexec(n, g)
 	f := os.NewFile(uintptr(n), fmt.Sprintf("fd:%d", n))
 	if f == nil {
 		return nil, fmt.Errorf("FD:%d invalid", n)
 	}
+	// Inherited descriptors stay open after transfer. Keep the File
+	// reachable so the runtime poller is not left holding a closed fd.
+	retainInheritedFile(f)
 	if err := applyFileLocks(s, f, f); err != nil {
 		return nil, err
 	}
@@ -166,7 +167,7 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Op
 	if err := xio.ApplySocketOptions(int(f.Fd()), s); err != nil {
 		return nil, err
 	}
-	st, err := xio.WrapCommonAfterConnected(s, relay.RWCStream{ReadWriteCloser: f})
+	st, err := xio.WrapCommonAfterConnected(s, relay.FDStream{R: f, W: f, C: xio.NopCloser{}})
 	if err != nil {
 		return nil, err
 	}

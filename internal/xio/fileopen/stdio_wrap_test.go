@@ -30,6 +30,7 @@ func TestFDAppliesReadbytes(t *testing.T) {
 		_ = closeFD()
 		t.Fatal(err)
 	}
+	// openFD retains the wrapper for process lifetime; do not Close the dup.
 	t.Cleanup(func() { _ = o.Close() })
 	go func() {
 		_, _ = w.Write([]byte("hello"))

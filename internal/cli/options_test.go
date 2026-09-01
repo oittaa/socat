@@ -44,6 +44,68 @@ func TestParseSignalLogMask(t *testing.T) {
 	}
 }
 
+func TestParseArgsBlockSize(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want int
+		err  string
+	}{
+		{name: "decimal", args: []string{"-b8192"}, want: 8192},
+		{name: "hex", args: []string{"-b0x2000"}, want: 8192},
+		{name: "octal", args: []string{"-b010000"}, want: 4096},
+		{name: "separate-hex", args: []string{"-b", "0x2000"}, want: 8192},
+		{name: "zero", args: []string{"-b0"}, err: "to big"},
+		{name: "over-practical-cap", args: []string{"-b268435457"}, err: "to big"},
+		{name: "garbage", args: []string{"-b8192foo"}, err: "missing numerical value"},
+		{name: "missing-arg", args: []string{"-b"}, err: "requires an argument"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := ParseArgs(tc.args)
+			if tc.err != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.err) {
+					t.Fatalf("error=%v want %q", err, tc.err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.BlockSize != tc.want {
+				t.Fatalf("BlockSize=%d want %d", cfg.BlockSize, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseArgsLockExclusive(t *testing.T) {
+	cfg, err := ParseArgs([]string{"-L", "a.lock"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LockFile != "a.lock" || cfg.LockWait != "" {
+		t.Fatalf("LockFile=%q LockWait=%q", cfg.LockFile, cfg.LockWait)
+	}
+	cfg, err = ParseArgs([]string{"-W", "b.lock"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LockWait != "b.lock" || cfg.LockFile != "" {
+		t.Fatalf("LockFile=%q LockWait=%q", cfg.LockFile, cfg.LockWait)
+	}
+	for _, args := range [][]string{
+		{"-L", "a", "-W", "b"},
+		{"-La", "-Lb"},
+		{"-Wa", "-Wb"},
+		{"-W", "a", "-L", "b"},
+	} {
+		if _, err := ParseArgs(args); err == nil || !strings.Contains(err.Error(), "only one -L and -W option allowed") {
+			t.Fatalf("ParseArgs(%q) error=%v", args, err)
+		}
+	}
+}
+
 func TestValidateAddressOptions(t *testing.T) {
 	tests := []struct {
 		name       string

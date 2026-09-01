@@ -137,8 +137,8 @@ var cliValueFlags = []cliValueFlag{
 	{"S", nil, setSignalLogMask},
 	{"lp", nil, plainFlag((*Config).fieldProgname)},
 	{"lf", nil, plainFlag((*Config).fieldLogFile)},
-	{"L", nil, plainFlag((*Config).fieldLockFile)},
-	{"W", nil, plainFlag((*Config).fieldLockWait)},
+	{"L", nil, setLockFileFlag},
+	{"W", nil, setLockWaitFlag},
 	{"r", func(a string) bool { return !strings.HasPrefix(a, "-reuse") }, plainFlag((*Config).fieldRawLeft)},
 	{"R", nil, plainFlag((*Config).fieldRawRight)},
 }
@@ -213,8 +213,9 @@ func setBlockSize(cfg *Config, v string) error {
 	if v == "" {
 		return fmt.Errorf("parseopts(): missing numerical value of option \"-b\"")
 	}
-	// Parse as unsigned; overflow wording is "to big".
-	n, err := strconv.ParseUint(v, 10, 64)
+	// Parse as unsigned, base 0 (decimal, 0x hex, leading-0 octal).
+	// Overflow wording is "to big".
+	n, err := strconv.ParseUint(v, 0, 64)
 	if err != nil {
 		// value larger than uint64 or non-numeric
 		if _, e2 := strconv.ParseFloat(v, 64); e2 == nil {
@@ -233,6 +234,26 @@ func setBlockSize(cfg *Config, v string) error {
 		return fmt.Errorf("buffer size option (-b) to big")
 	}
 	cfg.BlockSize = int(n)
+	return nil
+}
+
+func setLockFileFlag(cfg *Config, v string) error {
+	return setCLILock(cfg, v, false)
+}
+
+func setLockWaitFlag(cfg *Config, v string) error {
+	return setCLILock(cfg, v, true)
+}
+
+func setCLILock(cfg *Config, v string, wait bool) error {
+	if cfg.LockFile != "" || cfg.LockWait != "" {
+		return fmt.Errorf("only one -L and -W option allowed")
+	}
+	if wait {
+		cfg.LockWait = v
+	} else {
+		cfg.LockFile = v
+	}
 	return nil
 }
 
@@ -310,8 +331,6 @@ func parseDuration(v string) (time.Duration, error) {
 // Field selectors for plainFlag.
 func (c *Config) fieldProgname() *string { return &c.Progname }
 func (c *Config) fieldLogFile() *string  { return &c.LogFile }
-func (c *Config) fieldLockFile() *string { return &c.LockFile }
-func (c *Config) fieldLockWait() *string { return &c.LockWait }
 func (c *Config) fieldRawLeft() *string  { return &c.RawLeft }
 func (c *Config) fieldRawRight() *string { return &c.RawRight }
 
@@ -436,9 +455,9 @@ func setupLogger(cfg *Config) (*logx.Logger, func(), error) {
 	return log, closeLog, nil
 }
 
-// acquireLockFiles creates the -L lock and, after poll-wait, the -W lock.
-// CLI -L/-W poll at 100ms; address waitlock= uses 1s. This port still
-// accepts both -L and -W as separate locks (HoldLockFile with lockfile=/waitlock=).
+// acquireLockFiles creates the -L lock or, after poll-wait, the -W lock.
+// ParseArgs allows only one of -L and -W. Both poll at 1s, same as
+// address waitlock=.
 func acquireLockFiles(ctx context.Context, cfg *Config) (func(), error) {
 	var cleanups []func()
 	add := func(path string, wait bool) error {
