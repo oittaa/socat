@@ -14,9 +14,9 @@ import (
 // Close unlinks named unix sockets unless unlink-close=0 (bare flag → 1).
 // Abstract names have no directory entry.
 type unixBoundUnlink struct {
-	path     string
 	doUnlink bool
 	unreg    func()
+	created  unixBindCreated
 }
 
 func trackUnixBind(path string, s parse.Spec) unixBoundUnlink {
@@ -24,10 +24,10 @@ func trackUnixBind(path string, s parse.Spec) unixBoundUnlink {
 	if path == "" || xio.IsAbstract(path) {
 		return u
 	}
-	u.path = path
+	u.created = rememberUnixBindCreated(path)
 	u.doUnlink = !s.HasOption("unlink-close") || s.BoolOption("unlink-close")
-	if u.doUnlink {
-		u.unreg = xio.RegisterUnlinkPath(path)
+	if u.doUnlink && u.created.info != nil {
+		u.unreg = xio.RegisterUnlinkPathIdentity(path, u.created.info)
 	}
 	return u
 }
@@ -61,7 +61,7 @@ func (u unixBoundUnlink) drop(c io.Closer) {
 	u.unreg()
 	logx.CloseQuiet(c)
 	if u.doUnlink {
-		_ = xio.Unlink(u.path)
+		u.created.unlink()
 	}
 }
 
@@ -73,6 +73,6 @@ func (u unixBoundUnlink) attach(o *xio.Opened) {
 	}
 	o.AddCleanup(func() {
 		u.unreg()
-		_ = xio.Unlink(u.path)
+		u.created.unlink()
 	})
 }

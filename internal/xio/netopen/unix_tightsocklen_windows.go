@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -37,13 +38,23 @@ func dialUnixSocklen(ctx context.Context, s parse.Spec, g *xio.Global, network, 
 			Timeout: xio.ConnectTimeout(s),
 			Control: xio.DialControl(s, network, nil),
 		}
+		if err := prepareUnixClientBind(bindPath, s); err != nil {
+			return err
+		}
 		if bindPath != "" {
-			cleanupUnixBind(bindPath)
 			d.LocalAddr = &net.UnixAddr{Name: bindPath, Net: network}
+		}
+		createdBefore := false
+		if bindPath != "" && !xio.IsAbstract(bindPath) {
+			if _, err := os.Lstat(bindPath); err == nil {
+				createdBefore = true
+			}
 		}
 		c, err := d.DialContext(ctx, network, path)
 		if err != nil {
-			cleanupUnixBind(bindPath)
+			if !createdBefore {
+				rememberUnixBindCreated(bindPath).unlink()
+			}
 			return err
 		}
 		conn = c

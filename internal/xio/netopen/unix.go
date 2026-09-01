@@ -179,10 +179,47 @@ func dialUnixNetwork(ctx context.Context, s parse.Spec, g *xio.Global, network, 
 	return dialUnixSocklen(ctx, s, g, network, path, bindPath)
 }
 
-func cleanupUnixBind(path string) {
-	if path != "" && !xio.IsAbstract(path) {
-		_ = xio.Unlink(path)
+// prepareUnixClientBind runs before a client bind=. unlink-early removes the
+// name; otherwise an existing entry is left for bind(2) to fail with EADDRINUSE.
+func prepareUnixClientBind(path string, s parse.Spec) error {
+	if path == "" || xio.IsAbstract(path) {
+		return nil
 	}
+	if !s.BoolOption("unlink-early") {
+		return nil
+	}
+	if err := xio.Unlink(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("unlink %s: %w", path, err)
+	}
+	return nil
+}
+
+// unixBindCreated is the directory entry created by a successful client bind.
+type unixBindCreated struct {
+	path string
+	info os.FileInfo
+}
+
+func rememberUnixBindCreated(path string) unixBindCreated {
+	if path == "" || xio.IsAbstract(path) {
+		return unixBindCreated{}
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return unixBindCreated{}
+	}
+	return unixBindCreated{path: path, info: info}
+}
+
+func (c unixBindCreated) unlink() {
+	if c.path == "" || c.info == nil {
+		return
+	}
+	current, err := os.Lstat(c.path)
+	if err != nil || !os.SameFile(c.info, current) {
+		return
+	}
+	_ = xio.Unlink(c.path)
 }
 
 func unixTypeMismatch(err error, haveBind bool) bool {

@@ -245,8 +245,8 @@ func dialUnixSocklen(ctx context.Context, s parse.Spec, g *xio.Global, network, 
 			cctx, cancel = context.WithTimeout(ctx, timeout)
 			defer cancel()
 		}
-		if bindPath != "" {
-			cleanupUnixBind(bindPath)
+		if err := prepareUnixClientBind(bindPath, s); err != nil {
+			return err
 		}
 		fd, err := unix.Socket(unix.AF_UNIX, typ|sockCloexec, 0)
 		if err != nil {
@@ -260,21 +260,23 @@ func dialUnixSocklen(ctx context.Context, s parse.Spec, g *xio.Global, network, 
 			return err
 		}
 		tight := unixTightSocklen(s)
+		var created unixBindCreated
 		if bindPath != "" {
 			if err := unixBindPath(fd, bindPath, tight); err != nil {
 				logx.CloseErr(unix.Close(fd))
-				cleanupUnixBind(bindPath)
 				return err
 			}
+			created = rememberUnixBindCreated(bindPath)
 		}
 		if err := unixConnectPath(cctx, fd, path, tight); err != nil {
 			logx.CloseErr(unix.Close(fd))
-			cleanupUnixBind(bindPath)
+			created.unlink()
 			return err
 		}
 		nfd, err := dupFD(fd)
 		if err != nil {
 			logx.CloseErr(unix.Close(fd))
+			created.unlink()
 			return err
 		}
 		f := os.NewFile(uintptr(nfd), path)
@@ -282,7 +284,7 @@ func dialUnixSocklen(ctx context.Context, s parse.Spec, g *xio.Global, network, 
 		logx.CloseQuiet(f)
 		logx.CloseErr(unix.Close(fd))
 		if err != nil {
-			cleanupUnixBind(bindPath)
+			created.unlink()
 			return err
 		}
 		conn = c
