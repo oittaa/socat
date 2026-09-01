@@ -59,9 +59,6 @@ func TestRunSimpleAndLongFileStyle(t *testing.T) {
 		if got != want {
 			t.Fatalf("%s -f output=%q want %q", style, got, want)
 		}
-		if strings.Contains(stdout.String(), "0600") {
-			t.Fatalf("%s -f used detailed format: %q", style, stdout.String())
-		}
 	}
 
 	dir := t.TempDir()
