@@ -98,7 +98,7 @@ func CreateLockFile(path string) (os.FileInfo, error) {
 	}
 	info, statErr := f.Stat()
 	if statErr == nil {
-		_ = snapshotRegisteredIdentity(info)
+		_ = SnapshotFileIdentity(info)
 	}
 	cerr := f.Close()
 	if werr != nil || cerr != nil || statErr != nil {

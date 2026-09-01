@@ -205,7 +205,7 @@ func rememberUnixBindCreated(path string) unixBindCreated {
 		return unixBindCreated{}
 	}
 	info, err := os.Lstat(path)
-	if err != nil {
+	if err != nil || !xio.SnapshotFileIdentity(info) {
 		return unixBindCreated{}
 	}
 	return unixBindCreated{path: path, info: info}

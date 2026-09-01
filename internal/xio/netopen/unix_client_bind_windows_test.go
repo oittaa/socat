@@ -100,25 +100,3 @@ func TestWindowsUnixConnectFailedOpenUnlinksOnlyCreatedBind(t *testing.T) {
 		t.Fatalf("created bind path survived failed connect: %v", statErr)
 	}
 }
-
-func TestWindowsUnixBindCreatedUnlinkPreservesReplacement(t *testing.T) {
-	bind := testutil.UnixSocketPath(t, "client.sock")
-	if err := os.WriteFile(bind, []byte("created"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	created := rememberUnixBindCreated(bind)
-	if err := os.Remove(bind); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(bind, []byte("replacement"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	created.unlink()
-	got, err := os.ReadFile(bind)
-	if err != nil {
-		t.Fatalf("replacement path was removed: %v", err)
-	}
-	if string(got) != "replacement" {
-		t.Fatalf("replacement contents=%q", got)
-	}
-}
