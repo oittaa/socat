@@ -10,7 +10,8 @@ import (
 )
 
 // shutPolicy selects how ShutdownWrite behaves. Unspecified keeps the
-// address-dependent default (TCP half-close, UDP no-op).
+// address-dependent default: TCP half-close; UDP-CONNECT and UDP-LISTEN
+// send a zero-length datagram from those streams; other UDP addresses a no-op.
 //
 // shut-none[=<bool>] (and the other shut-* the same way): omitted value or
 // =1 selects the policy; =0 does not. Other assignments are rejected. Last
@@ -140,6 +141,12 @@ func wrapShutPolicy(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 func ShutNoneSelected(s parse.Spec) bool {
 	p, err := selectedShutPolicy(s)
 	return err == nil && p == shutNone
+}
+
+// ShutDownSelected reports that shut-down (or shut=down) is selected.
+func ShutDownSelected(s parse.Spec) bool {
+	p, err := selectedShutPolicy(s)
+	return err == nil && p == shutDown
 }
 
 // shutNoneStream makes ShutdownWrite a no-op.

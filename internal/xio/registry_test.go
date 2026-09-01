@@ -124,6 +124,24 @@ func TestRegisteredAddressOptionCaps(t *testing.T) {
 	}
 }
 
+func TestUDPDatagramHelpDescribesUnconnected(t *testing.T) {
+	for _, g := range xio.HelpAddressGroups() {
+		for _, a := range g.Addrs {
+			if helpKeyword(a.Syntax) != "UDP-DATAGRAM" {
+				continue
+			}
+			if strings.Contains(a.Desc, "connected") && !strings.Contains(a.Desc, "unconnected") {
+				t.Fatalf("UDP-DATAGRAM help %q still describes a connected socket", a.Desc)
+			}
+			if !strings.Contains(a.Desc, "unconnected") {
+				t.Fatalf("UDP-DATAGRAM help %q should say unconnected", a.Desc)
+			}
+			return
+		}
+	}
+	t.Fatal("UDP-DATAGRAM missing from help")
+}
+
 func TestRegisteredAddressesHaveOptionCaps(t *testing.T) {
 	for _, reg := range xio.AddressRegistrations() {
 		if len(reg.OptionCaps) == 0 {

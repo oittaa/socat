@@ -299,6 +299,44 @@ func TestShutNoneSelectedForExec(t *testing.T) {
 	}
 }
 
+func TestShutDownSelected(t *testing.T) {
+	down, err := parse.ParseSpec("UDP-LISTEN:0,shut-down")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ShutDownSelected(down) {
+		t.Fatal("shut-down should select")
+	}
+	over, err := parse.ParseSpec("UDP-LISTEN:0,shut-null,shut-down")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ShutDownSelected(over) {
+		t.Fatal("later shut-down should win over shut-null")
+	}
+	rev, err := parse.ParseSpec("UDP-LISTEN:0,shut-down,shut-null")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ShutDownSelected(rev) {
+		t.Fatal("later shut-null should win over shut-down")
+	}
+	eq, err := parse.ParseSpec("UDP-LISTEN:0,shut=down")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ShutDownSelected(eq) {
+		t.Fatal("shut=down should select")
+	}
+	off, err := parse.ParseSpec("UDP-LISTEN:0,shut-down=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ShutDownSelected(off) {
+		t.Fatal("shut-down=0 must not select")
+	}
+}
+
 type failWriteStream struct{ recordingStream }
 
 func (s *failWriteStream) Write(p []byte) (int, error) {

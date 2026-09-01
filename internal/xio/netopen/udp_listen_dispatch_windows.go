@@ -38,6 +38,8 @@ type udpDispatchListener struct {
 	peerRejected chan struct{}
 }
 
+func udpForkSharesListenSocket() bool { return true }
+
 func newUDPListenForkListener(base *udpForkListener) net.Listener {
 	l := &udpDispatchListener{
 		base:         base,

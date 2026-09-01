@@ -73,6 +73,10 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 
 	// fork: keep listening and spawn a session per first-packet "connection".
 	if s.BoolOption("fork") {
+		if udpForkSharesListenSocket() && xio.ShutDownSelected(s) {
+			logx.CloseQuiet(pc)
+			return nil, fmt.Errorf("UDP-LISTEN,fork,shut-down: not supported")
+		}
 		_, maxChildren, ferr := xio.ForkLimits(s)
 		if ferr != nil {
 			logx.CloseQuiet(pc)
@@ -101,7 +105,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			MaxChildren: maxChildren,
 			PeerFilter:  peerFilter.AllowConn,
 			WrapDial: func(c net.Conn) (relay.Stream, error) {
-				return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
+				return xio.WrapCommonAfterConnected(s, udpConnectStream{NetStream: relay.NetStream{Conn: c}})
 			},
 		}, nil
 	}
@@ -112,7 +116,8 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	}
 	xio.NoteListenBound(pc.LocalAddr())
 
-	// Non-fork: one session then done (keep listen socket for reply like RECVFROM).
+	// Non-fork: one peer session. Keep the listen socket for further
+	// packets from that peer and for replies.
 	buf := make([]byte, max(g.BlockSize, 8192))
 	wantCtrl := xio.NeedAncillary(s)
 	var n int
@@ -142,6 +147,10 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("accept-timeout: clear deadline: %w", err)
 	}
+	if err := connectUDPPeer(pc, raddr); err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
 	// SOCAT_* env for EXEC/SYSTEM children (UDP6LISTENENV etc.).
 	// When bound to unspecified (:: / 0.0.0.0), still report the
 	// local address used for this peer (loopback peer → loopback sock).
@@ -166,15 +175,13 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			}
 		}
 	}
-	// One-shot listen: after first packet, do not keep the
-	// socket open forever waiting for more. Connected-style session ends on EOF.
 	st := relay.Stream(&udpRecvFromConn{
-		uc:       pc,
-		peer:     raddr,
-		first:    append([]byte(nil), buf[:n]...),
-		closeEOF: true, // next read after first payload → EOF (unidirectional capture)
-		wantCtrl: wantCtrl,
-		g:        g,
+		uc:           pc,
+		peer:         raddr,
+		first:        append([]byte(nil), buf[:n]...),
+		firstPending: true,
+		wantCtrl:     wantCtrl,
+		g:            g,
 	})
 	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
@@ -263,10 +270,12 @@ func (l *udpForkListener) signalExclusiveDone() {
 
 func (l *udpForkListener) handoffListenSocket(child *udpSessionConn) (net.Conn, error) {
 	// reuseaddr=0: the first session takes this listen fd instead of dropping
-	// the packet. A second exclusive bind would fail. The fd stays a ListenUDP
-	// socket (Go will not treat a later connect(2) as connected), so replies
-	// use WriteToUDP.
+	// the packet. A second exclusive bind would fail. Connect the fd to the
+	// peer so shut-down can call shutdown(SHUT_WR).
 	_ = l.pc.SetReadDeadline(time.Time{})
+	if err := connectUDPPeer(l.pc, child.peer); err != nil {
+		return nil, err
+	}
 	l.mu.Lock()
 	if l.listenClosed {
 		l.mu.Unlock()
@@ -341,13 +350,14 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 		}
 		xio.ProcessAncillary(oob, session)
 		child := &udpSessionConn{
-			peer:     cloneUDPAddr(a),
-			first:    append([]byte(nil), buf[:rn]...),
-			env:      session.SessionVars,
-			oneShot:  l.oneShot,
-			writeMu:  &l.writeMu,
-			wantCtrl: wantCtrl,
-			g:        session,
+			peer:         cloneUDPAddr(a),
+			first:        append([]byte(nil), buf[:rn]...),
+			firstPending: true,
+			env:          session.SessionVars,
+			oneShot:      l.oneShot,
+			writeMu:      &l.writeMu,
+			wantCtrl:     wantCtrl,
+			g:            session,
 		}
 		if l.oneShot {
 			// Share the parent socket (one-shot). A
@@ -461,15 +471,15 @@ func cloneUDPAddr(a *net.UDPAddr) *net.UDPAddr {
 // ReadFromUDP / WriteToUDP. UDP-RECVFROM,fork shares the parent (oneShot):
 // drain first, then EOF, and reply with WriteToUDP.
 type udpSessionConn struct {
-	conn       *net.UDPConn // connected child for UDP-LISTEN,fork with reuse
-	pc         *net.UDPConn // RECVFROM share, or exclusive listen handoff
-	ownsListen bool         // exclusive UDP-LISTEN,fork,reuseaddr=0
-	peer       *net.UDPAddr
-	first      []byte
-	got        bool
-	oneShot    bool
-	closed     bool
-	env        map[string]string
+	conn         *net.UDPConn // connected child for UDP-LISTEN,fork with reuse
+	pc           *net.UDPConn // RECVFROM share, or exclusive listen handoff
+	ownsListen   bool         // exclusive UDP-LISTEN,fork,reuseaddr=0
+	peer         *net.UDPAddr
+	first        []byte
+	firstPending bool // buffered opener, including a zero-length datagram
+	oneShot      bool
+	closed       bool
+	env          map[string]string
 
 	writeMu       *sync.Mutex
 	deadlineMu    sync.Mutex
@@ -483,8 +493,8 @@ type udpSessionConn struct {
 func (u *udpSessionConn) SessionEnvironment() map[string]string { return u.env }
 
 func (u *udpSessionConn) Read(p []byte) (int, error) {
-	if !u.got && len(u.first) > 0 {
-		u.got = true
+	if u.firstPending {
+		u.firstPending = false
 		n := copy(p, u.first)
 		u.first = nil
 		return n, nil
@@ -539,7 +549,14 @@ func (u *udpSessionConn) Write(p []byte) (int, error) {
 	deadline := u.writeDeadline
 	u.deadlineMu.Unlock()
 	return writeSharedPacket(u.writeMu, deadline, u.pc.SetWriteDeadline, func() (int, error) {
-		return u.pc.WriteToUDP(p, u.peer)
+		n, err := u.pc.WriteToUDP(p, u.peer)
+		if err == nil {
+			return n, nil
+		}
+		if n2, err2 := u.pc.Write(p); err2 == nil {
+			return n2, nil
+		}
+		return n, err
 	})
 }
 
@@ -611,27 +628,40 @@ func (u *udpSessionConn) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
+func (u *udpSessionConn) NetConn() net.Conn {
+	if u.oneShot {
+		// UDP-RECVFROM,fork children share the parent listener.
+		return nil
+	}
+	if u.conn != nil {
+		return u.conn
+	}
+	return u.pc
+}
+
 // udpRecvFromConn: first datagram already received; further Read/Write use the
 // listening socket with WriteTo to the peer (no rebinding).
 // Named field (not embed) so poll does not wait for POLLIN while first is buffered.
 type udpRecvFromConn struct {
-	uc       *net.UDPConn
-	peer     *net.UDPAddr
-	first    []byte
-	closeEOF bool // after first payload: further Read → EOF (one-shot UDP-LISTEN)
-	wantCtrl bool
-	g        *xio.Global
-	oob      []byte
+	uc           *net.UDPConn
+	peer         *net.UDPAddr
+	first        []byte
+	firstPending bool // buffered opener, including a zero-length datagram
+	closeEOF     bool // after first payload: further Read → EOF (UDP-RECVFROM one-shot)
+	wantCtrl     bool
+	g            *xio.Global
+	oob          []byte
 }
 
 func (u *udpRecvFromConn) Read(p []byte) (int, error) {
-	if len(u.first) > 0 {
+	if u.firstPending {
+		u.firstPending = false
 		n := copy(p, u.first)
 		u.first = nil
 		return n, nil
 	}
 	if u.closeEOF {
-		// One-shot listen ends after the first datagram.
+		// UDP-RECVFROM is one-shot: drain first, then EOF.
 		return 0, io.EOF
 	}
 	for {
@@ -652,11 +682,25 @@ func (u *udpRecvFromConn) Write(p []byte) (int, error) {
 	if u.peer == nil {
 		return 0, net.ErrClosed
 	}
-	return u.uc.WriteToUDP(p, u.peer)
+	n, err := u.uc.WriteToUDP(p, u.peer)
+	if err == nil {
+		return n, nil
+	}
+	if n2, err2 := u.uc.Write(p); err2 == nil {
+		return n2, nil
+	}
+	return n, err
 }
 
-func (u *udpRecvFromConn) Close() error         { return u.uc.Close() }
-func (u *udpRecvFromConn) ShutdownWrite() error { return nil }
+func (u *udpRecvFromConn) Close() error { return u.uc.Close() }
+
+func (u *udpRecvFromConn) ShutdownWrite() error {
+	if u.closeEOF {
+		return nil
+	}
+	_, _ = u.Write(nil)
+	return nil
+}
 func (u *udpRecvFromConn) LocalAddr() net.Addr  { return u.uc.LocalAddr() }
 func (u *udpRecvFromConn) RemoteAddr() net.Addr { return u.peer }
 func (u *udpRecvFromConn) SetDeadline(t time.Time) error {

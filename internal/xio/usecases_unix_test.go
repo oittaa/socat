@@ -3,6 +3,7 @@
 package xio_test
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -37,11 +38,12 @@ func TestUNIXListenPIPEEcho(t *testing.T) {
 	echoLive(t, streamOf(t, cli), []byte("unix-hello"))
 }
 
-// Non-fork datagram listeners receive the first packet while opening the
-// address. The relay must drain that buffered packet before polling the now
-// empty socket descriptor.
+// Non-fork UDP-LISTEN stays bound to the first peer after the opening
+// datagram. PIPE must echo further packets from that peer, and the relay
+// must not exit until cancelled.
 func TestUDP4ListenNonForkPIPEEcho(t *testing.T) {
-	ctx := testCtx(t)
+	ctx, cancel := context.WithCancel(testCtx(t))
+	defer cancel()
 	done := make(chan error, 1)
 	bound, restore := listenBoundPort(t)
 	defer restore()
@@ -57,33 +59,95 @@ func TestUDP4ListenNonForkPIPEEcho(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	payload := []byte("udp-nonfork")
-	buf := make([]byte, len(payload))
-	deadline := time.Now().Add(4 * time.Second)
-	for time.Now().Before(deadline) {
+	echoUDP := func(payload []byte) {
+		t.Helper()
 		if _, err := client.Write(payload); err != nil {
 			t.Fatal(err)
 		}
-		_ = client.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+		buf := make([]byte, len(payload)+16)
+		_ = client.SetReadDeadline(time.Now().Add(4 * time.Second))
 		n, err := client.Read(buf)
-		if err == nil {
-			if string(buf[:n]) != string(payload) {
-				t.Fatalf("echo got %q want %q", buf[:n], payload)
-			}
-			select {
-			case err := <-done:
-				if err != nil {
-					t.Fatal(err)
-				}
-			case <-time.After(time.Second):
-				t.Fatal("non-fork UDP relay did not exit")
-			}
-			return
+		if err != nil {
+			t.Fatalf("echo %q: %v", payload, err)
 		}
-		// A first send can beat bind and report ICMP port-unreachable on a
-		// connected UDP socket. Retry until the fixed-port listener is ready.
+		if string(buf[:n]) != string(payload) {
+			t.Fatalf("echo got %q want %q", buf[:n], payload)
+		}
 	}
-	t.Fatal("timed out waiting for non-fork UDP echo")
+	echoUDP([]byte("udp-nonfork-1"))
+	select {
+	case err := <-done:
+		t.Fatalf("non-fork UDP-LISTEN exited after the first datagram: %v", err)
+	default:
+	}
+	echoUDP([]byte("udp-nonfork-2"))
+	select {
+	case err := <-done:
+		t.Fatalf("non-fork UDP-LISTEN exited after the second datagram: %v", err)
+	default:
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("non-fork UDP-LISTEN did not return after cancel")
+	}
+}
+
+// TestUDPListenForkEXECDistinctOutputs uses EXEC (not CREATE,fork) so each
+// peer session writes a separate file named from SOCAT_PEERPORT.
+func TestUDPListenForkEXECDistinctOutputs(t *testing.T) {
+	if !xio.FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	ctx, g := testCtx(t), testGlobal()
+	dir := t.TempDir()
+	outDir := filepath.Join(dir, "out")
+	if err := os.Mkdir(outDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(dir, "save.sh")
+	body := "#!/bin/sh\nIFS= read -r line || true\nprintf '%s\\n' \"$line\" > \"" + outDir + "/$SOCAT_PEERPORT\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	srv := startListenRight(t, ctx, g,
+		"UDP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1",
+		"EXEC:"+script)
+	dst := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: listenerPort(t, srv)}
+	send := func(payload string) int {
+		t.Helper()
+		c, err := net.DialUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}, dst)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = c.Close() })
+		if _, err := c.Write([]byte(payload + "\n")); err != nil {
+			t.Fatal(err)
+		}
+		return c.LocalAddr().(*net.UDPAddr).Port
+	}
+	portA := send("from-a")
+	portB := send("from-b")
+	waitFile := func(port int, want string) {
+		t.Helper()
+		path := filepath.Join(outDir, fmt.Sprintf("%d", port))
+		deadline := time.Now().Add(4 * time.Second)
+		var last string
+		for time.Now().Before(deadline) {
+			b, err := os.ReadFile(path)
+			if err == nil && string(b) == want+"\n" {
+				return
+			}
+			if err == nil {
+				last = string(b)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		t.Fatalf("%s got %q want %q", path, last, want+"\n")
+	}
+	waitFile(portA, "from-a")
+	waitFile(portB, "from-b")
 }
 
 // IP4-RECVFROM buffers the first datagram while opening, same as UDP-LISTEN
