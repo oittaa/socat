@@ -302,7 +302,7 @@ func TestSocketRecvfromForkEXECPeerAddr(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "peers")
 	script := filepath.Join(dir, "record.sh")
-	body := "#!/bin/sh\nprintf '%s\\n' \"$SOCAT_PEERADDR\" >> \"$1\"\n"
+	body := "#!/bin/sh\nprintf '%s:%s\\n' \"$SOCAT_PEERADDR\" \"$SOCAT_PEERPORT\" >> \"$1\"\n"
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -319,10 +319,10 @@ func TestSocketRecvfromForkEXECPeerAddr(t *testing.T) {
 	}()
 	port := waitBoundPort(t, bound, done)
 
-	send := func(src net.IP) {
+	send := func() {
 		t.Helper()
 		deadline := time.Now().Add(4 * time.Second)
-		laddr := &net.UDPAddr{IP: src, Port: 0}
+		laddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}
 		raddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}
 		var client *net.UDPConn
 		for time.Now().Before(deadline) {
@@ -340,24 +340,26 @@ func TestSocketRecvfromForkEXECPeerAddr(t *testing.T) {
 			break
 		}
 		if client == nil {
-			t.Fatalf("could not dial UDP from %s", src)
+			t.Fatal("could not dial UDP from loopback")
 		}
-		defer func() { _ = client.Close() }()
+		t.Cleanup(func() { _ = client.Close() })
+		peer := client.LocalAddr().String()
 		for time.Now().Before(deadline) {
 			if _, err := client.Write([]byte("pkt")); err != nil {
 				t.Fatal(err)
 			}
 			time.Sleep(30 * time.Millisecond)
 			data, err := os.ReadFile(out)
-			if err == nil && strings.Contains(string(data), src.String()) {
+			if err == nil && strings.Contains(string(data), peer) {
 				return
 			}
 		}
-		t.Fatalf("EXEC did not record SOCAT_PEERADDR for %s", src)
+		data, _ := os.ReadFile(out)
+		t.Fatalf("EXEC did not record peer %s; got %q", peer, data)
 	}
 
-	send(net.IPv4(127, 1, 0, 1))
-	send(net.IPv4(127, 2, 0, 1))
+	send()
+	send()
 	cancel()
 	select {
 	case err := <-done:

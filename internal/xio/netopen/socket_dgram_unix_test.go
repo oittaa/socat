@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"sync"
 	"syscall"
 	"testing"
@@ -99,6 +100,16 @@ func readSocketDeadline(t *testing.T, r io.Reader, timeout time.Duration) ([]byt
 	return append([]byte(nil), buf[:n]...), nil
 }
 
+func listenSocketTestUDP(t *testing.T) *net.UDPConn {
+	t.Helper()
+	c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	return c
+}
+
 func TestSendtoPeerMatchesIPv4Padding(t *testing.T) {
 	ip := [4]byte{127, 0, 0, 1}
 	peer := &unix.SockaddrInet4{Port: 9, Addr: ip}
@@ -154,11 +165,7 @@ func TestSocketDatagramStaysUnconnectedAndAcceptsOtherSender(t *testing.T) {
 	assertUnconnected(t, o.Stream)
 	port := dgramPort(t, o.Stream)
 
-	src, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 1, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = src.Close() })
+	src := listenSocketTestUDP(t)
 	if _, err := src.WriteTo([]byte("from-other"), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}); err != nil {
 		t.Fatal(err)
 	}
@@ -170,11 +177,7 @@ func TestSocketDatagramStaysUnconnectedAndAcceptsOtherSender(t *testing.T) {
 		t.Fatalf("DATAGRAM read %q want from-other (must stay unconnected)", got)
 	}
 
-	dest, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = dest.Close() })
+	dest := listenSocketTestUDP(t)
 	dport := dest.LocalAddr().(*net.UDPAddr).Port
 	writer := openSocketKind(t, socketDgramSpec("SOCKET-DATAGRAM", unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP,
 		ipv4SocketHex(dport, [4]byte{127, 0, 0, 1}),
@@ -194,11 +197,7 @@ func TestSocketDatagramStaysUnconnectedAndAcceptsOtherSender(t *testing.T) {
 }
 
 func TestSocketSendtoIgnoresWrongPeerAndAcceptsPaddedReply(t *testing.T) {
-	dest, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = dest.Close() })
+	dest := listenSocketTestUDP(t)
 	dport := dest.LocalAddr().(*net.UDPAddr).Port
 
 	o := openSocketKind(t, socketDgramSpec("SOCKET-SENDTO", unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP,
@@ -207,11 +206,7 @@ func TestSocketSendtoIgnoresWrongPeerAndAcceptsPaddedReply(t *testing.T) {
 	assertUnconnected(t, o.Stream)
 	sport := dgramPort(t, o.Stream)
 
-	wrong, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 1, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = wrong.Close() })
+	wrong := listenSocketTestUDP(t)
 	if _, err := wrong.WriteTo([]byte("nope"), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: sport}); err != nil {
 		t.Fatal(err)
 	}
@@ -232,16 +227,12 @@ func TestSocketDatagramRangeFilter(t *testing.T) {
 		ipv4SocketHex(9, [4]byte{127, 0, 0, 1}),
 		"bind="+ipv4SocketHex(0, [4]byte{127, 0, 0, 1})+",range=10.0.0.0/8"), xio.ModeRDWR)
 	port := dgramPort(t, denied.Stream)
-	src, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 1, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = src.Close() })
+	src := listenSocketTestUDP(t)
 	if _, err := src.WriteTo([]byte("nope"), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := readSocketDeadline(t, denied.Stream, 200*time.Millisecond); err == nil {
-		t.Fatal("range=10.0.0.0/8 accepted a 127.1.0.1 sender")
+		t.Fatal("range=10.0.0.0/8 accepted a loopback sender")
 	}
 
 	allowed := openSocketKind(t, socketDgramSpec("SOCKET-DATAGRAM", unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP,
@@ -331,11 +322,7 @@ func TestSocketRecvRangeFilter(t *testing.T) {
 	o := openSocketKind(t, socketDgramSpec("SOCKET-RECV", unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP,
 		ipv4SocketHex(0, [4]byte{127, 0, 0, 1}), "range=127.0.0.0/8"), xio.ModeRead)
 	port := dgramPort(t, o.Stream)
-	src, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 1, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = src.Close() })
+	src := listenSocketTestUDP(t)
 	if _, err := src.WriteTo([]byte("ok-recv"), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}); err != nil {
 		t.Fatal(err)
 	}
@@ -378,11 +365,8 @@ func TestSocketRecvfromNonForkOneShotAndPeerAddr(t *testing.T) {
 		t.Fatal("SOCKET-RECVFROM did not bind")
 	}
 	port := dgramPort(t, addr)
-	src, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 1, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = src.Close() })
+	src := listenSocketTestUDP(t)
+	srcPort := src.LocalAddr().(*net.UDPAddr).Port
 	payload := []byte("oneshot")
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
@@ -399,8 +383,8 @@ func TestSocketRecvfromNonForkOneShotAndPeerAddr(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	if g.PeerAddr != "127.1.0.1" {
-		t.Fatalf("SOCAT_PEERADDR=%q want 127.1.0.1", g.PeerAddr)
+	if g.PeerAddr != "127.0.0.1" || g.PeerPort != strconv.Itoa(srcPort) {
+		t.Fatalf("peer=%s:%s want 127.0.0.1:%d", g.PeerAddr, g.PeerPort, srcPort)
 	}
 	got, err := readSocketDeadline(t, o.Stream, 2*time.Second)
 	if err != nil {
@@ -418,7 +402,7 @@ func TestSocketRecvfromNonForkOneShotAndPeerAddr(t *testing.T) {
 func TestSocketRecvfromRangeFilter(t *testing.T) {
 	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
 	spec := mustSocketSpec(t, socketDgramSpec("SOCKET-RECVFROM", unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP,
-		ipv4SocketHex(0, [4]byte{127, 0, 0, 1}), "reuseaddr,range=127.1.0.0/24"))
+		ipv4SocketHex(0, [4]byte{127, 0, 0, 1}), "reuseaddr,range=127.0.0.1/32"))
 	bound := make(chan net.Addr, 1)
 	var boundOnce sync.Once
 	defer xio.SetListenBoundTestHook(func(addr net.Addr) {
@@ -445,23 +429,14 @@ func TestSocketRecvfromRangeFilter(t *testing.T) {
 		t.Fatal("SOCKET-RECVFROM did not bind")
 	}
 	port := dgramPort(t, addr)
-	denied, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 2, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = denied.Close() })
-	allowed, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 1, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = allowed.Close() })
+	allowed := listenSocketTestUDP(t)
+	allowedPort := allowed.LocalAddr().(*net.UDPAddr).Port
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 	var o *xio.Opened
 	for o == nil {
 		select {
 		case <-ticker.C:
-			_, _ = denied.WriteTo([]byte("nope"), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
 			_, _ = allowed.WriteTo([]byte("ok-from"), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
 		case err := <-errc:
 			t.Fatal(err)
@@ -471,8 +446,8 @@ func TestSocketRecvfromRangeFilter(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	if g.PeerAddr != "127.1.0.1" {
-		t.Fatalf("SOCAT_PEERADDR=%q want 127.1.0.1", g.PeerAddr)
+	if g.PeerAddr != "127.0.0.1" || g.PeerPort != strconv.Itoa(allowedPort) {
+		t.Fatalf("peer=%s:%s want 127.0.0.1:%d", g.PeerAddr, g.PeerPort, allowedPort)
 	}
 	got, err := readSocketDeadline(t, o.Stream, 2*time.Second)
 	if err != nil {
@@ -483,14 +458,14 @@ func TestSocketRecvfromRangeFilter(t *testing.T) {
 	}
 }
 
-func TestSocketRecvfromCanceledWhileWaiting(t *testing.T) {
+func TestSocketRecvfromCanceledAfterRejectedPeer(t *testing.T) {
 	spec := mustSocketSpec(t, socketDgramSpec("SOCKET-RECVFROM", unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP,
-		ipv4SocketHex(0, [4]byte{127, 0, 0, 1}), "reuseaddr"))
+		ipv4SocketHex(0, [4]byte{127, 0, 0, 1}), "reuseaddr,range=192.0.2.0/24"))
 	ctx, cancel := context.WithCancel(context.Background())
-	bound := make(chan struct{})
+	bound := make(chan net.Addr, 1)
 	var boundOnce sync.Once
-	defer xio.SetListenBoundTestHook(func(net.Addr) {
-		boundOnce.Do(func() { close(bound) })
+	defer xio.SetListenBoundTestHook(func(addr net.Addr) {
+		boundOnce.Do(func() { bound <- addr })
 	})()
 	done := make(chan error, 1)
 	go func() {
@@ -498,11 +473,20 @@ func TestSocketRecvfromCanceledWhileWaiting(t *testing.T) {
 		done <- err
 	}()
 	select {
-	case <-bound:
+	case addr := <-bound:
+		src := listenSocketTestUDP(t)
+		if _, err := src.WriteTo([]byte("denied"), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: dgramPort(t, addr)}); err != nil {
+			t.Fatal(err)
+		}
 	case err := <-done:
 		t.Fatalf("recvfrom ended before bind: %v", err)
 	case <-time.After(3 * time.Second):
 		t.Fatal("SOCKET-RECVFROM did not bind")
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("recvfrom accepted a peer outside range: %v", err)
+	case <-time.After(100 * time.Millisecond):
 	}
 	cancel()
 	select {
@@ -545,11 +529,8 @@ func TestSocketRecvfromForkSessionsAndMaxChildren(t *testing.T) {
 		}
 		firstCh <- c
 	}()
-	src, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 1, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = src.Close() })
+	src := listenSocketTestUDP(t)
+	srcPort := src.LocalAddr().(*net.UDPAddr).Port
 	payload := []byte("fork1")
 	deadline := time.Now().Add(4 * time.Second)
 	var first net.Conn
@@ -567,13 +548,39 @@ func TestSocketRecvfromForkSessionsAndMaxChildren(t *testing.T) {
 		t.Fatal("timed out accepting first RECVFROM fork session")
 	}
 	t.Cleanup(func() { _ = first.Close() })
-	if ra, ok := first.RemoteAddr().(*net.UDPAddr); !ok || ra.IP.String() != "127.1.0.1" {
-		t.Fatalf("RemoteAddr=%v want 127.1.0.1", first.RemoteAddr())
+	if ra, ok := first.RemoteAddr().(*net.UDPAddr); !ok || !ra.IP.Equal(net.IPv4(127, 0, 0, 1)) || ra.Port != srcPort {
+		t.Fatalf("RemoteAddr=%v want 127.0.0.1:%d", first.RemoteAddr(), srcPort)
 	}
 	buf := make([]byte, 16)
 	n, err := first.Read(buf)
 	if err != nil || string(buf[:n]) != "fork1" {
 		t.Fatalf("first session n=%d err=%v data=%q", n, err, buf[:n])
+	}
+}
+
+func TestSocketRecvfromForkAppliesParentDescriptorOptions(t *testing.T) {
+	var ops []string
+	restore := xio.InstallLifecycleSyscallHook(func(op string) { ops = append(ops, op) })
+	t.Cleanup(restore)
+	spec := mustSocketSpec(t, socketDgramSpec("SOCKET-RECVFROM", unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP,
+		ipv4SocketHex(0, [4]byte{127, 0, 0, 1}), "fork,append,sndbuf-late=65536"))
+	o, err := openSocketRecvfrom(context.Background(), spec, xio.ModeRDWR, useGlobal())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	ln, ok := o.Listener.(*socketRecvfromListener)
+	if !ok {
+		t.Fatalf("Listener=%T want *socketRecvfromListener", o.Listener)
+	}
+	if got := packetSockoptInt(t, ln.f, unix.SO_SNDBUF); got < 65536 {
+		t.Fatalf("SO_SNDBUF=%d want >= 65536", got)
+	}
+	if packetFcntlFlags(t, ln.f)&unix.O_APPEND == 0 {
+		t.Fatal("append did not reach the shared listener fd")
+	}
+	if n := countLifecycleOp(ops, "F_SETFL"); n != 1 {
+		t.Fatalf("F_SETFL count=%d want 1 (ops=%v)", n, ops)
 	}
 }
 

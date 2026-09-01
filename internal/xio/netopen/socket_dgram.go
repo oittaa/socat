@@ -114,6 +114,7 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 	if !from && mode == xio.ModeWrite {
 		return nil, fmt.Errorf("%s is read-only", s.Type)
 	}
+	fork := from && s.BoolOption("fork")
 	c, err := parseSocketDgramCall(s)
 	if err != nil {
 		return nil, err
@@ -150,6 +151,16 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
+	if fork {
+		if err := xio.ApplyFDLifecycleOnFD(fd, s); err != nil {
+			logx.CloseErr(unix.Close(fd))
+			return nil, err
+		}
+		if err := xio.ApplyLateSocketOptions(fd, s); err != nil {
+			logx.CloseErr(unix.Close(fd))
+			return nil, err
+		}
+	}
 	f, err := fileFromFD(fd, "socket-recv")
 	if err != nil {
 		return nil, err
@@ -157,7 +168,7 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 	local := filePacketAddr(f)
 	xio.NoteListenBound(local)
 
-	if from && s.BoolOption("fork") {
+	if fork {
 		return openSocketRecvfromFork(ctx, s, g, f, filter)
 	}
 	if from {
@@ -192,7 +203,6 @@ func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f 
 	}
 	ln := &socketRecvfromListener{
 		f:          f,
-		spec:       s,
 		g:          g,
 		ctx:        ctx,
 		filter:     filter,
@@ -204,7 +214,7 @@ func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f 
 		Label:       s.Type,
 		MaxChildren: maxChildren,
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
+			return xio.WrapCommonAfterConnectedFDLifecycleApplied(s, relay.NetStream{Conn: c})
 		},
 	}, nil
 }
@@ -647,7 +657,6 @@ func (r *socketRecvfromStream) NetConn() net.Conn {
 
 type socketRecvfromListener struct {
 	f          *os.File
-	spec       parse.Spec
 	g          *xio.Global
 	ctx        context.Context
 	filter     *xio.PeerFilter
