@@ -536,6 +536,22 @@ func tcpStreamAddressTypes() []string {
 	}
 }
 
+func backlogListenAddressTypes() []string {
+	return []string{
+		"TCP-LISTEN", "TCP-L", "TCP4-LISTEN", "TCP4-L", "TCP6-LISTEN", "TCP6-L",
+		"UNIX-LISTEN", "UNIX-L",
+		"ABSTRACT-LISTEN", "ABSTRACT-L",
+		"TLS-LISTEN", "TLS-L",
+		"OPENSSL-LISTEN", "OPENSSL-L",
+		"SSL-LISTEN", "SSL-L",
+		"WS-LISTEN", "WS-L",
+		"WSS-LISTEN", "WSS-L",
+		"SOCKET-LISTEN",
+		"SCTP-LISTEN", "SCTP-L", "SCTP4-LISTEN", "SCTP4-L", "SCTP6-LISTEN", "SCTP6-L",
+		"VSOCK-LISTEN", "VSOCK-L",
+	}
+}
+
 func resolverImplementationGroups() []string {
 	return []string{
 		xio.GroupTCP,

@@ -14,11 +14,7 @@ func listenOptionGroups() []helpOptGroup {
 			{name: "connect-timeout", optionCaps: capSocket, desc: "connect timeout", validate: validateDurationOption},
 			{name: "handshake-timeout", desc: "TLS, WebSocket, QUIC, PROXY, or SOCKS handshake timeout", addressTypes: handshakeAddressTypes(), validate: validateDurationOption},
 			{name: "accept-timeout", optionCaps: capListen, desc: "listen accept timeout (exit 0)", aliases: []string{"listen-timeout"}, validate: validateDurationOption},
-			{name: "backlog", optionCaps: capListen, desc: "listen backlog", addressTypes: []string{
-				"TCP-LISTEN", "TCP-L", "TCP4-LISTEN", "TCP4-L", "TCP6-LISTEN", "TCP6-L",
-				"SOCKET-LISTEN", "SCTP-LISTEN", "SCTP-L", "SCTP4-LISTEN", "SCTP4-L", "SCTP6-LISTEN", "SCTP6-L",
-				"VSOCK-LISTEN", "VSOCK-L",
-			}, validate: validateInteger(1)},
+			{name: "backlog", optionCaps: capListen, desc: "listen backlog", addressTypes: backlogListenAddressTypes(), validate: validateInteger(1)},
 			{name: "pf", optionCaps: capSocket, desc: "address family (4, 6, IP4, IP6, …)", aliases: []string{"protocol-family"}},
 			{name: "ai-addrconfig", optionCaps: capIP4IP6, desc: "skip addresses whose family is not configured on this host (default on without a family hint; =0 disables)", aliases: []string{"addrconfig"}, addressTypes: resolverAddressTypes(), implementationGroups: resolverImplementationGroups(), validate: validateOptionalBool},
 			{name: "ai-passive", optionCaps: capIP4IP6, desc: "use wildcard addresses for listen/bind (default); =0 uses loopback, and dual-stack connect prefers IPv6", aliases: []string{"passive"}, addressTypes: resolverAddressTypes(), implementationGroups: resolverImplementationGroups(), validate: validateOptionalBool},

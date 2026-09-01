@@ -24,7 +24,14 @@ func listenUnixNetwork(ctx context.Context, s parse.Spec, network, path string) 
 		ln, e = lc.Listen(ctx, network, path)
 		return e
 	})
-	return ln, err
+	if err != nil {
+		return nil, err
+	}
+	if err := xio.ApplyListenBacklogFromSpec(ln, s); err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
+	return ln, nil
 }
 
 func dialUnixSocklen(ctx context.Context, s parse.Spec, g *xio.Global, network, path, bindPath string) (net.Conn, error) {

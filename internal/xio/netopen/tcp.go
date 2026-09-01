@@ -115,16 +115,9 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	if err != nil {
 		return nil, err
 	}
-	if value := s.OptionValue("backlog", ""); value != "" {
-		backlog, parseErr := xio.ParseIntAny(value)
-		if parseErr != nil || backlog <= 0 {
-			logx.CloseQuiet(ln)
-			return nil, fmt.Errorf("backlog: invalid value %q", value)
-		}
-		if err := xio.ApplyListenBacklog(ln, backlog); err != nil {
-			logx.CloseQuiet(ln)
-			return nil, fmt.Errorf("backlog: %w", err)
-		}
+	if err := xio.ApplyListenBacklogFromSpec(ln, s); err != nil {
+		logx.CloseQuiet(ln)
+		return nil, err
 	}
 
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
