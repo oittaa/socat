@@ -102,7 +102,7 @@ func TestUnlinkIfSameFilePreservesReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !snapshotRegisteredIdentity(info) {
+	if !SnapshotFileIdentity(info) {
 		t.Fatal("could not snapshot identity")
 	}
 	replaceAtPath(t, path, []byte("replacement"), 0o600)
@@ -125,7 +125,7 @@ func TestUnlinkIfSameFileRemovesOriginal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !snapshotRegisteredIdentity(info) {
+	if !SnapshotFileIdentity(info) {
 		t.Fatal("could not snapshot identity")
 	}
 	UnlinkIfSameFile(path, info)

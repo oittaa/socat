@@ -609,7 +609,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	usePty := execUsesPTY(s)
 	// Forked EXEC/SYSTEM/SHELL defaults to socketpair, including unidirectional
 	// mode and fdin/fdout. fdin/fdout only change Dup2 targets. pipes and
-	// pty/ptmx are user-selected transports; pipes+pty ignores pipes.
+	// pty/ptmx/openpty are user-selected transports; pipes+pty ignores pipes.
 	usePipes := userPipes
 	if usePipes && usePty {
 		if g != nil && g.Log != nil {
@@ -1021,14 +1021,13 @@ func setCloexecAllFrom(from int) {
 }
 
 // execUsesPTY reports whether EXEC/SYSTEM/SHELL should use a PTY instead of
-// the default socketpair. pty and ptmx select that transport.
+// the default socketpair.
 func execUsesPTY(s parse.Spec) bool {
-	return s.BoolOption("pty") || s.BoolOption("ptmx")
+	return s.BoolOption("pty") || s.BoolOption("ptmx") || s.BoolOption("openpty")
 }
 
 // rejectExecUnsupportedPTYOptions rejects wait-slave / pty-interval on
-// EXEC/SYSTEM/SHELL. Those options apply only to the PTY address. openpty is
-// rejected in OpenSpec for every address.
+// EXEC/SYSTEM/SHELL. Those options apply only to the PTY address.
 func rejectExecUnsupportedPTYOptions(s parse.Spec) error {
 	for _, name := range []string{"pty-wait-slave", "pty-interval"} {
 		if o, ok := s.OptionNamed(name); ok {
@@ -1038,11 +1037,8 @@ func rejectExecUnsupportedPTYOptions(s parse.Spec) error {
 	return nil
 }
 
-// applyExecPtySession honors setsid and ctty independently. pty does not
-// start a session. ctty is opt-in and does not imply setsid. Go's Setctty
-// treats a failed TIOCSCTTY as a hard Start error, so ctty without setsid is
-// skipped and warned (the ioctl would fail because the child is not a
-// session leader).
+// applyExecPtySession applies explicit setsid/ctty requests. TIOCSCTTY cannot
+// succeed without a new session, so ctty alone warns and leaves it unchanged.
 func applyExecPtySession(cmd *exec.Cmd, s parse.Spec, g *Global) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}

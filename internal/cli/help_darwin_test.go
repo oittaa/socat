@@ -44,7 +44,6 @@ func TestDarwinHelpHidesLinuxSCTP(t *testing.T) {
 		"setgid", "setgid-early", "setuid", "setuid-early",
 		"substuser", "su", "substuser-delayed", "su-d", "substuser-early", "su-e",
 		"tabdly", "xtabs", "vswtc", "swtc", "swtch", "iuclc", "olcuc", "xcase",
-		"openpty",
 	} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("unsupported or Linux-only option %q must not be advertised on %s", name, runtime.GOOS)

@@ -8,17 +8,6 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// RejectUnsupportedOpenpty rejects the openpty selector. PTY allocation is
-// /dev/ptmx via pty or ptmx; a distinct openpty mechanism is not implemented.
-func RejectUnsupportedOpenpty(s parse.Spec) error {
-	for _, name := range []string{"openpty"} {
-		if o, ok := s.OptionNamed(name); ok {
-			return fmt.Errorf("%s: %s is not supported", s.Type, o.OriginalSpelling())
-		}
-	}
-	return nil
-}
-
 // CreatePtySlaveLink creates link= / symbolic-link as a symlink to the PTY
 // slave. The returned cleanup unlinks only the symlink this call created.
 func CreatePtySlaveLink(s parse.Spec, slaveName string) (func(), error) {
@@ -36,12 +25,15 @@ func CreatePtySlaveLink(s parse.Spec, slaveName string) (func(), error) {
 	if err := os.Symlink(slaveName, path); err != nil {
 		return func() {}, fmt.Errorf("link: %w", err)
 	}
+	if s.HasOption("unlink-close") && !s.BoolOption("unlink-close") {
+		return func() {}, nil
+	}
 	info, err := os.Lstat(path)
 	if err != nil {
 		_ = Unlink(path)
 		return func() {}, fmt.Errorf("link: %w", err)
 	}
-	if !snapshotRegisteredIdentity(info) {
+	if !SnapshotFileIdentity(info) {
 		_ = Unlink(path)
 		return func() {}, fmt.Errorf("link: cannot identify %s", path)
 	}

@@ -415,9 +415,6 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 	if err := RejectUnsupportedRemainingIPv4(s); err != nil {
 		return nil, err
 	}
-	if err := RejectUnsupportedOpenpty(s); err != nil {
-		return nil, err
-	}
 	// lockfile=/waitlock= after chdir= rewrite and before the opener so a
 	// failed open still releases.
 	release, err := applyAddressLock(ctx, s)

@@ -214,8 +214,6 @@ var dynamicallyReadOptions = map[string]string{
 	"crorlf":     "xio/stream.go selectedLineTerm",
 }
 
-// compatNoOptions are advertised deliberately as classic-compat spellings
-// whose acceptance is the feature; nothing reads them.
 // recognizedUnsupportedOptions are deliberately accepted so the relevant
 // opener can return a precise "not supported" error; helpOptionGroups keeps the
 // authoritative list and routes them to that error.
@@ -240,8 +238,6 @@ var recognizedUnsupportedOptions = map[string]string{
 	"pktoptions":          "IP_PKTOPTIONS is get-only; rejected instead of a setter no-op",
 	"pktopts":             "IP_PKTOPTIONS is get-only; rejected instead of a setter no-op",
 }
-
-var compatNoOptions = map[string]string{}
 
 type consumedSite struct {
 	pkg  string
@@ -369,9 +365,6 @@ func TestOptionTableContract(t *testing.T) {
 		if _, ok := termiosNames[name]; ok {
 			continue
 		}
-		if _, ok := compatNoOptions[name]; ok {
-			continue
-		}
 		if _, ok := recognizedUnsupportedOptions[name]; ok {
 			continue
 		}
@@ -379,7 +372,7 @@ func TestOptionTableContract(t *testing.T) {
 	}
 	if len(unconsumed) > 0 {
 		sort.Strings(unconsumed)
-		t.Errorf("advertised options with no implementation consumer; implement, fold into dynamicallyReadOptions, or list in compatNoOptions:\n  %s",
+		t.Errorf("advertised options with no implementation consumer; implement, fold into dynamicallyReadOptions, or list in recognizedUnsupportedOptions:\n  %s",
 			strings.Join(unconsumed, "\n  "))
 	}
 

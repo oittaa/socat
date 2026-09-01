@@ -232,7 +232,7 @@ func TestPTYLinkPreservesReplacement(t *testing.T) {
 	}
 }
 
-func TestEXECPtmxSelectsPTY(t *testing.T) {
+func TestEXECPtmxAndOpenptySelectPTY(t *testing.T) {
 	if !FeaturePTY {
 		t.Skip("PTY not enabled")
 	}
@@ -240,11 +240,18 @@ func TestEXECPtmxSelectsPTY(t *testing.T) {
 	if got := readExecPtyStdout(t, "EXEC:"+bin); got != "notty" {
 		t.Fatalf("default transport got %q want notty", got)
 	}
-	for _, opt := range []string{"pty", "ptmx"} {
+	for _, opt := range []string{"pty", "ptmx", "openpty"} {
 		t.Run(opt, func(t *testing.T) {
 			got := readExecPtyStdout(t, "EXEC:"+bin+","+opt+",rawer,echo=0")
 			if got != "tty" {
 				t.Fatalf("%s transport got %q want tty", opt, got)
+			}
+		})
+	}
+	for _, opt := range []string{"pty=0", "ptmx=0", "openpty=0"} {
+		t.Run(opt, func(t *testing.T) {
+			if got := readExecPtyStdout(t, "EXEC:"+bin+","+opt); got != "notty" {
+				t.Fatalf("%s transport got %q want notty", opt, got)
 			}
 		})
 	}

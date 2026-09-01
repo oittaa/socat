@@ -225,7 +225,6 @@ silently emulated with a different protocol.
 | Read-only, obsolete, or structurally unsafe socket options | Rejected rather than advertised as setters. This includes get-only socket state and options that require structures the classic integer syntax cannot represent safely. |
 | `ip-recverr` / `ipv6-recverr` | Not advertised because the relay does not consume the kernel error queue. |
 | `udp-ignore-peerport` | Not implemented because classic documents the name but does not expose or implement it. UDP datagram receive behavior follows the working classic implementation. |
-| `openpty` | Not implemented. Use `pty` or `ptmx`, which allocate via `/dev/ptmx`. |
 
 Go's TLS defaults also intentionally keep TLS compression disabled. The
 accepted `openssl-compress=none` spelling can be used by compatible command

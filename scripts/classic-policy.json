@@ -66,8 +66,7 @@
     "res-recurse": "does not mutate process-global resolver state",
     "res-stayopen": "does not mutate process-global resolver state",
     "res-retrans": "does not mutate process-global resolver timing",
-    "res-retry": "does not mutate process-global resolver retry count",
-    "openpty": "openpty(3) is not implemented; use pty or ptmx"
+    "res-retry": "does not mutate process-global resolver retry count"
   },
   "foreign_options": {
     "rfc1323": "compile-gated; not a linux/darwin/windows requirement",

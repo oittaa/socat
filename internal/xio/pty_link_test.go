@@ -54,6 +54,23 @@ func TestCreatePtySlaveLinkPreservesReplacement(t *testing.T) {
 	}
 }
 
+func TestCreatePtySlaveLinkHonorsUnlinkCloseFalse(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "link")
+	spec, err := parse.ParseSpec("PTY,link=" + path + ",unlink-close=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup, err := CreatePtySlaveLink(spec, "/dev/pts/0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanup()
+	UnlinkRegisteredPaths()
+	if _, err := os.Lstat(path); err != nil {
+		t.Fatalf("unlink-close=0 removed link: %v", err)
+	}
+}
+
 func TestCreatePtySlaveLinkSignalSweepPreservesReplacement(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "link")
 	spec, err := parse.ParseSpec("PTY,link=" + path)
