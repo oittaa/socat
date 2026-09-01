@@ -623,20 +623,20 @@ func TestUDPListenNonForkEmptyFirstNullEOF(t *testing.T) {
 	}
 }
 
-func TestUDPListenIgnoresEmptyOpener(t *testing.T) {
+func TestUDPListenEmptyOpenerIsEOF(t *testing.T) {
 	t.Run("nonfork", func(t *testing.T) {
 		o, _ := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1", nil, []byte("hello"))
 		got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
-		if err != nil || got != "hello" {
-			t.Fatalf("got %q err=%v want hello", got, err)
+		if !errors.Is(err, io.EOF) || got != "" {
+			t.Fatalf("got %q err=%v want EOF", got, err)
 		}
 	})
 
 	t.Run("fork", func(t *testing.T) {
 		st, _ := openForkUDP4ListenStream(t, "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork", nil, []byte("hello"))
 		got, err := readStreamTimeout(t, st, 2*time.Second)
-		if err != nil || got != "hello" {
-			t.Fatalf("got %q err=%v want hello", got, err)
+		if !errors.Is(err, io.EOF) || got != "" {
+			t.Fatalf("got %q err=%v want EOF", got, err)
 		}
 	})
 }
@@ -665,13 +665,12 @@ func TestUDPListenForkEmptyFirstNullEOF(t *testing.T) {
 }
 
 func TestUDPListenForkConnectedEmptyDatagramIsEOF(t *testing.T) {
-	st, client := openForkUDP4ListenStream(t, "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork", []byte("hello"))
+	// Send the payload and shut-null packet before Accept returns. The fork
+	// handoff must keep both queued on the connected session socket.
+	st, _ := openForkUDP4ListenStream(t, "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork", []byte("hello"), nil)
 	got, err := readStreamTimeout(t, st, 2*time.Second)
 	if err != nil || got != "hello" {
 		t.Fatalf("first got %q err=%v want hello", got, err)
-	}
-	if _, err := client.Write(nil); err != nil {
-		t.Fatal(err)
 	}
 	got, err = readStreamTimeout(t, st, 2*time.Second)
 	if !errors.Is(err, io.EOF) || got != "" {

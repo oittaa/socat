@@ -40,6 +40,16 @@ type udpDispatchListener struct {
 
 func udpForkSharesListenSocket() bool { return true }
 
+func udpForkUsesPeekDial() bool { return false }
+
+func readUDPForkOpener(pc *net.UDPConn, p []byte, wantCtrl bool, oobBuffer []byte, _ bool) (int, []byte, *net.UDPAddr, error) {
+	return xio.ReadUDPMsgWithBuffer(pc, p, wantCtrl, oobBuffer)
+}
+
+func readQueuedUDPForkPacket(_ *net.UDPConn, _ []byte, _ bool, _ []byte) (int, []byte, *net.UDPAddr, bool, error) {
+	return 0, nil, nil, false, nil
+}
+
 func newUDPListenForkListener(base *udpForkListener) net.Listener {
 	l := &udpDispatchListener{
 		base:         base,
@@ -198,10 +208,6 @@ func (l *udpDispatchListener) readLoop() {
 		if child != nil && child.enqueue(packet) {
 			continue
 		}
-		if xio.IgnoreEmptyDatagram(rn, nil, l.base.spec.BoolOption("null-eof")) {
-			continue
-		}
-
 		session := &xio.Global{}
 		if l.base.g != nil {
 			session.Log = l.base.g.Log
