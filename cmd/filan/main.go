@@ -27,7 +27,6 @@ type filanConfig struct {
 	followSymlinks bool
 	rawOutput      bool
 	style          int
-	singleFD       bool
 	winch          bool
 	m, n           int
 	filename       string
@@ -102,7 +101,6 @@ func runWithIO(args []string, stdout, stderr io.Writer) int {
 				return 1
 			}
 			cfg.m, cfg.n = fd, fd
-			cfg.singleFD = true
 		case strings.HasPrefix(a, "-n"):
 			v, err := takeArg(a, "n", args, &i)
 			if err != nil {
@@ -236,7 +234,13 @@ func (cfg *filanConfig) debugf(format string, args ...any) {
 func (cfg *filanConfig) analyzeOnce(out, stderr io.Writer) error {
 	var report outbuf.Buf
 	if cfg.filename != "" {
-		if err := cfg.filanFile(cfg.filename, &report); err != nil {
+		var err error
+		if cfg.style == styleSimple || cfg.style == styleLong {
+			err = cfg.fdnamePath(cfg.filename, &report)
+		} else {
+			err = cfg.filanFile(cfg.filename, &report)
+		}
+		if err != nil {
 			if err := writeMsg(stderr, "filan: %v\n", err); err != nil {
 				return err
 			}
@@ -246,11 +250,10 @@ func (cfg *filanConfig) analyzeOnce(out, stderr io.Writer) error {
 	}
 
 	lo, hi := cfg.m, cfg.n
-	if cfg.singleFD {
+	one := lo == hi
+	if one {
+		// After parsing, m == n means analyze one descriptor (-i3, or -n0).
 		hi = lo + 1
-	} else if hi == 0 {
-		// -n0 analyzes fd 0 only; test.sh greps stdin pipe capacity.
-		hi = 1
 	}
 	// Header line; test.sh LISTEN_KEEPALIVE skips it with tail -n +2.
 	if cfg.style == styleDetailed {
@@ -258,7 +261,7 @@ func (cfg *filanConfig) analyzeOnce(out, stderr io.Writer) error {
 	}
 	for fd := lo; fd < hi; fd++ {
 		if cfg.style == styleSimple || cfg.style == styleLong {
-			cfg.fdname(fd, &report)
+			cfg.fdname(fd, &report, !one)
 		} else {
 			cfg.filanFD(fd, &report)
 		}
@@ -546,7 +549,20 @@ func netIPv6(b [16]byte) string {
 	)
 }
 
-func (cfg *filanConfig) fdname(fd int, b *outbuf.Buf) {
+func (cfg *filanConfig) fdnamePath(path string, b *outbuf.Buf) error {
+	var st unix.Stat_t
+	if err := unix.Stat(path, &st); err != nil {
+		return err
+	}
+	typ := fileTypeString(uint32(st.Mode))
+	if st.Mode&unix.S_IFMT == unix.S_IFLNK {
+		typ = "link"
+	}
+	b.Printf("%s %s\n", typ, path)
+	return nil
+}
+
+func (cfg *filanConfig) fdname(fd int, b *outbuf.Buf, numbered bool) {
 	cfg.debugf("checking file descriptor %d", fd)
 	var st unix.Stat_t
 	if err := unix.Fstat(fd, &st); err != nil {
@@ -566,7 +582,11 @@ func (cfg *filanConfig) fdname(fd int, b *outbuf.Buf) {
 	if fd >= 3 && isRuntimeNoisePath(path) {
 		return
 	}
-	b.Printf("%5d %s %s\n", fd, typ, path)
+	if numbered {
+		b.Printf("%5d %s %s\n", fd, typ, path)
+		return
+	}
+	b.Printf("%s %s\n", typ, path)
 }
 
 func socketTypeName(stype int) string {

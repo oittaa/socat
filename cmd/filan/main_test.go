@@ -44,6 +44,107 @@ func TestRunAnalyzesFile(t *testing.T) {
 	}
 }
 
+func TestRunSimpleAndLongFileStyle(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sample.txt")
+	if err := os.WriteFile(path, []byte("sample"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := "file " + path
+	for _, style := range []string{"-s", "-S"} {
+		var stdout, stderr bytes.Buffer
+		if code := runWithIO([]string{style, "-f", path}, &stdout, &stderr); code != 0 {
+			t.Fatalf("%s -f exit=%d stderr=%s", style, code, stderr.String())
+		}
+		got := strings.TrimSpace(stdout.String())
+		if got != want {
+			t.Fatalf("%s -f output=%q want %q", style, got, want)
+		}
+		if strings.Contains(stdout.String(), "0600") {
+			t.Fatalf("%s -f used detailed format: %q", style, stdout.String())
+		}
+	}
+
+	dir := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	if code := runWithIO([]string{"-S", "-f", dir}, &stdout, &stderr); code != 0 {
+		t.Fatalf("-S -f dir exit=%d stderr=%s", code, stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "dir "+dir {
+		t.Fatalf("-S -f dir output=%q", stdout.String())
+	}
+}
+
+func TestRunIThenNReplacesUpperBound(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runWithIO([]string{"-i", "0", "-n", "2"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
+	}
+	got := reportedFDNums(stdout.String())
+	if !fdListEq(got, []int{0, 1}) {
+		t.Fatalf("-i0 -n2 want fds 0,1 got %v\n%s", got, stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := runWithIO([]string{"-i", "1"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("-i1 exit=%d stderr=%s", code, stderr.String())
+	}
+	got = reportedFDNums(stdout.String())
+	if !fdListEq(got, []int{1}) {
+		t.Fatalf("-i1 want fd 1 got %v\n%s", got, stdout.String())
+	}
+}
+
+func reportedFDNums(out string) []int {
+	var fds []int
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		colon := strings.IndexByte(line, ':')
+		if colon <= 0 {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(line[:colon]))
+		if err != nil {
+			continue
+		}
+		fds = append(fds, n)
+	}
+	return fds
+}
+
+func fdListEq(got, want []int) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestRunSimpleRangeNumbersFDs(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runWithIO([]string{"-s", "-i", "0", "-n", "2"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "    0 ") || !strings.Contains(got, "    1 ") {
+		t.Fatalf("-s -i0 -n2 want numbered fds 0 and 1, got %q", got)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := runWithIO([]string{"-s", "-i", "0"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("-s -i0 exit=%d stderr=%s", code, stderr.String())
+	}
+	line := strings.TrimSpace(stdout.String())
+	if line == "" || strings.HasPrefix(line, "0 ") || strings.Contains(line, "    0") {
+		t.Fatalf("-s -i0 must omit the fd number, got %q", stdout.String())
+	}
+}
+
 func TestRunNZeroAnalyzesStdin(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if code := runWithIO([]string{"-n", "0"}, &stdout, &stderr); code != 0 {
@@ -132,7 +233,13 @@ func TestRunWinchReprints(t *testing.T) {
 	if code := runWithIO([]string{"-W", "-s", "-i", "0"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
 	}
-	if strings.Count(stdout.String(), "0 ") < 2 && strings.Count(stdout.String(), "    0") < 2 {
+	n := 0
+	for _, line := range strings.Split(stdout.String(), "\n") {
+		if strings.TrimSpace(line) != "" {
+			n++
+		}
+	}
+	if n < 2 {
 		t.Fatalf("expected two reports, got %q", stdout.String())
 	}
 }
