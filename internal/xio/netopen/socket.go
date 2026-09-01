@@ -4,6 +4,7 @@ package netopen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -95,6 +96,11 @@ func dialRawSocket(ctx context.Context, call socketCall, sa rawSockaddr, s parse
 }
 
 func connFromFD(fd int, name string) (net.Conn, error) {
+	// os.File deadlines and poller reads require O_NONBLOCK before NewFile.
+	if err := unix.SetNonblock(fd, true); err != nil {
+		logx.CloseErr(unix.Close(fd))
+		return nil, err
+	}
 	f := os.NewFile(uintptr(fd), name)
 	if f == nil {
 		logx.CloseErr(unix.Close(fd))
@@ -106,10 +112,6 @@ func connFromFD(fd int, name string) (net.Conn, error) {
 		return c, nil
 	}
 	local, remote := addrsFromFD(fd)
-	if err := unix.SetNonblock(fd, true); err != nil {
-		logx.CloseQuiet(f)
-		return nil, err
-	}
 	return &rawFileConn{f: f, local: local, remote: remote}, nil
 }
 
@@ -128,6 +130,20 @@ func (c *rawFileConn) SetReadDeadline(t time.Time) error  { return c.f.SetReadDe
 func (c *rawFileConn) SetWriteDeadline(t time.Time) error { return c.f.SetWriteDeadline(t) }
 func (c *rawFileConn) SyscallConn() (syscall.RawConn, error) {
 	return c.f.SyscallConn()
+}
+
+func (c *rawFileConn) CloseWrite() error {
+	sc, err := c.f.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var shutErr error
+	if err := sc.Control(func(fd uintptr) {
+		shutErr = unix.Shutdown(int(fd), unix.SHUT_WR)
+	}); err != nil {
+		return err
+	}
+	return shutErr
 }
 
 func addrsFromFD(fd int) (local, remote net.Addr) {
@@ -334,13 +350,16 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 }
 
 // rawListener adapts a listening FD to net.Listener.
-// Uses net.FileListener so SetDeadline works and Accept is interruptible
-// (hang-free under fork+retry and scorecard cleanup).
+// FileListener is used when Go recognizes the family so SetDeadline and
+// Accept are interruptible. Unknown families stay on the raw fd: nonblocking
+// poll honors deadlines/cancel, and accepted sockets go through connFromFD.
 type rawListener struct {
-	mu     sync.Mutex
-	fd     int
-	domain int
-	ln     net.Listener // lazy FileListener
+	mu       sync.Mutex
+	fd       int
+	domain   int
+	ln       net.Listener // lazy FileListener
+	raw      bool         // FileListener unsupported; use poll/accept
+	deadline time.Time
 }
 
 func (l *rawListener) fileLn() (net.Listener, error) {
@@ -348,6 +367,12 @@ func (l *rawListener) fileLn() (net.Listener, error) {
 	defer l.mu.Unlock()
 	if l.ln != nil {
 		return l.ln, nil
+	}
+	if l.raw {
+		if l.fd < 0 {
+			return nil, net.ErrClosed
+		}
+		return nil, errNotNetFileListener
 	}
 	if l.fd < 0 {
 		return nil, net.ErrClosed
@@ -363,6 +388,9 @@ func (l *rawListener) fileLn() (net.Listener, error) {
 	ln, err := net.FileListener(f)
 	logx.CloseQuiet(f)
 	if err != nil {
+		if e := l.enterRawLocked(); e != nil {
+			return nil, e
+		}
 		return nil, err
 	}
 	if err := unix.Close(l.fd); err != nil {
@@ -374,6 +402,22 @@ func (l *rawListener) fileLn() (net.Listener, error) {
 	l.ln = ln
 	return l.ln, nil
 }
+
+func (l *rawListener) enterRawLocked() error {
+	if l.raw {
+		return nil
+	}
+	if l.fd < 0 {
+		return net.ErrClosed
+	}
+	if err := unix.SetNonblock(l.fd, true); err != nil {
+		return err
+	}
+	l.raw = true
+	return nil
+}
+
+var errNotNetFileListener = errors.New("socket listener is not a net file listener")
 
 func dupFD(fd int) (int, error) {
 	nfd, err := unix.Dup(fd)
@@ -389,24 +433,100 @@ func (l *rawListener) Accept() (net.Conn, error) {
 	if err == nil {
 		return ln.Accept()
 	}
-	l.mu.Lock()
-	fd := l.fd
-	l.mu.Unlock()
-	if fd < 0 {
-		return nil, err
+	return l.acceptRaw()
+}
+
+func (l *rawListener) acceptRaw() (net.Conn, error) {
+	for {
+		l.mu.Lock()
+		if l.fd < 0 {
+			l.mu.Unlock()
+			return nil, net.ErrClosed
+		}
+		fd := l.fd
+		deadline := l.deadline
+		l.mu.Unlock()
+		if err := rawAcceptDeadlineErr(deadline); err != nil {
+			return nil, err
+		}
+		timeout := rawAcceptPollMs(deadline)
+		pfd := []unix.PollFd{{Fd: unixConnectPollFd(fd), Events: unix.POLLIN}}
+		n, err := unix.Poll(pfd, timeout)
+		if err != nil {
+			if errors.Is(err, unix.EINTR) {
+				continue
+			}
+			if errors.Is(err, unix.EBADF) {
+				return nil, net.ErrClosed
+			}
+			return nil, err
+		}
+		l.mu.Lock()
+		closed := l.fd < 0
+		deadline = l.deadline
+		l.mu.Unlock()
+		if closed {
+			return nil, net.ErrClosed
+		}
+		if err := rawAcceptDeadlineErr(deadline); err != nil {
+			return nil, err
+		}
+		if n == 0 {
+			continue
+		}
+		if pfd[0].Revents&unix.POLLNVAL != 0 {
+			return nil, net.ErrClosed
+		}
+		nfd, err := acceptCloexec(fd)
+		if err != nil {
+			if errors.Is(err, unix.EAGAIN) || errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EINTR) {
+				continue
+			}
+			if errors.Is(err, unix.EBADF) || errors.Is(err, unix.EINVAL) {
+				l.mu.Lock()
+				closed := l.fd < 0
+				l.mu.Unlock()
+				if closed {
+					return nil, net.ErrClosed
+				}
+			}
+			return nil, err
+		}
+		l.mu.Lock()
+		closed = l.fd < 0
+		l.mu.Unlock()
+		if closed {
+			_ = unix.Close(nfd)
+			return nil, net.ErrClosed
+		}
+		return connFromFD(nfd, "socket-accept")
 	}
-	// Fallback: raw accept
-	nfd, _, err := unix.Accept(fd)
-	if err != nil {
-		return nil, err
+}
+
+func rawAcceptDeadlineErr(deadline time.Time) error {
+	if deadline.IsZero() || time.Now().Before(deadline) {
+		return nil
 	}
-	f := os.NewFile(uintptr(nfd), "socket-accept")
-	c, err := net.FileConn(f)
-	logx.CloseQuiet(f)
-	if err != nil {
-		return nil, err
+	return os.ErrDeadlineExceeded
+}
+
+func rawAcceptPollMs(deadline time.Time) int {
+	timeout := unixConnectCancelPollMs
+	if deadline.IsZero() {
+		return timeout
 	}
-	return c, nil
+	rem := time.Until(deadline)
+	if rem <= 0 {
+		return 0
+	}
+	ms := int(rem / time.Millisecond)
+	if ms < 1 {
+		return 1
+	}
+	if ms < timeout {
+		return ms
+	}
+	return timeout
 }
 
 func (l *rawListener) Close() error {
@@ -426,12 +546,18 @@ func (l *rawListener) Close() error {
 
 func (l *rawListener) SetDeadline(t time.Time) error {
 	ln, err := l.fileLn()
-	if err != nil {
-		return err
+	if err == nil {
+		if d, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
+			return d.SetDeadline(t)
+		}
+		return nil
 	}
-	if d, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
-		return d.SetDeadline(t)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.fd < 0 {
+		return net.ErrClosed
 	}
+	l.deadline = t
 	return nil
 }
 
