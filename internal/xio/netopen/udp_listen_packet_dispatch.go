@@ -278,10 +278,6 @@ type udpDispatchConn struct {
 
 func (c *udpDispatchConn) SessionEnvironment() map[string]string { return c.env }
 
-// NetConn exposes the shared socket for option application without making the
-// buffered session itself a syscall.Conn that the relay could poll directly.
-func (c *udpDispatchConn) NetConn() net.Conn { return c.pc }
-
 func (c *udpDispatchConn) enqueue(packet udpForkPacket) bool {
 	select {
 	case <-c.done:
