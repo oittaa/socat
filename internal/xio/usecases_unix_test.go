@@ -295,6 +295,82 @@ func TestIP4RecvfromForkEXECPeerAddr(t *testing.T) {
 	}
 }
 
+func TestSocketRecvfromForkEXECPeerAddr(t *testing.T) {
+	if !xio.FeatureGENERICSOCKET {
+		t.Skip("SOCKET not enabled")
+	}
+	dir := t.TempDir()
+	out := filepath.Join(dir, "peers")
+	script := filepath.Join(dir, "record.sh")
+	body := "#!/bin/sh\nprintf '%s:%s\\n' \"$SOCAT_PEERADDR\" \"$SOCAT_PEERPORT\" >> \"$1\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(testCtx(t), 8*time.Second)
+	defer cancel()
+	bound, restore := listenBoundPort(t)
+	defer restore()
+	done := make(chan error, 1)
+	go func() {
+		done <- xio.Run(ctx,
+			mustParse(t, "SOCKET-RECVFROM:2:2:17:x00007f0000010000000000000000,reuseaddr,fork"),
+			mustParse(t, "EXEC:"+script+" "+out), cloneGlobal(nil))
+	}()
+	port := waitBoundPort(t, bound, done)
+
+	send := func() {
+		t.Helper()
+		deadline := time.Now().Add(4 * time.Second)
+		laddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}
+		raddr := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}
+		var client *net.UDPConn
+		for time.Now().Before(deadline) {
+			select {
+			case err := <-done:
+				t.Fatal(err)
+			default:
+			}
+			c, err := net.DialUDP("udp4", laddr, raddr)
+			if err != nil {
+				time.Sleep(20 * time.Millisecond)
+				continue
+			}
+			client = c
+			break
+		}
+		if client == nil {
+			t.Fatal("could not dial UDP from loopback")
+		}
+		t.Cleanup(func() { _ = client.Close() })
+		peer := client.LocalAddr().String()
+		for time.Now().Before(deadline) {
+			if _, err := client.Write([]byte("pkt")); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(30 * time.Millisecond)
+			data, err := os.ReadFile(out)
+			if err == nil && strings.Contains(string(data), peer) {
+				return
+			}
+		}
+		data, _ := os.ReadFile(out)
+		t.Fatalf("EXEC did not record peer %s; got %q", peer, data)
+	}
+
+	send()
+	send()
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("SOCKET-RECVFROM,fork EXEC did not shut down")
+	}
+}
+
 func TestUNIXRecvfromNonForkPIPEEcho(t *testing.T) {
 	ctx := testCtx(t)
 	serverPath := testutil.UnixSocketPath(t, "recvfrom.sock")
