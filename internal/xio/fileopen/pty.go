@@ -3,7 +3,6 @@ package fileopen
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -43,45 +42,34 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 		return nil, err
 	}
 
-	link := s.OptionValue("link", "")
-	if link == "" {
-		link = s.OptionValue("symbolic-link", "")
+	unlink, err := xio.CreatePtySlaveLink(s, slaveName)
+	if err != nil {
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
+		return nil, err
 	}
-	if link != "" {
-		_ = os.Remove(link)
-		if err := os.Symlink(slaveName, link); err != nil {
-			logx.CloseQuiet(master)
-			logx.CloseQuiet(slave)
-			return nil, fmt.Errorf("PTY link: %w", err)
-		}
-	}
+
 	// perm=/user= on PTY apply to the slave node (stat -L follows link).
 	if err := xio.ApplyNamedAttrs(slaveName, s, slave); err != nil {
+		unlink()
 		_ = master.Close()
 		_ = slave.Close()
-		if link != "" {
-			_ = os.Remove(link)
-		}
 		return nil, err
 	}
 
 	// Use xio.PtyStream so half-close does not xio.Close the master (xio.FileStream would).
 	st, err := xio.PtyStream(master, s)
 	if err != nil {
+		unlink()
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
-		if link != "" {
-			_ = os.Remove(link)
-		}
 		return nil, err
 	}
 	st, err = xio.WrapCommon(s, st)
 	if err != nil {
+		unlink()
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
-		if link != "" {
-			_ = os.Remove(link)
-		}
 		return nil, err
 	}
 	o := &xio.Opened{
@@ -92,22 +80,13 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 		_ = slave.Close()
 		slave = nil
 		if err := xio.WaitPTYSlave(int(master.Fd()), xio.PTYWaitInterval(s)); err != nil {
+			unlink()
 			logx.CloseQuiet(master)
-			if link != "" {
-				_ = os.Remove(link)
-			}
 			return nil, err
 		}
 	} else {
 		o.AddCleanup(func() { _ = slave.Close() })
 	}
-	if link != "" {
-		// PTY_REMOVE: link gone when process exits (incl. SIGTERM).
-		unregister := xio.RegisterUnlinkPath(link)
-		o.AddCleanup(func() {
-			unregister()
-			_ = os.Remove(link)
-		})
-	}
+	o.AddCleanup(unlink)
 	return o, nil
 }

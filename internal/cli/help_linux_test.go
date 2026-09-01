@@ -113,7 +113,8 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"tcp-info", "info", "tcp-md5sig", "md5sig",
 		"chroot", "chroot-early",
 		"setgid", "setgid-early", "setuid", "setuid-early",
-		"substuser", "su", "substuser-delayed", "su-d", "substuser-early", "su-e"} {
+		"substuser", "su", "substuser-delayed", "su-d", "substuser-early", "su-e",
+		"openpty"} {
 		if strings.Contains(help, "    "+name+" ") {
 			t.Errorf("rejected or unknown option %q must not be advertised in -hhh", name)
 		}

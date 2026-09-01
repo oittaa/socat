@@ -108,7 +108,7 @@ func TestTermiosOptionNames(t *testing.T) {
 
 func TestTermiosHelpNamesAreRecognized(t *testing.T) {
 	pty := map[string]bool{
-		"ptmx": true, "openpty": true,
+		"ptmx":           true,
 		"pty-wait-slave": true, "wait-slave": true, "waitslave": true,
 		"pty-interval": true, "pty-intervall": true,
 	}

@@ -123,6 +123,52 @@ func TestEXECPtyLinkCreatesAndRemovesSymlink(t *testing.T) {
 	}
 }
 
+func TestEXECPtyLinkPreservesReplacement(t *testing.T) {
+	if !FeaturePTY {
+		t.Skip("PTY not enabled")
+	}
+	link := filepath.Join(t.TempDir(), "exec-pty")
+	bin := buildSidCttyHelper(t)
+	o := openEXECSpec(t, "EXEC:"+bin+",pty,rawer,echo=0,link="+link, ModeRDWR)
+	replaceAtPath(t, link, []byte("replacement"), 0o600)
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(link)
+	if err != nil {
+		t.Fatalf("replacement path was removed: %v", err)
+	}
+	if string(got) != "replacement" {
+		t.Fatalf("contents=%q", got)
+	}
+}
+
+func TestEXECPtyLinkDoesNotRemoveDirectory(t *testing.T) {
+	if !FeaturePTY {
+		t.Skip("PTY not enabled")
+	}
+	dir := filepath.Join(t.TempDir(), "emptydir")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	spec, err := parse.ParseSpec("EXEC:/bin/true,pty,link=" + dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := OpenSpec(context.Background(), spec, ModeRDWR, nil)
+	if err == nil {
+		_ = o.Close()
+		t.Fatal("expected link= directory to fail")
+	}
+	fi, statErr := os.Lstat(dir)
+	if statErr != nil {
+		t.Fatalf("directory was removed: %v", statErr)
+	}
+	if !fi.IsDir() {
+		t.Fatalf("mode=%v want directory", fi.Mode())
+	}
+}
+
 func TestEXECPtyLinkInvalidPathFails(t *testing.T) {
 	if !FeaturePTY {
 		t.Skip("PTY not enabled")
@@ -160,7 +206,33 @@ func TestPTYLinkStillCreatesSymlink(t *testing.T) {
 	}
 }
 
-func TestEXECPtmxAndOpenptySelectPTY(t *testing.T) {
+func TestPTYLinkPreservesReplacement(t *testing.T) {
+	if !FeaturePTY {
+		t.Skip("PTY not enabled")
+	}
+	link := filepath.Join(t.TempDir(), "pty-addr")
+	ch, err := parse.ParseChannel("PTY,echo=0,link=" + link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := OpenChannel(context.Background(), ch, ModeRDWR, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaceAtPath(t, link, []byte("replacement"), 0o600)
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(link)
+	if err != nil {
+		t.Fatalf("replacement path was removed: %v", err)
+	}
+	if string(got) != "replacement" {
+		t.Fatalf("contents=%q", got)
+	}
+}
+
+func TestEXECPtmxSelectsPTY(t *testing.T) {
 	if !FeaturePTY {
 		t.Skip("PTY not enabled")
 	}
@@ -168,7 +240,7 @@ func TestEXECPtmxAndOpenptySelectPTY(t *testing.T) {
 	if got := readExecPtyStdout(t, "EXEC:"+bin); got != "notty" {
 		t.Fatalf("default transport got %q want notty", got)
 	}
-	for _, opt := range []string{"pty", "ptmx", "openpty"} {
+	for _, opt := range []string{"pty", "ptmx"} {
 		t.Run(opt, func(t *testing.T) {
 			got := readExecPtyStdout(t, "EXEC:"+bin+","+opt+",rawer,echo=0")
 			if got != "tty" {

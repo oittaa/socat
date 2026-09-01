@@ -92,3 +92,44 @@ func TestUnlinkRegistryUnregistersClosedEndpoint(t *testing.T) {
 		t.Fatalf("unregistered path was removed: %v", err)
 	}
 }
+
+func TestUnlinkIfSameFilePreservesReplacement(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "endpoint")
+	if err := os.WriteFile(path, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshotRegisteredIdentity(info) {
+		t.Fatal("could not snapshot identity")
+	}
+	replaceAtPath(t, path, []byte("replacement"), 0o600)
+	UnlinkIfSameFile(path, info)
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("replacement was removed: %v", err)
+	}
+	if string(got) != "replacement" {
+		t.Fatalf("contents=%q", got)
+	}
+}
+
+func TestUnlinkIfSameFileRemovesOriginal(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "endpoint")
+	if err := os.WriteFile(path, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshotRegisteredIdentity(info) {
+		t.Fatal("could not snapshot identity")
+	}
+	UnlinkIfSameFile(path, info)
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("original survived: %v", err)
+	}
+}

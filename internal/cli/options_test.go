@@ -596,6 +596,8 @@ func TestValidateAddressOptions(t *testing.T) {
 		{name: "handshake-timeout-on-socks4", spec: "SOCKS4:localhost:example.com:80,handshake-timeout=1"},
 		{name: "handshake-timeout-on-socks5", spec: "SOCKS5:localhost:example.com:443,handshake-timeout=1"},
 		{name: "handshake-timeout-zero-on-tls", spec: "TLS:localhost:1,handshake-timeout=0"},
+		{name: "openpty-unknown", spec: "EXEC:true,openpty", wantErr: "unknown option"},
+		{name: "openpty-on-pty-unknown", spec: "PTY,openpty", wantErr: "unknown option"},
 		{name: "unknown", spec: "CREATE:file,totally-unknown=1", wantErr: "unknown option"},
 		{name: "dccp-ccid", spec: "TCP:localhost:1,ccid=2", wantErr: "unknown option"},
 		{name: "dccp-set-ccid", spec: "TCP:localhost:1,dccp-set-ccid=2", wantErr: "unknown option"},
@@ -768,6 +770,7 @@ func TestHelpDoesNotAdvertiseCoolWrite(t *testing.T) {
 		"udp-ignore-peerport": {},
 		"so-bsdcompat":        {},
 		"bsdcompat":           {},
+		"openpty":             {},
 	}
 	for _, group := range helpOptionGroups() {
 		for _, option := range group.opts {

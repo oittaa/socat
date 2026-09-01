@@ -38,3 +38,33 @@ func TestPTYLinkCreatesSymlink(t *testing.T) {
 	target, _ := os.Readlink(link)
 	t.Logf("link %s -> %s", link, target)
 }
+
+func TestPTYLinkPreservesReplacement(t *testing.T) {
+	link := t.TempDir() + "/pty-link"
+	ch, err := parse.ParseChannel("PTY,echo=0,opost=0,link=" + link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := &xio.Global{Log: logx.New()}
+	o, err := xio.OpenChannel(context.Background(), ch, xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := link + ".new"
+	if err := os.WriteFile(other, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(other, link); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(link)
+	if err != nil {
+		t.Fatalf("replacement path was removed: %v", err)
+	}
+	if string(got) != "replacement" {
+		t.Fatalf("contents=%q", got)
+	}
+}

@@ -46,7 +46,7 @@ func startOnPTY(cmd *exec.Cmd, s parse.Spec, g *Global) (*os.File, func(), error
 		logx.CloseQuiet(slave)
 		return nil, nil, err
 	}
-	unlink, err := applyExecPtyLink(s, slave.Name())
+	unlink, err := CreatePtySlaveLink(s, slave.Name())
 	if err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)

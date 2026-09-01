@@ -167,11 +167,7 @@ func UnlinkRegisteredPaths() {
 	exitHooks = make(map[uint64]func())
 	unlinkMu.Unlock()
 	for _, entry := range paths {
-		current, err := os.Lstat(entry.path)
-		if err != nil || !sameRegisteredFile(entry.info, current) {
-			continue
-		}
-		_ = Unlink(entry.path)
+		UnlinkIfSameFile(entry.path, entry.info)
 	}
 	for _, h := range hooks {
 		h()
@@ -203,6 +199,18 @@ func SnapshotFileIdentity(info os.FileInfo) bool {
 // they change on the live object (open, chmod, write) and must not skip unlink.
 func sameRegisteredFile(original, current os.FileInfo) bool {
 	return original != nil && current != nil && os.SameFile(original, current)
+}
+
+// UnlinkIfSameFile removes path only when it still names original.
+func UnlinkIfSameFile(path string, original os.FileInfo) {
+	if path == "" || original == nil {
+		return
+	}
+	current, err := os.Lstat(path)
+	if err != nil || !sameRegisteredFile(original, current) {
+		return
+	}
+	_ = Unlink(path)
 }
 
 // RegisteredUnlinkCount is the number of paths waiting for signal-exit cleanup.

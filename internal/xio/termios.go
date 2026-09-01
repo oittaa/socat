@@ -224,7 +224,7 @@ func TermiosHelpNames() []string {
 		"ispeed", "ospeed",
 		"tiocswinsz", "winsz",
 		"ctty", "tiocsctty",
-		"pty-wait-slave", "wait-slave", "waitslave", "pty-interval", "ptmx", "openpty",
+		"pty-wait-slave", "wait-slave", "waitslave", "pty-interval", "ptmx",
 	}
 	out = append(out, termiosCharAliases...)
 	out = append(out, platformTermiosCharAliases...)

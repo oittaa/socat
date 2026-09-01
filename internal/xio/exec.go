@@ -609,7 +609,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	usePty := execUsesPTY(s)
 	// Forked EXEC/SYSTEM/SHELL defaults to socketpair, including unidirectional
 	// mode and fdin/fdout. fdin/fdout only change Dup2 targets. pipes and
-	// pty/ptmx/openpty are user-selected transports; pipes+pty ignores pipes.
+	// pty/ptmx are user-selected transports; pipes+pty ignores pipes.
 	usePipes := userPipes
 	if usePipes && usePty {
 		if g != nil && g.Log != nil {
@@ -1021,13 +1021,14 @@ func setCloexecAllFrom(from int) {
 }
 
 // execUsesPTY reports whether EXEC/SYSTEM/SHELL should use a PTY instead of
-// the default socketpair. pty, ptmx, and openpty are equivalent selectors.
+// the default socketpair. pty and ptmx select that transport.
 func execUsesPTY(s parse.Spec) bool {
-	return s.BoolOption("pty") || s.BoolOption("ptmx") || s.BoolOption("openpty")
+	return s.BoolOption("pty") || s.BoolOption("ptmx")
 }
 
 // rejectExecUnsupportedPTYOptions rejects wait-slave / pty-interval on
-// EXEC/SYSTEM/SHELL. Those options apply only to the PTY address.
+// EXEC/SYSTEM/SHELL. Those options apply only to the PTY address. openpty is
+// rejected in OpenSpec for every address.
 func rejectExecUnsupportedPTYOptions(s parse.Spec) error {
 	for _, name := range []string{"pty-wait-slave", "pty-interval"} {
 		if o, ok := s.OptionNamed(name); ok {
@@ -1058,28 +1059,6 @@ func applyExecPtySession(cmd *exec.Cmd, s parse.Spec, g *Global) {
 	}
 }
 
-// applyExecPtyLink creates link= / symbolic-link to the PTY slave. The
-// returned func removes the symlink on close and on SIGTERM.
-func applyExecPtyLink(s parse.Spec, slaveName string) (func(), error) {
-	o, ok := s.OptionNamed("link")
-	if !ok {
-		return func() {}, nil
-	}
-	path := o.Value
-	if !o.Has || path == "" {
-		return func() {}, fmt.Errorf("link: path required")
-	}
-	_ = os.Remove(path)
-	if err := os.Symlink(slaveName, path); err != nil {
-		return func() {}, fmt.Errorf("link: %w", err)
-	}
-	unreg := RegisterUnlinkPath(path)
-	return func() {
-		unreg()
-		_ = os.Remove(path)
-	}, nil
-}
-
 // openExecPTYPair allocates a PTY pair for an EXEC child, applies session/
 // controlling-terminal attributes, and configures slave termios.
 func openExecPTYPair(cmd *exec.Cmd, s parse.Spec, g *Global) (*os.File, *os.File, func(), error) {
@@ -1100,7 +1079,7 @@ func openExecPTYPair(cmd *exec.Cmd, s parse.Spec, g *Global) (*os.File, *os.File
 		logx.CloseQuiet(slave)
 		return nil, nil, nil, err
 	}
-	unlink, err := applyExecPtyLink(s, slave.Name())
+	unlink, err := CreatePtySlaveLink(s, slave.Name())
 	if err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)

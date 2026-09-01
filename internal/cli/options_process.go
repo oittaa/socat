@@ -45,7 +45,6 @@ func processOptionGroups() []helpOptGroup {
 			{name: "sitout-eio", optionCaps: capPTY, desc: "wait this long on PTY master EIO after the slave closes", validate: validateDurationOption},
 			{name: "ctty", optionCaps: capTermios, desc: "make the PTY the controlling tty", aliases: []string{"tiocsctty"}},
 			{name: "ptmx", optionCaps: capPTY, desc: "run on a pseudo-terminal via /dev/ptmx"},
-			{name: "openpty", optionCaps: capPTY, desc: "run on a pseudo-terminal"},
 			{name: "escape", unrestricted: true, desc: "escape character"},
 		}},
 	}

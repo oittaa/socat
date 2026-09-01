@@ -19,8 +19,8 @@ import (
 //
 // History justifying this test: keepidle was implemented but rejected by the
 // CLI, addrconfig was accepted but silently ignored, sndtimeo was canonicalized
-// but rejected by the option table, and ptmx/openpty carried compat semantics
-// that only classic test.sh exposed. Each class is caught here mechanically.
+// but rejected by the option table, and ptmx used to be a silent no-op. Each
+// class is caught here mechanically.
 
 // dynamicallyReadOptions are canonical names looked up through literal slices
 // in the implementations rather than inline string arguments, so AST scanning
