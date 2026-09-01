@@ -82,7 +82,7 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		logx.CloseQuiet(conn)
 		return nil, err
 	}
-	st := relay.Stream(relay.NetStream{Conn: xio.WrapUDPAncillary(udpConn, s, g)})
+	st := relay.Stream(udpConnectStream{NetStream: relay.NetStream{Conn: xio.WrapUDPAncillary(udpConn, s, g)}})
 	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
 		logx.CloseQuiet(conn)
@@ -134,4 +134,16 @@ func NetworkUDP(g *xio.Global, s parse.Spec, def string) string {
 
 func udpNetworkWithListenDefault(g *xio.Global, s parse.Spec) string {
 	return xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
+}
+
+// udpConnectStream is UDP/UDP4/UDP6 CONNECT (and UDP-LISTEN,fork sessions).
+// Unspecified shut policy is shut-null: ShutdownWrite sends one zero-length
+// datagram. Explicit shut-* options still wrap this stream.
+type udpConnectStream struct {
+	relay.NetStream
+}
+
+func (s udpConnectStream) ShutdownWrite() error {
+	_, _ = s.Write(nil)
+	return nil
 }

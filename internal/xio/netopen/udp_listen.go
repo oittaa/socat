@@ -101,7 +101,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			MaxChildren: maxChildren,
 			PeerFilter:  peerFilter.AllowConn,
 			WrapDial: func(c net.Conn) (relay.Stream, error) {
-				return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
+				return xio.WrapCommonAfterConnected(s, udpConnectStream{NetStream: relay.NetStream{Conn: c}})
 			},
 		}, nil
 	}
@@ -112,7 +112,8 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	}
 	xio.NoteListenBound(pc.LocalAddr())
 
-	// Non-fork: one session then done (keep listen socket for reply like RECVFROM).
+	// Non-fork: one peer session. Keep the listen socket for further
+	// packets from that peer and for replies.
 	buf := make([]byte, max(g.BlockSize, 8192))
 	wantCtrl := xio.NeedAncillary(s)
 	var n int
@@ -166,13 +167,10 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			}
 		}
 	}
-	// One-shot listen: after first packet, do not keep the
-	// socket open forever waiting for more. Connected-style session ends on EOF.
 	st := relay.Stream(&udpRecvFromConn{
 		uc:       pc,
 		peer:     raddr,
 		first:    append([]byte(nil), buf[:n]...),
-		closeEOF: true, // next read after first payload → EOF (unidirectional capture)
 		wantCtrl: wantCtrl,
 		g:        g,
 	})
@@ -618,7 +616,7 @@ type udpRecvFromConn struct {
 	uc       *net.UDPConn
 	peer     *net.UDPAddr
 	first    []byte
-	closeEOF bool // after first payload: further Read → EOF (one-shot UDP-LISTEN)
+	closeEOF bool // after first payload: further Read → EOF (UDP-RECVFROM one-shot)
 	wantCtrl bool
 	g        *xio.Global
 	oob      []byte
@@ -631,7 +629,7 @@ func (u *udpRecvFromConn) Read(p []byte) (int, error) {
 		return n, nil
 	}
 	if u.closeEOF {
-		// One-shot listen ends after the first datagram.
+		// UDP-RECVFROM is one-shot: drain first, then EOF.
 		return 0, io.EOF
 	}
 	for {
@@ -655,8 +653,15 @@ func (u *udpRecvFromConn) Write(p []byte) (int, error) {
 	return u.uc.WriteToUDP(p, u.peer)
 }
 
-func (u *udpRecvFromConn) Close() error         { return u.uc.Close() }
-func (u *udpRecvFromConn) ShutdownWrite() error { return nil }
+func (u *udpRecvFromConn) Close() error { return u.uc.Close() }
+
+func (u *udpRecvFromConn) ShutdownWrite() error {
+	if u.closeEOF {
+		return nil
+	}
+	_, _ = u.Write(nil)
+	return nil
+}
 func (u *udpRecvFromConn) LocalAddr() net.Addr  { return u.uc.LocalAddr() }
 func (u *udpRecvFromConn) RemoteAddr() net.Addr { return u.peer }
 func (u *udpRecvFromConn) SetDeadline(t time.Time) error {

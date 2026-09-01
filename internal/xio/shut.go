@@ -10,7 +10,8 @@ import (
 )
 
 // shutPolicy selects how ShutdownWrite behaves. Unspecified keeps the
-// address-dependent default (TCP half-close, UDP no-op).
+// address-dependent default: TCP half-close; UDP-CONNECT and UDP-LISTEN
+// send a zero-length datagram from those streams; other UDP addresses a no-op.
 //
 // shut-none[=<bool>] (and the other shut-* the same way): omitted value or
 // =1 selects the policy; =0 does not. Other assignments are rejected. Last
