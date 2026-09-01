@@ -19,8 +19,9 @@ func RejectUnsupportedListenBacklog(s parse.Spec) error {
 	return nil
 }
 
-// ListenStream uses the provider-selected Windows backlog. Winsock ignores a
-// backlog change after Go has put the socket into the listening state.
+// ListenStream uses the provider-selected Windows backlog. Go always
+// listens with SOMAXCONN (golang/go#39000), and Winsock ignores a later
+// backlog change on an already-listening overlapped socket.
 func ListenStream(ctx context.Context, lc net.ListenConfig, network, address string, s parse.Spec) (net.Listener, error) {
 	if err := RejectUnsupportedListenBacklog(s); err != nil {
 		return nil, err

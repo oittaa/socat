@@ -26,6 +26,9 @@ func TestStreamListenBacklogKernelQueue(t *testing.T) {
 		{name: "tls", spec: func(b string) string {
 			return "TLS-LISTEN:0,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=" + cert + backlogOpt(b)
 		}},
+		{name: "openssl", spec: func(b string) string {
+			return "OPENSSL-LISTEN:0,reuseaddr,bind=127.0.0.1,fork,verify=0,cert=" + cert + backlogOpt(b)
+		}},
 		{name: "ws", spec: func(b string) string {
 			return "WS-LISTEN:0,reuseaddr,bind=127.0.0.1,fork" + backlogOpt(b)
 		}},

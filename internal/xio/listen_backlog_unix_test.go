@@ -28,6 +28,8 @@ func TestListenBacklogParser(t *testing.T) {
 		{spec: "TCP-LISTEN:1,backlog=0", wantErr: "invalid value"},
 		{spec: "TCP-LISTEN:1,backlog=-1", wantErr: "invalid value"},
 		{spec: "TCP-LISTEN:1,backlog=no", wantErr: "invalid value"},
+		{spec: "TCP-LISTEN:1,backlog=", wantErr: "invalid value"},
+		{spec: "TCP-LISTEN:1,backlog", wantErr: "invalid value"},
 	} {
 		t.Run(tc.spec, func(t *testing.T) {
 			s, err := parse.ParseSpec(tc.spec)
@@ -102,8 +104,12 @@ func TestStreamListenBacklogDefaultAndExplicit(t *testing.T) {
 
 func TestTCPListenRejectsInvalidBacklog(t *testing.T) {
 	_, err := openSpec(t, "TCP-LISTEN:0,reuseaddr,bind=127.0.0.1,fork,backlog=0")
-	if err == nil || !strings.Contains(err.Error(), "backlog: invalid value") {
-		t.Fatalf("error=%v want backlog: invalid value", err)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	got := err.Error()
+	if !strings.Contains(got, `backlog: invalid value "0"`) || strings.Contains(got, "backlog: backlog:") {
+		t.Fatalf("error=%q want backlog: invalid value \"0\" once", got)
 	}
 }
 
@@ -146,8 +152,12 @@ func TestUnixListenBacklogDefaultAndExplicit(t *testing.T) {
 func TestUnixListenRejectsInvalidBacklog(t *testing.T) {
 	path := testutil.UnixSocketPath(t, "b-bad.sock")
 	_, err := openSpec(t, "UNIX-LISTEN:"+path+",unlink-early,fork,backlog=0")
-	if err == nil || !strings.Contains(err.Error(), "backlog: invalid value") {
-		t.Fatalf("error=%v want backlog: invalid value", err)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	got := err.Error()
+	if !strings.Contains(got, `backlog: invalid value "0"`) || strings.Contains(got, "backlog: backlog:") {
+		t.Fatalf("error=%q want backlog: invalid value \"0\" once", got)
 	}
 }
 
