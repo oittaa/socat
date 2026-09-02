@@ -187,14 +187,14 @@ func TestFDPathStdinOrFile(t *testing.T) {
 }
 
 func TestWriteFDReportsTermiosOnPTY(t *testing.T) {
-	f, err := os.OpenFile("/dev/ptmx", os.O_RDWR, 0)
+	master, slave, err := openTestPTY()
 	if err != nil {
 		t.Skip(err)
 	}
-	t.Cleanup(func() { _ = f.Close() })
+	t.Cleanup(func() { _ = slave.Close(); _ = master.Close() })
 	var b outbuf.Buf
 	var buf bytes.Buffer
-	WriteFD(&b, int(f.Fd()), Options{})
+	WriteFD(&b, int(slave.Fd()), Options{})
 	if err := b.Flush(&buf); err != nil {
 		t.Fatal(err)
 	}
