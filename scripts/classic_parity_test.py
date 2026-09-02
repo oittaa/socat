@@ -1176,10 +1176,12 @@ class RepoPolicyTest(unittest.TestCase):
         self.assertNotIn("-ly", policy["unsupported_flags"])
         self.assertNotIn("-lm", policy["unsupported_flags"])
         self.assertNotIn("-D", policy["unsupported_flags"])
-        for flag in ("-s", "-g"):
-            reason = str(policy["unsupported_flags"][flag]).lower()
-            self.assertIn("rejected", reason)
-            self.assertNotIn("no-op", reason)
+        s_reason = str(policy["unsupported_flags"]["-s"]).lower()
+        self.assertIn("accepted", s_reason)
+        self.assertIn("no-op", s_reason)
+        g_reason = str(policy["unsupported_flags"]["-g"]).lower()
+        self.assertIn("rejected", g_reason)
+        self.assertNotIn("no-op", g_reason)
         plat_flags = policy["platform_unsupported_flags"]
         self.assertIn("linux", plat_flags)
         self.assertIn("darwin", plat_flags)

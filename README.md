@@ -179,6 +179,8 @@ address and option spellings are audited automatically. The
   the shared-socket peer dispatcher instead.
 - Unknown options, malformed values, and unsupported combinations fail
   explicitly instead of becoming no-ops.
+- `-s` is accepted as a compatibility no-op; error handling is unchanged and
+  does not continue after otherwise non-fatal errors.
 - DNS overrides use a per-address resolver and never mutate process-global
   resolver state.
 - `ai-v4mapped` is off unless requested, matching classic runtime behavior

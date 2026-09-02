@@ -3,17 +3,30 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 )
 
-func TestParseArgsRejectsSAndG(t *testing.T) {
-	for _, flag := range []string{"-s", "-g"} {
-		_, err := ParseArgs([]string{flag, "STDIN", "STDOUT"})
-		if err == nil || err.Error() != `option "`+flag+`" is not implemented` {
-			t.Fatalf("%s: %v", flag, err)
-		}
+func TestParseArgsAcceptsSAsNoOp(t *testing.T) {
+	withS, err := ParseArgs([]string{"-s", "STDIN", "STDOUT"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutS, err := ParseArgs([]string{"STDIN", "STDOUT"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(withS, withoutS) {
+		t.Fatalf("-s changed config: with=%+v without=%+v", withS, withoutS)
+	}
+}
+
+func TestParseArgsRejectsG(t *testing.T) {
+	_, err := ParseArgs([]string{"-g", "STDIN", "STDOUT"})
+	if err == nil || err.Error() != `option "-g" is not implemented` {
+		t.Fatalf("-g: %v", err)
 	}
 }
 
