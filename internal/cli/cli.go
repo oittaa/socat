@@ -203,7 +203,11 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 		set(cfg)
 		return nil
 	}
-	if a == "-s" || a == "-g" {
+	if a == "-s" {
+		// Accepted as a no-op; error handling remains unchanged.
+		return nil
+	}
+	if a == "-g" {
 		return fmt.Errorf("option %q is not implemented", a)
 	}
 	if strings.HasPrefix(a, "-ly") {

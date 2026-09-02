@@ -95,6 +95,7 @@ func printHelpFlags(b *outbuf.Buf) {
 	b.Printf("  -t<time>        linger after EOF (default 0.5s)\n")
 	b.Printf("  -T<time>        inactivity timeout\n")
 	b.Printf("  -S<mask>        log these signal numbers (bitmap)\n")
+	b.Printf("  -s              accepted no-op; error handling is unchanged\n")
 	b.Printf("  -u              unidirectional left→right\n")
 	b.Printf("  -U              unidirectional right→left\n")
 	b.Printf("  -L<file>        exclusive lock file\n")

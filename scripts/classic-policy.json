@@ -160,7 +160,7 @@
     "UNIX-DATAGRAM": "combined UNIX datagram form"
   },
   "unsupported_flags": {
-    "-s": "continue-on-error has no portable recoverable-I/O subset; this option is deliberately rejected",
+    "-s": "accepted as a compatibility no-op; continue-on-error behavior is not implemented",
     "-g": "option-group usefulness check is not implemented; this option is deliberately rejected"
   },
   "address_canonical_equivalences": [

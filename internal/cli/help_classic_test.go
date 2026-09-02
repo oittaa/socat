@@ -84,6 +84,7 @@ func TestHelpListsImplementedCLIFlags(t *testing.T) {
 		"-lh",
 		"-lu",
 		"-ls",
+		"-s",
 	} {
 		if !strings.Contains(help, token) {
 			t.Errorf("-h missing %q", token)
@@ -107,7 +108,7 @@ func TestHelpListsImplementedCLIFlags(t *testing.T) {
 			continue
 		}
 		switch fields[0] {
-		case "-s", "-g":
+		case "-g":
 			t.Errorf("help advertises %q: %s", fields[0], strings.TrimSpace(line))
 		}
 	}
