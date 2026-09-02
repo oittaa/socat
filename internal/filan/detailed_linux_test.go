@@ -8,10 +8,36 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
+
+func TestLibcDisplayCCPadsKernelCC(t *testing.T) {
+	for _, n := range []int{0, 19, 23, 32} {
+		in := make([]byte, n)
+		for i := range in {
+			in[i] = byte(i + 1)
+		}
+		got := libcDisplayCC(in)
+		if len(got) != libcNCCS {
+			t.Fatalf("n=%d len=%d want %d", n, len(got), libcNCCS)
+		}
+		limit := n
+		if limit > libcNCCS {
+			limit = libcNCCS
+		}
+		for i := 0; i < limit; i++ {
+			if got[i] != in[i] {
+				t.Fatalf("n=%d cc[%d]=%d want %d", n, i, got[i], in[i])
+			}
+		}
+		for i := limit; i < libcNCCS; i++ {
+			if got[i] != 0 {
+				t.Fatalf("n=%d pad cc[%d]=%d want 0", n, i, got[i])
+			}
+		}
+	}
+}
 
 func TestWriteFDLinuxTermiosMatchesLibc(t *testing.T) {
 	master, slave, err := openTestPTY()
@@ -21,19 +47,20 @@ func TestWriteFDLinuxTermiosMatchesLibc(t *testing.T) {
 	t.Cleanup(func() { _ = slave.Close(); _ = master.Close() })
 	fd := int(slave.Fd())
 
-	var tios libcTermios
-	_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uintptr(unix.TCGETS), uintptr(unsafe.Pointer(&tios))) // #nosec G103 -- TCGETS reads libc termios
-	if errno != 0 {
-		t.Fatal(errno)
+	tios, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	if err != nil {
+		t.Fatal(err)
 	}
 	tios.Cflag |= uint32(unix.CIBAUD) & (uint32(unix.B38400) << 16)
-	_, _, errno = unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uintptr(unix.TCSETS), uintptr(unsafe.Pointer(&tios))) // #nosec G103 -- TCSETS writes libc termios
-	if errno != 0 {
-		t.Fatal(errno)
+	if err := unix.IoctlSetTermios(fd, unix.TCSETS, tios); err != nil {
+		t.Fatal(err)
 	}
-	_, _, errno = unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uintptr(unix.TCGETS), uintptr(unsafe.Pointer(&tios))) // #nosec G103 -- re-read after TCSETS
-	if errno != 0 {
-		t.Fatal(errno)
+	tios, err = unix.IoctlGetTermios(fd, unix.TCGETS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tios.Cflag&uint32(unix.CIBAUD) == 0 {
+		t.Fatal("test did not set CIBAUD")
 	}
 
 	got := dumpFD(t, fd)
@@ -41,17 +68,7 @@ func TestWriteFDLinuxTermiosMatchesLibc(t *testing.T) {
 	if !strings.Contains(got, wantCflag) {
 		t.Fatalf("missing %s in %q", wantCflag, got)
 	}
-	k, err := unix.IoctlGetTermios(fd, unix.TCGETS)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if uint32(k.Cflag) != tios.Cflag {
-		t.Fatalf("TCGETS Cflag=%#x libcTermios=%#x", k.Cflag, tios.Cflag)
-	}
-	if tios.Cflag&uint32(unix.CIBAUD) == 0 {
-		t.Fatal("test did not set CIBAUD")
-	}
-	for i, ch := range tios.Cc {
+	for i, ch := range libcDisplayCC(tios.Cc[:]) {
 		want := fmt.Sprintf("cc[%d]=%s", i, ccString(ch, false))
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %s in %q", want, got)

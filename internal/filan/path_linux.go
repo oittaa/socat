@@ -5,7 +5,6 @@ package filan
 import (
 	"fmt"
 	"os"
-	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -15,31 +14,26 @@ const (
 	libcNCCS    = 32
 )
 
-// libcTermios matches glibc <termios.h> (NCCS=32). TCGETS copies the kernel
-// termios (19 control characters) into the front; remaining c_cc stay 0
-// (_POSIX_VDISABLE), matching tcgetattr.
-type libcTermios struct {
-	Iflag uint32
-	Oflag uint32
-	Cflag uint32
-	Lflag uint32
-	Line  uint8
-	Cc    [libcNCCS]uint8
-}
-
 func getDumpTermios(fd int) (dumpTermios, error) {
-	var t libcTermios
-	_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uintptr(unix.TCGETS), uintptr(unsafe.Pointer(&t))) // #nosec G103 -- TCGETS writes libc termios
-	if errno != 0 {
-		return dumpTermios{}, errno
+	t, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	if err != nil {
+		return dumpTermios{}, err
 	}
 	return dumpTermios{
 		Iflag: t.Iflag,
 		Oflag: t.Oflag,
 		Cflag: t.Cflag,
 		Lflag: t.Lflag,
-		Cc:    t.Cc[:],
+		Cc:    libcDisplayCC(t.Cc[:]),
 	}, nil
+}
+
+// libcDisplayCC copies the architecture's kernel c_cc slice into a glibc
+// NCCS=32 display buffer. Remaining entries are 0 (_POSIX_VDISABLE).
+func libcDisplayCC(cc []byte) []byte {
+	out := make([]byte, libcNCCS)
+	copy(out, cc)
+	return out
 }
 
 // FDPath returns the kernel path for fd, or empty if unknown.
