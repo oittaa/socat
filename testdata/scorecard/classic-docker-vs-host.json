@@ -1,23 +1,18 @@
 {
   "host_ok": 475,
   "host_ok_ran": 475,
-  "still_ok": 470,
-  "lost_count": 5,
+  "still_ok": 467,
+  "lost_count": 8,
   "lost": [
-    {
-      "id": "216",
-      "status": "CANT",
-      "name": "UDP6MULTICAST_UNIDIR"
-    },
     {
       "id": "304",
       "status": "FAILED",
       "name": "IOCTL_VOID"
     },
     {
-      "id": "410",
+      "id": "399",
       "status": "FAILED",
-      "name": "VSOCK_ECHO"
+      "name": "OPENSSL_DTLS_CLIENT"
     },
     {
       "id": "453",
@@ -28,9 +23,29 @@
       "id": "492",
       "status": "CANT",
       "name": "ACCEPT_FD"
+    },
+    {
+      "id": "520",
+      "status": "CANT",
+      "name": "DCCP4"
+    },
+    {
+      "id": "542",
+      "status": "CANT",
+      "name": "V1800_DCCP_LISTEN_RANGE"
+    },
+    {
+      "id": "543",
+      "status": "CANT",
+      "name": "V1800_DCCP_LISTEN_BIND"
+    },
+    {
+      "id": "582",
+      "status": "CANT",
+      "name": "DCCP_CONNECT_RETRY"
     }
   ],
-  "gained_from_cant_count": 61,
+  "gained_from_cant_count": 76,
   "gained_from_cant": [
     {
       "id": "24",
@@ -107,6 +122,10 @@
     {
       "id": "218",
       "name": "IP4MULTICAST_BIDIR"
+    },
+    {
+      "id": "219",
+      "name": "TUNREAD"
     },
     {
       "id": "220",
@@ -233,12 +252,36 @@
       "name": "PTY_USER"
     },
     {
+      "id": "405",
+      "name": "OPENSSL_SNI"
+    },
+    {
+      "id": "406",
+      "name": "OPENSSL_NO_SNI"
+    },
+    {
       "id": "474",
       "name": "PROXY_HTTPVERSION"
     },
     {
       "id": "480",
       "name": "INTERFACE_IGNOREOUTGOING"
+    },
+    {
+      "id": "484",
+      "name": "TRY_ADDRS_4"
+    },
+    {
+      "id": "485",
+      "name": "TRY_ADDRS_4_6"
+    },
+    {
+      "id": "486",
+      "name": "NETNS"
+    },
+    {
+      "id": "487",
+      "name": "NETNS_EXEC"
     },
     {
       "id": "535",
@@ -263,6 +306,38 @@
     {
       "id": "568",
       "name": "SOCKS5LISTEN_TCP4"
+    },
+    {
+      "id": "571",
+      "name": "TCP_CONNECT_BIND_6_4"
+    },
+    {
+      "id": "572",
+      "name": "SCTP_CONNECT_BIND_6_4"
+    },
+    {
+      "id": "574",
+      "name": "OPENSSL_CONNECT_BIND_6_4"
+    },
+    {
+      "id": "575",
+      "name": "SOCKS4_BIND_6_4"
+    },
+    {
+      "id": "576",
+      "name": "SOCKS5_CONNECT_BIND_6_4"
+    },
+    {
+      "id": "577",
+      "name": "PROXY_CONNECT_BIND_6_4"
+    },
+    {
+      "id": "578",
+      "name": "TCP_BIND_4"
+    },
+    {
+      "id": "579",
+      "name": "TCP_BIND_6"
     },
     {
       "id": "595",

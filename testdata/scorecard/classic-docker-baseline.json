@@ -1,24 +1,30 @@
 {
   "meta": {
     "label": "classic",
-    "timestamp": "2026-08-09T22:16:45Z",
-    "hostname": "68500646b07b",
-    "platform": "Linux-6.8.0-136-generic-x86_64-with-glibc2.43",
+    "timestamp": "2026-09-02T00:27:09Z",
+    "hostname": "f75f3b67babf",
+    "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.43",
     "socat": "/opt/classic/bin/socat",
     "socat_version": "socat by Gerhard Rieger and contributors - see www.dest-unreach.org",
     "test_sh": "/opt/classic-src/test.sh",
     "git": "",
     "out_dir": "/out",
+    "mode": "classic",
     "val_t": "auto",
     "jobs": "1",
-    "shard_timeout": "7200"
+    "shard_timeout": "7200",
+    "test_sh_args": "--internet",
+    "only": "",
+    "max_n": "",
+    "source_revision": "978606d",
+    "classic_version": "1.8.1.3"
   },
   "summary": {
-    "ok": 552,
-    "failed": 8,
-    "cant": 42,
-    "timeout": 1,
-    "unknown": 2,
+    "ok": 565,
+    "failed": 4,
+    "cant": 36,
+    "timeout": 0,
+    "unknown": 0,
     "total_recorded": 605,
     "shard_timeouts": []
   },
@@ -1944,10 +1950,10 @@
       "id": 216,
       "name": "UDP6MULTICAST_UNIDIR",
       "description": "UDP/IPv6 multicast",
-      "status": "CANT",
-      "detail": "IPv6 multicasting does not work",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 216 UDP6MULTICAST_UNIDIR: UDP/IPv6 multicast... IPv6 multicasting does not work"
+      "raw": "test 216 UDP6MULTICAST_UNIDIR: UDP/IPv6 multicast... OK"
     },
     "217": {
       "id": 217,
@@ -1971,10 +1977,10 @@
       "id": 219,
       "name": "TUNREAD",
       "description": "reading data sent through tun interface",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 219 TUNREAD: reading data sent through tun interface... FAILED"
+      "raw": "test 219 TUNREAD: reading data sent through tun interface... OK"
     },
     "220": {
       "id": 220,
@@ -2042,9 +2048,9 @@
     "227": {
       "id": 227,
       "name": "EXECPTYKILL",
-      "description": "exec:",
-      "status": "UNKNOWN",
-      "detail": ",pty explicitly kills sub process... OK",
+      "description": "exec:...,pty explicitly kills sub process",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
       "raw": "test 227 EXECPTYKILL: exec:...,pty explicitly kills sub process... OK"
     },
@@ -3591,10 +3597,10 @@
       "id": 399,
       "name": "OPENSSL_DTLS_CLIENT",
       "description": "OpenSSL DTLS client",
-      "status": "OK",
-      "detail": "",
+      "status": "FAILED",
+      "detail": "/opt/classic/bin/socat:",
       "shard": 0,
-      "raw": "test 399 OPENSSL_DTLS_CLIENT: OpenSSL DTLS client... OK"
+      "raw": "test 399 OPENSSL_DTLS_CLIENT: OpenSSL DTLS client... FAILED:  /opt/classic/bin/socat:"
     },
     "400": {
       "id": 400,
@@ -3645,19 +3651,19 @@
       "id": 405,
       "name": "OPENSSL_SNI",
       "description": "Test the OpenSSL SNI feature",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 405 OPENSSL_SNI: Test the OpenSSL SNI feature... use test.sh option --internet"
+      "raw": "test 405 OPENSSL_SNI: Test the OpenSSL SNI feature... OK"
     },
     "406": {
       "id": 406,
       "name": "OPENSSL_NO_SNI",
       "description": "Test the openssl-no-sni option",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 406 OPENSSL_NO_SNI: Test the openssl-no-sni option... use test.sh option --internet"
+      "raw": "test 406 OPENSSL_NO_SNI: Test the openssl-no-sni option... OK"
     },
     "407": {
       "id": 407,
@@ -3690,10 +3696,10 @@
       "id": 410,
       "name": "VSOCK_ECHO",
       "description": "test communication via VSOCK loopback socket",
-      "status": "FAILED",
+      "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 410 VSOCK_ECHO: test communication via VSOCK loopback socket... FAILED"
+      "raw": "test 410 VSOCK_ECHO: test communication via VSOCK loopback socket... OK"
     },
     "411": {
       "id": 411,
@@ -4347,7 +4353,7 @@
       "id": 483,
       "name": "REUSEADDR_NULL",
       "description": "test option reuseaddr without value",
-      "status": "FAILED",
+      "status": "CANT",
       "detail": "NO RESULT",
       "shard": 0,
       "raw": "test 483 REUSEADDR_NULL: test option reuseaddr without value... NO RESULT"
@@ -4356,37 +4362,37 @@
       "id": 484,
       "name": "TRY_ADDRS_4",
       "description": "try all available TCP4 addresses",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 484 TRY_ADDRS_4: try all available TCP4 addresses... use test.sh option --internet"
+      "raw": "test 484 TRY_ADDRS_4: try all available TCP4 addresses... OK"
     },
     "485": {
       "id": 485,
       "name": "TRY_ADDRS_4_6",
       "description": "for TCP try all available IPv4 and IPv6 addresses",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 485 TRY_ADDRS_4_6: for TCP try all available IPv4 and IPv6 addresses... use test.sh option --internet"
+      "raw": "test 485 TRY_ADDRS_4_6: for TCP try all available IPv4 and IPv6 addresses... OK"
     },
     "486": {
       "id": 486,
       "name": "NETNS",
-      "description": "option netns (net namespace socat-332-test486)",
-      "status": "FAILED",
-      "detail": "mount --make-shared /run/netns failed: Permission denied",
+      "description": "option netns (net namespace socat-357-test486)",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 486 NETNS: option netns (net namespace socat-332-test486)... mount --make-shared /run/netns failed: Permission denied"
+      "raw": "test 486 NETNS: option netns (net namespace socat-357-test486)... OK"
     },
     "487": {
       "id": 487,
       "name": "NETNS_EXEC",
-      "description": "option netns with EXEC (net namespace socat-332-test487)",
-      "status": "FAILED",
-      "detail": "mount --make-shared /run/netns failed: Permission denied",
+      "description": "option netns with EXEC (net namespace socat-357-test487)",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-332-test487)... mount --make-shared /run/netns failed: Permission denied"
+      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-357-test487)... OK"
     },
     "488": {
       "id": 488,
@@ -4680,10 +4686,10 @@
       "id": 520,
       "name": "DCCP4",
       "description": "DCCP over IPv4",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "dccp4 not available on host",
       "shard": 0,
-      "raw": "test 520 DCCP4: DCCP over IPv4... OK"
+      "raw": "test 520 DCCP4: DCCP over IPv4... dccp4 not available on host"
     },
     "521": {
       "id": 521,
@@ -4752,7 +4758,7 @@
       "id": 528,
       "name": "PROCAN_CTTY",
       "description": "test procan controlling terminal output",
-      "status": "UNKNOWN",
+      "status": "CANT",
       "detail": "must run in tty",
       "shard": 0,
       "raw": "test 528 PROCAN_CTTY: test procan controlling terminal output... must run in tty"
@@ -4878,19 +4884,19 @@
       "id": 542,
       "name": "V1800_DCCP_LISTEN_RANGE",
       "description": "test regression of DCCP-LISTEN with IPv4 RANGE",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "dccp4 not available on host",
       "shard": 0,
-      "raw": "test 542 V1800_DCCP_LISTEN_RANGE: test regression of DCCP-LISTEN with IPv4 RANGE... OK"
+      "raw": "test 542 V1800_DCCP_LISTEN_RANGE: test regression of DCCP-LISTEN with IPv4 RANGE... dccp4 not available on host"
     },
     "543": {
       "id": 543,
       "name": "V1800_DCCP_LISTEN_BIND",
       "description": "test regression of DCCP-LISTEN with IPv4 BIND",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "dccp4 not available on host",
       "shard": 0,
-      "raw": "test 543 V1800_DCCP_LISTEN_BIND: test regression of DCCP-LISTEN with IPv4 BIND... OK"
+      "raw": "test 543 V1800_DCCP_LISTEN_BIND: test regression of DCCP-LISTEN with IPv4 BIND... dccp4 not available on host"
     },
     "544": {
       "id": 544,
@@ -5139,82 +5145,82 @@
       "id": 571,
       "name": "TCP_CONNECT_BIND_6_4",
       "description": "TCP bind chooses matching IPv",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 571 TCP_CONNECT_BIND_6_4: TCP bind chooses matching IPv... use test.sh option --internet"
+      "raw": "test 571 TCP_CONNECT_BIND_6_4: TCP bind chooses matching IPv... OK"
     },
     "572": {
       "id": 572,
       "name": "SCTP_CONNECT_BIND_6_4",
       "description": "SCTP bind chooses matching IPv",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 572 SCTP_CONNECT_BIND_6_4: SCTP bind chooses matching IPv... use test.sh option --internet"
+      "raw": "test 572 SCTP_CONNECT_BIND_6_4: SCTP bind chooses matching IPv... OK"
     },
     "573": {
       "id": 573,
       "name": "DCCP_CONNECT_BIND_6_4",
       "description": "DCCP bind chooses matching IPv",
       "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "detail": "dccp4 not available on host",
       "shard": 0,
-      "raw": "test 573 DCCP_CONNECT_BIND_6_4: DCCP bind chooses matching IPv... use test.sh option --internet"
+      "raw": "test 573 DCCP_CONNECT_BIND_6_4: DCCP bind chooses matching IPv... dccp4 not available on host"
     },
     "574": {
       "id": 574,
       "name": "OPENSSL_CONNECT_BIND_6_4",
       "description": "OPENSSL bind chooses matching IPv",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 574 OPENSSL_CONNECT_BIND_6_4: OPENSSL bind chooses matching IPv... use test.sh option --internet"
+      "raw": "test 574 OPENSSL_CONNECT_BIND_6_4: OPENSSL bind chooses matching IPv... OK"
     },
     "575": {
       "id": 575,
       "name": "SOCKS4_BIND_6_4",
       "description": "SOCKS4 bind chooses matching IPv",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 575 SOCKS4_BIND_6_4: SOCKS4 bind chooses matching IPv... use test.sh option --internet"
+      "raw": "test 575 SOCKS4_BIND_6_4: SOCKS4 bind chooses matching IPv... OK"
     },
     "576": {
       "id": 576,
       "name": "SOCKS5_CONNECT_BIND_6_4",
       "description": "SOCKS5 bind chooses matching IPv",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 576 SOCKS5_CONNECT_BIND_6_4: SOCKS5 bind chooses matching IPv... use test.sh option --internet"
+      "raw": "test 576 SOCKS5_CONNECT_BIND_6_4: SOCKS5 bind chooses matching IPv... OK"
     },
     "577": {
       "id": 577,
       "name": "PROXY_CONNECT_BIND_6_4",
       "description": "PROXY bind chooses matching IPv",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 577 PROXY_CONNECT_BIND_6_4: PROXY bind chooses matching IPv... use test.sh option --internet"
+      "raw": "test 577 PROXY_CONNECT_BIND_6_4: PROXY bind chooses matching IPv... OK"
     },
     "578": {
       "id": 578,
       "name": "TCP_BIND_4",
       "description": "TCP-CONNECT chooses IPv4 from bind",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 578 TCP_BIND_4: TCP-CONNECT chooses IPv4 from bind... use test.sh option --internet"
+      "raw": "test 578 TCP_BIND_4: TCP-CONNECT chooses IPv4 from bind... OK"
     },
     "579": {
       "id": 579,
       "name": "TCP_BIND_6",
       "description": "TCP-CONNECT chooses IPv6 from bind",
-      "status": "CANT",
-      "detail": "use test.sh option --internet",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 579 TCP_BIND_6: TCP-CONNECT chooses IPv6 from bind... use test.sh option --internet"
+      "raw": "test 579 TCP_BIND_6: TCP-CONNECT chooses IPv6 from bind... OK"
     },
     "580": {
       "id": 580,
@@ -5238,10 +5244,10 @@
       "id": 582,
       "name": "DCCP_CONNECT_RETRY",
       "description": "DCCP can retry",
-      "status": "OK",
-      "detail": "",
+      "status": "CANT",
+      "detail": "dccp4 not available on host",
       "shard": 0,
-      "raw": "test 582 DCCP_CONNECT_RETRY: DCCP can retry... OK"
+      "raw": "test 582 DCCP_CONNECT_RETRY: DCCP can retry... dccp4 not available on host"
     },
     "583": {
       "id": 583,
@@ -5301,10 +5307,10 @@
       "id": 589,
       "name": "DCCP_CONNECT_MAXCHILDREN",
       "description": "DCCP with fork,max-children",
-      "status": "TIMEOUT",
-      "detail": "!port 174 timed out! OK",
+      "status": "CANT",
+      "detail": "dccp4 not available on host",
       "shard": 0,
-      "raw": "test 589 DCCP_CONNECT_MAXCHILDREN: DCCP with fork,max-children... !port 174 timed out! OK"
+      "raw": "test 589 DCCP_CONNECT_MAXCHILDREN: DCCP with fork,max-children... dccp4 not available on host"
     },
     "590": {
       "id": 590,

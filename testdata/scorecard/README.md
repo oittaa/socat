@@ -208,9 +208,9 @@ recorded with `MODE=classic PRIVILEGED=1 TEST_SH_ARGS=--internet`.
 | Label | OK | FAILED | CANT |
 |-------|-----|--------|------|
 | classic 1.8.1.3 (host) | 475 | 24 | 103 |
-| classic 1.8.1.3 (Docker, root) | 552 | 8 | 42 |
+| classic 1.8.1.3 (Docker, root) | 565 | 4 | 36 |
 | go (this tree, host) | 471 | 7 | 127 |
-| go (this tree, Docker, root, privileged, `--internet`) | 538 | 8 | 59 |
+| go (this tree, Docker, root, privileged, `--internet`) | 538 | 7 | 60 |
 
 Go host FAILED: `OPENSSL_COMPRESS` (`compress=auto` is intentionally rejected),
 `OPENSSLLISTENDSA` (DSA, by design), `REUSEADDR_NULL` (NO RESULT),
@@ -251,8 +251,8 @@ isolated re-run passed). Classic `cool-write` is deprecated (use
 `children-shutup`); this port does not advertise it, so `COOLWRITE` /
 `COOLSTDIO` stay CANT. Host-only OK that Docker does not get:
 `GOPEN_TO_DENIED` (not with root) and `ACCEPT_FD` (no
-`systemd-socket-activate`). Vs classic Docker, Go has 538 OK against 552
-classic OK (`parity_gap_total` 32 in `go-vs-classic-docker-gaps.json`).
+`systemd-socket-activate`). Vs classic Docker, Go has 538 OK against 565
+classic OK (`parity_gap_total` 27 in `go-vs-classic-docker-gaps.json`).
 
 Use `go-baseline.json` + `REGRESSION_EXIT=1` after a **MODE=classic** run
 to catch real Go regressions with less noise.

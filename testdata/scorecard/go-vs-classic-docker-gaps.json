@@ -1,5 +1,5 @@
 {
-  "classic_docker_ok": 552,
+  "classic_docker_ok": 565,
   "go_ok": 538,
   "parity_fail": [
     {
@@ -50,11 +50,6 @@
       "status": "CANT"
     },
     {
-      "id": "399",
-      "name": "OPENSSL_DTLS_CLIENT",
-      "status": "CANT"
-    },
-    {
       "id": "400",
       "name": "OPENSSL_DTLS_SERVER",
       "status": "CANT"
@@ -77,11 +72,6 @@
     {
       "id": "475",
       "name": "RCVTIMEO_DTLS",
-      "status": "CANT"
-    },
-    {
-      "id": "520",
-      "name": "DCCP4",
       "status": "CANT"
     },
     {
@@ -120,16 +110,6 @@
       "status": "CANT"
     },
     {
-      "id": "542",
-      "name": "V1800_DCCP_LISTEN_RANGE",
-      "status": "CANT"
-    },
-    {
-      "id": "543",
-      "name": "V1800_DCCP_LISTEN_BIND",
-      "status": "CANT"
-    },
-    {
       "id": "550",
       "name": "V1800_UDPLITE_LISTEN_RANGE",
       "status": "CANT"
@@ -158,105 +138,9 @@
       "id": "557",
       "name": "V1800_UDPLITE_DATAGRAM_BIND",
       "status": "CANT"
-    },
-    {
-      "id": "582",
-      "name": "DCCP_CONNECT_RETRY",
-      "status": "CANT"
     }
   ],
   "parity_other": [],
-  "parity_gap_total": 32,
-  "new_ok_vs_classic_docker": [
-    {
-      "id": "216",
-      "name": "UDP6MULTICAST_UNIDIR",
-      "was": "CANT"
-    },
-    {
-      "id": "219",
-      "name": "TUNREAD",
-      "was": "FAILED"
-    },
-    {
-      "id": "227",
-      "name": "EXECPTYKILL",
-      "was": "UNKNOWN"
-    },
-    {
-      "id": "405",
-      "name": "OPENSSL_SNI",
-      "was": "CANT"
-    },
-    {
-      "id": "406",
-      "name": "OPENSSL_NO_SNI",
-      "was": "CANT"
-    },
-    {
-      "id": "410",
-      "name": "VSOCK_ECHO",
-      "was": "FAILED"
-    },
-    {
-      "id": "484",
-      "name": "TRY_ADDRS_4",
-      "was": "CANT"
-    },
-    {
-      "id": "485",
-      "name": "TRY_ADDRS_4_6",
-      "was": "CANT"
-    },
-    {
-      "id": "486",
-      "name": "NETNS",
-      "was": "FAILED"
-    },
-    {
-      "id": "487",
-      "name": "NETNS_EXEC",
-      "was": "FAILED"
-    },
-    {
-      "id": "571",
-      "name": "TCP_CONNECT_BIND_6_4",
-      "was": "CANT"
-    },
-    {
-      "id": "572",
-      "name": "SCTP_CONNECT_BIND_6_4",
-      "was": "CANT"
-    },
-    {
-      "id": "574",
-      "name": "OPENSSL_CONNECT_BIND_6_4",
-      "was": "CANT"
-    },
-    {
-      "id": "575",
-      "name": "SOCKS4_BIND_6_4",
-      "was": "CANT"
-    },
-    {
-      "id": "576",
-      "name": "SOCKS5_CONNECT_BIND_6_4",
-      "was": "CANT"
-    },
-    {
-      "id": "577",
-      "name": "PROXY_CONNECT_BIND_6_4",
-      "was": "CANT"
-    },
-    {
-      "id": "578",
-      "name": "TCP_BIND_4",
-      "was": "CANT"
-    },
-    {
-      "id": "579",
-      "name": "TCP_BIND_6",
-      "was": "CANT"
-    }
-  ]
+  "parity_gap_total": 27,
+  "new_ok_vs_classic_docker": []
 }
