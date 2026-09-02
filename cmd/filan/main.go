@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oittaa/socat/internal/filan"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/outbuf"
 	"golang.org/x/sys/unix"
@@ -254,7 +255,7 @@ func (cfg *filanConfig) analyzeOnce(out, stderr io.Writer) error {
 	}
 	// Header line; test.sh LISTEN_KEEPALIVE skips it with tail -n +2.
 	if cfg.style == styleDetailed {
-		report.Println("  FD  typedeviceinodemodelinksuidgidrdevsizeblksizeblocksatimemtimectimecloexecflagssigownsigio")
+		filan.WriteHeader(&report)
 	}
 	for fd := lo; fd < hi; fd++ {
 		if cfg.style == styleSimple || cfg.style == styleLong {
@@ -355,7 +356,7 @@ func (cfg *filanConfig) filanFile(path string, b *outbuf.Buf) error {
 			defer logx.CloseQuiet(f)
 		}
 	}
-	cfg.printStat(-1, fd, &st, b)
+	filan.WriteStat(b, -1, fd, &st, filan.Options{Raw: cfg.rawOutput})
 	// FILANSYMLINK: after lstat of a symlink path, append LINKTARGET=... with no space before the keyword.
 	if !cfg.followSymlinks && st.Mode&unix.S_IFMT == unix.S_IFLNK {
 		if target, err := os.Readlink(path); err == nil {
@@ -368,182 +369,7 @@ func (cfg *filanConfig) filanFile(path string, b *outbuf.Buf) error {
 
 func (cfg *filanConfig) filanFD(fd int, b *outbuf.Buf) {
 	cfg.debugf("checking file descriptor %d", fd)
-	var st unix.Stat_t
-	err := unix.Fstat(fd, &st)
-	if err != nil {
-		return // skip closed FDs silently so gaps in the range stay quiet
-	}
-	cfg.printStat(fd, fd, &st, b)
-
-	// cloexec / flags
-	cloexec, _ := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
-	flags, _ := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
-	b.Printf("\t%d\tx%06x", cloexec, flags)
-	if own, err := unix.FcntlInt(uintptr(fd), unix.F_GETOWN, 0); err == nil {
-		b.Printf("\t%d", own)
-	}
-	// socket extras
-	if st.Mode&unix.S_IFMT == unix.S_IFSOCK {
-		printSocket(fd, b)
-	}
-	if st.Mode&unix.S_IFMT == unix.S_IFIFO {
-		printPipeSize(fd, b)
-	}
-	// try path from /proc
-	if p, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd)); err == nil {
-		b.Printf("\t%s", p)
-	}
-	if st.Mode&unix.S_IFMT == unix.S_IFCHR {
-		if ws, err := unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ); err == nil {
-			b.Printf(" terminal window size:   %dx%d terminal window pixels: %dx%d",
-				ws.Col, ws.Row, ws.Xpixel, ws.Ypixel)
-		}
-	}
-	b.Println()
-}
-
-func (cfg *filanConfig) printStat(dynfd, statfd int, st *unix.Stat_t, b *outbuf.Buf) {
-	fdshow := dynfd
-	if fdshow < 0 {
-		fdshow = statfd
-	}
-	devStr := fmt.Sprintf("%d,%d", unix.Major(uint64(st.Dev)), unix.Minor(uint64(st.Dev)))
-	if cfg.rawOutput {
-		devStr = fmt.Sprintf("%d", st.Dev)
-	}
-	b.Printf("%4d: %s\t%s\t%d\t%06o\t%d\t%d\t%d",
-		fdshow,
-		fileTypeString(uint32(st.Mode)),
-		devStr,
-		st.Ino,
-		st.Mode,
-		st.Nlink,
-		st.Uid,
-		st.Gid,
-	)
-	if st.Mode&unix.S_IFMT == unix.S_IFCHR || st.Mode&unix.S_IFMT == unix.S_IFBLK {
-		b.Printf("\t%d,%d", unix.Major(uint64(st.Rdev)), unix.Minor(uint64(st.Rdev)))
-	} else {
-		b.Printf("\t")
-	}
-	b.Printf("\t%d", st.Size)
-	cfg.printTime(b, st.Atim.Sec)
-	cfg.printTime(b, st.Mtim.Sec)
-	cfg.printTime(b, st.Ctim.Sec)
-}
-
-func (cfg *filanConfig) printTime(b *outbuf.Buf, sec int64) {
-	if cfg.rawOutput {
-		b.Printf("\t%d", sec)
-		return
-	}
-	t := time.Unix(sec, 0).Local()
-	b.Printf("\t%s", t.Format("2006-01-02 15:04:05"))
-}
-
-// fileTypeString returns file/dir/symlink/chrdev/blkdev/pipe/socket/undef; test.sh greps these.
-func fileTypeString(mode uint32) string {
-	switch mode & unix.S_IFMT {
-	case unix.S_IFREG:
-		return "file"
-	case unix.S_IFDIR:
-		return "dir"
-	case unix.S_IFLNK:
-		return "symlink"
-	case unix.S_IFCHR:
-		return "chrdev"
-	case unix.S_IFBLK:
-		return "blkdev"
-	case unix.S_IFIFO:
-		return "pipe"
-	case unix.S_IFSOCK:
-		return "socket"
-	default:
-		return "undef"
-	}
-}
-
-func printSocket(fd int, b *outbuf.Buf) {
-	sa, err := unix.Getsockname(fd)
-	if err != nil {
-		return
-	}
-	b.Printf("\t%s", sockAddrString(sa))
-	// peer
-	if pa, err := unix.Getpeername(fd); err == nil {
-		b.Printf("\t%s", sockAddrString(pa))
-	}
-	// SO_TYPE
-	v, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_TYPE)
-	if err == nil {
-		switch v {
-		case unix.SOCK_STREAM:
-			b.Print("\tSTREAM")
-		case unix.SOCK_DGRAM:
-			b.Print("\tDGRAM")
-		case unix.SOCK_RAW:
-			b.Print("\tRAW")
-		case unix.SOCK_SEQPACKET:
-			b.Print("\tSEQPACKET")
-		default:
-			b.Printf("\ttype=%d", v)
-		}
-	}
-	// Socket options; test.sh LISTEN_KEEPALIVE greps KEEPALIVE=.
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_DEBUG, "DEBUG")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, "REUSEADDR")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_TYPE, "TYPE")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_ERROR, "ERROR")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_DONTROUTE, "DONTROUTE")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_BROADCAST, "BROADCAST")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_SNDBUF, "SNDBUF")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_RCVBUF, "RCVBUF")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_KEEPALIVE, "KEEPALIVE")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_OOBINLINE, "OOBINLINE")
-	printLinuxSockopts(b, fd)
-	printSockoptInt(b, fd, unix.IPPROTO_TCP, unix.TCP_NODELAY, "TCP_NODELAY")
-	printSockoptInt(b, fd, unix.IPPROTO_TCP, unix.TCP_MAXSEG, "TCP_MAXSEG")
-	printSockoptInt(b, fd, unix.IPPROTO_TCP, unix.TCP_KEEPINTVL, "TCP_KEEPINTVL")
-	printSockoptInt(b, fd, unix.IPPROTO_TCP, unix.TCP_KEEPCNT, "TCP_KEEPCNT")
-}
-
-func printSockoptInt(b *outbuf.Buf, fd, level, opt int, name string) {
-	v, err := unix.GetsockoptInt(fd, level, opt)
-	if err != nil {
-		return
-	}
-	// TAB-separated NAME=value so test.sh sed can strip after KEEPALIVE=1.
-	b.Printf("\t%s=%d", name, v)
-}
-
-func sockAddrString(sa unix.Sockaddr) string {
-	switch a := sa.(type) {
-	case *unix.SockaddrInet4:
-		return fmt.Sprintf("%d.%d.%d.%d:%d", a.Addr[0], a.Addr[1], a.Addr[2], a.Addr[3], a.Port)
-	case *unix.SockaddrInet6:
-		return fmt.Sprintf("[%s]:%d", netIPv6(a.Addr), a.Port)
-	case *unix.SockaddrUnix:
-		name := a.Name
-		if len(name) > 0 && name[0] == 0 {
-			return "@" + name[1:]
-		}
-		return name
-	default:
-		return fmt.Sprintf("%T", sa)
-	}
-}
-
-func netIPv6(b [16]byte) string {
-	return fmt.Sprintf("%x:%x:%x:%x:%x:%x:%x:%x",
-		uint16(b[0])<<8|uint16(b[1]),
-		uint16(b[2])<<8|uint16(b[3]),
-		uint16(b[4])<<8|uint16(b[5]),
-		uint16(b[6])<<8|uint16(b[7]),
-		uint16(b[8])<<8|uint16(b[9]),
-		uint16(b[10])<<8|uint16(b[11]),
-		uint16(b[12])<<8|uint16(b[13]),
-		uint16(b[14])<<8|uint16(b[15]),
-	)
+	filan.WriteFD(b, fd, filan.Options{Raw: cfg.rawOutput})
 }
 
 func (cfg *filanConfig) fdnamePath(path string, b *outbuf.Buf) error {
@@ -551,7 +377,7 @@ func (cfg *filanConfig) fdnamePath(path string, b *outbuf.Buf) error {
 	if err := unix.Stat(path, &st); err != nil {
 		return err
 	}
-	typ := fileTypeString(uint32(st.Mode))
+	typ := filan.FileTypeString(uint32(st.Mode))
 	if st.Mode&unix.S_IFMT == unix.S_IFLNK {
 		typ = "link"
 	}
@@ -567,7 +393,7 @@ func (cfg *filanConfig) fdname(fd int, b *outbuf.Buf, numbered bool) {
 	}
 	// -s prints "tcp"/"udp"/"unix"/… as the type, not generic "socket".
 	// test.sh FILAN_SHORT_TCP greps the second field as "tcp".
-	typ := fileTypeString(uint32(st.Mode))
+	typ := filan.FileTypeString(uint32(st.Mode))
 	path := ""
 	if st.Mode&unix.S_IFMT == unix.S_IFSOCK {
 		typ, path = shortSocketName(fd, cfg.style)
@@ -604,7 +430,7 @@ func socketTypeName(stype int) string {
 // shortSocketName returns -s/-S type ("tcp", "udp", "unix", …) and address text.
 func shortSocketName(fd int, style int) (typ, addrs string) {
 	typ = "socket"
-	proto, err := socketProtocol(fd)
+	proto, err := filan.SocketProtocol(fd)
 	if err != nil {
 		proto = -1
 	}
@@ -613,10 +439,10 @@ func shortSocketName(fd int, style int) (typ, addrs string) {
 	if err != nil {
 		return typ, ""
 	}
-	local := sockAddrString(sa)
+	local := filan.SockAddrString(sa)
 	peer := ""
 	if pa, err := unix.Getpeername(fd); err == nil {
-		peer = sockAddrString(pa)
+		peer = filan.SockAddrString(pa)
 	}
 	listenTag := ""
 	if v, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ACCEPTCONN); err == nil && v != 0 {

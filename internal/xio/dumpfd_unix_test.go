@@ -1,0 +1,201 @@
+//go:build linux || darwin
+
+package xio_test
+
+import (
+	"bytes"
+	"context"
+	"net"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/oittaa/socat/internal/logx"
+	"github.com/oittaa/socat/internal/xio"
+	_ "github.com/oittaa/socat/internal/xio/all"
+)
+
+func reportedDumpFDs(text string) []int {
+	var fds []int
+	for _, line := range strings.Split(text, "\n") {
+		if !strings.Contains(line, ":") {
+			continue
+		}
+		colon := strings.Index(line, ":")
+		n, err := strconv.Atoi(strings.TrimSpace(line[:colon]))
+		if err != nil {
+			continue
+		}
+		fds = append(fds, n)
+	}
+	return fds
+}
+
+type dumpBuf struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (d *dumpBuf) Write(p []byte) (int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.b.Write(p)
+}
+
+func (d *dumpBuf) String() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.b.String()
+}
+
+func TestDumpFDsPrintsChannelDescriptorsInOrder(t *testing.T) {
+	dir := t.TempDir()
+	inPath := filepath.Join(dir, "in")
+	outPath := filepath.Join(dir, "out")
+	if err := os.WriteFile(inPath, []byte("hi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sp0, sp1, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sp0.Close(); _ = sp1.Close() })
+	internal := []int{int(sp0.Fd()), int(sp1.Fd())}
+
+	var dump bytes.Buffer
+	log := logx.New()
+	log.SetOutput(&bytes.Buffer{})
+	g := &xio.Global{
+		Log:         log,
+		BlockSize:   8192,
+		Linger:      10 * time.Millisecond,
+		LeftToRight: true,
+		DumpFDs:     true,
+		DumpFDOut:   &dump,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := xio.Run(ctx, mustParse(t, "OPEN:"+inPath+",rdonly"), mustParse(t, "OPEN:"+outPath+",wronly"), g); err != nil {
+		t.Fatal(err)
+	}
+	text := dump.String()
+	if strings.Count(text, "  FD  type") != 1 {
+		t.Fatalf("want one header, got %q", text)
+	}
+	fds := reportedDumpFDs(text)
+	if len(fds) != 2 {
+		t.Fatalf("fds=%v dump=%q", fds, text)
+	}
+	if fds[0] == fds[1] {
+		t.Fatalf("expected distinct left then right FDs: %v", fds)
+	}
+	for _, fd := range internal {
+		for _, got := range fds {
+			if got == fd {
+				t.Fatalf("internal pipe fd %d appeared in dump %v", fd, fds)
+			}
+		}
+	}
+}
+
+func TestDumpFDsOncePerForkSession(t *testing.T) {
+	var dump dumpBuf
+	log := logx.New()
+	log.SetOutput(&bytes.Buffer{})
+	g := &xio.Global{
+		Log:       log,
+		BlockSize: 8192,
+		Linger:    50 * time.Millisecond,
+		DumpFDs:   true,
+		DumpFDOut: &dump,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	lo := startForkListenPIPE(t, ctx, g, "TCP4-LISTEN:0,fork,reuseaddr")
+	port := listenerPort(t, lo)
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	for range 2 {
+		c := openClient(t, ctx, g, "TCP4:"+addr)
+		mustWrite(t, c.Stream, []byte("ab"))
+		_ = readFull(t, c.Stream, 2)
+		_ = c.Close()
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Count(dump.String(), "  FD  type") == 2 {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("want two dumps, got %q", dump.String())
+}
+
+func TestDumpFDsOmitsSniffFiles(t *testing.T) {
+	dir := t.TempDir()
+	inPath := filepath.Join(dir, "in")
+	outPath := filepath.Join(dir, "out")
+	sniff := filepath.Join(dir, "sniff")
+	if err := os.WriteFile(inPath, []byte("hi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var dump bytes.Buffer
+	g := &xio.Global{
+		Log:         logx.New(),
+		BlockSize:   8192,
+		Linger:      10 * time.Millisecond,
+		LeftToRight: true,
+		DumpFDs:     true,
+		DumpFDOut:   &dump,
+		RawLeftPath: sniff,
+		Progname:    "socat",
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := xio.Run(ctx, mustParse(t, "OPEN:"+inPath+",rdonly"), mustParse(t, "OPEN:"+outPath+",wronly"), g); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(dump.String(), sniff) {
+		t.Fatalf("sniff path leaked into dump: %q", dump.String())
+	}
+	if _, err := os.Stat(sniff); err != nil {
+		t.Fatalf("sniff file should still be created: %v", err)
+	}
+}
+
+func TestDumpFDsNoforkExec(t *testing.T) {
+	dir := t.TempDir()
+	inPath := filepath.Join(dir, "in")
+	if err := os.WriteFile(inPath, []byte("hi\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var dump bytes.Buffer
+	g := &xio.Global{
+		Log:         logx.New(),
+		BlockSize:   8192,
+		Linger:      10 * time.Millisecond,
+		LeftToRight: true,
+		DumpFDs:     true,
+		DumpFDOut:   &dump,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := xio.Run(ctx, mustParse(t, "OPEN:"+inPath+",rdonly"), mustParse(t, "EXEC:true,nofork"), g); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(dump.String(), "  FD  type") != 1 {
+		t.Fatalf("nofork dump=%q", dump.String())
+	}
+	if len(reportedDumpFDs(dump.String())) < 1 {
+		t.Fatalf("nofork dump missing peer FD: %q", dump.String())
+	}
+}

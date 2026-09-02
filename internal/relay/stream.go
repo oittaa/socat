@@ -314,6 +314,16 @@ func pokeReadDeadline(s Stream) {
 	})
 }
 
+// StreamReadFD returns the underlying read descriptor, or -1.
+func StreamReadFD(s Stream) int {
+	return streamReadFD(s)
+}
+
+// StreamWriteFD returns the underlying write descriptor, or -1.
+func StreamWriteFD(s Stream) int {
+	return streamWriteFD(s)
+}
+
 func streamReadFD(s Stream) int {
 	return streamFD(s, streamRead)
 }

@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package filan
 
 import (
 	"github.com/oittaa/socat/internal/outbuf"
@@ -13,6 +13,7 @@ func printLinuxSockopts(b *outbuf.Buf, fd int) {
 	printSockoptInt(b, fd, unix.IPPROTO_TCP, unix.TCP_KEEPIDLE, "TCP_KEEPIDLE")
 }
 
-func socketProtocol(fd int) (int, error) {
+// SocketProtocol returns SO_PROTOCOL for fd.
+func SocketProtocol(fd int) (int, error) {
 	return unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_PROTOCOL)
 }

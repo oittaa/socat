@@ -3,12 +3,13 @@ package xio
 import "github.com/oittaa/socat/internal/relay"
 
 // beginLogicalSession runs once per transfer session after both endpoints
-// are open and before payload movement. -lm switches that session's logger
-// to syslog.
+// are open and before payload movement: -D dumps channel FDs, then -lm
+// switches that session's logger to syslog.
 func (g *Global) beginLogicalSession(left, right relay.Stream) {
 	if g == nil {
 		return
 	}
+	g.dumpSessionFDs(left, right)
 	g.maybeSwitchMixedLog()
 }
 

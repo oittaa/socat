@@ -1,6 +1,6 @@
 //go:build darwin
 
-package main
+package filan
 
 import (
 	"github.com/oittaa/socat/internal/outbuf"
@@ -9,6 +9,7 @@ import (
 
 func printLinuxSockopts(*outbuf.Buf, int) {}
 
-func socketProtocol(int) (int, error) {
+// SocketProtocol returns SO_PROTOCOL for fd.
+func SocketProtocol(int) (int, error) {
 	return -1, unix.ENOPROTOOPT
 }
