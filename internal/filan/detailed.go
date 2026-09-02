@@ -6,7 +6,6 @@ package filan
 import (
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 	"unicode"
 
@@ -19,9 +18,7 @@ type Options struct {
 	Raw bool
 }
 
-// asctimeWidth is the padded timestamp column width so extra header tabs
-// line up with cloexec when ISO-8601 times are used.
-const asctimeWidth = 24
+const timestampLayout = time.DateTime + "-07:00"
 
 // WriteHeader writes the detailed-report column header.
 func WriteHeader(b *outbuf.Buf, opts Options) {
@@ -99,11 +96,7 @@ func printTime(b *outbuf.Buf, sec int64, raw bool) {
 		b.Printf("\t%d", sec)
 		return
 	}
-	t := time.Unix(sec, 0).Local().Format(time.DateTime + "-07:00")
-	if len(t) < asctimeWidth {
-		t += strings.Repeat(" ", asctimeWidth-len(t))
-	}
-	b.Printf("\t%s", t)
+	b.Printf("\t%s", time.Unix(sec, 0).Local().Format(timestampLayout))
 }
 
 // FileTypeString returns file/dir/symlink/chrdev/blkdev/pipe/socket/undef.
