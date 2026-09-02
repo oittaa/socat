@@ -513,14 +513,24 @@ func setupLogger(cfg *Config) (*logx.Logger, func(), error) {
 		}
 		log.SetHostname(h)
 	}
-	closeLog := func() {}
-	if cfg.LogDest == LogDestFile {
+	closeLog := func() { log.CloseOwnedSyslog() }
+	switch cfg.LogDest {
+	case LogDestFile:
 		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644) // #nosec G302 -- -lf log file is meant to be readable
 		if err != nil {
 			return nil, nil, err
 		}
-		closeLog = func() { logx.CloseQuiet(f) }
+		closeLog = func() {
+			log.CloseOwnedSyslog()
+			logx.CloseQuiet(f)
+		}
 		log.SetOutput(f)
+	case LogDestSyslog:
+		w, err := logx.DialSyslog(cfg.Progname, cfg.LogFacility)
+		if err != nil {
+			return nil, nil, err
+		}
+		log.SetSyslog(w)
 	}
 	return log, closeLog, nil
 }

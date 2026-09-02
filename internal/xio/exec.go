@@ -198,6 +198,9 @@ func splitExecArgs(s string) []string {
 // then stderr from fdo. Unrelated 0/1/2 stay inherited. Mapping runs in the
 // child so a failed Start cannot leave the parent half-remapped.
 func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Global, mode Mode) error {
+	if g != nil {
+		g.beginLogicalSession(peer, nil)
+	}
 	cmdStr := strings.Join(s.Params, ":")
 	var cmd *exec.Cmd
 	switch {
