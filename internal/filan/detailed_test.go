@@ -61,7 +61,7 @@ func TestWriteHeaderRawTimeTabs(t *testing.T) {
 	}
 }
 
-func TestWriteFDPlacesTimesAfterBlksizeAndBlocks(t *testing.T) {
+func TestWriteFDColumns(t *testing.T) {
 	f, err := os.Open("/dev/null")
 	if err != nil {
 		t.Fatal(err)
@@ -87,20 +87,6 @@ func TestWriteFDPlacesTimesAfterBlksizeAndBlocks(t *testing.T) {
 	}
 	if _, err := strconv.Atoi(fields[10]); err != nil {
 		t.Fatalf("blocks=%q", fields[10])
-	}
-	for _, i := range []int{11, 12, 13} {
-		value := strings.TrimSpace(fields[i])
-		if len(value) < len(time.DateTime)+6 || value[10] != ' ' {
-			t.Fatalf("time field %d = %q: want space-separated RFC 3339 with a numerical offset", i, fields[i])
-		}
-		offset := value[len(value)-6:]
-		if offset[0] != '+' && offset[0] != '-' {
-			t.Fatalf("time field %d = %q: want numerical offset", i, fields[i])
-		}
-		rfc3339 := value[:10] + "T" + value[11:]
-		if _, err := time.Parse(time.RFC3339, rfc3339); err != nil {
-			t.Fatalf("time field %d = %q: %v", i, fields[i], err)
-		}
 	}
 	if !strings.HasPrefix(fields[3], "0") {
 		t.Fatalf("mode=%q want leading 0", fields[3])

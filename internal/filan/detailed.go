@@ -18,8 +18,6 @@ type Options struct {
 	Raw bool
 }
 
-const timestampLayout = time.DateTime + "-07:00"
-
 // WriteHeader writes the detailed-report column header.
 func WriteHeader(b *outbuf.Buf, opts Options) {
 	b.Print("  FD  type\tdevice\tinode\tmode\tlinks\tuid\tgid\trdev\tsize\tblksize\tblocks")
@@ -96,7 +94,7 @@ func printTime(b *outbuf.Buf, sec int64, raw bool) {
 		b.Printf("\t%d", sec)
 		return
 	}
-	b.Printf("\t%s", time.Unix(sec, 0).Local().Format(timestampLayout))
+	b.Printf("\t%s", time.Unix(sec, 0).Local().Format(time.DateTime+"-07:00"))
 }
 
 // FileTypeString returns file/dir/symlink/chrdev/blkdev/pipe/socket/undef.
