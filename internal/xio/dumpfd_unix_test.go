@@ -172,30 +172,65 @@ func TestDumpFDsOmitsSniffFiles(t *testing.T) {
 	}
 }
 
-func TestDumpFDsNoforkExec(t *testing.T) {
+func TestNoforkSkipsDumpAndMixedLog(t *testing.T) {
+	rec := installMixSyslog(t)
 	dir := t.TempDir()
 	inPath := filepath.Join(dir, "in")
 	if err := os.WriteFile(inPath, []byte("hi\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	var dump bytes.Buffer
+	var stderr bytes.Buffer
+	log := logx.New()
+	log.SetOutput(&stderr)
+	log.SetLevel(logx.Info)
 	g := &xio.Global{
-		Log:         logx.New(),
+		Log:         log,
 		BlockSize:   8192,
 		Linger:      10 * time.Millisecond,
 		LeftToRight: true,
 		DumpFDs:     true,
 		DumpFDOut:   &dump,
+		LogMixed:    true,
+		LogFacility: "daemon",
+		Progname:    "socat",
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := xio.Run(ctx, mustParse(t, "OPEN:"+inPath+",rdonly"), mustParse(t, "EXEC:true,nofork"), g); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(dump.String(), "  FD  type") != 1 {
-		t.Fatalf("nofork dump=%q", dump.String())
+	if dump.Len() != 0 {
+		t.Fatalf("nofork dumped FDs: %q", dump.String())
 	}
-	if len(reportedDumpFDs(dump.String())) < 1 {
-		t.Fatalf("nofork dump missing peer FD: %q", dump.String())
+	if strings.Contains(stderr.String(), "switching to syslog") {
+		t.Fatalf("nofork switched to syslog: %q", stderr.String())
+	}
+	rec.mu.Lock()
+	n := rec.n
+	rec.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("nofork dialed syslog %d times", n)
+	}
+
+	stderr.Reset()
+	dump.Reset()
+	err := xio.Run(ctx, mustParse(t, "OPEN:"+inPath+",rdonly"), mustParse(t, "EXEC:/no/such/socat-nofork-missing,nofork"), g)
+	if err == nil {
+		t.Fatal("expected missing command to fail")
+	}
+	g.Log.Errorf("%s", err)
+	rec.mu.Lock()
+	n = rec.n
+	msgs := append([]string(nil), rec.msg...)
+	rec.mu.Unlock()
+	if n != 0 || len(msgs) != 0 {
+		t.Fatalf("failed nofork used syslog dials=%d msg=%v", n, msgs)
+	}
+	if strings.Contains(stderr.String(), "switching to syslog") {
+		t.Fatalf("failed nofork switched: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "no/such/socat-nofork-missing") {
+		t.Fatalf("exec failure missing from stderr: %q", stderr.String())
 	}
 }
