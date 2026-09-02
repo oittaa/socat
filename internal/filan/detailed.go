@@ -94,7 +94,7 @@ func printTime(b *outbuf.Buf, sec int64, raw bool) {
 		return
 	}
 	t := time.Unix(sec, 0).Local()
-	b.Printf("\t%s", t.Format("2006-01-02 15:04:05"))
+	b.Printf("\t%s", t.Format(time.DateTime))
 }
 
 // FileTypeString returns file/dir/symlink/chrdev/blkdev/pipe/socket/undef.
