@@ -103,6 +103,10 @@ func PtyExecStream(f *os.File, s parse.Spec) (relay.Stream, error) {
 	if err != nil {
 		return nil, err
 	}
+	return ptyExecStream(f, r), nil
+}
+
+func ptyExecStream(f *os.File, r io.Reader) relay.Stream {
 	w := &halfCloseWriter{w: f}
 	return relay.FDStream{
 		R: r,
@@ -112,7 +116,7 @@ func PtyExecStream(f *os.File, s parse.Spec) (relay.Stream, error) {
 			w.closeWrite()
 			return nil
 		},
-	}, nil
+	}
 }
 
 func ptyMasterReader(f *os.File, s parse.Spec) (io.Reader, error) {

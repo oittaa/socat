@@ -722,7 +722,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		logx.CloseQuiet(child)
 	}
 
-	return finishExec(s, g, cmd, stream, cleanup, mode == ModeWrite)
+	return finishExec(s, g, cmd, stream, cleanup, mode == ModeWrite, nil)
 }
 
 func validateProcessFDOptions(mode Mode, fdin, fdout string) error {
@@ -1107,17 +1107,21 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 		closeExecPTY(master, slave)
 		return nil, err
 	}
-	logx.CloseQuiet(slave)
+	if mode == ModeWrite {
+		logx.CloseQuiet(slave)
+	}
 	if err := applyPtyMasterLifecycle(s, master); err != nil {
 		killWaitUnregisterChild(cmd)
 		if unlink != nil {
 			unlink()
 		}
-		logx.CloseQuiet(master)
+		closeExecPTY(master, slave)
 		return nil, err
 	}
 	var stream relay.Stream
 	waitChild := false
+	var done chan struct{}
+	var closeSlave func()
 	switch mode {
 	case ModeWrite:
 		w := &halfCloseWriter{w: master}
@@ -1129,7 +1133,8 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 		}
 		waitChild = true
 	case ModeRead:
-		r, rerr := ptyMasterReader(master, s)
+		done = make(chan struct{})
+		r, closeHeldSlave, rerr := execPTYMasterReader(master, slave, s, done)
 		if rerr != nil {
 			killWaitUnregisterChild(cmd)
 			if unlink != nil {
@@ -1138,6 +1143,7 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 			logx.CloseQuiet(master)
 			return nil, rerr
 		}
+		closeSlave = closeHeldSlave
 		stream = relay.FDStream{
 			R:      r,
 			W:      io.Discard,
@@ -1145,8 +1151,8 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 			CloseW: func() error { return nil },
 		}
 	default:
-		var rerr error
-		stream, rerr = PtyExecStream(master, s)
+		done = make(chan struct{})
+		r, closeHeldSlave, rerr := execPTYMasterReader(master, slave, s, done)
 		if rerr != nil {
 			killWaitUnregisterChild(cmd)
 			if unlink != nil {
@@ -1155,8 +1161,10 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 			logx.CloseQuiet(master)
 			return nil, rerr
 		}
+		closeSlave = closeHeldSlave
+		stream = ptyExecStream(master, r)
 	}
-	return finishExec(s, g, cmd, stream, execPtyCleanup(master, unlink), waitChild)
+	return finishExec(s, g, cmd, stream, execPtyCleanup(master, unlink, closeSlave), waitChild, done)
 }
 
 // startCmdPty runs the child with a pseudo-terminal.
@@ -1212,7 +1220,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { w.closeWrite(); return nil },
 		}
-		return finishExec(s, g, cmd, stream, execPtyCleanup(ptmx, unlink), true)
+		return finishExec(s, g, cmd, stream, execPtyCleanup(ptmx, unlink, nil), true, nil)
 
 	case ModeRead:
 		// Inherit stdin; only stdout/stderr on PTY slave.
@@ -1240,16 +1248,16 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 			closeExecPTY(master, slave)
 			return nil, err
 		}
-		logx.CloseQuiet(slave)
 		if err := applyPtyMasterLifecycle(s, ptmx); err != nil {
 			killWaitUnregisterChild(cmd)
 			if unlink != nil {
 				unlink()
 			}
-			logx.CloseQuiet(ptmx)
+			closeExecPTY(ptmx, slave)
 			return nil, err
 		}
-		r, rerr := ptyMasterReader(ptmx, s)
+		done := make(chan struct{})
+		r, closeSlave, rerr := execPTYMasterReader(ptmx, slave, s, done)
 		if rerr != nil {
 			killWaitUnregisterChild(cmd)
 			if unlink != nil {
@@ -1264,10 +1272,11 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { return nil },
 		}
-		return finishExec(s, g, cmd, stream, execPtyCleanup(ptmx, unlink), false)
+		return finishExec(s, g, cmd, stream, execPtyCleanup(ptmx, unlink, closeSlave), false, done)
 
 	default:
-		ptmx, unlink, err = startOnPTY(cmd, s, g)
+		var slave *os.File
+		ptmx, slave, unlink, err = startOnPTY(cmd, s, g)
 		if err != nil {
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}
@@ -1276,10 +1285,11 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 			if unlink != nil {
 				unlink()
 			}
-			logx.CloseQuiet(ptmx)
+			closeExecPTY(ptmx, slave)
 			return nil, err
 		}
-		st, rerr := PtyExecStream(ptmx, s)
+		done := make(chan struct{})
+		r, closeSlave, rerr := execPTYMasterReader(ptmx, slave, s, done)
 		if rerr != nil {
 			killWaitUnregisterChild(cmd)
 			if unlink != nil {
@@ -1288,14 +1298,18 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 			logx.CloseQuiet(ptmx)
 			return nil, rerr
 		}
-		return finishExec(s, g, cmd, st, execPtyCleanup(ptmx, unlink), false)
+		st := ptyExecStream(ptmx, r)
+		return finishExec(s, g, cmd, st, execPtyCleanup(ptmx, unlink, closeSlave), false, done)
 	}
 }
 
-func execPtyCleanup(master *os.File, unlink func()) []func() {
+func execPtyCleanup(master *os.File, unlink, closeSlave func()) []func() {
 	out := []func(){func() { logx.CloseQuiet(master) }}
 	if unlink != nil {
 		out = append(out, unlink)
+	}
+	if closeSlave != nil {
+		out = append(out, closeSlave)
 	}
 	return out
 }
@@ -1309,7 +1323,7 @@ func applyPtyMasterLifecycle(s parse.Spec, ptmx *os.File) error {
 	return ApplyFDOptions(ptmx, s)
 }
 
-func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func(), waitChild bool) (*Opened, error) {
+func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func(), waitChild bool, done chan struct{}) (*Opened, error) {
 	pid := 0
 	if cmd != nil && cmd.Process != nil {
 		pid = cmd.Process.Pid
@@ -1327,7 +1341,9 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 	var mu sync.Mutex
 	var waitErr error
 	var exitCode int
-	done := make(chan struct{})
+	if done == nil {
+		done = make(chan struct{})
+	}
 	go func() {
 		err := cmd.Wait()
 		unregisterChildSignals(pid)
