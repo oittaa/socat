@@ -52,6 +52,8 @@ type AddressDesc struct {
 	Opener      Opener        // Opener function handling this address
 	OptionCaps  []string      // Address capability tokens for option-scope checks
 	Aliases     []string      // Extra keywords that resolve to this descriptor; -hhh only
+	// Directions is ModeRead, ModeWrite, or ModeRDWR (zero: both).
+	Directions Mode
 }
 
 type addressRegistry struct {

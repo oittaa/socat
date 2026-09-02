@@ -409,6 +409,7 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 	// canonical name. Direct registrations such as TCP-L keep their own name.
 	if d, ok := registeredAddresses.resolve(s.Type); ok {
 		s.Type = d.Name
+		warnAddressMode(g, mode, d.Directions)
 	}
 	var err error
 	s, err = ResolveChdirPaths(s)
@@ -466,6 +467,39 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		o.ChildrenShutup = n
 	}
 	return o, nil
+}
+
+func warnAddressMode(g *Global, opened, supported Mode) {
+	if g == nil || g.Log == nil {
+		return
+	}
+	openBits, supBits := modeAccBits(opened), modeAccBits(supported)
+	if openBits&^supBits == 0 {
+		return
+	}
+	g.Log.Warningf("address is opened in %s mode but only supports %s", modeAccText(opened), modeAccText(supported))
+}
+
+func modeAccBits(m Mode) int {
+	switch m {
+	case ModeRead:
+		return 1
+	case ModeWrite:
+		return 2
+	default:
+		return 3
+	}
+}
+
+func modeAccText(m Mode) string {
+	switch m {
+	case ModeRead:
+		return "read-only"
+	case ModeWrite:
+		return "write-only"
+	default:
+		return "read-write"
+	}
 }
 
 // Opener opens one address type.

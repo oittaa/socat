@@ -18,6 +18,7 @@ func init() {
 		Desc:       "standard input",
 		Opener:     openSTDIN,
 		OptionCaps: xio.CapsFD,
+		Directions: xio.ModeRead,
 	})
 	xio.RegisterAddress(xio.AddressDesc{
 		Group:      xio.GroupFiles,
@@ -26,6 +27,7 @@ func init() {
 		Desc:       "standard output",
 		Opener:     openSTDOUT,
 		OptionCaps: xio.CapsFD,
+		Directions: xio.ModeWrite,
 	})
 	xio.RegisterAddress(xio.AddressDesc{
 		Group:      xio.GroupFiles,
@@ -34,6 +36,7 @@ func init() {
 		Desc:       "standard error",
 		Opener:     openSTDERR,
 		OptionCaps: xio.CapsFD,
+		Directions: xio.ModeWrite,
 	})
 	xio.RegisterAddress(xio.AddressDesc{
 		Group:      xio.GroupFiles,
@@ -111,6 +114,7 @@ func init() {
 		Desc:       "create or truncate a file",
 		Opener:     openCREATE,
 		OptionCaps: xio.CapsCreate,
+		Directions: xio.ModeWrite,
 	})
 	xio.RegisterAddress(xio.AddressDesc{
 		Group:      xio.GroupFiles,
@@ -119,6 +123,7 @@ func init() {
 		Desc:       "same as CREATE",
 		Opener:     openCREATE,
 		OptionCaps: xio.CapsCreate,
+		Directions: xio.ModeWrite,
 	})
 	xio.RegisterAddress(xio.AddressDesc{
 		Group:      xio.GroupFiles,

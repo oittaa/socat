@@ -5,8 +5,10 @@ package filan
 
 import (
 	"fmt"
-	"os"
+	"strconv"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/oittaa/socat/internal/outbuf"
 	"golang.org/x/sys/unix"
@@ -17,9 +19,19 @@ type Options struct {
 	Raw bool
 }
 
+// asctimeWidth is the padded timestamp column width so extra header tabs
+// line up with cloexec when ISO-8601 times are used.
+const asctimeWidth = 24
+
 // WriteHeader writes the detailed-report column header.
-func WriteHeader(b *outbuf.Buf) {
-	b.Print("  FD  type\tdevice\tinode\tmode\tlinks\tuid\tgid\trdev\tsize\tblksize\tblocks\tatime\tmtime\tctime\tcloexec\tflags\tsigown")
+func WriteHeader(b *outbuf.Buf, opts Options) {
+	b.Print("  FD  type\tdevice\tinode\tmode\tlinks\tuid\tgid\trdev\tsize\tblksize\tblocks")
+	if opts.Raw {
+		b.Print("\tatime\t\tmtime\t\tctime\t\tcloexec")
+	} else {
+		b.Print("\tatime\t\t\t\tmtime\t\t\t\tctime\t\t\t\tcloexec")
+	}
+	b.Print("\tflags\tsigown")
 	appendSigioHeader(b)
 	b.Println()
 }
@@ -37,21 +49,15 @@ func WriteFD(b *outbuf.Buf, fd int, opts Options) {
 	own, _ := unix.FcntlInt(uintptr(fd), unix.F_GETOWN, 0)
 	b.Printf("\t%d\tx%06x\t%d", cloexec, flags, own)
 	appendSigio(b, fd)
-	if st.Mode&unix.S_IFMT == unix.S_IFSOCK {
+	switch st.Mode & unix.S_IFMT {
+	case unix.S_IFSOCK:
 		printSocket(fd, b)
-	}
-	if st.Mode&unix.S_IFMT == unix.S_IFIFO {
+	case unix.S_IFIFO:
 		printPipeSize(fd, b)
+	case unix.S_IFCHR:
+		printCharDev(fd, b, opts)
 	}
-	if p, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd)); err == nil {
-		b.Printf("\t%s", p)
-	}
-	if st.Mode&unix.S_IFMT == unix.S_IFCHR {
-		if ws, err := unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ); err == nil {
-			b.Printf(" terminal window size:   %dx%d terminal window pixels: %dx%d",
-				ws.Col, ws.Row, ws.Xpixel, ws.Ypixel)
-		}
-	}
+	printPoll(fd, b, st.Mode&unix.S_IFMT == unix.S_IFSOCK)
 	b.Println()
 }
 
@@ -61,11 +67,11 @@ func WriteStat(b *outbuf.Buf, dynfd, statfd int, st *unix.Stat_t, opts Options) 
 	if fdshow < 0 {
 		fdshow = statfd
 	}
-	devStr := fmt.Sprintf("%d,%d", unix.Major(uint64(st.Dev)), unix.Minor(uint64(st.Dev)))
+	devStr := classicDevPair(uint64(st.Dev))
 	if opts.Raw {
 		devStr = fmt.Sprintf("%d", st.Dev)
 	}
-	b.Printf("%4d: %s\t%s\t%d\t%06o\t%d\t%d\t%d",
+	b.Printf("%4d: %s\t%s\t%d\t0%03o\t%d\t%d\t%d\t%s\t%d\t%d\t%d",
 		fdshow,
 		FileTypeString(uint32(st.Mode)),
 		devStr,
@@ -74,18 +80,18 @@ func WriteStat(b *outbuf.Buf, dynfd, statfd int, st *unix.Stat_t, opts Options) 
 		st.Nlink,
 		st.Uid,
 		st.Gid,
+		classicDevPair(uint64(st.Rdev)),
+		st.Size,
+		st.Blksize,
+		st.Blocks,
 	)
-	if st.Mode&unix.S_IFMT == unix.S_IFCHR || st.Mode&unix.S_IFMT == unix.S_IFBLK {
-		b.Printf("\t%d,%d", unix.Major(uint64(st.Rdev)), unix.Minor(uint64(st.Rdev)))
-	} else {
-		b.Printf("\t")
-	}
-	b.Printf("\t%d", st.Size)
-	b.Printf("\t%d", st.Blksize)
-	b.Printf("\t%d", st.Blocks)
 	printTime(b, st.Atim.Sec, opts.Raw)
 	printTime(b, st.Mtim.Sec, opts.Raw)
 	printTime(b, st.Ctim.Sec, opts.Raw)
+}
+
+func classicDevPair(dev uint64) string {
+	return fmt.Sprintf("%d,%d", uint16(dev>>8), uint16(dev&0xff)) // #nosec G115 -- print high/low 16 bits
 }
 
 func printTime(b *outbuf.Buf, sec int64, raw bool) {
@@ -93,8 +99,11 @@ func printTime(b *outbuf.Buf, sec int64, raw bool) {
 		b.Printf("\t%d", sec)
 		return
 	}
-	t := time.Unix(sec, 0).Local()
-	b.Printf("\t%s", t.Format(time.DateTime))
+	t := time.Unix(sec, 0).Local().Format(time.DateTime)
+	if len(t) < asctimeWidth {
+		t += strings.Repeat(" ", asctimeWidth-len(t))
+	}
+	b.Printf("\t%s", t)
 }
 
 // FileTypeString returns file/dir/symlink/chrdev/blkdev/pipe/socket/undef.
@@ -119,82 +128,103 @@ func FileTypeString(mode uint32) string {
 	}
 }
 
-func printSocket(fd int, b *outbuf.Buf) {
-	sa, err := unix.Getsockname(fd)
+type dumpTermios struct {
+	Iflag, Oflag, Cflag, Lflag uint32
+	Cc                         []byte
+}
+
+func printCharDev(fd int, b *outbuf.Buf, opts Options) {
+	t, err := getDumpTermios(fd)
 	if err != nil {
 		return
 	}
-	b.Printf("\t%s", SockAddrString(sa))
-	if pa, err := unix.Getpeername(fd); err == nil {
-		b.Printf("\t%s", SockAddrString(pa))
+	name := FDPath(fd)
+	if name == "" {
+		b.Print("\tNULL")
+	} else {
+		b.Printf("\t%s", name)
 	}
-	v, err := unix.GetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_TYPE)
-	if err == nil {
-		switch v {
-		case unix.SOCK_STREAM:
-			b.Print("\tSTREAM")
-		case unix.SOCK_DGRAM:
-			b.Print("\tDGRAM")
-		case unix.SOCK_RAW:
-			b.Print("\tRAW")
-		case unix.SOCK_SEQPACKET:
-			b.Print("\tSEQPACKET")
-		default:
-			b.Printf("\ttype=%d", v)
-		}
+	b.Printf(" \tIFLAGS=0x%06x OFLAGS=0x%06x CFLAGS=0x%06x LFLAGS=0x%06x",
+		t.Iflag, t.Oflag, t.Cflag, t.Lflag)
+	for i, ch := range t.Cc {
+		b.Printf(" cc[%d]=%s", i, ccString(ch, opts.Raw))
 	}
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_DEBUG, "DEBUG")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, "REUSEADDR")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_TYPE, "TYPE")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_ERROR, "ERROR")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_DONTROUTE, "DONTROUTE")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_BROADCAST, "BROADCAST")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_SNDBUF, "SNDBUF")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_RCVBUF, "RCVBUF")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_KEEPALIVE, "KEEPALIVE")
-	printSockoptInt(b, fd, unix.SOL_SOCKET, unix.SO_OOBINLINE, "OOBINLINE")
-	printLinuxSockopts(b, fd)
-	printSockoptInt(b, fd, unix.IPPROTO_TCP, unix.TCP_NODELAY, "TCP_NODELAY")
-	printSockoptInt(b, fd, unix.IPPROTO_TCP, unix.TCP_MAXSEG, "TCP_MAXSEG")
-	printSockoptInt(b, fd, unix.IPPROTO_TCP, unix.TCP_KEEPINTVL, "TCP_KEEPINTVL")
-	printSockoptInt(b, fd, unix.IPPROTO_TCP, unix.TCP_KEEPCNT, "TCP_KEEPCNT")
+	if ws, err := unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ); err == nil {
+		b.Printf(" terminal window size:   %dx%d terminal window pixels: %dx%d",
+			ws.Col, ws.Row, ws.Xpixel, ws.Ypixel)
+	}
 }
 
-func printSockoptInt(b *outbuf.Buf, fd, level, opt int, name string) {
-	v, err := unix.GetsockoptInt(fd, level, opt)
+func ccString(ch byte, raw bool) string {
+	if raw {
+		return strconv.Itoa(int(ch))
+	}
+	if unicode.IsPrint(rune(ch)) && ch < 0x80 {
+		return string(ch)
+	}
+	if ch < ' ' {
+		return "^" + string(rune(ch+'@'))
+	}
+	return fmt.Sprintf("x%02X", ch)
+}
+
+func printPoll(fd int, b *outbuf.Buf, socket bool) {
+	pfd := []unix.PollFd{{
+		Fd:     int32(fd), // #nosec G115 -- pollfd.fd is C int
+		Events: unix.POLLIN | unix.POLLPRI | unix.POLLOUT,
+	}}
+	if _, err := unix.Poll(pfd, 0); err != nil {
+		return
+	}
+	b.Print("\tpoll: ")
+	re := pfd[0].Revents
+	comma := false
+	if re&unix.POLLIN != 0 {
+		b.Print("IN")
+		if n, err := fionread(fd); err == nil {
+			b.Printf("(FIONREAD=%d)", n)
+		}
+		comma = true
+	}
+	if re&unix.POLLPRI != 0 {
+		if comma {
+			b.Print(",")
+		}
+		b.Print("PRI")
+		comma = true
+	}
+	if re&unix.POLLOUT != 0 {
+		if comma {
+			b.Print(",")
+		}
+		b.Print("OUT")
+		comma = true
+	}
+	if re&unix.POLLERR != 0 {
+		if comma {
+			b.Print(",")
+		}
+		b.Print("ERR")
+		comma = true
+	}
+	if re&unix.POLLNVAL != 0 {
+		if comma {
+			b.Print(",")
+		}
+		b.Print("NVAL")
+	}
+	if re&unix.POLLIN != 0 && socket {
+		printRecvmsgPeek(fd, b)
+	}
+}
+
+func printRecvmsgPeek(fd int, b *outbuf.Buf) {
+	b.Print("; ")
+	var peek [1]byte
+	oob := make([]byte, 5120)
+	n, _, _, _, err := unix.Recvmsg(fd, peek[:], oob, unix.MSG_PEEK|unix.MSG_DONTWAIT)
 	if err != nil {
 		return
 	}
-	b.Printf("\t%s=%d", name, v)
-}
-
-// SockAddrString formats a kernel sockaddr for filan output.
-func SockAddrString(sa unix.Sockaddr) string {
-	switch a := sa.(type) {
-	case *unix.SockaddrInet4:
-		return fmt.Sprintf("%d.%d.%d.%d:%d", a.Addr[0], a.Addr[1], a.Addr[2], a.Addr[3], a.Port)
-	case *unix.SockaddrInet6:
-		return fmt.Sprintf("[%s]:%d", netIPv6(a.Addr), a.Port)
-	case *unix.SockaddrUnix:
-		name := a.Name
-		if len(name) > 0 && name[0] == 0 {
-			return "@" + name[1:]
-		}
-		return name
-	default:
-		return fmt.Sprintf("%T", sa)
-	}
-}
-
-func netIPv6(b [16]byte) string {
-	return fmt.Sprintf("%x:%x:%x:%x:%x:%x:%x:%x",
-		uint16(b[0])<<8|uint16(b[1]),
-		uint16(b[2])<<8|uint16(b[3]),
-		uint16(b[4])<<8|uint16(b[5]),
-		uint16(b[6])<<8|uint16(b[7]),
-		uint16(b[8])<<8|uint16(b[9]),
-		uint16(b[10])<<8|uint16(b[11]),
-		uint16(b[12])<<8|uint16(b[13]),
-		uint16(b[14])<<8|uint16(b[15]),
-	)
+	b.Printf("recvmsg=%d, ", n)
 }

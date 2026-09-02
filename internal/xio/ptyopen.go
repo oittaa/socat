@@ -39,6 +39,12 @@ func startOnPTY(cmd *exec.Cmd, s parse.Spec, g *Global) (*os.File, *os.File, fun
 		logx.CloseQuiet(slave)
 		return nil, nil, nil, err
 	}
+	// Before Start: Darwin TIOCSETA on the controller flushes t_outq.
+	if err := ApplyTermios(int(master.Fd()), s); err != nil {
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
+		return nil, nil, nil, err
+	}
 	if err := ApplyNamedAttrs(slave.Name(), s, slave); err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)

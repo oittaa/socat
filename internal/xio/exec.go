@@ -1063,6 +1063,13 @@ func openExecPTYPair(cmd *exec.Cmd, s parse.Spec, g *Global) (*os.File, *os.File
 		logx.CloseQuiet(slave)
 		return nil, nil, nil, err
 	}
+	// Apply master termios before Start. A later TIOCSETA on Darwin's
+	// controller flushes t_outq and can discard already-written child output.
+	if err := ApplyTermios(int(master.Fd()), s); err != nil {
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
+		return nil, nil, nil, err
+	}
 	// perm/user/group apply to the PTY slave. Applying them to the master
 	// changes the wrong descriptor and can fail differently across platforms.
 	if err := ApplyNamedAttrs(slave.Name(), s, slave); err != nil {
@@ -1314,12 +1321,7 @@ func execPtyCleanup(master *os.File, unlink, closeSlave func()) []func() {
 	return out
 }
 
-func applyPtyOpts(s parse.Spec, ptmx *os.File) {
-	_ = ApplyTermios(int(ptmx.Fd()), s)
-}
-
 func applyPtyMasterLifecycle(s parse.Spec, ptmx *os.File) error {
-	applyPtyOpts(s, ptmx)
 	return ApplyFDOptions(ptmx, s)
 }
 
