@@ -45,7 +45,8 @@ def classify_tail(tail: str) -> tuple[str, str]:
     t = tail.strip()
     if not t:
         return "UNKNOWN", ""
-    if t == "OK" or t.startswith("OK "):
+    # A diagnostic can precede the final OK token; the final result wins.
+    if t == "OK" or t.startswith("OK ") or t.endswith(" OK"):
         return "OK", ""
     if t.startswith("FAILED"):
         detail = t[len("FAILED") :].lstrip(" :")
@@ -71,9 +72,9 @@ def classify_tail(tail: str) -> tuple[str, str]:
         return "CANT", t
     if "timeout" in lower or "timed out" in lower:
         return "TIMEOUT", t
-    # "NO RESULT" and similar
+    # Classic test.sh defines CANT as the bare "NO RESULT" marker.
     if t.startswith("NO RESULT") or "no result" in lower:
-        return "FAILED", t
+        return "CANT", t
     return "UNKNOWN", t
 
 

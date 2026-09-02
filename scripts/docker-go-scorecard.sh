@@ -116,6 +116,7 @@ docker run --rm \
   -e KEEP_LOGS=1 \
   -e SCORECARD_EXIT="${SCORECARD_EXIT:-0}" \
   -e TEST_SH_ARGS="${TEST_SH_ARGS:-}" \
+  -e SOURCE_REVISION="${SOURCE_REVISION:-}" \
   $DOCKER_EXTRA \
   "$IMAGE"
 ec=$?

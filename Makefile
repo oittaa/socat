@@ -1,4 +1,4 @@
-.PHONY: all build fmt fmt-check lint gosec goos-check test test-scripts e2e e2e-cover coverage check classic-parity fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
+.PHONY: all build fmt fmt-check lint gosec goos-check test test-scripts e2e e2e-cover coverage check classic-parity update-scorecard fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -106,6 +106,10 @@ check:
 # Working trees, binaries, and -hhh/-V dumps stay under testdata/tmp/.
 classic-parity:
 	$(PYTHON) -B scripts/classic-parity.py run
+
+# Linux-only, privileged Docker refresh of every committed Docker scorecard.
+update-scorecard:
+	bash ./scripts/update-scorecard.sh
 
 # Native Go fuzz campaigns. Weekly/manual in deep-tests.yml, not per-commit CI.
 # Windows: go run ./scripts/fuzzall -fuzztime=30s
