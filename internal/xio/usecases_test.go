@@ -38,6 +38,11 @@ func cloneGlobal(g *xio.Global) *xio.Global {
 		RightToLeft:  g.RightToLeft,
 		Experimental: g.Experimental,
 		IPVersion:    g.IPVersion,
+		DumpFDs:      g.DumpFDs,
+		DumpFDOut:    g.DumpFDOut,
+		LogMixed:     g.LogMixed,
+		LogFacility:  g.LogFacility,
+		Progname:     g.Progname,
 	}
 	if cg.Log == nil {
 		cg.Log = logx.New()

@@ -23,12 +23,26 @@ import (
 	_ "github.com/oittaa/socat/internal/xio/all"
 )
 
+// LogDest is the active diagnostic destination. The last -ls/-lf/-ly/-lm
+// option on the command line wins.
+type LogDest int
+
+const (
+	LogDestStderr LogDest = iota
+	LogDestFile
+	LogDestSyslog
+	LogDestMixed
+)
+
 // Config holds parsed global options.
 type Config struct {
 	Help          int // 0 none, 1 -h, 2 -hh, 3 -hhh
 	Version       bool
 	LogLevel      logx.Level
+	LogDest       LogDest
 	LogFile       string
+	LogFacility   string
+	DumpFDs       bool
 	Progname      string
 	Micros        bool
 	Hostname      bool
@@ -94,6 +108,9 @@ func ParseArgs(args []string) (*Config, error) {
 			return nil, err
 		}
 	}
+	if cfg.DumpFDs && !dumpFDOptionSupported() {
+		return nil, fmt.Errorf("option %q is not implemented", "-D")
+	}
 	return cfg, nil
 }
 
@@ -109,7 +126,6 @@ var cliBoolFlags = map[string]func(*Config){
 	"-V":     func(cfg *Config) { cfg.Version = true },
 	"-v":     func(cfg *Config) { cfg.Verbose = true },
 	"-x":     func(cfg *Config) { cfg.Hex = true },
-	"-s":     func(cfg *Config) {}, // -s: Go stream APIs have no portable recoverable-I/O subset
 	"-u":     func(cfg *Config) { cfg.LeftToRight = true },
 	"-U":     func(cfg *Config) { cfg.RightToLeft = true },
 	"-4":     func(cfg *Config) { cfg.IP4 = true },
@@ -117,9 +133,8 @@ var cliBoolFlags = map[string]func(*Config){
 	"-0":     func(cfg *Config) { cfg.IPAny = true },
 	"-lu":    func(cfg *Config) { cfg.Micros = true },
 	"-lh":    func(cfg *Config) { cfg.Hostname = true },
-	"-g":     func(cfg *Config) {}, // ignore option group check
-	"-D":     func(cfg *Config) {}, // log FDs before transfer — future
-	"-ls":    func(cfg *Config) {}, // log to stderr (default)
+	"-D":     func(cfg *Config) { cfg.DumpFDs = true },
+	"-ls":    setLogStderr,
 }
 
 type cliValueFlag struct {
@@ -137,7 +152,7 @@ var cliValueFlags = []cliValueFlag{
 	{"T", nil, setIdleFlag},
 	{"S", nil, setSignalLogMask},
 	{"lp", nil, plainFlag((*Config).fieldProgname)},
-	{"lf", nil, plainFlag((*Config).fieldLogFile)},
+	{"lf", nil, setLogFileFlag},
 	{"L", nil, setLockFileFlag},
 	{"W", nil, setLockWaitFlag},
 	{"r", func(a string) bool { return !strings.HasPrefix(a, "-reuse") }, plainFlag((*Config).fieldRawLeft)},
@@ -188,6 +203,15 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 		set(cfg)
 		return nil
 	}
+	if a == "-s" || a == "-g" {
+		return fmt.Errorf("option %q is not implemented", a)
+	}
+	if strings.HasPrefix(a, "-ly") {
+		return parseSyslogOption(a, false, cfg)
+	}
+	if strings.HasPrefix(a, "-lm") {
+		return parseSyslogOption(a, true, cfg)
+	}
 	for _, f := range cliValueFlags {
 		matched := strings.HasPrefix(a, "-"+f.key)
 		if matched && f.guard != nil && !f.guard(a) {
@@ -207,6 +231,44 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 		return nil
 	}
 	return fmt.Errorf("unknown option %q", a)
+}
+
+func setLogStderr(cfg *Config) {
+	cfg.LogDest = LogDestStderr
+	cfg.LogFile = ""
+	cfg.LogFacility = ""
+}
+
+func setLogFileFlag(cfg *Config, v string) error {
+	if v == "" {
+		return fmt.Errorf("option -lf requires an argument")
+	}
+	cfg.LogDest = LogDestFile
+	cfg.LogFile = v
+	cfg.LogFacility = ""
+	return nil
+}
+
+func parseSyslogOption(a string, mixed bool, cfg *Config) error {
+	flag := "-ly"
+	if mixed {
+		flag = "-lm"
+	}
+	if !syslogOptionSupported() {
+		return fmt.Errorf("option %q is not implemented", flag)
+	}
+	fac, err := logx.CanonicalFacility(a[len(flag):])
+	if err != nil {
+		return err
+	}
+	if mixed {
+		cfg.LogDest = LogDestMixed
+	} else {
+		cfg.LogDest = LogDestSyslog
+	}
+	cfg.LogFile = ""
+	cfg.LogFacility = fac
+	return nil
 }
 
 func setBlockSize(cfg *Config, v string) error {
@@ -339,7 +401,6 @@ func parseDuration(v string) (time.Duration, error) {
 
 // Field selectors for plainFlag.
 func (c *Config) fieldProgname() *string { return &c.Progname }
-func (c *Config) fieldLogFile() *string  { return &c.LogFile }
 func (c *Config) fieldRawLeft() *string  { return &c.RawLeft }
 func (c *Config) fieldRawRight() *string { return &c.RawRight }
 
@@ -452,14 +513,24 @@ func setupLogger(cfg *Config) (*logx.Logger, func(), error) {
 		}
 		log.SetHostname(h)
 	}
-	closeLog := func() {}
-	if cfg.LogFile != "" {
+	closeLog := func() { log.CloseOwnedSyslog() }
+	switch cfg.LogDest {
+	case LogDestFile:
 		f, err := os.OpenFile(cfg.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644) // #nosec G302 -- -lf log file is meant to be readable
 		if err != nil {
 			return nil, nil, err
 		}
-		closeLog = func() { logx.CloseQuiet(f) }
+		closeLog = func() {
+			log.CloseOwnedSyslog()
+			logx.CloseQuiet(f)
+		}
 		log.SetOutput(f)
+	case LogDestSyslog:
+		w, err := logx.DialSyslog(cfg.Progname, cfg.LogFacility)
+		if err != nil {
+			return nil, nil, err
+		}
+		log.SetSyslog(w)
 	}
 	return log, closeLog, nil
 }
@@ -513,6 +584,9 @@ func buildGlobal(cfg *Config, log *logx.Logger) *xio.Global {
 		Experimental: cfg.Experimental,
 		LeftToRight:  cfg.LeftToRight,
 		RightToLeft:  cfg.RightToLeft,
+		LogMixed:     cfg.LogDest == LogDestMixed,
+		LogFacility:  cfg.LogFacility,
+		DumpFDs:      cfg.DumpFDs,
 	}
 	g.EnsureStatsFlag()
 	// -r / -R path templates expand at transfer start ($PROGNAME,

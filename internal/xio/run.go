@@ -118,6 +118,7 @@ func runConnectFork(ctx context.Context, lo *Opened, right parse.Channel, rMode 
 			return err
 		}
 		defer func() { _ = ro.Close() }()
+		cg.beginLogicalSession(left, ro.EffectiveStream())
 		err = transferStreams(cctx, left, ro.EffectiveStream(), cg)
 		waitForkChild(cctx, lo.MaxChildren, ro)
 		return err
@@ -148,6 +149,7 @@ func runConnectForkWithLeft(ctx context.Context, left relay.Stream, ro *Opened, 
 		}
 		leftMu.Lock()
 		defer leftMu.Unlock()
+		cg.beginLogicalSession(left, right)
 		return transferStreamsOpts(cctx, left, right, cg, true, false)
 	})
 }
@@ -234,6 +236,9 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 			}
 			RememberAddrs(cg, c)
 			body(c, cg)
+			if cg.Log != nil {
+				cg.Log.CloseOwnedSyslog()
+			}
 		}(conn)
 	}
 }
@@ -296,6 +301,9 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 					cg.Log.Debugf("connect child: %s", err)
 				}
 			}
+			if cg.Log != nil {
+				cg.Log.CloseOwnedSyslog()
+			}
 		}(conn)
 		// Sleep interval before the next connect attempt.
 		t := time.NewTimer(interval)
@@ -332,6 +340,7 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 			cg.Log.Errorf("%s", err)
 			return
 		}
+		cg.beginLogicalSession(leftStream, ro.EffectiveStream())
 		// RECVFROM,fork creates a socketpair per child. Stream listens
 		// (TCP-LISTEN,fork PIPE) transfer directly — a bridge would open
 		// -r/-R sniff files twice per session.
@@ -403,6 +412,7 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 			cg.Log.Errorf("wrap accept: %s", err)
 			return
 		}
+		cg.beginLogicalSession(left, rightStream)
 		// noCloseLeft=true: do not close/shutdown shared left between children.
 		if err := transferStreamsOpts(ctx, left, rightStream, cg, true, false); err != nil {
 			cg.Log.Debugf("transfer: %s", err)
@@ -411,6 +421,7 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 }
 
 func transferPair(ctx context.Context, lo, ro *Opened, g *Global) error {
+	g.beginLogicalSession(lo.EffectiveStream(), ro.EffectiveStream())
 	return transferStreams(ctx, lo.EffectiveStream(), ro.EffectiveStream(), g)
 }
 

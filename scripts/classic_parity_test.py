@@ -261,6 +261,19 @@ class GoHelpParserTest(unittest.TestCase):
         self.assertEqual(got.option_aliases["create"], "creat")
         self.assertIn("alpn", got.options)
 
+    def test_bracket_facility_flags(self) -> None:
+        got = parity.parse_go_help(
+            "Options:\n"
+            "  -D              analyze descriptors\n"
+            "  -ly[facility]   syslog\n"
+            "  -lm[facility]   mixed\n"
+        )
+        self.assertIn("-D", got.flags)
+        self.assertIn("-ly", got.flags)
+        self.assertIn("-lm", got.flags)
+        self.assertNotIn("-ly[facility]", got.flags)
+        self.assertNotIn("-lm[facility]", got.flags)
+
 
 class VersionFeaturesTest(unittest.TestCase):
     def test_feature_complete_with_indented_define_value(self) -> None:
@@ -733,6 +746,45 @@ class CompareTest(unittest.TestCase):
         self.assertNotIn("so-sndlowat", windows.missing_options)
         self.assertNotIn("sndlowat", windows.missing_options)
 
+    def test_platform_unsupported_flags_windows(self) -> None:
+        docs = parity.parse_socat_yo(
+            SYNTHETIC_YO + "\ndit(bf(tt(-D)))\ndit(bf(tt(-lm[<facility>])))\n"
+        )
+        policy = copy.deepcopy(POLICY)
+        policy["platform_unsupported_flags"] = {
+            "linux": {},
+            "darwin": {},
+            "windows": {"-D": "unix only", "-ly": "unix only", "-lm": "unix only"},
+        }
+        missing_go = parity.parse_go_help(SYNTHETIC_GO_HELP)
+        windows = self._report(
+            release_docs=docs, go_help=missing_go, policy=policy, goos="windows"
+        )
+        self.assertNotIn("-D", windows.missing_flags)
+        self.assertNotIn("-ly", windows.missing_flags)
+        self.assertNotIn("-lm", windows.missing_flags)
+        linux = self._report(
+            release_docs=docs, go_help=missing_go, policy=policy, goos="linux"
+        )
+        self.assertIn("-D", linux.missing_flags)
+        self.assertIn("-ly", linux.missing_flags)
+        self.assertIn("-lm", linux.missing_flags)
+        present_go = parity.parse_go_help(
+            SYNTHETIC_GO_HELP.replace(
+                "  --statistics    stats\n",
+                "  --statistics    stats\n"
+                "  -D              dump\n"
+                "  -ly[facility]   syslog\n"
+                "  -lm[facility]   mixed\n",
+            )
+        )
+        linux_present = self._report(
+            release_docs=docs, go_help=present_go, policy=policy, goos="linux"
+        )
+        self.assertNotIn("-D", linux_present.missing_flags)
+        self.assertNotIn("-ly", linux_present.missing_flags)
+        self.assertNotIn("-lm", linux_present.missing_flags)
+
 
 class CaptureHelpTest(unittest.TestCase):
     def _script(self, directory: Path, v_text: str, hhh_text: str) -> Path:
@@ -1103,6 +1155,7 @@ class RepoPolicyTest(unittest.TestCase):
         "platform_options",
         "platform_extra_options",
         "platform_unsupported_options",
+        "platform_unsupported_flags",
         "platform_addresses",
         "option_canonical_equivalences",
     )
@@ -1118,7 +1171,23 @@ class RepoPolicyTest(unittest.TestCase):
             self.assertIn(family, policy["unsupported_addresses"])
         for extra in ("WS", "WSS", "QUIC", "TLS"):
             self.assertIn(extra, policy["go_only_addresses"])
-        self.assertIn("-ly", policy["unsupported_flags"])
+        self.assertIn("-s", policy["unsupported_flags"])
+        self.assertIn("-g", policy["unsupported_flags"])
+        self.assertNotIn("-ly", policy["unsupported_flags"])
+        self.assertNotIn("-lm", policy["unsupported_flags"])
+        self.assertNotIn("-D", policy["unsupported_flags"])
+        for flag in ("-s", "-g"):
+            reason = str(policy["unsupported_flags"][flag]).lower()
+            self.assertIn("rejected", reason)
+            self.assertNotIn("no-op", reason)
+        plat_flags = policy["platform_unsupported_flags"]
+        self.assertIn("linux", plat_flags)
+        self.assertIn("darwin", plat_flags)
+        self.assertIn("windows", plat_flags)
+        for flag in ("-D", "-ly", "-lm"):
+            self.assertIn(flag, plat_flags["windows"])
+            self.assertNotIn(flag, plat_flags.get("linux") or {})
+            self.assertNotIn(flag, plat_flags.get("darwin") or {})
         self.assertIn("b7200", policy["go_only_options"])
         self.assertNotIn("so-sndlowat", policy["unsupported_options"])
         plat_unsup = policy["platform_unsupported_options"]

@@ -197,6 +197,7 @@ func splitExecArgs(s string) []string {
 // mapper: ExtraFiles sources plus Dup2 of WRFD onto fdo, then RDFD onto fdi,
 // then stderr from fdo. Unrelated 0/1/2 stay inherited. Mapping runs in the
 // child so a failed Start cannot leave the parent half-remapped.
+// There is no transfer loop, so -D and -lm stay inactive.
 func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Global, mode Mode) error {
 	cmdStr := strings.Join(s.Params, ":")
 	var cmd *exec.Cmd

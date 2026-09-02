@@ -94,6 +94,10 @@ type Global struct {
 	Verbose      bool
 	Hex          bool
 	Dump         io.Writer
+	DumpFDs      bool      // -D: filan-style dump of channel descriptors
+	DumpFDOut    io.Writer // defaults to stderr; independent of -l* destinations
+	LogMixed     bool      // -lm: stderr until both endpoints are ready
+	LogFacility  string    // syslog facility for -ly/-lm
 	Statistics   bool
 	statsPrinted *atomic.Bool // pointer so forkSession can copy Global without copying a lock
 	// childSignals is this logical session's four-slot signal table.
@@ -144,6 +148,9 @@ func (g *Global) forkSession() *Global {
 	}
 	cg := *g
 	cg.ForkChild = true
+	if g.Log != nil {
+		cg.Log = g.Log.Clone()
+	}
 	cg.TLSVars = cloneStringMap(g.TLSVars)
 	cg.SessionVars = cloneStringMap(g.SessionVars)
 	cg.childSignals = nil

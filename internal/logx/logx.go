@@ -25,13 +25,15 @@ var levelNames = [...]string{"F", "E", "W", "N", "I", "D"}
 
 // Logger is a simple concurrent-safe socat-style logger.
 type Logger struct {
-	mu       *sync.Mutex
-	out      io.Writer
-	level    Level // maximum level printed (inclusive)
-	shutup   int   // fork-child severity demotion (classic children-shutup)
-	progname string
-	micros   bool
-	hostname string
+	mu          *sync.Mutex
+	out         io.Writer
+	syslog      SyslogWriter
+	syslogOwned bool  // true when this logger opened syslog and must close it
+	level       Level // maximum level printed (inclusive)
+	shutup      int   // fork-child severity demotion (classic children-shutup)
+	progname    string
+	micros      bool
+	hostname    string
 }
 
 // New creates a logger writing to stderr at Warning level (classic default: fatal/error/warning).
@@ -51,10 +53,69 @@ func (l *Logger) WithShutup(n int) *Logger {
 		return nil
 	}
 	child := *l
+	child.syslogOwned = false
 	if n > 0 {
 		child.shutup += n
 	}
 	return &child
+}
+
+// Clone returns a logger that shares the output lock and current destination
+// but can later switch destinations without changing the parent.
+func (l *Logger) Clone() *Logger {
+	if l == nil {
+		return nil
+	}
+	child := *l
+	child.syslogOwned = false
+	return &child
+}
+
+// SetSyslog sends later messages to syslog instead of the writer.
+func (l *Logger) SetSyslog(w SyslogWriter) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	if l.syslogOwned && l.syslog != nil && l.syslog != w {
+		_ = l.syslog.Close()
+	}
+	l.syslog = w
+	l.syslogOwned = w != nil
+	l.mu.Unlock()
+}
+
+// CloseOwnedSyslog closes a syslog destination this logger opened.
+func (l *Logger) CloseOwnedSyslog() {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	owned := l.syslogOwned
+	l.mu.Unlock()
+	if owned {
+		l.SetSyslog(nil)
+	}
+}
+
+// UseSyslog opens a syslog destination and switches this logger to it.
+func (l *Logger) UseSyslog(tag, facility string) error {
+	w, err := DialSyslog(tag, facility)
+	if err != nil {
+		return err
+	}
+	l.SetSyslog(w)
+	return nil
+}
+
+// UsingSyslog reports whether messages currently go to syslog.
+func (l *Logger) UsingSyslog() bool {
+	if l == nil {
+		return false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.syslog != nil
 }
 
 // SetOutput sets the log destination.
@@ -92,6 +153,14 @@ func (l *Logger) logf(level Level, format string, args ...any) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
+	if l.syslog != nil {
+		writeSyslog(l.syslog, level, fmt.Sprintf(format, args...))
+		return
+	}
+	if l.out == nil {
+		return
+	}
 
 	now := time.Now()
 	var ts string

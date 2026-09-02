@@ -1,6 +1,6 @@
 //go:build linux
 
-package main
+package filan
 
 import (
 	"github.com/oittaa/socat/internal/outbuf"
