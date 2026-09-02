@@ -3,6 +3,8 @@
 package filan
 
 import (
+	"encoding/binary"
+
 	"github.com/oittaa/socat/internal/outbuf"
 	"golang.org/x/sys/unix"
 )
@@ -88,10 +90,24 @@ func printTCPInfoExtra(fd int, b *outbuf.Buf) {
 	}
 	state := uint(raw[0])
 	options := uint(raw[5])
-	snd := uint(raw[6] & 0x0f)
-	rcv := uint(raw[6] >> 4)
+	snd, rcv := tcpInfoWscales(raw[6], nativeBigEndian())
 	b.Printf("\tTCPI_STATE={%d}\tTCPI_OPTIONS={%d}\tTCPI_SND_WSCALE={%d}\tTCPI_RCV_WSCALE={%d}",
 		state, options, snd, rcv)
+}
+
+func nativeBigEndian() bool {
+	return binary.NativeEndian.Uint16([]byte{0x00, 0x01}) == 1
+}
+
+// tcpInfoWscales decodes tcpi_snd_wscale and tcpi_rcv_wscale from the packed
+// bitfield byte. GCC allocates the first field in the low nibble on
+// little-endian and the high nibble on big-endian.
+func tcpInfoWscales(b byte, bigEndian bool) (snd, rcv uint) {
+	lo, hi := uint(b&0x0f), uint(b>>4)
+	if bigEndian {
+		return hi, lo
+	}
+	return lo, hi
 }
 
 // SocketProtocol returns SO_PROTOCOL for fd.
