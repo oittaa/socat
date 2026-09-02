@@ -3,6 +3,7 @@
 package xio
 
 import (
+	"errors"
 	"io"
 	"os"
 	"sync"
@@ -12,8 +13,6 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
-
-const darwinFIONREAD = 0x4004667f
 
 // darwinExecPTYReader keeps the parent's slave open until output queued by an
 // exited child has been read. Closing the last slave discards that queue.
@@ -63,8 +62,13 @@ func (d *darwinExecPTYReader) closeSlaveIfDrained() {
 	default:
 		return
 	}
-	pending, err := darwinPTYBytesQueued(d.master)
-	if err != nil || pending == 0 {
+	pending, err := darwinPTYOutputBytesQueued(d.master)
+	if err != nil {
+		// A master that cannot be queried cannot be drained through this reader.
+		d.closeSlave()
+		return
+	}
+	if pending == 0 {
 		d.closeSlave()
 	}
 }
@@ -76,7 +80,7 @@ func (d *darwinExecPTYReader) closeSlave() {
 	})
 }
 
-func darwinPTYBytesQueued(master *os.File) (int, error) {
+func darwinPTYOutputBytesQueued(master *os.File) (int, error) {
 	raw, err := master.SyscallConn()
 	if err != nil {
 		return 0, err
@@ -84,7 +88,13 @@ func darwinPTYBytesQueued(master *os.File) (int, error) {
 	var pending int
 	var ioctlErr error
 	controlErr := raw.Control(func(fd uintptr) {
-		pending, ioctlErr = unix.IoctlGetInt(int(fd), darwinFIONREAD) // #nosec G115 -- file descriptors fit in int on Darwin
+		for {
+			// TIOCOUTQ is the slave-output queue read through the PTY master.
+			pending, ioctlErr = unix.IoctlGetInt(int(fd), unix.TIOCOUTQ) // #nosec G115 -- file descriptors fit in int on Darwin
+			if !errors.Is(ioctlErr, syscall.EINTR) {
+				break
+			}
+		}
 	})
 	if controlErr != nil {
 		return 0, controlErr
