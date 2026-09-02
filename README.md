@@ -253,6 +253,7 @@ make test               # formatting and unit tests
 make e2e                # local end-to-end tests
 make test-netns-docker  # privileged Linux namespace and raw-IP tests
 make classic-parity     # native Go vs official release and reviewed master
+make update-scorecard   # Linux: refresh committed privileged-Docker results
 ```
 
 `make check` does not contact repo.or.cz. `make classic-parity` does: it
@@ -264,7 +265,10 @@ classic parity is a manual workflow only.
 
 Classic `test.sh` is run separately because hosted CI cannot provide every
 required kernel feature and privilege. Results and reproduction instructions
-are in [testdata/scorecard/README.md](testdata/scorecard/README.md).
+are in [testdata/scorecard/README.md](testdata/scorecard/README.md). On a Linux
+Docker host, `make update-scorecard` performs the complete reproducible refresh.
+It automatically uses passwordless `sudo` for Docker when direct socket access
+is unavailable, without changing the user's groups or other host configuration.
 
 ## Examples and benchmarks
 

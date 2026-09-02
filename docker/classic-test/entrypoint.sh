@@ -87,6 +87,7 @@ export MAX_N="${MAX_N:-}"
 export BASELINE="${BASELINE:-}"
 export KEEP_LOGS="${KEEP_LOGS:-1}"
 export TEST_SH_ARGS="${TEST_SH_ARGS:-}"
+export SOURCE_REVISION="${SOURCE_REVISION:-}"
 # Container netns is disposable: drop local addresses that collide with TUNNET.
 export CLASSIC_FIX_TUNNET="${CLASSIC_FIX_TUNNET:-1}"
 
@@ -220,10 +221,14 @@ print(f"wrote {os.environ['OUT_DIR']}/host-vs-docker-verify.json")
 # Known host→docker environment gaps (not classic binary bugs):
 #   216 UDP6MULTICAST — bridge netns often lacks IPv6 mcast route
 #   304 IOCTL_VOID    — permission/root interaction on PTY ioctl
-#   410 VSOCK_ECHO    — no AF_VSOCK device in typical containers
-#   453 GOPEN_TO_DENIED — classic skips "not with root"
-#   492 ACCEPT_FD     — needs systemd-socket-activate
-allow_raw = os.environ.get("ALLOW_LOST", "216,304,410,453,492")
+#   410 VSOCK_ECHO    - no AF_VSOCK device in typical containers
+#   453 GOPEN_TO_DENIED - classic skips "not with root"
+#   492 ACCEPT_FD     - needs systemd-socket-activate
+#   399 OPENSSL_DTLS_CLIENT - timing-sensitive 3*val_t classic DTLS test
+#   520/542/543/582 - DCCP is absent from newer host kernels
+allow_raw = os.environ.get(
+    "ALLOW_LOST", "216,304,399,410,453,492,520,542,543,582"
+)
 allow = {x.strip() for x in allow_raw.split(",") if x.strip()}
 unexpected = [x for x in lost if str(x[0]) not in allow]
 if unexpected:

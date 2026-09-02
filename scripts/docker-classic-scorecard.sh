@@ -94,9 +94,11 @@ docker run --rm \
   -e OUT_DIR=/out \
   -e SAVE_BASELINE=/out/classic-docker-baseline.json \
   -e HOST_BASELINE="${export_host_bl}" \
+  -e ALLOW_LOST="${ALLOW_LOST:-216,304,399,410,453,492,520,542,543,582}" \
   -e REGRESSION_EXIT="${REGRESSION_EXIT:-0}" \
   -e KEEP_LOGS=1 \
   -e TEST_SH_ARGS="${TEST_SH_ARGS:-}" \
+  -e SOURCE_REVISION="${SOURCE_REVISION:-}" \
   $DOCKER_EXTRA \
   "$IMAGE"
 ec=$?

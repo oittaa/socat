@@ -26,7 +26,7 @@ Environment variables:
 | `HOST_BASELINE` | `testdata/scorecard/classic-baseline.json` | verify host OK ⊆ docker OK |
 | `NO_BUILD` | `0` | `1` = skip `docker build` |
 | `PRIVILEGED` | `0` | `1` = `--privileged` instead of explicit caps |
-| `ALLOW_LOST` | `216,304,410,453,492` | host-OK IDs allowed to fail in docker |
+| `ALLOW_LOST` | `216,304,399,410,453,492,520,542,543,582` | host-OK IDs allowed to fail in docker |
 | `SCORECARD_EXIT` | `0` | `1` = exit non-zero if classic has FAILs |
 
 ## Direct `docker run`

@@ -59,6 +59,37 @@ Run Gerhard’s C socat + `test.sh` **as root inside Ubuntu 26.04** with network
 capabilities. This is safer than root on the laptop and unlocks many tests that
 are `CANT` (must be root) on an unprivileged host.
 
+For a committed refresh, a fresh clone on a Linux Docker host needs one command:
+
+```bash
+bash ./scripts/update-scorecard.sh
+# Or: make update-scorecard
+```
+
+It checks the Docker daemon (using passwordless `sudo` automatically when
+direct socket access is unavailable), proves that a privileged container can
+create a network namespace and TUN device, checks container DNS and HTTPS
+access, rebuilds the pinned classic image, and runs the full classic
+`test.sh` twice: first with classic C and then with this Go tree. Both runs use
+`MODE=classic`, `PRIVILEGED=1`, and `TEST_SH_ARGS=--internet`. Only complete,
+internally consistent runs are copied
+into this directory; timeouts, unknown results, mismatched test sets, or stale
+comparison reports leave the committed files untouched. Full logs stay under a
+printed `.scorecard/update.*` path, together with comparisons against the
+previous committed Docker baselines.
+
+The Go run passes `functions filan` explicitly. That is the complete numbered
+suite used by the scorecard, but omits `test.sh`'s unnumbered `consistency`
+prechecks because those require internal type, phase, and group fields that this
+port intentionally does not expose in user help.
+
+The command updates the Docker JSON baselines, their summaries, both comparison
+reports, and the mechanical Docker counts in this README. It never stages or
+commits files. Review `git diff -- testdata/scorecard`, adjust explanatory prose
+if a status changed, then commit the result.
+
+The lower-level commands below remain useful for smoke tests and diagnosis:
+
 ```bash
 # Build image + full MODE=classic run; verify host-OK set still passes
 ./scripts/docker-classic-scorecard.sh
@@ -82,10 +113,11 @@ Caps used: `NET_ADMIN`, `NET_RAW`, `SYS_CHROOT`, `SETUID`, `SETGID`,
 `SYS_ADMIN`, `NET_BIND_SERVICE`, plus `/dev/net/tun` when present.
 
 Expected host→docker losses (environment, not binary bugs): UDP6 multicast
-route, VSOCK device, “not with root” denials, missing `systemd-socket-activate`,
-and one PTY ioctl case under root. `NETNS` / `NETNS_EXEC` need
-`PRIVILEGED=1` (see Go Docker section). Default Docker caps do not let
-`ip netns add` create `/run/netns/<name>`.
+route, VSOCK device, "not with root" denials, missing `systemd-socket-activate`,
+one PTY ioctl case under root, a timing-sensitive classic DTLS-client test,
+and DCCP tests when the host kernel has retired DCCP. `NETNS` /
+`NETNS_EXEC` need `PRIVILEGED=1` (see Go Docker section). Default Docker caps
+do not let `ip netns add` create `/run/netns/<name>`.
 
 ### Go under test in Docker
 
@@ -176,17 +208,19 @@ recorded with `MODE=classic PRIVILEGED=1 TEST_SH_ARGS=--internet`.
 | Label | OK | FAILED | CANT |
 |-------|-----|--------|------|
 | classic 1.8.1.3 (host) | 475 | 24 | 103 |
-| classic 1.8.1.3 (Docker, root) | 552 | 8 | 42 |
+| classic 1.8.1.3 (Docker, root) | 565 | 4 | 36 |
 | go (this tree, host) | 471 | 7 | 127 |
-| go (this tree, Docker, root, privileged, `--internet`) | 538 | 8 | 59 |
+| go (this tree, Docker, root, privileged, `--internet`) | 538 | 7 | 60 |
 
 Go host FAILED: `OPENSSL_COMPRESS` (`compress=auto` is intentionally rejected),
 `OPENSSLLISTENDSA` (DSA, by design), `REUSEADDR_NULL` (NO RESULT),
 `OPENSSL_ANULL`, `V1800_OPENSSL_LISTEN_RANGE`,
 `V1800_OPENSSL_LISTEN_BIND` (listen requires `cert=`), and `SHELL_SIGINT`
 (classic `test.sh` greps a `waitpid` warning log; see below). It records no
-UNKNOWN or TIMEOUT results. Go Docker FAILED: those same names plus
-`IOCTL_VOID` (fails as root, same as classic Docker). `SOCKETPAIR_BOUNDARIES`
+UNKNOWN or TIMEOUT results. Go Docker FAILED: `OPENSSL_COMPRESS`,
+`OPENSSLLISTENDSA`, `IOCTL_VOID` (fails as root, same as classic Docker),
+`OPENSSL_ANULL`, `SHELL_SIGINT`, `V1800_OPENSSL_LISTEN_RANGE`, and
+`V1800_OPENSSL_LISTEN_BIND`. `REUSEADDR_NULL` is CANT. `SOCKETPAIR_BOUNDARIES`
 is OK. Both Go runs record UNKNOWN=0.
 
 `SHELL_SIGINT` is not a signal-delivery bug. Classic `test.sh` looks for
@@ -201,6 +235,11 @@ as a behavior regression.
 as OK. Do not treat a full-run timeout of that name as a regression until you
 re-run it alone.
 
+Classic `OPENSSL_DTLS_CLIENT` is also timing-sensitive: `test.sh` delays the
+server payload by `2*val_t` but gives the client an idle timeout of only
+`3*val_t`. Re-run test 399 alone before treating an OK/FAILED change as a socat
+regression.
+
 Vs the previous Go host baseline (483 OK / 6 FAILED / 116 CANT), this refresh
 moves 13 UDPLITE tests OK→CANT after UDP-Lite addresses were removed (#135;
 Linux 7.1 retired the protocol). `RES_NSADDR` moves CANT→OK (`res-nsaddr`,
@@ -214,8 +253,8 @@ isolated re-run passed). Classic `cool-write` is deprecated (use
 `children-shutup`); this port does not advertise it, so `COOLWRITE` /
 `COOLSTDIO` stay CANT. Host-only OK that Docker does not get:
 `GOPEN_TO_DENIED` (not with root) and `ACCEPT_FD` (no
-`systemd-socket-activate`). Vs classic Docker, Go has 538 OK against 552
-classic OK (`parity_gap_total` 32 in `go-vs-classic-docker-gaps.json`).
+`systemd-socket-activate`). Vs classic Docker, Go has 538 OK against 565
+classic OK (`parity_gap_total` 27 in `go-vs-classic-docker-gaps.json`).
 
 Use `go-baseline.json` + `REGRESSION_EXIT=1` after a **MODE=classic** run
 to catch real Go regressions with less noise.

@@ -88,6 +88,8 @@ SAVE_BASELINE="${SAVE_BASELINE:-}"     # copy results.json here after run
 REGRESSION_EXIT="${REGRESSION_EXIT:-0}" # 1 = exit non-zero on OK→non-OK vs BASELINE
 SKIP_BUILD="${SKIP_BUILD:-0}"          # 1 = do not make build (when using foreign SOCAT)
 TEST_SH_ARGS="${TEST_SH_ARGS:-}"       # extra test.sh flags, e.g. --internet
+SOURCE_REVISION="${SOURCE_REVISION:-}" # host tree revision, e.g. abc123-dirty
+CLASSIC_VERSION="${CLASSIC_VERSION:-}" # set by the classic Docker image
 export TEST_SH_ARGS
 
 TEST_SH="${1:-${CLASSIC_TEST_SH:-}}"
@@ -427,6 +429,21 @@ echo
 echo "======== STRUCTURED RESULTS ========"
 parse_ec=0
 COMPARE_ARGS=()
+META_ARGS=(
+  --meta "mode=$MODE"
+  --meta "val_t=$VAL_T"
+  --meta "jobs=$JOBS"
+  --meta "shard_timeout=$SHARD_TIMEOUT"
+  --meta "test_sh_args=$TEST_SH_ARGS"
+  --meta "only=$ONLY"
+  --meta "max_n=$MAX_N"
+)
+if [[ -n "$SOURCE_REVISION" ]]; then
+  META_ARGS+=(--meta "source_revision=$SOURCE_REVISION")
+fi
+if [[ -n "$CLASSIC_VERSION" ]]; then
+  META_ARGS+=(--meta "classic_version=$CLASSIC_VERSION")
+fi
 if [[ -n "$BASELINE" && -f "$BASELINE" ]]; then
   COMPARE_ARGS+=(--compare "$BASELINE")
   if [[ "$REGRESSION_EXIT" == "1" ]]; then
@@ -439,9 +456,7 @@ python3 "$ROOT/scripts/scorecard-parse.py" "$OUT_DIR" \
   --socat "$SOCAT" \
   --test-sh "$TEST_SH" \
   --write "$OUT_DIR/results.json" \
-  --meta "val_t=$VAL_T" \
-  --meta "jobs=$JOBS" \
-  --meta "shard_timeout=$SHARD_TIMEOUT" \
+  "${META_ARGS[@]}" \
   ${COMPARE_ARGS[@]+"${COMPARE_ARGS[@]}"}
 parse_ec=$?
 set -e
@@ -463,6 +478,12 @@ side.write_text(
     f"socat={m.get('socat')}\n"
     f"socat_version={m.get('socat_version')}\n"
     f"git={m.get('git')}\n"
+    f"source_revision={m.get('source_revision') or ''}\n"
+    f"classic_version={m.get('classic_version') or ''}\n"
+    f"mode={m.get('mode')}\n"
+    f"test_sh_args={m.get('test_sh_args')}\n"
+    f"only={m.get('only') or ''}\n"
+    f"max_n={m.get('max_n') or ''}\n"
     f"ok={s.get('ok')}\n"
     f"failed={s.get('failed')}\n"
     f"cant={s.get('cant')}\n"
