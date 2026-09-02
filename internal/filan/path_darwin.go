@@ -9,10 +9,23 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const (
-	termiosGet  = unix.TIOCGETA
-	fionreadReq = 0x4004667f // FIONREAD
-)
+const fionreadReq = 0x4004667f // FIONREAD
+
+func getDumpTermios(fd int) (dumpTermios, error) {
+	t, err := unix.IoctlGetTermios(fd, unix.TIOCGETA)
+	if err != nil {
+		return dumpTermios{}, err
+	}
+	cc := make([]byte, len(t.Cc))
+	copy(cc, t.Cc[:])
+	return dumpTermios{
+		Iflag: uint32(t.Iflag), // #nosec G115 -- dump prints 32-bit flag words
+		Oflag: uint32(t.Oflag), // #nosec G115 -- dump prints 32-bit flag words
+		Cflag: uint32(t.Cflag), // #nosec G115 -- dump prints 32-bit flag words
+		Lflag: uint32(t.Lflag), // #nosec G115 -- dump prints 32-bit flag words
+		Cc:    cc,
+	}, nil
+}
 
 // FDPath returns the kernel path for fd, or empty if unknown.
 func FDPath(fd int) string {

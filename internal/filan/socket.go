@@ -22,13 +22,13 @@ func printSocket(fd int, b *outbuf.Buf) {
 	for _, o := range solSocketOpts() {
 		printSockopt(b, fd, o.level, o.opt, o.name, optFmtSocket)
 	}
-	sa, err := unix.Getsockname(fd)
+	sa, slen, err := sockname(fd)
 	if err != nil {
 		return
 	}
-	b.Printf("\t%s", SockAddrInfo(sa))
-	if pa, err := unix.Getpeername(fd); err == nil {
-		b.Printf(" <-> %s", SockAddrInfo(pa))
+	b.Printf("\t%s", sockAddrInfo(sa, slen))
+	if pa, plen, err := peername(fd); err == nil {
+		b.Printf(" <-> %s", sockAddrInfo(pa, plen))
 	}
 	switch sa.(type) {
 	case *unix.SockaddrInet4:
@@ -51,6 +51,7 @@ func printIPAndTCP(fd int, b *outbuf.Buf, v6 bool) {
 	for _, o := range tcpOpts() {
 		printSockopt(b, fd, o.level, o.opt, o.name, optFmtLayer)
 	}
+	printTCPInfoExtra(fd, b)
 }
 
 func wantTCPOpts(fd int) bool {
@@ -142,9 +143,13 @@ func SockAddrString(sa unix.Sockaddr) string {
 
 // SockAddrInfo formats a kernel sockaddr with family (and length on Darwin).
 func SockAddrInfo(sa unix.Sockaddr) string {
+	return sockAddrInfo(sa, sockaddrLen(sa))
+}
+
+func sockAddrInfo(sa unix.Sockaddr, slen int) string {
 	var b strings.Builder
 	if runtime.GOOS == "darwin" {
-		fmt.Fprintf(&b, "LEN=%d ", sockaddrLen(sa))
+		fmt.Fprintf(&b, "LEN=%d ", slen)
 	}
 	switch a := sa.(type) {
 	case *unix.SockaddrInet4:
@@ -165,6 +170,39 @@ func SockAddrInfo(sa unix.Sockaddr) string {
 	return b.String()
 }
 
+func sockname(fd int) (unix.Sockaddr, int, error) {
+	sa, err := unix.Getsockname(fd)
+	if err != nil {
+		return nil, 0, err
+	}
+	return sa, rawSockaddrLen(fd, false, sa), nil
+}
+
+func peername(fd int) (unix.Sockaddr, int, error) {
+	sa, err := unix.Getpeername(fd)
+	if err != nil {
+		return nil, 0, err
+	}
+	return sa, rawSockaddrLen(fd, true, sa), nil
+}
+
+func rawSockaddrLen(fd int, peer bool, sa unix.Sockaddr) int {
+	var rsa unix.RawSockaddrAny
+	l := uint32(unsafe.Sizeof(rsa)) // #nosec G115 -- socklen_t for sockaddr_storage
+	sys := unix.SYS_GETSOCKNAME
+	if peer {
+		sys = unix.SYS_GETPEERNAME
+	}
+	_, _, errno := unix.Syscall(uintptr(sys), uintptr(fd), uintptr(unsafe.Pointer(&rsa)), uintptr(unsafe.Pointer(&l))) // #nosec G103 -- getsockname/getpeername write a sockaddr
+	if errno != 0 {
+		return sockaddrLen(sa)
+	}
+	if n := kernelSockaddrLen(&rsa, int(l)); n > 0 {
+		return n
+	}
+	return sockaddrLen(sa)
+}
+
 func sockaddrLen(sa unix.Sockaddr) int {
 	switch a := sa.(type) {
 	case *unix.SockaddrInet4:
@@ -172,11 +210,15 @@ func sockaddrLen(sa unix.Sockaddr) int {
 	case *unix.SockaddrInet6:
 		return unix.SizeofSockaddrInet6
 	case *unix.SockaddrUnix:
+		hdr := int(unsafe.Offsetof(unix.RawSockaddrUnix{}.Path))
 		n := len(a.Name)
 		if n == 0 {
-			n = len("<anon>")
+			return hdr
 		}
-		return 2 + n + 1
+		if a.Name[0] == 0 {
+			return hdr + n
+		}
+		return hdr + n + 1
 	default:
 		return 0
 	}

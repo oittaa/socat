@@ -11,7 +11,10 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
+	"unsafe"
 
 	"github.com/oittaa/socat/internal/outbuf"
 	"golang.org/x/sys/unix"
@@ -186,21 +189,122 @@ func TestFDPathStdinOrFile(t *testing.T) {
 	}
 }
 
+func dumpFD(t *testing.T, fd int) string {
+	t.Helper()
+	var b outbuf.Buf
+	var buf bytes.Buffer
+	WriteFD(&b, fd, Options{})
+	if err := b.Flush(&buf); err != nil {
+		t.Fatal(err)
+	}
+	return buf.String()
+}
+
+func connFD(t *testing.T, c net.Conn) int {
+	t.Helper()
+	sc, ok := c.(syscall.Conn)
+	if !ok {
+		t.Fatal("conn is not syscall.Conn")
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fd int
+	if err := raw.Control(func(h uintptr) { fd = int(h) }); err != nil {
+		t.Fatal(err)
+	}
+	return fd
+}
+
+func connectedTCP(t *testing.T) (client, server net.Conn) {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	type result struct {
+		c   net.Conn
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		c, err := ln.Accept()
+		ch <- result{c, err}
+	}()
+	client, err = net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	got := <-ch
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	t.Cleanup(func() { _ = got.c.Close() })
+	return client, got.c
+}
+
+func waitPOLLIN(t *testing.T, fd int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		pfd := []unix.PollFd{{
+			Fd:     int32(fd), // #nosec G115 -- pollfd.fd is C int
+			Events: unix.POLLIN,
+		}}
+		n, err := unix.Poll(pfd, 50)
+		if err == nil && n > 0 && pfd[0].Revents&unix.POLLIN != 0 {
+			return
+		}
+	}
+	t.Fatal("timeout waiting for POLLIN")
+}
+
 func TestWriteFDReportsTermiosOnPTY(t *testing.T) {
 	master, slave, err := openTestPTY()
 	if err != nil {
 		t.Skip(err)
 	}
 	t.Cleanup(func() { _ = slave.Close(); _ = master.Close() })
-	var b outbuf.Buf
-	var buf bytes.Buffer
-	WriteFD(&b, int(slave.Fd()), Options{})
-	if err := b.Flush(&buf); err != nil {
-		t.Fatal(err)
-	}
-	got := buf.String()
+	got := dumpFD(t, int(slave.Fd()))
 	if !strings.Contains(got, "IFLAGS=") || !strings.Contains(got, "cc[0]=") {
 		t.Fatalf("missing termios: %q", got)
+	}
+}
+
+func TestWriteFDRecvmsgPeekLeavesPayload(t *testing.T) {
+	client, server := connectedTCP(t)
+	payload := []byte("hello")
+	if _, err := client.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+	fd := connFD(t, server)
+	waitPOLLIN(t, fd)
+	got := dumpFD(t, fd)
+	if !strings.Contains(got, "recvmsg=1,") {
+		t.Fatalf("missing 1-byte recvmsg peek: %q", got)
+	}
+	buf := make([]byte, len(payload)+1)
+	n, err := server.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(buf[:n]) != string(payload) {
+		t.Fatalf("payload consumed or altered: %q", buf[:n])
+	}
+}
+
+func TestSockaddrLenUnnamedUnixIgnoresAnonDisplay(t *testing.T) {
+	sa := &unix.SockaddrUnix{}
+	got := sockaddrLen(sa)
+	hdr := int(unsafe.Offsetof(unix.RawSockaddrUnix{}.Path))
+	if got != hdr {
+		t.Fatalf("sockaddrLen unnamed=%d want header %d", got, hdr)
+	}
+	if got == hdr+len("<anon>")+1 {
+		t.Fatal("sockaddrLen used <anon> display width")
 	}
 }
 

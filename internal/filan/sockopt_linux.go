@@ -2,7 +2,10 @@
 
 package filan
 
-import "golang.org/x/sys/unix"
+import (
+	"github.com/oittaa/socat/internal/outbuf"
+	"golang.org/x/sys/unix"
+)
 
 func solSocketOpts() []sockopt {
 	return []sockopt{
@@ -28,7 +31,12 @@ func solSocketOpts() []sockopt {
 		{unix.SOL_SOCKET, unix.SO_SNDLOWAT, "SNDLOWAT"},
 		{unix.SOL_SOCKET, unix.SO_RCVTIMEO, "RCVTIMEO"},
 		{unix.SOL_SOCKET, unix.SO_SNDTIMEO, "SNDTIMEO"},
+		{unix.SOL_SOCKET, unix.SO_SECURITY_AUTHENTICATION, "SECURITY_AUTHENTICATION"},
+		{unix.SOL_SOCKET, unix.SO_SECURITY_ENCRYPTION_TRANSPORT, "SECURITY_ENCRYPTION_TRANSPORT"},
+		{unix.SOL_SOCKET, unix.SO_SECURITY_ENCRYPTION_NETWORK, "SECURITY_ENCRYPTION_NETWORK"},
 		{unix.SOL_SOCKET, unix.SO_BINDTODEVICE, "BINDTODEVICE"},
+		{unix.SOL_SOCKET, unix.SO_ATTACH_FILTER, "ATTACH_FILTER"},
+		{unix.SOL_SOCKET, unix.SO_DETACH_FILTER, "DETACH_FILTER"},
 	}
 }
 
@@ -38,11 +46,18 @@ func ipOpts() []sockopt {
 		{unix.IPPROTO_IP, unix.IP_TTL, "IP_TTL"},
 		{unix.IPPROTO_IP, unix.IP_HDRINCL, "IP_HDRINCL"},
 		{unix.IPPROTO_IP, unix.IP_OPTIONS, "IP_OPTIONS"},
+		{unix.IPPROTO_IP, unix.IP_ROUTER_ALERT, "IP_ROUTER_ALERT"},
 		{unix.IPPROTO_IP, unix.IP_RECVOPTS, "IP_RECVOPTS"},
 		{unix.IPPROTO_IP, unix.IP_RETOPTS, "IP_RETOPTS"},
 		{unix.IPPROTO_IP, unix.IP_PKTINFO, "IP_PKTINFO"},
+		{unix.IPPROTO_IP, unix.IP_PKTOPTIONS, "IP_PKTOPTIONS"},
+		{unix.IPPROTO_IP, unix.IP_MTU_DISCOVER, "IP_MTU_DISCOVER"},
+		{unix.IPPROTO_IP, unix.IP_RECVERR, "IP_RECVERR"},
 		{unix.IPPROTO_IP, unix.IP_RECVTTL, "IP_RECVTTL"},
 		{unix.IPPROTO_IP, unix.IP_RECVTOS, "IP_RECVTOS"},
+		{unix.IPPROTO_IP, unix.IP_TRANSPARENT, "IP_TRANSPARENT"},
+		{unix.IPPROTO_IP, unix.IP_MTU, "IP_MTU"},
+		{unix.IPPROTO_IP, unix.IP_FREEBIND, "IP_FREEBIND"},
 		{unix.IPPROTO_IP, unix.IP_MULTICAST_TTL, "IP_MULTICAST_TTL"},
 		{unix.IPPROTO_IP, unix.IP_MULTICAST_LOOP, "IP_MULTICAST_LOOP"},
 	}
@@ -60,8 +75,23 @@ func tcpOpts() []sockopt {
 		{unix.IPPROTO_TCP, unix.TCP_LINGER2, "TCP_LINGER2"},
 		{unix.IPPROTO_TCP, unix.TCP_DEFER_ACCEPT, "TCP_ACCEPT"},
 		{unix.IPPROTO_TCP, unix.TCP_WINDOW_CLAMP, "TCP_WINDOW_CLAMP"},
+		{unix.IPPROTO_TCP, unix.TCP_INFO, "TCP_INFO"},
 		{unix.IPPROTO_TCP, unix.TCP_QUICKACK, "TCP_QUICKACK"},
+		{unix.IPPROTO_TCP, unix.TCP_MD5SIG, "TCP_MD5SIG"},
 	}
+}
+
+func printTCPInfoExtra(fd int, b *outbuf.Buf) {
+	raw, err := getsockoptBytes(fd, unix.SOL_TCP, unix.TCP_INFO)
+	if err != nil || len(raw) < 7 {
+		return
+	}
+	state := uint(raw[0])
+	options := uint(raw[5])
+	snd := uint(raw[6] & 0x0f)
+	rcv := uint(raw[6] >> 4)
+	b.Printf("\tTCPI_STATE={%d}\tTCPI_OPTIONS={%d}\tTCPI_SND_WSCALE={%d}\tTCPI_RCV_WSCALE={%d}",
+		state, options, snd, rcv)
 }
 
 // SocketProtocol returns SO_PROTOCOL for fd.

@@ -2,7 +2,10 @@
 
 package filan
 
-import "golang.org/x/sys/unix"
+import (
+	"github.com/oittaa/socat/internal/outbuf"
+	"golang.org/x/sys/unix"
+)
 
 func solSocketOpts() []sockopt {
 	return []sockopt{
@@ -51,6 +54,8 @@ func tcpOpts() []sockopt {
 		{unix.IPPROTO_TCP, unix.TCP_NOPUSH, "TCP_NOPUSH"},
 	}
 }
+
+func printTCPInfoExtra(int, *outbuf.Buf) {}
 
 // SocketProtocol returns SO_PROTOCOL when the kernel provides it.
 func SocketProtocol(int) (int, error) {

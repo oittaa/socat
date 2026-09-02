@@ -57,7 +57,7 @@ func WriteFD(b *outbuf.Buf, fd int, opts Options) {
 	case unix.S_IFCHR:
 		printCharDev(fd, b, opts)
 	}
-	printPoll(fd, b)
+	printPoll(fd, b, st.Mode&unix.S_IFMT == unix.S_IFSOCK)
 	b.Println()
 }
 
@@ -128,8 +128,13 @@ func FileTypeString(mode uint32) string {
 	}
 }
 
+type dumpTermios struct {
+	Iflag, Oflag, Cflag, Lflag uint32
+	Cc                         []byte
+}
+
 func printCharDev(fd int, b *outbuf.Buf, opts Options) {
-	t, err := unix.IoctlGetTermios(fd, termiosGet)
+	t, err := getDumpTermios(fd)
 	if err != nil {
 		return
 	}
@@ -140,7 +145,7 @@ func printCharDev(fd int, b *outbuf.Buf, opts Options) {
 		b.Printf("\t%s", name)
 	}
 	b.Printf(" \tIFLAGS=0x%06x OFLAGS=0x%06x CFLAGS=0x%06x LFLAGS=0x%06x",
-		uint32(t.Iflag), uint32(t.Oflag), uint32(t.Cflag), uint32(t.Lflag))
+		t.Iflag, t.Oflag, t.Cflag, t.Lflag)
 	for i, ch := range t.Cc {
 		b.Printf(" cc[%d]=%s", i, ccString(ch, opts.Raw))
 	}
@@ -163,7 +168,7 @@ func ccString(ch byte, raw bool) string {
 	return fmt.Sprintf("x%02X", ch)
 }
 
-func printPoll(fd int, b *outbuf.Buf) {
+func printPoll(fd int, b *outbuf.Buf, socket bool) {
 	pfd := []unix.PollFd{{
 		Fd:     int32(fd), // #nosec G115 -- pollfd.fd is C int
 		Events: unix.POLLIN | unix.POLLPRI | unix.POLLOUT,
@@ -208,4 +213,18 @@ func printPoll(fd int, b *outbuf.Buf) {
 		}
 		b.Print("NVAL")
 	}
+	if re&unix.POLLIN != 0 && socket {
+		printRecvmsgPeek(fd, b)
+	}
+}
+
+func printRecvmsgPeek(fd int, b *outbuf.Buf) {
+	b.Print("; ")
+	var peek [1]byte
+	oob := make([]byte, 5120)
+	n, _, _, _, err := unix.Recvmsg(fd, peek[:], oob, unix.MSG_PEEK|unix.MSG_DONTWAIT)
+	if err != nil {
+		return
+	}
+	b.Printf("recvmsg=%d, ", n)
 }
