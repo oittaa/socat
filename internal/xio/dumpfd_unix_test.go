@@ -89,6 +89,13 @@ func TestDumpFDsPrintsChannelDescriptorsInOrder(t *testing.T) {
 	if strings.Count(text, "  FD  type") != 1 {
 		t.Fatalf("want one header, got %q", text)
 	}
+	header := strings.SplitN(text, "\n", 2)[0]
+	if !strings.Contains(header, "\tblksize\tblocks\t") {
+		t.Fatalf("header missing blksize/blocks columns: %q", header)
+	}
+	if strings.Contains(header, "typedevice") {
+		t.Fatalf("header lacks tab separators: %q", header)
+	}
 	fds := reportedDumpFDs(text)
 	if len(fds) != 2 {
 		t.Fatalf("fds=%v dump=%q", fds, text)

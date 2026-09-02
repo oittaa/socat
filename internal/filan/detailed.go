@@ -19,7 +19,9 @@ type Options struct {
 
 // WriteHeader writes the detailed-report column header.
 func WriteHeader(b *outbuf.Buf) {
-	b.Println("  FD  typedeviceinodemodelinksuidgidrdevsizeblksizeblocksatimemtimectimecloexecflagssigownsigio")
+	b.Print("  FD  type\tdevice\tinode\tmode\tlinks\tuid\tgid\trdev\tsize\tblksize\tblocks\tatime\tmtime\tctime\tcloexec\tflags\tsigown")
+	appendSigioHeader(b)
+	b.Println()
 }
 
 // WriteFD appends a detailed report for fd. Closed descriptors are skipped.
@@ -32,10 +34,9 @@ func WriteFD(b *outbuf.Buf, fd int, opts Options) {
 
 	cloexec, _ := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
 	flags, _ := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
-	b.Printf("\t%d\tx%06x", cloexec, flags)
-	if own, err := unix.FcntlInt(uintptr(fd), unix.F_GETOWN, 0); err == nil {
-		b.Printf("\t%d", own)
-	}
+	own, _ := unix.FcntlInt(uintptr(fd), unix.F_GETOWN, 0)
+	b.Printf("\t%d\tx%06x\t%d", cloexec, flags, own)
+	appendSigio(b, fd)
 	if st.Mode&unix.S_IFMT == unix.S_IFSOCK {
 		printSocket(fd, b)
 	}
@@ -80,6 +81,8 @@ func WriteStat(b *outbuf.Buf, dynfd, statfd int, st *unix.Stat_t, opts Options) 
 		b.Printf("\t")
 	}
 	b.Printf("\t%d", st.Size)
+	b.Printf("\t%d", st.Blksize)
+	b.Printf("\t%d", st.Blocks)
 	printTime(b, st.Atim.Sec, opts.Raw)
 	printTime(b, st.Mtim.Sec, opts.Raw)
 	printTime(b, st.Ctim.Sec, opts.Raw)
