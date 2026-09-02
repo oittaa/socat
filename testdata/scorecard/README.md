@@ -217,8 +217,10 @@ Go host FAILED: `OPENSSL_COMPRESS` (`compress=auto` is intentionally rejected),
 `OPENSSL_ANULL`, `V1800_OPENSSL_LISTEN_RANGE`,
 `V1800_OPENSSL_LISTEN_BIND` (listen requires `cert=`), and `SHELL_SIGINT`
 (classic `test.sh` greps a `waitpid` warning log; see below). It records no
-UNKNOWN or TIMEOUT results. Go Docker FAILED: those same names plus
-`IOCTL_VOID` (fails as root, same as classic Docker). `SOCKETPAIR_BOUNDARIES`
+UNKNOWN or TIMEOUT results. Go Docker FAILED: `OPENSSL_COMPRESS`,
+`OPENSSLLISTENDSA`, `IOCTL_VOID` (fails as root, same as classic Docker),
+`OPENSSL_ANULL`, `SHELL_SIGINT`, `V1800_OPENSSL_LISTEN_RANGE`, and
+`V1800_OPENSSL_LISTEN_BIND`. `REUSEADDR_NULL` is CANT. `SOCKETPAIR_BOUNDARIES`
 is OK. Both Go runs record UNKNOWN=0.
 
 `SHELL_SIGINT` is not a signal-delivery bug. Classic `test.sh` looks for
