@@ -90,6 +90,7 @@ func printHelpFlags(b *outbuf.Buf) {
 	b.Printf("  -d|-dd|-ddd|-dddd|-d0|-d2|-d3|-d4  increase verbosity\n")
 	b.Printf("  -v              verbose data dump (text)\n")
 	b.Printf("  -x              verbose data dump (hex)\n")
+	printHelpDumpFlag(b)
 	b.Printf("  -b<size>        transfer block size (default 8192)\n")
 	b.Printf("  -t<time>        linger after EOF (default 0.5s)\n")
 	b.Printf("  -T<time>        inactivity timeout\n")
@@ -103,6 +104,7 @@ func printHelpFlags(b *outbuf.Buf) {
 	b.Printf("  -lh             add hostname to log messages\n")
 	b.Printf("  -lu             log timestamps with microseconds\n")
 	b.Printf("  -ls             log to stderr\n")
+	printHelpSyslogFlags(b)
 	// test.sh OPTION_RAW_DUMP greps [[:space:]]-[rR][[:space:]]; keep the spaces.
 	b.Printf("  -r <file>       dump left-to-right raw data\n")
 	b.Printf("  -R <file>       dump right-to-left raw data\n")

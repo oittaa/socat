@@ -57,6 +57,16 @@ func (l *Logger) WithShutup(n int) *Logger {
 	return &child
 }
 
+// Clone returns a logger that shares the output lock and current destination
+// but can later switch destinations without changing the parent.
+func (l *Logger) Clone() *Logger {
+	if l == nil {
+		return nil
+	}
+	child := *l
+	return &child
+}
+
 // SetOutput sets the log destination.
 func (l *Logger) SetOutput(w io.Writer) { l.out = w }
 

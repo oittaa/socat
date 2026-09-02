@@ -64,6 +64,29 @@ func TestHelpListsImplementedCLIFlags(t *testing.T) {
 			t.Errorf("-h missing %q", token)
 		}
 	}
+	if runtime.GOOS != "windows" {
+		for _, token := range []string{"-D", "-ly[facility]", "-lm[facility]"} {
+			if !strings.Contains(help, token) {
+				t.Errorf("-h missing %q", token)
+			}
+		}
+	} else {
+		for _, token := range []string{"-D", "-ly[facility]", "-lm[facility]"} {
+			if strings.Contains(help, token) {
+				t.Errorf("Windows -h lists %q", token)
+			}
+		}
+	}
+	for _, line := range strings.Split(help, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+		switch fields[0] {
+		case "-s", "-g":
+			t.Errorf("help advertises %q: %s", fields[0], strings.TrimSpace(line))
+		}
+	}
 }
 
 func TestHelpWaitlockPollInterval(t *testing.T) {

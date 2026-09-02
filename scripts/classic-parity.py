@@ -400,7 +400,7 @@ def missing_feature_complete(text: str, *, goos: str | None = None) -> list[str]
 
 
 def parse_go_flag_field(field: str) -> list[str]:
-    field = field.split("<", 1)[0]
+    field = field.split("<", 1)[0].split("[", 1)[0]
     flags: list[str] = []
     for part in field.split("|"):
         part = part.strip()
@@ -512,6 +512,11 @@ def platform_extra_option_set(policy: dict[str, Any], goos: str) -> set[str]:
 
 def platform_unsupported_option_set(policy: dict[str, Any], goos: str) -> set[str]:
     plat = policy.get("platform_unsupported_options") or {}
+    return _platform_block_names(plat, goos)
+
+
+def platform_unsupported_flag_set(policy: dict[str, Any], goos: str) -> set[str]:
+    plat = policy.get("platform_unsupported_flags") or {}
     return _platform_block_names(plat, goos)
 
 
@@ -907,6 +912,7 @@ def compare_interfaces(
         go_help.addresses,
     )
     unsupported_flags = policy_name_set(policy, "unsupported_flags")
+    plat_unsup_flags = platform_unsupported_flag_set(policy, goos)
     go_only_flags = policy_name_set(policy, "go_only_flags")
     option_equiv = equivalence_groups(policy, "option_canonical_equivalences", upper=False)
     address_equiv = equivalence_groups(policy, "address_canonical_equivalences", upper=True)
@@ -948,7 +954,7 @@ def compare_interfaces(
     for name in sorted(advertised_flags):
         if name in go_help.flags:
             continue
-        if name in unsupported_flags:
+        if name in unsupported_flags or name in plat_unsup_flags:
             continue
         report.missing_flags.append(name)
 

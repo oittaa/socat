@@ -138,3 +138,19 @@ func TestWindowsHelpHHHOmitsMembershipSpellings(t *testing.T) {
 		}
 	}
 }
+
+func TestWindowsHelpOmitsDumpAndSyslogFlags(t *testing.T) {
+	var b bytes.Buffer
+	if err := printHelp(&b, 1); err != nil {
+		t.Fatal(err)
+	}
+	help := b.String()
+	for _, token := range []string{"-D", "-ly", "-lm"} {
+		for _, line := range strings.Split(help, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) > 0 && (fields[0] == token || strings.HasPrefix(fields[0], token+"[")) {
+				t.Errorf("Windows help lists %q: %s", token, strings.TrimSpace(line))
+			}
+		}
+	}
+}

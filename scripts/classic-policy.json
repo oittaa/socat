@@ -160,11 +160,8 @@
     "UNIX-DATAGRAM": "combined UNIX datagram form"
   },
   "unsupported_flags": {
-    "-s": "continue-on-error has no portable recoverable-I/O subset; accepted as a no-op",
-    "-g": "option-group usefulness check is not implemented; accepted as a no-op",
-    "-D": "pre-transfer file-descriptor dump is not implemented; accepted as a no-op",
-    "-ly": "syslog is not implemented",
-    "-lm": "mixed stderr/syslog logging is not implemented"
+    "-s": "continue-on-error has no portable recoverable-I/O subset; this option is deliberately rejected",
+    "-g": "option-group usefulness check is not implemented; this option is deliberately rejected"
   },
   "address_canonical_equivalences": [
     ["OPENSSL", "TLS", "TLS-CONNECT"],
@@ -405,6 +402,15 @@
     "darwin": {},
     "windows": {
       "so-sndlowat": "not advertised on Windows"
+    }
+  },
+  "platform_unsupported_flags": {
+    "linux": {},
+    "darwin": {},
+    "windows": {
+      "-D": "detailed descriptor dump depends on Unix filan metadata",
+      "-ly": "syslog is not implemented on Windows",
+      "-lm": "mixed stderr/syslog logging is not implemented on Windows"
     }
   }
 }
