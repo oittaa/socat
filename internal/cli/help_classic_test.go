@@ -42,6 +42,31 @@ func TestHelpOmitsInternalMetadata(t *testing.T) {
 	}
 }
 
+// helpOptionFlagListed reports whether an Options: line advertises token as
+// fields[0]. Substring search is wrong for "-D": UDP-DATAGRAM contains it.
+func helpOptionFlagListed(help, token string) bool {
+	for _, line := range strings.Split(help, "\n") {
+		if !strings.HasPrefix(line, "  -") || strings.HasPrefix(line, "    ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[0] == token {
+			return true
+		}
+	}
+	return false
+}
+
+func TestHelpOptionFlagListedIgnoresDatagramSubstring(t *testing.T) {
+	help := "Options:\n  -ls             log to stderr\n\nAddress types:\n    UDP-DATAGRAM:<addr>  datagram\n"
+	if helpOptionFlagListed(help, "-D") {
+		t.Fatal("UDP-DATAGRAM must not count as the -D option")
+	}
+	if !helpOptionFlagListed(help+"  -D              analyze file descriptors before transfer\n", "-D") {
+		t.Fatal("missing -D option line")
+	}
+}
+
 func TestHelpListsImplementedCLIFlags(t *testing.T) {
 	var output bytes.Buffer
 	if err := printHelp(&output, 1); err != nil {
@@ -64,17 +89,16 @@ func TestHelpListsImplementedCLIFlags(t *testing.T) {
 			t.Errorf("-h missing %q", token)
 		}
 	}
-	if runtime.GOOS != "windows" {
-		for _, token := range []string{"-D", "-ly[facility]", "-lm[facility]"} {
-			if !strings.Contains(help, token) {
-				t.Errorf("-h missing %q", token)
-			}
-		}
-	} else {
-		for _, token := range []string{"-D", "-ly[facility]", "-lm[facility]"} {
-			if strings.Contains(help, token) {
+	for _, token := range []string{"-D", "-ly[facility]", "-lm[facility]"} {
+		listed := helpOptionFlagListed(help, token)
+		if runtime.GOOS == "windows" {
+			if listed {
 				t.Errorf("Windows -h lists %q", token)
 			}
+			continue
+		}
+		if !listed {
+			t.Errorf("-h missing %q", token)
 		}
 	}
 	for _, line := range strings.Split(help, "\n") {
