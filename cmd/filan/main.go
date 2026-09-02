@@ -255,7 +255,7 @@ func (cfg *filanConfig) analyzeOnce(out, stderr io.Writer) error {
 	}
 	// Header line; test.sh LISTEN_KEEPALIVE skips it with tail -n +2.
 	if cfg.style == styleDetailed {
-		filan.WriteHeader(&report)
+		filan.WriteHeader(&report, filan.Options{Raw: cfg.rawOutput})
 	}
 	for fd := lo; fd < hi; fd++ {
 		if cfg.style == styleSimple || cfg.style == styleLong {
@@ -397,7 +397,7 @@ func (cfg *filanConfig) fdname(fd int, b *outbuf.Buf, numbered bool) {
 	path := ""
 	if st.Mode&unix.S_IFMT == unix.S_IFSOCK {
 		typ, path = shortSocketName(fd, cfg.style)
-	} else if p, err := os.Readlink(fmt.Sprintf("/proc/self/fd/%d", fd)); err == nil {
+	} else if p := filan.FDPath(fd); p != "" {
 		path = p
 	}
 	// Skip Go runtime / systemd cgroup and epoll FDs after exec so EXEC_FDS /

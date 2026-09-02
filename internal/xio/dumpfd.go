@@ -19,7 +19,7 @@ func (g *Global) dumpSessionFDs(left, right relay.Stream) {
 		out = os.Stderr
 	}
 	var b outbuf.Buf
-	filan.WriteHeader(&b)
+	filan.WriteHeader(&b, filan.Options{})
 	dumpSideFDs(&b, left)
 	dumpSideFDs(&b, right)
 	_ = b.Flush(out)
