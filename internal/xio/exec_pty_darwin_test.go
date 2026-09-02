@@ -50,7 +50,7 @@ func TestDarwinEXECPtyReadPathsDrainOutputAfterChildExit(t *testing.T) {
 }
 
 func TestDarwinEXECPtySilentChildReachesEOF(t *testing.T) {
-	o := openEXECSpec(t, "EXEC:/bin/true,pty,rawer,echo=0", ModeRDWR)
+	o := openEXECSpec(t, "SYSTEM:true,pty,rawer,echo=0", ModeRDWR)
 	waitExecPTYChild(t, o)
 	if got := readStreamBytes(t, o.Stream, time.Second); len(got) != 0 {
 		t.Fatalf("silent child output %q", got)
