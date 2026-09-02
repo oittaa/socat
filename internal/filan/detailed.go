@@ -99,7 +99,7 @@ func printTime(b *outbuf.Buf, sec int64, raw bool) {
 		b.Printf("\t%d", sec)
 		return
 	}
-	t := time.Unix(sec, 0).Local().Format(time.DateTime)
+	t := time.Unix(sec, 0).Local().Format(time.DateTime + "-07:00")
 	if len(t) < asctimeWidth {
 		t += strings.Repeat(" ", asctimeWidth-len(t))
 	}
