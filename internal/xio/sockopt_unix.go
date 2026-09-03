@@ -74,7 +74,7 @@ func applyLingerOption(fd int, o parse.Option) error {
 	}
 	linger := &unix.Linger{
 		Onoff:  1,
-		Linger: int32(seconds), // #nosec G115 -- bounded by MaxInt32 above
+		Linger: int32(seconds),
 	}
 	if err := unix.SetsockoptLinger(fd, solSocket, unix.SO_LINGER, linger); err != nil {
 		return fmt.Errorf("so-linger: %w", err)

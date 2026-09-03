@@ -4,6 +4,7 @@ package filan
 
 import (
 	"bytes"
+	"math"
 	"net"
 	"os"
 	"runtime"
@@ -195,10 +196,13 @@ func connectedTCP(t *testing.T) (client, server net.Conn) {
 
 func waitPOLLIN(t *testing.T, fd int) {
 	t.Helper()
+	if fd < 0 || fd > math.MaxInt32 {
+		t.Fatalf("invalid fd: %d", fd)
+	}
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		pfd := []unix.PollFd{{
-			Fd:     int32(fd), // #nosec G115 -- pollfd.fd is C int
+			Fd:     int32(fd),
 			Events: unix.POLLIN,
 		}}
 		n, err := unix.Poll(pfd, 50)

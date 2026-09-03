@@ -20,10 +20,10 @@ func getDumpTermios(fd int) (dumpTermios, error) {
 		return dumpTermios{}, err
 	}
 	return dumpTermios{
-		Iflag: t.Iflag,
-		Oflag: t.Oflag,
-		Cflag: t.Cflag,
-		Lflag: t.Lflag,
+		Iflag: uint64(t.Iflag),
+		Oflag: uint64(t.Oflag),
+		Cflag: uint64(t.Cflag),
+		Lflag: uint64(t.Lflag),
 		Cc:    libcDisplayCC(t.Cc[:]),
 	}, nil
 }
@@ -43,4 +43,8 @@ func FDPath(fd int) string {
 		return ""
 	}
 	return p
+}
+
+func statDev(st *unix.Stat_t) (uint64, uint64) {
+	return st.Dev, st.Rdev
 }

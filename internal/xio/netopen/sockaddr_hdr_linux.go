@@ -8,8 +8,11 @@ import (
 )
 
 func sockaddrHeader(family int) []byte {
+	if family < 0 || family > math.MaxUint16 {
+		return nil
+	}
 	hdr := make([]byte, 2)
-	binary.NativeEndian.PutUint16(hdr, uint16(family)) // #nosec G115 -- packRawSockaddr rejects out-of-range family
+	binary.NativeEndian.PutUint16(hdr, uint16(family))
 	return hdr
 }
 

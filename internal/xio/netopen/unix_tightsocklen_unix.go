@@ -146,7 +146,7 @@ func unixConnectPollFd(fd int) int32 {
 	if fd < 0 || fd > math.MaxInt32 {
 		return -1
 	}
-	return int32(fd) // #nosec G115 -- bounded to MaxInt32
+	return int32(fd)
 }
 
 func deadlineExceeded(ctx context.Context) error {

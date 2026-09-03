@@ -45,7 +45,7 @@ func applyIPOptions(fd int, value string) error {
 
 func sockoptIPOptions(fd int) ([]byte, error) {
 	buf := make([]byte, maxIPOptions)
-	vallen := uint32(len(buf))        // #nosec G115 -- maxIPOptions is 256, within uint32
+	vallen := uint32(maxIPOptions)
 	optval := unsafe.Pointer(&buf[0]) // #nosec G103 -- reads IP_OPTIONS bytes; GetsockoptString truncates at NUL padding
 	optlen := unsafe.Pointer(&vallen) // #nosec G103 -- socklen_t pointer for getsockopt
 	_, _, errno := unix.Syscall6(unix.SYS_GETSOCKOPT, uintptr(fd), uintptr(unix.IPPROTO_IP), uintptr(unix.IP_OPTIONS), uintptr(optval), uintptr(optlen), 0)

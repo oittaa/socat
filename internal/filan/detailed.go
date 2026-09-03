@@ -5,6 +5,7 @@ package filan
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"time"
 	"unicode"
@@ -62,7 +63,8 @@ func WriteStat(b *outbuf.Buf, dynfd, statfd int, st *unix.Stat_t, opts Options) 
 	if fdshow < 0 {
 		fdshow = statfd
 	}
-	devStr := classicDevPair(uint64(st.Dev))
+	dev, rdev := statDev(st)
+	devStr := classicDevPair(dev)
 	if opts.Raw {
 		devStr = fmt.Sprintf("%d", st.Dev)
 	}
@@ -75,7 +77,7 @@ func WriteStat(b *outbuf.Buf, dynfd, statfd int, st *unix.Stat_t, opts Options) 
 		st.Nlink,
 		st.Uid,
 		st.Gid,
-		classicDevPair(uint64(st.Rdev)),
+		classicDevPair(rdev),
 		st.Size,
 		st.Blksize,
 		st.Blocks,
@@ -86,7 +88,7 @@ func WriteStat(b *outbuf.Buf, dynfd, statfd int, st *unix.Stat_t, opts Options) 
 }
 
 func classicDevPair(dev uint64) string {
-	return fmt.Sprintf("%d,%d", uint16(dev>>8), uint16(dev&0xff)) // #nosec G115 -- print high/low 16 bits
+	return fmt.Sprintf("%d,%d", (dev>>8)&0xffff, dev&0xff)
 }
 
 func printTime(b *outbuf.Buf, sec int64, raw bool) {
@@ -120,7 +122,7 @@ func FileTypeString(mode uint32) string {
 }
 
 type dumpTermios struct {
-	Iflag, Oflag, Cflag, Lflag uint32
+	Iflag, Oflag, Cflag, Lflag uint64
 	Cc                         []byte
 }
 
@@ -160,8 +162,11 @@ func ccString(ch byte, raw bool) string {
 }
 
 func printPoll(fd int, b *outbuf.Buf, socket bool) {
+	if fd < 0 || fd > math.MaxInt32 {
+		return
+	}
 	pfd := []unix.PollFd{{
-		Fd:     int32(fd), // #nosec G115 -- pollfd.fd is C int
+		Fd:     int32(fd),
 		Events: unix.POLLIN | unix.POLLPRI | unix.POLLOUT,
 	}}
 	if _, err := unix.Poll(pfd, 0); err != nil {

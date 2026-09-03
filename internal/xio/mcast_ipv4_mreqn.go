@@ -4,6 +4,7 @@ package xio
 
 import (
 	"fmt"
+	"math"
 	"net"
 
 	"golang.org/x/sys/unix"
@@ -20,7 +21,10 @@ func setIPv4MembershipFD(fd int, group, ifaceAddr net.IP, ifindex uint32, idxSet
 		copy(mreqn.Address[:], ifaceAddr.To4())
 	}
 	if idxSet {
-		mreqn.Ifindex = int32(ifindex) // #nosec G115 -- kernel struct field is signed; copy the uint32 bits
+		if ifindex > math.MaxInt32 {
+			return fmt.Errorf("ip-add-membership: interface index %d out of range", ifindex)
+		}
+		mreqn.Ifindex = int32(ifindex)
 	}
 	recordSockoptBytes(fd, unix.IPPROTO_IP, unix.IP_ADD_MEMBERSHIP, nil)
 	if err := unix.SetsockoptIPMreqn(fd, unix.IPPROTO_IP, unix.IP_ADD_MEMBERSHIP, &mreqn); err != nil {

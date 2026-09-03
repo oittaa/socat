@@ -41,17 +41,21 @@ func setSockoptInt(fd, level, opt, value int) error {
 
 func setSockoptBytes(fd, level, opt int, value []byte) error {
 	recordSockoptBytes(fd, level, opt, value)
-	if level < math.MinInt32 || level > math.MaxInt32 || opt < math.MinInt32 || opt > math.MaxInt32 {
-		return fmt.Errorf("setsockopt: level or opt out of range")
+	if level < math.MinInt32 || level > math.MaxInt32 {
+		return fmt.Errorf("setsockopt: level out of range")
 	}
-	if len(value) > math.MaxInt32 {
+	if opt < math.MinInt32 || opt > math.MaxInt32 {
+		return fmt.Errorf("setsockopt: opt out of range")
+	}
+	valLen := len(value)
+	if valLen < 0 || valLen > math.MaxInt32 {
 		return fmt.Errorf("setsockopt: value too long")
 	}
 	var p *byte
-	if len(value) > 0 {
+	if valLen > 0 {
 		p = &value[0]
 	}
-	return windows.Setsockopt(windows.Handle(fd), int32(level), int32(opt), p, int32(len(value)))
+	return windows.Setsockopt(windows.Handle(fd), int32(level), int32(opt), p, int32(valLen))
 }
 
 func SetSockoptInt(fd, level, opt, value int) error {

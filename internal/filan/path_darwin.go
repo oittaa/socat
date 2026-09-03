@@ -19,10 +19,10 @@ func getDumpTermios(fd int) (dumpTermios, error) {
 	cc := make([]byte, len(t.Cc))
 	copy(cc, t.Cc[:])
 	return dumpTermios{
-		Iflag: uint32(t.Iflag), // #nosec G115 -- dump prints 32-bit flag words
-		Oflag: uint32(t.Oflag), // #nosec G115 -- dump prints 32-bit flag words
-		Cflag: uint32(t.Cflag), // #nosec G115 -- dump prints 32-bit flag words
-		Lflag: uint32(t.Lflag), // #nosec G115 -- dump prints 32-bit flag words
+		Iflag: t.Iflag,
+		Oflag: t.Oflag,
+		Cflag: t.Cflag,
+		Lflag: t.Lflag,
 		Cc:    cc,
 	}, nil
 }
@@ -39,4 +39,16 @@ func FDPath(fd int) string {
 		return ""
 	}
 	return string(buf[:n])
+}
+
+func statDev(st *unix.Stat_t) (uint64, uint64) {
+	dev := uint64(0)
+	if st.Dev >= 0 {
+		dev = uint64(st.Dev)
+	}
+	rdev := uint64(0)
+	if st.Rdev >= 0 {
+		rdev = uint64(st.Rdev)
+	}
+	return dev, rdev
 }

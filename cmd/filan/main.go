@@ -350,7 +350,7 @@ func (cfg *filanConfig) filanFile(path string, b *outbuf.Buf) error {
 	case unix.S_IFSOCK, unix.S_IFLNK:
 		// leave fd = -1
 	default:
-		f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOCTTY|unix.O_NONBLOCK, 0) // #nosec G304 G703 -- filan opens the path or fd the user asked to inspect
+		f, err := os.OpenFile(path, os.O_RDONLY|unix.O_NOCTTY|unix.O_NONBLOCK, 0) // #nosec G304 -- filan opens the path or fd the user asked to inspect
 		if err == nil {
 			fd = int(f.Fd())
 			defer logx.CloseQuiet(f)

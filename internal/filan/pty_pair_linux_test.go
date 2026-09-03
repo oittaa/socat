@@ -7,7 +7,6 @@ import (
 	"os"
 	"strconv"
 	"syscall"
-	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -22,17 +21,14 @@ func openTestPTY() (master, slave *os.File, err error) {
 			_ = m.Close()
 		}
 	}()
-	var unlock int32
-	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, m.Fd(), uintptr(unix.TIOCSPTLCK), uintptr(unsafe.Pointer(&unlock))); errno != 0 { // #nosec G103 -- TIOCSPTLCK takes an int pointer
-		err = errno
+	if err = unix.IoctlSetPointerInt(int(m.Fd()), unix.TIOCSPTLCK, 0); err != nil {
 		return nil, nil, err
 	}
-	var n uint32
-	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, m.Fd(), uintptr(unix.TIOCGPTN), uintptr(unsafe.Pointer(&n))); errno != 0 { // #nosec G103 -- TIOCGPTN writes the pts index
-		err = errno
+	n, err := unix.IoctlGetInt(int(m.Fd()), unix.TIOCGPTN)
+	if err != nil {
 		return nil, nil, err
 	}
-	sname := "/dev/pts/" + strconv.Itoa(int(n))
+	sname := "/dev/pts/" + strconv.Itoa(n)
 	s, err := os.OpenFile(sname, os.O_RDWR|syscall.O_NOCTTY, 0) // #nosec G304 -- path is TIOCGPTN, not user input
 	if err != nil {
 		return nil, nil, fmt.Errorf("open slave %s: %w", sname, err)
