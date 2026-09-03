@@ -674,7 +674,8 @@ type udpSessionConn struct {
 	first        []byte
 	firstPending bool // buffered opener, including a zero-length datagram
 	oneShot      bool
-	closed       bool
+	closeOnce    sync.Once
+	closeErr     error
 	env          map[string]string
 
 	writeMu       *sync.Mutex
@@ -772,26 +773,25 @@ func (u *udpSessionConn) Write(p []byte) (int, error) {
 }
 
 func (u *udpSessionConn) Close() error {
-	if u.closed {
-		return nil
-	}
-	u.closed = true
-	if u.oneShot {
-		return nil // parent owns the listen socket
-	}
-	var err error
-	if u.conn != nil {
-		err = u.conn.Close()
-	}
-	if u.ownsListen && u.pc != nil {
-		// Keep pc set: Transfer pokes SetReadDeadline from another
-		// goroutine after Close (UDP has no EOF).
-		err = errors.Join(err, u.pc.Close())
-	}
-	if u.releaseListen != nil {
-		u.releaseListen()
-	}
-	return err
+	u.closeOnce.Do(func() {
+		if u.oneShot {
+			return // parent owns the listen socket
+		}
+		var err error
+		if u.conn != nil {
+			err = u.conn.Close()
+		}
+		if u.ownsListen && u.pc != nil {
+			// Keep pc set: Transfer pokes SetReadDeadline from another
+			// goroutine after Close (UDP has no EOF).
+			err = errors.Join(err, u.pc.Close())
+		}
+		if u.releaseListen != nil {
+			u.releaseListen()
+		}
+		u.closeErr = err
+	})
+	return u.closeErr
 }
 
 func (u *udpSessionConn) LocalAddr() net.Addr {

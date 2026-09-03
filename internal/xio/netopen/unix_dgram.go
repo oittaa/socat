@@ -365,7 +365,8 @@ type unixPacketConn struct {
 	peer          *net.UnixAddr
 	first         []byte
 	shared        bool
-	closed        bool
+	closeOnce     sync.Once
+	closeErr      error
 	writeMu       *sync.Mutex
 	deadlineMu    sync.Mutex
 	writeDeadline time.Time
@@ -394,14 +395,13 @@ func (u *unixPacketConn) Write(p []byte) (int, error) {
 	})
 }
 func (u *unixPacketConn) Close() error {
-	if u.closed {
-		return nil
-	}
-	u.closed = true
-	if u.shared {
-		return nil
-	}
-	return u.c.Close()
+	u.closeOnce.Do(func() {
+		if u.shared {
+			return
+		}
+		u.closeErr = u.c.Close()
+	})
+	return u.closeErr
 }
 func (u *unixPacketConn) LocalAddr() net.Addr  { return u.c.LocalAddr() }
 func (u *unixPacketConn) RemoteAddr() net.Addr { return u.peer }
