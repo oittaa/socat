@@ -1,6 +1,6 @@
 {
   "classic_docker_ok": 565,
-  "go_ok": 538,
+  "go_ok": 539,
   "parity_fail": [
     {
       "id": "80",
@@ -142,5 +142,11 @@
   ],
   "parity_other": [],
   "parity_gap_total": 27,
-  "new_ok_vs_classic_docker": []
+  "new_ok_vs_classic_docker": [
+    {
+      "id": "492",
+      "name": "ACCEPT_FD",
+      "was": "CANT"
+    }
+  ]
 }
