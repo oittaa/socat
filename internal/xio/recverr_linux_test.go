@@ -54,6 +54,31 @@ func TestApplyRecvErrEnableDisableLinux(t *testing.T) {
 	}
 }
 
+func TestApplyRecvErrIntegerTwoLinux(t *testing.T) {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(fd) })
+	spec, err := parse.ParseSpec("UDP4:127.0.0.1:1,ip-recverr=2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !NeedRecvErr(spec) {
+		t.Fatal("ip-recverr=2 should enable error-queue drain")
+	}
+	if err := applyRecvErrSockopt(fd, spec.Options[0]); err != nil {
+		t.Fatal(err)
+	}
+	got, err := unix.GetsockoptInt(fd, unix.IPPROTO_IP, unix.IP_RECVERR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == 0 {
+		t.Fatal("IP_RECVERR still 0 after ip-recverr=2")
+	}
+}
+
 func TestApplyRecvErrOnIPv6SocketLinux(t *testing.T) {
 	fd, err := unix.Socket(unix.AF_INET6, unix.SOCK_DGRAM, 0)
 	if err != nil {

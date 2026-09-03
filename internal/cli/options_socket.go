@@ -60,7 +60,7 @@ func socketOptionGroups() []helpOptGroup {
 			{name: "ip-recvttl", optionCaps: capIP4IP6, desc: "IP_RECVTTL", aliases: []string{"recvttl", "iprecvttl"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-recvttl")},
 			{name: "ip-recvtos", optionCaps: capIP4IP6, desc: "IP_RECVTOS", aliases: []string{"recvtos", "iprecvtos"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-recvtos")},
 			{name: "ip-recvopts", optionCaps: capIP4IP6, desc: "IP_RECVOPTS", aliases: []string{"recvopts", "iprecvopts"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-recvopts")},
-			{name: "ip-recverr", optionCaps: capIP4IP6, desc: "IP_RECVERR (Linux)", aliases: []string{"recverr", "iprecverr"}, validate: validateOptionalBool},
+			{name: "ip-recverr", optionCaps: capIP4IP6, desc: "IP_RECVERR (Linux)", aliases: []string{"recverr", "iprecverr"}, validate: validateOptionalSignedInteger},
 			{name: "ip-retopts", optionCaps: capIP4IP6, desc: "IP_RETOPTS (Linux)", aliases: []string{"retopts", "ipretopts"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-retopts")},
 			{name: "ip-recvdstaddr", optionCaps: capIP4IP6, desc: "IP_RECVDSTADDR (Darwin)", aliases: []string{"recvdstaddr", "iprecvdstaddr"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-recvdstaddr")},
 			{name: "ip-recvif", optionCaps: capIP4IP6, desc: "IP_RECVIF (Darwin)", aliases: []string{"recvif"}, implementationGroups: xio.IPAncillaryImplementationGroups("ip-recvif")},
