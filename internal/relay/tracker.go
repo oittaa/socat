@@ -55,6 +55,7 @@ func UnregisterTracker(t *Tracker) {
 			out = append(out, x)
 		}
 	}
+	clear(live[len(out):])
 	live = out
 	statsMu.Unlock()
 }
