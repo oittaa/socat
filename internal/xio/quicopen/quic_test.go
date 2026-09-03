@@ -385,7 +385,7 @@ func TestQUICConnectSourceportTakesPrecedenceOverLowport(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer func() { _ = o.Close() }()
-		got := quicNetConnOf(t, o).LocalAddr().(*net.UDPAddr).Port
+		got := o.Stream.(relay.NetStream).Conn.LocalAddr().(*net.UDPAddr).Port
 		if got != sp {
 			t.Fatalf("sourceport=%d local=%d; lowport must not override an explicit sourceport", sp, got)
 		}

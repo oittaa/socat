@@ -134,14 +134,9 @@ func TestDumpFDsOncePerForkSession(t *testing.T) {
 		_ = readFull(t, c.Stream, 2)
 		_ = c.Close()
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if strings.Count(dump.String(), "  FD  type") == 2 {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+	if got := strings.Count(dump.String(), "  FD  type"); got != 2 {
+		t.Fatalf("want exactly two dumps, got %d: %q", got, dump.String())
 	}
-	t.Fatalf("want two dumps, got %q", dump.String())
 }
 
 func TestDumpFDsOmitsSniffFiles(t *testing.T) {

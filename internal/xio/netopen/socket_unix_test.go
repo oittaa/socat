@@ -248,11 +248,11 @@ func TestConnFromFDUnknownFamilyDeadlines(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
-	raw, ok := c.(*rawFileConn)
+	sc, ok := c.(syscall.Conn)
 	if !ok {
-		t.Fatalf("conn type %T want *rawFileConn", c)
+		t.Fatalf("conn type %T does not implement syscall.Conn", c)
 	}
-	if !fdIsNonblock(t, raw) {
+	if !fdIsNonblock(t, sc) {
 		t.Fatal("rawFileConn fd is blocking; os.File is not in the poller")
 	}
 	if err := c.SetReadDeadline(time.Now().Add(-time.Second)); err != nil {

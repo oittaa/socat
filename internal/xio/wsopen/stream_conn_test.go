@@ -73,17 +73,11 @@ func newWSTestPair(t testing.TB) (net.Conn, net.Conn) {
 }
 
 func closeWSTestConn(conn net.Conn) {
-	if ws, ok := conn.(*wsNetConn); ok {
-		_ = ws.raw.Close()
-		_ = ws.ws.CloseNow()
-		return
-	}
 	_ = conn.Close()
 }
 
 func TestWSNetConnReadDeadline(t *testing.T) {
 	_, server := newWSTestPair(t)
-	ws := server.(*wsNetConn)
 	if err := server.SetReadDeadline(time.Now().Add(30 * time.Millisecond)); err != nil {
 		t.Fatal(err)
 	}
@@ -99,8 +93,8 @@ func TestWSNetConnReadDeadline(t *testing.T) {
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("read deadline took %s", elapsed)
 	}
-	if err := ws.raw.SetDeadline(time.Time{}); err == nil {
-		t.Fatal("read timeout left the raw connection open")
+	if err := server.SetDeadline(time.Time{}); err == nil {
+		t.Fatal("read timeout left the connection open")
 	}
 	started = time.Now()
 	_ = server.Close()
@@ -110,12 +104,32 @@ func TestWSNetConnReadDeadline(t *testing.T) {
 }
 
 func TestWSNetConnWriteDeadline(t *testing.T) {
-	client, _ := newWSTestPair(t)
-	if tcp, ok := client.(*wsNetConn).raw.(*net.TCPConn); ok {
-		if err := tcp.SetWriteBuffer(1024); err != nil {
-			t.Fatal(err)
-		}
+	client, server := newWSTestPair(t)
+
+	clientWS, ok := client.(*wsNetConn)
+	if !ok {
+		t.Fatalf("client connection type %T want *wsNetConn", client)
 	}
+	clientTCP, ok := clientWS.raw.(*net.TCPConn)
+	if !ok {
+		t.Fatalf("client raw connection type %T want *net.TCPConn", clientWS.raw)
+	}
+	if err := clientTCP.SetWriteBuffer(1024); err != nil {
+		t.Fatalf("client SetWriteBuffer: %v", err)
+	}
+
+	serverWS, ok := server.(*wsNetConn)
+	if !ok {
+		t.Fatalf("server connection type %T want *wsNetConn", server)
+	}
+	serverTCP, ok := serverWS.raw.(*net.TCPConn)
+	if !ok {
+		t.Fatalf("server raw connection type %T want *net.TCPConn", serverWS.raw)
+	}
+	if err := serverTCP.SetReadBuffer(1024); err != nil {
+		t.Fatalf("server SetReadBuffer: %v", err)
+	}
+
 	payload := make([]byte, 8<<20)
 	if err := client.SetWriteDeadline(time.Now().Add(30 * time.Millisecond)); err != nil {
 		t.Fatal(err)

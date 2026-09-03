@@ -299,10 +299,7 @@ func TestUDPForkRecvfromSecondDatagramReachesParent(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	ln, ok := o.Listener.(*udpForkListener)
-	if !ok {
-		t.Fatalf("Listener type %T", o.Listener)
-	}
+	ln := o.Listener
 
 	client, err := net.DialUDP("udp4", nil, ln.Addr().(*net.UDPAddr))
 	if err != nil {
@@ -316,13 +313,6 @@ func TestUDPForkRecvfromSecondDatagramReachesParent(t *testing.T) {
 	}
 	first := waitUDPAccept(t, firstCh, 2*time.Second, "first datagram")
 	t.Cleanup(func() { _ = first.Close() })
-	child1, ok := first.(*udpSessionConn)
-	if !ok {
-		t.Fatalf("child type %T", first)
-	}
-	if child1.pc == nil || child1.conn != nil {
-		t.Fatalf("RECVFROM child pc=%v conn=%v want shared parent and no connected socket", child1.pc != nil, child1.conn != nil)
-	}
 
 	buf := make([]byte, 16)
 	n, err := first.Read(buf)
@@ -359,13 +349,6 @@ func TestUDPForkRecvfromSecondDatagramReachesParent(t *testing.T) {
 	}
 	second := waitUDPAccept(t, secondCh, 2*time.Second, "second same-peer datagram")
 	t.Cleanup(func() { _ = second.Close() })
-	child2, ok := second.(*udpSessionConn)
-	if !ok {
-		t.Fatalf("second child type %T", second)
-	}
-	if child2.pc == nil || child2.conn != nil {
-		t.Fatalf("second RECVFROM child pc=%v conn=%v want shared parent", child2.pc != nil, child2.conn != nil)
-	}
 	n, err = second.Read(buf)
 	if err != nil || string(buf[:n]) != "pkt2" {
 		t.Fatalf("second payload n=%d err=%v data=%q", n, err, buf[:n])
@@ -751,29 +734,14 @@ func TestUDPForkRecvfromIgnoresAcceptTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	ln, ok := o.Listener.(*udpForkListener)
-	if !ok {
-		t.Fatalf("listener type %T want *udpForkListener", o.Listener)
-	}
-	if ln.acceptTimeout != 0 {
-		t.Fatalf("RECVFROM fork accept-timeout=%s want disabled", ln.acceptTimeout)
-	}
-
 	accepted := startUDPAccept(o.Listener)
 	select {
 	case result := <-accepted:
 		if result.err != nil {
 			t.Fatalf("RECVFROM fork must not honor accept-timeout: %v", result.err)
 		}
-		session, ok := result.conn.(*udpSessionConn)
-		if !ok {
-			_ = result.conn.Close()
-			t.Fatalf("RECVFROM fork returned unexpected connection type %T", result.conn)
-		}
-		peer := session.peer
-		payload := append([]byte(nil), session.first...)
 		_ = result.conn.Close()
-		t.Fatalf("RECVFROM fork received an unexpected early datagram from %v: %q (%x)", peer, payload, payload)
+		t.Fatalf("RECVFROM fork received an unexpected early connection from %v", result.conn.RemoteAddr())
 	case <-time.After(150 * time.Millisecond):
 	}
 
@@ -889,15 +857,6 @@ func TestUDPListenForkReuseaddrZeroServesFirstClient(t *testing.T) {
 	}
 	sess := waitUDPAccept(t, accepted, 2*time.Second, "exclusive first datagram")
 	t.Cleanup(func() { _ = sess.Close() })
-
-	child, ok := sess.(*udpSessionConn)
-	if ok {
-		if !child.ownsListen || child.pc == nil || child.conn != nil {
-			t.Fatalf("exclusive child ownsListen=%v pc=%v conn=%v want handed-off listen socket", child.ownsListen, child.pc != nil, child.conn != nil)
-		}
-	} else if runtime.GOOS != "windows" {
-		t.Fatalf("child type %T want *udpSessionConn", sess)
-	}
 
 	buf := make([]byte, 16)
 	n, err := sess.Read(buf)

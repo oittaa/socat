@@ -26,7 +26,12 @@ func holdAcceptedConn(t *testing.T, ln net.Listener) {
 			return
 		}
 		defer func() { _ = c.Close() }()
-		time.Sleep(5 * time.Second)
+		buf := make([]byte, 1)
+		for {
+			if _, err := c.Read(buf); err != nil {
+				return
+			}
+		}
 	}()
 }
 

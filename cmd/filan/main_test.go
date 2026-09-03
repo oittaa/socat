@@ -126,9 +126,18 @@ func TestRunSimpleRangeNumbersFDs(t *testing.T) {
 	if code := runWithIO([]string{"-s", "-i", "0", "-n", "2"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit=%d stderr=%s", code, stderr.String())
 	}
-	got := stdout.String()
-	if !strings.Contains(got, "    0 ") || !strings.Contains(got, "    1 ") {
-		t.Fatalf("-s -i0 -n2 want numbered fds 0 and 1, got %q", got)
+	for _, wantFD := range []string{"0", "1"} {
+		found := false
+		for _, line := range strings.Split(stdout.String(), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 && fields[0] == wantFD {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("-s -i0 -n2 want numbered fd %s in output:\n%s", wantFD, stdout.String())
+		}
 	}
 
 	stdout.Reset()
@@ -137,8 +146,12 @@ func TestRunSimpleRangeNumbersFDs(t *testing.T) {
 		t.Fatalf("-s -i0 exit=%d stderr=%s", code, stderr.String())
 	}
 	line := strings.TrimSpace(stdout.String())
-	if line == "" || strings.HasPrefix(line, "0 ") || strings.Contains(line, "    0") {
-		t.Fatalf("-s -i0 must omit the fd number, got %q", stdout.String())
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		t.Fatalf("-s -i0 must produce output, got empty")
+	}
+	if _, err := strconv.Atoi(fields[0]); err == nil {
+		t.Fatalf("-s -i0 single-fd should not have leading fd number, got: %q", line)
 	}
 }
 

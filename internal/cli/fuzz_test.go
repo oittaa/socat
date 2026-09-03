@@ -29,7 +29,7 @@ func FuzzParseArgs(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, joined string) {
 		if len(joined) > 4096 {
-			t.Skip()
+			t.Skip("input exceeds 4096 bytes")
 		}
 		args := strings.Split(joined, "\x00")
 		if len(args) > 64 {
@@ -79,7 +79,7 @@ func FuzzValidateChannelOptions(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, input string) {
 		if len(input) > 4096 {
-			t.Skip()
+			t.Skip("input exceeds 4096 bytes")
 		}
 		ch, err := parse.ParseChannel(input)
 		if err != nil {

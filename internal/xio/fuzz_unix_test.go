@@ -13,7 +13,7 @@ func FuzzParseHexOpt(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, input string) {
 		if len(input) > 4096 {
-			t.Skip()
+			t.Skip("input exceeds 4096 bytes")
 		}
 		a, err1 := ParseHexOpt(input)
 		b, err2 := ParseHexOpt(input)

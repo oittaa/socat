@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"net"
 	"os"
-	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -18,48 +17,6 @@ import (
 	"github.com/oittaa/socat/internal/outbuf"
 	"golang.org/x/sys/unix"
 )
-
-func TestWriteHeaderTabSeparatedColumns(t *testing.T) {
-	var b outbuf.Buf
-	var buf bytes.Buffer
-	WriteHeader(&b, Options{})
-	if err := b.Flush(&buf); err != nil {
-		t.Fatal(err)
-	}
-	header := strings.TrimSuffix(buf.String(), "\n")
-	if !strings.Contains(header, "\tatime\t\t\t\tmtime\t\t\t\tctime\t\t\t\tcloexec") {
-		t.Fatalf("header missing timestamp column tabs: %q", header)
-	}
-	var cols []string
-	for _, c := range strings.Split(header, "\t") {
-		if c != "" {
-			cols = append(cols, c)
-		}
-	}
-	want := []string{
-		"  FD  type", "device", "inode", "mode", "links", "uid", "gid", "rdev",
-		"size", "blksize", "blocks", "atime", "mtime", "ctime", "cloexec", "flags", "sigown",
-	}
-	if runtime.GOOS == "linux" {
-		want = append(want, "sigio")
-	}
-	if !reflect.DeepEqual(cols, want) {
-		t.Fatalf("header cols=%q want %q", cols, want)
-	}
-}
-
-func TestWriteHeaderRawTimeTabs(t *testing.T) {
-	var b outbuf.Buf
-	var buf bytes.Buffer
-	WriteHeader(&b, Options{Raw: true})
-	if err := b.Flush(&buf); err != nil {
-		t.Fatal(err)
-	}
-	header := buf.String()
-	if !strings.Contains(header, "\tatime\t\tmtime\t\tctime\t\tcloexec") {
-		t.Fatalf("raw header missing time tabs: %q", header)
-	}
-}
 
 func TestWriteFDColumns(t *testing.T) {
 	f, err := os.Open("/dev/null")

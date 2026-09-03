@@ -13,15 +13,22 @@ import (
 // eofThenAppendReader returns EOF until flag flips, then serves the payload
 // once (simulates a file another process appends to).
 type eofThenAppendReader struct {
-	mu   sync.Mutex
-	data []byte
-	pos  int
+	mu    sync.Mutex
+	data  []byte
+	pos   int
+	eofCh chan struct{}
 }
 
 func (r *eofThenAppendReader) Read(p []byte) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.pos >= len(r.data) {
+		if r.eofCh != nil {
+			select {
+			case r.eofCh <- struct{}{}:
+			default:
+			}
+		}
 		return 0, io.EOF
 	}
 	n := copy(p, r.data[r.pos:])
@@ -36,7 +43,8 @@ func (r *eofThenAppendReader) append(b []byte) {
 }
 
 func TestWrapCommonIgnoreEOFKeepsServingAfterEOF(t *testing.T) {
-	src := &eofThenAppendReader{data: []byte("first")}
+	eofHit := make(chan struct{}, 1)
+	src := &eofThenAppendReader{data: []byte("first"), eofCh: eofHit}
 	spec, err := parse.ParseSpec("PIPE,ignoreeof")
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +71,11 @@ func TestWrapCommonIgnoreEOFKeepsServingAfterEOF(t *testing.T) {
 			got = append(got, buf[:n]...)
 		}
 	}()
-	time.Sleep(120 * time.Millisecond) // let EOF be hit and retried
+	select {
+	case <-eofHit:
+	case <-time.After(time.Second):
+		t.Fatal("initial EOF was not hit")
+	}
 	src.append([]byte("second"))
 	select {
 	case <-done:
