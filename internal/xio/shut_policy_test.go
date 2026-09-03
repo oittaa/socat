@@ -274,7 +274,7 @@ func TestShutNoneSelectedForExec(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !ShutNoneSelected(none) {
-		t.Fatal("shut-none should select EXEC wait-without-kill")
+		t.Fatal("shut-none should select write-side no-op shutdown")
 	}
 	over, err := parse.ParseSpec("EXEC:true,shut-none,shut-close")
 	if err != nil {

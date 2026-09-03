@@ -296,7 +296,7 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 	if fdRedirect {
 		cmd.Env = withExecFDHelperEnv(cmd.Env)
 	}
-	if err := startWithChildUmask(s, cmd, g); err != nil {
+	if err := startWithChildUmask(ctx, s, cmd, g); err != nil {
 		return err
 	}
 	closeExtra()
@@ -304,6 +304,7 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 	if cmd.Process != nil {
 		unregisterChildSignals(cmd.Process.Pid)
 	}
+	forgetExecContextCancel(cmd)
 	code, ok := childWaitExitCode(waitErr)
 	if !ok {
 		return waitErr
@@ -681,7 +682,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 
 	if usePty {
-		return startCmdPty(s, mode, g, cmd, fdRedirect)
+		return startCmdPty(ctx, s, mode, g, cmd, fdRedirect)
 	}
 
 	// Child stderr inherits socat's stderr unless option stderr redirects it
@@ -708,7 +709,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 
 	// Only FDs 0/1/2 may remain in the child.
-	startErr := startWithChildUmask(s, cmd, g)
+	startErr := startWithChildUmask(ctx, s, cmd, g)
 	if startErr != nil {
 		for _, f := range cleanup {
 			f()
@@ -957,10 +958,11 @@ func execSocketpairParentStream(mode Mode, parent *os.File, stype int) relay.Str
 // startWithChildUmask applies umask= around cmd.Start and marks FDs ≥3
 // CLOEXEC so EXEC children inherit only 0/1/2 plus explicitly mapped fdi/fdo
 // descriptors, then registers sighup/sigint/sigquit after pid is known.
-func startWithChildUmask(s parse.Spec, cmd *exec.Cmd, g *Global) error {
+func startWithChildUmask(ctx context.Context, s parse.Spec, cmd *exec.Cmd, g *Global) error {
 	if err := validateExecParentSignals(s); err != nil {
 		return err
 	}
+	armExecContextCancel(ctx, cmd)
 	// Mark ALL FDs ≥3 CLOEXEC (including the socketpair/pipe/PTY ends passed
 	// as Stdin/Stdout). Go's fork/exec dup2's them to 0/1/2 first, then closes
 	// CLOEXEC descriptors, so the high-numbered originals are not leaked.
@@ -970,9 +972,11 @@ func startWithChildUmask(s parse.Spec, cmd *exec.Cmd, g *Global) error {
 		startErr = cmd.Start()
 		return nil
 	}); err != nil {
+		forgetExecContextCancel(cmd)
 		return err
 	}
 	if startErr != nil {
+		forgetExecContextCancel(cmd)
 		return startErr
 	}
 	if err := registerExecParentSignals(s, cmd, g); err != nil {
@@ -988,12 +992,82 @@ func startWithChildUmask(s parse.Spec, cmd *exec.Cmd, g *Global) error {
 // LISTEN,fork child can reuse the number and receive a stale kill.
 func killWaitUnregisterChild(cmd *exec.Cmd) {
 	if cmd == nil || cmd.Process == nil {
+		forgetExecContextCancel(cmd)
 		return
 	}
 	pid := cmd.Process.Pid
 	_ = cmd.Process.Kill()
 	_, _ = cmd.Process.Wait()
 	unregisterChildSignals(pid)
+	forgetExecContextCancel(cmd)
+}
+
+// execContextCancel disarms CommandContext's kill after end-close cleanup.
+// cli.Run defers cancel(); without this, that cancel SIGKILLs children that
+// end-close already chose to keep. Startup and in-flight cancel still kill.
+type execContextCancel struct {
+	ctx      context.Context
+	mu       sync.Mutex
+	released bool
+}
+
+var execContextCancels sync.Map // *exec.Cmd -> *execContextCancel
+
+func contextCanceled(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+func armExecContextCancel(ctx context.Context, cmd *exec.Cmd) {
+	if cmd == nil || cmd.Cancel == nil {
+		return
+	}
+	ctl := &execContextCancel{ctx: ctx}
+	prev := cmd.Cancel
+	cmd.Cancel = func() error {
+		ctl.mu.Lock()
+		defer ctl.mu.Unlock()
+		if ctl.released {
+			return os.ErrProcessDone
+		}
+		return prev()
+	}
+	execContextCancels.Store(cmd, ctl)
+}
+
+func releaseExecContextCancel(cmd *exec.Cmd) {
+	if cmd == nil {
+		return
+	}
+	v, ok := execContextCancels.Load(cmd)
+	if !ok {
+		return
+	}
+	ctl := v.(*execContextCancel)
+	ctl.mu.Lock()
+	defer ctl.mu.Unlock()
+	// cancel() marks ctx done before CommandContext's callback runs. If that
+	// already happened, keep the callback armed so it still kills.
+	if contextCanceled(ctl.ctx) {
+		return
+	}
+	ctl.released = true
+	if contextCanceled(ctl.ctx) {
+		ctl.released = false
+	}
+}
+
+func forgetExecContextCancel(cmd *exec.Cmd) {
+	if cmd != nil {
+		execContextCancels.Delete(cmd)
+	}
 }
 
 func setCloexecAllFrom(from int) {
@@ -1094,7 +1168,7 @@ func closeExecPTY(master, slave *os.File) {
 
 // startCmdPtyFDRedirect keeps the PTY slave as ExtraFiles fd 3 and lets the
 // descriptor mapper duplicate it onto fdi/fdo. fdin/fdout do not select pipes.
-func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
+func startCmdPtyFDRedirect(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
 	master, slave, unlink, err := openExecPTYPair(cmd, s, g)
 	if err != nil {
 		return nil, err
@@ -1107,7 +1181,7 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.Ctty = 3
-	if err := startWithChildUmask(s, cmd, g); err != nil {
+	if err := startWithChildUmask(ctx, s, cmd, g); err != nil {
 		if unlink != nil {
 			unlink()
 		}
@@ -1182,9 +1256,9 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 //	ModeRead  (EXEC,pty!!-): child stdin←os.Stdin (inherit), child stdout→PTY
 //
 // Full duplex: both directions on the PTY slave (startOnPTY).
-func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect bool) (*Opened, error) {
+func startCmdPty(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect bool) (*Opened, error) {
 	if fdRedirect {
-		return startCmdPtyFDRedirect(s, mode, g, cmd)
+		return startCmdPtyFDRedirect(ctx, s, mode, g, cmd)
 	}
 	var ptmx *os.File
 	var unlink func()
@@ -1204,7 +1278,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 		if s.BoolOption("stderr") {
 			cmd.Stderr = slave
 		}
-		if err := startWithChildUmask(s, cmd, g); err != nil {
+		if err := startWithChildUmask(ctx, s, cmd, g); err != nil {
 			if unlink != nil {
 				unlink()
 			}
@@ -1248,7 +1322,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 			cmd.SysProcAttr = &syscall.SysProcAttr{}
 		}
 		cmd.SysProcAttr.Ctty = 1
-		if err := startWithChildUmask(s, cmd, g); err != nil {
+		if err := startWithChildUmask(ctx, s, cmd, g); err != nil {
 			if unlink != nil {
 				unlink()
 			}
@@ -1283,7 +1357,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 
 	default:
 		var slave *os.File
-		ptmx, slave, unlink, err = startOnPTY(cmd, s, g)
+		ptmx, slave, unlink, err = startOnPTY(ctx, cmd, s, g)
 		if err != nil {
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}
@@ -1349,6 +1423,7 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 	go func() {
 		err := cmd.Wait()
 		unregisterChildSignals(pid)
+		forgetExecContextCancel(cmd)
 		mu.Lock()
 		waitErr = err
 		if err == nil {
@@ -1367,9 +1442,9 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 	if g != nil && g.Linger > 0 {
 		linger = g.Linger
 	}
-	// shut-none: do not kill the child; wait for natural exit (with a cap).
-	// Derived from the same ordered shut-* selector as WrapCommon.
-	shutNone := ShutNoneSelected(s)
+	// shut-none is write-side shutdown only (WrapCommon). Final cleanup still
+	// kills the child unless end-close selected END_CLOSE (no kill).
+	endClose := s.BoolOption("end-close")
 
 	o := &Opened{
 		Stream:    st,
@@ -1380,45 +1455,36 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 		o.AddCleanup(f)
 	}
 	o.AddCleanup(func() {
-		// Give write-only children (od -c) time to flush after stdin EOF.
-		waitFor := linger
-		if waitChild {
-			// Write-only EXEC/SHELL: wait at most one second (holds
-			// max-children slots until the child finishes).
-			waitFor = time.Second
-		}
-		if execUsesPTY(s) {
-			// Extra second so SYSTEM,pty scripts can finish after transfer
-			// linger, before the PTY master closes.
-			waitFor = linger + time.Second
-		}
-		if shutNone {
-			waitFor = 5 * time.Second
-		}
-		killed := false
-		t := time.NewTimer(waitFor)
-		select {
-		case <-done:
-			t.Stop()
-		case <-t.C:
-			if !shutNone {
-				killed = true
-				_ = cmd.Process.Kill()
+		if endClose {
+			// Keep Wait reaping, but do not let later ctx cancel SIGKILL.
+			releaseExecContextCancel(cmd)
+			select {
+			case <-done:
+			default:
+				return
 			}
-			<-done
+		} else {
+			waitFor := linger
+			if waitChild {
+				waitFor = time.Second
+			}
+			if execUsesPTY(s) {
+				waitFor = linger + time.Second
+			}
+			t := time.NewTimer(waitFor)
+			select {
+			case <-done:
+				t.Stop()
+			case <-t.C:
+				_ = cmd.Process.Kill()
+				<-done
+			}
 		}
-		// Promote only natural non-zero exits (false/exit 1), not kills/SIGHUP
-		// from closing a PTY master (those yield 255/signal and must not fail echo tests).
 		mu.Lock()
 		code := exitCode
 		werr := waitErr
 		mu.Unlock()
-		if killed {
-			return
-		}
 		if code != 0 && g != nil {
-			// Signal deaths: Go reports -1; 128+n is the POSIX status.
-			// Not EXEC_RC failures (PTY master close often SIGHUPs cat).
 			if code < 0 || code >= 128 {
 				return
 			}

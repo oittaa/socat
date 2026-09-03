@@ -3,6 +3,7 @@
 package xio
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,7 +15,7 @@ import (
 // startOnPTY assigns a PTY slave to cmd stdio (nil slots), starts cmd, and
 // returns both ends. The caller owns both descriptors. setsid and ctty come
 // from the spec; pty itself does not start a session or take the controlling tty.
-func startOnPTY(cmd *exec.Cmd, s parse.Spec, g *Global) (*os.File, *os.File, func(), error) {
+func startOnPTY(ctx context.Context, cmd *exec.Cmd, s parse.Spec, g *Global) (*os.File, *os.File, func(), error) {
 	master, slave, err := OpenPTYPair()
 	if err != nil {
 		return nil, nil, nil, err
@@ -56,7 +57,7 @@ func startOnPTY(cmd *exec.Cmd, s parse.Spec, g *Global) (*os.File, *os.File, fun
 		logx.CloseQuiet(slave)
 		return nil, nil, nil, err
 	}
-	if err := startWithChildUmask(s, cmd, g); err != nil {
+	if err := startWithChildUmask(ctx, s, cmd, g); err != nil {
 		if unlink != nil {
 			unlink()
 		}
