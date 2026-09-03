@@ -6,10 +6,8 @@ import (
 	"context"
 	"io"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"testing"
 	"time"
 
@@ -170,6 +168,146 @@ func waitPollWithTimeout(t *testing.T, srcFD, dstFD int, d time.Duration) (polls
 	defer cancel()
 	err = waitReadableAndWritable(ctx, srcFD, dstFD)
 	return n.Load(), err
+}
+
+// startHookedWait runs waitReadableAndWritable in a worker with pollWait
+// replaced. Every test exit path releases optional gates, cancels, joins the
+// worker, then restores pollWait before later cleanups close its descriptors.
+func startHookedWait(t *testing.T, srcFD, dstFD int, hook func([]unix.PollFd, int) (int, error), d time.Duration, release ...func()) <-chan error {
+	t.Helper()
+	orig := pollWait
+	pollWait = hook
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	done := make(chan error, 1)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		done <- waitReadableAndWritable(ctx, srcFD, dstFD)
+	}()
+	t.Cleanup(func() {
+		for _, r := range release {
+			if r != nil {
+				r()
+			}
+		}
+		cancel()
+		wg.Wait()
+		pollWait = orig
+	})
+	return done
+}
+
+type ownedFD struct {
+	fd    int
+	owned atomic.Bool
+}
+
+func newOwnedFD(t *testing.T, fd int) *ownedFD {
+	t.Helper()
+	o := &ownedFD{fd: fd}
+	o.owned.Store(true)
+	t.Cleanup(func() {
+		if o.owned.Swap(false) {
+			_ = unix.Close(o.fd)
+		}
+	})
+	return o
+}
+
+func (o *ownedFD) closeNow(t *testing.T) {
+	t.Helper()
+	if !o.owned.Swap(false) {
+		return
+	}
+	if err := unix.Close(o.fd); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// darwinZeroEventPollWait models Darwin poll: Events=0 registers no kqueue
+// filter, so those entries never wake the waiting poll.
+func darwinZeroEventPollWait(fds []unix.PollFd, timeoutMs int) (int, error) {
+	filtered := make([]unix.PollFd, 0, len(fds))
+	pos := make([]int, 0, len(fds))
+	for i := range fds {
+		fds[i].Revents = 0
+		if fds[i].Events == 0 {
+			continue
+		}
+		filtered = append(filtered, fds[i])
+		pos = append(pos, i)
+	}
+	if len(filtered) == 0 {
+		_, err := poll(nil, timeoutMs)
+		return 0, err
+	}
+	n, err := poll(filtered, timeoutMs)
+	for i, p := range pos {
+		fds[p].Revents = filtered[i].Revents
+	}
+	return n, err
+}
+
+func onceClose(ch chan struct{}) func() {
+	var once sync.Once
+	return func() { once.Do(func() { close(ch) }) }
+}
+
+// runMaskedDestCloseAfterReady waits until destination is masked (Events=0
+// because it is already writable), then closes the polled destination fd.
+func runMaskedDestCloseAfterReady(t *testing.T, wait func([]unix.PollFd, int) (int, error)) {
+	t.Helper()
+	srcR, _ := pipePair(t)
+	_, dstW := pipePair(t)
+	nval, err := unix.Dup(int(dstW.Fd()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	owned := newOwnedFD(t, nval)
+	srcFD := fileFD(t, srcR)
+	dstFD := nval
+
+	masked := make(chan struct{})
+	var maskOnce sync.Once
+	proceed := make(chan struct{})
+	release := onceClose(proceed)
+
+	hook := func(fds []unix.PollFd, timeoutMs int) (int, error) {
+		for _, fd := range fds {
+			if fd.Fd == int32(dstFD) && fd.Events == 0 {
+				maskOnce.Do(func() { close(masked) })
+				<-proceed
+				break
+			}
+		}
+		return wait(fds, timeoutMs)
+	}
+	done := startHookedWait(t, srcFD, dstFD, hook, 2*time.Second, release)
+
+	select {
+	case <-masked:
+	case err := <-done:
+		t.Fatalf("wait returned before destination was masked: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("destination never entered Events=0 wait")
+	}
+
+	owned.closeNow(t)
+	closedAt := time.Now()
+	release()
+
+	select {
+	case err := <-done:
+		if err != io.ErrClosedPipe {
+			t.Fatalf("masked dest close err=%v want closed pipe", err)
+		}
+		if d := time.Since(closedAt); d > 500*time.Millisecond {
+			t.Fatalf("masked dest close took %v, want observation within one wait-timeout interval", d)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("masked destination close was not observed")
+	}
 }
 
 // maxOneSidedPolls is well above a 100ms-timeout wait over 300ms (~3–4 polls)
@@ -395,16 +533,14 @@ func TestWaitReadableAndWritableDestNval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = unix.Close(nval) })
+	owned := newOwnedFD(t, nval)
 	if err := dstR.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := dstW.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := unix.Close(nval); err != nil {
-		t.Fatal(err)
-	}
+	owned.closeNow(t)
 	if _, err := srcW.Write([]byte("xy")); err != nil {
 		t.Fatal(err)
 	}
@@ -464,107 +600,75 @@ func TestTransferPollClosedDestinationIsClean(t *testing.T) {
 	}
 }
 
-// TestWaitReadableAndWritableFIFOReconnectAfterHangup covers a writer that
-// disconnects (POLLHUP), reconnects before the 0-timeout confirmation poll,
-// then writes. Omission must follow confirmed state, not the stale hangup.
-func TestWaitReadableAndWritableFIFOReconnectAfterHangup(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "reopen.fifo")
-	if err := syscall.Mkfifo(path, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	src, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		t.Skipf("FIFO reader: %v", err)
-	}
-	t.Cleanup(func() { _ = src.Close() })
-	srcFD := fileFD(t, src)
+// TestWaitReadableAndWritableStaleWaitingHangupRearms injects a waiting-poll
+// POLLHUP that the 0-timeout confirmation poll does not observe. Omission
+// must follow confirmed state so a later write re-arms source.
+func TestWaitReadableAndWritableStaleWaitingHangupRearms(t *testing.T) {
+	srcR, srcW := pipePair(t)
 	_, dstW := pipePair(t)
+	srcFD := fileFD(t, srcR)
 	dstFD := fileFD(t, dstW)
 
-	sawHUP := make(chan struct{})
-	var sawOnce sync.Once
-	resume := make(chan struct{})
+	var injected atomic.Bool
 	rearmed := make(chan struct{})
 	var rearmOnce sync.Once
-	var afterHUP atomic.Bool
 
-	orig := pollWait
-	pollWait = func(fds []unix.PollFd, timeoutMs int) (int, error) {
-		if afterHUP.Load() {
-			rearmOnce.Do(func() { close(rearmed) })
-		}
-		n, err := poll(fds, timeoutMs)
-		if err == nil && n > 0 && !afterHUP.Load() {
+	hook := func(fds []unix.PollFd, timeoutMs int) (int, error) {
+		if injected.Load() {
 			for _, fd := range fds {
-				if fd.Fd == int32(srcFD) && fd.Revents&pollHup != 0 {
-					sawOnce.Do(func() { close(sawHUP) })
-					<-resume
-					afterHUP.Store(true)
-					break
+				if fd.Fd == int32(srcFD) && fd.Events&pollIn != 0 {
+					rearmOnce.Do(func() { close(rearmed) })
 				}
 			}
+			return poll(fds, timeoutMs)
 		}
-		return n, err
+		n := 0
+		for i := range fds {
+			if fds[i].Fd == int32(srcFD) && fds[i].Events&pollIn != 0 {
+				fds[i].Revents = pollHup
+				n++
+			}
+		}
+		if n == 0 {
+			return poll(fds, timeoutMs)
+		}
+		injected.Store(true)
+		return n, nil
 	}
-	t.Cleanup(func() { pollWait = orig })
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	done := make(chan error, 1)
-	go func() {
-		done <- waitReadableAndWritable(ctx, srcFD, dstFD)
-	}()
-
-	w, err := os.OpenFile(path, os.O_WRONLY, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	select {
-	case <-sawHUP:
-	case err := <-done:
-		t.Skipf("FIFO hangup did not stay in waitReadableAndWritable: %v", err)
-	case <-time.After(time.Second):
-		t.Fatal("waiting poll did not observe FIFO POLLHUP")
-	}
-
-	w, err = os.OpenFile(path, os.O_WRONLY, 0)
-	if err != nil {
-		close(resume)
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = w.Close() })
-	close(resume)
+	done := startHookedWait(t, srcFD, dstFD, hook, 2*time.Second)
 
 	select {
 	case <-rearmed:
 	case err := <-done:
-		t.Fatalf("wait returned before reconnect write: %v", err)
+		t.Fatalf("wait returned before stale hangup re-armed source: %v", err)
 	case <-time.After(time.Second):
-		t.Fatal("did not re-enter wait poll after FIFO reconnect")
+		t.Fatal("source stayed omitted after stale waiting POLLHUP")
 	}
 
-	if _, err := w.Write([]byte("go")); err != nil {
+	if _, err := srcW.Write([]byte("go")); err != nil {
 		t.Fatal(err)
 	}
-
 	select {
 	case err := <-done:
 		if err != nil {
-			t.Fatalf("after FIFO reconnect: %v", err)
+			t.Fatalf("after stale waiting hangup: %v", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("source stayed omitted after FIFO writer reconnected")
+		t.Fatal("wait did not return after source re-arm write")
 	}
 
 	got := make([]byte, 2)
-	if _, err := io.ReadFull(src, got); err != nil {
+	if _, err := io.ReadFull(srcR, got); err != nil {
 		t.Fatalf("source consumed or unread: %v", err)
 	}
 	if string(got) != "go" {
 		t.Fatalf("source=%q want go", got)
 	}
+}
+
+// TestWaitReadableAndWritableMaskedDestCloseDarwinModel closes the destination
+// after it has been masked (Events=0). The waiting poll hides Events=0 the
+// way Darwin does, so timeout confirmation must observe the closed fd.
+func TestWaitReadableAndWritableMaskedDestCloseDarwinModel(t *testing.T) {
+	runMaskedDestCloseAfterReady(t, darwinZeroEventPollWait)
 }

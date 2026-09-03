@@ -88,10 +88,17 @@ func waitPollRead(fd int, timeoutMs int) error {
 func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 	srcReady := false
 	dstReady := false
-	// POLLERR/POLLHUP/POLLNVAL are reported even when Events is 0. After a
-	// hangup is confirmed on a side that is already ready, drop that fd from
-	// the wait set so combined readiness+hangup cannot busy-spin. Re-arm if a
-	// later confirmation poll shows the hangup has cleared (FIFO reconnect).
+	// After a hangup is confirmed on a side that is already ready, drop that
+	// fd from the wait set so combined readiness+hangup cannot busy-spin.
+	// Re-arm if a later confirmation poll shows the hangup has cleared (FIFO
+	// reconnect).
+	//
+	// Linux reports POLLERR/POLLHUP/POLLNVAL even when Events is 0, so a
+	// masked (already-ready) fd can still wake the waiting poll. Darwin's
+	// poll registers no kqueue filters for Events=0, so a later close of a
+	// masked destination is invisible to the wait. Always 0-timeout confirm
+	// both descriptors after a wait — including wait timeouts — and keep the
+	// wait timeout bounded so this cannot busy-spin.
 	omitSrcWait := false
 	omitDstWait := false
 	for {
@@ -124,15 +131,15 @@ func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 		if len(pfds) == 0 {
 			return syscall.EBADF
 		}
-		n, err := pollWait(pfds, pollWaitTimeoutMs) // timeout so we honour ctx
+		_, err := pollWait(pfds, pollWaitTimeoutMs) // timeout so we honour ctx
 		if err != nil {
 			if err == syscall.EINTR {
 				continue
 			}
 			return err
 		}
-		if n == 0 {
-			continue
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 
 		src, srcOK := pollFd(srcFD, pollIn)
