@@ -28,6 +28,14 @@ Statuses recorded per test:
 | `TIMEOUT` | shard killed; incomplete result |
 | `UNKNOWN` | no clear result line |
 
+`scripts/scorecard-parse.py` keeps dotted test names (for example
+`OPENSSL_METHOD_TLS1.2`). On a completed shard it prefers the explicit
+upstream `CANT:` / `FAILED:` ID lists when those lists are unambiguous,
+and records a per-test `conflict` when the printed `... FAILED` / `... OK`
+token disagrees. Overlap between the two lists is a reporting error.
+These are parser corrections, not changes in socat behavior. Committed
+JSON in this directory is not rewritten only to match a parser change.
+
 ## How classic runs vs our runner
 
 Upstream **`test.sh`** is **sequential**: one process, tests 1…N in order, and
