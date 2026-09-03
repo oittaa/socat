@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
+	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 	_ "github.com/oittaa/socat/internal/xio/netopen"
 	"golang.org/x/sys/unix"
@@ -549,7 +549,7 @@ func TestPOSIXMQSharedForkCancellation(t *testing.T) {
 		}
 		_ = mqClose(fd)
 
-		path := filepath.Join(t.TempDir(), "mq.sock")
+		path := testutil.UnixSocketPath(t, "mq-w.sock")
 		left, err := parse.ParseChannel(fmt.Sprintf("POSIXMQ-WRITE:%s,mq-maxmsg=1,mq-msgsize=64", q))
 		if err != nil {
 			t.Fatal(err)
@@ -605,7 +605,7 @@ func TestPOSIXMQSharedForkCancellation(t *testing.T) {
 
 	t.Run("read", func(t *testing.T) {
 		q := testQueue(t)
-		path := filepath.Join(t.TempDir(), "mq.sock")
+		path := testutil.UnixSocketPath(t, "mq-r.sock")
 		left, err := parse.ParseChannel(fmt.Sprintf("POSIXMQ-READ:%s,mq-maxmsg=1,mq-msgsize=64,unlink-early", q))
 		if err != nil {
 			t.Fatal(err)
