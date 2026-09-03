@@ -3,15 +3,20 @@
 package e2e_test
 
 import (
+	"fmt"
 	"net"
 	"os/exec"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestIPRecvErrUDPConnectICMP(t *testing.T) {
+func recverrOutputHasDiagnostic(text string) bool {
+	return strings.Contains(text, "IP_RECVERR") || strings.Contains(text, "received ICMP")
+}
+
+func runRecvErrClosedPort(t *testing.T, addressFmt string) (string, error) {
+	t.Helper()
 	closed, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)
@@ -21,7 +26,7 @@ func TestIPRecvErrUDPConnectICMP(t *testing.T) {
 
 	cmd := exec.Command(socatBin(t), "-d", "-d", "-d", "-t", "1",
 		"STDIO",
-		"UDP4:127.0.0.1:"+strconv.Itoa(port)+",ip-recverr")
+		fmt.Sprintf(addressFmt, port))
 	cmd.Stdin = strings.NewReader("hi\n")
 	done := make(chan struct{})
 	var out []byte
@@ -39,13 +44,48 @@ func TestIPRecvErrUDPConnectICMP(t *testing.T) {
 		<-done
 		t.Fatalf("socat timed out; output=%s", out)
 	}
+	return string(out), runErr
+}
+
+func TestIPRecvErrUDPConnectICMP(t *testing.T) {
+	text, runErr := runRecvErrClosedPort(t, "UDP4:127.0.0.1:%d,ip-recverr")
 	if runErr == nil {
-		t.Fatalf("expected connection refused exit; output=%s", out)
+		t.Fatalf("expected connection refused exit; output=%s", text)
 	}
-	text := string(out)
-	if !strings.Contains(strings.ToLower(text), "connection refused") &&
-		!strings.Contains(text, "IP_RECVERR") &&
-		!strings.Contains(text, "received ICMP") {
+	if !recverrOutputHasDiagnostic(text) {
+		t.Fatalf("missing recverr/ICMP diagnostics: %s", text)
+	}
+}
+
+func TestIPRecvErrZeroOmitsDiagnostics(t *testing.T) {
+	text, runErr := runRecvErrClosedPort(t, "UDP4:127.0.0.1:%d,ip-recverr=0")
+	if runErr == nil {
+		t.Fatalf("expected connection refused exit; output=%s", text)
+	}
+	if recverrOutputHasDiagnostic(text) {
+		t.Fatalf("ip-recverr=0 must not log ICMP/IP_RECVERR diagnostics: %s", text)
+	}
+	if !strings.Contains(strings.ToLower(text), "connection refused") {
+		t.Fatalf("expected ordinary connection refused; output=%s", text)
+	}
+}
+
+func TestIPRecvErrUDPSendtoICMP(t *testing.T) {
+	text, runErr := runRecvErrClosedPort(t, "UDP4-SENDTO:127.0.0.1:%d,ip-recverr")
+	if runErr == nil {
+		t.Fatalf("expected connection refused exit; output=%s", text)
+	}
+	if !recverrOutputHasDiagnostic(text) {
+		t.Fatalf("missing recverr/ICMP diagnostics: %s", text)
+	}
+}
+
+func TestIPRecvErrUDPDatagramICMP(t *testing.T) {
+	text, runErr := runRecvErrClosedPort(t, "UDP4-DATAGRAM:127.0.0.1:%d,ip-recverr")
+	if runErr == nil {
+		t.Fatalf("expected connection refused exit; output=%s", text)
+	}
+	if !recverrOutputHasDiagnostic(text) {
 		t.Fatalf("missing recverr/ICMP diagnostics: %s", text)
 	}
 }

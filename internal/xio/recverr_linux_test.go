@@ -4,11 +4,12 @@ package xio
 
 import (
 	"bytes"
+	"encoding/binary"
 	"errors"
-	"io"
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -167,8 +168,8 @@ func TestUDPConnectRecvErrICMPLinux(t *testing.T) {
 	if !errors.Is(err, unix.ECONNREFUSED) && !strings.Contains(err.Error(), "connection refused") {
 		t.Fatalf("read err=%v want connection refused", err)
 	}
-	if g.SessionVars["IP_RECVERR_ERRNO"] == "" && !strings.Contains(logBuf.String(), "IP_RECVERR") && !strings.Contains(logBuf.String(), "received ICMP") {
-		t.Fatalf("no recverr diagnostics; err=%v log=%q env=%v", err, logBuf.String(), g.SessionVars)
+	if g.SessionVar("IP_RECVERR_ERRNO") == "" && !strings.Contains(logBuf.String(), "IP_RECVERR") && !strings.Contains(logBuf.String(), "received ICMP") {
+		t.Fatalf("no recverr diagnostics; err=%v log=%q errno=%q", err, logBuf.String(), g.SessionVar("IP_RECVERR_ERRNO"))
 	}
 }
 
@@ -188,19 +189,145 @@ func TestRecvErrDoesNotTurnPayloadIntoEOFLinux(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
-	if _, err := server.WriteTo([]byte("ok"), c.LocalAddr()); err != nil {
+	uc, ok := c.(*net.UDPConn)
+	if !ok {
+		t.Fatalf("Dial type %T", c)
+	}
+	wrapped := WrapUDPAncillary(uc, spec, &Global{Log: logx.New()})
+	if _, err := server.WriteTo([]byte("ok"), uc.LocalAddr()); err != nil {
 		t.Fatal(err)
 	}
-	_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if wc, ok := wrapped.(interface{ SetReadDeadline(time.Time) error }); ok {
+		_ = wc.SetReadDeadline(time.Now().Add(2 * time.Second))
+	}
 	buf := make([]byte, 8)
-	n, err := c.Read(buf)
+	n, err := wrapped.Read(buf)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(buf[:n]) != "ok" {
 		t.Fatalf("payload=%q", buf[:n])
 	}
-	if errors.Is(err, io.EOF) {
-		t.Fatal("unexpected EOF")
+}
+
+func TestRecvErrZeroOmitsDiagnosticsLinux(t *testing.T) {
+	closed, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
 	}
+	port := closed.LocalAddr().(*net.UDPAddr).Port
+	_ = closed.Close()
+
+	spec, err := parse.ParseSpec("UDP4:127.0.0.1:1,ip-recverr=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &net.Dialer{Control: DialControl(spec, "udp4", nil)}
+	c, err := d.Dial("udp4", "127.0.0.1:"+strconv.Itoa(port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	conn, ok := c.(*net.UDPConn)
+	if !ok {
+		t.Fatalf("Dial type %T", c)
+	}
+	if _, wrapped := WrapUDPAncillary(conn, spec, &Global{}).(*udpAncillaryConn); wrapped {
+		t.Fatal("ip-recverr=0 must not wrap the UDP connection")
+	}
+
+	var logBuf bytes.Buffer
+	lg := logx.New()
+	lg.SetOutput(&logBuf)
+	lg.SetLevel(logx.Debug)
+	g := &Global{Log: lg}
+	if _, err := conn.Write([]byte("hi")); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, err = conn.Read(make([]byte, 16))
+	if err == nil {
+		t.Fatal("expected connection refused without recverr diagnostics")
+	}
+	if g.SessionVar("IP_RECVERR_ERRNO") != "" || strings.Contains(logBuf.String(), "IP_RECVERR") || strings.Contains(logBuf.String(), "received ICMP") {
+		t.Fatalf("ip-recverr=0 produced diagnostics; err=%v log=%q errno=%q", err, logBuf.String(), g.SessionVar("IP_RECVERR_ERRNO"))
+	}
+}
+
+func TestHandleIPRecvErrCmsgConcurrentLinux(t *testing.T) {
+	g := &Global{Log: logx.New()}
+	data := make([]byte, 16)
+	binary.NativeEndian.PutUint32(data[0:4], uint32(unix.ECONNREFUSED))
+	data[4] = unix.SO_EE_ORIGIN_ICMP
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			handleIPRecvErrCmsg(data, g)
+		}()
+		go func() {
+			defer wg.Done()
+			_ = g.SessionVar("IP_RECVERR_ERRNO")
+			_ = g.SessionVarsSnapshot()
+			_ = sessionEnv(g)
+		}()
+	}
+	wg.Wait()
+	if g.SessionVar("IP_RECVERR_ERRNO") == "" {
+		t.Fatal("missing IP_RECVERR_ERRNO after concurrent cmsg updates")
+	}
+}
+
+func TestRecvErrSessionVarsConcurrentReadWriteLinux(t *testing.T) {
+	closed, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := closed.LocalAddr().(*net.UDPAddr).Port
+	_ = closed.Close()
+
+	spec, err := parse.ParseSpec("UDP4:127.0.0.1:1,ip-recverr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := &net.Dialer{Control: DialControl(spec, "udp4", nil)}
+	c, err := d.Dial("udp4", "127.0.0.1:"+strconv.Itoa(port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	conn, ok := c.(*net.UDPConn)
+	if !ok {
+		t.Fatalf("Dial type %T", c)
+	}
+	g := &Global{Log: logx.New()}
+	wrapped := WrapUDPAncillary(conn, spec, g)
+	if _, err := wrapped.Write([]byte("hi")); err != nil {
+		t.Fatal(err)
+	}
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			if wc, ok := wrapped.(interface{ SetReadDeadline(time.Time) error }); ok {
+				_ = wc.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+			}
+			_, _ = wrapped.Read(make([]byte, 16))
+			_ = g.SessionVar("IP_RECVERR_ERRNO")
+			_ = g.SessionVarsSnapshot()
+		}()
+		go func() {
+			defer wg.Done()
+			if wc, ok := wrapped.(interface{ SetWriteDeadline(time.Time) error }); ok {
+				_ = wc.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
+			}
+			_, _ = wrapped.Write([]byte("x"))
+			_ = g.SessionVar("IP_RECVERR_ORIGIN")
+			_ = sessionEnv(g)
+		}()
+	}
+	wg.Wait()
 }

@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -153,6 +154,31 @@ func TestForkSessionSharesStatsFlag(t *testing.T) {
 	if !a.ForkChild || !b.ForkChild {
 		t.Fatal("forkSession must mark child Globals")
 	}
+}
+
+func TestSessionVarsConcurrentUpdates(t *testing.T) {
+	g := &Global{Progname: "socat"}
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(3)
+		go func(i int) {
+			defer wg.Done()
+			SetSessionEnv(g, "K", strconv.Itoa(i))
+		}(i)
+		go func() {
+			defer wg.Done()
+			_ = g.SessionVar("K")
+			_ = g.SessionVarsSnapshot()
+			_ = sessionEnv(g)
+		}()
+		go func() {
+			defer wg.Done()
+			child := g.forkSession()
+			SetSessionEnv(child, "CHILD", "1")
+			_ = child.SessionVar("TIMESTAMP")
+		}()
+	}
+	wg.Wait()
 }
 
 func TestPreferredResolveVersionFromEnvironment(t *testing.T) {
