@@ -192,6 +192,7 @@ type udpDatagramConn struct {
 	g                *xio.Global
 	ctx              context.Context
 	wantCtrl         bool
+	recvErr          bool
 	exactPeer        bool
 	sourcePortFilter bool
 	oob              []byte
@@ -210,6 +211,7 @@ func newUDPDatagramConn(ctx context.Context, c *net.UDPConn, raddr *net.UDPAddr,
 		g:                g,
 		ctx:              ctx,
 		wantCtrl:         xio.NeedAncillary(s),
+		recvErr:          xio.NeedRecvErr(s),
 		exactPeer:        exactPeer,
 		sourcePortFilter: sourcePortFilter,
 	}, nil
@@ -239,6 +241,7 @@ func (u *udpDatagramConn) Read(p []byte) (int, error) {
 	for {
 		n, oob, addr, err := xio.ReadUDPMsgWithBuffer(u.UDPConn, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
 		if err != nil {
+			xio.DrainRecvErrOnError(err, u.recvErr, u.UDPConn, u.g)
 			return n, err
 		}
 		if err := u.checkPeer(addr); err != nil {
@@ -305,7 +308,9 @@ func specWithoutSourceport(s parse.Spec) parse.Spec {
 
 func (u *udpDatagramConn) Write(p []byte) (int, error) {
 	// Allow 0-byte writes (shut-null sends empty datagram).
-	return u.WriteToUDP(p, u.raddr)
+	n, err := u.WriteToUDP(p, u.raddr)
+	xio.DrainRecvErrOnError(err, u.recvErr, u.UDPConn, u.g)
+	return n, err
 }
 
 // bindUDPLowport binds a port in 640..1023 via FirstAvailableLowport. Logs bind for tests.
@@ -424,6 +429,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		// before SYSTEM/EXEC children start (UDP*ENV tests).
 		buf := make([]byte, max(g.BlockSize, 65535))
 		wantCtrl := xio.NeedAncillary(s)
+		recvErr := xio.NeedRecvErr(s)
 		type res struct {
 			n   int
 			a   *net.UDPAddr
@@ -450,6 +456,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 				return nil, ctx.Err()
 			case r := <-ch:
 				if r.e != nil {
+					xio.DrainRecvErrOnError(r.e, recvErr, pc, g)
 					logx.CloseQuiet(pc)
 					return nil, udpAcceptError(r.e, false)
 				}
@@ -478,6 +485,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			firstPending: true,
 			closeEOF:     true,
 			wantCtrl:     wantCtrl,
+			recvErr:      recvErr,
 			g:            g,
 		})
 		st, err = xio.WrapCommonAfterConnected(s, st)
@@ -535,9 +543,7 @@ func (u *udpFilteredRecv) Read(p []byte) (int, error) {
 	for {
 		n, oob, addr, err := xio.ReadUDPMsgWithBuffer(u.conn, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
 		if err != nil {
-			if u.recvErr {
-				xio.DrainRecvErrFromConn(u.conn, u.g)
-			}
+			xio.DrainRecvErrOnError(err, u.recvErr, u.conn, u.g)
 			return n, err
 		}
 		if err := u.filter.AllowAddr(addr, u.conn.LocalAddr()); err != nil {

@@ -32,6 +32,15 @@ func DrainRecvErrFromConn(c syscall.Conn, g *Global) {
 	drainRecvErrFromConn(c, g)
 }
 
+// DrainRecvErrOnError drains MSG_ERRQUEUE after an I/O error. It does not
+// hold locks across the failed Read or Write.
+func DrainRecvErrOnError(err error, enabled bool, c syscall.Conn, g *Global) {
+	if err == nil || !enabled {
+		return
+	}
+	DrainRecvErrFromConn(c, g)
+}
+
 func drainRecvErrFromConn(c syscall.Conn, g *Global) {
 	if c == nil {
 		return

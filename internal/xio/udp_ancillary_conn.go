@@ -45,7 +45,7 @@ func (c *udpAncillaryConn) Read(p []byte) (int, error) {
 		n, err = c.UDPConn.Read(p)
 	}
 	if err != nil && c.recvErr {
-		drainRecvErrFromConn(c.UDPConn, c.g)
+		DrainRecvErrOnError(err, true, c.UDPConn, c.g)
 	}
 	return n, err
 }
@@ -53,7 +53,7 @@ func (c *udpAncillaryConn) Read(p []byte) (int, error) {
 func (c *udpAncillaryConn) Write(p []byte) (int, error) {
 	n, err := c.UDPConn.Write(p)
 	if err != nil && c.recvErr {
-		drainRecvErrFromConn(c.UDPConn, c.g)
+		DrainRecvErrOnError(err, true, c.UDPConn, c.g)
 	}
 	return n, err
 }

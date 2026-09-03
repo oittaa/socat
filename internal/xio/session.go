@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	socat "github.com/oittaa/socat"
 )
@@ -44,12 +45,57 @@ func RememberAddrs(g *Global, c net.Conn) {
 	// Do not os.Setenv: fork goroutines would race on process environment.
 }
 
+func (g *Global) lockSession() func() {
+	if g == nil {
+		return func() {}
+	}
+	for {
+		mu := g.sessionMu.Load()
+		if mu == nil {
+			created := new(sync.Mutex)
+			if !g.sessionMu.CompareAndSwap(nil, created) {
+				continue
+			}
+			mu = created
+		}
+		mu.Lock()
+		return mu.Unlock
+	}
+}
+
+func (g *Global) cloneSessionVars() map[string]string {
+	if g == nil {
+		return nil
+	}
+	unlock := g.lockSession()
+	defer unlock()
+	return cloneStringMap(g.SessionVars)
+}
+
+// SessionVarsSnapshot copies SessionVars for EXEC/SYSTEM child environments.
+func (g *Global) SessionVarsSnapshot() map[string]string {
+	return g.cloneSessionVars()
+}
+
+// SessionVar returns one SessionVars entry. Tests use this instead of reading
+// the map during concurrent recverr drains.
+func (g *Global) SessionVar(name string) string {
+	if g == nil {
+		return ""
+	}
+	unlock := g.lockSession()
+	defer unlock()
+	return g.SessionVars[name]
+}
+
 // SetSessionEnv records a per-session output variable without its executable
 // prefix. It is exported for address implementations such as POSIXMQ.
 func SetSessionEnv(g *Global, name, value string) {
 	if g == nil || name == "" {
 		return
 	}
+	unlock := g.lockSession()
+	defer unlock()
 	if g.SessionVars == nil {
 		g.SessionVars = make(map[string]string)
 	}
@@ -79,9 +125,11 @@ func sessionEnv(g *Global) []string {
 		"SOCKPORT": g.SockPort,
 		"PEERPORT": g.PeerPort,
 	}
+	unlock := g.lockSession()
 	for name, value := range g.SessionVars {
 		values[name] = value
 	}
+	unlock()
 
 	names := sortedKeys(values)
 	tlsNames := sortedKeys(g.TLSVars)

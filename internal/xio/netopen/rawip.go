@@ -388,7 +388,8 @@ func openIPRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, pc 
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	n, oob, raddr, err := recvRawIPFiltered(ctx, pc, buf, wantCtrl, stripV4, s.BoolOption("null-eof"), peerFilter, g)
+	recvErr := xio.NeedRecvErr(s)
+	n, oob, raddr, err := recvRawIPFiltered(ctx, pc, buf, wantCtrl, recvErr, stripV4, s.BoolOption("null-eof"), peerFilter, g)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -403,6 +404,7 @@ func openIPRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, pc 
 		firstPending: true,
 		closeEOF:     true,
 		wantCtrl:     wantCtrl,
+		recvErr:      recvErr,
 		v4:           stripV4,
 		g:            g,
 	})
@@ -414,13 +416,14 @@ func openIPRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, pc 
 	return &xio.Opened{Stream: st, Label: s.Type}, nil
 }
 
-func recvRawIPFiltered(ctx context.Context, pc *net.IPConn, buf []byte, wantCtrl, stripV4, nullEOF bool, filter *xio.PeerFilter, g *xio.Global) (int, []byte, net.Addr, error) {
+func recvRawIPFiltered(ctx context.Context, pc *net.IPConn, buf []byte, wantCtrl, recvErr, stripV4, nullEOF bool, filter *xio.PeerFilter, g *xio.Global) (int, []byte, net.Addr, error) {
 	var oobBuffer [xio.AncillaryBufferSize]byte
 	for {
 		rn, oob, a, err := xio.RecvOneCtx(ctx, func() (int, []byte, net.Addr, error) {
 			return readIPKernel(pc, buf, wantCtrl, oobBuffer[:])
 		})
 		if err != nil {
+			xio.DrainRecvErrOnError(err, recvErr, pc, g)
 			return 0, nil, nil, err
 		}
 		if ferr := filter.AllowAddr(a, pc.LocalAddr()); ferr != nil {
@@ -635,9 +638,7 @@ func (r *rawIPDatagramConn) Read(p []byte) (int, error) {
 	for {
 		n, oob, addr, err := readIPKernel(r.c, p, r.wantCtrl, ancillaryBuffer(&r.oob, r.wantCtrl))
 		if err != nil {
-			if r.recvErr {
-				xio.DrainRecvErrFromConn(r.c, r.g)
-			}
+			xio.DrainRecvErrOnError(err, r.recvErr, r.c, r.g)
 			return n, err
 		}
 		if err := r.filter.AllowAddr(addr, r.c.LocalAddr()); err != nil {
@@ -659,9 +660,7 @@ func (r *rawIPDatagramConn) Read(p []byte) (int, error) {
 
 func (r *rawIPDatagramConn) Write(p []byte) (int, error) {
 	n, err := r.c.WriteToIP(p, r.raddr)
-	if err != nil && r.recvErr {
-		xio.DrainRecvErrFromConn(r.c, r.g)
-	}
+	xio.DrainRecvErrOnError(err, r.recvErr, r.c, r.g)
 	return n, err
 }
 
@@ -698,9 +697,7 @@ func (r *rawIPConn) Read(p []byte) (int, error) {
 	if r.wantCtrl {
 		n, oob, _, err := readIPKernel(r.IPConn, p, true, ancillaryBuffer(&r.oob, true))
 		if err != nil {
-			if r.recvErr {
-				xio.DrainRecvErrFromConn(r.IPConn, r.g)
-			}
+			xio.DrainRecvErrOnError(err, r.recvErr, r.IPConn, r.g)
 			return n, err
 		}
 		kernelN := n
@@ -712,9 +709,7 @@ func (r *rawIPConn) Read(p []byte) (int, error) {
 	}
 	n, err := r.IPConn.Read(p)
 	if err != nil {
-		if r.recvErr {
-			xio.DrainRecvErrFromConn(r.IPConn, r.g)
-		}
+		xio.DrainRecvErrOnError(err, r.recvErr, r.IPConn, r.g)
 		return n, err
 	}
 	kernelN := n
@@ -726,9 +721,7 @@ func (r *rawIPConn) Read(p []byte) (int, error) {
 
 func (r *rawIPConn) Write(p []byte) (int, error) {
 	n, err := r.IPConn.Write(p)
-	if err != nil && r.recvErr {
-		xio.DrainRecvErrFromConn(r.IPConn, r.g)
-	}
+	xio.DrainRecvErrOnError(err, r.recvErr, r.IPConn, r.g)
 	return n, err
 }
 
@@ -742,6 +735,7 @@ type rawIPRecvFrom struct {
 	firstPending bool
 	closeEOF     bool
 	wantCtrl     bool
+	recvErr      bool
 	v4           bool
 	g            *xio.Global
 	oob          []byte
@@ -760,6 +754,7 @@ func (r *rawIPRecvFrom) Read(p []byte) (int, error) {
 	for {
 		n, oob, addr, err := readIPKernel(r.c, p, r.wantCtrl, ancillaryBuffer(&r.oob, r.wantCtrl))
 		if err != nil {
+			xio.DrainRecvErrOnError(err, r.recvErr, r.c, r.g)
 			return n, err
 		}
 		if r.peer != nil {
@@ -782,7 +777,9 @@ func (r *rawIPRecvFrom) Write(p []byte) (int, error) {
 	if r.peer == nil {
 		return 0, net.ErrClosed
 	}
-	return r.c.WriteToIP(p, r.peer)
+	n, err := r.c.WriteToIP(p, r.peer)
+	xio.DrainRecvErrOnError(err, r.recvErr, r.c, r.g)
+	return n, err
 }
 
 func (r *rawIPRecvFrom) Close() error         { return r.c.Close() }
@@ -821,9 +818,7 @@ func (r *rawIPFilteredRecv) Read(p []byte) (int, error) {
 	for {
 		n, oob, addr, err := readIPKernel(r.c, p, r.wantCtrl, ancillaryBuffer(&r.oob, r.wantCtrl))
 		if err != nil {
-			if r.recvErr {
-				xio.DrainRecvErrFromConn(r.c, r.g)
-			}
+			xio.DrainRecvErrOnError(err, r.recvErr, r.c, r.g)
 			return n, err
 		}
 		if err := r.filter.AllowAddr(addr, r.c.LocalAddr()); err != nil {
@@ -941,6 +936,7 @@ func (l *rawIPForkListener) Accept() (net.Conn, error) {
 			if l.rcvTimeout > 0 && xio.IsTimeoutErr(err) {
 				continue
 			}
+			xio.DrainRecvErrOnError(err, xio.NeedRecvErr(l.spec), l.pc, l.g)
 			return nil, err
 		}
 		if err := l.filter.AllowAddr(a, l.pc.LocalAddr()); err != nil {
@@ -968,8 +964,10 @@ func (l *rawIPForkListener) Accept() (net.Conn, error) {
 			peer:         peer,
 			first:        append([]byte(nil), buf[:rn]...),
 			firstPending: true,
-			env:          session.SessionVars,
+			env:          session.SessionVarsSnapshot(),
 			writeMu:      &l.writeMu,
+			recvErr:      xio.NeedRecvErr(l.spec),
+			g:            session,
 		}, nil
 	}
 }
@@ -985,9 +983,16 @@ type rawIPSessionConn struct {
 	writeMu       *sync.Mutex
 	deadlineMu    sync.Mutex
 	writeDeadline time.Time
+	recvErr       bool
+	g             *xio.Global
 }
 
-func (r *rawIPSessionConn) SessionEnvironment() map[string]string { return r.env }
+func (r *rawIPSessionConn) SessionEnvironment() map[string]string {
+	if r.g != nil {
+		return r.g.SessionVarsSnapshot()
+	}
+	return r.env
+}
 
 func (r *rawIPSessionConn) Read(p []byte) (int, error) {
 	if r.firstPending {
@@ -1006,9 +1011,11 @@ func (r *rawIPSessionConn) Write(p []byte) (int, error) {
 	r.deadlineMu.Lock()
 	deadline := r.writeDeadline
 	r.deadlineMu.Unlock()
-	return writeSharedPacket(r.writeMu, deadline, r.pc.SetWriteDeadline, func() (int, error) {
+	n, err := writeSharedPacket(r.writeMu, deadline, r.pc.SetWriteDeadline, func() (int, error) {
 		return r.pc.WriteToIP(p, r.peer)
 	})
+	xio.DrainRecvErrOnError(err, r.recvErr, r.pc, r.g)
+	return n, err
 }
 
 func (r *rawIPSessionConn) Close() error { return nil }

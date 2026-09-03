@@ -22,3 +22,5 @@ func applyRecvErrSockopt(_ int, o parse.Option) error {
 func DrainRecvErrFromConn(syscall.Conn, *Global) {}
 
 func drainRecvErrFromConn(syscall.Conn, *Global) {}
+
+func DrainRecvErrOnError(error, bool, syscall.Conn, *Global) {}
