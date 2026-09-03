@@ -304,6 +304,7 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 	if cmd.Process != nil {
 		unregisterChildSignals(cmd.Process.Pid)
 	}
+	forgetExecContextCancel(cmd)
 	code, ok := childWaitExitCode(waitErr)
 	if !ok {
 		return waitErr
@@ -961,6 +962,7 @@ func startWithChildUmask(s parse.Spec, cmd *exec.Cmd, g *Global) error {
 	if err := validateExecParentSignals(s); err != nil {
 		return err
 	}
+	armExecContextCancel(cmd)
 	// Mark ALL FDs ≥3 CLOEXEC (including the socketpair/pipe/PTY ends passed
 	// as Stdin/Stdout). Go's fork/exec dup2's them to 0/1/2 first, then closes
 	// CLOEXEC descriptors, so the high-numbered originals are not leaked.
@@ -970,9 +972,11 @@ func startWithChildUmask(s parse.Spec, cmd *exec.Cmd, g *Global) error {
 		startErr = cmd.Start()
 		return nil
 	}); err != nil {
+		forgetExecContextCancel(cmd)
 		return err
 	}
 	if startErr != nil {
+		forgetExecContextCancel(cmd)
 		return startErr
 	}
 	if err := registerExecParentSignals(s, cmd, g); err != nil {
@@ -988,12 +992,59 @@ func startWithChildUmask(s parse.Spec, cmd *exec.Cmd, g *Global) error {
 // LISTEN,fork child can reuse the number and receive a stale kill.
 func killWaitUnregisterChild(cmd *exec.Cmd) {
 	if cmd == nil || cmd.Process == nil {
+		forgetExecContextCancel(cmd)
 		return
 	}
 	pid := cmd.Process.Pid
 	_ = cmd.Process.Kill()
 	_, _ = cmd.Process.Wait()
 	unregisterChildSignals(pid)
+	forgetExecContextCancel(cmd)
+}
+
+// execContextCancel disarms CommandContext's kill after end-close cleanup.
+// cli.Run defers cancel(); without this, that cancel SIGKILLs children that
+// end-close already chose to keep. Startup and in-flight cancel still kill.
+type execContextCancel struct {
+	mu       sync.Mutex
+	released bool
+}
+
+var execContextCancels sync.Map // *exec.Cmd -> *execContextCancel
+
+func armExecContextCancel(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Cancel == nil {
+		return
+	}
+	ctl := &execContextCancel{}
+	prev := cmd.Cancel
+	cmd.Cancel = func() error {
+		ctl.mu.Lock()
+		defer ctl.mu.Unlock()
+		if ctl.released {
+			return os.ErrProcessDone
+		}
+		return prev()
+	}
+	execContextCancels.Store(cmd, ctl)
+}
+
+func releaseExecContextCancel(cmd *exec.Cmd) {
+	if cmd == nil {
+		return
+	}
+	if v, ok := execContextCancels.Load(cmd); ok {
+		ctl := v.(*execContextCancel)
+		ctl.mu.Lock()
+		ctl.released = true
+		ctl.mu.Unlock()
+	}
+}
+
+func forgetExecContextCancel(cmd *exec.Cmd) {
+	if cmd != nil {
+		execContextCancels.Delete(cmd)
+	}
 }
 
 func setCloexecAllFrom(from int) {
@@ -1349,6 +1400,7 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 	go func() {
 		err := cmd.Wait()
 		unregisterChildSignals(pid)
+		forgetExecContextCancel(cmd)
 		mu.Lock()
 		waitErr = err
 		if err == nil {
@@ -1381,6 +1433,8 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 	}
 	o.AddCleanup(func() {
 		if endClose {
+			// Keep Wait reaping, but do not let later ctx cancel SIGKILL.
+			releaseExecContextCancel(cmd)
 			select {
 			case <-done:
 			default:

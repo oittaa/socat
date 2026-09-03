@@ -78,6 +78,11 @@ func forceKill(pid int) {
 
 func openExecCleanup(t *testing.T, specText string, mode Mode, linger time.Duration) *Opened {
 	t.Helper()
+	return openExecCleanupCtx(t, context.Background(), specText, mode, linger)
+}
+
+func openExecCleanupCtx(t *testing.T, ctx context.Context, specText string, mode Mode, linger time.Duration) *Opened {
+	t.Helper()
 	if !FeatureEXEC {
 		t.Skip("EXEC not enabled")
 	}
@@ -85,7 +90,7 @@ func openExecCleanup(t *testing.T, specText string, mode Mode, linger time.Durat
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := OpenSpec(context.Background(), spec, mode, &Global{Log: logx.New(), Linger: linger})
+	o, err := OpenSpec(ctx, spec, mode, &Global{Log: logx.New(), Linger: linger})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,6 +232,53 @@ func TestFinishExecEndCloseZeroKillsChild(t *testing.T) {
 	}
 	if processAlive(pid) {
 		t.Fatal("end-close=0 should kill like a normal EXEC close")
+	}
+}
+
+func TestFinishExecEndCloseSurvivesContextCancel(t *testing.T) {
+	script, pidPath := writeHoldScript(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	o := openExecCleanupCtx(t, ctx, execHoldSpec(script, "end-close,shut-none"), ModeRDWR, 20*time.Millisecond)
+	pid := waitPIDFile(t, pidPath)
+	t.Cleanup(func() {
+		_ = o.Close()
+		forceKill(pid)
+	})
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if !processAlive(pid) {
+			t.Fatal("context cancel after end-close cleanup killed the child")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestFinishExecEndCloseCancelBeforeCloseKillsChild(t *testing.T) {
+	script, pidPath := writeHoldScript(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	o := openExecCleanupCtx(t, ctx, execHoldSpec(script, "end-close"), ModeRDWR, 20*time.Millisecond)
+	pid := waitPIDFile(t, pidPath)
+	t.Cleanup(func() {
+		cancel()
+		_ = o.Close()
+		forceKill(pid)
+	})
+	cancel()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && processAlive(pid) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if processAlive(pid) {
+		t.Fatal("cancel during EXEC execution must still kill the child")
+	}
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
