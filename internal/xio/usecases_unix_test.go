@@ -4,6 +4,7 @@ package xio_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -148,6 +149,35 @@ func TestUDPListenForkEXECDistinctOutputs(t *testing.T) {
 	}
 	waitFile(portA, "from-a")
 	waitFile(portB, "from-b")
+}
+
+func TestIP4RecvEndCloseIdleTimeoutCancels(t *testing.T) {
+	if os.Geteuid() != 0 {
+		if os.Getenv("SOCAT_REQUIRE_RAWIP") != "" {
+			t.Fatal("raw IP requires root; SOCAT_REQUIRE_RAWIP forbids skip")
+		}
+		t.Skip("raw IP requires root")
+	}
+	g := cloneGlobal(nil)
+	g.LeftToRight = true
+	g.RightToLeft = false
+	g.Idle = 100 * time.Millisecond
+
+	done := make(chan error, 1)
+	go func() {
+		done <- xio.Run(context.Background(),
+			mustParse(t, "IP4-RECV:251,bind=127.0.0.1,end-close"),
+			mustParse(t, "OPEN:/dev/null"),
+			g)
+	}()
+	select {
+	case err := <-done:
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("IP4-RECV,end-close idle timeout hung; SetReadDeadline was not forwarded")
+	}
 }
 
 // IP4-RECVFROM buffers the first datagram while opening, same as UDP-LISTEN

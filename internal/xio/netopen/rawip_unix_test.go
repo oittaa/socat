@@ -10,6 +10,7 @@ import (
 	"net"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
@@ -162,5 +163,8 @@ func TestIP4RecvHidesSyscallConn(t *testing.T) {
 	}
 	if _, ok := any(recv).(interface{ NetConn() net.Conn }); !ok {
 		t.Fatal("IP4-RECV must expose NetConn for option lifecycle")
+	}
+	if _, ok := any(recv).(interface{ SetReadDeadline(time.Time) error }); !ok {
+		t.Fatal("IP4-RECV must forward SetReadDeadline so end-close cancellation can unblock Read")
 	}
 }
