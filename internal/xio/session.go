@@ -58,16 +58,15 @@ func (g *Global) lockSession() func() {
 
 func (g *Global) loadOrStoreSessionMu() *sync.Mutex {
 	for {
-		mu := (*sync.Mutex)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&g.sessionMu))))
+		mu := (*sync.Mutex)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&g.sessionMu)))) // #nosec G103 -- atomic load of *sync.Mutex so Global stays copyable
 		if mu != nil {
 			return mu
 		}
 		created := new(sync.Mutex)
-		// #nosec G103 -- CAS publishes a heap mutex; Global stays copyable.
 		if atomic.CompareAndSwapPointer(
-			(*unsafe.Pointer)(unsafe.Pointer(&g.sessionMu)),
+			(*unsafe.Pointer)(unsafe.Pointer(&g.sessionMu)), // #nosec G103 -- CAS publishes a heap mutex; Global stays copyable
 			nil,
-			unsafe.Pointer(created),
+			unsafe.Pointer(created), // #nosec G103 -- store the heap mutex pointer
 		) {
 			return created
 		}
