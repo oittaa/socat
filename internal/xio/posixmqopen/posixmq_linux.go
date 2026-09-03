@@ -189,7 +189,7 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	if fork && kind == mqSend {
 		dial := func(dctx context.Context) (net.Conn, error) {
 			if !nonblock {
-				if e := waitMQ(dctx, fd, unix.POLLOUT, time.Time{}); e != nil {
+				if e := waitMQ(dctx, fd, unix.POLLOUT, time.Time{}, nil); e != nil {
 					return nil, e
 				}
 			}
@@ -258,14 +258,14 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	}
 	if oneshot {
 		if !nonblock {
-			if e := waitMQ(ctx, fd, unix.POLLIN, time.Time{}); e != nil {
+			if e := waitMQ(ctx, fd, unix.POLLIN, time.Time{}, nil); e != nil {
 				cleanup()
 				return nil, e
 			}
 		}
 		buf := make([]byte, msgsize)
 		var receivedPrio uint32
-		n, e := receiveMQ(ctx, fd, buf, &receivedPrio, nonblock, time.Time{})
+		n, e := receiveMQ(ctx, fd, buf, &receivedPrio, nonblock, time.Time{}, nil)
 		if e != nil {
 			cleanup()
 			return nil, e
@@ -324,14 +324,23 @@ func flushQueue(name string) error {
 	}
 }
 
-func waitMQ(ctx context.Context, fd int, events int16, deadline time.Time) error {
+// live, when set, is sampled each poll so Close and SetDeadline abort in-flight I/O.
+func waitMQ(ctx context.Context, fd int, events int16, deadline time.Time, live func() (closed bool, dl time.Time)) error {
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		dl := deadline
+		if live != nil {
+			closed, cur := live()
+			if closed {
+				return net.ErrClosed
+			}
+			dl = cur
+		}
 		timeout := int(mqWaitInterval / time.Millisecond)
-		if !deadline.IsZero() {
-			rem := time.Until(deadline)
+		if !dl.IsZero() {
+			rem := time.Until(dl)
 			if rem <= 0 {
 				return os.ErrDeadlineExceeded
 			}
@@ -392,37 +401,67 @@ func retryMQTimedError(err error, deadline time.Time) (bool, error) {
 	}
 }
 
-func receiveMQ(ctx context.Context, fd int, buf []byte, prio *uint32, nonblock bool, deadline time.Time) (int, error) {
+func receiveMQ(ctx context.Context, fd int, buf []byte, prio *uint32, nonblock bool, deadline time.Time, live func() (closed bool, dl time.Time)) (int, error) {
 	if nonblock {
 		return mqTimedReceive(fd, buf, prio, time.Time{})
 	}
 	for {
-		if err := waitMQ(ctx, fd, unix.POLLIN, deadline); err != nil {
+		dl := deadline
+		if live != nil {
+			closed, cur := live()
+			if closed {
+				return 0, net.ErrClosed
+			}
+			dl = cur
+		}
+		if err := waitMQ(ctx, fd, unix.POLLIN, dl, live); err != nil {
 			return 0, err
 		}
-		n, err := mqTimedReceive(fd, buf, prio, boundedMQDeadline(deadline))
+		if live != nil {
+			closed, cur := live()
+			if closed {
+				return 0, net.ErrClosed
+			}
+			dl = cur
+		}
+		n, err := mqTimedReceive(fd, buf, prio, boundedMQDeadline(dl))
 		if err == nil {
 			return n, nil
 		}
-		if retry, result := retryMQTimedError(err, deadline); !retry {
+		if retry, result := retryMQTimedError(err, dl); !retry {
 			return 0, result
 		}
 	}
 }
 
-func sendMQ(ctx context.Context, fd int, msg []byte, prio uint32, nonblock bool, deadline time.Time) error {
+func sendMQ(ctx context.Context, fd int, msg []byte, prio uint32, nonblock bool, deadline time.Time, live func() (closed bool, dl time.Time)) error {
 	if nonblock {
 		return mqTimedSend(fd, msg, prio, time.Time{})
 	}
 	for {
-		if err := waitMQ(ctx, fd, unix.POLLOUT, deadline); err != nil {
+		dl := deadline
+		if live != nil {
+			closed, cur := live()
+			if closed {
+				return net.ErrClosed
+			}
+			dl = cur
+		}
+		if err := waitMQ(ctx, fd, unix.POLLOUT, dl, live); err != nil {
 			return err
 		}
-		err := mqTimedSend(fd, msg, prio, boundedMQDeadline(deadline))
+		if live != nil {
+			closed, cur := live()
+			if closed {
+				return net.ErrClosed
+			}
+			dl = cur
+		}
+		err := mqTimedSend(fd, msg, prio, boundedMQDeadline(dl))
 		if err == nil {
 			return nil
 		}
-		if retry, result := retryMQTimedError(err, deadline); !retry {
+		if retry, result := retryMQTimedError(err, dl); !retry {
 			return result
 		}
 	}
@@ -482,7 +521,7 @@ func (s *mqStream) Read(p []byte) (int, error) {
 	s.mu.Unlock()
 
 	var prio uint32
-	n, err := receiveMQ(context.Background(), s.fd, buf, &prio, nonblock, deadline)
+	n, err := receiveMQ(context.Background(), s.fd, buf, &prio, nonblock, deadline, s.liveDeadline(true))
 	if err != nil {
 		return 0, err
 	}
@@ -511,10 +550,21 @@ func (s *mqStream) Write(p []byte) (int, error) {
 	prio := s.prio
 	nonblock := s.nonblock
 	s.mu.Unlock()
-	if err := sendMQ(context.Background(), s.fd, p, prio, nonblock, deadline); err != nil {
+	if err := sendMQ(context.Background(), s.fd, p, prio, nonblock, deadline, s.liveDeadline(false)); err != nil {
 		return 0, err
 	}
 	return len(p), nil
+}
+
+func (s *mqStream) liveDeadline(read bool) func() (closed bool, dl time.Time) {
+	return func() (bool, time.Time) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if read {
+			return s.closed, s.rdeadline
+		}
+		return s.closed, s.wdeadline
+	}
 }
 
 func (s *mqStream) Close() error {
@@ -596,7 +646,7 @@ func (l *mqListener) Accept() (net.Conn, error) {
 	l.mu.Unlock()
 	buf := make([]byte, l.msgsize)
 	var receivedPrio uint32
-	n, err := receiveMQ(l.ctx, l.fd, buf, &receivedPrio, false, time.Time{})
+	n, err := receiveMQ(l.ctx, l.fd, buf, &receivedPrio, false, time.Time{}, nil)
 	if err != nil {
 		return nil, err
 	}

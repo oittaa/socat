@@ -627,3 +627,142 @@ func TestPOSIXMQRecvEmptyOneshotIsEOF(t *testing.T) {
 		t.Fatalf("oneshot empty got %q want EOF with no payload", b)
 	}
 }
+
+func testMQStream(t *testing.T, maxmsg int) (*mqStream, string) {
+	t.Helper()
+	q := testQueue(t)
+	attr := mqAttr{Maxmsg: maxmsg, Msgsize: 16}
+	fd, err := mqOpen(q, unix.O_RDWR|unix.O_CREAT|unix.O_EXCL, 0o600, &attr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &mqStream{fd: fd, name: q, msgsize: 16}
+	t.Cleanup(func() { _ = s.Close() })
+	return s, q
+}
+
+func mqWake(name string) {
+	fd, err := mqOpen(name, unix.O_WRONLY, 0, nil)
+	if err != nil {
+		return
+	}
+	_ = mqTimedSend(fd, []byte("wake"), 0, time.Now().Add(100*time.Millisecond))
+	_ = mqClose(fd)
+}
+
+func TestMQStreamCloseUnblocksRead(t *testing.T) {
+	s, q := testMQStream(t, 1)
+	errc := make(chan error, 1)
+	go func() {
+		_, err := s.Read(make([]byte, 16))
+		errc <- err
+	}()
+	time.Sleep(30 * time.Millisecond)
+	start := time.Now()
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errc:
+		if elapsed := time.Since(start); elapsed > time.Second {
+			t.Fatalf("Close unblocked Read after %v err=%v", elapsed, err)
+		}
+		if err == nil {
+			t.Fatal("blocked Read succeeded after Close")
+		}
+	case <-time.After(2 * time.Second):
+		mqWake(q)
+		<-errc
+		t.Fatal("Close did not unblock Read")
+	}
+}
+
+func TestMQStreamSetReadDeadlineUnblocksInFlightRead(t *testing.T) {
+	s, q := testMQStream(t, 1)
+	errc := make(chan error, 1)
+	go func() {
+		_, err := s.Read(make([]byte, 16))
+		errc <- err
+	}()
+	time.Sleep(30 * time.Millisecond)
+	start := time.Now()
+	if err := s.SetReadDeadline(time.Now().Add(50 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errc:
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("in-flight Read err=%v want deadline exceeded", err)
+		}
+		if elapsed := time.Since(start); elapsed > 300*time.Millisecond {
+			t.Fatalf("SetReadDeadline took %v (deadline snapshot?)", elapsed)
+		}
+	case <-time.After(2 * time.Second):
+		mqWake(q)
+		<-errc
+		t.Fatal("SetReadDeadline did not unblock in-flight Read")
+	}
+}
+
+func TestMQStreamSetWriteDeadlineUnblocksInFlightWrite(t *testing.T) {
+	s, _ := testMQStream(t, 1)
+	if _, err := s.Write([]byte("full")); err != nil {
+		t.Fatal(err)
+	}
+	errc := make(chan error, 1)
+	go func() {
+		_, err := s.Write([]byte("blocked"))
+		errc <- err
+	}()
+	time.Sleep(30 * time.Millisecond)
+	start := time.Now()
+	if err := s.SetWriteDeadline(time.Now().Add(50 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errc:
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("in-flight Write err=%v want deadline exceeded", err)
+		}
+		if elapsed := time.Since(start); elapsed > 300*time.Millisecond {
+			t.Fatalf("SetWriteDeadline took %v (deadline snapshot?)", elapsed)
+		}
+	case <-time.After(2 * time.Second):
+		// Drain one message so the blocked send can complete.
+		buf := make([]byte, 16)
+		_, _ = mqTimedReceive(s.fd, buf, nil, time.Now().Add(100*time.Millisecond))
+		<-errc
+		t.Fatal("SetWriteDeadline did not unblock in-flight Write")
+	}
+}
+
+func TestMQStreamNoCloseUnblocksRead(t *testing.T) {
+	s, q := testMQStream(t, 1)
+	s.noClose = true
+	errc := make(chan error, 1)
+	go func() {
+		_, err := s.Read(make([]byte, 16))
+		errc <- err
+	}()
+	time.Sleep(30 * time.Millisecond)
+	start := time.Now()
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errc:
+		if elapsed := time.Since(start); elapsed > time.Second {
+			t.Fatalf("noClose Close unblocked Read after %v err=%v", elapsed, err)
+		}
+		if !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("noClose in-flight Read err=%v want closed", err)
+		}
+	case <-time.After(2 * time.Second):
+		mqWake(q)
+		<-errc
+		t.Fatal("noClose Close did not unblock Read")
+	}
+	if err := mqGetattr(s.fd, &mqAttr{}); err != nil {
+		t.Fatalf("noClose Close closed the fd: %v", err)
+	}
+}
