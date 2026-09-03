@@ -11,6 +11,11 @@ import (
 
 const fionreadReq = 0x4004667f // FIONREAD
 
+func fionread(fd int) (int, error) {
+	n, err := unix.IoctlGetInt(fd, fionreadReq)
+	return int(int32(n)), err // #nosec G115 -- kernel returns signed 32-bit int
+}
+
 func getDumpTermios(fd int) (dumpTermios, error) {
 	t, err := unix.IoctlGetTermios(fd, unix.TIOCGETA)
 	if err != nil {
@@ -42,13 +47,5 @@ func FDPath(fd int) string {
 }
 
 func statDev(st *unix.Stat_t) (uint64, uint64) {
-	dev := uint64(0)
-	if st.Dev >= 0 {
-		dev = uint64(st.Dev)
-	}
-	rdev := uint64(0)
-	if st.Rdev >= 0 {
-		rdev = uint64(st.Rdev)
-	}
-	return dev, rdev
+	return uint64(uint32(st.Dev)), uint64(uint32(st.Rdev)) // #nosec G115 -- Darwin dev_t is int32 containing 32-bit device bits; preserve bit representation
 }

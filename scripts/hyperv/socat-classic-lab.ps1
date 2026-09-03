@@ -517,10 +517,10 @@ function Invoke-LabCheck {
         $remoteCreated = $true
 
         $checkCommand = if ($ClassicParity) {
-            "bash -lc `"cd '$remoteDirectory' && SOCAT_CLASSIC_PARITY_WORKDIR='$ClassicParityWorkdir' make classic-parity`""
+            "bash -lc \`"cd '$remoteDirectory' && SOCAT_CLASSIC_PARITY_WORKDIR='$ClassicParityWorkdir' make classic-parity\`""
         }
         else {
-            "bash -lc `"cd '$remoteDirectory' && bash scripts/hyperv/guest-check.sh`""
+            "bash -lc \`"cd '$remoteDirectory' && bash scripts/hyperv/guest-check.sh\`""
         }
         Invoke-Native ssh.exe @sshArguments $target $checkCommand
         $timer.Stop()

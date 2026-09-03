@@ -14,6 +14,11 @@ const (
 	libcNCCS    = 32
 )
 
+func fionread(fd int) (int, error) {
+	n, err := unix.IoctlGetUint32(fd, fionreadReq)
+	return int(int32(n)), err // #nosec G115 -- kernel returns signed 32-bit int
+}
+
 func getDumpTermios(fd int) (dumpTermios, error) {
 	t, err := unix.IoctlGetTermios(fd, unix.TCGETS)
 	if err != nil {

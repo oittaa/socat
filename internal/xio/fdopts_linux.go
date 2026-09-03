@@ -77,11 +77,5 @@ func applyFSIoctlMask(fd int, mask int, enable bool) error {
 		return err
 	}
 	val = applyFSFlagMask(val, mask, enable)
-	return ioctlSetLong(fd, unix.FS_IOC_SETFLAGS, val)
-}
-
-// ioctlSetLong issues ioctl(2) with a pointer to Go int, matching kernel
-// _IOW('f', 2, long) (8-byte long/int on amd64).
-func ioctlSetLong(fd int, req uint, val int) error {
-	return unix.IoctlSetPointerInt(fd, req, val)
+	return unix.IoctlSetPointerInt(fd, unix.FS_IOC_SETFLAGS, val)
 }

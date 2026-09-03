@@ -115,10 +115,6 @@ func nativeUint32(b []byte) uint32 {
 	return binary.NativeEndian.Uint32(b[:4])
 }
 
-func fionread(fd int) (int, error) {
-	return unix.IoctlGetInt(fd, fionreadReq)
-}
-
 // SockAddrString formats a kernel sockaddr for short (-s/-S) output.
 func SockAddrString(sa unix.Sockaddr) string {
 	switch a := sa.(type) {
