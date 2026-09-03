@@ -43,8 +43,6 @@ func TestIdleClockSharesOneSleeperAndBroadcasts(t *testing.T) {
 
 	first.close()
 	second.close()
-	stopped := make(chan struct{})
-	clock.stopped = stopped
 	select {
 	case <-entered:
 	case <-time.After(time.Second):
@@ -52,13 +50,18 @@ func TestIdleClockSharesOneSleeperAndBroadcasts(t *testing.T) {
 	}
 	release <- struct{}{}
 
-	select {
-	case <-stopped:
-	case <-time.After(time.Second):
+	deadline := time.Now().Add(time.Second)
+	for {
 		clock.mu.Lock()
 		running, users := clock.running, clock.users
 		clock.mu.Unlock()
-		t.Fatalf("idle clock did not stop: running=%v users=%d", running, users)
+		if !running && users == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("idle clock did not stop: running=%v users=%d", running, users)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
