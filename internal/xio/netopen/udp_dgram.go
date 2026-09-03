@@ -506,6 +506,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		g:        g,
 		ctx:      ctx,
 		wantCtrl: xio.NeedAncillary(s),
+		recvErr:  xio.NeedRecvErr(s),
 	})
 	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
@@ -526,6 +527,7 @@ type udpFilteredRecv struct {
 	g        *xio.Global
 	ctx      context.Context
 	wantCtrl bool
+	recvErr  bool
 	oob      []byte
 }
 
@@ -533,6 +535,9 @@ func (u *udpFilteredRecv) Read(p []byte) (int, error) {
 	for {
 		n, oob, addr, err := xio.ReadUDPMsgWithBuffer(u.conn, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
 		if err != nil {
+			if u.recvErr {
+				xio.DrainRecvErrFromConn(u.conn, u.g)
+			}
 			return n, err
 		}
 		if err := u.filter.AllowAddr(addr, u.conn.LocalAddr()); err != nil {

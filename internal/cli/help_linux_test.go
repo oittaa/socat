@@ -78,6 +78,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 		"shut-down",
 		"lockfile", "waitlock",
 		"cloexec",
+		"ip-recverr", "recverr", "iprecverr",
 		"unix-tightsocklen", "tightsocklen",
 		"ai-addrconfig", "addrconfig", "ai-passive", "passive", "ai-v4mapped", "v4mapped", "ai-all",
 		"res-nsaddr", "dns", "nameserver", "nsaddr", "res-usevc", "usevc",
@@ -89,7 +90,7 @@ func TestLinuxHelpListsSocketBufferAndBindToDevice(t *testing.T) {
 	if strings.Contains(help, "    dsusp ") || strings.Contains(help, "    vdsusp ") {
 		t.Error("HP-UX dsusp/vdsusp must not be advertised")
 	}
-	for _, name := range []string{"ip-recverr", "recverr", "iprecverr", "ipv6-recverr", "ipv6-multicast-hops",
+	for _, name := range []string{"ipv6-recverr", "ipv6-multicast-hops",
 		"ip-recvdstaddr", "ip-recvif", "recvdstaddr", "iprecvdstaddr", "recvif",
 		"nopush", "noopt", "tcp-nopush", "tcp-noopt",
 		"so-sndlowat", "sndlowat",

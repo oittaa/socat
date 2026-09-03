@@ -145,21 +145,21 @@ func TestNonLinuxRejectsFreebindAndTransparent(t *testing.T) {
 	}
 }
 
-func TestRecvErrRejectedAtOpenSpecAndDialControl(t *testing.T) {
-	spec, err := parse.ParseSpec("UDP4:127.0.0.1:9,ip-recverr")
+func TestIPv6RecvErrRejectedAtOpenSpecAndDialControl(t *testing.T) {
+	spec, err := parse.ParseSpec("UDP6:[::1]:9,ipv6-recverr")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := RejectUnsupportedRecvErr(spec); err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("RejectUnsupportedRecvErr=%v", err)
 	}
-	d := &net.Dialer{Control: DialControl(spec, "udp4", nil)}
-	c, err := d.Dial("udp4", "127.0.0.1:9")
+	d := &net.Dialer{Control: DialControl(spec, "udp6", nil)}
+	c, err := d.Dial("udp6", "[::1]:9")
 	if c != nil {
 		_ = c.Close()
 	}
 	if err == nil || !strings.Contains(err.Error(), "MSG_ERRQUEUE") {
-		t.Fatalf("DialControl recverr=%v want MSG_ERRQUEUE rejection", err)
+		t.Fatalf("DialControl ipv6-recverr=%v want MSG_ERRQUEUE rejection", err)
 	}
 }
 

@@ -38,7 +38,6 @@
     "substuser-early": "process-wide credentials; requires isolation",
     "udp-ignore-peerport": "documented but never implemented by the C binary",
     "iff-dynamic": "documented IFF_DYNAMIC; not registered as a public option",
-    "ip-recverr": "no MSG_ERRQUEUE receive path",
     "ipv6-recverr": "no MSG_ERRQUEUE receive path",
     "cool-write": "deprecated; use children-shutup",
     "so-bsdcompat": "Linux SO_BSDCOMPAT is a kernel no-op; not advertised",

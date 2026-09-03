@@ -84,12 +84,6 @@ func buildSupportedAddressOptions() map[string]addressOption {
 		}
 		options[name] = option
 	}
-	for _, name := range []string{"ip-recverr", "recverr", "iprecverr"} {
-		if _, ok := options[name]; ok {
-			continue
-		}
-		options[name] = addressOption{optionCaps: capIP4IP6}
-	}
 	if _, ok := options["ipv6-recverr"]; !ok {
 		options["ipv6-recverr"] = addressOption{optionCaps: capIP6}
 	}
