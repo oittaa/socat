@@ -819,9 +819,20 @@ func (r *rawIPFilteredRecv) Close() error              { return r.c.Close() }
 func (r *rawIPFilteredRecv) ShutdownWrite() error      { return nil }
 func (r *rawIPFilteredRecv) LocalAddr() net.Addr       { return r.c.LocalAddr() }
 func (r *rawIPFilteredRecv) RemoteAddr() net.Addr      { return nil }
-func (r *rawIPFilteredRecv) SyscallConn() (syscall.RawConn, error) {
-	return r.c.SyscallConn()
+func (r *rawIPFilteredRecv) SetDeadline(t time.Time) error {
+	return r.c.SetDeadline(t)
 }
+func (r *rawIPFilteredRecv) SetReadDeadline(t time.Time) error {
+	return r.c.SetReadDeadline(t)
+}
+func (r *rawIPFilteredRecv) SetWriteDeadline(t time.Time) error {
+	return r.c.SetWriteDeadline(t)
+}
+
+// NetConn exposes the socket for option lifecycle. Do not implement
+// SyscallConn: the relay would poll this SOCK_RAW fd before Read, and Darwin
+// never reached ReadMsg on that path (direct ReadMsgIP and RECVFROM did).
+func (r *rawIPFilteredRecv) NetConn() net.Conn { return r.c }
 
 func cloneIPAddr(a *net.IPAddr) *net.IPAddr {
 	if a == nil {

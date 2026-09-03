@@ -10,6 +10,7 @@ import (
 	"net"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
@@ -151,5 +152,19 @@ func TestAfterRawIPRecv(t *testing.T) {
 	n, err = afterRawIPRecv(0, 0, sentinel, 16)
 	if n != 0 || !errors.Is(err, sentinel) {
 		t.Fatalf("error n=%d err=%v", n, err)
+	}
+}
+
+func TestIP4RecvHidesSyscallConn(t *testing.T) {
+	t.Parallel()
+	recv := &rawIPFilteredRecv{}
+	if _, ok := any(recv).(syscall.Conn); ok {
+		t.Fatal("IP4-RECV must not implement syscall.Conn; relay poll then waits on the SOCK_RAW fd instead of ReadMsg")
+	}
+	if _, ok := any(recv).(interface{ NetConn() net.Conn }); !ok {
+		t.Fatal("IP4-RECV must expose NetConn for option lifecycle")
+	}
+	if _, ok := any(recv).(interface{ SetReadDeadline(time.Time) error }); !ok {
+		t.Fatal("IP4-RECV must forward SetReadDeadline so end-close cancellation can unblock Read")
 	}
 }
