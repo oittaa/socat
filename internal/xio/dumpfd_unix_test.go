@@ -145,13 +145,24 @@ func TestDumpFDsOncePerForkSession(t *testing.T) {
 	timer := time.NewTimer(2 * time.Second)
 	defer timer.Stop()
 	for {
-		if strings.Count(dump.String(), "  FD  type") >= 2 {
+		count := strings.Count(dump.String(), "  FD  type")
+		if count == 2 {
+			select {
+			case <-dump.notify:
+				if n := strings.Count(dump.String(), "  FD  type"); n != 2 {
+					t.Fatalf("want exactly two dumps, got %d: %q", n, dump.String())
+				}
+			case <-time.After(50 * time.Millisecond):
+			}
 			return
+		}
+		if count > 2 {
+			t.Fatalf("want exactly two dumps, got %d: %q", count, dump.String())
 		}
 		select {
 		case <-dump.notify:
 		case <-timer.C:
-			t.Fatalf("want two dumps, got %q", dump.String())
+			t.Fatalf("want two dumps, got %d: %q", count, dump.String())
 		}
 	}
 }

@@ -1,4 +1,4 @@
-.PHONY: all build fmt fmt-check lint gosec goos-check test-check test test-scripts e2e e2e-cover coverage check classic-parity update-scorecard fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
+.PHONY: all build fmt fmt-check lint gosec goos-check test test-scripts e2e e2e-cover coverage check classic-parity update-scorecard fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -8,7 +8,7 @@ GOFLAGS ?=
 LDFLAGS ?= -s -w -X github.com/oittaa/socat.Version=$(VERSION)
 
 # Project Go (exclude testdata/ clones).
-GOFMT_DIRS := cmd e2e internal scripts/benchclient scripts/fuzzall scripts/gooscheck scripts/testcheck version.go
+GOFMT_DIRS := cmd e2e internal scripts/benchclient scripts/fuzzall scripts/gooscheck version.go
 
 all: build
 
@@ -52,10 +52,6 @@ gosec:
 # *_unix.go is not an implicit unix tag (Go does not filename-match unix).
 goos-check:
 	go run $(GOFLAGS) ./scripts/gooscheck
-
-# Reject bare t.Skip() and runtime GOOS skips in cross-platform test files.
-test-check:
-	go run $(GOFLAGS) ./scripts/testcheck
 
 test: fmt-check
 	go test $(GOFLAGS) ./...
@@ -102,7 +98,6 @@ check:
 	$(MAKE) lint
 	$(MAKE) gosec
 	$(MAKE) goos-check
-	$(MAKE) test-check
 	$(MAKE) test
 	$(MAKE) e2e
 

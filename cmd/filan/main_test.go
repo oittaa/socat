@@ -147,10 +147,11 @@ func TestRunSimpleRangeNumbersFDs(t *testing.T) {
 	}
 	line := strings.TrimSpace(stdout.String())
 	fields := strings.Fields(line)
-	if len(fields) > 0 {
-		if _, err := strconv.Atoi(fields[0]); err == nil {
-			t.Fatalf("-s -i0 single-fd should not have leading fd number, got: %q", line)
-		}
+	if len(fields) == 0 {
+		t.Fatalf("-s -i0 must produce output, got empty")
+	}
+	if _, err := strconv.Atoi(fields[0]); err == nil {
+		t.Fatalf("-s -i0 single-fd should not have leading fd number, got: %q", line)
 	}
 }
 

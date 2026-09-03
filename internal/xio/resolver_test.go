@@ -660,13 +660,27 @@ func TestLookupResolverWrapsCustomDialOnce(t *testing.T) {
 			}
 			t.Cleanup(func() { _ = c.Close() })
 			if tc.packet {
-				if _, ok := c.(net.PacketConn); !ok {
-					t.Fatalf("type %T want net.PacketConn for UDP DNS", c)
+				pc, ok := c.(*cancelPacketConn)
+				if !ok {
+					t.Fatalf("type %T want *cancelPacketConn", c)
+				}
+				if _, ok := pc.Conn.(*cancelConn); ok {
+					t.Fatal("wrapped more than once")
+				}
+				if _, ok := pc.Conn.(*cancelPacketConn); ok {
+					t.Fatal("wrapped more than once")
 				}
 				return
 			}
+			cc, ok := c.(*cancelConn)
+			if !ok {
+				t.Fatalf("type %T want *cancelConn", c)
+			}
+			if _, ok := cc.Conn.(*cancelConn); ok {
+				t.Fatal("wrapped more than once")
+			}
 			if _, ok := c.(net.PacketConn); ok {
-				t.Fatalf("TCP DNS conn %T must not be PacketConn", c)
+				t.Fatalf("TCP DNS conn %T is PacketConn", c)
 			}
 		})
 	}

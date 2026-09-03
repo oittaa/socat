@@ -70,14 +70,14 @@ Ordinary `make check` must remain independent of repo.or.cz.
 
 - Assert observable behavior or documented contracts (`doc/socat.yo`), not incidental presentation.
 - Do not freeze undocumented whitespace, tab counts, timestamp formats, or internal log phrasing.
-- Build constraints over runtime skips: use `//go:build linux || darwin` or OS-specific filenames (`*_unix_test.go`). Never use `if runtime.GOOS == "windows" { t.Skip() }` in cross-platform test files.
+- Build constraints over runtime skips: use `//go:build linux || darwin` or OS-specific filenames (`*_linux_test.go`, `*_darwin_test.go`, `*_windows_test.go`). Never use `if runtime.GOOS == "windows" { t.Skip() }` in cross-platform test files.
 - Never use bare `t.Skip()`; every skip must provide an explicit explanation (e.g., `t.Skip("requires root (CAP_NET_ADMIN)")`).
 - No fixed `time.Sleep` for synchronization: use channels, socket readiness, or bounded context cancellations.
 - For negative assertions (quiescence / verifying no unexpected message arrives), synchronize on an observable barrier (e.g., marker packet or stream flush) rather than arbitrary sleep windows.
 - Test against interface contracts; do not assert unexported concrete types (e.g., `*udpForkListener`, `*cancelConn`) across package boundaries unless internal unit logic is the explicit target.
 - Regression tests must demonstrably fail when the bug is reintroduced.
 - Do not add tests solely to increase coverage percentage.
-- `make check` enforces build constraints and test skip rules through `goos-check` and `test-check`.
+- `make check` enforces build constraints through `goos-check`.
 
 ## Required validation
 

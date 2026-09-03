@@ -19,20 +19,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestWriteHeaderTabSeparatedColumns(t *testing.T) {
-	var b outbuf.Buf
-	var buf bytes.Buffer
-	WriteHeader(&b, Options{})
-	if err := b.Flush(&buf); err != nil {
-		t.Fatal(err)
-	}
-	header := strings.TrimSuffix(buf.String(), "\n")
-	var cols []string
-	for _, c := range strings.Split(header, "\t") {
-		if c != "" {
-			cols = append(cols, c)
-		}
-	}
+func TestWriteHeaderColumns(t *testing.T) {
 	want := []string{
 		"  FD  type", "device", "inode", "mode", "links", "uid", "gid", "rdev",
 		"size", "blksize", "blocks", "atime", "mtime", "ctime", "cloexec", "flags", "sigown",
@@ -40,34 +27,23 @@ func TestWriteHeaderTabSeparatedColumns(t *testing.T) {
 	if runtime.GOOS == "linux" {
 		want = append(want, "sigio")
 	}
-	if !reflect.DeepEqual(cols, want) {
-		t.Fatalf("header cols=%q want %q", cols, want)
-	}
-}
-
-func TestWriteHeaderRawTimeTabs(t *testing.T) {
-	var b outbuf.Buf
-	var buf bytes.Buffer
-	WriteHeader(&b, Options{Raw: true})
-	if err := b.Flush(&buf); err != nil {
-		t.Fatal(err)
-	}
-	header := strings.TrimSuffix(buf.String(), "\n")
-	var cols []string
-	for _, c := range strings.Split(header, "\t") {
-		if c != "" {
-			cols = append(cols, c)
+	for _, raw := range []bool{false, true} {
+		var b outbuf.Buf
+		var buf bytes.Buffer
+		WriteHeader(&b, Options{Raw: raw})
+		if err := b.Flush(&buf); err != nil {
+			t.Fatal(err)
 		}
-	}
-	want := []string{
-		"  FD  type", "device", "inode", "mode", "links", "uid", "gid", "rdev",
-		"size", "blksize", "blocks", "atime", "mtime", "ctime", "cloexec", "flags", "sigown",
-	}
-	if runtime.GOOS == "linux" {
-		want = append(want, "sigio")
-	}
-	if !reflect.DeepEqual(cols, want) {
-		t.Fatalf("raw header cols=%q want %q", cols, want)
+		header := strings.TrimSuffix(buf.String(), "\n")
+		var cols []string
+		for _, c := range strings.Split(header, "\t") {
+			if c != "" {
+				cols = append(cols, c)
+			}
+		}
+		if !reflect.DeepEqual(cols, want) {
+			t.Fatalf("raw=%v header cols=%q want %q", raw, cols, want)
+		}
 	}
 }
 

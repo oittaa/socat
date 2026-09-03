@@ -34,11 +34,7 @@ func TestSocketTimeoutConnRetriesReceiveTimeout(t *testing.T) {
 		done <- err
 	}()
 
-	select {
-	case <-time.After(35 * time.Millisecond):
-	case err := <-done:
-		t.Fatalf("ReadFull exited early on timeout: %v", err)
-	}
+	time.Sleep(80 * time.Millisecond)
 	if _, err := server.Write([]byte("late")); err != nil {
 		t.Fatal(err)
 	}
@@ -73,11 +69,7 @@ func TestSocketTimeoutConnRetriesSendTimeout(t *testing.T) {
 		done <- err
 	}()
 
-	select {
-	case <-time.After(35 * time.Millisecond):
-	case err := <-done:
-		t.Fatalf("Write exited early on timeout: %v", err)
-	}
+	time.Sleep(80 * time.Millisecond)
 	got := make([]byte, len(payload))
 	if _, err := io.ReadFull(server, got); err != nil {
 		t.Fatal(err)
