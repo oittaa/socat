@@ -18,7 +18,11 @@ defaults:
 
 jobs:
   build-386:
-    name: build (windows-386)
+    name: build (${{ matrix.goos }}-386)
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, windows]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -28,7 +32,7 @@ jobs:
           cache: true
       - name: Cross-compile
         env:
-          GOOS: windows
+          GOOS: ${{ matrix.goos }}
           GOARCH: '386'
           CGO_ENABLED: '0'
         run: go build ./...
