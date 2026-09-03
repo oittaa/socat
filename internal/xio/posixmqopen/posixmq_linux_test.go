@@ -637,6 +637,10 @@ func testMQStream(t *testing.T, maxmsg int) (*mqStream, string) {
 		t.Fatal(err)
 	}
 	s := &mqStream{fd: fd, name: q, msgsize: 16}
+	if err := s.attachNotify(); err != nil {
+		_ = mqClose(fd)
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = s.Close() })
 	return s, q
 }
