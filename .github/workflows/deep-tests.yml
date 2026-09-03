@@ -56,11 +56,9 @@ jobs:
       - name: Build relay binaries
         shell: bash
         run: |
-          suffix=
-          if [[ "$RUNNER_OS" == "Windows" ]]; then suffix=.exe; fi
-          go build -o "socat${suffix}" ./cmd/socat
-          go build -o "filan${suffix}" ./cmd/filan
-          go build -o "procan${suffix}" ./cmd/procan
+          go build ./cmd/socat
+          go build ./cmd/filan
+          go build ./cmd/procan
       - name: Run live relay matrix
         shell: bash
         run: go test -tags=e2e,relaymatrix -run '^TestRelayMatrix' ./e2e/ -count=1 -timeout=10m

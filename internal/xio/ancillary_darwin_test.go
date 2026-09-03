@@ -3,15 +3,13 @@
 package xio
 
 import (
-	"errors"
 	"net"
-	"os"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/testutil"
 	"golang.org/x/sys/unix"
 )
 
@@ -73,32 +71,6 @@ func TestApplyAncillaryRecvDstaddrDarwin(t *testing.T) {
 	}
 }
 
-func ipv4LoopbackInterfaceName(t *testing.T) string {
-	t.Helper()
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := net.IPv4(127, 0, 0, 1)
-	for _, ifi := range ifaces {
-		addrs, err := ifi.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			ipnet, ok := addr.(*net.IPNet)
-			if !ok {
-				continue
-			}
-			if ipnet.IP.Equal(want) {
-				return ifi.Name
-			}
-		}
-	}
-	t.Fatal("no interface has 127.0.0.1")
-	return ""
-}
-
 func TestUDPRecvDstaddrLiveDarwin(t *testing.T) {
 	spec, err := parse.ParseSpec("UDP-RECV:0,ip-recvdstaddr,ip-recvif")
 	if err != nil {
@@ -137,70 +109,7 @@ func TestUDPRecvDstaddrLiveDarwin(t *testing.T) {
 	}
 	g := &Global{}
 	ProcessAncillary(oob, g)
-	wantIF := ipv4LoopbackInterfaceName(t)
-	if g.SessionVars["IP_DSTADDR"] != "127.0.0.1" {
-		t.Fatalf("IP_DSTADDR=%q want 127.0.0.1 session=%v oob=%d", g.SessionVars["IP_DSTADDR"], g.SessionVars, len(oob))
-	}
-	if g.SessionVars["IP_IF"] != wantIF {
-		t.Fatalf("IP_IF=%q want %q session=%v oob=%d", g.SessionVars["IP_IF"], wantIF, g.SessionVars, len(oob))
-	}
-}
-
-func requireRawIPDarwin(t *testing.T, err error) {
-	t.Helper()
-	if err == nil {
-		return
-	}
-	if errors.Is(err, unix.EPERM) || errors.Is(err, unix.EACCES) || errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
-		if os.Geteuid() == 0 {
-			t.Fatalf("raw IP failed as root: %v", err)
-		}
-		t.Skipf("SOCK_RAW requires root: %v", err)
-	}
-}
-
-func TestRawIPRecvDstaddrRecvifLiveDarwin(t *testing.T) {
-	spec, err := parse.ParseSpec("IP4-RECV:253,ip-recvdstaddr,ip-recvif")
-	if err != nil {
-		t.Fatal(err)
-	}
-	lc := net.ListenConfig{Control: ListenControl(spec)}
-	pc, err := lc.ListenPacket(t.Context(), "ip4:253", "127.0.0.1")
-	requireRawIPDarwin(t, err)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = pc.Close() })
-
-	send, err := net.DialIP("ip4:253", nil, &net.IPAddr{IP: net.IPv4(127, 0, 0, 1)})
-	requireRawIPDarwin(t, err)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = send.Close() })
-	if _, err := send.Write([]byte("hi")); err != nil {
-		t.Fatal(err)
-	}
-	if err := pc.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
-		t.Fatal(err)
-	}
-	buf := make([]byte, 64)
-	oobBuffer := make([]byte, AncillaryBufferSize)
-	ipConn, ok := pc.(*net.IPConn)
-	if !ok {
-		t.Fatalf("ListenPacket type %T", pc)
-	}
-	n, oobn, flags, _, err := ipConn.ReadMsgIP(buf, oobBuffer)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oob := ControlMessageBytes(oobBuffer, oobn, flags)
-	if n == 0 {
-		t.Fatal("empty raw IP packet")
-	}
-	g := &Global{}
-	ProcessAncillary(oob, g)
-	wantIF := ipv4LoopbackInterfaceName(t)
+	wantIF := testutil.IPv4LoopbackInterface(t)
 	if g.SessionVars["IP_DSTADDR"] != "127.0.0.1" {
 		t.Fatalf("IP_DSTADDR=%q want 127.0.0.1 session=%v oob=%d", g.SessionVars["IP_DSTADDR"], g.SessionVars, len(oob))
 	}

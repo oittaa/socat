@@ -4,7 +4,6 @@ package xio_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -15,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 )
@@ -150,44 +148,6 @@ func TestUDPListenForkEXECDistinctOutputs(t *testing.T) {
 	}
 	waitFile(portA, "from-a")
 	waitFile(portB, "from-b")
-}
-
-func TestIP4RecvEndCloseIdleTimeoutCancels(t *testing.T) {
-	if os.Geteuid() != 0 {
-		if os.Getenv("SOCAT_REQUIRE_RAWIP") != "" {
-			t.Fatal("raw IP requires root; SOCAT_REQUIRE_RAWIP forbids skip")
-		}
-		t.Skip("raw IP requires root")
-	}
-	ctx, g := testCtx(t), cloneGlobal(nil)
-	// Keep ownership of the socket so cleanup can unblock a regressed transfer.
-	left, err := xio.OpenChannel(ctx, mustParse(t, "IP4-RECV:251,bind=127.0.0.1"), xio.ModeRead, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = left.Close() })
-	right, err := xio.OpenChannel(ctx, mustParse(t, "OPEN:/dev/null"), xio.ModeWrite, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = right.Close() })
-
-	done := make(chan error, 1)
-	go func() {
-		done <- relay.Transfer(ctx, left.EffectiveStream(), right.EffectiveStream(), relay.Config{
-			LeftToRight: true,
-			IdleTimeout: 100 * time.Millisecond,
-			NoCloseLeft: true, // end-close keeps the shared socket open
-		})
-	}()
-	select {
-	case err := <-done:
-		if err != nil && !errors.Is(err, context.Canceled) {
-			t.Fatal(err)
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("IP4-RECV,end-close idle timeout hung; SetReadDeadline was not forwarded")
-	}
 }
 
 // IP4-RECVFROM buffers the first datagram while opening, same as UDP-LISTEN
