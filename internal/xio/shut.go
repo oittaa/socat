@@ -136,8 +136,7 @@ func wrapShutPolicy(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	}
 }
 
-// ShutNoneSelected reports that shut-none (or shut=none) is selected, for
-// EXEC child cleanup.
+// ShutNoneSelected reports that shut-none (or shut=none) is selected.
 func ShutNoneSelected(s parse.Spec) bool {
 	p, err := selectedShutPolicy(s)
 	return err == nil && p == shutNone

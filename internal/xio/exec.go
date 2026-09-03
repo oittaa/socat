@@ -1367,9 +1367,9 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 	if g != nil && g.Linger > 0 {
 		linger = g.Linger
 	}
-	// shut-none: do not kill the child; wait for natural exit (with a cap).
-	// Derived from the same ordered shut-* selector as WrapCommon.
-	shutNone := ShutNoneSelected(s)
+	// shut-none is write-side shutdown only (WrapCommon). Final cleanup still
+	// kills the child unless end-close selected END_CLOSE (no kill).
+	endClose := s.BoolOption("end-close")
 
 	o := &Opened{
 		Stream:    st,
@@ -1380,45 +1380,34 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 		o.AddCleanup(f)
 	}
 	o.AddCleanup(func() {
-		// Give write-only children (od -c) time to flush after stdin EOF.
-		waitFor := linger
-		if waitChild {
-			// Write-only EXEC/SHELL: wait at most one second (holds
-			// max-children slots until the child finishes).
-			waitFor = time.Second
-		}
-		if execUsesPTY(s) {
-			// Extra second so SYSTEM,pty scripts can finish after transfer
-			// linger, before the PTY master closes.
-			waitFor = linger + time.Second
-		}
-		if shutNone {
-			waitFor = 5 * time.Second
-		}
-		killed := false
-		t := time.NewTimer(waitFor)
-		select {
-		case <-done:
-			t.Stop()
-		case <-t.C:
-			if !shutNone {
-				killed = true
-				_ = cmd.Process.Kill()
+		if endClose {
+			select {
+			case <-done:
+			default:
+				return
 			}
-			<-done
+		} else {
+			waitFor := linger
+			if waitChild {
+				waitFor = time.Second
+			}
+			if execUsesPTY(s) {
+				waitFor = linger + time.Second
+			}
+			t := time.NewTimer(waitFor)
+			select {
+			case <-done:
+				t.Stop()
+			case <-t.C:
+				_ = cmd.Process.Kill()
+				<-done
+			}
 		}
-		// Promote only natural non-zero exits (false/exit 1), not kills/SIGHUP
-		// from closing a PTY master (those yield 255/signal and must not fail echo tests).
 		mu.Lock()
 		code := exitCode
 		werr := waitErr
 		mu.Unlock()
-		if killed {
-			return
-		}
 		if code != 0 && g != nil {
-			// Signal deaths: Go reports -1; 128+n is the POSIX status.
-			// Not EXEC_RC failures (PTY master close often SIGHUPs cat).
 			if code < 0 || code >= 128 {
 				return
 			}
