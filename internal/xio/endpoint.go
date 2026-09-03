@@ -149,8 +149,10 @@ func (g *Global) forkSession() *Global {
 	if g == nil {
 		return &Global{statsPrinted: new(atomic.Bool), ForkChild: true}
 	}
-	vars := g.cloneSessionVars()
+	unlock := g.lockSession()
+	vars := cloneStringMap(g.SessionVars)
 	cg := *g
+	unlock()
 	cg.ForkChild = true
 	var zeroSessionMu atomic.Pointer[sync.Mutex]
 	cg.sessionMu = zeroSessionMu
