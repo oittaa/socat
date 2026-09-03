@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -400,8 +401,10 @@ func dupCLOEXEC(fd int) (int, error) {
 	return n, nil
 }
 
-// mqWaitEntered is an optional test hook fired just before each poll.
-var mqWaitEntered func()
+// mqWaitHook is an optional test hook fired just before each poll.
+type mqWaitHook func()
+
+var mqWaitEntered atomic.Pointer[mqWaitHook]
 
 func waitMQ(ctx context.Context, fd int, events int16, notifyFD int, live func() (closed bool, dl time.Time)) error {
 	for {
@@ -434,8 +437,8 @@ func waitMQ(ctx context.Context, fd int, events int16, notifyFD int, live func()
 		if fd < 0 || fd > math.MaxInt32 {
 			return unix.EBADF
 		}
-		if f := mqWaitEntered; f != nil {
-			f()
+		if h := mqWaitEntered.Load(); h != nil {
+			(*h)()
 		}
 		pfds := []unix.PollFd{{Fd: int32(fd), Events: events}}
 		notifyIdx := -1

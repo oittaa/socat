@@ -30,8 +30,9 @@ func armMQWait(t *testing.T) <-chan struct{} {
 	t.Helper()
 	entered := make(chan struct{})
 	var once sync.Once
-	mqWaitEntered = func() { once.Do(func() { close(entered) }) }
-	t.Cleanup(func() { mqWaitEntered = nil })
+	hook := mqWaitHook(func() { once.Do(func() { close(entered) }) })
+	mqWaitEntered.Store(&hook)
+	t.Cleanup(func() { mqWaitEntered.CompareAndSwap(&hook, nil) })
 	return entered
 }
 
