@@ -72,10 +72,11 @@ func applyOnePipeSize(fd int, o parse.Option) error {
 // then SETFLAGS. =0 clears only the requested bit. Privileged flags
 // (FS_APPEND_FL, FS_IMMUTABLE_FL, …) return the kernel error.
 func applyFSIoctlMask(fd int, mask int, enable bool) error {
-	val, err := unix.IoctlGetInt(fd, unix.FS_IOC_GETFLAGS)
+	bits, err := unix.IoctlGetUint32(fd, unix.FS_IOC_GETFLAGS)
 	if err != nil {
 		return err
 	}
+	val := int(int32(bits)) // #nosec G115 -- preserve the kernel's 32-bit flag word
 	val = applyFSFlagMask(val, mask, enable)
 	return unix.IoctlSetPointerInt(fd, unix.FS_IOC_SETFLAGS, val)
 }

@@ -85,17 +85,17 @@ func procan(w io.Writer) error {
 	if sid, err := unix.Getsid(0); err == nil {
 		b.Printf("process session id = %d\n", sid)
 	}
-	if pg, err := unix.IoctlGetInt(0, unix.TIOCGPGRP); err == nil {
+	if pg, err := foregroundProcessGroup(0); err == nil {
 		b.Printf("process group id if fg process / stdin = %d\n", pg)
 	} else {
 		b.Printf("process group id if fg process / stdin = -1\n")
 	}
-	if pg, err := unix.IoctlGetInt(1, unix.TIOCGPGRP); err == nil {
+	if pg, err := foregroundProcessGroup(1); err == nil {
 		b.Printf("process group id if fg process / stdout = %d\n", pg)
 	} else {
 		b.Printf("process group id if fg process / stdout = -1\n")
 	}
-	if pg, err := unix.IoctlGetInt(2, unix.TIOCGPGRP); err == nil {
+	if pg, err := foregroundProcessGroup(2); err == nil {
 		b.Printf("process group id if fg process / stderr = %d\n", pg)
 	} else {
 		b.Printf("process group id if fg process / stderr = -1\n")

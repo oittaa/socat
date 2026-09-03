@@ -82,9 +82,9 @@ func WriteStat(b *outbuf.Buf, dynfd, statfd int, st *unix.Stat_t, opts Options) 
 		st.Blksize,
 		st.Blocks,
 	)
-	printTime(b, st.Atim.Sec, opts.Raw)
-	printTime(b, st.Mtim.Sec, opts.Raw)
-	printTime(b, st.Ctim.Sec, opts.Raw)
+	printTime(b, int64(st.Atim.Sec), opts.Raw)
+	printTime(b, int64(st.Mtim.Sec), opts.Raw)
+	printTime(b, int64(st.Ctim.Sec), opts.Raw)
 }
 
 func classicDevPair(dev uint64) string {

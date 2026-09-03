@@ -31,11 +31,11 @@ func OpenPTYPair() (master, slave *os.File, err error) {
 	}
 
 	// Slave name /dev/pts/N
-	n, err := unix.IoctlGetInt(int(m.Fd()), unix.TIOCGPTN)
+	n, err := unix.IoctlGetUint32(int(m.Fd()), unix.TIOCGPTN)
 	if err != nil {
 		return nil, nil, err
 	}
-	sname := "/dev/pts/" + strconv.Itoa(n)
+	sname := "/dev/pts/" + strconv.FormatUint(uint64(n), 10)
 
 	s, err := os.OpenFile(sname, os.O_RDWR|syscall.O_NOCTTY, 0) // #nosec G304 -- slave path comes from TIOCGPTN, not from user input
 	if err != nil {
