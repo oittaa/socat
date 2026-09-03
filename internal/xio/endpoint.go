@@ -151,10 +151,11 @@ func (g *Global) forkSession() *Global {
 	}
 	unlock := g.lockSession()
 	vars := cloneStringMap(g.SessionVars)
-	cg := *g
+	// Copy field-by-field so sessionMu is never read except via atomic
+	// loadOrStore. A wide *g copy races with CAS publishing the mutex.
+	cg := cloneGlobalWithoutSessionMu(g)
 	unlock()
 	cg.ForkChild = true
-	cg.sessionMu = nil
 	if g.Log != nil {
 		cg.Log = g.Log.Clone()
 	}
@@ -165,6 +166,43 @@ func (g *Global) forkSession() *Global {
 		cg.statsPrinted = new(atomic.Bool)
 	}
 	return &cg
+}
+
+func cloneGlobalWithoutSessionMu(g *Global) Global {
+	return Global{
+		Log:           g.Log,
+		IPVersion:     g.IPVersion,
+		BlockSize:     g.BlockSize,
+		Linger:        g.Linger,
+		Idle:          g.Idle,
+		LeftToRight:   g.LeftToRight,
+		RightToLeft:   g.RightToLeft,
+		Verbose:       g.Verbose,
+		Hex:           g.Hex,
+		Dump:          g.Dump,
+		DumpFDs:       g.DumpFDs,
+		DumpFDOut:     g.DumpFDOut,
+		LogMixed:      g.LogMixed,
+		LogFacility:   g.LogFacility,
+		Statistics:    g.Statistics,
+		statsPrinted:  g.statsPrinted,
+		childSignals:  g.childSignals,
+		Experimental:  g.Experimental,
+		ForkChild:     g.ForkChild,
+		SockAddr:      g.SockAddr,
+		PeerAddr:      g.PeerAddr,
+		SockPort:      g.SockPort,
+		PeerPort:      g.PeerPort,
+		TLSVars:       g.TLSVars,
+		SessionVars:   g.SessionVars,
+		ChildExitCode: g.ChildExitCode,
+		ChildErr:      g.ChildErr,
+		RawLeftPath:   g.RawLeftPath,
+		RawRightPath:  g.RawRightPath,
+		Progname:      g.Progname,
+		RawLeft:       g.RawLeft,
+		RawRight:      g.RawRight,
+	}
 }
 
 func cloneStringMap(src map[string]string) map[string]string {

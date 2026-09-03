@@ -6,6 +6,7 @@ import (
 	"crypto/x509/pkix"
 	"net"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -153,6 +154,13 @@ func TestForkSessionSharesStatsFlag(t *testing.T) {
 	}
 	if !a.ForkChild || !b.ForkChild {
 		t.Fatal("forkSession must mark child Globals")
+	}
+}
+
+func TestGlobalForkCopyFieldCount(t *testing.T) {
+	const want = 33
+	if got := reflect.TypeOf(Global{}).NumField(); got != want {
+		t.Fatalf("Global fields=%d want %d; update cloneGlobalWithoutSessionMu", got, want)
 	}
 }
 
