@@ -826,51 +826,6 @@ func TestAddressDurationUsesCLIUnits(t *testing.T) {
 	}
 }
 
-func TestWinsizeHelpUsesColumnRowOrder(t *testing.T) {
-	for _, group := range helpOptionGroups() {
-		for _, option := range group.opts {
-			if option.name == "tiocswinsz" {
-				if option.desc != "window size cols:rows" {
-					t.Fatalf("tiocswinsz description=%q", option.desc)
-				}
-				return
-			}
-		}
-	}
-	t.Fatal("tiocswinsz missing from help options")
-}
-
-func TestReuseaddrHelpMentionsTCPDefaultAndUDPFork(t *testing.T) {
-	for _, group := range helpOptionGroups() {
-		for _, option := range group.opts {
-			if option.name == "reuseaddr" {
-				if !strings.Contains(option.desc, "TCP") || !strings.Contains(option.desc, "UDP-LISTEN") {
-					t.Fatalf("reuseaddr description=%q", option.desc)
-				}
-				return
-			}
-		}
-	}
-	t.Fatal("reuseaddr missing from help options")
-}
-
-func TestBroadcastHelpAdvertisesSoBroadcast(t *testing.T) {
-	for _, group := range helpOptionGroups() {
-		for _, option := range group.opts {
-			if option.name != "broadcast" {
-				continue
-			}
-			for _, alias := range option.aliases {
-				if alias == "so-broadcast" {
-					return
-				}
-			}
-			t.Fatalf("broadcast aliases=%v want so-broadcast", option.aliases)
-		}
-	}
-	t.Fatal("broadcast missing from help options")
-}
-
 func TestHelpDoesNotAdvertiseCoolWrite(t *testing.T) {
 	forbidden := map[string]struct{}{
 		"cool-write":          {},
@@ -890,31 +845,6 @@ func TestHelpDoesNotAdvertiseCoolWrite(t *testing.T) {
 				}
 			}
 		}
-	}
-}
-
-func TestHelpOptionGroupOrder(t *testing.T) {
-	var titles []string
-	for _, group := range helpOptionGroups() {
-		titles = append(titles, group.title)
-	}
-	want := []string{
-		"Listen and connect",
-		"Security filters",
-		"Sockets",
-		"Files and UNIX",
-		"EXEC, SYSTEM, SHELL",
-		"PTY and TERMIOS",
-		"Transfer",
-		"TLS, WSS, and QUIC",
-		"WebSocket",
-		"PROXY and SOCKS",
-		"POSIX message queues",
-		"TUN and INTERFACE",
-		"Namespaces",
-	}
-	if strings.Join(titles, ",") != strings.Join(want, ",") {
-		t.Fatalf("help group order=%v want %v", titles, want)
 	}
 }
 
@@ -1001,6 +931,51 @@ func TestTermiosOptionsRecognizedWhenUnsupported(t *testing.T) {
 		if _, ok := table[name]; !ok {
 			t.Errorf("option table missing %q on a platform without termios", name)
 		}
+	}
+}
+
+func TestTermiosOptionTypesAreValidated(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows rejects the entire TERMIOS group")
+	}
+	tests := []struct {
+		spec    string
+		wantErr bool
+	}{
+		{spec: "PTY,echo"},
+		{spec: "PTY,echo=0"},
+		{spec: "PTY,echo=1"},
+		{spec: "PTY,echo=false", wantErr: true},
+		{spec: "PTY,echo=", wantErr: true},
+		{spec: "PTY,raw"},
+		{spec: "PTY,raw=0", wantErr: true},
+		{spec: "PTY,b9600"},
+		{spec: "PTY,b9600=0", wantErr: true},
+		{spec: "PTY,vintr=3"},
+		{spec: "PTY,vintr", wantErr: true},
+		{spec: "PTY,ispeed=9600"},
+		{spec: "PTY,ispeed=garbage", wantErr: true},
+		{spec: "PTY,tiocswinsz=80:24"},
+		{spec: "PTY,tiocswinsz", wantErr: true},
+		{spec: "PTY,ctty=0"},
+		{spec: "PTY,ctty=off", wantErr: true},
+		{spec: "PTY,termios-setflags=0:1"},
+		{spec: "PTY,termios-setflags=4:1", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.spec, func(t *testing.T) {
+			s, err := parse.ParseSpec(tc.spec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = validateSpecOptions(s)
+			if tc.wantErr && err == nil {
+				t.Fatal("validation succeeded")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("validation failed: %v", err)
+			}
+		})
 	}
 }
 

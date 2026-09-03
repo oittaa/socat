@@ -2,6 +2,7 @@ package logx
 
 import (
 	"bytes"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -115,5 +116,15 @@ func TestCloseOwnedSyslogLeavesParentWriter(t *testing.T) {
 	defer parentRec.mu.Unlock()
 	if len(parentRec.msg) != 1 || parentRec.msg[0] != "E still-parent" {
 		t.Fatalf("parent syslog=%v", parentRec.msg)
+	}
+}
+
+func TestDialSyslogRejectedOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip()
+	}
+	_, err := DialSyslog("socat", "daemon")
+	if err == nil || !strings.Contains(err.Error(), "not implemented") {
+		t.Fatalf("err=%v", err)
 	}
 }
