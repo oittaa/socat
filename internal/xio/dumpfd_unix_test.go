@@ -36,22 +36,14 @@ func reportedDumpFDs(text string) []int {
 }
 
 type dumpBuf struct {
-	mu     sync.Mutex
-	b      bytes.Buffer
-	notify chan struct{}
+	mu sync.Mutex
+	b  bytes.Buffer
 }
 
 func (d *dumpBuf) Write(p []byte) (int, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	n, err := d.b.Write(p)
-	if d.notify != nil {
-		select {
-		case d.notify <- struct{}{}:
-		default:
-		}
-	}
-	return n, err
+	return d.b.Write(p)
 }
 
 func (d *dumpBuf) String() string {
@@ -121,7 +113,7 @@ func TestDumpFDsPrintsChannelDescriptorsInOrder(t *testing.T) {
 }
 
 func TestDumpFDsOncePerForkSession(t *testing.T) {
-	dump := dumpBuf{notify: make(chan struct{}, 10)}
+	var dump dumpBuf
 	log := logx.New()
 	log.SetOutput(&bytes.Buffer{})
 	g := &xio.Global{
@@ -142,28 +134,8 @@ func TestDumpFDsOncePerForkSession(t *testing.T) {
 		_ = readFull(t, c.Stream, 2)
 		_ = c.Close()
 	}
-	timer := time.NewTimer(2 * time.Second)
-	defer timer.Stop()
-	for {
-		count := strings.Count(dump.String(), "  FD  type")
-		if count == 2 {
-			select {
-			case <-dump.notify:
-				if n := strings.Count(dump.String(), "  FD  type"); n != 2 {
-					t.Fatalf("want exactly two dumps, got %d: %q", n, dump.String())
-				}
-			case <-time.After(50 * time.Millisecond):
-			}
-			return
-		}
-		if count > 2 {
-			t.Fatalf("want exactly two dumps, got %d: %q", count, dump.String())
-		}
-		select {
-		case <-dump.notify:
-		case <-timer.C:
-			t.Fatalf("want two dumps, got %d: %q", count, dump.String())
-		}
+	if got := strings.Count(dump.String(), "  FD  type"); got != 2 {
+		t.Fatalf("want exactly two dumps, got %d: %q", got, dump.String())
 	}
 }
 
