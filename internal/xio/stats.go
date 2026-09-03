@@ -5,7 +5,7 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-// PrintStats writes STATISTICS lines (forced to Info, plus the
+// PrintStats writes STATISTICS lines (forced to Info on a clone, plus the
 // experimental warning). Tests grep the substring STATISTICS.
 func PrintStats(log *logx.Logger, st relay.Stats, l2r, r2l bool, started bool) {
 	if log == nil {
@@ -19,19 +19,18 @@ func PrintStats(log *logx.Logger, st relay.Stats, l2r, r2l bool, started bool) {
 		l2r, r2l = true, true
 	}
 	log.Warningf("statistics are experimental")
-	old := log.Level()
-	if old < logx.Info {
-		log.SetLevel(logx.Info)
-		defer log.SetLevel(old)
+	statsLog := log.Clone()
+	if statsLog.Level() < logx.Info {
+		statsLog.SetLevel(logx.Info)
 	}
 	bw := statDigits(max(st.BlocksLR, st.BlocksRL))
 	dw := statDigits(max(st.BytesLR, st.BytesRL))
 	if l2r {
-		log.Infof("STATISTICS: left to right: %*d packets(s), %*d byte(s)",
+		statsLog.Infof("STATISTICS: left to right: %*d packets(s), %*d byte(s)",
 			bw, st.BlocksLR, dw, st.BytesLR)
 	}
 	if r2l {
-		log.Infof("STATISTICS: right to left: %*d packets(s), %*d byte(s)",
+		statsLog.Infof("STATISTICS: right to left: %*d packets(s), %*d byte(s)",
 			bw, st.BlocksRL, dw, st.BytesRL)
 	}
 }

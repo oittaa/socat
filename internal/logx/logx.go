@@ -52,6 +52,8 @@ func (l *Logger) WithShutup(n int) *Logger {
 	if l == nil {
 		return nil
 	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	child := *l
 	child.syslogOwned = false
 	if n > 0 {
@@ -66,6 +68,8 @@ func (l *Logger) Clone() *Logger {
 	if l == nil {
 		return nil
 	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	child := *l
 	child.syslogOwned = false
 	return &child
@@ -119,31 +123,83 @@ func (l *Logger) UsingSyslog() bool {
 }
 
 // SetOutput sets the log destination.
-func (l *Logger) SetOutput(w io.Writer) { l.out = w }
+func (l *Logger) SetOutput(w io.Writer) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	l.out = w
+	l.mu.Unlock()
+}
 
 // SetLevel sets the maximum severity that is printed.
-func (l *Logger) SetLevel(level Level) { l.level = level }
+func (l *Logger) SetLevel(level Level) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	l.level = level
+	l.mu.Unlock()
+}
 
 // Level returns the current maximum severity.
-func (l *Logger) Level() Level { return l.level }
+func (l *Logger) Level() Level {
+	if l == nil {
+		return Fatal
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.level
+}
 
 // SetProgname sets the program name used in messages (-lp).
-func (l *Logger) SetProgname(name string) { l.progname = name }
+func (l *Logger) SetProgname(name string) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	l.progname = name
+	l.mu.Unlock()
+}
 
 // SetMicros enables microsecond timestamps (-lu).
-func (l *Logger) SetMicros(v bool) { l.micros = v }
+func (l *Logger) SetMicros(v bool) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	l.micros = v
+	l.mu.Unlock()
+}
 
 // SetHostname prefixes messages with a hostname (-lh).
-func (l *Logger) SetHostname(h string) { l.hostname = h }
+func (l *Logger) SetHostname(h string) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	l.hostname = h
+	l.mu.Unlock()
+}
 
 // Increase bumps verbosity by one level (each -d).
 func (l *Logger) Increase() {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
 	if l.level < Debug {
 		l.level++
 	}
+	l.mu.Unlock()
 }
 
 func (l *Logger) logf(level Level, format string, args ...any) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	level += Level(l.shutup)
 	if level > Debug {
 		return
@@ -151,8 +207,6 @@ func (l *Logger) logf(level Level, format string, args ...any) {
 	if level > l.level {
 		return
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
 
 	if l.syslog != nil {
 		writeSyslog(l.syslog, level, fmt.Sprintf(format, args...))
