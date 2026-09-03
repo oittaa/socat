@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -58,7 +59,15 @@ func requireRootRawIP(t *testing.T) {
 
 func startDarwinAncillaryRecv(t *testing.T, args ...string) *testProcess {
 	t.Helper()
+	return startDarwinAncillaryRecvIO(t, nil, args...)
+}
+
+func startDarwinAncillaryRecvIO(t *testing.T, stdout io.Writer, args ...string) *testProcess {
+	t.Helper()
 	cmd := exec.Command(socatBin(t), args...)
+	if stdout != nil {
+		cmd.Stdout = stdout
+	}
 	proc, err := startTestProcess(cmd)
 	if err != nil {
 		t.Fatal(err)
@@ -72,7 +81,20 @@ func startDarwinAncillaryRecv(t *testing.T, args ...string) *testProcess {
 	return proc
 }
 
-func sendUntil(t *testing.T, timeout time.Duration, send func() error, ready func() bool, stderr func() string, done <-chan struct{}) {
+func processDiag(proc *testProcess, stdout *lockedBuffer) string {
+	err, exited := proc.status()
+	state := "running"
+	if exited {
+		state = fmt.Sprintf("exited err=%v", err)
+	}
+	out := ""
+	if stdout != nil {
+		out = fmt.Sprintf(" stdout=%q", stdout.String())
+	}
+	return state + out + " stderr=" + proc.stderr.String()
+}
+
+func sendUntil(t *testing.T, timeout time.Duration, send func() error, ready func() bool, diag func() string, done <-chan struct{}) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(20 * time.Millisecond)
@@ -89,10 +111,10 @@ func sendUntil(t *testing.T, timeout time.Duration, send func() error, ready fun
 			if ready() {
 				return
 			}
-			t.Fatalf("receiver exited before ancillary delivery; stderr=%s", stderr())
+			t.Fatalf("receiver exited before ancillary delivery; %s", diag())
 		case <-ticker.C:
 			if time.Now().After(deadline) {
-				t.Fatalf("timed out waiting for ancillary delivery; stderr=%s", stderr())
+				t.Fatalf("timed out waiting for ancillary delivery; %s", diag())
 			}
 			_ = send()
 		}
@@ -126,7 +148,7 @@ func TestDarwinIPRecvdstaddrRecvifUDP(t *testing.T) {
 		}
 		sendUntil(t, 3*time.Second, send, func() bool {
 			return darwinAncillaryLogged(proc.stderr.String(), wantIF)
-		}, proc.stderr.String, proc.done)
+		}, func() string { return processDiag(proc, nil) }, proc.done)
 	})
 	t.Run("env", func(t *testing.T) {
 		port := freeUDPPort(t)
@@ -168,8 +190,21 @@ func TestDarwinIPRecvdstaddrRecvifUDP(t *testing.T) {
 			}
 			got := strings.Split(strings.TrimSpace(string(b)), "\n")
 			return len(got) >= 2 && got[0] == "127.0.0.1" && got[1] == wantIF
-		}, proc.stderr.String, proc.done)
+		}, func() string { return processDiag(proc, nil) }, proc.done)
 	})
+}
+
+func sendRawIPUntil(t *testing.T, bin string, proto int) func() error {
+	t.Helper()
+	return func() error {
+		cmd := exec.Command(bin, "-u", "-", fmt.Sprintf("IP4-SENDTO:127.0.0.1:%d", proto))
+		cmd.Stdin = strings.NewReader("XYZ")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("send: %w: %s", err, out)
+		}
+		return nil
+	}
 }
 
 func TestDarwinIPRecvdstaddrRecvifRawIP(t *testing.T) {
@@ -177,25 +212,25 @@ func TestDarwinIPRecvdstaddrRecvifRawIP(t *testing.T) {
 	bin := socatBin(t)
 	wantIF := darwinIPv4LoopbackIF(t)
 	const proto = 253
-	t.Run("log", func(t *testing.T) {
-		// IP4-RECVFROM receives the first packet in the opener (same path as
-		// the env subtest). IP4-RECV waits in the transfer poll loop, which
-		// on Darwin raw sockets can miss POLLIN and never ReadMsg.
-		proc := startDarwinAncillaryRecv(t, "-d", "-d", "-d", "-u",
+	t.Run("log-recv", func(t *testing.T) {
+		var stdout lockedBuffer
+		proc := startDarwinAncillaryRecvIO(t, &stdout, "-d", "-d", "-d", "-u",
+			fmt.Sprintf("IP4-RECV:%d,ip-recvdstaddr,ip-recvif", proto),
+			"STDOUT")
+		sendUntil(t, 5*time.Second, sendRawIPUntil(t, bin, proto), func() bool {
+			return darwinAncillaryLogged(proc.stderr.String(), wantIF) &&
+				strings.Contains(stdout.String(), "XYZ")
+		}, func() string { return processDiag(proc, &stdout) }, proc.done)
+	})
+	t.Run("log-recvfrom", func(t *testing.T) {
+		var stdout lockedBuffer
+		proc := startDarwinAncillaryRecvIO(t, &stdout, "-d", "-d", "-d", "-u",
 			fmt.Sprintf("IP4-RECVFROM:%d,ip-recvdstaddr,ip-recvif", proto),
 			"STDOUT")
-		send := func() error {
-			cmd := exec.Command(bin, "-u", "-", fmt.Sprintf("IP4-SENDTO:127.0.0.1:%d", proto))
-			cmd.Stdin = strings.NewReader("XYZ")
-			out, err := cmd.CombinedOutput()
-			if err != nil {
-				return fmt.Errorf("send: %w: %s", err, out)
-			}
-			return nil
-		}
-		sendUntil(t, 5*time.Second, send, func() bool {
-			return darwinAncillaryLogged(proc.stderr.String(), wantIF)
-		}, proc.stderr.String, proc.done)
+		sendUntil(t, 5*time.Second, sendRawIPUntil(t, bin, proto), func() bool {
+			return darwinAncillaryLogged(proc.stderr.String(), wantIF) &&
+				strings.Contains(stdout.String(), "XYZ")
+		}, func() string { return processDiag(proc, &stdout) }, proc.done)
 	})
 	t.Run("env", func(t *testing.T) {
 		script := writeSOCATIPEnvScript(t)
@@ -219,22 +254,13 @@ func TestDarwinIPRecvdstaddrRecvifRawIP(t *testing.T) {
 			}
 			<-proc.done
 		})
-		send := func() error {
-			scmd := exec.Command(bin, "-u", "-", fmt.Sprintf("IP4-SENDTO:127.0.0.1:%d", proto))
-			scmd.Stdin = strings.NewReader("XYZ")
-			outb, err := scmd.CombinedOutput()
-			if err != nil {
-				return fmt.Errorf("send: %w: %s", err, outb)
-			}
-			return nil
-		}
-		sendUntil(t, 5*time.Second, send, func() bool {
+		sendUntil(t, 5*time.Second, sendRawIPUntil(t, bin, proto), func() bool {
 			b, err := os.ReadFile(outPath)
 			if err != nil {
 				return false
 			}
 			got := strings.Split(strings.TrimSpace(string(b)), "\n")
 			return len(got) >= 2 && got[0] == "127.0.0.1" && got[1] == wantIF
-		}, proc.stderr.String, proc.done)
+		}, func() string { return processDiag(proc, nil) }, proc.done)
 	})
 }

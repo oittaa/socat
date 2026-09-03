@@ -153,3 +153,14 @@ func TestAfterRawIPRecv(t *testing.T) {
 		t.Fatalf("error n=%d err=%v", n, err)
 	}
 }
+
+func TestIP4RecvHidesSyscallConn(t *testing.T) {
+	t.Parallel()
+	recv := &rawIPFilteredRecv{}
+	if _, ok := any(recv).(syscall.Conn); ok {
+		t.Fatal("IP4-RECV must not implement syscall.Conn; relay poll then waits on the SOCK_RAW fd instead of ReadMsg")
+	}
+	if _, ok := any(recv).(interface{ NetConn() net.Conn }); !ok {
+		t.Fatal("IP4-RECV must expose NetConn for option lifecycle")
+	}
+}
