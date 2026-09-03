@@ -27,8 +27,16 @@ func TestWaitPollReadPipeHangupIsEOF(t *testing.T) {
 		if err == errPollIdle {
 			continue
 		}
-		if err != io.EOF {
-			t.Fatalf("pipe hangup err=%v want EOF", err)
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			t.Fatalf("pipe hangup err=%v", err)
+		}
+		// Darwin reports POLLIN together with hangup; Read still returns EOF.
+		n, readErr := r.Read(make([]byte, 1))
+		if n != 0 || readErr != io.EOF {
+			t.Fatalf("pipe hangup read n=%d err=%v want EOF", n, readErr)
 		}
 		return
 	}
