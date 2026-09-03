@@ -3,7 +3,9 @@
 package e2e_test
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"net"
 	"os/exec"
 	"strings"
@@ -24,24 +26,24 @@ func runRecvErrClosedPort(t *testing.T, addressFmt string) (string, error) {
 	port := closed.LocalAddr().(*net.UDPAddr).Port
 	_ = closed.Close()
 
-	cmd := exec.Command(socatBin(t), "-d", "-d", "-d", "-t", "1",
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, socatBin(t), "-d", "-d", "-d", "-t", "1",
 		"STDIO",
 		fmt.Sprintf(addressFmt, port))
-	cmd.Stdin = strings.NewReader("hi\n")
-	done := make(chan struct{})
-	var out []byte
-	var runErr error
-	go func() {
-		out, runErr = cmd.CombinedOutput()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
-		}
-		<-done
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stdin.Close() }()
+	if _, err := io.WriteString(stdin, "hi\n"); err != nil {
+		t.Fatal(err)
+	}
+	// Keep stdin open across CombinedOutput so EOF cannot beat a connection
+	// refused error. CommandContext bounds the wait; Wait closes the pipe
+	// after the process exits.
+	out, runErr := cmd.CombinedOutput()
+	if ctx.Err() != nil {
 		t.Fatalf("socat timed out; output=%s", out)
 	}
 	return string(out), runErr
