@@ -66,14 +66,16 @@ jobs:
             exit 0
           fi
           if [ "${{ matrix.name }}" = "linux-amd64" ]; then
-            go test -race -coverpkg=./... -covermode=atomic -coverprofile=coverage.unit.raw ./...
+            # -count=1 disables the test-result cache so concurrency is
+            # exercised every run. setup-go still caches builds and modules.
+            go test -race -count=1 -coverpkg=./... -covermode=atomic -coverprofile=coverage.unit.raw ./...
             python3 -B scripts/merge-coverprofile.py coverage.unit.raw coverage.unit.out
             rm -f coverage.unit.raw
             go tool cover -func=coverage.unit.out | tee coverage.unit.txt
             go tool cover -html=coverage.unit.out -o coverage.unit.html
             ./scripts/coverage-summary.sh coverage.unit.out
           else
-            go test -race ./...
+            go test -race -count=1 ./...
           fi
       - name: Upload unit coverage
         if: matrix.name == 'linux-amd64' && !cancelled()
