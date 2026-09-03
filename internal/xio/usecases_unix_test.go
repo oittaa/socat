@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 )
@@ -158,17 +159,26 @@ func TestIP4RecvEndCloseIdleTimeoutCancels(t *testing.T) {
 		}
 		t.Skip("raw IP requires root")
 	}
-	g := cloneGlobal(nil)
-	g.LeftToRight = true
-	g.RightToLeft = false
-	g.Idle = 100 * time.Millisecond
+	ctx, g := testCtx(t), cloneGlobal(nil)
+	// Keep ownership of the socket so cleanup can unblock a regressed transfer.
+	left, err := xio.OpenChannel(ctx, mustParse(t, "IP4-RECV:251,bind=127.0.0.1"), xio.ModeRead, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = left.Close() })
+	right, err := xio.OpenChannel(ctx, mustParse(t, "OPEN:/dev/null"), xio.ModeWrite, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = right.Close() })
 
 	done := make(chan error, 1)
 	go func() {
-		done <- xio.Run(context.Background(),
-			mustParse(t, "IP4-RECV:251,bind=127.0.0.1,end-close"),
-			mustParse(t, "OPEN:/dev/null"),
-			g)
+		done <- relay.Transfer(ctx, left.EffectiveStream(), right.EffectiveStream(), relay.Config{
+			LeftToRight: true,
+			IdleTimeout: 100 * time.Millisecond,
+			NoCloseLeft: true, // end-close keeps the shared socket open
+		})
 	}()
 	select {
 	case err := <-done:

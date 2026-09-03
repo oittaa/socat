@@ -1,7 +1,7 @@
 # Unit tests (fail-fast, then race), e2e, lint, gosec, and govulncheck on master
 # and pull requests.
-# Classic test.sh is not run here: GitHub-hosted runners are sandboxed
-# (no root, no raw IP, no TUN, incomplete kernel features).
+# Classic test.sh runs in the lab image. These jobs use sudo only for focused
+# raw-IP tests; they do not reproduce the full privileged lab environment.
 name: ci
 
 on:
@@ -77,23 +77,26 @@ jobs:
           else
             go test -race -count=1 ./...
           fi
-      - name: Privileged Darwin raw-IP ancillary tests
+      - name: Privileged raw-IP tests
         shell: bash
         run: |
-          if [ "${{ matrix.name }}" != "macos" ]; then
-            echo "skip: Darwin raw-IP ancillary coverage is macOS-only"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            echo "skip: privileged raw-IP tests require Linux or macOS"
             exit 0
           fi
           log="$(mktemp)"
-          sudo go test -count=1 -v -run '^TestRawIPRecvDstaddrRecvifLiveDarwin$' ./internal/xio | tee "$log"
-          if ! grep -q '^=== RUN   TestRawIPRecvDstaddrRecvifLiveDarwin$' "$log"; then
-            echo 'required Darwin raw-IP unit test did not execute' >&2
-            exit 1
+          sudo env SOCAT_REQUIRE_RAWIP=1 "$(command -v go)" test -race -count=1 -v \
+            -run '^(TestIP4RecvEndCloseIdleTimeoutCancels|TestRawIPRecvDstaddrRecvifLiveDarwin)$' ./internal/xio | tee "$log"
+          required_tests="TestIP4RecvEndCloseIdleTimeoutCancels"
+          if [ "${{ matrix.name }}" = "macos" ]; then
+            required_tests="$required_tests TestRawIPRecvDstaddrRecvifLiveDarwin"
           fi
-          if grep -q '^--- SKIP: TestRawIPRecvDstaddrRecvifLiveDarwin' "$log"; then
-            echo 'required Darwin raw-IP unit test was skipped' >&2
-            exit 1
-          fi
+          for test in $required_tests; do
+            if ! grep -q "^--- PASS: $test " "$log"; then
+              echo "required raw-IP test did not pass: $test" >&2
+              exit 1
+            fi
+          done
       - name: Upload unit coverage
         if: matrix.name == 'linux-amd64' && !cancelled()
         uses: actions/upload-artifact@v7
