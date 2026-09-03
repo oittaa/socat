@@ -77,6 +77,7 @@ Ordinary `make check` must remain independent of repo.or.cz.
 - Test against interface contracts; do not assert unexported concrete types (e.g., `*udpForkListener`, `*cancelConn`) across package boundaries unless internal unit logic is the explicit target.
 - Regression tests must demonstrably fail when the bug is reintroduced.
 - Do not add tests solely to increase coverage percentage.
+- `make check` enforces build constraints and test skip rules through `goos-check` and `test-check`.
 
 ## Required validation
 

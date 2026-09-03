@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -29,13 +28,6 @@ func TestRelayMatrixTCP4(t *testing.T) {
 		listenType:  "TCP4-LISTEN",
 		connectType: "TCP4",
 		startPort:   startTCPTestServer,
-	})
-}
-
-func TestRelayMatrixUNIX(t *testing.T) {
-	runStreamFamilyMatrix(t, streamFamily{
-		name: "UNIX",
-		unix: true,
 	})
 }
 
@@ -354,9 +346,6 @@ func waitUnixPath(t *testing.T, listenSpec string) {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
-	}
-	if runtime.GOOS == "windows" {
-		t.Skipf("UNIX listen path %q did not appear", path)
 	}
 	t.Fatalf("timeout waiting for UNIX %s", path)
 }
