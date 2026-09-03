@@ -258,7 +258,7 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return nil, err
 	}
 	v4 := network == "ip4" || raddr.IP.To4() != nil
-	filter, err := xio.NewCompiledPeerFilter(ctx, s, g)
+	filter, err := xio.NewPeerFilter(ctx, s, g)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -319,7 +319,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("%s is read-only", s.Type)
 	}
-	filter, err := xio.NewCompiledPeerFilter(ctx, s, g)
+	filter, err := xio.NewPeerFilter(ctx, s, g)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -351,7 +351,7 @@ func openIPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *ne
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	peerFilter, err := xio.NewCompiledPeerFilter(ctx, s, g)
+	peerFilter, err := xio.NewPeerFilter(ctx, s, g)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -381,7 +381,7 @@ func openIPRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, pc 
 	// One permitted packet, then EOF. Keep the socket for reply writes.
 	buf := make([]byte, max(g.BlockSize, 65535))
 	stripV4 := network == "ip4"
-	peerFilter, err := xio.NewCompiledPeerFilter(ctx, s, g)
+	peerFilter, err := xio.NewPeerFilter(ctx, s, g)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err

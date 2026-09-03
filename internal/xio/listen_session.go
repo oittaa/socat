@@ -48,9 +48,9 @@ func DefaultWrapDial(s parse.Spec) func(net.Conn) (relay.Stream, error) {
 	}
 }
 
-// OpenListenSession installs fork wrapping and peer filtering, or accepts one
-// permitted connection for non-fork. Each refused peer restarts
-// accept-timeout.
+// OpenListenSession compiles peer filtering before accept, then installs fork
+// wrapping or accepts one permitted connection for non-fork. Each refused peer
+// restarts accept-timeout.
 func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess ListenSession) (*Opened, error) {
 	ln := sess.Listener
 	if ln == nil {
@@ -69,7 +69,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 	if wrap == nil {
 		wrap = DefaultWrapDial(s)
 	}
-	peerFilter, err := NewCompiledPeerFilter(ctx, s, g)
+	peerFilter, err := NewPeerFilter(ctx, s, g)
 	if err != nil {
 		_ = closeLn()
 		return nil, err

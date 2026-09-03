@@ -539,14 +539,17 @@ func TestPeerFilterResolvesRangeOnce(t *testing.T) {
 		Value: "range-res-nsaddr.test:255.255.255.255",
 		Has:   true,
 	})
-	filter := NewPeerFilter(t.Context(), s, nil)
-	peer := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1234}
-	if err := filter.AllowAddr(peer, nil); err != nil {
+	filter, err := NewPeerFilter(t.Context(), s, nil)
+	if err != nil {
 		t.Fatal(err)
 	}
+	peer := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1234}
 	queries := server.udpQueries.Load() + server.tcpQueries.Load()
 	if queries == 0 {
 		t.Fatal("range hostname was not resolved")
+	}
+	if err := filter.AllowAddr(peer, nil); err != nil {
+		t.Fatal(err)
 	}
 	if err := filter.AllowAddr(peer, nil); err != nil {
 		t.Fatal(err)
@@ -568,11 +571,10 @@ func TestPeerFilterRangeLookupCanceled(t *testing.T) {
 		Has:   true,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	filter := NewPeerFilter(ctx, s, nil)
-	peer := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1234}
 	result := make(chan error, 1)
 	go func() {
-		result <- filter.AllowAddr(peer, nil)
+		_, err := NewPeerFilter(ctx, s, nil)
+		result <- err
 	}()
 	select {
 	case <-server.queried:
@@ -584,7 +586,7 @@ func TestPeerFilterRangeLookupCanceled(t *testing.T) {
 	select {
 	case err := <-result:
 		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("AllowAddr error=%v want context.Canceled", err)
+			t.Fatalf("NewPeerFilter error=%v want context.Canceled", err)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("peer filter ignored context cancellation")

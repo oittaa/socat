@@ -76,7 +76,10 @@ func TestIPInRangeHostnameMask(t *testing.T) {
 }
 
 func TestPeerFilterNoOptionsDoesNotAllocate(t *testing.T) {
-	filter := NewPeerFilter(context.Background(), parse.Spec{}, nil)
+	filter, err := NewPeerFilter(context.Background(), parse.Spec{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	peer := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1234}
 	if got := testing.AllocsPerRun(1000, func() {
 		if err := filter.AllowAddr(peer, nil); err != nil {
@@ -92,7 +95,10 @@ func TestPeerFilterRangeAcceptsIPAddr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filter := NewPeerFilter(context.Background(), spec, nil)
+	filter, err := NewPeerFilter(context.Background(), spec, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := filter.AllowAddr(&net.IPAddr{IP: net.IPv4(127, 1, 0, 1)}, nil); err != nil {
 		t.Fatalf("127.1.0.1 in 127.0.0.0/8: %v", err)
 	}
@@ -156,27 +162,15 @@ func TestCompileIPRangeRejectsUppercaseHexPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filter := NewPeerFilter(ctx, spec, nil)
-	err = filter.AllowAddr(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}, nil)
+	_, err = NewPeerFilter(ctx, spec, nil)
 	if err == nil {
-		t.Fatal("PeerFilter accepted range with uppercase hex type prefix")
+		t.Fatal("NewPeerFilter succeeded with uppercase hex range")
 	}
 	if errors.Is(err, context.Canceled) {
-		t.Fatalf("PeerFilter treated uppercase hex range as a hostname: %v", err)
+		t.Fatalf("NewPeerFilter treated uppercase hex range as a hostname: %v", err)
 	}
 	if !strings.Contains(err.Error(), "invalid hex") {
-		t.Fatalf("PeerFilter err=%v want invalid hex sockaddr", err)
-	}
-
-	_, err = NewCompiledPeerFilter(ctx, spec, nil)
-	if err == nil {
-		t.Fatal("NewCompiledPeerFilter succeeded with uppercase hex range")
-	}
-	if errors.Is(err, context.Canceled) {
-		t.Fatalf("NewCompiledPeerFilter treated uppercase hex range as a hostname: %v", err)
-	}
-	if !strings.Contains(err.Error(), "invalid hex") {
-		t.Fatalf("NewCompiledPeerFilter err=%v want invalid hex sockaddr", err)
+		t.Fatalf("NewPeerFilter err=%v want invalid hex sockaddr", err)
 	}
 }
 

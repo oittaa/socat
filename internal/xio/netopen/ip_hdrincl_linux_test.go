@@ -144,9 +144,13 @@ func TestIP4HeaderOnlyNoAncillaryIsEOF(t *testing.T) {
 		t.Fatalf("after strip kernelN=%d n=%d err=%v want EOF", kernelN, gotN, gotErr)
 	}
 
+	filter, err := xio.NewPeerFilter(ctx, recvSpec, useGlobal())
+	if err != nil {
+		t.Fatal(err)
+	}
 	recv := &rawIPFilteredRecv{
 		c:        pc,
-		filter:   xio.NewPeerFilter(ctx, recvSpec, useGlobal()),
+		filter:   filter,
 		g:        useGlobal(),
 		ctx:      ctx,
 		wantCtrl: false,

@@ -1088,3 +1088,74 @@ func TestUDPListenMalformedRangeFailsOpen(t *testing.T) {
 		t.Fatalf("openUDP4Listen err=%v want invalid hex", err)
 	}
 }
+
+func TestUDPListenAcceptTimeoutDoesNotIncludeRangeDNS(t *testing.T) {
+	const dnsDelay = 300 * time.Millisecond
+	dns := startARecordDNSDelayed(t, dnsDelay)
+	spec, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1,accept-timeout=0.1,range=udp-accept-timeout-range.test:255.255.255.255,res-nsaddr=" + dns.addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	bound := make(chan net.Addr, 1)
+	restore := xio.SetListenBoundTestHook(func(addr net.Addr) {
+		select {
+		case bound <- addr:
+		default:
+		}
+	})
+	t.Cleanup(restore)
+
+	errc := make(chan error, 1)
+	opened := make(chan *xio.Opened, 1)
+	start := time.Now()
+	go func() {
+		o, openErr := openUDP4Listen(context.Background(), spec, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+		if openErr != nil {
+			errc <- openErr
+			return
+		}
+		opened <- o
+	}()
+
+	var addr net.Addr
+	select {
+	case addr = <-bound:
+	case err := <-errc:
+		t.Fatalf("UDP-LISTEN failed before bind: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("UDP-LISTEN did not bind")
+	}
+
+	client, err := net.DialUDP("udp4", nil, addr.(*net.UDPAddr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	if _, err := client.Write([]byte("queued-before-range")); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-errc:
+		if errors.Is(err, xio.ErrAcceptTimeout) {
+			t.Fatalf("accept-timeout consumed range DNS (%v after %s)", err, time.Since(start).Round(time.Millisecond))
+		}
+		t.Fatalf("openUDP4Listen: %v", err)
+	case o := <-opened:
+		t.Cleanup(func() { _ = o.Close() })
+		if dns.queries.Load() == 0 {
+			t.Fatal("range hostname was not resolved")
+		}
+		got := make([]byte, 64)
+		n, readErr := o.EffectiveStream().Read(got)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		if string(got[:n]) != "queued-before-range" {
+			t.Fatalf("got %q", got[:n])
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("UDP-LISTEN did not accept the queued peer")
+	}
+}
