@@ -172,7 +172,6 @@ func TestCRORLFCollapsesCRLFAcrossReads(t *testing.T) {
 	if _, err := pw.Write([]byte("a\r")); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(20 * time.Millisecond)
 	if _, err := pw.Write([]byte("\nb")); err != nil {
 		t.Fatal(err)
 	}

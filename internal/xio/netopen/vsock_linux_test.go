@@ -58,26 +58,37 @@ func TestVSOCKListenAcceptTimeout(t *testing.T) {
 	}
 }
 
+func parseVSOCKAddr(t *testing.T, a net.Addr) (cid, port uint32) {
+	t.Helper()
+	if a == nil || a.Network() != "vsock" {
+		t.Fatalf("addr network=%v want vsock", a)
+	}
+	parts := strings.Split(a.String(), ":")
+	if len(parts) != 2 {
+		t.Fatalf("addr string=%q want cid:port", a.String())
+	}
+	c, err1 := strconv.ParseUint(parts[0], 10, 32)
+	p, err2 := strconv.ParseUint(parts[1], 10, 32)
+	if err1 != nil || err2 != nil {
+		t.Fatalf("parse vsock addr %q: %v, %v", a.String(), err1, err2)
+	}
+	return uint32(c), uint32(p)
+}
+
 func TestVSOCKListenAddrPortAssigned(t *testing.T) {
 	ln := skipIfNoVSOCKListen(t)
-	addr, ok := ln.Addr().(*vsockAddr)
-	if !ok {
-		t.Fatalf("addr type %T", ln.Addr())
+	cid, port := parseVSOCKAddr(t, ln.Addr())
+	if port == 0 || port == vsockPortAny {
+		t.Fatalf("expected kernel-assigned port, got %d", port)
 	}
-	if addr.Port == 0 || addr.Port == vsockPortAny {
-		t.Fatalf("expected kernel-assigned port, got %d", addr.Port)
-	}
-	if addr.CID != unix.VMADDR_CID_ANY {
-		t.Fatalf("listen cid=%d want ANY", addr.CID)
+	if cid != unix.VMADDR_CID_ANY {
+		t.Fatalf("listen cid=%d want ANY", cid)
 	}
 }
 
 func TestVSOCKEchoLoopback(t *testing.T) {
 	ln := skipIfNoVSOCKListen(t)
-	addr, ok := ln.Addr().(*vsockAddr)
-	if !ok {
-		t.Fatalf("addr type %T", ln.Addr())
-	}
+	_, port := parseVSOCKAddr(t, ln.Addr())
 	got := make(chan string, 1)
 	go func() {
 		c, err := ln.Accept()
@@ -137,11 +148,8 @@ func TestVSOCKOpenChannelEcho(t *testing.T) {
 		t.Fatal("VSOCK-LISTEN did not return a listener")
 	}
 	go func() { _ = xio.RunOpened(ctx, lo, parseChannel(t, "PIPE"), g) }()
-	addr, ok := lo.Listener.Addr().(*vsockAddr)
-	if !ok {
-		t.Fatalf("addr type %T", lo.Listener.Addr())
-	}
-	cli, err := xio.OpenChannel(ctx, parseChannel(t, "VSOCK-CONNECT:1:"+strconv.FormatUint(uint64(addr.Port), 10)+",connect-timeout=0.25"), xio.ModeRDWR, useGlobal())
+	_, port := parseVSOCKAddr(t, lo.Listener.Addr())
+	cli, err := xio.OpenChannel(ctx, parseChannel(t, "VSOCK-CONNECT:1:"+strconv.FormatUint(uint64(port), 10)+",connect-timeout=0.25"), xio.ModeRDWR, useGlobal())
 	if err != nil {
 		if vsockLoopbackUnavailable(err) {
 			t.Skip(err.Error())
@@ -154,7 +162,7 @@ func TestVSOCKOpenChannelEcho(t *testing.T) {
 
 func TestVSOCKRememberAddrs(t *testing.T) {
 	ln := skipIfNoVSOCKListen(t)
-	addr := ln.Addr().(*vsockAddr)
+	_, port := parseVSOCKAddr(t, ln.Addr())
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	accepted := make(chan net.Conn, 1)
@@ -167,7 +175,7 @@ func TestVSOCKRememberAddrs(t *testing.T) {
 		accepted <- c
 	}()
 	g := &xio.Global{Log: logx.New()}
-	c, err := dialVSOCK(ctx, vsockEndpoint{cid: unix.VMADDR_CID_LOCAL, port: addr.Port}, parse.Spec{}, g, 250*time.Millisecond, nil)
+	c, err := dialVSOCK(ctx, vsockEndpoint{cid: unix.VMADDR_CID_LOCAL, port: port}, parse.Spec{}, g, 250*time.Millisecond, nil)
 	if err != nil {
 		if vsockLoopbackUnavailable(err) {
 			t.Skipf("VSOCK loopback not available: %v", err)

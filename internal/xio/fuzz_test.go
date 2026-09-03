@@ -15,7 +15,7 @@ func FuzzParseSocatData(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, input string) {
 		if len(input) > 4096 {
-			t.Skip()
+			t.Skip("input exceeds 4096 bytes")
 		}
 		first, err := ParseSocatData(input)
 		second, err2 := ParseSocatData(input)
@@ -37,7 +37,7 @@ func FuzzParseTimeval(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, input string) {
 		if len(input) > 4096 {
-			t.Skip()
+			t.Skip("input exceeds 4096 bytes")
 		}
 		a := ParseTimeval(input)
 		b := ParseTimeval(input)
@@ -53,7 +53,7 @@ func FuzzParsePositiveInt(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, input string) {
 		if len(input) > 4096 {
-			t.Skip()
+			t.Skip("input exceeds 4096 bytes")
 		}
 		n1, err1 := ParsePositiveInt(input)
 		n2, err2 := ParsePositiveInt(input)

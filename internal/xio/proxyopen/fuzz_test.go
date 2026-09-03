@@ -14,7 +14,7 @@ func FuzzProxyStatusOK(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, status string) {
 		if len(status) > maxHTTP1ProxyResponseBytes+1 {
-			t.Skip()
+			t.Skip("status exceeds maxHTTP1ProxyResponseBytes")
 		}
 		_ = proxyStatusOK(status)
 	})
@@ -28,7 +28,7 @@ func FuzzProxyResponseLine(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > maxHTTP1ProxyResponseBytes+2 {
-			t.Skip()
+			t.Skip("data exceeds maxHTTP1ProxyResponseBytes")
 		}
 		for _, ignoreCR := range []bool{false, true} {
 			total := 0
@@ -51,7 +51,7 @@ func FuzzSOCKS4Reply(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, reply []byte) {
 		if len(reply) > 4096 {
-			t.Skip()
+			t.Skip("reply exceeds 4096 bytes")
 		}
 		_ = socks4ReadReply(bytes.NewReader(reply))
 	})
@@ -67,7 +67,7 @@ func FuzzSOCKS5Reply(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, reply []byte) {
 		if len(reply) > 4096 {
-			t.Skip()
+			t.Skip("reply exceeds 4096 bytes")
 		}
 		_ = socks5ReadReply(bytes.NewReader(reply))
 	})

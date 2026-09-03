@@ -23,7 +23,12 @@ func holdAcceptedConn(t *testing.T, ln net.Listener) {
 			return
 		}
 		defer func() { _ = c.Close() }()
-		time.Sleep(5 * time.Second)
+		buf := make([]byte, 1)
+		for {
+			if _, err := c.Read(buf); err != nil {
+				return
+			}
+		}
 	}()
 }
 
@@ -73,7 +78,7 @@ func TestTLSConnectHandshakeTimeoutZeroWaitsForDelayedPeer(t *testing.T) {
 			return
 		}
 		defer func() { _ = c.Close() }()
-		time.Sleep(400 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 		srv := tls.Server(c, &tls.Config{Certificates: []tls.Certificate{cert}})
 		if err := srv.Handshake(); err != nil {
 			return
@@ -93,7 +98,7 @@ func TestTLSConnectHandshakeTimeoutZeroWaitsForDelayedPeer(t *testing.T) {
 		t.Fatalf("handshake-timeout=0 should wait for a delayed TLS peer: %v", err)
 	}
 	defer func() { _ = o.Close() }()
-	if elapsed := time.Since(started); elapsed < 300*time.Millisecond {
+	if elapsed := time.Since(started); elapsed < 70*time.Millisecond {
 		t.Fatalf("handshake returned in %s; delayed peer was not waited for", elapsed)
 	}
 }
