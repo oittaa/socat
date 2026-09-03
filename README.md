@@ -264,8 +264,9 @@ make update-scorecard   # Linux: refresh committed privileged-Docker results
 syncs the official repository into a gitignored working directory.
 
 CI runs unit and end-to-end tests on Linux amd64/arm64, macOS, and Windows
-amd64/arm64. Weekly jobs run fuzzing and the live relay matrix. Official
-classic parity is a manual workflow only.
+amd64/arm64. Unit jobs run `go test ./...` first, then the race detector on
+every platform Go supports (not windows/arm64). Weekly jobs run fuzzing and
+the live relay matrix. Official classic parity is a manual workflow only.
 
 Classic `test.sh` is run separately because hosted CI cannot provide every
 required kernel feature and privilege. Results and reproduction instructions
