@@ -296,7 +296,7 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 	if fdRedirect {
 		cmd.Env = withExecFDHelperEnv(cmd.Env)
 	}
-	if err := startWithChildUmask(s, cmd, g); err != nil {
+	if err := startWithChildUmask(ctx, s, cmd, g); err != nil {
 		return err
 	}
 	closeExtra()
@@ -682,7 +682,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 
 	if usePty {
-		return startCmdPty(s, mode, g, cmd, fdRedirect)
+		return startCmdPty(ctx, s, mode, g, cmd, fdRedirect)
 	}
 
 	// Child stderr inherits socat's stderr unless option stderr redirects it
@@ -709,7 +709,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	}
 
 	// Only FDs 0/1/2 may remain in the child.
-	startErr := startWithChildUmask(s, cmd, g)
+	startErr := startWithChildUmask(ctx, s, cmd, g)
 	if startErr != nil {
 		for _, f := range cleanup {
 			f()
@@ -958,11 +958,11 @@ func execSocketpairParentStream(mode Mode, parent *os.File, stype int) relay.Str
 // startWithChildUmask applies umask= around cmd.Start and marks FDs ≥3
 // CLOEXEC so EXEC children inherit only 0/1/2 plus explicitly mapped fdi/fdo
 // descriptors, then registers sighup/sigint/sigquit after pid is known.
-func startWithChildUmask(s parse.Spec, cmd *exec.Cmd, g *Global) error {
+func startWithChildUmask(ctx context.Context, s parse.Spec, cmd *exec.Cmd, g *Global) error {
 	if err := validateExecParentSignals(s); err != nil {
 		return err
 	}
-	armExecContextCancel(cmd)
+	armExecContextCancel(ctx, cmd)
 	// Mark ALL FDs ≥3 CLOEXEC (including the socketpair/pipe/PTY ends passed
 	// as Stdin/Stdout). Go's fork/exec dup2's them to 0/1/2 first, then closes
 	// CLOEXEC descriptors, so the high-numbered originals are not leaked.
@@ -1006,17 +1006,30 @@ func killWaitUnregisterChild(cmd *exec.Cmd) {
 // cli.Run defers cancel(); without this, that cancel SIGKILLs children that
 // end-close already chose to keep. Startup and in-flight cancel still kill.
 type execContextCancel struct {
+	ctx      context.Context
 	mu       sync.Mutex
 	released bool
 }
 
 var execContextCancels sync.Map // *exec.Cmd -> *execContextCancel
 
-func armExecContextCancel(cmd *exec.Cmd) {
+func contextCanceled(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+func armExecContextCancel(ctx context.Context, cmd *exec.Cmd) {
 	if cmd == nil || cmd.Cancel == nil {
 		return
 	}
-	ctl := &execContextCancel{}
+	ctl := &execContextCancel{ctx: ctx}
 	prev := cmd.Cancel
 	cmd.Cancel = func() error {
 		ctl.mu.Lock()
@@ -1033,11 +1046,21 @@ func releaseExecContextCancel(cmd *exec.Cmd) {
 	if cmd == nil {
 		return
 	}
-	if v, ok := execContextCancels.Load(cmd); ok {
-		ctl := v.(*execContextCancel)
-		ctl.mu.Lock()
-		ctl.released = true
-		ctl.mu.Unlock()
+	v, ok := execContextCancels.Load(cmd)
+	if !ok {
+		return
+	}
+	ctl := v.(*execContextCancel)
+	ctl.mu.Lock()
+	defer ctl.mu.Unlock()
+	// cancel() marks ctx done before CommandContext's callback runs. If that
+	// already happened, keep the callback armed so it still kills.
+	if contextCanceled(ctl.ctx) {
+		return
+	}
+	ctl.released = true
+	if contextCanceled(ctl.ctx) {
+		ctl.released = false
 	}
 }
 
@@ -1145,7 +1168,7 @@ func closeExecPTY(master, slave *os.File) {
 
 // startCmdPtyFDRedirect keeps the PTY slave as ExtraFiles fd 3 and lets the
 // descriptor mapper duplicate it onto fdi/fdo. fdin/fdout do not select pipes.
-func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
+func startCmdPtyFDRedirect(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
 	master, slave, unlink, err := openExecPTYPair(cmd, s, g)
 	if err != nil {
 		return nil, err
@@ -1158,7 +1181,7 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.Ctty = 3
-	if err := startWithChildUmask(s, cmd, g); err != nil {
+	if err := startWithChildUmask(ctx, s, cmd, g); err != nil {
 		if unlink != nil {
 			unlink()
 		}
@@ -1233,9 +1256,9 @@ func startCmdPtyFDRedirect(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*
 //	ModeRead  (EXEC,pty!!-): child stdin←os.Stdin (inherit), child stdout→PTY
 //
 // Full duplex: both directions on the PTY slave (startOnPTY).
-func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect bool) (*Opened, error) {
+func startCmdPty(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect bool) (*Opened, error) {
 	if fdRedirect {
-		return startCmdPtyFDRedirect(s, mode, g, cmd)
+		return startCmdPtyFDRedirect(ctx, s, mode, g, cmd)
 	}
 	var ptmx *os.File
 	var unlink func()
@@ -1255,7 +1278,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 		if s.BoolOption("stderr") {
 			cmd.Stderr = slave
 		}
-		if err := startWithChildUmask(s, cmd, g); err != nil {
+		if err := startWithChildUmask(ctx, s, cmd, g); err != nil {
 			if unlink != nil {
 				unlink()
 			}
@@ -1299,7 +1322,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 			cmd.SysProcAttr = &syscall.SysProcAttr{}
 		}
 		cmd.SysProcAttr.Ctty = 1
-		if err := startWithChildUmask(s, cmd, g); err != nil {
+		if err := startWithChildUmask(ctx, s, cmd, g); err != nil {
 			if unlink != nil {
 				unlink()
 			}
@@ -1334,7 +1357,7 @@ func startCmdPty(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect b
 
 	default:
 		var slave *os.File
-		ptmx, slave, unlink, err = startOnPTY(cmd, s, g)
+		ptmx, slave, unlink, err = startOnPTY(ctx, cmd, s, g)
 		if err != nil {
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}

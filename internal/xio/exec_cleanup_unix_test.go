@@ -282,6 +282,34 @@ func TestFinishExecEndCloseCancelBeforeCloseKillsChild(t *testing.T) {
 	}
 }
 
+func TestFinishExecEndCloseCancelThenCloseKillsChild(t *testing.T) {
+	for i := 0; i < 5; i++ {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			script, pidPath := writeHoldScript(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			o := openExecCleanupCtx(t, ctx, execHoldSpec(script, "end-close,shut-none"), ModeRDWR, 20*time.Millisecond)
+			pid := waitPIDFile(t, pidPath)
+			t.Cleanup(func() {
+				cancel()
+				_ = o.Close()
+				forceKill(pid)
+			})
+			cancel()
+			if err := o.Close(); err != nil {
+				t.Fatal(err)
+			}
+			deadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(deadline) && processAlive(pid) {
+				time.Sleep(5 * time.Millisecond)
+			}
+			if processAlive(pid) {
+				t.Fatal("cancel then Close must still kill the child")
+			}
+		})
+	}
+}
+
 func TestFinishExecNaturalExitKeepsOutput(t *testing.T) {
 	if !FeatureEXEC {
 		t.Skip("EXEC not enabled")
