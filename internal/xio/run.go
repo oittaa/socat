@@ -320,10 +320,10 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 	ln := lo.Listener
 	lg := g.Log
 	lg.Noticef("listening on %s", ln.Addr())
-	go func() {
-		<-ctx.Done()
+	stop := context.AfterFunc(ctx, func() {
 		logx.CloseQuiet(ln)
-	}()
+	})
+	defer stop()
 	return lo.forEachAccepted(ctx, ln, g, true, func(c net.Conn, cg *Global) {
 		if err := RememberTLSPeer(cg, c, lo.HandshakeTimeout); err != nil {
 			cg.Log.Errorf("handshake: %s", err)
@@ -395,10 +395,10 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 	// immediately; the next wrap, started only after Transfer returns, clears
 	// that leftover. end-close still uses socketpair (not pipes).
 	var leftMu sync.Mutex
-	go func() {
-		<-ctx.Done()
+	stop := context.AfterFunc(ctx, func() {
 		logx.CloseQuiet(ln)
-	}()
+	})
+	defer stop()
 	return ro.forEachAccepted(ctx, ln, g, false, func(c net.Conn, cg *Global) {
 		// Serialize sessions on the shared left stream.
 		leftMu.Lock()

@@ -86,6 +86,15 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 		accept = func(context.Context) (net.Conn, error) { return ln.Accept() }
 	}
 
+	var closeOnce sync.Once
+	safeCloseLn := func() error {
+		var err error
+		closeOnce.Do(func() {
+			err = closeLn()
+		})
+		return err
+	}
+
 	o := &Opened{
 		Kind:             ListenKind(fork),
 		Listener:         ln,
@@ -96,14 +105,14 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 		HandshakeTimeout: sess.HandshakeTimeout,
 	}
 	o.AcceptTimeout = AcceptTimeout(s)
-	o.AddCleanup(func() { _ = closeLn() })
+	o.AddCleanup(func() { _ = safeCloseLn() })
 	NoteListenBound(ln.Addr())
 
 	if fork {
-		go func() {
-			<-ctx.Done()
-			logx.CloseErr(closeLn())
-		}()
+		stop := context.AfterFunc(ctx, func() {
+			logx.CloseErr(safeCloseLn())
+		})
+		o.AddCleanup(func() { stop() })
 		return o, nil
 	}
 
@@ -118,7 +127,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 	for {
 		if setDeadline != nil && at > 0 && !sess.UseContextTimeout {
 			if err := setDeadline(time.Now().Add(at)); err != nil {
-				_ = closeLn()
+				_ = safeCloseLn()
 				o.Listener = nil
 				return nil, fmt.Errorf("accept-timeout: %w", err)
 			}
@@ -133,7 +142,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 			cancel()
 		}
 		if err != nil {
-			_ = closeLn()
+			_ = safeCloseLn()
 			o.Listener = nil
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -149,7 +158,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 		if err := filter(c); err != nil {
 			CloseRefusedPeer(c)
 			if ctx.Err() != nil {
-				_ = closeLn()
+				_ = safeCloseLn()
 				o.Listener = nil
 				return nil, ctx.Err()
 			}
@@ -162,7 +171,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 		break
 	}
 	if !sess.KeepListenerForSession {
-		_ = closeLn()
+		_ = safeCloseLn()
 	}
 	o.Listener = nil
 	if g != nil && g.Log != nil && conn.RemoteAddr() != nil {
@@ -173,7 +182,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 		if err := sess.AfterAccept(g, conn); err != nil {
 			logx.CloseQuiet(conn)
 			if sess.KeepListenerForSession {
-				_ = closeLn()
+				_ = safeCloseLn()
 			}
 			return nil, err
 		}
@@ -182,7 +191,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 	if err != nil {
 		logx.CloseQuiet(conn)
 		if sess.KeepListenerForSession {
-			_ = closeLn()
+			_ = safeCloseLn()
 		}
 		return nil, err
 	}

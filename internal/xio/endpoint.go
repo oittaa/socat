@@ -293,7 +293,7 @@ func (o *Opened) close() error {
 		}
 	}
 	if o.Listener != nil {
-		if err := o.Listener.Close(); err != nil && first == nil {
+		if err := o.Listener.Close(); err != nil && first == nil && !errors.Is(err, net.ErrClosed) {
 			first = err
 		}
 	}
