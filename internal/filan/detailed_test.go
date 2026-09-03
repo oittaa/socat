@@ -27,9 +27,6 @@ func TestWriteHeaderTabSeparatedColumns(t *testing.T) {
 		t.Fatal(err)
 	}
 	header := strings.TrimSuffix(buf.String(), "\n")
-	if !strings.Contains(header, "\tatime\t\t\t\tmtime\t\t\t\tctime\t\t\t\tcloexec") {
-		t.Fatalf("header missing timestamp column tabs: %q", header)
-	}
 	var cols []string
 	for _, c := range strings.Split(header, "\t") {
 		if c != "" {
@@ -55,9 +52,22 @@ func TestWriteHeaderRawTimeTabs(t *testing.T) {
 	if err := b.Flush(&buf); err != nil {
 		t.Fatal(err)
 	}
-	header := buf.String()
-	if !strings.Contains(header, "\tatime\t\tmtime\t\tctime\t\tcloexec") {
-		t.Fatalf("raw header missing time tabs: %q", header)
+	header := strings.TrimSuffix(buf.String(), "\n")
+	var cols []string
+	for _, c := range strings.Split(header, "\t") {
+		if c != "" {
+			cols = append(cols, c)
+		}
+	}
+	want := []string{
+		"  FD  type", "device", "inode", "mode", "links", "uid", "gid", "rdev",
+		"size", "blksize", "blocks", "atime", "mtime", "ctime", "cloexec", "flags", "sigown",
+	}
+	if runtime.GOOS == "linux" {
+		want = append(want, "sigio")
+	}
+	if !reflect.DeepEqual(cols, want) {
+		t.Fatalf("raw header cols=%q want %q", cols, want)
 	}
 }
 

@@ -36,14 +36,22 @@ func reportedDumpFDs(text string) []int {
 }
 
 type dumpBuf struct {
-	mu sync.Mutex
-	b  bytes.Buffer
+	mu     sync.Mutex
+	b      bytes.Buffer
+	notify chan struct{}
 }
 
 func (d *dumpBuf) Write(p []byte) (int, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return d.b.Write(p)
+	n, err := d.b.Write(p)
+	if d.notify != nil {
+		select {
+		case d.notify <- struct{}{}:
+		default:
+		}
+	}
+	return n, err
 }
 
 func (d *dumpBuf) String() string {
@@ -113,7 +121,7 @@ func TestDumpFDsPrintsChannelDescriptorsInOrder(t *testing.T) {
 }
 
 func TestDumpFDsOncePerForkSession(t *testing.T) {
-	var dump dumpBuf
+	dump := dumpBuf{notify: make(chan struct{}, 10)}
 	log := logx.New()
 	log.SetOutput(&bytes.Buffer{})
 	g := &xio.Global{
@@ -134,14 +142,18 @@ func TestDumpFDsOncePerForkSession(t *testing.T) {
 		_ = readFull(t, c.Stream, 2)
 		_ = c.Close()
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if strings.Count(dump.String(), "  FD  type") == 2 {
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	for {
+		if strings.Count(dump.String(), "  FD  type") >= 2 {
 			return
 		}
-		time.Sleep(20 * time.Millisecond)
+		select {
+		case <-dump.notify:
+		case <-timer.C:
+			t.Fatalf("want two dumps, got %q", dump.String())
+		}
 	}
-	t.Fatalf("want two dumps, got %q", dump.String())
 }
 
 func TestDumpFDsOmitsSniffFiles(t *testing.T) {

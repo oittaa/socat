@@ -1,8 +1,9 @@
+//go:build linux || darwin
+
 package cli
 
 import (
 	"bytes"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -10,9 +11,6 @@ import (
 )
 
 func TestSetupLoggerSyslogFromInit(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip()
-	}
 	rec := &cliRecordedSyslog{}
 	restore := logx.SetSyslogDial(func(tag, fac string) (logx.SyslogWriter, error) {
 		rec.tag, rec.fac = tag, fac
@@ -41,9 +39,6 @@ func TestSetupLoggerSyslogFromInit(t *testing.T) {
 }
 
 func TestSetupLoggerMixedStaysOnStderrUntilSwitch(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip()
-	}
 	rec := &cliRecordedSyslog{}
 	restore := logx.SetSyslogDial(func(tag, fac string) (logx.SyslogWriter, error) {
 		rec.tag, rec.fac = tag, fac
