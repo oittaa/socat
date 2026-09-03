@@ -6,7 +6,10 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
+	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -458,5 +461,110 @@ func TestTransferPollClosedDestinationIsClean(t *testing.T) {
 	)
 	if err != nil {
 		t.Fatalf("closed destination must be a clean EOF, got %v", err)
+	}
+}
+
+// TestWaitReadableAndWritableFIFOReconnectAfterHangup covers a writer that
+// disconnects (POLLHUP), reconnects before the 0-timeout confirmation poll,
+// then writes. Omission must follow confirmed state, not the stale hangup.
+func TestWaitReadableAndWritableFIFOReconnectAfterHangup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reopen.fifo")
+	if err := syscall.Mkfifo(path, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	src, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		t.Skipf("FIFO reader: %v", err)
+	}
+	t.Cleanup(func() { _ = src.Close() })
+	srcFD := fileFD(t, src)
+	_, dstW := pipePair(t)
+	dstFD := fileFD(t, dstW)
+
+	sawHUP := make(chan struct{})
+	var sawOnce sync.Once
+	resume := make(chan struct{})
+	rearmed := make(chan struct{})
+	var rearmOnce sync.Once
+	var afterHUP atomic.Bool
+
+	orig := pollWait
+	pollWait = func(fds []unix.PollFd, timeoutMs int) (int, error) {
+		if afterHUP.Load() {
+			rearmOnce.Do(func() { close(rearmed) })
+		}
+		n, err := poll(fds, timeoutMs)
+		if err == nil && n > 0 && !afterHUP.Load() {
+			for _, fd := range fds {
+				if fd.Fd == int32(srcFD) && fd.Revents&pollHup != 0 {
+					sawOnce.Do(func() { close(sawHUP) })
+					<-resume
+					afterHUP.Store(true)
+					break
+				}
+			}
+		}
+		return n, err
+	}
+	t.Cleanup(func() { pollWait = orig })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- waitReadableAndWritable(ctx, srcFD, dstFD)
+	}()
+
+	w, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-sawHUP:
+	case err := <-done:
+		t.Skipf("FIFO hangup did not stay in waitReadableAndWritable: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("waiting poll did not observe FIFO POLLHUP")
+	}
+
+	w, err = os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		close(resume)
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = w.Close() })
+	close(resume)
+
+	select {
+	case <-rearmed:
+	case err := <-done:
+		t.Fatalf("wait returned before reconnect write: %v", err)
+	case <-time.After(time.Second):
+		t.Fatal("did not re-enter wait poll after FIFO reconnect")
+	}
+
+	if _, err := w.Write([]byte("go")); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("after FIFO reconnect: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("source stayed omitted after FIFO writer reconnected")
+	}
+
+	got := make([]byte, 2)
+	if _, err := io.ReadFull(src, got); err != nil {
+		t.Fatalf("source consumed or unread: %v", err)
+	}
+	if string(got) != "go" {
+		t.Fatalf("source=%q want go", got)
 	}
 }

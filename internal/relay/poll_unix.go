@@ -89,8 +89,9 @@ func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 	srcReady := false
 	dstReady := false
 	// POLLERR/POLLHUP/POLLNVAL are reported even when Events is 0. After a
-	// hangup is observed on a side that is already ready, drop that fd from
-	// the wait set so combined readiness+hangup cannot busy-spin.
+	// hangup is confirmed on a side that is already ready, drop that fd from
+	// the wait set so combined readiness+hangup cannot busy-spin. Re-arm if a
+	// later confirmation poll shows the hangup has cleared (FIFO reconnect).
 	omitSrcWait := false
 	omitDstWait := false
 	for {
@@ -98,7 +99,6 @@ func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 			return ctx.Err()
 		}
 		var pfds []unix.PollFd
-		srcIdx, dstIdx := -1, -1
 		if !omitSrcWait {
 			ev := int16(0)
 			if !srcReady {
@@ -108,7 +108,6 @@ func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 			if !ok {
 				return syscall.EBADF
 			}
-			srcIdx = len(pfds)
 			pfds = append(pfds, p)
 		}
 		if !omitDstWait {
@@ -120,7 +119,6 @@ func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 			if !ok {
 				return syscall.EBADF
 			}
-			dstIdx = len(pfds)
 			pfds = append(pfds, p)
 		}
 		if len(pfds) == 0 {
@@ -135,12 +133,6 @@ func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 		}
 		if n == 0 {
 			continue
-		}
-		if srcIdx >= 0 && pfds[srcIdx].Revents&(pollErr|pollHup|pollNval) != 0 {
-			omitSrcWait = true
-		}
-		if dstIdx >= 0 && pfds[dstIdx].Revents&(pollErr|pollHup|pollNval) != 0 {
-			omitDstWait = true
 		}
 
 		src, srcOK := pollFd(srcFD, pollIn)
@@ -165,12 +157,11 @@ func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 		}
 		srcReady = srcRe&pollIn != 0
 		dstReady = dstRe&pollOut != 0
-		if srcRe&(pollErr|pollHup|pollNval) != 0 {
-			omitSrcWait = true
-		}
-		if dstRe&(pollErr|pollHup|pollNval) != 0 {
-			omitDstWait = true
-		}
+		// Omit only while the confirmation poll still reports hangup.
+		// A waiting POLLHUP can be stale: a FIFO writer may reconnect
+		// before this 0-timeout check, and a later write must re-arm src.
+		omitSrcWait = srcRe&(pollErr|pollHup|pollNval) != 0
+		omitDstWait = dstRe&(pollErr|pollHup|pollNval) != 0
 		if srcReady && dstReady {
 			return nil
 		}
