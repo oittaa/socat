@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -145,6 +147,45 @@ class IncompleteShardTest(unittest.TestCase):
         self.assertEqual(parsed["summary"]["failed"], 1)
         self.assertEqual(parsed["summary"]["conflicts"], [])
 
+    def test_missing_summary_does_not_override_printed_failed(self) -> None:
+        parsed = parse_shard(
+            "\n".join(
+                [
+                    "test 50 WEIRD: weird case... FAILED: boom",
+                    "CANT: 50",
+                ]
+            )
+            + "\n"
+        )
+        test = parsed["tests"]["50"]
+        self.assertEqual(test["status"], "FAILED")
+        self.assertNotIn("conflict", test)
+        self.assertNotIn("printed_status", test)
+        self.assertEqual(parsed["summary"]["failed"], 1)
+        self.assertEqual(parsed["summary"]["cant"], 0)
+        self.assertEqual(parsed["summary"]["conflicts"], [])
+        self.assertEqual(parsed["summary"]["shard_timeouts"], [])
+
+    def test_non_timeout_abort_does_not_override_printed_failed(self) -> None:
+        parsed = parse_shard(
+            "\n".join(
+                [
+                    "test 304 IOCTL_VOID: test the ioctl-void option... FAILED (rc2=0, because root?)",
+                    "Summary: (no summary, exit=1) range 1-608",
+                    "CANT: 304",
+                ]
+            )
+            + "\n",
+            summary="0 1 608 1 0 0 0 0 1",
+        )
+        test = parsed["tests"]["304"]
+        self.assertEqual(test["status"], "FAILED")
+        self.assertNotIn("conflict", test)
+        self.assertNotIn("printed_status", test)
+        self.assertEqual(parsed["summary"]["failed"], 1)
+        self.assertEqual(parsed["summary"]["conflicts"], [])
+        self.assertEqual(parsed["summary"]["shard_timeouts"], [])
+
 
 class ContradictorySummaryTest(unittest.TestCase):
     def test_id_in_both_cant_and_failed_is_reporting_error(self) -> None:
@@ -169,6 +210,49 @@ class ContradictorySummaryTest(unittest.TestCase):
         self.assertEqual(len(parsed["summary"]["reporting_errors"]), 1)
         self.assertEqual(parsed["summary"]["reporting_errors"][0]["id"], 50)
         self.assertEqual(parsed["summary"]["conflicts"], [])
+
+
+def _run_parse_cli(text: str) -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryDirectory() as tmp:
+        out = pathlib.Path(tmp)
+        (out / "shard-0.log").write_text(text)
+        return subprocess.run(
+            [sys.executable, "-B", str(SCRIPT), str(out)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+
+class ParseCliExitTest(unittest.TestCase):
+    def test_reporting_errors_exit_nonzero_without_regression_flag(self) -> None:
+        completed = _run_parse_cli(
+            "\n".join(
+                [
+                    "test 50 WEIRD: weird case... FAILED: boom",
+                    "Summary: 608 tests, 1 selected; 0 ok, 1 failed, 1 could not be performed",
+                    "CANT: 50",
+                    "FAILED: 50",
+                ]
+            )
+            + "\n"
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("REPORTING ERRORS", completed.stdout)
+
+    def test_ioctl_void_conflict_exits_zero(self) -> None:
+        completed = _run_parse_cli(
+            "\n".join(
+                [
+                    "test 304 IOCTL_VOID: test the ioctl-void option... FAILED (rc2=0, because root?)",
+                    "Summary: 608 tests, 1 selected; 0 ok, 0 failed, 1 could not be performed",
+                    "CANT: 304",
+                ]
+            )
+            + "\n"
+        )
+        self.assertEqual(completed.returncode, 0)
+        self.assertIn("CONFLICTS", completed.stdout)
 
 
 if __name__ == "__main__":

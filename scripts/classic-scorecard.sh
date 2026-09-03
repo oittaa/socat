@@ -504,8 +504,9 @@ echo "     JOBS=8 SHARD_TIMEOUT=120 $0 $TEST_SH  # full parallel"
 echo "     BASELINE=testdata/scorecard/classic-baseline.json $0 $TEST_SH  # compare"
 echo "     SAVE_BASELINE=testdata/scorecard/classic-baseline.json SOCAT=... $0 $TEST_SH"
 
-# Exit: prefer regression exit if requested; else aggregate fail/timeout
-if [[ "$REGRESSION_EXIT" == "1" && $parse_ec -ne 0 ]]; then
+# Parser reporting errors fail independently of REGRESSION_EXIT.
+# --regression-exit still only applies when that flag was passed to the parser.
+if [[ $parse_ec -ne 0 ]]; then
   exit "$parse_ec"
 fi
 exit "$agg_ec"

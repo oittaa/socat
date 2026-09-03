@@ -4,6 +4,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -96,6 +98,52 @@ class ValidateResultTest(unittest.TestCase):
             write_json(path, doc)
             with self.assertRaisesRegex(MODULE.ScorecardError, "expected 'classic'"):
                 MODULE.validate_result(path, label="classic")
+
+    def test_rejects_reporting_errors_before_publish(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            path = pathlib.Path(tempdir) / "result.json"
+            doc = result("classic", {50: "FAILED"})
+            doc["summary"]["reporting_errors"] = [
+                {
+                    "id": 50,
+                    "name": "WEIRD",
+                    "reason": "upstream CANT and FAILED lists both include this test",
+                    "printed": "FAILED",
+                }
+            ]
+            write_json(path, doc)
+            with self.assertRaisesRegex(MODULE.ScorecardError, "reporting error"):
+                MODULE.validate_result(path, label="classic")
+
+    def test_cli_exits_nonzero_on_reporting_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            path = pathlib.Path(tempdir) / "result.json"
+            doc = result("classic", {50: "FAILED"})
+            doc["summary"]["reporting_errors"] = [
+                {
+                    "id": 50,
+                    "name": "WEIRD",
+                    "reason": "upstream CANT and FAILED lists both include this test",
+                    "printed": "FAILED",
+                }
+            ]
+            write_json(path, doc)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-B",
+                    str(SCRIPT),
+                    "validate-result",
+                    str(path),
+                    "--label",
+                    "classic",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("reporting error", completed.stderr)
 
 
 class PublishTest(unittest.TestCase):

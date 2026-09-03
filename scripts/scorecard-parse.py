@@ -127,11 +127,12 @@ def reconcile_shard_lists(
 ) -> None:
     """Apply explicit upstream CANT/FAILED ID lists.
 
-    Completed shards: an unambiguous list membership wins over a contradictory
-    printed token, while the printed result is retained as a conflict.
-    Timed-out or incomplete shards never reclassify a printed outcome.
-    Overlap between the two lists is a reporting error, not a silent winner.
-    Individual outcomes are never inferred from aggregate Summary counts.
+    Completed shards (valid Summary footer, not timed out): an unambiguous list
+    membership wins over a contradictory printed token, while the printed
+    result is retained as a conflict. Missing Summary or a non-timeout abort
+    never reclassify a printed outcome. Overlap between the two lists is a
+    reporting error, not a silent winner. Individual outcomes are never
+    inferred from aggregate Summary counts.
     """
     cant_ids = set(summary_cant)
     failed_ids = set(summary_failed)
@@ -191,6 +192,13 @@ def reconcile_shard_lists(
                 tests[tid]["detail"] = "from Summary FAILED list"
             continue
         _record_conflict(tests[tid], printed, "FAILED", conflicts)
+
+
+def shard_is_complete(text: str, shard_timed_out: bool) -> bool:
+    """True only with a genuine Summary footer and no shard timeout."""
+    if shard_timed_out:
+        return False
+    return any(RE_SUMMARY.search(line) for line in text.splitlines())
 
 
 def parse_logs(out_dir: pathlib.Path) -> dict[str, Any]:
@@ -268,7 +276,7 @@ def parse_logs(out_dir: pathlib.Path) -> dict[str, Any]:
             summary_cant,
             summary_failed,
             sid,
-            completed=not shard_timed_out,
+            completed=shard_is_complete(text, shard_timed_out),
             conflicts=conflicts,
             reporting_errors=reporting_errors,
         )
@@ -531,6 +539,7 @@ def main() -> int:
         if len(errors) > 60:
             print(f"  ... and {len(errors)-60} more")
 
+    exit_code = 1 if errors else 0
     if args.compare:
         baseline = json.loads(args.compare.read_text())
         cmp = compare(baseline, doc)
@@ -540,7 +549,7 @@ def main() -> int:
         print(f"wrote {cmp_path}")
         if args.regression_exit and cmp["regression_count"]:
             return 1
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":
