@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"unsafe"
 
 	socat "github.com/oittaa/socat"
 )
@@ -49,17 +51,26 @@ func (g *Global) lockSession() func() {
 	if g == nil {
 		return func() {}
 	}
+	mu := g.loadOrStoreSessionMu()
+	mu.Lock()
+	return mu.Unlock
+}
+
+func (g *Global) loadOrStoreSessionMu() *sync.Mutex {
 	for {
-		mu := g.sessionMu.Load()
-		if mu == nil {
-			created := new(sync.Mutex)
-			if !g.sessionMu.CompareAndSwap(nil, created) {
-				continue
-			}
-			mu = created
+		mu := (*sync.Mutex)(atomic.LoadPointer((*unsafe.Pointer)(unsafe.Pointer(&g.sessionMu))))
+		if mu != nil {
+			return mu
 		}
-		mu.Lock()
-		return mu.Unlock
+		created := new(sync.Mutex)
+		// #nosec G103 -- CAS publishes a heap mutex; Global stays copyable.
+		if atomic.CompareAndSwapPointer(
+			(*unsafe.Pointer)(unsafe.Pointer(&g.sessionMu)),
+			nil,
+			unsafe.Pointer(created),
+		) {
+			return created
+		}
 	}
 }
 

@@ -123,9 +123,9 @@ type Global struct {
 	// SessionVars contains other per-session output variables without the
 	// executable prefix (for example TIMESTAMP or POSIXMQ_PRIO).
 	SessionVars map[string]string
-	// sessionMu guards SessionVars. Pointer so forkSession can copy Global
+	// sessionMu guards SessionVars. A pointer so forkSession can copy Global
 	// without copying a mutex; each session CAS-installs its own lock.
-	sessionMu atomic.Pointer[sync.Mutex]
+	sessionMu *sync.Mutex
 
 	// Child process exit (EXEC/SYSTEM): non-zero promotes socat process exit.
 	ChildExitCode int
@@ -154,8 +154,7 @@ func (g *Global) forkSession() *Global {
 	cg := *g
 	unlock()
 	cg.ForkChild = true
-	var zeroSessionMu atomic.Pointer[sync.Mutex]
-	cg.sessionMu = zeroSessionMu
+	cg.sessionMu = nil
 	if g.Log != nil {
 		cg.Log = g.Log.Clone()
 	}
