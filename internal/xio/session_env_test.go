@@ -156,6 +156,29 @@ func TestForkSessionSharesStatsFlag(t *testing.T) {
 	}
 }
 
+func TestForkSessionConcurrent(t *testing.T) {
+	g := &Global{SessionVars: map[string]string{"K": "v"}}
+	var wg sync.WaitGroup
+	for i := 0; i < 64; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			child := g.forkSession()
+			SetSessionEnv(child, "CHILD", "1")
+			if child.SessionVar("K") != "v" {
+				t.Error("child missing parent SessionVars")
+			}
+			if g.SessionVar("CHILD") != "" {
+				t.Error("child SessionVars leaked to parent")
+			}
+		}()
+	}
+	wg.Wait()
+	if g.SessionVar("K") != "v" {
+		t.Fatal("parent SessionVars mutated")
+	}
+}
+
 func TestSessionVarsConcurrentUpdates(t *testing.T) {
 	g := &Global{Progname: "socat"}
 	var wg sync.WaitGroup

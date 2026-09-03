@@ -82,8 +82,10 @@ const (
 	IPvAny // -0
 )
 
-// Global holds process-wide options affecting address open.
-type Global struct {
+// globalState is the copyable part of Global. The session mutex stays off this
+// struct so forkSession can copy under the session lock without racing
+// CAS-install of the mutex.
+type globalState struct {
 	Log          *logx.Logger
 	IPVersion    IPVersion
 	BlockSize    int
@@ -123,9 +125,6 @@ type Global struct {
 	// SessionVars contains other per-session output variables without the
 	// executable prefix (for example TIMESTAMP or POSIXMQ_PRIO).
 	SessionVars map[string]string
-	// sessionMu guards SessionVars. A pointer so forkSession can copy Global
-	// without copying a mutex; each session CAS-installs its own lock.
-	sessionMu *sync.Mutex
 
 	// Child process exit (EXEC/SYSTEM): non-zero promotes socat process exit.
 	ChildExitCode int
@@ -141,6 +140,14 @@ type Global struct {
 	RawRight     *os.File
 }
 
+// Global holds process-wide options affecting address open.
+type Global struct {
+	globalState
+	// sessionMu guards SessionVars. Kept off globalState so a struct copy
+	// cannot race CAS-install. Each session installs its own lock.
+	sessionMu atomic.Pointer[sync.Mutex]
+}
+
 // forkSession returns a per-connection copy of g.
 // Peer/TLS fields must be unique per fork child so SOCAT_* env does not race.
 // statsPrinted is a shared pointer so --statistics still prints once.
@@ -151,10 +158,9 @@ func (g *Global) forkSession() *Global {
 	}
 	unlock := g.lockSession()
 	vars := cloneStringMap(g.SessionVars)
-	cg := *g
+	cg := Global{globalState: g.globalState}
 	unlock()
 	cg.ForkChild = true
-	cg.sessionMu = nil
 	if g.Log != nil {
 		cg.Log = g.Log.Clone()
 	}
