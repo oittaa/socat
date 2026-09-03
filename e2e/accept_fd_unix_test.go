@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -112,7 +113,10 @@ func TestAcceptAliasExtraFilesChild(t *testing.T) {
 
 func TestAcceptFDSystemdSocketActivate(t *testing.T) {
 	if _, err := exec.LookPath("systemd-socket-activate"); err != nil {
-		t.Skip("systemd-socket-activate not available")
+		if runtime.GOOS != "linux" {
+			t.Skip("systemd-socket-activate is a Linux prerequisite")
+		}
+		t.Fatal("systemd-socket-activate not available")
 	}
 	bin := socatBin(t)
 	ln, err := net.Listen("tcp4", "127.0.0.1:0")

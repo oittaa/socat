@@ -51,6 +51,7 @@ apt-get install -y --no-install-recommends \
   python3 \
   python3-venv \
   strace \
+  systemd \
   systemd-container \
   tcpdump \
   util-linux \
@@ -122,6 +123,12 @@ GOBIN=/usr/local/bin GOTOOLCHAIN="go${GO_VERSION}" /usr/local/go/bin/go install 
 GOBIN=/usr/local/bin GOTOOLCHAIN="go${GO_VERSION}" /usr/local/go/bin/go install \
   "github.com/securego/gosec/v2/cmd/gosec@${GOSEC_VERSION}"
 
+if ! command -v systemd-socket-activate >/dev/null 2>&1; then
+  echo "systemd-socket-activate is missing after installing systemd" >&2
+  exit 1
+fi
+SYSTEMD_SOCKET_ACTIVATE="$(command -v systemd-socket-activate)"
+
 install -d -m 0755 /var/lib/socat-lab
 install -d -m 0755 -o "$GUEST_USER" -g "$GUEST_GROUP" "$CLASSIC_PARITY_WORKDIR"
 if command -v lsb_release >/dev/null 2>&1; then
@@ -138,6 +145,7 @@ go=$(/usr/local/go/bin/go version)
 golangci_lint_version=$GOLANGCI_LINT_VERSION
 gosec_version=$GOSEC_VERSION
 classic_parity_workdir=$CLASSIC_PARITY_WORKDIR
+systemd_socket_activate=$SYSTEMD_SOCKET_ACTIVATE
 provisioned_at=$(date --iso-8601=seconds)
 EOF
 

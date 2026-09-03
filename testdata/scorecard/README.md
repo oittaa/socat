@@ -113,9 +113,9 @@ Caps used: `NET_ADMIN`, `NET_RAW`, `SYS_CHROOT`, `SETUID`, `SETGID`,
 `SYS_ADMIN`, `NET_BIND_SERVICE`, plus `/dev/net/tun` when present.
 
 Expected host→docker losses (environment, not binary bugs): UDP6 multicast
-route, VSOCK device, "not with root" denials, missing `systemd-socket-activate`,
-one PTY ioctl case under root, a timing-sensitive classic DTLS-client test,
-and DCCP tests when the host kernel has retired DCCP. `NETNS` /
+route, VSOCK device, "not with root" denials, one PTY ioctl case under root,
+a timing-sensitive classic DTLS-client test, and DCCP tests when the host
+kernel has retired DCCP. `NETNS` /
 `NETNS_EXEC` need `PRIVILEGED=1` (see Go Docker section). Default Docker caps
 do not let `ip netns add` create `/run/netns/<name>`.
 
@@ -252,8 +252,7 @@ UDPLITE, `RES_NSADDR`, and `SHELL_SIGINT` status changes apply. Docker
 isolated re-run passed). Classic `cool-write` is deprecated (use
 `children-shutup`); this port does not advertise it, so `COOLWRITE` /
 `COOLSTDIO` stay CANT. Host-only OK that Docker does not get:
-`GOPEN_TO_DENIED` (not with root) and `ACCEPT_FD` (no
-`systemd-socket-activate`). Vs classic Docker, Go has 538 OK against 565
+`GOPEN_TO_DENIED` (not with root). Vs classic Docker, Go has 538 OK against 565
 classic OK (`parity_gap_total` 27 in `go-vs-classic-docker-gaps.json`).
 
 Use `go-baseline.json` + `REGRESSION_EXIT=1` after a **MODE=classic** run

@@ -462,7 +462,7 @@ function Test-LabCheckTools {
     else {
         ''
     }
-    $command = "bash -lc 'command -v go >/dev/null && command -v golangci-lint >/dev/null && command -v gosec >/dev/null$cacheCheck'"
+    $command = "bash -lc 'command -v go >/dev/null && command -v golangci-lint >/dev/null && command -v gosec >/dev/null && command -v systemd-socket-activate >/dev/null$cacheCheck'"
     & ssh.exe @sshArguments $target $command
     return $LASTEXITCODE -eq 0
 }

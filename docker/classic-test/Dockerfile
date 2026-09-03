@@ -49,7 +49,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         tar \
         xz-utils \
         linux-libc-dev \
-    && rm -rf /var/lib/apt/lists/*
+        systemd \
+    && rm -rf /var/lib/apt/lists/* \
+    && test -x /usr/bin/systemd-socket-activate
 
 WORKDIR /tmp/build
 # Fetch from the Alpine distfiles mirror (valid TLS). dest-unreach.org serves a

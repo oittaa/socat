@@ -223,11 +223,10 @@ print(f"wrote {os.environ['OUT_DIR']}/host-vs-docker-verify.json")
 #   304 IOCTL_VOID    — permission/root interaction on PTY ioctl
 #   410 VSOCK_ECHO    - no AF_VSOCK device in typical containers
 #   453 GOPEN_TO_DENIED - classic skips "not with root"
-#   492 ACCEPT_FD     - needs systemd-socket-activate
 #   399 OPENSSL_DTLS_CLIENT - timing-sensitive 3*val_t classic DTLS test
 #   520/542/543/582 - DCCP is absent from newer host kernels
 allow_raw = os.environ.get(
-    "ALLOW_LOST", "216,304,399,410,453,492,520,542,543,582"
+    "ALLOW_LOST", "216,304,399,410,453,520,542,543,582"
 )
 allow = {x.strip() for x in allow_raw.split(",") if x.strip()}
 unexpected = [x for x in lost if str(x[0]) not in allow]
