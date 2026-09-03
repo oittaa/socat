@@ -144,12 +144,60 @@ func TestParseDalanStringsCharsHex(t *testing.T) {
 
 func TestParseDalanRejectsLeftoverAndEmptyNumeric(t *testing.T) {
 	t.Parallel()
-	for _, s := range []string{"512junk", "not-a-dalan-path", "i", "x0", "'ab'", `"unterminated`} {
+	for _, s := range []string{"512junk", "not-a-dalan-path", "i", "x0", "'ab'", `"unterminated`, "X0102"} {
 		if _, _, err := ParseDalan(s, 'i'); err == nil {
 			t.Errorf("ParseDalan(%q) succeeded", s)
 		} else if !strings.Contains(err.Error(), "syntax error") {
 			t.Errorf("ParseDalan(%q): %v want syntax error", s, err)
 		}
+	}
+}
+
+func TestParseSocatDataHexPrefixCase(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in      string
+		wantHex string
+		wantErr bool
+	}{
+		{in: "x0102", wantHex: "0102"},
+		{in: "x0102x0304", wantHex: "01020304"},
+		{in: "x00FF", wantHex: "00ff"},
+		{in: "x00FFx0a", wantHex: "00ff0a"},
+		{in: " x0102", wantHex: "0102"},
+		{in: `"X"`, wantHex: "58"},
+		{in: `'X'`, wantHex: "58"},
+		{in: `"X0102"`, wantHex: "5830313032"},
+		{in: "/tmp/foo", wantHex: hex.EncodeToString([]byte("/tmp/foo"))},
+		{in: "hello", wantHex: hex.EncodeToString([]byte("hello"))},
+		{in: "X0102", wantErr: true},
+		{in: "X", wantErr: true},
+		{in: "X0102X0304", wantErr: true},
+		{in: "X0102x0304", wantErr: true},
+		{in: "x0102X0304", wantErr: true},
+		{in: "x0", wantErr: true},
+		{in: "x123", wantErr: true},
+		{in: "xgg", wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.in, func(t *testing.T) {
+			got, err := ParseSocatData(tc.in)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("ParseSocatData(%q) succeeded with %x", tc.in, got)
+				}
+				if !strings.Contains(err.Error(), "syntax error") {
+					t.Fatalf("ParseSocatData(%q): %v want syntax error", tc.in, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ParseSocatData(%q): %v", tc.in, err)
+			}
+			if hex.EncodeToString(got) != tc.wantHex {
+				t.Fatalf("ParseSocatData(%q)=%x want %s", tc.in, got, tc.wantHex)
+			}
+		})
 	}
 }
 

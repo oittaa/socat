@@ -275,6 +275,8 @@ func compileHexSockRange(spec string) (matcher ipRangeMatcher, err error, handle
 	}
 	netPart := spec[:idx]
 	maskPart := spec[idx+1:]
+	// Treat X as a hex marker so an uppercase type prefix fails as invalid
+	// hex instead of falling through to hostname lookup.
 	if !strings.ContainsAny(netPart, "xX") || !strings.ContainsAny(maskPart, "xX") {
 		return nil, nil, false
 	}

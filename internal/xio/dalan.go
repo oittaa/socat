@@ -14,7 +14,7 @@ import (
 //
 //	"path\0"  double-quoted string with C-style escapes
 //	\"path\0\"  same after the shell leaves backslash-quotes
-//	xHHHH...  hex (segments may be separated by extra 'x')
+//	xHHHH...  hex with a lowercase x prefix (segments may be separated by extra 'x')
 //	'c'       single character only (multi-char → syntax error)
 //
 // Raw unquoted paths are also accepted for AF_UNIX convenience.
@@ -58,20 +58,14 @@ func ParseSocatData(s string) ([]byte, error) {
 		}
 		return out, nil
 	}
-	// Hex form: xHHHH or xHHHHxHHHH...
-	if strings.HasPrefix(s, "x") || strings.HasPrefix(s, "X") {
+	// Hex form: xHHHH or xHHHHxHHHH... Only lowercase x is a type prefix.
+	if s[0] == 'x' {
 		var out []byte
 		for _, part := range strings.Split(s, "x") {
 			if part == "" {
 				continue
 			}
-			// also handle X
-			part = strings.TrimPrefix(part, "X")
-			if part == "" {
-				continue
-			}
 			if len(part)%2 == 1 {
-				// Odd number of hex digits is a syntax error.
 				return nil, fmt.Errorf("syntax error in %q", s)
 			}
 			b, err := hex.DecodeString(part)
@@ -81,6 +75,9 @@ func ParseSocatData(s string) ([]byte, error) {
 			out = append(out, b...)
 		}
 		return out, nil
+	}
+	if s[0] == 'X' {
+		return nil, fmt.Errorf("syntax error in %q", s)
 	}
 	// Unquoted: expand \ escapes (path convenience).
 	var b strings.Builder

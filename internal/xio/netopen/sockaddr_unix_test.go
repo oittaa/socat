@@ -154,6 +154,86 @@ func TestParseSocketDgramCallOverrides(t *testing.T) {
 	}
 }
 
+func TestParseSocketRejectsUppercaseXPrefix(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{
+		"SOCKET-CONNECT:2:0:X0102",
+		"SOCKET-LISTEN:2:0:X0102",
+		"SOCKET-SENDTO:2:2:17:X0102",
+		"SOCKET-DATAGRAM:2:2:17:X0102X0304",
+		"SOCKET-CONNECT:2:0:x0102X0304",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			s := mustSocketSpec(t, raw)
+			var err error
+			switch {
+			case strings.HasPrefix(s.Type, "SOCKET-SENDTO"), strings.HasPrefix(s.Type, "SOCKET-DATAGRAM"):
+				_, err = parseSocketDgramParams(s)
+			default:
+				_, err = parseSocketStreamCall(s)
+			}
+			if err == nil {
+				t.Fatal("uppercase hex type prefix succeeded")
+			}
+			if !strings.Contains(err.Error(), "syntax error") {
+				t.Fatalf("err=%v want syntax error", err)
+			}
+		})
+	}
+
+	for _, raw := range []string{
+		"SOCKET-CONNECT:2:0:x0102",
+		`SOCKET-CONNECT:1:0:"X"`,
+		`SOCKET-CONNECT:1:0:'X'`,
+		"SOCKET-SENDTO:2:2:17:x00FF",
+	} {
+		t.Run("ok/"+raw, func(t *testing.T) {
+			s := mustSocketSpec(t, raw)
+			var (
+				addr []byte
+				err  error
+			)
+			if strings.HasPrefix(s.Type, "SOCKET-SENDTO") {
+				p, perr := parseSocketDgramParams(s)
+				addr, err = p.addr, perr
+			} else {
+				c, cerr := parseSocketStreamCall(s)
+				addr, err = c.addr, cerr
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(raw, `"X"`) || strings.Contains(raw, `'X'`) {
+				if string(addr) != "X" {
+					t.Fatalf("quoted X addr=%q want X", addr)
+				}
+			}
+		})
+	}
+}
+
+func TestSocketBindRejectsUppercaseXPrefix(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	_, err := openSocketConnect(ctx, mustSocketSpec(t,
+		"SOCKET-CONNECT:2:0:x00,bind=X0102,connect-timeout=0.05"), xio.ModeRDWR, nil)
+	if err == nil {
+		t.Fatal("bind=X0102 succeeded")
+	}
+	if !strings.Contains(err.Error(), "syntax error") {
+		t.Fatalf("bind=X0102 err=%v want syntax error", err)
+	}
+
+	_, err = openSocketDatagram(ctx, mustSocketSpec(t,
+		"SOCKET-DATAGRAM:2:2:17:x00007f000001,bind=X0102"), xio.ModeRDWR, nil)
+	if err == nil {
+		t.Fatal("SOCKET-DATAGRAM bind=X0102 succeeded")
+	}
+	if !strings.Contains(err.Error(), "syntax error") {
+		t.Fatalf("SOCKET-DATAGRAM bind=X0102 err=%v want syntax error", err)
+	}
+}
+
 func TestSocketConnectUnknownDomainCallsSocket(t *testing.T) {
 	_, err := openSocketConnect(context.Background(), mustSocketSpec(t, "SOCKET-CONNECT:99:0:x00"), xio.ModeRDWR, nil)
 	if err == nil {

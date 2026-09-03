@@ -114,6 +114,7 @@ func TestCompiledIPRangeForms(t *testing.T) {
 		{"address-mask", "127.9.8.7", "127.0.0.0:255.0.0.0", true},
 		{"exact", "192.0.2.1", "192.0.2.1", true},
 		{"hex-sockaddr", "127.8.9.10", "x0000x7f000000:x0000xff000000", true},
+		{"hex-sockaddr-upper-digits", "127.8.9.10", "x0000x7F000000:x0000xFF000000", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -125,6 +126,46 @@ func TestCompiledIPRangeForms(t *testing.T) {
 				t.Fatalf("match(%s, %q) = %v, want %v", tc.peer, tc.spec, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestCompileIPRangeRejectsUppercaseHexPrefix(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, spec := range []string{
+		"X0000X7f000000:X0000xff000000",
+		"X0000x7f000000:x0000xff000000",
+		"x0000x7f000000:X0000xff000000",
+	} {
+		t.Run(spec, func(t *testing.T) {
+			_, err := compileIPRange(ctx, spec, net.DefaultResolver)
+			if err == nil {
+				t.Fatal("uppercase hex type prefix succeeded")
+			}
+			if errors.Is(err, context.Canceled) {
+				t.Fatalf("treated %q as a hostname: %v", spec, err)
+			}
+			if !strings.Contains(err.Error(), "invalid hex") {
+				t.Fatalf("err=%v want invalid hex sockaddr", err)
+			}
+		})
+	}
+
+	spec, err := parse.ParseSpec("TCP-LISTEN:0,range=X0000X7f000000:X0000xff000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	filter := NewPeerFilter(ctx, spec, nil)
+	err = filter.AllowAddr(&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1}, nil)
+	if err == nil {
+		t.Fatal("PeerFilter accepted range with uppercase hex type prefix")
+	}
+	if errors.Is(err, context.Canceled) {
+		t.Fatalf("PeerFilter treated uppercase hex range as a hostname: %v", err)
+	}
+	if !strings.Contains(err.Error(), "invalid hex") {
+		t.Fatalf("PeerFilter err=%v want invalid hex sockaddr", err)
 	}
 }
 
