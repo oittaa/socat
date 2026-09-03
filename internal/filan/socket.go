@@ -93,8 +93,9 @@ func printSockopt(b *outbuf.Buf, fd, level, opt int, name string, kind int) {
 }
 
 func getsockoptBytes(fd, level, opt int) ([]byte, error) {
-	buf := make([]byte, 256)
-	vallen := uint32(len(buf)) // #nosec G115 -- 256-byte getsockopt buffer
+	const bufLen = 256
+	buf := make([]byte, bufLen)
+	vallen := uint32(bufLen)
 	_, _, errno := unix.Syscall6(
 		unix.SYS_GETSOCKOPT,
 		uintptr(fd),
@@ -112,15 +113,6 @@ func getsockoptBytes(fd, level, opt int) ([]byte, error) {
 
 func nativeUint32(b []byte) uint32 {
 	return binary.NativeEndian.Uint32(b[:4])
-}
-
-func fionread(fd int) (int, error) {
-	var n int32
-	_, _, errno := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uintptr(fionreadReq), uintptr(unsafe.Pointer(&n))) // #nosec G103 -- FIONREAD writes an int
-	if errno != 0 {
-		return 0, errno
-	}
-	return int(n), nil
 }
 
 // SockAddrString formats a kernel sockaddr for short (-s/-S) output.

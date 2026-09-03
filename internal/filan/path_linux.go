@@ -14,16 +14,21 @@ const (
 	libcNCCS    = 32
 )
 
+func fionread(fd int) (int, error) {
+	n, err := unix.IoctlGetUint32(fd, fionreadReq)
+	return int(int32(n)), err // #nosec G115 -- kernel returns signed 32-bit int
+}
+
 func getDumpTermios(fd int) (dumpTermios, error) {
 	t, err := unix.IoctlGetTermios(fd, unix.TCGETS)
 	if err != nil {
 		return dumpTermios{}, err
 	}
 	return dumpTermios{
-		Iflag: t.Iflag,
-		Oflag: t.Oflag,
-		Cflag: t.Cflag,
-		Lflag: t.Lflag,
+		Iflag: uint64(t.Iflag),
+		Oflag: uint64(t.Oflag),
+		Cflag: uint64(t.Cflag),
+		Lflag: uint64(t.Lflag),
 		Cc:    libcDisplayCC(t.Cc[:]),
 	}, nil
 }
@@ -43,4 +48,8 @@ func FDPath(fd int) string {
 		return ""
 	}
 	return p
+}
+
+func statDev(st *unix.Stat_t) (uint64, uint64) {
+	return st.Dev, st.Rdev
 }

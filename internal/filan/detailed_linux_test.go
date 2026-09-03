@@ -4,6 +4,8 @@ package filan
 
 import (
 	"fmt"
+	"io"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -121,5 +123,25 @@ func TestWriteFDConnectedTCPLinuxSockopts(t *testing.T) {
 	n, err := strconv.Atoi(state[1])
 	if err != nil || n == 0 {
 		t.Fatalf("TCPI_STATE=%q want established non-zero", state[1])
+	}
+}
+
+func TestFIONREADNegativeOffsetLinux(t *testing.T) {
+	tmp, err := os.CreateTemp(t.TempDir(), "fionread-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = tmp.Close() })
+
+	if _, err := tmp.Seek(100, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := fionread(int(tmp.Fd()))
+	if err != nil {
+		t.Fatalf("fionread error: %v", err)
+	}
+	if n != -100 {
+		t.Fatalf("fionread on empty file at offset 100: got %d, want -100", n)
 	}
 }

@@ -2,8 +2,13 @@
 
 package netopen
 
+import "math"
+
 func sockaddrHeader(family int) []byte {
-	return []byte{0, byte(family)} // #nosec G115 -- packRawSockaddr rejects family > 255; sa_family is uint8
+	if family < 0 || family > math.MaxUint8 {
+		return nil
+	}
+	return []byte{0, byte(family)}
 }
 
 func sockaddrFamily(buf []byte) int {

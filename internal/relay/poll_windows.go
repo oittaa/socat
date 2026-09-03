@@ -12,7 +12,7 @@ import (
 func canPoll() bool { return false }
 
 func idleClockSleep() {
-	windows.SleepEx(uint32(idleWatchInterval.Milliseconds()), false)
+	windows.SleepEx(uint32(idleWatchInterval/time.Millisecond), false)
 }
 
 // waitPollRead has no WSAPoll in x/sys/windows. Callers must use canPoll()

@@ -397,7 +397,7 @@ func parseTermiosField(o parse.Option, field termiosValue) (termiosBits, error) 
 	if shifted64 > uint64(^termiosBits(0)) || shifted64&^uint64(field.mask) != 0 {
 		return 0, fmt.Errorf("%s: invalid value %d", field.name, n)
 	}
-	shifted := termiosBits(shifted64) // #nosec G115 -- bounded to the platform termios word above.
+	shifted := termiosBits(shifted64)
 	return shifted, nil
 }
 

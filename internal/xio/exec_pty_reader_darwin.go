@@ -5,6 +5,7 @@ package xio
 import (
 	"errors"
 	"io"
+	"math"
 	"os"
 	"sync"
 	"syscall"
@@ -88,9 +89,13 @@ func darwinPTYOutputBytesQueued(master *os.File) (int, error) {
 	var pending int
 	var ioctlErr error
 	controlErr := raw.Control(func(fd uintptr) {
+		if fd > math.MaxInt {
+			ioctlErr = syscall.EBADF
+			return
+		}
 		for {
 			// TIOCOUTQ is the slave-output queue read through the PTY master.
-			pending, ioctlErr = unix.IoctlGetInt(int(fd), unix.TIOCOUTQ) // #nosec G115 -- file descriptors fit in int on Darwin
+			pending, ioctlErr = unix.IoctlGetInt(int(fd), unix.TIOCOUTQ)
 			if !errors.Is(ioctlErr, syscall.EINTR) {
 				break
 			}

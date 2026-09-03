@@ -38,7 +38,7 @@ func OpenPTYPair() (master, slave *os.File, err error) {
 	}
 	// Slave path via TIOCPTYGNAME.
 	var buf [128]byte
-	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, m.Fd(), uintptr(unix.TIOCPTYGNAME), uintptr(unsafe.Pointer(&buf[0]))); errno != 0 {
+	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, m.Fd(), uintptr(unix.TIOCPTYGNAME), uintptr(unsafe.Pointer(&buf[0]))); errno != 0 { // #nosec G103 -- TIOCPTYGNAME writes the slave path
 		err = errno
 		return nil, nil, err
 	}
@@ -52,7 +52,7 @@ func OpenPTYPair() (master, slave *os.File, err error) {
 		return nil, nil, err
 	}
 
-	s, err := os.OpenFile(sname, os.O_RDWR|syscall.O_NOCTTY, 0)
+	s, err := os.OpenFile(sname, os.O_RDWR|syscall.O_NOCTTY, 0) // #nosec G304 -- slave path comes from TIOCPTYGNAME, not user input
 	if err != nil {
 		return nil, nil, fmt.Errorf("open slave %s: %w", sname, err)
 	}
