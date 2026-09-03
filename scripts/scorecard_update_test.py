@@ -72,6 +72,15 @@ class ValidateResultTest(unittest.TestCase):
         wrapper = (SCRIPT.parent / "docker-classic-scorecard.sh").read_text()
         self.assertIn('-e ALLOW_LOST="${ALLOW_LOST:-', wrapper)
 
+    def test_classic_scorecard_saves_baseline_only_after_parser_ok(self) -> None:
+        runner = (SCRIPT.parent / "classic-scorecard.sh").read_text()
+        parse_idx = runner.index("parse_ec=$?")
+        gate_idx = runner.index('if [[ -n "$SAVE_BASELINE" && $parse_ec -ne 0 ]]; then')
+        save_idx = runner.index('cp -f "$OUT_DIR/results.json" "$SAVE_BASELINE"')
+        self.assertLess(parse_idx, gate_idx)
+        self.assertLess(gate_idx, save_idx)
+        self.assertIn("not saving baseline", runner)
+
     def test_accepts_complete_canonical_run(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             path = pathlib.Path(tempdir) / "result.json"

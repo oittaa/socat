@@ -36,7 +36,8 @@ when the printed `... FAILED` / `... OK` token disagrees. A missing
 `Summary:` footer or a non-timeout abort does not override a printed
 outcome. Overlap between the two lists is a reporting error: both
 `scorecard-parse.py` and `scorecard-update.py validate-result` reject the
-result independently of `--regression-exit`. These are parser corrections,
+result independently of `--regression-exit`, and `classic-scorecard.sh`
+does not overwrite `SAVE_BASELINE`. These are parser corrections,
 not changes in socat behavior. Committed JSON in this directory is not
 rewritten only to match a parser change.
 

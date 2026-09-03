@@ -84,7 +84,7 @@ OUT_DIR="${OUT_DIR:-$ROOT/.scorecard/host}"
 # Structured results / baselines
 LABEL="${LABEL:-}"                     # auto: classic|go from binary path if empty
 BASELINE="${BASELINE:-}"               # path to results.json to compare against
-SAVE_BASELINE="${SAVE_BASELINE:-}"     # copy results.json here after run
+SAVE_BASELINE="${SAVE_BASELINE:-}"     # copy results.json here after a successful parse
 REGRESSION_EXIT="${REGRESSION_EXIT:-0}" # 1 = exit non-zero on OK→non-OK vs BASELINE
 SKIP_BUILD="${SKIP_BUILD:-0}"          # 1 = do not make build (when using foreign SOCAT)
 TEST_SH_ARGS="${TEST_SH_ARGS:-}"       # extra test.sh flags, e.g. --internet
@@ -461,7 +461,9 @@ python3 "$ROOT/scripts/scorecard-parse.py" "$OUT_DIR" \
 parse_ec=$?
 set -e
 
-if [[ -n "$SAVE_BASELINE" ]]; then
+if [[ -n "$SAVE_BASELINE" && $parse_ec -ne 0 ]]; then
+  echo "not saving baseline $SAVE_BASELINE: parser exit $parse_ec (results remain in $OUT_DIR/results.json)" >&2
+elif [[ -n "$SAVE_BASELINE" ]]; then
   mkdir -p "$(dirname "$SAVE_BASELINE")"
   cp -f "$OUT_DIR/results.json" "$SAVE_BASELINE"
   # Keep a sidecar copy of summary for humans
