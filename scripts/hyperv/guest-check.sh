@@ -13,6 +13,10 @@ if [[ ! -f /var/lib/socat-lab/provisioned ]]; then
   echo 'guest is not provisioned; run socat-classic-lab.ps1 provision' >&2
   exit 1
 fi
+if ! command -v systemd-socket-activate >/dev/null 2>&1; then
+  echo 'systemd-socket-activate is missing; re-run socat-classic-lab.ps1 provision' >&2
+  exit 1
+fi
 echo '==> loading real Linux AF_VSOCK loopback transport'
 sudo modprobe vsock_loopback
 

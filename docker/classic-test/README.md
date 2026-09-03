@@ -1,7 +1,9 @@
 # Classic `test.sh` Docker runner
 
 Ubuntu **26.04** image with classic **socat 1.8.1.3** built from upstream,
-plus this repo’s scorecard scripts. Runs as **root** with network capabilities
+plus this repo’s scorecard scripts. Installs the `systemd` package for
+`systemd-socket-activate` (classic `ACCEPT_FD`); it does not boot systemd
+or change the container entrypoint. Runs as **root** with network capabilities
 so raw-IP, tcpwrap, TUN, and other privileged classic tests can pass.
 
 ## Build
@@ -26,7 +28,7 @@ Environment variables:
 | `HOST_BASELINE` | `testdata/scorecard/classic-baseline.json` | verify host OK ⊆ docker OK |
 | `NO_BUILD` | `0` | `1` = skip `docker build` |
 | `PRIVILEGED` | `0` | `1` = `--privileged` instead of explicit caps |
-| `ALLOW_LOST` | `216,304,399,410,453,492,520,542,543,582` | host-OK IDs allowed to fail in docker |
+| `ALLOW_LOST` | `216,304,399,410,453,520,542,543,582` | host-OK IDs allowed to fail in docker |
 | `SCORECARD_EXIT` | `0` | `1` = exit non-zero if classic has FAILs |
 
 ## Direct `docker run`

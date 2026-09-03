@@ -43,8 +43,10 @@ Run these from a PowerShell process that can manage Hyper-V:
 
 `download` verifies Canonical's pinned SHA-256. `create` refuses to overwrite an
 existing VM or disk. `provision` installs the Go toolchain, the CI-pinned
-`golangci-lint` and `gosec` tools needed by `make check`, plus the build
-dependencies used by `make classic-parity`. `checkpoint` requires successful
+`golangci-lint` and `gosec` tools needed by `make check`, the `systemd`
+package (for `systemd-socket-activate` / classic `ACCEPT_FD`), plus the
+build dependencies used by `make classic-parity`. It fails if
+`systemd-socket-activate` is missing. `checkpoint` requires successful
 provisioning, performs a clean guest shutdown, detaches the cloud-init seed, and
 records a powered-off `clean-provisioned` checkpoint.
 
@@ -82,7 +84,8 @@ By default `check` reuses the running VM and its Go caches. Use
 ./scripts/hyperv/socat-classic-lab.ps1 check -KeepGuestWorktree
 ```
 
-The runner verifies that Go, `golangci-lint`, and `gosec` exist before copying
-the workspace. `parity` also requires its persistent cache directory. If an
-older checkpoint lacks the required setup, the runner provisions it
-automatically; subsequent runs keep the warm caches.
+The runner verifies that Go, `golangci-lint`, `gosec`, and
+`systemd-socket-activate` exist before copying the workspace. `parity` also
+requires its persistent cache directory. If an older checkpoint lacks the
+required setup, the runner provisions it automatically; subsequent runs keep
+the warm caches.

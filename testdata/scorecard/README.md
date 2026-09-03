@@ -119,6 +119,12 @@ and DCCP tests when the host kernel has retired DCCP. `NETNS` /
 `NETNS_EXEC` need `PRIVILEGED=1` (see Go Docker section). Default Docker caps
 do not let `ip netns add` create `/run/netns/<name>`.
 
+The committed `classic-docker-baseline.json` and `go-docker-baseline.json`
+still record test 492 `ACCEPT_FD` as CANT (`systemd-socket-activate not
+available`). Newly rebuilt images install the `systemd` package so that
+binary is present (they do not boot systemd). A focused rerun of 492
+passes for C and Go. Those JSON files are not regenerated here.
+
 ### Go under test in Docker
 
 ```bash
