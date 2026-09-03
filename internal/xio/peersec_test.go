@@ -167,6 +167,17 @@ func TestCompileIPRangeRejectsUppercaseHexPrefix(t *testing.T) {
 	if !strings.Contains(err.Error(), "invalid hex") {
 		t.Fatalf("PeerFilter err=%v want invalid hex sockaddr", err)
 	}
+
+	_, err = NewCompiledPeerFilter(ctx, spec, nil)
+	if err == nil {
+		t.Fatal("NewCompiledPeerFilter succeeded with uppercase hex range")
+	}
+	if errors.Is(err, context.Canceled) {
+		t.Fatalf("NewCompiledPeerFilter treated uppercase hex range as a hostname: %v", err)
+	}
+	if !strings.Contains(err.Error(), "invalid hex") {
+		t.Fatalf("NewCompiledPeerFilter err=%v want invalid hex sockaddr", err)
+	}
 }
 
 // nestNetConn is a TLS-like wrapper: NetConn() returns the next layer.

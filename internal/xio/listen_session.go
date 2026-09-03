@@ -69,7 +69,11 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 	if wrap == nil {
 		wrap = DefaultWrapDial(s)
 	}
-	peerFilter := NewPeerFilter(ctx, s, g)
+	peerFilter, err := NewCompiledPeerFilter(ctx, s, g)
+	if err != nil {
+		_ = closeLn()
+		return nil, err
+	}
 	filter := peerFilter.AllowConn
 	setDeadline := sess.SetAcceptDeadline
 	if setDeadline == nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -124,5 +125,41 @@ func TestOpenListenSessionCancelsPeerFilterLookup(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("listen session ignored cancellation during peer-filter DNS")
+	}
+}
+
+func TestOpenListenSessionRejectsMalformedRangeBeforeAccept(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	bound := make(chan struct{}, 1)
+	restore := SetListenBoundTestHook(func(net.Addr) { bound <- struct{}{} })
+	t.Cleanup(restore)
+
+	spec := parseSpecForListenSession(t, "TCP-LISTEN:0,range=X0000X7f000000:X0000xff000000")
+	start := time.Now()
+	_, err = OpenListenSession(context.Background(), spec, nil, ListenSession{Listener: ln, Label: "TCP-LISTEN"})
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("malformed range took %v; want immediate open failure", elapsed)
+	}
+	if err == nil {
+		t.Fatal("OpenListenSession succeeded with uppercase hex range")
+	}
+	if !strings.Contains(err.Error(), "invalid hex") {
+		t.Fatalf("err=%v want invalid hex sockaddr", err)
+	}
+	select {
+	case <-bound:
+		t.Fatal("listen bound hook ran; range must fail before accept")
+	default:
+	}
+	if tl, ok := ln.(*net.TCPListener); ok {
+		_ = tl.SetDeadline(time.Now().Add(50 * time.Millisecond))
+	}
+	if _, aerr := ln.Accept(); aerr == nil {
+		t.Fatal("malformed range left the listener open")
 	}
 }

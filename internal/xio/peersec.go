@@ -68,6 +68,27 @@ func NewPeerFilter(ctx context.Context, s parse.Spec, g *Global) *PeerFilter {
 	}
 }
 
+// NewCompiledPeerFilter is NewPeerFilter plus Compile. Address openers use it
+// so a malformed range fails the open instead of the first accepted peer.
+func NewCompiledPeerFilter(ctx context.Context, s parse.Spec, g *Global) (*PeerFilter, error) {
+	f := NewPeerFilter(ctx, s, g)
+	if err := f.Compile(); err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+// Compile resolves range= once. Call it after bind and before accept or recv
+// so syntax and lookup errors abort the address instead of leaving a listener
+// that rejects every peer.
+func (f *PeerFilter) Compile() error {
+	if f == nil || !f.hasRange {
+		return nil
+	}
+	_, err := f.compiledRange()
+	return err
+}
+
 // PeerAllowedG checks a connection with a one-use filter. Long-lived callers
 // should keep a PeerFilter instead.
 func PeerAllowedG(s parse.Spec, conn net.Conn, g *Global) error {

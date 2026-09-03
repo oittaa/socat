@@ -258,6 +258,11 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return nil, err
 	}
 	v4 := network == "ip4" || raddr.IP.To4() != nil
+	filter, err := xio.NewCompiledPeerFilter(ctx, s, g)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
 	st := relay.Stream(&rawIPDatagramConn{
 		c:        pc,
 		raddr:    raddr,
@@ -265,7 +270,7 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		wantCtrl: xio.NeedAncillary(s),
 		g:        g,
 		ctx:      ctx,
-		filter:   xio.NewPeerFilter(ctx, s, g),
+		filter:   filter,
 	})
 	st, err = xio.WrapCommonAfterConnected(s, st)
 	if err != nil {
@@ -314,9 +319,14 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("%s is read-only", s.Type)
 	}
+	filter, err := xio.NewCompiledPeerFilter(ctx, s, g)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
 	st := relay.Stream(&rawIPFilteredRecv{
 		c:        pc,
-		filter:   xio.NewPeerFilter(ctx, s, g),
+		filter:   filter,
 		g:        g,
 		ctx:      ctx,
 		wantCtrl: wantCtrl,
@@ -341,7 +351,11 @@ func openIPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *ne
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	peerFilter := xio.NewPeerFilter(ctx, s, g)
+	peerFilter, err := xio.NewCompiledPeerFilter(ctx, s, g)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
 	ln := &rawIPForkListener{
 		pc:         pc,
 		spec:       s,
@@ -367,7 +381,11 @@ func openIPRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, pc 
 	// One permitted packet, then EOF. Keep the socket for reply writes.
 	buf := make([]byte, max(g.BlockSize, 65535))
 	stripV4 := network == "ip4"
-	peerFilter := xio.NewPeerFilter(ctx, s, g)
+	peerFilter, err := xio.NewCompiledPeerFilter(ctx, s, g)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
 	n, oob, raddr, err := recvRawIPFiltered(ctx, pc, buf, wantCtrl, stripV4, s.BoolOption("null-eof"), peerFilter, g)
 	if err != nil {
 		logx.CloseQuiet(pc)

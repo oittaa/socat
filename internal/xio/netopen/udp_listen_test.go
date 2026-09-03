@@ -1044,29 +1044,14 @@ func TestUDPListenCancelsPeerFilterLookup(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	o, err := openUDP4Listen(ctx, spec, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = o.Close() })
-
-	result := make(chan error, 1)
+	errc := make(chan error, 1)
 	go func() {
-		conn, acceptErr := o.Listener.Accept()
-		if conn != nil {
-			_ = conn.Close()
+		o, openErr := openUDP4Listen(ctx, spec, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+		if o != nil {
+			_ = o.Close()
 		}
-		result <- acceptErr
+		errc <- openErr
 	}()
-
-	client, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = client.Close() })
-	if _, err := client.WriteTo([]byte("x"), o.Listener.Addr()); err != nil {
-		t.Fatal(err)
-	}
 
 	select {
 	case <-queried:
@@ -1076,11 +1061,30 @@ func TestUDPListenCancelsPeerFilterLookup(t *testing.T) {
 		t.Fatal("UDP peer filter did not query selected nameserver")
 	}
 	select {
-	case err := <-result:
+	case err := <-errc:
 		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("Accept error=%v want context.Canceled", err)
+			t.Fatalf("openUDP4Listen error=%v want context.Canceled", err)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("UDP-LISTEN ignored cancellation during peer-filter DNS")
+	}
+}
+
+func TestUDPListenMalformedRangeFailsOpen(t *testing.T) {
+	spec, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1,range=X0000X7f000000:X0000xff000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	o, err := openUDP4Listen(context.Background(), spec, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	if o != nil {
+		_ = o.Close()
+		t.Fatal("UDP-LISTEN opened with uppercase hex range")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("malformed range took %v; want immediate open failure", elapsed)
+	}
+	if err == nil || !strings.Contains(err.Error(), "invalid hex") {
+		t.Fatalf("openUDP4Listen err=%v want invalid hex", err)
 	}
 }
