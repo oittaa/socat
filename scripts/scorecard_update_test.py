@@ -4,6 +4,8 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -70,6 +72,15 @@ class ValidateResultTest(unittest.TestCase):
         wrapper = (SCRIPT.parent / "docker-classic-scorecard.sh").read_text()
         self.assertIn('-e ALLOW_LOST="${ALLOW_LOST:-', wrapper)
 
+    def test_classic_scorecard_saves_baseline_only_after_parser_ok(self) -> None:
+        runner = (SCRIPT.parent / "classic-scorecard.sh").read_text()
+        parse_idx = runner.index("parse_ec=$?")
+        gate_idx = runner.index('if [[ -n "$SAVE_BASELINE" && $parse_ec -ne 0 ]]; then')
+        save_idx = runner.index('cp -f "$OUT_DIR/results.json" "$SAVE_BASELINE"')
+        self.assertLess(parse_idx, gate_idx)
+        self.assertLess(gate_idx, save_idx)
+        self.assertIn("not saving baseline", runner)
+
     def test_accepts_complete_canonical_run(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             path = pathlib.Path(tempdir) / "result.json"
@@ -96,6 +107,52 @@ class ValidateResultTest(unittest.TestCase):
             write_json(path, doc)
             with self.assertRaisesRegex(MODULE.ScorecardError, "expected 'classic'"):
                 MODULE.validate_result(path, label="classic")
+
+    def test_rejects_reporting_errors_before_publish(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            path = pathlib.Path(tempdir) / "result.json"
+            doc = result("classic", {50: "FAILED"})
+            doc["summary"]["reporting_errors"] = [
+                {
+                    "id": 50,
+                    "name": "WEIRD",
+                    "reason": "upstream CANT and FAILED lists both include this test",
+                    "printed": "FAILED",
+                }
+            ]
+            write_json(path, doc)
+            with self.assertRaisesRegex(MODULE.ScorecardError, "reporting error"):
+                MODULE.validate_result(path, label="classic")
+
+    def test_cli_exits_nonzero_on_reporting_errors(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            path = pathlib.Path(tempdir) / "result.json"
+            doc = result("classic", {50: "FAILED"})
+            doc["summary"]["reporting_errors"] = [
+                {
+                    "id": 50,
+                    "name": "WEIRD",
+                    "reason": "upstream CANT and FAILED lists both include this test",
+                    "printed": "FAILED",
+                }
+            ]
+            write_json(path, doc)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-B",
+                    str(SCRIPT),
+                    "validate-result",
+                    str(path),
+                    "--label",
+                    "classic",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(completed.returncode, 0)
+            self.assertIn("reporting error", completed.stderr)
 
 
 class PublishTest(unittest.TestCase):

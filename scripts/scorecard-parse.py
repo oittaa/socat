@@ -28,8 +28,9 @@ from typing import Any
 # test 228 TCP4SERVICE: ... FAILED: diff:
 # test  24 OPENSSL: ... Feature FOO not available
 # test 405 OPENSSL_SNI: ... use test.sh option --internet
+# test 375 OPENSSL_METHOD_TLS1.2: test OpenSSL method TLS1.2... OK
 RE_TEST = re.compile(
-    r"^test\s+(\d+)\s+([A-Za-z0-9_]+):\s+(.*)\.\.\.\s*(.*)$"
+    r"^test\s+(\d+)\s+([A-Za-z0-9_.]+):\s+(.*)\.\.\.\s*(.*)$"
 )
 RE_SUMMARY = re.compile(
     r"Summary:\s+(\d+)\s+tests,\s+(\d+)\s+selected;\s+"
@@ -86,10 +87,126 @@ def parse_id_list(s: str) -> list[int]:
     return out
 
 
+def _placeholder_test(tid: int, sid: int, status: str, detail: str) -> dict[str, Any]:
+    return {
+        "id": tid,
+        "name": "",
+        "description": "",
+        "status": status,
+        "detail": detail,
+        "shard": sid,
+        "raw": "",
+    }
+
+
+def _record_conflict(test: dict[str, Any], printed: str, upstream: str, conflicts: list[dict[str, Any]]) -> None:
+    """Keep the printed line and adopt an unambiguous upstream list status."""
+    test["printed_status"] = printed
+    test["status"] = upstream
+    test["conflict"] = f"printed {printed}; upstream {upstream} list includes this test"
+    conflicts.append(
+        {
+            "id": test["id"],
+            "name": test.get("name") or "",
+            "printed": printed,
+            "status": upstream,
+            "detail": test.get("detail") or "",
+        }
+    )
+
+
+def reconcile_shard_lists(
+    tests: dict[int, dict[str, Any]],
+    summary_cant: list[int],
+    summary_failed: list[int],
+    sid: int,
+    *,
+    completed: bool,
+    conflicts: list[dict[str, Any]],
+    reporting_errors: list[dict[str, Any]],
+) -> None:
+    """Apply explicit upstream CANT/FAILED ID lists.
+
+    Completed shards (valid Summary footer, not timed out): an unambiguous list
+    membership wins over a contradictory printed token, while the printed
+    result is retained as a conflict. Missing Summary or a non-timeout abort
+    never reclassify a printed outcome. Overlap between the two lists is a
+    reporting error, not a silent winner. Individual outcomes are never
+    inferred from aggregate Summary counts.
+    """
+    cant_ids = set(summary_cant)
+    failed_ids = set(summary_failed)
+    both = cant_ids & failed_ids
+
+    for tid in sorted(both):
+        test = tests.get(tid)
+        name = (test or {}).get("name") or ""
+        printed = (test or {}).get("status") or ""
+        reporting_errors.append(
+            {
+                "id": tid,
+                "name": name,
+                "reason": "upstream CANT and FAILED lists both include this test",
+                "printed": printed,
+            }
+        )
+        if test is None:
+            tests[tid] = _placeholder_test(
+                tid, sid, "UNKNOWN", "from contradictory Summary CANT and FAILED lists"
+            )
+            tests[tid]["reporting_error"] = "upstream CANT and FAILED lists both include this test"
+        else:
+            test["reporting_error"] = "upstream CANT and FAILED lists both include this test"
+
+    cant_only = cant_ids - failed_ids
+    failed_only = failed_ids - cant_ids
+
+    for tid in cant_only:
+        if tid not in tests:
+            tests[tid] = _placeholder_test(tid, sid, "CANT", "from Summary CANT list")
+            continue
+        if not completed:
+            continue
+        printed = tests[tid]["status"]
+        if printed == "CANT":
+            continue
+        if printed == "UNKNOWN":
+            tests[tid]["status"] = "CANT"
+            if not tests[tid].get("detail"):
+                tests[tid]["detail"] = "from Summary CANT list"
+            continue
+        _record_conflict(tests[tid], printed, "CANT", conflicts)
+
+    for tid in failed_only:
+        if tid not in tests:
+            tests[tid] = _placeholder_test(tid, sid, "FAILED", "from Summary FAILED list")
+            continue
+        if not completed:
+            continue
+        printed = tests[tid]["status"]
+        if printed == "FAILED":
+            continue
+        if printed == "UNKNOWN":
+            tests[tid]["status"] = "FAILED"
+            if not tests[tid].get("detail"):
+                tests[tid]["detail"] = "from Summary FAILED list"
+            continue
+        _record_conflict(tests[tid], printed, "FAILED", conflicts)
+
+
+def shard_is_complete(text: str, shard_timed_out: bool) -> bool:
+    """True only with a genuine Summary footer and no shard timeout."""
+    if shard_timed_out:
+        return False
+    return any(RE_SUMMARY.search(line) for line in text.splitlines())
+
+
 def parse_logs(out_dir: pathlib.Path) -> dict[str, Any]:
     tests: dict[int, dict[str, Any]] = {}
     shard_timeouts: list[int] = []
     last_seen_by_shard: dict[int, int] = {}
+    conflicts: list[dict[str, Any]] = []
+    reporting_errors: list[dict[str, Any]] = []
 
     for log in sorted(out_dir.glob("shard-*.log"), key=lambda p: p.name):
         sid = int(log.stem.split("-")[1])
@@ -154,33 +271,15 @@ def parse_logs(out_dir: pathlib.Path) -> dict[str, Any]:
 
         last_seen_by_shard[sid] = last_id
 
-        # Fill CANT/FAILED from Summary lists if missing per-test lines
-        for tid in summary_cant:
-            if tid not in tests:
-                tests[tid] = {
-                    "id": tid,
-                    "name": "",
-                    "description": "",
-                    "status": "CANT",
-                    "detail": "from Summary CANT list",
-                    "shard": sid,
-                    "raw": "",
-                }
-            elif tests[tid]["status"] == "UNKNOWN":
-                tests[tid]["status"] = "CANT"
-        for tid in summary_failed:
-            if tid not in tests:
-                tests[tid] = {
-                    "id": tid,
-                    "name": "",
-                    "description": "",
-                    "status": "FAILED",
-                    "detail": "from Summary FAILED list",
-                    "shard": sid,
-                    "raw": "",
-                }
-            elif tests[tid]["status"] not in ("OK", "FAILED"):
-                tests[tid]["status"] = "FAILED"
+        reconcile_shard_lists(
+            tests,
+            summary_cant,
+            summary_failed,
+            sid,
+            completed=shard_is_complete(text, shard_timed_out),
+            conflicts=conflicts,
+            reporting_errors=reporting_errors,
+        )
 
         # If shard timed out, mark incomplete tail as TIMEOUT
         if shard_timed_out and last_id:
@@ -206,6 +305,8 @@ def parse_logs(out_dir: pathlib.Path) -> dict[str, Any]:
             "unknown": counts.get("UNKNOWN", 0),
             "total_recorded": len(tests),
             "shard_timeouts": shard_timeouts,
+            "conflicts": conflicts,
+            "reporting_errors": reporting_errors,
         },
     }
 
@@ -356,6 +457,22 @@ def print_compare(cmp: dict[str, Any]) -> None:
     real_fail = [e for e in cmp["regressions"] if e.get("to") == "FAILED"]
     real_cant = [e for e in cmp["regressions"] if e.get("to") == "CANT"]
     print(f"Parity gap (classic OK): FAILED={len(real_fail)} CANT={len(real_cant)} other={cmp['regression_count']-len(real_fail)-len(real_cant)}")
+    current_summary = cmp.get("current_summary") or {}
+    conflicts = current_summary.get("conflicts") or []
+    if conflicts:
+        print()
+        print(f"PARSER CONFLICTS ({len(conflicts)}) — printed result disagrees with upstream lists:")
+        for e in conflicts[:40]:
+            print(
+                f"  {e['id']:4d} {e.get('name',''):<32} printed {e.get('printed')} "
+                f"→ {e.get('status')}"
+            )
+    errors = current_summary.get("reporting_errors") or []
+    if errors:
+        print()
+        print(f"PARSER REPORTING ERRORS ({len(errors)}):")
+        for e in errors[:40]:
+            print(f"  {e['id']:4d} {e.get('name',''):<32} {e.get('reason')}")
 
 
 
@@ -404,7 +521,25 @@ def main() -> int:
         f"TIMEOUT={s['timeout']} UNKNOWN={s['unknown']} total={s['total_recorded']}"
     )
     print(f"wrote {jsonl}")
+    conflicts = s.get("conflicts") or []
+    if conflicts:
+        print(f"CONFLICTS ({len(conflicts)}) — printed result disagrees with upstream lists:")
+        for e in conflicts[:60]:
+            print(
+                f"  {e['id']:4d} {e.get('name',''):<32} printed {e.get('printed')} "
+                f"→ {e.get('status')}  {e.get('detail','')[:60]}"
+            )
+        if len(conflicts) > 60:
+            print(f"  ... and {len(conflicts)-60} more")
+    errors = s.get("reporting_errors") or []
+    if errors:
+        print(f"REPORTING ERRORS ({len(errors)}) — irreconcilable Summary lists:")
+        for e in errors[:60]:
+            print(f"  {e['id']:4d} {e.get('name',''):<32} {e.get('reason')}")
+        if len(errors) > 60:
+            print(f"  ... and {len(errors)-60} more")
 
+    exit_code = 1 if errors else 0
     if args.compare:
         baseline = json.loads(args.compare.read_text())
         cmp = compare(baseline, doc)
@@ -414,7 +549,7 @@ def main() -> int:
         print(f"wrote {cmp_path}")
         if args.regression_exit and cmp["regression_count"]:
             return 1
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":

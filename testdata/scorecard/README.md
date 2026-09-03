@@ -28,6 +28,19 @@ Statuses recorded per test:
 | `TIMEOUT` | shard killed; incomplete result |
 | `UNKNOWN` | no clear result line |
 
+`scripts/scorecard-parse.py` keeps dotted test names (for example
+`OPENSSL_METHOD_TLS1.2`). On a shard that printed a valid `Summary:` footer
+and did not time out, it prefers the explicit upstream `CANT:` / `FAILED:`
+ID lists when those lists are unambiguous, and records a per-test `conflict`
+when the printed `... FAILED` / `... OK` token disagrees. A missing
+`Summary:` footer or a non-timeout abort does not override a printed
+outcome. Overlap between the two lists is a reporting error: both
+`scorecard-parse.py` and `scorecard-update.py validate-result` reject the
+result independently of `--regression-exit`, and `classic-scorecard.sh`
+does not overwrite `SAVE_BASELINE`. These are parser corrections,
+not changes in socat behavior. Committed JSON in this directory is not
+rewritten only to match a parser change.
+
 ## How classic runs vs our runner
 
 Upstream **`test.sh`** is **sequential**: one process, tests 1…N in order, and
@@ -73,8 +86,9 @@ access, rebuilds the pinned classic image, and runs the full classic
 `test.sh` twice: first with classic C and then with this Go tree. Both runs use
 `MODE=classic`, `PRIVILEGED=1`, and `TEST_SH_ARGS=--internet`. Only complete,
 internally consistent runs are copied
-into this directory; timeouts, unknown results, mismatched test sets, or stale
-comparison reports leave the committed files untouched. Full logs stay under a
+into this directory; timeouts, unknown results, contradictory CANT/FAILED
+lists, mismatched test sets, or stale comparison reports leave the committed
+files untouched. Full logs stay under a
 printed `.scorecard/update.*` path, together with comparisons against the
 previous committed Docker baselines.
 

@@ -114,6 +114,12 @@ def validate_result(
     shard_timeouts = summary.get("shard_timeouts")
     if shard_timeouts:
         raise ScorecardError(f"{path} reports shard timeouts: {shard_timeouts}")
+    reporting_errors = summary.get("reporting_errors") or []
+    if reporting_errors:
+        raise ScorecardError(
+            f"{path} has {len(reporting_errors)} parser reporting error(s); "
+            "refuse to publish contradictory CANT/FAILED lists"
+        )
     return doc
 
 
