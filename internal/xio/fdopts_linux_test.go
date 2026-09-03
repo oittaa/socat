@@ -61,7 +61,7 @@ func TestApplyFDOptionsFSNoatime(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = f.Close() })
-	if _, err := unix.IoctlGetInt(int(f.Fd()), unix.FS_IOC_GETFLAGS); err != nil {
+	if _, err := unix.IoctlGetUint32(int(f.Fd()), unix.FS_IOC_GETFLAGS); err != nil {
 		t.Skipf("FS_IOC_GETFLAGS: %v", err)
 	}
 
@@ -72,7 +72,7 @@ func TestApplyFDOptionsFSNoatime(t *testing.T) {
 	if err := ApplyFDOptions(f, spec); err != nil {
 		t.Skipf("fs-noatime: %v", err)
 	}
-	flags, err := unix.IoctlGetInt(int(f.Fd()), unix.FS_IOC_GETFLAGS)
+	flags, err := unix.IoctlGetUint32(int(f.Fd()), unix.FS_IOC_GETFLAGS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestApplyFDOptionsFSNoatime(t *testing.T) {
 	if err := ApplyFDOptions(f, clear); err != nil {
 		t.Fatal(err)
 	}
-	flags, err = unix.IoctlGetInt(int(f.Fd()), unix.FS_IOC_GETFLAGS)
+	flags, err = unix.IoctlGetUint32(int(f.Fd()), unix.FS_IOC_GETFLAGS)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func openFSFlagProbe(t *testing.T) *os.File {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = f.Close() })
-	if _, err := unix.IoctlGetInt(int(f.Fd()), unix.FS_IOC_GETFLAGS); err != nil {
+	if _, err := unix.IoctlGetUint32(int(f.Fd()), unix.FS_IOC_GETFLAGS); err != nil {
 		t.Skipf("FS_IOC_GETFLAGS: %v", err)
 	}
 	// Clear unlink-blocking inode flags before Close/TempDir (LIFO).
@@ -130,16 +130,24 @@ func clearInodeFlagsOnCleanup(t *testing.T, f *os.File, masks ...int) {
 
 func inodeFlags(t *testing.T, f *os.File) int {
 	t.Helper()
-	flags, err := unix.IoctlGetInt(int(f.Fd()), unix.FS_IOC_GETFLAGS)
+	flags, err := unix.IoctlGetUint32(int(f.Fd()), unix.FS_IOC_GETFLAGS)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return flags
+	return int(int32(flags)) // #nosec G115 -- preserve the kernel's 32-bit flag word
 }
 
 func TestApplyFDOptionsFSNodumpSetClearLastWins(t *testing.T) {
 	f := openFSFlagProbe(t)
+	// Seed another writable flag so losing it cannot be hidden by the kernel
+	// retaining read-only flags such as FS_EXTENT_FL.
+	if err := unix.IoctlSetPointerInt(int(f.Fd()), unix.FS_IOC_SETFLAGS, inodeFlags(t, f)|fsNoatimeFL); err != nil {
+		t.Skipf("seed FS_NOATIME_FL: %v", err)
+	}
 	before := inodeFlags(t, f)
+	if before&fsNoatimeFL == 0 {
+		t.Fatal("FS_NOATIME_FL was not set")
+	}
 
 	spec, err := parse.ParseSpec("FD:3,fs-nodump")
 	if err != nil {

@@ -2,8 +2,9 @@ package netopen
 
 import (
 	"fmt"
-	"math"
 	"net"
+
+	"github.com/oittaa/socat/internal/xio"
 )
 
 // connectUDPPeer associates an already-bound UDP socket with peer, matching
@@ -55,8 +56,9 @@ func udpPeerIPv6Addr(peer *net.UDPAddr) ([16]byte, uint32, error) {
 	if err != nil {
 		return addr, 0, fmt.Errorf("UDP connect: zone %q: %w", peer.Zone, err)
 	}
-	if ifi.Index < 0 || ifi.Index > math.MaxUint32 {
+	index, ok := xio.Uint32FromInt(ifi.Index)
+	if !ok {
 		return addr, 0, fmt.Errorf("UDP connect: zone %q: interface index %d out of range", peer.Zone, ifi.Index)
 	}
-	return addr, uint32(ifi.Index), nil
+	return addr, index, nil
 }

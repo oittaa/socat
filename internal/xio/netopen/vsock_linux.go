@@ -191,12 +191,12 @@ func logVsockCID(g *xio.Global) {
 		return
 	}
 	defer logx.CloseQuiet(f)
-	cid, err := unix.IoctlGetInt(int(f.Fd()), unix.IOCTL_VM_SOCKETS_GET_LOCAL_CID)
+	cid, err := unix.IoctlGetUint32(int(f.Fd()), unix.IOCTL_VM_SOCKETS_GET_LOCAL_CID)
 	if err != nil {
 		g.Log.Warningf("ioctl(%d, IOCTL_VM_SOCKETS_GET_LOCAL_CID, ...): %s", int(f.Fd()), err)
 		return
 	}
-	g.Log.Noticef("VSOCK CID=%d", uint32(cid)) // #nosec G115 -- ioctl writes a u32 CID
+	g.Log.Noticef("VSOCK CID=%d", cid)
 }
 
 type vsockAddr struct {

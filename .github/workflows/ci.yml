@@ -17,6 +17,22 @@ defaults:
     shell: bash
 
 jobs:
+  build-386:
+    name: build (windows-386)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Cross-compile
+        env:
+          GOOS: windows
+          GOARCH: '386'
+          CGO_ENABLED: '0'
+        run: go build ./...
+
   unit:
     name: unit (${{ matrix.name }})
     strategy:
