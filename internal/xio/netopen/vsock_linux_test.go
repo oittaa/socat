@@ -110,7 +110,7 @@ func TestVSOCKEchoLoopback(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	g := &xio.Global{Log: logx.New()}
-	c, err := dialVSOCK(ctx, vsockEndpoint{cid: unix.VMADDR_CID_LOCAL, port: addr.Port}, parse.Spec{}, g, 250*time.Millisecond, nil)
+	c, err := dialVSOCK(ctx, vsockEndpoint{cid: unix.VMADDR_CID_LOCAL, port: port}, parse.Spec{}, g, 250*time.Millisecond, nil)
 	if err != nil {
 		if vsockLoopbackUnavailable(err) {
 			t.Skipf("VSOCK loopback not available: %v", err)
@@ -187,8 +187,8 @@ func TestVSOCKRememberAddrs(t *testing.T) {
 	if g.PeerAddr == "" || g.PeerPort == "" {
 		t.Fatalf("peer addr=%q port=%q", g.PeerAddr, g.PeerPort)
 	}
-	if g.PeerPort != strconv.FormatUint(uint64(addr.Port), 10) {
-		t.Fatalf("PEERPORT=%q want %d", g.PeerPort, addr.Port)
+	if g.PeerPort != strconv.FormatUint(uint64(port), 10) {
+		t.Fatalf("PEERPORT=%q want %d", g.PeerPort, port)
 	}
 	select {
 	case ac := <-accepted:
