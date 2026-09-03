@@ -10,13 +10,20 @@ import (
 )
 
 type appendReader struct {
-	mu   sync.Mutex
-	data []byte
+	mu     sync.Mutex
+	data   []byte
+	readCh chan struct{}
 }
 
 func (r *appendReader) Read(p []byte) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.readCh != nil {
+		select {
+		case r.readCh <- struct{}{}:
+		default:
+		}
+	}
 	if len(r.data) == 0 {
 		return 0, io.EOF
 	}
@@ -32,7 +39,8 @@ func (r *appendReader) append(data []byte) {
 }
 
 func TestIgnoreEOFObservesPromptAppend(t *testing.T) {
-	source := &appendReader{}
+	readCalled := make(chan struct{}, 1)
+	source := &appendReader{readCh: readCalled}
 	reader := NewIgnoreEOF(source)
 	if reader.delay > 2*time.Millisecond || reader.maxDelay != time.Second {
 		t.Fatalf("ignoreeof backoff initial=%v max=%v, want prompt start and classic 1s ceiling", reader.delay, reader.maxDelay)
@@ -48,7 +56,11 @@ func TestIgnoreEOFObservesPromptAppend(t *testing.T) {
 		result <- string(buf[:n])
 	}()
 
-	time.Sleep(2 * time.Millisecond)
+	select {
+	case <-readCalled:
+	case <-time.After(time.Second):
+		t.Fatal("reader did not start read")
+	}
 	source.append([]byte("appended"))
 	select {
 	case got := <-result:
@@ -61,14 +73,19 @@ func TestIgnoreEOFObservesPromptAppend(t *testing.T) {
 }
 
 func TestIgnoreEOFCloseInterruptsBackoff(t *testing.T) {
-	reader := NewIgnoreEOF(&appendReader{})
+	readCalled := make(chan struct{}, 1)
+	reader := NewIgnoreEOF(&appendReader{readCh: readCalled})
 	reader.delay = reader.maxDelay
 	done := make(chan error, 1)
 	go func() {
 		_, err := reader.Read(make([]byte, 1))
 		done <- err
 	}()
-	time.Sleep(10 * time.Millisecond)
+	select {
+	case <-readCalled:
+	case <-time.After(time.Second):
+		t.Fatal("reader did not start read")
+	}
 	start := time.Now()
 	if err := reader.Close(); err != nil {
 		t.Fatal(err)

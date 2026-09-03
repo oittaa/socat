@@ -8,6 +8,7 @@ type idleClock struct {
 	users   int
 	running bool
 	sleep   func()
+	stopped chan struct{}
 }
 
 type idleClockSubscription struct {
@@ -40,6 +41,9 @@ func (c *idleClock) run() {
 		c.mu.Lock()
 		if c.users == 0 {
 			c.running = false
+			if c.stopped != nil {
+				close(c.stopped)
+			}
 			c.mu.Unlock()
 			return
 		}

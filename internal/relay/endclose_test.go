@@ -298,13 +298,17 @@ func TestTransferLingerBeatsIdleTimeout(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- Transfer(context.Background(), left, NetStream{Conn: c1}, Config{
-			Linger:      400 * time.Millisecond,
-			IdleTimeout: 80 * time.Millisecond,
+			Linger:      80 * time.Millisecond,
+			IdleTimeout: 20 * time.Millisecond,
 			LeftToRight: true,
 			RightToLeft: true,
 		})
 	}()
-	time.Sleep(150 * time.Millisecond)
+	select {
+	case <-time.After(35 * time.Millisecond):
+	case err := <-done:
+		t.Fatalf("transfer exited early before linger: %v", err)
+	}
 	if _, err := c2.Write([]byte("late")); err != nil {
 		t.Fatal(err)
 	}

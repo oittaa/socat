@@ -73,17 +73,11 @@ func newWSTestPair(t testing.TB) (net.Conn, net.Conn) {
 }
 
 func closeWSTestConn(conn net.Conn) {
-	if ws, ok := conn.(*wsNetConn); ok {
-		_ = ws.raw.Close()
-		_ = ws.ws.CloseNow()
-		return
-	}
 	_ = conn.Close()
 }
 
 func TestWSNetConnReadDeadline(t *testing.T) {
 	_, server := newWSTestPair(t)
-	ws := server.(*wsNetConn)
 	if err := server.SetReadDeadline(time.Now().Add(30 * time.Millisecond)); err != nil {
 		t.Fatal(err)
 	}
@@ -99,8 +93,8 @@ func TestWSNetConnReadDeadline(t *testing.T) {
 	if elapsed := time.Since(started); elapsed > time.Second {
 		t.Fatalf("read deadline took %s", elapsed)
 	}
-	if err := ws.raw.SetDeadline(time.Time{}); err == nil {
-		t.Fatal("read timeout left the raw connection open")
+	if err := server.SetDeadline(time.Time{}); err == nil {
+		t.Fatal("read timeout left the connection open")
 	}
 	started = time.Now()
 	_ = server.Close()
@@ -111,11 +105,6 @@ func TestWSNetConnReadDeadline(t *testing.T) {
 
 func TestWSNetConnWriteDeadline(t *testing.T) {
 	client, _ := newWSTestPair(t)
-	if tcp, ok := client.(*wsNetConn).raw.(*net.TCPConn); ok {
-		if err := tcp.SetWriteBuffer(1024); err != nil {
-			t.Fatal(err)
-		}
-	}
 	payload := make([]byte, 8<<20)
 	if err := client.SetWriteDeadline(time.Now().Add(30 * time.Millisecond)); err != nil {
 		t.Fatal(err)
