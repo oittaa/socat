@@ -1,4 +1,5 @@
-# Unit tests, e2e, lint, gosec, and govulncheck on master and pull requests.
+# Unit tests (fail-fast, then race), e2e, lint, gosec, and govulncheck on master
+# and pull requests.
 # Classic test.sh is not run here: GitHub-hosted runners are sandboxed
 # (no root, no raw IP, no TUN, incomplete kernel features).
 name: ci
@@ -39,25 +40,42 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      # One step on every matrix cell so linux-amd64 does not show skipped
-      # "Unit tests" entries (gray 0s circles) next to the coverage run.
+      # Same step names on every matrix cell so GitHub does not show skipped
+      # gray 0s entries next to coverage-only work.
       - name: Unit tests
         shell: bash
         run: |
           if [ "${{ matrix.name }}" = "linux-amd64" ]; then
             make fmt-check
-            go test -race -coverpkg=./... -covermode=atomic -coverprofile=coverage.unit.raw ./...
-            python3 -B scripts/merge-coverprofile.py coverage.unit.raw coverage.unit.out
-            rm -f coverage.unit.raw
-            go tool cover -func=coverage.unit.out | tee coverage.unit.txt
-            go tool cover -html=coverage.unit.out -o coverage.unit.html
-            ./scripts/coverage-summary.sh coverage.unit.out
+            go test ./...
           elif [ "${{ runner.os }}" = "Windows" ]; then
             # gofmt is Ubuntu-only (lint job). Windows checkouts are CRLF unless
             # .gitattributes forces LF; gofmt -l then lists every file.
             go test ./...
           else
             make test
+          fi
+      # Fail-fast unit tests above; race is 2-20x slower and OS-specific.
+      # Keep this step on every cell (including windows-arm64) to avoid a
+      # skipped gray 0. Go has no race detector on windows/arm64.
+      - name: Race tests
+        shell: bash
+        run: |
+          if [ "${{ matrix.name }}" = "windows-arm64" ]; then
+            echo "skip: Go race detector is not supported on windows/arm64"
+            exit 0
+          fi
+          if [ "${{ matrix.name }}" = "linux-amd64" ]; then
+            # -count=1 disables the test-result cache so concurrency is
+            # exercised every run. setup-go still caches builds and modules.
+            go test -race -count=1 -coverpkg=./... -covermode=atomic -coverprofile=coverage.unit.raw ./...
+            python3 -B scripts/merge-coverprofile.py coverage.unit.raw coverage.unit.out
+            rm -f coverage.unit.raw
+            go tool cover -func=coverage.unit.out | tee coverage.unit.txt
+            go tool cover -html=coverage.unit.out -o coverage.unit.html
+            ./scripts/coverage-summary.sh coverage.unit.out
+          else
+            go test -race -count=1 ./...
           fi
       - name: Upload unit coverage
         if: matrix.name == 'linux-amd64' && !cancelled()
