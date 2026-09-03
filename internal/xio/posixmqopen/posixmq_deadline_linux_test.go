@@ -45,6 +45,64 @@ func waitMQWait(t *testing.T, entered <-chan struct{}) {
 	}
 }
 
+func armMQWaitHold(t *testing.T) (entered <-chan struct{}, resume func()) {
+	t.Helper()
+	enteredCh := make(chan struct{})
+	hold := make(chan struct{})
+	var once sync.Once
+	hook := mqWaitHook(func() {
+		once.Do(func() { close(enteredCh) })
+		<-hold
+	})
+	mqWaitEntered.Store(&hook)
+	resume = func() {
+		select {
+		case <-hold:
+		default:
+			close(hold)
+		}
+	}
+	t.Cleanup(func() {
+		resume()
+		mqWaitEntered.CompareAndSwap(&hook, nil)
+	})
+	return enteredCh, resume
+}
+
+func armMQWaitPauseFirst(t *testing.T) (firstPaused, secondEntered <-chan struct{}, resume func()) {
+	t.Helper()
+	paused := make(chan struct{})
+	second := make(chan struct{})
+	hold := make(chan struct{})
+	var n atomic.Int32
+	hook := mqWaitHook(func() {
+		switch n.Add(1) {
+		case 1:
+			close(paused)
+			<-hold
+		case 2:
+			select {
+			case <-second:
+			default:
+				close(second)
+			}
+		}
+	})
+	mqWaitEntered.Store(&hook)
+	resume = func() {
+		select {
+		case <-hold:
+		default:
+			close(hold)
+		}
+	}
+	t.Cleanup(func() {
+		resume()
+		mqWaitEntered.CompareAndSwap(&hook, nil)
+	})
+	return paused, second, resume
+}
+
 func openSpec(t *testing.T, spec string, mode xio.Mode) *xio.Opened {
 	t.Helper()
 	ch, err := parse.ParseChannel(spec)
@@ -687,5 +745,170 @@ func TestPOSIXMQNonblockStillImmediate(t *testing.T) {
 	}
 	if errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Fatal("nonblock empty Read used a deadline")
+	}
+}
+
+func TestPOSIXMQConcurrentWaitersCloseUnblocksAll(t *testing.T) {
+	for i := 0; i < 5; i++ {
+		t.Run(fmt.Sprintf("stream_%d", i), func(t *testing.T) {
+			s, _ := testMQStream(t, 1)
+			if _, err := s.Write([]byte("full")); err != nil {
+				t.Fatal(err)
+			}
+			paused, second, resume := armMQWaitPauseFirst(t)
+			err1 := make(chan error, 1)
+			err2 := make(chan error, 1)
+			go func() { _, err := s.Write([]byte("a")); err1 <- err }()
+			go func() { _, err := s.Write([]byte("b")); err2 <- err }()
+			waitMQWait(t, paused)
+			waitMQWait(t, second)
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			var first error
+			select {
+			case first = <-err1:
+			case first = <-err2:
+			case <-time.After(mqObserve):
+				t.Fatal("second waiter did not return after Close")
+			}
+			if first == nil {
+				t.Fatal("waiter succeeded after Close")
+			}
+			start := time.Now()
+			resume()
+			var secondErr error
+			select {
+			case secondErr = <-err1:
+			case secondErr = <-err2:
+			case <-time.After(mqObserve):
+				t.Fatal("paused waiter did not return after Close")
+			}
+			if secondErr == nil {
+				t.Fatal("paused waiter succeeded after Close")
+			}
+			if elapsed := time.Since(start); elapsed > mqObserve {
+				t.Fatalf("paused waiter took %v after resume", elapsed)
+			}
+			if !errors.Is(first, net.ErrClosed) && !errors.Is(first, unix.EBADF) {
+				t.Fatalf("first waiter err=%v want closed", first)
+			}
+			if !errors.Is(secondErr, net.ErrClosed) && !errors.Is(secondErr, unix.EBADF) {
+				t.Fatalf("paused waiter err=%v want closed", secondErr)
+			}
+		})
+		t.Run(fmt.Sprintf("send_fork_%d", i), func(t *testing.T) {
+			q := testQueue(t)
+			o := openSpec(t, fmt.Sprintf("POSIXMQ-SEND:%s,fork,mq-maxmsg=1,mq-msgsize=64,unlink-early", q), xio.ModeWrite)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			t.Cleanup(cancel)
+			conn, err := o.Dial(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = conn.Close() })
+			if _, err := conn.Write([]byte("full")); err != nil {
+				t.Fatal(err)
+			}
+			paused, second, resume := armMQWaitPauseFirst(t)
+			err1 := make(chan error, 1)
+			err2 := make(chan error, 1)
+			go func() { _, err := conn.Write([]byte("a")); err1 <- err }()
+			go func() { _, err := conn.Write([]byte("b")); err2 <- err }()
+			waitMQWait(t, paused)
+			waitMQWait(t, second)
+			if err := conn.Close(); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case err := <-err1:
+				if err == nil {
+					t.Fatal("waiter succeeded after Close")
+				}
+			case err := <-err2:
+				if err == nil {
+					t.Fatal("waiter succeeded after Close")
+				}
+			case <-time.After(mqObserve):
+				t.Fatal("second waiter did not return after Close")
+			}
+			start := time.Now()
+			resume()
+			select {
+			case err := <-err1:
+				if err == nil {
+					t.Fatal("paused waiter succeeded after Close")
+				}
+			case err := <-err2:
+				if err == nil {
+					t.Fatal("paused waiter succeeded after Close")
+				}
+			case <-time.After(mqObserve):
+				t.Fatal("paused waiter did not return after Close")
+			}
+			if elapsed := time.Since(start); elapsed > mqObserve {
+				t.Fatalf("paused waiter took %v after resume", elapsed)
+			}
+		})
+	}
+}
+
+func TestPOSIXMQDeadlineAfterPollReadyLeavesQueue(t *testing.T) {
+	for i := 0; i < 5; i++ {
+		t.Run(fmt.Sprintf("read_%d", i), func(t *testing.T) {
+			q := testQueue(t)
+			o := openSpec(t, fmt.Sprintf("POSIXMQ-READ:%s,mq-maxmsg=1,mq-msgsize=64", q), xio.ModeRead)
+			st := o.EffectiveStream()
+			entered, resume := armMQWaitHold(t)
+			errc := make(chan error, 1)
+			go func() {
+				_, err := st.Read(make([]byte, 64))
+				errc <- err
+			}()
+			waitMQWait(t, entered)
+			setReadDL(t, st, time.Now().Add(-time.Millisecond))
+			sendRaw(t, q, "too-late")
+			resume()
+			select {
+			case err := <-errc:
+				if !errors.Is(err, os.ErrDeadlineExceeded) && !os.IsTimeout(err) {
+					t.Fatalf("Read err=%v want deadline exceeded", err)
+				}
+			case <-time.After(mqObserve):
+				t.Fatal("Read did not return after expired deadline")
+			}
+			if mqCurmsgs(t, q) != 1 {
+				t.Fatal("timed-out Read consumed the queued message")
+			}
+		})
+		t.Run(fmt.Sprintf("write_%d", i), func(t *testing.T) {
+			q := testQueue(t)
+			o := openSpec(t, fmt.Sprintf("POSIXMQ-WRITE:%s,mq-maxmsg=1,mq-msgsize=64", q), xio.ModeWrite)
+			st := o.EffectiveStream()
+			if _, err := st.Write([]byte("full")); err != nil {
+				t.Fatal(err)
+			}
+			entered, resume := armMQWaitHold(t)
+			errc := make(chan error, 1)
+			go func() {
+				_, err := st.Write([]byte("too-late"))
+				errc <- err
+			}()
+			waitMQWait(t, entered)
+			setWriteDL(t, st, time.Now().Add(-time.Millisecond))
+			drainRaw(t, q)
+			resume()
+			select {
+			case err := <-errc:
+				if !errors.Is(err, os.ErrDeadlineExceeded) && !os.IsTimeout(err) {
+					t.Fatalf("Write err=%v want deadline exceeded", err)
+				}
+			case <-time.After(mqObserve):
+				t.Fatal("Write did not return after expired deadline")
+			}
+			if mqCurmsgs(t, q) != 0 {
+				t.Fatal("timed-out Write inserted a message")
+			}
+		})
 	}
 }

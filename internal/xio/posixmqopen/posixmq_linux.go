@@ -410,6 +410,28 @@ func drainNotify(fd int) {
 	}
 }
 
+func mqLiveErr(live func() (closed bool, dl time.Time)) error {
+	if live == nil {
+		return nil
+	}
+	closed, dl := live()
+	if closed {
+		return net.ErrClosed
+	}
+	if !dl.IsZero() && time.Until(dl) <= 0 {
+		return os.ErrDeadlineExceeded
+	}
+	return nil
+}
+
+func mqClosed(live func() (closed bool, dl time.Time)) bool {
+	if live == nil {
+		return false
+	}
+	closed, _ := live()
+	return closed
+}
+
 func dupCLOEXEC(fd int) (int, error) {
 	n, err := unix.FcntlInt(uintptr(fd), unix.F_DUPFD_CLOEXEC, 0)
 	if err != nil {
@@ -431,17 +453,18 @@ func waitMQ(ctx context.Context, fd int, events int16, notifyFD int, live func()
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if err := mqLiveErr(live); err != nil {
+			return err
+		}
 		var dl time.Time
 		if live != nil {
-			closed, cur := live()
-			if closed {
-				return net.ErrClosed
-			}
-			dl = cur
+			_, dl = live()
 		}
-		timeout := -1
-		if notifyFD < 0 || ctx.Done() != nil {
-			timeout = int(mqWaitInterval / time.Millisecond)
+		// Never wait indefinitely: a shared eventfd wake can be observed by
+		// only one poller. Bounded waits recheck close and deadline state.
+		timeout := int(mqWaitInterval / time.Millisecond)
+		if timeout < 1 {
+			timeout = 1
 		}
 		if !dl.IsZero() {
 			rem := time.Until(dl)
@@ -452,7 +475,9 @@ func waitMQ(ctx context.Context, fd int, events int16, notifyFD int, live func()
 			if ms < 1 {
 				ms = 1
 			}
-			timeout = ms
+			if ms < timeout {
+				timeout = ms
+			}
 		}
 		if fd < 0 || fd > math.MaxInt32 {
 			return unix.EBADF
@@ -473,10 +498,18 @@ func waitMQ(ctx context.Context, fd int, events int16, notifyFD int, live func()
 			}
 			return err
 		}
+		// Recheck before acting on queue readiness. Poll can return both
+		// POLLIN/POLLOUT and a deadline/close wake at once.
+		if err := mqLiveErr(live); err != nil {
+			return err
+		}
 		if notifyIdx >= 0 {
 			re := pfds[notifyIdx].Revents
 			if re&(unix.POLLIN|unix.POLLERR|unix.POLLHUP|unix.POLLNVAL) != 0 {
-				drainNotify(notifyFD)
+				// Leave a close signal readable so every waiter observes it.
+				if !mqClosed(live) {
+					drainNotify(notifyFD)
+				}
 			}
 		}
 		if n == 0 {
@@ -500,20 +533,14 @@ func receiveMQ(ctx context.Context, fd int, buf []byte, prio *uint32, nonblock b
 		return mqTimedReceive(fd, buf, prio, time.Time{})
 	}
 	for {
-		if live != nil {
-			closed, _ := live()
-			if closed {
-				return 0, net.ErrClosed
-			}
+		if err := mqLiveErr(live); err != nil {
+			return 0, err
 		}
 		if err := waitMQ(ctx, fd, unix.POLLIN, notifyFD, live); err != nil {
 			return 0, err
 		}
-		if live != nil {
-			closed, _ := live()
-			if closed {
-				return 0, net.ErrClosed
-			}
+		if err := mqLiveErr(live); err != nil {
+			return 0, err
 		}
 		n, err := mqTimedReceive(fd, buf, prio, mqTryOnce)
 		if err == nil {
@@ -536,20 +563,14 @@ func sendMQ(ctx context.Context, fd int, msg []byte, prio uint32, nonblock bool,
 		return mqTimedSend(fd, msg, prio, time.Time{})
 	}
 	for {
-		if live != nil {
-			closed, _ := live()
-			if closed {
-				return net.ErrClosed
-			}
+		if err := mqLiveErr(live); err != nil {
+			return err
 		}
 		if err := waitMQ(ctx, fd, unix.POLLOUT, notifyFD, live); err != nil {
 			return err
 		}
-		if live != nil {
-			closed, _ := live()
-			if closed {
-				return net.ErrClosed
-			}
+		if err := mqLiveErr(live); err != nil {
+			return err
 		}
 		err := mqTimedSend(fd, msg, prio, mqTryOnce)
 		if err == nil {
