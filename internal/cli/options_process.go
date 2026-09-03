@@ -20,7 +20,7 @@ func processOptionGroups() []helpOptGroup {
 			{name: "shut-none", optionCaps: capFD, desc: "do not half-close the write side", validate: validateOptionalBool},
 			{name: "shut-down", optionCaps: capFD, desc: "shutdown(SHUT_WR) instead of the address default", validate: validateOptionalBool},
 			{name: "shut-close", optionCaps: capFD, desc: "fully close instead of half-closing", validate: validateOptionalBool},
-			{name: "end-close", optionCaps: capFD, desc: "just close file descriptors; do not kill EXEC child", aliases: []string{"close"}},
+			{name: "end-close", optionCaps: capFD, desc: "just close file descriptors; do not kill EXEC child", aliases: []string{"close"}, validate: validateOptionalBool},
 			{name: "shut", optionCaps: capFD, desc: "half-close mode (none, down, close, or null)", validate: validateShutOption},
 			{name: "shut-null", optionCaps: capFD, desc: "0-byte datagram as half-close", validate: validateOptionalBool},
 		}},
