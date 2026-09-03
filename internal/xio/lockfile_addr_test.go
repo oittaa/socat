@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
@@ -69,41 +70,62 @@ func TestLockfileSucceedsWhenAbsentContainsPID(t *testing.T) {
 }
 
 func TestWaitlockWaitsThenAcquires(t *testing.T) {
-	path := testutil.UnixSocketPath(t, "wait.lock")
-	if err := os.WriteFile(path, []byte("owner\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	done := make(chan error, 1)
-	var opened *xio.Opened
-	go func() {
-		o, err := xio.OpenSpec(context.Background(), echoLockSpec("waitlock", path), xio.ModeRDWR, &xio.Global{Log: logx.New()})
-		opened = o
-		done <- err
-	}()
-	select {
-	case err := <-done:
-		t.Fatalf("waitlock returned before release: %v", err)
-	case <-time.After(20 * time.Millisecond):
-	}
-	if err := os.Remove(path); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case err := <-done:
-		if err != nil {
+	synctest.Test(t, func(t *testing.T) {
+		path := testutil.UnixSocketPath(t, "wait.lock")
+		if err := os.WriteFile(path, []byte("owner\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("waitlock did not acquire after release")
-	}
-	t.Cleanup(func() {
-		if opened != nil {
-			_ = opened.Close()
+		ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+		done := make(chan struct{})
+		var opened *xio.Opened
+		var openErr error
+		go func() {
+			opened, openErr = xio.OpenSpec(ctx, echoLockSpec("waitlock", path), xio.ModeRDWR, &xio.Global{Log: logx.New()})
+			close(done)
+		}()
+		defer func() {
+			cancel()
+			<-done
+			if opened != nil {
+				if err := opened.Close(); err != nil {
+					t.Error(err)
+				}
+			}
+		}()
+
+		// Wait for the acquisition to block on its retry timer, not for a
+		// wall-clock guess that the worker has started.
+		synctest.Wait()
+		select {
+		case <-done:
+			t.Fatalf("waitlock returned before release: %v", openErr)
+		default:
+		}
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		// The retry and cancellation deadline advance in virtual time.
+		select {
+		case <-done:
+			if openErr != nil {
+				t.Fatal(openErr)
+			}
+		case <-ctx.Done():
+			t.Fatal("waitlock did not acquire after release")
+		}
+		if opened == nil {
+			t.Fatal("waitlock returned no endpoint")
+		}
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("acquired waitlock is missing: %v", err)
+		}
+		if err := opened.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Lstat(path); !os.IsNotExist(err) {
+			t.Fatalf("waitlock survived endpoint close: %v", err)
 		}
 	})
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("acquired waitlock is missing: %v", err)
-	}
 }
 
 func TestWaitlockCancellationDoesNotCreate(t *testing.T) {
