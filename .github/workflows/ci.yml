@@ -77,6 +77,23 @@ jobs:
           else
             go test -race -count=1 ./...
           fi
+      - name: Privileged Darwin raw-IP ancillary tests
+        shell: bash
+        run: |
+          if [ "${{ matrix.name }}" != "macos" ]; then
+            echo "skip: Darwin raw-IP ancillary coverage is macOS-only"
+            exit 0
+          fi
+          log="$(mktemp)"
+          sudo go test -count=1 -v -run '^TestRawIPRecvDstaddrRecvifLiveDarwin$' ./internal/xio | tee "$log"
+          if ! grep -q '^=== RUN   TestRawIPRecvDstaddrRecvifLiveDarwin$' "$log"; then
+            echo 'required Darwin raw-IP unit test did not execute' >&2
+            exit 1
+          fi
+          if grep -q '^--- SKIP: TestRawIPRecvDstaddrRecvifLiveDarwin' "$log"; then
+            echo 'required Darwin raw-IP unit test was skipped' >&2
+            exit 1
+          fi
       - name: Upload unit coverage
         if: matrix.name == 'linux-amd64' && !cancelled()
         uses: actions/upload-artifact@v7
@@ -140,6 +157,23 @@ jobs:
             go test -tags=e2e ./e2e/...
           else
             make e2e
+          fi
+      - name: Privileged Darwin raw-IP ancillary e2e
+        shell: bash
+        run: |
+          if [ "${{ matrix.name }}" != "macos" ]; then
+            echo "skip: Darwin raw-IP ancillary coverage is macOS-only"
+            exit 0
+          fi
+          log="$(mktemp)"
+          sudo env SOCAT="$PWD/socat" go test -tags=e2e -count=1 -v -run '^TestDarwinIPRecvdstaddrRecvifRawIP$' ./e2e | tee "$log"
+          if ! grep -q '^=== RUN   TestDarwinIPRecvdstaddrRecvifRawIP$' "$log"; then
+            echo 'required Darwin raw-IP e2e test did not execute' >&2
+            exit 1
+          fi
+          if grep -q '^--- SKIP: TestDarwinIPRecvdstaddrRecvifRawIP' "$log"; then
+            echo 'required Darwin raw-IP e2e test was skipped' >&2
+            exit 1
           fi
       - name: Upload e2e coverage
         if: matrix.name == 'linux-amd64' && !cancelled()
