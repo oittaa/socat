@@ -263,10 +263,26 @@ make update-scorecard   # Linux: refresh committed privileged-Docker results
 `make check` does not contact repo.or.cz. `make classic-parity` does: it
 syncs the official repository into a gitignored working directory.
 
-CI runs unit and end-to-end tests on Linux amd64/arm64, macOS, and Windows
-amd64/arm64. Unit jobs run `go test ./...` first, then the race detector on
-every platform Go supports (not windows/arm64). Weekly jobs run fuzzing and
-the live relay matrix. Official classic parity is a manual workflow only.
+CI uses separate runner matrices for unit, race, end-to-end, script, and
+privileged tests. Unit and end-to-end tests cover Linux amd64/arm64, macOS,
+and Windows amd64/arm64. Linux amd64 coverage jobs also supply its race and
+end-to-end checks; Windows arm64 is absent from the race matrix because Go
+does not support it. Script tests run on Linux and macOS.
+
+Focused raw-IP suites live in `internal/xio/privileged` (Linux and macOS) and
+`e2e/privileged` (macOS). They require the `privileged` build tag and fail at
+startup without root. CI runs these packages under sudo; ordinary test runs
+exclude them. Run them locally from the repository root with:
+
+```sh
+sudo "$(command -v go)" test -race -count=1 -tags=privileged ./internal/xio/privileged
+# macOS end-to-end suite:
+go build ./cmd/socat
+sudo env SOCAT="$PWD/socat" "$(command -v go)" test -count=1 -tags=e2e,privileged ./e2e/privileged
+```
+
+Weekly jobs run fuzzing and the live relay matrix. Official classic parity
+is a manual workflow only.
 
 Classic `test.sh` is run separately because hosted CI cannot provide every
 required kernel feature and privilege. Results and reproduction instructions
