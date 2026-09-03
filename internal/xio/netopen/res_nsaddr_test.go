@@ -21,17 +21,22 @@ type fakeARecordDNS struct {
 	udp     net.PacketConn
 	tcp     net.Listener
 	addr    string
+	delay   time.Duration
 	queries atomic.Int32
 	wg      sync.WaitGroup
 }
 
 func startARecordDNS(t *testing.T) *fakeARecordDNS {
+	return startARecordDNSDelayed(t, 0)
+}
+
+func startARecordDNSDelayed(t *testing.T, delay time.Duration) *fakeARecordDNS {
 	t.Helper()
 	tcp, udp, addr, err := testutil.ListenTCPAndUDP("127.0.0.1", "4")
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &fakeARecordDNS{udp: udp, tcp: tcp, addr: addr}
+	s := &fakeARecordDNS{udp: udp, tcp: tcp, addr: addr, delay: delay}
 	s.wg.Add(2)
 	go s.serveUDP()
 	go s.serveTCP()
@@ -52,6 +57,9 @@ func (s *fakeARecordDNS) serveUDP() {
 			return
 		}
 		s.queries.Add(1)
+		if s.delay > 0 {
+			time.Sleep(s.delay)
+		}
 		resp, err := aRecordResponse(buf[:n])
 		if err == nil {
 			_, _ = s.udp.WriteTo(resp, peer)
@@ -77,6 +85,9 @@ func (s *fakeARecordDNS) serveTCP() {
 				return
 			}
 			s.queries.Add(1)
+			if s.delay > 0 {
+				time.Sleep(s.delay)
+			}
 			resp, err := aRecordResponse(query)
 			if err != nil {
 				return

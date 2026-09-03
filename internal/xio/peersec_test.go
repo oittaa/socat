@@ -76,7 +76,10 @@ func TestIPInRangeHostnameMask(t *testing.T) {
 }
 
 func TestPeerFilterNoOptionsDoesNotAllocate(t *testing.T) {
-	filter := NewPeerFilter(context.Background(), parse.Spec{}, nil)
+	filter, err := NewPeerFilter(context.Background(), parse.Spec{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	peer := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 1234}
 	if got := testing.AllocsPerRun(1000, func() {
 		if err := filter.AllowAddr(peer, nil); err != nil {
@@ -92,7 +95,10 @@ func TestPeerFilterRangeAcceptsIPAddr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filter := NewPeerFilter(context.Background(), spec, nil)
+	filter, err := NewPeerFilter(context.Background(), spec, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := filter.AllowAddr(&net.IPAddr{IP: net.IPv4(127, 1, 0, 1)}, nil); err != nil {
 		t.Fatalf("127.1.0.1 in 127.0.0.0/8: %v", err)
 	}
@@ -114,6 +120,7 @@ func TestCompiledIPRangeForms(t *testing.T) {
 		{"address-mask", "127.9.8.7", "127.0.0.0:255.0.0.0", true},
 		{"exact", "192.0.2.1", "192.0.2.1", true},
 		{"hex-sockaddr", "127.8.9.10", "x0000x7f000000:x0000xff000000", true},
+		{"hex-sockaddr-upper-digits", "127.8.9.10", "x0000x7F000000:x0000xFF000000", true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -125,6 +132,45 @@ func TestCompiledIPRangeForms(t *testing.T) {
 				t.Fatalf("match(%s, %q) = %v, want %v", tc.peer, tc.spec, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestCompileIPRangeRejectsUppercaseHexPrefix(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, spec := range []string{
+		"X0000X7f000000:X0000xff000000",
+		"X0000x7f000000:x0000xff000000",
+		"x0000x7f000000:X0000xff000000",
+	} {
+		t.Run(spec, func(t *testing.T) {
+			_, err := compileIPRange(ctx, spec, net.DefaultResolver)
+			if err == nil {
+				t.Fatal("uppercase hex type prefix succeeded")
+			}
+			if errors.Is(err, context.Canceled) {
+				t.Fatalf("treated %q as a hostname: %v", spec, err)
+			}
+			if !strings.Contains(err.Error(), "invalid hex") {
+				t.Fatalf("err=%v want invalid hex sockaddr", err)
+			}
+		})
+	}
+
+	spec, err := parse.ParseSpec("TCP-LISTEN:0,range=X0000X7f000000:X0000xff000000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = NewPeerFilter(ctx, spec, nil)
+	if err == nil {
+		t.Fatal("NewPeerFilter succeeded with uppercase hex range")
+	}
+	if errors.Is(err, context.Canceled) {
+		t.Fatalf("NewPeerFilter treated uppercase hex range as a hostname: %v", err)
+	}
+	if !strings.Contains(err.Error(), "invalid hex") {
+		t.Fatalf("NewPeerFilter err=%v want invalid hex sockaddr", err)
 	}
 }
 

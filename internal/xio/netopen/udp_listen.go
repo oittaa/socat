@@ -82,7 +82,11 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			logx.CloseQuiet(pc)
 			return nil, ferr
 		}
-		peerFilter := xio.NewPeerFilter(ctx, s, g)
+		peerFilter, err := xio.NewPeerFilter(ctx, s, g)
+		if err != nil {
+			logx.CloseQuiet(pc)
+			return nil, err
+		}
 		base := &udpForkListener{
 			pc:      pc,
 			network: network,
@@ -109,12 +113,20 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			},
 		}, nil
 	}
+	xio.NoteListenBound(pc.LocalAddr())
+
+	// Resolve range= before the accept deadline. Slow DNS must not consume
+	// accept-timeout; a datagram can already be queued while lookup runs.
+	peerFilter, err := xio.NewPeerFilter(ctx, s, g)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
 	timeoutSet, err := applyUDPAcceptTimeout(pc, s)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	xio.NoteListenBound(pc.LocalAddr())
 
 	// Non-fork: one peer session. Keep the listen socket for further
 	// packets from that peer and for replies.
@@ -122,7 +134,6 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	wantCtrl := xio.NeedAncillary(s)
 	var n int
 	var raddr *net.UDPAddr
-	peerFilter := xio.NewPeerFilter(ctx, s, g)
 	var oobBuffer [xio.AncillaryBufferSize]byte
 	for {
 		rn, oob, a, err := xio.RecvOneCtx(ctx, func() (int, []byte, *net.UDPAddr, error) {
@@ -583,7 +594,11 @@ func (l *udpForkListener) newUDPForkChild(packet udpForkPacket, session *xio.Glo
 
 func (l *udpForkListener) peerAllowed(addr *net.UDPAddr) error {
 	if l.filter == nil {
-		l.filter = xio.NewPeerFilter(l.ctx, l.spec, l.g)
+		f, err := xio.NewPeerFilter(l.ctx, l.spec, l.g)
+		if err != nil {
+			return err
+		}
+		l.filter = f
 	}
 	return l.filter.AllowAddr(addr, l.pc.LocalAddr())
 }

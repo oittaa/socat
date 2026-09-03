@@ -7,7 +7,6 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -37,41 +36,52 @@ type PeerFilter struct {
 	ctx           context.Context
 	spec          parse.Spec
 	hasRange      bool
-	rangeSpec     string
-	rangeOnce     sync.Once
 	rangeMatcher  ipRangeMatcher
-	rangeErr      error
 	hasSourcePort bool
 	sourcePort    string
 	lowport       bool
 	tcpwrap       tcpwrapConfig
 }
 
-// NewPeerFilter parses peer policy that does not depend on the remote address.
-// ctx cancels hostname range compilation and tcpwrap reverse DNS. Long-lived
-// listeners pass the session context so shutdown does not leave lookups running.
-func NewPeerFilter(ctx context.Context, s parse.Spec, g *Global) *PeerFilter {
+// NewPeerFilter parses peer policy and resolves range= once. Callers must
+// construct it before accepting or receiving peers so syntax and lookup
+// errors abort the address instead of leaving a listener that rejects every
+// peer. ctx cancels hostname range compilation; tcpwrap reverse DNS still
+// uses it per peer. Long-lived listeners pass the session context so
+// shutdown does not leave lookups running.
+func NewPeerFilter(ctx context.Context, s parse.Spec, g *Global) (*PeerFilter, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	_, hasRange := s.OptionNamed("range")
 	_, hasSourcePort := s.OptionNamed("sourceport")
-	return &PeerFilter{
+	f := &PeerFilter{
 		ctx:           ctx,
 		spec:          s,
 		hasRange:      hasRange,
-		rangeSpec:     s.OptionValue("range", ""),
 		hasSourcePort: hasSourcePort,
 		sourcePort:    s.OptionValue("sourceport", ""),
 		lowport:       s.BoolOption("lowport"),
 		tcpwrap:       parseTCPWrap(s, g),
 	}
+	if hasRange {
+		matcher, err := compileIPRange(ctx, s.OptionValue("range", ""), LookupResolver(s))
+		if err != nil {
+			return nil, err
+		}
+		f.rangeMatcher = matcher
+	}
+	return f, nil
 }
 
 // PeerAllowedG checks a connection with a one-use filter. Long-lived callers
 // should keep a PeerFilter instead.
 func PeerAllowedG(s parse.Spec, conn net.Conn, g *Global) error {
-	return NewPeerFilter(context.Background(), s, g).AllowConn(conn)
+	f, err := NewPeerFilter(context.Background(), s, g)
+	if err != nil {
+		return err
+	}
+	return f.AllowConn(conn)
 }
 
 func (f *PeerFilter) AllowConn(conn net.Conn) error {
@@ -105,11 +115,7 @@ func (f *PeerFilter) AllowAddr(remote, local net.Addr) error {
 		if ip == nil {
 			return fmt.Errorf("range: peer has no IP")
 		}
-		matcher, err := f.compiledRange()
-		if err != nil {
-			return err
-		}
-		if !matcher(ip) {
+		if f.rangeMatcher == nil || !f.rangeMatcher(ip) {
 			return fmt.Errorf("refusing connection from %s, not in range", remote)
 		}
 	}
@@ -137,13 +143,6 @@ func (f *PeerFilter) AllowAddr(remote, local net.Addr) error {
 	}
 
 	return nil
-}
-
-func (f *PeerFilter) compiledRange() (ipRangeMatcher, error) {
-	f.rangeOnce.Do(func() {
-		f.rangeMatcher, f.rangeErr = compileIPRange(f.ctx, f.rangeSpec, LookupResolver(f.spec))
-	})
-	return f.rangeMatcher, f.rangeErr
 }
 
 func peerIPPort(addr net.Addr) (net.IP, int, string, bool) {
@@ -275,6 +274,8 @@ func compileHexSockRange(spec string) (matcher ipRangeMatcher, err error, handle
 	}
 	netPart := spec[:idx]
 	maskPart := spec[idx+1:]
+	// Treat X as a hex marker so an uppercase type prefix fails as invalid
+	// hex instead of falling through to hostname lookup.
 	if !strings.ContainsAny(netPart, "xX") || !strings.ContainsAny(maskPart, "xX") {
 		return nil, nil, false
 	}

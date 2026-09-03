@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -277,6 +278,29 @@ func TestSocketListenRangeRefusesThenAcceptTimeout(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("range-refused SOCKET-LISTEN did not time out")
+	}
+}
+
+func TestSocketListenMalformedRangeFailsOpen(t *testing.T) {
+	spec := "SOCKET-LISTEN:2:0:" + ipv4SocketHex(0, [4]byte{127, 0, 0, 1}) + ",reuseaddr,range=X0000X7f000000:X0000xff000000"
+	bound := make(chan struct{}, 1)
+	defer xio.SetListenBoundTestHook(func(net.Addr) { bound <- struct{}{} })()
+	start := time.Now()
+	o, err := openSocketListen(context.Background(), mustSocketSpec(t, spec), xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	if o != nil {
+		_ = o.Close()
+		t.Fatal("SOCKET-LISTEN opened with uppercase hex range")
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("malformed range took %v; want immediate open failure", elapsed)
+	}
+	if err == nil || !strings.Contains(err.Error(), "invalid hex") {
+		t.Fatalf("openSocketListen err=%v want invalid hex", err)
+	}
+	select {
+	case <-bound:
+		t.Fatal("listen bound hook ran; range must fail before accept")
+	default:
 	}
 }
 

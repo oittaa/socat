@@ -9,6 +9,7 @@ func FuzzParseSocatData(f *testing.F) {
 	for _, seed := range []string{
 		"", `"path\0"`, `\"path\0\"`, "x00ff", "x00FFx0a", "'c'", `'\n'`,
 		`'ab'`, "x0", `hello\tworld`, `"unterminated`, `"a""b"`, "xgg",
+		"X0102", "X0102X0304", "x0102X0304", "x00FF", `"X"`, `'X'`, "x0102x0304",
 	} {
 		f.Add(seed)
 	}

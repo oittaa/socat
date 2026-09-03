@@ -272,7 +272,7 @@ func socketIPFilterOrError(ctx context.Context, s parse.Spec, g *xio.Global, dom
 	if err := socketFilterFamilyOK(s, domain); err != nil {
 		return nil, err
 	}
-	return xio.NewPeerFilter(ctx, s, g), nil
+	return xio.NewPeerFilter(ctx, s, g)
 }
 
 func socketFilterFamilyOK(s parse.Spec, domain int) error {
