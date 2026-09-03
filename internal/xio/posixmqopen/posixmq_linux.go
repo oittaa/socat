@@ -349,6 +349,7 @@ func flushQueue(name string) error {
 }
 
 type mqNotify struct {
+	mu sync.Mutex
 	fd int
 }
 
@@ -360,8 +361,22 @@ func newMQNotify() (*mqNotify, error) {
 	return &mqNotify{fd: fd}, nil
 }
 
+func (n *mqNotify) pollFD() int {
+	if n == nil {
+		return -1
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.fd
+}
+
 func (n *mqNotify) wake() {
-	if n == nil || n.fd < 0 {
+	if n == nil {
+		return
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.fd < 0 {
 		return
 	}
 	var buf [8]byte
@@ -370,11 +385,16 @@ func (n *mqNotify) wake() {
 }
 
 func (n *mqNotify) close() {
-	if n == nil || n.fd < 0 {
+	if n == nil {
 		return
 	}
-	_ = unix.Close(n.fd)
+	n.mu.Lock()
+	fd := n.fd
 	n.fd = -1
+	n.mu.Unlock()
+	if fd >= 0 {
+		_ = unix.Close(fd)
+	}
 }
 
 func drainNotify(fd int) {
@@ -606,11 +626,7 @@ func (s *mqStream) beginOp() (fd int, notifyFD int, err error) {
 		return -1, -1, err
 	}
 	s.inflight++
-	notifyFD = -1
-	if s.notify != nil {
-		notifyFD = s.notify.fd
-	}
-	return fd, notifyFD, nil
+	return fd, s.notify.pollFD(), nil
 }
 
 func (s *mqStream) endOp(fd int) {
@@ -725,17 +741,15 @@ func (s *mqStream) Close() error {
 	if !noClose {
 		s.fd = -1
 	}
+	s.wakeLocked()
 	n := s.notify
 	inflight := s.inflight
 	if inflight == 0 {
 		s.notify = nil
 	}
 	s.mu.Unlock()
-	if n != nil {
-		n.wake()
-		if inflight == 0 {
-			n.close()
-		}
+	if inflight == 0 {
+		n.close()
 	}
 	if noClose {
 		return nil
@@ -830,11 +844,7 @@ func (l *mqListener) beginOp() (fd int, notifyFD int, err error) {
 		return -1, -1, err
 	}
 	l.inflight++
-	notifyFD = -1
-	if l.notify != nil {
-		notifyFD = l.notify.fd
-	}
-	return fd, notifyFD, nil
+	return fd, l.notify.pollFD(), nil
 }
 
 func (l *mqListener) endOp(fd int) {
@@ -901,17 +911,17 @@ func (l *mqListener) Close() error {
 	l.closed = true
 	fd := l.fd
 	l.fd = -1
+	if l.notify != nil {
+		l.notify.wake()
+	}
 	n := l.notify
 	inflight := l.inflight
 	if inflight == 0 {
 		l.notify = nil
 	}
 	l.mu.Unlock()
-	if n != nil {
-		n.wake()
-		if inflight == 0 {
-			n.close()
-		}
+	if inflight == 0 {
+		n.close()
 	}
 	return mqClose(fd)
 }

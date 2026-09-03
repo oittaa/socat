@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -679,6 +680,49 @@ func TestMQStreamCloseUnblocksRead(t *testing.T) {
 		<-errc
 		t.Fatal("Close did not unblock Read")
 	}
+}
+
+func TestMQStreamCloseAndDeadlineNoRace(t *testing.T) {
+	s, q := testMQStream(t, 1)
+	errc := make(chan error, 1)
+	go func() {
+		_, err := s.Read(make([]byte, 16))
+		errc <- err
+	}()
+	time.Sleep(30 * time.Millisecond)
+
+	var stop atomic.Bool
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for !stop.Load() {
+			_ = s.SetDeadline(time.Now().Add(time.Hour))
+			_ = s.SetDeadline(time.Time{})
+		}
+	}()
+
+	if err := s.Close(); err != nil {
+		stop.Store(true)
+		wg.Wait()
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errc:
+		if err == nil {
+			stop.Store(true)
+			wg.Wait()
+			t.Fatal("blocked Read succeeded after Close")
+		}
+	case <-time.After(2 * time.Second):
+		mqWake(q)
+		<-errc
+		stop.Store(true)
+		wg.Wait()
+		t.Fatal("Close did not unblock Read while deadlines were poked")
+	}
+	stop.Store(true)
+	wg.Wait()
 }
 
 func TestMQStreamSetReadDeadlineUnblocksInFlightRead(t *testing.T) {
