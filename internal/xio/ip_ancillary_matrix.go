@@ -101,8 +101,8 @@ var (
 // ip-retopts is Linux-only recv ancillary (IP_RETOPTS as an int flag like
 // IP_RECVOPTS). Darwin IP_RETOPTS is an IP-options blob, so the name is
 // hidden and rejected there. ip-recvdstaddr / ip-recvif are Darwin-only.
-// ip-recverr / ipv6-recverr are recognized and rejected (no MSG_ERRQUEUE
-// ReadMsg path) instead of being silent no-ops. ip-mtu and ip-pktoptions
+// ip-recverr is applied as SOL_IP/IP_RECVERR on Linux IPv4 and IPv6 sockets
+// (see recverr_linux.go). ipv6-recverr stays rejected. ip-mtu and ip-pktoptions
 // are recognized get-only names, not this matrix. ip-router-alert is a
 // Linux raw-IPv4 setter outside this matrix (see ip_remaining.go).
 //

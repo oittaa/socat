@@ -396,3 +396,20 @@ func TestHideLinuxOnlyIPv6RecvExt(t *testing.T) {
 		t.Fatal("recvpathmtu is not a public alias and is not in the hide list")
 	}
 }
+
+func TestHideLinuxOnlyRecvErr(t *testing.T) {
+	names := []string{"ip-recverr", "recverr", "iprecverr"}
+	for _, name := range names {
+		if hideLinuxOnlyRecvErr(name, "linux") {
+			t.Errorf("%q hidden on linux", name)
+		}
+		for _, goos := range []string{"darwin", "windows"} {
+			if !hideLinuxOnlyRecvErr(name, goos) {
+				t.Errorf("%q not hidden on %s", name, goos)
+			}
+		}
+	}
+	if hideLinuxOnlyRecvErr("ipv6-recverr", "linux") {
+		t.Fatal("ipv6-recverr is rejected, not a hidden Linux-only advertised option")
+	}
+}

@@ -53,8 +53,10 @@ func idleClockSleep() {
 	}
 }
 
-// waitPollRead waits until fd is readable. errPollIdle means retry.
-// io.EOF means hang-up / error without POLLIN.
+// waitPollRead waits until fd is readable or has a pending socket error.
+// POLLERR is readiness so Read can surface ICMP/ECONNREFUSED (and drain
+// IP_RECVERR). Hang-up or invalid fd without POLLIN is EOF. errPollIdle
+// means retry.
 func waitPollRead(fd int, timeoutMs int) error {
 	pfd, ok := pollFd(fd, pollIn)
 	if !ok {
@@ -73,13 +75,13 @@ func waitPollRead(fd int, timeoutMs int) error {
 		return errPollIdle
 	}
 	re := pfds[0].Revents
-	if re&pollIn == 0 {
-		if re&(pollHup|pollErr|pollNval) != 0 {
-			return io.EOF
-		}
-		return errPollIdle
+	if re&pollIn != 0 || re&pollErr != 0 {
+		return nil
 	}
-	return nil
+	if re&(pollHup|pollNval) != 0 {
+		return io.EOF
+	}
+	return errPollIdle
 }
 
 // waitReadableAndWritable waits until src is readable and dst is writable

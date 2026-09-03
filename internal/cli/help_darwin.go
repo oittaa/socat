@@ -18,6 +18,9 @@ func hideOpt(name string) bool {
 	if hideLinuxOnlyIPv6RecvExt(name, runtime.GOOS) {
 		return true
 	}
+	if hideLinuxOnlyRecvErr(name, runtime.GOOS) {
+		return true
+	}
 	if name == "async" && !xio.FeatureFDAsync {
 		return true
 	}

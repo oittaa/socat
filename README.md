@@ -233,7 +233,7 @@ silently emulated with a different protocol.
 | Process-wide `setuid`, `setgid`, `chroot`, and `substuser` options | Not implemented because changing credentials or root from a goroutine would affect every session. They require process isolation. |
 | Process-global libc resolver flags | Not implemented. `res-nsaddr` and `res-usevc` are supported per address. |
 | Read-only, obsolete, or structurally unsafe socket options | Rejected rather than advertised as setters. This includes get-only socket state and options that require structures the classic integer syntax cannot represent safely. |
-| `ip-recverr` / `ipv6-recverr` | Not advertised because the relay does not consume the kernel error queue. |
+| `ipv6-recverr` | Not advertised because the documented interface is `ip-recverr` (`IP_RECVERR`). `IPV6_RECVERR` is not documented in socat.yo. |
 | `udp-ignore-peerport` | Not implemented because classic documents the name but does not expose or implement it. UDP datagram receive behavior follows the working classic implementation. |
 
 Go's TLS defaults also intentionally keep TLS compression disabled. The

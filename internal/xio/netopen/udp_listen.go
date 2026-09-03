@@ -132,6 +132,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	// packets from that peer and for replies.
 	buf := make([]byte, max(g.BlockSize, 8192))
 	wantCtrl := xio.NeedAncillary(s)
+	recvErr := xio.NeedRecvErr(s)
 	var n int
 	var raddr *net.UDPAddr
 	var oobBuffer [xio.AncillaryBufferSize]byte
@@ -140,6 +141,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			return xio.ReadUDPMsgWithBuffer(pc, buf, wantCtrl, oobBuffer[:])
 		})
 		if err != nil {
+			xio.DrainRecvErrOnError(err, recvErr, pc, g)
 			logx.CloseQuiet(pc)
 			return nil, udpAcceptError(err, timeoutSet)
 		}
@@ -192,6 +194,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		first:        append([]byte(nil), buf[:n]...),
 		firstPending: true,
 		wantCtrl:     wantCtrl,
+		recvErr:      recvErr,
 		g:            g,
 	})
 	st, err = xio.WrapCommonAfterConnected(s, st)
@@ -361,6 +364,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 	}
 	buf := make([]byte, 65535)
 	wantCtrl := xio.NeedAncillary(l.spec)
+	recvErr := xio.NeedRecvErr(l.spec)
 	peekDial := !l.oneShot && xio.UDPForkPortReuse(l.spec) && udpForkUsesPeekDial()
 	var oobBuffer [xio.AncillaryBufferSize]byte
 	var acceptDeadline time.Time
@@ -405,6 +409,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 				if !acceptDeadline.IsZero() && xio.IsTimeoutErr(err) {
 					return nil, xio.ErrAcceptTimeout
 				}
+				xio.DrainRecvErrOnError(err, recvErr, pc, l.g)
 				return nil, err
 			}
 			if !peekDial {
@@ -422,6 +427,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 				// The opener was only peeked. Consume the refused datagram or the
 				// next loop would inspect the same peer forever.
 				if _, _, _, dropErr := xio.ReadUDPMsgWithBuffer(pc, buf, false, nil); dropErr != nil {
+					xio.DrainRecvErrOnError(dropErr, recvErr, pc, l.g)
 					return nil, dropErr
 				}
 			}
@@ -446,7 +452,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 
 		if l.oneShot {
 			xio.ProcessAncillary(packet.oob, session)
-			child := l.newUDPForkChild(packet, session, wantCtrl)
+			child := l.newUDPForkChild(packet, session, wantCtrl, recvErr)
 			// Share the parent socket (one-shot). A
 			// connected child on the same port would steal later datagrams.
 			child.pc = pc
@@ -454,7 +460,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 		}
 		if !xio.UDPForkPortReuse(l.spec) {
 			xio.ProcessAncillary(packet.oob, session)
-			child := l.newUDPForkChild(packet, session, wantCtrl)
+			child := l.newUDPForkChild(packet, session, wantCtrl, recvErr)
 			return l.handoffListenSocket(child)
 		}
 		if !peekDial {
@@ -491,6 +497,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 				// unexpected packet rather than dropping a different peer.
 				n, dropOOB, peer, ok, dropErr := readQueuedUDPForkPacket(pc, buf, wantCtrl, oobBuffer[:])
 				if dropErr != nil {
+					xio.DrainRecvErrOnError(dropErr, recvErr, pc, l.g)
 					return nil, dropErr
 				}
 				if ok && !udpAddrIsPeer(peer, a) {
@@ -514,6 +521,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 		if !consumed {
 			rn, oob, peer, ok, err := readQueuedUDPForkPacket(pc, buf, wantCtrl, oobBuffer[:])
 			if err != nil {
+				xio.DrainRecvErrOnError(err, recvErr, pc, l.g)
 				logx.CloseQuiet(conn)
 				return nil, err
 			}
@@ -540,7 +548,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 		}
 
 		xio.ProcessAncillary(packet.oob, session)
-		child := l.newUDPForkChild(packet, session, wantCtrl)
+		child := l.newUDPForkChild(packet, session, wantCtrl, recvErr)
 		child.conn = conn
 		if len(l.pending) > 0 {
 			remaining := make([]udpForkPacket, 0, len(l.pending))
@@ -556,6 +564,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 		for range udpForkDrainPacketLimit {
 			n, queuedOOB, peer, ok, drainErr := readQueuedUDPForkPacket(pc, buf, wantCtrl, oobBuffer[:])
 			if drainErr != nil {
+				xio.DrainRecvErrOnError(drainErr, recvErr, pc, l.g)
 				if l.g != nil && l.g.Log != nil {
 					l.g.Log.Noticef("UDP fork listener queue drain: %s", drainErr)
 				}
@@ -579,15 +588,16 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 	}
 }
 
-func (l *udpForkListener) newUDPForkChild(packet udpForkPacket, session *xio.Global, wantCtrl bool) *udpSessionConn {
+func (l *udpForkListener) newUDPForkChild(packet udpForkPacket, session *xio.Global, wantCtrl, recvErr bool) *udpSessionConn {
 	return &udpSessionConn{
 		peer:         cloneUDPAddr(packet.peer),
 		first:        append([]byte(nil), packet.data...),
 		firstPending: true,
-		env:          session.SessionVars,
+		env:          session.SessionVarsSnapshot(),
 		oneShot:      l.oneShot,
 		writeMu:      &l.writeMu,
 		wantCtrl:     wantCtrl,
+		recvErr:      recvErr,
 		g:            session,
 	}
 }
@@ -698,12 +708,29 @@ type udpSessionConn struct {
 	writeDeadline time.Time
 	releaseListen func()
 	wantCtrl      bool
+	recvErr       bool
 	queued        []udpForkPacket
 	g             *xio.Global
 	oob           []byte
 }
 
-func (u *udpSessionConn) SessionEnvironment() map[string]string { return u.env }
+func (u *udpSessionConn) SessionEnvironment() map[string]string {
+	if u.g != nil {
+		return u.g.SessionVarsSnapshot()
+	}
+	return u.env
+}
+
+func (u *udpSessionConn) drainRecvErr(err error) {
+	xio.DrainRecvErrOnError(err, u.recvErr, u.recvErrConn(), u.g)
+}
+
+func (u *udpSessionConn) recvErrConn() syscall.Conn {
+	if u.conn != nil {
+		return u.conn
+	}
+	return u.pc
+}
 
 func (u *udpSessionConn) Read(p []byte) (int, error) {
 	if u.firstPending {
@@ -738,12 +765,16 @@ func (u *udpSessionConn) Read(p []byte) (int, error) {
 	if u.wantCtrl {
 		n, oob, _, err := xio.ReadUDPMsgWithBuffer(u.conn, p, true, ancillaryBuffer(&u.oob, true))
 		if err != nil {
+			u.drainRecvErr(err)
 			return n, err
 		}
 		xio.ProcessAncillary(oob, u.g)
 		return xio.ZeroLengthMessageEOF(n, nil, len(p))
 	}
 	n, err := u.conn.Read(p)
+	if err != nil {
+		u.drainRecvErr(err)
+	}
 	return xio.ZeroLengthMessageEOF(n, err, len(p))
 }
 
@@ -754,6 +785,7 @@ func (u *udpSessionConn) readHandedOff(p []byte) (int, error) {
 	for {
 		n, oob, addr, err := xio.ReadUDPMsgWithBuffer(u.pc, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
 		if err != nil {
+			u.drainRecvErr(err)
 			return n, err
 		}
 		if udpAddrIsPeer(addr, u.peer) {
@@ -767,7 +799,9 @@ func (u *udpSessionConn) readHandedOff(p []byte) (int, error) {
 
 func (u *udpSessionConn) Write(p []byte) (int, error) {
 	if u.conn != nil {
-		return u.conn.Write(p)
+		n, err := u.conn.Write(p)
+		u.drainRecvErr(err)
+		return n, err
 	}
 	if u.pc == nil || u.peer == nil {
 		return 0, net.ErrClosed
@@ -775,7 +809,7 @@ func (u *udpSessionConn) Write(p []byte) (int, error) {
 	u.deadlineMu.Lock()
 	deadline := u.writeDeadline
 	u.deadlineMu.Unlock()
-	return writeSharedPacket(u.writeMu, deadline, u.pc.SetWriteDeadline, func() (int, error) {
+	n, err := writeSharedPacket(u.writeMu, deadline, u.pc.SetWriteDeadline, func() (int, error) {
 		n, err := u.pc.WriteToUDP(p, u.peer)
 		if err == nil {
 			return n, nil
@@ -785,6 +819,8 @@ func (u *udpSessionConn) Write(p []byte) (int, error) {
 		}
 		return n, err
 	})
+	u.drainRecvErr(err)
+	return n, err
 }
 
 func (u *udpSessionConn) Close() error {
@@ -875,6 +911,7 @@ type udpRecvFromConn struct {
 	firstPending bool // buffered opener, including a zero-length datagram
 	closeEOF     bool // after first payload: further Read → EOF (UDP-RECVFROM one-shot)
 	wantCtrl     bool
+	recvErr      bool
 	g            *xio.Global
 	oob          []byte
 }
@@ -897,6 +934,7 @@ func (u *udpRecvFromConn) Read(p []byte) (int, error) {
 	for {
 		n, oob, addr, err := xio.ReadUDPMsgWithBuffer(u.uc, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
 		if err != nil {
+			xio.DrainRecvErrOnError(err, u.recvErr, u.uc, u.g)
 			return n, err
 		}
 		if udpAddrIsPeer(addr, u.peer) {
@@ -913,6 +951,9 @@ func (u *udpRecvFromConn) Write(p []byte) (int, error) {
 		return 0, net.ErrClosed
 	}
 	n, err := u.uc.WriteToUDP(p, u.peer)
+	if err != nil {
+		xio.DrainRecvErrOnError(err, u.recvErr, u.uc, u.g)
+	}
 	if err == nil {
 		return n, nil
 	}

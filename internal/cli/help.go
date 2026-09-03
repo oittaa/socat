@@ -47,6 +47,17 @@ func hideLinuxOnlyIPv6RecvExt(name, goos string) bool {
 	}
 }
 
+// hideLinuxOnlyRecvErr hides ip-recverr except on Linux. ipv6-recverr is
+// never advertised: it is undocumented and remains rejected.
+func hideLinuxOnlyRecvErr(name, goos string) bool {
+	switch name {
+	case "ip-recverr", "recverr", "iprecverr":
+		return goos != "linux"
+	default:
+		return false
+	}
+}
+
 func hideOptGroup(title string) bool {
 	switch title {
 	case "PTY and TERMIOS":

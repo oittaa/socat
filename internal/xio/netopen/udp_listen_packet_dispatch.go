@@ -176,6 +176,7 @@ func (l *udpDispatchListener) readLoop() {
 			if l.base.rcvTimeout > 0 && xio.IsTimeoutErr(err) {
 				continue
 			}
+			xio.DrainRecvErrOnError(err, xio.NeedRecvErr(l.base.spec), l.base.pc, l.base.g)
 			_ = l.shutdown(err)
 			return
 		}
@@ -220,8 +221,9 @@ func (l *udpDispatchListener) readLoop() {
 			packets:         make(chan udpForkPacket, udpDispatchPacketQueueSize),
 			done:            make(chan struct{}),
 			deadlineChanged: make(chan struct{}, 1),
-			env:             session.SessionVars,
+			env:             session.SessionVarsSnapshot(),
 			g:               session,
+			recvErr:         xio.NeedRecvErr(l.base.spec),
 		}
 		l.mu.Lock()
 		select {
@@ -262,6 +264,7 @@ type udpDispatchConn struct {
 	key      string
 	env      map[string]string
 	g        *xio.Global
+	recvErr  bool
 
 	readMu      sync.Mutex
 	pending     udpForkPacket
@@ -276,7 +279,12 @@ type udpDispatchConn struct {
 	deadlineChanged chan struct{}
 }
 
-func (c *udpDispatchConn) SessionEnvironment() map[string]string { return c.env }
+func (c *udpDispatchConn) SessionEnvironment() map[string]string {
+	if c.g != nil {
+		return c.g.SessionVarsSnapshot()
+	}
+	return c.env
+}
 
 func (c *udpDispatchConn) enqueue(packet udpForkPacket) bool {
 	select {
@@ -383,7 +391,7 @@ func (c *udpDispatchConn) Write(p []byte) (int, error) {
 	c.deadlineMu.Lock()
 	deadline := c.writeDeadline
 	c.deadlineMu.Unlock()
-	return writeSharedPacket(&c.listener.writeMu, deadline, c.pc.SetWriteDeadline, func() (int, error) {
+	n, err := writeSharedPacket(&c.listener.writeMu, deadline, c.pc.SetWriteDeadline, func() (int, error) {
 		select {
 		case <-c.done:
 			return 0, net.ErrClosed
@@ -391,6 +399,8 @@ func (c *udpDispatchConn) Write(p []byte) (int, error) {
 		}
 		return c.pc.WriteToUDP(p, c.peer)
 	})
+	xio.DrainRecvErrOnError(err, c.recvErr, c.pc, c.g)
+	return n, err
 }
 
 func (c *udpDispatchConn) Close() error {

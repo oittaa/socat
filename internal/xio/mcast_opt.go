@@ -139,12 +139,15 @@ func applyMTUDiscoveryOption(fd int, o parse.Option) (bool, error) {
 	return true, applyMTUDiscoveryFD(fd, family, name, o)
 }
 
-func applyRecvErrOption(_ int, o parse.Option) (bool, error) {
+func applyRecvErrOption(fd int, o parse.Option) (bool, error) {
 	name, ok := recvErrOptionName(o)
 	if !ok {
 		return false, nil
 	}
-	return true, fmt.Errorf("%s: not supported (no MSG_ERRQUEUE ReadMsg path)", name)
+	if name == "ipv6-recverr" {
+		return true, fmt.Errorf("%s: not supported (no MSG_ERRQUEUE ReadMsg path)", name)
+	}
+	return true, applyRecvErrSockopt(fd, o)
 }
 
 func multicastNamedOf(o parse.Option) (multicastNamedKind, string, bool) {
@@ -249,13 +252,21 @@ func recvErrSpelling(name string) (string, bool) {
 	}
 }
 
-// RejectUnsupportedRecvErr fails fast for ip-recverr / ipv6-recverr.
-// IP_RECVERR only enables MSG_ERRQUEUE; this ReadMsg path does not drain
-// that queue, so advertising the option would be a no-op.
+// NeedRecvErr reports whether the spec enables IP_RECVERR (Linux).
+func NeedRecvErr(s parse.Spec) bool {
+	n, ok, err := ancillaryRecvInt(s, "ip-recverr")
+	return ok && err == nil && n != 0
+}
+
+// RejectUnsupportedRecvErr fails fast for ipv6-recverr everywhere and for
+// ip-recverr on platforms that do not implement IP_RECVERR.
 func RejectUnsupportedRecvErr(s parse.Spec) error {
 	for _, o := range s.Options {
-		_, ok := recvErrOptionName(o)
+		name, ok := recvErrOptionName(o)
 		if !ok {
+			continue
+		}
+		if name == "ip-recverr" && recvErrSupported() {
 			continue
 		}
 		spelling := o.OriginalSpelling()
