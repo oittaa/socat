@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"net"
 	"os"
-	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
