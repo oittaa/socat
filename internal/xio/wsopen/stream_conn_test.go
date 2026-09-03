@@ -104,7 +104,32 @@ func TestWSNetConnReadDeadline(t *testing.T) {
 }
 
 func TestWSNetConnWriteDeadline(t *testing.T) {
-	client, _ := newWSTestPair(t)
+	client, server := newWSTestPair(t)
+
+	clientWS, ok := client.(*wsNetConn)
+	if !ok {
+		t.Fatalf("client connection type %T want *wsNetConn", client)
+	}
+	clientTCP, ok := clientWS.raw.(*net.TCPConn)
+	if !ok {
+		t.Fatalf("client raw connection type %T want *net.TCPConn", clientWS.raw)
+	}
+	if err := clientTCP.SetWriteBuffer(1024); err != nil {
+		t.Fatalf("client SetWriteBuffer: %v", err)
+	}
+
+	serverWS, ok := server.(*wsNetConn)
+	if !ok {
+		t.Fatalf("server connection type %T want *wsNetConn", server)
+	}
+	serverTCP, ok := serverWS.raw.(*net.TCPConn)
+	if !ok {
+		t.Fatalf("server raw connection type %T want *net.TCPConn", serverWS.raw)
+	}
+	if err := serverTCP.SetReadBuffer(1024); err != nil {
+		t.Fatalf("server SetReadBuffer: %v", err)
+	}
+
 	payload := make([]byte, 8<<20)
 	if err := client.SetWriteDeadline(time.Now().Add(30 * time.Millisecond)); err != nil {
 		t.Fatal(err)
