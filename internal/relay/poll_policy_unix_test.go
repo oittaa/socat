@@ -6,6 +6,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -127,6 +128,304 @@ type nvalDest int
 func (d nvalDest) Fd() uintptr { return uintptr(d) }
 
 func (d nvalDest) Write([]byte) (int, error) { return 0, io.ErrClosedPipe }
+
+func pipePair(t *testing.T) (r, w *os.File) {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
+	return r, w
+}
+
+func fileFD(t *testing.T, f *os.File) int {
+	t.Helper()
+	fd := int(f.Fd())
+	if fd < 0 {
+		t.Fatal("closed fd")
+	}
+	return fd
+}
+
+func countingPollWait(t *testing.T) *atomic.Int32 {
+	t.Helper()
+	orig := pollWait
+	var n atomic.Int32
+	pollWait = func(fds []unix.PollFd, timeoutMs int) (int, error) {
+		n.Add(1)
+		return poll(fds, timeoutMs)
+	}
+	t.Cleanup(func() { pollWait = orig })
+	return &n
+}
+
+func waitPollWithTimeout(t *testing.T, srcFD, dstFD int, d time.Duration) (polls int32, err error) {
+	t.Helper()
+	n := countingPollWait(t)
+	ctx, cancel := context.WithTimeout(context.Background(), d)
+	defer cancel()
+	err = waitReadableAndWritable(ctx, srcFD, dstFD)
+	return n.Load(), err
+}
+
+// maxOneSidedPolls is well above a 100ms-timeout wait over 300ms (~3–4 polls)
+// and far below a busy-spin (tens of thousands).
+const maxOneSidedPolls = 20
+
+func TestWaitReadableAndWritableIdleSourceDoesNotSpin(t *testing.T) {
+	srcR, _ := pipePair(t)
+	_, dstW := pipePair(t)
+
+	n, err := waitPollWithTimeout(t, fileFD(t, srcR), fileFD(t, dstW), 300*time.Millisecond)
+	if err == nil {
+		t.Fatal("idle source returned as ready")
+	}
+	if err != context.DeadlineExceeded {
+		t.Fatalf("err=%v want deadline exceeded", err)
+	}
+	if n > maxOneSidedPolls {
+		t.Fatalf("polls=%d want <= %d (busy-spin)", n, maxOneSidedPolls)
+	}
+	if n < 1 {
+		t.Fatal("poll was never called")
+	}
+}
+
+func TestWaitReadableAndWritableBlockedDestDoesNotSpin(t *testing.T) {
+	srcR, srcW := pipePair(t)
+	_, dstW := pipePair(t)
+	fillPipeForPollTest(t, dstW)
+	payload := []byte("unread")
+	if _, err := srcW.Write(payload); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := waitPollWithTimeout(t, fileFD(t, srcR), fileFD(t, dstW), 300*time.Millisecond)
+	if err == nil {
+		t.Fatal("blocked destination returned as ready")
+	}
+	if err != context.DeadlineExceeded {
+		t.Fatalf("err=%v want deadline exceeded", err)
+	}
+	if n > maxOneSidedPolls {
+		t.Fatalf("polls=%d want <= %d (busy-spin)", n, maxOneSidedPolls)
+	}
+
+	got := make([]byte, len(payload))
+	if _, err := io.ReadFull(srcR, got); err != nil {
+		t.Fatalf("source consumed while destination stalled: %v", err)
+	}
+	if string(got) != string(payload) {
+		t.Fatalf("source=%q want %q", got, payload)
+	}
+}
+
+func TestWaitReadableAndWritableBothReady(t *testing.T) {
+	srcR, srcW := pipePair(t)
+	_, dstW := pipePair(t)
+	if _, err := srcW.Write([]byte("xy")); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := waitReadableAndWritable(ctx, fileFD(t, srcR), fileFD(t, dstW)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestWaitReadableAndWritableUnblocksWhenDestDrains(t *testing.T) {
+	srcR, srcW := pipePair(t)
+	dstR, dstW := pipePair(t)
+	fillPipeForPollTest(t, dstW)
+	if _, err := srcW.Write([]byte("go")); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- waitReadableAndWritable(ctx, fileFD(t, srcR), fileFD(t, dstW))
+	}()
+	time.Sleep(50 * time.Millisecond)
+	buf := make([]byte, 64<<10)
+	if _, err := dstR.Read(buf); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("did not become ready after destination drained")
+	}
+	got := make([]byte, 2)
+	if _, err := io.ReadFull(srcR, got); err != nil {
+		t.Fatalf("source consumed before wait returned: %v", err)
+	}
+}
+
+func TestWaitReadableAndWritableCancel(t *testing.T) {
+	srcR, _ := pipePair(t)
+	_, dstW := pipePair(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- waitReadableAndWritable(ctx, fileFD(t, srcR), fileFD(t, dstW))
+	}()
+	cancel()
+	select {
+	case err := <-done:
+		if err != context.Canceled {
+			t.Fatalf("err=%v want canceled", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("did not return on cancel")
+	}
+}
+
+func TestWaitReadableAndWritableSourceHangup(t *testing.T) {
+	srcR, srcW := pipePair(t)
+	_, dstW := pipePair(t)
+	if err := srcW.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := waitPollWithTimeout(t, fileFD(t, srcR), fileFD(t, dstW), time.Second)
+	if err != nil {
+		t.Fatalf("source hangup: %v", err)
+	}
+	if n > maxOneSidedPolls {
+		t.Fatalf("polls=%d want <= %d (busy-spin)", n, maxOneSidedPolls)
+	}
+}
+
+func TestWaitReadableAndWritableSourceHangupWithDataBlockedDest(t *testing.T) {
+	srcR, srcW := pipePair(t)
+	dstR, dstW := pipePair(t)
+	fillPipeForPollTest(t, dstW)
+	if _, err := srcW.Write([]byte("go")); err != nil {
+		t.Fatal(err)
+	}
+	if err := srcW.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	n := countingPollWait(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- waitReadableAndWritable(ctx, fileFD(t, srcR), fileFD(t, dstW))
+	}()
+	time.Sleep(50 * time.Millisecond)
+	if polls := n.Load(); polls > maxOneSidedPolls {
+		cancel()
+		t.Fatalf("polls=%d want <= %d while dest blocked with source hangup", polls, maxOneSidedPolls)
+	}
+	buf := make([]byte, 64<<10)
+	if _, err := dstR.Read(buf); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("did not become ready after destination drained")
+	}
+	got := make([]byte, 2)
+	if _, err := io.ReadFull(srcR, got); err != nil {
+		t.Fatalf("source consumed before wait returned: %v", err)
+	}
+}
+
+func TestWaitReadableAndWritableDestHangup(t *testing.T) {
+	srcR, srcW := pipePair(t)
+	dstR, dstW := pipePair(t)
+	if _, err := srcW.Write([]byte("xy")); err != nil {
+		t.Fatal(err)
+	}
+	if err := dstR.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := waitPollWithTimeout(t, fileFD(t, srcR), fileFD(t, dstW), time.Second)
+	// Linux pipes often report POLLOUT|POLLHUP together; that remains writable
+	// until write, matching the previous poll contract. Hangup without POLLOUT
+	// is a closed destination.
+	if err != nil && err != io.ErrClosedPipe {
+		t.Fatalf("dest hangup err=%v", err)
+	}
+	if n > maxOneSidedPolls {
+		t.Fatalf("polls=%d want <= %d (busy-spin)", n, maxOneSidedPolls)
+	}
+	got := make([]byte, 2)
+	if _, err := io.ReadFull(srcR, got); err != nil {
+		t.Fatalf("source consumed after dest hangup: %v", err)
+	}
+}
+
+func TestWaitReadableAndWritableIdleSourceDestHangupDoesNotSpin(t *testing.T) {
+	srcR, _ := pipePair(t)
+	dstR, dstW := pipePair(t)
+	if err := dstR.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := waitPollWithTimeout(t, fileFD(t, srcR), fileFD(t, dstW), 300*time.Millisecond)
+	if err != nil && err != io.ErrClosedPipe && err != context.DeadlineExceeded {
+		t.Fatalf("err=%v", err)
+	}
+	if n > maxOneSidedPolls {
+		t.Fatalf("polls=%d want <= %d (busy-spin)", n, maxOneSidedPolls)
+	}
+}
+
+func TestWaitReadableAndWritableDestNval(t *testing.T) {
+	srcR, srcW := pipePair(t)
+	dstR, dstW := pipePair(t)
+	nval, err := unix.Dup(int(dstW.Fd()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(nval) })
+	if err := dstR.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := dstW.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Close(nval); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srcW.Write([]byte("xy")); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := waitPollWithTimeout(t, fileFD(t, srcR), nval, time.Second)
+	if err != io.ErrClosedPipe {
+		t.Fatalf("nval dest err=%v want closed pipe", err)
+	}
+	if n > maxOneSidedPolls {
+		t.Fatalf("polls=%d want <= %d (busy-spin)", n, maxOneSidedPolls)
+	}
+	got := make([]byte, 2)
+	if _, err := io.ReadFull(srcR, got); err != nil {
+		t.Fatalf("source consumed after dest nval: %v", err)
+	}
+}
+
+func TestWaitReadableAndWritableInvalidFD(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := waitReadableAndWritable(ctx, -1, -1); err != unix.EBADF {
+		t.Fatalf("err=%v want EBADF", err)
+	}
+}
 
 func TestTransferPollClosedDestinationIsClean(t *testing.T) {
 	srcR, srcW, err := os.Pipe()

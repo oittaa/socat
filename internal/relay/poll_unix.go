@@ -33,6 +33,12 @@ func poll(fds []unix.PollFd, timeoutMs int) (int, error) {
 	return unix.Poll(fds, timeoutMs)
 }
 
+// pollWait is the poll(2) used by waitReadableAndWritable. Tests replace it
+// to count wakeups; production keeps unix.Poll.
+var pollWait = poll
+
+const pollWaitTimeoutMs = 100
+
 func idleClockSleep() {
 	deadline := time.Now().Add(idleWatchInterval)
 	for {
@@ -80,17 +86,47 @@ func waitPollRead(fd int, timeoutMs int) error {
 // (select-style STALL backpressure). If dst is closed/errored without being writable,
 // return an error without reading (preserve unread peer data — needed for STALL).
 func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
+	srcReady := false
+	dstReady := false
+	// POLLERR/POLLHUP/POLLNVAL are reported even when Events is 0. After a
+	// hangup is observed on a side that is already ready, drop that fd from
+	// the wait set so combined readiness+hangup cannot busy-spin.
+	omitSrcWait := false
+	omitDstWait := false
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		src, srcOK := pollFd(srcFD, pollIn)
-		dst, dstOK := pollFd(dstFD, pollOut)
-		if !srcOK || !dstOK {
+		var pfds []unix.PollFd
+		srcIdx, dstIdx := -1, -1
+		if !omitSrcWait {
+			ev := int16(0)
+			if !srcReady {
+				ev = pollIn
+			}
+			p, ok := pollFd(srcFD, ev)
+			if !ok {
+				return syscall.EBADF
+			}
+			srcIdx = len(pfds)
+			pfds = append(pfds, p)
+		}
+		if !omitDstWait {
+			ev := int16(0)
+			if !dstReady {
+				ev = pollOut
+			}
+			p, ok := pollFd(dstFD, ev)
+			if !ok {
+				return syscall.EBADF
+			}
+			dstIdx = len(pfds)
+			pfds = append(pfds, p)
+		}
+		if len(pfds) == 0 {
 			return syscall.EBADF
 		}
-		pfd := []unix.PollFd{src, dst}
-		n, err := poll(pfd, 100) // 100ms so we honour ctx
+		n, err := pollWait(pfds, pollWaitTimeoutMs) // timeout so we honour ctx
 		if err != nil {
 			if err == syscall.EINTR {
 				continue
@@ -100,15 +136,42 @@ func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 		if n == 0 {
 			continue
 		}
-		srcRe := pfd[0].Revents
-		dstRe := pfd[1].Revents
+		if srcIdx >= 0 && pfds[srcIdx].Revents&(pollErr|pollHup|pollNval) != 0 {
+			omitSrcWait = true
+		}
+		if dstIdx >= 0 && pfds[dstIdx].Revents&(pollErr|pollHup|pollNval) != 0 {
+			omitDstWait = true
+		}
+
+		src, srcOK := pollFd(srcFD, pollIn)
+		dst, dstOK := pollFd(dstFD, pollOut)
+		if !srcOK || !dstOK {
+			return syscall.EBADF
+		}
+		confirm := []unix.PollFd{src, dst}
+		if _, err := poll(confirm, 0); err != nil {
+			if err == syscall.EINTR {
+				continue
+			}
+			return err
+		}
+		srcRe := confirm[0].Revents
+		dstRe := confirm[1].Revents
 		if dstRe&(pollErr|pollHup|pollNval) != 0 && dstRe&pollOut == 0 {
 			return io.ErrClosedPipe
 		}
 		if srcRe&(pollErr|pollHup|pollNval) != 0 && srcRe&pollIn == 0 {
 			return nil
 		}
-		if srcRe&pollIn != 0 && dstRe&pollOut != 0 {
+		srcReady = srcRe&pollIn != 0
+		dstReady = dstRe&pollOut != 0
+		if srcRe&(pollErr|pollHup|pollNval) != 0 {
+			omitSrcWait = true
+		}
+		if dstRe&(pollErr|pollHup|pollNval) != 0 {
+			omitDstWait = true
+		}
+		if srcReady && dstReady {
 			return nil
 		}
 	}
