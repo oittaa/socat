@@ -303,27 +303,60 @@ Do not enable excluded TLS features to make tests pass.
 | `OPENSSLLISTENDSA` | Intentional exclusion | DSA keys are rejected. README table “DSA, SSLv3, and weak TLS ciphers”. Covered by `TestLoadKeyPairRejectsDSA`. |
 | `OPENSSL_ANULL` | Shared with classic C | Classic `test.sh` uses `ciphers=aNULL`. Both C and Go print FAILED. Weak ciphers stay rejected. |
 | `SHELL_SIGINT` | Harness log format, not delivery | `test.sh` greps C `waitpid` warnings. This port logs `socatsignalpass(): propagated signal to … sub processes` and does **not** emit `W waitpid():…`. `TestEXECParentSignalPassThrough` covers SIGINT. Do not fake C waitpid lines. |
-| `SOCAT_MUX` | Environment / harness | Classic `test.sh` runs `./socat-mux.sh` from the classic tree. This repo does not vendor that script. Committed Go host and Go Docker baselines are **OK**. Classic **host** baseline is FAILED `(rc2b=1)`; classic Docker is OK. A sequential Go FAILED is a missing helper or timing flake: re-run `ONLY=SOCAT_MUX JOBS=1` with classic `test.sh` helpers linked, do not change mux/UDP parents. |
-| `V1800_OPENSSL_LISTEN_RANGE` | Intentional exclusion | Generated 1.8.0 regression case runs `OPENSSL-LISTEN:$PORT,range=…` **without** `cert=`. Classic C binds and treats `timeout` 124 as success. This port fails immediately: `OPENSSL-LISTEN: option "cert" is required` (rc=1). README: “TLS listeners fail immediately when `cert=` is missing.” `TestTLSServerConfigRequiresCert`. |
-| `V1800_OPENSSL_LISTEN_BIND` | Intentional exclusion | Same as RANGE with `bind=` instead of `range=`. |
+| `SOCAT_MUX` | Environment lead, not a demonstrated defect | Official `test.sh` runs `./socat-mux.sh` and comments that `lo`/`lo0` must have broadcast `127.255.255.255`. That prerequisite is not a `checkconds` skip, so a host without it can still run and print FAILED. The scorecard runner already copies or links official helpers (including `socat-mux.sh`) next to shard `test.sh`; a missing helper is not proved. Committed Go host and Go Docker baselines are **OK**. Classic **host** is FAILED `(rc2b=1)`; classic Docker is OK. Treat a sequential FAILED, if seen, as an environment question to re-run (`ONLY=SOCAT_MUX JOBS=1`), not as a proved flake or mux-parent bug. A loopback with no IPv4 broadcast is a lead, not a completed reproduction. Do not change mux/UDP parents from this triage. |
+| `V1800_OPENSSL_LISTEN_RANGE` | Documented fail-fast difference (retain) | Generated 1.8.0 case runs `OPENSSL-LISTEN:$PORT,range=…` **without** `cert=`. Official `doc/socat.yo` recommends a certificate (“You probably want to use the certificate option”) and does not make it mandatory. Classic C warns when `cert=` is absent and still binds; `timeout` 124 counts as success. This port fails immediately: `OPENSSL-LISTEN: option "cert" is required` (rc=1). README already records that TLS listeners fail immediately when `cert=` is missing. `TestTLSServerConfigRequiresCert`. This follow-up does not relax that. Go TLS still needs a usable server certificate for its supported handshakes. Do not describe classic’s warn-and-bind as an authentication bypass. |
+| `V1800_OPENSSL_LISTEN_BIND` | Documented fail-fast difference (retain) | Same as RANGE with `bind=` instead of `range=`. |
 
-Documentation vs runtime: classic `doc/socat.yo` documents OPENSSL-LISTEN
-certificate use; classic C still starts a listen without `cert=` long enough
-for those V1800 cases to pass. This port’s immediate refusal is the
-documented security exception, not an implementation defect.
+Official OPENSSL-LISTEN documentation recommends `cert=`; classic C warns and
+binds without it. This port’s fail-fast refusal is an existing documented
+difference, not a scorecard defect to close by matching C’s bind-without-cert
+path.
 
 ### Docker CANT vs classic OK (22)
 
-All are documented exclusions or missing classic-only protocols, not
-capability-detection bugs to “fix” by advertising unsupported names:
+21 are documented exclusions or missing classic-only protocols, not
+capability-detection bugs to “fix” by advertising unsupported names.
+`UDP_DATAGRAM_PEERPORT` is a version-gated harness skip, not one of those
+exclusions.
 
 | Names | Class |
 |-------|-------|
 | `READLINE`, `READLINE_OVFL` | GNU readline not implemented |
 | `COOLWRITE`, `COOLSTDIO` | `cool-write` deprecated; use `children-shutup` |
 | `OPENSSL_DTLS_SERVER`, `OPENSSL_DTLS_TO_SERVER`, `OPENSSL_DTLS_TO_CLIENT`, `RCVTIMEO_DTLS` | DTLS not in Go `crypto/tls` |
-| `UDP_DATAGRAM_PEERPORT` | `udp-ignore-peerport` documented but never implemented by classic C |
 | `UDPLITE4STREAM`, `UDPLITE6STREAM`, `UDPLITE4LISTENENV`, `UDPLITE6LISTENENV`, `UDPLITE4_L_MAXCHILDREN`, `UDPLITE6_L_MAXCHILDREN`, `V1800_UDPLITE_*` (6) | UDP-Lite removed from modern Linux |
+
+### `UDP_DATAGRAM_PEERPORT` (version-gated harness)
+
+Official `test.sh` (`NAME=UDP_DATAGRAM_PEERPORT`) uses only `UDP-DATAGRAM` and
+`bind=`. It never requests `udp-ignore-peerport`. The receiver is
+`UDP-DATAGRAM:$LOCALHOST:$PORT2,bind=:$PORT1`; the sender is
+`UDP-DATAGRAM:$LOCALHOST:$PORT1,bind=:$PORT3`. The case is whether the
+receiver accepts a datagram whose source port is not the configured peer
+port.
+
+The stored Go host and Docker results are CANT with detail
+“Only with Socat 1.7.4.0 or higher”. That string is the version gate at
+`test.sh` 14161–14163: if `SOCAT_VERSION` sorts numerically at or below
+`1.7.3.4`, the test does not run. Classic baselines are OK.
+
+`test.sh` sets `SOCAT_VERSION` from `-V` **line 2** (copyright then
+`socat version …` on classic). This port prints `socat version 1.0.3-dev`
+on **line 1** and `running on Go reimplementation …` on line 2. The
+extractor therefore does not see `1.0.3-dev`; GNU sed leaves line 2
+unchanged, and `sort -n` ranks that non-numeric line below `1.7.3.4`.
+Independently, extracting line 1 still yields `1.0.3-dev`, which the same
+`sort -n` comparison also ranks below `1.7.4.0`.
+`TestClassicTestShVersionGateSkipsUDPDatagramPeerport` locks that harness
+outcome.
+
+Do not map this CANT to the unsupported `udp-ignore-peerport` option name.
+That name remains documented but unimplemented in classic C and is omitted
+here (`classic-policy.json`, README Unsupported table). UDP-DATAGRAM
+receive already accepts a non-matching source port by default
+(`TestUDP4DatagramAcceptsWrongPeerByDefault`). Do not bump `Version` to
+impersonate 1.7.4+/1.8.x, and do not patch official `test.sh`, as part of
+this triage.
 
 ### Help-type consistency precheck
 
@@ -341,8 +374,10 @@ stop when it happens.
 
 No socat runtime fix belongs with this triage. In particular: do not allow
 missing `cert=` on TLS listeners, do not enable TLS compression or DSA, do
-not emit fake `waitpid` logs, and do not add a universal lifecycle framework
-to chase `SOCAT_MUX`.
+not emit fake `waitpid` logs, do not add a universal lifecycle framework to
+chase `SOCAT_MUX`, do not treat the loopback-broadcast comment as a completed
+`SOCAT_MUX` reproduction, and do not change `-V` layout or `Version` to
+satisfy the `UDP_DATAGRAM_PEERPORT` gate.
 
 `OPENPTYWAITSLAVE` can `TIMEOUT` in a long sequential Docker run; an isolated
 `ONLY=OPENPTYWAITSLAVE` re-run is OK. The committed Docker baseline records it

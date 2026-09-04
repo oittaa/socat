@@ -713,6 +713,8 @@ func printVersion(w io.Writer) error {
 	var b outbuf.Buf
 	// test.sh testfeats() greps: #define WITH_FOO 1
 	b.Printf("socat version %s on %s\n", socat.Version, time.Now().Format(time.RFC3339))
+	// Official test.sh takes -V line 2 as SOCAT_VERSION (classic prints a
+	// copyright line first). This second line is not a version string.
 	b.Printf("   running on Go reimplementation (github.com/oittaa/socat)\n")
 	b.Println("features:")
 	// Implemented = 1, not yet = 0. Keep names aligned with what test.sh greps.
