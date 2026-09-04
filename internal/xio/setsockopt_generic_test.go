@@ -67,7 +67,7 @@ func TestApplyTCPConnOptsRejectsSetsockoptWithoutSocket(t *testing.T) {
 	}
 }
 
-func TestWrapCommonSkipsSetsockoptWithoutSocket(t *testing.T) {
+func TestSetupStreamSkipsSetsockoptWithoutSocket(t *testing.T) {
 	a, b := net.Pipe()
 	t.Cleanup(func() {
 		_ = a.Close()
@@ -77,11 +77,11 @@ func TestWrapCommonSkipsSetsockoptWithoutSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Same split as sndbuf-late: WrapCommon is a fallback for streams that
+	// Same split as sndbuf-late: SetupStream is a fallback for streams that
 	// expose a socket fd. QUIC/WS/UDP-RECVFROM apply CONNECTED on the raw
 	// fd first, then wrap a non-syscall.Conn session.
-	if _, err := WrapCommon(spec, relay.NetStream{Conn: a}); err != nil {
-		t.Fatalf("WrapCommon on net.Pipe: %v", err)
+	if _, err := SetupStream(spec, relay.NetStream{Conn: a}); err != nil {
+		t.Fatalf("SetupStream on net.Pipe: %v", err)
 	}
 }
 

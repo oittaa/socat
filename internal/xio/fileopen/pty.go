@@ -65,7 +65,7 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 		logx.CloseQuiet(slave)
 		return nil, err
 	}
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.SetupStream(s, st)
 	if err != nil {
 		unlink()
 		logx.CloseQuiet(master)

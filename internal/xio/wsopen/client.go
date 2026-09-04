@@ -65,7 +65,7 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 		Dial:        dialOnce,
 		RememberTLS: scheme == "wss",
 		Wrap: func(c net.Conn) (relay.Stream, error) {
-			return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
+			return xio.SetupConnectedStream(s, relay.NetStream{Conn: c})
 		},
 	})
 }

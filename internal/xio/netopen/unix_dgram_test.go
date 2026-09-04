@@ -715,7 +715,7 @@ func TestApplyUnixgramSocketOptionsAppliesSetsockoptUnix(t *testing.T) {
 	}
 }
 
-func TestUnixRecvStreamWrapCommonSetsockoptUnix(t *testing.T) {
+func TestUnixRecvStreamSetupStreamSetsockoptUnix(t *testing.T) {
 	path := unixSocketTestPath(t, "wrap-sockopt.sock")
 	c, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: path, Net: "unixgram"})
 	if err != nil {
@@ -726,11 +726,11 @@ func TestUnixRecvStreamWrapCommonSetsockoptUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := xio.WrapCommon(spec, &unixRecvStream{c: c}); err != nil {
-		t.Fatalf("WrapCommon on UNIX-RECV wrapper must not fail: %v", err)
+	if _, err := xio.SetupStream(spec, &unixRecvStream{c: c}); err != nil {
+		t.Fatalf("SetupStream on UNIX-RECV wrapper must not fail: %v", err)
 	}
 	if got := packetSockoptInt(t, c, unix.SO_KEEPALIVE); got == 0 {
-		t.Fatalf("SO_KEEPALIVE=%d want enabled after WrapCommon", got)
+		t.Fatalf("SO_KEEPALIVE=%d want enabled after SetupStream", got)
 	}
 }
 

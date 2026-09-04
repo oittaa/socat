@@ -133,7 +133,7 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 		return nil, err
 	}
 	st := relay.Stream(relay.NetStream{Conn: conn})
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.SetupStream(s, st)
 	if err != nil {
 		life.drop(conn)
 		return nil, err
@@ -269,7 +269,7 @@ func openUnixDgramClient(ctx context.Context, s parse.Spec, mode xio.Mode, g *xi
 	if emptyIsEOF {
 		st = xio.WrapMessageEOF(st)
 	}
-	st, err = xio.WrapCommonAfterConnected(s, st)
+	st, err = xio.SetupConnectedStream(s, st)
 	if err != nil {
 		life.drop(conn)
 		return nil, err

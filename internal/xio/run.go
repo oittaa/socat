@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -344,7 +343,7 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 		// RECVFROM,fork creates a socketpair per child. Stream listens
 		// (TCP-LISTEN,fork PIPE) transfer directly — a bridge would open
 		// -r/-R sniff files twice per session.
-		if needsForkSocketpair(lo) {
+		if lo.ForkSocketpair {
 			sp0, sp1, spErr := unixSocketpairLogged(cg)
 			if spErr != nil {
 				cg.Log.Errorf("socketpair: %s", spErr)
@@ -372,16 +371,6 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 		}
 		waitForkChild(ctx, lo.MaxChildren, ro)
 	})
-}
-
-// needsForkSocketpair is true for datagram RECVFROM,fork (a socketpair per
-// child). Stream acceptors transfer the accepted conn directly.
-func needsForkSocketpair(lo *Opened) bool {
-	if lo == nil {
-		return false
-	}
-	lab := strings.ToUpper(lo.Label)
-	return strings.Contains(lab, "RECVFROM")
 }
 
 func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {

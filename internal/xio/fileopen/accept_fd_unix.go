@@ -23,7 +23,7 @@ func init() {
 
 // openAcceptFDNum implements ACCEPT-FD / ACCEPT on Linux and macOS.
 // The fd must already be a listening stream socket. After accept, apply
-// descriptor, socket, and connected options; WrapCommon applies late options.
+// descriptor, socket, connected, then late options.
 // fork, range, sourceport, lowport, and tcpwrap apply to IP and UNIX
 // listeners, not only TCP. ACCEPT is the public alias of ACCEPT-FD.
 func openAcceptFDNum(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, fd int) (*xio.Opened, error) {
@@ -48,9 +48,11 @@ func openAcceptFDNum(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 			if err := applyAcceptFDAcceptedOpts(s, c); err != nil {
 				return nil, err
 			}
-			// After open, after socket(), and after connect/accept already
-			// ran. Skip them here so late is not applied early.
-			return xio.WrapCommonAfterConnectedFDPhaseApplied(s, relay.NetStream{Conn: c})
+			stream := relay.NetStream{Conn: c}
+			if err := xio.ApplyStreamLateOptions(s, stream); err != nil {
+				return nil, err
+			}
+			return xio.WrapStream(s, stream, xio.StreamSocketTimeouts)
 		},
 	})
 }
@@ -122,7 +124,7 @@ func rejectIfNotListening(fd int) error {
 func applyAcceptFDAcceptedOpts(s parse.Spec, c net.Conn) error {
 	if sc, ok := c.(syscall.Conn); ok {
 		// After open, then after socket(), then after connect/accept.
-		// Late is WrapCommon.
+		// Late options follow in ApplyStreamLateOptions.
 		if err := xio.ApplyFDPhaseLifecycleToConn(sc, s); err != nil {
 			return err
 		}

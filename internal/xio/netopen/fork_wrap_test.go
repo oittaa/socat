@@ -25,6 +25,9 @@ func TestForkListenersWrapDialAppliesReadbytes(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = o.Close() })
+		if o.ForkSocketpair {
+			t.Fatal("TCP sessions must transfer directly")
+		}
 		assertWrapDialReadbytes(t, o)
 	})
 
@@ -38,6 +41,9 @@ func TestForkListenersWrapDialAppliesReadbytes(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = o.Close() })
+		if o.ForkSocketpair {
+			t.Fatal("UDP-LISTEN sessions must transfer directly")
+		}
 		assertWrapDialReadbytes(t, o)
 	})
 
@@ -51,6 +57,9 @@ func TestForkListenersWrapDialAppliesReadbytes(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = o.Close() })
+		if !o.ForkSocketpair {
+			t.Fatal("UDP-RECVFROM sessions require a socketpair bridge")
+		}
 		assertWrapDialReadbytes(t, o)
 	})
 }

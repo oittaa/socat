@@ -206,7 +206,7 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	// Connected IPv4 Read() keeps the IP header; strip so user data starts at payload.
 	v4 := network == "ip4" || raddr.IP.To4() != nil
 	st := relay.Stream(&rawIPConn{IPConn: c, peer: raddr, v4: v4, wantCtrl: xio.NeedAncillary(s), recvErr: xio.NeedRecvErr(s), g: g})
-	st, err = xio.WrapCommonAfterConnected(s, st)
+	st, err = xio.SetupConnectedStream(s, st)
 	if err != nil {
 		logx.CloseQuiet(c)
 		return nil, err
@@ -273,7 +273,7 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		ctx:      ctx,
 		filter:   filter,
 	})
-	st, err = xio.WrapCommonAfterConnected(s, st)
+	st, err = xio.SetupConnectedStream(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -334,7 +334,7 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 		recvErr:  xio.NeedRecvErr(s),
 		v4:       network == "ip4",
 	})
-	st, err = xio.WrapCommonAfterConnected(s, st)
+	st, err = xio.SetupConnectedStream(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -369,12 +369,13 @@ func openIPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *ne
 	}
 	xio.NoteListenBound(pc.LocalAddr())
 	return &xio.Opened{
-		Kind:        xio.KindListen,
-		Listener:    ln,
-		Label:       s.Type,
-		MaxChildren: maxChildren,
+		Kind:           xio.KindListen,
+		ForkSocketpair: true,
+		Listener:       ln,
+		Label:          s.Type,
+		MaxChildren:    maxChildren,
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
+			return xio.SetupConnectedStream(s, relay.NetStream{Conn: c})
 		},
 	}, nil
 }
@@ -408,7 +409,7 @@ func openIPRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, pc 
 		v4:           stripV4,
 		g:            g,
 	})
-	st, err = xio.WrapCommonAfterConnected(s, st)
+	st, err = xio.SetupConnectedStream(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err

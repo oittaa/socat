@@ -238,6 +238,8 @@ type Opened struct {
 	Listener net.Listener // KindListen parent; nil after a non-fork accept
 	Label    string
 	Cleanup  []func()
+	// ForkSocketpair bridges each accepted datagram session through a socketpair.
+	ForkSocketpair bool
 	// PeerFilter rejects accepted connections (range/sourceport/lowport).
 	PeerFilter func(net.Conn) error
 	// MaxChildren limits concurrent fork children (0 = unlimited).

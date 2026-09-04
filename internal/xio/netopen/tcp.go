@@ -61,7 +61,7 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		Dial:  dialOnce,
 		LogOK: true,
 		Wrap: func(c net.Conn) (relay.Stream, error) {
-			return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
+			return xio.SetupConnectedStream(s, relay.NetStream{Conn: c})
 		},
 	})
 }
@@ -99,18 +99,12 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	if port == "" || strings.Trim(port, ":") == "" {
 		return nil, fmt.Errorf("%s: invalid port %q", s.Type, port)
 	}
-	host, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
+	addr, err := xio.TCPListenAddress(ctx, s, network, port)
 	if err != nil {
 		return nil, err
 	}
-	host, err = xio.ResolveIPHost(ctx, s, network, host)
-	if err != nil {
-		return nil, err
-	}
-	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
-	lc := xio.NewTCPListenConfig(s)
-	ln, err := xio.ListenStream(ctx, lc, network, addr, s)
+	ln, err := xio.ListenTCP(ctx, s, network, addr)
 	if err != nil {
 		return nil, err
 	}

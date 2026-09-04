@@ -19,7 +19,7 @@ func (*closeCountingStream) ShutdownWrite() error { return nil }
 
 func TestShutCloseFullyClosesOnce(t *testing.T) {
 	inner := &closeCountingStream{}
-	stream, err := WrapCommon(parse.Spec{Options: []parse.Option{{Name: "shut-close"}}}, inner)
+	stream, err := SetupStream(parse.Spec{Options: []parse.Option{{Name: "shut-close"}}}, inner)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,7 +10,7 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-func TestWrapCommonRejectsLifecycleWithoutDescriptor(t *testing.T) {
+func TestSetupStreamRejectsLifecycleWithoutDescriptor(t *testing.T) {
 	a, b := net.Pipe()
 	t.Cleanup(func() {
 		_ = a.Close()
@@ -20,13 +20,13 @@ func TestWrapCommonRejectsLifecycleWithoutDescriptor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = WrapCommon(spec, relay.NetStream{Conn: a})
+	_, err = SetupStream(spec, relay.NetStream{Conn: a})
 	if err == nil || !strings.Contains(err.Error(), "does not expose a descriptor") {
 		t.Fatalf("error=%v want stream does not expose a descriptor", err)
 	}
 }
 
-func TestWrapCommonSkipsLateOptionsWithoutSocketFD(t *testing.T) {
+func TestSetupStreamSkipsLateOptionsWithoutSocketFD(t *testing.T) {
 	a, b := net.Pipe()
 	t.Cleanup(func() {
 		_ = a.Close()
@@ -36,8 +36,8 @@ func TestWrapCommonSkipsLateOptionsWithoutSocketFD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := WrapCommon(spec, relay.NetStream{Conn: a}); err != nil {
-		t.Fatalf("WrapCommon on net.Pipe: %v", err)
+	if _, err := SetupStream(spec, relay.NetStream{Conn: a}); err != nil {
+		t.Fatalf("SetupStream on net.Pipe: %v", err)
 	}
 }
 

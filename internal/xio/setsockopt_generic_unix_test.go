@@ -301,7 +301,7 @@ func TestApplyGenericSetsockoptRepeatedAndAliasUnix(t *testing.T) {
 	}
 }
 
-func TestDialTCPAllWrapCommonOnceKeepaliveUnix(t *testing.T) {
+func TestDialTCPAllSetupStreamOnceKeepaliveUnix(t *testing.T) {
 	ln, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -331,7 +331,7 @@ func TestDialTCPAllWrapCommonOnceKeepaliveUnix(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
-	if _, err := WrapCommonAfterConnected(spec, relay.NetStream{Conn: c}); err != nil {
+	if _, err := SetupConnectedStream(spec, relay.NetStream{Conn: c}); err != nil {
 		t.Fatal(err)
 	}
 	if n != 1 {
