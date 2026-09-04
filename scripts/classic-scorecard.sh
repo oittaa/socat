@@ -10,7 +10,10 @@
 #   - Fast iterate:  MODE=fast    (parallel shards, short -t; default)
 #
 # A single hung socat can freeze an unbounded suite; every mode still uses a
-# wall SHARD_TIMEOUT and kills leftover socat from this tree between shards.
+# wall SHARD_TIMEOUT and kills leftover processes owned by this invocation
+# (per shard between shards, then the whole run). Ownership is the scorecard
+# environment markers, not the checkout binary path, so sibling shards and
+# other invocations from the same tree survive.
 #
 # After each run it writes structured results:
 #   OUT_DIR/results.json   — full snapshot (meta + per-test status)
@@ -45,6 +48,13 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+# shellcheck source=scorecard-proc.sh
+. "$ROOT/scripts/scorecard-proc.sh"
+# Unique per invocation. Exported so shard workers inherit it. SHARD is set
+# only inside the timeout subshell that runs test.sh, never on this process.
+SOCAT_SCORECARD_RUN="${SOCAT_SCORECARD_RUN:-$$-$(date +%s)-$RANDOM}"
+export SOCAT_SCORECARD_RUN
 
 # MODE presets (explicit env still wins if set after — apply only when unset)
 MODE="${MODE:-fast}"
@@ -149,15 +159,12 @@ if [[ -z "$LABEL" ]]; then
   fi
 fi
 
-# Kill leftover socat from this tree only (never broad killall bash)
+# Kill leftover processes owned by this invocation. Optional shard id limits
+# the match so a finished shard cannot terminate a sibling. Unrelated socat
+# processes (other runs, user sessions, external binaries without markers)
+# are left alone. Bounded TERM/KILL is in scorecard_cleanup_owned.
 cleanup_orphans() {
-  # Match our built binary path only
-  local p
-  for p in $(pgrep -x socat 2>/dev/null || true); do
-    if tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null | grep -qF "$ROOT/socat"; then
-      kill "$p" 2>/dev/null || true
-    fi
-  done
+  scorecard_cleanup_owned "$SOCAT_SCORECARD_RUN" "${1-}"
 }
 cleanup_orphans
 
@@ -277,11 +284,16 @@ run_shard() {
 
   local ec=0
   # Outer timeout kills hung shards (the main 30‑minute problem).
+  # SOCAT_SCORECARD_SHARD is exported only in this subshell so leftover socat
+  # (including an external SOCAT binary) can be reaped without touching
+  # sibling shards. The parse/aggregate processes never see SHARD.
   set +e
   (
     export TMPDIR="$work/tmp"
     mkdir -p "$TMPDIR"
     export SOCAT FILAN PROCAN
+    export SOCAT_SCORECARD_RUN
+    export SOCAT_SCORECARD_SHARD="$id"
     cd "$work"
     export PATH="$work:$PATH"
     # shellcheck disable=SC2086
@@ -328,12 +340,22 @@ run_shard() {
     rm -rf "$work"
   fi
 
-  cleanup_orphans
+  if [[ $ec -ne 0 && $ec -ne 124 ]]; then
+    if ! grep -E -q '^Summary:[[:space:]]+[0-9]+[[:space:]]+tests,' "$log"; then
+      echo "shard $id: test harness exited $ec without a Summary footer" | tee -a "$OUT_DIR/aggregate.txt"
+      if grep -F -q 'ip-add-source-membership' "$log"; then
+        echo "  classic test.sh stopped at the help-type consistency precheck for ip-add-source-membership" | tee -a "$OUT_DIR/aggregate.txt"
+        echo "  (C test metadata vs advertised help; not a successful empty run; user help is not patched to satisfy the precheck)" | tee -a "$OUT_DIR/aggregate.txt"
+      fi
+    fi
+  fi
+
+  cleanup_orphans "$id"
   return 0
 }
 
-export -f run_shard cleanup_orphans
-export TEST_SH OUT_DIR BASE_PORT PORT_STRIDE VAL_T SHARD_TIMEOUT ONLY SOCAT FILAN PROCAN ROOT KEEP_LOGS
+export -f run_shard cleanup_orphans scorecard_is_self_or_ancestor scorecard_pid_has_env scorecard_find_owned_pids scorecard_cleanup_owned
+export TEST_SH OUT_DIR BASE_PORT PORT_STRIDE VAL_T SHARD_TIMEOUT ONLY SOCAT FILAN PROCAN ROOT KEEP_LOGS SOCAT_SCORECARD_RUN
 
 echo "shards:"
 i=0
@@ -375,6 +397,7 @@ out = pathlib.Path(sys.argv[1])
 total_ok = total_fail = total_cant = 0
 line_ok = line_fail = 0
 timeouts = 0
+harness_fail = 0
 shards = sorted(out.glob("shard-*.summary"), key=lambda p: int(p.stem.split("-")[1]))
 print(f"{'shard':>5}  {'range':>12}  {'exit':>4}  {'ok':>4}  {'fail':>4}  {'cant':>4}  {'log_ok':>6}  {'log_fail':>8}")
 for sp in shards:
@@ -394,6 +417,15 @@ for sp in shards:
     line_fail += lfail
     if ec == 124:
         timeouts += 1
+    log = out / f"shard-{sid}.log"
+    text = log.read_text(errors="replace") if log.exists() else ""
+    genuine = bool(re.search(r"^Summary:\s+\d+\s+tests,", text, re.M))
+    if ec not in (0, 124) and not genuine:
+        harness_fail += 1
+        print(f"shard {sid}: test harness exited {ec} without a Summary footer")
+        if "ip-add-source-membership" in text:
+            print("  classic test.sh stopped at the help-type consistency precheck for ip-add-source-membership")
+            print("  (C test metadata vs advertised help; not a successful empty run; user help is not patched)")
     print(f"{sid:5d}  {start:5d}-{end:<5d}  {ec:4d}  {sok:4d}  {sfail:4d}  {scant:4d}  {lok:6d}  {lfail:8d}")
 
 print()
@@ -401,6 +433,8 @@ print(f"From Summary lines:  OK={total_ok}  FAILED={total_fail}  CANT={total_can
 print(f"From log greps:      OK={line_ok}  FAILED={line_fail}")
 if timeouts:
     print(f"Shards hit SHARD_TIMEOUT: {timeouts}  (see shard-*.log; raise SHARD_TIMEOUT or fix hangs)")
+if harness_fail:
+    print(f"Shards failed before producing results: {harness_fail}")
 
 # List failed tests across logs
 fails = []
@@ -417,10 +451,11 @@ if fails:
 
 # Write machine-readable total
 (out / "totals.txt").write_text(
-    f"ok={total_ok}\nfail={total_fail}\ncant={total_cant}\nline_ok={line_ok}\nline_fail={line_fail}\ntimeouts={timeouts}\n"
+    f"ok={total_ok}\nfail={total_fail}\ncant={total_cant}\nline_ok={line_ok}\nline_fail={line_fail}\ntimeouts={timeouts}\nharness_fail={harness_fail}\n"
 )
-# Aggregate exit: non-zero if hard failures or shard timeouts (legacy behaviour)
-sys.exit(1 if total_fail or timeouts or line_fail else 0)
+# Aggregate exit: non-zero if hard failures, shard timeouts, or a harness
+# abort before a genuine Summary (do not treat that as a successful empty run).
+sys.exit(1 if total_fail or timeouts or line_fail or harness_fail else 0)
 PY
 agg_ec=$?
 set -e
