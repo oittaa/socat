@@ -80,6 +80,9 @@ class ValidateResultTest(unittest.TestCase):
         self.assertLess(parse_idx, gate_idx)
         self.assertLess(gate_idx, save_idx)
         self.assertIn("not saving baseline", runner)
+        self.assertIn("harness_fail", runner)
+        self.assertIn("scorecard-proc.sh", runner)
+        self.assertNotIn("pgrep -x socat", runner)
 
     def test_accepts_complete_canonical_run(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

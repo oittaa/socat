@@ -212,10 +212,14 @@ class ContradictorySummaryTest(unittest.TestCase):
         self.assertEqual(parsed["summary"]["conflicts"], [])
 
 
-def _run_parse_cli(text: str) -> subprocess.CompletedProcess[str]:
+def _run_parse_cli(
+    text: str, *, summary: str | None = None
+) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as tmp:
         out = pathlib.Path(tmp)
         (out / "shard-0.log").write_text(text)
+        if summary is not None:
+            (out / "shard-0.summary").write_text(summary)
         return subprocess.run(
             [sys.executable, "-B", str(SCRIPT), str(out)],
             capture_output=True,
@@ -253,6 +257,79 @@ class ParseCliExitTest(unittest.TestCase):
         )
         self.assertEqual(completed.returncode, 0)
         self.assertIn("CONFLICTS", completed.stdout)
+
+
+class HarnessFailureTest(unittest.TestCase):
+    def test_empty_selection_with_genuine_summary_is_success(self) -> None:
+        text = (
+            "Summary: 608 tests, 0 selected; 0 ok, 0 failed, 0 could not be performed\n"
+        )
+        parsed = parse_shard(text, summary="0 1 608 0 0 0 0 0 0")
+        self.assertEqual(parsed["summary"]["total_recorded"], 0)
+        self.assertEqual(parsed["summary"]["startup_failed"], [])
+        self.assertEqual(parsed["summary"]["incomplete_aborts"], [])
+        completed = _run_parse_cli(text, summary="0 1 608 0 0 0 0 0 0")
+        self.assertEqual(completed.returncode, 0)
+        self.assertNotIn("STARTUP FAILED", completed.stdout)
+
+    def test_failed_tests_with_genuine_summary_are_not_startup_failure(self) -> None:
+        text = "\n".join(
+            [
+                "test 228 TCP4SERVICE: TCP4 service... FAILED: diff:",
+                "Summary: 608 tests, 1 selected; 0 ok, 1 failed, 0 could not be performed",
+                "FAILED: 228",
+            ]
+        ) + "\n"
+        completed = _run_parse_cli(text, summary="0 1 608 1 0 1 0 0 1")
+        self.assertEqual(completed.returncode, 0)
+        self.assertNotIn("STARTUP FAILED", completed.stdout)
+        parsed = parse_shard(text, summary="0 1 608 1 0 1 0 0 1")
+        self.assertEqual(parsed["summary"]["failed"], 1)
+        self.assertEqual(parsed["summary"]["startup_failed"], [])
+
+    def test_nonzero_exit_before_results_is_startup_failure(self) -> None:
+        text = (
+            "option type \"IP_ADD_SOURCE_MEMBERSHIP\" inconsistency:\n"
+            "ip-add-source-membership\n"
+        )
+        parsed = parse_shard(text, summary="0 1 608 1 0 0 0 0 0")
+        self.assertEqual(parsed["summary"]["startup_failed"], [0])
+        self.assertEqual(parsed["summary"]["total_recorded"], 0)
+        self.assertTrue(parsed["summary"]["harness_notes"])
+        self.assertIn("ip-add-source-membership", parsed["summary"]["harness_notes"][0])
+        completed = _run_parse_cli(text, summary="0 1 608 1 0 0 0 0 0")
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("STARTUP FAILED", completed.stdout)
+        self.assertIn("ip-add-source-membership", completed.stdout)
+
+    def test_incomplete_abort_preserves_printed_results_and_fails_parse(self) -> None:
+        text = "\n".join(
+            [
+                "test 50 WEIRD: weird case... FAILED: boom",
+                "CANT: 50",
+            ]
+        ) + "\n"
+        parsed = parse_shard(text, summary="0 1 608 1 0 0 0 0 1")
+        self.assertEqual(parsed["tests"]["50"]["status"], "FAILED")
+        self.assertEqual(parsed["summary"]["incomplete_aborts"], [0])
+        self.assertEqual(parsed["summary"]["startup_failed"], [])
+        completed = _run_parse_cli(text, summary="0 1 608 1 0 0 0 0 1")
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("INCOMPLETE", completed.stdout)
+
+    def test_shard_timeout_is_not_startup_failure(self) -> None:
+        text = "\n".join(
+            [
+                "test 305 SETSOCKOPT: test the setsockopt option...",
+                "SHARD TIMEOUT",
+            ]
+        ) + "\n"
+        parsed = parse_shard(text, summary="0 1 608 124 0 0 0 0 0")
+        self.assertEqual(parsed["summary"]["shard_timeouts"], [0])
+        self.assertEqual(parsed["summary"]["startup_failed"], [])
+        self.assertEqual(parsed["summary"]["incomplete_aborts"], [])
+        completed = _run_parse_cli(text, summary="0 1 608 124 0 0 0 0 0")
+        self.assertEqual(completed.returncode, 0)
 
 
 if __name__ == "__main__":

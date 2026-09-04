@@ -39,6 +39,24 @@ RE_SUMMARY = re.compile(
 RE_CANT_LIST = re.compile(r"^CANT:\s*(.*)$")
 RE_FAILED_LIST = re.compile(r"^FAILED:\s*(.*)$")
 RE_SHARD_TIMEOUT = re.compile(r"SHARD TIMEOUT|exit=124")
+HELP_TYPE_PRECHECK_OPTION = "ip-add-source-membership"
+
+
+def parse_shard_summary_exit(path: pathlib.Path) -> int | None:
+    """Read the test.sh exit code from shard-N.summary (field 4)."""
+    if not path.exists():
+        return None
+    parts = path.read_text().split()
+    if len(parts) < 4:
+        return None
+    try:
+        return int(parts[3])
+    except ValueError:
+        return None
+
+
+def log_has_genuine_summary(text: str) -> bool:
+    return any(RE_SUMMARY.search(line) for line in text.splitlines())
 
 
 def classify_tail(tail: str) -> tuple[str, str]:
@@ -204,6 +222,9 @@ def shard_is_complete(text: str, shard_timed_out: bool) -> bool:
 def parse_logs(out_dir: pathlib.Path) -> dict[str, Any]:
     tests: dict[int, dict[str, Any]] = {}
     shard_timeouts: list[int] = []
+    startup_failed: list[int] = []
+    incomplete_aborts: list[int] = []
+    harness_notes: list[str] = []
     last_seen_by_shard: dict[int, int] = {}
     conflicts: list[dict[str, Any]] = []
     reporting_errors: list[dict[str, Any]] = []
@@ -271,6 +292,24 @@ def parse_logs(out_dir: pathlib.Path) -> dict[str, Any]:
 
         last_seen_by_shard[sid] = last_id
 
+        genuine_summary = log_has_genuine_summary(text)
+        shard_exit = parse_shard_summary_exit(out_dir / f"shard-{sid}.summary")
+        if (
+            shard_exit is not None
+            and shard_exit not in (0, 124)
+            and not genuine_summary
+        ):
+            if HELP_TYPE_PRECHECK_OPTION in text:
+                harness_notes.append(
+                    "classic test.sh help-type consistency precheck failed for "
+                    "ip-add-source-membership (C metadata vs advertised help); "
+                    "this is an upstream harness stop, not a successful empty run"
+                )
+            if last_id == 0:
+                startup_failed.append(sid)
+            else:
+                incomplete_aborts.append(sid)
+
         reconcile_shard_lists(
             tests,
             summary_cant,
@@ -305,6 +344,9 @@ def parse_logs(out_dir: pathlib.Path) -> dict[str, Any]:
             "unknown": counts.get("UNKNOWN", 0),
             "total_recorded": len(tests),
             "shard_timeouts": shard_timeouts,
+            "startup_failed": startup_failed,
+            "incomplete_aborts": incomplete_aborts,
+            "harness_notes": harness_notes,
             "conflicts": conflicts,
             "reporting_errors": reporting_errors,
         },
@@ -539,7 +581,22 @@ def main() -> int:
         if len(errors) > 60:
             print(f"  ... and {len(errors)-60} more")
 
-    exit_code = 1 if errors else 0
+    startup = s.get("startup_failed") or []
+    incomplete = s.get("incomplete_aborts") or []
+    notes = s.get("harness_notes") or []
+    if startup:
+        print(
+            f"STARTUP FAILED: shards {startup} exited before producing results "
+            "(not a successful empty selection; baseline not eligible)"
+        )
+    if incomplete:
+        print(
+            f"INCOMPLETE: shards {incomplete} exited without a Summary footer"
+        )
+    for note in notes:
+        print(note)
+
+    exit_code = 1 if errors or startup or incomplete else 0
     if args.compare:
         baseline = json.loads(args.compare.read_text())
         cmp = compare(baseline, doc)

@@ -64,7 +64,9 @@ from a prior test, and shard wall timeouts that leave incomplete results
 2. Use `VAL_T=0.1` or higher if you stay parallel; `0.05` is aggressive.
 3. Raise `SHARD_TIMEOUT` if a shard dies with exit 124.
 4. Re-run only the FAILED names with `ONLY='NAME1 NAME2' JOBS=1` before chasing.
-5. Kill leftovers only for **this** tree’s binary (the runner already does that).
+5. Kill leftovers owned by **this scorecard invocation** (per-run/per-shard
+   environment markers), not every process whose cmdline contains the checkout
+   binary. Sibling shards and unrelated socat processes must survive.
 
 ## Docker classic scorecard (recommended for root / raw IP)
 
