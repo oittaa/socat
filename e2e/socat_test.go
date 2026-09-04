@@ -831,15 +831,15 @@ func TestHelp(t *testing.T) {
 	}
 }
 
-func TestTLSListenRequiresCert(t *testing.T) {
+func TestTLSListenWarnsWithoutCert(t *testing.T) {
 	bin := socatBin(t)
 	for _, typ := range []string{"TLS-LISTEN", "OPENSSL-LISTEN"} {
-		out, err := exec.Command(bin, typ+":0,bind=127.0.0.1,verify=0", "PIPE").CombinedOutput()
-		if err == nil {
-			t.Fatalf("%s: expected start failure without cert=, got %q", typ, out)
+		out, err := exec.Command(bin, typ+":0,bind=127.0.0.1,verify=0,accept-timeout=0.01", "PIPE").CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s: expected clean exit on accept-timeout without cert=, got err=%v: %q", typ, err, out)
 		}
-		if !bytes.Contains(out, []byte("cert")) {
-			t.Fatalf("%s: error should mention cert: %s", typ, out)
+		if !bytes.Contains(out, []byte("no certificate given; consider option \"cert\"")) {
+			t.Fatalf("%s: expected warning about cert, got: %s", typ, out)
 		}
 	}
 }

@@ -125,6 +125,13 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	if err != nil {
 		return nil, err
 	}
+	if certPath := s.OptionValue("cert", ""); certPath == "" && g != nil && g.Log != nil {
+		typ := s.Type
+		if typ == "" {
+			typ = "TLS-LISTEN"
+		}
+		g.Log.Warningf("%s: no certificate given; consider option \"cert\"", typ)
+	}
 
 	ln, err := xio.ListenTCP(ctx, s, network, addr)
 	if err != nil {
@@ -312,21 +319,16 @@ func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 	}
 	certPath := s.OptionValue("cert", "")
 	keyPath := s.OptionValue("key", "")
-	if certPath == "" {
-		typ := s.Type
-		if typ == "" {
-			typ = "TLS-LISTEN"
+	var certs []tls.Certificate
+	if certPath != "" {
+		cert, err := loadKeyPair(certPath, keyPath)
+		if err != nil {
+			return nil, err
 		}
-		// crypto/tls cannot serve without a certificate; refuse to start
-		// rather than bind and fail later. Do not invent a dummy cert.
-		return nil, fmt.Errorf("%s: option \"cert\" is required", typ)
-	}
-	cert, err := loadKeyPair(certPath, keyPath)
-	if err != nil {
-		return nil, err
+		certs = []tls.Certificate{cert}
 	}
 	cfg := &tls.Config{
-		Certificates: []tls.Certificate{cert},
+		Certificates: certs,
 		MinVersion:   tls.VersionTLS12,
 	}
 	if err := applyProtocolVersions(cfg, s); err != nil {

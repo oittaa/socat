@@ -1,6 +1,7 @@
 package tlsopen
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/mldsa"
 	"crypto/tls"
@@ -16,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/testcert"
 	"github.com/oittaa/socat/internal/xio"
@@ -411,13 +413,31 @@ func TestTLSClientNoSNI(t *testing.T) {
 	}
 }
 
-func TestTLSServerConfigRequiresCert(t *testing.T) {
-	_, err := tlsServerConfig(parse.Spec{Type: "TLS-LISTEN", Params: []string{"443"}})
-	if err == nil {
-		t.Fatal("expected error without cert=")
+func TestTLSServerConfigWithoutCert(t *testing.T) {
+	cfg, err := tlsServerConfig(parse.Spec{Type: "TLS-LISTEN", Params: []string{"443"}})
+	if err != nil {
+		t.Fatalf("unexpected error without cert=: %v", err)
 	}
-	if !strings.Contains(err.Error(), "cert") {
-		t.Fatalf("error %q should mention cert", err)
+	if len(cfg.Certificates) != 0 {
+		t.Fatalf("expected empty Certificates, got %d", len(cfg.Certificates))
+	}
+}
+
+func TestTLSListenWithoutCertAcceptTimeout(t *testing.T) {
+	spec, err := parse.ParseSpec("TLS-LISTEN:0,reuseaddr,bind=127.0.0.1,verify=0,accept-timeout=0.01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := &xio.Global{Log: logx.New()}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	o, err := openTLSListen(ctx, spec, xio.ModeRDWR, g)
+	if o != nil {
+		defer func() { _ = o.Close() }()
+	}
+	if !errors.Is(err, xio.ErrAcceptTimeout) {
+		t.Fatalf("got err=%v, want ErrAcceptTimeout", err)
 	}
 }
 
