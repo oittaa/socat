@@ -268,6 +268,120 @@ the classic case is FAILED. SIGINT pass-through is covered by
 `TestEXECParentSignalPassThrough`. Do not treat the classic `test.sh` FAILED
 as a behavior regression.
 
+## Post-#234 gap triage
+
+The endpoint-setup refactor kept the structured scorecard set at 605 tests.
+A sequential `ONLY="functions filan" JOBS=1 VAL_T=0.1` Go run reported
+470 OK / 7 FAILED / 128 CANT. The committed host baseline is
+471 OK / 7 FAILED / 127 CANT (`go-baseline.json`). Treat a one-test OK/CANT
+move as a re-run question, not as a refactor regression.
+
+Official classic baseline rechecked 2026-09-04 from
+[repo.or.cz/socat.git](https://repo.or.cz/socat.git):
+
+| Ref | Commit | Tree |
+|-----|--------|------|
+| `tag-1.8.1.3` | `12c08bf66d709fba17035ce95d85bd218428d9ba` | `0e4f2df1dc5e882663067ffa27c8457684f5fcde` |
+| reviewed master | `af5388c898c7bb60997935aee93c223deba60c4a` | `0e4f2df1dc5e882663067ffa27c8457684f5fcde` |
+
+Release and master are still identical. No new compatibility choice from
+drift. `scripts/classic-baseline.json` already pins those commits.
+
+Matching C under the same filter was 498 OK / 2 FAILED / 105 CANT. The 2 C
+failures were `OPENSSL_ANULL` and `OPENSSL_DTLS_CLIENT`. That leaves 28
+pre-existing C-to-Go differences (6 FAILED + 22 CANT) plus `OPENSSL_ANULL`
+which FAILED on both. Committed Docker comparison
+(`go-vs-classic-docker-gaps.json`) is 5 FAILED + 22 CANT (`parity_gap_total`
+27) because Docker `OPENSSL_ANULL` FAILED on both sides and Docker `SOCAT_MUX`
+is OK on both sides.
+
+Do not enable excluded TLS features to make tests pass.
+
+### Go FAILED names
+
+| Test | Class | Notes |
+|------|-------|-------|
+| `OPENSSL_COMPRESS` | Intentional exclusion | `compress=auto` is rejected; `compress=none` is accepted. README / `classic-policy.json`. Reproduction: `OPENSSL-LISTEN:…,compress=auto` exits 1 with “compress is not supported”. |
+| `OPENSSLLISTENDSA` | Intentional exclusion | DSA keys are rejected. README table “DSA, SSLv3, and weak TLS ciphers”. Covered by `TestLoadKeyPairRejectsDSA`. |
+| `OPENSSL_ANULL` | Shared with classic C | Classic `test.sh` uses `ciphers=aNULL`. Both C and Go print FAILED. Weak ciphers stay rejected. |
+| `SHELL_SIGINT` | Harness log format, not delivery | `test.sh` greps C `waitpid` warnings. This port logs `socatsignalpass(): propagated signal to … sub processes` and does **not** emit `W waitpid():…`. `TestEXECParentSignalPassThrough` covers SIGINT. Do not fake C waitpid lines. |
+| `SOCAT_MUX` | Environment lead, not a demonstrated defect | Official `test.sh` runs `./socat-mux.sh` and comments that `lo`/`lo0` must have broadcast `127.255.255.255`. That prerequisite is not a `checkconds` skip, so a host without it can still run and print FAILED. The scorecard runner already copies or links official helpers (including `socat-mux.sh`) next to shard `test.sh`; a missing helper is not proved. Committed Go host and Go Docker baselines are **OK**. Classic **host** is FAILED `(rc2b=1)`; classic Docker is OK. Treat a sequential FAILED, if seen, as an environment question to re-run (`ONLY=SOCAT_MUX JOBS=1`), not as a proved flake or mux-parent bug. A loopback with no IPv4 broadcast is a lead, not a completed reproduction. Do not change mux/UDP parents from this triage. |
+| `V1800_OPENSSL_LISTEN_RANGE` | Documented fail-fast difference (retain) | Generated 1.8.0 case runs `OPENSSL-LISTEN:$PORT,range=…` **without** `cert=`. Official `doc/socat.yo` recommends a certificate (“You probably want to use the certificate option”) and does not make it mandatory. Classic C warns when `cert=` is absent and still binds; `timeout` 124 counts as success. This port fails immediately: `OPENSSL-LISTEN: option "cert" is required` (rc=1). README already records that TLS listeners fail immediately when `cert=` is missing. `TestTLSServerConfigRequiresCert`. This follow-up does not relax that. Go TLS still needs a usable server certificate for its supported handshakes. Do not describe classic’s warn-and-bind as an authentication bypass. |
+| `V1800_OPENSSL_LISTEN_BIND` | Documented fail-fast difference (retain) | Same as RANGE with `bind=` instead of `range=`. |
+
+Official OPENSSL-LISTEN documentation recommends `cert=`; classic C warns and
+binds without it. This port’s fail-fast refusal is an existing documented
+difference, not a scorecard defect to close by matching C’s bind-without-cert
+path.
+
+### Docker CANT vs classic OK (22)
+
+21 are documented exclusions or missing classic-only protocols, not
+capability-detection bugs to “fix” by advertising unsupported names.
+`UDP_DATAGRAM_PEERPORT` is a version-gated harness skip, not one of those
+exclusions.
+
+| Names | Class |
+|-------|-------|
+| `READLINE`, `READLINE_OVFL` | GNU readline not implemented |
+| `COOLWRITE`, `COOLSTDIO` | `cool-write` deprecated; use `children-shutup` |
+| `OPENSSL_DTLS_SERVER`, `OPENSSL_DTLS_TO_SERVER`, `OPENSSL_DTLS_TO_CLIENT`, `RCVTIMEO_DTLS` | DTLS not in Go `crypto/tls` |
+| `UDPLITE4STREAM`, `UDPLITE6STREAM`, `UDPLITE4LISTENENV`, `UDPLITE6LISTENENV`, `UDPLITE4_L_MAXCHILDREN`, `UDPLITE6_L_MAXCHILDREN`, `V1800_UDPLITE_*` (6) | UDP-Lite removed from modern Linux |
+
+### `UDP_DATAGRAM_PEERPORT` (version-gated harness)
+
+Official `test.sh` (`NAME=UDP_DATAGRAM_PEERPORT`) uses only `UDP-DATAGRAM` and
+`bind=`. It never requests `udp-ignore-peerport`. The receiver is
+`UDP-DATAGRAM:$LOCALHOST:$PORT2,bind=:$PORT1`; the sender is
+`UDP-DATAGRAM:$LOCALHOST:$PORT1,bind=:$PORT3`. The case is whether the
+receiver accepts a datagram whose source port is not the configured peer
+port.
+
+The stored Go host and Docker results are CANT with detail
+“Only with Socat 1.7.4.0 or higher”. That string is the version gate at
+`test.sh` 14161–14163: if `SOCAT_VERSION` sorts numerically at or below
+`1.7.3.4`, the test does not run. Classic baselines are OK.
+
+`test.sh` sets `SOCAT_VERSION` from `-V` **line 2** (copyright then
+`socat version …` on classic). This port prints `socat version 1.0.3-dev`
+on **line 1** and `running on Go reimplementation …` on line 2. The
+extractor therefore does not see `1.0.3-dev`; GNU sed leaves line 2
+unchanged, and `sort -n` ranks that non-numeric line below `1.7.3.4`.
+Independently, extracting line 1 still yields `1.0.3-dev`, which the same
+`sort -n` comparison also ranks below `1.7.4.0`.
+`TestClassicTestShUDPDatagramPeerportVersionGate` characterizes that
+extractor and comparison with fixed `-V` samples. It does not require live
+product `-V` to keep CANT-skipping.
+
+Do not map this CANT to the unsupported `udp-ignore-peerport` option name.
+That name remains documented but unimplemented in classic C and is omitted
+here (`classic-policy.json`, README Unsupported table). UDP-DATAGRAM
+receive already accepts a non-matching source port by default
+(`TestUDP4DatagramAcceptsWrongPeerByDefault`). Do not bump `Version` to
+impersonate 1.7.4+/1.8.x, and do not patch official `test.sh`, as part of
+this triage.
+
+### Help-type consistency precheck
+
+Unfiltered classic `test.sh` also runs unnumbered `consistency` checks before
+numbered tests. The option-type check greps `-hhh` for
+`ip-add-source-membership` and requires a C-internal `type=IP-MREQ-SOURCE`
+field. This port implements the option (`internal/xio/mcast_opt.go`) and
+lists it in user help, but `-hhh` must not grow `type=` / `phase=` /
+`groups=` / `opt:` metadata (`TestHelpOmitsInternalMetadata`).
+`ONLY=functions filan` skips those prechecks. Do not suppress the precheck
+and do not add C-internal fields to user help. The scorecard reports the
+stop when it happens.
+
+### What not to change
+
+No socat runtime fix belongs with this triage. In particular: do not allow
+missing `cert=` on TLS listeners, do not enable TLS compression or DSA, do
+not emit fake `waitpid` logs, do not add a universal lifecycle framework to
+chase `SOCAT_MUX`, do not treat the loopback-broadcast comment as a completed
+`SOCAT_MUX` reproduction, and do not change `-V` layout or `Version` to
+satisfy the `UDP_DATAGRAM_PEERPORT` gate.
+
 `OPENPTYWAITSLAVE` can `TIMEOUT` in a long sequential Docker run; an isolated
 `ONLY=OPENPTYWAITSLAVE` re-run is OK. The committed Docker baseline records it
 as OK. Do not treat a full-run timeout of that name as a regression until you
