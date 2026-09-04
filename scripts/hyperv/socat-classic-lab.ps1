@@ -516,13 +516,13 @@ function Invoke-LabCheck {
         Invoke-Native ssh.exe @sshArguments $target $prepareCommand
         $remoteCreated = $true
 
-        $checkCommand = if ($ClassicParity) {
-            "bash -lc \`"cd '$remoteDirectory' && SOCAT_CLASSIC_PARITY_WORKDIR='$ClassicParityWorkdir' make classic-parity\`""
-        }
-        else {
-            "bash -lc \`"cd '$remoteDirectory' && bash scripts/hyperv/guest-check.sh\`""
-        }
-        Invoke-Native ssh.exe @sshArguments $target $checkCommand
+        # Pass program + argv through ssh.exe. Nested bash -lc with PowerShell
+        # escaped quotes dies with a quote-matching EOF before guest validation.
+        $taskArg = if ($ClassicParity) { 'parity' } else { 'check' }
+        $guestRunner = "$remoteDirectory/scripts/hyperv/guest-login-run.sh"
+        Invoke-Native ssh.exe @sshArguments $target `
+            'env' "SOCAT_CLASSIC_PARITY_WORKDIR=$ClassicParityWorkdir" `
+            'bash' '--login' $guestRunner $remoteDirectory $taskArg
         $timer.Stop()
         Write-Host ("Hyper-V {0} passed in {1:n2}s" -f $taskName, $timer.Elapsed.TotalSeconds)
     }
