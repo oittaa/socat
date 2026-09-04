@@ -24,6 +24,11 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 # test  12 EXECPIPES: description... OK
 # test 228 TCP4SERVICE: ... FAILED: diff:
 # test  24 OPENSSL: ... Feature FOO not available
@@ -218,6 +223,27 @@ def parse_logs(out_dir: pathlib.Path) -> dict[str, Any]:
         )
         if shard_timed_out:
             shard_timeouts.append(sid)
+        err_file = out_dir / f"shard-{sid}.error"
+        if err_file.exists():
+            reporting_errors.append(
+                {
+                    "id": 0,
+                    "name": f"shard-{sid}",
+                    "reason": err_file.read_text().strip(),
+                }
+            )
+        elif (out_dir / f"shard-{sid}.summary").exists():
+            parts = (out_dir / f"shard-{sid}.summary").read_text().split()
+            if len(parts) >= 9:
+                ec, sok, sfail, scant = int(parts[3]), int(parts[4]), int(parts[5]), int(parts[6])
+                if ec != 0 and ec != 124 and (sok + sfail + scant == 0):
+                    reporting_errors.append(
+                        {
+                            "id": 0,
+                            "name": f"shard-{sid}",
+                            "reason": f"shard {sid} exited with code {ec} before producing test results",
+                        }
+                    )
 
         summary_cant: list[int] = []
         summary_failed: list[int] = []
@@ -429,9 +455,9 @@ def print_compare(cmp: dict[str, Any]) -> None:
     print(f"current:  {cmp.get('current_label')}  OK={cs.get('ok')} FAIL={cs.get('failed')} CANT={cs.get('cant')} TIMEOUT={cs.get('timeout')}")
     print()
     if cmp["regressions"]:
-        print(f"REGRESSIONS ({cmp['regression_count']}) — was OK, now not:")
+        print(f"REGRESSIONS ({cmp['regression_count']}) - was OK, now not:")
         for e in cmp["regressions"][:60]:
-            print(f"  {e['id']:4d} {e['name']:<32} {e['from']} → {e['to']}  {e.get('detail','')[:60]}")
+            print(f"  {e['id']:4d} {e['name']:<32} {e['from']} -> {e['to']}  {e.get('detail','')[:60]}")
         if cmp["regression_count"] > 60:
             print(f"  ... and {cmp['regression_count']-60} more")
         print()
@@ -439,14 +465,14 @@ def print_compare(cmp: dict[str, Any]) -> None:
         print("REGRESSIONS: none")
         print()
     if cmp["improvements"]:
-        print(f"IMPROVEMENTS ({cmp['improvement_count']}) — newly OK:")
+        print(f"IMPROVEMENTS ({cmp['improvement_count']}) - newly OK:")
         for e in cmp["improvements"][:40]:
-            print(f"  {e['id']:4d} {e['name']:<32} {e['from']} → {e['to']}")
+            print(f"  {e['id']:4d} {e['name']:<32} {e['from']} -> {e['to']}")
         if cmp["improvement_count"] > 40:
             print(f"  ... and {cmp['improvement_count']-40} more")
         print()
     if cmp.get("incomplete"):
-        print(f"INCOMPLETE ({cmp.get('incomplete_count', 0)}) — in baseline but missing from current (shard timeout?)")
+        print(f"INCOMPLETE ({cmp.get('incomplete_count', 0)}) - in baseline but missing from current (shard timeout?)")
         print()
     if cmp["new_fails"]:
         print(f"NEW FAILS (not in baseline, now FAILED): {len(cmp['new_fails'])}")
@@ -461,11 +487,11 @@ def print_compare(cmp: dict[str, Any]) -> None:
     conflicts = current_summary.get("conflicts") or []
     if conflicts:
         print()
-        print(f"PARSER CONFLICTS ({len(conflicts)}) — printed result disagrees with upstream lists:")
+        print(f"PARSER CONFLICTS ({len(conflicts)}) - printed result disagrees with upstream lists:")
         for e in conflicts[:40]:
             print(
                 f"  {e['id']:4d} {e.get('name',''):<32} printed {e.get('printed')} "
-                f"→ {e.get('status')}"
+                f"-> {e.get('status')}"
             )
     errors = current_summary.get("reporting_errors") or []
     if errors:
@@ -523,17 +549,17 @@ def main() -> int:
     print(f"wrote {jsonl}")
     conflicts = s.get("conflicts") or []
     if conflicts:
-        print(f"CONFLICTS ({len(conflicts)}) — printed result disagrees with upstream lists:")
+        print(f"CONFLICTS ({len(conflicts)}) - printed result disagrees with upstream lists:")
         for e in conflicts[:60]:
             print(
                 f"  {e['id']:4d} {e.get('name',''):<32} printed {e.get('printed')} "
-                f"→ {e.get('status')}  {e.get('detail','')[:60]}"
+                f"-> {e.get('status')}  {e.get('detail','')[:60]}"
             )
         if len(conflicts) > 60:
             print(f"  ... and {len(conflicts)-60} more")
     errors = s.get("reporting_errors") or []
     if errors:
-        print(f"REPORTING ERRORS ({len(errors)}) — irreconcilable Summary lists:")
+        print(f"REPORTING ERRORS ({len(errors)}) - irreconcilable Summary lists:")
         for e in errors[:60]:
             print(f"  {e['id']:4d} {e.get('name',''):<32} {e.get('reason')}")
         if len(errors) > 60:

@@ -149,17 +149,88 @@ if [[ -z "$LABEL" ]]; then
   fi
 fi
 
-# Kill leftover socat from this tree only (never broad killall bash)
+# Invocation identity for scoped process ownership
+INVOCATION_ID="${INVOCATION_ID:-scorecard_${$}_$(date +%s%N 2>/dev/null || echo $RANDOM)}"
+export INVOCATION_ID
+
+# Clean up processes owned by this scorecard invocation or a specific shard.
+# Matches environment tags (SOCAT_SCORECARD_SHARD or SOCAT_SCORECARD_INVOCATION)
+# so sibling shards and unrelated invocations survive, even with external SOCAT.
 cleanup_orphans() {
-  # Match our built binary path only
-  local p
-  for p in $(pgrep -x socat 2>/dev/null || true); do
-    if tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null | grep -qF "$ROOT/socat"; then
-      kill "$p" 2>/dev/null || true
-    fi
-  done
+  local target="${1:-${SOCAT_SCORECARD_SHARD:-${INVOCATION_ID:-}}}"
+  [[ -n "$target" ]] || return 0
+
+  python3 - "$target" <<'PY'
+import os, signal, sys, time
+
+target = sys.argv[1]
+current_pid = os.getpid()
+current_uid = os.getuid() if hasattr(os, "getuid") else None
+
+def find_pids():
+    matched = []
+    proc_dir = "/proc"
+    if os.path.isdir(proc_dir):
+        for entry in os.listdir(proc_dir):
+            if not entry.isdigit():
+                continue
+            pid = int(entry)
+            if pid == current_pid:
+                continue
+            env_path = os.path.join(proc_dir, entry, "environ")
+            try:
+                if current_uid is not None:
+                    st = os.stat(env_path)
+                    if st.st_uid != current_uid:
+                        continue
+                with open(env_path, "rb") as f:
+                    content = f.read()
+            except (OSError, IOError):
+                continue
+            for var in content.split(b"\0"):
+                if b"=" not in var:
+                    continue
+                k, v = var.split(b"=", 1)
+                if k in (b"SOCAT_SCORECARD_SHARD", b"SOCAT_SCORECARD_INVOCATION"):
+                    if v.decode("utf-8", "replace") == target:
+                        matched.append(pid)
+                        break
+    return matched
+
+pids = find_pids()
+if not pids:
+    sys.exit(0)
+
+# Graceful termination (SIGTERM)
+for pid in pids:
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        pass
+
+# Bounded wait (up to 2 seconds)
+deadline = time.time() + 2.0
+alive = list(pids)
+while time.time() < deadline and alive:
+    next_alive = []
+    for pid in alive:
+        try:
+            os.kill(pid, 0)
+            next_alive.append(pid)
+        except OSError:
+            pass
+    alive = next_alive
+    if alive:
+        time.sleep(0.05)
+
+# Escalate to SIGKILL for any lingering processes
+for pid in alive:
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except OSError:
+        pass
+PY
 }
-cleanup_orphans
 
 # Discover highest test number by scanning NAME= assignments (approx) or fixed 650
 # Classic 1.8.1.3 has Summary: 608 tests — use 650 as safe upper unless MAX_N set.
@@ -276,12 +347,15 @@ run_shard() {
   fi
 
   local ec=0
+  local shard_tag="${INVOCATION_ID}_shard_${id}"
   # Outer timeout kills hung shards (the main 30‑minute problem).
   set +e
   (
     export TMPDIR="$work/tmp"
     mkdir -p "$TMPDIR"
     export SOCAT FILAN PROCAN
+    export SOCAT_SCORECARD_INVOCATION="$INVOCATION_ID"
+    export SOCAT_SCORECARD_SHARD="$shard_tag"
     cd "$work"
     export PATH="$work:$PATH"
     # shellcheck disable=SC2086
@@ -297,11 +371,21 @@ run_shard() {
   # Prefer Summary line
   local summary
   summary=$(grep -E '^Summary:' "$log" | tail -1 || true)
+  local startup_err=""
   if [[ -z "$summary" ]]; then
     if [[ $ec -eq 124 ]]; then
       summary="Summary: SHARD TIMEOUT (range $start-$end, ${SHARD_TIMEOUT}s)"
     else
       summary="Summary: (no summary, exit=$ec) range $start-$end"
+      if [[ $ec -ne 0 ]]; then
+        if grep -qF "help does not show option types correctly" "$log"; then
+          startup_err="upstream test.sh stopped at help consistency precheck for ip-add-source-membership (requires type=IP-MREQ-SOURCE in -hhh, not present per AGENTS.md help guidelines)"
+        elif grep -qE '^\*\*\*|Failed to|Error|error:' "$log"; then
+          startup_err="$(grep -E '^\*\*\*|Failed to|Error|error:' "$log" | head -1 | sed 's/^[[:space:]]*//')"
+        else
+          startup_err="test.sh exited with code $ec before producing results"
+        fi
+      fi
     fi
   fi
 
@@ -320,20 +404,29 @@ run_shard() {
   lfail=$(grep -cE '\.\.\. FAILED' "$log" 2>/dev/null || echo 0)
 
   printf '%s\n' "$id $start $end $ec $sok $sfail $scant $lok $lfail" >"$OUT_DIR/shard-${id}.summary"
-  printf 'shard %d  tests %d-%d  exit=%d  summary: %s\n' "$id" "$start" "$end" "$ec" "$summary" \
-    | tee -a "$OUT_DIR/aggregate.txt"
+  if [[ -n "$startup_err" ]]; then
+    printf '%s\n' "$startup_err" >"$OUT_DIR/shard-${id}.error"
+    printf 'shard %d  tests %d-%d  exit=%d  STARTUP ERROR: %s\n' "$id" "$start" "$end" "$ec" "$startup_err" \
+      | tee -a "$OUT_DIR/aggregate.txt" >&2
+  else
+    printf 'shard %d  tests %d-%d  exit=%d  summary: %s\n' "$id" "$start" "$end" "$ec" "$summary" \
+      | tee -a "$OUT_DIR/aggregate.txt"
+  fi
 
   # Cleanup temp workdir unless debugging
   if [[ "$KEEP_LOGS" != "1" ]]; then
     rm -rf "$work"
   fi
 
-  cleanup_orphans
+  cleanup_orphans "$shard_tag"
+  if [[ -n "$startup_err" ]]; then
+    return 1
+  fi
   return 0
 }
 
 export -f run_shard cleanup_orphans
-export TEST_SH OUT_DIR BASE_PORT PORT_STRIDE VAL_T SHARD_TIMEOUT ONLY SOCAT FILAN PROCAN ROOT KEEP_LOGS
+export TEST_SH OUT_DIR BASE_PORT PORT_STRIDE VAL_T SHARD_TIMEOUT ONLY SOCAT FILAN PROCAN ROOT KEEP_LOGS INVOCATION_ID
 
 echo "shards:"
 i=0
@@ -361,7 +454,7 @@ for p in "${pids[@]}"; do
   fi
 done
 
-cleanup_orphans
+cleanup_orphans "$INVOCATION_ID"
 
 echo
 echo "======== AGGREGATE ========"
@@ -375,6 +468,7 @@ out = pathlib.Path(sys.argv[1])
 total_ok = total_fail = total_cant = 0
 line_ok = line_fail = 0
 timeouts = 0
+startup_failures = []
 shards = sorted(out.glob("shard-*.summary"), key=lambda p: int(p.stem.split("-")[1]))
 print(f"{'shard':>5}  {'range':>12}  {'exit':>4}  {'ok':>4}  {'fail':>4}  {'cant':>4}  {'log_ok':>6}  {'log_fail':>8}")
 for sp in shards:
@@ -394,6 +488,11 @@ for sp in shards:
     line_fail += lfail
     if ec == 124:
         timeouts += 1
+    err_file = sp.with_suffix(".error")
+    if err_file.exists():
+        startup_failures.append((sid, err_file.read_text().strip()))
+    elif ec != 0 and ec != 124 and (sok + sfail + scant == 0):
+        startup_failures.append((sid, f"exited with code {ec} before producing results"))
     print(f"{sid:5d}  {start:5d}-{end:<5d}  {ec:4d}  {sok:4d}  {sfail:4d}  {scant:4d}  {lok:6d}  {lfail:8d}")
 
 print()
@@ -401,6 +500,10 @@ print(f"From Summary lines:  OK={total_ok}  FAILED={total_fail}  CANT={total_can
 print(f"From log greps:      OK={line_ok}  FAILED={line_fail}")
 if timeouts:
     print(f"Shards hit SHARD_TIMEOUT: {timeouts}  (see shard-*.log; raise SHARD_TIMEOUT or fix hangs)")
+if startup_failures:
+    print("\nStartup / precheck failures:")
+    for sid, reason in startup_failures:
+        print(f"  shard {sid}: {reason}")
 
 # List failed tests across logs
 fails = []
@@ -417,10 +520,10 @@ if fails:
 
 # Write machine-readable total
 (out / "totals.txt").write_text(
-    f"ok={total_ok}\nfail={total_fail}\ncant={total_cant}\nline_ok={line_ok}\nline_fail={line_fail}\ntimeouts={timeouts}\n"
+    f"ok={total_ok}\nfail={total_fail}\ncant={total_cant}\nline_ok={line_ok}\nline_fail={line_fail}\ntimeouts={timeouts}\nstartup_failures={len(startup_failures)}\n"
 )
-# Aggregate exit: non-zero if hard failures or shard timeouts (legacy behaviour)
-sys.exit(1 if total_fail or timeouts or line_fail else 0)
+# Aggregate exit: non-zero if hard failures, shard timeouts, or startup failures
+sys.exit(1 if total_fail or timeouts or line_fail or startup_failures else 0)
 PY
 agg_ec=$?
 set -e
@@ -463,6 +566,8 @@ set -e
 
 if [[ -n "$SAVE_BASELINE" && $parse_ec -ne 0 ]]; then
   echo "not saving baseline $SAVE_BASELINE: parser exit $parse_ec (results remain in $OUT_DIR/results.json)" >&2
+elif [[ -n "$SAVE_BASELINE" && ( $agg_ec -ne 0 || $ec_all -ne 0 ) ]]; then
+  echo "not saving baseline $SAVE_BASELINE: run failed (agg_ec=$agg_ec ec_all=$ec_all)" >&2
 elif [[ -n "$SAVE_BASELINE" ]]; then
   mkdir -p "$(dirname "$SAVE_BASELINE")"
   cp -f "$OUT_DIR/results.json" "$SAVE_BASELINE"
@@ -511,4 +616,7 @@ echo "     SAVE_BASELINE=testdata/scorecard/classic-baseline.json SOCAT=... $0 $
 if [[ $parse_ec -ne 0 ]]; then
   exit "$parse_ec"
 fi
-exit "$agg_ec"
+if [[ $agg_ec -ne 0 ]]; then
+  exit "$agg_ec"
+fi
+exit "$ec_all"
