@@ -101,14 +101,16 @@ scorecard_find_owned_pids() {
 }
 
 # Bounded cleanup of leftover processes owned by this run (optional shard).
-# TERM, wait up to SOCAT_SCORECARD_CLEANUP_GRACE seconds (default 8), then KILL
-# remaining. Grace 0 is TERM then immediate KILL of still-live PIDs.
+# TERM, wait up to SOCAT_SCORECARD_CLEANUP_GRACE seconds (default 8), then KILL.
+# Re-scan /proc after signalling: a single readdir can skip PIDs while other
+# processes fork and exit. Grace 0 is TERM then immediate KILL passes.
 scorecard_cleanup_owned() {
 	local run_id=${1:-${SOCAT_SCORECARD_RUN-}}
 	local shard_id=${2-}
 	local grace=${SOCAT_SCORECARD_CLEANUP_GRACE:-8}
-	local pid i
-	local -a pid_arr leftover_arr
+	local pid i pass
+	local -a pid_arr
+
 	pid_arr=()
 	while IFS= read -r pid; do
 		[ -n "$pid" ] || continue
@@ -116,26 +118,26 @@ scorecard_cleanup_owned() {
 	done < <(scorecard_find_owned_pids "$run_id" "$shard_id")
 	[ "${#pid_arr[@]}" -gt 0 ] || return 0
 	kill -TERM "${pid_arr[@]}" 2>/dev/null || true
-	leftover_arr=("${pid_arr[@]}")
 	i=0
-	while [ "$i" -lt "$grace" ] && [ "${#leftover_arr[@]}" -gt 0 ]; do
-		leftover_arr=()
-		for pid in "${pid_arr[@]}"; do
-			if kill -0 "$pid" 2>/dev/null; then
-				leftover_arr+=("$pid")
-			fi
-		done
-		[ "${#leftover_arr[@]}" -gt 0 ] || return 0
+	while [ "$i" -lt "$grace" ]; do
+		pid_arr=()
+		while IFS= read -r pid; do
+			[ -n "$pid" ] || continue
+			pid_arr+=("$pid")
+		done < <(scorecard_find_owned_pids "$run_id" "$shard_id")
+		[ "${#pid_arr[@]}" -gt 0 ] || return 0
 		sleep 1
 		i=$((i + 1))
 	done
-	leftover_arr=()
-	for pid in "${pid_arr[@]}"; do
-		if kill -0 "$pid" 2>/dev/null; then
-			leftover_arr+=("$pid")
-		fi
+	pass=0
+	while [ "$pass" -lt 3 ]; do
+		pid_arr=()
+		while IFS= read -r pid; do
+			[ -n "$pid" ] || continue
+			pid_arr+=("$pid")
+		done < <(scorecard_find_owned_pids "$run_id" "$shard_id")
+		[ "${#pid_arr[@]}" -gt 0 ] || return 0
+		kill -KILL "${pid_arr[@]}" 2>/dev/null || true
+		pass=$((pass + 1))
 	done
-	if [ "${#leftover_arr[@]}" -gt 0 ]; then
-		kill -KILL "${leftover_arr[@]}" 2>/dev/null || true
-	fi
 }

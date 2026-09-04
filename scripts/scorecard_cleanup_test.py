@@ -45,6 +45,13 @@ def _running(pid: int) -> bool:
     return state not in ("Z", "X")
 
 
+def _wait_stopped(pid: int) -> None:
+    for _ in range(1_000_000):
+        if not _running(pid):
+            return
+    raise AssertionError(f"pid {pid} still running after cleanup")
+
+
 def _wait_comm(pid: int, name: str) -> None:
     for _ in range(1_000_000):
         if not _running(pid):
@@ -226,11 +233,11 @@ class CleanupOwnershipTest(unittest.TestCase):
 
         _cleanup(self.run_id, "1")
 
-        self.assertFalse(_running(pid1), "owned finished-shard worker must be reaped")
+        _wait_stopped(pid1)
         self.assertTrue(_running(pid2), "ready sibling shard must keep its process")
 
         _cleanup(self.run_id, "2")
-        self.assertFalse(_running(pid2))
+        _wait_stopped(pid2)
 
     def test_old_path_based_cleanup_kills_ready_sibling(self) -> None:
         """Restoring pgrep -x socat + $ROOT/socat cmdline matching fails isolation."""
@@ -254,7 +261,7 @@ class CleanupOwnershipTest(unittest.TestCase):
         _wait_comm(pid, "socat")
         self.assertTrue(_running(pid))
         _cleanup(self.run_id, "7")
-        self.assertFalse(_running(pid))
+        _wait_stopped(pid)
 
     def test_unrelated_processes_survive(self) -> None:
         _, owned = self._owned("3")
@@ -276,7 +283,7 @@ class CleanupOwnershipTest(unittest.TestCase):
 
         _cleanup(self.run_id)
 
-        self.assertFalse(_running(owned))
+        _wait_stopped(owned)
         self.assertTrue(_running(unrelated_pid), "process without scorecard markers must survive")
         self.assertTrue(_running(other_pid), "process from another invocation must survive")
 
@@ -288,7 +295,7 @@ class CleanupOwnershipTest(unittest.TestCase):
         _, pid = self._owned("4", argv0=str(external), binary=str(external))
         self.assertTrue(_running(pid))
         _cleanup(self.run_id, "4")
-        self.assertFalse(_running(pid))
+        _wait_stopped(pid)
 
     def test_shard_1_does_not_match_shard_10(self) -> None:
         _, pid1 = self._owned("1")
@@ -296,10 +303,10 @@ class CleanupOwnershipTest(unittest.TestCase):
         _wait_comm(pid1, "socat")
         _wait_comm(pid10, "socat")
         _cleanup(self.run_id, "1")
-        self.assertFalse(_running(pid1))
+        _wait_stopped(pid1)
         self.assertTrue(_running(pid10))
         _cleanup(self.run_id, "10")
-        self.assertFalse(_running(pid10))
+        _wait_stopped(pid10)
 
 
 if __name__ == "__main__":
