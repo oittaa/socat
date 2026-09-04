@@ -494,6 +494,8 @@ function Invoke-LabCheck {
     $localDirectory = Join-Path ([System.IO.Path]::GetTempPath()) "socat-$taskName-$runID"
     $localArchive = Join-Path $localDirectory 'workspace.tar'
     $localList = Join-Path $localDirectory 'files.txt'
+    $localRunner = Join-Path $localDirectory 'run-task.sh'
+    $remoteRunner = "$remoteDirectory/run-task.sh"
     $remoteArchiveCopied = $false
     $remoteCreated = $false
     $timer = [System.Diagnostics.Stopwatch]::StartNew()
@@ -501,6 +503,16 @@ function Invoke-LabCheck {
     New-Item -ItemType Directory -Path $localDirectory | Out-Null
     try {
         New-WorkspaceArchive -ArchivePath $localArchive -ListPath $localList
+        $runnerContent = if ($ClassicParity) {
+            "#!/usr/bin/env bash`nset -euo pipefail`ncd '$remoteDirectory'`nSOCAT_CLASSIC_PARITY_WORKDIR='$ClassicParityWorkdir' make classic-parity`n"
+        }
+        else {
+            "#!/usr/bin/env bash`nset -euo pipefail`ncd '$remoteDirectory'`nbash scripts/hyperv/guest-check.sh`n"
+        }
+        Set-Utf8NoBom -Path $localRunner -Value $runnerContent
+        $tar = (Get-Command tar.exe -ErrorAction Stop).Source
+        Invoke-Native $tar '-rf' $localArchive '-C' $localDirectory 'run-task.sh'
+
         $scpArguments = @(
             '-i', $SSHKeyPath,
             '-o', 'BatchMode=yes',
@@ -512,16 +524,11 @@ function Invoke-LabCheck {
         Invoke-Native scp.exe @scpArguments
         $remoteArchiveCopied = $true
 
-        $prepareCommand = "mkdir '$remoteDirectory' && tar -xf '$remoteArchive' -C '$remoteDirectory'"
+        $prepareCommand = "mkdir '$remoteDirectory' && tar -xf '$remoteArchive' -C '$remoteDirectory' && chmod +x '$remoteRunner'"
         Invoke-Native ssh.exe @sshArguments $target $prepareCommand
         $remoteCreated = $true
 
-        $checkCommand = if ($ClassicParity) {
-            "bash -lc \`"cd '$remoteDirectory' && SOCAT_CLASSIC_PARITY_WORKDIR='$ClassicParityWorkdir' make classic-parity\`""
-        }
-        else {
-            "bash -lc \`"cd '$remoteDirectory' && bash scripts/hyperv/guest-check.sh\`""
-        }
+        $checkCommand = "bash --login '$remoteRunner'"
         Invoke-Native ssh.exe @sshArguments $target $checkCommand
         $timer.Stop()
         Write-Host ("Hyper-V {0} passed in {1:n2}s" -f $taskName, $timer.Elapsed.TotalSeconds)
