@@ -347,8 +347,9 @@ extractor therefore does not see `1.0.3-dev`; GNU sed leaves line 2
 unchanged, and `sort -n` ranks that non-numeric line below `1.7.3.4`.
 Independently, extracting line 1 still yields `1.0.3-dev`, which the same
 `sort -n` comparison also ranks below `1.7.4.0`.
-`TestClassicTestShVersionGateSkipsUDPDatagramPeerport` locks that harness
-outcome.
+`TestClassicTestShUDPDatagramPeerportVersionGate` characterizes that
+extractor and comparison with fixed `-V` samples. It does not require live
+product `-V` to keep CANT-skipping.
 
 Do not map this CANT to the unsupported `udp-ignore-peerport` option name.
 That name remains documented but unimplemented in classic C and is omitted

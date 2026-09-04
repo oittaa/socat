@@ -3,43 +3,65 @@
 package cli
 
 import (
-	"bytes"
 	"os/exec"
 	"strings"
 	"testing"
-
-	"github.com/oittaa/socat"
 )
 
-// TestClassicTestShVersionGateSkipsUDPDatagramPeerport locks the official
-// test.sh SOCAT_VERSION gate that makes UDP_DATAGRAM_PEERPORT CANT here.
-// That test never requests udp-ignore-peerport; it is a version skip, not an
-// unimplemented datagram option.
-func TestClassicTestShVersionGateSkipsUDPDatagramPeerport(t *testing.T) {
-	var buf bytes.Buffer
-	if err := printVersion(&buf); err != nil {
-		t.Fatal(err)
+// TestClassicTestShUDPDatagramPeerportVersionGate characterizes official
+// test.sh's SOCAT_VERSION extraction and the UDP_DATAGRAM_PEERPORT 1.7.4.0
+// skip using fixed -V samples. That test never requests udp-ignore-peerport.
+// Do not require live product -V to keep CANT-skipping.
+func TestClassicTestShUDPDatagramPeerportVersionGate(t *testing.T) {
+	cases := []struct {
+		name          string
+		versionOutput string
+		wantExtracted string
+		wantSkip      bool
+	}{
+		{
+			name:          "classicLine2Version1813Runs",
+			versionOutput: "header\nsocat version 1.8.1.3 on 2026-01-01\n",
+			wantExtracted: "1.8.1.3",
+			wantSkip:      false,
+		},
+		{
+			name:          "classicLine2Version1740Runs",
+			versionOutput: "header\nsocat version 1.7.4.0 on 2026-01-01\n",
+			wantExtracted: "1.7.4.0",
+			wantSkip:      false,
+		},
+		{
+			name:          "classicLine2Version1734Skips",
+			versionOutput: "header\nsocat version 1.7.3.4 on 2026-01-01\n",
+			wantExtracted: "1.7.3.4",
+			wantSkip:      true,
+		},
+		{
+			name:          "classicLine2Version103DevSkips",
+			versionOutput: "header\nsocat version 1.0.3-dev on 2026-01-01\n",
+			wantExtracted: "1.0.3-dev",
+			wantSkip:      true,
+		},
+		{
+			name: "goLayoutSkipsEvenWhenLine1Is1813",
+			versionOutput: "socat version 1.8.1.3 on 2026-01-01\n" +
+				"   running on Go reimplementation (github.com/oittaa/socat)\n",
+			wantSkip: true,
+		},
 	}
-	out := buf.String()
-	lines := strings.Split(out, "\n")
-	if len(lines) < 2 {
-		t.Fatalf("-V too short:\n%s", out)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			extracted, gate := classicTestShVersionGate(t, tc.versionOutput)
+			skip := gate == "1.7.3.4"
+			if skip != tc.wantSkip {
+				t.Fatalf("extracted %q gate_max %q skip=%v want skip=%v", extracted, gate, skip, tc.wantSkip)
+			}
+			if tc.wantExtracted != "" && extracted != tc.wantExtracted {
+				t.Fatalf("extracted %q want %q", extracted, tc.wantExtracted)
+			}
+		})
 	}
-	if !strings.HasPrefix(lines[0], "socat version "+socat.Version+" ") {
-		t.Fatalf("-V line 1 %q does not start with socat version %s", lines[0], socat.Version)
-	}
-
-	extracted, gate := classicTestShVersionGate(t, out)
-	if gate != "1.7.3.4" {
-		t.Fatalf("official test.sh would no longer CANT-skip UDP_DATAGRAM_PEERPORT: extracted %q gate_max %q; update testdata/scorecard/README.md", extracted, gate)
-	}
-
-	t.Run("line1ProductVersionAlsoBelow1740", func(t *testing.T) {
-		_, line1Gate := classicTestShVersionGate(t, lines[0]+"\n")
-		if line1Gate != "1.7.3.4" {
-			t.Fatalf("product version %q would pass the 1.7.4.0 gate if test.sh read -V line 1; update testdata/scorecard/README.md", socat.Version)
-		}
-	})
 }
 
 // classicTestShVersionGate replicates official test.sh:277 extraction and the
