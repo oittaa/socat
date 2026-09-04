@@ -83,7 +83,7 @@ func openSocketDgram(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	if err != nil {
 		return nil, err
 	}
-	st, err := xio.WrapCommonAfterConnected(s, &socketDgramStream{
+	st, err := xio.SetupConnectedStream(s, &socketDgramStream{
 		f:         f,
 		dest:      dest,
 		exactPeer: exactPeer,
@@ -175,7 +175,7 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 		return openSocketRecvfromOneShot(ctx, s, g, f, filter, local)
 	}
 
-	st, err := xio.WrapCommonAfterConnected(s, &socketDgramStream{
+	st, err := xio.SetupConnectedStream(s, &socketDgramStream{
 		f:      f,
 		filter: filter,
 		g:      g,
@@ -210,12 +210,17 @@ func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f 
 		nullEOF:    s.BoolOption("null-eof"),
 	}
 	return &xio.Opened{
-		Kind:        xio.KindListen,
-		Listener:    ln,
-		Label:       s.Type,
-		MaxChildren: maxChildren,
+		Kind:           xio.KindListen,
+		ForkSocketpair: true,
+		Listener:       ln,
+		Label:          s.Type,
+		MaxChildren:    maxChildren,
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			return xio.WrapCommonAfterConnectedFDLifecycleApplied(s, relay.NetStream{Conn: c})
+			stream := relay.NetStream{Conn: c}
+			if err := xio.ApplyStreamLateSocketOptions(s, stream); err != nil {
+				return nil, err
+			}
+			return xio.WrapStream(s, stream, xio.StreamSocketTimeouts)
 		},
 	}, nil
 }
@@ -228,7 +233,7 @@ func openSocketRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global,
 		return nil, err
 	}
 	rememberSocketPeer(g, from, local)
-	st, err := xio.WrapCommonAfterConnected(s, &socketRecvfromStream{
+	st, err := xio.SetupConnectedStream(s, &socketRecvfromStream{
 		f:            f,
 		peer:         cloneSockaddr(from),
 		first:        append([]byte(nil), buf[:n]...),

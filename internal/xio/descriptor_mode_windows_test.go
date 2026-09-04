@@ -112,7 +112,7 @@ func TestWindowsTextDescriptorModeRealFileRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := mustSpec(t, "FD:3,text")
-	stream, err := WrapCommon(spec, FileStream(f))
+	stream, err := SetupStream(spec, FileStream(f))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestWindowsTextDescriptorModeRealFileRoundTrip(t *testing.T) {
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		t.Fatal(err)
 	}
-	stream, err = WrapCommon(spec, FileStream(f))
+	stream, err = SetupStream(spec, FileStream(f))
 	if err != nil {
 		t.Fatal(err)
 	}

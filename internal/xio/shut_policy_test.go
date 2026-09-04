@@ -86,7 +86,7 @@ func wrapSpec(t *testing.T, spec string, inner relay.Stream) relay.Stream {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, err := WrapCommon(s, inner)
+	stream, err := SetupStream(s, inner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,8 +144,8 @@ func TestSelectedShutPolicyInvalidValue(t *testing.T) {
 	if _, err := selectedShutPolicy(s); err == nil {
 		t.Fatal("expected error for shut=foo")
 	}
-	if _, err := WrapCommon(s, &recordingStream{}); err == nil {
-		t.Fatal("WrapCommon should reject shut=foo")
+	if _, err := SetupStream(s, &recordingStream{}); err == nil {
+		t.Fatal("SetupStream should reject shut=foo")
 	}
 	for _, spec := range []string{
 		"TCP:127.0.0.1:9,shut-none=garbage",
@@ -160,8 +160,8 @@ func TestSelectedShutPolicyInvalidValue(t *testing.T) {
 		if _, err := selectedShutPolicy(parsed); err == nil {
 			t.Fatalf("expected error for %s", spec)
 		}
-		if _, err := WrapCommon(parsed, &recordingStream{}); err == nil {
-			t.Fatalf("WrapCommon should reject %s", spec)
+		if _, err := SetupStream(parsed, &recordingStream{}); err == nil {
+			t.Fatalf("SetupStream should reject %s", spec)
 		}
 	}
 }
@@ -253,7 +253,7 @@ func TestShutPolicyPreservesDeadlineUnwrap(t *testing.T) {
 				t.Fatal(err)
 			}
 			spec.Options = append(spec.Options, parsed.Options...)
-			stream, err := WrapCommon(spec, timeoutPipeStream(client))
+			stream, err := SetupStream(spec, timeoutPipeStream(client))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -529,7 +529,7 @@ func TestShutPolicyDatagramEndpoints(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wrapped, err := WrapCommon(spec, udpTestStream{UDPConn: local})
+			wrapped, err := SetupStream(spec, udpTestStream{UDPConn: local})
 			if err != nil {
 				t.Fatal(err)
 			}

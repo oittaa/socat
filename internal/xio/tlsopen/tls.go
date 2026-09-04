@@ -91,7 +91,11 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		LogOK:       true,
 		LogSuffix:   " (TLS)",
 		Wrap: func(c net.Conn) (relay.Stream, error) {
-			return xio.WrapCommonAfterConnectedTimeoutsApplied(s, relay.NetStream{Conn: c})
+			stream := relay.NetStream{Conn: c}
+			if err := xio.ApplyStreamFDOptions(s, stream); err != nil {
+				return nil, err
+			}
+			return xio.WrapStream(s, stream, xio.TransportSocketTimeouts)
 		},
 	})
 }
@@ -112,23 +116,17 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return nil, fmt.Errorf("%s requires port", s.Type)
 	}
 	port := s.Params[0]
-	host, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
+	addr, err := xio.TCPListenAddress(ctx, s, network, port)
 	if err != nil {
 		return nil, err
 	}
-	host, err = xio.ResolveIPHost(ctx, s, network, host)
-	if err != nil {
-		return nil, err
-	}
-	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
 	tlsCfg, err := tlsServerConfig(s)
 	if err != nil {
 		return nil, err
 	}
 
-	lc := xio.NewTCPListenConfig(s)
-	ln, err := xio.ListenStream(ctx, lc, network, addr, s)
+	ln, err := xio.ListenTCP(ctx, s, network, addr)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +137,11 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		if err := xio.ApplyTCPConnOpts(s, c); err != nil {
 			return nil, err
 		}
-		return xio.WrapCommonAfterConnectedTimeoutsApplied(s, relay.NetStream{Conn: c})
+		stream := relay.NetStream{Conn: c}
+		if err := xio.ApplyStreamFDOptions(s, stream); err != nil {
+			return nil, err
+		}
+		return xio.WrapStream(s, stream, xio.TransportSocketTimeouts)
 	}
 
 	var setAcceptDeadline func(time.Time) error

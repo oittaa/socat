@@ -456,7 +456,7 @@ func TestApplySocketOptionsSndbufRcvbufWindows(t *testing.T) {
 	}
 }
 
-func TestWrapCommonAppliesSndbufLateOverEarlyWindows(t *testing.T) {
+func TestSetupStreamAppliesSndbufLateOverEarlyWindows(t *testing.T) {
 	ln, err := net.ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)
@@ -494,12 +494,12 @@ func TestWrapCommonAppliesSndbufLateOverEarlyWindows(t *testing.T) {
 	if early < 4096 {
 		t.Fatalf("early SO_SNDBUF=%d want >= 4096", early)
 	}
-	if _, err := WrapCommon(spec, relay.NetStream{Conn: client}); err != nil {
+	if _, err := SetupStream(spec, relay.NetStream{Conn: client}); err != nil {
 		t.Fatal(err)
 	}
 	late := windowsTCPSockopt(t, client, windows.SO_SNDBUF)
 	if late < 65536 {
-		t.Fatalf("SO_SNDBUF=%d want >= 65536 after WrapCommon (late wins)", late)
+		t.Fatalf("SO_SNDBUF=%d want >= 65536 after SetupStream (late wins)", late)
 	}
 }
 

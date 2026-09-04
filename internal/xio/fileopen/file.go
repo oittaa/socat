@@ -198,7 +198,7 @@ func openPIPE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 		logx.CloseQuiet(w)
 		return nil, err
 	}
-	st, err := xio.WrapCommon(s, relay.FDStream{
+	st, err := xio.SetupStream(s, relay.FDStream{
 		R: r,
 		W: w,
 		C: xio.NewMultiCloser(relay.RWCStream{ReadWriteCloser: r}, relay.RWCStream{ReadWriteCloser: w}),
@@ -326,7 +326,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 			removeCreated()
 			return nil, err
 		}
-		st, err := xio.WrapCommon(s, xio.FileStream(f))
+		st, err := xio.SetupStream(s, xio.FileStream(f))
 		if err != nil {
 			logx.CloseQuiet(f)
 			removeCreated()
@@ -366,7 +366,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 			removeCreated()
 			return nil, err
 		}
-		st, err := xio.WrapCommon(s, xio.FileStream(w))
+		st, err := xio.SetupStream(s, xio.FileStream(w))
 		if err != nil {
 			logx.CloseQuiet(w)
 			removeCreated()
@@ -422,7 +422,7 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 				return w.Close()
 			},
 		}
-		st, err := xio.WrapCommon(s, stream)
+		st, err := xio.SetupStream(s, stream)
 		if err != nil {
 			logx.CloseQuiet(r)
 			logx.CloseQuiet(w)
@@ -466,7 +466,7 @@ func openSocketpair(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) 
 		logx.CloseQuiet(c2)
 		return nil, err
 	}
-	st, err := xio.WrapCommonAfterConnected(s, stream)
+	st, err := xio.SetupConnectedStream(s, stream)
 	if err != nil {
 		logx.CloseQuiet(stream)
 		return nil, err
@@ -616,8 +616,8 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 	if err := applyOpenTruncate(f, s); err != nil {
 		return fail(err)
 	}
-	// ignoreeof is applied centrally by xio.WrapCommon now.
-	st, err := xio.WrapCommon(s, xio.FileStream(f))
+	// ignoreeof is applied centrally by xio.SetupStream now.
+	st, err := xio.SetupStream(s, xio.FileStream(f))
 	if err != nil {
 		return fail(err)
 	}

@@ -987,7 +987,7 @@ func startWithChildUmask(ctx context.Context, s parse.Spec, cmd *exec.Cmd, g *Gl
 }
 
 // killWaitUnregisterChild reaps a started EXEC child and drops signal
-// registrations. Post-Start failures (PTY master lifecycle, WrapCommon, too
+// registrations. Post-Start failures (PTY master lifecycle, SetupStream, too
 // many pids) must not leave the pid in the four-slot tables: a later
 // LISTEN,fork child can reuse the number and receive a stale kill.
 func killWaitUnregisterChild(cmd *exec.Cmd) {
@@ -1404,7 +1404,7 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 	if cmd != nil && cmd.Process != nil {
 		pid = cmd.Process.Pid
 	}
-	st, err := WrapCommon(s, stream)
+	st, err := SetupStream(s, stream)
 	if err != nil {
 		killWaitUnregisterChild(cmd)
 		for _, f := range cleanup {
@@ -1442,7 +1442,7 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 	if g != nil && g.Linger > 0 {
 		linger = g.Linger
 	}
-	// shut-none is write-side shutdown only (WrapCommon). Final cleanup still
+	// shut-none is write-side shutdown only (SetupStream). Final cleanup still
 	// kills the child unless end-close selected END_CLOSE (no kill).
 	endClose := s.BoolOption("end-close")
 

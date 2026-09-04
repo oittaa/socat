@@ -217,7 +217,7 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 			return newMQConn(st, name), nil
 		}
 		wrap := func(c net.Conn) (relay.Stream, error) {
-			return xio.WrapCommon(s, relay.NetStream{Conn: c})
+			return xio.SetupStream(s, relay.NetStream{Conn: c})
 		}
 		o := &xio.Opened{
 			Kind:        xio.KindDial,
@@ -249,7 +249,7 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 			MaxChildren: maxChildren,
 			Label:       s.Type,
 			WrapDial: func(c net.Conn) (relay.Stream, error) {
-				return xio.WrapCommon(s, relay.NetStream{Conn: c})
+				return xio.SetupStream(s, relay.NetStream{Conn: c})
 			},
 		}
 		o.AddCleanup(func() {
@@ -297,7 +297,7 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	}
 
 	st := relay.Stream(mqs)
-	st, err = xio.WrapCommon(s, st)
+	st, err = xio.SetupStream(s, st)
 	if err != nil {
 		_ = mqs.Close()
 		unregister()

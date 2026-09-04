@@ -41,7 +41,7 @@ func openTEXT(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*x
 			C: xio.NopCloser{},
 		}
 	}
-	st, err := xio.WrapCommon(s, stream)
+	st, err := xio.SetupStream(s, stream)
 	if err != nil {
 		return nil, err
 	}

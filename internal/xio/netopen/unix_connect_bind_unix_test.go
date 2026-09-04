@@ -130,10 +130,10 @@ func TestUnixConnectBindWrapFailureUnlinksPath(t *testing.T) {
 		t.Fatal("expected invalid readbytes to fail after connect")
 	}
 	if _, err := os.Lstat(bind); !os.IsNotExist(err) {
-		t.Fatalf("CONNECT bind path survived WrapCommon failure: %v", err)
+		t.Fatalf("CONNECT bind path survived SetupStream failure: %v", err)
 	}
 	if xio.RegisteredUnlinkCount() != 0 {
-		t.Fatal("WrapCommon failure left a signal-exit unlink registration")
+		t.Fatal("SetupStream failure left a signal-exit unlink registration")
 	}
 }
 
@@ -157,7 +157,7 @@ func TestUnixConnectBindWrapFailureUnlinkCloseZeroKeepsPath(t *testing.T) {
 		t.Fatal("expected invalid readbytes to fail after connect")
 	}
 	if _, err := os.Lstat(bind); err != nil {
-		t.Fatalf("unlink-close=0 bind path was removed on WrapCommon failure: %v", err)
+		t.Fatalf("unlink-close=0 bind path was removed on SetupStream failure: %v", err)
 	}
 }
 

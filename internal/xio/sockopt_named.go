@@ -53,7 +53,7 @@ func applyNamedPastSocketSockopt(fd int, o parse.Option) (bool, error) {
 
 // applyNamedConnectedSockopt applies named TCP options after connect
 // (tcp-maxseg-late). ApplyGenericSetsockopt's connected walk calls it so
-// TLS/WS/proxy/SOCKS (ApplyTCPConnOpts) and WrapCommon fallbacks share one
+// TLS/WS/proxy/SOCKS (ApplyTCPConnOpts) and SetupStream fallbacks share one
 // pass and do not apply connected generic setsockopt twice.
 func applyNamedConnectedSockopt(fd int, o parse.Option) (bool, error) {
 	level, opt, ok, err := lookupNamedConnectedInt(o.Name)

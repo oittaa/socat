@@ -346,7 +346,7 @@ func TestInterfaceSyscallConnAndConnectedOnceLinux(t *testing.T) {
 		SyscallConn() (syscall.RawConn, error)
 	})
 	if !ok {
-		// WrapCommon may wrap the stream (timeouts, crnl, …).
+		// SetupStream may wrap the stream (timeouts, crnl, …).
 		if n != 1 {
 			t.Fatalf("SO_KEEPALIVE setsockopt count=%d want 1", n)
 		}

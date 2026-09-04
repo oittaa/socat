@@ -86,7 +86,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 				logx.CloseQuiet(c)
 				return nil, err
 			}
-			wrapped, err := xio.WrapCommonAfterConnected(s, st)
+			wrapped, err := xio.SetupConnectedStream(s, st)
 			if err != nil {
 				logx.CloseQuiet(c)
 				return nil, err
@@ -139,7 +139,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		logx.CloseQuiet(c)
 		return nil, err
 	}
-	wrapped, err := xio.WrapCommonAfterConnected(s, st)
+	wrapped, err := xio.SetupConnectedStream(s, st)
 	if err != nil {
 		logx.CloseQuiet(c)
 		return nil, err
@@ -410,13 +410,14 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			}
 			xio.NoteListenBound(pc.LocalAddr())
 			return &xio.Opened{
-				Kind:        xio.KindListen,
-				Listener:    ln,
-				Label:       "UDP-RECVFROM",
-				MaxChildren: maxChildren,
-				PeerFilter:  peerFilter.AllowConn,
+				Kind:           xio.KindListen,
+				Listener:       ln,
+				Label:          "UDP-RECVFROM",
+				ForkSocketpair: true,
+				MaxChildren:    maxChildren,
+				PeerFilter:     peerFilter.AllowConn,
 				WrapDial: func(c net.Conn) (relay.Stream, error) {
-					return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
+					return xio.SetupConnectedStream(s, relay.NetStream{Conn: c})
 				},
 			}, nil
 		}
@@ -488,7 +489,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			recvErr:      recvErr,
 			g:            g,
 		})
-		st, err = xio.WrapCommonAfterConnected(s, st)
+		st, err = xio.SetupConnectedStream(s, st)
 		if err != nil {
 			logx.CloseQuiet(pc)
 			return nil, err
@@ -516,7 +517,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		wantCtrl: xio.NeedAncillary(s),
 		recvErr:  xio.NeedRecvErr(s),
 	})
-	st, err = xio.WrapCommonAfterConnected(s, st)
+	st, err = xio.SetupConnectedStream(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err

@@ -49,7 +49,7 @@ func inheritedFDStream(f *os.File, orig int, closeOrig bool) relay.Stream {
 	}
 }
 
-// specWithoutEndClose copies s without end-close. WrapCommon treats that
+// specWithoutEndClose copies s without end-close. SetupStream treats that
 // option as "keep the peer FD open" (EXEC reuse). FD uses the opposite
 // meaning: close the inherited descriptor on EOF.
 func specWithoutEndClose(s parse.Spec) parse.Spec {

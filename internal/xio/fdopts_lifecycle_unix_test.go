@@ -177,7 +177,7 @@ func TestApplyFDOptionsUserGroupSameIDs(t *testing.T) {
 	}
 }
 
-func TestApplyFDOptionsThenWrapCommonAppliesOnce(t *testing.T) {
+func TestApplyFDOptionsThenSetupStreamAppliesOnce(t *testing.T) {
 	tests := []struct {
 		name string
 		raw  func() string
@@ -206,24 +206,24 @@ func TestApplyFDOptionsThenWrapCommonAppliesOnce(t *testing.T) {
 			if err := ApplyFDOptions(f, spec); err != nil {
 				skipIfOwnerChangeDenied(t, err)
 			}
-			if _, err := WrapCommon(spec, FileStream(f)); err != nil {
+			if _, err := SetupStream(spec, FileStream(f)); err != nil {
 				skipIfOwnerChangeDenied(t, err)
 			}
 			if got := countOp(*ops, tc.op); got != 1 {
 				t.Fatalf("%s applied %d times want exactly 1 (ops=%v)", tc.op, got, *ops)
 			}
 			if tc.op == "F_SETFL" && fcntlFlags(t, f)&unix.O_APPEND == 0 {
-				t.Fatal("O_APPEND missing after ApplyFDOptions + WrapCommon")
+				t.Fatal("O_APPEND missing after ApplyFDOptions + SetupStream")
 			}
 			if tc.op == "F_SETFD" && fcntlFD(t, f)&unix.FD_CLOEXEC != 0 {
-				t.Fatal("FD_CLOEXEC still set after cloexec=0 + WrapCommon")
+				t.Fatal("FD_CLOEXEC still set after cloexec=0 + SetupStream")
 			}
 		})
 	}
 }
 
-func TestWrapCommonAppliesUnmarkedPeerAfterApplyFDOptions(t *testing.T) {
-	// Unnamed PIPE calls ApplyFDOptions on the read end only, then WrapCommon
+func TestSetupStreamAppliesUnmarkedPeerAfterApplyFDOptions(t *testing.T) {
+	// Unnamed PIPE calls ApplyFDOptions on the read end only, then SetupStream
 	// on both ends. Skipping the whole stream would drop append on the writer.
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -241,18 +241,18 @@ func TestWrapCommonAppliesUnmarkedPeerAfterApplyFDOptions(t *testing.T) {
 		t.Fatal("write end already had O_APPEND")
 	}
 	ops := captureLifecycleSyscalls(t)
-	if _, err := WrapCommon(spec, relay.FDStream{R: r, W: w, C: r}); err != nil {
+	if _, err := SetupStream(spec, relay.FDStream{R: r, W: w, C: r}); err != nil {
 		t.Fatal(err)
 	}
 	if got := countOp(*ops, "F_SETFL"); got != 1 {
 		t.Fatalf("unmarked write end F_SETFL count=%d want 1 (ops=%v)", got, *ops)
 	}
 	if fcntlFlags(t, w)&unix.O_APPEND == 0 {
-		t.Fatal("write end missing O_APPEND after WrapCommon")
+		t.Fatal("write end missing O_APPEND after SetupStream")
 	}
 }
 
-func TestWrapCommonFileStreamDedupsSameFD(t *testing.T) {
+func TestSetupStreamFileStreamDedupsSameFD(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "filestream")
 	if err != nil {
 		t.Fatal(err)
@@ -263,7 +263,7 @@ func TestWrapCommonFileStreamDedupsSameFD(t *testing.T) {
 	t.Cleanup(func() { fdLifecycleTestHook = nil })
 
 	spec := mustSpec(t, "STDIO,append")
-	if _, err := WrapCommon(spec, FileStream(f)); err != nil {
+	if _, err := SetupStream(spec, FileStream(f)); err != nil {
 		t.Fatal(err)
 	}
 	if got := n.Load(); got != 1 {
@@ -271,22 +271,22 @@ func TestWrapCommonFileStreamDedupsSameFD(t *testing.T) {
 	}
 }
 
-func TestWrapCommonFtruncateRejectsTCP(t *testing.T) {
+func TestSetupStreamFtruncateRejectsTCP(t *testing.T) {
 	cli, srv := localTCPPair(t)
 	spec := mustSpec(t, "TCP:127.0.0.1:1,ftruncate=0")
-	_, err := WrapCommon(spec, relay.NetStream{Conn: cli})
+	_, err := SetupStream(spec, relay.NetStream{Conn: cli})
 	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
 		t.Fatalf("error=%v want not a regular file", err)
 	}
 	_ = srv
 }
 
-func TestWrapCommonPermOnAnonymousSocketPropagatesFchmodError(t *testing.T) {
+func TestSetupStreamPermOnAnonymousSocketPropagatesFchmodError(t *testing.T) {
 	// Type TCP so skipDescriptorOwnerOpts does not skip. Classic applyopt_spec
 	// Fchmod reports EINVAL on Darwin sockets; that error must propagate.
 	cli, srv := localTCPPair(t)
 	spec := mustSpec(t, "TCP:127.0.0.1:1,perm=0600")
-	_, err := WrapCommon(spec, relay.NetStream{Conn: cli})
+	_, err := SetupStream(spec, relay.NetStream{Conn: cli})
 	if runtime.GOOS == "linux" {
 		// Linux fchmod(2) on a socket fd can succeed; do not hide either outcome.
 		_ = err
@@ -302,7 +302,7 @@ func TestWrapCommonPermOnAnonymousSocketPropagatesFchmodError(t *testing.T) {
 	_ = srv
 }
 
-func TestWrapCommonUNIXConnectAppliesDescriptorFchmod(t *testing.T) {
+func TestSetupStreamUNIXConnectAppliesDescriptorFchmod(t *testing.T) {
 	// Classic _xioopen_connect applyopts(PH_FD) fchmods the socket descriptor
 	// (tag-1.8.1.3 12c08bf66d709fba17035ce95d85bd218428d9ba). Darwin fchmod
 	// on UNIX sockets returns EINVAL; that error must propagate.
@@ -326,7 +326,7 @@ func TestWrapCommonUNIXConnectAppliesDescriptorFchmod(t *testing.T) {
 	t.Cleanup(func() { _ = cli.Close() })
 	spec := mustSpec(t, "UNIX-CONNECT:"+listen+",perm=0600")
 	ops := captureLifecycleSyscalls(t)
-	_, err = WrapCommon(spec, relay.NetStream{Conn: cli})
+	_, err = SetupStream(spec, relay.NetStream{Conn: cli})
 	if runtime.GOOS != "linux" {
 		if err == nil {
 			t.Fatal("expected fchmod error on UNIX-CONNECT socket")
@@ -344,10 +344,10 @@ func TestWrapCommonUNIXConnectAppliesDescriptorFchmod(t *testing.T) {
 	}
 }
 
-func TestWrapCommonAppendOnSocket(t *testing.T) {
+func TestSetupStreamAppendOnSocket(t *testing.T) {
 	cli, srv := localTCPPair(t)
 	spec := mustSpec(t, "TCP:127.0.0.1:1,append")
-	if _, err := WrapCommon(spec, relay.NetStream{Conn: cli}); err != nil {
+	if _, err := SetupStream(spec, relay.NetStream{Conn: cli}); err != nil {
 		t.Fatal(err)
 	}
 	flags := connFcntlFlags(t, cli)
@@ -357,13 +357,13 @@ func TestWrapCommonAppendOnSocket(t *testing.T) {
 	_ = srv
 }
 
-func TestWrapCommonDoesNotSkipGenericSocketRecvDescriptor(t *testing.T) {
+func TestSetupStreamDoesNotSkipGenericSocketRecvDescriptor(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "socket-recv-visible-fd")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = f.Close() })
-	if _, err := WrapCommon(mustSpec(t, "SOCKET-RECV:2:2:0:x00,append"), FileStream(f)); err != nil {
+	if _, err := SetupStream(mustSpec(t, "SOCKET-RECV:2:2:0:x00,append"), FileStream(f)); err != nil {
 		t.Fatal(err)
 	}
 	if fcntlFlags(t, f)&unix.O_APPEND == 0 {
@@ -889,7 +889,7 @@ func TestApplyUDPConnOptsAppendFcntlOnce(t *testing.T) {
 	}
 }
 
-func TestWrapCommonEXECPtyWriteOnlyAppliesAppendOnce(t *testing.T) {
+func TestSetupStreamEXECPtyWriteOnlyAppliesAppendOnce(t *testing.T) {
 	master, slave, err := OpenPTYPair()
 	if err != nil {
 		t.Skipf("no pty: %v", err)
@@ -906,7 +906,7 @@ func TestWrapCommonEXECPtyWriteOnlyAppliesAppendOnce(t *testing.T) {
 		CloseW: func() error { w.closeWrite(); return nil },
 	}
 	ops := captureLifecycleSyscalls(t)
-	if _, err := WrapCommon(mustSpec(t, "EXEC:/bin/true,pty,append"), stream); err != nil {
+	if _, err := SetupStream(mustSpec(t, "EXEC:/bin/true,pty,append"), stream); err != nil {
 		t.Fatal(err)
 	}
 	if n := countOp(*ops, "F_SETFL"); n != 1 {
@@ -1027,11 +1027,11 @@ func TestApplyFDOptionsCloexecOccurrenceOrder(t *testing.T) {
 	}
 }
 
-func TestWrapCommonCloexecOnTCP(t *testing.T) {
+func TestSetupStreamCloexecOnTCP(t *testing.T) {
 	cli, srv := localTCPPair(t)
 	t.Cleanup(func() { _ = srv.Close() })
 	spec := mustSpec(t, "TCP:127.0.0.1:1,cloexec=0")
-	if _, err := WrapCommon(spec, relay.NetStream{Conn: cli}); err != nil {
+	if _, err := SetupStream(spec, relay.NetStream{Conn: cli}); err != nil {
 		t.Fatal(err)
 	}
 	sc, ok := cli.(syscall.Conn)
@@ -1053,17 +1053,17 @@ func TestWrapCommonCloexecOnTCP(t *testing.T) {
 		t.Fatal(flagErr)
 	}
 	if flags&unix.FD_CLOEXEC != 0 {
-		t.Fatal("WrapCommon cloexec=0 left FD_CLOEXEC set on TCP")
+		t.Fatal("SetupStream cloexec=0 left FD_CLOEXEC set on TCP")
 	}
 }
 
-func TestWrapCommonCloexecRejectsStreamWithoutDescriptor(t *testing.T) {
+func TestSetupStreamCloexecRejectsStreamWithoutDescriptor(t *testing.T) {
 	a, b := net.Pipe()
 	t.Cleanup(func() {
 		_ = a.Close()
 		_ = b.Close()
 	})
-	_, err := WrapCommon(mustSpec(t, "TCP:127.0.0.1:9,cloexec=0"), relay.NetStream{Conn: a})
+	_, err := SetupStream(mustSpec(t, "TCP:127.0.0.1:9,cloexec=0"), relay.NetStream{Conn: a})
 	if err == nil || !strings.Contains(err.Error(), "does not expose a descriptor") {
 		t.Fatalf("error=%v want stream does not expose a descriptor", err)
 	}

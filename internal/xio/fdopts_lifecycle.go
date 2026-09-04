@@ -17,13 +17,13 @@ import (
 // Descriptor lifecycle options walk the command-line list after open, then
 // late. Every occurrence is applied, including aliases. Last-wins
 // OptionNamed is not used for applying. ApplyFDOptions owns already-open
-// files and marks the *os.File so WrapCommon skips it. Fd numbers are not
+// files and marks the *os.File so SetupStream skips it. Fd numbers are not
 // cached. OPEN/FILE/CREATE/GOPEN consume perm= as open(2) mode so umask
 // applies. Windows hides and rejects ioctl-* and cloexec.
 
 // lifecycleSyscallTestHook is invoked immediately before fchmod/fchown/
 // F_SETFL/ftruncate (and the Windows ftruncate path). Tests assert
-// exactly-once apply after ApplyFDOptions then WrapCommon, and command-line
+// exactly-once apply after ApplyFDOptions then SetupStream, and command-line
 // order of repeated options.
 var lifecycleSyscallTestHook func(op string)
 
@@ -240,7 +240,7 @@ func namedFilesystemUnixPHFD(s parse.Spec) bool {
 	return true
 }
 
-// wrapHidesDescriptor reports stream types whose WrapCommon view is not a
+// wrapHidesDescriptor reports stream types whose SetupStream view is not a
 // syscall.Conn (datagram/QUIC/POSIX MQ wrappers; relay would splice those
 // fds). Lifecycle options are applied on the parent socket or mqd before
 // wrapping. Never treat an accepted option as a silent no-op: other types

@@ -228,7 +228,8 @@ func recordSockoptBytes(fd, level, opt int, value []byte) {
 	}
 }
 
-func applyLateSocketOptionsToStream(s parse.Spec, stream relay.Stream) error {
+// ApplyStreamLateSocketOptions applies buffer sizes on exposed sockets.
+func ApplyStreamLateSocketOptions(s parse.Spec, stream relay.Stream) error {
 	if !hasLateSocketBuffers(s) {
 		return nil
 	}

@@ -552,7 +552,7 @@ func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
 			return err
 		}
 		// so-sndbuf-late / so-rcvbuf-late on the raw TCP fd after
-		// connect()/accept(), before TLS/PROXY handshake. WrapCommon
+		// connect()/accept(), before TLS/PROXY handshake. SetupStream
 		// still applies the same options on UNIX/UDP streams; a second
 		// SO_SNDBUF set on this TCP conn is harmless.
 		return ApplyLateSocketOptionsToConn(tc, s)

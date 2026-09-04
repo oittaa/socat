@@ -159,6 +159,12 @@ func (h *halfCloseWriter) SyscallConn() (syscall.RawConn, error) {
 	return sc.SyscallConn()
 }
 
+// streamWithReader changes only reading, retaining ownership and shutdown.
+// FDStream keeps the read and write capability paths separate.
+func streamWithReader(stream relay.Stream, r io.Reader) relay.Stream {
+	return relay.FDStream{R: r, W: stream, C: stream, CloseW: stream.ShutdownWrite}
+}
+
 // readBytesWrap limits total bytes read (readbytes=N).
 type readBytesWrap struct {
 	r    io.Reader
@@ -197,14 +203,7 @@ func ApplyReadBytes(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	if n == 0 {
 		return stream, nil
 	}
-	return relay.FDStream{
-		R: &readBytesWrap{r: stream, left: n},
-		W: stream,
-		C: stream,
-		CloseW: func() error {
-			return stream.ShutdownWrite()
-		},
-	}, nil
+	return streamWithReader(stream, &readBytesWrap{r: stream, left: n}), nil
 }
 
 // crnlWriter converts LF → CRLF on write (internal RAW → external CRNL).
@@ -451,18 +450,17 @@ func resizeScratch(buf []byte, size int) []byte {
 	return buf[:size]
 }
 
-// lineTermStream applies read/write converters without exposing UnwrapZeroCopy
-// (splice must not bypass conversion). UnwrapStream keeps deadline/timeout
-// walking intact.
-type lineTermStream struct {
+// transformStream delegates converted I/O and preserves capability traversal.
+// It does not expose zero-copy traversal: copying must pass through conversion.
+type transformStream struct {
 	relay.Stream
 	r io.Reader
 	w io.Writer
 }
 
-func (s *lineTermStream) Read(p []byte) (int, error)  { return s.r.Read(p) }
-func (s *lineTermStream) Write(p []byte) (int, error) { return s.w.Write(p) }
-func (s *lineTermStream) UnwrapStream() relay.Stream  { return s.Stream }
+func (s *transformStream) Read(p []byte) (int, error)  { return s.r.Read(p) }
+func (s *transformStream) Write(p []byte) (int, error) { return s.w.Write(p) }
+func (s *transformStream) UnwrapStream() relay.Stream  { return s.Stream }
 
 func applyLineTerm(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	for _, o := range s.Options {
@@ -475,11 +473,11 @@ func applyLineTerm(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	}
 	switch selectedLineTerm(s) {
 	case lineTermCR:
-		return &lineTermStream{Stream: stream, r: crReader{r: stream}, w: &crWriter{w: stream}}, nil
+		return &transformStream{Stream: stream, r: crReader{r: stream}, w: &crWriter{w: stream}}, nil
 	case lineTermCRNL:
-		return &lineTermStream{Stream: stream, r: &crnlReader{r: stream}, w: &crnlWriter{w: stream}}, nil
+		return &transformStream{Stream: stream, r: &crnlReader{r: stream}, w: &crnlWriter{w: stream}}, nil
 	case lineTermCRorLF:
-		return &lineTermStream{Stream: stream, r: &crorlfReader{r: stream}, w: &crnlWriter{w: stream}}, nil
+		return &transformStream{Stream: stream, r: &crorlfReader{r: stream}, w: &crnlWriter{w: stream}}, nil
 	default:
 		return stream, nil
 	}
@@ -523,14 +521,7 @@ func ApplyEscape(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	if err != nil {
 		return nil, err
 	}
-	return relay.FDStream{
-		R: &escapeReader{r: stream, esc: esc},
-		W: stream,
-		C: stream,
-		CloseW: func() error {
-			return stream.ShutdownWrite()
-		},
-	}, nil
+	return streamWithReader(stream, &escapeReader{r: stream, esc: esc}), nil
 }
 
 // parseEscapeByte accepts decimal (27), hex with a 0x prefix (0x1b), or a
@@ -632,79 +623,17 @@ func applySocketTimeouts(s parse.Spec, stream relay.Stream) (relay.Stream, error
 	return socketTimeoutStream{Stream: stream, readTimeout: readTimeout, writeTimeout: writeTimeout}, nil
 }
 
-// WrapCommon applies socket timeouts plus the common stream transformations.
-func WrapCommon(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, true, false, false, false)
-}
+// SocketTimeoutLayer selects where read/write timeouts are enforced.
+type SocketTimeoutLayer uint8
 
-// WrapCommonAfterConnected is WrapCommon for streams whose opener already
-// applied after-connect/accept options, or rejected them for FD. A skip
-// flag is used instead of wrapping the stream so type assertions on the
-// concrete opener type stay valid.
-func WrapCommonAfterConnected(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, true, true, false, false)
-}
+const (
+	StreamSocketTimeouts SocketTimeoutLayer = iota
+	TransportSocketTimeouts
+)
 
-// WrapCommonAfterConnectedFDLifecycleApplied is for logical streams whose
-// opener already applied descriptor lifecycle options to a hidden transport
-// descriptor. HTTP/2 and HTTP/3 CONNECT use it after configuring their TCP or
-// UDP transport, because the returned request stream does not expose that fd.
-func WrapCommonAfterConnectedFDLifecycleApplied(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, true, true, true, false)
-}
-
-// WrapCommonAfterConnectedFDPhaseApplied skips after-open and after
-// connect/accept options. Use it when the opener already applied those so
-// late still runs here. ACCEPT-FD uses this: after open → after socket() →
-// after connect/accept → late.
-func WrapCommonAfterConnectedFDPhaseApplied(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, true, true, false, true)
-}
-
-// WrapCommonWithSocketTimeoutsApplied is used by framed transports that must
-// absorb socket timeouts below their record layer before applying the remaining
-// common stream transformations.
-func WrapCommonWithSocketTimeoutsApplied(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, false, false, false, false)
-}
-
-// WrapCommonAfterConnectedTimeoutsApplied skips after-connect/accept options
-// and socket timeouts (already applied on the raw fd / below the record layer).
-func WrapCommonAfterConnectedTimeoutsApplied(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return wrapCommon(s, stream, false, true, false, false)
-}
-
-func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected, skipFDLifecycle, skipFDPhase bool) (relay.Stream, error) {
-	// Late so-sndbuf-late / so-rcvbuf-late on streams that expose a socket
-	// fd. TLS is not a syscall.Conn; ApplyTCPConnOpts applies on the unwrapped
-	// TCP fd after connect/accept. UDP/UNIX datagram wrappers and QUIC apply
-	// on the raw socket/PacketConn before wrapping.
-	//
-	// append / ftruncate / perm / user / group (after open, then late) on
-	// unique syscall.Conn fds. ApplyFDOptions marks already-open *os.File so
-	// WrapCommon skips it. Hidden fds (datagram, POSIX MQ, QUIC) apply on
-	// the parent before wrapping.
-	if !skipFDLifecycle {
-		apply := applyFDLifecycleToStream
-		if skipFDPhase {
-			apply = applyFDLifecycleLateToStream
-		}
-		if err := apply(s, stream); err != nil {
-			return nil, err
-		}
-	}
-	// After connect/accept, generic setsockopt* and tcp-maxseg-late follow
-	// the same split: ApplyTCPConnOpts, ApplyUDPConnOpts,
-	// applyUnixgramSocketOptions, QUIC PacketConn, and WrapCommon as fallback
-	// (INTERFACE, FD, SOCKETPAIR, UNIX stream).
-	if err := applyLateSocketOptionsToStream(s, stream); err != nil {
-		return nil, err
-	}
-	if !skipConnected {
-		if err := applyGenericSetsockoptToStream(s, stream, SockoptPhaseConnected); err != nil {
-			return nil, err
-		}
-	}
+// WrapStream applies stream transformations after transport setup is complete.
+// TLS enforces timeouts below its record layer; other streams enforce them here.
+func WrapStream(s parse.Spec, stream relay.Stream, timeouts SocketTimeoutLayer) (relay.Stream, error) {
 	var err error
 	// O_BINARY/O_TEXT are descriptor-level conversions. Keep the wrapper
 	// inside user-requested cr/crnl, readbytes, escape, and ignoreeof layers,
@@ -713,7 +642,7 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected,
 	if err != nil {
 		return nil, err
 	}
-	if applyTimeouts {
+	if timeouts == StreamSocketTimeouts {
 		stream, err = applySocketTimeouts(s, stream)
 		if err != nil {
 			return nil, err
@@ -737,14 +666,7 @@ func wrapCommon(s parse.Spec, stream relay.Stream, applyTimeouts, skipConnected,
 		return nil, err
 	}
 	if s.BoolOption("null-eof") {
-		// Capture inner before reassignment — closure must not recurse on FDStream.
-		inner := stream
-		stream = relay.FDStream{
-			R:      &nullEOFReader{r: inner},
-			W:      inner,
-			C:      inner,
-			CloseW: func() error { return inner.ShutdownWrite() },
-		}
+		stream = streamWithReader(stream, &nullEOFReader{r: stream})
 	}
 	stream, err = wrapShutPolicy(s, stream)
 	if err != nil {

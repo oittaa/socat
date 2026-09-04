@@ -168,7 +168,7 @@ func TestApplySocketOptionsRejectsNegativeSndbuf(t *testing.T) {
 	}
 }
 
-func TestWrapCommonAppliesSndbufLateOverEarlyUnix(t *testing.T) {
+func TestSetupStreamAppliesSndbufLateOverEarlyUnix(t *testing.T) {
 	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -189,16 +189,16 @@ func TestWrapCommonAppliesSndbufLateOverEarlyUnix(t *testing.T) {
 		t.Fatalf("early SO_SNDBUF=%d SO_RCVBUF=%d want >= 4096", earlySnd, earlyRcv)
 	}
 
-	if _, err := WrapCommon(spec, FileStream(f)); err != nil {
+	if _, err := SetupStream(spec, FileStream(f)); err != nil {
 		t.Fatal(err)
 	}
 	lateSnd := unixSockoptInt(t, fd, unix.SO_SNDBUF)
 	lateRcv := unixSockoptInt(t, fd, unix.SO_RCVBUF)
 	if lateSnd < 65536 {
-		t.Fatalf("SO_SNDBUF=%d want >= 65536 after WrapCommon (late wins)", lateSnd)
+		t.Fatalf("SO_SNDBUF=%d want >= 65536 after SetupStream (late wins)", lateSnd)
 	}
 	if lateRcv < 65536 {
-		t.Fatalf("SO_RCVBUF=%d want >= 65536 after WrapCommon (late wins)", lateRcv)
+		t.Fatalf("SO_RCVBUF=%d want >= 65536 after SetupStream (late wins)", lateRcv)
 	}
 	if lateSnd <= earlySnd {
 		t.Fatalf("SO_SNDBUF did not grow from early=%d to late=%d", earlySnd, lateSnd)
@@ -451,7 +451,7 @@ func TestApplyUDPConnOptsAppliesLateUnix(t *testing.T) {
 	}
 }
 
-func TestWrapCommonAppliesLateThroughNetConnUnwrapUnix(t *testing.T) {
+func TestSetupStreamAppliesLateThroughNetConnUnwrapUnix(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("linux SO_SNDBUF doubling")
 	}
@@ -460,8 +460,8 @@ func TestWrapCommonAppliesLateThroughNetConnUnwrapUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := WrapCommon(spec, relay.NetStream{Conn: netConnUnwrapper{Conn: cli}}); err != nil {
-		t.Fatalf("WrapCommon via NetConn(): %v", err)
+	if _, err := SetupStream(spec, relay.NetStream{Conn: netConnUnwrapper{Conn: cli}}); err != nil {
+		t.Fatalf("SetupStream via NetConn(): %v", err)
 	}
 	if got := tcpSockoptInt(t, cli, unix.SO_SNDBUF); got < 65536 {
 		t.Fatalf("SO_SNDBUF=%d want >= 65536 through NetConn() unwrap", got)

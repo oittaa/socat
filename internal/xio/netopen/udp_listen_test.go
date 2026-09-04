@@ -935,7 +935,7 @@ func TestUDPRecvfromForkDoesNotImplyReuseaddr(t *testing.T) {
 	}
 }
 
-func TestUDPRecvFromConnWrapCommonSetsockopt(t *testing.T) {
+func TestUDPRecvFromConnSetupStreamSetsockopt(t *testing.T) {
 	c, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)
@@ -946,8 +946,8 @@ func TestUDPRecvFromConnWrapCommonSetsockopt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := xio.WrapCommon(spec, &udpRecvFromConn{uc: c}); err != nil {
-		t.Fatalf("WrapCommon on UDP session wrapper must not fail after raw apply: %v", err)
+	if _, err := xio.SetupStream(spec, &udpRecvFromConn{uc: c}); err != nil {
+		t.Fatalf("SetupStream on UDP session wrapper must not fail after raw apply: %v", err)
 	}
 }
 

@@ -213,9 +213,13 @@ func openProxyDial(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glob
 		Dial:  dialOnce,
 		Wrap: func(c net.Conn) (relay.Stream, error) {
 			if transportLifecycleApplied {
-				return xio.WrapCommonAfterConnectedFDLifecycleApplied(s, relay.NetStream{Conn: c})
+				stream := relay.NetStream{Conn: c}
+				if err := xio.ApplyStreamLateSocketOptions(s, stream); err != nil {
+					return nil, err
+				}
+				return xio.WrapStream(s, stream, xio.StreamSocketTimeouts)
 			}
-			return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: c})
+			return xio.SetupConnectedStream(s, relay.NetStream{Conn: c})
 		},
 	})
 }

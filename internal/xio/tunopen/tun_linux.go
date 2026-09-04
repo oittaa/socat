@@ -117,7 +117,7 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	// not re-inject them into INTERFACE (TUNINTERFACE).
 	noPI := flags&unix.IFF_NO_PI != 0
 	ts := &tunStream{fd: fd, noPI: noPI}
-	st, err := xio.WrapCommon(s, relay.Stream(ts))
+	st, err := xio.SetupStream(s, relay.Stream(ts))
 	if err != nil {
 		logx.CloseQuiet(ts)
 		return nil, err
@@ -429,7 +429,7 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		proto:        proto,
 		retrieveVLAN: retrieveVLAN,
 	})
-	st, err = xio.WrapCommonAfterConnected(s, st)
+	st, err = xio.SetupConnectedStream(s, st)
 	if err != nil {
 		logx.CloseQuiet(f)
 		return nil, err

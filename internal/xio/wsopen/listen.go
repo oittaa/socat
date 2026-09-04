@@ -37,18 +37,12 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	if network == "tcp6" && s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
 		network = "tcp"
 	}
-	host, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
+	addr, err := xio.TCPListenAddress(ctx, s, network, port)
 	if err != nil {
 		return nil, err
 	}
-	host, err = xio.ResolveIPHost(ctx, s, network, host)
-	if err != nil {
-		return nil, err
-	}
-	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
-	lc := xio.NewTCPListenConfig(s)
-	rawLn, err := xio.ListenStream(ctx, lc, network, addr, s)
+	rawLn, err := xio.ListenTCP(ctx, s, network, addr)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +68,7 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		if err != nil {
 			return nil, err
 		}
-		return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: uc})
+		return xio.SetupConnectedStream(s, relay.NetStream{Conn: uc})
 	}
 
 	var setAcceptDeadline func(time.Time) error

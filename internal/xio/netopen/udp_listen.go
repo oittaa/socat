@@ -109,7 +109,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 			MaxChildren: maxChildren,
 			PeerFilter:  peerFilter.AllowConn,
 			WrapDial: func(c net.Conn) (relay.Stream, error) {
-				return xio.WrapCommonAfterConnected(s, udpConnectStream{NetStream: relay.NetStream{Conn: c}})
+				return xio.SetupConnectedStream(s, udpConnectStream{NetStream: relay.NetStream{Conn: c}})
 			},
 		}, nil
 	}
@@ -197,7 +197,7 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		recvErr:      recvErr,
 		g:            g,
 	})
-	st, err = xio.WrapCommonAfterConnected(s, st)
+	st, err = xio.SetupConnectedStream(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err

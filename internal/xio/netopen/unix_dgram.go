@@ -65,7 +65,7 @@ func openUnixgramSend(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		return nil, err
 	}
 	st := &unixgramConn{UnixConn: c, raddr: raddr, filterPeer: filterPeer, ctx: ctx}
-	wrapped, err := xio.WrapCommonAfterConnected(s, st)
+	wrapped, err := xio.SetupConnectedStream(s, st)
 	if err != nil {
 		life.drop(c)
 		return nil, err
@@ -186,12 +186,13 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			return nil, ferr
 		}
 		o := &xio.Opened{
-			Kind:        xio.KindListen,
-			Listener:    ln,
-			Label:       label,
-			MaxChildren: maxChildren,
+			Kind:           xio.KindListen,
+			ForkSocketpair: true,
+			Listener:       ln,
+			Label:          label,
+			MaxChildren:    maxChildren,
 			WrapDial: func(conn net.Conn) (relay.Stream, error) {
-				return xio.WrapCommonAfterConnected(s, relay.NetStream{Conn: conn})
+				return xio.SetupConnectedStream(s, relay.NetStream{Conn: conn})
 			},
 		}
 		life.attach(o)
@@ -206,7 +207,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			return nil, err
 		}
 		st := relay.Stream(&unixRecvStream{c: c, from: true, peer: peer, first: first, firstEOF: true})
-		wrapped, err := xio.WrapCommonAfterConnected(s, st)
+		wrapped, err := xio.SetupConnectedStream(s, st)
 		if err != nil {
 			life.drop(c)
 			return nil, err
@@ -218,7 +219,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	}
 
 	st := &unixRecvStream{c: c, from: from}
-	wrapped, err := xio.WrapCommonAfterConnected(s, st)
+	wrapped, err := xio.SetupConnectedStream(s, st)
 	if err != nil {
 		life.drop(c)
 		return nil, err
@@ -477,7 +478,7 @@ func openAbstractSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		return nil, err
 	}
 	st := &unixgramConn{UnixConn: c, raddr: raddr, filterPeer: true, ctx: ctx}
-	wrapped, err := xio.WrapCommonAfterConnected(s, st)
+	wrapped, err := xio.SetupConnectedStream(s, st)
 	if err != nil {
 		logx.CloseQuiet(c)
 		return nil, err

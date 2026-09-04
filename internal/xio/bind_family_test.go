@@ -2,7 +2,10 @@ package xio_test
 
 import (
 	"context"
+	"errors"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -107,6 +110,38 @@ func TestForcedFamilyBindRejectedAndAccepted(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("error=%v want substring %q", err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestTLSAndWSSListenValidationOrder(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	_, port, err := net.SplitHostPort(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	missingCert := filepath.ToSlash(filepath.Join(t.TempDir(), "missing.pem"))
+	for _, typ := range []string{"TLS-LISTEN", "WSS-LISTEN"} {
+		t.Run(typ, func(t *testing.T) {
+			o, err := openSpec(t, typ+":"+port+",pf=ip4,bind=127.0.0.1,verify=0,cert="+missingCert)
+			if err == nil {
+				_ = o.Close()
+				t.Fatal("occupied port and missing certificate must fail")
+			}
+			if typ == "TLS-LISTEN" {
+				if !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("certificate must be checked before binding: %v", err)
+				}
+			} else {
+				var op *net.OpError
+				if !errors.As(err, &op) || op.Op != "listen" {
+					t.Fatalf("binding must precede certificate loading: %v", err)
+				}
 			}
 		})
 	}

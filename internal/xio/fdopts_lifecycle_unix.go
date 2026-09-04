@@ -16,7 +16,7 @@ import (
 )
 
 // fdLifecycleTestHook is invoked each time lifecycle options are applied to
-// an fd. Tests use it to observe WrapCommon's per-call same-fd dedup.
+// an fd. Tests use it to observe SetupStream's per-call same-fd dedup.
 var fdLifecycleTestHook func(fd int)
 
 func applyFDLifecycleToFile(f *os.File, s parse.Spec) error {
@@ -66,7 +66,7 @@ func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
 
 // applyFDLifecycleLateToStream applies only late descriptor options.
 // ACCEPT-FD applies after-open options before after-socket and after
-// connect/accept; WrapCommon then applies late here, not together with
+// connect/accept; SetupStream then applies late here, not together with
 // after-open.
 func applyFDLifecycleLateToStream(s parse.Spec, stream relay.Stream) error {
 	return applyFDLifecycleToStreamMode(s, stream, true)
@@ -116,7 +116,7 @@ func applyFDLifecycleToStreamMode(s parse.Spec, stream relay.Stream, lateOnly bo
 
 // ApplyFDLifecycleToConn applies after-open then late options on a live
 // syscall.Conn (UDP/UNIX/QUIC transport, before wrapping). Marks the conn so
-// WrapCommon does not apply twice on streams that still expose the same object.
+// SetupStream does not apply twice on streams that still expose the same object.
 func ApplyFDLifecycleToConn(c syscall.Conn, s parse.Spec) error {
 	if c == nil || !hasFDLifecycleOptions(s) {
 		return nil
@@ -307,7 +307,7 @@ func applyLateLifecycle(fd int, s parse.Spec) error {
 func applyOneCloexec(fd int, o parse.Option) error {
 	// F_GETFD, then |= or &=~ FD_CLOEXEC, then F_SETFD. Clearing Go's default
 	// CLOEXEC is limited to descriptors owned by ApplyFDOptions /
-	// WrapCommon / ApplyFDLifecycleToConn. Streams with no fd reject.
+	// SetupStream / ApplyFDLifecycleToConn. Streams with no fd reject.
 	enable := o.Active()
 	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
 	if err != nil {

@@ -220,7 +220,7 @@ func TestLineTermPreservesDeadlineUnwrap(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			stream, err := WrapCommon(parsed, timeoutPipeStream(client))
+			stream, err := SetupStream(parsed, timeoutPipeStream(client))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -314,7 +314,7 @@ func TestClassicCRRejectsAssignment(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := WrapCommon(s, inner); err == nil || !strings.Contains(err.Error(), "no value permitted") {
+		if _, err := SetupStream(s, inner); err == nil || !strings.Contains(err.Error(), "no value permitted") {
 			t.Fatalf("%s: err=%v want no value permitted", spec, err)
 		}
 	}

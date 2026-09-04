@@ -60,7 +60,7 @@ func TestShutDownOnStreamSocketpair(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, err := WrapCommon(spec, FileStream(local))
+	stream, err := SetupStream(spec, FileStream(local))
 	if err != nil {
 		t.Fatal(err)
 	}

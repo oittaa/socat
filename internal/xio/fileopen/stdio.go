@@ -33,7 +33,7 @@ func openSTDIO(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 			return nil, err
 		}
 	}
-	// STDIO: fd 0 read, fd 1 write; options like escape= apply via xio.WrapCommon.
+	// STDIO: fd 0 read, fd 1 write; options like escape= apply via xio.SetupStream.
 	var stream relay.Stream
 	switch mode {
 	case xio.ModeRead:
@@ -51,7 +51,7 @@ func openSTDIO(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 			},
 		}
 	}
-	st, err := xio.WrapCommon(s, stream)
+	st, err := xio.SetupStream(s, stream)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func openSTDIN(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*
 	if err := applyInheritedFDAndSocket(os.Stdin, s); err != nil {
 		return nil, err
 	}
-	st, err := xio.WrapCommon(s, relay.FDStream{R: os.Stdin, W: io.Discard, C: xio.NopCloser{}})
+	st, err := xio.SetupStream(s, relay.FDStream{R: os.Stdin, W: io.Discard, C: xio.NopCloser{}})
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func openSTDOUT(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	if err := applyInheritedFDAndSocket(os.Stdout, s); err != nil {
 		return nil, err
 	}
-	st, err := xio.WrapCommon(s, relay.FDStream{R: xio.EOFReader{}, W: os.Stdout, C: xio.NopCloser{}})
+	st, err := xio.SetupStream(s, relay.FDStream{R: xio.EOFReader{}, W: os.Stdout, C: xio.NopCloser{}})
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +125,7 @@ func openSTDERR(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (
 	if err := applyInheritedFDAndSocket(os.Stderr, s); err != nil {
 		return nil, err
 	}
-	st, err := xio.WrapCommon(s, relay.FDStream{R: xio.EOFReader{}, W: os.Stderr, C: xio.NopCloser{}})
+	st, err := xio.SetupStream(s, relay.FDStream{R: xio.EOFReader{}, W: os.Stderr, C: xio.NopCloser{}})
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +180,7 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Op
 		return fail(err)
 	}
 	closeOrig := s.BoolOption("end-close") && (g == nil || !g.ForkChild)
-	st, err := xio.WrapCommonAfterConnected(specWithoutEndClose(s), inheritedFDStream(f, n, closeOrig))
+	st, err := xio.SetupConnectedStream(specWithoutEndClose(s), inheritedFDStream(f, n, closeOrig))
 	if err != nil {
 		return fail(err)
 	}
@@ -197,7 +197,7 @@ func openFD(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Op
 
 // applyInheritedFDAndSocket applies after-open and after-socket() options
 // on an inherited descriptor. Bidirectional STDIO applies them on both
-// fd 0 and 1. WrapCommon is late plus an after-connect/accept fallback, so
+// fd 0 and 1. SetupStream is late plus an after-connect/accept fallback, so
 // after-socket() options such as so-priority must run here exactly once
 // per used descriptor.
 func applyInheritedFDAndSocket(f *os.File, s parse.Spec) error {

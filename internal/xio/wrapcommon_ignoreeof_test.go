@@ -42,7 +42,7 @@ func (r *eofThenAppendReader) append(b []byte) {
 	r.mu.Unlock()
 }
 
-func TestWrapCommonIgnoreEOFKeepsServingAfterEOF(t *testing.T) {
+func TestSetupStreamIgnoreEOFKeepsServingAfterEOF(t *testing.T) {
 	eofHit := make(chan struct{}, 1)
 	src := &eofThenAppendReader{data: []byte("first"), eofCh: eofHit}
 	spec, err := parse.ParseSpec("PIPE,ignoreeof")
@@ -50,7 +50,7 @@ func TestWrapCommonIgnoreEOFKeepsServingAfterEOF(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got []byte
-	stream, err := WrapCommon(spec, relay.FDStream{
+	stream, err := SetupStream(spec, relay.FDStream{
 		R:      src,
 		W:      io.Discard,
 		C:      nopCloser{},

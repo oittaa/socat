@@ -54,9 +54,9 @@ func TestShutNullPreservesDeadlineCapabilities(t *testing.T) {
 		{Name: "sndtimeo", Value: "0.02", Has: true},
 		{Name: "shut-null", Value: "1", Has: true},
 	}}
-	stream, err := WrapCommon(spec, timeoutPipeStream(client))
+	stream, err := SetupStream(spec, timeoutPipeStream(client))
 	if err != nil {
-		t.Fatalf("WrapCommon: %v", err)
+		t.Fatalf("SetupStream: %v", err)
 	}
 
 	deadline := time.Now().Add(time.Second)
@@ -73,9 +73,9 @@ func TestSocketReceiveTimeoutRetriesThroughTransfer(t *testing.T) {
 	defer func() { _ = server.Close() }()
 
 	spec := timeoutSpec("rcvtimeo", "0.02")
-	left, err := WrapCommon(spec, timeoutPipeStream(client))
+	left, err := SetupStream(spec, timeoutPipeStream(client))
 	if err != nil {
-		t.Fatalf("WrapCommon: %v", err)
+		t.Fatalf("SetupStream: %v", err)
 	}
 
 	var got bytes.Buffer
@@ -107,9 +107,9 @@ func TestSocketSendTimeoutRetriesThroughTransfer(t *testing.T) {
 	defer func() { _ = server.Close() }()
 
 	spec := timeoutSpec("sndtimeo", "0.02")
-	right, err := WrapCommon(spec, timeoutPipeStream(client))
+	right, err := SetupStream(spec, timeoutPipeStream(client))
 	if err != nil {
-		t.Fatalf("WrapCommon: %v", err)
+		t.Fatalf("SetupStream: %v", err)
 	}
 
 	payload := bytes.Repeat([]byte("timeout-safe"), 1024)
@@ -139,9 +139,9 @@ func TestSocketReceiveTimeoutDoesNotReplaceIdleTimeout(t *testing.T) {
 	defer func() { _ = server.Close() }()
 
 	spec := timeoutSpec("rcvtimeo", "0.02")
-	left, err := WrapCommon(spec, timeoutPipeStream(client))
+	left, err := SetupStream(spec, timeoutPipeStream(client))
 	if err != nil {
-		t.Fatalf("WrapCommon: %v", err)
+		t.Fatalf("SetupStream: %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

@@ -73,19 +73,6 @@ func (r *windowsTextReader) Read(p []byte) (int, error) {
 	return written, nil
 }
 
-// descriptorTextStream deliberately does not expose UnwrapZeroCopyStream:
-// splice/TransmitFile must not bypass text translation. UnwrapStream remains
-// available to deadline and descriptor-capability walks.
-type descriptorTextStream struct {
-	relay.Stream
-	r io.Reader
-	w io.Writer
-}
-
-func (s *descriptorTextStream) Read(p []byte) (int, error)  { return s.r.Read(p) }
-func (s *descriptorTextStream) Write(p []byte) (int, error) { return s.w.Write(p) }
-func (s *descriptorTextStream) UnwrapStream() relay.Stream  { return s.Stream }
-
 func applyDescriptorMode(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	if err := ValidateDescriptorModeOptions(s); err != nil {
 		return nil, err
@@ -94,7 +81,7 @@ func applyDescriptorMode(s parse.Spec, stream relay.Stream) (relay.Stream, error
 	if !text {
 		return stream, nil
 	}
-	return &descriptorTextStream{
+	return &transformStream{
 		Stream: stream,
 		r:      newWindowsTextReader(stream),
 		w:      &crnlWriter{w: stream},

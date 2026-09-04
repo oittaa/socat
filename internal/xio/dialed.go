@@ -33,15 +33,15 @@ func OpenDialed(ctx context.Context, s parse.Spec, g *Global, d Dialed) (*Opened
 	if o.Label == "" {
 		o.Label = d.Label
 	}
+	wrap := d.Wrap
+	if wrap == nil {
+		wrap = DefaultWrapDial(s)
+	}
 	if fork {
 		o.Kind = KindDial
 		o.MaxChildren = maxChildren
 		o.Interval = ParseRetry(s).Interval
 		o.Dial = WrapNetNSDial(s, g, d.Dial)
-		wrap := d.Wrap
-		if wrap == nil {
-			wrap = DefaultWrapDial(s)
-		}
 		o.WrapDial = wrap
 		return o, nil
 	}
@@ -60,12 +60,6 @@ func OpenDialed(ctx context.Context, s parse.Spec, g *Global, d Dialed) (*Opened
 	}
 	if d.LogOK && g != nil && g.Log != nil {
 		g.Log.Infof("successfully connected from %s to %s%s", conn.LocalAddr(), conn.RemoteAddr(), d.LogSuffix)
-	}
-	wrap := d.Wrap
-	if wrap == nil {
-		wrap = func(c net.Conn) (relay.Stream, error) {
-			return WrapCommon(s, relay.NetStream{Conn: c})
-		}
 	}
 	st, err := wrap(conn)
 	if err != nil {
