@@ -230,30 +230,81 @@ func (c *Conn) run() {
 	if !s.handshake.config.DisableHandshakeTimeout {
 		handshakeDeadline = started.Add(s.handshake.config.HandshakeTimeout)
 	}
+	receivePacket := func(packet incomingPacket) bool {
+		c.releasePacket(len(packet.data))
+		select {
+		case <-c.stop:
+			return false
+		default:
+		}
+		if !s.handshake.complete && !handshakeDeadline.IsZero() && !time.Now().Before(handshakeDeadline) {
+			c.fail(context.DeadlineExceeded)
+			return false
+		}
+		if !s.handshake.client && !s.handshake.complete && s.handshake.schedule == nil {
+			c.handshakeCredit = min(1<<30, c.handshakeCredit+3*uint64(len(packet.data)))
+		}
+		data, err := s.receiveFrom(packet.data, packetPath{packet.peer, 1}, time.Now())
+		if err != nil {
+			abort = !errors.Is(err, net.ErrClosed)
+			if abort {
+				_, _ = s.sendRecord(s.currentWriteEpoch(), contentAlert, errorAlert(err))
+			}
+			c.fail(err)
+			return false
+		}
+		c.publish(data)
+		return true
+	}
 	timer := time.NewTimer(time.Hour)
 	defer timer.Stop()
 	var pending *connCommand
 	ready := false
+	queuedBeforeTimeout := -1
 	for {
+		select {
+		case <-c.stop:
+			return
+		default:
+		}
 		now := time.Now()
 		waitDeadline := handshakeDeadline
-		waitErr := error(context.DeadlineExceeded)
 		if !s.handshake.complete {
+			if !handshakeDeadline.IsZero() && !now.Before(handshakeDeadline) {
+				c.fail(context.DeadlineExceeded)
+				return
+			}
 			if timeout := s.handshake.config.HandshakeReadTimeout; timeout > 0 {
 				lastReceive := s.handshakeReceived
 				if lastReceive.IsZero() {
 					lastReceive = started
 				}
-				if deadline := lastReceive.Add(timeout); waitDeadline.IsZero() || deadline.Before(waitDeadline) {
-					waitDeadline, waitErr = deadline, ErrHandshakeReadTimeout
+				deadline := lastReceive.Add(timeout)
+				if !now.Before(deadline) {
+					// Give the existing queue one chance; new junk cannot prolong expiry.
+					if queuedBeforeTimeout < 0 {
+						queuedBeforeTimeout = len(c.incoming)
+					}
+					if queuedBeforeTimeout == 0 {
+						c.fail(ErrHandshakeReadTimeout)
+						return
+					}
+					packet := <-c.incoming
+					queuedBeforeTimeout--
+					if !receivePacket(packet) {
+						return
+					}
+					if s.handshakeReceived.After(lastReceive) {
+						queuedBeforeTimeout = -1
+					}
+					continue
+				}
+				if waitDeadline.IsZero() || deadline.Before(waitDeadline) {
+					waitDeadline = deadline
 				}
 			}
-			// Check before retransmitting or consuming more queued traffic.
-			if !waitDeadline.IsZero() && !now.Before(waitDeadline) {
-				c.fail(waitErr)
-				return
-			}
 		}
+		queuedBeforeTimeout = -1
 		if err := s.tick(now); err != nil {
 			abort = !errors.Is(err, net.ErrClosed)
 			c.fail(err)
@@ -299,20 +350,9 @@ func (c *Conn) run() {
 		case <-c.wake:
 		case pending = <-commands:
 		case packet := <-c.incoming:
-			c.releasePacket(len(packet.data))
-			if !s.handshake.client && !s.handshake.complete && s.handshake.schedule == nil {
-				c.handshakeCredit = min(1<<30, c.handshakeCredit+3*uint64(len(packet.data)))
-			}
-			data, err := s.receiveFrom(packet.data, packetPath{packet.peer, 1}, time.Now())
-			if err != nil {
-				abort = !errors.Is(err, net.ErrClosed)
-				if abort {
-					_, _ = s.sendRecord(s.currentWriteEpoch(), contentAlert, errorAlert(err))
-				}
-				c.fail(err)
+			if !receivePacket(packet) {
 				return
 			}
-			c.publish(data)
 		}
 	}
 }

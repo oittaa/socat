@@ -143,6 +143,12 @@ application data. Outgoing retransmissions, wakeups, malformed framing,
 wrong-peer packets, and traffic routed to another CID do not refresh it.
 The absolute handshake deadline and protocol retransmission limits remain.
 
+At receive-wait expiry, process the already-queued datagrams before failing.
+Snapshot the queue length so newly arriving ignored traffic cannot prolong an
+expired wait. Accepted reception starts a fresh wait; ignored packets do not.
+Cancellation and the absolute handshake deadline take precedence over queued
+input, including while draining the snapshot.
+
 Expiry returns `ErrHandshakeReadTimeout` through ordinary association cleanup.
 It wraps a deadline error but has no stream `Retryable` marker. Explicit
 `retry` / `forever` can start another connection attempt. Failed listener

@@ -221,6 +221,96 @@ func TestHandshakeReceiveActivity(t *testing.T) {
 	}
 }
 
+func TestHandshakeReceiveTimeoutQueuedPackets(t *testing.T) {
+	for _, kind := range []string{"valid", "ignored_then_valid", "ignored_only", "absolute", "canceled"} {
+		t.Run(kind, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				_, config := handshakeConfigs(t)
+				config.HandshakeReadTimeout = time.Second
+				config.HandshakeTimeout = 10 * time.Second
+				config.DisableHandshakeTimeout = kind == "ignored_only"
+				if kind == "absolute" {
+					config.HandshakeReadTimeout = time.Second / 2
+					config.HandshakeTimeout = time.Second
+				}
+				s, err := newServerSession(config, func([]byte) error { return nil })
+				if err != nil {
+					t.Fatal(err)
+				}
+				peer := netip.MustParseAddrPort("127.0.0.1:10001")
+				c := newConn(peer)
+				c.attach(s)
+				// Hold the event loop in handshake processing while more input arrives.
+				entered, release := make(chan struct{}), make(chan struct{})
+				unblock := sync.OnceFunc(func() { close(release) })
+				defer unblock()
+				s.handleHandshake = func(handshakeMessage) ([]handshakeMessage, error) {
+					close(entered)
+					<-release
+					return nil, nil
+				}
+				packet := func(sequence uint16, length int) []byte {
+					m := handshakeMessage{typ: msgClientHello, sequence: sequence, body: make([]byte, 100)}
+					fragment, err := m.fragment(0, length)
+					if err != nil {
+						t.Fatal(err)
+					}
+					data, err := encodePlainRecord(contentHandshake, uint64(sequence), fragment)
+					if err != nil {
+						t.Fatal(err)
+					}
+					return data
+				}
+				start := time.Now()
+				c.deliver(packet(0, 100), peer)
+				go c.run()
+				<-entered
+				advanceHandshakeClock(time.Second / 4)
+				if kind != "valid" {
+					// A full queue also exercises bounded draining and byte-budget cleanup.
+					for range cap(c.incoming) - 1 {
+						c.deliver([]byte{0xff}, peer)
+					}
+				}
+				if kind != "ignored_only" {
+					c.deliver(packet(1, 1), peer)
+				}
+				advanceHandshakeClock(time.Second)
+				if kind == "canceled" {
+					c.fail(context.Canceled)
+				}
+				unblock()
+				<-c.done
+				wantElapsed := 1250 * time.Millisecond
+				wantReceived := start
+				if kind == "valid" || kind == "ignored_then_valid" {
+					wantElapsed += config.HandshakeReadTimeout
+					wantReceived = start.Add(1250 * time.Millisecond)
+				}
+				switch kind {
+				case "absolute":
+					if !errors.Is(c.failure(), context.DeadlineExceeded) {
+						t.Fatalf("queued input postponed absolute timeout: %v", c.failure())
+					}
+				case "canceled":
+					if !errors.Is(c.failure(), context.Canceled) {
+						t.Fatalf("queued input overrode cancellation: %v", c.failure())
+					}
+				default:
+					checkHandshakeReadTimeout(t, c.failure())
+				}
+				if time.Since(start) != wantElapsed || !s.handshakeReceived.Equal(wantReceived) {
+					t.Fatalf("timeout after %v, last reception at %v; want %v, %v",
+						time.Since(start), s.handshakeReceived.Sub(start), wantElapsed, wantReceived.Sub(start))
+				}
+				if c.incomingBytes != 0 || len(c.incoming) != 0 {
+					t.Fatal("timeout retained queued datagrams")
+				}
+			})
+		})
+	}
+}
+
 func TestListenerHandshakeReceiveTimeoutIsolation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		a, b := handshakeConfigs(t)
