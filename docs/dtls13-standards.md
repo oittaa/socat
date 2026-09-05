@@ -66,6 +66,13 @@ The pinned OpenSSL [write path](https://github.com/openssl/openssl/blob/82733d90
 does not split application writes into MTU-sized records; its read path
 retains tails. Automatic stream packetization is our documented endpoint policy.
 
+## Handshake key retention
+
+Handshake read keys are retired after the client's final flight is acknowledged.
+The server retains them for four minutes to recover lost final ACKs (RFC 9147
+section 5.8.1: twice the default MSL), or until a peer KeyUpdate proves progress.
+This absolute retention timer runs even when the connection is idle.
+
 ## Handshake receive-timeout contract
 
 - Map `so-rcvtimeo` / `rcvtimeo` to `HandshakeReadTimeout` per association,
@@ -82,6 +89,14 @@ retains tails. Automatic stream packetization is our documented endpoint policy.
   marker. Explicit connect retry may start a new attempt. Listener cleanup
   releases only that association. Post-handshake receive timeouts remain
   retryable; `-T` supplies the idle-transfer bound.
+
+## Write-deadline contract
+
+Application writes follow the caller's current deadline; zero means no deadline.
+The shared UDP writer bounds each socket attempt to one second. Only an attempt
+known to have sent zero bytes may retry, using a fresh record number. Cancellation
+interrupts the active attempt before the writer moves to another association.
+Control writes retain their separate one-second bound.
 
 ## CID review
 

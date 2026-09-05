@@ -10,6 +10,23 @@ var errUpdatePending = errors.New("dtls: waiting for key update acknowledgement"
 
 var postTypes = [...]byte{msgNewConnectionID, msgRequestConnectionID, msgKeyUpdate}
 
+// RFC 9147 section 5.8.1 requires final-flight ACK recovery for twice MSL.
+const handshakeReadRetention = 4 * time.Minute
+
+func (s *session) discardHandshakeRead() {
+	if old := s.read[2]; old != nil {
+		clear(old.secret)
+		delete(s.read, 2)
+	}
+	s.handshakeReadExpiry = time.Time{}
+}
+
+func (s *session) expireHandshakeRead(now time.Time) {
+	if !s.handshakeReadExpiry.IsZero() && !now.Before(s.handshakeReadExpiry) {
+		s.discardHandshakeRead()
+	}
+}
+
 func (s *session) startPost(typ byte, body []byte, now time.Time) error {
 	if !s.handshake.complete || s.updating || s.outbound != nil && !s.outbound.complete {
 		return errUpdatePending
@@ -59,6 +76,13 @@ func (s *session) advancePost(now time.Time) error {
 	}
 	delete(s.write, 0)
 	delete(s.write, 2)
+	if s.read[2] != nil {
+		if s.handshake.client {
+			s.discardHandshakeRead()
+		} else if s.handshakeReadExpiry.IsZero() {
+			s.handshakeReadExpiry = now.Add(handshakeReadRetention)
+		}
+	}
 	if s.updating {
 		for _, f := range s.post {
 			if !f.complete {
@@ -152,10 +176,7 @@ func (s *session) receivePost(m handshakeMessage, now time.Time) error {
 		s.readApplicationEpoch = m.epoch + 1
 		s.read[m.epoch+1] = &readEpoch{keys: keys, secret: secret}
 		// An acknowledged client Finished precedes every client KeyUpdate.
-		if old := s.read[2]; old != nil {
-			clear(old.secret)
-			delete(s.read, 2)
-		}
+		s.discardHandshakeRead()
 		if m.body[0] == 1 && s.currentWriteEpoch() < 1<<48-1 {
 			s.updatePending = true
 		}

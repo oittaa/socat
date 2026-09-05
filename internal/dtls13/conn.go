@@ -66,7 +66,7 @@ type Conn struct {
 	onClose                     func(*Conn)
 	onPeerChanged               func(*Conn, netip.AddrPort)
 	packetBudget                *memoryBudget
-	sendingApplication          bool
+	sendingApplication          *connCommand
 	handshakeCredit             uint64
 }
 
@@ -167,10 +167,10 @@ func (c *Conn) sendPacket(data []byte) error {
 	c.mu.Lock()
 	peer, deadline := c.remote, c.writeDeadline
 	c.mu.Unlock()
-	if !c.sendingApplication {
-		deadline = time.Time{}
+	if command := c.sendingApplication; command != nil {
+		return c.transport.writeApplication(data, peer, deadline, c.stop, command.cancel)
 	}
-	return c.transport.write(data, peer, deadline, c.stop)
+	return c.transport.write(data, peer, time.Time{}, c.stop)
 }
 
 func (c *Conn) signalLocked() {
@@ -391,9 +391,9 @@ func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
 		if c.writeClosed {
 			return true, net.ErrClosed
 		}
-		c.sendingApplication = true
+		c.sendingApplication = command
 		err = s.application(command.data)
-		c.sendingApplication = false
+		c.sendingApplication = nil
 		if errors.Is(err, errUpdatePending) {
 			if e := s.advancePost(now); e != nil {
 				return true, e
@@ -432,6 +432,13 @@ func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
 		}
 	default:
 		return true, errUnexpectedMessage
+	}
+	if errors.Is(err, errWritePending) {
+		select {
+		case c.wake <- struct{}{}:
+		default:
+		}
+		return false, nil
 	}
 	if errors.Is(err, errUpdatePending) || errors.Is(err, errPathPending) {
 		return false, nil

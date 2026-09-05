@@ -33,6 +33,7 @@ type session struct {
 	outbound             *flight
 	acknowledgements     []recordNumber
 	ackDeadline          time.Time
+	handshakeReadExpiry  time.Time
 	closed               bool
 	installed            byte
 	post                 map[byte]*flight
@@ -203,6 +204,7 @@ func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) (
 	if s.closed {
 		return nil, nil
 	}
+	s.expireHandshakeRead(now)
 	if s.path != nil && from.remote != s.path.peer.remote &&
 		(!s.handshake.complete || !s.handshake.rrc || !s.handshake.cidNegotiated) {
 		return nil, nil
@@ -444,6 +446,9 @@ func (s *session) sendACK() error {
 
 func (s *session) deadline() time.Time {
 	deadline := s.ackDeadline
+	if !s.handshakeReadExpiry.IsZero() && (deadline.IsZero() || s.handshakeReadExpiry.Before(deadline)) {
+		deadline = s.handshakeReadExpiry
+	}
 	if s.outbound != nil && !s.outbound.complete && (deadline.IsZero() || !s.outbound.deadline.IsZero() && s.outbound.deadline.Before(deadline)) {
 		deadline = s.outbound.deadline
 	}
@@ -459,6 +464,7 @@ func (s *session) deadline() time.Time {
 }
 
 func (s *session) tick(now time.Time) error {
+	s.expireHandshakeRead(now)
 	if s.path != nil {
 		if err := s.path.tick(now); err != nil {
 			return err
