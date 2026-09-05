@@ -39,6 +39,9 @@ same-address associations as a supposed bug fix without a standards basis.
 Keep RFC-compliant proactive CID requests; the pinned Pion dispatcher is
 incomplete. Delaying requests until movement loses the ability to obtain
 spares on the old path, and disabling migration is a separate product choice.
+Immediate CID rotation now updates pending path probes and preserves unrelated
+outstanding spare requests. Retain the regressions for RRC responses, delayed
+path completion, ACK-only peers and empty/delayed spare responses.
 
 1. Independent protocol and security review before merge
 Review internal/dtls13 and internal/xio/dtlsopen against RFC 9147, RFC 9853,
@@ -80,6 +83,12 @@ that acknowledges a request but supplies no spares. Keep path validation and
 amplification checks tied to RFC 9853. Use deterministic packet faults and
 hand-authored wire cases derived from the RFC, rather than only round-tripping
 our encoder and decoder. Do not describe local tests as independent interop.
+
+Separate remaining limitation: the local issuance pool retains consumed CIDs
+and eventually answers further requests with empty responses. Explicit
+immediate rotation resets that pool, but automatic sustained renewal needs
+design and regression coverage. Do not silently retire a CID merely because
+another spare was used; the peer may still use existing CIDs with cid_spare.
 
 When a relevant upstream gains spare issuance/replenishment, pin that exact
 revision and add both-role interoperability with repeated replenishment,

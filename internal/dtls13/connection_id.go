@@ -145,14 +145,18 @@ func (s *session) receiveCIDs(body []byte) error {
 	if immediate {
 		s.handshake.peerCID = ids[0]
 		s.peerSpareCIDs = ids[1:]
+		// Immediate rotation also supersedes the CID reserved for a new path.
+		if s.path != nil && s.path.probe != nil && !s.path.probe.old {
+			s.path.probe.cid = ids[0]
+		}
 	} else {
 		for _, id := range ids {
 			if len(s.peerSpareCIDs) < maxConnectionIDs && !bytes.Equal(id, s.handshake.peerCID) && !containsCID(s.peerSpareCIDs, id) {
 				s.peerSpareCIDs = append(s.peerSpareCIDs, id)
 			}
 		}
+		s.cidRequested = false
 	}
-	s.cidRequested = false
 	return s.sendACK()
 }
 

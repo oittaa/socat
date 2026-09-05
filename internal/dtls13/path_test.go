@@ -249,3 +249,74 @@ func TestRRCResponderUnknownTypesAndPathDrop(t *testing.T) {
 		t.Fatal("challenge on a non-preferred local path did not return path_drop")
 	}
 }
+
+func cidRotationDuringProbe(t *testing.T) (*testPaths, routedDatagram, []byte, time.Time) {
+	t.Helper()
+	p := newTestPaths(t)
+	now := time.Unix(1000, 0)
+	p.clientAddress = netip.MustParseAddrPort("192.0.2.3:3000")
+	if err := p.client.application([]byte("move")); err != nil {
+		t.Fatal(err)
+	}
+	p.deliver(t, now)
+	now = p.server.deadline()
+	if err := p.server.tick(now); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.packets) != 1 || p.server.path.probe == nil || p.server.path.probe.old {
+		t.Fatal("basic path challenge was not queued")
+	}
+	challenge := p.packets[0]
+	p.packets = nil
+	if err := p.client.provideCIDs(1, true, now); err != nil {
+		t.Fatal(err)
+	}
+	p.deliver(t, now)
+	return p, challenge, bytes.Clone(p.server.handshake.peerCID), now
+}
+
+func TestCIDImmediateAppliesToRRCRecords(t *testing.T) {
+	p, _, newCID, now := cidRotationDuringProbe(t)
+	// A peer challenge arrives while our candidate-path check is pending.
+	body := append([]byte{pathChallenge}, []byte("12345678")...)
+	if _, err := p.client.sendRecord(p.client.currentWriteEpoch(), contentRRC, body); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.packets) != 1 {
+		t.Fatal("expected a peer RRC challenge")
+	}
+	challenge := p.packets[0]
+	p.packets = nil
+	if _, err := p.server.receiveFrom(challenge.data, packetPath{challenge.from, 1}, now); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.packets) != 1 {
+		t.Fatal("expected an RRC response")
+	}
+	r, _, err := parseRecord(p.packets[0].data, len(p.client.handshake.localCID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(r.cid, newCID) {
+		t.Fatalf("RRC after immediate rotation used stale CID %x; want %x", r.cid, newCID)
+	}
+}
+
+func TestCIDPathCompletionDoesNotUndoRotation(t *testing.T) {
+	p, challenge, newCID, now := cidRotationDuringProbe(t)
+	p.packets = append(p.packets, challenge)
+	p.deliver(t, now)
+	if p.server.path.probe != nil || p.server.path.peer.remote != p.clientAddress {
+		t.Fatal("held challenge did not complete address validation")
+	}
+	if !bytes.Equal(p.server.handshake.peerCID, newCID) {
+		t.Fatalf("path completion restored stale CID %x; want immediate CID %x", p.server.handshake.peerCID, newCID)
+	}
+	if err := p.server.application([]byte("rotated and migrated")); err != nil {
+		t.Fatal(err)
+	}
+	data := p.deliver(t, now)
+	if len(data) != 1 || string(data[0]) != "rotated and migrated" {
+		t.Fatal("application traffic did not resume with the immediate CID")
+	}
+}

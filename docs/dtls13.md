@@ -312,6 +312,19 @@ after the protocol changes. Reordered data is filtered using the closure
 alert's record number. Legacy record versions are ignored, and ServerHello
 leaves its legacy session ID empty even when ClientHello supplies one.
 
+Immediate CID updates also replace the CID held by a pending new-path probe,
+so RRC responses and completed validation cannot restore the superseded CID.
+An unrelated immediate update leaves a spare request pending; a spare
+response, including an empty response, fulfills it. Three deterministic
+regressions reproduce the old failures, with additional checks for ACK-only
+peers, delayed spare responses and application traffic after migration.
+
+Sustained spare issuance remains limited by the bounded local CID pool:
+consuming a spare does not retire previously issued identifiers. Once that
+pool fills, further requests receive empty responses until an explicit
+immediate rotation retires the old pool. Automatic renewal beyond this bound
+remains follow-up work; it is distinct from the two state bugs fixed above.
+
 Key updates wait for acknowledgements of both the update and preceding
 post-handshake messages. New post-handshake messages wait until the new sending
 epoch is active. This conservative ordering follows the proposed clarification
