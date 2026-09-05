@@ -5,7 +5,7 @@ import "github.com/oittaa/socat/internal/xio"
 // TLS, WebSocket, PROXY, and SOCKS options.
 func tlsOptionGroups() []helpOptGroup {
 	return []helpOptGroup{
-		{"TLS, WSS, and QUIC", []helpOpt{
+		{"TLS, DTLS, WSS, and QUIC", []helpOpt{
 			{name: "cert", optionCaps: capOpenSSL, desc: "certificate file (PEM); required on listen", aliases: []string{"certificate", "openssl-certificate"}, addressTypes: tlsAddressTypes()},
 			{name: "key", optionCaps: capOpenSSL, desc: "private key file (PEM)", aliases: []string{"openssl-key"}, addressTypes: tlsAddressTypes()},
 			{name: "cafile", optionCaps: capOpenSSL, desc: "CA file (PEM or DER)", aliases: []string{"ca", "openssl-cafile"}, addressTypes: tlsAddressTypes()},
@@ -16,9 +16,13 @@ func tlsOptionGroups() []helpOptGroup {
 			{name: "nosni", optionCaps: capOpenSSL, desc: "do not send SNI", aliases: []string{"no-sni", "tls-no-sni", "openssl-no-sni"}, addressTypes: tlsAddressTypes()},
 			{name: "ciphers", optionCaps: capOpenSSL, desc: "TLS 1.2 cipher suite list", aliases: []string{"cipher", "cipherlist", "openssl-cipherlist"}, addressTypes: tlsAddressTypes(), validate: validateRequiredString},
 			{name: "openssl-compress", optionCaps: capOpenSSL, desc: "TLS compression policy (only none is supported)", aliases: []string{"compress"}, addressTypes: tlsAddressTypes(), validate: validateRequiredString},
-			{name: "openssl-min-proto-version", optionCaps: capOpenSSL, desc: "minimum TLS protocol version", aliases: []string{"min-proto-version", "min-version"}, addressTypes: tlsAddressTypes(), validate: validateRequiredString},
-			{name: "openssl-max-proto-version", optionCaps: capOpenSSL, desc: "maximum TLS protocol version", aliases: []string{"max-proto-version", "max-version"}, addressTypes: tlsAddressTypes(), validate: validateRequiredString},
-			{name: "alpn", desc: "QUIC or HTTP/2/3 proxy ALPN", addressTypes: alpnAddressTypes()},
+			{name: "openssl-min-proto-version", optionCaps: capOpenSSL, desc: "minimum TLS or DTLS protocol version", aliases: []string{"min-proto-version", "min-version"}, addressTypes: tlsAddressTypes(), validate: validateRequiredString},
+			{name: "openssl-max-proto-version", optionCaps: capOpenSSL, desc: "maximum TLS or DTLS protocol version", aliases: []string{"max-proto-version", "max-version"}, addressTypes: tlsAddressTypes(), validate: validateRequiredString},
+			{name: "alpn", desc: "DTLS, QUIC, or HTTP/2/3 proxy ALPN", addressTypes: alpnAddressTypes()},
+		}},
+		{"Datagram TLS", []helpOpt{
+			{name: "dtls-mtu", desc: "maximum UDP payload in bytes (256..65507, default 1200)", addressTypes: dtlsAddressTypes(), validate: validateIntegerRange(256, 65507)},
+			{name: "dtls-migration", desc: "negotiate connection IDs and validated address migration (default on)", addressTypes: dtlsAddressTypes(), validate: validateOptionalBool},
 		}},
 		{"WebSocket", []helpOpt{
 			{name: "path", optionCaps: capExec, desc: "WebSocket URL path"},

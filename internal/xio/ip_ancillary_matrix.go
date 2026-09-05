@@ -66,7 +66,7 @@ var ipAncillaryRecvGroups = []string{GroupUDP, GroupRawIP}
 // ListenControl → ApplyNetworkSocketOptions / ApplyPastSocketPhase).
 var ipAncillarySendGroups = []string{
 	GroupUDP, GroupRawIP, GroupTCP, GroupSCTP,
-	GroupTLS, GroupWebSocket, GroupProxy, GroupQUIC,
+	GroupTLS, GroupDTLS, GroupWebSocket, GroupProxy, GroupQUIC,
 }
 
 var (

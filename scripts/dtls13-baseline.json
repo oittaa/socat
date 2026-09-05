@@ -1,0 +1,20 @@
+{
+  "pion": {
+    "repository": "https://github.com/pion/dtls.git",
+    "commit": "59f4c33b90c58fa6256a9cf1db49d1a9976b3536"
+  },
+  "wolfssl": {
+    "repository": "https://github.com/wolfSSL/wolfssl.git",
+    "commit": "ac01707f552c611fbd135cc723b2682b3e7f80f2",
+    "release": "v5.9.2-stable"
+  },
+  "boringssl": {
+    "repository": "https://github.com/google/boringssl.git",
+    "commit": "4a92579453b35319e2707eab68a0b7d1f8d5d053"
+  },
+  "openssl": {
+    "repository": "https://github.com/openssl/openssl.git",
+    "commit": "82733d90b5bc58b8d064ed49c282aa028664a1ed",
+    "release": "4.1 development snapshot"
+  }
+}

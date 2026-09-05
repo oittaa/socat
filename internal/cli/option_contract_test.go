@@ -378,6 +378,7 @@ func TestOptionTableContract(t *testing.T) {
 	// must be consumed only inside the matching implementation packages.
 	pkgToGroup := map[string]string{
 		"tlsopen":     xio.GroupTLS,
+		"dtlsopen":    xio.GroupDTLS,
 		"wsopen":      xio.GroupWebSocket,
 		"proxyopen":   xio.GroupProxy,
 		"posixmqopen": xio.GroupPOSIXMQ,

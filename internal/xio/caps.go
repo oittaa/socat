@@ -106,10 +106,10 @@ var (
 	CapsVSOCKConnect = capset(CapFD, CapSocket, CapChild, CapRetry)
 	CapsVSOCKListen  = capset(CapFD, CapSocket, CapListen, CapChild, CapRetry)
 
-	CapsTLSConnect  = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPTCP, CapChild, CapOpenSSL, CapRetry)
-	CapsTLSListen   = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPTCP, CapListen, CapChild, CapRange, CapOpenSSL, CapRetry)
-	CapsQUICConnect = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPUDP, CapChild, CapOpenSSL, CapRetry)
-	CapsQUICListen  = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPUDP, CapListen, CapChild, CapRange, CapOpenSSL, CapRetry)
+	CapsTLSConnect       = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPTCP, CapChild, CapOpenSSL, CapRetry)
+	CapsTLSListen        = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPTCP, CapListen, CapChild, CapRange, CapOpenSSL, CapRetry)
+	CapsSecureUDPConnect = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPUDP, CapChild, CapOpenSSL, CapRetry)
+	CapsSecureUDPListen  = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPUDP, CapListen, CapChild, CapRange, CapOpenSSL, CapRetry)
 
 	CapsProxy = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPTCP, CapHTTP, CapChild, CapRetry)
 	CapsSocks = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPTCP, CapSocks, CapChild, CapRetry)

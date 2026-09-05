@@ -112,7 +112,7 @@ var recognizedUnsupportedTLSNames = []string{
 // Cross-cutting options stay broadly accepted: common wrappers apply them.
 func optionAddressGroups(title string) []string {
 	switch title {
-	case "TLS, WSS, and QUIC":
+	case "TLS, DTLS, WSS, and QUIC":
 		return tlsOptionAddressGroups()
 	case "WebSocket":
 		return []string{xio.GroupWebSocket}
@@ -128,7 +128,7 @@ func optionAddressGroups(title string) []string {
 }
 
 func tlsOptionAddressGroups() []string {
-	return []string{xio.GroupTLS, xio.GroupWebSocket, xio.GroupQUIC, xio.GroupProxy}
+	return []string{xio.GroupTLS, xio.GroupDTLS, xio.GroupWebSocket, xio.GroupQUIC, xio.GroupProxy}
 }
 
 func validateChannelOptions(ch parse.Channel) error {
@@ -555,6 +555,7 @@ func resolverImplementationGroups() []string {
 		xio.GroupUDP,
 		xio.GroupRawIP,
 		xio.GroupTLS,
+		xio.GroupDTLS,
 		xio.GroupProxy,
 		xio.GroupWebSocket,
 		xio.GroupQUIC,
@@ -578,21 +579,21 @@ func resolverAddressTypes() []string {
 }
 
 func tlsAddressTypes() []string {
-	return []string{
+	return append(dtlsAddressTypes(), []string{
 		"TLS", "TLS-CONNECT", "TLS-LISTEN", "TLS-L",
 		"OPENSSL", "OPENSSL-CONNECT", "OPENSSL-LISTEN", "OPENSSL-L",
 		"SSL", "SSL-CONNECT", "SSL-LISTEN", "SSL-L",
 		"WSS", "WSS-CONNECT", "WSS-LISTEN", "WSS-L",
 		"QUIC", "QUIC-CONNECT", "QUIC-LISTEN", "QUIC-L",
 		"PROXY", "PROXY-CONNECT",
-	}
+	}...)
 }
 
 func alpnAddressTypes() []string {
-	return []string{
+	return append(dtlsAddressTypes(), []string{
 		"QUIC", "QUIC-CONNECT", "QUIC-LISTEN", "QUIC-L",
 		"PROXY", "PROXY-CONNECT",
-	}
+	}...)
 }
 
 func wsAddressTypes() []string {
@@ -640,6 +641,7 @@ func socketTimeoutAddressTypes() []string {
 		xio.GroupUnix:   true,
 		xio.GroupSocket: true,
 		xio.GroupTLS:    true,
+		xio.GroupDTLS:   true,
 		xio.GroupProxy:  true,
 		xio.GroupSCTP:   true,
 		xio.GroupVSOCK:  true,
@@ -670,4 +672,10 @@ func helpOptionGroups() []helpOptGroup {
 	groups = append(groups, tlsOptionGroups()...)
 	groups = append(groups, tunOptionGroups()...)
 	return groups
+}
+
+func dtlsAddressTypes() []string {
+	return []string{"OPENSSL-DTLS-CLIENT", "OPENSSL-DTLS-SERVER",
+		"DTLS", "DTLS-C", "DTLS-CLIENT", "DTLS-CONNECT", "OPENSSL-DTLS-CONNECT",
+		"DTLS-L", "DTLS-LISTEN", "DTLS-SERVER", "OPENSSL-DTLS-LISTEN"}
 }

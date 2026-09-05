@@ -28,6 +28,7 @@ type ListenSession struct {
 	ListeningLog           string
 	CloseListener          func() error
 	KeepListenerForSession bool
+	PeerFilter             *PeerFilter
 }
 
 // WrapAccepted applies extra per-conn setup then SetupStream. Extra may be nil.
@@ -69,10 +70,13 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 	if wrap == nil {
 		wrap = DefaultWrapDial(s)
 	}
-	peerFilter, err := NewPeerFilter(ctx, s, g)
-	if err != nil {
-		_ = closeLn()
-		return nil, err
+	peerFilter := sess.PeerFilter
+	if peerFilter == nil {
+		peerFilter, err = NewPeerFilter(ctx, s, g)
+		if err != nil {
+			_ = closeLn()
+			return nil, err
+		}
 	}
 	filter := peerFilter.AllowConn
 	setDeadline := sess.SetAcceptDeadline

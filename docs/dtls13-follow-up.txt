@@ -1,0 +1,59 @@
+DTLS 1.3 follow-up work
+
+Baseline
+The implementation supports only DTLS 1.3 on Linux, macOS, and Windows.
+Connection IDs, CID rotation, RFC 9853 enhanced path validation, certificate
+authentication, key updates, and bounded loss recovery are included.
+Runtime imports in internal/dtls13 are standard library only. Preserve that
+constraint and the Pion attribution. Read AGENTS.md and docs/dtls13.md first.
+
+1. Independent protocol and security review before merge
+Review internal/dtls13 and internal/xio/dtlsopen against RFC 9147, RFC 9853,
+RFC 8446, and the current verified errata. Review authentication/transcript
+boundaries, record-number reconstruction, nonce uniqueness, replay handling,
+epoch retirement, ACK ordering, fragmentation/resource limits, cookie binding,
+CID routing/retirement, amplification accounting, migration peer filters, and
+listener cancellation. Distinguish merge blockers from optional improvements.
+For each defect, provide an observable regression that fails without the fix.
+Do not relax certificate checks or add legacy DTLS/browser workarounds.
+
+2. Independent testing of post-handshake CID management
+The pinned Pion snapshot negotiates CIDs but its post-handshake dispatcher
+rejects RequestConnectionID and NewConnectionID. Our Pion protocol-driver
+tests therefore isolate RRC using the initial CIDs. Find or build an
+independent implementation that supports RFC 9147 section 9 completely.
+Test spare requests, bounded/empty responses, immediate rotation, CID use on
+new paths, replenishment, duplicate/reordered flights, and concurrent KeyUpdate.
+Keep reference software outside the runtime module. Pin its exact revision
+and prove that DTLS 1.3 was negotiated. Do not silently change our protocol to
+accommodate incomplete reference software.
+
+3. Optional BoringSSL interoperability adapter
+The pinned bssl_shim is already built by scripts/dtls13-lab.py. Add a lab-only
+adapter for its packet-BIO framing and run both certificate-authenticated
+directions. Include loss, reordering, small MTUs, and key updates where the
+shim supports them. Keep the adapter out of normal builds and ordinary
+make check. Never treat a successful DTLS 1.2 connection as a 1.3 result.
+
+4. Refresh released reference software when available
+The lab system OpenSSL 3.5.5 supports DTLS only through 1.2. The pinned
+OpenSSL 4.1 development snapshot supports 1.3. Unmodified official socat
+1.8.1.3 does not compile with that snapshot's opaque ASN1_OCTET_STRING type.
+Recheck official releases when this changes, compare the released tag and
+master, read doc/socat.yo at those exact revisions, and then test classic
+socat in both directions. Do not patch the official parity baseline or
+replace system OpenSSL merely to obtain an oracle.
+
+5. Optional features require a separate scope decision
+PSKs, session resumption, 0-RTT, post-handshake client authentication, additional
+AEAD suites, and a WebRTC/ICE/SRTP stack are not included. Do not add them as
+cleanup. If needed later, specify authentication/replay/resource policies and
+independent interoperability tests before implementation.
+
+Validation for any follow-up change
+Run Linux make check and native Windows go test ./... before committing.
+Run make classic-parity for compatibility-changing work. Use the opt-in
+SOCAT_DTLS13_TOOLS manifest for independent protocol tests. Run focused race
+tests and demonstrate that security regressions fail when their fixes are
+removed. Keep official source extracts, binaries, certificates, private keys,
+generated catalogs, and help/version dumps out of commits.

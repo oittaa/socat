@@ -1167,7 +1167,7 @@ class RepoPolicyTest(unittest.TestCase):
         self.assertNotIn("expected_missing", policy)
         self.assertNotIn("expected_missing_options", policy)
         self.assertNotIn("expected_missing_addresses", policy)
-        for family in ("DCCP", "READLINE", "DTLS", "UDPLITE"):
+        for family in ("DCCP", "READLINE", "UDPLITE"):
             self.assertIn(family, policy["unsupported_addresses"])
         for extra in ("WS", "WSS", "QUIC", "TLS"):
             self.assertIn(extra, policy["go_only_addresses"])

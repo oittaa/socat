@@ -17,32 +17,41 @@ import (
 // 12c08bf66d709fba17035ce95d85bd218428d9ba; official master
 // af5388c898c7bb60997935aee93c223deba60c4a.
 var classicFallbackAliases = map[string]string{
-	"ABSTRACT":     "ABSTRACT-CLIENT",
-	"DATAGRAM":     "SOCKET-DATAGRAM",
-	"DGRAM":        "SOCKET-DATAGRAM",
-	"IF":           "INTERFACE",
-	"INET":         "TCP-CONNECT",
-	"INET-L":       "TCP-LISTEN",
-	"INET-LISTEN":  "TCP-LISTEN",
-	"INET4":        "TCP4-CONNECT",
-	"INET4-L":      "TCP4-LISTEN",
-	"INET4-LISTEN": "TCP4-LISTEN",
-	"INET6":        "TCP6-CONNECT",
-	"INET6-L":      "TCP6-LISTEN",
-	"INET6-LISTEN": "TCP6-LISTEN",
-	"IP-DGRAM":     "IP-DATAGRAM",
-	"IP-SEND":      "IP-SENDTO",
-	"IP4-DGRAM":    "IP4-DATAGRAM",
-	"IP4-SEND":     "IP4-SENDTO",
-	"IP6-DGRAM":    "IP6-DATAGRAM",
-	"IP6-SEND":     "IP6-SENDTO",
-	"LOCAL":        "UNIX-CONNECT",
-	"SENDTO":       "SOCKET-SENDTO",
-	"SOCKS":        "SOCKS4",
-	"UDP-DGRAM":    "UDP-DATAGRAM",
-	"UDP4-DGRAM":   "UDP4-DATAGRAM",
-	"UDP6-DGRAM":   "UDP6-DATAGRAM",
-	"UNIX-SEND":    "UNIX-SENDTO",
+	"DTLS":                 "OPENSSL-DTLS-CLIENT",
+	"DTLS-C":               "OPENSSL-DTLS-CLIENT",
+	"DTLS-CLIENT":          "OPENSSL-DTLS-CLIENT",
+	"DTLS-CONNECT":         "OPENSSL-DTLS-CLIENT",
+	"OPENSSL-DTLS-CONNECT": "OPENSSL-DTLS-CLIENT",
+	"DTLS-L":               "OPENSSL-DTLS-SERVER",
+	"DTLS-LISTEN":          "OPENSSL-DTLS-SERVER",
+	"DTLS-SERVER":          "OPENSSL-DTLS-SERVER",
+	"OPENSSL-DTLS-LISTEN":  "OPENSSL-DTLS-SERVER",
+	"ABSTRACT":             "ABSTRACT-CLIENT",
+	"DATAGRAM":             "SOCKET-DATAGRAM",
+	"DGRAM":                "SOCKET-DATAGRAM",
+	"IF":                   "INTERFACE",
+	"INET":                 "TCP-CONNECT",
+	"INET-L":               "TCP-LISTEN",
+	"INET-LISTEN":          "TCP-LISTEN",
+	"INET4":                "TCP4-CONNECT",
+	"INET4-L":              "TCP4-LISTEN",
+	"INET4-LISTEN":         "TCP4-LISTEN",
+	"INET6":                "TCP6-CONNECT",
+	"INET6-L":              "TCP6-LISTEN",
+	"INET6-LISTEN":         "TCP6-LISTEN",
+	"IP-DGRAM":             "IP-DATAGRAM",
+	"IP-SEND":              "IP-SENDTO",
+	"IP4-DGRAM":            "IP4-DATAGRAM",
+	"IP4-SEND":             "IP4-SENDTO",
+	"IP6-DGRAM":            "IP6-DATAGRAM",
+	"IP6-SEND":             "IP6-SENDTO",
+	"LOCAL":                "UNIX-CONNECT",
+	"SENDTO":               "SOCKET-SENDTO",
+	"SOCKS":                "SOCKS4",
+	"UDP-DGRAM":            "UDP-DATAGRAM",
+	"UDP4-DGRAM":           "UDP4-DATAGRAM",
+	"UDP6-DGRAM":           "UDP6-DATAGRAM",
+	"UNIX-SEND":            "UNIX-SENDTO",
 }
 
 func TestClassicFallbackAliasesResolveToCanonical(t *testing.T) {
@@ -81,8 +90,8 @@ func TestClassicFallbackAliasesResolveToCanonical(t *testing.T) {
 	if !reflect.DeepEqual(got, classicFallbackAliases) {
 		t.Errorf("fallback aliases=%v want %v", got, classicFallbackAliases)
 	}
-	if len(got) != 26 {
-		t.Errorf("fallback aliases=%d want 26", len(got))
+	if len(got) != len(classicFallbackAliases) {
+		t.Errorf("fallback aliases=%d want %d", len(got), len(classicFallbackAliases))
 	}
 }
 
@@ -102,7 +111,7 @@ func TestUnsupportedFamilyAliasesRemainUnknown(t *testing.T) {
 		"DCCP", "DCCP-CONNECT", "DCCP-L", "DCCP-LISTEN",
 		"DCCP4", "DCCP4-CONNECT", "DCCP4-L", "DCCP4-LISTEN",
 		"DCCP6", "DCCP6-CONNECT", "DCCP6-L", "DCCP6-LISTEN",
-		"DTLS", "READLINE", "UDPLITE", "UDPLITE4-LISTEN", "UDPLITE6-DGRAM",
+		"READLINE", "UDPLITE", "UDPLITE4-LISTEN", "UDPLITE6-DGRAM",
 	} {
 		if _, ok := xio.AddressRegistrationForType(name); ok {
 			t.Errorf("%s must remain unknown", name)

@@ -90,7 +90,7 @@ The following groups summarize the implemented address families. Run
 | IP networking | TCP connect/listen, UDP connect/listen/send/receive/datagram, raw IP, generic `SOCKET` |
 | Local networking | Unix stream/datagram sockets on Linux and macOS; Linux abstract sockets |
 | Processes | `EXEC`, `SYSTEM`, `SHELL` |
-| Encryption and proxies | TLS, HTTP CONNECT, SOCKS4/4A/5, SOCKS5 BIND |
+| Encryption and proxies | TLS, DTLS 1.3, HTTP CONNECT, SOCKS4/4A/5, SOCKS5 BIND |
 | Go extensions | WebSocket (`WS`/`WSS`), QUIC, HTTP/2 and HTTP/3 CONNECT |
 | Linux networking | SCTP, VSOCK, TUN/TAP, AF_PACKET `INTERFACE`, POSIX message queues |
 
@@ -101,6 +101,7 @@ TCP4:host:port                 TCP4-LISTEN:port
 UDP4:host:port                 UDP4-RECVFROM:port
 UNIX-CONNECT:path              UNIX-LISTEN:path
 TLS:host:port                  TLS-LISTEN:port
+DTLS-CLIENT:host:port          DTLS-SERVER:port
 WS:host:port                   WSS-LISTEN:port
 QUIC:host:port                 QUIC-LISTEN:port
 EXEC:command                   SYSTEM:shell-command
@@ -227,7 +228,7 @@ silently emulated with a different protocol.
 |---|---|
 | DCCP and UDP-Lite | Not supported. Both were removed from modern Linux kernels and have no native macOS or Windows equivalent. |
 | GNU readline address | Not implemented. |
-| DTLS | Not available through Go's stream-oriented `crypto/tls`. |
+| DTLS 1.0/1.2 | Rejected. DTLS endpoints support only DTLS 1.3, with AES-GCM and RSA, ECDSA, or Ed25519 certificates. |
 | DSA, SSLv3, and weak TLS ciphers | Rejected; use current TLS versions and RSA, ECDSA, Ed25519, or ML-DSA keys. |
 | OpenSSL engines, FIPS mode, EGD, pseudo-random mode, custom DH parameters, and fragment controls | Enabling these features is rejected where Go's TLS stack has no equivalent. |
 | Process-wide `setuid`, `setgid`, `chroot`, and `substuser` options | Not implemented because changing credentials or root from a goroutine would affect every session. They require process isolation. |
@@ -239,6 +240,45 @@ silently emulated with a different protocol.
 Go's TLS defaults also intentionally keep TLS compression disabled. The
 accepted `openssl-compress=none` spelling can be used by compatible command
 lines; enabling compression is rejected.
+
+## DTLS 1.3
+
+DTLS encrypts UDP datagrams without making application delivery reliable.
+`OPENSSL-DTLS-CLIENT` and `OPENSSL-DTLS-SERVER` accept the `DTLS-CLIENT` /
+`DTLS-SERVER` aliases and the usual certificate, bind, retry, and peer-filter
+options. Peer verification is enabled by default on both ends; a verified
+server therefore requires a trusted client certificate.
+
+```sh
+./socat -b 1024 -T 30 DTLS-SERVER:4433,cert=server.pem,key=server.key,cafile=ca.pem,fork PIPE
+./socat -b 1024 -T 30 - DTLS-CLIENT:localhost:4433,cert=client.pem,key=client.key,cafile=ca.pem
+```
+
+The default maximum UDP payload is 1200 bytes. Use `-b 1024` with that default,
+or set `dtls-mtu=256..65507` and leave room for record overhead and connection
+IDs. An oversized application write fails; DTLS does not fragment or retransmit
+application datagrams. A short read truncates the rest of that datagram.
+Close alerts can also be lost, so use `-T` when an idle bound is needed.
+
+Connection IDs and RFC 9853 return-routability checks are negotiated by default.
+A supported peer can change address after authenticated path validation; the
+server reapplies `range`, `sourceport`, `lowport`, and `tcpwrap` restrictions to
+new addresses. `dtls-migration=0` disables negotiation of both features.
+`alpn=protocol` optionally selects one application protocol. `handshake-timeout`
+defaults to 30 seconds; zero removes that deadline while retaining protocol
+retransmission limits. The server admits up to 16 pending handshakes and 256
+associations, with bounded packet and reassembly queues.
+
+Only DTLS 1.3 is negotiated, including when a lower `min-version` is supplied.
+A `max-version` below DTLS 1.3 is rejected. `cipher` / `ciphers` retains its
+TLS 1.2 meaning and does not select DTLS 1.3 suites; the supported suites are
+AES-128-GCM/SHA-256 and AES-256-GCM/SHA-384. Resumption, PSKs, 0-RTT, and
+post-handshake client authentication are not offered.
+
+See [implementation and interoperability evidence](docs/dtls13.md).
+The adapted Pion code retains its [MIT license](internal/dtls13/LICENSE.pion)
+and [attribution](internal/dtls13/NOTICE.md); include that notice when
+redistributing the adapted code or binaries containing it.
 
 ## Environment
 
