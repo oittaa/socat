@@ -5,7 +5,9 @@ The implementation supports only DTLS 1.3 on Linux, macOS, and Windows.
 Connection IDs, CID rotation, RFC 9853 enhanced path validation, certificate
 authentication, key updates, and bounded loss recovery are included.
 Prefer standard-library primitives; golang.org/x/ imports are also permitted.
-Preserve the Pion attribution. Read AGENTS.md and docs/dtls13.md first.
+Preserve the Pion attribution. Read AGENTS.md, docs/dtls13.md and the applicable
+sections of docs/dtls13-standards.md first; that guide links the standards,
+their current status, relevant source files and packetization contract notes.
 
 Merge blocker: default stream/file transfer size
 The relay reads up to 8192 bytes by default, but DTLS Write rejects data
@@ -17,6 +19,16 @@ connection API and incoming UDP message boundaries. Do not silently split
 arbitrary datagram writes. Compare official released/master SSL_write behavior,
 add a default-block-size binary file-transfer regression in each direction,
 then rerun the five official DTLS scorecard names and refresh their reporting.
+
+A stream adapter near dtlsopen.wrap is a candidate, but the current callback
+cannot distinguish file chunks from UDP messages. Define that selection before
+adding write splitting; a fitting 200-byte UDP test does not protect larger
+messages. Keep the direct Conn contract. Stream reads need a bounded remainder
+buffer sized for incoming records, not the outgoing MaxDatagramSize. Recompute
+outgoing capacity between chunks and preserve partial progress, deadlines,
+half-close and cancellation. Add short-read, asymmetric-MTU, oversized-UDP and
+interrupted-write tests. Do not assume OpenSSL DTLS SSL_write packetizes like
+TLS: the pinned source sends one application record. RCVTIMEO_DTLS is separate.
 
 Review findings to preserve
 Listener.receive is called by one transport read loop; the suggested duplicate
@@ -30,8 +42,10 @@ spares on the old path, and disabling migration is a separate product choice.
 
 1. Independent protocol and security review before merge
 Review internal/dtls13 and internal/xio/dtlsopen against RFC 9147, RFC 9853,
-the TLS 1.3 specification, RFC 10024, the current TLS ML-DSA draft, and verified
-errata. Review authentication/transcript
+RFC 9146's CID context, RFC 9846 (including section 1.2's changes from RFC 8446),
+RFC 9954/RFC 10024, the pinned TLS ML-DSA draft/RFC 9881, and verified errata.
+Keep RFC 8446 available for older documents' section references; use the guide
+to avoid mixing the old and new section numbering. Review authentication/transcript
 boundaries, record-number reconstruction, nonce uniqueness, replay handling,
 epoch retirement, ACK ordering, fragmentation/resource limits, cookie binding,
 CID routing/retirement, amplification accounting, migration peer filters, and
@@ -39,7 +53,16 @@ listener cancellation. Distinguish merge blockers from optional improvements.
 For each defect, provide an observable regression that fails without the fix.
 Do not relax certificate checks or add legacy DTLS/browser workarounds.
 
-2. Complete independent testing of post-handshake CID management
+2. Spare-CID assurance before merge; independent interoperability later
+Independent spare-CID issuance/replenishment testing is not a merge blocker
+while the relevant reference implementations lack that capability. Do not
+build another DTLS stack merely to satisfy this gate. RFC-based review and
+focused local regressions remain required; any defects they expose still
+need fixing before merge. This decision does not waive other merge blockers.
+
+Record peer limitations against exact revisions, not all future versions.
+Pinned OpenSSL 82733d90b5bc58b8d064ed49c282aa028664a1ed documents no DTLS 1.3
+CID support in doc/man7/ossl-guide-dtlsv13.pod.
 The pinned Pion snapshot negotiates CIDs but its post-handshake dispatcher
 rejects RequestConnectionID and NewConnectionID. Our Pion protocol-driver
 tests therefore isolate RRC using the initial CIDs. Pinned wolfSSL master
@@ -48,12 +71,22 @@ both roles, all ciphers, proactive request acknowledgement, two immediate
 rotations, intervening bidirectional KeyUpdates, and lost rotation ACKs.
 It does not issue spare CIDs or negotiate RFC 9853 RRC. Its latest released
 5.9.2 still rejects post-handshake CID management; use the pinned master.
-Find or build an independent implementation with the remaining capabilities.
-Test spare requests and bounded/empty responses, CID use on new paths,
-replenishment, duplicate/reordered flights, and concurrent KeyUpdate.
-Keep reference software outside the runtime module. Pin its exact revision
-and prove that DTLS 1.3 was negotiated. Do not silently change our protocol to
-accommodate incomplete reference software.
+Before merge, check the existing CID tests against RFC 9147 section 9 and
+fill observable coverage gaps: request/response state, bounded/empty responses,
+spare consumption and replenishment across repeated path changes, immediate
+rotation/retirement, duplicate/reordered/lost flights, and concurrent KeyUpdate.
+Also check malformed or forbidden messages, pool/resource bounds, and a peer
+that acknowledges a request but supplies no spares. Keep path validation and
+amplification checks tied to RFC 9853. Use deterministic packet faults and
+hand-authored wire cases derived from the RFC, rather than only round-tripping
+our encoder and decoder. Do not describe local tests as independent interop.
+
+When a relevant upstream gains spare issuance/replenishment, pin that exact
+revision and add both-role interoperability with repeated replenishment,
+loss/reordering and KeyUpdate. Verify the required capabilities and DTLS 1.3
+negotiation first; CID negotiation or request ACKs alone are insufficient.
+Keep this as a documented follow-up, with reference software outside the
+runtime module. Do not change our protocol to accommodate incomplete peers.
 
 3. Independent post-quantum fragmentation and loss tests
 All three RFC 10024 hybrids and ML-DSA-44/65/87 work in local tests and in

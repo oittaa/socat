@@ -1,8 +1,13 @@
 # DTLS 1.3 implementation
 
 Status: draft; default stream/file-transfer sizing and independent protocol
-review remain merge blockers. Algorithm support and scoped validation are
-described below.
+review remain merge blockers. Independent spare-CID issuance/replenishment
+testing is a follow-up when reference peers support it, not a merge blocker.
+RFC-based review and local regression coverage remain required. Algorithm
+support and scoped validation are described below.
+
+Before fixing protocol or endpoint behavior, read the applicable references
+and contract notes in [the standards guide](dtls13-standards.md).
 
 Implemented foundations: AES/ChaCha20 record protection and header masking, replay
 windows, bounded hello/certificate codecs, handshake reassembly, selective ACKs,
@@ -89,8 +94,14 @@ enable unimplemented algorithms or mirror every Go `GODEBUG`/FIPS profile.
 
 ## Sources and compatibility baseline
 
-- RFC 9147 defines the DTLS changes to the TLS 1.3 protocol in RFC 8446.
-  Apply verified errata. RFC 9853 specifies return routability with connection IDs.
+- [RFC 9147](https://www.rfc-editor.org/rfc/rfc9147.txt) defines the DTLS
+  changes to the TLS 1.3 protocol originally specified in RFC 8446.
+  [RFC 9846](https://www.rfc-editor.org/rfc/rfc9846.txt) now replaces RFC 8446;
+  its section 1.2 changes remain an explicit review target, not a completed
+  compliance claim. Apply the DTLS-specific rules and verified errata.
+  [RFC 9853](https://www.rfc-editor.org/rfc/rfc9853.txt) specifies return
+  routability with connection IDs. The [standards guide](dtls13-standards.md)
+  maps these and the hybrid/signature references to relevant code.
 - Official classic source: https://repo.or.cz/socat.git.
   Release `tag-1.8.1.3`: `12c08bf66d709fba17035ce95d85bd218428d9ba`.
   Master: `af5388c898c7bb60997935aee93c223deba60c4a`.
@@ -180,6 +191,17 @@ fixed-address use. CID rotation/request/replenishment is verified between our
 peers with loss and reordering. The wolfSSL checks below independently cover
 request acknowledgement and immediate rotation; spare issuance and
 replenishment still lack an independent reference.
+
+The pinned OpenSSL snapshot documents that it has no DTLS 1.3 CID support in
+[its DTLS guide](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/doc/man7/ossl-guide-dtlsv13.pod).
+Thus none of these pinned OpenSSL, wolfSSL or Pion references supplies an
+independent spare-issuance/replenishment test peer. This unavailable coverage
+is not a merge blocker. RFC-based CID review, deterministic local tests and
+fixing defects they reveal remain merge requirements. When upstream support
+arrives, pin it and add both-role replenishment tests with loss, reordering
+and key updates. This is a limitation of the recorded revisions, not a claim
+about every implementation or future release. See item 2 of
+[the follow-up plan](dtls13-follow-up.txt) for the acceptance criteria.
 
 On 2026-09-05, wolfSSL master
 `d72f6d9e4e85ffcadfa0c737959dc26b8717947a` passed twelve additional CID cases
