@@ -5,8 +5,8 @@
   },
   "wolfssl": {
     "repository": "https://github.com/wolfSSL/wolfssl.git",
-    "commit": "ac01707f552c611fbd135cc723b2682b3e7f80f2",
-    "release": "v5.9.2-stable"
+    "commit": "d72f6d9e4e85ffcadfa0c737959dc26b8717947a",
+    "description": "master snapshot with receive-side CID updates"
   },
   "boringssl": {
     "repository": "https://github.com/google/boringssl.git",

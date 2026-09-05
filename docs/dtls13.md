@@ -132,7 +132,7 @@ focused regression test.
 ## Validation and lab
 
 `scripts/dtls13-baseline.json` pins source revisions for reproducibility.
-The opt-in `scripts/dtls13-lab.py` builds wolfSSL 5.9.2, BoringSSL's test shim,
+The opt-in `scripts/dtls13-lab.py` builds wolfSSL's pinned master, BoringSSL's test shim,
 Pion's helper, and OpenSSL's 4.1 development snapshot. `--only classic` also attempts a separate
 classic socat build against that OpenSSL. It does not install system libraries, change classic parity baselines,
 or run during ordinary `make check`.
@@ -177,8 +177,32 @@ Our connection API proactively requests spare CIDs, so migration-enabled
 endpoints do not fully interoperate with this incomplete Pion snapshot.
 No peer-specific relaxation is added; `dtls-migration=0` is available for
 fixed-address use. CID rotation/request/replenishment is verified between our
-peers with loss and reordering; independent coverage of that subprotocol
-remains a limitation of the current references.
+peers with loss and reordering. The wolfSSL checks below independently cover
+request acknowledgement and immediate rotation; spare issuance and
+replenishment still lack an independent reference.
+
+On 2026-09-05, wolfSSL master
+`d72f6d9e4e85ffcadfa0c737959dc26b8717947a` passed twelve additional CID cases
+through our public connection/listener API under the race detector. These
+use P-256, mutual certificate authentication, the default 1200-byte MTU,
+all three ciphers, and both client/server roles. Each association acknowledges
+our proactive RequestConnectionID, completes two immediate CID rotations
+interleaved with bidirectional key updates, and exchanges application data.
+Six cases deliberately drop the first datagram using each replacement CID
+(wolfSSL's rotation ACK); retransmission completes both rotations and retires
+the previous CID. Our production protocol code is unchanged.
+
+The receive-side implementation was merged in
+[wolfSSL PR #10626](https://github.com/wolfSSL/wolfssl/pull/10626) on 2026-07-03.
+It parses and acknowledges RequestConnectionID without issuing a response,
+accepts immediate NewConnectionID updates, and discards spare CID offers.
+It does not negotiate RFC 9853 return routability. These results do not verify
+spare issuance/replenishment or address migration against wolfSSL.
+The latest release, `v5.9.2-stable`
+(`ac01707f552c611fbd135cc723b2682b3e7f80f2`), predates that change: both roles
+negotiate static CIDs but fail the same post-handshake test with
+unexpected_message. The reference pin was advanced to master for reproducible
+CID coverage; the 21 wolfSSL cipher/group checks were rerun against it.
 
 The algorithm interop tests use a 4096-byte local MTU for our client, and for
 both peers when testing OpenSSL as server or using ML-DSA. These are loopback
@@ -187,7 +211,7 @@ The wolfSSL lab build enables X25519 and increases its additional DTLS read
 buffer to 4096 bytes. Its default receive buffer truncated the 1909-byte
 cookie-bearing SecP384r1MLKEM1024 ClientHello with AES-256-GCM; debug logs
 reported partial records and dropped them.
-The pinned wolfSSL stateless server drops fragmented initial ClientHellos;
+The previously tested wolfSSL 5.9.2 stateless server drops fragmented initial ClientHellos;
 hybrid offers at MTU 1200 timed out. The pinned OpenSSL snapshot does not
 acknowledge partial server flights (`dtls_msg_needs_ack` excludes them), and
 its server can reject handshake ACKs with unexpected_message. At MTU 512,
@@ -232,6 +256,9 @@ Checks completed on 2026-09-05:
   interoperability includes 71 independent OpenSSL/wolfSSL/Pion cases; their
   transport limits are described above. Ten repeated ML-DSA-87 exchanges also
   passed under the race detector after increasing the receive queue.
+- Twelve additional wolfSSL CID cases cover both roles, all ciphers, repeated
+  immediate rotation and lost rotation ACKs at MTU 1200. The exact scope and
+  remaining CID/migration gaps are described above.
 - Linux `make classic-parity`: no missing/unexpected interface names or alias
   mismatches, and no drift from the reviewed official master. This is an
   interface audit, not evidence of classic DTLS 1.3 interoperability.

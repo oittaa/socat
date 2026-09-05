@@ -39,20 +39,25 @@ listener cancellation. Distinguish merge blockers from optional improvements.
 For each defect, provide an observable regression that fails without the fix.
 Do not relax certificate checks or add legacy DTLS/browser workarounds.
 
-2. Independent testing of post-handshake CID management
+2. Complete independent testing of post-handshake CID management
 The pinned Pion snapshot negotiates CIDs but its post-handshake dispatcher
 rejects RequestConnectionID and NewConnectionID. Our Pion protocol-driver
-tests therefore isolate RRC using the initial CIDs. Find or build an
-independent implementation that supports RFC 9147 section 9 completely.
-Test spare requests, bounded/empty responses, immediate rotation, CID use on
-new paths, replenishment, duplicate/reordered flights, and concurrent KeyUpdate.
+tests therefore isolate RRC using the initial CIDs. Pinned wolfSSL master
+d72f6d9e4e85ffcadfa0c737959dc26b8717947a now passes twelve public-API tests:
+both roles, all ciphers, proactive request acknowledgement, two immediate
+rotations, intervening bidirectional KeyUpdates, and lost rotation ACKs.
+It does not issue spare CIDs or negotiate RFC 9853 RRC. Its latest released
+5.9.2 still rejects post-handshake CID management; use the pinned master.
+Find or build an independent implementation with the remaining capabilities.
+Test spare requests and bounded/empty responses, CID use on new paths,
+replenishment, duplicate/reordered flights, and concurrent KeyUpdate.
 Keep reference software outside the runtime module. Pin its exact revision
 and prove that DTLS 1.3 was negotiated. Do not silently change our protocol to
 accommodate incomplete reference software.
 
 3. Independent post-quantum fragmentation and loss tests
 All three RFC 10024 hybrids and ML-DSA-44/65/87 work in local tests and in
-large-datagram OpenSSL exchanges. The pinned wolfSSL server drops fragmented
+large-datagram OpenSSL exchanges. The tested wolfSSL 5.9.2 server drops fragmented
 initial ClientHellos, and the pinned OpenSSL snapshot lacks partial-flight
 ACK support. Current algorithm interop checks use 4096-byte loopback MTUs.
 Obtain an independent peer that supports these protocol paths, then test
