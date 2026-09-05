@@ -94,6 +94,59 @@ func TestClientHelloExtensionAlerts(t *testing.T) {
 	}
 }
 
+func TestClientEncryptedExtensionAlerts(t *testing.T) {
+	clientConfig, serverConfig := handshakeConfigs(t)
+	for _, test := range []struct {
+		name, extensions string
+		alert            byte
+	}{
+		// RFC 9846 section 4.4.1 forbids these extensions in EncryptedExtensions.
+		{"key_share", "000600330002001d", 47},
+		{"supported_versions", "0006002b0002fefc", 47},
+		{"signature_algorithms", "0004000d0000", 47},
+		{"cookie_after_retry", "0007002c0003000101", 47},
+		{"unsolicited_alpn", "0009001000050003026832", 110},
+		{"unknown_extension", "0004fafa0000", 110},
+		{"empty", "0000", 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client, messages, err := newClientHandshake(clientConfig)
+			if err != nil {
+				t.Fatal(err)
+			}
+			server, err := newTestServerHandshake(serverConfig)
+			if err != nil {
+				t.Fatal(err)
+			}
+			peer, now := netip.MustParseAddrPort("127.0.0.1:10001"), time.Unix(100, 0)
+			// Complete the cookie exchange and consume ServerHello before testing EE.
+			for range 2 {
+				if len(messages) != 1 || messages[0].typ != msgClientHello {
+					t.Fatalf("expected ClientHello, got %v", messages)
+				}
+				flight, err := server.receive(messages[0], peer, now)
+				if err != nil || len(flight) == 0 {
+					t.Fatalf("server flight: messages %v, error %v", flight, err)
+				}
+				messages, err = client.handle(flight[0])
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			// Literal extension vectors exercise decoding independently of our encoder.
+			_, err = client.handle(handshakeMessage{typ: msgEncryptedExtensions, epoch: 2, sequence: 2,
+				body: decodeHex(t, test.extensions)})
+			if test.alert == 0 {
+				if err != nil {
+					t.Fatalf("valid EncryptedExtensions: %v", err)
+				}
+			} else if err == nil || !bytes.Equal(errorAlert(err), []byte{2, test.alert}) {
+				t.Fatalf("alert = %x (%v), want fatal %d", errorAlert(err), err, test.alert)
+			}
+		})
+	}
+}
+
 func TestLegacySessionIDInDTLSHello(t *testing.T) {
 	clientConfig, serverConfig := handshakeConfigs(t)
 	client, messages, err := newClientHandshake(clientConfig)

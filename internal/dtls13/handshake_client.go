@@ -364,7 +364,7 @@ func (h *clientHandshake) encryptedExtensions(m handshakeMessage) error {
 				return err
 			}
 		default:
-			return errUnsupportedExtension
+			return errIllegalParameter
 		}
 	}
 	return h.schedule.write(m)
