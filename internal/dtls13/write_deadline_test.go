@@ -122,6 +122,65 @@ func TestTransportWriteCancellationIsolation(t *testing.T) {
 	})
 }
 
+func TestTransportStaleCancelDoesNotAffectNextWrite(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		gate := make(chan struct{})
+		p := &gatedWriteConn{handshakePacketConn: newHandshakePacketConn(10001)}
+		transport := newPacketTransport(p, nil, nil)
+		go transport.writeLoop()
+		defer transport.close(net.ErrClosed)
+		stale := make(chan struct{})
+		if err := transport.writeApplication([]byte("first"), p.addr, time.Time{}, nil, stale); err != nil {
+			t.Fatal(err)
+		}
+		p.gate = gate
+		second := make(chan error, 1)
+		go func() { second <- transport.writeApplication([]byte("second"), p.addr, time.Time{}, nil, nil) }()
+		synctest.Wait()
+		close(stale)
+		synctest.Wait()
+		select {
+		case err := <-second:
+			t.Fatalf("stale cancel interrupted the next socket write: %v", err)
+		default:
+		}
+		close(gate)
+		if err := <-second; err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestTransportCancelWatcherJoinsBeforeNextWrite(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		gate := make(chan struct{})
+		p := &gatedWriteConn{handshakePacketConn: newHandshakePacketConn(10001), gate: gate}
+		transport := newPacketTransport(p, nil, nil)
+		go transport.writeLoop()
+		defer transport.close(net.ErrClosed)
+		cancel := make(chan struct{})
+		first, second := make(chan error, 1), make(chan error, 1)
+		go func() { first <- transport.writeApplication([]byte("cancelled"), p.addr, time.Time{}, nil, cancel) }()
+		synctest.Wait()
+		go func() { second <- transport.writeApplication([]byte("next"), p.addr, time.Time{}, nil, nil) }()
+		synctest.Wait()
+		close(cancel)
+		if err := <-first; !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("cancelled write = %v", err)
+		}
+		synctest.Wait()
+		select {
+		case err := <-second:
+			t.Fatalf("next write finished before its socket attempt: %v", err)
+		default:
+		}
+		close(gate)
+		if err := <-second; err != nil {
+			t.Fatalf("watcher poke reached the next socket write: %v", err)
+		}
+	})
+}
+
 func TestTransportWriteQueueAndAttemptBounds(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		gate := make(chan struct{})
