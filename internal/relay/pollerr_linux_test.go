@@ -19,8 +19,9 @@ func dialClosedUDP4(t *testing.T) *net.UDPConn {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Reserve the destination until DialUDP has chosen a different local port.
+	defer func() { _ = closed.Close() }()
 	addr := closed.LocalAddr().(*net.UDPAddr)
-	_ = closed.Close()
 	c, err := net.DialUDP("udp4", nil, addr)
 	if err != nil {
 		t.Fatal(err)
