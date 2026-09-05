@@ -94,6 +94,8 @@ func tlsProtocolVersion(version uint16) string {
 		return "TLSv1.2"
 	case tls.VersionTLS13:
 		return "TLSv1.3"
+	case 0xfefc:
+		return "DTLSv1.3"
 	default:
 		return tls.VersionName(version)
 	}

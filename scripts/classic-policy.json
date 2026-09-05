@@ -2,7 +2,6 @@
   "unsupported_addresses": {
     "DCCP": "intentional exception: removed from modern Linux; no native macOS or Windows equivalent",
     "READLINE": "GNU readline is not implemented",
-    "DTLS": "Go crypto/tls is stream TLS only",
     "UDPLITE": "intentional exception: removed from modern Linux; no native macOS or Windows equivalent"
   },
   "unsupported_options": {
@@ -170,10 +169,12 @@
     ["lseek", "lseek32-set", "lseek64-set"]
   ],
   "go_only_options": {
-    "alpn": "QUIC and HTTP/2/3 extra",
+    "alpn": "DTLS/QUIC and HTTP/2/3 extra",
+    "dtls-mtu": "DTLS UDP payload limit extra",
+    "dtls-migration": "DTLS CID/RRC migration policy extra",
     "h2c": "cleartext HTTP/2 CONNECT extra",
     "origin": "WebSocket Origin extra",
-    "handshake-timeout": "TLS/WebSocket/QUIC/proxy/SOCKS extra",
+    "handshake-timeout": "TLS/DTLS/WebSocket/QUIC/proxy/SOCKS extra",
     "crorlf": "CR-or-LF line conversion extra",
     "ca": "short alias of cafile",
     "child-shutup": "advertised alias of children-shutup",

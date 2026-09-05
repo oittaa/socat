@@ -16,6 +16,7 @@ const (
 	GroupUnix      = "UNIX and abstract"
 	GroupSocket    = "Generic socket"
 	GroupProcess   = "Process"
+	GroupDTLS      = "Datagram TLS 1.3"
 	GroupTLS       = "TLS (OPENSSL/SSL aliases)"
 	GroupProxy     = "PROXY and SOCKS"
 	GroupTUN       = "Linux TUN / INTERFACE"
@@ -85,6 +86,7 @@ var defaultGroupOrder = []string{
 	GroupSocket,
 	GroupProcess,
 	GroupTLS,
+	GroupDTLS,
 	GroupProxy,
 	GroupTUN,
 	GroupWebSocket,
@@ -181,7 +183,7 @@ func (r *addressRegistry) opener(typ string) (Opener, bool) {
 
 // resolve returns the registered descriptor for typ. Direct RegisterAddress
 // entries win. Otherwise Aliases on a registered descriptor are applied.
-// Unsupported families (DCCP, UDP-Lite, DTLS, readline) stay unknown because
+// Unsupported families (DCCP, UDP-Lite, readline) stay unknown because
 // they are not registered. DCCP is an intentional compatibility exception,
 // not backlog. Parser shorthand "-" → STDIO is handled in parse.ParseSpec.
 func (r *addressRegistry) resolve(typ string) (AddressDesc, bool) {

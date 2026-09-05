@@ -42,6 +42,8 @@ type sitoutEIOReader struct {
 	d time.Duration
 }
 
+func (s *sitoutEIOReader) UnwrapReader() io.Reader { return s.r }
+
 func sitoutEIOTicks(d time.Duration) int {
 	if d <= 0 {
 		return 0

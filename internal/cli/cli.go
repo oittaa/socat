@@ -767,7 +767,8 @@ func printVersion(w io.Writer) error {
 		{"READLINE", false},
 		{"TUN", xio.FeatureTUN},
 		{"PTY", xio.FeaturePTY},
-		{"TLS", true},     // stream TLS via crypto/tls (not DTLS)
+		{"TLS", true},
+		{"DTLS", true},
 		{"OPENSSL", true}, // TLS OPENSSL alias
 		{"FIPS", false},
 		{"LIBWRAP", true},   // pure-Go hosts.allow/deny (no CGO libwrap)

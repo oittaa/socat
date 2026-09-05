@@ -325,8 +325,25 @@ exclusions.
 |-------|-------|
 | `READLINE`, `READLINE_OVFL` | GNU readline not implemented |
 | `COOLWRITE`, `COOLSTDIO` | `cool-write` deprecated; use `children-shutup` |
-| `OPENSSL_DTLS_SERVER`, `OPENSSL_DTLS_TO_SERVER`, `OPENSSL_DTLS_TO_CLIENT`, `RCVTIMEO_DTLS` | DTLS not in Go `crypto/tls` |
+| `OPENSSL_DTLS_SERVER`, `OPENSSL_DTLS_TO_SERVER`, `OPENSSL_DTLS_TO_CLIENT`, `RCVTIMEO_DTLS` | Historical snapshot predates this port's DTLS 1.3 implementation; see the current branch checks below |
 | `UDPLITE4STREAM`, `UDPLITE6STREAM`, `UDPLITE4LISTENENV`, `UDPLITE6LISTENENV`, `UDPLITE4_L_MAXCHILDREN`, `UDPLITE6_L_MAXCHILDREN`, `V1800_UDPLITE_*` (6) | UDP-Lite removed from modern Linux |
+
+### DTLS 1.3 branch checks (2026-09-05)
+
+Focused runs use unmodified official 1.8.1.3 `test.sh` from the
+[pinned release](../../scripts/classic-baseline.json), with
+`MODE=stable JOBS=1 SHARD_TIMEOUT=180`. Historical full-suite JSON and counts
+above are unchanged.
+
+| Test | Result | Reason |
+| --- | --- | --- |
+| `OPENSSL_DTLS_CLIENT`, `OPENSSL_DTLS_SERVER` | FAILED | Peers explicitly use `-dtls1_2`; this port supports only 1.3. |
+| `OPENSSL_DTLS_TO_SERVER`, `OPENSSL_DTLS_TO_CLIENT` | OK | Default 8192-byte file transfers at MTU 1200, both directions. |
+| `RCVTIMEO_DTLS` | OK | Receive timeout terminates a silent handshake. |
+
+The three passing cases were rerun at `c2ec393`; no shard timed out. The
+upstream selector also runs `SOCKS5_OVERFL` (OK). See
+[DTLS validation and peer limits](../../docs/dtls13.md#validation).
 
 ### `UDP_DATAGRAM_PEERPORT` (version-gated harness)
 

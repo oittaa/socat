@@ -340,10 +340,12 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 			return
 		}
 		cg.beginLogicalSession(leftStream, ro.EffectiveStream())
+		adapted := relay.ConfigureStreamPair(leftStream, ro.EffectiveStream())
 		// RECVFROM,fork creates a socketpair per child. Stream listens
 		// (TCP-LISTEN,fork PIPE) transfer directly — a bridge would open
 		// -r/-R sniff files twice per session.
-		if lo.ForkSocketpair {
+		// Adapters need the original peer's message boundaries.
+		if lo.ForkSocketpair && !adapted {
 			sp0, sp1, spErr := unixSocketpairLogged(cg)
 			if spErr != nil {
 				cg.Log.Errorf("socketpair: %s", spErr)
@@ -422,6 +424,7 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 	if left == nil || right == nil {
 		return fmt.Errorf("nil stream")
 	}
+	relay.ConfigureStreamPair(left, right)
 	WaitFromEnv("SOCAT_TRANSFER_WAIT")
 	// Open -r/-R sniff files at transfer start (after peer env is set).
 	if g != nil && (g.RawLeftPath != "" || g.RawRightPath != "") {

@@ -140,6 +140,8 @@ type tunStream struct {
 	closed sync.Once
 }
 
+func (*tunStream) IOSemantics() relay.IOSemantics { return relay.MessageIO }
+
 func (t *tunStream) Read(p []byte) (int, error) {
 	for {
 		n, err := unix.Read(t.fd, p)
@@ -473,6 +475,8 @@ type packetRawStream struct {
 	closed       bool
 	oob          []byte
 }
+
+func (*packetRawStream) IOSemantics() relay.IOSemantics { return relay.MessageIO }
 
 func (p *packetRawStream) Read(b []byte) (int, error) {
 	for {

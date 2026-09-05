@@ -2,6 +2,7 @@
 package all
 
 import (
+	_ "github.com/oittaa/socat/internal/xio/dtlsopen"
 	_ "github.com/oittaa/socat/internal/xio/fileopen"
 	_ "github.com/oittaa/socat/internal/xio/netopen"
 	_ "github.com/oittaa/socat/internal/xio/posixmqopen"

@@ -14,7 +14,6 @@ func TestUnsupportedAddressFamiliesStayUnregistered(t *testing.T) {
 		"DCCP4", "DCCP4-CONNECT", "DCCP4-L", "DCCP4-LISTEN",
 		"DCCP6", "DCCP6-CONNECT", "DCCP6-L", "DCCP6-LISTEN",
 		"UDPLITE", "UDPLITE-CONNECT", "UDPLITE-LISTEN", "UDPLITE4-LISTEN", "UDPLITE6-DGRAM",
-		"DTLS", "DTLS-CONNECT", "OPENSSL-DTLS-CLIENT", "OPENSSL-DTLS-LISTEN",
 		"READLINE",
 	} {
 		if _, ok := xio.AddressRegistrationForType(name); ok {
@@ -26,6 +25,7 @@ func TestUnsupportedAddressFamiliesStayUnregistered(t *testing.T) {
 func TestNativeAddressesAndAliasesResolve(t *testing.T) {
 	for _, name := range []string{
 		"STDIO", "TCP", "TCP-CONNECT", "TCP-L", "TCP-LISTEN",
+		"DTLS", "DTLS-CONNECT", "OPENSSL-DTLS-CLIENT", "OPENSSL-DTLS-LISTEN",
 		"ABSTRACT", "ACCEPT-FD", "ACCEPT", "INET", "OPENSSL",
 	} {
 		if _, ok := xio.AddressRegistrationForType(name); !ok {

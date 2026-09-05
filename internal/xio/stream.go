@@ -134,6 +134,8 @@ type halfCloseWriter struct {
 	done bool
 }
 
+func (h *halfCloseWriter) UnwrapWriter() io.Writer { return h.w }
+
 func (h *halfCloseWriter) Write(p []byte) (int, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -170,6 +172,8 @@ type readBytesWrap struct {
 	r    io.Reader
 	left uint64
 }
+
+func (r *readBytesWrap) UnwrapReader() io.Reader { return r.r }
 
 func (r *readBytesWrap) Read(p []byte) (int, error) {
 	if r.left == 0 {
@@ -495,6 +499,8 @@ type escapeReader struct {
 	// leftover after escape in same Read is discarded (EOF after partial)
 }
 
+func (r *escapeReader) UnwrapReader() io.Reader { return r.r }
+
 func (e *escapeReader) Read(p []byte) (int, error) {
 	n, err := e.r.Read(p)
 	if n > 0 {
@@ -543,6 +549,8 @@ func parseEscapeByte(v string) (byte, error) {
 type nullEOFReader struct {
 	r io.Reader
 }
+
+func (r *nullEOFReader) UnwrapReader() io.Reader { return r.r }
 
 func (n *nullEOFReader) Read(p []byte) (int, error) {
 	if len(p) == 0 {

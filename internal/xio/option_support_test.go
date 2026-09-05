@@ -43,7 +43,7 @@ func TestOptionSupportedOnAddressClassicAndGoExtras(t *testing.T) {
 	}
 
 	tlsTypes := []string{"TLS", "PROXY", "WSS", "QUIC"}
-	tlsGroups := []string{GroupTLS, GroupWebSocket, GroupQUIC, GroupProxy}
+	tlsGroups := []string{GroupTLS, GroupDTLS, GroupWebSocket, GroupQUIC, GroupProxy}
 	if !OptionSupportedOnAddress(proxy, tlsGroups, tlsTypes, []string{CapOpenSSL}) {
 		t.Fatal("Go extra: verify on PROXY")
 	}

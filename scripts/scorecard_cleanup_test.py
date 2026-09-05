@@ -196,7 +196,10 @@ class CleanupOwnershipTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = pathlib.Path(self.temp.name)
-        self.sleep = shutil.copy(shutil.which("sleep") or "/bin/sleep", self.root / "sleepbin")
+        # These fixtures rename the executable; multicall dispatchers cannot
+        # select sleep from a socat argv[0]. Ubuntu provides GNU as gnusleep.
+        sleep = shutil.which("gnusleep") or shutil.which("sleep") or "/bin/sleep"
+        self.sleep = shutil.copy(sleep, self.root / "sleepbin")
         os.chmod(self.sleep, 0o755)
         self.socat = self.root / "socat"
         shutil.copy(self.sleep, self.socat)

@@ -1,0 +1,43 @@
+DTLS 1.3 remaining work
+
+Status is in docs/dtls13.md; RFCs and code map in docs/dtls13-standards.md.
+Follow AGENTS.md for platforms, compatibility and validation.
+
+Merge
+
+- Independent protocol/security review of internal/dtls13 and
+  internal/xio/dtlsopen, including RFC 9846 section 1.2. Observable
+  regression per defect. Do not relax certificate checks or add
+  DTLS 1.2/browser workarounds.
+
+Do not undo
+
+- Listener.receive has one production caller; do not "fix" a duplicate
+  admission race that is not concurrent.
+- RFC 9147 section 5.11: after a verified Finished, abandon the previous
+  same-address association. No CID exemption.
+- Keep proactive CID requests. Delaying until movement cannot get spares
+  on the old path. Disabling migration is a separate option.
+- Immediate CID rotation must update pending path probes and leave
+  unrelated spare requests alone.
+
+Not merge blockers
+
+- Spare-CID issuance/replenishment interoperability: pin an exact revision
+  when a reference peer supports it; test both roles, repeated replenishment,
+  loss/reorder and KeyUpdate. Do not build another stack or weaken our
+  protocol for incomplete peers. See dtls13.md for current peer limits.
+- Automatic CID pool renewal after consumed identifiers; see dtls13.md.
+- Independent PQ tests at MTU 1200/256/512 with loss/reorder and mutual
+  ML-DSA. Do not raise production MTU or drop PQ defaults as a "fix."
+- Lab-only BoringSSL packet-BIO adapter; keep out of ordinary make check.
+- Recheck official OpenSSL/socat releases when 4.1 is usable; do not patch
+  the parity baseline or replace system OpenSSL to obtain a test peer.
+- On Go upgrades, investigate TestGoTLS13AlgorithmDefaults drift: add DTLS
+  wire mappings, retain protocol restrictions and test interoperability.
+  Recheck the TLS ML-DSA mapping when its RFC is published.
+
+Out of scope unless separately specified
+
+- PSK, resumption, 0-RTT, post-handshake client authentication, extra AEADs,
+  WebRTC/ICE/SRTP.

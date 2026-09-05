@@ -608,6 +608,8 @@ type mqStream struct {
 	wdeadline time.Time
 }
 
+func (*mqStream) IOSemantics() relay.IOSemantics { return relay.MessageIO }
+
 func (s *mqStream) attachNotify() error {
 	n, err := newMQNotify()
 	if err != nil {
