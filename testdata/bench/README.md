@@ -110,10 +110,10 @@ process. Go `fork` starts a goroutine. The RSS and rate show that difference.
 QUIC is a UDP byte tunnel (`alpn=socat`). It is not TLS and not HTTP/3.
 Classic socat has no QUIC.
 
-DTLS is DTLS 1.3 only. It is go-only; classic `OPENSSL-DTLS` speaks DTLS 1.2
-and does not interoperate. The stream case packetizes byte-stream input to
-the 1200-byte default MTU. Every handshake includes a cookie retry, so
-`dtls-hs` counts that extra round trip.
+DTLS is DTLS 1.3 only. It is go-only; the classic baseline's `OPENSSL-DTLS`
+supports DTLS 1.2 and does not interoperate. The stream case packetizes
+byte-stream input to the 1200-byte default MTU. Every handshake includes a
+cookie retry, so `dtls-hs` counts that extra round trip.
 
 `udp` is an unreliable datagram transport using standard UDP
 (`IPPROTO_UDP`) with `UDP4-RECV` / `UDP4-SENDTO`. Non-fork `UDP-LISTEN` is
@@ -196,42 +196,60 @@ Platforms without `/proc` report RSS as `n/a` (`null` in JSON).
 
 ## Recorded snapshot
 
-Recorded 2026-08-31 in an Ubuntu 26.04 Hyper-V guest (6 vCPUs) backed by an
-AMD Ryzen 7 9800X3D, Linux 7.0.0-30, Go 1.27.0, classic socat 1.8.1.3, and
-distro OpenSSL 3.5.5. Payload: 1 GiB AES-128-CTR (incompressible; not
-`/dev/zero`). Median of 7 timed runs after 2 warmups, `-b 8192`.
+Recorded 2026-09-05 at `983f605` in an Ubuntu 26.04 Hyper-V guest (6 vCPUs)
+backed by an AMD Ryzen 7 9800X3D, Linux 7.0.0-30, Go 1.27.0, classic socat
+1.8.1.3, and distro OpenSSL 3.5.5. Payload: 1 GiB AES-128-CTR
+(incompressible; not `/dev/zero`). Median of 7 timed runs after 2 warmups,
+`-b 8192`. RTT samples use 20,000 exchanges after 1,000 warmups; handshake
+samples use 200 connections after 20 warmups.
 
 | Case | classic | go | Peak RSS (classic / go) |
 |------|---------|----|-------------------------|
-| TCP 1 GiB | 1057.7 MiB/s | 1986.0 MiB/s | 10.5 / 26.1 MiB |
-| UNIX 1 GiB | 807.4 MiB/s | 1986.8 MiB/s | 10.2 / 26.1 MiB |
-| UDP 1 GiB (send / receive / loss) | 1116.6 / 1116.3 MiB/s / 0.000% | 1252.3 / 1251.8 MiB/s / 0.000% | 10.3 / 30.0 MiB |
-| TLS 1 GiB | 912.5 MiB/s | 1248.9 MiB/s | 20.9 / 28.6 MiB |
-| WS 1 GiB | n/a | 1059.2 MiB/s | n/a / 27.1 MiB |
-| WSS 1 GiB | n/a | 1002.7 MiB/s | n/a / 29.2 MiB |
-| QUIC 1 GiB | n/a | 368.9 MiB/s | n/a / 40.1 MiB |
-| TCP 64 B RTT (median / p99) | 85.5 / 176.4 µs | 50.3 / 435.3 µs | 5.2 / 13.4 MiB |
-| TLS 64 B RTT (median / p99) | 91.9 / 168.4 µs | 98.6 / 193.1 µs | 10.9 / 14.5 MiB |
-| QUIC 64 B RTT (median / p99) | n/a | 240.2 / 432.2 µs | n/a / 19.4 MiB |
-| TLS handshake | 23.5 /s | 999.7 /s | 25.0 / 18.8 MiB |
+| TCP 1 GiB | 917.5 MiB/s | 2202.9 MiB/s | 10.4 / 27.4 MiB |
+| UNIX 1 GiB | 878.0 MiB/s | 2202.5 MiB/s | 10.2 / 27.2 MiB |
+| UDP 1 GiB (send / receive / loss) | 1118.5 / 1118.5 MiB/s / 0.000% | 1255.7 / 1255.6 MiB/s / 0.000% | 10.4 / 31.2 MiB |
+| TLS 1 GiB | 841.9 MiB/s | 1337.5 MiB/s | 21.0 / 29.8 MiB |
+| WS 1 GiB | n/a | 339.1 MiB/s | n/a / 28.7 MiB |
+| WSS 1 GiB | n/a | 323.1 MiB/s | n/a / 30.9 MiB |
+| QUIC 1 GiB | n/a | 507.2 MiB/s | n/a / 41.9 MiB |
+| DTLS 1 GiB | n/a | FAILED (short sink) | n/a / n/a |
+| TCP 64 B RTT (median / p99) | 92.5 / 169.7 µs | 142.0 / 208.4 µs | 5.2 / 16.5 MiB |
+| TLS 64 B RTT (median / p99) | 99.0 / 187.2 µs | 147.1 / 216.4 µs | 10.9 / 15.2 MiB |
+| QUIC 64 B RTT (median / p99) | n/a | 336.0 / 498.1 µs | n/a / 19.7 MiB |
+| DTLS 64 B RTT (median / p99) | n/a | 288.4 / 446.0 µs | n/a / 19.5 MiB |
+| TLS handshake | 23.7 /s | 930.6 /s | 25.5 / 19.2 MiB |
+| DTLS handshake | n/a | 576.8 /s | n/a / 19.4 MiB |
 
-DTLS cases (`dtls`, `dtls-rr`, `dtls-hs`) are in the runner. They are not in
-this snapshot yet.
+DTLS bulk passed none of its seven timed runs. The last reported failure
+received 1,073,540,548 of 1,073,741,824 bytes: 201,276 bytes short (0.0187%).
+The runner reports this as failed and publishes no bulk throughput or RSS
+summary. Packetization does not add reliable delivery; this result does not
+identify where the bytes were lost. The full benchmark exits with status 1
+for this case. All 20 other runnable case/implementation pairs passed;
+seven unsupported classic pairs were skipped.
+
+DTLS RTT and handshake measurements passed all seven runs at the default
+1200-byte MTU. The handshake rate includes cookie retry, a one-byte echo,
+and connection close. A DTLS datagram goodput/loss benchmark is still needed
+to measure sustained delivery independently of this exact-byte stream check.
 
 Recorded handshakes (same binaries as the table; see `meta.tls` in `host.json`):
 
 | Pairing | Used by | Version | Cipher | Group |
 |---------|---------|---------|--------|-------|
-| Go `crypto/tls` ↔ Go TLS-LISTEN | `tls`, `tls-rr`, `tls-hs` (go) | TLS 1.3 | TLS_AES_128_GCM_SHA256 | X25519MLKEM768 |
-| Distro OpenSSL 3.5.5 ↔ classic OPENSSL-LISTEN | `tls` (classic) | TLS 1.3 | TLS_AES_256_GCM_SHA384 | P-256 |
-| Go `crypto/tls` ↔ classic OPENSSL-LISTEN | `tls-rr`, `tls-hs` (classic) | TLS 1.3 | TLS_AES_128_GCM_SHA256 | P-256 |
-| quic-go ↔ Go QUIC-LISTEN | `quic`, `quic-rr` | TLS 1.3 | TLS_AES_128_GCM_SHA256 | X25519MLKEM768 |
+| Go `crypto/tls` → Go TLS-LISTEN | `tls`, `tls-rr`, `tls-hs` (go) | TLS 1.3 | TLS_AES_128_GCM_SHA256 | X25519MLKEM768 |
+| Distro OpenSSL 3.5.5 → classic OPENSSL-LISTEN | `tls` (classic) | TLS 1.3 | TLS_AES_256_GCM_SHA384 | P-256 |
+| Go `crypto/tls` → classic OPENSSL-LISTEN | `tls-rr`, `tls-hs` (classic) | TLS 1.3 | TLS_AES_128_GCM_SHA256 | P-256 |
+| quic-go → Go QUIC-LISTEN | `quic`, `quic-rr` | TLS 1.3 | TLS_AES_128_GCM_SHA256 | X25519MLKEM768 |
+| Go dtls13 → Go DTLS-LISTEN | `dtls`, `dtls-rr`, `dtls-hs` | DTLS 1.3 | TLS_AES_128_GCM_SHA256 | X25519MLKEM768 |
 
-- Go TLS/QUIC used hybrid post-quantum **X25519MLKEM768**. Classic OPENSSL used
-  **P-256** because unpatched 1.8.1.3 explicitly pins that curve.
-- Bulk TLS also used different ciphers: classic **AES-256-GCM**, Go **AES-128-GCM**.
-- `tls-hs` (classic) is a Go client to a classic listener, so that column is P-256. The Go `tls-hs` column is X25519MLKEM768. The rate gap is also classic `fork(2)` vs Go goroutines.
-- QUIC is a UDP byte tunnel (`alpn=socat`). It is not HTTP/3 and not OpenSSL.
+- Go TLS/QUIC/DTLS used hybrid post-quantum **X25519MLKEM768**. Classic
+  OPENSSL used **P-256** because unpatched 1.8.1.3 explicitly pins that curve.
+- Bulk TLS used different ciphers: classic **AES-256-GCM**, Go **AES-128-GCM**.
+- `tls-hs` (classic) uses a Go client and P-256. Its rate also includes
+  classic process creation; Go listeners use goroutines.
+- QUIC is a UDP byte tunnel (`alpn=socat`), not HTTP/3. DTLS preserves UDP's
+  unreliable delivery semantics.
 - These numbers are one machine. Run the script on your host. JSON: `host.json`.
 
 ## Refresh the committed snapshot

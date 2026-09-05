@@ -1,39 +1,46 @@
-timestamp=2026-08-31T04:40:39Z
-git=52c0a78
+timestamp=2026-09-05T15:47:48Z
+git=983f605a225fd93e8a3813988ad98d50e82ba09d
 hostname=socat-classic
 uname=Linux 7.0.0-30-generic
 cpu_model=AMD Ryzen 7 9800X3D 8-Core Processor
 nproc=6
 go_version=go version go1.27.0 linux/amd64
-go_socat_version=socat version 1.0.2-dev on 2026-08-31T04:40:39Z
+go_socat_version=socat version 1.0.3-dev on 2026-09-05T15:47:48Z
 classic_socat_version=socat version 1.8.1.3 on Aug 19 2026 12:58:55
 size_bytes=1073741824
 runs=7
 payload=aes-128-ctr (incompressible)
 tls.go_client_go_server: version=TLS 1.3 cipher=TLS_AES_128_GCM_SHA256 group=X25519MLKEM768
 tls.go_client_go_quic: version=TLS 1.3 cipher=TLS_AES_128_GCM_SHA256 group=X25519MLKEM768
+tls.go_client_go_dtls: version=DTLS 1.3 cipher=TLS_AES_128_GCM_SHA256 group=X25519MLKEM768
 tls.openssl_client_classic_server: version=TLSv1.3 cipher=TLS_AES_256_GCM_SHA384 group=P-256
 tls.go_client_classic_server: version=TLS 1.3 cipher=TLS_AES_128_GCM_SHA256 group=P-256
 
-tcp/classic: 1057.7 MiB/s (min 877.7 max 1059.3) peak_rss_kib=10736
-tcp/go: 1986.0 MiB/s (min 1975.8 max 2194.5) peak_rss_kib=26732
-unix/classic: 807.4 MiB/s (min 775.7 max 842.0) peak_rss_kib=10424
-unix/go: 1986.8 MiB/s (min 1809.4 max 1988.2) peak_rss_kib=26740
-udp/classic: send=1116.6 MiB/s receive=1116.3 MiB/s loss=0.000% duplicate=0 reordered=0 corrupt=0 peak_rss_kib=10592
-udp/go: send=1252.3 MiB/s receive=1251.8 MiB/s loss=0.000% duplicate=0 reordered=0 corrupt=0 peak_rss_kib=30752
-tls/classic: 912.5 MiB/s (min 777.4 max 917.0) peak_rss_kib=21424
-tls/go: 1248.9 MiB/s (min 1180.4 max 1254.3) peak_rss_kib=29300
+tcp/classic: 917.5 MiB/s (min 917.4 max 959.8) peak_rss_kib=10692
+tcp/go: 2202.9 MiB/s (min 2201.8 max 2203.3) peak_rss_kib=28016
+unix/classic: 878.0 MiB/s (min 841.9 max 917.6) peak_rss_kib=10468
+unix/go: 2202.5 MiB/s (min 2201.2 max 2203.1) peak_rss_kib=27900
+udp/classic: send=1118.5 MiB/s receive=1118.5 MiB/s loss=0.000% duplicate=0 reordered=0 corrupt=0 peak_rss_kib=10656
+udp/go: send=1255.7 MiB/s receive=1255.6 MiB/s loss=0.000% duplicate=0 reordered=0 corrupt=0 peak_rss_kib=31924
+tls/classic: 841.9 MiB/s (min 749.4 max 917.4) peak_rss_kib=21480
+tls/go: 1337.5 MiB/s (min 1182.9 max 1337.7) peak_rss_kib=30472
 ws/classic: skip WebSocket is not available in classic
-ws/go: 1059.2 MiB/s (min 914.2 max 1114.9) peak_rss_kib=27700
+ws/go: 339.1 MiB/s (min 328.3 max 579.4) peak_rss_kib=29344
 wss/classic: skip WebSocket is not available in classic
-wss/go: 1002.7 MiB/s (min 913.7 max 1006.7) peak_rss_kib=29896
+wss/go: 323.1 MiB/s (min 303.9 max 406.5) peak_rss_kib=31624
 quic/classic: skip QUIC is not available in classic
-quic/go: 368.9 MiB/s (min 356.0 max 375.8) peak_rss_kib=41076
-tcp-rr/classic: rtt_us median=85.5 p99=176.4 msgs_s=12727 peak_rss_kib=5320
-tcp-rr/go: rtt_us median=50.3 p99=435.3 msgs_s=17737 peak_rss_kib=13752
-tls-rr/classic: rtt_us median=91.9 p99=168.4 msgs_s=13004 peak_rss_kib=11200
-tls-rr/go: rtt_us median=98.6 p99=193.1 msgs_s=11474 peak_rss_kib=14808
+quic/go: 507.2 MiB/s (min 494.6 max 533.8) peak_rss_kib=42896
+dtls/classic: skip DTLS is not available in classic
+dtls/go: fail sink 1073540548 bytes, want 1073741824. server:
+tcp-rr/classic: rtt_us median=92.5 p99=169.7 msgs_s=10182 peak_rss_kib=5288
+tcp-rr/go: rtt_us median=142.0 p99=208.4 msgs_s=6919 peak_rss_kib=16924
+tls-rr/classic: rtt_us median=99.0 p99=187.2 msgs_s=9373 peak_rss_kib=11208
+tls-rr/go: rtt_us median=147.1 p99=216.4 msgs_s=6624 peak_rss_kib=15544
 quic-rr/classic: skip QUIC is not available in classic
-quic-rr/go: rtt_us median=240.2 p99=432.2 msgs_s=4168 peak_rss_kib=19848
-tls-hs/classic: 23.5 hs/s (min 23.4 max 23.5) peak_rss_kib=25608
-tls-hs/go: 999.7 hs/s (min 949.6 max 1010.8) peak_rss_kib=19220
+quic-rr/go: rtt_us median=336.0 p99=498.1 msgs_s=2915 peak_rss_kib=20160
+dtls-rr/classic: skip DTLS is not available in classic
+dtls-rr/go: rtt_us median=288.4 p99=446.0 msgs_s=3416 peak_rss_kib=19920
+tls-hs/classic: 23.7 hs/s (min 23.7 max 23.8) peak_rss_kib=26116
+tls-hs/go: 930.6 hs/s (min 911.7 max 951.2) peak_rss_kib=19620
+dtls-hs/classic: skip DTLS is not available in classic
+dtls-hs/go: 576.8 hs/s (min 569.8 max 586.4) peak_rss_kib=19864
