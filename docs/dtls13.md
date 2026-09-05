@@ -39,10 +39,11 @@ cannot detect bugs shared with that adapted code.
 
 - Application delivery remains unordered and unreliable; close alerts may
   be lost. Packetization adds no application retransmission.
-- Listener limits: 16 pending handshakes, 256 associations by default,
-  8 MiB queued input and 16 MiB reassembly reservations. Pre-cookie output
-  is capped at three times received bytes; migrated addresses must pass
-  the peer filter.
+- Listener limits: 16 cookie-validated pending handshakes, 256 associations
+  by default, 8 MiB queued input and 16 MiB reassembly reservations.
+  Unvalidated peers share an evictable 64-entry, 2 MiB plaintext retry cache;
+  they allocate no association, CID or per-peer goroutine. Pre-cookie output
+  is capped at three times received bytes. Migrated addresses pass the peer filter.
 - Each association has 256 input slots (655350 bytes total) and 256
   application slots (256 KiB total). Overflow is dropped. Reassembly allows
   1 MiB per message, 16 pending sequences and 2 MiB of message bodies.

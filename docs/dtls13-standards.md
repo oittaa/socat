@@ -32,6 +32,7 @@ Unqualified paths below are under `internal/dtls13/`.
 | --- | --- |
 | Records, nonce/sequence reconstruction, replay, epochs | `record.go`, `protection.go`, `session.go` |
 | Transcripts, cookies, certificates, signatures | `handshake_client.go`, `handshake_server.go`, `certificate.go`, `signature.go` |
+| Stateless cookie verification and bounded admission | `cookie.go`, `admission.go`, `listener.go` |
 | Fragmentation, ACKs, retransmissions, KeyUpdate | `fragment.go`, `flight.go`, `ack.go`, `post_handshake.go` |
 | CID pools, routing, migration, peer filters | `connection_id.go`, `listener.go`, `path.go` |
 | Algorithms and Go-default alignment | `groups.go`, `offer.go`, `algorithms_test.go` |
@@ -65,6 +66,20 @@ have identical DTLS documentation, tests and `xio-openssl.c` (checked 2026-09-05
 The pinned OpenSSL [write path](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/record/rec_layer_d1.c)
 does not split application writes into MTU-sized records; its read path
 retains tails. Automatic stream packetization is our documented endpoint policy.
+
+## Cookie admission
+
+RFC 9147 section 5.1 and RFC 9846 section 4.3.2: authenticate the source
+address/port, timestamp, selected parameters and first ClientHello hash with
+a listener-specific HMAC key. Cookies expire after 60 seconds. Reconstruct
+the exact retry transcript and reject disallowed ClientHello changes before
+allocating an association; invalid cookies receive `illegal_parameter`.
+
+The evictable plaintext cache supports fragmented ClientHellos, partial ACKs
+and unchanged retry retransmissions. Verification works without the original
+entry. One listener timer handles expiry; each entry tracks at most 128
+outstanding retry records. Tests cover spoofed floods, eviction, tampering,
+expiry, transcript restoration, loss/reordering and forged plaintext ACKs.
 
 ## Handshake key retention
 

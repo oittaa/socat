@@ -12,6 +12,7 @@ type serverHandshake struct {
 	phase                          byte
 	first                          clientHello
 	firstHello, retryHello, cookie []byte
+	firstHelloHash                 []byte
 	retried                        bool
 	selectedSuite, selectedGroup   uint16
 	groupRequested                 bool
@@ -127,16 +128,7 @@ func (h *serverHandshake) retryRequest() ([]handshakeMessage, error) {
 	if _, err := rand.Read(h.cookie); err != nil {
 		return nil, err
 	}
-	cookie := wireWriter{}
-	cookie.vector16(h.cookie)
-	ext := extensions{extSupportedVersions: {0xfe, 0xfc}, extCookie: cookie.data}
-	if h.groupRequested {
-		group := wireWriter{}
-		group.uint16(h.selectedGroup)
-		ext[extKeyShare] = group.data
-	}
-	hello := serverHello{random: retryRandom, suite: h.selectedSuite, extensions: ext}
-	body, err := hello.marshal()
+	body, err := retryHelloBody(h.selectedSuite, h.selectedGroup, h.groupRequested, h.cookie)
 	if err != nil {
 		return nil, err
 	}
@@ -150,6 +142,18 @@ func (h *serverHandshake) retryRequest() ([]handshakeMessage, error) {
 	}
 	h.retried = true
 	return []handshakeMessage{m}, nil
+}
+
+func retryHelloBody(suite, selectedGroup uint16, groupRequested bool, value []byte) ([]byte, error) {
+	cookie := wireWriter{}
+	cookie.vector16(value)
+	ext := extensions{extSupportedVersions: {0xfe, 0xfc}, extCookie: cookie.data}
+	if groupRequested {
+		group := wireWriter{}
+		group.uint16(selectedGroup)
+		ext[extKeyShare] = group.data
+	}
+	return (serverHello{random: retryRandom, suite: suite, extensions: ext}).marshal()
 }
 
 func (h *serverHandshake) serverFlight(clientMessage handshakeMessage, offer clientOffer) ([]handshakeMessage, error) {
@@ -196,7 +200,12 @@ func (h *serverHandshake) serverFlight(clientMessage handshakeMessage, offer cli
 	if err != nil {
 		return nil, err
 	}
-	transcript, err := retryTranscript(h.selectedSuite, h.firstHello, h.retryHello, second)
+	var transcript []byte
+	if h.firstHelloHash != nil {
+		transcript, err = retryTranscriptHash(h.selectedSuite, h.firstHelloHash, h.retryHello, second)
+	} else {
+		transcript, err = retryTranscript(h.selectedSuite, h.firstHello, h.retryHello, second)
+	}
 	if err != nil {
 		return nil, err
 	}

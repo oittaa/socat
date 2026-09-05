@@ -134,13 +134,13 @@ func TestListenerBoundsPendingHandshakes(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = l.Close() })
-	m := handshakeMessage{typ: msgClientHello, body: make([]byte, maxHandshakeBody)}
+	m := handshakeMessage{typ: msgClientHello, body: make([]byte, 4096)}
 	fragment := fragmentFor(t, m, 0, 1)
 	packet, err := encodePlainRecord(contentHandshake, 0, fragment)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for port := uint16(1); port <= 32; port++ {
+	for port := uint16(1); port <= 96; port++ {
 		l.receive(packet, netip.AddrPortFrom(netip.MustParseAddr("192.0.2.1"), port))
 	}
 	l.mu.Lock()
@@ -149,8 +149,14 @@ func TestListenerBoundsPendingHandshakes(t *testing.T) {
 		pending = append(pending, c)
 	}
 	l.mu.Unlock()
-	if len(pending) != 16 {
-		t.Fatalf("pending handshake admission bound: %d", len(pending))
+	if len(pending) != 0 {
+		t.Fatalf("unverified fragments allocated %d associations", len(pending))
+	}
+	l.mu.Lock()
+	entries, routes := len(l.hellos), len(l.cids)
+	l.mu.Unlock()
+	if entries == 0 || entries > maxHelloEntries || routes != 0 || l.helloBudget.used.Load() > l.helloBudget.limit {
+		t.Fatal("unverified fragment cache exceeded its bounds or allocated CIDs")
 	}
 	if err := l.Close(); err != nil {
 		t.Fatal(err)
@@ -158,7 +164,7 @@ func TestListenerBoundsPendingHandshakes(t *testing.T) {
 	for _, c := range pending {
 		<-c.done
 	}
-	if l.packets.used.Load() != 0 || l.fragments.used.Load() != 0 {
+	if l.packets.used.Load() != 0 || l.fragments.used.Load() != 0 || l.helloBudget.used.Load() != 0 {
 		t.Fatal("abandoned incomplete handshakes leaked their memory budget")
 	}
 }

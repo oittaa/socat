@@ -388,6 +388,10 @@ func (s *session) receiveHandshake(number recordNumber, body []byte, now time.Ti
 			}
 		}
 	}
+	return s.processHandshakes(now)
+}
+
+func (s *session) processHandshakes(now time.Time) error {
 	for {
 		m, ok := s.reassembly.pop()
 		if !ok {

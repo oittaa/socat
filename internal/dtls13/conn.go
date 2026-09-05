@@ -68,6 +68,7 @@ type Conn struct {
 	packetBudget                *memoryBudget
 	sendingApplication          *connCommand
 	handshakeCredit             uint64
+	cookieValidated             bool
 }
 
 // Client establishes a DTLS 1.3 association. It takes ownership of transport
@@ -158,7 +159,7 @@ func (c *Conn) releasePacket(size int) {
 }
 
 func (c *Conn) sendPacket(data []byte) error {
-	if c.session != nil && !c.session.handshake.client && !c.session.handshake.complete && c.session.handshake.schedule == nil {
+	if c.session != nil && !c.cookieValidated && !c.session.handshake.client && !c.session.handshake.complete && c.session.handshake.schedule == nil {
 		if uint64(len(data)) > c.handshakeCredit {
 			return nil
 		}
@@ -226,6 +227,17 @@ func (c *Conn) run() {
 		close(c.done)
 	}()
 	started := time.Now()
+	select {
+	case <-c.stop:
+		return
+	default:
+	}
+	if err := s.processHandshakes(started); err != nil {
+		abort = true
+		_, _ = s.sendRecord(s.currentWriteEpoch(), contentAlert, errorAlert(err))
+		c.fail(err)
+		return
+	}
 	var handshakeDeadline time.Time
 	if !s.handshake.config.DisableHandshakeTimeout {
 		handshakeDeadline = started.Add(s.handshake.config.HandshakeTimeout)

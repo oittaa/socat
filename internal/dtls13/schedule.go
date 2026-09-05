@@ -109,9 +109,20 @@ func retryTranscript(id uint16, firstClientHello, retry, secondClientHello []byt
 	}
 	h := suite.hash()
 	_, _ = h.Write(firstClientHello)
+	return retryTranscriptHash(id, h.Sum(nil), retry, secondClientHello)
+}
+
+func retryTranscriptHash(id uint16, firstHash, retry, secondClientHello []byte) ([]byte, error) {
+	suite, err := suiteFor(id)
+	if err != nil {
+		return nil, err
+	}
+	if len(firstHash) != suite.hash().Size() {
+		return nil, errKeyMaterial
+	}
 	w := wireWriter{}
 	w.uint8(msgMessageHash)
-	w.vector24(h.Sum(nil))
+	w.vector24(firstHash)
 	w.data = append(w.data, retry...)
 	w.data = append(w.data, secondClientHello...)
 	return w.result()

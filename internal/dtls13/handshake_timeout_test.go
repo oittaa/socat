@@ -316,12 +316,17 @@ func TestListenerHandshakeReceiveTimeoutIsolation(t *testing.T) {
 		a, b := handshakeConfigs(t)
 		a.HandshakeReadTimeout, b.HandshakeReadTimeout = time.Second, time.Second
 		clientPacket, serverPacket := newHandshakePacketConn(10001), newHandshakePacketConn(10002)
+		stalledPeer := netip.MustParseAddrPort("127.0.0.1:10003")
+		stalledWire := make(chan []byte, 256)
 		clientPacket.send = func(data []byte, _ netip.AddrPort) {
 			serverPacket.incoming <- incomingPacket{data, clientPacket.addr}
 		}
 		serverPacket.send = func(data []byte, peer netip.AddrPort) {
-			if peer == clientPacket.addr {
+			switch peer {
+			case clientPacket.addr:
 				clientPacket.incoming <- incomingPacket{data, serverPacket.addr}
+			case stalledPeer:
+				stalledWire <- data
 			}
 		}
 		listener, err := Listen(serverPacket, b)
@@ -340,15 +345,7 @@ func TestListenerHandshakeReceiveTimeoutIsolation(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		stalledPeer := netip.MustParseAddrPort("127.0.0.1:10003")
-		serverPacket.incoming <- incomingPacket{handshakeFragmentPacket(t, msgClientHello, 0), stalledPeer}
-		synctest.Wait()
-		listener.mu.Lock()
-		stalled := listener.handshakes[stalledPeer]
-		listener.mu.Unlock()
-		if stalled == nil || listener.fragments.used.Load() == 0 {
-			t.Fatal("partial ClientHello did not create a pending association")
-		}
+		stalled := startStalledCookieHandshake(t, listener, serverPacket, a, stalledPeer, stalledWire)
 		for range 3 {
 			advanceHandshakeClock(time.Second / 4)
 			if _, err := client.Write([]byte("other association")); err != nil {
@@ -382,12 +379,11 @@ func TestListenerHandshakeReceiveTimeoutIsolation(t *testing.T) {
 		if n, err := client.Read(buf); err != nil || string(buf[:n]) != "still alive" {
 			t.Fatalf("established association after timeout: %q, %v", buf[:n], err)
 		}
-		// A new partial handshake still reaches admission after the old one is removed.
-		serverPacket.incoming <- incomingPacket{handshakeFragmentPacket(t, msgClientHello, 0), stalledPeer}
-		synctest.Wait()
-		listener.mu.Lock()
-		replacement := listener.handshakes[stalledPeer]
-		listener.mu.Unlock()
+		// A newly validated cookie reaches admission after the old handshake is removed.
+		for len(stalledWire) != 0 {
+			<-stalledWire
+		}
+		replacement := startStalledCookieHandshake(t, listener, serverPacket, a, stalledPeer, stalledWire)
 		if replacement == nil || replacement == stalled {
 			t.Fatal("listener did not admit a fresh association after timeout")
 		}

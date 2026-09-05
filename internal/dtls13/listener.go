@@ -2,28 +2,35 @@ package dtls13
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"net"
 	"net/netip"
 	"sync"
+	"time"
 )
 
 // Listener owns one UDP transport. Closing it also closes its associations.
 type Listener struct {
-	mu          sync.Mutex
-	transport   *packetTransport
-	config      *Config
-	accepted    chan *Conn
-	done        chan struct{}
-	acceptDone  chan struct{}
-	acceptErr   error
-	err         error
-	connections map[*Conn]bool
-	handshakes  map[netip.AddrPort]*Conn
-	established map[netip.AddrPort]*Conn
-	cids        map[string]*Conn
-	packets     memoryBudget
-	fragments   memoryBudget
+	mu                sync.Mutex
+	transport         *packetTransport
+	config            *Config
+	accepted          chan *Conn
+	done              chan struct{}
+	acceptDone        chan struct{}
+	acceptErr         error
+	err               error
+	connections       map[*Conn]bool
+	handshakes        map[netip.AddrPort]*Conn
+	established       map[netip.AddrPort]*Conn
+	cids              map[string]*Conn
+	packets           memoryBudget
+	fragments         memoryBudget
+	cookies           cookieKey
+	hellos            map[netip.AddrPort]*pendingHello
+	helloBudget       memoryBudget
+	helloWake         chan struct{}
+	nextPlainSequence uint64
 }
 
 // Listen takes ownership of transport after validating the configuration.
@@ -40,8 +47,14 @@ func Listen(transport net.PacketConn, config *Config) (*Listener, error) {
 	}
 	l := &Listener{config: prepared, accepted: make(chan *Conn, prepared.MaxConnections), done: make(chan struct{}), acceptDone: make(chan struct{}),
 		connections: make(map[*Conn]bool), handshakes: make(map[netip.AddrPort]*Conn), established: make(map[netip.AddrPort]*Conn), cids: make(map[string]*Conn),
-		packets: memoryBudget{limit: 8 << 20}, fragments: memoryBudget{limit: 16 << 20}}
+		packets: memoryBudget{limit: 8 << 20}, fragments: memoryBudget{limit: 16 << 20},
+		hellos: make(map[netip.AddrPort]*pendingHello), helloBudget: memoryBudget{limit: 2 << 20},
+		helloWake: make(chan struct{}, 1)}
+	if _, err := rand.Read(l.cookies[:]); err != nil {
+		return nil, err
+	}
 	l.transport = newPacketTransport(transport, l.receive, l.shutdown)
+	go l.runHelloTimers()
 	l.transport.start()
 	return l, nil
 }
@@ -86,30 +99,19 @@ func (l *Listener) receive(data []byte, peer netip.AddrPort) {
 				return
 			}
 		}
-		if connection == nil && len(l.connections) < l.config.MaxConnections && len(l.handshakes) < 16 {
-			state, err := preparedHandshakeState(l.config, false)
-			if err == nil && (len(state.localCID) == 0 || l.cids[string(state.localCID)] == nil) {
-				connection = newConn(peer)
-				connection.transport, connection.packetBudget = l.transport, &l.packets
-				h := &serverHandshake{handshakeState: state, phase: msgClientHello}
-				s := newSession(state, h.handle, connection.sendPacket)
-				s.reassembly.budget = &l.fragments
-				connection.attach(s)
-				connection.onReady, connection.onClose, connection.onPeerChanged = l.establish, l.remove, l.peerChanged
-				s.setLocalCIDs = func(ids [][]byte) error { return l.setCIDs(connection, ids) }
-				l.connections[connection] = true
-				l.handshakes[peer] = connection
-				if len(state.localCID) != 0 {
-					l.cids[string(state.localCID)] = connection
-				}
-				go connection.run()
-			}
+		if connection == nil {
+			l.receiveHello(data, peer, time.Now())
+			l.mu.Unlock()
+			return
 		}
 	}
 	if connection == nil && !initial {
 		connection = l.handshakes[peer]
 		established = l.established[peer]
 		if connection == nil {
+			if l.hellos[peer] != nil {
+				l.receiveHello(data, peer, time.Now())
+			}
 			connection, established = established, nil
 		}
 	}
@@ -201,6 +203,10 @@ func (l *Listener) shutdown(err error) {
 	}
 	l.err = err
 	close(l.done)
+	for peer := range l.hellos {
+		l.removeHello(peer)
+	}
+	clear(l.cookies[:])
 	connections := make([]*Conn, 0, len(l.connections))
 	for c := range l.connections {
 		connections = append(connections, c)
@@ -254,6 +260,9 @@ func (l *Listener) StopAccept() error {
 	}
 	l.acceptErr = net.ErrClosed
 	close(l.acceptDone)
+	for peer := range l.hellos {
+		l.removeHello(peer)
+	}
 	var pending []*Conn
 	for c, handshaking := range l.connections {
 		if handshaking {
