@@ -243,7 +243,7 @@ func FuzzRecord(f *testing.F) {
 	})
 }
 
-func testTrafficKeys(t *testing.T) *trafficKeys {
+func testTrafficKeys(t testing.TB) *trafficKeys {
 	t.Helper()
 	keys, err := newTrafficKeys(aes128GCM, make([]byte, 32))
 	if err != nil {
