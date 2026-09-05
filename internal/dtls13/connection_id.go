@@ -135,7 +135,8 @@ func parseCIDs(body []byte) ([][]byte, bool, error) {
 }
 
 func (s *session) receiveCIDs(body []byte) error {
-	if !s.handshake.cidNegotiated || len(s.handshake.peerCID) == 0 {
+	// Eligibility depends on the handshake, not a later zero-length rotation.
+	if !s.handshake.peerCIDUpdates {
 		return errUnexpectedMessage
 	}
 	ids, immediate, err := parseCIDs(body)

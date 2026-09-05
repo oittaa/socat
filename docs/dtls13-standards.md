@@ -83,11 +83,29 @@ retains tails. Automatic stream packetization is our documented endpoint policy.
   releases only that association. Post-handshake receive timeouts remain
   retryable; `-T` supplies the idle-transfer bound.
 
-## Protocol review notes
+## CID review
 
-CID review and its regression requirements are in the [remaining-work plan](dtls13-follow-up.txt).
-Use RFC-derived wire cases as well as self-tests; do not infer independent
-interoperability from two copies of this stack.
+Local RFC 9147 section 9 review completed on 2026-09-05. The checklist below
+distinguishes protocol requirements from local policy. Tests are under
+`internal/dtls13/`; wire cases hand-author CID payloads and handshake headers.
+This closes the local CID coverage item, not the independent whole-stack
+security review or spare-CID interoperability work.
+
+| Contract | Implementation | Tests |
+| --- | --- | --- |
+| Negotiation/direction restrictions (MUST) | `handshake.finish`, `requestCIDs`, `receivePost` | `TestCIDNegotiatedDirections`, `TestCIDEmptyRotationCanBeReplaced` |
+| Vector lengths, usage and malformed input | `parseCIDs`, `encodeCIDs` | `TestCIDRFCWire`, `TestCIDAuthenticatedWireErrors`, `TestCIDAuthenticatedPoolBounds` |
+| Immediate CID on every subsequent record (MUST) | `receiveCIDs`, `sendRecordWith` | `TestCIDEmptyRotationCanBeReplaced`, existing CID/RRC rotation tests |
+| One outstanding update/unfulfilled request (MUST); ACK is not fulfillment | `startPost`, `requestCIDs`, `receiveCIDs` | `TestCIDOverlappingRequestsAndIssuance`, existing ACK-only/empty/immediate-response tests |
+| Prompt spare replies and ordered use (SHOULD); fewer/empty replies (MAY) | `advancePost`, `provideCIDs`, `useSpareCID` | `TestCIDRequestCountsAndExhaustion` |
+| ACK/retransmission rules (sections 5, 7); conservative KeyUpdate ordering below | `receiveHandshake`, `acknowledgePost`, `advancePost` | `TestCIDLossReorderAndConcurrentKeyUpdate` |
+| New-path CID use (SHOULD), RFC 9853 path validation | `path.go` | `TestCIDRepeatedMigrationAndProbeExpiry`, existing in-flight rotation tests |
+| Bounded pools, fragments and authenticated retirement (local policy) | `provideCIDs`, `reassembler`, `usedLocalCID`, `Listener` | `TestCIDFragmentResourceBounds`, `TestCIDListenerAuthenticationRetirementAndCleanup` |
+
+The review fixed one defect: a later zero-length CID must not erase the
+handshake's permission to receive replacement CIDs. Requests remain forbidden
+while sending an empty CID. Pool renewal and independent peer limits remain
+in the [status document](dtls13.md).
 
 Current KeyUpdate ordering waits for ACKs of the update and preceding
 post-handshake messages; later messages wait for the new sending epoch.

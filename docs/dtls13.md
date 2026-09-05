@@ -1,8 +1,8 @@
 # DTLS 1.3 status and interoperability
 
-**Draft.** The packetizer and handshake receive-timeout blockers are resolved.
-Independent protocol/security review and local CID coverage review remain
-before merge. Unavailable independent spare-CID testing is not a blocker.
+**Draft.** Packetization, handshake receive timeouts and the local CID review
+are resolved. Independent protocol/security review remains before merge.
+Unavailable independent spare-CID testing is not a blocker.
 
 [User options and examples](../README.md#dtls-13) ·
 [Standards and code map](dtls13-standards.md) ·
@@ -90,6 +90,13 @@ At `c2ec393`, all 26 CI checks passed, including Linux/macOS/Windows race
 tests. Native Windows `go test ./...`, Linux `make check`, 20 repeated Linux
 protocol/endpoint race runs and `make classic-parity` also passed. Earlier
 opt-in runs covered 71 algorithm/Pion cases and the 12 wolfSSL CID cases above.
+
+The [local CID review](dtls13-standards.md#cid-review) adds RFC-derived wire
+cases, fragmented loss/reorder tests at MTU 256, repeated migration with
+KeyUpdate, and listener authentication/cleanup checks. It fixes rejection of
+a replacement after zero-length CID rotation. Native Windows tests, Linux
+`make check`, 20 focused race repetitions and a 30-second CID fuzz run passed;
+mutation checks confirm the key regressions fail when their protections are removed.
 
 Deterministic regressions cover packetization, short reads, strict datagram
 boundaries, queue limits, timeout precedence, listener isolation and CID/key

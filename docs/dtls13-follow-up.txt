@@ -9,11 +9,6 @@ Merge
   internal/xio/dtlsopen, including RFC 9846 section 1.2. Observable
   regression per defect. Do not relax certificate checks or add
   DTLS 1.2/browser workarounds.
-- Fill local CID coverage gaps against RFC 9147 section 9: request/response,
-  empty/bounded replies, spare consumption, rotation/retirement, loss/reorder,
-  concurrent KeyUpdate, malformed messages and resource bounds. Include
-  RFC-derived wire cases independent of our encoder. RFC-based review is
-  required even though spare-CID interoperability is not a merge blocker.
 
 Do not undo
 

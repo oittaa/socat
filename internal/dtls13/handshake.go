@@ -16,6 +16,7 @@ type handshakeState struct {
 	state                                tls.ConnectionState
 	localCID, peerCID                    []byte
 	cidNegotiated, rrc                   bool
+	peerCIDUpdates                       bool
 	clientApplication, serverApplication []byte
 	complete                             bool
 }
@@ -99,6 +100,7 @@ func (h *handshakeState) finish() error {
 		}
 	}
 	h.complete = true
+	h.peerCIDUpdates = h.cidNegotiated && len(h.peerCID) != 0
 	return nil
 }
 

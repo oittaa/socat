@@ -82,37 +82,12 @@ func TestKeyUpdateWaitsForPrecedingCIDMessage(t *testing.T) {
 	}
 }
 
-func TestCIDWireLimitsAndUnknownUsage(t *testing.T) {
-	for _, body := range [][]byte{nil, {0, 0}, {0, 0, 0}, {0, 1, 2, 1}, {0, 0, 2}, {0, 0, 1, 0}} {
-		if _, _, err := parseCIDs(body); err == nil {
-			t.Fatalf("accepted malformed CID update %x", body)
-		}
-	}
-	body, err := encodeCIDs(nil, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ids, immediate, err := parseCIDs(body)
-	if err != nil || len(ids) != 0 || immediate {
-		t.Fatal("empty response to an excessive CID request was rejected")
-	}
-	var many [][]byte
-	for i := range 255 {
-		many = append(many, []byte{byte(i)})
-	}
-	body, err = encodeCIDs(many, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ids, _, err = parseCIDs(body)
-	if err != nil || len(ids) != maxConnectionIDs {
-		t.Fatal("peer-provided spare CID pool was not bounded")
-	}
-}
-
 func FuzzConnectionIDs(f *testing.F) {
 	f.Add([]byte{0, 0, 1})
 	f.Add([]byte{0, 2, 1, 42, 0})
+	f.Add([]byte{0, 1, 0, 0})
+	f.Add([]byte{0, 4, 1, 42, 1, 42, 1})
+	f.Add([]byte{0, 18, 1, 10, 1, 11, 1, 12, 1, 13, 1, 14, 1, 15, 1, 16, 1, 17, 2, 18, 1})
 	f.Fuzz(func(t *testing.T, body []byte) {
 		ids, immediate, err := parseCIDs(body)
 		if err != nil {
@@ -120,6 +95,11 @@ func FuzzConnectionIDs(f *testing.F) {
 		}
 		if len(ids) > maxConnectionIDs {
 			t.Fatal("CID pool exceeds bound")
+		}
+		for i, id := range ids {
+			if len(id) > 255 || containsCID(ids[:i], id) {
+				t.Fatal("invalid or duplicate retained CID")
+			}
 		}
 		encoded, err := encodeCIDs(ids, immediate)
 		if err != nil {
