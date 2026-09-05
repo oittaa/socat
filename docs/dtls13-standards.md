@@ -119,7 +119,36 @@ Mutation checks demonstrate failures without the adapter, remainder buffering,
 strict datagram selection, and the larger packet queue. Rerun the five
 unmodified official DTLS scorecard names after changes;
 record actual results instead of assuming all failures share this cause.
-`RCVTIMEO_DTLS` remains a separate socket-timeout investigation.
+
+## Handshake receive-timeout contract
+
+Official `doc/socat.yo` at release `12c08bf66d709fba17035ce95d85bd218428d9ba`
+and master `af5388c898c7bb60997935aee93c223deba60c4a` documents `so-rcvtimeo`
+as a receive wait and explicitly names DTLS negotiation as a use case. The
+documentation and `RCVTIMEO_DTLS` test are identical at these revisions.
+The unmodified test requires a silent client handshake to remain pending
+without the option and to exit on its own with the option. Its historical
+OpenSSL retry-count comment and scaled test delays are not the interface.
+
+`dtlsopen` maps `RecvTimeoutFromSpec` to `Config.HandshakeReadTimeout`. Zero
+disables this additional bound. `Conn.run` arms it from the first receive
+wait and uses its existing timer, independently for each association. Do not
+set a read deadline on the listener's shared `PacketConn`.
+
+Refresh after reception passes peer, record framing, and CID routing checks,
+including incomplete fragments, ACKs, and duplicate records. This is a receive
+wait, not a timer measuring handshake state transitions. Record authentication
+and replay checks still apply normally; refreshing the wait does not accept
+application data. Outgoing retransmissions, wakeups, malformed framing,
+wrong-peer packets, and traffic routed to another CID do not refresh it.
+The absolute handshake deadline and protocol retransmission limits remain.
+
+Expiry returns `ErrHandshakeReadTimeout` through ordinary association cleanup.
+It wraps a deadline error but has no stream `Retryable` marker. Explicit
+`retry` / `forever` can start another connection attempt. Failed listener
+handshakes release their routes and memory without ending Accept or closing
+the shared transport. Stop applying this timer once negotiation completes;
+the existing stream receive-timeout retry behavior remains unchanged.
 
 ## Spare-CID assurance and reference limitations
 

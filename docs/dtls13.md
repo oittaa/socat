@@ -1,8 +1,9 @@
 # DTLS 1.3 implementation
 
-Status: draft; default stream/file-transfer sizing is resolved. Independent
-protocol/security review remains a merge blocker. Independent spare-CID issuance/replenishment
-testing is a follow-up when reference peers support it, not a merge blocker.
+Status: draft; default stream/file-transfer sizing and handshake receive timeouts
+are resolved. Independent protocol/security review remains a merge blocker.
+Independent spare-CID issuance/replenishment testing is a follow-up when reference
+peers support it, not a merge blocker.
 RFC-based review and local regression coverage remain required. Algorithm
 support and scoped validation are described below.
 
@@ -51,7 +52,7 @@ The current listener admits at most 16 concurrent handshakes and defaults to
 peer address, limits pre-cookie responses to three times received bytes,
 caps queued encrypted packets at 8 MiB per listener and reassembly reservations
 at 16 MiB, and applies the configured handshake deadline. Each association has
-ten queued encrypted datagrams and sixteen queued application datagrams;
+256 queued encrypted datagrams and 256 queued application datagrams;
 overflow is dropped, as with a UDP receive buffer. CID pools are bounded to
 eight identifiers, plus one temporary identifier during immediate rotation.
 CID/RRC address changes must pass the listener's peer-address filter.
@@ -290,9 +291,9 @@ Checks completed on 2026-09-05:
 - Linux `make classic-parity`: no missing/unexpected interface names or alias
   mismatches, and no drift from the reviewed official master. This is an
   interface audit, not evidence of classic DTLS 1.3 interoperability.
-- After packetization, the two official default-buffer DTLS file-transfer
-  cases pass. The two explicit DTLS 1.2 cases and `RCVTIMEO_DTLS` still fail;
-  the latter reports `not timeout`. The run completed without a shard timeout.
+- After packetization and the handshake receive-timeout fix, both official
+  default-buffer DTLS file-transfer cases and `RCVTIMEO_DTLS` pass. Only the
+  two explicit DTLS 1.2 cases fail. The run completed without a shard timeout.
   Full historical scorecard snapshots were not replaced by this subset. See
   [the current branch results](../testdata/scorecard/README.md#dtls-13-branch-checks-2026-09-05).
 - Packetizer validation includes Windows `go test ./...`, Linux `make check`,
@@ -304,6 +305,14 @@ Checks completed on 2026-09-05:
   changing send capacity, and queue memory limits. Reverting packetization,
   read buffering, strict UDP selection, or the input-queue fix produces
   corresponding regression failures.
+- Handshake receive-timeout validation includes native Windows `go test ./...`,
+  Linux `make check`, twenty repeated Linux protocol/endpoint race runs, and
+  classic parity. Virtual-clock tests exercise silence, outgoing retransmissions,
+  fragments, ACKs, duplicates, wrong peers/CIDs, disabled and absolute deadlines,
+  listener isolation/cleanup, and a complete paced large-certificate handshake.
+  Endpoint tests preserve post-handshake retry behavior. Reverting the timer or
+  endpoint option mapping fails the corresponding regression; refreshing only
+  after complete handshake messages makes the fragmented-certificate test fail.
 - Cross-builds for macOS arm64/amd64 and Linux/Windows 386. Native macOS tests
   remain for the repository CI matrix.
 - Independent Python schedule vectors and Go fuzzing of records (6.1 million

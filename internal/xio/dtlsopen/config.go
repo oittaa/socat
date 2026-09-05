@@ -57,12 +57,17 @@ func endpointConfig(s parse.Spec, host string, server bool) (*dtls13.Config, err
 	if err != nil {
 		return nil, err
 	}
+	receiveTimeout, err := xio.RecvTimeoutFromSpec(s)
+	if err != nil {
+		return nil, err
+	}
 	c := &dtls13.Config{
 		Certificates: tc.Certificates, RootCAs: tc.RootCAs, ClientCAs: tc.ClientCAs,
 		ServerName: tc.ServerName, ClientAuth: tc.ClientAuth,
 		InsecureSkipVerify:    tc.InsecureSkipVerify,
 		VerifyPeerCertificate: tc.VerifyPeerCertificate, VerifyConnection: tc.VerifyConnection,
 		HandshakeTimeout:        xio.HandshakeTimeout(s),
+		HandshakeReadTimeout:    receiveTimeout,
 		DisableHandshakeTimeout: xio.HandshakeTimeout(s) == 0,
 	}
 	if s.HasOption("alpn") {

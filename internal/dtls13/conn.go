@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/netip"
@@ -12,6 +13,9 @@ import (
 	"sync"
 	"time"
 )
+
+// ErrHandshakeReadTimeout ends an association after a handshake receive wait expires.
+var ErrHandshakeReadTimeout = fmt.Errorf("dtls: handshake receive timeout: %w", os.ErrDeadlineExceeded)
 
 type incomingPacket struct {
 	data []byte
@@ -221,9 +225,10 @@ func (c *Conn) run() {
 		}
 		close(c.done)
 	}()
+	started := time.Now()
 	var handshakeDeadline time.Time
 	if !s.handshake.config.DisableHandshakeTimeout {
-		handshakeDeadline = time.Now().Add(s.handshake.config.HandshakeTimeout)
+		handshakeDeadline = started.Add(s.handshake.config.HandshakeTimeout)
 	}
 	timer := time.NewTimer(time.Hour)
 	defer timer.Stop()
@@ -231,6 +236,24 @@ func (c *Conn) run() {
 	ready := false
 	for {
 		now := time.Now()
+		waitDeadline := handshakeDeadline
+		waitErr := error(context.DeadlineExceeded)
+		if !s.handshake.complete {
+			if timeout := s.handshake.config.HandshakeReadTimeout; timeout > 0 {
+				lastReceive := s.handshakeReceived
+				if lastReceive.IsZero() {
+					lastReceive = started
+				}
+				if deadline := lastReceive.Add(timeout); waitDeadline.IsZero() || deadline.Before(waitDeadline) {
+					waitDeadline, waitErr = deadline, ErrHandshakeReadTimeout
+				}
+			}
+			// Check before retransmitting or consuming more queued traffic.
+			if !waitDeadline.IsZero() && !now.Before(waitDeadline) {
+				c.fail(waitErr)
+				return
+			}
+		}
 		if err := s.tick(now); err != nil {
 			abort = !errors.Is(err, net.ErrClosed)
 			c.fail(err)
@@ -257,8 +280,8 @@ func (c *Conn) run() {
 			}
 		}
 		deadline := s.deadline()
-		if !ready && !handshakeDeadline.IsZero() && (deadline.IsZero() || handshakeDeadline.Before(deadline)) {
-			deadline = handshakeDeadline
+		if !ready && !waitDeadline.IsZero() && (deadline.IsZero() || waitDeadline.Before(deadline)) {
+			deadline = waitDeadline
 		}
 		var timerC <-chan time.Time
 		if !deadline.IsZero() {
@@ -273,10 +296,6 @@ func (c *Conn) run() {
 		case <-c.stop:
 			return
 		case <-timerC:
-			if !ready && !handshakeDeadline.IsZero() && !time.Now().Before(handshakeDeadline) {
-				c.fail(context.DeadlineExceeded)
-				return
-			}
 		case <-c.wake:
 		case pending = <-commands:
 		case packet := <-c.incoming:

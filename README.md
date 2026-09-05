@@ -281,6 +281,13 @@ defaults to 30 seconds; zero removes that deadline while retaining protocol
 retransmission limits. The server admits up to 16 pending handshakes and 256
 associations, with bounded packet and reassembly queues.
 
+`so-rcvtimeo` / `rcvtimeo` also bounds each receive wait during the handshake;
+zero or omission disables this additional timeout. Received fragments, ACKs,
+and retransmissions restart the wait; the absolute `handshake-timeout` still
+applies. Expiration ends that connection attempt, subject to `retry` / `forever`.
+After negotiation, receive timeouts remain retryable during transfer; use `-T`
+to terminate an idle transfer.
+
 Only DTLS 1.3 is negotiated, including when a lower `min-version` is supplied.
 A `max-version` below DTLS 1.3 is rejected. `cipher` / `ciphers` retains its
 TLS 1.2 meaning and does not select DTLS 1.3 suites; the supported suites are

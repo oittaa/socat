@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/dtls13"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/testcert"
@@ -197,6 +198,7 @@ func TestDTLSConfigurationOptions(t *testing.T) {
 	for _, options := range []string{
 		"method=DTLS1.2", "max-version=DTLS1.2", "min-version=TLS1.3",
 		"dtls-mtu=255", "dtls-mtu=65508", "alpn=",
+		"so-rcvtimeo=-1", "rcvtimeo=invalid",
 	} {
 		if _, err := endpointConfig(spec(t, "DTLS:localhost:443,verify=0,"+options), "localhost", false); err == nil {
 			t.Errorf("accepted invalid options %q", options)
@@ -208,6 +210,64 @@ func TestDTLSConfigurationOptions(t *testing.T) {
 	}
 	if !cfg.DisableMigration || !cfg.DisableHandshakeTimeout {
 		t.Fatal("explicit disabled migration/handshake timeout was lost")
+	}
+}
+
+func TestDTLSHandshakeReceiveTimeout(t *testing.T) {
+	peer, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = peer.Close() }()
+	for _, option := range []string{"so-rcvtimeo=0.05", "rcvtimeo=0.05,retry=1,interval=0"} {
+		t.Run(option, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			o, err := xio.OpenSpec(ctx, spec(t, "DTLS:"+peer.LocalAddr().String()+",verify=0,handshake-timeout=0,"+option), xio.ModeRDWR, nil)
+			if o != nil {
+				_ = o.Close()
+			}
+			if !errors.Is(err, dtls13.ErrHandshakeReadTimeout) {
+				t.Fatalf("blackhole handshake = %v; want receive timeout", err)
+			}
+		})
+	}
+}
+
+func TestDTLSReceiveTimeoutAfterHandshakeIsRetryable(t *testing.T) {
+	serverOptions, clientOptions := credentials(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	server, err := xio.OpenSpec(ctx, spec(t, "DTLS-SERVER:0,bind=127.0.0.1,fork,so-rcvtimeo=1"+serverOptions), xio.ModeRDWR, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = server.Close() }()
+	client, err := xio.OpenSpec(ctx, spec(t, "DTLS:"+server.Listener.Addr().String()+",so-rcvtimeo=1"+clientOptions), xio.ModeRDWR, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = client.Close() }()
+	peer, err := xio.AcceptWithTimeout(ctx, server.Listener, 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = peer.Close() }()
+	stop := context.AfterFunc(ctx, func() { _ = client.Close(); _ = peer.Close() })
+	defer stop()
+	buffer := make([]byte, 64)
+	for range 2 {
+		_, err := client.Stream.Read(buffer)
+		var retryable interface{ Retryable() bool }
+		if !errors.As(err, &retryable) || !retryable.Retryable() {
+			t.Fatalf("idle application read must remain retryable: %v", err)
+		}
+	}
+	if _, err := peer.Write([]byte("after idle reads")); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := client.Stream.Read(buffer); err != nil || string(buffer[:n]) != "after idle reads" {
+		t.Fatalf("read after receive timeouts = %q, %v", buffer[:n], err)
 	}
 }
 

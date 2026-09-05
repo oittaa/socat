@@ -26,14 +26,34 @@ This does not add application reliability or remove overload drops.
 
 On 2026-09-05, the unmodified official OPENSSL_DTLS_TO_SERVER and
 OPENSSL_DTLS_TO_CLIENT cases both passed with default buffers. The two explicit
-DTLS 1.2 cases still fail on version, and RCVTIMEO_DTLS still reports "not timeout".
+DTLS 1.2 cases still fail on version. RCVTIMEO_DTLS now also passes after the
+handshake receive-timeout fix described below.
 Windows go test ./..., Linux make check, focused Linux race tests, classic
 parity, and a macOS arm64 cross-build passed. Retain the binary file, large
 incoming record, asymmetric-MTU, mixed-dual-address, oversized-UDP, fork,
 conversion, cancellation, partial-write, and resource-bound regressions.
 Mutation checks verified that removing the fixes makes the relevant tests fail.
 Read docs/dtls13-standards.md for the endpoint policy and pinned source evidence.
-RCVTIMEO_DTLS remains a separate socket-timeout investigation.
+
+Completed: handshake receive timeout
+so-rcvtimeo / rcvtimeo now bounds each association's handshake receive wait.
+Zero disables this additional bound. Fragments, ACKs, and duplicate records
+restart the wait after peer/framing/CID routing; a complete handshake message
+is not required. Outgoing retransmissions and unrelated traffic do not reset
+it. Keep the separate absolute handshake deadline and protocol retry limits.
+Expiry terminates the association, with explicit connect retry still honored.
+Listener cleanup releases only the failed association. Completed connections
+retain their existing retryable application-read timeouts.
+
+Native Windows go test ./..., Linux make check, twenty repeated Linux
+protocol/endpoint race runs, and classic parity pass. Virtual-clock tests cover
+timeout precedence, fragmented reception, retransmissions, listener isolation
+and memory release; a complete paced large-certificate handshake succeeds.
+That handshake fails if refresh requires complete handshake messages. Removing
+the new timer or endpoint option mapping also fails the relevant regression.
+The unchanged official RCVTIMEO_DTLS and both DTLS file-transfer cases pass;
+the two explicitly DTLS 1.2 cases remain unsupported. Keep these gates and the
+post-handshake retry regression when modifying timeout handling.
 
 Review findings to preserve
 Listener.receive is called by one transport read loop; the suggested duplicate

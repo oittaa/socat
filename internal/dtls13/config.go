@@ -33,6 +33,9 @@ type Config struct {
 	DisableMigration   bool
 	// HandshakeTimeout defaults to 30 seconds and must be positive if set.
 	HandshakeTimeout time.Duration
+	// HandshakeReadTimeout bounds each receive wait during negotiation.
+	// Zero disables it; received fragments and retransmissions restart the wait.
+	HandshakeReadTimeout time.Duration
 	// DisableHandshakeTimeout removes the absolute handshake deadline.
 	// Protocol retransmission limits still apply.
 	DisableHandshakeTimeout bool
@@ -71,6 +74,9 @@ func prepareConfig(config *Config, server bool) (*Config, error) {
 	}
 	if c.HandshakeTimeout < 0 {
 		return nil, fmt.Errorf("dtls: handshake timeout must be positive")
+	}
+	if c.HandshakeReadTimeout < 0 {
+		return nil, fmt.Errorf("dtls: handshake receive timeout must not be negative")
 	}
 	if c.MaxConnections == 0 {
 		c.MaxConnections = 256

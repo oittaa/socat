@@ -341,16 +341,17 @@ these cases CANT. A focused Linux host run against the pinned official
 | `OPENSSL_DTLS_SERVER` | FAILED | The official peer explicitly uses `-dtls1_2`. |
 | `OPENSSL_DTLS_TO_SERVER` | OK | Endpoint packetization accepts default 8192-byte file reads at the default 1200-byte MTU. |
 | `OPENSSL_DTLS_TO_CLIENT` | OK | Default-buffer file transfer also passes from server to client. |
-| `RCVTIMEO_DTLS` | FAILED | Official result remains `not timeout`; this is a separate socket-timeout issue. |
+| `RCVTIMEO_DTLS` | OK | `so-rcvtimeo` terminates a silent handshake through the per-association receive timer. |
 
-The packetizer rerun used `MODE=stable JOBS=1 SHARD_TIMEOUT=180` and the five
+The receive-timeout rerun used `MODE=stable JOBS=1 SHARD_TIMEOUT=180` and the five
 test names in `ONLY`, with unmodified official release `test.sh` at
 `12c08bf66d709fba17035ce95d85bd218428d9ba`. It completed without a timeout:
-two of the five DTLS cases passed and three failed as classified above. The
+three of the five DTLS cases passed and two failed as classified above. The
 upstream selector also ran `SOCKS5_OVERFL` (OK), so its aggregate reports
-three OK and three FAILED. Lab artifacts are in
-`/home/socat-user/socat-dtls13-lab/scorecard-packetizer/`; the two file-transfer
-cases previously failed or exhausted the shard deadline.
+four OK and two FAILED. Lab artifacts are in
+`/home/socat-user/socat-dtls13-lab/scorecard-handshake-timeout/`. The earlier
+packetizer rerun already passed both file transfers; `RCVTIMEO_DTLS` was the
+remaining `not timeout` failure. Full-size file transfers still pass.
 No full-suite baseline JSON was replaced by this subset. `make classic-parity`
 still passes its interface-name/alias audit; that does not certify functional
 DTLS file transfer. See [the DTLS follow-up plan](../../docs/dtls13-follow-up.txt).

@@ -24,6 +24,7 @@ type writeEpoch struct {
 // deadlines, and application queues belong to the connection.
 type session struct {
 	handshake            *handshakeState
+	handshakeReceived    time.Time
 	handleHandshake      func(handshakeMessage) ([]handshakeMessage, error)
 	send                 func([]byte) error
 	read                 map[uint64]*readEpoch
@@ -221,6 +222,10 @@ func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) (
 		}
 		records = append(records, r)
 		datagram = rest
+	}
+	// Demultiplexed reception includes fragments, ACKs, and duplicate records.
+	if !s.handshake.complete && len(records) != 0 {
+		s.handshakeReceived = now
 	}
 	var application [][]byte
 	for _, r := range records {
