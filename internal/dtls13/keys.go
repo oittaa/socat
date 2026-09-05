@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	aes128GCM        = uint16(0x1301)
-	aes256GCM        = uint16(0x1302)
+	aes128GCM        = uint16(tls.TLS_AES_128_GCM_SHA256)
+	aes256GCM        = uint16(tls.TLS_AES_256_GCM_SHA384)
 	chaCha20Poly1305 = uint16(tls.TLS_CHACHA20_POLY1305_SHA256)
 )
 

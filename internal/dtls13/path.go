@@ -2,6 +2,7 @@ package dtls13
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/rand"
 	"errors"
 	"net/netip"
@@ -113,7 +114,7 @@ func (p *pathState) receive(from packetPath, body []byte, size uint64, now time.
 		return p.sendMessage(from, response, body[1:], 3*size)
 	}
 	probe := p.probe
-	if probe == nil || !bytes.Equal(body[1:], probe.cookie[:]) || !now.Before(probe.deadline) {
+	if probe == nil || !hmac.Equal(body[1:], probe.cookie[:]) || !now.Before(probe.deadline) {
 		return nil
 	}
 	expected := probe.candidate
