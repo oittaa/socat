@@ -64,14 +64,6 @@ func newClientSession(config *Config, send func([]byte) error, now time.Time) (*
 	return s, nil
 }
 
-func newServerSession(config *Config, send func([]byte) error) (*session, error) {
-	h, err := newServerHandshake(config)
-	if err != nil {
-		return nil, err
-	}
-	return newSession(h.handshakeState, h.handle, send), nil
-}
-
 func newSession(h *handshakeState, handle func(handshakeMessage) ([]handshakeMessage, error), send func([]byte) error) *session {
 	return &session{handshake: h, handleHandshake: handle, send: send, read: make(map[uint64]*readEpoch), write: map[uint64]*writeEpoch{0: {}}, post: make(map[byte]*flight)}
 }

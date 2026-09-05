@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"maps"
 	"net/netip"
 	"testing"
 	"time"
@@ -52,6 +53,15 @@ func cookieTestHello(t *testing.T, suite uint16, request bool) (*Config, *client
 		t.Fatal(err)
 	}
 	return b, client, messages[0]
+}
+
+func retryMessage(t *testing.T, hello clientHello) handshakeMessage {
+	t.Helper()
+	body, err := hello.marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return handshakeMessage{typ: msgClientHello, sequence: 1, body: body}
 }
 
 func TestStatelessCookieTranscriptAndRetryFields(t *testing.T) {
@@ -106,11 +116,7 @@ func TestStatelessCookieTranscriptAndRetryFields(t *testing.T) {
 					case "early_data":
 						hello.extensions[extEarlyData] = nil
 					}
-					offer, err = parseClientOffer(hello)
-					if err != nil {
-						t.Fatal(err)
-					}
-					server, err := key.verify(config, peer, hello, offer, now)
+					server, err := key.verify(config, peer, retryMessage(t, hello), now)
 					if (err == nil) != want {
 						t.Fatalf("%s retry accepted=%t; want %t (%v)", change, err == nil, want, err)
 					}
@@ -144,12 +150,21 @@ func TestStatelessCookieAuthenticationAndExpiry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.handle(retry); err != nil {
+	messages, err := client.handle(retry)
+	if err != nil {
 		t.Fatal(err)
 	}
 	offer, err = parseClientOffer(client.hello)
 	if err != nil {
 		t.Fatal(err)
+	}
+	withCookie := func(cookie []byte) handshakeMessage {
+		hello := client.hello
+		hello.extensions = maps.Clone(hello.extensions)
+		w := wireWriter{}
+		w.vector16(cookie)
+		hello.extensions[extCookie] = w.data
+		return retryMessage(t, hello)
 	}
 	for _, test := range []struct {
 		name string
@@ -167,7 +182,7 @@ func TestStatelessCookieAuthenticationAndExpiry(t *testing.T) {
 		{"other_port", key, netip.MustParseAddrPort("[2001:db8::1]:1235"), now, false},
 		{"other_family", key, netip.MustParseAddrPort("192.0.2.1:1234"), now, false},
 	} {
-		if _, err := test.key.verify(config, test.peer, client.hello, offer, test.time); (err == nil) != test.want {
+		if _, err := test.key.verify(config, test.peer, messages[0], test.time); (err == nil) != test.want {
 			t.Fatalf("%s: %v", test.name, err)
 		}
 	}
@@ -175,11 +190,15 @@ func TestStatelessCookieAuthenticationAndExpiry(t *testing.T) {
 		changed := offer
 		changed.cookie = bytes.Clone(offer.cookie)
 		changed.cookie[i] ^= 1
-		if _, err := key.verify(config, peer, client.hello, changed, now); !errors.Is(err, errIllegalParameter) {
+		if _, err := key.verify(config, peer, withCookie(changed.cookie), now); !errors.Is(err, errIllegalParameter) {
 			t.Fatalf("accepted modified cookie byte %d: %v", i, err)
 		}
 		changed.cookie = offer.cookie[:i]
-		if _, err := key.verify(config, peer, client.hello, changed, now); !errors.Is(err, errIllegalParameter) {
+		want := errIllegalParameter
+		if i == 0 {
+			want = errDecode
+		}
+		if _, err := key.verify(config, peer, withCookie(changed.cookie), now); !errors.Is(err, want) {
 			t.Fatalf("accepted truncated cookie at %d: %v", i, err)
 		}
 	}
@@ -188,8 +207,41 @@ func TestStatelessCookieAuthenticationAndExpiry(t *testing.T) {
 	for i := range len(payload) {
 		changed := offer
 		changed.cookie = append(bytes.Clone(payload[:i]), key.mac(peer, payload[:i])...)
-		if _, err := key.verify(config, peer, client.hello, changed, now); !errors.Is(err, errIllegalParameter) {
+		if _, err := key.verify(config, peer, withCookie(changed.cookie), now); !errors.Is(err, errIllegalParameter) {
 			t.Fatalf("accepted truncated authenticated cookie payload at %d: %v", i, err)
 		}
+	}
+}
+
+func TestServerConsumesOnlyVerifiedClientHello(t *testing.T) {
+	config, client, first := cookieTestHello(t, aes128GCM, true)
+	key, peer, now := cookieKey{1}, netip.MustParseAddrPort("192.0.2.1:1234"), time.Unix(100, 0)
+	offer, err := parseClientOffer(client.hello)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retry, err := key.issue(config, peer, first, client.hello, offer, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages, err := client.handle(retry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := messages[0]
+	original := bytes.Clone(message.body)
+	server, err := key.verify(config, peer, message, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Reusing or changing the caller's buffer must not change verified state.
+	message.body[len(message.body)-1] ^= 1
+	if _, err := server.handle(message); !errors.Is(err, errUnexpectedMessage) || server.schedule != nil {
+		t.Fatalf("server consumed a changed ClientHello: %v", err)
+	}
+	message.body = original
+	flight, err := server.handle(message)
+	if err != nil || len(flight) == 0 || flight[0].sequence != 1 {
+		t.Fatalf("verified ClientHello did not produce the server flight: %v", err)
 	}
 }

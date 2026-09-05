@@ -43,7 +43,7 @@ func driveSessions(t *testing.T, clientConfig, serverConfig *Config, loss, reord
 	}
 	var err error
 	now := time.Unix(100, 0)
-	server, err = newServerSession(serverConfig, sender(false))
+	server, err = newTestServerSession(serverConfig, sender(false))
 	if err != nil {
 		t.Fatal(err)
 	}

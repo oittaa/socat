@@ -74,6 +74,8 @@ address/port, timestamp, selected parameters and first ClientHello hash with
 a listener-specific HMAC key. Cookies expire after 60 seconds. Reconstruct
 the exact retry transcript and reject disallowed ClientHello changes before
 allocating an association; invalid cookies receive `illegal_parameter`.
+The cookie verifier is the only server-handshake constructor. Deterministic
+test drivers use the same issuer/verifier; there is no separate stateful cookie path.
 
 The evictable plaintext cache supports fragmented ClientHellos, partial ACKs
 and unchanged retry retransmissions. Verification works without the original

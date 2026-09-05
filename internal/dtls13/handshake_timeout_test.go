@@ -233,7 +233,7 @@ func TestHandshakeReceiveTimeoutQueuedPackets(t *testing.T) {
 					config.HandshakeReadTimeout = time.Second / 2
 					config.HandshakeTimeout = time.Second
 				}
-				s, err := newServerSession(config, func([]byte) error { return nil })
+				s, err := newTestServerSession(config, func([]byte) error { return nil })
 				if err != nil {
 					t.Fatal(err)
 				}

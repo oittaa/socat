@@ -133,7 +133,19 @@ func (k *cookieKey) issue(config *Config, peer netip.AddrPort, m handshakeMessag
 	return handshakeMessage{typ: msgServerHello, body: body}, err
 }
 
-func (k *cookieKey) verify(config *Config, peer netip.AddrPort, hello clientHello, offer clientOffer, now time.Time) (*serverHandshake, error) {
+func (k *cookieKey) verify(config *Config, peer netip.AddrPort, message handshakeMessage, now time.Time) (*serverHandshake, error) {
+	if message.typ != msgClientHello || message.epoch != 0 || message.sequence != 1 || len(message.body) > maxClientHelloBody {
+		return nil, errUnexpectedMessage
+	}
+	message.body = bytes.Clone(message.body)
+	hello, err := parseClientHello(message.body)
+	if err != nil {
+		return nil, err
+	}
+	offer, err := parseClientOffer(hello)
+	if err != nil {
+		return nil, err
+	}
 	seconds := now.Unix()
 	if seconds < 0 {
 		return nil, errIllegalParameter
@@ -167,14 +179,13 @@ func (k *cookieKey) verify(config *Config, peer netip.AddrPort, hello clientHell
 		!slices.Contains(offer.groups, group) || offer.shares[group] == nil || flag == 1 && len(offer.shares) != 1 {
 		return nil, errIllegalParameter
 	}
-	h, err := newServerHandshake(config)
+	state, err := newHandshakeState(config, false)
 	if err != nil {
 		return nil, err
 	}
-	h.retried, h.groupRequested = true, flag == 1
-	h.first, h.selectedSuite, h.selectedGroup = hello, suiteID, group
-	h.cookie, h.firstHelloHash = bytes.Clone(cookie), bytes.Clone(firstHash)
-	body, err := retryHelloBody(suiteID, group, h.groupRequested, cookie)
+	h := &serverHandshake{handshakeState: state, phase: msgClientHello, verifiedHello: message, offer: offer,
+		selectedSuite: suiteID, selectedGroup: group, firstHelloHash: bytes.Clone(firstHash)}
+	body, err := retryHelloBody(suiteID, group, flag == 1, cookie)
 	if err != nil {
 		return nil, err
 	}

@@ -1,9 +1,10 @@
 package dtls13
 
 import (
-	"bytes"
 	"errors"
+	"net/netip"
 	"testing"
+	"time"
 )
 
 func TestLegacySessionIDInDTLSHello(t *testing.T) {
@@ -21,11 +22,13 @@ func TestLegacySessionIDInDTLSHello(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := newServerHandshake(serverConfig)
+	server, err := newTestServerHandshake(serverConfig)
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, b := client.handle, server.handle
+	a, b := client.handle, func(m handshakeMessage) ([]handshakeMessage, error) {
+		return server.receive(m, netip.MustParseAddrPort("127.0.0.1:10001"), time.Unix(100, 0))
+	}
 	for step := 0; step < 8 && len(messages) != 0; step++ {
 		var next []handshakeMessage
 		for _, m := range messages {
@@ -67,19 +70,7 @@ func TestClientRejectsEchoedLegacySessionID(t *testing.T) {
 }
 
 func TestRetryPSKIdentities(t *testing.T) {
-	encode := func(names ...string) []byte {
-		identities, binders := wireWriter{}, wireWriter{}
-		for _, name := range names {
-			identities.vector16([]byte(name))
-			identities.data = append(identities.data, 0, 0, 0, 1)
-			binders.vector8(bytes.Repeat([]byte{1}, 32))
-		}
-		w := wireWriter{}
-		w.vector16(identities.data)
-		w.vector16(binders.data)
-		return w.data
-	}
-	first := encode("first", "second", "third")
+	first := pskIdentityHashes(testPSKOffer("first", "second", "third"))
 	for _, test := range []struct {
 		names []string
 		want  bool
@@ -91,11 +82,11 @@ func TestRetryPSKIdentities(t *testing.T) {
 		{[]string{"new"}, false},
 		{[]string{"first", "first"}, false},
 	} {
-		if got := retryPSKIdentities(first, encode(test.names...)); got != test.want {
+		if got := retryIdentitySubset(first, pskIdentityHashes(testPSKOffer(test.names...))); got != test.want {
 			t.Fatalf("retry identities %v: %t", test.names, got)
 		}
 	}
-	if !retryPSKIdentities(first, nil) || retryPSKIdentities(nil, first) {
+	if !retryIdentitySubset(first, nil) || retryIdentitySubset(nil, first) {
 		t.Fatal("PSK extension addition/removal mishandled")
 	}
 }

@@ -98,15 +98,15 @@ func (l *Listener) newHello(peer netip.AddrPort, sequence uint16, now time.Time)
 		if m.epoch != 0 || m.typ != msgClientHello || m.sequence > 1 {
 			return nil, errUnexpectedMessage
 		}
-		hello, err := parseClientHello(m.body)
-		if err != nil {
-			return nil, err
-		}
-		offer, err := parseClientOffer(hello)
-		if err != nil {
-			return nil, err
-		}
 		if m.sequence == 0 {
+			hello, err := parseClientHello(m.body)
+			if err != nil {
+				return nil, err
+			}
+			offer, err := parseClientOffer(hello)
+			if err != nil {
+				return nil, err
+			}
 			if len(offer.cookie) != 0 {
 				return nil, errIllegalParameter
 			}
@@ -122,7 +122,8 @@ func (l *Listener) newHello(peer netip.AddrPort, sequence uint16, now time.Time)
 			p.retry = &retry
 			return []handshakeMessage{retry}, nil
 		}
-		p.verified, err = l.cookies.verify(l.config, peer, hello, offer, p.session.handshakeReceived)
+		var err error
+		p.verified, err = l.cookies.verify(l.config, peer, m, p.session.handshakeReceived)
 		if err == nil {
 			p.message = m
 		}

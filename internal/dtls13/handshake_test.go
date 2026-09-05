@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -126,23 +127,25 @@ func runHandshake(t *testing.T, clientConfig, serverConfig *Config) (*clientHand
 	if err != nil {
 		return nil, nil, err
 	}
-	server, err := newServerHandshake(serverConfig)
+	server, err := newTestServerHandshake(serverConfig)
 	if err != nil {
 		return nil, nil, err
 	}
 	a := &handshakeEndpoint{state: client.handshakeState, handle: client.handle, windows: make(map[uint64]*replayWindow), sequence: make(map[uint64]uint64)}
-	b := &handshakeEndpoint{state: server.handshakeState, handle: server.handle, windows: make(map[uint64]*replayWindow), sequence: make(map[uint64]uint64)}
+	b := &handshakeEndpoint{state: server.handshakeState, handle: func(m handshakeMessage) ([]handshakeMessage, error) {
+		return server.receive(m, netip.MustParseAddrPort("127.0.0.1:10001"), time.Unix(100, 0))
+	}, windows: make(map[uint64]*replayWindow), sequence: make(map[uint64]uint64)}
 	for i := 0; i < 8 && len(messages) != 0; i++ {
 		messages, err = transferHandshake(t, a, b, messages)
 		if err != nil {
-			return client, server, err
+			return client, server.server, err
 		}
 		a, b = b, a
 	}
 	if !client.complete || !server.complete {
-		return client, server, fmt.Errorf("handshake did not complete")
+		return client, server.server, fmt.Errorf("handshake did not complete")
 	}
-	return client, server, nil
+	return client, server.server, nil
 }
 
 func TestCertificateHandshakeMatrix(t *testing.T) {
@@ -166,7 +169,7 @@ func TestCertificateHandshakeMatrix(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					if !client.retried || !server.retried || !client.rrc || !server.rrc || !client.cidNegotiated || !server.cidNegotiated {
+					if !client.retried || !client.rrc || !server.rrc || !client.cidNegotiated || !server.cidNegotiated {
 						t.Fatal("cookie/CID/RRC negotiation missing")
 					}
 					if !bytes.Equal(client.peerCID, server.localCID) || !bytes.Equal(server.peerCID, client.localCID) {

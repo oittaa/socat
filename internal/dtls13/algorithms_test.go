@@ -170,7 +170,10 @@ func TestGroupRetryNegotiation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !server.groupRequested || client.state.CurveID != group || server.state.CurveID != group {
+			retry, err := parseServerHello(server.retryHello[4:])
+			share := wireReader{data: retry.extensions[extKeyShare]}
+			requested := share.uint16()
+			if err != nil || share.done() != nil || requested != uint16(group) || client.state.CurveID != group || server.state.CurveID != group {
 				t.Fatal("HelloRetryRequest did not negotiate the requested group")
 			}
 		})

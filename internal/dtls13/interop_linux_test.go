@@ -390,7 +390,7 @@ func TestInteropPionClientEnhancedMigration(t *testing.T) {
 	// Pion's pinned post-handshake handler rejects RequestConnectionID.
 	// Drive the protocol directly to isolate RRC with the initial CIDs.
 	var protocol *session
-	protocol, err := newServerSession(&Config{
+	protocol, err := newTestServerSession(&Config{
 		Certificates: []tls.Certificate{cert}, ClientCAs: roots, ClientAuth: tls.RequireAndVerifyClientCert,
 	}, func(data []byte) error {
 		_, err := conn.WriteToUDPAddrPort(data, protocol.path.peer.remote)

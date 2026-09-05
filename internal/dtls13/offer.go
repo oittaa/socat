@@ -1,9 +1,6 @@
 package dtls13
 
-import (
-	"bytes"
-	"slices"
-)
+import "slices"
 
 type clientOffer struct {
 	groups     []uint16
@@ -126,73 +123,6 @@ func validatePSKOffer(data, modes []byte) error {
 		return errDecode
 	}
 	return nil
-}
-
-func consistentRetry(first, second clientHello, groupRequested bool) bool {
-	if first.random != second.random || !bytes.Equal(first.sessionID, second.sessionID) || !slices.Equal(first.suites, second.suites) {
-		return false
-	}
-	if _, ok := second.extensions[extEarlyData]; ok {
-		return false
-	}
-	if !retryPSKIdentities(first.extensions[extPreSharedKey], second.extensions[extPreSharedKey]) {
-		return false
-	}
-	// Cookie, padding, PSK binders/ages, and a requested key share can change.
-	ignored := func(id uint16) bool {
-		return id == extCookie || id == 21 || id == extPreSharedKey || id == extEarlyData || groupRequested && id == extKeyShare
-	}
-	for id, data := range first.extensions {
-		if !ignored(id) {
-			other, ok := second.extensions[id]
-			if !ok || !bytes.Equal(data, other) {
-				return false
-			}
-		}
-	}
-	for id := range second.extensions {
-		if !ignored(id) {
-			if _, ok := first.extensions[id]; !ok {
-				return false
-			}
-		}
-	}
-	return true
-}
-
-// A retry may remove incompatible PSKs, but cannot add or reorder identities.
-func retryPSKIdentities(first, second []byte) bool {
-	if second == nil {
-		return true
-	}
-	a, b := wireReader{data: first}, wireReader{data: second}
-	old, updated := wireReader{data: a.vector16()}, wireReader{data: b.vector16()}
-	if a.err != nil || b.err != nil {
-		return false
-	}
-	for len(updated.data) != 0 {
-		identity := updated.vector16()
-		updated.take(4)
-		if updated.err != nil {
-			return false
-		}
-		found := false
-		for len(old.data) != 0 {
-			candidate := old.vector16()
-			old.take(4)
-			if old.err != nil {
-				return false
-			}
-			if bytes.Equal(candidate, identity) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
 }
 
 func parseCertificateRequest(data []byte) ([]uint16, [][]byte, error) {

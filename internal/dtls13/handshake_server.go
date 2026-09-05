@@ -1,7 +1,7 @@
 package dtls13
 
 import (
-	"crypto/hmac"
+	"bytes"
 	"crypto/rand"
 	"crypto/tls"
 	"slices"
@@ -9,21 +9,11 @@ import (
 
 type serverHandshake struct {
 	*handshakeState
-	phase                          byte
-	first                          clientHello
-	firstHello, retryHello, cookie []byte
-	firstHelloHash                 []byte
-	retried                        bool
-	selectedSuite, selectedGroup   uint16
-	groupRequested                 bool
-}
-
-func newServerHandshake(config *Config) (*serverHandshake, error) {
-	state, err := newHandshakeState(config, false)
-	if err != nil {
-		return nil, err
-	}
-	return &serverHandshake{handshakeState: state, phase: msgClientHello}, nil
+	phase                        byte
+	verifiedHello                handshakeMessage
+	offer                        clientOffer
+	firstHelloHash, retryHello   []byte
+	selectedSuite, selectedGroup uint16
 }
 
 func (h *serverHandshake) handle(m handshakeMessage) ([]handshakeMessage, error) {
@@ -31,10 +21,13 @@ func (h *serverHandshake) handle(m handshakeMessage) ([]handshakeMessage, error)
 		return nil, errUnexpectedMessage
 	}
 	if h.phase == msgClientHello {
-		if m.typ != msgClientHello || m.epoch != 0 {
+		if m.typ != msgClientHello || m.epoch != 0 || m.sequence != 1 || !bytes.Equal(m.body, h.verifiedHello.body) {
 			return nil, errUnexpectedMessage
 		}
-		return h.clientHello(m)
+		// Consume only the ClientHello authenticated by cookie verification.
+		hello, offer := h.verifiedHello, h.offer
+		h.verifiedHello, h.offer = handshakeMessage{}, clientOffer{}
+		return h.serverFlight(hello, offer)
 	}
 	if m.epoch != 2 {
 		return nil, errUnexpectedMessage
@@ -73,75 +66,6 @@ func (h *serverHandshake) handle(m handshakeMessage) ([]handshakeMessage, error)
 		return nil, errUnexpectedMessage
 	}
 	return nil, nil
-}
-
-func (h *serverHandshake) clientHello(m handshakeMessage) ([]handshakeMessage, error) {
-	hello, err := parseClientHello(m.body)
-	if err != nil {
-		return nil, err
-	}
-	offer, err := parseClientOffer(hello)
-	if err != nil {
-		return nil, err
-	}
-	if !h.retried {
-		if len(offer.cookie) != 0 {
-			return nil, errIllegalParameter
-		}
-		for _, suite := range h.config.CipherSuites {
-			if slices.Contains(hello.suites, suite) {
-				h.selectedSuite = suite
-				break
-			}
-		}
-		for _, group := range h.config.CurvePreferences {
-			if slices.Contains(offer.groups, uint16(group)) {
-				h.selectedGroup = uint16(group)
-				break
-			}
-		}
-		if h.selectedSuite == 0 || h.selectedGroup == 0 {
-			return nil, errHandshakeFailure
-		}
-		h.first = hello
-		h.firstHello, err = m.transcript()
-		if err != nil {
-			return nil, err
-		}
-		h.groupRequested = offer.shares[h.selectedGroup] == nil
-		return h.retryRequest()
-	}
-	if !hmac.Equal(offer.cookie, h.cookie) || !consistentRetry(h.first, hello, h.groupRequested) {
-		return nil, errIllegalParameter
-	}
-	if h.groupRequested && len(offer.shares) != 1 {
-		return nil, errIllegalParameter
-	}
-	if offer.shares[h.selectedGroup] == nil {
-		return nil, errIllegalParameter
-	}
-	return h.serverFlight(m, offer)
-}
-
-func (h *serverHandshake) retryRequest() ([]handshakeMessage, error) {
-	h.cookie = make([]byte, 32)
-	if _, err := rand.Read(h.cookie); err != nil {
-		return nil, err
-	}
-	body, err := retryHelloBody(h.selectedSuite, h.selectedGroup, h.groupRequested, h.cookie)
-	if err != nil {
-		return nil, err
-	}
-	m, err := h.message(msgServerHello, 0, body)
-	if err != nil {
-		return nil, err
-	}
-	h.retryHello, err = m.transcript()
-	if err != nil {
-		return nil, err
-	}
-	h.retried = true
-	return []handshakeMessage{m}, nil
 }
 
 func retryHelloBody(suite, selectedGroup uint16, groupRequested bool, value []byte) ([]byte, error) {
@@ -200,12 +124,7 @@ func (h *serverHandshake) serverFlight(clientMessage handshakeMessage, offer cli
 	if err != nil {
 		return nil, err
 	}
-	var transcript []byte
-	if h.firstHelloHash != nil {
-		transcript, err = retryTranscriptHash(h.selectedSuite, h.firstHelloHash, h.retryHello, second)
-	} else {
-		transcript, err = retryTranscript(h.selectedSuite, h.firstHello, h.retryHello, second)
-	}
+	transcript, err := retryTranscriptHash(h.selectedSuite, h.firstHelloHash, h.retryHello, second)
 	if err != nil {
 		return nil, err
 	}

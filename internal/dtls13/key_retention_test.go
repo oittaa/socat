@@ -11,7 +11,7 @@ func TestHandshakeReadKeyRetention(t *testing.T) {
 	a, b := handshakeConfigs(t)
 	var packets []testDatagram
 	now := time.Unix(100, 0)
-	server, err := newServerSession(b, func(p []byte) error {
+	server, err := newTestServerSession(b, func(p []byte) error {
 		packets = append(packets, testDatagram{false, bytes.Clone(p)})
 		return nil
 	})
