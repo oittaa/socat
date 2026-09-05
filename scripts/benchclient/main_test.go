@@ -92,7 +92,7 @@ func TestDialDTLSRoundTripAndProbe(t *testing.T) {
 				return
 			}
 			go func(c net.Conn) {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				buf := make([]byte, 64)
 				n, err := c.Read(buf)
 				if err != nil {
