@@ -134,6 +134,34 @@ func TestEnhancedRRCRejectsOffPathForwarder(t *testing.T) {
 	}
 }
 
+func TestRRCRejectedPeerPreservesRecord(t *testing.T) {
+	for _, role := range []string{"client", "server"} {
+		t.Run(role, func(t *testing.T) {
+			p := newTestPaths(t)
+			sender, receiver, source := p.client, p.server, p.clientAddress
+			if role == "client" {
+				sender, receiver, source = p.server, p.client, p.serverAddress
+			}
+			receiver.path.allowPeer = func(address netip.AddrPort) bool { return address == source }
+			marker := []byte("accepted source")
+			if err := sender.application(marker); err != nil {
+				t.Fatal(err)
+			}
+			packet := p.packets[0].data
+			now := time.Unix(1000, 0)
+			rejected := packetPath{netip.MustParseAddrPort("192.0.2.99:9999"), 1}
+			if data, err := receiver.receiveFrom(packet, rejected, now); err != nil || len(data) != 0 {
+				t.Fatalf("rejected source delivered %q: %v", data, err)
+			}
+			// The rejected copy must not consume the original record's replay slot.
+			data, err := receiver.receiveFrom(packet, packetPath{source, 1}, now)
+			if err != nil || len(data) != 1 || !bytes.Equal(data[0], marker) {
+				t.Fatalf("accepted source after rejected copy delivered %q: %v", data, err)
+			}
+		})
+	}
+}
+
 func TestRRCRejectsForgedResponseAndNestedRebinding(t *testing.T) {
 	p := newTestPaths(t)
 	now := time.Unix(1000, 0)

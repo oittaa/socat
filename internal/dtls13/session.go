@@ -207,6 +207,10 @@ func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) (
 		(!s.handshake.complete || !s.handshake.rrc || !s.handshake.cidNegotiated) {
 		return nil, nil
 	}
+	// Rejected sources must not consume replay state or retire keys and CIDs.
+	if s.path != nil && from.remote != s.path.peer.remote && !s.path.allowed(from.remote) {
+		return nil, nil
+	}
 	var records []record
 	hasCID := false
 	for len(datagram) != 0 {
@@ -234,9 +238,6 @@ func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) (
 			return nil, err
 		}
 		if !ok {
-			continue
-		}
-		if s.path != nil && from.remote != s.path.peer.remote && !s.path.allowed(from.remote) {
 			continue
 		}
 		if s.peerClosed != nil && recordAfter(number, *s.peerClosed) {
