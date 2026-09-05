@@ -302,6 +302,30 @@ class StreamSummaryTest(unittest.TestCase):
         self.assertEqual(bench.GO_ONLY["ws"], "WebSocket")
         self.assertEqual(bench.GO_ONLY["wss"], "WebSocket")
         self.assertEqual(bench.GO_ONLY["quic"], "QUIC")
+        self.assertEqual(bench.GO_ONLY["quic-rr"], "QUIC")
+
+    def test_dtls_addresses_are_go_only(self) -> None:
+        certs = {"crt": Path("server.crt"), "key": Path("server.key"), "ca": Path("ca.pem")}
+
+        listen, connect = bench.stream_addrs("dtls", 9, Path("sock"), certs)
+        echo = bench.echo_listen("dtls-hs", 9, certs, fork=True)
+
+        self.assertEqual(
+            listen,
+            "DTLS-LISTEN:9,reuseaddr,bind=127.0.0.1,cert=server.crt,key=server.key,verify=0",
+        )
+        self.assertEqual(
+            connect,
+            "DTLS:127.0.0.1:9,verify=1,cafile=ca.pem,commonname=localhost",
+        )
+        self.assertIn("DTLS-LISTEN:9,reuseaddr,bind=127.0.0.1,fork,", echo)
+        self.assertEqual(bench.proto_of("dtls-rr"), "dtls")
+        self.assertEqual(bench.proto_of("dtls-hs"), "dtls")
+        self.assertIn("dtls", bench.STREAM_CASES)
+        self.assertEqual(bench.GO_ONLY["dtls"], "DTLS")
+        self.assertEqual(bench.GO_ONLY["dtls-rr"], "DTLS")
+        self.assertEqual(bench.GO_ONLY["dtls-hs"], "DTLS")
+        self.assertTrue({"dtls", "dtls-rr", "dtls-hs"} <= set(bench.DEFAULT_CASES))
 
     def test_partial_failure_keeps_failure_detail(self) -> None:
         summary = bench.summarize_stream(

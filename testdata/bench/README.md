@@ -45,7 +45,7 @@ make bench
 SOCAT_CLASSIC_BIN=/path/to/classic/socat python3 -B scripts/bench.py
 
 # Subset and smaller size
-SOCAT_BENCH_SIZE=64M SOCAT_BENCH_RUNS=3 python3 -B scripts/bench.py tcp tls quic
+SOCAT_BENCH_SIZE=64M SOCAT_BENCH_RUNS=3 python3 -B scripts/bench.py tcp tls quic dtls
 
 # Record the committed snapshot
 SOCAT_BENCH_SIZE=1G SOCAT_BENCH_RUNS=7 SOCAT_BENCH_WARMUP=2 \
@@ -61,7 +61,7 @@ PowerShell uses the same runner:
 ```powershell
 $env:SOCAT_BENCH_SIZE = "64M"
 $env:SOCAT_BENCH_RUNS = "3"
-python -B scripts/bench.py tcp udp tls ws wss quic
+python -B scripts/bench.py tcp udp tls ws wss quic dtls
 ```
 
 ## Cases
@@ -87,8 +87,9 @@ the **median**.
 | `ws` | WS-LISTEN / WS | go only |
 | `wss` | WSS-LISTEN / WSS | go only |
 | `quic` | QUIC-LISTEN / QUIC | go only |
+| `dtls` | DTLS-LISTEN / DTLS | go only |
 
-TLS, WSS, and QUIC use the same freshly generated ECDSA P-256 certificate
+TLS, WSS, QUIC, and DTLS use the same freshly generated ECDSA P-256 certificate
 (SAN `DNS:localhost`, `IP:127.0.0.1`).
 The client sets `verify=1,cafile=,commonname=localhost`. The listener sets
 `verify=0` (no client certificate).
@@ -100,14 +101,19 @@ installed.
 
 | ID | What | Metric |
 |----|------|--------|
-| `tcp-rr` / `tls-rr` / `quic-rr` | 64-byte ping-pong | µs/RTT (median, p99) |
-| `tls-hs` | connect + 1 byte + close | handshakes/s |
+| `tcp-rr` / `tls-rr` / `quic-rr` / `dtls-rr` | 64-byte ping-pong | µs/RTT (median, p99) |
+| `tls-hs` / `dtls-hs` | connect + 1 byte + close | handshakes/s |
 
-`tls-hs` uses `fork` on the listener. Classic `fork` starts a process. Go
-`fork` starts a goroutine. The RSS and rate show that difference.
+`tls-hs` and `dtls-hs` use `fork` on the listener. Classic `fork` starts a
+process. Go `fork` starts a goroutine. The RSS and rate show that difference.
 
 QUIC is a UDP byte tunnel (`alpn=socat`). It is not TLS and not HTTP/3.
 Classic socat has no QUIC.
+
+DTLS is DTLS 1.3 only. It is go-only; classic `OPENSSL-DTLS` speaks DTLS 1.2
+and does not interoperate. The stream case packetizes byte-stream input to
+the 1200-byte default MTU. Every handshake includes a cookie retry, so
+`dtls-hs` counts that extra round trip.
 
 `udp` is an unreliable datagram transport using standard UDP
 (`IPPROTO_UDP`) with `UDP4-RECV` / `UDP4-SENDTO`. Non-fork `UDP-LISTEN` is
@@ -173,13 +179,16 @@ Platforms without `/proc` report RSS as `n/a` (`null` in JSON).
 - The saved host is a Hyper-V guest. Absolute loopback latency includes
   virtualization and host-scheduler effects; use the classic/Go pairing for
   relative comparisons rather than comparing raw latency with bare metal.
-- Quote `meta.tls` for version, cipher, and group. Go TLS/QUIC uses
+- Quote `meta.tls` for version, cipher, and group. Go TLS/QUIC/DTLS uses
   **X25519MLKEM768**. Classic OPENSSL (distro OpenSSL + unpatched 1.8.1.3)
   uses **P-256**. Classic bulk TLS uses **TLS_AES_256_GCM_SHA384**; Go uses
-  **TLS_AES_128_GCM_SHA256**.
+  **TLS_AES_128_GCM_SHA256**. The DTLS probe key is `go_client_go_dtls`.
+  The probe reports the DTLS 1.3 wire version as **DTLS 1.3**, not TLS 1.3.
 - `tls-rr` / `tls-hs` (classic) use the Go `benchclient` against classic
   OPENSSL-LISTEN. That pairing is not classic↔classic.
 - QUIC is not a drop-in TLS replacement.
+- DTLS is not a drop-in TLS or UDP replacement. It is DTLS 1.3 only and is
+  not classic OPENSSL-DTLS.
 - Do not claim a winner unless the JSON shows it.
 
 ## Recorded snapshot
@@ -202,6 +211,9 @@ distro OpenSSL 3.5.5. Payload: 1 GiB AES-128-CTR (incompressible; not
 | TLS 64 B RTT (median / p99) | 91.9 / 168.4 µs | 98.6 / 193.1 µs | 10.9 / 14.5 MiB |
 | QUIC 64 B RTT (median / p99) | n/a | 240.2 / 432.2 µs | n/a / 19.4 MiB |
 | TLS handshake | 23.5 /s | 999.7 /s | 25.0 / 18.8 MiB |
+
+DTLS cases (`dtls`, `dtls-rr`, `dtls-hs`) are in the runner. They are not in
+this snapshot yet.
 
 Recorded handshakes (same binaries as the table; see `meta.tls` in `host.json`):
 

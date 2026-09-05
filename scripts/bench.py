@@ -43,21 +43,28 @@ DEFAULT_CASES = (
     "ws",
     "wss",
     "quic",
+    "dtls",
     "tcp-rr",
     "tls-rr",
     "quic-rr",
+    "dtls-rr",
     "tls-hs",
+    "dtls-hs",
 )
-STREAM_CASES = {"tcp", "unix", "tls", "ws", "wss", "quic"}
+STREAM_CASES = {"tcp", "unix", "tls", "ws", "wss", "quic", "dtls"}
 DATAGRAM_CASES = {"udp"}
-RR_CASES = {"tcp-rr", "tls-rr", "quic-rr"}
-HS_CASES = {"tls-hs"}
+RR_CASES = {"tcp-rr", "tls-rr", "quic-rr", "dtls-rr"}
+HS_CASES = {"tls-hs", "dtls-hs"}
 GO_ONLY = {
     "ws": "WebSocket",
     "wss": "WebSocket",
     "quic": "QUIC",
     "quic-rr": "QUIC",
+    "dtls": "DTLS",
+    "dtls-rr": "DTLS",
+    "dtls-hs": "DTLS",
 }
+UDP_PROTOS = {"quic", "dtls"}
 DATAGRAM_MAGIC = b"SCL1"
 DATAGRAM_HEADER = struct.Struct("!4sQII")  # magic, sequence, payload length, CRC32
 DATAGRAM_MAX_SIZE = 65507
@@ -311,11 +318,11 @@ def probe_go_client(
     impl: str = "go",
 ) -> dict[str, Any]:
     port = free_tcp_port()
-    listen = echo_listen(proto if proto != "quic" else "quic", port, certs, fork=True, impl=impl)
+    listen = echo_listen(proto, port, certs, fork=True, impl=impl)
     slog = run_dir / "logs" / f"{tag}.server.log"
     server = start_socat(server_bin, [listen, "PIPE"], slog)
     try:
-        if proto == "quic":
+        if proto in UDP_PROTOS:
             wait_udp(port)
         else:
             wait_tcp(port)
@@ -346,7 +353,7 @@ def probe_go_client(
             "group": normalize_group(data.get("group", "")),
             "group_raw": data.get("group", ""),
             "alpn": data.get("alpn", ""),
-            "client": "benchclient (crypto/tls or quic-go)",
+            "client": "benchclient (dtls13)" if proto == "dtls" else "benchclient (crypto/tls or quic-go)",
             "server": server_bin,
         }
     finally:
@@ -423,6 +430,15 @@ def probe_all(
         run_dir=run_dir,
         benchclient=benchclient,
         tag="probe.go-quic",
+    )
+    print("  probe go client / go DTLS-LISTEN ...", flush=True)
+    out["go_client_go_dtls"] = probe_go_client(
+        server_bin=go_bin,
+        proto="dtls",
+        certs=certs,
+        run_dir=run_dir,
+        benchclient=benchclient,
+        tag="probe.go-dtls",
     )
     if classic_bin:
         if os.environ.get("SOCAT_BENCH_OPENSSL_BIN", ""):
@@ -984,6 +1000,11 @@ def stream_addrs(case: str, port: int, sock: Path, certs: dict[str, Path], impl:
             f"QUIC-LISTEN:{port},reuseaddr,bind=127.0.0.1,cert={crt},key={key},verify=0",
             f"QUIC:127.0.0.1:{port},verify=1,cafile={ca},commonname=localhost",
         )
+    if case == "dtls":
+        return (
+            f"DTLS-LISTEN:{port},reuseaddr,bind=127.0.0.1,cert={crt},key={key},verify=0",
+            f"DTLS:127.0.0.1:{port},verify=1,cafile={ca},commonname=localhost",
+        )
     if case == "udp":
         # RECV+SENDTO: a stream of datagrams. Non-fork *-LISTEN is one-shot
         # (first packet then EOF) on this port; classic LISTEN stays connected.
@@ -997,7 +1018,7 @@ def stream_addrs(case: str, port: int, sock: Path, certs: dict[str, Path], impl:
 def listen_wait(case: str, port: int, sock: Path) -> None:
     if case == "unix":
         wait_unix(sock)
-    elif case in {"quic", "udp"}:
+    elif case in {"quic", "udp", "dtls"}:
         wait_udp(port)
     else:
         wait_tcp(port)
@@ -1209,10 +1230,17 @@ def echo_listen(case: str, port: int, certs: dict[str, Path], fork: bool, impl: 
             f"QUIC-LISTEN:{port},reuseaddr,bind=127.0.0.1{fork_opt},"
             f"cert={crt},key={key},verify=0"
         )
+    if case in {"dtls", "dtls-rr", "dtls-hs"}:
+        return (
+            f"DTLS-LISTEN:{port},reuseaddr,bind=127.0.0.1{fork_opt},"
+            f"cert={crt},key={key},verify=0"
+        )
     raise ValueError(case)
 
 
 def proto_of(case: str) -> str:
+    if case.startswith("dtls"):
+        return "dtls"
     if case.startswith("quic"):
         return "quic"
     if case.startswith("tls"):
@@ -1240,7 +1268,7 @@ def run_client_once(
     slog = run_dir / "logs" / f"{tag}.server.log"
     server = start_socat(bin_path, [listen, "PIPE"], slog)
     try:
-        if proto_of(case) == "quic":
+        if proto_of(case) in UDP_PROTOS:
             wait_udp(port)
         else:
             wait_tcp(port)
@@ -1543,7 +1571,7 @@ def run_benchmark(
             raise SystemExit(f"unknown case {c}; want {', '.join(DEFAULT_CASES)}")
 
     if probe_only:
-        print("probe TLS/QUIC handshakes (no timed cases)", flush=True)
+        print("probe TLS/QUIC/DTLS handshakes (no timed cases)", flush=True)
         tls = probe_all(
             go_bin=socat,
             classic_bin=classic or None,
@@ -1575,7 +1603,7 @@ def run_benchmark(
         "payload_sha256": payload_sha256(payload),
     }
     doc: dict[str, Any] = {"meta": collect_meta(args), "cases": []}
-    print("probe TLS/QUIC handshakes ...", flush=True)
+    print("probe TLS/QUIC/DTLS handshakes ...", flush=True)
     doc["meta"]["tls"] = probe_all(
         go_bin=socat,
         classic_bin=classic or None,
