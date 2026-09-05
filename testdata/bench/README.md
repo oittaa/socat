@@ -203,42 +203,44 @@ Platforms without `/proc` report RSS as `n/a` (`null` in JSON).
 
 ## Recorded snapshot
 
-Recorded 2026-09-05 at `983f605` in an Ubuntu 26.04 Hyper-V guest (6 vCPUs)
+Recorded 2026-09-05 at `d3e81b5` in an Ubuntu 26.04 Hyper-V guest (6 vCPUs)
 backed by an AMD Ryzen 7 9800X3D, Linux 7.0.0-30, Go 1.27.0, classic socat
 1.8.1.3, and distro OpenSSL 3.5.5. Payload: 1 GiB AES-128-CTR
-(incompressible; not `/dev/zero`). Median of 7 timed runs after 2 warmups,
-`-b 8192`. RTT samples use 20,000 exchanges after 1,000 warmups; handshake
-samples use 200 connections after 20 warmups.
+(incompressible; not `/dev/zero`). Median of 7 timed runs after 2 warmups.
+Bulk uses `-b 8192`, except DTLS uses `-b 1024` at the default 1200-byte MTU.
+RTT samples use 20,000 exchanges after 1,000 warmups; handshake samples use
+200 connections after 20 warmups.
 
 | Case | classic | go | Peak RSS (classic / go) |
 |------|---------|----|-------------------------|
-| TCP 1 GiB | 917.5 MiB/s | 2202.9 MiB/s | 10.4 / 27.4 MiB |
-| UNIX 1 GiB | 878.0 MiB/s | 2202.5 MiB/s | 10.2 / 27.2 MiB |
-| UDP 1 GiB (send / receive / loss) | 1118.5 / 1118.5 MiB/s / 0.000% | 1255.7 / 1255.6 MiB/s / 0.000% | 10.4 / 31.2 MiB |
-| TLS 1 GiB | 841.9 MiB/s | 1337.5 MiB/s | 21.0 / 29.8 MiB |
-| WS 1 GiB | n/a | 339.1 MiB/s | n/a / 28.7 MiB |
-| WSS 1 GiB | n/a | 323.1 MiB/s | n/a / 30.9 MiB |
-| QUIC 1 GiB | n/a | 507.2 MiB/s | n/a / 41.9 MiB |
-| DTLS 1 GiB | n/a | FAILED (short sink) | n/a / n/a |
-| TCP 64 B RTT (median / p99) | 92.5 / 169.7 µs | 142.0 / 208.4 µs | 5.2 / 16.5 MiB |
-| TLS 64 B RTT (median / p99) | 99.0 / 187.2 µs | 147.1 / 216.4 µs | 10.9 / 15.2 MiB |
-| QUIC 64 B RTT (median / p99) | n/a | 336.0 / 498.1 µs | n/a / 19.7 MiB |
-| DTLS 64 B RTT (median / p99) | n/a | 288.4 / 446.0 µs | n/a / 19.5 MiB |
-| TLS handshake | 23.7 /s | 930.6 /s | 25.5 / 19.2 MiB |
-| DTLS handshake | n/a | 576.8 /s | n/a / 19.4 MiB |
+| TCP 1 GiB | 917.5 MiB/s | 2202.7 MiB/s | 10.4 / 27.5 MiB |
+| UNIX 1 GiB | 878.2 MiB/s | 2202.9 MiB/s | 10.2 / 27.5 MiB |
+| UDP 1 GiB (send / receive / loss) | 1118.3 / 1118.3 MiB/s / 0.000% | 1255.4 / 1255.3 MiB/s / 0.000% | 10.4 / 31.5 MiB |
+| TLS 1 GiB | 917.4 MiB/s | 1337.3 MiB/s | 21.0 / 29.6 MiB |
+| WS 1 GiB | n/a | 344.9 MiB/s | n/a / 28.5 MiB |
+| WSS 1 GiB | n/a | 339.1 MiB/s | n/a / 30.6 MiB |
+| QUIC 1 GiB | n/a | 494.8 MiB/s | n/a / 42.2 MiB |
+| DTLS 1 GiB (send / receive / loss) | n/a | 30.7 / 30.7 MiB/s / 0.000187% | n/a / 39.7 MiB |
+| TCP 64 B RTT (median / p99) | 90.3 / 151.3 µs | 140.5 / 222.2 µs | 5.2 / 16.4 MiB |
+| TLS 64 B RTT (median / p99) | 98.2 / 169.8 µs | 146.1 / 211.9 µs | 10.9 / 15.2 MiB |
+| QUIC 64 B RTT (median / p99) | n/a | 334.3 / 469.3 µs | n/a / 19.9 MiB |
+| DTLS 64 B RTT (median / p99) | n/a | 288.2 / 423.4 µs | n/a / 19.4 MiB |
+| TLS handshake | 23.8 /s | 958.8 /s | 25.6 / 19.0 MiB |
+| DTLS handshake | n/a | 588.8 /s | n/a / 19.3 MiB |
 
-DTLS bulk passed none of its seven timed runs. The last reported failure
-received 1,073,540,548 of 1,073,741,824 bytes: 201,276 bytes short (0.0187%).
-The runner reports this as failed and publishes no bulk throughput or RSS
-summary. Packetization does not add reliable delivery; this result does not
-identify where the bytes were lost. The full benchmark exits with status 1
-for this case. All 20 other runnable case/implementation pairs passed;
-seven unsupported classic pairs were skipped.
+DTLS delivered 30.7 MiB/s median goodput (range
+29.99–31.19 MiB/s), excluding the 20-byte frame headers and padding.
+Each sample sent 1,069,464 application datagrams of 1024 bytes.
+Median loss was 0.000187% (two datagrams); the worst sample lost
+0.015615% (167 datagrams). There were no duplicates, reordered frames,
+or corrupt frames across the seven samples. The text summary rounds loss to
+three decimal places; the JSON retains full precision.
 
-DTLS RTT and handshake measurements passed all seven runs at the default
-1200-byte MTU. The handshake rate includes cookie retry, a one-byte echo,
-and connection close. A DTLS datagram goodput/loss benchmark is still needed
-to measure sustained delivery independently of this exact-byte stream check.
+All 21 runnable case/implementation pairs passed all seven timed runs;
+seven unsupported classic pairs were skipped. The full benchmark exited
+successfully. The DTLS handshake rate includes cookie retry, a one-byte echo,
+and connection close. These are measured loopback rates at the stated frame
+sizes, not a maximum lossless capacity.
 
 Recorded handshakes (same binaries as the table; see `meta.tls` in `host.json`):
 
