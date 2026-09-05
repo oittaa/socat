@@ -372,21 +372,27 @@ func (c *Conn) run() {
 func (c *Conn) publish(data [][]byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	queued := false
 	for _, packet := range data {
 		if len(c.readQueue) < maxQueuedRecords && len(packet) <= maxApplicationBytes-c.readBytes && !c.peerEOF {
 			// Do not retain record padding outside the application byte budget.
 			c.readQueue = append(c.readQueue, bytes.Clone(packet))
 			c.readBytes += len(packet)
+			queued = true
 		}
 	}
-	c.peerEOF = c.session.peerClosed != nil
+	eof := c.session.peerClosed != nil
+	changed := queued || eof != c.peerEOF
+	c.peerEOF = eof
 	c.state = c.session.handshake.state
 	cidLength := 0
 	if c.session.handshake.cidNegotiated {
 		cidLength = len(c.session.handshake.peerCID)
 	}
 	c.maxDatagram = min(maxContent, c.session.handshake.config.MTU-22-cidLength)
-	c.signalLocked()
+	if changed {
+		c.signalLocked()
+	}
 }
 
 func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
@@ -515,7 +521,7 @@ func (c *Conn) Write(data []byte) (int, error) {
 	if len(data) > c.MaxDatagramSize() {
 		return 0, errRecordOverflow
 	}
-	if err := c.execute(&connCommand{kind: contentData, data: bytes.Clone(data)}); err != nil {
+	if err := c.execute(&connCommand{kind: contentData, data: data}); err != nil {
 		return 0, err
 	}
 	return len(data), nil

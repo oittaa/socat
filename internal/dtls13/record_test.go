@@ -243,7 +243,7 @@ func FuzzRecord(f *testing.F) {
 	})
 }
 
-func testTrafficKeys(t *testing.T) *trafficKeys {
+func testTrafficKeys(t testing.TB) *trafficKeys {
 	t.Helper()
 	keys, err := newTrafficKeys(aes128GCM, make([]byte, 32))
 	if err != nil {
@@ -274,7 +274,7 @@ func testRecordForm(t *testing.T, keys *trafficKeys, seqSize int, includeLength 
 	if includeLength {
 		header = binary.BigEndian.AppendUint16(header, uint16(len(inner)+16))
 	}
-	ciphertext := keys.seal(header, 7, inner)
+	ciphertext := keys.seal(nil, header, 7, inner)
 	mask, err := keys.mask(ciphertext)
 	if err != nil {
 		t.Fatal(err)

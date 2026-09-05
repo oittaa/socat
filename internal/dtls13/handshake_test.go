@@ -13,7 +13,7 @@ import (
 	"github.com/oittaa/socat/internal/testcert"
 )
 
-func handshakeConfigs(t *testing.T) (*Config, *Config) {
+func handshakeConfigs(t testing.TB) (*Config, *Config) {
 	t.Helper()
 	ca, err := testcert.NewAuthority("DTLS test CA")
 	if err != nil {

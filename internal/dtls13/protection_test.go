@@ -75,7 +75,7 @@ func TestRecordProtectionVectors(t *testing.T) {
 			}
 			plaintext := append([]byte(text), 23)
 			header := decodeHex(t, "3fcafebabe0607002a")
-			ciphertext := keys.seal(header, sequence, plaintext)
+			ciphertext := keys.seal(nil, header, sequence, plaintext)
 			if !bytes.Equal(ciphertext, decodeHex(t, test.ciphertext)) {
 				t.Fatalf("ciphertext = %x; want %s", ciphertext, test.ciphertext)
 			}

@@ -98,9 +98,9 @@ func (k *trafficKeys) mask(ciphertext []byte) ([16]byte, error) {
 }
 
 // The caller owns sequence allocation and enforces record/key usage limits.
-func (k *trafficKeys) seal(header []byte, sequence uint64, plaintext []byte) []byte {
+func (k *trafficKeys) seal(dst, header []byte, sequence uint64, plaintext []byte) []byte {
 	nonce := k.nonce(sequence)
-	return k.aead.Seal(nil, nonce[:], plaintext, header)
+	return k.aead.Seal(dst, nonce[:], plaintext, header)
 }
 
 func (k *trafficKeys) open(header []byte, sequence uint64, ciphertext []byte) ([]byte, error) {

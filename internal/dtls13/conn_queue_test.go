@@ -73,3 +73,43 @@ func TestConnQueueMemoryBounds(t *testing.T) {
 		t.Fatal("record count bound was not enforced")
 	}
 }
+
+func TestConnPublishSignalsOnlyOnReadableState(t *testing.T) {
+	c := newConn(netip.AddrPort{})
+	c.session = &session{handshake: &handshakeState{config: &Config{MTU: 1200}}}
+	idle := c.notify
+	c.publish(nil)
+	select {
+	case <-idle:
+		t.Fatal("publish without data or EOF woke waiters")
+	default:
+	}
+	c.publish([][]byte{[]byte("data")})
+	select {
+	case <-idle:
+	default:
+		t.Fatal("queued application data did not wake waiters")
+	}
+	idle = c.notify
+	c.publish([][]byte{[]byte("data")})
+	select {
+	case <-idle:
+	default:
+		t.Fatal("second queued record did not wake waiters")
+	}
+	idle = c.notify
+	c.session.peerClosed = &recordNumber{3, 1}
+	c.publish(nil)
+	select {
+	case <-idle:
+	default:
+		t.Fatal("EOF did not wake waiters")
+	}
+	idle = c.notify
+	c.publish(nil)
+	select {
+	case <-idle:
+		t.Fatal("unchanged EOF woke waiters")
+	default:
+	}
+}
