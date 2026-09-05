@@ -22,7 +22,7 @@ That ciphertext does not compress. It is generated at the start of each run.
 Set `SOCAT_BENCH_PAYLOAD=/path/to/file` to use your own file. The file must be
 at least `SOCAT_BENCH_SIZE` bytes. The runner copies that many bytes.
 
-Payloads, framed UDP, sinks, logs, certs, and `benchclient` live in a
+Payloads, framed UDP/DTLS, sinks, logs, certs, and `benchclient` live in a
 `tempfile.TemporaryDirectory` named `run-*` inside a locked per-user root.
 On Linux that root is `/dev/shm/socat-bench-<uid>` when `/dev/shm` is
 writable and allows executing binaries; otherwise it is
@@ -111,23 +111,28 @@ QUIC is a UDP byte tunnel (`alpn=socat`). It is not TLS and not HTTP/3.
 Classic socat has no QUIC.
 
 DTLS is DTLS 1.3 only. It is go-only; the classic baseline's `OPENSSL-DTLS`
-supports DTLS 1.2 and does not interoperate. The stream case packetizes
-byte-stream input to the 1200-byte default MTU. Every handshake includes a
-cookie retry, so `dtls-hs` counts that extra round trip.
+supports DTLS 1.2 and does not interoperate. The bulk case uses 1024-byte
+application datagrams, including a 20-byte benchmark header, so each fits
+one DTLS record at the default 1200-byte MTU. `SOCAT_BENCH_BUFFER` can reduce
+this frame size, but cannot increase it. Every handshake includes a cookie
+retry, so `dtls-hs` counts that extra round trip.
 
 `udp` is an unreliable datagram transport using standard UDP
 (`IPPROTO_UDP`) with `UDP4-RECV` / `UDP4-SENDTO`. Non-fork `UDP-LISTEN` is
 one-shot on this port, so it is not used here.
 
-The runner does not pretend that larger socket buffers make datagrams
-lossless. It frames the incompressible payload into fixed-size records with a
+Both `udp` and `dtls` measure unreliable datagram delivery. The runner
+frames the incompressible payload into fixed-size records with a
 sequence number, payload length, and CRC32. After the
 sender exits, it waits until the sink is quiet, then reports logical-payload
 sender and delivered-receiver MiB/s plus loss, duplicates, reordering, and
 corruption. Loss and reordering are measurements; malformed or corrupt
 frames fail the run. `SOCAT_BENCH_SIZE` is the logical payload size, excluding
-frame headers and final-frame padding. There is no connection EOF, so the
-receiver is terminated after the quiet interval.
+frame headers and final-frame padding. Rates include client startup and,
+for DTLS, the handshake and connection close. They exclude payload generation,
+frame validation, and the final quiet interval. Any receiver still running
+after that interval is terminated. This is an unpaced loopback workload;
+it measures delivered goodput and loss, not a maximum lossless send rate.
 
 ## Environment
 
@@ -139,10 +144,10 @@ receiver is terminated after the quiet interval.
 | `SOCAT_BENCH_OPENSSL_BIN` | `openssl` on PATH | Optional classic TLS probe client |
 | `SOCAT_BENCH_WORKDIR` | `testdata/tmp/bench` | Default JSON/summary copy destination; fallback storage root |
 | `SOCAT_BENCH_OUT` | `$SOCAT_BENCH_WORKDIR/results.json` | JSON written at the end of a successful run |
-| `SOCAT_BENCH_SIZE` | `256M` | Stream payload (MiB if `M`) |
+| `SOCAT_BENCH_SIZE` | `256M` | Logical payload (MiB if `M`) |
 | `SOCAT_BENCH_RUNS` | `5` | Timed runs |
 | `SOCAT_BENCH_WARMUP` | `1` | Untimed runs |
-| `SOCAT_BENCH_BUFFER` | `8192` | socat `-b`; datagram cases require 21..65507 |
+| `SOCAT_BENCH_BUFFER` | `8192` | socat `-b`; UDP frames require 21..65507; DTLS bulk caps this at 1024 |
 | `SOCAT_BENCH_PAYLOAD` | AES-CTR blob | Optional file, ≥ `SOCAT_BENCH_SIZE` |
 | `SOCAT_BENCH_GIT_COMMIT` | current checkout | Commit recorded when benchmarking an exported source tree |
 | `SOCAT_BENCH_SAVE_BASELINE` | empty | Copy JSON + summary here |
@@ -152,14 +157,15 @@ receiver is terminated after the quiet interval.
 | `SOCAT_BENCH_SKIP_CLIENT_BUILD` | `0` | Reuse `SOCAT_BENCH_CLIENT_BIN` instead of running `go build` |
 | `SOCAT_BENCH_PROBE_ONLY` | `0` | Handshake probe only; merge `meta.tls` into `SOCAT_BENCH_SAVE_BASELINE` |
 
-Both binaries use `-b 8192` and bind `127.0.0.1`.
+Both binaries bind `127.0.0.1`. The default is `-b 8192`, except DTLS bulk
+uses `-b 1024` on both ends to preserve benchmark frame boundaries.
 
 ## Output
 
 Each run writes JSON (`meta` + `cases`) and a text summary at the end.
 Structured JSON is the source of truth. The table below must match
 `testdata/bench/host.json`.
-Datagram rows (`udp`) contain separate `send_mib_s` and
+Datagram rows (`udp`, `dtls`) record `frame_bytes`, separate `send_mib_s` and
 `receive_mib_s` distributions and datagram delivery counters rather than the
 stream-only `mib_s` field.
 
@@ -188,10 +194,11 @@ Platforms without `/proc` report RSS as `n/a` (`null` in JSON).
   OPENSSL-LISTEN. That pairing is not classic↔classic.
 - QUIC is not a drop-in TLS replacement.
 - DTLS is not a drop-in TLS or UDP replacement. It is DTLS 1.3 only and is
-  not classic OPENSSL-DTLS. Bulk transfer uses ~1200-byte records (default
-  `dtls-mtu`) and does not retransmit application data, so a large
-  unidirectional blast can lose datagrams. A 1 MiB run is handshake-skewed;
-  do not quote it as throughput.
+  not classic OPENSSL-DTLS. It does not retransmit application data, so
+  always quote bulk goodput alongside loss and frame size. UDP and DTLS
+  use different default frame sizes; their bulk rates are not a measurement
+  of encryption overhead alone. A 1 MiB DTLS run is handshake-skewed;
+  do not quote it as sustained throughput.
 - Do not claim a winner unless the JSON shows it.
 
 ## Recorded snapshot

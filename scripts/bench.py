@@ -51,8 +51,8 @@ DEFAULT_CASES = (
     "tls-hs",
     "dtls-hs",
 )
-STREAM_CASES = {"tcp", "unix", "tls", "ws", "wss", "quic", "dtls"}
-DATAGRAM_CASES = {"udp"}
+STREAM_CASES = {"tcp", "unix", "tls", "ws", "wss", "quic"}
+DATAGRAM_CASES = {"udp", "dtls"}
 RR_CASES = {"tcp-rr", "tls-rr", "quic-rr", "dtls-rr"}
 HS_CASES = {"tls-hs", "dtls-hs"}
 GO_ONLY = {
@@ -68,6 +68,8 @@ UDP_PROTOS = {"quic", "dtls"}
 DATAGRAM_MAGIC = b"SCL1"
 DATAGRAM_HEADER = struct.Struct("!4sQII")  # magic, sequence, payload length, CRC32
 DATAGRAM_MAX_SIZE = 65507
+# Leave room for record protection and CID within DTLS's default 1200-byte MTU.
+DTLS_FRAME_SIZE = 1024
 DATAGRAM_QUIET_SECONDS = 0.25
 
 
@@ -591,12 +593,13 @@ def require_free_space(path: Path, needed: int) -> None:
 
 def payload_budget(size: int, buffer: int, wanted: tuple[str, ...]) -> int:
     needed = size
-    if "udp" in wanted:
-        needed += datagram_frame_count(size, buffer) * buffer
+    sink = size
+    for case in set(wanted) & DATAGRAM_CASES:
+        frame_size = datagram_buffer(case, buffer)
+        framed_size = datagram_frame_count(size, frame_size) * frame_size
+        needed += framed_size
+        sink = max(sink, framed_size)
     if any(case in STREAM_CASES or case in DATAGRAM_CASES for case in wanted):
-        sink = size
-        if "udp" in wanted:
-            sink = max(sink, datagram_frame_count(size, buffer) * buffer)
         needed += sink
     return needed + STORAGE_RESERVE
 
@@ -623,6 +626,10 @@ def run_session(workdir: Path, needed: int) -> Iterator[Path]:
             if tmp is not None:
                 tmp.cleanup()
             unlock_file(lock)
+
+
+def datagram_buffer(case: str, buffer: int) -> int:
+    return min(buffer, DTLS_FRAME_SIZE) if case == "dtls" else buffer
 
 
 def datagram_frame_count(size: int, buffer: int) -> int:
@@ -667,7 +674,7 @@ def prepare_payload(
     buffer: int,
     wanted: tuple[str, ...],
     benchclient: Path,
-) -> tuple[Path, str, Path | None]:
+) -> tuple[Path, str, dict[str, Path]]:
     dest = run_dir / "payload"
     given = os.environ.get("SOCAT_BENCH_PAYLOAD", "").strip()
     if given:
@@ -686,10 +693,10 @@ def prepare_payload(
         generate_aes_ctr(benchclient, dest, size)
         note = "aes-128-ctr (incompressible)"
 
-    framed: Path | None = None
-    if "udp" in wanted:
-        framed = run_dir / "payload.dgram"
-        write_datagram_payload(dest, framed, size, buffer)
+    framed: dict[str, Path] = {}
+    for case in sorted(set(wanted) & DATAGRAM_CASES):
+        framed[case] = run_dir / f"payload.{case}"
+        write_datagram_payload(dest, framed[case], size, datagram_buffer(case, buffer))
     return dest, note, framed
 
 
@@ -903,11 +910,13 @@ class RSSSampler:
             self._stop.wait(self.interval)
 
 
-def start_socat(bin_path: str, extra: list[str], log: Path) -> subprocess.Popen:
+def start_socat(
+    bin_path: str, extra: list[str], log: Path, *, buffer: int | None = None
+) -> subprocess.Popen:
     args = [
         bin_path,
         "-b",
-        os.environ.get("SOCAT_BENCH_BUFFER", "8192"),
+        str(buffer) if buffer is not None else os.environ.get("SOCAT_BENCH_BUFFER", "8192"),
         "-t",
         "2",
         "-T",
@@ -1065,15 +1074,19 @@ def run_datagram_once(
     listen, connect = stream_addrs(case, port, sock, certs)
     slog = run_dir / "logs" / f"{tag}.server.log"
     clog = run_dir / "logs" / f"{tag}.client.log"
-    server = start_socat(bin_path, ["-u", listen, f"OPEN:{sink},creat,trunc,wronly"], slog)
+    server = start_socat(
+        bin_path, ["-u", listen, f"OPEN:{sink},creat,trunc,wronly"], slog, buffer=buffer
+    )
     sampler: RSSSampler | None = None
-    label = "UDP"
+    label = case.upper()
     try:
         listen_wait(case, port, sock)
         sampler = RSSSampler([server.pid])
         sampler.start()
         t0 = time.perf_counter()
-        client = start_socat(bin_path, ["-u", f"OPEN:{framed_payload},rdonly", connect], clog)
+        client = start_socat(
+            bin_path, ["-u", f"OPEN:{framed_payload},rdonly", connect], clog, buffer=buffer
+        )
         sampler.pids.append(client.pid)
         try:
             rc = client.wait(timeout=120)
@@ -1110,6 +1123,7 @@ def run_datagram_once(
             "peak_rss_kib": peak,
             "payload_bytes": size,
             "wire_bytes": wire_size,
+            "frame_bytes": buffer,
             **delivery,
         }
         if delivery["unique_datagrams"] == 0:
@@ -1389,6 +1403,7 @@ def summarize_datagram(runs: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "status": "ok" if len(oks) == len(runs) else "fail",
         "kind": "datagram",
+        "frame_bytes": int(oks[0]["frame_bytes"]),
         "send_mib_s": rates("send_mib_s"),
         "receive_mib_s": rates("receive_mib_s"),
         "loss_pct": rates("loss_pct"),
@@ -1499,6 +1514,7 @@ def write_summary(doc: dict[str, Any], path: Path) -> None:
                 f"{ident}: send={send['median']:.1f} MiB/s "
                 f"receive={receive['median']:.1f} MiB/s "
                 f"loss={loss['median']:.3f}% "
+                f"frame_bytes={c.get('frame_bytes', 'n/a')} "
                 f"duplicate={c['duplicate_datagrams']['total']} "
                 f"reordered={c['reordered_datagrams']['total']} "
                 f"corrupt={c['corrupt_datagrams']['total']} "
@@ -1588,7 +1604,7 @@ def run_benchmark(
             print(f"updated tls probe in {save}", flush=True)
         return 0 if all(v.get("ok") for v in tls.values() if isinstance(v, dict)) else 1
 
-    payload, payload_note, framed_payload = prepare_payload(
+    payload, payload_note, framed_payloads = prepare_payload(
         run_dir, size, buffer, wanted, benchclient
     )
     args = {
@@ -1674,15 +1690,14 @@ def run_benchmark(
                         )
                     summary = summarize_stream(samples)
                 elif case in DATAGRAM_CASES:
-                    if framed_payload is None:
-                        raise RuntimeError("udp case is missing a framed payload")
+                    frame_size = datagram_buffer(case, buffer)
                     for i in range(warmup):
                         run_datagram_once(
                             case=case,
                             bin_path=bin_path,
-                            framed_payload=framed_payload,
+                            framed_payload=framed_payloads[case],
                             size=size,
-                            buffer=buffer,
+                            buffer=frame_size,
                             certs=certs,
                             run_dir=run_dir,
                             tag=f"{case}.{impl}.warmup{i}",
@@ -1692,9 +1707,9 @@ def run_benchmark(
                             run_datagram_once(
                                 case=case,
                                 bin_path=bin_path,
-                                framed_payload=framed_payload,
+                                framed_payload=framed_payloads[case],
                                 size=size,
-                                buffer=buffer,
+                                buffer=frame_size,
                                 certs=certs,
                                 run_dir=run_dir,
                                 tag=f"{case}.{impl}.{i}",

@@ -114,24 +114,32 @@ class StorageTest(unittest.TestCase):
     def test_prepare_payload_writes_fresh_files(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             run_dir = Path(tempdir)
-            size = 256
-            buffer = 64
+            size = 16391
+            buffer = 8192
 
             def fake_generate(_client: Path, dest: Path, n: int) -> None:
-                dest.write_bytes(bytes(range(n)))
+                dest.write_bytes(bytes(i % 256 for i in range(n)))
 
             with mock.patch.object(bench, "generate_aes_ctr", side_effect=fake_generate) as gen:
                 with mock.patch.object(bench.shutil, "disk_usage", return_value=mock.Mock(free=10**12)):
                     payload, note, framed = bench.prepare_payload(
-                        run_dir, size, buffer, ("udp",), Path("benchclient")
+                        run_dir, size, buffer, ("udp", "dtls"), Path("benchclient")
                     )
 
             self.assertEqual(gen.call_count, 1)
             self.assertEqual(note, "aes-128-ctr (incompressible)")
             self.assertEqual(payload, run_dir / "payload")
-            self.assertEqual(framed, run_dir / "payload.dgram")
             self.assertEqual(payload.stat().st_size, size)
-            self.assertGreater(framed.stat().st_size, size)
+            for case, frame_size in (("udp", 8192), ("dtls", 1024)):
+                self.assertGreater(framed[case].stat().st_size, size)
+                metrics = bench.analyze_datagram_sink(framed[case], size, frame_size)
+                self.assertEqual(metrics["received_payload_bytes"], size)
+                self.assertEqual(metrics["corrupt_datagrams"], 0)
+            sizes = [path.stat().st_size for path in framed.values()]
+            self.assertGreaterEqual(
+                bench.payload_budget(size, buffer, ("udp", "dtls")),
+                size + sum(sizes) + max(sizes) + bench.STORAGE_RESERVE,
+            )
 
     def test_prepare_payload_fails_before_filling_storage(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -254,7 +262,52 @@ class DatagramAddrTest(unittest.TestCase):
 
         self.assertTrue(udp_listen.startswith("UDP4-RECV:9,"))
         self.assertTrue(udp_connect.startswith("UDP4-SENDTO:127.0.0.1:9,"))
-        self.assertEqual(bench.DATAGRAM_CASES, {"udp"})
+        self.assertIn("udp", bench.DATAGRAM_CASES)
+
+    def test_dtls_bulk_keeps_frame_boundaries_and_reports_loss(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            size = 3000
+            payload = root / "payload"
+            payload.write_bytes(bytes(i % 251 for i in range(size)))
+            framed = root / "framed"
+            frame_size = bench.datagram_buffer("dtls", 8192)
+            bench.write_datagram_payload(payload, framed, size, frame_size)
+            sink = root / "sink.dtls.go.0"
+            launches = []
+
+            def launch(args, **_kwargs):
+                launches.append(args)
+                self.assertEqual(args[args.index("-b") + 1], "1024")
+                if len(launches) == 2:
+                    data = framed.read_bytes()
+                    # Drop the middle record, leaving the last frame aligned.
+                    sink.write_bytes(data[:1024] + data[2048:])
+                return mock.Mock(pid=123, wait=mock.Mock(return_value=0), poll=mock.Mock(return_value=0))
+
+            certs = {"crt": Path("c"), "key": Path("k"), "ca": Path("a")}
+            with (
+                mock.patch.dict(bench.os.environ, {"SOCAT_BENCH_BUFFER": "8192"}),
+                mock.patch.object(bench.subprocess, "Popen", side_effect=launch),
+                mock.patch.object(bench, "free_udp_port", return_value=9),
+                mock.patch.object(bench, "listen_wait"),
+                mock.patch.object(bench, "RSSSampler"),
+                mock.patch.object(bench.time, "perf_counter", side_effect=[0.0, 1.0]),
+                mock.patch.object(bench, "wait_file_quiet", return_value=(2048, 2.0)),
+            ):
+                result = bench.run_datagram_once(
+                    case="dtls", bin_path="socat", framed_payload=framed,
+                    size=size, buffer=frame_size, certs=certs, run_dir=root, tag="dtls.go.0",
+                )
+
+            self.assertEqual(len(launches), 2)
+            self.assertEqual(result["status"], "ok")
+            self.assertEqual(result["missing_datagrams"], 1)
+            self.assertEqual(result["corrupt_datagrams"], 0)
+            self.assertEqual(result["received_payload_bytes"], 1996)
+            self.assertAlmostEqual(result["send_mib_s"], 3000 / bench.MIB)
+            self.assertAlmostEqual(result["receive_mib_s"], 1996 / bench.MIB / 2)
+            self.assertAlmostEqual(result["loss_pct"], 100 / 3)
 
 
 class DatagramSummaryTest(unittest.TestCase):
@@ -271,6 +324,7 @@ class DatagramSummaryTest(unittest.TestCase):
                     "reordered_datagrams": 2,
                     "corrupt_datagrams": 0,
                     "expected_datagrams": 10,
+                    "frame_bytes": 1024,
                     "peak_rss_kib": 100,
                 }
             )
@@ -321,7 +375,8 @@ class StreamSummaryTest(unittest.TestCase):
         self.assertIn("DTLS-LISTEN:9,reuseaddr,bind=127.0.0.1,fork,", echo)
         self.assertEqual(bench.proto_of("dtls-rr"), "dtls")
         self.assertEqual(bench.proto_of("dtls-hs"), "dtls")
-        self.assertIn("dtls", bench.STREAM_CASES)
+        self.assertIn("dtls", bench.DATAGRAM_CASES)
+        self.assertNotIn("dtls", bench.STREAM_CASES)
         self.assertEqual(bench.GO_ONLY["dtls"], "DTLS")
         self.assertEqual(bench.GO_ONLY["dtls-rr"], "DTLS")
         self.assertEqual(bench.GO_ONLY["dtls-hs"], "DTLS")
