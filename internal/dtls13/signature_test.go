@@ -6,6 +6,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -47,6 +48,21 @@ func TestCertificateVerifyAlgorithms(t *testing.T) {
 		}{uint16(tc.scheme), key})
 	}
 	hash := sha256.Sum256([]byte("handshake transcript"))
+	for _, tc := range []struct {
+		scheme     tls.SignatureScheme
+		parameters mldsa.Parameters
+	}{
+		{tls.MLDSA44, mldsa.MLDSA44()}, {tls.MLDSA65, mldsa.MLDSA65()}, {tls.MLDSA87, mldsa.MLDSA87()},
+	} {
+		key, err := mldsa.GenerateKey(tc.parameters)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cases = append(cases, struct {
+			scheme uint16
+			signer crypto.Signer
+		}{uint16(tc.scheme), key})
+	}
 	for _, tc := range cases {
 		t.Run(tls.SignatureScheme(tc.scheme).String(), func(t *testing.T) {
 			selected, err := selectSignature(tc.signer.Public(), []uint16{tc.scheme})
@@ -100,7 +116,7 @@ func TestCertificateVerifyContextVector(t *testing.T) {
 	if _, err := signCertificateVerify(key, uint16(tls.PKCS1WithSHA256), transcript[:], true); err == nil {
 		t.Fatal("selected obsolete CertificateVerify algorithm")
 	}
-	if _, _, err := signatureDigest(uint16(tls.Ed25519), []byte{1}, true); err == nil {
+	if _, _, err := signatureInput(uint16(tls.Ed25519), []byte{1}, true); err == nil {
 		t.Fatal("accepted invalid transcript hash size")
 	}
 }
@@ -118,11 +134,12 @@ func TestCertificateVerifyEnforcesCurveAndPSSSalt(t *testing.T) {
 		t.Fatal(err)
 	}
 	transcript := sha256.Sum256([]byte("handshake transcript"))
-	digest, _, err := signatureDigest(uint16(tls.PSSWithSHA256), transcript[:], true)
+	input, _, err := signatureInput(uint16(tls.PSSWithSHA256), transcript[:], true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	sig, err := rsa.SignPSS(rand.Reader, rsaKey, crypto.SHA256, digest, &rsa.PSSOptions{SaltLength: 20, Hash: crypto.SHA256})
+	digest := sha256.Sum256(input)
+	sig, err := rsa.SignPSS(rand.Reader, rsaKey, crypto.SHA256, digest[:], &rsa.PSSOptions{SaltLength: 20, Hash: crypto.SHA256})
 	if err != nil {
 		t.Fatal(err)
 	}

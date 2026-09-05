@@ -79,10 +79,7 @@ func prepareConfig(config *Config, server bool) (*Config, error) {
 		return nil, fmt.Errorf("dtls: connection limit must be between 1 and 65535")
 	}
 	if len(c.CipherSuites) == 0 {
-		c.CipherSuites = []uint16{aes128GCM, aes256GCM}
-	}
-	if len(c.CipherSuites) > 2 {
-		return nil, errCipherSuite
+		c.CipherSuites = defaultCipherSuites()
 	}
 	for i, suite := range c.CipherSuites {
 		if _, err := suiteFor(suite); err != nil {
@@ -93,13 +90,10 @@ func prepareConfig(config *Config, server bool) (*Config, error) {
 		}
 	}
 	if len(c.CurvePreferences) == 0 {
-		c.CurvePreferences = []tls.CurveID{tls.X25519, tls.CurveP256}
-	}
-	if len(c.CurvePreferences) > 2 {
-		return nil, fmt.Errorf("dtls: unsupported curve preferences")
+		c.CurvePreferences = defaultGroups()
 	}
 	for i, group := range c.CurvePreferences {
-		if _, err := groupCurve(uint16(group)); err != nil {
+		if _, err := groupFor(uint16(group)); err != nil {
 			return nil, err
 		}
 		if slices.Contains(c.CurvePreferences[:i], group) {

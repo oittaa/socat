@@ -75,25 +75,49 @@ func oracleCertificate(t *testing.T) (tls.Certificate, *x509.CertPool, string, s
 	}
 	roots := x509.NewCertPool()
 	roots.AddCert(cert)
-	private, err := x509.MarshalPKCS8PrivateKey(key)
+	return writeOracleCertificate(t, tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, roots)
+}
+
+func writeOracleCertificate(t *testing.T, cert tls.Certificate, roots *x509.CertPool) (tls.Certificate, *x509.CertPool, string, string) {
+	t.Helper()
+	private, err := x509.MarshalPKCS8PrivateKey(cert.PrivateKey)
 	if err != nil {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
 	certFile, keyFile := filepath.Join(dir, "certificate.pem"), filepath.Join(dir, "key.pem")
-	if err := os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
+	var certificates []byte
+	for _, der := range cert.Certificate {
+		certificates = append(certificates, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})...)
+	}
+	if err := os.WriteFile(certFile, certificates, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: private}), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}, roots, certFile, keyFile
+	return cert, roots, certFile, keyFile
+}
+
+func oracleGroupName(id tls.CurveID) string {
+	switch id {
+	case tls.CurveP256:
+		return "P-256"
+	case tls.CurveP384:
+		return "P-384"
+	case tls.CurveP521:
+		return "P-521"
+	default:
+		return id.String()
+	}
 }
 
 func runOracle(t *testing.T, command *exec.Cmd) (*bytes.Buffer, func() error) {
 	t.Helper()
 	var output bytes.Buffer
-	command.Stdout = &output
+	if command.Stdout == nil {
+		command.Stdout = &output
+	}
 	command.Stderr = &output
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
@@ -188,81 +212,93 @@ func readOracleSession(t *testing.T, ctx context.Context, conn *net.UDPConn, s *
 func TestInteropWolfSSLServer(t *testing.T) {
 	tools := loadOracleTools(t)
 	cert, roots, certFile, keyFile := oracleCertificate(t)
-	for _, suite := range []uint16{aes128GCM, aes256GCM} {
-		t.Run(fmt.Sprintf("%x", suite), func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			reservation := udpForOracle(t)
-			address := reservation.LocalAddr().(*net.UDPAddr)
-			port := address.Port
-			if err := reservation.Close(); err != nil {
-				t.Fatal(err)
-			}
-			cipher := "TLS_AES_128_GCM_SHA256"
-			if suite == aes256GCM {
-				cipher = "TLS_AES_256_GCM_SHA384"
-			}
-			command := exec.CommandContext(ctx, tools.WolfSSL.Server, "-u", "-v", "4", "-Y", "-e", "-p", strconv.Itoa(port), "-c", certFile, "-k", keyFile, "-A", certFile, "-l", cipher)
-			command.Dir = filepath.Dir(tools.WolfSSL.Certificates)
-			runOracle(t, command)
-			client, err := Client(ctx, udpForOracle(t), address, &Config{
-				Certificates: []tls.Certificate{cert}, RootCAs: roots, ServerName: "localhost",
-				CipherSuites: []uint16{suite}, CurvePreferences: []tls.CurveID{tls.CurveP256},
+	for _, suite := range defaultCipherSuites() {
+		for _, groupID := range defaultGroups() {
+			t.Run(fmt.Sprintf("%x/%s", suite, groupID), func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				reservation := udpForOracle(t)
+				address := reservation.LocalAddr().(*net.UDPAddr)
+				port := address.Port
+				if err := reservation.Close(); err != nil {
+					t.Fatal(err)
+				}
+				cipher := tls.CipherSuiteName(suite)
+				command := exec.CommandContext(ctx, tools.WolfSSL.Server, "-u", "-v", "4", "-Y", "-e", "-p", strconv.Itoa(port), "-c", certFile, "-k", keyFile, "-A", certFile, "-l", cipher)
+				group, err := groupFor(uint16(groupID))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if group.kem != 0 {
+					command.Args = append(command.Args, "--pqc", groupID.String())
+				} else {
+					name := "CURVE25519"
+					if groupID != tls.X25519 {
+						name = "SECP" + strings.TrimPrefix(oracleGroupName(groupID), "P-") + "R1"
+					}
+					command.Args = append(command.Args, "--force-curve", name)
+				}
+				command.Dir = filepath.Dir(tools.WolfSSL.Certificates)
+				runOracle(t, command)
+				// This stateless reference build rejects fragmented initial ClientHellos.
+				client, err := Client(ctx, udpForOracle(t), address, &Config{
+					Certificates: []tls.Certificate{cert}, RootCAs: roots, ServerName: "localhost",
+					CipherSuites: []uint16{suite}, CurvePreferences: []tls.CurveID{groupID},
+					MTU: 4096,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = client.Close() })
+				if err := client.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+					t.Fatal(err)
+				}
+				if err := client.UpdateKeys(true); err != nil {
+					t.Fatal(err)
+				}
+				marker := []byte("dtls13-independent-echo\n")
+				if _, err := client.Write(marker); err != nil {
+					t.Fatal(err)
+				}
+				buffer := make([]byte, 1024)
+				n, err := client.Read(buffer)
+				if err != nil || !bytes.Equal(buffer[:n], marker) {
+					t.Fatalf("wolfSSL echo = %q, %v", buffer[:n], err)
+				}
+				state := client.ConnectionState()
+				if state.Version != version13 || state.CipherSuite != suite || state.CurveID != groupID || len(state.VerifiedChains) == 0 {
+					t.Fatal("unverified DTLS 1.3 handshake")
+				}
+				// Stop the event loop before inspecting its negotiated traffic epochs.
+				if err := client.Close(); err != nil {
+					t.Fatal(err)
+				}
+				if client.session.currentWriteEpoch() < 4 || client.session.readApplicationEpoch < 4 {
+					t.Fatal("wolfSSL did not complete both key updates")
+				}
+				t.Log("verified public client API, mutual authentication, bidirectional key updates, and wolfSSL echo")
 			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = client.Close() })
-			if err := client.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
-				t.Fatal(err)
-			}
-			if err := client.UpdateKeys(true); err != nil {
-				t.Fatal(err)
-			}
-			marker := []byte("dtls13-independent-echo\n")
-			if _, err := client.Write(marker); err != nil {
-				t.Fatal(err)
-			}
-			buffer := make([]byte, 1024)
-			n, err := client.Read(buffer)
-			if err != nil || !bytes.Equal(buffer[:n], marker) {
-				t.Fatalf("wolfSSL echo = %q, %v", buffer[:n], err)
-			}
-			state := client.ConnectionState()
-			if state.Version != version13 || len(state.VerifiedChains) == 0 {
-				t.Fatal("unverified DTLS 1.3 handshake")
-			}
-			// Stop the event loop before inspecting its negotiated traffic epochs.
-			if err := client.Close(); err != nil {
-				t.Fatal(err)
-			}
-			if client.session.currentWriteEpoch() < 4 || client.session.readApplicationEpoch < 4 {
-				t.Fatal("wolfSSL did not complete both key updates")
-			}
-			t.Log("verified public client API, mutual authentication, bidirectional key updates, and wolfSSL echo")
-		})
+		}
 	}
 }
 
 func TestInteropOpenSSLClient(t *testing.T) {
 	tools := loadOracleTools(t)
 	cert, roots, certFile, keyFile := oracleCertificate(t)
-	for _, suite := range []uint16{aes128GCM, aes256GCM} {
-		for _, group := range []string{"P-256", "X25519"} {
+	for _, suite := range defaultCipherSuites() {
+		for _, groupID := range defaultGroups() {
+			group := oracleGroupName(groupID)
 			t.Run(fmt.Sprintf("%x/%s", suite, group), func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 				defer cancel()
 				conn := udpForOracle(t)
-				cipher := "TLS_AES_128_GCM_SHA256"
-				if suite == aes256GCM {
-					cipher = "TLS_AES_256_GCM_SHA384"
-				}
+				cipher := tls.CipherSuiteName(suite)
 				marker := []byte("openssl-independent-echo\n")
 				command := exec.CommandContext(ctx, tools.OpenSSL.OpenSSL, "s_client", "-dtls1_3", "-quiet", "-ign_eof", "-connect", conn.LocalAddr().String(),
 					"-verify_hostname", "localhost", "-verify_return_error", "-CAfile", certFile, "-cert", certFile, "-key", keyFile, "-groups", group, "-ciphersuites", cipher)
 				command.Stdin = strings.NewReader(string(marker))
 				output, wait := runOracle(t, command)
-				listener, err := Listen(conn, &Config{Certificates: []tls.Certificate{cert}, ClientCAs: roots, ClientAuth: tls.RequireAndVerifyClientCert, CipherSuites: []uint16{suite}})
+				listener, err := Listen(conn, &Config{Certificates: []tls.Certificate{cert}, ClientCAs: roots, ClientAuth: tls.RequireAndVerifyClientCert, CipherSuites: []uint16{suite}, CurvePreferences: []tls.CurveID{groupID}})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -281,7 +317,7 @@ func TestInteropOpenSSLClient(t *testing.T) {
 					t.Fatalf("OpenSSL data = %q, %v", buffer[:n], err)
 				}
 				state := server.ConnectionState()
-				if state.Version != version13 || len(state.VerifiedChains) == 0 {
+				if state.Version != version13 || state.CipherSuite != suite || state.CurveID != groupID || len(state.VerifiedChains) == 0 {
 					t.Fatal("client certificate was not verified")
 				}
 				if _, err := server.Write(buffer[:n]); err != nil {

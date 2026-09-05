@@ -16,7 +16,7 @@ func TestKeySharesAndInvalidPoints(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		wire, err := encodeKeyShare(group, peer.PublicKey().Bytes())
+		wire, err := encodeKeyShare(group, peer.public)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -24,11 +24,11 @@ func TestKeySharesAndInvalidPoints(t *testing.T) {
 		if err != nil || gotGroup != group {
 			t.Fatalf("key share: %d, %v", gotGroup, err)
 		}
-		secret, err := computeShared(local, public)
+		secret, err := computeShared(local.ecdh, public)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want, err := peer.ECDH(local.PublicKey())
+		want, err := peer.ecdh.ECDH(local.ecdh.PublicKey())
 		if err != nil || !bytes.Equal(secret, want) {
 			t.Fatal("shared-secret disagreement")
 		}
@@ -47,12 +47,12 @@ func TestKeySharesAndInvalidPoints(t *testing.T) {
 			t.Fatal("accepted duplicate group share")
 		}
 		for _, invalid := range [][]byte{nil, {0}, make([]byte, len(public))} {
-			if _, err := computeShared(local, invalid); err == nil {
+			if _, err := computeShared(local.ecdh, invalid); err == nil {
 				t.Fatal("accepted invalid point or noncontributory share")
 			}
 		}
 	}
-	if _, err := groupCurve(0); err == nil {
+	if _, err := groupFor(0); err == nil {
 		t.Fatal("accepted unsupported group")
 	}
 }

@@ -1,50 +1,9 @@
 package dtls13
 
 import (
-	"crypto/ecdh"
-	"crypto/rand"
 	"net"
 	"strings"
 )
-
-const (
-	groupP256   = uint16(23)
-	groupX25519 = uint16(29)
-)
-
-func groupCurve(group uint16) (ecdh.Curve, error) {
-	switch group {
-	case groupP256:
-		return ecdh.P256(), nil
-	case groupX25519:
-		return ecdh.X25519(), nil
-	default:
-		return nil, errIllegalParameter
-	}
-}
-
-func generateShare(group uint16) (*ecdh.PrivateKey, error) {
-	curve, err := groupCurve(group)
-	if err != nil {
-		return nil, err
-	}
-	return curve.GenerateKey(rand.Reader)
-}
-
-func computeShared(private *ecdh.PrivateKey, peer []byte) ([]byte, error) {
-	if private == nil {
-		return nil, errKeyMaterial
-	}
-	public, err := private.Curve().NewPublicKey(peer)
-	if err != nil {
-		return nil, errIllegalParameter
-	}
-	secret, err := private.ECDH(public)
-	if err != nil {
-		return nil, errIllegalParameter
-	}
-	return secret, nil
-}
 
 func encodeList16(values []uint16) ([]byte, error) {
 	if len(values) == 0 || len(values) > 32767 {

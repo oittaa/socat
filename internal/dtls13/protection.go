@@ -8,14 +8,19 @@ import (
 	"crypto/cipher"
 	"encoding/binary"
 	"errors"
+
+	"golang.org/x/crypto/chacha20"
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 var errAuthentication = errors.New("dtls: record authentication failed")
 
 type trafficKeys struct {
-	aead cipher.AEAD
-	sn   cipher.Block
-	iv   [12]byte
+	aead        cipher.AEAD
+	sn          cipher.Block
+	snChaCha    []byte
+	recordLimit uint64
+	iv          [12]byte
 }
 
 func newTrafficKeys(id uint16, secret []byte) (*trafficKeys, error) {
@@ -38,6 +43,15 @@ func newTrafficKeys(id uint16, secret []byte) (*trafficKeys, error) {
 	if err != nil {
 		return nil, err
 	}
+	if id == chaCha20Poly1305 {
+		aead, err := chacha20poly1305.New(key)
+		if err != nil {
+			return nil, err
+		}
+		keys := &trafficKeys{aead: aead, snChaCha: snKey, recordLimit: suite.recordLimit}
+		copy(keys.iv[:], iv)
+		return keys, nil
+	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
@@ -50,7 +64,7 @@ func newTrafficKeys(id uint16, secret []byte) (*trafficKeys, error) {
 	if err != nil {
 		return nil, err
 	}
-	keys := &trafficKeys{aead: aead, sn: sn}
+	keys := &trafficKeys{aead: aead, sn: sn, recordLimit: suite.recordLimit}
 	copy(keys.iv[:], iv)
 	return keys, nil
 }
@@ -70,7 +84,16 @@ func (k *trafficKeys) mask(ciphertext []byte) ([16]byte, error) {
 	if len(ciphertext) < aes.BlockSize {
 		return mask, errAuthentication
 	}
-	k.sn.Encrypt(mask[:], ciphertext[:aes.BlockSize])
+	if k.snChaCha != nil {
+		stream, err := chacha20.NewUnauthenticatedCipher(k.snChaCha, ciphertext[4:16])
+		if err != nil {
+			return mask, err
+		}
+		stream.SetCounter(binary.LittleEndian.Uint32(ciphertext[:4]))
+		stream.XORKeyStream(mask[:], mask[:])
+	} else {
+		k.sn.Encrypt(mask[:], ciphertext[:aes.BlockSize])
+	}
 	return mask, nil
 }
 

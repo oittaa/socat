@@ -325,8 +325,29 @@ exclusions.
 |-------|-------|
 | `READLINE`, `READLINE_OVFL` | GNU readline not implemented |
 | `COOLWRITE`, `COOLSTDIO` | `cool-write` deprecated; use `children-shutup` |
-| `OPENSSL_DTLS_SERVER`, `OPENSSL_DTLS_TO_SERVER`, `OPENSSL_DTLS_TO_CLIENT`, `RCVTIMEO_DTLS` | DTLS not in Go `crypto/tls` |
+| `OPENSSL_DTLS_SERVER`, `OPENSSL_DTLS_TO_SERVER`, `OPENSSL_DTLS_TO_CLIENT`, `RCVTIMEO_DTLS` | Historical snapshot predates this port's DTLS 1.3 implementation; see the current branch checks below |
 | `UDPLITE4STREAM`, `UDPLITE6STREAM`, `UDPLITE4LISTENENV`, `UDPLITE6LISTENENV`, `UDPLITE4_L_MAXCHILDREN`, `UDPLITE6_L_MAXCHILDREN`, `V1800_UDPLITE_*` (6) | UDP-Lite removed from modern Linux |
+
+### DTLS 1.3 branch checks (2026-09-05)
+
+The committed full-suite counts above are historical. DTLS addresses are now
+registered by `internal/dtls13`; absence from Go's `crypto/tls` no longer makes
+these cases CANT. A focused Linux host run against the pinned official
+1.8.1.3 `test.sh` produced:
+
+| Test | Current result | Evidence / limitation |
+|------|----------------|-----------------------|
+| `OPENSSL_DTLS_CLIENT` | FAILED | The official peer explicitly uses system OpenSSL's `-dtls1_2`; this port permits only DTLS 1.3. |
+| `OPENSSL_DTLS_SERVER` | FAILED | The official peer explicitly uses `-dtls1_2`. |
+| `OPENSSL_DTLS_TO_SERVER` | FAILED | Default 8192-byte file reads reach DTLS Write and fail with `dtls: record too large`. This is an unresolved endpoint/relay issue. |
+| `OPENSSL_DTLS_TO_CLIENT` | TIMEOUT | Reached this case but exhausted the 180-second shard deadline; no successful transfer is claimed. |
+| `RCVTIMEO_DTLS` | FAILED | Rerun separately after the shard timeout; official result was `not timeout`. |
+
+The first run used `MODE=stable JOBS=1 SHARD_TIMEOUT=180` and the five test
+names in `ONLY`; `RCVTIMEO_DTLS` was then rerun alone with a 90-second bound.
+No full-suite baseline JSON was replaced by this subset. `make classic-parity`
+still passes its interface-name/alias audit; that does not certify functional
+DTLS file transfer. See [the DTLS follow-up plan](../../docs/dtls13-follow-up.txt).
 
 ### `UDP_DATAGRAM_PEERPORT` (version-gated harness)
 

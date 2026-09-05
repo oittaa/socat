@@ -2,7 +2,6 @@ package dtls13
 
 import (
 	"bytes"
-	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/binary"
 	"net"
@@ -14,7 +13,7 @@ type clientHandshake struct {
 	*handshakeState
 	hello                  clientHello
 	firstHello, retryHello []byte
-	shares                 map[uint16]*ecdh.PrivateKey
+	shares                 map[uint16]*keyShare
 	phase                  byte
 	retried                bool
 	retrySuite             uint16
@@ -28,22 +27,26 @@ func newClientHandshake(config *Config) (*clientHandshake, []handshakeMessage, e
 	if err != nil {
 		return nil, nil, err
 	}
-	h := &clientHandshake{handshakeState: state, shares: make(map[uint16]*ecdh.PrivateKey), phase: msgServerHello}
+	h := &clientHandshake{handshakeState: state, shares: make(map[uint16]*keyShare), phase: msgServerHello}
 	h.hello = clientHello{suites: slices.Clone(state.config.CipherSuites), extensions: extensions{extSupportedVersions: {2, 0xfe, 0xfc}}}
 	if _, err := rand.Read(h.hello.random[:]); err != nil {
 		return nil, nil, err
 	}
 	groups := make([]uint16, 0, len(state.config.CurvePreferences))
 	keyShares := wireWriter{}
-	for _, group := range state.config.CurvePreferences {
+	for i, group := range state.config.CurvePreferences {
 		id := uint16(group)
 		groups = append(groups, id)
+		// Send the preferred share and a small X25519 fallback. Other groups use HRR.
+		if i != 0 && id != groupX25519 {
+			continue
+		}
 		private, err := generateShare(id)
 		if err != nil {
 			return nil, nil, err
 		}
 		h.shares[id] = private
-		share, err := encodeKeyShare(id, private.PublicKey().Bytes())
+		share, err := encodeKeyShare(id, private.public)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -203,7 +206,7 @@ func (h *clientHandshake) serverHello(m handshakeMessage) ([]handshakeMessage, e
 	if private == nil {
 		return nil, errIllegalParameter
 	}
-	shared, err := computeShared(private, public)
+	shared, err := private.shared(public)
 	if err != nil {
 		return nil, err
 	}
@@ -247,6 +250,7 @@ func (h *clientHandshake) serverHello(m handshakeMessage) ([]handshakeMessage, e
 	}
 	h.shares = nil
 	h.state.CipherSuite = hello.suite
+	h.state.CurveID = private.group.id
 	h.phase = msgEncryptedExtensions
 	return nil, nil
 }
@@ -287,14 +291,14 @@ func (h *clientHandshake) retryRequest(m handshakeMessage, hello serverHello) ([
 		if err != nil {
 			return nil, err
 		}
-		share, err := encodeKeyShare(group, private.PublicKey().Bytes())
+		share, err := encodeKeyShare(group, private.public)
 		if err != nil {
 			return nil, err
 		}
 		list := wireWriter{}
 		list.vector16(share)
 		h.hello.extensions[extKeyShare] = list.data
-		h.shares = map[uint16]*ecdh.PrivateKey{group: private}
+		h.shares = map[uint16]*keyShare{group: private}
 		changed = true
 	}
 	if !changed {

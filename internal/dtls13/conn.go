@@ -102,7 +102,8 @@ func Client(ctx context.Context, transport net.PacketConn, peer net.Addr, config
 }
 
 func newConn(peer netip.AddrPort) *Conn {
-	return &Conn{incoming: make(chan incomingPacket, 4), commands: make(chan *connCommand),
+	// Buffer a handshake transmission while certificate verification runs.
+	return &Conn{incoming: make(chan incomingPacket, flightBurst), commands: make(chan *connCommand),
 		wake: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
 		ready: make(chan struct{}), notify: make(chan struct{}), remote: peer}
 }

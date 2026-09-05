@@ -8,14 +8,18 @@ import (
 	"crypto/hkdf"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/tls"
 	"encoding/binary"
 	"errors"
 	"hash"
+
+	"golang.org/x/sys/cpu"
 )
 
 const (
-	aes128GCM = uint16(0x1301)
-	aes256GCM = uint16(0x1302)
+	aes128GCM        = uint16(0x1301)
+	aes256GCM        = uint16(0x1302)
+	chaCha20Poly1305 = uint16(tls.TLS_CHACHA20_POLY1305_SHA256)
 )
 
 var (
@@ -25,19 +29,38 @@ var (
 )
 
 type cipherSuite struct {
-	hash   func() hash.Hash
-	keyLen int
+	id          uint16
+	hash        func() hash.Hash
+	keyLen      int
+	recordLimit uint64
+}
+
+var cipherSuites = []cipherSuite{
+	{aes128GCM, sha256.New, 16, 1 << 24},
+	{aes256GCM, sha512.New384, 32, 1 << 24},
+	{chaCha20Poly1305, sha256.New, 32, 1 << 48},
+}
+
+func defaultCipherSuites() []uint16 {
+	ids := make([]uint16, 0, len(cipherSuites))
+	for _, suite := range cipherSuites {
+		ids = append(ids, suite.id)
+	}
+	hasAESGCM := cpu.X86.HasAES && cpu.X86.HasPCLMULQDQ || cpu.ARM64.HasAES && cpu.ARM64.HasPMULL
+	if !hasAESGCM {
+		// Prefer ChaCha20 when AES-GCM hardware acceleration is unavailable.
+		ids = []uint16{chaCha20Poly1305, aes128GCM, aes256GCM}
+	}
+	return ids
 }
 
 func suiteFor(id uint16) (cipherSuite, error) {
-	switch id {
-	case aes128GCM:
-		return cipherSuite{sha256.New, 16}, nil
-	case aes256GCM:
-		return cipherSuite{sha512.New384, 32}, nil
-	default:
-		return cipherSuite{}, errCipherSuite
+	for _, suite := range cipherSuites {
+		if suite.id == id {
+			return suite, nil
+		}
 	}
+	return cipherSuite{}, errCipherSuite
 }
 
 // expandLabel uses DTLS's label prefix, without a trailing space.

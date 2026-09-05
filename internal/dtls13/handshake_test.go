@@ -46,7 +46,7 @@ func transferHandshake(t *testing.T, sender, receiver *handshakeEndpoint, messag
 	for _, message := range messages {
 		var records [][]byte
 		for offset := 0; offset < len(message.body) || len(message.body) == 0; {
-			length := min(83, len(message.body)-offset)
+			length := min(max(83, (len(message.body)+63)/64), len(message.body)-offset)
 			fragment := fragmentFor(t, message, offset, length)
 			number := recordNumber{message.epoch, sender.sequence[message.epoch]}
 			sender.sequence[message.epoch]++
@@ -147,8 +147,8 @@ func runHandshake(t *testing.T, clientConfig, serverConfig *Config) (*clientHand
 
 func TestCertificateHandshakeMatrix(t *testing.T) {
 	clientConfig, serverConfig := handshakeConfigs(t)
-	for _, suite := range []uint16{aes128GCM, aes256GCM} {
-		for _, group := range []tls.CurveID{tls.X25519, tls.CurveP256} {
+	for _, suite := range defaultCipherSuites() {
+		for _, group := range defaultGroups() {
 			for _, mutual := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%x/%d/mutual=%t", suite, group, mutual), func(t *testing.T) {
 					clientCopy, serverCopy := *clientConfig, *serverConfig
@@ -177,6 +177,9 @@ func TestCertificateHandshakeMatrix(t *testing.T) {
 					}
 					if !bytes.Equal(client.clientApplication, server.clientApplication) || !bytes.Equal(client.serverApplication, server.serverApplication) {
 						t.Fatal("application secrets disagree")
+					}
+					if client.state.CurveID != group || server.state.CurveID != group || client.state.CipherSuite != suite || server.state.CipherSuite != suite {
+						t.Fatal("negotiated algorithms differ from the forced algorithms")
 					}
 					if len(client.state.VerifiedChains) == 0 || mutual && len(server.state.VerifiedChains) == 0 {
 						t.Fatal("certificate chains were not verified")

@@ -70,10 +70,13 @@ def build(root, name, sources, jobs):
             raise RuntimeError("reference OpenSSL does not support -dtls1_3")
         return {"openssl": str(binary), "version": run([str(binary), "version"])}
     if name == "wolfssl":
+        # Large stateless ClientHellos must fit the reference's receive buffer.
         command("cmake", "-S", str(source), "-B", str(destination), "-GNinja",
                 "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_SHARED_LIBS=OFF",
                 "-DWOLFSSL_DTLS=YES", "-DWOLFSSL_DTLS13=YES",
                 "-DWOLFSSL_DTLS_CID=YES", "-DWOLFSSL_EXAMPLES=YES",
+                "-DWOLFSSL_CURVE25519=YES",
+                "-DCMAKE_C_FLAGS=-DWOLFSSL_DTLS_MTU_ADDITIONAL_READ_BUFFER=4096",
                 "-DWOLFSSL_CRYPT_TESTS=NO")
         command("cmake", "--build", str(destination), "--parallel", str(jobs))
         return {

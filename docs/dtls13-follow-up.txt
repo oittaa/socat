@@ -4,12 +4,34 @@ Baseline
 The implementation supports only DTLS 1.3 on Linux, macOS, and Windows.
 Connection IDs, CID rotation, RFC 9853 enhanced path validation, certificate
 authentication, key updates, and bounded loss recovery are included.
-Runtime imports in internal/dtls13 are standard library only. Preserve that
-constraint and the Pion attribution. Read AGENTS.md and docs/dtls13.md first.
+Prefer standard-library primitives; golang.org/x/ imports are also permitted.
+Preserve the Pion attribution. Read AGENTS.md and docs/dtls13.md first.
+
+Merge blocker: default stream/file transfer size
+The relay reads up to 8192 bytes by default, but DTLS Write rejects data
+larger than the configured MTU minus record overhead (1200-byte default).
+The official OPENSSL_DTLS_TO_SERVER case fails with "dtls: record too large";
+OPENSSL_DTLS_TO_CLIENT exhausted the bounded scorecard run. Resolve stream
+packetization at the endpoint/relay boundary while preserving the datagram
+connection API and incoming UDP message boundaries. Do not silently split
+arbitrary datagram writes. Compare official released/master SSL_write behavior,
+add a default-block-size binary file-transfer regression in each direction,
+then rerun the five official DTLS scorecard names and refresh their reporting.
+
+Review findings to preserve
+Listener.receive is called by one transport read loop; the suggested duplicate
+admission race has no concurrent production caller. RFC 9147 section 5.11
+requires abandoning a previous same-address association after a verified
+Finished; it does not specify a CID exemption. Do not retain simultaneous
+same-address associations as a supposed bug fix without a standards basis.
+Keep RFC-compliant proactive CID requests; the pinned Pion dispatcher is
+incomplete. Delaying requests until movement loses the ability to obtain
+spares on the old path, and disabling migration is a separate product choice.
 
 1. Independent protocol and security review before merge
 Review internal/dtls13 and internal/xio/dtlsopen against RFC 9147, RFC 9853,
-RFC 8446, and the current verified errata. Review authentication/transcript
+the TLS 1.3 specification, RFC 10024, the current TLS ML-DSA draft, and verified
+errata. Review authentication/transcript
 boundaries, record-number reconstruction, nonce uniqueness, replay handling,
 epoch retirement, ACK ordering, fragmentation/resource limits, cookie binding,
 CID routing/retirement, amplification accounting, migration peer filters, and
@@ -28,14 +50,24 @@ Keep reference software outside the runtime module. Pin its exact revision
 and prove that DTLS 1.3 was negotiated. Do not silently change our protocol to
 accommodate incomplete reference software.
 
-3. Optional BoringSSL interoperability adapter
+3. Independent post-quantum fragmentation and loss tests
+All three RFC 10024 hybrids and ML-DSA-44/65/87 work in local tests and in
+large-datagram OpenSSL exchanges. The pinned wolfSSL server drops fragmented
+initial ClientHellos, and the pinned OpenSSL snapshot lacks partial-flight
+ACK support. Current algorithm interop checks use 4096-byte loopback MTUs.
+Obtain an independent peer that supports these protocol paths, then test
+the default 1200-byte MTU and 256/512-byte MTUs, both client/server directions,
+loss, reordering, and mutual ML-DSA authentication. Do not treat increasing
+the production MTU or disabling post-quantum defaults as a protocol fix.
+
+4. Optional BoringSSL interoperability adapter
 The pinned bssl_shim is already built by scripts/dtls13-lab.py. Add a lab-only
 adapter for its packet-BIO framing and run both certificate-authenticated
 directions. Include loss, reordering, small MTUs, and key updates where the
 shim supports them. Keep the adapter out of normal builds and ordinary
 make check. Never treat a successful DTLS 1.2 connection as a 1.3 result.
 
-4. Refresh released reference software when available
+5. Refresh released reference software when available
 The lab system OpenSSL 3.5.5 supports DTLS only through 1.2. The pinned
 OpenSSL 4.1 development snapshot supports 1.3. Unmodified official socat
 1.8.1.3 does not compile with that snapshot's opaque ASN1_OCTET_STRING type.
@@ -44,7 +76,16 @@ master, read doc/socat.yo at those exact revisions, and then test classic
 socat in both directions. Do not patch the official parity baseline or
 replace system OpenSSL merely to obtain an oracle.
 
-5. Optional features require a separate scope decision
+6. Maintain alignment with Go's crypto support
+TestGoTLS13AlgorithmDefaults detects new or removed default algorithms and
+group/signature preference changes. Review any failure on a Go upgrade:
+integrate the DTLS wire mapping, retain protocol-required restrictions, and
+test against an independent peer. Delegate primitives and X.509 policy to
+Go; do not add separate key-type/security allowlists without a protocol need.
+The test covers Go defaults, not every optional algorithm or GODEBUG/FIPS
+configuration. Recheck the TLS ML-DSA draft when it is published as an RFC.
+
+7. Optional features require a separate scope decision
 PSKs, session resumption, 0-RTT, post-handshake client authentication, additional
 AEAD suites, and a WebRTC/ICE/SRTP stack are not included. Do not add them as
 cleanup. If needed later, specify authentication/replay/resource policies and

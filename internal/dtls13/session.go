@@ -133,7 +133,7 @@ func (s *session) sendRecordWith(epoch uint64, typ byte, body, cid []byte, send 
 		return recordNumber{}, errKeyMaterial
 	}
 	number := recordNumber{epoch, w.sequence}
-	if epoch == 0 && w.sequence >= 1<<48 || epoch != 0 && w.sequence >= 1<<24 {
+	if epoch == 0 && w.sequence >= 1<<48 || epoch != 0 && w.sequence >= w.keys.recordLimit {
 		return recordNumber{}, errSequence
 	}
 	var packet []byte
@@ -500,7 +500,8 @@ func (s *session) application(body []byte) error {
 	if s.updatePending || s.updating {
 		return errUpdatePending
 	}
-	if s.write[s.currentWriteEpoch()].sequence >= 1<<24-1024 {
+	w := s.write[s.currentWriteEpoch()]
+	if w.sequence >= w.keys.recordLimit-1024 {
 		s.updatePending = true
 		return errUpdatePending
 	}

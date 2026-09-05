@@ -17,8 +17,8 @@ func verifyPeer(config *Config, raw [][]byte, client bool) ([]*x509.Certificate,
 		return nil, nil, errCertificateRequired
 	}
 	for _, cert := range certificates {
-		if key, ok := cert.PublicKey.(*rsa.PublicKey); ok && (key.N.BitLen() < 2048 || key.N.BitLen() > 8192) {
-			return nil, nil, fmt.Errorf("%w: RSA key size outside 2048–8192 bits", errBadCertificate)
+		if key, ok := cert.PublicKey.(*rsa.PublicKey); ok && key.N.BitLen() > maxRSAKeyBits {
+			return nil, nil, fmt.Errorf("%w: RSA key exceeds %d bits", errBadCertificate, maxRSAKeyBits)
 		}
 	}
 	if len(certificates) != 0 && certificates[0].KeyUsage != 0 && certificates[0].KeyUsage&x509.KeyUsageDigitalSignature == 0 {

@@ -142,7 +142,7 @@ func TestTrafficKeysRejectInvalidParameters(t *testing.T) {
 	if _, err := newTrafficKeys(0, make([]byte, 32)); !errors.Is(err, errCipherSuite) {
 		t.Fatalf("unknown suite accepted: %v", err)
 	}
-	for _, id := range []uint16{aes128GCM, aes256GCM} {
+	for _, id := range defaultCipherSuites() {
 		if _, err := newTrafficKeys(id, []byte("short")); !errors.Is(err, errKeyMaterial) {
 			t.Fatalf("short secret accepted: %v", err)
 		}

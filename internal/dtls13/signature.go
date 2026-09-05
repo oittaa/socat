@@ -5,51 +5,74 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
+	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"slices"
 )
 
 var errSignature = errors.New("dtls: invalid CertificateVerify signature")
 
-var signatureSchemes = []uint16{
-	uint16(tls.ECDSAWithP256AndSHA256), uint16(tls.Ed25519),
-	uint16(tls.PSSWithSHA256), uint16(tls.ECDSAWithP384AndSHA384),
-	uint16(tls.PSSWithSHA384), uint16(tls.PSSWithSHA512),
-	uint16(tls.ECDSAWithP521AndSHA512),
+const maxRSAKeyBits = 8192
+
+type signatureAlgorithm struct {
+	id    tls.SignatureScheme
+	x509  x509.SignatureAlgorithm
+	opts  crypto.SignerOpts
+	curve elliptic.Curve
+	mldsa mldsa.Parameters
 }
 
-func signatureHash(scheme uint16) (crypto.Hash, error) {
-	switch tls.SignatureScheme(scheme) {
-	case tls.ECDSAWithP256AndSHA256, tls.PSSWithSHA256:
-		return crypto.SHA256, nil
-	case tls.ECDSAWithP384AndSHA384, tls.PSSWithSHA384:
-		return crypto.SHA384, nil
-	case tls.ECDSAWithP521AndSHA512, tls.PSSWithSHA512:
-		return crypto.SHA512, nil
-	case tls.Ed25519:
-		return crypto.Hash(0), nil
-	default:
-		return 0, errSignature
+var signatureAlgorithms = []signatureAlgorithm{
+	{id: tls.MLDSA44, x509: x509.MLDSA44, opts: crypto.Hash(0), mldsa: mldsa.MLDSA44()},
+	{id: tls.MLDSA65, x509: x509.MLDSA65, opts: crypto.Hash(0), mldsa: mldsa.MLDSA65()},
+	{id: tls.MLDSA87, x509: x509.MLDSA87, opts: crypto.Hash(0), mldsa: mldsa.MLDSA87()},
+	{id: tls.PSSWithSHA256, x509: x509.SHA256WithRSAPSS, opts: &rsa.PSSOptions{Hash: crypto.SHA256, SaltLength: rsa.PSSSaltLengthEqualsHash}},
+	{id: tls.ECDSAWithP256AndSHA256, x509: x509.ECDSAWithSHA256, opts: crypto.SHA256, curve: elliptic.P256()},
+	{id: tls.Ed25519, x509: x509.PureEd25519, opts: crypto.Hash(0)},
+	{id: tls.PSSWithSHA384, x509: x509.SHA384WithRSAPSS, opts: &rsa.PSSOptions{Hash: crypto.SHA384, SaltLength: rsa.PSSSaltLengthEqualsHash}},
+	{id: tls.PSSWithSHA512, x509: x509.SHA512WithRSAPSS, opts: &rsa.PSSOptions{Hash: crypto.SHA512, SaltLength: rsa.PSSSaltLengthEqualsHash}},
+	{id: tls.ECDSAWithP384AndSHA384, x509: x509.ECDSAWithSHA384, opts: crypto.SHA384, curve: elliptic.P384()},
+	{id: tls.ECDSAWithP521AndSHA512, x509: x509.ECDSAWithSHA512, opts: crypto.SHA512, curve: elliptic.P521()},
+}
+
+var signatureSchemes = func() []uint16 {
+	ids := make([]uint16, 0, len(signatureAlgorithms))
+	for _, algorithm := range signatureAlgorithms {
+		ids = append(ids, uint16(algorithm.id))
 	}
+	return ids
+}()
+
+func signatureFor(id uint16) (signatureAlgorithm, error) {
+	for _, algorithm := range signatureAlgorithms {
+		if uint16(algorithm.id) == id {
+			return algorithm, nil
+		}
+	}
+	return signatureAlgorithm{}, errSignature
 }
 
 func keySupportsSignature(public crypto.PublicKey, scheme uint16) bool {
-	sig := tls.SignatureScheme(scheme)
+	a, err := signatureFor(scheme)
+	if err != nil {
+		return false
+	}
 	switch key := public.(type) {
 	case *rsa.PublicKey:
-		return key != nil && key.N != nil && key.N.BitLen() >= 2048 && key.N.BitLen() <= 8192 &&
-			(sig == tls.PSSWithSHA256 || sig == tls.PSSWithSHA384 || sig == tls.PSSWithSHA512)
+		_, pss := a.opts.(*rsa.PSSOptions)
+		// Match Go's RSA verification work limit and the PSS encoding minimum.
+		return pss && key != nil && key.N != nil && key.N.BitLen() <= maxRSAKeyBits && (key.N.BitLen()-1+7)/8 >= 2*a.opts.HashFunc().Size()+2
 	case *ecdsa.PublicKey:
-		if key == nil || key.Curve == nil {
-			return false
-		}
-		bits := key.Curve.Params().BitSize
-		return sig == tls.ECDSAWithP256AndSHA256 && bits == 256 || sig == tls.ECDSAWithP384AndSHA384 && bits == 384 || sig == tls.ECDSAWithP521AndSHA512 && bits == 521
+		return key != nil && a.curve != nil && key.Curve == a.curve
 	case ed25519.PublicKey:
-		return len(key) == ed25519.PublicKeySize && sig == tls.Ed25519
+		return len(key) == ed25519.PublicKeySize && a.id == tls.Ed25519
+	case *mldsa.PublicKey:
+		return key != nil && key.Parameters() == a.mldsa
 	default:
 		return false
 	}
@@ -75,37 +98,26 @@ func certificateVerifyInput(transcript []byte, server bool) []byte {
 	return append(b, transcript...)
 }
 
-func signatureDigest(scheme uint16, transcript []byte, server bool) ([]byte, crypto.SignerOpts, error) {
+func signatureInput(scheme uint16, transcript []byte, server bool) ([]byte, signatureAlgorithm, error) {
 	if len(transcript) != 32 && len(transcript) != 48 {
-		return nil, nil, errSignature
+		return nil, signatureAlgorithm{}, errSignature
 	}
-	hash, err := signatureHash(scheme)
+	algorithm, err := signatureFor(scheme)
 	if err != nil {
-		return nil, nil, err
+		return nil, algorithm, err
 	}
-	input := certificateVerifyInput(transcript, server)
-	var opts crypto.SignerOpts = hash
-	if hash != 0 {
-		h := hash.New()
-		_, _ = h.Write(input)
-		input = h.Sum(nil)
-	}
-	switch tls.SignatureScheme(scheme) {
-	case tls.PSSWithSHA256, tls.PSSWithSHA384, tls.PSSWithSHA512:
-		opts = &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: hash}
-	}
-	return input, opts, nil
+	return certificateVerifyInput(transcript, server), algorithm, nil
 }
 
 func signCertificateVerify(signer crypto.Signer, scheme uint16, transcript []byte, server bool) ([]byte, error) {
 	if signer == nil || !keySupportsSignature(signer.Public(), scheme) {
 		return nil, errSignature
 	}
-	digest, opts, err := signatureDigest(scheme, transcript, server)
+	input, algorithm, err := signatureInput(scheme, transcript, server)
 	if err != nil {
 		return nil, err
 	}
-	sig, err := signer.Sign(rand.Reader, digest, opts)
+	sig, err := crypto.SignMessage(signer, rand.Reader, input, algorithm.opts)
 	if err != nil {
 		return nil, err
 	}
@@ -117,31 +129,20 @@ func signCertificateVerify(signer crypto.Signer, scheme uint16, transcript []byt
 
 func verifyCertificateVerify(public crypto.PublicKey, offered []uint16, data, transcript []byte, server bool) error {
 	r := wireReader{data: data}
-	scheme := r.uint16()
-	sig := r.vector16()
+	scheme, sig := r.uint16(), r.vector16()
 	if r.done() != nil || len(sig) == 0 {
 		return errDecode
 	}
 	if !slices.Contains(offered, scheme) || !keySupportsSignature(public, scheme) {
 		return errIllegalParameter
 	}
-	digest, opts, err := signatureDigest(scheme, transcript, server)
+	input, algorithm, err := signatureInput(scheme, transcript, server)
 	if err != nil {
 		return err
 	}
-	switch key := public.(type) {
-	case *rsa.PublicKey:
-		if err := rsa.VerifyPSS(key, opts.HashFunc(), digest, sig, &rsa.PSSOptions{SaltLength: rsa.PSSSaltLengthEqualsHash, Hash: opts.HashFunc()}); err == nil {
-			return nil
-		}
-	case *ecdsa.PublicKey:
-		if ecdsa.VerifyASN1(key, digest, sig) {
-			return nil
-		}
-	case ed25519.PublicKey:
-		if ed25519.Verify(key, digest, sig) {
-			return nil
-		}
+	certificate := &x509.Certificate{PublicKey: public}
+	if certificate.CheckSignature(algorithm.x509, input, sig) != nil {
+		return errSignature
 	}
-	return errSignature
+	return nil
 }

@@ -153,16 +153,12 @@ func (h *serverHandshake) retryRequest() ([]handshakeMessage, error) {
 }
 
 func (h *serverHandshake) serverFlight(clientMessage handshakeMessage, offer clientOffer) ([]handshakeMessage, error) {
-	private, err := generateShare(h.selectedGroup)
-	if err != nil {
-		return nil, err
-	}
-	shared, err := computeShared(private, offer.shares[h.selectedGroup])
+	public, shared, err := serverShare(h.selectedGroup, offer.shares[h.selectedGroup])
 	if err != nil {
 		return nil, err
 	}
 	defer clear(shared)
-	share, err := encodeKeyShare(h.selectedGroup, private.PublicKey().Bytes())
+	share, err := encodeKeyShare(h.selectedGroup, public)
 	if err != nil {
 		return nil, err
 	}
@@ -187,6 +183,7 @@ func (h *serverHandshake) serverFlight(clientMessage handshakeMessage, offer cli
 	}
 	h.state.ServerName = offer.serverName
 	h.state.CipherSuite = h.selectedSuite
+	h.state.CurveID = tls.CurveID(h.selectedGroup)
 	body, err := hello.marshal()
 	if err != nil {
 		return nil, err

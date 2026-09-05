@@ -1,8 +1,10 @@
 # DTLS 1.3 implementation
 
-Status: implemented and validated; independent security review is recommended before merge.
+Status: draft; default stream/file-transfer sizing and independent protocol
+review remain merge blockers. Algorithm support and scoped validation are
+described below.
 
-Implemented foundations: AES record protection and header masking, replay
+Implemented foundations: AES/ChaCha20 record protection and header masking, replay
 windows, bounded hello/certificate codecs, handshake reassembly, selective ACKs,
 ten-record flight bursts, timer backoff, and client/server certificate handshakes
 with cookies, SNI, ALPN, and optional mutual authentication. A record-driven
@@ -15,13 +17,14 @@ associations after a forked listener reaches its accept timeout.
 
 ## Scope
 
-Implement DTLS 1.3 over UDP on Linux, macOS, and Windows, using only Go
-standard-library imports in the protocol package. Reuse the existing endpoint
+Implement DTLS 1.3 over UDP on Linux, macOS, and Windows, preferring Go's
+standard library and allowing `golang.org/x/` packages. Reuse the existing endpoint
 and credential infrastructure. Do not implement DTLS 1.0 or 1.2, stream TLS
 fallback, SCTP, or a WebRTC/ICE/SRTP stack.
 
-The initial certificate-based profile includes AES-128-GCM/SHA-256 and
-AES-256-GCM/SHA-384, P-256 and X25519, RSA/ECDSA/Ed25519 authentication, client
+The certificate-based profile includes AES-128-GCM/SHA-256,
+AES-256-GCM/SHA-384, ChaCha20-Poly1305/SHA-256, P-256/P-384/P-521, X25519,
+the three RFC 10024 ML-KEM hybrids, RSA/ECDSA/Ed25519/ML-DSA authentication, client
 certificates, SNI, ALPN, HelloRetryRequest/cookies, handshake fragmentation,
 retransmissions/ACKs, replay protection, key updates, cancellation, and bounded
 resource usage. Optional PSKs, resumption, early data, and post-handshake client
@@ -37,7 +40,7 @@ The current listener admits at most 16 concurrent handshakes and defaults to
 peer address, limits pre-cookie responses to three times received bytes,
 caps queued encrypted packets at 8 MiB per listener and reassembly reservations
 at 16 MiB, and applies the configured handshake deadline. Each association has
-four queued encrypted datagrams and sixteen queued application datagrams;
+ten queued encrypted datagrams and sixteen queued application datagrams;
 overflow is dropped, as with a UDP receive buffer. CID pools are bounded to
 eight identifiers, plus one temporary identifier during immediate rotation.
 CID/RRC address changes must pass the listener's peer-address filter.
@@ -50,8 +53,39 @@ truncation, and half-close are tested through the connection API.
 
 Current resource bounds include 1 MiB per handshake message, 16 pending message
 sequences, 2 MiB of reassembled message bodies per association, 64 certificates,
-and 2048–8192-bit RSA signing keys. Connection-level admission and lifetime
+and Go's 8192-bit RSA verification work limit. RSA minimum sizes follow Go
+and the selected PSS encoding, without a separate local 2048-bit floor.
+Connection-level admission and lifetime
 limits must bound aggregate memory before endpoint registration.
+
+## Algorithm policy
+
+Central registries describe supported suites, groups, and CertificateVerify
+schemes. Defaults currently match Go 1.27's TLS 1.3 algorithm set; group and
+signature preference order is checked against an actual Go ClientHello in
+`TestGoTLS13AlgorithmDefaults`. Cipher preference favors ChaCha20 when local
+AES-GCM acceleration is unavailable. Explicit configuration may restrict the
+implemented suites or groups without an arbitrary list-length cap.
+
+Go supplies ECDH, ML-KEM, ML-DSA, signing, and X.509 parsing/verification.
+`crypto.SignMessage` also supports opaque message-signing keys.
+`golang.org/x/crypto` supplies ChaCha20-Poly1305 and its record-number mask;
+`golang.org/x/sys/cpu` supplies hardware capabilities. No new module version
+is required. DTLS retains protocol checks for offered schemes, matching
+ECDSA curves/ML-DSA parameters, RSA-PSS encoding, hybrid wire lengths and
+component order, and cipher-specific key-usage limits.
+
+The hybrids are X25519MLKEM768, SecP256r1MLKEM768, and SecP384r1MLKEM1024.
+ML-DSA-44/65/87 CertificateVerify follows `draft-ietf-tls-mldsa-05`; this TLS
+signature specification remains a draft. RFC 9954 describes hybrid design;
+RFC 10024 defines these hybrid key exchanges. All seven default groups, all
+three suites, and all ten TLS 1.3 signature schemes are implemented.
+
+Primitive fixes and certificate-policy improvements flow through Go directly.
+An entirely new group, signature scheme, or AEAD still needs a DTLS wire
+mapping and interoperability tests. The Go-default probe fails CI when the
+advertised set or checked preference order changes; it does not dynamically
+enable unimplemented algorithms or mirror every Go `GODEBUG`/FIPS profile.
 
 ## Sources and compatibility baseline
 
@@ -123,8 +157,10 @@ It is therefore not a verified DTLS 1.3 oracle. Keep its source unmodified and
 use the independent DTLS implementations for protocol validation.
 
 Our client completed mutually authenticated handshakes and echoed datagrams
-against wolfSSL with both AES suites and P-256. Our server completed the same
-checks against the OpenSSL client with both AES suites and both P-256/X25519.
+against wolfSSL and OpenSSL with all 21 cipher/group combinations. Our server
+completed the same checks against the OpenSSL client. All three ML-DSA
+parameter sets also completed mutually authenticated exchanges with OpenSSL
+in both directions, using X25519MLKEM768 and ChaCha20-Poly1305.
 The wolfSSL exchanges also require key updates in both directions before
 accepting the echoed data. These references did not negotiate CID/RRC in those
 exchanges. A separate pinned Pion helper negotiated CID/RRC, completed mutual
@@ -144,6 +180,28 @@ fixed-address use. CID rotation/request/replenishment is verified between our
 peers with loss and reordering; independent coverage of that subprotocol
 remains a limitation of the current references.
 
+The algorithm interop tests use a 4096-byte local MTU for our client, and for
+both peers when testing OpenSSL as server or using ML-DSA. These are loopback
+algorithm checks, not evidence of loss recovery at the default 1200-byte MTU.
+The wolfSSL lab build enables X25519 and increases its additional DTLS read
+buffer to 4096 bytes. Its default receive buffer truncated the 1909-byte
+cookie-bearing SecP384r1MLKEM1024 ClientHello with AES-256-GCM; debug logs
+reported partial records and dropped them.
+The pinned wolfSSL stateless server drops fragmented initial ClientHellos;
+hybrid offers at MTU 1200 timed out. The pinned OpenSSL snapshot does not
+acknowledge partial server flights (`dtls_msg_needs_ack` excludes them), and
+its server can reject handshake ACKs with unexpected_message. At MTU 512,
+large ML-DSA server flights therefore stalled; hybrid client handshakes also
+failed against that server. No runtime peer exception or larger default MTU
+is introduced. Independent small-MTU/loss coverage for these algorithms
+remains outstanding. Local ML-DSA mutual-authentication tests use 256-byte
+datagrams with dropped/reordered flights and final ACK loss.
+
+The receive queue holds one recommended ten-record handshake transmission
+while ML-DSA certificate verification runs. The four-record queue could drop
+part of an otherwise intact flight under the race detector; listener byte
+budgets continue to cap aggregate buffering.
+
 The Pion helper is built inside the isolated reference checkout; its imports
 are not dependencies of socat's module. The opt-in tests
 require an explicit manifest and never download dependencies:
@@ -154,7 +212,7 @@ SOCAT_DTLS13_TOOLS="$HOME/socat-dtls13-lab/tools.json" \
 ```
 
 Acceptance requires both client/server directions against independent peers,
-verified 1.3 negotiation, certificate success/failure cases, AES suites and
+verified 1.3 negotiation, certificate success/failure cases, AEAD suites and
 key-exchange groups, loss/duplication/reordering/fragment overlap, final ACK
 loss, key updates with loss, concurrent listener sessions, deadlines, resource
 limits, and malformed-input fuzzing. Use deterministic packet fault injection
@@ -170,11 +228,18 @@ Checks completed on 2026-09-05:
 - Native Windows `go test ./...` and authenticated binary-to-binary DTLS relay.
 - Linux `make check`, including lint, gosec, platform policy, Go tests, all 136
   Python tests, and the end-to-end suite including the DTLS binary relay.
-- Linux race tests for the protocol and endpoint packages, including eight
-  independent OpenSSL/wolfSSL/Pion interoperability cases.
+- Linux race tests for the protocol and endpoint packages. Expanded algorithm
+  interoperability includes 71 independent OpenSSL/wolfSSL/Pion cases; their
+  transport limits are described above. Ten repeated ML-DSA-87 exchanges also
+  passed under the race detector after increasing the receive queue.
 - Linux `make classic-parity`: no missing/unexpected interface names or alias
   mismatches, and no drift from the reviewed official master. This is an
   interface audit, not evidence of classic DTLS 1.3 interoperability.
+- The five official DTLS scorecard cases were rerun: four FAILED and one
+  TIMEOUT. The file-transfer/default-block-size defect remains open; the
+  system OpenSSL cases explicitly use DTLS 1.2. Full historical scorecard
+  snapshots were not replaced by this subset. See
+  [the current branch results](../testdata/scorecard/README.md#dtls-13-branch-checks-2026-09-05).
 - Cross-builds for macOS arm64/amd64 and Linux/Windows 386. Native macOS tests
   remain for the repository CI matrix.
 - Independent Python schedule vectors and Go fuzzing of records (6.1 million

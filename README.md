@@ -228,7 +228,7 @@ silently emulated with a different protocol.
 |---|---|
 | DCCP and UDP-Lite | Not supported. Both were removed from modern Linux kernels and have no native macOS or Windows equivalent. |
 | GNU readline address | Not implemented. |
-| DTLS 1.0/1.2 | Rejected. DTLS endpoints support only DTLS 1.3, with AES-GCM and RSA, ECDSA, or Ed25519 certificates. |
+| DTLS 1.0/1.2 | Rejected. DTLS endpoints support only DTLS 1.3, with AES-GCM or ChaCha20-Poly1305 and RSA, ECDSA, Ed25519, or ML-DSA certificates. |
 | DSA, SSLv3, and weak TLS ciphers | Rejected; use current TLS versions and RSA, ECDSA, Ed25519, or ML-DSA keys. |
 | OpenSSL engines, FIPS mode, EGD, pseudo-random mode, custom DH parameters, and fragment controls | Enabling these features is rejected where Go's TLS stack has no equivalent. |
 | Process-wide `setuid`, `setgid`, `chroot`, and `substuser` options | Not implemented because changing credentials or root from a goroutine would affect every session. They require process isolation. |
@@ -272,8 +272,17 @@ associations, with bounded packet and reassembly queues.
 Only DTLS 1.3 is negotiated, including when a lower `min-version` is supplied.
 A `max-version` below DTLS 1.3 is rejected. `cipher` / `ciphers` retains its
 TLS 1.2 meaning and does not select DTLS 1.3 suites; the supported suites are
-AES-128-GCM/SHA-256 and AES-256-GCM/SHA-384. Resumption, PSKs, 0-RTT, and
-post-handshake client authentication are not offered.
+AES-128-GCM/SHA-256, AES-256-GCM/SHA-384, and ChaCha20-Poly1305/SHA-256.
+Key exchange supports X25519, P-256/P-384/P-521, and the RFC 10024 hybrids
+X25519MLKEM768, SecP256r1MLKEM768, and SecP384r1MLKEM1024. Certificate
+authentication supports RSA-PSS, ECDSA, Ed25519, and ML-DSA-44/65/87.
+Resumption, PSKs, 0-RTT, and post-handshake client authentication are not offered.
+
+DTLS defaults track Go's TLS 1.3 algorithm set, with a test that detects drift
+when Go is upgraded. New algorithms still require their DTLS wire mapping;
+Go's cryptographic and certificate-verification improvements are inherited
+directly. The current independent peers have fragmentation limitations for
+large post-quantum handshakes; see the interoperability evidence below.
 
 See [implementation and interoperability evidence](docs/dtls13.md).
 The adapted Pion code retains its [MIT license](internal/dtls13/LICENSE.pion)

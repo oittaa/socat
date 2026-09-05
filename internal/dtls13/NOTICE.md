@@ -11,6 +11,7 @@ in `LICENSE.pion`.
 | `protection.go` | `internal/ciphersuite/tls_13_record_protection.go` |
 | `protection_test.go` | `internal/ciphersuite/tls_13_record_protection_test.go` |
 
-The adaptation replaces upstream-specific builders/errors with standard Go,
-limits suites to AES-GCM, and leaves connection, record framing, and protocol
-state management to this package. Retain attribution when moving these files.
+The adaptation replaces upstream-specific builders/errors with standard Go.
+ChaCha20-Poly1305 support uses golang.org/x/crypto. Connection, record framing,
+and protocol state management belong to this package. Retain attribution when
+moving these files.
