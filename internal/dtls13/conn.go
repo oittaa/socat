@@ -18,6 +18,12 @@ type incomingPacket struct {
 	peer netip.AddrPort
 }
 
+const (
+	maxQueuedRecords    = 256
+	maxIncomingBytes    = flightBurst * 65535
+	maxApplicationBytes = 16 * maxContent
+)
+
 type connCommand struct {
 	kind        byte
 	data        []byte
@@ -44,6 +50,7 @@ type Conn struct {
 	once                        sync.Once
 	notify                      chan struct{}
 	readQueue                   [][]byte
+	incomingBytes, readBytes    int
 	readDeadline, writeDeadline time.Time
 	state                       tls.ConnectionState
 	remote                      netip.AddrPort
@@ -102,8 +109,8 @@ func Client(ctx context.Context, transport net.PacketConn, peer net.Addr, config
 }
 
 func newConn(peer netip.AddrPort) *Conn {
-	// Buffer a handshake transmission while certificate verification runs.
-	return &Conn{incoming: make(chan incomingPacket, flightBurst), commands: make(chan *connCommand),
+	// Bound bytes separately so small records can arrive in short bursts.
+	return &Conn{incoming: make(chan incomingPacket, maxQueuedRecords), commands: make(chan *connCommand),
 		wake: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
 		ready: make(chan struct{}), notify: make(chan struct{}), remote: peer}
 }
@@ -127,14 +134,22 @@ func (c *Conn) attach(s *session) {
 func (c *Conn) deliver(data []byte, peer netip.AddrPort) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.err != nil || len(c.incoming) == cap(c.incoming) || !c.packetBudget.reserve(len(data)) {
+	if c.err != nil || len(c.incoming) == cap(c.incoming) || len(data) > maxIncomingBytes-c.incomingBytes || !c.packetBudget.reserve(len(data)) {
 		return
 	}
 	select {
 	case c.incoming <- incomingPacket{bytes.Clone(data), peer}:
+		c.incomingBytes += len(data)
 	default:
 		c.packetBudget.release(len(data))
 	}
+}
+
+func (c *Conn) releasePacket(size int) {
+	c.mu.Lock()
+	c.incomingBytes -= size
+	c.mu.Unlock()
+	c.packetBudget.release(size)
 }
 
 func (c *Conn) sendPacket(data []byte) error {
@@ -184,7 +199,7 @@ func (c *Conn) run() {
 		s.reassembly.clear()
 		for len(c.incoming) != 0 {
 			packet := <-c.incoming
-			c.packetBudget.release(len(packet.data))
+			c.releasePacket(len(packet.data))
 		}
 		if c.owned {
 			c.transport.close(net.ErrClosed)
@@ -256,7 +271,7 @@ func (c *Conn) run() {
 		case <-c.wake:
 		case pending = <-commands:
 		case packet := <-c.incoming:
-			c.packetBudget.release(len(packet.data))
+			c.releasePacket(len(packet.data))
 			if !s.handshake.client && !s.handshake.complete && s.handshake.schedule == nil {
 				c.handshakeCredit = min(1<<30, c.handshakeCredit+3*uint64(len(packet.data)))
 			}
@@ -275,8 +290,10 @@ func (c *Conn) publish(data [][]byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	for _, packet := range data {
-		if len(c.readQueue) < 16 && !c.peerEOF {
-			c.readQueue = append(c.readQueue, packet)
+		if len(c.readQueue) < maxQueuedRecords && len(packet) <= maxApplicationBytes-c.readBytes && !c.peerEOF {
+			// Do not retain record padding outside the application byte budget.
+			c.readQueue = append(c.readQueue, bytes.Clone(packet))
+			c.readBytes += len(packet)
 		}
 	}
 	c.peerEOF = c.session.peerClosed != nil
@@ -424,6 +441,7 @@ func (c *Conn) Read(data []byte) (int, error) {
 		}
 		if len(c.readQueue) != 0 {
 			packet := c.readQueue[0]
+			c.readBytes -= len(packet)
 			c.readQueue[0] = nil
 			c.readQueue = c.readQueue[1:]
 			c.mu.Unlock()

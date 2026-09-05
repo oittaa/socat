@@ -9,26 +9,31 @@ Preserve the Pion attribution. Read AGENTS.md, docs/dtls13.md and the applicable
 sections of docs/dtls13-standards.md first; that guide links the standards,
 their current status, relevant source files and packetization contract notes.
 
-Merge blocker: default stream/file transfer size
-The relay reads up to 8192 bytes by default, but DTLS Write rejects data
-larger than the configured MTU minus record overhead (1200-byte default).
-The official OPENSSL_DTLS_TO_SERVER case fails with "dtls: record too large";
-OPENSSL_DTLS_TO_CLIENT exhausted the bounded scorecard run. Resolve stream
-packetization at the endpoint/relay boundary while preserving the datagram
-connection API and incoming UDP message boundaries. Do not silently split
-arbitrary datagram writes. Compare official released/master SSL_write behavior,
-add a default-block-size binary file-transfer regression in each direction,
-then rerun the five official DTLS scorecard names and refresh their reporting.
+Completed: default stream/file transfer size
+The adapter under dtlsopen.wrap is configured at endpoint pairing, separately
+for each direction. Stream input is divided into records that fit the current
+outgoing capacity; stream output retains short-read remainders in a 16 KiB
+buffer. Datagram and unknown peers remain strict, including DTLS-to-DTLS.
+The original Conn datagram contract is unchanged. Typed capabilities follow
+wrappers and dual addresses, and socket types come from actual descriptors.
+Forked RECVFROM transfers with an adapter bypass the byte-stream socketpair.
+Ordinary EXEC works; EXEC,nofork still requires a plaintext descriptor.
 
-A stream adapter near dtlsopen.wrap is a candidate, but the current callback
-cannot distinguish file chunks from UDP messages. Define that selection before
-adding write splitting; a fitting 200-byte UDP test does not protect larger
-messages. Keep the direct Conn contract. Stream reads need a bounded remainder
-buffer sized for incoming records, not the outgoing MaxDatagramSize. Recompute
-outgoing capacity between chunks and preserve partial progress, deadlines,
-half-close and cancellation. Add short-read, asymmetric-MTU, oversized-UDP and
-interrupted-write tests. Do not assume OpenSSL DTLS SSL_write packetizes like
-TLS: the pinned source sends one application record. RCVTIMEO_DTLS is separate.
+Native burst tests also exposed local drops at the ten-packet and
+sixteen-record queue limits. Both queues now allow 256 entries while retaining
+explicit byte bounds and the listener's aggregate packet-memory budget.
+This does not add application reliability or remove overload drops.
+
+On 2026-09-05, the unmodified official OPENSSL_DTLS_TO_SERVER and
+OPENSSL_DTLS_TO_CLIENT cases both passed with default buffers. The two explicit
+DTLS 1.2 cases still fail on version, and RCVTIMEO_DTLS still reports "not timeout".
+Windows go test ./..., Linux make check, focused Linux race tests, classic
+parity, and a macOS arm64 cross-build passed. Retain the binary file, large
+incoming record, asymmetric-MTU, mixed-dual-address, oversized-UDP, fork,
+conversion, cancellation, partial-write, and resource-bound regressions.
+Mutation checks verified that removing the fixes makes the relevant tests fail.
+Read docs/dtls13-standards.md for the endpoint policy and pinned source evidence.
+RCVTIMEO_DTLS remains a separate socket-timeout investigation.
 
 Review findings to preserve
 Listener.receive is called by one transport read loop; the suggested duplicate

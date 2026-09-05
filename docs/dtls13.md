@@ -1,7 +1,7 @@
 # DTLS 1.3 implementation
 
-Status: draft; default stream/file-transfer sizing and independent protocol
-review remain merge blockers. Independent spare-CID issuance/replenishment
+Status: draft; default stream/file-transfer sizing is resolved. Independent
+protocol/security review remains a merge blocker. Independent spare-CID issuance/replenishment
 testing is a follow-up when reference peers support it, not a merge blocker.
 RFC-based review and local regression coverage remain required. Algorithm
 support and scoped validation are described below.
@@ -19,6 +19,12 @@ The UDP connection/listener API passes datagram, deadline, cancellation,
 half-close, key-update, CID-rotation, and real UDP rebinding tests. Registered
 endpoints preserve certificate options, datagram boundaries, and accepted
 associations after a forked listener reaches its accept timeout.
+
+For byte-stream peers, the endpoint adapter splits writes at the current
+sending limit and retains short-read remainders. Selection is per direction,
+including dual addresses; datagram and unknown peers remain strict. The
+underlying Conn API still sends one datagram per Write and truncates short
+reads. See the [packetization contract](dtls13-standards.md#endpoint-packetization-contract).
 
 ## Scope
 
@@ -284,11 +290,20 @@ Checks completed on 2026-09-05:
 - Linux `make classic-parity`: no missing/unexpected interface names or alias
   mismatches, and no drift from the reviewed official master. This is an
   interface audit, not evidence of classic DTLS 1.3 interoperability.
-- The five official DTLS scorecard cases were rerun: four FAILED and one
-  TIMEOUT. The file-transfer/default-block-size defect remains open; the
-  system OpenSSL cases explicitly use DTLS 1.2. Full historical scorecard
-  snapshots were not replaced by this subset. See
+- After packetization, the two official default-buffer DTLS file-transfer
+  cases pass. The two explicit DTLS 1.2 cases and `RCVTIMEO_DTLS` still fail;
+  the latter reports `not timeout`. The run completed without a shard timeout.
+  Full historical scorecard snapshots were not replaced by this subset. See
   [the current branch results](../testdata/scorecard/README.md#dtls-13-branch-checks-2026-09-05).
+- Packetizer validation includes Windows `go test ./...`, Linux `make check`,
+  Linux race tests for protocol/relay/endpoint packages, classic parity, and
+  a macOS arm64 cross-build. New regressions exercise default-buffer binary
+  files in both directions, 16 KiB incoming records, 73-byte reads, asymmetric
+  MTUs, actual UDP boundaries, mixed dual addresses, EXEC and forked RECVFROM,
+  line conversion, deadlines, close cancellation, concurrent/partial writes,
+  changing send capacity, and queue memory limits. Reverting packetization,
+  read buffering, strict UDP selection, or the input-queue fix produces
+  corresponding regression failures.
 - Cross-builds for macOS arm64/amd64 and Linux/Windows 386. Native macOS tests
   remain for the repository CI matrix.
 - Independent Python schedule vectors and Go fuzzing of records (6.1 million

@@ -56,22 +56,24 @@ file's directory.
 | CID pools, routing and migration | `internal/dtls13/connection_id.go`, `listener.go`, `path.go` | RFC 9146 sections 3 and 6; RFC 9147 section 9; RFC 9853 sections 3-5 and 8-9. |
 | Hybrid key exchange | `internal/dtls13/groups.go`, `offer.go`, `algorithms_test.go` | RFC 9954 sections 3 and 6; RFC 10024 sections 4, 6 and 7. |
 
-## Endpoint packetization review
+## Endpoint packetization contract
 
-The proposed stream adapter belongs near `dtlsopen.wrap`, before
-`xio.WrapStream`, if stream semantics are selected. Keep the existing datagram
-contract of `dtls13.Conn`: oversize application writes fail and short reads
+The stream adapter in `dtlsopen.wrap` sits before `xio.WrapStream` and starts
+strict. Endpoint pairing configures each direction before transfer. Keep the
+datagram contract of `dtls13.Conn`: oversize application writes fail and short reads
 truncate. This API choice is ours: RFC 9147 section 4.3 permits multiple
 records in a datagram and does not define a Go `Write` API. A stream adapter
 also does not add reliable or ordered application delivery.
 
-Do not install unconditional write splitting as a claimed compatibility fix.
-The current `wrap` callback sees only its own endpoint and cannot distinguish
-an 8192-byte file chunk from an 8192-byte UDP message. Splitting the latter
-changes application framing. First specify how endpoint pairing selects
-stream adaptation while preserving datagram sources. Keep DTLS packetization
-in the endpoint layer; any selection plumbing must not teach the generic
-relay DTLS record details. Follow AGENTS.md for compatibility decisions.
+`relay.ConfigureStreamPair` uses the peer's read semantics to select write
+splitting, and its write semantics to select read buffering. Capabilities
+follow the actual halves through wrappers and dual addresses; socket types
+come from the opened descriptor. Unknown and message semantics stay strict,
+including DTLS-to-DTLS. The transfer loop has no DTLS record logic.
+Forked RECVFROM sessions with an adapter transfer directly, because the
+ordinary socketpair bridge would hide their original message boundaries.
+`EXEC,nofork` still requires real plaintext descriptors and rejects DTLS;
+ordinary EXEC sockets and pipes are classified by their actual transport.
 
 Source evidence checked at the pinned revisions:
 
@@ -87,23 +89,35 @@ Source evidence checked at the pinned revisions:
   MTU-sized records. Its short-read path retains the remaining record bytes
   through `ssl_release_record` in `ssl/record/rec_layer_s3.c`.
 
-For the selected stream path, preserve unread bytes in a bounded receive
-buffer large enough for the supported incoming application record limit.
+For the selected stream path, unread bytes are retained in a 16 KiB receive
+buffer covering the supported incoming application record limit.
 `MaxDatagramSize()` is an outgoing limit, not a receive-buffer size. Return
 buffered bytes before another underlying read; a zero-length read must not
 consume a record. Do not coalesce separate application records unnecessarily.
 
-Do not cache the outgoing limit at handshake completion. Our generated CIDs
-have a fixed length, but peer-provided replacement CIDs can change outgoing
+The adapter does not cache the outgoing limit at handshake completion. Our
+generated CIDs have a fixed length, but peer-provided replacements can change outgoing
 overhead. `Conn.publish` recomputes the limit from the active peer CID.
-Account for changes between chunks, report partial progress accurately,
-serialize each multi-record stream write, and preserve cancellation,
-deadlines and half-close through the wrapper.
+It checks between chunks and retries a pre-send `ErrDatagramTooLarge` only
+when the new capacity is strictly smaller. Completed chunks are never
+retried. Writes are serialized, partial counts are preserved, and closing
+can interrupt a blocked write. The adapter exposes ordinary capability
+unwrapping but cannot be bypassed by zero-copy traversal.
 
-Tests must cover default-block file transfer in both directions, short reads
-and peer/local MTU asymmetry, unchanged fitting datagrams, explicit oversized
+Packetized bursts exposed drops in the old ten-packet input queue and
+sixteen-record application queue on native Windows. Both queues now have
+256 slots with independent byte limits: incoming data retains the previous
+655350-byte maximum and application data remains limited to 256 KiB. The
+listener's aggregate input budget remains 8 MiB. These bounded queues do not
+provide application retransmission or prevent loss under sustained overload.
+
+Regressions cover default-block binary file transfer in both directions,
+short reads and peer/local MTU asymmetry, unchanged fitting datagrams, explicit oversized
 UDP behavior, direct-Conn rejection, and interrupted writes without duplicated
-bytes. Rerun the five unmodified official DTLS scorecard names after a fix;
+bytes, dual addresses, EXEC, forked RECVFROM, conversion, and queue bounds.
+Mutation checks demonstrate failures without the adapter, remainder buffering,
+strict datagram selection, and the larger packet queue. Rerun the five
+unmodified official DTLS scorecard names after changes;
 record actual results instead of assuming all failures share this cause.
 `RCVTIMEO_DTLS` remains a separate socket-timeout investigation.
 

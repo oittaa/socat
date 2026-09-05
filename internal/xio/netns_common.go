@@ -140,6 +140,8 @@ type cancelConn struct {
 	stop func() bool
 }
 
+func (c *cancelConn) NetConn() net.Conn { return c.Conn }
+
 func (c *cancelConn) Close() error {
 	c.stop()
 	return c.Conn.Close()

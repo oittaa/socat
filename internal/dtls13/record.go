@@ -14,16 +14,20 @@ const (
 	contentACK       = byte(26)
 	contentRRC       = byte(27)
 
-	maxContent    = 1 << 14
-	maxCiphertext = maxContent + 256
-	plainHeader   = 13
+	// MaxApplicationData is the largest supported application record payload.
+	MaxApplicationData = 1 << 14
+	maxContent         = MaxApplicationData
+	maxCiphertext      = maxContent + 256
+	plainHeader        = 13
 )
 
 var (
-	errRecord         = errors.New("dtls: invalid record")
-	errRecordOverflow = errors.New("dtls: record too large")
-	errSequence       = errors.New("dtls: record sequence exhausted")
-	errReplay         = errors.New("dtls: replayed record")
+	// ErrDatagramTooLarge rejects an application write before it is sent.
+	ErrDatagramTooLarge = errors.New("dtls: record too large")
+	errRecord           = errors.New("dtls: invalid record")
+	errRecordOverflow   = ErrDatagramTooLarge
+	errSequence         = errors.New("dtls: record sequence exhausted")
+	errReplay           = errors.New("dtls: replayed record")
 )
 
 type recordNumber struct {

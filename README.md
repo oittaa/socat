@@ -189,6 +189,10 @@ address and option spellings are audited automatically. The
 - `handshake-timeout` separately limits TLS, WebSocket, proxy, SOCKS, and QUIC
   negotiation.
 - WebSocket, QUIC, and HTTP/2 and HTTP/3 CONNECT are Go-specific extensions.
+- DTLS endpoints split byte-stream input into records that fit `dtls-mtu` and
+  retain record tails for byte-stream output. Datagram input stays strict.
+  This is an endpoint policy; classic's documented interface asks users to
+  size DTLS transfers with `-b`.
 - TLS listeners fail immediately when `cert=` is missing.
 - TLS peer names use `VerifyHostname`; empty `commonname=` skips only the name
   check, and `capath=` loads every parseable certificate file rather than only
@@ -250,15 +254,23 @@ options. Peer verification is enabled by default on both ends; a verified
 server therefore requires a trusted client certificate.
 
 ```sh
-./socat -b 1024 -T 30 DTLS-SERVER:4433,cert=server.pem,key=server.key,cafile=ca.pem,fork PIPE
-./socat -b 1024 -T 30 - DTLS-CLIENT:localhost:4433,cert=client.pem,key=client.key,cafile=ca.pem
+./socat -T 30 DTLS-SERVER:4433,cert=server.pem,key=server.key,cafile=ca.pem,fork PIPE
+./socat -T 30 - DTLS-CLIENT:localhost:4433,cert=client.pem,key=client.key,cafile=ca.pem
 ```
 
-The default maximum UDP payload is 1200 bytes. Use `-b 1024` with that default,
-or set `dtls-mtu=256..65507` and leave room for record overhead and connection
-IDs. An oversized application write fails; DTLS does not fragment or retransmit
-application datagrams. A short read truncates the rest of that datagram.
-Close alerts can also be lost, so use `-T` when an idle bound is needed.
+The default maximum UDP payload is 1200 bytes; `dtls-mtu=256..65507` changes
+that limit. File, pipe, TCP and other byte-stream input works with the default
+8192-byte transfer buffer: DTLS endpoints split it into records that fit the
+current limit, including record overhead and connection IDs. Byte-stream
+output retains unread record bytes across small reads. These choices apply
+separately to the read and write halves of a dual address.
+
+UDP and other message endpoints disable automatic packetization; oversized
+writes fail. With message output, a short read buffer still truncates the record;
+choose `-b` and the sending peer's record size accordingly. Unknown transport
+semantics remain strict. Packetization adds neither reliable nor ordered
+delivery, and close alerts can be lost, so use `-T` when an idle bound is needed.
+`EXEC,nofork` cannot inherit a plaintext DTLS descriptor; use ordinary `EXEC`.
 
 Connection IDs and RFC 9853 return-routability checks are negotiated by default.
 A supported peer can change address after authenticated path validation; the

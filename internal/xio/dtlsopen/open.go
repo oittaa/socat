@@ -15,7 +15,11 @@ import (
 
 func wrap(s parse.Spec) func(net.Conn) (relay.Stream, error) {
 	return func(c net.Conn) (relay.Stream, error) {
-		return xio.WrapStream(s, relay.NetStream{Conn: c}, xio.StreamSocketTimeouts)
+		dc, ok := c.(datagramConn)
+		if !ok {
+			return nil, fmt.Errorf("DTLS connection lacks datagram operations")
+		}
+		return xio.WrapStream(s, relay.NetStream{Conn: &streamConn{datagramConn: dc}}, xio.StreamSocketTimeouts)
 	}
 }
 
