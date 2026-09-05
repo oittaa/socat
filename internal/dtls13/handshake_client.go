@@ -1,7 +1,6 @@
 package dtls13
 
 import (
-	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"net"
@@ -184,18 +183,25 @@ func (h *clientHandshake) serverHello(m handshakeMessage) ([]handshakeMessage, e
 	if h.retried && hello.suite != h.retrySuite {
 		return nil, errIllegalParameter
 	}
-	if !bytes.Equal(hello.extensions[extSupportedVersions], []byte{0xfe, 0xfc}) {
+	version, ok := hello.extensions[extSupportedVersions]
+	if !ok {
 		return nil, errProtocolVersion
+	}
+	if len(version) != 2 {
+		return nil, errDecode
+	}
+	if binary.BigEndian.Uint16(version) != version13 {
+		return nil, errIllegalParameter
 	}
 	if hello.retry() {
 		return h.retryRequest(m, hello)
 	}
 	for id := range hello.extensions {
-		if id != extSupportedVersions && id != extKeyShare && id != extConnectionID && id != extRRC {
-			return nil, errUnsupportedExtension
-		}
 		if _, ok := h.hello.extensions[id]; !ok {
 			return nil, errUnsupportedExtension
+		}
+		if id != extSupportedVersions && id != extKeyShare && id != extConnectionID && id != extRRC {
+			return nil, errIllegalParameter
 		}
 	}
 	group, public, err := parseServerShare(hello.extensions[extKeyShare])
@@ -260,8 +266,11 @@ func (h *clientHandshake) retryRequest(m handshakeMessage, hello serverHello) ([
 		return nil, errUnexpectedMessage
 	}
 	for id := range hello.extensions {
-		if id != extSupportedVersions && id != extCookie && id != extKeyShare {
+		if _, ok := h.hello.extensions[id]; !ok && id != extCookie {
 			return nil, errUnsupportedExtension
+		}
+		if id != extSupportedVersions && id != extCookie && id != extKeyShare {
+			return nil, errIllegalParameter
 		}
 	}
 	changed := false
