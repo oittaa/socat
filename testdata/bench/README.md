@@ -188,7 +188,10 @@ Platforms without `/proc` report RSS as `n/a` (`null` in JSON).
   OPENSSL-LISTEN. That pairing is not classic↔classic.
 - QUIC is not a drop-in TLS replacement.
 - DTLS is not a drop-in TLS or UDP replacement. It is DTLS 1.3 only and is
-  not classic OPENSSL-DTLS.
+  not classic OPENSSL-DTLS. Bulk transfer uses ~1200-byte records (default
+  `dtls-mtu`) and does not retransmit application data, so a large
+  unidirectional blast can lose datagrams. A 1 MiB run is handshake-skewed;
+  do not quote it as throughput.
 - Do not claim a winner unless the JSON shows it.
 
 ## Recorded snapshot
