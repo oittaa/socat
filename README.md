@@ -247,66 +247,42 @@ lines; enabling compression is rejected.
 
 ## DTLS 1.3
 
-DTLS encrypts UDP datagrams without making application delivery reliable.
-`OPENSSL-DTLS-CLIENT` and `OPENSSL-DTLS-SERVER` accept the `DTLS-CLIENT` /
-`DTLS-SERVER` aliases and the usual certificate, bind, retry, and peer-filter
-options. Peer verification is enabled by default on both ends; a verified
-server therefore requires a trusted client certificate.
+DTLS encrypts UDP without making delivery reliable or ordered.
+`OPENSSL-DTLS-CLIENT` / `OPENSSL-DTLS-SERVER` (aliases `DTLS-CLIENT` /
+`DTLS-SERVER`) accept the usual certificate, bind, retry and peer-filter
+options. Both ends verify peers by default, so the server requires a
+trusted client certificate.
 
 ```sh
 ./socat -T 30 DTLS-SERVER:4433,cert=server.pem,key=server.key,cafile=ca.pem,fork PIPE
 ./socat -T 30 - DTLS-CLIENT:localhost:4433,cert=client.pem,key=client.key,cafile=ca.pem
 ```
 
-The default maximum UDP payload is 1200 bytes; `dtls-mtu=256..65507` changes
-that limit. File, pipe, TCP and other byte-stream input works with the default
-8192-byte transfer buffer: DTLS endpoints split it into records that fit the
-current limit, including record overhead and connection IDs. Byte-stream
-output retains unread record bytes across small reads. These choices apply
-separately to the read and write halves of a dual address.
+- `dtls-mtu` sets the maximum UDP payload (default 1200; range 256–65507).
+  Byte-stream peers work with the default 8192-byte transfer buffer: writes
+  split into fitting records and short reads retain tails, separately per
+  direction. Datagram and unknown peers stay strict: oversized writes fail
+  and small reads truncate. Size `-b` and the peer's records accordingly.
+- CID and RFC 9853 path validation are negotiated by default. New addresses
+  must pass the server's peer filters. `dtls-migration=0` disables both.
+  `alpn=protocol` optionally selects one application protocol.
+- `handshake-timeout` caps negotiation at 30 seconds by default; zero removes
+  that deadline, but protocol retry limits remain. `so-rcvtimeo` / `rcvtimeo`
+  adds a handshake receive-wait limit (zero or omission disables it).
+  Received fragments, ACKs and retransmissions restart that wait. Expiry ends
+  the connection attempt, subject to `retry` / `forever`.
+- After negotiation, receive timeouts remain retryable. Use `-T` to bound an
+  idle transfer; close alerts can be lost. Use ordinary `EXEC`, since
+  `EXEC,nofork` cannot inherit a plaintext DTLS descriptor.
+- Only DTLS 1.3 is negotiated, regardless of a lower `min-version`;
+  `max-version` below 1.3 is rejected. `cipher` / `ciphers` keeps its TLS 1.2
+  meaning and does not select DTLS 1.3 suites.
 
-UDP and other message endpoints disable automatic packetization; oversized
-writes fail. With message output, a short read buffer still truncates the record;
-choose `-b` and the sending peer's record size accordingly. Unknown transport
-semantics remain strict. Packetization adds neither reliable nor ordered
-delivery, and close alerts can be lost, so use `-T` when an idle bound is needed.
-`EXEC,nofork` cannot inherit a plaintext DTLS descriptor; use ordinary `EXEC`.
-
-Connection IDs and RFC 9853 return-routability checks are negotiated by default.
-A supported peer can change address after authenticated path validation; the
-server reapplies `range`, `sourceport`, `lowport`, and `tcpwrap` restrictions to
-new addresses. `dtls-migration=0` disables negotiation of both features.
-`alpn=protocol` optionally selects one application protocol. `handshake-timeout`
-defaults to 30 seconds; zero removes that deadline while retaining protocol
-retransmission limits. The server admits up to 16 pending handshakes and 256
-associations, with bounded packet and reassembly queues.
-
-`so-rcvtimeo` / `rcvtimeo` also bounds each receive wait during the handshake;
-zero or omission disables this additional timeout. Received fragments, ACKs,
-and retransmissions restart the wait; the absolute `handshake-timeout` still
-applies. Expiration ends that connection attempt, subject to `retry` / `forever`.
-After negotiation, receive timeouts remain retryable during transfer; use `-T`
-to terminate an idle transfer.
-
-Only DTLS 1.3 is negotiated, including when a lower `min-version` is supplied.
-A `max-version` below DTLS 1.3 is rejected. `cipher` / `ciphers` retains its
-TLS 1.2 meaning and does not select DTLS 1.3 suites; the supported suites are
-AES-128-GCM/SHA-256, AES-256-GCM/SHA-384, and ChaCha20-Poly1305/SHA-256.
-Key exchange supports X25519, P-256/P-384/P-521, and the RFC 10024 hybrids
-X25519MLKEM768, SecP256r1MLKEM768, and SecP384r1MLKEM1024. Certificate
-authentication supports RSA-PSS, ECDSA, Ed25519, and ML-DSA-44/65/87.
-Resumption, PSKs, 0-RTT, and post-handshake client authentication are not offered.
-
-DTLS defaults track Go's TLS 1.3 algorithm set, with a test that detects drift
-when Go is upgraded. New algorithms still require their DTLS wire mapping;
-Go's cryptographic and certificate-verification improvements are inherited
-directly. The current independent peers have fragmentation limitations for
-large post-quantum handshakes; see the interoperability evidence below.
-
-See [implementation and interoperability evidence](docs/dtls13.md).
-The adapted Pion code retains its [MIT license](internal/dtls13/LICENSE.pion)
-and [attribution](internal/dtls13/NOTICE.md); include that notice when
-redistributing the adapted code or binaries containing it.
+See [supported algorithms, peer limits and validation](docs/dtls13.md).
+Go supplies cryptographic and certificate-policy updates; new algorithms
+still require DTLS wire integration. Include the adapted Pion code's
+[MIT license](internal/dtls13/LICENSE.pion) and
+[attribution](internal/dtls13/NOTICE.md) when redistributing it.
 
 ## Environment
 

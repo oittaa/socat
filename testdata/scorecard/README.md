@@ -330,31 +330,20 @@ exclusions.
 
 ### DTLS 1.3 branch checks (2026-09-05)
 
-The committed full-suite counts above are historical. DTLS addresses are now
-registered by `internal/dtls13`; absence from Go's `crypto/tls` no longer makes
-these cases CANT. A focused Linux host run against the pinned official
-1.8.1.3 `test.sh` produced:
+Focused runs use unmodified official 1.8.1.3 `test.sh` from the
+[pinned release](../../scripts/classic-baseline.json), with
+`MODE=stable JOBS=1 SHARD_TIMEOUT=180`. Historical full-suite JSON and counts
+above are unchanged.
 
-| Test | Current result | Evidence / limitation |
-|------|----------------|-----------------------|
-| `OPENSSL_DTLS_CLIENT` | FAILED | The official peer explicitly uses system OpenSSL's `-dtls1_2`; this port permits only DTLS 1.3. |
-| `OPENSSL_DTLS_SERVER` | FAILED | The official peer explicitly uses `-dtls1_2`. |
-| `OPENSSL_DTLS_TO_SERVER` | OK | Endpoint packetization accepts default 8192-byte file reads at the default 1200-byte MTU. |
-| `OPENSSL_DTLS_TO_CLIENT` | OK | Default-buffer file transfer also passes from server to client. |
-| `RCVTIMEO_DTLS` | OK | `so-rcvtimeo` terminates a silent handshake through the per-association receive timer. |
+| Test | Result | Reason |
+| --- | --- | --- |
+| `OPENSSL_DTLS_CLIENT`, `OPENSSL_DTLS_SERVER` | FAILED | Peers explicitly use `-dtls1_2`; this port supports only 1.3. |
+| `OPENSSL_DTLS_TO_SERVER`, `OPENSSL_DTLS_TO_CLIENT` | OK | Default 8192-byte file transfers at MTU 1200, both directions. |
+| `RCVTIMEO_DTLS` | OK | Receive timeout terminates a silent handshake. |
 
-The receive-timeout rerun used `MODE=stable JOBS=1 SHARD_TIMEOUT=180` and the five
-test names in `ONLY`, with unmodified official release `test.sh` at
-`12c08bf66d709fba17035ce95d85bd218428d9ba`. It completed without a timeout:
-three of the five DTLS cases passed and two failed as classified above. The
-upstream selector also ran `SOCKS5_OVERFL` (OK), so its aggregate reports
-four OK and two FAILED. Lab artifacts are in
-`/home/socat-user/socat-dtls13-lab/scorecard-handshake-timeout/`. The earlier
-packetizer rerun already passed both file transfers; `RCVTIMEO_DTLS` was the
-remaining `not timeout` failure. Full-size file transfers still pass.
-No full-suite baseline JSON was replaced by this subset. `make classic-parity`
-still passes its interface-name/alias audit; that does not certify functional
-DTLS file transfer. See [the DTLS follow-up plan](../../docs/dtls13-follow-up.txt).
+The three passing cases were rerun at `c2ec393`; no shard timed out. The
+upstream selector also runs `SOCKS5_OVERFL` (OK). See
+[DTLS validation and peer limits](../../docs/dtls13.md#validation).
 
 ### `UDP_DATAGRAM_PEERPORT` (version-gated harness)
 

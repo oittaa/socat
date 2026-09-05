@@ -1,172 +1,48 @@
-DTLS 1.3 follow-up work
+DTLS 1.3 remaining work
 
-Baseline
-The implementation supports only DTLS 1.3 on Linux, macOS, and Windows.
-Connection IDs, CID rotation, RFC 9853 enhanced path validation, certificate
-authentication, key updates, and bounded loss recovery are included.
-Prefer standard-library primitives; golang.org/x/ imports are also permitted.
-Preserve the Pion attribution. Read AGENTS.md, docs/dtls13.md and the applicable
-sections of docs/dtls13-standards.md first; that guide links the standards,
-their current status, relevant source files and packetization contract notes.
+Status is in docs/dtls13.md; RFCs and code map in docs/dtls13-standards.md.
+Follow AGENTS.md for platforms, compatibility and validation.
 
-Completed: default stream/file transfer size
-The adapter under dtlsopen.wrap is configured at endpoint pairing, separately
-for each direction. Stream input is divided into records that fit the current
-outgoing capacity; stream output retains short-read remainders in a 16 KiB
-buffer. Datagram and unknown peers remain strict, including DTLS-to-DTLS.
-The original Conn datagram contract is unchanged. Typed capabilities follow
-wrappers and dual addresses, and socket types come from actual descriptors.
-Forked RECVFROM transfers with an adapter bypass the byte-stream socketpair.
-Ordinary EXEC works; EXEC,nofork still requires a plaintext descriptor.
+Merge
 
-Native burst tests also exposed local drops at the ten-packet and
-sixteen-record queue limits. Both queues now allow 256 entries while retaining
-explicit byte bounds and the listener's aggregate packet-memory budget.
-This does not add application reliability or remove overload drops.
+- Independent protocol/security review of internal/dtls13 and
+  internal/xio/dtlsopen, including RFC 9846 section 1.2. Observable
+  regression per defect. Do not relax certificate checks or add
+  DTLS 1.2/browser workarounds.
+- Fill local CID coverage gaps against RFC 9147 section 9: request/response,
+  empty/bounded replies, spare consumption, rotation/retirement, loss/reorder,
+  concurrent KeyUpdate, malformed messages and resource bounds. Include
+  RFC-derived wire cases independent of our encoder. RFC-based review is
+  required even though spare-CID interoperability is not a merge blocker.
 
-On 2026-09-05, the unmodified official OPENSSL_DTLS_TO_SERVER and
-OPENSSL_DTLS_TO_CLIENT cases both passed with default buffers. The two explicit
-DTLS 1.2 cases still fail on version. RCVTIMEO_DTLS now also passes after the
-handshake receive-timeout fix described below.
-Windows go test ./..., Linux make check, focused Linux race tests, classic
-parity, and a macOS arm64 cross-build passed. Retain the binary file, large
-incoming record, asymmetric-MTU, mixed-dual-address, oversized-UDP, fork,
-conversion, cancellation, partial-write, and resource-bound regressions.
-Mutation checks verified that removing the fixes makes the relevant tests fail.
-Read docs/dtls13-standards.md for the endpoint policy and pinned source evidence.
+Do not undo
 
-Completed: handshake receive timeout
-so-rcvtimeo / rcvtimeo now bounds each association's handshake receive wait.
-Zero disables this additional bound. Fragments, ACKs, and duplicate records
-restart the wait after peer/framing/CID routing; a complete handshake message
-is not required. Outgoing retransmissions and unrelated traffic do not reset
-it. Keep the separate absolute handshake deadline and protocol retry limits.
-Expiry terminates the association, with explicit connect retry still honored.
-Listener cleanup releases only the failed association. Completed connections
-retain their existing retryable application-read timeouts.
+- Listener.receive has one production caller; do not "fix" a duplicate
+  admission race that is not concurrent.
+- RFC 9147 section 5.11: after a verified Finished, abandon the previous
+  same-address association. No CID exemption.
+- Keep proactive CID requests. Delaying until movement cannot get spares
+  on the old path. Disabling migration is a separate option.
+- Immediate CID rotation must update pending path probes and leave
+  unrelated spare requests alone.
 
-Native Windows go test ./..., Linux make check, twenty repeated Linux
-protocol/endpoint race runs, and classic parity pass. Virtual-clock tests cover
-timeout precedence, fragmented reception, retransmissions, listener isolation
-and memory release; a complete paced large-certificate handshake succeeds.
-That handshake fails if refresh requires complete handshake messages. Removing
-the new timer or endpoint option mapping also fails the relevant regression.
-The unchanged official RCVTIMEO_DTLS and both DTLS file-transfer cases pass;
-the two explicitly DTLS 1.2 cases remain unsupported. Keep these gates and the
-post-handshake retry regression when modifying timeout handling.
+Not merge blockers
 
-Review findings to preserve
-Listener.receive is called by one transport read loop; the suggested duplicate
-admission race has no concurrent production caller. RFC 9147 section 5.11
-requires abandoning a previous same-address association after a verified
-Finished; it does not specify a CID exemption. Do not retain simultaneous
-same-address associations as a supposed bug fix without a standards basis.
-Keep RFC-compliant proactive CID requests; the pinned Pion dispatcher is
-incomplete. Delaying requests until movement loses the ability to obtain
-spares on the old path, and disabling migration is a separate product choice.
-Immediate CID rotation now updates pending path probes and preserves unrelated
-outstanding spare requests. Retain the regressions for RRC responses, delayed
-path completion, ACK-only peers and empty/delayed spare responses.
+- Spare-CID issuance/replenishment interoperability: pin an exact revision
+  when a reference peer supports it; test both roles, repeated replenishment,
+  loss/reorder and KeyUpdate. Do not build another stack or weaken our
+  protocol for incomplete peers. See dtls13.md for current peer limits.
+- Automatic CID pool renewal after consumed identifiers; see dtls13.md.
+- Independent PQ tests at MTU 1200/256/512 with loss/reorder and mutual
+  ML-DSA. Do not raise production MTU or drop PQ defaults as a "fix."
+- Lab-only BoringSSL packet-BIO adapter; keep out of ordinary make check.
+- Recheck official OpenSSL/socat releases when 4.1 is usable; do not patch
+  the parity baseline or replace system OpenSSL to obtain a test peer.
+- On Go upgrades, investigate TestGoTLS13AlgorithmDefaults drift: add DTLS
+  wire mappings, retain protocol restrictions and test interoperability.
+  Recheck the TLS ML-DSA mapping when its RFC is published.
 
-1. Independent protocol and security review before merge
-Review internal/dtls13 and internal/xio/dtlsopen against RFC 9147, RFC 9853,
-RFC 9146's CID context, RFC 9846 (including section 1.2's changes from RFC 8446),
-RFC 9954/RFC 10024, the pinned TLS ML-DSA draft/RFC 9881, and verified errata.
-Keep RFC 8446 available for older documents' section references; use the guide
-to avoid mixing the old and new section numbering. Review authentication/transcript
-boundaries, record-number reconstruction, nonce uniqueness, replay handling,
-epoch retirement, ACK ordering, fragmentation/resource limits, cookie binding,
-CID routing/retirement, amplification accounting, migration peer filters, and
-listener cancellation. Distinguish merge blockers from optional improvements.
-For each defect, provide an observable regression that fails without the fix.
-Do not relax certificate checks or add legacy DTLS/browser workarounds.
+Out of scope unless separately specified
 
-2. Spare-CID assurance before merge; independent interoperability later
-Independent spare-CID issuance/replenishment testing is not a merge blocker
-while the relevant reference implementations lack that capability. Do not
-build another DTLS stack merely to satisfy this gate. RFC-based review and
-focused local regressions remain required; any defects they expose still
-need fixing before merge. This decision does not waive other merge blockers.
-
-Record peer limitations against exact revisions, not all future versions.
-Pinned OpenSSL 82733d90b5bc58b8d064ed49c282aa028664a1ed documents no DTLS 1.3
-CID support in doc/man7/ossl-guide-dtlsv13.pod.
-The pinned Pion snapshot negotiates CIDs but its post-handshake dispatcher
-rejects RequestConnectionID and NewConnectionID. Our Pion protocol-driver
-tests therefore isolate RRC using the initial CIDs. Pinned wolfSSL master
-d72f6d9e4e85ffcadfa0c737959dc26b8717947a now passes twelve public-API tests:
-both roles, all ciphers, proactive request acknowledgement, two immediate
-rotations, intervening bidirectional KeyUpdates, and lost rotation ACKs.
-It does not issue spare CIDs or negotiate RFC 9853 RRC. Its latest released
-5.9.2 still rejects post-handshake CID management; use the pinned master.
-Before merge, check the existing CID tests against RFC 9147 section 9 and
-fill observable coverage gaps: request/response state, bounded/empty responses,
-spare consumption and replenishment across repeated path changes, immediate
-rotation/retirement, duplicate/reordered/lost flights, and concurrent KeyUpdate.
-Also check malformed or forbidden messages, pool/resource bounds, and a peer
-that acknowledges a request but supplies no spares. Keep path validation and
-amplification checks tied to RFC 9853. Use deterministic packet faults and
-hand-authored wire cases derived from the RFC, rather than only round-tripping
-our encoder and decoder. Do not describe local tests as independent interop.
-
-Separate remaining limitation: the local issuance pool retains consumed CIDs
-and eventually answers further requests with empty responses. Explicit
-immediate rotation resets that pool, but automatic sustained renewal needs
-design and regression coverage. Do not silently retire a CID merely because
-another spare was used; the peer may still use existing CIDs with cid_spare.
-
-When a relevant upstream gains spare issuance/replenishment, pin that exact
-revision and add both-role interoperability with repeated replenishment,
-loss/reordering and KeyUpdate. Verify the required capabilities and DTLS 1.3
-negotiation first; CID negotiation or request ACKs alone are insufficient.
-Keep this as a documented follow-up, with reference software outside the
-runtime module. Do not change our protocol to accommodate incomplete peers.
-
-3. Independent post-quantum fragmentation and loss tests
-All three RFC 10024 hybrids and ML-DSA-44/65/87 work in local tests and in
-large-datagram OpenSSL exchanges. The tested wolfSSL 5.9.2 server drops fragmented
-initial ClientHellos, and the pinned OpenSSL snapshot lacks partial-flight
-ACK support. Current algorithm interop checks use 4096-byte loopback MTUs.
-Obtain an independent peer that supports these protocol paths, then test
-the default 1200-byte MTU and 256/512-byte MTUs, both client/server directions,
-loss, reordering, and mutual ML-DSA authentication. Do not treat increasing
-the production MTU or disabling post-quantum defaults as a protocol fix.
-
-4. Optional BoringSSL interoperability adapter
-The pinned bssl_shim is already built by scripts/dtls13-lab.py. Add a lab-only
-adapter for its packet-BIO framing and run both certificate-authenticated
-directions. Include loss, reordering, small MTUs, and key updates where the
-shim supports them. Keep the adapter out of normal builds and ordinary
-make check. Never treat a successful DTLS 1.2 connection as a 1.3 result.
-
-5. Refresh released reference software when available
-The lab system OpenSSL 3.5.5 supports DTLS only through 1.2. The pinned
-OpenSSL 4.1 development snapshot supports 1.3. Unmodified official socat
-1.8.1.3 does not compile with that snapshot's opaque ASN1_OCTET_STRING type.
-Recheck official releases when this changes, compare the released tag and
-master, read doc/socat.yo at those exact revisions, and then test classic
-socat in both directions. Do not patch the official parity baseline or
-replace system OpenSSL merely to obtain an oracle.
-
-6. Maintain alignment with Go's crypto support
-TestGoTLS13AlgorithmDefaults detects new or removed default algorithms and
-group/signature preference changes. Review any failure on a Go upgrade:
-integrate the DTLS wire mapping, retain protocol-required restrictions, and
-test against an independent peer. Delegate primitives and X.509 policy to
-Go; do not add separate key-type/security allowlists without a protocol need.
-The test covers Go defaults, not every optional algorithm or GODEBUG/FIPS
-configuration. Recheck the TLS ML-DSA draft when it is published as an RFC.
-
-7. Optional features require a separate scope decision
-PSKs, session resumption, 0-RTT, post-handshake client authentication, additional
-AEAD suites, and a WebRTC/ICE/SRTP stack are not included. Do not add them as
-cleanup. If needed later, specify authentication/replay/resource policies and
-independent interoperability tests before implementation.
-
-Validation for any follow-up change
-Run Linux make check and native Windows go test ./... before committing.
-Run make classic-parity for compatibility-changing work. Use the opt-in
-SOCAT_DTLS13_TOOLS manifest for independent protocol tests. Run focused race
-tests and demonstrate that security regressions fail when their fixes are
-removed. Keep official source extracts, binaries, certificates, private keys,
-generated catalogs, and help/version dumps out of commits.
+- PSK, resumption, 0-RTT, post-handshake client authentication, extra AEADs,
+  WebRTC/ICE/SRTP.
