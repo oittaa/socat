@@ -25,7 +25,8 @@ func packetEndpointPair(t *testing.T, options string) (context.Context, *xio.Ope
 	server, client := credentials(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
-	ln, err := xio.OpenSpec(ctx, spec(t, "DTLS-LISTEN:0,bind=127.0.0.1,fork,dtls-mtu=20000"+server), xio.ModeRDWR, nil)
+	// Allow full-size records even with a smaller default socket send buffer.
+	ln, err := xio.OpenSpec(ctx, spec(t, "DTLS-LISTEN:0,bind=127.0.0.1,fork,dtls-mtu=20000,sndbuf=65536"+server), xio.ModeRDWR, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,9 +87,11 @@ func TestPacketizerEndpointUDPBoundaries(t *testing.T) {
 			}
 			defer func() { _ = sender.Close() }()
 			left := xio.WrapMessageEOF(relay.NetStream{Conn: udp})
-			relay.ConfigureStreamPair(left, client.Stream)
+			// Keep the connection writable for the marker after the transfer ends.
+			right := relay.FDStream{R: client.Stream, W: client.Stream}
+			relay.ConfigureStreamPair(left, right)
 			done := make(chan error, 1)
-			go func() { done <- relay.Transfer(ctx, left, client.Stream, relay.Config{LeftToRight: true}) }()
+			go func() { done <- relay.Transfer(ctx, left, right, relay.Config{LeftToRight: true}) }()
 			payload := bytes.Repeat([]byte{'x'}, size)
 			if _, err := sender.Write(payload); err != nil {
 				t.Fatal(err)
@@ -96,18 +99,22 @@ func TestPacketizerEndpointUDPBoundaries(t *testing.T) {
 			if _, err := sender.Write(nil); err != nil {
 				t.Fatal(err)
 			}
-			buffer := make([]byte, 8192)
-			n, readErr := peer.Read(buffer)
 			transferErr := <-done
+			if size == 2000 && !errors.Is(transferErr, dtls13.ErrDatagramTooLarge) || size == 200 && transferErr != nil {
+				t.Fatalf("UDP size %d: transfer %v", size, transferErr)
+			}
+			marker := []byte("after UDP transfer")
+			if _, err := client.Stream.Write(marker); err != nil {
+				t.Fatal(err)
+			}
+			buffer := make([]byte, 8192)
 			if size == 200 {
-				if readErr != nil || n != size || !bytes.Equal(buffer[:n], payload) || transferErr != nil {
-					t.Fatalf("fitting UDP: %d, %v; transfer %v", n, readErr, transferErr)
+				if n, err := peer.Read(buffer); err != nil || !bytes.Equal(buffer[:n], payload) {
+					t.Fatalf("fitting UDP: %d, %v", n, err)
 				}
-				if n, err := peer.Read(buffer); n != 0 || err != io.EOF {
-					t.Fatalf("extra application record: %d, %v", n, err)
-				}
-			} else if n != 0 || readErr != io.EOF || !errors.Is(transferErr, dtls13.ErrDatagramTooLarge) {
-				t.Fatalf("oversized UDP split: %d, %v; transfer %v", n, readErr, transferErr)
+			}
+			if n, err := peer.Read(buffer); err != nil || !bytes.Equal(buffer[:n], marker) {
+				t.Fatalf("unexpected application record before marker: %d, %v", n, err)
 			}
 		})
 	}

@@ -55,6 +55,7 @@ type Conn struct {
 	state                       tls.ConnectionState
 	remote                      netip.AddrPort
 	err                         error
+	closeNotify                 bool
 	peerEOF, writeClosed        bool
 	maxDatagram                 int
 	onReady                     func(*Conn) bool
@@ -174,9 +175,14 @@ func (c *Conn) signalLocked() {
 }
 
 func (c *Conn) fail(err error) {
+	c.shutdown(err, false)
+}
+
+func (c *Conn) shutdown(err error, notify bool) {
 	c.once.Do(func() {
 		c.mu.Lock()
 		c.err = err
+		c.closeNotify = notify
 		close(c.stop)
 		c.signalLocked()
 		c.mu.Unlock()
@@ -194,8 +200,14 @@ func (c *Conn) failure() error {
 
 func (c *Conn) run() {
 	s := c.session
+	abort := false
 	defer func() {
 		c.fail(net.ErrClosed)
+		// Close may interrupt a control write before the stop case runs.
+		if c.closeNotify && !abort && s.handshake.complete && !c.writeClosed {
+			_, _ = s.sendRecordWith(s.currentWriteEpoch(), contentAlert, []byte{1, 0}, s.handshake.peerCID,
+				func(data []byte) error { return c.transport.write(data, s.path.peer.remote, time.Time{}, nil) })
+		}
 		s.reassembly.clear()
 		for len(c.incoming) != 0 {
 			packet := <-c.incoming
@@ -220,6 +232,7 @@ func (c *Conn) run() {
 	for {
 		now := time.Now()
 		if err := s.tick(now); err != nil {
+			abort = !errors.Is(err, net.ErrClosed)
 			c.fail(err)
 			return
 		}
@@ -258,10 +271,6 @@ func (c *Conn) run() {
 		}
 		select {
 		case <-c.stop:
-			if s.handshake.complete && !c.writeClosed {
-				_, _ = s.sendRecordWith(s.currentWriteEpoch(), contentAlert, []byte{1, 0}, s.handshake.peerCID,
-					func(data []byte) error { return c.transport.write(data, s.path.peer.remote, time.Time{}, nil) })
-			}
 			return
 		case <-timerC:
 			if !ready && !handshakeDeadline.IsZero() && !time.Now().Before(handshakeDeadline) {
@@ -277,7 +286,10 @@ func (c *Conn) run() {
 			}
 			data, err := s.receiveFrom(packet.data, packetPath{packet.peer, 1}, time.Now())
 			if err != nil {
-				_, _ = s.sendRecord(s.currentWriteEpoch(), contentAlert, errorAlert(err))
+				abort = !errors.Is(err, net.ErrClosed)
+				if abort {
+					_, _ = s.sendRecord(s.currentWriteEpoch(), contentAlert, errorAlert(err))
+				}
 				c.fail(err)
 				return
 			}
@@ -471,7 +483,7 @@ func (c *Conn) Read(data []byte) (int, error) {
 }
 
 func (c *Conn) Close() error {
-	c.fail(net.ErrClosed)
+	c.shutdown(net.ErrClosed, true)
 	<-c.done
 	return nil
 }
