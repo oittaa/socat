@@ -515,7 +515,7 @@ func (c *Conn) Write(data []byte) (int, error) {
 	if len(data) > c.MaxDatagramSize() {
 		return 0, errRecordOverflow
 	}
-	if err := c.execute(&connCommand{kind: contentData, data: bytes.Clone(data)}); err != nil {
+	if err := c.execute(&connCommand{kind: contentData, data: data}); err != nil {
 		return 0, err
 	}
 	return len(data), nil

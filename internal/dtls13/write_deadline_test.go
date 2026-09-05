@@ -251,6 +251,42 @@ func syntheticConnectionPair(t *testing.T) (*Conn, *Conn, *gatedWriteConn) {
 	return client, server, cp
 }
 
+func TestConnWriteCancelDoesNotSendMutatedCallerBuffer(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		client, server, p := syntheticConnectionPair(t)
+		gate := make(chan struct{})
+		p.gate = gate
+		payload := []byte("original")
+		result := make(chan error, 1)
+		go func() {
+			_, err := client.Write(payload)
+			result <- err
+		}()
+		synctest.Wait()
+		if err := client.SetWriteDeadline(time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-result; !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("write = %v", err)
+		}
+		synctest.Wait()
+		copy(payload, "MUTATED!")
+		close(gate)
+		synctest.Wait()
+		p.gate = nil
+		if err := client.SetWriteDeadline(time.Time{}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.Write([]byte("marker")); err != nil {
+			t.Fatal(err)
+		}
+		buf := make([]byte, 64)
+		if n, err := server.Read(buf); err != nil || string(buf[:n]) != "marker" {
+			t.Fatalf("cancelled write delivered caller buffer: %q, %v", buf[:n], err)
+		}
+	})
+}
+
 func TestConnWriteWaitsForCallerDeadline(t *testing.T) {
 	for _, mode := range []string{"long", "none", "extend", "clear", "shorten"} {
 		t.Run(mode, func(t *testing.T) {
