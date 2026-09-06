@@ -1,61 +1,58 @@
 # DTLS send-path measurements
 
-Compared master `53ef32b` with direct client socket writes, mutex-protected
-cancellation, and conditional shared-queue timers. The mutex replaces the
-cancellation watcher; the protocol event loop still owns keys, sequence numbers
-and CID state. Runtime code is 11 lines shorter, with three fewer goroutines
-per client/listener pair. [Raw samples and profile summaries](dtls13-send-perf.json).
+Compared master `66c2f18` with one cached application-write command per
+connection. Successful completion makes its command, reply channel and open
+cancellation channel reusable. Failed or abandoned commands are discarded;
+concurrent writes allocate when the cache is busy. The completion wakeup,
+input copies, deadlines and protocol event loop are unchanged. Runtime code
+adds 28 net lines in `conn.go`; there are no new goroutines or buffer pools.
+[Raw samples, source fingerprint and profile summaries](dtls13-send-perf.json).
 
-Same Ubuntu lab VM: six vCPUs on Ryzen 7 9800X3D, Go 1.27.0, GOMAXPROCS=6.
-Production defaults: DTLS 1.3, AES-128-GCM, X25519MLKEM768, CID 8, MTU 1200,
-default socket buffers. CLI transfers use 1024-byte frames and RAM-backed files.
-Five rotated 512 MiB runs per direction after one 128 MiB warmup; profiling runs
-separately. Delivered throughput accounts for loss. No corruption, duplicates
-or reordering occurred. These are single-association loopback measurements.
+Ubuntu lab VM: six vCPUs on Ryzen 7 9800X3D, Go 1.27.0, GOMAXPROCS=6,
+GOGC=100. Defaults: DTLS 1.3, AES-128-GCM, X25519MLKEM768, CID 8,
+MTU 1200 and OS socket buffers. CLI transfers use 1024-byte validated frames
+and RAM-backed files. Five rotated 512 MiB runs per direction follow one
+same-size warmup. Rates count unique delivered payload, including loss.
 
-| CLI direction | Before, MiB/s | After, MiB/s | Change | Maximum loss before / after |
-|---|---:|---:|---:|---:|
-| Client → server | 33.48 | 43.62 | +30.3% | 0 / 0.021132% |
-| Server → client | 32.21 | 34.15 | +6.0% | 0.189067 / 0.003740% |
+| CLI direction | Before, MiB/s (range) | After, MiB/s (range) | Median change |
+|---|---:|---:|---:|
+| Client to server | 42.53 (41.16-43.60) | 42.88 (41.49-43.06) | +0.8% |
+| Server to client | 33.70 (33.26-34.49) | 33.81 (33.36-34.38) | +0.3% |
 
-Median combined peak RSS remained about 39 MiB. These results do not replace
-the older seven-run 1 GiB all-protocol snapshot in [README.md](README.md).
+The ranges overlap: this run does not establish a material CLI speedup.
+Maximum loss was 0.047313%; no corruption, duplicates, reordering or
+trailing bytes occurred. Combined peak RSS stayed around 39 MiB.
 
-Library benchmarks use both UDP endpoints in one process, three 2-second samples
-per benchmark, excluding handshakes. Allocation counts cover both endpoints.
+Library medians use five rotated 2-second samples, with handshakes excluded.
+Each operation writes 1024 bytes; allocation counts cover both endpoints.
 
 | Library measurement | Before | After |
 |---|---:|---:|
-| One-way offered throughput | 70.26 MiB/s | 89.69 MiB/s |
-| Allocations per one-way record | 16 | 10 |
-| Allocated bytes per one-way record | 5511 | 5023 |
-| Sequential Write + peer Read | 38.97 µs | 40.40 µs |
-| Echo round trip | 81.63 µs | 81.45 µs |
-| Allocations per echo | 34 | 25 |
+| Bulk Write, ns/op | 11048 | 10664 |
+| Allocations per bulk record | 10 | 6 |
+| Allocated bytes per bulk record | 5022 | 4702 |
+| Sequential Write + peer Read, us | 39.16 | 38.53 |
+| Echo round trip, us | 82.29 | 80.70 |
 
-Separate CPU and allocation profiles were collected before and after each step.
-For a fixed 512 MiB client-send transfer, sender sampled CPU fell from 22.31 to
-17.10 seconds; allocated bytes fell from 1.597 to 1.335 GB and allocation events
-from 6.43 to 3.21 million. Receiver sampled CPU fell from 13.91 to 11.33 seconds.
-The remaining large allocations are input/datagram copies and AEAD buffers.
+Separate CPU and allocation profiles cover both variants: 8-second library
+runs and fixed 256 MiB CLI transfers. Sender allocation/CPU totals are below;
+receiver allocation volume was essentially unchanged. These single profile
+pairs describe costs, not statistically reliable CPU improvements.
 
-The direct-client step improved CLI goodput about 16%; mutex cancellation added
-about 9% in its paired experiment and removed the watcher machinery. Conditional
-queue timers added only about 3% server throughput, but avoid three allocations
-and about 248 allocated bytes per shared-socket write with little extra code.
-All three are retained. The roughly 4% serial Write/Read slowdown is accepted
-against the bulk gains, unchanged RTT, lower allocation volume and smaller code.
+| Sender profile | Allocated MB before / after | Allocation events before / after | Sampled CPU seconds before / after |
+|---|---:|---:|---:|
+| Client | 667.8 / 582.2 | 1,606,189 / 536,784 | 9.01 / 8.91 |
+| Server | 731.9 / 646.4 | 2,408,563 / 1,338,992 | 11.41 / 11.38 |
 
-Existing deadline, input-ownership, ambiguous-write, CID and KeyUpdate tests remain
-applicable. New regressions cover prompt interruption of blocked application
-writes and deadlines when the shared write queue is full. Removing socket
-interruption makes the shutdown regression fail. Buffer pooling and moving
-protocol operations out of the event loop remain separate work.
+Keep this as a small allocation optimization, not a bulk-throughput fix.
+The full seven-run 1 GiB snapshot in [README.md](README.md) also includes
+the earlier master optimizations; its change from the previous snapshot
+must not be attributed solely to command reuse.
 
-Validation passed: Linux `make check`, native Windows `go test ./...`, and Linux
-`go test -race ./internal/dtls13 ./internal/xio/dtlsopen -count=5`.
-
-Profile each revision separately:
+Validation: Linux `make check`, native Windows `go test ./...`, and five
+Linux race runs of `internal/dtls13` and `internal/xio/dtlsopen`. New tests
+exercise overlapping writes and an abandoned write followed by another.
+Reintroducing premature or concurrent command reuse makes these tests fail.
 
 ```sh
 go test ./internal/dtls13 -run '^$' -bench 'BenchmarkConnOneWay$' \

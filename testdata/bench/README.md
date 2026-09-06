@@ -220,63 +220,64 @@ Platforms without `/proc` report RSS as `n/a` (`null` in JSON).
 
 ## Recorded snapshot
 
-Recorded 2026-09-06 at `90dcf25`, including the DTLS
-optimizations from PR #244, in an Ubuntu 26.04 Hyper-V guest (6 vCPUs)
-backed by an AMD Ryzen 7 9800X3D, Linux 7.0.0-30, Go 1.27.0, classic socat
-1.8.1.3, and distro OpenSSL 3.5.5. Payload: 1 GiB AES-128-CTR.
-Median of 7 timed runs after 2 warmups. Bulk uses `-b 8192`, except DTLS
-uses `-b 1024` (Go MTU 1200). RTT samples use 20,000 exchanges after
-1,000 warmups; handshake samples use 200 connections after 20 warmups.
+Recorded 2026-09-06 from master `66c2f18` plus command/channel reuse,
+including the DTLS optimizations from PRs #244 and #246. The measured
+`conn.go` SHA-256 and source label are recorded in `host.json`.
+Ubuntu 26.04 Hyper-V guest (6 vCPUs), Ryzen 7 9800X3D host, Linux 7.0.0-30,
+Go 1.27.0 (GOMAXPROCS=6, GOGC=100), classic socat 1.8.1.3, OpenSSL 3.5.5.
+Payload: 1 GiB AES-128-CTR. Median of seven timed runs after two warmups.
+Bulk uses `-b 8192`, except DTLS uses `-b 1024` (Go MTU 1200). RTT:
+20,000 exchanges after 1,000 warmups; handshakes: 200 after 20 warmups.
 
 **DTLS: classic uses 1.2; Go uses 1.3.**
 
 | Case | classic | go | Peak RSS (classic / go) |
 |------|---------|----|-------------------------|
-| TCP 1 GiB | 917.6 MiB/s | 2203.0 MiB/s | 10.4 / 27.7 MiB |
-| UNIX 1 GiB | 842.1 MiB/s | 2202.5 MiB/s | 10.2 / 27.5 MiB |
-| UDP 1 GiB (send / receive / loss) | 1118.4 / 1118.4 MiB/s / 0.000% | 1183.2 / 1183.2 MiB/s / 0.000% | 10.4 / 31.3 MiB |
-| TLS 1 GiB | 842.0 MiB/s | 1337.6 MiB/s | 21.0 / 29.7 MiB |
-| WS 1 GiB | n/a | 333.6 MiB/s | n/a / 28.4 MiB |
-| WSS 1 GiB | n/a | 313.2 MiB/s | n/a / 30.5 MiB |
-| QUIC 1 GiB | n/a | 548.1 MiB/s | n/a / 40.0 MiB |
-| DTLS 1 GiB (send / receive / loss) | 134.3 / 134.2 MiB/s / 0.004582% | 33.6 / 33.6 MiB/s / 0.005236% | 20.9 / 39.5 MiB |
-| TCP 64 B RTT (median / p99) | 91.1 / 158.5 µs | 142.6 / 201.7 µs | 5.2 / 16.4 MiB |
-| TLS 64 B RTT (median / p99) | 99.0 / 177.1 µs | 145.7 / 203.1 µs | 10.9 / 15.3 MiB |
-| QUIC 64 B RTT (median / p99) | n/a | 335.8 / 480.7 µs | n/a / 19.3 MiB |
-| DTLS 64 B RTT (median / p99) | 87.3 / 146.0 µs | 278.2 / 406.7 µs | 10.8 / 19.5 MiB |
-| TLS handshake | 23.7 /s | 947.2 /s | 25.2 / 19.6 MiB |
-| DTLS handshake | 680.7 /s | 604.7 /s | 25.1 / 19.3 MiB |
+| TCP 1 GiB | 877.3 MiB/s | 1988.4 MiB/s | 10.5 / 27.3 MiB |
+| UNIX 1 GiB | 722.9 MiB/s | 1988.5 MiB/s | 10.2 / 27.1 MiB |
+| UDP 1 GiB (send / receive / loss) | 1183.0 / 1182.9 MiB/s / 0.000% | 1337.8 / 1337.8 MiB/s / 0.000% | 10.4 / 31.0 MiB |
+| TLS 1 GiB | 878.0 MiB/s | 1183.1 MiB/s | 21.0 / 30.1 MiB |
+| WS 1 GiB | n/a | 350.8 MiB/s | n/a / 28.6 MiB |
+| WSS 1 GiB | n/a | 333.6 MiB/s | n/a / 30.7 MiB |
+| QUIC 1 GiB | n/a | 520.1 MiB/s | n/a / 40.7 MiB |
+| DTLS 1 GiB (send / receive / loss) | 137.9 / 137.9 MiB/s / 0.006826% | 44.3 / 44.3 MiB/s / 0.003086% | 20.9 / 39.8 MiB |
+| TCP 64 B RTT (median / p99) | 88.5 / 186.1 us | 141.9 / 198.0 us | 5.2 / 16.2 MiB |
+| TLS 64 B RTT (median / p99) | 95.9 / 192.0 us | 145.2 / 213.5 us | 10.9 / 15.4 MiB |
+| QUIC 64 B RTT (median / p99) | n/a | 336.7 / 457.6 us | n/a / 19.7 MiB |
+| DTLS 64 B RTT (median / p99) | 85.6 / 160.6 us | 255.9 / 363.5 us | 10.8 / 19.9 MiB |
+| TLS handshake | 23.7 /s | 957.1 /s | 25.3 / 19.5 MiB |
+| DTLS handshake | 675.7 /s | 635.1 /s | 24.9 / 19.3 MiB |
 
 DTLS samples each sent 1,069,464 application datagrams of 1024 bytes.
 Goodput excludes the 20-byte frame headers and padding.
-Classic delivered 134.2 MiB/s median (range 131.60–140.71),
-with 0.004582% median loss and 0.045350% maximum loss.
-Go delivered 33.6 MiB/s median (range 31.53–34.11),
-with 0.005236% median loss and 0.253211% maximum loss.
-There were no duplicates, reordered frames, or corrupt frames in either
-implementation. These are unpaced loopback measurements, not maximum
-lossless capacities. The JSON retains full precision.
+Classic delivered 137.9 MiB/s median (range 134.23-140.72),
+with 0.006826% median loss and 0.009912% maximum loss.
+Go delivered 44.3 MiB/s median (range 42.65-45.70),
+with 0.003086% median loss and 0.010940% maximum loss.
+No duplicates, reordering or corruption occurred in the DTLS samples.
+These are unpaced loopback rates, not maximum lossless capacities.
 
-All 24 runnable case/implementation pairs passed all seven timed runs;
-four unsupported classic WebSocket/QUIC pairs were skipped. Handshake rates
-include a one-byte echo and close; Go DTLS also includes its cookie retry.
+All 24 runnable case/implementation pairs passed seven timed runs;
+four unsupported classic WebSocket/QUIC pairs were skipped.
+The previous snapshot predated PR #246. The isolated effect of command reuse
+is measured separately in [DTLS send-path measurements](dtls13-send-perf.md).
 
 Recorded handshakes (same binaries as the table; `meta.tls` in `host.json`):
 
 | Pairing | Used by | Version | Cipher | Group |
 |---------|---------|---------|--------|-------|
-| Go `crypto/tls` → Go TLS-LISTEN | `tls`, `tls-rr`, `tls-hs` (go) | TLS 1.3 | TLS_AES_128_GCM_SHA256 | X25519MLKEM768 |
-| Distro OpenSSL 3.5.5 → classic OPENSSL-LISTEN | `tls` (classic) | TLS 1.3 | TLS_AES_256_GCM_SHA384 | P-256 |
-| Go `crypto/tls` → classic OPENSSL-LISTEN | `tls-rr`, `tls-hs` (classic) | TLS 1.3 | TLS_AES_128_GCM_SHA256 | P-256 |
-| quic-go → Go QUIC-LISTEN | `quic`, `quic-rr` | TLS 1.3 | TLS_AES_128_GCM_SHA256 | X25519MLKEM768 |
-| Go dtls13 → Go DTLS-LISTEN | `dtls`, `dtls-rr`, `dtls-hs` (go) | DTLS 1.3 | TLS_AES_128_GCM_SHA256 | X25519MLKEM768 |
-| Distro OpenSSL 3.5.5 → classic DTLS-LISTEN | `dtls`, `dtls-rr`, `dtls-hs` (classic) | DTLS 1.2 | TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 | P-256 |
+| Go crypto/tls -> Go TLS-LISTEN | tls, tls-rr, tls-hs (go) | TLS 1.3 | TLS_AES_128_GCM_SHA256 | X25519MLKEM768 |
+| OpenSSL -> classic OPENSSL-LISTEN | tls (classic) | TLSv1.3 | TLS_AES_256_GCM_SHA384 | P-256 |
+| Go crypto/tls -> classic OPENSSL-LISTEN | tls-rr, tls-hs (classic) | TLS 1.3 | TLS_AES_128_GCM_SHA256 | P-256 |
+| quic-go -> Go QUIC-LISTEN | quic, quic-rr | TLS 1.3 | TLS_AES_128_GCM_SHA256 | X25519MLKEM768 |
+| Go dtls13 -> Go DTLS-LISTEN | dtls, dtls-rr, dtls-hs (go) | DTLS 1.3 | TLS_AES_128_GCM_SHA256 | X25519MLKEM768 |
+| OpenSSL -> classic DTLS-LISTEN | dtls, dtls-rr, dtls-hs (classic) | DTLS 1.2 | TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384 | P-256 |
 
-Classic DTLS bulk uses two classic processes. Its latency/handshake client
-is the optional OpenSSL helper, built with GCC 15.2.0 and `-O3`. The classic
-bulk cipher was also checked directly using its handshake log. Classic
-listeners pin P-256; Go defaults use hybrid post-quantum X25519MLKEM768.
-Handshake rates also include classic process creation versus Go goroutines.
+Classic DTLS bulk uses two classic processes. Its RTT/handshake client is
+the optional OpenSSL helper (built with `-O3`). Classic listeners pin P-256;
+Go defaults use hybrid X25519MLKEM768. Handshake rates include a one-byte
+echo and close, classic process creation versus Go goroutines, and Go DTLS
+cookie retry.
 
 ## Refresh the committed snapshot
 
