@@ -135,6 +135,7 @@ func encodePlainRecord(typ byte, sequence uint64, content []byte) ([]byte, error
 	return append(encoded, content...), nil
 }
 
+// The returned packet aliases session scratch until the next encode on these keys.
 func (k *trafficKeys) encodeRecord(number recordNumber, cid []byte, typ byte, content []byte, padding int) ([]byte, error) {
 	if number.epoch < 2 || len(cid) > 255 || !validContentType(typ) {
 		return nil, errRecord
@@ -153,13 +154,20 @@ func (k *trafficKeys) encodeRecord(number recordNumber, cid []byte, typ byte, co
 	if protectedLen < 0 || protectedLen > maxCiphertext {
 		return nil, errRecordOverflow
 	}
-	packet := make([]byte, headerLen+protectedLen)
+	need := headerLen + protectedLen
+	if cap(k.packetBuffer) < need {
+		k.packetBuffer = make([]byte, need)
+	} else {
+		k.packetBuffer = k.packetBuffer[:need]
+	}
+	packet := k.packetBuffer
 	packet[0] = first
 	copy(packet[1:seqOffset], cid)
 	binary.BigEndian.PutUint16(packet[seqOffset:], uint16(number.sequence&0xffff))
 	binary.BigEndian.PutUint16(packet[seqOffset+2:], uint16(protectedLen))
 	copy(packet[headerLen:], content)
 	packet[headerLen+len(content)] = typ
+	clear(packet[headerLen+len(content)+1 : headerLen+innerLen])
 	header := packet[:headerLen]
 	inner := packet[headerLen : headerLen+innerLen]
 	k.seal(inner[:0], header, number.sequence, inner)
@@ -179,6 +187,12 @@ func validContentType(typ byte) bool {
 // The datagram dispatcher enforces CID presence for the whole datagram.
 // Individual records may omit it. Replay state changes after authentication.
 func (k *trafficKeys) decodeRecord(r record, epoch uint64, cid []byte, window *replayWindow) (recordNumber, byte, []byte, error) {
+	return k.decodeRecordInto(r, epoch, cid, window, nil)
+}
+
+// decodeRecordInto decrypts into dst when cap(dst) is large enough. The returned
+// plaintext aliases dst.
+func (k *trafficKeys) decodeRecordInto(r record, epoch uint64, cid []byte, window *replayWindow, dst []byte) (recordNumber, byte, []byte, error) {
 	if !r.encrypted || r.number.epoch != epoch&3 || len(r.cid) != 0 && !bytes.Equal(cid, r.cid) {
 		return recordNumber{}, 0, nil, errAuthentication
 	}
@@ -197,7 +211,7 @@ func (k *trafficKeys) decodeRecord(r record, epoch uint64, cid []byte, window *r
 		truncated = truncated<<8 | uint64(header[r.seqOffset+i])
 	}
 	sequence := reconstructSequence(truncated, r.seqLen, window.next())
-	inner, err := k.open(header, sequence, r.body)
+	inner, err := k.open(header, sequence, r.body, dst)
 	if err != nil {
 		return recordNumber{}, 0, nil, err
 	}

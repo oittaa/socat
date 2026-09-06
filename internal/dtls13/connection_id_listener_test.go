@@ -92,7 +92,7 @@ func TestCIDListenerAuthenticationRetirementAndCleanup(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					return packet
+					return bytes.Clone(packet)
 				}
 				forged := protect(replacement, contentData, []byte("forged"))
 				forged[len(forged)-1] ^= 1
@@ -165,7 +165,7 @@ func TestCIDListenerAuthenticationRetirementAndCleanup(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					serverWire.incoming <- incomingPacket{fatal, clientWires[0].addr}
+					serverWire.incoming <- incomingPacket{bytes.Clone(fatal), clientWires[0].addr}
 					<-servers[0].done
 					<-clients[0].done
 					if !errors.Is(servers[0].failure(), errDecode) || !errors.Is(clients[0].failure(), errDecode) {

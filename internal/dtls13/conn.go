@@ -1,7 +1,6 @@
 package dtls13
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -69,6 +68,8 @@ type Conn struct {
 	sendingApplication          *connCommand
 	handshakeCredit             uint64
 	cookieValidated             bool
+	datagramFree                [][]byte
+	appFree                     [][]byte
 }
 
 // Client establishes a DTLS 1.3 association. It takes ownership of transport
@@ -136,6 +137,16 @@ func (c *Conn) attach(s *session) {
 				c.onPeerChanged(c, to.remote)
 			}
 		}}
+	s.takeOpened = func(n int) []byte {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return takeBuffer(&c.appFree, n)
+	}
+	s.dropOpened = func(buf []byte) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		putBuffer(&c.appFree, buf, maxRecycledApp, maxCiphertext)
+	}
 }
 
 func (c *Conn) deliver(data []byte, peer netip.AddrPort) {
@@ -144,12 +155,27 @@ func (c *Conn) deliver(data []byte, peer netip.AddrPort) {
 	if c.err != nil || len(c.incoming) == cap(c.incoming) || len(data) > maxIncomingBytes-c.incomingBytes || !c.packetBudget.reserve(len(data)) {
 		return
 	}
+	owned := takeBuffer(&c.datagramFree, len(data))
+	copy(owned, data)
 	select {
-	case c.incoming <- incomingPacket{bytes.Clone(data), peer}:
+	case c.incoming <- incomingPacket{owned, peer}:
 		c.incomingBytes += len(data)
 	default:
+		putBuffer(&c.datagramFree, owned, maxRecycledDatagrams, 65535)
 		c.packetBudget.release(len(data))
 	}
+}
+
+func (c *Conn) recycleDatagram(buf []byte) {
+	c.mu.Lock()
+	putBuffer(&c.datagramFree, buf, maxRecycledDatagrams, 65535)
+	c.mu.Unlock()
+}
+
+func (c *Conn) releaseApp(buf []byte) {
+	c.mu.Lock()
+	putBuffer(&c.appFree, buf, maxRecycledApp, maxCiphertext)
+	c.mu.Unlock()
 }
 
 func (c *Conn) releasePacket(size int) {
@@ -222,6 +248,7 @@ func (c *Conn) run() {
 		for len(c.incoming) != 0 {
 			packet := <-c.incoming
 			c.releasePacket(len(packet.data))
+			c.recycleDatagram(packet.data)
 		}
 		if c.owned {
 			c.transport.close(net.ErrClosed)
@@ -249,6 +276,7 @@ func (c *Conn) run() {
 	}
 	receivePacket := func(packet incomingPacket) bool {
 		c.releasePacket(len(packet.data))
+		defer c.recycleDatagram(packet.data)
 		select {
 		case <-c.stop:
 			return false
@@ -339,9 +367,11 @@ func (c *Conn) run() {
 		if pending != nil {
 			select {
 			case <-pending.cancel:
+				c.releaseApp(pending.data)
 				pending = nil
 			default:
 				if done, err := c.command(pending, now); done {
+					c.releaseApp(pending.data)
 					pending.result <- err
 					pending = nil
 				}
@@ -385,6 +415,8 @@ func (c *Conn) publish(data [][]byte) {
 			c.readQueue = append(c.readQueue, packet)
 			c.readBytes += cap(packet)
 			queued = true
+		} else {
+			putBuffer(&c.appFree, packet, maxRecycledApp, maxCiphertext)
 		}
 	}
 	eof := c.session.peerClosed != nil
@@ -475,11 +507,15 @@ func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
 
 func (c *Conn) execute(command *connCommand) error {
 	cancel := make(chan struct{})
+	queued := false
 	defer func() {
 		c.transport.cancelWrite(cancel)
 		select {
 		case c.wake <- struct{}{}:
 		default:
+		}
+		if !queued {
+			c.releaseApp(command.data)
 		}
 	}()
 	command.cancel, command.result = cancel, make(chan error, 1)
@@ -505,6 +541,7 @@ func (c *Conn) execute(command *connCommand) error {
 		done := false
 		select {
 		case commands <- command:
+			queued = true
 			reply = command.result
 		case err = <-reply:
 			done = true
@@ -527,8 +564,12 @@ func (c *Conn) Write(data []byte) (int, error) {
 	if len(data) > c.MaxDatagramSize() {
 		return 0, errRecordOverflow
 	}
+	c.mu.Lock()
+	owned := takeBuffer(&c.appFree, len(data))
+	c.mu.Unlock()
+	copy(owned, data)
 	// A deadline can return before the session finishes encoding this command.
-	if err := c.execute(&connCommand{kind: contentData, data: bytes.Clone(data)}); err != nil {
+	if err := c.execute(&connCommand{kind: contentData, data: owned}); err != nil {
 		return 0, err
 	}
 	return len(data), nil
@@ -551,8 +592,10 @@ func (c *Conn) Read(data []byte) (int, error) {
 			} else {
 				c.readQueue = c.readQueue[1:]
 			}
+			n := copy(data, packet)
+			putBuffer(&c.appFree, packet, maxRecycledApp, maxCiphertext)
 			c.mu.Unlock()
-			return copy(data, packet), nil
+			return n, nil
 		}
 		if c.peerEOF {
 			c.mu.Unlock()

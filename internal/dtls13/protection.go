@@ -25,6 +25,7 @@ type trafficKeys struct {
 	nonceBuffer  [12]byte
 	maskBuffer   [16]byte
 	headerBuffer [260]byte
+	packetBuffer []byte
 }
 
 func newTrafficKeys(id uint16, secret []byte) (*trafficKeys, error) {
@@ -107,12 +108,16 @@ func (k *trafficKeys) seal(dst, header []byte, sequence uint64, plaintext []byte
 	return k.aead.Seal(dst, k.nonceBuffer[:], plaintext, header)
 }
 
-func (k *trafficKeys) open(header []byte, sequence uint64, ciphertext []byte) ([]byte, error) {
+func (k *trafficKeys) open(header []byte, sequence uint64, ciphertext, dst []byte) ([]byte, error) {
 	if len(ciphertext) < aes.BlockSize {
 		return nil, errAuthentication
 	}
 	k.nonceBuffer = k.nonce(sequence)
-	plaintext, err := k.aead.Open(nil, k.nonceBuffer[:], ciphertext, header)
+	var out []byte
+	if dst != nil {
+		out = dst[:0]
+	}
+	plaintext, err := k.aead.Open(out, k.nonceBuffer[:], ciphertext, header)
 	if err != nil {
 		return nil, errAuthentication
 	}

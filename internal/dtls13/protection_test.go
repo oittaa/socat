@@ -83,29 +83,29 @@ func TestRecordProtectionVectors(t *testing.T) {
 			if err != nil || !bytes.Equal(mask[:], decodeHex(t, test.mask)) {
 				t.Fatalf("mask = %x, %v; want %s", mask, err, test.mask)
 			}
-			opened, err := keys.open(header, sequence, ciphertext)
+			opened, err := keys.open(header, sequence, ciphertext, nil)
 			if err != nil || !bytes.Equal(opened, plaintext) {
 				t.Fatalf("open = %x, %v; want %x", opened, err, plaintext)
 			}
 			for i := range ciphertext {
 				mutated := bytes.Clone(ciphertext)
 				mutated[i] ^= 1
-				if _, err := keys.open(header, sequence, mutated); !errors.Is(err, errAuthentication) {
+				if _, err := keys.open(header, sequence, mutated, nil); !errors.Is(err, errAuthentication) {
 					t.Fatalf("accepted ciphertext mutation at %d: %v", i, err)
 				}
 			}
 			for i := range header {
 				mutated := bytes.Clone(header)
 				mutated[i] ^= 1
-				if _, err := keys.open(mutated, sequence, ciphertext); !errors.Is(err, errAuthentication) {
+				if _, err := keys.open(mutated, sequence, ciphertext, nil); !errors.Is(err, errAuthentication) {
 					t.Fatalf("accepted header mutation at %d: %v", i, err)
 				}
 			}
-			if _, err := keys.open(header, sequence+1, ciphertext); !errors.Is(err, errAuthentication) {
+			if _, err := keys.open(header, sequence+1, ciphertext, nil); !errors.Is(err, errAuthentication) {
 				t.Fatalf("accepted wrong sequence: %v", err)
 			}
 			for n := 0; n < len(ciphertext); n++ {
-				if _, err := keys.open(header, sequence, ciphertext[:n]); !errors.Is(err, errAuthentication) {
+				if _, err := keys.open(header, sequence, ciphertext[:n], nil); !errors.Is(err, errAuthentication) {
 					t.Fatalf("accepted truncated ciphertext at %d: %v", n, err)
 				}
 			}

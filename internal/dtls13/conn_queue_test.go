@@ -131,3 +131,25 @@ func TestConnQueueChargesRetainedCapacity(t *testing.T) {
 		t.Fatal("retained capacity was not released")
 	}
 }
+
+func TestDeliverCopiesSocketBuffer(t *testing.T) {
+	c := newConn(netip.AddrPort{})
+	c.packetBudget = &memoryBudget{limit: maxIncomingBytes}
+	src := []byte("hello")
+	c.deliver(src, netip.AddrPort{})
+	src[0] = 'X'
+	if len(c.incoming) != 1 {
+		t.Fatal("deliver dropped the datagram")
+	}
+	packet := <-c.incoming
+	c.releasePacket(len(packet.data))
+	if string(packet.data) != "hello" {
+		t.Fatalf("deliver aliased the socket buffer: %q", packet.data)
+	}
+	c.recycleDatagram(packet.data)
+	again := []byte("world")
+	c.deliver(again, netip.AddrPort{})
+	if len(c.datagramFree) != 0 {
+		t.Fatal("recycled datagram was not reused")
+	}
+}

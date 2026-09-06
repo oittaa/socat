@@ -129,6 +129,63 @@ func TestRecordScratchReusePreservesOutput(t *testing.T) {
 	}
 }
 
+func TestEncodeRecordReusesBackingStore(t *testing.T) {
+	keys := testTrafficKeys(t)
+	first, err := keys.encodeRecord(recordNumber{3, 0}, nil, contentData, []byte("one"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := &first[0]
+	second, err := keys.encodeRecord(recordNumber{3, 1}, nil, contentData, []byte("two"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if &second[0] != base {
+		t.Fatal("encode allocated a new packet instead of reusing session scratch")
+	}
+}
+
+func TestEncodeRecordClearsStalePadding(t *testing.T) {
+	keys := testTrafficKeys(t)
+	if _, err := keys.encodeRecord(recordNumber{3, 0}, nil, contentData, []byte("leftover-bytes"), 0); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := keys.encodeRecord(recordNumber{3, 1}, nil, contentData, []byte("x"), 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, rest, err := parseRecord(raw, 0)
+	if err != nil || len(rest) != 0 {
+		t.Fatal(err)
+	}
+	var window replayWindow
+	_, typ, content, err := keys.decodeRecord(r, 3, nil, &window)
+	if err != nil || typ != contentData || string(content) != "x" {
+		t.Fatalf("stale padding leaked into plaintext: typ=%d content=%q err=%v", typ, content, err)
+	}
+}
+
+func TestDecodeRecordReusesDestination(t *testing.T) {
+	keys := testTrafficKeys(t)
+	raw, err := keys.encodeRecord(recordNumber{3, 0}, nil, contentData, []byte("dst"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, rest, err := parseRecord(raw, 0)
+	if err != nil || len(rest) != 0 {
+		t.Fatal(err)
+	}
+	dst := make([]byte, 0, 256)
+	var window replayWindow
+	_, typ, content, err := keys.decodeRecordInto(r, 3, nil, &window, dst)
+	if err != nil || typ != contentData || string(content) != "dst" {
+		t.Fatalf("decode = %q, %d, %v", content, typ, err)
+	}
+	if cap(content) != cap(dst) || &content[0] != &dst[:1][0] {
+		t.Fatal("decode allocated instead of using the destination buffer")
+	}
+}
+
 func TestUnauthenticatedRecordDoesNotAdvanceWindow(t *testing.T) {
 	keys := testTrafficKeys(t)
 	cid := []byte("test-cid")

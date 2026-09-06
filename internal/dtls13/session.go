@@ -50,6 +50,10 @@ type session struct {
 	cidResponse          *byte
 	setLocalCIDs         func([][]byte) error
 	path                 *pathState
+	takeOpened           func(int) []byte
+	dropOpened           func([]byte)
+	parsed               []record
+	appOut               [][]byte
 }
 
 func newClientSession(config *Config, send func([]byte) error, now time.Time) (*session, error) {
@@ -205,7 +209,7 @@ func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) (
 	if s.path != nil && from.remote != s.path.peer.remote && !s.path.allowed(from.remote) {
 		return nil, nil
 	}
-	var records []record
+	s.parsed = s.parsed[:0]
 	hasCID := false
 	for len(datagram) != 0 {
 		r, rest, err := parseRecord(datagram, len(s.handshake.localCID))
@@ -218,63 +222,66 @@ func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) (
 			}
 			hasCID = true
 		}
-		records = append(records, r)
+		s.parsed = append(s.parsed, r)
 		datagram = rest
 	}
 	// Demultiplexed reception includes fragments, ACKs, and duplicate records.
-	if !s.handshake.complete && len(records) != 0 {
+	if !s.handshake.complete && len(s.parsed) != 0 {
 		s.handshakeReceived = now
 	}
-	var application [][]byte
-	for _, r := range records {
+	s.appOut = s.appOut[:0]
+	for _, r := range s.parsed {
 		number, typ, body, ok, err := s.openRecord(r, hasCID)
 		if err != nil {
-			return nil, err
+			return s.failReceive(body, false, err)
 		}
 		if !ok {
 			continue
 		}
+		opened := r.encrypted
 		if s.peerClosed != nil && recordAfter(number, *s.peerClosed) {
+			s.releaseOpened(opened, body)
 			continue
 		}
 		if s.path != nil && s.handshake.complete && r.encrypted {
 			if err := s.path.observe(from, number, typ, uint64(len(r.header))+uint64(len(r.body)), now); err != nil {
-				return nil, err
+				return s.failReceive(body, opened, err)
 			}
 		}
+		retain := false
 		switch typ {
 		case contentHandshake:
-			if err := s.receiveHandshake(number, body, now); err != nil {
-				return nil, err
-			}
+			err = s.receiveHandshake(number, body, now)
 		case contentACK:
-			acks, err := parseACK(body)
+			var acks []recordNumber
+			acks, err = parseACK(body)
 			if err != nil {
 				if r.encrypted {
-					return nil, err
+					return s.failReceive(body, opened, err)
 				}
+				s.releaseOpened(opened, body)
 				continue
 			}
 			if s.outbound != nil {
 				progress := s.outbound.acknowledge(acks, r.encrypted)
 				if progress && !s.outbound.complete {
-					if err := s.transmitFlight(now); err != nil {
-						return nil, err
-					}
+					err = s.transmitFlight(now)
 				}
 			}
-			if err := s.acknowledgePost(acks, r.encrypted, now); err != nil {
-				return nil, err
+			if err == nil {
+				err = s.acknowledgePost(acks, r.encrypted, now)
 			}
 		case contentData:
 			if number.epoch >= 3 && s.handshake.complete {
-				application = append(application, body)
+				s.appOut = append(s.appOut, body)
+				retain = true
 			}
 		case contentAlert:
 			if len(body) != 2 {
 				if r.encrypted {
-					return nil, errDecode
+					return s.failReceive(body, opened, errDecode)
 				}
+				s.releaseOpened(opened, body)
 				continue
 			}
 			if body[1] == 0 {
@@ -282,29 +289,46 @@ func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) (
 					closedAt := number
 					s.peerClosed = &closedAt
 				}
-				continue
-			}
-			if body[1] != 90 {
-				return nil, alertError(body[1])
+			} else if body[1] != 90 {
+				return s.failReceive(body, opened, alertError(body[1]))
 			}
 		case contentRRC:
 			if !s.handshake.rrc || !s.handshake.complete || number.epoch < 3 || s.path == nil {
-				return nil, errUnexpectedMessage
+				return s.failReceive(body, opened, errUnexpectedMessage)
 			}
-			if err := s.path.receive(from, body, uint64(len(r.header))+uint64(len(r.body)), now); err != nil {
-				return nil, err
-			}
+			err = s.path.receive(from, body, uint64(len(r.header))+uint64(len(r.body)), now)
+		}
+		if err != nil {
+			return s.failReceive(body, opened && !retain, err)
+		}
+		if !retain {
+			s.releaseOpened(opened, body)
 		}
 	}
 	if err := s.advancePost(now); err != nil {
-		return nil, err
+		return s.failReceive(nil, false, err)
 	}
 	if s.handshake.complete && !s.handshake.client && len(s.acknowledgements) != 0 {
 		if err := s.sendACK(); err != nil {
-			return nil, err
+			return s.failReceive(nil, false, err)
 		}
 	}
-	return application, nil
+	return s.appOut, nil
+}
+
+func (s *session) releaseOpened(opened bool, body []byte) {
+	if opened && s.dropOpened != nil {
+		s.dropOpened(body)
+	}
+}
+
+func (s *session) failReceive(body []byte, opened bool, err error) ([][]byte, error) {
+	s.releaseOpened(opened, body)
+	for _, packet := range s.appOut {
+		s.releaseOpened(true, packet)
+	}
+	s.appOut = s.appOut[:0]
+	return nil, err
 }
 
 func (s *session) openRecord(r record, hasCID bool) (recordNumber, byte, []byte, bool, error) {
@@ -327,8 +351,15 @@ func (s *session) openRecord(r record, hasCID bool) (recordNumber, byte, []byte,
 	if keys == nil {
 		return recordNumber{}, 0, nil, false, nil
 	}
-	number, typ, body, err := keys.keys.decodeRecord(r, epoch, r.cid, &keys.window)
+	dst := []byte(nil)
+	if s.takeOpened != nil {
+		dst = s.takeOpened(len(r.body))
+	}
+	number, typ, body, err := keys.keys.decodeRecordInto(r, epoch, r.cid, &keys.window, dst)
 	if err != nil {
+		if s.dropOpened != nil {
+			s.dropOpened(dst)
+		}
 		if errors.Is(err, errAuthentication) {
 			if keys.failures < math.MaxUint64 {
 				keys.failures++
@@ -355,6 +386,9 @@ func (s *session) openRecord(r record, hasCID bool) (recordNumber, byte, []byte,
 		}
 	}
 	if err := s.usedLocalCID(r.cid); err != nil {
+		if s.dropOpened != nil {
+			s.dropOpened(body)
+		}
 		return recordNumber{}, 0, nil, false, err
 	}
 	return number, typ, body, true, nil

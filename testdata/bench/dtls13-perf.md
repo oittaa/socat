@@ -5,7 +5,8 @@ Linux lab VM. These measure library connections, not the socat CLI or the
 file-transfer benchmark in PR #243.
 
 Later [send-path measurements](dtls13-send-perf.md) include CLI transfers and
-CPU/allocation profiles for the transport synchronization changes.
+CPU/allocation profiles for the transport synchronization changes. Record-buffer
+reuse after #246 is in [dtls13-record-reuse.md](dtls13-record-reuse.md).
 
 ## Method
 

@@ -43,6 +43,9 @@ type packetTransport struct {
 
 	writeMu sync.Mutex
 	active  [3]<-chan struct{}
+
+	payloadMu   sync.Mutex
+	payloadFree [][]byte
 }
 
 func newPacketTransport(conn net.PacketConn, receive func([]byte, netip.AddrPort), failed func(error)) *packetTransport {
@@ -130,8 +133,21 @@ func (p *packetTransport) writeLoop() {
 			return
 		case w := <-p.writes:
 			w.result <- p.writeNow(w)
+			p.putPayload(w.data)
 		}
 	}
+}
+
+func (p *packetTransport) takePayload(n int) []byte {
+	p.payloadMu.Lock()
+	defer p.payloadMu.Unlock()
+	return takeBuffer(&p.payloadFree, n)
+}
+
+func (p *packetTransport) putPayload(buf []byte) {
+	p.payloadMu.Lock()
+	putBuffer(&p.payloadFree, buf, maxRecycledDatagrams, 65535)
+	p.payloadMu.Unlock()
 }
 
 func (p *packetTransport) startWrite(w packetWrite) error {
@@ -207,9 +223,18 @@ func (p *packetTransport) writePacket(data []byte, peer netip.AddrPort, deadline
 		return p.writeNow(packetWrite{data: data, peer: peer, deadline: deadline,
 			stopped: stopped, cancelled: cancelled, retry: retry})
 	}
+	// encodeRecord may reuse a session scratch buffer; the write queue must own its payload.
+	owned := p.takePayload(len(data))
+	copy(owned, data)
+	queued := false
+	defer func() {
+		if !queued {
+			p.putPayload(owned)
+		}
+	}()
 	cancel := make(chan struct{})
 	defer p.cancelWrite(cancel)
-	w := packetWrite{data: data, peer: peer, deadline: deadline, cancel: cancel,
+	w := packetWrite{data: owned, peer: peer, deadline: deadline, cancel: cancel,
 		stopped: stopped, cancelled: cancelled, result: make(chan error, 1), retry: retry}
 	if !time.Now().Before(deadline) {
 		return w.timeout()
@@ -217,6 +242,7 @@ func (p *packetTransport) writePacket(data []byte, peer netip.AddrPort, deadline
 	if retry {
 		select {
 		case p.writes <- w:
+			queued = true
 			return p.waitWrite(w, nil)
 		default:
 		}
@@ -225,6 +251,7 @@ func (p *packetTransport) writePacket(data []byte, peer netip.AddrPort, deadline
 	defer timer.Stop()
 	select {
 	case p.writes <- w:
+		queued = true
 	case <-p.done:
 		return net.ErrClosed
 	case <-stopped:
