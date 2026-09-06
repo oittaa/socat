@@ -115,6 +115,11 @@ known to have sent zero bytes may retry, using a fresh record number. Cancellati
 interrupts the active attempt before the writer moves to another association.
 Control writes retain their separate one-second bound.
 
+The connection event loop owns sequence numbers, keys and CID state. Client
+sockets send directly from that loop; listener sockets retain a shared writer.
+A transport mutex serializes cancellation with deadline installation without
+holding the lock across socket I/O.
+
 ## CID review
 
 Local RFC 9147 section 9 review completed on 2026-09-05. The checklist below
