@@ -73,3 +73,61 @@ func TestConnQueueMemoryBounds(t *testing.T) {
 		t.Fatal("record count bound was not enforced")
 	}
 }
+
+func TestConnPublishSignalsOnlyOnReadableState(t *testing.T) {
+	c := newConn(netip.AddrPort{})
+	c.session = &session{handshake: &handshakeState{config: &Config{MTU: 1200}}}
+	idle := c.notify
+	c.publish(nil)
+	select {
+	case <-idle:
+		t.Fatal("publish without data or EOF woke waiters")
+	default:
+	}
+	c.publish([][]byte{[]byte("data")})
+	select {
+	case <-idle:
+	default:
+		t.Fatal("queued application data did not wake waiters")
+	}
+	idle = c.notify
+	c.publish([][]byte{[]byte("data")})
+	select {
+	case <-idle:
+		t.Fatal("already-readable queue woke waiters again")
+	default:
+	}
+	idle = c.notify
+	c.session.peerClosed = &recordNumber{3, 1}
+	c.publish(nil)
+	select {
+	case <-idle:
+	default:
+		t.Fatal("EOF did not wake waiters")
+	}
+	idle = c.notify
+	c.publish(nil)
+	select {
+	case <-idle:
+		t.Fatal("unchanged EOF woke waiters")
+	default:
+	}
+}
+
+func TestConnQueueChargesRetainedCapacity(t *testing.T) {
+	c := newConn(netip.AddrPort{})
+	c.session = &session{handshake: &handshakeState{config: &Config{MTU: 1200}}}
+	packet := make([]byte, 1, maxApplicationBytes)
+	packet[0] = 'a'
+	c.publish([][]byte{packet, []byte("overflow")})
+	if c.readBytes != maxApplicationBytes || len(c.readQueue) != 1 {
+		t.Fatalf("retained capacity bypassed queue bound: bytes=%d records=%d", c.readBytes, len(c.readQueue))
+	}
+	var buffer [8]byte
+	if n, err := c.Read(buffer[:]); n != 1 || err != nil || buffer[0] != 'a' {
+		t.Fatalf("read = %d, %v, %q", n, err, buffer[:n])
+	}
+	if c.readBytes != 0 {
+		t.Fatal("retained capacity was not released")
+	}
+}

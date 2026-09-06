@@ -2,6 +2,7 @@ package dtls13
 
 import (
 	"context"
+	"crypto/cipher"
 	"crypto/tls"
 	"errors"
 	"net"
@@ -12,6 +13,53 @@ import (
 	"testing/synctest"
 	"time"
 )
+
+type gatedOverheadAEAD struct {
+	cipher.AEAD
+	entered chan struct{}
+	release chan struct{}
+	once    sync.Once
+	sealed  string
+}
+
+func (a *gatedOverheadAEAD) Overhead() int {
+	a.once.Do(func() {
+		close(a.entered)
+		<-a.release
+	})
+	return a.AEAD.Overhead()
+}
+
+func (a *gatedOverheadAEAD) Seal(dst, nonce, plaintext, additionalData []byte) []byte {
+	a.sealed = string(plaintext)
+	return a.AEAD.Seal(dst, nonce, plaintext, additionalData)
+}
+
+func TestConnWriteDeadlineDuringEncodingOwnsInput(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		client, _, _ := syntheticConnectionPair(t)
+		keys := client.session.write[client.session.currentWriteEpoch()].keys
+		gate := &gatedOverheadAEAD{AEAD: keys.aead, entered: make(chan struct{}), release: make(chan struct{})}
+		keys.aead = gate
+		payload := []byte("original")
+		result := make(chan error, 1)
+		go func() { _, err := client.Write(payload); result <- err }()
+		<-gate.entered
+		if err := client.SetWriteDeadline(time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-result; !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("write: %v", err)
+		}
+		// Encoding is still in flight after Write returns. Its command must own input.
+		copy(payload, "MUTATED!")
+		close(gate.release)
+		synctest.Wait()
+		if gate.sealed != "original"+string(contentData) {
+			t.Fatalf("encoder retained caller input after Write returned: %q", gate.sealed)
+		}
+	})
+}
 
 type gatedWriteConn struct {
 	*handshakePacketConn
@@ -122,6 +170,65 @@ func TestTransportWriteCancellationIsolation(t *testing.T) {
 	})
 }
 
+func TestTransportStaleCancelDoesNotAffectNextWrite(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		gate := make(chan struct{})
+		p := &gatedWriteConn{handshakePacketConn: newHandshakePacketConn(10001)}
+		transport := newPacketTransport(p, nil, nil)
+		go transport.writeLoop()
+		defer transport.close(net.ErrClosed)
+		stale := make(chan struct{})
+		if err := transport.writeApplication([]byte("first"), p.addr, time.Time{}, nil, stale); err != nil {
+			t.Fatal(err)
+		}
+		p.gate = gate
+		second := make(chan error, 1)
+		go func() { second <- transport.writeApplication([]byte("second"), p.addr, time.Time{}, nil, nil) }()
+		synctest.Wait()
+		close(stale)
+		synctest.Wait()
+		select {
+		case err := <-second:
+			t.Fatalf("stale cancel interrupted the next socket write: %v", err)
+		default:
+		}
+		close(gate)
+		if err := <-second; err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestTransportCancelWatcherJoinsBeforeNextWrite(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		gate := make(chan struct{})
+		p := &gatedWriteConn{handshakePacketConn: newHandshakePacketConn(10001), gate: gate}
+		transport := newPacketTransport(p, nil, nil)
+		go transport.writeLoop()
+		defer transport.close(net.ErrClosed)
+		cancel := make(chan struct{})
+		first, second := make(chan error, 1), make(chan error, 1)
+		go func() { first <- transport.writeApplication([]byte("cancelled"), p.addr, time.Time{}, nil, cancel) }()
+		synctest.Wait()
+		go func() { second <- transport.writeApplication([]byte("next"), p.addr, time.Time{}, nil, nil) }()
+		synctest.Wait()
+		close(cancel)
+		if err := <-first; !errors.Is(err, net.ErrClosed) {
+			t.Fatalf("cancelled write = %v", err)
+		}
+		synctest.Wait()
+		select {
+		case err := <-second:
+			t.Fatalf("next write finished before its socket attempt: %v", err)
+		default:
+		}
+		close(gate)
+		if err := <-second; err != nil {
+			t.Fatalf("watcher poke reached the next socket write: %v", err)
+		}
+	})
+}
+
 func TestTransportWriteQueueAndAttemptBounds(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		gate := make(chan struct{})
@@ -190,6 +297,42 @@ func syntheticConnectionPair(t *testing.T) (*Conn, *Conn, *gatedWriteConn) {
 		advanceHandshakeClock(initialRetransmit / 4)
 	}
 	return client, server, cp
+}
+
+func TestConnWriteCancelDoesNotSendMutatedCallerBuffer(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		client, server, p := syntheticConnectionPair(t)
+		gate := make(chan struct{})
+		p.gate = gate
+		payload := []byte("original")
+		result := make(chan error, 1)
+		go func() {
+			_, err := client.Write(payload)
+			result <- err
+		}()
+		synctest.Wait()
+		if err := client.SetWriteDeadline(time.Now()); err != nil {
+			t.Fatal(err)
+		}
+		if err := <-result; !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("write = %v", err)
+		}
+		synctest.Wait()
+		copy(payload, "MUTATED!")
+		close(gate)
+		synctest.Wait()
+		p.gate = nil
+		if err := client.SetWriteDeadline(time.Time{}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := client.Write([]byte("marker")); err != nil {
+			t.Fatal(err)
+		}
+		buf := make([]byte, 64)
+		if n, err := server.Read(buf); err != nil || string(buf[:n]) != "marker" {
+			t.Fatalf("cancelled write delivered caller buffer: %q, %v", buf[:n], err)
+		}
+	})
 }
 
 func TestConnWriteWaitsForCallerDeadline(t *testing.T) {
