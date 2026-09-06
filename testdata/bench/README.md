@@ -203,7 +203,8 @@ Platforms without `/proc` report RSS as `n/a` (`null` in JSON).
 
 ## Recorded snapshot
 
-Recorded 2026-09-05 at `d3e81b5` in an Ubuntu 26.04 Hyper-V guest (6 vCPUs)
+Recorded 2026-09-06 at `0af232e` after merging the DTLS
+optimizations from PR #244, in an Ubuntu 26.04 Hyper-V guest (6 vCPUs)
 backed by an AMD Ryzen 7 9800X3D, Linux 7.0.0-30, Go 1.27.0, classic socat
 1.8.1.3, and distro OpenSSL 3.5.5. Payload: 1 GiB AES-128-CTR
 (incompressible; not `/dev/zero`). Median of 7 timed runs after 2 warmups.
@@ -213,26 +214,26 @@ RTT samples use 20,000 exchanges after 1,000 warmups; handshake samples use
 
 | Case | classic | go | Peak RSS (classic / go) |
 |------|---------|----|-------------------------|
-| TCP 1 GiB | 917.5 MiB/s | 2202.7 MiB/s | 10.4 / 27.5 MiB |
-| UNIX 1 GiB | 878.2 MiB/s | 2202.9 MiB/s | 10.2 / 27.5 MiB |
-| UDP 1 GiB (send / receive / loss) | 1118.3 / 1118.3 MiB/s / 0.000% | 1255.4 / 1255.3 MiB/s / 0.000% | 10.4 / 31.5 MiB |
-| TLS 1 GiB | 917.4 MiB/s | 1337.3 MiB/s | 21.0 / 29.6 MiB |
-| WS 1 GiB | n/a | 344.9 MiB/s | n/a / 28.5 MiB |
-| WSS 1 GiB | n/a | 339.1 MiB/s | n/a / 30.6 MiB |
-| QUIC 1 GiB | n/a | 494.8 MiB/s | n/a / 42.2 MiB |
-| DTLS 1 GiB (send / receive / loss) | n/a | 30.7 / 30.7 MiB/s / 0.000187% | n/a / 39.7 MiB |
-| TCP 64 B RTT (median / p99) | 90.3 / 151.3 µs | 140.5 / 222.2 µs | 5.2 / 16.4 MiB |
-| TLS 64 B RTT (median / p99) | 98.2 / 169.8 µs | 146.1 / 211.9 µs | 10.9 / 15.2 MiB |
-| QUIC 64 B RTT (median / p99) | n/a | 334.3 / 469.3 µs | n/a / 19.9 MiB |
-| DTLS 64 B RTT (median / p99) | n/a | 288.2 / 423.4 µs | n/a / 19.4 MiB |
-| TLS handshake | 23.8 /s | 958.8 /s | 25.6 / 19.0 MiB |
-| DTLS handshake | n/a | 588.8 /s | n/a / 19.3 MiB |
+| TCP 1 GiB | 917.6 MiB/s | 2202.8 MiB/s | 10.5 / 27.9 MiB |
+| UNIX 1 GiB | 842.1 MiB/s | 2202.9 MiB/s | 10.2 / 27.6 MiB |
+| UDP 1 GiB (send / receive / loss) | 1118.5 / 1118.5 MiB/s / 0.000% | 1183.2 / 1183.2 MiB/s / 0.000% | 10.4 / 31.6 MiB |
+| TLS 1 GiB | 917.3 MiB/s | 1183.1 MiB/s | 20.9 / 29.8 MiB |
+| WS 1 GiB | n/a | 323.1 MiB/s | n/a / 28.5 MiB |
+| WSS 1 GiB | n/a | 299.4 MiB/s | n/a / 30.6 MiB |
+| QUIC 1 GiB | n/a | 548.3 MiB/s | n/a / 40.7 MiB |
+| DTLS 1 GiB (send / receive / loss) | n/a | 33.7 / 33.7 MiB/s / 0.002805% | n/a / 39.4 MiB |
+| TCP 64 B RTT (median / p99) | 89.9 / 154.0 µs | 140.7 / 226.2 µs | 5.2 / 16.6 MiB |
+| TLS 64 B RTT (median / p99) | 95.2 / 192.2 µs | 145.8 / 229.8 µs | 10.9 / 15.2 MiB |
+| QUIC 64 B RTT (median / p99) | n/a | 333.2 / 450.9 µs | n/a / 19.5 MiB |
+| DTLS 64 B RTT (median / p99) | n/a | 280.0 / 392.6 µs | n/a / 19.4 MiB |
+| TLS handshake | 23.7 /s | 957.2 /s | 24.9 / 19.8 MiB |
+| DTLS handshake | n/a | 608.5 /s | n/a / 19.2 MiB |
 
-DTLS delivered 30.7 MiB/s median goodput (range
-29.99–31.19 MiB/s), excluding the 20-byte frame headers and padding.
+DTLS delivered 33.7 MiB/s median goodput (range
+33.44–34.22 MiB/s), excluding the 20-byte frame headers and padding.
 Each sample sent 1,069,464 application datagrams of 1024 bytes.
-Median loss was 0.000187% (two datagrams); the worst sample lost
-0.015615% (167 datagrams). There were no duplicates, reordered frames,
+Median loss was 0.002805% (30 datagrams); the worst sample lost
+0.008041% (86 datagrams). There were no duplicates, reordered frames,
 or corrupt frames across the seven samples. The text summary rounds loss to
 three decimal places; the JSON retains full precision.
 

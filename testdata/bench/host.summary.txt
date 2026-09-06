@@ -1,11 +1,11 @@
-timestamp=2026-09-05T16:41:33Z
-git=d3e81b5ec02802dc25a07545def181add1be254a
+timestamp=2026-09-06T02:27:15Z
+git=0af232e6727fb37932eb823aae04bebab7e94f06
 hostname=socat-classic
 uname=Linux 7.0.0-30-generic
 cpu_model=AMD Ryzen 7 9800X3D 8-Core Processor
 nproc=6
 go_version=go version go1.27.0 linux/amd64
-go_socat_version=socat version 1.0.3-dev on 2026-09-05T16:41:33Z
+go_socat_version=socat version 1.0.3-dev on 2026-09-06T02:27:15Z
 classic_socat_version=socat version 1.8.1.3 on Aug 19 2026 12:58:55
 size_bytes=1073741824
 runs=7
@@ -16,31 +16,31 @@ tls.go_client_go_dtls: version=DTLS 1.3 cipher=TLS_AES_128_GCM_SHA256 group=X255
 tls.openssl_client_classic_server: version=TLSv1.3 cipher=TLS_AES_256_GCM_SHA384 group=P-256
 tls.go_client_classic_server: version=TLS 1.3 cipher=TLS_AES_128_GCM_SHA256 group=P-256
 
-tcp/classic: 917.5 MiB/s (min 917.5 max 960.6) peak_rss_kib=10692
-tcp/go: 2202.7 MiB/s (min 2201.0 max 2203.6) peak_rss_kib=28176
-unix/classic: 878.2 MiB/s (min 841.9 max 878.2) peak_rss_kib=10432
-unix/go: 2202.9 MiB/s (min 2202.2 max 2203.5) peak_rss_kib=28156
-udp/classic: send=1118.3 MiB/s receive=1118.3 MiB/s loss=0.000% frame_bytes=8192 duplicate=0 reordered=0 corrupt=0 peak_rss_kib=10632
-udp/go: send=1255.4 MiB/s receive=1255.3 MiB/s loss=0.000% frame_bytes=8192 duplicate=0 reordered=0 corrupt=0 peak_rss_kib=32220
-tls/classic: 917.4 MiB/s (min 722.7 max 960.5) peak_rss_kib=21508
-tls/go: 1337.3 MiB/s (min 1255.3 max 1337.6) peak_rss_kib=30344
+tcp/classic: 917.6 MiB/s (min 917.4 max 960.8) peak_rss_kib=10732
+tcp/go: 2202.8 MiB/s (min 2201.9 max 2203.8) peak_rss_kib=28524
+unix/classic: 842.1 MiB/s (min 808.7 max 878.2) peak_rss_kib=10492
+unix/go: 2202.9 MiB/s (min 2202.1 max 2203.4) peak_rss_kib=28264
+udp/classic: send=1118.5 MiB/s receive=1118.5 MiB/s loss=0.000% frame_bytes=8192 duplicate=0 reordered=0 corrupt=0 peak_rss_kib=10640
+udp/go: send=1183.2 MiB/s receive=1183.2 MiB/s loss=0.000% frame_bytes=8192 duplicate=0 reordered=0 corrupt=0 peak_rss_kib=32408
+tls/classic: 917.3 MiB/s (min 777.9 max 960.7) peak_rss_kib=21416
+tls/go: 1183.1 MiB/s (min 1060.4 max 1337.7) peak_rss_kib=30564
 ws/classic: skip WebSocket is not available in classic
-ws/go: 344.9 MiB/s (min 303.9 max 1182.8) peak_rss_kib=29184
+ws/go: 323.1 MiB/s (min 308.4 max 344.9) peak_rss_kib=29208
 wss/classic: skip WebSocket is not available in classic
-wss/go: 339.1 MiB/s (min 295.1 max 808.6) peak_rss_kib=31284
+wss/go: 299.4 MiB/s (min 286.8 max 313.1) peak_rss_kib=31380
 quic/classic: skip QUIC is not available in classic
-quic/go: 494.8 MiB/s (min 471.6 max 507.4) peak_rss_kib=43168
+quic/go: 548.3 MiB/s (min 547.9 max 563.4) peak_rss_kib=41688
 dtls/classic: skip DTLS is not available in classic
-dtls/go: send=30.7 MiB/s receive=30.7 MiB/s loss=0.000% frame_bytes=1024 duplicate=0 reordered=0 corrupt=0 peak_rss_kib=40636
-tcp-rr/classic: rtt_us median=90.3 p99=151.3 msgs_s=10479 peak_rss_kib=5316
-tcp-rr/go: rtt_us median=140.5 p99=222.2 msgs_s=6971 peak_rss_kib=16760
-tls-rr/classic: rtt_us median=98.2 p99=169.8 msgs_s=9634 peak_rss_kib=11200
-tls-rr/go: rtt_us median=146.1 p99=211.9 msgs_s=6712 peak_rss_kib=15588
+dtls/go: send=33.7 MiB/s receive=33.7 MiB/s loss=0.003% frame_bytes=1024 duplicate=0 reordered=0 corrupt=0 peak_rss_kib=40312
+tcp-rr/classic: rtt_us median=89.9 p99=154.0 msgs_s=10482 peak_rss_kib=5308
+tcp-rr/go: rtt_us median=140.7 p99=226.2 msgs_s=6947 peak_rss_kib=16960
+tls-rr/classic: rtt_us median=95.2 p99=192.2 msgs_s=9589 peak_rss_kib=11176
+tls-rr/go: rtt_us median=145.8 p99=229.8 msgs_s=6739 peak_rss_kib=15596
 quic-rr/classic: skip QUIC is not available in classic
-quic-rr/go: rtt_us median=334.3 p99=469.3 msgs_s=2936 peak_rss_kib=20368
+quic-rr/go: rtt_us median=333.2 p99=450.9 msgs_s=2961 peak_rss_kib=19940
 dtls-rr/classic: skip DTLS is not available in classic
-dtls-rr/go: rtt_us median=288.2 p99=423.4 msgs_s=3439 peak_rss_kib=19824
-tls-hs/classic: 23.8 hs/s (min 23.7 max 23.8) peak_rss_kib=26204
-tls-hs/go: 958.8 hs/s (min 932.5 max 966.7) peak_rss_kib=19460
+dtls-rr/go: rtt_us median=280.0 p99=392.6 msgs_s=3573 peak_rss_kib=19888
+tls-hs/classic: 23.7 hs/s (min 23.6 max 23.7) peak_rss_kib=25540
+tls-hs/go: 957.2 hs/s (min 918.0 max 976.2) peak_rss_kib=20300
 dtls-hs/classic: skip DTLS is not available in classic
-dtls-hs/go: 588.8 hs/s (min 572.0 max 593.2) peak_rss_kib=19724
+dtls-hs/go: 608.5 hs/s (min 601.1 max 610.5) peak_rss_kib=19688
