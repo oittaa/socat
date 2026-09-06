@@ -56,6 +56,19 @@ SOCAT_BENCH_SIZE=1G SOCAT_BENCH_RUNS=7 SOCAT_BENCH_WARMUP=2 \
 The Python runner builds the Go socat and its benchmark helper unless their
 respective skip-build variables are enabled.
 
+For classic DTLS latency/handshake tests, build the optional OpenSSL 3.x
+client on Linux or macOS (requires a C compiler and OpenSSL development files):
+
+```bash
+mkdir -p testdata/tmp
+cc -O3 -Wall -Wextra -Werror scripts/testdata/openssl-dtls-client.c \
+  -lssl -lcrypto -o testdata/tmp/openssl-dtls-client
+export SOCAT_BENCH_DTLS_CLIENT_BIN="$PWD/testdata/tmp/openssl-dtls-client"
+```
+
+Without this helper, classic DTLS bulk still runs; its latency/handshake
+cases are skipped. The helper verifies certificates and disables resumption.
+
 PowerShell uses the same runner:
 
 ```powershell
@@ -87,7 +100,7 @@ the **median**.
 | `ws` | WS-LISTEN / WS | go only |
 | `wss` | WSS-LISTEN / WSS | go only |
 | `quic` | QUIC-LISTEN / QUIC | go only |
-| `dtls` | DTLS-LISTEN / DTLS | go only |
+| `dtls` | DTLS-LISTEN / DTLS | classic (1.2), go (1.3) |
 
 TLS, WSS, QUIC, and DTLS use the same freshly generated ECDSA P-256 certificate
 (SAN `DNS:localhost`, `IP:127.0.0.1`).
@@ -110,11 +123,12 @@ process. Go `fork` starts a goroutine. The RSS and rate show that difference.
 QUIC is a UDP byte tunnel (`alpn=socat`). It is not TLS and not HTTP/3.
 Classic socat has no QUIC.
 
-DTLS is DTLS 1.3 only. It is go-only; the classic baseline's `OPENSSL-DTLS`
-supports DTLS 1.2 and does not interoperate. The bulk case uses 1024-byte
+DTLS uses **1.2 in classic** and **1.3 in Go**; these versions do not
+interoperate. Classic bulk uses two classic processes; classic latency and
+handshake cases use `openssl-dtls-client` against its listener. The bulk case uses 1024-byte
 application datagrams, including a 20-byte benchmark header, so each fits
 one DTLS record at the default 1200-byte MTU. `SOCAT_BENCH_BUFFER` can reduce
-this frame size, but cannot increase it. Every handshake includes a cookie
+this frame size, but cannot increase it. Every Go handshake includes a cookie
 retry, so `dtls-hs` counts that extra round trip.
 
 `udp` is an unreliable datagram transport using standard UDP
@@ -141,6 +155,7 @@ it measures delivered goodput and loss, not a maximum lossless send rate.
 | `SOCAT_BIN` | `./socat` | Go binary |
 | `SOCAT_CLASSIC_BIN` | `socat` on PATH | Classic C binary override |
 | `SOCAT_BENCH_CLIENT_BIN` | run directory `benchclient` | Benchmark helper binary override |
+| `SOCAT_BENCH_DTLS_CLIENT_BIN` | empty | Optional OpenSSL DTLS 1.2 helper for classic latency/handshake cases and probe |
 | `SOCAT_BENCH_OPENSSL_BIN` | `openssl` on PATH | Optional classic TLS probe client |
 | `SOCAT_BENCH_WORKDIR` | `testdata/tmp/bench` | Default JSON/summary copy destination; fallback storage root |
 | `SOCAT_BENCH_OUT` | `$SOCAT_BENCH_WORKDIR/results.json` | JSON written at the end of a successful run |
@@ -188,13 +203,15 @@ Platforms without `/proc` report RSS as `n/a` (`null` in JSON).
 - Quote `meta.tls` for version, cipher, and group. Go TLS/QUIC/DTLS uses
   **X25519MLKEM768**. Classic OPENSSL (distro OpenSSL + unpatched 1.8.1.3)
   uses **P-256**. Classic bulk TLS uses **TLS_AES_256_GCM_SHA384**; Go uses
-  **TLS_AES_128_GCM_SHA256**. The DTLS probe key is `go_client_go_dtls`.
+  **TLS_AES_128_GCM_SHA256**. DTLS probe keys are `go_client_go_dtls`
+  and `openssl_client_classic_dtls` (when the optional helper is configured).
   The probe reports the DTLS 1.3 wire version as **DTLS 1.3**, not TLS 1.3.
 - `tls-rr` / `tls-hs` (classic) use the Go `benchclient` against classic
   OPENSSL-LISTEN. That pairing is not classic↔classic.
 - QUIC is not a drop-in TLS replacement.
-- DTLS is not a drop-in TLS or UDP replacement. It is DTLS 1.3 only and is
-  not classic OPENSSL-DTLS. It does not retransmit application data, so
+- DTLS is not a drop-in TLS or UDP replacement. The DTLS columns compare
+  different protocol versions (classic 1.2, Go 1.3), ciphers, and key exchanges.
+  Neither retransmits application data, so
   always quote bulk goodput alongside loss and frame size. UDP and DTLS
   use different default frame sizes; their bulk rates are not a measurement
   of encryption overhead alone. A 1 MiB DTLS run is handshake-skewed;
