@@ -60,9 +60,6 @@ GO_ONLY = {
     "wss": "WebSocket",
     "quic": "QUIC",
     "quic-rr": "QUIC",
-    "dtls": "DTLS",
-    "dtls-rr": "DTLS",
-    "dtls-hs": "DTLS",
 }
 UDP_PROTOS = {"quic", "dtls"}
 DATAGRAM_MAGIC = b"SCL1"
@@ -309,7 +306,14 @@ def parse_openssl_sclient(text: str) -> dict[str, str]:
     }
 
 
-def probe_go_client(
+def client_for(impl: str, proto: str, benchclient: Path) -> Path | None:
+    if impl == "classic" and proto == "dtls":
+        configured = os.environ.get("SOCAT_BENCH_DTLS_CLIENT_BIN", "").strip()
+        return Path(configured).resolve() if configured else None
+    return benchclient
+
+
+def probe_client(
     *,
     server_bin: str,
     proto: str,
@@ -319,7 +323,10 @@ def probe_go_client(
     tag: str,
     impl: str = "go",
 ) -> dict[str, Any]:
-    port = free_tcp_port()
+    client = client_for(impl, proto, benchclient)
+    if client is None:
+        raise ValueError("classic DTLS probe requires SOCAT_BENCH_DTLS_CLIENT_BIN")
+    port = free_udp_port() if proto in UDP_PROTOS else free_tcp_port()
     listen = echo_listen(proto, port, certs, fork=True, impl=impl)
     slog = run_dir / "logs" / f"{tag}.server.log"
     server = start_socat(server_bin, [listen, "PIPE"], slog)
@@ -329,7 +336,7 @@ def probe_go_client(
         else:
             wait_tcp(port)
         cmd = [
-            str(benchclient),
+            str(client),
             "-mode",
             "probe",
             "-proto",
@@ -355,7 +362,8 @@ def probe_go_client(
             "group": normalize_group(data.get("group", "")),
             "group_raw": data.get("group", ""),
             "alpn": data.get("alpn", ""),
-            "client": "benchclient (dtls13)" if proto == "dtls" else "benchclient (crypto/tls or quic-go)",
+            "client": ("openssl-dtls-client (DTLS 1.2)" if impl == "classic" else "benchclient (dtls13)")
+            if proto == "dtls" else "benchclient (crypto/tls or quic-go)",
             "server": server_bin,
         }
     finally:
@@ -415,7 +423,7 @@ def probe_all(
     """Record the handshake each bench pairing actually negotiates."""
     out: dict[str, Any] = {}
     print("  probe go client / go TLS-LISTEN ...", flush=True)
-    out["go_client_go_server"] = probe_go_client(
+    out["go_client_go_server"] = probe_client(
         server_bin=go_bin,
         proto="tls",
         certs=certs,
@@ -425,7 +433,7 @@ def probe_all(
         impl="go",
     )
     print("  probe go client / go QUIC-LISTEN ...", flush=True)
-    out["go_client_go_quic"] = probe_go_client(
+    out["go_client_go_quic"] = probe_client(
         server_bin=go_bin,
         proto="quic",
         certs=certs,
@@ -434,7 +442,7 @@ def probe_all(
         tag="probe.go-quic",
     )
     print("  probe go client / go DTLS-LISTEN ...", flush=True)
-    out["go_client_go_dtls"] = probe_go_client(
+    out["go_client_go_dtls"] = probe_client(
         server_bin=go_bin,
         proto="dtls",
         certs=certs,
@@ -443,6 +451,13 @@ def probe_all(
         tag="probe.go-dtls",
     )
     if classic_bin:
+        if client_for("classic", "dtls", benchclient) is not None:
+            print("  probe OpenSSL DTLS 1.2 client / classic DTLS-LISTEN ...", flush=True)
+            out["openssl_client_classic_dtls"] = probe_client(
+                server_bin=classic_bin, proto="dtls", certs=certs,
+                run_dir=run_dir, benchclient=benchclient,
+                tag="probe.ossl-classic-dtls", impl="classic",
+            )
         if os.environ.get("SOCAT_BENCH_OPENSSL_BIN", ""):
             print("  probe openssl s_client / classic OPENSSL-LISTEN ...", flush=True)
             out["openssl_client_classic_server"] = probe_openssl_sclient(
@@ -457,7 +472,7 @@ def probe_all(
                 "error": "openssl executable not found",
             }
         print("  probe go client / classic OPENSSL-LISTEN ...", flush=True)
-        out["go_client_classic_server"] = probe_go_client(
+        out["go_client_classic_server"] = probe_client(
             server_bin=classic_bin,
             proto="tls",
             certs=certs,
@@ -1276,7 +1291,10 @@ def run_client_once(
     warmup: int,
     size: int,
 ) -> dict[str, Any]:
-    port = free_tcp_port()
+    client = client_for(impl, proto_of(case), benchclient)
+    if client is None:
+        raise ValueError("classic DTLS interactive cases require SOCAT_BENCH_DTLS_CLIENT_BIN")
+    port = free_udp_port() if proto_of(case) in UDP_PROTOS else free_tcp_port()
     fork = mode == "hs"
     listen = echo_listen(case, port, certs, fork=fork, impl=impl)
     slog = run_dir / "logs" / f"{tag}.server.log"
@@ -1289,7 +1307,7 @@ def run_client_once(
         sampler = RSSSampler([server.pid])
         sampler.start()
         cmd = [
-            str(benchclient),
+            str(client),
             "-mode",
             mode,
             "-proto",
@@ -1577,6 +1595,9 @@ def run_benchmark(
     socat = os.environ.get("SOCAT_BIN", str(ROOT / "socat"))
     classic = os.environ.get("SOCAT_CLASSIC_BIN", "").strip()
     benchclient = Path(os.environ.get("SOCAT_BENCH_CLIENT_BIN", str(run_dir / "benchclient")))
+    dtls_client = client_for("classic", "dtls", benchclient)
+    if dtls_client is not None and not dtls_client.is_file():
+        raise SystemExit(f"SOCAT_BENCH_DTLS_CLIENT_BIN is not a file: {dtls_client}")
     certs = {
         "ca": Path(os.environ["SOCAT_BENCH_CA"]),
         "crt": Path(os.environ["SOCAT_BENCH_CERT"]),
@@ -1659,6 +1680,11 @@ def run_benchmark(
                     }
                 )
                 print(f"  skip {case}/{impl} ({protocol} is not available in classic)", flush=True)
+                continue
+            if impl == "classic" and case in {"dtls-rr", "dtls-hs"} and dtls_client is None:
+                detail = "requires optional SOCAT_BENCH_DTLS_CLIENT_BIN (DTLS 1.2 client)"
+                doc["cases"].append({"id": case, "impl": impl, "status": "skip", "detail": detail})
+                print(f"  skip {case}/{impl} ({detail})", flush=True)
                 continue
             print(f"  run  {case}/{impl} ...", flush=True)
             samples: list[dict[str, Any]] = []

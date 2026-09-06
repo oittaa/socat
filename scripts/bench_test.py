@@ -358,7 +358,7 @@ class StreamSummaryTest(unittest.TestCase):
         self.assertEqual(bench.GO_ONLY["quic"], "QUIC")
         self.assertEqual(bench.GO_ONLY["quic-rr"], "QUIC")
 
-    def test_dtls_addresses_are_go_only(self) -> None:
+    def test_dtls_addresses_support_both_binaries(self) -> None:
         certs = {"crt": Path("server.crt"), "key": Path("server.key"), "ca": Path("ca.pem")}
 
         listen, connect = bench.stream_addrs("dtls", 9, Path("sock"), certs)
@@ -377,10 +377,40 @@ class StreamSummaryTest(unittest.TestCase):
         self.assertEqual(bench.proto_of("dtls-hs"), "dtls")
         self.assertIn("dtls", bench.DATAGRAM_CASES)
         self.assertNotIn("dtls", bench.STREAM_CASES)
-        self.assertEqual(bench.GO_ONLY["dtls"], "DTLS")
-        self.assertEqual(bench.GO_ONLY["dtls-rr"], "DTLS")
-        self.assertEqual(bench.GO_ONLY["dtls-hs"], "DTLS")
+        self.assertEqual(bench.stream_addrs("dtls", 9, Path("sock"), certs, impl="classic"), (listen, connect))
+        self.assertEqual(bench.echo_listen("dtls-hs", 9, certs, fork=True, impl="classic"), echo)
+        self.assertFalse({"dtls", "dtls-rr", "dtls-hs"} & bench.GO_ONLY.keys())
         self.assertTrue({"dtls", "dtls-rr", "dtls-hs"} <= set(bench.DEFAULT_CASES))
+
+    def test_classic_dtls_uses_openssl_client_for_probe_and_timing(self) -> None:
+        certs = {"crt": Path("c"), "key": Path("k"), "ca": Path("a")}
+        helper = Path("openssl-dtls-client").resolve()
+        with (
+            tempfile.TemporaryDirectory() as tempdir,
+            mock.patch.dict(bench.os.environ, {"SOCAT_BENCH_DTLS_CLIENT_BIN": str(helper)}),
+            mock.patch.object(bench, "start_socat"),
+            mock.patch.object(bench, "kill_proc"),
+            mock.patch.object(bench, "free_udp_port", return_value=9),
+            mock.patch.object(bench, "wait_udp"),
+            mock.patch.object(bench, "RSSSampler"),
+            mock.patch.object(bench.subprocess, "run", return_value=mock.Mock(
+                returncode=0, stdout='{"ok":true,"version":"DTLS 1.2","hs_s":50}', stderr=""
+            )) as run,
+        ):
+            args = dict(certs=certs, run_dir=Path(tempdir), benchclient=Path("go-client"), impl="classic", tag="test")
+            probe = bench.probe_client(server_bin="socat", proto="dtls", **args)
+            result = bench.run_client_once(bin_path="socat", case="dtls-hs", mode="hs", n=2, warmup=0, size=1, **args)
+            self.assertEqual(probe["version"], "DTLS 1.2")
+            self.assertEqual(result["hs_s"], 50)
+            self.assertEqual(len(run.call_args_list), 2)
+            for call in run.call_args_list:
+                self.assertEqual(call.args[0][0], str(helper))
+            self.assertEqual(bench.client_for("go", "dtls", Path("go-client")), Path("go-client"))
+            self.assertEqual(bench.client_for("classic", "tls", Path("go-client")), Path("go-client"))
+
+    def test_classic_dtls_cannot_fall_back_to_go_dtls13_client(self) -> None:
+        with mock.patch.dict(bench.os.environ, {"SOCAT_BENCH_DTLS_CLIENT_BIN": ""}):
+            self.assertIsNone(bench.client_for("classic", "dtls", Path("go-client")))
 
     def test_partial_failure_keeps_failure_detail(self) -> None:
         summary = bench.summarize_stream(
