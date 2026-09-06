@@ -32,7 +32,7 @@ type connCommand struct {
 	kind        byte
 	data        []byte
 	requestPeer bool
-	cancel      <-chan struct{}
+	cancel      chan struct{}
 	result      chan error
 	started     bool
 	epoch       uint64
@@ -67,6 +67,7 @@ type Conn struct {
 	onPeerChanged               func(*Conn, netip.AddrPort)
 	packetBudget                *memoryBudget
 	sendingApplication          *connCommand
+	cachedCommand               *connCommand
 	handshakeCredit             uint64
 	cookieValidated             bool
 }
@@ -117,7 +118,7 @@ func Client(ctx context.Context, transport net.PacketConn, peer net.Addr, config
 
 func newConn(peer netip.AddrPort) *Conn {
 	// Bound bytes separately so small records can arrive in short bursts.
-	return &Conn{incoming: make(chan incomingPacket, maxQueuedRecords), commands: make(chan *connCommand),
+	return &Conn{cachedCommand: &connCommand{cancel: make(chan struct{}), result: make(chan error, 1)}, incoming: make(chan incomingPacket, maxQueuedRecords), commands: make(chan *connCommand),
 		wake: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
 		ready: make(chan struct{}), notify: make(chan struct{}), remote: peer}
 }
@@ -474,15 +475,32 @@ func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
 }
 
 func (c *Conn) execute(command *connCommand) error {
-	cancel := make(chan struct{})
+	reusable := false
+	cancel := command.cancel
+	if cancel == nil {
+		cancel = make(chan struct{})
+	}
 	defer func() {
-		c.transport.cancelWrite(cancel)
+		if reusable {
+			// The consumed successful reply returns ownership to the caller.
+			command.data = nil
+			c.mu.Lock()
+			if c.cachedCommand == nil {
+				c.cachedCommand = command
+			}
+			c.mu.Unlock()
+		} else {
+			c.transport.cancelWrite(cancel)
+		}
 		select {
 		case c.wake <- struct{}{}:
 		default:
 		}
 	}()
-	command.cancel, command.result = cancel, make(chan error, 1)
+	command.cancel = cancel
+	if command.result == nil {
+		command.result = make(chan error, 1)
+	}
 	var reply <-chan error
 	for {
 		c.mu.Lock()
@@ -507,6 +525,7 @@ func (c *Conn) execute(command *connCommand) error {
 		case commands <- command:
 			reply = command.result
 		case err = <-reply:
+			reusable = err == nil && command.kind == contentData
 			done = true
 		case <-c.stop:
 			err, done = c.failure(), true
@@ -524,11 +543,20 @@ func (c *Conn) execute(command *connCommand) error {
 }
 
 func (c *Conn) Write(data []byte) (int, error) {
-	if len(data) > c.MaxDatagramSize() {
+	c.mu.Lock()
+	if len(data) > c.maxDatagram {
+		c.mu.Unlock()
 		return 0, errRecordOverflow
 	}
+	command := c.cachedCommand
+	c.cachedCommand = nil
+	c.mu.Unlock()
+	if command == nil {
+		command = &connCommand{}
+	}
 	// A deadline can return before the session finishes encoding this command.
-	if err := c.execute(&connCommand{kind: contentData, data: bytes.Clone(data)}); err != nil {
+	*command = connCommand{kind: contentData, data: bytes.Clone(data), cancel: command.cancel, result: command.result}
+	if err := c.execute(command); err != nil {
 		return 0, err
 	}
 	return len(data), nil
