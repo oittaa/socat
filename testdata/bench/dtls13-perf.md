@@ -4,6 +4,9 @@ PR #244 review compares its original `c1d05da` with `8646740` on the same
 Linux lab VM. These measure library connections, not the socat CLI or the
 file-transfer benchmark in PR #243.
 
+Later [send-path measurements](dtls13-send-perf.md) include CLI transfers and
+CPU/allocation profiles for the transport synchronization changes.
+
 ## Method
 
 - Ubuntu 26.04, Linux 7.0.0-30, six vCPUs on Ryzen 7 9800X3D; Go 1.27.0,

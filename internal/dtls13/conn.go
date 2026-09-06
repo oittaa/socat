@@ -94,6 +94,7 @@ func Client(ctx context.Context, transport net.PacketConn, peer net.Addr, config
 	c := newConn(address)
 	c.owned = true
 	c.transport = newPacketTransport(transport, c.deliver, c.fail)
+	c.transport.direct = true
 	c.transport.start()
 	s, err := newClientSession(prepared, c.sendPacket, time.Now())
 	if err != nil {
@@ -188,7 +189,11 @@ func (c *Conn) shutdown(err error, notify bool) {
 		c.mu.Lock()
 		c.err = err
 		c.closeNotify = notify
-		close(c.stop)
+		if c.transport != nil {
+			c.transport.cancelWrite(c.stop)
+		} else {
+			close(c.stop)
+		}
 		c.signalLocked()
 		c.mu.Unlock()
 	})
@@ -471,7 +476,7 @@ func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
 func (c *Conn) execute(command *connCommand) error {
 	cancel := make(chan struct{})
 	defer func() {
-		close(cancel)
+		c.transport.cancelWrite(cancel)
 		select {
 		case c.wake <- struct{}{}:
 		default:

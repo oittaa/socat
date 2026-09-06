@@ -45,10 +45,15 @@ func TestConnCloseDuringControlWrite(t *testing.T) {
 				c := newConn(netip.MustParseAddrPort("127.0.0.1:12345"))
 				c.owned = true
 				c.transport = newPacketTransport(p, nil, nil)
+				c.transport.direct = role == "client"
 				c.attach(s)
 				s.send = c.sendPacket
 				writerDone := make(chan struct{})
-				go func() { c.transport.writeLoop(); close(writerDone) }()
+				if c.transport.direct {
+					close(writerDone)
+				} else {
+					go func() { c.transport.writeLoop(); close(writerDone) }()
+				}
 				go c.run()
 				t.Cleanup(func() { release(); _ = c.Close(); <-writerDone })
 				ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)

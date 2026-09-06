@@ -34,37 +34,29 @@ func (w packetWrite) timeout() error {
 type packetTransport struct {
 	conn    net.PacketConn
 	udp     *net.UDPConn
+	direct  bool // A client session is the only sender on its socket.
 	writes  chan packetWrite
 	done    chan struct{}
 	once    sync.Once
 	receive func([]byte, netip.AddrPort)
 	failed  func(error)
 
-	watchOnce      sync.Once
-	watchStart     chan struct{}
-	writeDone      chan struct{}
-	watchIdle      chan struct{}
-	watchCancel    <-chan struct{}
-	watchCancelled <-chan struct{}
-	watchStopped   <-chan struct{}
+	writeMu sync.Mutex
+	active  [3]<-chan struct{}
 }
 
 func newPacketTransport(conn net.PacketConn, receive func([]byte, netip.AddrPort), failed func(error)) *packetTransport {
 	udp, _ := conn.(*net.UDPConn)
 	return &packetTransport{
 		conn: conn, udp: udp, writes: make(chan packetWrite, 16), done: make(chan struct{}), receive: receive, failed: failed,
-		watchStart: make(chan struct{}), writeDone: make(chan struct{}, 1), watchIdle: make(chan struct{}),
 	}
 }
 
 func (p *packetTransport) start() {
-	p.ensureCancelLoop()
 	go p.readLoop()
-	go p.writeLoop()
-}
-
-func (p *packetTransport) ensureCancelLoop() {
-	p.watchOnce.Do(func() { go p.cancelLoop() })
+	if !p.direct {
+		go p.writeLoop()
+	}
 }
 
 func (p *packetTransport) close(err error) {
@@ -137,87 +129,64 @@ func (p *packetTransport) writeLoop() {
 		case <-p.done:
 			return
 		case w := <-p.writes:
-			select {
-			case <-w.cancel:
-				continue
-			case <-w.stopped:
-				w.result <- net.ErrClosed
-				continue
-			case <-w.cancelled:
-				w.result <- net.ErrClosed
-				continue
-			default:
-			}
-			if !time.Now().Before(w.deadline) {
-				w.result <- w.timeout()
-				continue
-			}
-			err := p.conn.SetWriteDeadline(w.deadline)
-			if err == nil {
-				var n int
-				if w.retry {
-					n, err = p.writeCancellable(w)
-				} else {
-					n, err = p.writeTo(w.data, w.peer)
-				}
-				if n == 0 && errors.Is(err, os.ErrDeadlineExceeded) {
-					err = w.timeout()
-				}
-				if err == nil && n != len(w.data) {
-					err = io.ErrShortWrite
-				}
-			}
-			w.result <- err
+			w.result <- p.writeNow(w)
 		}
 	}
 }
 
-func (p *packetTransport) cancelLoop() {
-	for {
-		select {
-		case <-p.done:
-			return
-		case <-p.watchStart:
-		}
-		cancel, cancelled, stopped := p.watchCancel, p.watchCancelled, p.watchStopped
-		select {
-		case <-p.writeDone:
-		case <-cancel:
-			p.interruptWrite()
-		case <-cancelled:
-			p.interruptWrite()
-		case <-stopped:
-			p.interruptWrite()
-		case <-p.done:
-			p.interruptWrite()
-		}
-		p.watchIdle <- struct{}{}
-	}
-}
-
-func (p *packetTransport) interruptWrite() {
+func (p *packetTransport) startWrite(w packetWrite) error {
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
 	select {
-	case <-p.writeDone:
-		return
+	case <-p.done:
+		return net.ErrClosed
+	case <-w.cancel:
+		return net.ErrClosed
+	case <-w.stopped:
+		return net.ErrClosed
+	case <-w.cancelled:
+		return net.ErrClosed
 	default:
 	}
-	_ = p.conn.SetWriteDeadline(time.Now())
-	<-p.writeDone
+	if !time.Now().Before(w.deadline) {
+		return w.timeout()
+	}
+	if err := p.conn.SetWriteDeadline(w.deadline); err != nil {
+		return err
+	}
+	p.active = [3]<-chan struct{}{w.cancel, w.stopped, w.cancelled}
+	return nil
 }
 
-func (p *packetTransport) writeCancellable(w packetWrite) (int, error) {
-	p.ensureCancelLoop()
-	p.watchCancel, p.watchCancelled, p.watchStopped = w.cancel, w.cancelled, w.stopped
-	select {
-	case p.watchStart <- struct{}{}:
-	case <-p.done:
-		return p.writeTo(w.data, w.peer)
+func (p *packetTransport) writeNow(w packetWrite) error {
+	if err := p.startWrite(w); err != nil {
+		return err
 	}
 	n, err := p.writeTo(w.data, w.peer)
-	p.writeDone <- struct{}{}
-	// Join cancellation before the shared writer installs another deadline.
-	<-p.watchIdle
-	return n, err
+	p.writeMu.Lock()
+	p.active = [3]<-chan struct{}{}
+	p.writeMu.Unlock()
+	if n == 0 && errors.Is(err, os.ErrDeadlineExceeded) {
+		return w.timeout()
+	}
+	if err == nil && n != len(w.data) {
+		return io.ErrShortWrite
+	}
+	return err
+}
+
+// Cancellation and deadline installation share a lock so a late cancellation
+// cannot interrupt the next association's socket write.
+func (p *packetTransport) cancelWrite(signal chan struct{}) {
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	close(signal)
+	for _, active := range p.active {
+		if active == signal {
+			_ = p.conn.SetWriteDeadline(time.Now())
+			break
+		}
+	}
 }
 
 func (p *packetTransport) write(data []byte, peer netip.AddrPort, deadline time.Time, stopped <-chan struct{}) error {
@@ -234,12 +203,23 @@ func (p *packetTransport) writePacket(data []byte, peer netip.AddrPort, deadline
 	if deadline.IsZero() || limit.Before(deadline) {
 		deadline = limit
 	}
+	if p.direct {
+		return p.writeNow(packetWrite{data: data, peer: peer, deadline: deadline,
+			stopped: stopped, cancelled: cancelled, retry: retry})
+	}
 	cancel := make(chan struct{})
-	defer close(cancel)
+	defer p.cancelWrite(cancel)
 	w := packetWrite{data: data, peer: peer, deadline: deadline, cancel: cancel,
 		stopped: stopped, cancelled: cancelled, result: make(chan error, 1), retry: retry}
 	if !time.Now().Before(deadline) {
 		return w.timeout()
+	}
+	if retry {
+		select {
+		case p.writes <- w:
+			return p.waitWrite(w, nil)
+		default:
+		}
 	}
 	timer := time.NewTimer(time.Until(deadline))
 	defer timer.Stop()
@@ -260,14 +240,18 @@ func (p *packetTransport) writePacket(data []byte, peer netip.AddrPort, deadline
 		timer.Stop()
 		timeout = nil
 	}
+	return p.waitWrite(w, timeout)
+}
+
+func (p *packetTransport) waitWrite(w packetWrite, timeout <-chan time.Time) error {
 	select {
 	case err := <-w.result:
 		return err
 	case <-p.done:
 		return net.ErrClosed
-	case <-stopped:
+	case <-w.stopped:
 		return net.ErrClosed
-	case <-cancelled:
+	case <-w.cancelled:
 		return net.ErrClosed
 	case <-timeout:
 		return os.ErrDeadlineExceeded

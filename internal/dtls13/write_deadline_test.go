@@ -142,6 +142,27 @@ func TestConnWriteDoesNotRetryAmbiguousResult(t *testing.T) {
 	}
 }
 
+func TestConnFailureInterruptsApplicationWrite(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		client, _, p := syntheticConnectionPair(t)
+		p.gate = make(chan struct{})
+		result := make(chan error, 1)
+		go func() { _, err := client.Write([]byte("blocked")); result <- err }()
+		synctest.Wait()
+		started := time.Now()
+		client.fail(errUnexpectedMessage)
+		if err := <-result; !errors.Is(err, errUnexpectedMessage) {
+			t.Fatalf("interrupted write: %v", err)
+		}
+		if err := client.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if elapsed := time.Since(started); elapsed != 0 {
+			t.Fatalf("shutdown waited for the socket deadline: %v", elapsed)
+		}
+	})
+}
+
 func TestTransportWriteCancellationIsolation(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		gate := make(chan struct{})
@@ -155,7 +176,7 @@ func TestTransportWriteCancellationIsolation(t *testing.T) {
 		synctest.Wait()
 		go func() { second <- transport.writeApplication([]byte("next peer"), p.addr, time.Time{}, nil, nil) }()
 		synctest.Wait()
-		close(cancel)
+		transport.cancelWrite(cancel)
 		if err := <-first; !errors.Is(err, net.ErrClosed) {
 			t.Fatalf("cancelled write = %v", err)
 		}
@@ -185,7 +206,7 @@ func TestTransportStaleCancelDoesNotAffectNextWrite(t *testing.T) {
 		second := make(chan error, 1)
 		go func() { second <- transport.writeApplication([]byte("second"), p.addr, time.Time{}, nil, nil) }()
 		synctest.Wait()
-		close(stale)
+		transport.cancelWrite(stale)
 		synctest.Wait()
 		select {
 		case err := <-second:
@@ -199,7 +220,7 @@ func TestTransportStaleCancelDoesNotAffectNextWrite(t *testing.T) {
 	})
 }
 
-func TestTransportCancelWatcherJoinsBeforeNextWrite(t *testing.T) {
+func TestTransportCancellationDoesNotInterruptNextWrite(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		gate := make(chan struct{})
 		p := &gatedWriteConn{handshakePacketConn: newHandshakePacketConn(10001), gate: gate}
@@ -212,7 +233,7 @@ func TestTransportCancelWatcherJoinsBeforeNextWrite(t *testing.T) {
 		synctest.Wait()
 		go func() { second <- transport.writeApplication([]byte("next"), p.addr, time.Time{}, nil, nil) }()
 		synctest.Wait()
-		close(cancel)
+		transport.cancelWrite(cancel)
 		if err := <-first; !errors.Is(err, net.ErrClosed) {
 			t.Fatalf("cancelled write = %v", err)
 		}
@@ -224,7 +245,25 @@ func TestTransportCancelWatcherJoinsBeforeNextWrite(t *testing.T) {
 		}
 		close(gate)
 		if err := <-second; err != nil {
-			t.Fatalf("watcher poke reached the next socket write: %v", err)
+			t.Fatalf("late cancellation reached the next socket write: %v", err)
+		}
+	})
+}
+
+func TestTransportFullWriteQueueDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		p := newHandshakePacketConn(10001)
+		transport := newPacketTransport(p, nil, nil)
+		defer transport.close(net.ErrClosed)
+		// A stalled writer leaves no queue capacity for this operation.
+		for range cap(transport.writes) {
+			transport.writes <- packetWrite{}
+		}
+		started := time.Now()
+		deadline := started.Add(250 * time.Millisecond)
+		err := transport.writeApplication([]byte("queued"), p.addr, deadline, nil, nil)
+		if !errors.Is(err, errWritePending) || time.Since(started) != 250*time.Millisecond {
+			t.Fatalf("full queue: %v after %v", err, time.Since(started))
 		}
 	})
 }
@@ -242,7 +281,7 @@ func TestTransportWriteQueueAndAttemptBounds(t *testing.T) {
 		cancel := make(chan struct{})
 		go func() { queued <- transport.writeApplication([]byte("queued"), p.addr, time.Time{}, nil, cancel) }()
 		synctest.Wait()
-		close(cancel)
+		transport.cancelWrite(cancel)
 		if err := <-queued; !errors.Is(err, net.ErrClosed) {
 			t.Fatalf("queued cancellation = %v", err)
 		}
