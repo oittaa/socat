@@ -1,4 +1,4 @@
-// Command benchclient supports scripts/bench.py (TCP / TLS / QUIC).
+// Command benchclient supports scripts/bench.py (TCP / TLS / QUIC / DTLS).
 // It is not a user CLI and is not installed.
 package main
 
@@ -25,8 +25,12 @@ import (
 	"sort"
 	"time"
 
+	"github.com/oittaa/socat/internal/dtls13"
 	"github.com/quic-go/quic-go"
 )
+
+// RFC 9147 DTLS 1.3 version. crypto/tls.VersionName does not name it.
+const dtls13Version = 0xfefc
 
 type result struct {
 	OK       bool    `json:"ok"`
@@ -55,13 +59,13 @@ type stats struct {
 func main() {
 	var (
 		mode       = flag.String("mode", "rr", "rr, hs, probe, cert, or payload")
-		proto      = flag.String("proto", "tcp", "tcp, tls, or quic")
+		proto      = flag.String("proto", "tcp", "tcp, tls, quic, or dtls")
 		addr       = flag.String("addr", "", "host:port")
 		n          = flag.Int("n", 20000, "timed messages or handshakes")
 		size       = flag.Int("size", 64, "payload bytes (rr) or 1 (hs)")
 		warmup     = flag.Int("warmup", 1000, "untimed messages or handshakes")
-		caPath     = flag.String("ca", "", "PEM CA file (tls/quic verify)")
-		serverName = flag.String("servername", "localhost", "TLS/QUIC server name")
+		caPath     = flag.String("ca", "", "PEM CA file (tls/quic/dtls verify)")
+		serverName = flag.String("servername", "localhost", "TLS/QUIC/DTLS server name")
 		alpn       = flag.String("alpn", "socat", "QUIC ALPN")
 		certDir    = flag.String("cert-dir", "", "output directory for cert mode")
 		outPath    = flag.String("out", "", "output file for payload mode")
@@ -386,6 +390,8 @@ func dial(proto, addr string, tlsCfg *tls.Config) (connIO, func(), error) {
 		return c, func() { _ = c.Close() }, nil
 	case "quic":
 		return dialQUIC(addr, tlsCfg)
+	case "dtls":
+		return dialDTLS(addr, tlsCfg)
 	default:
 		return nil, nil, fmt.Errorf("unknown proto %q", proto)
 	}
@@ -405,8 +411,10 @@ func runProbe(proto, addr string, tlsCfg *tls.Config) (result, error) {
 		return out, nil
 	case "quic":
 		return probeQUIC(addr, tlsCfg)
+	case "dtls":
+		return probeDTLS(addr, tlsCfg)
 	default:
-		return out, fmt.Errorf("probe proto must be tls or quic")
+		return out, fmt.Errorf("probe proto must be tls, quic, or dtls")
 	}
 }
 
@@ -440,12 +448,54 @@ func probeQUIC(addr string, tlsCfg *tls.Config) (result, error) {
 }
 
 func fillTLS(out *result, cs tls.ConnectionState) {
-	out.Version = tls.VersionName(cs.Version)
+	if cs.Version == dtls13Version {
+		out.Version = "DTLS 1.3"
+	} else {
+		out.Version = tls.VersionName(cs.Version)
+	}
 	out.Cipher = tls.CipherSuiteName(cs.CipherSuite)
 	if cs.CurveID != 0 {
 		out.Group = cs.CurveID.String()
 	}
 	out.ALPN = cs.NegotiatedProtocol
+}
+
+func probeDTLS(addr string, tlsCfg *tls.Config) (result, error) {
+	out := result{Mode: "probe", Proto: "dtls"}
+	c, closer, err := dialDTLS(addr, tlsCfg)
+	if err != nil {
+		return out, err
+	}
+	defer closer()
+	stater, ok := c.(interface{ ConnectionState() tls.ConnectionState })
+	if !ok {
+		return out, fmt.Errorf("dtls probe: connection state unavailable")
+	}
+	fillTLS(&out, stater.ConnectionState())
+	return out, nil
+}
+
+func dialDTLS(addr string, tlsCfg *tls.Config) (connIO, func(), error) {
+	raddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return nil, nil, err
+	}
+	pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
+	if err != nil {
+		return nil, nil, err
+	}
+	cfg := &dtls13.Config{
+		RootCAs:    tlsCfg.RootCAs,
+		ServerName: tlsCfg.ServerName,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	c, err := dtls13.Client(ctx, pc, raddr, cfg)
+	if err != nil {
+		_ = pc.Close()
+		return nil, nil, err
+	}
+	return c, func() { _ = c.Close() }, nil
 }
 
 func dialQUIC(addr string, tlsCfg *tls.Config) (connIO, func(), error) {
