@@ -118,9 +118,11 @@ func Client(ctx context.Context, transport net.PacketConn, peer net.Addr, config
 
 func newConn(peer netip.AddrPort) *Conn {
 	// Bound bytes separately so small records can arrive in short bursts.
-	return &Conn{cachedCommand: &connCommand{cancel: make(chan struct{}), result: make(chan error, 1)}, incoming: make(chan incomingPacket, maxQueuedRecords), commands: make(chan *connCommand),
+	c := &Conn{incoming: make(chan incomingPacket, maxQueuedRecords), commands: make(chan *connCommand),
 		wake: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
 		ready: make(chan struct{}), notify: make(chan struct{}), remote: peer}
+	c.cachedCommand = &connCommand{cancel: make(chan struct{}), result: make(chan error, 1)}
+	return c
 }
 
 func (c *Conn) attach(s *session) {
@@ -179,6 +181,13 @@ func (c *Conn) sendPacket(data []byte) error {
 func (c *Conn) signalLocked() {
 	close(c.notify)
 	c.notify = make(chan struct{})
+}
+
+func (c *Conn) signalWake() {
+	select {
+	case c.wake <- struct{}{}:
+	default:
+	}
 }
 
 func (c *Conn) fail(err error) {
@@ -343,8 +352,9 @@ func (c *Conn) run() {
 				pending = nil
 			default:
 				if done, err := c.command(pending, now); done {
-					pending.result <- err
+					result := pending.result
 					pending = nil
+					result <- err
 				}
 			}
 		}
@@ -459,10 +469,7 @@ func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
 		return true, errUnexpectedMessage
 	}
 	if errors.Is(err, errWritePending) {
-		select {
-		case c.wake <- struct{}{}:
-		default:
-		}
+		c.signalWake()
 		return false, nil
 	}
 	if errors.Is(err, errUpdatePending) || errors.Is(err, errPathPending) {
@@ -475,11 +482,13 @@ func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
 }
 
 func (c *Conn) execute(command *connCommand) error {
-	reusable := false
-	cancel := command.cancel
-	if cancel == nil {
-		cancel = make(chan struct{})
+	if command.cancel == nil {
+		command.cancel = make(chan struct{})
 	}
+	if command.result == nil {
+		command.result = make(chan error, 1)
+	}
+	reusable := false
 	defer func() {
 		if reusable {
 			// The consumed successful reply returns ownership to the caller.
@@ -490,17 +499,10 @@ func (c *Conn) execute(command *connCommand) error {
 			}
 			c.mu.Unlock()
 		} else {
-			c.transport.cancelWrite(cancel)
+			c.transport.cancelWrite(command.cancel)
 		}
-		select {
-		case c.wake <- struct{}{}:
-		default:
-		}
+		c.signalWake()
 	}()
-	command.cancel = cancel
-	if command.result == nil {
-		command.result = make(chan error, 1)
-	}
 	var reply <-chan error
 	for {
 		c.mu.Lock()
@@ -668,9 +670,6 @@ func (c *Conn) setDeadlines(read, write time.Time, setRead, setWrite bool) error
 		c.writeDeadline = write
 	}
 	c.signalLocked()
-	select {
-	case c.wake <- struct{}{}:
-	default:
-	}
+	c.signalWake()
 	return nil
 }
