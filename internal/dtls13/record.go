@@ -146,25 +146,30 @@ func (k *trafficKeys) encodeRecord(number recordNumber, cid []byte, typ byte, co
 	if len(cid) != 0 {
 		first |= 0x10
 	}
-	header := append([]byte{first}, cid...)
-	seqOffset := len(header)
-	header = binary.BigEndian.AppendUint16(header, uint16(number.sequence&0xffff))
-	protectedLen := len(content) + 1 + padding + k.aead.Overhead()
+	seqOffset := 1 + len(cid)
+	headerLen := seqOffset + 4
+	innerLen := len(content) + 1 + padding
+	protectedLen := innerLen + k.aead.Overhead()
 	if protectedLen < 0 || protectedLen > maxCiphertext {
 		return nil, errRecordOverflow
 	}
-	header = binary.BigEndian.AppendUint16(header, uint16(protectedLen))
-	inner := make([]byte, len(content)+1+padding)
-	copy(inner, content)
-	inner[len(content)] = typ
-	ciphertext := k.seal(header, number.sequence, inner)
-	mask, err := k.mask(ciphertext)
+	packet := make([]byte, headerLen+protectedLen)
+	packet[0] = first
+	copy(packet[1:seqOffset], cid)
+	binary.BigEndian.PutUint16(packet[seqOffset:], uint16(number.sequence&0xffff))
+	binary.BigEndian.PutUint16(packet[seqOffset+2:], uint16(protectedLen))
+	copy(packet[headerLen:], content)
+	packet[headerLen+len(content)] = typ
+	header := packet[:headerLen]
+	inner := packet[headerLen : headerLen+innerLen]
+	k.seal(inner[:0], header, number.sequence, inner)
+	mask, err := k.mask(packet[headerLen:])
 	if err != nil {
 		return nil, err
 	}
-	header[seqOffset] ^= mask[0]
-	header[seqOffset+1] ^= mask[1]
-	return append(header, ciphertext...), nil
+	packet[seqOffset] ^= mask[0]
+	packet[seqOffset+1] ^= mask[1]
+	return packet, nil
 }
 
 func validContentType(typ byte) bool {
@@ -181,7 +186,11 @@ func (k *trafficKeys) decodeRecord(r record, epoch uint64, cid []byte, window *r
 	if err != nil {
 		return recordNumber{}, 0, nil, err
 	}
-	header := bytes.Clone(r.header)
+	if len(r.header) > len(k.headerBuffer) {
+		return recordNumber{}, 0, nil, errRecord
+	}
+	header := k.headerBuffer[:len(r.header)]
+	copy(header, r.header)
 	var truncated uint64
 	for i := range r.seqLen {
 		header[r.seqOffset+i] ^= mask[i]

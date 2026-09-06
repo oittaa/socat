@@ -171,3 +171,40 @@ func TestClientHandshakeCancellationClosesOwnedTransport(t *testing.T) {
 		t.Fatalf("cancelled client retained its transport: %v", err)
 	}
 }
+
+func TestConnReadWakesOnDataAndEOF(t *testing.T) {
+	client, server, _ := connectionPair(t)
+	started := make(chan struct{})
+	got := make(chan error, 2)
+	go func() {
+		close(started)
+		buf := make([]byte, 16)
+		n, err := server.Read(buf)
+		if err != nil || string(buf[:n]) != "data" {
+			t.Errorf("data: %q, %v", buf[:n], err)
+			got <- errors.New("data")
+			return
+		}
+		got <- nil
+		_, err = server.Read(buf)
+		if !errors.Is(err, io.EOF) {
+			t.Errorf("eof: %v", err)
+			got <- err
+			return
+		}
+		got <- nil
+	}()
+	<-started
+	if _, err := client.Write([]byte("data")); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-got; err != nil {
+		t.Fatalf("data wake: %v", err)
+	}
+	if err := client.CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-got; err != nil {
+		t.Fatalf("EOF wake: %v", err)
+	}
+}

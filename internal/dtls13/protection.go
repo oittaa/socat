@@ -21,6 +21,10 @@ type trafficKeys struct {
 	snChaCha    []byte
 	recordLimit uint64
 	iv          [12]byte
+	// Session record processing owns these buffers; traffic keys are not shared between goroutines.
+	nonceBuffer  [12]byte
+	maskBuffer   [16]byte
+	headerBuffer [260]byte
 }
 
 func newTrafficKeys(id uint16, secret []byte) (*trafficKeys, error) {
@@ -80,35 +84,35 @@ func (k *trafficKeys) nonce(sequence uint64) [12]byte {
 }
 
 func (k *trafficKeys) mask(ciphertext []byte) ([16]byte, error) {
-	var mask [16]byte
 	if len(ciphertext) < aes.BlockSize {
-		return mask, errAuthentication
+		return [16]byte{}, errAuthentication
 	}
 	if k.snChaCha != nil {
 		stream, err := chacha20.NewUnauthenticatedCipher(k.snChaCha, ciphertext[4:16])
 		if err != nil {
-			return mask, err
+			return [16]byte{}, err
 		}
 		stream.SetCounter(binary.LittleEndian.Uint32(ciphertext[:4]))
-		stream.XORKeyStream(mask[:], mask[:])
+		clear(k.maskBuffer[:])
+		stream.XORKeyStream(k.maskBuffer[:], k.maskBuffer[:])
 	} else {
-		k.sn.Encrypt(mask[:], ciphertext[:aes.BlockSize])
+		k.sn.Encrypt(k.maskBuffer[:], ciphertext[:aes.BlockSize])
 	}
-	return mask, nil
+	return k.maskBuffer, nil
 }
 
 // The caller owns sequence allocation and enforces record/key usage limits.
-func (k *trafficKeys) seal(header []byte, sequence uint64, plaintext []byte) []byte {
-	nonce := k.nonce(sequence)
-	return k.aead.Seal(nil, nonce[:], plaintext, header)
+func (k *trafficKeys) seal(dst, header []byte, sequence uint64, plaintext []byte) []byte {
+	k.nonceBuffer = k.nonce(sequence)
+	return k.aead.Seal(dst, k.nonceBuffer[:], plaintext, header)
 }
 
 func (k *trafficKeys) open(header []byte, sequence uint64, ciphertext []byte) ([]byte, error) {
 	if len(ciphertext) < aes.BlockSize {
 		return nil, errAuthentication
 	}
-	nonce := k.nonce(sequence)
-	plaintext, err := k.aead.Open(nil, nonce[:], ciphertext, header)
+	k.nonceBuffer = k.nonce(sequence)
+	plaintext, err := k.aead.Open(nil, k.nonceBuffer[:], ciphertext, header)
 	if err != nil {
 		return nil, errAuthentication
 	}

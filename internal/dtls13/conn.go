@@ -372,21 +372,28 @@ func (c *Conn) run() {
 func (c *Conn) publish(data [][]byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	wasEmpty := len(c.readQueue) == 0
+	queued := false
 	for _, packet := range data {
-		if len(c.readQueue) < maxQueuedRecords && len(packet) <= maxApplicationBytes-c.readBytes && !c.peerEOF {
-			// Do not retain record padding outside the application byte budget.
-			c.readQueue = append(c.readQueue, bytes.Clone(packet))
-			c.readBytes += len(packet)
+		if len(c.readQueue) < maxQueuedRecords && cap(packet) <= maxApplicationBytes-c.readBytes && !c.peerEOF {
+			// Decryption transfers ownership; charge retained padding and capacity too.
+			c.readQueue = append(c.readQueue, packet)
+			c.readBytes += cap(packet)
+			queued = true
 		}
 	}
-	c.peerEOF = c.session.peerClosed != nil
+	eof := c.session.peerClosed != nil
+	changed := queued && wasEmpty || eof != c.peerEOF
+	c.peerEOF = eof
 	c.state = c.session.handshake.state
 	cidLength := 0
 	if c.session.handshake.cidNegotiated {
 		cidLength = len(c.session.handshake.peerCID)
 	}
 	c.maxDatagram = min(maxContent, c.session.handshake.config.MTU-22-cidLength)
-	c.signalLocked()
+	if changed {
+		c.signalLocked()
+	}
 }
 
 func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
@@ -515,6 +522,7 @@ func (c *Conn) Write(data []byte) (int, error) {
 	if len(data) > c.MaxDatagramSize() {
 		return 0, errRecordOverflow
 	}
+	// A deadline can return before the session finishes encoding this command.
 	if err := c.execute(&connCommand{kind: contentData, data: bytes.Clone(data)}); err != nil {
 		return 0, err
 	}
@@ -531,9 +539,13 @@ func (c *Conn) Read(data []byte) (int, error) {
 		}
 		if len(c.readQueue) != 0 {
 			packet := c.readQueue[0]
-			c.readBytes -= len(packet)
+			c.readBytes -= cap(packet)
 			c.readQueue[0] = nil
-			c.readQueue = c.readQueue[1:]
+			if len(c.readQueue) == 1 {
+				c.readQueue = c.readQueue[:0]
+			} else {
+				c.readQueue = c.readQueue[1:]
+			}
 			c.mu.Unlock()
 			return copy(data, packet), nil
 		}

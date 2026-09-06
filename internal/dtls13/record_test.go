@@ -86,6 +86,49 @@ func TestRecordEncodingAndReplay(t *testing.T) {
 	}
 }
 
+func TestRecordScratchReusePreservesOutput(t *testing.T) {
+	for _, suiteID := range defaultCipherSuites() {
+		suite, _ := suiteFor(suiteID)
+		secret := make([]byte, suite.hash().Size())
+		keys, err := newTrafficKeys(suiteID, secret)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var retained [][]byte
+		for sequence := range uint64(3) {
+			fresh, err := newTrafficKeys(suiteID, secret)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cid, payload := bytes.Repeat([]byte{byte(sequence)}, int(sequence)*8), []byte{byte(sequence), 42}
+			number := recordNumber{3, sequence}
+			want, err := fresh.encodeRecord(number, cid, contentData, payload, 7)
+			if err != nil {
+				t.Fatal(err)
+			}
+			packet, err := keys.encodeRecord(number, cid, contentData, payload, 7)
+			if err != nil || !bytes.Equal(packet, want) {
+				t.Fatalf("suite %x sequence %d: reused keys changed ciphertext: %v", suiteID, sequence, err)
+			}
+			r, _, err := parseRecord(packet, len(cid))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var window replayWindow
+			_, _, plain, err := keys.decodeRecord(r, 3, cid, &window)
+			if err != nil || !bytes.Equal(plain, payload) || !bytes.Equal(packet, want) {
+				t.Fatalf("suite %x sequence %d: decryption changed data: %v", suiteID, sequence, err)
+			}
+			retained = append(retained, plain)
+		}
+		for sequence, plain := range retained {
+			if !bytes.Equal(plain, []byte{byte(sequence), 42}) {
+				t.Fatalf("suite %x: later decryption overwrote retained plaintext", suiteID)
+			}
+		}
+	}
+}
+
 func TestUnauthenticatedRecordDoesNotAdvanceWindow(t *testing.T) {
 	keys := testTrafficKeys(t)
 	cid := []byte("test-cid")
@@ -243,7 +286,7 @@ func FuzzRecord(f *testing.F) {
 	})
 }
 
-func testTrafficKeys(t *testing.T) *trafficKeys {
+func testTrafficKeys(t testing.TB) *trafficKeys {
 	t.Helper()
 	keys, err := newTrafficKeys(aes128GCM, make([]byte, 32))
 	if err != nil {
@@ -274,7 +317,7 @@ func testRecordForm(t *testing.T, keys *trafficKeys, seqSize int, includeLength 
 	if includeLength {
 		header = binary.BigEndian.AppendUint16(header, uint16(len(inner)+16))
 	}
-	ciphertext := keys.seal(header, 7, inner)
+	ciphertext := keys.seal(nil, header, 7, inner)
 	mask, err := keys.mask(ciphertext)
 	if err != nil {
 		t.Fatal(err)
