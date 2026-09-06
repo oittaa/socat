@@ -62,6 +62,8 @@ from a prior test, and shard wall timeouts that leave incomplete results
 
 1. Prefer `MODE=classic` (or `MODE=stable`) for baselines and “is this a real FAIL?”.
 2. Use `VAL_T=0.1` or higher if you stay parallel; `0.05` is aggressive.
+   For non-root Go `SOCAT_MUX`, use explicit `VAL_T=0.5` or `MODE=stable`.
+   `MODE=classic` auto-calibration can still leave too little startup time.
 3. Raise `SHARD_TIMEOUT` if a shard dies with exit 124.
 4. Re-run only the FAILED names with `ONLY='NAME1 NAME2' JOBS=1` before chasing.
 5. Kill leftovers owned by **this scorecard invocation** (per-run/per-shard
@@ -305,7 +307,7 @@ Do not enable excluded TLS features to make tests pass.
 | `OPENSSLLISTENDSA` | Intentional exclusion | DSA keys are rejected. README table “DSA, SSLv3, and weak TLS ciphers”. Covered by `TestLoadKeyPairRejectsDSA`. |
 | `OPENSSL_ANULL` | Shared with classic C | Classic `test.sh` uses `ciphers=aNULL`. Both C and Go print FAILED. Weak ciphers stay rejected. |
 | `SHELL_SIGINT` | Harness log format, not delivery | `test.sh` greps C `waitpid` warnings. This port logs `socatsignalpass(): propagated signal to … sub processes` and does **not** emit `W waitpid():…`. `TestEXECParentSignalPassThrough` covers SIGINT. Do not fake C waitpid lines. |
-| `SOCAT_MUX` | Environment lead, not a demonstrated defect | Official `test.sh` runs `./socat-mux.sh` and comments that `lo`/`lo0` must have broadcast `127.255.255.255`. That prerequisite is not a `checkconds` skip, so a host without it can still run and print FAILED. The scorecard runner already copies or links official helpers (including `socat-mux.sh`) next to shard `test.sh`; a missing helper is not proved. Committed Go host and Go Docker baselines are **OK**. Classic **host** is FAILED `(rc2b=1)`; classic Docker is OK. Treat a sequential FAILED, if seen, as an environment question to re-run (`ONLY=SOCAT_MUX JOBS=1`), not as a proved flake or mux-parent bug. A loopback with no IPv4 broadcast is a lead, not a completed reproduction. Do not change mux/UDP parents from this triage. |
+| `SOCAT_MUX` | Go startup exceeds harness wait in non-root reproduction | Two UDP port probes delayed Go's TCP listener by ~1s, exceeding `waittcp4port`'s `5×val_t` sleep budget. Clients then failed with connection refused. Classic probes returned promptly on the same host; the historical classic failure's cause remains unconfirmed. See below. |
 | `V1800_OPENSSL_LISTEN_RANGE` | Documented fail-fast difference (retain) | Generated 1.8.0 case runs `OPENSSL-LISTEN:$PORT,range=…` **without** `cert=`. Official `doc/socat.yo` recommends a certificate (“You probably want to use the certificate option”) and does not make it mandatory. Classic C warns when `cert=` is absent and still binds; `timeout` 124 counts as success. This port fails immediately: `OPENSSL-LISTEN: option "cert" is required` (rc=1). README already records that TLS listeners fail immediately when `cert=` is missing. `TestTLSServerConfigRequiresCert`. This follow-up does not relax that. Go TLS still needs a usable server certificate for its supported handshakes. Do not describe classic’s warn-and-bind as an authentication bypass. |
 | `V1800_OPENSSL_LISTEN_BIND` | Documented fail-fast difference (retain) | Same as RANGE with `bind=` instead of `range=`. |
 
@@ -313,6 +315,39 @@ Official OPENSSL-LISTEN documentation recommends `cert=`; classic C warns and
 binds without it. This port’s fail-fast refusal is an existing documented
 difference, not a scorecard defect to close by matching C’s bind-without-cert
 path.
+
+### `SOCAT_MUX` (Go startup timing vs classic)
+
+Non-root lab comparison on 2026-09-06: Ubuntu 26.04, Linux 7.0.0-30,
+Go `90dcf25`, classic 1.8.1.3. Official `test.sh` and `socat-mux.sh` were
+unmodified and match both source revisions in `scripts/classic-baseline.json`.
+
+`socat-mux.sh` probes two UDP ports before starting its TCP listener, using
+`socat -d -d -T 0.000001 UDP4-RECV:0 /dev/null`. Across ten runs, one probe
+took 506.5 ms median with Go but only 1.5 ms with classic. Go waits the
+default 0.5s linger after `/dev/null` EOF; classic returns promptly.
+`waittcp4port` allows five sleeps of `val_t`, plus port-check overhead.
+
+| `val_t` | Classic `SOCAT_MUX` | Go `SOCAT_MUX` |
+|---------|---------------------|----------------|
+| `0.1` | OK | FAILED `(rc2b=1)`, connection refused |
+| `0.5` | OK | OK |
+| Auto-calibrated | OK (`0.014`) | FAILED `(rc2b=1)` at `0.023`, connection refused |
+
+Re-run `ONLY=SOCAT_MUX JOBS=1 VAL_T=0.5`, or use `MODE=stable` with no
+`VAL_T` override. `MODE=classic` alone does not guarantee enough startup time.
+Keep a separate follow-up to investigate the Go/classic probe and EOF
+lifecycle difference; this comparison does not establish its root cause.
+
+The historical classic host baseline (`val_t=0.05`) records `(rc2b=1)`
+without enough evidence to attribute it to this delay. That status only
+identifies a failing client exit. Root runs skip the two probes and use a
+different port-selection path, so Docker OK results do not isolate timing.
+
+Official `test.sh` comments that loopback needs broadcast `127.255.255.255`,
+but does not enforce that through `checkconds`. On this lab kernel, UDP
+broadcast and mux delivery worked despite no `IFF_BROADCAST` or `brd` on
+`lo`; broadcast was not the cause of the reproduced Go failure.
 
 ### Docker CANT vs classic OK (22)
 
@@ -392,12 +427,12 @@ stop when it happens.
 
 ### What not to change
 
-No socat runtime fix belongs with this triage. In particular: do not allow
+This triage changes documentation. In particular: do not allow
 missing `cert=` on TLS listeners, do not enable TLS compression or DSA, do
-not emit fake `waitpid` logs, do not add a universal lifecycle framework to
-chase `SOCAT_MUX`, do not treat the loopback-broadcast comment as a completed
-`SOCAT_MUX` reproduction, and do not change `-V` layout or `Version` to
-satisfy the `UDP_DATAGRAM_PEERPORT` gate.
+not emit fake `waitpid` logs, do not add a universal lifecycle framework or
+change default `-t` linger to chase `SOCAT_MUX`, do not patch official
+`socat-mux.sh`, and do not change `-V` layout or `Version` to satisfy the
+`UDP_DATAGRAM_PEERPORT` gate.
 
 `OPENPTYWAITSLAVE` can `TIMEOUT` in a long sequential Docker run; an isolated
 `ONLY=OPENPTYWAITSLAVE` re-run is OK. The committed Docker baseline records it
