@@ -33,6 +33,7 @@ func (w packetWrite) timeout() error {
 // One writer owns socket deadlines even when associations share a UDP socket.
 type packetTransport struct {
 	conn    net.PacketConn
+	udp     *net.UDPConn
 	writes  chan packetWrite
 	done    chan struct{}
 	once    sync.Once
@@ -49,8 +50,9 @@ type packetTransport struct {
 }
 
 func newPacketTransport(conn net.PacketConn, receive func([]byte, netip.AddrPort), failed func(error)) *packetTransport {
+	udp, _ := conn.(*net.UDPConn)
 	return &packetTransport{
-		conn: conn, writes: make(chan packetWrite, 16), done: make(chan struct{}), receive: receive, failed: failed,
+		conn: conn, udp: udp, writes: make(chan packetWrite, 16), done: make(chan struct{}), receive: receive, failed: failed,
 		watchStart: make(chan struct{}), writeDone: make(chan struct{}, 1), watchIdle: make(chan struct{}),
 	}
 }
@@ -95,16 +97,38 @@ func udpAddress(addr net.Addr) (netip.AddrPort, error) {
 func (p *packetTransport) readLoop() {
 	buffer := make([]byte, 65535)
 	for {
-		n, from, err := p.conn.ReadFrom(buffer)
+		var n int
+		var peer netip.AddrPort
+		var err error
+		if p.udp != nil {
+			n, peer, err = p.udp.ReadFromUDPAddrPort(buffer)
+			peer = netip.AddrPortFrom(peer.Addr().Unmap(), peer.Port())
+		} else {
+			var from net.Addr
+			n, from, err = p.conn.ReadFrom(buffer)
+			if err == nil {
+				var addressErr error
+				peer, addressErr = udpAddress(from)
+				if addressErr != nil {
+					continue
+				}
+			}
+		}
 		if err != nil {
 			p.close(err)
 			return
 		}
-		peer, err := udpAddress(from)
-		if err == nil && n != 0 {
+		if n != 0 {
 			p.receive(buffer[:n], peer)
 		}
 	}
+}
+
+func (p *packetTransport) writeTo(data []byte, peer netip.AddrPort) (int, error) {
+	if p.udp != nil {
+		return p.udp.WriteToUDPAddrPort(data, peer)
+	}
+	return p.conn.WriteTo(data, net.UDPAddrFromAddrPort(peer))
 }
 
 func (p *packetTransport) writeLoop() {
@@ -134,7 +158,7 @@ func (p *packetTransport) writeLoop() {
 				if w.retry {
 					n, err = p.writeCancellable(w)
 				} else {
-					n, err = p.conn.WriteTo(w.data, net.UDPAddrFromAddrPort(w.peer))
+					n, err = p.writeTo(w.data, w.peer)
 				}
 				if n == 0 && errors.Is(err, os.ErrDeadlineExceeded) {
 					err = w.timeout()
@@ -187,9 +211,9 @@ func (p *packetTransport) writeCancellable(w packetWrite) (int, error) {
 	select {
 	case p.watchStart <- struct{}{}:
 	case <-p.done:
-		return p.conn.WriteTo(w.data, net.UDPAddrFromAddrPort(w.peer))
+		return p.writeTo(w.data, w.peer)
 	}
-	n, err := p.conn.WriteTo(w.data, net.UDPAddrFromAddrPort(w.peer))
+	n, err := p.writeTo(w.data, w.peer)
 	p.writeDone <- struct{}{}
 	// Join cancellation before the shared writer installs another deadline.
 	<-p.watchIdle

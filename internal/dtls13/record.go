@@ -186,7 +186,11 @@ func (k *trafficKeys) decodeRecord(r record, epoch uint64, cid []byte, window *r
 	if err != nil {
 		return recordNumber{}, 0, nil, err
 	}
-	header := bytes.Clone(r.header)
+	if len(r.header) > len(k.headerBuffer) {
+		return recordNumber{}, 0, nil, errRecord
+	}
+	header := k.headerBuffer[:len(r.header)]
+	copy(header, r.header)
 	var truncated uint64
 	for i := range r.seqLen {
 		header[r.seqOffset+i] ^= mask[i]

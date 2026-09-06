@@ -3,7 +3,6 @@ package dtls13
 import (
 	"context"
 	"crypto/tls"
-	"io"
 	"net"
 	"runtime"
 	"sync"
@@ -28,6 +27,7 @@ import (
 //     connection; a concurrent reader drains. One direction.
 //   - BenchmarkConnPingPong: one Write plus one Read of 1024 bytes. Two
 //     directions, one record each.
+//   - BenchmarkConnSerialOneWay: one client Write followed by one server Read.
 //
 // Reproduction:
 //
@@ -192,12 +192,10 @@ func BenchmarkConnOneWay(b *testing.B) {
 		b.Fatal("reader timed out")
 	}
 	want := int64(b.N) * int64(len(payload))
-	if got := received.Load(); got != want {
-		b.ReportMetric(100*float64(want-got)/float64(want), "loss_pct")
-	}
+	b.ReportMetric(100*float64(want-received.Load())/float64(want), "loss_pct")
 }
 
-func BenchmarkConnPingPong(b *testing.B) {
+func BenchmarkConnSerialOneWay(b *testing.B) {
 	client, server, _ := perfPair(b)
 	payload := make([]byte, perfPayload)
 	got := make([]byte, len(payload))
@@ -208,10 +206,44 @@ func BenchmarkConnPingPong(b *testing.B) {
 		if _, err := client.Write(payload); err != nil {
 			b.Fatal(err)
 		}
-		if _, err := io.ReadFull(server, got); err != nil {
-			b.Fatal(err)
+		if n, err := server.Read(got); err != nil || n != len(got) {
+			b.Fatalf("read = %d, %v", n, err)
 		}
 	}
+}
+
+func BenchmarkConnPingPong(b *testing.B) {
+	client, server, _ := perfPair(b)
+	watchdog := time.AfterFunc(2*time.Minute, func() { _ = client.Close(); _ = server.Close() })
+	b.Cleanup(func() { watchdog.Stop() })
+	errCh := make(chan error, 1)
+	go func() {
+		buffer := make([]byte, perfPayload)
+		for {
+			n, err := server.Read(buffer)
+			if err == nil {
+				_, err = server.Write(buffer[:n])
+			}
+			if err != nil {
+				errCh <- err
+				return
+			}
+		}
+	}()
+	b.Cleanup(func() { _ = server.Close(); <-errCh })
+	payload, reply := make([]byte, perfPayload), make([]byte, perfPayload)
+	b.SetBytes(int64(len(payload)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := client.Write(payload); err != nil {
+			b.Fatal(err)
+		}
+		if n, err := client.Read(reply); err != nil || n != len(reply) {
+			b.Fatalf("echo = %d, %v", n, err)
+		}
+	}
+	b.StopTimer()
 }
 
 func TestConnWriteDoesNotRetainCallerBuffer(t *testing.T) {
