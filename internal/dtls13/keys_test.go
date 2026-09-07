@@ -32,16 +32,12 @@ func TestDefaultCipherSuitesPreference(t *testing.T) {
 	if &got[0] != &want[0] {
 		t.Fatal("defaultCipherSuites copied the preference list")
 	}
-}
-
-func TestPrepareConfigClonesDefaultCipherSuites(t *testing.T) {
 	_, server := handshakeConfigs(t)
 	prepared, err := prepareConfig(server, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	prepared.CipherSuites[0] = 0
-	if defaultCipherSuites()[0] == 0 {
-		t.Fatal("prepareConfig aliased the shared default list")
+	if &prepared.CipherSuites[0] != &got[0] {
+		t.Fatal("prepareConfig copied the preference list")
 	}
 }

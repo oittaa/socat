@@ -85,7 +85,7 @@ func prepareConfig(config *Config, server bool) (*Config, error) {
 		return nil, fmt.Errorf("dtls: connection limit must be between 1 and 65535")
 	}
 	if len(c.CipherSuites) == 0 {
-		c.CipherSuites = slices.Clone(defaultCipherSuites())
+		c.CipherSuites = defaultCipherSuites()
 	}
 	for i, suite := range c.CipherSuites {
 		if _, err := suiteFor(suite); err != nil {
