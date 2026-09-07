@@ -316,6 +316,7 @@ func TestConnPublishesUnansweredFlightMTU(t *testing.T) {
 		case <-c.done:
 			t.Fatalf("connection failed: %v", c.failure())
 		}
+		synctest.Wait()
 		before := c.MaxDatagramSize()
 		if before != 1200-22 {
 			t.Fatalf("MaxDatagramSize %d want %d", before, 1200-22)
