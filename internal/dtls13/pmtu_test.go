@@ -3,12 +3,14 @@ package dtls13
 import (
 	"bytes"
 	"context"
+	"crypto/mldsa"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"net"
 	"net/netip"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -18,18 +20,35 @@ import (
 
 type limitedDatagramConn struct {
 	net.PacketConn
+	mu      sync.Mutex
 	limit   int
 	maxSent int
 }
 
 func (c *limitedDatagramConn) WriteTo(p []byte, addr net.Addr) (int, error) {
-	if c.limit > 0 && len(p) > c.limit {
+	c.mu.Lock()
+	limit := c.limit
+	if limit > 0 && len(p) > limit {
+		c.mu.Unlock()
 		return 0, &net.OpError{Op: "write", Net: "udp", Err: messageTooLongError()}
 	}
 	if len(p) > c.maxSent {
 		c.maxSent = len(p)
 	}
+	c.mu.Unlock()
 	return c.PacketConn.WriteTo(p, addr)
+}
+
+func (c *limitedDatagramConn) setLimit(n int) {
+	c.mu.Lock()
+	c.limit = n
+	c.mu.Unlock()
+}
+
+func (c *limitedDatagramConn) sentMax() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.maxSent
 }
 
 func driveLimitedSessions(t *testing.T, clientConfig, serverConfig *Config, clientLimit, serverLimit int, dropUntil int) (*session, *session, map[string]struct{}) {
@@ -278,8 +297,8 @@ func TestConnHandshakeRecoversFromWriteToEMSGSIZE(t *testing.T) {
 	if client.MaxDatagramSize() >= 4000-22 {
 		t.Fatalf("MaxDatagramSize %d was not reduced", client.MaxDatagramSize())
 	}
-	if transport.maxSent > 600 {
-		t.Fatalf("path still accepted oversized datagram %d", transport.maxSent)
+	if transport.sentMax() > 600 {
+		t.Fatalf("path still accepted oversized datagram %d", transport.sentMax())
 	}
 	for _, c := range []*Conn{client, server} {
 		if err := c.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
@@ -363,7 +382,7 @@ func TestConnApplicationEMSGSIZEPublishesBudget(t *testing.T) {
 	if before <= 0 {
 		t.Fatal("empty advertised budget")
 	}
-	transport.limit = 200
+	transport.setLimit(200)
 	if _, err := client.Write(make([]byte, before)); !isMessageTooLong(err) {
 		t.Fatalf("oversized application write: %v", err)
 	}
@@ -371,8 +390,58 @@ func TestConnApplicationEMSGSIZEPublishesBudget(t *testing.T) {
 	if after >= before {
 		t.Fatalf("MaxDatagramSize stayed %d after EMSGSIZE", after)
 	}
-	transport.limit = 0
+	transport.setLimit(0)
 	if _, err := client.Write(make([]byte, after)); err != nil {
 		t.Fatalf("write of published budget %d: %v", after, err)
+	}
+}
+
+func TestConnDiscoveryWaitsForFinalHandshakeFlight(t *testing.T) {
+	cert, roots := mldsaCertificate(t, mldsa.MLDSA44())
+	clientCfg := &Config{
+		Certificates: []tls.Certificate{cert}, RootCAs: roots, ServerName: "localhost",
+		MTU: 256, CipherSuites: []uint16{chaCha20Poly1305}, UnfragmentedProbes: true,
+	}
+	serverCfg := &Config{
+		Certificates: []tls.Certificate{cert}, ClientCAs: roots, ClientAuth: tls.RequireAndVerifyClientCert,
+		MTU: 256, CipherSuites: []uint16{chaCha20Poly1305},
+	}
+	listener, err := Listen(testUDP(t), serverCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client, err := Client(ctx, testUDP(t), listener.Addr(), clientCfg)
+	if err != nil {
+		t.Fatalf("handshake with discovery: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	if !client.session.canProbe {
+		t.Fatal("client did not enable unfragmented probes")
+	}
+	if !client.session.handshake.rrc || !client.session.handshake.cidNegotiated {
+		t.Fatal("discovery is not eligible without RRC and CID")
+	}
+	peer, err := listener.AcceptContext(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = peer.Close() })
+	server := peer.(*Conn)
+	for _, c := range []*Conn{client, server} {
+		if err := c.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	marker := []byte("mldsa-pmtu")
+	if _, err := client.Write(marker); err != nil {
+		t.Fatal(err)
+	}
+	buffer := make([]byte, 64)
+	n, err := server.Read(buffer)
+	if err != nil || !bytes.Equal(buffer[:n], marker) {
+		t.Fatalf("echo: %q, %v", buffer[:n], err)
 	}
 }

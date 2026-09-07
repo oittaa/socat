@@ -74,6 +74,86 @@ func TestMTUDiscoveryRequiresUnfragmentedProbes(t *testing.T) {
 	}
 }
 
+func TestMTUDiscoveryWaitsForFinalFlightACK(t *testing.T) {
+	p := newDiscoveryPaths(t)
+	p.client.outbound = &flight{complete: false, sentOnce: true}
+	now := time.Unix(1000, 0)
+	if p.client.mtuDiscoveryEnabled() {
+		t.Fatal("discovery enabled before the final flight was acknowledged")
+	}
+	if err := p.client.tick(now); err != nil {
+		t.Fatal(err)
+	}
+	if p.client.mtu.outstanding != nil {
+		t.Fatal("discovery probed before the final flight was acknowledged")
+	}
+	p.client.outbound.complete = true
+	if err := p.client.tick(now); err != nil {
+		t.Fatal(err)
+	}
+	if p.client.mtu.outstanding == nil || p.client.mtu.outstanding.kind != probeConfirm {
+		t.Fatal("discovery did not start after the final-flight ACK")
+	}
+}
+
+func TestMTUDiscoveryStaleAckDoesNotUndoReduction(t *testing.T) {
+	p := newDiscoveryPaths(t)
+	p.client.pathMTU = 800
+	now := time.Unix(1000, 0)
+	if err := p.client.tick(now); err != nil {
+		t.Fatal(err)
+	}
+	if p.client.mtu.outstanding == nil {
+		t.Fatal("expected a discovery probe")
+	}
+	size := p.client.mtu.outstanding.size
+	generation := p.client.mtu.generation
+	if len(p.packets) != 1 {
+		t.Fatal("missing probe datagram")
+	}
+	challenge := p.packets[0]
+	p.packets = nil
+	if _, err := p.server.receiveFrom(challenge.data, packetPath{challenge.from, 1}, now); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.packets) != 1 {
+		t.Fatal("missing path_response")
+	}
+	late := p.packets[0]
+	p.packets = nil
+
+	orig := p.client.send
+	p.client.send = func([]byte) error { return messageTooLongError() }
+	overhead := datagramOverhead(len(p.client.probeCID()), p.client.recordTagLen())
+	payload := make([]byte, p.client.effectiveMTU()-overhead)
+	if err := p.client.application(payload); !isMessageTooLong(err) {
+		t.Fatalf("application: %v", err)
+	}
+	p.client.send = orig
+	reduced := p.client.effectiveMTU()
+	if reduced >= 800 {
+		t.Fatalf("EMSGSIZE did not reduce: %d", reduced)
+	}
+	if p.client.mtu.generation == generation || p.client.mtu.outstanding != nil {
+		t.Fatal("reduction left the outstanding probe valid")
+	}
+	if err := p.client.tick(now); err != nil {
+		t.Fatal(err)
+	}
+	if p.client.mtu.outstanding == nil || p.client.mtu.outstanding.size >= size {
+		t.Fatal("expected a new confirm of the reduced size")
+	}
+	if _, err := p.client.receiveFrom(late.data, packetPath{late.from, 1}, now); err != nil {
+		t.Fatal(err)
+	}
+	if p.client.effectiveMTU() != reduced {
+		t.Fatalf("stale %d-byte ack undid reduction to %d (now %d)", size, reduced, p.client.effectiveMTU())
+	}
+	if p.client.mtu.lastAckedSize == size || p.client.mtu.outstanding == nil {
+		t.Fatal("stale ack was accepted")
+	}
+}
+
 func TestMTUDiscoveryRequiresRRC(t *testing.T) {
 	a, b := handshakeConfigs(t)
 	a.DisableMigration, b.DisableMigration = true, true

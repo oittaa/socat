@@ -22,10 +22,15 @@ const (
 	probeSearch
 )
 
+func (s *session) handshakeAcknowledged() bool {
+	h := s.handshake
+	return h != nil && h.complete && (s.outbound == nil || s.outbound.complete)
+}
+
 func (s *session) mtuDiscoveryEnabled() bool {
 	h := s.handshake
-	return s.canProbe && h != nil && h.config != nil && h.config.UnfragmentedProbes &&
-		h.complete && h.rrc && h.cidNegotiated && s.path != nil
+	return s.canProbe && s.handshakeAcknowledged() && h.config != nil && h.config.UnfragmentedProbes &&
+		h.rrc && h.cidNegotiated && s.path != nil
 }
 
 func (s *session) mtuProbeMin() int {
@@ -39,6 +44,15 @@ func (s *session) mtuProbeCeiling() int {
 }
 
 func (s *session) restartMTUConfirm() {
+	s.mtu.generation++
+	s.mtu.outstanding = nil
+	s.mtu.lastAckedSize = 0
+	s.mtu.lastFailed = false
+	s.mtu.confirmFails = 0
+	s.mtu.finder = mtuFinder{}
+	s.mtu.nextProbe = time.Time{}
+	s.mtu.raiseAt = time.Time{}
+	s.mtu.confirmAt = time.Time{}
 	if !s.mtuDiscoveryEnabled() {
 		s.mtu.phase = mtuDisabled
 		s.mtu.searchAfterConfirm = false
@@ -46,10 +60,6 @@ func (s *session) restartMTUConfirm() {
 	}
 	s.mtu.phase = mtuConfirm
 	s.mtu.searchAfterConfirm = true
-	s.mtu.confirmFails = 0
-	s.mtu.nextProbe = time.Time{}
-	s.mtu.raiseAt = time.Time{}
-	s.mtu.confirmAt = time.Time{}
 }
 
 func (s *session) noteMTUActivity() {

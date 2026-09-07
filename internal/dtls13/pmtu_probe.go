@@ -31,22 +31,7 @@ type mtuDiscovery struct {
 }
 
 func (s *session) resetMTUProbes() {
-	s.mtu.generation++
-	s.mtu.outstanding = nil
-	s.mtu.lastAckedSize = 0
-	s.mtu.lastFailed = false
-	s.mtu.confirmFails = 0
-	s.mtu.finder = mtuFinder{}
-	s.mtu.nextProbe = time.Time{}
-	s.mtu.raiseAt = time.Time{}
-	s.mtu.confirmAt = time.Time{}
-	if s.mtuDiscoveryEnabled() {
-		s.mtu.phase = mtuConfirm
-		s.mtu.searchAfterConfirm = true
-	} else {
-		s.mtu.phase = mtuDisabled
-		s.mtu.searchAfterConfirm = false
-	}
+	s.restartMTUConfirm()
 }
 
 func (s *session) probeCID() []byte {
@@ -60,7 +45,7 @@ func (s *session) canSendMTUProbe() error {
 	if !s.canProbe {
 		return errProbeDisabled
 	}
-	if s.handshake == nil || !s.handshake.complete || !s.handshake.rrc || !s.handshake.cidNegotiated {
+	if s.handshake == nil || !s.handshakeAcknowledged() || !s.handshake.rrc || !s.handshake.cidNegotiated {
 		return errProbeDisabled
 	}
 	if s.path == nil {
