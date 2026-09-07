@@ -58,7 +58,8 @@ offers and still requires an unfragmented first ClientHello. OpenSSL `s_server`
 accepted our fragmented PQ ClientHello at 256 with ECDSA echo; keep mutual
 ML-DSA echo checks at 4096. In-process loss/reorder with mutual ML-DSA-44/65/87
 succeeds at 1200/512/256 (`TestPostQuantumHandshakeLoss` and the 2026-09-07
-recheck).
+recheck). These in-process checks do not establish independent peer interop
+under loss/reorder.
 
 None of the pinned peers supplies independent spare-CID issuance coverage.
 System OpenSSL 3.5.5 is DTLS 1.2 only (`s_client` has no `-dtls1_3`). OpenSSL
@@ -81,6 +82,10 @@ Go 1.27.1 defaults matched `TestGoTLS13AlgorithmDefaults`.
 - Sustained CID pool renewal when consumed identifiers remain in the issuer pool.
 - Remaining production-MTU PQ gaps: wolfSSL unverified CH0 must be unfragmented;
   OpenSSL `s_client` ACK of large server flights; Pion PQ at 1200/512/256.
+- Diagnose our-client mutual ML-DSA echo failures at small MTUs; the cause
+  is not yet isolated.
+- Independent PQ tests at MTU 1200/512/256 with controlled loss/reorder and
+  mutual ML-DSA; successful loopback exchanges do not cover this.
 - Lab-only BoringSSL packet-BIO adapter; keep it out of `make check`.
 - Recheck official OpenSSL/socat releases when 4.1 is usable. Do not patch the
   parity baseline to obtain a test peer.

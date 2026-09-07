@@ -290,7 +290,7 @@ Practical consequences:
 | Repeated `update_requested` | RFC 9846 §4.7.3 MUST NOT | An ACK permits another request before the peer KeyUpdate arrives. |
 | Dynamic PMTU handling | RFC 9147 §4.4 | Configured MTU and fragmentation exist; IP PMTU query and shrink-on-loss do not. OpenSSL has PMTU facilities. |
 | Sustained CID pool renewal | Local policy within RFC 9147 §9 | Automatic low-spare requests exist; a full issuer pool needs immediate rotation to release capacity. |
-| Independent spare-CID and remaining production-MTU PQ interop | Coverage | See [peer limits](dtls13.md#independent-peers); no pinned peer issues spares. wolfSSL CH0 and OpenSSL `s_client` ACK remain peer-owned. |
+| Independent spare-CID and remaining production-MTU PQ interop | Coverage | No pinned peer issues spares. Retain independent loss/reorder tests at MTU 1200/512/256 and diagnose our-client ML-DSA echo failures; those are not established peer defects. See [remaining work](dtls13.md#remaining-work) for these and the known peer limits. |
 | RFC 9846 `general_error` | Alert mapping | No dedicated mapping; review alongside the remaining TLS changes. |
 
 Sending only 16-bit sequence numbers, always including record length, and
