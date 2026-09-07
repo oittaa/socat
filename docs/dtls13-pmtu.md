@@ -41,8 +41,9 @@ from another source port.
 ## Confirmation and search
 
 Discovery runs only when all of these hold: dedicated-socket DF succeeded
-(`canProbe`), `UnfragmentedProbes`, handshake complete, RRC, and CID.
-Shared listeners never search.
+(`canProbe`), `UnfragmentedProbes`, handshake complete **and the final
+flight acknowledged**, RRC, and CID. Shared listeners never search.
+The post-handshake scheduler uses the same final-flight ACK gate.
 
 After handshake, a shrink, an application `EMSGSIZE`, or a validated path
 change, the association confirms the current working size, then searches
@@ -59,8 +60,8 @@ Timers (synthetic `session.tick` in tests; included in `session.deadline()`):
 
 | Timer | Value | Role |
 | --- | --- | --- |
-| Probe wait | 16s | RFC 8899 PROBE_TIMER: wait for `path_response` (never below 1s, should be >15s). |
-| Probe pace | 1s | Spacing after an ack or loss. The 16s timer is the ack wait, not this gap. 1s is the RFC minimum. |
+| Probe wait | 16s | RFC 8899 PROBE_TIMER: wait for `path_response` (MUST NOT be below 1s, SHOULD be >15s). |
+| Probe pace | 1s | Spacing after an ack or loss. RFC 8899 §3 requires at least one RTT between probes when they are not congestion-controlled. DTLS application data has no ACK/RTT estimator; 1s is a conservative stand-in. The 1s MUST NOT in RFC 8899 applies to PROBE_TIMER, not this interval. |
 | Confirm | 60s | While the path is in use (DTLS application data has no ACKs). Must be less than the raise timer. Does not restart search on success and does not reset the raise timer. |
 | Raise | 600s | RFC 8899 PMTU_RAISE_TIMER. Restarts search from the current working size toward `dtls-mtu`. Expiry never restores the configured ceiling. |
 
@@ -71,8 +72,10 @@ since the last discovery probe. In-flight migration or KeyUpdate takes
 precedence: a matching response does not complete discovery, and probes
 are deferred until those finish.
 
-This is not complete DPLPMTUD: ICMP Packet Too Big / PTB is intentionally
-unused (see CVE-2024-53259). There is no `IP_MTU` query.
+ICMP Packet Too Big / PTB is unused (CVE-2024-53259). RFC 8899 §4.6.1
+permits a simple implementation to ignore PTB messages; that choice does
+not by itself make DPLPMTUD incomplete. Remaining gaps: no `IP_MTU` query,
+and probe spacing is a fixed timer rather than one measured RTT.
 
 ## Path-size notes
 

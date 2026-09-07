@@ -40,8 +40,8 @@ func TestProbeTimeoutMeetsRFC8899(t *testing.T) {
 	if probeTimeout <= 15*time.Second {
 		t.Fatalf("probe timeout %s is not larger than 15s", probeTimeout)
 	}
-	if probePace < minProbeTimeout {
-		t.Fatalf("probe pace %s below RFC 8899 minimum", probePace)
+	if probePace <= 0 {
+		t.Fatal("probe pace must be positive")
 	}
 	if confirmTimer >= raiseTimer {
 		t.Fatalf("confirm timer %s is not less than raise timer %s", confirmTimer, raiseTimer)

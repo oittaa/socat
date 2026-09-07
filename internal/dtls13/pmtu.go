@@ -28,8 +28,9 @@ const (
 	// RFC 8899 PROBE_TIMER: MUST NOT be below 1s; SHOULD be larger than 15s.
 	minProbeTimeout = time.Second
 	probeTimeout    = 16 * time.Second
-	// After an ack or loss, wait this long before another probe. RFC 8899's
-	// 16s timer is the wait for a response, not the spacing after success.
+	// After an ack or loss, wait before another probe. RFC 8899 requires at
+	// least one RTT when probes are not congestion-controlled. DTLS application
+	// data has no ACK/RTT estimator.
 	probePace = time.Second
 	// RFC 8899 PMTU_RAISE_TIMER. Expiry restarts search; it does not restore the ceiling.
 	raiseTimer = 600 * time.Second
