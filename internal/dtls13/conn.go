@@ -341,6 +341,7 @@ func (c *Conn) run() {
 			c.fail(err)
 			return
 		}
+		c.publishMaxDatagram()
 		if s.handshake.complete && s.handshakeFlightSent() && !ready {
 			ready = true
 			s.wantCIDs = true
@@ -406,14 +407,29 @@ func (c *Conn) publish(data [][]byte) {
 	changed := queued && wasEmpty || eof != c.peerEOF
 	c.peerEOF = eof
 	c.state = c.session.handshake.state
+	c.maxDatagram = c.datagramBudget()
+	if changed {
+		c.signalLocked()
+	}
+}
+
+func (c *Conn) datagramBudget() int {
 	cidLength := 0
 	if c.session.handshake.cidNegotiated {
 		cidLength = len(c.session.handshake.peerCID)
 	}
-	c.maxDatagram = min(maxContent, c.session.handshake.config.MTU-22-cidLength)
-	if changed {
-		c.signalLocked()
+	n := min(maxContent, c.session.effectiveMTU()-22-cidLength)
+	if n < 0 {
+		return 0
 	}
+	return n
+}
+
+func (c *Conn) publishMaxDatagram() {
+	n := c.datagramBudget()
+	c.mu.Lock()
+	c.maxDatagram = n
+	c.mu.Unlock()
 }
 
 func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {

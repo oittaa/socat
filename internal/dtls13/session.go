@@ -51,6 +51,9 @@ type session struct {
 	cidResponse          *byte
 	setLocalCIDs         func([][]byte) error
 	path                 *pathState
+	pathMTU              int
+	mtuReductions        int
+	lastSendSize         int
 }
 
 func newClientSession(config *Config, send func([]byte) error, now time.Time) (*session, error) {
@@ -141,9 +144,10 @@ func (s *session) sendRecordWith(epoch uint64, typ byte, body, cid []byte, send 
 	if err != nil {
 		return recordNumber{}, err
 	}
-	if len(packet) > s.handshake.config.MTU {
+	if len(packet) > s.effectiveMTU() {
 		return recordNumber{}, errRecordOverflow
 	}
+	s.lastSendSize = len(packet)
 	w.sequence++
 	if err := send(packet); err != nil {
 		return recordNumber{}, err
@@ -156,7 +160,11 @@ func (s *session) fragmentCapacity() int {
 	if s.handshake.cidNegotiated {
 		cid = len(s.handshake.peerCID)
 	}
-	return min(s.handshake.config.MTU-handshakeHeader-5-cid-17, maxContent-handshakeHeader)
+	n := s.effectiveMTU() - handshakeHeader - 5 - cid - 17
+	if n < 1 {
+		n = 1
+	}
+	return min(n, maxContent-handshakeHeader)
 }
 
 func (s *session) startFlight(messages []handshakeMessage, now time.Time) error {
@@ -180,9 +188,17 @@ func (s *session) transmitFlight(now time.Time) error {
 }
 
 func (s *session) transmit(f *flight, now time.Time) error {
-	return f.transmit(now, s.fragmentCapacity(), func(epoch uint64, body []byte) (recordNumber, error) {
-		return s.sendRecord(epoch, contentHandshake, body)
-	})
+	for {
+		err := f.transmit(now, s.fragmentCapacity(), func(epoch uint64, body []byte) (recordNumber, error) {
+			return s.sendRecord(epoch, contentHandshake, body)
+		})
+		if err == nil || !isMessageTooLong(err) {
+			return err
+		}
+		if !s.reduceHandshakeMTU(s.lastSendSize) {
+			return err
+		}
+	}
 }
 
 func (s *session) receive(datagram []byte, now time.Time) ([][]byte, error) {
@@ -484,6 +500,10 @@ func (s *session) tick(now time.Time) error {
 			return err
 		}
 		if retransmit {
+			if !s.outbound.ackedSinceSend {
+				_ = s.reduceHandshakeMTU(0)
+			}
+			s.outbound.ackedSinceSend = false
 			if err := s.transmitFlight(now); err != nil {
 				return err
 			}
