@@ -223,7 +223,7 @@ with every inherited TLS 1.3 requirement.
 | **§4.7.3** MUST wait for a peer KeyUpdate before another `update_requested` | yes: ACK is not enough; a later local update uses flag 0 | unknown | unknown | unknown |
 | `close_notify` is warning | yes | yes | yes | yes |
 | `user_canceled` ignored; still send `close_notify` | yes ignore 90 | yes | yes | yes |
-| `general_error` alert | no dedicated mapping | yes | unspecified | unspecified |
+| `general_error` alert | named 117; receive terminates; send still uses specific alerts or `internal_error` | yes | unspecified | unspecified |
 | CertificateRequest.extensions lower bound 0 | yes | yes | yes | yes |
 | Remove RSA-PSS requirement | yes (ECDSA/Ed25519/ML-DSA work) | yes | yes | yes |
 
@@ -287,7 +287,7 @@ Practical consequences:
 | --- | --- | --- |
 | Dynamic PMTU handling | RFC 9147 §4.4 | Configured MTU and fragmentation exist. Ethernet DF reproduces `EMSGSIZE` at 1473 bytes; see [PMTU investigation](dtls13-pmtu.md). OpenSSL has PMTU BIO controls. |
 | Independent spare-CID and remaining production-MTU PQ interop | Coverage | No pinned peer issues spares. Retain independent loss/reorder tests at MTU 1200/512/256 and diagnose our-client ML-DSA echo failures; those are not established peer defects. See [remaining work](dtls13.md#remaining-work) for these and the known peer limits. |
-| RFC 9846 `general_error` | Alert mapping | No dedicated mapping; review alongside the remaining TLS changes. |
+| RFC 9846 `general_error` | Alert mapping | Named receive/diagnostics for alert 117. Send mappings keep certificate, protocol, and `internal_error` alerts. |
 
 Sending only 16-bit sequence numbers, always including record length, and
 sending one record per datagram are permitted choices. Our 16-byte AEAD tags
