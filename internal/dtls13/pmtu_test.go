@@ -229,23 +229,22 @@ func TestOrdinaryHandshakeLossDoesNotShrinkEndlessly(t *testing.T) {
 	t.Fatal("handshake did not finish")
 }
 
-func TestApplicationWriteDoesNotRecoverEMSGSIZE(t *testing.T) {
+func TestApplicationWriteDoesNotRetransmitEMSGSIZE(t *testing.T) {
 	clientCfg, serverCfg := handshakeConfigs(t)
 	client, _, packets := driveSessions(t, clientCfg, serverCfg, false, false)
 	before := client.effectiveMTU()
-	reductions := client.mtuReductions
 	client.send = func([]byte) error { return messageTooLongError() }
 	if err := client.application([]byte("app")); !isMessageTooLong(err) {
 		t.Fatalf("application EMSGSIZE: %v", err)
 	}
-	if client.effectiveMTU() != before || client.mtuReductions != reductions {
-		t.Fatal("application write recovered through handshake MTU path")
+	if client.effectiveMTU() >= before {
+		t.Fatal("application EMSGSIZE did not reduce the advertised budget")
 	}
 	if err := client.application([]byte("still")); !isMessageTooLong(err) {
 		t.Fatalf("second application write: %v", err)
 	}
 	if len(*packets) != 0 {
-		t.Fatal("application datagram was recovered")
+		t.Fatal("application datagram was retransmitted")
 	}
 }
 
@@ -338,4 +337,42 @@ func TestConnPublishesUnansweredFlightMTU(t *testing.T) {
 			t.Fatalf("stale advertised write: %v", err)
 		}
 	})
+}
+
+func TestConnApplicationEMSGSIZEPublishesBudget(t *testing.T) {
+	a, b := handshakeConfigs(t)
+	listener, err := Listen(testUDP(t), b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	transport := &limitedDatagramConn{PacketConn: testUDP(t)}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	client, err := Client(ctx, transport, listener.Addr(), a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	peer, err := listener.AcceptContext(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = peer.Close() })
+	before := client.MaxDatagramSize()
+	if before <= 0 {
+		t.Fatal("empty advertised budget")
+	}
+	transport.limit = 200
+	if _, err := client.Write(make([]byte, before)); !isMessageTooLong(err) {
+		t.Fatalf("oversized application write: %v", err)
+	}
+	after := client.MaxDatagramSize()
+	if after >= before {
+		t.Fatalf("MaxDatagramSize stayed %d after EMSGSIZE", after)
+	}
+	transport.limit = 0
+	if _, err := client.Write(make([]byte, after)); err != nil {
+		t.Fatalf("write of published budget %d: %v", after, err)
+	}
 }
