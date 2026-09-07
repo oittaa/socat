@@ -48,18 +48,39 @@ func (s *session) requestCIDs(count byte, now time.Time) error {
 	return nil
 }
 
+func (s *session) cidBusy() bool {
+	return s.updating || s.outbound != nil && !s.outbound.complete || s.post[msgNewConnectionID] != nil || len(s.immediateCIDs) != 0 || s.path != nil && s.path.probe != nil
+}
+
+// respondCIDRequest issues spares for a pending RequestConnectionId.
+// A full issuance pool rotates one CID immediately instead of sending an
+// empty spare list; the spare request stays pending until capacity exists.
+func (s *session) respondCIDRequest(now time.Time) error {
+	if s.cidResponse == nil || s.cidBusy() {
+		return nil
+	}
+	if s.localCIDs == nil {
+		s.localCIDs = [][]byte{bytes.Clone(s.handshake.localCID)}
+	}
+	if len(s.localCIDs) >= maxConnectionIDs && *s.cidResponse > 0 {
+		return s.provideCIDs(1, true, now)
+	}
+	count := *s.cidResponse
+	s.cidResponse = nil
+	return s.provideCIDs(int(count), false, now)
+}
+
 func (s *session) provideCIDs(count int, immediate bool, now time.Time) error {
 	if !s.handshake.cidNegotiated || len(s.handshake.localCID) == 0 {
 		return errUnexpectedMessage
 	}
-	if s.updating || s.outbound != nil && !s.outbound.complete || s.post[msgNewConnectionID] != nil || len(s.immediateCIDs) != 0 {
+	if s.cidBusy() {
 		return errUpdatePending
 	}
 	if s.localCIDs == nil {
 		s.localCIDs = [][]byte{bytes.Clone(s.handshake.localCID)}
 	}
 	count = min(max(count, 0), maxConnectionIDs-len(s.localCIDs))
-	// One additional ID permits immediate rotation of a full spare pool.
 	if immediate {
 		count = 1
 	}
