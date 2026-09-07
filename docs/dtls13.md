@@ -76,7 +76,9 @@ Go 1.27.1 defaults matched `TestGoTLS13AlgorithmDefaults`.
 ## Remaining work
 
 - Independent protocol/security review of `internal/dtls13` and
-  `internal/xio/dtlsopen`, including RFC 9846 §1.2.
+  `internal/xio/dtlsopen`, including RFC 9846 §1.2. RFC 9147 §4.5.2/§11
+  invalid-record paths are classified: unauthenticated datagrams are dropped;
+  authenticated inner/handshake violations still abort.
 - Spare-CID issuance/replenishment interop, pinned to a peer that supports it.
 - Remaining production-MTU PQ gaps: wolfSSL unverified CH0 must be unfragmented;
   OpenSSL `s_client` ACK of large server flights; Pion PQ at 1200/512/256.

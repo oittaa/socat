@@ -72,7 +72,7 @@ Permitted choices are described without counting them as compliance gaps.
 | **§4.4** MUST report transport PMTU-exceeded errors; SHOULD allow app DF control | transport write errors propagate; caller configures supplied socket | MTU-error handling and DF BIO controls; see evidence below | unknown | unknown |
 | **§4.4** Handshake SHOULD fragment if too big; SHOULD shrink after unanswered retries when PMTU unknown | partial: fragments to configured MTU; no shrink-on-loss | fragments and re-queries on MTU error; DTLS 1.3 loss backoff unknown | fragments; loss backoff unknown | fragments; loss backoff unknown |
 | **§4.5.1** Replay check SHOULD use sliding window; MUST init at 0; MUST reject duplicates; MUST NOT update window until deprotect succeeds | yes (64-bit window after AEAD) | yes | yes (after AEAD) | yes |
-| **§4.5.2** Invalid records SHOULD be silently discarded; fatal alerts NOT RECOMMENDED on UDP | partial: parse/auth/replay silent; some inner/handshake errors send alerts | yes drop | yes drop | yes drop |
+| **§4.5.2** Invalid records SHOULD be silently discarded; fatal alerts NOT RECOMMENDED on UDP | unauthenticated parse/MAC/replay dropped; authenticated inner/handshake/ACK/alert violations send fatal alerts (permitted); AEAD fail limit closes | yes drop | yes drop | yes drop |
 | **§4.5.3** SHOULD NOT exceed AEAD confidentiality limit; SHOULD KeyUpdate before it | yes (GCM 2^24, ChaCha 2^48; KeyUpdate at limit−1024) | no | yes | no |
 | **§4.5.3** MUST count AEAD auth failures; SHOULD close or KeyUpdate at 2^36 (GCM/ChaCha) | yes close at 2^36 | no | yes | no |
 | **§4.5.3** `TLS_AES_128_CCM_8_SHA256` MUST NOT be used in DTLS without extra forgery protection | yes: suite rejected | no: advertised for DTLS 1.3 | yes: allowed with extra fail limit | yes: suite not present |
@@ -140,7 +140,7 @@ These establish support, not a complete §4.4 conformance test.
 | **§11** Cookie MUST depend on client address; MUST NOT be forgeable by others | yes HMAC(peer, data) | yes HMAC(address, port, timestamp) | yes HMAC includes peer | yes: stateful 20-byte cookie on the 5-tuple |
 | **§11** Cookie SHOULD not allow reconstructing ClientHello | yes (hash/fingerprint) | yes | yes | n/a |
 | **§11** MUST NOT update send address on a new source without a reachability test | yes (RFC 9853) | n/a (no CID/migration) | no RRC | yes (RFC 9853) |
-| **§11** SHOULD NOT kill the connection on invalid records | partial: see §4.5.2 | yes | yes | yes |
+| **§11** SHOULD NOT kill the connection on invalid records | unauthenticated invalid records do not terminate; authenticated protocol errors do (permitted; see §4.5.2) | yes | yes | yes |
 | **§11** SHOULD use fresh CIDs when local address/port changes | yes request on migration | n/a | no | no |
 
 Our [CID lifecycle tests](../internal/dtls13/connection_id_lifecycle_test.go)
