@@ -132,7 +132,7 @@ These establish support, not a complete §4.4 conformance test.
 | **§9** `cid_immediate` MUST be used for all future records | yes | n/a | yes if received | n/a (not applied) |
 | **§9** MUST NOT have more than one NewConnectionId outstanding | yes | n/a | n/a (never sent) | n/a |
 | **§9** MUST NOT send NewConnectionId / RequestConnectionId if CID not negotiated or empty; MUST `unexpected_message` on violation | yes | n/a | rx Request ignored; NewConnectionId immediate only | codec only, rx unexpected |
-| **§9** SHOULD respond with spares; MAY send fewer or none for excessive requests | yes: bounded replies, including empty at capacity | n/a (no CID) | no: Request ignored; spare discarded | no |
+| **§9** SHOULD respond with spares; MAY send fewer or none for excessive requests | yes: bounded replies; immediate rotation frees a full pool | n/a (no CID) | no: Request ignored; spare discarded | no |
 | **§9** MUST NOT request more CIDs before the previous request is fulfilled | yes: ACK alone does not fulfill it | n/a | n/a (never requests) | n/a (send unimplemented) |
 | **§9** SHOULD use a new CID on a new path | yes (RRC + spare) | no | no | RRC yes; CID not rotated |
 | **§9.1** If no CID negotiated, records with CID MUST be rejected | yes | yes (C-bit discarded) | yes | yes |

@@ -59,8 +59,8 @@ func TestCIDRequestCountsAndExhaustion(t *testing.T) {
 				if count == 0 {
 					return
 				}
-				// A full issuer pool rotates immediately instead of sending an
-				// empty spare list that would re-arm cidRequested.
+				// A full issuer pool rotates immediately, then fulfills the
+				// pending request with new spares after retiring the old pool.
 				for range maxConnectionIDs + 2 {
 					for len(requester.peerSpareCIDs) != 0 {
 						requester.useSpareCID()
@@ -69,15 +69,23 @@ func TestCIDRequestCountsAndExhaustion(t *testing.T) {
 						t.Fatal(err)
 					}
 					deliverSessionPackets(t, client, server, packets, now)
-					if len(issuer.localCIDs) > maxConnectionIDs {
-						t.Fatal("issuer exceeded the CID pool bound")
-					}
-				}
-				if len(requester.peerSpareCIDs) == 0 && len(issuer.immediateCIDs) == 0 && issuer.cidResponse == nil && !requester.cidRequested {
-					t.Fatal("full pool neither rotated nor left a pending spare request")
+					requireCIDRenewalComplete(t, requester, issuer)
 				}
 			})
 		}
+	}
+}
+
+func requireCIDRenewalComplete(t *testing.T, requester, issuer *session) {
+	t.Helper()
+	if len(requester.peerSpareCIDs) == 0 || requester.cidRequested || issuer.cidResponse != nil || len(issuer.immediateCIDs) != 0 ||
+		requester.post[msgRequestConnectionID] != nil || issuer.post[msgNewConnectionID] != nil {
+		t.Fatalf("CID renewal incomplete: spares=%d, request=%t, response=%v, immediate=%d, request flight=%t, response flight=%t",
+			len(requester.peerSpareCIDs), requester.cidRequested, issuer.cidResponse, len(issuer.immediateCIDs),
+			requester.post[msgRequestConnectionID] != nil, issuer.post[msgNewConnectionID] != nil)
+	}
+	if len(requester.peerSpareCIDs) > maxConnectionIDs || len(issuer.localCIDs) > maxConnectionIDs {
+		t.Fatalf("CID pool bound exceeded: spares=%d, issued=%d", len(requester.peerSpareCIDs), len(issuer.localCIDs))
 	}
 }
 
@@ -206,15 +214,10 @@ func TestCIDSustainedPoolRenewal(t *testing.T) {
 			t.Fatal(err)
 		}
 		deliverSessionPackets(t, client, server, packets, now)
-		if len(issuer.localCIDs) > maxConnectionIDs {
-			t.Fatalf("round %d: issuer pool %d", round, len(issuer.localCIDs))
-		}
+		requireCIDRenewalComplete(t, requester, issuer)
 	}
 	if len(seen) < 2 {
 		t.Fatal("sustained consume did not rotate the sending CID")
-	}
-	if len(requester.peerSpareCIDs) == 0 && !requester.cidRequested && issuer.cidResponse == nil && len(issuer.immediateCIDs) == 0 {
-		t.Fatal("renewal stopped without spares or a pending request")
 	}
 }
 
@@ -278,9 +281,16 @@ func TestCIDRenewalLostImmediateACK(t *testing.T) {
 		t.Fatal("lost ACK did not retransmit NewConnectionId")
 	}
 	deliverSessionPackets(t, client, server, packets, now)
-	if len(client.peerSpareCIDs) == 0 && server.cidResponse == nil && len(server.immediateCIDs) == 0 && !client.cidRequested {
-		t.Fatal("lost ACK stranded CID renewal")
+	// A duplicate handshake message is acknowledged by the delayed ACK timer.
+	now = client.deadline()
+	if now.IsZero() {
+		t.Fatal("retransmitted rotation did not schedule an ACK")
 	}
+	if err := client.tick(now); err != nil {
+		t.Fatal(err)
+	}
+	deliverSessionPackets(t, client, server, packets, now)
+	requireCIDRenewalComplete(t, client, server)
 }
 
 func TestCIDRenewalWaitsForKeyUpdate(t *testing.T) {
@@ -313,9 +323,7 @@ func TestCIDRenewalWaitsForKeyUpdate(t *testing.T) {
 		t.Fatal("CID issuance started before KeyUpdate was acknowledged")
 	}
 	deliverSessionPackets(t, client, server, packets, now)
-	if len(client.peerSpareCIDs) == 0 && server.cidResponse == nil {
-		t.Fatal("CID request was dropped during KeyUpdate")
-	}
+	requireCIDRenewalComplete(t, client, server)
 }
 
 func TestCIDImmediateUpdatesPendingPathProbe(t *testing.T) {
