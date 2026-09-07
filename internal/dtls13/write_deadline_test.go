@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -336,6 +337,67 @@ func syntheticConnectionPair(t *testing.T) (*Conn, *Conn, *gatedWriteConn) {
 		advanceHandshakeClock(initialRetransmit / 4)
 	}
 	return client, server, cp
+}
+
+func TestConnUpdateKeysCompletesWithoutPeerKeyUpdate(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		a, b := handshakeConfigs(t)
+		a.CurvePreferences, b.CurvePreferences = []tls.CurveID{tls.X25519}, []tls.CurveID{tls.X25519}
+		cp := newHandshakePacketConn(10021)
+		sp := newHandshakePacketConn(10022)
+		cp.send = func(data []byte, _ netip.AddrPort) { sp.incoming <- incomingPacket{data, cp.addr} }
+		sp.send = func(data []byte, _ netip.AddrPort) { cp.incoming <- incomingPacket{data, sp.addr} }
+		listener, err := Listen(sp, b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = listener.Close() })
+		client, err := Client(context.Background(), cp, listener.Addr(), a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = client.Close() })
+		accepted, err := listener.AcceptContext(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		server := accepted.(*Conn)
+		synctest.Wait()
+		for step := 0; ; step++ {
+			if client.session.outbound.complete && len(client.session.post) == 0 && len(server.session.post) == 0 &&
+				client.session.ackDeadline.IsZero() && server.session.ackDeadline.IsZero() {
+				break
+			}
+			if step == 20 {
+				t.Fatal("initial post-handshake flights did not settle")
+			}
+			advanceHandshakeClock(initialRetransmit / 4)
+		}
+		var serverPackets atomic.Int32
+		sp.send = func(data []byte, _ netip.AddrPort) {
+			if serverPackets.Add(1) > 1 {
+				return
+			}
+			cp.incoming <- incomingPacket{data, sp.addr}
+		}
+		if err := client.UpdateKeys(true); err != nil {
+			t.Fatal(err)
+		}
+		if serverPackets.Load() < 2 {
+			t.Fatal("server did not send a KeyUpdate after the ACK")
+		}
+		if !client.session.awaitingPeerUpdate {
+			t.Fatal("UpdateKeys completion waited for a peer KeyUpdate")
+		}
+		marker := []byte("local keys acknowledged")
+		if _, err := client.Write(marker); err != nil {
+			t.Fatal(err)
+		}
+		buf := make([]byte, 64)
+		if n, err := server.Read(buf); err != nil || string(buf[:n]) != string(marker) {
+			t.Fatalf("application after local UpdateKeys: %q, %v", buf[:n], err)
+		}
+	})
 }
 
 func TestConnWriteCancelDoesNotSendMutatedCallerBuffer(t *testing.T) {
