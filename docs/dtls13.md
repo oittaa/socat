@@ -72,6 +72,7 @@ system libraries and the [classic parity baseline](../scripts/classic-baseline.j
 - Spare-CID issuance/replenishment interop, pinned to a peer that supports it.
 - Sustained CID pool renewal when consumed identifiers remain in the issuer pool.
 - Independent PQ tests at MTU 1200/256/512 with loss, reorder and mutual ML-DSA.
+- PMTU: [investigation](dtls13-pmtu.md); default 1200 is below Ethernet; do not set DF on shared listeners.
 - Lab-only BoringSSL packet-BIO adapter; keep it out of `make check`.
 - Recheck official OpenSSL/socat releases when 4.1 is usable. Do not patch the
   parity baseline to obtain a test peer.

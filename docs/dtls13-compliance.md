@@ -286,7 +286,7 @@ Practical consequences:
 | Work | Basis | Current limit |
 | --- | --- | --- |
 | Repeated `update_requested` | RFC 9846 §4.7.3 MUST NOT | An ACK permits another request before the peer KeyUpdate arrives. |
-| Dynamic PMTU handling | RFC 9147 §4.4 | Configured MTU and fragmentation exist; IP PMTU query and shrink-on-loss do not. OpenSSL has PMTU facilities. |
+| Dynamic PMTU handling | RFC 9147 §4.4 | Configured MTU and fragmentation exist. Ethernet DF reproduces `EMSGSIZE` at 1473 bytes; see [PMTU investigation](dtls13-pmtu.md). OpenSSL has PMTU BIO controls. |
 | Sustained CID pool renewal | Local policy within RFC 9147 §9 | Automatic low-spare requests exist; a full issuer pool needs immediate rotation to release capacity. |
 | Independent spare-CID and production-MTU PQ interop | Coverage | See [peer limits](dtls13.md#independent-peers); no pinned peer issues spares. |
 | RFC 9846 `general_error` | Alert mapping | No dedicated mapping; review alongside the remaining TLS changes. |
