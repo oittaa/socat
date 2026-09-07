@@ -407,11 +407,17 @@ func (s *session) processHandshakes(now time.Time) error {
 			return err
 		}
 		if len(response) != 0 {
+			if s.currentWriteEpoch() >= 2 {
+				if err := s.sendACK(); err != nil {
+					return err
+				}
+			} else {
+				s.acknowledgements = nil
+				s.ackDeadline = time.Time{}
+			}
 			if err := s.startFlight(response, now); err != nil {
 				return err
 			}
-			s.acknowledgements = nil
-			s.ackDeadline = time.Time{}
 		}
 	}
 }
@@ -499,6 +505,10 @@ func (s *session) tick(now time.Time) error {
 	return s.advancePost(now)
 }
 
+func (s *session) handshakeFlightSent() bool {
+	return s.outbound == nil || s.outbound.complete || s.outbound.sentOnce
+}
+
 func (s *session) application(body []byte) error {
 	if !s.handshake.complete || s.closed {
 		return errUnexpectedMessage
@@ -506,7 +516,7 @@ func (s *session) application(body []byte) error {
 	if s.path != nil && s.path.probe != nil {
 		return errPathPending
 	}
-	if s.updatePending || s.updating {
+	if s.updatePending || s.updating || !s.handshakeFlightSent() {
 		return errUpdatePending
 	}
 	w := s.write[s.currentWriteEpoch()]

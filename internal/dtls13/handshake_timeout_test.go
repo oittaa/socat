@@ -461,3 +461,39 @@ func TestHandshakeReceiveTimeoutAllowsLargeFragmentedCertificate(t *testing.T) {
 		}
 	})
 }
+
+func TestHandshakeTimeoutCoversUnsentFinishedFlight(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		config, serverConfig := handshakeConfigs(t)
+		config.HandshakeTimeout = 30 * time.Millisecond
+		config.HandshakeReadTimeout = 10 * time.Millisecond
+		client, _, _ := driveSessions(t, config, serverConfig, false, false)
+		client.outbound = &flight{
+			complete: false,
+			sentOnce: false,
+			deadline: time.Now().Add(time.Hour),
+			interval: time.Hour,
+			sent:     make(map[recordNumber]sentFragment),
+			messages: []outboundMessage{{
+				message:      handshakeMessage{typ: msgFinished, body: []byte("unsent")},
+				acknowledged: make([]byte, 1),
+				remaining:    6,
+			}},
+		}
+		c := newConn(netip.MustParseAddrPort("127.0.0.1:10001"))
+		c.attach(client)
+		start := time.Now()
+		go c.run()
+		select {
+		case <-c.ready:
+			t.Fatal("became ready before the remaining handshake flight was sent")
+		case <-c.done:
+		}
+		if !errors.Is(c.failure(), context.DeadlineExceeded) {
+			t.Fatalf("unsent Finished wait: %v", c.failure())
+		}
+		if time.Since(start) != config.HandshakeTimeout {
+			t.Fatalf("handshake timeout after %v; want %v", time.Since(start), config.HandshakeTimeout)
+		}
+	})
+}

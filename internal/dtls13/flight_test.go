@@ -96,6 +96,32 @@ func TestFlightBurstAndPartialACKs(t *testing.T) {
 	}
 }
 
+func TestFlightSendsNewBytesWithoutACK(t *testing.T) {
+	f, err := newFlight([]handshakeMessage{{typ: 11, epoch: 2, body: make([]byte, 25)}}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output []capturedFragment
+	send := flightSender(t, &output)
+	now := time.Unix(100, 0)
+	if err := f.transmit(now, 1, send); err != nil {
+		t.Fatal(err)
+	}
+	if len(output) != 10 || output[0].fragment.offset != 0 {
+		t.Fatalf("first burst: %+v", output)
+	}
+	now = now.Add(time.Second)
+	if err := f.transmit(now, 1, send); err != nil {
+		t.Fatal(err)
+	}
+	if len(output) != 20 || output[10].fragment.offset != 10 {
+		t.Fatalf("expected new bytes without ACK, got offset %d", output[10].fragment.offset)
+	}
+	if f.sentOnce {
+		t.Fatal("flight marked fully sent before the tail")
+	}
+}
+
 func TestFlightEmptyMessageAndImplicitACK(t *testing.T) {
 	f, err := newFlight([]handshakeMessage{{typ: 9, epoch: 3}}, 0)
 	if err != nil {

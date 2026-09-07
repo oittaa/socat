@@ -32,6 +32,7 @@ type Config struct {
 	ConnectionIDLength int
 	DisableMigration   bool
 	// HandshakeTimeout defaults to 30 seconds and must be positive if set.
+	// It bounds Client and Accept until the handshake flight has been sent.
 	HandshakeTimeout time.Duration
 	// HandshakeReadTimeout bounds each receive wait during negotiation.
 	// Zero disables it; received fragments and retransmissions restart the wait.
