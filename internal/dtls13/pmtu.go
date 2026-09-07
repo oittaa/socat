@@ -63,6 +63,12 @@ func errProbe(s string) probeError { return probeError(s) }
 
 func (e probeError) Error() string { return "dtls: " + string(e) }
 
+// IsMessageTooLong reports a kernel UDP send rejected as too large (EMSGSIZE
+// on Linux/macOS, WSAEMSGSIZE on Windows).
+func IsMessageTooLong(err error) bool {
+	return isMessageTooLong(err)
+}
+
 func datagramOverhead(cidLen, aeadTag int) int {
 	if cidLen < 0 {
 		cidLen = 0

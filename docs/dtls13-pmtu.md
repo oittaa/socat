@@ -16,8 +16,10 @@ and retries with a new record sequence. Unanswered handshake retransmits
 shrink the same way when no ACK arrived; ordinary loss that makes progress
 does not. Reductions stop at 256 bytes and after eight steps. The
 configured MTU remains the ceiling. Application writes still surface the
-transport error and are not retried; a too-big application datagram reduces
-the advertised budget. `Conn.MaxDatagramSize()` tracks the current budget.
+transport error and are not retried at the datagram API; a too-big application
+datagram reduces the advertised budget. The byte-stream adapter retries a
+zero-byte too-large write only after `MaxDatagramSize()` strictly decreases.
+`Conn.MaxDatagramSize()` tracks the current budget.
 A later higher PMTU is recovered only when unfragmented discovery is on.
 
 ## Padded RRC probes
