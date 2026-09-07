@@ -295,6 +295,7 @@ func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) (
 		case contentData:
 			if number.epoch >= 3 && s.handshake.complete {
 				application = append(application, body)
+				s.noteMTUActivity()
 			}
 		case contentAlert:
 			if len(body) != 2 {
@@ -489,8 +490,8 @@ func (s *session) deadline() time.Time {
 	if s.path != nil && s.path.probe != nil && (deadline.IsZero() || s.path.probe.deadline.Before(deadline)) {
 		deadline = s.path.probe.deadline
 	}
-	if s.mtu.outstanding != nil && (deadline.IsZero() || s.mtu.outstanding.deadline.Before(deadline)) {
-		deadline = s.mtu.outstanding.deadline
+	if d := s.mtuDeadline(); !d.IsZero() && (deadline.IsZero() || d.Before(deadline)) {
+		deadline = d
 	}
 	return deadline
 }
@@ -559,5 +560,10 @@ func (s *session) application(body []byte) error {
 		return errUpdatePending
 	}
 	_, err := s.sendRecord(s.currentWriteEpoch(), contentData, body)
+	if err == nil {
+		s.noteMTUActivity()
+	} else if isMessageTooLong(err) {
+		s.onApplicationTooBig()
+	}
 	return err
 }
