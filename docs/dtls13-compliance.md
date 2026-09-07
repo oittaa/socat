@@ -209,8 +209,8 @@ apply to DTLS 1.3. wolfSSL and Pion have separate 1.2 CID paths.
 
 ## RFC 9846 - selected TLS 1.3 changes
 
-These include §1.2's technical changes and a known §4.7.3 gap. They do not
-establish conformance with every inherited TLS 1.3 requirement.
+These include §1.2's technical changes. They do not establish conformance
+with every inherited TLS 1.3 requirement.
 
 | Change | Ours | OpenSSL | wolfSSL | Pion |
 | --- | --- | --- | --- | --- |
@@ -219,18 +219,16 @@ establish conformance with every inherited TLS 1.3 requirement.
 | Clients ignore NewSessionTicket if no resumption | yes: ACK and drop | n/a (resumption exists) | n/a | yes: ticket queued, not used on 1.3 |
 | Key-update-before-limit upgraded to MUST | yes | no DTLS counters | yes | no |
 | Limit number of KeyUpdates | yes (epoch 2^48−1) | partial | yes | partial |
-| **§4.7.3** MUST wait for a peer KeyUpdate before another `update_requested` | no: ACK alone permits another request | unknown | unknown | unknown |
+| **§4.7.3** MUST wait for a peer KeyUpdate before another `update_requested` | yes: ACK is not enough; a later local update uses flag 0 | unknown | unknown | unknown |
 | `close_notify` is warning | yes | yes | yes | yes |
 | `user_canceled` ignored; still send `close_notify` | yes ignore 90 | yes | yes | yes |
 | `general_error` alert | no dedicated mapping | yes | unspecified | unspecified |
 | CertificateRequest.extensions lower bound 0 | yes | yes | yes | yes |
 | Remove RSA-PSS requirement | yes (ECDSA/Ed25519/ML-DSA work) | yes | yes | yes |
 
-An isolated session-level probe reproduced the §4.7.3 gap: send
-`update_requested`, deliver only its ACK, delay the peer KeyUpdate, then
-request another update. [The sender](../internal/dtls13/post_handshake.go)
-emits another `update_requested`. ACK gating and waiting for the peer's
-update are separate requirements; the latter remains a code fix.
+`update_requested` is remembered until a subsequent peer KeyUpdate is
+accepted. A DTLS ACK of the local update does not clear it.
+`TestKeyUpdateRequestedWaitsForPeerUpdate` is the wire regression.
 
 Deliberately not implemented, so the corresponding TLS 1.3 MUSTs are **n/a
 until the feature exists**: PSK, resumption, 0-RTT, post-handshake client
@@ -285,7 +283,6 @@ Practical consequences:
 
 | Work | Basis | Current limit |
 | --- | --- | --- |
-| Repeated `update_requested` | RFC 9846 §4.7.3 MUST NOT | An ACK permits another request before the peer KeyUpdate arrives. |
 | Dynamic PMTU handling | RFC 9147 §4.4 | Configured MTU and fragmentation exist. Ethernet DF reproduces `EMSGSIZE` at 1473 bytes; see [PMTU investigation](dtls13-pmtu.md). OpenSSL has PMTU BIO controls. |
 | Sustained CID pool renewal | Local policy within RFC 9147 §9 | Automatic low-spare requests exist; a full issuer pool needs immediate rotation to release capacity. |
 | Independent spare-CID and production-MTU PQ interop | Coverage | See [peer limits](dtls13.md#independent-peers); no pinned peer issues spares. |

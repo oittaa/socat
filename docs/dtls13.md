@@ -64,9 +64,6 @@ system libraries and the [classic parity baseline](../scripts/classic-baseline.j
 
 ## Remaining work
 
-- Prevent repeated `update_requested` until a peer KeyUpdate arrives
-  (RFC 9846 §4.7.3). ACK alone currently permits another request; see the
-  [matrix](dtls13-compliance.md#rfc-9846---selected-tls-13-changes).
 - Independent protocol/security review of `internal/dtls13` and
   `internal/xio/dtlsopen`, including RFC 9846 §1.2.
 - Spare-CID issuance/replenishment interop, pinned to a peer that supports it.

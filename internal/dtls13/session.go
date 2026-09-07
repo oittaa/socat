@@ -39,6 +39,7 @@ type session struct {
 	post                 map[byte]*flight
 	updatePending        bool
 	requestPeerUpdate    bool
+	awaitingPeerUpdate   bool
 	updating             bool
 	readApplicationEpoch uint64
 	peerClosed           *recordNumber
