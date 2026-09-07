@@ -87,9 +87,10 @@ Go 1.27.1 defaults matched `TestGoTLS13AlgorithmDefaults`.
   `SSL_accept`. MTU 1200 works for ML-DSA-44/65/87.
 - Independent PQ tests at MTU 1200/512/256 with controlled loss/reorder and
   mutual ML-DSA; successful loopback exchanges do not cover this.
-- PMTU: handshake shrink plus padded RRC probes (search disabled). Dedicated
-  sockets may opt into `PMTUDISC_PROBE`; shared listeners never set DF. See
-  [PMTU](dtls13-pmtu.md).
+- PMTU: handshake shrink plus padded RRC probes. Dedicated sockets may opt
+  into `PMTUDISC_PROBE` and then confirm/search after the final flight is
+  acknowledged; shared listeners never set DF. ICMP PTB is unused (RFC 8899
+  §4.6.1 permits that). See [PMTU](dtls13-pmtu.md).
 - Lab-only BoringSSL packet-BIO adapter; keep it out of `make check`.
 - Recheck official OpenSSL/socat releases when 4.1 is usable. Do not patch the
   parity baseline to obtain a test peer.

@@ -12,20 +12,26 @@ type mtuProbe struct {
 	generation uint64
 	deadline   time.Time
 	path       packetPath
+	kind       mtuProbeKind
 }
 
 type mtuDiscovery struct {
-	generation    uint64
-	outstanding   *mtuProbe
-	lastAckedSize int
-	lastFailed    bool
+	generation         uint64
+	outstanding        *mtuProbe
+	lastAckedSize      int
+	lastFailed         bool
+	phase              mtuPhase
+	finder             mtuFinder
+	nextProbe          time.Time
+	raiseAt            time.Time
+	confirmAt          time.Time
+	confirmFails       int
+	appSinceProbe      bool
+	searchAfterConfirm bool
 }
 
 func (s *session) resetMTUProbes() {
-	s.mtu.generation++
-	s.mtu.outstanding = nil
-	s.mtu.lastAckedSize = 0
-	s.mtu.lastFailed = false
+	s.restartMTUConfirm()
 }
 
 func (s *session) probeCID() []byte {
@@ -39,7 +45,7 @@ func (s *session) canSendMTUProbe() error {
 	if !s.canProbe {
 		return errProbeDisabled
 	}
-	if s.handshake == nil || !s.handshake.complete || !s.handshake.rrc || !s.handshake.cidNegotiated {
+	if s.handshake == nil || !s.handshakeAcknowledged() || !s.handshake.rrc || !s.handshake.cidNegotiated {
 		return errProbeDisabled
 	}
 	if s.path == nil {
@@ -55,6 +61,10 @@ func (s *session) canSendMTUProbe() error {
 }
 
 func (s *session) startMTUProbe(datagramSize int, now time.Time) error {
+	return s.sendMTUProbe(datagramSize, now, probeManual)
+}
+
+func (s *session) sendMTUProbe(datagramSize int, now time.Time, kind mtuProbeKind) error {
 	if err := s.canSendMTUProbe(); err != nil {
 		return err
 	}
@@ -78,10 +88,13 @@ func (s *session) startMTUProbe(datagramSize int, now time.Time) error {
 		generation: s.mtu.generation,
 		deadline:   now.Add(probeTimeout),
 		path:       s.path.peer,
+		kind:       kind,
 	}
 	s.mtu.outstanding = probe
 	s.mtu.lastFailed = false
-	s.mtu.lastAckedSize = 0
+	if kind == probeManual {
+		s.mtu.lastAckedSize = 0
+	}
 	_, err = s.sendRecordLimited(s.currentWriteEpoch(), contentRRC, body, cid, pad, s.mtuCeiling(), func(packet []byte) error {
 		if len(packet) != datagramSize {
 			return errProbeSize
@@ -124,17 +137,17 @@ func (s *session) receiveMTUProbe(from packetPath, body []byte, now time.Time) {
 	}
 	s.mtu.outstanding = nil
 	if body[0] == pathDrop {
-		s.mtu.lastFailed = true
+		s.onMTUProbeLost(probe, now, false)
 		return
 	}
-	s.mtu.lastAckedSize = probe.size
+	s.onMTUProbeAcked(probe, now)
 }
 
 func (s *session) tickMTUProbe(now time.Time) {
 	probe := s.mtu.outstanding
-	if probe == nil || now.Before(probe.deadline) {
-		return
+	if probe != nil && !now.Before(probe.deadline) {
+		s.mtu.outstanding = nil
+		s.onMTUProbeLost(probe, now, false)
 	}
-	s.mtu.outstanding = nil
-	s.mtu.lastFailed = true
+	s.tickMTUDiscovery(now)
 }

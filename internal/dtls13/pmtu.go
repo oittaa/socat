@@ -28,6 +28,21 @@ const (
 	// RFC 8899 PROBE_TIMER: MUST NOT be below 1s; SHOULD be larger than 15s.
 	minProbeTimeout = time.Second
 	probeTimeout    = 16 * time.Second
+	// After an ack or loss, wait before another probe. RFC 8899 requires at
+	// least one RTT when probes are not congestion-controlled. DTLS application
+	// data has no ACK/RTT estimator.
+	probePace = time.Second
+	// RFC 8899 PMTU_RAISE_TIMER. Expiry restarts search; it does not restore the ceiling.
+	raiseTimer = 600 * time.Second
+	// DTLS application data has no ACKs. Confirm the working size while the
+	// path is in use. Must be less than raiseTimer.
+	confirmTimer = 60 * time.Second
+
+	maxMTUDiff       = 20
+	maxLostMTUProbes = 3
+	maxSearchProbes  = 24
+	maxConfirmFails  = 3
+	invalidProbeSize = -1
 
 	rrcCookieLen   = 8
 	rrcMessageLen  = 1 + rrcCookieLen
@@ -127,4 +142,20 @@ func (s *session) reduceHandshakeMTU(tooBig int) bool {
 	s.pathMTU = next
 	s.mtuReductions++
 	return true
+}
+
+func (s *session) setWorkingMTU(n int) {
+	if n <= 0 {
+		return
+	}
+	n = min(n, s.mtuCeiling())
+	if n < minPathMTU {
+		n = minPathMTU
+	}
+	prev := s.effectiveMTU()
+	if n <= prev {
+		return
+	}
+	s.pathMTU = n
+	s.mtuReductions = 0
 }

@@ -266,6 +266,10 @@ trusted client certificate.
 - CID and RFC 9853 path validation are negotiated by default. New addresses
   must pass the server's peer filters. `dtls-migration=0` disables both.
   `alpn=protocol` optionally selects one application protocol.
+- `dtls-unfragmented-probes` (default off) sets DF on a dedicated client
+  socket and, after handshake, confirms the working size then searches
+  toward `dtls-mtu`. Listeners ignore it. ICMP Packet Too Big messages are
+  not used. Datagram writes are never retried.
 - `handshake-timeout` caps negotiation at 30 seconds by default; zero removes
   that deadline, but protocol retry limits remain. `so-rcvtimeo` / `rcvtimeo`
   adds a handshake receive-wait limit (zero or omission disables it).

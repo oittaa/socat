@@ -172,6 +172,7 @@
     "alpn": "DTLS/QUIC and HTTP/2/3 extra",
     "dtls-mtu": "DTLS UDP payload limit extra",
     "dtls-migration": "DTLS CID/RRC migration policy extra",
+    "dtls-unfragmented-probes": "DTLS dedicated-socket DF PMTU probes extra",
     "h2c": "cleartext HTTP/2 CONNECT extra",
     "origin": "WebSocket Origin extra",
     "handshake-timeout": "TLS/DTLS/WebSocket/QUIC/proxy/SOCKS extra",

@@ -36,7 +36,7 @@ Unqualified paths are under `internal/dtls13/`.
 | Stateless cookie verification and bounded admission | `cookie.go`, `admission.go`, `listener.go` |
 | Fragmentation, ACKs, retransmissions, KeyUpdate | `fragment.go`, `flight.go`, `ack.go`, `post_handshake.go` |
 | CID pools, routing, migration, peer filters | `connection_id.go`, `listener.go`, `path.go` |
-| PMTU sizes, handshake shrink, padded RRC probes | `pmtu.go`, `pmtu_probe.go`, `pmtu_df.go` |
+| PMTU sizes, handshake shrink, padded RRC probes, confirm/search | `pmtu.go`, `pmtu_probe.go`, `pmtu_search.go`, `pmtu_discover.go`, `pmtu_df.go` |
 | Algorithms and Go-default alignment | `groups.go`, `offer.go`, `algorithms_test.go` |
 | Receive timeouts, queues, cancellation | `conn.go`, `session.go`, `internal/xio/dtlsopen/config.go` |
 | Endpoint adaptation and per-direction capabilities | `internal/xio/dtlsopen/stream.go`, `internal/relay/semantics.go` |

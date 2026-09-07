@@ -32,8 +32,8 @@ type Config struct {
 	// padded RRC probes can exceed a cached kernel PMTU without IP fragmentation.
 	// Linux uses IP_PMTUDISC_PROBE (DF set, kernel ICMP PMTU tracking ignored).
 	// Listeners ignore this: a shared socket must not change fragmentation for
-	// every association. Automatic upward search stays disabled until that path
-	// is complete.
+	// every association. When set on a dedicated socket with RRC, the association
+	// confirms the working size and searches upward toward dtls-mtu.
 	UnfragmentedProbes bool
 	// ConnectionIDLength defaults to 8. DisableMigration disables CID and RRC.
 	ConnectionIDLength int

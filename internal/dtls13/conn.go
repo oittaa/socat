@@ -453,6 +453,9 @@ func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
 		c.sendingApplication = command
 		err = s.application(command.data)
 		c.sendingApplication = nil
+		if isMessageTooLong(err) {
+			c.publishMaxDatagram()
+		}
 		if errors.Is(err, errUpdatePending) {
 			if e := s.advancePost(now); e != nil {
 				return true, e
