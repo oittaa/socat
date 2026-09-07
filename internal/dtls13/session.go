@@ -54,6 +54,8 @@ type session struct {
 	pathMTU              int
 	mtuReductions        int
 	lastSendSize         int
+	canProbe             bool
+	mtu                  mtuDiscovery
 }
 
 func newClientSession(config *Config, send func([]byte) error, now time.Time) (*session, error) {
@@ -126,6 +128,10 @@ func (s *session) sendRecord(epoch uint64, typ byte, body []byte) (recordNumber,
 }
 
 func (s *session) sendRecordWith(epoch uint64, typ byte, body, cid []byte, send func([]byte) error) (recordNumber, error) {
+	return s.sendRecordLimited(epoch, typ, body, cid, 0, s.effectiveMTU(), send)
+}
+
+func (s *session) sendRecordLimited(epoch uint64, typ byte, body, cid []byte, padding, limit int, send func([]byte) error) (recordNumber, error) {
 	w := s.write[epoch]
 	if w == nil {
 		return recordNumber{}, errKeyMaterial
@@ -137,14 +143,17 @@ func (s *session) sendRecordWith(epoch uint64, typ byte, body, cid []byte, send 
 	var packet []byte
 	var err error
 	if epoch == 0 {
+		if padding != 0 {
+			return recordNumber{}, errRecord
+		}
 		packet, err = encodePlainRecord(typ, number.sequence, body)
 	} else {
-		packet, err = w.keys.encodeRecord(number, cid, typ, body, 0)
+		packet, err = w.keys.encodeRecord(number, cid, typ, body, padding)
 	}
 	if err != nil {
 		return recordNumber{}, err
 	}
-	if len(packet) > s.effectiveMTU() {
+	if len(packet) > limit {
 		return recordNumber{}, errRecordOverflow
 	}
 	s.lastSendSize = len(packet)
@@ -311,6 +320,7 @@ func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) (
 			if err := s.path.receive(from, body, uint64(len(r.header))+uint64(len(r.body)), now); err != nil {
 				return nil, err
 			}
+			s.receiveMTUProbe(from, body, now)
 		}
 	}
 	if err := s.advancePost(now); err != nil {
@@ -479,11 +489,15 @@ func (s *session) deadline() time.Time {
 	if s.path != nil && s.path.probe != nil && (deadline.IsZero() || s.path.probe.deadline.Before(deadline)) {
 		deadline = s.path.probe.deadline
 	}
+	if s.mtu.outstanding != nil && (deadline.IsZero() || s.mtu.outstanding.deadline.Before(deadline)) {
+		deadline = s.mtu.outstanding.deadline
+	}
 	return deadline
 }
 
 func (s *session) tick(now time.Time) error {
 	s.expireHandshakeRead(now)
+	s.tickMTUProbe(now)
 	if s.path != nil {
 		if err := s.path.tick(now); err != nil {
 			return err

@@ -43,6 +43,9 @@ type packetTransport struct {
 
 	writeMu sync.Mutex
 	active  [3]<-chan struct{}
+
+	// unfragmented is set only at dedicated-socket setup. Shared listeners stay false.
+	unfragmented bool
 }
 
 func newPacketTransport(conn net.PacketConn, receive func([]byte, netip.AddrPort), failed func(error)) *packetTransport {

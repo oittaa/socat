@@ -133,6 +133,7 @@ func (p *pathState) receive(from packetPath, body []byte, size uint64, now time.
 	if !probe.old {
 		p.peer = probe.candidate
 		p.session.handshake.peerCID = probe.cid
+		p.session.resetMTUProbes()
 		if p.changed != nil {
 			p.changed(p.peer)
 		}

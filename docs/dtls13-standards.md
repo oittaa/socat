@@ -13,6 +13,7 @@ Checked 2026-09-07. Read the relevant sections before changing behavior.
 | [RFC 9846](https://www.rfc-editor.org/rfc/rfc9846.txt) | Current TLS 1.3 base. Review §1.2's changes; apply DTLS-specific rules where they differ. |
 | [RFC 8446](https://www.rfc-editor.org/rfc/rfc8446.txt) | Original TLS base, for older documents' section numbers. Do not reuse those numbers in RFC 9846. |
 | [RFC 9146](https://www.rfc-editor.org/rfc/rfc9146.txt) | CID negotiation/ownership (§§3, 6). Its DTLS 1.2 record encoding does not apply. |
+| [RFC 8899](https://www.rfc-editor.org/rfc/rfc8899.txt) | DPLPMTUD sizes, probe/raise timers, and unfragmented probe requirements. |
 | [RFC 9853](https://www.rfc-editor.org/rfc/rfc9853.txt) | RRC (§§3–5), amplification and forwarding (§§8–9). CID negotiation alone does not validate an address. |
 | [RFC 9954](https://www.rfc-editor.org/rfc/rfc9954.txt) | Informational hybrid framework; does not assign ML-KEM groups. |
 | [RFC 10024](https://www.rfc-editor.org/rfc/rfc10024.txt) | Hybrid shares/secrets (§4), identifiers and DTLS applicability (§7). X25519 hybrid puts ML-KEM first; NIST hybrids put ECDHE first. |
@@ -35,6 +36,7 @@ Unqualified paths are under `internal/dtls13/`.
 | Stateless cookie verification and bounded admission | `cookie.go`, `admission.go`, `listener.go` |
 | Fragmentation, ACKs, retransmissions, KeyUpdate | `fragment.go`, `flight.go`, `ack.go`, `post_handshake.go` |
 | CID pools, routing, migration, peer filters | `connection_id.go`, `listener.go`, `path.go` |
+| PMTU sizes, handshake shrink, padded RRC probes | `pmtu.go`, `pmtu_probe.go`, `pmtu_df.go` |
 | Algorithms and Go-default alignment | `groups.go`, `offer.go`, `algorithms_test.go` |
 | Receive timeouts, queues, cancellation | `conn.go`, `session.go`, `internal/xio/dtlsopen/config.go` |
 | Endpoint adaptation and per-direction capabilities | `internal/xio/dtlsopen/stream.go`, `internal/relay/semantics.go` |
