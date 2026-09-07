@@ -136,7 +136,7 @@ These establish support, not a complete §4.4 conformance test.
 | **§9** MUST NOT request more CIDs before the previous request is fulfilled | yes: ACK alone does not fulfill it | n/a | n/a (never requests) | n/a (send unimplemented) |
 | **§9** SHOULD use a new CID on a new path | yes (RRC + spare) | no | no | RRC yes; CID not rotated |
 | **§9.1** If no CID negotiated, records with CID MUST be rejected | yes | yes (C-bit discarded) | yes | yes |
-| **§11** Cookie MUST depend on client address; MUST NOT be forgeable by others | yes HMAC(peer, data) | yes HMAC(address, port, timestamp) | yes HMAC includes peer | unknown: stateful random cookie; address binding not independently verified |
+| **§11** Cookie MUST depend on client address; MUST NOT be forgeable by others | yes HMAC(peer, data) | yes HMAC(address, port, timestamp) | yes HMAC includes peer | yes: stateful 20-byte cookie on the 5-tuple |
 | **§11** Cookie SHOULD not allow reconstructing ClientHello | yes (hash/fingerprint) | yes | yes | n/a |
 | **§11** MUST NOT update send address on a new source without a reachability test | yes (RFC 9853) | n/a (no CID/migration) | no RRC | yes (RFC 9853) |
 | **§11** SHOULD NOT kill the connection on invalid records | partial: see §4.5.2 | yes | yes | yes |
@@ -148,10 +148,13 @@ Low-spare requests already run automatically; consuming a spare does not
 retire issued CIDs, so a full issuer pool returns empty until immediate rotation.
 Sustained pool renewal is a policy improvement, not a separate §9 SHOULD.
 
-Pion's random cookie is checked against connection state in
-[flight2handler.go](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/internal/flight/flight13/flight2handler.go#L47),
-and UDP connections are [indexed by source address](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/internal/net/udp/packet_conn.go#L247).
-Random rather than HMAC-based cookies do not by themselves demonstrate a flaw.
+Pion stores a random cookie on the handshake and looks the association up
+by source address
+([flight2handler.go](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/internal/flight/flight13/flight2handler.go#L47),
+[packet_conn.go](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/internal/net/udp/packet_conn.go#L247)).
+That binds the cookie to the client 5-tuple without an HMAC: another address
+gets a different association, and forging the stored value means guessing
+20 random bytes. HMAC is a typical construction, not the only one §11 allows.
 
 ---
 
