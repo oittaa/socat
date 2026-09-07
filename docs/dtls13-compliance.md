@@ -20,9 +20,10 @@ Peer limits and interop that already ran are in [dtls13.md](dtls13.md).
 - RFC 9954 is informational and assigns no groups. RFC 9881 is X.509
   encoding; we use Go's parser.
 - Implementations were read at the pins in
-  [dtls13-baseline.json](../scripts/dtls13-baseline.json). Peer interop
-  was not re-run for this matrix; existing `dtlsinterop` coverage is noted
-  under [Interop](#interop-what-we-can-actually-test).
+  [dtls13-baseline.json](../scripts/dtls13-baseline.json). `dtlsinterop` was
+  re-run on 2026-09-07; passing cases and failure ownership are in
+  [dtls13.md](dtls13.md#independent-peers) and
+  [Interop](#interop-what-we-can-actually-test).
 
 | Stack | Pin |
 | --- | --- |
@@ -247,15 +248,15 @@ runtime-tested.
 | Area | OpenSSL 4.1 | wolfSSL | Pion |
 | --- | --- | --- | --- |
 | Mutual cert, AES-GCM/ChaCha, classical groups | yes both roles | yes our client; CID tests both roles | yes both roles (drivers) |
-| X25519MLKEM768 / NIST hybrids | yes at MTU 4096 | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 only |
-| ML-DSA-44/65/87 | yes mutual | library yes; not in our interop matrix | no |
-| Fragmented first ClientHello | listener cookie path expects a usable first fragment | **rejects** unverified fragmented CH (even with `WOLFSSL_DTLS_CH_FRAG`) | yes |
+| X25519MLKEM768 / NIST hybrids | yes our client at 256+ against `s_server` (ECDSA echo); `s_client` ECDSA fails at 256 | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 only |
+| ML-DSA-44/65/87 | yes mutual echo at 4096; `s_client` fails at 1200; our-client echo at 1200 not reliable | library yes; not in our interop matrix | no |
+| Fragmented first ClientHello | stateful `s_server` accepts ours; cookie listener not retested | **rejects** unverified fragmented CH (even with `WOLFSSL_DTLS_CH_FRAG`) | yes |
 | Cookies / 3× amplification | HMAC cookie; no 3× cap | HMAC cookie; no 3× cap | stateful cookie; no HS 3× |
-| ACK / KeyUpdate | yes; partial-flight ACK + small MTU PQ is a known fail | yes; CID tests include KeyUpdate | yes |
+| ACK / KeyUpdate | yes; `s_client` does not ACK our large/fragmented server flights | yes; CID tests include KeyUpdate | yes |
 | CID request / new / spare | **no DTLS 1.3 CID at all** | parse Request, ignore; spare discarded; immediate replace works | codec only; `ErrNotImplemented` on send |
 | RFC 9853 RRC | no | no | yes both roles with **initial** CIDs |
 | PSK / 0-RTT / resumption | yes in OpenSSL | yes in wolfSSL | 1.2 PSK only |
-| Production MTU 1200 + PQ ClientHello | blocked by peer ACK/CH-frag limits | blocked by unfragmented-CH rule | not independently proven |
+| Production MTU 1200 + PQ ClientHello | our client → `s_server` ECDSA echo yes; ML-DSA echo and `s_client` still blocked | blocked by unfragmented-CH rule | not independently proven |
 
 Practical consequences:
 
@@ -269,9 +270,10 @@ Practical consequences:
 3. **RRC/migration can only be tested against Pion**, and only with the
    initial handshake CID, not with mid-association CID rotation.
 4. **PQ at MTU 1200 is not a three-stack result.** Ours fragments CH0
-   correctly; wolfSSL will not reassemble it before the cookie; OpenSSL's
-   listener path is similarly first-fragment sensitive; OpenSSL also
-   mishandles some small-MTU ACK cases.
+   correctly and OpenSSL `s_server` accepted it at 256 on 2026-09-07.
+   wolfSSL will not reassemble an unverified fragmented CH; OpenSSL
+   `s_client` still fails to ACK our large server flights (mutual ML-DSA
+   at 1200). The OpenSSL cookie listener was not retested.
 5. **Do not use `openssl s_server -listen` as a DTLS 1.3 cookie peer.** That
    flag is `DTLSv1_listen` (HelloVerifyRequest). Use `SSL_new_listener` /
    `demos/dtlslistenerecho`.
@@ -288,7 +290,7 @@ Practical consequences:
 | Repeated `update_requested` | RFC 9846 §4.7.3 MUST NOT | An ACK permits another request before the peer KeyUpdate arrives. |
 | Dynamic PMTU handling | RFC 9147 §4.4 | Configured MTU and fragmentation exist; IP PMTU query and shrink-on-loss do not. OpenSSL has PMTU facilities. |
 | Sustained CID pool renewal | Local policy within RFC 9147 §9 | Automatic low-spare requests exist; a full issuer pool needs immediate rotation to release capacity. |
-| Independent spare-CID and production-MTU PQ interop | Coverage | See [peer limits](dtls13.md#independent-peers); no pinned peer issues spares. |
+| Independent spare-CID and remaining production-MTU PQ interop | Coverage | See [peer limits](dtls13.md#independent-peers); no pinned peer issues spares. wolfSSL CH0 and OpenSSL `s_client` ACK remain peer-owned. |
 | RFC 9846 `general_error` | Alert mapping | No dedicated mapping; review alongside the remaining TLS changes. |
 
 Sending only 16-bit sequence numbers, always including record length, and
