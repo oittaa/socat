@@ -15,3 +15,17 @@ The adaptation replaces upstream-specific builders/errors with standard Go.
 ChaCha20-Poly1305 support uses golang.org/x/crypto. Connection, record framing,
 and protocol state management belong to this package. Retain attribution when
 moving these files.
+
+# quic-go attribution
+
+Unfragmented probe socket setup follows github.com/quic-go/quic-go
+`793f74d8e03368c5aded128af6f48d21dbb47f73` (`sys_conn_df_linux.go`,
+`sys_conn_df_darwin.go`, `sys_conn_df_windows.go`), under the MIT license
+reproduced in `LICENSE.quic-go`. Linux uses `IP_PMTUDISC_PROBE` rather than
+`IP_PMTUDISC_DO`. Probe search timing and QUIC ACK handling are not copied.
+
+| Local file | Upstream source |
+| --- | --- |
+| `pmtu_df_linux.go` | `sys_conn_df_linux.go` |
+| `pmtu_df_darwin.go` | `sys_conn_df_darwin.go` |
+| `pmtu_df_windows.go` | `sys_conn_df_windows.go` |

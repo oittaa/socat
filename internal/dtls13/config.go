@@ -26,8 +26,15 @@ type Config struct {
 	CipherSuites          []uint16
 	CurvePreferences      []tls.CurveID
 
-	// MTU is the maximum UDP payload size; zero selects 1200 bytes.
+	// MTU is the maximum UDP payload size, including DTLS overhead; zero selects 1200 bytes.
 	MTU int
+	// UnfragmentedProbes requests DF / no-fragment on a dedicated UDP socket so
+	// padded RRC probes can exceed a cached kernel PMTU without IP fragmentation.
+	// Linux uses IP_PMTUDISC_PROBE (DF set, kernel ICMP PMTU tracking ignored).
+	// Listeners ignore this: a shared socket must not change fragmentation for
+	// every association. Automatic upward search stays disabled until that path
+	// is complete.
+	UnfragmentedProbes bool
 	// ConnectionIDLength defaults to 8. DisableMigration disables CID and RRC.
 	ConnectionIDLength int
 	DisableMigration   bool

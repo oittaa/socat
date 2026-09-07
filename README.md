@@ -280,9 +280,10 @@ trusted client certificate.
 
 See [supported algorithms, peer limits and validation](docs/dtls13.md).
 Go supplies cryptographic and certificate-policy updates; new algorithms
-still require DTLS wire integration. Include the adapted Pion code's
-[MIT license](internal/dtls13/LICENSE.pion) and
-[attribution](internal/dtls13/NOTICE.md) when redistributing it.
+still require DTLS wire integration. Include the adapted Pion
+[MIT license](internal/dtls13/LICENSE.pion), quic-go
+[MIT license](internal/dtls13/LICENSE.quic-go), and
+[attribution](internal/dtls13/NOTICE.md) when redistributing that code.
 
 ## Environment
 

@@ -96,6 +96,7 @@ func Client(ctx context.Context, transport net.PacketConn, peer net.Addr, config
 	c.owned = true
 	c.transport = newPacketTransport(transport, c.deliver, c.fail)
 	c.transport.direct = true
+	c.transport.configureUnfragmentedProbes(prepared.UnfragmentedProbes)
 	c.transport.start()
 	s, err := newClientSession(prepared, c.sendPacket, time.Now())
 	if err != nil {
@@ -127,6 +128,9 @@ func newConn(peer netip.AddrPort) *Conn {
 
 func (c *Conn) attach(s *session) {
 	c.session = s
+	if c.transport != nil {
+		s.canProbe = c.transport.unfragmented
+	}
 	s.path = &pathState{session: s, peer: packetPath{c.remote, 1}, allowPeer: s.handshake.config.AcceptPeer,
 		send: func(to packetPath, data []byte) error {
 			return c.transport.write(data, to.remote, time.Time{}, c.stop)
@@ -418,7 +422,7 @@ func (c *Conn) datagramBudget() int {
 	if c.session.handshake.cidNegotiated {
 		cidLength = len(c.session.handshake.peerCID)
 	}
-	n := min(maxContent, c.session.effectiveMTU()-22-cidLength)
+	n := min(maxContent, c.session.effectiveMTU()-datagramOverhead(cidLength, defaultAEADTag))
 	if n < 0 {
 		return 0
 	}
