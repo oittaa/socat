@@ -113,6 +113,26 @@ func TestRecordProtectionVectors(t *testing.T) {
 	}
 }
 
+type stubOverheadAEAD struct {
+	overhead int
+}
+
+func (s stubOverheadAEAD) NonceSize() int { return aeadNonceLen }
+func (s stubOverheadAEAD) Overhead() int  { return s.overhead }
+func (s stubOverheadAEAD) Seal(dst, nonce, plaintext, ad []byte) []byte {
+	return append(dst, plaintext...)
+}
+func (s stubOverheadAEAD) Open(dst, nonce, ciphertext, ad []byte) ([]byte, error) {
+	return []byte("opened"), nil
+}
+
+func TestOpenUsesAEADOverhead(t *testing.T) {
+	keys := &trafficKeys{aead: stubOverheadAEAD{overhead: 32}}
+	if _, err := keys.open(nil, 0, make([]byte, 31)); !errors.Is(err, errAuthentication) {
+		t.Fatalf("accepted ciphertext shorter than AEAD overhead: %v", err)
+	}
+}
+
 func TestExpandLabelRejectsInvalidInput(t *testing.T) {
 	for _, test := range []struct {
 		name    string

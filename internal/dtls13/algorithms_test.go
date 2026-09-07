@@ -58,8 +58,6 @@ func TestGoTLS13AlgorithmDefaults(t *testing.T) {
 		t.Fatalf("Go signatures changed: DTLS %x; Go %x", want, signatures)
 	}
 	suites := defaultCipherSuites()
-	slices.Sort(suites)
-	slices.Sort(info.CipherSuites)
 	if !slices.Equal(suites, info.CipherSuites) {
 		t.Fatalf("Go ciphers changed: DTLS %x; Go %x", suites, info.CipherSuites)
 	}

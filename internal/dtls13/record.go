@@ -19,6 +19,10 @@ const (
 	maxContent         = MaxApplicationData
 	maxCiphertext      = maxContent + 256
 	plainHeader        = 13
+	maxCIDLen          = 255
+	unifiedSeqLen      = 2
+	unifiedLengthLen   = 2
+	maxUnifiedHeader   = 1 + maxCIDLen + unifiedSeqLen + unifiedLengthLen
 )
 
 var (
@@ -48,7 +52,7 @@ type record struct {
 }
 
 func parseRecord(datagram []byte, cidLen int) (record, []byte, error) {
-	if len(datagram) == 0 || cidLen < 0 || cidLen > 255 {
+	if len(datagram) == 0 || cidLen < 0 || cidLen > maxCIDLen {
 		return record{}, nil, errRecord
 	}
 	first := datagram[0]
@@ -66,20 +70,20 @@ func parseRecord(datagram []byte, cidLen int) (record, []byte, error) {
 		}
 		r.seqLen = 1
 		if first&0x08 != 0 {
-			r.seqLen = 2
+			r.seqLen = unifiedSeqLen
 		}
 		headerLen := r.seqOffset + r.seqLen
 		if first&0x04 != 0 {
-			headerLen += 2
+			headerLen += unifiedLengthLen
 		}
 		if len(datagram) < headerLen {
 			return record{}, nil, errRecord
 		}
 		bodyLen := len(datagram) - headerLen
 		if first&0x04 != 0 {
-			bodyLen = int(binary.BigEndian.Uint16(datagram[headerLen-2 : headerLen]))
+			bodyLen = int(binary.BigEndian.Uint16(datagram[headerLen-unifiedLengthLen : headerLen]))
 		}
-		if bodyLen < 16 || bodyLen > len(datagram)-headerLen {
+		if bodyLen < seqNumMaskLen || bodyLen > len(datagram)-headerLen {
 			return record{}, nil, errRecord
 		}
 		if bodyLen > maxCiphertext {
@@ -136,7 +140,7 @@ func encodePlainRecord(typ byte, sequence uint64, content []byte) ([]byte, error
 }
 
 func (k *trafficKeys) encodeRecord(number recordNumber, cid []byte, typ byte, content []byte, padding int) ([]byte, error) {
-	if number.epoch < 2 || len(cid) > 255 || !validContentType(typ) {
+	if number.epoch < 2 || len(cid) > maxCIDLen || !validContentType(typ) {
 		return nil, errRecord
 	}
 	if len(content) > maxContent || padding < 0 || padding > maxContent-len(content) {
@@ -147,7 +151,7 @@ func (k *trafficKeys) encodeRecord(number recordNumber, cid []byte, typ byte, co
 		first |= 0x10
 	}
 	seqOffset := 1 + len(cid)
-	headerLen := seqOffset + 4
+	headerLen := seqOffset + unifiedSeqLen + unifiedLengthLen
 	innerLen := len(content) + 1 + padding
 	protectedLen := innerLen + k.aead.Overhead()
 	if protectedLen < 0 || protectedLen > maxCiphertext {
@@ -157,7 +161,7 @@ func (k *trafficKeys) encodeRecord(number recordNumber, cid []byte, typ byte, co
 	packet[0] = first
 	copy(packet[1:seqOffset], cid)
 	binary.BigEndian.PutUint16(packet[seqOffset:], uint16(number.sequence&0xffff))
-	binary.BigEndian.PutUint16(packet[seqOffset+2:], uint16(protectedLen))
+	binary.BigEndian.PutUint16(packet[seqOffset+unifiedSeqLen:], uint16(protectedLen))
 	copy(packet[headerLen:], content)
 	packet[headerLen+len(content)] = typ
 	header := packet[:headerLen]
@@ -167,8 +171,9 @@ func (k *trafficKeys) encodeRecord(number recordNumber, cid []byte, typ byte, co
 	if err != nil {
 		return nil, err
 	}
-	packet[seqOffset] ^= mask[0]
-	packet[seqOffset+1] ^= mask[1]
+	for i := range unifiedSeqLen {
+		packet[seqOffset+i] ^= mask[i]
+	}
 	return packet, nil
 }
 
