@@ -84,6 +84,7 @@ Go 1.27.1 defaults matched `TestGoTLS13AlgorithmDefaults`.
   is not yet isolated.
 - Independent PQ tests at MTU 1200/512/256 with controlled loss/reorder and
   mutual ML-DSA; successful loopback exchanges do not cover this.
+- PMTU: [investigation](dtls13-pmtu.md); default 1200 is below Ethernet; do not set DF on shared listeners.
 - Lab-only BoringSSL packet-BIO adapter; keep it out of `make check`.
 - Recheck official OpenSSL/socat releases when 4.1 is usable. Do not patch the
   parity baseline to obtain a test peer.

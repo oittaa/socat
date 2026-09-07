@@ -285,7 +285,7 @@ Practical consequences:
 
 | Work | Basis | Current limit |
 | --- | --- | --- |
-| Dynamic PMTU handling | RFC 9147 §4.4 | Configured MTU and fragmentation exist; IP PMTU query and shrink-on-loss do not. OpenSSL has PMTU facilities. |
+| Dynamic PMTU handling | RFC 9147 §4.4 | Configured MTU and fragmentation exist. Ethernet DF reproduces `EMSGSIZE` at 1473 bytes; see [PMTU investigation](dtls13-pmtu.md). OpenSSL has PMTU BIO controls. |
 | Independent spare-CID and remaining production-MTU PQ interop | Coverage | No pinned peer issues spares. Retain independent loss/reorder tests at MTU 1200/512/256 and diagnose our-client ML-DSA echo failures; those are not established peer defects. See [remaining work](dtls13.md#remaining-work) for these and the known peer limits. |
 | RFC 9846 `general_error` | Alert mapping | No dedicated mapping; review alongside the remaining TLS changes. |
 
