@@ -97,73 +97,126 @@ func routedVeth(t *testing.T, ipv6 bool) routedPath {
 	return p
 }
 
-func (p routedPath) udpPair(t *testing.T, src, dst net.IP) (*net.UDPConn, *net.UDPConn) {
-	t.Helper()
-	var recv *net.UDPConn
-	withNetNS(t, p.ns, func() {
-		recv = listenUDP(t, dst)
-	})
-	return listenUDP(t, src), recv
-}
-
 func assertCachedMTUHonored(t *testing.T, p routedPath, src, dst net.IP, payload, proto, opt, mode int) {
 	t.Helper()
-	send, recv := p.udpPair(t, src, dst)
+	send := listenUDP(t, src)
 	setSockoptInt(t, send, proto, opt, mode)
-	if err := writeUDP(send, destUDP(recv), payload); !isMessageTooLong(err) {
+	if err := writeUDP(send, &net.UDPAddr{IP: dst, Port: 9}, payload); !isMessageTooLong(err) {
 		t.Fatalf("PMTUDISC_DO send of %d: %v (route lock should reject)", payload, err)
 	}
 }
 
 func assertProbeIgnoresCachedMTU(t *testing.T, p routedPath, src, dst net.IP, payload int) {
 	t.Helper()
-	send, recv := p.udpPair(t, src, dst)
+	send := listenUDP(t, src)
 	ok, err := enableUnfragmentedSends(send)
 	if err != nil || !ok {
 		t.Fatalf("enableUnfragmentedSends: ok=%v err=%v", ok, err)
 	}
-	if src.To4() == nil {
+	ipv6 := src.To4() == nil
+	if ipv6 {
 		if mode := mtuDiscoverMode(t, send, true); mode != unix.IPV6_PMTUDISC_PROBE {
 			t.Fatalf("probe socket IPV6_MTU_DISCOVER=%d want PROBE (not DO)", mode)
 		}
 	} else if mode := ipv4MTUDiscoverMode(t, send); mode != unix.IP_PMTUDISC_PROBE {
 		t.Fatalf("probe socket IP_MTU_DISCOVER=%d want PROBE (not DO)", mode)
 	}
-	dest := destUDP(recv)
-	expectUDP(t, recv, send, dest, 64)
-	expectUDP(t, recv, send, dest, payload)
+	fd := openVethCapture(t, p.a.name, ipv6)
+	defer func() { _ = unix.Close(fd) }()
+	if err := writeUDP(send, &net.UDPAddr{IP: dst, Port: 9}, payload); err != nil {
+		t.Fatalf("PMTUDISC_PROBE send of %d: %v", payload, err)
+	}
+	if got := readVethUDPPayload(t, fd, ipv6, payload); got != payload {
+		t.Fatalf("veth TX UDP payload %d want %d", got, payload)
+	}
 }
 
-func destUDP(conn *net.UDPConn) *net.UDPAddr {
-	a := conn.LocalAddr().(*net.UDPAddr)
-	return &net.UDPAddr{IP: a.IP, Port: a.Port}
-}
-
-func expectUDP(t *testing.T, recv, send *net.UDPConn, dest net.Addr, n int) {
+func openVethCapture(t *testing.T, ifname string, ipv6 bool) int {
 	t.Helper()
-	got := make(chan int, 1)
-	errc := make(chan error, 1)
-	go func() {
-		buf := make([]byte, 2048)
-		_ = recv.SetReadDeadline(time.Now().Add(2 * time.Second))
-		gotn, _, err := recv.ReadFrom(buf)
+	ifi, err := net.InterfaceByName(ifname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eth := uint16(unix.ETH_P_ALL)
+	proto := int(htons(eth))
+	fd, err := unix.Socket(unix.AF_PACKET, unix.SOCK_RAW|unix.SOCK_CLOEXEC, proto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Bind(fd, &unix.SockaddrLinklayer{Protocol: uint16(proto), Ifindex: ifi.Index}); err != nil {
+		_ = unix.Close(fd)
+		t.Fatal(err)
+	}
+	return fd
+}
+
+func readVethUDPPayload(t *testing.T, fd int, ipv6 bool, want int) int {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	buf := make([]byte, 2048)
+	for {
+		remain := time.Until(deadline)
+		if remain <= 0 {
+			t.Fatalf("veth TX missing UDP payload %d", want)
+		}
+		ms := int(remain / time.Millisecond)
+		if ms < 1 {
+			ms = 1
+		}
+		n, err := unix.Poll([]unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}, ms)
 		if err != nil {
-			errc <- err
-			return
+			t.Fatal(err)
 		}
-		got <- gotn
-	}()
-	if err := writeUDP(send, dest, n); err != nil {
-		t.Fatalf("send %d: %v", n, err)
-	}
-	select {
-	case err := <-errc:
-		t.Fatalf("recv %d: %v", n, err)
-	case gotn := <-got:
-		if gotn != n {
-			t.Fatalf("recv %d want %d", gotn, n)
+		if n == 0 {
+			continue
+		}
+		rn, from, err := unix.Recvfrom(fd, buf, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ll, _ := from.(*unix.SockaddrLinklayer)
+		if ll == nil || ll.Pkttype != unix.PACKET_OUTGOING || rn < 14 {
+			continue
+		}
+		et := binary.BigEndian.Uint16(buf[12:14])
+		if ipv6 && et != unix.ETH_P_IPV6 || !ipv6 && et != unix.ETH_P_IP {
+			continue
+		}
+		if pl, ok := udpPayloadLen(buf[14:rn], ipv6); ok && pl == want {
+			return pl
 		}
 	}
+}
+
+func udpPayloadLen(b []byte, ipv6 bool) (int, bool) {
+	if ipv6 {
+		if len(b) < 48 || b[0]>>4 != 6 || b[6] != unix.IPPROTO_UDP {
+			return 0, false
+		}
+		plen := int(binary.BigEndian.Uint16(b[4:6]))
+		if plen < 8 {
+			return 0, false
+		}
+		return plen - 8, true
+	}
+	if len(b) < 28 || b[0]>>4 != 4 {
+		return 0, false
+	}
+	ihl := int(b[0]&0xf) * 4
+	if ihl < 20 || len(b) < ihl+8 || b[9] != unix.IPPROTO_UDP {
+		return 0, false
+	}
+	total := int(binary.BigEndian.Uint16(b[2:4]))
+	if total < ihl+8 {
+		return 0, false
+	}
+	return total - ihl - 8, true
+}
+
+func htons(v uint16) uint16 {
+	var b [2]byte
+	binary.BigEndian.PutUint16(b[:], v)
+	return binary.NativeEndian.Uint16(b[:])
 }
 
 func installLockedHostRoute(t *testing.T, dev string, dst net.IP, mtu int, scope uint8) {

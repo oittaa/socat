@@ -104,11 +104,11 @@ migration generation are covered by session tests with a size-limited send
 path (packets larger than a fake path MTU are dropped or return
 `EMSGSIZE`). That is the ICMP-blocked stand-in: no PTB, DF probes either
 time out or fail locally. Privileged Linux tests put a veth peer in a new
-netns, lock a host-route MTU, and check that `PMTUDISC_PROBE` still delivers
-a larger IPv4 and IPv6 datagram while a throwaway `PMTUDISC_DO` socket gets
-`EMSGSIZE`. Those tests skip without root (`CAP_NET_ADMIN`). This environment
-has no `CAP_NET_ADMIN` for a physical routed IPv4/IPv6 PMTU lab beyond that
-veth pair.
+netns, lock a host-route MTU, and check that `PMTUDISC_PROBE` still transmits
+a larger IPv4 and IPv6 datagram on that veth while a throwaway `PMTUDISC_DO`
+socket gets `EMSGSIZE`. Those tests skip without root (`CAP_NET_ADMIN`). This
+environment has no `CAP_NET_ADMIN` for a physical routed IPv4/IPv6 PMTU lab
+beyond that veth pair.
 
 ## Still not done
 
