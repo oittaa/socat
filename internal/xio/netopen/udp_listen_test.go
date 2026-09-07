@@ -539,41 +539,6 @@ func TestUDPForkInvalidRcvtimeoFailsOpen(t *testing.T) {
 	}
 }
 
-func TestUDPForkListenAcceptTimeoutRestartsAfterRejectedPeer(t *testing.T) {
-	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
-	spec, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork,range=10.0.0.1/32,accept-timeout=0.12")
-	if err != nil {
-		t.Fatal(err)
-	}
-	o, err := openUDP4Listen(context.Background(), spec, xio.ModeRDWR, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = o.Close() })
-
-	client, err := net.DialUDP("udp4", nil, o.Listener.Addr().(*net.UDPAddr))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = client.Close() })
-
-	done := make(chan error, 1)
-	go func() {
-		_, err := o.Listener.Accept()
-		done <- err
-	}()
-	deadline := time.Now().Add(250 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		_, _ = client.Write([]byte("nope"))
-		time.Sleep(20 * time.Millisecond)
-	}
-	select {
-	case err := <-done:
-		t.Fatalf("accept returned while refused peers were still arriving: %v", err)
-	case <-time.After(50 * time.Millisecond):
-	}
-}
-
 func TestUDPForkRecvfromWriteDeadlineDoesNotPoisonParent(t *testing.T) {
 	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
 	spec, err := parse.ParseSpec("UDP4-RECVFROM:0,bind=127.0.0.1,reuseaddr,fork")

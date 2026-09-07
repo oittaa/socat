@@ -29,9 +29,10 @@ type udpDispatchListener struct {
 	closeErr    error
 	terminalErr error
 
-	mu       sync.Mutex
-	sessions map[string]*udpDispatchConn
-	writeMu  sync.Mutex
+	mu         sync.Mutex
+	sessions   map[string]*udpDispatchConn
+	lastReject time.Time
+	writeMu    sync.Mutex
 
 	// peerRejected is a coalesced signal that Accept should restart
 	// accept-timeout after a refused peer (same as TCP listen).
@@ -61,6 +62,7 @@ func newUDPListenForkListener(base *udpForkListener) net.Listener {
 }
 
 func (l *udpDispatchListener) Accept() (net.Conn, error) {
+	started := time.Now()
 	for {
 		select {
 		case <-l.base.ctx.Done():
@@ -73,7 +75,7 @@ func (l *udpDispatchListener) Accept() (net.Conn, error) {
 		var timer *time.Timer
 		var timeout <-chan time.Time
 		if l.base.acceptTimeout > 0 {
-			timer = time.NewTimer(l.base.acceptTimeout)
+			timer = time.NewTimer(time.Until(l.acceptDeadline(started)))
 			timeout = timer.C
 		}
 
@@ -94,15 +96,11 @@ func (l *udpDispatchListener) Accept() (net.Conn, error) {
 				return conn, nil
 			default:
 			}
-			// A refused packet and the timer can become ready together. Give
-			// the packet the same timeout-reset semantics as when its signal
-			// wins the outer select.
-			select {
-			case <-l.peerRejected:
+			// A rejection may extend the deadline before its wake-up arrives.
+			if time.Now().Before(l.acceptDeadline(started)) {
 				continue
-			default:
-				return nil, xio.ErrAcceptTimeout
 			}
+			return nil, xio.ErrAcceptTimeout
 		case <-l.peerRejected:
 			stopUDPDispatchTimer(timer)
 			continue
@@ -114,6 +112,16 @@ func (l *udpDispatchListener) Accept() (net.Conn, error) {
 			return nil, l.closedError()
 		}
 	}
+}
+
+func (l *udpDispatchListener) acceptDeadline(started time.Time) time.Time {
+	l.mu.Lock()
+	last := l.lastReject
+	l.mu.Unlock()
+	if last.After(started) {
+		started = last
+	}
+	return started.Add(l.base.acceptTimeout)
 }
 
 func (l *udpDispatchListener) closedError() error {
@@ -185,6 +193,9 @@ func (l *udpDispatchListener) readLoop() {
 				_ = l.shutdown(stop)
 				return
 			}
+			l.mu.Lock()
+			l.lastReject = time.Now()
+			l.mu.Unlock()
 			select {
 			case l.peerRejected <- struct{}{}:
 			default:
