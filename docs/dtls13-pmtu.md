@@ -19,7 +19,7 @@ all peers as lacking those facilities.
 
 ## Reproduced path-size failure
 
-Loopback `lo` MTU is 65536, so DF does not fail even at 65507 bytes.
+The lab's loopback `lo` MTU is 65536; DF writes succeeded up to 65507 bytes.
 
 On `enp3s0` (MTU 1500) with `IP_PMTUDISC_DO`, a connected-style UDP write
 of 1473 bytes to `192.168.86.1:9` or `1.1.1.1:9` returns
@@ -34,12 +34,17 @@ or a socket-wide MTU there would apply to every session.
 
 ## Smallest useful change (not done here)
 
-1. Map `EMSGSIZE` / "message too long" from `WriteTo` to the existing
-   record-overflow path so a handshake flight can fragment smaller, without
-   changing the default MTU.
-2. Query `IP_MTU` only on client-owned sockets after the first successful
-   send, never on the shared listener.
-3. Leave DF off by default; do not add a new transport framework.
+1. Handle `EMSGSIZE` as a recoverable local MTU failure: reduce the
+   association's handshake fragment budget and retry with a bounded number
+   of reductions. The existing `record_overflow` path is fatal and does not
+   retry fragmentation; do not reuse it for this recovery.
+2. Investigate a destination-specific PMTU query that preserves migration.
+   Linux [`IP_MTU`](https://man7.org/linux/man-pages/man2/IP_MTU.2const.html)
+   requires a connected socket. Our client uses an unconnected `PacketConn`;
+   a successful `WriteTo` does not connect it. Do not connect the active
+   socket just to query PMTU or change the shared listener's socket state.
+3. Preserve the default MTU and existing OS/user fragmentation settings.
+   Do not assume DF is off or introduce socket-wide changes for one peer.
 
 Do not implement (1)–(3) until a session with `dtls-mtu` above the path
 fails in-process and a test can inject `EMSGSIZE` without depending on
