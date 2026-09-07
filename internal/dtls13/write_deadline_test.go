@@ -383,6 +383,8 @@ func TestConnUpdateKeysCompletesWithoutPeerKeyUpdate(t *testing.T) {
 		if err := client.UpdateKeys(true); err != nil {
 			t.Fatal(err)
 		}
+		// The ACK can complete our update before the server sends its own.
+		synctest.Wait()
 		if serverPackets.Load() < 2 {
 			t.Fatal("server did not send a KeyUpdate after the ACK")
 		}

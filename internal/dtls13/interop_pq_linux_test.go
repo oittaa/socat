@@ -11,14 +11,15 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestInteropOpenSSLMLDSA(t *testing.T) {
-	// The pinned OpenSSL snapshot does not ACK partial server flights.
-	// Keep this algorithm check within one ten-record transmission.
+	// OpenSSL s_client does not ACK our large/fragmented server flights.
+	// Keep this listener-side algorithm check within one ten-record transmission.
 	tools := loadOracleTools(t)
 	for _, parameters := range []mldsa.Parameters{mldsa.MLDSA44(), mldsa.MLDSA65(), mldsa.MLDSA87()} {
 		t.Run(parameters.String(), func(t *testing.T) {
@@ -91,9 +92,25 @@ func TestInteropOpenSSLServer(t *testing.T) {
 	}
 }
 
+func TestInteropOpenSSLServerSmallMTUPQ(t *testing.T) {
+	// Stateful s_server accepts our fragmented PQ ClientHello and echoes
+	// with ECDSA certs. Mutual ML-DSA echo still needs 4096-byte datagrams.
+	tools := loadOracleTools(t)
+	cert, roots, _, _ := oracleCertificate(t)
+	for _, mtu := range []int{1200, 512, 256} {
+		t.Run(strconv.Itoa(mtu), func(t *testing.T) {
+			testOpenSSLServerMTU(t, tools, cert, roots, chaCha20Poly1305, tls.X25519MLKEM768, mtu)
+		})
+	}
+}
+
 func testOpenSSLServer(t *testing.T, tools oracleTools, cert tls.Certificate, roots *x509.CertPool, suite uint16, group tls.CurveID) {
 	t.Helper()
-	// Larger datagrams avoid the reference's incomplete handshake ACK support.
+	testOpenSSLServerMTU(t, tools, cert, roots, suite, group, 4096)
+}
+
+func testOpenSSLServerMTU(t *testing.T, tools oracleTools, cert tls.Certificate, roots *x509.CertPool, suite uint16, group tls.CurveID, mtu int) {
+	t.Helper()
 	cert, roots, certFile, keyFile := writeOracleCertificate(t, cert, roots)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -102,14 +119,15 @@ func testOpenSSLServer(t *testing.T, tools oracleTools, cert tls.Certificate, ro
 	if err := reservation.Close(); err != nil {
 		t.Fatal(err)
 	}
-	command := exec.CommandContext(ctx, tools.OpenSSL.OpenSSL, "s_server", "-dtls1_3", "-quiet", "-ign_eof", "-mtu", "4096", "-naccept", "1", "-accept", address.String(), "-Verify", "1", "-verify_return_error", "-CAfile", certFile, "-cert", certFile, "-key", keyFile, "-groups", oracleGroupName(group), "-ciphersuites", tls.CipherSuiteName(suite))
+	mtuArg := strconv.Itoa(mtu)
+	command := exec.CommandContext(ctx, tools.OpenSSL.OpenSSL, "s_server", "-dtls1_3", "-quiet", "-ign_eof", "-mtu", mtuArg, "-naccept", "1", "-accept", address.String(), "-Verify", "1", "-verify_return_error", "-CAfile", certFile, "-cert", certFile, "-key", keyFile, "-groups", oracleGroupName(group), "-ciphersuites", tls.CipherSuiteName(suite))
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
 	}
 	command.Stdout = stdin
 	runOracle(t, command)
-	client, err := Client(ctx, udpForOracle(t), address, &Config{Certificates: []tls.Certificate{cert}, RootCAs: roots, ServerName: "localhost", CipherSuites: []uint16{suite}, CurvePreferences: []tls.CurveID{group}, MTU: 4096})
+	client, err := Client(ctx, udpForOracle(t), address, &Config{Certificates: []tls.Certificate{cert}, RootCAs: roots, ServerName: "localhost", CipherSuites: []uint16{suite}, CurvePreferences: []tls.CurveID{group}, MTU: mtu})
 	if err != nil {
 		t.Fatal(err)
 	}
