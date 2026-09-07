@@ -99,7 +99,7 @@ func (k *trafficKeys) mask(ciphertext []byte) ([seqNumMaskLen]byte, error) {
 		clear(k.maskBuffer[:])
 		stream.XORKeyStream(k.maskBuffer[:], k.maskBuffer[:])
 	} else {
-		k.sn.Encrypt(k.maskBuffer[:], ciphertext[:aes.BlockSize])
+		k.sn.Encrypt(k.maskBuffer[:], ciphertext[:seqNumMaskLen])
 	}
 	return k.maskBuffer, nil
 }
