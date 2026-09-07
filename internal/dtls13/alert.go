@@ -21,6 +21,7 @@ const (
 	errMissingExtension      = alertError(109)
 	errUnsupportedExtension  = alertError(110)
 	errCertificateRequired   = alertError(116)
+	errGeneral               = alertError(117)
 	errNoApplicationProtocol = alertError(120)
 )
 
@@ -53,6 +54,8 @@ func (a alertError) Error() string {
 		name = "unsupported extension"
 	case errCertificateRequired:
 		name = "client certificate required"
+	case errGeneral:
+		name = "general error"
 	case errNoApplicationProtocol:
 		name = "no shared application protocol"
 	default:
