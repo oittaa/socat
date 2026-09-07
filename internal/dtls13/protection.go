@@ -15,6 +15,11 @@ import (
 
 var errAuthentication = errors.New("dtls: record authentication failed")
 
+// seqNumMaskLen is the DTLS 1.3 sequence-number sample and mask (RFC 9147 §4.2.3).
+const seqNumMaskLen = 16
+
+var _ [seqNumMaskLen]byte = [aes.BlockSize]byte{}
+
 type trafficKeys struct {
 	aead        cipher.AEAD
 	sn          cipher.Block
@@ -23,7 +28,7 @@ type trafficKeys struct {
 	iv          [12]byte
 	// Session record processing owns these buffers; traffic keys are not shared between goroutines.
 	nonceBuffer  [12]byte
-	maskBuffer   [16]byte
+	maskBuffer   [seqNumMaskLen]byte
 	headerBuffer [260]byte
 }
 
@@ -83,14 +88,14 @@ func (k *trafficKeys) nonce(sequence uint64) [12]byte {
 	return nonce
 }
 
-func (k *trafficKeys) mask(ciphertext []byte) ([16]byte, error) {
-	if len(ciphertext) < aes.BlockSize {
-		return [16]byte{}, errAuthentication
+func (k *trafficKeys) mask(ciphertext []byte) ([seqNumMaskLen]byte, error) {
+	if len(ciphertext) < seqNumMaskLen {
+		return [seqNumMaskLen]byte{}, errAuthentication
 	}
 	if k.snChaCha != nil {
-		stream, err := chacha20.NewUnauthenticatedCipher(k.snChaCha, ciphertext[4:16])
+		stream, err := chacha20.NewUnauthenticatedCipher(k.snChaCha, ciphertext[4:seqNumMaskLen])
 		if err != nil {
-			return [16]byte{}, err
+			return [seqNumMaskLen]byte{}, err
 		}
 		stream.SetCounter(binary.LittleEndian.Uint32(ciphertext[:4]))
 		clear(k.maskBuffer[:])
@@ -108,7 +113,7 @@ func (k *trafficKeys) seal(dst, header []byte, sequence uint64, plaintext []byte
 }
 
 func (k *trafficKeys) open(header []byte, sequence uint64, ciphertext []byte) ([]byte, error) {
-	if len(ciphertext) < aes.BlockSize {
+	if len(ciphertext) < k.aead.Overhead() {
 		return nil, errAuthentication
 	}
 	k.nonceBuffer = k.nonce(sequence)
