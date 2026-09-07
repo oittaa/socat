@@ -41,17 +41,21 @@ var cipherSuites = []cipherSuite{
 	{chaCha20Poly1305, sha256.New, 32, 1 << 48},
 }
 
+// Preference order matches crypto/tls. AES-first when AES-GCM hardware is available.
+var (
+	defaultCipherSuitesTLS13      = []uint16{aes128GCM, aes256GCM, chaCha20Poly1305}
+	defaultCipherSuitesTLS13NoAES = []uint16{chaCha20Poly1305, aes128GCM, aes256GCM}
+)
+
+func hasAESGCMHardware() bool {
+	return cpu.X86.HasAES && cpu.X86.HasPCLMULQDQ || cpu.ARM64.HasAES && cpu.ARM64.HasPMULL
+}
+
 func defaultCipherSuites() []uint16 {
-	ids := make([]uint16, 0, len(cipherSuites))
-	for _, suite := range cipherSuites {
-		ids = append(ids, suite.id)
+	if hasAESGCMHardware() {
+		return defaultCipherSuitesTLS13
 	}
-	hasAESGCM := cpu.X86.HasAES && cpu.X86.HasPCLMULQDQ || cpu.ARM64.HasAES && cpu.ARM64.HasPMULL
-	if !hasAESGCM {
-		// Prefer ChaCha20 when AES-GCM hardware acceleration is unavailable.
-		ids = []uint16{chaCha20Poly1305, aes128GCM, aes256GCM}
-	}
-	return ids
+	return defaultCipherSuitesTLS13NoAES
 }
 
 func suiteFor(id uint16) (cipherSuite, error) {
