@@ -410,7 +410,10 @@ func (c *Conn) publish(data [][]byte) {
 	if c.session.handshake.cidNegotiated {
 		cidLength = len(c.session.handshake.peerCID)
 	}
-	c.maxDatagram = min(maxContent, c.session.handshake.config.MTU-22-cidLength)
+	c.maxDatagram = min(maxContent, c.session.effectiveMTU()-22-cidLength)
+	if c.maxDatagram < 0 {
+		c.maxDatagram = 0
+	}
 	if changed {
 		c.signalLocked()
 	}

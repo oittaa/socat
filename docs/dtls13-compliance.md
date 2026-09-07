@@ -70,7 +70,7 @@ Permitted choices are described without counting them as compliance gaps.
 | **§4.3** Multiple records MAY share a datagram | rx yes, tx one record (permitted) | rx yes; tx can pack | rx yes; tx typically one HS record | yes both |
 | **§4.4** SHOULD expose available IP PMTU estimates and record expansion | partial: configured `MaxDatagramSize()`, no IP PMTU query | IP PMTU query supported; see evidence below | unknown | unknown |
 | **§4.4** MUST report transport PMTU-exceeded errors; SHOULD allow app DF control | transport write errors propagate; caller configures supplied socket | MTU-error handling and DF BIO controls; see evidence below | unknown | unknown |
-| **§4.4** Handshake SHOULD fragment if too big; SHOULD shrink after unanswered retries when PMTU unknown | partial: fragments to configured MTU; no shrink-on-loss | fragments and re-queries on MTU error; DTLS 1.3 loss backoff unknown | fragments; loss backoff unknown | fragments; loss backoff unknown |
+| **§4.4** Handshake SHOULD fragment if too big; SHOULD shrink after unanswered retries when PMTU unknown | yes: fragments to the association budget; `EMSGSIZE` and unanswered handshake flights shrink with a bound | fragments and re-queries on MTU error; DTLS 1.3 loss backoff unknown | fragments; loss backoff unknown | fragments; loss backoff unknown |
 | **§4.5.1** Replay check SHOULD use sliding window; MUST init at 0; MUST reject duplicates; MUST NOT update window until deprotect succeeds | yes (64-bit window after AEAD) | yes | yes (after AEAD) | yes |
 | **§4.5.2** Invalid records SHOULD be silently discarded; fatal alerts NOT RECOMMENDED on UDP | unauthenticated parse/MAC/replay dropped; authenticated inner/handshake/ACK/alert violations send fatal alerts (permitted); AEAD fail limit closes | yes drop | yes drop | yes drop |
 | **§4.5.3** SHOULD NOT exceed AEAD confidentiality limit; SHOULD KeyUpdate before it | yes (GCM 2^24, ChaCha 2^48; KeyUpdate at limit−1024) | no | yes | no |
@@ -287,7 +287,7 @@ Practical consequences:
 
 | Work | Basis | Current limit |
 | --- | --- | --- |
-| Dynamic PMTU handling | RFC 9147 §4.4 | Configured MTU and fragmentation exist. Ethernet DF reproduces `EMSGSIZE` at 1473 bytes; see [PMTU investigation](dtls13-pmtu.md). OpenSSL has PMTU BIO controls. |
+| Dynamic PMTU handling | RFC 9147 §4.4 | Handshake `EMSGSIZE` and unanswered-flight shrink are implemented per association; no `IP_MTU` query or DF on shared listeners. Ethernet DF reproduces `EMSGSIZE` at 1473 bytes; see [PMTU investigation](dtls13-pmtu.md). |
 | Independent spare-CID and remaining production-MTU PQ interop | Coverage | No pinned peer issues spares. Our-client mutual ML-DSA echo works at MTU 1200; OpenSSL `s_server` still returns `unexpected_message` for ML-DSA-65/87 at 512 and all ML-DSA at 256. See [remaining work](dtls13.md#remaining-work). |
 | RFC 9846 `general_error` | Alert mapping | Named receive/diagnostics for alert 117. Send mappings keep certificate, protocol, and `internal_error` alerts. |
 

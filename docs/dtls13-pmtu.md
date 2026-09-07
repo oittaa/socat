@@ -11,8 +11,12 @@ RFC 9147 §4.4, checked 2026-09-07. Not an implementation.
 
 Configured `dtls-mtu` (default 1200, range 256–65507) and handshake
 fragmentation already exist. `Conn.MaxDatagramSize()` reports the current
-record budget including CID overhead. We do not query `IP_MTU`, set
-`IP_MTU_DISCOVER` / `IPV6_DONTFRAG`, or shrink fragments after loss.
+record budget including CID overhead. Handshake sends treat `EMSGSIZE` as a
+recoverable local MTU failure: the association reduces its fragment budget
+and retries, using the configured MTU as the ceiling. Unanswered handshake
+flights shrink with the same bound. Application writes still surface the
+transport error. We do not query `IP_MTU` or set `IP_MTU_DISCOVER` /
+`IPV6_DONTFRAG`.
 
 OpenSSL's UDP BIO implements PMTU query and DF controls; do not describe
 all peers as lacking those facilities.
@@ -32,20 +36,22 @@ path (Tailscale) if the UDP payload plus IP/UDP headers exceeds it.
 Shared DTLS listeners own one UDP socket for many associations. Setting DF
 or a socket-wide MTU there would apply to every session.
 
-## Smallest useful change (not done here)
+## Handshake recovery (implemented)
 
-1. Handle `EMSGSIZE` as a recoverable local MTU failure: reduce the
-   association's handshake fragment budget and retry with a bounded number
-   of reductions. The existing `record_overflow` path is fatal and does not
-   retry fragmentation; do not reuse it for this recovery.
-2. Investigate a destination-specific PMTU query that preserves migration.
-   Linux [`IP_MTU`](https://man7.org/linux/man-pages/man2/IP_MTU.2const.html)
+`EMSGSIZE` on a handshake send reduces that association's fragment budget
+and retries with a new record sequence. Unanswered handshake retransmits
+shrink the same way when no ACK arrived; ordinary loss that makes progress
+does not. Reductions stop at 256 bytes and after eight steps. The
+configured MTU remains the ceiling; the default stays 1200. Recovery is
+not routed through fatal `record_overflow`. Shared listener sockets are
+unchanged.
+
+## Still not done
+
+1. A destination-specific PMTU query that preserves migration. Linux
+   [`IP_MTU`](https://man7.org/linux/man-pages/man2/IP_MTU.2const.html)
    requires a connected socket. Our client uses an unconnected `PacketConn`;
    a successful `WriteTo` does not connect it. Do not connect the active
    socket just to query PMTU or change the shared listener's socket state.
-3. Preserve the default MTU and existing OS/user fragmentation settings.
-   Do not assume DF is off or introduce socket-wide changes for one peer.
-
-Do not implement (1)–(3) until a session with `dtls-mtu` above the path
-fails in-process and a test can inject `EMSGSIZE` without depending on
-Ethernet.
+2. Preserve existing OS/user fragmentation settings. Do not assume DF is
+   off or introduce socket-wide changes for one peer.

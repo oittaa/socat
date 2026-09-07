@@ -30,13 +30,14 @@ type sentFragment struct {
 
 // A flight owns immutable messages; each transmission gets new record numbers.
 type flight struct {
-	messages []outboundMessage
-	sent     map[recordNumber]sentFragment
-	interval time.Duration
-	deadline time.Time
-	retries  int
-	complete bool
-	sentOnce bool
+	messages       []outboundMessage
+	sent           map[recordNumber]sentFragment
+	interval       time.Duration
+	deadline       time.Time
+	retries        int
+	complete       bool
+	sentOnce       bool
+	ackedSinceSend bool
 }
 
 func newFlight(messages []handshakeMessage, interval time.Duration) (*flight, error) {
@@ -228,6 +229,7 @@ func (f *flight) acknowledge(records []recordNumber, authenticated bool) bool {
 	}
 	if progress {
 		f.retries = 0
+		f.ackedSinceSend = true
 	}
 	for _, m := range f.messages {
 		if m.remaining != 0 || len(m.message.body) == 0 && !m.emptyAcknowledged {
