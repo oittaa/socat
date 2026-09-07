@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -30,14 +29,14 @@ type udpDispatchListener struct {
 	closeErr    error
 	terminalErr error
 
-	mu       sync.Mutex
-	sessions map[string]*udpDispatchConn
-	writeMu  sync.Mutex
+	mu         sync.Mutex
+	sessions   map[string]*udpDispatchConn
+	lastReject time.Time
+	writeMu    sync.Mutex
 
 	// peerRejected is a coalesced signal that Accept should restart
 	// accept-timeout after a refused peer (same as TCP listen).
 	peerRejected chan struct{}
-	lastReject   atomic.Int64
 }
 
 func newUDPListenForkListener(base *udpForkListener) net.Listener {
@@ -63,6 +62,7 @@ func newUDPListenForkListener(base *udpForkListener) net.Listener {
 }
 
 func (l *udpDispatchListener) Accept() (net.Conn, error) {
+	started := time.Now()
 	for {
 		select {
 		case <-l.base.ctx.Done():
@@ -75,7 +75,7 @@ func (l *udpDispatchListener) Accept() (net.Conn, error) {
 		var timer *time.Timer
 		var timeout <-chan time.Time
 		if l.base.acceptTimeout > 0 {
-			timer = time.NewTimer(l.base.acceptTimeout)
+			timer = time.NewTimer(time.Until(l.acceptDeadline(started)))
 			timeout = timer.C
 		}
 
@@ -96,9 +96,8 @@ func (l *udpDispatchListener) Accept() (net.Conn, error) {
 				return conn, nil
 			default:
 			}
-			// The 1-slot reject signal can be empty when the timer fires even
-			// though readLoop already refused a peer. lastReject still restarts.
-			if l.shouldRestartAcceptTimeout() {
+			// A rejection may extend the deadline before its wake-up arrives.
+			if time.Now().Before(l.acceptDeadline(started)) {
 				continue
 			}
 			return nil, xio.ErrAcceptTimeout
@@ -115,17 +114,14 @@ func (l *udpDispatchListener) Accept() (net.Conn, error) {
 	}
 }
 
-func (l *udpDispatchListener) shouldRestartAcceptTimeout() bool {
-	select {
-	case <-l.peerRejected:
-		return true
-	default:
+func (l *udpDispatchListener) acceptDeadline(started time.Time) time.Time {
+	l.mu.Lock()
+	last := l.lastReject
+	l.mu.Unlock()
+	if last.After(started) {
+		started = last
 	}
-	last := l.lastReject.Load()
-	if last == 0 {
-		return false
-	}
-	return time.Since(time.Unix(0, last)) < l.base.acceptTimeout
+	return started.Add(l.base.acceptTimeout)
 }
 
 func (l *udpDispatchListener) closedError() error {
@@ -197,7 +193,9 @@ func (l *udpDispatchListener) readLoop() {
 				_ = l.shutdown(stop)
 				return
 			}
-			l.lastReject.Store(time.Now().UnixNano())
+			l.mu.Lock()
+			l.lastReject = time.Now()
+			l.mu.Unlock()
 			select {
 			case l.peerRejected <- struct{}{}:
 			default:
