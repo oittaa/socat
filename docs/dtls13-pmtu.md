@@ -43,8 +43,9 @@ and retries with a new record sequence. Unanswered handshake retransmits
 shrink the same way when no ACK arrived; ordinary loss that makes progress
 does not. Reductions stop at 256 bytes and after eight steps. The
 configured MTU remains the ceiling; the default stays 1200. Recovery is
-not routed through fatal `record_overflow`. Shared listener sockets are
-unchanged.
+not routed through fatal `record_overflow`. `Conn.MaxDatagramSize()`
+tracks the current budget, including shrinks after the association is
+ready. Shared listener sockets are unchanged.
 
 ## Still not done
 

@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/oittaa/socat/internal/testcert"
@@ -160,13 +162,13 @@ func TestOrdinaryHandshakeLossDoesNotShrinkEndlessly(t *testing.T) {
 	serverCfg := &Config{Certificates: []tls.Certificate{leaf.TLS()}, MTU: 2000}
 	var packets []testDatagram
 	var client, server *session
-	var serverRecords int
+	var serverHandshakeRecords int
 	dropped := false
 	sender := func(fromClient bool) func([]byte) error {
 		return func(data []byte) error {
-			if !fromClient {
-				serverRecords++
-				if !dropped && serverRecords == 3 {
+			if !fromClient && server != nil && server.outbound != nil && !server.outbound.complete && server.currentWriteEpoch() >= 2 {
+				serverHandshakeRecords++
+				if !dropped && serverHandshakeRecords == 3 {
 					dropped = true
 					return nil
 				}
@@ -198,8 +200,8 @@ func TestOrdinaryHandshakeLossDoesNotShrinkEndlessly(t *testing.T) {
 			continue
 		}
 		if client.handshake.complete && server.handshake.complete && client.outbound.complete {
-			if !dropped || serverRecords < 4 {
-				t.Fatalf("loss did not land in a multi-record server flight: dropped=%t records=%d", dropped, serverRecords)
+			if !dropped || serverHandshakeRecords < 4 {
+				t.Fatalf("loss did not land in a multi-record server flight: dropped=%t records=%d", dropped, serverHandshakeRecords)
 			}
 			if client.mtuReductions != 0 || server.mtuReductions != 0 {
 				t.Fatalf("ACK progress shrank MTU: client=%d server=%d", client.mtuReductions, server.mtuReductions)
@@ -294,4 +296,45 @@ func TestConnHandshakeRecoversFromWriteToEMSGSIZE(t *testing.T) {
 	if err != nil || !bytes.Equal(buffer[:n], marker) {
 		t.Fatalf("echo: %q, %v", buffer[:n], err)
 	}
+}
+
+func TestConnPublishesUnansweredFlightMTU(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		config, serverConfig := handshakeConfigs(t)
+		config.MTU, serverConfig.MTU = 1200, 1200
+		config.DisableMigration, serverConfig.DisableMigration = true, true
+		client, _, _ := driveSessions(t, config, serverConfig, false, false)
+		c := newConn(netip.MustParseAddrPort("127.0.0.1:10001"))
+		c.attach(client)
+		go c.run()
+		t.Cleanup(func() {
+			c.fail(context.Canceled)
+			<-c.done
+		})
+		select {
+		case <-c.ready:
+		case <-c.done:
+			t.Fatalf("connection failed: %v", c.failure())
+		}
+		before := c.MaxDatagramSize()
+		if before != 1200-22 {
+			t.Fatalf("MaxDatagramSize %d want %d", before, 1200-22)
+		}
+		client.outbound = &flight{
+			complete: false, sentOnce: true, deadline: time.Now().Add(-time.Nanosecond),
+			interval: time.Second, sent: make(map[recordNumber]sentFragment),
+		}
+		c.signalWake()
+		synctest.Wait()
+		want := 600 - 22
+		if c.MaxDatagramSize() != want {
+			t.Fatalf("MaxDatagramSize %d want %d after unanswered shrink", c.MaxDatagramSize(), want)
+		}
+		if _, err := c.Write(make([]byte, c.MaxDatagramSize())); err != nil {
+			t.Fatalf("write advertised max %d: %v", c.MaxDatagramSize(), err)
+		}
+		if _, err := c.Write(make([]byte, before)); !errors.Is(err, errRecordOverflow) {
+			t.Fatalf("stale advertised write: %v", err)
+		}
+	})
 }
