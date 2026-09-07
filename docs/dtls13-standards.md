@@ -1,6 +1,6 @@
 # DTLS 1.3 standards and code map
 
-Checked 2026-09-05. Read the relevant sections before changing behavior.
+Checked 2026-09-07. Read the relevant sections before changing behavior.
 [Status and peer limits](dtls13.md).
 [BCP 14 requirement matrix vs OpenSSL, wolfSSL, and Pion](dtls13-compliance.md).
 [PMTU investigation](dtls13-pmtu.md).
@@ -16,7 +16,7 @@ Checked 2026-09-05. Read the relevant sections before changing behavior.
 | [RFC 9853](https://www.rfc-editor.org/rfc/rfc9853.txt) | RRC (§§3–5), amplification and forwarding (§§8–9). CID negotiation alone does not validate an address. |
 | [RFC 9954](https://www.rfc-editor.org/rfc/rfc9954.txt) | Informational hybrid framework; does not assign ML-KEM groups. |
 | [RFC 10024](https://www.rfc-editor.org/rfc/rfc10024.txt) | Hybrid shares/secrets (§4), identifiers and DTLS applicability (§7). X25519 hybrid puts ML-KEM first; NIST hybrids put ECDHE first. |
-| [TLS ML-DSA draft-05](https://www.ietf.org/archive/id/draft-ietf-tls-mldsa-05.txt) | Pinned CertificateVerify mapping (§3). Empty ML-DSA context is distinct from the TLS CertificateVerify context string. |
+| [TLS ML-DSA draft-05](https://www.ietf.org/archive/id/draft-ietf-tls-mldsa-05.txt) | Pinned CertificateVerify mapping (§3). Empty ML-DSA context is distinct from the TLS CertificateVerify context string. Rechecked 2026-09-07: still draft-05 (IESG approved, RFC not published). |
 | [RFC 9881](https://www.rfc-editor.org/rfc/rfc9881.txt) | ML-DSA X.509 encodings; prefer Go's parser. This is not the TLS mapping. |
 | [IANA TLS parameters](https://www.iana.org/assignments/tls-parameters/) | Identifiers and DTLS applicability before adding wire mappings. |
 
