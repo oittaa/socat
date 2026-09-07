@@ -1,16 +1,15 @@
 # DTLS 1.3 requirement matrix
 
-Extracted 2026-09-07 from the documents listed in
-[dtls13-standards.md](dtls13-standards.md). This is a source-code audit of
-BCP 14 language that actually constrains protocol behavior. It is not a
-completed security review.
+Reviewed 2026-09-07 against the documents listed in
+[dtls13-standards.md](dtls13-standards.md). This compares selected protocol
+requirements and optional capabilities, not every inherited TLS requirement
+or a completed security review.
 
 Peer limits and interop that already ran are in [dtls13.md](dtls13.md).
 
 ## Method
 
-- Pulled every `MUST` / `MUST NOT` / `SHALL` / `SHOULD` / `SHOULD NOT` /
-  `REQUIRED` / `RECOMMENDED` / `NOT RECOMMENDED` paragraph from RFC 9147,
+- Summarized protocol requirements and permitted choices from RFC 9147,
   RFC 9146 (DTLS 1.3-applicable CID rules), RFC 9853, RFC 10024, and
   [draft-ietf-tls-mldsa-05](https://www.ietf.org/archive/id/draft-ietf-tls-mldsa-05.txt).
 - Dropped IANA process text, copyright, BCP 14 boilerplate, DCCP/SCTP-only
@@ -21,8 +20,8 @@ Peer limits and interop that already ran are in [dtls13.md](dtls13.md).
 - RFC 9954 is informational and assigns no groups. RFC 9881 is X.509
   encoding; we use Go's parser.
 - Implementations were read at the pins in
-  [dtls13-baseline.json](../scripts/dtls13-baseline.json). Runtime tests
-  were not re-run for this matrix; existing `dtlsinterop` coverage is noted
+  [dtls13-baseline.json](../scripts/dtls13-baseline.json). Peer interop
+  was not re-run for this matrix; existing `dtlsinterop` coverage is noted
   under [Interop](#interop-what-we-can-actually-test).
 
 | Stack | Pin |
@@ -34,13 +33,15 @@ Peer limits and interop that already ran are in [dtls13.md](dtls13.md).
 
 | Mark | Meaning |
 | --- | --- |
-| yes | Implemented as specified |
-| partial | Incomplete, send/receive asymmetric, or a permitted subset |
+| yes | Source review indicates the stated requirement is met |
+| partial | Only part of the stated requirement is implemented |
 | no | Missing or contrary |
+| unknown | Not verified; not evidence of missing support |
 | n/a | Does not apply yet (feature not implemented, or non-UDP transport) |
 
 Cells are about the **library**, not `s_client` / wolfSSL `examples/server`.
 App-level traps that break interop are called out in [Interop](#interop-what-we-can-actually-test).
+Permitted choices are described without counting them as compliance gaps.
 
 ---
 
@@ -50,29 +51,35 @@ App-level traps that break interop are called out in [Interop](#interop-what-we-
 | --- | --- | --- | --- | --- |
 | **§4** Plaintext seq MUST NOT exceed 2^48−1 | yes | yes | yes | yes (48-bit cap) |
 | **§4** `legacy_record_version` MUST be {254,253} (initial CH MAY be {254,255}); MUST be ignored | yes | yes | yes | yes |
-| **§4** MAY mix 8- and 16-bit sequence numbers | partial: rx both, tx 16-bit only | partial: rx both, tx 16-bit only | partial: rx both, tx 16-bit only | partial: rx both, tx 16-bit only |
+| **§4** MAY mix 8- and 16-bit sequence numbers | rx both, tx 16-bit (permitted) | rx both, tx 16-bit (permitted) | rx both, tx 16-bit (permitted) | rx both, tx 16-bit (permitted) |
 | **§4** Omit length MUST only be last record in datagram; MAY mix with/without length | yes rx; tx always sends length | yes rx; tx always sends length | yes rx; tx always sends length | yes rx; tx always sends length |
-| **§4** If CID negotiated, it MUST be in all datagrams | partial: tx always; rx requires CID somewhere in the datagram | n/a (no CID) | yes when CID compiled | yes after handshake CID |
+| **§4** If CID negotiated, it MUST be in all datagrams | yes: tx always; rx requires CID in the datagram | n/a (no CID) | yes when CID compiled | yes after handshake CID |
 | **§4** MUST NOT mix associations in one datagram; later mismatched CID MUST discard rest | yes | n/a | yes | yes |
 | **§4.1** First byte 21/22/26 MUST be DTLSPlaintext | yes | yes | yes | yes |
 | **§4.1** Leading bits 001 MUST be DTLSCiphertext | yes | yes | yes | yes |
 | **§4.1** Anything else MUST be rejected as failed deprotection | yes | yes | yes | yes |
 | **§4.2.1** SHOULD discard earlier-epoch records; MAY keep keys up to MSL | yes: keep prior matching epoch | partial | yes | yes |
-| **§4.2.1** MAY buffer or discard app data before handshake done; MUST treat as in-order | yes: buffer until Finished | yes | yes | yes |
+| **§4.2.1** MAY buffer or discard app data before handshake done; MUST treat as in-order | yes: discard until peer Finished | yes | yes | yes |
 | **§4.2.1** Retransmits MUST use same epoch/keys | yes | yes | yes | yes |
 | **§4.2.1** MUST abandon or rekey before sequence wrap | yes (`recordLimit`) | partial: 64-bit wrap only | yes | yes (48-bit) |
 | **§4.2.1 / §6.1 / §8** MUST NOT wrap epoch; sender MUST NOT exceed 2^48−1; receiver MUST NOT enforce that cap | yes | partial: uint64 wrap, not 2^48−1 | yes | partial |
 | **§4.2.2** SHOULD reconstruct seq as closest to 1+highest in epoch | yes | no: high bytes stay 0 after 8/16-bit SN decrypt | yes | yes |
-| **§4.2.3** Ciphertext MUST be ≥16 bytes; senders MUST pad short plaintexts | yes reject; tx relies on 16-byte GCM/ChaCha tag, no extra inner pad | yes, including inner pad | yes | yes, pads to 16 |
+| **§4.2.3** Ciphertext MUST be at least 16 bytes; senders MUST pad as needed to reach that size | yes: 16-byte tags satisfy this without extra padding | yes, including inner pad | yes | yes, pads to 16 |
 | **§4.3** Each record MUST fit one datagram; records MUST NOT span datagrams; first byte MUST start a record | yes | yes | yes | yes |
-| **§4.3** Multiple records MAY share a datagram | partial: rx yes, tx one record per datagram | rx yes; tx can pack | rx yes; tx typically one HS record | yes both |
-| **§4.4** PMTU/ICMP/DF-bit SHOULD/MUST for UDP | no: `dtls-mtu` is static; no ICMP handling | no | no | no |
-| **§4.4** Handshake SHOULD fragment immediately if too big; SHOULD back off record size after unanswered retries | yes fragment to MTU; no shrink-on-loss | yes fragment; backoff unclear | yes fragment | yes fragment |
+| **§4.3** Multiple records MAY share a datagram | rx yes, tx one record (permitted) | rx yes; tx can pack | rx yes; tx typically one HS record | yes both |
+| **§4.4** SHOULD expose available IP PMTU estimates and record expansion | partial: configured `MaxDatagramSize()`, no IP PMTU query | IP PMTU query supported; see evidence below | unknown | unknown |
+| **§4.4** MUST report transport PMTU-exceeded errors; SHOULD allow app DF control | transport write errors propagate; caller configures supplied socket | MTU-error handling and DF BIO controls; see evidence below | unknown | unknown |
+| **§4.4** Handshake SHOULD fragment if too big; SHOULD shrink after unanswered retries when PMTU unknown | partial: fragments to configured MTU; no shrink-on-loss | fragments and re-queries on MTU error; DTLS 1.3 loss backoff unknown | fragments; loss backoff unknown | fragments; loss backoff unknown |
 | **§4.5.1** Replay check SHOULD use sliding window; MUST init at 0; MUST reject duplicates; MUST NOT update window until deprotect succeeds | yes (64-bit window after AEAD) | yes | yes (after AEAD) | yes |
 | **§4.5.2** Invalid records SHOULD be silently discarded; fatal alerts NOT RECOMMENDED on UDP | partial: parse/auth/replay silent; some inner/handshake errors send alerts | yes drop | yes drop | yes drop |
 | **§4.5.3** SHOULD NOT exceed AEAD confidentiality limit; SHOULD KeyUpdate before it | yes (GCM 2^24, ChaCha 2^48; KeyUpdate at limit−1024) | no | yes | no |
 | **§4.5.3** MUST count AEAD auth failures; SHOULD close or KeyUpdate at 2^36 (GCM/ChaCha) | yes close at 2^36 | no | yes | no |
 | **§4.5.3** `TLS_AES_128_CCM_8_SHA256` MUST NOT be used in DTLS without extra forgery protection | yes: suite rejected | no: advertised for DTLS 1.3 | yes: allowed with extra fail limit | yes: suite not present |
+
+OpenSSL evidence: UDP BIO [PMTU query](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/crypto/bio/bss_dgram.c#L656)
+and [DF control](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/crypto/bio/bss_dgram.c#L909),
+plus handshake [MTU-error retry](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/statem/statem_dtls.c#L342).
+These establish support, not a complete §4.4 conformance test.
 
 ---
 
@@ -103,7 +110,7 @@ App-level traps that break interop are called out in [Interop](#interop-what-we-
 | **§5.8.1** MUST discard or buffer epoch≥3 app data until peer Finished | yes | yes | yes | yes |
 | **§5.8.2** SHOULD start at 1s, double to ≥60s | yes 1s→60s, 8 retries | yes | yes | yes |
 | **§5.8.3** SHOULD NOT send more than 10 records in one transmission | yes (`flightBurst=10`) | unspecified | unspecified | packs more |
-| **§5.8.4** MUST NOT send another KeyUpdate / NewConnectionId / RequestConnectionId until the previous is ACKed | yes | KeyUpdate yes; CID n/a | KeyUpdate yes; CID messages not sent | KeyUpdate yes; CID messages not sent |
+| **§5.8.4** MUST NOT send another KeyUpdate / NewConnectionId / RequestConnectionId until the previous message of the same type is ACKed | yes | KeyUpdate yes; CID n/a | KeyUpdate yes; CID messages not sent | KeyUpdate yes; CID messages not sent |
 | **§5.9** HKDF label prefix SHALL be `dtls13` (no trailing space) | yes | yes | yes | yes |
 | **§5.10** Alerts SHOULD NOT be relied on; data after a valid close_notify MUST be ignored | yes | yes | yes | yes |
 | **§5.11** New epoch-0 CH on an existing quartet: SHOULD handshake; MUST NOT destroy old association until cookie or Finished; after Finished MUST abandon previous | yes | yes | yes | yes |
@@ -125,14 +132,26 @@ App-level traps that break interop are called out in [Interop](#interop-what-we-
 | **§9** `cid_immediate` MUST be used for all future records | yes | n/a | yes if received | n/a (not applied) |
 | **§9** MUST NOT have more than one NewConnectionId outstanding | yes | n/a | n/a (never sent) | n/a |
 | **§9** MUST NOT send NewConnectionId / RequestConnectionId if CID not negotiated or empty; MUST `unexpected_message` on violation | yes | n/a | rx Request ignored; NewConnectionId immediate only | codec only, rx unexpected |
-| **§9** SHOULD respond to RequestConnectionId with spare CIDs; MUST NOT request while a request is outstanding | partial: we request and can issue spares; no auto-replenish after consume | no | no: Request ignored; spare discarded | no |
+| **§9** SHOULD respond with spares; MAY send fewer or none for excessive requests | yes: bounded replies, including empty at capacity | n/a (no CID) | no: Request ignored; spare discarded | no |
+| **§9** MUST NOT request more CIDs before the previous request is fulfilled | yes: ACK alone does not fulfill it | n/a | n/a (never requests) | n/a (send unimplemented) |
 | **§9** SHOULD use a new CID on a new path | yes (RRC + spare) | no | no | RRC yes; CID not rotated |
 | **§9.1** If no CID negotiated, records with CID MUST be rejected | yes | yes (C-bit discarded) | yes | yes |
-| **§11** Cookie MUST depend on client address; MUST NOT be forgeable by others | yes HMAC(peer, …) | yes HMAC(addr\\|port\\|ts) | yes HMAC includes peer | no: random 20 bytes, stateful |
+| **§11** Cookie MUST depend on client address; MUST NOT be forgeable by others | yes HMAC(peer, data) | yes HMAC(address, port, timestamp) | yes HMAC includes peer | unknown: stateful random cookie; address binding not independently verified |
 | **§11** Cookie SHOULD not allow reconstructing ClientHello | yes (hash/fingerprint) | yes | yes | n/a |
 | **§11** MUST NOT update send address on a new source without a reachability test | yes (RFC 9853) | n/a (no CID/migration) | no RRC | yes (RFC 9853) |
 | **§11** SHOULD NOT kill the connection on invalid records | partial: see §4.5.2 | yes | yes | yes |
 | **§11** SHOULD use fresh CIDs when local address/port changes | yes request on migration | n/a | no | no |
+
+Our [CID lifecycle test](../internal/dtls13/connection_id_lifecycle_test.go)
+(`TestCIDRequestCountsAndExhaustion`) covers bounded replies and exhaustion.
+Low-spare requests already run automatically; consuming a spare does not
+retire issued CIDs, so a full issuer pool returns empty until immediate rotation.
+Sustained pool renewal is a policy improvement, not a separate §9 SHOULD.
+
+Pion's random cookie is checked against connection state in
+[flight2handler.go](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/internal/flight/flight13/flight2handler.go#L47),
+and UDP connections are [indexed by source address](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/internal/net/udp/packet_conn.go#L247).
+Random rather than HMAC-based cookies do not by themselves demonstrate a flaw.
 
 ---
 
@@ -140,13 +159,12 @@ App-level traps that break interop are called out in [Interop](#interop-what-we-
 
 | Req | Ours | OpenSSL | wolfSSL | Pion |
 | --- | --- | --- | --- | --- |
-| **§3** Negotiate `connection_id`; once enabled, encrypted records MUST carry CID | yes | no | yes if `WOLFSSL_DTLS_CID` | yes if configured |
+| **§3** Negotiate `connection_id`; DTLS 1.3 carriage follows RFC 9147 §4 | yes | no | yes if `WOLFSSL_DTLS_CID` | yes if configured |
 | **§6** MUST NOT replace peer address from a CID datagram unless the implementation has a validation procedure | yes: RFC 9853, not a silent swap | n/a | no validation procedure | yes: RRC |
 | **§6** MUST silently discard bad MAC / invalid records | yes for MAC | yes | yes | yes |
 
-RFC 9146 `tls12_cid` content type, DTLS 1.2 MAC/AEAD extra data, and
-`retire_prior_to` are DTLS 1.2. Ours does not implement them. wolfSSL and
-Pion have separate 1.2 CID paths.
+RFC 9146's `tls12_cid` content type and DTLS 1.2 MAC/AEAD extra data do not
+apply to DTLS 1.3. wolfSSL and Pion have separate 1.2 CID paths.
 
 ---
 
@@ -186,10 +204,10 @@ Pion have separate 1.2 CID paths.
 
 ---
 
-## RFC 9846 §1.2 — TLS 1.3 deltas that apply to us
+## RFC 9846 - selected TLS 1.3 changes
 
-Inherited TLS 1.3 handshake/record crypto is implemented except the rows
-marked n/a. These are the §1.2 technical changes:
+These include §1.2's technical changes and a known §4.7.3 gap. They do not
+establish conformance with every inherited TLS 1.3 requirement.
 
 | Change | Ours | OpenSSL | wolfSSL | Pion |
 | --- | --- | --- | --- | --- |
@@ -198,11 +216,18 @@ marked n/a. These are the §1.2 technical changes:
 | Clients ignore NewSessionTicket if no resumption | yes: ACK and drop | n/a (resumption exists) | n/a | yes: ticket queued, not used on 1.3 |
 | Key-update-before-limit upgraded to MUST | yes | no DTLS counters | yes | no |
 | Limit number of KeyUpdates | yes (epoch 2^48−1) | partial | yes | partial |
+| **§4.7.3** MUST wait for a peer KeyUpdate before another `update_requested` | no: ACK alone permits another request | unknown | unknown | unknown |
 | `close_notify` is warning | yes | yes | yes | yes |
 | `user_canceled` ignored; still send `close_notify` | yes ignore 90 | yes | yes | yes |
 | `general_error` alert | no dedicated mapping | yes | unspecified | unspecified |
 | CertificateRequest.extensions lower bound 0 | yes | yes | yes | yes |
 | Remove RSA-PSS requirement | yes (ECDSA/Ed25519/ML-DSA work) | yes | yes | yes |
+
+An isolated session-level probe reproduced the §4.7.3 gap: send
+`update_requested`, deliver only its ACK, delay the peer KeyUpdate, then
+request another update. [The sender](../internal/dtls13/post_handshake.go)
+emits another `update_requested`. ACK gating and waiting for the peer's
+update are separate requirements; the latter remains a code fix.
 
 Deliberately not implemented, so the corresponding TLS 1.3 MUSTs are **n/a
 until the feature exists**: PSK, resumption, 0-RTT, post-handshake client
@@ -212,7 +237,7 @@ authentication, DTLS 1.0/1.2, Encrypted Client Hello.
 
 ## Interop: what we can actually test
 
-Pins and passing cases remain those in [dtls13.md](#independent-peers). This
+Pins and passing cases remain those in [dtls13.md](dtls13.md#independent-peers). This
 section is about *coverage*, not a claim that every row above was
 runtime-tested.
 
@@ -253,34 +278,32 @@ Practical consequences:
 
 ---
 
-## How far along we are
+## Remaining work and permitted choices
 
-Relative to **certificate-authenticated DTLS 1.3 over UDP**, this tree is
-the most complete of the four for the RFC 9147+9146+9853 combination:
-
-- Record protection, unified header (receive), SN encryption, replay,
-  cookies, fragmentation, ACKs, KeyUpdate-after-ACK, CID request/new,
-  enhanced RRC, ML-KEM hybrids, ML-DSA, AEAD limits, CCM_8 refusal.
-
-Still short of a "full" RFC 9147 implementation:
-
-| Gap | Spec | Why it matters |
+| Work | Basis | Current limit |
 | --- | --- | --- |
-| PSK, resumption, 0-RTT, post-handshake client auth | 9147 / 9846 | large TLS 1.3 surface; OpenSSL/wolfSSL can test it, we cannot |
-| Send compact unified header (8-bit SN, omit length) | 9147 §4 MAY | receive-only; all four stacks send the long form |
-| Multiple records per outgoing datagram | 9147 §4.3 MAY | receive-only |
-| Inner padding for short ciphertext | 9147 §4.2.3 MUST | vacuous with 16-byte tags; would matter for CCM_8 |
-| PMTU/ICMP | 9147 §4.4 SHOULD/MUST | none of the four do this on UDP |
-| AEAD-failure close is ours+wolfSSL only | 9147 §4.5.3 | OpenSSL/Pion will not exercise this against us |
-| Spare-CID auto-replenish | 9147 §9 SHOULD | no independent peer issues spares |
-| Cookie key rotation with overlapping secrets | 9147 §5.1 RECOMMENDED | single listener key |
-| RFC 9846 `general_error` | 9846 §1.2 | unused |
-| Erratum 8047 still **Reported** | 9147 §8 | we follow it; treat as non-normative until verified |
+| Repeated `update_requested` | RFC 9846 §4.7.3 MUST NOT | An ACK permits another request before the peer KeyUpdate arrives. |
+| Dynamic PMTU handling | RFC 9147 §4.4 | Configured MTU and fragmentation exist; IP PMTU query and shrink-on-loss do not. OpenSSL has PMTU facilities. |
+| Sustained CID pool renewal | Local policy within RFC 9147 §9 | Automatic low-spare requests exist; a full issuer pool needs immediate rotation to release capacity. |
+| Independent spare-CID and production-MTU PQ interop | Coverage | See [peer limits](dtls13.md#independent-peers); no pinned peer issues spares. |
+| RFC 9846 `general_error` | Alert mapping | No dedicated mapping; review alongside the remaining TLS changes. |
 
-Of the four stacks, **ours is the only one that implements CID management
-messages and RFC 9853 together.** That is also why those features are the
-hardest to test: OpenSSL has neither; wolfSSL has handshake CID but not
-request/new/RRC; Pion has RRC but stubs CID updates.
+Sending only 16-bit sequence numbers, always including record length, and
+sending one record per datagram are permitted choices. Our 16-byte AEAD tags
+already satisfy §4.2.3's minimum ciphertext length. The
+[60-second cookie expiry](../internal/dtls13/cookie.go) uses §5.1's timestamp
+alternative; overlapping secret rotation is optional hardening.
+
+PSK, resumption, 0-RTT and post-handshake client authentication remain out of
+scope. Erratum 8047 was **Reported** at the review date; do not treat it as a
+verified correction.
+
+At the pinned revisions, ours combines CID request/issuance and RFC 9853.
+OpenSSL has no DTLS 1.3 CID; wolfSSL
+[parses requests and accepts immediate updates](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/dtls13.c#L2993)
+but does not issue spares or implement RRC; Pion has RRC but
+[stubs CID update commands](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/internal/handshake/post_handshake.go#L267).
+This is a feature comparison, not a ranking of overall security or compliance.
 
 Ordinary `make check` does not download these peers. Linux interop remains:
 
