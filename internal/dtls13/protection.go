@@ -18,8 +18,6 @@ var errAuthentication = errors.New("dtls: record authentication failed")
 // seqNumMaskLen is the DTLS 1.3 sequence-number sample and mask (RFC 9147 §4.2.3).
 const seqNumMaskLen = 16
 
-var _ [seqNumMaskLen]byte = [aes.BlockSize]byte{}
-
 type trafficKeys struct {
 	aead        cipher.AEAD
 	sn          cipher.Block
