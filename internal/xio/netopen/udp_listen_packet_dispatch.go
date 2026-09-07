@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -36,6 +37,7 @@ type udpDispatchListener struct {
 	// peerRejected is a coalesced signal that Accept should restart
 	// accept-timeout after a refused peer (same as TCP listen).
 	peerRejected chan struct{}
+	lastReject   atomic.Int64
 }
 
 func newUDPListenForkListener(base *udpForkListener) net.Listener {
@@ -94,15 +96,12 @@ func (l *udpDispatchListener) Accept() (net.Conn, error) {
 				return conn, nil
 			default:
 			}
-			// A refused packet and the timer can become ready together. Give
-			// the packet the same timeout-reset semantics as when its signal
-			// wins the outer select.
-			select {
-			case <-l.peerRejected:
+			// The 1-slot reject signal can be empty when the timer fires even
+			// though readLoop already refused a peer. lastReject still restarts.
+			if l.shouldRestartAcceptTimeout() {
 				continue
-			default:
-				return nil, xio.ErrAcceptTimeout
 			}
+			return nil, xio.ErrAcceptTimeout
 		case <-l.peerRejected:
 			stopUDPDispatchTimer(timer)
 			continue
@@ -114,6 +113,19 @@ func (l *udpDispatchListener) Accept() (net.Conn, error) {
 			return nil, l.closedError()
 		}
 	}
+}
+
+func (l *udpDispatchListener) shouldRestartAcceptTimeout() bool {
+	select {
+	case <-l.peerRejected:
+		return true
+	default:
+	}
+	last := l.lastReject.Load()
+	if last == 0 {
+		return false
+	}
+	return time.Since(time.Unix(0, last)) < l.base.acceptTimeout
 }
 
 func (l *udpDispatchListener) closedError() error {
@@ -185,6 +197,7 @@ func (l *udpDispatchListener) readLoop() {
 				_ = l.shutdown(stop)
 				return
 			}
+			l.lastReject.Store(time.Now().UnixNano())
 			select {
 			case l.peerRejected <- struct{}{}:
 			default:
