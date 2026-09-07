@@ -2,6 +2,18 @@ package dtls13
 
 import "testing"
 
+func TestMTUFinderInitClampsRange(t *testing.T) {
+	var f mtuFinder
+	f.init(0, 100)
+	if f.min != 1 || f.max() != 100 {
+		t.Fatalf("zero start min=%d max=%d", f.min, f.max())
+	}
+	f.init(80, 40)
+	if f.min != 80 || f.max() != 80 || !f.done() {
+		t.Fatalf("inverted range min=%d max=%d done=%t", f.min, f.max(), f.done())
+	}
+}
+
 func TestMTUFinderAckRaisesMin(t *testing.T) {
 	var f mtuFinder
 	f.init(400, 1200)

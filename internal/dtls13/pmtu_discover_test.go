@@ -172,6 +172,42 @@ func TestMTUDiscoveryConfirmLossShrinksThenSearches(t *testing.T) {
 	}
 }
 
+func TestMTUDiscoveryConfirmLossAtFloorStops(t *testing.T) {
+	p := newDiscoveryPaths(t)
+	p.client.pathMTU = minPathMTU
+	p.client.mtuReductions = maxMTUReductions
+	now := time.Unix(1000, 0)
+	for i := 0; i < maxConfirmFails; i++ {
+		if err := p.client.tick(now); err != nil {
+			t.Fatal(err)
+		}
+		if p.client.mtu.outstanding == nil || p.client.mtu.outstanding.kind != probeConfirm {
+			t.Fatalf("confirm %d not sent", i)
+		}
+		p.packets = nil
+		now = p.client.mtu.outstanding.deadline
+		if err := p.client.tick(now); err != nil {
+			t.Fatal(err)
+		}
+		if i+1 < maxConfirmFails {
+			now = p.client.mtu.nextProbe
+		}
+	}
+	if p.client.effectiveMTU() != minPathMTU {
+		t.Fatalf("floor confirm loss changed working size to %d", p.client.effectiveMTU())
+	}
+	if p.client.mtu.phase != mtuWatch {
+		t.Fatalf("confirm black-hole at the floor kept phase %d", p.client.mtu.phase)
+	}
+	later := now.Add(probePace)
+	if err := p.client.tick(later); err != nil {
+		t.Fatal(err)
+	}
+	if p.client.mtu.outstanding != nil {
+		t.Fatal("kept probing after confirm black-hole at the floor")
+	}
+}
+
 func TestMTUDiscoverySearchEMSGSIZEDoesNotShrinkWorking(t *testing.T) {
 	p := newDiscoveryPaths(t)
 	p.client.pathMTU = 400
@@ -199,6 +235,24 @@ func TestMTUDiscoverySearchEMSGSIZEDoesNotShrinkWorking(t *testing.T) {
 	}
 	if err := p.client.application([]byte("ok")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestMTUDiscoverySearchEMSGSIZENearWorkingGoesToWatch(t *testing.T) {
+	p := newDiscoveryPaths(t)
+	p.client.pathMTU = 1170
+	now := time.Unix(1000, 0)
+	p.tickClient(t, now)
+	now = p.client.mtu.nextProbe
+	p.client.send = func([]byte) error { return messageTooLongError() }
+	if err := p.client.tick(now); err != nil {
+		t.Fatal(err)
+	}
+	if p.client.effectiveMTU() != 1170 {
+		t.Fatalf("near-ceiling EMSGSIZE changed working size to %d", p.client.effectiveMTU())
+	}
+	if p.client.mtu.phase != mtuWatch {
+		t.Fatalf("near-ceiling search EMSGSIZE left phase %d", p.client.mtu.phase)
 	}
 }
 

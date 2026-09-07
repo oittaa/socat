@@ -134,11 +134,7 @@ func (s *session) onMTUProbeLost(probe *mtuProbe, now time.Time, hard bool) {
 		s.mtu.searchAfterConfirm = true
 		s.mtu.phase = mtuConfirm
 	case probeSearch:
-		if hard {
-			s.mtu.finder.rejectHard(probe.size)
-		} else {
-			s.mtu.finder.onLost(probe.size)
-		}
+		s.mtu.finder.onLost(probe.size)
 		if s.mtu.finder.done() {
 			s.scheduleMTUWatch(now)
 		}
