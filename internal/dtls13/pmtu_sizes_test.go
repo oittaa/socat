@@ -1,6 +1,7 @@
 package dtls13
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -63,5 +64,36 @@ func TestRRCProbePaddingCIDOverhead(t *testing.T) {
 	}
 	if _, err := rrcProbePadding(1<<20, 0, tag); err == nil {
 		t.Fatal("accepted a probe larger than the record limit")
+	}
+}
+
+func TestRRCProbePaddingMatchesEncoderContentLimit(t *testing.T) {
+	keys := testTrafficKeys(t)
+	cid := []byte("cid-pad!")
+	content := append([]byte{pathChallenge}, []byte("cookie08")...)
+	tag := keys.aead.Overhead()
+	maxPad := maxContent - rrcMessageLen
+	size := rrcProbeOverhead(len(cid), tag) + maxPad
+	if size != 16414 {
+		t.Fatalf("CID-8 max probe datagram %d want 16414", size)
+	}
+	pad, err := rrcProbePadding(size, len(cid), tag)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pad != maxPad {
+		t.Fatalf("pad %d want %d", pad, maxPad)
+	}
+	if rrcMessageLen+1+pad <= maxContent {
+		t.Fatal("max padding does not include a content-type byte beyond maxContent")
+	}
+	if _, err := keys.encodeRecord(recordNumber{3, 1}, cid, contentRRC, content, pad); err != nil {
+		t.Fatalf("encoder rejected maxContent padding: %v", err)
+	}
+	if _, err := rrcProbePadding(size+1, len(cid), tag); !errors.Is(err, errRecordOverflow) {
+		t.Fatalf("accepted one byte past the encoder limit: %v", err)
+	}
+	if _, err := keys.encodeRecord(recordNumber{3, 2}, cid, contentRRC, content, maxPad+1); !errors.Is(err, errRecordOverflow) {
+		t.Fatalf("encoder accepted oversized padding: %v", err)
 	}
 }

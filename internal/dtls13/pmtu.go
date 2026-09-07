@@ -68,8 +68,11 @@ func rrcProbePadding(datagramSize, cidLen, aeadTag int) (int, error) {
 		return 0, errProbeSize
 	}
 	pad := datagramSize - overhead
+	if rrcMessageLen+pad > maxContent {
+		return 0, errRecordOverflow
+	}
 	innerLen := rrcMessageLen + 1 + pad
-	if innerLen > maxContent || innerLen+aeadTag > maxCiphertext {
+	if innerLen+aeadTag > maxCiphertext {
 		return 0, errRecordOverflow
 	}
 	return pad, nil
