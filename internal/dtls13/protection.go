@@ -82,11 +82,8 @@ func newTrafficKeys(id uint16, secret []byte) (*trafficKeys, error) {
 
 func (k *trafficKeys) nonce(sequence uint64) [aeadNonceLen]byte {
 	nonce := k.iv
-	var encoded [8]byte
-	binary.BigEndian.PutUint64(encoded[:], sequence)
-	for i, b := range encoded {
-		nonce[aeadNonceLen-len(encoded)+i] ^= b
-	}
+	val := binary.BigEndian.Uint64(nonce[4:]) ^ sequence
+	binary.BigEndian.PutUint64(nonce[4:], val)
 	return nonce
 }
 
