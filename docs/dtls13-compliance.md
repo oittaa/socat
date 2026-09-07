@@ -133,7 +133,7 @@ These establish support, not a complete §4.4 conformance test.
 | **§9** `cid_immediate` MUST be used for all future records | yes | n/a | yes if received | n/a (not applied) |
 | **§9** MUST NOT have more than one NewConnectionId outstanding | yes | n/a | n/a (never sent) | n/a |
 | **§9** MUST NOT send NewConnectionId / RequestConnectionId if CID not negotiated or empty; MUST `unexpected_message` on violation | yes | n/a | rx Request ignored; NewConnectionId immediate only | codec only, rx unexpected |
-| **§9** SHOULD respond with spares; MAY send fewer or none for excessive requests | yes: bounded replies, including empty at capacity | n/a (no CID) | no: Request ignored; spare discarded | no |
+| **§9** SHOULD respond with spares; MAY send fewer or none for excessive requests | yes: bounded replies; immediate rotation frees a full pool | n/a (no CID) | no: Request ignored; spare discarded | no |
 | **§9** MUST NOT request more CIDs before the previous request is fulfilled | yes: ACK alone does not fulfill it | n/a | n/a (never requests) | n/a (send unimplemented) |
 | **§9** SHOULD use a new CID on a new path | yes (RRC + spare) | no | no | RRC yes; CID not rotated |
 | **§9.1** If no CID negotiated, records with CID MUST be rejected | yes | yes (C-bit discarded) | yes | yes |
@@ -143,11 +143,11 @@ These establish support, not a complete §4.4 conformance test.
 | **§11** SHOULD NOT kill the connection on invalid records | partial: see §4.5.2 | yes | yes | yes |
 | **§11** SHOULD use fresh CIDs when local address/port changes | yes request on migration | n/a | no | no |
 
-Our [CID lifecycle test](../internal/dtls13/connection_id_lifecycle_test.go)
-(`TestCIDRequestCountsAndExhaustion`) covers bounded replies and exhaustion.
-Low-spare requests already run automatically; consuming a spare does not
-retire issued CIDs, so a full issuer pool returns empty until immediate rotation.
-Sustained pool renewal is a policy improvement, not a separate §9 SHOULD.
+Our [CID lifecycle tests](../internal/dtls13/connection_id_lifecycle_test.go)
+cover bounded replies. A full issuer pool rotates one CID immediately rather
+than sending an empty spare list; the spare request stays pending until that
+rotation is authenticated. Path probes pause issuance. Independent peers
+still do not issue spares.
 
 Pion stores a random cookie on the handshake and looks the association up
 by source address
@@ -210,8 +210,8 @@ apply to DTLS 1.3. wolfSSL and Pion have separate 1.2 CID paths.
 
 ## RFC 9846 - selected TLS 1.3 changes
 
-These include §1.2's technical changes and a known §4.7.3 gap. They do not
-establish conformance with every inherited TLS 1.3 requirement.
+These include §1.2's technical changes. They do not establish conformance
+with every inherited TLS 1.3 requirement.
 
 | Change | Ours | OpenSSL | wolfSSL | Pion |
 | --- | --- | --- | --- | --- |
@@ -220,18 +220,16 @@ establish conformance with every inherited TLS 1.3 requirement.
 | Clients ignore NewSessionTicket if no resumption | yes: ACK and drop | n/a (resumption exists) | n/a | yes: ticket queued, not used on 1.3 |
 | Key-update-before-limit upgraded to MUST | yes | no DTLS counters | yes | no |
 | Limit number of KeyUpdates | yes (epoch 2^48−1) | partial | yes | partial |
-| **§4.7.3** MUST wait for a peer KeyUpdate before another `update_requested` | no: ACK alone permits another request | unknown | unknown | unknown |
+| **§4.7.3** MUST wait for a peer KeyUpdate before another `update_requested` | yes: ACK is not enough; a later local update uses flag 0 | unknown | unknown | unknown |
 | `close_notify` is warning | yes | yes | yes | yes |
 | `user_canceled` ignored; still send `close_notify` | yes ignore 90 | yes | yes | yes |
 | `general_error` alert | no dedicated mapping | yes | unspecified | unspecified |
 | CertificateRequest.extensions lower bound 0 | yes | yes | yes | yes |
 | Remove RSA-PSS requirement | yes (ECDSA/Ed25519/ML-DSA work) | yes | yes | yes |
 
-An isolated session-level probe reproduced the §4.7.3 gap: send
-`update_requested`, deliver only its ACK, delay the peer KeyUpdate, then
-request another update. [The sender](../internal/dtls13/post_handshake.go)
-emits another `update_requested`. ACK gating and waiting for the peer's
-update are separate requirements; the latter remains a code fix.
+`update_requested` is remembered until a subsequent peer KeyUpdate is
+accepted. A DTLS ACK of the local update does not clear it.
+`TestKeyUpdateRequestedWaitsForPeerUpdate` is the wire regression.
 
 Deliberately not implemented, so the corresponding TLS 1.3 MUSTs are **n/a
 until the feature exists**: PSK, resumption, 0-RTT, post-handshake client
@@ -287,9 +285,7 @@ Practical consequences:
 
 | Work | Basis | Current limit |
 | --- | --- | --- |
-| Repeated `update_requested` | RFC 9846 §4.7.3 MUST NOT | An ACK permits another request before the peer KeyUpdate arrives. |
 | Dynamic PMTU handling | RFC 9147 §4.4 | Configured MTU and fragmentation exist; IP PMTU query and shrink-on-loss do not. OpenSSL has PMTU facilities. |
-| Sustained CID pool renewal | Local policy within RFC 9147 §9 | Automatic low-spare requests exist; a full issuer pool needs immediate rotation to release capacity. |
 | Independent spare-CID and remaining production-MTU PQ interop | Coverage | No pinned peer issues spares. Retain independent loss/reorder tests at MTU 1200/512/256 and diagnose our-client ML-DSA echo failures; those are not established peer defects. See [remaining work](dtls13.md#remaining-work) for these and the known peer limits. |
 | RFC 9846 `general_error` | Alert mapping | No dedicated mapping; review alongside the remaining TLS changes. |
 

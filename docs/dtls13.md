@@ -34,9 +34,11 @@ shared with that adapted code.
   (256 KiB). Overflow is dropped. Reassembly: 1 MiB per message, 16 pending
   sequences, 2 MiB of bodies.
 - CID pools hold eight identifiers plus one temporary identifier during
-  immediate rotation. Low-spare requests run automatically, but consuming a
-  spare does not retire older CIDs. A full issuance pool returns empty until
-  explicit immediate rotation.
+  immediate rotation. Low-spare requests run automatically. A full issuance
+  pool rotates one CID immediately instead of sending an empty spare list;
+  the spare request stays pending until that rotation is authenticated.
+  Path probes pause issuance. Consuming a spare still does not retire older
+  receive CIDs until immediate rotation is used.
 - Not implemented: DTLS 1.0/1.2, PSK, resumption, 0-RTT, post-handshake
   client authentication. `EXEC,nofork` cannot use DTLS.
 
@@ -73,13 +75,9 @@ Go 1.27.1 defaults matched `TestGoTLS13AlgorithmDefaults`.
 
 ## Remaining work
 
-- Prevent repeated `update_requested` until a peer KeyUpdate arrives
-  (RFC 9846 §4.7.3). ACK alone currently permits another request; see the
-  [matrix](dtls13-compliance.md#rfc-9846---selected-tls-13-changes).
 - Independent protocol/security review of `internal/dtls13` and
   `internal/xio/dtlsopen`, including RFC 9846 §1.2.
 - Spare-CID issuance/replenishment interop, pinned to a peer that supports it.
-- Sustained CID pool renewal when consumed identifiers remain in the issuer pool.
 - Remaining production-MTU PQ gaps: wolfSSL unverified CH0 must be unfragmented;
   OpenSSL `s_client` ACK of large server flights; Pion PQ at 1200/512/256.
 - Diagnose our-client mutual ML-DSA echo failures at small MTUs; the cause

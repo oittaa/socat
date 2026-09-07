@@ -54,7 +54,10 @@ func (s *session) requestKeyUpdate(requestPeer bool, now time.Time) error {
 		return errSequence
 	}
 	s.updatePending = true
-	s.requestPeerUpdate = s.requestPeerUpdate || requestPeer
+	// RFC 9846 §4.7.3: do not queue another update_requested while one is outstanding.
+	if requestPeer && !s.awaitingPeerUpdate {
+		s.requestPeerUpdate = true
+	}
 	return s.advancePost(now)
 }
 
@@ -109,20 +112,21 @@ func (s *session) advancePost(now time.Time) error {
 			return errSequence
 		}
 		request := byte(0)
-		if s.requestPeerUpdate {
+		if s.requestPeerUpdate && !s.awaitingPeerUpdate {
 			request = 1
 		}
 		if err := s.startPost(msgKeyUpdate, []byte{request}, now); err != nil {
 			return err
 		}
 		s.updating, s.updatePending, s.requestPeerUpdate = true, false, false
+		if request == 1 {
+			s.awaitingPeerUpdate = true
+		}
 	}
-	if !s.updating && s.cidResponse != nil && s.post[msgNewConnectionID] == nil && len(s.immediateCIDs) == 0 {
-		count := *s.cidResponse
-		s.cidResponse = nil
-		return s.provideCIDs(int(count), false, now)
+	if err := s.respondCIDRequest(now); err != nil {
+		return err
 	}
-	if !s.updating && s.wantCIDs && !s.cidRequested && s.post[msgRequestConnectionID] == nil {
+	if !s.updating && s.wantCIDs && !s.cidRequested && s.post[msgRequestConnectionID] == nil && (s.path == nil || s.path.probe == nil) {
 		s.wantCIDs = false
 		if s.handshake.cidNegotiated && len(s.handshake.peerCID) != 0 {
 			return s.requestCIDs(4, now)
@@ -177,6 +181,8 @@ func (s *session) receivePost(m handshakeMessage, now time.Time) error {
 		s.read[m.epoch+1] = &readEpoch{keys: keys, secret: secret}
 		// An acknowledged client Finished precedes every client KeyUpdate.
 		s.discardHandshakeRead()
+		s.awaitingPeerUpdate = false
+		s.requestPeerUpdate = false
 		if m.body[0] == 1 && s.currentWriteEpoch() < 1<<48-1 {
 			s.updatePending = true
 		}
