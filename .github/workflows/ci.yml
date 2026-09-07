@@ -234,6 +234,10 @@ jobs:
       - name: Raw-IP unit tests
         run: |
           sudo "$(command -v go)" test -race -count=1 -v -tags=privileged ./internal/xio/privileged
+      - name: Routed PMTU cache tests
+        if: runner.os == 'Linux'
+        run: |
+          sudo "$(command -v go)" test -race -count=1 -v ./internal/dtls13 -run 'TestUnfragmentedProbeBypassesCached'
 
   privileged-e2e:
     name: privileged e2e (macos)

@@ -9,8 +9,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Linux PMTUDISC_PROBE sets DF and ignores kernel ICMP PMTU tracking.
-// PMTUDISC_DO is not used: it would honor off-path Packet Too Large messages.
+// PMTUDISC_PROBE sets DF and sizes sends against the interface MTU, not the
+// cached path MTU. Incoming PTB may still update that cache. PMTUDISC_DO is
+// not used: it would fail sends larger than the cached path MTU.
 func setUnfragmentedDF(rawConn syscall.RawConn) (bool, error) {
 	var err4, err6 error
 	if err := rawConn.Control(func(fd uintptr) {

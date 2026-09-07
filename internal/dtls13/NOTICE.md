@@ -21,9 +21,10 @@ moving these files.
 Unfragmented probe socket setup follows github.com/quic-go/quic-go
 `793f74d8e03368c5aded128af6f48d21dbb47f73` (`sys_conn_df_linux.go`,
 `sys_conn_df_darwin.go`, `sys_conn_df_windows.go`), under the MIT license
-reproduced in `LICENSE.quic-go`. Linux uses `IP_PMTUDISC_PROBE` rather than
-`IP_PMTUDISC_DO`. Bounded MTU search follows `mtu_discoverer.go` from the
-same commit; QUIC ACK timing and five-RTT pacing are not copied.
+reproduced in `LICENSE.quic-go`. Linux and Windows use `IP_PMTUDISC_PROBE`
+rather than `IP_PMTUDISC_DO` when that option exists; Windows falls back to
+`IP_DONTFRAGMENT` on older stacks. Bounded MTU search follows `mtu_discoverer.go`
+from the same commit; QUIC ACK timing and five-RTT pacing are not copied.
 
 | Local file | Upstream source |
 | --- | --- |

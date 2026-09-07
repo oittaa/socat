@@ -34,11 +34,16 @@ probe. Responses stay unpadded. Discovery does not consume spare CIDs, bind
 a new address, or block `Conn.Write`. Manual probes still do not raise the
 usable size.
 
-Linux opt-in uses `IP_PMTUDISC_PROBE` / `IPV6_PMTUDISC_PROBE` (DF set, kernel
-ICMP PMTU tracking ignored). `IP_PMTUDISC_DO` is not used. Listeners ignore
-the flag: a shared socket must not change fragmentation for every
-association. We do not query `IP_MTU`, connect the active socket, or probe
-from another source port.
+Linux opt-in uses `IP_PMTUDISC_PROBE` / `IPV6_PMTUDISC_PROBE`. DF is set, and
+outgoing size uses the interface MTU rather than a cached path MTU
+(`ip_sk_use_pmtu` is false for PROBE). Incoming ICMP PTB can still update the
+route cache; PROBE just does not consult that cache when sending.
+`IP_PMTUDISC_DO` is not used. Windows uses `IP_MTU_DISCOVER=IP_PMTUDISC_PROBE`
+when the stack accepts it (datagram PROBE: DF set, fail only above the
+interface MTU). Older Windows stacks fall back to `IP_DONTFRAGMENT`, which
+does not by itself bypass a cached path MTU. Listeners ignore the flag: a
+shared socket must not change fragmentation for every association. We do not
+query `IP_MTU`, connect the active socket, or probe from another source port.
 
 ## Confirmation and search
 
@@ -74,10 +79,12 @@ since the last discovery probe. In-flight migration or KeyUpdate takes
 precedence: a matching response does not complete discovery, and probes
 are deferred until those finish.
 
-ICMP Packet Too Big / PTB is unused (CVE-2024-53259). RFC 8899 §4.6.1
-permits a simple implementation to ignore PTB messages; that choice does
-not by itself make DPLPMTUD incomplete. Remaining gaps: no `IP_MTU` query,
-and probe spacing is a fixed timer rather than one measured RTT.
+ICMP Packet Too Big / PTB is unused by this stack (CVE-2024-53259). RFC 8899
+§4.6.1 permits a simple implementation to ignore PTB messages; that choice
+does not by itself make DPLPMTUD incomplete. Linux `PMTUDISC_PROBE` still
+allows the kernel to update the route cache from PTB; it only skips that
+cache when choosing the send size. Remaining gaps: no `IP_MTU` query, and
+probe spacing is a fixed timer rather than one measured RTT.
 
 ## Path-size notes
 
@@ -96,15 +103,21 @@ Search, confirm, isolated loss, black-hole, `EMSGSIZE`, raise, and
 migration generation are covered by session tests with a size-limited send
 path (packets larger than a fake path MTU are dropped or return
 `EMSGSIZE`). That is the ICMP-blocked stand-in: no PTB, DF probes either
-time out or fail locally. This environment has no `CAP_NET_ADMIN` for a
-routed IPv4/IPv6 PMTU lab.
+time out or fail locally. Privileged Linux tests lock a veth host-route MTU
+and check that `PMTUDISC_PROBE` still delivers a larger datagram while a
+throwaway `PMTUDISC_DO` socket gets `EMSGSIZE`. Those tests skip without
+root (`CAP_NET_ADMIN`). This environment has no `CAP_NET_ADMIN` for a
+physical routed IPv4/IPv6 PMTU lab beyond that veth pair.
 
 ## Still not done
 
-1. Lab captures proving unfragmented probes on IPv4/IPv6 with ICMP blocked
-   on a real interface (needs `CAP_NET_ADMIN` and a controlled path MTU).
+1. Lab captures proving unfragmented probes on a real IPv4/IPv6 interface with
+   ICMP blocked (needs `CAP_NET_ADMIN` and a controlled path MTU beyond veth).
 2. A destination-specific PMTU query that preserves migration. Linux
    [`IP_MTU`](https://man7.org/linux/man-pages/man2/IP_MTU.2const.html)
    requires a connected socket. Do not connect the active socket just to
    query PMTU.
 3. Per-datagram DF. Socket-wide `PROBE` remains dedicated-socket opt-in.
+4. Confirm Windows `IP_PMTUDISC_PROBE` cache-bypass on a routed path. Native
+   unit tests assert the sockopt is PROBE (not DO) when `IP_MTU_DISCOVER`
+   is available.

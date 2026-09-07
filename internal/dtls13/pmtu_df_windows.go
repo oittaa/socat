@@ -17,8 +17,9 @@ const (
 func setUnfragmentedDF(rawConn syscall.RawConn) (bool, error) {
 	var err4, err6 error
 	if err := rawConn.Control(func(fd uintptr) {
-		err4 = windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IP, windowsIPDontFragment, 1)
-		err6 = windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IPV6, windowsIPv6DontFrag, 1)
+		h := windows.Handle(fd)
+		err4 = setWindowsProbeOrDF(h, false)
+		err6 = setWindowsProbeOrDF(h, true)
 	}); err != nil {
 		return false, err
 	}
@@ -26,4 +27,17 @@ func setUnfragmentedDF(rawConn syscall.RawConn) (bool, error) {
 		return false, errors.Join(err4, err6)
 	}
 	return true, nil
+}
+
+func setWindowsProbeOrDF(fd windows.Handle, ipv6 bool) error {
+	proto, discover, dontFrag := int(windows.IPPROTO_IP), windows.IP_MTU_DISCOVER, windowsIPDontFragment
+	if ipv6 {
+		proto, discover, dontFrag = int(windows.IPPROTO_IPV6), windows.IPV6_MTU_DISCOVER, windowsIPv6DontFrag
+	}
+	// Datagram IP_PMTUDISC_PROBE sets DF and limits against the interface MTU,
+	// not the cached path MTU. IP_PMTUDISC_DO is not used.
+	if err := windows.SetsockoptInt(fd, proto, discover, windows.IP_PMTUDISC_PROBE); err == nil {
+		return nil
+	}
+	return windows.SetsockoptInt(fd, proto, dontFrag, 1)
 }
