@@ -51,6 +51,10 @@ Checked 2026-09-05. Pins are in
 | Pion (`59f4c33`) | Mutual authentication, bidirectional KeyUpdate and rebinding/RRC in both roles through protocol drivers using initial CIDs. | Rejects CID-management messages. Migration-enabled public endpoints request spares and do not fully interoperate. |
 | BoringSSL (`4a92579`) | Test shim builds. | Packet-BIO adapter and interop tests are not written. |
 
+Algorithm tests use 4096-byte loopback MTUs where needed; the wolfSSL lab
+build also enlarges its extra read buffer to 4096 bytes for hybrid offers.
+These passes do not establish PQ interoperability at production MTUs.
+
 None of the pinned peers supplies independent spare-CID issuance coverage.
 System OpenSSL 3.5.5 is DTLS 1.2 only. Unmodified classic socat 1.8.1.3 cannot
 build against the pinned OpenSSL 4.1 headers. Keep lab builds separate from

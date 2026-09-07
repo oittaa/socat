@@ -41,7 +41,5 @@ OpenSSL fails at timed record index 64534 in
 the full sequence is passed to a two-byte writer that rejects values above
 65535. The runner leaves the reference unpatched.
 
-Reproduce with `scripts/dtls13-perf.py` and the helpers under
-`internal/dtls13/testdata/perf`. Pins are in `scripts/dtls13-baseline.json`.
-Keep reference sources outside this repository; they are not part of
-`make check`.
+See the [build and run recipe](dtls13-perf-reproduce.md) for the five helpers,
+certificates and reference build settings. They are not part of `make check`.
