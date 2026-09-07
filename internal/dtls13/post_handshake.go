@@ -117,12 +117,10 @@ func (s *session) advancePost(now time.Time) error {
 		}
 		s.updating, s.updatePending, s.requestPeerUpdate = true, false, false
 	}
-	if !s.updating && s.cidResponse != nil && s.post[msgNewConnectionID] == nil && len(s.immediateCIDs) == 0 {
-		count := *s.cidResponse
-		s.cidResponse = nil
-		return s.provideCIDs(int(count), false, now)
+	if err := s.respondCIDRequest(now); err != nil {
+		return err
 	}
-	if !s.updating && s.wantCIDs && !s.cidRequested && s.post[msgRequestConnectionID] == nil {
+	if !s.updating && s.wantCIDs && !s.cidRequested && s.post[msgRequestConnectionID] == nil && (s.path == nil || s.path.probe == nil) {
 		s.wantCIDs = false
 		if s.handshake.cidNegotiated && len(s.handshake.peerCID) != 0 {
 			return s.requestCIDs(4, now)

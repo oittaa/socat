@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net/netip"
 	"slices"
 	"testing"
 	"time"
@@ -55,9 +56,12 @@ func TestCIDRequestCountsAndExhaustion(t *testing.T) {
 						t.Fatal("spare did not route application data")
 					}
 				}
-				// Low-water requests may fill remaining capacity, but cannot renew an
-				// issuer's full pool. Explicit immediate rotation releases that pool.
-				for range maxConnectionIDs {
+				if count == 0 {
+					return
+				}
+				// A full issuer pool rotates immediately instead of sending an
+				// empty spare list that would re-arm cidRequested.
+				for range maxConnectionIDs + 2 {
 					for len(requester.peerSpareCIDs) != 0 {
 						requester.useSpareCID()
 					}
@@ -65,22 +69,12 @@ func TestCIDRequestCountsAndExhaustion(t *testing.T) {
 						t.Fatal(err)
 					}
 					deliverSessionPackets(t, client, server, packets, now)
+					if len(issuer.localCIDs) > maxConnectionIDs {
+						t.Fatal("issuer exceeded the CID pool bound")
+					}
 				}
-				last := bytes.Clone(requester.handshake.peerCID)
-				requester.useSpareCID()
-				if !bytes.Equal(last, requester.handshake.peerCID) {
-					t.Fatal("exhausted pool changed the sending CID")
-				}
-				if err := issuer.provideCIDs(1, true, now); err != nil {
-					t.Fatal(err)
-				}
-				deliverSessionPackets(t, client, server, packets, now)
-				if err := requester.requestCIDs(1, now); err != nil {
-					t.Fatal(err)
-				}
-				deliverSessionPackets(t, client, server, packets, now)
-				if len(issuer.localCIDs) != 2 || len(requester.peerSpareCIDs) != 1 {
-					t.Fatal("explicit rotation did not restore spare issuance capacity")
+				if len(requester.peerSpareCIDs) == 0 && len(issuer.immediateCIDs) == 0 && issuer.cidResponse == nil && !requester.cidRequested {
+					t.Fatal("full pool neither rotated nor left a pending spare request")
 				}
 			})
 		}
@@ -183,5 +177,172 @@ func TestCIDOverlappingRequestsAndIssuance(t *testing.T) {
 				t.Fatal("overlapping request grew pending state")
 			}
 		})
+	}
+}
+
+func TestCIDSustainedPoolRenewal(t *testing.T) {
+	a, b := handshakeConfigs(t)
+	client, server, packets := driveSessions(t, a, b, false, false)
+	now := time.Unix(1000, 0)
+	requester, issuer := client, server
+	if err := requester.requestCIDs(255, now); err != nil {
+		t.Fatal(err)
+	}
+	deliverSessionPackets(t, client, server, packets, now)
+	seen := map[string]int{}
+	for round := range maxConnectionIDs + 3 {
+		for len(requester.peerSpareCIDs) != 0 {
+			requester.useSpareCID()
+		}
+		id := string(requester.handshake.peerCID)
+		seen[id]++
+		if err := requester.application([]byte{byte(round)}); err != nil {
+			t.Fatal(err)
+		}
+		if data := deliverSessionPackets(t, client, server, packets, now); len(data) != 1 {
+			t.Fatalf("round %d: application after spare consume", round)
+		}
+		if err := requester.advancePost(now); err != nil {
+			t.Fatal(err)
+		}
+		deliverSessionPackets(t, client, server, packets, now)
+		if len(issuer.localCIDs) > maxConnectionIDs {
+			t.Fatalf("round %d: issuer pool %d", round, len(issuer.localCIDs))
+		}
+	}
+	if len(seen) < 2 {
+		t.Fatal("sustained consume did not rotate the sending CID")
+	}
+	if len(requester.peerSpareCIDs) == 0 && !requester.cidRequested && issuer.cidResponse == nil && len(issuer.immediateCIDs) == 0 {
+		t.Fatal("renewal stopped without spares or a pending request")
+	}
+}
+
+func TestCIDRenewalLostImmediateACK(t *testing.T) {
+	a, b := handshakeConfigs(t)
+	client, server, packets := driveSessions(t, a, b, false, false)
+	now := time.Unix(1000, 0)
+	if err := client.requestCIDs(255, now); err != nil {
+		t.Fatal(err)
+	}
+	deliverSessionPackets(t, client, server, packets, now)
+	for len(client.peerSpareCIDs) != 0 {
+		client.useSpareCID()
+	}
+	if err := client.advancePost(now); err != nil {
+		t.Fatal(err)
+	}
+	var request []byte
+	rest := (*packets)[:0]
+	for _, p := range *packets {
+		if p.fromClient {
+			request = p.data
+		} else {
+			rest = append(rest, p)
+		}
+	}
+	*packets = rest
+	if request == nil {
+		t.Fatal("missing CID request")
+	}
+	if _, err := server.receive(request, now); err != nil {
+		t.Fatal(err)
+	}
+	var immediate [][]byte
+	held := (*packets)[:0]
+	for _, p := range *packets {
+		if p.fromClient {
+			held = append(held, p)
+		} else {
+			immediate = append(immediate, p.data)
+		}
+	}
+	*packets = held
+	if len(immediate) == 0 {
+		t.Fatal("issuer did not send immediate rotation")
+	}
+	for _, datagram := range immediate {
+		if _, err := client.receive(datagram, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	*packets = nil
+	now = server.deadline()
+	if now.IsZero() {
+		t.Fatal("issuer dropped retransmission of unacknowledged rotation")
+	}
+	if err := server.tick(now); err != nil {
+		t.Fatal(err)
+	}
+	if len(*packets) == 0 {
+		t.Fatal("lost ACK did not retransmit NewConnectionId")
+	}
+	deliverSessionPackets(t, client, server, packets, now)
+	if len(client.peerSpareCIDs) == 0 && server.cidResponse == nil && len(server.immediateCIDs) == 0 && !client.cidRequested {
+		t.Fatal("lost ACK stranded CID renewal")
+	}
+}
+
+func TestCIDRenewalWaitsForKeyUpdate(t *testing.T) {
+	a, b := handshakeConfigs(t)
+	client, server, packets := driveSessions(t, a, b, false, false)
+	now := time.Unix(1000, 0)
+	if err := server.requestKeyUpdate(false, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.requestCIDs(1, now); err != nil {
+		t.Fatal(err)
+	}
+	var request []byte
+	rest := (*packets)[:0]
+	for _, p := range *packets {
+		if p.fromClient {
+			request = p.data
+		} else {
+			rest = append(rest, p)
+		}
+	}
+	*packets = rest
+	if request == nil {
+		t.Fatal("missing CID request")
+	}
+	if _, err := server.receive(request, now); err != nil {
+		t.Fatal(err)
+	}
+	if server.post[msgNewConnectionID] != nil || server.cidResponse == nil {
+		t.Fatal("CID issuance started before KeyUpdate was acknowledged")
+	}
+	deliverSessionPackets(t, client, server, packets, now)
+	if len(client.peerSpareCIDs) == 0 && server.cidResponse == nil {
+		t.Fatal("CID request was dropped during KeyUpdate")
+	}
+}
+
+func TestCIDImmediateUpdatesPendingPathProbe(t *testing.T) {
+	p := newTestPaths(t)
+	now := time.Unix(2000, 0)
+	for len(p.client.peerSpareCIDs) != 0 {
+		p.client.useSpareCID()
+	}
+	moved := netip.MustParseAddrPort("192.0.2.1:1001")
+	if err := p.client.application([]byte("move")); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.packets) == 0 {
+		t.Fatal("missing application datagram")
+	}
+	app := p.packets[len(p.packets)-1]
+	p.packets = p.packets[:len(p.packets)-1]
+	if _, err := p.server.receiveFrom(app.data, packetPath{moved, 1}, now); err != nil {
+		t.Fatal(err)
+	}
+	if p.server.path == nil || p.server.path.probe == nil {
+		t.Fatal("address change did not start path validation")
+	}
+	if err := p.client.advancePost(now); err != nil {
+		t.Fatal(err)
+	}
+	if p.server.path.probe == nil {
+		t.Fatal("CID request during validation dropped the path probe")
 	}
 }

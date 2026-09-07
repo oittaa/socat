@@ -142,11 +142,11 @@ These establish support, not a complete §4.4 conformance test.
 | **§11** SHOULD NOT kill the connection on invalid records | partial: see §4.5.2 | yes | yes | yes |
 | **§11** SHOULD use fresh CIDs when local address/port changes | yes request on migration | n/a | no | no |
 
-Our [CID lifecycle test](../internal/dtls13/connection_id_lifecycle_test.go)
-(`TestCIDRequestCountsAndExhaustion`) covers bounded replies and exhaustion.
-Low-spare requests already run automatically; consuming a spare does not
-retire issued CIDs, so a full issuer pool returns empty until immediate rotation.
-Sustained pool renewal is a policy improvement, not a separate §9 SHOULD.
+Our [CID lifecycle tests](../internal/dtls13/connection_id_lifecycle_test.go)
+cover bounded replies. A full issuer pool rotates one CID immediately rather
+than sending an empty spare list; the spare request stays pending until that
+rotation is authenticated. Path probes pause issuance. Independent peers
+still do not issue spares.
 
 Pion stores a random cookie on the handshake and looks the association up
 by source address
@@ -287,8 +287,7 @@ Practical consequences:
 | --- | --- | --- |
 | Repeated `update_requested` | RFC 9846 §4.7.3 MUST NOT | An ACK permits another request before the peer KeyUpdate arrives. |
 | Dynamic PMTU handling | RFC 9147 §4.4 | Configured MTU and fragmentation exist; IP PMTU query and shrink-on-loss do not. OpenSSL has PMTU facilities. |
-| Sustained CID pool renewal | Local policy within RFC 9147 §9 | Automatic low-spare requests exist; a full issuer pool needs immediate rotation to release capacity. |
-| Independent spare-CID and production-MTU PQ interop | Coverage | See [peer limits](dtls13.md#independent-peers); no pinned peer issues spares. |
+| Independent spare-CID and production-MTU PQ interop | Coverage | Ours rotates a full pool instead of sending empty spare lists. Pinned peers still do not issue spares; see [peer limits](dtls13.md#independent-peers). |
 | RFC 9846 `general_error` | Alert mapping | No dedicated mapping; review alongside the remaining TLS changes. |
 
 Sending only 16-bit sequence numbers, always including record length, and
