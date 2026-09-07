@@ -259,8 +259,8 @@ These are unpaced loopback rates, not maximum lossless capacities.
 
 All 24 runnable case/implementation pairs passed seven timed runs;
 four unsupported classic WebSocket/QUIC pairs were skipped.
-The previous snapshot predated PR #246. The isolated effect of command reuse
-is measured separately in [DTLS send-path measurements](dtls13-send-perf.md).
+Library send-path allocation notes are in
+[dtls13-send-perf.md](dtls13-send-perf.md).
 
 Recorded handshakes (same binaries as the table; `meta.tls` in `host.json`):
 
