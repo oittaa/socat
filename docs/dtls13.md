@@ -2,6 +2,7 @@
 
 User options and examples are in the [README](../README.md#dtls-13).
 RFCs and code map: [dtls13-standards.md](dtls13-standards.md).
+BCP 14 matrix vs OpenSSL, wolfSSL, and Pion: [dtls13-compliance.md](dtls13-compliance.md).
 
 Certificate-authenticated DTLS 1.3 over UDP on Linux, macOS and Windows:
 cookies, SNI/ALPN, mutual authentication, fragmentation, selective ACKs,
@@ -33,8 +34,9 @@ shared with that adapted code.
   (256 KiB). Overflow is dropped. Reassembly: 1 MiB per message, 16 pending
   sequences, 2 MiB of bodies.
 - CID pools hold eight identifiers plus one temporary identifier during
-  immediate rotation. Consuming a spare does not retire older CIDs. A full
-  issuance pool returns empty until explicit immediate rotation.
+  immediate rotation. Low-spare requests run automatically, but consuming a
+  spare does not retire older CIDs. A full issuance pool returns empty until
+  explicit immediate rotation.
 - Not implemented: DTLS 1.0/1.2, PSK, resumption, 0-RTT, post-handshake
   client authentication. `EXEC,nofork` cannot use DTLS.
 
@@ -62,10 +64,13 @@ system libraries and the [classic parity baseline](../scripts/classic-baseline.j
 
 ## Remaining work
 
+- Prevent repeated `update_requested` until a peer KeyUpdate arrives
+  (RFC 9846 §4.7.3). ACK alone currently permits another request; see the
+  [matrix](dtls13-compliance.md#rfc-9846---selected-tls-13-changes).
 - Independent protocol/security review of `internal/dtls13` and
   `internal/xio/dtlsopen`, including RFC 9846 §1.2.
 - Spare-CID issuance/replenishment interop, pinned to a peer that supports it.
-- Automatic CID pool renewal after consumed identifiers.
+- Sustained CID pool renewal when consumed identifiers remain in the issuer pool.
 - Independent PQ tests at MTU 1200/256/512 with loss, reorder and mutual ML-DSA.
 - Lab-only BoringSSL packet-BIO adapter; keep it out of `make check`.
 - Recheck official OpenSSL/socat releases when 4.1 is usable. Do not patch the
