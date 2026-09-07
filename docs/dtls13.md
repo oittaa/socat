@@ -50,7 +50,7 @@ Checked 2026-09-07. Pins are in
 
 | Peer | Passing coverage | Limits |
 | --- | --- | --- |
-| OpenSSL 4.1 snapshot (`82733d9`) | Both roles; 21 suite/group combinations; mutual ML-DSA-44/65/87 at MTU 4096. Our client → `s_server` with X25519MLKEM768 and ECDSA, including echo, at MTU 1200/512/256. | No DTLS 1.3 CID. `s_client` does not ACK our large server flights: mutual ML-DSA as OpenSSL client fails at MTU 1200; ECDSA as OpenSSL client fails at 256. Our client ML-DSA handshake can return at 256, but echo is not reliable. Cookie-listener first-fragment behavior was not retested. |
+| OpenSSL 4.1 snapshot (`82733d9`) | Both roles; 21 suite/group combinations; mutual ML-DSA-44/65/87 at MTU 4096. Our client → `s_server` with X25519MLKEM768: ECDSA echo at 1200/512/256; mutual ML-DSA-44/65/87 echo at 1200; ML-DSA-44 echo at 512. | No DTLS 1.3 CID. `s_client` does not ACK our large server flights: mutual ML-DSA as OpenSSL client fails at MTU 1200; ECDSA as OpenSSL client fails at 256. Mutual ML-DSA-65/87 at 512 and all ML-DSA at 256 still get OpenSSL `unexpected_message` during `SSL_accept`. Cookie-listener first-fragment behavior was not retested. |
 | wolfSSL master (`d72f6d9`) | 21 suite/group combinations with our client at MTU 4096. Classical X25519 and P-256 with our client at 1200/512/256. 12 mutual-auth CID cases in both roles (MTU 1200, all suites, P-256, request ACKs, rotation with lost ACKs and KeyUpdate). | Rejects a fragmented unverified first ClientHello, so PQ at 1200/512/256 times out. No spare issuance/replenishment or RFC 9853 RRC. |
 | Pion (`59f4c33`) | Mutual authentication, bidirectional KeyUpdate and rebinding/RRC in both roles through protocol drivers using initial CIDs. | Rejects CID-management messages. Migration-enabled public endpoints request spares and do not fully interoperate. Production-MTU PQ was not independently proven. |
 | BoringSSL (`4a92579`) | Test shim builds. | Packet-BIO adapter and interop tests are not written. Lower priority; lab-only. |
@@ -80,8 +80,9 @@ Go 1.27.1 defaults matched `TestGoTLS13AlgorithmDefaults`.
 - Spare-CID issuance/replenishment interop, pinned to a peer that supports it.
 - Remaining production-MTU PQ gaps: wolfSSL unverified CH0 must be unfragmented;
   OpenSSL `s_client` ACK of large server flights; Pion PQ at 1200/512/256.
-- Diagnose our-client mutual ML-DSA echo failures at small MTUs; the cause
-  is not yet isolated.
+- Mutual ML-DSA echo at MTU 256 (all parameter sets) and ML-DSA-65/87 at 512
+  still fail against OpenSSL `s_server` with `unexpected_message` during
+  `SSL_accept`. MTU 1200 works for ML-DSA-44/65/87.
 - Independent PQ tests at MTU 1200/512/256 with controlled loss/reorder and
   mutual ML-DSA; successful loopback exchanges do not cover this.
 - PMTU: [investigation](dtls13-pmtu.md); default 1200 is below Ethernet; do not set DF on shared listeners.

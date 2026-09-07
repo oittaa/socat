@@ -337,7 +337,7 @@ func (c *Conn) run() {
 			c.fail(err)
 			return
 		}
-		if s.handshake.complete && !ready {
+		if s.handshake.complete && s.handshakeFlightSent() && !ready {
 			ready = true
 			s.wantCIDs = true
 			c.publish(nil)

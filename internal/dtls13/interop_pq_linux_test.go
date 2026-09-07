@@ -93,23 +93,45 @@ func TestInteropOpenSSLServer(t *testing.T) {
 }
 
 func TestInteropOpenSSLServerSmallMTUPQ(t *testing.T) {
-	// Stateful s_server accepts our fragmented PQ ClientHello and echoes
-	// with ECDSA certs. Mutual ML-DSA echo still needs 4096-byte datagrams.
 	tools := loadOracleTools(t)
 	cert, roots, _, _ := oracleCertificate(t)
 	for _, mtu := range []int{1200, 512, 256} {
-		t.Run(strconv.Itoa(mtu), func(t *testing.T) {
+		t.Run("ecdsa/"+strconv.Itoa(mtu), func(t *testing.T) {
 			testOpenSSLServerMTU(t, tools, cert, roots, chaCha20Poly1305, tls.X25519MLKEM768, mtu)
 		})
 	}
+	for _, parameters := range []mldsa.Parameters{mldsa.MLDSA44(), mldsa.MLDSA65(), mldsa.MLDSA87()} {
+		t.Run(parameters.String()+"/1200", func(t *testing.T) {
+			cert, roots := mldsaCertificate(t, parameters)
+			testOpenSSLServerMTU(t, tools, cert, roots, chaCha20Poly1305, tls.X25519MLKEM768, 1200)
+		})
+	}
+	t.Run("ML-DSA-44/512", func(t *testing.T) {
+		cert, roots := mldsaCertificate(t, mldsa.MLDSA44())
+		testOpenSSLServerMTU(t, tools, cert, roots, chaCha20Poly1305, tls.X25519MLKEM768, 512)
+	})
 }
 
-func testOpenSSLServer(t *testing.T, tools oracleTools, cert tls.Certificate, roots *x509.CertPool, suite uint16, group tls.CurveID) {
-	t.Helper()
-	testOpenSSLServerMTU(t, tools, cert, roots, suite, group, 4096)
+func TestInteropOpenSSLServerSmallMTUPQHandshakeLoss(t *testing.T) {
+	tools := loadOracleTools(t)
+	cert, roots := mldsaCertificate(t, mldsa.MLDSA44())
+	testOpenSSLServerMTULoss(t, tools, cert, roots, chaCha20Poly1305, tls.X25519MLKEM768, 1200, 1)
 }
 
-func testOpenSSLServerMTU(t *testing.T, tools oracleTools, cert tls.Certificate, roots *x509.CertPool, suite uint16, group tls.CurveID, mtu int) {
+type dropFirstPlainHandshake struct {
+	net.PacketConn
+	remaining int
+}
+
+func (c *dropFirstPlainHandshake) WriteTo(p []byte, addr net.Addr) (int, error) {
+	if c.remaining > 0 && len(p) > 0 && p[0] == contentHandshake {
+		c.remaining--
+		return len(p), nil
+	}
+	return c.PacketConn.WriteTo(p, addr)
+}
+
+func testOpenSSLServerMTULoss(t *testing.T, tools oracleTools, cert tls.Certificate, roots *x509.CertPool, suite uint16, group tls.CurveID, mtu, drop int) {
 	t.Helper()
 	cert, roots, certFile, keyFile := writeOracleCertificate(t, cert, roots)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -127,7 +149,11 @@ func testOpenSSLServerMTU(t *testing.T, tools oracleTools, cert tls.Certificate,
 	}
 	command.Stdout = stdin
 	runOracle(t, command)
-	client, err := Client(ctx, udpForOracle(t), address, &Config{Certificates: []tls.Certificate{cert}, RootCAs: roots, ServerName: "localhost", CipherSuites: []uint16{suite}, CurvePreferences: []tls.CurveID{group}, MTU: mtu})
+	transport := net.PacketConn(udpForOracle(t))
+	if drop > 0 {
+		transport = &dropFirstPlainHandshake{PacketConn: transport, remaining: drop}
+	}
+	client, err := Client(ctx, transport, address, &Config{Certificates: []tls.Certificate{cert}, RootCAs: roots, ServerName: "localhost", CipherSuites: []uint16{suite}, CurvePreferences: []tls.CurveID{group}, MTU: mtu})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,4 +174,14 @@ func testOpenSSLServerMTU(t *testing.T, tools oracleTools, cert tls.Certificate,
 	if err != nil || !bytes.Equal(buffer[:n], marker) {
 		t.Fatalf("OpenSSL echo: %q, %v", buffer[:n], err)
 	}
+}
+
+func testOpenSSLServer(t *testing.T, tools oracleTools, cert tls.Certificate, roots *x509.CertPool, suite uint16, group tls.CurveID) {
+	t.Helper()
+	testOpenSSLServerMTU(t, tools, cert, roots, suite, group, 4096)
+}
+
+func testOpenSSLServerMTU(t *testing.T, tools oracleTools, cert tls.Certificate, roots *x509.CertPool, suite uint16, group tls.CurveID, mtu int) {
+	t.Helper()
+	testOpenSSLServerMTULoss(t, tools, cert, roots, suite, group, mtu, 0)
 }

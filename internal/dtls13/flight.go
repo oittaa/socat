@@ -36,6 +36,7 @@ type flight struct {
 	deadline time.Time
 	retries  int
 	complete bool
+	sentOnce bool
 }
 
 func newFlight(messages []handshakeMessage, interval time.Duration) (*flight, error) {
@@ -67,8 +68,8 @@ func (m *outboundMessage) hasByte(i int) bool {
 	return m.acknowledged[i/8]&(byte(1)<<(i%8)) != 0
 }
 
-// transmit sends at most ten records, waiting for ACKs before advancing a
-// larger flight. The caller supplies the current path's fragment capacity.
+// transmit sends at most ten records. New bytes are sent before unacked
+// retransmissions so a large authenticated flight can finish without ACKs.
 func (f *flight) transmit(now time.Time, capacity int, send func(uint64, []byte) (recordNumber, error)) error {
 	if f.complete {
 		return nil
@@ -76,42 +77,80 @@ func (f *flight) transmit(now time.Time, capacity int, send func(uint64, []byte)
 	if capacity < 1 || capacity > maxContent-handshakeHeader {
 		return errRecordOverflow
 	}
+	count, err := f.sendRanges(capacity, send, true)
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		_, err = f.sendRanges(capacity, send, false)
+		if err != nil {
+			return err
+		}
+	}
+	if !f.pendingSend() {
+		f.sentOnce = true
+	}
+	f.deadline = now.Add(f.interval)
+	return nil
+}
+
+func (f *flight) covered(index, off int) bool {
+	for _, part := range f.sent {
+		if part.message == index && off >= part.start && off < part.end {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *flight) messageSent(index int) bool {
+	for _, part := range f.sent {
+		if part.message == index {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *flight) sendRanges(capacity int, send func(uint64, []byte) (recordNumber, error), onlyNew bool) (int, error) {
 	count := 0
 	for index := range f.messages {
 		m := &f.messages[index]
 		for start := 0; start < len(m.message.body) || len(m.message.body) == 0 && !m.emptyAcknowledged; {
-			for start < len(m.message.body) && m.hasByte(start) {
+			for start < len(m.message.body) && (m.hasByte(start) || onlyNew && f.covered(index, start)) {
 				start++
 			}
 			if start == len(m.message.body) && len(m.message.body) != 0 {
 				break
 			}
+			if len(m.message.body) == 0 && onlyNew && f.messageSent(index) {
+				break
+			}
 			end := start
-			for end < len(m.message.body) && end-start < capacity && !m.hasByte(end) {
+			for end < len(m.message.body) && end-start < capacity && !m.hasByte(end) && (!onlyNew || !f.covered(index, end)) {
 				end++
 			}
 			if len(f.sent) >= maxFlightRecords {
-				return errHandshakeLimit
+				return count, errHandshakeLimit
 			}
 			body, err := m.message.fragment(start, end-start)
 			if err != nil {
-				return err
+				return count, err
 			}
 			number, err := send(m.message.epoch, body)
 			if err != nil {
-				return err
+				return count, err
 			}
 			if number.epoch != m.message.epoch {
-				return errRecord
+				return count, errRecord
 			}
 			if _, exists := f.sent[number]; exists {
-				return errSequence
+				return count, errSequence
 			}
 			f.sent[number] = sentFragment{index, start, end}
 			count++
 			if count == flightBurst {
-				f.deadline = now.Add(f.interval)
-				return nil
+				return count, nil
 			}
 			if len(m.message.body) == 0 {
 				break
@@ -119,8 +158,46 @@ func (f *flight) transmit(now time.Time, capacity int, send func(uint64, []byte)
 			start = end
 		}
 	}
-	f.deadline = now.Add(f.interval)
-	return nil
+	return count, nil
+}
+
+func (f *flight) pendingSend() bool {
+	for i, m := range f.messages {
+		if len(m.message.body) == 0 {
+			if m.emptyAcknowledged {
+				continue
+			}
+			found := false
+			for _, part := range f.sent {
+				if part.message == i {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return true
+			}
+			continue
+		}
+		for off := 0; off < len(m.message.body); {
+			if m.hasByte(off) {
+				off++
+				continue
+			}
+			covered := false
+			for _, part := range f.sent {
+				if part.message == i && off >= part.start && off < part.end {
+					covered = true
+					break
+				}
+			}
+			if !covered {
+				return true
+			}
+			off++
+		}
+	}
+	return false
 }
 
 // acknowledge ignores unknown records and unauthenticated acknowledgements of
