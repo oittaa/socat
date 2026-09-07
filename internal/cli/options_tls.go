@@ -23,6 +23,7 @@ func tlsOptionGroups() []helpOptGroup {
 		{"Datagram TLS", []helpOpt{
 			{name: "dtls-mtu", desc: "maximum UDP payload in bytes (256..65507, default 1200)", addressTypes: dtlsAddressTypes(), validate: validateIntegerRange(256, 65507)},
 			{name: "dtls-migration", desc: "negotiate connection IDs and validated address migration (default on)", addressTypes: dtlsAddressTypes(), validate: validateOptionalBool},
+			{name: "dtls-unfragmented-probes", desc: "DF padded RRC probes and path MTU search on a dedicated socket (default off)", addressTypes: dtlsAddressTypes(), validate: validateOptionalBool},
 		}},
 		{"WebSocket", []helpOpt{
 			{name: "path", optionCaps: capExec, desc: "WebSocket URL path"},

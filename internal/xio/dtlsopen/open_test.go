@@ -211,6 +211,23 @@ func TestDTLSConfigurationOptions(t *testing.T) {
 	if !cfg.DisableMigration || !cfg.DisableHandshakeTimeout {
 		t.Fatal("explicit disabled migration/handshake timeout was lost")
 	}
+	if cfg.UnfragmentedProbes {
+		t.Fatal("unfragmented probes defaulted on")
+	}
+	cfg, err = endpointConfig(spec(t, "DTLS:localhost:443,verify=0,dtls-unfragmented-probes"), "localhost", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.UnfragmentedProbes {
+		t.Fatal("dtls-unfragmented-probes did not enable probes")
+	}
+	cfg, err = endpointConfig(spec(t, "DTLS:localhost:443,verify=0,dtls-unfragmented-probes=0"), "localhost", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.UnfragmentedProbes {
+		t.Fatal("dtls-unfragmented-probes=0 left probes enabled")
+	}
 }
 
 func TestDTLSHandshakeReceiveTimeout(t *testing.T) {
