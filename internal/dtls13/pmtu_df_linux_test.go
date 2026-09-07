@@ -40,9 +40,6 @@ func TestUnfragmentedProbesUsesPMTUDISCProbe(t *testing.T) {
 	if mode != unix.IP_PMTUDISC_PROBE {
 		t.Fatalf("IP_MTU_DISCOVER=%d want PMTUDISC_PROBE=%d (not DO=%d)", mode, unix.IP_PMTUDISC_PROBE, unix.IP_PMTUDISC_DO)
 	}
-	if mode == unix.IP_PMTUDISC_DO {
-		t.Fatal("IP_PMTUDISC_DO honors unauthenticated ICMP PMTU")
-	}
 }
 
 func TestSharedListenerDoesNotEnableUnfragmentedProbes(t *testing.T) {
