@@ -257,6 +257,7 @@ func (c *Conn) run() {
 	if !s.handshake.config.DisableHandshakeTimeout {
 		handshakeDeadline = started.Add(s.handshake.config.HandshakeTimeout)
 	}
+	ready := false
 	receivePacket := func(packet incomingPacket) bool {
 		c.releasePacket(len(packet.data))
 		select {
@@ -264,7 +265,7 @@ func (c *Conn) run() {
 			return false
 		default:
 		}
-		if !s.handshake.complete && !handshakeDeadline.IsZero() && !time.Now().Before(handshakeDeadline) {
+		if !ready && !handshakeDeadline.IsZero() && !time.Now().Before(handshakeDeadline) {
 			c.fail(context.DeadlineExceeded)
 			return false
 		}
@@ -286,7 +287,6 @@ func (c *Conn) run() {
 	timer := time.NewTimer(time.Hour)
 	defer timer.Stop()
 	var pending *connCommand
-	ready := false
 	queuedBeforeTimeout := -1
 	for {
 		select {
@@ -295,12 +295,16 @@ func (c *Conn) run() {
 		default:
 		}
 		now := time.Now()
-		waitDeadline := handshakeDeadline
-		if !s.handshake.complete {
+		waitDeadline := time.Time{}
+		if !ready {
+			// HandshakeTimeout stays active until the final flight is sent.
+			waitDeadline = handshakeDeadline
 			if !handshakeDeadline.IsZero() && !now.Before(handshakeDeadline) {
 				c.fail(context.DeadlineExceeded)
 				return
 			}
+		}
+		if !s.handshake.complete {
 			if timeout := s.handshake.config.HandshakeReadTimeout; timeout > 0 {
 				lastReceive := s.handshakeReceived
 				if lastReceive.IsZero() {
