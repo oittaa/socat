@@ -104,6 +104,9 @@ func (s *session) receiveMTUProbe(from packetPath, body []byte, now time.Time) {
 	if probe == nil || len(body) != rrcMessageLen {
 		return
 	}
+	if s.path != nil && s.path.probe != nil || s.updatePending || s.updating {
+		return
+	}
 	if body[0] != pathResponse && body[0] != pathDrop {
 		return
 	}

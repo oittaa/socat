@@ -34,7 +34,11 @@ Linux opt-in uses `IP_PMTUDISC_PROBE` / `IPV6_PMTUDISC_PROBE` (DF set, kernel
 ICMP PMTU tracking ignored). `IP_PMTUDISC_DO` is not used. Listeners ignore
 the flag: a shared socket must not change fragmentation for every
 association. Probe timeout is 16s (RFC 8899: never below 1s, should be
-larger than 15s). The 600s raise timer is not started.
+larger than 15s) and is included in `session.deadline()` so the connection
+event loop wakes. The 600s raise timer is not started. In-flight migration
+or KeyUpdate takes precedence: a matching response does not complete
+discovery. Responses are matched against cookie, path (remote and local
+socket), deadline, and generation.
 
 We do not query `IP_MTU`, connect the active socket, or probe from another
 source port.

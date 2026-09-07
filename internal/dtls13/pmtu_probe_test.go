@@ -395,6 +395,119 @@ func TestStaleMTUProbeAfterMigrationIgnored(t *testing.T) {
 	}
 }
 
+func TestMTUProbeDeadlineIsOwnedBySession(t *testing.T) {
+	p := newTestPaths(t)
+	p.client.canProbe = true
+	now := time.Unix(1000, 0)
+	if err := p.client.startMTUProbe(probeDatagramSize(p.client, 40), now); err != nil {
+		t.Fatal(err)
+	}
+	want := now.Add(probeTimeout)
+	got := p.client.deadline()
+	if got.IsZero() || got.After(want) {
+		t.Fatalf("session deadline %v does not include probe timeout %v", got, want)
+	}
+	if err := p.client.tick(want); err != nil {
+		t.Fatal(err)
+	}
+	if p.client.mtu.outstanding != nil {
+		t.Fatal("probe still outstanding after deadline tick")
+	}
+}
+
+func TestMTUProbeIgnoresWrongLocalSocket(t *testing.T) {
+	p := newTestPaths(t)
+	p.client.canProbe = true
+	now := time.Unix(1000, 0)
+	size := probeDatagramSize(p.client, 40)
+	if err := p.client.startMTUProbe(size, now); err != nil {
+		t.Fatal(err)
+	}
+	challenge := p.packets[0]
+	p.packets = nil
+	if _, err := p.server.receiveFrom(challenge.data, packetPath{challenge.from, 1}, now); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.packets) != 1 {
+		t.Fatal("missing path_response")
+	}
+	response := p.packets[0]
+	p.packets = nil
+	if _, err := p.client.receiveFrom(response.data, packetPath{response.from, 2}, now); err != nil {
+		t.Fatal(err)
+	}
+	if p.client.mtu.lastAckedSize != 0 || p.client.mtu.outstanding == nil {
+		t.Fatal("response on a different local socket completed the probe")
+	}
+}
+
+func TestMTUProbeIgnoredDuringMigration(t *testing.T) {
+	p := newTestPaths(t)
+	p.client.canProbe = true
+	now := time.Unix(1000, 0)
+	working := p.client.effectiveMTU()
+	size := probeDatagramSize(p.client, 40)
+	if err := p.client.startMTUProbe(size, now); err != nil {
+		t.Fatal(err)
+	}
+	challenge := p.packets[0]
+	p.packets = nil
+	if _, err := p.server.receiveFrom(challenge.data, packetPath{challenge.from, 1}, now); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.packets) != 1 {
+		t.Fatal("missing path_response")
+	}
+	response := p.packets[0]
+	p.packets = nil
+	p.client.path.probe = &pathProbe{
+		candidate: packetPath{netip.MustParseAddrPort("192.0.2.9:9"), 1},
+		deadline:  now.Add(time.Second),
+	}
+	if _, err := p.client.receiveFrom(response.data, packetPath{response.from, 1}, now); err != nil {
+		t.Fatal(err)
+	}
+	if p.client.mtu.lastAckedSize != 0 || p.client.mtu.outstanding == nil {
+		t.Fatal("discovery completed while a migration probe was outstanding")
+	}
+	if p.client.effectiveMTU() != working {
+		t.Fatal("usable MTU changed during migration")
+	}
+}
+
+func TestMTUProbeIgnoredDuringKeyUpdate(t *testing.T) {
+	p := newTestPaths(t)
+	p.client.canProbe = true
+	now := time.Unix(1000, 0)
+	working := p.client.effectiveMTU()
+	size := probeDatagramSize(p.client, 40)
+	if err := p.client.startMTUProbe(size, now); err != nil {
+		t.Fatal(err)
+	}
+	challenge := p.packets[0]
+	p.packets = nil
+	if _, err := p.server.receiveFrom(challenge.data, packetPath{challenge.from, 1}, now); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.packets) != 1 {
+		t.Fatal("missing path_response")
+	}
+	response := p.packets[0]
+	p.packets = nil
+	if err := p.client.requestKeyUpdate(false, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.client.receiveFrom(response.data, packetPath{response.from, 1}, now); err != nil {
+		t.Fatal(err)
+	}
+	if p.client.mtu.lastAckedSize != 0 || p.client.mtu.outstanding == nil {
+		t.Fatal("discovery completed while KeyUpdate was in flight")
+	}
+	if p.client.effectiveMTU() != working {
+		t.Fatal("usable MTU changed during KeyUpdate")
+	}
+}
+
 func TestMTUProbeIsolatedFromSecondAssociation(t *testing.T) {
 	a := newTestPaths(t)
 	b := newTestPaths(t)

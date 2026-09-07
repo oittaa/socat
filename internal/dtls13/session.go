@@ -489,6 +489,9 @@ func (s *session) deadline() time.Time {
 	if s.path != nil && s.path.probe != nil && (deadline.IsZero() || s.path.probe.deadline.Before(deadline)) {
 		deadline = s.path.probe.deadline
 	}
+	if s.mtu.outstanding != nil && (deadline.IsZero() || s.mtu.outstanding.deadline.Before(deadline)) {
+		deadline = s.mtu.outstanding.deadline
+	}
 	return deadline
 }
 
