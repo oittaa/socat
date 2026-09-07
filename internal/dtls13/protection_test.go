@@ -117,7 +117,7 @@ type stubOverheadAEAD struct {
 	overhead int
 }
 
-func (s stubOverheadAEAD) NonceSize() int { return 12 }
+func (s stubOverheadAEAD) NonceSize() int { return aeadNonceLen }
 func (s stubOverheadAEAD) Overhead() int  { return s.overhead }
 func (s stubOverheadAEAD) Seal(dst, nonce, plaintext, ad []byte) []byte {
 	return append(dst, plaintext...)

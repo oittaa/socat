@@ -15,19 +15,23 @@ import (
 
 var errAuthentication = errors.New("dtls: record authentication failed")
 
-// seqNumMaskLen is the DTLS 1.3 sequence-number sample and mask (RFC 9147 §4.2.3).
-const seqNumMaskLen = 16
+const (
+	// seqNumMaskLen is the DTLS 1.3 sequence-number sample and mask (RFC 9147 §4.2.3).
+	seqNumMaskLen = 16
+	// aeadNonceLen is the per-record nonce for AES-GCM and ChaCha20-Poly1305 (RFC 8446 §5.3).
+	aeadNonceLen = 12
+)
 
 type trafficKeys struct {
 	aead        cipher.AEAD
 	sn          cipher.Block
 	snChaCha    []byte
 	recordLimit uint64
-	iv          [12]byte
+	iv          [aeadNonceLen]byte
 	// Session record processing owns these buffers; traffic keys are not shared between goroutines.
-	nonceBuffer  [12]byte
+	nonceBuffer  [aeadNonceLen]byte
 	maskBuffer   [seqNumMaskLen]byte
-	headerBuffer [260]byte
+	headerBuffer [maxUnifiedHeader]byte
 }
 
 func newTrafficKeys(id uint16, secret []byte) (*trafficKeys, error) {
@@ -42,7 +46,7 @@ func newTrafficKeys(id uint16, secret []byte) (*trafficKeys, error) {
 	if err != nil {
 		return nil, err
 	}
-	iv, err := expandLabel(suite.hash, secret, "iv", nil, 12)
+	iv, err := expandLabel(suite.hash, secret, "iv", nil, aeadNonceLen)
 	if err != nil {
 		return nil, err
 	}
@@ -76,12 +80,12 @@ func newTrafficKeys(id uint16, secret []byte) (*trafficKeys, error) {
 	return keys, nil
 }
 
-func (k *trafficKeys) nonce(sequence uint64) [12]byte {
+func (k *trafficKeys) nonce(sequence uint64) [aeadNonceLen]byte {
 	nonce := k.iv
 	var encoded [8]byte
 	binary.BigEndian.PutUint64(encoded[:], sequence)
 	for i, b := range encoded {
-		nonce[4+i] ^= b
+		nonce[aeadNonceLen-len(encoded)+i] ^= b
 	}
 	return nonce
 }
@@ -91,11 +95,12 @@ func (k *trafficKeys) mask(ciphertext []byte) ([seqNumMaskLen]byte, error) {
 		return [seqNumMaskLen]byte{}, errAuthentication
 	}
 	if k.snChaCha != nil {
-		stream, err := chacha20.NewUnauthenticatedCipher(k.snChaCha, ciphertext[4:seqNumMaskLen])
+		sample := ciphertext[:seqNumMaskLen]
+		stream, err := chacha20.NewUnauthenticatedCipher(k.snChaCha, sample[len(sample)-chacha20.NonceSize:])
 		if err != nil {
 			return [seqNumMaskLen]byte{}, err
 		}
-		stream.SetCounter(binary.LittleEndian.Uint32(ciphertext[:4]))
+		stream.SetCounter(binary.LittleEndian.Uint32(sample))
 		clear(k.maskBuffer[:])
 		stream.XORKeyStream(k.maskBuffer[:], k.maskBuffer[:])
 	} else {
