@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -54,7 +55,7 @@ func setUnfragmentedDF(rawConn syscall.RawConn) (bool, error) {
 	return !disable, nil
 }
 
-func darwinKernelMajor() (int, error) {
+var darwinKernelMajor = sync.OnceValues(func() (int, error) {
 	uname := &unix.Utsname{}
 	if err := unix.Uname(uname); err != nil {
 		return 0, err
@@ -65,4 +66,4 @@ func darwinKernelMajor() (int, error) {
 		return 0, nil
 	}
 	return strconv.Atoi(before)
-}
+})

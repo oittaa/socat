@@ -42,3 +42,14 @@ func TestUnfragmentedProbesSetsIPv4DontFrag(t *testing.T) {
 		t.Fatal("IP_DONTFRAG is not set")
 	}
 }
+
+func TestDarwinKernelMajorIsStable(t *testing.T) {
+	first, err := darwinKernelMajor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := darwinKernelMajor()
+	if err != nil || first != second {
+		t.Fatalf("kernel major %d then %d (%v)", first, second, err)
+	}
+}
