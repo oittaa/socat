@@ -34,7 +34,9 @@ const (
 	LogDestMixed
 )
 
-// Config holds parsed global options.
+// Config holds parsed CLI flags. Per-session peer, child wait status, and
+// dump files live on xio.Global after buildGlobal; this struct is not mutated
+// once parsing finishes.
 type Config struct {
 	Help          int // 0 none, 1 -h, 2 -hh, 3 -hhh
 	Version       bool
@@ -575,7 +577,8 @@ func acquireLockFiles(ctx context.Context, cfg *Config) (func(), error) {
 	}, nil
 }
 
-// buildGlobal maps parsed flags onto the transfer-time Global.
+// buildGlobal copies parsed Config onto xio.Global options. Peer maps, child
+// wait status, sniff files, and the per-session signal table start empty.
 func buildGlobal(cfg *Config, log *logx.Logger) *xio.Global {
 	g := &xio.Global{
 		Log:          log,

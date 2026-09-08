@@ -112,7 +112,8 @@ func openSniffFilesLocked(g *Global) error {
 	if g == nil {
 		return nil
 	}
-	// Close previous session files (fork children re-open).
+	// Close previous session files. Fork children copied the pointers; re-open
+	// so the child does not share the parent's *os.File.
 	if g.RawLeft != nil {
 		_ = g.RawLeft.Close()
 		g.RawLeft = nil

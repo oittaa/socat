@@ -82,10 +82,9 @@ const (
 	IPvAny // -0
 )
 
-// globalState is the copyable part of Global. The session mutex stays off this
-// struct so forkSession can copy under the session lock without racing
-// CAS-install of the mutex.
-type globalState struct {
+// globalOptions is parsed process configuration. forkSession copies it by
+// value, then clones Log so children do not share logger mutables.
+type globalOptions struct {
 	Log          *logx.Logger
 	IPVersion    IPVersion
 	BlockSize    int
@@ -101,72 +100,96 @@ type globalState struct {
 	LogMixed     bool      // -lm: stderr until both endpoints are ready
 	LogFacility  string    // syslog facility for -ly/-lm
 	Statistics   bool
-	statsPrinted *atomic.Bool // pointer so forkSession can copy Global without copying a lock
-	// childSignals is this logical session's four-slot signal table.
-	// forkSession nils it so LISTEN,fork goroutines do not share one table.
-	childSignals *childSignalSession
 	Experimental bool // --experimental (netns= warning)
-	// ForkChild is set on LISTEN/CONNECT,fork session goroutines. FD,end-close
-	// then closes only the per-session duplicate, like a fork child's copy of
-	// the inherited descriptor.
-	ForkChild bool
+	// -r / -R path templates. Files live on sniffFiles, opened after peer is known.
+	RawLeftPath  string
+	RawRightPath string
+	Progname     string // -lp value; default "socat"
+}
 
-	// Peer info from the most recently accepted/connected socket (for SOCAT_* env).
+// sessionPeer is per-connection identity for SOCAT_* env and sniff paths.
+// forkSession clones the maps; RememberAddrs overwrites the address strings.
+type sessionPeer struct {
 	SockAddr string
 	PeerAddr string
 	SockPort string
 	PeerPort string
-
-	// TLSVars contains TLS session metadata without the TLS_/OPENSSL_ prefix.
-	// Children receive both the preferred *_TLS_* names and *_OPENSSL_*
-	// compatibility aliases.
+	// TLSVars holds TLS metadata without the TLS_/OPENSSL_ prefix.
+	// Children get both *_TLS_* names and *_OPENSSL_* aliases.
 	TLSVars map[string]string
-
-	// SessionVars contains other per-session output variables without the
-	// executable prefix (for example TIMESTAMP or POSIXMQ_PRIO).
+	// SessionVars holds other per-session output names without the executable
+	// prefix (for example TIMESTAMP or POSIXMQ_PRIO).
 	SessionVars map[string]string
-
-	// Child process exit (EXEC/SYSTEM): non-zero promotes socat process exit.
-	ChildExitCode int
-	ChildErr      error
-
-	// -r / -R raw transfer dumps (left→right / right→left).
-	// Path templates may contain $PROGNAME, $TIMESTAMP, $MICROS, $$, $ENV.
-	// Files are opened at transfer start (after peer is known) with CLOEXEC.
-	RawLeftPath  string
-	RawRightPath string
-	Progname     string // -lp value; default "socat"
-	RawLeft      *os.File
-	RawRight     *os.File
 }
 
-// Global holds process-wide options affecting address open.
+// childResult is the last EXEC/SYSTEM wait status on this session.
+// Copied into the fork child (listen parents are typically zero).
+type childResult struct {
+	ChildExitCode int
+	ChildErr      error
+}
+
+// sniffFiles are -r/-R dumps. forkSession copies the pointers; openSniffFiles
+// then closes and reopens so parent and child do not share an *os.File.
+type sniffFiles struct {
+	RawLeft  *os.File
+	RawRight *os.File
+}
+
+// sessionRuntime is per-logical-session flags that are not parsed options.
+// forkSession sets ForkChild and starts with a nil signal table.
+type sessionRuntime struct {
+	// ForkChild is set on LISTEN/CONNECT,fork session goroutines. FD,end-close
+	// then closes only the per-session duplicate, like a fork child's copy of
+	// the inherited descriptor.
+	ForkChild bool
+	// childSignals is this logical session's four-slot signal table.
+	childSignals *childSignalSession
+}
+
+// Global is parsed options plus the current logical session's runtime state.
+// Callers still use the promoted field names (g.BlockSize, g.SockAddr, ...).
 type Global struct {
-	globalState
-	// sessionMu guards SessionVars. Kept off globalState so a struct copy
-	// cannot race CAS-install. Each session installs its own lock.
+	globalOptions
+	sessionPeer
+	childResult
+	sniffFiles
+	sessionRuntime
+	// statsPrinted is shared across forks so --statistics prints once.
+	// Pointer, never an embedded atomic.Bool, so copies cannot copy a lock.
+	statsPrinted *atomic.Bool
+	// sessionMu guards SessionVars. Each session CAS-installs its own mutex;
+	// forkSession must not copy this field.
 	sessionMu atomic.Pointer[sync.Mutex]
 }
 
 // forkSession returns a per-connection copy of g.
-// Peer/TLS fields must be unique per fork child so SOCAT_* env does not race.
-// statsPrinted is a shared pointer so --statistics still prints once.
-// Passing *g without a copy is not safe: RememberAddrs writes those fields.
+//
+// Copy: options, peer address strings, child wait status, sniff file pointers.
+// Clone: Log, TLSVars, SessionVars (so SOCAT_* env does not race).
+// Share: statsPrinted.
+// Reset: ForkChild=true, childSignals=nil, sessionMu unset (child installs one).
+// Passing *g without a copy is not safe: RememberAddrs writes peer fields.
 func (g *Global) forkSession() *Global {
 	if g == nil {
-		return &Global{statsPrinted: new(atomic.Bool), ForkChild: true}
+		return &Global{sessionRuntime: sessionRuntime{ForkChild: true}, statsPrinted: new(atomic.Bool)}
 	}
 	unlock := g.lockSession()
 	vars := cloneStringMap(g.SessionVars)
-	cg := Global{globalState: g.globalState}
+	cg := Global{
+		globalOptions:  g.globalOptions,
+		sessionPeer:    g.sessionPeer,
+		childResult:    g.childResult,
+		sniffFiles:     g.sniffFiles,
+		sessionRuntime: sessionRuntime{ForkChild: true},
+		statsPrinted:   g.statsPrinted,
+	}
 	unlock()
-	cg.ForkChild = true
 	if g.Log != nil {
 		cg.Log = g.Log.Clone()
 	}
 	cg.TLSVars = cloneStringMap(g.TLSVars)
 	cg.SessionVars = vars
-	cg.childSignals = nil
 	if cg.statsPrinted == nil {
 		cg.statsPrinted = new(atomic.Bool)
 	}
