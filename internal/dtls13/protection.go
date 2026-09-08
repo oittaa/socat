@@ -24,8 +24,7 @@ const (
 
 type trafficKeys struct {
 	aead        cipher.AEAD
-	sn          cipher.Block
-	snChaCha    []byte
+	sn          any // cipher.Block for AES, *chaChaSequenceKey for ChaCha20.
 	recordLimit uint64
 	iv          [aeadNonceLen]byte
 	// Session record processing owns these buffers; traffic keys are not shared between goroutines.
@@ -33,6 +32,8 @@ type trafficKeys struct {
 	maskBuffer   [seqNumMaskLen]byte
 	headerBuffer [maxUnifiedHeader]byte
 }
+
+type chaChaSequenceKey [chacha20.KeySize]byte
 
 func newTrafficKeys(id uint16, secret []byte) (*trafficKeys, error) {
 	suite, err := suiteFor(id)
@@ -54,28 +55,31 @@ func newTrafficKeys(id uint16, secret []byte) (*trafficKeys, error) {
 	if err != nil {
 		return nil, err
 	}
-	if id == chaCha20Poly1305 {
-		aead, err := chacha20poly1305.New(key)
+	keys := &trafficKeys{recordLimit: suite.recordLimit}
+	switch id {
+	case aes128GCM, aes256GCM:
+		block, err := aes.NewCipher(key)
 		if err != nil {
 			return nil, err
 		}
-		keys := &trafficKeys{aead: aead, snChaCha: snKey, recordLimit: suite.recordLimit}
-		copy(keys.iv[:], iv)
-		return keys, nil
+		keys.aead, err = cipher.NewGCM(block)
+		if err != nil {
+			return nil, err
+		}
+		sn, err := aes.NewCipher(snKey)
+		if err != nil {
+			return nil, err
+		}
+		keys.sn = sn
+	case chaCha20Poly1305:
+		keys.aead, err = chacha20poly1305.New(key)
+		if err != nil {
+			return nil, err
+		}
+		keys.sn = (*chaChaSequenceKey)(snKey)
+	default:
+		return nil, errCipherSuite
 	}
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		return nil, err
-	}
-	aead, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-	sn, err := aes.NewCipher(snKey)
-	if err != nil {
-		return nil, err
-	}
-	keys := &trafficKeys{aead: aead, sn: sn, recordLimit: suite.recordLimit}
 	copy(keys.iv[:], iv)
 	return keys, nil
 }
@@ -91,17 +95,20 @@ func (k *trafficKeys) mask(ciphertext []byte) ([seqNumMaskLen]byte, error) {
 	if len(ciphertext) < seqNumMaskLen {
 		return [seqNumMaskLen]byte{}, errAuthentication
 	}
-	if k.snChaCha != nil {
+	switch sn := k.sn.(type) {
+	case cipher.Block:
+		sn.Encrypt(k.maskBuffer[:], ciphertext[:seqNumMaskLen])
+	case *chaChaSequenceKey:
 		sample := ciphertext[:seqNumMaskLen]
-		stream, err := chacha20.NewUnauthenticatedCipher(k.snChaCha, sample[len(sample)-chacha20.NonceSize:])
+		stream, err := chacha20.NewUnauthenticatedCipher(sn[:], sample[len(sample)-chacha20.NonceSize:])
 		if err != nil {
 			return [seqNumMaskLen]byte{}, err
 		}
 		stream.SetCounter(binary.LittleEndian.Uint32(sample))
 		clear(k.maskBuffer[:])
 		stream.XORKeyStream(k.maskBuffer[:], k.maskBuffer[:])
-	} else {
-		k.sn.Encrypt(k.maskBuffer[:], ciphertext[:seqNumMaskLen])
+	default:
+		return [seqNumMaskLen]byte{}, errCipherSuite
 	}
 	return k.maskBuffer, nil
 }
