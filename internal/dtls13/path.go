@@ -90,10 +90,10 @@ func (p *pathState) challenge(now time.Time) error {
 
 func (p *pathState) startBasic(now time.Time) error {
 	p.probe.phase = pathValidateCandidate
-	if len(p.session.peerSpareCIDs) != 0 {
-		p.probe.cid = p.session.peerSpareCIDs[0]
-		p.session.peerSpareCIDs = p.session.peerSpareCIDs[1:]
-		p.session.wantCIDs = len(p.session.peerSpareCIDs) < 2
+	if len(p.session.cid.peerSpare) != 0 {
+		p.probe.cid = p.session.cid.peerSpare[0]
+		p.session.cid.peerSpare = p.session.cid.peerSpare[1:]
+		p.session.cid.want = len(p.session.cid.peerSpare) < 2
 	} else {
 		p.probe.cid = bytes.Clone(p.session.handshake.peerCID)
 	}

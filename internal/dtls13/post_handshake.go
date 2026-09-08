@@ -14,9 +14,9 @@ var postTypes = [...]byte{msgNewConnectionID, msgRequestConnectionID, msgKeyUpda
 const handshakeReadRetention = 4 * time.Minute
 
 func (s *session) discardHandshakeRead() {
-	if old := s.read[2]; old != nil {
+	if old := s.epochs.read[2]; old != nil {
 		clear(old.secret)
-		delete(s.read, 2)
+		delete(s.epochs.read, 2)
 	}
 	s.handshakeReadExpiry = time.Time{}
 }
@@ -28,7 +28,7 @@ func (s *session) expireHandshakeRead(now time.Time) {
 }
 
 func (s *session) startPost(typ byte, body []byte, now time.Time) error {
-	if !s.handshake.complete || s.updating || s.outbound != nil && !s.outbound.complete {
+	if !s.handshake.complete || s.keyUpdate.updating || s.outbound != nil && !s.outbound.complete {
 		return errOperationPending
 	}
 	if f := s.post[typ]; f != nil && !f.complete {
@@ -53,10 +53,10 @@ func (s *session) requestKeyUpdate(requestPeer bool, now time.Time) error {
 	if s.currentWriteEpoch() >= 1<<48-1 {
 		return errSequence
 	}
-	s.updatePending = true
+	s.keyUpdate.localPending = true
 	// RFC 9846 §4.7.3: do not queue another update_requested while one is outstanding.
-	if requestPeer && !s.awaitingPeerUpdate {
-		s.requestPeerUpdate = true
+	if requestPeer && !s.keyUpdate.awaitingPeer {
+		s.keyUpdate.requestPeer = true
 	}
 	return s.advancePost(now)
 }
@@ -74,60 +74,60 @@ func (s *session) advancePost(now time.Time) error {
 		h.schedule, h.clientApplication, h.serverApplication = nil, nil, nil
 		s.handleHandshake = nil
 	}
-	if old := s.write[2]; old != nil {
+	if old := s.epochs.write[2]; old != nil {
 		clear(old.secret)
 	}
-	delete(s.write, 0)
-	delete(s.write, 2)
-	if s.read[2] != nil {
+	delete(s.epochs.write, 0)
+	delete(s.epochs.write, 2)
+	if s.epochs.read[2] != nil {
 		if s.handshake.client {
 			s.discardHandshakeRead()
 		} else if s.handshakeReadExpiry.IsZero() {
 			s.handshakeReadExpiry = now.Add(handshakeReadRetention)
 		}
 	}
-	if s.updating {
+	if s.keyUpdate.updating {
 		for _, f := range s.post {
 			if !f.complete {
 				return nil
 			}
 		}
 		epoch := s.currentWriteEpoch()
-		secret, keys, err := s.updatedKeys(s.write[epoch].secret)
+		secret, keys, err := s.updatedKeys(s.epochs.write[epoch].secret)
 		if err != nil {
 			return err
 		}
-		s.write[epoch+1] = &writeEpoch{keys: keys, secret: secret}
-		clear(s.write[epoch].secret)
-		delete(s.write, epoch)
-		s.updating = false
+		s.epochs.write[epoch+1] = &writeEpoch{keys: keys, secret: secret}
+		clear(s.epochs.write[epoch].secret)
+		delete(s.epochs.write, epoch)
+		s.keyUpdate.updating = false
 	}
 	for typ, f := range s.post {
 		if f.complete {
 			delete(s.post, typ)
 		}
 	}
-	if s.updatePending {
+	if s.keyUpdate.localPending {
 		if s.currentWriteEpoch() >= 1<<48-1 {
 			return errSequence
 		}
 		request := byte(0)
-		if s.requestPeerUpdate && !s.awaitingPeerUpdate {
+		if s.keyUpdate.requestPeer && !s.keyUpdate.awaitingPeer {
 			request = 1
 		}
 		if err := s.startPost(msgKeyUpdate, []byte{request}, now); err != nil {
 			return err
 		}
-		s.updating, s.updatePending, s.requestPeerUpdate = true, false, false
+		s.keyUpdate.updating, s.keyUpdate.localPending, s.keyUpdate.requestPeer = true, false, false
 		if request == 1 {
-			s.awaitingPeerUpdate = true
+			s.keyUpdate.awaitingPeer = true
 		}
 	}
 	if err := s.respondCIDRequest(now); err != nil {
 		return err
 	}
-	if !s.updating && s.wantCIDs && !s.cidRequested && s.post[msgRequestConnectionID] == nil && (s.path == nil || s.path.probe == nil) {
-		s.wantCIDs = false
+	if !s.keyUpdate.updating && s.cid.want && !s.cid.requested && s.post[msgRequestConnectionID] == nil && (s.path == nil || s.path.probe == nil) {
+		s.cid.want = false
 		if s.handshake.cidNegotiated && len(s.handshake.peerCID) != 0 {
 			return s.requestCIDs(4, now)
 		}
@@ -159,7 +159,7 @@ func (s *session) acknowledgePost(records []recordNumber, authenticated bool, no
 }
 
 func (s *session) receivePost(m handshakeMessage, now time.Time) error {
-	if m.epoch < 3 || m.epoch != s.readApplicationEpoch {
+	if m.epoch < 3 || m.epoch != s.epochs.readApplicationEpoch {
 		return errUnexpectedMessage
 	}
 	switch m.typ {
@@ -167,24 +167,24 @@ func (s *session) receivePost(m handshakeMessage, now time.Time) error {
 		if len(m.body) != 1 {
 			return errDecode
 		}
-		if m.body[0] > 1 || m.epoch != s.readApplicationEpoch {
+		if m.body[0] > 1 || m.epoch != s.epochs.readApplicationEpoch {
 			return errIllegalParameter
 		}
 		if m.epoch == math.MaxUint64 {
 			return errSequence
 		}
-		secret, keys, err := s.updatedKeys(s.read[m.epoch].secret)
+		secret, keys, err := s.updatedKeys(s.epochs.read[m.epoch].secret)
 		if err != nil {
 			return err
 		}
-		s.readApplicationEpoch = m.epoch + 1
-		s.read[m.epoch+1] = &readEpoch{keys: keys, secret: secret}
+		s.epochs.readApplicationEpoch = m.epoch + 1
+		s.epochs.read[m.epoch+1] = &readEpoch{keys: keys, secret: secret}
 		// An acknowledged client Finished precedes every client KeyUpdate.
 		s.discardHandshakeRead()
-		s.awaitingPeerUpdate = false
-		s.requestPeerUpdate = false
+		s.keyUpdate.awaitingPeer = false
+		s.keyUpdate.requestPeer = false
 		if m.body[0] == 1 && s.currentWriteEpoch() < 1<<48-1 {
-			s.updatePending = true
+			s.keyUpdate.localPending = true
 		}
 		return s.sendACK()
 	case msgNewSessionTicket:
@@ -205,11 +205,11 @@ func (s *session) receivePost(m handshakeMessage, now time.Time) error {
 		if len(m.body) != 1 {
 			return errDecode
 		}
-		if s.cidResponse != nil {
+		if s.cid.response != nil {
 			return alertError(52)
 		}
 		count := m.body[0]
-		s.cidResponse = &count
+		s.cid.response = &count
 		return s.sendACK()
 	default:
 		return errUnexpectedMessage

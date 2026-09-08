@@ -57,9 +57,9 @@ func ackCIDRequestWithoutResponse(t *testing.T, client, server *session, packets
 	if err := server.receiveHandshake(number, body, now); err != nil {
 		t.Fatal(err)
 	}
-	server.cidResponse = nil // The modeled peer deliberately supplies no spares.
+	server.cid.response = nil // The modeled peer deliberately supplies no spares.
 	deliverSessionPackets(t, client, server, packets, now)
-	if !client.cidRequested || client.post[msgRequestConnectionID] != nil {
+	if !client.cid.requested || client.post[msgRequestConnectionID] != nil {
 		t.Fatal("ACK-only setup did not leave an unfulfilled, acknowledged request")
 	}
 }
@@ -99,7 +99,7 @@ func TestCIDEmptySpareResponseFulfillsRequest(t *testing.T) {
 		t.Fatalf("empty spare response prevented a later request: %v", err)
 	}
 	deliverSessionPackets(t, client, server, packets, now)
-	if client.cidRequested || len(client.peerSpareCIDs) != 1 {
+	if client.cid.requested || len(client.cid.peerSpare) != 1 {
 		t.Fatal("later spare request did not complete")
 	}
 }

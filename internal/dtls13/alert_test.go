@@ -32,7 +32,7 @@ func TestReceiveGeneralErrorAlert(t *testing.T) {
 	a, b := handshakeConfigs(t)
 	client, server, _ := driveSessions(t, a, b, false, false)
 	now := time.Unix(1000, 0)
-	w := client.write[client.currentWriteEpoch()]
+	w := client.epochs.write[client.currentWriteEpoch()]
 	packet, err := w.keys.encodeRecord(recordNumber{client.currentWriteEpoch(), w.sequence}, client.handshake.peerCID, contentAlert, []byte{2, 117}, 0)
 	if err != nil {
 		t.Fatal(err)

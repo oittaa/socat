@@ -42,7 +42,7 @@ func (s *session) probeCID() []byte {
 }
 
 func (s *session) canSendMTUProbe() error {
-	if !s.canProbe {
+	if !s.working.canProbe {
 		return errProbeDisabled
 	}
 	if s.handshake == nil || !s.handshakeAcknowledged() || !s.handshake.rrc || !s.handshake.cidNegotiated {
@@ -51,7 +51,7 @@ func (s *session) canSendMTUProbe() error {
 	if s.path == nil {
 		return errProbeDisabled
 	}
-	if s.path.probe != nil || s.updatePending || s.updating {
+	if s.path.probe != nil || s.keyUpdate.localPending || s.keyUpdate.updating {
 		return errProbeBusy
 	}
 	if s.mtu.outstanding != nil {
@@ -117,7 +117,7 @@ func (s *session) receiveMTUProbe(from packetPath, body []byte, now time.Time) {
 	if probe == nil || len(body) != rrcMessageLen {
 		return
 	}
-	if s.path != nil && s.path.probe != nil || s.updatePending || s.updating {
+	if s.path != nil && s.path.probe != nil || s.keyUpdate.localPending || s.keyUpdate.updating {
 		return
 	}
 	if body[0] != pathResponse && body[0] != pathDrop {

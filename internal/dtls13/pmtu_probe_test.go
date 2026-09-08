@@ -12,8 +12,8 @@ func probeDatagramSize(s *session, extra int) int {
 
 func TestMTUProbeExceedsWorkingSize(t *testing.T) {
 	p := newTestPaths(t)
-	p.client.canProbe = true
-	p.client.pathMTU = 400
+	p.client.working.canProbe = true
+	p.client.working.pathMTU = 400
 	now := time.Unix(1000, 0)
 	size := 800
 	if size <= p.client.effectiveMTU() || size > p.client.mtuCeiling() {
@@ -32,7 +32,7 @@ func TestMTUProbeExceedsWorkingSize(t *testing.T) {
 
 func TestMTUProbeDoesNotStallApplication(t *testing.T) {
 	p := newTestPaths(t)
-	p.client.canProbe = true
+	p.client.working.canProbe = true
 	now := time.Unix(1000, 0)
 	if err := p.client.startMTUProbe(probeDatagramSize(p.client, 80), now); err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestMTUProbeDoesNotStallApplication(t *testing.T) {
 
 func TestMTUProbeDefersToKeyUpdate(t *testing.T) {
 	p := newTestPaths(t)
-	p.client.canProbe = true
+	p.client.working.canProbe = true
 	now := time.Unix(1000, 0)
 	if err := p.client.requestKeyUpdate(false, now); err != nil {
 		t.Fatal(err)
@@ -56,7 +56,7 @@ func TestMTUProbeDefersToKeyUpdate(t *testing.T) {
 
 func TestMTUProbeKeyUpdateDoesNotRaiseMTU(t *testing.T) {
 	p := newTestPaths(t)
-	p.client.canProbe = true
+	p.client.working.canProbe = true
 	now := time.Unix(1000, 0)
 	working := p.client.effectiveMTU()
 	if err := p.client.startMTUProbe(probeDatagramSize(p.client, 40), now); err != nil {
@@ -73,7 +73,7 @@ func TestMTUProbeKeyUpdateDoesNotRaiseMTU(t *testing.T) {
 
 func TestMTUProbeOneOutstanding(t *testing.T) {
 	p := newTestPaths(t)
-	p.client.canProbe = true
+	p.client.working.canProbe = true
 	now := time.Unix(1000, 0)
 	size := probeDatagramSize(p.client, 40)
 	if err := p.client.startMTUProbe(size, now); err != nil {
@@ -86,7 +86,7 @@ func TestMTUProbeOneOutstanding(t *testing.T) {
 
 func TestMTUProbeCeilingAndAboveWorking(t *testing.T) {
 	p := newTestPaths(t)
-	p.client.canProbe = true
+	p.client.working.canProbe = true
 	now := time.Unix(1000, 0)
 	if err := p.client.startMTUProbe(p.client.mtuCeiling()+1, now); !errors.Is(err, errProbeSize) {
 		t.Fatalf("above ceiling: %v", err)
@@ -98,7 +98,7 @@ func TestMTUProbeCeilingAndAboveWorking(t *testing.T) {
 
 func TestMTUProbeDeadlineIsOwnedBySession(t *testing.T) {
 	p := newTestPaths(t)
-	p.client.canProbe = true
+	p.client.working.canProbe = true
 	now := time.Unix(1000, 0)
 	if err := p.client.startMTUProbe(probeDatagramSize(p.client, 40), now); err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestMTUProbeDeadlineIsOwnedBySession(t *testing.T) {
 func TestMTUProbeIsolatedFromSecondAssociation(t *testing.T) {
 	a := newTestPaths(t)
 	b := newTestPaths(t)
-	a.client.canProbe = true
+	a.client.working.canProbe = true
 	now := time.Unix(1000, 0)
 	working := b.client.effectiveMTU()
 	if err := a.client.startMTUProbe(probeDatagramSize(a.client, 40), now); err != nil {

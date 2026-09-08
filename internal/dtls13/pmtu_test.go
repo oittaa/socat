@@ -13,7 +13,7 @@ func driveLimitedSessions(t *testing.T, clientConfig, serverConfig *Config, clie
 	var client, server *session
 	sender := func(fromClient bool, limit int) func([]byte) error {
 		return func(data []byte) error {
-			if dropUntil > 0 && fromClient && (client == nil || client.mtuReductions < dropUntil) {
+			if dropUntil > 0 && fromClient && (client == nil || client.working.reductions < dropUntil) {
 				return nil
 			}
 			if limit > 0 && len(data) > limit {
@@ -77,11 +77,11 @@ func TestHandshakeRecoversFromEMSGSIZE(t *testing.T) {
 	limitedCfg, peerCfg := handshakeConfigs(t)
 	limitedCfg.MTU, peerCfg.MTU = 4000, 4000
 	limited, peer, _ := driveLimitedSessions(t, limitedCfg, peerCfg, 600, 0, 0)
-	if limited.mtuReductions == 0 || limited.effectiveMTU() >= 4000 || limited.effectiveMTU() < minPathMTU {
-		t.Fatalf("limited MTU %d after %d reductions", limited.effectiveMTU(), limited.mtuReductions)
+	if limited.working.reductions == 0 || limited.effectiveMTU() >= 4000 || limited.effectiveMTU() < minPathMTU {
+		t.Fatalf("limited MTU %d after %d reductions", limited.effectiveMTU(), limited.working.reductions)
 	}
-	if peer.mtuReductions != 0 || peer.effectiveMTU() != 4000 {
-		t.Fatalf("unlimited peer shrank: mtu=%d reductions=%d", peer.effectiveMTU(), peer.mtuReductions)
+	if peer.working.reductions != 0 || peer.effectiveMTU() != 4000 {
+		t.Fatalf("unlimited peer shrank: mtu=%d reductions=%d", peer.effectiveMTU(), peer.working.reductions)
 	}
 	if err := limited.application([]byte("ok")); err != nil {
 		t.Fatal(err)
@@ -94,11 +94,11 @@ func TestHandshakeEMSGSIZEIsolatedFromSecondAssociation(t *testing.T) {
 	aClient.MTU, aServer.MTU, bClient.MTU, bServer.MTU = 4000, 4000, 4000, 4000
 	limited, _, _ := driveLimitedSessions(t, aClient, aServer, 600, 0, 0)
 	plain, _, _ := driveLimitedSessions(t, bClient, bServer, 0, 0, 0)
-	if limited.mtuReductions == 0 {
+	if limited.working.reductions == 0 {
 		t.Fatal("injected EMSGSIZE did not shrink")
 	}
-	if plain.mtuReductions != 0 || plain.effectiveMTU() != 4000 {
-		t.Fatalf("second association shrank: mtu=%d reductions=%d", plain.effectiveMTU(), plain.mtuReductions)
+	if plain.working.reductions != 0 || plain.effectiveMTU() != 4000 {
+		t.Fatalf("second association shrank: mtu=%d reductions=%d", plain.effectiveMTU(), plain.working.reductions)
 	}
 }
 
@@ -106,8 +106,8 @@ func TestHandshakeShrinksOnUnansweredFlight(t *testing.T) {
 	clientCfg, serverCfg := handshakeConfigs(t)
 	clientCfg.MTU, serverCfg.MTU = 2000, 2000
 	client, server, _ := driveLimitedSessions(t, clientCfg, serverCfg, 0, 0, 2)
-	if client.mtuReductions < 2 || client.mtuReductions > maxMTUReductions {
-		t.Fatalf("unanswered reductions = %d", client.mtuReductions)
+	if client.working.reductions < 2 || client.working.reductions > maxMTUReductions {
+		t.Fatalf("unanswered reductions = %d", client.working.reductions)
 	}
 	if client.effectiveMTU() >= 2000 || client.effectiveMTU() < minPathMTU {
 		t.Fatalf("unanswered MTU %d", client.effectiveMTU())

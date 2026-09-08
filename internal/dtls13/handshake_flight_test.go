@@ -33,17 +33,17 @@ func TestAcknowledgementQueueBoundedWhileFinalFlightUnsent(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if n := len(s.acknowledgements); n == 0 || n > maxQueuedAcknowledgements {
+	if n := len(s.ack.pending); n == 0 || n > maxQueuedAcknowledgements {
 		t.Fatalf("queued ACK records = %d; want 1..%d while Finished is unsent", n, maxQueuedAcknowledgements)
 	}
 }
 
 func TestHandshakeStallACKSuppressedDuringResponse(t *testing.T) {
 	s := newSession(&handshakeState{config: &Config{MTU: 1200}}, nil, func([]byte) error { return nil })
-	s.acknowledgements = []recordNumber{{2, 1}}
-	s.ackDeadline = time.Unix(1, 0)
+	s.ack.pending = []recordNumber{{2, 1}}
+	s.ack.deadline = time.Unix(1, 0)
 	s.outbound = &flight{}
-	now := s.ackDeadline.Add(time.Second)
+	now := s.ack.deadline.Add(time.Second)
 	if s.handshakeACKScheduled() {
 		t.Fatal("responding flight scheduled a stall ACK")
 	}
