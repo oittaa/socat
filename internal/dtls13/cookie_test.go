@@ -47,10 +47,9 @@ func issuedCookie(t *testing.T, secrets *cookieSecrets, now time.Time) (*Config,
 
 func TestCookieSecretsOverlapAfterRotation(t *testing.T) {
 	secrets := cookieSecrets{current: [32]byte{1}}
-	now := time.Unix(100, 0)
-	config, peer, ch1 := issuedCookie(t, &secrets, now)
-	secrets.rotateTo([32]byte{2}, now.Add(cookieLifetime))
-	if _, err := secrets.verify(config, peer, ch1, now.Add(30*time.Second)); err != nil {
+	config, peer, ch1 := issuedCookie(t, &secrets, time.Unix(159, 0))
+	secrets.rotateTo([32]byte{2}, time.Unix(160, 0))
+	if _, err := secrets.verify(config, peer, ch1, time.Unix(161, 0)); err != nil {
 		t.Fatalf("cookie minted before rotation: %v", err)
 	}
 }
