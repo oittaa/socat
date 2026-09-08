@@ -29,7 +29,10 @@ import (
 )
 
 type oracleTools struct {
-	OpenSSL struct{ OpenSSL string }                      `json:"openssl"`
+	OpenSSL struct {
+		OpenSSL  string `json:"openssl"`
+		Listener string `json:"listener"`
+	} `json:"openssl"`
 	WolfSSL struct{ Client, Server, Certificates string } `json:"wolfssl"`
 	Pion    struct{ Server string }                       `json:"pion"`
 }
