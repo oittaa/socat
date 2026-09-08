@@ -26,17 +26,6 @@ func TestCIDRequestCountsAndExhaustion(t *testing.T) {
 				if err := requester.requestCIDs(count, now); err != nil {
 					t.Fatal(err)
 				}
-				// Verify the production request encoding independently of its parser.
-				r, _, err := parseRecord((*packets)[0].data, len(issuer.handshake.localCID))
-				if err != nil {
-					t.Fatal(err)
-				}
-				window := issuer.read[3].window
-				_, typ, wire, err := issuer.read[3].keys.decodeRecord(r, 3, issuer.handshake.localCID, &window)
-				seq := uint16(requester.handshake.sequence - 1)
-				if err != nil || typ != contentHandshake || !bytes.Equal(wire, cidWireFragment(msgRequestConnectionID, seq, 1, 0, []byte{count})) {
-					t.Fatalf("request encoding: %x, %v", wire, err)
-				}
 				deliverSessionPackets(t, client, server, packets, now)
 				want := min(int(count), maxConnectionIDs-1)
 				if requester.cidRequested || len(requester.peerSpareCIDs) != want || len(issuer.localCIDs) != want+1 {

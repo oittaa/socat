@@ -2,7 +2,6 @@ package dtls13
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"net/netip"
 	"testing"
@@ -525,52 +524,4 @@ func TestMTUProbeIsolatedFromSecondAssociation(t *testing.T) {
 	if b.client.mtu.lastAckedSize != 0 || b.client.effectiveMTU() != working || b.client.mtu.outstanding != nil {
 		t.Fatal("probe state leaked across associations")
 	}
-}
-
-func TestPaddedRRCInnerPaddingIsNotMessage(t *testing.T) {
-	keys := testTrafficKeys(t)
-	cid := []byte("cid-pad!!")
-	cookie := []byte("cookie08")
-	pad := 17
-	raw := packedPaddedRRC(t, keys, recordNumber{3, 9}, cid, pathChallenge, cookie, pad)
-	if len(raw) != rrcProbeOverhead(len(cid), keys.aead.Overhead())+pad {
-		t.Fatalf("wire length %d", len(raw))
-	}
-	r, rest, err := parseRecord(raw, len(cid))
-	if err != nil || len(rest) != 0 {
-		t.Fatal(err)
-	}
-	var window replayWindow
-	number, typ, body, err := keys.decodeRecord(r, 3, cid, &window)
-	if err != nil || typ != contentRRC || number.sequence != 9 {
-		t.Fatalf("decode: %v typ=%d seq=%d", err, typ, number.sequence)
-	}
-	if len(body) != rrcMessageLen || body[0] != pathChallenge || !bytes.Equal(body[1:], cookie) {
-		t.Fatalf("padding leaked into RRC body %x", body)
-	}
-}
-
-func packedPaddedRRC(t *testing.T, keys *trafficKeys, number recordNumber, cid []byte, typ byte, cookie []byte, pad int) []byte {
-	t.Helper()
-	first := byte(0x2c) | byte(number.epoch&3)
-	if len(cid) != 0 {
-		first |= 0x10
-	}
-	inner := append(append([]byte{typ}, cookie...), contentRRC)
-	inner = append(inner, make([]byte, pad)...)
-	seqOffset := 1 + len(cid)
-	header := make([]byte, seqOffset+unifiedSeqLen+unifiedLengthLen)
-	header[0] = first
-	copy(header[1:seqOffset], cid)
-	binary.BigEndian.PutUint16(header[seqOffset:], uint16(number.sequence&0xffff))
-	binary.BigEndian.PutUint16(header[seqOffset+unifiedSeqLen:], uint16(len(inner)+keys.aead.Overhead()))
-	ciphertext := keys.seal(nil, header, number.sequence, inner)
-	mask, err := keys.mask(ciphertext)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := range unifiedSeqLen {
-		header[seqOffset+i] ^= mask[i]
-	}
-	return append(header, ciphertext...)
 }

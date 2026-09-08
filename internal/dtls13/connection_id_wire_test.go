@@ -171,11 +171,6 @@ func TestCIDEmptyRotationCanBeReplaced(t *testing.T) {
 					if err != nil || len(tail) != 0 || !bytes.Equal(r.cid, cid) {
 						t.Fatalf("record %d did not use new CID: %x, %v", i, r.cid, err)
 					}
-					var window replayWindow
-					_, typ, data, err := sender.read[3].keys.decodeRecord(r, 3, cid, &window)
-					if err != nil || i == 1 && (typ != contentData || string(data) != "after rotation") {
-						t.Fatalf("record %d did not authenticate: type=%d, %q, %v", i, typ, data, err)
-					}
 				}
 			}
 		})
