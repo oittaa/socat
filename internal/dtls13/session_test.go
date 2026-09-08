@@ -32,7 +32,10 @@ func driveSessions(t *testing.T, clientConfig, serverConfig *Config, loss, reord
 					droppedServer = true
 					return nil
 				}
-				if !fromClient && server != nil && server.handshake.complete && !droppedFinal {
+				// Disruption ACKs can complete or flush the peer flight before
+				// finish(), so drop the first server packet after that flight.
+				if !fromClient && !droppedFinal && server != nil &&
+					(server.handshake.complete || server.outbound != nil && server.outbound.complete) {
 					droppedFinal = true
 					return nil
 				}

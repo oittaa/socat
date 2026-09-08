@@ -64,7 +64,7 @@ Last interoperability runs: 2026-09-08. Pins are in
 
 | Peer | Passing coverage | Limits |
 | --- | --- | --- |
-| OpenSSL 4.1 snapshot (`82733d9`) | Both roles; 21 suite/group combinations; mutual ML-DSA-44/65/87 at MTU 4096. With X25519MLKEM768 and ChaCha20-Poly1305, mutual ECDSA and ML-DSA-44/65/87 echo in both roles at 1200/512/256 (`s_server` and `s_client`). Our client also completed ML-DSA-44 echo after a dropped first ClientHello at those MTUs. Captured UDP payloads stayed within the configured MTU (our client max sent 1191/503/256; our listener max sent 1200/512/256). | No DTLS 1.3 CID. Cookie-listener first-fragment behavior was not retested. OpenSSL may emit ACK lists larger than the MTU; we accept complete record-number prefixes. |
+| OpenSSL 4.1 snapshot (`82733d9`) | Both roles; 21 suite/group combinations; mutual ML-DSA-44/65/87 at MTU 4096. With X25519MLKEM768 and ChaCha20-Poly1305, mutual ECDSA and ML-DSA-44/65/87 echo in both roles at 1200/512/256 (`s_server` and `s_client`). Our client also completed ML-DSA-44 echo after a dropped first ClientHello at those MTUs. Captured UDP payloads stayed within the configured MTU (our client max sent 1191/503/256; our listener max sent 1200/512/256). | No DTLS 1.3 CID. Cookie-listener first-fragment behavior was not retested. OpenSSL may emit ACK lists larger than the MTU; malformed ACK bodies are discarded. |
 | wolfSSL master (`d72f6d9`) | 21 suite/group combinations with our client at MTU 4096. Classical X25519 and P-256 with our client at 1200/512/256. 12 mutual-auth CID cases in both roles (MTU 1200, all suites, P-256, request ACKs, rotation with lost ACKs and KeyUpdate). | Rejects a fragmented unverified first ClientHello, so PQ at 1200/512/256 times out. No spare issuance/replenishment or RFC 9853 RRC. |
 | Pion (`59f4c33`) | Mutual authentication, bidirectional KeyUpdate and rebinding/RRC in both roles through protocol drivers using initial CIDs. | Rejects CID-management messages. Migration-enabled public endpoints request spares and do not fully interoperate. Production-MTU PQ was not independently proven. |
 | BoringSSL (`4a92579`) | Test shim builds. | Packet-BIO adapter and interop tests are not written. Lower priority; lab-only. |
@@ -120,10 +120,13 @@ remain unsupported. See the [scorecard](../testdata/scorecard/README.md#dtls-13)
 
 RFC 9147 §4.5.2/§11 invalid-record paths are classified: unauthenticated
 datagrams are dropped; authenticated inner/handshake/alert violations abort.
-Malformed ACK bodies are discarded (OpenSSL may advertise an ACK list larger
-than the MTU). Handshake ACKs wait until the local final flight is on the
-wire (RFC 9147 §7.1); new-byte flight bursts do not consume retransmission
-retries.
+Malformed ACK bodies are discarded (RFC 9147 §4.5.2), including OpenSSL
+lists whose declared length exceeds the decrypted body. Incomplete or
+disrupted handshake flights are ACKed; a complete flight that we answer
+immediately is not ACKed until the local Finished is on the wire (RFC 9147
+§7.1). Queued ACK record numbers are capped so unauthenticated cookie-cache
+traffic cannot exceed the hello-entry budget. New-byte flight bursts do not
+consume retransmission retries.
 
 In-process loss/reorder with mutual ML-DSA-44/65/87 succeeds at MTU
 1200/512/256 (`TestPostQuantumHandshakeLoss`). Independent OpenSSL coverage

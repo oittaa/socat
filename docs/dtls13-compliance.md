@@ -124,7 +124,7 @@ These establish support, not a complete §4.4 conformance test.
 | --- | --- | --- | --- | --- |
 | **§7** MUST NOT ACK unprocessed/unbuffered handshake; MUST NOT ACK discarded future seq | yes | yes | yes | yes |
 | **§7** Handshake ACK epoch MUST be ≥ record being ACKed; after HS MUST use highest sending epoch | yes | yes | yes | yes |
-| **§7.1** Flights MUST be ACKed unless implicitly ACKed by the next flight | yes: handshake ACKs wait until the local final flight is sent | partial: ACK not accepted in `TLS_ST_SW_FINISHED` | yes | yes |
+| **§7.1** Flights MUST be ACKed unless implicitly ACKed by the next flight | yes: incomplete flights are ACKed; a complete flight waits until local Finished is sent | partial: ACK not accepted in `TLS_ST_SW_FINISHED` | yes | yes |
 | **§7.1** MUST NOT ACK non-handshake or undeprotected records | yes | yes | yes | yes |
 | **§7.2** SHOULD drop ACKed fragments from retransmit; MUST cancel flight when complete; any ACK of a record counts; responding flight MUST implicitly ACK | yes | partial: often retransmits whole flight | yes | yes |
 | **§8** KeyUpdate MUST be ACKed; MUST NOT send with new keys or another KeyUpdate until ACK (erratum 8047, Reported) | yes | yes | yes | yes |
@@ -250,7 +250,7 @@ runtime-tested.
 | ML-DSA-44/65/87 | yes mutual echo at 4096 and both roles at 1200/512/256 with X25519MLKEM768 | library yes; not in our interop matrix | no |
 | Fragmented first ClientHello | stateful `s_server` accepts ours; cookie listener not retested | **rejects** unverified fragmented CH (even with `WOLFSSL_DTLS_CH_FRAG`) | yes |
 | Cookies / 3× amplification | HMAC cookie; no 3× cap | HMAC cookie; no 3× cap | stateful cookie; no HS 3× |
-| ACK / KeyUpdate | yes both roles; OpenSSL may emit MTU-truncated ACK lists (we take a complete prefix) | yes; CID tests include KeyUpdate | yes |
+| ACK / KeyUpdate | yes both roles; OpenSSL may emit MTU-truncated ACK lists (discarded) | yes; CID tests include KeyUpdate | yes |
 | CID request / new / spare | **no DTLS 1.3 CID at all** | parse Request, ignore; spare discarded; immediate replace works | codec only; `ErrNotImplemented` on send |
 | RFC 9853 RRC | no | no | yes both roles with **initial** CIDs |
 | PSK / 0-RTT / resumption | yes in OpenSSL | yes in wolfSSL | 1.2 PSK only |

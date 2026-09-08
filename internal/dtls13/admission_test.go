@@ -92,11 +92,10 @@ func TestCookieAdmissionLossReorderAndEviction(t *testing.T) {
 					t.Fatal(err)
 				}
 				if mode == "fragmented_retry" {
-					// ALPN already fragments ClientHello at MTU 256. A long PSK
-					// identity list inflates the HelloRetryRequest cookie and
-					// needs handshake ACKs to recover a dropped first fragment.
+					// A long PSK identity list inflates the HelloRetryRequest cookie
+					// so a dropped first fragment needs handshake ACKs to recover.
 					var identities []string
-					for i := range 3 {
+					for i := range 100 {
 						identities = append(identities, fmt.Sprintf("ticket-%d", i))
 					}
 					h.hello.extensions[extPSKModes] = []byte{1, 1}
@@ -422,6 +421,63 @@ func TestCookieAdmissionKeepsVerifiedHandshakeBound(t *testing.T) {
 			if len(l.connections) != 16 || len(l.handshakes) != 16 || l.handshakes[peer] != nil {
 				t.Fatal("cookie validation bypassed the pending handshake bound")
 			}
+		}
+	})
+}
+
+func TestUnauthenticatedHelloACKQueueIsBounded(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		_, b := handshakeConfigs(t)
+		packet := newHandshakePacketConn(10002)
+		peer := netip.MustParseAddrPort("127.0.0.1:10001")
+		packet.send = func([]byte, netip.AddrPort) {}
+		l, err := Listen(packet, b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = l.Close() }()
+		fragment, err := (handshakeMessage{typ: msgClientHello, body: make([]byte, 256)}).fragment(0, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := encodePlainRecord(contentHandshake, 0, fragment)
+		if err != nil {
+			t.Fatal(err)
+		}
+		packet.incoming <- incomingPacket{data, peer}
+		synctest.Wait()
+		const flood = 200_000
+		if flood*16 <= helloEntryCost {
+			t.Fatal("flood is too small to detect unbounded ACK storage")
+		}
+		l.mu.Lock()
+		p := l.hellos[peer]
+		if p == nil {
+			l.mu.Unlock()
+			t.Fatal("incomplete ClientHello was not cached")
+		}
+		for range flood {
+			if _, err := p.session.receive(data, time.Now()); err != nil {
+				l.mu.Unlock()
+				t.Fatal(err)
+			}
+		}
+		queued := len(p.session.acknowledgements)
+		storage := cap(p.session.acknowledgements) * 16
+		used := l.helloBudget.used.Load()
+		connections := len(l.connections)
+		l.mu.Unlock()
+		if connections != 0 {
+			t.Fatal("unauthenticated flood opened an association")
+		}
+		if queued > maxQueuedAcknowledgements {
+			t.Fatalf("pending ACK records = %d; bound %d", queued, maxQueuedAcknowledgements)
+		}
+		if storage > helloEntryCost {
+			t.Fatalf("ACK storage %d exceeds hello entry budget %d", storage, helloEntryCost)
+		}
+		if used > int64(helloEntryCost+fragmentCost(256)) {
+			t.Fatalf("hello budget used %d after unauthenticated flood", used)
 		}
 	})
 }

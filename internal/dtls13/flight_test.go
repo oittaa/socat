@@ -245,7 +245,7 @@ func TestACKWire(t *testing.T) {
 	}
 }
 
-func TestParseACKTruncatedList(t *testing.T) {
+func TestParseACKRejectsMalformedLengths(t *testing.T) {
 	records := make([]recordNumber, 48)
 	for i := range records {
 		records[i] = recordNumber{2, uint64(i + 1)}
@@ -254,8 +254,12 @@ func TestParseACKTruncatedList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := parseACK(wire[:2+460])
-	if err != nil || len(got) != 28 || got[0] != records[0] || got[27] != records[27] {
-		t.Fatalf("truncated ACK: n=%d err=%v", len(got), err)
+	overstated := append([]byte{0, 32}, make([]byte, 16)...)
+	understated := append([]byte{0, 16}, make([]byte, 32)...)
+	notAligned := append([]byte{0, 17}, make([]byte, 17)...)
+	for _, data := range [][]byte{wire[:2+460], overstated, understated, notAligned} {
+		if _, err := parseACK(data); err == nil {
+			t.Fatalf("accepted malformed ACK %x", data[:min(len(data), 8)])
+		}
 	}
 }

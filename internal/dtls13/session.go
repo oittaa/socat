@@ -286,7 +286,7 @@ func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) (
 		case contentACK:
 			acks, err := parseACK(body)
 			if err != nil {
-				// Authenticated but truncated/malformed ACK lists are dropped.
+				// Authenticated but malformed ACK lists are dropped.
 				continue
 			}
 			if s.outbound != nil {
@@ -406,17 +406,30 @@ func (s *session) receiveHandshake(number recordNumber, body []byte, now time.Ti
 		return err
 	}
 	if accepted {
-		s.acknowledgements = append(s.acknowledgements, number)
-		if s.ackDeadline.IsZero() {
-			s.ackDeadline = now.Add(initialRetransmit / 4)
-		}
-		if len(s.acknowledgements) >= 32 {
-			if err := s.sendACK(); err != nil {
-				return err
-			}
+		if err := s.queueAcknowledgement(number, now); err != nil {
+			return err
 		}
 	}
 	return s.processHandshakes(now)
+}
+
+func (s *session) queueAcknowledgement(number recordNumber, now time.Time) error {
+	if len(s.acknowledgements) >= maxQueuedAcknowledgements {
+		if err := s.sendACK(); err != nil {
+			return err
+		}
+	}
+	if len(s.acknowledgements) >= maxQueuedAcknowledgements {
+		return nil
+	}
+	s.acknowledgements = append(s.acknowledgements, number)
+	if s.ackDeadline.IsZero() {
+		s.ackDeadline = now.Add(initialRetransmit / 4)
+	}
+	if len(s.acknowledgements) >= maxQueuedAcknowledgements {
+		return s.sendACK()
+	}
+	return nil
 }
 
 func (s *session) processHandshakes(now time.Time) error {
@@ -457,10 +470,11 @@ func (s *session) processHandshakes(now time.Time) error {
 }
 
 func (s *session) handshakeACKReady() bool {
-	// Encrypted or not, handshake ACKs wait until the local final flight is
-	// on the wire. RFC 9147 §7.1: do not ACK a flight we can answer immediately.
-	// OpenSSL SSL_accept/s_client treat an ACK before Finished as unexpected.
-	return s.handshake.complete && s.handshakeFlightSent()
+	// RFC 9147 §7.1: ACK a disrupted or incomplete flight. Do not ACK a
+	// complete flight that the next flight will acknowledge immediately.
+	// OpenSSL SSL_accept/s_client treat ACK before Certificate as unexpected,
+	// so keep ACKs off until the local final flight (including Finished) is sent.
+	return !s.handshake.complete || s.handshakeFlightSent()
 }
 
 func (s *session) sendACK() error {
