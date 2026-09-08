@@ -39,7 +39,7 @@ func (s *session) requestCIDs(count byte, now time.Time) error {
 		return errUnexpectedMessage
 	}
 	if s.cidRequested {
-		return errUpdatePending
+		return errOperationPending
 	}
 	if err := s.startPost(msgRequestConnectionID, []byte{count}, now); err != nil {
 		return err
@@ -75,7 +75,7 @@ func (s *session) provideCIDs(count int, immediate bool, now time.Time) error {
 		return errUnexpectedMessage
 	}
 	if s.cidBusy() {
-		return errUpdatePending
+		return errOperationPending
 	}
 	if s.localCIDs == nil {
 		s.localCIDs = [][]byte{bytes.Clone(s.handshake.localCID)}
@@ -168,7 +168,7 @@ func (s *session) receiveCIDs(body []byte) error {
 		s.handshake.peerCID = ids[0]
 		s.peerSpareCIDs = ids[1:]
 		// Immediate rotation also supersedes the CID reserved for a new path.
-		if s.path != nil && s.path.probe != nil && !s.path.probe.old {
+		if s.path != nil && s.path.probe != nil && s.path.probe.phase == pathValidateCandidate {
 			s.path.probe.cid = ids[0]
 		}
 	} else {

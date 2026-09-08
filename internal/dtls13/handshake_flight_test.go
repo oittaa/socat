@@ -13,7 +13,7 @@ func TestApplicationWaitsForUnsentHandshakeFlight(t *testing.T) {
 	a, b := handshakeConfigs(t)
 	client, _, _ := driveSessions(t, a, b, false, false)
 	client.outbound = &flight{complete: false, sentOnce: false}
-	if err := client.application([]byte("too-early")); !errors.Is(err, errUpdatePending) {
+	if err := client.application([]byte("too-early")); !errors.Is(err, errOperationPending) {
 		t.Fatalf("application during unsent handshake flight: %v", err)
 	}
 	client.outbound.sentOnce = true

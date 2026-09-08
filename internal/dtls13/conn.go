@@ -28,8 +28,17 @@ const (
 	maxApplicationBytes = 16 * maxContent
 )
 
+type commandKind uint8
+
+const (
+	commandWrite commandKind = iota + 1
+	commandCloseWrite
+	commandUpdateKeys
+	commandRotateCID
+)
+
 type connCommand struct {
-	kind        byte
+	kind        commandKind
 	data        []byte
 	requestPeer bool
 	cancel      chan struct{}
@@ -446,7 +455,7 @@ func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
 	s := c.session
 	var err error
 	switch command.kind {
-	case contentData:
+	case commandWrite:
 		if c.writeClosed {
 			return true, net.ErrClosed
 		}
@@ -456,12 +465,12 @@ func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
 		if isMessageTooLong(err) {
 			c.publishMaxDatagram()
 		}
-		if errors.Is(err, errUpdatePending) {
+		if errors.Is(err, errOperationPending) {
 			if e := s.advancePost(now); e != nil {
 				return true, e
 			}
 		}
-	case msgKeyUpdate:
+	case commandUpdateKeys:
 		if !command.started {
 			command.epoch = s.currentWriteEpoch()
 			if s.updating {
@@ -473,7 +482,7 @@ func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
 		if err == nil && s.currentWriteEpoch() <= command.epoch {
 			return false, nil
 		}
-	case msgNewConnectionID:
+	case commandRotateCID:
 		if !command.started {
 			err = s.provideCIDs(1, true, now)
 			command.started = err == nil
@@ -481,7 +490,7 @@ func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
 		if err == nil && s.post[msgNewConnectionID] != nil {
 			return false, nil
 		}
-	case contentAlert:
+	case commandCloseWrite:
 		if c.writeClosed {
 			return true, nil
 		}
@@ -499,7 +508,7 @@ func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
 		c.signalWake()
 		return false, nil
 	}
-	if errors.Is(err, errUpdatePending) || errors.Is(err, errPathPending) {
+	if errors.Is(err, errOperationPending) || errors.Is(err, errPathPending) {
 		return false, nil
 	}
 	if errors.Is(err, errSequence) {
@@ -554,7 +563,7 @@ func (c *Conn) execute(command *connCommand) error {
 		case commands <- command:
 			reply = command.result
 		case err = <-reply:
-			reusable = err == nil && command.kind == contentData
+			reusable = err == nil && command.kind == commandWrite
 			done = true
 		case <-c.stop:
 			err, done = c.failure(), true
@@ -584,7 +593,7 @@ func (c *Conn) Write(data []byte) (int, error) {
 		command = &connCommand{}
 	}
 	// A deadline can return before the session finishes encoding this command.
-	*command = connCommand{kind: contentData, data: bytes.Clone(data), cancel: command.cancel, result: command.result}
+	*command = connCommand{kind: commandWrite, data: bytes.Clone(data), cancel: command.cancel, result: command.result}
 	if err := c.execute(command); err != nil {
 		return 0, err
 	}
@@ -640,16 +649,16 @@ func (c *Conn) Close() error {
 	return nil
 }
 
-func (c *Conn) CloseWrite() error { return c.execute(&connCommand{kind: contentAlert}) }
+func (c *Conn) CloseWrite() error { return c.execute(&connCommand{kind: commandCloseWrite}) }
 
 // UpdateKeys waits until the peer acknowledges new sending keys.
 func (c *Conn) UpdateKeys(requestPeer bool) error {
-	return c.execute(&connCommand{kind: msgKeyUpdate, requestPeer: requestPeer})
+	return c.execute(&connCommand{kind: commandUpdateKeys, requestPeer: requestPeer})
 }
 
 // RotateConnectionID asks the peer to replace the CID it sends immediately.
 func (c *Conn) RotateConnectionID() error {
-	return c.execute(&connCommand{kind: msgNewConnectionID})
+	return c.execute(&connCommand{kind: commandRotateCID})
 }
 
 func (c *Conn) LocalAddr() net.Addr { return c.transport.conn.LocalAddr() }

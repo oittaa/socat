@@ -176,7 +176,7 @@ func TestCIDACKWithoutResponseRemainsPending(t *testing.T) {
 	if err := client.tick(now); err != nil {
 		t.Fatalf("ACK-only response timed out the association: %v", err)
 	}
-	if err := client.requestCIDs(1, now); !errors.Is(err, errUpdatePending) {
+	if err := client.requestCIDs(1, now); !errors.Is(err, errOperationPending) {
 		t.Fatalf("unfulfilled request allowed another request: %v", err)
 	}
 	if err := client.application([]byte("still usable")); err != nil {
@@ -220,7 +220,7 @@ func TestCIDImmediateDoesNotFulfillSpareRequest(t *testing.T) {
 	ackCIDRequestWithoutResponse(t, client, server, packets, now)
 	*packets = append(*packets, rotation)
 	deliverSessionPackets(t, client, server, packets, now)
-	if err := client.requestCIDs(1, now); !errors.Is(err, errUpdatePending) {
+	if err := client.requestCIDs(1, now); !errors.Is(err, errOperationPending) {
 		t.Fatalf("immediate rotation allowed a second request without a spare response: %v", err)
 	}
 	if err := server.provideCIDs(4, false, now); err != nil {

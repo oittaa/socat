@@ -152,14 +152,14 @@ func TestCIDOverlappingRequestsAndIssuance(t *testing.T) {
 			if err := issuer.provideCIDs(1, true, now); err != nil {
 				t.Fatal(err)
 			}
-			if err := issuer.provideCIDs(1, false, now); !errors.Is(err, errUpdatePending) {
+			if err := issuer.provideCIDs(1, false, now); !errors.Is(err, errOperationPending) {
 				t.Fatalf("overlapping NewConnectionId allowed: %v", err)
 			}
 			*packets = nil // Hold the immediate update so requests remain queued.
 			if err := requester.requestCIDs(1, now); err != nil {
 				t.Fatal(err)
 			}
-			if err := requester.requestCIDs(1, now); !errors.Is(err, errUpdatePending) {
+			if err := requester.requestCIDs(1, now); !errors.Is(err, errOperationPending) {
 				t.Fatalf("overlapping local request allowed: %v", err)
 			}
 			request := (*packets)[0].data

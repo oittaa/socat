@@ -462,6 +462,7 @@ func TestMTUProbeIgnoredDuringMigration(t *testing.T) {
 	p.packets = nil
 	p.client.path.probe = &pathProbe{
 		candidate: packetPath{netip.MustParseAddrPort("192.0.2.9:9"), 1},
+		phase:     pathValidateCandidate,
 		deadline:  now.Add(time.Second),
 	}
 	if _, err := p.client.receiveFrom(response.data, packetPath{response.from, 1}, now); err != nil {
