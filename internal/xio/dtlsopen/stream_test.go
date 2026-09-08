@@ -204,40 +204,14 @@ func TestPacketizerDoesNotRetryUnchangedOverflow(t *testing.T) {
 	}
 }
 
-func TestPacketizerRecoversFromKernelEMSGSIZE(t *testing.T) {
+func TestPacketizerDoesNotRetryUnclassifiedEMSGSIZE(t *testing.T) {
 	inner := &packetTestConn{limit: 4}
 	calls := 0
-	inner.write = func(p []byte) (int, error) {
-		calls++
-		if calls == 1 {
-			inner.limit = 2
-			return 0, kernelTooBig()
-		}
-		if len(p) > inner.limit {
-			t.Fatalf("write exceeds changed limit: %d", len(p))
-		}
-		inner.sent = append(inner.sent, bytes.Clone(p))
-		return len(p), nil
-	}
+	inner.write = func([]byte) (int, error) { calls++; inner.limit = 2; return 0, kernelTooBig() }
 	c := &streamConn{datagramConn: inner}
 	c.ConfigureWritePeer(relay.ByteStreamIO)
 	n, err := c.Write([]byte("abcdef"))
-	if n != 6 || err != nil {
-		t.Fatalf("write = %d, %v", n, err)
-	}
-	if string(bytes.Join(inner.sent, nil)) != "abcdef" {
-		t.Fatalf("lost or duplicated data: %q", inner.sent)
-	}
-}
-
-func TestPacketizerDoesNotRetryUnchangedEMSGSIZE(t *testing.T) {
-	inner := &packetTestConn{limit: 4}
-	calls := 0
-	inner.write = func([]byte) (int, error) { calls++; return 0, kernelTooBig() }
-	c := &streamConn{datagramConn: inner}
-	c.ConfigureWritePeer(relay.ByteStreamIO)
-	n, err := c.Write([]byte("abcdef"))
-	if n != 0 || !dtls13.IsMessageTooLong(err) || errors.Is(err, dtls13.ErrDatagramTooLarge) || calls != 1 {
+	if n != 0 || !errors.Is(err, kernelTooBig().Err) || errors.Is(err, dtls13.ErrDatagramTooLarge) || calls != 1 {
 		t.Fatalf("write = %d, %v; calls %d", n, err, calls)
 	}
 }
@@ -250,7 +224,7 @@ func TestPacketizerDoesNotRetryPartialEMSGSIZE(t *testing.T) {
 	c := &streamConn{datagramConn: inner}
 	c.ConfigureWritePeer(relay.ByteStreamIO)
 	n, err := c.Write([]byte("abcdef"))
-	if n != 1 || !dtls13.IsMessageTooLong(err) {
+	if n != 1 || !errors.Is(err, kernelTooBig().Err) {
 		t.Fatalf("partial write = %d, %v", n, err)
 	}
 }
@@ -335,7 +309,7 @@ func TestDatagramWriteSurfacesKernelEMSGSIZE(t *testing.T) {
 	}
 	transport.setLimit(600)
 	n, err := client.Write(make([]byte, 900))
-	if n != 0 || !dtls13.IsMessageTooLong(err) || errors.Is(err, dtls13.ErrDatagramTooLarge) {
+	if n != 0 || !errors.Is(err, kernelTooBig().Err) || errors.Is(err, dtls13.ErrDatagramTooLarge) {
 		t.Fatalf("datagram write = %d, %v", n, err)
 	}
 	if client.MaxDatagramSize() >= before {

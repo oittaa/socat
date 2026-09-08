@@ -9,35 +9,30 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const (
-	windowsIPDontFragment = 14
-	windowsIPv6DontFrag   = 14
-)
-
 func setUnfragmentedDF(rawConn syscall.RawConn) (bool, error) {
-	var err4, err6 error
+	var setupErr error
 	if err := rawConn.Control(func(fd uintptr) {
 		h := windows.Handle(fd)
-		err4 = setWindowsProbeOrDF(h, false)
-		err6 = setWindowsProbeOrDF(h, true)
+		addr, err := windows.Getsockname(h)
+		if err != nil {
+			setupErr = err
+			return
+		}
+		if _, ipv6 := addr.(*windows.SockaddrInet6); ipv6 {
+			v6only, err := windows.GetsockoptInt(h, windows.IPPROTO_IPV6, windows.IPV6_V6ONLY)
+			if err != nil {
+				setupErr = err
+				return
+			}
+			setupErr = windows.SetsockoptInt(h, windows.IPPROTO_IPV6, windows.IPV6_MTU_DISCOVER, windows.IP_PMTUDISC_PROBE)
+			if v6only != 0 {
+				return
+			}
+		}
+		setupErr = errors.Join(setupErr, windows.SetsockoptInt(h, windows.IPPROTO_IP, windows.IP_MTU_DISCOVER, windows.IP_PMTUDISC_PROBE))
 	}); err != nil {
 		return false, err
 	}
-	if err4 != nil && err6 != nil {
-		return false, errors.Join(err4, err6)
-	}
-	return true, nil
-}
-
-func setWindowsProbeOrDF(fd windows.Handle, ipv6 bool) error {
-	proto, discover, dontFrag := int(windows.IPPROTO_IP), windows.IP_MTU_DISCOVER, windowsIPDontFragment
-	if ipv6 {
-		proto, discover, dontFrag = int(windows.IPPROTO_IPV6), windows.IPV6_MTU_DISCOVER, windowsIPv6DontFrag
-	}
-	// Datagram IP_PMTUDISC_PROBE sets DF and limits against the interface MTU,
-	// not the cached path MTU. IP_PMTUDISC_DO is not used.
-	if err := windows.SetsockoptInt(fd, proto, discover, windows.IP_PMTUDISC_PROBE); err == nil {
-		return nil
-	}
-	return windows.SetsockoptInt(fd, proto, dontFrag, 1)
+	// DF alone does not prove that probes can bypass a stale PMTU cache.
+	return setupErr == nil, setupErr
 }

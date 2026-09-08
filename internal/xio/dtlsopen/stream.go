@@ -1,7 +1,6 @@
 package dtlsopen
 
 import (
-	"errors"
 	"io"
 	"net"
 	"sync"
@@ -77,7 +76,7 @@ func (c *streamConn) Write(p []byte) (int, error) {
 			}
 			n, err := c.datagramConn.Write(p[written : written+size])
 			written += n
-			if n == 0 && oversizedWrite(err) {
+			if n == 0 && dtls13.IsDatagramTooLarge(err) {
 				// Retry only a definite too-large rejection after the published
 				// limit strictly decreases. Timeouts and short writes stay as-is.
 				if limit := c.MaxDatagramSize(); limit > 0 && limit < size {
@@ -95,10 +94,6 @@ func (c *streamConn) Write(p []byte) (int, error) {
 		}
 	}
 	return written, nil
-}
-
-func oversizedWrite(err error) bool {
-	return errors.Is(err, dtls13.ErrDatagramTooLarge) || dtls13.IsMessageTooLong(err)
 }
 
 func (c *streamConn) CloseWrite() error {

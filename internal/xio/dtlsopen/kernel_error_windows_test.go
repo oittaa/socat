@@ -7,6 +7,6 @@ import (
 	"syscall"
 )
 
-func kernelTooBig() error {
+func kernelTooBig() *net.OpError {
 	return &net.OpError{Op: "write", Net: "udp", Err: syscall.Errno(10040)}
 }

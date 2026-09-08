@@ -1,6 +1,9 @@
 package dtls13
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 const (
 	// Handshake fragment floor after EMSGSIZE / unanswered flights. This is
@@ -63,11 +66,17 @@ func errProbe(s string) probeError { return probeError(s) }
 
 func (e probeError) Error() string { return "dtls: " + string(e) }
 
-// IsMessageTooLong reports a kernel UDP send rejected as too large (EMSGSIZE
-// on Linux/macOS, WSAEMSGSIZE on Windows).
-func IsMessageTooLong(err error) bool {
-	return isMessageTooLong(err)
+// IsDatagramTooLarge reports an oversized datagram rejected before transmission.
+// A retry must use a smaller MaxDatagramSize. The underlying transport error,
+// if any, remains available through errors.Is/As.
+func IsDatagramTooLarge(err error) bool {
+	var rejected *datagramSizeError
+	return errors.Is(err, ErrDatagramTooLarge) || errors.As(err, &rejected)
 }
+
+type datagramSizeError struct{ error }
+
+func (e *datagramSizeError) Unwrap() error { return e.error }
 
 func datagramOverhead(cidLen, aeadTag int) int {
 	if cidLen < 0 {

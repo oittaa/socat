@@ -9,77 +9,39 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func dontFragment(t *testing.T, conn *net.UDPConn, ipv6 bool) int {
-	t.Helper()
-	raw, err := conn.SyscallConn()
-	if err != nil {
-		t.Fatal(err)
-	}
-	level, opt := windows.IPPROTO_IP, windowsIPDontFragment
-	if ipv6 {
-		level, opt = windows.IPPROTO_IPV6, windowsIPv6DontFrag
-	}
-	var mode int
-	var ctrlErr error
-	if err := raw.Control(func(fd uintptr) {
-		mode, ctrlErr = windows.GetsockoptInt(windows.Handle(fd), level, opt)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if ctrlErr != nil {
-		t.Fatal(ctrlErr)
-	}
-	return mode
-}
-
-func mtuDiscoverState(t *testing.T, conn *net.UDPConn, ipv6 bool) (int, error) {
-	t.Helper()
-	raw, err := conn.SyscallConn()
-	if err != nil {
-		t.Fatal(err)
-	}
-	level, opt := windows.IPPROTO_IP, windows.IP_MTU_DISCOVER
-	if ipv6 {
-		level, opt = windows.IPPROTO_IPV6, windows.IPV6_MTU_DISCOVER
-	}
-	var mode int
-	var ctrlErr error
-	if err := raw.Control(func(fd uintptr) {
-		mode, ctrlErr = windows.GetsockoptInt(windows.Handle(fd), level, opt)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	return mode, ctrlErr
-}
-
-func TestUnfragmentedProbesPrefersPMTUDISCProbe(t *testing.T) {
-	conn := testUDP(t)
-	ok, err := enableUnfragmentedSends(conn)
-	if err != nil || !ok {
-		t.Fatalf("enable: ok=%v err=%v", ok, err)
-	}
-	mode, err := mtuDiscoverState(t, conn, false)
-	if err == nil && mode == windows.IP_PMTUDISC_DO {
-		t.Fatal("IP_MTU_DISCOVER is PMTUDISC_DO")
-	}
-	if err == nil && mode == windows.IP_PMTUDISC_PROBE {
-		return
-	}
-	if dontFragment(t, conn, false) == 0 {
-		t.Fatalf("neither IP_PMTUDISC_PROBE nor IP_DONTFRAGMENT is set (discover err=%v mode=%d)", err, mode)
-	}
-}
-
-func TestUnfragmentedProbesNeverSetsPMTUDISCDO(t *testing.T) {
-	conn := testUDP(t)
-	if _, err := enableUnfragmentedSends(conn); err != nil {
-		t.Fatal(err)
-	}
-	mode, err := mtuDiscoverState(t, conn, false)
-	if err != nil {
-		t.Skip("IP_MTU_DISCOVER is not readable on this stack")
-	}
-	if mode == windows.IP_PMTUDISC_DO {
-		t.Fatal("IP_MTU_DISCOVER is PMTUDISC_DO")
+func TestUnfragmentedProbesRequiresPMTUDISCProbe(t *testing.T) {
+	for _, network := range []string{"udp4", "udp6", "udp"} {
+		t.Run(network, func(t *testing.T) {
+			conn, err := net.ListenUDP(network, &net.UDPAddr{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = conn.Close() })
+			ok, err := enableUnfragmentedSends(conn)
+			if err != nil || !ok {
+				t.Fatalf("enable: ok=%v err=%v", ok, err)
+			}
+			raw, err := conn.SyscallConn()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := raw.Control(func(fd uintptr) {
+				h := windows.Handle(fd)
+				assertProbe := func(level, opt int) {
+					mode, err := windows.GetsockoptInt(h, level, opt)
+					if err != nil || mode != windows.IP_PMTUDISC_PROBE {
+						t.Errorf("level %d option %d = %d, %v; want PROBE", level, opt, mode, err)
+					}
+				}
+				if network != "udp4" {
+					assertProbe(windows.IPPROTO_IPV6, windows.IPV6_MTU_DISCOVER)
+				}
+				if network != "udp6" {
+					assertProbe(windows.IPPROTO_IP, windows.IP_MTU_DISCOVER)
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

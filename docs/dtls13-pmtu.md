@@ -18,7 +18,9 @@ does not. Reductions stop at 256 bytes and after eight steps. The
 configured MTU remains the ceiling. Application writes still surface the
 transport error and are not retried at the datagram API; a too-big application
 datagram reduces the advertised budget. The byte-stream adapter retries a
-zero-byte too-large write only after `MaxDatagramSize()` strictly decreases.
+too-large write only when rejection before transmission is known and
+`MaxDatagramSize()` strictly decreases. A transport that reports bytes sent
+together with `EMSGSIZE` is not retried; the native error remains inspectable.
 `Conn.MaxDatagramSize()` tracks the current budget.
 A later higher PMTU is recovered only when unfragmented discovery is on.
 
@@ -39,9 +41,9 @@ outgoing size uses the interface MTU rather than a cached path MTU
 (`ip_sk_use_pmtu` is false for PROBE). Incoming ICMP PTB can still update the
 route cache; PROBE just does not consult that cache when sending.
 `IP_PMTUDISC_DO` is not used. Windows uses `IP_MTU_DISCOVER=IP_PMTUDISC_PROBE`
-when the stack accepts it (datagram PROBE: DF set, fail only above the
-interface MTU). Older Windows stacks fall back to `IP_DONTFRAGMENT`, which
-does not by itself bypass a cached path MTU. Listeners ignore the flag: a
+for every enabled socket address family (IPv4, IPv6, or both). If setup
+fails, automatic discovery stays disabled; DF alone is insufficient to
+prove cache bypass. Listeners ignore the flag: a
 shared socket must not change fragmentation for every association. We do not
 query `IP_MTU`, connect the active socket, or probe from another source port.
 
@@ -86,39 +88,38 @@ allows the kernel to update the route cache from PTB; it only skips that
 cache when choosing the send size. Remaining gaps: no `IP_MTU` query, and
 probe spacing is a fixed timer rather than one measured RTT.
 
-## Path-size notes
+## Validation
 
-The lab's loopback `lo` MTU is 65536; DF writes succeeded up to 65507 bytes.
+Session tests cover search, confirmation, isolated loss, black holes,
+`EMSGSIZE`, the 600-second raise cycle and migration generations.
+Stream tests check safe re-packetization and ambiguous transport errors
+without losing or duplicating data. Datagram writes remain strict.
 
-On `enp3s0` (MTU 1500) with `IP_PMTUDISC_DO`, a connected-style UDP write
-of 1473 bytes to `192.168.86.1:9` or `1.1.1.1:9` returns
-`sendto: message too long`. 1472 succeeds (1500 − 20 − 8). That `DO`
-behavior is the ICMP-tracking mode we refuse for probes.
+Linux tests in `internal/xio/privileged/dtls_pmtu_linux_test.go` use separate
+client, router and server network namespaces with 1500-byte veth interfaces:
 
-Default `dtls-mtu=1200` stays under that Ethernet payload. The failure
-shows up when a caller raises `dtls-mtu` above the path, or on a 1280-byte
-path (Tailscale) if the UDP payload plus IP/UDP headers exceeds it.
+- Change the router's downstream MTU 1500 → 1280 → 1500 on a live DTLS
+  association, block ICMP PTB, and verify shrink followed by authenticated
+  RRC growth and application delivery. Recovery uses production timers;
+  the link is restored during the recovery search, not after a raise cycle.
+- Learn PMTU 1280 from real router ICMP, then restore the link. A throwaway
+  `PMTUDISC_DO` socket still rejects 1400 bytes while the actual DTLS client
+  completes authentication and delivers larger application datagrams.
+- Capture IPv4 DF/fragment flags, IPv6 absence of fragmentation headers,
+  and complete packet lengths. Both cases run for IPv4 and IPv6.
 
-Search, confirm, isolated loss, black-hole, `EMSGSIZE`, raise, and
-migration generation are covered by session tests with a size-limited send
-path (packets larger than a fake path MTU are dropped or return
-`EMSGSIZE`). That is the ICMP-blocked stand-in: no PTB, DF probes either
-time out or fail locally. Privileged Linux tests put a veth peer in a new
-netns, lock a host-route MTU, and check that `PMTUDISC_PROBE` still transmits
-a larger IPv4 and IPv6 datagram on that veth while a throwaway `PMTUDISC_DO`
-socket gets `EMSGSIZE`. Those tests skip without root (`CAP_NET_ADMIN`). This
-environment has no `CAP_NET_ADMIN` for a physical routed IPv4/IPv6 PMTU lab
-beyond that veth pair.
+These require root, `iproute2` and `iptables`/`ip6tables`. They run in the
+existing privileged CI job, not ordinary `go test` or `make check`:
 
-## Still not done
+```sh
+sudo "$(command -v go)" test -race -count=1 -v -tags=privileged ./internal/xio/privileged
+```
 
-1. Lab captures proving unfragmented probes on a real IPv4/IPv6 interface with
-   ICMP blocked (needs `CAP_NET_ADMIN` and a controlled path MTU beyond veth).
-2. A destination-specific PMTU query that preserves migration. Linux
-   [`IP_MTU`](https://man7.org/linux/man-pages/man2/IP_MTU.2const.html)
-   requires a connected socket. Do not connect the active socket just to
-   query PMTU.
-3. Per-datagram DF. Socket-wide `PROBE` remains dedicated-socket opt-in.
-4. Confirm Windows `IP_PMTUDISC_PROBE` cache-bypass on a routed path. Native
-   unit tests assert the sockopt is PROBE (not DO) when `IP_MTU_DISCOVER`
-   is available.
+## Remaining
+
+- Routed Windows `PMTUDISC_PROBE` cache-bypass validation. Native tests check
+  PROBE on IPv4, IPv6-only and dual-stack sockets; they do not prove routing.
+- A destination-specific PMTU query that preserves migration. Linux
+  `IP_MTU` requires a connected socket; do not connect the active socket
+  just to query it.
+- Per-datagram DF. Socket-wide `PROBE` remains dedicated-socket opt-in.
