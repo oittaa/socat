@@ -69,7 +69,25 @@ def build(root, name, sources, jobs):
         )
         if "-dtls1_3" not in help_result.stderr + help_result.stdout:
             raise RuntimeError("reference OpenSSL does not support -dtls1_3")
-        return {"openssl": str(binary), "version": run([str(binary), "version"])}
+        include = prefix / "include"
+        libssl = prefix / "lib" / "libssl.a"
+        libcrypto = prefix / "lib" / "libcrypto.a"
+        demo = prefix / "bin" / "dtlslistenerecho"
+        command("cc", "-O2", "-Wall", "-Wno-unused-parameter",
+                f"-I{include}", str(source / "demos" / "dtlslistenerecho" / "main.c"),
+                str(libssl), str(libcrypto), "-ldl", "-pthread", "-o", str(demo))
+        adapter = destination / "openssl-listener-oracle"
+        command("cc", "-O2", "-Wall", "-Werror", "-Wextra",
+                f"-I{include}",
+                str(SCRIPT_DIR.parent / "internal" / "dtls13" / "testdata" /
+                    "openssl_listener_oracle.c"),
+                str(libssl), str(libcrypto), "-ldl", "-pthread", "-o", str(adapter))
+        return {
+            "openssl": str(binary),
+            "listener": str(adapter),
+            "dtlslistenerecho": str(demo),
+            "version": run([str(binary), "version"]),
+        }
     if name == "wolfssl":
         # Large stateless ClientHellos must fit the reference's receive buffer.
         command("cmake", "-S", str(source), "-B", str(destination), "-GNinja",
