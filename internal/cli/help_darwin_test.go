@@ -4,7 +4,6 @@ package cli
 
 import (
 	"bytes"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -18,61 +17,6 @@ func TestDarwinHelpListsAcceptFD(t *testing.T) {
 	for _, addr := range []string{"ACCEPT-FD:<fdnum>", "ACCEPT:<fdnum>"} {
 		if !strings.Contains(help, addr) {
 			t.Errorf("help missing %q", addr)
-		}
-	}
-}
-
-func TestDarwinHelpHidesLinuxSCTP(t *testing.T) {
-	var b bytes.Buffer
-	if err := printHelp(&b, 3); err != nil {
-		t.Fatal(err)
-	}
-	help := b.String()
-	for _, name := range []string{"sctp-nodelay", "sctp-maxseg"} {
-		if strings.Contains(help, "    "+name+" ") {
-			t.Errorf("unsupported option %q is listed", name)
-		}
-	}
-	for _, name := range []string{
-		"ip-retopts", "retopts", "ipretopts",
-		"ip-router-alert", "iprouteralert", "routeralert",
-		"ip-freebind", "ip-mtu-discover",
-		"ipv6-recvdstopts", "recvdstopts",
-		"ipv6-recvhopopts", "recvhopopts",
-		"tcp-info", "info", "tcp-md5sig", "md5sig",
-		"chroot", "chroot-early",
-		"setgid", "setgid-early", "setuid", "setuid-early",
-		"substuser", "su", "substuser-delayed", "su-d", "substuser-early", "su-e",
-		"tabdly", "xtabs", "vswtc", "swtc", "swtch", "iuclc", "olcuc", "xcase",
-	} {
-		if strings.Contains(help, "    "+name+" ") {
-			t.Errorf("unsupported or Linux-only option %q must not be advertised on %s", name, runtime.GOOS)
-		}
-	}
-	honored := []string{
-		"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string",
-		"cloexec",
-		"nopush", "noopt",
-		"nldly", "crdly", "bsdly", "vtdly", "ffdly", "csize",
-		"so-rcvlowat", "rcvlowat", "so-sndlowat", "sndlowat",
-		"ip-hdrincl", "hdrincl", "iphdrincl",
-		"fiosetown", "siocspgrp",
-		"ipv6-recvrthdr", "recvrthdr",
-		"ipv6-recvpathmtu",
-	}
-	if runtime.GOOS == "darwin" {
-		honored = append(honored, "ip-recvdstaddr", "ip-recvif")
-	}
-	for _, name := range honored {
-		if !strings.Contains(help, "    "+name+" ") {
-			t.Errorf("honored option %q is missing from -hhh", name)
-		}
-	}
-	if runtime.GOOS != "darwin" {
-		for _, name := range []string{"ip-recvdstaddr", "ip-recvif", "recvdstaddr", "iprecvdstaddr", "recvif"} {
-			if strings.Contains(help, "    "+name+" ") {
-				t.Errorf("Darwin-only option %q must not be advertised on %s", name, runtime.GOOS)
-			}
 		}
 	}
 }

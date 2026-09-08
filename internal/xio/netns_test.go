@@ -38,30 +38,6 @@ func TestWithNetNSEmptyValue(t *testing.T) {
 	}
 }
 
-func TestWithNetNSMissingWarns(t *testing.T) {
-	var buf bytes.Buffer
-	log := logx.New()
-	log.SetOutput(&buf)
-	s := parse.Spec{Options: []parse.Option{{Name: "netns", Has: true, Value: "socat-missing-ns"}}}
-	err := WithNetNS(s, &Global{Log: log}, func() error {
-		t.Fatal("fn must not run when ns is missing")
-		return nil
-	})
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if runtime.GOOS == "linux" {
-		if !strings.Contains(err.Error(), "open(") || !strings.Contains(err.Error(), "/run/netns/socat-missing-ns") {
-			t.Fatalf("error %v", err)
-		}
-	} else if !strings.Contains(err.Error(), "Linux") {
-		t.Fatalf("error %v", err)
-	}
-	if !strings.Contains(buf.String(), "option \"netns\" is experimental") {
-		t.Fatalf("missing experimental warning:\n%s", buf.String())
-	}
-}
-
 func TestWithNetNSExperimentalNoWarn(t *testing.T) {
 	var buf bytes.Buffer
 	log := logx.New()

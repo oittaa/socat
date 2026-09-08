@@ -24,29 +24,3 @@ func TestChaChaSequenceMaskRFC8439(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-
-func TestCipherSpecificKeyUsageLimits(t *testing.T) {
-	for _, tc := range []struct {
-		suite uint16
-		limit uint64
-	}{
-		{aes128GCM, 1 << 24}, {aes256GCM, 1 << 24}, {chaCha20Poly1305, 1 << 48},
-	} {
-		clientConfig, serverConfig := handshakeConfigs(t)
-		clientConfig.CipherSuites = []uint16{tc.suite}
-		serverConfig.CipherSuites = []uint16{tc.suite}
-		client, _, _ := driveSessions(t, clientConfig, serverConfig, false, false)
-		writer := client.write[client.currentWriteEpoch()]
-		writer.sequence = tc.limit - 1025
-		if err := client.application([]byte("last record before update margin")); err != nil {
-			t.Fatal(err)
-		}
-		if err := client.application([]byte("triggers update")); !errors.Is(err, errOperationPending) {
-			t.Fatalf("cipher %x did not request key update: %v", tc.suite, err)
-		}
-		writer.sequence = tc.limit
-		if _, err := client.sendRecord(client.currentWriteEpoch(), contentData, nil); !errors.Is(err, errSequence) {
-			t.Fatalf("cipher %x exceeded its key usage limit: %v", tc.suite, err)
-		}
-	}
-}

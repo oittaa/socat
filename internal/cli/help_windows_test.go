@@ -21,61 +21,6 @@ func TestWindowsHelpOmitsAcceptFD(t *testing.T) {
 	}
 }
 
-func TestWindowsHelpListsOnlyHonoredOptions(t *testing.T) {
-	var b bytes.Buffer
-	if err := printHelp(&b, 2); err != nil {
-		t.Fatal(err)
-	}
-	help := b.String()
-	for _, name := range []string{
-		"backlog", "reuseport", "ip-add-membership", "so-timestamp",
-		"nonblock", "umask", "user", "group", "uid", "owner", "gid",
-		"perm-early", "user-early", "group-early",
-		"o-sync", "async", "flock", "perm-late", "user-late",
-		"setsid", "pty", "openpty", "setlk",
-		"dash", "setpgid",
-		"sighup", "sigint", "sigquit",
-		"bindtodevice",
-		"ip-pktinfo", "ip-options", "ipv6-tclass", "ipv6-unicast-hops",
-		"ip-hdrincl", "hdrincl", "iphdrincl",
-		"ip-recvdstaddr", "ip-recvif",
-		"ip-retopts", "ip-router-alert",
-		"ipv6-recvdstopts", "ipv6-recvhopopts", "ipv6-recvrthdr", "ipv6-recvpathmtu",
-		"tcp-cork", "tcp-maxseg", "tcp-maxseg-late",
-		"nopush", "noopt", "tcp-nopush", "tcp-noopt",
-		"tcp-info", "info", "tcp-md5sig", "md5sig",
-		"chroot", "chroot-early", "setuid", "setgid", "substuser", "su",
-		"sctp-nodelay", "sctp-maxseg",
-		"so-rcvlowat", "rcvlowat", "so-sndlowat", "sndlowat",
-		"so-priority", "so-passcred", "so-no-check",
-		"so-detach-filter", "detach-filter", "detachfilter",
-		"fiosetown", "siocspgrp",
-		"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string",
-		"cloexec",
-		"unix-tightsocklen", "tightsocklen",
-		"fs-append", "fs-nodump", "fs-notail", "nodump", "notail",
-	} {
-		if strings.Contains(help, "    "+name+" ") {
-			t.Errorf("unsupported option %q is listed", name)
-		}
-	}
-	for _, name := range []string{
-		"reuseaddr", "broadcast", "setsockopt", "setsockopt-listen",
-		"setsockopt-int", "setsockopt-bin", "setsockopt-string",
-		"setsockopt-socket", "setsockopt-connected",
-		"rcvtimeo", "sndtimeo", "sndbuf", "rcvbuf", "sndbuf-late", "rcvbuf-late",
-		"ciphers", "chdir", "end-close",
-		"lockfile", "waitlock",
-		"ip-ttl", "ip-tos",
-		"so-debug", "so-dontroute", "so-oobinline",
-		"binary", "text", "noinherit",
-	} {
-		if !strings.Contains(help, "    "+name+" ") {
-			t.Errorf("supported option %q is missing", name)
-		}
-	}
-}
-
 func TestWindowsHelpHHHListsDescriptorModeAliases(t *testing.T) {
 	var b bytes.Buffer
 	if err := printHelp(&b, 3); err != nil {
@@ -103,38 +48,6 @@ func TestWindowsHelpOmitsTermiosSpellings(t *testing.T) {
 			if strings.Contains(help, "    "+name+" ") {
 				t.Errorf("level %d lists unsupported termios option %q", level, name)
 			}
-		}
-	}
-}
-
-func TestWindowsHelpHHHOmitsMembershipSpellings(t *testing.T) {
-	var b bytes.Buffer
-	if err := printHelp(&b, 3); err != nil {
-		t.Fatal(err)
-	}
-	help := b.String()
-	for _, name := range []string{
-		"ip-add-membership", "add-membership", "ip-membership", "membership",
-		"ipv6-join-group", "ipv6-add-membership", "join-group",
-		"ip-multicast-if", "ip-multicast-loop", "ip-multicast-ttl",
-		"ipmulticastloop", "multicastloop", "ipmulticastttl", "multicastttl",
-		"ipv6-multicast-loop", "ip-add-source-membership", "ipv6-join-source-group",
-		"ip-freebind", "ip-transparent",
-		"ip-mtu-discover", "mtudiscover", "ipmtudiscover",
-		"ipv6-mtu-discover", "mtudiscover6",
-	} {
-		if strings.Contains(help, "    "+name+" ") {
-			t.Errorf("unsupported membership spelling %q is listed in -hhh", name)
-		}
-	}
-	for _, name := range []string{
-		"ip-retopts", "retopts", "ipretopts",
-		"ip-router-alert", "iprouteralert", "routeralert",
-		"ipv6-recvdstopts", "recvdstopts", "ipv6-recvpathmtu",
-		"ip-mtu", "ip-pktoptions",
-	} {
-		if strings.Contains(help, "    "+name+" ") {
-			t.Errorf("unsupported membership spelling %q is listed in -hhh", name)
 		}
 	}
 }

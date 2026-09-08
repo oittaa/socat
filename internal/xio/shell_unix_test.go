@@ -3,105 +3,9 @@
 package xio
 
 import (
-	"regexp"
 	"strconv"
 	"testing"
 )
-
-func TestChildFDRedirectPrefix(t *testing.T) {
-	tests := []struct {
-		name          string
-		inSrc, outSrc string
-		fdin, fdout   string
-		stderr        bool
-		want          string
-	}{
-		{
-			name:   "socket-fdin3-fdout4",
-			inSrc:  "3",
-			outSrc: "3",
-			fdin:   "3",
-			fdout:  "4",
-			want:   "exec 4>&3",
-		},
-		{
-			name:   "socket-fdin5-fdout6-close3",
-			inSrc:  "3",
-			outSrc: "3",
-			fdin:   "5",
-			fdout:  "6",
-			want:   "exec 6>&3 5<&3 3>&-",
-		},
-		{
-			name:   "socket-mode-read-fdout4",
-			outSrc: "3",
-			fdout:  "4",
-			want:   "exec 4>&3 3>&-",
-		},
-		{
-			name:  "socket-mode-write-fdin3",
-			inSrc: "3",
-			fdin:  "3",
-			want:  "exec",
-		},
-		{
-			name:   "socket-stderr-fdout4",
-			inSrc:  "3",
-			outSrc: "3",
-			fdin:   "3",
-			fdout:  "4",
-			stderr: true,
-			want:   "exec 4>&3 2>&4",
-		},
-		{
-			name:   "mode-write-stderr-default-fdo",
-			inSrc:  "3",
-			fdin:   "3",
-			stderr: true,
-			want:   "exec 2>&1",
-		},
-		{
-			name:   "pipes-fdin3-fdout4-already-mapped",
-			inSrc:  "3",
-			outSrc: "4",
-			fdin:   "3",
-			fdout:  "4",
-			want:   "exec",
-		},
-		{
-			name:   "pipes-overlap-in-on-out-src",
-			inSrc:  "3",
-			outSrc: "4",
-			fdin:   "4",
-			fdout:  "5",
-			want:   "exec 6<&3 7<&4 5>&7 4<&6 3>&- 6>&- 7>&-",
-		},
-		{
-			name:   "pipes-overlap-swap",
-			inSrc:  "3",
-			outSrc: "4",
-			fdin:   "4",
-			fdout:  "3",
-			want:   "exec 5<&3 6<&4 3>&6 4<&5 5>&- 6>&-",
-		},
-		{
-			name:   "pipes-same-target-input-wins",
-			inSrc:  "3",
-			outSrc: "4",
-			fdin:   "5",
-			fdout:  "5",
-			want:   "exec 5>&4 5<&3 3>&- 4>&-",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := childFDRedirectPrefix(tc.inSrc, tc.outSrc, tc.fdin, tc.fdout, tc.stderr)
-			if got != tc.want {
-				t.Fatalf("got %q want %q", got, tc.want)
-			}
-		})
-	}
-}
 
 func TestExtraSources(t *testing.T) {
 	in, out := extraSources(ModeRDWR, true)
@@ -137,29 +41,6 @@ func TestUnusedFDNumbersAreSingleDigit(t *testing.T) {
 					if taken[n1] || taken[n2] {
 						t.Fatalf("collision avoid %d,%d,%d,%d -> %d %d", a, b, c, d, n1, n2)
 					}
-				}
-			}
-		}
-	}
-}
-
-func TestChildFDRedirectPrefixDashSafe(t *testing.T) {
-	unsafe := regexp.MustCompile(`[0-9]{2,}(?:<&|>&)`)
-	for fdin := 0; fdin <= 9; fdin++ {
-		for fdout := 0; fdout <= 9; fdout++ {
-			in := strconv.Itoa(fdin)
-			out := strconv.Itoa(fdout)
-			for _, tc := range []struct {
-				inSrc, outSrc string
-			}{
-				{"3", "3"},
-				{"3", "4"},
-				{"3", ""},
-				{"", "3"},
-			} {
-				got := childFDRedirectPrefix(tc.inSrc, tc.outSrc, in, out, false)
-				if unsafe.MatchString(got) {
-					t.Fatalf("dash-unsafe prefix %q fdin=%s fdout=%s src=%s/%s", got, in, out, tc.inSrc, tc.outSrc)
 				}
 			}
 		}

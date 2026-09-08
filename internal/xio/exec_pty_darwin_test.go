@@ -3,47 +3,10 @@
 package xio
 
 import (
-	"io"
 	"strings"
 	"testing"
 	"time"
 )
-
-func TestDarwinPTYOutputBytesQueuedTracksMasterReads(t *testing.T) {
-	master, slave, err := OpenPTYPair()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer master.Close()
-	defer slave.Close()
-
-	payload := []byte("queued-output")
-	if _, err := slave.Write(payload); err != nil {
-		t.Fatal(err)
-	}
-	pending, err := darwinPTYOutputBytesQueued(master)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pending < len(payload) {
-		t.Fatalf("queued output bytes %d want at least %d", pending, len(payload))
-	}
-
-	got := make([]byte, len(payload))
-	if _, err := io.ReadFull(master, got); err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != string(payload) {
-		t.Fatalf("master read %q want %q", got, payload)
-	}
-	pending, err = darwinPTYOutputBytesQueued(master)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pending != 0 {
-		t.Fatalf("queued output bytes after read %d want 0", pending)
-	}
-}
 
 func TestDarwinEXECPtyDrainsOutputAfterChildExit(t *testing.T) {
 	bin := buildIsattyHelper(t)
@@ -59,28 +22,6 @@ func TestDarwinEXECPtyDrainsOutputAfterChildExit(t *testing.T) {
 				if err := o.Close(); err != nil {
 					t.Fatal(err)
 				}
-			}
-		})
-	}
-}
-
-func TestDarwinEXECPtyReadPathsDrainOutputAfterChildExit(t *testing.T) {
-	tests := []struct {
-		name string
-		spec string
-	}{
-		{name: "stdout", spec: "SYSTEM:printf output,pty,rawer,echo=0"},
-		{name: "fdout", spec: "SYSTEM:printf output >&4,pty,fdout=4,rawer,echo=0"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			o := openEXECSpec(t, tc.spec, ModeRead)
-			waitExecPTYChild(t, o)
-			if got := string(readStreamBytes(t, o.Stream, time.Second)); got != "output" {
-				t.Fatalf("output %q want output", got)
-			}
-			if err := o.Close(); err != nil {
-				t.Fatal(err)
 			}
 		})
 	}

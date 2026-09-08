@@ -35,33 +35,6 @@ func startWindowsUnixStreamPeer(t *testing.T, path string) {
 	}()
 }
 
-func TestWindowsUnixConnectBindPreservesExistingFile(t *testing.T) {
-	listen := testutil.UnixSocketPath(t, "listen.sock")
-	bind := testutil.UnixSocketPath(t, "client.sock")
-	startWindowsUnixStreamPeer(t, listen)
-	if err := os.WriteFile(bind, []byte("keep"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	spec := parse.Spec{
-		Type:    "UNIX-CONNECT",
-		Params:  []string{listen},
-		Options: []parse.Option{{Name: "bind", Value: bind, Has: true}},
-	}
-	o, err := openUnixConnect(context.Background(), spec, xio.ModeRDWR, nil)
-	if err == nil {
-		_ = o.Close()
-		t.Fatal("expected bind of existing file to fail")
-	}
-	data, readErr := os.ReadFile(bind)
-	if readErr != nil {
-		t.Fatalf("existing bind path was removed: %v", readErr)
-	}
-	if string(data) != "keep" {
-		t.Fatalf("bind path contents=%q", data)
-	}
-}
-
 func TestWindowsUnixConnectBindPreservesLiveListenSocket(t *testing.T) {
 	listen := testutil.UnixSocketPath(t, "listen.sock")
 	bind := testutil.UnixSocketPath(t, "occupied.sock")

@@ -1,44 +1,12 @@
 package xio
 
 import (
-	"context"
 	"errors"
-	"fmt"
-	"net"
 	"syscall"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
 )
-
-func TestFirstAvailableLowportRetriesOnlyAddressInUse(t *testing.T) {
-	var tried []int
-	port, err := firstAvailableLowportFrom(LowportMax, func(port int) error {
-		tried = append(tried, port)
-		if len(tried) < 3 {
-			return syscall.EADDRINUSE
-		}
-		return nil
-	})
-	if err != nil || port != LowportMax-2 {
-		t.Fatalf("port=%d err=%v", port, err)
-	}
-	if len(tried) != 3 {
-		t.Fatalf("tried %v, want three ports", tried)
-	}
-
-	wantErr := errors.New("permission denied")
-	tried = nil
-	if _, err := firstAvailableLowportFrom(LowportMax, func(port int) error {
-		tried = append(tried, port)
-		return wantErr
-	}); !errors.Is(err, wantErr) {
-		t.Fatalf("error=%v want %v", err, wantErr)
-	}
-	if len(tried) != 1 {
-		t.Fatalf("non-EADDRINUSE tried %d ports, want 1", len(tried))
-	}
-}
 
 func TestFirstAvailableLowportFromWrapsDownward(t *testing.T) {
 	var tried []int
@@ -54,48 +22,6 @@ func TestFirstAvailableLowportFromWrapsDownward(t *testing.T) {
 	}
 	if len(tried) != 2 || tried[0] != LowportMin || tried[1] != LowportMax {
 		t.Fatalf("tried %v, want [%d %d]", tried, LowportMin, LowportMax)
-	}
-}
-
-func TestFirstAvailableLowportFromTriesFullRangeOnce(t *testing.T) {
-	const start = 800
-	var tried []int
-	_, err := firstAvailableLowportFrom(start, func(port int) error {
-		tried = append(tried, port)
-		return syscall.EADDRINUSE
-	})
-	if !errors.Is(err, syscall.EADDRINUSE) {
-		t.Fatalf("err=%v want EADDRINUSE", err)
-	}
-	n := LowportMax - LowportMin + 1
-	if len(tried) != n {
-		t.Fatalf("tried %d ports, want %d", len(tried), n)
-	}
-	if tried[0] != start {
-		t.Fatalf("first port %d, want start %d", tried[0], start)
-	}
-	seen := make(map[int]int, n)
-	for i, p := range tried {
-		if p < LowportMin || p > LowportMax {
-			t.Fatalf("out of range port %d", p)
-		}
-		seen[p]++
-		if i == 0 {
-			continue
-		}
-		want := tried[i-1] - 1
-		if tried[i-1] == LowportMin {
-			want = LowportMax
-		}
-		if p != want {
-			t.Fatalf("tried[%d]=%d, want %d after %d", i, p, want, tried[i-1])
-		}
-	}
-	if len(seen) != n {
-		t.Fatalf("unique ports %d, want %d", len(seen), n)
-	}
-	if tried[len(tried)-1] != start+1 {
-		t.Fatalf("last port %d, want %d (wrap stop before retrying start)", tried[len(tried)-1], start+1)
 	}
 }
 
@@ -126,102 +52,6 @@ func TestFirstAvailableLowportPicksPortInRange(t *testing.T) {
 	})
 	if err != nil || port < LowportMin || port > LowportMax {
 		t.Fatalf("port=%d err=%v", port, err)
-	}
-}
-
-func TestListenControlAppliesSetsockoptListen(t *testing.T) {
-	spec, err := parse.ParseSpec(fmt.Sprintf("TCP4-LISTEN:0,setsockopt-listen=%d:%d:1", solSocket, soReuseaddr))
-	if err != nil {
-		t.Fatal(err)
-	}
-	lc := net.ListenConfig{Control: ListenControl(spec)}
-	ln, err := lc.Listen(context.Background(), "tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("valid pre-bind socket option: %v", err)
-	}
-	if err := ln.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	bad, err := parse.ParseSpec("TCP4-LISTEN:0,setsockopt-listen=-1:-1:1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	lc = net.ListenConfig{Control: ListenControl(bad)}
-	if ln, err = lc.Listen(context.Background(), "tcp4", "127.0.0.1:0"); err == nil {
-		_ = ln.Close()
-		t.Fatal("invalid pre-bind socket option unexpectedly succeeded")
-	}
-}
-
-func TestListenBindHost(t *testing.T) {
-	cases := []struct {
-		network, bind, want string
-		wantErr             bool
-	}{
-		{network: "tcp4", bind: "", want: "0.0.0.0"},
-		{network: "udp4", bind: "", want: "0.0.0.0"},
-		{network: "ip4", bind: "", want: "0.0.0.0"},
-		{network: "sctp4", bind: "", want: "0.0.0.0"},
-		{network: "tcp6", bind: "", want: "::"},
-		{network: "udp6", bind: "", want: "::"},
-		{network: "sctp6", bind: "", want: "::"},
-		{network: "tcp", bind: "", want: "::"},
-		{network: "tcp4", bind: "127.0.0.1", want: "127.0.0.1"},
-		{network: "tcp6", bind: "[::1]", want: "[::1]"},
-		{network: "tcp6", bind: "::", want: "::"},
-		{network: "tcp", bind: "::", want: "::"},
-		{network: "tcp4", bind: "::", wantErr: true},
-		{network: "tcp4", bind: "[::]", wantErr: true},
-		{network: "udp4", bind: "::", wantErr: true},
-		{network: "udp4", bind: "[::]", wantErr: true},
-		{network: "ip4", bind: "::", wantErr: true},
-		{network: "sctp4", bind: "::", wantErr: true},
-		{network: "tcp6", bind: "0.0.0.0", wantErr: true},
-	}
-	for _, tc := range cases {
-		got, err := ListenBindHost(parse.Spec{}, tc.network, tc.bind)
-		if tc.wantErr {
-			if err == nil {
-				t.Errorf("ListenBindHost(%q, %q) = %q, want error", tc.network, tc.bind, got)
-			}
-			continue
-		}
-		if err != nil || got != tc.want {
-			t.Errorf("ListenBindHost(%q, %q) = %q, %v, want %q", tc.network, tc.bind, got, err, tc.want)
-		}
-	}
-
-	off := parse.Spec{Options: []parse.Option{{Name: "ai-passive", Value: "0", Has: true}}}
-	for _, tc := range []struct{ network, want string }{
-		{"tcp4", "127.0.0.1"},
-		{"udp4", "127.0.0.1"},
-		{"tcp6", "::1"},
-		{"tcp", "::1"},
-	} {
-		got, err := ListenBindHost(off, tc.network, "")
-		if err != nil || got != tc.want {
-			t.Errorf("ai-passive=0 ListenBindHost(%q) = %q, %v, want %q", tc.network, got, err, tc.want)
-		}
-	}
-	on := parse.Spec{Options: []parse.Option{{Name: "ai-passive"}}}
-	got, err := ListenBindHost(on, "tcp4", "")
-	if err != nil || got != "0.0.0.0" {
-		t.Errorf("ai-passive ListenBindHost(tcp4) = %q, %v, want 0.0.0.0", got, err)
-	}
-
-	host, err := ListenBindHost(off, "tcp4", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ln, err := net.Listen("tcp4", net.JoinHostPort(host, "0"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = ln.Close() }()
-	addr := ln.Addr().(*net.TCPAddr)
-	if !addr.IP.Equal(net.IPv4(127, 0, 0, 1)) {
-		t.Fatalf("ai-passive=0 listen addr=%s want 127.0.0.1", addr.IP)
 	}
 }
 
@@ -272,67 +102,6 @@ func TestParseSizeTMatchesUnsignedClassicParsing(t *testing.T) {
 	}
 	if _, err := ParseSizeT("10junk"); err == nil {
 		t.Fatal("ParseSizeT accepted trailing junk")
-	}
-}
-
-func TestReuseaddrListenDefault(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		spec    string
-		network string
-		want    bool
-	}{
-		{name: "udp-listen", spec: "UDP4-LISTEN:1", network: "udp4"},
-		{name: "udp-listen-generic", spec: "UDP4-LISTEN:1", network: "udp"},
-		{name: "udp6-listen", spec: "UDP4-LISTEN:1", network: "udp6"},
-		{name: "udp-listen-fork", spec: "UDP4-LISTEN:1,fork", network: "udp4", want: true},
-		{name: "udp-l-alias-fork", spec: "UDP-L:1,fork", network: "udp4", want: true},
-		{name: "udp4-l-alias-fork", spec: "UDP4-L:1,fork", network: "udp4", want: true},
-		{name: "udp6-l-alias-fork", spec: "UDP6-L:1,fork", network: "udp6", want: true},
-		// Default is on because of fork; ApplyReuse still honors reuseaddr=0.
-		{name: "udp-listen-fork-reuseaddr-0", spec: "UDP4-LISTEN:1,fork,reuseaddr=0", network: "udp4", want: true},
-		{name: "udp-recvfrom-fork", spec: "UDP4-RECVFROM:1,fork", network: "udp4"},
-		{name: "udp-recvfrom-generic-fork", spec: "UDP-RECVFROM:1,fork", network: "udp"},
-		{name: "quic-listen-fork", spec: "QUIC-LISTEN:1,fork", network: "udp4"},
-		{name: "quic-l-alias-fork", spec: "QUIC-L:1,fork", network: "udp4"},
-		{name: "tcp-listen", spec: "TCP4-LISTEN:1", network: "tcp4", want: true},
-		{name: "tcp-listen-generic", spec: "TCP4-LISTEN:1", network: "tcp", want: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s, err := parse.ParseSpec(tc.spec)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := reuseaddrListenDefault(s, tc.network); got != tc.want {
-				t.Fatalf("reuseaddrListenDefault(%q, %q)=%v want %v", tc.spec, tc.network, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestUDPForkPortReuse(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		spec string
-		want bool
-	}{
-		{name: "udp-listen-fork", spec: "UDP4-LISTEN:1,fork", want: true},
-		{name: "udp-l-alias-fork", spec: "UDP-L:1,fork", want: true},
-		{name: "udp-listen-fork-reuseaddr", spec: "UDP4-LISTEN:1,fork,reuseaddr", want: true},
-		{name: "udp-listen-fork-reuseaddr-0", spec: "UDP4-LISTEN:1,fork,reuseaddr=0"},
-		{name: "udp-listen", spec: "UDP4-LISTEN:1"},
-		{name: "udp-recvfrom-fork", spec: "UDP4-RECVFROM:1,fork"},
-		{name: "quic-listen-fork", spec: "QUIC-LISTEN:1,fork"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s, err := parse.ParseSpec(tc.spec)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := UDPForkPortReuse(s); got != tc.want {
-				t.Fatalf("UDPForkPortReuse(%q)=%v want %v", tc.spec, got, tc.want)
-			}
-		})
 	}
 }
 

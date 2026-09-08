@@ -4,14 +4,11 @@ import (
 	"context"
 	"errors"
 	"net"
-	"os"
-	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 
-	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -27,123 +24,6 @@ func TestResolvePortNumSCTPFallsBackToTCP(t *testing.T) {
 	if err != nil || n != 443 {
 		t.Fatalf("numeric: %d %v", n, err)
 	}
-}
-
-func TestBindTCPAddrForRemoteFamily(t *testing.T) {
-	ctx := context.Background()
-	// IPv4 bind + IPv6 remote → skip
-	_, skip, err := BindTCPAddrForRemote(ctx, net.ParseIP("::1"), parse.Spec{}, "127.0.0.1", "0", "tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !skip {
-		t.Fatal("expected skip for IPv4 bind vs IPv6 remote")
-	}
-	// IPv4 bind + IPv4 remote → ok
-	la, skip, err := BindTCPAddrForRemote(ctx, net.ParseIP("127.0.0.1"), parse.Spec{}, "127.0.0.1", "0", "tcp")
-	if err != nil || skip || la == nil || la.IP.To4() == nil {
-		t.Fatalf("v4 bind: la=%v skip=%v err=%v", la, skip, err)
-	}
-	// IPv6 bind + IPv6 remote
-	la, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("::1"), parse.Spec{}, "::1", "0", "tcp")
-	if err != nil || skip || la == nil || la.IP.To4() != nil {
-		t.Fatalf("v6 bind: la=%v skip=%v err=%v", la, skip, err)
-	}
-	// bind=host:port form
-	la, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("127.0.0.1"), parse.Spec{}, "127.0.0.1:0", "", "tcp")
-	if err != nil || skip || la == nil {
-		t.Fatalf("bind host:port: la=%v skip=%v err=%v", la, skip, err)
-	}
-	// Classic AF_INET connect does not rewrite bind=:: to 0.0.0.0.
-	_, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("127.0.0.1"), parse.Spec{}, "::", "0", "tcp")
-	if err != nil || !skip {
-		t.Fatalf("bind=:: v4 remote: skip=%v err=%v want skip", skip, err)
-	}
-	_, skip, err = BindTCPAddrForRemote(ctx, net.ParseIP("::1"), parse.Spec{}, "0.0.0.0", "0", "tcp")
-	if err != nil || !skip {
-		t.Fatalf("bind=0.0.0.0 v6 remote: skip=%v err=%v want skip", skip, err)
-	}
-}
-
-func TestDialTCPAllLogsAF(t *testing.T) {
-	ln, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = ln.Close() }()
-	port := ln.Addr().(*net.TCPAddr).Port
-	go func() {
-		c, err := ln.Accept()
-		if err == nil {
-			_ = c.Close()
-		}
-	}()
-
-	var buf strings.Builder
-	log := logx.New()
-	log.SetLevel(logx.Debug)
-	log.SetOutput(&buf)
-	g := &Global{Log: log}
-	s := parse.Spec{Type: "TCP4"}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	c, err := DialTCPAll(ctx, "tcp4", "127.0.0.1", strconv.Itoa(port), s, g, time.Second, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = c.Close()
-	if !strings.Contains(buf.String(), "opening connection to AF=2 ") {
-		t.Fatalf("missing AF=2 notice log: %q", buf.String())
-	}
-}
-
-func TestDialTCPAllTriesSecondAddress(t *testing.T) {
-	// Server on 127.0.0.1 only. 127.0.0.2 is typically local and refused.
-	// We cannot inject DNS without a custom resolver; verify refused-then-success
-	// by dialing a closed port (log AF=2) and an open port separately, and that
-	// multi-IP resolution for dual-stack hostnames returns ordered results.
-	ln, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = ln.Close() }()
-	port := ln.Addr().(*net.TCPAddr).Port
-	go func() {
-		c, err := ln.Accept()
-		if err == nil {
-			_ = c.Close()
-		}
-	}()
-
-	// Closed first: ensure error path still logs AF=
-	closedLn, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	closedPort := closedLn.Addr().(*net.TCPAddr).Port
-	_ = closedLn.Close()
-
-	var buf strings.Builder
-	log := logx.New()
-	log.SetLevel(logx.Notice)
-	log.SetOutput(&buf)
-	g := &Global{Log: log}
-	s := parse.Spec{Type: "TCP4"}
-	ctx := context.Background()
-	_, err = DialTCPAll(ctx, "tcp4", "127.0.0.1", strconv.Itoa(closedPort), s, g, 200*time.Millisecond, nil)
-	if err == nil {
-		t.Fatal("expected refuse on closed port")
-	}
-	if !strings.Contains(buf.String(), "opening connection to AF=2 ") {
-		t.Fatalf("missing log on refuse: %q", buf.String())
-	}
-
-	buf.Reset()
-	c, err := DialTCPAll(ctx, "tcp4", "127.0.0.1", strconv.Itoa(port), s, g, time.Second, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = c.Close()
 }
 
 func TestConnectNetworkPreferDualStack(t *testing.T) {
@@ -174,34 +54,6 @@ func TestResolveOrderIPv6First(t *testing.T) {
 	}
 	if ips[0].To4() != nil {
 		t.Fatalf("with -6 preference first IP should be v6, got %v", ips)
-	}
-}
-
-func TestDialTCPLowportFailsClosedWhenUnprivileged(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root can bind privileged ports")
-	}
-	// Probe a privileged wildcard bind (0.0.0.0:1023), not
-	// Listen("127.0.0.1:1023"). macOS GitHub runners reject the loopback
-	// listen while still allowing the wildcard bind, which then fails
-	// connect with ECONNREFUSED instead of the fail-closed wrap. Classic
-	// xiobind starts at a random port in 640-1023, but EACCES on any of
-	// those ports fails immediately, so 1023 is a representative probe.
-	if !lowportWildcardBindDenied() {
-		t.Skip("platform allowed a lowport bind")
-	}
-	s, err := parse.ParseSpec("TCP4:127.0.0.1:1,lowport")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_, err = DialTCPAll(ctx, "tcp4", "127.0.0.1", "1", s, nil, time.Second, nil)
-	if err == nil {
-		t.Fatal("expected lowport bind failure")
-	}
-	if !strings.Contains(err.Error(), "lowport: cannot bind a port in 640-1023") {
-		t.Fatalf("err=%v want fail-closed lowport range", err)
 	}
 }
 

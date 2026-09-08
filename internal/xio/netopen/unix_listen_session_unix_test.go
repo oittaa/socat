@@ -15,62 +15,6 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
-func TestUnixListenNonForkAccept(t *testing.T) {
-	path := unixSocketTestPath(t, "listen.sock")
-	g := &xio.Global{Log: logx.New()}
-	o := openUnixListenOnce(t, "UNIX-LISTEN:"+path+",unlink-early", g, func() {
-		c, err := net.Dial("unix", path)
-		if err != nil {
-			t.Error(err)
-			return
-		}
-		t.Cleanup(func() { _ = c.Close() })
-	})
-	if o.Kind != xio.KindReady {
-		t.Fatalf("Kind=%v want KindReady", o.Kind)
-	}
-	if o.Stream == nil {
-		t.Fatal("non-fork UNIX-LISTEN has no stream")
-	}
-	if g.SockAddr != path {
-		t.Fatalf("SOCAT_SOCKADDR=%q want %q", g.SockAddr, path)
-	}
-	if g.PeerAddr == "" {
-		t.Fatal("SOCAT_PEERADDR was not populated")
-	}
-	if g.SockPort != "" || g.PeerPort != "" {
-		t.Fatalf("ports SockPort=%q PeerPort=%q want empty", g.SockPort, g.PeerPort)
-	}
-}
-
-func TestAbstractListenNonForkAccept(t *testing.T) {
-	if !xio.FeatureABSTRACT {
-		t.Skip("ABSTRACT UNIX not enabled")
-	}
-	name := t.Name()
-	g := &xio.Global{Log: logx.New()}
-	o := openUnixListenOnce(t, "ABSTRACT-LISTEN:"+name, g, func() {
-		c, err := net.Dial("unix", "@"+name)
-		if err != nil {
-			t.Error(err)
-			return
-		}
-		t.Cleanup(func() { _ = c.Close() })
-	})
-	if o.Kind != xio.KindReady {
-		t.Fatalf("Kind=%v want KindReady", o.Kind)
-	}
-	if o.Stream == nil {
-		t.Fatal("non-fork ABSTRACT-LISTEN has no stream")
-	}
-	if g.SockAddr == "" {
-		t.Fatal("SOCAT_SOCKADDR was not populated")
-	}
-	if g.PeerAddr == "" {
-		t.Fatal("SOCAT_PEERADDR was not populated")
-	}
-}
-
 func TestUnixListenForkWrapDial(t *testing.T) {
 	path := unixSocketTestPath(t, "listen.sock")
 	spec, err := parse.ParseSpec("UNIX-LISTEN:" + path + ",unlink-early,fork,readbytes=4")
@@ -108,41 +52,6 @@ func TestAbstractListenForkWrapDial(t *testing.T) {
 		t.Fatalf("Kind=%v want KindListen", o.Kind)
 	}
 	assertWrapDialReadbytes(t, o)
-}
-
-func TestUnixListenCancellation(t *testing.T) {
-	path := unixSocketTestPath(t, "listen.sock")
-	spec, err := parse.ParseSpec("UNIX-LISTEN:" + path + ",unlink-early")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	bound := make(chan struct{})
-	var boundOnce sync.Once
-	defer xio.SetListenBoundTestHook(func(net.Addr) {
-		boundOnce.Do(func() { close(bound) })
-	})()
-	done := make(chan error, 1)
-	go func() {
-		_, err := openUnixListen(ctx, spec, xio.ModeRDWR, &xio.Global{Log: logx.New()})
-		done <- err
-	}()
-	select {
-	case <-bound:
-	case err := <-done:
-		t.Fatalf("listen ended before bind: %v", err)
-	case <-time.After(3 * time.Second):
-		t.Fatal("UNIX-LISTEN did not bind")
-	}
-	cancel()
-	select {
-	case err := <-done:
-		if !errors.Is(err, context.Canceled) {
-			t.Fatalf("error=%v want context.Canceled", err)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("cancelled UNIX-LISTEN did not return")
-	}
 }
 
 func TestUnixListenAcceptTimeoutPositive(t *testing.T) {

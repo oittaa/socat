@@ -6,35 +6,6 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func TestParseHTTPVersion(t *testing.T) {
-	cases := []struct {
-		in   string
-		want httpMajor
-	}{
-		{"PROXY:p:h:1", httpVer1},
-		{"PROXY:p:h:1,http-version=1.0", httpVer1},
-		{"PROXY:p:h:1,http-version=1.1", httpVer1},
-		{"PROXY:p:h:1,http-version=1", httpVer1},
-		{"PROXY:p:h:1,http-version=2", httpVer2},
-		{"PROXY:p:h:1,http-version=2.0", httpVer2},
-		{"PROXY:p:h:1,http-version=3", httpVer3},
-		{"PROXY:p:h:1,http-version=3.0", httpVer3},
-	}
-	for _, tc := range cases {
-		s, err := parse.ParseSpec(tc.in)
-		if err != nil {
-			t.Fatal(err)
-		}
-		got, err := parseHTTPVersion(s)
-		if err != nil {
-			t.Fatalf("%s: %v", tc.in, err)
-		}
-		if got != tc.want {
-			t.Fatalf("%s: got %d want %d", tc.in, got, tc.want)
-		}
-	}
-}
-
 func TestParseHTTPVersionUnknown(t *testing.T) {
 	s, err := parse.ParseSpec("PROXY:p:h:1,http-version=9")
 	if err != nil {

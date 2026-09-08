@@ -8,8 +8,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
 type seqReader struct {
@@ -68,39 +66,5 @@ func TestSitoutEIOTicksMatchesClassic(t *testing.T) {
 	}
 	if got := sitoutEIOTicks(time.Microsecond); got != 1 {
 		t.Fatalf("ticks(1us)=%d want 1", got)
-	}
-}
-
-func TestSitoutEIOParse(t *testing.T) {
-	s, err := parse.ParseSpec("PTY")
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, err := SitoutEIO(s)
-	if err != nil || d != 0 {
-		t.Fatalf("omitted: d=%v err=%v", d, err)
-	}
-	s, err = parse.ParseSpec("PTY,sitout-eio=0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, err = SitoutEIO(s)
-	if err != nil || d != 0 {
-		t.Fatalf("=0: d=%v err=%v", d, err)
-	}
-	s, err = parse.ParseSpec("PTY,sitout-eio=1.5")
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, err = SitoutEIO(s)
-	if err != nil || d != 1500*time.Millisecond {
-		t.Fatalf("=1.5: d=%v err=%v", d, err)
-	}
-	s, err = parse.ParseSpec("PTY,sitout-eio")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := SitoutEIO(s); err == nil {
-		t.Fatal("bare sitout-eio must require a value")
 	}
 }

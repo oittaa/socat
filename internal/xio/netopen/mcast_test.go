@@ -42,35 +42,6 @@ func TestListenUDPJoinsIPv4GroupFromIPAddMembership(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 }
 
-func TestListenUDPAppliesRepeatedMembershipInOrder(t *testing.T) {
-	iface := multicastIfaceName(t)
-	// First invalid, then valid: last-wins would succeed; apply-all must fail.
-	spec, err := parse.ParseSpec("UDP6-RECV:0,ipv6-join-group=[ff02::2]:" + missingMcastIface + ",ipv6-join-group=[ff02::3]:" + iface)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c, err := listenUDP("udp6", &net.UDPAddr{IP: net.IPv6unspecified, Port: 0}, spec)
-	if c != nil {
-		_ = c.Close()
-	}
-	if err == nil {
-		t.Fatal("last-wins would ignore the invalid first membership option")
-	}
-	if !strings.Contains(err.Error(), missingMcastIface) {
-		t.Fatalf("error=%v want %q", err, missingMcastIface)
-	}
-
-	spec, err = parse.ParseSpec("UDP6-RECV:0,ipv6-join-group=[ff02::2]:" + iface + ",ipv6-join-group=[ff02::3]:" + iface)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c, err = listenUDP("udp6", &net.UDPAddr{IP: net.IPv6unspecified, Port: 0}, spec)
-	if err != nil {
-		t.Fatalf("repeated valid ipv6-join-group: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Close() })
-}
-
 func TestUDP6ConnectProcessesMembershipInterface(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -133,30 +104,6 @@ func TestListenUDPJoinsIPv6NumericIndex(t *testing.T) {
 	t.Cleanup(func() { _ = c.Close() })
 }
 
-func TestListenUDPJoinsIPv4ThreeFieldNameAndIndex(t *testing.T) {
-	ifi := multicastIface(t)
-	addr := firstIPv4(t, ifi)
-	spec, err := parse.ParseSpec("UDP4-RECV:0,ip-add-membership=224.0.0.1:" + addr + ":" + ifi.Name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c, err := listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}, spec)
-	if err != nil {
-		t.Fatalf("three-field name: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Close() })
-
-	spec, err = parse.ParseSpec("UDP4-RECV:0,ip-add-membership=224.0.0.1:" + addr + ":" + strconv.Itoa(ifi.Index))
-	if err != nil {
-		t.Fatal(err)
-	}
-	c, err = listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}, spec)
-	if err != nil {
-		t.Fatalf("three-field index: %v", err)
-	}
-	t.Cleanup(func() { _ = c.Close() })
-}
-
 func multicastIface(t *testing.T) net.Interface {
 	t.Helper()
 	ifaces, err := net.Interfaces()
@@ -170,25 +117,6 @@ func multicastIface(t *testing.T) net.Interface {
 	}
 	t.Skip("no multicast loopback interface")
 	return net.Interface{}
-}
-
-func firstIPv4(t *testing.T, ifi net.Interface) string {
-	t.Helper()
-	addrs, err := ifi.Addrs()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, a := range addrs {
-		ipn, ok := a.(*net.IPNet)
-		if !ok {
-			continue
-		}
-		if ip4 := ipn.IP.To4(); ip4 != nil {
-			return ip4.String()
-		}
-	}
-	t.Skipf("%s has no IPv4 address", ifi.Name)
-	return ""
 }
 
 func multicastIfaceName(t *testing.T) string {

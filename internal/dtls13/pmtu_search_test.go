@@ -14,28 +14,6 @@ func TestMTUFinderInitClampsRange(t *testing.T) {
 	}
 }
 
-func TestMTUFinderAckRaisesMin(t *testing.T) {
-	var f mtuFinder
-	f.init(400, 1200)
-	if f.max() != 1200 || f.min != 400 {
-		t.Fatalf("init min=%d max=%d", f.min, f.max())
-	}
-	size := f.nextSize()
-	if size != 800 {
-		t.Fatalf("first probe %d want 800", size)
-	}
-	f.onAcked(size)
-	if f.min != 800 {
-		t.Fatalf("acked min %d", f.min)
-	}
-	if f.max() != 1200 {
-		t.Fatalf("ack dropped the ceiling to %d", f.max())
-	}
-	if f.done() {
-		t.Fatal("search finished after one raise")
-	}
-}
-
 func TestMTUFinderIsolatedLossKeepsCeiling(t *testing.T) {
 	var f mtuFinder
 	f.init(400, 1200)

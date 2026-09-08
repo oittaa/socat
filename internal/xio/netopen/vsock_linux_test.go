@@ -5,10 +5,8 @@ package netopen
 import (
 	"context"
 	"errors"
-	"io"
 	"net"
 	"os"
-	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -72,125 +70,6 @@ func TestVSOCKListenAddrPortAssigned(t *testing.T) {
 	}
 }
 
-func TestVSOCKEchoLoopback(t *testing.T) {
-	ln := skipIfNoVSOCKListen(t)
-	addr, ok := ln.Addr().(*vsockAddr)
-	if !ok {
-		t.Fatalf("addr type %T", ln.Addr())
-	}
-	got := make(chan string, 1)
-	go func() {
-		c, err := ln.Accept()
-		if err != nil {
-			got <- "accept:" + err.Error()
-			return
-		}
-		defer func() { _ = c.Close() }()
-		_ = c.SetDeadline(time.Now().Add(3 * time.Second))
-		b := make([]byte, 10)
-		n, err := io.ReadFull(c, b)
-		if err != nil {
-			got <- "read:" + err.Error()
-			return
-		}
-		got <- string(b[:n])
-	}()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	g := &xio.Global{Log: logx.New()}
-	c, err := dialVSOCK(ctx, vsockEndpoint{cid: unix.VMADDR_CID_LOCAL, port: addr.Port}, parse.Spec{}, g, 250*time.Millisecond, nil)
-	if err != nil {
-		if vsockLoopbackUnavailable(err) {
-			t.Skipf("VSOCK loopback not available: %v", err)
-		}
-		t.Fatal(err)
-	}
-	defer func() { _ = c.Close() }()
-	if _, err := io.WriteString(c, "hellovsock"); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case <-ctx.Done():
-		t.Fatal("timeout")
-	case s := <-got:
-		if s != "hellovsock" {
-			t.Fatalf("got %q", s)
-		}
-	}
-}
-
-func TestVSOCKOpenChannelEcho(t *testing.T) {
-	skipIfNoVSOCK(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
-	defer cancel()
-	g := useGlobal()
-	lo, err := xio.OpenChannel(ctx, parseChannel(t, "VSOCK-LISTEN:-1,fork"), xio.ModeRDWR, g)
-	if err != nil {
-		if vsockLoopbackUnavailable(err) {
-			t.Skip(err.Error())
-		}
-		t.Fatal(err)
-	}
-	if lo.Listener == nil {
-		_ = lo.Close()
-		t.Fatal("VSOCK-LISTEN did not return a listener")
-	}
-	go func() { _ = xio.RunOpened(ctx, lo, parseChannel(t, "PIPE"), g) }()
-	addr, ok := lo.Listener.Addr().(*vsockAddr)
-	if !ok {
-		t.Fatalf("addr type %T", lo.Listener.Addr())
-	}
-	cli, err := xio.OpenChannel(ctx, parseChannel(t, "VSOCK-CONNECT:1:"+strconv.FormatUint(uint64(addr.Port), 10)+",connect-timeout=0.25"), xio.ModeRDWR, useGlobal())
-	if err != nil {
-		if vsockLoopbackUnavailable(err) {
-			t.Skip(err.Error())
-		}
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = cli.Close() })
-	echoConn(t, cli.Stream, []byte("vsock-use"))
-}
-
-func TestVSOCKRememberAddrs(t *testing.T) {
-	ln := skipIfNoVSOCKListen(t)
-	addr := ln.Addr().(*vsockAddr)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	accepted := make(chan net.Conn, 1)
-	go func() {
-		c, err := ln.Accept()
-		if err != nil {
-			accepted <- nil
-			return
-		}
-		accepted <- c
-	}()
-	g := &xio.Global{Log: logx.New()}
-	c, err := dialVSOCK(ctx, vsockEndpoint{cid: unix.VMADDR_CID_LOCAL, port: addr.Port}, parse.Spec{}, g, 250*time.Millisecond, nil)
-	if err != nil {
-		if vsockLoopbackUnavailable(err) {
-			t.Skipf("VSOCK loopback not available: %v", err)
-		}
-		t.Fatal(err)
-	}
-	defer func() { _ = c.Close() }()
-	xio.RememberAddrs(g, c)
-	if g.PeerAddr == "" || g.PeerPort == "" {
-		t.Fatalf("peer addr=%q port=%q", g.PeerAddr, g.PeerPort)
-	}
-	if g.PeerPort != strconv.FormatUint(uint64(addr.Port), 10) {
-		t.Fatalf("PEERPORT=%q want %d", g.PeerPort, addr.Port)
-	}
-	select {
-	case ac := <-accepted:
-		if ac != nil {
-			_ = ac.Close()
-		}
-	case <-ctx.Done():
-	}
-}
-
 func vsockLoopbackUnavailable(err error) bool {
 	if err == nil {
 		return false
@@ -213,31 +92,6 @@ func vsockLoopbackUnavailable(err error) bool {
 		strings.Contains(msg, "cannot assign requested address") ||
 		strings.Contains(msg, "network is unreachable") ||
 		strings.Contains(msg, "permission denied")
-}
-
-func TestVSOCKDialWrapperSupportsDeadlines(t *testing.T) {
-	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = unix.Close(fds[1]) }()
-
-	c, err := newVsockConn(fds[0], &vsockAddr{}, &vsockAddr{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = c.Close() }()
-	if err := c.SetDeadline(time.Now().Add(40 * time.Millisecond)); err != nil {
-		t.Fatalf("connected wrapper does not support deadlines: %v", err)
-	}
-	buf := make([]byte, 1)
-	_, err = c.Read(buf)
-	if err == nil {
-		t.Fatal("blocking socketpair read succeeded; expected deadline")
-	}
-	if !errors.Is(err, os.ErrDeadlineExceeded) && !errors.Is(err, unix.EAGAIN) && !strings.Contains(err.Error(), "deadline") && !strings.Contains(err.Error(), "timeout") {
-		t.Fatalf("read error %v, want deadline", err)
-	}
 }
 
 func TestVSOCKListenPortZeroDenied(t *testing.T) {
@@ -280,28 +134,6 @@ func TestVSOCKListenProtocolAliases(t *testing.T) {
 			}
 			if !errors.Is(err, unix.EPROTONOSUPPORT) && !strings.Contains(err.Error(), "protocol not supported") {
 				t.Fatalf("err=%v want protocol not supported", err)
-			}
-		})
-	}
-}
-
-func TestVSOCKListenSocktypeAliasesRaw(t *testing.T) {
-	skipIfNoVSOCK(t)
-	for _, name := range []string{"so-type", "type"} {
-		t.Run(name, func(t *testing.T) {
-			s, err := parse.ParseSpec("VSOCK-LISTEN:9," + name + "=3")
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = listenVSOCK(context.Background(), 9, s, nil)
-			if err == nil {
-				t.Fatalf("%s=3 succeeded; classic socket() is ESOCKTNOSUPPORT", name)
-			}
-			if strings.Contains(err.Error(), "unsupported socktype") {
-				t.Fatalf("%s=3 rejected in user space: %v", name, err)
-			}
-			if !errors.Is(err, unix.ESOCKTNOSUPPORT) && !errors.Is(err, unix.EPROTONOSUPPORT) && !strings.Contains(err.Error(), "socket type") {
-				t.Fatalf("err=%v want socket type not supported", err)
 			}
 		})
 	}

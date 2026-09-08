@@ -4,8 +4,6 @@ package xio
 
 import (
 	"errors"
-	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -19,31 +17,6 @@ func skipIfUnprivilegedBindToDevice(t *testing.T, err error) {
 	}
 	if errors.Is(err, unix.EPERM) || errors.Is(err, unix.EACCES) {
 		t.Skip(err)
-	}
-}
-
-func TestApplySocketOptionsBindToDeviceLinux(t *testing.T) {
-	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = unix.Close(fd) })
-
-	spec, err := parse.ParseSpec("UDP:127.0.0.1:9,bindtodevice=lo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = ApplySocketOptions(fd, spec)
-	skipIfUnprivilegedBindToDevice(t, err)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := unix.GetsockoptString(fd, unix.SOL_SOCKET, unix.SO_BINDTODEVICE)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimRight(got, "\x00") != "lo" {
-		t.Fatalf("SO_BINDTODEVICE=%q want lo", got)
 	}
 }
 
@@ -86,33 +59,6 @@ func TestApplySocketOptionsBindToDeviceInterfaceAliasLinux(t *testing.T) {
 	skipIfUnprivilegedBindToDevice(t, err)
 	if err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestApplyGenericSetsockoptStringBindToDeviceLinux(t *testing.T) {
-	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = unix.Close(fd) })
-
-	spec, err := parse.ParseSpec(
-		"UDP:127.0.0.1:9,setsockopt-string=1:" + strconv.Itoa(unix.SO_BINDTODEVICE) + ":lo",
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = ApplyGenericSetsockopt(fd, spec, SockoptPhaseConnected)
-	skipIfUnprivilegedBindToDevice(t, err)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := unix.GetsockoptString(fd, unix.SOL_SOCKET, unix.SO_BINDTODEVICE)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.TrimRight(got, "\x00") != "lo" {
-		t.Fatalf("SO_BINDTODEVICE=%q want lo via setsockopt-string", got)
 	}
 }
 

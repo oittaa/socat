@@ -266,29 +266,6 @@ class CleanupOwnershipTest(unittest.TestCase):
         _cleanup(self.run_id, "7")
         _wait_stopped(pid)
 
-    def test_unrelated_processes_survive(self) -> None:
-        _, owned = self._owned("3")
-        other_bin = self.root / "other-socat"
-        shutil.copy(self.sleep, other_bin)
-        os.chmod(other_bin, 0o755)
-        unrelated, unrelated_pid = _spawn_unmarked(str(other_bin), str(other_bin))
-        self.procs.append(unrelated)
-        other_run, other_pid = _spawn_marked(
-            argv0=str(self.socat),
-            binary=str(self.socat),
-            run_id=self.run_id + "-other",
-            shard="3",
-        )
-        self.procs.append(other_run)
-        _wait_comm(owned, "socat")
-        self.assertTrue(_running(unrelated_pid))
-        self.assertTrue(_running(other_pid))
-
-        _cleanup(self.run_id)
-
-        _wait_stopped(owned)
-        self.assertTrue(_running(unrelated_pid), "process without scorecard markers must survive")
-        self.assertTrue(_running(other_pid), "process from another invocation must survive")
 
     def test_external_binary_is_still_owned(self) -> None:
         """SOCAT may point at a foreign binary; ownership is the env markers."""

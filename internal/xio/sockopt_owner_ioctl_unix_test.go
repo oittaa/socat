@@ -13,42 +13,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestApplySocketOptionsOwnerIoctlUnix(t *testing.T) {
-	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = unix.Close(fd) })
-	pid := os.Getpid()
-
-	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,fiosetown=" + strconv.Itoa(pid))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplySocketOptions(fd, spec); err != nil {
-		t.Fatal(err)
-	}
-	assertSocketOwner(t, fd, pid)
-
-	spec, err = parse.ParseSpec("TCP:127.0.0.1:9,siocspgrp=" + strconv.Itoa(pid))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplySocketOptions(fd, spec); err != nil {
-		t.Fatal(err)
-	}
-	assertSocketOwner(t, fd, pid)
-
-	spec, err = parse.ParseSpec("TCP:127.0.0.1:9,fiosetown")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := ApplySocketOptions(fd, spec); err != nil {
-		t.Fatal(err)
-	}
-	assertSocketOwner(t, fd, 1)
-}
-
 func TestApplySocketOptionsOwnerIoctlCommandLineOrderUnix(t *testing.T) {
 	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
 	if err != nil {

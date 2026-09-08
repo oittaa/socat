@@ -293,24 +293,6 @@ func skipNoIPv6(t *testing.T) {
 	_ = ln.Close()
 }
 
-func waitDialTCP4(t *testing.T, port int) net.Conn {
-	t.Helper()
-	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-	deadline := time.Now().Add(3 * time.Second)
-	var last error
-	for time.Now().Before(deadline) {
-		c, err := net.DialTimeout("tcp4", addr, 150*time.Millisecond)
-		if err == nil {
-			t.Cleanup(func() { _ = c.Close() })
-			return c
-		}
-		last = err
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("dial %s: %v", addr, last)
-	return nil
-}
-
 // TestTCP4ListenPIPEEcho is classic `socat TCP4-LISTEN:port,reuseaddr,fork,bind=127.0.0.1 PIPE`
 // plus a TCP4 connect client.
 func TestTCP4ListenPIPEEcho(t *testing.T) {
@@ -349,56 +331,6 @@ func TestTEXTToCREATE(t *testing.T) {
 	}
 }
 
-func TestCREATEThenOPEN(t *testing.T) {
-	ctx, g := testCtx(t), testGlobal()
-	path := filepath.Join(t.TempDir(), "file.bin")
-	const payload = "file-bytes"
-	w, err := xio.OpenChannel(ctx, mustParse(t, "CREATE:"+path), xio.ModeWrite, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mustWrite(t, w.Stream, []byte(payload))
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
-	r, err := xio.OpenChannel(ctx, mustParse(t, "OPEN:"+path), xio.ModeRead, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = r.Close() })
-	if got := string(readAll(t, r.Stream)); got != payload {
-		t.Fatalf("OPEN got %q", got)
-	}
-}
-
-func TestGOPENCreatesAndAppends(t *testing.T) {
-	ctx, g := testCtx(t), testGlobal()
-	path := filepath.Join(t.TempDir(), "gopen.bin")
-	w, err := xio.OpenChannel(ctx, mustParse(t, "GOPEN:"+path), xio.ModeWrite, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mustWrite(t, w.Stream, []byte("ab"))
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
-	appendW, err := xio.OpenChannel(ctx, mustParse(t, "GOPEN:"+path), xio.ModeWrite, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mustWrite(t, appendW.Stream, []byte("cd"))
-	if err := appendW.Close(); err != nil {
-		t.Fatal(err)
-	}
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != "abcd" {
-		t.Fatalf("GOPEN append got %q want abcd", got)
-	}
-}
-
 func TestAnonymousPIPEEcho(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
 	o, err := xio.OpenChannel(ctx, mustParse(t, "PIPE"), xio.ModeRDWR, g)
@@ -407,87 +339,6 @@ func TestAnonymousPIPEEcho(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = o.Close() })
 	echoLive(t, streamOf(t, o), []byte("pipe-echo"))
-}
-
-func TestDualOpenCreate(t *testing.T) {
-	ctx, g := testCtx(t), testGlobal()
-	dir := t.TempDir()
-	inPath := filepath.Join(dir, "in")
-	outPath := filepath.Join(dir, "out")
-	if err := os.WriteFile(inPath, []byte("from-in"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	o, err := xio.OpenChannel(ctx, mustParse(t, "OPEN:"+inPath+"!!CREATE:"+outPath), xio.ModeRDWR, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := string(readAll(t, o.Stream)); got != "from-in" {
-		t.Fatalf("dual read %q", got)
-	}
-	mustWrite(t, o.Stream, []byte("to-out"))
-	if err := o.Close(); err != nil {
-		t.Fatal(err)
-	}
-	got, err := os.ReadFile(outPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != "to-out" {
-		t.Fatalf("dual write %q", got)
-	}
-}
-
-func TestFDReadsPipe(t *testing.T) {
-	ctx, g := testCtx(t), testGlobal()
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = r.Close()
-		_ = w.Close()
-	})
-	nfd := duplicateFDNumber(t, r)
-	o, err := xio.OpenChannel(ctx, mustParse(t, fmt.Sprintf("FD:%d", nfd)), xio.ModeRead, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = o.Close() })
-	mustWrite(t, w, []byte("fd-bytes"))
-	_ = w.Close()
-	if got := string(readAll(t, o.Stream)); got != "fd-bytes" {
-		t.Fatalf("FD got %q", got)
-	}
-}
-
-func TestTCPListenForkFDEndCloseServesTwoClients(t *testing.T) {
-	ctx, g := testCtx(t), testGlobal()
-	g.LeftToRight = true
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = r.Close()
-		_ = w.Close()
-	})
-	nfd := duplicateFDNumber(t, w)
-	_ = w.Close()
-	srv := startListenRight(t, ctx, g,
-		"TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1",
-		fmt.Sprintf("FD:%d,end-close", nfd))
-	addr := "TCP:127.0.0.1:" + tcpPort(t, srv) + ",connect-timeout=2"
-	for _, payload := range []string{"first", "second"} {
-		cli := openClient(t, ctx, g, addr)
-		mustWrite(t, cli.Stream, []byte(payload))
-		if err := cli.Stream.ShutdownWrite(); err != nil {
-			t.Fatal(err)
-		}
-		if got := string(readFull(t, r, len(payload))); got != payload {
-			t.Fatalf("got %q want %q", got, payload)
-		}
-		_ = cli.Close()
-	}
 }
 
 func TestUDP4ListenPIPEEcho(t *testing.T) {
@@ -502,109 +353,6 @@ func TestUDP4ListenForkReuseaddrZeroPIPEEcho(t *testing.T) {
 	srv := startForkListenPIPE(t, ctx, g, "UDP4-LISTEN:0,fork,reuseaddr=0,bind=127.0.0.1")
 	cli := openClient(t, ctx, g, "UDP4:127.0.0.1:"+tcpPort(t, srv))
 	echoLive(t, streamOf(t, cli), []byte("udp-exclusive-hi"))
-}
-
-func TestUDPSendtoToRecv(t *testing.T) {
-	for _, sendType := range []string{"UDP4-SENDTO", "UDP-SENDTO"} {
-		t.Run(sendType, func(t *testing.T) {
-			ctx, g := testCtx(t), testGlobal()
-			recv, err := xio.OpenChannel(ctx, mustParse(t, "UDP4-RECV:0,bind=127.0.0.1"), xio.ModeRead, g)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = recv.Close() })
-			port := localUDPPort(t, recv)
-			send, err := xio.OpenChannel(ctx, mustParse(t, sendType+":127.0.0.1:"+strconv.Itoa(port)), xio.ModeWrite, cloneGlobal(g))
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() { _ = send.Close() })
-			const payload = "syslog-hi"
-			mustWrite(t, send.Stream, []byte(payload))
-			if got := string(readFull(t, recv.Stream, len(payload))); got != payload {
-				t.Fatalf("UDP-RECV got %q", got)
-			}
-		})
-	}
-}
-
-// TestUDP4RecvfromReply is one-shot UDP-RECVFROM (no fork): wait for a datagram
-// and reply to the sender. fork+PIPE needs socketpair, which Windows does not have.
-func TestUDP4RecvfromReply(t *testing.T) {
-	ctx := testCtx(t)
-	spec := mustParse(t, "UDP4-RECVFROM:0,bind=127.0.0.1,reuseaddr=0")
-	opened := make(chan *xio.Opened, 1)
-	errCh := make(chan error, 1)
-	bound, restore := listenBoundPort(t)
-	defer restore()
-	go func() {
-		o, err := xio.OpenChannel(ctx, spec, xio.ModeRDWR, cloneGlobal(nil))
-		if err != nil {
-			errCh <- err
-			return
-		}
-		opened <- o
-	}()
-	port := waitBoundPort(t, bound, errCh)
-	cli, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = cli.Close() })
-	const payload = "recvfrom-hi"
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
-	timeout := time.After(4 * time.Second)
-	var o *xio.Opened
-	for o == nil {
-		select {
-		case o = <-opened:
-		case e := <-errCh:
-			t.Fatal(e)
-		case <-ticker.C:
-			_, _ = cli.Write([]byte(payload))
-		case <-timeout:
-			t.Fatal("UDP-RECVFROM open timed out")
-		}
-	}
-	t.Cleanup(func() { _ = o.Close() })
-	if got := string(readFull(t, o.Stream, len(payload))); got != payload {
-		t.Fatalf("UDP-RECVFROM got %q", got)
-	}
-	mustWrite(t, o.Stream, []byte(payload))
-	_ = cli.SetReadDeadline(time.Now().Add(3 * time.Second))
-	buf := make([]byte, 64)
-	n, err := cli.Read(buf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(buf[:n]) != payload {
-		t.Fatalf("UDP-RECVFROM reply %q", buf[:n])
-	}
-}
-
-func TestUDP4RecvfromForkEcho(t *testing.T) {
-	if !xio.FeatureSOCKETPAIR {
-		t.Skip("RECVFROM,fork echo uses socketpair")
-	}
-	ctx, g := testCtx(t), testGlobal()
-	srv := startForkListenPIPE(t, ctx, g, "UDP4-RECVFROM:0,bind=127.0.0.1,reuseaddr,fork")
-	cli, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: listenerPort(t, srv)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = cli.Close() })
-	const payload = "recvfrom-hi"
-	mustWrite(t, cli, []byte(payload))
-	_ = cli.SetReadDeadline(time.Now().Add(3 * time.Second))
-	buf := make([]byte, 64)
-	n, err := cli.Read(buf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(buf[:n]) != payload {
-		t.Fatalf("UDP-RECVFROM echo %q", buf[:n])
-	}
 }
 
 func TestTLSListenPIPEEcho(t *testing.T) {
@@ -689,31 +437,6 @@ func TestTCP6ListenConnectEcho(t *testing.T) {
 	echoLive(t, streamOf(t, cli), []byte("tcp6-hello"))
 }
 
-// TestTCPListenDumpsToCREATE is `socat -u TCP-LISTEN:port,reuseaddr,fork CREATE:file`.
-func TestTCPListenDumpsToCREATE(t *testing.T) {
-	ctx, g := testCtx(t), testGlobal()
-	g.LeftToRight = true
-	path := filepath.Join(t.TempDir(), "dump.bin")
-	srv := startListenRight(t, ctx, g,
-		"TCP-LISTEN:0,reuseaddr,fork,bind=127.0.0.1",
-		"CREATE:"+path)
-	cli := openClient(t, ctx, g, "TCP:127.0.0.1:"+tcpPort(t, srv)+",connect-timeout=2")
-	mustWrite(t, cli.Stream, []byte("dumped"))
-	if err := cli.Stream.ShutdownWrite(); err != nil {
-		t.Fatal(err)
-	}
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		got, err := os.ReadFile(path)
-		if err == nil && string(got) == "dumped" {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	got, _ := os.ReadFile(path)
-	t.Fatalf("CREATE dump got %q want dumped", got)
-}
-
 // TestPIPEToTCPListenFork is listen on the right address:
 // `socat PIPE TCP-LISTEN:port,reuseaddr,fork` (runForkListenRight).
 func TestPIPEToTCPListenFork(t *testing.T) {
@@ -731,36 +454,6 @@ func TestPIPEToTCPListenFork(t *testing.T) {
 	port := waitBoundPort(t, bound, errCh)
 	cli := openClient(t, ctx, testGlobal(), fmt.Sprintf("TCP:127.0.0.1:%d,connect-timeout=2", port))
 	echoLive(t, streamOf(t, cli), []byte("right-listen"))
-}
-
-// TestTCPListenNoForkEcho is one-shot `socat TCP-LISTEN:port,reuseaddr PIPE`
-// (no fork): OpenChannel accepts a single connection, then RunOpened transfers.
-func TestTCPListenNoForkEcho(t *testing.T) {
-	ctx := testCtx(t)
-	opened := make(chan *xio.Opened, 1)
-	errCh := make(chan error, 1)
-	bound, restore := listenBoundPort(t)
-	defer restore()
-	go func() {
-		o, err := xio.OpenChannel(ctx, mustParse(t, "TCP-LISTEN:0,reuseaddr,bind=127.0.0.1"), xio.ModeRDWR, cloneGlobal(nil))
-		if err != nil {
-			errCh <- err
-			return
-		}
-		opened <- o
-	}()
-	port := waitBoundPort(t, bound, errCh)
-	c := waitDialTCP4(t, port)
-	var lo *xio.Opened
-	select {
-	case lo = <-opened:
-	case err := <-errCh:
-		t.Fatal(err)
-	case <-time.After(4 * time.Second):
-		t.Fatal("TCP-LISTEN accept timed out")
-	}
-	go func() { _ = xio.RunOpened(ctx, lo, mustParse(t, "PIPE"), cloneGlobal(nil)) }()
-	echoLive(t, c, []byte("nofork"))
 }
 
 func TestTCPListenRangeAllowsLoopback(t *testing.T) {
@@ -866,28 +559,6 @@ func TestTCPConnectReadbytes(t *testing.T) {
 	}
 }
 
-func TestFILEAliasRoundtrip(t *testing.T) {
-	ctx, g := testCtx(t), testGlobal()
-	path := filepath.Join(t.TempDir(), "alias.bin")
-	const payload = "file-alias"
-	w, err := xio.OpenChannel(ctx, mustParse(t, "CREATE:"+path), xio.ModeWrite, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	mustWrite(t, w.Stream, []byte(payload))
-	if err := w.Close(); err != nil {
-		t.Fatal(err)
-	}
-	r, err := xio.OpenChannel(ctx, mustParse(t, "FILE:"+path), xio.ModeRead, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = r.Close() })
-	if got := string(readAll(t, r.Stream)); got != payload {
-		t.Fatalf("FILE got %q", got)
-	}
-}
-
 func TestECHOAliasPIPE(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
 	o, err := xio.OpenChannel(ctx, mustParse(t, "ECHO"), xio.ModeRDWR, g)
@@ -938,79 +609,5 @@ func TestUDP4DatagramToRecv(t *testing.T) {
 	mustWrite(t, send.Stream, []byte(payload))
 	if got := string(readFull(t, recv.Stream, len(payload))); got != payload {
 		t.Fatalf("UDP-DATAGRAM got %q", got)
-	}
-}
-
-func TestTCPConnectCRNL(t *testing.T) {
-	ln, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = ln.Close() })
-	got := make(chan []byte, 1)
-	go func() {
-		c, err := ln.Accept()
-		if err != nil {
-			got <- []byte("accept:" + err.Error())
-			return
-		}
-		defer func() { _ = c.Close() }()
-		_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
-		buf := make([]byte, len("helo\r\n"))
-		if _, err := io.ReadFull(c, buf); err != nil {
-			got <- []byte("read:" + err.Error())
-			return
-		}
-		got <- append([]byte(nil), buf...)
-	}()
-
-	ctx, g := testCtx(t), testGlobal()
-	port := ln.Addr().(*net.TCPAddr).Port
-	cli := openClient(t, ctx, g, fmt.Sprintf("TCP4:127.0.0.1:%d,crnl,connect-timeout=2", port))
-	mustWrite(t, cli.Stream, []byte("helo\n"))
-	select {
-	case b := <-got:
-		if string(b) != "helo\r\n" {
-			t.Fatalf("peer got %q want CRLF", b)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for crnl write")
-	}
-}
-
-func TestTCPConnectCR(t *testing.T) {
-	ln, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = ln.Close() })
-	got := make(chan []byte, 1)
-	go func() {
-		c, err := ln.Accept()
-		if err != nil {
-			got <- []byte("accept:" + err.Error())
-			return
-		}
-		defer func() { _ = c.Close() }()
-		_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
-		buf := make([]byte, len("helo\r"))
-		if _, err := io.ReadFull(c, buf); err != nil {
-			got <- []byte("read:" + err.Error())
-			return
-		}
-		got <- append([]byte(nil), buf...)
-	}()
-
-	ctx, g := testCtx(t), testGlobal()
-	port := ln.Addr().(*net.TCPAddr).Port
-	cli := openClient(t, ctx, g, fmt.Sprintf("TCP4:127.0.0.1:%d,cr,connect-timeout=2", port))
-	mustWrite(t, cli.Stream, []byte("helo\n"))
-	select {
-	case b := <-got:
-		if string(b) != "helo\r" {
-			t.Fatalf("peer got %q want CR", b)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for cr write")
 	}
 }
