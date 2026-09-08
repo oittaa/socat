@@ -3,6 +3,9 @@
 package xio
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +36,22 @@ func TestDarwinEXECPtySilentChildReachesEOF(t *testing.T) {
 	if got := readStreamBytes(t, o.Stream, time.Second); len(got) != 0 {
 		t.Fatalf("silent child output %q", got)
 	}
+}
+
+func buildIsattyHelper(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "isatty.c")
+	body := "#include <stdio.h>\n#include <unistd.h>\nint main(void){ printf(\"%s\\n\", isatty(0)?\"tty\":\"notty\"); return 0; }\n"
+	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "isatty")
+	out, err := exec.Command("gcc", "-o", bin, src).CombinedOutput()
+	if err != nil {
+		t.Skipf("gcc unavailable: %v (%s)", err, out)
+	}
+	return bin
 }
 
 func waitExecPTYChild(t *testing.T, o *Opened) {
