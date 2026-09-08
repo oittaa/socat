@@ -52,7 +52,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	opts := pionOptions(cert, roots, "", *mtu, *group, *cipher, *migrate, true)
+	opts := pionServerOptions(cert, roots, *mtu, *group, *cipher, *migrate)
 	listener, err := dtls.ListenAddr("udp4", addr, opts...)
 	if err != nil {
 		log.Fatal(err)
@@ -84,16 +84,11 @@ func main() {
 	}
 }
 
-func pionOptions(cert tls.Certificate, roots *x509.CertPool, serverName string, mtu int, group, cipher string, migrate, server bool) []dtls.Option {
+func pionSharedOptions(cert tls.Certificate, mtu int, group, cipher string, migrate bool) []dtls.Option {
 	opts := []dtls.Option{
 		dtls.WithCertificates(cert),
 		dtls.WithMinVersion(protocol.Version1_3),
 		dtls.WithMaxVersion(protocol.Version1_3),
-	}
-	if server {
-		opts = append(opts, dtls.WithClientCAs(roots), dtls.WithClientAuth(dtls.RequireAndVerifyClientCert))
-	} else {
-		opts = append(opts, dtls.WithRootCAs(roots), dtls.WithServerName(serverName))
 	}
 	if mtu > 0 {
 		opts = append(opts, dtls.WithMTU(mtu))
@@ -114,6 +109,24 @@ func pionOptions(cert tls.Certificate, roots *x509.CertPool, serverName string, 
 		}, dtls.CIDPathMigrationRRC))
 	}
 	return opts
+}
+
+func pionServerOptions(cert tls.Certificate, roots *x509.CertPool, mtu int, group, cipher string, migrate bool) []dtls.ServerOption {
+	shared := pionSharedOptions(cert, mtu, group, cipher, migrate)
+	opts := make([]dtls.ServerOption, 0, len(shared)+2)
+	for _, opt := range shared {
+		opts = append(opts, opt)
+	}
+	return append(opts, dtls.WithClientCAs(roots), dtls.WithClientAuth(dtls.RequireAndVerifyClientCert))
+}
+
+func pionClientOptions(cert tls.Certificate, roots *x509.CertPool, serverName string, mtu int, group, cipher string, migrate bool) []dtls.ClientOption {
+	shared := pionSharedOptions(cert, mtu, group, cipher, migrate)
+	opts := make([]dtls.ClientOption, 0, len(shared)+2)
+	for _, opt := range shared {
+		opts = append(opts, opt)
+	}
+	return append(opts, dtls.WithRootCAs(roots), dtls.WithServerName(serverName))
 }
 
 func pionGroup(name string) elliptic.Curve {
@@ -154,7 +167,7 @@ func runClient(address string, cert tls.Certificate, roots *x509.CertPool, mtu i
 		log.Fatal(err)
 	}
 	transport := &rebindPacketConn{PacketConn: socket}
-	connection, err := dtls.Client(transport, peer, pionOptions(cert, roots, "localhost", mtu, group, cipher, migrate, false)...)
+	connection, err := dtls.Client(transport, peer, pionClientOptions(cert, roots, "localhost", mtu, group, cipher, migrate)...)
 	if err != nil {
 		log.Fatal(err)
 	}
