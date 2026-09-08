@@ -58,7 +58,7 @@ func TestUDPForkInvalidRcvtimeoFailsOpen(t *testing.T) {
 }
 
 func TestUDPSessionConnShortReadDropsRemainder(t *testing.T) {
-	u := &udpSessionConn{first: []byte("abcd"), firstPending: true, oneShot: true}
+	u := &udpSessionConn{first: []byte("abcd"), firstPending: true, role: udpRoleShared}
 	buf := make([]byte, 1)
 	n, err := u.Read(buf)
 	if err != nil || n != 1 || buf[0] != 'a' {
@@ -84,7 +84,7 @@ func TestUDPRecvFromConnShortReadDropsRemainder(t *testing.T) {
 }
 
 func TestUDPSessionConnZeroLengthFirst(t *testing.T) {
-	u := &udpSessionConn{firstPending: true, oneShot: true}
+	u := &udpSessionConn{firstPending: true, role: udpRoleShared}
 	n, err := u.Read(make([]byte, 8))
 	if n != 0 || !errors.Is(err, io.EOF) {
 		t.Fatalf("zero-length first n=%d err=%v want EOF", n, err)
@@ -97,11 +97,11 @@ func TestUDPSessionConnOneShotHidesSharedListener(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = parent.Close() })
-	u := &udpSessionConn{pc: parent, oneShot: true}
+	u := &udpSessionConn{sock: parent, role: udpRoleShared}
 	if got := u.NetConn(); got != nil {
 		t.Fatalf("oneShot NetConn=%v want nil", got)
 	}
-	handed := &udpSessionConn{pc: parent, ownsListen: true}
+	handed := &udpSessionConn{sock: parent, role: udpRoleHandoff}
 	if got := handed.NetConn(); got != parent {
 		t.Fatalf("handoff NetConn=%v want listener", got)
 	}
