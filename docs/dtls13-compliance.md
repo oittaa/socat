@@ -250,7 +250,7 @@ runtime-tested.
 | Area | OpenSSL 4.1 | wolfSSL | Pion |
 | --- | --- | --- | --- |
 | Mutual cert, AES-GCM/ChaCha, classical groups | yes both roles | yes our client; CID tests both roles | yes both roles (drivers) |
-| X25519MLKEM768 / NIST hybrids | 21 suite/group combinations include both NIST hybrids: our client at MTU 4096, our listener at default 1200; 1200/512/256 is X25519MLKEM768+ChaCha20 only | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 only |
+| X25519MLKEM768 / NIST hybrids | 21 suite/group combinations include both NIST hybrids: our client at MTU 4096, our listener at default 1200; 1200/512/256 is X25519MLKEM768+ChaCha20 only | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 public APIs at 1200/512/256 with CID off; NIST hybrids not run |
 | ML-DSA-44/65/87 | yes mutual echo at 4096 and both roles at 1200/512/256 with X25519MLKEM768 | library yes; not in our interop matrix | no |
 | Fragmented first ClientHello | stateful `s_server` accepts ours; cookie listener not retested | **rejects** unverified fragmented CH (even with `WOLFSSL_DTLS_CH_FRAG`) | yes |
 | Cookies / 3× amplification | HMAC cookie; no 3× cap | HMAC cookie; no 3× cap | stateful cookie; no HS 3× |
@@ -258,7 +258,7 @@ runtime-tested.
 | CID request / new / spare | **no DTLS 1.3 CID at all** | parse Request, ignore; spare discarded; immediate replace works | codec only; `ErrNotImplemented` on send |
 | RFC 9853 RRC | no | no | yes both roles with **initial** CIDs |
 | PSK / 0-RTT / resumption | yes in OpenSSL | yes in wolfSSL | 1.2 PSK only |
-| Production MTU 1200 + PQ ClientHello | yes both roles for X25519MLKEM768, including mutual ML-DSA at 256 | blocked by unfragmented-CH rule | not independently proven |
+| Production MTU 1200 + PQ ClientHello | yes both roles for X25519MLKEM768, including mutual ML-DSA at 256 | blocked by unfragmented-CH rule | yes public APIs for X25519MLKEM768+ChaCha20; CID off |
 
 Practical consequences:
 
@@ -278,7 +278,8 @@ Practical consequences:
    SecP384r1MLKEM1024. Historical `unexpected_message` at 256 was our ACK
    arriving while OpenSSL was in `TLS_ST_SW_FINISHED`. wolfSSL will not
    reassemble an unverified fragmented CH. The OpenSSL cookie listener is
-   untested. Independent Pion PQ at these MTUs is still missing.
+   untested. Independent Pion public-API PQ at these MTUs is X25519MLKEM768
+   + ChaCha20-Poly1305 with CID disabled.
 5. **Do not use `openssl s_server -listen` as a DTLS 1.3 cookie peer.** That
    flag is `DTLSv1_listen` (HelloVerifyRequest). Use `SSL_new_listener` /
    `demos/dtlslistenerecho`.
@@ -293,7 +294,7 @@ Practical consequences:
 | Work | Basis | Current limit |
 | --- | --- | --- |
 | Dynamic PMTU handling | RFC 9147 §4.4 / RFC 8899 | Handshake shrink; command-line confirm/search defaults on for eligible dedicated sockets with CID/RRC after final-flight ACK. Ordinary CI covers in-process discovery and Linux loopback `PMTUDISC_PROBE`. Privileged CI has no DTLS PMTU tests. Historical Linux routed IPv4/IPv6 shrink/growth is not in this tree. Manual probes do not raise the working size; the default ceiling stays 1200. ICMP PTB is unused by the stack. No IP PMTU query or discovery on shared listeners. [Remaining work](dtls13.md#remaining-work). |
-| Independent spare-CID and remaining production-MTU PQ interop | Coverage | No pinned peer issues spares. OpenSSL both-role mutual ML-DSA echo at 1200/512/256 is X25519MLKEM768 only. wolfSSL still needs an unfragmented first ClientHello; Pion PQ at those MTUs is untested. See [remaining work](dtls13.md#remaining-work). |
+| Independent spare-CID and remaining production-MTU PQ interop | Coverage | No pinned peer issues spares. OpenSSL both-role mutual ML-DSA echo at 1200/512/256 is X25519MLKEM768 only. wolfSSL still needs an unfragmented first ClientHello. Pion public-API X25519MLKEM768 at 1200/512/256 is covered with CID disabled. See [remaining work](dtls13.md#remaining-work). |
 | RFC 9846 `general_error` | Alert mapping | Named receive/diagnostics for alert 117. Send mappings keep certificate, protocol, and `internal_error` alerts. |
 
 Sending only 16-bit sequence numbers, always including record length, and
