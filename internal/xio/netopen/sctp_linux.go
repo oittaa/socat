@@ -107,12 +107,13 @@ func listenSCTP(_ context.Context, network, host, port string, s parse.Spec) (ne
 	return &rawListener{fd: fd, domain: family}, nil
 }
 
-func dialSCTPAll(ctx context.Context, network, host, port string, s parse.Spec, g *xio.Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
-	portNum, err := xio.ResolvePortNum(network, port)
+func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s parse.Spec, g *xio.Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
+	host := xio.StripBrackets(dest.Host)
+	portNum, err := xio.ResolvePortNum(dest.Network, dest.Port)
 	if err != nil {
 		return nil, err
 	}
-	ips, err := xio.ResolveConnectIPs(ctx, network, host, s, g)
+	ips, err := xio.ResolveConnectIPs(ctx, dest.Network, host, s, g)
 	if err != nil {
 		return nil, err
 	}
@@ -125,13 +126,13 @@ func dialSCTPAll(ctx context.Context, network, host, port string, s parse.Spec, 
 	var lastErr error
 	for _, ip := range ips {
 		af := 2
-		if !xio.WantIPv4(network, ip) {
+		if !xio.WantIPv4(dest.Network, ip) {
 			af = 10
 		}
 		if g != nil && g.Log != nil {
-			g.Log.Noticef("opening connection to AF=%d %s", af, net.JoinHostPort(xio.FormatIPForNetwork(network, ip), fmt.Sprintf("%d", portNum)))
+			g.Log.Noticef("opening connection to AF=%d %s", af, net.JoinHostPort(xio.FormatIPForNetwork(dest.Network, ip), fmt.Sprintf("%d", portNum)))
 		}
-		laddr, skip, err := xio.BindTCPAddrForRemote(ctx, ip, s, bindOpt, sp, network)
+		laddr, skip, err := xio.BindTCPAddrForRemote(ctx, ip, s, bindOpt, sp, dest.Network)
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {
@@ -148,11 +149,11 @@ func dialSCTPAll(ctx context.Context, network, host, port string, s parse.Spec, 
 		}
 		raddr := &net.TCPAddr{IP: ip, Port: portNum}
 		optionNetwork := "sctp4"
-		if !xio.WantIPv4(network, ip) {
+		if !xio.WantIPv4(dest.Network, ip) {
 			optionNetwork = "sctp6"
 		}
 		// Merge spec-driven rcvtimeo/sndtimeo with any setsockopt= control.
-		c, err := connectSCTP(ctx, network, laddr, raddr, timeout, lowport, g, xio.DialControl(s, optionNetwork, control))
+		c, err := connectSCTP(ctx, dest.Network, laddr, raddr, timeout, lowport, g, xio.DialControl(s, optionNetwork, control))
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {
@@ -163,7 +164,7 @@ func dialSCTPAll(ctx context.Context, network, host, port string, s parse.Spec, 
 		return c, nil
 	}
 	if lastErr == nil {
-		lastErr = fmt.Errorf("connect %s:%s failed", host, port)
+		lastErr = fmt.Errorf("connect %s:%s failed", host, dest.Port)
 	}
 	return nil, lastErr
 }

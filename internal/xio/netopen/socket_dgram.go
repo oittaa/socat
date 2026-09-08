@@ -227,7 +227,7 @@ func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f 
 
 func openSocketRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, f *os.File, filter *xio.PeerFilter, local net.Addr) (*xio.Opened, error) {
 	buf := make([]byte, dgramBufSize(g))
-	n, from, err := recvSocketFiltered(ctx, f, buf, filter, g, local, s.BoolOption("null-eof"))
+	n, from, err := recvSocketFiltered(ctx, f, buf, filter, g, local, emptyDatagramPolicy{NullEOF: s.BoolOption("null-eof")})
 	if err != nil {
 		logx.CloseQuiet(f)
 		return nil, err
@@ -248,7 +248,12 @@ func openSocketRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global,
 	return &xio.Opened{Stream: st, Label: s.Type}, nil
 }
 
-func recvSocketFiltered(ctx context.Context, f *os.File, buf []byte, filter *xio.PeerFilter, g *xio.Global, local net.Addr, nullEOF bool) (int, unix.Sockaddr, error) {
+// emptyDatagramPolicy is how a SOCK_DGRAM receive treats a zero-length packet.
+type emptyDatagramPolicy struct {
+	NullEOF bool
+}
+
+func recvSocketFiltered(ctx context.Context, f *os.File, buf []byte, filter *xio.PeerFilter, g *xio.Global, local net.Addr, empty emptyDatagramPolicy) (int, unix.Sockaddr, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -266,7 +271,7 @@ func recvSocketFiltered(ctx context.Context, f *os.File, buf []byte, filter *xio
 			}
 			continue
 		}
-		if xio.IgnoreEmptyDatagram(n, err, nullEOF) {
+		if xio.IgnoreEmptyDatagram(n, err, empty.NullEOF) {
 			continue
 		}
 		return n, from, nil

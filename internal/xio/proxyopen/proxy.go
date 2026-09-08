@@ -102,7 +102,7 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		e := xio.WithRetry(dctx, s, g, "PROXY-CONNECT", func() error {
-			c, e := xio.DialTCPAll(dctx, network, xio.StripBrackets(proxyHost), proxyPort, s, g, timeout, nil)
+			c, e := xio.DialTCPAll(dctx, xio.DialTarget{Network: network, Host: proxyHost, Port: proxyPort}, s, g, timeout, nil)
 			if e != nil {
 				return e
 			}

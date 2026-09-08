@@ -75,7 +75,7 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		e := xio.WithRetry(dctx, s, g, "SOCKS4", func() error {
-			c, e := xio.DialTCPAll(dctx, network, xio.StripBrackets(socksHost), socksPort, s, g, timeout, nil)
+			c, e := xio.DialTCPAll(dctx, xio.DialTarget{Network: network, Host: socksHost, Port: socksPort}, s, g, timeout, nil)
 			if e != nil {
 				return e
 			}
@@ -168,8 +168,8 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	if err != nil {
 		return nil, err
 	}
-	user, pass, offerUserPass := socks5Credentials(s)
-	if offerUserPass && g != nil && g.Log != nil {
+	auth := socks5Credentials(s)
+	if auth.OfferUserPass && g != nil && g.Log != nil {
 		if !s.HasOption("socksuser") {
 			g.Log.Warningf("SOCKS5 password without username, falling back to \"anonymous\"")
 		}
@@ -183,15 +183,15 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 		return nil, fmt.Errorf("socks5 target port: %w", err)
 	}
 
-	var atyp byte
-	var addrBytes []byte
+	var dest socks5Dest
+	dest.Port = portNum
 	if ip := net.ParseIP(xio.StripBrackets(targetHost)); ip != nil {
 		if v4 := ip.To4(); v4 != nil {
-			atyp = 1
-			addrBytes = append([]byte(nil), v4...)
+			dest.AddrType = 1
+			dest.Addr = append([]byte(nil), v4...)
 		} else {
-			atyp = 4
-			addrBytes = append([]byte(nil), ip.To16()...)
+			dest.AddrType = 4
+			dest.Addr = append([]byte(nil), ip.To16()...)
 		}
 	} else {
 		h := xio.StripBrackets(targetHost)
@@ -199,8 +199,8 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 		if !ok {
 			return nil, fmt.Errorf("socks5: domain name too long")
 		}
-		atyp = 3
-		addrBytes = append([]byte{n}, []byte(h)...)
+		dest.AddrType = 3
+		dest.Addr = append([]byte{n}, []byte(h)...)
 	}
 
 	network := xio.ConnectNetworkForType(g, s, socksHost, "tcp")
@@ -214,12 +214,12 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		e := xio.WithRetry(dctx, s, g, "SOCKS5", func() error {
-			c, e := xio.DialTCPAll(dctx, network, xio.StripBrackets(socksHost), socksPort, s, g, timeout, nil)
+			c, e := xio.DialTCPAll(dctx, xio.DialTarget{Network: network, Host: socksHost, Port: socksPort}, s, g, timeout, nil)
 			if e != nil {
 				return e
 			}
 			if e := xio.WithHandshakeDeadline(c, handshakeTimeout, func() error {
-				return socks5Handshake(c, cmd, user, pass, offerUserPass, atyp, addrBytes, portNum)
+				return socks5Handshake(c, cmd, dest, auth)
 			}); e != nil {
 				return e
 			}
@@ -270,21 +270,23 @@ func socksParams(s parse.Spec) (socksHost, socksPort, targetHost, targetPort str
 // socks5Credentials: if socksuser or sockspass is set, offer username/password
 // in addition to no-auth. sockspass without socksuser uses user "anonymous";
 // socksuser without sockspass uses an empty password.
-func socks5Credentials(s parse.Spec) (user, pass string, offerUserPass bool) {
+// Empty credentials with OfferUserPass set are distinct from offering no auth.
+func socks5Credentials(s parse.Spec) socks5Auth {
 	hasUser := s.HasOption("socksuser")
 	hasPass := s.HasOption("sockspass")
 	if !hasUser && !hasPass {
-		return "", "", false
+		return socks5Auth{}
 	}
+	auth := socks5Auth{OfferUserPass: true}
 	if hasUser {
-		user = s.OptionValue("socksuser", "")
+		auth.User = s.OptionValue("socksuser", "")
 	} else {
-		user = "anonymous"
+		auth.User = "anonymous"
 	}
 	if hasPass {
-		pass = s.OptionValue("sockspass", "")
+		auth.Pass = s.OptionValue("sockspass", "")
 	}
-	return user, pass, true
+	return auth
 }
 
 // socks5AuthMethods is the RFC 1928 method list: always no-auth (method 0)
@@ -297,13 +299,29 @@ func socks5AuthMethods(offerUserPass bool) []byte {
 	return []byte{0}
 }
 
-func socks5Handshake(c net.Conn, cmd byte, user, pass string, offerUserPass bool, atyp byte, addrBytes []byte, portNum int) (err error) {
+// socks5Dest is the RFC 1928 CONNECT/BIND target (ATYP, encoded address, port).
+type socks5Dest struct {
+	AddrType byte
+	Addr     []byte
+	Port     int
+}
+
+// socks5Auth is the username/password method we offer the server.
+// OfferUserPass false means no-auth only. Empty User/Pass with OfferUserPass
+// true is still an offered method, not "no authentication".
+type socks5Auth struct {
+	User          string
+	Pass          string
+	OfferUserPass bool
+}
+
+func socks5Handshake(c net.Conn, cmd byte, dest socks5Dest, auth socks5Auth) (err error) {
 	defer func() {
 		if err != nil {
 			logx.CloseQuiet(c)
 		}
 	}()
-	methods := socks5AuthMethods(offerUserPass)
+	methods := socks5AuthMethods(auth.OfferUserPass)
 	nmethod, ok := xio.Uint8FromInt(len(methods))
 	if !ok {
 		return fmt.Errorf("socks5: too many auth methods")
@@ -322,19 +340,19 @@ func socks5Handshake(c net.Conn, cmd byte, user, pass string, offerUserPass bool
 	case 0:
 		// Accept no-auth even when method 2 was also offered.
 	case 2:
-		if !offerUserPass {
+		if !auth.OfferUserPass {
 			return fmt.Errorf("socks5: authentication with SOCKS5 server failed")
 		}
-		ulen, uok := xio.Uint8FromInt(len(user))
-		plen, pok := xio.Uint8FromInt(len(pass))
+		ulen, uok := xio.Uint8FromInt(len(auth.User))
+		plen, pok := xio.Uint8FromInt(len(auth.Pass))
 		if !uok || !pok {
 			return fmt.Errorf("socks5: credentials too long")
 		}
-		auth := []byte{1, ulen}
-		auth = append(auth, []byte(user)...)
-		auth = append(auth, plen)
-		auth = append(auth, []byte(pass)...)
-		if _, err = c.Write(auth); err != nil {
+		authReq := []byte{1, ulen}
+		authReq = append(authReq, []byte(auth.User)...)
+		authReq = append(authReq, plen)
+		authReq = append(authReq, []byte(auth.Pass)...)
+		if _, err = c.Write(authReq); err != nil {
 			return err
 		}
 		var aresp [2]byte
@@ -350,12 +368,12 @@ func socks5Handshake(c net.Conn, cmd byte, user, pass string, offerUserPass bool
 		return fmt.Errorf("socks5: unsupported auth method %d", hello[1])
 	}
 
-	port, ok := xio.Uint16FromInt(portNum)
+	port, ok := xio.Uint16FromInt(dest.Port)
 	if !ok {
-		return fmt.Errorf("socks5: invalid port %d", portNum)
+		return fmt.Errorf("socks5: invalid port %d", dest.Port)
 	}
-	req := []byte{5, cmd, 0, atyp}
-	req = append(req, addrBytes...)
+	req := []byte{5, cmd, 0, dest.AddrType}
+	req = append(req, dest.Addr...)
 	req = binary.BigEndian.AppendUint16(req, port)
 	if _, err = c.Write(req); err != nil {
 		return err

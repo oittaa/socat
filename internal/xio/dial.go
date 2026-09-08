@@ -21,17 +21,23 @@ const (
 	afINET6 = 10 // AF_INET6 on Linux (and most Unix)
 )
 
-// DialTCPAll resolves host and tries each address in order.
-// network is "tcp", "tcp4", or "tcp6". Logs Notice "opening connection to AF=…"
+// DialTarget is a TCP or SCTP connect destination.
+type DialTarget struct {
+	Network string // "tcp", "tcp4", "tcp6", or the SCTP equivalents
+	Host    string
+	Port    string // numeric or /etc/services name
+}
+
+// DialTCPAll resolves dest.Host and tries each address in order.
+// dest.Network is "tcp", "tcp4", or "tcp6". Logs Notice "opening connection to AF=…"
 // for each attempt.
-// port may be numeric or a /etc/services name (TCP4SERVICE).
-func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g *Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
-	host = StripBrackets(host)
-	portNum, err := ResolvePortNum(network, port)
+func DialTCPAll(ctx context.Context, dest DialTarget, s parse.Spec, g *Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
+	host := StripBrackets(dest.Host)
+	portNum, err := ResolvePortNum(dest.Network, dest.Port)
 	if err != nil {
 		return nil, err
 	}
-	ips, err := resolveConnectIPs(ctx, network, host, s, g)
+	ips, err := resolveConnectIPs(ctx, dest.Network, host, s, g)
 	if err != nil {
 		return nil, err
 	}
@@ -45,14 +51,14 @@ func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 
 	var lastErr error
 	for _, ip := range ips {
-		af := afForNetwork(network, ip)
+		af := afForNetwork(dest.Network, ip)
 		raddr := &net.TCPAddr{IP: ip, Port: portNum}
 		if g != nil && g.Log != nil {
 			// "opening connection to AF=2 127.0.0.1:9"
-			g.Log.Noticef("opening connection to AF=%d %s", af, formatTCPAddr(network, ip, raddr.Port))
+			g.Log.Noticef("opening connection to AF=%d %s", af, formatTCPAddr(dest.Network, ip, raddr.Port))
 		}
 
-		laddr, skip, err := BindTCPAddrForRemote(ctx, ip, s, bindOpt, sp, network)
+		laddr, skip, err := BindTCPAddrForRemote(ctx, ip, s, bindOpt, sp, dest.Network)
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {
@@ -68,7 +74,7 @@ func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 			continue
 		}
 
-		netw := tcpDialNetwork(network, ip)
+		netw := tcpDialNetwork(dest.Network, ip)
 		controlFn := DialControl(s, netw, control)
 		var c net.Conn
 		if lowport {
@@ -106,7 +112,7 @@ func DialTCPAll(ctx context.Context, network, host, port string, s parse.Spec, g
 		return c, nil
 	}
 	if lastErr == nil {
-		lastErr = fmt.Errorf("connect %s:%s failed", host, port)
+		lastErr = fmt.Errorf("connect %s:%s failed", host, dest.Port)
 	}
 	return nil, lastErr
 }
