@@ -15,6 +15,8 @@ import (
 // Darwin and Windows can steer a new peer's datagram to an existing connected
 // socket sharing the listen port, where it is discarded. Keep one socket
 // responsible for receiving and demultiplex packets by peer in user space.
+// udpDispatchConn is that shared-recv path: the listen fd stays on the
+// dispatcher; Close only unregisters the peer.
 const (
 	udpDispatchAcceptQueueSize = 256
 	udpDispatchPacketQueueSize = 64
@@ -269,7 +271,7 @@ func (l *udpDispatchListener) remove(key string, child *udpDispatchConn) {
 
 type udpDispatchConn struct {
 	listener *udpDispatchListener
-	pc       *net.UDPConn
+	pc       *net.UDPConn // shared listen socket; Close does not close it
 	peer     *net.UDPAddr
 	key      string
 	env      map[string]string

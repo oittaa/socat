@@ -31,7 +31,7 @@ func TestUDPSessionConnConcurrentCloseOwnedOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pc.Close() })
-	u := &udpSessionConn{conn: pc}
+	u := &udpSessionConn{sock: pc, role: udpRoleConnected}
 	errs := concurrentCloses(t, u.Close, 32)
 	for i, err := range errs {
 		if err != nil {
@@ -52,7 +52,7 @@ func TestUDPSessionConnOneShotCloseDoesNotCloseParent(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = parent.Close() })
-	u := &udpSessionConn{pc: parent, oneShot: true}
+	u := &udpSessionConn{sock: parent, role: udpRoleShared}
 	errs := concurrentCloses(t, u.Close, 16)
 	for i, err := range errs {
 		if err != nil {
