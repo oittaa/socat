@@ -231,10 +231,9 @@ with every inherited TLS 1.3 requirement.
 
 `update_requested` is remembered until a subsequent peer KeyUpdate is
 accepted. A DTLS ACK of the local update does not clear it.
-`TestKeyUpdateMalformedAndWrongEpoch` and
-`TestRFC9147KeyUpdateFlagRejectsNonKeyUpdate` cover invalid bodies;
-`TestKeyUpdateCancelsHandshakeReadExpiry` covers key retention after an
-update.
+`TestKeyUpdateMalformedAndWrongEpoch` covers invalid bodies on the
+receive path. `TestKeyUpdateCancelsHandshakeReadExpiry` covers key
+retention after an update.
 
 Deliberately not implemented, so the corresponding TLS 1.3 MUSTs are **n/a
 until the feature exists**: PSK, resumption, 0-RTT, post-handshake client
@@ -251,7 +250,7 @@ runtime-tested.
 | Area | OpenSSL 4.1 | wolfSSL | Pion |
 | --- | --- | --- | --- |
 | Mutual cert, AES-GCM/ChaCha, classical groups | yes both roles | yes our client; CID tests both roles | yes both roles (drivers) |
-| X25519MLKEM768 / NIST hybrids | 21 suite/group combinations at default MTU include both NIST hybrids; 1200/512/256 is X25519MLKEM768+ChaCha20 only | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 only |
+| X25519MLKEM768 / NIST hybrids | 21 suite/group combinations include both NIST hybrids: our client at MTU 4096, our listener at default 1200; 1200/512/256 is X25519MLKEM768+ChaCha20 only | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 only |
 | ML-DSA-44/65/87 | yes mutual echo at 4096 and both roles at 1200/512/256 with X25519MLKEM768 | library yes; not in our interop matrix | no |
 | Fragmented first ClientHello | stateful `s_server` accepts ours; cookie listener not retested | **rejects** unverified fragmented CH (even with `WOLFSSL_DTLS_CH_FRAG`) | yes |
 | Cookies / 3× amplification | HMAC cookie; no 3× cap | HMAC cookie; no 3× cap | stateful cookie; no HS 3× |
