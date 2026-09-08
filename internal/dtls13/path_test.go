@@ -86,7 +86,7 @@ func TestEnhancedRRCNATRebinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.deliver(t, now)
-	if p.server.path.peer.remote != old || p.server.path.probe == nil || !p.server.path.probe.old {
+	if p.server.path.peer.remote != old || p.server.path.probe == nil || p.server.path.probe.phase != pathValidateOld {
 		t.Fatal("address changed before testing the old path")
 	}
 	if err := p.server.application([]byte("wait for validation")); !errors.Is(err, errPathPending) {
@@ -97,7 +97,7 @@ func TestEnhancedRRCNATRebinding(t *testing.T) {
 	if err := p.server.tick(now); err != nil {
 		t.Fatal(err)
 	}
-	if p.server.path.probe.old || p.server.path.probe.cookie == oldCookie || len(p.packets) != 1 || p.packets[0].to != p.clientAddress {
+	if p.server.path.probe.phase == pathValidateOld || p.server.path.probe.cookie == oldCookie || len(p.packets) != 1 || p.packets[0].to != p.clientAddress {
 		t.Fatal("old-path timeout did not start a fresh challenge on the new path")
 	}
 	p.deliver(t, now)
@@ -291,7 +291,7 @@ func cidRotationDuringProbe(t *testing.T) (*testPaths, routedDatagram, []byte, t
 	if err := p.server.tick(now); err != nil {
 		t.Fatal(err)
 	}
-	if len(p.packets) != 1 || p.server.path.probe == nil || p.server.path.probe.old {
+	if len(p.packets) != 1 || p.server.path.probe == nil || p.server.path.probe.phase != pathValidateCandidate {
 		t.Fatal("basic path challenge was not queued")
 	}
 	challenge := p.packets[0]

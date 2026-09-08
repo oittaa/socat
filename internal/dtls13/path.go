@@ -15,6 +15,13 @@ const (
 	pathDrop      = byte(2)
 )
 
+type pathPhase uint8
+
+const (
+	pathValidateOld pathPhase = iota + 1
+	pathValidateCandidate
+)
+
 var errPathPending = errors.New("dtls: waiting for peer address validation")
 
 // local identifies the receiving socket, including a retained migration socket.
@@ -25,7 +32,7 @@ type packetPath struct {
 
 type pathProbe struct {
 	candidate packetPath
-	old       bool
+	phase     pathPhase
 	cookie    [8]byte
 	deadline  time.Time
 	credit    uint64
@@ -65,7 +72,7 @@ func (p *pathState) observe(from packetPath, number recordNumber, typ byte, size
 	if !newest || !p.allowed(from.remote) {
 		return nil
 	}
-	p.probe = &pathProbe{candidate: from, old: true, credit: 3 * size}
+	p.probe = &pathProbe{candidate: from, phase: pathValidateOld, credit: 3 * size}
 	return p.challenge(now)
 }
 
@@ -75,14 +82,14 @@ func (p *pathState) challenge(now time.Time) error {
 	}
 	p.probe.deadline = now.Add(time.Second)
 	destination := p.peer
-	if !p.probe.old {
+	if p.probe.phase == pathValidateCandidate {
 		destination = p.probe.candidate
 	}
 	return p.sendMessage(destination, pathChallenge, p.probe.cookie[:], 0)
 }
 
 func (p *pathState) startBasic(now time.Time) error {
-	p.probe.old = false
+	p.probe.phase = pathValidateCandidate
 	if len(p.session.peerSpareCIDs) != 0 {
 		p.probe.cid = p.session.peerSpareCIDs[0]
 		p.session.peerSpareCIDs = p.session.peerSpareCIDs[1:]
@@ -118,19 +125,19 @@ func (p *pathState) receive(from packetPath, body []byte, size uint64, now time.
 		return nil
 	}
 	expected := probe.candidate
-	if probe.old {
+	if probe.phase == pathValidateOld {
 		expected = p.peer
 	}
 	if from != expected {
 		return nil
 	}
 	if body[0] == pathDrop {
-		if probe.old {
+		if probe.phase == pathValidateOld {
 			return p.startBasic(now)
 		}
 		return nil
 	}
-	if !probe.old {
+	if probe.phase == pathValidateCandidate {
 		p.peer = probe.candidate
 		p.session.handshake.peerCID = probe.cid
 		p.session.resetMTUProbes()
@@ -145,7 +152,7 @@ func (p *pathState) receive(from packetPath, body []byte, size uint64, now time.
 func (p *pathState) sendMessage(to packetPath, typ byte, cookie []byte, credit uint64) error {
 	cid := p.session.handshake.peerCID
 	probe := p.probe
-	if probe != nil && to == probe.candidate && !probe.old {
+	if probe != nil && to == probe.candidate && probe.phase == pathValidateCandidate {
 		cid = probe.cid
 	}
 	body := append([]byte{typ}, cookie...)
@@ -169,7 +176,7 @@ func (p *pathState) tick(now time.Time) error {
 	if p.probe == nil || now.Before(p.probe.deadline) {
 		return nil
 	}
-	if p.probe.old {
+	if p.probe.phase == pathValidateOld {
 		return p.startBasic(now)
 	}
 	p.probe = nil

@@ -37,7 +37,7 @@ func TestKeyUpdateLostACK(t *testing.T) {
 	if err := client.requestKeyUpdate(false, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := client.application([]byte("wait")); !errors.Is(err, errUpdatePending) {
+	if err := client.application([]byte("wait")); !errors.Is(err, errOperationPending) {
 		t.Fatalf("write did not wait for key acknowledgement: %v", err)
 	}
 	update := (*packets)[0].data
@@ -81,7 +81,7 @@ func TestApplicationRotatesKeysBeforeRecordLimit(t *testing.T) {
 	if !server.read[3].window.accept(1<<24 - 1025) {
 		t.Fatal("could not advance the receiver's record window")
 	}
-	if err := client.application([]byte("limit")); !errors.Is(err, errUpdatePending) {
+	if err := client.application([]byte("limit")); !errors.Is(err, errOperationPending) {
 		t.Fatalf("application write at the key limit = %v", err)
 	}
 	if err := client.advancePost(now); err != nil {
@@ -516,7 +516,7 @@ func TestKeyUpdateAutomaticRekeyWhileAwaitingPeer(t *testing.T) {
 	deliverDatagrams(t, client, acks, now)
 	epoch := client.currentWriteEpoch()
 	client.write[epoch].sequence = client.write[epoch].keys.recordLimit - 1024
-	if err := client.application([]byte("limit")); !errors.Is(err, errUpdatePending) {
+	if err := client.application([]byte("limit")); !errors.Is(err, errOperationPending) {
 		t.Fatalf("limit write = %v", err)
 	}
 	if err := client.advancePost(now); err != nil {

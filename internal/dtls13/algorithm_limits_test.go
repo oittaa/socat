@@ -41,7 +41,7 @@ func TestCipherSpecificKeyUsageLimits(t *testing.T) {
 		if err := client.application([]byte("last record before update margin")); err != nil {
 			t.Fatal(err)
 		}
-		if err := client.application([]byte("triggers update")); !errors.Is(err, errUpdatePending) {
+		if err := client.application([]byte("triggers update")); !errors.Is(err, errOperationPending) {
 			t.Fatalf("cipher %x did not request key update: %v", tc.suite, err)
 		}
 		writer.sequence = tc.limit

@@ -229,7 +229,7 @@ func TestInteropWolfSSLServer(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if group.kem != 0 {
+				if group.kem != kemNone {
 					command.Args = append(command.Args, "--pqc", groupID.String())
 				} else {
 					name := "CURVE25519"

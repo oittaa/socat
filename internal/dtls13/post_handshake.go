@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-var errUpdatePending = errors.New("dtls: waiting for key update acknowledgement")
+var errOperationPending = errors.New("dtls: handshake, key update, or CID operation pending")
 
 var postTypes = [...]byte{msgNewConnectionID, msgRequestConnectionID, msgKeyUpdate}
 
@@ -29,10 +29,10 @@ func (s *session) expireHandshakeRead(now time.Time) {
 
 func (s *session) startPost(typ byte, body []byte, now time.Time) error {
 	if !s.handshake.complete || s.updating || s.outbound != nil && !s.outbound.complete {
-		return errUpdatePending
+		return errOperationPending
 	}
 	if f := s.post[typ]; f != nil && !f.complete {
-		return errUpdatePending
+		return errOperationPending
 	}
 	m, err := s.handshake.message(typ, s.currentWriteEpoch(), body)
 	if err != nil {

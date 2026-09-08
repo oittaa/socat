@@ -13,21 +13,38 @@ const (
 	groupX25519 = uint16(tls.X25519)
 )
 
+type kemKind uint16
+
+const (
+	kemNone      kemKind = 0
+	kemMLKEM768  kemKind = 768
+	kemMLKEM1024 kemKind = 1024
+)
+
+// shareOrigin selects the hybrid component on the wire: a client share carries
+// an ML-KEM encapsulation key; a server share carries a ciphertext.
+type shareOrigin uint8
+
+const (
+	shareFromClient shareOrigin = iota
+	shareFromServer
+)
+
 // The order follows Go's TLS 1.3 preferences. Hybrid formats are RFC 10024.
 var keyExchangeGroups = []keyExchangeGroup{
-	{tls.X25519MLKEM768, ecdh.X25519(), 768, true},
-	{tls.SecP256r1MLKEM768, ecdh.P256(), 768, false},
-	{tls.SecP384r1MLKEM1024, ecdh.P384(), 1024, false},
-	{tls.X25519, ecdh.X25519(), 0, false},
-	{tls.CurveP256, ecdh.P256(), 0, false},
-	{tls.CurveP384, ecdh.P384(), 0, false},
-	{tls.CurveP521, ecdh.P521(), 0, false},
+	{id: tls.X25519MLKEM768, curve: ecdh.X25519(), kem: kemMLKEM768, kemFirst: true},
+	{id: tls.SecP256r1MLKEM768, curve: ecdh.P256(), kem: kemMLKEM768, kemFirst: false},
+	{id: tls.SecP384r1MLKEM1024, curve: ecdh.P384(), kem: kemMLKEM1024, kemFirst: false},
+	{id: tls.X25519, curve: ecdh.X25519(), kem: kemNone, kemFirst: false},
+	{id: tls.CurveP256, curve: ecdh.P256(), kem: kemNone, kemFirst: false},
+	{id: tls.CurveP384, curve: ecdh.P384(), kem: kemNone, kemFirst: false},
+	{id: tls.CurveP521, curve: ecdh.P521(), kem: kemNone, kemFirst: false},
 }
 
 type keyExchangeGroup struct {
 	id       tls.CurveID
 	curve    ecdh.Curve
-	kem      int
+	kem      kemKind
 	kemFirst bool
 }
 
@@ -66,15 +83,18 @@ func generateShare(id uint16) (*keyShare, error) {
 	}
 	s := &keyShare{group: group, ecdh: private, public: private.PublicKey().Bytes()}
 	switch group.kem {
-	case 768:
+	case kemNone: // ECDH-only public key.
+	case kemMLKEM768:
 		s.kem, err = mlkem.GenerateKey768()
-	case 1024:
+	case kemMLKEM1024:
 		s.kem, err = mlkem.GenerateKey1024()
+	default:
+		return nil, errIllegalParameter
 	}
 	if err != nil {
 		return nil, err
 	}
-	if s.kem != nil {
+	if group.kem != kemNone {
 		s.public = group.combine(s.public, s.kem.Encapsulator().Bytes())
 	}
 	return s, nil
@@ -87,7 +107,7 @@ func (g keyExchangeGroup) combine(ec, kem []byte) []byte {
 	return append(ec, kem...)
 }
 
-func (g keyExchangeGroup) split(wire []byte, server bool) (ec, kem []byte, err error) {
+func (g keyExchangeGroup) split(wire []byte, from shareOrigin) (ec, kem []byte, err error) {
 	ecSize := 0
 	switch g.curve {
 	case ecdh.X25519():
@@ -98,19 +118,24 @@ func (g keyExchangeGroup) split(wire []byte, server bool) (ec, kem []byte, err e
 		ecSize = 97
 	case ecdh.P521():
 		ecSize = 133
+	default:
+		return nil, nil, errIllegalParameter
 	}
 	kemSize := 0
 	switch g.kem {
-	case 768:
+	case kemNone: // ECDH-only share; kemSize stays 0.
+	case kemMLKEM768:
 		kemSize = mlkem.EncapsulationKeySize768
-		if server {
+		if from == shareFromServer {
 			kemSize = mlkem.CiphertextSize768
 		}
-	case 1024:
+	case kemMLKEM1024:
 		kemSize = mlkem.EncapsulationKeySize1024
-		if server {
+		if from == shareFromServer {
 			kemSize = mlkem.CiphertextSize1024
 		}
+	default:
+		return nil, nil, errIllegalParameter
 	}
 	if len(wire) != ecSize+kemSize {
 		return nil, nil, errIllegalParameter
@@ -122,7 +147,7 @@ func (g keyExchangeGroup) split(wire []byte, server bool) (ec, kem []byte, err e
 }
 
 func (s *keyShare) shared(peer []byte) ([]byte, error) {
-	ec, ciphertext, err := s.group.split(peer, true)
+	ec, ciphertext, err := s.group.split(peer, shareFromServer)
 	if err != nil {
 		return nil, err
 	}
@@ -130,16 +155,23 @@ func (s *keyShare) shared(peer []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if s.kem == nil {
+	switch s.group.kem {
+	case kemNone:
 		return secret, nil
+	case kemMLKEM768, kemMLKEM1024:
+		if s.kem == nil {
+			return nil, errKeyMaterial
+		}
+		defer clear(secret)
+		kemSecret, err := s.kem.Decapsulate(ciphertext)
+		if err != nil {
+			return nil, errInternal
+		}
+		defer clear(kemSecret)
+		return s.group.combine(append([]byte(nil), secret...), append([]byte(nil), kemSecret...)), nil
+	default:
+		return nil, errIllegalParameter
 	}
-	defer clear(secret)
-	kemSecret, err := s.kem.Decapsulate(ciphertext)
-	if err != nil {
-		return nil, errInternal
-	}
-	defer clear(kemSecret)
-	return s.group.combine(append([]byte(nil), secret...), append([]byte(nil), kemSecret...)), nil
 }
 
 func serverShare(id uint16, peer []byte) (public, shared []byte, err error) {
@@ -147,7 +179,7 @@ func serverShare(id uint16, peer []byte) (public, shared []byte, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	ec, encapsulationKey, err := g.split(peer, false)
+	ec, encapsulationKey, err := g.split(peer, shareFromClient)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -160,20 +192,21 @@ func serverShare(id uint16, peer []byte) (public, shared []byte, err error) {
 		return nil, nil, err
 	}
 	public = private.PublicKey().Bytes()
-	if g.kem == 0 {
-		return public, secret, nil
-	}
-	defer clear(secret)
 	var encapsulator crypto.Encapsulator
 	switch g.kem {
-	case 768:
+	case kemNone:
+		return public, secret, nil
+	case kemMLKEM768:
 		encapsulator, err = mlkem.NewEncapsulationKey768(encapsulationKey)
-	case 1024:
+	case kemMLKEM1024:
 		encapsulator, err = mlkem.NewEncapsulationKey1024(encapsulationKey)
+	default:
+		return nil, nil, errIllegalParameter
 	}
 	if err != nil {
 		return nil, nil, errIllegalParameter
 	}
+	defer clear(secret)
 	kemSecret, ciphertext := encapsulator.Encapsulate()
 	defer clear(kemSecret)
 	return g.combine(public, ciphertext), g.combine(append([]byte(nil), secret...), append([]byte(nil), kemSecret...)), nil

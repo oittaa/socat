@@ -552,12 +552,12 @@ func (s *session) application(body []byte) error {
 		return errPathPending
 	}
 	if s.updatePending || s.updating || !s.handshakeFlightSent() {
-		return errUpdatePending
+		return errOperationPending
 	}
 	w := s.write[s.currentWriteEpoch()]
 	if w.sequence >= w.keys.recordLimit-1024 {
 		s.updatePending = true
-		return errUpdatePending
+		return errOperationPending
 	}
 	_, err := s.sendRecord(s.currentWriteEpoch(), contentData, body)
 	if err == nil {

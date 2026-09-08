@@ -59,14 +59,14 @@ func TestCIDRepeatedMigrationAndProbeExpiry(t *testing.T) {
 					t.Fatal(err)
 				}
 				p.deliver(t, now)
-				if observer.path.probe == nil || !observer.path.probe.old {
+				if observer.path.probe == nil || observer.path.probe.phase != pathValidateOld {
 					t.Fatal("new path did not start enhanced validation")
 				}
 				now = observer.path.probe.deadline
 				if err := observer.tick(now); err != nil {
 					t.Fatal(err)
 				}
-				if observer.path.probe == nil || observer.path.probe.old || len(p.packets) == 0 {
+				if observer.path.probe == nil || observer.path.probe.phase == pathValidateOld || len(p.packets) == 0 {
 					t.Fatal("old path expiry did not reserve a new-path CID")
 				}
 				r, _, err := parseRecord(p.packets[0].data, len(mover.handshake.localCID))
