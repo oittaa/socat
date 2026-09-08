@@ -47,6 +47,15 @@ shared with that adapted code.
 - Not implemented: DTLS 1.0/1.2, PSK, resumption, 0-RTT, post-handshake
   client authentication. `EXEC,nofork` cannot use DTLS.
 
+## PMTU invariants
+
+- Linux/Windows use `PMTUDISC_PROBE`, not `DO`, to bypass stale path-MTU
+  cache limits. macOS uses `DONTFRAG`.
+- Discovery does not query `IP_MTU` or connect/reconnect the active DTLS socket.
+- Automatic PMTU setup leaves shared listeners' fragmentation settings unchanged.
+- The working MTU grows only after an authenticated response to a current
+  discovery probe, within the configured `dtls-mtu` ceiling.
+
 ## Independent peers
 
 Last interoperability runs: 2026-09-07. Pins are in

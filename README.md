@@ -271,7 +271,10 @@ trusted client certificate.
   CID/RRC. Search starts after the final handshake flight is acknowledged
   and stays within `dtls-mtu` (default 1200). `dtls-unfragmented-probes=0`
   disables discovery; listeners ignore this option. ICMP Packet Too Big
-  messages are not used. Datagram writes are never retried. See
+  messages are not used. Datagram writes are never retried. Byte-stream
+  chunks are split again and retried only after a definite too-large rejection
+  before transmission, with zero bytes written and a smaller size limit.
+  Timeouts, partial writes and ambiguous errors are not retried. See
   [DTLS validation](docs/dtls13.md#validation).
 - `handshake-timeout` caps negotiation at 30 seconds by default; zero removes
   that deadline, but protocol retry limits remain. `so-rcvtimeo` / `rcvtimeo`
