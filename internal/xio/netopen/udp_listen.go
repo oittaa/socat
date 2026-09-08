@@ -243,9 +243,8 @@ type udpForkListener struct {
 	acceptTimeout time.Duration
 	oneShot       bool // UDP-RECVFROM,fork: one datagram then EOF
 	filter        *xio.PeerFilter
-	writeMu       sync.Mutex
-	pending       []udpForkPacket
-	dialSession   func(context.Context, string, *net.UDPAddr, *net.UDPAddr, parse.Spec) (*net.UDPConn, error)
+	writeMu sync.Mutex
+	pending []udpForkPacket
 
 	mu            sync.Mutex
 	handedOff     bool // reuseaddr=0: first session owns the listen socket
@@ -471,11 +470,7 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 		if la, ok := pc.LocalAddr().(*net.UDPAddr); ok {
 			local = cloneUDPAddr(la)
 		}
-		dialSession := l.dialSession
-		if dialSession == nil {
-			dialSession = dialUDPSession
-		}
-		conn, err := dialSession(l.ctx, l.network, local, a, l.spec)
+		conn, err := dialUDPSession(l.ctx, l.network, local, a, l.spec)
 		if err != nil {
 			if udpAddrIsPeer(a, failedDialPeer) {
 				failedDialAttempts++
