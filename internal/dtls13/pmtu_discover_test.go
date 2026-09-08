@@ -7,7 +7,7 @@ import (
 )
 
 func enableMTUDiscovery(s *session) {
-	s.canProbe = true
+	s.working.canProbe = true
 	if s.handshake != nil && s.handshake.config != nil {
 		s.handshake.config.UnfragmentedProbes = true
 	}
@@ -51,7 +51,7 @@ func (p *testPaths) discoverUntilWatch(t *testing.T, now *time.Time) {
 
 func TestMTUDiscoveryRequiresUnfragmentedProbes(t *testing.T) {
 	p := newTestPaths(t)
-	p.client.canProbe = true
+	p.client.working.canProbe = true
 	now := time.Unix(1000, 0)
 	if err := p.client.tick(now); err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ func TestMTUDiscoveryRequiresRRC(t *testing.T) {
 	a.DisableMigration, b.DisableMigration = true, true
 	a.UnfragmentedProbes = true
 	client, _, _ := driveSessions(t, a, b, false, false)
-	client.canProbe = true
+	client.working.canProbe = true
 	client.path = &pathState{session: client, peer: packetPath{netip.MustParseAddrPort("192.0.2.2:2000"), 1}}
 	now := time.Unix(1000, 0)
 	if err := client.tick(now); err != nil {
@@ -79,7 +79,7 @@ func TestMTUDiscoveryRequiresRRC(t *testing.T) {
 
 func TestMTUDiscoverySearchEMSGSIZENearWorkingGoesToWatch(t *testing.T) {
 	p := newDiscoveryPaths(t)
-	p.client.pathMTU = 1170
+	p.client.working.pathMTU = 1170
 	now := time.Unix(1000, 0)
 	p.tickClient(t, now)
 	now = p.client.mtu.nextProbe
@@ -97,7 +97,7 @@ func TestMTUDiscoverySearchEMSGSIZENearWorkingGoesToWatch(t *testing.T) {
 
 func TestMTUDiscoveryConfirmEMSGSIZEShrinks(t *testing.T) {
 	p := newDiscoveryPaths(t)
-	p.client.pathMTU = 800
+	p.client.working.pathMTU = 800
 	now := time.Unix(1000, 0)
 	p.client.send = func([]byte) error { return messageTooLongError() }
 	if err := p.client.tick(now); err != nil {
@@ -110,7 +110,7 @@ func TestMTUDiscoveryConfirmEMSGSIZEShrinks(t *testing.T) {
 
 func TestMTUDiscoveryPeriodicConfirmDoesNotRestartSearch(t *testing.T) {
 	p := newDiscoveryPaths(t)
-	p.client.pathMTU = 400
+	p.client.working.pathMTU = 400
 	now := time.Unix(1000, 0)
 	p.discoverUntilWatch(t, &now)
 	raiseAt := p.client.mtu.raiseAt
@@ -128,7 +128,7 @@ func TestMTUDiscoveryPeriodicConfirmDoesNotRestartSearch(t *testing.T) {
 
 func TestMTUDiscoveryDefersToKeyUpdate(t *testing.T) {
 	p := newDiscoveryPaths(t)
-	p.client.pathMTU = 400
+	p.client.working.pathMTU = 400
 	now := time.Unix(1000, 0)
 	if err := p.client.requestKeyUpdate(false, now); err != nil {
 		t.Fatal(err)
@@ -150,15 +150,15 @@ func TestMTUDiscoveryManualProbeStillDoesNotRaise(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.deliver(t, now)
-	if p.client.effectiveMTU() != working || p.client.pathMTU != 0 {
+	if p.client.effectiveMTU() != working || p.client.working.pathMTU != 0 {
 		t.Fatalf("manual probe raised usable MTU to %d", p.client.effectiveMTU())
 	}
 }
 
 func TestMTUDiscoveryReductionBudgetResetsOnRaise(t *testing.T) {
 	p := newDiscoveryPaths(t)
-	p.client.pathMTU = minPathMTU
-	p.client.mtuReductions = maxMTUReductions
+	p.client.working.pathMTU = minPathMTU
+	p.client.working.reductions = maxMTUReductions
 	if p.client.reduceHandshakeMTU(0) {
 		t.Fatal("reduction cap should block further shrink")
 	}
@@ -167,8 +167,8 @@ func TestMTUDiscoveryReductionBudgetResetsOnRaise(t *testing.T) {
 	if p.client.effectiveMTU() <= minPathMTU {
 		t.Fatal("search did not grow")
 	}
-	if p.client.mtuReductions != 0 {
-		t.Fatalf("raise left reductions=%d", p.client.mtuReductions)
+	if p.client.working.reductions != 0 {
+		t.Fatalf("raise left reductions=%d", p.client.working.reductions)
 	}
 	if !p.client.reduceHandshakeMTU(0) {
 		t.Fatal("raise did not restore the shrink budget")
@@ -177,7 +177,7 @@ func TestMTUDiscoveryReductionBudgetResetsOnRaise(t *testing.T) {
 
 func TestMTUDiscoveryDeadlineIncludesPace(t *testing.T) {
 	p := newDiscoveryPaths(t)
-	p.client.pathMTU = 400
+	p.client.working.pathMTU = 400
 	now := time.Unix(1000, 0)
 	p.tickClient(t, now)
 	got := p.client.deadline()
@@ -231,7 +231,7 @@ func TestMTUDiscoveryNoRetransmitOnApplicationEMSGSIZE(t *testing.T) {
 
 func TestSetWorkingMTUDoesNotLower(t *testing.T) {
 	p := newTestPaths(t)
-	p.client.pathMTU = 800
+	p.client.working.pathMTU = 800
 	p.client.setWorkingMTU(500)
 	if p.client.effectiveMTU() != 800 {
 		t.Fatal("setWorkingMTU lowered the working size")
@@ -245,7 +245,7 @@ func TestSetWorkingMTUDoesNotLower(t *testing.T) {
 func TestMTUDiscoveryIgnoresSharedListener(t *testing.T) {
 	p := newTestPaths(t)
 	p.server.handshake.config.UnfragmentedProbes = true
-	p.server.canProbe = false
+	p.server.working.canProbe = false
 	now := time.Unix(1000, 0)
 	if err := p.server.tick(now); err != nil {
 		t.Fatal(err)

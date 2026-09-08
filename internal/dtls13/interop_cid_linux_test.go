@@ -67,16 +67,16 @@ func verifyWolfSSLCID(t *testing.T, conn *Conn, transport *cidOracleTransport, s
 	if s.handshake.rrc {
 		t.Fatal("wolfSSL now negotiates RRC; extend the independent migration tests")
 	}
-	if !s.cidRequested || s.post[msgRequestConnectionID] != nil {
+	if !s.cid.requested || s.post[msgRequestConnectionID] != nil {
 		t.Fatal("wolfSSL did not acknowledge our proactive CID request")
 	}
-	if len(s.peerSpareCIDs) != 0 {
+	if len(s.cid.peerSpare) != 0 {
 		t.Fatal("wolfSSL now issues spare CIDs; extend the independent pool tests")
 	}
-	if len(s.localCIDs) != 1 || len(s.immediateCIDs) != 0 || bytes.Equal(s.localCIDs[0], s.handshake.localCID) {
+	if len(s.cid.local) != 1 || len(s.cid.immediate) != 0 || bytes.Equal(s.cid.local[0], s.handshake.localCID) {
 		t.Fatal("wolfSSL did not authenticate a record using the replacement CID")
 	}
-	if s.currentWriteEpoch() < 4 || s.readApplicationEpoch < 4 {
+	if s.currentWriteEpoch() < 4 || s.epochs.readApplicationEpoch < 4 {
 		t.Fatal("wolfSSL did not complete bidirectional key updates")
 	}
 	transport.mu.Lock()

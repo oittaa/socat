@@ -95,7 +95,7 @@ func rrcProbePadding(datagramSize, cidLen, aeadTag int) (int, error) {
 }
 
 func (s *session) recordTagLen() int {
-	w := s.write[s.currentWriteEpoch()]
+	w := s.epochs.write[s.currentWriteEpoch()]
 	if w != nil && w.keys != nil {
 		return w.keys.aead.Overhead()
 	}
@@ -110,15 +110,15 @@ func (s *session) mtuCeiling() int {
 }
 
 func (s *session) effectiveMTU() int {
-	if s.pathMTU > 0 {
-		return min(s.pathMTU, s.mtuCeiling())
+	if s.working.pathMTU > 0 {
+		return min(s.working.pathMTU, s.mtuCeiling())
 	}
 	return s.mtuCeiling()
 }
 
 func (s *session) reduceHandshakeMTU(tooBig int) bool {
 	current := s.effectiveMTU()
-	if current <= minPathMTU || s.mtuReductions >= maxMTUReductions {
+	if current <= minPathMTU || s.working.reductions >= maxMTUReductions {
 		return false
 	}
 	next := current / 2
@@ -133,8 +133,8 @@ func (s *session) reduceHandshakeMTU(tooBig int) bool {
 	if next >= current {
 		return false
 	}
-	s.pathMTU = next
-	s.mtuReductions++
+	s.working.pathMTU = next
+	s.working.reductions++
 	return true
 }
 
@@ -150,6 +150,6 @@ func (s *session) setWorkingMTU(n int) {
 	if n <= prev {
 		return
 	}
-	s.pathMTU = n
-	s.mtuReductions = 0
+	s.working.pathMTU = n
+	s.working.reductions = 0
 }

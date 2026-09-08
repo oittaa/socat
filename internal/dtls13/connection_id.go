@@ -14,23 +14,23 @@ func containsCID(ids [][]byte, cid []byte) bool {
 }
 
 func (s *session) acceptCID(cid []byte) bool {
-	if s.localCIDs == nil {
+	if s.cid.local == nil {
 		return bytes.Equal(cid, s.handshake.localCID)
 	}
-	return containsCID(s.localCIDs, cid)
+	return containsCID(s.cid.local, cid)
 }
 
 func (s *session) usedLocalCID(cid []byte) error {
-	if len(s.immediateCIDs) == 0 || !containsCID(s.immediateCIDs, cid) {
+	if len(s.cid.immediate) == 0 || !containsCID(s.cid.immediate, cid) {
 		return nil
 	}
-	if s.setLocalCIDs != nil {
-		if err := s.setLocalCIDs(s.immediateCIDs); err != nil {
+	if s.cid.setLocal != nil {
+		if err := s.cid.setLocal(s.cid.immediate); err != nil {
 			return err
 		}
 	}
-	s.localCIDs = s.immediateCIDs
-	s.immediateCIDs = nil
+	s.cid.local = s.cid.immediate
+	s.cid.immediate = nil
 	return nil
 }
 
@@ -38,35 +38,35 @@ func (s *session) requestCIDs(count byte, now time.Time) error {
 	if !s.handshake.cidNegotiated || len(s.handshake.peerCID) == 0 {
 		return errUnexpectedMessage
 	}
-	if s.cidRequested {
+	if s.cid.requested {
 		return errOperationPending
 	}
 	if err := s.startPost(msgRequestConnectionID, []byte{count}, now); err != nil {
 		return err
 	}
-	s.cidRequested = true
+	s.cid.requested = true
 	return nil
 }
 
 func (s *session) cidBusy() bool {
-	return s.updating || s.outbound != nil && !s.outbound.complete || s.post[msgNewConnectionID] != nil || len(s.immediateCIDs) != 0 || s.path != nil && s.path.probe != nil
+	return s.keyUpdate.updating || s.outbound != nil && !s.outbound.complete || s.post[msgNewConnectionID] != nil || len(s.cid.immediate) != 0 || s.path != nil && s.path.probe != nil
 }
 
 // respondCIDRequest issues spares for a pending RequestConnectionId.
 // A full issuance pool rotates one CID immediately instead of sending an
 // empty spare list; the spare request stays pending until capacity exists.
 func (s *session) respondCIDRequest(now time.Time) error {
-	if s.cidResponse == nil || s.cidBusy() {
+	if s.cid.response == nil || s.cidBusy() {
 		return nil
 	}
-	if s.localCIDs == nil {
-		s.localCIDs = [][]byte{bytes.Clone(s.handshake.localCID)}
+	if s.cid.local == nil {
+		s.cid.local = [][]byte{bytes.Clone(s.handshake.localCID)}
 	}
-	if len(s.localCIDs) >= maxConnectionIDs && *s.cidResponse > 0 {
+	if len(s.cid.local) >= maxConnectionIDs && *s.cid.response > 0 {
 		return s.provideCIDs(1, true, now)
 	}
-	count := *s.cidResponse
-	s.cidResponse = nil
+	count := *s.cid.response
+	s.cid.response = nil
 	return s.provideCIDs(int(count), false, now)
 }
 
@@ -77,10 +77,10 @@ func (s *session) provideCIDs(count int, immediate bool, now time.Time) error {
 	if s.cidBusy() {
 		return errOperationPending
 	}
-	if s.localCIDs == nil {
-		s.localCIDs = [][]byte{bytes.Clone(s.handshake.localCID)}
+	if s.cid.local == nil {
+		s.cid.local = [][]byte{bytes.Clone(s.handshake.localCID)}
 	}
-	count = min(max(count, 0), maxConnectionIDs-len(s.localCIDs))
+	count = min(max(count, 0), maxConnectionIDs-len(s.cid.local))
 	if immediate {
 		count = 1
 	}
@@ -90,7 +90,7 @@ func (s *session) provideCIDs(count int, immediate bool, now time.Time) error {
 		if _, err := rand.Read(id); err != nil {
 			return err
 		}
-		if !containsCID(s.localCIDs, id) && !containsCID(ids, id) {
+		if !containsCID(s.cid.local, id) && !containsCID(ids, id) {
 			ids = append(ids, id)
 		}
 	}
@@ -98,15 +98,15 @@ func (s *session) provideCIDs(count int, immediate bool, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	updated := append(slices.Clone(s.localCIDs), ids...)
-	if s.setLocalCIDs != nil {
-		if err := s.setLocalCIDs(updated); err != nil {
+	updated := append(slices.Clone(s.cid.local), ids...)
+	if s.cid.setLocal != nil {
+		if err := s.cid.setLocal(updated); err != nil {
 			return err
 		}
 	}
-	s.localCIDs = updated
+	s.cid.local = updated
 	if immediate {
-		s.immediateCIDs = ids
+		s.cid.immediate = ids
 	}
 	return s.startPost(msgNewConnectionID, body, now)
 }
@@ -166,18 +166,18 @@ func (s *session) receiveCIDs(body []byte) error {
 	}
 	if immediate {
 		s.handshake.peerCID = ids[0]
-		s.peerSpareCIDs = ids[1:]
+		s.cid.peerSpare = ids[1:]
 		// Immediate rotation also supersedes the CID reserved for a new path.
 		if s.path != nil && s.path.probe != nil && s.path.probe.phase == pathValidateCandidate {
 			s.path.probe.cid = ids[0]
 		}
 	} else {
 		for _, id := range ids {
-			if len(s.peerSpareCIDs) < maxConnectionIDs && !bytes.Equal(id, s.handshake.peerCID) && !containsCID(s.peerSpareCIDs, id) {
-				s.peerSpareCIDs = append(s.peerSpareCIDs, id)
+			if len(s.cid.peerSpare) < maxConnectionIDs && !bytes.Equal(id, s.handshake.peerCID) && !containsCID(s.cid.peerSpare, id) {
+				s.cid.peerSpare = append(s.cid.peerSpare, id)
 			}
 		}
-		s.cidRequested = false
+		s.cid.requested = false
 	}
 	return s.sendACK()
 }

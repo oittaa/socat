@@ -160,7 +160,7 @@ func readOracleSession(t *testing.T, ctx context.Context, conn *net.UDPConn, s *
 			}
 			updated = true
 		}
-		if s.handshake.complete && !sent && !s.updating && !s.updatePending {
+		if s.handshake.complete && !sent && !s.keyUpdate.updating && !s.keyUpdate.localPending {
 			if s.handshake.state.Version != version13 || len(s.handshake.state.VerifiedChains) == 0 {
 				t.Fatal("oracle handshake did not verify DTLS 1.3 and the certificate")
 			}
@@ -203,7 +203,7 @@ func readOracleSession(t *testing.T, ctx context.Context, conn *net.UDPConn, s *
 			}
 			received = true
 		}
-		if received && s.currentWriteEpoch() >= 4 && s.readApplicationEpoch >= 4 {
+		if received && s.currentWriteEpoch() >= 4 && s.epochs.readApplicationEpoch >= 4 {
 			return
 		}
 	}
@@ -273,7 +273,7 @@ func TestInteropWolfSSLServer(t *testing.T) {
 				if err := client.Close(); err != nil {
 					t.Fatal(err)
 				}
-				if client.session.currentWriteEpoch() < 4 || client.session.readApplicationEpoch < 4 {
+				if client.session.currentWriteEpoch() < 4 || client.session.epochs.readApplicationEpoch < 4 {
 					t.Fatal("wolfSSL did not complete both key updates")
 				}
 				t.Log("verified public client API, mutual authentication, bidirectional key updates, and wolfSSL echo")

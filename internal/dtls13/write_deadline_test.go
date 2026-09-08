@@ -135,7 +135,7 @@ func syntheticConnectionPair(t *testing.T) (*Conn, *Conn, *gatedWriteConn) {
 	synctest.Wait()
 	for step := 0; ; step++ {
 		if client.session.outbound.complete && len(client.session.post) == 0 && len(server.session.post) == 0 &&
-			client.session.ackDeadline.IsZero() && server.session.ackDeadline.IsZero() {
+			client.session.ack.deadline.IsZero() && server.session.ack.deadline.IsZero() {
 			break
 		}
 		if step == 20 {

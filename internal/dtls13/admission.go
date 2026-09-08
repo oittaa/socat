@@ -81,7 +81,7 @@ func (l *Listener) sendHello(p *pendingHello, peer netip.AddrPort, data []byte) 
 	select {
 	case l.transport.writes <- w:
 		p.credit -= uint64(len(data))
-		l.nextPlainSequence = max(l.nextPlainSequence, p.session.write[0].sequence)
+		l.nextPlainSequence = max(l.nextPlainSequence, p.session.epochs.write[0].sequence)
 	default:
 		// Congestion drops an unvalidated response without blocking the reader.
 	}
@@ -133,7 +133,7 @@ func (l *Listener) newHello(peer netip.AddrPort, sequence uint16, now time.Time)
 	p.session.reassembly.next = uint32(sequence)
 	p.session.handshakeReceived = now
 	if sequence == 1 {
-		p.session.write[0].sequence = l.nextPlainSequence
+		p.session.epochs.write[0].sequence = l.nextPlainSequence
 	}
 	l.hellos[peer] = p
 	return p
@@ -224,10 +224,10 @@ func (l *Listener) admitHello(peer netip.AddrPort, p *pendingHello) {
 		return
 	}
 	// Later plaintext ACKs must not acknowledge records from the retry cache.
-	s.write[0].sequence = l.nextPlainSequence
+	s.epochs.write[0].sequence = l.nextPlainSequence
 	c.attach(s)
 	c.onReady, c.onClose, c.onPeerChanged = l.establish, l.remove, l.peerChanged
-	s.setLocalCIDs = func(ids [][]byte) error { return l.setCIDs(c, ids) }
+	s.cid.setLocal = func(ids [][]byte) error { return l.setCIDs(c, ids) }
 	l.connections[c], l.handshakes[peer] = true, c
 	if len(h.localCID) != 0 {
 		l.cids[string(h.localCID)] = c

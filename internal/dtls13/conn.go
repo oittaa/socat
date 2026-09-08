@@ -137,7 +137,7 @@ func newConn(peer netip.AddrPort) *Conn {
 func (c *Conn) attach(s *session) {
 	c.session = s
 	if c.transport != nil {
-		s.canProbe = c.transport.unfragmented
+		s.working.canProbe = c.transport.unfragmented
 	}
 	s.path = &pathState{session: s, peer: packetPath{c.remote, 1}, allowPeer: s.handshake.config.AcceptPeer,
 		send: func(to packetPath, data []byte) error {
@@ -363,13 +363,13 @@ func (c *Conn) run() {
 			// Only change fragmentation when the peer can answer MTU probes.
 			if c.owned && s.handshake.rrc && s.handshake.cidNegotiated {
 				c.transport.configureUnfragmentedProbes(s.handshake.config.UnfragmentedProbes)
-				s.canProbe = c.transport.unfragmented
-				if s.canProbe {
+				s.working.canProbe = c.transport.unfragmented
+				if s.working.canProbe {
 					c.signalWake()
 				}
 			}
 			ready = true
-			s.wantCIDs = true
+			s.cid.want = true
 			c.publish(nil)
 			close(c.ready)
 			if c.onReady != nil && !c.onReady(c) {
@@ -485,7 +485,7 @@ func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
 	case commandUpdateKeys:
 		if !command.started {
 			command.epoch = s.currentWriteEpoch()
-			if s.updating {
+			if s.keyUpdate.updating {
 				command.epoch++
 			}
 			err = s.requestKeyUpdate(command.requestPeer, now)
@@ -506,7 +506,7 @@ func (c *Conn) command(command *connCommand, now time.Time) (bool, error) {
 		if c.writeClosed {
 			return true, nil
 		}
-		if s.updating || s.updatePending {
+		if s.keyUpdate.updating || s.keyUpdate.localPending {
 			return false, nil
 		}
 		_, err = s.sendRecord(s.currentWriteEpoch(), contentAlert, []byte{1, 0})

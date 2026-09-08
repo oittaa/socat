@@ -41,7 +41,7 @@ func TestAuthenticatedInvalidInnerContentAborts(t *testing.T) {
 	a, b := handshakeConfigs(t)
 	client, server, _ := driveSessions(t, a, b, false, false)
 	now := time.Unix(1000, 0)
-	w := client.write[client.currentWriteEpoch()]
+	w := client.epochs.write[client.currentWriteEpoch()]
 	cid := client.handshake.peerCID
 	packet := protectRecord(t, w.keys, recordNumber{client.currentWriteEpoch(), w.sequence}, cid, 99, []byte("x"))
 	if _, err := server.receive(packet, now); !errors.Is(err, errUnexpectedMessage) {

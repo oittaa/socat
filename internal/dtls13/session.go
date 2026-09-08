@@ -20,42 +20,71 @@ type writeEpoch struct {
 	sequence uint64
 }
 
+// ackState is queued ACK record numbers and the RFC 9147 quiet-timer deadline.
+type ackState struct {
+	pending  []recordNumber
+	deadline time.Time
+}
+
+// trafficEpochs is installed traffic keys, epoch maps, and secret retention.
+type trafficEpochs struct {
+	read                 map[uint64]*readEpoch
+	write                map[uint64]*writeEpoch
+	installed            byte
+	readApplicationEpoch uint64
+}
+
+// keyUpdateState keeps local KeyUpdate and outstanding peer-update requests
+// independent: a local update can be pending while a peer update is outstanding.
+type keyUpdateState struct {
+	localPending bool
+	requestPeer  bool
+	awaitingPeer bool
+	updating     bool
+}
+
+// cidState is CID pools, pending RequestConnectionId, and rotation hooks.
+// response is nil when no request is pending; a non-nil pointer (including to
+// 0) is a pending reply, including an empty spare list.
+type cidState struct {
+	local     [][]byte
+	immediate [][]byte
+	peerSpare [][]byte
+	requested bool
+	want      bool
+	response  *byte
+	setLocal  func([][]byte) error
+}
+
+// workingMTU is the current path MTU, shrink budget, and last send size.
+// Probe search lives in session.mtu (mtuDiscovery); path validation in path.
+type workingMTU struct {
+	pathMTU      int
+	reductions   int
+	lastSendSize int
+	canProbe     bool
+}
+
 // session is driven by one connection event loop. Transport ownership,
 // deadlines, and application queues belong to the connection.
 type session struct {
-	handshake            *handshakeState
-	handshakeReceived    time.Time
-	handleHandshake      func(handshakeMessage) ([]handshakeMessage, error)
-	send                 func([]byte) error
-	read                 map[uint64]*readEpoch
-	write                map[uint64]*writeEpoch
-	reassembly           reassembler
-	outbound             *flight
-	acknowledgements     []recordNumber
-	ackDeadline          time.Time
-	handshakeReadExpiry  time.Time
-	closed               bool
-	installed            byte
-	post                 map[byte]*flight
-	updatePending        bool
-	requestPeerUpdate    bool
-	awaitingPeerUpdate   bool
-	updating             bool
-	readApplicationEpoch uint64
-	peerClosed           *recordNumber
-	localCIDs            [][]byte
-	immediateCIDs        [][]byte
-	peerSpareCIDs        [][]byte
-	cidRequested         bool
-	wantCIDs             bool
-	cidResponse          *byte
-	setLocalCIDs         func([][]byte) error
-	path                 *pathState
-	pathMTU              int
-	mtuReductions        int
-	lastSendSize         int
-	canProbe             bool
-	mtu                  mtuDiscovery
+	handshake           *handshakeState
+	handshakeReceived   time.Time
+	handleHandshake     func(handshakeMessage) ([]handshakeMessage, error)
+	send                func([]byte) error
+	epochs              trafficEpochs
+	reassembly          reassembler
+	outbound            *flight
+	ack                 ackState
+	handshakeReadExpiry time.Time
+	closed              bool
+	post                map[byte]*flight
+	keyUpdate           keyUpdateState
+	peerClosed          *recordNumber
+	cid                 cidState
+	path                *pathState
+	working             workingMTU
+	mtu                 mtuDiscovery
 }
 
 func newClientSession(config *Config, send func([]byte) error, now time.Time) (*session, error) {
@@ -71,7 +100,16 @@ func newClientSession(config *Config, send func([]byte) error, now time.Time) (*
 }
 
 func newSession(h *handshakeState, handle func(handshakeMessage) ([]handshakeMessage, error), send func([]byte) error) *session {
-	return &session{handshake: h, handleHandshake: handle, send: send, read: make(map[uint64]*readEpoch), write: map[uint64]*writeEpoch{0: {}}, post: make(map[byte]*flight)}
+	return &session{
+		handshake:       h,
+		handleHandshake: handle,
+		send:            send,
+		epochs: trafficEpochs{
+			read:  make(map[uint64]*readEpoch),
+			write: map[uint64]*writeEpoch{0: {}},
+		},
+		post: make(map[byte]*flight),
+	}
 }
 
 func (s *session) installKeys() error {
@@ -86,7 +124,7 @@ func (s *session) installKeys() error {
 		{2, h.schedule.clientHandshake, h.schedule.serverHandshake},
 		{3, h.clientApplication, h.serverApplication},
 	} {
-		if len(pair.client) == 0 || s.installed&(1<<pair.epoch) != 0 {
+		if len(pair.client) == 0 || s.epochs.installed&(1<<pair.epoch) != 0 {
 			continue
 		}
 		readSecret, writeSecret := pair.client, pair.server
@@ -101,11 +139,11 @@ func (s *session) installKeys() error {
 		if err != nil {
 			return err
 		}
-		s.read[pair.epoch] = &readEpoch{keys: readKeys, secret: bytes.Clone(readSecret)}
-		s.write[pair.epoch] = &writeEpoch{keys: writeKeys, secret: bytes.Clone(writeSecret)}
-		s.installed |= 1 << pair.epoch
+		s.epochs.read[pair.epoch] = &readEpoch{keys: readKeys, secret: bytes.Clone(readSecret)}
+		s.epochs.write[pair.epoch] = &writeEpoch{keys: writeKeys, secret: bytes.Clone(writeSecret)}
+		s.epochs.installed |= 1 << pair.epoch
 		if pair.epoch == 3 {
-			s.readApplicationEpoch = 3
+			s.epochs.readApplicationEpoch = 3
 		}
 	}
 	return nil
@@ -113,7 +151,7 @@ func (s *session) installKeys() error {
 
 func (s *session) currentWriteEpoch() uint64 {
 	var highest uint64
-	for epoch := range s.write {
+	for epoch := range s.epochs.write {
 		highest = max(highest, epoch)
 	}
 	return highest
@@ -132,7 +170,7 @@ func (s *session) sendRecordWith(epoch uint64, typ byte, body, cid []byte, send 
 }
 
 func (s *session) sendRecordLimited(epoch uint64, typ byte, body, cid []byte, padding, limit int, send func([]byte) error) (recordNumber, error) {
-	w := s.write[epoch]
+	w := s.epochs.write[epoch]
 	if w == nil {
 		return recordNumber{}, errKeyMaterial
 	}
@@ -156,7 +194,7 @@ func (s *session) sendRecordLimited(epoch uint64, typ byte, body, cid []byte, pa
 	if len(packet) > limit {
 		return recordNumber{}, errRecordOverflow
 	}
-	s.lastSendSize = len(packet)
+	s.working.lastSendSize = len(packet)
 	w.sequence++
 	if err := send(packet); err != nil {
 		return recordNumber{}, err
@@ -210,7 +248,7 @@ func (s *session) transmit(f *flight, now time.Time) error {
 			}
 			return nil
 		}
-		if !s.reduceHandshakeMTU(s.lastSendSize) {
+		if !s.reduceHandshakeMTU(s.working.lastSendSize) {
 			return err
 		}
 	}
@@ -331,7 +369,7 @@ func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) (
 	if err := s.advancePost(now); err != nil {
 		return nil, err
 	}
-	if s.handshake.complete && !s.handshake.client && len(s.acknowledgements) != 0 {
+	if s.handshake.complete && !s.handshake.client && len(s.ack.pending) != 0 {
 		if err := s.sendACK(); err != nil {
 			return nil, err
 		}
@@ -341,7 +379,7 @@ func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) (
 
 func (s *session) openRecord(r record, hasCID bool) (recordNumber, byte, []byte, bool, error) {
 	if !r.encrypted {
-		if s.installed != 0 {
+		if s.epochs.installed != 0 {
 			return recordNumber{}, 0, nil, false, nil
 		}
 		return r.number, r.typ, r.body, true, nil
@@ -351,7 +389,7 @@ func (s *session) openRecord(r record, hasCID bool) (recordNumber, byte, []byte,
 	}
 	var epoch uint64
 	var keys *readEpoch
-	for candidate, k := range s.read {
+	for candidate, k := range s.epochs.read {
 		if candidate&3 == r.number.epoch && (keys == nil || candidate > epoch) {
 			epoch, keys = candidate, k
 		}
@@ -379,10 +417,10 @@ func (s *session) openRecord(r record, hasCID bool) (recordNumber, byte, []byte,
 		return recordNumber{}, 0, nil, false, err
 	}
 	if epoch >= 4 {
-		for old, k := range s.read {
+		for old, k := range s.epochs.read {
 			if old >= 3 && old < epoch {
 				clear(k.secret)
-				delete(s.read, old)
+				delete(s.epochs.read, old)
 			}
 		}
 	}
@@ -410,23 +448,23 @@ func (s *session) receiveHandshake(number recordNumber, body []byte, now time.Ti
 }
 
 func (s *session) queueAcknowledgement(number recordNumber, now time.Time) error {
-	if len(s.acknowledgements) >= maxQueuedAcknowledgements {
+	if len(s.ack.pending) >= maxQueuedAcknowledgements {
 		if err := s.sendACK(); err != nil {
 			return err
 		}
 	}
-	if len(s.acknowledgements) >= maxQueuedAcknowledgements {
+	if len(s.ack.pending) >= maxQueuedAcknowledgements {
 		return nil
 	}
-	s.acknowledgements = append(s.acknowledgements, number)
+	s.ack.pending = append(s.ack.pending, number)
 	delay := now.Add(initialRetransmit / 4)
 	// RFC 9147 §7.1: restart the 1/4-retransmit quiet timer while records
 	// arrive in order, so a long flight is not ACKed while the peer is
 	// still sending. Keep the first deadline once the flight is disrupted.
-	if s.ackDeadline.IsZero() || !s.reassembly.disrupted() {
-		s.ackDeadline = delay
+	if s.ack.deadline.IsZero() || !s.reassembly.disrupted() {
+		s.ack.deadline = delay
 	}
-	if len(s.acknowledgements) >= maxQueuedAcknowledgements {
+	if len(s.ack.pending) >= maxQueuedAcknowledgements {
 		return s.sendACK()
 	}
 	return nil
@@ -456,8 +494,8 @@ func (s *session) processHandshakes(now time.Time) error {
 		}
 		if len(response) != 0 {
 			if s.currentWriteEpoch() < 2 {
-				s.acknowledgements = nil
-				s.ackDeadline = time.Time{}
+				s.ack.pending = nil
+				s.ack.deadline = time.Time{}
 			}
 			if err := s.startFlight(response, now); err != nil {
 				return err
@@ -480,7 +518,7 @@ func (s *session) handshakeACKReady() bool {
 }
 
 func (s *session) handshakeFlightStalled(now time.Time) bool {
-	if s.handshake.complete || len(s.acknowledgements) == 0 || s.ackDeadline.IsZero() || now.Before(s.ackDeadline) {
+	if s.handshake.complete || len(s.ack.pending) == 0 || s.ack.deadline.IsZero() || now.Before(s.ack.deadline) {
 		return false
 	}
 	// The responding flight implicitly ACKs; sending here is ACK-before-Certificate.
@@ -494,7 +532,7 @@ func (s *session) handshakeACKScheduled() bool {
 	if s.handshakeACKReady() {
 		return true
 	}
-	if s.handshake.complete || len(s.acknowledgements) == 0 {
+	if s.handshake.complete || len(s.ack.pending) == 0 {
 		return false
 	}
 	if s.outbound != nil && !s.outbound.complete {
@@ -508,16 +546,16 @@ func (s *session) sendACK() error {
 }
 
 func (s *session) sendScheduledACK(now time.Time) error {
-	if len(s.acknowledgements) == 0 {
-		s.ackDeadline = time.Time{}
+	if len(s.ack.pending) == 0 {
+		s.ack.deadline = time.Time{}
 		return nil
 	}
 	return s.writeAcknowledgements(s.handshakeACKReady() || s.handshakeFlightStalled(now))
 }
 
 func (s *session) writeAcknowledgements(ready bool) error {
-	if len(s.acknowledgements) == 0 {
-		s.ackDeadline = time.Time{}
+	if len(s.ack.pending) == 0 {
+		s.ack.deadline = time.Time{}
 		return nil
 	}
 	if !ready {
@@ -528,25 +566,25 @@ func (s *session) writeAcknowledgements(ready bool) error {
 	if limit < 1 {
 		return errRecordOverflow
 	}
-	for len(s.acknowledgements) != 0 {
-		n := min(limit, len(s.acknowledgements))
-		body, err := encodeACK(s.acknowledgements[:n])
+	for len(s.ack.pending) != 0 {
+		n := min(limit, len(s.ack.pending))
+		body, err := encodeACK(s.ack.pending[:n])
 		if err != nil {
 			return err
 		}
 		if _, err := s.sendRecord(s.currentWriteEpoch(), contentACK, body); err != nil {
 			return err
 		}
-		s.acknowledgements = s.acknowledgements[n:]
+		s.ack.pending = s.ack.pending[n:]
 	}
-	s.ackDeadline = time.Time{}
+	s.ack.deadline = time.Time{}
 	return nil
 }
 
 func (s *session) deadline() time.Time {
 	deadline := time.Time{}
 	if s.handshakeACKScheduled() {
-		deadline = s.ackDeadline
+		deadline = s.ack.deadline
 	}
 	if !s.handshakeReadExpiry.IsZero() && (deadline.IsZero() || s.handshakeReadExpiry.Before(deadline)) {
 		deadline = s.handshakeReadExpiry
@@ -576,7 +614,7 @@ func (s *session) tick(now time.Time) error {
 			return err
 		}
 	}
-	if !s.ackDeadline.IsZero() && !now.Before(s.ackDeadline) {
+	if !s.ack.deadline.IsZero() && !now.Before(s.ack.deadline) {
 		if err := s.sendScheduledACK(now); err != nil {
 			return err
 		}
@@ -626,12 +664,12 @@ func (s *session) application(body []byte) error {
 	if s.path != nil && s.path.probe != nil {
 		return errPathPending
 	}
-	if s.updatePending || s.updating || !s.handshakeFlightSent() {
+	if s.keyUpdate.localPending || s.keyUpdate.updating || !s.handshakeFlightSent() {
 		return errOperationPending
 	}
-	w := s.write[s.currentWriteEpoch()]
+	w := s.epochs.write[s.currentWriteEpoch()]
 	if w.sequence >= w.keys.recordLimit-1024 {
-		s.updatePending = true
+		s.keyUpdate.localPending = true
 		return errOperationPending
 	}
 	_, err := s.sendRecord(s.currentWriteEpoch(), contentData, body)

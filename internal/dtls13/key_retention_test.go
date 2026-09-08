@@ -10,7 +10,7 @@ func TestConnIdleHandshakeReadKeyExpiry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		client, server, _ := syntheticConnectionPair(t)
 		advanceHandshakeClock(4 * time.Minute)
-		if server.session.read[2] != nil || !server.session.handshakeReadExpiry.IsZero() {
+		if server.session.epochs.read[2] != nil || !server.session.handshakeReadExpiry.IsZero() {
 			t.Fatal("idle connection did not expire handshake read keys")
 		}
 		if _, err := client.Write([]byte("still connected")); err != nil {
@@ -26,7 +26,7 @@ func TestConnIdleHandshakeReadKeyExpiry(t *testing.T) {
 func TestKeyUpdateCancelsHandshakeReadExpiry(t *testing.T) {
 	a, b := handshakeConfigs(t)
 	client, server, packets := driveSessions(t, a, b, false, false)
-	if server.read[2] == nil {
+	if server.epochs.read[2] == nil {
 		t.Fatal("test requires retained server handshake keys")
 	}
 	now := time.Unix(101, 0)
@@ -34,7 +34,7 @@ func TestKeyUpdateCancelsHandshakeReadExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	deliverSessionPackets(t, client, server, packets, now)
-	if server.read[2] != nil || !server.deadline().IsZero() {
+	if server.epochs.read[2] != nil || !server.deadline().IsZero() {
 		t.Fatal("peer KeyUpdate retained handshake keys or their expiry timer")
 	}
 }

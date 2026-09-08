@@ -29,7 +29,7 @@ func (s *session) handshakeAcknowledged() bool {
 
 func (s *session) mtuDiscoveryEnabled() bool {
 	h := s.handshake
-	return s.canProbe && s.handshakeAcknowledged() && h.config != nil && h.config.UnfragmentedProbes &&
+	return s.working.canProbe && s.handshakeAcknowledged() && h.config != nil && h.config.UnfragmentedProbes &&
 		h.rrc && h.cidNegotiated && s.path != nil
 }
 
@@ -67,7 +67,7 @@ func (s *session) noteMTUActivity() {
 }
 
 func (s *session) onApplicationTooBig() {
-	_ = s.reduceHandshakeMTU(s.lastSendSize)
+	_ = s.reduceHandshakeMTU(s.working.lastSendSize)
 	if s.mtuDiscoveryEnabled() {
 		s.restartMTUConfirm()
 	}
