@@ -272,7 +272,7 @@ trusted client certificate.
   and stays within `dtls-mtu` (default 1200). `dtls-unfragmented-probes=0`
   disables discovery; listeners ignore this option. ICMP Packet Too Big
   messages are not used. Datagram writes are never retried. See
-  [PMTU behavior and routed validation](docs/dtls13-pmtu.md).
+  [DTLS validation](docs/dtls13.md#validation).
 - `handshake-timeout` caps negotiation at 30 seconds by default; zero removes
   that deadline, but protocol retry limits remain. `so-rcvtimeo` / `rcvtimeo`
   adds a handshake receive-wait limit (zero or omission disables it).

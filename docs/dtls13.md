@@ -13,8 +13,7 @@ options, peer filters, fork lifecycle, deadlines and cancellation.
 Handshake MTU shrink is automatic. Command-line clients also default to MTU
 confirmation and upward discovery on eligible dedicated sockets with CID/RRC.
 `dtls-unfragmented-probes=0` disables discovery; the default ceiling stays
-1200 bytes. Routed IPv4/IPv6 shrink, growth and stale-cache bypass passed in
-the Linux lab and privileged CI. See [PMTU behavior and validation](dtls13-pmtu.md).
+1200 bytes. Direct library callers opt in with `Config.UnfragmentedProbes`.
 
 Algorithm defaults match Go 1.27's TLS 1.3 set: AES-128/256-GCM and
 ChaCha20-Poly1305; X25519, P-256/P-384/P-521, X25519MLKEM768,
@@ -93,8 +92,11 @@ Go 1.27.1 defaults matched `TestGoTLS13AlgorithmDefaults`.
   `SSL_accept`. MTU 1200 works for ML-DSA-44/65/87.
 - Independent PQ tests at MTU 1200/512/256 with controlled loss/reorder and
   mutual ML-DSA; successful loopback exchanges do not cover this.
-- PMTU: routed validation on Windows/macOS, per-datagram DF for shared
-  listeners, and measured-RTT probe spacing. See [PMTU](dtls13-pmtu.md).
+- PMTU: routed Windows/macOS validation awaits suitable test environments.
+  Possible improvements: RTT-based probe spacing, safe discovery on shared
+  listeners, and OS PMTU hints without connecting the active migration socket.
+  A routed test of the full 600-second raise cycle is optional; session tests
+  already cover that timer.
 - Lab-only BoringSSL packet-BIO adapter; keep it out of `make check`.
 - Recheck official OpenSSL/socat releases when 4.1 is usable. Do not patch the
   parity baseline to obtain a test peer.
@@ -114,6 +116,12 @@ Ordinary `make check` does not download lab tools. Linux/macOS/Windows tests,
 including race, cover the implementation. Classic `OPENSSL_DTLS_TO_SERVER`,
 `OPENSSL_DTLS_TO_CLIENT` and `RCVTIMEO_DTLS` pass; cases that pin DTLS 1.2
 remain unsupported. See the [scorecard](../testdata/scorecard/README.md#dtls-13).
+
+Linux lab and privileged CI tests cover live IPv4/IPv6 IP-MTU changes
+1500 → 1280 → 1500 with ICMP PTB blocked, authenticated delivery after shrink
+and growth, and stale PMTU-cache bypass. See
+`internal/xio/privileged/dtls_pmtu_linux_test.go`. Recovery restores the link
+during active search; the 600-second periodic raise is tested at session level.
 
 On Linux, build the pinned peers and run interop:
 

@@ -3,7 +3,6 @@
 Checked 2026-09-07. Read the relevant sections before changing behavior.
 [Status and peer limits](dtls13.md).
 [BCP 14 requirement matrix vs OpenSSL, wolfSSL, and Pion](dtls13-compliance.md).
-[PMTU behavior, defaults and routed validation](dtls13-pmtu.md).
 
 ## References
 
