@@ -17,7 +17,6 @@ const cookieLifetime = time.Minute
 type cookieSecrets struct {
 	current    [32]byte
 	previous   [32]byte
-	hasPrev    bool
 	lastRotate time.Time
 }
 
@@ -25,6 +24,7 @@ func (s *cookieSecrets) init() error {
 	if _, err := rand.Read(s.current[:]); err != nil {
 		return err
 	}
+	s.previous = s.current
 	s.lastRotate = time.Now()
 	return nil
 }
@@ -32,13 +32,11 @@ func (s *cookieSecrets) init() error {
 func (s *cookieSecrets) clear() {
 	clear(s.current[:])
 	clear(s.previous[:])
-	s.hasPrev = false
 	s.lastRotate = time.Time{}
 }
 
 func (s *cookieSecrets) rotateTo(next [32]byte, now time.Time) {
 	s.previous = s.current
-	s.hasPrev = true
 	s.current = next
 	s.lastRotate = now
 }
@@ -68,12 +66,10 @@ func cookieMAC(key []byte, peer netip.AddrPort, data []byte) []byte {
 }
 
 func (s *cookieSecrets) validMAC(peer netip.AddrPort, data, tag []byte) bool {
-	current := hmac.Equal(tag, cookieMAC(s.current[:], peer, data))
-	if !s.hasPrev {
-		return current
+	if hmac.Equal(tag, cookieMAC(s.current[:], peer, data)) {
+		return true
 	}
-	previous := hmac.Equal(tag, cookieMAC(s.previous[:], peer, data))
-	return current || previous
+	return hmac.Equal(tag, cookieMAC(s.previous[:], peer, data))
 }
 
 // Hash unchanged fields separately from the exact CH1 transcript. PSK identity

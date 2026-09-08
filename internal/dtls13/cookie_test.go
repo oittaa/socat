@@ -79,7 +79,7 @@ func TestCookieSecretsMaybeRotateInitializesWithoutRotating(t *testing.T) {
 	secrets := cookieSecrets{current: [32]byte{1}}
 	now := time.Unix(100, 0)
 	secrets.maybeRotate(now)
-	if secrets.current != [32]byte{1} || secrets.hasPrev || !secrets.lastRotate.Equal(now) {
+	if secrets.current != [32]byte{1} || secrets.previous != [32]byte{} || !secrets.lastRotate.Equal(now) {
 		t.Fatal("initialized by rotating the first key")
 	}
 }
@@ -87,11 +87,11 @@ func TestCookieSecretsMaybeRotateInitializesWithoutRotating(t *testing.T) {
 func TestCookieSecretsMaybeRotateInterval(t *testing.T) {
 	secrets := cookieSecrets{current: [32]byte{1}, lastRotate: time.Unix(100, 0)}
 	secrets.maybeRotate(secrets.lastRotate.Add(cookieLifetime - time.Second))
-	if secrets.current != [32]byte{1} || secrets.hasPrev {
+	if secrets.current != [32]byte{1} || secrets.previous != [32]byte{} {
 		t.Fatal("rotated before cookieLifetime")
 	}
 	secrets.maybeRotate(secrets.lastRotate.Add(cookieLifetime))
-	if secrets.current == [32]byte{1} || !secrets.hasPrev || secrets.previous != [32]byte{1} {
+	if secrets.current == [32]byte{1} || secrets.previous != [32]byte{1} {
 		t.Fatal("did not retain the previous HMAC key after cookieLifetime")
 	}
 }
@@ -108,7 +108,7 @@ func TestReceiveHelloRotatesCookieSecrets(t *testing.T) {
 	ln.cookies.lastRotate = now.Add(-cookieLifetime)
 	old := ln.cookies.current
 	ln.receiveHello(nil, netip.MustParseAddrPort("192.0.2.1:1"), now)
-	rotated := ln.cookies.current != old && ln.cookies.hasPrev && ln.cookies.previous == old
+	rotated := ln.cookies.current != old && ln.cookies.previous == old
 	ln.mu.Unlock()
 	if !rotated {
 		t.Fatal("cookie HMAC key was not rotated after cookieLifetime")
