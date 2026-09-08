@@ -229,7 +229,7 @@ with every inherited TLS 1.3 requirement.
 
 `update_requested` is remembered until a subsequent peer KeyUpdate is
 accepted. A DTLS ACK of the local update does not clear it.
-`TestKeyUpdateRequestedWaitsForPeerUpdate` is the wire regression.
+`TestKeyUpdateDoesNotRepeatPeerRequest` checks the outgoing request flag.
 
 Deliberately not implemented, so the corresponding TLS 1.3 MUSTs are **n/a
 until the feature exists**: PSK, resumption, 0-RTT, post-handshake client

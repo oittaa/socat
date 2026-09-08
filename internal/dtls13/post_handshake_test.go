@@ -29,6 +29,19 @@ func deliverSessionPackets(t *testing.T, client, server *session, packets *[]tes
 	return application
 }
 
+func TestKeyUpdateDoesNotRepeatPeerRequest(t *testing.T) {
+	h := &handshakeState{complete: true, config: &Config{MTU: 1200}}
+	s := newSession(h, nil, func([]byte) error { return nil })
+	s.write[3] = &writeEpoch{keys: testTrafficKeys(t)}
+	s.awaitingPeerUpdate = true
+	if err := s.requestKeyUpdate(true, time.Unix(1000, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.post[msgKeyUpdate].messages[0].message.body; !bytes.Equal(got, []byte{0}) {
+		t.Fatalf("KeyUpdate request_update = %x; want update_not_requested", got)
+	}
+}
+
 func TestKeyUpdateLostACK(t *testing.T) {
 	a, b := handshakeConfigs(t)
 	client, server, packets := driveSessions(t, a, b, false, false)
