@@ -124,7 +124,7 @@ These establish support, not a complete §4.4 conformance test.
 | --- | --- | --- | --- | --- |
 | **§7** MUST NOT ACK unprocessed/unbuffered handshake; MUST NOT ACK discarded future seq | yes | yes | yes | yes |
 | **§7** Handshake ACK epoch MUST be ≥ record being ACKed; after HS MUST use highest sending epoch | yes | yes | yes | yes |
-| **§7.1** Flights MUST be ACKed unless implicitly ACKed by the next flight | yes: disrupted flights are ACKed; a complete flight waits until local Finished is sent | partial: ACK not accepted in `TLS_ST_SW_FINISHED` | yes | yes |
+| **§7.1** Flights MUST be ACKed unless implicitly ACKed by the next flight | yes: disrupted and stalled incomplete flights are ACKed; a complete flight waits until local Finished is sent | partial: ACK not accepted in `TLS_ST_SW_FINISHED` | yes | yes |
 | **§7.1** MUST NOT ACK non-handshake or undeprotected records | yes | yes | yes | yes |
 | **§7.2** SHOULD drop ACKed fragments from retransmit; MUST cancel flight when complete; any ACK of a record counts; responding flight MUST implicitly ACK | yes | partial: often retransmits whole flight | yes | yes |
 | **§8** KeyUpdate MUST be ACKed; MUST NOT send with new keys or another KeyUpdate until ACK (erratum 8047, Reported) | yes | yes | yes | yes |
@@ -269,11 +269,13 @@ Practical consequences:
    initial handshake CID, not with mid-association CID rotation.
 4. **PQ at MTU 1200 is not a three-stack result.** Ours fragments CH0
    correctly. OpenSSL `s_server` and `s_client` accepted mutual ECDSA and
-   ML-DSA-44/65/87 echo at 1200/512/256 after handshake ACKs were deferred
-   until the local final flight was on the wire and new-byte bursts stopped
-   consuming retransmission retries. Historical `unexpected_message` at 256
-   was our ACK arriving while OpenSSL was in `TLS_ST_SW_FINISHED`. wolfSSL
-   will not reassemble an unverified fragmented CH. The OpenSSL cookie
+   ML-DSA-44/65/87 echo at 1200/512/256 after handshake ACKs of in-order
+   complete flights were deferred until the local final flight was on the
+   wire, disrupted or stalled incomplete flights were still ACKed, and
+   new-byte bursts stopped consuming retransmission retries. Historical
+   `unexpected_message` at 256 was our ACK arriving while OpenSSL was in
+   `TLS_ST_SW_FINISHED`. wolfSSL will not reassemble an unverified
+   fragmented CH. The OpenSSL cookie
    listener was not retested. Independent Pion PQ at these MTUs is still
    missing.
 5. **Do not use `openssl s_server -listen` as a DTLS 1.3 cookie peer.** That
