@@ -12,8 +12,8 @@ import (
 	socat "github.com/oittaa/socat"
 )
 
-// RememberAddrs fills SOCAT_* environment fields on g from a live connection.
-// Also exports process env used by -r/-R path expansion ($SERVER0_PEERADDR).
+// RememberAddrs writes this session's SOCAT_* address fields from a live
+// connection. Also used by -r/-R path expansion ($SERVER0_PEERADDR).
 func RememberAddrs(g *Global, c net.Conn) {
 	if g == nil || c == nil {
 		return
@@ -45,6 +45,7 @@ func RememberAddrs(g *Global, c net.Conn) {
 	// Do not os.Setenv: fork goroutines would race on process environment.
 }
 
+// lockSession locks this Global's SessionVars mutex, creating it on first use.
 func (g *Global) lockSession() func() {
 	if g == nil {
 		return func() {}
