@@ -265,11 +265,6 @@ type forkLoop struct {
 	HandshakeTimeout time.Duration
 }
 
-// execStart is KindExec: process started in Run with the peer FD as stdio.
-type execStart struct {
-	NoForkSpec *parse.Spec
-}
-
 // endpointClose is exactly-once teardown. Order: tty restore (fd still open),
 // ready stream, listener, then Cleanup hooks.
 type endpointClose struct {
@@ -288,8 +283,9 @@ type Opened struct {
 	listenLoop
 	dialLoop
 	forkLoop
-	execStart
 	endpointClose
+	// NoForkSpec is KindExec: EXEC/SYSTEM,nofork started in Run with the peer FD as stdio.
+	NoForkSpec *parse.Spec
 	// childDone closes when an EXEC/SYSTEM/SHELL child exits. Fork loops with
 	// max-children retain their slot until that process, not just its relay,
 	// has finished.
