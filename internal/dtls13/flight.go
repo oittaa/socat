@@ -21,6 +21,7 @@ type outboundMessage struct {
 	acknowledged      []byte
 	sent              []byte
 	remaining         int
+	sentCount         int
 	emptyAcknowledged bool
 	emptySent         bool
 }
@@ -60,8 +61,9 @@ func newFlight(messages []handshakeMessage, interval time.Duration) (*flight, er
 			return nil, errHandshakeLimit
 		}
 		m.body = bytes.Clone(m.body)
+		bitBytes := (len(m.body) + 7) / 8
 		f.messages = append(f.messages, outboundMessage{
-			message: m, acknowledged: make([]byte, (len(m.body)+7)/8), sent: make([]byte, (len(m.body)+7)/8), remaining: len(m.body),
+			message: m, acknowledged: make([]byte, bitBytes), sent: make([]byte, bitBytes), remaining: len(m.body),
 		})
 	}
 	return f, nil
@@ -73,16 +75,6 @@ func (m *outboundMessage) hasByte(i int) bool {
 
 func (m *outboundMessage) hasSent(i int) bool {
 	return m.sent[i/8]&(byte(1)<<(i%8)) != 0
-}
-
-func (m *outboundMessage) markSent(start, end int) {
-	if len(m.message.body) == 0 {
-		m.emptySent = true
-		return
-	}
-	for i := start; i < end; i++ {
-		m.sent[i/8] |= byte(1) << (i % 8)
-	}
 }
 
 // transmit sends at most ten records. New bytes are sent before unacked
@@ -147,7 +139,16 @@ func (f *flight) sendRanges(capacity int, send func(uint64, []byte) (recordNumbe
 				return count, errSequence
 			}
 			f.sent[number] = sentFragment{index, start, end}
-			m.markSent(start, end)
+			if len(m.message.body) == 0 {
+				m.emptySent = true
+			} else {
+				for i := start; i < end; i++ {
+					if !m.hasSent(i) {
+						m.sent[i/8] |= byte(1) << (i % 8)
+						m.sentCount++
+					}
+				}
+			}
 			count++
 			if count == flightBurst {
 				return count, nil
@@ -162,17 +163,16 @@ func (f *flight) sendRanges(capacity int, send func(uint64, []byte) (recordNumbe
 }
 
 func (f *flight) pendingSend() bool {
-	for _, m := range f.messages {
+	for i := range f.messages {
+		m := &f.messages[i]
 		if len(m.message.body) == 0 {
 			if !m.emptyAcknowledged && !m.emptySent {
 				return true
 			}
 			continue
 		}
-		for off := 0; off < len(m.message.body); off++ {
-			if !m.hasByte(off) && !m.hasSent(off) {
-				return true
-			}
+		if m.sentCount < len(m.message.body) {
+			return true
 		}
 	}
 	return false
