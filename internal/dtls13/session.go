@@ -516,6 +516,10 @@ func (s *session) sendACK() error {
 }
 
 func (s *session) sendScheduledACK(now time.Time) error {
+	if len(s.acknowledgements) == 0 {
+		s.ackDeadline = time.Time{}
+		return nil
+	}
 	return s.writeAcknowledgements(s.handshakeACKReady() || s.handshakeFlightStalled(now))
 }
 
@@ -580,8 +584,10 @@ func (s *session) tick(now time.Time) error {
 			return err
 		}
 	}
-	if err := s.sendScheduledACK(now); err != nil {
-		return err
+	if !s.ackDeadline.IsZero() && !now.Before(s.ackDeadline) {
+		if err := s.sendScheduledACK(now); err != nil {
+			return err
+		}
 	}
 	if s.outbound != nil {
 		retransmit, err := s.outbound.expire(now)
