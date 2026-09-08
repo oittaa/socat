@@ -243,8 +243,8 @@ type udpForkListener struct {
 	acceptTimeout time.Duration
 	oneShot       bool // UDP-RECVFROM,fork: one datagram then EOF
 	filter        *xio.PeerFilter
-	writeMu sync.Mutex
-	pending []udpForkPacket
+	writeMu       sync.Mutex
+	pending       []udpForkPacket
 
 	mu            sync.Mutex
 	handedOff     bool // reuseaddr=0: first session owns the listen socket
