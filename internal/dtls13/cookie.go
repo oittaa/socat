@@ -199,10 +199,14 @@ func (s *cookieSecrets) verify(config *Config, peer netip.AddrPort, message hand
 		return nil, errIllegalParameter
 	}
 	cookie := offer.cookie
-	if len(cookie) < sha256.Size || !s.validMAC(peer, cookie[:len(cookie)-sha256.Size], cookie[len(cookie)-sha256.Size:]) {
+	if len(cookie) < sha256.Size {
 		return nil, errIllegalParameter
 	}
-	r := wireReader{data: cookie[:len(cookie)-sha256.Size]}
+	data, tag := cookie[:len(cookie)-sha256.Size], cookie[len(cookie)-sha256.Size:]
+	if !s.validMAC(peer, data, tag) {
+		return nil, errIllegalParameter
+	}
+	r := wireReader{data: data}
 	version := r.uint8()
 	timestamp := r.take(8)
 	if r.err != nil {
