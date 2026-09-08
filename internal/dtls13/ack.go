@@ -6,6 +6,8 @@ import (
 	"slices"
 )
 
+const maxQueuedAcknowledgements = 32
+
 var errACK = errors.New("dtls: malformed acknowledgement")
 
 func compareRecordNumber(a, b recordNumber) int {

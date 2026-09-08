@@ -33,7 +33,8 @@ def checkout(root, name, source):
         path.mkdir(parents=True)
         run(["git", "init", "--quiet", str(path)])
         run(["git", "remote", "add", "origin", source["repository"]], cwd=path)
-    if run(["git", "remote", "get-url", "origin"], cwd=path) != source["repository"]:
+    configured = run(["git", "config", "--get", "remote.origin.url"], cwd=path)
+    if configured != source["repository"]:
         raise ValueError(f"unexpected remote in {path}")
     if run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=path):
         raise ValueError(f"tracked source changes in {path}; use another --root")

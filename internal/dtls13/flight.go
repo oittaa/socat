@@ -253,11 +253,14 @@ func (f *flight) expire(now time.Time) (bool, error) {
 	if f.complete || f.deadline.IsZero() || now.Before(f.deadline) {
 		return false, nil
 	}
-	if f.retries == maxFlightRetries {
-		return false, errHandshakeTimeout
+	if !f.pendingSend() {
+		if f.retries == maxFlightRetries {
+			return false, errHandshakeTimeout
+		}
+		f.retries++
+		f.interval = min(2*f.interval, maximumRetransmit)
 	}
-	f.retries++
-	f.interval = min(2*f.interval, maximumRetransmit)
+	// Remaining new bytes are the next burst, not a retransmission.
 	f.deadline = now.Add(f.interval)
 	return true, nil
 }

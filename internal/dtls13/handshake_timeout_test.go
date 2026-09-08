@@ -408,8 +408,9 @@ func TestHandshakeReceiveTimeoutAllowsLargeFragmentedCertificate(t *testing.T) {
 		roots.AddCert(ca.Cert)
 		a := &Config{ServerName: "localhost", RootCAs: roots, MTU: 256, DisableMigration: true,
 			CurvePreferences: []tls.CurveID{tls.X25519}, HandshakeReadTimeout: time.Second}
-		b := &Config{Certificates: []tls.Certificate{leaf.TLS()}, MTU: 256, DisableMigration: true,
-			HandshakeReadTimeout: time.Second}
+		// Certificate records are paced at 100ms so HandshakeReadTimeout is
+		// refreshed by arriving fragments across multiple receive waits.
+		b := &Config{Certificates: []tls.Certificate{leaf.TLS()}, MTU: 256, DisableMigration: true}
 		clientPacket, serverPacket := newHandshakePacketConn(10001), newHandshakePacketConn(10002)
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()

@@ -1,6 +1,6 @@
 # DTLS 1.3 requirement matrix
 
-Reviewed 2026-09-07 against the documents listed in
+Reviewed 2026-09-08 against the documents listed in
 [dtls13-standards.md](dtls13-standards.md). This compares selected protocol
 requirements and optional capabilities, not every inherited TLS requirement
 or a completed security review.
@@ -72,7 +72,7 @@ Permitted choices are described without counting them as compliance gaps.
 | **§4.4** MUST report transport PMTU-exceeded errors; SHOULD allow app DF control | transport write errors propagate; caller configures supplied socket | MTU-error handling and DF BIO controls; see evidence below | unknown | unknown |
 | **§4.4** Handshake SHOULD fragment if too big; SHOULD shrink after unanswered retries when PMTU unknown | yes: fragments to the association budget; `EMSGSIZE` and unanswered handshake flights shrink with a bound; command-line clients default to confirm/search on eligible dedicated sockets | fragments and re-queries on MTU error; DTLS 1.3 loss backoff unknown | fragments; loss backoff unknown | fragments; loss backoff unknown |
 | **§4.5.1** Replay check SHOULD use sliding window; MUST init at 0; MUST reject duplicates; MUST NOT update window until deprotect succeeds | yes (64-bit window after AEAD) | yes | yes (after AEAD) | yes |
-| **§4.5.2** Invalid records SHOULD be silently discarded; fatal alerts NOT RECOMMENDED on UDP | unauthenticated parse/MAC/replay dropped; authenticated inner/handshake/ACK/alert violations send fatal alerts (permitted); AEAD fail limit closes | yes drop | yes drop | yes drop |
+| **§4.5.2** Invalid records SHOULD be silently discarded; fatal alerts NOT RECOMMENDED on UDP | unauthenticated parse/MAC/replay dropped; authenticated inner/handshake/alert violations send fatal alerts (permitted); malformed ACK bodies discarded; AEAD fail limit closes | yes drop | yes drop | yes drop |
 | **§4.5.3** SHOULD NOT exceed AEAD confidentiality limit; SHOULD KeyUpdate before it | yes (GCM 2^24, ChaCha 2^48; KeyUpdate at limit−1024) | no | yes | no |
 | **§4.5.3** MUST count AEAD auth failures; SHOULD close or KeyUpdate at 2^36 (GCM/ChaCha) | yes close at 2^36 | no | yes | no |
 | **§4.5.3** `TLS_AES_128_CCM_8_SHA256` MUST NOT be used in DTLS without extra forgery protection | yes: suite rejected | no: advertised for DTLS 1.3 | yes: allowed with extra fail limit | yes: suite not present |
@@ -124,7 +124,7 @@ These establish support, not a complete §4.4 conformance test.
 | --- | --- | --- | --- | --- |
 | **§7** MUST NOT ACK unprocessed/unbuffered handshake; MUST NOT ACK discarded future seq | yes | yes | yes | yes |
 | **§7** Handshake ACK epoch MUST be ≥ record being ACKed; after HS MUST use highest sending epoch | yes | yes | yes | yes |
-| **§7.1** Flights MUST be ACKed unless implicitly ACKed by the next flight | yes | partial: subset of disruption ACKs | yes | yes |
+| **§7.1** Flights MUST be ACKed unless implicitly ACKed by the next flight | yes: disrupted and stalled incomplete flights are ACKed; a complete flight waits until local Finished is sent | partial: ACK not accepted in `TLS_ST_SW_FINISHED` | yes | yes |
 | **§7.1** MUST NOT ACK non-handshake or undeprotected records | yes | yes | yes | yes |
 | **§7.2** SHOULD drop ACKed fragments from retransmit; MUST cancel flight when complete; any ACK of a record counts; responding flight MUST implicitly ACK | yes | partial: often retransmits whole flight | yes | yes |
 | **§8** KeyUpdate MUST be ACKed; MUST NOT send with new keys or another KeyUpdate until ACK (erratum 8047, Reported) | yes | yes | yes | yes |
@@ -246,15 +246,15 @@ runtime-tested.
 | Area | OpenSSL 4.1 | wolfSSL | Pion |
 | --- | --- | --- | --- |
 | Mutual cert, AES-GCM/ChaCha, classical groups | yes both roles | yes our client; CID tests both roles | yes both roles (drivers) |
-| X25519MLKEM768 / NIST hybrids | yes our client at 256+ against `s_server` (ECDSA echo); `s_client` ECDSA fails at 256 | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 only |
-| ML-DSA-44/65/87 | yes mutual echo at 4096 and our client at 1200; ML-DSA-44 at 512; `s_client` fails at 1200; 256 still OpenSSL `unexpected_message` | library yes; not in our interop matrix | no |
+| X25519MLKEM768 / NIST hybrids | yes both roles at 256+ (ECDSA echo with ChaCha20-Poly1305) | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 only |
+| ML-DSA-44/65/87 | yes mutual echo at 4096 and both roles at 1200/512/256 with X25519MLKEM768 | library yes; not in our interop matrix | no |
 | Fragmented first ClientHello | stateful `s_server` accepts ours; cookie listener not retested | **rejects** unverified fragmented CH (even with `WOLFSSL_DTLS_CH_FRAG`) | yes |
 | Cookies / 3× amplification | HMAC cookie; no 3× cap | HMAC cookie; no 3× cap | stateful cookie; no HS 3× |
-| ACK / KeyUpdate | yes; `s_client` does not ACK our large/fragmented server flights | yes; CID tests include KeyUpdate | yes |
+| ACK / KeyUpdate | yes both roles; OpenSSL may emit MTU-truncated ACK lists (discarded) | yes; CID tests include KeyUpdate | yes |
 | CID request / new / spare | **no DTLS 1.3 CID at all** | parse Request, ignore; spare discarded; immediate replace works | codec only; `ErrNotImplemented` on send |
 | RFC 9853 RRC | no | no | yes both roles with **initial** CIDs |
 | PSK / 0-RTT / resumption | yes in OpenSSL | yes in wolfSSL | 1.2 PSK only |
-| Production MTU 1200 + PQ ClientHello | our client → `s_server` ECDSA and mutual ML-DSA echo yes; `s_client` ML-DSA still blocked | blocked by unfragmented-CH rule | not independently proven |
+| Production MTU 1200 + PQ ClientHello | yes both roles, including mutual ML-DSA at 256 | blocked by unfragmented-CH rule | not independently proven |
 
 Practical consequences:
 
@@ -268,12 +268,16 @@ Practical consequences:
 3. **RRC/migration can only be tested against Pion**, and only with the
    initial handshake CID, not with mid-association CID rotation.
 4. **PQ at MTU 1200 is not a three-stack result.** Ours fragments CH0
-   correctly and OpenSSL `s_server` accepted mutual ML-DSA echo at 1200
-   after we stopped sending application data before Finished was on the
-   wire. wolfSSL will not reassemble an unverified fragmented CH; OpenSSL
-   `s_client` still fails to ACK our large server flights. Mutual ML-DSA
-   at 256 against `s_server` still fails. The OpenSSL cookie listener was
-   not retested.
+   correctly. OpenSSL `s_server` and `s_client` accepted mutual ECDSA and
+   ML-DSA-44/65/87 echo at 1200/512/256 after handshake ACKs of in-order
+   complete flights were deferred until the local final flight was on the
+   wire, disrupted or stalled incomplete flights were still ACKed, and
+   new-byte bursts stopped consuming retransmission retries. Historical
+   `unexpected_message` at 256 was our ACK arriving while OpenSSL was in
+   `TLS_ST_SW_FINISHED`. wolfSSL will not reassemble an unverified
+   fragmented CH. The OpenSSL cookie
+   listener was not retested. Independent Pion PQ at these MTUs is still
+   missing.
 5. **Do not use `openssl s_server -listen` as a DTLS 1.3 cookie peer.** That
    flag is `DTLSv1_listen` (HelloVerifyRequest). Use `SSL_new_listener` /
    `demos/dtlslistenerecho`.
@@ -288,7 +292,7 @@ Practical consequences:
 | Work | Basis | Current limit |
 | --- | --- | --- |
 | Dynamic PMTU handling | RFC 9147 §4.4 / RFC 8899 | Handshake shrink; command-line confirm/search defaults on for eligible dedicated sockets with CID/RRC after final-flight ACK. Linux routed IPv4/IPv6 shrink, growth and stale-cache bypass passed. Manual probes do not raise the working size; the default ceiling stays 1200. ICMP PTB is unused by the stack. No IP PMTU query or discovery on shared listeners. [Remaining work](dtls13.md#remaining-work). |
-| Independent spare-CID and remaining production-MTU PQ interop | Coverage | No pinned peer issues spares. Our-client mutual ML-DSA echo works at MTU 1200; OpenSSL `s_server` still returns `unexpected_message` for ML-DSA-65/87 at 512 and all ML-DSA at 256. See [remaining work](dtls13.md#remaining-work). |
+| Independent spare-CID and remaining production-MTU PQ interop | Coverage | No pinned peer issues spares. OpenSSL both-role mutual ML-DSA echo works at 1200/512/256. wolfSSL still needs an unfragmented first ClientHello; Pion PQ at those MTUs is untested. See [remaining work](dtls13.md#remaining-work). |
 | RFC 9846 `general_error` | Alert mapping | Named receive/diagnostics for alert 117. Send mappings keep certificate, protocol, and `internal_error` alerts. |
 
 Sending only 16-bit sequence numbers, always including record length, and

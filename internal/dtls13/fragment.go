@@ -169,6 +169,28 @@ func (r *reassembler) pop() (handshakeMessage, bool) {
 	return p.message, true
 }
 
+func (p *partialHandshake) prefixLength() int {
+	n := 0
+	for n < len(p.message.body) && p.seen[n/8]&(byte(1)<<(n%8)) != 0 {
+		n++
+	}
+	return n
+}
+
+func (r *reassembler) disrupted() bool {
+	if len(r.pending) > 1 {
+		return true
+	}
+	if len(r.pending) == 0 {
+		return false
+	}
+	p := r.pending[uint16(r.next&0xffff)]
+	if p == nil {
+		return true
+	}
+	return p.prefixLength() < len(p.message.body)-p.remaining
+}
+
 func fragmentCost(size int) int { return size + (size+7)/8 + 128 }
 
 func (r *reassembler) clear() {

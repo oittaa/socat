@@ -22,6 +22,96 @@ func TestApplicationWaitsForUnsentHandshakeFlight(t *testing.T) {
 	}
 }
 
+func TestHandshakeACKFollowsFinalFlight(t *testing.T) {
+	cert, roots := mldsaCertificate(t, mldsa.MLDSA44())
+	clientConfig := &Config{Certificates: []tls.Certificate{cert}, RootCAs: roots, ServerName: "localhost", MTU: 256, CipherSuites: []uint16{chaCha20Poly1305}}
+	serverConfig := &Config{Certificates: []tls.Certificate{cert}, ClientCAs: roots, ClientAuth: tls.RequireAndVerifyClientCert, MTU: 256, CipherSuites: []uint16{chaCha20Poly1305}}
+	var packets []testDatagram
+	now := time.Unix(100, 0)
+	server, err := newTestServerSession(serverConfig, func(data []byte) error {
+		packets = append(packets, testDatagram{false, bytes.Clone(data)})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err := newClientSession(clientConfig, func(data []byte) error {
+		packets = append(packets, testDatagram{true, bytes.Clone(data)})
+		return nil
+	}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var records []struct {
+		typ, handshake byte
+	}
+	client.observeRecord = func(_ uint64, typ byte, body []byte) {
+		item := struct{ typ, handshake byte }{typ: typ}
+		if typ == contentHandshake && len(body) > 0 {
+			item.handshake = body[0]
+		}
+		records = append(records, item)
+	}
+	for step := 0; step < 4000; step++ {
+		if len(packets) != 0 {
+			p := packets[0]
+			packets = packets[1:]
+			destination := client
+			if p.fromClient {
+				destination = server
+			}
+			if _, err := destination.receive(p.data, now); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if client.handshake.complete && server.handshake.complete && client.handshakeFlightSent() {
+			var epoch2Handshake, finished, ackDuringResponse, ackAfterFinished bool
+			for _, r := range records {
+				if r.typ == contentHandshake && r.handshake != msgClientHello {
+					epoch2Handshake = true
+					if r.handshake == msgFinished {
+						finished = true
+					}
+				}
+				if r.typ == contentACK {
+					if epoch2Handshake && !finished {
+						ackDuringResponse = true
+					}
+					if finished {
+						ackAfterFinished = true
+					}
+				}
+			}
+			if !epoch2Handshake || !finished {
+				t.Fatal("client did not send the authenticated handshake flight")
+			}
+			if ackDuringResponse {
+				t.Fatal("client ACK interleaved with Certificate/Finished; OpenSSL SSL_accept treats that as unexpected_message")
+			}
+			if !ackAfterFinished {
+				t.Fatal("client did not ACK the server flight after sending Finished")
+			}
+			return
+		}
+		next := client.deadline()
+		if candidate := server.deadline(); next.IsZero() || !candidate.IsZero() && candidate.Before(next) {
+			next = candidate
+		}
+		if next.IsZero() {
+			t.Fatal("handshake stalled")
+		}
+		now = next
+		if err := client.tick(now); err != nil {
+			t.Fatal(err)
+		}
+		if err := server.tick(now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Fatal("handshake did not finish")
+}
+
 func TestAuthenticatedHandshakeFlightExceedsEpochZeroBurst(t *testing.T) {
 	cert, roots := mldsaCertificate(t, mldsa.MLDSA44())
 	clientConfig := &Config{Certificates: []tls.Certificate{cert}, RootCAs: roots, ServerName: "localhost", MTU: 256, CipherSuites: []uint16{chaCha20Poly1305}}
@@ -82,4 +172,227 @@ func TestAuthenticatedHandshakeFlightExceedsEpochZeroBurst(t *testing.T) {
 		}
 	}
 	t.Fatal("handshake did not finish")
+}
+
+func TestAcknowledgementQueueBoundedWhileFinalFlightUnsent(t *testing.T) {
+	s := newSession(&handshakeState{complete: true, config: &Config{MTU: 1200}}, nil, func([]byte) error { return nil })
+	s.outbound = &flight{}
+	body, err := (handshakeMessage{typ: msgCertificate, body: bytes.Repeat([]byte{1}, 200)}).fragment(0, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1, 0)
+	for i := range 1000 {
+		if err := s.receiveHandshake(recordNumber{2, uint64(i)}, body, now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := len(s.acknowledgements); n == 0 || n > maxQueuedAcknowledgements {
+		t.Fatalf("queued ACK records = %d; want 1..%d while Finished is unsent", n, maxQueuedAcknowledgements)
+	}
+}
+
+func TestLostProtectedHandshakeRecordRecovers(t *testing.T) {
+	cert, roots := mldsaCertificate(t, mldsa.MLDSA44())
+	clientConfig := &Config{Certificates: []tls.Certificate{cert}, RootCAs: roots, ServerName: "localhost", MTU: 256, CipherSuites: []uint16{chaCha20Poly1305}}
+	serverConfig := &Config{Certificates: []tls.Certificate{cert}, ClientCAs: roots, ClientAuth: tls.RequireAndVerifyClientCert, MTU: 256, CipherSuites: []uint16{chaCha20Poly1305}}
+	var packets []testDatagram
+	var client, server *session
+	var serverProtected int
+	dropped := false
+	start := time.Unix(100, 0)
+	now := start
+	sender := func(fromClient bool) func([]byte) error {
+		return func(data []byte) error {
+			if !fromClient && server != nil && server.outbound != nil && !server.outbound.complete && server.currentWriteEpoch() >= 2 {
+				serverProtected++
+				if !dropped && serverProtected == 15 {
+					dropped = true
+					return nil
+				}
+			}
+			packets = append(packets, testDatagram{fromClient, bytes.Clone(data)})
+			return nil
+		}
+	}
+	var err error
+	server, err = newTestServerSession(serverConfig, sender(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, err = newClientSession(clientConfig, sender(true), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for step := 0; step < 4000; step++ {
+		if len(packets) != 0 {
+			p := packets[0]
+			packets = packets[1:]
+			destination := client
+			if p.fromClient {
+				destination = server
+			}
+			if _, err := destination.receive(p.data, now); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if client.handshake.complete && server.handshake.complete && client.handshakeFlightSent() {
+			if !dropped || serverProtected < 16 {
+				t.Fatalf("loss did not land in a multi-record server flight: dropped=%t records=%d", dropped, serverProtected)
+			}
+			if now.Sub(start) > 20*time.Second {
+				t.Fatalf("handshake recovered too slowly: %s", now.Sub(start))
+			}
+			return
+		}
+		next := client.deadline()
+		if candidate := server.deadline(); next.IsZero() || !candidate.IsZero() && candidate.Before(next) {
+			next = candidate
+		}
+		if next.IsZero() {
+			t.Fatal("handshake stalled")
+		}
+		now = next
+		if err := client.tick(now); err != nil {
+			t.Fatal(err)
+		}
+		if err := server.tick(now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Fatal("handshake did not finish")
+}
+
+func TestLostFinalHandshakeRecordRecovers(t *testing.T) {
+	cert, roots := mldsaCertificate(t, mldsa.MLDSA44())
+	clientConfig := &Config{Certificates: []tls.Certificate{cert}, RootCAs: roots, ServerName: "localhost", MTU: 256, CipherSuites: []uint16{chaCha20Poly1305}}
+	serverConfig := &Config{Certificates: []tls.Certificate{cert}, ClientCAs: roots, ClientAuth: tls.RequireAndVerifyClientCert, MTU: 256, CipherSuites: []uint16{chaCha20Poly1305}}
+	var packets []testDatagram
+	var client, server *session
+	dropped := false
+	start := time.Unix(100, 0)
+	now := start
+	sender := func(fromClient bool) func([]byte) error {
+		return func(data []byte) error {
+			packets = append(packets, testDatagram{fromClient, bytes.Clone(data)})
+			return nil
+		}
+	}
+	var err error
+	server, err = newTestServerSession(serverConfig, sender(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.filterRecord = func(epoch uint64, typ byte, body []byte) bool {
+		if dropped || typ != contentHandshake || epoch < 2 || len(body) == 0 || body[0] != msgFinished {
+			return true
+		}
+		dropped = true
+		return false
+	}
+	client, err = newClientSession(clientConfig, sender(true), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for step := 0; step < 4000; step++ {
+		if len(packets) != 0 {
+			p := packets[0]
+			packets = packets[1:]
+			destination := client
+			if p.fromClient {
+				destination = server
+			}
+			if _, err := destination.receive(p.data, now); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		if client.handshake.complete && server.handshake.complete && client.handshakeFlightSent() {
+			if !dropped {
+				t.Fatal("server Finished was not dropped")
+			}
+			if now.Sub(start) > 20*time.Second {
+				t.Fatalf("handshake recovered too slowly: %s", now.Sub(start))
+			}
+			return
+		}
+		next := client.deadline()
+		if candidate := server.deadline(); next.IsZero() || !candidate.IsZero() && candidate.Before(next) {
+			next = candidate
+		}
+		if next.IsZero() {
+			t.Fatal("handshake stalled")
+		}
+		now = next
+		if err := client.tick(now); err != nil {
+			t.Fatal(err)
+		}
+		if err := server.tick(now); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Fatal("handshake did not finish")
+}
+
+func TestStalledIncompleteFlightSendsACK(t *testing.T) {
+	var sent [][]byte
+	s := newSession(&handshakeState{config: &Config{MTU: 1200}}, func(handshakeMessage) ([]handshakeMessage, error) {
+		return nil, nil
+	}, func(data []byte) error {
+		sent = append(sent, bytes.Clone(data))
+		return nil
+	})
+	now := time.Unix(1, 0)
+	body, err := (handshakeMessage{typ: msgClientHello, body: bytes.Repeat([]byte{1}, 40)}).fragment(0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.receiveHandshake(recordNumber{0, 0}, body, now); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 0 {
+		t.Fatal("in-order prefix produced an immediate ACK")
+	}
+	if s.handshakeACKReady() {
+		t.Fatal("in-order prefix was immediately ACK-ready")
+	}
+	if !s.handshakeACKScheduled() {
+		t.Fatal("stalled in-order prefix did not schedule an ACK")
+	}
+	later, err := (handshakeMessage{typ: msgClientHello, body: bytes.Repeat([]byte{1}, 40)}).fragment(10, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	progress := now.Add(initialRetransmit / 8)
+	if err := s.receiveHandshake(recordNumber{0, 1}, later, progress); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) != 0 {
+		t.Fatal("continuing in-order flight produced an ACK")
+	}
+	deadline := s.deadline()
+	if deadline.IsZero() || !deadline.Equal(progress.Add(initialRetransmit/4)) {
+		t.Fatalf("stall ACK deadline = %v; want %v", deadline, progress.Add(initialRetransmit/4))
+	}
+	if err := s.tick(deadline); err != nil {
+		t.Fatal(err)
+	}
+	if len(sent) == 0 || sent[0][0] != contentACK {
+		t.Fatal("quiet incomplete flight did not send a stall ACK")
+	}
+}
+
+func TestHandshakeStallACKSuppressedDuringResponse(t *testing.T) {
+	s := newSession(&handshakeState{config: &Config{MTU: 1200}}, nil, func([]byte) error { return nil })
+	s.acknowledgements = []recordNumber{{2, 1}}
+	s.ackDeadline = time.Unix(1, 0)
+	s.outbound = &flight{}
+	now := s.ackDeadline.Add(time.Second)
+	if s.handshakeACKScheduled() {
+		t.Fatal("responding flight scheduled a stall ACK")
+	}
+	if s.handshakeFlightStalled(now) {
+		t.Fatal("responding flight sent a stall ACK")
+	}
 }

@@ -56,6 +56,8 @@ type session struct {
 	lastSendSize         int
 	canProbe             bool
 	mtu                  mtuDiscovery
+	observeRecord        func(epoch uint64, typ byte, body []byte)
+	filterRecord         func(epoch uint64, typ byte, body []byte) bool
 }
 
 func newClientSession(config *Config, send func([]byte) error, now time.Time) (*session, error) {
@@ -158,8 +160,14 @@ func (s *session) sendRecordLimited(epoch uint64, typ byte, body, cid []byte, pa
 	}
 	s.lastSendSize = len(packet)
 	w.sequence++
+	if s.filterRecord != nil && !s.filterRecord(epoch, typ, body) {
+		return number, nil
+	}
 	if err := send(packet); err != nil {
 		return recordNumber{}, err
+	}
+	if s.observeRecord != nil {
+		s.observeRecord(epoch, typ, body)
 	}
 	return number, nil
 }
@@ -202,7 +210,13 @@ func (s *session) transmit(f *flight, now time.Time) error {
 			return s.sendRecord(epoch, contentHandshake, body)
 		})
 		if err == nil || !isMessageTooLong(err) {
-			return err
+			if err != nil {
+				return err
+			}
+			if s.handshake.complete {
+				return s.sendACK()
+			}
+			return nil
 		}
 		if !s.reduceHandshakeMTU(s.lastSendSize) {
 			return err
@@ -276,9 +290,7 @@ func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) (
 		case contentACK:
 			acks, err := parseACK(body)
 			if err != nil {
-				if r.encrypted {
-					return nil, err
-				}
+				// Authenticated but malformed ACK lists are dropped.
 				continue
 			}
 			if s.outbound != nil {
@@ -398,17 +410,34 @@ func (s *session) receiveHandshake(number recordNumber, body []byte, now time.Ti
 		return err
 	}
 	if accepted {
-		s.acknowledgements = append(s.acknowledgements, number)
-		if s.ackDeadline.IsZero() {
-			s.ackDeadline = now.Add(initialRetransmit / 4)
-		}
-		if len(s.acknowledgements) >= 32 {
-			if err := s.sendACK(); err != nil {
-				return err
-			}
+		if err := s.queueAcknowledgement(number, now); err != nil {
+			return err
 		}
 	}
 	return s.processHandshakes(now)
+}
+
+func (s *session) queueAcknowledgement(number recordNumber, now time.Time) error {
+	if len(s.acknowledgements) >= maxQueuedAcknowledgements {
+		if err := s.sendACK(); err != nil {
+			return err
+		}
+	}
+	if len(s.acknowledgements) >= maxQueuedAcknowledgements {
+		return nil
+	}
+	s.acknowledgements = append(s.acknowledgements, number)
+	delay := now.Add(initialRetransmit / 4)
+	// RFC 9147 §7.1: restart the 1/4-retransmit quiet timer while records
+	// arrive in order, so a long flight is not ACKed while the peer is
+	// still sending. Keep the first deadline once the flight is disrupted.
+	if s.ackDeadline.IsZero() || !s.reassembly.disrupted() {
+		s.ackDeadline = delay
+	}
+	if len(s.acknowledgements) >= maxQueuedAcknowledgements {
+		return s.sendACK()
+	}
+	return nil
 }
 
 func (s *session) processHandshakes(now time.Time) error {
@@ -434,11 +463,7 @@ func (s *session) processHandshakes(now time.Time) error {
 			return err
 		}
 		if len(response) != 0 {
-			if s.currentWriteEpoch() >= 2 {
-				if err := s.sendACK(); err != nil {
-					return err
-				}
-			} else {
+			if s.currentWriteEpoch() < 2 {
 				s.acknowledgements = nil
 				s.ackDeadline = time.Time{}
 			}
@@ -446,12 +471,64 @@ func (s *session) processHandshakes(now time.Time) error {
 				return err
 			}
 		}
+		if err := s.sendACK(); err != nil {
+			return err
+		}
 	}
 }
 
+func (s *session) handshakeACKReady() bool {
+	if s.handshake.complete {
+		return s.handshakeFlightSent()
+	}
+	// RFC 9147 §7.1: ACK a disrupted flight immediately. Do not ACK a
+	// complete flight that the next message will acknowledge. OpenSSL
+	// SSL_accept/s_client treat ACK before Certificate as unexpected.
+	return s.reassembly.disrupted()
+}
+
+func (s *session) handshakeFlightStalled(now time.Time) bool {
+	if s.handshake.complete || len(s.acknowledgements) == 0 || s.ackDeadline.IsZero() || now.Before(s.ackDeadline) {
+		return false
+	}
+	// The responding flight implicitly ACKs; sending here is ACK-before-Certificate.
+	if s.outbound != nil && !s.outbound.complete {
+		return false
+	}
+	return true
+}
+
+func (s *session) handshakeACKScheduled() bool {
+	if s.handshakeACKReady() {
+		return true
+	}
+	if s.handshake.complete || len(s.acknowledgements) == 0 {
+		return false
+	}
+	if s.outbound != nil && !s.outbound.complete {
+		return false
+	}
+	return true
+}
+
 func (s *session) sendACK() error {
+	return s.writeAcknowledgements(s.handshakeACKReady())
+}
+
+func (s *session) sendScheduledACK(now time.Time) error {
 	if len(s.acknowledgements) == 0 {
 		s.ackDeadline = time.Time{}
+		return nil
+	}
+	return s.writeAcknowledgements(s.handshakeACKReady() || s.handshakeFlightStalled(now))
+}
+
+func (s *session) writeAcknowledgements(ready bool) error {
+	if len(s.acknowledgements) == 0 {
+		s.ackDeadline = time.Time{}
+		return nil
+	}
+	if !ready {
 		return nil
 	}
 	// Split ACKs to fit the current path, including a negotiated CID.
@@ -475,7 +552,10 @@ func (s *session) sendACK() error {
 }
 
 func (s *session) deadline() time.Time {
-	deadline := s.ackDeadline
+	deadline := time.Time{}
+	if s.handshakeACKScheduled() {
+		deadline = s.ackDeadline
+	}
 	if !s.handshakeReadExpiry.IsZero() && (deadline.IsZero() || s.handshakeReadExpiry.Before(deadline)) {
 		deadline = s.handshakeReadExpiry
 	}
@@ -505,7 +585,7 @@ func (s *session) tick(now time.Time) error {
 		}
 	}
 	if !s.ackDeadline.IsZero() && !now.Before(s.ackDeadline) {
-		if err := s.sendACK(); err != nil {
+		if err := s.sendScheduledACK(now); err != nil {
 			return err
 		}
 	}
@@ -515,7 +595,10 @@ func (s *session) tick(now time.Time) error {
 			return err
 		}
 		if retransmit {
-			if !s.outbound.ackedSinceSend {
+			// New-byte bursts and the first unanswered retransmit are not PMTU
+			// evidence. OpenSSL often does not ACK epoch-2 fragments before
+			// Finished, so shrink only after a second unanswered retry.
+			if !s.outbound.pendingSend() && !s.outbound.ackedSinceSend && s.outbound.retries > 1 {
 				_ = s.reduceHandshakeMTU(0)
 			}
 			s.outbound.ackedSinceSend = false

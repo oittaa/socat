@@ -317,7 +317,7 @@ func (c *Conn) run() {
 			}
 		}
 		if !s.handshake.complete {
-			if timeout := s.handshake.config.HandshakeReadTimeout; timeout > 0 {
+			if timeout := s.handshake.config.HandshakeReadTimeout; timeout > 0 && (s.outbound == nil || !s.outbound.pendingSend()) {
 				lastReceive := s.handshakeReceived
 				if lastReceive.IsZero() {
 					lastReceive = started
@@ -355,6 +355,11 @@ func (c *Conn) run() {
 		}
 		c.publishMaxDatagram()
 		if s.handshake.complete && s.handshakeFlightSent() && !ready {
+			if err := s.sendACK(); err != nil {
+				abort = !errors.Is(err, net.ErrClosed)
+				c.fail(err)
+				return
+			}
 			// Only change fragmentation when the peer can answer MTU probes.
 			if c.owned && s.handshake.rrc && s.handshake.cidNegotiated {
 				c.transport.configureUnfragmentedProbes(s.handshake.config.UnfragmentedProbes)
