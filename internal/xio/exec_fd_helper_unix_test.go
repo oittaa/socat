@@ -71,6 +71,38 @@ func runFDHelperRemapTest(
 	return string(inData), string(outData)
 }
 
+func TestExecFDHelperTarget(t *testing.T) {
+	mode := os.Getenv(execFDHelperTestTargetEnv)
+	if mode == "" {
+		t.Skip("exec fd helper target only")
+	}
+	if os.Getenv(execFDHelperEnv) != "" {
+		t.Fatal("internal helper environment leaked to target")
+	}
+	writeExecFDHelperTarget(t, mode)
+}
+
+func writeExecFDHelperTarget(t *testing.T, mode string) {
+	t.Helper()
+	writeFD := func(fd int, data string) {
+		t.Helper()
+		f := os.NewFile(uintptr(fd), "exec-fd-helper-target")
+		if _, err := f.Write([]byte(data)); err != nil {
+			t.Fatalf("write fd %d: %v", fd, err)
+		}
+		_ = f.Close()
+	}
+	switch mode {
+	case "swap":
+		writeFD(4, "I")
+		writeFD(3, "O")
+	case "same-target":
+		writeFD(10, "X")
+	default:
+		t.Fatalf("unknown helper target mode %q", mode)
+	}
+}
+
 func TestExecFDHelperRemapsSwappedSources(t *testing.T) {
 	// ExtraFiles are input=3 and output=4. After swapping the targets,
 	// writes to fd 4 must reach the input source and fd 3 the output source.
@@ -86,39 +118,6 @@ func TestExecFDHelperSameTargetInputWins(t *testing.T) {
 	in, out := runFDHelperRemapTest(t, 10, 10, "same-target")
 	if in != "X" || out != "" {
 		t.Fatalf("input source=%q output source=%q want X/empty", in, out)
-	}
-}
-
-// TestExecFDHelperTarget is re-executed through the real init-time helper.
-// It writes directly to inherited descriptors so coverage does not depend on
-// a shell accepting multi-digit redirection syntax.
-func TestExecFDHelperTarget(t *testing.T) {
-	mode := os.Getenv(execFDHelperTestTargetEnv)
-	if mode == "" {
-		t.Skip("exec fd helper target only")
-	}
-	if value := os.Getenv(execFDHelperEnv); value != "" {
-		t.Fatalf("internal helper environment leaked to target: %q", value)
-	}
-	writeFD := func(fd int, data string) {
-		t.Helper()
-		f := os.NewFile(uintptr(fd), "exec-fd-helper-target")
-		if f == nil {
-			t.Fatalf("fd %d is unavailable", fd)
-		}
-		if _, err := f.Write([]byte(data)); err != nil {
-			t.Fatalf("write fd %d: %v", fd, err)
-		}
-		_ = f.Close()
-	}
-	switch mode {
-	case "swap":
-		writeFD(4, "I")
-		writeFD(3, "O")
-	case "same-target":
-		writeFD(10, "X")
-	default:
-		t.Fatalf("unknown helper target mode %q", mode)
 	}
 }
 

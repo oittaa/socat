@@ -1,7 +1,6 @@
 package netopen
 
 import (
-	"io"
 	"testing"
 	"time"
 
@@ -22,21 +21,4 @@ func parseChannel(t *testing.T, spec string) parse.Channel {
 		t.Fatal(err)
 	}
 	return ch
-}
-
-func echoConn(t *testing.T, st io.ReadWriter, payload []byte) {
-	t.Helper()
-	if d, ok := st.(interface{ SetDeadline(time.Time) error }); ok {
-		_ = d.SetDeadline(time.Now().Add(3 * time.Second))
-	}
-	if _, err := st.Write(payload); err != nil {
-		t.Fatal(err)
-	}
-	got := make([]byte, len(payload))
-	if _, err := io.ReadFull(st, got); err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != string(payload) {
-		t.Fatalf("got %q want %q", got, payload)
-	}
 }

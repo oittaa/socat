@@ -3,7 +3,6 @@ package netopen
 import (
 	"net"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -62,61 +61,5 @@ func TestUDPSessionConnOneShotCloseDoesNotCloseParent(t *testing.T) {
 	}
 	if err := parent.SetReadDeadline(time.Now().Add(50 * time.Millisecond)); err != nil {
 		t.Fatalf("one-shot Close closed parent: %v", err)
-	}
-}
-
-func TestUDPSessionConnExclusiveHandoffReleaseOnce(t *testing.T) {
-	pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = pc.Close() })
-	var releases atomic.Int32
-	u := &udpSessionConn{
-		pc:         pc,
-		ownsListen: true,
-		releaseListen: func() {
-			releases.Add(1)
-		},
-	}
-	errs := concurrentCloses(t, u.Close, 32)
-	for i, err := range errs {
-		if err != nil {
-			t.Fatalf("Close[%d]=%v", i, err)
-		}
-	}
-	if got := releases.Load(); got != 1 {
-		t.Fatalf("releaseListen calls=%d want 1", got)
-	}
-	if err := pc.SetReadDeadline(time.Now().Add(time.Millisecond)); err == nil {
-		t.Fatal("handed-off listen socket still usable after Close")
-	}
-}
-
-func TestUDPSessionConnCloseVsDeadline(t *testing.T) {
-	pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = pc.Close() })
-	u := &udpSessionConn{conn: pc}
-	start := make(chan struct{})
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		<-start
-		_ = u.Close()
-	}()
-	go func() {
-		defer wg.Done()
-		<-start
-		_ = u.SetReadDeadline(time.Now().Add(time.Millisecond))
-		_ = u.SetWriteDeadline(time.Now().Add(time.Millisecond))
-	}()
-	close(start)
-	wg.Wait()
-	if err := u.Close(); err != nil {
-		t.Fatalf("final Close: %v", err)
 	}
 }

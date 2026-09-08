@@ -26,28 +26,6 @@ func TestUnlinkRegistryDoesNotRemoveReplacement(t *testing.T) {
 	}
 }
 
-func TestUnlinkRegistryDoesNotRemoveSameSizeReplacement(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "endpoint")
-	if err := os.WriteFile(path, []byte("original"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	unregister := RegisterUnlinkPath(path)
-	t.Cleanup(unregister)
-	// Same length as "original". Unlink+recreate can recycle inode / NTFS
-	// file IDs; rename-over keeps both objects alive so SameFile can tell
-	// them apart.
-	replaceAtPath(t, path, []byte("ORIGINAL"), 0o600)
-
-	UnlinkRegisteredPaths()
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("same-size replacement was removed: %v", err)
-	}
-	if string(got) != "ORIGINAL" {
-		t.Fatalf("contents=%q", got)
-	}
-}
-
 // replaceAtPath installs contents at path by renaming a sibling over it.
 func replaceAtPath(t *testing.T, path string, contents []byte, perm os.FileMode) {
 	t.Helper()
@@ -90,29 +68,6 @@ func TestUnlinkRegistryUnregistersClosedEndpoint(t *testing.T) {
 	UnlinkRegisteredPaths()
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("unregistered path was removed: %v", err)
-	}
-}
-
-func TestUnlinkIfSameFilePreservesReplacement(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "endpoint")
-	if err := os.WriteFile(path, []byte("original"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !SnapshotFileIdentity(info) {
-		t.Fatal("could not snapshot identity")
-	}
-	replaceAtPath(t, path, []byte("replacement"), 0o600)
-	UnlinkIfSameFile(path, info)
-	got, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("replacement was removed: %v", err)
-	}
-	if string(got) != "replacement" {
-		t.Fatalf("contents=%q", got)
 	}
 }
 

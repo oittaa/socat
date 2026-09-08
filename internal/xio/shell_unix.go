@@ -9,9 +9,7 @@ import (
 // ExtraFiles sources and fdi/fdo numbering for EXEC/SYSTEM/SHELL.
 // Runtime remapping is ExtraFiles plus the child dup2 helper
 // (exec_fd_helper_unix.go), not a /bin/sh reconstruction, so bare SHELL
-// keeps its argv and dash/login rewrite the target. childFDRedirectPrefix
-// documents the equivalent dash-safe shell grammar previously used for
-// single-digit descriptors.
+// keeps its argv and dash/login rewrite the target.
 
 // extraSources returns ExtraFiles numbers for the child-side data descriptors.
 // Socket/PTY share ExtraFiles[0] (fd 3) for both directions. Pipes use fd 3
@@ -42,67 +40,6 @@ func defaultFDO(fdout string) string {
 		return "1"
 	}
 	return fdout
-}
-
-// childFDRedirectPrefix builds `exec` redirections of the child data fd(s)
-// onto fdi/fdo. Unrelated 0/1/2 stay inherited. Output is mapped first and
-// input second, which matters for pipes when fdin == fdout: input wins.
-// stderr is duplicated from the effective fdo when requested.
-func childFDRedirectPrefix(inSrc, outSrc, fdin, fdout string, withStderr bool) string {
-	var inT, outT string
-	if inSrc != "" {
-		inT = defaultFDI(fdin)
-	}
-	if outSrc != "" {
-		outT = defaultFDO(fdout)
-	}
-
-	keep := map[string]bool{}
-	if inT != "" {
-		keep[inT] = true
-	}
-	if outT != "" {
-		keep[outT] = true
-	}
-
-	origIn, origOut := inSrc, outSrc
-	redir := "exec"
-
-	if inSrc != "" && outSrc != "" && inSrc != outSrc &&
-		((outT != "" && outT == inSrc) || (inT != "" && inT == outSrc)) {
-		tmpIn, tmpOut := unusedFDNumbers(inSrc, outSrc, inT, outT)
-		if inSrc != "" {
-			redir += " " + tmpIn + "<&" + inSrc
-			inSrc = tmpIn
-		}
-		if outSrc != "" {
-			redir += " " + tmpOut + "<&" + outSrc
-			outSrc = tmpOut
-		}
-	}
-
-	if outT != "" && outSrc != "" && outT != outSrc {
-		redir += " " + outT + ">&" + outSrc
-	}
-	if inT != "" && inSrc != "" && inT != inSrc {
-		redir += " " + inT + "<&" + inSrc
-	}
-	if withStderr {
-		if outT != "" {
-			redir += " 2>&" + outT
-		} else {
-			redir += " 2>&1"
-		}
-	}
-
-	for _, fd := range []string{origIn, origOut, inSrc, outSrc} {
-		if fd == "" || keep[fd] {
-			continue
-		}
-		redir += " " + fd + ">&-"
-		keep[fd] = true
-	}
-	return redir
 }
 
 func unusedFDNumbers(avoid ...string) (string, string) {

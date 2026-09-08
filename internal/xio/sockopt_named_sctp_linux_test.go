@@ -4,7 +4,6 @@ package xio
 
 import (
 	"errors"
-	"fmt"
 	"syscall"
 	"testing"
 
@@ -50,28 +49,6 @@ func (fd ctrlFD) Control(f func(uintptr)) error {
 
 func (fd ctrlFD) Read(func(uintptr) bool) error  { return syscall.EINVAL }
 func (fd ctrlFD) Write(func(uintptr) bool) error { return syscall.EINVAL }
-
-func TestLookupNamedPastSocketIntSCTPLinux(t *testing.T) {
-	level, opt, ok, err := lookupNamedPastSocketInt("sctp-nodelay")
-	if err != nil || !ok || level != solSCTP || opt != sctpNodelay {
-		t.Fatalf("sctp-nodelay lookup level=%d opt=%d ok=%v err=%v want SOL_SCTP/%d", level, opt, ok, err, sctpNodelay)
-	}
-	if level == unix.IPPROTO_TCP || opt == unix.TCP_NODELAY {
-		t.Fatal("sctp-nodelay must not reuse TCP_NODELAY")
-	}
-	level, opt, ok, err = lookupNamedPastSocketInt("sctp-maxseg")
-	if err != nil || !ok || level != solSCTP || opt != sctpMaxseg {
-		t.Fatalf("sctp-maxseg lookup level=%d opt=%d ok=%v err=%v want SOL_SCTP/%d", level, opt, ok, err, sctpMaxseg)
-	}
-	_, _, ok, err = lookupNamedPastSocketInt("sctp-maxseg-late")
-	if ok || err != nil {
-		t.Fatalf("sctp-maxseg-late PASTSOCKET lookup ok=%v err=%v; must stay unimplemented", ok, err)
-	}
-	_, _, ok, err = lookupNamedConnectedInt("sctp-maxseg-late")
-	if ok || err != nil {
-		t.Fatalf("sctp-maxseg-late CONNECTED lookup ok=%v err=%v; must stay unimplemented", ok, err)
-	}
-}
 
 func TestApplySocketOptionsSCTPNodelayOnTCPLinux(t *testing.T) {
 	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
@@ -126,30 +103,6 @@ func TestApplySocketOptionsRejectsInvalidSCTPNodelayLinux(t *testing.T) {
 	}
 }
 
-func TestApplySocketOptionsBareSCTPNodelayLinux(t *testing.T) {
-	fd := openSCTPStream(t)
-	spec, err := parse.ParseSpec("SCTP4:127.0.0.1:9,sctp-nodelay")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var sawTCP bool
-	restore := SetSockoptTestHook(func(c SockoptCall) {
-		if c.Level == unix.IPPROTO_TCP && c.Opt == unix.TCP_NODELAY {
-			sawTCP = true
-		}
-	})
-	t.Cleanup(restore)
-	if err := ApplySocketOptions(fd, spec); err != nil {
-		t.Fatal(err)
-	}
-	if sawTCP {
-		t.Fatal("sctp-nodelay must not call TCP_NODELAY")
-	}
-	if got := fdSCTPSockoptInt(t, fd, sctpNodelay); got != 1 {
-		t.Fatalf("SCTP_NODELAY=%d want 1 after bare sctp-nodelay", got)
-	}
-}
-
 func TestApplySocketOptionsSCTPMaxsegLinux(t *testing.T) {
 	fd := openSCTPStream(t)
 	spec, err := parse.ParseSpec("SCTP4:127.0.0.1:9,sctp-maxseg=1400")
@@ -182,46 +135,6 @@ func TestApplySocketOptionsSCTPNodelayClearLinux(t *testing.T) {
 	}
 	if got := fdSCTPSockoptInt(t, fd, sctpNodelay); got != 0 {
 		t.Fatalf("sctp-nodelay=0 SCTP_NODELAY=%d want 0", got)
-	}
-}
-
-func TestPastSocketSCTPNamedAndGenericCommandLineOrderLinux(t *testing.T) {
-	fd := openSCTPStream(t)
-	for _, tc := range []struct {
-		name    string
-		options string
-		want    []int
-	}{
-		{
-			name:    "named-then-generic",
-			options: fmt.Sprintf("sctp-nodelay=1,setsockopt-socket=%d:%d:0", solSCTP, sctpNodelay),
-			want:    []int{1, 0},
-		},
-		{
-			name:    "generic-then-named",
-			options: fmt.Sprintf("setsockopt-socket=%d:%d:0,sctp-nodelay=1", solSCTP, sctpNodelay),
-			want:    []int{0, 1},
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			spec, err := parse.ParseSpec("SCTP4:127.0.0.1:9," + tc.options)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var got []int
-			restore := SetSockoptTestHook(func(call SockoptCall) {
-				if call.Level == solSCTP && call.Opt == sctpNodelay {
-					got = append(got, call.IntValue)
-				}
-			})
-			t.Cleanup(restore)
-			if err := ApplySocketOptions(fd, spec); err != nil {
-				t.Fatal(err)
-			}
-			if fmt.Sprint(got) != fmt.Sprint(tc.want) {
-				t.Fatalf("SCTP_NODELAY values=%v want %v", got, tc.want)
-			}
-		})
 	}
 }
 

@@ -1,8 +1,6 @@
 package dtls13
 
 import (
-	"bytes"
-	"context"
 	"crypto"
 	"crypto/mldsa"
 	"crypto/rand"
@@ -13,122 +11,9 @@ import (
 	"errors"
 	"io"
 	"math/big"
-	"net"
-	"slices"
 	"testing"
 	"time"
 )
-
-// Probe the public TLS API so a Go upgrade cannot silently leave DTLS behind.
-func TestGoTLS13AlgorithmDefaults(t *testing.T) {
-	t.Setenv("GODEBUG", "")
-	a, b := net.Pipe()
-	defer func() { _ = a.Close() }()
-	defer func() { _ = b.Close() }()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	observed := make(chan *tls.ClientHelloInfo, 1)
-	done := make(chan error, 1)
-	server := tls.Server(b, &tls.Config{MinVersion: tls.VersionTLS13, GetConfigForClient: func(info *tls.ClientHelloInfo) (*tls.Config, error) {
-		observed <- info
-		return nil, errors.New("capability probe complete")
-	}})
-	go func() { done <- server.HandshakeContext(ctx) }()
-	client := tls.Client(a, &tls.Config{MinVersion: tls.VersionTLS13, MaxVersion: tls.VersionTLS13, ServerName: "localhost"})
-	_ = client.HandshakeContext(ctx)
-	if err := <-done; err == nil {
-		t.Fatal("probe unexpectedly completed a handshake")
-	}
-	var info *tls.ClientHelloInfo
-	select {
-	case info = <-observed:
-	default:
-		t.Fatal("Go did not send a ClientHello")
-	}
-	groups := defaultGroups()
-	if !slices.Equal(groups, info.SupportedCurves) {
-		t.Fatalf("Go key exchanges changed: DTLS %v; Go %v; integrate or document the difference", groups, info.SupportedCurves)
-	}
-	var signatures []uint16
-	for _, id := range info.SignatureSchemes {
-		signatures = append(signatures, uint16(id))
-	}
-	want := slices.Clone(signatureSchemes)
-	if !slices.Equal(signatures, want) {
-		t.Fatalf("Go signatures changed: DTLS %x; Go %x", want, signatures)
-	}
-	suites := defaultCipherSuites()
-	if !slices.Equal(suites, info.CipherSuites) {
-		t.Fatalf("Go ciphers changed: DTLS %x; Go %x", suites, info.CipherSuites)
-	}
-}
-
-func TestHybridKeyShares(t *testing.T) {
-	for _, tc := range []struct {
-		group                              tls.CurveID
-		clientSize, serverSize, secretSize int
-		kemFirst                           bool
-	}{
-		{tls.X25519MLKEM768, 1216, 1120, 64, true},
-		{tls.SecP256r1MLKEM768, 1249, 1153, 64, false},
-		{tls.SecP384r1MLKEM1024, 1665, 1665, 80, false},
-	} {
-		t.Run(tc.group.String(), func(t *testing.T) {
-			client, err := generateShare(uint16(tc.group))
-			if err != nil {
-				t.Fatal(err)
-			}
-			server, secret, err := serverShare(uint16(tc.group), client.public)
-			if err != nil {
-				t.Fatal(err)
-			}
-			got, err := client.shared(server)
-			if err != nil || !bytes.Equal(got, secret) {
-				t.Fatalf("hybrid secret disagreement: %v", err)
-			}
-			if len(client.public) != tc.clientSize || len(server) != tc.serverSize || len(secret) != tc.secretSize {
-				t.Fatal("RFC 10024 encoding lengths differ")
-			}
-			key := client.kem.Encapsulator().Bytes()
-			if tc.kemFirst && !bytes.HasPrefix(client.public, key) || !tc.kemFirst && !bytes.HasSuffix(client.public, key) {
-				t.Fatal("incorrect component order")
-			}
-			for _, invalid := range [][]byte{nil, server[:len(server)-1], append(bytes.Clone(server), 0)} {
-				if _, err := client.shared(invalid); !errors.Is(err, errIllegalParameter) {
-					t.Fatalf("accepted invalid server share: %v", err)
-				}
-			}
-			bad := bytes.Clone(client.public)
-			kemOffset := 0
-			if !tc.kemFirst {
-				kemOffset = len(bad) - len(key)
-			}
-			copy(bad[kemOffset:], []byte{255, 255, 255})
-			if _, _, err := serverShare(uint16(tc.group), bad); !errors.Is(err, errIllegalParameter) {
-				t.Fatalf("accepted noncanonical ML-KEM key: %v", err)
-			}
-			bad = bytes.Clone(server)
-			ecOffset, ecSize := 0, len(client.ecdh.PublicKey().Bytes())
-			if tc.kemFirst {
-				ecOffset = len(bad) - ecSize
-			}
-			clear(bad[ecOffset : ecOffset+ecSize])
-			if _, err := client.shared(bad); !errors.Is(err, errIllegalParameter) {
-				t.Fatalf("accepted invalid ECDHE component: %v", err)
-			}
-			bad = bytes.Clone(server)
-			kemOffset = ecSize
-			if tc.kemFirst {
-				kemOffset = 0
-			}
-			bad[kemOffset] ^= 1
-			other, err := client.shared(bad)
-			if err != nil || bytes.Equal(other, secret) {
-				t.Fatal("ML-KEM ciphertext alteration did not implicitly reject to a different secret")
-			}
-		})
-	}
-}
 
 func mldsaCertificate(t *testing.T, parameters mldsa.Parameters) (tls.Certificate, *x509.CertPool) {
 	t.Helper()

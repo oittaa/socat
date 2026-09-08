@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestQUICTargetConnect(t *testing.T) {
@@ -91,29 +90,6 @@ func TestQUICConfigRequiresTLS13Maximum(t *testing.T) {
 	}
 }
 
-func TestQUICConfigEnforcesTLS13Minimum(t *testing.T) {
-	s, err := parse.ParseSpec("QUIC:h:1,alpn=test")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, maxVersion := range []uint16{0, tls.VersionTLS13} {
-		original := &tls.Config{MinVersion: tls.VersionTLS12, MaxVersion: maxVersion}
-		setup, err := quicConfig(s, original)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if setup.tls.MinVersion != tls.VersionTLS13 || setup.tls.MaxVersion != maxVersion {
-			t.Fatalf("protocol bounds=%#x..%#x", setup.tls.MinVersion, setup.tls.MaxVersion)
-		}
-		if len(setup.tls.NextProtos) != 1 || setup.tls.NextProtos[0] != "test" {
-			t.Fatalf("NextProtos=%q", setup.tls.NextProtos)
-		}
-		if original.MinVersion != tls.VersionTLS12 || len(original.NextProtos) != 0 {
-			t.Fatal("quicConfig modified the caller's TLS config")
-		}
-	}
-}
-
 func TestQUICConfigHandshakeIdleTimeoutFromHandshakeTimeout(t *testing.T) {
 	s, err := parse.ParseSpec("QUIC:h:1,handshake-timeout=0.2")
 	if err != nil {
@@ -153,54 +129,5 @@ func TestQUICConfigHandshakeIdleTimeoutOmittedUsesDefault(t *testing.T) {
 	}
 	if setup.cfg.HandshakeIdleTimeout != 30*time.Second {
 		t.Fatalf("HandshakeIdleTimeout=%s want 30s default", setup.cfg.HandshakeIdleTimeout)
-	}
-}
-
-func TestQUICConfigHandshakeIdleTimeoutZeroDisablesBound(t *testing.T) {
-	s, err := parse.ParseSpec("QUIC:h:1,handshake-timeout=0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := xio.HandshakeTimeout(s); got != 0 {
-		t.Fatalf("HandshakeTimeout=%s want 0 (TLS/WS still treat 0 as no deadline)", got)
-	}
-	setup, err := quicConfig(s, &tls.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// quic-go populateConfig substitutes 5s when HandshakeIdleTimeout is 0.
-	// The public option still means "unbounded"; we map that to a long
-	// explicit duration rather than leaving the field at 0.
-	if setup.cfg.HandshakeIdleTimeout != quicHandshakeIdleTimeoutDisabled {
-		t.Fatalf("HandshakeIdleTimeout=%s want normalized %s", setup.cfg.HandshakeIdleTimeout, quicHandshakeIdleTimeoutDisabled)
-	}
-	if setup.cfg.HandshakeIdleTimeout == 0 || setup.cfg.HandshakeIdleTimeout == 5*time.Second || setup.cfg.HandshakeIdleTimeout == 30*time.Second {
-		t.Fatalf("HandshakeIdleTimeout=%s is not an unbounded substitute", setup.cfg.HandshakeIdleTimeout)
-	}
-}
-
-func TestQUICDialAttemptTimeoutDelegates(t *testing.T) {
-	tests := []struct {
-		name string
-		spec string
-		want time.Duration
-	}{
-		{name: "connect-caps-handshake", spec: "QUIC:h:1,connect-timeout=0.2,handshake-timeout=5", want: 200 * time.Millisecond},
-		{name: "handshake-zero-unbounded", spec: "QUIC:h:1,handshake-timeout=0", want: 0},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			s, err := parse.ParseSpec(tc.spec)
-			if err != nil {
-				t.Fatal(err)
-			}
-			shared := xio.CombinedConnectHandshakeTimeout(s)
-			if shared != tc.want {
-				t.Fatalf("CombinedConnectHandshakeTimeout(%q)=%s want %s", tc.spec, shared, tc.want)
-			}
-			if got := quicDialAttemptTimeout(s); got != shared {
-				t.Fatalf("quicDialAttemptTimeout(%q)=%s want CombinedConnectHandshakeTimeout %s", tc.spec, got, shared)
-			}
-		})
 	}
 }

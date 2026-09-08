@@ -37,3 +37,22 @@ func ApplyFDOptions(f *os.File, s parse.Spec) error {
 	}
 	return applyFDLifecycleToFile(f, s)
 }
+
+type linuxExtFSFlagOp struct {
+	name   string
+	mask   int
+	enable bool
+}
+
+func linuxExtFSFlagOps(s parse.Spec) []linuxExtFSFlagOp {
+	var out []linuxExtFSFlagOp
+	for _, o := range s.Options {
+		canon := parse.CanonicalOptionName(o.Name)
+		mask, ok := linuxExtFSFlagMasks[canon]
+		if !ok {
+			continue
+		}
+		out = append(out, linuxExtFSFlagOp{name: canon, mask: mask, enable: o.Active()})
+	}
+	return out
+}

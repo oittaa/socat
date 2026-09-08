@@ -181,11 +181,3 @@ func (s *session) receiveCIDs(body []byte) error {
 	}
 	return s.sendACK()
 }
-
-func (s *session) useSpareCID() {
-	if len(s.peerSpareCIDs) != 0 {
-		s.handshake.peerCID = s.peerSpareCIDs[0]
-		s.peerSpareCIDs = s.peerSpareCIDs[1:]
-		s.wantCIDs = len(s.peerSpareCIDs) < 2
-	}
-}

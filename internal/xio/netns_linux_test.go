@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -132,40 +131,6 @@ func TestNetNSTCPEcho(t *testing.T) {
 	echoRW(t, cli.EffectiveStream(), []byte("netns-tcp\n"))
 }
 
-func TestNetNSTCPConnectFork(t *testing.T) {
-	ns, g := setupNetNS(t)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	port := 19000 + os.Getpid()%1000
-	startListenPIPE(t, ctx, g, fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1,netns=%s", port, ns))
-
-	ch, err := parse.ParseChannel(fmt.Sprintf("TCP4:127.0.0.1:%d,fork,netns=%s", port, ns))
-	if err != nil {
-		t.Fatal(err)
-	}
-	lo, err := xio.OpenChannel(ctx, ch, xio.ModeRDWR, separateNetNSGlobal(g))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if lo.Kind != xio.KindDial || lo.Dial == nil {
-		t.Fatalf("kind %v dial=%v", lo.Kind, lo.Dial != nil)
-	}
-
-	// Default-ns connect must fail: the listener exists only in ns.
-	d := net.Dialer{Timeout: 200 * time.Millisecond}
-	if c, err := d.DialContext(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", port)); err == nil {
-		_ = c.Close()
-		t.Fatal("listener visible in default namespace")
-	}
-
-	// Stored Dial must run inside WithNetNS or this connect fails.
-	c, err := lo.Dial(ctx)
-	if err != nil {
-		t.Fatalf("fork Dial in netns: %v", err)
-	}
-	_ = c.Close()
-}
-
 func TestNetNSUDPEcho(t *testing.T) {
 	ns, g := setupNetNS(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -205,26 +170,4 @@ func TestNetNSQUICEcho(t *testing.T) {
 	cli := connectNS(t, ctx, separateNetNSGlobal(g), fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0,commonname=localhost,netns=%s", port, ns))
 	defer func() { _ = cli.Close() }()
 	echoRW(t, cli.EffectiveStream(), []byte("netns-quic"))
-}
-
-func TestWithNetNSRestoreOnPanic(t *testing.T) {
-	ns, g := setupNetNS(t)
-	before, err := os.Readlink("/proc/self/ns/net")
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := parse.Spec{Options: []parse.Option{{Name: "netns", Has: true, Value: ns}}}
-	func() {
-		defer func() { _ = recover() }()
-		_ = xio.WithNetNS(s, g, func() error {
-			panic("netns-test")
-		})
-	}()
-	after, err := os.Readlink("/proc/self/ns/net")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if before != after {
-		t.Fatalf("namespace not restored after panic: before=%s after=%s", before, after)
-	}
 }

@@ -163,8 +163,7 @@ func (l *udpDispatchListener) shutdown(cause error) error {
 	return l.closeErr
 }
 
-func (l *udpDispatchListener) Addr() net.Addr  { return l.base.pc.LocalAddr() }
-func (*udpDispatchListener) oneShotMode() bool { return false }
+func (l *udpDispatchListener) Addr() net.Addr { return l.base.pc.LocalAddr() }
 
 func (l *udpDispatchListener) readLoop() {
 	buf := make([]byte, 65535)

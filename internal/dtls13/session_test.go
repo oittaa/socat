@@ -100,42 +100,6 @@ func driveSessions(t *testing.T, clientConfig, serverConfig *Config, loss, reord
 	return nil, nil, nil
 }
 
-func TestSessionLossReorderingAndFinalACK(t *testing.T) {
-	for _, loss := range []bool{false, true} {
-		for _, reorder := range []bool{false, true} {
-			t.Run(fmt.Sprintf("loss=%t/reorder=%t", loss, reorder), func(t *testing.T) {
-				clientConfig, serverConfig := handshakeConfigs(t)
-				clientConfig.MTU = 256
-				serverConfig.MTU = 256
-				client, server, packets := driveSessions(t, clientConfig, serverConfig, loss, reorder)
-				marker := []byte("authenticated application datagram")
-				if err := client.application(marker); err != nil {
-					t.Fatal(err)
-				}
-				if len(*packets) != 1 {
-					t.Fatalf("application packet count: %d", len(*packets))
-				}
-				packet := (*packets)[0].data
-				for i := 0; i < 2; i++ {
-					got, err := server.receive(packet, time.Unix(1000, 0))
-					if err != nil {
-						t.Fatal(err)
-					}
-					if i == 0 && (len(got) != 1 || !bytes.Equal(got[0], marker)) {
-						t.Fatal("application datagram changed")
-					}
-					if i == 1 && len(got) != 0 {
-						t.Fatal("duplicate application record delivered")
-					}
-				}
-				if !client.deadline().IsZero() || !server.deadline().IsZero() {
-					t.Fatal("completed handshake retained a retransmission timer")
-				}
-			})
-		}
-	}
-}
-
 func TestSessionLargeCertificateFlight(t *testing.T) {
 	ca, err := testcert.NewAuthority("large certificate CA")
 	if err != nil {

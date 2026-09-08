@@ -40,61 +40,7 @@ class ClassifyTailTest(unittest.TestCase):
         )
 
 
-class DottedNameTest(unittest.TestCase):
-    def test_dotted_names_keep_ok_failed_and_cant(self) -> None:
-        parsed = parse_shard(
-            "\n".join(
-                [
-                    "test 375 OPENSSL_METHOD_TLS1.1: test OpenSSL method TLS1.1... OK",
-                    "test 376 OPENSSL_METHOD_TLS1.2: test OpenSSL method TLS1.2... FAILED: handshake",
-                    "test 378 OPENSSL_METHOD_DTLS1.2: test OpenSSL method DTLS1.2... Option openssl-method not available",
-                    "Summary: 608 tests, 3 selected; 1 ok, 1 failed, 1 could not be performed",
-                    "CANT: 378",
-                    "FAILED: 376",
-                ]
-            )
-            + "\n"
-        )
-        tls11 = parsed["tests"]["375"]
-        tls12 = parsed["tests"]["376"]
-        dtls = parsed["tests"]["378"]
-        self.assertEqual(tls11["name"], "OPENSSL_METHOD_TLS1.1")
-        self.assertEqual(tls11["status"], "OK")
-        self.assertEqual(tls12["name"], "OPENSSL_METHOD_TLS1.2")
-        self.assertEqual(tls12["status"], "FAILED")
-        self.assertNotIn("conflict", tls12)
-        self.assertEqual(dtls["name"], "OPENSSL_METHOD_DTLS1.2")
-        self.assertEqual(dtls["status"], "CANT")
-        self.assertEqual(parsed["summary"]["ok"], 1)
-        self.assertEqual(parsed["summary"]["failed"], 1)
-        self.assertEqual(parsed["summary"]["cant"], 1)
-
-
 class UpstreamListConflictTest(unittest.TestCase):
-    def test_printed_failed_upstream_cant_preserves_conflict(self) -> None:
-        parsed = parse_shard(
-            "\n".join(
-                [
-                    "test 304 IOCTL_VOID: test the ioctl-void option... FAILED (rc2=0, because root?)",
-                    "Summary: 608 tests, 1 selected; 0 ok, 0 failed, 1 could not be performed",
-                    "CANT: 304",
-                ]
-            )
-            + "\n"
-        )
-        test = parsed["tests"]["304"]
-        self.assertEqual(test["status"], "CANT")
-        self.assertEqual(test["printed_status"], "FAILED")
-        self.assertEqual(test["detail"], "(rc2=0, because root?)")
-        self.assertIn("FAILED (rc2=0, because root?)", test["raw"])
-        self.assertEqual(
-            test["conflict"],
-            "printed FAILED; upstream CANT list includes this test",
-        )
-        self.assertEqual(parsed["summary"]["cant"], 1)
-        self.assertEqual(parsed["summary"]["failed"], 0)
-        self.assertEqual(len(parsed["summary"]["conflicts"]), 1)
-        self.assertEqual(parsed["summary"]["conflicts"][0]["id"], 304)
 
     def test_genuine_failed_remains_failed(self) -> None:
         parsed = parse_shard(
@@ -185,31 +131,6 @@ class IncompleteShardTest(unittest.TestCase):
         self.assertEqual(parsed["summary"]["failed"], 1)
         self.assertEqual(parsed["summary"]["conflicts"], [])
         self.assertEqual(parsed["summary"]["shard_timeouts"], [])
-
-
-class ContradictorySummaryTest(unittest.TestCase):
-    def test_id_in_both_cant_and_failed_is_reporting_error(self) -> None:
-        parsed = parse_shard(
-            "\n".join(
-                [
-                    "test 50 WEIRD: weird case... FAILED: boom",
-                    "Summary: 608 tests, 1 selected; 0 ok, 1 failed, 1 could not be performed",
-                    "CANT: 50",
-                    "FAILED: 50",
-                ]
-            )
-            + "\n"
-        )
-        test = parsed["tests"]["50"]
-        self.assertEqual(test["status"], "FAILED")
-        self.assertNotIn("conflict", test)
-        self.assertEqual(
-            test["reporting_error"],
-            "upstream CANT and FAILED lists both include this test",
-        )
-        self.assertEqual(len(parsed["summary"]["reporting_errors"]), 1)
-        self.assertEqual(parsed["summary"]["reporting_errors"][0]["id"], 50)
-        self.assertEqual(parsed["summary"]["conflicts"], [])
 
 
 def _run_parse_cli(

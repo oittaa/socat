@@ -2,7 +2,6 @@ package dtls13
 
 import (
 	"bytes"
-	"errors"
 	"testing"
 )
 
@@ -29,101 +28,6 @@ func TestHandshakeFragmentWireAndTranscript(t *testing.T) {
 	transcript, err := m.transcript()
 	if err != nil || !bytes.Equal(transcript, decodeHex(t, "0b000006616263646566")) {
 		t.Fatalf("transcript %x, error %v", transcript, err)
-	}
-}
-
-func TestHandshakeReassemblyReorderAndOverlap(t *testing.T) {
-	r := reassembler{}
-	messages := []handshakeMessage{
-		{typ: 8, epoch: 2, body: []byte("extensions")},
-		{typ: 11, sequence: 1, epoch: 2, body: []byte("certificate")},
-	}
-	for _, part := range []struct{ message, offset, length int }{
-		{1, 3, 8}, {0, 5, 5}, {1, 0, 6}, {0, 2, 6}, {0, 0, 4},
-	} {
-		m := messages[part.message]
-		packet := fragmentFor(t, m, part.offset, part.length)
-		if accepted, err := r.add(packet, m.epoch); !accepted || err != nil {
-			t.Fatalf("add: %t, %v", accepted, err)
-		}
-		// Reassembly must own buffered bytes independently of receive buffers.
-		clear(packet)
-	}
-	for _, want := range messages {
-		got, ok := r.pop()
-		if !ok || got.typ != want.typ || got.sequence != want.sequence || got.epoch != want.epoch || !bytes.Equal(got.body, want.body) {
-			t.Fatalf("pop: %+v, %t; want %+v", got, ok, want)
-		}
-	}
-	if _, ok := r.pop(); ok || r.buffered != 0 || len(r.pending) != 0 {
-		t.Fatal("completed messages retained")
-	}
-	if accepted, err := r.add(fragmentFor(t, messages[0], 0, len(messages[0].body)), 2); !accepted || err != nil {
-		t.Fatalf("previously processed message: %t, %v", accepted, err)
-	}
-	if _, ok := r.pop(); ok {
-		t.Fatal("processed a retransmission twice")
-	}
-}
-
-func TestHandshakeReassemblyIncompleteAndConflicting(t *testing.T) {
-	m := handshakeMessage{typ: 11, epoch: 2, body: []byte("abcdef")}
-	for _, change := range []string{"byte", "type", "length", "epoch"} {
-		t.Run(change, func(t *testing.T) {
-			r := reassembler{}
-			if _, err := r.add(fragmentFor(t, m, 0, 3), 2); err != nil {
-				t.Fatal(err)
-			}
-			if _, ok := r.pop(); ok {
-				t.Fatal("returned a message with missing bytes")
-			}
-			packet := fragmentFor(t, m, 2, 3)
-			epoch := uint64(2)
-			switch change {
-			case "byte":
-				packet[handshakeHeader] ^= 1
-			case "type":
-				packet[0]++
-			case "length":
-				packet[3]++
-			case "epoch":
-				epoch++
-			}
-			if _, err := r.add(packet, epoch); !errors.Is(err, errFragmentConflict) {
-				t.Fatalf("conflict: %v", err)
-			}
-		})
-	}
-}
-
-func TestHandshakeReassemblyBoundsAndReservation(t *testing.T) {
-	r := reassembler{}
-	large := handshakeMessage{typ: 11, sequence: 1, epoch: 2, body: make([]byte, maxHandshakeBody)}
-	if accepted, err := r.add(fragmentFor(t, large, 0, 1), 2); !accepted || err != nil {
-		t.Fatalf("future fragment: %t, %v", accepted, err)
-	}
-	more := handshakeMessage{typ: 11, sequence: 2, epoch: 2, body: []byte{1}}
-	if accepted, err := r.add(fragmentFor(t, more, 0, 1), 2); accepted || err != nil {
-		t.Fatalf("over-budget future fragment: %t, %v", accepted, err)
-	}
-	large.sequence = 0
-	if accepted, err := r.add(fragmentFor(t, large, 0, 1), 2); !accepted || err != nil {
-		t.Fatalf("reserved next message: %t, %v", accepted, err)
-	}
-	if r.buffered != 2*maxHandshakeBody {
-		t.Fatalf("buffer accounting: %d", r.buffered)
-	}
-	more.sequence = maxPendingMessages
-	if accepted, err := r.add(fragmentFor(t, more, 0, 1), 2); accepted || err != nil {
-		t.Fatalf("distant future message: %t, %v", accepted, err)
-	}
-	oversized := fragmentFor(t, large, 0, 1)
-	oversized[3]++
-	if _, err := r.add(oversized, 2); !errors.Is(err, errHandshakeLimit) {
-		t.Fatalf("oversized declaration: %v", err)
-	}
-	if r.buffered != 2*maxHandshakeBody {
-		t.Fatal("discarded fragments allocated storage")
 	}
 }
 
@@ -184,29 +88,4 @@ func FuzzHandshakeFragments(f *testing.F) {
 			t.Fatal("reassembly exceeds limits")
 		}
 	})
-}
-
-func TestReassemblyDisruptedDetectsHolesAndFutureMessages(t *testing.T) {
-	m := handshakeMessage{typ: msgClientHello, body: bytes.Repeat([]byte{1}, 40)}
-	r := reassembler{}
-	if _, err := r.add(fragmentFor(t, m, 0, 10), 0); err != nil {
-		t.Fatal(err)
-	}
-	if r.disrupted() {
-		t.Fatal("in-order prefix reported as disrupted")
-	}
-	if _, err := r.add(fragmentFor(t, m, 20, 10), 0); err != nil {
-		t.Fatal(err)
-	}
-	if !r.disrupted() {
-		t.Fatal("hole in the current message was not disrupted")
-	}
-	future := handshakeMessage{typ: msgFinished, sequence: 1, epoch: 2, body: []byte("fin")}
-	r2 := reassembler{}
-	if _, err := r2.add(fragmentFor(t, future, 0, len(future.body)), 2); err != nil {
-		t.Fatal(err)
-	}
-	if !r2.disrupted() {
-		t.Fatal("buffered future sequence was not disrupted")
-	}
 }

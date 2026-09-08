@@ -209,22 +209,6 @@ func lookupAddressOption(option parse.Option) (addressOption, bool) {
 	return spec, ok
 }
 
-func optionAllowedOnAddress(addrType, optionName string) bool {
-	reg, ok := xio.AddressRegistrationForType(addrType)
-	if !ok {
-		return false
-	}
-	name := strings.ToLower(optionName)
-	spec, ok := supportedAddressOptions[name]
-	if !ok {
-		spec, ok = supportedAddressOptions[strings.ToLower(parse.CanonicalOptionName(name))]
-	}
-	if !ok {
-		return false
-	}
-	return xio.OptionSupportedOnAddress(reg, spec.addressGroups, spec.addressTypes, spec.optionCaps)
-}
-
 func addressTypeAllowed(addressType string, allowed []string) bool {
 	if len(allowed) == 0 {
 		return true

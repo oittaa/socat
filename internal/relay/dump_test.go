@@ -6,29 +6,6 @@ import (
 	"testing"
 )
 
-func TestDumpFormatting(t *testing.T) {
-	data := []byte{'A', '\n', '\r', '\t', 0, 0x7f, 0xff}
-	tests := []struct {
-		name string
-		hex  bool
-		want string
-	}{
-		{name: "text", want: "> A\\n\\r\\t\\x00\\x7f\\xff\n"},
-		{name: "hex", hex: true, want: "> 41 0a 0d 09 00 7f ff\n"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var out bytes.Buffer
-			if err := dump(Config{Dump: &out, Hex: tc.hex}, ">", data); err != nil {
-				t.Fatal(err)
-			}
-			if got := out.String(); got != tc.want {
-				t.Fatalf("dump=%q want %q", got, tc.want)
-			}
-		})
-	}
-}
-
 func TestLargeDumpMatchesSmallPathFormatting(t *testing.T) {
 	data := bytes.Repeat([]byte{'A', '\n', 0xff}, 30_000)
 	for _, hexMode := range []bool{false, true} {

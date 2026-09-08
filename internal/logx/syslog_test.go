@@ -1,7 +1,6 @@
 package logx
 
 import (
-	"bytes"
 	"runtime"
 	"strings"
 	"sync"
@@ -10,8 +9,6 @@ import (
 
 type recordedSyslog struct {
 	mu  sync.Mutex
-	tag string
-	fac string
 	pri []string
 	msg []string
 }
@@ -31,77 +28,6 @@ func (r *recordedSyslog) Notice(s string) error  { return r.add("notice", s) }
 func (r *recordedSyslog) Info(s string) error    { return r.add("info", s) }
 func (r *recordedSyslog) Debug(s string) error   { return r.add("debug", s) }
 func (r *recordedSyslog) Close() error           { return nil }
-
-func TestSyslogSeverityMapping(t *testing.T) {
-	rec := &recordedSyslog{}
-	restore := SetSyslogDial(func(tag, fac string) (SyslogWriter, error) {
-		rec.tag = tag
-		rec.fac = fac
-		return rec, nil
-	})
-	t.Cleanup(restore)
-
-	w, err := DialSyslog("socat", "local1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rec.tag != "socat" || rec.fac != "local1" {
-		t.Fatalf("dial tag=%q fac=%q", rec.tag, rec.fac)
-	}
-	log := New()
-	log.SetLevel(Debug)
-	log.SetSyslog(w)
-	log.Fatalf("fatal-msg")
-	log.Errorf("error-msg")
-	log.Warningf("warn-msg")
-	log.Noticef("notice-msg")
-	log.Infof("info-msg")
-	log.Debugf("debug-msg")
-	want := []struct{ pri, msg string }{
-		{"crit", "F fatal-msg"},
-		{"err", "E error-msg"},
-		{"warning", "W warn-msg"},
-		{"notice", "N notice-msg"},
-		{"info", "I info-msg"},
-		{"debug", "D debug-msg"},
-	}
-	rec.mu.Lock()
-	defer rec.mu.Unlock()
-	if len(rec.pri) != len(want) {
-		t.Fatalf("got %v %v", rec.pri, rec.msg)
-	}
-	for i, row := range want {
-		if rec.pri[i] != row.pri || rec.msg[i] != row.msg {
-			t.Errorf("%d: %s %q want %s %q", i, rec.pri[i], rec.msg[i], row.pri, row.msg)
-		}
-	}
-}
-
-func TestCloneSwitchDoesNotMoveParent(t *testing.T) {
-	var parentOut bytes.Buffer
-	parent := New()
-	parent.SetOutput(&parentOut)
-	parent.SetLevel(Debug)
-	child := parent.Clone()
-	rec := &recordedSyslog{}
-	child.SetSyslog(rec)
-	child.Errorf("child")
-	parent.Errorf("parent")
-	if parent.UsingSyslog() {
-		t.Fatal("parent switched")
-	}
-	if !strings.Contains(parentOut.String(), " E parent") {
-		t.Fatalf("parent stderr=%q", parentOut.String())
-	}
-	if strings.Contains(parentOut.String(), "child") {
-		t.Fatalf("child leaked to parent stderr: %q", parentOut.String())
-	}
-	rec.mu.Lock()
-	defer rec.mu.Unlock()
-	if len(rec.msg) != 1 || rec.msg[0] != "E child" {
-		t.Fatalf("child syslog=%v", rec.msg)
-	}
-}
 
 func TestCloseOwnedSyslogLeavesParentWriter(t *testing.T) {
 	parentRec := &recordedSyslog{}

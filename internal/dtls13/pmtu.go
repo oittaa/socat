@@ -11,20 +11,6 @@ const (
 	minPathMTU       = 256
 	maxMTUReductions = 8
 
-	ipv4HeaderLen = 20
-	ipv6HeaderLen = 40
-	udpHeaderLen  = 8
-
-	// RFC 8899 MIN_PLPMTU is defined at the IP layer.
-	ipv4MinIPPacket     = 68   // RFC 791
-	ipv6MinIPPacket     = 1280 // RFC 8200
-	ipv4MinReassemblyIP = 576  // RFC 1122 / RFC 9147 ICMP-ignore floor
-
-	// UDP-payload forms of those IP sizes. dtls-mtu uses this unit.
-	ipv4MinPLPMTU           = ipv4MinIPPacket - ipv4HeaderLen - udpHeaderLen     // 40
-	ipv6MinPLPMTU           = ipv6MinIPPacket - ipv6HeaderLen - udpHeaderLen     // 1232
-	ipv4MinReassemblyPLPMTU = ipv4MinReassemblyIP - ipv4HeaderLen - udpHeaderLen // 548
-
 	// RFC 8899 BASE_PLPMTU recommendation for IPv4, and this stack's default dtls-mtu.
 	defaultPLPMTU = 1200
 
@@ -106,13 +92,6 @@ func rrcProbePadding(datagramSize, cidLen, aeadTag int) (int, error) {
 		return 0, errRecordOverflow
 	}
 	return pad, nil
-}
-
-func ipPacketSize(udpPayload int, ipv6 bool) int {
-	if ipv6 {
-		return udpPayload + ipv6HeaderLen + udpHeaderLen
-	}
-	return udpPayload + ipv4HeaderLen + udpHeaderLen
 }
 
 func (s *session) recordTagLen() int {

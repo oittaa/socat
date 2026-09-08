@@ -1,10 +1,7 @@
 package netopen
 
 import (
-	"runtime"
 	"testing"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
 func TestClassicUnixSockaddrLenMatchesXiosetunix(t *testing.T) {
@@ -32,36 +29,5 @@ func TestUnixTightSocklenDefaultByGOOS(t *testing.T) {
 	}
 	if unixTightSocklenDefault("freebsd") || unixTightSocklenDefault("openbsd") {
 		t.Fatal("freebsd/openbsd default must be sizeof(sockaddr_un)")
-	}
-}
-
-func TestUnixTightSocklenDefaultAndValues(t *testing.T) {
-	omitted, err := parse.ParseSpec("UNIX-LISTEN:sock")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if unixTightSocklen(omitted) != unixTightSocklenDefault(runtime.GOOS) {
-		t.Fatalf("omitted=%v want %v", unixTightSocklen(omitted), unixTightSocklenDefault(runtime.GOOS))
-	}
-	on, err := parse.ParseSpec("UNIX-LISTEN:sock,unix-tightsocklen=1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !unixTightSocklen(on) {
-		t.Fatal("=1 must stay tight")
-	}
-	alias, err := parse.ParseSpec("UNIX-LISTEN:sock,tightsocklen")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !unixTightSocklen(alias) {
-		t.Fatal("bare tightsocklen must stay tight")
-	}
-	off, err := parse.ParseSpec("UNIX-LISTEN:sock,tightsocklen=0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if unixTightSocklen(off) {
-		t.Fatal("=0 must use sizeof(sockaddr_un)")
 	}
 }

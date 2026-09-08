@@ -665,9 +665,6 @@ func (l *udpForkListener) Close() error {
 	return pc.Close()
 }
 func (l *udpForkListener) Addr() net.Addr { return l.pc.LocalAddr() }
-func (l *udpForkListener) oneShotMode() bool {
-	return l.oneShot
-}
 
 func cloneUDPAddr(a *net.UDPAddr) *net.UDPAddr {
 	if a == nil {

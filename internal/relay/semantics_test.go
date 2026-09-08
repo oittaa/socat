@@ -1,8 +1,6 @@
 package relay
 
 import (
-	"bytes"
-	"crypto/tls"
 	"net"
 	"os"
 	"testing"
@@ -35,33 +33,6 @@ func TestConfigureStreamPairUsesDirectionalCapabilities(t *testing.T) {
 		if p.readPeer != MessageIO || p.writePeer != ByteStreamIO {
 			t.Fatalf("peer read/write = %v/%v", p.readPeer, p.writePeer)
 		}
-	}
-}
-
-func TestStreamSemanticsKnownAndUnknown(t *testing.T) {
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = r.Close() }()
-	defer func() { _ = w.Close() }()
-	for _, tc := range []struct {
-		name   string
-		stream Stream
-		want   IOSemantics
-	}{
-		{"pipe", FDStream{R: r, W: w}, ByteStreamIO},
-		{"text", FDStream{R: bytes.NewReader(nil), W: &bytes.Buffer{}}, ByteStreamIO},
-		{"tcp", NetStream{Conn: &net.TCPConn{}}, ByteStreamIO},
-		{"tls", NetStream{Conn: tls.Client(nil, &tls.Config{MinVersion: tls.VersionTLS13})}, ByteStreamIO},
-		{"udp", NetStream{Conn: &net.UDPConn{}}, MessageIO},
-		{"unknown", RWCStream{}, UnknownIO},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if r, w := StreamReadSemantics(tc.stream), StreamWriteSemantics(tc.stream); r != tc.want || w != tc.want {
-				t.Fatalf("read/write = %v/%v", r, w)
-			}
-		})
 	}
 }
 

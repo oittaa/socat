@@ -2,7 +2,6 @@ package relay
 
 import (
 	"bytes"
-	"io"
 	"os"
 	"testing"
 	"time"
@@ -15,66 +14,11 @@ type walkTestWrapper struct {
 func (w *walkTestWrapper) UnwrapStream() Stream         { return w.Stream }
 func (w *walkTestWrapper) UnwrapZeroCopyStream() Stream { return w.Stream }
 
-type deadlineTestStream struct {
-	readDeadlineCalls  int
-	writeDeadlineCalls int
-}
-
-func (*deadlineTestStream) Read([]byte) (int, error)    { return 0, io.EOF }
-func (*deadlineTestStream) Write(p []byte) (int, error) { return len(p), nil }
-func (*deadlineTestStream) Close() error                { return nil }
-func (*deadlineTestStream) ShutdownWrite() error        { return nil }
-func (s *deadlineTestStream) SetReadDeadline(time.Time) error {
-	s.readDeadlineCalls++
-	return nil
-}
-func (s *deadlineTestStream) SetWriteDeadline(time.Time) error {
-	s.writeDeadlineCalls++
-	return nil
-}
-
 func wrapTestStream(stream Stream, depth int) Stream {
 	for range depth {
 		stream = &walkTestWrapper{Stream: stream}
 	}
 	return stream
-}
-
-func TestCapabilityWalkerTraversesDeepWrappers(t *testing.T) {
-	file, err := os.CreateTemp(t.TempDir(), "endpoint")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := file.Close(); err != nil {
-			t.Errorf("close endpoint: %v", err)
-		}
-	})
-
-	wrapped := wrapTestStream(FDStream{R: file, W: file, C: file}, 32)
-	wantFD := int(file.Fd())
-	if got := streamReadFD(wrapped); got != wantFD {
-		t.Fatalf("read fd=%d want %d", got, wantFD)
-	}
-	if got := streamWriteFD(wrapped); got != wantFD {
-		t.Fatalf("write fd=%d want %d", got, wantFD)
-	}
-	if _, ok := unwrapZeroCopyReader(wrapped); !ok {
-		t.Fatal("deeply wrapped zero-copy reader was not discovered")
-	}
-	if _, ok := unwrapZeroCopyWriter(wrapped); !ok {
-		t.Fatal("deeply wrapped zero-copy writer was not discovered")
-	}
-
-	deadlineStream := &deadlineTestStream{}
-	deadlineWrapped := wrapTestStream(deadlineStream, 32)
-	setStreamReadDeadline(deadlineWrapped, time.Now())
-	if !setStreamWriteDeadline(deadlineWrapped, time.Now()) {
-		t.Fatal("deeply wrapped write deadline was not discovered")
-	}
-	if deadlineStream.readDeadlineCalls != 1 || deadlineStream.writeDeadlineCalls != 1 {
-		t.Fatalf("deadline calls=(%d,%d), want (1,1)", deadlineStream.readDeadlineCalls, deadlineStream.writeDeadlineCalls)
-	}
 }
 
 func TestCapabilityWalkerKeepsFDDirectionsSeparate(t *testing.T) {

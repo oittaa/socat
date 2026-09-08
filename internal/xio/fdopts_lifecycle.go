@@ -323,18 +323,6 @@ func parseLseekOffset(o parse.Option) (int64, error) {
 	return n, nil
 }
 
-func parseFtruncateLength(s parse.Spec) (int64, bool, error) {
-	o, ok := lastLifecycleOption(s, "ftruncate", "truncate", "ftruncate32", "ftruncate64")
-	if !ok {
-		return 0, false, nil
-	}
-	n, err := parseFtruncateOption(o)
-	if err != nil {
-		return 0, true, err
-	}
-	return n, true, nil
-}
-
 func requiredLifecycleOptionValue(o parse.Option) (string, error) {
 	v := strings.TrimSpace(o.Value)
 	if !o.Has || v == "" {

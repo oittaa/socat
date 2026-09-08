@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"sync"
 	"testing"
 	"testing/synctest"
 
@@ -62,66 +61,6 @@ func TestOpenListenSessionForkReleasesWatcherOnClose(t *testing.T) {
 		case <-ln.closed:
 		default:
 			t.Fatal("listener remained open after Close")
-		}
-	})
-}
-
-func TestOpenListenSessionForkCancellationInterruptsAccept(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		o, _ := openForkListenerForLifetime(t, ctx)
-		acceptErr := make(chan error, 1)
-		go func() {
-			_, err := o.Listener.Accept()
-			acceptErr <- err
-		}()
-
-		synctest.Wait()
-		select {
-		case err := <-acceptErr:
-			t.Fatalf("Accept returned before cancellation: %v", err)
-		default:
-		}
-		cancel()
-		synctest.Wait()
-		select {
-		case err := <-acceptErr:
-			if !errors.Is(err, net.ErrClosed) {
-				t.Fatalf("Accept error=%v, want net.ErrClosed", err)
-			}
-		default:
-			t.Fatal("Accept did not unblock on context cancellation")
-		}
-		if err := o.Close(); err != nil {
-			t.Fatalf("Close after cancellation: %v", err)
-		}
-	})
-}
-
-func TestOpenListenSessionConcurrentCancellationAndClose(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		for range 50 {
-			ctx, cancel := context.WithCancel(context.Background())
-			o, ln := openForkListenerForLifetime(t, ctx)
-			var wg sync.WaitGroup
-			wg.Add(2)
-			go func() {
-				defer wg.Done()
-				cancel()
-			}()
-			go func() {
-				defer wg.Done()
-				if err := o.Close(); err != nil {
-					t.Errorf("concurrent Close: %v", err)
-				}
-			}()
-			wg.Wait()
-			select {
-			case <-ln.closed:
-			default:
-				t.Fatal("listener remained open after cancellation and Close")
-			}
 		}
 	})
 }

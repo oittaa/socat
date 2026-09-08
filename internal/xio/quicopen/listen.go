@@ -16,10 +16,6 @@ import (
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
-// quicHandshakeIdleTimeoutDisabled aliases the shared mapping used by
-// PROXY HTTP/3 and QUIC. See xio.QUICHandshakeIdleTimeoutDisabled.
-const quicHandshakeIdleTimeoutDisabled = xio.QUICHandshakeIdleTimeoutDisabled
-
 func openQUICListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	_, port, err := quicTarget(s, true)
 	if err != nil {

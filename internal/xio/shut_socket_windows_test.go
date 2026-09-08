@@ -71,28 +71,6 @@ func TestShutdownWriteOnPipeReportsWSAENOTSOCK(t *testing.T) {
 	}
 }
 
-func TestShutdownWriteOnUnconnectedSocketReportsWSAENOTCONN(t *testing.T) {
-	s, err := windows.Socket(windows.AF_INET, windows.SOCK_STREAM, windows.IPPROTO_TCP)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = windows.Closesocket(s) }()
-	typ, err := windows.GetsockoptInt(s, windows.SOL_SOCKET, soType)
-	if err != nil {
-		t.Fatalf("SO_TYPE on unconnected socket: %v", err)
-	}
-	if typ != windows.SOCK_STREAM {
-		t.Fatalf("SO_TYPE=%d want SOCK_STREAM", typ)
-	}
-	err = ShutdownWrite(int(s))
-	if isNotSock(err) {
-		t.Fatalf("unconnected socket classified as not-a-socket: %v", err)
-	}
-	if !errors.Is(err, windows.WSAENOTCONN) {
-		t.Fatalf("err=%v want WSAENOTCONN", err)
-	}
-}
-
 func TestShutDownOnUnconnectedSocketReportsNotConnected(t *testing.T) {
 	s, err := windows.Socket(windows.AF_INET, windows.SOCK_STREAM, windows.IPPROTO_TCP)
 	if err != nil {

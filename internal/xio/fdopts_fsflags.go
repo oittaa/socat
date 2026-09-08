@@ -41,12 +41,6 @@ var linuxExtFSFlagMasks = map[string]int{
 	"fs-topdir":       fsTopdirFL,
 }
 
-type linuxExtFSFlagOp struct {
-	name   string
-	mask   int
-	enable bool
-}
-
 // LinuxExtFSFlagOption reports whether name is a canonical Linux ext
 // filesystem ioctl flag (fs-append, fs-nodump, …). Used to hide these
 // options on Darwin/Windows the same way as fs-noatime.
@@ -72,19 +66,6 @@ func hasLinuxPHFDOptions(s parse.Spec) bool {
 		}
 	}
 	return false
-}
-
-func linuxExtFSFlagOps(s parse.Spec) []linuxExtFSFlagOp {
-	var out []linuxExtFSFlagOp
-	for _, o := range s.Options {
-		canon := parse.CanonicalOptionName(o.Name)
-		mask, ok := linuxExtFSFlagMasks[canon]
-		if !ok {
-			continue
-		}
-		out = append(out, linuxExtFSFlagOp{name: canon, mask: mask, enable: o.Active()})
-	}
-	return out
 }
 
 // applyFSFlagMask: val &= ~mask, then |= mask when enable. Unrelated bits

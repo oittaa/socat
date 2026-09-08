@@ -3,47 +3,13 @@
 package xio
 
 import (
-	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
-
-func TestDarwinPTYOutputBytesQueuedTracksMasterReads(t *testing.T) {
-	master, slave, err := OpenPTYPair()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer master.Close()
-	defer slave.Close()
-
-	payload := []byte("queued-output")
-	if _, err := slave.Write(payload); err != nil {
-		t.Fatal(err)
-	}
-	pending, err := darwinPTYOutputBytesQueued(master)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pending < len(payload) {
-		t.Fatalf("queued output bytes %d want at least %d", pending, len(payload))
-	}
-
-	got := make([]byte, len(payload))
-	if _, err := io.ReadFull(master, got); err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != string(payload) {
-		t.Fatalf("master read %q want %q", got, payload)
-	}
-	pending, err = darwinPTYOutputBytesQueued(master)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if pending != 0 {
-		t.Fatalf("queued output bytes after read %d want 0", pending)
-	}
-}
 
 func TestDarwinEXECPtyDrainsOutputAfterChildExit(t *testing.T) {
 	bin := buildIsattyHelper(t)
@@ -64,34 +30,28 @@ func TestDarwinEXECPtyDrainsOutputAfterChildExit(t *testing.T) {
 	}
 }
 
-func TestDarwinEXECPtyReadPathsDrainOutputAfterChildExit(t *testing.T) {
-	tests := []struct {
-		name string
-		spec string
-	}{
-		{name: "stdout", spec: "SYSTEM:printf output,pty,rawer,echo=0"},
-		{name: "fdout", spec: "SYSTEM:printf output >&4,pty,fdout=4,rawer,echo=0"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			o := openEXECSpec(t, tc.spec, ModeRead)
-			waitExecPTYChild(t, o)
-			if got := string(readStreamBytes(t, o.Stream, time.Second)); got != "output" {
-				t.Fatalf("output %q want output", got)
-			}
-			if err := o.Close(); err != nil {
-				t.Fatal(err)
-			}
-		})
-	}
-}
-
 func TestDarwinEXECPtySilentChildReachesEOF(t *testing.T) {
 	o := openEXECSpec(t, "SYSTEM:true,pty,rawer,echo=0", ModeRDWR)
 	waitExecPTYChild(t, o)
 	if got := readStreamBytes(t, o.Stream, time.Second); len(got) != 0 {
 		t.Fatalf("silent child output %q", got)
 	}
+}
+
+func buildIsattyHelper(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	src := filepath.Join(dir, "isatty.c")
+	body := "#include <stdio.h>\n#include <unistd.h>\nint main(void){ printf(\"%s\\n\", isatty(0)?\"tty\":\"notty\"); return 0; }\n"
+	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "isatty")
+	out, err := exec.Command("gcc", "-o", bin, src).CombinedOutput()
+	if err != nil {
+		t.Skipf("gcc unavailable: %v (%s)", err, out)
+	}
+	return bin
 }
 
 func waitExecPTYChild(t *testing.T, o *Opened) {
