@@ -56,8 +56,6 @@ type session struct {
 	lastSendSize         int
 	canProbe             bool
 	mtu                  mtuDiscovery
-	observeRecord        func(epoch uint64, typ byte, body []byte)
-	filterRecord         func(epoch uint64, typ byte, body []byte) bool
 }
 
 func newClientSession(config *Config, send func([]byte) error, now time.Time) (*session, error) {
@@ -160,14 +158,8 @@ func (s *session) sendRecordLimited(epoch uint64, typ byte, body, cid []byte, pa
 	}
 	s.lastSendSize = len(packet)
 	w.sequence++
-	if s.filterRecord != nil && !s.filterRecord(epoch, typ, body) {
-		return number, nil
-	}
 	if err := send(packet); err != nil {
 		return recordNumber{}, err
-	}
-	if s.observeRecord != nil {
-		s.observeRecord(epoch, typ, body)
 	}
 	return number, nil
 }
