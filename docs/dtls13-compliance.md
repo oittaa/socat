@@ -62,7 +62,7 @@ Permitted choices are described without counting them as compliance gaps.
 | **§4.2.1** SHOULD discard earlier-epoch records; MAY keep keys up to MSL | yes: keep prior matching epoch | partial | yes | yes |
 | **§4.2.1** MAY buffer or discard app data before handshake done; MUST treat as in-order | yes: discard until peer Finished | yes | yes | yes |
 | **§4.2.1** Retransmits MUST use same epoch/keys | yes | yes | yes | yes |
-| **§4.2.1** MUST abandon or rekey before sequence wrap | yes (`recordLimit`) | partial: 64-bit wrap only | yes | yes (48-bit) |
+| **§4.2.1** MUST abandon or rekey before sequence wrap | yes: rekeys or closes before sequence reuse; per-key caps below also prevent wrap | partial: 64-bit wrap only | yes | yes (48-bit) |
 | **§4.2.1 / §6.1 / §8** MUST NOT wrap epoch; sender MUST NOT exceed 2^48−1; receiver MUST NOT enforce that cap | yes | partial: uint64 wrap, not 2^48−1 | yes | partial |
 | **§4.2.2** SHOULD reconstruct seq as closest to 1+highest in epoch | yes | no: high bytes stay 0 after 8/16-bit SN decrypt | yes | yes |
 | **§4.2.3** Ciphertext MUST be at least 16 bytes; senders MUST pad as needed to reach that size | yes: 16-byte tags satisfy this without extra padding | yes, including inner pad | yes | yes, pads to 16 |
@@ -72,10 +72,22 @@ Permitted choices are described without counting them as compliance gaps.
 | **§4.4** MUST report transport PMTU-exceeded errors; SHOULD allow app DF control | transport write errors propagate; caller configures supplied socket | MTU-error handling and DF BIO controls; see evidence below | unknown | unknown |
 | **§4.4** Handshake SHOULD fragment if too big; SHOULD shrink after unanswered retries when PMTU unknown | yes: fragments to the association budget; `EMSGSIZE` and unanswered handshake flights shrink with a bound; command-line clients default to confirm/search on eligible dedicated sockets | fragments and re-queries on MTU error; DTLS 1.3 loss backoff unknown | fragments; loss backoff unknown | fragments; loss backoff unknown |
 | **§4.5.1** Replay check SHOULD use sliding window; MUST init at 0; MUST reject duplicates; MUST NOT update window until deprotect succeeds | yes (64-bit window after AEAD) | yes | yes (after AEAD) | yes |
-| **§4.5.2** Invalid records SHOULD be silently discarded; fatal alerts NOT RECOMMENDED on UDP | unauthenticated parse/MAC/replay dropped; authenticated inner/handshake/alert violations send fatal alerts (permitted); malformed ACK bodies discarded; AEAD fail limit closes | yes drop | yes drop | yes drop |
-| **§4.5.3** SHOULD NOT exceed AEAD confidentiality limit; SHOULD KeyUpdate before it | yes (GCM 2^24, ChaCha 2^48; KeyUpdate at limit−1024) | no | yes | no |
+| **§4.5.2** Invalid records SHOULD be silently discarded; fatal alerts NOT RECOMMENDED on UDP | drops bad headers/MACs/replays and malformed ACKs; authenticated inner-type errors fatal | drops bad MACs/replays; authenticated inner-type errors fatal | drops bad MACs; authenticated all-zero inner plaintext fatal | drops bad MACs and invalid inner types; malformed authenticated alert bodies fatal |
+| **§4.5.3** SHOULD NOT exceed AEAD confidentiality limit; SHOULD KeyUpdate before it | yes: AES-GCM 2^24, ChaCha20-Poly1305 2^48 records per key; application writes trigger KeyUpdate 1024 records earlier | no | yes | no |
 | **§4.5.3** MUST count AEAD auth failures; SHOULD close or KeyUpdate at 2^36 (GCM/ChaCha) | yes close at 2^36 | no | yes | no |
 | **§4.5.3** `TLS_AES_128_CCM_8_SHA256` MUST NOT be used in DTLS without extra forgery protection | yes: suite rejected | no: advertised for DTLS 1.3 | yes: allowed with extra fail limit | yes: suite not present |
+
+Sequence-wrap protection (§4.2.1) and AEAD usage limits (§4.5.3) are separate:
+encryption can reach its safe usage limit while sequence numbers are still unique.
+
+Invalid-record cells give examples, not an exhaustive error classification.
+Fatal alerts are permitted by §4.5.2, although silent discard is recommended
+on UDP. Authentication does not make every error fatal; all four libraries
+have fatal paths for errors in authenticated content. Source examples:
+[ours](../internal/dtls13/session.go#L380),
+[OpenSSL](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/record/methods/tls_common.c#L1053),
+[wolfSSL](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/internal.c#L24560),
+and [Pion](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/conn.go#L2219).
 
 OpenSSL evidence: UDP BIO [PMTU query](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/crypto/bio/bss_dgram.c#L656)
 and [DF control](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/crypto/bio/bss_dgram.c#L909),
@@ -124,7 +136,7 @@ These establish support, not a complete §4.4 conformance test.
 | --- | --- | --- | --- | --- |
 | **§7** MUST NOT ACK unprocessed/unbuffered handshake; MUST NOT ACK discarded future seq | yes | yes | yes | yes |
 | **§7** Handshake ACK epoch MUST be ≥ record being ACKed; after HS MUST use highest sending epoch | yes | yes | yes | yes |
-| **§7.1** Flights MUST be ACKed unless implicitly ACKed by the next flight | yes: disrupted and stalled incomplete flights are ACKed; a complete flight waits until local Finished is sent | partial: ACK not accepted in `TLS_ST_SW_FINISHED` | yes | yes |
+| **§7.1** Flights MUST be ACKed unless implicitly ACKed by the next flight | yes: responding handshake flights provide implicit ACKs; the client's final flight and post-handshake messages use explicit ACKs | partial: ACK not accepted in `TLS_ST_SW_FINISHED` | yes | yes |
 | **§7.1** MUST NOT ACK non-handshake or undeprotected records | yes | yes | yes | yes |
 | **§7.2** SHOULD drop ACKed fragments from retransmit; MUST cancel flight when complete; any ACK of a record counts; responding flight MUST implicitly ACK | yes | partial: often retransmits whole flight | yes | yes |
 | **§8** KeyUpdate MUST be ACKed; MUST NOT send with new keys or another KeyUpdate until ACK (erratum 8047, Reported) | yes | yes | yes | yes |
@@ -133,23 +145,23 @@ These establish support, not a complete §4.4 conformance test.
 | **§9** `cid_immediate` MUST be used for all future records | yes | n/a | yes if received | n/a (not applied) |
 | **§9** MUST NOT have more than one NewConnectionId outstanding | yes | n/a | n/a (never sent) | n/a |
 | **§9** MUST NOT send NewConnectionId / RequestConnectionId if CID not negotiated or empty; MUST `unexpected_message` on violation | yes | n/a | rx Request ignored; NewConnectionId immediate only | codec only, rx unexpected |
-| **§9** SHOULD respond with spares; MAY send fewer or none for excessive requests | yes: bounded replies; immediate rotation frees a full pool | n/a (no CID) | no: Request ignored; spare discarded | no |
+| **§9** SHOULD respond with spares; MAY send fewer or none for excessive requests | yes: bounded spare replies; rotates a full issuer pool before issuing spares | n/a (no CID) | no: Request ignored; spare discarded | no |
 | **§9** MUST NOT request more CIDs before the previous request is fulfilled | yes: ACK alone does not fulfill it | n/a | n/a (never requests) | n/a (send unimplemented) |
 | **§9** SHOULD use a new CID on a new path | yes (RRC + spare) | no | no | RRC yes; CID not rotated |
 | **§9.1** If no CID negotiated, records with CID MUST be rejected | yes | yes (C-bit discarded) | yes | yes |
 | **§11** Cookie MUST depend on client address; MUST NOT be forgeable by others | yes HMAC(peer, data) | yes HMAC(address, port, timestamp) | yes HMAC includes peer | yes: stateful 20-byte cookie on the 5-tuple |
 | **§11** Cookie SHOULD not allow reconstructing ClientHello | yes (hash/fingerprint) | yes | yes | n/a |
 | **§11** MUST NOT update send address on a new source without a reachability test | yes (RFC 9853) | n/a (no CID/migration) | no RRC | yes (RFC 9853) |
-| **§11** SHOULD NOT kill the connection on invalid records | unauthenticated invalid records do not terminate; authenticated protocol errors do (permitted; see §4.5.2) | yes | yes | yes |
+| **§11** SHOULD NOT terminate the connection on invalid records | see §4.5.2 | see §4.5.2 | see §4.5.2 | see §4.5.2 |
 | **§11** SHOULD use fresh CIDs when local address/port changes | yes request on migration | n/a | no | no |
 
 Remaining CID tests are
 [connection_id_test.go](../internal/dtls13/connection_id_test.go)
 (`TestCIDACKWithoutResponseRemainsPending`,
-`TestCIDEmptySpareResponseFulfillsRequest`). A full issuer pool rotates one CID immediately rather
-than sending an empty spare list; the spare request stays pending until that
-rotation is authenticated. Path probes pause issuance. Independent peers
-still do not issue spares.
+`TestCIDEmptySpareResponseFulfillsRequest`). If the issuer pool is full,
+a `cid_immediate` update keeps the spare request pending. Authenticated use
+of the new CID retires the old IDs; after the update is ACKed, spare issuance
+can resume. Path probes pause issuance. Independent peers still do not issue spares.
 
 Pion stores a random cookie on the handshake and looks the association up
 by source address
@@ -166,11 +178,12 @@ gets a different association, and forging the stored value means guessing
 | Req | Ours | OpenSSL | wolfSSL | Pion |
 | --- | --- | --- | --- | --- |
 | **§3** Negotiate `connection_id`; DTLS 1.3 carriage follows RFC 9147 §4 | yes | no | yes if `WOLFSSL_DTLS_CID` | yes if configured |
-| **§6** MUST NOT replace peer address from a CID datagram unless the implementation has a validation procedure | yes: RFC 9853, not a silent swap | n/a | no validation procedure | yes: RRC |
-| **§6** MUST silently discard bad MAC / invalid records | yes for MAC | yes | yes | yes |
+| **§6** MUST NOT replace peer address from a CID datagram unless the implementation has a validation procedure | yes: validates reachability with RFC 9853 before switching | n/a | no validation procedure | yes: RRC |
 
 RFC 9146's `tls12_cid` content type and DTLS 1.2 MAC/AEAD extra data do not
-apply to DTLS 1.3. wolfSSL and Pion have separate 1.2 CID paths.
+apply to DTLS 1.3. Invalid-record handling follows
+[RFC 9147 §4.5.2](https://www.rfc-editor.org/rfc/rfc9147.html#section-4.5.2),
+as described in the record-layer table above.
 
 ---
 
