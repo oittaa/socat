@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -53,13 +55,16 @@ func loadOpenSSLListener(t *testing.T) oracleTools {
 
 type capturePacketConn struct {
 	net.PacketConn
+	mu         sync.Mutex
 	sent, recv [][]byte
 }
 
 func (c *capturePacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	n, err := c.PacketConn.WriteTo(p, addr)
 	if err == nil {
+		c.mu.Lock()
 		c.sent = append(c.sent, bytes.Clone(p[:n]))
+		c.mu.Unlock()
 	}
 	return n, err
 }
@@ -67,9 +72,17 @@ func (c *capturePacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 func (c *capturePacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 	n, addr, err := c.PacketConn.ReadFrom(p)
 	if err == nil {
+		c.mu.Lock()
 		c.recv = append(c.recv, bytes.Clone(p[:n]))
+		c.mu.Unlock()
 	}
 	return n, addr, err
+}
+
+func (c *capturePacketConn) snapshot() (sent, recv [][]byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.sent), slices.Clone(c.recv)
 }
 
 type dropHelloRetry struct {
@@ -113,10 +126,11 @@ func testOpenSSLCookieListener(t *testing.T, tools oracleTools, cert tls.Certifi
 		transport = &dropFirstPlainHandshake{PacketConn: transport, remaining: dropCH}
 	}
 	t.Cleanup(func() {
-		t.Logf("client UDP sent %s recv %s mtu=%d dropCH=%d dropHRR=%d", summarizeSizes(sizesOf(captured.sent)), summarizeSizes(sizesOf(captured.recv)), mtu, dropCH, dropHRR)
+		sent, recv := captured.snapshot()
+		t.Logf("client UDP sent %s recv %s mtu=%d dropCH=%d dropHRR=%d", summarizeSizes(sizesOf(sent)), summarizeSizes(sizesOf(recv)), mtu, dropCH, dropHRR)
 		if t.Failed() {
-			t.Logf("sent handshake:\n%s", formatHandshakeDatagrams(captured.sent))
-			t.Logf("recv handshake:\n%s", formatHandshakeDatagrams(captured.recv))
+			t.Logf("sent handshake:\n%s", formatHandshakeDatagrams(sent))
+			t.Logf("recv handshake:\n%s", formatHandshakeDatagrams(recv))
 		}
 	})
 	client, err := Client(ctx, transport, address, &Config{
@@ -138,8 +152,9 @@ func testOpenSSLCookieListener(t *testing.T, tools oracleTools, cert tls.Certifi
 	if state.Version != version13 || state.CipherSuite != chaCha20Poly1305 || state.CurveID != group || len(state.VerifiedChains) == 0 {
 		t.Fatalf("negotiated version=%x suite=%x group=%s chains=%d", state.Version, state.CipherSuite, state.CurveID, len(state.VerifiedChains))
 	}
-	requireCookieExchange(t, captured.sent, captured.recv)
-	for _, n := range sizesOf(captured.sent) {
+	sent, recv := captured.snapshot()
+	requireCookieExchange(t, sent, recv)
+	for _, n := range sizesOf(sent) {
 		if n > mtu {
 			t.Fatalf("sent UDP length %d exceeds MTU %d", n, mtu)
 		}
