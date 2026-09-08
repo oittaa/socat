@@ -307,17 +307,29 @@ Practical consequences:
 
 ## Remaining work and permitted choices
 
-| Work | Basis | Current limit |
+| Work | Basis | Next step |
 | --- | --- | --- |
-| Dynamic PMTU handling | RFC 9147 §4.4 / RFC 8899 | Handshake shrink; command-line confirm/search defaults on for eligible dedicated sockets with CID/RRC after final-flight ACK. Ordinary CI covers in-process discovery and Linux loopback `PMTUDISC_PROBE`. Privileged CI has no DTLS PMTU tests. Historical Linux routed IPv4/IPv6 shrink/growth is not in this tree. Manual probes do not raise the working size; the default ceiling stays 1200. ICMP PTB is unused by the stack. No IP PMTU query or discovery on shared listeners. [Remaining work](dtls13.md#remaining-work). |
-| Independent spare-CID and remaining production-MTU PQ interop | Coverage | No pinned peer issues spares. OpenSSL both-role mutual ML-DSA echo at 1200/512/256 is X25519MLKEM768 only. wolfSSL still needs an unfragmented first ClientHello. Pion public-API X25519MLKEM768 at 1200/512/256 is covered with CID disabled. See [remaining work](dtls13.md#remaining-work). |
-| RFC 9846 `general_error` | Alert mapping | Named receive/diagnostics for alert 117. Send mappings keep certificate, protocol, and `internal_error` alerts. |
+| PMTU validation | RFC 9147 §4.4 / RFC 8899 | Establish repeatable routed Linux IPv4/IPv6 shrink/growth checks; validate routed Windows/macOS when labs exist; exercise the 600-second search restart after the path MTU increases. |
+| Small-MTU PQ interop | Coverage | Test SecP256r1MLKEM768 and SecP384r1MLKEM1024 at 1200/512/256 against OpenSSL. Existing small-MTU coverage uses X25519MLKEM768 + ChaCha20-Poly1305. [Peer coverage and limits](dtls13.md#independent-peers). |
+| Independent spare-CID interop | Coverage | Test issuance/replenishment when a reference peer supports it. Local renewal is implemented; no pinned peer issues spares. |
 
-Sending only 16-bit sequence numbers, always including record length, and
-sending one record per datagram are permitted choices. Our 16-byte AEAD tags
-already satisfy §4.2.3's minimum ciphertext length. The
+MTU shrink and automatic confirmation/upward search on eligible dedicated
+sockets are implemented. Current PMTU coverage is in-process discovery and
+Linux loopback checks; the historical routed Linux tests are not retained.
+See [dtls13.md](dtls13.md#remaining-work) for PMTU limits and optional improvements.
+
+Sending the low 16 bits of the sequence number in protected-record headers
+is permitted; the counter itself is 64 bits and plaintext headers carry
+48 bits. Always including record length and sending one record per datagram
+are also permitted choices. Our 16-byte AEAD tags already satisfy §4.2.3's
+minimum ciphertext length. The
 [60-second cookie expiry](../internal/dtls13/cookie.go) uses §5.1's timestamp
 alternative; overlapping secret rotation is optional hardening.
+
+Receiving `general_error` (117) already terminates with a named diagnostic.
+Send mappings use specific alerts or `internal_error`;
+[RFC 9846 §6.2](https://www.rfc-editor.org/rfc/rfc9846.txt) recommends more
+specific errors when available. A generic send mapping is not required work.
 
 PSK, resumption, 0-RTT and post-handshake client authentication remain out of
 scope. Erratum 8047 was **Reported** at the review date; do not treat it as a
