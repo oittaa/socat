@@ -122,6 +122,32 @@ func TestFlightSendsNewBytesWithoutACK(t *testing.T) {
 	}
 }
 
+func TestFlightNewBytesDoNotExhaustRetries(t *testing.T) {
+	f, err := newFlight([]handshakeMessage{{typ: 11, epoch: 2, body: make([]byte, flightBurst*(maxFlightRetries+2))}}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output []capturedFragment
+	send := flightSender(t, &output)
+	now := time.Unix(100, 0)
+	for burst := 0; burst < maxFlightRetries+2; burst++ {
+		if err := f.transmit(now, 1, send); err != nil {
+			t.Fatal(err)
+		}
+		if f.pendingSend() && f.retries != 0 {
+			t.Fatalf("counted a retransmission while new bytes remained: retries=%d", f.retries)
+		}
+		retry, err := f.expire(f.deadline)
+		if !retry || err != nil {
+			t.Fatalf("new-byte expiry %d: %t, %v", burst, retry, err)
+		}
+		now = f.deadline
+	}
+	if len(output) != flightBurst*(maxFlightRetries+2) {
+		t.Fatalf("sent %d records, want %d", len(output), flightBurst*(maxFlightRetries+2))
+	}
+}
+
 func TestFlightEmptyMessageAndImplicitACK(t *testing.T) {
 	f, err := newFlight([]handshakeMessage{{typ: 9, epoch: 3}}, 0)
 	if err != nil {
@@ -201,7 +227,7 @@ func TestACKWire(t *testing.T) {
 	if numbers[0] != (recordNumber{2, 9}) {
 		t.Fatal("encoder mutated caller's records")
 	}
-	for i := range len(wire) {
+	for i := range 2 + 16 {
 		if _, err := parseACK(wire[:i]); err == nil {
 			t.Fatalf("accepted truncated ACK at %d", i)
 		}
@@ -216,5 +242,20 @@ func TestACKWire(t *testing.T) {
 	}
 	if got, err := parseACK([]byte{0, 0}); err != nil || len(got) != 0 {
 		t.Fatal("empty ACK rejected")
+	}
+}
+
+func TestParseACKTruncatedList(t *testing.T) {
+	records := make([]recordNumber, 48)
+	for i := range records {
+		records[i] = recordNumber{2, uint64(i + 1)}
+	}
+	wire, err := encodeACK(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := parseACK(wire[:2+460])
+	if err != nil || len(got) != 28 || got[0] != records[0] || got[27] != records[27] {
+		t.Fatalf("truncated ACK: n=%d err=%v", len(got), err)
 	}
 }

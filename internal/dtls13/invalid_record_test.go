@@ -97,7 +97,7 @@ func TestAuthenticatedInvalidInnerContentAborts(t *testing.T) {
 	}
 }
 
-func TestAuthenticatedMalformedAlertAndACKAbort(t *testing.T) {
+func TestAuthenticatedMalformedAlertAborts(t *testing.T) {
 	a, b := handshakeConfigs(t)
 	client, server, _ := driveSessions(t, a, b, false, false)
 	now := time.Unix(1000, 0)
@@ -111,7 +111,10 @@ func TestAuthenticatedMalformedAlertAndACKAbort(t *testing.T) {
 	client2, server2, _ := driveSessions(t, a, b, false, false)
 	w2 := client2.write[client2.currentWriteEpoch()]
 	ack := protectRecord(t, w2.keys, recordNumber{client2.currentWriteEpoch(), w2.sequence}, client2.handshake.peerCID, contentACK, []byte{0, 1, 0})
-	if _, err := server2.receive(ack, now); !errors.Is(err, errACK) {
+	if _, err := server2.receive(ack, now); err != nil {
 		t.Fatalf("malformed authenticated ACK: %v", err)
+	}
+	if err := client2.application([]byte("after truncated ack")); err != nil {
+		t.Fatal(err)
 	}
 }

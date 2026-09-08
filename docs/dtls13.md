@@ -58,21 +58,20 @@ shared with that adapted code.
 
 ## Independent peers
 
-Last interoperability runs: 2026-09-07. Pins are in
+Last interoperability runs: 2026-09-08. Pins are in
 [dtls13-baseline.json](../scripts/dtls13-baseline.json) and
 [dtls13-lab.py](../scripts/dtls13-lab.py). Limits are for those revisions.
 
 | Peer | Passing coverage | Limits |
 | --- | --- | --- |
-| OpenSSL 4.1 snapshot (`82733d9`) | Both roles; 21 suite/group combinations; mutual ML-DSA-44/65/87 at MTU 4096. Our client → `s_server` with X25519MLKEM768: ECDSA echo at 1200/512/256; mutual ML-DSA-44/65/87 echo at 1200; ML-DSA-44 echo at 512. | No DTLS 1.3 CID. `s_client` does not ACK our large server flights: mutual ML-DSA as OpenSSL client fails at MTU 1200; ECDSA as OpenSSL client fails at 256. Mutual ML-DSA-65/87 at 512 and all ML-DSA at 256 still get OpenSSL `unexpected_message` during `SSL_accept`. Cookie-listener first-fragment behavior was not retested. |
+| OpenSSL 4.1 snapshot (`82733d9`) | Both roles; 21 suite/group combinations; mutual ML-DSA-44/65/87 at MTU 4096. With X25519MLKEM768 and ChaCha20-Poly1305, mutual ECDSA and ML-DSA-44/65/87 echo in both roles at 1200/512/256 (`s_server` and `s_client`). Our client also completed ML-DSA-44 echo after a dropped first ClientHello at those MTUs. Captured UDP payloads stayed within the configured MTU (our client max sent 1191/503/256; our listener max sent 1200/512/256). | No DTLS 1.3 CID. Cookie-listener first-fragment behavior was not retested. OpenSSL may emit ACK lists larger than the MTU; we accept complete record-number prefixes. |
 | wolfSSL master (`d72f6d9`) | 21 suite/group combinations with our client at MTU 4096. Classical X25519 and P-256 with our client at 1200/512/256. 12 mutual-auth CID cases in both roles (MTU 1200, all suites, P-256, request ACKs, rotation with lost ACKs and KeyUpdate). | Rejects a fragmented unverified first ClientHello, so PQ at 1200/512/256 times out. No spare issuance/replenishment or RFC 9853 RRC. |
 | Pion (`59f4c33`) | Mutual authentication, bidirectional KeyUpdate and rebinding/RRC in both roles through protocol drivers using initial CIDs. | Rejects CID-management messages. Migration-enabled public endpoints request spares and do not fully interoperate. Production-MTU PQ was not independently proven. |
 | BoringSSL (`4a92579`) | Test shim builds. | Packet-BIO adapter and interop tests are not written. Lower priority; lab-only. |
 
 The wolfSSL lab build enlarges its extra read buffer to 4096 bytes for hybrid
-offers and still requires an unfragmented first ClientHello. Our listener-side
-mutual ML-DSA tests with OpenSSL `s_client` remain at MTU 4096 because of its
-large-flight ACK limitation; our client passes the smaller MTUs listed above.
+offers and still requires an unfragmented first ClientHello. OpenSSL `s_server`
+accepted our fragmented PQ ClientHello at 256 with ECDSA and mutual ML-DSA echo.
 
 None of the pinned peers supplies independent spare-CID issuance coverage.
 System OpenSSL 3.5.5 is DTLS 1.2 only (`s_client` has no `-dtls1_3`). OpenSSL
@@ -90,11 +89,10 @@ Go 1.27.1 defaults matched `TestGoTLS13AlgorithmDefaults`.
   `internal/xio/dtlsopen`, including RFC 9846 §1.2.
 - Spare-CID issuance/replenishment interop when a reference peer supports it.
   Local renewal is implemented; this interop gap is not a merge blocker.
-- Retest and diagnose the recorded OpenSSL/wolfSSL small-MTU PQ failures
-  above. OpenSSL's `unexpected_message` alone does not establish fault.
-  Add independent Pion PQ coverage at MTU 1200/512/256.
-- Extend independent PQ loss/reorder coverage across MTU 1200/512/256,
-  both roles and ML-DSA parameter sets, building on the existing test below.
+- wolfSSL still requires an unfragmented first ClientHello, so PQ at
+  1200/512/256 times out. Add independent Pion PQ coverage at those MTUs.
+- OpenSSL cookie-listener fragmentation (`SSL_new_listener` /
+  `demos/dtlslistenerecho`) remains untested.
 - PMTU: routed Windows/macOS validation awaits suitable test environments.
   Possible improvements: RTT-based probe spacing, safe discovery on shared
   listeners, and OS PMTU hints without connecting the active migration socket.
@@ -121,13 +119,19 @@ including race, cover the implementation. Classic `OPENSSL_DTLS_TO_SERVER`,
 remain unsupported. See the [scorecard](../testdata/scorecard/README.md#dtls-13).
 
 RFC 9147 §4.5.2/§11 invalid-record paths are classified: unauthenticated
-datagrams are dropped; authenticated inner/handshake violations abort.
+datagrams are dropped; authenticated inner/handshake/alert violations abort.
+Malformed ACK bodies are discarded (OpenSSL may advertise an ACK list larger
+than the MTU). Handshake ACKs wait until the local final flight is on the
+wire (RFC 9147 §7.1); new-byte flight bursts do not consume retransmission
+retries.
 
 In-process loss/reorder with mutual ML-DSA-44/65/87 succeeds at MTU
-1200/512/256 (`TestPostQuantumHandshakeLoss` and the 2026-09-07 recheck).
-Independent OpenSSL coverage includes mutual ML-DSA-44 with X25519MLKEM768
-at MTU 1200 and a dropped first ClientHello datagram
-(`TestInteropOpenSSLServerSmallMTUPQHandshakeLoss`).
+1200/512/256 (`TestPostQuantumHandshakeLoss`). Independent OpenSSL coverage
+includes mutual ML-DSA-44/65/87 with X25519MLKEM768 at those MTUs in both
+roles, plus a dropped first ClientHello against `s_server`
+(`TestInteropOpenSSLServerSmallMTUPQHandshakeLoss`). Large ML-DSA flights at
+256 still take several retransmission intervals because peers often do not
+ACK fragments before the next 10-record burst.
 
 Linux lab and privileged CI tests cover live IPv4/IPv6 IP-MTU changes
 1500 → 1280 → 1500 with ICMP PTB blocked, authenticated delivery after shrink

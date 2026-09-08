@@ -355,6 +355,11 @@ func (c *Conn) run() {
 		}
 		c.publishMaxDatagram()
 		if s.handshake.complete && s.handshakeFlightSent() && !ready {
+			if err := s.sendACK(); err != nil {
+				abort = !errors.Is(err, net.ErrClosed)
+				c.fail(err)
+				return
+			}
 			// Only change fragmentation when the peer can answer MTU probes.
 			if c.owned && s.handshake.rrc && s.handshake.cidNegotiated {
 				c.transport.configureUnfragmentedProbes(s.handshake.config.UnfragmentedProbes)
