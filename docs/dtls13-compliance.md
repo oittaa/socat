@@ -248,7 +248,7 @@ runtime-tested.
 | Mutual cert, AES-GCM/ChaCha, classical groups | yes both roles | yes our client; CID tests both roles | yes both roles (drivers) |
 | X25519MLKEM768 / NIST hybrids | yes both roles at 256+ (ECDSA echo with ChaCha20-Poly1305) | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 only |
 | ML-DSA-44/65/87 | yes mutual echo at 4096 and both roles at 1200/512/256 with X25519MLKEM768 | library yes; not in our interop matrix | no |
-| Fragmented first ClientHello | stateful `s_server` accepts ours; cookie listener not retested | **rejects** unverified fragmented CH (even with `WOLFSSL_DTLS_CH_FRAG`) | yes |
+| Fragmented first ClientHello | stateful `s_server` and `SSL_new_listener` cookie path accept ours | **rejects** unverified fragmented CH (even with `WOLFSSL_DTLS_CH_FRAG`) | yes |
 | Cookies / 3× amplification | HMAC cookie; no 3× cap | HMAC cookie; no 3× cap | stateful cookie; no HS 3× |
 | ACK / KeyUpdate | yes both roles; OpenSSL may emit MTU-truncated ACK lists (discarded) | yes; CID tests include KeyUpdate | yes |
 | CID request / new / spare | **no DTLS 1.3 CID at all** | parse Request, ignore; spare discarded; immediate replace works | codec only; `ErrNotImplemented` on send |
@@ -275,9 +275,11 @@ Practical consequences:
    new-byte bursts stopped consuming retransmission retries. Historical
    `unexpected_message` at 256 was our ACK arriving while OpenSSL was in
    `TLS_ST_SW_FINISHED`. wolfSSL will not reassemble an unverified
-   fragmented CH. The OpenSSL cookie
-   listener was not retested. Independent Pion PQ at these MTUs is still
-   missing.
+   fragmented CH. The OpenSSL `SSL_new_listener` cookie path accepted our
+   fragmented X25519MLKEM768 ClientHello at 1200/512/256, including a dropped
+   first fragment and a dropped HelloRetryRequest
+   (`TestInteropOpenSSLCookieListenerHandshakeLoss`). Independent Pion PQ at
+   these MTUs is still missing.
 5. **Do not use `openssl s_server -listen` as a DTLS 1.3 cookie peer.** That
    flag is `DTLSv1_listen` (HelloVerifyRequest). Use `SSL_new_listener` /
    `demos/dtlslistenerecho`.

@@ -64,7 +64,7 @@ Last interoperability runs: 2026-09-08. Pins are in
 
 | Peer | Passing coverage | Limits |
 | --- | --- | --- |
-| OpenSSL 4.1 snapshot (`82733d9`) | Both roles; 21 suite/group combinations; mutual ML-DSA-44/65/87 at MTU 4096. With X25519MLKEM768 and ChaCha20-Poly1305, mutual ECDSA and ML-DSA-44/65/87 echo in both roles at 1200/512/256 (`s_server` and `s_client`). Our client also completed ML-DSA-44 echo after a dropped first ClientHello at those MTUs. Captured UDP payloads stayed within the configured MTU (our client max sent 1191/503/256; our listener max sent 1200/512/256). | No DTLS 1.3 CID. Cookie-listener first-fragment behavior was not retested. OpenSSL may emit ACK lists larger than the MTU; malformed ACK bodies are discarded. |
+| OpenSSL 4.1 snapshot (`82733d9`) | Both roles; 21 suite/group combinations; mutual ML-DSA-44/65/87 at MTU 4096. With X25519MLKEM768 and ChaCha20-Poly1305, mutual ECDSA and ML-DSA-44/65/87 echo in both roles at 1200/512/256 (`s_server` and `s_client`). Our client also completed ML-DSA-44 echo after a dropped first ClientHello at those MTUs. Captured UDP payloads stayed within the configured MTU (our client max sent 1191/503/256; our listener max sent 1200/512/256). `SSL_new_listener` cookie path (`TestInteropOpenSSLCookieListener`, `TestInteropOpenSSLCookieListenerHandshakeLoss`): our client, mutual ECDSA, X25519 at 1200 and X25519MLKEM768 at 1200/512/256, including a dropped first ClientHello fragment and a dropped HelloRetryRequest. HRR carried a cookie; ClientHello sequence 1 echoed it; certificates verified; application echo matched. Our sent maxima were 1191/503/256. | No DTLS 1.3 CID. `SSL_set_mtu` is not usable on the listener object; after accept, OpenSSL still emitted datagrams of at most 228 bytes on this path. OpenSSL may emit ACK lists larger than the MTU; malformed ACK bodies are discarded. |
 | wolfSSL master (`d72f6d9`) | 21 suite/group combinations with our client at MTU 4096. Classical X25519 and P-256 with our client at 1200/512/256. 12 mutual-auth CID cases in both roles (MTU 1200, all suites, P-256, request ACKs, rotation with lost ACKs and KeyUpdate). | Rejects a fragmented unverified first ClientHello, so PQ at 1200/512/256 times out. No spare issuance/replenishment or RFC 9853 RRC. |
 | Pion (`59f4c33`) | Mutual authentication, bidirectional KeyUpdate and rebinding/RRC in both roles through protocol drivers using initial CIDs. | Rejects CID-management messages. Migration-enabled public endpoints request spares and do not fully interoperate. Production-MTU PQ was not independently proven. |
 | BoringSSL (`4a92579`) | Test shim builds. | Packet-BIO adapter and interop tests are not written. Lower priority; lab-only. |
@@ -91,8 +91,6 @@ Go 1.27.1 defaults matched `TestGoTLS13AlgorithmDefaults`.
   Local renewal is implemented; this interop gap is not a merge blocker.
 - wolfSSL still requires an unfragmented first ClientHello, so PQ at
   1200/512/256 times out. Add independent Pion PQ coverage at those MTUs.
-- OpenSSL cookie-listener fragmentation (`SSL_new_listener` /
-  `demos/dtlslistenerecho`) remains untested.
 - PMTU: routed Windows/macOS validation awaits suitable test environments.
   Possible improvements: RTT-based probe spacing, safe discovery on shared
   listeners, and OS PMTU hints without connecting the active migration socket.

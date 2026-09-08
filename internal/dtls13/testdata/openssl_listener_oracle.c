@@ -37,8 +37,10 @@ static unsigned int dtls_timer_cb(SSL *ssl, unsigned int timer_us)
 static void apply_mtu(SSL *ssl, int mtu)
 {
     SSL_set_options(ssl, SSL_OP_NO_QUERY_MTU);
-    if (SSL_set_mtu(ssl, (unsigned int)mtu) <= 0 || !DTLS_set_link_mtu(ssl, mtu))
-        die("MTU");
+    if (SSL_set_mtu(ssl, (unsigned int)mtu) <= 0)
+        die("SSL_set_mtu");
+    if (!DTLS_set_link_mtu(ssl, mtu))
+        die("DTLS_set_link_mtu");
 }
 
 static int wait_ssl(SSL *ssl, uint64_t events)
@@ -153,7 +155,6 @@ int main(int argc, char **argv)
         !SSL_CTX_check_private_key(ctx) ||
         !SSL_CTX_load_verify_locations(ctx, ca, NULL))
         die("SSL_CTX");
-    SSL_CTX_set_options(ctx, SSL_OP_NO_QUERY_MTU);
     SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER | SSL_VERIFY_FAIL_IF_NO_PEER_CERT, NULL);
     names = SSL_load_client_CA_file(ca);
     if (names == NULL)
@@ -175,16 +176,32 @@ int main(int argc, char **argv)
     bio = NULL;
     if (SSL_set_blocking_mode(listener, 0) != 1 || SSL_listen(listener) != 1)
         die("SSL_listen");
-    apply_mtu(listener, mtu);
+    /* SSL_set_mtu fails on the listener SSL; HRR is small. */
     DTLS_set_timer_cb(listener, dtls_timer_cb);
     printf("ready\n");
     fflush(stdout);
 
     alarm(60);
-    while (conn == NULL) {
-        if (!wait_ssl(listener, SSL_POLL_EVENT_IC))
-            continue;
-        conn = SSL_accept_connection(listener, SSL_ACCEPT_CONNECTION_NO_BLOCK);
+    {
+        SSL_POLL_ITEM item;
+        struct timeval timeout;
+        size_t result_count;
+
+        item.desc = SSL_as_poll_descriptor(listener);
+        item.events = SSL_POLL_EVENT_IC;
+        while (conn == NULL) {
+            item.revents = 0;
+            timeout.tv_sec = 5;
+            timeout.tv_usec = 0;
+            result_count = 0;
+            if (!SSL_poll(&item, 1, sizeof(item), &timeout, 0, &result_count))
+                die("SSL_poll listener");
+            if (result_count == 0 || (item.revents & SSL_POLL_EVENT_IC) == 0)
+                continue;
+            conn = SSL_accept_connection(listener, SSL_ACCEPT_CONNECTION_NO_BLOCK);
+            if (conn == NULL)
+                ERR_print_errors_fp(stderr);
+        }
     }
     apply_mtu(conn, mtu);
     DTLS_set_timer_cb(conn, dtls_timer_cb);
