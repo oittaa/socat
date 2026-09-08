@@ -133,9 +133,12 @@ In-process loss/reorder with mutual ML-DSA-44/65/87 succeeds at MTU
 1200/512/256 (`TestPostQuantumHandshakeLoss`). Independent OpenSSL coverage
 includes mutual ML-DSA-44/65/87 with X25519MLKEM768 at those MTUs in both
 roles, plus a dropped first ClientHello against `s_server`
-(`TestInteropOpenSSLServerSmallMTUPQHandshakeLoss`). Large ML-DSA flights at
-256 still take several retransmission intervals because peers often do not
-ACK fragments before the next 10-record burst.
+(`TestInteropOpenSSLServerSmallMTUPQHandshakeLoss`). Each transmission still
+carries at most ten records. Remaining unsent bytes are a later transmission
+of the same flight, not a retransmission, so they do not wait the RFC 9147
+§5.8.2 timer (`TestSmallMTUCertificateFlightDoesNotWaitRetransmitForNewBytes`).
+Unacknowledged records still retransmit on that timer. Independent peers that
+delay ACKs of epoch-2 fragments only affect recovery after loss.
 
 Linux lab and privileged CI tests cover live IPv4/IPv6 IP-MTU changes
 1500 → 1280 → 1500 with ICMP PTB blocked, authenticated delivery after shrink

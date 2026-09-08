@@ -272,7 +272,8 @@ Practical consequences:
    ML-DSA-44/65/87 echo at 1200/512/256 after handshake ACKs of in-order
    complete flights were deferred until the local final flight was on the
    wire, disrupted or stalled incomplete flights were still ACKed, and
-   new-byte bursts stopped consuming retransmission retries. Historical
+   new-byte bursts stopped consuming retransmission retries and no longer wait
+   the RFC 9147 §5.8.2 timer before sending remaining new bytes. Historical
    `unexpected_message` at 256 was our ACK arriving while OpenSSL was in
    `TLS_ST_SW_FINISHED`. wolfSSL will not reassemble an unverified
    fragmented CH. The OpenSSL cookie
