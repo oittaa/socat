@@ -77,7 +77,9 @@ func expandLabel(newHash func() hash.Hash, secret []byte, label string, context 
 	if length > 255*newHash().Size() {
 		return nil, errHKDFLabel
 	}
-	info := binary.BigEndian.AppendUint16(nil, uint16(length))
+	// uint16 output length, followed by two uint8-length vectors.
+	var buffer [2 + 1 + 255 + 1 + 255]byte
+	info := binary.BigEndian.AppendUint16(buffer[:0], uint16(length))
 	info = append(info, byte(labelLen)+byte(len(prefix)))
 	info = append(info, prefix...)
 	info = append(info, label...)
