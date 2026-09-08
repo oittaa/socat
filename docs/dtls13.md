@@ -10,6 +10,12 @@ retransmissions, replay protection, key updates, CID rotation and RFC 9853
 enhanced path validation. Endpoints reuse the existing credentials, socket
 options, peer filters, fork lifecycle, deadlines and cancellation.
 
+Handshake MTU shrink is automatic. Command-line clients also default to MTU
+confirmation and upward discovery on eligible dedicated sockets with CID/RRC.
+`dtls-unfragmented-probes=0` disables discovery; the default ceiling stays
+1200 bytes. Routed IPv4/IPv6 shrink, growth and stale-cache bypass passed in
+the Linux lab and privileged CI. See [PMTU behavior and validation](dtls13-pmtu.md).
+
 Algorithm defaults match Go 1.27's TLS 1.3 set: AES-128/256-GCM and
 ChaCha20-Poly1305; X25519, P-256/P-384/P-521, X25519MLKEM768,
 SecP256r1MLKEM768 and SecP384r1MLKEM1024; RSA-PSS, ECDSA, Ed25519 and
@@ -87,10 +93,8 @@ Go 1.27.1 defaults matched `TestGoTLS13AlgorithmDefaults`.
   `SSL_accept`. MTU 1200 works for ML-DSA-44/65/87.
 - Independent PQ tests at MTU 1200/512/256 with controlled loss/reorder and
   mutual ML-DSA; successful loopback exchanges do not cover this.
-- PMTU: handshake shrink plus padded RRC probes. Dedicated sockets may opt
-  into `PMTUDISC_PROBE` and then confirm/search after the final flight is
-  acknowledged; shared listeners never set DF. ICMP PTB is unused (RFC 8899
-  §4.6.1 permits that). See [PMTU](dtls13-pmtu.md).
+- PMTU: routed validation on Windows/macOS, per-datagram DF for shared
+  listeners, and measured-RTT probe spacing. See [PMTU](dtls13-pmtu.md).
 - Lab-only BoringSSL packet-BIO adapter; keep it out of `make check`.
 - Recheck official OpenSSL/socat releases when 4.1 is usable. Do not patch the
   parity baseline to obtain a test peer.

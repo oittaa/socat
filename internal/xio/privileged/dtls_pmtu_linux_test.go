@@ -367,8 +367,8 @@ func TestDTLSRoutedPMTU(t *testing.T) {
 			p := newDTLSRoute(t, ipv6)
 			p.blockPTB()
 			clientPC, serverPC := p.socket(p.client, nil), p.socket(p.server, nil)
-			capture := p.capture()
 			client, server := p.pair(clientPC, serverPC)
+			capture := p.capture()
 			initial := client.MaxDatagramSize()
 			if initial <= routedMTU {
 				t.Fatalf("initial application limit %d must exceed the later bottleneck %d", initial, routedMTU)
@@ -442,8 +442,8 @@ func TestDTLSBypassesLearnedPMTUCache(t *testing.T) {
 			}
 			assertStale()
 			clientPC := p.socket(p.client, nil)
-			capture := p.capture()
 			client, server := p.pair(clientPC, serverPC)
+			capture := p.capture()
 			size := client.MaxDatagramSize()
 			if size <= routedMTU {
 				t.Fatalf("test payload %d does not exceed stale IP PMTU", size)

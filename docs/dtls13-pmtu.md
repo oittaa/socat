@@ -9,6 +9,21 @@ budget, not RFC 8899 `MIN_PLPMTU` (IPv4 68-byte / IPv6 1280-byte IP packets,
 UDP payloads 40 and 1232) and not RFC 9147's ICMP-ignore floors (576 / 1280
 IP). Default `dtls-mtu` remains 1200.
 
+## Defaults and scope
+
+Command-line DTLS clients enable MTU confirmation and upward discovery by
+default when migration is enabled. `dtls-unfragmented-probes=0` disables
+discovery; handshake shrink remains automatic. Search requires a dedicated
+UDP socket with successful unfragmented-send setup, negotiated CID/RRC, and
+acknowledgement of the final handshake flight. Shared listeners never search.
+The ceiling remains `dtls-mtu`: enabling discovery does not increase the
+default 1200-byte ceiling, but allows recovery after a reduction.
+
+Direct callers of `dtls13.Client` request this socket policy explicitly with
+`Config.UnfragmentedProbes`. Custom packet transports cannot enable it.
+Socket fragmentation policy changes only after successful CID/RRC negotiation;
+peers without that support retain the original socket policy.
+
 ## Handshake recovery
 
 `EMSGSIZE` on a handshake send reduces that association's fragment budget
@@ -26,9 +41,8 @@ A later higher PMTU is recovered only when unfragmented discovery is on.
 
 ## Padded RRC probes
 
-When RRC is negotiated and a dedicated UDP socket opted into unfragmented
-sends (`Config.UnfragmentedProbes` / `dtls-unfragmented-probes`), an
-association may send one padded `path_challenge` of an exact candidate
+When RRC is negotiated and a dedicated UDP socket has enabled unfragmented
+sends, an association may send one padded `path_challenge` of an exact candidate
 datagram size. Matching `path_response` values are accepted against cookie,
 path, deadline and generation. `path_drop`, loss, duplicates, wrong
 cookies/paths, and old-path replies after migration do not complete the
@@ -36,7 +50,7 @@ probe. Responses stay unpadded. Discovery does not consume spare CIDs, bind
 a new address, or block `Conn.Write`. Manual probes still do not raise the
 usable size.
 
-Linux opt-in uses `IP_PMTUDISC_PROBE` / `IPV6_PMTUDISC_PROBE`. DF is set, and
+Linux uses `IP_PMTUDISC_PROBE` / `IPV6_PMTUDISC_PROBE`. DF is set, and
 outgoing size uses the interface MTU rather than a cached path MTU
 (`ip_sk_use_pmtu` is false for PROBE). Incoming ICMP PTB can still update the
 route cache; PROBE just does not consult that cache when sending.
@@ -105,8 +119,9 @@ client, router and server network namespaces with 1500-byte veth interfaces:
 - Learn PMTU 1280 from real router ICMP, then restore the link. A throwaway
   `PMTUDISC_DO` socket still rejects 1400 bytes while the actual DTLS client
   completes authentication and delivers larger application datagrams.
-- Capture IPv4 DF/fragment flags, IPv6 absence of fragmentation headers,
-  and complete packet lengths. Both cases run for IPv4 and IPv6.
+- After negotiation, capture probe/application IPv4 DF/fragment flags,
+  IPv6 absence of fragmentation headers, and complete packet lengths.
+  Both cases run for IPv4 and IPv6.
 
 These require root, `iproute2` and `iptables`/`ip6tables`. They run in the
 existing privileged CI job, not ordinary `go test` or `make check`:
@@ -115,11 +130,20 @@ existing privileged CI job, not ordinary `go test` or `make check`:
 sudo "$(command -v go)" test -race -count=1 -v -tags=privileged ./internal/xio/privileged
 ```
 
+Both routed cases passed with the race detector on the Linux lab VM and
+[Linux CI](https://github.com/oittaa/socat/actions/runs/34185118250/job/101931786673)
+on 2026-09-08. Maximum application payloads during shrink/recovery were
+1442 → 706 → 1430 bytes for IPv4 and 1422 → 696 → 1410 for IPv6. These tests
+configure larger ceilings to exercise the 1500 → 1280 → 1500 IP-MTU change.
+The 600-second periodic raise cycle is covered by session tests; the routed
+test restores the link while recovery search is active.
+
 ## Remaining
 
-- Routed Windows `PMTUDISC_PROBE` cache-bypass validation. Native tests check
-  PROBE on IPv4, IPv6-only and dual-stack sockets; they do not prove routing.
+- Routed validation on Windows and macOS. Windows native tests check PROBE
+  on IPv4, IPv6-only and dual-stack sockets; they do not prove cache bypass.
 - A destination-specific PMTU query that preserves migration. Linux
   `IP_MTU` requires a connected socket; do not connect the active socket
   just to query it.
-- Per-datagram DF. Socket-wide `PROBE` remains dedicated-socket opt-in.
+- Per-datagram DF for discovery on shared listeners. Current socket-wide
+  fragmentation settings remain restricted to dedicated clients.

@@ -126,3 +126,26 @@ func TestUnfragmentedProbesDefaultOff(t *testing.T) {
 		t.Fatal("default client socket is PMTUDISC_PROBE")
 	}
 }
+
+func TestUnfragmentedProbesRequiresNegotiatedMigration(t *testing.T) {
+	clientCfg, serverCfg := handshakeConfigs(t)
+	clientCfg.UnfragmentedProbes = true
+	serverCfg.DisableMigration = true
+	listener, err := Listen(testUDP(t), serverCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	clientPC := testUDP(t)
+	before := ipv4MTUDiscoverMode(t, clientPC)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	client, err := Client(ctx, clientPC, listener.Addr(), clientCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	if after := ipv4MTUDiscoverMode(t, clientPC); after != before {
+		t.Fatalf("peer without CID/RRC changed socket MTU policy from %d to %d", before, after)
+	}
+}
