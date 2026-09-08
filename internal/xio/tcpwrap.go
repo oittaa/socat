@@ -221,17 +221,6 @@ func readHostsTable(path string, required bool) ([]string, error) {
 	return lines, nil
 }
 
-// matchHostsTable returns true if daemon+client match a non-comment line.
-// Supports subset: daemon_list: client_list [: shell_command]
-// daemon ALL / exact name; client ALL / IP / hostname / [ipv6] (case-insensitive).
-func matchHostsTable(path, daemon, clientIP, clientHost string) bool {
-	lines, err := readHostsTable(path, false)
-	if err != nil {
-		return false
-	}
-	return matchHostsLines(lines, daemon, clientIP, clientHost)
-}
-
 func matchHostsLines(lines []string, daemon, clientIP, clientHost string) bool {
 	for _, raw := range lines {
 		line := strings.TrimSpace(raw)
