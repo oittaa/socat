@@ -107,6 +107,7 @@ These establish support, not a complete §4.4 conformance test.
 | **§5.1** SHOULD cap pre-validation output at 3× received bytes | yes | no | no | no (3× only in RRC) |
 | **§5.1** Clients MUST be prepared to cookie-exchange every handshake | yes | yes | yes | yes |
 | **§5.1** Invalid cookie MUST `illegal_parameter` | yes | partial | yes | yes |
+| **§5.1** RECOMMENDED overlapping cookie-secret lifetimes | yes: current+previous HMAC keys, rotate every 60s | unknown | unknown | n/a (stateful) |
 | **§5.1** Second HRR MUST `unexpected_message` | yes | yes | yes | yes |
 | **§5.1** Clients SHOULD still offer `connection_id` unless a profile says otherwise | yes (default on) | no | opt-in `WOLFSSL_DTLS_CID` | yes in CID examples |
 | **§5.2** Transcript MUST be TLS Handshake (no DTLS seq/offset/length) | yes | yes | yes | yes |
@@ -323,9 +324,11 @@ Sending the low 16 bits of the sequence number in protected-record headers
 is permitted; the counter itself is 64 bits and plaintext headers carry
 48 bits. Always including record length and sending one record per datagram
 are also permitted choices. Our 16-byte AEAD tags already satisfy §4.2.3's
-minimum ciphertext length. The
-[60-second cookie expiry](../internal/dtls13/cookie.go) uses §5.1's timestamp
-alternative; overlapping secret rotation is optional hardening.
+minimum ciphertext length. Cookie verification keeps the current HMAC key
+and one previous key, rotating every
+[60 seconds](../internal/dtls13/cookie.go) so lifetimes overlap (RFC 9147
+§5.1). The authenticated timestamp still rejects cookies older than 60
+seconds.
 
 Receiving `general_error` (117) already terminates with a named diagnostic.
 Send mappings use specific alerts or `internal_error`;

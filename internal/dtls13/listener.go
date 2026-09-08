@@ -2,7 +2,6 @@ package dtls13
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"net"
 	"net/netip"
@@ -26,7 +25,7 @@ type Listener struct {
 	cids              map[string]*Conn
 	packets           memoryBudget
 	fragments         memoryBudget
-	cookies           cookieKey
+	cookies           cookieSecrets
 	hellos            map[netip.AddrPort]*pendingHello
 	helloBudget       memoryBudget
 	helloWake         chan struct{}
@@ -50,7 +49,7 @@ func Listen(transport net.PacketConn, config *Config) (*Listener, error) {
 		packets: memoryBudget{limit: 8 << 20}, fragments: memoryBudget{limit: 16 << 20},
 		hellos: make(map[netip.AddrPort]*pendingHello), helloBudget: memoryBudget{limit: 2 << 20},
 		helloWake: make(chan struct{}, 1)}
-	if _, err := rand.Read(l.cookies[:]); err != nil {
+	if err := l.cookies.init(); err != nil {
 		return nil, err
 	}
 	l.transport = newPacketTransport(transport, l.receive, l.shutdown)
@@ -207,7 +206,7 @@ func (l *Listener) shutdown(err error) {
 	for peer := range l.hellos {
 		l.removeHello(peer)
 	}
-	clear(l.cookies[:])
+	l.cookies.clear()
 	connections := make([]*Conn, 0, len(l.connections))
 	for c := range l.connections {
 		connections = append(connections, c)

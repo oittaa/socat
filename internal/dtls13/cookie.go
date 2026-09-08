@@ -3,6 +3,7 @@ package dtls13
 import (
 	"bytes"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"net/netip"
@@ -12,16 +13,67 @@ import (
 
 const cookieLifetime = time.Minute
 
-// The listener's random key and authenticated timestamp bound cookie reuse.
-type cookieKey [32]byte
+// current and previous HMAC keys overlap for cookieLifetime (RFC 9147 §5.1).
+type cookieSecrets struct {
+	current    [32]byte
+	previous   [32]byte
+	hasPrev    bool
+	lastRotate time.Time
+}
 
-func (k *cookieKey) mac(peer netip.AddrPort, data []byte) []byte {
-	h := hmac.New(sha256.New, k[:])
+func (s *cookieSecrets) init() error {
+	if _, err := rand.Read(s.current[:]); err != nil {
+		return err
+	}
+	s.lastRotate = time.Now()
+	return nil
+}
+
+func (s *cookieSecrets) clear() {
+	clear(s.current[:])
+	clear(s.previous[:])
+	s.hasPrev = false
+	s.lastRotate = time.Time{}
+}
+
+func (s *cookieSecrets) rotateTo(next [32]byte, now time.Time) {
+	s.previous = s.current
+	s.hasPrev = true
+	s.current = next
+	s.lastRotate = now
+}
+
+func (s *cookieSecrets) maybeRotate(now time.Time) {
+	if s.lastRotate.IsZero() {
+		s.lastRotate = now
+		return
+	}
+	if now.Sub(s.lastRotate) < cookieLifetime {
+		return
+	}
+	var next [32]byte
+	if _, err := rand.Read(next[:]); err != nil {
+		return
+	}
+	s.rotateTo(next, now)
+}
+
+func cookieMAC(key []byte, peer netip.AddrPort, data []byte) []byte {
+	h := hmac.New(sha256.New, key)
 	_, _ = h.Write([]byte("dtls13 retry cookie\x00"))
 	_, _ = h.Write([]byte(peer.String()))
 	_, _ = h.Write([]byte{0})
 	_, _ = h.Write(data)
 	return h.Sum(nil)
+}
+
+func (s *cookieSecrets) validMAC(peer netip.AddrPort, data, tag []byte) bool {
+	current := hmac.Equal(tag, cookieMAC(s.current[:], peer, data))
+	if !s.hasPrev {
+		return current
+	}
+	previous := hmac.Equal(tag, cookieMAC(s.previous[:], peer, data))
+	return current || previous
 }
 
 // Hash unchanged fields separately from the exact CH1 transcript. PSK identity
@@ -76,7 +128,7 @@ func retryIdentitySubset(first, second []byte) bool {
 	return true
 }
 
-func (k *cookieKey) issue(config *Config, peer netip.AddrPort, m handshakeMessage, hello clientHello, offer clientOffer, now time.Time) (handshakeMessage, error) {
+func (s *cookieSecrets) issue(config *Config, peer netip.AddrPort, m handshakeMessage, hello clientHello, offer clientOffer, now time.Time) (handshakeMessage, error) {
 	seconds := now.Unix()
 	if seconds < 0 {
 		return handshakeMessage{}, errIllegalParameter
@@ -128,12 +180,12 @@ func (k *cookieKey) issue(config *Config, peer netip.AddrPort, m handshakeMessag
 	if w.err != nil {
 		return handshakeMessage{}, w.err
 	}
-	w.data = append(w.data, k.mac(peer, w.data)...)
+	w.data = append(w.data, cookieMAC(s.current[:], peer, w.data)...)
 	body, err := retryHelloBody(suiteID, group, requested, w.data)
 	return handshakeMessage{typ: msgServerHello, body: body}, err
 }
 
-func (k *cookieKey) verify(config *Config, peer netip.AddrPort, message handshakeMessage, now time.Time) (*serverHandshake, error) {
+func (s *cookieSecrets) verify(config *Config, peer netip.AddrPort, message handshakeMessage, now time.Time) (*serverHandshake, error) {
 	if message.typ != msgClientHello || message.epoch != 0 || message.sequence != 1 || len(message.body) > maxClientHelloBody {
 		return nil, errUnexpectedMessage
 	}
@@ -151,7 +203,7 @@ func (k *cookieKey) verify(config *Config, peer netip.AddrPort, message handshak
 		return nil, errIllegalParameter
 	}
 	cookie := offer.cookie
-	if len(cookie) < sha256.Size || !hmac.Equal(cookie[len(cookie)-sha256.Size:], k.mac(peer, cookie[:len(cookie)-sha256.Size])) {
+	if len(cookie) < sha256.Size || !s.validMAC(peer, cookie[:len(cookie)-sha256.Size], cookie[len(cookie)-sha256.Size:]) {
 		return nil, errIllegalParameter
 	}
 	r := wireReader{data: cookie[:len(cookie)-sha256.Size]}

@@ -58,11 +58,12 @@ stream packetization is our endpoint policy; see the README.
 ## Cookies, timeouts, writes
 
 RFC 9147 §5.1 / RFC 9846 §4.3.2: the cookie authenticates address, timestamp,
-selected parameters and the first ClientHello hash with a listener HMAC key,
-expires after 60 seconds, and is the only server-handshake constructor.
-Invalid cookies get `illegal_parameter`. An evictable plaintext cache covers
-fragmented hellos and retry retransmissions; verification does not need the
-original entry.
+selected parameters and the first ClientHello hash with the listener's current
+HMAC key, expires after 60 seconds, and is the only server-handshake constructor.
+The previous HMAC key remains valid for one 60-second rotation so a ClientHello
+sent after a rotation still verifies. Invalid cookies get `illegal_parameter`.
+An evictable plaintext cache covers fragmented hellos and retry retransmissions;
+verification does not need the original entry.
 
 Handshake read keys retire after the client's final flight is acknowledged.
 The server keeps them for four minutes (RFC 9147 §5.8.1: twice the default MSL)

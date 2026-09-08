@@ -144,6 +144,7 @@ func (l *Listener) receiveHello(data []byte, peer netip.AddrPort, now time.Time)
 	if l.acceptErr != nil {
 		return
 	}
+	l.cookies.maybeRotate(now)
 	defer func() {
 		select {
 		case l.helloWake <- struct{}{}:
@@ -246,7 +247,11 @@ func (l *Listener) runHelloTimers() {
 			return
 		}
 		now := time.Now()
-		var deadline time.Time
+		l.cookies.maybeRotate(now)
+		deadline := l.cookies.lastRotate.Add(cookieLifetime)
+		if !deadline.After(now) {
+			deadline = now.Add(cookieLifetime)
+		}
 		for peer, p := range l.hellos {
 			if !now.Before(p.expiry(l.config)) {
 				l.removeHello(peer)

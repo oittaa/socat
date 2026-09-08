@@ -10,7 +10,7 @@ import (
 type testServerHandshake struct {
 	*handshakeState
 	server *serverHandshake
-	key    cookieKey
+	key    cookieSecrets
 }
 
 func newTestServerHandshake(config *Config) (*testServerHandshake, error) {
@@ -18,7 +18,7 @@ func newTestServerHandshake(config *Config) (*testServerHandshake, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &testServerHandshake{handshakeState: &handshakeState{config: prepared}, key: cookieKey{1}}, nil
+	return &testServerHandshake{handshakeState: &handshakeState{config: prepared}, key: cookieSecrets{current: [32]byte{1}}}, nil
 }
 
 func (d *testServerHandshake) receive(m handshakeMessage, peer netip.AddrPort, now time.Time) ([]handshakeMessage, error) {
