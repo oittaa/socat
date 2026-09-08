@@ -47,19 +47,26 @@ type connCommand struct {
 	epoch       uint64
 }
 
-// Conn preserves UDP datagram boundaries. Each Write sends one datagram;
-// a short Read buffer discards the remainder of that datagram.
-type Conn struct {
+// connConfig is wired before run starts. Pointers and channels are not replaced.
+type connConfig struct {
+	transport     *packetTransport
+	owned         bool
+	onReady       func(*Conn) bool
+	onClose       func(*Conn)
+	onPeerChanged func(*Conn, netip.AddrPort)
+	packetBudget  *memoryBudget
+	incoming      chan incomingPacket
+	commands      chan *connCommand
+	wake          chan struct{}
+	stop          chan struct{}
+	done          chan struct{}
+	ready         chan struct{}
+}
+
+// connShared is guarded by mu. The event loop publishes; Read, Write, Close,
+// and deadlines observe.
+type connShared struct {
 	mu                          sync.Mutex
-	transport                   *packetTransport
-	owned                       bool
-	session                     *session
-	incoming                    chan incomingPacket
-	commands                    chan *connCommand
-	wake                        chan struct{}
-	stop                        chan struct{}
-	done                        chan struct{}
-	ready                       chan struct{}
 	once                        sync.Once
 	notify                      chan struct{}
 	readQueue                   [][]byte
@@ -69,16 +76,27 @@ type Conn struct {
 	remote                      netip.AddrPort
 	err                         error
 	closeNotify                 bool
-	peerEOF, writeClosed        bool
+	peerEOF                     bool
 	maxDatagram                 int
-	onReady                     func(*Conn) bool
-	onClose                     func(*Conn)
-	onPeerChanged               func(*Conn, netip.AddrPort)
-	packetBudget                *memoryBudget
-	sendingApplication          *connCommand
 	cachedCommand               *connCommand
-	handshakeCredit             uint64
-	cookieValidated             bool
+}
+
+// connLoop is owned by run. Other goroutines must not read or write it.
+type connLoop struct {
+	session            *session
+	sendingApplication *connCommand
+	handshakeCredit    uint64
+	cookieValidated    bool
+	writeClosed        bool
+}
+
+// Conn preserves UDP datagram boundaries. Each Write sends one datagram;
+// a short Read buffer discards the remainder of that datagram.
+// connConfig is set-once; connShared is mutex-protected; connLoop is run-owned.
+type Conn struct {
+	connConfig
+	connShared
+	connLoop
 }
 
 // Client establishes a DTLS 1.3 association. It takes ownership of transport
@@ -127,9 +145,20 @@ func Client(ctx context.Context, transport net.PacketConn, peer net.Addr, config
 
 func newConn(peer netip.AddrPort) *Conn {
 	// Bound bytes separately so small records can arrive in short bursts.
-	c := &Conn{incoming: make(chan incomingPacket, maxQueuedRecords), commands: make(chan *connCommand),
-		wake: make(chan struct{}, 1), stop: make(chan struct{}), done: make(chan struct{}),
-		ready: make(chan struct{}), notify: make(chan struct{}), remote: peer}
+	c := &Conn{
+		connConfig: connConfig{
+			incoming: make(chan incomingPacket, maxQueuedRecords),
+			commands: make(chan *connCommand),
+			wake:     make(chan struct{}, 1),
+			stop:     make(chan struct{}),
+			done:     make(chan struct{}),
+			ready:    make(chan struct{}),
+		},
+		connShared: connShared{
+			notify: make(chan struct{}),
+			remote: peer,
+		},
+	}
 	c.cachedCommand = &connCommand{cancel: make(chan struct{}), result: make(chan error, 1)}
 	return c
 }
