@@ -155,14 +155,15 @@ func (s *keyShare) shared(peer []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	switch s.group.kem {
-	case kemNone:
+	if s.group.kem == kemNone {
 		return secret, nil
+	}
+	defer clear(secret)
+	switch s.group.kem {
 	case kemMLKEM768, kemMLKEM1024:
 		if s.kem == nil {
 			return nil, errKeyMaterial
 		}
-		defer clear(secret)
 		kemSecret, err := s.kem.Decapsulate(ciphertext)
 		if err != nil {
 			return nil, errInternal
@@ -192,10 +193,12 @@ func serverShare(id uint16, peer []byte) (public, shared []byte, err error) {
 		return nil, nil, err
 	}
 	public = private.PublicKey().Bytes()
+	if g.kem == kemNone {
+		return public, secret, nil
+	}
+	defer clear(secret)
 	var encapsulator crypto.Encapsulator
 	switch g.kem {
-	case kemNone:
-		return public, secret, nil
 	case kemMLKEM768:
 		encapsulator, err = mlkem.NewEncapsulationKey768(encapsulationKey)
 	case kemMLKEM1024:
@@ -206,7 +209,6 @@ func serverShare(id uint16, peer []byte) (public, shared []byte, err error) {
 	if err != nil {
 		return nil, nil, errIllegalParameter
 	}
-	defer clear(secret)
 	kemSecret, ciphertext := encapsulator.Encapsulate()
 	defer clear(kemSecret)
 	return g.combine(public, ciphertext), g.combine(append([]byte(nil), secret...), append([]byte(nil), kemSecret...)), nil
