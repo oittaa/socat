@@ -34,6 +34,7 @@ shared with that adapted code.
   default, 8 MiB queued input, 16 MiB reassembly. Unvalidated peers share a
   64-entry, 2 MiB plaintext retry cache and get no association, CID or
   per-peer goroutine. Pre-cookie output is capped at 3× received bytes.
+  Cookie HMAC secrets rotate every 60 seconds and keep one previous key.
   Migrated addresses pass the peer filter.
 - Per association: 256 input slots (655350 bytes) and 256 application slots
   (256 KiB). Overflow is dropped. Reassembly: 1 MiB per message, 16 pending

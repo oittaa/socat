@@ -246,7 +246,11 @@ func (l *Listener) runHelloTimers() {
 			return
 		}
 		now := time.Now()
-		var deadline time.Time
+		l.cookies.maybeRotate(now)
+		deadline := l.cookies.lastRotate.Add(cookieLifetime)
+		if !deadline.After(now) {
+			deadline = now.Add(cookieLifetime)
+		}
 		for peer, p := range l.hellos {
 			if !now.Before(p.expiry(l.config)) {
 				l.removeHello(peer)
