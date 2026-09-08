@@ -31,12 +31,14 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	if err != nil {
 		return nil, err
 	}
-	network := xio.ConnectNetworkForType(g, s, host, "tcp")
-	u := url.URL{
-		Scheme: scheme,
-		Host:   net.JoinHostPort(xio.StripBrackets(host), port),
-		Path:   path,
+	dest := wsDialTarget{
+		Network: xio.ConnectNetworkForType(g, s, host, "tcp"),
+		Scheme:  scheme,
+		Host:    host,
+		Port:    port,
+		Path:    path,
 	}
+	u := dest.httpURL()
 
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	var tlsCfg *tls.Config
@@ -50,7 +52,7 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := xio.WithRetry(dctx, s, g, s.Type, func() error {
-			nc, e := dialWS(dctx, network, host, port, u.String(), s, g, tlsCfg, handshakeTimeout)
+			nc, e := dialWS(dctx, dest, s, g, tlsCfg, handshakeTimeout)
 			if e != nil {
 				return e
 			}
@@ -70,8 +72,25 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	})
 }
 
-func dialWS(ctx context.Context, network, host, port, rawURL string, s parse.Spec, g *xio.Global, tlsCfg *tls.Config, handshakeTimeout time.Duration) (net.Conn, error) {
-	raw, err := xio.DialTCPAll(ctx, network, xio.StripBrackets(host), port, s, g, xio.ConnectTimeout(s), nil)
+// wsDialTarget is the TCP peer and the WebSocket URL built from it.
+type wsDialTarget struct {
+	Network string
+	Scheme  string
+	Host    string
+	Port    string
+	Path    string
+}
+
+func (t wsDialTarget) httpURL() url.URL {
+	return url.URL{
+		Scheme: t.Scheme,
+		Host:   net.JoinHostPort(xio.StripBrackets(t.Host), t.Port),
+		Path:   t.Path,
+	}
+}
+
+func dialWS(ctx context.Context, dest wsDialTarget, s parse.Spec, g *xio.Global, tlsCfg *tls.Config, handshakeTimeout time.Duration) (net.Conn, error) {
+	raw, err := xio.DialTCPAll(ctx, xio.DialTarget{Network: dest.Network, Host: dest.Host, Port: dest.Port}, s, g, xio.ConnectTimeout(s), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -82,6 +101,8 @@ func dialWS(ctx context.Context, network, host, port, rawURL string, s parse.Spe
 		}
 	}()
 
+	u := dest.httpURL()
+	rawURL := u.String()
 	var conn net.Conn
 	err = xio.WithHandshakeDeadline(raw, handshakeTimeout, func() error {
 		hctx := ctx

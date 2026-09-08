@@ -67,7 +67,7 @@ func TestDialTCPLowportReturnsConnectErrorWhenBindSucceeds(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err = DialTCPAll(ctx, "tcp4", "127.0.0.1", "1", s, nil, time.Second, nil)
+	_, err = DialTCPAll(ctx, DialTarget{Network: "tcp4", Host: "127.0.0.1", Port: "1"}, s, nil, time.Second, nil)
 	if err == nil {
 		t.Fatal("expected connect error after a successful lowport bind")
 	}

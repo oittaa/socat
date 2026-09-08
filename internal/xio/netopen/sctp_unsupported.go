@@ -17,6 +17,6 @@ func listenSCTP(context.Context, string, string, string, parse.Spec) (net.Listen
 	return nil, fmt.Errorf("SCTP is only implemented on Linux")
 }
 
-func dialSCTPAll(context.Context, string, string, string, parse.Spec, *xio.Global, time.Duration, func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
+func dialSCTPAll(context.Context, xio.DialTarget, parse.Spec, *xio.Global, time.Duration, func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
 	return nil, fmt.Errorf("SCTP is only implemented on Linux")
 }

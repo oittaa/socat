@@ -390,7 +390,12 @@ func openIPRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, pc 
 		return nil, err
 	}
 	recvErr := xio.NeedRecvErr(s)
-	n, oob, raddr, err := recvRawIPFiltered(ctx, pc, buf, wantCtrl, recvErr, stripV4, s.BoolOption("null-eof"), peerFilter, g)
+	n, oob, raddr, err := recvRawIPFiltered(ctx, pc, buf, rawIPRecvPolicy{
+		Ancillary: wantCtrl,
+		RecvErr:   recvErr,
+		StripIPv4: stripV4,
+		NullEOF:   s.BoolOption("null-eof"),
+	}, peerFilter, g)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -417,14 +422,23 @@ func openIPRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, pc 
 	return &xio.Opened{Stream: st, Label: s.Type}, nil
 }
 
-func recvRawIPFiltered(ctx context.Context, pc *net.IPConn, buf []byte, wantCtrl, recvErr, stripV4, nullEOF bool, filter *xio.PeerFilter, g *xio.Global) (int, []byte, net.Addr, error) {
+// rawIPRecvPolicy names how an unconnected raw-IP receive should treat
+// ancillary data, ICMP errors, IPv4 headers, and empty datagrams.
+type rawIPRecvPolicy struct {
+	Ancillary bool
+	RecvErr   bool
+	StripIPv4 bool
+	NullEOF   bool
+}
+
+func recvRawIPFiltered(ctx context.Context, pc *net.IPConn, buf []byte, policy rawIPRecvPolicy, filter *xio.PeerFilter, g *xio.Global) (int, []byte, net.Addr, error) {
 	var oobBuffer [xio.AncillaryBufferSize]byte
 	for {
 		rn, oob, a, err := xio.RecvOneCtx(ctx, func() (int, []byte, net.Addr, error) {
-			return readIPKernel(pc, buf, wantCtrl, oobBuffer[:])
+			return readIPKernel(pc, buf, policy.Ancillary, oobBuffer[:])
 		})
 		if err != nil {
-			xio.DrainRecvErrOnError(err, recvErr, pc, g)
+			xio.DrainRecvErrOnError(err, policy.RecvErr, pc, g)
 			return 0, nil, nil, err
 		}
 		if ferr := filter.AllowAddr(a, pc.LocalAddr()); ferr != nil {
@@ -433,10 +447,10 @@ func recvRawIPFiltered(ctx context.Context, pc *net.IPConn, buf []byte, wantCtrl
 			}
 			continue
 		}
-		if xio.IgnoreEmptyDatagram(rn, err, nullEOF) {
+		if xio.IgnoreEmptyDatagram(rn, err, policy.NullEOF) {
 			continue
 		}
-		if stripV4 {
+		if policy.StripIPv4 {
 			rn = skipIPv4HeaderIfPresent(buf, rn)
 		}
 		return rn, oob, a, nil

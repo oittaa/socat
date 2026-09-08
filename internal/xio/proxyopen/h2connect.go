@@ -42,7 +42,7 @@ func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 
 	var conn net.Conn
 	err := xio.WithRetry(ctx, s, g, "PROXY-CONNECT", func() error {
-		raw, e := xio.DialTCPAll(ctx, network, xio.StripBrackets(t.proxyHost), t.proxyPort, s, g, connectTimeout, nil)
+		raw, e := xio.DialTCPAll(ctx, xio.DialTarget{Network: network, Host: t.proxyHost, Port: t.proxyPort}, s, g, connectTimeout, nil)
 		if e != nil {
 			return e
 		}

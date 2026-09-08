@@ -48,10 +48,13 @@ func newWSTestPair(t testing.TB) (net.Conn, net.Conn) {
 	}
 	client, err := dialWS(
 		context.Background(),
-		"tcp4",
-		"127.0.0.1",
-		fmt.Sprint(addr.Port),
-		fmt.Sprintf("ws://127.0.0.1:%d/", addr.Port),
+		wsDialTarget{
+			Network: "tcp4",
+			Scheme:  "ws",
+			Host:    "127.0.0.1",
+			Port:    fmt.Sprint(addr.Port),
+			Path:    "/",
+		},
 		spec,
 		&xio.Global{Log: logx.New()},
 		nil,

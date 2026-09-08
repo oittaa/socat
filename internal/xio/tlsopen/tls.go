@@ -55,7 +55,7 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 				cctx, cancel = context.WithTimeout(dctx, timeout)
 				defer cancel()
 			}
-			raw, e := xio.DialTCPAll(cctx, network, xio.StripBrackets(host), port, s, g, timeout, nil)
+			raw, e := xio.DialTCPAll(cctx, xio.DialTarget{Network: network, Host: host, Port: port}, s, g, timeout, nil)
 			if e != nil {
 				return e
 			}
