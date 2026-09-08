@@ -246,7 +246,7 @@ runtime-tested.
 | Area | OpenSSL 4.1 | wolfSSL | Pion |
 | --- | --- | --- | --- |
 | Mutual cert, AES-GCM/ChaCha, classical groups | yes both roles | yes our client; CID tests both roles | yes both roles (drivers) |
-| X25519MLKEM768 / NIST hybrids | yes both roles at 256+ (ECDSA echo with ChaCha20-Poly1305) | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 only |
+| X25519MLKEM768 / NIST hybrids | yes both roles at 256+ (ECDSA echo with ChaCha20-Poly1305) | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 public APIs at 1200/512/256 with CID off; NIST hybrids not run |
 | ML-DSA-44/65/87 | yes mutual echo at 4096 and both roles at 1200/512/256 with X25519MLKEM768 | library yes; not in our interop matrix | no |
 | Fragmented first ClientHello | stateful `s_server` and `SSL_new_listener` cookie path accept ours | **rejects** unverified fragmented CH (even with `WOLFSSL_DTLS_CH_FRAG`) | yes |
 | Cookies / 3× amplification | HMAC cookie; no 3× cap | HMAC cookie; no 3× cap | stateful cookie; no HS 3× |
@@ -254,7 +254,7 @@ runtime-tested.
 | CID request / new / spare | **no DTLS 1.3 CID at all** | parse Request, ignore; spare discarded; immediate replace works | codec only; `ErrNotImplemented` on send |
 | RFC 9853 RRC | no | no | yes both roles with **initial** CIDs |
 | PSK / 0-RTT / resumption | yes in OpenSSL | yes in wolfSSL | 1.2 PSK only |
-| Production MTU 1200 + PQ ClientHello | yes both roles, including mutual ML-DSA at 256 | blocked by unfragmented-CH rule | not independently proven |
+| Production MTU 1200 + PQ ClientHello | yes both roles, including mutual ML-DSA at 256 | blocked by unfragmented-CH rule | yes public APIs for X25519MLKEM768+ChaCha20; CID off |
 
 Practical consequences:
 
@@ -278,8 +278,9 @@ Practical consequences:
    fragmented CH. The OpenSSL `SSL_new_listener` cookie path accepted our
    fragmented X25519MLKEM768 ClientHello at 1200/512/256, including a dropped
    first fragment and a dropped HelloRetryRequest
-   (`TestInteropOpenSSLCookieListenerHandshakeLoss`). Independent Pion PQ at
-   these MTUs is still missing.
+   (`TestInteropOpenSSLCookieListenerHandshakeLoss`). Independent Pion
+   public-API PQ at these MTUs is X25519MLKEM768 + ChaCha20-Poly1305 with
+   CID disabled.
 5. **Do not use `openssl s_server -listen` as a DTLS 1.3 cookie peer.** That
    flag is `DTLSv1_listen` (HelloVerifyRequest). Use `SSL_new_listener` /
    `demos/dtlslistenerecho`.
@@ -294,7 +295,7 @@ Practical consequences:
 | Work | Basis | Current limit |
 | --- | --- | --- |
 | Dynamic PMTU handling | RFC 9147 §4.4 / RFC 8899 | Handshake shrink; command-line confirm/search defaults on for eligible dedicated sockets with CID/RRC after final-flight ACK. Linux routed IPv4/IPv6 shrink, growth and stale-cache bypass passed. Manual probes do not raise the working size; the default ceiling stays 1200. ICMP PTB is unused by the stack. No IP PMTU query or discovery on shared listeners. [Remaining work](dtls13.md#remaining-work). |
-| Independent spare-CID and remaining production-MTU PQ interop | Coverage | No pinned peer issues spares. OpenSSL both-role mutual ML-DSA echo works at 1200/512/256. wolfSSL still needs an unfragmented first ClientHello; Pion PQ at those MTUs is untested. See [remaining work](dtls13.md#remaining-work). |
+| Independent spare-CID and remaining production-MTU PQ interop | Coverage | No pinned peer issues spares. OpenSSL both-role mutual ML-DSA echo works at 1200/512/256. wolfSSL still needs an unfragmented first ClientHello. Pion public-API X25519MLKEM768 at 1200/512/256 is covered with CID disabled. See [remaining work](dtls13.md#remaining-work). |
 | RFC 9846 `general_error` | Alert mapping | Named receive/diagnostics for alert 117. Send mappings keep certificate, protocol, and `internal_error` alerts. |
 
 Sending only 16-bit sequence numbers, always including record length, and
