@@ -22,11 +22,19 @@ func TestInteropOpenSSLCookieListener(t *testing.T) {
 	tools := loadOpenSSLListener(t)
 	cert, roots, _, _ := oracleCertificate(t)
 	t.Run("classical/1200", func(t *testing.T) {
-		testOpenSSLCookieListener(t, tools, cert, roots, tls.X25519, 1200, 0, 0)
+		for _, suite := range defaultCipherSuites() {
+			t.Run(tls.CipherSuiteName(suite), func(t *testing.T) {
+				testOpenSSLCookieListener(t, tools, cert, roots, suite, tls.X25519, 1200, 0, 0)
+			})
+		}
 	})
 	for _, mtu := range []int{1200, 512, 256} {
 		t.Run("pq/"+strconv.Itoa(mtu), func(t *testing.T) {
-			testOpenSSLCookieListener(t, tools, cert, roots, tls.X25519MLKEM768, mtu, 0, 0)
+			for _, suite := range defaultCipherSuites() {
+				t.Run(tls.CipherSuiteName(suite), func(t *testing.T) {
+					testOpenSSLCookieListener(t, tools, cert, roots, suite, tls.X25519MLKEM768, mtu, 0, 0)
+				})
+			}
 		})
 	}
 }
@@ -36,10 +44,18 @@ func TestInteropOpenSSLCookieListenerHandshakeLoss(t *testing.T) {
 	cert, roots, _, _ := oracleCertificate(t)
 	for _, mtu := range []int{1200, 512, 256} {
 		t.Run("ch/"+strconv.Itoa(mtu), func(t *testing.T) {
-			testOpenSSLCookieListener(t, tools, cert, roots, tls.X25519MLKEM768, mtu, 1, 0)
+			for _, suite := range defaultCipherSuites() {
+				t.Run(tls.CipherSuiteName(suite), func(t *testing.T) {
+					testOpenSSLCookieListener(t, tools, cert, roots, suite, tls.X25519MLKEM768, mtu, 1, 0)
+				})
+			}
 		})
 		t.Run("hrr/"+strconv.Itoa(mtu), func(t *testing.T) {
-			testOpenSSLCookieListener(t, tools, cert, roots, tls.X25519MLKEM768, mtu, 0, 1)
+			for _, suite := range defaultCipherSuites() {
+				t.Run(tls.CipherSuiteName(suite), func(t *testing.T) {
+					testOpenSSLCookieListener(t, tools, cert, roots, suite, tls.X25519MLKEM768, mtu, 0, 1)
+				})
+			}
 		})
 	}
 }
@@ -100,7 +116,7 @@ func (c *dropHelloRetry) ReadFrom(p []byte) (int, net.Addr, error) {
 	}
 }
 
-func testOpenSSLCookieListener(t *testing.T, tools oracleTools, cert tls.Certificate, roots *x509.CertPool, group tls.CurveID, mtu, dropCH, dropHRR int) {
+func testOpenSSLCookieListener(t *testing.T, tools oracleTools, cert tls.Certificate, roots *x509.CertPool, suite uint16, group tls.CurveID, mtu, dropCH, dropHRR int) {
 	t.Helper()
 	cert, roots, certFile, keyFile := writeOracleCertificate(t, cert, roots)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
@@ -115,7 +131,7 @@ func testOpenSSLCookieListener(t *testing.T, tools oracleTools, cert tls.Certifi
 		"-cert", certFile, "-key", keyFile, "-CAfile", certFile,
 		"-mtu", strconv.Itoa(mtu),
 		"-groups", oracleGroupName(group),
-		"-ciphersuites", tls.CipherSuiteName(chaCha20Poly1305))
+		"-ciphersuites", tls.CipherSuiteName(suite))
 	runOracle(t, command)
 	captured := &capturePacketConn{PacketConn: udpForOracle(t)}
 	var transport net.PacketConn = captured
@@ -137,7 +153,7 @@ func testOpenSSLCookieListener(t *testing.T, tools oracleTools, cert tls.Certifi
 		Certificates:     []tls.Certificate{cert},
 		RootCAs:          roots,
 		ServerName:       "localhost",
-		CipherSuites:     []uint16{chaCha20Poly1305},
+		CipherSuites:     []uint16{suite},
 		CurvePreferences: []tls.CurveID{group},
 		MTU:              mtu,
 	})
@@ -149,7 +165,7 @@ func testOpenSSLCookieListener(t *testing.T, tools oracleTools, cert tls.Certifi
 		t.Fatal(err)
 	}
 	state := client.ConnectionState()
-	if state.Version != version13 || state.CipherSuite != chaCha20Poly1305 || state.CurveID != group || len(state.VerifiedChains) == 0 {
+	if state.Version != version13 || state.CipherSuite != suite || state.CurveID != group || len(state.VerifiedChains) == 0 {
 		t.Fatalf("negotiated version=%x suite=%x group=%s chains=%d", state.Version, state.CipherSuite, state.CurveID, len(state.VerifiedChains))
 	}
 	sent, recv := captured.snapshot()

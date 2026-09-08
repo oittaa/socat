@@ -27,7 +27,7 @@ Peer limits and interop that already ran are in [dtls13.md](dtls13.md).
 
 | Stack | Pin |
 | --- | --- |
-| Ours | this tree (`internal/dtls13`, master `8d84ad3`) |
+| Ours | this tree (`internal/dtls13`) |
 | OpenSSL | `82733d9` (4.1 development snapshot) |
 | wolfSSL | `d72f6d9` |
 | Pion | `59f4c33` |
@@ -258,20 +258,21 @@ authentication, DTLS 1.0/1.2, Encrypted Client Hello.
 
 Pins and passing cases remain those in [dtls13.md](dtls13.md#independent-peers). This
 section is about *coverage*, not a claim that every row above was
-runtime-tested.
+runtime-tested. "All three suites" means AES-128-GCM, AES-256-GCM, and
+ChaCha20-Poly1305; 21 combinations means three suites × seven groups.
 
 | Area | OpenSSL 4.1 | wolfSSL | Pion |
 | --- | --- | --- | --- |
 | Mutual cert, AES-GCM/ChaCha, classical groups | yes both roles | yes our client; CID tests both roles | yes both roles (drivers) |
-| X25519MLKEM768 / NIST hybrids | 21 suite/group combinations include both NIST hybrids: our client at MTU 4096, our listener at default 1200; 1200/512/256 is X25519MLKEM768+ChaCha20 only | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 public APIs at 1200/512/256 with CID off; NIST hybrids not run |
-| ML-DSA-44/65/87 | yes mutual echo at 4096 and both roles at 1200/512/256 with X25519MLKEM768 | library yes; not in our interop matrix | no |
+| X25519MLKEM768 / NIST hybrids | 21 suite/group combinations include both NIST hybrids: our client at MTU 4096, our listener at default 1200; 1200/512/256 is X25519MLKEM768 with all three suites | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 public APIs at 1200/512/256 with all three suites and CID off; NIST hybrids not run |
+| ML-DSA-44/65/87 | yes mutual echo at 4096 and both roles at 1200/512/256 with X25519MLKEM768 and all three suites | library yes; not in our interop matrix | no |
 | Fragmented first ClientHello | stateful `s_server` and `SSL_new_listener` cookie path accept ours | **rejects** unverified fragmented CH (even with `WOLFSSL_DTLS_CH_FRAG`) | yes |
 | Cookies / 3× amplification | HMAC cookie; no 3× cap | HMAC cookie; no 3× cap | stateful cookie; no HS 3× |
 | ACK / KeyUpdate | yes both roles; OpenSSL may emit MTU-truncated ACK lists (discarded) | yes; CID tests include KeyUpdate | yes |
 | CID request / new / spare | **no DTLS 1.3 CID at all** | parse Request, ignore; spare discarded; immediate replace works | codec only; `ErrNotImplemented` on send |
 | RFC 9853 RRC | no | no | yes both roles with **initial** CIDs |
 | PSK / 0-RTT / resumption | yes in OpenSSL | yes in wolfSSL | 1.2 PSK only |
-| Production MTU 1200 + PQ ClientHello | yes both roles for X25519MLKEM768, including mutual ML-DSA at 256 | blocked by unfragmented-CH rule | yes public APIs for X25519MLKEM768+ChaCha20; CID off |
+| Production MTU 1200 + PQ ClientHello | yes both roles for X25519MLKEM768 with all three suites, including mutual ML-DSA at 256 | blocked by unfragmented-CH rule | yes public APIs for X25519MLKEM768 with all three suites; CID off |
 
 Practical consequences:
 
@@ -286,16 +287,16 @@ Practical consequences:
    initial handshake CID, not with mid-association CID rotation.
 4. **PQ at MTU 1200 is not a three-stack result.** Ours fragments CH0
    correctly. OpenSSL `s_server` and `s_client` accepted mutual ECDSA and
-   ML-DSA-44/65/87 echo at 1200/512/256 with X25519MLKEM768 and
-   ChaCha20-Poly1305; that does not cover SecP256r1MLKEM768 or
+   ML-DSA-44/65/87 echo at 1200/512/256 with X25519MLKEM768 and all three
+   suites; that does not cover SecP256r1MLKEM768 or
    SecP384r1MLKEM1024. Historical `unexpected_message` at 256 was our ACK
    arriving while OpenSSL was in `TLS_ST_SW_FINISHED`. wolfSSL will not
    reassemble an unverified fragmented CH. The OpenSSL `SSL_new_listener`
    cookie path accepted our fragmented X25519MLKEM768 ClientHello at
-   1200/512/256, including a dropped first fragment and a dropped
-   HelloRetryRequest (`TestInteropOpenSSLCookieListenerHandshakeLoss`).
-   Independent Pion public-API PQ at these MTUs is X25519MLKEM768 +
-   ChaCha20-Poly1305 with CID disabled.
+   1200/512/256 with all three suites, including a dropped first fragment and
+   a dropped HelloRetryRequest (`TestInteropOpenSSLCookieListenerHandshakeLoss`).
+   Independent Pion public-API PQ at these MTUs is X25519MLKEM768 with all
+   three suites and CID disabled.
 5. **Do not use `openssl s_server -listen` as a DTLS 1.3 cookie peer.** That
    flag is `DTLSv1_listen` (HelloVerifyRequest). Use `SSL_new_listener` /
    `demos/dtlslistenerecho`.
@@ -310,7 +311,7 @@ Practical consequences:
 | Work | Basis | Next step |
 | --- | --- | --- |
 | PMTU validation | RFC 9147 §4.4 / RFC 8899 | Establish repeatable routed Linux IPv4/IPv6 shrink/growth checks; validate routed Windows/macOS when labs exist; exercise the 600-second search restart after the path MTU increases. |
-| Small-MTU PQ interop | Coverage | Test SecP256r1MLKEM768 and SecP384r1MLKEM1024 at 1200/512/256 against OpenSSL. Existing small-MTU coverage uses X25519MLKEM768 + ChaCha20-Poly1305. [Peer coverage and limits](dtls13.md#independent-peers). |
+| Small-MTU PQ interop | Coverage | Test SecP256r1MLKEM768 and SecP384r1MLKEM1024 at 1200/512/256 against OpenSSL. Existing small-MTU coverage uses X25519MLKEM768 with all three record cipher suites. [Peer coverage and limits](dtls13.md#independent-peers). |
 | Independent spare-CID interop | Coverage | Test issuance/replenishment when a reference peer supports it. Local renewal is implemented; no pinned peer issues spares. |
 
 MTU shrink and automatic confirmation/upward search on eligible dedicated
