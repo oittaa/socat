@@ -169,6 +169,9 @@ func (p *packetTransport) writeNow(w packetWrite) error {
 	p.writeMu.Lock()
 	p.active = [3]<-chan struct{}{}
 	p.writeMu.Unlock()
+	if n == 0 && isMessageTooLong(err) {
+		return &datagramSizeError{err}
+	}
 	if n == 0 && errors.Is(err, os.ErrDeadlineExceeded) {
 		return w.timeout()
 	}

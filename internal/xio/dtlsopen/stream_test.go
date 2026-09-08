@@ -2,16 +2,21 @@ package dtlsopen
 
 import (
 	"bytes"
+	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"io"
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/oittaa/socat/internal/dtls13"
 	"github.com/oittaa/socat/internal/relay"
+	"github.com/oittaa/socat/internal/testcert"
 )
 
 type packetTestConn struct {
@@ -196,6 +201,160 @@ func TestPacketizerDoesNotRetryUnchangedOverflow(t *testing.T) {
 	c.ConfigureWritePeer(relay.ByteStreamIO)
 	if n, err := c.Write([]byte("abcdef")); n != 0 || !errors.Is(err, dtls13.ErrDatagramTooLarge) || calls != 1 {
 		t.Fatalf("write = %d, %v; calls %d", n, err, calls)
+	}
+}
+
+func TestPacketizerDoesNotRetryUnclassifiedEMSGSIZE(t *testing.T) {
+	inner := &packetTestConn{limit: 4}
+	calls := 0
+	inner.write = func([]byte) (int, error) { calls++; inner.limit = 2; return 0, kernelTooBig() }
+	c := &streamConn{datagramConn: inner}
+	c.ConfigureWritePeer(relay.ByteStreamIO)
+	n, err := c.Write([]byte("abcdef"))
+	if n != 0 || !errors.Is(err, kernelTooBig().Err) || errors.Is(err, dtls13.ErrDatagramTooLarge) || calls != 1 {
+		t.Fatalf("write = %d, %v; calls %d", n, err, calls)
+	}
+}
+
+func TestPacketizerDoesNotRetryPartialEMSGSIZE(t *testing.T) {
+	inner := &packetTestConn{limit: 4}
+	inner.write = func(p []byte) (int, error) {
+		return 1, kernelTooBig()
+	}
+	c := &streamConn{datagramConn: inner}
+	c.ConfigureWritePeer(relay.ByteStreamIO)
+	n, err := c.Write([]byte("abcdef"))
+	if n != 1 || !errors.Is(err, kernelTooBig().Err) {
+		t.Fatalf("partial write = %d, %v", n, err)
+	}
+}
+
+type limitedPacket struct {
+	net.PacketConn
+	mu    sync.Mutex
+	limit int
+}
+
+func (c *limitedPacket) WriteTo(p []byte, addr net.Addr) (int, error) {
+	c.mu.Lock()
+	limit := c.limit
+	c.mu.Unlock()
+	if limit > 0 && len(p) > limit {
+		return 0, kernelTooBig()
+	}
+	return c.PacketConn.WriteTo(p, addr)
+}
+
+func (c *limitedPacket) setLimit(n int) {
+	c.mu.Lock()
+	c.limit = n
+	c.mu.Unlock()
+}
+
+func streamDTLSPair(t *testing.T, clientPC net.PacketConn) (*dtls13.Conn, *dtls13.Conn) {
+	t.Helper()
+	ca, err := testcert.NewAuthority("stream PMTU CA")
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverCert, err := ca.Leaf("localhost", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, nil, []string{"localhost"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientCert, err := ca.Leaf("client", []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(ca.Cert)
+	clientCfg := &dtls13.Config{ServerName: "localhost", RootCAs: roots, Certificates: []tls.Certificate{clientCert.TLS()}}
+	serverCfg := &dtls13.Config{Certificates: []tls.Certificate{serverCert.TLS()}, ClientCAs: roots, ClientAuth: tls.RequireAndVerifyClientCert}
+	lnUDP, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lnUDP.Close() })
+	listener, err := dtls13.Listen(lnUDP, serverCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	client, err := dtls13.Client(ctx, clientPC, listener.Addr(), clientCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	peer, err := listener.AcceptContext(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := peer.(*dtls13.Conn)
+	t.Cleanup(func() { _ = server.Close() })
+	return client, server
+}
+
+func TestDatagramWriteSurfacesKernelEMSGSIZE(t *testing.T) {
+	pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	transport := &limitedPacket{PacketConn: pc}
+	client, _ := streamDTLSPair(t, transport)
+	before := client.MaxDatagramSize()
+	if before <= 0 {
+		t.Fatal("empty advertised budget")
+	}
+	transport.setLimit(600)
+	n, err := client.Write(make([]byte, 900))
+	if n != 0 || !errors.Is(err, kernelTooBig().Err) || errors.Is(err, dtls13.ErrDatagramTooLarge) {
+		t.Fatalf("datagram write = %d, %v", n, err)
+	}
+	if client.MaxDatagramSize() >= before {
+		t.Fatal("kernel EMSGSIZE did not shrink MaxDatagramSize")
+	}
+}
+
+func TestStreamWriteRecoversFromKernelEMSGSIZE(t *testing.T) {
+	pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	transport := &limitedPacket{PacketConn: pc}
+	client, server := streamDTLSPair(t, transport)
+	before := client.MaxDatagramSize()
+	if before < 900 {
+		t.Fatalf("MaxDatagramSize %d", before)
+	}
+	stream := &streamConn{datagramConn: client}
+	stream.ConfigureWritePeer(relay.ByteStreamIO)
+	transport.setLimit(600)
+	payload := bytes.Repeat([]byte("x"), 900)
+	n, err := stream.Write(payload)
+	if n != len(payload) || err != nil {
+		t.Fatalf("stream write = %d, %v", n, err)
+	}
+	after := client.MaxDatagramSize()
+	if after >= before {
+		t.Fatalf("MaxDatagramSize stayed %d", after)
+	}
+	got := make([]byte, len(payload))
+	if err := server.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	read := 0
+	for read < len(got) {
+		n, err := server.Read(got[read:])
+		if err != nil {
+			t.Fatalf("server read: %v after %d", err, read)
+		}
+		read += n
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("echo mismatch: read %d", read)
 	}
 }
 

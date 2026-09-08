@@ -287,7 +287,7 @@ Practical consequences:
 
 | Work | Basis | Current limit |
 | --- | --- | --- |
-| Dynamic PMTU handling | RFC 9147 §4.4 / RFC 8899 | Handshake shrink plus opt-in confirm/search on dedicated DF sockets after the final flight is acknowledged. Manual probes still do not raise the working size. ICMP PTB is unused (RFC 8899 §4.6.1 permits ignoring PTB). No `IP_MTU` query or DF on shared listeners. |
+| Dynamic PMTU handling | RFC 9147 §4.4 / RFC 8899 | Handshake shrink plus opt-in confirm/search on dedicated DF sockets after the final flight is acknowledged. Manual probes still do not raise the working size. ICMP PTB is unused by the stack (RFC 8899 §4.6.1 permits ignoring PTB). Linux/Windows `PMTUDISC_PROBE` sizes against the interface MTU, not the cached path MTU. No `IP_MTU` query or DF on shared listeners. |
 | Independent spare-CID and remaining production-MTU PQ interop | Coverage | No pinned peer issues spares. Our-client mutual ML-DSA echo works at MTU 1200; OpenSSL `s_server` still returns `unexpected_message` for ML-DSA-65/87 at 512 and all ML-DSA at 256. See [remaining work](dtls13.md#remaining-work). |
 | RFC 9846 `general_error` | Alert mapping | Named receive/diagnostics for alert 117. Send mappings keep certificate, protocol, and `internal_error` alerts. |
 

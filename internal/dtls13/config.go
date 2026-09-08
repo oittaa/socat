@@ -30,7 +30,8 @@ type Config struct {
 	MTU int
 	// UnfragmentedProbes requests DF / no-fragment on a dedicated UDP socket so
 	// padded RRC probes can exceed a cached kernel PMTU without IP fragmentation.
-	// Linux uses IP_PMTUDISC_PROBE (DF set, kernel ICMP PMTU tracking ignored).
+	// Linux uses IP_PMTUDISC_PROBE (DF set; send size uses the interface MTU).
+	// Windows requires IP_PMTUDISC_PROBE for every enabled address family.
 	// Listeners ignore this: a shared socket must not change fragmentation for
 	// every association. When set on a dedicated socket with RRC, the association
 	// confirms the working size and searches upward toward dtls-mtu.

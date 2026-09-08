@@ -9,36 +9,39 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func dontFragment(t *testing.T, conn *net.UDPConn, ipv6 bool) int {
-	t.Helper()
-	raw, err := conn.SyscallConn()
-	if err != nil {
-		t.Fatal(err)
-	}
-	level, opt := windows.IPPROTO_IP, windowsIPDontFragment
-	if ipv6 {
-		level, opt = windows.IPPROTO_IPV6, windowsIPv6DontFrag
-	}
-	var mode int
-	var ctrlErr error
-	if err := raw.Control(func(fd uintptr) {
-		mode, ctrlErr = windows.GetsockoptInt(windows.Handle(fd), level, opt)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if ctrlErr != nil {
-		t.Fatal(ctrlErr)
-	}
-	return mode
-}
-
-func TestUnfragmentedProbesSetsDontFragment(t *testing.T) {
-	conn := testUDP(t)
-	ok, err := enableUnfragmentedSends(conn)
-	if err != nil || !ok {
-		t.Fatalf("enable: ok=%v err=%v", ok, err)
-	}
-	if dontFragment(t, conn, false) == 0 {
-		t.Fatal("IP_DONTFRAGMENT is not set")
+func TestUnfragmentedProbesRequiresPMTUDISCProbe(t *testing.T) {
+	for _, network := range []string{"udp4", "udp6", "udp"} {
+		t.Run(network, func(t *testing.T) {
+			conn, err := net.ListenUDP(network, &net.UDPAddr{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = conn.Close() })
+			ok, err := enableUnfragmentedSends(conn)
+			if err != nil || !ok {
+				t.Fatalf("enable: ok=%v err=%v", ok, err)
+			}
+			raw, err := conn.SyscallConn()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := raw.Control(func(fd uintptr) {
+				h := windows.Handle(fd)
+				assertProbe := func(level, opt int) {
+					mode, err := windows.GetsockoptInt(h, level, opt)
+					if err != nil || mode != windows.IP_PMTUDISC_PROBE {
+						t.Errorf("level %d option %d = %d, %v; want PROBE", level, opt, mode, err)
+					}
+				}
+				if network != "udp4" {
+					assertProbe(windows.IPPROTO_IPV6, windows.IPV6_MTU_DISCOVER)
+				}
+				if network != "udp6" {
+					assertProbe(windows.IPPROTO_IP, windows.IP_MTU_DISCOVER)
+				}
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

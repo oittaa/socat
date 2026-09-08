@@ -1,6 +1,9 @@
 package dtls13
 
-import "time"
+import (
+	"errors"
+	"time"
+)
 
 const (
 	// Handshake fragment floor after EMSGSIZE / unanswered flights. This is
@@ -62,6 +65,18 @@ type probeError string
 func errProbe(s string) probeError { return probeError(s) }
 
 func (e probeError) Error() string { return "dtls: " + string(e) }
+
+// IsDatagramTooLarge reports an oversized datagram rejected before transmission.
+// A retry must use a smaller MaxDatagramSize. The underlying transport error,
+// if any, remains available through errors.Is/As.
+func IsDatagramTooLarge(err error) bool {
+	var rejected *datagramSizeError
+	return errors.Is(err, ErrDatagramTooLarge) || errors.As(err, &rejected)
+}
+
+type datagramSizeError struct{ error }
+
+func (e *datagramSizeError) Unwrap() error { return e.error }
 
 func datagramOverhead(cidLen, aeadTag int) int {
 	if cidLen < 0 {

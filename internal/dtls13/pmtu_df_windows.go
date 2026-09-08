@@ -9,21 +9,30 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-const (
-	windowsIPDontFragment = 14
-	windowsIPv6DontFrag   = 14
-)
-
 func setUnfragmentedDF(rawConn syscall.RawConn) (bool, error) {
-	var err4, err6 error
+	var setupErr error
 	if err := rawConn.Control(func(fd uintptr) {
-		err4 = windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IP, windowsIPDontFragment, 1)
-		err6 = windows.SetsockoptInt(windows.Handle(fd), windows.IPPROTO_IPV6, windowsIPv6DontFrag, 1)
+		h := windows.Handle(fd)
+		addr, err := windows.Getsockname(h)
+		if err != nil {
+			setupErr = err
+			return
+		}
+		if _, ipv6 := addr.(*windows.SockaddrInet6); ipv6 {
+			v6only, err := windows.GetsockoptInt(h, windows.IPPROTO_IPV6, windows.IPV6_V6ONLY)
+			if err != nil {
+				setupErr = err
+				return
+			}
+			setupErr = windows.SetsockoptInt(h, windows.IPPROTO_IPV6, windows.IPV6_MTU_DISCOVER, windows.IP_PMTUDISC_PROBE)
+			if v6only != 0 {
+				return
+			}
+		}
+		setupErr = errors.Join(setupErr, windows.SetsockoptInt(h, windows.IPPROTO_IP, windows.IP_MTU_DISCOVER, windows.IP_PMTUDISC_PROBE))
 	}); err != nil {
 		return false, err
 	}
-	if err4 != nil && err6 != nil {
-		return false, errors.Join(err4, err6)
-	}
-	return true, nil
+	// DF alone does not prove that probes can bypass a stale PMTU cache.
+	return setupErr == nil, setupErr
 }
