@@ -144,7 +144,6 @@ func (l *Listener) receiveHello(data []byte, peer netip.AddrPort, now time.Time)
 	if l.acceptErr != nil {
 		return
 	}
-	l.cookies.maybeRotate(now)
 	defer func() {
 		select {
 		case l.helloWake <- struct{}{}:

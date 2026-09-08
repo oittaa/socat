@@ -96,7 +96,7 @@ func TestCookieSecretsMaybeRotateInterval(t *testing.T) {
 	}
 }
 
-func TestReceiveHelloRotatesCookieSecrets(t *testing.T) {
+func TestReceiveHelloDoesNotRotateCookieSecrets(t *testing.T) {
 	_, serverCfg := handshakeConfigs(t)
 	ln, err := Listen(testUDP(t), serverCfg)
 	if err != nil {
@@ -108,9 +108,9 @@ func TestReceiveHelloRotatesCookieSecrets(t *testing.T) {
 	ln.cookies.lastRotate = now.Add(-cookieLifetime)
 	old := ln.cookies.current
 	ln.receiveHello(nil, netip.MustParseAddrPort("192.0.2.1:1"), now)
-	rotated := ln.cookies.current != old && ln.cookies.previous == old
+	rotated := ln.cookies.current != old
 	ln.mu.Unlock()
-	if !rotated {
-		t.Fatal("cookie HMAC key was not rotated after cookieLifetime")
+	if rotated {
+		t.Fatal("receiveHello rotated cookie secrets; runHelloTimers owns rotation")
 	}
 }
