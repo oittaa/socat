@@ -212,21 +212,24 @@ func TestDTLSConfigurationOptions(t *testing.T) {
 		t.Fatal("explicit disabled migration/handshake timeout was lost")
 	}
 	if cfg.UnfragmentedProbes {
-		t.Fatal("unfragmented probes defaulted on")
+		t.Fatal("migration-disabled endpoint enabled unfragmented probes")
 	}
-	cfg, err = endpointConfig(spec(t, "DTLS:localhost:443,verify=0,dtls-unfragmented-probes"), "localhost", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !cfg.UnfragmentedProbes {
-		t.Fatal("dtls-unfragmented-probes did not enable probes")
-	}
-	cfg, err = endpointConfig(spec(t, "DTLS:localhost:443,verify=0,dtls-unfragmented-probes=0"), "localhost", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.UnfragmentedProbes {
-		t.Fatal("dtls-unfragmented-probes=0 left probes enabled")
+	for _, tc := range []struct {
+		options string
+		probes  bool
+	}{
+		{"", true},
+		{",dtls-unfragmented-probes", true},
+		{",dtls-unfragmented-probes=1", true},
+		{",dtls-unfragmented-probes=0", false},
+	} {
+		cfg, err := endpointConfig(spec(t, "DTLS:localhost:443,verify=0"+tc.options), "localhost", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.UnfragmentedProbes != tc.probes {
+			t.Errorf("options %q: unfragmented probes = %v, want %v", tc.options, cfg.UnfragmentedProbes, tc.probes)
+		}
 	}
 }
 

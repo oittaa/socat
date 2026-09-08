@@ -32,6 +32,7 @@ type Config struct {
 	// padded RRC probes can exceed a cached kernel PMTU without IP fragmentation.
 	// Linux uses IP_PMTUDISC_PROBE (DF set; send size uses the interface MTU).
 	// Windows requires IP_PMTUDISC_PROBE for every enabled address family.
+	// Socket setup waits until the peer has negotiated CID and RRC.
 	// Listeners ignore this: a shared socket must not change fragmentation for
 	// every association. When set on a dedicated socket with RRC, the association
 	// confirms the working size and searches upward toward dtls-mtu.

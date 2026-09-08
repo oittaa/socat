@@ -10,6 +10,11 @@ retransmissions, replay protection, key updates, CID rotation and RFC 9853
 enhanced path validation. Endpoints reuse the existing credentials, socket
 options, peer filters, fork lifecycle, deadlines and cancellation.
 
+Handshake MTU shrink is automatic. Command-line clients also default to MTU
+confirmation and upward discovery on eligible dedicated sockets with CID/RRC.
+`dtls-unfragmented-probes=0` disables discovery; the default ceiling stays
+1200 bytes. Direct library callers opt in with `Config.UnfragmentedProbes`.
+
 Algorithm defaults match Go 1.27's TLS 1.3 set: AES-128/256-GCM and
 ChaCha20-Poly1305; X25519, P-256/P-384/P-521, X25519MLKEM768,
 SecP256r1MLKEM768 and SecP384r1MLKEM1024; RSA-PSS, ECDSA, Ed25519 and
@@ -42,9 +47,18 @@ shared with that adapted code.
 - Not implemented: DTLS 1.0/1.2, PSK, resumption, 0-RTT, post-handshake
   client authentication. `EXEC,nofork` cannot use DTLS.
 
+## PMTU invariants
+
+- Linux/Windows use `PMTUDISC_PROBE`, not `DO`, to bypass stale path-MTU
+  cache limits. macOS uses `DONTFRAG`.
+- Discovery does not query `IP_MTU` or connect/reconnect the active DTLS socket.
+- Automatic PMTU setup leaves shared listeners' fragmentation settings unchanged.
+- The working MTU grows only after an authenticated response to a current
+  discovery probe, within the configured `dtls-mtu` ceiling.
+
 ## Independent peers
 
-Checked 2026-09-07. Pins are in
+Last interoperability runs: 2026-09-07. Pins are in
 [dtls13-baseline.json](../scripts/dtls13-baseline.json) and
 [dtls13-lab.py](../scripts/dtls13-lab.py). Limits are for those revisions.
 
@@ -56,12 +70,9 @@ Checked 2026-09-07. Pins are in
 | BoringSSL (`4a92579`) | Test shim builds. | Packet-BIO adapter and interop tests are not written. Lower priority; lab-only. |
 
 The wolfSSL lab build enlarges its extra read buffer to 4096 bytes for hybrid
-offers and still requires an unfragmented first ClientHello. OpenSSL `s_server`
-accepted our fragmented PQ ClientHello at 256 with ECDSA echo; keep mutual
-ML-DSA echo checks at 4096. In-process loss/reorder with mutual ML-DSA-44/65/87
-succeeds at 1200/512/256 (`TestPostQuantumHandshakeLoss` and the 2026-09-07
-recheck). These in-process checks do not establish independent peer interop
-under loss/reorder.
+offers and still requires an unfragmented first ClientHello. Our listener-side
+mutual ML-DSA tests with OpenSSL `s_client` remain at MTU 4096 because of its
+large-flight ACK limitation; our client passes the smaller MTUs listed above.
 
 None of the pinned peers supplies independent spare-CID issuance coverage.
 System OpenSSL 3.5.5 is DTLS 1.2 only (`s_client` has no `-dtls1_3`). OpenSSL
@@ -75,23 +86,21 @@ Go 1.27.1 defaults matched `TestGoTLS13AlgorithmDefaults`.
 
 ## Remaining work
 
-- Independent protocol/security review of `internal/dtls13` and
-  `internal/xio/dtlsopen`, including RFC 9846 §1.2. RFC 9147 §4.5.2/§11
-  invalid-record paths are classified: unauthenticated datagrams are dropped;
-  authenticated inner/handshake violations still abort.
-- Spare-CID issuance/replenishment interop, pinned to a peer that supports it.
-- Remaining production-MTU PQ gaps: wolfSSL unverified CH0 must be unfragmented;
-  OpenSSL `s_client` ACK of large server flights; Pion PQ at 1200/512/256.
-- Mutual ML-DSA echo at MTU 256 (all parameter sets) and ML-DSA-65/87 at 512
-  still fail against OpenSSL `s_server` with `unexpected_message` during
-  `SSL_accept`. MTU 1200 works for ML-DSA-44/65/87.
-- Independent PQ tests at MTU 1200/512/256 with controlled loss/reorder and
-  mutual ML-DSA; successful loopback exchanges do not cover this.
-- PMTU: handshake shrink plus padded RRC probes. Dedicated sockets may opt
-  into `PMTUDISC_PROBE` and then confirm/search after the final flight is
-  acknowledged; shared listeners never set DF. ICMP PTB is unused (RFC 8899
-  §4.6.1 permits that). See [PMTU](dtls13-pmtu.md).
-- Lab-only BoringSSL packet-BIO adapter; keep it out of `make check`.
+- Further independent protocol/security review of `internal/dtls13` and
+  `internal/xio/dtlsopen`, including RFC 9846 §1.2.
+- Spare-CID issuance/replenishment interop when a reference peer supports it.
+  Local renewal is implemented; this interop gap is not a merge blocker.
+- Retest and diagnose the recorded OpenSSL/wolfSSL small-MTU PQ failures
+  above. OpenSSL's `unexpected_message` alone does not establish fault.
+  Add independent Pion PQ coverage at MTU 1200/512/256.
+- Extend independent PQ loss/reorder coverage across MTU 1200/512/256,
+  both roles and ML-DSA parameter sets, building on the existing test below.
+- PMTU: routed Windows/macOS validation awaits suitable test environments.
+  Possible improvements: RTT-based probe spacing, safe discovery on shared
+  listeners, and OS PMTU hints without connecting the active migration socket.
+  A routed test of the full 600-second raise cycle is optional; session tests
+  already cover that timer.
+- Optional lab-only BoringSSL packet-BIO adapter; keep it out of `make check`.
 - Recheck official OpenSSL/socat releases when 4.1 is usable. Do not patch the
   parity baseline to obtain a test peer.
 - On Go upgrades, investigate `TestGoTLS13AlgorithmDefaults` drift and recheck
@@ -110,6 +119,21 @@ Ordinary `make check` does not download lab tools. Linux/macOS/Windows tests,
 including race, cover the implementation. Classic `OPENSSL_DTLS_TO_SERVER`,
 `OPENSSL_DTLS_TO_CLIENT` and `RCVTIMEO_DTLS` pass; cases that pin DTLS 1.2
 remain unsupported. See the [scorecard](../testdata/scorecard/README.md#dtls-13).
+
+RFC 9147 §4.5.2/§11 invalid-record paths are classified: unauthenticated
+datagrams are dropped; authenticated inner/handshake violations abort.
+
+In-process loss/reorder with mutual ML-DSA-44/65/87 succeeds at MTU
+1200/512/256 (`TestPostQuantumHandshakeLoss` and the 2026-09-07 recheck).
+Independent OpenSSL coverage includes mutual ML-DSA-44 with X25519MLKEM768
+at MTU 1200 and a dropped first ClientHello datagram
+(`TestInteropOpenSSLServerSmallMTUPQHandshakeLoss`).
+
+Linux lab and privileged CI tests cover live IPv4/IPv6 IP-MTU changes
+1500 → 1280 → 1500 with ICMP PTB blocked, authenticated delivery after shrink
+and growth, and stale PMTU-cache bypass. See
+`internal/xio/privileged/dtls_pmtu_linux_test.go`. Recovery restores the link
+during active search; the 600-second periodic raise is tested at session level.
 
 On Linux, build the pinned peers and run interop:
 

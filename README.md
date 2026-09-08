@@ -266,10 +266,16 @@ trusted client certificate.
 - CID and RFC 9853 path validation are negotiated by default. New addresses
   must pass the server's peer filters. `dtls-migration=0` disables both.
   `alpn=protocol` optionally selects one application protocol.
-- `dtls-unfragmented-probes` (default off) sets DF on a dedicated client
-  socket and, after handshake, confirms the working size then searches
-  toward `dtls-mtu`. Listeners ignore it. ICMP Packet Too Big messages are
-  not used. Datagram writes are never retried.
+- MTU confirmation and upward discovery default on for dedicated clients
+  with migration enabled, successful unfragmented-send setup and negotiated
+  CID/RRC. Search starts after the final handshake flight is acknowledged
+  and stays within `dtls-mtu` (default 1200). `dtls-unfragmented-probes=0`
+  disables discovery; listeners ignore this option. ICMP Packet Too Big
+  messages are not used. Datagram writes are never retried. Byte-stream
+  chunks are split again and retried only after a definite too-large rejection
+  before transmission, with zero bytes written and a smaller size limit.
+  Timeouts, partial writes and ambiguous errors are not retried. See
+  [DTLS validation](docs/dtls13.md#validation).
 - `handshake-timeout` caps negotiation at 30 seconds by default; zero removes
   that deadline, but protocol retry limits remain. `so-rcvtimeo` / `rcvtimeo`
   adds a handshake receive-wait limit (zero or omission disables it).

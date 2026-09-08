@@ -84,6 +84,9 @@ func endpointConfig(s parse.Spec, host string, server bool) (*dtls13.Config, err
 		}
 	}
 	c.DisableMigration = s.HasOption("dtls-migration") && !s.BoolOption("dtls-migration")
-	c.UnfragmentedProbes = s.HasOption("dtls-unfragmented-probes") && s.BoolOption("dtls-unfragmented-probes")
+	c.UnfragmentedProbes = !c.DisableMigration
+	if s.HasOption("dtls-unfragmented-probes") {
+		c.UnfragmentedProbes = s.BoolOption("dtls-unfragmented-probes")
+	}
 	return c, nil
 }
