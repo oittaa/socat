@@ -700,9 +700,9 @@ const (
 // Do NOT embed *net.UDPConn: sessions can have datagrams buffered outside the
 // socket while UDP-LISTEN routes packets received during child setup.
 type udpSessionConn struct {
-	role udpSessionRole
-	sock *net.UDPConn
-	peer *net.UDPAddr
+	role         udpSessionRole
+	sock         *net.UDPConn
+	peer         *net.UDPAddr
 	first        []byte
 	firstPending bool // buffered opener, including a zero-length datagram
 	closeOnce    sync.Once
