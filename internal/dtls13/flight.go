@@ -19,8 +19,10 @@ var errHandshakeTimeout = errors.New("dtls: handshake retransmissions exhausted"
 type outboundMessage struct {
 	message           handshakeMessage
 	acknowledged      []byte
+	sent              []byte
 	remaining         int
 	emptyAcknowledged bool
+	emptySent         bool
 }
 
 type sentFragment struct {
@@ -59,7 +61,7 @@ func newFlight(messages []handshakeMessage, interval time.Duration) (*flight, er
 		}
 		m.body = bytes.Clone(m.body)
 		f.messages = append(f.messages, outboundMessage{
-			message: m, acknowledged: make([]byte, (len(m.body)+7)/8), remaining: len(m.body),
+			message: m, acknowledged: make([]byte, (len(m.body)+7)/8), sent: make([]byte, (len(m.body)+7)/8), remaining: len(m.body),
 		})
 	}
 	return f, nil
@@ -67,6 +69,20 @@ func newFlight(messages []handshakeMessage, interval time.Duration) (*flight, er
 
 func (m *outboundMessage) hasByte(i int) bool {
 	return m.acknowledged[i/8]&(byte(1)<<(i%8)) != 0
+}
+
+func (m *outboundMessage) hasSent(i int) bool {
+	return m.sent[i/8]&(byte(1)<<(i%8)) != 0
+}
+
+func (m *outboundMessage) markSent(start, end int) {
+	if len(m.message.body) == 0 {
+		m.emptySent = true
+		return
+	}
+	for i := start; i < end; i++ {
+		m.sent[i/8] |= byte(1) << (i % 8)
+	}
 }
 
 // transmit sends at most ten records. New bytes are sent before unacked
@@ -95,40 +111,22 @@ func (f *flight) transmit(now time.Time, capacity int, send func(uint64, []byte)
 	return nil
 }
 
-func (f *flight) covered(index, off int) bool {
-	for _, part := range f.sent {
-		if part.message == index && off >= part.start && off < part.end {
-			return true
-		}
-	}
-	return false
-}
-
-func (f *flight) messageSent(index int) bool {
-	for _, part := range f.sent {
-		if part.message == index {
-			return true
-		}
-	}
-	return false
-}
-
 func (f *flight) sendRanges(capacity int, send func(uint64, []byte) (recordNumber, error), onlyNew bool) (int, error) {
 	count := 0
 	for index := range f.messages {
 		m := &f.messages[index]
 		for start := 0; start < len(m.message.body) || len(m.message.body) == 0 && !m.emptyAcknowledged; {
-			for start < len(m.message.body) && (m.hasByte(start) || onlyNew && f.covered(index, start)) {
+			for start < len(m.message.body) && (m.hasByte(start) || onlyNew && m.hasSent(start)) {
 				start++
 			}
 			if start == len(m.message.body) && len(m.message.body) != 0 {
 				break
 			}
-			if len(m.message.body) == 0 && onlyNew && f.messageSent(index) {
+			if len(m.message.body) == 0 && onlyNew && m.emptySent {
 				break
 			}
 			end := start
-			for end < len(m.message.body) && end-start < capacity && !m.hasByte(end) && (!onlyNew || !f.covered(index, end)) {
+			for end < len(m.message.body) && end-start < capacity && !m.hasByte(end) && (!onlyNew || !m.hasSent(end)) {
 				end++
 			}
 			if len(f.sent) >= maxFlightRecords {
@@ -149,6 +147,7 @@ func (f *flight) sendRanges(capacity int, send func(uint64, []byte) (recordNumbe
 				return count, errSequence
 			}
 			f.sent[number] = sentFragment{index, start, end}
+			m.markSent(start, end)
 			count++
 			if count == flightBurst {
 				return count, nil
@@ -163,39 +162,17 @@ func (f *flight) sendRanges(capacity int, send func(uint64, []byte) (recordNumbe
 }
 
 func (f *flight) pendingSend() bool {
-	for i, m := range f.messages {
+	for _, m := range f.messages {
 		if len(m.message.body) == 0 {
-			if m.emptyAcknowledged {
-				continue
-			}
-			found := false
-			for _, part := range f.sent {
-				if part.message == i {
-					found = true
-					break
-				}
-			}
-			if !found {
+			if !m.emptyAcknowledged && !m.emptySent {
 				return true
 			}
 			continue
 		}
-		for off := 0; off < len(m.message.body); {
-			if m.hasByte(off) {
-				off++
-				continue
-			}
-			covered := false
-			for _, part := range f.sent {
-				if part.message == i && off >= part.start && off < part.end {
-					covered = true
-					break
-				}
-			}
-			if !covered {
+		for off := 0; off < len(m.message.body); off++ {
+			if !m.hasByte(off) && !m.hasSent(off) {
 				return true
 			}
-			off++
 		}
 	}
 	return false

@@ -236,19 +236,12 @@ func (s *session) transmitFlight(now time.Time) error {
 
 func (s *session) transmit(f *flight, now time.Time) error {
 	for {
-		before := len(f.sent)
 		err := f.transmit(now, s.fragmentCapacity(), func(epoch uint64, body []byte) (recordNumber, error) {
 			return s.sendRecord(epoch, contentHandshake, body)
 		})
 		if err == nil || !isMessageTooLong(err) {
 			if err != nil {
 				return err
-			}
-			// RFC 9147 §5.8.3: at most ten records per transmission.
-			// Remaining new bytes are another transmission, not a retransmission,
-			// so they must not wait the §5.8.2 timer.
-			if f.pendingSend() && len(f.sent) > before {
-				continue
 			}
 			if s.handshake.complete {
 				return s.sendACK()
