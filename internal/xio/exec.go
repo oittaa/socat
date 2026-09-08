@@ -190,6 +190,26 @@ func splitExecArgs(s string) []string {
 	return args
 }
 
+// commandForExecSpec builds argv for EXEC, SYSTEM, or SHELL. Start comes later.
+func commandForExecSpec(ctx context.Context, s parse.Spec) (*exec.Cmd, error) {
+	cmdStr := strings.Join(s.Params, ":")
+	switch {
+	case strings.EqualFold(s.Type, "SHELL"):
+		hasCommand := len(s.Params) > 0 && s.Params[0] != ""
+		return shellCommand(ctx, s, cmdStr, hasCommand), nil
+	case strings.EqualFold(s.Type, "SYSTEM"):
+		cmd := exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
+		return cmd, nil
+	default:
+		parts := splitExecArgs(cmdStr)
+		if len(parts) == 0 {
+			return nil, fmt.Errorf("empty EXEC command")
+		}
+		cmd := exec.CommandContext(ctx, parts[0], parts[1:]...) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
+		return cmd, nil
+	}
+}
+
 // runExecNoFork runs EXEC/SYSTEM/SHELL with nofork on an already-open peer
 // stream (no relay — the command inherits the peer as its data descriptors).
 // mode is the EXEC address mode: RDWR (echo), Write (-u right), Read (-u left).
@@ -198,21 +218,13 @@ func splitExecArgs(s string) []string {
 // then stderr from fdo. Unrelated 0/1/2 stay inherited. Mapping runs in the
 // child so a failed Start cannot leave the parent half-remapped.
 // There is no transfer loop, so -D and -lm stay inactive.
+//
+// Phases: prepare command → attach peer (transfer FD ownership) → Start →
+// drop ExtraFiles copies → Wait/reap.
 func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Global, mode Mode) error {
-	cmdStr := strings.Join(s.Params, ":")
-	var cmd *exec.Cmd
-	switch {
-	case strings.EqualFold(s.Type, "SHELL"):
-		hasCommand := len(s.Params) > 0 && s.Params[0] != ""
-		cmd = shellCommand(ctx, s, cmdStr, hasCommand)
-	case strings.EqualFold(s.Type, "SYSTEM"):
-		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
-	default:
-		parts := splitExecArgs(cmdStr)
-		if len(parts) == 0 {
-			return fmt.Errorf("empty EXEC command")
-		}
-		cmd = exec.CommandContext(ctx, parts[0], parts[1:]...) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
+	cmd, err := commandForExecSpec(ctx, s)
+	if err != nil {
+		return err
 	}
 	if err := rejectUnusedExecPastSocketOptions(s); err != nil {
 		return err
@@ -220,99 +232,11 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Glob
 	if err := rejectExecUnsupportedPTYOptions(s); err != nil {
 		return err
 	}
-	fdin, fdout, err := processFDPair(s, mode)
+	c, err := newExecChild(s, mode, g, cmd)
 	if err != nil {
 		return err
 	}
-	fdRedirect := fdin != "" || fdout != ""
-
-	var extra []*os.File
-	closeExtra := func() {
-		for _, f := range extra {
-			logx.CloseQuiet(f)
-		}
-		extra = nil
-	}
-	defer closeExtra()
-
-	if fdRedirect {
-		var sameFD bool
-		extra, sameFD, err = noForkPeerExtraFiles(peer, mode)
-		if err != nil {
-			return err
-		}
-		// dash/login rewrite the target argv[0] before the helper wraps it.
-		if err := applyDashArgv0(s, cmd); err != nil {
-			return err
-		}
-		cmd, err = wrapNoForkFDCommand(ctx, cmd, mode, fdin, fdout, sameFD, s.BoolOption("stderr"))
-		if err != nil {
-			return err
-		}
-	}
-
-	cmd.Dir = s.OptionValue("chdir", "")
-	if s.BoolOption("setsid") {
-		if cmd.SysProcAttr == nil {
-			cmd.SysProcAttr = &syscall.SysProcAttr{}
-		}
-		cmd.SysProcAttr.Setsid = true
-	}
-	if fdRedirect {
-		if err := applySetpgid(s, cmd); err != nil {
-			return err
-		}
-	} else if err := applyExecChildOptions(s, cmd); err != nil {
-		return err
-	}
-
-	if fdRedirect {
-		// Preserve unrelated 0/1/2; ExtraFiles become child fd 3+ and the
-		// mapper Dup2's them onto fdi/fdo.
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.ExtraFiles = extra
-	} else {
-		// nofork defaults (fdi=0, fdo=1):
-		//   RDWR:  stdin=peer.R, stdout=peer.W  (STDIO: 0 and 1; socket: same FD twice)
-		//   WRONLY (-u right EXEC): stdin=peer.R, stdout=process stdout (so echo appears)
-		//   RDONLY (-u left EXEC):  stdin=process stdin, stdout=peer.W
-		in, out, err := peerStdioFiles(peer, mode)
-		if err != nil {
-			return err
-		}
-		cmd.Stdin = in
-		cmd.Stdout = out
-		if s.BoolOption("stderr") {
-			cmd.Stderr = out
-		} else {
-			cmd.Stderr = os.Stderr
-		}
-	}
-	if g != nil {
-		cmd.Env = childEnviron(g)
-	}
-	if fdRedirect {
-		cmd.Env = withExecFDHelperEnv(cmd.Env)
-	}
-	if err := startWithChildUmask(ctx, s, cmd, g); err != nil {
-		return err
-	}
-	closeExtra()
-	waitErr := cmd.Wait()
-	if cmd.Process != nil {
-		unregisterChildSignals(cmd.Process.Pid)
-	}
-	forgetExecContextCancel(cmd)
-	code, ok := childWaitExitCode(waitErr)
-	if !ok {
-		return waitErr
-	}
-	if g != nil {
-		g.ChildExitCode = code
-	}
-	return nil
+	return c.runNoFork(ctx, peer)
 }
 
 // wrapNoForkFDCommand applies the child dup2 helper to a nofork command.
@@ -590,8 +514,254 @@ func rejectUnusedExecPastSocketOptions(s parse.Spec) error {
 	return nil
 }
 
-func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
+// execChild is one EXEC/SYSTEM/SHELL start after argv exists.
+// Forked: prepare → open transport FDs → Start → drop child-side FDs → finishExec.
+// nofork: prepare → attach peer as stdio → Start → drop ExtraFiles → Wait.
+type execChild struct {
+	spec       parse.Spec
+	mode       Mode
+	g          *Global
+	cmd        *exec.Cmd
+	fdin       string
+	fdout      string
+	fdRedirect bool
+	usePipes   bool
+	usePty     bool
+}
+
+func newExecChild(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*execChild, error) {
 	fdin, fdout, err := processFDPair(s, mode)
+	if err != nil {
+		return nil, err
+	}
+	return &execChild{
+		spec:       s,
+		mode:       mode,
+		g:          g,
+		cmd:        cmd,
+		fdin:       fdin,
+		fdout:      fdout,
+		fdRedirect: fdin != "" || fdout != "",
+	}, nil
+}
+
+// applyExecProcessAttrs sets chdir, setsid, dash/setpgid, and SOCAT_* env.
+func applyExecProcessAttrs(s parse.Spec, cmd *exec.Cmd, g *Global, fdRedirect bool) error {
+	cmd.Dir = s.OptionValue("chdir", "")
+	if s.BoolOption("setsid") {
+		if cmd.SysProcAttr == nil {
+			cmd.SysProcAttr = &syscall.SysProcAttr{}
+		}
+		cmd.SysProcAttr.Setsid = true
+	}
+	if fdRedirect {
+		if err := applySetpgid(s, cmd); err != nil {
+			return err
+		}
+	} else if err := applyExecChildOptions(s, cmd); err != nil {
+		return err
+	}
+	if g != nil {
+		cmd.Env = childEnviron(g)
+	}
+	if fdRedirect {
+		cmd.Env = withExecFDHelperEnv(cmd.Env)
+	}
+	return nil
+}
+
+func (c *execChild) wrapForkedFDHelper(ctx context.Context) error {
+	if !c.fdRedirect {
+		return nil
+	}
+	// dash changes the target's argv[0], not the internal helper used to
+	// place fdi/fdo. Apply it before wrapping. Every custom fdin/fdout
+	// uses the child dup2 helper so bare SHELL and dash stay on the
+	// target instead of a /bin/sh reconstruction.
+	if err := applyDashArgv0(c.spec, c.cmd); err != nil {
+		return err
+	}
+	var err error
+	if c.usePipes {
+		c.cmd, err = rebuildWithPipeFDHelper(ctx, c.cmd, c.mode, c.fdin, c.fdout, c.spec.BoolOption("stderr"))
+	} else {
+		// Socketpair and PTY share ExtraFiles[0] (child fd 3).
+		c.cmd, err = rebuildWithSocketFDHelper(ctx, c.cmd, c.mode, c.fdin, c.fdout, c.spec.BoolOption("stderr"))
+	}
+	return err
+}
+
+func (c *execChild) prepareForked(ctx context.Context) error {
+	if err := rejectExecUnsupportedPTYOptions(c.spec); err != nil {
+		return err
+	}
+	userPipes := c.spec.BoolOption("pipes")
+	c.usePty = execUsesPTY(c.spec)
+	// Forked EXEC/SYSTEM/SHELL defaults to socketpair, including unidirectional
+	// mode and fdin/fdout. fdin/fdout only change Dup2 targets. pipes and
+	// pty/ptmx/openpty are user-selected transports; pipes+pty ignores pipes.
+	c.usePipes = userPipes
+	if c.usePipes && c.usePty {
+		if c.g != nil && c.g.Log != nil {
+			c.g.Log.Warningf("options \"pipes\" and \"pty\" must not be specified together; ignoring \"pipes\"")
+		}
+		c.usePipes = false
+	}
+
+	// end-close is not pipes. Keep the default socketpair (and PTY when the
+	// user asked for it). Shared LISTEN,fork reuse is serialized in
+	// runForkListenRight (leftMu + sessionWrap) so a Close poke cannot leave
+	// an expired deadline on the next accept. Do not switch transport here.
+
+	// Reject after-socket options on user-selected pipes, pty, or nofork.
+	// Socketpair (including end-close) applies those options on the child
+	// endpoint instead of a silent no-op.
+	if c.usePipes || c.usePty {
+		if err := rejectUnusedExecPastSocketOptions(c.spec); err != nil {
+			return err
+		}
+	}
+	if err := c.wrapForkedFDHelper(ctx); err != nil {
+		return err
+	}
+	return applyExecProcessAttrs(c.spec, c.cmd, c.g, c.fdRedirect)
+}
+
+func (c *execChild) startAndDropChildFDs(ctx context.Context, cleanup []func(), childFiles []*os.File) error {
+	// Only FDs 0/1/2 may remain in the child.
+	if err := startWithChildUmask(ctx, c.spec, c.cmd, c.g); err != nil {
+		for _, f := range cleanup {
+			f()
+		}
+		for _, child := range childFiles {
+			logx.CloseQuiet(child)
+		}
+		return err
+	}
+	for _, child := range childFiles {
+		logx.CloseQuiet(child)
+	}
+	return nil
+}
+
+func (c *execChild) startForked(ctx context.Context) (*Opened, error) {
+	if c.usePty {
+		return startCmdPty(ctx, c.spec, c.mode, c.g, c.cmd, c.fdRedirect)
+	}
+
+	// Child stderr inherits socat's stderr unless option stderr redirects it
+	// onto the data channel. Merging stderr into the data FD corrupts binary
+	// protocols (SOCKS4 echo scripts write diagnostics to stderr).
+	if !c.spec.BoolOption("stderr") {
+		c.cmd.Stderr = os.Stderr
+	}
+
+	var stream relay.Stream
+	var cleanup []func()
+	var childFiles []*os.File
+	var err error
+	if c.usePipes {
+		stream, cleanup, childFiles, err = startCmdPipes(c.spec, c.mode, c.cmd, c.fdRedirect)
+	} else {
+		var child *os.File
+		stream, cleanup, child, err = startCmdSocketpair(c.spec, c.mode, c.cmd, c.fdRedirect)
+		if child != nil {
+			childFiles = append(childFiles, child)
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := c.startAndDropChildFDs(ctx, cleanup, childFiles); err != nil {
+		return nil, err
+	}
+	return finishExec(c.spec, c.g, c.cmd, stream, cleanup, c.mode == ModeWrite, nil)
+}
+
+func (c *execChild) attachNoForkStdio(peer relay.Stream, extra []*os.File) error {
+	if c.fdRedirect {
+		// Preserve unrelated 0/1/2; ExtraFiles become child fd 3+ and the
+		// mapper Dup2's them onto fdi/fdo.
+		c.cmd.Stdin = os.Stdin
+		c.cmd.Stdout = os.Stdout
+		c.cmd.Stderr = os.Stderr
+		c.cmd.ExtraFiles = extra
+		return nil
+	}
+	// nofork defaults (fdi=0, fdo=1):
+	//   RDWR:  stdin=peer.R, stdout=peer.W  (STDIO: 0 and 1; socket: same FD twice)
+	//   WRONLY (-u right EXEC): stdin=peer.R, stdout=process stdout (so echo appears)
+	//   RDONLY (-u left EXEC):  stdin=process stdin, stdout=peer.W
+	in, out, err := peerStdioFiles(peer, c.mode)
+	if err != nil {
+		return err
+	}
+	c.cmd.Stdin = in
+	c.cmd.Stdout = out
+	if c.spec.BoolOption("stderr") {
+		c.cmd.Stderr = out
+	} else {
+		c.cmd.Stderr = os.Stderr
+	}
+	return nil
+}
+
+func (c *execChild) waitNoFork() error {
+	waitErr := c.cmd.Wait()
+	if c.cmd.Process != nil {
+		unregisterChildSignals(c.cmd.Process.Pid)
+	}
+	forgetExecContextCancel(c.cmd)
+	code, ok := childWaitExitCode(waitErr)
+	if !ok {
+		return waitErr
+	}
+	if c.g != nil {
+		c.g.ChildExitCode = code
+	}
+	return nil
+}
+
+func (c *execChild) runNoFork(ctx context.Context, peer relay.Stream) error {
+	var extra []*os.File
+	closeExtra := func() {
+		for _, f := range extra {
+			logx.CloseQuiet(f)
+		}
+		extra = nil
+	}
+	defer closeExtra()
+
+	if c.fdRedirect {
+		var sameFD bool
+		var err error
+		extra, sameFD, err = noForkPeerExtraFiles(peer, c.mode)
+		if err != nil {
+			return err
+		}
+		if err := applyDashArgv0(c.spec, c.cmd); err != nil {
+			return err
+		}
+		c.cmd, err = wrapNoForkFDCommand(ctx, c.cmd, c.mode, c.fdin, c.fdout, sameFD, c.spec.BoolOption("stderr"))
+		if err != nil {
+			return err
+		}
+	}
+	if err := applyExecProcessAttrs(c.spec, c.cmd, c.g, c.fdRedirect); err != nil {
+		return err
+	}
+	if err := c.attachNoForkStdio(peer, extra); err != nil {
+		return err
+	}
+	if err := startWithChildUmask(ctx, c.spec, c.cmd, c.g); err != nil {
+		return err
+	}
+	closeExtra()
+	return c.waitNoFork()
+}
+
+func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
+	c, err := newExecChild(s, mode, g, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -604,126 +774,10 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		spec := s
 		return &Opened{Kind: KindExec, Label: "EXEC-nofork", NoForkSpec: &spec}, nil
 	}
-	if err := rejectExecUnsupportedPTYOptions(s); err != nil {
+	if err := c.prepareForked(ctx); err != nil {
 		return nil, err
 	}
-	userPipes := s.BoolOption("pipes")
-	usePty := execUsesPTY(s)
-	// Forked EXEC/SYSTEM/SHELL defaults to socketpair, including unidirectional
-	// mode and fdin/fdout. fdin/fdout only change Dup2 targets. pipes and
-	// pty/ptmx/openpty are user-selected transports; pipes+pty ignores pipes.
-	usePipes := userPipes
-	if usePipes && usePty {
-		if g != nil && g.Log != nil {
-			g.Log.Warningf("options \"pipes\" and \"pty\" must not be specified together; ignoring \"pipes\"")
-		}
-		usePipes = false
-	}
-
-	// end-close is not pipes. Keep the default socketpair (and PTY when the
-	// user asked for it). Shared LISTEN,fork reuse is serialized in
-	// runForkListenRight (leftMu + sessionWrap) so a Close poke cannot leave
-	// an expired deadline on the next accept. Do not switch transport here.
-
-	// Reject after-socket options on user-selected pipes, pty, or nofork.
-	// Socketpair (including end-close) applies those options on the child
-	// endpoint instead of a silent no-op.
-	if usePipes || usePty {
-		if err := rejectUnusedExecPastSocketOptions(s); err != nil {
-			return nil, err
-		}
-	}
-
-	fdRedirect := fdin != "" || fdout != ""
-	if fdRedirect {
-		// dash changes the target's argv[0], not the internal helper used to
-		// place fdi/fdo. Apply it before wrapping. Every custom fdin/fdout
-		// uses the child dup2 helper so bare SHELL and dash stay on the
-		// target instead of a /bin/sh reconstruction.
-		if err := applyDashArgv0(s, cmd); err != nil {
-			return nil, err
-		}
-		if usePipes {
-			cmd, err = rebuildWithPipeFDHelper(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
-		} else {
-			// Socketpair and PTY share ExtraFiles[0] (child fd 3).
-			cmd, err = rebuildWithSocketFDHelper(ctx, cmd, mode, fdin, fdout, s.BoolOption("stderr"))
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	// Rebuilding through the helper must not discard chdir=.
-	cmd.Dir = s.OptionValue("chdir", "")
-
-	if s.BoolOption("setsid") {
-		if cmd.SysProcAttr == nil {
-			cmd.SysProcAttr = &syscall.SysProcAttr{}
-		}
-		cmd.SysProcAttr.Setsid = true
-	}
-	if fdRedirect {
-		// applyDashArgv0 already ran on the target before it was wrapped.
-		if err := applySetpgid(s, cmd); err != nil {
-			return nil, err
-		}
-	} else {
-		if err := applyExecChildOptions(s, cmd); err != nil {
-			return nil, err
-		}
-	}
-
-	// Inject SOCAT_* connection environment for SYSTEM/EXEC children.
-	if g != nil {
-		cmd.Env = childEnviron(g)
-	}
-	if fdRedirect {
-		cmd.Env = withExecFDHelperEnv(cmd.Env)
-	}
-
-	if usePty {
-		return startCmdPty(ctx, s, mode, g, cmd, fdRedirect)
-	}
-
-	// Child stderr inherits socat's stderr unless option stderr redirects it
-	// onto the data channel. Merging stderr into the data FD corrupts binary
-	// protocols (SOCKS4 echo scripts write diagnostics to stderr).
-	if !s.BoolOption("stderr") {
-		cmd.Stderr = os.Stderr
-	}
-
-	var stream relay.Stream
-	var cleanup []func()
-	var childFiles []*os.File
-	if usePipes {
-		stream, cleanup, childFiles, err = startCmdPipes(s, mode, cmd, fdRedirect)
-	} else {
-		var child *os.File
-		stream, cleanup, child, err = startCmdSocketpair(s, mode, cmd, fdRedirect)
-		if child != nil {
-			childFiles = append(childFiles, child)
-		}
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	// Only FDs 0/1/2 may remain in the child.
-	startErr := startWithChildUmask(ctx, s, cmd, g)
-	if startErr != nil {
-		for _, f := range cleanup {
-			f()
-		}
-		for _, child := range childFiles {
-			logx.CloseQuiet(child)
-		}
-		return nil, startErr
-	}
-	for _, child := range childFiles {
-		logx.CloseQuiet(child)
-	}
-
-	return finishExec(s, g, cmd, stream, cleanup, mode == ModeWrite, nil)
+	return c.startForked(ctx)
 }
 
 func validateProcessFDOptions(mode Mode, fdin, fdout string) error {
@@ -1399,11 +1453,88 @@ func applyPtyMasterLifecycle(s parse.Spec, ptmx *os.File) error {
 	return ApplyFDOptions(ptmx, s)
 }
 
-func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func(), waitChild bool, done chan struct{}) (*Opened, error) {
+// execWaitState is the async Wait/reap for a forked EXEC child.
+type execWaitState struct {
+	done     chan struct{}
+	mu       sync.Mutex
+	waitErr  error
+	exitCode int
+}
+
+func watchExecWait(cmd *exec.Cmd, done chan struct{}) *execWaitState {
 	pid := 0
 	if cmd != nil && cmd.Process != nil {
 		pid = cmd.Process.Pid
 	}
+	w := &execWaitState{done: done}
+	if w.done == nil {
+		w.done = make(chan struct{})
+	}
+	go func() {
+		err := cmd.Wait()
+		unregisterChildSignals(pid)
+		forgetExecContextCancel(cmd)
+		w.mu.Lock()
+		w.waitErr = err
+		if err == nil {
+			w.exitCode = 0
+		} else if ee, ok := err.(*exec.ExitError); ok {
+			w.exitCode = ee.ExitCode()
+		} else {
+			w.exitCode = 1
+		}
+		w.mu.Unlock()
+		close(w.done)
+	}()
+	return w
+}
+
+func (w *execWaitState) recordExit(g *Global) {
+	w.mu.Lock()
+	code := w.exitCode
+	werr := w.waitErr
+	w.mu.Unlock()
+	if code != 0 && g != nil {
+		if code < 0 || code >= 128 {
+			return
+		}
+		g.ChildExitCode = code
+		if werr != nil {
+			g.ChildErr = werr
+		}
+	}
+}
+
+func (w *execWaitState) closeAfterTransfer(s parse.Spec, g *Global, cmd *exec.Cmd, waitChild bool, linger time.Duration, endClose bool) {
+	if endClose {
+		// Keep Wait reaping, but do not let later ctx cancel SIGKILL.
+		releaseExecContextCancel(cmd)
+		select {
+		case <-w.done:
+		default:
+			return
+		}
+	} else {
+		waitFor := linger
+		if waitChild {
+			waitFor = time.Second
+		}
+		if execUsesPTY(s) {
+			waitFor = linger + time.Second
+		}
+		t := time.NewTimer(waitFor)
+		select {
+		case <-w.done:
+			t.Stop()
+		case <-t.C:
+			_ = cmd.Process.Kill()
+			<-w.done
+		}
+	}
+	w.recordExit(g)
+}
+
+func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func(), waitChild bool, done chan struct{}) (*Opened, error) {
 	st, err := SetupStream(s, stream)
 	if err != nil {
 		killWaitUnregisterChild(cmd)
@@ -1413,87 +1544,21 @@ func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cle
 		return nil, err
 	}
 
-	// Track child exit for EXEC_RC / SYSTEM_RC.
-	var mu sync.Mutex
-	var waitErr error
-	var exitCode int
-	if done == nil {
-		done = make(chan struct{})
-	}
-	go func() {
-		err := cmd.Wait()
-		unregisterChildSignals(pid)
-		forgetExecContextCancel(cmd)
-		mu.Lock()
-		waitErr = err
-		if err == nil {
-			exitCode = 0
-		} else if ee, ok := err.(*exec.ExitError); ok {
-			exitCode = ee.ExitCode()
-		} else {
-			exitCode = 1
-		}
-		mu.Unlock()
-		close(done)
-	}()
-
-	// How long to wait for child flush after transfer ends (-t linger).
+	w := watchExecWait(cmd, done)
 	linger := 500 * time.Millisecond
 	if g != nil && g.Linger > 0 {
 		linger = g.Linger
 	}
-	// shut-none is write-side shutdown only (SetupStream). Final cleanup still
-	// kills the child unless end-close selected END_CLOSE (no kill).
 	endClose := s.BoolOption("end-close")
-
 	o := &Opened{
 		Stream:    st,
 		Label:     "EXEC",
-		childDone: done,
+		childDone: w.done,
 	}
 	for _, f := range cleanup {
 		o.AddCleanup(f)
 	}
-	o.AddCleanup(func() {
-		if endClose {
-			// Keep Wait reaping, but do not let later ctx cancel SIGKILL.
-			releaseExecContextCancel(cmd)
-			select {
-			case <-done:
-			default:
-				return
-			}
-		} else {
-			waitFor := linger
-			if waitChild {
-				waitFor = time.Second
-			}
-			if execUsesPTY(s) {
-				waitFor = linger + time.Second
-			}
-			t := time.NewTimer(waitFor)
-			select {
-			case <-done:
-				t.Stop()
-			case <-t.C:
-				_ = cmd.Process.Kill()
-				<-done
-			}
-		}
-		mu.Lock()
-		code := exitCode
-		werr := waitErr
-		mu.Unlock()
-		if code != 0 && g != nil {
-			if code < 0 || code >= 128 {
-				return
-			}
-			g.ChildExitCode = code
-			if werr != nil {
-				g.ChildErr = werr
-			}
-		}
-	})
+	o.AddCleanup(func() { w.closeAfterTransfer(s, g, cmd, waitChild, linger, endClose) })
 	return o, nil
 }
 
