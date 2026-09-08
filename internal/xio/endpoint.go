@@ -209,17 +209,18 @@ func (g *Global) ensureStatsFlag() {
 	}
 }
 
-// OpenedKind says how Run uses an Opened.
+// OpenedKind says how Run uses an Opened. One Opened, not a wrapper hierarchy:
+// Kind selects which embedded group is live.
 type OpenedKind int
 
 const (
-	// KindReady: Stream or Read/Write is ready for transfer.
+	// KindReady: transfer I/O is already open (readyIO).
 	KindReady OpenedKind = iota
-	// KindListen: Listener parent; Run accepts in a fork loop.
+	// KindListen: bound listener; Run accepts in a fork loop (listenLoop).
 	KindListen
-	// KindDial: Dial parent; Run dials in a connect-fork loop.
+	// KindDial: repeated-connect parent; Run dials in a fork loop (dialLoop).
 	KindDial
-	// KindExec: NoForkSpec; Run starts EXEC/SYSTEM after the peer is open.
+	// KindExec: EXEC/SYSTEM,nofork; Run starts the process after the peer is open.
 	KindExec
 )
 
@@ -231,50 +232,71 @@ func ListenKind(fork bool) OpenedKind {
 	return KindReady
 }
 
-// Opened is a live address endpoint ready for transfer or an accept/dial loop.
-type Opened struct {
-	Kind     OpenedKind
-	Stream   relay.Stream
-	Listener net.Listener // KindListen parent; nil after a non-fork accept
-	Label    string
-	Cleanup  []func()
-	// ForkSocketpair bridges each accepted datagram session through a socketpair.
-	ForkSocketpair bool
-	// PeerFilter rejects accepted connections (range/sourceport/lowport).
-	PeerFilter func(net.Conn) error
-	// MaxChildren limits concurrent fork children (0 = unlimited).
-	MaxChildren int
-	// ChildrenShutup demotes fork-child diagnostic severity without changing
-	// the parent or sibling sessions.
-	ChildrenShutup int
-	// Dial is the connect-fork dialer (KindDial). It must complete the full
-	// open, including TLS/SOCKS/HTTP handshake.
-	Dial func(ctx context.Context) (net.Conn, error)
-	// WrapDial wraps each accepted or dialed conn for transfer (crlf, escape, …). Optional.
-	WrapDial func(net.Conn) (relay.Stream, error)
-	// Interval between parent connect iterations (interval= seconds).
+// readyIO is payload I/O for KindReady, including dual read/write halves.
+// Listen/dial parents leave these nil until a child wraps a conn.
+type readyIO struct {
+	Stream relay.Stream
+	Read   relay.Stream
+	Write  relay.Stream
+}
+
+// listenLoop is the KindListen parent: bound socket and accept-loop knobs.
+// Listener is nil after a non-fork accept hands the conn to readyIO.
+type listenLoop struct {
+	Listener       net.Listener
+	ForkSocketpair bool // datagram sessions bridged through a socketpair
+	PeerFilter     func(net.Conn) error
+	AcceptTimeout  time.Duration
+}
+
+// dialLoop is the KindDial parent: repeated connect until cancel.
+type dialLoop struct {
+	// Dial completes the full open, including TLS/SOCKS/HTTP handshake.
+	Dial     func(ctx context.Context) (net.Conn, error)
 	Interval time.Duration
-	// HandshakeTimeout bounds accepted TLS/WebSocket protocol negotiation.
+}
+
+// forkLoop is shared by listen and dial parents.
+type forkLoop struct {
+	MaxChildren    int
+	ChildrenShutup int // demote child diagnostics; parent/siblings unchanged
+	// WrapDial wraps each accepted or dialed conn (crlf, escape, ...). Optional.
+	WrapDial         func(net.Conn) (relay.Stream, error)
 	HandshakeTimeout time.Duration
-	// AcceptTimeout aborts waiting for a connection (accept-timeout);
-	// honored by fork accept loops as well as single-shot accepts.
-	AcceptTimeout time.Duration
-	// For dual: separate read/write streams
-	Read  relay.Stream
-	Write relay.Stream
-	// NoForkSpec: EXEC/SYSTEM,nofork — process started in Run with peer FD as stdio.
+}
+
+// execStart is KindExec: process started in Run with the peer FD as stdio.
+type execStart struct {
 	NoForkSpec *parse.Spec
-	// childDone closes when an EXEC/SYSTEM/SHELL child exits. Fork loops with
-	// max-children retain their slot until that process, not just its relay,
-	// has finished.
-	childDone <-chan struct{}
-	// ttyRestore runs before Stream.Close so termios restore still sees the fd.
+}
+
+// endpointClose is exactly-once teardown. Order: tty restore (fd still open),
+// ready stream, listener, then Cleanup hooks.
+type endpointClose struct {
+	Cleanup    []func()
 	ttyRestore []func()
 	closeOnce  sync.Once
 	closeErr   error
 }
 
-// Close releases resources.
+// Opened is a live address endpoint. Kind selects the mode; callers still use
+// the promoted field names (o.Stream, o.Listener, o.Dial, ...).
+type Opened struct {
+	Kind  OpenedKind
+	Label string
+	readyIO
+	listenLoop
+	dialLoop
+	forkLoop
+	execStart
+	endpointClose
+	// childDone closes when an EXEC/SYSTEM/SHELL child exits. Fork loops with
+	// max-children retain their slot until that process, not just its relay,
+	// has finished.
+	childDone <-chan struct{}
+}
+
+// Close runs endpoint teardown once. Later calls return the first result.
 func (o *Opened) Close() error {
 	o.closeOnce.Do(func() {
 		o.closeErr = o.close()
@@ -284,25 +306,46 @@ func (o *Opened) Close() error {
 
 func (o *Opened) close() error {
 	var first error
+	o.restoreTTY()
+	if err := o.closeReady(); err != nil && first == nil {
+		first = err
+	}
+	if err := o.closeListen(); err != nil && first == nil {
+		first = err
+	}
+	o.runCleanup()
+	return first
+}
+
+// restoreTTY runs termios restore while the stream fd is still open.
+func (o *Opened) restoreTTY() {
 	for i := len(o.ttyRestore) - 1; i >= 0; i-- {
 		o.ttyRestore[i]()
 	}
-	// Prefer cleanup hooks (they own the real FDs). Avoid comparing Stream
-	// values: relay.FDStream holds funcs and is not comparable.
-	if o.Stream != nil {
-		if err := o.Stream.Close(); err != nil && first == nil {
-			first = err
-		}
+}
+
+func (o *Opened) closeReady() error {
+	if o.Stream == nil {
+		return nil
 	}
-	if o.Listener != nil {
-		if err := o.Listener.Close(); err != nil && first == nil && !errors.Is(err, net.ErrClosed) {
-			first = err
-		}
+	return o.Stream.Close()
+}
+
+func (o *Opened) closeListen() error {
+	if o.Listener == nil {
+		return nil
 	}
+	err := o.Listener.Close()
+	if err != nil && !errors.Is(err, net.ErrClosed) {
+		return err
+	}
+	return nil
+}
+
+func (o *Opened) runCleanup() {
 	for i := len(o.Cleanup) - 1; i >= 0; i-- {
 		o.Cleanup[i]()
 	}
-	return first
 }
 
 func (o *Opened) AddCleanup(f func()) {
