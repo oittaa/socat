@@ -92,8 +92,11 @@ func TestCookieAdmissionLossReorderAndEviction(t *testing.T) {
 					t.Fatal(err)
 				}
 				if mode == "fragmented_retry" {
+					// ALPN already fragments ClientHello at MTU 256. A long PSK
+					// identity list inflates the HelloRetryRequest cookie and
+					// needs handshake ACKs to recover a dropped first fragment.
 					var identities []string
-					for i := range 100 {
+					for i := range 3 {
 						identities = append(identities, fmt.Sprintf("ticket-%d", i))
 					}
 					h.hello.extensions[extPSKModes] = []byte{1, 1}

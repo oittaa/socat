@@ -317,7 +317,7 @@ func (c *Conn) run() {
 			}
 		}
 		if !s.handshake.complete {
-			if timeout := s.handshake.config.HandshakeReadTimeout; timeout > 0 {
+			if timeout := s.handshake.config.HandshakeReadTimeout; timeout > 0 && (s.outbound == nil || !s.outbound.pendingSend()) {
 				lastReceive := s.handshakeReceived
 				if lastReceive.IsZero() {
 					lastReceive = started

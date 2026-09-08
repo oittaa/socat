@@ -209,7 +209,10 @@ func (s *session) transmit(f *flight, now time.Time) error {
 			if err != nil {
 				return err
 			}
-			return s.sendACK()
+			if s.handshake.complete {
+				return s.sendACK()
+			}
+			return nil
 		}
 		if !s.reduceHandshakeMTU(s.lastSendSize) {
 			return err
@@ -332,8 +335,10 @@ func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) (
 	if err := s.advancePost(now); err != nil {
 		return nil, err
 	}
-	if err := s.sendACK(); err != nil {
-		return nil, err
+	if s.handshake.complete && !s.handshake.client && len(s.acknowledgements) != 0 {
+		if err := s.sendACK(); err != nil {
+			return nil, err
+		}
 	}
 	return application, nil
 }
@@ -452,8 +457,9 @@ func (s *session) processHandshakes(now time.Time) error {
 }
 
 func (s *session) handshakeACKReady() bool {
-	// RFC 9147 §7.1: do not ACK a flight we can answer immediately. OpenSSL's
-	// SSL_accept treats an ACK in TLS_ST_SW_FINISHED as unexpected_message.
+	// Encrypted or not, handshake ACKs wait until the local final flight is
+	// on the wire. RFC 9147 §7.1: do not ACK a flight we can answer immediately.
+	// OpenSSL SSL_accept/s_client treat an ACK before Finished as unexpected.
 	return s.handshake.complete && s.handshakeFlightSent()
 }
 
@@ -529,7 +535,10 @@ func (s *session) tick(now time.Time) error {
 			return err
 		}
 		if retransmit {
-			if !s.outbound.ackedSinceSend {
+			// New-byte bursts and the first unanswered retransmit are not PMTU
+			// evidence. OpenSSL often does not ACK epoch-2 fragments before
+			// Finished, so shrink only after a second unanswered retry.
+			if !s.outbound.pendingSend() && !s.outbound.ackedSinceSend && s.outbound.retries > 1 {
 				_ = s.reduceHandshakeMTU(0)
 			}
 			s.outbound.ackedSinceSend = false

@@ -345,6 +345,12 @@ func TestConnPublishesUnansweredFlightMTU(t *testing.T) {
 		}
 		c.signalWake()
 		synctest.Wait()
+		if c.MaxDatagramSize() != before {
+			t.Fatalf("first unanswered retransmit shrank MTU to %d", c.MaxDatagramSize())
+		}
+		client.outbound.deadline = time.Now().Add(-time.Nanosecond)
+		c.signalWake()
+		synctest.Wait()
 		want := 600 - 22
 		if c.MaxDatagramSize() != want {
 			t.Fatalf("MaxDatagramSize %d want %d after unanswered shrink", c.MaxDatagramSize(), want)
