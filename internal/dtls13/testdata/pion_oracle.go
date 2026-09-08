@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3"
+	"github.com/pion/dtls/v3/pkg/crypto/ciphersuite"
+	"github.com/pion/dtls/v3/pkg/crypto/elliptic"
 	"github.com/pion/dtls/v3/pkg/protocol"
 )
 
@@ -25,6 +27,10 @@ func main() {
 	connect := flag.String("connect", "", "run a two-datagram client against this address")
 	certFile := flag.String("cert", "", "certificate and trust anchor")
 	keyFile := flag.String("key", "", "private key")
+	mtu := flag.Int("mtu", 0, "DTLS MTU; 0 keeps Pion's default")
+	group := flag.String("group", "", "key-exchange group; empty keeps Pion's defaults")
+	cipher := flag.String("cipher", "", "TLS 1.3 cipher suite; empty keeps Pion's defaults")
+	migrate := flag.Bool("migrate", true, "negotiate CID and RRC")
 	flag.Parse()
 	cert, err := tls.LoadX509KeyPair(*certFile, *keyFile)
 	if err != nil {
@@ -39,24 +45,15 @@ func main() {
 		log.Fatal("no trust anchor")
 	}
 	if *connect != "" {
-		runClient(*connect, cert, roots)
+		runClient(*connect, cert, roots, *mtu, *group, *cipher, *migrate)
 		return
 	}
 	addr, err := net.ResolveUDPAddr("udp4", *address)
 	if err != nil {
 		log.Fatal(err)
 	}
-	listener, err := dtls.ListenAddr("udp4", addr,
-		dtls.WithCertificates(cert), dtls.WithClientCAs(roots),
-		dtls.WithClientAuth(dtls.RequireAndVerifyClientCert),
-		dtls.WithMinVersion(protocol.Version1_3), dtls.WithMaxVersion(protocol.Version1_3),
-		dtls.WithConnectionID(func() []byte {
-			id := make([]byte, 8)
-			if _, err := rand.Read(id); err != nil {
-				log.Fatal(err)
-			}
-			return id
-		}, dtls.CIDPathMigrationRRC))
+	opts := pionOptions(cert, roots, "", *mtu, *group, *cipher, *migrate, true)
+	listener, err := dtls.ListenAddr("udp4", addr, opts...)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -67,7 +64,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer connection.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	if err := connection.(*dtls.Conn).HandshakeContext(ctx); err != nil {
 		log.Fatal(err)
@@ -87,7 +84,67 @@ func main() {
 	}
 }
 
-func runClient(address string, cert tls.Certificate, roots *x509.CertPool) {
+func pionOptions(cert tls.Certificate, roots *x509.CertPool, serverName string, mtu int, group, cipher string, migrate, server bool) []dtls.Option {
+	opts := []dtls.Option{
+		dtls.WithCertificates(cert),
+		dtls.WithMinVersion(protocol.Version1_3),
+		dtls.WithMaxVersion(protocol.Version1_3),
+	}
+	if server {
+		opts = append(opts, dtls.WithClientCAs(roots), dtls.WithClientAuth(dtls.RequireAndVerifyClientCert))
+	} else {
+		opts = append(opts, dtls.WithRootCAs(roots), dtls.WithServerName(serverName))
+	}
+	if mtu > 0 {
+		opts = append(opts, dtls.WithMTU(mtu))
+	}
+	if group != "" {
+		opts = append(opts, dtls.WithEllipticCurves(pionGroup(group)))
+	}
+	if cipher != "" {
+		opts = append(opts, dtls.WithCipherSuites(pionCipher(cipher)))
+	}
+	if migrate {
+		opts = append(opts, dtls.WithConnectionID(func() []byte {
+			id := make([]byte, 8)
+			if _, err := rand.Read(id); err != nil {
+				log.Fatal(err)
+			}
+			return id
+		}, dtls.CIDPathMigrationRRC))
+	}
+	return opts
+}
+
+func pionGroup(name string) elliptic.Curve {
+	switch name {
+	case "X25519MLKEM768":
+		return elliptic.X25519MLKEM768
+	case "X25519":
+		return elliptic.X25519
+	case "P-256":
+		return elliptic.P256
+	default:
+		log.Fatalf("unsupported group %q", name)
+		return 0
+	}
+}
+
+func pionCipher(name string) ciphersuite.ID {
+	switch name {
+	case "TLS_CHACHA20_POLY1305_SHA256":
+		return ciphersuite.TLS_CHACHA20_POLY1305_SHA256
+	case "TLS_AES_128_GCM_SHA256":
+		return ciphersuite.TLS_AES_128_GCM_SHA256
+	case "TLS_AES_256_GCM_SHA384":
+		return ciphersuite.TLS_AES_256_GCM_SHA384
+	default:
+		log.Fatalf("unsupported cipher %q", name)
+		return 0
+	}
+}
+
+func runClient(address string, cert tls.Certificate, roots *x509.CertPool, mtu int, group, cipher string, migrate bool) {
 	peer, err := net.ResolveUDPAddr("udp4", address)
 	if err != nil {
 		log.Fatal(err)
@@ -97,21 +154,12 @@ func runClient(address string, cert tls.Certificate, roots *x509.CertPool) {
 		log.Fatal(err)
 	}
 	transport := &rebindPacketConn{PacketConn: socket}
-	connection, err := dtls.Client(transport, peer,
-		dtls.WithCertificates(cert), dtls.WithRootCAs(roots), dtls.WithServerName("localhost"),
-		dtls.WithMinVersion(protocol.Version1_3), dtls.WithMaxVersion(protocol.Version1_3),
-		dtls.WithConnectionID(func() []byte {
-			id := make([]byte, 8)
-			if _, err := rand.Read(id); err != nil {
-				log.Fatal(err)
-			}
-			return id
-		}, dtls.CIDPathMigrationRRC))
+	connection, err := dtls.Client(transport, peer, pionOptions(cert, roots, "localhost", mtu, group, cipher, migrate, false)...)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer connection.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	if err := connection.HandshakeContext(ctx); err != nil {
 		log.Fatal(err)
@@ -119,8 +167,12 @@ func runClient(address string, cert tls.Certificate, roots *x509.CertPool) {
 	if err := connection.SetDeadline(time.Now().Add(15 * time.Second)); err != nil {
 		log.Fatal(err)
 	}
-	for _, message := range []string{"before", "after"} {
-		if message == "after" {
+	messages := []string{"pion-pq-echo"}
+	if migrate {
+		messages = []string{"before", "after"}
+	}
+	for _, message := range messages {
+		if migrate && message == "after" {
 			socket, err := net.ListenPacket("udp4", "127.0.0.1:0")
 			if err != nil {
 				log.Fatal(err)
