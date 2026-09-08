@@ -470,11 +470,13 @@ func (s *session) processHandshakes(now time.Time) error {
 }
 
 func (s *session) handshakeACKReady() bool {
-	// RFC 9147 §7.1: ACK a disrupted or incomplete flight. Do not ACK a
-	// complete flight that the next flight will acknowledge immediately.
-	// OpenSSL SSL_accept/s_client treat ACK before Certificate as unexpected,
-	// so keep ACKs off until the local final flight (including Finished) is sent.
-	return !s.handshake.complete || s.handshakeFlightSent()
+	if s.handshake.complete {
+		return s.handshakeFlightSent()
+	}
+	// RFC 9147 §7.1: ACK a disrupted flight; do not ACK a complete flight
+	// that the next message will acknowledge immediately. OpenSSL
+	// SSL_accept/s_client treat ACK before Certificate as unexpected.
+	return s.reassembly.disrupted()
 }
 
 func (s *session) sendACK() error {

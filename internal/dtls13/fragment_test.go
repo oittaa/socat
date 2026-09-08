@@ -185,3 +185,28 @@ func FuzzHandshakeFragments(f *testing.F) {
 		}
 	})
 }
+
+func TestReassemblyDisruptedDetectsHolesAndFutureMessages(t *testing.T) {
+	m := handshakeMessage{typ: msgClientHello, body: bytes.Repeat([]byte{1}, 40)}
+	r := reassembler{}
+	if _, err := r.add(fragmentFor(t, m, 0, 10), 0); err != nil {
+		t.Fatal(err)
+	}
+	if r.disrupted() {
+		t.Fatal("in-order prefix reported as disrupted")
+	}
+	if _, err := r.add(fragmentFor(t, m, 20, 10), 0); err != nil {
+		t.Fatal(err)
+	}
+	if !r.disrupted() {
+		t.Fatal("hole in the current message was not disrupted")
+	}
+	future := handshakeMessage{typ: msgFinished, sequence: 1, epoch: 2, body: []byte("fin")}
+	r2 := reassembler{}
+	if _, err := r2.add(fragmentFor(t, future, 0, len(future.body)), 2); err != nil {
+		t.Fatal(err)
+	}
+	if !r2.disrupted() {
+		t.Fatal("buffered future sequence was not disrupted")
+	}
+}

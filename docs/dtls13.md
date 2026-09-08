@@ -121,12 +121,12 @@ remain unsupported. See the [scorecard](../testdata/scorecard/README.md#dtls-13)
 RFC 9147 §4.5.2/§11 invalid-record paths are classified: unauthenticated
 datagrams are dropped; authenticated inner/handshake/alert violations abort.
 Malformed ACK bodies are discarded (RFC 9147 §4.5.2), including OpenSSL
-lists whose declared length exceeds the decrypted body. Incomplete or
-disrupted handshake flights are ACKed; a complete flight that we answer
-immediately is not ACKed until the local Finished is on the wire (RFC 9147
-§7.1). Queued ACK record numbers are capped so unauthenticated cookie-cache
-traffic cannot exceed the hello-entry budget. New-byte flight bursts do not
-consume retransmission retries.
+lists whose declared length exceeds the decrypted body. Disrupted handshake
+flights (holes or out-of-order messages) are ACKed; an in-order flight that
+we answer immediately is not ACKed until the local Finished is on the wire
+(RFC 9147 §7.1). Queued ACK record numbers are capped so unauthenticated
+cookie-cache traffic cannot exceed the hello-entry budget. New-byte flight
+bursts do not consume retransmission retries.
 
 In-process loss/reorder with mutual ML-DSA-44/65/87 succeeds at MTU
 1200/512/256 (`TestPostQuantumHandshakeLoss`). Independent OpenSSL coverage

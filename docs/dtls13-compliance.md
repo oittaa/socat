@@ -124,7 +124,7 @@ These establish support, not a complete §4.4 conformance test.
 | --- | --- | --- | --- | --- |
 | **§7** MUST NOT ACK unprocessed/unbuffered handshake; MUST NOT ACK discarded future seq | yes | yes | yes | yes |
 | **§7** Handshake ACK epoch MUST be ≥ record being ACKed; after HS MUST use highest sending epoch | yes | yes | yes | yes |
-| **§7.1** Flights MUST be ACKed unless implicitly ACKed by the next flight | yes: incomplete flights are ACKed; a complete flight waits until local Finished is sent | partial: ACK not accepted in `TLS_ST_SW_FINISHED` | yes | yes |
+| **§7.1** Flights MUST be ACKed unless implicitly ACKed by the next flight | yes: disrupted flights are ACKed; a complete flight waits until local Finished is sent | partial: ACK not accepted in `TLS_ST_SW_FINISHED` | yes | yes |
 | **§7.1** MUST NOT ACK non-handshake or undeprotected records | yes | yes | yes | yes |
 | **§7.2** SHOULD drop ACKed fragments from retransmit; MUST cancel flight when complete; any ACK of a record counts; responding flight MUST implicitly ACK | yes | partial: often retransmits whole flight | yes | yes |
 | **§8** KeyUpdate MUST be ACKed; MUST NOT send with new keys or another KeyUpdate until ACK (erratum 8047, Reported) | yes | yes | yes | yes |
