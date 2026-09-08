@@ -23,7 +23,11 @@ func TestInteropOpenSSLMLDSA(t *testing.T) {
 	for _, parameters := range []mldsa.Parameters{mldsa.MLDSA44(), mldsa.MLDSA65(), mldsa.MLDSA87()} {
 		t.Run(parameters.String(), func(t *testing.T) {
 			cert, roots := mldsaCertificate(t, parameters)
-			testOpenSSLClientMTU(t, tools, cert, roots, 4096, &parameters)
+			for _, suite := range defaultCipherSuites() {
+				t.Run(tls.CipherSuiteName(suite), func(t *testing.T) {
+					testOpenSSLClientMTU(t, tools, cert, roots, suite, 4096, &parameters)
+				})
+			}
 		})
 	}
 }
@@ -33,7 +37,11 @@ func TestInteropOpenSSLClientSmallMTUPQ(t *testing.T) {
 	cert, roots, _, _ := oracleCertificate(t)
 	for _, mtu := range []int{1200, 512, 256} {
 		t.Run("ecdsa/"+strconv.Itoa(mtu), func(t *testing.T) {
-			testOpenSSLClientMTU(t, tools, cert, roots, mtu, nil)
+			for _, suite := range defaultCipherSuites() {
+				t.Run(tls.CipherSuiteName(suite), func(t *testing.T) {
+					testOpenSSLClientMTU(t, tools, cert, roots, suite, mtu, nil)
+				})
+			}
 		})
 	}
 	for _, parameters := range []mldsa.Parameters{mldsa.MLDSA44(), mldsa.MLDSA65(), mldsa.MLDSA87()} {
@@ -41,7 +49,11 @@ func TestInteropOpenSSLClientSmallMTUPQ(t *testing.T) {
 			t.Run(parameters.String()+"/"+strconv.Itoa(mtu), func(t *testing.T) {
 				cert, roots := mldsaCertificate(t, parameters)
 				p := parameters
-				testOpenSSLClientMTU(t, tools, cert, roots, mtu, &p)
+				for _, suite := range defaultCipherSuites() {
+					t.Run(tls.CipherSuiteName(suite), func(t *testing.T) {
+						testOpenSSLClientMTU(t, tools, cert, roots, suite, mtu, &p)
+					})
+				}
 			})
 		}
 	}
@@ -60,7 +72,11 @@ func TestInteropOpenSSLServer(t *testing.T) {
 	for _, parameters := range []mldsa.Parameters{mldsa.MLDSA44(), mldsa.MLDSA65(), mldsa.MLDSA87()} {
 		t.Run(parameters.String(), func(t *testing.T) {
 			cert, roots := mldsaCertificate(t, parameters)
-			testOpenSSLServer(t, tools, cert, roots, chaCha20Poly1305, tls.X25519MLKEM768)
+			for _, suite := range defaultCipherSuites() {
+				t.Run(tls.CipherSuiteName(suite), func(t *testing.T) {
+					testOpenSSLServer(t, tools, cert, roots, suite, tls.X25519MLKEM768)
+				})
+			}
 		})
 	}
 }
@@ -70,14 +86,22 @@ func TestInteropOpenSSLServerSmallMTUPQ(t *testing.T) {
 	cert, roots, _, _ := oracleCertificate(t)
 	for _, mtu := range []int{1200, 512, 256} {
 		t.Run("ecdsa/"+strconv.Itoa(mtu), func(t *testing.T) {
-			testOpenSSLServerMTU(t, tools, cert, roots, chaCha20Poly1305, tls.X25519MLKEM768, mtu)
+			for _, suite := range defaultCipherSuites() {
+				t.Run(tls.CipherSuiteName(suite), func(t *testing.T) {
+					testOpenSSLServerMTU(t, tools, cert, roots, suite, tls.X25519MLKEM768, mtu)
+				})
+			}
 		})
 	}
 	for _, parameters := range []mldsa.Parameters{mldsa.MLDSA44(), mldsa.MLDSA65(), mldsa.MLDSA87()} {
 		for _, mtu := range []int{1200, 512, 256} {
 			t.Run(parameters.String()+"/"+strconv.Itoa(mtu), func(t *testing.T) {
 				cert, roots := mldsaCertificate(t, parameters)
-				testOpenSSLServerMTU(t, tools, cert, roots, chaCha20Poly1305, tls.X25519MLKEM768, mtu)
+				for _, suite := range defaultCipherSuites() {
+					t.Run(tls.CipherSuiteName(suite), func(t *testing.T) {
+						testOpenSSLServerMTU(t, tools, cert, roots, suite, tls.X25519MLKEM768, mtu)
+					})
+				}
 			})
 		}
 	}
@@ -88,7 +112,11 @@ func TestInteropOpenSSLServerSmallMTUPQHandshakeLoss(t *testing.T) {
 	for _, mtu := range []int{1200, 512, 256} {
 		t.Run("ML-DSA-44/"+strconv.Itoa(mtu), func(t *testing.T) {
 			cert, roots := mldsaCertificate(t, mldsa.MLDSA44())
-			testOpenSSLServerMTULoss(t, tools, cert, roots, chaCha20Poly1305, tls.X25519MLKEM768, mtu, 1)
+			for _, suite := range defaultCipherSuites() {
+				t.Run(tls.CipherSuiteName(suite), func(t *testing.T) {
+					testOpenSSLServerMTULoss(t, tools, cert, roots, suite, tls.X25519MLKEM768, mtu, 1)
+				})
+			}
 		})
 	}
 }
@@ -104,27 +132,6 @@ func (c *dropFirstPlainHandshake) WriteTo(p []byte, addr net.Addr) (int, error) 
 		return len(p), nil
 	}
 	return c.PacketConn.WriteTo(p, addr)
-}
-
-type loggedPacketConn struct {
-	net.PacketConn
-	sent, recv []int
-}
-
-func (c *loggedPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
-	n, err := c.PacketConn.WriteTo(p, addr)
-	if err == nil {
-		c.sent = append(c.sent, n)
-	}
-	return n, err
-}
-
-func (c *loggedPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
-	n, addr, err := c.PacketConn.ReadFrom(p)
-	if err == nil {
-		c.recv = append(c.recv, n)
-	}
-	return n, addr, err
 }
 
 func summarizeSizes(sizes []int) string {
@@ -166,13 +173,14 @@ func testOpenSSLServerMTULoss(t *testing.T, tools oracleTools, cert tls.Certific
 	}
 	command.Stdout = stdin
 	runOracle(t, command)
-	logged := &loggedPacketConn{PacketConn: udpForOracle(t)}
+	logged := &capturePacketConn{PacketConn: udpForOracle(t)}
 	transport := net.PacketConn(logged)
 	if drop > 0 {
 		transport = &dropFirstPlainHandshake{PacketConn: transport, remaining: drop}
 	}
 	t.Cleanup(func() {
-		t.Logf("client UDP sent %s recv %s mtu=%d", summarizeSizes(logged.sent), summarizeSizes(logged.recv), mtu)
+		sent, recv := logged.snapshot()
+		t.Logf("client UDP sent %s recv %s mtu=%d", summarizeSizes(sizesOf(sent)), summarizeSizes(sizesOf(recv)), mtu)
 		if msgFile != "" {
 			if data, err := os.ReadFile(msgFile); err == nil && len(data) != 0 {
 				t.Logf("openssl -msg:\n%s", data)
@@ -212,23 +220,24 @@ func testOpenSSLServerMTU(t *testing.T, tools oracleTools, cert tls.Certificate,
 	testOpenSSLServerMTULoss(t, tools, cert, roots, suite, group, mtu, 0)
 }
 
-func testOpenSSLClientMTU(t *testing.T, tools oracleTools, cert tls.Certificate, roots *x509.CertPool, mtu int, parameters *mldsa.Parameters) {
+func testOpenSSLClientMTU(t *testing.T, tools oracleTools, cert tls.Certificate, roots *x509.CertPool, suite uint16, mtu int, parameters *mldsa.Parameters) {
 	t.Helper()
 	cert, roots, certFile, keyFile := writeOracleCertificate(t, cert, roots)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	conn := udpForOracle(t)
-	logged := &loggedPacketConn{PacketConn: conn}
-	listener, err := Listen(logged, &Config{Certificates: []tls.Certificate{cert}, ClientCAs: roots, ClientAuth: tls.RequireAndVerifyClientCert, CurvePreferences: []tls.CurveID{tls.X25519MLKEM768}, CipherSuites: []uint16{chaCha20Poly1305}, MTU: mtu})
+	logged := &capturePacketConn{PacketConn: conn}
+	listener, err := Listen(logged, &Config{Certificates: []tls.Certificate{cert}, ClientCAs: roots, ClientAuth: tls.RequireAndVerifyClientCert, CurvePreferences: []tls.CurveID{tls.X25519MLKEM768}, CipherSuites: []uint16{suite}, MTU: mtu})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = listener.Close() }()
 	t.Cleanup(func() {
-		t.Logf("listener UDP sent %s recv %s mtu=%d", summarizeSizes(logged.sent), summarizeSizes(logged.recv), mtu)
+		sent, recv := logged.snapshot()
+		t.Logf("listener UDP sent %s recv %s mtu=%d", summarizeSizes(sizesOf(sent)), summarizeSizes(sizesOf(recv)), mtu)
 	})
 	marker := []byte("openssl-client-echo\n")
-	command := exec.CommandContext(ctx, tools.OpenSSL.OpenSSL, "s_client", "-dtls1_3", "-quiet", "-ign_eof", "-mtu", strconv.Itoa(mtu), "-connect", conn.LocalAddr().String(), "-verify_hostname", "localhost", "-verify_return_error", "-CAfile", certFile, "-cert", certFile, "-key", keyFile, "-groups", "X25519MLKEM768", "-ciphersuites", "TLS_CHACHA20_POLY1305_SHA256")
+	command := exec.CommandContext(ctx, tools.OpenSSL.OpenSSL, "s_client", "-dtls1_3", "-quiet", "-ign_eof", "-mtu", strconv.Itoa(mtu), "-connect", conn.LocalAddr().String(), "-verify_hostname", "localhost", "-verify_return_error", "-CAfile", certFile, "-cert", certFile, "-key", keyFile, "-groups", "X25519MLKEM768", "-ciphersuites", tls.CipherSuiteName(suite))
 	command.Stdin = strings.NewReader(string(marker))
 	output, wait := runOracle(t, command)
 	peer, err := listener.AcceptContext(ctx)
@@ -240,7 +249,7 @@ func testOpenSSLClientMTU(t *testing.T, tools oracleTools, cert tls.Certificate,
 		t.Fatal(err)
 	}
 	state := peer.(*Conn).ConnectionState()
-	if state.Version != version13 || state.CurveID != tls.X25519MLKEM768 || state.CipherSuite != chaCha20Poly1305 || len(state.VerifiedChains) == 0 {
+	if state.Version != version13 || state.CurveID != tls.X25519MLKEM768 || state.CipherSuite != suite || len(state.VerifiedChains) == 0 {
 		t.Fatal("negotiated algorithms or certificate verification missing")
 	}
 	if parameters != nil {
