@@ -27,7 +27,7 @@ Peer limits and interop that already ran are in [dtls13.md](dtls13.md).
 
 | Stack | Pin |
 | --- | --- |
-| Ours | this tree (`internal/dtls13`) |
+| Ours | this tree (`internal/dtls13`, master `8d84ad3`) |
 | OpenSSL | `82733d9` (4.1 development snapshot) |
 | wolfSSL | `d72f6d9` |
 | Pion | `59f4c33` |
@@ -143,8 +143,10 @@ These establish support, not a complete §4.4 conformance test.
 | **§11** SHOULD NOT kill the connection on invalid records | unauthenticated invalid records do not terminate; authenticated protocol errors do (permitted; see §4.5.2) | yes | yes | yes |
 | **§11** SHOULD use fresh CIDs when local address/port changes | yes request on migration | n/a | no | no |
 
-Our [CID lifecycle tests](../internal/dtls13/connection_id_lifecycle_test.go)
-cover bounded replies. A full issuer pool rotates one CID immediately rather
+Remaining CID tests are
+[connection_id_test.go](../internal/dtls13/connection_id_test.go)
+(`TestCIDACKWithoutResponseRemainsPending`,
+`TestCIDEmptySpareResponseFulfillsRequest`). A full issuer pool rotates one CID immediately rather
 than sending an empty spare list; the spare request stays pending until that
 rotation is authenticated. Path probes pause issuance. Independent peers
 still do not issue spares.
@@ -229,7 +231,10 @@ with every inherited TLS 1.3 requirement.
 
 `update_requested` is remembered until a subsequent peer KeyUpdate is
 accepted. A DTLS ACK of the local update does not clear it.
-`TestKeyUpdateDoesNotRepeatPeerRequest` checks the outgoing request flag.
+`TestKeyUpdateMalformedAndWrongEpoch` and
+`TestRFC9147KeyUpdateFlagRejectsNonKeyUpdate` cover invalid bodies;
+`TestKeyUpdateCancelsHandshakeReadExpiry` covers key retention after an
+update.
 
 Deliberately not implemented, so the corresponding TLS 1.3 MUSTs are **n/a
 until the feature exists**: PSK, resumption, 0-RTT, post-handshake client
@@ -246,7 +251,7 @@ runtime-tested.
 | Area | OpenSSL 4.1 | wolfSSL | Pion |
 | --- | --- | --- | --- |
 | Mutual cert, AES-GCM/ChaCha, classical groups | yes both roles | yes our client; CID tests both roles | yes both roles (drivers) |
-| X25519MLKEM768 / NIST hybrids | yes both roles at 256+ (ECDSA echo with ChaCha20-Poly1305) | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 only |
+| X25519MLKEM768 / NIST hybrids | 21 suite/group combinations at default MTU include both NIST hybrids; 1200/512/256 is X25519MLKEM768+ChaCha20 only | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 only |
 | ML-DSA-44/65/87 | yes mutual echo at 4096 and both roles at 1200/512/256 with X25519MLKEM768 | library yes; not in our interop matrix | no |
 | Fragmented first ClientHello | stateful `s_server` accepts ours; cookie listener not retested | **rejects** unverified fragmented CH (even with `WOLFSSL_DTLS_CH_FRAG`) | yes |
 | Cookies / 3× amplification | HMAC cookie; no 3× cap | HMAC cookie; no 3× cap | stateful cookie; no HS 3× |
@@ -254,7 +259,7 @@ runtime-tested.
 | CID request / new / spare | **no DTLS 1.3 CID at all** | parse Request, ignore; spare discarded; immediate replace works | codec only; `ErrNotImplemented` on send |
 | RFC 9853 RRC | no | no | yes both roles with **initial** CIDs |
 | PSK / 0-RTT / resumption | yes in OpenSSL | yes in wolfSSL | 1.2 PSK only |
-| Production MTU 1200 + PQ ClientHello | yes both roles, including mutual ML-DSA at 256 | blocked by unfragmented-CH rule | not independently proven |
+| Production MTU 1200 + PQ ClientHello | yes both roles for X25519MLKEM768, including mutual ML-DSA at 256 | blocked by unfragmented-CH rule | not independently proven |
 
 Practical consequences:
 
@@ -269,15 +274,12 @@ Practical consequences:
    initial handshake CID, not with mid-association CID rotation.
 4. **PQ at MTU 1200 is not a three-stack result.** Ours fragments CH0
    correctly. OpenSSL `s_server` and `s_client` accepted mutual ECDSA and
-   ML-DSA-44/65/87 echo at 1200/512/256 after handshake ACKs of in-order
-   complete flights were deferred until the local final flight was on the
-   wire, disrupted or stalled incomplete flights were still ACKed, and
-   new-byte bursts stopped consuming retransmission retries. Historical
-   `unexpected_message` at 256 was our ACK arriving while OpenSSL was in
-   `TLS_ST_SW_FINISHED`. wolfSSL will not reassemble an unverified
-   fragmented CH. The OpenSSL cookie
-   listener was not retested. Independent Pion PQ at these MTUs is still
-   missing.
+   ML-DSA-44/65/87 echo at 1200/512/256 with X25519MLKEM768 and
+   ChaCha20-Poly1305; that does not cover SecP256r1MLKEM768 or
+   SecP384r1MLKEM1024. Historical `unexpected_message` at 256 was our ACK
+   arriving while OpenSSL was in `TLS_ST_SW_FINISHED`. wolfSSL will not
+   reassemble an unverified fragmented CH. The OpenSSL cookie listener is
+   untested. Independent Pion PQ at these MTUs is still missing.
 5. **Do not use `openssl s_server -listen` as a DTLS 1.3 cookie peer.** That
    flag is `DTLSv1_listen` (HelloVerifyRequest). Use `SSL_new_listener` /
    `demos/dtlslistenerecho`.
@@ -291,8 +293,8 @@ Practical consequences:
 
 | Work | Basis | Current limit |
 | --- | --- | --- |
-| Dynamic PMTU handling | RFC 9147 §4.4 / RFC 8899 | Handshake shrink; command-line confirm/search defaults on for eligible dedicated sockets with CID/RRC after final-flight ACK. Linux routed IPv4/IPv6 shrink, growth and stale-cache bypass passed. Manual probes do not raise the working size; the default ceiling stays 1200. ICMP PTB is unused by the stack. No IP PMTU query or discovery on shared listeners. [Remaining work](dtls13.md#remaining-work). |
-| Independent spare-CID and remaining production-MTU PQ interop | Coverage | No pinned peer issues spares. OpenSSL both-role mutual ML-DSA echo works at 1200/512/256. wolfSSL still needs an unfragmented first ClientHello; Pion PQ at those MTUs is untested. See [remaining work](dtls13.md#remaining-work). |
+| Dynamic PMTU handling | RFC 9147 §4.4 / RFC 8899 | Handshake shrink; command-line confirm/search defaults on for eligible dedicated sockets with CID/RRC after final-flight ACK. Ordinary CI covers in-process discovery and Linux loopback `PMTUDISC_PROBE`. Privileged CI has no DTLS PMTU tests. Historical Linux routed IPv4/IPv6 shrink/growth is not in this tree. Manual probes do not raise the working size; the default ceiling stays 1200. ICMP PTB is unused by the stack. No IP PMTU query or discovery on shared listeners. [Remaining work](dtls13.md#remaining-work). |
+| Independent spare-CID and remaining production-MTU PQ interop | Coverage | No pinned peer issues spares. OpenSSL both-role mutual ML-DSA echo at 1200/512/256 is X25519MLKEM768 only. wolfSSL still needs an unfragmented first ClientHello; Pion PQ at those MTUs is untested. See [remaining work](dtls13.md#remaining-work). |
 | RFC 9846 `general_error` | Alert mapping | Named receive/diagnostics for alert 117. Send mappings keep certificate, protocol, and `internal_error` alerts. |
 
 Sending only 16-bit sequence numbers, always including record length, and
