@@ -85,6 +85,7 @@ type session struct {
 	path                *pathState
 	working             workingMTU
 	mtu                 mtuDiscovery
+	rtt                 time.Duration
 }
 
 func newClientSession(config *Config, send func([]byte) error, now time.Time) (*session, error) {
@@ -222,8 +223,8 @@ func (s *session) startFlight(messages []handshakeMessage, now time.Time) error 
 	if err := s.installKeys(); err != nil {
 		return err
 	}
-	interval := initialRetransmit
-	if s.outbound != nil {
+	interval := s.retransmitTimer()
+	if s.outbound != nil && s.outbound.resent {
 		interval = s.outbound.interval
 	}
 	f, err := newFlight(messages, interval)
@@ -328,7 +329,8 @@ func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) (
 				continue
 			}
 			if s.outbound != nil {
-				progress := s.outbound.acknowledge(acks, r.encrypted)
+				progress, sample := s.outbound.acknowledge(acks, r.encrypted, now)
+				s.noteRTT(sample, s.outbound)
 				if progress && !s.outbound.complete {
 					if err := s.transmitFlight(now); err != nil {
 						return nil, err
@@ -461,7 +463,7 @@ func (s *session) queueAcknowledgement(number recordNumber, now time.Time) error
 		return nil
 	}
 	s.ack.pending = append(s.ack.pending, number)
-	delay := now.Add(initialRetransmit / 4)
+	delay := now.Add(s.ackDelay())
 	// RFC 9147 §7.1: restart the 1/4-retransmit quiet timer while records
 	// arrive in order, so a long flight is not ACKed while the peer is
 	// still sending. Keep the first deadline once the flight is disrupted.
@@ -491,6 +493,7 @@ func (s *session) processHandshakes(now time.Time) error {
 			return err
 		}
 		if s.outbound != nil {
+			s.noteFlightRTT(s.outbound, now)
 			s.outbound.finish()
 		}
 		if err := s.installKeys(); err != nil {

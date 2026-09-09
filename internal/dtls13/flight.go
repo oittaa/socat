@@ -9,9 +9,12 @@ import (
 const (
 	initialRetransmit = time.Second
 	maximumRetransmit = time.Minute
-	maxFlightRecords  = 65536
-	maxFlightRetries  = 8
-	flightBurst       = 10
+	// Floor after RFC 9147 §5.8.2's 1.5×RTT adjustment, so a LAN sample
+	// does not arm a millisecond retransmit timer.
+	minRetransmit    = 100 * time.Millisecond
+	maxFlightRecords = 65536
+	maxFlightRetries = 8
+	flightBurst      = 10
 )
 
 var errHandshakeTimeout = errors.New("dtls: handshake retransmissions exhausted")
@@ -24,11 +27,13 @@ type outboundMessage struct {
 	sentCount         int
 	emptyAcknowledged bool
 	emptySent         bool
+	resent            bool
 }
 
 type sentFragment struct {
 	message    int
 	start, end int
+	sentAt     time.Time
 }
 
 // A flight owns immutable messages; each transmission gets new record numbers.
@@ -37,10 +42,13 @@ type flight struct {
 	sent           map[recordNumber]sentFragment
 	interval       time.Duration
 	deadline       time.Time
+	firstSent      time.Time
 	retries        int
 	complete       bool
 	sentOnce       bool
 	ackedSinceSend bool
+	resent         bool
+	burstWait      bool
 }
 
 func newFlight(messages []handshakeMessage, interval time.Duration) (*flight, error) {
@@ -86,12 +94,12 @@ func (f *flight) transmit(now time.Time, capacity int, send func(uint64, []byte)
 	if capacity < 1 || capacity > maxContent-handshakeHeader {
 		return errRecordOverflow
 	}
-	count, err := f.sendRanges(capacity, send, true)
+	count, err := f.sendRanges(now, capacity, send, true)
 	if err != nil {
 		return err
 	}
 	if count == 0 {
-		_, err = f.sendRanges(capacity, send, false)
+		_, err = f.sendRanges(now, capacity, send, false)
 		if err != nil {
 			return err
 		}
@@ -103,7 +111,7 @@ func (f *flight) transmit(now time.Time, capacity int, send func(uint64, []byte)
 	return nil
 }
 
-func (f *flight) sendRanges(capacity int, send func(uint64, []byte) (recordNumber, error), onlyNew bool) (int, error) {
+func (f *flight) sendRanges(now time.Time, capacity int, send func(uint64, []byte) (recordNumber, error), onlyNew bool) (int, error) {
 	count := 0
 	for index := range f.messages {
 		m := &f.messages[index]
@@ -138,7 +146,14 @@ func (f *flight) sendRanges(capacity int, send func(uint64, []byte) (recordNumbe
 			if _, exists := f.sent[number]; exists {
 				return count, errSequence
 			}
-			f.sent[number] = sentFragment{index, start, end}
+			if f.firstSent.IsZero() {
+				f.firstSent = now
+			}
+			if !onlyNew {
+				m.resent = true
+				f.resent = true
+			}
+			f.sent[number] = sentFragment{message: index, start: start, end: end, sentAt: now}
 			if len(m.message.body) == 0 {
 				m.emptySent = true
 			} else {
@@ -180,17 +195,23 @@ func (f *flight) pendingSend() bool {
 
 // acknowledge ignores unknown records and unauthenticated acknowledgements of
 // protected records. Reordered ACKs for any transmission remain effective.
-func (f *flight) acknowledge(records []recordNumber, authenticated bool) bool {
+func (f *flight) acknowledge(records []recordNumber, authenticated bool, now time.Time) (bool, time.Duration) {
 	if f.complete {
-		return false
+		return false, 0
 	}
 	progress := false
+	var rtt time.Duration
 	for _, number := range records {
 		part, ok := f.sent[number]
 		if !ok || !authenticated && number.epoch != 0 {
 			continue
 		}
 		m := &f.messages[part.message]
+		if authenticated && !m.resent && !part.sentAt.IsZero() && now.After(part.sentAt) {
+			if sample := now.Sub(part.sentAt); rtt == 0 || sample < rtt {
+				rtt = sample
+			}
+		}
 		if len(m.message.body) == 0 && !m.emptyAcknowledged {
 			m.emptyAcknowledged = true
 			progress = true
@@ -210,11 +231,11 @@ func (f *flight) acknowledge(records []recordNumber, authenticated bool) bool {
 	}
 	for _, m := range f.messages {
 		if m.remaining != 0 || len(m.message.body) == 0 && !m.emptyAcknowledged {
-			return progress
+			return progress, rtt
 		}
 	}
 	f.finish()
-	return progress
+	return progress, rtt
 }
 
 func (f *flight) finish() {
@@ -235,7 +256,10 @@ func (f *flight) expire(now time.Time) (bool, error) {
 			return false, errHandshakeTimeout
 		}
 		f.retries++
+		f.resent = true
 		f.interval = min(2*f.interval, maximumRetransmit)
+	} else {
+		f.burstWait = true
 	}
 	// Remaining new bytes are the next burst, not a retransmission.
 	f.deadline = now.Add(f.interval)

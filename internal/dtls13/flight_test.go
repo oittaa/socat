@@ -84,7 +84,7 @@ func TestFlightAcknowledgesOlderTransmission(t *testing.T) {
 	if err := f.transmit(now.Add(f.interval), 50, send); err != nil {
 		t.Fatal(err)
 	}
-	if !f.acknowledge(first, true) {
+	if progress, _ := f.acknowledge(first, true, now.Add(f.interval)); !progress {
 		t.Fatal("older transmission ACK made no progress")
 	}
 	for _, n := range first {

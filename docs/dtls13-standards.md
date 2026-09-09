@@ -33,7 +33,7 @@ Unqualified paths are under `internal/dtls13/`.
 | Records, nonce/sequence reconstruction, replay, epochs | `record.go`, `protection.go`, `session.go` |
 | Transcripts, cookies, certificates, signatures | `handshake_client.go`, `handshake_server.go`, `certificate.go`, `signature.go` |
 | Stateless cookie verification and bounded admission | `cookie.go`, `admission.go`, `listener.go` |
-| Fragmentation, ACKs, retransmissions, KeyUpdate | `fragment.go`, `flight.go`, `ack.go`, `post_handshake.go` |
+| Fragmentation, ACKs, retransmissions, KeyUpdate | `fragment.go`, `flight.go`, `rtt.go`, `ack.go`, `post_handshake.go` |
 | CID pools, routing, migration, peer filters | `connection_id.go`, `listener.go`, `path.go` |
 | PMTU sizes, handshake shrink, padded RRC probes, confirm/search | `pmtu.go`, `pmtu_probe.go`, `pmtu_search.go`, `pmtu_discover.go`, `pmtu_df.go` |
 | Algorithms and Go-default alignment | `groups.go`, `offer.go`, `algorithms_test.go` |
