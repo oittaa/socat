@@ -203,7 +203,7 @@ as described in the record-layer table above.
 | **§5.2** Enhanced: challenge on preferred/old path; path_response MUST NOT switch; path_drop MUST fall back to basic | yes | n/a | n/a | yes |
 | **§5.3** path_challenge MUST be random; SHOULD be in different packets | yes 8-byte cookie | n/a | n/a | yes |
 | **§5.4** MUST NOT delay response; exactly one response per challenge; send it to the challenge source; silently discard invalid responses | yes | n/a | n/a | yes |
-| **§5.5** Timer SHOULD be 3×RTT or 1s | yes: 3× measured handshake RTT, else 1s | n/a | n/a | yes: 1s |
+| **§5.5** Timer SHOULD be 3×RTT or 1s | yes: 3× measured handshake RTT, 100ms floor, else 1s | n/a | n/a | yes: 1s |
 | **§9** SHOULD avoid the same CID on multiple paths | yes request/rotate | n/a | n/a | partial: no CID rotate |
 
 ---

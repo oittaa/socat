@@ -350,11 +350,13 @@ flights (holes or out-of-order messages) are ACKed; a quiet in-order prefix
 is ACKed after 1/4 of the current retransmit interval (RFC 9147 §7.1). After
 a handshake message is acknowledged without retransmission, the retransmit
 timer becomes 1.5× that RTT, floored at 100ms (RFC 9147 §5.8.2). Path
-validation then uses 3× the same sample, or 1s if none exists (RFC 9853
-§5.5). An in-order flight that we answer immediately is not ACKed until the
-local Finished is on the wire. Queued ACK record numbers are capped so
-unauthenticated cookie-cache traffic cannot exceed the hello-entry budget.
-New-byte flight bursts do not consume retransmission retries.
+validation then uses 3× the same sample, also floored at 100ms because the
+new path can have a longer RTT, or 1s if none exists (RFC 9853 §5.5).
+Completed flights are not sampled again. An in-order flight that we answer
+immediately is not ACKed until the local Finished is on the wire. Queued ACK
+record numbers are capped so unauthenticated cookie-cache traffic cannot
+exceed the hello-entry budget. New-byte flight bursts do not consume
+retransmission retries.
 
 In-process loss/reorder with mutual ML-DSA-44/65/87 succeeds at MTU 256
 with X25519MLKEM768 (`TestPostQuantumHandshakeLoss`). Independent OpenSSL

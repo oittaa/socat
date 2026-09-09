@@ -59,6 +59,13 @@ func TestPathChallengeTimerIsThreeRTT(t *testing.T) {
 	}
 }
 
+func TestPathChallengeTimerFloorsSmallRTT(t *testing.T) {
+	s := &session{rtt: time.Millisecond}
+	if got := s.pathChallengeTimer(); got != minRetransmit {
+		t.Fatalf("got %s want %s", got, minRetransmit)
+	}
+}
+
 func TestUnambiguousACKMeasuresRTT(t *testing.T) {
 	now := time.Unix(1, 0)
 	f, records := ackableFlight(t, now)
@@ -119,6 +126,15 @@ func TestNoteFlightRTTFromImplicitACK(t *testing.T) {
 	}
 }
 
+func TestNoteFlightRTTIgnoresCompletedFlight(t *testing.T) {
+	s := &session{rtt: 4 * time.Millisecond}
+	now := time.Unix(10, 0)
+	s.noteFlightRTT(&flight{complete: true, firstSent: now.Add(-5*time.Second - 5*time.Millisecond)}, now)
+	if s.rtt != 4*time.Millisecond {
+		t.Fatalf("got %s", s.rtt)
+	}
+}
+
 func TestPathChallengeDeadlineIsThreeRTT(t *testing.T) {
 	p := newTestPaths(t)
 	p.server.rtt = 50 * time.Millisecond
@@ -130,5 +146,24 @@ func TestPathChallengeDeadlineIsThreeRTT(t *testing.T) {
 	p.deliver(t, now)
 	if got := p.server.path.probe.deadline.Sub(now); got != 150*time.Millisecond {
 		t.Fatalf("got %s", got)
+	}
+}
+
+func TestCandidatePathAcceptsSlowerResponse(t *testing.T) {
+	p := newTestPaths(t)
+	p.server.rtt = time.Millisecond
+	now := time.Unix(1000, 0)
+	p.clientAddress = netip.MustParseAddrPort("192.0.2.3:3000")
+	if err := p.client.application([]byte("move")); err != nil {
+		t.Fatal(err)
+	}
+	p.deliver(t, now)
+	now = p.server.deadline()
+	if err := p.server.tick(now); err != nil {
+		t.Fatal(err)
+	}
+	p.deliver(t, now.Add(40*time.Millisecond))
+	if p.server.path.probe != nil || p.server.path.peer.remote != p.clientAddress {
+		t.Fatal("40ms candidate response rejected")
 	}
 }

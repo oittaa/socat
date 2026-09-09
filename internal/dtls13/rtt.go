@@ -13,12 +13,13 @@ func (s *session) ackDelay() time.Duration {
 	return s.retransmitTimer() / 4
 }
 
-// RFC 9853 §5.5: T = 3×RTT of the active path when known, otherwise 1s.
+// RFC 9853 §5.5: T = 3×RTT of the old path when known, otherwise 1s.
+// Floor at minRetransmit so a LAN sample cannot reject a slower candidate.
 func (s *session) pathChallengeTimer() time.Duration {
 	if s == nil || s.rtt <= 0 {
 		return time.Second
 	}
-	return 3 * s.rtt
+	return max(3*s.rtt, minRetransmit)
 }
 
 func (s *session) noteRTT(sample time.Duration, f *flight) {
@@ -32,7 +33,7 @@ func (s *session) noteRTT(sample time.Duration, f *flight) {
 }
 
 func (s *session) noteFlightRTT(f *flight, now time.Time) {
-	if f == nil || f.resent || f.burstWait || f.firstSent.IsZero() || !now.After(f.firstSent) {
+	if f == nil || f.complete || f.resent || f.burstWait || f.firstSent.IsZero() || !now.After(f.firstSent) {
 		return
 	}
 	s.noteRTT(now.Sub(f.firstSent), nil)
