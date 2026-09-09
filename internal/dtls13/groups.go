@@ -107,8 +107,7 @@ func (g keyExchangeGroup) combine(ec, kem []byte) []byte {
 	return append(ec, kem...)
 }
 
-func (g keyExchangeGroup) split(wire []byte, from shareOrigin) (ec, kem []byte, err error) {
-	ecSize := 0
+func (g keyExchangeGroup) componentSizes(from shareOrigin) (ecSize, kemSize int, err error) {
 	switch g.curve {
 	case ecdh.X25519():
 		ecSize = 32
@@ -119,9 +118,8 @@ func (g keyExchangeGroup) split(wire []byte, from shareOrigin) (ec, kem []byte, 
 	case ecdh.P521():
 		ecSize = 133
 	default:
-		return nil, nil, errIllegalParameter
+		return 0, 0, errIllegalParameter
 	}
-	kemSize := 0
 	switch g.kem {
 	case kemNone: // ECDH-only share; kemSize stays 0.
 	case kemMLKEM768:
@@ -135,7 +133,27 @@ func (g keyExchangeGroup) split(wire []byte, from shareOrigin) (ec, kem []byte, 
 			kemSize = mlkem.CiphertextSize1024
 		}
 	default:
-		return nil, nil, errIllegalParameter
+		return 0, 0, errIllegalParameter
+	}
+	return ecSize, kemSize, nil
+}
+
+func clientShareEntryLen(id uint16) (int, error) {
+	g, err := groupFor(id)
+	if err != nil {
+		return 0, err
+	}
+	ec, kem, err := g.componentSizes(shareFromClient)
+	if err != nil {
+		return 0, err
+	}
+	return 4 + ec + kem, nil
+}
+
+func (g keyExchangeGroup) split(wire []byte, from shareOrigin) (ec, kem []byte, err error) {
+	ecSize, kemSize, err := g.componentSizes(from)
+	if err != nil {
+		return nil, nil, err
 	}
 	if len(wire) != ecSize+kemSize {
 		return nil, nil, errIllegalParameter
