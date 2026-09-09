@@ -116,7 +116,8 @@ the search's 20-byte tolerance. All 16 captures reported zero kernel drops.
 ## Independent peers
 
 Last interoperability runs: 2026-09-08 (pinned matrices, master `cfd5566`) and
-2026-09-09 (default-settings table and empty-key-share ClientHello captures).
+2026-09-09 (default-settings table, empty-key-share ClientHello captures, and
+OpenSSL NIST hybrids at 1200/512/256).
 Pins are in
 [dtls13-baseline.json](../scripts/dtls13-baseline.json) and
 [dtls13-lab.py](../scripts/dtls13-lab.py). Limits are for those revisions.
@@ -243,17 +244,21 @@ CID). They are not the default-settings table.
 MTU 4096 (`TestInteropOpenSSLServer`) and our listener at MTU 1200
 (`TestInteropOpenSSLClient`); all three suites with mutual ML-DSA-44/65/87 at
 4096; X25519MLKEM768 at 1200/512/256 with ECDSA and mutual ML-DSA-44/65/87 in
-both roles; dropped first ClientHello for ML-DSA-44 against `s_server` at
-those MTUs; `SSL_new_listener` cookie path (`TestInteropOpenSSLCookieListener`,
+both roles; SecP256r1MLKEM768 and SecP384r1MLKEM1024 at 1200/512/256 with
+ECDSA in both roles (`TestInteropOpenSSLClientSmallMTUPQ`,
+`TestInteropOpenSSLServerSmallMTUPQ`); dropped first ClientHello for
+ML-DSA-44 against `s_server` at those MTUs, and for the NIST hybrids at 256
+(`TestInteropOpenSSLServerSmallMTUNISTHybridHandshakeLoss`);
+`SSL_new_listener` cookie path (`TestInteropOpenSSLCookieListener`,
 `TestInteropOpenSSLCookieListenerHandshakeLoss`) with all three suites, our
 client, mutual ECDSA, X25519 at 1200 and X25519MLKEM768 at 1200/512/256,
 including a dropped first ClientHello fragment and a dropped
 HelloRetryRequest. Captured UDP payloads stayed within the configured MTU
-(cookie-path sent maxima 1191/503/256). Limits: no DTLS 1.3 CID; `SSL_set_mtu`
+(cookie-path sent maxima 1191/503/256; NIST-hybrid sent maxima
+1191/503/256). Limits: no DTLS 1.3 CID; `SSL_set_mtu`
 is not usable on the listener object (datagrams of at most 228 bytes after
 accept on that path); OpenSSL may emit ACK lists larger than the MTU
-(malformed ACK bodies are discarded); NIST hybrids were not run at
-1200/512/256.
+(malformed ACK bodies are discarded).
 
 **wolfSSL (`d72f6d9`)** — pass: 21 suite×group combinations, our client at MTU
 4096; 12 mutual-auth CID cases in both roles at MTU 1200 (all suites, P-256,
@@ -278,10 +283,11 @@ hybrids and ML-DSA were not run against Pion.
 interop tests are not written. Lower priority; lab-only.
 
 OpenSSL `s_server` accepted our fragmented X25519MLKEM768 ClientHello at 256
-with ECDSA and mutual ML-DSA echo. With an empty first `key_share` it
-HelloRetryRequests X25519MLKEM768 and completes echo at 1200/512/256
-(AES-128-GCM, ECDSA). An X25519 ClientHello that already carries a share
-still completes without that extra round trip.
+with ECDSA and mutual ML-DSA echo, and the same path for SecP256r1MLKEM768
+and SecP384r1MLKEM1024 with ECDSA (including a dropped first ClientHello at
+256). With an empty first `key_share` it HelloRetryRequests the pinned hybrid
+and completes echo at 1200/512/256. An X25519 ClientHello that already
+carries a share still completes without that extra round trip.
 
 None of the pinned peers supplies independent spare-CID issuance coverage.
 System OpenSSL 3.5.5 is DTLS 1.2 only (`s_client` has no `-dtls1_3`). OpenSSL
@@ -345,12 +351,14 @@ bursts do not consume retransmission retries.
 In-process loss/reorder with mutual ML-DSA-44/65/87 succeeds at MTU 256
 with X25519MLKEM768 (`TestPostQuantumHandshakeLoss`). Independent OpenSSL
 `s_server`/`s_client` coverage at 1200/512/256 uses all three record cipher
-suites with X25519MLKEM768 (ECDSA and mutual ML-DSA-44/65/87); a dropped
-first ClientHello is ML-DSA-44 with each suite against `s_server`
-(`TestInteropOpenSSLServerSmallMTUPQHandshakeLoss`). Those results do not
-cover SecP256r1MLKEM768 or SecP384r1MLKEM1024. Large ML-DSA flights at 256
-still take several retransmission intervals because peers often do not ACK
-fragments before the next 10-record burst.
+suites with X25519MLKEM768 (ECDSA and mutual ML-DSA-44/65/87) and with
+SecP256r1MLKEM768 and SecP384r1MLKEM1024 (ECDSA). A dropped first
+ClientHello is ML-DSA-44 with each suite against `s_server` at those MTUs,
+and the NIST hybrids at 256
+(`TestInteropOpenSSLServerSmallMTUPQHandshakeLoss`,
+`TestInteropOpenSSLServerSmallMTUNISTHybridHandshakeLoss`). Large ML-DSA
+flights at 256 still take several retransmission intervals because peers
+often do not ACK fragments before the next 10-record burst.
 
 PMTU validation includes in-process discovery (`internal/dtls13/pmtu_*.go`),
 Linux loopback `PMTUDISC_PROBE` (`pmtu_df_linux_test.go`), and the opt-in

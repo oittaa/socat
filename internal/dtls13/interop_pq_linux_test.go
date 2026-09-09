@@ -24,7 +24,7 @@ func TestInteropOpenSSLMLDSA(t *testing.T) {
 			cert, roots := mldsaCertificate(t, parameters)
 			for _, suite := range defaultCipherSuites() {
 				t.Run(tls.CipherSuiteName(suite), func(t *testing.T) {
-					testOpenSSLClientMTU(t, tools, cert, roots, suite, 4096, &parameters)
+					testOpenSSLClientMTU(t, tools, cert, roots, suite, tls.X25519MLKEM768, 4096, &parameters)
 				})
 			}
 		})
@@ -38,10 +38,21 @@ func TestInteropOpenSSLClientSmallMTUPQ(t *testing.T) {
 		t.Run("ecdsa/"+strconv.Itoa(mtu), func(t *testing.T) {
 			for _, suite := range defaultCipherSuites() {
 				t.Run(tls.CipherSuiteName(suite), func(t *testing.T) {
-					testOpenSSLClientMTU(t, tools, cert, roots, suite, mtu, nil)
+					testOpenSSLClientMTU(t, tools, cert, roots, suite, tls.X25519MLKEM768, mtu, nil)
 				})
 			}
 		})
+	}
+	for _, group := range []tls.CurveID{tls.SecP256r1MLKEM768, tls.SecP384r1MLKEM1024} {
+		for _, mtu := range []int{1200, 512, 256} {
+			t.Run(group.String()+"/"+strconv.Itoa(mtu), func(t *testing.T) {
+				for _, suite := range defaultCipherSuites() {
+					t.Run(tls.CipherSuiteName(suite), func(t *testing.T) {
+						testOpenSSLClientMTU(t, tools, cert, roots, suite, group, mtu, nil)
+					})
+				}
+			})
+		}
 	}
 	for _, parameters := range []mldsa.Parameters{mldsa.MLDSA44(), mldsa.MLDSA65(), mldsa.MLDSA87()} {
 		for _, mtu := range []int{1200, 512, 256} {
@@ -50,7 +61,7 @@ func TestInteropOpenSSLClientSmallMTUPQ(t *testing.T) {
 				p := parameters
 				for _, suite := range defaultCipherSuites() {
 					t.Run(tls.CipherSuiteName(suite), func(t *testing.T) {
-						testOpenSSLClientMTU(t, tools, cert, roots, suite, mtu, &p)
+						testOpenSSLClientMTU(t, tools, cert, roots, suite, tls.X25519MLKEM768, mtu, &p)
 					})
 				}
 			})
@@ -92,6 +103,17 @@ func TestInteropOpenSSLServerSmallMTUPQ(t *testing.T) {
 			}
 		})
 	}
+	for _, group := range []tls.CurveID{tls.SecP256r1MLKEM768, tls.SecP384r1MLKEM1024} {
+		for _, mtu := range []int{1200, 512, 256} {
+			t.Run(group.String()+"/"+strconv.Itoa(mtu), func(t *testing.T) {
+				for _, suite := range defaultCipherSuites() {
+					t.Run(tls.CipherSuiteName(suite), func(t *testing.T) {
+						testOpenSSLServerMTU(t, tools, cert, roots, suite, group, mtu)
+					})
+				}
+			})
+		}
+	}
 	for _, parameters := range []mldsa.Parameters{mldsa.MLDSA44(), mldsa.MLDSA65(), mldsa.MLDSA87()} {
 		for _, mtu := range []int{1200, 512, 256} {
 			t.Run(parameters.String()+"/"+strconv.Itoa(mtu), func(t *testing.T) {
@@ -118,6 +140,19 @@ func TestInteropOpenSSLServerSmallMTUPQHandshakeLoss(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestInteropOpenSSLServerSmallMTUNISTHybridHandshakeLoss(t *testing.T) {
+	tools := loadOracleTools(t)
+	cert, roots, _, _ := oracleCertificate(t)
+	for _, suite := range defaultCipherSuites() {
+		t.Run(tls.SecP384r1MLKEM1024.String()+"/256/"+tls.CipherSuiteName(suite), func(t *testing.T) {
+			testOpenSSLServerMTULoss(t, tools, cert, roots, suite, tls.SecP384r1MLKEM1024, 256, 1)
+		})
+	}
+	t.Run(tls.SecP256r1MLKEM768.String()+"/256/"+tls.CipherSuiteName(aes128GCM), func(t *testing.T) {
+		testOpenSSLServerMTULoss(t, tools, cert, roots, aes128GCM, tls.SecP256r1MLKEM768, 256, 1)
+	})
 }
 
 type dropFirstPlainHandshake struct {
@@ -214,14 +249,14 @@ func testOpenSSLServerMTU(t *testing.T, tools oracleTools, cert tls.Certificate,
 	testOpenSSLServerMTULoss(t, tools, cert, roots, suite, group, mtu, 0)
 }
 
-func testOpenSSLClientMTU(t *testing.T, tools oracleTools, cert tls.Certificate, roots *x509.CertPool, suite uint16, mtu int, parameters *mldsa.Parameters) {
+func testOpenSSLClientMTU(t *testing.T, tools oracleTools, cert tls.Certificate, roots *x509.CertPool, suite uint16, group tls.CurveID, mtu int, parameters *mldsa.Parameters) {
 	t.Helper()
 	cert, roots, certFile, keyFile := writeOracleCertificate(t, cert, roots)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	conn := udpForOracle(t)
 	logged := &capturePacketConn{PacketConn: conn}
-	listener, err := Listen(logged, &Config{Certificates: []tls.Certificate{cert}, ClientCAs: roots, ClientAuth: tls.RequireAndVerifyClientCert, CurvePreferences: []tls.CurveID{tls.X25519MLKEM768}, CipherSuites: []uint16{suite}, MTU: mtu})
+	listener, err := Listen(logged, &Config{Certificates: []tls.Certificate{cert}, ClientCAs: roots, ClientAuth: tls.RequireAndVerifyClientCert, CurvePreferences: []tls.CurveID{group}, CipherSuites: []uint16{suite}, MTU: mtu})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,7 +266,7 @@ func testOpenSSLClientMTU(t *testing.T, tools oracleTools, cert tls.Certificate,
 		t.Logf("listener UDP sent %s recv %s mtu=%d", summarizeSizes(sizesOf(sent)), summarizeSizes(sizesOf(recv)), mtu)
 	})
 	marker := []byte("openssl-client-echo\n")
-	command := exec.CommandContext(ctx, tools.OpenSSL.OpenSSL, "s_client", "-dtls1_3", "-quiet", "-ign_eof", "-mtu", strconv.Itoa(mtu), "-connect", conn.LocalAddr().String(), "-verify_hostname", "localhost", "-verify_return_error", "-CAfile", certFile, "-cert", certFile, "-key", keyFile, "-groups", "X25519MLKEM768", "-ciphersuites", tls.CipherSuiteName(suite))
+	command := exec.CommandContext(ctx, tools.OpenSSL.OpenSSL, "s_client", "-dtls1_3", "-quiet", "-ign_eof", "-mtu", strconv.Itoa(mtu), "-connect", conn.LocalAddr().String(), "-verify_hostname", "localhost", "-verify_return_error", "-CAfile", certFile, "-cert", certFile, "-key", keyFile, "-groups", oracleGroupName(group), "-ciphersuites", tls.CipherSuiteName(suite))
 	command.Stdin = strings.NewReader(string(marker))
 	output, wait := runOracle(t, command)
 	peer, err := listener.AcceptContext(ctx)
@@ -243,7 +278,7 @@ func testOpenSSLClientMTU(t *testing.T, tools oracleTools, cert tls.Certificate,
 		t.Fatal(err)
 	}
 	state := peer.(*Conn).ConnectionState()
-	if state.Version != version13 || state.CurveID != tls.X25519MLKEM768 || state.CipherSuite != suite || len(state.VerifiedChains) == 0 {
+	if state.Version != version13 || state.CurveID != group || state.CipherSuite != suite || len(state.VerifiedChains) == 0 {
 		t.Fatal("negotiated algorithms or certificate verification missing")
 	}
 	if parameters != nil {
