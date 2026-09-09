@@ -38,9 +38,18 @@ type defaultResult struct {
 	output  string
 }
 
-func processSelfExited(err error) bool {
+// peerExitedOnItsOwn is true when the peer process finished on its own:
+// exit 0 (Wait returns nil) or a normal exit status. Harness cancellation
+// and Kill leave an ExitError whose process did not Exited() (Unix signal).
+func peerExitedOnItsOwn(err error) bool {
+	if err == nil {
+		return true
+	}
 	var ee *exec.ExitError
-	return err != nil && errors.As(err, &ee) && ee.ExitCode() > 0
+	if !errors.As(err, &ee) || ee.ProcessState == nil {
+		return false
+	}
+	return ee.ProcessState.Exited()
 }
 
 func handshakeComplete(state tls.ConnectionState) bool {
@@ -74,30 +83,33 @@ func matchDefaultResult(r defaultResult, limit defaultLimit) error {
 		if r.err == nil {
 			return fmt.Errorf("wolfSSL accepted a fragmented first ClientHello")
 		}
+		if peerExitedOnItsOwn(r.waitErr) {
+			return fmt.Errorf("wolfSSL peer exited before handshake (not CH0 timeout): %v\n%s", r.waitErr, r.output)
+		}
 		if r.stage != stageHandshake {
 			return fmt.Errorf("wolfSSL CH0 expected a handshake failure, got %s: %v\n%s", r.stage, r.err, r.output)
 		}
 		if strings.Contains(r.output, "can't load") {
 			return fmt.Errorf("wolfSSL cert-load failure, not CH0: %v\n%s", r.err, r.output)
 		}
-		if processSelfExited(r.waitErr) {
-			return fmt.Errorf("wolfSSL peer exited before handshake (not CH0 timeout): %v\n%s", r.waitErr, r.output)
+		if !errors.Is(r.err, context.DeadlineExceeded) {
+			return fmt.Errorf("wolfSSL handshake failed without timeout (not CH0): %v\n%s", r.err, r.output)
 		}
 		return nil
 	case limitPionCID:
 		if r.err == nil {
 			return nil
 		}
-		if processSelfExited(r.waitErr) {
-			return fmt.Errorf("Pion peer exited before CID exchange at %s: %v\n%s", r.stage, r.waitErr, r.output)
-		}
-		if strings.Contains(r.err.Error(), "unexpected message") {
-			return nil
-		}
 		if !handshakeComplete(r.state) {
 			return fmt.Errorf("Pion failed before handshake at %s: %v\n%s", r.stage, r.err, r.output)
 		}
-		return fmt.Errorf("Pion handshake ok but failure is not CID unexpected message at %s: %v\n%s", r.stage, r.err, r.output)
+		if r.stage != stageApplication && r.stage != stagePeerExit {
+			return fmt.Errorf("Pion CID expected after handshake, got %s: %v\n%s", r.stage, r.err, r.output)
+		}
+		if !strings.Contains(r.err.Error(), "unexpected message") {
+			return fmt.Errorf("Pion handshake ok but failure is not CID unexpected message at %s: %v\n%s", r.stage, r.err, r.output)
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown default limit %d", limit)
 	}
@@ -115,15 +127,19 @@ func TestMatchDefaultResult(t *testing.T) {
 		{name: "success", r: defaultResult{state: handshake}, limit: limitNone, ok: true},
 		{name: "success-required-fails", r: defaultResult{stage: stageHandshake, err: context.DeadlineExceeded}, limit: limitNone},
 		{name: "pion-cid-success", r: defaultResult{state: handshake}, limit: limitPionCID, ok: true},
-		{name: "pion-cid-after-handshake", r: defaultResult{stage: stageApplication, err: cidErr, state: handshake}, limit: limitPionCID, ok: true},
-		{name: "pion-cid-handshake-unexpected", r: defaultResult{stage: stageHandshake, err: cidErr}, limit: limitPionCID, ok: true},
+		{name: "pion-cid-after-handshake", r: defaultResult{stage: stageApplication, err: cidErr, state: handshake, waitErr: errors.New("signal: killed")}, limit: limitPionCID, ok: true},
+		{name: "pion-cid-peer-exit", r: defaultResult{stage: stagePeerExit, err: cidErr, state: handshake, waitErr: errors.New("signal: killed")}, limit: limitPionCID, ok: true},
+		{name: "pion-cid-handshake-unexpected", r: defaultResult{stage: stageHandshake, err: cidErr, waitErr: errors.New("signal: killed")}, limit: limitPionCID},
 		{name: "pion-cid-timeout-no-handshake", r: defaultResult{stage: stageHandshake, err: context.DeadlineExceeded}, limit: limitPionCID},
-		{name: "pion-cid-wrong-error", r: defaultResult{stage: stageApplication, err: errors.New("read timeout"), state: handshake}, limit: limitPionCID},
+		{name: "pion-cid-wrong-error", r: defaultResult{stage: stageApplication, err: errors.New("read timeout"), state: handshake, waitErr: errors.New("signal: killed")}, limit: limitPionCID},
+		{name: "pion-cid-exit-after-alert", r: defaultResult{stage: stageApplication, err: cidErr, state: handshake, waitErr: nil}, limit: limitPionCID, ok: true},
 		{name: "pion-mldsa-load", r: defaultResult{stage: stageHandshake, err: context.DeadlineExceeded, output: "invalid private key type"}, limit: limitPionMLDSA, ok: true},
 		{name: "pion-mldsa-timeout-only", r: defaultResult{stage: stageHandshake, err: context.DeadlineExceeded}, limit: limitPionMLDSA},
 		{name: "wolfssl-mldsa-load", r: defaultResult{stage: stageHandshake, err: context.DeadlineExceeded, output: "can't load server cert file"}, limit: limitWolfSSLMLDSA, ok: true},
-		{name: "wolfssl-ch0-timeout", r: defaultResult{stage: stageHandshake, err: context.DeadlineExceeded}, limit: limitWolfSSLCH0, ok: true},
-		{name: "wolfssl-ch0-application", r: defaultResult{stage: stageApplication, err: errors.New("echo")}, limit: limitWolfSSLCH0},
+		{name: "wolfssl-ch0-timeout", r: defaultResult{stage: stageHandshake, err: context.DeadlineExceeded, waitErr: errors.New("signal: killed")}, limit: limitWolfSSLCH0, ok: true},
+		{name: "wolfssl-ch0-true-exit", r: defaultResult{stage: stageHandshake, err: context.DeadlineExceeded}, limit: limitWolfSSLCH0},
+		{name: "wolfssl-ch0-alert", r: defaultResult{stage: stageHandshake, err: cidErr, waitErr: errors.New("signal: killed")}, limit: limitWolfSSLCH0},
+		{name: "wolfssl-ch0-application", r: defaultResult{stage: stageApplication, err: errors.New("echo"), waitErr: errors.New("signal: killed")}, limit: limitWolfSSLCH0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
