@@ -38,7 +38,7 @@ func (s *session) startPost(typ byte, body []byte, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	f, err := newFlight([]handshakeMessage{m}, initialRetransmit)
+	f, err := newFlight([]handshakeMessage{m}, s.retransmitTimer())
 	if err != nil {
 		return err
 	}
@@ -147,7 +147,8 @@ func (s *session) updatedKeys(secret []byte) ([]byte, *trafficKeys, error) {
 func (s *session) acknowledgePost(records []recordNumber, authenticated bool, now time.Time) error {
 	for _, typ := range postTypes {
 		if f := s.post[typ]; f != nil {
-			progress := f.acknowledge(records, authenticated)
+			progress, sample := f.acknowledge(records, authenticated, now)
+			s.noteRTT(sample, f)
 			if progress && !f.complete {
 				if err := s.transmit(f, now); err != nil {
 					return err

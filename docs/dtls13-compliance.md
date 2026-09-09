@@ -126,6 +126,7 @@ These establish support, not a complete §4.4 conformance test.
 | **§5.8.1** Server MUST ACK client's final flight for ≥2×MSL | yes (4 min / twice default MSL) | yes | yes | yes |
 | **§5.8.1** MUST discard or buffer epoch≥3 app data until peer Finished | yes | yes | yes | yes |
 | **§5.8.2** SHOULD start at 1s, double to ≥60s | yes 1s→60s, 8 retries | yes | yes | yes |
+| **§5.8.2** SHOULD use 1.5×RTT after an unambiguous ACK | yes: Karn-safe sample, 100ms floor | no (1s+double or `DTLS_set_timer_cb`) | no | no |
 | **§5.8.3** SHOULD NOT send more than 10 records in one transmission | yes (`flightBurst=10`) | unspecified | unspecified | packs more |
 | **§5.8.4** MUST NOT send another KeyUpdate / NewConnectionId / RequestConnectionId until the previous message of the same type is ACKed | yes | KeyUpdate yes; CID n/a | KeyUpdate yes; CID messages not sent | KeyUpdate yes; CID messages not sent |
 | **§5.9** HKDF label prefix SHALL be `dtls13` (no trailing space) | yes | yes | yes | yes |
@@ -202,7 +203,7 @@ as described in the record-layer table above.
 | **§5.2** Enhanced: challenge on preferred/old path; path_response MUST NOT switch; path_drop MUST fall back to basic | yes | n/a | n/a | yes |
 | **§5.3** path_challenge MUST be random; SHOULD be in different packets | yes 8-byte cookie | n/a | n/a | yes |
 | **§5.4** MUST NOT delay response; exactly one response per challenge; send it to the challenge source; silently discard invalid responses | yes | n/a | n/a | yes |
-| **§5.5** Timer SHOULD be 3×RTT or 1s | yes: 1s (no RTT estimator) | n/a | n/a | yes: 1s |
+| **§5.5** Timer SHOULD be 3×RTT or 1s | yes: 3× measured handshake RTT, else 1s | n/a | n/a | yes: 1s |
 | **§9** SHOULD avoid the same CID on multiple paths | yes request/rotate | n/a | n/a | partial: no CID rotate |
 
 ---

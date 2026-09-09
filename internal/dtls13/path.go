@@ -80,7 +80,7 @@ func (p *pathState) challenge(now time.Time) error {
 	if _, err := rand.Read(p.probe.cookie[:]); err != nil {
 		return err
 	}
-	p.probe.deadline = now.Add(time.Second)
+	p.probe.deadline = now.Add(p.session.pathChallengeTimer())
 	destination := p.peer
 	if p.probe.phase == pathValidateCandidate {
 		destination = p.probe.candidate
