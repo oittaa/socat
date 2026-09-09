@@ -317,13 +317,22 @@ Practical consequences:
 | Work | Basis | Next step |
 | --- | --- | --- |
 | PMTU validation | RFC 9147 §4.4 / RFC 8899 | Establish repeatable routed Linux IPv4/IPv6 shrink/growth checks; validate routed Windows/macOS when labs exist; exercise the 600-second search restart after the path MTU increases. |
-| Small-MTU PQ interop | Coverage | Test SecP256r1MLKEM768 and SecP384r1MLKEM1024 at 1200/512/256 against OpenSSL. Existing small-MTU coverage uses X25519MLKEM768 with all three record cipher suites. [Peer coverage and limits](dtls13.md#independent-peers). |
+| Small-MTU NIST-hybrid interop | Coverage | Test SecP256r1MLKEM768 and SecP384r1MLKEM1024 at 1200/512/256 against OpenSSL. X25519MLKEM768 at those MTUs already ran vs OpenSSL (all three suites, ECDSA and mutual ML-DSA), wolfSSL (`--pqc`, empty first `key_share` list), and Pion (CID off). [Peer coverage and limits](dtls13.md#independent-peers). |
 | Independent spare-CID interop | Coverage | Test issuance/replenishment when a reference peer supports it. Local renewal is implemented; no pinned peer issues spares. |
 
 MTU shrink and automatic confirmation/upward search on eligible dedicated
 sockets are implemented. Current PMTU coverage is in-process discovery and
 Linux loopback checks; the historical routed Linux tests are not retained.
 See [dtls13.md](dtls13.md#remaining-work) for PMTU limits and optional improvements.
+
+[RFC 9846 §4.3.8](https://www.rfc-editor.org/rfc/rfc9846.html#section-4.3.8)
+permits an empty `key_share` list in ClientHello so the server selects the
+group through HelloRetryRequest. We do that when the usual initial shares
+would exceed one handshake fragment (the same budget the flight uses). If
+the empty ClientHello still cannot fit, the original shares are sent and
+the flight fragments. That is a permitted choice, not remaining work.
+wolfSSL still rejecting a fragmented unverified first ClientHello is a
+peer limit.
 
 Sending the low 16 bits of the sequence number in protected-record headers
 is permitted; the counter itself is 64 bits and plaintext headers carry
@@ -356,5 +365,5 @@ Ordinary `make check` does not download these peers. Linux interop remains:
 ```sh
 python3 scripts/dtls13-lab.py
 SOCAT_DTLS13_TOOLS="$HOME/socat-dtls13-lab/tools.json" \
-  go test -tags dtlsinterop ./internal/dtls13 -run TestInterop -v
+  go test -tags dtlsinterop ./internal/dtls13 -run 'TestInterop|TestDefaultSettings' -v
 ```
