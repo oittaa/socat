@@ -350,8 +350,9 @@ flights (holes or out-of-order messages) are ACKed; a quiet in-order prefix
 is ACKed after 1/4 of the current retransmit interval (RFC 9147 §7.1). After
 a handshake message is acknowledged without retransmission, the retransmit
 timer becomes 1.5× that RTT, floored at 100ms (RFC 9147 §5.8.2). Path
-validation then uses 3× the same sample, also floored at 100ms because the
-new path can have a longer RTT, or 1s if none exists (RFC 9853 §5.5).
+validation uses 3× the same sample with a 100ms floor for the old path,
+or 1s if none exists. The unmeasured candidate path gets at least 1s,
+preserving a longer old-path timeout (RFC 9853 §5.5).
 Completed flights are not sampled again. An in-order flight that we answer
 immediately is not ACKed until the local Finished is on the wire. Queued ACK
 record numbers are capped so unauthenticated cookie-cache traffic cannot

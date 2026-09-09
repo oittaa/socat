@@ -14,7 +14,7 @@ func (s *session) ackDelay() time.Duration {
 }
 
 // RFC 9853 §5.5: T = 3×RTT of the old path when known, otherwise 1s.
-// Floor at minRetransmit so a LAN sample cannot reject a slower candidate.
+// Keep a 100ms minimum for the old-path check.
 func (s *session) pathChallengeTimer() time.Duration {
 	if s == nil || s.rtt <= 0 {
 		return time.Second

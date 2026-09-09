@@ -151,7 +151,7 @@ func TestPathChallengeDeadlineIsThreeRTT(t *testing.T) {
 
 func TestCandidatePathAcceptsSlowerResponse(t *testing.T) {
 	p := newTestPaths(t)
-	p.server.rtt = time.Millisecond
+	p.server.rtt = 20 * time.Millisecond
 	now := time.Unix(1000, 0)
 	p.clientAddress = netip.MustParseAddrPort("192.0.2.3:3000")
 	if err := p.client.application([]byte("move")); err != nil {
@@ -162,8 +162,8 @@ func TestCandidatePathAcceptsSlowerResponse(t *testing.T) {
 	if err := p.server.tick(now); err != nil {
 		t.Fatal(err)
 	}
-	p.deliver(t, now.Add(40*time.Millisecond))
+	p.deliver(t, now.Add(200*time.Millisecond))
 	if p.server.path.probe != nil || p.server.path.peer.remote != p.clientAddress {
-		t.Fatal("40ms candidate response rejected")
+		t.Fatal("200ms candidate response rejected")
 	}
 }
