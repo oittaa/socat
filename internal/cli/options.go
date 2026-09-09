@@ -588,7 +588,7 @@ func wsAddressTypes() []string {
 }
 
 // handshakeAddressTypes is the Go extra handshake-timeout allow-list:
-// addresses that actually perform TLS, WebSocket, QUIC, PROXY, or SOCKS
+// addresses that actually perform TLS, DTLS, WebSocket, QUIC, PROXY, or SOCKS
 // negotiation. TCP/UDP/OPEN/EXEC and other non-handshake types must reject
 // the option rather than silently ignore it.
 func handshakeAddressTypes() []string {

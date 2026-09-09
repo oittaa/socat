@@ -28,6 +28,7 @@ func TestOptionCapabilityRestrictions(t *testing.T) {
 		{name: "handshake-timeout-on-open", left: "OPEN:file,handshake-timeout=1", wantErr: "not supported"},
 		{name: "handshake-timeout-on-exec", left: "EXEC:true,handshake-timeout=1", wantErr: "not supported"},
 		{name: "handshake-timeout-on-tls", left: "TLS:127.0.0.1:1,handshake-timeout=1"},
+		{name: "handshake-timeout-on-dtls", left: "DTLS:127.0.0.1:1,handshake-timeout=1"},
 		{name: "handshake-timeout-on-quic", left: "QUIC:127.0.0.1:1,handshake-timeout=1"},
 		{name: "handshake-timeout-on-ws", left: "WS:127.0.0.1:1,handshake-timeout=1"},
 		{name: "append-on-tcp-accepted", left: "TCP:127.0.0.1:1,append"},

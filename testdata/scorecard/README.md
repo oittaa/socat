@@ -13,8 +13,7 @@ From `classic-docker-baseline.summary.txt` and
 Vs classic Docker, Go has 541 OK against 565
 classic OK (`parity_gap_total` 24 in `go-vs-classic-docker-gaps.json`).
 
-Names and per-test status are in those JSON files. DTLS:
-[docs/dtls13.md](../../docs/dtls13.md#validation).
+Names and per-test status are in those JSON files.
 
 ## Refresh
 

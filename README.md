@@ -45,7 +45,8 @@ standard input and output.
 - `socat -hhh` also lists aliases and termios names.
 
 Common flags include `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`,
-`-4`/`-6`/`-0`, and `--statistics`.
+`-4`/`-6`/`-0`, and `--statistics`. On Linux and macOS, `-ly` and `-lm`
+send logs to syslog.
 
 The command output is the authoritative feature list for the current
 platform.
@@ -88,7 +89,7 @@ The following groups summarize the implemented address families. Run
 |---|---|
 | Standard streams and descriptors | `STDIO`, `STDIN`, `STDOUT`, `STDERR`, `FD`; `ACCEPT-FD` on Linux and macOS |
 | Files and local I/O | `OPEN`, `CREATE`, `GOPEN`, `PIPE`, `FIFO`, `ECHO`, `SOCKETPAIR`, `TEXT`, `STALL`, `PTY` |
-| IP networking | TCP connect/listen, UDP connect/listen/send/receive/datagram, raw IP, generic `SOCKET` |
+| IP networking | TCP connect/listen, UDP connect/listen/send/receive/datagram, raw IP; generic `SOCKET` on Linux and macOS |
 | Local networking | Unix stream/datagram sockets on Linux and macOS; Linux abstract sockets |
 | Processes | `EXEC`, `SYSTEM`, `SHELL` |
 | Encryption and proxies | TLS, DTLS 1.3, HTTP CONNECT, SOCKS4/4A/5, SOCKS5 BIND |
@@ -110,7 +111,9 @@ EXEC:command                   SYSTEM:shell-command
 
 `OPENSSL-*` and `SSL-*` remain aliases for the corresponding TLS and DTLS
 addresses. QUIC is a byte stream over one bidirectional QUIC stream; it is
-not HTTP/3.
+not HTTP/3. On Linux and macOS, `SOCKET-*` takes a packed sockaddr, so you
+can connect or listen on families other than TCP and UDP.
+`UDP-LISTEN,fork` keeps a session per peer.
 
 ## Options
 
@@ -197,8 +200,7 @@ trusted client certificate.
   messages are not used. Datagram writes are never retried. Byte-stream
   chunks are split again and retried only after a definite too-large rejection
   before transmission, with zero bytes written and a smaller size limit.
-  Timeouts, partial writes and ambiguous errors are not retried. See
-  [DTLS validation](docs/dtls13.md#validation).
+  Timeouts, partial writes and ambiguous errors are not retried.
 - `handshake-timeout` caps negotiation at 30 seconds by default; zero removes
   that deadline, but protocol retry limits remain. `so-rcvtimeo` / `rcvtimeo`
   adds a handshake receive-wait limit (zero or omission disables it).
@@ -211,7 +213,6 @@ trusted client certificate.
   `max-version` below 1.3 is rejected. `cipher` / `ciphers` keeps its TLS 1.2
   meaning and does not select DTLS 1.3 suites.
 
-See [supported algorithms, peer limits and validation](docs/dtls13.md).
 Go supplies cryptographic and certificate-policy updates; new algorithms
 still require DTLS wire integration. Include the adapted Pion
 [MIT license](internal/dtls13/LICENSE.pion), quic-go
@@ -229,7 +230,8 @@ address and option spellings are audited automatically. The
 - On macOS, `UDP-LISTEN,fork,shut-down` keeps connected child sockets because
   `shutdown()` requires one. Concurrent peers can therefore have datagrams
   delivered to another child and dropped; the default `shut-null` path uses
-  the shared-socket peer dispatcher instead.
+  the shared-socket peer dispatcher instead. Windows rejects
+  `UDP-LISTEN,fork,shut-down` because fork sessions share the listen socket.
 - Unknown options, malformed values, and unsupported combinations fail
   explicitly instead of becoming no-ops.
 - `-s` is accepted as a compatibility no-op; error handling is unchanged and

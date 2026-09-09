@@ -12,7 +12,7 @@ func listenOptionGroups() []helpOptGroup {
 			{name: "children-shutup", optionCaps: capChild, desc: "lower fork-child log severity", aliases: []string{"child-shutup"}, validate: validateOptionalInteger(0)},
 			{name: "bind", optionCaps: capSocket, desc: "local address or interface"},
 			{name: "connect-timeout", optionCaps: capSocket, desc: "connect timeout", validate: validateDurationOption},
-			{name: "handshake-timeout", desc: "TLS, WebSocket, QUIC, PROXY, or SOCKS handshake timeout", addressTypes: handshakeAddressTypes(), validate: validateDurationOption},
+			{name: "handshake-timeout", desc: "TLS, DTLS, WebSocket, QUIC, PROXY, or SOCKS handshake timeout", addressTypes: handshakeAddressTypes(), validate: validateDurationOption},
 			{name: "accept-timeout", optionCaps: capListen, desc: "listen accept timeout (exit 0)", aliases: []string{"listen-timeout"}, validate: validateDurationOption},
 			{name: "backlog", optionCaps: capListen, desc: "listen backlog", addressTypes: backlogListenAddressTypes(), validate: validateInteger(1)},
 			{name: "pf", optionCaps: capSocket, desc: "address family (4, 6, IP4, IP6, …)", aliases: []string{"protocol-family"}},
