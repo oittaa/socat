@@ -129,9 +129,9 @@ first; when we are the server we pick AES-128-GCM from the intersection.
 | wolfSSL `d72f6d9` | ECDSA P-256 | fail: fragmented first ClientHello at MTU 1200 | pass: AES-128-GCM / X25519MLKEM768 |
 | wolfSSL `d72f6d9` | ML-DSA-65 | fail: example server cannot load the cert | fail: example client cannot load the cert |
 | wolfSSL `d72f6d9` | ML-DSA-65, then ECDSA P-256 | fail: fragmented first ClientHello at MTU 1200 | pass: AES-128-GCM / X25519MLKEM768; ECDSA fallback |
-| Pion `59f4c33` | ECDSA P-256 | handshake AES-128-GCM / X25519MLKEM768, then fail: `unexpected message` (CID) | handshake AES-128-GCM / X25519MLKEM768, then fail: `unexpected message` (CID) |
+| Pion `59f4c33` | ECDSA P-256 | handshake AES-128-GCM / X25519MLKEM768, then often fail: `unexpected message` (CID) | handshake AES-128-GCM / X25519MLKEM768, then often fail: `unexpected message` (CID) |
 | Pion `59f4c33` | ML-DSA-65 | fail: `invalid private key type` | fail: `invalid private key type` |
-| Pion `59f4c33` | ML-DSA-65, then ECDSA P-256 | handshake AES-128-GCM / X25519MLKEM768 (ECDSA fallback), then fail: `unexpected message` (CID) | handshake AES-128-GCM / X25519MLKEM768 (ECDSA fallback), then fail: `unexpected message` (CID) |
+| Pion `59f4c33` | ML-DSA-65, then ECDSA P-256 | ECDSA fallback; same CID result as the ECDSA row | ECDSA fallback; same CID result as the ECDSA row |
 | BoringSSL `4a92579` | ECDSA P-256 | n/a: no packet-BIO interop | n/a |
 | BoringSSL `4a92579` | ML-DSA-65 | n/a | n/a |
 | BoringSSL `4a92579` | ML-DSA-65, then ECDSA P-256 | n/a | n/a |
