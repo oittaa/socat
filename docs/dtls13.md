@@ -58,7 +58,8 @@ shared with that adapted code.
 ## Independent peers
 
 Last interoperability runs: 2026-09-08 (pinned matrices, master `cfd5566`) and
-2026-09-09 (default-settings table, `TestDefaultSettings*`). Pins are in
+2026-09-09 (default-settings table and empty-key-share ClientHello captures).
+Pins are in
 [dtls13-baseline.json](../scripts/dtls13-baseline.json) and
 [dtls13-lab.py](../scripts/dtls13-lab.py). Limits are for those revisions.
 
@@ -92,7 +93,7 @@ Library `Config` zeros (`prepareConfig`) used by `TestDefaultSettings*`:
 | Handshake timeout | 30s; 256 listener associations |
 | `UnfragmentedProbes` | off for `Client`/`Listen`. Command-line clients still default it on for eligible dedicated sockets. |
 | Cipher suites | AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305 when AES-GCM hardware is present; ChaCha first otherwise |
-| Groups | X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024, X25519, P-256, P-384, P-521. The ClientHello sends the preferred share plus an X25519 fallback; other groups use HelloRetryRequest. |
+| Groups | X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024, X25519, P-256, P-384, P-521. The first ClientHello sends the preferred share plus an X25519 fallback when they fit one handshake fragment. Otherwise it sends an empty `key_share` list and HelloRetryRequest supplies the selected group. Other groups already use HelloRetryRequest. |
 | `signature_algorithms` | ML-DSA-44, ML-DSA-65, ML-DSA-87, then RSA-PSS SHA-256, ECDSA P-256, Ed25519, RSA-PSS SHA-384/512, ECDSA P-384/P-521 |
 
 Cookies are always required. The ECDSA P-256 and ML-DSA-65 rows use one
@@ -143,24 +144,31 @@ X25519MLKEM768 without `--pqc`, but initially sends a P-256 key share in a
 263-byte ClientHello. Our HelloRetryRequest requests X25519MLKEM768 and
 supplies a cookie. The cookie-bearing retry spans 1400-byte and 158-byte
 datagrams at their compile-time send MTU of 1400; our listener accepts it.
-In the opposite direction, our initial hybrid ClientHello is fragmented at
-MTU 1200, which wolfSSL rejects before cookie validation. The hybrid share
-alone is 1216 bytes, so removing our fallback X25519 share would not avoid
-fragmentation.
+In the opposite direction, a hybrid key share is 1216 bytes and would
+fragment at MTU 1200. The first ClientHello therefore sends an empty
+`key_share` list (the extension is still present). Default-settings
+ClientHello measured 167 bytes; 151 bytes came from the constrained
+suite/group configuration. wolfSSL HelloRetryRequests a cookie and a
+group; the cookie-bearing retry may fragment and is accepted. Default
+settings omit `--pqc`, so their server selected P-256 and AES-256-GCM.
+With `--pqc X25519MLKEM768` it selected X25519MLKEM768 (cookie length 69
+on the retry).
 
-On this AES-NI host the pass rows negotiated **AES-128-GCM / X25519MLKEM768**:
-we prefer AES-128-GCM first, and both OpenSSL and wolfSSL advertised
-X25519MLKEM768. OpenSSL's own TLS 1.3 cipher list still lists AES-256-GCM
-first; when we are the server we pick AES-128-GCM from the intersection.
+On this AES-NI host OpenSSL and Pion still negotiated **AES-128-GCM /
+X25519MLKEM768**. OpenSSL `s_server` HelloRetryRequests the missing hybrid
+share (no cookie in that capture), which is one extra round trip compared
+with an X25519 ClientHello that already carries a share. When we are the
+server we pick AES-128-GCM from the intersection. wolfSSL as client still
+completes AES-128-GCM / X25519MLKEM768.
 
 | Peer | Certificate | Ours as client | Ours as server |
 | --- | --- | --- | --- |
 | OpenSSL `82733d9` | ECDSA P-256 | pass: AES-128-GCM / X25519MLKEM768 | pass: AES-128-GCM / X25519MLKEM768 |
 | OpenSSL `82733d9` | ML-DSA-65 | pass: AES-128-GCM / X25519MLKEM768 | pass: AES-128-GCM / X25519MLKEM768 |
 | OpenSSL `82733d9` | ML-DSA-65, then ECDSA P-256 | pass: AES-128-GCM / X25519MLKEM768; peer selected ML-DSA-65 | pass: AES-128-GCM / X25519MLKEM768; we selected ML-DSA-65 |
-| wolfSSL `d72f6d9` | ECDSA P-256 | fail: fragmented first ClientHello at MTU 1200 | pass: AES-128-GCM / X25519MLKEM768 |
+| wolfSSL `d72f6d9` | ECDSA P-256 | pass: AES-256-GCM / P-256 (no `--pqc`) | pass: AES-128-GCM / X25519MLKEM768 |
 | wolfSSL `d72f6d9` | ML-DSA-65 | fail: example server cannot load the cert | fail: example client cannot load the cert |
-| wolfSSL `d72f6d9` | ML-DSA-65, then ECDSA P-256 | fail: fragmented first ClientHello at MTU 1200 | pass: AES-128-GCM / X25519MLKEM768; ECDSA fallback |
+| wolfSSL `d72f6d9` | ML-DSA-65, then ECDSA P-256 | pass: AES-256-GCM / P-256 (no `--pqc`); ECDSA fallback | pass: AES-128-GCM / X25519MLKEM768; ECDSA fallback |
 | Pion `59f4c33` | ECDSA P-256 | handshake AES-128-GCM / X25519MLKEM768, then often fail: `unexpected message` (CID) | handshake AES-128-GCM / X25519MLKEM768, then often fail: `unexpected message` (CID) |
 | Pion `59f4c33` | ML-DSA-65 | fail: `invalid private key type` | fail: `invalid private key type` |
 | Pion `59f4c33` | ML-DSA-65, then ECDSA P-256 | ECDSA fallback; same CID result as the ECDSA row | ECDSA fallback; same CID result as the ECDSA row |
@@ -191,10 +199,12 @@ accept on that path); OpenSSL may emit ACK lists larger than the MTU
 
 **wolfSSL (`d72f6d9`)** — pass: 21 suite×group combinations, our client at MTU
 4096; 12 mutual-auth CID cases in both roles at MTU 1200 (all suites, P-256,
-request ACKs, rotation with lost ACKs and KeyUpdate). Limits: rejects a
-fragmented unverified first ClientHello, so PQ at 1200/512/256 times out; no
-spare issuance/replenishment or RFC 9853 RRC. The lab build enlarges the extra
-read buffer to 4096 bytes for hybrid offers.
+request ACKs, rotation with lost ACKs and KeyUpdate); X25519MLKEM768 with
+AES-128-GCM, `--pqc`, empty first `key_share` list, cookie HelloRetryRequest, and
+echo at 1200/512/256 (retry fragments 2/3/7). Limits: still rejects a
+fragmented unverified first ClientHello; no spare issuance/replenishment or
+RFC 9853 RRC. The lab build enlarges the extra read buffer to 4096 bytes for
+hybrid offers.
 
 **Pion (`59f4c33`)** — pass: mutual authentication, bidirectional KeyUpdate and
 rebinding/RRC in both roles through protocol drivers using initial CIDs;
@@ -210,7 +220,10 @@ hybrids and ML-DSA were not run against Pion.
 interop tests are not written. Lower priority; lab-only.
 
 OpenSSL `s_server` accepted our fragmented X25519MLKEM768 ClientHello at 256
-with ECDSA and mutual ML-DSA echo.
+with ECDSA and mutual ML-DSA echo. With an empty first `key_share` it
+HelloRetryRequests X25519MLKEM768 and completes echo at 1200/512/256
+(AES-128-GCM, ECDSA). An X25519 ClientHello that already carries a share
+still completes without that extra round trip.
 
 None of the pinned peers supplies independent spare-CID issuance coverage.
 System OpenSSL 3.5.5 is DTLS 1.2 only (`s_client` has no `-dtls1_3`). OpenSSL
@@ -227,11 +240,14 @@ mapping is still `draft-ietf-tls-mldsa-05` (IESG approved, RFC not published).
   `internal/xio/dtlsopen`, including RFC 9846 §1.2.
 - Spare-CID issuance/replenishment interop when a reference peer supports it.
   Local renewal is implemented; this interop gap is not a merge blocker.
-- wolfSSL still requires an unfragmented first ClientHello, so our
-  default-settings client (and PQ at 1200/512/256) times out. Our listener
-  accepts wolfSSL's fragmented, cookie-bearing retry and completes ECDSA
-  with X25519MLKEM768. Independent Pion public-API coverage at 1200/512/256
-  is X25519MLKEM768 with all three record cipher suites and CID disabled.
+- wolfSSL still rejects a fragmented unverified first ClientHello. Our
+  client now sends an empty `key_share` list when initial shares would
+  fragment so that flight stays in one datagram; default-settings wolfSSL
+  without `--pqc` then selects P-256.
+  Independent Pion public-API coverage at 1200/512/256 is X25519MLKEM768
+  with all three record cipher suites and CID disabled. Migration-enabled
+  Pion public endpoints still often fail after handshake on
+  `RequestConnectionID`.
 - PMTU: routed Windows/macOS validation awaits suitable test environments.
   Possible improvements: RTT-based probe spacing, safe discovery on shared
   listeners, and OS PMTU hints without connecting the active migration socket.

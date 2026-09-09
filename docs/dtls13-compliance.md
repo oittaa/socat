@@ -268,7 +268,7 @@ ChaCha20-Poly1305; 21 combinations means three suites × seven groups.
 | Area | OpenSSL 4.1 | wolfSSL | Pion |
 | --- | --- | --- | --- |
 | Mutual cert, AES-GCM/ChaCha, classical groups | yes both roles | yes our client; CID tests both roles | yes both roles (drivers) |
-| X25519MLKEM768 / NIST hybrids | 21 suite/group combinations include both NIST hybrids: our client at MTU 4096, our listener at default 1200; 1200/512/256 is X25519MLKEM768 with all three suites | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 public APIs at 1200/512/256 with all three suites and CID off; NIST hybrids not run |
+| X25519MLKEM768 / NIST hybrids | 21 suite/group combinations include both NIST hybrids: our client at MTU 4096, our listener at default 1200; 1200/512/256 is X25519MLKEM768 with all three suites | yes our client at MTU 4096; empty first `key_share` plus cookie HelloRetryRequest at 1200/512/256 (AES-128-GCM, `--pqc`) | X25519MLKEM768 public APIs at 1200/512/256 with all three suites and CID off; NIST hybrids not run |
 | ML-DSA-44/65/87 | yes mutual echo at 4096 and both roles at 1200/512/256 with X25519MLKEM768 and all three suites; default-settings dual-cert trusts ML-DSA and ECDSA CAs (`-CApath`/`-CAfile`), OpenSSL `s_server` presents ML-DSA-65 | library yes; not in our interop matrix; dual-cert falls back to ECDSA | no; dual-cert falls back to ECDSA then CID fails |
 | Fragmented first ClientHello | stateful `s_server` and `SSL_new_listener` cookie path accept ours | **rejects** unverified fragmented CH (even with `WOLFSSL_DTLS_CH_FRAG`) | yes |
 | Cookies / 3× amplification | HMAC cookie; no 3× cap | HMAC cookie; no 3× cap | stateful cookie; no HS 3× |
@@ -276,7 +276,7 @@ ChaCha20-Poly1305; 21 combinations means three suites × seven groups.
 | CID request / new / spare | **no DTLS 1.3 CID at all** | parse Request, ignore; spare discarded; immediate replace works | codec only; `ErrNotImplemented` on send |
 | RFC 9853 RRC | no | no | yes both roles with **initial** CIDs |
 | PSK / 0-RTT / resumption | yes in OpenSSL | yes in wolfSSL | 1.2 PSK only |
-| Production MTU 1200 + PQ ClientHello | yes both roles for X25519MLKEM768 with all three suites, including mutual ML-DSA at 256 | blocked by unfragmented-CH rule | yes public APIs for X25519MLKEM768 with all three suites; CID off |
+| Production MTU 1200 + PQ ClientHello | yes both roles for X25519MLKEM768 with all three suites, including mutual ML-DSA at 256 | empty first `key_share`; `--pqc` hybrid AES-128-GCM echo at 1200/512/256 | yes public APIs for X25519MLKEM768 with all three suites; CID off |
 
 Practical consequences:
 
@@ -289,16 +289,18 @@ Practical consequences:
    spares do not fully interoperate (Pion rejects CID-management messages).
 3. **RRC/migration can only be tested against Pion**, and only with the
    initial handshake CID, not with mid-association CID rotation.
-4. **PQ at MTU 1200 is not a three-stack result.** Ours fragments CH0
-   correctly. OpenSSL `s_server` and `s_client` accepted mutual ECDSA and
-   ML-DSA-44/65/87 echo at 1200/512/256 with X25519MLKEM768 and all three
-   suites; that does not cover SecP256r1MLKEM768 or
+4. **PQ at MTU 1200 includes wolfSSL when the first ClientHello sends an
+   empty `key_share` list.** OpenSSL `s_server` and `s_client` accepted mutual
+   ECDSA and ML-DSA-44/65/87 echo at 1200/512/256 with X25519MLKEM768 and
+   all three suites; that does not cover SecP256r1MLKEM768 or
    SecP384r1MLKEM1024. Historical `unexpected_message` at 256 was our ACK
-   arriving while OpenSSL was in `TLS_ST_SW_FINISHED`. wolfSSL will not
-   reassemble an unverified fragmented CH. The OpenSSL `SSL_new_listener`
-   cookie path accepted our fragmented X25519MLKEM768 ClientHello at
-   1200/512/256 with all three suites, including a dropped first fragment and
-   a dropped HelloRetryRequest (`TestInteropOpenSSLCookieListenerHandshakeLoss`).
+   arriving while OpenSSL was in `TLS_ST_SW_FINISHED`. wolfSSL still will
+   not reassemble an unverified fragmented CH; with an empty first
+   `key_share` it accepted a cookie-bearing hybrid retry at 1200/512/256
+   (AES-128-GCM, `--pqc`). The OpenSSL `SSL_new_listener` cookie path
+   accepted our fragmented X25519MLKEM768 ClientHello at 1200/512/256 with
+   all three suites, including a dropped first fragment and a dropped
+   HelloRetryRequest (`TestInteropOpenSSLCookieListenerHandshakeLoss`).
    Independent Pion public-API PQ at these MTUs is X25519MLKEM768 with all
    three suites and CID disabled.
 5. **Do not use `openssl s_server -listen` as a DTLS 1.3 cookie peer.** That

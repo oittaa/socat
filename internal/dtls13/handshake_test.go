@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,4 +66,24 @@ func runHandshake(t *testing.T, clientConfig, serverConfig *Config) (*clientHand
 		return client, server.server, fmt.Errorf("handshake did not complete")
 	}
 	return client, server.server, nil
+}
+
+func TestInitialClientHelloOneDatagram(t *testing.T) {
+	clientConfig, _ := handshakeConfigs(t)
+	clientConfig.MTU = 1512
+	clientConfig.CurvePreferences = []tls.CurveID{tls.X25519MLKEM768}
+	clientConfig.NextProtos = []string{strings.Repeat("a", 130)}
+	n := 0
+	if _, err := newClientSession(clientConfig, func([]byte) error { n++; return nil }, time.Unix(100, 0)); err != nil || n != 1 {
+		t.Fatalf("initial datagrams = %d, %v", n, err)
+	}
+}
+
+func TestEmptyClientHelloOverflowHandshake(t *testing.T) {
+	clientConfig, serverConfig := handshakeConfigs(t)
+	clientConfig.MTU = 256
+	clientConfig.NextProtos = []string{strings.Repeat("a", 200)}
+	if _, _, err := runHandshake(t, clientConfig, serverConfig); err != nil {
+		t.Fatal(err)
+	}
 }

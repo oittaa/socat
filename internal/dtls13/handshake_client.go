@@ -84,7 +84,7 @@ func newClientHandshake(config *Config) (*clientHandshake, []handshakeMessage, e
 		h.hello.extensions[extConnectionID] = cid.data
 		h.hello.extensions[extRRC] = nil
 	}
-	body, err := h.hello.marshal()
+	body, err := h.fitInitialClientHello()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -97,6 +97,39 @@ func newClientHandshake(config *Config) (*clientHandshake, []handshakeMessage, e
 		return nil, nil, err
 	}
 	return h, []handshakeMessage{m}, nil
+}
+
+func clientHelloFitsDatagram(body []byte, mtu int) bool {
+	return len(body) <= fragmentBudget(mtu, 0)
+}
+
+// fitInitialClientHello keeps the usual initial shares when they fit one
+// datagram. Otherwise it sends an empty key_share list so the first
+// ClientHello stays unfragmented; HelloRetryRequest supplies the share.
+// If the empty ClientHello still cannot fit, the original key_share
+// extension and body are kept and the flight fragments normally.
+func (h *clientHandshake) fitInitialClientHello() ([]byte, error) {
+	body, err := h.hello.marshal()
+	if err != nil {
+		return nil, err
+	}
+	if clientHelloFitsDatagram(body, h.config.MTU) {
+		return body, nil
+	}
+	original := h.hello.extensions[extKeyShare]
+	empty := wireWriter{}
+	empty.vector16(nil)
+	h.hello.extensions[extKeyShare] = empty.data
+	emptyBody, err := h.hello.marshal()
+	if err != nil {
+		return nil, err
+	}
+	if !clientHelloFitsDatagram(emptyBody, h.config.MTU) {
+		h.hello.extensions[extKeyShare] = original
+		return body, nil
+	}
+	h.shares = map[uint16]*keyShare{}
+	return emptyBody, nil
 }
 
 func (h *clientHandshake) handle(m handshakeMessage) ([]handshakeMessage, error) {
