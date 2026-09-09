@@ -202,16 +202,20 @@ func (s *session) sendRecordLimited(epoch uint64, typ byte, body, cid []byte, pa
 	return number, nil
 }
 
+func fragmentBudget(mtu, cid int) int {
+	n := mtu - handshakeHeader - 5 - cid - 17
+	if n < 1 {
+		n = 1
+	}
+	return min(n, maxContent-handshakeHeader)
+}
+
 func (s *session) fragmentCapacity() int {
 	cid := 0
 	if s.handshake.cidNegotiated {
 		cid = len(s.handshake.peerCID)
 	}
-	n := s.effectiveMTU() - handshakeHeader - 5 - cid - 17
-	if n < 1 {
-		n = 1
-	}
-	return min(n, maxContent-handshakeHeader)
+	return fragmentBudget(s.effectiveMTU(), cid)
 }
 
 func (s *session) startFlight(messages []handshakeMessage, now time.Time) error {

@@ -100,7 +100,7 @@ func newClientHandshake(config *Config) (*clientHandshake, []handshakeMessage, e
 }
 
 func clientHelloFitsDatagram(body []byte, mtu int) bool {
-	return plainHeader+handshakeHeader+len(body) <= mtu
+	return len(body) <= fragmentBudget(mtu, 0)
 }
 
 // fitInitialClientHello keeps the usual initial shares when they fit one

@@ -93,7 +93,7 @@ Library `Config` zeros (`prepareConfig`) used by `TestDefaultSettings*`:
 | Handshake timeout | 30s; 256 listener associations |
 | `UnfragmentedProbes` | off for `Client`/`Listen`. Command-line clients still default it on for eligible dedicated sockets. |
 | Cipher suites | AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305 when AES-GCM hardware is present; ChaCha first otherwise |
-| Groups | X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024, X25519, P-256, P-384, P-521. The first ClientHello sends the preferred share plus an X25519 fallback when they fit one datagram (record and handshake headers). Otherwise it sends an empty `key_share` list and HelloRetryRequest supplies the selected group. Other groups already use HelloRetryRequest. |
+| Groups | X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024, X25519, P-256, P-384, P-521. The first ClientHello sends the preferred share plus an X25519 fallback when they fit one handshake fragment. Otherwise it sends an empty `key_share` list and HelloRetryRequest supplies the selected group. Other groups already use HelloRetryRequest. |
 | `signature_algorithms` | ML-DSA-44, ML-DSA-65, ML-DSA-87, then RSA-PSS SHA-256, ECDSA P-256, Ed25519, RSA-PSS SHA-384/512, ECDSA P-384/P-521 |
 
 Cookies are always required. The ECDSA P-256 and ML-DSA-65 rows use one
