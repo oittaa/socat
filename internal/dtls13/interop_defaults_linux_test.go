@@ -72,7 +72,7 @@ func opensslTrustArgs(creds defaultCreds) []string {
 func opensslServerArgs(creds defaultCreds, accept string) []string {
 	cert, key := creds.opensslServerCert()
 	args := []string{
-		"s_server", "-dtls1_3", "-quiet", "-ign_eof", "-naccept", "1",
+		"s_server", "-dtls1_3", "-brief", "-ign_eof", "-naccept", "1",
 		"-accept", accept, "-Verify", "1", "-verify_return_error",
 		"-cert", cert, "-key", key,
 	}
@@ -85,7 +85,7 @@ func opensslServerArgs(creds defaultCreds, accept string) []string {
 
 func opensslClientArgs(creds defaultCreds, connect string) []string {
 	args := []string{
-		"s_client", "-dtls1_3", "-quiet", "-ign_eof",
+		"s_client", "-dtls1_3", "-brief", "-ign_eof",
 		"-connect", connect, "-verify_hostname", "localhost", "-verify_return_error",
 		"-cert", creds.certFile, "-key", creds.keyFile,
 	}

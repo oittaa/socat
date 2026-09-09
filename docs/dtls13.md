@@ -73,9 +73,11 @@ Collect the default-settings rows on the Linux lab with:
 SOCAT_DTLS13_TOOLS=/path/to/tools.json go test -v -tags dtlsinterop ./internal/dtls13 -run '^TestDefaultSettings' -count=1
 ```
 
-Each case reports the negotiated cipher, group and peer certificate after a
-verified handshake, then checks the echo. Errors fail that row and include the
-peer's exit status and output; the other rows still run. The command returns
+Each case reads the negotiated cipher, group and peer certificate from our
+connection state after a verified handshake, then checks the echo. Raw peer
+output is retained on success and failure; OpenSSL's `-brief` summary shows its
+view of the connection and the certificate we presented. Errors fail that row
+and include the peer's exit status; the other rows still run. The command returns
 nonzero when any exchange fails, including the peer limitations documented below.
 These lab measurements are excluded from ordinary `make check`.
 
@@ -116,9 +118,10 @@ Peer CLIs still need a DTLS 1.3 version switch (`s_client`/`s_server
 
 OpenSSL 4.1 (`82733d9`) defaults that affect this table:
 
-- Groups (`TLS_DEFAULT_GROUP_LIST`): X25519MLKEM768 first (with a key share),
-  then SecP256r1MLKEM768, X25519, P-256, X448, P-384, P-521. Not
-  SecP384r1MLKEM1024.
+- Groups (`TLS_DEFAULT_GROUP_LIST`): X25519MLKEM768, SecP256r1MLKEM768,
+  curveSM2MLKEM768; then X25519, P-256; X448, P-384, P-521; curveSM2;
+  ffdhe2048, ffdhe3072. Unavailable groups are skipped. X25519MLKEM768 and
+  X25519 have initial key shares. SecP384r1MLKEM1024 is absent.
 - TLS 1.3 ciphers (`openssl ciphers -tls1_3 -s`): AES-256-GCM, ChaCha20-Poly1305,
   AES-128-GCM.
 - `signature_algorithms`: ML-DSA-65, ML-DSA-87, ML-DSA-44, then ECDSA/EdDSA/RSA

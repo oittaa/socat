@@ -134,7 +134,10 @@ func runOracle(t *testing.T, command *exec.Cmd) (*oracleBuffer, func() error) {
 		}
 		err := wait()
 		if t.Failed() {
-			t.Logf("peer exit: %v; wait: %v\npeer output:\n%s", command.ProcessState, err, output.String())
+			t.Logf("peer exit: %v; wait: %v", command.ProcessState, err)
+		}
+		if report := output.String(); report != "" {
+			t.Logf("peer output:\n%s", report)
 		}
 	})
 	return output, wait
