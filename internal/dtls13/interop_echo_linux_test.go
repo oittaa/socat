@@ -5,22 +5,7 @@ package dtls13
 import (
 	"bytes"
 	"fmt"
-	"os/exec"
 )
-
-func collectOracle(command *exec.Cmd, wait func() error, output *oracleBuffer) (string, error) {
-	if command != nil && command.Process != nil && command.ProcessState == nil {
-		_ = command.Process.Kill()
-	}
-	var waitErr error
-	if wait != nil {
-		waitErr = wait()
-	}
-	if output == nil {
-		return "", waitErr
-	}
-	return output.String(), waitErr
-}
 
 func waitOracleContains(wait func() error, output *oracleBuffer, want []byte) error {
 	if err := wait(); err != nil {

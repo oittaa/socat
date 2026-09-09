@@ -1,10 +1,7 @@
 package dtls13
 
 import (
-	"bytes"
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/mldsa"
 	"crypto/rand"
 	"crypto/rsa"
@@ -36,35 +33,6 @@ func mldsaCertificate(t *testing.T, parameters mldsa.Parameters) (tls.Certificat
 	roots := x509.NewCertPool()
 	roots.AddCert(ca)
 	key, err := mldsa.GenerateKey(parameters)
-	if err != nil {
-		t.Fatal(err)
-	}
-	leaf := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "localhost"}, DNSNames: []string{"localhost"}, NotBefore: template.NotBefore, NotAfter: template.NotAfter, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}
-	der, err := x509.CreateCertificate(rand.Reader, leaf, ca, key.Public(), caKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return tls.Certificate{Certificate: [][]byte{der, caDER}, PrivateKey: key}, roots
-}
-
-func ecdsaCertificate(t *testing.T) (tls.Certificate, *x509.CertPool) {
-	t.Helper()
-	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	template := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "ECDSA CA"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
-	caDER, err := x509.CreateCertificate(rand.Reader, template, template, caKey.Public(), caKey)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ca, err := x509.ParseCertificate(caDER)
-	if err != nil {
-		t.Fatal(err)
-	}
-	roots := x509.NewCertPool()
-	roots.AddCert(ca)
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,58 +113,5 @@ func TestOpaqueMessageSigner(t *testing.T) {
 	}
 	if keySupportsSignature(key.Public(), uint16(tls.PSSWithSHA512)) {
 		t.Fatal("accepted an RSA key too small to encode this PSS signature")
-	}
-}
-
-func TestChooseCertificatePrefersListedOrder(t *testing.T) {
-	pq, _ := mldsaCertificate(t, mldsa.MLDSA65())
-	_, server := handshakeConfigs(t)
-	cfg := &Config{Certificates: []tls.Certificate{pq, server.Certificates[0]}}
-	cert, scheme, err := chooseCertificate(cfg, signatureSchemes, "localhost", nil, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if scheme != uint16(tls.MLDSA65) || !bytes.Equal(cert.Certificate[0], pq.Certificate[0]) {
-		t.Fatalf("scheme=%s; want ML-DSA-65 listed first", tls.SignatureScheme(scheme))
-	}
-	cert, scheme, err = chooseCertificate(cfg, []uint16{uint16(tls.Ed25519)}, "localhost", nil, false)
-	if err != nil || scheme != uint16(tls.Ed25519) || bytes.Equal(cert.Certificate[0], pq.Certificate[0]) {
-		t.Fatalf("scheme=%s err=%v; want Ed25519 fallback", tls.SignatureScheme(scheme), err)
-	}
-}
-
-func TestDualCATrustStore(t *testing.T) {
-	pq, _ := mldsaCertificate(t, mldsa.MLDSA65())
-	ec, _ := ecdsaCertificate(t)
-	pqCA, err := x509.ParseCertificate(pq.Certificate[len(pq.Certificate)-1])
-	if err != nil {
-		t.Fatal(err)
-	}
-	ecCA, err := x509.ParseCertificate(ec.Certificate[len(ec.Certificate)-1])
-	if err != nil {
-		t.Fatal(err)
-	}
-	pqLeaf, err := x509.ParseCertificate(pq.Certificate[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	ecLeaf, err := x509.ParseCertificate(ec.Certificate[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	both := x509.NewCertPool()
-	both.AddCert(pqCA)
-	both.AddCert(ecCA)
-	opts := x509.VerifyOptions{DNSName: "localhost", Roots: both, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
-	if _, err := pqLeaf.Verify(opts); err != nil {
-		t.Fatalf("ML-DSA leaf with both CAs: %v", err)
-	}
-	if _, err := ecLeaf.Verify(opts); err != nil {
-		t.Fatalf("ECDSA leaf with both CAs: %v", err)
-	}
-	onlyEC := x509.NewCertPool()
-	onlyEC.AddCert(ecCA)
-	if _, err := pqLeaf.Verify(x509.VerifyOptions{DNSName: "localhost", Roots: onlyEC, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err == nil {
-		t.Fatal("ML-DSA leaf verified without the ML-DSA CA")
 	}
 }

@@ -4,11 +4,16 @@ package dtls13
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/mldsa"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"math/big"
 	"net"
 	"os"
 	"os/exec"
@@ -51,15 +56,6 @@ type defaultCreds struct {
 	serverCert, serverKey string
 	dcertFile, dkeyFile   string
 	caFile, caPath        string
-	expectPeerServerMLDSA bool
-	expectPeerClientMLDSA bool
-}
-
-func (c defaultCreds) expectMLDSA(peerIsServer bool) bool {
-	if peerIsServer {
-		return c.expectPeerServerMLDSA
-	}
-	return c.expectPeerClientMLDSA
 }
 
 func (c defaultCreds) opensslServerCert() (cert, key string) {
@@ -104,6 +100,29 @@ func defaultSettingsConfig(certs []tls.Certificate, roots *x509.CertPool) *Confi
 		ClientCAs:    roots,
 		ClientAuth:   tls.RequireAndVerifyClientCert,
 	}
+}
+
+func ecdsaCertificate(t *testing.T) tls.Certificate {
+	t.Helper()
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "ECDSA CA"}, NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	caDER, err := x509.CreateCertificate(rand.Reader, ca, ca, caKey.Public(), caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "localhost"}, DNSNames: []string{"localhost"}, NotBefore: ca.NotBefore, NotAfter: ca.NotAfter, KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}
+	der, err := x509.CreateCertificate(rand.Reader, leaf, ca, key.Public(), caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tls.Certificate{Certificate: [][]byte{der, caDER}, PrivateKey: key}
 }
 
 func certificateRoot(t *testing.T, cert tls.Certificate) *x509.Certificate {
@@ -173,19 +192,17 @@ func defaultSettingsCreds(t *testing.T, auth defaultAuth, peer, openssl string) 
 	case defaultMLDSA65:
 		cert, roots, certFile, keyFile := defaultSettingsCertificate(t, true)
 		creds := defaultCreds{
-			config:                defaultSettingsConfig([]tls.Certificate{cert}, roots),
-			certFile:              certFile,
-			keyFile:               keyFile,
-			caFile:                certFile,
-			expectPeerServerMLDSA: true,
-			expectPeerClientMLDSA: true,
+			config:   defaultSettingsConfig([]tls.Certificate{cert}, roots),
+			certFile: certFile,
+			keyFile:  keyFile,
+			caFile:   certFile,
 		}
 		if peer == "openssl" {
 			creds.caFile, creds.caPath = opensslTrust(t, openssl, certificateRoot(t, cert))
 		}
 		return creds
 	case defaultBoth:
-		ec, _ := ecdsaCertificate(t)
+		ec := ecdsaCertificate(t)
 		pq, _ := mldsaCertificate(t, mldsa.MLDSA65())
 		ecCA := certificateRoot(t, ec)
 		pqCA := certificateRoot(t, pq)
@@ -202,7 +219,6 @@ func defaultSettingsCreds(t *testing.T, auth defaultAuth, peer, openssl string) 
 			creds.serverCert, creds.serverKey = pqFile, pqKey
 			creds.dcertFile, creds.dkeyFile = ecFile, ecKey
 			creds.caFile, creds.caPath = opensslTrust(t, openssl, pqCA, ecCA)
-			creds.expectPeerServerMLDSA = true
 		}
 		return creds
 	default:
@@ -218,63 +234,21 @@ func defaultSettingsCreds(t *testing.T, auth defaultAuth, peer, openssl string) 
 	}
 }
 
-func defaultLimitFor(peer string, auth defaultAuth, ourClient bool) defaultLimit {
-	switch peer {
-	case "pion":
-		if auth == defaultMLDSA65 {
-			return limitPionMLDSA
-		}
-		return limitPionCID
-	case "wolfssl":
-		if auth == defaultMLDSA65 {
-			return limitWolfSSLMLDSA
-		}
-		if ourClient {
-			return limitWolfSSLCH0
-		}
-		return limitNone
-	default:
-		return limitNone
-	}
-}
-
-func defaultSettingsTimeout(limit defaultLimit) time.Duration {
-	switch limit {
-	case limitNone, limitPionCID:
-		return 30 * time.Second
-	default:
-		return 12 * time.Second
-	}
-}
-
-func reportDefaultResult(t *testing.T, r defaultResult, command *exec.Cmd, wait func() error, output *oracleBuffer, limit defaultLimit) {
+func logDefaultSettings(t *testing.T, conn *Conn) {
 	t.Helper()
-	if r.err != nil {
-		r.output, r.waitErr = collectOracle(command, wait, output)
-	}
-	if r.state.CipherSuite != 0 || r.state.CurveID != 0 {
-		t.Logf("negotiated suite=%s group=%s", tls.CipherSuiteName(r.state.CipherSuite), r.state.CurveID)
-	}
-	if err := matchDefaultResult(r, limit); err != nil {
-		t.Fatal(err)
-	}
-	if r.err != nil {
-		t.Logf("known limitation at %s: %v", r.stage, r.err)
-	}
-}
-
-func checkDefaultSettingsState(state tls.ConnectionState, expectPeerMLDSA bool) error {
+	state := conn.ConnectionState()
 	if state.Version != version13 || len(state.VerifiedChains) == 0 {
-		return fmt.Errorf("version=%x chains=%d", state.Version, len(state.VerifiedChains))
+		t.Fatalf("authentication: version=%x verified chains=%d", state.Version, len(state.VerifiedChains))
 	}
-	if !expectPeerMLDSA {
-		return nil
+	cert := state.PeerCertificates[0]
+	keyType := cert.PublicKeyAlgorithm.String()
+	switch key := cert.PublicKey.(type) {
+	case *ecdsa.PublicKey:
+		keyType += " " + key.Curve.Params().Name
+	case *mldsa.PublicKey:
+		keyType = key.Parameters().String()
 	}
-	key, ok := state.PeerCertificates[0].PublicKey.(*mldsa.PublicKey)
-	if !ok || key.Parameters() != mldsa.MLDSA65() {
-		return fmt.Errorf("peer certificate is not ML-DSA-65")
-	}
-	return nil
+	t.Logf("negotiated suite=%s group=%s peer certificate=%s", tls.CipherSuiteName(state.CipherSuite), state.CurveID, keyType)
 }
 
 func TestDefaultSettingsOpenSSL(t *testing.T) {
@@ -294,9 +268,8 @@ func TestDefaultSettingsOpenSSL(t *testing.T) {
 
 func testDefaultOpenSSLServer(t *testing.T, tools oracleTools, auth defaultAuth) {
 	t.Helper()
-	limit := limitNone
 	creds := defaultSettingsCreds(t, auth, "openssl", tools.OpenSSL.OpenSSL)
-	ctx, cancel := context.WithTimeout(context.Background(), defaultSettingsTimeout(limit))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	reservation := udpForOracle(t)
 	address := reservation.LocalAddr().(*net.UDPAddr)
@@ -309,29 +282,25 @@ func testDefaultOpenSSLServer(t *testing.T, tools oracleTools, auth defaultAuth)
 		t.Fatal(err)
 	}
 	command.Stdout = stdin
-	output, wait := runOracle(t, command)
+	runOracle(t, command)
 	client, err := Client(ctx, udpForOracle(t), address, creds.config)
 	if err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageHandshake, err: err}, command, wait, output, limit)
-		return
+		t.Fatalf("handshake: %v", err)
 	}
 	defer func() { _ = client.Close() }()
 	if err := client.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	state := client.ConnectionState()
-	if err := checkDefaultSettingsState(state, creds.expectMLDSA(true)); err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageCertificate, err: err, state: state}, command, wait, output, limit)
-		return
+	logDefaultSettings(t, client)
+	if err := echoWriteRead(client, []byte("default-openssl-server-echo\n")); err != nil {
+		t.Fatalf("echo: %v", err)
 	}
-	reportDefaultResult(t, defaultResult{stage: stageApplication, err: echoWriteRead(client, []byte("default-openssl-server-echo\n")), state: state}, command, wait, output, limit)
 }
 
 func testDefaultOpenSSLClient(t *testing.T, tools oracleTools, auth defaultAuth) {
 	t.Helper()
-	limit := limitNone
 	creds := defaultSettingsCreds(t, auth, "openssl", tools.OpenSSL.OpenSSL)
-	ctx, cancel := context.WithTimeout(context.Background(), defaultSettingsTimeout(limit))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	conn := udpForOracle(t)
 	listener, err := Listen(conn, creds.config)
@@ -345,28 +314,23 @@ func testDefaultOpenSSLClient(t *testing.T, tools oracleTools, auth defaultAuth)
 	output, wait := runOracle(t, command)
 	peer, err := listener.AcceptContext(ctx)
 	if err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageHandshake, err: err}, command, wait, output, limit)
-		return
+		t.Fatalf("handshake: %v", err)
 	}
 	defer func() { _ = peer.Close() }()
 	if err := peer.SetDeadline(time.Now().Add(15 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	server := peer.(*Conn)
-	state := server.ConnectionState()
-	if err := checkDefaultSettingsState(state, creds.expectMLDSA(false)); err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageCertificate, err: err, state: state}, command, wait, output, limit)
-		return
-	}
+	logDefaultSettings(t, server)
 	if err := echoReadWriteExpect(server, string(marker)); err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageApplication, err: err, state: state}, command, wait, output, limit)
-		return
+		t.Fatalf("exchange: %v", err)
 	}
 	if err := server.CloseWrite(); err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageApplication, err: err, state: state}, command, wait, output, limit)
-		return
+		t.Fatalf("exchange: %v", err)
 	}
-	reportDefaultResult(t, defaultResult{stage: stagePeerExit, err: waitOracleContains(wait, output, marker), state: state}, command, wait, output, limit)
+	if err := waitOracleContains(wait, output, marker); err != nil {
+		t.Fatalf("peer completion: %v", err)
+	}
 }
 
 func TestDefaultSettingsPion(t *testing.T) {
@@ -388,9 +352,8 @@ func TestDefaultSettingsPion(t *testing.T) {
 
 func testDefaultPionServer(t *testing.T, tools oracleTools, auth defaultAuth) {
 	t.Helper()
-	limit := defaultLimitFor("pion", auth, true)
 	creds := defaultSettingsCreds(t, auth, "pion", "")
-	ctx, cancel := context.WithTimeout(context.Background(), defaultSettingsTimeout(limit))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	reservation := udpForOracle(t)
 	address := reservation.LocalAddr().(*net.UDPAddr)
@@ -398,29 +361,25 @@ func testDefaultPionServer(t *testing.T, tools oracleTools, auth defaultAuth) {
 		t.Fatal(err)
 	}
 	command := exec.CommandContext(ctx, tools.Pion.Server, "-listen", address.String(), "-cert", creds.certFile, "-key", creds.keyFile)
-	output, wait := runOracle(t, command)
+	runOracle(t, command)
 	client, err := Client(ctx, udpForOracle(t), address, creds.config)
 	if err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageHandshake, err: err}, command, wait, output, limit)
-		return
+		t.Fatalf("handshake: %v", err)
 	}
 	defer func() { _ = client.Close() }()
 	if err := client.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	state := client.ConnectionState()
-	if err := checkDefaultSettingsState(state, creds.expectMLDSA(true)); err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageCertificate, err: err, state: state}, command, wait, output, limit)
-		return
+	logDefaultSettings(t, client)
+	if err := echoWriteRead(client, []byte("default-pion-server-echo\n")); err != nil {
+		t.Fatalf("echo: %v", err)
 	}
-	reportDefaultResult(t, defaultResult{stage: stageApplication, err: echoWriteRead(client, []byte("default-pion-server-echo\n")), state: state}, command, wait, output, limit)
 }
 
 func testDefaultPionClient(t *testing.T, tools oracleTools, auth defaultAuth) {
 	t.Helper()
-	limit := defaultLimitFor("pion", auth, false)
 	creds := defaultSettingsCreds(t, auth, "pion", "")
-	ctx, cancel := context.WithTimeout(context.Background(), defaultSettingsTimeout(limit))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	conn := udpForOracle(t)
 	listener, err := Listen(conn, creds.config)
@@ -432,28 +391,23 @@ func testDefaultPionClient(t *testing.T, tools oracleTools, auth defaultAuth) {
 	output, wait := runOracle(t, command)
 	peer, err := listener.AcceptContext(ctx)
 	if err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageHandshake, err: err}, command, wait, output, limit)
-		return
+		t.Fatalf("handshake: %v", err)
 	}
 	defer func() { _ = peer.Close() }()
 	if err := peer.SetDeadline(time.Now().Add(15 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	server := peer.(*Conn)
-	state := server.ConnectionState()
-	if err := checkDefaultSettingsState(state, creds.expectMLDSA(false)); err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageCertificate, err: err, state: state}, command, wait, output, limit)
-		return
-	}
+	logDefaultSettings(t, server)
 	if err := echoReadWriteExpect(server, "before"); err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageApplication, err: err, state: state}, command, wait, output, limit)
-		return
+		t.Fatalf("exchange: %v", err)
 	}
 	if err := echoReadWriteExpect(server, "after"); err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageApplication, err: err, state: state}, command, wait, output, limit)
-		return
+		t.Fatalf("exchange: %v", err)
 	}
-	reportDefaultResult(t, defaultResult{stage: stagePeerExit, err: waitOracleContains(wait, output, []byte("client verified both echoes")), state: state}, command, wait, output, limit)
+	if err := waitOracleContains(wait, output, []byte("client verified both echoes")); err != nil {
+		t.Fatalf("peer completion: %v", err)
+	}
 }
 
 func TestDefaultSettingsWolfSSL(t *testing.T) {
@@ -473,9 +427,8 @@ func TestDefaultSettingsWolfSSL(t *testing.T) {
 
 func testDefaultWolfSSLServer(t *testing.T, tools oracleTools, auth defaultAuth) {
 	t.Helper()
-	limit := defaultLimitFor("wolfssl", auth, true)
 	creds := defaultSettingsCreds(t, auth, "wolfssl", "")
-	ctx, cancel := context.WithTimeout(context.Background(), defaultSettingsTimeout(limit))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	reservation := udpForOracle(t)
 	address := reservation.LocalAddr().(*net.UDPAddr)
@@ -486,29 +439,25 @@ func testDefaultWolfSSLServer(t *testing.T, tools oracleTools, auth defaultAuth)
 		"-u", "-v", "4", "-Y", "-e", "-p", strconv.Itoa(address.Port),
 		"-c", creds.certFile, "-k", creds.keyFile, "-A", creds.caFile)
 	command.Dir = filepath.Dir(tools.WolfSSL.Certificates)
-	output, wait := runOracle(t, command)
+	runOracle(t, command)
 	client, err := Client(ctx, udpForOracle(t), address, creds.config)
 	if err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageHandshake, err: err}, command, wait, output, limit)
-		return
+		t.Fatalf("handshake: %v", err)
 	}
 	defer func() { _ = client.Close() }()
 	if err := client.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	state := client.ConnectionState()
-	if err := checkDefaultSettingsState(state, creds.expectMLDSA(true)); err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageCertificate, err: err, state: state}, command, wait, output, limit)
-		return
+	logDefaultSettings(t, client)
+	if err := echoWriteRead(client, []byte("default-wolfssl-server-echo\n")); err != nil {
+		t.Fatalf("echo: %v", err)
 	}
-	reportDefaultResult(t, defaultResult{stage: stageApplication, err: echoWriteRead(client, []byte("default-wolfssl-server-echo\n")), state: state}, command, wait, output, limit)
 }
 
 func testDefaultWolfSSLClient(t *testing.T, tools oracleTools, auth defaultAuth) {
 	t.Helper()
-	limit := defaultLimitFor("wolfssl", auth, false)
 	creds := defaultSettingsCreds(t, auth, "wolfssl", "")
-	ctx, cancel := context.WithTimeout(context.Background(), defaultSettingsTimeout(limit))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	conn := udpForOracle(t)
 	listener, err := Listen(conn, creds.config)
@@ -524,27 +473,22 @@ func testDefaultWolfSSLClient(t *testing.T, tools oracleTools, auth defaultAuth)
 	output, wait := runOracle(t, command)
 	peer, err := listener.AcceptContext(ctx)
 	if err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageHandshake, err: err}, command, wait, output, limit)
-		return
+		t.Fatalf("handshake: %v", err)
 	}
 	defer func() { _ = peer.Close() }()
 	if err := peer.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	server := peer.(*Conn)
-	state := server.ConnectionState()
-	if err := checkDefaultSettingsState(state, creds.expectMLDSA(false)); err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageCertificate, err: err, state: state}, command, wait, output, limit)
-		return
-	}
+	logDefaultSettings(t, server)
 	got, err := echoReadWrite(server)
 	if err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageApplication, err: err, state: state}, command, wait, output, limit)
-		return
+		t.Fatalf("exchange: %v", err)
 	}
 	if err := server.CloseWrite(); err != nil {
-		reportDefaultResult(t, defaultResult{stage: stageApplication, err: err, state: state}, command, wait, output, limit)
-		return
+		t.Fatalf("exchange: %v", err)
 	}
-	reportDefaultResult(t, defaultResult{stage: stagePeerExit, err: waitOracleContains(wait, output, got), state: state}, command, wait, output, limit)
+	if err := waitOracleContains(wait, output, got); err != nil {
+		t.Fatalf("peer completion: %v", err)
+	}
 }

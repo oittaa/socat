@@ -67,6 +67,18 @@ AES-256-GCM, and ChaCha20-Poly1305**. Those tests select each suite and group
 explicitly, regardless of hardware preference. 21 combinations means three
 suites × seven groups. Default-settings tests do not pin suites or groups.
 
+Collect the default-settings rows on the Linux lab with:
+
+```sh
+SOCAT_DTLS13_TOOLS=/path/to/tools.json go test -v -tags dtlsinterop ./internal/dtls13 -run '^TestDefaultSettings' -count=1
+```
+
+Each case reports the negotiated cipher, group and peer certificate after a
+verified handshake, then checks the echo. Errors fail that row and include the
+peer's exit status and output; the other rows still run. The command returns
+nonzero when any exchange fails, including the peer limitations documented below.
+These lab measurements are excluded from ordinary `make check`.
+
 ### Default settings
 
 Library `Config` zeros (`prepareConfig`) used by `TestDefaultSettings*`:
