@@ -3,7 +3,6 @@
 package dtls13
 
 import (
-	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -130,14 +129,8 @@ func testPionServerMTU(t *testing.T, tools oracleTools, cert tls.Certificate, ro
 		t.Fatal(err)
 	}
 	verifyPionPQ(t, client, suite, mtu)
-	marker := []byte("pion-server-echo\n")
-	if _, err := client.Write(marker); err != nil {
+	if err := echoWriteRead(client, []byte("pion-server-echo\n")); err != nil {
 		t.Fatal(err)
-	}
-	buffer := make([]byte, 1024)
-	n, err := client.Read(buffer)
-	if err != nil || !bytes.Equal(buffer[:n], marker) {
-		t.Fatalf("Pion echo: %q, %v", buffer[:n], err)
 	}
 }
 
@@ -172,18 +165,10 @@ func testPionClientMTU(t *testing.T, tools oracleTools, cert tls.Certificate, ro
 	}
 	server := peer.(*Conn)
 	verifyPionPQ(t, server, suite, mtu)
-	buffer := make([]byte, 1024)
-	n, err := server.Read(buffer)
-	if err != nil || string(buffer[:n]) != "pion-pq-echo" {
-		t.Fatalf("Pion data: %q, %v", buffer[:n], err)
-	}
-	if _, err := server.Write(buffer[:n]); err != nil {
+	if err := echoReadWriteExpect(server, "pion-pq-echo"); err != nil {
 		t.Fatal(err)
 	}
-	if err := wait(); err != nil {
+	if err := waitOracleContains(wait, output, []byte("client verified both echoes")); err != nil {
 		t.Fatal(err)
-	}
-	if !bytes.Contains(output.Bytes(), []byte("client verified both echoes")) {
-		t.Fatal("Pion client did not verify the echo")
 	}
 }

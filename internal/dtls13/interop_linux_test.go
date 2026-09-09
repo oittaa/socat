@@ -115,13 +115,13 @@ func oracleGroupName(id tls.CurveID) string {
 	}
 }
 
-func runOracle(t *testing.T, command *exec.Cmd) (*bytes.Buffer, func() error) {
+func runOracle(t *testing.T, command *exec.Cmd) (*oracleBuffer, func() error) {
 	t.Helper()
-	var output bytes.Buffer
+	output := new(oracleBuffer)
 	if command.Stdout == nil {
-		command.Stdout = &output
+		command.Stdout = output
 	}
-	command.Stderr = &output
+	command.Stderr = output
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func runOracle(t *testing.T, command *exec.Cmd) (*bytes.Buffer, func() error) {
 			t.Logf("oracle output:\n%s", output.String())
 		}
 	})
-	return &output, wait
+	return output, wait
 }
 
 func udpForOracle(t *testing.T) *net.UDPConn {
