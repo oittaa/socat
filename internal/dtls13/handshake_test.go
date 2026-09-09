@@ -73,9 +73,11 @@ func TestInitialClientHelloOneDatagram(t *testing.T) {
 	clientConfig.MTU = 1512
 	clientConfig.CurvePreferences = []tls.CurveID{tls.X25519MLKEM768}
 	clientConfig.NextProtos = []string{strings.Repeat("a", 130)}
+	h, _, err := newClientHandshake(clientConfig)
 	n := 0
-	if _, err := newClientSession(clientConfig, func([]byte) error { n++; return nil }, time.Unix(100, 0)); err != nil || n != 1 {
-		t.Fatalf("initial datagrams = %d, %v", n, err)
+	_, sendErr := newClientSession(clientConfig, func([]byte) error { n++; return nil }, time.Unix(100, 0))
+	if err != nil || sendErr != nil || n != 1 || len(h.shares) != 0 {
+		t.Fatalf("initial datagrams = %d, shares = %d, %v, %v", n, len(h.shares), err, sendErr)
 	}
 }
 

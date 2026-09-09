@@ -32,33 +32,17 @@ func newClientHandshake(config *Config) (*clientHandshake, []handshakeMessage, e
 		return nil, nil, err
 	}
 	groups := make([]uint16, 0, len(state.config.CurvePreferences))
-	keyShares := wireWriter{}
-	for i, group := range state.config.CurvePreferences {
-		id := uint16(group)
-		groups = append(groups, id)
-		// Send the preferred share and a small X25519 fallback. Other groups use HRR.
-		if i != 0 && id != groupX25519 {
-			continue
-		}
-		private, err := generateShare(id)
-		if err != nil {
-			return nil, nil, err
-		}
-		h.shares[id] = private
-		share, err := encodeKeyShare(id, private.public)
-		if err != nil {
-			return nil, nil, err
-		}
-		keyShares.data = append(keyShares.data, share...)
+	for _, group := range state.config.CurvePreferences {
+		groups = append(groups, uint16(group))
 	}
 	groupList, err := encodeList16(groups)
 	if err != nil {
 		return nil, nil, err
 	}
 	h.hello.extensions[extSupportedGroups] = groupList
-	shareList := wireWriter{}
-	shareList.vector16(keyShares.data)
-	h.hello.extensions[extKeyShare] = shareList.data
+	empty := wireWriter{}
+	empty.vector16(nil)
+	h.hello.extensions[extKeyShare] = empty.data
 	signatures, err := encodeList16(signatureSchemes)
 	if err != nil {
 		return nil, nil, err
@@ -99,37 +83,71 @@ func newClientHandshake(config *Config) (*clientHandshake, []handshakeMessage, e
 	return h, []handshakeMessage{m}, nil
 }
 
-func clientHelloFitsDatagram(body []byte, mtu int) bool {
-	return len(body) <= fragmentBudget(mtu, 0)
-}
-
-// fitInitialClientHello keeps the usual initial shares when they fit one
-// datagram. Otherwise it sends an empty key_share list so the first
-// ClientHello stays unfragmented; HelloRetryRequest supplies the share.
-// If the empty ClientHello still cannot fit, the original key_share
-// extension and body are kept and the flight fragments normally.
+// fitInitialClientHello starts from an empty key_share list and only
+// generates the usual initial shares when they fit one datagram, or when
+// even the empty ClientHello cannot fit and the flight must fragment.
 func (h *clientHandshake) fitInitialClientHello() ([]byte, error) {
 	body, err := h.hello.marshal()
 	if err != nil {
 		return nil, err
 	}
-	if clientHelloFitsDatagram(body, h.config.MTU) {
-		return body, nil
-	}
-	original := h.hello.extensions[extKeyShare]
-	empty := wireWriter{}
-	empty.vector16(nil)
-	h.hello.extensions[extKeyShare] = empty.data
-	emptyBody, err := h.hello.marshal()
+	extra, err := h.initialShareBytes()
 	if err != nil {
 		return nil, err
 	}
-	if !clientHelloFitsDatagram(emptyBody, h.config.MTU) {
-		h.hello.extensions[extKeyShare] = original
+	budget := fragmentBudget(h.config.MTU, 0)
+	if len(body) <= budget && len(body)+extra > budget {
 		return body, nil
 	}
-	h.shares = map[uint16]*keyShare{}
-	return emptyBody, nil
+	if err := h.addInitialShares(); err != nil {
+		return nil, err
+	}
+	return h.hello.marshal()
+}
+
+func (h *clientHandshake) initialShareIDs() []uint16 {
+	// Preferred share and a small X25519 fallback. Other groups use HRR.
+	var ids []uint16
+	for i, group := range h.config.CurvePreferences {
+		id := uint16(group)
+		if i != 0 && id != groupX25519 {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+func (h *clientHandshake) initialShareBytes() (int, error) {
+	n := 0
+	for _, id := range h.initialShareIDs() {
+		size, err := clientShareEntryLen(id)
+		if err != nil {
+			return 0, err
+		}
+		n += size
+	}
+	return n, nil
+}
+
+func (h *clientHandshake) addInitialShares() error {
+	var entries []byte
+	for _, id := range h.initialShareIDs() {
+		private, err := generateShare(id)
+		if err != nil {
+			return err
+		}
+		h.shares[id] = private
+		share, err := encodeKeyShare(id, private.public)
+		if err != nil {
+			return err
+		}
+		entries = append(entries, share...)
+	}
+	list := wireWriter{}
+	list.vector16(entries)
+	h.hello.extensions[extKeyShare] = list.data
+	return nil
 }
 
 func (h *clientHandshake) handle(m handshakeMessage) ([]handshakeMessage, error) {
