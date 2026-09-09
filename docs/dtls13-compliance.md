@@ -269,7 +269,7 @@ ChaCha20-Poly1305; 21 combinations means three suites × seven groups.
 | --- | --- | --- | --- |
 | Mutual cert, AES-GCM/ChaCha, classical groups | yes both roles | yes our client; CID tests both roles | yes both roles (drivers) |
 | X25519MLKEM768 / NIST hybrids | 21 suite/group combinations include both NIST hybrids: our client at MTU 4096, our listener at default 1200; 1200/512/256 is X25519MLKEM768 with all three suites | yes our client at MTU 4096; first CH must be unfragmented | X25519MLKEM768 public APIs at 1200/512/256 with all three suites and CID off; NIST hybrids not run |
-| ML-DSA-44/65/87 | yes mutual echo at 4096 and both roles at 1200/512/256 with X25519MLKEM768 and all three suites; default-settings dual-cert (ML-DSA-65 then ECDSA) selects ML-DSA-65 | library yes; not in our interop matrix; dual-cert falls back to ECDSA | no; dual-cert falls back to ECDSA then CID fails |
+| ML-DSA-44/65/87 | yes mutual echo at 4096 and both roles at 1200/512/256 with X25519MLKEM768 and all three suites; default-settings dual-cert trusts ML-DSA and ECDSA CAs (`-CApath`/`-CAfile`), OpenSSL `s_server` presents ML-DSA-65 | library yes; not in our interop matrix; dual-cert falls back to ECDSA | no; dual-cert falls back to ECDSA then CID fails |
 | Fragmented first ClientHello | stateful `s_server` and `SSL_new_listener` cookie path accept ours | **rejects** unverified fragmented CH (even with `WOLFSSL_DTLS_CH_FRAG`) | yes |
 | Cookies / 3× amplification | HMAC cookie; no 3× cap | HMAC cookie; no 3× cap | stateful cookie; no HS 3× |
 | ACK / KeyUpdate | yes both roles; OpenSSL may emit MTU-truncated ACK lists (discarded) | yes; CID tests include KeyUpdate | yes |

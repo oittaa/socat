@@ -32,7 +32,7 @@ type defaultAuth int
 const (
 	defaultECDSA defaultAuth = iota
 	defaultMLDSA65
-	defaultBoth // ML-DSA-65 first, ECDSA P-256 second, on our Config only
+	defaultBoth // ML-DSA-65 leaf first, ECDSA P-256 leaf second; two CAs
 )
 
 func (a defaultAuth) String() string {
@@ -47,10 +47,54 @@ func (a defaultAuth) String() string {
 }
 
 type defaultCreds struct {
-	config            *Config
-	certFile, keyFile string
-	caFile            string
-	expectPeerMLDSA   bool
+	config                *Config
+	certFile, keyFile     string
+	serverCert, serverKey string
+	dcertFile, dkeyFile   string
+	caFile, caPath        string
+	expectPeerServerMLDSA bool
+	expectPeerClientMLDSA bool
+}
+
+func (c defaultCreds) expectMLDSA(peerIsServer bool) bool {
+	if peerIsServer {
+		return c.expectPeerServerMLDSA
+	}
+	return c.expectPeerClientMLDSA
+}
+
+func (c defaultCreds) opensslServerCert() (cert, key string) {
+	if c.serverCert != "" {
+		return c.serverCert, c.serverKey
+	}
+	return c.certFile, c.keyFile
+}
+
+func opensslTrustArgs(creds defaultCreds) []string {
+	return []string{"-CApath", creds.caPath, "-CAfile", creds.caFile}
+}
+
+func opensslServerArgs(creds defaultCreds, accept string) []string {
+	cert, key := creds.opensslServerCert()
+	args := []string{
+		"s_server", "-dtls1_3", "-quiet", "-ign_eof", "-naccept", "1",
+		"-accept", accept, "-Verify", "1", "-verify_return_error",
+		"-cert", cert, "-key", key,
+	}
+	args = append(args, opensslTrustArgs(creds)...)
+	if creds.dcertFile != "" {
+		args = append(args, "-dcert", creds.dcertFile, "-dkey", creds.dkeyFile)
+	}
+	return args
+}
+
+func opensslClientArgs(creds defaultCreds, connect string) []string {
+	args := []string{
+		"s_client", "-dtls1_3", "-quiet", "-ign_eof",
+		"-connect", connect, "-verify_hostname", "localhost", "-verify_return_error",
+		"-cert", creds.certFile, "-key", creds.keyFile,
+	}
+	return append(args, opensslTrustArgs(creds)...)
 }
 
 func defaultSettingsConfig(certs []tls.Certificate, roots *x509.CertPool) *Config {
@@ -63,13 +107,50 @@ func defaultSettingsConfig(certs []tls.Certificate, roots *x509.CertPool) *Confi
 	}
 }
 
-func writeCertificatePEM(t *testing.T, der []byte) string {
+func certificateRoot(t *testing.T, cert tls.Certificate) *x509.Certificate {
 	t.Helper()
+	ca, err := x509.ParseCertificate(cert.Certificate[len(cert.Certificate)-1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ca
+}
+
+func writeCAPEM(t *testing.T, cas ...*x509.Certificate) string {
+	t.Helper()
+	var pems []byte
+	for _, ca := range cas {
+		pems = append(pems, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw})...)
+	}
 	path := filepath.Join(t.TempDir(), "ca.pem")
-	if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600); err != nil {
+	if err := os.WriteFile(path, pems, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func writeCAPath(t *testing.T, openssl string, cas ...*x509.Certificate) string {
+	t.Helper()
+	if openssl == "" {
+		t.Fatal("openssl binary required for CApath")
+	}
+	dir := t.TempDir()
+	for i, ca := range cas {
+		path := filepath.Join(dir, fmt.Sprintf("ca-%d.pem", i))
+		if err := os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw}), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := exec.Command(openssl, "rehash", dir).CombinedOutput()
+	if err != nil {
+		t.Fatalf("openssl rehash: %v\n%s", err, out)
+	}
+	return dir
+}
+
+func opensslTrust(t *testing.T, openssl string, cas ...*x509.Certificate) (caFile, caPath string) {
+	t.Helper()
+	return writeCAPEM(t, cas...), writeCAPath(t, openssl, cas...)
 }
 
 func defaultSettingsCertificate(t *testing.T, pq bool) (tls.Certificate, *x509.CertPool, string, string) {
@@ -82,40 +163,59 @@ func defaultSettingsCertificate(t *testing.T, pq bool) (tls.Certificate, *x509.C
 }
 
 // defaultSettingsCreds builds our Config and the peer's cert files.
-// For defaultBoth, our slice is ML-DSA-65 then ECDSA P-256. The peer process
-// still loads ECDSA P-256 (Pion and wolfSSL cannot load ML-DSA). OpenSSL's
-// CAfile is the ML-DSA CA so the handshake fails unless we selected the PQ cert.
-func defaultSettingsCreds(t *testing.T, auth defaultAuth, peer string) defaultCreds {
+// defaultBoth is two CAs: ML-DSA CA signs the ML-DSA-65 leaf, ECDSA CA
+// signs the ECDSA P-256 leaf. Verifiers trust both. OpenSSL loads them
+// with -CApath (hashed) and -CAfile (PEM). s_server also gets both leaves
+// (-cert ML-DSA-65, -dcert ECDSA). s_client presents ECDSA. Pion and
+// wolfSSL cannot load ML-DSA, so they get the ECDSA leaf and ECDSA CA.
+func defaultSettingsCreds(t *testing.T, auth defaultAuth, peer, openssl string) defaultCreds {
 	t.Helper()
 	switch auth {
 	case defaultMLDSA65:
 		cert, roots, certFile, keyFile := defaultSettingsCertificate(t, true)
-		return defaultCreds{config: defaultSettingsConfig([]tls.Certificate{cert}, roots), certFile: certFile, keyFile: keyFile, caFile: certFile, expectPeerMLDSA: true}
-	case defaultBoth:
-		ec, _, ecFile, ecKey := oracleCertificate(t)
-		pq, _ := mldsaCertificate(t, mldsa.MLDSA65())
-		ecLeaf, err := x509.ParseCertificate(ec.Certificate[0])
-		if err != nil {
-			t.Fatal(err)
+		creds := defaultCreds{
+			config:                defaultSettingsConfig([]tls.Certificate{cert}, roots),
+			certFile:              certFile,
+			keyFile:               keyFile,
+			caFile:                certFile,
+			expectPeerServerMLDSA: true,
+			expectPeerClientMLDSA: true,
 		}
-		pqCA, err := x509.ParseCertificate(pq.Certificate[len(pq.Certificate)-1])
-		if err != nil {
-			t.Fatal(err)
-		}
-		roots := x509.NewCertPool()
-		roots.AddCert(ecLeaf)
-		roots.AddCert(pqCA)
-		caFile := ecFile
 		if peer == "openssl" {
-			caFile = writeCertificatePEM(t, pq.Certificate[len(pq.Certificate)-1])
+			creds.caFile, creds.caPath = opensslTrust(t, openssl, certificateRoot(t, cert))
 		}
-		return defaultCreds{
+		return creds
+	case defaultBoth:
+		ec, _ := ecdsaCertificate(t)
+		pq, _ := mldsaCertificate(t, mldsa.MLDSA65())
+		ecCA := certificateRoot(t, ec)
+		pqCA := certificateRoot(t, pq)
+		roots := x509.NewCertPool()
+		roots.AddCert(ecCA)
+		roots.AddCert(pqCA)
+		_, _, ecFile, ecKey := writeOracleCertificate(t, ec, roots)
+		_, _, pqFile, pqKey := writeOracleCertificate(t, pq, roots)
+		creds := defaultCreds{
 			config:   defaultSettingsConfig([]tls.Certificate{pq, ec}, roots),
-			certFile: ecFile, keyFile: ecKey, caFile: caFile,
+			certFile: ecFile, keyFile: ecKey, caFile: writeCAPEM(t, ecCA),
 		}
+		if peer == "openssl" {
+			creds.serverCert, creds.serverKey = pqFile, pqKey
+			creds.dcertFile, creds.dkeyFile = ecFile, ecKey
+			creds.caFile, creds.caPath = opensslTrust(t, openssl, pqCA, ecCA)
+			creds.expectPeerServerMLDSA = true
+		}
+		return creds
 	default:
 		cert, roots, certFile, keyFile := defaultSettingsCertificate(t, false)
-		return defaultCreds{config: defaultSettingsConfig([]tls.Certificate{cert}, roots), certFile: certFile, keyFile: keyFile, caFile: certFile}
+		creds := defaultCreds{
+			config:   defaultSettingsConfig([]tls.Certificate{cert}, roots),
+			certFile: certFile, keyFile: keyFile, caFile: certFile,
+		}
+		if peer == "openssl" {
+			creds.caFile, creds.caPath = opensslTrust(t, openssl, certificateRoot(t, cert))
+		}
+		return creds
 	}
 }
 
@@ -189,7 +289,7 @@ func TestDefaultSettingsOpenSSL(t *testing.T) {
 
 func testDefaultOpenSSLServer(t *testing.T, tools oracleTools, auth defaultAuth) {
 	t.Helper()
-	creds := defaultSettingsCreds(t, auth, "openssl")
+	creds := defaultSettingsCreds(t, auth, "openssl", tools.OpenSSL.OpenSSL)
 	ctx, cancel := context.WithTimeout(context.Background(), defaultSettingsTimeout(true))
 	defer cancel()
 	reservation := udpForOracle(t)
@@ -197,10 +297,7 @@ func testDefaultOpenSSLServer(t *testing.T, tools oracleTools, auth defaultAuth)
 	if err := reservation.Close(); err != nil {
 		t.Fatal(err)
 	}
-	command := exec.CommandContext(ctx, tools.OpenSSL.OpenSSL,
-		"s_server", "-dtls1_3", "-quiet", "-ign_eof", "-naccept", "1",
-		"-accept", address.String(), "-Verify", "1", "-verify_return_error",
-		"-CAfile", creds.caFile, "-cert", creds.certFile, "-key", creds.keyFile)
+	command := exec.CommandContext(ctx, tools.OpenSSL.OpenSSL, opensslServerArgs(creds, address.String())...)
 	stdin, err := command.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -217,7 +314,7 @@ func testDefaultOpenSSLServer(t *testing.T, tools oracleTools, auth defaultAuth)
 		t.Fatal(err)
 	}
 	state := client.ConnectionState()
-	if err := checkDefaultSettingsState(state, creds.expectPeerMLDSA); err != nil {
+	if err := checkDefaultSettingsState(state, creds.expectMLDSA(true)); err != nil {
 		reportDefaultSettings(t, err, state, true)
 		return
 	}
@@ -226,7 +323,7 @@ func testDefaultOpenSSLServer(t *testing.T, tools oracleTools, auth defaultAuth)
 
 func testDefaultOpenSSLClient(t *testing.T, tools oracleTools, auth defaultAuth) {
 	t.Helper()
-	creds := defaultSettingsCreds(t, auth, "openssl")
+	creds := defaultSettingsCreds(t, auth, "openssl", tools.OpenSSL.OpenSSL)
 	ctx, cancel := context.WithTimeout(context.Background(), defaultSettingsTimeout(true))
 	defer cancel()
 	conn := udpForOracle(t)
@@ -236,10 +333,7 @@ func testDefaultOpenSSLClient(t *testing.T, tools oracleTools, auth defaultAuth)
 	}
 	defer func() { _ = listener.Close() }()
 	marker := []byte("default-openssl-client-echo\n")
-	command := exec.CommandContext(ctx, tools.OpenSSL.OpenSSL,
-		"s_client", "-dtls1_3", "-quiet", "-ign_eof",
-		"-connect", conn.LocalAddr().String(), "-verify_hostname", "localhost",
-		"-verify_return_error", "-CAfile", creds.caFile, "-cert", creds.certFile, "-key", creds.keyFile)
+	command := exec.CommandContext(ctx, tools.OpenSSL.OpenSSL, opensslClientArgs(creds, conn.LocalAddr().String())...)
 	command.Stdin = strings.NewReader(string(marker))
 	output, wait := runOracle(t, command)
 	peer, err := listener.AcceptContext(ctx)
@@ -253,7 +347,7 @@ func testDefaultOpenSSLClient(t *testing.T, tools oracleTools, auth defaultAuth)
 	}
 	server := peer.(*Conn)
 	state := server.ConnectionState()
-	if err := checkDefaultSettingsState(state, creds.expectPeerMLDSA); err != nil {
+	if err := checkDefaultSettingsState(state, creds.expectMLDSA(false)); err != nil {
 		reportDefaultSettings(t, err, state, true)
 		return
 	}
@@ -301,7 +395,7 @@ func TestDefaultSettingsPion(t *testing.T) {
 
 func testDefaultPionServer(t *testing.T, tools oracleTools, auth defaultAuth, wantOK bool) {
 	t.Helper()
-	creds := defaultSettingsCreds(t, auth, "pion")
+	creds := defaultSettingsCreds(t, auth, "pion", "")
 	ctx, cancel := context.WithTimeout(context.Background(), defaultSettingsTimeout(wantOK))
 	defer cancel()
 	reservation := udpForOracle(t)
@@ -322,7 +416,7 @@ func testDefaultPionServer(t *testing.T, tools oracleTools, auth defaultAuth, wa
 		t.Fatal(err)
 	}
 	state := client.ConnectionState()
-	if err := checkDefaultSettingsState(state, creds.expectPeerMLDSA); err != nil {
+	if err := checkDefaultSettingsState(state, creds.expectMLDSA(true)); err != nil {
 		reportDefaultSettings(t, err, state, wantOK)
 		return
 	}
@@ -331,7 +425,7 @@ func testDefaultPionServer(t *testing.T, tools oracleTools, auth defaultAuth, wa
 
 func testDefaultPionClient(t *testing.T, tools oracleTools, auth defaultAuth, wantOK bool) {
 	t.Helper()
-	creds := defaultSettingsCreds(t, auth, "pion")
+	creds := defaultSettingsCreds(t, auth, "pion", "")
 	ctx, cancel := context.WithTimeout(context.Background(), defaultSettingsTimeout(wantOK))
 	defer cancel()
 	conn := udpForOracle(t)
@@ -354,7 +448,7 @@ func testDefaultPionClient(t *testing.T, tools oracleTools, auth defaultAuth, wa
 	}
 	server := peer.(*Conn)
 	state := server.ConnectionState()
-	if err := checkDefaultSettingsState(state, creds.expectPeerMLDSA); err != nil {
+	if err := checkDefaultSettingsState(state, creds.expectMLDSA(false)); err != nil {
 		t.Logf("oracle output:\n%s", output.String())
 		reportDefaultSettings(t, err, state, wantOK)
 		return
@@ -393,7 +487,7 @@ func TestDefaultSettingsWolfSSL(t *testing.T) {
 
 func testDefaultWolfSSLServer(t *testing.T, tools oracleTools, auth defaultAuth, wantOK bool) {
 	t.Helper()
-	creds := defaultSettingsCreds(t, auth, "wolfssl")
+	creds := defaultSettingsCreds(t, auth, "wolfssl", "")
 	ctx, cancel := context.WithTimeout(context.Background(), defaultSettingsTimeout(wantOK))
 	defer cancel()
 	reservation := udpForOracle(t)
@@ -417,7 +511,7 @@ func testDefaultWolfSSLServer(t *testing.T, tools oracleTools, auth defaultAuth,
 		t.Fatal(err)
 	}
 	state := client.ConnectionState()
-	if err := checkDefaultSettingsState(state, creds.expectPeerMLDSA); err != nil {
+	if err := checkDefaultSettingsState(state, creds.expectMLDSA(true)); err != nil {
 		reportDefaultSettings(t, err, state, wantOK)
 		return
 	}
@@ -426,7 +520,7 @@ func testDefaultWolfSSLServer(t *testing.T, tools oracleTools, auth defaultAuth,
 
 func testDefaultWolfSSLClient(t *testing.T, tools oracleTools, auth defaultAuth, wantOK bool) {
 	t.Helper()
-	creds := defaultSettingsCreds(t, auth, "wolfssl")
+	creds := defaultSettingsCreds(t, auth, "wolfssl", "")
 	ctx, cancel := context.WithTimeout(context.Background(), defaultSettingsTimeout(wantOK))
 	defer cancel()
 	conn := udpForOracle(t)
@@ -453,7 +547,7 @@ func testDefaultWolfSSLClient(t *testing.T, tools oracleTools, auth defaultAuth,
 	}
 	server := peer.(*Conn)
 	state := server.ConnectionState()
-	if err := checkDefaultSettingsState(state, creds.expectPeerMLDSA); err != nil {
+	if err := checkDefaultSettingsState(state, creds.expectMLDSA(false)); err != nil {
 		t.Logf("oracle output:\n%s", output.String())
 		reportDefaultSettings(t, err, state, wantOK)
 		return

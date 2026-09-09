@@ -82,12 +82,20 @@ Library `Config` zeros (`prepareConfig`) used by `TestDefaultSettings*`:
 | `signature_algorithms` | ML-DSA-44, ML-DSA-65, ML-DSA-87, then RSA-PSS SHA-256, ECDSA P-256, Ed25519, RSA-PSS SHA-384/512, ECDSA P-384/P-521 |
 
 Cookies are always required. The ECDSA P-256 and ML-DSA-65 rows use one
-certificate type on both ends. The third row loads **two** certificates on
-our side, ML-DSA-65 first and ECDSA P-256 second (`Config.Certificates`
-order). The peer process still gets a single certificate it can load
-(ECDSA P-256). OpenSSL's `-CAfile` in that row is only the ML-DSA CA, so
-the handshake succeeds only if we selected the PQ certificate. Pion and
-wolfSSL do not offer ML-DSA, so they fall back to ECDSA.
+certificate type on both ends. The third row is two CAs and two leaves:
+
+- ML-DSA CA signs the ML-DSA-65 leaf.
+- ECDSA CA signs the ECDSA P-256 leaf.
+
+`Config.Certificates` lists ML-DSA-65 first, then ECDSA P-256. Verifiers
+trust both CAs, so either leaf verifies. OpenSSL loads that trust store with
+`-CApath` (hashed directory from `openssl rehash`) and `-CAfile` (concatenated
+PEMs; `s_server` still reads CertificateRequest CA names from `-CAfile`).
+`s_server` also gets both leaves (`-cert` ML-DSA-65, `-dcert` ECDSA P-256).
+`s_client` has no second-cert flag, so it presents the ECDSA leaf. Pion and
+wolfSSL cannot parse ML-DSA, so they get the ECDSA leaf and ECDSA CA only;
+we still trust both CAs and fall back to ECDSA because those peers do not
+offer ML-DSA.
 
 Peer CLIs still need a DTLS 1.3 version switch (`s_client`/`s_server
 -dtls1_3`, wolfSSL `-v 4`). That is not a suite or group pin. The tests omit
@@ -125,7 +133,7 @@ first; when we are the server we pick AES-128-GCM from the intersection.
 | --- | --- | --- | --- |
 | OpenSSL `82733d9` | ECDSA P-256 | pass: AES-128-GCM / X25519MLKEM768 | pass: AES-128-GCM / X25519MLKEM768 |
 | OpenSSL `82733d9` | ML-DSA-65 | pass: AES-128-GCM / X25519MLKEM768 | pass: AES-128-GCM / X25519MLKEM768 |
-| OpenSSL `82733d9` | ML-DSA-65, then ECDSA P-256 | pass: AES-128-GCM / X25519MLKEM768; we selected ML-DSA-65 | pass: AES-128-GCM / X25519MLKEM768; we selected ML-DSA-65 |
+| OpenSSL `82733d9` | ML-DSA-65, then ECDSA P-256 | pass: AES-128-GCM / X25519MLKEM768; peer selected ML-DSA-65 | pass: AES-128-GCM / X25519MLKEM768; we selected ML-DSA-65 |
 | wolfSSL `d72f6d9` | ECDSA P-256 | fail: fragmented first ClientHello at MTU 1200 | pass: AES-128-GCM / X25519MLKEM768 |
 | wolfSSL `d72f6d9` | ML-DSA-65 | fail: example server cannot load the cert | fail: example client cannot load the cert |
 | wolfSSL `d72f6d9` | ML-DSA-65, then ECDSA P-256 | fail: fragmented first ClientHello at MTU 1200 | pass: AES-128-GCM / X25519MLKEM768; ECDSA fallback |
