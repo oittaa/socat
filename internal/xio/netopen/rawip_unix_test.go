@@ -33,7 +33,7 @@ func TestRawIPSessionConnIsNotSyscallConn(t *testing.T) {
 }
 
 func TestRawIPRecvFromEmptyFirstDatagram(t *testing.T) {
-	r := &rawIPRecvFrom{firstPending: true, closeEOF: true}
+	r := &rawIPRecvFrom{first: newFirstPacket(nil), closeEOF: true}
 	n, err := r.Read(make([]byte, 8))
 	if n != 0 || !errors.Is(err, io.EOF) {
 		t.Fatalf("empty first n=%d err=%v want EOF", n, err)
@@ -41,7 +41,7 @@ func TestRawIPRecvFromEmptyFirstDatagram(t *testing.T) {
 }
 
 func TestRawIPSessionConnEmptyFirstDatagram(t *testing.T) {
-	r := &rawIPSessionConn{firstPending: true}
+	r := &rawIPSessionConn{first: newFirstPacket(nil)}
 	n, err := r.Read(make([]byte, 8))
 	if n != 0 || !errors.Is(err, io.EOF) {
 		t.Fatalf("empty first n=%d err=%v want EOF", n, err)
@@ -49,7 +49,7 @@ func TestRawIPSessionConnEmptyFirstDatagram(t *testing.T) {
 }
 
 func TestRawIPRecvFromShortReadDropsRemainder(t *testing.T) {
-	r := &rawIPRecvFrom{first: []byte("abcd"), firstPending: true, closeEOF: true}
+	r := &rawIPRecvFrom{first: newFirstPacket([]byte("abcd")), closeEOF: true}
 	buf := make([]byte, 1)
 	n, err := r.Read(buf)
 	if err != nil || n != 1 || buf[0] != 'a' {

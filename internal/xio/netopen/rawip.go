@@ -404,15 +404,14 @@ func openIPRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, pc 
 	peerIP := ipAddrFromNet(raddr)
 	rememberRawIPPeer(g, peerIP, pc.LocalAddr())
 	st := relay.Stream(&rawIPRecvFrom{
-		c:            pc,
-		peer:         peerIP,
-		first:        append([]byte(nil), buf[:n]...),
-		firstPending: true,
-		closeEOF:     true,
-		wantCtrl:     wantCtrl,
-		recvErr:      recvErr,
-		v4:           stripV4,
-		g:            g,
+		c:        pc,
+		peer:     peerIP,
+		first:    newFirstPacket(append([]byte(nil), buf[:n]...)),
+		closeEOF: true,
+		wantCtrl: wantCtrl,
+		recvErr:  recvErr,
+		v4:       stripV4,
+		g:        g,
 	})
 	st, err = xio.SetupConnectedStream(s, st)
 	if err != nil {
@@ -744,23 +743,19 @@ func (r *rawIPConn) ShutdownWrite() error { return nil }
 
 // rawIPRecvFrom: first datagram buffered; further reads EOF when one-shot.
 type rawIPRecvFrom struct {
-	c            *net.IPConn
-	peer         *net.IPAddr
-	first        []byte
-	firstPending bool
-	closeEOF     bool
-	wantCtrl     bool
-	recvErr      bool
-	v4           bool
-	g            *xio.Global
-	oob          []byte
+	c        *net.IPConn
+	peer     *net.IPAddr
+	first    firstPacket
+	closeEOF bool
+	wantCtrl bool
+	recvErr  bool
+	v4       bool
+	g        *xio.Global
+	oob      []byte
 }
 
 func (r *rawIPRecvFrom) Read(p []byte) (int, error) {
-	if r.firstPending {
-		r.firstPending = false
-		first := r.first
-		r.first = nil
+	if first, ok := r.first.take(); ok {
 		return copyOneshotFirst(p, first)
 	}
 	if r.closeEOF {
@@ -986,14 +981,13 @@ func (l *rawIPForkListener) Accept() (net.Conn, error) {
 		peer := ipAddrFromNet(a)
 		rememberRawIPPeer(session, peer, l.pc.LocalAddr())
 		return &rawIPSessionConn{
-			pc:           l.pc,
-			peer:         peer,
-			first:        append([]byte(nil), buf[:rn]...),
-			firstPending: true,
-			env:          session.SessionVarsSnapshot(),
-			writeMu:      &l.writeMu,
-			recvErr:      xio.NeedRecvErr(l.spec),
-			g:            session,
+			pc:      l.pc,
+			peer:    peer,
+			first:   newFirstPacket(append([]byte(nil), buf[:rn]...)),
+			env:     session.SessionVarsSnapshot(),
+			writeMu: &l.writeMu,
+			recvErr: xio.NeedRecvErr(l.spec),
+			g:       session,
 		}, nil
 	}
 }
@@ -1001,16 +995,14 @@ func (l *rawIPForkListener) Accept() (net.Conn, error) {
 // rawIPSessionConn is one IP-RECVFROM,fork datagram: drain first, then EOF,
 // and reply with WriteToIP. The parent owns the listen socket.
 type rawIPSessionConn struct {
-	pc            *net.IPConn
-	peer          *net.IPAddr
-	first         []byte
-	firstPending  bool
-	env           map[string]string
-	writeMu       *sync.Mutex
-	deadlineMu    sync.Mutex
-	writeDeadline time.Time
-	recvErr       bool
-	g             *xio.Global
+	pc      *net.IPConn
+	peer    *net.IPAddr
+	first   firstPacket
+	env     map[string]string
+	writeMu *sync.Mutex
+	writeDL sharedWriteDeadline
+	recvErr bool
+	g       *xio.Global
 }
 
 func (r *rawIPSessionConn) SessionEnvironment() map[string]string {
@@ -1021,10 +1013,7 @@ func (r *rawIPSessionConn) SessionEnvironment() map[string]string {
 }
 
 func (r *rawIPSessionConn) Read(p []byte) (int, error) {
-	if r.firstPending {
-		r.firstPending = false
-		first := r.first
-		r.first = nil
+	if first, ok := r.first.take(); ok {
 		return copyOneshotFirst(p, first)
 	}
 	return 0, io.EOF
@@ -1034,10 +1023,7 @@ func (r *rawIPSessionConn) Write(p []byte) (int, error) {
 	if r.pc == nil || r.peer == nil {
 		return 0, net.ErrClosed
 	}
-	r.deadlineMu.Lock()
-	deadline := r.writeDeadline
-	r.deadlineMu.Unlock()
-	n, err := writeSharedPacket(r.writeMu, deadline, r.pc.SetWriteDeadline, func() (int, error) {
+	n, err := writeSharedPacket(r.writeMu, r.writeDL.get(), r.pc.SetWriteDeadline, func() (int, error) {
 		return r.pc.WriteToIP(p, r.peer)
 	})
 	xio.DrainRecvErrOnError(err, r.recvErr, r.pc, r.g)
@@ -1053,8 +1039,6 @@ func (r *rawIPSessionConn) SetDeadline(t time.Time) error {
 }
 func (r *rawIPSessionConn) SetReadDeadline(time.Time) error { return nil }
 func (r *rawIPSessionConn) SetWriteDeadline(t time.Time) error {
-	r.deadlineMu.Lock()
-	r.writeDeadline = t
-	r.deadlineMu.Unlock()
+	r.writeDL.set(t)
 	return nil
 }

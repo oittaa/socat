@@ -362,15 +362,14 @@ func (l *unixgramListener) Addr() net.Addr {
 
 // unixPacketConn is one datagram session (first payload + reply path).
 type unixPacketConn struct {
-	c             *net.UnixConn
-	peer          *net.UnixAddr
-	first         []byte
-	shared        bool
-	closeOnce     sync.Once
-	closeErr      error
-	writeMu       *sync.Mutex
-	deadlineMu    sync.Mutex
-	writeDeadline time.Time
+	c         *net.UnixConn
+	peer      *net.UnixAddr
+	first     []byte
+	shared    bool
+	closeOnce sync.Once
+	closeErr  error
+	writeMu   *sync.Mutex
+	writeDL   sharedWriteDeadline
 }
 
 func (u *unixPacketConn) Read(p []byte) (int, error) {
@@ -388,10 +387,7 @@ func (u *unixPacketConn) Write(p []byte) (int, error) {
 	if u.peer == nil {
 		return 0, fmt.Errorf("no peer")
 	}
-	u.deadlineMu.Lock()
-	deadline := u.writeDeadline
-	u.deadlineMu.Unlock()
-	return writeSharedPacket(u.writeMu, deadline, u.c.SetWriteDeadline, func() (int, error) {
+	return writeSharedPacket(u.writeMu, u.writeDL.get(), u.c.SetWriteDeadline, func() (int, error) {
 		return u.c.WriteToUnix(p, u.peer)
 	})
 }
@@ -414,9 +410,7 @@ func (u *unixPacketConn) SetReadDeadline(time.Time) error {
 	return nil
 }
 func (u *unixPacketConn) SetWriteDeadline(t time.Time) error {
-	u.deadlineMu.Lock()
-	u.writeDeadline = t
-	u.deadlineMu.Unlock()
+	u.writeDL.set(t)
 	return nil
 }
 

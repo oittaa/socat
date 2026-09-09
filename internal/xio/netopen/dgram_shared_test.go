@@ -1,6 +1,7 @@
 package netopen
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"sync"
@@ -58,5 +59,28 @@ func TestWriteSharedPacketClearsDeadlineAfterWriteError(t *testing.T) {
 	}
 	if sets != 2 {
 		t.Fatalf("SetWriteDeadline called %d times, want 2", sets)
+	}
+}
+
+func TestFirstPacketTakeOnce(t *testing.T) {
+	f := newFirstPacket([]byte("abcd"))
+	got, ok := f.take()
+	if !ok || !bytes.Equal(got, []byte("abcd")) {
+		t.Fatalf("take() got %q ok=%v", got, ok)
+	}
+	if _, ok := f.take(); ok {
+		t.Fatal("second take() should miss")
+	}
+}
+
+func TestFirstPacketEmptyPending(t *testing.T) {
+	f := newFirstPacket(nil)
+	got, ok := f.take()
+	if !ok || len(got) != 0 {
+		t.Fatalf("empty pending got %q ok=%v", got, ok)
+	}
+	n, err := copyOneshotFirst(make([]byte, 8), got)
+	if n != 0 || err != io.EOF {
+		t.Fatalf("oneshot empty n=%d err=%v", n, err)
 	}
 }

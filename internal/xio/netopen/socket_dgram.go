@@ -234,12 +234,11 @@ func openSocketRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global,
 	}
 	rememberSocketPeer(g, from, local)
 	st, err := xio.SetupConnectedStream(s, &socketRecvfromStream{
-		f:            f,
-		peer:         cloneSockaddr(from),
-		first:        append([]byte(nil), buf[:n]...),
-		firstPending: true,
-		local:        local,
-		remote:       packetAddrFromSockaddr(from),
+		f:      f,
+		peer:   cloneSockaddr(from),
+		first:  newFirstPacket(append([]byte(nil), buf[:n]...)),
+		local:  local,
+		remote: packetAddrFromSockaddr(from),
 	})
 	if err != nil {
 		logx.CloseQuiet(f)
@@ -636,19 +635,15 @@ func packetAddrFromRaw(sa rawSockaddr) net.Addr {
 }
 
 type socketRecvfromStream struct {
-	f            *os.File
-	peer         unix.Sockaddr
-	first        []byte
-	firstPending bool
-	local        net.Addr
-	remote       net.Addr
+	f      *os.File
+	peer   unix.Sockaddr
+	first  firstPacket
+	local  net.Addr
+	remote net.Addr
 }
 
 func (r *socketRecvfromStream) Read(p []byte) (int, error) {
-	if r.firstPending {
-		r.firstPending = false
-		first := r.first
-		r.first = nil
+	if first, ok := r.first.take(); ok {
 		return copyOneshotFirst(p, first)
 	}
 	return 0, io.EOF
@@ -728,48 +723,39 @@ func (l *socketRecvfromListener) Accept() (net.Conn, error) {
 		}
 		rememberSocketPeer(session, from, local)
 		return &socketPacketConn{
-			f:            l.f,
-			peer:         cloneSockaddr(from),
-			first:        append([]byte(nil), buf[:n]...),
-			firstPending: true,
-			local:        local,
-			remote:       packetAddrFromSockaddr(from),
-			env:          session.SessionVars,
-			writeMu:      &l.writeMu,
+			f:       l.f,
+			peer:    cloneSockaddr(from),
+			first:   newFirstPacket(append([]byte(nil), buf[:n]...)),
+			local:   local,
+			remote:  packetAddrFromSockaddr(from),
+			env:     session.SessionVars,
+			writeMu: &l.writeMu,
 		}, nil
 	}
 }
 
 type socketPacketConn struct {
-	f             *os.File
-	peer          unix.Sockaddr
-	first         []byte
-	firstPending  bool
-	local         net.Addr
-	remote        net.Addr
-	env           map[string]string
-	writeMu       *sync.Mutex
-	deadlineMu    sync.Mutex
-	writeDeadline time.Time
+	f       *os.File
+	peer    unix.Sockaddr
+	first   firstPacket
+	local   net.Addr
+	remote  net.Addr
+	env     map[string]string
+	writeMu *sync.Mutex
+	writeDL sharedWriteDeadline
 }
 
 func (c *socketPacketConn) SessionEnvironment() map[string]string { return c.env }
 
 func (c *socketPacketConn) Read(p []byte) (int, error) {
-	if c.firstPending {
-		c.firstPending = false
-		first := c.first
-		c.first = nil
+	if first, ok := c.first.take(); ok {
 		return copyOneshotFirst(p, first)
 	}
 	return 0, io.EOF
 }
 
 func (c *socketPacketConn) Write(p []byte) (int, error) {
-	c.deadlineMu.Lock()
-	deadline := c.writeDeadline
-	c.deadlineMu.Unlock()
-	return writeSharedPacket(c.writeMu, deadline, c.f.SetWriteDeadline, func() (int, error) {
+	return writeSharedPacket(c.writeMu, c.writeDL.get(), c.f.SetWriteDeadline, func() (int, error) {
 		return sendtoFileSock(c.f, p, c.peer)
 	})
 }
@@ -783,8 +769,6 @@ func (c *socketPacketConn) SetDeadline(t time.Time) error {
 }
 func (c *socketPacketConn) SetReadDeadline(time.Time) error { return nil }
 func (c *socketPacketConn) SetWriteDeadline(t time.Time) error {
-	c.deadlineMu.Lock()
-	c.writeDeadline = t
-	c.deadlineMu.Unlock()
+	c.writeDL.set(t)
 	return nil
 }
