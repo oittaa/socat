@@ -1,6 +1,7 @@
 package dtls13
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/mldsa"
 	"crypto/rand"
@@ -113,5 +114,22 @@ func TestOpaqueMessageSigner(t *testing.T) {
 	}
 	if keySupportsSignature(key.Public(), uint16(tls.PSSWithSHA512)) {
 		t.Fatal("accepted an RSA key too small to encode this PSS signature")
+	}
+}
+
+func TestChooseCertificatePrefersListedOrder(t *testing.T) {
+	pq, _ := mldsaCertificate(t, mldsa.MLDSA65())
+	_, server := handshakeConfigs(t)
+	cfg := &Config{Certificates: []tls.Certificate{pq, server.Certificates[0]}}
+	cert, scheme, err := chooseCertificate(cfg, signatureSchemes, "localhost", nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scheme != uint16(tls.MLDSA65) || !bytes.Equal(cert.Certificate[0], pq.Certificate[0]) {
+		t.Fatalf("scheme=%s; want ML-DSA-65 listed first", tls.SignatureScheme(scheme))
+	}
+	cert, scheme, err = chooseCertificate(cfg, []uint16{uint16(tls.Ed25519)}, "localhost", nil, false)
+	if err != nil || scheme != uint16(tls.Ed25519) || bytes.Equal(cert.Certificate[0], pq.Certificate[0]) {
+		t.Fatalf("scheme=%s err=%v; want Ed25519 fallback", tls.SignatureScheme(scheme), err)
 	}
 }

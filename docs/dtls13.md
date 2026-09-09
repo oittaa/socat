@@ -81,10 +81,13 @@ Library `Config` zeros (`prepareConfig`) used by `TestDefaultSettings*`:
 | Groups | X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024, X25519, P-256, P-384, P-521. The ClientHello sends the preferred share plus an X25519 fallback; other groups use HelloRetryRequest. |
 | `signature_algorithms` | ML-DSA-44, ML-DSA-65, ML-DSA-87, then RSA-PSS SHA-256, ECDSA P-256, Ed25519, RSA-PSS SHA-384/512, ECDSA P-384/P-521 |
 
-Cookies are always required. Mutual authentication uses one certificate per
-row (ECDSA P-256 or ML-DSA-65 on both ends). With a single certificate,
-CertificateVerify uses that key; list order only matters when a peer has
-several cert types.
+Cookies are always required. The ECDSA P-256 and ML-DSA-65 rows use one
+certificate type on both ends. The third row loads **two** certificates on
+our side, ML-DSA-65 first and ECDSA P-256 second (`Config.Certificates`
+order). The peer process still gets a single certificate it can load
+(ECDSA P-256). OpenSSL's `-CAfile` in that row is only the ML-DSA CA, so
+the handshake succeeds only if we selected the PQ certificate. Pion and
+wolfSSL do not offer ML-DSA, so they fall back to ECDSA.
 
 Peer CLIs still need a DTLS 1.3 version switch (`s_client`/`s_server
 -dtls1_3`, wolfSSL `-v 4`). That is not a suite or group pin. The tests omit
@@ -122,12 +125,16 @@ first; when we are the server we pick AES-128-GCM from the intersection.
 | --- | --- | --- | --- |
 | OpenSSL `82733d9` | ECDSA P-256 | pass: AES-128-GCM / X25519MLKEM768 | pass: AES-128-GCM / X25519MLKEM768 |
 | OpenSSL `82733d9` | ML-DSA-65 | pass: AES-128-GCM / X25519MLKEM768 | pass: AES-128-GCM / X25519MLKEM768 |
+| OpenSSL `82733d9` | ML-DSA-65, then ECDSA P-256 | pass: AES-128-GCM / X25519MLKEM768; we selected ML-DSA-65 | pass: AES-128-GCM / X25519MLKEM768; we selected ML-DSA-65 |
 | wolfSSL `d72f6d9` | ECDSA P-256 | fail: fragmented first ClientHello at MTU 1200 | pass: AES-128-GCM / X25519MLKEM768 |
 | wolfSSL `d72f6d9` | ML-DSA-65 | fail: example server cannot load the cert | fail: example client cannot load the cert |
+| wolfSSL `d72f6d9` | ML-DSA-65, then ECDSA P-256 | fail: fragmented first ClientHello at MTU 1200 | pass: AES-128-GCM / X25519MLKEM768; ECDSA fallback |
 | Pion `59f4c33` | ECDSA P-256 | handshake AES-128-GCM / X25519MLKEM768, then fail: `unexpected message` (CID) | handshake AES-128-GCM / X25519MLKEM768, then fail: `unexpected message` (CID) |
 | Pion `59f4c33` | ML-DSA-65 | fail: `invalid private key type` | fail: `invalid private key type` |
+| Pion `59f4c33` | ML-DSA-65, then ECDSA P-256 | handshake AES-128-GCM / X25519MLKEM768 (ECDSA fallback), then fail: `unexpected message` (CID) | handshake AES-128-GCM / X25519MLKEM768 (ECDSA fallback), then fail: `unexpected message` (CID) |
 | BoringSSL `4a92579` | ECDSA P-256 | n/a: no packet-BIO interop | n/a |
 | BoringSSL `4a92579` | ML-DSA-65 | n/a | n/a |
+| BoringSSL `4a92579` | ML-DSA-65, then ECDSA P-256 | n/a | n/a |
 
 ### Pinned-matrix coverage
 
