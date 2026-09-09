@@ -13,6 +13,9 @@ const (
 	pathChallenge = byte(0)
 	pathResponse  = byte(1)
 	pathDrop      = byte(2)
+
+	initialPathChallenge = time.Second
+	minPathChallenge     = 100 * time.Millisecond
 )
 
 type pathPhase uint8
@@ -84,7 +87,7 @@ func (p *pathState) challenge(now time.Time) error {
 	destination := p.peer
 	if p.probe.phase == pathValidateCandidate {
 		// The candidate RTT is unknown; keep at least the initial allowance.
-		timeout = max(timeout, time.Second)
+		timeout = max(timeout, initialPathChallenge)
 		destination = p.probe.candidate
 	}
 	p.probe.deadline = now.Add(timeout)

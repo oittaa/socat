@@ -17,9 +17,9 @@ func (s *session) ackDelay() time.Duration {
 // Keep a 100ms minimum for the old-path check.
 func (s *session) pathChallengeTimer() time.Duration {
 	if s == nil || s.rtt <= 0 {
-		return time.Second
+		return initialPathChallenge
 	}
-	return max(3*s.rtt, minRetransmit)
+	return max(3*s.rtt, minPathChallenge)
 }
 
 func (s *session) noteRTT(sample time.Duration, f *flight) {

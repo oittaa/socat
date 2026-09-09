@@ -61,8 +61,8 @@ func TestPathChallengeTimerIsThreeRTT(t *testing.T) {
 
 func TestPathChallengeTimerFloorsSmallRTT(t *testing.T) {
 	s := &session{rtt: time.Millisecond}
-	if got := s.pathChallengeTimer(); got != minRetransmit {
-		t.Fatalf("got %s want %s", got, minRetransmit)
+	if got := s.pathChallengeTimer(); got != minPathChallenge {
+		t.Fatalf("got %s want %s", got, minPathChallenge)
 	}
 }
 
