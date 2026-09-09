@@ -62,8 +62,6 @@ from a prior test, and shard wall timeouts that leave incomplete results
 
 1. Prefer `MODE=classic` (or `MODE=stable`) for baselines and “is this a real FAIL?”.
 2. Use `VAL_T=0.1` or higher if you stay parallel; `0.05` is aggressive.
-   For non-root Go `SOCAT_MUX`, use explicit `VAL_T=0.5` or `MODE=stable`.
-   `MODE=classic` auto-calibration can still leave too little startup time.
 3. Raise `SHARD_TIMEOUT` if a shard dies with exit 124.
 4. Re-run only the FAILED names with `ONLY='NAME1 NAME2' JOBS=1` before chasing.
 5. Kill leftovers owned by **this scorecard invocation** (per-run/per-shard
@@ -307,7 +305,7 @@ Do not enable excluded TLS features to make tests pass.
 | `OPENSSLLISTENDSA` | Intentional exclusion | DSA keys are rejected. README table “DSA, SSLv3, and weak TLS ciphers”. Covered by `TestLoadKeyPairRejectsDSA`. |
 | `OPENSSL_ANULL` | Shared with classic C | Classic `test.sh` uses `ciphers=aNULL`. Both C and Go print FAILED. Weak ciphers stay rejected. |
 | `SHELL_SIGINT` | Harness log format, not delivery | `test.sh` greps C `waitpid` warnings. This port logs `socatsignalpass(): propagated signal to … sub processes` and does **not** emit `W waitpid():…`. `TestEXECParentSignalPassThrough` covers SIGINT. Do not fake C waitpid lines. |
-| `SOCAT_MUX` | Go startup exceeds harness wait in non-root reproduction | Two UDP port probes delayed Go's TCP listener by ~1s, exceeding `waittcp4port`'s `5×val_t` sleep budget. Clients then failed with connection refused. Classic probes returned promptly on the same host; the historical classic failure's cause remains unconfirmed. See below. |
+| `SOCAT_MUX` | Fixed after the recorded baseline | UDP-RECV shutdown delayed two startup probes by ~1s. Closing the receive socket on opposite EOF removes the delay; focused non-root runs now pass with `VAL_T=0.1` and auto-calibration. See below. |
 | `V1800_OPENSSL_LISTEN_RANGE` | Documented fail-fast difference (retain) | Generated 1.8.0 case runs `OPENSSL-LISTEN:$PORT,range=…` **without** `cert=`. Official `doc/socat.yo` recommends a certificate (“You probably want to use the certificate option”) and does not make it mandatory. Classic C warns when `cert=` is absent and still binds; `timeout` 124 counts as success. This port fails immediately: `OPENSSL-LISTEN: option "cert" is required` (rc=1). README already records that TLS listeners fail immediately when `cert=` is missing. `TestTLSServerConfigRequiresCert`. This follow-up does not relax that. Go TLS still needs a usable server certificate for its supported handshakes. Do not describe classic’s warn-and-bind as an authentication bypass. |
 | `V1800_OPENSSL_LISTEN_BIND` | Documented fail-fast difference (retain) | Same as RANGE with `bind=` instead of `range=`. |
 
@@ -316,38 +314,28 @@ binds without it. This port’s fail-fast refusal is an existing documented
 difference, not a scorecard defect to close by matching C’s bind-without-cert
 path.
 
-### `SOCAT_MUX` (Go startup timing vs classic)
-
-Non-root lab comparison on 2026-09-06: Ubuntu 26.04, Linux 7.0.0-30,
-Go `90dcf25`, classic 1.8.1.3. Official `test.sh` and `socat-mux.sh` were
-unmodified and match both source revisions in `scripts/classic-baseline.json`.
+### `SOCAT_MUX` (UDP receive shutdown fixed)
 
 `socat-mux.sh` probes two UDP ports before starting its TCP listener, using
-`socat -d -d -T 0.000001 UDP4-RECV:0 /dev/null`. Across ten runs, one probe
-took 506.5 ms median with Go but only 1.5 ms with classic. Go waits the
-default 0.5s linger after `/dev/null` EOF; classic returns promptly.
-`waittcp4port` allows five sleeps of `val_t`, plus port-check overhead.
+`socat -d -d -T 0.000001 UDP4-RECV:0 /dev/null`. Go left the receive socket
+open after `/dev/null` EOF, so each probe waited the default 0.5s linger.
+The resulting ~1s startup delay exceeded the harness readiness window.
 
-| `val_t` | Classic `SOCAT_MUX` | Go `SOCAT_MUX` |
-|---------|---------------------|----------------|
-| `0.1` | OK | FAILED `(rc2b=1)`, connection refused |
-| `0.5` | OK | OK |
-| Auto-calibrated | OK (`0.014`) | FAILED `(rc2b=1)` at `0.023`, connection refused |
+UDP-RECV now closes its socket on opposite EOF, matching classic
+`xioshutdown.c`. The relay's `-t`/`-T` policy and explicit `shut-none`
+behavior are unchanged. On 2026-09-09 (non-root Ubuntu 26.04,
+Linux 7.0.0-31), ten runs gave these process-duration medians:
 
-Re-run `ONLY=SOCAT_MUX JOBS=1 VAL_T=0.5`, or use `MODE=stable` with no
-`VAL_T` override. `MODE=classic` alone does not guarantee enough startup time.
-Keep a separate follow-up to investigate the Go/classic probe and EOF
-lifecycle difference; this comparison does not establish its root cause.
+| Classic 1.8.1.3 | Go before fix | Go after fix |
+|----------------|---------------|--------------|
+| 1.4 ms | 506.2 ms | 4.7 ms |
 
-The historical classic host baseline (`val_t=0.05`) records `(rc2b=1)`
-without enough evidence to attribute it to this delay. That status only
-identifies a failing client exit. Root runs skip the two probes and use a
-different port-selection path, so Docker OK results do not isolate timing.
-
-Official `test.sh` comments that loopback needs broadcast `127.255.255.255`,
-but does not enforce that through `checkconds`. On this lab kernel, UDP
-broadcast and mux delivery worked despite no `IFF_BROADCAST` or `brd` on
-`lo`; broadcast was not the cause of the reproduced Go failure.
+The official `SOCAT_MUX` case now passes with `JOBS=1` at both `VAL_T=0.1`
+and `VAL_T=auto`, without changing the upstream scripts. Classic release
+`12c08bf` and master `af5388c` have identical source trees. These focused
+results do not rewrite the historical baseline JSON or explain its classic
+failure. Root runs skip the probes, so Docker results do not exercise this
+startup path.
 
 ### Docker CANT vs classic OK (22)
 
@@ -424,9 +412,9 @@ stop when it happens.
 
 ### What not to change
 
-This triage changes documentation. In particular: do not allow
-missing `cert=` on TLS listeners, do not enable TLS compression or DSA, do
-not emit fake `waitpid` logs, do not add a universal lifecycle framework or
+Do not allow missing `cert=` on TLS listeners, do not enable TLS compression
+or DSA, do not emit fake `waitpid` logs, do not add a universal lifecycle
+framework or
 change default `-t` linger to chase `SOCAT_MUX`, do not patch official
 `socat-mux.sh`, and do not change `-V` layout or `Version` to satisfy the
 `UDP_DATAGRAM_PEERPORT` gate.

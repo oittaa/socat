@@ -68,6 +68,18 @@ func writeTo(t *testing.T, pc net.PacketConn, payload string, dst *net.UDPAddr) 
 	}
 }
 
+func TestUDPRecvShutdownClosesRead(t *testing.T) {
+	o, addr := openDgramStream(t, "UDP4-RECV:0,bind=127.0.0.1")
+	// Queued data makes a missing close fail without waiting for a timeout.
+	writeTo(t, listenUDP4Probe(t), "queued", addr)
+	if err := o.Stream.ShutdownWrite(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.Stream.Read(make([]byte, 64)); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("read after shutdown: %v, want closed socket", err)
+	}
+}
+
 func TestUDP4SendtoIgnoresWrongPeer(t *testing.T) {
 	testSendtoIgnoresWrongPeer(t, "UDP4-SENDTO", listenUDP4Probe)
 }
