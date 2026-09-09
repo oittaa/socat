@@ -3,7 +3,6 @@
 package dtls13
 
 import (
-	"bytes"
 	"context"
 	"crypto/mldsa"
 	"crypto/tls"
@@ -200,13 +199,8 @@ func testOpenSSLServerMTULoss(t *testing.T, tools oracleTools, cert tls.Certific
 		t.Fatal("negotiated algorithms or certificate verification missing")
 	}
 	marker := []byte("openssl-server-echo\n")
-	if _, err := client.Write(marker); err != nil {
+	if err := echoWriteRead(client, marker); err != nil {
 		t.Fatal(err)
-	}
-	buffer := make([]byte, 1024)
-	n, err := client.Read(buffer)
-	if err != nil || !bytes.Equal(buffer[:n], marker) {
-		t.Fatalf("OpenSSL echo: %q, %v", buffer[:n], err)
 	}
 }
 
@@ -258,21 +252,13 @@ func testOpenSSLClientMTU(t *testing.T, tools oracleTools, cert tls.Certificate,
 			t.Fatal("ML-DSA client authentication missing")
 		}
 	}
-	buffer := make([]byte, 1024)
-	n, err := peer.Read(buffer)
-	if err != nil || !bytes.Equal(buffer[:n], marker) {
-		t.Fatalf("data: %q, %v", buffer[:n], err)
-	}
-	if _, err := peer.Write(marker); err != nil {
+	if err := echoReadWriteExpect(peer.(*Conn), string(marker)); err != nil {
 		t.Fatal(err)
 	}
 	if err := peer.(interface{ CloseWrite() error }).CloseWrite(); err != nil {
 		t.Fatal(err)
 	}
-	if err := wait(); err != nil {
+	if err := waitOracleContains(wait, output, marker); err != nil {
 		t.Fatal(err)
-	}
-	if !bytes.Contains(output.Bytes(), marker) {
-		t.Fatal("OpenSSL did not verify and decrypt our response")
 	}
 }

@@ -106,7 +106,7 @@ func TestInteropWolfSSLCID(t *testing.T) {
 					args := []string{"-u", "-v", "4", "-Y", "--cid", "wolf-cid", "-c", certFile, "-k", keyFile, "-A", certFile, "-l", tls.CipherSuiteName(suite)}
 					var conn *Conn
 					var err error
-					var output *bytes.Buffer
+					var output *oracleBuffer
 					var wait func() error
 					if role == "server" {
 						reservation := udpForOracle(t)

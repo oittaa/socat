@@ -16,11 +16,9 @@ confirmation and upward discovery on eligible dedicated sockets with CID/RRC.
 1200 bytes. Direct library callers opt in with `Config.UnfragmentedProbes`.
 
 Algorithm defaults follow Go 1.27's TLS 1.3 preference order in
-`defaultCipherSuites` and `defaultGroups`: AES-128/256-GCM and
-ChaCha20-Poly1305; X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024,
-X25519, P-256/P-384/P-521; RSA-PSS, ECDSA, Ed25519 and ML-DSA-44/65/87.
-The TLS ML-DSA mapping follows `draft-ietf-tls-mldsa-05`. New algorithms still
-need DTLS wire integration.
+`defaultCipherSuites`, `defaultGroups`, and `signatureAlgorithms`. See
+[Default settings](#default-settings). The TLS ML-DSA mapping follows
+`draft-ietf-tls-mldsa-05`. New algorithms still need DTLS wire integration.
 
 The stack adapts Pion's key derivation, AES protection and test vectors, not
 its protocol framework. Keep the [NOTICE](../internal/dtls13/NOTICE.md) and
@@ -59,26 +57,151 @@ shared with that adapted code.
 
 ## Independent peers
 
-Last interoperability runs: 2026-09-08, with runtime code from master `cfd5566`.
-Pins are in
+Last interoperability runs: 2026-09-08 (pinned matrices, master `cfd5566`) and
+2026-09-09 (default-settings table, `TestDefaultSettings*`). Pins are in
 [dtls13-baseline.json](../scripts/dtls13-baseline.json) and
 [dtls13-lab.py](../scripts/dtls13-lab.py). Limits are for those revisions.
 
-The three record cipher suites tested below are **AES-128-GCM, AES-256-GCM,
-and ChaCha20-Poly1305**. Tests select each explicitly, regardless of hardware
-preference. The 21-combination matrices mean three suites × seven groups.
+The three record cipher suites in the pinned matrices are **AES-128-GCM,
+AES-256-GCM, and ChaCha20-Poly1305**. Those tests select each suite and group
+explicitly, regardless of hardware preference. 21 combinations means three
+suites × seven groups. Default-settings tests do not pin suites or groups.
 
-| Peer | Passing coverage | Limits |
-| --- | --- | --- |
-| OpenSSL 4.1 snapshot (`82733d9`) | 21 suite/group combinations (includes both NIST hybrids): our client at MTU 4096 (`TestInteropOpenSSLServer`); our listener at default MTU 1200 (`TestInteropOpenSSLClient`). All three suites with mutual ML-DSA-44/65/87 at MTU 4096. Small-MTU 1200/512/256 uses all three suites with X25519MLKEM768: ECDSA and mutual ML-DSA-44/65/87 echo in both roles (`s_server` and `s_client`). Our client completed ML-DSA-44 echo after a dropped first ClientHello with each suite at those MTUs. Our captured UDP payloads stayed within the configured MTU. `SSL_new_listener` cookie path (`TestInteropOpenSSLCookieListener`, `TestInteropOpenSSLCookieListenerHandshakeLoss`): all three suites, our client, mutual ECDSA, X25519 at 1200 and X25519MLKEM768 at 1200/512/256, including a dropped first ClientHello fragment and a dropped HelloRetryRequest. HRR carried a cookie; ClientHello sequence 1 echoed it; certificates verified; application echo matched. Our sent maxima were 1191/503/256. | No DTLS 1.3 CID. `SSL_set_mtu` is not usable on the listener object; after accept, OpenSSL still emitted datagrams of at most 228 bytes on this path. OpenSSL may emit ACK lists larger than the MTU; malformed ACK bodies are discarded. NIST hybrids were not run at 1200/512/256. |
-| wolfSSL master (`d72f6d9`) | 21 suite/group combinations with our client at MTU 4096. 12 mutual-auth CID cases in both roles (default MTU 1200, all suites, P-256, request ACKs, rotation with lost ACKs and KeyUpdate). | Rejects a fragmented unverified first ClientHello, so PQ at 1200/512/256 times out. No spare issuance/replenishment or RFC 9853 RRC. |
-| Pion (`59f4c33`) | Mutual authentication, bidirectional KeyUpdate and rebinding/RRC in both roles through protocol drivers using initial CIDs. Public `Client`/`Listen` APIs: X25519MLKEM768 with all three suites, ECDSA mTLS, both roles at 1200/512/256 including a dropped first ClientHello (`TestInteropPionSmallMTUPQ`, `TestInteropPionSmallMTUPQHandshakeLoss`), with CID/RRC disabled. | Rejects CID-management messages. Migration-enabled public endpoints request spares and do not fully interoperate. Pion may emit datagrams above the configured MTU (observed 1225/537/290). NIST hybrids and ML-DSA were not run against Pion. |
-| BoringSSL (`4a92579`) | Test shim builds. | Packet-BIO adapter and interop tests are not written. Lower priority; lab-only. |
+Collect the default-settings rows on the Linux lab with:
 
-The wolfSSL lab build enlarges its extra read buffer to 4096 bytes for hybrid
-offers and still requires an unfragmented first ClientHello. OpenSSL `s_server`
-accepted our fragmented X25519MLKEM768 ClientHello at 256 with ECDSA and
-mutual ML-DSA echo.
+```sh
+SOCAT_DTLS13_TOOLS=/path/to/tools.json go test -v -tags dtlsinterop ./internal/dtls13 -run '^TestDefaultSettings' -count=1
+```
+
+Each case reads the negotiated cipher, group and peer certificate from our
+connection state after a verified handshake, then checks the echo. Raw peer
+output is retained on success and failure; OpenSSL's `-brief` summary shows its
+view of the connection and the certificate we presented. Errors fail that row
+and include the peer's exit status; the other rows still run. The command returns
+nonzero when any exchange fails, including the peer limitations documented below.
+These lab measurements are excluded from ordinary `make check`.
+
+### Default settings
+
+Library `Config` zeros (`prepareConfig`) used by `TestDefaultSettings*`:
+
+| Knob | Default |
+| --- | --- |
+| MTU | 1200 |
+| Connection ID length | 8; CID and RFC 9853 RRC offered (`DisableMigration` false) |
+| Handshake timeout | 30s; 256 listener associations |
+| `UnfragmentedProbes` | off for `Client`/`Listen`. Command-line clients still default it on for eligible dedicated sockets. |
+| Cipher suites | AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305 when AES-GCM hardware is present; ChaCha first otherwise |
+| Groups | X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024, X25519, P-256, P-384, P-521. The ClientHello sends the preferred share plus an X25519 fallback; other groups use HelloRetryRequest. |
+| `signature_algorithms` | ML-DSA-44, ML-DSA-65, ML-DSA-87, then RSA-PSS SHA-256, ECDSA P-256, Ed25519, RSA-PSS SHA-384/512, ECDSA P-384/P-521 |
+
+Cookies are always required. The ECDSA P-256 and ML-DSA-65 rows use one
+certificate type on both ends. The third row is two CAs and two leaves:
+
+- ML-DSA CA signs the ML-DSA-65 leaf.
+- ECDSA CA signs the ECDSA P-256 leaf.
+
+`Config.Certificates` lists ML-DSA-65 first, then ECDSA P-256. Verifiers
+trust both CAs, so either leaf verifies. OpenSSL loads that trust store with
+`-CApath` (hashed directory from `openssl rehash`) and `-CAfile` (concatenated
+PEMs; `s_server` still reads CertificateRequest CA names from `-CAfile`).
+`s_server` also gets both leaves (`-cert` ML-DSA-65, `-dcert` ECDSA P-256).
+`s_client` has no second-cert flag, so it presents the ECDSA leaf. Pion and
+wolfSSL cannot parse ML-DSA, so they get the ECDSA leaf and ECDSA CA only;
+we still trust both CAs and fall back to ECDSA because those peers do not
+offer ML-DSA.
+
+Peer CLIs still need a DTLS 1.3 version switch (`s_client`/`s_server
+-dtls1_3`, wolfSSL `-v 4`). That is not a suite or group pin. The tests omit
+`-groups`, `-ciphersuites`, `-mtu`, `--pqc`, `--force-curve`, `-l`, `-group`,
+`-cipher`, and `-migrate=false`.
+
+OpenSSL 4.1 (`82733d9`) defaults that affect this table:
+
+- Groups (`TLS_DEFAULT_GROUP_LIST`): X25519MLKEM768, SecP256r1MLKEM768,
+  curveSM2MLKEM768; then X25519, P-256; X448, P-384, P-521; curveSM2;
+  ffdhe2048, ffdhe3072. Unavailable groups are skipped. X25519MLKEM768 and
+  X25519 have initial key shares. SecP384r1MLKEM1024 is absent.
+- TLS 1.3 ciphers (`openssl ciphers -tls1_3 -s`): AES-256-GCM, ChaCha20-Poly1305,
+  AES-128-GCM.
+- `signature_algorithms`: ML-DSA-65, ML-DSA-87, ML-DSA-44, then ECDSA/EdDSA/RSA
+  ([openssl/openssl#26975](https://github.com/openssl/openssl/pull/26975)).
+  We advertise ML-DSA-44 first. A single ML-DSA-65 certificate still selects
+  ML-DSA-65.
+
+Pion (`59f4c33`) library defaults: MTU 1200; groups X25519MLKEM768, X25519,
+P-256, P-384; TLS 1.3 ciphers AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305;
+ECDSA/Ed25519/RSA signatures only (no ML-DSA). The lab oracle leaves
+`-migrate` true, so CID and RRC are offered.
+
+wolfSSL (`d72f6d9`) example binaries in the lab cmake build have DTLS 1.3 and
+CID. The DTLS 1.3 client offers X25519MLKEM768 without `--pqc`. They cannot
+load ML-DSA certificates. They reject a fragmented unverified first
+ClientHello.
+
+On this AES-NI host the pass rows negotiated **AES-128-GCM / X25519MLKEM768**:
+we prefer AES-128-GCM first, and both OpenSSL and wolfSSL advertised
+X25519MLKEM768. OpenSSL's own TLS 1.3 cipher list still lists AES-256-GCM
+first; when we are the server we pick AES-128-GCM from the intersection.
+
+| Peer | Certificate | Ours as client | Ours as server |
+| --- | --- | --- | --- |
+| OpenSSL `82733d9` | ECDSA P-256 | pass: AES-128-GCM / X25519MLKEM768 | pass: AES-128-GCM / X25519MLKEM768 |
+| OpenSSL `82733d9` | ML-DSA-65 | pass: AES-128-GCM / X25519MLKEM768 | pass: AES-128-GCM / X25519MLKEM768 |
+| OpenSSL `82733d9` | ML-DSA-65, then ECDSA P-256 | pass: AES-128-GCM / X25519MLKEM768; peer selected ML-DSA-65 | pass: AES-128-GCM / X25519MLKEM768; we selected ML-DSA-65 |
+| wolfSSL `d72f6d9` | ECDSA P-256 | fail: fragmented first ClientHello at MTU 1200 | pass: AES-128-GCM / X25519MLKEM768 |
+| wolfSSL `d72f6d9` | ML-DSA-65 | fail: example server cannot load the cert | fail: example client cannot load the cert |
+| wolfSSL `d72f6d9` | ML-DSA-65, then ECDSA P-256 | fail: fragmented first ClientHello at MTU 1200 | pass: AES-128-GCM / X25519MLKEM768; ECDSA fallback |
+| Pion `59f4c33` | ECDSA P-256 | handshake AES-128-GCM / X25519MLKEM768, then often fail: `unexpected message` (CID) | handshake AES-128-GCM / X25519MLKEM768, then often fail: `unexpected message` (CID) |
+| Pion `59f4c33` | ML-DSA-65 | fail: `invalid private key type` | fail: `invalid private key type` |
+| Pion `59f4c33` | ML-DSA-65, then ECDSA P-256 | ECDSA fallback; same CID result as the ECDSA row | ECDSA fallback; same CID result as the ECDSA row |
+| BoringSSL `4a92579` | ECDSA P-256 | n/a: no packet-BIO interop | n/a |
+| BoringSSL `4a92579` | ML-DSA-65 | n/a | n/a |
+| BoringSSL `4a92579` | ML-DSA-65, then ECDSA P-256 | n/a | n/a |
+
+### Pinned-matrix coverage
+
+These cases pin cipher suite and group (and, for Pion public APIs, disable
+CID). They are not the default-settings table.
+
+**OpenSSL 4.1 (`82733d9`)** — pass: 21 suite×group combinations, our client at
+MTU 4096 (`TestInteropOpenSSLServer`) and our listener at MTU 1200
+(`TestInteropOpenSSLClient`); all three suites with mutual ML-DSA-44/65/87 at
+4096; X25519MLKEM768 at 1200/512/256 with ECDSA and mutual ML-DSA-44/65/87 in
+both roles; dropped first ClientHello for ML-DSA-44 against `s_server` at
+those MTUs; `SSL_new_listener` cookie path (`TestInteropOpenSSLCookieListener`,
+`TestInteropOpenSSLCookieListenerHandshakeLoss`) with all three suites, our
+client, mutual ECDSA, X25519 at 1200 and X25519MLKEM768 at 1200/512/256,
+including a dropped first ClientHello fragment and a dropped
+HelloRetryRequest. Captured UDP payloads stayed within the configured MTU
+(cookie-path sent maxima 1191/503/256). Limits: no DTLS 1.3 CID; `SSL_set_mtu`
+is not usable on the listener object (datagrams of at most 228 bytes after
+accept on that path); OpenSSL may emit ACK lists larger than the MTU
+(malformed ACK bodies are discarded); NIST hybrids were not run at
+1200/512/256.
+
+**wolfSSL (`d72f6d9`)** — pass: 21 suite×group combinations, our client at MTU
+4096; 12 mutual-auth CID cases in both roles at MTU 1200 (all suites, P-256,
+request ACKs, rotation with lost ACKs and KeyUpdate). Limits: rejects a
+fragmented unverified first ClientHello, so PQ at 1200/512/256 times out; no
+spare issuance/replenishment or RFC 9853 RRC. The lab build enlarges the extra
+read buffer to 4096 bytes for hybrid offers.
+
+**Pion (`59f4c33`)** — pass: mutual authentication, bidirectional KeyUpdate and
+rebinding/RRC in both roles through protocol drivers using initial CIDs;
+public `Client`/`Listen` with CID/RRC disabled: X25519MLKEM768 × all three
+suites, ECDSA mTLS, both roles at 1200/512/256 including a dropped first
+ClientHello (`TestInteropPionSmallMTUPQ`,
+`TestInteropPionSmallMTUPQHandshakeLoss`). Limits: rejects CID-management
+messages, so migration-enabled public endpoints do not fully interoperate;
+may emit datagrams above the configured MTU (observed 1225/537/290); NIST
+hybrids and ML-DSA were not run against Pion.
+
+**BoringSSL (`4a92579`)** — test shim builds only. Packet-BIO adapter and
+interop tests are not written. Lower priority; lab-only.
+
+OpenSSL `s_server` accepted our fragmented X25519MLKEM768 ClientHello at 256
+with ECDSA and mutual ML-DSA echo.
 
 None of the pinned peers supplies independent spare-CID issuance coverage.
 System OpenSSL 3.5.5 is DTLS 1.2 only (`s_client` has no `-dtls1_3`). OpenSSL
@@ -95,9 +218,11 @@ mapping is still `draft-ietf-tls-mldsa-05` (IESG approved, RFC not published).
   `internal/xio/dtlsopen`, including RFC 9846 §1.2.
 - Spare-CID issuance/replenishment interop when a reference peer supports it.
   Local renewal is implemented; this interop gap is not a merge blocker.
-- wolfSSL still requires an unfragmented first ClientHello, so PQ at
-  1200/512/256 times out. Independent Pion public-API coverage at those
-  MTUs is X25519MLKEM768 with all three record cipher suites and CID disabled.
+- wolfSSL still requires an unfragmented first ClientHello, so our
+  default-settings client (and PQ at 1200/512/256) times out. Our listener
+  vs wolfSSL's default DTLS 1.3 client completes ECDSA with X25519MLKEM768.
+  Independent Pion public-API coverage at those MTUs is X25519MLKEM768 with
+  all three record cipher suites and CID disabled.
 - PMTU: routed Windows/macOS validation awaits suitable test environments.
   Possible improvements: RTT-based probe spacing, safe discovery on shared
   listeners, and OS PMTU hints without connecting the active migration socket.
@@ -155,7 +280,7 @@ On Linux, build the pinned peers and run interop:
 sudo apt-get install --no-install-recommends cmake ninja-build
 python3 scripts/dtls13-lab.py
 SOCAT_DTLS13_TOOLS="$HOME/socat-dtls13-lab/tools.json" \
-  go test -tags dtlsinterop ./internal/dtls13 -run TestInterop -v
+  go test -tags dtlsinterop ./internal/dtls13 -run 'TestInterop|TestDefaultSettings' -v
 ```
 
 The lab lives under `~/socat-dtls13-lab/`. `--only classic` attempts the
