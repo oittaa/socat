@@ -54,65 +54,78 @@ func udpAcceptError(err error, timeoutSet bool) error {
 }
 
 func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
-		return nil, fmt.Errorf("%s requires port", s.Type)
+	pc, laddr, err := bindUDPPort(ctx, s, network)
+	if err != nil {
+		return nil, err
 	}
-	port := s.Params[0]
+	if s.BoolOption("fork") {
+		return openUDPListenFork(ctx, s, g, pc, laddr, network)
+	}
+	return openUDPListenOnePeer(ctx, s, g, pc, network)
+}
+
+func bindUDPPort(ctx context.Context, s parse.Spec, network string) (*net.UDPConn, *net.UDPAddr, error) {
+	if len(s.Params) < 1 || s.Params[0] == "" {
+		return nil, nil, fmt.Errorf("%s requires port", s.Type)
+	}
 	host, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	laddr, err := xio.ResolveUDPAddr(ctx, s, network, net.JoinHostPort(xio.StripBrackets(host), port))
+	laddr, err := xio.ResolveUDPAddr(ctx, s, network, net.JoinHostPort(xio.StripBrackets(host), s.Params[0]))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	pc, err := listenUDP(network, laddr, s)
 	if err != nil {
+		return nil, nil, err
+	}
+	return pc, laddr, nil
+}
+
+func openUDPListenFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *net.UDPConn, laddr *net.UDPAddr, network string) (*xio.Opened, error) {
+	if udpForkSharesListenSocket() && xio.ShutDownSelected(s) {
+		logx.CloseQuiet(pc)
+		return nil, fmt.Errorf("UDP-LISTEN,fork,shut-down: not supported")
+	}
+	_, maxChildren, ferr := xio.ForkLimits(s)
+	if ferr != nil {
+		logx.CloseQuiet(pc)
+		return nil, ferr
+	}
+	peerFilter, err := xio.NewPeerFilter(ctx, s, g)
+	if err != nil {
+		logx.CloseQuiet(pc)
 		return nil, err
 	}
-
-	// fork: keep listening and spawn a session per first-packet "connection".
-	if s.BoolOption("fork") {
-		if udpForkSharesListenSocket() && xio.ShutDownSelected(s) {
-			logx.CloseQuiet(pc)
-			return nil, fmt.Errorf("UDP-LISTEN,fork,shut-down: not supported")
-		}
-		_, maxChildren, ferr := xio.ForkLimits(s)
-		if ferr != nil {
-			logx.CloseQuiet(pc)
-			return nil, ferr
-		}
-		peerFilter, err := xio.NewPeerFilter(ctx, s, g)
-		if err != nil {
-			logx.CloseQuiet(pc)
-			return nil, err
-		}
-		base := &udpForkListener{
-			pc:      pc,
-			network: network,
-			laddr:   laddr,
-			spec:    s,
-			g:       g,
-			ctx:     ctx,
-			filter:  peerFilter,
-		}
-		if err := applyUDPForkTimeouts(base, s); err != nil {
-			logx.CloseQuiet(pc)
-			return nil, err
-		}
-		ln := newUDPListenForkListener(base)
-		xio.NoteListenBound(pc.LocalAddr())
-		return &xio.Opened{
-			Kind:        xio.KindListen,
-			Listener:    ln,
-			Label:       "UDP-LISTEN",
-			MaxChildren: maxChildren,
-			PeerFilter:  peerFilter.AllowConn,
-			WrapDial: func(c net.Conn) (relay.Stream, error) {
-				return xio.SetupConnectedStream(s, udpConnectStream{NetStream: relay.NetStream{Conn: c}})
-			},
-		}, nil
+	base := &udpForkListener{
+		pc:      pc,
+		network: network,
+		laddr:   laddr,
+		spec:    s,
+		g:       g,
+		ctx:     ctx,
+		filter:  peerFilter,
 	}
+	if err := applyUDPForkTimeouts(base, s); err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
+	ln := newUDPListenForkListener(base)
+	xio.NoteListenBound(pc.LocalAddr())
+	return &xio.Opened{
+		Kind:        xio.KindListen,
+		Listener:    ln,
+		Label:       "UDP-LISTEN",
+		MaxChildren: maxChildren,
+		PeerFilter:  peerFilter.AllowConn,
+		WrapDial: func(c net.Conn) (relay.Stream, error) {
+			return xio.SetupConnectedStream(s, udpConnectStream{NetStream: relay.NetStream{Conn: c}})
+		},
+	}, nil
+}
+
+func openUDPListenOnePeer(ctx context.Context, s parse.Spec, g *xio.Global, pc *net.UDPConn, network string) (*xio.Opened, error) {
 	xio.NoteListenBound(pc.LocalAddr())
 
 	// Resolve range= before the accept deadline. Slow DNS must not consume
