@@ -200,6 +200,11 @@ Platforms without `/proc` report RSS as `n/a` (`null` in JSON).
 - The saved host is a Hyper-V guest. Absolute loopback latency includes
   virtualization and host-scheduler effects; use the classic/Go pairing for
   relative comparisons rather than comparing raw latency with bare metal.
+- On this Linux host, Python's timed process wait polls at up to 50 ms
+  intervals. Bulk rates include that exit-detection delay. A 1 GiB TCP/UNIX
+  transfer lasts about half a second, so a roughly 10% rate change can
+  reflect this timing granularity. Use longer transfers to resolve small
+  gains. DTLS transfers here last about 25 seconds.
 - Quote `meta.tls` for version, cipher, and group. Go TLS/QUIC/DTLS uses
   **X25519MLKEM768**. Classic OPENSSL (distro OpenSSL + unpatched 1.8.1.3)
   uses **P-256**. Classic bulk TLS uses **TLS_AES_256_GCM_SHA384**; Go uses
@@ -220,11 +225,9 @@ Platforms without `/proc` report RSS as `n/a` (`null` in JSON).
 
 ## Recorded snapshot
 
-Recorded 2026-09-06 from master `66c2f18` plus command/channel reuse,
-including the DTLS optimizations from PRs #244 and #246. The measured
-`conn.go` SHA-256 and source label are recorded in `host.json`.
-Ubuntu 26.04 Hyper-V guest (6 vCPUs), Ryzen 7 9800X3D host, Linux 7.0.0-30,
-Go 1.27.0 (GOMAXPROCS=6, GOGC=100), classic socat 1.8.1.3, OpenSSL 3.5.5.
+Recorded 2026-09-09 at `3ddf9d4` (runtime code from master `a4960a4`).
+Ubuntu 26.04 Hyper-V guest (6 vCPUs), Ryzen 7 9800X3D host, Linux 7.0.0-31,
+Go 1.27.1 (GOMAXPROCS=6, GOGC=100), classic socat 1.8.1.3, OpenSSL 3.5.5.
 Payload: 1 GiB AES-128-CTR. Median of seven timed runs after two warmups.
 Bulk uses `-b 8192`, except DTLS uses `-b 1024` (Go MTU 1200). RTT:
 20,000 exchanges after 1,000 warmups; handshakes: 200 after 20 warmups.
@@ -233,27 +236,27 @@ Bulk uses `-b 8192`, except DTLS uses `-b 1024` (Go MTU 1200). RTT:
 
 | Case | classic | go | Peak RSS (classic / go) |
 |------|---------|----|-------------------------|
-| TCP 1 GiB | 877.3 MiB/s | 1988.4 MiB/s | 10.5 / 27.3 MiB |
-| UNIX 1 GiB | 722.9 MiB/s | 1988.5 MiB/s | 10.2 / 27.1 MiB |
-| UDP 1 GiB (send / receive / loss) | 1183.0 / 1182.9 MiB/s / 0.000% | 1337.8 / 1337.8 MiB/s / 0.000% | 10.4 / 31.0 MiB |
-| TLS 1 GiB | 878.0 MiB/s | 1183.1 MiB/s | 21.0 / 30.1 MiB |
-| WS 1 GiB | n/a | 350.8 MiB/s | n/a / 28.6 MiB |
-| WSS 1 GiB | n/a | 333.6 MiB/s | n/a / 30.7 MiB |
-| QUIC 1 GiB | n/a | 520.1 MiB/s | n/a / 40.7 MiB |
-| DTLS 1 GiB (send / receive / loss) | 137.9 / 137.9 MiB/s / 0.006826% | 44.3 / 44.3 MiB/s / 0.003086% | 20.9 / 39.8 MiB |
-| TCP 64 B RTT (median / p99) | 88.5 / 186.1 us | 141.9 / 198.0 us | 5.2 / 16.2 MiB |
-| TLS 64 B RTT (median / p99) | 95.9 / 192.0 us | 145.2 / 213.5 us | 10.9 / 15.4 MiB |
-| QUIC 64 B RTT (median / p99) | n/a | 336.7 / 457.6 us | n/a / 19.7 MiB |
-| DTLS 64 B RTT (median / p99) | 85.6 / 160.6 us | 255.9 / 363.5 us | 10.8 / 19.9 MiB |
-| TLS handshake | 23.7 /s | 957.1 /s | 25.3 / 19.5 MiB |
-| DTLS handshake | 675.7 /s | 635.1 /s | 24.9 / 19.3 MiB |
+| TCP 1 GiB | 917.6 MiB/s | 2203.3 MiB/s | 10.6 / 26.4 MiB |
+| UNIX 1 GiB | 808.7 MiB/s | 2203.1 MiB/s | 10.4 / 26.4 MiB |
+| UDP 1 GiB (send / receive / loss) | 1118.4 / 1118.4 MiB/s / 0.000% | 1183.0 / 1183.0 MiB/s / 0.000% | 10.5 / 30.5 MiB |
+| TLS 1 GiB | 917.5 MiB/s | 1335.7 MiB/s | 21.0 / 28.8 MiB |
+| WS 1 GiB | n/a | 328.3 MiB/s | n/a / 27.5 MiB |
+| WSS 1 GiB | n/a | 318.0 MiB/s | n/a / 29.7 MiB |
+| QUIC 1 GiB | n/a | 562.9 MiB/s | n/a / 40.0 MiB |
+| DTLS 1 GiB (send / receive / loss) | 137.0 / 137.0 MiB/s / 0.001216% | 40.9 / 40.9 MiB/s / 0.001029% | 21.1 / 38.4 MiB |
+| TCP 64 B RTT (median / p99) | 88.8 / 178.3 us | 138.2 / 218.1 us | 5.2 / 15.9 MiB |
+| TLS 64 B RTT (median / p99) | 94.9 / 161.4 us | 143.9 / 224.8 us | 11.0 / 14.8 MiB |
+| QUIC 64 B RTT (median / p99) | n/a | 331.0 / 446.8 us | n/a / 19.4 MiB |
+| DTLS 64 B RTT (median / p99) | 85.7 / 170.6 us | 254.8 / 362.2 us | 10.9 / 19.0 MiB |
+| TLS handshake | 23.7 /s | 959.0 /s | 24.9 / 18.9 MiB |
+| DTLS handshake | 679.9 /s | 647.9 /s | 24.4 / 18.8 MiB |
 
 DTLS samples each sent 1,069,464 application datagrams of 1024 bytes.
 Goodput excludes the 20-byte frame headers and padding.
-Classic delivered 137.9 MiB/s median (range 134.23-140.72),
-with 0.006826% median loss and 0.009912% maximum loss.
-Go delivered 44.3 MiB/s median (range 42.65-45.70),
-with 0.003086% median loss and 0.010940% maximum loss.
+Classic delivered 137.0 MiB/s median (range 135.13-146.78),
+with 0.001216% median loss and 0.007761% maximum loss.
+Go delivered 40.9 MiB/s median (range 39.98-41.35),
+with 0.001029% median loss and 0.014213% maximum loss.
 No duplicates, reordering or corruption occurred in the DTLS samples.
 These are unpaced loopback rates, not maximum lossless capacities.
 
@@ -261,6 +264,22 @@ All 24 runnable case/implementation pairs passed seven timed runs;
 four unsupported classic WebSocket/QUIC pairs were skipped.
 Library send-path allocation notes are in
 [dtls13-send-perf.md](dtls13-send-perf.md).
+
+Compared with September 6, this snapshot records Go TLS bulk +12.9%, UDP
+-11.6%, and DTLS -7.6%; median RTT and handshake rates changed by at most
+2.6%. A same-VM repeat with three timed runs after one warmup found TCP,
+UDP, and TLS essentially unchanged between the saved old binaries
+(`66c2f18+command-reuse-ca25e014a156`, Go 1.27.0) and current binaries
+(`3ddf9d4`, Go 1.27.1). UNIX varied similarly in classic and Go.
+The repeat used the payload, frame sizes, GOMAXPROCS, GOGC, and exchange
+counts above; [per-run results](2026-09-09-comparison.csv) include loss and RSS.
+
+DTLS bulk remained lower in that repeat: 42.8 to 39.5 MiB/s (-7.7%),
+while classic changed from 143.7 to 145.7 MiB/s (+1.4%). Median Go loss was
+0.004769% before and 0.003273% after; maximum loss was 0.633588% and
+0.050867%, respectively. Go DTLS peak RSS fell from 39.4 to 38.1 MiB.
+This is a modest repeatable slowdown; its cause is not isolated from the
+code and toolchain changes. No larger relative regression was observed.
 
 Recorded handshakes (same binaries as the table; `meta.tls` in `host.json`):
 
@@ -285,6 +304,7 @@ Build the optional classic DTLS client as shown above, then run:
 
 ```bash
 SOCAT_BENCH_DTLS_CLIENT_BIN="$PWD/testdata/tmp/openssl-dtls-client" \
+GOMAXPROCS=6 GOGC=100 \
 SOCAT_BENCH_SIZE=1G SOCAT_BENCH_RUNS=7 SOCAT_BENCH_WARMUP=2 \
   SOCAT_BENCH_SAVE_BASELINE=testdata/bench/host.json python3 -B scripts/bench.py
 ```

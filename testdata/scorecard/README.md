@@ -227,20 +227,20 @@ master (`af5388c898c7bb60997935aee93c223deba60c4a`). The Go host baseline was
 recorded in `MODE=stable` (`JOBS=1`, `VAL_T=0.5`). The Go Docker baseline was
 recorded with `MODE=classic PRIVILEGED=1 TEST_SH_ARGS=--internet`.
 
-The latest Go Docker run tested `15c12a4fef49fc2d54a2481c4a20e53afc9dc78e`
-on the Hyper-V Linux lab VM on 2026-09-03. It recorded all 605 numbered
-tests, with no timeouts, unknown results, or regressions from the previous
-Go Docker baseline: all 538 previously passing tests still pass. The one
-additional pass is `ACCEPT_FD`, enabled by the image dependency above.
-The classic test script, libc, and OpenSSL versions were unchanged;
-the saved classic and host baselines were not rerun or replaced.
+The Docker baselines were refreshed on the Hyper-V Linux lab VM on
+2026-09-09 at `3ddf9d4ca61d601999cd97256dd837eb192849c9` (runtime code from
+master `a4960a4`). Both runs recorded all 605 numbered tests with no
+timeouts or unknown results. Go gained three DTLS passes and lost
+`VSOCK_ECHO`, which also fails in classic with "Network is unreachable"
+on this VM; isolated reruns confirm both failures. The host baselines
+below are historical and were not rerun.
 
 | Label | OK | FAILED | CANT |
 |-------|-----|--------|------|
 | classic 1.8.1.3 (host) | 475 | 24 | 103 |
-| classic 1.8.1.3 (Docker, root) | 565 | 4 | 36 |
+| classic 1.8.1.3 (Docker, root) | 565 | 3 | 37 |
 | go (this tree, host) | 471 | 7 | 127 |
-| go (this tree, Docker, root, privileged, `--internet`) | 539 | 6 | 60 |
+| go (this tree, Docker, root, privileged, `--internet`) | 541 | 9 | 55 |
 
 Go host FAILED: `OPENSSL_COMPRESS` (`compress=auto` is intentionally rejected),
 `OPENSSLLISTENDSA` (DSA, by design), `REUSEADDR_NULL` (NO RESULT),
@@ -248,18 +248,16 @@ Go host FAILED: `OPENSSL_COMPRESS` (`compress=auto` is intentionally rejected),
 `V1800_OPENSSL_LISTEN_BIND` (listen requires `cert=`), and `SHELL_SIGINT`
 (classic `test.sh` greps a `waitpid` warning log; see below). It records no
 UNKNOWN or TIMEOUT results. Go Docker FAILED: `OPENSSL_COMPRESS`,
-`OPENSSLLISTENDSA`, `OPENSSL_ANULL`, `SHELL_SIGINT`,
+`OPENSSLLISTENDSA`, `OPENSSL_ANULL`, `OPENSSL_DTLS_CLIENT`,
+`OPENSSL_DTLS_SERVER`, `VSOCK_ECHO`, `SHELL_SIGINT`,
 `V1800_OPENSSL_LISTEN_RANGE`, and `V1800_OPENSSL_LISTEN_BIND`.
 `REUSEADDR_NULL` and `IOCTL_VOID` are CANT. `SOCKETPAIR_BOUNDARIES` is OK.
 Both Go runs record UNKNOWN=0.
 
-The previous Go Docker baseline recorded 538 OK / 7 FAILED / 60 CANT.
-`IOCTL_VOID` now records CANT with a conflict: upstream prints
+`IOCTL_VOID` records CANT with a conflict: upstream prints
 `FAILED (rc2=0, because root?)` but includes the test in its CANT list.
-That reduction in FAILED is a reporting correction, not a behavior fix.
-Re-parsing the previous run with the corrected parser gives
-538 OK / 6 FAILED / 61 CANT; `ACCEPT_FD` is the only subsequent status change.
-The refreshed JSON also retains dotted names such as `OPENSSL_METHOD_TLS1.2`.
+Classic `SYSTEM_SIGINT` has the same reporting conflict. Counts use the
+structured parser's CANT classification, not the printed FAILED line.
 
 `SHELL_SIGINT` is not a signal-delivery bug. Classic `test.sh` looks for
 `W waitpid(): child … exited with status 130` / `exited on signal 2` in
@@ -268,13 +266,7 @@ the classic case is FAILED. SIGINT pass-through is covered by
 `TestEXECParentSignalPassThrough`. Do not treat the classic `test.sh` FAILED
 as a behavior regression.
 
-## Post-#234 gap triage
-
-The endpoint-setup refactor kept the structured scorecard set at 605 tests.
-A sequential `ONLY="functions filan" JOBS=1 VAL_T=0.1` Go run reported
-470 OK / 7 FAILED / 128 CANT. The committed host baseline is
-471 OK / 7 FAILED / 127 CANT (`go-baseline.json`). Treat a one-test OK/CANT
-move as a re-run question, not as a refactor regression.
+## Gap triage
 
 Official classic baseline rechecked 2026-09-04 from
 [repo.or.cz/socat.git](https://repo.or.cz/socat.git):
@@ -287,13 +279,10 @@ Official classic baseline rechecked 2026-09-04 from
 Release and master are still identical. No new compatibility choice from
 drift. `scripts/classic-baseline.json` already pins those commits.
 
-Matching C under the same filter was 498 OK / 2 FAILED / 105 CANT. The 2 C
-failures were `OPENSSL_ANULL` and `OPENSSL_DTLS_CLIENT`. That leaves 28
-pre-existing C-to-Go differences (6 FAILED + 22 CANT) plus `OPENSSL_ANULL`
-which FAILED on both. Committed Docker comparison
-(`go-vs-classic-docker-gaps.json`) is 5 FAILED + 22 CANT (`parity_gap_total`
-27) because Docker `OPENSSL_ANULL` FAILED on both sides and Docker `SOCAT_MUX`
-is OK on both sides.
+The Docker comparison (`go-vs-classic-docker-gaps.json`) has 24 cases
+where classic passes and Go does not: 6 FAILED + 18 CANT, down from 27.
+`OPENSSL_ANULL`, `OPENSSL_DTLS_CLIENT`, and `VSOCK_ECHO` fail on both sides;
+`SOCAT_MUX` passes on both sides.
 
 Do not enable excluded TLS features to make tests pass.
 
@@ -304,8 +293,9 @@ Do not enable excluded TLS features to make tests pass.
 | `OPENSSL_COMPRESS` | Intentional exclusion | `compress=auto` is rejected; `compress=none` is accepted. README / `classic-policy.json`. Reproduction: `OPENSSL-LISTEN:…,compress=auto` exits 1 with “compress is not supported”. |
 | `OPENSSLLISTENDSA` | Intentional exclusion | DSA keys are rejected. README table “DSA, SSLv3, and weak TLS ciphers”. Covered by `TestLoadKeyPairRejectsDSA`. |
 | `OPENSSL_ANULL` | Shared with classic C | Classic `test.sh` uses `ciphers=aNULL`. Both C and Go print FAILED. Weak ciphers stay rejected. |
+| `OPENSSL_DTLS_CLIENT`, `OPENSSL_DTLS_SERVER` | Intentional version limit | These peers explicitly require DTLS 1.2; this port supports only 1.3. CLIENT also fails in classic in this run. |
+| `VSOCK_ECHO` | Shared VM limitation | Both implementations fail; classic reports "Network is unreachable" connecting to CID 1. |
 | `SHELL_SIGINT` | Harness log format, not delivery | `test.sh` greps C `waitpid` warnings. This port logs `socatsignalpass(): propagated signal to … sub processes` and does **not** emit `W waitpid():…`. `TestEXECParentSignalPassThrough` covers SIGINT. Do not fake C waitpid lines. |
-| `SOCAT_MUX` | Fixed after the recorded baseline | UDP-RECV shutdown delayed two startup probes by ~1s. Closing the receive socket on opposite EOF removes the delay; focused non-root runs now pass with `VAL_T=0.1` and auto-calibration. See below. |
 | `V1800_OPENSSL_LISTEN_RANGE` | Documented fail-fast difference (retain) | Generated 1.8.0 case runs `OPENSSL-LISTEN:$PORT,range=…` **without** `cert=`. Official `doc/socat.yo` recommends a certificate (“You probably want to use the certificate option”) and does not make it mandatory. Classic C warns when `cert=` is absent and still binds; `timeout` 124 counts as success. This port fails immediately: `OPENSSL-LISTEN: option "cert" is required` (rc=1). README already records that TLS listeners fail immediately when `cert=` is missing. `TestTLSServerConfigRequiresCert`. This follow-up does not relax that. Go TLS still needs a usable server certificate for its supported handshakes. Do not describe classic’s warn-and-bind as an authentication bypass. |
 | `V1800_OPENSSL_LISTEN_BIND` | Documented fail-fast difference (retain) | Same as RANGE with `bind=` instead of `range=`. |
 
@@ -337,9 +327,9 @@ results do not rewrite the historical baseline JSON or explain its classic
 failure. Root runs skip the probes, so Docker results do not exercise this
 startup path.
 
-### Docker CANT vs classic OK (22)
+### Docker CANT vs classic OK (18)
 
-21 are documented exclusions or missing classic-only protocols, not
+17 are documented exclusions or missing classic-only protocols, not
 capability-detection bugs to “fix” by advertising unsupported names.
 `UDP_DATAGRAM_PEERPORT` is a version-gated harness skip, not one of those
 exclusions.
@@ -348,14 +338,14 @@ exclusions.
 |-------|-------|
 | `READLINE`, `READLINE_OVFL` | GNU readline not implemented |
 | `COOLWRITE`, `COOLSTDIO` | `cool-write` deprecated; use `children-shutup` |
-| `OPENSSL_DTLS_SERVER`, `OPENSSL_DTLS_TO_SERVER`, `OPENSSL_DTLS_TO_CLIENT`, `RCVTIMEO_DTLS` | Historical snapshot predates this port's DTLS 1.3 implementation; see [DTLS 1.3](#dtls-13) |
+| `UDP_DATAGRAM_PEERPORT` | Version-gated harness skip; see below |
 | `UDPLITE4STREAM`, `UDPLITE6STREAM`, `UDPLITE4LISTENENV`, `UDPLITE6LISTENENV`, `UDPLITE4_L_MAXCHILDREN`, `UDPLITE6_L_MAXCHILDREN`, `V1800_UDPLITE_*` (6) | UDP-Lite removed from modern Linux |
 
 ### DTLS 1.3
 
-Focused runs use unmodified official 1.8.1.3 `test.sh` from the
-[pinned release](../../scripts/classic-baseline.json). Historical full-suite
-JSON and counts above are unchanged.
+The full Docker run on 2026-09-09 confirms these results using unmodified
+official 1.8.1.3 `test.sh` from the
+[pinned release](../../scripts/classic-baseline.json).
 
 | Test | Result | Reason |
 | --- | --- | --- |
@@ -414,8 +404,7 @@ stop when it happens.
 
 Do not allow missing `cert=` on TLS listeners, do not enable TLS compression
 or DSA, do not emit fake `waitpid` logs, do not add a universal lifecycle
-framework or
-change default `-t` linger to chase `SOCAT_MUX`, do not patch official
+framework or change default `-t` linger to chase `SOCAT_MUX`, do not patch official
 `socat-mux.sh`, and do not change `-V` layout or `Version` to satisfy the
 `UDP_DATAGRAM_PEERPORT` gate.
 
@@ -442,8 +431,8 @@ The earlier Go Docker refresh from 550 OK / 7 FAILED / 48 CANT to
 isolated re-run passed). Classic `cool-write` is deprecated (use
 `children-shutup`); this port does not advertise it, so `COOLWRITE` /
 `COOLSTDIO` stay CANT. Host-only OK that Docker does not get:
-`GOPEN_TO_DENIED` (not with root). Vs classic Docker, Go has 539 OK against 565
-classic OK (`parity_gap_total` 27 in `go-vs-classic-docker-gaps.json`).
+`GOPEN_TO_DENIED` (not with root). Vs classic Docker, Go has 541 OK against 565
+classic OK (`parity_gap_total` 24 in `go-vs-classic-docker-gaps.json`).
 
 Use `go-baseline.json` + `REGRESSION_EXIT=1` after a **MODE=classic** run
 to catch real Go regressions with less noise.

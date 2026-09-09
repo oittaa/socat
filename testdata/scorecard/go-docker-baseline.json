@@ -1,11 +1,11 @@
 {
   "meta": {
     "label": "go",
-    "timestamp": "2026-09-03T12:05:31Z",
-    "hostname": "6c161d58e351",
-    "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.43",
+    "timestamp": "2026-09-09T15:42:57Z",
+    "hostname": "52dd600a6e53",
+    "platform": "Linux-7.0.0-31-generic-x86_64-with-glibc2.43",
     "socat": "/opt/go/socat",
-    "socat_version": "socat version 1.0.3-dev on 2026-09-03T12:05:31Z",
+    "socat_version": "socat version 1.0.3-dev on 2026-09-09T15:42:57Z",
     "test_sh": "/opt/classic-src/test.sh",
     "git": "",
     "out_dir": "/out",
@@ -16,17 +16,20 @@
     "test_sh_args": "--internet",
     "only": "functions filan",
     "max_n": "",
-    "source_revision": "15c12a4fef49fc2d54a2481c4a20e53afc9dc78e",
+    "source_revision": "3ddf9d4",
     "classic_version": "1.8.1.3"
   },
   "summary": {
-    "ok": 539,
-    "failed": 6,
-    "cant": 60,
+    "ok": 541,
+    "failed": 9,
+    "cant": 55,
     "timeout": 0,
     "unknown": 0,
     "total_recorded": 605,
     "shard_timeouts": [],
+    "startup_failed": [],
+    "incomplete_aborts": [],
+    "harness_notes": [],
     "conflicts": [
       {
         "id": 304,
@@ -1342,7 +1345,7 @@
       "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 147 EXITCODESIGTERM: exit status when dying on SIGTERM... /tmp/socat-shard-0.sfATbT/test.sh: line 6519: kill: (9129) - No such process | OK"
+      "raw": "test 147 EXITCODESIGTERM: exit status when dying on SIGTERM... /tmp/socat-shard-0.3WbyJ2/test.sh: line 6519: kill: (9117) - No such process | OK"
     },
     "148": {
       "id": 148,
@@ -1351,7 +1354,7 @@
       "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 148 EXITCODESIGILL: exit status when dying on SIGILL... OK"
+      "raw": "test 148 EXITCODESIGILL: exit status when dying on SIGILL... /tmp/socat-shard-0.3WbyJ2/test.sh: line 6519: kill: (9151) - No such process | OK"
     },
     "149": {
       "id": 149,
@@ -3609,19 +3612,19 @@
       "id": 399,
       "name": "OPENSSL_DTLS_CLIENT",
       "description": "OpenSSL DTLS client",
-      "status": "CANT",
-      "detail": "Address openssl-dtls-client not available",
+      "status": "FAILED",
+      "detail": "/opt/go/socat:",
       "shard": 0,
-      "raw": "test 399 OPENSSL_DTLS_CLIENT: OpenSSL DTLS client... Address openssl-dtls-client not available"
+      "raw": "test 399 OPENSSL_DTLS_CLIENT: OpenSSL DTLS client... FAILED:  /opt/go/socat:"
     },
     "400": {
       "id": 400,
       "name": "OPENSSL_DTLS_SERVER",
       "description": "OpenSSL DTLS server",
-      "status": "CANT",
-      "detail": "openssl-dtls-server not available",
+      "status": "FAILED",
+      "detail": "",
       "shard": 0,
-      "raw": "test 400 OPENSSL_DTLS_SERVER: OpenSSL DTLS server... openssl-dtls-server not available"
+      "raw": "test 400 OPENSSL_DTLS_SERVER: OpenSSL DTLS server... FAILED"
     },
     "401": {
       "id": 401,
@@ -3708,10 +3711,10 @@
       "id": 410,
       "name": "VSOCK_ECHO",
       "description": "test communication via VSOCK loopback socket",
-      "status": "OK",
+      "status": "FAILED",
       "detail": "",
       "shard": 0,
-      "raw": "test 410 VSOCK_ECHO: test communication via VSOCK loopback socket... OK"
+      "raw": "test 410 VSOCK_ECHO: test communication via VSOCK loopback socket... FAILED"
     },
     "411": {
       "id": 411,
@@ -3735,19 +3738,19 @@
       "id": 413,
       "name": "OPENSSL_DTLS_TO_SERVER",
       "description": "OpenSSL DTLS transfer from client to server",
-      "status": "CANT",
-      "detail": "openssl-dtls-listen not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 413 OPENSSL_DTLS_TO_SERVER: OpenSSL DTLS transfer from client to server... openssl-dtls-listen not available"
+      "raw": "test 413 OPENSSL_DTLS_TO_SERVER: OpenSSL DTLS transfer from client to server... OK"
     },
     "414": {
       "id": 414,
       "name": "OPENSSL_DTLS_TO_CLIENT",
       "description": "OpenSSL DTLS transfer from server to client",
-      "status": "CANT",
-      "detail": "openssl-dtls-listen not available",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 414 OPENSSL_DTLS_TO_CLIENT: OpenSSL DTLS transfer from server to client... openssl-dtls-listen not available"
+      "raw": "test 414 OPENSSL_DTLS_TO_CLIENT: OpenSSL DTLS transfer from server to client... OK"
     },
     "415": {
       "id": 415,
@@ -4293,10 +4296,10 @@
       "id": 475,
       "name": "RCVTIMEO_DTLS",
       "description": "test the so-rcvtimeo option with DTLS",
-      "status": "CANT",
-      "detail": "Address DTLS not available in /opt/go/socat",
+      "status": "OK",
+      "detail": "",
       "shard": 0,
-      "raw": "test 475 RCVTIMEO_DTLS: test the so-rcvtimeo option with DTLS... Address DTLS not available in /opt/go/socat"
+      "raw": "test 475 RCVTIMEO_DTLS: test the so-rcvtimeo option with DTLS... OK"
     },
     "476": {
       "id": 476,
@@ -4391,20 +4394,20 @@
     "486": {
       "id": 486,
       "name": "NETNS",
-      "description": "option netns (net namespace socat-361-test486)",
+      "description": "option netns (net namespace socat-364-test486)",
       "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 486 NETNS: option netns (net namespace socat-361-test486)... OK"
+      "raw": "test 486 NETNS: option netns (net namespace socat-364-test486)... OK"
     },
     "487": {
       "id": 487,
       "name": "NETNS_EXEC",
-      "description": "option netns with EXEC (net namespace socat-361-test487)",
+      "description": "option netns with EXEC (net namespace socat-364-test487)",
       "status": "OK",
       "detail": "",
       "shard": 0,
-      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-361-test487)... OK"
+      "raw": "test 487 NETNS_EXEC: option netns with EXEC (net namespace socat-364-test487)... OK"
     },
     "488": {
       "id": 488,

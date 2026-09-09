@@ -6,7 +6,7 @@
   "lost": [
     {
       "id": "304",
-      "status": "FAILED",
+      "status": "CANT",
       "name": "IOCTL_VOID"
     },
     {
@@ -15,14 +15,14 @@
       "name": "OPENSSL_DTLS_CLIENT"
     },
     {
+      "id": "410",
+      "status": "FAILED",
+      "name": "VSOCK_ECHO"
+    },
+    {
       "id": "453",
       "status": "CANT",
       "name": "GOPEN_TO_DENIED"
-    },
-    {
-      "id": "492",
-      "status": "CANT",
-      "name": "ACCEPT_FD"
     },
     {
       "id": "520",
