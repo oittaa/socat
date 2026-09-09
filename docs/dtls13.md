@@ -352,10 +352,12 @@ cover SecP256r1MLKEM768 or SecP384r1MLKEM1024. Large ML-DSA flights at 256
 still take several retransmission intervals because peers often do not ACK
 fragments before the next 10-record burst.
 
-Current PMTU tests are in-process discovery (`internal/dtls13/pmtu_*.go`)
-and Linux loopback `PMTUDISC_PROBE` (`pmtu_df_linux_test.go`). Privileged
-CI runs `./internal/xio/privileged` and has no DTLS PMTU cases. Historical
-Linux routed IPv4/IPv6 1500→1280→1500 results are not in this tree.
+PMTU validation includes in-process discovery (`internal/dtls13/pmtu_*.go`),
+Linux loopback `PMTUDISC_PROBE` (`pmtu_df_linux_test.go`), and the opt-in
+[routed Linux lab](#routed-linux-lab). The lab verifies IPv4/IPv6
+1500→1280→1500 shrink and recovery through virtual routers using production
+timers. It runs separately from CI; generated captures and results are not
+committed.
 
 On Linux, build the pinned peers and run interop:
 
