@@ -70,6 +70,9 @@ func runHandshake(t *testing.T, clientConfig, serverConfig *Config) (*clientHand
 
 func TestInitialClientHelloOneDatagram(t *testing.T) {
 	clientConfig, _ := handshakeConfigs(t)
+	clientConfig.MTU = 1512
+	clientConfig.CurvePreferences = []tls.CurveID{tls.X25519MLKEM768}
+	clientConfig.NextProtos = []string{strings.Repeat("a", 130)}
 	n := 0
 	if _, err := newClientSession(clientConfig, func([]byte) error { n++; return nil }, time.Unix(100, 0)); err != nil || n != 1 {
 		t.Fatalf("initial datagrams = %d, %v", n, err)
