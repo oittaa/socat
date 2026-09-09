@@ -10,8 +10,9 @@ other endpoints.
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 The command line and address syntax follow classic socat except for the
-documented differences below. The project supports Linux, macOS, and Windows,
-and also includes WebSocket, QUIC, and HTTP/2 and HTTP/3 proxy support.
+documented differences below. The project supports Linux, macOS, and Windows.
+DTLS is 1.3-only. WebSocket, QUIC, and HTTP/2 and HTTP/3 CONNECT are
+Go-specific.
 
 ## Build
 
@@ -44,7 +45,8 @@ standard input and output.
 - `socat -hhh` also lists aliases and termios names.
 
 Common flags include `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`,
-`-4`/`-6`/`-0`, and `--statistics`.
+`-4`/`-6`/`-0`, and `--statistics`. On Linux and macOS, `-ly` and `-lm`
+send logs to syslog.
 
 The command output is the authoritative feature list for the current
 platform.
@@ -87,7 +89,7 @@ The following groups summarize the implemented address families. Run
 |---|---|
 | Standard streams and descriptors | `STDIO`, `STDIN`, `STDOUT`, `STDERR`, `FD`; `ACCEPT-FD` on Linux and macOS |
 | Files and local I/O | `OPEN`, `CREATE`, `GOPEN`, `PIPE`, `FIFO`, `ECHO`, `SOCKETPAIR`, `TEXT`, `STALL`, `PTY` |
-| IP networking | TCP connect/listen, UDP connect/listen/send/receive/datagram, raw IP, generic `SOCKET` |
+| IP networking | TCP connect/listen, UDP connect/listen/send/receive/datagram, raw IP; generic `SOCKET` on Linux and macOS |
 | Local networking | Unix stream/datagram sockets on Linux and macOS; Linux abstract sockets |
 | Processes | `EXEC`, `SYSTEM`, `SHELL` |
 | Encryption and proxies | TLS, DTLS 1.3, HTTP CONNECT, SOCKS4/4A/5, SOCKS5 BIND |
@@ -107,8 +109,11 @@ QUIC:host:port                 QUIC-LISTEN:port
 EXEC:command                   SYSTEM:shell-command
 ```
 
-`OPENSSL-*` and `SSL-*` remain aliases for the corresponding TLS addresses.
-QUIC is a byte stream over one bidirectional QUIC stream; it is not HTTP/3.
+`OPENSSL-*` and `SSL-*` remain aliases for the corresponding TLS and DTLS
+addresses. QUIC is a byte stream over one bidirectional QUIC stream; it is
+not HTTP/3. On Linux and macOS, `SOCKET-*` takes a packed sockaddr, so you
+can connect or listen on families other than TCP and UDP.
+`UDP-LISTEN,fork` keeps a session per peer.
 
 ## Options
 
@@ -166,6 +171,54 @@ options:
 The default QUIC ALPN is `socat`. Use `alpn=` when both endpoints require a
 different value.
 
+## DTLS 1.3
+
+DTLS encrypts UDP without making delivery reliable or ordered.
+`OPENSSL-DTLS-CLIENT` / `OPENSSL-DTLS-SERVER` (aliases `DTLS-CLIENT` /
+`DTLS-SERVER`) accept the usual certificate, bind, retry and peer-filter
+options. Both ends verify peers by default, so the server requires a
+trusted client certificate.
+
+```sh
+./socat -T 30 DTLS-SERVER:4433,cert=server.pem,key=server.key,cafile=ca.pem,fork PIPE
+./socat -T 30 - DTLS-CLIENT:localhost:4433,cert=client.pem,key=client.key,cafile=ca.pem
+```
+
+- `dtls-mtu` sets the maximum UDP payload (default 1200; range 256–65507).
+  Byte-stream peers work with the default 8192-byte transfer buffer: writes
+  split into fitting records and short reads retain tails, separately per
+  direction. Datagram and unknown peers stay strict: oversized writes fail
+  and small reads truncate. Size `-b` and the peer's records accordingly.
+- CID and RFC 9853 path validation are negotiated by default. New addresses
+  must pass the server's peer filters. `dtls-migration=0` disables both.
+  `alpn=protocol` optionally selects one application protocol.
+- MTU confirmation and upward discovery default on for dedicated clients
+  with migration enabled, successful unfragmented-send setup and negotiated
+  CID/RRC. Search starts after the final handshake flight is acknowledged
+  and stays within `dtls-mtu` (default 1200). `dtls-unfragmented-probes=0`
+  disables discovery; listeners ignore this option. ICMP Packet Too Big
+  messages are not used. Datagram writes are never retried. Byte-stream
+  chunks are split again and retried only after a definite too-large rejection
+  before transmission, with zero bytes written and a smaller size limit.
+  Timeouts, partial writes and ambiguous errors are not retried.
+- `handshake-timeout` caps negotiation at 30 seconds by default; zero removes
+  that deadline, but protocol retry limits remain. `so-rcvtimeo` / `rcvtimeo`
+  adds a handshake receive-wait limit (zero or omission disables it).
+  Received fragments, ACKs and retransmissions restart that wait. Expiry ends
+  the connection attempt, subject to `retry` / `forever`.
+- After negotiation, receive timeouts remain retryable. Use `-T` to bound an
+  idle transfer; close alerts can be lost. Use ordinary `EXEC`, since
+  `EXEC,nofork` cannot inherit a plaintext DTLS descriptor.
+- Only DTLS 1.3 is negotiated, regardless of a lower `min-version`;
+  `max-version` below 1.3 is rejected. `cipher` / `ciphers` keeps its TLS 1.2
+  meaning and does not select DTLS 1.3 suites.
+
+Go supplies cryptographic and certificate-policy updates; new algorithms
+still require DTLS wire integration. Include the adapted Pion
+[MIT license](internal/dtls13/LICENSE.pion), quic-go
+[MIT license](internal/dtls13/LICENSE.quic-go), and
+[attribution](internal/dtls13/NOTICE.md) when redistributing that code.
+
 ## Intentional differences from classic socat
 
 Compatibility is checked against the latest classic socat release and current
@@ -177,7 +230,8 @@ address and option spellings are audited automatically. The
 - On macOS, `UDP-LISTEN,fork,shut-down` keeps connected child sockets because
   `shutdown()` requires one. Concurrent peers can therefore have datagrams
   delivered to another child and dropped; the default `shut-null` path uses
-  the shared-socket peer dispatcher instead.
+  the shared-socket peer dispatcher instead. Windows rejects
+  `UDP-LISTEN,fork,shut-down` because fork sessions share the listen socket.
 - Unknown options, malformed values, and unsupported combinations fail
   explicitly instead of becoming no-ops.
 - `-s` is accepted as a compatibility no-op; error handling is unchanged and
@@ -186,8 +240,8 @@ address and option spellings are audited automatically. The
   resolver state.
 - `ai-v4mapped` is off unless requested, matching classic runtime behavior
   rather than the man-page default. Go dials mapped results as IPv4.
-- `handshake-timeout` separately limits TLS, WebSocket, proxy, SOCKS, and QUIC
-  negotiation.
+- `handshake-timeout` separately limits TLS, DTLS, WebSocket, proxy, SOCKS, and
+  QUIC negotiation.
 - WebSocket, QUIC, and HTTP/2 and HTTP/3 CONNECT are Go-specific extensions.
 - DTLS endpoints split byte-stream input into records that fit `dtls-mtu` and
   retain record tails for byte-stream output. Datagram input stays strict.
@@ -244,56 +298,6 @@ silently emulated with a different protocol.
 Go's TLS defaults also intentionally keep TLS compression disabled. The
 accepted `openssl-compress=none` spelling can be used by compatible command
 lines; enabling compression is rejected.
-
-## DTLS 1.3
-
-DTLS encrypts UDP without making delivery reliable or ordered.
-`OPENSSL-DTLS-CLIENT` / `OPENSSL-DTLS-SERVER` (aliases `DTLS-CLIENT` /
-`DTLS-SERVER`) accept the usual certificate, bind, retry and peer-filter
-options. Both ends verify peers by default, so the server requires a
-trusted client certificate.
-
-```sh
-./socat -T 30 DTLS-SERVER:4433,cert=server.pem,key=server.key,cafile=ca.pem,fork PIPE
-./socat -T 30 - DTLS-CLIENT:localhost:4433,cert=client.pem,key=client.key,cafile=ca.pem
-```
-
-- `dtls-mtu` sets the maximum UDP payload (default 1200; range 256–65507).
-  Byte-stream peers work with the default 8192-byte transfer buffer: writes
-  split into fitting records and short reads retain tails, separately per
-  direction. Datagram and unknown peers stay strict: oversized writes fail
-  and small reads truncate. Size `-b` and the peer's records accordingly.
-- CID and RFC 9853 path validation are negotiated by default. New addresses
-  must pass the server's peer filters. `dtls-migration=0` disables both.
-  `alpn=protocol` optionally selects one application protocol.
-- MTU confirmation and upward discovery default on for dedicated clients
-  with migration enabled, successful unfragmented-send setup and negotiated
-  CID/RRC. Search starts after the final handshake flight is acknowledged
-  and stays within `dtls-mtu` (default 1200). `dtls-unfragmented-probes=0`
-  disables discovery; listeners ignore this option. ICMP Packet Too Big
-  messages are not used. Datagram writes are never retried. Byte-stream
-  chunks are split again and retried only after a definite too-large rejection
-  before transmission, with zero bytes written and a smaller size limit.
-  Timeouts, partial writes and ambiguous errors are not retried. See
-  [DTLS validation](docs/dtls13.md#validation).
-- `handshake-timeout` caps negotiation at 30 seconds by default; zero removes
-  that deadline, but protocol retry limits remain. `so-rcvtimeo` / `rcvtimeo`
-  adds a handshake receive-wait limit (zero or omission disables it).
-  Received fragments, ACKs and retransmissions restart that wait. Expiry ends
-  the connection attempt, subject to `retry` / `forever`.
-- After negotiation, receive timeouts remain retryable. Use `-T` to bound an
-  idle transfer; close alerts can be lost. Use ordinary `EXEC`, since
-  `EXEC,nofork` cannot inherit a plaintext DTLS descriptor.
-- Only DTLS 1.3 is negotiated, regardless of a lower `min-version`;
-  `max-version` below 1.3 is rejected. `cipher` / `ciphers` keeps its TLS 1.2
-  meaning and does not select DTLS 1.3 suites.
-
-See [supported algorithms, peer limits and validation](docs/dtls13.md).
-Go supplies cryptographic and certificate-policy updates; new algorithms
-still require DTLS wire integration. Include the adapted Pion
-[MIT license](internal/dtls13/LICENSE.pion), quic-go
-[MIT license](internal/dtls13/LICENSE.quic-go), and
-[attribution](internal/dtls13/NOTICE.md) when redistributing that code.
 
 ## Environment
 
