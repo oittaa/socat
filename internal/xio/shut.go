@@ -11,8 +11,8 @@ import (
 
 // shutPolicy selects how ShutdownWrite behaves. Unspecified keeps the
 // address-dependent default: TCP half-close; UDP-CONNECT and UDP-LISTEN
-// send a zero-length datagram; UDP-RECV closes its socket; other UDP addresses
-// do nothing.
+// send a zero-length datagram; UDP-RECV and IP-RECV close their sockets;
+// other UDP addresses do nothing.
 //
 // shut-none[=<bool>] (and the other shut-* the same way): omitted value or
 // =1 selects the policy; =0 does not. Other assignments are rejected. Last
