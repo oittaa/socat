@@ -51,6 +51,9 @@ func defaultSettingsTimeout(wantOK bool) time.Duration {
 
 func reportDefaultSettings(t *testing.T, err error, state tls.ConnectionState, wantOK bool) {
 	t.Helper()
+	if state.CipherSuite != 0 || state.CurveID != 0 {
+		t.Logf("negotiated suite=%s group=%s", tls.CipherSuiteName(state.CipherSuite), state.CurveID)
+	}
 	if err != nil {
 		t.Logf("default-settings result: %v", err)
 		if wantOK {
@@ -58,7 +61,6 @@ func reportDefaultSettings(t *testing.T, err error, state tls.ConnectionState, w
 		}
 		return
 	}
-	t.Logf("negotiated suite=%s group=%s", tls.CipherSuiteName(state.CipherSuite), state.CurveID)
 	if !wantOK {
 		t.Errorf("succeeded (suite=%s group=%s); update docs/dtls13.md default-settings table", tls.CipherSuiteName(state.CipherSuite), state.CurveID)
 	}
@@ -317,7 +319,9 @@ func TestDefaultSettingsWolfSSL(t *testing.T) {
 			testDefaultWolfSSLServer(t, tools, pq, false)
 		})
 		t.Run(name+"/server", func(t *testing.T) {
-			testDefaultWolfSSLClient(t, tools, pq, false)
+			// ECDSA: wolfSSL's client offers X25519MLKEM768 and completes at MTU 1200.
+			// ML-DSA-65: the example client cannot load the certificate.
+			testDefaultWolfSSLClient(t, tools, pq, !pq)
 		})
 	}
 }

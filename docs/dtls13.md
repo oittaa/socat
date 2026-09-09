@@ -58,8 +58,7 @@ shared with that adapted code.
 ## Independent peers
 
 Last interoperability runs: 2026-09-08 (pinned matrices, master `cfd5566`) and
-2026-09-09 (default-settings table, `TestDefaultSettings*`). Runtime code is
-master `ca2a84c` plus this documentation. Pins are in
+2026-09-09 (default-settings table, `TestDefaultSettings*`). Pins are in
 [dtls13-baseline.json](../scripts/dtls13-baseline.json) and
 [dtls13-lab.py](../scripts/dtls13-lab.py). Limits are for those revisions.
 
@@ -110,23 +109,25 @@ ECDSA/Ed25519/RSA signatures only (no ML-DSA). The lab oracle leaves
 `-migrate` true, so CID and RRC are offered.
 
 wolfSSL (`d72f6d9`) example binaries in the lab cmake build have DTLS 1.3 and
-CID. They are not built with ML-DSA certificates. They reject a fragmented
-unverified first ClientHello.
+CID. The DTLS 1.3 client offers X25519MLKEM768 without `--pqc`. They cannot
+load ML-DSA certificates. They reject a fragmented unverified first
+ClientHello.
+
+On this AES-NI host the pass rows negotiated **AES-128-GCM / X25519MLKEM768**:
+we prefer AES-128-GCM first, and both OpenSSL and wolfSSL advertised
+X25519MLKEM768. OpenSSL's own TLS 1.3 cipher list still lists AES-256-GCM
+first; when we are the server we pick AES-128-GCM from the intersection.
 
 | Peer | Certificate | Ours as client | Ours as server |
 | --- | --- | --- | --- |
-| OpenSSL `82733d9` | ECDSA P-256 | pass (`TestDefaultSettingsOpenSSL`) | pass |
-| OpenSSL `82733d9` | ML-DSA-65 | pass | pass |
-| wolfSSL `d72f6d9` | ECDSA P-256 | fail: fragmented first ClientHello at MTU 1200 | fail or skip until measured (`TestDefaultSettingsWolfSSL`) |
-| wolfSSL `d72f6d9` | ML-DSA-65 | fail: no ML-DSA certs in the lab examples | fail |
-| Pion `59f4c33` | ECDSA P-256 | fail: public APIs with CID on (`TestDefaultSettingsPion`) | fail: public APIs with CID on |
-| Pion `59f4c33` | ML-DSA-65 | fail: no ML-DSA signature schemes | fail |
+| OpenSSL `82733d9` | ECDSA P-256 | pass: AES-128-GCM / X25519MLKEM768 | pass: AES-128-GCM / X25519MLKEM768 |
+| OpenSSL `82733d9` | ML-DSA-65 | pass: AES-128-GCM / X25519MLKEM768 | pass: AES-128-GCM / X25519MLKEM768 |
+| wolfSSL `d72f6d9` | ECDSA P-256 | fail: fragmented first ClientHello at MTU 1200 | pass: AES-128-GCM / X25519MLKEM768 |
+| wolfSSL `d72f6d9` | ML-DSA-65 | fail: example server cannot load the cert | fail: example client cannot load the cert |
+| Pion `59f4c33` | ECDSA P-256 | handshake AES-128-GCM / X25519MLKEM768, then fail: `unexpected message` (CID) | handshake AES-128-GCM / X25519MLKEM768, then fail: `unexpected message` (CID) |
+| Pion `59f4c33` | ML-DSA-65 | fail: `invalid private key type` | fail: `invalid private key type` |
 | BoringSSL `4a92579` | ECDSA P-256 | n/a: no packet-BIO interop | n/a |
 | BoringSSL `4a92579` | ML-DSA-65 | n/a | n/a |
-
-Negotiated suite and group on the OpenSSL pass rows are logged by
-`TestDefaultSettingsOpenSSL` (`t.Logf`). Re-run that test after filling this
-table if the log disagrees.
 
 ### Pinned-matrix coverage
 
@@ -187,9 +188,11 @@ mapping is still `draft-ietf-tls-mldsa-05` (IESG approved, RFC not published).
   `internal/xio/dtlsopen`, including RFC 9846 §1.2.
 - Spare-CID issuance/replenishment interop when a reference peer supports it.
   Local renewal is implemented; this interop gap is not a merge blocker.
-- wolfSSL still requires an unfragmented first ClientHello, so PQ at
-  1200/512/256 times out. Independent Pion public-API coverage at those
-  MTUs is X25519MLKEM768 with all three record cipher suites and CID disabled.
+- wolfSSL still requires an unfragmented first ClientHello, so our
+  default-settings client (and PQ at 1200/512/256) times out. Our listener
+  vs wolfSSL's default DTLS 1.3 client completes ECDSA with X25519MLKEM768.
+  Independent Pion public-API coverage at those MTUs is X25519MLKEM768 with
+  all three record cipher suites and CID disabled.
 - PMTU: routed Windows/macOS validation awaits suitable test environments.
   Possible improvements: RTT-based probe spacing, safe discovery on shared
   listeners, and OS PMTU hints without connecting the active migration socket.
