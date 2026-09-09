@@ -316,13 +316,13 @@ Practical consequences:
 
 | Work | Basis | Next step |
 | --- | --- | --- |
-| PMTU validation | RFC 9147 §4.4 / RFC 8899 | Establish repeatable routed Linux IPv4/IPv6 shrink/growth checks; validate routed Windows/macOS when labs exist; exercise the 600-second search restart after the path MTU increases. |
+| PMTU validation | RFC 9147 §4.4 / RFC 8899 | Repeat the [routed Linux lab](dtls13.md#routed-linux-lab) after PMTU changes (IPv4/IPv6, ICMP black holes, stale cache, real 600-second restart). Add routed Windows/macOS validation when labs exist. |
 | Small-MTU NIST-hybrid interop | Coverage | Test SecP256r1MLKEM768 and SecP384r1MLKEM1024 at 1200/512/256 against OpenSSL. X25519MLKEM768 at those MTUs already ran vs OpenSSL (all three suites, ECDSA and mutual ML-DSA), wolfSSL (`--pqc`, empty first `key_share` list), and Pion (CID off). [Peer coverage and limits](dtls13.md#independent-peers). |
 | Independent spare-CID interop | Coverage | Test issuance/replenishment when a reference peer supports it. Local renewal is implemented; no pinned peer issues spares. |
 
 MTU shrink and automatic confirmation/upward search on eligible dedicated
-sockets are implemented. Current PMTU coverage is in-process discovery and
-Linux loopback checks; the historical routed Linux tests are not retained.
+sockets are implemented. PMTU coverage includes in-process discovery, Linux
+loopback checks and the opt-in routed Linux lab above.
 See [dtls13.md](dtls13.md#remaining-work) for PMTU limits and optional improvements.
 
 [RFC 9846 §4.3.8](https://www.rfc-editor.org/rfc/rfc9846.html#section-4.3.8)

@@ -55,6 +55,64 @@ shared with that adapted code.
 - The working MTU grows only after an authenticated response to a current
   discovery probe, within the configured `dtls-mtu` ceiling.
 
+### Routed Linux lab
+
+Run [dtls13-pmtu-lab.py](../scripts/dtls13-pmtu-lab.py) in a Linux VM with
+the Go version required by `go.mod`, Python 3.8+, iproute2, nftables and
+tcpdump. No Docker, third-party Python packages or reference DTLS stack is
+needed. The runner builds a small driver using `Client`, `Listen`,
+`MaxDatagramSize`, and verified application receipts.
+
+For Debian/Ubuntu, after installing the project's Go toolchain:
+
+```sh
+sudo apt-get install python3 iproute2 nftables tcpdump git
+sudo env "PATH=$PATH" python3 scripts/dtls13-pmtu-lab.py --jobs 8
+```
+
+On Fedora/RHEL, the package names are `python3 iproute nftables tcpdump git`.
+Run as above, or omit `sudo env "PATH=$PATH"` with passwordless sudo available.
+Namespaces require a normal Linux kernel with IPv6, veth and network
+namespace support; restricted containers may lack the required privileges.
+All network changes are confined to uniquely named namespaces. The runner
+removes its processes, links and namespaces on completion, failure or
+Ctrl-C; it does not change the VM's own routes or firewall.
+
+Each case builds `client — router — router — server`, keeps both endpoint
+interfaces at IP MTU 1500, and changes the middle link 1500 → 1280 → 1500.
+Eight cases cover IPv4/IPv6, either endpoint placement, and MTU-related
+ICMP allowed/blocked. Both peers use our DTLS implementation with mutual
+certificate verification and CID/RRC. Only the dedicated client probes;
+shared listener fragmentation settings stay unchanged.
+
+The lab uses a 1440-byte DTLS ceiling so the bottleneck actually matters.
+This changes neither the production default of 1200 nor any protocol
+timer. Small messages keep the association active. Full-size messages at
+each stable size must receive a matching sequence number and SHA-256
+receipt. The same connection must shrink, survive and grow again; there
+is no reconnect or application retransmission to hide a failure.
+
+Capture files before and after the bottleneck establish unfragmented
+delivery. The runner waits for a periodic confirmation of the reduced
+size before restoring the link, then exercises the real 600-second search
+restart. ICMP-enabled cases retain the reduced kernel PMTU for an hour:
+an ordinary `PMTUDISC_DO` socket must still fail with `EMSGSIZE` when our
+larger DTLS probes succeed using `PMTUDISC_PROBE`.
+
+Allow roughly 15–25 minutes with `--jobs 8`, or longer with the default
+four concurrent cases. `--family 4 --icmp blocked --direction forward`
+selects one case. `--timeout` bounds a case without shortening DTLS
+timers. Results, tool/source versions, event logs and pcaps go into a new
+`testdata/tmp/pmtu-*` directory, or an explicit `--output` directory.
+Any failed case makes the command exit nonzero. This lab is deliberately
+outside `make check` and ordinary CI.
+
+Verified 2026-09-09 on Linux 7.0 / Go 1.27.1: all eight cases passed. The
+first shrink took about 110s; recovery took about 543s after restoring the
+link (already about 60s into the 600s search interval). Application limits
+recovered from 1221 to 1398 bytes on IPv4 and 1201 to 1396 on IPv6, within
+the search's 20-byte tolerance. All 16 captures reported zero kernel drops.
+
 ## Independent peers
 
 Last interoperability runs: 2026-09-08 (pinned matrices, master `cfd5566`) and
@@ -249,10 +307,10 @@ mapping is still `draft-ietf-tls-mldsa-05` (IESG approved, RFC not published).
   Pion public endpoints still often fail after handshake on
   `RequestConnectionID`.
 - PMTU: routed Windows/macOS validation awaits suitable test environments.
+  The [Linux lab](#routed-linux-lab) exercises live shrink, the real 600-second
+  upward-search timer, and recovery with a stale kernel PMTU cache.
   Possible improvements: RTT-based probe spacing, safe discovery on shared
   listeners, and OS PMTU hints without connecting the active migration socket.
-  `raiseTimer` is 600s (`TestProbeTimeoutMeetsRFC8899`); no remaining test
-  drives that periodic raise through a path-MTU change.
 - Optional lab-only BoringSSL packet-BIO adapter; keep it out of `make check`.
 - Recheck official OpenSSL/socat releases when 4.1 is usable. Do not patch the
   parity baseline to obtain a test peer.
@@ -294,10 +352,12 @@ cover SecP256r1MLKEM768 or SecP384r1MLKEM1024. Large ML-DSA flights at 256
 still take several retransmission intervals because peers often do not ACK
 fragments before the next 10-record burst.
 
-Current PMTU tests are in-process discovery (`internal/dtls13/pmtu_*.go`)
-and Linux loopback `PMTUDISC_PROBE` (`pmtu_df_linux_test.go`). Privileged
-CI runs `./internal/xio/privileged` and has no DTLS PMTU cases. Historical
-Linux routed IPv4/IPv6 1500→1280→1500 results are not in this tree.
+PMTU validation includes in-process discovery (`internal/dtls13/pmtu_*.go`),
+Linux loopback `PMTUDISC_PROBE` (`pmtu_df_linux_test.go`), and the opt-in
+[routed Linux lab](#routed-linux-lab). The lab verifies IPv4/IPv6
+1500→1280→1500 shrink and recovery through virtual routers using production
+timers. It runs separately from CI; generated captures and results are not
+committed.
 
 On Linux, build the pinned peers and run interop:
 
