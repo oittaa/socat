@@ -25,7 +25,7 @@ const (
 	raiseTimer = 600 * time.Second
 	// DTLS application data has no ACKs. Confirm the working size while the
 	// path is in use. Must be less than raiseTimer.
-	confirmTimer = 60 * time.Second
+	confirmTimer = 10 * time.Second
 
 	maxMTUDiff       = 20
 	maxLostMTUProbes = 3

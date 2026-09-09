@@ -55,6 +55,11 @@ shared with that adapted code.
 - The working MTU grows only after an authenticated response to a current
   discovery probe, within the configured `dtls-mtu` ceiling.
 
+Discovery confirms active paths every 10 seconds once search completes.
+With three unanswered 16-second probes and one-second gaps, shrink takes
+roughly 50–60 seconds. More frequent confirmation trades extra probe traffic
+and possible reductions after temporary outages for faster black-hole recovery.
+
 ### Routed Linux lab
 
 Run [dtls13-pmtu-lab.py](../scripts/dtls13-pmtu-lab.py) in a Linux VM with
@@ -108,8 +113,8 @@ Any failed case makes the command exit nonzero. This lab is deliberately
 outside `make check` and ordinary CI.
 
 Verified 2026-09-09 on Linux 7.0 / Go 1.27.1: all eight cases passed. The
-first shrink took about 110s; recovery took about 543s after restoring the
-link (already about 60s into the 600s search interval). Application limits
+first shrink took about 59–60s; recovery took about 593s after restoring the
+link (already about 10s into the 600s search interval). Application limits
 recovered from 1221 to 1398 bytes on IPv4 and 1201 to 1396 on IPv6, within
 the search's 20-byte tolerance. All 16 captures reported zero kernel drops.
 
