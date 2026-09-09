@@ -6,6 +6,9 @@ requirements and optional capabilities, not every inherited TLS requirement
 or a completed security review.
 
 Peer limits and interop that already ran are in [dtls13.md](dtls13.md).
+Default-settings (unpinned suites/groups, ECDSA P-256 and ML-DSA-65, both
+roles) is the table under
+[Default settings](dtls13.md#default-settings).
 
 ## Method
 
