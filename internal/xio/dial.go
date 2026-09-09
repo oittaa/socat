@@ -28,6 +28,34 @@ type DialTarget struct {
 	Port    string // numeric or /etc/services name
 }
 
+// dialCall is the shared context for one TCP connect attempt.
+type dialCall struct {
+	ctx     context.Context
+	network string
+	timeout time.Duration
+	g       *Global
+	control func(network, address string, c syscall.RawConn) error
+}
+
+func (c dialCall) withTimeout() (context.Context, context.CancelFunc) {
+	if c.timeout <= 0 {
+		return c.ctx, func() {}
+	}
+	return context.WithTimeout(c.ctx, c.timeout)
+}
+
+func (c dialCall) dialTCP(laddr, raddr *net.TCPAddr) (net.Conn, error) {
+	d := &net.Dialer{
+		Timeout:   c.timeout,
+		LocalAddr: laddr,
+		Control:   c.control,
+	}
+	d.SetMultipathTCP(false)
+	cctx, cancel := c.withTimeout()
+	defer cancel()
+	return d.DialContext(cctx, c.network, formatTCPAddr(c.network, raddr.IP, raddr.Port))
+}
+
 // DialTCPAll resolves dest.Host and tries each address in order.
 // dest.Network is "tcp", "tcp4", or "tcp6". Logs Notice "opening connection to AF=…"
 // for each attempt.
@@ -75,26 +103,12 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s parse.Spec, g *Global, t
 		}
 
 		netw := tcpDialNetwork(dest.Network, ip)
-		controlFn := DialControl(s, netw, control)
+		call := dialCall{ctx: ctx, network: netw, timeout: timeout, g: g, control: DialControl(s, netw, control)}
 		var c net.Conn
 		if lowport {
-			c, err = dialTCPLowport(ctx, netw, raddr, laddr, timeout, controlFn, g)
+			c, err = dialTCPLowport(call, raddr, laddr)
 		} else {
-			d := &net.Dialer{
-				Timeout:   timeout,
-				LocalAddr: laddr,
-				Control:   controlFn,
-			}
-			d.SetMultipathTCP(false)
-			cctx := ctx
-			var cancel context.CancelFunc
-			if timeout > 0 {
-				cctx, cancel = context.WithTimeout(ctx, timeout)
-			}
-			c, err = d.DialContext(cctx, netw, formatTCPAddr(netw, ip, raddr.Port))
-			if cancel != nil {
-				cancel()
-			}
+			c, err = call.dialTCP(laddr, raddr)
 		}
 		if err != nil {
 			lastErr = err
@@ -354,9 +368,9 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bind
 // dialTCPLowport binds a lowport (random start in 640-1023, walk down
 // with wrap) then connects. Fail closed when no privileged port is
 // available instead of falling back to an ephemeral port.
-func dialTCPLowport(ctx context.Context, network string, raddr, laddr *net.TCPAddr, timeout time.Duration, control func(network, address string, c syscall.RawConn) error, g *Global) (net.Conn, error) {
+func dialTCPLowport(call dialCall, raddr, laddr *net.TCPAddr) (net.Conn, error) {
 	ip := net.IPv4zero
-	if raddr != nil && !WantIPv4(network, raddr.IP) {
+	if raddr != nil && !WantIPv4(call.network, raddr.IP) {
 		ip = net.IPv6zero
 	}
 	if laddr != nil && laddr.IP != nil {
@@ -364,24 +378,10 @@ func dialTCPLowport(ctx context.Context, network string, raddr, laddr *net.TCPAd
 	}
 	var conn net.Conn
 	_, err := FirstAvailableLowport(func(port int) error {
-		if g != nil && g.Log != nil {
-			g.Log.Debugf("bind({AF=%d %s:%d}, 16)", afForNetwork(network, ip), FormatIPForNetwork(network, ip), port)
+		if call.g != nil && call.g.Log != nil {
+			call.g.Log.Debugf("bind({AF=%d %s:%d}, 16)", afForNetwork(call.network, ip), FormatIPForNetwork(call.network, ip), port)
 		}
-		d := &net.Dialer{
-			Timeout:   timeout,
-			LocalAddr: &net.TCPAddr{IP: ip, Port: port},
-			Control:   control,
-		}
-		d.SetMultipathTCP(false)
-		cctx := ctx
-		var cancel context.CancelFunc
-		if timeout > 0 {
-			cctx, cancel = context.WithTimeout(ctx, timeout)
-		}
-		c, err := d.DialContext(cctx, network, formatTCPAddr(network, raddr.IP, raddr.Port))
-		if cancel != nil {
-			cancel()
-		}
+		c, err := call.dialTCP(&net.TCPAddr{IP: ip, Port: port}, raddr)
 		if err != nil {
 			return err
 		}

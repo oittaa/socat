@@ -153,7 +153,14 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s parse.Spec, g *xio.
 			optionNetwork = "sctp6"
 		}
 		// Merge spec-driven rcvtimeo/sndtimeo with any setsockopt= control.
-		c, err := connectSCTP(ctx, dest.Network, laddr, raddr, timeout, lowport, g, xio.DialControl(s, optionNetwork, control))
+		c, err := connectSCTP(dialRequest{
+			ctx:     ctx,
+			network: dest.Network,
+			timeout: timeout,
+			g:       g,
+			control: xio.DialControl(s, optionNetwork, control),
+			lowport: lowport,
+		}, laddr, raddr)
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {
@@ -169,23 +176,23 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s parse.Spec, g *xio.
 	return nil, lastErr
 }
 
-func connectSCTP(ctx context.Context, network string, laddr, raddr *net.TCPAddr, timeout time.Duration, lowport bool, g *xio.Global, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
+func connectSCTP(req dialRequest, laddr, raddr *net.TCPAddr) (net.Conn, error) {
 	family := unix.AF_INET
-	if !xio.WantIPv4(network, raddr.IP) {
+	if !xio.WantIPv4(req.network, raddr.IP) {
 		family = unix.AF_INET6
 	}
 	fd, err := newSocket(family, unix.SOCK_STREAM, unix.IPPROTO_SCTP)
 	if err != nil {
 		return nil, fmt.Errorf("sctp socket: %w", err)
 	}
-	if control != nil {
-		if err := control(network, raddr.String(), rawFD(fd)); err != nil {
+	if req.control != nil {
+		if err := req.control(req.network, raddr.String(), rawFD(fd)); err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, err
 		}
 	}
-	if lowport {
-		if _, err := bindSCTPLowport(fd, family, laddr, g); err != nil {
+	if req.lowport {
+		if _, err := bindSCTPLowport(fd, family, laddr, req.g); err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", xio.LowportMin, xio.LowportMax, err)
 		}
@@ -205,12 +212,8 @@ func connectSCTP(ctx context.Context, network string, laddr, raddr *net.TCPAddr,
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	cctx := ctx
-	var cancel context.CancelFunc
-	if timeout > 0 {
-		cctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
+	cctx, cancel := req.withTimeout()
+	defer cancel()
 	if err := connectWithCtx(cctx, fd, sa); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err

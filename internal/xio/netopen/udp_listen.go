@@ -403,7 +403,12 @@ func dialUDPSession(ctx context.Context, network string, local, remote *net.UDPA
 	// The child is a new socket, not the parent listener fd. Apply every
 	// after-socket option again on this fd before bind/connect, then the
 	// fork-specific reuse flags.
-	c, err := dialUDPForSpec(ctx, network, local, remote.String(), s, reuseControl, 0)
+	c, err := dialUDPForSpec(dialRequest{
+		ctx:     ctx,
+		network: network,
+		spec:    s,
+		control: reuseControl,
+	}, local, remote.String())
 	if err != nil {
 		return nil, err
 	}

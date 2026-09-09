@@ -16,7 +16,12 @@ func TestDialUDP6IPv4LiteralKeepsFamily(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = ln.Close() })
 	s := parse.Spec{Type: "UDP6", Options: []parse.Option{{Name: "ai-v4mapped"}}}
-	_, err = dialUDPForSpec(t.Context(), "udp6", nil, ln.LocalAddr().String(), s, nil, time.Second)
+	_, err = dialUDPForSpec(dialRequest{
+		ctx:     t.Context(),
+		network: "udp6",
+		timeout: time.Second,
+		spec:    s,
+	}, nil, ln.LocalAddr().String())
 	if err == nil {
 		t.Fatal("UDP6 to an IPv4 literal succeeded; want family mismatch")
 	}
