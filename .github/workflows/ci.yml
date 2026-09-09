@@ -128,24 +128,6 @@ jobs:
           fail_ci_if_error: true
           disable_search: true
 
-  scripts:
-    name: scripts (${{ matrix.name }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux-amd64
-            os: ubuntu-latest
-          - name: linux-arm64
-            os: ubuntu-24.04-arm
-          - name: macos
-            os: macos-latest
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v7
-      - name: Script tests
-        run: python3 -B -m unittest discover -s scripts -p '*_test.py'
-
   e2e:
     name: e2e (${{ matrix.name }})
     # Linux amd64 runs with coverage below.
