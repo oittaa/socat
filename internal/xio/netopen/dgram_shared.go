@@ -28,6 +28,46 @@ func copyOneshotFirst(p, first []byte) (int, error) {
 	return copy(p, first), nil
 }
 
+// firstPacket is a datagram captured before the session conn is handed to
+// the relay. pending is true even for a zero-length datagram.
+type firstPacket struct {
+	data    []byte
+	pending bool
+}
+
+func newFirstPacket(data []byte) firstPacket {
+	return firstPacket{data: data, pending: true}
+}
+
+func (f *firstPacket) take() (data []byte, ok bool) {
+	if f == nil || !f.pending {
+		return nil, false
+	}
+	f.pending = false
+	data = f.data
+	f.data = nil
+	return data, true
+}
+
+// sharedWriteDeadline is the per-child write deadline for sockets shared
+// across fork sessions. The listener's write lock is separate.
+type sharedWriteDeadline struct {
+	mu       sync.Mutex
+	deadline time.Time
+}
+
+func (w *sharedWriteDeadline) set(t time.Time) {
+	w.mu.Lock()
+	w.deadline = t
+	w.mu.Unlock()
+}
+
+func (w *sharedWriteDeadline) get() time.Time {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.deadline
+}
+
 // writeSharedPacket serializes writes that share a listener socket. The
 // deadline belongs to the child session, so install it only while that child
 // owns the write lock and clear it before another child can write.

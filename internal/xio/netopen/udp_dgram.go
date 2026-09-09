@@ -480,14 +480,13 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		// Non-fork RECVFROM: one datagram then EOF on further reads
 		// (so RECVFROM|PIPE echo servers exit after one client exchange).
 		st := relay.Stream(&udpRecvFromConn{
-			uc:           pc,
-			peer:         raddr,
-			first:        append([]byte(nil), buf[:n]...),
-			firstPending: true,
-			closeEOF:     true,
-			wantCtrl:     wantCtrl,
-			recvErr:      recvErr,
-			g:            g,
+			uc:       pc,
+			peer:     raddr,
+			first:    newFirstPacket(append([]byte(nil), buf[:n]...)),
+			closeEOF: true,
+			wantCtrl: wantCtrl,
+			recvErr:  recvErr,
+			g:        g,
 		})
 		st, err = xio.SetupConnectedStream(s, st)
 		if err != nil {

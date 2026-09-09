@@ -189,13 +189,12 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		}
 	}
 	st := relay.Stream(&udpRecvFromConn{
-		uc:           pc,
-		peer:         raddr,
-		first:        append([]byte(nil), buf[:n]...),
-		firstPending: true,
-		wantCtrl:     wantCtrl,
-		recvErr:      recvErr,
-		g:            g,
+		uc:       pc,
+		peer:     raddr,
+		first:    newFirstPacket(append([]byte(nil), buf[:n]...)),
+		wantCtrl: wantCtrl,
+		recvErr:  recvErr,
+		g:        g,
 	})
 	st, err = xio.SetupConnectedStream(s, st)
 	if err != nil {
@@ -592,15 +591,14 @@ func (l *udpForkListener) newUDPForkChild(packet udpForkPacket, session *xio.Glo
 		role = udpRoleShared
 	}
 	return &udpSessionConn{
-		role:         role,
-		peer:         cloneUDPAddr(packet.peer),
-		first:        append([]byte(nil), packet.data...),
-		firstPending: true,
-		env:          session.SessionVarsSnapshot(),
-		writeMu:      &l.writeMu,
-		wantCtrl:     wantCtrl,
-		recvErr:      recvErr,
-		g:            session,
+		role:     role,
+		peer:     cloneUDPAddr(packet.peer),
+		first:    newFirstPacket(append([]byte(nil), packet.data...)),
+		env:      session.SessionVarsSnapshot(),
+		writeMu:  &l.writeMu,
+		wantCtrl: wantCtrl,
+		recvErr:  recvErr,
+		g:        session,
 	}
 }
 
@@ -700,18 +698,16 @@ const (
 // Do NOT embed *net.UDPConn: sessions can have datagrams buffered outside the
 // socket while UDP-LISTEN routes packets received during child setup.
 type udpSessionConn struct {
-	role         udpSessionRole
-	sock         *net.UDPConn
-	peer         *net.UDPAddr
-	first        []byte
-	firstPending bool // buffered opener, including a zero-length datagram
-	closeOnce    sync.Once
-	closeErr     error
-	env          map[string]string
+	role      udpSessionRole
+	sock      *net.UDPConn
+	peer      *net.UDPAddr
+	first     firstPacket
+	closeOnce sync.Once
+	closeErr  error
+	env       map[string]string
 
 	writeMu       *sync.Mutex
-	deadlineMu    sync.Mutex
-	writeDeadline time.Time
+	writeDL       sharedWriteDeadline
 	releaseListen func()
 	wantCtrl      bool
 	recvErr       bool
@@ -751,10 +747,7 @@ func (u *udpSessionConn) recvErrConn() syscall.Conn {
 }
 
 func (u *udpSessionConn) Read(p []byte) (int, error) {
-	if u.firstPending {
-		u.firstPending = false
-		first := u.first
-		u.first = nil
+	if first, ok := u.first.take(); ok {
 		if u.role == udpRoleShared {
 			return copyOneshotFirst(p, first)
 		}
@@ -827,10 +820,7 @@ func (u *udpSessionConn) Write(p []byte) (int, error) {
 	if u.sock == nil || u.peer == nil {
 		return 0, net.ErrClosed
 	}
-	u.deadlineMu.Lock()
-	deadline := u.writeDeadline
-	u.deadlineMu.Unlock()
-	n, err := writeSharedPacket(u.writeMu, deadline, u.sock.SetWriteDeadline, func() (int, error) {
+	n, err := writeSharedPacket(u.writeMu, u.writeDL.get(), u.sock.SetWriteDeadline, func() (int, error) {
 		n, err := u.sock.WriteToUDP(p, u.peer)
 		if err == nil {
 			return n, nil
@@ -893,9 +883,7 @@ func (u *udpSessionConn) SetWriteDeadline(t time.Time) error {
 	if u.role == udpRoleConnected && u.sock != nil {
 		return u.sock.SetWriteDeadline(t)
 	}
-	u.deadlineMu.Lock()
-	u.writeDeadline = t
-	u.deadlineMu.Unlock()
+	u.writeDL.set(t)
 	return nil
 }
 
@@ -911,22 +899,18 @@ func (u *udpSessionConn) NetConn() net.Conn {
 // listening socket with WriteTo to the peer (no rebinding).
 // Named field (not embed) so poll does not wait for POLLIN while first is buffered.
 type udpRecvFromConn struct {
-	uc           *net.UDPConn
-	peer         *net.UDPAddr
-	first        []byte
-	firstPending bool // buffered opener, including a zero-length datagram
-	closeEOF     bool // after first payload: further Read → EOF (UDP-RECVFROM one-shot)
-	wantCtrl     bool
-	recvErr      bool
-	g            *xio.Global
-	oob          []byte
+	uc       *net.UDPConn
+	peer     *net.UDPAddr
+	first    firstPacket
+	closeEOF bool // after first payload: further Read → EOF (UDP-RECVFROM one-shot)
+	wantCtrl bool
+	recvErr  bool
+	g        *xio.Global
+	oob      []byte
 }
 
 func (u *udpRecvFromConn) Read(p []byte) (int, error) {
-	if u.firstPending {
-		u.firstPending = false
-		first := u.first
-		u.first = nil
+	if first, ok := u.first.take(); ok {
 		if u.closeEOF {
 			return copyOneshotFirst(p, first)
 		}
