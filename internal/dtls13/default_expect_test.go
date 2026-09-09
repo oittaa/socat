@@ -49,7 +49,7 @@ func peerExitedOnItsOwn(err error) bool {
 	if !errors.As(err, &ee) || ee.ProcessState == nil {
 		return false
 	}
-	return ee.ProcessState.Exited()
+	return ee.Exited()
 }
 
 func handshakeComplete(state tls.ConnectionState) bool {
