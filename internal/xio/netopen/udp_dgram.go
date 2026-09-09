@@ -38,28 +38,9 @@ func openUDP6Datagram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 }
 
 func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string, exactPeer bool) (*xio.Opened, error) {
-	host, port, err := xio.HostPortParams(s)
+	network, raddr, err := resolveUDPDatagramRemote(ctx, s, network)
 	if err != nil {
 		return nil, err
-	}
-	stripped := xio.StripBrackets(host)
-	netw, ip, err := xio.LookupDialIP(ctx, s, network, stripped)
-	if err != nil {
-		return nil, err
-	}
-	if ip == nil {
-		return nil, fmt.Errorf("%s: invalid host", s.Type)
-	}
-	if net.ParseIP(stripped) == nil {
-		network = netw
-	}
-	portNum, err := xio.ResolvePortNum(network, port)
-	if err != nil {
-		return nil, err
-	}
-	raddr := &net.UDPAddr{IP: ip, Port: portNum}
-	if ip4 := ip.To4(); ip4 != nil && strings.HasSuffix(network, "4") {
-		raddr.IP = ip4
 	}
 	bind := s.OptionValue("bind", "")
 	// DATAGRAM ignores sourceport for the local bind; SENDTO uses it as the local port.
@@ -76,23 +57,8 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		}
 		c, port, berr := bindUDPLowport(ctx, network, bind, s, g)
 		if berr == nil && c != nil {
-			// use this bound conn as the packet socket
-			if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
-				_ = c.Close()
-				return nil, err
-			}
-			st, err := newUDPDatagramConn(ctx, c, raddr, s, g, exactPeer)
-			if err != nil {
-				logx.CloseQuiet(c)
-				return nil, err
-			}
-			wrapped, err := xio.SetupConnectedStream(s, st)
-			if err != nil {
-				logx.CloseQuiet(c)
-				return nil, err
-			}
 			_ = port
-			return &xio.Opened{Stream: wrapped, Label: datagramLabel(exactPeer, raddr)}, nil
+			return wrapUDPDatagram(ctx, s, g, c, raddr, network, exactPeer)
 		}
 		if berr == nil {
 			berr = fmt.Errorf("all ports in use")
@@ -128,6 +94,37 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("UDP: unexpected packet conn type")
 	}
+	return wrapUDPDatagram(ctx, s, g, c, raddr, network, exactPeer)
+}
+
+func resolveUDPDatagramRemote(ctx context.Context, s parse.Spec, network string) (string, *net.UDPAddr, error) {
+	host, port, err := xio.HostPortParams(s)
+	if err != nil {
+		return "", nil, err
+	}
+	stripped := xio.StripBrackets(host)
+	netw, ip, err := xio.LookupDialIP(ctx, s, network, stripped)
+	if err != nil {
+		return "", nil, err
+	}
+	if ip == nil {
+		return "", nil, fmt.Errorf("%s: invalid host", s.Type)
+	}
+	if net.ParseIP(stripped) == nil {
+		network = netw
+	}
+	portNum, err := xio.ResolvePortNum(network, port)
+	if err != nil {
+		return "", nil, err
+	}
+	raddr := &net.UDPAddr{IP: ip, Port: portNum}
+	if ip4 := ip.To4(); ip4 != nil && strings.HasSuffix(network, "4") {
+		raddr.IP = ip4
+	}
+	return network, raddr, nil
+}
+
+func wrapUDPDatagram(ctx context.Context, s parse.Spec, g *xio.Global, c *net.UDPConn, raddr *net.UDPAddr, network string, exactPeer bool) (*xio.Opened, error) {
 	// Late buffers. Send and recv IP/ancillary options were applied
 	// after socket() by ListenControl.
 	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
@@ -365,141 +362,139 @@ func openUDP6Recvfrom(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 }
 
 func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, network string, recvfrom bool) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
-		return nil, fmt.Errorf("%s requires port", s.Type)
-	}
-	port := s.Params[0]
-	host, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
-	if err != nil {
-		return nil, err
-	}
-	laddr, err := xio.ResolveUDPAddr(ctx, s, network, net.JoinHostPort(xio.StripBrackets(host), port))
-	if err != nil {
-		return nil, err
-	}
-	pc, err := listenUDP(network, laddr, s)
+	pc, laddr, err := bindUDPPort(ctx, s, network)
 	if err != nil {
 		return nil, err
 	}
 	if recvfrom {
-		// fork: keep listening, one SYSTEM/child per datagram.
 		if s.BoolOption("fork") {
-			_, maxChildren, ferr := xio.ForkLimits(s)
-			if ferr != nil {
-				logx.CloseQuiet(pc)
-				return nil, ferr
-			}
-			peerFilter, err := xio.NewPeerFilter(ctx, s, g)
-			if err != nil {
-				logx.CloseQuiet(pc)
-				return nil, err
-			}
-			ln := &udpForkListener{
-				pc:      pc,
-				network: network,
-				laddr:   laddr,
-				spec:    s,
-				g:       g,
-				ctx:     ctx,
-				oneShot: true,
-				filter:  peerFilter,
-			}
-			if err := applyUDPForkTimeouts(ln, s); err != nil {
-				logx.CloseQuiet(pc)
-				return nil, err
-			}
-			xio.NoteListenBound(pc.LocalAddr())
-			return &xio.Opened{
-				Kind:           xio.KindListen,
-				Listener:       ln,
-				Label:          "UDP-RECVFROM",
-				ForkSocketpair: true,
-				MaxChildren:    maxChildren,
-				PeerFilter:     peerFilter.AllowConn,
-				WrapDial: func(c net.Conn) (relay.Stream, error) {
-					return xio.SetupConnectedStream(s, relay.NetStream{Conn: c})
-				},
-			}, nil
+			return openUDPRecvfromFork(ctx, s, g, pc, laddr, network)
 		}
-		xio.NoteListenBound(pc.LocalAddr())
-		// UDP-RECVFROM is not a listen address: wait for the first permitted
-		// datagram with no accept-timeout.
-		// One permitted packet, then use the *same* listening socket for replies.
-		// DialUDP(local, peer) after Close fails with EADDRINUSE.
-		// When ancillary options are set, use recvmsg so we can log/set env
-		// before SYSTEM/EXEC children start (UDP*ENV tests).
-		buf := make([]byte, max(g.BlockSize, 65535))
-		wantCtrl := xio.NeedAncillary(s)
-		recvErr := xio.NeedRecvErr(s)
-		type res struct {
-			n   int
-			a   *net.UDPAddr
-			oob []byte
-			e   error
-		}
-		var n int
-		var raddr *net.UDPAddr
-		peerFilter, err := xio.NewPeerFilter(ctx, s, g)
-		if err != nil {
-			logx.CloseQuiet(pc)
-			return nil, err
-		}
-		var oobBuffer [xio.AncillaryBufferSize]byte
-		for {
-			ch := make(chan res, 1)
-			go func() {
-				nn, oob, a, err := xio.ReadUDPMsgWithBuffer(pc, buf, wantCtrl, oobBuffer[:])
-				ch <- res{nn, a, oob, err}
-			}()
-			select {
-			case <-ctx.Done():
-				logx.CloseQuiet(pc)
-				return nil, ctx.Err()
-			case r := <-ch:
-				if r.e != nil {
-					xio.DrainRecvErrOnError(r.e, recvErr, pc, g)
-					logx.CloseQuiet(pc)
-					return nil, udpAcceptError(r.e, false)
-				}
-				if err := peerFilter.AllowAddr(r.a, pc.LocalAddr()); err != nil {
-					if stop := logOrStopPeerFilter(ctx, g, err); stop != nil {
-						logx.CloseQuiet(pc)
-						return nil, stop
-					}
-					continue
-				}
-				if xio.IgnoreEmptyDatagram(r.n, r.e, s.BoolOption("null-eof")) {
-					continue
-				}
-				n, raddr = r.n, r.a
-				// Process before returning so SYSTEM sees SOCAT_* env.
-				xio.ProcessAncillary(r.oob, g)
-			}
-			break
-		}
-		// Non-fork RECVFROM: one datagram then EOF on further reads
-		// (so RECVFROM|PIPE echo servers exit after one client exchange).
-		st := relay.Stream(&udpRecvFromConn{
-			uc:           pc,
-			peer:         raddr,
-			first:        append([]byte(nil), buf[:n]...),
-			firstPending: true,
-			closeEOF:     true,
-			wantCtrl:     wantCtrl,
-			recvErr:      recvErr,
-			g:            g,
-		})
-		st, err = xio.SetupConnectedStream(s, st)
-		if err != nil {
-			logx.CloseQuiet(pc)
-			return nil, err
-		}
-		return &xio.Opened{
-			Stream: st,
-			Label:  "UDP-RECVFROM",
-		}, nil
+		return openUDPRecvfromOne(ctx, s, g, pc)
 	}
-	// RECV: merge all packets, read-only, with peer filters.
+	return openUDPRecvAll(ctx, s, g, pc, mode)
+}
+
+func openUDPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *net.UDPConn, laddr *net.UDPAddr, network string) (*xio.Opened, error) {
+	_, maxChildren, ferr := xio.ForkLimits(s)
+	if ferr != nil {
+		logx.CloseQuiet(pc)
+		return nil, ferr
+	}
+	peerFilter, err := xio.NewPeerFilter(ctx, s, g)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
+	ln := &udpForkListener{
+		pc:      pc,
+		network: network,
+		laddr:   laddr,
+		spec:    s,
+		g:       g,
+		ctx:     ctx,
+		oneShot: true,
+		filter:  peerFilter,
+	}
+	if err := applyUDPForkTimeouts(ln, s); err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
+	xio.NoteListenBound(pc.LocalAddr())
+	return &xio.Opened{
+		Kind:           xio.KindListen,
+		Listener:       ln,
+		Label:          "UDP-RECVFROM",
+		ForkSocketpair: true,
+		MaxChildren:    maxChildren,
+		PeerFilter:     peerFilter.AllowConn,
+		WrapDial: func(c net.Conn) (relay.Stream, error) {
+			return xio.SetupConnectedStream(s, relay.NetStream{Conn: c})
+		},
+	}, nil
+}
+
+func openUDPRecvfromOne(ctx context.Context, s parse.Spec, g *xio.Global, pc *net.UDPConn) (*xio.Opened, error) {
+	xio.NoteListenBound(pc.LocalAddr())
+	// UDP-RECVFROM is not a listen address: wait for the first permitted
+	// datagram with no accept-timeout.
+	// One permitted packet, then use the *same* listening socket for replies.
+	// DialUDP(local, peer) after Close fails with EADDRINUSE.
+	// When ancillary options are set, use recvmsg so we can log/set env
+	// before SYSTEM/EXEC children start (UDP*ENV tests).
+	buf := make([]byte, max(g.BlockSize, 65535))
+	wantCtrl := xio.NeedAncillary(s)
+	recvErr := xio.NeedRecvErr(s)
+	type res struct {
+		n   int
+		a   *net.UDPAddr
+		oob []byte
+		e   error
+	}
+	var n int
+	var raddr *net.UDPAddr
+	peerFilter, err := xio.NewPeerFilter(ctx, s, g)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
+	var oobBuffer [xio.AncillaryBufferSize]byte
+	for {
+		ch := make(chan res, 1)
+		go func() {
+			nn, oob, a, err := xio.ReadUDPMsgWithBuffer(pc, buf, wantCtrl, oobBuffer[:])
+			ch <- res{nn, a, oob, err}
+		}()
+		select {
+		case <-ctx.Done():
+			logx.CloseQuiet(pc)
+			return nil, ctx.Err()
+		case r := <-ch:
+			if r.e != nil {
+				xio.DrainRecvErrOnError(r.e, recvErr, pc, g)
+				logx.CloseQuiet(pc)
+				return nil, udpAcceptError(r.e, false)
+			}
+			if err := peerFilter.AllowAddr(r.a, pc.LocalAddr()); err != nil {
+				if stop := logOrStopPeerFilter(ctx, g, err); stop != nil {
+					logx.CloseQuiet(pc)
+					return nil, stop
+				}
+				continue
+			}
+			if xio.IgnoreEmptyDatagram(r.n, r.e, s.BoolOption("null-eof")) {
+				continue
+			}
+			n, raddr = r.n, r.a
+			// Process before returning so SYSTEM sees SOCAT_* env.
+			xio.ProcessAncillary(r.oob, g)
+		}
+		break
+	}
+	// Non-fork RECVFROM: one datagram then EOF on further reads
+	// (so RECVFROM|PIPE echo servers exit after one client exchange).
+	st := relay.Stream(&udpRecvFromConn{
+		uc:           pc,
+		peer:         raddr,
+		first:        append([]byte(nil), buf[:n]...),
+		firstPending: true,
+		closeEOF:     true,
+		wantCtrl:     wantCtrl,
+		recvErr:      recvErr,
+		g:            g,
+	})
+	st, err = xio.SetupConnectedStream(s, st)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
+	return &xio.Opened{
+		Stream: st,
+		Label:  "UDP-RECVFROM",
+	}, nil
+}
+
+func openUDPRecvAll(ctx context.Context, s parse.Spec, g *xio.Global, pc *net.UDPConn, mode xio.Mode) (*xio.Opened, error) {
 	if mode == xio.ModeWrite {
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("UDP-RECV is read-only")

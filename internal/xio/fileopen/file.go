@@ -223,6 +223,29 @@ func openPIPE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 // openNamedPIPE creates/opens a FIFO. For bidirectional use we open separate
 // read and write FDs so xio.ShutdownWrite can close the writer and deliver EOF.
 func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
+	p, err := prepareNamedPIPE(s)
+	if err != nil {
+		return nil, err
+	}
+	switch mode {
+	case xio.ModeRead:
+		return p.openRead()
+	case xio.ModeWrite:
+		return p.openWrite()
+	default:
+		return p.openBidir()
+	}
+}
+
+type namedPIPE struct {
+	s          parse.Spec
+	path       string
+	created    bool
+	doUnlink   bool
+	unregister func()
+}
+
+func prepareNamedPIPE(s parse.Spec) (*namedPIPE, error) {
 	path := s.Params[0]
 	// unlink-early unlinks even when the name is missing; ENOENT aborts
 	// before mkfifo. OPEN / CREATE / GOPEN instead share namedOpenEarly
@@ -259,13 +282,6 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 			return nil, err
 		}
 	}
-	applyExistingOwner := func() error {
-		if created {
-			return nil
-		}
-		return xio.ApplyOwner(path, s, nil)
-	}
-
 	// After mkfifo, before the possibly blocking open, register unlink-close
 	// so SIGTERM removes the FIFO. Only the creating process unlinks;
 	// unlink-close=0 keeps the entry.
@@ -274,166 +290,148 @@ func openNamedPIPE(s parse.Spec, mode xio.Mode) (*xio.Opened, error) {
 	if doUnlink {
 		unregister = xio.RegisterUnlinkPath(path)
 	}
-	removeCreated := func() {
-		if created {
-			unregister()
-			_ = xio.Unlink(path)
-		}
-	}
-	cleanupPath := func() {
-		if doUnlink {
-			_ = xio.Unlink(path)
-		}
-	}
-	addPathCleanup := func(o *xio.Opened) {
-		if !doUnlink {
-			return
-		}
-		o.AddCleanup(func() {
-			unregister()
-			cleanupPath()
-		})
-	}
+	return &namedPIPE{s: s, path: path, created: created, doUnlink: doUnlink, unregister: unregister}, nil
+}
 
-	clearNB := clearNonblock
+func (p *namedPIPE) applyExistingOwner() error {
+	if p.created {
+		return nil
+	}
+	return xio.ApplyOwner(p.path, p.s, nil)
+}
 
-	switch mode {
-	case xio.ModeRead:
-		// Explicit nonblock lets the read side of a dual PIPE open before its
-		// write side. Otherwise, wait for a writer so the first Read cannot see
-		// a premature EOF before the peer opens the FIFO.
-		flags := os.O_RDONLY
-		if s.BoolOption("nonblock") {
-			flags |= oNonblock
-		}
-		f, err := openFIFO(path, flags, s)
-		if err != nil {
-			removeCreated()
-			return nil, err
-		}
-		if err := applyExistingOwner(); err != nil {
+func (p *namedPIPE) removeCreated() {
+	if p.created {
+		p.unregister()
+		_ = xio.Unlink(p.path)
+	}
+}
+
+func (p *namedPIPE) failOpen(files ...*os.File) {
+	for _, f := range files {
+		if f != nil {
 			logx.CloseQuiet(f)
-			removeCreated()
-			return nil, err
 		}
-		if err := applyNamedUnlinkLate(path, s); err != nil {
-			logx.CloseQuiet(f)
-			removeCreated()
-			return nil, err
+	}
+	p.removeCreated()
+}
+
+func (p *namedPIPE) addPathCleanup(o *xio.Opened) {
+	if !p.doUnlink {
+		return
+	}
+	unregister, path := p.unregister, p.path
+	o.AddCleanup(func() {
+		unregister()
+		_ = xio.Unlink(path)
+	})
+}
+
+func (p *namedPIPE) applyAfterOpen(files ...*os.File) error {
+	if err := p.applyExistingOwner(); err != nil {
+		return err
+	}
+	if err := applyNamedUnlinkLate(p.path, p.s); err != nil {
+		return err
+	}
+	for _, f := range files {
+		if err := xio.ApplyFDOptions(f, p.s); err != nil {
+			return err
 		}
-		if err := xio.ApplyFDOptions(f, s); err != nil {
-			logx.CloseQuiet(f)
-			removeCreated()
-			return nil, err
-		}
-		st, err := xio.SetupStream(s, xio.FileStream(f))
-		if err != nil {
-			logx.CloseQuiet(f)
-			removeCreated()
-			return nil, err
-		}
-		o := &xio.Opened{Stream: st, Label: "PIPE:" + path}
-		addPathCleanup(o)
-		return o, nil
-	case xio.ModeWrite:
-		// Need a reader end open first for O_WRONLY on FIFO. The dummy reader
-		// is not an address fd; o-direct applies only to the user-facing writer.
-		r, err := openUserFile(path, os.O_RDONLY|oNonblock, 0)
-		if err != nil {
-			removeCreated()
-			return nil, err
-		}
-		w, err := openFIFO(path, os.O_WRONLY|oNonblock, s)
-		if err != nil {
-			logx.CloseQuiet(r)
-			removeCreated()
-			return nil, err
-		}
-		clearNB(w)
+	}
+	return nil
+}
+
+func (p *namedPIPE) wrapFile(f *os.File) (*xio.Opened, error) {
+	st, err := xio.SetupStream(p.s, xio.FileStream(f))
+	if err != nil {
+		p.failOpen(f)
+		return nil, err
+	}
+	o := &xio.Opened{Stream: st, Label: "PIPE:" + p.path}
+	p.addPathCleanup(o)
+	return o, nil
+}
+
+func (p *namedPIPE) openRead() (*xio.Opened, error) {
+	// Explicit nonblock lets the read side of a dual PIPE open before its
+	// write side. Otherwise, wait for a writer so the first Read cannot see
+	// a premature EOF before the peer opens the FIFO.
+	flags := os.O_RDONLY
+	if p.s.BoolOption("nonblock") {
+		flags |= oNonblock
+	}
+	f, err := openFIFO(p.path, flags, p.s)
+	if err != nil {
+		p.removeCreated()
+		return nil, err
+	}
+	if err := p.applyAfterOpen(f); err != nil {
+		p.failOpen(f)
+		return nil, err
+	}
+	return p.wrapFile(f)
+}
+
+func (p *namedPIPE) openWrite() (*xio.Opened, error) {
+	// Need a reader end open first for O_WRONLY on FIFO. The dummy reader
+	// is not an address fd; o-direct applies only to the user-facing writer.
+	r, err := openUserFile(p.path, os.O_RDONLY|oNonblock, 0)
+	if err != nil {
+		p.removeCreated()
+		return nil, err
+	}
+	w, err := openFIFO(p.path, os.O_WRONLY|oNonblock, p.s)
+	if err != nil {
 		logx.CloseQuiet(r)
-		if err := applyExistingOwner(); err != nil {
-			logx.CloseQuiet(w)
-			removeCreated()
-			return nil, err
-		}
-		if err := applyNamedUnlinkLate(path, s); err != nil {
-			logx.CloseQuiet(w)
-			removeCreated()
-			return nil, err
-		}
-		if err := xio.ApplyFDOptions(w, s); err != nil {
-			logx.CloseQuiet(w)
-			removeCreated()
-			return nil, err
-		}
-		st, err := xio.SetupStream(s, xio.FileStream(w))
-		if err != nil {
-			logx.CloseQuiet(w)
-			removeCreated()
-			return nil, err
-		}
-		o := &xio.Opened{Stream: st, Label: "PIPE:" + path}
-		addPathCleanup(o)
-		return o, nil
-	default:
-		// Bidirectional: open reader then writer (both NONBLOCK), then blocking I/O.
-		r, err := openFIFO(path, os.O_RDONLY|oNonblock, s)
-		if err != nil {
-			removeCreated()
-			return nil, err
-		}
-		w, err := openFIFO(path, os.O_WRONLY|oNonblock, s)
-		if err != nil {
-			logx.CloseQuiet(r)
-			removeCreated()
-			return nil, err
-		}
-		clearNB(r)
-		clearNB(w)
-		if err := applyExistingOwner(); err != nil {
-			logx.CloseQuiet(r)
-			logx.CloseQuiet(w)
-			removeCreated()
-			return nil, err
-		}
-		if err := applyNamedUnlinkLate(path, s); err != nil {
-			logx.CloseQuiet(r)
-			logx.CloseQuiet(w)
-			removeCreated()
-			return nil, err
-		}
-		if err := xio.ApplyFDOptions(r, s); err != nil {
-			logx.CloseQuiet(r)
-			logx.CloseQuiet(w)
-			removeCreated()
-			return nil, err
-		}
-		if err := xio.ApplyFDOptions(w, s); err != nil {
-			logx.CloseQuiet(r)
-			logx.CloseQuiet(w)
-			removeCreated()
-			return nil, err
-		}
-		stream := relay.FDStream{
-			R: r,
-			W: w,
-			C: xio.NewMultiCloser(relay.RWCStream{ReadWriteCloser: r}, relay.RWCStream{ReadWriteCloser: w}),
-			CloseW: func() error {
-				return w.Close()
-			},
-		}
-		st, err := xio.SetupStream(s, stream)
-		if err != nil {
-			logx.CloseQuiet(r)
-			logx.CloseQuiet(w)
-			removeCreated()
-			return nil, err
-		}
-		o := &xio.Opened{Stream: st, Label: "PIPE:" + path}
-		o.AddCleanup(func() { logx.CloseQuiet(r); logx.CloseQuiet(w) })
-		addPathCleanup(o)
-		return o, nil
+		p.removeCreated()
+		return nil, err
 	}
+	clearNonblock(w)
+	logx.CloseQuiet(r)
+	if err := p.applyAfterOpen(w); err != nil {
+		p.failOpen(w)
+		return nil, err
+	}
+	return p.wrapFile(w)
+}
+
+func (p *namedPIPE) openBidir() (*xio.Opened, error) {
+	// Bidirectional: open reader then writer (both NONBLOCK), then blocking I/O.
+	r, err := openFIFO(p.path, os.O_RDONLY|oNonblock, p.s)
+	if err != nil {
+		p.removeCreated()
+		return nil, err
+	}
+	w, err := openFIFO(p.path, os.O_WRONLY|oNonblock, p.s)
+	if err != nil {
+		logx.CloseQuiet(r)
+		p.removeCreated()
+		return nil, err
+	}
+	clearNonblock(r)
+	clearNonblock(w)
+	if err := p.applyAfterOpen(r, w); err != nil {
+		p.failOpen(r, w)
+		return nil, err
+	}
+	stream := relay.FDStream{
+		R: r,
+		W: w,
+		C: xio.NewMultiCloser(relay.RWCStream{ReadWriteCloser: r}, relay.RWCStream{ReadWriteCloser: w}),
+		CloseW: func() error {
+			return w.Close()
+		},
+	}
+	st, err := xio.SetupStream(p.s, stream)
+	if err != nil {
+		p.failOpen(r, w)
+		return nil, err
+	}
+	o := &xio.Opened{Stream: st, Label: "PIPE:" + p.path}
+	o.AddCleanup(func() { logx.CloseQuiet(r); logx.CloseQuiet(w) })
+	p.addPathCleanup(o)
+	return o, nil
 }
 
 func openSocketpair(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (*xio.Opened, error) {

@@ -32,25 +32,65 @@ func init() {
 }
 
 func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	name, err := queueName(s)
+	p, err := parsePOSIXMQ(s, mode)
 	if err != nil {
 		return nil, err
 	}
+	if err := posixMQUnlinkAndFlush(p.name, s, g); err != nil {
+		return nil, err
+	}
+	q, err := posixMQOpenQueue(ctx, s, g, p)
+	if err != nil {
+		return nil, err
+	}
+	// perm= is mq_open mode. Apply remaining lifecycle options on the mqd
+	// before wrapping or fork sessions so they are not dropped on mqStream.
+	if err := xio.ApplyFDLifecycleOnFD(q.fd, s); err != nil {
+		q.cleanup()
+		return nil, err
+	}
+	oneshot := p.kind == mqRecv
+	nonblock := p.oflag&unix.O_NONBLOCK != 0
+	if p.fork && p.kind == mqSend {
+		return q.wrapSendFork(s, p, nonblock)
+	}
+	if p.fork && oneshot {
+		return q.wrapRecvFork(ctx, s, p)
+	}
+	return q.wrapStream(ctx, s, g, p, oneshot, nonblock)
+}
+
+type posixMQParams struct {
+	name        string
+	kind        mqKind
+	fork        bool
+	maxChildren int
+	prio        uint32
+	oflag       int
+	modePerm    uint32
+	attr        *mqAttr
+}
+
+func parsePOSIXMQ(s parse.Spec, mode xio.Mode) (posixMQParams, error) {
+	name, err := queueName(s)
+	if err != nil {
+		return posixMQParams{}, err
+	}
 	kind := kindOf(s.Type)
 	if kind == mqBidir && mode == xio.ModeRDWR && s.Type == "POSIXMQ" {
-		return nil, fmt.Errorf("keyword \"POSIXMQ\" in bidirectional mode might unwanted flush the queue; use \"POSIXMQ-BIDIRECTIONAL\" to confirm usage")
+		return posixMQParams{}, fmt.Errorf("keyword \"POSIXMQ\" in bidirectional mode might unwanted flush the queue; use \"POSIXMQ-BIDIRECTIONAL\" to confirm usage")
 	}
 
 	fork, maxChildren, err := xio.ForkLimits(s)
 	if err != nil {
-		return nil, err
+		return posixMQParams{}, err
 	}
 
 	prio := uint32(0)
 	if v := s.OptionValue("mq-prio", ""); v != "" {
 		n, e := strconv.ParseUint(v, 0, 32)
 		if e != nil {
-			return nil, fmt.Errorf("%s: invalid mq-prio %q", s.Type, v)
+			return posixMQParams{}, fmt.Errorf("%s: invalid mq-prio %q", s.Type, v)
 		}
 		prio = uint32(n)
 	}
@@ -87,7 +127,7 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 
 	modePerm, err := xio.ParseUnixMode(s, uint32(xio.DefaultCreateMode))
 	if err != nil {
-		return nil, err
+		return posixMQParams{}, err
 	}
 
 	var attr *mqAttr
@@ -96,14 +136,14 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		if v := s.OptionValue("mq-maxmsg", ""); v != "" {
 			n, e := strconv.ParseInt(v, 0, 64)
 			if e != nil {
-				return nil, fmt.Errorf("%s: invalid mq-maxmsg %q", s.Type, v)
+				return posixMQParams{}, fmt.Errorf("%s: invalid mq-maxmsg %q", s.Type, v)
 			}
 			a.Maxmsg = int(n)
 		}
 		if v := s.OptionValue("mq-msgsize", ""); v != "" {
 			n, e := strconv.ParseInt(v, 0, 64)
 			if e != nil {
-				return nil, fmt.Errorf("%s: invalid mq-msgsize %q", s.Type, v)
+				return posixMQParams{}, fmt.Errorf("%s: invalid mq-msgsize %q", s.Type, v)
 			}
 			a.Msgsize = int(n)
 		}
@@ -123,7 +163,19 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		}
 		attr = &a
 	}
+	return posixMQParams{
+		name:        name,
+		kind:        kind,
+		fork:        fork,
+		maxChildren: maxChildren,
+		prio:        prio,
+		oflag:       oflag,
+		modePerm:    modePerm,
+		attr:        attr,
+	}, nil
+}
 
+func posixMQUnlinkAndFlush(name string, s parse.Spec, g *xio.Global) error {
 	if s.BoolOption("unlink-early") {
 		if e := mqUnlink(name); e != nil && e != unix.ENOENT {
 			if g != nil && g.Log != nil {
@@ -132,18 +184,28 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		}
 	}
 	if s.BoolOption("mq-flush") {
-		if e := flushQueue(name); e != nil {
-			return nil, e
-		}
+		return flushQueue(name)
 	}
+	return nil
+}
 
+type posixMQQueue struct {
+	fd          int
+	msgsize     int
+	unlinkClose bool
+	name        string
+	cleanup     func()
+	unregister  func()
+}
+
+func posixMQOpenQueue(ctx context.Context, s parse.Spec, g *xio.Global, p posixMQParams) (*posixMQQueue, error) {
 	var fd int
-	err = xio.WithUmask(s, func() error {
+	err := xio.WithUmask(s, func() error {
 		return xio.WithRetry(ctx, s, g, "mq_open", func() error {
 			var e error
-			fd, e = mqOpen(name, oflag, modePerm, attr)
+			fd, e = mqOpen(p.name, p.oflag, p.modePerm, p.attr)
 			if e != nil {
-				return fmt.Errorf("mq_open(%q, %#o, %#o): %w", name, oflag, modePerm, e)
+				return fmt.Errorf("mq_open(%q, %#o, %#o): %w", p.name, p.oflag, p.modePerm, e)
 			}
 			return nil
 		})
@@ -164,130 +226,128 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	}
 	if g != nil && g.Log != nil {
 		g.Log.Infof("POSIXMQ queue %q attrs: { flags=%d, maxmsg=%d, msgsize=%d, curmsgs=%d }",
-			name, got.Flags, got.Maxmsg, got.Msgsize, got.Curmsgs)
+			p.name, got.Flags, got.Maxmsg, got.Msgsize, got.Curmsgs)
 	}
 
-	unlinkClose := s.BoolOption("unlink-close")
-	unregister := func() {}
-	cleanup := func() {
+	q := &posixMQQueue{
+		fd:          fd,
+		msgsize:     msgsize,
+		unlinkClose: s.BoolOption("unlink-close"),
+		name:        p.name,
+		unregister:  func() {},
+	}
+	q.cleanup = func() {
+		q.unregister()
+		_ = mqClose(q.fd)
+		if q.unlinkClose {
+			_ = mqUnlink(q.name)
+		}
+	}
+	if q.unlinkClose {
+		n := q.name
+		q.unregister = xio.RegisterExitHook(func() { _ = mqUnlink(n) })
+	}
+	return q, nil
+}
+
+func (q *posixMQQueue) wrapSendFork(s parse.Spec, p posixMQParams, nonblock bool) (*xio.Opened, error) {
+	fd, name, prio, msgsize := q.fd, q.name, p.prio, q.msgsize
+	dial := func(dctx context.Context) (net.Conn, error) {
+		if !nonblock {
+			if e := waitMQ(dctx, fd, unix.POLLOUT, -1, nil); e != nil {
+				return nil, e
+			}
+		}
+		nfd, e := dupCLOEXEC(fd)
+		if e != nil {
+			return nil, e
+		}
+		st := &mqStream{
+			fd:       nfd,
+			name:     name,
+			prio:     prio,
+			msgsize:  msgsize,
+			nonblock: nonblock,
+		}
+		if e := st.attachNotify(); e != nil {
+			_ = unix.Close(nfd)
+			return nil, e
+		}
+		return newMQConn(st, name), nil
+	}
+	wrap := func(c net.Conn) (relay.Stream, error) {
+		return xio.SetupStream(s, relay.NetStream{Conn: c})
+	}
+	o := &xio.Opened{
+		Kind:        xio.KindDial,
+		MaxChildren: p.maxChildren,
+		Interval:    xio.ParseRetry(s).Interval,
+		Label:       s.Type,
+		Dial:        dial,
+		WrapDial:    wrap,
+	}
+	o.AddCleanup(q.cleanup)
+	return o, nil
+}
+
+func (q *posixMQQueue) wrapRecvFork(ctx context.Context, s parse.Spec, p posixMQParams) (*xio.Opened, error) {
+	ln := &mqListener{
+		fd:      q.fd,
+		name:    q.name,
+		msgsize: q.msgsize,
+		ctx:     ctx,
+	}
+	if e := ln.attachNotify(); e != nil {
+		q.cleanup()
+		return nil, e
+	}
+	unlinkClose, unregister, name := q.unlinkClose, q.unregister, q.name
+	o := &xio.Opened{
+		Kind:        xio.KindListen,
+		Listener:    ln,
+		MaxChildren: p.maxChildren,
+		Label:       s.Type,
+		WrapDial: func(c net.Conn) (relay.Stream, error) {
+			return xio.SetupStream(s, relay.NetStream{Conn: c})
+		},
+	}
+	o.AddCleanup(func() {
 		unregister()
-		_ = mqClose(fd)
+		_ = ln.Close()
 		if unlinkClose {
 			_ = mqUnlink(name)
 		}
-	}
-	if unlinkClose {
-		n := name
-		unregister = xio.RegisterExitHook(func() { _ = mqUnlink(n) })
-	}
+	})
+	return o, nil
+}
 
-	// perm= is mq_open mode. Apply remaining lifecycle options on the mqd
-	// before wrapping or fork sessions so they are not dropped on mqStream.
-	if err := xio.ApplyFDLifecycleOnFD(fd, s); err != nil {
-		cleanup()
-		return nil, err
-	}
-
-	oneshot := kind == mqRecv
-	nonblock := oflag&unix.O_NONBLOCK != 0
-
-	// SEND,fork: connect-style parent loop (interval + max-children).
-	if fork && kind == mqSend {
-		dial := func(dctx context.Context) (net.Conn, error) {
-			if !nonblock {
-				if e := waitMQ(dctx, fd, unix.POLLOUT, -1, nil); e != nil {
-					return nil, e
-				}
-			}
-			nfd, e := dupCLOEXEC(fd)
-			if e != nil {
-				return nil, e
-			}
-			st := &mqStream{
-				fd:       nfd,
-				name:     name,
-				prio:     prio,
-				msgsize:  msgsize,
-				nonblock: nonblock,
-			}
-			if e := st.attachNotify(); e != nil {
-				_ = unix.Close(nfd)
-				return nil, e
-			}
-			return newMQConn(st, name), nil
-		}
-		wrap := func(c net.Conn) (relay.Stream, error) {
-			return xio.SetupStream(s, relay.NetStream{Conn: c})
-		}
-		o := &xio.Opened{
-			Kind:        xio.KindDial,
-			MaxChildren: maxChildren,
-			Interval:    xio.ParseRetry(s).Interval,
-			Label:       s.Type,
-			Dial:        dial,
-			WrapDial:    wrap,
-		}
-		o.AddCleanup(cleanup)
-		return o, nil
-	}
-
-	// RECV,fork: one child per queued message.
-	if fork && oneshot {
-		ln := &mqListener{
-			fd:      fd,
-			name:    name,
-			msgsize: msgsize,
-			ctx:     ctx,
-		}
-		if e := ln.attachNotify(); e != nil {
-			cleanup()
-			return nil, e
-		}
-		o := &xio.Opened{
-			Kind:        xio.KindListen,
-			Listener:    ln,
-			MaxChildren: maxChildren,
-			Label:       s.Type,
-			WrapDial: func(c net.Conn) (relay.Stream, error) {
-				return xio.SetupStream(s, relay.NetStream{Conn: c})
-			},
-		}
-		o.AddCleanup(func() {
-			unregister()
-			_ = ln.Close()
-			if unlinkClose {
-				_ = mqUnlink(name)
-			}
-		})
-		return o, nil
-	}
-
+func (q *posixMQQueue) wrapStream(ctx context.Context, s parse.Spec, g *xio.Global, p posixMQParams, oneshot, nonblock bool) (*xio.Opened, error) {
 	mqs := &mqStream{
-		fd:       fd,
-		name:     name,
-		prio:     prio,
-		msgsize:  msgsize,
+		fd:       q.fd,
+		name:     q.name,
+		prio:     p.prio,
+		msgsize:  q.msgsize,
 		oneshot:  oneshot,
 		nonblock: nonblock,
 	}
 	if e := mqs.attachNotify(); e != nil {
-		cleanup()
+		q.cleanup()
 		return nil, e
 	}
 	if oneshot {
 		if !nonblock {
-			if e := waitMQ(ctx, fd, unix.POLLIN, -1, nil); e != nil {
+			if e := waitMQ(ctx, q.fd, unix.POLLIN, -1, nil); e != nil {
 				mqs.releaseNotify()
-				cleanup()
+				q.cleanup()
 				return nil, e
 			}
 		}
-		buf := make([]byte, msgsize)
+		buf := make([]byte, q.msgsize)
 		var receivedPrio uint32
-		n, e := receiveMQ(ctx, fd, buf, &receivedPrio, nonblock, -1, nil)
+		n, e := receiveMQ(ctx, q.fd, buf, &receivedPrio, nonblock, -1, nil)
 		if e != nil {
 			mqs.releaseNotify()
-			cleanup()
+			q.cleanup()
 			return nil, e
 		}
 		mqs.prio = receivedPrio
@@ -297,16 +357,17 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	}
 
 	st := relay.Stream(mqs)
-	st, err = xio.SetupStream(s, st)
+	st, err := xio.SetupStream(s, st)
 	if err != nil {
 		_ = mqs.Close()
-		unregister()
-		if unlinkClose {
-			_ = mqUnlink(name)
+		q.unregister()
+		if q.unlinkClose {
+			_ = mqUnlink(q.name)
 		}
 		return nil, err
 	}
 	o := &xio.Opened{Stream: st, Label: s.Type}
+	unregister, unlinkClose, name := q.unregister, q.unlinkClose, q.name
 	o.AddCleanup(func() {
 		unregister()
 		if unlinkClose {
