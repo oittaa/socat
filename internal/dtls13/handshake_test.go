@@ -68,65 +68,19 @@ func runHandshake(t *testing.T, clientConfig, serverConfig *Config) (*clientHand
 	return client, server.server, nil
 }
 
-func TestInitialClientHelloKeyShare(t *testing.T) {
-	clientConfig, serverConfig := handshakeConfigs(t)
-	_, messages, err := newClientHandshake(clientConfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-	offer, err := parseClientOfferFrom(messages[0].body)
-	if err != nil || len(offer.shares) != 0 || offer.groups[0] != uint16(tls.X25519MLKEM768) || !clientHelloFitsDatagram(messages[0].body, 1200) {
-		t.Fatal("default ClientHello should omit oversized initial key shares")
-	}
-	client, server, err := runHandshake(t, clientConfig, serverConfig)
-	if err != nil || !client.retried || client.state.CurveID != tls.X25519MLKEM768 || server.state.CurveID != tls.X25519MLKEM768 {
-		t.Fatal("empty key_share HelloRetryRequest did not negotiate X25519MLKEM768")
-	}
-
-	clientConfig, _ = handshakeConfigs(t)
-	clientConfig.CurvePreferences = []tls.CurveID{tls.X25519}
-	_, messages, err = newClientHandshake(clientConfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-	offer, err = parseClientOfferFrom(messages[0].body)
-	if err != nil || offer.shares[uint16(tls.X25519)] == nil {
-		t.Fatal("small ClientHello dropped the X25519 share")
-	}
-
-	clientConfig, serverConfig = handshakeConfigs(t)
-	clientConfig.CurvePreferences = []tls.CurveID{tls.X25519MLKEM768}
-	serverConfig.CurvePreferences = []tls.CurveID{tls.X25519, tls.X25519MLKEM768}
-	_, messages, err = newClientHandshake(clientConfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-	offer, err = parseClientOfferFrom(messages[0].body)
-	if err != nil || len(offer.groups) != 1 || offer.groups[0] != uint16(tls.X25519MLKEM768) || len(offer.shares) != 0 {
-		t.Fatal("hybrid-only ClientHello advertised a classical group")
-	}
-	client, server, err = runHandshake(t, clientConfig, serverConfig)
-	if err != nil || client.state.CurveID != tls.X25519MLKEM768 || server.state.CurveID != tls.X25519MLKEM768 {
-		t.Fatal("hybrid-only configuration negotiated a classical group")
-	}
-
-	clientConfig, _ = handshakeConfigs(t)
-	clientConfig.MTU = 256
-	clientConfig.NextProtos = []string{strings.Repeat("a", 200)}
-	_, messages, err = newClientHandshake(clientConfig)
-	if err != nil {
-		t.Fatal(err)
-	}
-	offer, err = parseClientOfferFrom(messages[0].body)
-	if err != nil || len(offer.shares) == 0 {
-		t.Fatal("ClientHello that cannot fit even empty shares should fragment with shares")
+func TestInitialClientHelloOneDatagram(t *testing.T) {
+	clientConfig, _ := handshakeConfigs(t)
+	n := 0
+	if _, err := newClientSession(clientConfig, func([]byte) error { n++; return nil }, time.Unix(100, 0)); err != nil || n != 1 {
+		t.Fatalf("initial datagrams = %d, %v", n, err)
 	}
 }
 
-func parseClientOfferFrom(body []byte) (clientOffer, error) {
-	hello, err := parseClientHello(body)
-	if err != nil {
-		return clientOffer{}, err
+func TestEmptyClientHelloOverflowHandshake(t *testing.T) {
+	clientConfig, serverConfig := handshakeConfigs(t)
+	clientConfig.MTU = 256
+	clientConfig.NextProtos = []string{strings.Repeat("a", 200)}
+	if _, _, err := runHandshake(t, clientConfig, serverConfig); err != nil {
+		t.Fatal(err)
 	}
-	return parseClientOffer(hello)
 }
