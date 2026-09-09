@@ -272,7 +272,7 @@ UDP, and TLS essentially unchanged between the saved old binaries
 (`66c2f18+command-reuse-ca25e014a156`, Go 1.27.0) and current binaries
 (`3ddf9d4`, Go 1.27.1). UNIX varied similarly in classic and Go.
 The repeat used the payload, frame sizes, GOMAXPROCS, GOGC, and exchange
-counts above; [per-run results](2026-09-09-comparison.csv) include loss and RSS.
+counts above.
 
 DTLS bulk remained lower in that repeat: 42.8 to 39.5 MiB/s (-7.7%),
 while classic changed from 143.7 to 145.7 MiB/s (+1.4%). Median Go loss was
