@@ -850,7 +850,7 @@ func (r *rawIPFilteredRecv) Read(p []byte) (int, error) {
 
 func (r *rawIPFilteredRecv) Write([]byte) (int, error) { return 0, net.ErrClosed }
 func (r *rawIPFilteredRecv) Close() error              { return r.c.Close() }
-func (r *rawIPFilteredRecv) ShutdownWrite() error      { return nil }
+func (r *rawIPFilteredRecv) ShutdownWrite() error      { return r.Close() }
 func (r *rawIPFilteredRecv) LocalAddr() net.Addr       { return r.c.LocalAddr() }
 func (r *rawIPFilteredRecv) RemoteAddr() net.Addr      { return nil }
 func (r *rawIPFilteredRecv) SetDeadline(t time.Time) error {
