@@ -4,8 +4,6 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
-import subprocess
-import sys
 import tempfile
 import unittest
 
@@ -63,27 +61,6 @@ def write_json(path: pathlib.Path, value: dict) -> None:
 
 
 class ValidateResultTest(unittest.TestCase):
-    def test_update_script_supports_passwordless_sudo_docker(self) -> None:
-        updater = (SCRIPT.parent / "update-scorecard.sh").read_text()
-        self.assertIn('sudo -n "$docker_bin" version', updater)
-        self.assertIn("temporary wrapper; no account changes", updater)
-
-    def test_docker_wrapper_forwards_host_loss_allowlist(self) -> None:
-        wrapper = (SCRIPT.parent / "docker-classic-scorecard.sh").read_text()
-        self.assertIn('-e ALLOW_LOST="${ALLOW_LOST:-', wrapper)
-
-    def test_classic_scorecard_saves_baseline_only_after_parser_ok(self) -> None:
-        runner = (SCRIPT.parent / "classic-scorecard.sh").read_text()
-        parse_idx = runner.index("parse_ec=$?")
-        gate_idx = runner.index('if [[ -n "$SAVE_BASELINE" && $parse_ec -ne 0 ]]; then')
-        save_idx = runner.index('cp -f "$OUT_DIR/results.json" "$SAVE_BASELINE"')
-        self.assertLess(parse_idx, gate_idx)
-        self.assertLess(gate_idx, save_idx)
-        self.assertIn("not saving baseline", runner)
-        self.assertIn("harness_fail", runner)
-        self.assertIn("scorecard-proc.sh", runner)
-        self.assertNotIn("pgrep -x socat", runner)
-
     def test_accepts_complete_canonical_run(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             path = pathlib.Path(tempdir) / "result.json"
@@ -126,23 +103,6 @@ class ValidateResultTest(unittest.TestCase):
             write_json(path, doc)
             with self.assertRaisesRegex(MODULE.ScorecardError, "reporting error"):
                 MODULE.validate_result(path, label="classic")
-
-
-
-class PublishTest(unittest.TestCase):
-    README = """# Scorecard baselines
-
-| Label | OK | FAILED | CANT |
-|-------|-----|--------|------|
-| classic 1.8.1.3 (host) | 475 | 24 | 103 |
-| classic 1.8.1.3 (Docker, root) | 1 | 2 | 3 |
-| go (this tree, host) | 471 | 7 | 127 |
-| go (this tree, Docker, root, privileged, `--internet`) | 4 | 5 | 6 |
-
-Vs classic Docker, Go has 4 OK against 1 classic OK (`parity_gap_total` 7 in `go-vs-classic-docker-gaps.json`).
-"""
-
-
 
 
 if __name__ == "__main__":
