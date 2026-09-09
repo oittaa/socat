@@ -1,10 +1,7 @@
 """Regression tests for classic-scorecard process ownership.
 
-The previous cleanup matched every process named socat whose cmdline contained
-the checkout binary path. After one shard finished it could SIGTERM a sibling
-shard (or another invocation from the same tree). These tests pin the env-marker
-ownership model and show that restoring the old pgrep+path cleanup fails the
-sibling scenario.
+These tests pin the env-marker ownership model. A finished shard must not
+SIGTERM a sibling shard or another invocation from the same tree.
 """
 from __future__ import annotations
 
@@ -19,18 +16,6 @@ import unittest
 SCRIPTS = pathlib.Path(__file__).resolve().parent
 HELPER = SCRIPTS / "scorecard-proc.sh"
 RUNNER = SCRIPTS / "classic-scorecard.sh"
-
-OLD_CLEANUP = r"""
-old_cleanup() {
-  local root=$1
-  local p
-  for p in $(pgrep -x socat 2>/dev/null || true); do
-    if tr '\0' ' ' <"/proc/$p/cmdline" 2>/dev/null | grep -qF "$root/socat"; then
-      kill "$p" 2>/dev/null || true
-    fi
-  done
-}
-"""
 
 
 def _linux_proc() -> bool:
@@ -101,29 +86,6 @@ def _spawn_marked(
     return proc, proc.pid
 
 
-def _spawn_unmarked(binary: str, argv0: str) -> tuple[subprocess.Popen[bytes], int]:
-    ready_r, ready_w = os.pipe()
-    code = "\n".join(
-        [
-            "import os, sys",
-            "fd = int(sys.argv[1])",
-            "os.write(fd, b'ready')",
-            "os.close(fd)",
-            "os.execv(sys.argv[2], [sys.argv[3], '3600'])",
-        ]
-    )
-    proc = subprocess.Popen(
-        [sys.executable, "-c", code, str(ready_w), binary, argv0],
-        pass_fds=(ready_w,),
-    )
-    os.close(ready_w)
-    if os.read(ready_r, 16) != b"ready":
-        proc.kill()
-        raise AssertionError("unrelated worker did not signal readiness")
-    os.close(ready_r)
-    return proc, proc.pid
-
-
 def _cleanup(run_id: str, shard: str = "") -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [
@@ -139,20 +101,6 @@ scorecard_cleanup_owned "{run_id}" "{shard}"
         check=True,
         capture_output=True,
         text=True,
-    )
-
-
-def _old_cleanup(root: str) -> None:
-    subprocess.run(
-        [
-            "bash",
-            "-c",
-            OLD_CLEANUP
-            + f'''
-old_cleanup "{root}"
-''',
-        ],
-        check=True,
     )
 
 
@@ -242,30 +190,12 @@ class CleanupOwnershipTest(unittest.TestCase):
         _cleanup(self.run_id, "2")
         _wait_stopped(pid2)
 
-    def test_old_path_based_cleanup_kills_ready_sibling(self) -> None:
-        """Restoring pgrep -x socat + $ROOT/socat cmdline matching fails isolation."""
-        _, pid1 = self._owned("1")
-        _, pid2 = self._owned("2")
-        _wait_comm(pid1, "socat")
-        _wait_comm(pid2, "socat")
-
-        _old_cleanup(str(self.root))
-
-        self.assertFalse(_running(pid1))
-        self.assertFalse(
-            _running(pid2),
-            "old cleanup must kill the ready sibling so this assertion fails if "
-            "the production helper is reverted to path-based matching without "
-            "updating this characterization",
-        )
-
     def test_owned_timeout_leftovers_are_cleaned(self) -> None:
         _, pid = self._owned("7")
         _wait_comm(pid, "socat")
         self.assertTrue(_running(pid))
         _cleanup(self.run_id, "7")
         _wait_stopped(pid)
-
 
     def test_external_binary_is_still_owned(self) -> None:
         """SOCAT may point at a foreign binary; ownership is the env markers."""
