@@ -556,7 +556,7 @@ func (u *udpFilteredRecv) Read(p []byte) (int, error) {
 
 func (u *udpFilteredRecv) Write([]byte) (int, error) { return 0, net.ErrClosed }
 func (u *udpFilteredRecv) Close() error              { return u.conn.Close() }
-func (u *udpFilteredRecv) ShutdownWrite() error      { return nil }
+func (u *udpFilteredRecv) ShutdownWrite() error      { return u.Close() }
 func (u *udpFilteredRecv) LocalAddr() net.Addr       { return u.conn.LocalAddr() }
 func (u *udpFilteredRecv) RemoteAddr() net.Addr      { return nil }
 
