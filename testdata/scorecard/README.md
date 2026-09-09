@@ -2,21 +2,6 @@
 
 Classic `test.sh` results. Working logs go under gitignored `.scorecard/`.
 
-## Refresh
-
-On a Linux Docker host:
-
-```bash
-make update-scorecard
-```
-
-That runs classic C and this tree as root (`MODE=classic`, `PRIVILEGED=1`,
-`--internet`) and copies complete results here. It does not commit.
-
-Official classic source pins: `scripts/classic-baseline.json`.
-
-## Counts
-
 From `classic-docker-baseline.summary.txt` and
 `go-docker-baseline.summary.txt`:
 
@@ -30,6 +15,19 @@ classic OK (`parity_gap_total` 24 in `go-vs-classic-docker-gaps.json`).
 
 Names and per-test status are in those JSON files. DTLS:
 [docs/dtls13.md](../../docs/dtls13.md#validation).
+
+## Refresh
+
+On a Linux Docker host:
+
+```bash
+make update-scorecard
+```
+
+That runs classic C and this tree as root (`MODE=classic`, `PRIVILEGED=1`,
+`--internet`) and copies complete results here. It does not commit.
+
+Official classic source pins: `scripts/classic-baseline.json`.
 
 ## Files
 
