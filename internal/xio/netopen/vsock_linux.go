@@ -86,8 +86,8 @@ func vsockSocket(s parse.Spec) (int, error) {
 	return fd, nil
 }
 
-func dialVSOCK(ctx context.Context, remote vsockEndpoint, s parse.Spec, g *xio.Global, timeout time.Duration, control func(string, string, syscall.RawConn) error) (net.Conn, error) {
-	args, err := parseVsockSocketArgs(s)
+func dialVSOCK(req dialRequest, remote vsockEndpoint) (net.Conn, error) {
+	args, err := parseVsockSocketArgs(req.spec)
 	if err != nil {
 		return nil, err
 	}
@@ -95,25 +95,25 @@ func dialVSOCK(ctx context.Context, remote vsockEndpoint, s parse.Spec, g *xio.G
 	if err != nil {
 		return nil, fmt.Errorf("vsock socket: %w", err)
 	}
-	if err := xio.ApplyReuse(fd, s, false); err != nil {
+	if err := xio.ApplyReuse(fd, req.spec, false); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	if err := xio.ApplyNetworkSocketOptions(fd, s, "vsock"); err != nil {
+	if err := xio.ApplyNetworkSocketOptions(fd, req.spec, "vsock"); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhasePrebind); err != nil {
+	if err := xio.ApplyGenericSetsockopt(fd, req.spec, xio.SockoptPhasePrebind); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	if control != nil {
-		if err := control("vsock", remote.String(), rawFD(fd)); err != nil {
+	if req.control != nil {
+		if err := req.control("vsock", remote.String(), rawFD(fd)); err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, err
 		}
 	}
-	bind, set, err := parseVsockBindOption(s, true)
+	bind, set, err := parseVsockBindOption(req.spec, true)
 	if err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
@@ -124,15 +124,11 @@ func dialVSOCK(ctx context.Context, remote vsockEndpoint, s parse.Spec, g *xio.G
 			return nil, fmt.Errorf("vsock bind: %w", err)
 		}
 	}
-	logVsockCID(g)
-	cctx := ctx
-	var cancel context.CancelFunc
-	if timeout > 0 {
-		cctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
-	if g != nil && g.Log != nil {
-		g.Log.Noticef("opening connection to AF=%d cid:%d port:%d", args.family, remote.cid, remote.port)
+	logVsockCID(req.g)
+	cctx, cancel := req.withTimeout()
+	defer cancel()
+	if req.g != nil && req.g.Log != nil {
+		req.g.Log.Noticef("opening connection to AF=%d cid:%d port:%d", args.family, remote.cid, remote.port)
 	}
 	if err := connectVSOCK(cctx, fd, &unix.SockaddrVM{CID: remote.cid, Port: remote.port}); err != nil {
 		logx.CloseErr(unix.Close(fd))

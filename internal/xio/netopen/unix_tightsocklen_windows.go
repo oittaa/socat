@@ -30,13 +30,13 @@ func listenUnixNetwork(ctx context.Context, s parse.Spec, network, path string) 
 	return ln, nil
 }
 
-func dialUnixSocklen(ctx context.Context, s parse.Spec, g *xio.Global, network, path, bindPath string) (net.Conn, error) {
-	if s.HasOption("unix-tightsocklen") {
+func dialUnixSocklen(req dialRequest, path, bindPath string) (net.Conn, error) {
+	if req.spec.HasOption("unix-tightsocklen") {
 		return nil, fmt.Errorf("unix-tightsocklen: not supported on this platform")
 	}
 	var conn net.Conn
-	err := xio.WithRetry(ctx, s, g, s.Type, func() error {
-		if err := prepareUnixClientBind(bindPath, s); err != nil {
+	err := xio.WithRetry(req.ctx, req.spec, req.g, req.spec.Type, func() error {
+		if err := prepareUnixClientBind(bindPath, req.spec); err != nil {
 			return err
 		}
 		// Bind in Control after socket() and snapshot that inode. Do not set
@@ -44,8 +44,8 @@ func dialUnixSocklen(ctx context.Context, s parse.Spec, g *xio.Global, network, 
 		// this attempt created a path that appears during a failing connect.
 		var created unixBindCreated
 		d := net.Dialer{
-			Timeout: xio.ConnectTimeout(s),
-			Control: xio.DialControl(s, network, func(_ string, _ string, c syscall.RawConn) error {
+			Timeout: req.timeout,
+			Control: xio.DialControl(req.spec, req.network, func(_ string, _ string, c syscall.RawConn) error {
 				if bindPath == "" {
 					return nil
 				}
@@ -62,7 +62,7 @@ func dialUnixSocklen(ctx context.Context, s parse.Spec, g *xio.Global, network, 
 				return nil
 			}),
 		}
-		c, err := d.DialContext(ctx, network, path)
+		c, err := d.DialContext(req.ctx, req.network, path)
 		if err != nil {
 			created.unlink()
 			return err
