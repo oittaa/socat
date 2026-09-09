@@ -24,6 +24,43 @@ type udpForkAccept struct {
 	failedDialAttempts int
 }
 
+// acceptNext is one Accept-loop iteration: a child, a fatal error, or again
+// to keep waiting. again is named here so helpers do not shuffle a boolean
+// through different return positions.
+type acceptNext struct {
+	conn  net.Conn
+	err   error
+	again bool
+}
+
+func acceptAgain() acceptNext         { return acceptNext{again: true} }
+func acceptFail(err error) acceptNext { return acceptNext{err: err} }
+func acceptChild(c net.Conn, err error) acceptNext {
+	return acceptNext{conn: c, err: err}
+}
+
+func (n acceptNext) stop() bool { return n.again || n.err != nil }
+
+// udpForkReceive is the opener packet for one loop iteration, including
+// idle-timeout retries (again) and receive errors.
+type udpForkReceive struct {
+	packet   udpForkPacket
+	consumed bool
+	addr     *net.UDPAddr
+	err      error
+	again    bool
+}
+
+func (r udpForkReceive) next() acceptNext {
+	if r.err != nil {
+		return acceptFail(r.err)
+	}
+	if r.again {
+		return acceptAgain()
+	}
+	return acceptNext{}
+}
+
 func newUDPForkAccept(l *udpForkListener) (*udpForkAccept, error) {
 	if l.pc == nil {
 		return nil, net.ErrClosed
@@ -51,52 +88,45 @@ func (l *udpForkListener) Accept() (net.Conn, error) {
 		return nil, err
 	}
 	for {
-		conn, err, again := a.step()
-		if !again {
-			return conn, err
+		next := a.step()
+		if next.again {
+			continue
 		}
+		return next.conn, next.err
 	}
 }
 
-func (a *udpForkAccept) step() (net.Conn, error, bool) {
+func (a *udpForkAccept) step() acceptNext {
 	a.setReadDeadline()
-	packet, consumed, addr, err, again := a.receiveOpener()
-	if err != nil {
-		return nil, err, false
+	got := a.receiveOpener()
+	if next := got.next(); next.stop() {
+		return next
 	}
-	if again {
-		return nil, nil, true
+	if next := a.filterPeer(got.addr, got.consumed); next.stop() {
+		return next
 	}
-	again, err = a.filterPeer(addr, consumed)
-	if err != nil {
-		return nil, err, false
-	}
-	if again {
-		return nil, nil, true
-	}
-	if a.l.oneShot && xio.IgnoreEmptyDatagram(len(packet.data), nil, a.l.spec.BoolOption("null-eof")) {
-		return nil, nil, true
+	if a.l.oneShot && xio.IgnoreEmptyDatagram(len(got.packet.data), nil, a.l.spec.BoolOption("null-eof")) {
+		return acceptAgain()
 	}
 
 	session := a.childSession()
 	if a.l.oneShot {
-		xio.ProcessAncillary(packet.oob, session)
-		child := a.l.newUDPForkChild(packet, session, a.wantCtrl, a.recvErr)
+		xio.ProcessAncillary(got.packet.oob, session)
+		child := a.l.newUDPForkChild(got.packet, session, a.wantCtrl, a.recvErr)
 		// Share the parent socket (one-shot). A
 		// connected child on the same port would steal later datagrams.
 		child.setShared(a.pc)
-		return child, nil, false
+		return acceptChild(child, nil)
 	}
 	if !xio.UDPForkPortReuse(a.l.spec) {
-		xio.ProcessAncillary(packet.oob, session)
-		child := a.l.newUDPForkChild(packet, session, a.wantCtrl, a.recvErr)
-		conn, err := a.l.handoffListenSocket(child)
-		return conn, err, false
+		xio.ProcessAncillary(got.packet.oob, session)
+		child := a.l.newUDPForkChild(got.packet, session, a.wantCtrl, a.recvErr)
+		return acceptChild(a.l.handoffListenSocket(child))
 	}
 	if !a.peekDial {
-		return nil, fmt.Errorf("UDP fork listener: peek-before-dial unavailable"), false
+		return acceptFail(fmt.Errorf("UDP fork listener: peek-before-dial unavailable"))
 	}
-	return a.acceptReuse(addr, packet, consumed, session)
+	return a.acceptReuse(got.addr, got.packet, got.consumed, session)
 }
 
 func (a *udpForkAccept) setReadDeadline() {
@@ -109,63 +139,64 @@ func (a *udpForkAccept) setReadDeadline() {
 	}
 }
 
-func (a *udpForkAccept) receiveOpener() (packet udpForkPacket, consumed bool, addr *net.UDPAddr, err error, again bool) {
+func (a *udpForkAccept) receiveOpener() udpForkReceive {
 	if a.peekDial && len(a.l.pending) > 0 {
-		packet = a.l.pending[0]
+		packet := a.l.pending[0]
 		a.l.pending = a.l.pending[1:]
-		return packet, true, packet.peer, nil, false
+		return udpForkReceive{packet: packet, consumed: true, addr: packet.peer}
 	}
-	var rn int
-	var readOOB []byte
-	rn, readOOB, addr, err = xio.RecvOneCtx(a.l.ctx, func() (int, []byte, *net.UDPAddr, error) {
+	rn, readOOB, addr, err := xio.RecvOneCtx(a.l.ctx, func() (int, []byte, *net.UDPAddr, error) {
 		return readUDPForkOpener(a.pc, a.buf, a.wantCtrl, a.oob[:], a.peekDial)
 	})
 	if err != nil {
 		if a.l.ctx.Err() != nil {
-			return udpForkPacket{}, false, nil, err, false
+			return udpForkReceive{err: err}
 		}
 		// Keep the listener alive across its periodic receive deadline;
 		// continue waiting while idle.
 		if a.l.rcvTimeout > 0 && a.acceptDeadline.IsZero() && xio.IsTimeoutErr(err) {
-			return udpForkPacket{}, false, nil, nil, true
+			return udpForkReceive{again: true}
 		}
 		if !a.acceptDeadline.IsZero() && xio.IsTimeoutErr(err) {
-			return udpForkPacket{}, false, nil, xio.ErrAcceptTimeout, false
+			return udpForkReceive{err: xio.ErrAcceptTimeout}
 		}
 		xio.DrainRecvErrOnError(err, a.recvErr, a.pc, a.l.g)
-		return udpForkPacket{}, false, nil, err, false
+		return udpForkReceive{err: err}
 	}
 	if !a.peekDial {
-		packet = udpForkPacket{
-			data: append([]byte(nil), a.buf[:rn]...),
-			oob:  append([]byte(nil), readOOB...),
-			peer: cloneUDPAddr(addr),
+		return udpForkReceive{
+			packet: udpForkPacket{
+				data: append([]byte(nil), a.buf[:rn]...),
+				oob:  append([]byte(nil), readOOB...),
+				peer: cloneUDPAddr(addr),
+			},
+			consumed: true,
+			addr:     addr,
 		}
-		return packet, true, addr, nil, false
 	}
-	return udpForkPacket{}, false, addr, nil, false
+	return udpForkReceive{addr: addr}
 }
 
-func (a *udpForkAccept) filterPeer(addr *net.UDPAddr, consumed bool) (again bool, err error) {
+func (a *udpForkAccept) filterPeer(addr *net.UDPAddr, consumed bool) acceptNext {
 	if err := a.l.peerAllowed(addr); err != nil {
 		if a.peekDial && !consumed {
 			// The opener was only peeked. Consume the refused datagram or the
 			// next loop would inspect the same peer forever.
 			if _, _, _, dropErr := xio.ReadUDPMsgWithBuffer(a.pc, a.buf, false, nil); dropErr != nil {
 				xio.DrainRecvErrOnError(dropErr, a.recvErr, a.pc, a.l.g)
-				return false, dropErr
+				return acceptFail(dropErr)
 			}
 		}
 		if stop := logOrStopPeerFilter(a.l.ctx, a.l.g, err); stop != nil {
-			return false, stop
+			return acceptFail(stop)
 		}
 		// Restart the listen accept-timeout after a refused peer.
 		if a.l.acceptTimeout > 0 {
 			a.acceptDeadline = time.Now().Add(a.l.acceptTimeout)
 		}
-		return true, nil
+		return acceptAgain()
 	}
-	return false, nil
+	return acceptNext{}
 }
 
 func (a *udpForkAccept) childSession() *xio.Global {
@@ -177,38 +208,31 @@ func (a *udpForkAccept) childSession() *xio.Global {
 	return session
 }
 
-func (a *udpForkAccept) acceptReuse(addr *net.UDPAddr, packet udpForkPacket, consumed bool, session *xio.Global) (net.Conn, error, bool) {
+func (a *udpForkAccept) acceptReuse(addr *net.UDPAddr, packet udpForkPacket, consumed bool, session *xio.Global) acceptNext {
 	local := a.l.laddr
 	if la, ok := a.pc.LocalAddr().(*net.UDPAddr); ok {
 		local = cloneUDPAddr(la)
 	}
 	conn, err := dialUDPSession(a.l.ctx, a.l.network, local, addr, a.l.spec)
 	if err != nil {
-		again, derr := a.noteDialFailure(addr, packet, consumed, err)
-		if derr != nil {
-			return nil, derr, false
-		}
-		return nil, nil, again
+		return a.noteDialFailure(addr, packet, consumed, err)
 	}
 	a.failedDialPeer = nil
 	a.failedDialAttempts = 0
 
-	packet, err, again := a.consumePeekedOpener(conn, addr, packet, consumed)
-	if err != nil {
-		return nil, err, false
-	}
-	if again {
-		return nil, nil, true
+	got := a.consumePeekedOpener(conn, addr, packet, consumed)
+	if next := got.next(); next.stop() {
+		return next
 	}
 
-	xio.ProcessAncillary(packet.oob, session)
-	child := a.l.newUDPForkChild(packet, session, a.wantCtrl, a.recvErr)
+	xio.ProcessAncillary(got.packet.oob, session)
+	child := a.l.newUDPForkChild(got.packet, session, a.wantCtrl, a.recvErr)
 	child.setConnected(conn)
 	a.drainForChild(child)
-	return child, nil, false
+	return acceptChild(child, nil)
 }
 
-func (a *udpForkAccept) noteDialFailure(addr *net.UDPAddr, packet udpForkPacket, consumed bool, dialErr error) (again bool, err error) {
+func (a *udpForkAccept) noteDialFailure(addr *net.UDPAddr, packet udpForkPacket, consumed bool, dialErr error) acceptNext {
 	if udpAddrIsPeer(addr, a.failedDialPeer) {
 		a.failedDialAttempts++
 	} else {
@@ -222,7 +246,7 @@ func (a *udpForkAccept) noteDialFailure(addr *net.UDPAddr, packet udpForkPacket,
 		if a.l.g != nil && a.l.g.Log != nil {
 			a.l.g.Log.Noticef("UDP fork session dial: %s; retrying opener", dialErr)
 		}
-		return true, nil
+		return acceptAgain()
 	}
 	if !consumed {
 		// Remove the opener that MSG_PEEK left on the socket. Preserve an
@@ -230,7 +254,7 @@ func (a *udpForkAccept) noteDialFailure(addr *net.UDPAddr, packet udpForkPacket,
 		n, dropOOB, peer, ok, dropErr := readQueuedUDPForkPacket(a.pc, a.buf, a.wantCtrl, a.oob[:])
 		if dropErr != nil {
 			xio.DrainRecvErrOnError(dropErr, a.recvErr, a.pc, a.l.g)
-			return false, dropErr
+			return acceptFail(dropErr)
 		}
 		if ok && !udpAddrIsPeer(peer, addr) {
 			a.l.appendPending(udpForkPacket{
@@ -245,25 +269,25 @@ func (a *udpForkAccept) noteDialFailure(addr *net.UDPAddr, packet udpForkPacket,
 	}
 	a.failedDialPeer = nil
 	a.failedDialAttempts = 0
-	return true, nil
+	return acceptAgain()
 }
 
-func (a *udpForkAccept) consumePeekedOpener(conn net.Conn, addr *net.UDPAddr, packet udpForkPacket, consumed bool) (udpForkPacket, error, bool) {
+func (a *udpForkAccept) consumePeekedOpener(conn net.Conn, addr *net.UDPAddr, packet udpForkPacket, consumed bool) udpForkReceive {
 	if consumed {
-		return packet, nil, false
+		return udpForkReceive{packet: packet}
 	}
 	rn, oob, peer, ok, err := readQueuedUDPForkPacket(a.pc, a.buf, a.wantCtrl, a.oob[:])
 	if err != nil {
 		xio.DrainRecvErrOnError(err, a.recvErr, a.pc, a.l.g)
 		logx.CloseQuiet(conn)
-		return udpForkPacket{}, err, false
+		return udpForkReceive{err: err}
 	}
 	if !ok {
 		logx.CloseQuiet(conn)
 		if a.l.g != nil && a.l.g.Log != nil {
 			a.l.g.Log.Noticef("UDP fork opener disappeared before session handoff")
 		}
-		return udpForkPacket{}, nil, true
+		return udpForkReceive{again: true}
 	}
 	packet = udpForkPacket{
 		data: append([]byte(nil), a.buf[:rn]...),
@@ -276,9 +300,9 @@ func (a *udpForkAccept) consumePeekedOpener(conn net.Conn, addr *net.UDPAddr, pa
 		if a.l.g != nil && a.l.g.Log != nil {
 			a.l.g.Log.Noticef("UDP fork opener changed from %s to %s; preserving received packet", addr, packet.peer)
 		}
-		return udpForkPacket{}, nil, true
+		return udpForkReceive{again: true}
 	}
-	return packet, nil, false
+	return udpForkReceive{packet: packet}
 }
 
 func (a *udpForkAccept) drainForChild(child *udpSessionConn) {
