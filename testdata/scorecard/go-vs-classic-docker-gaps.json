@@ -1,6 +1,6 @@
 {
   "classic_docker_ok": 565,
-  "go_ok": 539,
+  "go_ok": 541,
   "parity_fail": [
     {
       "id": "80",
@@ -10,6 +10,11 @@
     {
       "id": "146",
       "name": "OPENSSLLISTENDSA",
+      "status": "FAILED"
+    },
+    {
+      "id": "400",
+      "name": "OPENSSL_DTLS_SERVER",
       "status": "FAILED"
     },
     {
@@ -50,28 +55,8 @@
       "status": "CANT"
     },
     {
-      "id": "400",
-      "name": "OPENSSL_DTLS_SERVER",
-      "status": "CANT"
-    },
-    {
       "id": "408",
       "name": "UDP_DATAGRAM_PEERPORT",
-      "status": "CANT"
-    },
-    {
-      "id": "413",
-      "name": "OPENSSL_DTLS_TO_SERVER",
-      "status": "CANT"
-    },
-    {
-      "id": "414",
-      "name": "OPENSSL_DTLS_TO_CLIENT",
-      "status": "CANT"
-    },
-    {
-      "id": "475",
-      "name": "RCVTIMEO_DTLS",
       "status": "CANT"
     },
     {
@@ -141,12 +126,6 @@
     }
   ],
   "parity_other": [],
-  "parity_gap_total": 27,
-  "new_ok_vs_classic_docker": [
-    {
-      "id": "492",
-      "name": "ACCEPT_FD",
-      "was": "CANT"
-    }
-  ]
+  "parity_gap_total": 24,
+  "new_ok_vs_classic_docker": []
 }

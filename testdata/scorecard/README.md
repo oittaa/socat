@@ -238,9 +238,9 @@ the saved classic and host baselines were not rerun or replaced.
 | Label | OK | FAILED | CANT |
 |-------|-----|--------|------|
 | classic 1.8.1.3 (host) | 475 | 24 | 103 |
-| classic 1.8.1.3 (Docker, root) | 565 | 4 | 36 |
+| classic 1.8.1.3 (Docker, root) | 565 | 3 | 37 |
 | go (this tree, host) | 471 | 7 | 127 |
-| go (this tree, Docker, root, privileged, `--internet`) | 539 | 6 | 60 |
+| go (this tree, Docker, root, privileged, `--internet`) | 541 | 9 | 55 |
 
 Go host FAILED: `OPENSSL_COMPRESS` (`compress=auto` is intentionally rejected),
 `OPENSSLLISTENDSA` (DSA, by design), `REUSEADDR_NULL` (NO RESULT),
@@ -291,8 +291,8 @@ Matching C under the same filter was 498 OK / 2 FAILED / 105 CANT. The 2 C
 failures were `OPENSSL_ANULL` and `OPENSSL_DTLS_CLIENT`. That leaves 28
 pre-existing C-to-Go differences (6 FAILED + 22 CANT) plus `OPENSSL_ANULL`
 which FAILED on both. Committed Docker comparison
-(`go-vs-classic-docker-gaps.json`) is 5 FAILED + 22 CANT (`parity_gap_total`
-27) because Docker `OPENSSL_ANULL` FAILED on both sides and Docker `SOCAT_MUX`
+(`go-vs-classic-docker-gaps.json`) is 6 FAILED + 18 CANT (`parity_gap_total`
+24) because Docker `OPENSSL_ANULL` FAILED on both sides and Docker `SOCAT_MUX`
 is OK on both sides.
 
 Do not enable excluded TLS features to make tests pass.
@@ -337,9 +337,9 @@ results do not rewrite the historical baseline JSON or explain its classic
 failure. Root runs skip the probes, so Docker results do not exercise this
 startup path.
 
-### Docker CANT vs classic OK (22)
+### Docker CANT vs classic OK (18)
 
-21 are documented exclusions or missing classic-only protocols, not
+17 are documented exclusions or missing classic-only protocols, not
 capability-detection bugs to “fix” by advertising unsupported names.
 `UDP_DATAGRAM_PEERPORT` is a version-gated harness skip, not one of those
 exclusions.
@@ -442,8 +442,8 @@ The earlier Go Docker refresh from 550 OK / 7 FAILED / 48 CANT to
 isolated re-run passed). Classic `cool-write` is deprecated (use
 `children-shutup`); this port does not advertise it, so `COOLWRITE` /
 `COOLSTDIO` stay CANT. Host-only OK that Docker does not get:
-`GOPEN_TO_DENIED` (not with root). Vs classic Docker, Go has 539 OK against 565
-classic OK (`parity_gap_total` 27 in `go-vs-classic-docker-gaps.json`).
+`GOPEN_TO_DENIED` (not with root). Vs classic Docker, Go has 541 OK against 565
+classic OK (`parity_gap_total` 24 in `go-vs-classic-docker-gaps.json`).
 
 Use `go-baseline.json` + `REGRESSION_EXIT=1` after a **MODE=classic** run
 to catch real Go regressions with less noise.
