@@ -202,13 +202,12 @@ func openUDPListenOnePeer(ctx context.Context, s parse.Spec, g *xio.Global, pc *
 		}
 	}
 	st := relay.Stream(&udpRecvFromConn{
-		uc:           pc,
-		peer:         raddr,
-		first:        append([]byte(nil), buf[:n]...),
-		firstPending: true,
-		wantCtrl:     wantCtrl,
-		recvErr:      recvErr,
-		g:            g,
+		uc:       pc,
+		peer:     raddr,
+		first:    newFirstPacket(append([]byte(nil), buf[:n]...)),
+		wantCtrl: wantCtrl,
+		recvErr:  recvErr,
+		g:        g,
 	})
 	st, err = xio.SetupConnectedStream(s, st)
 	if err != nil {
@@ -369,251 +368,20 @@ func (l *udpForkListener) handoffListenSocket(child *udpSessionConn) (net.Conn, 
 	return child, nil
 }
 
-func (l *udpForkListener) Accept() (net.Conn, error) {
-	if conn, err, done := l.waitIfHandedOff(); done {
-		return conn, err
-	}
-	pc := l.pc
-	if pc == nil {
-		return nil, net.ErrClosed
-	}
-	buf := make([]byte, 65535)
-	wantCtrl := xio.NeedAncillary(l.spec)
-	recvErr := xio.NeedRecvErr(l.spec)
-	peekDial := !l.oneShot && xio.UDPForkPortReuse(l.spec) && udpForkUsesPeekDial()
-	var oobBuffer [xio.AncillaryBufferSize]byte
-	var acceptDeadline time.Time
-	if l.acceptTimeout > 0 {
-		acceptDeadline = time.Now().Add(l.acceptTimeout)
-	}
-	var failedDialPeer *net.UDPAddr
-	failedDialAttempts := 0
-	for {
-		switch {
-		case !acceptDeadline.IsZero():
-			// Restart the listen accept-timeout after a refused peer.
-			_ = pc.SetReadDeadline(acceptDeadline)
-		case l.rcvTimeout > 0:
-			_ = pc.SetReadDeadline(time.Now().Add(l.rcvTimeout))
-		}
-
-		var packet udpForkPacket
-		consumed := false
-		var rn int
-		var a *net.UDPAddr
-		if peekDial && len(l.pending) > 0 {
-			packet = l.pending[0]
-			l.pending = l.pending[1:]
-			consumed = true
-			rn, a = len(packet.data), packet.peer
-		} else {
-			var readOOB []byte
-			var err error
-			rn, readOOB, a, err = xio.RecvOneCtx(l.ctx, func() (int, []byte, *net.UDPAddr, error) {
-				return readUDPForkOpener(pc, buf, wantCtrl, oobBuffer[:], peekDial)
-			})
-			if err != nil {
-				if l.ctx.Err() != nil {
-					return nil, err
-				}
-				// Keep the listener alive across its periodic receive deadline;
-				// continue waiting while idle.
-				if l.rcvTimeout > 0 && acceptDeadline.IsZero() && xio.IsTimeoutErr(err) {
-					continue
-				}
-				if !acceptDeadline.IsZero() && xio.IsTimeoutErr(err) {
-					return nil, xio.ErrAcceptTimeout
-				}
-				xio.DrainRecvErrOnError(err, recvErr, pc, l.g)
-				return nil, err
-			}
-			if !peekDial {
-				packet = udpForkPacket{
-					data: append([]byte(nil), buf[:rn]...),
-					oob:  append([]byte(nil), readOOB...),
-					peer: cloneUDPAddr(a),
-				}
-				consumed = true
-			}
-		}
-
-		if err := l.peerAllowed(a); err != nil {
-			if peekDial && !consumed {
-				// The opener was only peeked. Consume the refused datagram or the
-				// next loop would inspect the same peer forever.
-				if _, _, _, dropErr := xio.ReadUDPMsgWithBuffer(pc, buf, false, nil); dropErr != nil {
-					xio.DrainRecvErrOnError(dropErr, recvErr, pc, l.g)
-					return nil, dropErr
-				}
-			}
-			if stop := logOrStopPeerFilter(l.ctx, l.g, err); stop != nil {
-				return nil, stop
-			}
-			// Restart the listen accept-timeout after a refused peer.
-			if l.acceptTimeout > 0 {
-				acceptDeadline = time.Now().Add(l.acceptTimeout)
-			}
-			continue
-		}
-		if l.oneShot && xio.IgnoreEmptyDatagram(rn, nil, l.spec.BoolOption("null-eof")) {
-			continue
-		}
-
-		session := &xio.Global{}
-		if l.g != nil {
-			session.Log = l.g.Log
-			session.Progname = l.g.Progname
-		}
-
-		if l.oneShot {
-			xio.ProcessAncillary(packet.oob, session)
-			child := l.newUDPForkChild(packet, session, wantCtrl, recvErr)
-			// Share the parent socket (one-shot). A
-			// connected child on the same port would steal later datagrams.
-			child.setShared(pc)
-			return child, nil
-		}
-		if !xio.UDPForkPortReuse(l.spec) {
-			xio.ProcessAncillary(packet.oob, session)
-			child := l.newUDPForkChild(packet, session, wantCtrl, recvErr)
-			return l.handoffListenSocket(child)
-		}
-		if !peekDial {
-			return nil, fmt.Errorf("UDP fork listener: peek-before-dial unavailable")
-		}
-
-		local := l.laddr
-		if la, ok := pc.LocalAddr().(*net.UDPAddr); ok {
-			local = cloneUDPAddr(la)
-		}
-		conn, err := dialUDPSession(l.ctx, l.network, local, a, l.spec)
-		if err != nil {
-			if udpAddrIsPeer(a, failedDialPeer) {
-				failedDialAttempts++
-			} else {
-				failedDialPeer = cloneUDPAddr(a)
-				failedDialAttempts = 1
-			}
-			if failedDialAttempts < udpForkDialMaxAttempts {
-				if consumed {
-					l.prependPending(packet)
-				}
-				if l.g != nil && l.g.Log != nil {
-					l.g.Log.Noticef("UDP fork session dial: %s; retrying opener", err)
-				}
-				continue
-			}
-			if !consumed {
-				// Remove the opener that MSG_PEEK left on the socket. Preserve an
-				// unexpected packet rather than dropping a different peer.
-				n, dropOOB, peer, ok, dropErr := readQueuedUDPForkPacket(pc, buf, wantCtrl, oobBuffer[:])
-				if dropErr != nil {
-					xio.DrainRecvErrOnError(dropErr, recvErr, pc, l.g)
-					return nil, dropErr
-				}
-				if ok && !udpAddrIsPeer(peer, a) {
-					l.appendPending(udpForkPacket{
-						data: append([]byte(nil), buf[:n]...),
-						oob:  append([]byte(nil), dropOOB...),
-						peer: cloneUDPAddr(peer),
-					})
-				}
-			}
-			if l.g != nil && l.g.Log != nil {
-				l.g.Log.Noticef("UDP fork session dial: %s; dropping opener after %d attempts", err, failedDialAttempts)
-			}
-			failedDialPeer = nil
-			failedDialAttempts = 0
-			continue
-		}
-		failedDialPeer = nil
-		failedDialAttempts = 0
-
-		if !consumed {
-			rn, oob, peer, ok, err := readQueuedUDPForkPacket(pc, buf, wantCtrl, oobBuffer[:])
-			if err != nil {
-				xio.DrainRecvErrOnError(err, recvErr, pc, l.g)
-				logx.CloseQuiet(conn)
-				return nil, err
-			}
-			if !ok {
-				logx.CloseQuiet(conn)
-				if l.g != nil && l.g.Log != nil {
-					l.g.Log.Noticef("UDP fork opener disappeared before session handoff")
-				}
-				continue
-			}
-			packet = udpForkPacket{
-				data: append([]byte(nil), buf[:rn]...),
-				oob:  append([]byte(nil), oob...),
-				peer: cloneUDPAddr(peer),
-			}
-			if !udpAddrIsPeer(packet.peer, a) {
-				logx.CloseQuiet(conn)
-				l.appendPending(packet)
-				if l.g != nil && l.g.Log != nil {
-					l.g.Log.Noticef("UDP fork opener changed from %s to %s; preserving received packet", a, packet.peer)
-				}
-				continue
-			}
-		}
-
-		xio.ProcessAncillary(packet.oob, session)
-		child := l.newUDPForkChild(packet, session, wantCtrl, recvErr)
-		child.setConnected(conn)
-		if len(l.pending) > 0 {
-			remaining := make([]udpForkPacket, 0, len(l.pending))
-			for _, queued := range l.pending {
-				if udpAddrIsPeer(queued.peer, child.peer) {
-					appendUDPForkSessionPacket(child, queued)
-				} else {
-					remaining = append(remaining, queued)
-				}
-			}
-			l.pending = remaining
-		}
-		for range udpForkDrainPacketLimit {
-			n, queuedOOB, peer, ok, drainErr := readQueuedUDPForkPacket(pc, buf, wantCtrl, oobBuffer[:])
-			if drainErr != nil {
-				xio.DrainRecvErrOnError(drainErr, recvErr, pc, l.g)
-				if l.g != nil && l.g.Log != nil {
-					l.g.Log.Noticef("UDP fork listener queue drain: %s", drainErr)
-				}
-				break
-			}
-			if !ok {
-				break
-			}
-			queued := udpForkPacket{
-				data: append([]byte(nil), buf[:n]...),
-				oob:  append([]byte(nil), queuedOOB...),
-				peer: cloneUDPAddr(peer),
-			}
-			if udpAddrIsPeer(peer, child.peer) {
-				appendUDPForkSessionPacket(child, queued)
-			} else {
-				l.appendPending(queued)
-			}
-		}
-		return child, nil
-	}
-}
-
 func (l *udpForkListener) newUDPForkChild(packet udpForkPacket, session *xio.Global, wantCtrl, recvErr bool) *udpSessionConn {
 	role := udpRoleConnected
 	if l.oneShot {
 		role = udpRoleShared
 	}
 	return &udpSessionConn{
-		role:         role,
-		peer:         cloneUDPAddr(packet.peer),
-		first:        append([]byte(nil), packet.data...),
-		firstPending: true,
-		env:          session.SessionVarsSnapshot(),
-		writeMu:      &l.writeMu,
-		wantCtrl:     wantCtrl,
-		recvErr:      recvErr,
-		g:            session,
+		role:     role,
+		peer:     cloneUDPAddr(packet.peer),
+		first:    newFirstPacket(append([]byte(nil), packet.data...)),
+		env:      session.SessionVarsSnapshot(),
+		writeMu:  &l.writeMu,
+		wantCtrl: wantCtrl,
+		recvErr:  recvErr,
+		g:        session,
 	}
 }
 
@@ -648,7 +416,12 @@ func dialUDPSession(ctx context.Context, network string, local, remote *net.UDPA
 	// The child is a new socket, not the parent listener fd. Apply every
 	// after-socket option again on this fd before bind/connect, then the
 	// fork-specific reuse flags.
-	c, err := dialUDPForSpec(ctx, network, local, remote.String(), s, reuseControl, 0)
+	c, err := dialUDPForSpec(dialRequest{
+		ctx:     ctx,
+		network: network,
+		spec:    s,
+		control: reuseControl,
+	}, local, remote.String())
 	if err != nil {
 		return nil, err
 	}
@@ -713,18 +486,16 @@ const (
 // Do NOT embed *net.UDPConn: sessions can have datagrams buffered outside the
 // socket while UDP-LISTEN routes packets received during child setup.
 type udpSessionConn struct {
-	role         udpSessionRole
-	sock         *net.UDPConn
-	peer         *net.UDPAddr
-	first        []byte
-	firstPending bool // buffered opener, including a zero-length datagram
-	closeOnce    sync.Once
-	closeErr     error
-	env          map[string]string
+	role      udpSessionRole
+	sock      *net.UDPConn
+	peer      *net.UDPAddr
+	first     firstPacket
+	closeOnce sync.Once
+	closeErr  error
+	env       map[string]string
 
 	writeMu       *sync.Mutex
-	deadlineMu    sync.Mutex
-	writeDeadline time.Time
+	writeDL       sharedWriteDeadline
 	releaseListen func()
 	wantCtrl      bool
 	recvErr       bool
@@ -764,10 +535,7 @@ func (u *udpSessionConn) recvErrConn() syscall.Conn {
 }
 
 func (u *udpSessionConn) Read(p []byte) (int, error) {
-	if u.firstPending {
-		u.firstPending = false
-		first := u.first
-		u.first = nil
+	if first, ok := u.first.take(); ok {
 		if u.role == udpRoleShared {
 			return copyOneshotFirst(p, first)
 		}
@@ -840,10 +608,7 @@ func (u *udpSessionConn) Write(p []byte) (int, error) {
 	if u.sock == nil || u.peer == nil {
 		return 0, net.ErrClosed
 	}
-	u.deadlineMu.Lock()
-	deadline := u.writeDeadline
-	u.deadlineMu.Unlock()
-	n, err := writeSharedPacket(u.writeMu, deadline, u.sock.SetWriteDeadline, func() (int, error) {
+	n, err := writeSharedPacket(u.writeMu, u.writeDL.get(), u.sock.SetWriteDeadline, func() (int, error) {
 		n, err := u.sock.WriteToUDP(p, u.peer)
 		if err == nil {
 			return n, nil
@@ -906,9 +671,7 @@ func (u *udpSessionConn) SetWriteDeadline(t time.Time) error {
 	if u.role == udpRoleConnected && u.sock != nil {
 		return u.sock.SetWriteDeadline(t)
 	}
-	u.deadlineMu.Lock()
-	u.writeDeadline = t
-	u.deadlineMu.Unlock()
+	u.writeDL.set(t)
 	return nil
 }
 
@@ -924,22 +687,18 @@ func (u *udpSessionConn) NetConn() net.Conn {
 // listening socket with WriteTo to the peer (no rebinding).
 // Named field (not embed) so poll does not wait for POLLIN while first is buffered.
 type udpRecvFromConn struct {
-	uc           *net.UDPConn
-	peer         *net.UDPAddr
-	first        []byte
-	firstPending bool // buffered opener, including a zero-length datagram
-	closeEOF     bool // after first payload: further Read → EOF (UDP-RECVFROM one-shot)
-	wantCtrl     bool
-	recvErr      bool
-	g            *xio.Global
-	oob          []byte
+	uc       *net.UDPConn
+	peer     *net.UDPAddr
+	first    firstPacket
+	closeEOF bool // after first payload: further Read → EOF (UDP-RECVFROM one-shot)
+	wantCtrl bool
+	recvErr  bool
+	g        *xio.Global
+	oob      []byte
 }
 
 func (u *udpRecvFromConn) Read(p []byte) (int, error) {
-	if u.firstPending {
-		u.firstPending = false
-		first := u.first
-		u.first = nil
+	if first, ok := u.first.take(); ok {
 		if u.closeEOF {
 			return copyOneshotFirst(p, first)
 		}

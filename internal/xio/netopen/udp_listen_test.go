@@ -58,7 +58,7 @@ func TestUDPForkInvalidRcvtimeoFailsOpen(t *testing.T) {
 }
 
 func TestUDPSessionConnShortReadDropsRemainder(t *testing.T) {
-	u := &udpSessionConn{first: []byte("abcd"), firstPending: true, role: udpRoleShared}
+	u := &udpSessionConn{first: newFirstPacket([]byte("abcd")), role: udpRoleShared}
 	buf := make([]byte, 1)
 	n, err := u.Read(buf)
 	if err != nil || n != 1 || buf[0] != 'a' {
@@ -71,7 +71,7 @@ func TestUDPSessionConnShortReadDropsRemainder(t *testing.T) {
 }
 
 func TestUDPRecvFromConnShortReadDropsRemainder(t *testing.T) {
-	u := &udpRecvFromConn{first: []byte("abcd"), firstPending: true, closeEOF: true}
+	u := &udpRecvFromConn{first: newFirstPacket([]byte("abcd")), closeEOF: true}
 	buf := make([]byte, 1)
 	n, err := u.Read(buf)
 	if err != nil || n != 1 || buf[0] != 'a' {
@@ -84,7 +84,7 @@ func TestUDPRecvFromConnShortReadDropsRemainder(t *testing.T) {
 }
 
 func TestUDPSessionConnZeroLengthFirst(t *testing.T) {
-	u := &udpSessionConn{firstPending: true, role: udpRoleShared}
+	u := &udpSessionConn{first: newFirstPacket(nil), role: udpRoleShared}
 	n, err := u.Read(make([]byte, 8))
 	if n != 0 || !errors.Is(err, io.EOF) {
 		t.Fatalf("zero-length first n=%d err=%v want EOF", n, err)
@@ -108,7 +108,7 @@ func TestUDPSessionConnOneShotHidesSharedListener(t *testing.T) {
 }
 
 func TestUDPRecvFromConnZeroLengthFirst(t *testing.T) {
-	u := &udpRecvFromConn{firstPending: true, closeEOF: true}
+	u := &udpRecvFromConn{first: newFirstPacket(nil), closeEOF: true}
 	n, err := u.Read(make([]byte, 8))
 	if n != 0 || !errors.Is(err, io.EOF) {
 		t.Fatalf("zero-length first n=%d err=%v want EOF", n, err)

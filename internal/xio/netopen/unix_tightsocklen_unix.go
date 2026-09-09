@@ -245,20 +245,16 @@ func unixNetworkSocktype(network string) (int, error) {
 	}
 }
 
-func dialUnixSocklen(ctx context.Context, s parse.Spec, g *xio.Global, network, path, bindPath string) (net.Conn, error) {
-	typ, err := unixNetworkSocktype(network)
+func dialUnixSocklen(req dialRequest, path, bindPath string) (net.Conn, error) {
+	typ, err := unixNetworkSocktype(req.network)
 	if err != nil {
 		return nil, err
 	}
 	var conn net.Conn
-	err = xio.WithRetry(ctx, s, g, s.Type, func() error {
-		cctx := ctx
-		var cancel context.CancelFunc
-		if timeout := xio.ConnectTimeout(s); timeout > 0 {
-			cctx, cancel = context.WithTimeout(ctx, timeout)
-			defer cancel()
-		}
-		if err := prepareUnixClientBind(bindPath, s); err != nil {
+	err = xio.WithRetry(req.ctx, req.spec, req.g, req.spec.Type, func() error {
+		cctx, cancel := req.withTimeout()
+		defer cancel()
+		if err := prepareUnixClientBind(bindPath, req.spec); err != nil {
 			return err
 		}
 		fd, err := unix.Socket(unix.AF_UNIX, typ|sockCloexec, 0)
@@ -268,11 +264,11 @@ func dialUnixSocklen(ctx context.Context, s parse.Spec, g *xio.Global, network, 
 		if sockCloexec == 0 {
 			unix.CloseOnExec(fd)
 		}
-		if err := xio.ApplyPastSocketThenPrebind(fd, s, network); err != nil {
+		if err := xio.ApplyPastSocketThenPrebind(fd, req.spec, req.network); err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return err
 		}
-		tight := unixTightSocklen(s)
+		tight := unixTightSocklen(req.spec)
 		var created unixBindCreated
 		if bindPath != "" {
 			if err := unixBindPath(fd, bindPath, tight); err != nil {

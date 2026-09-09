@@ -66,7 +66,7 @@ func unixTempnam(pattern string) (string, error) {
 	return "", fmt.Errorf("unix-bind-tempname: no free name")
 }
 
-func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUnixConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	if len(s.Params) < 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("UNIX-CONNECT requires path")
 	}
@@ -87,8 +87,9 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	if err != nil {
 		return nil, err
 	}
+	req := dialRequest{ctx: ctx, spec: s, g: g, timeout: xio.ConnectTimeout(s)}
 	if network == "unixgram" {
-		return openUnixDgramClient(ctx, s, mode, g, path, bindPath, true)
+		return openUnixDgramClient(req, path, bindPath, true)
 	}
 
 	networks := []string{network}
@@ -101,7 +102,8 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 
 	var conn net.Conn
 	for _, candidate := range networks {
-		conn, err = dialUnixNetwork(ctx, s, g, candidate, path, bindPath)
+		req.network = candidate
+		conn, err = dialUnixNetwork(req, path, bindPath)
 		if err == nil {
 			break
 		}
@@ -111,7 +113,7 @@ func openUnixConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	}
 	if err != nil {
 		// Generic UNIX/UNIX-CLIENT/GOPEN probes stream, seqpacket, then dgram.
-		return openUnixDgramClient(ctx, s, mode, g, path, bindPath, false)
+		return openUnixDgramClient(req, path, bindPath, false)
 	}
 	if g != nil && g.Log != nil {
 		g.Log.Infof("successfully connected to %s", path)
@@ -175,8 +177,8 @@ func genericUnixClient(typ string) bool {
 	}
 }
 
-func dialUnixNetwork(ctx context.Context, s parse.Spec, g *xio.Global, network, path, bindPath string) (net.Conn, error) {
-	return dialUnixSocklen(ctx, s, g, network, path, bindPath)
+func dialUnixNetwork(req dialRequest, path, bindPath string) (net.Conn, error) {
+	return dialUnixSocklen(req, path, bindPath)
 }
 
 // prepareUnixClientBind runs before a client bind=. unlink-early removes the
@@ -238,29 +240,30 @@ func unixTypeMismatch(err error, haveBind bool) bool {
 // emptyIsEOF is set for an explicit datagram socktype, which is used as a
 // stream: a zero-length packet ends the transfer. Autodetect fallback to
 // datagram still ignores empty packets unless null-eof is set.
-func openUnixDgramClient(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, path, bindPath string, emptyIsEOF bool) (*xio.Opened, error) {
-	conn, err := dialUnixNetwork(ctx, s, g, "unixgram", path, bindPath)
+func openUnixDgramClient(req dialRequest, path, bindPath string, emptyIsEOF bool) (*xio.Opened, error) {
+	req.network = "unixgram"
+	conn, err := dialUnixNetwork(req, path, bindPath)
 	if err != nil {
 		return nil, err
 	}
-	life := trackUnixBind(bindPath, s)
-	if err := xio.ApplyNamedAfterBind(bindPath, s, nil); err != nil {
+	life := trackUnixBind(bindPath, req.spec)
+	if err := xio.ApplyNamedAfterBind(bindPath, req.spec, nil); err != nil {
 		life.drop(conn)
 		return nil, err
 	}
-	if g != nil && g.Log != nil {
-		g.Log.Infof("successfully connected to %s", path)
+	if req.g != nil && req.g.Log != nil {
+		req.g.Log.Infof("successfully connected to %s", path)
 	}
-	if g != nil {
+	if req.g != nil {
 		if bindPath != "" {
-			g.SockAddr = bindPath
+			req.g.SockAddr = bindPath
 		} else {
-			g.SockAddr = path
+			req.g.SockAddr = path
 		}
-		g.PeerAddr = path
+		req.g.PeerAddr = path
 	}
 	if uc, ok := conn.(*net.UnixConn); ok {
-		if err := applyUnixgramSocketOptions(uc, s); err != nil {
+		if err := applyUnixgramSocketOptions(uc, req.spec); err != nil {
 			life.drop(conn)
 			return nil, err
 		}
@@ -269,14 +272,13 @@ func openUnixDgramClient(ctx context.Context, s parse.Spec, mode xio.Mode, g *xi
 	if emptyIsEOF {
 		st = xio.WrapMessageEOF(st)
 	}
-	st, err = xio.SetupConnectedStream(s, st)
+	st, err = xio.SetupConnectedStream(req.spec, st)
 	if err != nil {
 		life.drop(conn)
 		return nil, err
 	}
 	o := &xio.Opened{Stream: st, Label: "UNIX:" + path}
 	life.attach(o)
-	_ = mode
 	return o, nil
 }
 
