@@ -145,8 +145,10 @@ X25519MLKEM768 without `--pqc`, but initially sends a P-256 key share in a
 supplies a cookie. The cookie-bearing retry spans 1400-byte and 158-byte
 datagrams at their compile-time send MTU of 1400; our listener accepts it.
 In the opposite direction, a hybrid key share is 1216 bytes and would
-fragment at MTU 1200. The first ClientHello therefore omits `key_share` and
-fits in one 151-byte datagram. wolfSSL HelloRetryRequests a cookie and a
+fragment at MTU 1200. The first ClientHello therefore sends an empty
+`key_share` list (the extension is still present). Default-settings
+ClientHello measured 167 bytes; 151 bytes came from the constrained
+suite/group configuration. wolfSSL HelloRetryRequests a cookie and a
 group; the cookie-bearing retry may fragment and is accepted. Default
 settings omit `--pqc`, so their server selected P-256 and AES-256-GCM.
 With `--pqc X25519MLKEM768` it selected X25519MLKEM768 (cookie length 69
@@ -198,7 +200,7 @@ accept on that path); OpenSSL may emit ACK lists larger than the MTU
 **wolfSSL (`d72f6d9`)** — pass: 21 suite×group combinations, our client at MTU
 4096; 12 mutual-auth CID cases in both roles at MTU 1200 (all suites, P-256,
 request ACKs, rotation with lost ACKs and KeyUpdate); X25519MLKEM768 with
-AES-128-GCM, `--pqc`, empty first ClientHello, cookie HelloRetryRequest, and
+AES-128-GCM, `--pqc`, empty first `key_share` list, cookie HelloRetryRequest, and
 echo at 1200/512/256 (retry fragments 2/3/7). Limits: still rejects a
 fragmented unverified first ClientHello; no spare issuance/replenishment or
 RFC 9853 RRC. The lab build enlarges the extra read buffer to 4096 bytes for
@@ -239,8 +241,9 @@ mapping is still `draft-ietf-tls-mldsa-05` (IESG approved, RFC not published).
 - Spare-CID issuance/replenishment interop when a reference peer supports it.
   Local renewal is implemented; this interop gap is not a merge blocker.
 - wolfSSL still rejects a fragmented unverified first ClientHello. Our
-  client now omits oversized initial key shares so that flight stays in one
-  datagram; default-settings wolfSSL without `--pqc` then selects P-256.
+  client now sends an empty `key_share` list when initial shares would
+  fragment so that flight stays in one datagram; default-settings wolfSSL
+  without `--pqc` then selects P-256.
   Independent Pion public-API coverage at 1200/512/256 is X25519MLKEM768
   with all three record cipher suites and CID disabled. Migration-enabled
   Pion public endpoints still often fail after handshake on

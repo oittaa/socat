@@ -289,8 +289,8 @@ Practical consequences:
    spares do not fully interoperate (Pion rejects CID-management messages).
 3. **RRC/migration can only be tested against Pion**, and only with the
    initial handshake CID, not with mid-association CID rotation.
-4. **PQ at MTU 1200 includes wolfSSL when the first ClientHello omits
-   oversized key shares.** OpenSSL `s_server` and `s_client` accepted mutual
+4. **PQ at MTU 1200 includes wolfSSL when the first ClientHello sends an
+   empty `key_share` list.** OpenSSL `s_server` and `s_client` accepted mutual
    ECDSA and ML-DSA-44/65/87 echo at 1200/512/256 with X25519MLKEM768 and
    all three suites; that does not cover SecP256r1MLKEM768 or
    SecP384r1MLKEM1024. Historical `unexpected_message` at 256 was our ACK
