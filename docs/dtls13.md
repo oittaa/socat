@@ -132,12 +132,21 @@ OpenSSL 4.1 (`82733d9`) defaults that affect this table:
 Pion (`59f4c33`) library defaults: MTU 1200; groups X25519MLKEM768, X25519,
 P-256, P-384; TLS 1.3 ciphers AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305;
 ECDSA/Ed25519/RSA signatures only (no ML-DSA). The lab oracle leaves
-`-migrate` true, so CID and RRC are offered.
+`-migrate` true, so CID and RRC are offered. After the handshake we send
+`RequestConnectionID`. Pion's public endpoints reject that with
+`unexpected_message`. The application echo can finish first, so those rows
+often fail after a verified handshake rather than always failing.
 
 wolfSSL (`d72f6d9`) example binaries in the lab cmake build have DTLS 1.3 and
-CID. The DTLS 1.3 client offers X25519MLKEM768 without `--pqc`. They cannot
-load ML-DSA certificates. They reject a fragmented unverified first
-ClientHello.
+CID but cannot load ML-DSA certificates. Their client advertises
+X25519MLKEM768 without `--pqc`, but initially sends a P-256 key share in a
+263-byte ClientHello. Our HelloRetryRequest requests X25519MLKEM768 and
+supplies a cookie. The cookie-bearing retry spans 1400-byte and 158-byte
+datagrams at their compile-time send MTU of 1400; our listener accepts it.
+In the opposite direction, our initial hybrid ClientHello is fragmented at
+MTU 1200, which wolfSSL rejects before cookie validation. The hybrid share
+alone is 1216 bytes, so removing our fallback X25519 share would not avoid
+fragmentation.
 
 On this AES-NI host the pass rows negotiated **AES-128-GCM / X25519MLKEM768**:
 we prefer AES-128-GCM first, and both OpenSSL and wolfSSL advertised
@@ -220,9 +229,9 @@ mapping is still `draft-ietf-tls-mldsa-05` (IESG approved, RFC not published).
   Local renewal is implemented; this interop gap is not a merge blocker.
 - wolfSSL still requires an unfragmented first ClientHello, so our
   default-settings client (and PQ at 1200/512/256) times out. Our listener
-  vs wolfSSL's default DTLS 1.3 client completes ECDSA with X25519MLKEM768.
-  Independent Pion public-API coverage at those MTUs is X25519MLKEM768 with
-  all three record cipher suites and CID disabled.
+  accepts wolfSSL's fragmented, cookie-bearing retry and completes ECDSA
+  with X25519MLKEM768. Independent Pion public-API coverage at 1200/512/256
+  is X25519MLKEM768 with all three record cipher suites and CID disabled.
 - PMTU: routed Windows/macOS validation awaits suitable test environments.
   Possible improvements: RTT-based probe spacing, safe discovery on shared
   listeners, and OS PMTU hints without connecting the active migration socket.
