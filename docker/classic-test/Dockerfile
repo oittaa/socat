@@ -86,7 +86,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/scorecard
-COPY scripts/classic-scorecard.sh scripts/classic-tunnet-guard.sh scripts/scorecard-proc.sh \
+COPY scripts/classic-scorecard.sh scripts/classic-tunnet-guard.sh \
      scripts/scorecard-parse.py scripts/scorecard-compare.py \
      /opt/scorecard/scripts/
 COPY docker/classic-test/entrypoint.sh /opt/scorecard/entrypoint.sh

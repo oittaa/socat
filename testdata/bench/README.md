@@ -200,11 +200,6 @@ Platforms without `/proc` report RSS as `n/a` (`null` in JSON).
 - The saved host is a Hyper-V guest. Absolute loopback latency includes
   virtualization and host-scheduler effects; use the classic/Go pairing for
   relative comparisons rather than comparing raw latency with bare metal.
-- On this Linux host, Python's timed process wait polls at up to 50 ms
-  intervals. Bulk rates include that exit-detection delay. A 1 GiB TCP/UNIX
-  transfer lasts about half a second, so a roughly 10% rate change can
-  reflect this timing granularity. Use longer transfers to resolve small
-  gains. DTLS transfers here last about 25 seconds.
 - Quote `meta.tls` for version, cipher, and group. Go TLS/QUIC/DTLS uses
   **X25519MLKEM768**. Classic OPENSSL (distro OpenSSL + unpatched 1.8.1.3)
   uses **P-256**. Classic bulk TLS uses **TLS_AES_256_GCM_SHA384**; Go uses
@@ -225,7 +220,9 @@ Platforms without `/proc` report RSS as `n/a` (`null` in JSON).
 
 ## Recorded snapshot
 
-Recorded 2026-09-09 at `3ddf9d4` (runtime code from master `a4960a4`).
+Recorded 2026-09-09 from master `a4960a4` plus command/channel reuse,
+including the DTLS optimizations from PRs #244 and #246. The measured
+`conn.go` SHA-256 and source label are recorded in `host.json`.
 Ubuntu 26.04 Hyper-V guest (6 vCPUs), Ryzen 7 9800X3D host, Linux 7.0.0-31,
 Go 1.27.1 (GOMAXPROCS=6, GOGC=100), classic socat 1.8.1.3, OpenSSL 3.5.5.
 Payload: 1 GiB AES-128-CTR. Median of seven timed runs after two warmups.
@@ -265,22 +262,6 @@ four unsupported classic WebSocket/QUIC pairs were skipped.
 Library send-path allocation notes are in
 [dtls13-send-perf.md](dtls13-send-perf.md).
 
-Compared with September 6, this snapshot records Go TLS bulk +12.9%, UDP
--11.6%, and DTLS -7.6%; median RTT and handshake rates changed by at most
-2.6%. A same-VM repeat with three timed runs after one warmup found TCP,
-UDP, and TLS essentially unchanged between the saved old binaries
-(`66c2f18+command-reuse-ca25e014a156`, Go 1.27.0) and current binaries
-(`3ddf9d4`, Go 1.27.1). UNIX varied similarly in classic and Go.
-The repeat used the payload, frame sizes, GOMAXPROCS, GOGC, and exchange
-counts above.
-
-DTLS bulk remained lower in that repeat: 42.8 to 39.5 MiB/s (-7.7%),
-while classic changed from 143.7 to 145.7 MiB/s (+1.4%). Median Go loss was
-0.004769% before and 0.003273% after; maximum loss was 0.633588% and
-0.050867%, respectively. Go DTLS peak RSS fell from 39.4 to 38.1 MiB.
-This is a modest repeatable slowdown; its cause is not isolated from the
-code and toolchain changes. No larger relative regression was observed.
-
 Recorded handshakes (same binaries as the table; `meta.tls` in `host.json`):
 
 | Pairing | Used by | Version | Cipher | Group |
@@ -304,7 +285,6 @@ Build the optional classic DTLS client as shown above, then run:
 
 ```bash
 SOCAT_BENCH_DTLS_CLIENT_BIN="$PWD/testdata/tmp/openssl-dtls-client" \
-GOMAXPROCS=6 GOGC=100 \
 SOCAT_BENCH_SIZE=1G SOCAT_BENCH_RUNS=7 SOCAT_BENCH_WARMUP=2 \
   SOCAT_BENCH_SAVE_BASELINE=testdata/bench/host.json python3 -B scripts/bench.py
 ```
