@@ -327,9 +327,9 @@ raise RuntimeError('ordinary PMTUD socket was not limited by the smaller cache e
                     phase = "initial-sample"
                 if phase == "recovery" and maximum > low_maximum:
                     grew = True
-                    # The first periodic confirmation is ~60s into the 600s
+                    # The first periodic confirmation is ~10s into the 600s
                     # search interval. Early growth means we restored too soon.
-                    if time.monotonic() - restored < 500:
+                    if time.monotonic() - restored < 550:
                         raise RuntimeError("growth preceded the production periodic search restart")
                 if (phase == "recovery" and grew
                         and initial_maximum - SEARCH_TOLERANCE <= maximum <= initial_maximum):
