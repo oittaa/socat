@@ -1,6 +1,7 @@
 # DTLS 1.3 requirement matrix
 
-Peer source review: 2026-09-08. Each row covers one requirement or capability.
+Peer source review: 2026-09-08; targeted follow-up: 2026-09-10.
+Each row covers one requirement or capability.
 Details and exceptions follow each table.
 
 This is a selected requirements review, not a complete TLS/DTLS security audit.
@@ -48,9 +49,9 @@ records a departure from the recommendation, not a MUST violation.
 | **§4.2.1** Early application data MUST be processed as if received in order | yes | yes | yes | yes |
 | **§4.2.1** Retransmissions MUST use the original epoch and keys | yes | yes | yes | yes |
 | **§4.2.1** Sender MUST close or rekey before sequence-number wrap | yes | partial | yes | yes |
-| **§4.2.1** Epoch numbers MUST NOT wrap | yes | unknown | yes | unknown |
-| **§6.1** Sender MUST NOT use epochs above 2^48−1 | yes | no | yes | unknown |
-| **§6.1** Receiver MUST NOT enforce the sender's epoch cap | yes | unknown | yes | unknown |
+| **§4.2.1** Epoch numbers MUST NOT wrap | yes | yes | yes | yes |
+| **§8** Sender MUST NOT use epochs above 2^48−1 | yes | no | yes | yes |
+| **§8** Receiver MUST NOT enforce the sender's epoch cap | yes | yes | yes | no |
 | **§4.2.2** Reconstructed sequence SHOULD be closest to 1 + highest received | yes | no | yes | yes |
 | **§4.2.3** Receiver MUST reject ciphertext shorter than 16 bytes | yes | yes | yes | yes |
 | **§4.2.3** Sender MUST pad if needed to reach 16 ciphertext bytes | yes | yes | yes | yes |
@@ -68,19 +69,26 @@ tags satisfy the minimum ciphertext size without extra padding.
 
 OpenSSL's sequence-wrap protection is limited to its 64-bit counter, and
 its sequence reconstruction leaves the high bytes zero after decrypting the
-short field. Earlier-epoch handling is incomplete. Individual epoch rules
-marked `unknown` need further source review.
+short field. Earlier-epoch handling is incomplete.
+
+OpenSSL detects epoch overflow and
+[terminates before installing new keys](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/tls13_enc.c#L943).
+Its [64-bit epoch counter](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/record/rec_layer_d1.c#L825)
+has no 2^48 sender cap. Pion
+[rejects the next generation at epoch 65535](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/internal/handshake/post_handshake.go#L592)
+on both send and receive. That prevents wrap and keeps its sender below
+the limit, but also imposes a stricter limit on the peer's epochs.
 
 ## RFC 9147 — path MTU
 
 | Requirement | Ours | OpenSSL | wolfSSL | Pion |
 | --- | --- | --- | --- | --- |
-| **§4.4** SHOULD expose the IP layer's PMTU estimate | no | yes | unknown | unknown |
-| **§4.4** SHOULD expose record overhead or the resulting payload limit | yes | unknown | unknown | unknown |
-| **§4.4** MUST report transport "packet too big" errors to the upper layer | yes | yes | unknown | unknown |
-| **§4.4** SHOULD let the application control IP fragmentation | yes | yes | unknown | unknown |
+| **§4.4** SHOULD expose the IP layer's PMTU estimate | no | yes | no | no |
+| **§4.4** SHOULD expose record overhead or the resulting payload limit | yes | yes | yes | no |
+| **§4.4** MUST report transport "packet too big" errors to the upper layer | yes | yes | yes | yes |
+| **§4.4** SHOULD let the application control IP fragmentation | yes | yes | yes | yes |
 | **§4.4** Handshake SHOULD fragment messages that exceed the path MTU | yes | yes | yes | yes |
-| **§4.4** Handshake SHOULD shrink records after unanswered retries (PMTU unknown) | yes | unknown | unknown | unknown |
+| **§4.4** Handshake SHOULD shrink records after unanswered retries (PMTU unknown) | yes | yes | no | no |
 
 Our `MaxDatagramSize()` reports the payload limit after record overhead;
 it does not query the OS PMTU. Application writes preserve transport errors.
@@ -94,7 +102,26 @@ listeners do not change DF.
 OpenSSL provides a [PMTU query](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/crypto/bio/bss_dgram.c#L656),
 [DF control](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/crypto/bio/bss_dgram.c#L909)
 and [handshake MTU-error handling](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/statem/statem_dtls.c#L342).
-Its DTLS 1.3 size reduction after unanswered retries was not established.
+[`DTLS_get_data_mtu`](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/d1_lib.c#L1151)
+accounts for DTLS 1.3 record overhead. Its
+[timeout handler](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/d1_lib.c#L551)
+reduces the MTU after two unsuccessful retransmissions, unless MTU queries
+are disabled; retransmissions use that smaller budget.
+
+wolfSSL exposes
+[`wolfSSL_GetMaxOutputSize` and `wolfSSL_GetOutputSize`](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/ssl.c#L1557).
+It reports send failures, but its
+[socket error translation](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/wolfio.c#L201)
+maps `EMSGSIZE` to a generic I/O error. Pion
+[preserves packet-connection write errors](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/conn.go#L779).
+Neither library queries the OS PMTU or shrinks records on timeout.
+Pion's [`WithMTU`](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/options.go#L363)
+sets a size budget; it does not report negotiated record overhead.
+
+Both let applications configure DF on the supplied transport:
+[wolfSSL socket descriptor](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/ssl.c#L1100),
+[Pion packet connection](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/conn.go#L497).
+A dedicated DF helper is not required for this capability.
 
 ## RFC 9147 — replay and record protection
 
@@ -138,15 +165,15 @@ with an extra failure limit. OpenSSL advertises it without that protection.
 | **§5** MUST NOT send ChangeCipherSpec | yes | yes | yes | yes |
 | **§5.1** Client MUST send a new ClientHello after HelloRetryRequest | yes | yes | yes | yes |
 | **§5.1** Client MUST return the HelloRetryRequest cookie | yes | yes | yes | yes |
-| **§5.1** Initial ClientHello MUST omit the cookie extension | yes | unknown | yes | yes |
+| **§5.1** Initial ClientHello MUST omit the cookie extension | yes | yes | yes | yes |
 | **§5.1** Initial ClientHello MUST have an empty `legacy_cookie` | yes | partial | yes | yes |
 | **§5.1** Server SHOULD require a cookie exchange by default | yes | partial | yes | partial |
 | **§5.1** Pre-validation output SHOULD stay within 3× received bytes | yes | no | no | no |
 | **§5.1** Client MUST support a cookie exchange on every handshake | yes | yes | yes | yes |
 | **§5.1** Invalid cookies MUST cause `illegal_parameter` | yes | partial | yes | yes |
-| **§5.1** Cookie-secret lifetimes SHOULD overlap | yes | unknown | unknown | n/a |
+| **§5.1** Cookie-secret lifetimes SHOULD overlap | yes | no | yes | n/a |
 | **§5.1** A second HelloRetryRequest MUST cause `unexpected_message` | yes | yes | yes | yes |
-| **§5.1** Client SHOULD offer CID by default unless its profile excludes it | yes | no | no | unknown |
+| **§5.1** Client SHOULD offer CID by default unless its profile excludes it | yes | no | no | no |
 | **§5.2** The transcript MUST exclude DTLS sequence and fragment fields | yes | yes | yes | yes |
 | **§5.2** Handshake messages below the expected sequence MUST be discarded | yes | yes | yes | yes |
 | **§5.2** Handshake messages above the expected sequence SHOULD be queued | yes | yes | yes | yes |
@@ -160,14 +187,14 @@ with an extra failure limit. OpenSSL advertises it without that protection.
 | **§5.5** Receiver SHOULD abort if a retransmitted byte changes | yes | yes | yes | yes |
 | **§5.5** Each handshake fragment MUST fit in one datagram | yes | yes | yes | yes |
 | **§5.6** EndOfEarlyData MUST be omitted | n/a | yes | yes | n/a |
-| **§5.6** Server SHOULD eventually discard epoch-1 keys | n/a | unknown | unknown | n/a |
+| **§5.6** Server SHOULD limit acceptance of late epoch-1 data | n/a | yes | yes | n/a |
 | **§5.8.1** Retransmission timer expiry returns the sender to WAITING | yes | yes | yes | yes |
 | **§5.8.1** Server MUST ACK the client's final flight for at least 2×MSL | yes | yes | yes | yes |
 | **§5.8.1** Epoch-3 application data MUST wait until the peer's Finished | yes | yes | yes | yes |
 | **§5.8.2** Initial retransmission timeout SHOULD be one second | yes | yes | yes | yes |
 | **§5.8.2** Retransmission timeout SHOULD double, up to at least 60 seconds | yes | yes | yes | yes |
 | **§5.8.2** An unambiguous ACK SHOULD set the timeout to 1.5×RTT | yes | no | no | no |
-| **§5.8.3** A transmission SHOULD contain at most ten records | yes | unknown | unknown | no |
+| **§5.8.3** A transmission SHOULD contain at most ten records | yes | no | no | no |
 | **§5.9** HKDF labels SHALL use the `dtls13` prefix | yes | yes | yes | yes |
 | **§5.10** Implementations SHOULD NOT rely on alert delivery | yes | yes | yes | yes |
 | **§5.10** Application data after valid `close_notify` MUST be ignored | yes | yes | yes | yes |
@@ -177,8 +204,9 @@ with an extra failure limit. OpenSSL advertises it without that protection.
 
 wolfSSL can echo the session ID under an optional flag. OpenSSL's legacy
 cookie handling includes DTLS 1.2 HelloVerifyRequest behavior; its DTLS 1.3
-server does not reject a nonempty legacy cookie. Initial cookie-extension
-behavior and some invalid-cookie cases need further review.
+server does not reject a nonempty legacy cookie. Its
+[cookie-extension writer](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/statem/extensions_clnt.c#L1018)
+omits the extension until a HelloRetryRequest supplies a cookie.
 
 OpenSSL's `SSL_new_listener` performs DTLS 1.3 cookies; `s_server -listen`
 uses the DTLS 1.2 exchange. Pion uses a stateful, skippable cookie exchange.
@@ -186,8 +214,30 @@ Our server always requires cookies. It rotates HMAC secrets every 60 seconds
 and retains the previous secret for one rotation; cookie age still expires
 after 60 seconds.
 
-wolfSSL CID requires `WOLFSSL_DTLS_CID`. Pion's reviewed CID examples enable
-it explicitly; that does not establish the library default.
+OpenSSL uses [one cookie HMAC key per context](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/ssl_lib.c#L4557),
+without rotation or an overlap mechanism. wolfSSL supports overlap through
+[`wolfSSL_set_hrr_cookie_secret_secondary`](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/tls13.c#L16199);
+[`TlsCheckCookie`](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/tls13.c#L7249)
+tries that secret if the current one fails. The application manages rotation.
+
+wolfSSL CID requires `WOLFSSL_DTLS_CID`. Pion leaves its CID generator unset
+in [default configuration](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/options.go#L86);
+[`WithConnectionID`](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/options.go#L486)
+enables it.
+
+The epoch-1 rule limits how long servers accept early data after epoch 3
+becomes usable. OpenSSL [frees the old read record layer when replacing it](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/record/rec_layer_s3.c#L1588).
+wolfSSL [rejects epoch-1 records after handshake completion](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/internal.c#L13151),
+even while the old key slot remains allocated.
+
+The ten-record recommendation covers a transmission across datagrams.
+[OpenSSL](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/statem/statem_dtls.c#L240)
+and [wolfSSL](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/dtls13.c#L1042)
+send all fragments without a ten-record limit. wolfSSL's
+[retransmission loop](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/dtls13.c#L1646)
+also resends stored fragments without shrinking them. Pion
+[writes every prepared datagram](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/conn.go#L779)
+with no such limit.
 
 Our final-flight ACK retention is four minutes. Retransmission starts at
 one second, doubles to 60 seconds, and allows eight retries. RTT samples
@@ -205,19 +255,30 @@ exclude retransmissions; the resulting timer has a 100 ms floor.
 | **§7.1** MUST NOT ACK non-handshake records | yes | yes | yes | yes |
 | **§7.1** MUST NOT ACK records that failed decryption | yes | yes | yes | yes |
 | **§5.8.1 / §7.2** Retransmissions SHOULD omit acknowledged fragments | yes | partial | yes | yes |
-| **§7.2** A fully acknowledged flight MUST stop retransmitting | yes | unknown | yes | yes |
-| **§7.2** An ACK for any transmission of a fragment acknowledges that fragment | yes | unknown | yes | yes |
-| **§7.2** A responding flight MUST implicitly ACK the preceding flight | yes | unknown | yes | yes |
+| **§7.2** A fully acknowledged flight MUST stop retransmitting | yes | partial | yes | yes |
+| **§7.2** A record acknowledged by any ACK MUST remain acknowledged | yes | partial | yes | yes |
+| **§7.2** A responding record MUST implicitly ACK the preceding flight | yes | partial | yes | yes |
 | **§8** KeyUpdate MUST be acknowledged | yes | yes | yes | yes |
 | **§8** Sender MUST wait for the KeyUpdate ACK before using the new keys | yes | yes | yes | yes |
 | **§5.8.4 / §8** Sender MUST wait for an ACK before another KeyUpdate | yes | yes | yes | yes |
 | **§8** Receiver MUST retain old keys until it decrypts with the new keys | yes | yes | yes | yes |
-| **§8** A requested KeyUpdate MUST NOT exceed the epoch limit | yes | unknown | yes | unknown |
+| **§8** A requested KeyUpdate MUST NOT exceed the epoch limit | yes | no | yes | yes |
 
 Our responding flights provide implicit ACKs. The client's final flight and
-post-handshake messages use explicit ACKs. OpenSSL does not accept an ACK
-in `TLS_ST_SW_FINISHED` and can retransmit entire flights. Its other §7.2
-rules marked `unknown` need separate verification.
+post-handshake messages use explicit ACKs. OpenSSL
+[rejects ACKs in `TLS_ST_SW_FINISHED`](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/statem/statem_srvr.c#L100).
+Where ACKs are accepted, [processing one](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/statem/statem_dtls.c#L1264)
+[stops the timer](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/statem/statem.c#L722)
+and clears the entire sent flight, even for a partial ACK. Retransmissions
+[discard previous record-number mappings](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/statem/statem_dtls.c#L1486)
+and resend whole messages. These paths do not reliably track individual
+fragments across retransmissions.
+
+OpenSSL also clears the preceding flight when it finishes reading the
+responding flight; it does not do so on every individual responding record.
+Its epoch increment lacks the sender cap for requested KeyUpdates too.
+Pion checks its 16-bit limit before constructing any KeyUpdate, including
+a response to the peer.
 
 Post-handshake ordering follows [erratum 8047](https://www.rfc-editor.org/errata/eid8047),
 which was **Reported**, not verified, at the review date.
@@ -230,8 +291,8 @@ which was **Reported**, not verified, at the review date.
 | **§5.8.4 / §9** Sender MUST wait for an ACK before another NewConnectionId | yes | n/a | n/a | n/a |
 | **§5.8.4** Sender MUST wait for an ACK before another RequestConnectionId | yes | n/a | n/a | n/a |
 | **§9** CID updates MUST NOT be sent without a negotiated, nonempty CID | yes | n/a | n/a | n/a |
-| **§9** Unnegotiated NewConnectionId MUST cause `unexpected_message` | yes | n/a | unknown | yes |
-| **§9** Unnegotiated RequestConnectionId MUST cause `unexpected_message` | yes | n/a | no | yes |
+| **§9** Unnegotiated NewConnectionId MUST cause `unexpected_message` | yes | n/a | yes | yes |
+| **§9** Unnegotiated RequestConnectionId MUST cause `unexpected_message` | yes | n/a | yes | yes |
 | **§9** Receiver SHOULD answer CID requests with spares | yes | n/a | no | no |
 | **§9** Sender MUST wait for fulfillment before requesting more CIDs | yes | n/a | n/a | n/a |
 | **§9** Sender SHOULD use a new CID on a new path | yes | n/a | no | no |
@@ -248,6 +309,11 @@ CID-management messages; its send operations are unimplemented. Neither
 peer issues spares. Sources:
 [wolfSSL](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/dtls13.c#L2993),
 [Pion](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/internal/handshake/post_handshake.go#L267).
+
+wolfSSL's [shared message check](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/tls13.c#L14960)
+rejects both CID-management messages when CID was not negotiated;
+[the caller sends `unexpected_message`](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/tls13.c#L15047).
+Ignoring requests applies only after negotiation.
 
 Our ACK alone does not fulfill a spare request. A full issuer pool rotates
 an ID before issuing more; authenticated use retires the old IDs. Tests:
@@ -292,14 +358,14 @@ wolfSSL needs the CID build option; Pion needs CID configuration.
 | **§5.4** Each valid challenge MUST receive exactly one response | yes | n/a | n/a | yes |
 | **§5.4** Responses MUST go to the challenge's source address | yes | n/a | n/a | yes |
 | **§5.4** Invalid responses MUST be silently discarded | yes | n/a | n/a | yes |
-| **§5.5** Validation timeout SHOULD use 3×RTT when RTT is known | partial | n/a | n/a | unknown |
+| **§5.5** Validation timeout SHOULD use 3×RTT when RTT is known | partial | n/a | n/a | no |
 | **§5.5** Validation timeout SHOULD use one second when RTT is unknown | yes | n/a | n/a | yes |
 | **§9** Sender SHOULD avoid reusing a CID across paths | yes | n/a | n/a | no |
 
 Our old-path timer uses 3×RTT with a 100 ms floor; the unmeasured candidate
 path gets at least one second. The floor makes the known-RTT verdict
-`partial`. Pion's reviewed timer is one second; RTT adaptation was not
-established. Pion validates migration using initial CIDs but does not
+`partial`. Pion [always sets the timer to one second](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/internal/rrc/rrc.go#L183).
+Pion validates migration using initial CIDs but does not
 rotate them between paths.
 
 ## RFC 10024 — ML-KEM hybrids
@@ -339,22 +405,33 @@ This covers selected §1.2 changes and §4.7.3, not every inherited TLS rule.
 | Clients without resumption support ignore NewSessionTicket | yes | n/a | n/a | yes |
 | Sender MUST update keys before the AEAD usage limit | yes | no | yes | no |
 | The number of KeyUpdates is bounded | yes | partial | yes | partial |
-| **§4.7.3** Another `update_requested` MUST wait for a peer KeyUpdate | yes | unknown | unknown | unknown |
+| **§4.7.3** Another `update_requested` MUST wait for a peer KeyUpdate | yes | no | no | no |
 | `close_notify` uses warning severity | yes | yes | yes | yes |
 | `user_canceled` is ignored | yes | yes | yes | yes |
 | `close_notify` is still sent after `user_canceled` | yes | yes | yes | yes |
-| Recognizes the `general_error` alert | yes | yes | unknown | unknown |
+| Recognizes the `general_error` alert | yes | yes | yes | no |
 | CertificateRequest permits an empty extensions vector | yes | yes | yes | yes |
 | Authentication can work without RSA-PSS | yes | yes | yes | yes |
 
 Our KeyUpdate count is bounded by the 2^48−1 epoch limit. A DTLS ACK does
-not clear `update_requested`; only a later peer KeyUpdate does. The
-OpenSSL/Pion review found incomplete limits but did not establish every
-boundary. Pion queues NewSessionTicket without using it for DTLS 1.3.
+not clear `update_requested`; only a later peer KeyUpdate does. OpenSSL's
+[`SSL_key_update`](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/ssl_lib.c#L3142)
+and Pion's [`UpdateKeys`](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/conn.go#L622)
+allow another request after an ACK without waiting for a peer KeyUpdate.
+wolfSSL's [`SendTls13KeyUpdate`](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/tls13.c#L13611)
+overwrites its pending-response flag on every send. Three local updates,
+each ACKed but without a peer KeyUpdate, send request flags 1, 0, 1.
+Pion queues NewSessionTicket without using it for DTLS 1.3.
 
 Our receiver recognizes `general_error` (117) and terminates the connection.
 Sending a generic alert is optional; specific alerts or `internal_error`
 remain valid choices.
+
+wolfSSL [names alert 117](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/wolfssl/ssl.h#L1028)
+and [treats it as fatal regardless of severity](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/internal.c#L24175).
+Pion has [no named `general_error` value](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/pkg/protocol/alert/alert.go#L47).
+It parses 117 as an unknown alert and closes only if the
+[severity is fatal](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/errors.go#L53).
 
 ## Interop: what we can actually test
 
