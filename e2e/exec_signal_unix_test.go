@@ -263,11 +263,13 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 	t.Run("during", func(t *testing.T) {
 		dir := t.TempDir()
 		ready := filepath.Join(dir, "ready")
+		registered := filepath.Join(dir, "registered")
 		got := filepath.Join(dir, "got")
 		script := filepath.Join(dir, "child.sh")
 		body := "#!/bin/sh\n" +
 			"trap 'echo got >\"" + got + "\"' HUP\n" +
 			"echo $$ >\"" + ready + "\"\n" +
+			"read dummy && echo registered >\"" + registered + "\"\n" +
 			"while true; do read dummy || sleep 0.05; done\n"
 		if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 			t.Fatal(err)
@@ -280,6 +282,13 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = c.Close() })
 		waitPath(t, ready, proc, stderrPath, 5*time.Second)
+		if _, err := io.WriteString(c, "ready\n"); err != nil {
+			t.Fatalf("write readiness token: %v stderr=%s", err, readFile(t, stderrPath))
+		}
+		// A child can write its PID immediately after cmd.Start, before the parent
+		// registers that child for SIGHUP forwarding. Reading a token through the
+		// relay proves openEXEC has returned and signal registration is complete.
+		waitPath(t, registered, proc, stderrPath, 5*time.Second)
 		if err := proc.cmd.Process.Signal(syscall.SIGHUP); err != nil {
 			t.Fatal(err)
 		}
