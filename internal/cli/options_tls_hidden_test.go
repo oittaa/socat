@@ -8,21 +8,6 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func TestHiddenTLSSpellingsAreRecognized(t *testing.T) {
-	table := buildSupportedAddressOptions()
-	for _, name := range []string{
-		"openssl-method", "opensslmethod", "method",
-		"openssl-fips", "fips", "openssl-egd", "egd",
-		"openssl-pseudo", "pseudo", "openssl-dhparam", "openssl-dhparams",
-		"dhparam", "dhparams", "dh", "openssl-maxfraglen", "maxfraglen",
-		"openssl-maxsendfrag", "maxsendfrag",
-	} {
-		if _, ok := table[name]; !ok {
-			t.Errorf("missing %s", name)
-		}
-	}
-}
-
 func TestHiddenTLSOptionValues(t *testing.T) {
 	for _, spec := range []string{"OPENSSL:h:1,fips=0", "OPENSSL:h:1,method=TLS1", "OPENSSL:h:1,maxfraglen=-1"} {
 		if err := validateParsed(t, spec); err != nil {

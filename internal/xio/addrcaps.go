@@ -4,9 +4,9 @@ import "sort"
 
 // Option capability names used by address registrations and CLI validation.
 const (
-	OptCapListen = "listen"
-	OptCapOpen   = "open"
-	OptCapRange  = "range"
+	OptCapListen = CapListen
+	OptCapOpen   = CapOpen
+	OptCapRange  = CapRange
 )
 
 func uniqueCaps(in []string) []string {

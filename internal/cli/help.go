@@ -5,68 +5,20 @@ import (
 	"strings"
 
 	"github.com/oittaa/socat"
+	"github.com/oittaa/socat/internal/optionmeta"
 	"github.com/oittaa/socat/internal/outbuf"
 	"github.com/oittaa/socat/internal/xio"
 )
 
-// hideDarwinOnlyIPRecv hides ip-recvdstaddr / ip-recvif (and aliases) on every
-// GOOS except macOS. Runtime support is macOS-only (IP_RECVDSTADDR /
-// IP_RECVIF cmsg extraction); Linux and Windows must not advertise names they reject.
-func hideDarwinOnlyIPRecv(name, goos string) bool {
-	switch name {
-	case "ip-recvdstaddr", "ip-recvif", "recvdstaddr", "iprecvdstaddr", "recvif":
-		return goos != "darwin"
-	default:
-		return false
-	}
-}
-
-// hideLinuxOnlyRemainingIPv4 hides Linux-only remaining IPv4 options
-// (ip-retopts recv ancillary and ip-router-alert) except on Linux. macOS
-// IP_RETOPTS is an IP-options blob, not Linux's recv flag.
-func hideLinuxOnlyRemainingIPv4(name, goos string) bool {
-	switch name {
-	case "ip-retopts", "ipretopts", "retopts",
-		"ip-router-alert", "iprouteralert", "routeralert":
-		return goos != "linux"
-	default:
-		return false
-	}
-}
-
-// hideLinuxOnlyIPv6RecvExt hides ipv6-recvdstopts / ipv6-recvhopopts except
-// on Linux. Darwin accepts setsockopt for those names but getsockopt stays 0.
-// ipv6-recvrthdr / ipv6-recvpathmtu are advertised on Darwin.
-func hideLinuxOnlyIPv6RecvExt(name, goos string) bool {
-	switch name {
-	case "ipv6-recvdstopts", "recvdstopts",
-		"ipv6-recvhopopts", "recvhopopts":
-		return goos != "linux"
-	default:
-		return false
-	}
-}
-
-// hideLinuxOnlyRecvErr hides ip-recverr except on Linux. ipv6-recverr is
-// never advertised: it is undocumented and remains rejected.
-func hideLinuxOnlyRecvErr(name, goos string) bool {
-	switch name {
-	case "ip-recverr", "recverr", "iprecverr":
-		return goos != "linux"
-	default:
-		return false
-	}
-}
-
 func hideOptGroup(title string) bool {
 	switch title {
-	case "PTY and TERMIOS":
+	case optionmeta.SectionPTY:
 		return !xio.FeaturePTY && !xio.FeatureTERMIOS
-	case "POSIX message queues":
+	case optionmeta.SectionPOSIXMQ:
 		return !xio.FeaturePOSIXMQ
-	case "TUN and INTERFACE":
+	case optionmeta.SectionTUN:
 		return !xio.FeatureTUN && !xio.FeatureINTERFACE
-	case "Namespaces":
+	case optionmeta.SectionNamespaces:
 		return !xio.FeatureNAMESPACES
 	default:
 		return false
@@ -162,21 +114,21 @@ func printHelpAddresses(b *outbuf.Buf, aliases bool) {
 func printHelpOptions(b *outbuf.Buf, all bool) {
 	b.Printf("\nAddress options:\n")
 	b.Printf("  Form: option or option=value. Only honored names are listed.\n")
-	groups := helpOptionGroups()
+	groups := optionmeta.Sections()
 	width := 0
 	for _, g := range groups {
-		if hideOptGroup(g.title) {
+		if hideOptGroup(g.Title) {
 			continue
 		}
-		for _, o := range g.opts {
-			if hideOpt(o.name) {
+		for _, o := range g.Options {
+			if !o.Visible() || hideOptFeature(o.Canonical) {
 				continue
 			}
-			if n := len(o.name); n > width {
+			if n := len(o.Canonical); n > width {
 				width = n
 			}
 			if all {
-				for _, al := range o.aliases {
+				for _, al := range o.HelpAliases() {
 					if n := len(al); n > width {
 						width = n
 					}
@@ -191,26 +143,26 @@ func printHelpOptions(b *outbuf.Buf, all bool) {
 		}
 	}
 	for _, g := range groups {
-		if hideOptGroup(g.title) {
+		if hideOptGroup(g.Title) {
 			continue
 		}
 		printedTitle := false
-		for _, o := range g.opts {
-			if hideOpt(o.name) {
+		for _, o := range g.Options {
+			if !o.Visible() || hideOptFeature(o.Canonical) {
 				continue
 			}
 			if !printedTitle {
-				b.Printf("\n  %s\n", g.title)
+				b.Printf("\n  %s\n", g.Title)
 				printedTitle = true
 			}
-			desc := o.desc
-			if o.dynamicDesc != nil {
-				desc = o.dynamicDesc()
+			desc := o.Desc
+			if o.Canonical == "socktype" {
+				desc = xio.UnixSocktypeHelp()
 			}
-			printOptLine(b, o.name, desc, width)
+			printOptLine(b, o.Canonical, desc, width)
 			if all {
-				for _, al := range o.aliases {
-					printOptLine(b, al, "alias of "+o.name, width)
+				for _, al := range o.HelpAliases() {
+					printOptLine(b, al, "alias of "+o.Canonical, width)
 				}
 			}
 		}
@@ -235,10 +187,10 @@ func extraHelpNames(all bool) []string {
 		return nil
 	}
 	skip := map[string]struct{}{}
-	for _, g := range helpOptionGroups() {
-		for _, o := range g.opts {
-			skip[strings.ToLower(o.name)] = struct{}{}
-			for _, al := range o.aliases {
+	for _, g := range optionmeta.Sections() {
+		for _, o := range g.Options {
+			skip[strings.ToLower(o.Canonical)] = struct{}{}
+			for _, al := range o.HelpAliases() {
 				skip[strings.ToLower(al)] = struct{}{}
 			}
 		}

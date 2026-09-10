@@ -1,36 +1,38 @@
 package xio
 
+import "github.com/oittaa/socat/internal/optionmeta"
+
 // Address capability tokens used for option-scope intersection.
 const (
-	CapFD        = "fd"
-	CapFIFO      = "fifo"
-	CapCHR       = "chr"
-	CapBLK       = "blk"
-	CapREG       = "reg"
-	CapSocket    = "socket"
-	CapNamed     = "named"
-	CapOpen      = OptCapOpen
-	CapListen    = OptCapListen
-	CapRange     = OptCapRange
-	CapChild     = "child"
-	CapRetry     = "retry"
-	CapTermios   = "termios"
-	CapPTY       = "pty"
-	CapParent    = "parent"
-	CapFork      = "fork"
-	CapExec      = "exec"
-	CapShell     = "shell"
-	CapSockUNIX  = "sock-unix"
-	CapSockIP4   = "sock-ip4"
-	CapSockIP6   = "sock-ip6"
-	CapIPTCP     = "ip-tcp"
-	CapIPUDP     = "ip-udp"
-	CapIPSCTP    = "ip-sctp"
-	CapOpenSSL   = "openssl"
-	CapHTTP      = "http"
-	CapSocks     = "socks"
-	CapInterface = "interface"
-	CapPOSIXMQ   = "posixmq"
+	CapFD        = optionmeta.CapFD
+	CapFIFO      = optionmeta.CapFIFO
+	CapCHR       = optionmeta.CapCHR
+	CapBLK       = optionmeta.CapBLK
+	CapREG       = optionmeta.CapREG
+	CapSocket    = optionmeta.CapSocket
+	CapNamed     = optionmeta.CapNamed
+	CapOpen      = optionmeta.CapOpen
+	CapListen    = optionmeta.CapListen
+	CapRange     = optionmeta.CapRange
+	CapChild     = optionmeta.CapChild
+	CapRetry     = optionmeta.CapRetry
+	CapTermios   = optionmeta.CapTermios
+	CapPTY       = optionmeta.CapPTY
+	CapParent    = optionmeta.CapParent
+	CapFork      = optionmeta.CapFork
+	CapExec      = optionmeta.CapExec
+	CapShell     = optionmeta.CapShell
+	CapSockUNIX  = optionmeta.CapSockUNIX
+	CapSockIP4   = optionmeta.CapSockIP4
+	CapSockIP6   = optionmeta.CapSockIP6
+	CapIPTCP     = optionmeta.CapIPTCP
+	CapIPUDP     = optionmeta.CapIPUDP
+	CapIPSCTP    = optionmeta.CapIPSCTP
+	CapOpenSSL   = optionmeta.CapOpenSSL
+	CapHTTP      = optionmeta.CapHTTP
+	CapSocks     = optionmeta.CapSocks
+	CapInterface = optionmeta.CapInterface
+	CapPOSIXMQ   = optionmeta.CapPOSIXMQ
 )
 
 func capset(names ...string) []string {

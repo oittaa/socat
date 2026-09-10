@@ -2,9 +2,9 @@ package xio
 
 import (
 	"fmt"
-	"runtime"
 	"strings"
 
+	"github.com/oittaa/socat/internal/optionmeta"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -50,7 +50,6 @@ const (
 // Only the groups, platforms, and IP families listed here are honored.
 type IPAncillaryEntry struct {
 	Canonical string
-	Aliases   []string
 	Kind      IPAncillaryKind
 	Groups    []string
 	families  ipAncillaryFamily
@@ -112,28 +111,28 @@ var (
 // ReadMsg cmsg path. There is no recvpathmtu parser alias.
 
 var ipAncillaryMatrix = []IPAncillaryEntry{
-	{Canonical: "so-timestamp", Aliases: []string{"timestamp"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ip-pktinfo", Aliases: []string{"pktinfo", "ippktinfo"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ip-recvttl", Aliases: []string{"recvttl", "iprecvttl"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ip-recvtos", Aliases: []string{"recvtos", "iprecvtos"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ip-recvopts", Aliases: []string{"recvopts", "iprecvopts"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ip-retopts", Aliases: []string{"retopts", "ipretopts"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryLinuxOnly},
-	{Canonical: "ip-recvdstaddr", Aliases: []string{"recvdstaddr", "iprecvdstaddr"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryDarwinOnly},
-	{Canonical: "ip-recvif", Aliases: []string{"recvif"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryDarwinOnly},
-	{Canonical: "ipv6-recvpktinfo", Aliases: []string{"recvpktinfo"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ipv6-recvhoplimit", Aliases: []string{"recvhoplimit"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ipv6-recvtclass", Aliases: []string{"recvtclass"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ipv6-recvdstopts", Aliases: []string{"recvdstopts"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryLinuxOnly},
-	{Canonical: "ipv6-recvhopopts", Aliases: []string{"recvhopopts"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryLinuxOnly},
-	{Canonical: "ipv6-recvrthdr", Aliases: []string{"recvrthdr"}, Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
+	{Canonical: "so-timestamp", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixOnly},
+	{Canonical: "ip-pktinfo", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
+	{Canonical: "ip-recvttl", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
+	{Canonical: "ip-recvtos", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
+	{Canonical: "ip-recvopts", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
+	{Canonical: "ip-retopts", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryLinuxOnly},
+	{Canonical: "ip-recvdstaddr", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryDarwinOnly},
+	{Canonical: "ip-recvif", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryDarwinOnly},
+	{Canonical: "ipv6-recvpktinfo", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
+	{Canonical: "ipv6-recvhoplimit", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
+	{Canonical: "ipv6-recvtclass", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
+	{Canonical: "ipv6-recvdstopts", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryLinuxOnly},
+	{Canonical: "ipv6-recvhopopts", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryLinuxOnly},
+	{Canonical: "ipv6-recvrthdr", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
 	{Canonical: "ipv6-recvpathmtu", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
 
-	{Canonical: "ip-ttl", Aliases: []string{"ttl", "ipttl"}, Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixWindows},
-	{Canonical: "ip-tos", Aliases: []string{"tos", "iptos"}, Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixWindows},
-	{Canonical: "ip-options", Aliases: []string{"ipoptions"}, Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ip-hdrincl", Aliases: []string{"hdrincl", "iphdrincl"}, Kind: IPAncillarySend, Groups: []string{GroupRawIP}, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ipv6-unicast-hops", Aliases: []string{"unicast-hops"}, Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ipv6-tclass", Aliases: []string{"tclass"}, Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
+	{Canonical: "ip-ttl", Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixWindows},
+	{Canonical: "ip-tos", Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixWindows},
+	{Canonical: "ip-options", Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixOnly},
+	{Canonical: "ip-hdrincl", Kind: IPAncillarySend, Groups: []string{GroupRawIP}, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
+	{Canonical: "ipv6-unicast-hops", Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
+	{Canonical: "ipv6-tclass", Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
 }
 
 func lookupIPAncillary(optionName string) (IPAncillaryEntry, bool) {
@@ -141,40 +140,16 @@ func lookupIPAncillary(optionName string) (IPAncillaryEntry, bool) {
 	if n == "" {
 		return IPAncillaryEntry{}, false
 	}
-	canon := parse.CanonicalOptionName(n)
+	d, ok := optionmeta.Lookup(n)
+	if !ok {
+		return IPAncillaryEntry{}, false
+	}
 	for _, e := range ipAncillaryMatrix {
-		if e.Canonical == n || e.Canonical == canon {
+		if e.Canonical == d.Canonical {
 			return e, true
-		}
-		for _, alias := range e.Aliases {
-			if alias == n || alias == canon {
-				return e, true
-			}
 		}
 	}
 	return IPAncillaryEntry{}, false
-}
-
-// IPAncillaryNames returns every canonical name and alias in the matrix.
-func IPAncillaryNames() []string {
-	var out []string
-	for _, e := range ipAncillaryMatrix {
-		out = append(out, e.Canonical)
-		out = append(out, e.Aliases...)
-	}
-	return out
-}
-
-// IPAncillaryImplementationGroups is the CLI implementationGroups list for
-// one option. Unknown names return nil (no extra restriction). Matrix rows
-// always return their address groups, including Unix-only recv options on
-// Windows: a nil/empty list would mean unrestricted.
-func IPAncillaryImplementationGroups(optionName string) []string {
-	e, ok := lookupIPAncillary(optionName)
-	if !ok {
-		return nil
-	}
-	return append([]string(nil), e.Groups...)
 }
 
 // IPAncillarySupported reports whether optionName is implemented on the
@@ -195,22 +170,7 @@ func IPAncillarySupported(group, optionName string) bool {
 }
 
 func (e IPAncillaryEntry) supportedOnThisPlatform() bool {
-	if e.platforms == 0 {
-		return true
-	}
-	if runtime.GOOS == "windows" {
-		return e.platforms&ipAncillaryWindows != 0
-	}
-	if e.platforms&ipAncillaryLinux != 0 && runtime.GOOS == "linux" {
-		return true
-	}
-	if runtime.GOOS == "darwin" {
-		if e.platforms&ipAncillaryDarwin != 0 {
-			return true
-		}
-		return e.platforms&ipAncillaryUnix != 0
-	}
-	return e.platforms&ipAncillaryUnix != 0
+	return e.platforms == 0 || e.platforms&ipAncillaryThisPlatform != 0
 }
 
 func (e IPAncillaryEntry) supportedOnFamily(family ipFamily) bool {
@@ -328,10 +288,11 @@ func RejectUnsupportedIPAncillary(s parse.Spec) error {
 }
 
 func (e IPAncillaryEntry) names() []string {
-	out := make([]string, 0, 1+len(e.Aliases))
-	out = append(out, e.Canonical)
-	out = append(out, e.Aliases...)
-	return out
+	d, ok := optionmeta.Lookup(e.Canonical)
+	if !ok {
+		return []string{e.Canonical}
+	}
+	return d.Names()
 }
 
 func ipSendRequested(s parse.Spec) bool {

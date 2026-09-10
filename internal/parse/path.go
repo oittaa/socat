@@ -2,6 +2,8 @@ package parse
 
 import (
 	"strings"
+
+	"github.com/oittaa/socat/internal/optionmeta"
 )
 
 func looksLikePath(s string) bool {
@@ -74,12 +76,5 @@ func pathParamType(typeName string) bool {
 
 // pathOption reports option values that are interpreted as filesystem paths.
 func pathOption(name string) bool {
-	switch normalizeOptionName(name) {
-	case "cert", "key", "cafile", "capath", "chdir", "link",
-		"hosts-allow", "hosts-deny", "proxy-authorization-file",
-		"unix-bind-tempname":
-		return true
-	default:
-		return false
-	}
+	return optionmeta.IsPathValue(normalizeOptionName(name))
 }

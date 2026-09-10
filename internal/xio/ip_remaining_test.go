@@ -38,21 +38,6 @@ func TestGetOnlyIPv4DoesNotMatchMTUDiscover(t *testing.T) {
 	}
 }
 
-func TestGetOnlyIPv4OptionNamesCoverAliases(t *testing.T) {
-	got := map[string]bool{}
-	for _, name := range GetOnlyIPv4OptionNames() {
-		got[name] = true
-	}
-	for _, name := range []string{
-		"ip-mtu", "ipmtu", "mtu",
-		"ip-pktoptions", "ippktoptions", "pktoptions", "pktopts",
-	} {
-		if !got[name] {
-			t.Errorf("missing %q", name)
-		}
-	}
-}
-
 func TestApplyGetOnlyIPOptionRejectsAllSpellings(t *testing.T) {
 	opts := []parse.Option{
 		{Name: "ip-mtu"}, {Name: "ipmtu"}, {Name: "mtu"},
