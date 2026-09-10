@@ -15,7 +15,7 @@ import (
 )
 
 // liveSessions holds every per-logical-process signal table that currently
-// has a pid. LISTEN,fork uses goroutines, so each forkSession Global owns a
+// has a pid. LISTEN,fork uses goroutines, so each ForkSession Global owns a
 // table; the process handler aggregates every live table's pids.
 var (
 	childSignalMu       sync.Mutex
@@ -85,7 +85,7 @@ func validateExecParentSignals(s parse.Spec) error {
 // registerExecParentSignals registers the child pid for each sighup/sigint/
 // sigquit occurrence after Start. Each occurrence registers once, so two
 // `sighup` flags occupy two of the four slots. The four-slot limit is per
-// logical session (g's forkSession copy). Register after Start so pid is
+// logical session (g's ForkSession copy). Register after Start so pid is
 // known; pid 0 would signal the process group. nofork still Wait()s.
 func registerExecParentSignals(s parse.Spec, cmd *exec.Cmd, g *Global) error {
 	if err := validateExecParentSignals(s); err != nil {

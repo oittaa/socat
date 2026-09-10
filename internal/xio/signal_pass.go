@@ -13,7 +13,7 @@ const (
 )
 
 // childSignalSession is the per-session four-slot table for sighup/sigint/
-// sigquit. LISTEN,fork uses goroutines, so each forkSession owns a table.
+// sigquit. LISTEN,fork uses goroutines, so each ForkSession owns a table.
 // The Unix dispatcher aggregates live tables; other platforms never register.
 type childSignalSession struct {
 	n    [sigIdxCount]int

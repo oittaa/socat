@@ -955,11 +955,7 @@ func (l *rawIPForkListener) Accept() (net.Conn, error) {
 		if l.v4 {
 			rn = skipIPv4HeaderIfPresent(buf, rn)
 		}
-		session := &xio.Global{}
-		if l.g != nil {
-			session.Log = l.g.Log
-			session.Progname = l.g.Progname
-		}
+		session := l.g.ForkSession()
 		xio.ProcessAncillary(oob, session)
 		peer := ipAddrFromNet(a)
 		rememberRawIPPeer(session, peer, l.pc.LocalAddr())

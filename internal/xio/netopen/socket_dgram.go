@@ -712,11 +712,7 @@ func (l *socketRecvfromListener) Accept() (net.Conn, error) {
 			}
 			continue
 		}
-		session := &xio.Global{}
-		if l.g != nil {
-			session.Log = l.g.Log
-			session.Progname = l.g.Progname
-		}
+		session := l.g.ForkSession()
 		rememberSocketPeer(session, from, local)
 		return &socketPacketConn{
 			f:       l.f,

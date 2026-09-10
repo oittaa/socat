@@ -200,12 +200,7 @@ func (a *udpForkAccept) filterPeer(addr *net.UDPAddr, consumed bool) acceptNext 
 }
 
 func (a *udpForkAccept) childSession() *xio.Global {
-	session := &xio.Global{}
-	if a.l.g != nil {
-		session.Log = a.l.g.Log
-		session.Progname = a.l.g.Progname
-	}
-	return session
+	return a.l.g.ForkSession()
 }
 
 func (a *udpForkAccept) acceptReuse(addr *net.UDPAddr, packet udpForkPacket, consumed bool, session *xio.Global) acceptNext {

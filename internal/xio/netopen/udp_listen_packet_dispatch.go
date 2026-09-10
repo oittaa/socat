@@ -216,11 +216,7 @@ func (l *udpDispatchListener) readLoop() {
 		if child != nil && child.enqueue(packet) {
 			continue
 		}
-		session := &xio.Global{}
-		if l.base.g != nil {
-			session.Log = l.base.g.Log
-			session.Progname = l.base.g.Progname
-		}
+		session := l.base.g.ForkSession()
 		xio.ProcessAncillary(packet.oob, session)
 		packet.oob = nil // opener ancillary is available before the child starts
 		child = &udpDispatchConn{
