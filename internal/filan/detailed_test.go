@@ -5,7 +5,6 @@ package filan
 import (
 	"bytes"
 	"os"
-	"runtime"
 	"strings"
 	"testing"
 	"unsafe"
@@ -78,9 +77,6 @@ func TestSockAddrInfoInet4(t *testing.T) {
 	got := SockAddrInfo(sa)
 	if !strings.Contains(got, "AF=") || !strings.Contains(got, "127.0.0.1:2345") {
 		t.Fatalf("SockAddrInfo=%q", got)
-	}
-	if runtime.GOOS == "darwin" && !strings.HasPrefix(got, "LEN=") {
-		t.Fatalf("darwin SockAddrInfo=%q", got)
 	}
 	if short := SockAddrString(sa); short != "127.0.0.1:2345" {
 		t.Fatalf("SockAddrString=%q", short)

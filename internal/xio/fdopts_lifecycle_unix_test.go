@@ -3,11 +3,9 @@
 package xio
 
 import (
-	"errors"
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -200,27 +198,6 @@ func TestSetupStreamFtruncateRejectsTCP(t *testing.T) {
 	_, err := SetupStream(spec, relay.NetStream{Conn: cli})
 	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
 		t.Fatalf("error=%v want not a regular file", err)
-	}
-	_ = srv
-}
-
-func TestSetupStreamPermOnAnonymousSocketPropagatesFchmodError(t *testing.T) {
-	// Type TCP so skipDescriptorOwnerOpts does not skip. Classic applyopt_spec
-	// Fchmod reports EINVAL on Darwin sockets; that error must propagate.
-	cli, srv := localTCPPair(t)
-	spec := mustSpec(t, "TCP:127.0.0.1:1,perm=0600")
-	_, err := SetupStream(spec, relay.NetStream{Conn: cli})
-	if runtime.GOOS == "linux" {
-		// Linux fchmod(2) on a socket fd can succeed; do not hide either outcome.
-		_ = err
-		_ = srv
-		return
-	}
-	if err == nil {
-		t.Fatal("expected fchmod error on anonymous socket descriptor")
-	}
-	if !strings.Contains(err.Error(), "fchmod") && !errors.Is(err, unix.EINVAL) {
-		t.Fatalf("error=%v want fchmod EINVAL", err)
 	}
 	_ = srv
 }

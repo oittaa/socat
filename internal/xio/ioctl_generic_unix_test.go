@@ -4,7 +4,6 @@ package xio
 
 import (
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,16 +11,6 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
-
-func fionreadRequest() uint {
-	if runtime.GOOS == "linux" {
-		// TIOCINQ / FIONREAD. Not exported as FIONREAD; TIOCINQ is Linux-only
-		// in x/sys/unix, so this file uses the numeric request for darwin compile.
-		return 0x541b
-	}
-	// Darwin FIONREAD: _IOR('f', 127, int) = 0x4004667f.
-	return 0x4004667f
-}
 
 func TestApplyFDOptionsIoctlIntpFIONREADPipe(t *testing.T) {
 	r, w, err := os.Pipe()

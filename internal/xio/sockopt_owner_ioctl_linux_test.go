@@ -24,3 +24,10 @@ func TestLinuxOwnerIoctlMatchesSIOCSPGRPABI(t *testing.T) {
 		t.Fatalf("unexpected SIOCSPGRP=%#x", uint(unix.SIOCSPGRP))
 	}
 }
+
+func assertFIOGETOWN(t *testing.T, fd, want int) {
+	t.Helper()
+	if got := ownerIoctlGet(t, fd, ownerIoctlFIOGETOWN); got != want {
+		t.Fatalf("FIOGETOWN=%d want %d", got, want)
+	}
+}

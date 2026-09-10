@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -141,23 +140,6 @@ func TestUDPSecondBindWithoutReuseaddrFails(t *testing.T) {
 		_ = second.Close()
 		t.Fatal("second UDP-LISTEN without reuseaddr bound successfully")
 	}
-}
-
-func TestUDPSecondBindWithReuseaddrSucceeds(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("Linux SO_REUSEADDR lets two UDP sockets share a port; Darwin/BSD need SO_REUSEPORT")
-	}
-	first, err := listenUDPOnPort(t, parseUDPSpec(t, "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr"), 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = first.Close() })
-	port := first.LocalAddr().(*net.UDPAddr).Port
-	second, err := listenUDPOnPort(t, parseUDPSpec(t, fmt.Sprintf("UDP4-LISTEN:%d,bind=127.0.0.1,reuseaddr", port)), port)
-	if err != nil {
-		t.Fatalf("second UDP-LISTEN,reuseaddr: %v", err)
-	}
-	t.Cleanup(func() { _ = second.Close() })
 }
 
 func TestUDPListenForkImpliesReuseaddr(t *testing.T) {

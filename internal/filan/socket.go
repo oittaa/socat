@@ -5,7 +5,6 @@ package filan
 import (
 	"encoding/binary"
 	"fmt"
-	"runtime"
 	"strings"
 	"unsafe"
 
@@ -140,9 +139,7 @@ func SockAddrInfo(sa unix.Sockaddr) string {
 
 func sockAddrInfo(sa unix.Sockaddr, slen int) string {
 	var b strings.Builder
-	if runtime.GOOS == "darwin" {
-		fmt.Fprintf(&b, "LEN=%d ", slen)
-	}
+	b.WriteString(sockAddrLenPrefix(slen))
 	switch a := sa.(type) {
 	case *unix.SockaddrInet4:
 		fmt.Fprintf(&b, "AF=%d %d.%d.%d.%d:%d", unix.AF_INET, a.Addr[0], a.Addr[1], a.Addr[2], a.Addr[3], a.Port)

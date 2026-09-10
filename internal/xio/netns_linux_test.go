@@ -154,3 +154,9 @@ func TestNetNSQUICEcho(t *testing.T) {
 	defer func() { _ = cli.Close() }()
 	echoRW(t, cli.EffectiveStream(), []byte("netns-quic"))
 }
+
+func TestFeatureNAMESPACES(t *testing.T) {
+	if !xio.FeatureNAMESPACES {
+		t.Fatal("WITH_NAMESPACES must be on for Linux")
+	}
+}
