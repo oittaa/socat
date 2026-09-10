@@ -85,7 +85,7 @@ the limit, but also imposes a stricter limit on the peer's epochs.
 | --- | --- | --- | --- | --- |
 | **§4.4** SHOULD expose the IP layer's PMTU estimate | no | yes | no | no |
 | **§4.4** SHOULD expose record overhead or the resulting payload limit | yes | yes | yes | no |
-| **§4.4** MUST report transport "packet too big" errors to the upper layer | yes | yes | yes | yes |
+| **§4.4** MUST report transport "packet too big" errors to the upper layer | yes | yes | partial | yes |
 | **§4.4** SHOULD let the application control IP fragmentation | yes | yes | yes | yes |
 | **§4.4** Handshake SHOULD fragment messages that exceed the path MTU | yes | yes | yes | yes |
 | **§4.4** Handshake SHOULD shrink records after unanswered retries (PMTU unknown) | yes | yes | no | no |
@@ -112,7 +112,8 @@ wolfSSL exposes
 [`wolfSSL_GetMaxOutputSize` and `wolfSSL_GetOutputSize`](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/ssl.c#L1557).
 It reports send failures, but its
 [socket error translation](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/wolfio.c#L201)
-maps `EMSGSIZE` to a generic I/O error. Pion
+maps `EMSGSIZE` to a generic I/O error. The caller cannot identify the
+PMTU failure from that error, so the verdict is `partial`. Pion
 [preserves packet-connection write errors](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/conn.go#L779).
 Neither library queries the OS PMTU or shrinks records on timeout.
 Pion's [`WithMTU`](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/options.go#L363)
@@ -266,7 +267,7 @@ exclude retransmissions; the resulting timer has a 100 ms floor.
 
 Our responding flights provide implicit ACKs. The client's final flight and
 post-handshake messages use explicit ACKs. OpenSSL
-[rejects ACKs in `TLS_ST_SW_FINISHED`](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/statem/statem_srvr.c#L100).
+[rejects ACKs in `TLS_ST_SW_FINISHED`](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/statem/statem_srvr.c#L114).
 Where ACKs are accepted, [processing one](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/statem/statem_dtls.c#L1264)
 [stops the timer](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/statem/statem.c#L722)
 and clears the entire sent flight, even for a partial ACK. Retransmissions
@@ -409,7 +410,7 @@ This covers selected §1.2 changes and §4.7.3, not every inherited TLS rule.
 | `close_notify` uses warning severity | yes | yes | yes | yes |
 | `user_canceled` is ignored | yes | yes | yes | yes |
 | `close_notify` is still sent after `user_canceled` | yes | yes | yes | yes |
-| Recognizes the `general_error` alert | yes | yes | yes | no |
+| Treats `general_error` as fatal regardless of severity | yes | yes | yes | no |
 | CertificateRequest permits an empty extensions vector | yes | yes | yes | yes |
 | Authentication can work without RSA-PSS | yes | yes | yes | yes |
 
@@ -427,6 +428,8 @@ Our receiver recognizes `general_error` (117) and terminates the connection.
 Sending a generic alert is optional; specific alerts or `internal_error`
 remain valid choices.
 
+OpenSSL [displays alert 117 as "unknown"](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/ssl_stat.c#L361),
+but its [DTLS 1.3 receive path treats it as fatal at either severity](https://github.com/openssl/openssl/blob/82733d90b5bc58b8d064ed49c282aa028664a1ed/ssl/record/rec_layer_d1.c#L496).
 wolfSSL [names alert 117](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/wolfssl/ssl.h#L1028)
 and [treats it as fatal regardless of severity](https://github.com/wolfSSL/wolfssl/blob/d72f6d9e4e85ffcadfa0c737959dc26b8717947a/src/internal.c#L24175).
 Pion has [no named `general_error` value](https://github.com/pion/dtls/blob/59f4c33b90c58fa6256a9cf1db49d1a9976b3536/pkg/protocol/alert/alert.go#L47).
