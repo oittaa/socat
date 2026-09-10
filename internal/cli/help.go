@@ -2,7 +2,6 @@ package cli
 
 import (
 	"io"
-	"runtime"
 	"strings"
 
 	"github.com/oittaa/socat"
@@ -11,24 +10,8 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
-func hideDarwinOnlyIPRecv(name, goos string) bool {
-	return optionmeta.HideDarwinOnlyIPRecv(name, goos)
-}
-
-func hideLinuxOnlyRemainingIPv4(name, goos string) bool {
-	return optionmeta.HideLinuxOnlyRemainingIPv4(name, goos)
-}
-
-func hideLinuxOnlyIPv6RecvExt(name, goos string) bool {
-	return optionmeta.HideLinuxOnlyIPv6RecvExt(name, goos)
-}
-
-func hideLinuxOnlyRecvErr(name, goos string) bool {
-	return optionmeta.HideLinuxOnlyRecvErr(name, goos)
-}
-
 func hideOpt(name string) bool {
-	if d, ok := optionmeta.Lookup(name); ok && optionmeta.HiddenOn(d, runtime.GOOS) {
+	if d, ok := optionmeta.Lookup(name); ok && optionmeta.Hidden(d) {
 		return true
 	}
 	return hideOptFeature(name)

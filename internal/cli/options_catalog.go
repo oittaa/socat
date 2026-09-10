@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"runtime"
 
 	"github.com/oittaa/socat/internal/optionmeta"
 	"github.com/oittaa/socat/internal/parse"
@@ -22,29 +21,6 @@ func addressOptionFromDef(def optionmeta.Def) addressOption {
 		optionCaps:           caps,
 		implementationGroups: expandImpl(def),
 	}
-}
-
-func cliSpellings(def optionmeta.Def) []string {
-	seen := map[string]struct{}{}
-	var names []string
-	add := func(name string) {
-		if name == "" {
-			return
-		}
-		if _, ok := seen[name]; ok {
-			return
-		}
-		seen[name] = struct{}{}
-		names = append(names, name)
-	}
-	add(def.Canonical)
-	for _, alias := range def.PublicAliases {
-		add(alias)
-	}
-	for _, alias := range def.ParserAliases {
-		add(alias)
-	}
-	return names
 }
 
 func expandTypeSet(set string, extra []string) []string {
@@ -149,14 +125,4 @@ func validatorFor(kind optionmeta.ValueKind) func(parse.Option) error {
 	default:
 		panic(fmt.Sprintf("unknown option value kind %d", kind))
 	}
-}
-
-func validateUnixTightSocklen(option parse.Option) error {
-	if err := validateOptionalBool(option); err != nil {
-		return err
-	}
-	if runtime.GOOS == "windows" {
-		return fmt.Errorf("%s: not supported on this platform", option.Name)
-	}
-	return nil
 }

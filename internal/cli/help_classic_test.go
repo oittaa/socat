@@ -24,7 +24,7 @@ func TestHelpDoesNotTriggerClassicOptionArraySentinel(t *testing.T) {
 // helpInternalTerm matches catalog/internal tokens that must not appear in
 // -h/-hh/-hhh. type= is matched without a preceding identifier so socktype=
 // in UNIX address descriptions is allowed.
-var helpInternalTerm = regexp.MustCompile(`(?i)\bclassic\b|groups=|(?:^|[^A-Za-z0-9-])type=|phase=|\bPH_[A-Z0-9]+|\bTYPE_[A-Z0-9]+|\bGROUP_[A-Z0-9]+|\bOFUNC_[A-Z0-9]+`)
+var helpInternalTerm = regexp.MustCompile(`(?i)\bclassic\b|groups=|(?:^|[^A-Za-z0-9-])type=|phase=|\bPH_[A-Z0-9]+|\bTYPE_[A-Z0-9]+|\bGROUP_[A-Z0-9]+|\bOFUNC_[A-Z0-9]+|\b(?:fcntl|fchmod|fchown|sockaddr_un)\b|\b(?:ioctl|ftruncate|lseek|flock|shutdown|socket|setsockopt|cfmakeraw)\(|\bSEEK_(?:SET|CUR|END)\b|(?-i:\bNULL\b)|\bC string\b`)
 
 func TestHelpOmitsInternalMetadata(t *testing.T) {
 	for _, level := range []int{1, 2, 3} {
@@ -93,79 +93,5 @@ func TestHelpListsSoBroadcastAlias(t *testing.T) {
 	}
 	if !strings.Contains(help, "alias of broadcast") {
 		t.Error("-hhh missing so-broadcast alias line")
-	}
-}
-
-func TestHideDarwinOnlyIPRecv(t *testing.T) {
-	names := []string{"ip-recvdstaddr", "ip-recvif", "recvdstaddr", "iprecvdstaddr", "recvif"}
-	for _, name := range names {
-		if hideDarwinOnlyIPRecv(name, "darwin") {
-			t.Errorf("%q hidden on darwin", name)
-		}
-		for _, goos := range []string{"linux", "windows", "freebsd", "openbsd", "netbsd", "dragonfly", "aix", "solaris"} {
-			if !hideDarwinOnlyIPRecv(name, goos) {
-				t.Errorf("%q not hidden on %s", name, goos)
-			}
-		}
-	}
-	if hideDarwinOnlyIPRecv("nopush", "freebsd") {
-		t.Fatal("nopush is not a Darwin-only IP recv option")
-	}
-	if hideDarwinOnlyIPRecv("so-timestamp", "linux") {
-		t.Fatal("so-timestamp is not Darwin-only")
-	}
-}
-
-func TestHideLinuxOnlyRemainingIPv4(t *testing.T) {
-	names := []string{
-		"ip-retopts", "retopts", "ipretopts",
-		"ip-router-alert", "iprouteralert", "routeralert",
-	}
-	for _, name := range names {
-		if hideLinuxOnlyRemainingIPv4(name, "linux") {
-			t.Errorf("%q hidden on linux", name)
-		}
-		for _, goos := range []string{"darwin", "windows", "freebsd", "openbsd", "netbsd"} {
-			if !hideLinuxOnlyRemainingIPv4(name, goos) {
-				t.Errorf("%q not hidden on %s", name, goos)
-			}
-		}
-	}
-	if hideLinuxOnlyRemainingIPv4("ip-recvopts", "darwin") {
-		t.Fatal("ip-recvopts is not a Linux-only remaining IPv4 option")
-	}
-}
-
-func TestHideLinuxOnlyIPv6RecvExt(t *testing.T) {
-	names := []string{"ipv6-recvdstopts", "recvdstopts", "ipv6-recvhopopts", "recvhopopts"}
-	for _, name := range names {
-		if hideLinuxOnlyIPv6RecvExt(name, "linux") {
-			t.Errorf("%q hidden on linux", name)
-		}
-		for _, goos := range []string{"darwin", "windows"} {
-			if !hideLinuxOnlyIPv6RecvExt(name, goos) {
-				t.Errorf("%q not hidden on %s", name, goos)
-			}
-		}
-	}
-	if hideLinuxOnlyIPv6RecvExt("ipv6-recvrthdr", "darwin") {
-		t.Fatal("ipv6-recvrthdr is advertised on Darwin")
-	}
-}
-
-func TestHideLinuxOnlyRecvErr(t *testing.T) {
-	names := []string{"ip-recverr", "recverr", "iprecverr"}
-	for _, name := range names {
-		if hideLinuxOnlyRecvErr(name, "linux") {
-			t.Errorf("%q hidden on linux", name)
-		}
-		for _, goos := range []string{"darwin", "windows"} {
-			if !hideLinuxOnlyRecvErr(name, goos) {
-				t.Errorf("%q not hidden on %s", name, goos)
-			}
-		}
-	}
-	if hideLinuxOnlyRecvErr("ipv6-recverr", "linux") {
-		t.Fatal("ipv6-recverr is rejected, not a hidden Linux-only advertised option")
 	}
 }

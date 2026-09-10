@@ -28,41 +28,41 @@ func HelpSectionOrder() []string {
 	}
 }
 
-// Address capability tokens. Values match xio.Cap*.
+// Option capability sets.
 var (
-	CapFD        = []string{"fd"}
-	CapFIFO      = []string{"fifo"}
-	CapREG       = []string{"reg"}
-	CapNamed     = []string{"named"}
-	CapOpen      = []string{"open"}
-	CapListen    = []string{"listen"}
-	CapRange     = []string{"range"}
-	CapChild     = []string{"child"}
-	CapRetry     = []string{"retry"}
-	CapTermios   = []string{"termios"}
-	CapPTY       = []string{"pty"}
-	CapParent    = []string{"parent"}
-	CapFork      = []string{"fork"}
-	CapExec      = []string{"exec"}
-	CapShell     = []string{"shell"}
-	CapSockUNIX  = []string{"sock-unix"}
-	CapIP6       = []string{"sock-ip6"}
-	CapIPTCP     = []string{"ip-tcp"}
-	CapSCTP      = []string{"ip-sctp"}
-	CapOpenSSL   = []string{"openssl"}
-	CapHTTP      = []string{"http"}
-	CapSocks     = []string{"socks"}
-	CapInterface = []string{"interface"}
-	CapPOSIXMQ   = []string{"posixmq"}
-	CapSocket    = []string{"socket"}
-	CapOpenFD    = []string{"open", "fd"}
-	CapFDNamed   = []string{"fd", "named"}
-	CapRegBlk    = []string{"reg", "blk"}
-	CapIP4IP6    = []string{"sock-ip4", "sock-ip6"}
-	CapIPApp     = []string{"ip-udp", "ip-tcp", "ip-sctp"}
+	capFD        = []string{CapFD}
+	capFIFO      = []string{CapFIFO}
+	capREG       = []string{CapREG}
+	capNamed     = []string{CapNamed}
+	capOpen      = []string{CapOpen}
+	capListen    = []string{CapListen}
+	capRange     = []string{CapRange}
+	capChild     = []string{CapChild}
+	capRetry     = []string{CapRetry}
+	capTermios   = []string{CapTermios}
+	capPTY       = []string{CapPTY}
+	capParent    = []string{CapParent}
+	capFork      = []string{CapFork}
+	capExec      = []string{CapExec}
+	capShell     = []string{CapShell}
+	capSockUNIX  = []string{CapSockUNIX}
+	capIP6       = []string{CapSockIP6}
+	capIPTCP     = []string{CapIPTCP}
+	capSCTP      = []string{CapIPSCTP}
+	capOpenSSL   = []string{CapOpenSSL}
+	capHTTP      = []string{CapHTTP}
+	capSocks     = []string{CapSocks}
+	capInterface = []string{CapInterface}
+	capPOSIXMQ   = []string{CapPOSIXMQ}
+	capSocket    = []string{CapSocket}
+	capOpenFD    = []string{CapOpen, CapFD}
+	capFDNamed   = []string{CapFD, CapNamed}
+	capRegBlk    = []string{CapREG, CapBLK}
+	capIP4IP6    = []string{CapSockIP4, CapSockIP6}
+	capIPApp     = []string{CapIPUDP, CapIPTCP, CapIPSCTP}
 )
 
-// Address help-section groups. Values match xio.Group*.
+// Address groups shared by registrations and option applicability.
 const (
 	GroupFiles     = "Files and stdio"
 	GroupTCP       = "TCP"

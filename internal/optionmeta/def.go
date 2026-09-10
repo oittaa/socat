@@ -13,9 +13,6 @@ import (
 // (and ioctl in xio). Zero means no dedicated validator.
 type ValueKind uint8
 
-// CLIValueKind is the historical name used by hidden TLS entries.
-type CLIValueKind = ValueKind
-
 const (
 	ValueNone ValueKind = iota
 	RequiredString
@@ -53,30 +50,15 @@ const (
 	HelpHidden
 )
 
-// AdvertiseOn is which GOOS values list the option in help.
+// AdvertiseOn selects the supported platforms that list an option in help.
 type AdvertiseOn uint8
 
 const (
-	AdvertiseAll AdvertiseOn = iota
-	AdvertiseLinux
-	AdvertiseDarwin
-	AdvertiseWindows
-	AdvertiseLinuxDarwin
-	AdvertiseLinuxWindows
-	AdvertiseDarwinWindows
-	AdvertiseNone
-)
-
-// PlatformClass is a named hide-test category. Help still uses AdvertiseOn;
-// these tags preserve the existing per-family hide helpers.
-type PlatformClass uint8
-
-const (
-	PlatformNone PlatformClass = iota
-	PlatformDarwinIPRecv
-	PlatformLinuxRemainingIPv4
-	PlatformLinuxIPv6RecvExt
-	PlatformLinuxRecvErr
+	AdvertiseAll         AdvertiseOn = 0
+	AdvertiseLinux       AdvertiseOn = 1 << 0
+	AdvertiseDarwin      AdvertiseOn = 1 << 1
+	AdvertiseWindows     AdvertiseOn = 1 << 2
+	AdvertiseLinuxDarwin             = AdvertiseLinux | AdvertiseDarwin
 )
 
 // Applicability is which addresses may take an option. It is independent of
@@ -92,12 +74,11 @@ type Applicability struct {
 	ImplSet       string
 }
 
-// Def is one option family: identity, aliases, help, value contract, and
-// applicability. ParserAliases fold at parse time. PublicAliases are listed
-// in -hhh and recognized by CLI spelling lookup; they need not be parser
-// aliases. Runtime switches may still match public spellings that do not fold.
+// Def describes one option. Aliases both fold and appear in help;
+// ParserAliases and PublicAliases are exceptions with only one of those roles.
 type Def struct {
 	Canonical       string
+	Aliases         []string
 	ParserAliases   []string
 	PublicAliases   []string
 	Help            HelpVisibility
@@ -107,7 +88,6 @@ type Def struct {
 	Value           ValueKind
 	Apply           Applicability
 	Advertise       AdvertiseOn
-	Platform        PlatformClass
 	TLSRejectReason string
 	Kernel          string
 	Isolation       bool
@@ -147,6 +127,7 @@ func copyStrings(in []string) []string {
 }
 
 func copyDef(d Def) Def {
+	d.Aliases = copyStrings(d.Aliases)
 	d.ParserAliases = copyStrings(d.ParserAliases)
 	d.PublicAliases = copyStrings(d.PublicAliases)
 	d.Apply.Caps = copyStrings(d.Apply.Caps)
@@ -156,28 +137,28 @@ func copyDef(d Def) Def {
 	return d
 }
 
-// HiddenOn reports whether help should omit this option on goos.
-func HiddenOn(d Def, goos string) bool {
-	switch d.Advertise {
-	case AdvertiseAll:
-		return false
-	case AdvertiseLinux:
-		return goos != "linux"
-	case AdvertiseDarwin:
-		return goos != "darwin"
-	case AdvertiseWindows:
-		return goos != "windows"
-	case AdvertiseLinuxDarwin:
-		return goos != "linux" && goos != "darwin"
-	case AdvertiseLinuxWindows:
-		return goos != "linux" && goos != "windows"
-	case AdvertiseDarwinWindows:
-		return goos != "darwin" && goos != "windows"
-	case AdvertiseNone:
-		return true
-	default:
-		return false
-	}
+// Hidden reports whether the current build omits this option from help.
+func Hidden(d Def) bool {
+	return d.Advertise != AdvertiseAll && d.Advertise&currentPlatform == 0
+}
+
+// ParseAliases returns every spelling that folds onto the canonical name.
+func (d Def) ParseAliases() []string {
+	return append(copyStrings(d.Aliases), d.ParserAliases...)
+}
+
+// HelpAliases returns the aliases advertised with this option.
+func (d Def) HelpAliases() []string {
+	return append(copyStrings(d.Aliases), d.PublicAliases...)
+}
+
+// Names returns each recognized spelling once, including the canonical name.
+func (d Def) Names() []string {
+	names := make([]string, 0, 1+len(d.Aliases)+len(d.ParserAliases)+len(d.PublicAliases))
+	names = append(names, d.Canonical)
+	names = append(names, d.Aliases...)
+	names = append(names, d.ParserAliases...)
+	return append(names, d.PublicAliases...)
 }
 
 func knownTypeSet(set string) bool {

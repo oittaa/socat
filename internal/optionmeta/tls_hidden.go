@@ -6,7 +6,7 @@ var hiddenTLSDefs = []Def{
 		ParserAliases:   []string{"opensslmethod", "method"},
 		Help:            HelpHidden,
 		Value:           RequiredString,
-		Apply:           Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups()},
+		Apply:           Applicability{Caps: capOpenSSL, AddressGroups: tlsAddressGroups()},
 		TLSRejectReason: "stream TLS only",
 	},
 	{
@@ -14,7 +14,7 @@ var hiddenTLSDefs = []Def{
 		ParserAliases:   []string{"fips"},
 		Help:            HelpHidden,
 		Value:           OptionalBool,
-		Apply:           Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups()},
+		Apply:           Applicability{Caps: capOpenSSL, AddressGroups: tlsAddressGroups()},
 		TLSRejectReason: "Go crypto/tls has no OpenSSL FIPS module",
 	},
 	{
@@ -22,7 +22,7 @@ var hiddenTLSDefs = []Def{
 		ParserAliases:   []string{"egd"},
 		Help:            HelpHidden,
 		Value:           RequiredString,
-		Apply:           Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups()},
+		Apply:           Applicability{Caps: capOpenSSL, AddressGroups: tlsAddressGroups()},
 		TLSRejectReason: "Go does not use EGD for randomness",
 	},
 	{
@@ -30,7 +30,7 @@ var hiddenTLSDefs = []Def{
 		ParserAliases:   []string{"pseudo"},
 		Help:            HelpHidden,
 		Value:           OptionalBool,
-		Apply:           Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups()},
+		Apply:           Applicability{Caps: capOpenSSL, AddressGroups: tlsAddressGroups()},
 		TLSRejectReason: "Go crypto/tls does not use OpenSSL pseudo-random bytes",
 	},
 	{
@@ -38,7 +38,7 @@ var hiddenTLSDefs = []Def{
 		ParserAliases:   []string{"openssl-dhparams", "dhparam", "dhparams", "dh"},
 		Help:            HelpHidden,
 		Value:           RequiredString,
-		Apply:           Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups()},
+		Apply:           Applicability{Caps: capOpenSSL, AddressGroups: tlsAddressGroups()},
 		TLSRejectReason: "Go crypto/tls does not load DH parameters",
 	},
 	{
@@ -46,7 +46,7 @@ var hiddenTLSDefs = []Def{
 		ParserAliases:   []string{"maxfraglen"},
 		Help:            HelpHidden,
 		Value:           OptionalSignedInteger,
-		Apply:           Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups()},
+		Apply:           Applicability{Caps: capOpenSSL, AddressGroups: tlsAddressGroups()},
 		TLSRejectReason: "Go crypto/tls has no max fragment length option",
 	},
 	{
@@ -54,7 +54,7 @@ var hiddenTLSDefs = []Def{
 		ParserAliases:   []string{"maxsendfrag"},
 		Help:            HelpHidden,
 		Value:           OptionalSignedInteger,
-		Apply:           Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups()},
+		Apply:           Applicability{Caps: capOpenSSL, AddressGroups: tlsAddressGroups()},
 		TLSRejectReason: "Go crypto/tls has no max send fragment option",
 	},
 }
@@ -64,7 +64,7 @@ var hiddenTLSDefs = []Def{
 type UnsupportedTLSOption struct {
 	Canonical       string
 	Aliases         []string
-	CLIValue        CLIValueKind
+	CLIValue        ValueKind
 	TLSRejectReason string
 }
 
@@ -77,7 +77,7 @@ func UnsupportedTLS() []UnsupportedTLSOption {
 		}
 		out = append(out, UnsupportedTLSOption{
 			Canonical:       d.Canonical,
-			Aliases:         copyStrings(d.ParserAliases),
+			Aliases:         d.ParseAliases(),
 			CLIValue:        d.Value,
 			TLSRejectReason: d.TLSRejectReason,
 		})

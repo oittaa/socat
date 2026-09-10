@@ -5,14 +5,14 @@ var getOnlyIPv4Defs = []Def{
 		Canonical:     "ip-mtu",
 		ParserAliases: []string{"ipmtu", "mtu"},
 		Help:          HelpHidden,
-		Apply:         Applicability{Caps: CapIP4IP6},
+		Apply:         Applicability{Caps: capIP4IP6},
 		Kernel:        "IP_MTU",
 	},
 	{
 		Canonical:     "ip-pktoptions",
 		ParserAliases: []string{"ippktoptions", "pktoptions", "pktopts"},
 		Help:          HelpHidden,
-		Apply:         Applicability{Caps: CapIP4IP6},
+		Apply:         Applicability{Caps: capIP4IP6},
 		Kernel:        "IP_PKTOPTIONS",
 	},
 }
@@ -34,7 +34,7 @@ func GetOnlyIPv4() []GetOnlyIPv4Option {
 		}
 		out = append(out, GetOnlyIPv4Option{
 			Canonical: d.Canonical,
-			Aliases:   copyStrings(d.ParserAliases),
+			Aliases:   d.ParseAliases(),
 			Kernel:    d.Kernel,
 		})
 	}

@@ -2,7 +2,6 @@ package xio
 
 import (
 	"fmt"
-	"runtime"
 	"strings"
 
 	"github.com/oittaa/socat/internal/optionmeta"
@@ -161,9 +160,7 @@ func IPAncillaryNames() []string {
 		if !ok {
 			continue
 		}
-		out = append(out, d.Canonical)
-		out = append(out, d.ParserAliases...)
-		out = append(out, d.PublicAliases...)
+		out = append(out, d.Names()...)
 	}
 	return out
 }
@@ -198,22 +195,7 @@ func IPAncillarySupported(group, optionName string) bool {
 }
 
 func (e IPAncillaryEntry) supportedOnThisPlatform() bool {
-	if e.platforms == 0 {
-		return true
-	}
-	if runtime.GOOS == "windows" {
-		return e.platforms&ipAncillaryWindows != 0
-	}
-	if e.platforms&ipAncillaryLinux != 0 && runtime.GOOS == "linux" {
-		return true
-	}
-	if runtime.GOOS == "darwin" {
-		if e.platforms&ipAncillaryDarwin != 0 {
-			return true
-		}
-		return e.platforms&ipAncillaryUnix != 0
-	}
-	return e.platforms&ipAncillaryUnix != 0
+	return e.platforms == 0 || e.platforms&ipAncillaryThisPlatform != 0
 }
 
 func (e IPAncillaryEntry) supportedOnFamily(family ipFamily) bool {
@@ -335,11 +317,7 @@ func (e IPAncillaryEntry) names() []string {
 	if !ok {
 		return []string{e.Canonical}
 	}
-	out := make([]string, 0, 1+len(d.ParserAliases)+len(d.PublicAliases))
-	out = append(out, d.Canonical)
-	out = append(out, d.ParserAliases...)
-	out = append(out, d.PublicAliases...)
-	return out
+	return d.Names()
 }
 
 func ipSendRequested(s parse.Spec) bool {

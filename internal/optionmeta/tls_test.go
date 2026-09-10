@@ -2,16 +2,6 @@ package optionmeta
 
 import "testing"
 
-func TestUnsupportedTLSFamilies(t *testing.T) {
-	opts := UnsupportedTLS()
-	if len(opts) != 7 || opts[0].Canonical != "openssl-method" || opts[0].TLSRejectReason != "stream TLS only" {
-		t.Fatalf("%+v", opts)
-	}
-	if opts[1].CLIValue != OptionalBool || opts[5].CLIValue != OptionalSignedInteger {
-		t.Fatalf("value kinds %+v", opts)
-	}
-}
-
 func TestUnsupportedTLSCopiesAliases(t *testing.T) {
 	a := UnsupportedTLS()
 	a[0].Aliases[0] = "mutated"

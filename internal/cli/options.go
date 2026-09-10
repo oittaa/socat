@@ -35,13 +35,17 @@ type addressOption struct {
 var supportedAddressOptions = buildSupportedAddressOptions()
 
 func buildSupportedAddressOptions() map[string]addressOption {
+	return addressOptionsFromDefs(optionmeta.All())
+}
+
+func addressOptionsFromDefs(defs []optionmeta.Def) map[string]addressOption {
 	options := make(map[string]addressOption)
-	for _, def := range optionmeta.All() {
+	for _, def := range defs {
 		if def.Isolation {
 			continue
 		}
 		spec := addressOptionFromDef(def)
-		for _, name := range cliSpellings(def) {
+		for _, name := range def.Names() {
 			key := strings.ToLower(name)
 			if _, exists := options[key]; exists {
 				panic("duplicate address option " + key)
@@ -589,7 +593,7 @@ func helpOptionGroups() []helpOptGroup {
 			opt := helpOpt{
 				name:    def.Canonical,
 				desc:    def.Desc,
-				aliases: def.PublicAliases,
+				aliases: def.HelpAliases(),
 			}
 			if def.DynamicDesc == "unix-socktype" {
 				opt.dynamicDesc = xio.UnixSocktypeHelp

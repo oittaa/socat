@@ -4,27 +4,29 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/oittaa/socat/internal/optionmeta"
 )
 
 // Help section titles. RegisterAddress Group values must use these so
 // defaultGroupOrder stays in sync.
 const (
-	GroupFiles     = "Files and stdio"
-	GroupTCP       = "TCP"
-	GroupUDP       = "UDP"
-	GroupRawIP     = "Raw IP"
-	GroupUnix      = "UNIX and abstract"
-	GroupSocket    = "Generic socket"
-	GroupProcess   = "Process"
-	GroupDTLS      = "Datagram TLS 1.3"
-	GroupTLS       = "TLS (OPENSSL/SSL aliases)"
-	GroupProxy     = "PROXY and SOCKS"
-	GroupTUN       = "Linux TUN / INTERFACE"
-	GroupWebSocket = "WebSocket (Go extra)" // #nosec G101 -- help section title, not a secret
-	GroupQUIC      = "QUIC (Go extra, not HTTP/3)"
-	GroupSCTP      = "SCTP (Linux)"
-	GroupVSOCK     = "VSOCK (Linux)"
-	GroupPOSIXMQ   = "POSIX message queues (Linux)"
+	GroupFiles     = optionmeta.GroupFiles
+	GroupTCP       = optionmeta.GroupTCP
+	GroupUDP       = optionmeta.GroupUDP
+	GroupRawIP     = optionmeta.GroupRawIP
+	GroupUnix      = optionmeta.GroupUnix
+	GroupSocket    = optionmeta.GroupSocket
+	GroupProcess   = optionmeta.GroupProcess
+	GroupDTLS      = optionmeta.GroupDTLS
+	GroupTLS       = optionmeta.GroupTLS
+	GroupProxy     = optionmeta.GroupProxy
+	GroupTUN       = optionmeta.GroupTUN
+	GroupWebSocket = optionmeta.GroupWebSocket
+	GroupQUIC      = optionmeta.GroupQUIC
+	GroupSCTP      = optionmeta.GroupSCTP
+	GroupVSOCK     = optionmeta.GroupVSOCK
+	GroupPOSIXMQ   = optionmeta.GroupPOSIXMQ
 )
 
 // HelpAddr represents a single address entry in help output.

@@ -39,28 +39,19 @@ func init() {
 	parserAliasMap = make(map[string]string)
 	isolationByName = make(map[string]string)
 	for i, d := range catalog {
-		registerSpelling(d.Canonical, i)
-		for _, alias := range d.ParserAliases {
-			registerSpelling(alias, i)
-			parserAliasMap[alias] = d.Canonical
+		for _, name := range d.Names() {
+			bySpelling[name] = i
 		}
-		for _, alias := range d.PublicAliases {
-			registerSpelling(alias, i)
+		for _, alias := range d.ParseAliases() {
+			parserAliasMap[alias] = d.Canonical
 		}
 		if d.Isolation {
 			isolationByName[d.Canonical] = d.Canonical
-			for _, alias := range d.ParserAliases {
+			for _, alias := range d.ParseAliases() {
 				isolationByName[alias] = d.Canonical
 			}
 		}
 	}
-}
-
-func registerSpelling(name string, index int) {
-	if prev, ok := bySpelling[name]; ok && prev != index {
-		panic("duplicate option spelling " + name)
-	}
-	bySpelling[name] = index
 }
 
 func validateCatalog(defs []Def) error {
@@ -70,7 +61,7 @@ func validateCatalog(defs []Def) error {
 		if err := validateMetaName(name, kind); err != nil {
 			return fmt.Errorf("%s: %w", canonical, err)
 		}
-		if owner, ok := seenSpelling[name]; ok && owner != canonical {
+		if owner, ok := seenSpelling[name]; ok {
 			return fmt.Errorf("spelling %q claimed by %q and %q", name, owner, canonical)
 		}
 		seenSpelling[name] = canonical
@@ -90,6 +81,12 @@ func validateCatalog(defs []Def) error {
 		if err := validateValueKind(d.Value); err != nil {
 			return fmt.Errorf("%s: %w", d.Canonical, err)
 		}
+		if d.Help != HelpAdvertised && d.Help != HelpHidden {
+			return fmt.Errorf("%s: unknown help visibility %d", d.Canonical, d.Help)
+		}
+		if d.Advertise & ^(AdvertiseLinux|AdvertiseDarwin|AdvertiseWindows) != 0 {
+			return fmt.Errorf("%s: unknown help platform %d", d.Canonical, d.Advertise)
+		}
 		if !knownSection(d.Section, d.Help) {
 			return fmt.Errorf("%s: unknown help section %q", d.Canonical, d.Section)
 		}
@@ -108,19 +105,8 @@ func validateCatalog(defs []Def) error {
 		if d.Kernel != "" && d.Help != HelpHidden {
 			return fmt.Errorf("%s: get-only options are not advertised", d.Canonical)
 		}
-		for _, alias := range d.ParserAliases {
-			if alias == d.Canonical {
-				return fmt.Errorf("%s: parser alias repeats canonical name", d.Canonical)
-			}
-			if err := claim(alias, d.Canonical, "parser alias"); err != nil {
-				return err
-			}
-		}
-		for _, alias := range d.PublicAliases {
-			if alias == d.Canonical {
-				return fmt.Errorf("%s: public alias repeats canonical name", d.Canonical)
-			}
-			if err := claim(alias, d.Canonical, "public alias"); err != nil {
+		for _, alias := range d.Names()[1:] {
+			if err := claim(alias, d.Canonical, "alias"); err != nil {
 				return err
 			}
 		}
@@ -153,15 +139,6 @@ func ParserCanonical(name string) string {
 		return c
 	}
 	return n
-}
-
-// ParserAliasMap is alias → canonical for parse folding.
-func ParserAliasMap() map[string]string {
-	out := make(map[string]string, len(parserAliasMap))
-	for k, v := range parserAliasMap {
-		out[k] = v
-	}
-	return out
 }
 
 // AdvertisedIn returns advertised options in one help section, catalog order.
@@ -211,7 +188,7 @@ func IsPathValue(canonical string) bool {
 	return ok && d.PathValue
 }
 
-// AncillaryCanonicals are the 21 IP ancillary families.
+// AncillaryCanonicals returns the IP ancillary families.
 func AncillaryCanonicals() []string {
 	var out []string
 	for _, d := range catalog {
@@ -220,32 +197,4 @@ func AncillaryCanonicals() []string {
 		}
 	}
 	return out
-}
-
-// HideDarwinOnlyIPRecv hides Darwin-only IP recv names on other GOOS values.
-func HideDarwinOnlyIPRecv(name, goos string) bool {
-	return hidePlatformClass(name, goos, PlatformDarwinIPRecv, "darwin")
-}
-
-// HideLinuxOnlyRemainingIPv4 hides Linux-only remaining IPv4 names off Linux.
-func HideLinuxOnlyRemainingIPv4(name, goos string) bool {
-	return hidePlatformClass(name, goos, PlatformLinuxRemainingIPv4, "linux")
-}
-
-// HideLinuxOnlyIPv6RecvExt hides Linux-only IPv6 recv-ext names off Linux.
-func HideLinuxOnlyIPv6RecvExt(name, goos string) bool {
-	return hidePlatformClass(name, goos, PlatformLinuxIPv6RecvExt, "linux")
-}
-
-// HideLinuxOnlyRecvErr hides ip-recverr off Linux.
-func HideLinuxOnlyRecvErr(name, goos string) bool {
-	return hidePlatformClass(name, goos, PlatformLinuxRecvErr, "linux")
-}
-
-func hidePlatformClass(name, goos string, class PlatformClass, only string) bool {
-	d, ok := Lookup(name)
-	if !ok || d.Platform != class {
-		return false
-	}
-	return goos != only
 }
