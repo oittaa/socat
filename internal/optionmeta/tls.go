@@ -1,5 +1,5 @@
-// Package optionmeta holds hidden TLS option recognition entries shared by
-// the parser, CLI, and TLS configuration.
+// Package optionmeta holds hidden option recognition entries shared by
+// the parser, CLI, and runtime.
 package optionmeta
 
 import (

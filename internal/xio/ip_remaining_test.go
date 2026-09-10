@@ -15,6 +15,7 @@ func TestRejectUnsupportedGetOnlyIPv4(t *testing.T) {
 		"UDP4:127.0.0.1:1,ip-pktoptions",
 		"UDP:127.0.0.1:1,pktopts",
 		"TCP4:127.0.0.1:1,pktoptions=1",
+		"UDP4:127.0.0.1:1,ippktoptions",
 	} {
 		s, err := parse.ParseSpec(spec)
 		if err != nil {
@@ -42,9 +43,26 @@ func TestGetOnlyIPv4OptionNamesCoverAliases(t *testing.T) {
 	for _, name := range GetOnlyIPv4OptionNames() {
 		got[name] = true
 	}
-	for _, name := range []string{"ip-mtu", "mtu", "ip-pktoptions", "pktopts"} {
+	for _, name := range []string{
+		"ip-mtu", "ipmtu", "mtu",
+		"ip-pktoptions", "ippktoptions", "pktoptions", "pktopts",
+	} {
 		if !got[name] {
 			t.Errorf("missing %q", name)
+		}
+	}
+}
+
+func TestApplyGetOnlyIPOptionRejectsAllSpellings(t *testing.T) {
+	opts := []parse.Option{
+		{Name: "ip-mtu"}, {Name: "ipmtu"}, {Name: "mtu"},
+		{Name: "ip-pktoptions"}, {Name: "ippktoptions"}, {Name: "pktoptions"}, {Name: "pktopts"},
+		{Name: "other", Spelling: " IP-MTU "},
+	}
+	for _, o := range opts {
+		matched, err := applyGetOnlyIPOption(-1, o)
+		if !matched || err == nil || !strings.Contains(err.Error(), "get-only") {
+			t.Errorf("%+v: matched=%v err=%v", o, matched, err)
 		}
 	}
 }
