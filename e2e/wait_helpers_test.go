@@ -47,8 +47,19 @@ func TestWaitTCPListenDetectsEarlyExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(proc.stop)
-	if err := waitTCPTestProcess(proc, port, 2*time.Second); err == nil {
+	requireWaitFailedAfterChildExit(t, waitTCPTestProcess(proc, port, 2*time.Second))
+}
+
+func requireWaitFailedAfterChildExit(t *testing.T, err error) {
+	t.Helper()
+	if err == nil {
 		t.Fatal("expected wait to fail after child exit")
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("wait timed out instead of detecting child exit: %v", err)
+	}
+	if !errors.Is(err, errProcessExitedWhileWaiting) {
+		t.Fatalf("error=%v want process exited while waiting", err)
 	}
 }
 

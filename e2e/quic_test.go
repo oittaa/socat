@@ -164,9 +164,7 @@ func TestWaitUDPListenDetectsEarlyExit(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(proc.stop)
-	if err := waitUDPTestProcess(proc, port, 2*time.Second); err == nil {
-		t.Fatal("waitUDPTestProcess succeeded after the UDP server exited")
-	}
+	requireWaitFailedAfterChildExit(t, waitUDPTestProcess(proc, port, 2*time.Second))
 }
 
 type e2eTrustCerts struct {

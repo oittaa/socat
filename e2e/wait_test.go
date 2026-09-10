@@ -5,6 +5,7 @@ package e2e_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,6 +15,8 @@ import (
 	"testing"
 	"time"
 )
+
+var errProcessExitedWhileWaiting = errors.New("process exited while waiting")
 
 const listenProbeInterval = 20 * time.Millisecond
 
@@ -74,9 +77,9 @@ func waitUntil(ctx context.Context, p *testProcess, probe func() (bool, error)) 
 func processExitedWhileWaiting(p *testProcess) error {
 	err, _ := p.status()
 	if err != nil {
-		return fmt.Errorf("process exited while waiting: %w", err)
+		return fmt.Errorf("%w: %w", errProcessExitedWhileWaiting, err)
 	}
-	return fmt.Errorf("process exited while waiting")
+	return errProcessExitedWhileWaiting
 }
 
 func waitTCPTestProcess(p *testProcess, port int, timeout time.Duration) error {

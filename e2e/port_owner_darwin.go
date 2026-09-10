@@ -65,7 +65,6 @@ int socat_e2e_pid_listens(int pid, int is_udp, int port) {
 import "C"
 
 import (
-	"fmt"
 	"net"
 	"strconv"
 	"strings"
@@ -85,12 +84,6 @@ func ProcessListens(pid int, network, addr string) (bool, error) {
 	if strings.HasPrefix(network, "udp") {
 		isUDP = 1
 	}
-	n, err := C.socat_e2e_pid_listens(C.int(pid), C.int(isUDP), C.int(port))
-	if err != nil {
-		return false, err
-	}
-	if int(n) < 0 {
-		return false, fmt.Errorf("proc_pidinfo: memory allocation failed")
-	}
-	return n > 0, nil
+	n, errno := C.socat_e2e_pid_listens(C.int(pid), C.int(isUDP), C.int(port))
+	return listenOwnerFromC(int(n), errno)
 }
