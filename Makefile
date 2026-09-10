@@ -1,4 +1,4 @@
-.PHONY: all build fmt fmt-check lint gosec goos-check test e2e e2e-cover coverage check classic-parity update-scorecard fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
+.PHONY: all build fmt fmt-check lint gosec goos-check test test-classic-parity e2e e2e-cover coverage check classic-parity update-scorecard fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -53,8 +53,12 @@ gosec:
 goos-check:
 	go run $(GOFLAGS) ./scripts/gooscheck
 
-test: fmt-check
+test: fmt-check test-classic-parity
 	go test $(GOFLAGS) ./...
+
+# Offline tests of the parity checker and its committed policy.
+test-classic-parity:
+	$(PYTHON) -B -m unittest discover -s scripts -p 'test_classic_parity.py'
 
 e2e: build
 	go test $(GOFLAGS) -tags=e2e ./e2e/...

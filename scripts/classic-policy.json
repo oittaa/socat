@@ -231,6 +231,7 @@
       "ip-mtu-discover",
       "mtudiscover",
       "ipmtudiscover",
+      "ip-recverr",
       "ipv6-mtu-discover",
       "mtudiscover6",
       "ip-retopts",
