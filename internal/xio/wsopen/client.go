@@ -19,6 +19,9 @@ import (
 )
 
 func openWSConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	if err := tlsopen.RejectHiddenTLSOnPlaintext(s); err != nil {
+		return nil, err
+	}
 	return openWSConnectScheme(ctx, s, mode, g, "ws")
 }
 

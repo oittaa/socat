@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/tlsopen"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
@@ -25,6 +26,9 @@ func openSOCKS4AConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 }
 
 func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, socks4a bool) (*xio.Opened, error) {
+	if err := tlsopen.RejectHiddenTLSOnPlaintext(s); err != nil {
+		return nil, err
+	}
 	socksHost, socksPort, targetHost, targetPort, err := socksParams(s)
 	if err != nil {
 		return nil, err
@@ -164,6 +168,9 @@ func openSOCKS5Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 }
 
 func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, cmd byte) (*xio.Opened, error) {
+	if err := tlsopen.RejectHiddenTLSOnPlaintext(s); err != nil {
+		return nil, err
+	}
 	socksHost, socksPort, targetHost, targetPort, err := socksParams(s)
 	if err != nil {
 		return nil, err

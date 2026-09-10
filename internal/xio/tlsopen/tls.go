@@ -234,6 +234,35 @@ func rejectUnsupportedOpenSSLOptions(s parse.Spec) error {
 	return nil
 }
 
+var hiddenTLSCanonical = hiddenTLSCanonicals()
+
+func hiddenTLSCanonicals() map[string]struct{} {
+	out := make(map[string]struct{}, len(optionmeta.UnsupportedTLS()))
+	for _, opt := range optionmeta.UnsupportedTLS() {
+		out[opt.Canonical] = struct{}{}
+	}
+	return out
+}
+
+// RejectHiddenTLSOnPlaintext fails when a hidden OpenSSL family is present on
+// a path that will not configure TLS. Call after the opener has chosen a
+// plaintext transport. Last-wins selects the spelling in the error.
+func RejectHiddenTLSOnPlaintext(s parse.Spec) error {
+	typ := s.Type
+	if typ == "" {
+		typ = "address"
+	}
+	for i := len(s.Options) - 1; i >= 0; i-- {
+		option := s.Options[i]
+		canonical := parse.CanonicalOptionName(option.Name)
+		if _, ok := hiddenTLSCanonical[canonical]; !ok {
+			continue
+		}
+		return fmt.Errorf("%s: option %q does not apply to a plaintext transport", typ, option.OriginalSpelling())
+	}
+	return nil
+}
+
 func compatibleDisabledOpenSSLOption(canonical string, option parse.Option) bool {
 	switch canonical {
 	case "openssl-fips", "openssl-pseudo":
