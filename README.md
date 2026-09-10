@@ -283,6 +283,10 @@ address and option spellings are audited automatically. The
   back to an unintended interface.
 - On macOS, SIGILL follows the Go runtime's fatal-signal behavior rather than
   the classic caught-signal exit code.
+- `filan` reports FIONREAD as the signed queued-byte count. Official filan can
+  print a 64-bit value from an uninitialized `size_t`; that is not a byte count.
+- `filan` prints the full device pair. Official filan truncates that field to
+  eight bytes.
 
 ## Unsupported / security-related
 
