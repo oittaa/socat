@@ -37,7 +37,7 @@
     "substuser-early": "process-wide credentials; requires isolation",
     "udp-ignore-peerport": "documented but never implemented by the C binary",
     "iff-dynamic": "documented IFF_DYNAMIC; not registered as a public option",
-    "ipv6-recverr": "no MSG_ERRQUEUE receive path",
+    "ipv6-recverr": "undocumented spelling; the documented ip-recverr/IP_RECVERR is supported on Linux, but IPV6_RECVERR control messages are not decoded",
     "cool-write": "deprecated; use children-shutup",
     "so-bsdcompat": "Linux SO_BSDCOMPAT is a kernel no-op; not advertised",
     "tcp-info": "TCP_INFO is get-only structured state; not advertised as a setter",
