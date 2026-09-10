@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"strings"
 	"testing"
 	"time"
 )
@@ -20,8 +19,7 @@ func TestAcceptFDExtraFilesChild(t *testing.T) {
 		t.Fatal(err)
 	}
 	port := ln.Addr().(*net.TCPAddr).Port
-	tcpln := ln.(*net.TCPListener)
-	f, err := tcpln.File()
+	f, err := ln.(*net.TCPListener).File()
 	if err != nil {
 		_ = ln.Close()
 		t.Fatal(err)
@@ -29,25 +27,21 @@ func TestAcceptFDExtraFilesChild(t *testing.T) {
 
 	cmd := exec.Command(bin, "-t", "2", "ACCEPT-FD:3", "PIPE")
 	cmd.ExtraFiles = []*os.File{f}
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
+	proc, err := startTestProcess(cmd)
+	if err != nil {
 		_ = f.Close()
 		_ = ln.Close()
 		t.Fatal(err)
 	}
 	_ = f.Close()
 	_ = ln.Close()
-	defer func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	}()
+	t.Cleanup(proc.stop)
 
-	waitTCPListen(t, port, 5*time.Second)
+	waitTCPListen(t, proc, port, 5*time.Second)
 
 	cli, err := net.DialTimeout("tcp4", fmt.Sprintf("127.0.0.1:%d", port), 2*time.Second)
 	if err != nil {
-		t.Fatalf("dial: %v stderr=%s", err, stderr.String())
+		t.Fatalf("dial: %v stderr=%s", err, proc.stderr.String())
 	}
 	defer func() { _ = cli.Close() }()
 	payload := []byte("extrafiles-accept-fd")
@@ -57,10 +51,10 @@ func TestAcceptFDExtraFilesChild(t *testing.T) {
 	got := make([]byte, len(payload))
 	_ = cli.SetReadDeadline(time.Now().Add(3 * time.Second))
 	if _, err := io.ReadFull(cli, got); err != nil {
-		t.Fatalf("echo: %v stderr=%s", err, stderr.String())
+		t.Fatalf("echo: %v stderr=%s", err, proc.stderr.String())
 	}
 	if string(got) != string(payload) {
-		t.Fatalf("got %q want %q stderr=%s", got, payload, stderr.String())
+		t.Fatalf("got %q want %q stderr=%s", got, payload, proc.stderr.String())
 	}
 }
 
@@ -78,23 +72,19 @@ func TestAcceptAliasExtraFilesChild(t *testing.T) {
 	}
 	cmd := exec.Command(bin, "-t", "2", "ACCEPT:3", "PIPE")
 	cmd.ExtraFiles = []*os.File{f}
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
+	proc, err := startTestProcess(cmd)
+	if err != nil {
 		_ = f.Close()
 		_ = ln.Close()
 		t.Fatal(err)
 	}
 	_ = f.Close()
 	_ = ln.Close()
-	defer func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	}()
-	waitTCPListen(t, port, 5*time.Second)
+	t.Cleanup(proc.stop)
+	waitTCPListen(t, proc, port, 5*time.Second)
 	cli, err := net.DialTimeout("tcp4", fmt.Sprintf("127.0.0.1:%d", port), 2*time.Second)
 	if err != nil {
-		t.Fatalf("dial: %v stderr=%s", err, stderr.String())
+		t.Fatalf("dial: %v stderr=%s", err, proc.stderr.String())
 	}
 	defer func() { _ = cli.Close() }()
 	if _, err := cli.Write([]byte("alias")); err != nil {
@@ -103,9 +93,9 @@ func TestAcceptAliasExtraFilesChild(t *testing.T) {
 	got := make([]byte, 5)
 	_ = cli.SetReadDeadline(time.Now().Add(3 * time.Second))
 	if _, err := io.ReadFull(cli, got); err != nil {
-		t.Fatalf("echo: %v stderr=%s", err, stderr.String())
+		t.Fatalf("echo: %v stderr=%s", err, proc.stderr.String())
 	}
 	if string(got) != "alias" {
-		t.Fatalf("got %q stderr=%s", got, stderr.String())
+		t.Fatalf("got %q stderr=%s", got, proc.stderr.String())
 	}
 }

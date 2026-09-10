@@ -105,7 +105,9 @@ func TestDarwinIPRecvdstaddrRecvifUDP(t *testing.T) {
 		proc := startDarwinAncillaryRecv(t, "-d", "-d", "-d", "-u",
 			fmt.Sprintf("UDP4-RECV:%d,reuseaddr,ip-recvdstaddr,ip-recvif", port),
 			"STDOUT")
-		waitUDPListen(t, port, 2*time.Second, proc.cmd)
+		if err := waitUDPTestProcess(proc, port, 2*time.Second); err != nil {
+			t.Fatal(err)
+		}
 		send := func() error {
 			c, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
 			if err != nil {
@@ -142,7 +144,9 @@ func TestDarwinIPRecvdstaddrRecvifUDP(t *testing.T) {
 			}
 			<-proc.done
 		})
-		waitUDPListen(t, port, 2*time.Second, proc.cmd)
+		if err := waitUDPTestProcess(proc, port, 2*time.Second); err != nil {
+			t.Fatal(err)
+		}
 		send := func() error {
 			c, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
 			if err != nil {

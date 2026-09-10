@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"os/exec"
-	"strings"
 	"testing"
 	"time"
 )
@@ -25,19 +24,15 @@ func TestAcceptFDSystemdSocketActivate(t *testing.T) {
 	_ = ln.Close()
 
 	cmd := exec.Command("systemd-socket-activate", "-l", fmt.Sprintf("127.0.0.1:%d", port), "--inetd", bin, "-t", "2", "ACCEPT-FD:0", "PIPE")
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
+	proc, err := startTestProcess(cmd)
+	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	}()
-	waitTCPListen(t, port, 5*time.Second)
+	t.Cleanup(proc.stop)
+	waitTCPListen(t, proc, port, 5*time.Second)
 	cli, err := net.DialTimeout("tcp4", fmt.Sprintf("127.0.0.1:%d", port), 2*time.Second)
 	if err != nil {
-		t.Fatalf("dial: %v stderr=%s", err, stderr.String())
+		t.Fatalf("dial: %v stderr=%s", err, proc.stderr.String())
 	}
 	defer func() { _ = cli.Close() }()
 	payload := []byte("systemd-accept-fd")
@@ -47,9 +42,9 @@ func TestAcceptFDSystemdSocketActivate(t *testing.T) {
 	got := make([]byte, len(payload))
 	_ = cli.SetReadDeadline(time.Now().Add(3 * time.Second))
 	if _, err := io.ReadFull(cli, got); err != nil {
-		t.Fatalf("echo: %v stderr=%s", err, stderr.String())
+		t.Fatalf("echo: %v stderr=%s", err, proc.stderr.String())
 	}
 	if string(got) != string(payload) {
-		t.Fatalf("got %q want %q stderr=%s", got, payload, stderr.String())
+		t.Fatalf("got %q want %q stderr=%s", got, payload, proc.stderr.String())
 	}
 }

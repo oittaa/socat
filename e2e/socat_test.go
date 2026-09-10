@@ -100,81 +100,6 @@ func (p *testProcess) stop() {
 	<-p.done
 }
 
-func waitTCPTestProcess(p *testProcess, port int, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if err, exited := p.status(); exited {
-			return fmt.Errorf("server exited before listening: %v", err)
-		}
-		ln, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))
-		if err != nil {
-			// Give a child that just lost the bind race time to report its exit.
-			select {
-			case <-p.done:
-				exitErr, _ := p.status()
-				return fmt.Errorf("server exited before listening: %v", exitErr)
-			case <-time.After(20 * time.Millisecond):
-			}
-			return nil
-		}
-		_ = ln.Close()
-		time.Sleep(20 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for listen on %d", port)
-}
-
-func waitUDPTestProcess(p *testProcess, port int, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if err, exited := p.status(); exited {
-			return fmt.Errorf("server exited before listening: %v", err)
-		}
-		pc, err := net.ListenPacket("udp4", fmt.Sprintf("127.0.0.1:%d", port))
-		if err != nil {
-			select {
-			case <-p.done:
-				exitErr, _ := p.status()
-				return fmt.Errorf("server exited before listening: %v", exitErr)
-			case <-time.After(20 * time.Millisecond):
-			}
-			return nil
-		}
-		_ = pc.Close()
-		time.Sleep(20 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for UDP listen on %d", port)
-}
-
-func waitQUICTestProcess(p *testProcess, port int, timeout time.Duration) error {
-	marker := fmt.Sprintf("listening on 127.0.0.1:%d", port)
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if strings.Contains(p.stderr.String(), marker) {
-			return nil
-		}
-		if err, exited := p.status(); exited {
-			return fmt.Errorf("server exited before listening: %v", err)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	return fmt.Errorf("timeout waiting for QUIC listen on %d", port)
-}
-
-func waitProcessWarmup(p *testProcess, _ int, timeout time.Duration) error {
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case <-p.done:
-		err, _ := p.status()
-		return fmt.Errorf("server exited: %v", err)
-	case <-timer.C:
-		if err, exited := p.status(); exited {
-			return fmt.Errorf("server exited: %v", err)
-		}
-		return nil
-	}
-}
-
 // startTCPTestServer tolerates slow CI runners and the unavoidable race between
 // reserving a free port and binding it in a child process. Early child exits
 // retain stderr so a real startup failure is actionable instead of timing out.
@@ -190,16 +115,12 @@ func startUDPTestServer(t *testing.T, command func(port int) *exec.Cmd) (int, *t
 
 func startQUICTestServer(t *testing.T, command func(port int) *exec.Cmd) (int, *testProcess) {
 	t.Helper()
-	return startPortTestServer(t, udpListenerStartAttempts, tcpListenerStartupTimeout, freeUDPPort, waitQUICTestProcess, func(port int) *exec.Cmd {
-		cmd := command(port)
-		cmd.Args = append([]string{cmd.Args[0], "-d"}, cmd.Args[1:]...)
-		return cmd
-	})
+	return startPortTestServer(t, udpListenerStartAttempts, tcpListenerStartupTimeout, freeUDPPort, waitUDPTestProcess, command)
 }
 
 func startSCTPTestServer(t *testing.T, command func(port int) *exec.Cmd) (int, *testProcess) {
 	t.Helper()
-	return startPortTestServer(t, tcpListenerStartAttempts, 150*time.Millisecond, freeTCPPort, waitProcessWarmup, command)
+	return startPortTestServer(t, tcpListenerStartAttempts, tcpListenerStartupTimeout, freeTCPPort, waitSCTPTestProcess, command)
 }
 
 func startPortTestServer(t *testing.T, attempts int, timeout time.Duration, pickPort func(*testing.T) int, wait func(*testProcess, int, time.Duration) error, command func(port int) *exec.Cmd) (int, *testProcess) {
@@ -425,24 +346,6 @@ func freeUDPPort(t *testing.T) int {
 	return pc.LocalAddr().(*net.UDPAddr).Port
 }
 
-// waitTCPListen waits until something is listening without accepting a connection.
-// (Dialing would steal the single accept of non-fork TCP-LISTEN.)
-func waitTCPListen(t *testing.T, port int, timeout time.Duration) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		// Check by binding attempt? Better: look at /proc/net/tcp or just short sleep + retry client.
-		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
-		if err != nil {
-			// port in use — likely our server
-			return
-		}
-		ln.Close()
-		time.Sleep(20 * time.Millisecond)
-	}
-	t.Fatalf("timeout waiting for listen on %d", port)
-}
-
 // TCP4 — classic test.sh NAME=TCP4: echo via TCP V4
 func TestTCP4Echo(t *testing.T) {
 	bin := socatBin(t)
@@ -491,21 +394,15 @@ func TestUnixStreamEcho(t *testing.T) {
 	bin := socatBin(t)
 	sock := testutil.UnixSocketPath(t, "echo.sock")
 
-	srv := exec.Command(bin, fmt.Sprintf("UNIX-LISTEN:%s,unlink-early", sock), "PIPE")
-	if err := srv.Start(); err != nil {
+	proc, err := startTestProcess(exec.Command(bin, fmt.Sprintf("UNIX-LISTEN:%s,unlink-early", sock), "PIPE"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		_ = srv.Process.Kill()
-		_, _ = srv.Process.Wait()
-	}()
-
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(sock); err == nil {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
+	t.Cleanup(proc.stop)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := waitFileExists(ctx, sock, proc); err != nil {
+		t.Fatal(err)
 	}
 
 	payload := "unix-stream-test\n"
@@ -586,23 +483,14 @@ func TestSCTP4Echo(t *testing.T) {
 	})
 
 	payload := fmt.Sprintf("test SCTP4 %d\n", time.Now().UnixNano())
-	pr, pw := io.Pipe()
-	go func() {
-		_, _ = io.WriteString(pw, payload)
-		// RFC 9260: no TCP-style half-close; keep the association up briefly.
-		time.Sleep(400 * time.Millisecond)
-		_ = pw.Close()
-	}()
-	cli := exec.Command(bin, "-", fmt.Sprintf("SCTP4:127.0.0.1:%d", port))
-	cli.Stdin = pr
-	var out, errb bytes.Buffer
-	cli.Stdout = &out
-	cli.Stderr = &errb
-	if err := cli.Run(); err != nil {
-		t.Fatalf("client: %v server=%s client=%s", err, srv.stderr.String(), errb.String())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, errb, err := runSCTPEcho(ctx, bin, []string{"-", fmt.Sprintf("SCTP4:127.0.0.1:%d", port)}, []byte(payload))
+	if err != nil {
+		t.Fatalf("client: %v server=%s client=%s", err, srv.stderr.String(), errb)
 	}
-	if !bytes.Contains(out.Bytes(), []byte(strings.TrimSpace(payload))) && !bytes.Contains(out.Bytes(), []byte(payload)) {
-		t.Fatalf("echo mismatch out=%q server=%s client=%s", out.Bytes(), srv.stderr.String(), errb.String())
+	if !bytes.Contains(out, []byte(strings.TrimSpace(payload))) && !bytes.Contains(out, []byte(payload)) {
+		t.Fatalf("echo mismatch out=%q server=%s client=%s", out, srv.stderr.String(), errb)
 	}
 }
 

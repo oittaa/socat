@@ -6,11 +6,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -71,7 +69,6 @@ func TestRelayMatrixQUIC(t *testing.T) {
 		startPort:   startQUICTestServer,
 		clientArgs:  []string{"-t", "2"},
 		serverArgs:  []string{"-t", "2"},
-		retries:     3,
 	})
 }
 
@@ -95,7 +92,7 @@ func TestRelayMatrixSCTP4(t *testing.T) {
 func TestRelayMatrixFILE(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "out.bin")
-	out, errb, err := runSocat(t, []byte(matrixPayload), "-u", "STDIN", "CREATE:"+path)
+	out, errb, err := runMatrixSocat(t, []byte(matrixPayload), "-u", "STDIN", "CREATE:"+path)
 	if err != nil {
 		t.Fatalf("CREATE: %v out=%q err=%s", err, out, errb)
 	}
@@ -111,7 +108,7 @@ func TestRelayMatrixFILE(t *testing.T) {
 	if err := os.WriteFile(readPath, []byte(matrixPayload), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out, errb, err = runSocat(t, nil, "-u", "OPEN:"+readPath, "STDOUT")
+	out, errb, err = runMatrixSocat(t, nil, "-u", "OPEN:"+readPath, "STDOUT")
 	if err != nil {
 		t.Fatalf("OPEN: %v out=%q err=%s", err, out, errb)
 	}
@@ -128,21 +125,17 @@ func TestRelayMatrixUDP4OneWay(t *testing.T) {
 			"CREATE:"+path,
 		)
 	})
-	_, errb, err := runSocat(t, []byte(matrixPayload), "-t", "2", "-u", "STDIN",
+	_, errb, err := runMatrixSocat(t, []byte(matrixPayload), "-t", "2", "-u", "STDIN",
 		fmt.Sprintf("UDP4-SENDTO:127.0.0.1:%d", port))
 	if err != nil {
 		t.Fatalf("UDP send: %v err=%s srv=%s", err, errb, srv.stderr.String())
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	var got []byte
-	for time.Now().Before(deadline) {
-		got, err = os.ReadFile(path)
-		if err == nil && string(got) == matrixPayload {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := waitFileEqual(ctx, path, []byte(matrixPayload), srv); err != nil {
+		got, _ := os.ReadFile(path)
+		t.Fatalf("UDP file %q wait=%v srv=%s", got, err, srv.stderr.String())
 	}
-	t.Fatalf("UDP file %q err=%v srv=%s", got, err, srv.stderr.String())
 }
 
 func TestRelayMatrixBridgeTCPUNIX(t *testing.T) {
@@ -200,7 +193,6 @@ type streamFamily struct {
 	unix        bool
 	clientArgs  []string
 	serverArgs  []string
-	retries     int
 	sctpEcho    bool
 	skipU       bool
 	skipOneWay  bool
@@ -222,21 +214,28 @@ func (f streamFamily) connectSpec(port int) string {
 	return spec + "," + f.connectOpt
 }
 
-func startFamilyServer(t *testing.T, f streamFamily, extraLeft []string, right string) (connectSpec string, serverErr func() string) {
+func startFamilyServer(t *testing.T, f streamFamily, extraLeft []string, right string) (connectSpec string, server *testProcess) {
 	t.Helper()
 	if f.unix {
 		listenSpec, connectSpec := unixListenSpec(t)
-		stderr := &bytes.Buffer{}
 		args := append(append([]string{}, extraLeft...), listenSpec, right)
-		startSocat(t, stderr, args...)
-		waitUnixPath(t, listenSpec)
-		return connectSpec, stderr.String
+		proc, err := startTestProcess(exec.Command(socatBin(t), args...))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(proc.stop)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if err := waitFileExists(ctx, unixPathFromSpec(listenSpec), proc); err != nil {
+			t.Fatalf("UNIX listen %s: %v stderr=%s", listenSpec, err, proc.stderr.String())
+		}
+		return connectSpec, proc
 	}
 	port, proc := f.startPort(t, func(port int) *exec.Cmd {
 		args := append(append([]string{}, extraLeft...), f.listenSpec(port), right)
 		return exec.Command(socatBin(t), args...)
 	})
-	return f.connectSpec(port), proc.stderr.String
+	return f.connectSpec(port), proc
 }
 
 func runStreamFamilyMatrix(t *testing.T, f streamFamily) {
@@ -258,82 +257,52 @@ func runStreamFamilyMatrix(t *testing.T, f streamFamily) {
 
 func matrixBidir(t *testing.T, f streamFamily) {
 	t.Helper()
-	connectSpec, serverErr := startFamilyServer(t, f, f.serverArgs, "PIPE")
+	connectSpec, server := startFamilyServer(t, f, f.serverArgs, "PIPE")
 
 	payload := []byte(matrixPayload)
 	clientBase := append([]string{}, f.clientArgs...)
 	var out, errb []byte
 	var err error
-	tries := f.retries
-	if tries < 1 {
-		tries = 1
+	if f.sctpEcho {
+		ctx, cancel := context.WithTimeout(context.Background(), matrixTimeout)
+		defer cancel()
+		out, errb, err = runSCTPEcho(ctx, socatBin(t), append(append([]string{}, clientBase...), "-", connectSpec), payload)
+	} else {
+		out, errb, err = runMatrixSocat(t, payload, append(append([]string{}, clientBase...), "stdin!!stdout", connectSpec)...)
 	}
-	for attempt := 0; attempt < tries; attempt++ {
-		if f.sctpEcho {
-			out, errb, err = runSCTPEchoClient(t, payload, append(append([]string{}, clientBase...), "-", connectSpec)...)
-		} else {
-			out, errb, err = runSocat(t, payload, append(append([]string{}, clientBase...), "stdin!!stdout", connectSpec)...)
-		}
-		if err == nil && bytes.Contains(out, bytes.TrimSpace(payload)) {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
+	if err == nil && bytes.Contains(out, bytes.TrimSpace(payload)) {
+		return
 	}
-	t.Fatalf("bidir %s: %v out=%q err=%s srv=%s", f.name, err, out, errb, serverErr())
+	t.Fatalf("bidir %s: %v out=%q err=%s srv=%s", f.name, err, out, errb, server.stderr.String())
 }
 
 func matrixOneWayToFile(t *testing.T, f streamFamily) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "oneway.bin")
-	connectSpec, serverErr := startFamilyServer(t, f, append(append([]string{}, f.serverArgs...), "-u"), "CREATE:"+path)
+	connectSpec, server := startFamilyServer(t, f, append(append([]string{}, f.serverArgs...), "-u"), "CREATE:"+path)
 
 	payload := []byte(matrixPayload)
-	tries := f.retries
-	if tries < 1 {
-		tries = 1
-	}
-	var errb []byte
-	var err error
-	for attempt := 0; attempt < tries; attempt++ {
-		_, errb, err = runSocat(t, payload, append(append([]string{}, f.clientArgs...), "-u", "STDIN", connectSpec)...)
-		if err == nil {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	_, errb, err := runMatrixSocat(t, payload, append(append([]string{}, f.clientArgs...), "-u", "STDIN", connectSpec)...)
 	if err != nil {
-		t.Fatalf("-u %s send: %v err=%s srv=%s", f.name, err, errb, serverErr())
+		t.Fatalf("-u %s send: %v err=%s srv=%s", f.name, err, errb, server.stderr.String())
 	}
-	deadline := time.Now().Add(5 * time.Second)
-	var got []byte
-	for time.Now().Before(deadline) {
-		got, err = os.ReadFile(path)
-		if err == nil && string(got) == matrixPayload {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := waitFileEqual(ctx, path, []byte(matrixPayload), server); err != nil {
+		got, _ := os.ReadFile(path)
+		t.Fatalf("-u %s file %q wait=%v client=%s srv=%s", f.name, got, err, errb, server.stderr.String())
 	}
-	t.Fatalf("-u %s file %q err=%v client=%s srv=%s", f.name, got, err, errb, serverErr())
 }
 
 func matrixOneWayFromText(t *testing.T, f streamFamily) {
 	t.Helper()
-	connectSpec, serverErr := startFamilyServer(t, f, append(append([]string{}, f.serverArgs...), "-U"), "TEXT:"+strings.TrimSuffix(matrixPayload, "\n"))
+	connectSpec, server := startFamilyServer(t, f, append(append([]string{}, f.serverArgs...), "-U"), "TEXT:"+strings.TrimSuffix(matrixPayload, "\n"))
 
-	tries := f.retries
-	if tries < 1 {
-		tries = 1
+	out, errb, err := runMatrixSocat(t, nil, append(append([]string{}, f.clientArgs...), "-u", connectSpec, "STDOUT")...)
+	if err == nil && strings.Contains(string(out), strings.TrimSpace(matrixPayload)) {
+		return
 	}
-	var out, errb []byte
-	var err error
-	for attempt := 0; attempt < tries; attempt++ {
-		out, errb, err = runSocat(t, nil, append(append([]string{}, f.clientArgs...), "-u", connectSpec, "STDOUT")...)
-		if err == nil && strings.Contains(string(out), strings.TrimSpace(matrixPayload)) {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatalf("-U %s: %v out=%q err=%s srv=%s", f.name, err, out, errb, serverErr())
+	t.Fatalf("-U %s: %v out=%q err=%s srv=%s", f.name, err, out, errb, server.stderr.String())
 }
 
 func unixListenSpec(t *testing.T) (string, string) {
@@ -341,41 +310,16 @@ func unixListenSpec(t *testing.T) (string, string) {
 	return fmt.Sprintf("UNIX-LISTEN:%s,unlink-early", path), "UNIX-CONNECT:" + path
 }
 
-func waitUnixPath(t *testing.T, listenSpec string) {
-	t.Helper()
+func unixPathFromSpec(listenSpec string) string {
 	_, path, ok := strings.Cut(listenSpec, ":")
 	if !ok {
-		t.Fatalf("no path in %q", listenSpec)
+		return ""
 	}
 	path, _, _ = strings.Cut(path, ",")
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if runtime.GOOS == "windows" {
-		t.Skipf("UNIX listen path %q did not appear", path)
-	}
-	t.Fatalf("timeout waiting for UNIX %s", path)
+	return path
 }
 
-func startSocat(t *testing.T, stderr *bytes.Buffer, args ...string) *exec.Cmd {
-	t.Helper()
-	cmd := exec.Command(socatBin(t), args...)
-	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	})
-	return cmd
-}
-
-func runSocat(t *testing.T, stdin []byte, args ...string) (stdout, stderr []byte, err error) {
+func runMatrixSocat(t *testing.T, stdin []byte, args ...string) (stdout, stderr []byte, err error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), matrixTimeout)
 	defer cancel()
@@ -390,35 +334,22 @@ func runSocat(t *testing.T, stdin []byte, args ...string) (stdout, stderr []byte
 	return out.Bytes(), errb.Bytes(), err
 }
 
-func runSCTPEchoClient(t *testing.T, payload []byte, args ...string) (stdout, stderr []byte, err error) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), matrixTimeout)
-	defer cancel()
-	pr, pw := io.Pipe()
-	go func() {
-		_, _ = pw.Write(payload)
-		time.Sleep(400 * time.Millisecond)
-		_ = pw.Close()
-	}()
-	cmd := exec.CommandContext(ctx, socatBin(t), args...)
-	cmd.Stdin = pr
-	var out, errb bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &errb
-	err = cmd.Run()
-	return out.Bytes(), errb.Bytes(), err
-}
-
 func unixEchoPeer(t *testing.T) (connect string, stop func()) {
 	path := testutil.UnixSocketPath(t, "echo.sock")
-	stderr := &bytes.Buffer{}
-	cmd := startSocat(t, stderr, fmt.Sprintf("UNIX-LISTEN:%s,unlink-early,fork", path), "PIPE")
-	waitUnixPath(t, "UNIX-LISTEN:"+path)
+	proc, err := startTestProcess(exec.Command(socatBin(t), fmt.Sprintf("UNIX-LISTEN:%s,unlink-early,fork", path), "PIPE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(proc.stop)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := waitFileExists(ctx, path, proc); err != nil {
+		t.Fatalf("UNIX listen %s: %v stderr=%s", path, err, proc.stderr.String())
+	}
 	return "UNIX-CONNECT:" + path, func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
+		proc.stop()
 		if t.Failed() {
-			t.Log(stderr.String())
+			t.Log(proc.stderr.String())
 		}
 	}
 }
@@ -430,7 +361,7 @@ func runTCPBridge(t *testing.T, peer func(t *testing.T) (connect string, stop fu
 	port, proc := startTCPTestServer(t, func(port int) *exec.Cmd {
 		return exec.Command(socatBin(t), fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork", port), connect)
 	})
-	out, errb, err := runSocat(t, []byte(matrixPayload), "stdin!!stdout", fmt.Sprintf("TCP4:127.0.0.1:%d", port))
+	out, errb, err := runMatrixSocat(t, []byte(matrixPayload), "stdin!!stdout", fmt.Sprintf("TCP4:127.0.0.1:%d", port))
 	if err != nil || string(out) != matrixPayload {
 		t.Fatalf("bridge: %v out=%q err=%s srv=%s", err, out, errb, proc.stderr.String())
 	}
