@@ -14,17 +14,10 @@ import (
 )
 
 func TestWaitTCPListenDelayedBind(t *testing.T) {
-	ln, err := net.Listen("tcp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	addr := ln.Addr().String()
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
-
+	addr, port := idleTCP4Port(t)
 	proc := startDelayedListenProcess(t, "tcp4", addr, 80*time.Millisecond)
 	if err := waitTCPTestProcess(proc, port, 2*time.Second); err != nil {
-		t.Fatalf("delayed bind: %v", err)
+		t.Fatalf("delayed bind: %v stderr=%s", err, proc.stderr.String())
 	}
 	cli, err := net.DialTimeout("tcp4", addr, time.Second)
 	if err != nil {
@@ -103,6 +96,28 @@ func TestWaitTCPListenUnrelatedPortOccupation(t *testing.T) {
 }
 
 func TestWaitUDPListenDelayedBind(t *testing.T) {
+	addr, port := idleUDP4Port(t)
+	proc := startDelayedListenProcess(t, "udp4", addr, 80*time.Millisecond)
+	if err := waitUDPTestProcess(proc, port, 2*time.Second); err != nil {
+		t.Fatalf("delayed UDP bind: %v stderr=%s", err, proc.stderr.String())
+	}
+}
+
+func idleTCP4Port(t *testing.T) (string, int) {
+	t.Helper()
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	requirePortIdle(t, "tcp4", addr)
+	return addr, port
+}
+
+func idleUDP4Port(t *testing.T) (string, int) {
+	t.Helper()
 	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -110,9 +125,22 @@ func TestWaitUDPListenDelayedBind(t *testing.T) {
 	addr := pc.LocalAddr().String()
 	port := pc.LocalAddr().(*net.UDPAddr).Port
 	_ = pc.Close()
+	requirePortIdle(t, "udp4", addr)
+	return addr, port
+}
 
-	proc := startDelayedListenProcess(t, "udp4", addr, 80*time.Millisecond)
-	if err := waitUDPTestProcess(proc, port, 2*time.Second); err != nil {
-		t.Fatalf("delayed UDP bind: %v", err)
+func requirePortIdle(t *testing.T, network, addr string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err := waitUntil(ctx, nil, func() (bool, error) {
+		occupied, err := portOccupied(ctx, network, addr)
+		if err != nil {
+			return false, err
+		}
+		return !occupied, nil
+	})
+	if err != nil {
+		t.Fatalf("port %s still occupied after close: %v", addr, err)
 	}
 }
