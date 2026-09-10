@@ -601,10 +601,7 @@ func ReadIPMsgWithBuffer(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool, o
 // afterRawIPRecv maps a raw IP receive onto stream semantics. A kernel-empty
 // packet is left as (0, nil) so null-eof can convert it. A nonempty kernel
 // packet whose payload is empty after IPv4 header stripping is EOF.
-func afterRawIPRecv(n, kernelN int, err error, bufLen int) (int, error) {
-	if err != nil {
-		return n, err
-	}
+func afterRawIPRecv(n, kernelN, bufLen int) (int, error) {
 	if kernelN == 0 {
 		return 0, nil
 	}
@@ -668,7 +665,7 @@ func (r *rawIPDatagramConn) Read(p []byte) (int, error) {
 		if r.wantCtrl {
 			xio.ProcessAncillary(oob, r.g)
 		}
-		return afterRawIPRecv(n, kernelN, nil, len(p))
+		return afterRawIPRecv(n, kernelN, len(p))
 	}
 }
 
@@ -719,7 +716,7 @@ func (r *rawIPConn) Read(p []byte) (int, error) {
 			n = skipIPv4HeaderIfPresent(p, n)
 		}
 		xio.ProcessAncillary(oob, r.g)
-		return afterRawIPRecv(n, kernelN, nil, len(p))
+		return afterRawIPRecv(n, kernelN, len(p))
 	}
 	n, err := r.IPConn.Read(p)
 	if err != nil {
@@ -730,7 +727,7 @@ func (r *rawIPConn) Read(p []byte) (int, error) {
 	if r.v4 {
 		n = skipIPv4HeaderIfPresent(p, n)
 	}
-	return afterRawIPRecv(n, kernelN, nil, len(p))
+	return afterRawIPRecv(n, kernelN, len(p))
 }
 
 func (r *rawIPConn) Write(p []byte) (int, error) {
@@ -779,7 +776,7 @@ func (r *rawIPRecvFrom) Read(p []byte) (int, error) {
 		if r.wantCtrl {
 			xio.ProcessAncillary(oob, r.g)
 		}
-		return afterRawIPRecv(n, kernelN, nil, len(p))
+		return afterRawIPRecv(n, kernelN, len(p))
 	}
 }
 
@@ -844,7 +841,7 @@ func (r *rawIPFilteredRecv) Read(p []byte) (int, error) {
 		if r.wantCtrl {
 			xio.ProcessAncillary(oob, r.g)
 		}
-		return afterRawIPRecv(n, kernelN, nil, len(p))
+		return afterRawIPRecv(n, kernelN, len(p))
 	}
 }
 

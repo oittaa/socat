@@ -37,9 +37,6 @@ func commonNameOption(s parse.Spec) (name string, set bool) {
 // crypto/tls skips VerifyPeerCertificate on session resume; VerifyConnection
 // still runs, so a resumed session cannot skip the name/trust check.
 func attachPeerVerify(cfg *tls.Config, fn func([][]byte, [][]*x509.Certificate) error) {
-	if cfg == nil || fn == nil {
-		return
-	}
 	cfg.VerifyPeerCertificate = fn
 	cfg.VerifyConnection = func(cs tls.ConnectionState) error {
 		raws := make([][]byte, len(cs.PeerCertificates))
@@ -51,38 +48,28 @@ func attachPeerVerify(cfg *tls.Config, fn func([][]byte, [][]*x509.Certificate) 
 }
 
 // makeServerVerifyPeer checks client certificate chain and optional commonname.
-func makeServerVerifyPeer(roots *x509.CertPool, cnWant string, doVerify bool, prev func([][]byte, [][]*x509.Certificate) error) func([][]byte, [][]*x509.Certificate) error {
-	return func(rawCerts [][]byte, chains [][]*x509.Certificate) error {
-		if prev != nil {
-			if err := prev(rawCerts, chains); err != nil {
-				return err
-			}
-		}
+func makeServerVerifyPeer(roots *x509.CertPool, cnWant string) func([][]byte, [][]*x509.Certificate) error {
+	return func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 		if len(rawCerts) == 0 {
-			if cnWant != "" || doVerify {
-				return fmt.Errorf("tls: no client certificate")
-			}
-			return nil
+			return fmt.Errorf("tls: no client certificate")
 		}
 		leaf, err := x509.ParseCertificate(rawCerts[0])
 		if err != nil {
 			return err
 		}
-		if doVerify {
-			if roots == nil {
-				return fmt.Errorf("tls: no CA roots for client certificate")
+		if roots == nil {
+			return fmt.Errorf("tls: no CA roots for client certificate")
+		}
+		opts := x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+		inter := x509.NewCertPool()
+		for i := 1; i < len(rawCerts); i++ {
+			if c, e := x509.ParseCertificate(rawCerts[i]); e == nil {
+				inter.AddCert(c)
 			}
-			opts := x509.VerifyOptions{Roots: roots, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
-			inter := x509.NewCertPool()
-			for i := 1; i < len(rawCerts); i++ {
-				if c, e := x509.ParseCertificate(rawCerts[i]); e == nil {
-					inter.AddCert(c)
-				}
-			}
-			opts.Intermediates = inter
-			if _, err := leaf.Verify(opts); err != nil {
-				return err
-			}
+		}
+		opts.Intermediates = inter
+		if _, err := leaf.Verify(opts); err != nil {
+			return err
 		}
 		if cnWant != "" {
 			if !cnMatches(leaf, cnWant) {

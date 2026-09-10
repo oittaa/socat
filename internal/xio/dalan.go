@@ -237,33 +237,27 @@ func dalanItem(c byte, line string) (out []byte, rest string, rc int) {
 		return dalanChar(line)
 	case 'x':
 		return dalanHex(line)
-	case 'l':
-		return dalanNumber(line, sizeCLong, true)
-	case 'L':
-		return dalanNumber(line, sizeCLong, false)
-	case 'i':
-		return dalanNumber(line, sizeCInt, true)
-	case 'I':
-		return dalanNumber(line, sizeCInt, false)
-	case 's':
-		return dalanNumber(line, sizeCShort, true)
-	case 'S':
-		return dalanNumber(line, sizeCShort, false)
+	case 'l', 'L':
+		return dalanNumber(line, sizeCLong)
+	case 'i', 'I':
+		return dalanNumber(line, sizeCInt)
+	case 's', 'S':
+		return dalanNumber(line, sizeCShort)
 	case 'b':
 		// 'b' writes a signed byte then an unsigned byte. When no second
 		// number starts at the remainder, the second byte is 0 without
 		// advancing the input.
-		first, rest, rc := dalanNumber(line, 1, true)
+		first, rest, rc := dalanNumber(line, 1)
 		if rc != dalanOK {
 			return nil, line, rc
 		}
-		second, next, rc := dalanNumber(rest, 1, false)
+		second, next, rc := dalanNumber(rest, 1)
 		if rc != dalanOK {
 			second, next = []byte{0}, rest
 		}
 		return append(first, second...), next, dalanOK
 	case 'B':
-		return dalanNumber(line, 1, false)
+		return dalanNumber(line, 1)
 	default:
 		return nil, line, dalanNotType
 	}
@@ -314,13 +308,13 @@ func isHexDigit(c byte) bool {
 	return c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F'
 }
 
-func dalanNumber(line string, nbytes int, _ bool) ([]byte, string, int) {
+func dalanNumber(line string, nbytes int) ([]byte, string, int) {
 	n, rest, ok := parseDalanInt(line)
 	if !ok {
 		return nil, line, dalanSyntax
 	}
 	// Two's complement packing matches C assignment into the native width.
-	return appendNative(nil, uint64(n), nbytes), rest, dalanOK // #nosec G115 -- C two's-complement store
+	return encodeNative(uint64(n), nbytes), rest, dalanOK // #nosec G115 -- C two's-complement store
 }
 
 func parseDalanInt(line string) (int64, string, bool) {
@@ -350,7 +344,7 @@ func parseDalanInt(line string) (int64, string, bool) {
 	return n, line[i:], true
 }
 
-func appendNative(buf []byte, u uint64, nbytes int) []byte {
+func encodeNative(u uint64, nbytes int) []byte {
 	b := make([]byte, nbytes)
 	switch nbytes {
 	case 1:
@@ -362,9 +356,9 @@ func appendNative(buf []byte, u uint64, nbytes int) []byte {
 	case 8:
 		binary.NativeEndian.PutUint64(b, u)
 	default:
-		return buf
+		return nil
 	}
-	return append(buf, b...)
+	return b
 }
 func nativeCInt(data []byte) int {
 	if len(data) < sizeCInt {

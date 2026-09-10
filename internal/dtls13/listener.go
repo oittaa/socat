@@ -53,7 +53,6 @@ func Listen(transport net.PacketConn, config *Config) (*Listener, error) {
 		return nil, err
 	}
 	l.transport = newPacketTransport(transport, l.receive, l.shutdown)
-	l.transport.configureUnfragmentedProbes(prepared.UnfragmentedProbes)
 	go l.runHelloTimers()
 	l.transport.start()
 	return l, nil
