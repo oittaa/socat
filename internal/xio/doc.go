@@ -24,9 +24,12 @@
 // OpenSpec is the common entry. It looks up the registered opener, rewrites
 // the type to the catalog name, ResolveChdirPaths, then RejectUnsupported*
 // (IP ancillary, termios, recverr, remaining IPv4, listen-backlog). lockfile=
-// / waitlock= run next so a failed open still unlocks. The opener itself runs
-// under WithNetNS. children-shutup is recorded on the Opened after success.
-// Failed opens close anything already attached and run those cleanups.
+// / waitlock= run next. If the opener returns an error, OpenSpec releases
+// that address lock only; it does not close sockets, files, or children the
+// opener already acquired. The opener must clean those up before returning.
+// The opener itself runs under WithNetNS. children-shutup is recorded on the
+// Opened after success; a parse error there does Close the Opened. On success
+// the address-lock release is attached as an Opened cleanup.
 //
 // What happens inside the opener is not one sequence.
 //
@@ -43,9 +46,12 @@
 // opener's Wrap (default SetupStream). Fork CONNECT stores Dial/WrapDial and
 // does not wrap until a child runs.
 //
-// Datagram sockets bind through ListenPacketWithOptions (same ListenControl
-// before bind), then late socket buffers, FD lifecycle, and connected generic
-// setsockopt on the PacketConn. They do not go through WrapStream.
+// Datagram transport bind uses ListenPacketWithOptions: ListenControl before
+// bind, then late socket buffers, FD lifecycle, and connected generic
+// setsockopt on the PacketConn. That helper prepares the unconnected socket and
+// does not wrap. UDP and other datagram stream endpoints then call
+// SetupConnectedStream, which applies WrapStream on the stream built over
+// that transport.
 //
 // Files (OPEN/CREATE/FILE/…) open a path, apply named unlink/owner/locks,
 // ApplyFDOptions on that *os.File (which marks the file so later stream
