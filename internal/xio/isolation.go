@@ -12,17 +12,17 @@ const isolationUnsupportedReason = "process-wide credentials/root changes requir
 // credential and chroot options. They are recognized so callers get this
 // reason instead of "unknown option"; they are not implemented and not advertised.
 var isolationOptionCanonical = map[string]string{
-	"chroot":             "chroot",
-	"chroot-early":       "chroot-early",
-	"setuid":             "setuid",
-	"setuid-early":       "setuid-early",
-	"setgid":             "setgid",
-	"setgid-early":       "setgid-early",
-	"substuser":          "substuser",
-	"su":                 "substuser",
-	"substuser-delayed":  "substuser-delayed",
-	"su-d":               "substuser-delayed",
-	"substuser-early":    "substuser-early",
+	"chroot":            "chroot",
+	"chroot-early":      "chroot-early",
+	"setuid":            "setuid",
+	"setuid-early":      "setuid-early",
+	"setgid":            "setgid",
+	"setgid-early":      "setgid-early",
+	"substuser":         "substuser",
+	"su":                "substuser",
+	"substuser-delayed": "substuser-delayed",
+	"su-d":              "substuser-delayed",
+	"substuser-early":   "substuser-early",
 }
 
 // RejectUnsupportedIsolation fails when a spec requests process-wide

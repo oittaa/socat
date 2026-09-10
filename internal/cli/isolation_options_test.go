@@ -24,9 +24,9 @@ func TestIsolationOptionsRejectedByCLI(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.left+"_"+tc.right, func(t *testing.T) {
-			_, err := ParseArgs([]string{tc.left, tc.right})
+			err := validateCLIAddresses(t, tc.left, tc.right)
 			if err == nil || !strings.Contains(err.Error(), "not supported") || !strings.Contains(err.Error(), "isolation") {
-				t.Fatalf("ParseArgs error=%v", err)
+				t.Fatalf("CLI validation error=%v", err)
 			}
 			if !strings.Contains(err.Error(), `option "`+tc.spelling+`"`) {
 				t.Fatalf("error=%v want spelling %q", err, tc.spelling)
@@ -36,13 +36,29 @@ func TestIsolationOptionsRejectedByCLI(t *testing.T) {
 }
 
 func TestIsolationTypoRemainsUnknownAtCLI(t *testing.T) {
-	_, err := ParseArgs([]string{"TCP:127.0.0.1:1,setuidd=65534", "STDOUT"})
+	err := validateCLIAddresses(t, "TCP:127.0.0.1:1,setuidd=65534", "STDOUT")
 	if err == nil || !strings.Contains(err.Error(), "unknown option") {
 		t.Fatalf("error=%v want unknown option", err)
 	}
 	if strings.Contains(err.Error(), "isolation") {
 		t.Fatalf("typo treated as isolation option: %v", err)
 	}
+}
+
+func validateCLIAddresses(t *testing.T, left, right string) error {
+	t.Helper()
+	lch, err := parse.ParseChannel(left)
+	if err != nil {
+		return err
+	}
+	if err := validateChannelOptions(lch); err != nil {
+		return err
+	}
+	rch, err := parse.ParseChannel(right)
+	if err != nil {
+		return err
+	}
+	return validateChannelOptions(rch)
 }
 
 func TestFileOwnerUserIsNotIsolationOption(t *testing.T) {
