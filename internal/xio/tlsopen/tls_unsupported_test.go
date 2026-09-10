@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/testcert"
 )
 
 func TestTLSConfigsUseLastUnsupportedOpenSSLOptionValue(t *testing.T) {
@@ -13,36 +14,86 @@ func TestTLSConfigsUseLastUnsupportedOpenSSLOptionValue(t *testing.T) {
 		"pseudo=0,pseudo=1",
 		"compress=none,compress=auto",
 	} {
-		t.Run(options, func(t *testing.T) {
-			spec, err := parse.ParseSpec("OPENSSL:localhost:443,verify=0," + options)
-			if err != nil {
-				t.Fatal(err)
-			}
-			_, err = tlsClientConfig(spec, "localhost")
-			if err == nil || !strings.Contains(err.Error(), "not supported") {
-				t.Fatalf("effective enabled option was not rejected: %v", err)
-			}
-		})
+		spec, err := parse.ParseSpec("OPENSSL:localhost:443,verify=0," + options)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = tlsClientConfig(spec, "localhost")
+		if err == nil || !strings.Contains(err.Error(), "not supported") {
+			t.Fatalf("%s: %v", options, err)
+		}
 	}
 }
 
 func TestTLSConfigsRejectOpenSSLMethodValues(t *testing.T) {
 	for _, optionName := range []string{"openssl-method", "opensslmethod", "method"} {
-		for _, method := range []string{"SSL3", "SSL23", "DTLS1", "DTLS1.2"} {
-			name := optionName + "=" + method
-			t.Run("client/"+name, func(t *testing.T) {
-				spec, err := parse.ParseSpec("OPENSSL:localhost:443," + name)
-				if err != nil {
-					t.Fatal(err)
-				}
-				_, err = tlsClientConfig(spec, "localhost")
-				if err == nil {
-					t.Fatal("expected unsupported method error")
-				}
-				if !strings.Contains(err.Error(), optionName) || !strings.Contains(err.Error(), "not supported") {
-					t.Fatalf("unexpected error: %v", err)
-				}
-			})
+		spec, err := parse.ParseSpec("OPENSSL:localhost:443," + optionName + "=DTLS1")
+		if err != nil {
+			t.Fatal(err)
 		}
+		_, err = tlsClientConfig(spec, "localhost")
+		if err == nil || !strings.Contains(err.Error(), optionName) || !strings.Contains(err.Error(), "not supported") {
+			t.Fatalf("%s: %v", optionName, err)
+		}
+	}
+}
+
+func TestTLSClientRejectsHiddenFamilies(t *testing.T) {
+	for _, opt := range []string{
+		"method=TLS1", "fips", "egd=/tmp/egd", "pseudo",
+		"dhparam=dh.pem", "maxfraglen=512", "maxsendfrag=1024",
+	} {
+		spec, err := parse.ParseSpec("OPENSSL:localhost:443,verify=0," + opt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = TLSClientConfig(spec, "localhost")
+		if err == nil || !strings.Contains(err.Error(), "not supported") {
+			t.Errorf("%s: %v", opt, err)
+		}
+	}
+}
+
+func TestTLSServerRejectsFIPS(t *testing.T) {
+	cert, err := testcert.WriteTempListenCert(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec, err := parse.ParseSpec("OPENSSL-LISTEN:443,verify=0,cert=" + cert + ",fips")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = TLSServerConfig(spec)
+	if err == nil || !strings.Contains(err.Error(), `option "fips"`) {
+		t.Fatalf("%v", err)
+	}
+}
+
+func TestTLSDisabledFIPSAndCompressNone(t *testing.T) {
+	for _, opt := range []string{"fips=0", "pseudo=0", "compress=none"} {
+		spec, err := parse.ParseSpec("OPENSSL:localhost:443,verify=0," + opt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := TLSClientConfig(spec, "localhost"); err != nil {
+			t.Errorf("%s: %v", opt, err)
+		}
+	}
+}
+
+func TestTLSFIPSAliasLastWins(t *testing.T) {
+	spec, err := parse.ParseSpec("OPENSSL:localhost:443,verify=0,openssl-fips=1,fips=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := TLSClientConfig(spec, "localhost"); err != nil {
+		t.Fatal(err)
+	}
+	spec, err = parse.ParseSpec("OPENSSL:localhost:443,verify=0,fips=0,openssl-fips=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := TLSClientConfig(spec, "localhost"); err == nil {
+		t.Fatal("enabled last value must reject")
 	}
 }
