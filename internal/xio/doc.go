@@ -46,12 +46,13 @@
 // opener's Wrap (default SetupStream). Fork CONNECT stores Dial/WrapDial and
 // does not wrap until a child runs.
 //
-// Datagram transport bind uses ListenPacketWithOptions: ListenControl before
+// DTLS and QUIC bind through ListenPacketWithOptions: ListenControl before
 // bind, then late socket buffers, FD lifecycle, and connected generic
-// setsockopt on the PacketConn. That helper prepares the unconnected socket and
-// does not wrap. UDP and other datagram stream endpoints then call
-// SetupConnectedStream, which applies WrapStream on the stream built over
-// that transport.
+// setsockopt on the PacketConn. That helper does not wrap.
+//
+// UDP binds through listenPacketForSpec → udpListenConfig (ListenControl
+// plus optional fork port reuse before bind). After bind it applies UDP
+// conn options and SetupConnectedStream, which wraps the datagram stream.
 //
 // Files (OPEN/CREATE/FILE/…) open a path, apply named unlink/owner/locks,
 // ApplyFDOptions on that *os.File (which marks the file so later stream
