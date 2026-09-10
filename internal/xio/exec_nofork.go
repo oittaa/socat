@@ -288,7 +288,7 @@ func (c *execChild) waitNoFork() error {
 	if c.cmd.Process != nil {
 		unregisterChildSignals(c.cmd.Process.Pid)
 	}
-	forgetExecContextCancel(c.cmd)
+	c.forgetCancel()
 	code, ok := childWaitExitCode(waitErr)
 	if !ok {
 		return waitErr
@@ -330,7 +330,7 @@ func (c *execChild) runNoFork(ctx context.Context, peer relay.Stream) error {
 	if err := c.attachNoForkStdio(peer, extra); err != nil {
 		return err
 	}
-	if err := startWithChildUmask(ctx, c.spec, c.cmd, c.g); err != nil {
+	if err := c.start(ctx); err != nil {
 		return err
 	}
 	closeExtra()

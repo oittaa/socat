@@ -96,8 +96,8 @@ func PtyStream(f *os.File, s parse.Spec) (relay.Stream, error) {
 }
 
 // PtyExecStream is a PTY master for EXEC/SYSTEM. Close does not drop the
-// master; finishExec waits for the child first, then closes (avoids SIGHUP
-// before a SYSTEM script finishes).
+// master; the EXEC owner waits for the child first, then closes (avoids
+// SIGHUP before a SYSTEM script finishes).
 func PtyExecStream(f *os.File, s parse.Spec) (relay.Stream, error) {
 	r, err := ptyMasterReader(f, s)
 	if err != nil {

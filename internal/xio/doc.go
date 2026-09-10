@@ -60,10 +60,10 @@
 //
 // EXEC/SYSTEM/SHELL build a child, then either return a nofork placeholder
 // (Run later calls runExecNoFork with the peer) or start pipes/socketpair/PTY
-// and finishExec. Pipes and socketpair still run SetupStream on the parent
-// stream; PTY applies master lifecycle then WrapAfterFD. Past-socket options
-// are rejected on pipes/pty/nofork; socketpair can apply them on the child
-// endpoint.
+// and wrap the parent stream. Pipes and socketpair still run SetupStream on the
+// parent stream; PTY applies master lifecycle then WrapAfterFD. Past-socket
+// options are rejected on pipes/pty/nofork; socketpair can apply them on the
+// child endpoint.
 //
 // SetupStream applies descriptor lifecycle and connected sockopts, then
 // WrapOpened. SetupConnectedStream skips connected sockopts because the
