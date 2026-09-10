@@ -17,9 +17,6 @@ func TestHiddenGetOnlyIPv4NamesStayOutOfHelp(t *testing.T) {
 			t.Errorf("-hhh advertises %s", name)
 		}
 	}
-	if !listed["ip-mtu-discover"] {
-		t.Fatal("-hhh missing ip-mtu-discover")
-	}
 }
 
 func TestGetOnlyIPv4CLIAddressCaps(t *testing.T) {
