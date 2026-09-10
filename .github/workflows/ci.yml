@@ -264,6 +264,8 @@ jobs:
         run: make fmt-check
       - name: goos-check
         run: make goos-check
+      - name: Classic parity policy tests
+        run: make test-classic-parity
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.13.1
