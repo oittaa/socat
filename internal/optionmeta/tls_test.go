@@ -20,15 +20,9 @@ func TestUnsupportedTLSCopiesAliases(t *testing.T) {
 	}
 }
 
-func TestValidateUnsupportedTLS(t *testing.T) {
-	opts := UnsupportedTLS()
-	opts[0].Canonical = ""
-	if err := validateUnsupportedTLS(opts); err == nil {
-		t.Fatal("empty canonical")
-	}
-	opts = UnsupportedTLS()
-	opts[0].CLIValue = 0
-	if err := validateUnsupportedTLS(opts); err == nil {
-		t.Fatal("unknown value kind")
+func TestTLSRejectReasonsIncludeAdvertisedCompress(t *testing.T) {
+	reasons := TLSRejectReasons()
+	if reasons["openssl-compress"] == "" || reasons["openssl-method"] == "" {
+		t.Fatalf("%v", reasons)
 	}
 }

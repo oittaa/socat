@@ -189,3 +189,51 @@ func TestResNSAddrImplementationGroups(t *testing.T) {
 		}
 	}
 }
+
+func TestLingerPublicAliasDoesNotRequireParserFold(t *testing.T) {
+	table := buildSupportedAddressOptions()
+	linger, ok := table["linger"]
+	if !ok {
+		t.Fatal("missing linger")
+	}
+	so, ok := table["so-linger"]
+	if !ok {
+		t.Fatal("missing so-linger")
+	}
+	if strings.Join(linger.optionCaps, ",") != strings.Join(so.optionCaps, ",") {
+		t.Fatal("linger should share so-linger CLI caps")
+	}
+	if parse.CanonicalOptionName("linger") != "linger" {
+		t.Fatal("linger must not fold at parse")
+	}
+}
+
+func TestTCPKeepaliveParserAliasUsesKeepaliveCaps(t *testing.T) {
+	table := buildSupportedAddressOptions()
+	if _, ok := table["tcp-keepalive"]; !ok {
+		t.Fatal("constructed tcp-keepalive must be recognized")
+	}
+	if parse.CanonicalOptionName("tcp-keepalive") != "keepalive" {
+		t.Fatal("tcp-keepalive should fold")
+	}
+}
+
+func TestTLSOptionGroupsComeFromMetadataNotHeading(t *testing.T) {
+	cert := buildSupportedAddressOptions()["cert"]
+	if !containsString(cert.addressGroups, xio.GroupProxy) {
+		t.Fatalf("cert addressGroups=%v", cert.addressGroups)
+	}
+	path := buildSupportedAddressOptions()["path"]
+	if containsString(path.addressGroups, xio.GroupTLS) {
+		t.Fatalf("path should not inherit TLS heading groups: %v", path.addressGroups)
+	}
+}
+
+func containsString(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
+}

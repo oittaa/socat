@@ -2,71 +2,47 @@ package cli
 
 import (
 	"io"
+	"runtime"
 	"strings"
 
 	"github.com/oittaa/socat"
+	"github.com/oittaa/socat/internal/optionmeta"
 	"github.com/oittaa/socat/internal/outbuf"
 	"github.com/oittaa/socat/internal/xio"
 )
 
-// hideDarwinOnlyIPRecv hides ip-recvdstaddr / ip-recvif (and aliases) on every
-// GOOS except macOS. Runtime support is macOS-only (IP_RECVDSTADDR /
-// IP_RECVIF cmsg extraction); Linux and Windows must not advertise names they reject.
 func hideDarwinOnlyIPRecv(name, goos string) bool {
-	switch name {
-	case "ip-recvdstaddr", "ip-recvif", "recvdstaddr", "iprecvdstaddr", "recvif":
-		return goos != "darwin"
-	default:
-		return false
-	}
+	return optionmeta.HideDarwinOnlyIPRecv(name, goos)
 }
 
-// hideLinuxOnlyRemainingIPv4 hides Linux-only remaining IPv4 options
-// (ip-retopts recv ancillary and ip-router-alert) except on Linux. macOS
-// IP_RETOPTS is an IP-options blob, not Linux's recv flag.
 func hideLinuxOnlyRemainingIPv4(name, goos string) bool {
-	switch name {
-	case "ip-retopts", "ipretopts", "retopts",
-		"ip-router-alert", "iprouteralert", "routeralert":
-		return goos != "linux"
-	default:
-		return false
-	}
+	return optionmeta.HideLinuxOnlyRemainingIPv4(name, goos)
 }
 
-// hideLinuxOnlyIPv6RecvExt hides ipv6-recvdstopts / ipv6-recvhopopts except
-// on Linux. Darwin accepts setsockopt for those names but getsockopt stays 0.
-// ipv6-recvrthdr / ipv6-recvpathmtu are advertised on Darwin.
 func hideLinuxOnlyIPv6RecvExt(name, goos string) bool {
-	switch name {
-	case "ipv6-recvdstopts", "recvdstopts",
-		"ipv6-recvhopopts", "recvhopopts":
-		return goos != "linux"
-	default:
-		return false
-	}
+	return optionmeta.HideLinuxOnlyIPv6RecvExt(name, goos)
 }
 
-// hideLinuxOnlyRecvErr hides ip-recverr except on Linux. ipv6-recverr is
-// never advertised: it is undocumented and remains rejected.
 func hideLinuxOnlyRecvErr(name, goos string) bool {
-	switch name {
-	case "ip-recverr", "recverr", "iprecverr":
-		return goos != "linux"
-	default:
-		return false
+	return optionmeta.HideLinuxOnlyRecvErr(name, goos)
+}
+
+func hideOpt(name string) bool {
+	if d, ok := optionmeta.Lookup(name); ok && optionmeta.HiddenOn(d, runtime.GOOS) {
+		return true
 	}
+	return hideOptFeature(name)
 }
 
 func hideOptGroup(title string) bool {
 	switch title {
-	case "PTY and TERMIOS":
+	case optionmeta.SectionPTY:
 		return !xio.FeaturePTY && !xio.FeatureTERMIOS
-	case "POSIX message queues":
+	case optionmeta.SectionPOSIXMQ:
 		return !xio.FeaturePOSIXMQ
-	case "TUN and INTERFACE":
+	case optionmeta.SectionTUN:
 		return !xio.FeatureTUN && !xio.FeatureINTERFACE
-	case "Namespaces":
+	case optionmeta.SectionNamespaces:
 		return !xio.FeatureNAMESPACES
 	default:
 		return false

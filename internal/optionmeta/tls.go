@@ -1,152 +1,242 @@
-// Package optionmeta holds hidden option recognition entries shared by
-// the parser, CLI, and runtime.
 package optionmeta
 
-import (
-	"fmt"
-	"strings"
-)
-
-// CLIValueKind selects the existing CLI validator for a hidden TLS option.
-type CLIValueKind uint8
-
-const (
-	// RequiredString requires a non-empty value.
-	RequiredString CLIValueKind = iota + 1
-	// OptionalBool accepts omission, 0, or 1.
-	OptionalBool
-	// OptionalSignedInteger accepts omission or a signed integer.
-	OptionalSignedInteger
-)
-
-// UnsupportedTLSOption is one hidden OpenSSL family that is recognized so it
-// can be rejected with a precise reason.
-type UnsupportedTLSOption struct {
-	Canonical       string
-	Aliases         []string
-	CLIValue        CLIValueKind
-	TLSRejectReason string
-}
-
-var unsupportedTLS = mustUnsupportedTLS([]UnsupportedTLSOption{
+// TLS, DTLS, WebSocket, PROXY, and SOCKS options.
+var tlsDefs = []Def{
+	// TLS, DTLS, WSS, and QUIC
 	{
-		Canonical:       "openssl-method",
-		Aliases:         []string{"opensslmethod", "method"},
-		CLIValue:        RequiredString,
-		TLSRejectReason: "stream TLS only",
+		Canonical:     "cert",
+		Section:       SectionTLS,
+		PublicAliases: []string{"certificate", "openssl-certificate"},
+		ParserAliases: []string{"certificate", "openssl-certificate"},
+		Desc:          "certificate file (PEM); required on listen",
+		Apply:         Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups(), TypeSet: TypesTLS},
+		PublicTLS:     true,
+		PathValue:     true,
 	},
 	{
-		Canonical:       "openssl-fips",
-		Aliases:         []string{"fips"},
-		CLIValue:        OptionalBool,
-		TLSRejectReason: "Go crypto/tls has no OpenSSL FIPS module",
+		Canonical:     "key",
+		Section:       SectionTLS,
+		PublicAliases: []string{"openssl-key"},
+		ParserAliases: []string{"openssl-key"},
+		Desc:          "private key file (PEM)",
+		Apply:         Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups(), TypeSet: TypesTLS},
+		PublicTLS:     true,
+		PathValue:     true,
 	},
 	{
-		Canonical:       "openssl-egd",
-		Aliases:         []string{"egd"},
-		CLIValue:        RequiredString,
-		TLSRejectReason: "Go does not use EGD for randomness",
+		Canonical:     "cafile",
+		Section:       SectionTLS,
+		PublicAliases: []string{"ca", "openssl-cafile"},
+		ParserAliases: []string{"openssl-cafile", "ca"},
+		Desc:          "CA file (PEM or DER)",
+		Apply:         Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups(), TypeSet: TypesTLS},
+		PublicTLS:     true,
+		PathValue:     true,
 	},
 	{
-		Canonical:       "openssl-pseudo",
-		Aliases:         []string{"pseudo"},
-		CLIValue:        OptionalBool,
-		TLSRejectReason: "Go crypto/tls does not use OpenSSL pseudo-random bytes",
+		Canonical:     "capath",
+		Section:       SectionTLS,
+		PublicAliases: []string{"tls-capath", "openssl-capath"},
+		ParserAliases: []string{"openssl-capath", "tls-capath"},
+		Desc:          "directory of CA certificates",
+		Apply:         Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups(), TypeSet: TypesTLS},
+		PublicTLS:     true,
+		PathValue:     true,
 	},
 	{
-		Canonical:       "openssl-dhparam",
-		Aliases:         []string{"openssl-dhparams", "dhparam", "dhparams", "dh"},
-		CLIValue:        RequiredString,
-		TLSRejectReason: "Go crypto/tls does not load DH parameters",
+		Canonical:     "verify",
+		Section:       SectionTLS,
+		PublicAliases: []string{"openssl-verify"},
+		ParserAliases: []string{"openssl-verify"},
+		Desc:          "verify the peer (default on; 0 skips)",
+		Apply:         Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups(), TypeSet: TypesTLS},
+		PublicTLS:     true,
 	},
 	{
-		Canonical:       "openssl-maxfraglen",
-		Aliases:         []string{"maxfraglen"},
-		CLIValue:        OptionalSignedInteger,
-		TLSRejectReason: "Go crypto/tls has no max fragment length option",
+		Canonical:     "commonname",
+		Section:       SectionTLS,
+		PublicAliases: []string{"cn", "tls-commonname", "openssl-commonname"},
+		ParserAliases: []string{"cn", "openssl-commonname", "tls-commonname"},
+		Desc:          "name to check (empty skips the name check)",
+		Apply:         Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups(), TypeSet: TypesTLS},
+		PublicTLS:     true,
 	},
 	{
-		Canonical:       "openssl-maxsendfrag",
-		Aliases:         []string{"maxsendfrag"},
-		CLIValue:        OptionalSignedInteger,
-		TLSRejectReason: "Go crypto/tls has no max send fragment option",
+		Canonical:     "snihost",
+		Section:       SectionTLS,
+		PublicAliases: []string{"tls-snihost", "openssl-snihost"},
+		ParserAliases: []string{"openssl-snihost", "tls-snihost"},
+		Desc:          "TLS SNI host name",
+		Apply:         Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups(), TypeSet: TypesTLS},
+		PublicTLS:     true,
 	},
-})
-
-// UnsupportedTLS returns a copy of the hidden TLS option families.
-func UnsupportedTLS() []UnsupportedTLSOption {
-	return copyUnsupportedTLS(unsupportedTLS)
-}
-
-func mustUnsupportedTLS(opts []UnsupportedTLSOption) []UnsupportedTLSOption {
-	if err := validateUnsupportedTLS(opts); err != nil {
-		panic(err)
-	}
-	return opts
-}
-
-func copyUnsupportedTLS(opts []UnsupportedTLSOption) []UnsupportedTLSOption {
-	out := make([]UnsupportedTLSOption, len(opts))
-	for i, opt := range opts {
-		opt.Aliases = append([]string(nil), opt.Aliases...)
-		out[i] = opt
-	}
-	return out
-}
-
-func validateUnsupportedTLS(opts []UnsupportedTLSOption) error {
-	seenCanonical := make(map[string]struct{}, len(opts))
-	seenAlias := make(map[string]struct{})
-	for _, opt := range opts {
-		if err := validateMetaName(opt.Canonical, "canonical"); err != nil {
-			return err
-		}
-		if _, ok := seenCanonical[opt.Canonical]; ok {
-			return fmt.Errorf("duplicate canonical name %q", opt.Canonical)
-		}
-		seenCanonical[opt.Canonical] = struct{}{}
-		if opt.TLSRejectReason == "" {
-			return fmt.Errorf("%s: empty TLS reject reason", opt.Canonical)
-		}
-		if err := validateCLIValueKind(opt.CLIValue); err != nil {
-			return fmt.Errorf("%s: %w", opt.Canonical, err)
-		}
-		for _, alias := range opt.Aliases {
-			if err := validateMetaName(alias, "alias"); err != nil {
-				return fmt.Errorf("%s: %w", opt.Canonical, err)
-			}
-			if alias == opt.Canonical {
-				return fmt.Errorf("%s: alias repeats canonical name", opt.Canonical)
-			}
-			if _, ok := seenAlias[alias]; ok {
-				return fmt.Errorf("duplicate alias %q", alias)
-			}
-			seenAlias[alias] = struct{}{}
-		}
-	}
-	for alias := range seenAlias {
-		if _, ok := seenCanonical[alias]; ok {
-			return fmt.Errorf("alias %q collides with a canonical name", alias)
-		}
-	}
-	return nil
-}
-
-func validateMetaName(name, kind string) error {
-	if name == "" {
-		return fmt.Errorf("empty %s name", kind)
-	}
-	if name != strings.ToLower(name) {
-		return fmt.Errorf("non-lowercase %s name %q", kind, name)
-	}
-	return nil
-}
-
-func validateCLIValueKind(kind CLIValueKind) error {
-	switch kind {
-	case RequiredString, OptionalBool, OptionalSignedInteger:
-		return nil
-	default:
-		return fmt.Errorf("unknown CLI value kind %d", kind)
-	}
+	{
+		Canonical:     "nosni",
+		Section:       SectionTLS,
+		PublicAliases: []string{"no-sni", "tls-no-sni", "openssl-no-sni"},
+		ParserAliases: []string{"no-sni", "openssl-no-sni", "tls-no-sni"},
+		Desc:          "do not send SNI",
+		Apply:         Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups(), TypeSet: TypesTLS},
+		PublicTLS:     true,
+	},
+	{
+		Canonical:     "ciphers",
+		Section:       SectionTLS,
+		PublicAliases: []string{"cipher", "cipherlist", "openssl-cipherlist"},
+		ParserAliases: []string{"cipher", "cipherlist", "openssl-cipherlist"},
+		Desc:          "TLS 1.2 cipher suite list",
+		Value:         RequiredString,
+		Apply:         Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups(), TypeSet: TypesTLS},
+		PublicTLS:     true,
+	},
+	{
+		Canonical:       "openssl-compress",
+		Section:         SectionTLS,
+		PublicAliases:   []string{"compress"},
+		ParserAliases:   []string{"compress"},
+		Desc:            "TLS compression policy (only none is supported)",
+		Value:           RequiredString,
+		Apply:           Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups(), TypeSet: TypesTLS},
+		PublicTLS:       true,
+		TLSRejectReason: "Go crypto/tls has no TLS compression",
+	},
+	{
+		Canonical:     "openssl-min-proto-version",
+		Section:       SectionTLS,
+		PublicAliases: []string{"min-proto-version", "min-version"},
+		ParserAliases: []string{"min-proto-version", "min-version"},
+		Desc:          "minimum TLS or DTLS protocol version",
+		Value:         RequiredString,
+		Apply:         Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups(), TypeSet: TypesTLS},
+		PublicTLS:     true,
+	},
+	{
+		Canonical:     "openssl-max-proto-version",
+		Section:       SectionTLS,
+		PublicAliases: []string{"max-proto-version", "max-version"},
+		ParserAliases: []string{"max-proto-version", "max-version"},
+		Desc:          "maximum TLS or DTLS protocol version",
+		Value:         RequiredString,
+		Apply:         Applicability{Caps: CapOpenSSL, AddressGroups: tlsAddressGroups(), TypeSet: TypesTLS},
+		PublicTLS:     true,
+	},
+	{
+		Canonical: "alpn",
+		Section:   SectionTLS,
+		Desc:      "DTLS, QUIC, or HTTP/2/3 proxy ALPN",
+		Apply:     Applicability{AddressGroups: tlsAddressGroups(), TypeSet: TypesALPN},
+		PublicTLS: true,
+	},
+	// Datagram TLS
+	{
+		Canonical: "dtls-mtu",
+		Section:   SectionDTLS,
+		Desc:      "maximum UDP payload in bytes (256..65507, default 1200)",
+		Value:     IntegerRange256_65507,
+		Apply:     Applicability{TypeSet: TypesDTLS},
+	},
+	{
+		Canonical: "dtls-migration",
+		Section:   SectionDTLS,
+		Desc:      "negotiate connection IDs and validated address migration (default on)",
+		Value:     OptionalBool,
+		Apply:     Applicability{TypeSet: TypesDTLS},
+	},
+	{
+		Canonical: "dtls-unfragmented-probes",
+		Section:   SectionDTLS,
+		Desc:      "confirm and discover path MTU on a dedicated socket (default on with migration)",
+		Value:     OptionalBool,
+		Apply:     Applicability{TypeSet: TypesDTLS},
+	},
+	// WebSocket
+	{
+		Canonical: "path",
+		Section:   SectionWebSocket,
+		Desc:      "WebSocket URL path",
+		Apply:     Applicability{Caps: CapExec, AddressGroups: []string{GroupWebSocket}},
+	},
+	{
+		Canonical: "origin",
+		Section:   SectionWebSocket,
+		Desc:      "WebSocket Origin header",
+		Apply:     Applicability{AddressGroups: []string{GroupWebSocket}},
+	},
+	{
+		Canonical: "protocol",
+		Section:   SectionWebSocket,
+		Desc:      "WebSocket subprotocol; VSOCK or SOCKET-* socket() protocol number",
+		Apply:     Applicability{Caps: CapSocket, AddressGroups: []string{GroupWebSocket}, ImplGroups: []string{GroupWebSocket, GroupVSOCK, GroupSocket}},
+	},
+	// PROXY and SOCKS
+	{
+		Canonical: "proxyport",
+		Section:   SectionProxy,
+		Desc:      "HTTP proxy port",
+		Apply:     Applicability{Caps: CapHTTP, AddressGroups: []string{GroupProxy}, TypeSet: TypesProxy},
+	},
+	{
+		Canonical: "http-version",
+		Section:   SectionProxy,
+		Desc:      "CONNECT HTTP version (1.0, 1.1, 2, 3)",
+		Apply:     Applicability{Caps: CapHTTP, AddressGroups: []string{GroupProxy}, TypeSet: TypesProxy},
+	},
+	{
+		Canonical: "h2c",
+		Section:   SectionProxy,
+		Desc:      "cleartext HTTP/2 CONNECT",
+		Apply:     Applicability{AddressGroups: []string{GroupProxy}, TypeSet: TypesProxy},
+	},
+	{
+		Canonical: "ignorecr",
+		Section:   SectionProxy,
+		Desc:      "accept LF as HTTP CONNECT response line terminator",
+		Value:     OptionalBool,
+		Apply:     Applicability{Caps: CapHTTP, AddressGroups: []string{GroupProxy}, TypeSet: TypesProxy},
+	},
+	{
+		Canonical:     "proxy-resolve",
+		Section:       SectionProxy,
+		PublicAliases: []string{"resolve", "resolv"},
+		ParserAliases: []string{"resolve", "resolv"},
+		Desc:          "resolve CONNECT target locally",
+		Apply:         Applicability{Caps: CapHTTP, AddressGroups: []string{GroupProxy}, TypeSet: TypesProxy},
+	},
+	{
+		Canonical:     "proxy-authorization",
+		Section:       SectionProxy,
+		PublicAliases: []string{"proxyauth", "proxy-auth"},
+		ParserAliases: []string{"proxyauth", "proxy-auth"},
+		Desc:          "proxy basic auth user:pass",
+		Apply:         Applicability{Caps: CapHTTP, AddressGroups: []string{GroupProxy}, TypeSet: TypesProxy},
+	},
+	{
+		Canonical:     "proxy-authorization-file",
+		Section:       SectionProxy,
+		PublicAliases: []string{"proxyauthfile"},
+		ParserAliases: []string{"proxyauthfile"},
+		Desc:          "read proxy auth from a file",
+		Apply:         Applicability{Caps: CapHTTP, AddressGroups: []string{GroupProxy}, TypeSet: TypesProxy},
+		PathValue:     true,
+	},
+	{
+		Canonical: "socksport",
+		Section:   SectionProxy,
+		Desc:      "SOCKS server port",
+		Apply:     Applicability{Caps: CapSocks, AddressGroups: []string{GroupProxy}, TypeSet: TypesSocks},
+	},
+	{
+		Canonical: "socksuser",
+		Section:   SectionProxy,
+		Desc:      "SOCKS user name",
+		Apply:     Applicability{Caps: CapSocks, AddressGroups: []string{GroupProxy}, TypeSet: TypesSocks},
+	},
+	{
+		Canonical:     "sockspass",
+		Section:       SectionProxy,
+		PublicAliases: []string{"sockspassword"},
+		ParserAliases: []string{"sockspassword"},
+		Desc:          "SOCKS password",
+		Apply:         Applicability{Caps: CapSocks, AddressGroups: []string{GroupProxy}, TypeSet: TypesSocks},
+	},
 }

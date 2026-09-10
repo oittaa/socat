@@ -12,16 +12,10 @@ import (
 )
 
 type helpOpt struct {
-	name                 string
-	desc                 string
-	aliases              []string
-	addressTypes         []string
-	restrictAddressTypes bool
-	optionCaps           []string
-	unrestricted         bool // accepted on every address type
-	implementationGroups []string
-	dynamicDesc          func() string
-	validate             func(parse.Option) error
+	name        string
+	desc        string
+	aliases     []string
+	dynamicDesc func() string
 }
 
 type helpOptGroup struct {
@@ -42,23 +36,17 @@ var supportedAddressOptions = buildSupportedAddressOptions()
 
 func buildSupportedAddressOptions() map[string]addressOption {
 	options := make(map[string]addressOption)
-	for _, group := range helpOptionGroups() {
-		spec := addressOption{
-			addressGroups: optionAddressGroups(group.title),
+	for _, def := range optionmeta.All() {
+		if def.Isolation {
+			continue
 		}
-		for _, option := range group.opts {
-			spec.validate = option.validate
-			spec.addressTypes = option.addressTypes
-			spec.restrictAddressTypes = option.restrictAddressTypes
-			spec.optionCaps = option.optionCaps
-			if option.unrestricted {
-				spec.optionCaps = nil
+		spec := addressOptionFromDef(def)
+		for _, name := range cliSpellings(def) {
+			key := strings.ToLower(name)
+			if _, exists := options[key]; exists {
+				panic("duplicate address option " + key)
 			}
-			spec.implementationGroups = option.implementationGroups
-			options[strings.ToLower(option.name)] = spec
-			for _, alias := range option.aliases {
-				options[strings.ToLower(alias)] = spec
-			}
+			options[key] = spec
 		}
 	}
 	for _, name := range xio.TermiosOptionNames() {
@@ -68,72 +56,7 @@ func buildSupportedAddressOptions() map[string]addressOption {
 		}
 		options[key] = addressOption{optionCaps: capTermios}
 	}
-	// These names are deliberately recognized so tlsopen can return a precise
-	// "not supported" error when their effective value requests unavailable
-	// OpenSSL behavior. They must not be advertised as honored options in
-	// -hh/-hhh. Parse aliases fold nicknames onto the openssl-* keys; listing
-	// both keeps constructed Spec values working too.
-	for _, meta := range optionmeta.UnsupportedTLS() {
-		option := addressOption{
-			validate:      validatorForTLSCLIValue(meta.CLIValue),
-			addressGroups: tlsOptionAddressGroups(),
-			optionCaps:    capOpenSSL,
-		}
-		names := append([]string{meta.Canonical}, meta.Aliases...)
-		for _, name := range names {
-			key := strings.ToLower(name)
-			if _, exists := options[key]; exists {
-				panic("duplicate address option " + key)
-			}
-			options[key] = option
-		}
-	}
-	if _, ok := options["ipv6-recverr"]; !ok {
-		options["ipv6-recverr"] = addressOption{optionCaps: capIP6}
-	}
-	for _, name := range xio.GetOnlyIPv4OptionNames() {
-		if _, ok := options[name]; ok {
-			continue
-		}
-		options[name] = addressOption{optionCaps: capIP4IP6}
-	}
 	return options
-}
-
-func validatorForTLSCLIValue(kind optionmeta.CLIValueKind) func(parse.Option) error {
-	switch kind {
-	case optionmeta.RequiredString:
-		return validateRequiredString
-	case optionmeta.OptionalBool:
-		return validateOptionalBool
-	case optionmeta.OptionalSignedInteger:
-		return validateOptionalSignedInteger
-	default:
-		panic(fmt.Sprintf("unknown TLS CLI value kind %d", kind))
-	}
-}
-
-// optionAddressGroups limits only protocol-specific option families.
-// Cross-cutting options stay broadly accepted: common wrappers apply them.
-func optionAddressGroups(title string) []string {
-	switch title {
-	case "TLS, DTLS, WSS, and QUIC":
-		return tlsOptionAddressGroups()
-	case "WebSocket":
-		return []string{xio.GroupWebSocket}
-	case "PROXY and SOCKS":
-		return []string{xio.GroupProxy}
-	case "POSIX message queues":
-		return []string{xio.GroupPOSIXMQ}
-	case "TUN and INTERFACE":
-		return []string{xio.GroupTUN}
-	default:
-		return nil
-	}
-}
-
-func tlsOptionAddressGroups() []string {
-	return []string{xio.GroupTLS, xio.GroupDTLS, xio.GroupWebSocket, xio.GroupQUIC, xio.GroupProxy}
 }
 
 func validateChannelOptions(ch parse.Channel) error {
@@ -655,16 +578,26 @@ func socketTimeoutAddressTypes() []string {
 }
 
 func helpOptionGroups() []helpOptGroup {
-	// Order is part of -hh/-hhh output. Split files own groups; this list
-	// concatenates them in the original table order.
 	var groups []helpOptGroup
-	groups = append(groups, listenOptionGroups()...)
-	groups = append(groups, socketOptionGroups()...)
-	groups = append(groups, fileOptionGroups()...)
-	groups = append(groups, processOptionGroups()...)
-	groups = append(groups, transferOptionGroups()...)
-	groups = append(groups, tlsOptionGroups()...)
-	groups = append(groups, tunOptionGroups()...)
+	for _, title := range optionmeta.HelpSectionOrder() {
+		defs := optionmeta.AdvertisedIn(title)
+		if len(defs) == 0 {
+			continue
+		}
+		opts := make([]helpOpt, 0, len(defs))
+		for _, def := range defs {
+			opt := helpOpt{
+				name:    def.Canonical,
+				desc:    def.Desc,
+				aliases: def.PublicAliases,
+			}
+			if def.DynamicDesc == "unix-socktype" {
+				opt.dynamicDesc = xio.UnixSocktypeHelp
+			}
+			opts = append(opts, opt)
+		}
+		groups = append(groups, helpOptGroup{title: title, opts: opts})
+	}
 	return groups
 }
 

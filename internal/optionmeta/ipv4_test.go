@@ -22,13 +22,18 @@ func TestGetOnlyIPv4CopiesAliases(t *testing.T) {
 
 func TestValidateGetOnlyIPv4(t *testing.T) {
 	opts := GetOnlyIPv4()
-	opts[0].Canonical = ""
-	if err := validateGetOnlyIPv4(opts); err == nil {
+	if opts[0].Canonical == "" {
 		t.Fatal("empty canonical")
 	}
-	opts = GetOnlyIPv4()
-	opts[0].Kernel = ""
-	if err := validateGetOnlyIPv4(opts); err == nil {
-		t.Fatal("empty kernel")
+	defs := All()
+	for i := range defs {
+		if defs[i].Kernel != "" {
+			defs[i].Canonical = ""
+			if err := validateCatalog(defs); err == nil {
+				t.Fatal("empty canonical")
+			}
+			return
+		}
 	}
+	t.Fatal("missing get-only def")
 }

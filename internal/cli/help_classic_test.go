@@ -136,6 +136,23 @@ func TestHideLinuxOnlyRemainingIPv4(t *testing.T) {
 	}
 }
 
+func TestHideLinuxOnlyIPv6RecvExt(t *testing.T) {
+	names := []string{"ipv6-recvdstopts", "recvdstopts", "ipv6-recvhopopts", "recvhopopts"}
+	for _, name := range names {
+		if hideLinuxOnlyIPv6RecvExt(name, "linux") {
+			t.Errorf("%q hidden on linux", name)
+		}
+		for _, goos := range []string{"darwin", "windows"} {
+			if !hideLinuxOnlyIPv6RecvExt(name, goos) {
+				t.Errorf("%q not hidden on %s", name, goos)
+			}
+		}
+	}
+	if hideLinuxOnlyIPv6RecvExt("ipv6-recvrthdr", "darwin") {
+		t.Fatal("ipv6-recvrthdr is advertised on Darwin")
+	}
+}
+
 func TestHideLinuxOnlyRecvErr(t *testing.T) {
 	names := []string{"ip-recverr", "recverr", "iprecverr"}
 	for _, name := range names {

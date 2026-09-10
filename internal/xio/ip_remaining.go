@@ -59,12 +59,8 @@ func isRouterAlertOption(o parse.Option) bool {
 }
 
 func routerAlertOptionName(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "ip-router-alert", "iprouteralert", "routeralert":
-		return true
-	default:
-		return false
-	}
+	d, ok := optionmeta.Lookup(name)
+	return ok && d.Canonical == "ip-router-alert"
 }
 
 // GetOnlyIPv4OptionNames are ip-mtu / ip-pktoptions spellings.

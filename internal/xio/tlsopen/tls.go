@@ -197,14 +197,9 @@ func TLSServerConfig(s parse.Spec) (*tls.Config, error) {
 var unsupportedOpenSSLReason = unsupportedOpenSSLReasons()
 
 func unsupportedOpenSSLReasons() map[string]string {
-	reasons := map[string]string{
-		"openssl-compress": "Go crypto/tls has no TLS compression",
-	}
-	for _, opt := range optionmeta.UnsupportedTLS() {
-		if prev, ok := reasons[opt.Canonical]; ok {
-			panic("duplicate TLS reject reason " + opt.Canonical + ": " + prev + " vs " + opt.TLSRejectReason)
-		}
-		reasons[opt.Canonical] = opt.TLSRejectReason
+	reasons := optionmeta.TLSRejectReasons()
+	if len(reasons) == 0 {
+		panic("missing TLS reject reasons")
 	}
 	return reasons
 }
@@ -236,15 +231,7 @@ func rejectUnsupportedOpenSSLOptions(s parse.Spec) error {
 
 var hiddenTLSCanonical = hiddenTLSCanonicals()
 
-// Public TLS families recognized on PROXY for TLS HTTP/2 and HTTP/3. They do
-// not apply to HTTP/1 CONNECT or h2c. Canonical names only; aliases fold.
-var publicTLSOnPlaintextPROXY = []string{
-	"cert", "key", "cafile", "capath", "verify", "commonname",
-	"snihost", "nosni", "ciphers", "openssl-compress",
-	"openssl-min-proto-version", "openssl-max-proto-version", "alpn",
-}
-
-var proxyPlaintextTLSCanonical = mergeTLSNameSets(hiddenTLSCanonical, publicTLSOnPlaintextPROXY)
+var proxyPlaintextTLSCanonical = mergeTLSNameSets(hiddenTLSCanonical, optionmeta.PublicTLSCanonicals())
 
 func hiddenTLSCanonicals() map[string]struct{} {
 	out := make(map[string]struct{}, len(optionmeta.UnsupportedTLS()))
