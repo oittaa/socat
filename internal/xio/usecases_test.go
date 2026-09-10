@@ -1,6 +1,7 @@
 package xio_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -8,12 +9,15 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/testcert"
+	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 	_ "github.com/oittaa/socat/internal/xio/all"
 )
@@ -106,19 +110,22 @@ func openClient(t *testing.T, ctx context.Context, g *xio.Global, spec string) *
 	t.Helper()
 	g = cloneGlobal(g)
 	ch := mustParse(t, spec)
-	deadline := time.Now().Add(3 * time.Second)
+	wait, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
 	var last error
-	for time.Now().Before(deadline) {
-		o, err := xio.OpenChannel(ctx, ch, xio.ModeRDWR, g)
-		if err == nil {
-			t.Cleanup(func() { _ = o.Close() })
-			return o
+	var o *xio.Opened
+	err := testutil.Until(wait, func() (bool, error) {
+		o, last = xio.OpenChannel(ctx, ch, xio.ModeRDWR, g)
+		return last == nil, nil
+	})
+	if err != nil {
+		if last != nil {
+			t.Fatalf("open %s: %v", spec, last)
 		}
-		last = err
-		time.Sleep(20 * time.Millisecond)
+		t.Fatalf("open %s: %v", spec, err)
 	}
-	t.Fatalf("open %s: %v", spec, last)
-	return nil
+	t.Cleanup(func() { _ = o.Close() })
+	return o
 }
 
 func setRWDeadline(rw any, d time.Duration) {
@@ -517,17 +524,30 @@ func tcpConnectRetryOnce(t *testing.T) error {
 		}
 	}()
 
+	var logBuf lockedBuf
+	lg := logx.New()
+	lg.SetOutput(&logBuf)
+	lg.SetLevel(logx.Notice)
+	g := cloneGlobal(nil)
+	g.Log = lg
+
 	done := make(chan *xio.Opened, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		o, err := xio.OpenChannel(ctx, mustParse(t, fmt.Sprintf("TCP:127.0.0.1:%d,retry=50,interval=0.05,connect-timeout=1", port)), xio.ModeRDWR, cloneGlobal(nil))
+		o, err := xio.OpenChannel(ctx, mustParse(t, fmt.Sprintf("TCP:127.0.0.1:%d,retry=50,interval=0.05,connect-timeout=1", port)), xio.ModeRDWR, g)
 		if err != nil {
 			errCh <- err
 			return
 		}
 		done <- o
 	}()
-	time.Sleep(150 * time.Millisecond)
+	retryWait, retryCancel := context.WithTimeout(ctx, 3*time.Second)
+	defer retryCancel()
+	if err := testutil.Until(retryWait, func() (bool, error) {
+		return strings.Contains(logBuf.String(), "retrying"), nil
+	}); err != nil {
+		return fmt.Errorf("connect did not retry: %v log=%s", err, logBuf.String())
+	}
 	srv, err := xio.OpenChannel(ctx, mustParse(t, fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1", port)), xio.ModeRDWR, cloneGlobal(nil))
 	if err != nil {
 		return fmt.Errorf("listen %d: %w", port, err)
@@ -547,6 +567,23 @@ func tcpConnectRetryOnce(t *testing.T) error {
 	echoLive(t, streamOf(t, cli), []byte("retried"))
 	success = true
 	return nil
+}
+
+type lockedBuf struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (w *lockedBuf) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.b.Write(p)
+}
+
+func (w *lockedBuf) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.b.String()
 }
 
 func TestTCPConnectReadbytes(t *testing.T) {

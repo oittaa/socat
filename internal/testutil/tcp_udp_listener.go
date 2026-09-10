@@ -27,7 +27,7 @@ func ListenTCPAndUDP(ip, suffix string) (tcp net.Listener, udp net.PacketConn, a
 		addr = net.JoinHostPort(ip, port)
 		tcp, last = net.Listen("tcp"+suffix, addr)
 		if last != nil {
-			if !retryableBindError(last) {
+			if !BindBusy(last) {
 				return nil, nil, "", last
 			}
 			continue
@@ -37,7 +37,7 @@ func ListenTCPAndUDP(ip, suffix string) (tcp net.Listener, udp net.PacketConn, a
 			return tcp, udp, addr, nil
 		}
 		_ = tcp.Close()
-		if !retryableBindError(last) {
+		if !BindBusy(last) {
 			return nil, nil, "", last
 		}
 	}

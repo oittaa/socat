@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 )
 
@@ -70,27 +71,23 @@ func waitRawRead(t *testing.T, client *net.IPConn, payload []byte, r io.Reader) 
 		}
 		gotCh <- got
 	}()
-	deadline := time.Now().Add(4 * time.Second)
-	for time.Now().Before(deadline) {
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(testutil.PollInterval)
+	defer ticker.Stop()
+	sendRawPayload(t, client, payload)
+	for {
 		select {
 		case got := <-gotCh:
 			return got
 		case err := <-errCh:
 			t.Fatal(err)
-		default:
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for raw IP payload")
+		case <-ticker.C:
 			sendRawPayload(t, client, payload)
-			time.Sleep(20 * time.Millisecond)
 		}
 	}
-	select {
-	case got := <-gotCh:
-		return got
-	case err := <-errCh:
-		t.Fatal(err)
-	default:
-		t.Fatal("timed out waiting for raw IP payload")
-	}
-	return nil
 }
 
 func TestIP4DatagramAcceptsAnySender(t *testing.T) {

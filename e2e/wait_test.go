@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/oittaa/socat/internal/testutil"
 )
 
 var errProcessExitedWhileWaiting = errors.New("process exited while waiting")
@@ -214,18 +216,15 @@ func runSCTPEcho(ctx context.Context, bin string, args []string, payload []byte)
 }
 
 func runDelayedListenHelper() int {
-	delay, err := time.ParseDuration(os.Getenv("SOCAT_E2E_LISTEN_DELAY"))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "listen delay: %v\n", err)
-		return 2
-	}
 	network := os.Getenv("SOCAT_E2E_LISTEN_NET")
 	addr := os.Getenv("SOCAT_E2E_LISTEN_ADDR")
-	deadline := time.Now().Add(2 * time.Second)
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	<-timer.C
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	fmt.Fprintln(os.Stderr, "gated")
+	buf := make([]byte, 1)
+	if _, err := os.Stdin.Read(buf); err != nil && !errors.Is(err, io.EOF) {
+		fmt.Fprintf(os.Stderr, "delayed listen gate: %v\n", err)
+		return 2
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if strings.HasPrefix(network, "udp") {
 		var pc net.PacketConn
@@ -239,12 +238,12 @@ func runDelayedListenHelper() int {
 			return 1
 		}
 		defer func() { _ = pc.Close() }()
-		buf := make([]byte, 1)
-		_, _, _ = pc.ReadFrom(buf)
+		readBuf := make([]byte, 1)
+		_, _, _ = pc.ReadFrom(readBuf)
 		return 0
 	}
 	var ln net.Listener
-	err = retryBusyBind(ctx, func() error {
+	err := retryBusyBind(ctx, func() error {
 		var lerr error
 		ln, lerr = net.Listen(network, addr)
 		return lerr
@@ -285,7 +284,7 @@ func retryBusyBind(ctx context.Context, bind func() error) error {
 			return nil
 		}
 		last = err
-		if !listenAddrBusy(err) {
+		if !testutil.BindBusy(err) {
 			return err
 		}
 		if !timer.Stop() {
@@ -303,21 +302,31 @@ func runHoldStdioHelper() int {
 	return 0
 }
 
-func startDelayedListenProcess(t *testing.T, network, addr string, delay time.Duration) *testProcess {
+func startGatedListenProcess(t *testing.T, network, addr string) (*testProcess, func()) {
 	t.Helper()
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	cmd.Stdin = pr
 	cmd.Env = append(os.Environ(),
 		"SOCAT_E2E_HELPER=delayed-listen",
 		"SOCAT_E2E_LISTEN_NET="+network,
 		"SOCAT_E2E_LISTEN_ADDR="+addr,
-		"SOCAT_E2E_LISTEN_DELAY="+delay.String(),
 	)
 	p, err := startTestProcess(cmd)
+	_ = pr.Close()
 	if err != nil {
+		_ = pw.Close()
 		t.Fatal(err)
 	}
-	t.Cleanup(p.stop)
-	return p
+	release := func() { _ = pw.Close() }
+	t.Cleanup(func() {
+		release()
+		p.stop()
+	})
+	return p, release
 }
 
 func startHoldStdioProcess(t *testing.T) *testProcess {

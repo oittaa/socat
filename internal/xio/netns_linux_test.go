@@ -16,6 +16,7 @@ import (
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/testcert"
+	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 	_ "github.com/oittaa/socat/internal/xio/all"
 )
@@ -71,35 +72,49 @@ func startListenPIPE(t *testing.T, ctx context.Context, g *xio.Global, spec stri
 	if err != nil {
 		t.Fatal(err)
 	}
+	bound := make(chan error, 1)
 	go func() {
 		lo, err := xio.OpenChannel(ctx, ls, xio.ModeRDWR, g)
 		if err != nil {
+			bound <- err
 			return
 		}
+		bound <- nil
 		_ = xio.RunOpened(ctx, lo, pipe, g)
 	}()
-	time.Sleep(80 * time.Millisecond)
+	select {
+	case err := <-bound:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatalf("listen %s: %v", spec, ctx.Err())
+	case <-time.After(5 * time.Second):
+		t.Fatalf("listen %s: timed out", spec)
+	}
 }
 
 func connectNS(t *testing.T, ctx context.Context, g *xio.Global, spec string) *xio.Opened {
 	t.Helper()
+	wait, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
 	var cli *xio.Opened
-	deadline := time.Now().Add(3 * time.Second)
 	var last error
-	for time.Now().Before(deadline) {
+	err := testutil.Until(wait, func() (bool, error) {
 		ch, err := parse.ParseChannel(spec)
 		if err != nil {
-			t.Fatal(err)
+			return false, err
 		}
-		cli, err = xio.OpenChannel(ctx, ch, xio.ModeRDWR, g)
-		if err == nil {
-			return cli
+		cli, last = xio.OpenChannel(ctx, ch, xio.ModeRDWR, g)
+		return last == nil, nil
+	})
+	if err != nil {
+		if last != nil {
+			t.Fatalf("connect %s: %v", spec, last)
 		}
-		last = err
-		time.Sleep(20 * time.Millisecond)
+		t.Fatalf("connect %s: %v", spec, err)
 	}
-	t.Fatalf("connect %s: %v", spec, last)
-	return nil
+	return cli
 }
 
 func echoRW(t *testing.T, st io.ReadWriter, payload []byte) {

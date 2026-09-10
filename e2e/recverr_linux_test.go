@@ -3,6 +3,8 @@
 package e2e_test
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -52,18 +54,14 @@ func runRecvErrHeldStdin(t *testing.T, addressFmt string, ready func(string) boo
 		t.Fatal(err)
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		text := proc.stderr.String()
-		if ready != nil && ready(text) {
-			break
-		}
-		select {
-		case <-proc.done:
-			waitErr, _ := proc.status()
-			return proc.stderr.String(), waitErr
-		case <-time.After(20 * time.Millisecond):
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err = waitUntil(ctx, proc, func() (bool, error) {
+		return ready != nil && ready(proc.stderr.String()), nil
+	})
+	if errors.Is(err, errProcessExitedWhileWaiting) {
+		waitErr, _ := proc.status()
+		return proc.stderr.String(), waitErr
 	}
 	_ = stdinW.Close()
 	select {
