@@ -3,6 +3,7 @@
 package e2e_test
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os/exec"
@@ -50,17 +51,14 @@ func TestSIGUSR1Statistics(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if err, exited := proc.status(); exited {
-			t.Fatalf("socat exited after SIGUSR1: %v stderr=%s", err, proc.stderr.String())
-		}
-		if strings.Count(proc.stderr.String(), "STATISTICS") >= 2 {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	err = waitUntil(ctx, proc, func() (bool, error) {
+		return strings.Count(proc.stderr.String(), "STATISTICS") >= 2, nil
+	})
+	if err != nil {
+		t.Fatalf("no STATISTICS after SIGUSR1: %v\n%s", err, proc.stderr.String())
 	}
-	t.Fatalf("no STATISTICS after SIGUSR1:\n%s", proc.stderr.String())
 }
 
 func readWhileRunning(t *testing.T, r io.Reader, n int, proc *testProcess, timeout time.Duration) ([]byte, error) {

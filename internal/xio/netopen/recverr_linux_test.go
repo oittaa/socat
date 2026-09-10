@@ -14,6 +14,7 @@ import (
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 )
 
@@ -66,8 +67,9 @@ func probeStreamRecvErr(t *testing.T, st io.ReadWriter, g *xio.Global, logBuf *b
 	t.Helper()
 	buf := make([]byte, 32)
 	var last error
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	err := testutil.Until(ctx, func() (bool, error) {
 		setRWDeadline(st, time.Now().Add(200*time.Millisecond))
 		if _, err := st.Write([]byte("hi")); err != nil {
 			last = err
@@ -75,12 +77,11 @@ func probeStreamRecvErr(t *testing.T, st io.ReadWriter, g *xio.Global, logBuf *b
 		if _, err := st.Read(buf); err != nil {
 			last = err
 		}
-		if recverrSeen(g, logBuf) {
-			return
-		}
-		time.Sleep(20 * time.Millisecond)
+		return recverrSeen(g, logBuf), nil
+	})
+	if err != nil {
+		requireRecvErrDiagnostic(t, g, logBuf, last)
 	}
-	requireRecvErrDiagnostic(t, g, logBuf, last)
 }
 
 func TestUDP4SendtoRecvErrICMPLinux(t *testing.T) {

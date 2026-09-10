@@ -10,10 +10,6 @@ import (
 	"syscall"
 )
 
-func listenAddrBusy(err error) bool {
-	return errors.Is(err, syscall.EADDRINUSE) || errors.Is(err, syscall.EACCES)
-}
-
 func exclusiveListenConfig() net.ListenConfig {
 	return net.ListenConfig{
 		Control: func(network, address string, c syscall.RawConn) error {

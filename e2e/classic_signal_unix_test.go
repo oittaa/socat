@@ -3,6 +3,7 @@
 package e2e_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -197,19 +198,11 @@ func readFile(t *testing.T, path string) string {
 
 func waitPath(t *testing.T, path string, proc *testProcess, stderrPath string, timeout time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if err, exited := proc.status(); exited {
-			t.Fatalf("socat exited while waiting for %s: %v stderr=%s", path, err, readFile(t, stderrPath))
-		}
-		if _, err := os.Lstat(path); err == nil {
-			return
-		} else if !os.IsNotExist(err) {
-			t.Fatal(err)
-		}
-		time.Sleep(10 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if err := waitFileExists(ctx, path, proc); err != nil {
+		t.Fatalf("waiting for %s: %v stderr=%s", path, err, readFile(t, stderrPath))
 	}
-	t.Fatalf("timed out waiting for %s stderr=%s", path, readFile(t, stderrPath))
 }
 
 func exitStatus(p *testProcess) int {

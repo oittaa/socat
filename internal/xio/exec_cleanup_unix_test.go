@@ -14,6 +14,7 @@ import (
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/testutil"
 )
 
 func execHoldSpec(script, opts string) string {
@@ -38,19 +39,28 @@ func writeHoldScript(t *testing.T) (script, pidPath string) {
 
 func waitPIDFile(t *testing.T, path string) int {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var pid int
+	err := testutil.Until(ctx, func() (bool, error) {
 		b, err := os.ReadFile(path)
-		if err == nil {
-			pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
-			if err == nil && pid > 1 {
-				return pid
+		if err != nil {
+			if os.IsNotExist(err) {
+				return false, nil
 			}
+			return false, err
 		}
-		time.Sleep(5 * time.Millisecond)
+		n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+		if err != nil || n <= 1 {
+			return false, nil
+		}
+		pid = n
+		return true, nil
+	})
+	if err != nil {
+		t.Fatalf("child pid file %s not written", path)
 	}
-	t.Fatalf("child pid file %s not written", path)
-	return 0
+	return pid
 }
 
 func processAlive(pid int) bool {
@@ -99,11 +109,11 @@ func TestFinishExecEndCloseZeroKillsChild(t *testing.T) {
 	if err := o.Close(); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) && processAlive(pid) {
-		time.Sleep(5 * time.Millisecond)
-	}
-	if processAlive(pid) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := testutil.Until(ctx, func() (bool, error) {
+		return !processAlive(pid), nil
+	}); err != nil {
 		t.Fatal("end-close=0 should kill like a normal EXEC close")
 	}
 }

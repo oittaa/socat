@@ -9,16 +9,17 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestWaitTCPListenDelayedBind(t *testing.T) {
 	addr, port := idleTCP4Port(t)
-	proc := startDelayedListenProcess(t, "tcp4", addr, 80*time.Millisecond)
-	if err := waitTCPTestProcess(proc, port, 2*time.Second); err != nil {
-		t.Fatalf("delayed bind: %v stderr=%s", err, proc.stderr.String())
-	}
+	proc, release := startGatedListenProcess(t, "tcp4", addr)
+	requireGatedListenWait(t, proc, "tcp4", addr, func() error {
+		return waitTCPTestProcess(proc, port, 2*time.Second)
+	}, release)
 	cli, err := net.DialTimeout("tcp4", addr, time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -97,9 +98,38 @@ func TestWaitTCPListenUnrelatedPortOccupation(t *testing.T) {
 
 func TestWaitUDPListenDelayedBind(t *testing.T) {
 	addr, port := idleUDP4Port(t)
-	proc := startDelayedListenProcess(t, "udp4", addr, 80*time.Millisecond)
-	if err := waitUDPTestProcess(proc, port, 2*time.Second); err != nil {
-		t.Fatalf("delayed UDP bind: %v stderr=%s", err, proc.stderr.String())
+	proc, release := startGatedListenProcess(t, "udp4", addr)
+	requireGatedListenWait(t, proc, "udp4", addr, func() error {
+		return waitUDPTestProcess(proc, port, 2*time.Second)
+	}, release)
+}
+
+func requireGatedListenWait(t *testing.T, proc *testProcess, network, addr string, wait func() error, release func()) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := waitUntil(ctx, proc, func() (bool, error) {
+		return strings.Contains(proc.stderr.String(), "gated"), nil
+	}); err != nil {
+		t.Fatalf("helper did not take the listen gate: %v stderr=%s", err, proc.stderr.String())
+	}
+	errc := make(chan error, 1)
+	go func() { errc <- wait() }()
+	owns, err := processListens(proc.cmd.Process.Pid, network, addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owns {
+		t.Fatal("child listened before gate release")
+	}
+	select {
+	case err := <-errc:
+		t.Fatalf("wait returned before bind: %v stderr=%s", err, proc.stderr.String())
+	default:
+	}
+	release()
+	if err := <-errc; err != nil {
+		t.Fatalf("delayed bind: %v stderr=%s", err, proc.stderr.String())
 	}
 }
 

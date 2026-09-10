@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 )
 
@@ -143,8 +144,9 @@ type resultOpened struct {
 
 func waitRegisteredUnlink(t *testing.T, opened <-chan resultOpened, timeout time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	err := testutil.Until(ctx, func() (bool, error) {
 		select {
 		case r := <-opened:
 			if r.o != nil {
@@ -153,10 +155,9 @@ func waitRegisteredUnlink(t *testing.T, opened <-chan resultOpened, timeout time
 			t.Fatalf("PIPE ModeRead open returned before a writer: %v", r.err)
 		default:
 		}
-		if xio.RegisteredUnlinkCount() > 0 {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+		return xio.RegisteredUnlinkCount() > 0, nil
+	})
+	if err != nil {
+		t.Fatal("timed out waiting for PIPE unlink registration")
 	}
-	t.Fatal("timed out waiting for PIPE unlink registration")
 }
