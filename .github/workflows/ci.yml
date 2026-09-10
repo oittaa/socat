@@ -216,6 +216,25 @@ jobs:
       - name: Privileged unit tests
         run: |
           sudo "$(command -v go)" test -race -count=1 -v -tags=privileged ./internal/xio/privileged
+      # Netns echo tests live in ./internal/xio, not the privileged tag.
+      # Ordinary unit jobs skip them without root; this step must run them.
+      - name: Network-namespace echo tests
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iproute2
+          sudo ip -V
+          ns="socat-ci-netns-check-$$"
+          sudo ip netns add "$ns"
+          sudo ip netns delete "$ns"
+          log="$(mktemp)"
+          sudo "$(command -v go)" test -race -count=1 -timeout 3m -v ./internal/xio/ \
+            -run '^(TestNetNSTCPEcho|TestNetNSUDPEcho|TestNetNSTLSEcho|TestNetNSQUICEcho)$' \
+            2>&1 | tee "$log"
+          for test in TestNetNSTCPEcho TestNetNSUDPEcho TestNetNSTLSEcho TestNetNSQUICEcho; do
+            grep -F -- "--- PASS: ${test}" "$log"
+          done
 
   privileged-e2e:
     name: privileged e2e (macos)
