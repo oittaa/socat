@@ -318,16 +318,10 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 		waitPath(t, ready, proc, stderrPath, 5*time.Second)
 		_ = c.Close()
 		waitPath(t, done, proc, stderrPath, 5*time.Second)
-		// Wait for Wait() to unregister the pid after cat exits.
-		time.Sleep(50 * time.Millisecond)
-		if err := proc.cmd.Process.Signal(syscall.SIGHUP); err != nil {
-			t.Fatal(err)
-		}
-		select {
-		case <-proc.done:
-		case <-time.After(5 * time.Second):
-			t.Fatalf("listener did not exit on SIGHUP after sessions stderr=%s", readFile(t, stderrPath))
-		}
+		// `done` is written before the shell exits. SIGHUP is forwarded until
+		// Wait reaps the child and unregisters it; retry until the listener
+		// exits on the unregistered path.
+		sighupUntilExit(t, proc, stderrPath, 5*time.Second)
 		got := exitStatus(proc)
 		want := 128 + int(syscall.SIGHUP)
 		if got != want {
@@ -337,6 +331,41 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 			t.Fatalf("missing exiting on signal 1 in stderr=%s", readFile(t, stderrPath))
 		}
 	})
+}
+
+func sighupUntilExit(t *testing.T, proc *testProcess, stderrPath string, timeout time.Duration) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	ticker := time.NewTicker(listenProbeInterval)
+	defer ticker.Stop()
+	send := func() (exited bool) {
+		t.Helper()
+		if err := proc.cmd.Process.Signal(syscall.SIGHUP); err != nil {
+			select {
+			case <-proc.done:
+				return true
+			default:
+				t.Fatalf("SIGHUP: %v stderr=%s", err, readFile(t, stderrPath))
+			}
+		}
+		return false
+	}
+	if send() {
+		return
+	}
+	for {
+		select {
+		case <-proc.done:
+			return
+		case <-ctx.Done():
+			t.Fatalf("listener did not exit on SIGHUP after sessions stderr=%s", readFile(t, stderrPath))
+		case <-ticker.C:
+			if send() {
+				return
+			}
+		}
+	}
 }
 
 func waitFileLines(t *testing.T, path string, want int, proc *testProcess, stderrPath string, timeout time.Duration) {
