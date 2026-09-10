@@ -296,7 +296,7 @@ silently emulated with a different protocol.
 | DTLS 1.0/1.2 | Rejected. DTLS endpoints support only DTLS 1.3, with AES-GCM or ChaCha20-Poly1305 and RSA, ECDSA, Ed25519, or ML-DSA certificates. |
 | DSA, SSLv3, and weak TLS ciphers | Rejected; use current TLS versions and RSA, ECDSA, Ed25519, or ML-DSA keys. |
 | OpenSSL engines, FIPS mode, EGD, pseudo-random mode, custom DH parameters, and fragment controls | Enabling these features is rejected where Go's TLS stack has no equivalent. |
-| Process-wide `setuid`, `setgid`, `chroot`, and `substuser` options | Not implemented because changing credentials or root from a goroutine would affect every session. They require process isolation. |
+| Process-wide `setuid`, `setgid`, `chroot`, and `substuser` options | Not implemented because changing credentials or root from a goroutine would affect every session. They require process isolation. The names are recognized and rejected; they are not advertised as working. |
 | Process-global libc resolver flags | Not implemented. `res-nsaddr` and `res-usevc` are supported per address. |
 | Read-only, obsolete, or structurally unsafe socket options | Rejected rather than advertised as setters. This includes get-only socket state and options that require structures the classic integer syntax cannot represent safely. |
 | `ipv6-recverr` | Not advertised because the documented interface is `ip-recverr` (`IP_RECVERR`). `IPV6_RECVERR` is not documented in socat.yo. |

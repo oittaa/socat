@@ -13,6 +13,8 @@ func init() {
 		"login":         "dash",
 		"pgid":          "setpgid",
 		"close":         "end-close",
+		"su":            "substuser",
+		"su-d":          "substuser-delayed",
 		// raw is a distinct TERMIOS combination; it does not use the cfmakeraw mask
 		// (raw leaves ECHO unchanged). Keep raw canonical so ApplyTermios can
 		// preserve that behavior.

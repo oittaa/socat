@@ -489,6 +489,11 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 		warnAddressMode(g, mode, d.Directions)
 	}
 	var err error
+	// Process-wide setuid/chroot/substuser names are recognized so the
+	// error explains the isolation requirement instead of "unknown option".
+	if err := RejectUnsupportedIsolation(s); err != nil {
+		return nil, err
+	}
 	s, err = ResolveChdirPaths(s)
 	if err != nil {
 		return nil, err
