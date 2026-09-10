@@ -561,10 +561,6 @@ func applyIPConnOpts(c *net.IPConn, s parse.Spec, _ string) error {
 	return xio.ApplyFDLifecycleToConn(c, s)
 }
 
-func ReadIPMsg(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool) (n int, oob []byte, addr net.Addr, err error) {
-	return ReadIPMsgWithBuffer(c, p, wantCtrl, stripV4, nil)
-}
-
 // readIPKernel receives one raw IP datagram without stripping an IPv4 header.
 // IPConn.ReadFrom removes that header in the Go net package, so a header-only
 // IPv4 packet becomes n=0 and looks like a kernel-empty datagram. ReadMsgIP
@@ -586,16 +582,6 @@ func readIPKernel(c *net.IPConn, p []byte, wantCtrl bool, oobBuffer []byte) (n i
 		return n, nil, addr, nil
 	}
 	return n, xio.ControlMessageBytes(oobBuffer, oobn, flags), addr, nil
-}
-
-// ReadIPMsgWithBuffer returns control data backed by oobBuffer.
-// Callers must consume it before reusing the buffer.
-func ReadIPMsgWithBuffer(c *net.IPConn, p []byte, wantCtrl bool, stripV4 bool, oobBuffer []byte) (n int, oob []byte, addr net.Addr, err error) {
-	n, oob, addr, err = readIPKernel(c, p, wantCtrl, oobBuffer)
-	if err == nil && stripV4 {
-		n = skipIPv4HeaderIfPresent(p, n)
-	}
-	return n, oob, addr, err
 }
 
 // afterRawIPRecv maps a raw IP receive onto stream semantics. A kernel-empty
