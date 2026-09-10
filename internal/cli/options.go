@@ -147,6 +147,11 @@ func validateChannelOptions(ch parse.Channel) error {
 }
 
 func validateSpecOptions(spec parse.Spec) error {
+	// Same isolation names OpenSpec rejects; recognize them here so CLI
+	// validation does not report "unknown option".
+	if err := xio.RejectUnsupportedIsolation(spec); err != nil {
+		return err
+	}
 	registration, registered := xio.AddressRegistrationForType(spec.Type)
 	for _, option := range spec.Options {
 		optionSpec, ok := lookupAddressOption(option)

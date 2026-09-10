@@ -1,5 +1,7 @@
 // Command fuzzall runs native Go fuzz targets one at a time.
-// GitHub CI does not invoke this. Use it on a local Linux, macOS, or Windows host:
+// Weekly and manually dispatched GitHub workflows invoke this runner
+// (.github/workflows/deep-tests.yml). Ordinary `go test` still runs seed
+// cases on every PR. Use it locally with:
 //
 //	go run ./scripts/fuzzall
 //	go run ./scripts/fuzzall -fuzztime=5m
@@ -36,6 +38,12 @@ var targets = []target{
 	{pkg: "./internal/xio/proxyopen", name: "FuzzProxyResponseLine"},
 	{pkg: "./internal/xio/proxyopen", name: "FuzzSOCKS4Reply"},
 	{pkg: "./internal/xio/proxyopen", name: "FuzzSOCKS5Reply"},
+	{pkg: "./internal/dtls13", name: "FuzzCertificate"},
+	{pkg: "./internal/dtls13", name: "FuzzConnectionIDs"},
+	{pkg: "./internal/dtls13", name: "FuzzExtensions"},
+	{pkg: "./internal/dtls13", name: "FuzzHandshakeFragments"},
+	{pkg: "./internal/dtls13", name: "FuzzHello"},
+	{pkg: "./internal/dtls13", name: "FuzzRecord"},
 }
 
 func main() {
