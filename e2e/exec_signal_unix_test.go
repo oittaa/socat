@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -335,36 +336,104 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 
 func sighupUntilExit(t *testing.T, proc *testProcess, stderrPath string, timeout time.Duration) {
 	t.Helper()
+	if err := waitSIGHUPExit(proc.done, timeout, func() error {
+		return proc.cmd.Process.Signal(syscall.SIGHUP)
+	}, nil); err != nil {
+		t.Fatalf("%v stderr=%s", err, readFile(t, stderrPath))
+	}
+}
+
+func waitSIGHUPExit(done <-chan struct{}, timeout time.Duration, signal func() error, onWait func()) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	ticker := time.NewTicker(listenProbeInterval)
 	defer ticker.Stop()
-	send := func() (exited bool) {
-		t.Helper()
-		if err := proc.cmd.Process.Signal(syscall.SIGHUP); err != nil {
+
+	waitDone := func() error {
+		if onWait != nil {
+			onWait()
+		}
+		select {
+		case <-done:
+			return nil
+		case <-ctx.Done():
 			select {
-			case <-proc.done:
-				return true
+			case <-done:
+				return nil
 			default:
-				t.Fatalf("SIGHUP: %v stderr=%s", err, readFile(t, stderrPath))
+				return fmt.Errorf("listener did not exit on SIGHUP after sessions")
 			}
 		}
-		return false
 	}
-	if send() {
-		return
+
+	send := func() (exited bool, err error) {
+		if err := signal(); err != nil {
+			if errors.Is(err, os.ErrProcessDone) {
+				return true, waitDone()
+			}
+			return false, fmt.Errorf("SIGHUP: %w", err)
+		}
+		return false, nil
+	}
+
+	if exited, err := send(); err != nil {
+		return err
+	} else if exited {
+		return nil
 	}
 	for {
 		select {
-		case <-proc.done:
-			return
+		case <-done:
+			return nil
 		case <-ctx.Done():
-			t.Fatalf("listener did not exit on SIGHUP after sessions stderr=%s", readFile(t, stderrPath))
+			select {
+			case <-done:
+				return nil
+			default:
+				return fmt.Errorf("listener did not exit on SIGHUP after sessions")
+			}
 		case <-ticker.C:
-			if send() {
-				return
+			exited, err := send()
+			if err != nil {
+				return err
+			}
+			if exited {
+				return nil
 			}
 		}
+	}
+}
+
+func TestWaitSIGHUPExitDelayedDone(t *testing.T) {
+	done := make(chan struct{})
+	waiting := make(chan struct{})
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- waitSIGHUPExit(done, 5*time.Second, func() error {
+			return os.ErrProcessDone
+		}, func() { close(waiting) })
+	}()
+
+	select {
+	case <-waiting:
+	case err := <-errCh:
+		t.Fatalf("returned before done was published: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for ErrProcessDone wait")
+	}
+	select {
+	case err := <-errCh:
+		t.Fatalf("returned before done was published: %v", err)
+	default:
+	}
+	close(done)
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("after done published: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("did not return after done was published")
 	}
 }
 
