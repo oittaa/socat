@@ -35,12 +35,8 @@ type addressOption struct {
 var supportedAddressOptions = buildSupportedAddressOptions()
 
 func buildSupportedAddressOptions() map[string]addressOption {
-	return addressOptionsFromDefs(optionmeta.All())
-}
-
-func addressOptionsFromDefs(defs []optionmeta.Def) map[string]addressOption {
 	options := make(map[string]addressOption)
-	for _, def := range defs {
+	for _, def := range optionmeta.All() {
 		if def.Isolation {
 			continue
 		}

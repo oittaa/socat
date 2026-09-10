@@ -5,9 +5,35 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/optionmeta"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
+
+func TestSocketAliasesAccepted(t *testing.T) {
+	for _, name := range []string{"tcp-nodelay", "tcp-keepalive", "linger"} {
+		if err := validateParsed(t, "TCP4:127.0.0.1:1,"+name+"=1"); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestOriginApplicabilityIgnoresHelpSection(t *testing.T) {
+	def, ok := optionmeta.Lookup("origin")
+	if !ok {
+		t.Fatal("missing origin")
+	}
+	def.Section = optionmeta.SectionTLS
+	previous := supportedAddressOptions["origin"]
+	supportedAddressOptions["origin"] = addressOptionFromDef(def)
+	t.Cleanup(func() { supportedAddressOptions["origin"] = previous })
+	if err := validateParsed(t, "WS:127.0.0.1:80,origin=example"); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateParsed(t, "OPENSSL:127.0.0.1:443,origin=example"); err == nil {
+		t.Fatal("accepted WebSocket origin on OPENSSL")
+	}
+}
 
 func TestParseDurationRejectsMalformedValues(t *testing.T) {
 	for _, value := range []string{"", "banana", "NaN", "+Inf", "1e100"} {

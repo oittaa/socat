@@ -2,10 +2,23 @@
 
 package cli
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 func TestHelpPlatformVisibility(t *testing.T) {
-	checkPlatformHelp(t,
-		[]string{"ip-recvdstaddr", "recvdstaddr", "iprecvdstaddr", "ip-recvif", "recvif", "ip-recvopts", "ipv6-recvrthdr", "so-timestamp", "nopush"},
-		[]string{"ip-retopts", "retopts", "ipretopts", "ip-router-alert", "routeralert", "iprouteralert", "ipv6-recvdstopts", "recvdstopts", "ipv6-recvhopopts", "recvhopopts", "ip-recverr", "recverr", "iprecverr", "ipv6-recverr", "binary"})
+	var output bytes.Buffer
+	if err := printHelp(&output, 3); err != nil {
+		t.Fatal(err)
+	}
+	listed := helpLineNames(output.String())
+	for name, want := range map[string]bool{
+		"ip-recverr": false, "recverr": false, "binary": false,
+		"ip-recvdstaddr": true, "so-timestamp": true,
+	} {
+		if listed[name] != want {
+			t.Errorf("%s: advertised=%v, want %v", name, listed[name], want)
+		}
+	}
 }

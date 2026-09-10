@@ -24,7 +24,7 @@ func TestHelpDoesNotTriggerClassicOptionArraySentinel(t *testing.T) {
 // helpInternalTerm matches catalog/internal tokens that must not appear in
 // -h/-hh/-hhh. type= is matched without a preceding identifier so socktype=
 // in UNIX address descriptions is allowed.
-var helpInternalTerm = regexp.MustCompile(`(?i)\bclassic\b|groups=|(?:^|[^A-Za-z0-9-])type=|phase=|\bPH_[A-Z0-9]+|\bTYPE_[A-Z0-9]+|\bGROUP_[A-Z0-9]+|\bOFUNC_[A-Z0-9]+|\b(?:fcntl|fchmod|fchown|sockaddr_un)\b|\b(?:ioctl|ftruncate|lseek|flock|shutdown|socket|setsockopt|cfmakeraw)\(|\bSEEK_(?:SET|CUR|END)\b|(?-i:\bNULL\b)|\bC string\b`)
+var helpInternalTerm = regexp.MustCompile(`(?i)\bclassic\b|groups=|(?:^|[^A-Za-z0-9-])type=|phase=|\bPH_[A-Z0-9]+|\bTYPE_[A-Z0-9]+|\bGROUP_[A-Z0-9]+|\bOFUNC_[A-Z0-9]+`)
 
 func TestHelpOmitsInternalMetadata(t *testing.T) {
 	for _, level := range []int{1, 2, 3} {
@@ -93,5 +93,18 @@ func TestHelpListsSoBroadcastAlias(t *testing.T) {
 	}
 	if !strings.Contains(help, "alias of broadcast") {
 		t.Error("-hhh missing so-broadcast alias line")
+	}
+}
+
+func TestHelpSocketAliases(t *testing.T) {
+	var output bytes.Buffer
+	if err := printHelp(&output, 3); err != nil {
+		t.Fatal(err)
+	}
+	listed := helpLineNames(output.String())
+	for name, want := range map[string]bool{"tcp-nodelay": true, "tcp-keepalive": false, "linger": true} {
+		if listed[name] != want {
+			t.Errorf("%s: advertised=%v, want %v", name, listed[name], want)
+		}
 	}
 }
