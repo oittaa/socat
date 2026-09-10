@@ -62,38 +62,6 @@ func separateNetNSGlobal(g *xio.Global) *xio.Global {
 	}
 }
 
-func startListenPIPE(t *testing.T, ctx context.Context, g *xio.Global, spec string) {
-	t.Helper()
-	ls, err := parse.ParseChannel(spec)
-	if err != nil {
-		t.Fatal(err)
-	}
-	pipe, err := parse.ParseChannel("PIPE")
-	if err != nil {
-		t.Fatal(err)
-	}
-	bound := make(chan error, 1)
-	go func() {
-		lo, err := xio.OpenChannel(ctx, ls, xio.ModeRDWR, g)
-		if err != nil {
-			bound <- err
-			return
-		}
-		bound <- nil
-		_ = xio.RunOpened(ctx, lo, pipe, g)
-	}()
-	select {
-	case err := <-bound:
-		if err != nil {
-			t.Fatal(err)
-		}
-	case <-ctx.Done():
-		t.Fatalf("listen %s: %v", spec, ctx.Err())
-	case <-time.After(5 * time.Second):
-		t.Fatalf("listen %s: timed out", spec)
-	}
-}
-
 func connectNS(t *testing.T, ctx context.Context, g *xio.Global, spec string) *xio.Opened {
 	t.Helper()
 	wait, cancel := context.WithTimeout(ctx, 3*time.Second)

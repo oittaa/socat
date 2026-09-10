@@ -71,6 +71,49 @@ func openNonForkUDP4Listen(t *testing.T, spec string, first ...[]byte) (*xio.Ope
 	return nil, nil
 }
 
+func TestUDPListenBoundBeforeFirstDatagram(t *testing.T) {
+	parsed, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	bound := make(chan net.Addr, 1)
+	restore := xio.SetListenBoundTestHook(func(addr net.Addr) {
+		select {
+		case bound <- addr:
+		default:
+		}
+	})
+	t.Cleanup(restore)
+	opened := make(chan error, 1)
+	go func() {
+		o, err := openUDP4Listen(ctx, parsed, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+		if o != nil {
+			_ = o.Close()
+		}
+		opened <- err
+	}()
+	select {
+	case <-bound:
+	case err := <-opened:
+		t.Fatalf("open returned before bind: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("UDP-LISTEN did not bind")
+	}
+	select {
+	case err := <-opened:
+		t.Fatalf("open returned before the first datagram: %v", err)
+	default:
+	}
+	cancel()
+	select {
+	case <-opened:
+	case <-time.After(3 * time.Second):
+		t.Fatal("open did not return after cancel")
+	}
+}
+
 func readStreamTimeout(t *testing.T, r io.Reader, timeout time.Duration) (string, error) {
 	t.Helper()
 	buf := make([]byte, 64)
