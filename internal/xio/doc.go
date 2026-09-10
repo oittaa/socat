@@ -37,9 +37,9 @@
 // ListenControl: ApplyPastSocketPhase then ApplyListenOptions (reuse/v6only
 // plus setsockopt-listen) before bind. OpenListenSession then compiles the peer
 // filter, logs the bind, and either keeps the listener for fork or accepts one
-// connection. WrapAccepted runs optional per-conn extra (for example TCP
-// connected options). Extra present means those options already ran, so the
-// stream uses SetupConnectedStream; otherwise SetupStream.
+// connection. TCP accept applies connected options then SetupConnectedStream.
+// UNIX listen applies remaining descriptor options on the accepted socket
+// (owner options already ran on the name or listen fd) then WrapAfterFD.
 //
 // Stream dial uses OpenDialed. DialControl applies ApplyPastSocketThenPrebind
 // after socket() and before connect. A successful dial wraps through the
@@ -52,23 +52,27 @@
 //
 // UDP binds through listenPacketForSpec → udpListenConfig (ListenControl
 // plus optional fork port reuse before bind). After bind it applies UDP
-// conn options and SetupConnectedStream, which wraps the datagram stream.
+// conn options and WrapOpened.
 //
 // Files (OPEN/CREATE/FILE/…) open a path, apply named unlink/owner/locks,
-// ApplyFDOptions on that *os.File (which marks the file so later stream
-// lifecycle will not repeat it), then SetupStream. There is no bind phase.
+// ApplyFDOptionsSkip on that *os.File, then WrapAfterFD. There is no bind
+// phase.
 //
 // EXEC/SYSTEM/SHELL build a child, then either return a nofork placeholder
 // (Run later calls runExecNoFork with the peer) or start pipes/socketpair/PTY
-// and finishExec → SetupStream. Past-socket options are rejected on pipes/pty/
-// nofork; socketpair can apply them on the child endpoint.
+// and finishExec. Pipes and socketpair still run SetupStream on the parent
+// stream; PTY applies master lifecycle then WrapAfterFD. Past-socket options
+// are rejected on pipes/pty/nofork; socketpair can apply them on the child
+// endpoint.
 //
-// SetupStream applies remaining FD lifecycle and late socket buffers, then
-// connected generic setsockopt, then WrapStream with StreamSocketTimeouts.
-// SetupConnectedStream skips that connected setsockopt pass because the
-// opener already applied or rejected it. WrapStream itself is descriptor-mode
-// → (optional) stream-layer timeouts → ignoreeof → readbytes → crnl → escape
-// → null-eof → shutdown policy → end-close.
+// SetupStream applies descriptor lifecycle and connected sockopts, then
+// WrapOpened. SetupConnectedStream skips connected sockopts because the
+// opener already applied or rejected them. WrapAfterFD is connected sockopts
+// plus WrapOpened after the opener applied descriptor lifecycle. WrapOpened
+// applies late socket buffers then WrapStream with StreamSocketTimeouts.
+// WrapStream itself is descriptor-mode → (optional) stream-layer timeouts →
+// ignoreeof → readbytes → crnl → escape → null-eof → shutdown policy →
+// end-close.
 //
 // Timeouts are not always in WrapStream. TLS wraps the TCP conn with
 // NewSocketTimeoutConn / EnableSocketTimeouts under the record layer, then

@@ -173,6 +173,25 @@ func TestApplyFDOptionsUserGroupSameIDs(t *testing.T) {
 	}
 }
 
+func TestWrapAfterFDDoesNotReapplyLifecycle(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "wrap-after-fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	ops := captureLifecycleSyscalls(t)
+	spec := mustSpec(t, "FD:3,append")
+	if err := ApplyFDOptions(f, spec); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WrapAfterFD(spec, FileStream(f)); err != nil {
+		t.Fatal(err)
+	}
+	if n := countOp(*ops, "F_SETFL"); n != 1 {
+		t.Fatalf("F_SETFL count=%d want 1 after ApplyFDOptions then WrapAfterFD (ops=%v)", n, *ops)
+	}
+}
+
 func TestSetupStreamFileStreamDedupsSameFD(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "filestream")
 	if err != nil {

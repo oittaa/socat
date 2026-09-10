@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/oittaa/socat/internal/parse"
 )
@@ -74,12 +75,21 @@ func ApplyNamedAfterBind(path string, s parse.Spec, f *os.File) error {
 	// Named path attrs after bind only for filesystem UNIX-LISTEN /
 	// UNIX-RECV / UNIX-RECVFROM. UNIX-CONNECT and UNIX-SENDTO apply them
 	// to the socket descriptor instead.
-	if namedFilesystemUnixPHFD(s) {
+	if namedFilesystemUnixSocket(s) {
 		if err := ApplyNamedAttrs(path, s, f); err != nil {
 			return err
 		}
 	}
 	return ApplyNamedPreopen(path, s)
+}
+
+// FDSkipNamedUnixSocket skips perm/user/group on a UNIX datagram fd when
+// those options were applied to the filesystem name after bind.
+func FDSkipNamedUnixSocket(s parse.Spec) FDSkip {
+	if namedFilesystemUnixSocket(s) {
+		return FDSkipOwner
+	}
+	return FDSkip{}
 }
 
 func parseModeT(name, v string) (os.FileMode, error) {
@@ -88,4 +98,19 @@ func parseModeT(name, v string) (os.FileMode, error) {
 		return 0, fmt.Errorf("invalid %s %q", name, v)
 	}
 	return UnixModeToFileMode(uint32(m)), nil
+}
+
+// namedFilesystemUnixSocket is true after bind of a filesystem UNIX listen
+// or recv name. Abstract names have no directory entry.
+func namedFilesystemUnixSocket(s parse.Spec) bool {
+	t := strings.ToUpper(s.Type)
+	switch t {
+	case "UNIX-LISTEN", "UNIX-L", "UNIX-RECV", "UNIX-RECVFROM":
+	default:
+		return false
+	}
+	if len(s.Params) > 0 && IsAbstract(s.Params[0]) {
+		return false
+	}
+	return true
 }

@@ -5,13 +5,13 @@ import (
 )
 
 func TestHasFDLifecycleOptionsIoctl(t *testing.T) {
-	if !hasFDLifecycleOptions(mustSpec(t, "FD:3,ioctl-void=1")) {
+	if !hasFDLifecycleOptions(mustSpec(t, "FD:3,ioctl-void=1"), FDSkip{}) {
 		t.Fatal("ioctl-void must trigger ApplyFDOptions")
 	}
-	if !hasFDLifecycleOptions(mustSpec(t, "TCP:localhost:1,ioctl=1")) {
+	if !hasFDLifecycleOptions(mustSpec(t, "TCP:localhost:1,ioctl=1"), FDSkip{}) {
 		t.Fatal("ioctl alias must trigger ApplyFDOptions")
 	}
-	if !hasFDLifecycleOptions(mustSpec(t, "OPEN:file,ioctl-string=1:x")) {
+	if !hasFDLifecycleOptions(mustSpec(t, "OPEN:file,ioctl-string=1:x"), FDSkip{}) {
 		t.Fatal("ioctl-string must trigger ApplyFDOptions")
 	}
 }

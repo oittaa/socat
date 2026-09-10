@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strings"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -198,7 +199,12 @@ func openPIPE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*x
 		logx.CloseQuiet(w)
 		return nil, err
 	}
-	st, err := xio.SetupStream(s, relay.FDStream{
+	if err := xio.ApplyFDOptions(w, s); err != nil {
+		logx.CloseQuiet(r)
+		logx.CloseQuiet(w)
+		return nil, err
+	}
+	st, err := xio.WrapAfterFD(s, relay.FDStream{
 		R: r,
 		W: w,
 		C: xio.NewMultiCloser(relay.RWCStream{ReadWriteCloser: r}, relay.RWCStream{ReadWriteCloser: w}),
@@ -335,7 +341,7 @@ func (p *namedPIPE) applyAfterOpen(files ...*os.File) error {
 		return err
 	}
 	for _, f := range files {
-		if err := xio.ApplyFDOptions(f, p.s); err != nil {
+		if err := xio.ApplyFDOptionsSkip(f, p.s, xio.FDSkipOwner); err != nil {
 			return err
 		}
 	}
@@ -343,7 +349,7 @@ func (p *namedPIPE) applyAfterOpen(files ...*os.File) error {
 }
 
 func (p *namedPIPE) wrapFile(f *os.File) (*xio.Opened, error) {
-	st, err := xio.SetupStream(p.s, xio.FileStream(f))
+	st, err := xio.WrapAfterFD(p.s, xio.FileStream(f))
 	if err != nil {
 		p.failOpen(f)
 		return nil, err
@@ -423,7 +429,7 @@ func (p *namedPIPE) openBidir() (*xio.Opened, error) {
 			return w.Close()
 		},
 	}
-	st, err := xio.SetupStream(p.s, stream)
+	st, err := xio.WrapAfterFD(p.s, stream)
 	if err != nil {
 		p.failOpen(r, w)
 		return nil, err
@@ -607,15 +613,14 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 	}
 	// Locks after open must complete before late ftruncate/lseek/async.
 	// Applying lifecycle first could mutate the file before a lock failure.
-	if err := xio.ApplyFDOptions(f, s); err != nil {
+	if err := xio.ApplyFDOptionsSkip(f, s, namedOpenFDSkip(s)); err != nil {
 		return fail(err)
 	}
 	// trunc= after ApplyFDOptions late ftruncate/lseek/perm-late.
 	if err := applyOpenTruncate(f, s); err != nil {
 		return fail(err)
 	}
-	// ignoreeof is applied centrally by xio.SetupStream now.
-	st, err := xio.SetupStream(s, xio.FileStream(f))
+	st, err := xio.WrapAfterFD(s, xio.FileStream(f))
 	if err != nil {
 		return fail(err)
 	}
@@ -628,4 +633,13 @@ func FileOpened(f *os.File, s parse.Spec, path string) (*xio.Opened, error) {
 	}
 	guard.attach(o)
 	return o, nil
+}
+
+func namedOpenFDSkip(s parse.Spec) xio.FDSkip {
+	switch strings.ToUpper(s.Type) {
+	case "CREATE", "CREAT":
+		return xio.FDSkipCREATE
+	default:
+		return xio.FDSkipNamedFile
+	}
 }

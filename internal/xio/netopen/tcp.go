@@ -113,9 +113,10 @@ func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		Listener: ln,
 		Label:    fmt.Sprintf("%s-LISTEN:%s", network, port),
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			return xio.WrapAccepted(s, c, func(c net.Conn) error {
-				return xio.ApplyTCPConnOpts(s, c)
-			})
+			if err := xio.ApplyTCPConnOpts(s, c); err != nil {
+				return nil, err
+			}
+			return xio.SetupConnectedStream(s, relay.NetStream{Conn: c})
 		},
 	})
 }

@@ -209,7 +209,7 @@ func openUDPListenOnePeer(ctx context.Context, s parse.Spec, g *xio.Global, pc *
 		recvErr:  recvErr,
 		g:        g,
 	})
-	st, err = xio.SetupConnectedStream(s, st)
+	st, err = xio.WrapOpened(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err

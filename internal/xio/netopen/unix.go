@@ -272,7 +272,7 @@ func openUnixDgramClient(req dialRequest, path, bindPath string, emptyIsEOF bool
 	if emptyIsEOF {
 		st = xio.WrapMessageEOF(st)
 	}
-	st, err = xio.SetupConnectedStream(req.spec, st)
+	st, err = xio.WrapOpened(req.spec, st)
 	if err != nil {
 		life.drop(conn)
 		return nil, err

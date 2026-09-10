@@ -19,8 +19,8 @@ import (
 // an fd. Tests use it to observe SetupStream's per-call same-fd dedup.
 var fdLifecycleTestHook func(fd int)
 
-func applyFDLifecycleToFile(f *os.File, s parse.Spec) error {
-	if f == nil || (!hasFDLifecycleOptions(s) && !hasLinuxPHFDOptions(s)) {
+func applyFDLifecycleToFile(f *os.File, s parse.Spec, skip FDSkip) error {
+	if f == nil || (!hasFDLifecycleOptions(s, skip) && !hasLinuxPHFDOptions(s)) {
 		return nil
 	}
 	raw, err := f.SyscallConn()
@@ -29,99 +29,84 @@ func applyFDLifecycleToFile(f *os.File, s parse.Spec) error {
 	}
 	var optionErr error
 	ctrlErr := raw.Control(func(fd uintptr) {
-		optionErr = applyFDLifecycleOnFD(int(fd), s)
+		optionErr = applyFDLifecycleOnFD(int(fd), s, skip)
 	})
-	if err := errors.Join(ctrlErr, optionErr); err != nil {
-		return err
-	}
-	if hasFDLifecycleOptions(s) {
-		markFDLifecycleApplied(f)
-	}
-	return nil
+	return errors.Join(ctrlErr, optionErr)
 }
 
-func applyFDLifecycleOnFD(fd int, s parse.Spec) error {
-	if !hasFDLifecycleOptions(s) && !hasLinuxPHFDOptions(s) {
+func applyFDLifecycleOnFD(fd int, s parse.Spec, skip FDSkip) error {
+	if !hasFDLifecycleOptions(s, skip) && !hasLinuxPHFDOptions(s) {
 		return nil
 	}
-	if hasFDLifecycleOptions(s) && fdLifecycleTestHook != nil {
+	if hasFDLifecycleOptions(s, skip) && fdLifecycleTestHook != nil {
 		fdLifecycleTestHook(fd)
 	}
-	if err := applyFDPhaseLifecycle(fd, s); err != nil {
+	if err := applyFDPhaseLifecycleOptions(fd, s, skip); err != nil {
 		return err
 	}
-	if !hasFDLifecycleOptions(s) {
+	if !hasFDLifecycleOptions(s, skip) {
 		return nil
 	}
-	return applyLateLifecycle(fd, s)
+	return applyLateLifecycle(fd, s, skip)
 }
 
-// applyFDLifecycleToStream applies descriptor lifecycle options once per
-// unique underlying fd. Files already handled by ApplyFDOptions are skipped
-// via per-open *os.File identity (not a process-global fd-number cache).
-// FileStream R/W/C sharing one unmarked fd still apply once via seen.
-func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
-	return applyFDLifecycleToStreamMode(s, stream, false)
+// applyFDLifecycleToStream applies descriptor lifecycle once per unique
+// underlying fd in this call (FileStream R/W/C sharing one fd).
+func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream, skip FDSkip) error {
+	return applyFDLifecycleToStreamMode(s, stream, skip, false)
 }
 
 // applyFDLifecycleLateToStream applies only late descriptor options.
 // ACCEPT-FD applies after-open options before after-socket and after
-// connect/accept; SetupStream then applies late here, not together with
-// after-open.
+// connect/accept; late follows those stages instead of after-open.
 func applyFDLifecycleLateToStream(s parse.Spec, stream relay.Stream) error {
-	return applyFDLifecycleToStreamMode(s, stream, true)
+	return applyFDLifecycleToStreamMode(s, stream, FDSkip{}, true)
 }
 
-func applyFDLifecycleToStreamMode(s parse.Spec, stream relay.Stream, lateOnly bool) error {
-	if !hasFDLifecycleOptions(s) {
+func applyFDLifecycleToStreamMode(s parse.Spec, stream relay.Stream, skip FDSkip, lateOnly bool) error {
+	if lateOnly {
+		if !hasFDLifecycleOptions(s, FDSkip{}) {
+			return nil
+		}
+	} else if !hasFDLifecycleOptions(s, skip) {
 		return nil
 	}
-	// Hidden wrappers (UDP-RECV, POSIX MQ, QUIC, …) are not syscall.Conn, or
-	// embed one after the parent already applied on the raw socket. Skip here
-	// so a promoted SyscallConn cannot double-apply. Never treat a visible
-	// stream with no fd as success.
-	if wrapHidesDescriptor(s) {
-		return nil
-	}
-	targets := streamSyscallConnTargets(stream)
+	targets := streamSyscallConns(stream)
 	if len(targets) == 0 {
 		return fmt.Errorf("append/perm/user/group/ftruncate: stream does not expose a descriptor")
 	}
 	seen := make(map[int]struct{})
-	for _, t := range targets {
-		if isFDLifecycleApplied(t.file) || isConnLifecycleApplied(t.conn) {
-			continue
-		}
+	for _, raw := range targets {
 		var fdErr error
-		ctrlErr := t.raw.Control(func(fd uintptr) {
+		ctrlErr := raw.Control(func(fd uintptr) {
 			n := int(fd)
 			if _, ok := seen[n]; ok {
 				return
 			}
 			seen[n] = struct{}{}
 			if lateOnly {
-				fdErr = applyLateLifecycle(n, s)
+				fdErr = applyLateLifecycle(n, s, FDSkip{})
 				return
 			}
-			fdErr = applyFDLifecycleOnFD(n, s)
+			fdErr = applyFDLifecycleOnFD(n, s, skip)
 		})
 		if err := errors.Join(ctrlErr, fdErr); err != nil {
 			return err
 		}
-		markFDLifecycleApplied(t.file)
-		markConnLifecycleApplied(t.conn)
 	}
 	return nil
 }
 
 // ApplyFDLifecycleToConn applies after-open then late options on a live
-// syscall.Conn (UDP/UNIX/QUIC transport, before wrapping). Marks the conn so
-// SetupStream does not apply twice on streams that still expose the same object.
+// syscall.Conn (UDP/UNIX/QUIC transport, before wrapping).
 func ApplyFDLifecycleToConn(c syscall.Conn, s parse.Spec) error {
-	if c == nil || !hasFDLifecycleOptions(s) {
-		return nil
-	}
-	if isConnLifecycleApplied(c) {
+	return ApplyFDLifecycleToConnSkip(c, s, FDSkip{})
+}
+
+// ApplyFDLifecycleToConnSkip applies descriptor lifecycle with opener-owned
+// options skipped.
+func ApplyFDLifecycleToConnSkip(c syscall.Conn, s parse.Spec, skip FDSkip) error {
+	if c == nil || !hasFDLifecycleOptions(s, skip) {
 		return nil
 	}
 	raw, err := c.SyscallConn()
@@ -130,13 +115,9 @@ func ApplyFDLifecycleToConn(c syscall.Conn, s parse.Spec) error {
 	}
 	var optionErr error
 	ctrlErr := raw.Control(func(fd uintptr) {
-		optionErr = applyFDLifecycleOnFD(int(fd), s)
+		optionErr = applyFDLifecycleOnFD(int(fd), s, skip)
 	})
-	if err := errors.Join(ctrlErr, optionErr); err != nil {
-		return err
-	}
-	markConnLifecycleApplied(c)
-	return nil
+	return errors.Join(ctrlErr, optionErr)
 }
 
 // ApplyFDPhaseLifecycleToConn applies only after-open owner options to a
@@ -161,7 +142,7 @@ func ApplyFDPhaseLifecycleToConn(c syscall.Conn, s parse.Spec) error {
 // PacketConn (QUIC transport) before quic-go wrapping. Rejects enabled
 // options when the conn does not expose a socket.
 func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s parse.Spec) error {
-	if pc == nil || !hasFDLifecycleOptions(s) {
+	if pc == nil || !hasFDLifecycleOptions(s, FDSkip{}) {
 		return nil
 	}
 	sc, ok := pc.(syscall.Conn)
@@ -174,42 +155,40 @@ func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s parse.Spec) error {
 // ApplyFDLifecycleOnFD applies after-open then late options on a raw
 // descriptor (POSIX MQ mqd, listen sockets). Caller applies once on the parent.
 func ApplyFDLifecycleOnFD(fd int, s parse.Spec) error {
-	return applyFDLifecycleOnFD(fd, s)
+	return ApplyFDLifecycleOnFDSkip(fd, s, FDSkip{})
 }
 
-func applyFDPhaseLifecycle(fd int, s parse.Spec) error {
-	return applyFDPhaseLifecycleOptions(fd, s, true)
+// ApplyFDLifecycleOnFDSkip applies descriptor lifecycle with opener-owned
+// options skipped.
+func ApplyFDLifecycleOnFDSkip(fd int, s parse.Spec, skip FDSkip) error {
+	return applyFDLifecycleOnFD(fd, s, skip)
 }
 
-// applyFDPhaseLifecycleAll is for the actual descriptor that owns after-open
-// options even when the eventual transfer stream must skip them. Abstract
-// UNIX listeners are configured here before accept; accepted children must
-// not receive the same perm/user/group options again.
 func applyFDPhaseLifecycleAll(fd int, s parse.Spec) error {
-	return applyFDPhaseLifecycleOptions(fd, s, false)
+	return applyFDPhaseLifecycleOptions(fd, s, FDSkip{})
 }
 
-func applyFDPhaseLifecycleOptions(fd int, s parse.Spec, honorTargetSkip bool) error {
+func applyFDPhaseLifecycleOptions(fd int, s parse.Spec, skip FDSkip) error {
 	noteOptionPhase("FD")
 	for _, o := range s.Options {
 		name := parse.CanonicalOptionName(o.Name)
 		switch name {
 		case "perm":
-			if honorTargetSkip && skipDescriptorOwnerOption(s, name) {
+			if skip.Perm {
 				continue
 			}
 			if err := applyOnePerm(fd, o); err != nil {
 				return err
 			}
 		case "user":
-			if honorTargetSkip && skipDescriptorOwnerOption(s, name) {
+			if skip.User {
 				continue
 			}
 			if err := applyOneUser(fd, o); err != nil {
 				return err
 			}
 		case "group":
-			if honorTargetSkip && skipDescriptorOwnerOption(s, name) {
+			if skip.Group {
 				continue
 			}
 			if err := applyOneGroup(fd, o); err != nil {
@@ -247,21 +226,19 @@ func applyFDPhaseLifecycleOptions(fd int, s parse.Spec, honorTargetSkip bool) er
 	return nil
 }
 
-func applyLateLifecycle(fd int, s parse.Spec) error {
+func applyLateLifecycle(fd int, s parse.Spec, skip FDSkip) error {
 	noteOptionPhase("LATE")
-	skipAppend := skipNamedFileAppend(s.Type)
-	skipAsync := skipNamedFileAsync(s.Type)
 	for _, o := range s.Options {
 		switch parse.CanonicalOptionName(o.Name) {
 		case "append":
-			if skipAppend {
+			if skip.Append {
 				continue
 			}
 			if err := applyOneAppend(fd, o); err != nil {
 				return err
 			}
 		case "async":
-			if skipAsync {
+			if skip.Async {
 				continue
 			}
 			if err := applyOneAsync(fd, o); err != nil {

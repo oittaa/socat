@@ -165,7 +165,7 @@ func startCmdPtyFDRedirect(ctx context.Context, s parse.Spec, mode Mode, g *Glob
 		closeSlave = closeHeldSlave
 		stream = ptyExecStream(master, r)
 	}
-	return finishExec(s, g, cmd, stream, execPtyCleanup(master, unlink, closeSlave), waitChild, done)
+	return finishExecAfterFD(s, g, cmd, stream, execPtyCleanup(master, unlink, closeSlave), waitChild, done)
 }
 
 // startCmdPty runs the child with a pseudo-terminal.
@@ -221,7 +221,7 @@ func startCmdPty(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *e
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { w.closeWrite(); return nil },
 		}
-		return finishExec(s, g, cmd, stream, execPtyCleanup(ptmx, unlink, nil), true, nil)
+		return finishExecAfterFD(s, g, cmd, stream, execPtyCleanup(ptmx, unlink, nil), true, nil)
 
 	case ModeRead:
 		// Inherit stdin; only stdout/stderr on PTY slave.
@@ -273,7 +273,7 @@ func startCmdPty(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *e
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { return nil },
 		}
-		return finishExec(s, g, cmd, stream, execPtyCleanup(ptmx, unlink, closeSlave), false, done)
+		return finishExecAfterFD(s, g, cmd, stream, execPtyCleanup(ptmx, unlink, closeSlave), false, done)
 
 	default:
 		var slave *os.File
@@ -300,7 +300,7 @@ func startCmdPty(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *e
 			return nil, rerr
 		}
 		st := ptyExecStream(ptmx, r)
-		return finishExec(s, g, cmd, st, execPtyCleanup(ptmx, unlink, closeSlave), false, done)
+		return finishExecAfterFD(s, g, cmd, st, execPtyCleanup(ptmx, unlink, closeSlave), false, done)
 	}
 }
 
@@ -316,5 +316,5 @@ func execPtyCleanup(master *os.File, unlink, closeSlave func()) []func() {
 }
 
 func applyPtyMasterLifecycle(s parse.Spec, ptmx *os.File) error {
-	return ApplyFDOptions(ptmx, s)
+	return ApplyFDOptionsSkip(ptmx, s, FDSkipOwner)
 }

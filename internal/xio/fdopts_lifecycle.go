@@ -2,14 +2,8 @@ package xio
 
 import (
 	"fmt"
-	"net"
-	"os"
-	"runtime"
 	"strconv"
 	"strings"
-	"sync"
-	"syscall"
-	"weak"
 
 	"github.com/oittaa/socat/internal/parse"
 )
@@ -17,13 +11,47 @@ import (
 // Descriptor lifecycle options walk the command-line list after open, then
 // late. Every occurrence is applied, including aliases. Last-wins
 // OptionNamed is not used for applying. ApplyFDOptions owns already-open
-// files and marks the *os.File so SetupStream skips it. Fd numbers are not
-// cached. OPEN/FILE/CREATE/GOPEN consume perm= as open(2) mode so umask
-// applies. Windows hides and rejects ioctl-* and cloexec.
+// files. Fd numbers are not cached. OPEN/FILE/CREATE/GOPEN consume perm= as
+// open(2) mode so umask applies. Windows hides and rejects ioctl-* and cloexec.
+
+// FDSkip names after-open options this descriptor does not own because the
+// opener already consumed them (create mode, named chmod, PTY slave, mq_open).
+type FDSkip struct {
+	Perm, User, Group bool
+	Append, Async     bool
+}
+
+// FDSkipOwner skips perm/user/group on a descriptor whose owner options were
+// applied to a filesystem name, listen socket, or PTY slave.
+var FDSkipOwner = FDSkip{Perm: true, User: true, Group: true}
+
+// FDSkipNamedFile is OPEN/FILE/GOPEN: perm/user/group on the path, append and
+// async in open(2).
+var FDSkipNamedFile = FDSkip{Perm: true, User: true, Group: true, Append: true, Async: true}
+
+// FDSkipCREATE consumes perm as creat(2) mode and O_APPEND at open; user,
+// group, and async still apply on the descriptor.
+var FDSkipCREATE = FDSkip{Perm: true, Append: true}
+
+// FDSkipPOSIXMQ consumes perm as mq_open(3) mode.
+var FDSkipPOSIXMQ = FDSkip{Perm: true}
+
+func (skip FDSkip) owner(name string) bool {
+	switch name {
+	case "perm":
+		return skip.Perm
+	case "user":
+		return skip.User
+	case "group":
+		return skip.Group
+	default:
+		return false
+	}
+}
 
 // lifecycleSyscallTestHook is invoked immediately before fchmod/fchown/
 // F_SETFL/ftruncate (and the Windows ftruncate path). Tests assert
-// exactly-once apply after ApplyFDOptions then SetupStream, and command-line
+// exactly-once apply after ApplyFDOptions then WrapAfterFD, and command-line
 // order of repeated options.
 var lifecycleSyscallTestHook func(op string)
 
@@ -62,108 +90,24 @@ func InstallOptionPhaseHook(f func(phase string)) func() {
 	return func() { optionPhaseTestHook = prev }
 }
 
-// fdLifecycleAppliedFiles is per-open state keyed by *os.File identity, not
-// by fd number. A closed file's number may be reused by a new *os.File; that
-// new object is a different key and still receives lifecycle options.
-var fdLifecycleAppliedFiles sync.Map // weak.Pointer[os.File] -> struct{}
-var fdLifecycleAppliedConns sync.Map // weak.Pointer[net.UDPConn|UnixConn|TCPConn|IPConn] -> struct{}
-
-func markFDLifecycleApplied(f *os.File) {
-	if f == nil {
-		return
-	}
-	wp := weak.Make(f)
-	fdLifecycleAppliedFiles.Store(wp, struct{}{})
-	runtime.AddCleanup(f, func(wp weak.Pointer[os.File]) {
-		fdLifecycleAppliedFiles.Delete(wp)
-	}, wp)
-}
-
-func isFDLifecycleApplied(f *os.File) bool {
-	if f == nil {
-		return false
-	}
-	_, ok := fdLifecycleAppliedFiles.Load(weak.Make(f))
-	return ok
-}
-
-func markConnLifecycleApplied(c syscall.Conn) {
-	if c == nil {
-		return
-	}
-	switch v := c.(type) {
-	case *os.File:
-		markFDLifecycleApplied(v)
-	case *net.UDPConn:
-		markWeakConn(v)
-	case *net.UnixConn:
-		markWeakConn(v)
-	case *net.TCPConn:
-		markWeakConn(v)
-	case *net.IPConn:
-		markWeakConn(v)
-	}
-}
-
-func isConnLifecycleApplied(c syscall.Conn) bool {
-	if c == nil {
-		return false
-	}
-	switch v := c.(type) {
-	case *os.File:
-		return isFDLifecycleApplied(v)
-	case *net.UDPConn:
-		return isWeakConnApplied(v)
-	case *net.UnixConn:
-		return isWeakConnApplied(v)
-	case *net.TCPConn:
-		return isWeakConnApplied(v)
-	case *net.IPConn:
-		return isWeakConnApplied(v)
-	default:
-		return false
-	}
-}
-
-func markWeakConn[T any](p *T) {
-	if p == nil {
-		return
-	}
-	wp := weak.Make(p)
-	fdLifecycleAppliedConns.Store(wp, struct{}{})
-	runtime.AddCleanup(p, func(wp weak.Pointer[T]) {
-		fdLifecycleAppliedConns.Delete(wp)
-	}, wp)
-}
-
-func isWeakConnApplied[T any](p *T) bool {
-	if p == nil {
-		return false
-	}
-	_, ok := fdLifecycleAppliedConns.Load(weak.Make(p))
-	return ok
-}
-
-func hasFDLifecycleOptions(s parse.Spec) bool {
+func hasFDLifecycleOptions(s parse.Spec, skip FDSkip) bool {
 	if hasPlatformFDLifecycleOptions(s) {
 		return true
 	}
-	skipAppend := skipNamedFileAppend(s.Type)
-	skipAsync := skipNamedFileAsync(s.Type)
 	for _, o := range s.Options {
 		switch parse.CanonicalOptionName(o.Name) {
 		case "append":
-			if !skipAppend {
+			if !skip.Append {
 				return true
 			}
 		case "async":
-			if !skipAsync {
+			if !skip.Async {
 				return true
 			}
 		case "ftruncate", "lseek", "seek-cur", "seek-end":
 			return true
 		case "perm", "user", "group":
-			if !skipDescriptorOwnerOption(s, parse.CanonicalOptionName(o.Name)) {
+			if !skip.owner(parse.CanonicalOptionName(o.Name)) {
 				return true
 			}
 		case "perm-late", "user-late", "group-late":
@@ -177,108 +121,6 @@ func hasFDLifecycleOptions(s parse.Spec) bool {
 		}
 	}
 	return false
-}
-
-// skipDescriptorOwnerOption reports call sites that consume one owner option
-// as create mode or named chmod/chown. Applying fchmod here would undo umask
-// on regular files and fchmod a PTY master instead of the slave.
-func skipDescriptorOwnerOption(s parse.Spec, name string) bool {
-	t := strings.ToUpper(s.Type)
-	switch t {
-	case "OPEN", "FILE", "GOPEN", "PTY":
-		return true
-	case "CREATE", "CREAT":
-		// CREATE consumes perm as the creat(2) mode, but user and group
-		// still apply to the opened descriptor.
-		return name == "perm"
-	case "PIPE", "FIFO":
-		// A named FIFO consumes perm as mkfifo/open mode and applies ownership
-		// to the filesystem entry. Anonymous PIPE/FIFO (and ECHO) have no name;
-		// their owner options belong on the pipe descriptor.
-		return len(s.Params) > 0 && s.Params[0] != ""
-	case "EXEC", "SYSTEM", "SHELL":
-		// With pty, perm/user/group apply to the slave node. The master
-		// retains descriptor-only options such as append.
-		return execUsesPTY(s)
-	}
-	if strings.HasPrefix(t, "POSIXMQ") {
-		// perm= is mq_open(3) mode, not fchmod. user=/group= remain
-		// descriptor options and must not become silent no-ops.
-		return name == "perm"
-	}
-	if unixStreamListenPHFDOwner(s) {
-		// Filesystem listeners apply after-open owner options to the name.
-		// Abstract listeners apply them to the listening descriptor before
-		// accept. In both cases the accepted stream must not apply them again.
-		return true
-	}
-	return namedFilesystemUnixPHFD(s)
-}
-
-func unixStreamListenPHFDOwner(s parse.Spec) bool {
-	switch strings.ToUpper(s.Type) {
-	case "UNIX-LISTEN", "UNIX-L", "ABSTRACT-LISTEN", "ABSTRACT-L":
-		return true
-	default:
-		return false
-	}
-}
-
-// namedFilesystemUnixPHFD is true after bind of a filesystem UNIX listen/recv
-// name. Abstract names have no directory entry; owner options apply to the
-// descriptor instead.
-func namedFilesystemUnixPHFD(s parse.Spec) bool {
-	t := strings.ToUpper(s.Type)
-	switch t {
-	case "UNIX-LISTEN", "UNIX-L", "UNIX-RECV", "UNIX-RECVFROM":
-	default:
-		return false
-	}
-	if len(s.Params) > 0 && IsAbstract(s.Params[0]) {
-		return false
-	}
-	return true
-}
-
-// wrapHidesDescriptor reports stream types whose SetupStream view is not a
-// syscall.Conn (datagram/QUIC/POSIX MQ wrappers; relay would splice those
-// fds). Lifecycle options are applied on the parent socket or mqd before
-// wrapping. Never treat an accepted option as a silent no-op: other types
-// with no discoverable fd are rejected.
-func wrapHidesDescriptor(s parse.Spec) bool {
-	t := strings.ToUpper(s.Type)
-	if strings.HasPrefix(t, "QUIC") || strings.HasPrefix(t, "POSIXMQ") {
-		return true
-	}
-	if strings.HasPrefix(t, "UDP") || strings.HasPrefix(t, "IP") {
-		return true
-	}
-	switch t {
-	case "UNIX-SENDTO", "UNIX-SEND", "UNIX-RECV", "UNIX-RECVFROM", "UNIX-DATAGRAM",
-		"ABSTRACT-SENDTO", "ABSTRACT-SEND", "ABSTRACT-RECV", "ABSTRACT-RECVFROM":
-		return true
-	}
-	return false
-}
-
-func skipNamedFileAppend(addrType string) bool {
-	switch strings.ToUpper(addrType) {
-	case "OPEN", "FILE", "CREATE", "CREAT", "GOPEN":
-		return true
-	default:
-		return false
-	}
-}
-
-// skipNamedFileAsync reports named opens that OR O_ASYNC into open(2).
-// CREATE uses creat(2) and applies async with F_SETFL late instead.
-func skipNamedFileAsync(addrType string) bool {
-	switch strings.ToUpper(addrType) {
-	case "OPEN", "FILE", "GOPEN":
-		return true
-	default:
-		return false
-	}
 }
 
 // lastLifecycleOption returns the last command-line option whose canonical

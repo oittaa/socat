@@ -45,7 +45,7 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	}
 	// perm= is mq_open mode. Apply remaining lifecycle options on the mqd
 	// before wrapping or fork sessions so they are not dropped on mqStream.
-	if err := xio.ApplyFDLifecycleOnFD(q.fd, s); err != nil {
+	if err := xio.ApplyFDLifecycleOnFDSkip(q.fd, s, xio.FDSkipPOSIXMQ); err != nil {
 		q.cleanup()
 		return nil, err
 	}
@@ -276,7 +276,7 @@ func (q *posixMQQueue) wrapSendFork(s parse.Spec, p posixMQParams, nonblock bool
 		return newMQConn(st, name), nil
 	}
 	wrap := func(c net.Conn) (relay.Stream, error) {
-		return xio.SetupStream(s, relay.NetStream{Conn: c})
+		return xio.WrapOpened(s, relay.NetStream{Conn: c})
 	}
 	o := &xio.Opened{
 		Kind:        xio.KindDial,
@@ -308,7 +308,7 @@ func (q *posixMQQueue) wrapRecvFork(ctx context.Context, s parse.Spec, p posixMQ
 		MaxChildren: p.maxChildren,
 		Label:       s.Type,
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			return xio.SetupStream(s, relay.NetStream{Conn: c})
+			return xio.WrapOpened(s, relay.NetStream{Conn: c})
 		},
 	}
 	o.AddCleanup(func() {
@@ -357,7 +357,7 @@ func (q *posixMQQueue) wrapStream(ctx context.Context, s parse.Spec, g *xio.Glob
 	}
 
 	st := relay.Stream(mqs)
-	st, err := xio.SetupStream(s, st)
+	st, err := xio.WrapOpened(s, st)
 	if err != nil {
 		_ = mqs.Close()
 		q.unregister()

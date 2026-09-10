@@ -24,6 +24,10 @@ func optionBoolAny(s parse.Spec, names ...string) (bool, bool) {
 }
 
 func ApplyFDOptions(f *os.File, s parse.Spec) error {
+	return ApplyFDOptionsSkip(f, s, FDSkip{})
+}
+
+func ApplyFDOptionsSkip(f *os.File, s parse.Spec, skip FDSkip) error {
 	if enabled, ok := optionBoolAny(s, "o-noatime", "noatime"); ok && enabled {
 		return fmt.Errorf("o-noatime: not supported on this platform")
 	}
@@ -35,7 +39,7 @@ func ApplyFDOptions(f *os.File, s parse.Spec) error {
 	if _, ok := optionValueAny(s, "f-setpipe-sz", "pipesz"); ok {
 		return fmt.Errorf("f-setpipe-sz: not supported on this platform")
 	}
-	return applyFDLifecycleToFile(f, s)
+	return applyFDLifecycleToFile(f, s, skip)
 }
 
 type linuxExtFSFlagOp struct {

@@ -216,11 +216,7 @@ func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f 
 		Label:          s.Type,
 		MaxChildren:    maxChildren,
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			stream := relay.NetStream{Conn: c}
-			if err := xio.ApplyStreamLateSocketOptions(s, stream); err != nil {
-				return nil, err
-			}
-			return xio.WrapStream(s, stream, xio.StreamSocketTimeouts)
+			return xio.WrapOpened(s, relay.NetStream{Conn: c})
 		},
 	}, nil
 }

@@ -11,10 +11,15 @@ import (
 )
 
 // ApplyFDOptions applies descriptor options to an already open file in
-// command-line order (after open, then late). SetupStream skips the same
-// *os.File. o-direct is open(2) only. o-noatime uses F_SETFL; fs-* uses FS_IOC_*.
+// command-line order (after open, then late). o-direct is open(2) only.
+// o-noatime uses F_SETFL; fs-* uses FS_IOC_*.
 func ApplyFDOptions(f *os.File, s parse.Spec) error {
-	return applyFDLifecycleToFile(f, s)
+	return ApplyFDOptionsSkip(f, s, FDSkip{})
+}
+
+// ApplyFDOptionsSkip applies descriptor options, skipping opener-owned names.
+func ApplyFDOptionsSkip(f *os.File, s parse.Spec, skip FDSkip) error {
+	return applyFDLifecycleToFile(f, s, skip)
 }
 
 // applyLinuxPHFDOption applies Linux-only after-open options (o-noatime,

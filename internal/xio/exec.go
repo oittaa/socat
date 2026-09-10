@@ -904,7 +904,15 @@ func (w *execWaitState) closeAfterTransfer(s parse.Spec, g *Global, cmd *exec.Cm
 }
 
 func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func(), waitChild bool, done chan struct{}) (*Opened, error) {
-	st, err := SetupStream(s, stream)
+	return finishExecStream(s, g, cmd, stream, cleanup, waitChild, done, SetupStream)
+}
+
+func finishExecAfterFD(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func(), waitChild bool, done chan struct{}) (*Opened, error) {
+	return finishExecStream(s, g, cmd, stream, cleanup, waitChild, done, WrapAfterFD)
+}
+
+func finishExecStream(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func(), waitChild bool, done chan struct{}, wrap func(parse.Spec, relay.Stream) (relay.Stream, error)) (*Opened, error) {
+	st, err := wrap(s, stream)
 	if err != nil {
 		killWaitUnregisterChild(cmd)
 		for _, f := range cleanup {

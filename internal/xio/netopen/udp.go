@@ -88,7 +88,7 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return nil, err
 	}
 	st := relay.Stream(udpConnectStream{NetStream: relay.NetStream{Conn: xio.WrapUDPAncillary(udpConn, s, g)}})
-	st, err = xio.SetupConnectedStream(s, st)
+	st, err = xio.WrapOpened(s, st)
 	if err != nil {
 		logx.CloseQuiet(conn)
 		return nil, err

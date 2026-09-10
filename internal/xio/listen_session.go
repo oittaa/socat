@@ -31,17 +31,6 @@ type ListenSession struct {
 	PeerFilter             *PeerFilter
 }
 
-// WrapAccepted applies extra per-conn setup then SetupStream. Extra may be nil.
-func WrapAccepted(s parse.Spec, c net.Conn, extra func(net.Conn) error) (relay.Stream, error) {
-	if extra != nil {
-		if err := extra(c); err != nil {
-			return nil, err
-		}
-		return SetupConnectedStream(s, relay.NetStream{Conn: c})
-	}
-	return SetupStream(s, relay.NetStream{Conn: c})
-}
-
 // DefaultWrapDial returns SetupStream around a net.Conn.
 func DefaultWrapDial(s parse.Spec) func(net.Conn) (relay.Stream, error) {
 	return func(c net.Conn) (relay.Stream, error) {
