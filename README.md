@@ -26,6 +26,11 @@ Without `make`:
 
 ```bash
 go build -o socat ./cmd/socat
+```
+
+The `filan` and `procan` diagnostic tools are available on Linux and macOS:
+
+```bash
 go build -o filan ./cmd/filan
 go build -o procan ./cmd/procan
 ```
@@ -45,8 +50,8 @@ standard input and output.
 - `socat -hhh` also lists aliases and termios names.
 
 Common flags include `-d`, `-v`, `-x`, `-b`, `-t`, `-T`, `-u`/`-U`,
-`-4`/`-6`/`-0`, and `--statistics`. On Linux and macOS, `-ly` and `-lm`
-send logs to syslog.
+`-4`/`-6`/`-0`, and `--statistics`. On Linux and macOS, `-D` dumps channel
+descriptor information, and `-ly` and `-lm` send logs to syslog.
 
 The command output is the authoritative feature list for the current
 platform.
@@ -74,7 +79,7 @@ Expose a TCP service through a Unix socket:
   TCP4:127.0.0.1:8080
 ```
 
-Run an interactive program on a pseudo-terminal:
+Run an interactive program on a pseudo-terminal (Linux and macOS):
 
 ```bash
 ./socat -,pty,cfmakeraw EXEC:'python3 -i',setsid,stderr
@@ -88,10 +93,10 @@ The following groups summarize the implemented address families. Run
 | Group | Address types |
 |---|---|
 | Standard streams and descriptors | `STDIO`, `STDIN`, `STDOUT`, `STDERR`, `FD`; `ACCEPT-FD` on Linux and macOS |
-| Files and local I/O | `OPEN`, `CREATE`, `GOPEN`, `PIPE`, `FIFO`, `ECHO`, `SOCKETPAIR`, `TEXT`, `STALL`, `PTY` |
-| IP networking | TCP connect/listen, UDP connect/listen/send/receive/datagram, raw IP; generic `SOCKET` on Linux and macOS |
-| Local networking | Unix stream/datagram sockets on Linux and macOS; Linux abstract sockets |
-| Processes | `EXEC`, `SYSTEM`, `SHELL` |
+| Files and local I/O | `OPEN`, `CREATE`, `GOPEN`, `PIPE`, `FIFO`, `ECHO`, `TEXT`; `SOCKETPAIR`, `STALL`, `PTY` on Linux and macOS |
+| IP networking | TCP connect/listen, UDP connect/listen/send/receive/datagram; raw IP and generic `SOCKET` on Linux and macOS |
+| Local networking | Unix stream sockets on Linux, macOS, and Windows; Unix datagram sockets on Linux and macOS; Linux abstract sockets |
+| Processes | `EXEC`, `SYSTEM`, `SHELL` on Linux and macOS |
 | Encryption and proxies | TLS, DTLS 1.3, HTTP CONNECT, SOCKS4/4A/5, SOCKS5 BIND |
 | Go extensions | WebSocket (`WS`/`WSS`), QUIC, HTTP/2 and HTTP/3 CONNECT |
 | Linux networking | SCTP, VSOCK, TUN/TAP, AF_PACKET `INTERFACE`, POSIX message queues |
@@ -114,6 +119,8 @@ addresses. QUIC is a byte stream over one bidirectional QUIC stream; it is
 not HTTP/3. On Linux and macOS, `SOCKET-*` takes a packed sockaddr, so you
 can connect or listen on families other than TCP and UDP.
 `UDP-LISTEN,fork` keeps a session per peer.
+Named `PIPE:path` / `FIFO:path` requires Linux or macOS; the unnamed forms
+also work on Windows.
 
 ## Options
 
@@ -348,6 +355,8 @@ baselines.
 
 ```text
 cmd/                  socat, filan, and procan commands
+internal/cli/         command-line handling and help
+internal/dtls13/      DTLS 1.3 protocol implementation
 internal/parse/       address and option parsing
 internal/xio/         endpoint implementations
 internal/relay/       transfer engine
