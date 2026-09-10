@@ -1,7 +1,13 @@
 package parse
 
+import "github.com/oittaa/socat/internal/optionmeta"
+
 func init() {
-	registerOptionAliases(map[string]string{
+	registerOptionAliases(tlsOptionAliases())
+}
+
+func tlsOptionAliases() map[string]string {
+	aliases := map[string]string{
 		"proxyauth":     "proxy-authorization",
 		"proxy-auth":    "proxy-authorization",
 		"proxyauthfile": "proxy-authorization-file",
@@ -37,17 +43,19 @@ func init() {
 		// OPENSSL options Go crypto/tls cannot honor are still folded so CLI
 		// validation can reject them (last-wins still applies; tlsopen rejects
 		// instead of a no-op). Do not advertise these as working in -hhh.
-		"method":           "openssl-method",
-		"opensslmethod":    "openssl-method",
-		"fips":             "openssl-fips",
-		"compress":         "openssl-compress",
-		"egd":              "openssl-egd",
-		"pseudo":           "openssl-pseudo",
-		"dh":               "openssl-dhparam",
-		"dhparam":          "openssl-dhparam",
-		"dhparams":         "openssl-dhparam",
-		"openssl-dhparams": "openssl-dhparam",
-		"maxfraglen":       "openssl-maxfraglen",
-		"maxsendfrag":      "openssl-maxsendfrag",
-	})
+		"compress": "openssl-compress",
+	}
+	addUnsupportedTLSAliases(aliases)
+	return aliases
+}
+
+func addUnsupportedTLSAliases(aliases map[string]string) {
+	for _, opt := range optionmeta.UnsupportedTLS() {
+		for _, alias := range opt.Aliases {
+			if prev, ok := aliases[alias]; ok {
+				panic("duplicate option alias " + alias + ": " + prev + " vs " + opt.Canonical)
+			}
+			aliases[alias] = opt.Canonical
+		}
+	}
 }

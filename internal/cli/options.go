@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/oittaa/socat/internal/optionmeta"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
@@ -72,17 +73,20 @@ func buildSupportedAddressOptions() map[string]addressOption {
 	// OpenSSL behavior. They must not be advertised as honored options in
 	// -hh/-hhh. Parse aliases fold nicknames onto the openssl-* keys; listing
 	// both keeps constructed Spec values working too.
-	for _, name := range recognizedUnsupportedTLSNames {
-		option := addressOption{addressGroups: tlsOptionAddressGroups(), optionCaps: capOpenSSL}
-		switch parse.CanonicalOptionName(name) {
-		case "openssl-fips", "openssl-pseudo":
-			option.validate = validateOptionalBool
-		case "openssl-method", "openssl-egd", "openssl-dhparam":
-			option.validate = validateRequiredString
-		case "openssl-maxfraglen", "openssl-maxsendfrag":
-			option.validate = validateOptionalSignedInteger
+	for _, meta := range optionmeta.UnsupportedTLS() {
+		option := addressOption{
+			validate:      validatorForTLSCLIValue(meta.CLIValue),
+			addressGroups: tlsOptionAddressGroups(),
+			optionCaps:    capOpenSSL,
 		}
-		options[name] = option
+		names := append([]string{meta.Canonical}, meta.Aliases...)
+		for _, name := range names {
+			key := strings.ToLower(name)
+			if _, exists := options[key]; exists {
+				panic("duplicate address option " + key)
+			}
+			options[key] = option
+		}
 	}
 	if _, ok := options["ipv6-recverr"]; !ok {
 		options["ipv6-recverr"] = addressOption{optionCaps: capIP6}
@@ -96,16 +100,17 @@ func buildSupportedAddressOptions() map[string]addressOption {
 	return options
 }
 
-// recognizedUnsupportedTLSNames are OPENSSL spellings Go crypto/tls cannot
-// honor. Parsed for a precise reject; never listed in -hhh as working.
-var recognizedUnsupportedTLSNames = []string{
-	"openssl-method", "opensslmethod", "method",
-	"openssl-fips", "fips",
-	"openssl-egd", "egd",
-	"openssl-pseudo", "pseudo",
-	"openssl-dhparam", "openssl-dhparams", "dhparam", "dhparams", "dh",
-	"openssl-maxfraglen", "maxfraglen",
-	"openssl-maxsendfrag", "maxsendfrag",
+func validatorForTLSCLIValue(kind optionmeta.CLIValueKind) func(parse.Option) error {
+	switch kind {
+	case optionmeta.RequiredString:
+		return validateRequiredString
+	case optionmeta.OptionalBool:
+		return validateOptionalBool
+	case optionmeta.OptionalSignedInteger:
+		return validateOptionalSignedInteger
+	default:
+		panic(fmt.Sprintf("unknown TLS CLI value kind %d", kind))
+	}
 }
 
 // optionAddressGroups limits only protocol-specific option families.

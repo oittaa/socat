@@ -14,6 +14,7 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/logx"
+	"github.com/oittaa/socat/internal/optionmeta"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -193,15 +194,19 @@ func TLSServerConfig(s parse.Spec) (*tls.Config, error) {
 // unsupportedOpenSSLReason maps OPENSSL option names to why they are rejected.
 // crypto/tls cannot honor DTLS method, FIPS, compression, DH params, or fragment
 // bounds. Disabled bools and compress=none are compatible (Go TLS already off).
-var unsupportedOpenSSLReason = map[string]string{
-	"openssl-method":      "stream TLS only",
-	"openssl-fips":        "Go crypto/tls has no OpenSSL FIPS module",
-	"openssl-compress":    "Go crypto/tls has no TLS compression",
-	"openssl-egd":         "Go does not use EGD for randomness",
-	"openssl-pseudo":      "Go crypto/tls does not use OpenSSL pseudo-random bytes",
-	"openssl-dhparam":     "Go crypto/tls does not load DH parameters",
-	"openssl-maxfraglen":  "Go crypto/tls has no max fragment length option",
-	"openssl-maxsendfrag": "Go crypto/tls has no max send fragment option",
+var unsupportedOpenSSLReason = unsupportedOpenSSLReasons()
+
+func unsupportedOpenSSLReasons() map[string]string {
+	reasons := map[string]string{
+		"openssl-compress": "Go crypto/tls has no TLS compression",
+	}
+	for _, opt := range optionmeta.UnsupportedTLS() {
+		if prev, ok := reasons[opt.Canonical]; ok {
+			panic("duplicate TLS reject reason " + opt.Canonical + ": " + prev + " vs " + opt.TLSRejectReason)
+		}
+		reasons[opt.Canonical] = opt.TLSRejectReason
+	}
+	return reasons
 }
 
 func rejectUnsupportedOpenSSLOptions(s parse.Spec) error {
