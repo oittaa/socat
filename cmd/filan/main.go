@@ -400,6 +400,9 @@ func (cfg *filanConfig) fdname(fd int, b *outbuf.Buf, numbered bool) {
 	} else if p := filan.FDPath(fd); p != "" {
 		path = p
 	}
+	if st.Mode&unix.S_IFMT == unix.S_IFCHR && filan.IsTerminal(fd) {
+		typ = "tty"
+	}
 	// Skip Go runtime / systemd cgroup and epoll FDs after exec so EXEC_FDS /
 	// EXEC_SNIFF still detect real socat leaks (extra sockets, -r/-R files).
 	if fd >= 3 && isRuntimeNoisePath(path) {
