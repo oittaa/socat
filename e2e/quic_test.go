@@ -15,7 +15,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -48,24 +47,17 @@ func TestQUICEcho(t *testing.T) {
 	})
 
 	payload := fmt.Sprintf("quic-echo %d\n", time.Now().UnixNano())
-	var out []byte
 	var cliErr bytes.Buffer
-	var err error
-	for attempt := 0; attempt < 2; attempt++ {
-		cliErr.Reset()
-		cli := exec.Command(bin, "-t", "2", "stdin!!stdout", fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0", port))
-		cli.Stdin = bytes.NewBufferString(payload)
-		cli.Stderr = &cliErr
-		out, err = cli.Output()
-		if err == nil && string(out) == payload {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	cli := exec.Command(bin, "-t", "2", "stdin!!stdout", fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0", port))
+	cli.Stdin = bytes.NewBufferString(payload)
+	cli.Stderr = &cliErr
+	out, err := cli.Output()
 	if err != nil {
 		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
 	}
-	t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
+	if string(out) != payload {
+		t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
+	}
 }
 
 func TestQUICOneWaySenderWaitsForCompleteSink(t *testing.T) {
@@ -166,22 +158,14 @@ func TestTCPToQUICBridge(t *testing.T) {
 
 func TestWaitUDPListenDetectsEarlyExit(t *testing.T) {
 	bin := socatBin(t)
-	port := 9
-	cmd := exec.Command(bin, "NOT-A-REAL-ADDRESS", "PIPE")
-	if err := cmd.Start(); err != nil {
+	port := freeUDPPort(t)
+	proc, err := startTestProcess(exec.Command(bin, "NOT-A-REAL-ADDRESS", "PIPE"))
+	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		_ = cmd.Process.Kill()
-		_, _ = cmd.Process.Wait()
-	}()
-	time.Sleep(200 * time.Millisecond)
-	err := errWaitUDPListen(port, 2*time.Second, cmd)
-	if err == nil {
-		t.Fatal("waitUDPListen succeeded after the UDP server exited")
-	}
-	if !strings.Contains(err.Error(), "exited before listening") {
-		t.Fatalf("error=%v", err)
+	t.Cleanup(proc.stop)
+	if err := waitUDPTestProcess(proc, port, 2*time.Second); err == nil {
+		t.Fatal("waitUDPTestProcess succeeded after the UDP server exited")
 	}
 }
 

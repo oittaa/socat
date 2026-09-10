@@ -3,6 +3,7 @@
 package e2e_test
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -331,30 +332,29 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 
 func waitFileLines(t *testing.T, path string, want int, proc *testProcess, stderrPath string, timeout time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if err, exited := proc.status(); exited {
-			t.Fatalf("socat exited while waiting for %d lines in %s: %v stderr=%s", want, path, err, readFile(t, stderrPath))
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	err := waitUntil(ctx, proc, func() (bool, error) {
 		b, err := os.ReadFile(path)
-		if err == nil {
-			n := 0
-			for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-				if line != "" {
-					n++
-				}
+		if err != nil {
+			if os.IsNotExist(err) {
+				return false, nil
 			}
-			if n >= want {
-				return
-			}
-		} else if !os.IsNotExist(err) {
-			t.Fatal(err)
+			return false, err
 		}
-		time.Sleep(10 * time.Millisecond)
+		n := 0
+		for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+			if line != "" {
+				n++
+			}
+		}
+		return n >= want, nil
+	})
+	if err != nil {
+		contents := ""
+		if b, readErr := os.ReadFile(path); readErr == nil {
+			contents = string(b)
+		}
+		t.Fatalf("waiting for %d lines in %s: %v got %q stderr=%s", want, path, err, contents, readFile(t, stderrPath))
 	}
-	contents := ""
-	if b, err := os.ReadFile(path); err == nil {
-		contents = string(b)
-	}
-	t.Fatalf("timed out waiting for %d lines in %s got %q stderr=%s", want, path, contents, readFile(t, stderrPath))
 }

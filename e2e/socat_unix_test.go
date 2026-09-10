@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -113,20 +114,13 @@ exit 1
 		_, _ = cli.Process.Wait()
 	}()
 
-	// Wait until all three messages arrive (or timeout).
-	deadline := time.Now().Add(5 * time.Second)
-	var got []byte
-	for time.Now().Before(deadline) {
-		b, _ := os.ReadFile(out)
-		if bytes.Count(b, []byte("msg")) >= 3 {
-			got = b
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := waitFileContainsCount(ctx, out, []byte("msg"), 3, srv); err != nil {
+		got, _ := os.ReadFile(out)
+		t.Fatalf("expected 3 messages, got %q wait=%v cli=%s srv=%s", got, err, cliErr.String(), srv.stderr.String())
 	}
-	if bytes.Count(got, []byte("msg")) < 3 {
-		t.Fatalf("expected 3 messages, got %q cli=%s srv=%s", got, cliErr.String(), srv.stderr.String())
-	}
+	got, _ := os.ReadFile(out)
 	if !bytes.Contains(got, []byte("msg1")) || !bytes.Contains(got, []byte("msg2")) || !bytes.Contains(got, []byte("msg3")) {
 		t.Fatalf("missing messages: %q", got)
 	}
