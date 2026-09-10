@@ -191,19 +191,6 @@ func TLSServerConfig(s parse.Spec) (*tls.Config, error) {
 	return tlsServerConfig(s)
 }
 
-// unsupportedOpenSSLReason maps OPENSSL option names to why they are rejected.
-// crypto/tls cannot honor DTLS method, FIPS, compression, DH params, or fragment
-// bounds. Disabled bools and compress=none are compatible (Go TLS already off).
-var unsupportedOpenSSLReason = unsupportedOpenSSLReasons()
-
-func unsupportedOpenSSLReasons() map[string]string {
-	reasons := optionmeta.TLSRejectReasons()
-	if len(reasons) == 0 {
-		panic("missing TLS reject reasons")
-	}
-	return reasons
-}
-
 func rejectUnsupportedOpenSSLOptions(s parse.Spec) error {
 	typ := s.Type
 	if typ == "" {
@@ -213,8 +200,8 @@ func rejectUnsupportedOpenSSLOptions(s parse.Spec) error {
 	for i := len(s.Options) - 1; i >= 0; i-- {
 		option := s.Options[i]
 		canonical := parse.CanonicalOptionName(option.Name)
-		reason, ok := unsupportedOpenSSLReason[canonical]
-		if !ok {
+		def, ok := optionmeta.Lookup(canonical)
+		if !ok || def.TLSRejectReason == "" {
 			continue
 		}
 		if _, ok := seen[canonical]; ok {
@@ -224,35 +211,12 @@ func rejectUnsupportedOpenSSLOptions(s parse.Spec) error {
 		if compatibleDisabledOpenSSLOption(canonical, option) {
 			continue
 		}
-		return fmt.Errorf("%s: option %q is not supported (%s)", typ, option.OriginalSpelling(), reason)
+		return fmt.Errorf("%s: option %q is not supported (%s)", typ, option.OriginalSpelling(), def.TLSRejectReason)
 	}
 	return nil
 }
 
-var hiddenTLSCanonical = hiddenTLSCanonicals()
-
-var proxyPlaintextTLSCanonical = mergeTLSNameSets(hiddenTLSCanonical, optionmeta.PublicTLSCanonicals())
-
-func hiddenTLSCanonicals() map[string]struct{} {
-	out := make(map[string]struct{}, len(optionmeta.UnsupportedTLS()))
-	for _, opt := range optionmeta.UnsupportedTLS() {
-		out[opt.Canonical] = struct{}{}
-	}
-	return out
-}
-
-func mergeTLSNameSets(base map[string]struct{}, extra []string) map[string]struct{} {
-	out := make(map[string]struct{}, len(base)+len(extra))
-	for name := range base {
-		out[name] = struct{}{}
-	}
-	for _, name := range extra {
-		out[name] = struct{}{}
-	}
-	return out
-}
-
-func rejectTLSNamesOnPlaintext(s parse.Spec, names map[string]struct{}) error {
+func rejectTLSNamesOnPlaintext(s parse.Spec, includePublic bool) error {
 	typ := s.Type
 	if typ == "" {
 		typ = "address"
@@ -260,7 +224,13 @@ func rejectTLSNamesOnPlaintext(s parse.Spec, names map[string]struct{}) error {
 	for i := len(s.Options) - 1; i >= 0; i-- {
 		option := s.Options[i]
 		canonical := parse.CanonicalOptionName(option.Name)
-		if _, ok := names[canonical]; !ok {
+		def, ok := optionmeta.Lookup(canonical)
+		if !ok {
+			continue
+		}
+		hiddenTLS := def.Hidden && def.TLSRejectReason != ""
+		publicTLS := includePublic && def.PublicTLS
+		if !hiddenTLS && !publicTLS {
 			continue
 		}
 		return fmt.Errorf("%s: option %q does not apply to a plaintext transport", typ, option.OriginalSpelling())
@@ -272,14 +242,14 @@ func rejectTLSNamesOnPlaintext(s parse.Spec, names map[string]struct{}) error {
 // a path that will not configure TLS. Call after the opener has chosen a
 // plaintext transport. Last-wins selects the spelling in the error.
 func RejectHiddenTLSOnPlaintext(s parse.Spec) error {
-	return rejectTLSNamesOnPlaintext(s, hiddenTLSCanonical)
+	return rejectTLSNamesOnPlaintext(s, false)
 }
 
 // RejectPROXYTLSOnPlaintext fails when a hidden or public TLS family is present
 // on plaintext PROXY (HTTP/1 CONNECT or h2c). Call after HTTP-version / h2c
 // dispatch. Last-wins selects the spelling in the error.
 func RejectPROXYTLSOnPlaintext(s parse.Spec) error {
-	return rejectTLSNamesOnPlaintext(s, proxyPlaintextTLSCanonical)
+	return rejectTLSNamesOnPlaintext(s, true)
 }
 
 func compatibleDisabledOpenSSLOption(canonical string, option parse.Option) bool {

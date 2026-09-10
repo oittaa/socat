@@ -10,13 +10,6 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
-func hideOpt(name string) bool {
-	if d, ok := optionmeta.Lookup(name); ok && optionmeta.Hidden(d) {
-		return true
-	}
-	return hideOptFeature(name)
-}
-
 func hideOptGroup(title string) bool {
 	switch title {
 	case optionmeta.SectionPTY:
@@ -121,21 +114,21 @@ func printHelpAddresses(b *outbuf.Buf, aliases bool) {
 func printHelpOptions(b *outbuf.Buf, all bool) {
 	b.Printf("\nAddress options:\n")
 	b.Printf("  Form: option or option=value. Only honored names are listed.\n")
-	groups := helpOptionGroups()
+	groups := optionmeta.Sections()
 	width := 0
 	for _, g := range groups {
-		if hideOptGroup(g.title) {
+		if hideOptGroup(g.Title) {
 			continue
 		}
-		for _, o := range g.opts {
-			if hideOpt(o.name) {
+		for _, o := range g.Options {
+			if !o.Visible() || hideOptFeature(o.Canonical) {
 				continue
 			}
-			if n := len(o.name); n > width {
+			if n := len(o.Canonical); n > width {
 				width = n
 			}
 			if all {
-				for _, al := range o.aliases {
+				for _, al := range o.HelpAliases() {
 					if n := len(al); n > width {
 						width = n
 					}
@@ -150,26 +143,26 @@ func printHelpOptions(b *outbuf.Buf, all bool) {
 		}
 	}
 	for _, g := range groups {
-		if hideOptGroup(g.title) {
+		if hideOptGroup(g.Title) {
 			continue
 		}
 		printedTitle := false
-		for _, o := range g.opts {
-			if hideOpt(o.name) {
+		for _, o := range g.Options {
+			if !o.Visible() || hideOptFeature(o.Canonical) {
 				continue
 			}
 			if !printedTitle {
-				b.Printf("\n  %s\n", g.title)
+				b.Printf("\n  %s\n", g.Title)
 				printedTitle = true
 			}
-			desc := o.desc
-			if o.dynamicDesc != nil {
-				desc = o.dynamicDesc()
+			desc := o.Desc
+			if o.Canonical == "socktype" {
+				desc = xio.UnixSocktypeHelp()
 			}
-			printOptLine(b, o.name, desc, width)
+			printOptLine(b, o.Canonical, desc, width)
 			if all {
-				for _, al := range o.aliases {
-					printOptLine(b, al, "alias of "+o.name, width)
+				for _, al := range o.HelpAliases() {
+					printOptLine(b, al, "alias of "+o.Canonical, width)
 				}
 			}
 		}
@@ -194,10 +187,10 @@ func extraHelpNames(all bool) []string {
 		return nil
 	}
 	skip := map[string]struct{}{}
-	for _, g := range helpOptionGroups() {
-		for _, o := range g.opts {
-			skip[strings.ToLower(o.name)] = struct{}{}
-			for _, al := range o.aliases {
+	for _, g := range optionmeta.Sections() {
+		for _, o := range g.Options {
+			skip[strings.ToLower(o.Canonical)] = struct{}{}
+			for _, al := range o.HelpAliases() {
 				skip[strings.ToLower(al)] = struct{}{}
 			}
 		}

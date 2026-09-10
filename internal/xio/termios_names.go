@@ -184,7 +184,8 @@ func TermiosOptionNames() []string {
 	return out
 }
 
-func isTermiosOption(name string) bool {
+// IsTermiosOption reports whether xio recognizes a termios spelling.
+func IsTermiosOption(name string) bool {
 	_, ok := termiosOptionNameSet[strings.ToLower(strings.TrimSpace(name))]
 	return ok
 }

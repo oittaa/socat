@@ -1,62 +1,29 @@
 package optionmeta
 
-// Transfer options.
-var transferDefs = []Def{
-	// Transfer
-	{
-		Canonical: "cr",
-		Section:   SectionTransfer,
-		Desc:      "convert NL to/from CR",
-		Value:     NoValue,
-		Apply:     Applicability{Unrestricted: true},
+var transferOptions = []Option{
+	{Canonical: "cr",
+		Desc: "convert NL to/from CR", Value: NoValue,
 	},
-	{
-		Canonical: "crnl",
-		Section:   SectionTransfer,
-		Aliases:   []string{"crlf"},
-		Desc:      "convert CR/NL",
-		Value:     NoValue,
-		Apply:     Applicability{Unrestricted: true},
+	{Canonical: "crnl", Aliases: []string{"crlf"},
+		Desc: "convert CR/NL", Value: NoValue,
 	},
-	{
-		Canonical: "crorlf",
-		Section:   SectionTransfer,
-		Desc:      "convert CR or LF",
-		Apply:     Applicability{Unrestricted: true},
+	{Canonical: "crorlf",
+		Desc: "convert CR or LF",
 	},
-	{
-		Canonical: "ignoreeof",
-		Section:   SectionTransfer,
-		Aliases:   []string{"ignoreof"},
-		Desc:      "do not close on EOF",
-		Apply:     Applicability{Unrestricted: true},
+	{Canonical: "ignoreeof", Aliases: []string{"ignoreof"},
+		Desc: "do not close on EOF",
 	},
-	{
-		Canonical: "null-eof",
-		Section:   SectionTransfer,
-		Desc:      "treat a zero-length read as EOF",
-		Apply:     Applicability{Caps: capSocket},
+	{Canonical: "null-eof",
+		Desc:  "treat a zero-length read as EOF",
+		Scope: AddressScope{Caps: capSocket},
 	},
-	{
-		Canonical: "readbytes",
-		Section:   SectionTransfer,
-		Aliases:   []string{"bytes"},
-		Desc:      "read at most N bytes",
-		Value:     SizeT,
-		Apply:     Applicability{Unrestricted: true},
+	{Canonical: "readbytes", Aliases: []string{"bytes"},
+		Desc: "read at most N bytes", Value: SizeT,
 	},
-	{
-		Canonical: "lockfile",
-		Section:   SectionTransfer,
-		Desc:      "create lock file or fail if it exists (like -L)",
-		Value:     RequiredString,
-		Apply:     Applicability{Unrestricted: true},
+	{Canonical: "lockfile",
+		Desc: "create lock file or fail if it exists (like -L)", Value: RequiredString,
 	},
-	{
-		Canonical: "waitlock",
-		Section:   SectionTransfer,
-		Desc:      "wait until lock file is gone, then create it (1s poll)",
-		Value:     RequiredString,
-		Apply:     Applicability{Unrestricted: true},
+	{Canonical: "waitlock",
+		Desc: "wait until lock file is gone, then create it (1s poll)", Value: RequiredString,
 	},
 }

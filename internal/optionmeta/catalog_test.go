@@ -3,19 +3,19 @@ package optionmeta
 import "testing"
 
 func TestCatalogRejectsDuplicates(t *testing.T) {
-	for _, second := range []Def{
-		{Canonical: "one", Help: HelpHidden},
-		{Canonical: "two", Aliases: []string{"alias"}, Help: HelpHidden},
-		{Canonical: "two", ParserAliases: []string{"one"}, Help: HelpHidden},
-		{Canonical: "two", PublicAliases: []string{"alias"}, Help: HelpHidden},
+	for _, second := range []Option{
+		{Canonical: "one", Hidden: true},
+		{Canonical: "two", Aliases: []string{"alias"}, Hidden: true},
+		{Canonical: "two", ParserAliases: []string{"one"}, Hidden: true},
+		{Canonical: "two", PublicAliases: []string{"alias"}, Hidden: true},
 	} {
-		defs := []Def{{Canonical: "one", Aliases: []string{"alias"}, Help: HelpHidden}, second}
+		defs := []Option{{Canonical: "one", Aliases: []string{"alias"}, Hidden: true}, second}
 		if err := validateCatalog(defs); err == nil {
 			t.Errorf("accepted colliding definition: %+v", second)
 		}
 	}
-	def := Def{Canonical: "one", Aliases: []string{"alias"}, ParserAliases: []string{"alias"}, Help: HelpHidden}
-	if err := validateCatalog([]Def{def}); err == nil {
+	def := Option{Canonical: "one", Aliases: []string{"alias"}, ParserAliases: []string{"alias"}, Hidden: true}
+	if err := validateCatalog([]Option{def}); err == nil {
 		t.Fatal("accepted the same alias in two categories")
 	}
 }
@@ -25,10 +25,10 @@ func TestLookupReturnsIndependentDefinition(t *testing.T) {
 	if !ok {
 		t.Fatal("missing nodelay")
 	}
-	alias, cap := d.Aliases[0], d.Apply.Caps[0]
-	d.Aliases[0], d.Apply.Caps[0] = "changed", "changed"
+	alias, cap := d.Aliases[0], d.Scope.Caps[0]
+	d.Aliases[0], d.Scope.Caps[0] = "changed", "changed"
 	again, _ := Lookup("nodelay")
-	if again.Aliases[0] != alias || again.Apply.Caps[0] != cap {
+	if again.Aliases[0] != alias || again.Scope.Caps[0] != cap {
 		t.Fatal("editing a lookup result changed the catalog")
 	}
 }

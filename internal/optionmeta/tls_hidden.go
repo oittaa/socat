@@ -1,86 +1,32 @@
 package optionmeta
 
-var hiddenTLSDefs = []Def{
-	{
-		Canonical:       "openssl-method",
-		ParserAliases:   []string{"opensslmethod", "method"},
-		Help:            HelpHidden,
+var hiddenTLSOptions = []Option{
+	{Canonical: "openssl-method", ParserAliases: []string{"opensslmethod", "method"},
 		Value:           RequiredString,
-		Apply:           Applicability{Caps: capOpenSSL, AddressGroups: tlsAddressGroups()},
-		TLSRejectReason: "stream TLS only",
+		TLSRejectReason: "stream TLS only", Hidden: true, Scope: hiddenTLSScope,
 	},
-	{
-		Canonical:       "openssl-fips",
-		ParserAliases:   []string{"fips"},
-		Help:            HelpHidden,
+	{Canonical: "openssl-fips", ParserAliases: []string{"fips"},
 		Value:           OptionalBool,
-		Apply:           Applicability{Caps: capOpenSSL, AddressGroups: tlsAddressGroups()},
-		TLSRejectReason: "Go crypto/tls has no OpenSSL FIPS module",
+		TLSRejectReason: "Go crypto/tls has no OpenSSL FIPS module", Hidden: true, Scope: hiddenTLSScope,
 	},
-	{
-		Canonical:       "openssl-egd",
-		ParserAliases:   []string{"egd"},
-		Help:            HelpHidden,
+	{Canonical: "openssl-egd", ParserAliases: []string{"egd"},
 		Value:           RequiredString,
-		Apply:           Applicability{Caps: capOpenSSL, AddressGroups: tlsAddressGroups()},
-		TLSRejectReason: "Go does not use EGD for randomness",
+		TLSRejectReason: "Go does not use EGD for randomness", Hidden: true, Scope: hiddenTLSScope,
 	},
-	{
-		Canonical:       "openssl-pseudo",
-		ParserAliases:   []string{"pseudo"},
-		Help:            HelpHidden,
+	{Canonical: "openssl-pseudo", ParserAliases: []string{"pseudo"},
 		Value:           OptionalBool,
-		Apply:           Applicability{Caps: capOpenSSL, AddressGroups: tlsAddressGroups()},
-		TLSRejectReason: "Go crypto/tls does not use OpenSSL pseudo-random bytes",
+		TLSRejectReason: "Go crypto/tls does not use OpenSSL pseudo-random bytes", Hidden: true, Scope: hiddenTLSScope,
 	},
-	{
-		Canonical:       "openssl-dhparam",
-		ParserAliases:   []string{"openssl-dhparams", "dhparam", "dhparams", "dh"},
-		Help:            HelpHidden,
+	{Canonical: "openssl-dhparam", ParserAliases: []string{"openssl-dhparams", "dhparam", "dhparams", "dh"},
 		Value:           RequiredString,
-		Apply:           Applicability{Caps: capOpenSSL, AddressGroups: tlsAddressGroups()},
-		TLSRejectReason: "Go crypto/tls does not load DH parameters",
+		TLSRejectReason: "Go crypto/tls does not load DH parameters", Hidden: true, Scope: hiddenTLSScope,
 	},
-	{
-		Canonical:       "openssl-maxfraglen",
-		ParserAliases:   []string{"maxfraglen"},
-		Help:            HelpHidden,
+	{Canonical: "openssl-maxfraglen", ParserAliases: []string{"maxfraglen"},
 		Value:           OptionalSignedInteger,
-		Apply:           Applicability{Caps: capOpenSSL, AddressGroups: tlsAddressGroups()},
-		TLSRejectReason: "Go crypto/tls has no max fragment length option",
+		TLSRejectReason: "Go crypto/tls has no max fragment length option", Hidden: true, Scope: hiddenTLSScope,
 	},
-	{
-		Canonical:       "openssl-maxsendfrag",
-		ParserAliases:   []string{"maxsendfrag"},
-		Help:            HelpHidden,
+	{Canonical: "openssl-maxsendfrag", ParserAliases: []string{"maxsendfrag"},
 		Value:           OptionalSignedInteger,
-		Apply:           Applicability{Caps: capOpenSSL, AddressGroups: tlsAddressGroups()},
-		TLSRejectReason: "Go crypto/tls has no max send fragment option",
+		TLSRejectReason: "Go crypto/tls has no max send fragment option", Hidden: true, Scope: hiddenTLSScope,
 	},
-}
-
-// UnsupportedTLSOption is one hidden OpenSSL family recognized so it can be
-// rejected with a precise reason.
-type UnsupportedTLSOption struct {
-	Canonical       string
-	Aliases         []string
-	CLIValue        ValueKind
-	TLSRejectReason string
-}
-
-// UnsupportedTLS returns a copy of the hidden TLS option families.
-func UnsupportedTLS() []UnsupportedTLSOption {
-	var out []UnsupportedTLSOption
-	for _, d := range catalog {
-		if d.Help != HelpHidden || d.TLSRejectReason == "" {
-			continue
-		}
-		out = append(out, UnsupportedTLSOption{
-			Canonical:       d.Canonical,
-			Aliases:         d.ParseAliases(),
-			CLIValue:        d.Value,
-			TLSRejectReason: d.TLSRejectReason,
-		})
-	}
-	return out
 }

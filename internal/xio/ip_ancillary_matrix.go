@@ -141,7 +141,7 @@ func lookupIPAncillary(optionName string) (IPAncillaryEntry, bool) {
 		return IPAncillaryEntry{}, false
 	}
 	d, ok := optionmeta.Lookup(n)
-	if !ok || !d.Ancillary {
+	if !ok {
 		return IPAncillaryEntry{}, false
 	}
 	for _, e := range ipAncillaryMatrix {
@@ -150,31 +150,6 @@ func lookupIPAncillary(optionName string) (IPAncillaryEntry, bool) {
 		}
 	}
 	return IPAncillaryEntry{}, false
-}
-
-// IPAncillaryNames returns every canonical name and alias in the matrix.
-func IPAncillaryNames() []string {
-	var out []string
-	for _, canon := range optionmeta.AncillaryCanonicals() {
-		d, ok := optionmeta.Lookup(canon)
-		if !ok {
-			continue
-		}
-		out = append(out, d.Names()...)
-	}
-	return out
-}
-
-// IPAncillaryImplementationGroups is the CLI implementationGroups list for
-// one option. Unknown names return nil (no extra restriction). Matrix rows
-// always return their address groups, including Unix-only recv options on
-// Windows: a nil/empty list would mean unrestricted.
-func IPAncillaryImplementationGroups(optionName string) []string {
-	e, ok := lookupIPAncillary(optionName)
-	if !ok {
-		return nil
-	}
-	return append([]string(nil), e.Groups...)
 }
 
 // IPAncillarySupported reports whether optionName is implemented on the

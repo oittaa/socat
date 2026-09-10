@@ -1,42 +1,16 @@
 package optionmeta
 
-var getOnlyIPv4Defs = []Def{
-	{
-		Canonical:     "ip-mtu",
-		ParserAliases: []string{"ipmtu", "mtu"},
-		Help:          HelpHidden,
-		Apply:         Applicability{Caps: capIP4IP6},
-		Kernel:        "IP_MTU",
+var getOnlyIPv4Options = []Option{
+	{Canonical: "ip-mtu", ParserAliases: []string{"ipmtu", "mtu"},
+		Kernel: "IP_MTU", Hidden: true, Scope: AddressScope{Caps: capIP4IP6},
 	},
-	{
-		Canonical:     "ip-pktoptions",
-		ParserAliases: []string{"ippktoptions", "pktoptions", "pktopts"},
-		Help:          HelpHidden,
-		Apply:         Applicability{Caps: capIP4IP6},
-		Kernel:        "IP_PKTOPTIONS",
+	{Canonical: "ip-pktoptions", ParserAliases: []string{"ippktoptions", "pktoptions", "pktopts"},
+		Kernel: "IP_PKTOPTIONS", Hidden: true, Scope: AddressScope{Caps: capIP4IP6},
 	},
 }
 
-// GetOnlyIPv4Option is one hidden IPv4 family recognized so it can be
-// rejected as get-only instead of "unknown option".
-type GetOnlyIPv4Option struct {
-	Canonical string
-	Aliases   []string
-	Kernel    string
-}
-
-// GetOnlyIPv4 returns a copy of the hidden get-only IPv4 option families.
-func GetOnlyIPv4() []GetOnlyIPv4Option {
-	var out []GetOnlyIPv4Option
-	for _, d := range catalog {
-		if d.Kernel == "" {
-			continue
-		}
-		out = append(out, GetOnlyIPv4Option{
-			Canonical: d.Canonical,
-			Aliases:   d.ParseAliases(),
-			Kernel:    d.Kernel,
-		})
-	}
-	return out
+var rejectedIPv6Options = []Option{
+	{Canonical: "ipv6-recverr",
+		Hidden: true, Scope: AddressScope{Caps: capIP6},
+	},
 }

@@ -1,6 +1,6 @@
 package optionmeta
 
-// Help section titles. Display grouping only; applicability uses Apply.
+// Help section titles. Display grouping only; address validation uses Scope.
 const (
 	SectionListen     = "Listen and connect"
 	SectionSecurity   = "Security filters"
@@ -17,16 +17,6 @@ const (
 	SectionTUN        = "TUN and INTERFACE"
 	SectionNamespaces = "Namespaces"
 )
-
-// HelpSectionOrder is -hh/-hhh section order.
-func HelpSectionOrder() []string {
-	return []string{
-		SectionListen, SectionSecurity, SectionSockets, SectionFiles,
-		SectionExec, SectionPTY, SectionTransfer, SectionTLS, SectionDTLS,
-		SectionWebSocket, SectionProxy, SectionPOSIXMQ, SectionTUN,
-		SectionNamespaces,
-	}
-}
 
 // Option capability sets.
 var (
@@ -80,30 +70,4 @@ const (
 	GroupSCTP      = "SCTP (Linux)"
 	GroupVSOCK     = "VSOCK (Linux)"
 	GroupPOSIXMQ   = "POSIX message queues (Linux)"
-)
-
-func tlsAddressGroups() []string {
-	return []string{GroupTLS, GroupDTLS, GroupWebSocket, GroupQUIC, GroupProxy}
-}
-
-// Named extra address-type lists expanded by the CLI.
-const (
-	TypesTLS           = "tls"
-	TypesDTLS          = "dtls"
-	TypesALPN          = "alpn"
-	TypesWS            = "ws"
-	TypesProxy         = "proxy"
-	TypesSocks         = "socks"
-	TypesHandshake     = "handshake"
-	TypesFD            = "fd"
-	TypesBacklog       = "backlog-listen"
-	TypesResolver      = "resolver"
-	TypesSocketTimeout = "socket-timeout"
-	TypesTCPStream     = "tcp-stream"
-)
-
-// Named implementation-group lists expanded by the CLI or xio.
-const (
-	ImplResolver  = "resolver"
-	ImplAncillary = "ancillary"
 )

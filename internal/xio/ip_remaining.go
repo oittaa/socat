@@ -23,28 +23,9 @@ func getOnlyIPOptionName(o parse.Option) (canon, kernel, spelling string, ok boo
 	return "", "", "", false
 }
 
-type getOnlyIPv4Rec struct {
-	canon, kernel string
-}
-
-var getOnlyIPv4ByName = func() map[string]getOnlyIPv4Rec {
-	m := make(map[string]getOnlyIPv4Rec)
-	for _, opt := range optionmeta.GetOnlyIPv4() {
-		rec := getOnlyIPv4Rec{opt.Canonical, opt.Kernel}
-		m[opt.Canonical] = rec
-		for _, alias := range opt.Aliases {
-			m[alias] = rec
-		}
-	}
-	return m
-}()
-
 func getOnlyIPSpelling(name string) (canon, kernel string, ok bool) {
-	rec, ok := getOnlyIPv4ByName[strings.ToLower(strings.TrimSpace(name))]
-	if !ok {
-		return "", "", false
-	}
-	return rec.canon, rec.kernel, true
+	def, found := optionmeta.Lookup(name)
+	return def.Canonical, def.Kernel, found && def.Kernel != ""
 }
 
 func optionSpelling(o parse.Option) string {
@@ -61,23 +42,6 @@ func isRouterAlertOption(o parse.Option) bool {
 func routerAlertOptionName(name string) bool {
 	d, ok := optionmeta.Lookup(name)
 	return ok && d.Canonical == "ip-router-alert"
-}
-
-// GetOnlyIPv4OptionNames are ip-mtu / ip-pktoptions spellings.
-// They are recognized so validation can reject them as get-only instead of
-// "unknown option". They are never advertised.
-func GetOnlyIPv4OptionNames() []string {
-	opts := optionmeta.GetOnlyIPv4()
-	n := 0
-	for _, opt := range opts {
-		n += 1 + len(opt.Aliases)
-	}
-	names := make([]string, 0, n)
-	for _, opt := range opts {
-		names = append(names, opt.Canonical)
-		names = append(names, opt.Aliases...)
-	}
-	return names
 }
 
 func applyGetOnlyIPOption(_ int, o parse.Option) (bool, error) {

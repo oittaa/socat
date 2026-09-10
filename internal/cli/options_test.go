@@ -5,9 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oittaa/socat/internal/optionmeta"
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestSocketAliasesAccepted(t *testing.T) {
@@ -18,15 +16,7 @@ func TestSocketAliasesAccepted(t *testing.T) {
 	}
 }
 
-func TestOriginApplicabilityIgnoresHelpSection(t *testing.T) {
-	def, ok := optionmeta.Lookup("origin")
-	if !ok {
-		t.Fatal("missing origin")
-	}
-	def.Section = optionmeta.SectionTLS
-	previous := supportedAddressOptions["origin"]
-	supportedAddressOptions["origin"] = addressOptionFromDef(def)
-	t.Cleanup(func() { supportedAddressOptions["origin"] = previous })
+func TestOriginOnlyAcceptedOnWebSocket(t *testing.T) {
 	if err := validateParsed(t, "WS:127.0.0.1:80,origin=example"); err != nil {
 		t.Fatal(err)
 	}
@@ -171,47 +161,5 @@ func TestValidateSpecOptionsUsesOriginalSpellingNotFoldedName(t *testing.T) {
 	err := validateSpecOptions(spec)
 	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("folded Name must not bypass spelling groups: %v", err)
-	}
-}
-
-func TestTermiosOptionsRecognizedWhenUnsupported(t *testing.T) {
-	if xio.FeatureTERMIOS {
-		t.Skip("termios is implemented on this platform")
-	}
-	table := buildSupportedAddressOptions()
-	for _, name := range []string{"vintr", "intr", "icanon", "ispeed", "ospeed", "b115200"} {
-		if _, ok := table[name]; !ok {
-			t.Errorf("option table missing %q on a platform without termios", name)
-		}
-	}
-}
-
-func TestIPAncillaryMatrixWiredIntoCLI(t *testing.T) {
-	table := buildSupportedAddressOptions()
-	for _, name := range xio.IPAncillaryNames() {
-		got, ok := table[name]
-		if !ok {
-			t.Errorf("matrix option %q missing from CLI table", name)
-			continue
-		}
-		want := xio.IPAncillaryImplementationGroups(name)
-		if strings.Join(got.implementationGroups, ",") != strings.Join(want, ",") {
-			t.Errorf("%q implementationGroups=%v want %v", name, got.implementationGroups, want)
-		}
-	}
-}
-
-func TestResNSAddrImplementationGroups(t *testing.T) {
-	for _, name := range []string{"res-nsaddr", "res-usevc", "ai-all", "ai-passive", "ai-v4mapped", "ai-addrconfig"} {
-		got := buildSupportedAddressOptions()[name].implementationGroups
-		want := resolverImplementationGroups()
-		if strings.Join(got, ",") != strings.Join(want, ",") {
-			t.Fatalf("%s implementationGroups=%v want %v", name, got, want)
-		}
-		for _, group := range []string{xio.GroupUnix, xio.GroupProcess, xio.GroupFiles} {
-			if optionImplementedForGroup(group, got) {
-				t.Errorf("%s unexpectedly applies to %s", name, group)
-			}
-		}
 	}
 }

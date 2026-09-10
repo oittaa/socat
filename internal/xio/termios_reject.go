@@ -14,7 +14,7 @@ func RejectUnsupportedTermios(s parse.Spec) error {
 		return nil
 	}
 	for _, option := range s.Options {
-		if isTermiosOption(option.OriginalSpelling()) || isTermiosOption(option.Name) {
+		if IsTermiosOption(option.OriginalSpelling()) || IsTermiosOption(option.Name) {
 			return fmt.Errorf("%s: option %q is not supported on this platform", s.Type, option.Name)
 		}
 	}
