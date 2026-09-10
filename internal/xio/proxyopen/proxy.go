@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/tlsopen"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
@@ -45,6 +46,11 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	// ignorecr would be a silent no-op. Reject it instead.
 	if s.BoolOption("ignorecr") && major != httpVer1 {
 		return nil, fmt.Errorf("ignorecr applies only to HTTP/1 CONNECT responses")
+	}
+	if major == httpVer1 || (major == httpVer2 && s.BoolOption("h2c")) {
+		if err := tlsopen.RejectHiddenTLSOnPlaintext(s); err != nil {
+			return nil, err
+		}
 	}
 	ver := s.OptionValue("http-version", "1.0")
 	if ver == "" {

@@ -774,6 +774,17 @@ func TestTLSRejectsUnsupportedOpenSSLOptions(t *testing.T) {
 	}
 }
 
+func TestSOCKS5RejectsFIPSBeforeConnect(t *testing.T) {
+	bin := socatBin(t)
+	out, err := exec.Command(bin, "SOCKS5:127.0.0.1:127.0.0.1:1,fips=1,socksport=1", "PIPE").CombinedOutput()
+	if err == nil {
+		t.Fatalf("SOCKS5,fips=1 succeeded: %q", out)
+	}
+	if !bytes.Contains(out, []byte(`"fips"`)) || bytes.Contains(out, []byte("not supported (")) {
+		t.Fatalf("plaintext fips reject: %s", out)
+	}
+}
+
 func TestHelpListsTLSPublicCatalogAliases(t *testing.T) {
 	hhh := capabilityOutput(t, "-hhh")
 	for _, name := range []string{
