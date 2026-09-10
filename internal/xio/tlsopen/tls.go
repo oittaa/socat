@@ -354,7 +354,7 @@ func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 	}
 	cfg.ClientCAs = roots
 	cfg.ClientAuth = tls.RequireAndVerifyClientCert
-	attachPeerVerify(cfg, makeServerVerifyPeer(roots, cnWant, true, cfg.VerifyPeerCertificate))
+	attachPeerVerify(cfg, makeServerVerifyPeer(roots, cnWant))
 	return cfg, nil
 }
 

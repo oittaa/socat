@@ -494,10 +494,6 @@ func asOSFile(x any) *os.File {
 	if u, ok := x.(interface{ Unwrap() any }); ok {
 		return asOSFile(u.Unwrap())
 	}
-	if f, ok := x.(interface{ Fd() uintptr }); ok {
-		// Do not wrap arbitrary Fd without knowing lifetime; only *os.File is safe.
-		_ = f
-	}
 	return nil
 }
 
