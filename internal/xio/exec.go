@@ -283,7 +283,7 @@ type execChild struct {
 	fdRedirect bool
 	usePipes   bool
 	usePty     bool
-	cancel     *execContextCancel
+	cancel     *execContextCancel // armed at start; stays until the owner is dropped
 	wait       *execWaitState
 }
 
@@ -702,11 +702,9 @@ func (c *execChild) start(ctx context.Context) error {
 		startErr = c.cmd.Start()
 		return nil
 	}); err != nil {
-		c.forgetCancel()
 		return err
 	}
 	if startErr != nil {
-		c.forgetCancel()
 		return startErr
 	}
 	if err := registerExecParentSignals(c.spec, c.cmd, c.g); err != nil {
@@ -722,16 +720,12 @@ func (c *execChild) start(ctx context.Context) error {
 // number and receive a stale kill.
 func (c *execChild) killWait() {
 	if c == nil || c.cmd == nil || c.cmd.Process == nil {
-		if c != nil {
-			c.forgetCancel()
-		}
 		return
 	}
 	pid := c.cmd.Process.Pid
 	_ = c.cmd.Process.Kill()
 	_, _ = c.cmd.Process.Wait()
 	unregisterChildSignals(pid)
-	c.forgetCancel()
 }
 
 // execContextCancel disarms CommandContext's kill after end-close cleanup.
@@ -790,12 +784,6 @@ func (c *execChild) releaseCancel() {
 	}
 }
 
-func (c *execChild) forgetCancel() {
-	if c != nil {
-		c.cancel = nil
-	}
-}
-
 func setCloexecAllFrom(from int) {
 	// Linux 5.11+: set CLOEXEC on the whole range in one call (covers sparse FDs
 	// like cgroup handles that appear after /proc scans).
@@ -841,7 +829,6 @@ func (c *execChild) watchWait(done chan struct{}) *execWaitState {
 	go func() {
 		err := c.cmd.Wait()
 		unregisterChildSignals(pid)
-		c.forgetCancel()
 		w.mu.Lock()
 		w.waitErr = err
 		if err == nil {

@@ -288,7 +288,6 @@ func (c *execChild) waitNoFork() error {
 	if c.cmd.Process != nil {
 		unregisterChildSignals(c.cmd.Process.Pid)
 	}
-	c.forgetCancel()
 	code, ok := childWaitExitCode(waitErr)
 	if !ok {
 		return waitErr
