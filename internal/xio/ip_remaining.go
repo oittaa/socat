@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/oittaa/socat/internal/optionmeta"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -22,15 +23,28 @@ func getOnlyIPOptionName(o parse.Option) (canon, kernel, spelling string, ok boo
 	return "", "", "", false
 }
 
+type getOnlyIPv4Rec struct {
+	canon, kernel string
+}
+
+var getOnlyIPv4ByName = func() map[string]getOnlyIPv4Rec {
+	m := make(map[string]getOnlyIPv4Rec)
+	for _, opt := range optionmeta.GetOnlyIPv4() {
+		rec := getOnlyIPv4Rec{opt.Canonical, opt.Kernel}
+		m[opt.Canonical] = rec
+		for _, alias := range opt.Aliases {
+			m[alias] = rec
+		}
+	}
+	return m
+}()
+
 func getOnlyIPSpelling(name string) (canon, kernel string, ok bool) {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "ip-mtu", "ipmtu", "mtu":
-		return "ip-mtu", "IP_MTU", true
-	case "ip-pktoptions", "ippktoptions", "pktoptions", "pktopts":
-		return "ip-pktoptions", "IP_PKTOPTIONS", true
-	default:
+	rec, ok := getOnlyIPv4ByName[strings.ToLower(strings.TrimSpace(name))]
+	if !ok {
 		return "", "", false
 	}
+	return rec.canon, rec.kernel, true
 }
 
 func optionSpelling(o parse.Option) string {
@@ -57,10 +71,17 @@ func routerAlertOptionName(name string) bool {
 // They are recognized so validation can reject them as get-only instead of
 // "unknown option". They are never advertised.
 func GetOnlyIPv4OptionNames() []string {
-	return []string{
-		"ip-mtu", "ipmtu", "mtu",
-		"ip-pktoptions", "ippktoptions", "pktoptions", "pktopts",
+	opts := optionmeta.GetOnlyIPv4()
+	n := 0
+	for _, opt := range opts {
+		n += 1 + len(opt.Aliases)
 	}
+	names := make([]string, 0, n)
+	for _, opt := range opts {
+		names = append(names, opt.Canonical)
+		names = append(names, opt.Aliases...)
+	}
+	return names
 }
 
 func applyGetOnlyIPOption(_ int, o parse.Option) (bool, error) {
