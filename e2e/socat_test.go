@@ -785,6 +785,17 @@ func TestSOCKS5RejectsFIPSBeforeConnect(t *testing.T) {
 	}
 }
 
+func TestPROXYHTTP1RejectsCertBeforeConnect(t *testing.T) {
+	bin := socatBin(t)
+	out, err := exec.Command(bin, "PROXY:127.0.0.1:127.0.0.1:1,cert=x,proxyport=1", "PIPE").CombinedOutput()
+	if err == nil {
+		t.Fatalf("PROXY HTTP/1 cert= succeeded: %q", out)
+	}
+	if !bytes.Contains(out, []byte(`"cert"`)) || bytes.Contains(out, []byte("not supported (")) {
+		t.Fatalf("plaintext cert reject: %s", out)
+	}
+}
+
 func TestHelpListsTLSPublicCatalogAliases(t *testing.T) {
 	hhh := capabilityOutput(t, "-hhh")
 	for _, name := range []string{

@@ -236,6 +236,16 @@ func rejectUnsupportedOpenSSLOptions(s parse.Spec) error {
 
 var hiddenTLSCanonical = hiddenTLSCanonicals()
 
+// Public TLS families recognized on PROXY for TLS HTTP/2 and HTTP/3. They do
+// not apply to HTTP/1 CONNECT or h2c. Canonical names only; aliases fold.
+var publicTLSOnPlaintextPROXY = []string{
+	"cert", "key", "cafile", "capath", "verify", "commonname",
+	"snihost", "nosni", "ciphers", "openssl-compress",
+	"openssl-min-proto-version", "openssl-max-proto-version", "alpn",
+}
+
+var proxyPlaintextTLSCanonical = mergeTLSNameSets(hiddenTLSCanonical, publicTLSOnPlaintextPROXY)
+
 func hiddenTLSCanonicals() map[string]struct{} {
 	out := make(map[string]struct{}, len(optionmeta.UnsupportedTLS()))
 	for _, opt := range optionmeta.UnsupportedTLS() {
@@ -244,10 +254,18 @@ func hiddenTLSCanonicals() map[string]struct{} {
 	return out
 }
 
-// RejectHiddenTLSOnPlaintext fails when a hidden OpenSSL family is present on
-// a path that will not configure TLS. Call after the opener has chosen a
-// plaintext transport. Last-wins selects the spelling in the error.
-func RejectHiddenTLSOnPlaintext(s parse.Spec) error {
+func mergeTLSNameSets(base map[string]struct{}, extra []string) map[string]struct{} {
+	out := make(map[string]struct{}, len(base)+len(extra))
+	for name := range base {
+		out[name] = struct{}{}
+	}
+	for _, name := range extra {
+		out[name] = struct{}{}
+	}
+	return out
+}
+
+func rejectTLSNamesOnPlaintext(s parse.Spec, names map[string]struct{}) error {
 	typ := s.Type
 	if typ == "" {
 		typ = "address"
@@ -255,12 +273,26 @@ func RejectHiddenTLSOnPlaintext(s parse.Spec) error {
 	for i := len(s.Options) - 1; i >= 0; i-- {
 		option := s.Options[i]
 		canonical := parse.CanonicalOptionName(option.Name)
-		if _, ok := hiddenTLSCanonical[canonical]; !ok {
+		if _, ok := names[canonical]; !ok {
 			continue
 		}
 		return fmt.Errorf("%s: option %q does not apply to a plaintext transport", typ, option.OriginalSpelling())
 	}
 	return nil
+}
+
+// RejectHiddenTLSOnPlaintext fails when a hidden OpenSSL family is present on
+// a path that will not configure TLS. Call after the opener has chosen a
+// plaintext transport. Last-wins selects the spelling in the error.
+func RejectHiddenTLSOnPlaintext(s parse.Spec) error {
+	return rejectTLSNamesOnPlaintext(s, hiddenTLSCanonical)
+}
+
+// RejectPROXYTLSOnPlaintext fails when a hidden or public TLS family is present
+// on plaintext PROXY (HTTP/1 CONNECT or h2c). Call after HTTP-version / h2c
+// dispatch. Last-wins selects the spelling in the error.
+func RejectPROXYTLSOnPlaintext(s parse.Spec) error {
+	return rejectTLSNamesOnPlaintext(s, proxyPlaintextTLSCanonical)
 }
 
 func compatibleDisabledOpenSSLOption(canonical string, option parse.Option) bool {

@@ -43,6 +43,21 @@ func TestHiddenTLSOptionValues(t *testing.T) {
 	}
 }
 
+func TestPublicTLSRejectedOnSOCKSAndWS(t *testing.T) {
+	for _, spec := range []string{
+		"SOCKS5:127.0.0.1:127.0.0.1:1,cert=x",
+		"WS:127.0.0.1:1,verify=0",
+	} {
+		err := validateParsed(t, spec)
+		if err == nil || !strings.Contains(err.Error(), "not supported with this address type") {
+			t.Fatalf("%s: %v", spec, err)
+		}
+	}
+	if err := validateParsed(t, "PROXY:127.0.0.1:127.0.0.1:1,cert=x"); err != nil {
+		t.Fatalf("PROXY cert CLI: %v", err)
+	}
+}
+
 func TestHiddenTLSNamesStayOutOfHelp(t *testing.T) {
 	var buf bytes.Buffer
 	if err := printHelp(&buf, 3); err != nil {

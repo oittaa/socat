@@ -242,8 +242,11 @@ address and option spellings are audited automatically. The
 - Unknown options, malformed values, and unsupported combinations fail
   explicitly instead of becoming no-ops. Hidden OpenSSL options stay
   recognized on PROXY, SOCKS, and WebSocket addresses so TLS HTTP/2,
-  HTTP/3, and WSS can reject them with a precise reason. Plaintext SOCKS,
-  WS, HTTP/1 CONNECT, and h2c reject them before connecting.
+  HTTP/3, and WSS can reject them with a precise reason. Public TLS
+  options such as `cert`, `verify`, and `alpn` stay recognized on PROXY
+  for TLS HTTP/2 and HTTP/3. Plaintext SOCKS, WS, HTTP/1 CONNECT, and
+  h2c reject inapplicable TLS options before connecting. SOCKS and
+  plain WS still reject public TLS names at CLI.
 - `-s` is accepted as a compatibility no-op; error handling is unchanged and
   does not continue after otherwise non-fatal errors.
 - DNS overrides use a per-address resolver and never mutate process-global
@@ -302,7 +305,7 @@ silently emulated with a different protocol.
 | GNU readline address | Not implemented. |
 | DTLS 1.0/1.2 | Rejected. DTLS endpoints support only DTLS 1.3, with AES-GCM or ChaCha20-Poly1305 and RSA, ECDSA, Ed25519, or ML-DSA certificates. |
 | DSA, SSLv3, and weak TLS ciphers | Rejected; use current TLS versions and RSA, ECDSA, Ed25519, or ML-DSA keys. |
-| OpenSSL engines, FIPS mode, EGD, pseudo-random mode, custom DH parameters, and fragment controls | Enabling these features is rejected where Go's TLS stack has no equivalent. On plaintext SOCKS, WS, HTTP/1 CONNECT, and h2c they are rejected as inapplicable before connecting. |
+| OpenSSL engines, FIPS mode, EGD, pseudo-random mode, custom DH parameters, and fragment controls | Enabling these features is rejected where Go's TLS stack has no equivalent. On plaintext SOCKS, WS, HTTP/1 CONNECT, and h2c they are rejected as inapplicable before connecting. Public TLS options on plaintext HTTP/1 CONNECT and h2c are likewise rejected before connecting. |
 | Process-wide `setuid`, `setgid`, `chroot`, and `substuser` options | Not implemented because changing credentials or root from a goroutine would affect every session. They require process isolation. The names are recognized and rejected; they are not advertised as working. |
 | Process-global libc resolver flags | Not implemented. `res-nsaddr` and `res-usevc` are supported per address. |
 | Read-only, obsolete, or structurally unsafe socket options | Rejected rather than advertised as setters. This includes get-only socket state and options that require structures the classic integer syntax cannot represent safely. |

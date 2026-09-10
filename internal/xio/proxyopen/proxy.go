@@ -48,7 +48,7 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		return nil, fmt.Errorf("ignorecr applies only to HTTP/1 CONNECT responses")
 	}
 	if major == httpVer1 || (major == httpVer2 && s.BoolOption("h2c")) {
-		if err := tlsopen.RejectHiddenTLSOnPlaintext(s); err != nil {
+		if err := tlsopen.RejectPROXYTLSOnPlaintext(s); err != nil {
 			return nil, err
 		}
 	}
