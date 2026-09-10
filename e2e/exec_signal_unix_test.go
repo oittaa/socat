@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -263,11 +264,13 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 	t.Run("during", func(t *testing.T) {
 		dir := t.TempDir()
 		ready := filepath.Join(dir, "ready")
+		registered := filepath.Join(dir, "registered")
 		got := filepath.Join(dir, "got")
 		script := filepath.Join(dir, "child.sh")
 		body := "#!/bin/sh\n" +
 			"trap 'echo got >\"" + got + "\"' HUP\n" +
 			"echo $$ >\"" + ready + "\"\n" +
+			"read dummy && echo registered >\"" + registered + "\"\n" +
 			"while true; do read dummy || sleep 0.05; done\n"
 		if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 			t.Fatal(err)
@@ -280,6 +283,13 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = c.Close() })
 		waitPath(t, ready, proc, stderrPath, 5*time.Second)
+		if _, err := io.WriteString(c, "ready\n"); err != nil {
+			t.Fatalf("write readiness token: %v stderr=%s", err, readFile(t, stderrPath))
+		}
+		// A child can write its PID immediately after cmd.Start, before the parent
+		// registers that child for SIGHUP forwarding. Reading a token through the
+		// relay proves openEXEC has returned and signal registration is complete.
+		waitPath(t, registered, proc, stderrPath, 5*time.Second)
 		if err := proc.cmd.Process.Signal(syscall.SIGHUP); err != nil {
 			t.Fatal(err)
 		}
@@ -309,16 +319,10 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 		waitPath(t, ready, proc, stderrPath, 5*time.Second)
 		_ = c.Close()
 		waitPath(t, done, proc, stderrPath, 5*time.Second)
-		// Wait for Wait() to unregister the pid after cat exits.
-		time.Sleep(50 * time.Millisecond)
-		if err := proc.cmd.Process.Signal(syscall.SIGHUP); err != nil {
-			t.Fatal(err)
-		}
-		select {
-		case <-proc.done:
-		case <-time.After(5 * time.Second):
-			t.Fatalf("listener did not exit on SIGHUP after sessions stderr=%s", readFile(t, stderrPath))
-		}
+		// `done` is written before the shell exits. SIGHUP is forwarded until
+		// Wait reaps the child and unregisters it; retry until the listener
+		// exits on the unregistered path.
+		sighupUntilExit(t, proc, stderrPath, 5*time.Second)
 		got := exitStatus(proc)
 		want := 128 + int(syscall.SIGHUP)
 		if got != want {
@@ -328,6 +332,109 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 			t.Fatalf("missing exiting on signal 1 in stderr=%s", readFile(t, stderrPath))
 		}
 	})
+}
+
+func sighupUntilExit(t *testing.T, proc *testProcess, stderrPath string, timeout time.Duration) {
+	t.Helper()
+	if err := waitSIGHUPExit(proc.done, timeout, func() error {
+		return proc.cmd.Process.Signal(syscall.SIGHUP)
+	}, nil); err != nil {
+		t.Fatalf("%v stderr=%s", err, readFile(t, stderrPath))
+	}
+}
+
+func waitSIGHUPExit(done <-chan struct{}, timeout time.Duration, signal func() error, onWait func()) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	ticker := time.NewTicker(listenProbeInterval)
+	defer ticker.Stop()
+
+	waitDone := func() error {
+		if onWait != nil {
+			onWait()
+		}
+		select {
+		case <-done:
+			return nil
+		case <-ctx.Done():
+			select {
+			case <-done:
+				return nil
+			default:
+				return fmt.Errorf("listener did not exit on SIGHUP after sessions")
+			}
+		}
+	}
+
+	send := func() (exited bool, err error) {
+		if err := signal(); err != nil {
+			if errors.Is(err, os.ErrProcessDone) {
+				return true, waitDone()
+			}
+			return false, fmt.Errorf("SIGHUP: %w", err)
+		}
+		return false, nil
+	}
+
+	if exited, err := send(); err != nil {
+		return err
+	} else if exited {
+		return nil
+	}
+	for {
+		select {
+		case <-done:
+			return nil
+		case <-ctx.Done():
+			select {
+			case <-done:
+				return nil
+			default:
+				return fmt.Errorf("listener did not exit on SIGHUP after sessions")
+			}
+		case <-ticker.C:
+			exited, err := send()
+			if err != nil {
+				return err
+			}
+			if exited {
+				return nil
+			}
+		}
+	}
+}
+
+func TestWaitSIGHUPExitDelayedDone(t *testing.T) {
+	done := make(chan struct{})
+	waiting := make(chan struct{})
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- waitSIGHUPExit(done, 5*time.Second, func() error {
+			return os.ErrProcessDone
+		}, func() { close(waiting) })
+	}()
+
+	select {
+	case <-waiting:
+	case err := <-errCh:
+		t.Fatalf("returned before done was published: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for ErrProcessDone wait")
+	}
+	select {
+	case err := <-errCh:
+		t.Fatalf("returned before done was published: %v", err)
+	default:
+	}
+	close(done)
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("after done published: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("did not return after done was published")
+	}
 }
 
 func waitFileLines(t *testing.T, path string, want int, proc *testProcess, stderrPath string, timeout time.Duration) {
