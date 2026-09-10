@@ -100,16 +100,18 @@ func waitPortReady(ctx context.Context, p *testProcess, network, addr string) er
 	}
 	pid := p.cmd.Process.Pid
 	return waitUntil(ctx, p, func() (bool, error) {
+		// Exclusive occupancy probes bind the port. Check child ownership first
+		// so a delayed bind is not raced by the waiter.
+		owns, err := processListens(pid, network, addr)
+		if err != nil || !owns {
+			return owns, err
+		}
 		occupied, err := portOccupied(ctx, network, addr)
 		if err != nil {
 			return false, err
 		}
 		if !occupied {
 			return false, nil
-		}
-		owns, err := processListens(pid, network, addr)
-		if err != nil || !owns {
-			return owns, err
 		}
 		if _, exited := p.status(); exited {
 			return false, processExitedWhileWaiting(p)
@@ -214,16 +216,26 @@ func runSCTPEcho(ctx context.Context, bin string, args []string, payload []byte)
 func runDelayedListenHelper() int {
 	delay, err := time.ParseDuration(os.Getenv("SOCAT_E2E_LISTEN_DELAY"))
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "listen delay: %v\n", err)
 		return 2
 	}
 	network := os.Getenv("SOCAT_E2E_LISTEN_NET")
 	addr := os.Getenv("SOCAT_E2E_LISTEN_ADDR")
+	deadline := time.Now().Add(2 * time.Second)
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	<-timer.C
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
 	if strings.HasPrefix(network, "udp") {
-		pc, err := net.ListenPacket(network, addr)
+		var pc net.PacketConn
+		err := retryBusyBind(ctx, func() error {
+			var lerr error
+			pc, lerr = net.ListenPacket(network, addr)
+			return lerr
+		})
 		if err != nil {
+			fmt.Fprintf(os.Stderr, "delayed %s listen %s: %v\n", network, addr, err)
 			return 1
 		}
 		defer func() { _ = pc.Close() }()
@@ -231,17 +243,59 @@ func runDelayedListenHelper() int {
 		_, _, _ = pc.ReadFrom(buf)
 		return 0
 	}
-	ln, err := net.Listen(network, addr)
+	var ln net.Listener
+	err = retryBusyBind(ctx, func() error {
+		var lerr error
+		ln, lerr = net.Listen(network, addr)
+		return lerr
+	})
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "delayed %s listen %s: %v\n", network, addr, err)
 		return 1
 	}
 	defer func() { _ = ln.Close() }()
 	c, err := ln.Accept()
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "delayed %s accept %s: %v\n", network, addr, err)
 		return 1
 	}
 	_ = c.Close()
 	return 0
+}
+
+func retryBusyBind(ctx context.Context, bind func() error) error {
+	var last error
+	timer := time.NewTimer(0)
+	defer timer.Stop()
+	first := true
+	for {
+		if !first {
+			select {
+			case <-ctx.Done():
+				if last != nil {
+					return last
+				}
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+		first = false
+		err := bind()
+		if err == nil {
+			return nil
+		}
+		last = err
+		if !listenAddrBusy(err) {
+			return err
+		}
+		if !timer.Stop() {
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+		timer.Reset(listenProbeInterval)
+	}
 }
 
 func runHoldStdioHelper() int {

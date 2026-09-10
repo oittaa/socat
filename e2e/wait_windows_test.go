@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strings"
 	"syscall"
@@ -13,6 +14,10 @@ import (
 
 // Winsock SO_EXCLUSIVEADDRUSE is (~SO_REUSEADDR); x/sys/windows does not export it.
 const soExclusiveAddrUse = ^0x4
+
+func listenAddrBusy(err error) bool {
+	return errors.Is(err, windows.WSAEADDRINUSE) || errors.Is(err, windows.WSAEACCES)
+}
 
 func exclusiveListenConfig() net.ListenConfig {
 	return net.ListenConfig{
