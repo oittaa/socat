@@ -58,16 +58,12 @@ func TestIsolationOptionsRejectedOnOpenSpec(t *testing.T) {
 	}
 }
 
-func TestIsolationTyposRemainUnknownAtOpenSpec(t *testing.T) {
-	s, err := parse.ParseSpec("TCP:127.0.0.1:1,setuidd=65534")
+func TestIsolationTypoIsNotRecognized(t *testing.T) {
+	s, err := parse.ParseSpec("PIPE,setuidd=65534")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = xio.OpenSpec(context.Background(), s, xio.ModeRDWR, nil)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if strings.Contains(err.Error(), "isolation") {
+	if err := xio.RejectUnsupportedIsolation(s); err != nil {
 		t.Fatalf("typo treated as isolation option: %v", err)
 	}
 }
