@@ -14,7 +14,7 @@ var proxyOptions = []Option{
 		Scope: AddressScope{AddressTypes: proxyAddressTypes},
 	},
 	{Canonical: "ignorecr",
-		Desc: "accept LF as HTTP CONNECT response line terminator", Value: OptionalBool,
+		Desc:  "accept LF as HTTP CONNECT response line terminator",
 		Scope: proxyScope,
 	},
 	{Canonical: "proxy-resolve", Aliases: []string{"resolve", "resolv"},

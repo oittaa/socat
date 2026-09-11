@@ -3,6 +3,8 @@ package xio
 import (
 	"context"
 	"testing"
+
+	"github.com/oittaa/socat/internal/optionmeta"
 )
 
 func TestHasFDLifecycleOptionsIoctl(t *testing.T) {
@@ -23,11 +25,15 @@ func TestHasFDLifecycleOptionsIoctl(t *testing.T) {
 
 func TestGenericIoctlOptionNames(t *testing.T) {
 	for _, name := range []string{"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string"} {
-		if !GenericIoctlOption(name) {
-			t.Errorf("%s: GenericIoctlOption=false", name)
+		def, ok := optionmeta.Lookup(name)
+		if !ok {
+			t.Errorf("%s: unknown ioctl option", name)
+			continue
 		}
-	}
-	if GenericIoctlOption("setsockopt") {
-		t.Fatal("setsockopt is not a generic ioctl option")
+		switch def.Canonical {
+		case "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string":
+		default:
+			t.Errorf("%s: canonical %q", name, def.Canonical)
+		}
 	}
 }

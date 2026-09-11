@@ -82,6 +82,9 @@ func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 	name := optionIdentity(o)
 	recordTLSPlaintextName(a, o, name)
 	if def, ok := optionmeta.Lookup(name); ok && def.TLSRejectReason != "" {
+		if err := decodeUnsupportedTLSValue(name, o); err != nil {
+			return true, err
+		}
 		if !compatibleDisabledTLSOption(name, o) {
 			a.TLS.Unsupported = TLSUnsupported{
 				Set:       true,
@@ -122,7 +125,11 @@ func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 		a.TLS.NoSNI = activeBool(o)
 		return true, nil
 	case "ciphers":
-		value := strings.TrimSpace(optionText(o))
+		value, err := requiredString(o)
+		if err != nil {
+			return true, err
+		}
+		value = strings.TrimSpace(value)
 		if value == "" {
 			a.TLS.CipherSuites = nil
 			return true, nil
@@ -235,11 +242,27 @@ func recordTLSPlaintextName(a *Address, o parse.Option, name string) {
 func compatibleDisabledTLSOption(name string, o parse.Option) bool {
 	switch name {
 	case "openssl-fips", "openssl-pseudo":
-		return !activeBool(o).Value
+		v, err := optionalBool(o)
+		return err == nil && !v.Value
 	case "openssl-compress":
 		return o.Has && strings.EqualFold(strings.TrimSpace(o.Value), "none")
 	default:
 		return false
+	}
+}
+
+func decodeUnsupportedTLSValue(name string, o parse.Option) error {
+	switch name {
+	case "openssl-method", "openssl-egd", "openssl-dhparam", "openssl-compress":
+		_, err := requiredString(o)
+		return err
+	case "openssl-fips", "openssl-pseudo":
+		_, err := optionalBool(o)
+		return err
+	case "openssl-maxfraglen", "openssl-maxsendfrag":
+		return optionalSignedInt(o)
+	default:
+		return nil
 	}
 }
 

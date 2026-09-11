@@ -27,12 +27,7 @@ func validateChannelOptions(ch parse.Channel) error {
 }
 
 func validateSpecOptions(spec parse.Spec) error {
-	// Same isolation names OpenSpec rejects; recognize them here so CLI
-	// validation does not report "unknown option".
-	if err := xio.RejectUnsupportedIsolation(spec); err != nil {
-		return err
-	}
-	// Validate names, implementation families, and values first.
+	// Validate names and implementation families. Value contracts belong to Decode.
 	registration, registered := xio.AddressRegistrationForType(spec.Type)
 	for _, option := range spec.Options {
 		optionSpec, ok := lookupAddressOption(option)
@@ -41,9 +36,6 @@ func validateSpecOptions(spec parse.Spec) error {
 		}
 		if registered && !optionImplementedForGroup(registration.Group, optionSpec) {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
-		}
-		if err := validateAddressOptionValue(option); err != nil {
-			return fmt.Errorf("%s: %w", spec.Type, err)
 		}
 	}
 	config, err := decodeSpecConfig(spec)
@@ -64,6 +56,9 @@ func validateSpecOptions(spec parse.Spec) error {
 		return err
 	}
 	if err := xio.RejectUnsupportedListenBacklog(config); err != nil {
+		return err
+	}
+	if err := xio.RejectUnsupportedUnixTightSocklen(config); err != nil {
 		return err
 	}
 	for _, option := range spec.Options {

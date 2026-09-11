@@ -1106,7 +1106,11 @@ func decodeTUNOption(t *TUNSettings, o parse.Option, name string) (bool, error) 
 			return true, fmt.Errorf("unknown tun-type %q", value)
 		}
 	case "iff-no-pi":
-		t.NoPacketInfo = activeBool(o)
+		v, err := optionalBool(o)
+		if err != nil {
+			return true, err
+		}
+		t.NoPacketInfo = v
 	case "if-mtu":
 		value, err := requiredString(o)
 		if err != nil {
@@ -1127,7 +1131,11 @@ func decodeTUNOption(t *TUNSettings, o parse.Option, name string) (bool, error) 
 		if !ok {
 			return false, nil
 		}
-		if activeBool(o).Value {
+		v, err := optionalBool(o)
+		if err != nil {
+			return true, err
+		}
+		if v.Value {
 			t.InterfaceSet |= bit
 		} else {
 			t.InterfaceClr |= bit

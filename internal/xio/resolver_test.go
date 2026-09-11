@@ -2,10 +2,8 @@ package xio
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
 	"net"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -268,15 +266,6 @@ func resNSAddrSpec(addr string) parse.Spec {
 	}}}
 }
 
-func TestParseResNSAddrRejectsIPv6(t *testing.T) {
-	for _, input := range []string{"::1", "[::1]", "[::1]:53", "[2001:db8::1]:5353"} {
-		_, err := ParseResNSAddr(input)
-		if err == nil || !strings.Contains(err.Error(), "IPv6 nameserver is not supported") {
-			t.Errorf("ParseResNSAddr(%q) err=%v want IPv6 nameserver is not supported", input, err)
-		}
-	}
-}
-
 func TestResNSAddrResolverDoesNotMutateDefaultResolver(t *testing.T) {
 	before := net.DefaultResolver
 	server, err := startFakeDNS(t, "127.0.0.1", false, false)
@@ -509,14 +498,7 @@ func TestMatchLocalPacketAddrUnspecified(t *testing.T) {
 	if ua.Port != 9 || ua.IP.To4() == nil || !ua.IP.IsUnspecified() {
 		t.Fatalf("got %+v want IPv4 unspecified port 9", ua)
 	}
-	_, err = MatchLocalPacketAddr("udp4", &net.UDPAddr{IP: net.ParseIP("::1"), Port: 9})
-	if err == nil {
+	if _, err = MatchLocalPacketAddr("udp4", &net.UDPAddr{IP: net.ParseIP("::1"), Port: 9}); err == nil {
 		t.Fatal("specified IPv6 bind on udp4: want mismatch")
 	}
-}
-
-func ExampleParseResNSAddr() {
-	addr, _ := ParseResNSAddr("127.0.0.1:5353")
-	fmt.Println(addr)
-	// Output: 127.0.0.1:5353
 }

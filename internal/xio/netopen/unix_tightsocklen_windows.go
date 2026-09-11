@@ -12,17 +12,10 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
-func rejectUnixTightSocklen(config addrconfig.Address) error {
-	if config.Network.UnixTightSocklen.Set {
-		return fmt.Errorf("unix-tightsocklen: not supported on this platform")
-	}
-	return nil
-}
-
 // unix-tightsocklen is rejected on Windows; bindUnixPath also rejects tight=false.
 func listenUnixNetwork(ctx context.Context, s addrconfig.Address, network, path string) (net.Listener, error) {
 	config := s
-	if err := rejectUnixTightSocklen(config); err != nil {
+	if err := xio.RejectUnsupportedUnixTightSocklen(config); err != nil {
 		return nil, err
 	}
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
@@ -40,7 +33,7 @@ func listenUnixNetwork(ctx context.Context, s addrconfig.Address, network, path 
 
 func dialUnixSocklen(req dialRequest, path, bindPath string) (net.Conn, error) {
 	config := req.config
-	if err := rejectUnixTightSocklen(config); err != nil {
+	if err := xio.RejectUnsupportedUnixTightSocklen(config); err != nil {
 		return nil, err
 	}
 	var conn net.Conn

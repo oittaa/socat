@@ -27,7 +27,6 @@ type Facts struct {
 type Address struct {
 	Type   string
 	Params []string
-	Raw    string
 	Facts  Facts
 
 	Common    Common
@@ -208,7 +207,6 @@ func Decode(spec parse.Spec, facts Facts) (Address, error) {
 	a := Address{
 		Type:   facts.Type,
 		Params: append([]string(nil), spec.Params...),
-		Raw:    spec.Raw,
 		Facts: Facts{
 			Type:  facts.Type,
 			Group: facts.Group,
@@ -390,10 +388,14 @@ func decodeOption(a *Address, o parse.Option) error {
 		return err
 	case "res-nsaddr":
 		v, err := requiredString(o)
-		if err == nil {
-			a.Common.Resolver.NameServer = OptionalString{Set: true, Value: v}
+		if err != nil {
+			return err
 		}
-		return err
+		if _, err := ParseResNSAddr(v); err != nil {
+			return err
+		}
+		a.Common.Resolver.NameServer = OptionalString{Set: true, Value: v}
+		return nil
 	case "res-usevc":
 		v, err := optionalBool(o)
 		a.Common.Resolver.UseVC = v
@@ -485,6 +487,20 @@ func activeBool(o parse.Option) OptionalBool {
 	}
 	v := strings.ToLower(strings.TrimSpace(o.Value))
 	return OptionalBool{Set: true, Value: v != "" && v != "0" && v != "false" && v != "no" && v != "off"}
+}
+
+func optionalSignedInt(o parse.Option) error {
+	if !o.Has {
+		return nil
+	}
+	value, err := requiredString(o)
+	if err != nil {
+		return err
+	}
+	if _, err := strconv.ParseInt(strings.TrimSpace(value), 0, 64); err != nil {
+		return fmt.Errorf("invalid %s %q", o.OriginalSpelling(), value)
+	}
+	return nil
 }
 
 func optionText(o parse.Option) string {

@@ -95,7 +95,6 @@ func PrepareChannel(ch parse.Channel) (PreparedChannel, error) {
 // PrepareSpec resolves one registered address before its static configuration
 // is decoded. It does not access files, DNS, or other runtime resources.
 func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
-	spec = clonePreparedSpec(spec)
 	typ := strings.ToUpper(strings.TrimSpace(spec.Type))
 	desc, ok := registeredAddresses.resolve(typ)
 	if !ok || desc.Opener == nil {
@@ -113,8 +112,19 @@ func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 	return PreparedAddress{Config: config, opener: desc.Opener}, nil
 }
 
-func clonePreparedSpec(spec parse.Spec) parse.Spec {
-	spec.Params = append([]string(nil), spec.Params...)
-	spec.Options = append([]parse.Option(nil), spec.Options...)
-	return spec
+// OpenWithType opens an already-decoded address using a different registered
+// type. GOPEN uses this for an existing socket path so execution never
+// reconstructs parser state from the original text.
+func OpenWithType(ctx context.Context, name string, config addrconfig.Address, mode Mode, g *Global) (*Opened, error) {
+	desc, ok := registeredAddresses.resolve(name)
+	if !ok || desc.Opener == nil {
+		return nil, fmt.Errorf("unknown device/address %q", name)
+	}
+	config.Type = desc.Name
+	config.Facts = addrconfig.Facts{
+		Type:  desc.Name,
+		Group: desc.Group,
+		Caps:  append([]string(nil), desc.OptionCaps...),
+	}
+	return desc.Opener(ctx, config, mode, g)
 }

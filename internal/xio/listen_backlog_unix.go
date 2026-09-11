@@ -33,6 +33,8 @@ func configuredListenBacklog(config addrconfig.Address) int {
 // be applied.
 func RejectUnsupportedListenBacklog(addrconfig.Address) error { return nil }
 
+func RejectUnsupportedUnixTightSocklen(addrconfig.Address) error { return nil }
+
 // ListenStream creates a stream listener and applies its configured backlog.
 // Go's net.Listen uses SOMAXCONN; ApplyListenBacklog issues a second listen(2).
 func ListenStream(ctx context.Context, lc net.ListenConfig, network, address string, s addrconfig.Address) (net.Listener, error) {

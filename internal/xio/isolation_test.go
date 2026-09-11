@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	_ "github.com/oittaa/socat/internal/xio/all"
@@ -63,7 +64,7 @@ func TestIsolationTypoIsNotRecognized(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := xio.RejectUnsupportedIsolation(s); err != nil {
+	if _, err := addrconfig.Decode(s, addrconfig.Facts{Type: s.Type}); err != nil {
 		t.Fatalf("typo treated as isolation option: %v", err)
 	}
 }

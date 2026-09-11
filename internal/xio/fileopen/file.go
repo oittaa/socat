@@ -12,7 +12,6 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
@@ -121,17 +120,8 @@ func openGOPEN(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.
 		if err := rejectGOPENSocketOpenFlags(config.File); err != nil {
 			return nil, err
 		}
-		unixSpec := parse.Spec{
-			// GOPEN is a generic client: it probes stream, seqpacket, and
-			// datagram sockets instead of imposing UNIX-CONNECT semantics.
-			Type:   "UNIX",
-			Params: []string{path},
-			Raw:    s.Raw,
-		}
-		if parsed, perr := parse.ParseSpec(s.Raw); perr == nil {
-			unixSpec.Options = parsed.Options
-		}
-		o, err := xio.OpenSpec(ctx, unixSpec, mode, g)
+		// UNIX generic client probes stream, seqpacket, then datagram.
+		o, err := xio.OpenWithType(ctx, "UNIX", s, mode, g)
 		if err != nil {
 			return nil, err
 		}

@@ -308,6 +308,16 @@ func TestDecodeResolverAndNetNS(t *testing.T) {
 	if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "requires a value") {
 		t.Fatalf("empty netns error=%v", err)
 	}
+
+	for _, ns := range []string{"::1", "[::1]:53"} {
+		spec, err = parse.ParseSpec("TCP:host:9,res-nsaddr=" + ns)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "IPv6") {
+			t.Fatalf("res-nsaddr=%s error=%v", ns, err)
+		}
+	}
 }
 
 func TestDecodeBindPFAndIPv6V6Only(t *testing.T) {

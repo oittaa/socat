@@ -330,7 +330,11 @@ func decodeFileProcess(a *Address, o parse.Option) (bool, error) {
 		appendAction(FileAction{Kind: FileActionPipeSize, Value: n})
 		return true, nil
 	case "fs-secrm", "fs-unrm", "fs-compr", "fs-sync", "fs-immutable", "fs-append", "fs-nodump", "fs-noatime", "fs-journal-data", "fs-notail", "fs-dirsync", "fs-topdir":
-		appendAction(FileAction{Kind: FileActionFSFlag, Enabled: activeBool(o).Value, Text: name})
+		enabled, err := optionalBool(o)
+		if err != nil {
+			return true, err
+		}
+		appendAction(FileAction{Kind: FileActionFSFlag, Enabled: enabled.Value, Text: name})
 		return true, nil
 	case "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string":
 		action, err := decodeIoctl(o)

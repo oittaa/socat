@@ -5,8 +5,9 @@ package xio
 import (
 	"context"
 	"fmt"
-	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
+
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 // RejectUnsupportedListenBacklog rejects a backlog that Winsock cannot apply
@@ -15,6 +16,13 @@ func RejectUnsupportedListenBacklog(s addrconfig.Address) error {
 	config := s
 	if config.Network.Backlog.Set {
 		return fmt.Errorf("backlog: not supported on Windows")
+	}
+	return nil
+}
+
+func RejectUnsupportedUnixTightSocklen(s addrconfig.Address) error {
+	if s.Network.UnixTightSocklen.Set {
+		return fmt.Errorf("unix-tightsocklen: not supported on this platform")
 	}
 	return nil
 }

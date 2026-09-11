@@ -39,7 +39,7 @@ func LookupResolver(config addrconfig.Address) *net.Resolver {
 
 func lookupResolverBase(config addrconfig.Address) *net.Resolver {
 	if config.Common.Resolver.NameServer.Set {
-		nsAddr, err := ParseResNSAddr(config.Common.Resolver.NameServer.Value)
+		nsAddr, err := addrconfig.ParseResNSAddr(config.Common.Resolver.NameServer.Value)
 		if err != nil {
 			return &net.Resolver{
 				PreferGo: true,

@@ -2,10 +2,10 @@ package optionmeta
 
 var transferOptions = []Option{
 	{Canonical: "cr",
-		Desc: "convert NL to/from CR", Value: NoValue,
+		Desc: "convert NL to/from CR",
 	},
 	{Canonical: "crnl", Aliases: []string{"crlf"},
-		Desc: "convert CR/NL", Value: NoValue,
+		Desc: "convert CR/NL",
 	},
 	{Canonical: "crorlf",
 		Desc: "convert CR or LF",
@@ -18,12 +18,12 @@ var transferOptions = []Option{
 		Scope: AddressScope{Caps: capSocket},
 	},
 	{Canonical: "readbytes", Aliases: []string{"bytes"},
-		Desc: "read at most N bytes", Value: SizeT,
+		Desc: "read at most N bytes",
 	},
 	{Canonical: "lockfile",
-		Desc: "create lock file or fail if it exists (like -L)", Value: RequiredString,
+		Desc: "create lock file or fail if it exists (like -L)",
 	},
 	{Canonical: "waitlock",
-		Desc: "wait until lock file is gone, then create it (1s poll)", Value: RequiredString,
+		Desc: "wait until lock file is gone, then create it (1s poll)",
 	},
 }

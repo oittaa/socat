@@ -525,6 +525,9 @@ func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, 
 	if err := RejectUnsupportedListenBacklog(prepared.Config); err != nil {
 		return nil, err
 	}
+	if err := RejectUnsupportedUnixTightSocklen(prepared.Config); err != nil {
+		return nil, err
+	}
 	// lockfile=/waitlock= after chdir= rewrite and before the opener so a
 	// failed open still releases.
 	release, err := applyAddressLock(ctx, prepared.Config)
