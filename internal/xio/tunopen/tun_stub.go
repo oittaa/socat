@@ -15,7 +15,7 @@ func openTUN(_ context.Context, _ addrconfig.Address, _ xio.Mode, _ *xio.Global)
 }
 
 func openINTERFACE(_ context.Context, s addrconfig.Address, _ xio.Mode, _ *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) != 1 || s.Params[0] == "" {
+	if s.Network.InterfaceName == "" {
 		return nil, fmt.Errorf("INTERFACE requires interface name")
 	}
 	return nil, fmt.Errorf("INTERFACE is only supported on Linux")

@@ -1,8 +1,6 @@
 package xio
 
 import (
-	"strings"
-
 	"github.com/oittaa/socat/internal/addrconfig"
 )
 
@@ -39,20 +37,6 @@ var linuxExtFSFlagMasks = map[addrconfig.FSFlag]int{
 	addrconfig.FSFlagNotail:      fsNotailFL,
 	addrconfig.FSFlagDirsync:     fsDirsyncFL,
 	addrconfig.FSFlagTopdir:      fsTopdirFL,
-}
-
-// LinuxExtFSFlagOption reports whether name is a canonical Linux ext
-// filesystem ioctl flag (fs-append, fs-nodump, …). Used to hide these
-// options on Darwin/Windows the same way as fs-noatime.
-func LinuxExtFSFlagOption(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "fs-secrm", "fs-unrm", "fs-compr", "fs-sync", "fs-immutable",
-		"fs-append", "fs-nodump", "fs-noatime", "fs-journal-data",
-		"fs-notail", "fs-dirsync", "fs-topdir":
-		return true
-	default:
-		return false
-	}
 }
 
 // applyFSFlagMask: val &= ~mask, then |= mask when enable. Unrelated bits
