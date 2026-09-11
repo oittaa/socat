@@ -191,9 +191,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			Listener:       ln,
 			Label:          label,
 			MaxChildren:    maxChildren,
-			WrapDial: func(conn net.Conn) (relay.Stream, error) {
-				return xio.SetupConnectedStream(s, relay.NetStream{Conn: conn})
-			},
+			WrapDial:       xio.DefaultWrapOpened(s),
 		}
 		life.attach(o)
 		_ = mode

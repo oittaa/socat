@@ -8,7 +8,6 @@ import (
 
 	"github.com/quic-go/quic-go"
 
-	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
@@ -109,25 +108,20 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 		return conn, err
 	}
 
-	o := &xio.Opened{Label: s.Type + ":" + dest}
-	o.AddCleanup(func() {
-		if drain.Load() {
-			time.AfterFunc(quicConnDrain, func() {
-				_ = tr.Close()
-				_ = pc.Close()
-			})
-			return
-		}
-		_ = tr.Close()
-		_ = pc.Close()
+	return xio.OpenDialed(ctx, s, g, xio.Dialed{
+		Label: s.Type + ":" + dest,
+		Dial:  dialOnce,
+		Wrap:  xio.DefaultWrapOpened(s),
+		Cleanup: []func(){func() {
+			if drain.Load() {
+				time.AfterFunc(quicConnDrain, func() {
+					_ = tr.Close()
+					_ = pc.Close()
+				})
+				return
+			}
+			_ = tr.Close()
+			_ = pc.Close()
+		}},
 	})
-	opened, err := xio.OpenDialed(ctx, s, g, xio.Dialed{
-		Dial: dialOnce,
-		Base: o,
-	})
-	if err != nil {
-		logx.CloseQuiet(o)
-		return nil, err
-	}
-	return opened, nil
 }

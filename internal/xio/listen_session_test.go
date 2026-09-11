@@ -6,6 +6,7 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"testing/synctest"
 
 	"github.com/oittaa/socat/internal/parse"
 )
@@ -57,4 +58,14 @@ func TestOpenListenSessionReturnsParentCancellation(t *testing.T) {
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("OpenListenSession error=%v, want context.Canceled", err)
 	}
+}
+
+func TestOpenListenSessionAcceptTimeoutWithoutDeadline(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ln := &testSessionListener{closed: make(chan struct{})}
+		_, err := OpenListenSession(context.Background(), parseSpecForListenSession(t, "TCP-LISTEN:0,accept-timeout=0.05"), nil, ListenSession{Listener: ln})
+		if !errors.Is(err, ErrAcceptTimeout) {
+			t.Fatalf("OpenListenSession error=%v, want ErrAcceptTimeout", err)
+		}
+	})
 }

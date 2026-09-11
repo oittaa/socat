@@ -1,9 +1,6 @@
 package relay
 
-import (
-	"errors"
-	"os"
-)
+import "errors"
 
 // errPollIdle means the wait timed out or the fd was not readable yet; retry.
 var errPollIdle = errors.New("poll idle")
@@ -14,14 +11,5 @@ var errPollIdle = errors.New("poll idle")
 // raw-FD streams retain select-style backpressure needed by STALL
 // and low-level endpoints.
 func streamNeedsExplicitPoll(s Stream) bool {
-	return walkStreamCapabilities(s, func(value any) bool {
-		if file, ok := value.(*os.File); ok {
-			info, err := file.Stat()
-			return err != nil || !info.Mode().IsRegular()
-		}
-		_, ok := value.(fdProvider)
-		return ok
-	}, func(value any) []any {
-		return regularStreamChildren(value, streamBoth)
-	})
+	return PropsOf(s).NeedsPoll
 }

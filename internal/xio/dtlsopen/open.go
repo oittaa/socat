@@ -112,9 +112,9 @@ func openServer(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
 		Listener: drainingListener{ln}, CloseListener: ln.Close,
 		Label: s.Type + ":" + s.Params[0], WrapDial: wrap(s), PeerFilter: filter,
-		Accept: ln.AcceptContext, UseContextTimeout: true, KeepListenerForSession: true,
-		ListeningLog: fmt.Sprintf("listening on %s (DTLS)", ln.Addr()),
-		AfterAccept:  func(g *xio.Global, c net.Conn) error { return xio.RememberTLSPeer(g, c, 0) },
+		KeepListenerForSession: true,
+		ListeningLog:           fmt.Sprintf("listening on %s (DTLS)", ln.Addr()),
+		AfterAccept:            func(g *xio.Global, c net.Conn) error { return xio.RememberTLSPeer(g, c, 0) },
 	})
 }
 

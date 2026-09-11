@@ -29,6 +29,14 @@ func (*streamConn) IOSemantics() relay.IOSemantics { return relay.MessageIO }
 
 func (c *streamConn) UnwrapStream() relay.Stream { return relay.NetStream{Conn: c.datagramConn} }
 
+func (c *streamConn) StreamProps() relay.Props {
+	p := relay.Inspect(c.datagramConn)
+	p.ReadIO, p.WriteIO = relay.MessageIO, relay.MessageIO
+	p.ConfigureRead = c.ConfigureReadPeer
+	p.ConfigureWrite = c.ConfigureWritePeer
+	return relay.WithoutZeroCopy(p)
+}
+
 func (c *streamConn) ConfigureReadPeer(kind relay.IOSemantics) {
 	c.readStream.Store(kind == relay.ByteStreamIO)
 }

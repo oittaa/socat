@@ -36,8 +36,9 @@
 // Stream listen (TCP, UNIX, TLS-LISTEN, WS-LISTEN, …) creates the socket with
 // ListenControl: ApplyPastSocketPhase then ApplyListenOptions (reuse/v6only
 // plus setsockopt-listen) before bind. OpenListenSession then compiles the peer
-// filter, logs the bind, and either keeps the listener for fork or accepts one
-// connection. TCP accept applies connected options then SetupConnectedStream.
+// filter, then either returns a fork parent or accepts one connection. Accept
+// wait honors context and accept-timeout by aborting the listener. TCP accept
+// applies connected options then SetupConnectedStream.
 // UNIX listen applies remaining descriptor options on the accepted socket
 // (owner options already ran on the name or listen fd) then WrapAfterFD.
 //
@@ -48,7 +49,9 @@
 //
 // DTLS and QUIC bind through ListenPacketWithOptions: ListenControl before
 // bind, then late socket buffers, FD lifecycle, and connected generic
-// setsockopt on the PacketConn. That helper does not wrap.
+// setsockopt on the PacketConn. That helper does not wrap. QUIC then uses
+// WrapOpened around the stream; the packet socket is not the transfer
+// descriptor. DTLS wraps with WrapStream after handshake.
 //
 // UDP binds through listenPacketForSpec → udpListenConfig (ListenControl
 // plus optional fork port reuse before bind). After bind it applies UDP
