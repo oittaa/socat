@@ -36,7 +36,11 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	}
 	network = netw
 
-	tlsCfg, err := tlsopen.TLSClientConfig(s, host)
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	tlsCfg, err := tlsopen.TLSClientConfigSettings(s.Type, config.TLS, host)
 	if err != nil {
 		return nil, err
 	}
@@ -46,10 +50,6 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	}
 
 	bindHost, err := xio.ListenBindHost(s, network, "")
-	if err != nil {
-		return nil, err
-	}
-	config, err := xio.OpeningConfig(ctx, s)
 	if err != nil {
 		return nil, err
 	}

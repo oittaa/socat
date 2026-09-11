@@ -33,7 +33,7 @@ func openQUICListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 	}
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
-	tlsCfg, err := tlsopen.TLSServerConfig(s)
+	tlsCfg, err := tlsopen.TLSServerConfigSettings(s.Type, config.TLS)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,11 @@ func quicHandshakeIdleTimeout(ctx context.Context, s parse.Spec) time.Duration {
 }
 
 func quicConfig(ctx context.Context, s parse.Spec, tlsCfg *tls.Config) (quicSetup, error) {
-	quicTLS, err := withALPN(tlsCfg, s)
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return quicSetup{}, err
+	}
+	quicTLS, err := withALPN(tlsCfg, alpnProto(config.TLS))
 	if err != nil {
 		return quicSetup{}, err
 	}
