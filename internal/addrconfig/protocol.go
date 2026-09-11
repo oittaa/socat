@@ -189,16 +189,10 @@ func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 	case "socksport":
 		return true, decodeProtocolString(&a.Proxy.SOCKSPort, o)
 	case "socksuser":
-		if !o.Has {
-			return true, nil
-		}
-		a.Proxy.SOCKSUser = OptionalString{Set: true, Value: o.Value}
+		a.Proxy.SOCKSUser = OptionalString{Set: true, Value: optionText(o)}
 		return true, nil
 	case "sockspass":
-		if !o.Has {
-			return true, nil
-		}
-		a.Proxy.SOCKSPassword = OptionalString{Set: true, Value: o.Value}
+		a.Proxy.SOCKSPassword = OptionalString{Set: true, Value: optionText(o)}
 		return true, nil
 	case "path":
 		a.WebSocket.Path = OptionalString{Set: true, Value: optionText(o)}

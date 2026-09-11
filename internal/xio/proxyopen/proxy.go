@@ -12,8 +12,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
-	"github.com/oittaa/socat/internal/xio/tlsopen"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
@@ -30,42 +30,22 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	if err != nil {
 		return nil, err
 	}
-	proxyPort := s.OptionValue("proxyport", "8080")
-	if proxyPort == "" {
-		proxyPort = "8080"
+	// Plaintext TLS reject must run before Decode so last-wins spelling is
+	// reported for public TLS names that would otherwise fail as values.
+	if err := rejectProxyPlaintextPolicy(s); err != nil {
+		return nil, err
 	}
-	major, err := parseHTTPVersion(s)
+	config, err := xio.OpeningConfig(ctx, s)
 	if err != nil {
 		return nil, err
 	}
-	if s.BoolOption("h2c") && major != httpVer2 {
-		return nil, fmt.Errorf("h2c requires http-version=2")
-	}
-	// ignorecr is HTTP/1 CONNECT response parsing only.
-	// HTTP/2 and HTTP/3 have no CRLF status/header reader, so an enabled
-	// ignorecr would be a silent no-op. Reject it instead.
-	if s.BoolOption("ignorecr") && major != httpVer1 {
-		return nil, fmt.Errorf("ignorecr applies only to HTTP/1 CONNECT responses")
-	}
-	if major == httpVer1 || (major == httpVer2 && s.BoolOption("h2c")) {
-		if err := tlsopen.RejectPROXYTLSOnPlaintext(s); err != nil {
-			return nil, err
-		}
-	}
-	ver := s.OptionValue("http-version", "1.0")
-	if ver == "" {
-		ver = "1.0"
-	}
+	proxyPort := proxyPortText(config.Proxy)
+	major, ver := proxyHTTPVersion(config.Proxy)
 
 	// proxy-resolve / resolve (default true): put IPv4 in the CONNECT target.
 	// Many proxies expect "CONNECT a.b.c.d:port HTTP/x.y".
 	connectHost := xio.StripBrackets(targetHost)
-	doResolve := true
-	if s.HasOption("proxy-resolve") {
-		doResolve = s.BoolOption("proxy-resolve")
-	} else if s.HasOption("resolve") {
-		doResolve = s.BoolOption("resolve")
-	}
+	doResolve := proxyResolveTarget(config.Proxy)
 	if doResolve {
 		if ip := net.ParseIP(connectHost); ip == nil {
 			ips, resolveErr := xio.LookupIP(ctx, s, "ip4", connectHost)
@@ -115,7 +95,7 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 			var negotiated net.Conn
 			e = xio.WithHandshakeDeadline(c, handshakeTimeout, func() error {
 				var handshakeErr error
-				negotiated, handshakeErr = proxyHTTP1Handshake(c, s, connectHost, targetPort, ver)
+				negotiated, handshakeErr = proxyHTTP1Handshake(c, config.Proxy, connectHost, targetPort, ver)
 				return handshakeErr
 			})
 			if e != nil {
@@ -131,10 +111,10 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	return openProxyDial(ctx, s, mode, g, t, false, dialOnce)
 }
 
-func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, version string) (net.Conn, error) {
+func proxyHTTP1Handshake(c net.Conn, proxy addrconfig.Proxy, connectHost, targetPort, version string) (net.Conn, error) {
 	// CONNECT host:port HTTP/1.x\r\n[auth]\r\n  (always CRLF, even with ignorecr)
 	req := fmt.Sprintf("CONNECT %s HTTP/%s\r\n", net.JoinHostPort(connectHost, targetPort), version)
-	auth, err := proxyAuthHeader(s)
+	auth, err := proxyAuthHeader(proxy)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +128,7 @@ func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, vers
 	// ignorecr is HTTP/1 response parsing: LF ends a line; CR is ignored.
 	// Bare ignorecr or =1 enables; =0 disables (last occurrence wins).
 	// CONNECT requests still use CR+LF.
-	ignoreCR := s.BoolOption("ignorecr")
+	ignoreCR := proxy.IgnoreCR.Value
 	br := bufio.NewReaderSize(c, maxHTTP1ProxyResponseBytes+1)
 	total := 0
 	status, err := readProxyResponseLine(br, &total, ignoreCR)
@@ -231,28 +211,22 @@ func openProxyDial(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glob
 }
 
 // proxyAuthHeader returns "Proxy-authorization: Basic …\r\n" or "".
-func proxyAuthHeader(s parse.Spec) (string, error) {
-	raw, err := proxyAuthString(s)
+func proxyAuthHeader(proxy addrconfig.Proxy) (string, error) {
+	raw, err := proxyAuthString(proxy)
 	if err != nil || raw == "" {
 		return "", err
 	}
 	return "Proxy-authorization: Basic " + base64.StdEncoding.EncodeToString([]byte(raw)) + "\r\n", nil
 }
 
-func proxyAuthString(s parse.Spec) (string, error) {
-	inline := ""
-	if o, ok := s.OptionNamed("proxy-authorization"); ok && o.Has {
-		inline = o.Value
-	}
-	file := ""
-	if o, ok := s.OptionNamed("proxy-authorization-file"); ok && o.Has {
-		file = o.Value
-	}
+func proxyAuthString(proxy addrconfig.Proxy) (string, error) {
+	inline := proxy.Authorization.Value
+	file := proxy.AuthorizationFile.Value
 	if inline != "" && file != "" {
 		return "", fmt.Errorf("only one of options proxy-authorization and proxy-authorization-file allowed")
 	}
 	if file != "" {
-		b, err := os.ReadFile(file)
+		b, err := os.ReadFile(file) // #nosec G304 -- proxy-authorization-file= must open the path the user gave
 		if err != nil {
 			return "", fmt.Errorf("open(%q, O_RDONLY): %w", file, err)
 		}

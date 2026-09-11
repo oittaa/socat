@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
@@ -199,19 +200,19 @@ func TestSOCKS5ListenEcho(t *testing.T) {
 func TestSOCKSUserEnvironmentFallback(t *testing.T) {
 	t.Setenv("LOGNAME", "log-user")
 	t.Setenv("USER", "fallback-user")
-	if got := socksUser(parse.Spec{}); got != "log-user" {
+	if got := socksUser(addrconfig.Proxy{}); got != "log-user" {
 		t.Fatalf("LOGNAME fallback=%q", got)
 	}
 	t.Setenv("LOGNAME", "")
-	if got := socksUser(parse.Spec{}); got != "fallback-user" {
+	if got := socksUser(addrconfig.Proxy{}); got != "fallback-user" {
 		t.Fatalf("USER fallback=%q", got)
 	}
-	s := parse.Spec{Options: []parse.Option{{Name: "socksuser", Value: "option-user", Has: true}}}
-	if got := socksUser(s); got != "option-user" {
+	option := addrconfig.Proxy{SOCKSUser: addrconfig.OptionalString{Set: true, Value: "option-user"}}
+	if got := socksUser(option); got != "option-user" {
 		t.Fatalf("option=%q", got)
 	}
 	t.Setenv("USER", "")
-	if got := socksUser(parse.Spec{}); got != "anonymous" {
+	if got := socksUser(addrconfig.Proxy{}); got != "anonymous" {
 		t.Fatalf("default=%q", got)
 	}
 }

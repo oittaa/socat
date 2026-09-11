@@ -19,7 +19,11 @@ import (
 )
 
 func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarget) (net.Conn, error) {
-	h2c := s.BoolOption("h2c")
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	h2c := config.Proxy.H2C.Value
 	connectTimeout := xio.ConnectTimeout(ctx, s)
 	handshakeTimeout := xio.HandshakeTimeout(ctx, s)
 	network := xio.ConnectNetworkForType(g, s, t.proxyHost, "tcp")
@@ -29,19 +33,19 @@ func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 	if h2c {
 		scheme = "http"
 	} else {
-		cfg, err := tlsopen.TLSClientConfig(s, t.proxyHost)
+		cfg, err := tlsopen.TLSClientConfigSettings(s.Type, config.TLS, t.proxyHost)
 		if err != nil {
 			return nil, err
 		}
 		tlsCfg = cfg.Clone()
-		tlsCfg.NextProtos = []string{proxyALPN(s, "h2")}
+		tlsCfg.NextProtos = []string{proxyALPN(config.TLS, "h2")}
 	}
 
 	u := scheme + "://" + net.JoinHostPort(xio.StripBrackets(t.proxyHost), t.proxyPort) + "/"
 	authority := net.JoinHostPort(t.connectHost, t.targetPort)
 
 	var conn net.Conn
-	err := xio.WithRetry(ctx, g, "PROXY-CONNECT", func() error {
+	err = xio.WithRetry(ctx, g, "PROXY-CONNECT", func() error {
 		raw, e := xio.DialTCPAll(ctx, xio.DialTarget{Network: network, Host: t.proxyHost, Port: t.proxyPort}, s, g, connectTimeout, nil)
 		if e != nil {
 			return e
@@ -105,7 +109,7 @@ func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 			}
 			req.Host = authority
 			req.ContentLength = -1
-			if auth, e := proxyAuthString(s); e != nil {
+			if auth, e := proxyAuthString(config.Proxy); e != nil {
 				_ = pw.Close()
 				return e
 			} else if auth != "" {

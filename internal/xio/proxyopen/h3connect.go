@@ -93,7 +93,11 @@ func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost 
 }
 
 func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarget) (net.Conn, error) {
-	tlsCfg, err := tlsopen.TLSClientConfig(s, t.proxyHost)
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	tlsCfg, err := tlsopen.TLSClientConfigSettings(s.Type, config.TLS, t.proxyHost)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +105,7 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 	if tlsCfg.MinVersion < tls.VersionTLS13 {
 		tlsCfg.MinVersion = tls.VersionTLS13
 	}
-	tlsCfg.NextProtos = []string{proxyALPN(s, http3.NextProtoH3)}
+	tlsCfg.NextProtos = []string{proxyALPN(config.TLS, http3.NextProtoH3)}
 
 	u := "https://" + net.JoinHostPort(xio.StripBrackets(t.proxyHost), t.proxyPort) + "/"
 	authority := net.JoinHostPort(t.connectHost, t.targetPort)
@@ -151,7 +155,7 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 		}
 		req.Host = authority
 		req.ContentLength = -1
-		if auth, e := proxyAuthString(s); e != nil {
+		if auth, e := proxyAuthString(config.Proxy); e != nil {
 			_ = pw.Close()
 			return e
 		} else if auth != "" {

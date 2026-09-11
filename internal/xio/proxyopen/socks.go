@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 
@@ -29,11 +30,15 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	if err := tlsopen.RejectHiddenTLSOnPlaintext(s); err != nil {
 		return nil, err
 	}
-	socksHost, socksPort, targetHost, targetPort, err := socksParams(s)
+	config, err := xio.OpeningConfig(ctx, s)
 	if err != nil {
 		return nil, err
 	}
-	user := socksUser(s)
+	socksHost, socksPort, targetHost, targetPort, err := socksParams(s, config.Proxy)
+	if err != nil {
+		return nil, err
+	}
+	user := socksUser(config.Proxy)
 
 	portNum, err := xio.ResolvePortNum("tcp", targetPort)
 	if err != nil {
@@ -138,9 +143,9 @@ func socks4ReadReply(r io.Reader) error {
 	return nil
 }
 
-func socksUser(s parse.Spec) string {
-	if user := s.OptionValue("socksuser", ""); user != "" {
-		return user
+func socksUser(proxy addrconfig.Proxy) string {
+	if proxy.SOCKSUser.Set && proxy.SOCKSUser.Value != "" {
+		return proxy.SOCKSUser.Value
 	}
 	if user := os.Getenv("LOGNAME"); user != "" {
 		return user
@@ -171,16 +176,20 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	if err := tlsopen.RejectHiddenTLSOnPlaintext(s); err != nil {
 		return nil, err
 	}
-	socksHost, socksPort, targetHost, targetPort, err := socksParams(s)
+	config, err := xio.OpeningConfig(ctx, s)
 	if err != nil {
 		return nil, err
 	}
-	auth := socks5Credentials(s)
+	socksHost, socksPort, targetHost, targetPort, err := socksParams(s, config.Proxy)
+	if err != nil {
+		return nil, err
+	}
+	auth := socks5Credentials(config.Proxy)
 	if auth.OfferUserPass && g != nil && g.Log != nil {
-		if !s.HasOption("socksuser") {
+		if !config.Proxy.SOCKSUser.Set {
 			g.Log.Warningf("SOCKS5 password without username, falling back to \"anonymous\"")
 		}
-		if !s.HasOption("sockspass") {
+		if !config.Proxy.SOCKSPassword.Set {
 			g.Log.Warningf("SOCKS5 username without password")
 		}
 	}
@@ -252,8 +261,10 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 //	server host port
 //	server:host:port  (via split)
 //	server sport host port  (4 params; sport used if socksport option unset)
-func socksParams(s parse.Spec) (socksHost, socksPort, targetHost, targetPort string, err error) {
-	socksPort = s.OptionValue("socksport", "")
+func socksParams(s parse.Spec, proxy addrconfig.Proxy) (socksHost, socksPort, targetHost, targetPort string, err error) {
+	if proxy.SOCKSPort.Set {
+		socksPort = proxy.SOCKSPort.Value
+	}
 	p := s.Params
 	if len(p) >= 4 {
 		// server, socks-port, target-host, target-port
@@ -278,20 +289,18 @@ func socksParams(s parse.Spec) (socksHost, socksPort, targetHost, targetPort str
 // in addition to no-auth. sockspass without socksuser uses user "anonymous";
 // socksuser without sockspass uses an empty password.
 // Empty credentials with OfferUserPass set are distinct from offering no auth.
-func socks5Credentials(s parse.Spec) socks5Auth {
-	hasUser := s.HasOption("socksuser")
-	hasPass := s.HasOption("sockspass")
-	if !hasUser && !hasPass {
+func socks5Credentials(proxy addrconfig.Proxy) socks5Auth {
+	if !proxy.SOCKSUser.Set && !proxy.SOCKSPassword.Set {
 		return socks5Auth{}
 	}
 	auth := socks5Auth{OfferUserPass: true}
-	if hasUser {
-		auth.User = s.OptionValue("socksuser", "")
+	if proxy.SOCKSUser.Set {
+		auth.User = proxy.SOCKSUser.Value
 	} else {
 		auth.User = "anonymous"
 	}
-	if hasPass {
-		auth.Pass = s.OptionValue("sockspass", "")
+	if proxy.SOCKSPassword.Set {
+		auth.Pass = proxy.SOCKSPassword.Value
 	}
 	return auth
 }
