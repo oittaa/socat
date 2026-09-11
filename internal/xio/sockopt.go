@@ -1,19 +1,21 @@
 package xio
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"sync"
 	"syscall"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
-// applySocketBufferOpt sets SO_SNDBUF or SO_RCVBUF. so-sndbuf/so-rcvbuf
-// apply after socket(); so-sndbuf-late/so-rcvbuf-late apply later.
+// applySocketBufferOpt sets SO_SNDBUF or SO_RCVBUF after socket().
 // Linux often doubles the stored value; callers must not require exact equality.
+// Late buffers are applied from prepared Network.Actions.
 func applySocketBufferOpt(fd int, name string, o parse.Option, present bool, opt int) error {
 	if !present {
 		return nil
@@ -104,12 +106,27 @@ func isPastSocketActionOption(o parse.Option) bool {
 // ApplyLateSocketOptions applies so-sndbuf-late / so-rcvbuf-late
 // (same SO_SNDBUF / SO_RCVBUF constants).
 func ApplyLateSocketOptions(fd int, s parse.Spec) error {
-	o, ok := s.OptionNamed("sndbuf-late")
-	if err := applySocketBufferOpt(fd, "sndbuf-late", o, ok, soSndbuf); err != nil {
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
 		return err
 	}
-	o, ok = s.OptionNamed("rcvbuf-late")
-	return applySocketBufferOpt(fd, "rcvbuf-late", o, ok, soRcvbuf)
+	return applyPreparedLateSocketOptions(fd, config)
+}
+
+func applyPreparedLateSocketOptions(fd int, config addrconfig.Address) error {
+	for _, action := range config.Network.Actions {
+		if action.Kind != addrconfig.SocketActionBuffer || action.Phase != addrconfig.SocketPhaseLate {
+			continue
+		}
+		opt := soSndbuf
+		if action.Text == "rcvbuf-late" {
+			opt = soRcvbuf
+		}
+		if err := setSockoptInt(fd, solSocket, opt, action.Number); err != nil {
+			return fmt.Errorf("%s: %w", action.Text, err)
+		}
+	}
+	return nil
 }
 
 // ApplyLateSocketOptionsToConn applies so-sndbuf-late / so-rcvbuf-late
@@ -119,7 +136,11 @@ func ApplyLateSocketOptionsToConn(conn syscall.Conn, s parse.Spec) error {
 	if conn == nil {
 		return nil
 	}
-	if !hasLateSocketBuffers(s) {
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return err
+	}
+	if !hasLateSocketBuffers(config) {
 		return nil
 	}
 	raw, err := conn.SyscallConn()
@@ -128,7 +149,7 @@ func ApplyLateSocketOptionsToConn(conn syscall.Conn, s parse.Spec) error {
 	}
 	var optErr error
 	ctrlErr := raw.Control(func(fd uintptr) {
-		optErr = ApplyLateSocketOptions(int(fd), s)
+		optErr = applyPreparedLateSocketOptions(int(fd), config)
 	})
 	err = errors.Join(ctrlErr, optErr)
 	if err == nil || isNotSocketError(err) {
@@ -141,14 +162,33 @@ func ApplyLateSocketOptionsToConn(conn syscall.Conn, s parse.Spec) error {
 // PacketConn (QUIC transport, ListenPacket). Rejects enabled late options
 // when the conn does not expose a socket fd.
 func ApplyLateSocketOptionsToPacketConn(pc net.PacketConn, s parse.Spec) error {
-	if pc == nil || !hasLateSocketBuffers(s) {
+	if pc == nil {
+		return nil
+	}
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return err
+	}
+	if !hasLateSocketBuffers(config) {
 		return nil
 	}
 	sc, ok := pc.(syscall.Conn)
 	if !ok {
 		return fmt.Errorf("sndbuf-late/rcvbuf-late: packet connection does not expose a socket")
 	}
-	return ApplyLateSocketOptionsToConn(sc, s)
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var optErr error
+	ctrlErr := raw.Control(func(fd uintptr) {
+		optErr = applyPreparedLateSocketOptions(int(fd), config)
+	})
+	err = errors.Join(ctrlErr, optErr)
+	if err == nil || isNotSocketError(err) {
+		return nil
+	}
+	return err
 }
 
 // ApplyIPSendOptsToPacketConn applies send-side IP options on a UDP PacketConn
@@ -174,12 +214,13 @@ func ApplyIPSendOptsToPacketConn(pc net.PacketConn, s parse.Spec, network string
 	return errors.Join(ctrlErr, optErr)
 }
 
-func hasLateSocketBuffers(s parse.Spec) bool {
-	if _, ok := s.OptionNamed("sndbuf-late"); ok {
-		return true
+func hasLateSocketBuffers(config addrconfig.Address) bool {
+	for _, action := range config.Network.Actions {
+		if action.Kind == addrconfig.SocketActionBuffer && action.Phase == addrconfig.SocketPhaseLate {
+			return true
+		}
 	}
-	_, ok := s.OptionNamed("rcvbuf-late")
-	return ok
+	return false
 }
 
 // SockoptCall is one test-only observation of setSockoptInt / setSockoptBytes.
@@ -229,13 +270,17 @@ func recordSockoptBytes(fd, level, opt int, value []byte) {
 
 // ApplyStreamLateSocketOptions applies buffer sizes on exposed sockets.
 func ApplyStreamLateSocketOptions(s parse.Spec, stream relay.Stream) error {
-	if !hasLateSocketBuffers(s) {
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return err
+	}
+	if !hasLateSocketBuffers(config) {
 		return nil
 	}
 	for _, raw := range streamSyscallConns(stream) {
 		var optErr error
 		ctrlErr := raw.Control(func(fd uintptr) {
-			optErr = ApplyLateSocketOptions(int(fd), s)
+			optErr = applyPreparedLateSocketOptions(int(fd), config)
 		})
 		err := errors.Join(ctrlErr, optErr)
 		if err == nil || isNotSocketError(err) {
