@@ -54,8 +54,6 @@ func openQUICListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
 		Listener:               ln,
 		Label:                  s.Type + ":" + port,
-		Accept:                 func(actx context.Context) (net.Conn, error) { return ln.AcceptContext(actx) },
-		UseContextTimeout:      true,
 		KeepListenerForSession: true,
 		ListeningLog:           fmt.Sprintf("listening on %s (quic)", ln.Addr()),
 	})

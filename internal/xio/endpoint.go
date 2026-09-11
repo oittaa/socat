@@ -26,12 +26,18 @@ type acceptResult struct {
 	err  error
 }
 
-// AcceptWithTimeout accepts one connection and aborts the listener when the
-// timeout expires. Closing is intentional: accept-timeout terminates the
-// listen address, and it also makes the timeout work for wrapped listeners
-// such as TLS and QUIC that do not expose SetDeadline.
+// AcceptWithTimeout accepts one connection and closes the listener when the
+// timeout expires or ctx is done. Closing is intentional: accept-timeout
+// terminates the listen address, and it also makes the wait work for wrapped
+// listeners such as TLS and QUIC that do not expose SetDeadline.
 func AcceptWithTimeout(ctx context.Context, ln net.Listener, timeout time.Duration) (net.Conn, error) {
-	if timeout <= 0 {
+	return acceptUntil(ctx, ln, timeout, func() { _ = ln.Close() })
+}
+
+// acceptUntil waits for ln.Accept. timeout>0 starts a timer; a non-nil
+// ctx.Done is always watched. abort unblocks Accept (typically Close).
+func acceptUntil(ctx context.Context, ln net.Listener, timeout time.Duration, abort func()) (net.Conn, error) {
+	if timeout <= 0 && (ctx == nil || ctx.Done() == nil) {
 		return ln.Accept()
 	}
 	result := make(chan acceptResult, 1)
@@ -39,26 +45,38 @@ func AcceptWithTimeout(ctx context.Context, ln net.Listener, timeout time.Durati
 		conn, err := ln.Accept()
 		result <- acceptResult{conn: conn, err: err}
 	}()
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
+	var timerC <-chan time.Time
+	if timeout > 0 {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		timerC = timer.C
+	}
+	var ctxDone <-chan struct{}
+	if ctx != nil {
+		ctxDone = ctx.Done()
+	}
 	select {
 	case accepted := <-result:
 		return accepted.conn, accepted.err
-	case <-ctx.Done():
-		_ = ln.Close()
-		accepted := <-result
-		if accepted.conn != nil {
-			_ = accepted.conn.Close()
+	case <-ctxDone:
+		if abort != nil {
+			abort()
 		}
-		return nil, ctx.Err()
-	case <-timer.C:
-		_ = ln.Close()
-		accepted := <-result
-		if accepted.conn != nil {
-			_ = accepted.conn.Close()
+		return drainAccept(result, ctx.Err())
+	case <-timerC:
+		if abort != nil {
+			abort()
 		}
-		return nil, ErrAcceptTimeout
+		return drainAccept(result, ErrAcceptTimeout)
 	}
+}
+
+func drainAccept(result <-chan acceptResult, err error) (net.Conn, error) {
+	accepted := <-result
+	if accepted.conn != nil {
+		_ = accepted.conn.Close()
+	}
+	return nil, err
 }
 
 // Mode indicates how an address is used.
@@ -257,14 +275,6 @@ const (
 	KindExec
 )
 
-// ListenKind is KindListen when fork is set, else KindReady.
-func ListenKind(fork bool) OpenedKind {
-	if fork {
-		return KindListen
-	}
-	return KindReady
-}
-
 // Opened is a live address endpoint. Kind selects the mode; callers still use
 // the field names (o.Stream, o.Listener, o.Dial, ...).
 type Opened struct {
@@ -277,7 +287,6 @@ type Opened struct {
 	Write  relay.Stream
 
 	// KindListen: bound socket and accept-loop knobs.
-	// Listener is nil after a non-fork accept hands the conn to Stream.
 	Listener       net.Listener
 	ForkSocketpair bool // datagram sessions bridged through a socketpair
 	PeerFilter     func(net.Conn) error

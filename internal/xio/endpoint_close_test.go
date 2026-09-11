@@ -45,6 +45,16 @@ func TestAcceptWithTimeoutWithoutDeadlineSupport(t *testing.T) {
 	}
 }
 
+func TestAcceptWithTimeoutCanceledWithoutTimeout(t *testing.T) {
+	ln := newCloseOnlyListener()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := AcceptWithTimeout(ctx, ln, 0)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error=%v want context.Canceled", err)
+	}
+}
+
 type orderCloser struct {
 	name  string
 	order *[]string

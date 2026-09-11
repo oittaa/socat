@@ -14,15 +14,12 @@ import (
 )
 
 // ListenSession is the shared accept → peer-filter → wrap path for stream
-// listeners. Fork mode keeps Listener+WrapDial+PeerFilter; non-fork accepts
-// one permitted peer and applies the same wrap.
+// listeners. Fork returns a KindListen parent. Non-fork accepts one permitted
+// peer and returns KindReady.
 type ListenSession struct {
 	Listener               net.Listener
 	Label                  string
 	WrapDial               func(net.Conn) (relay.Stream, error)
-	SetAcceptDeadline      func(time.Time) error
-	Accept                 func(ctx context.Context) (net.Conn, error)
-	UseContextTimeout      bool
 	HandshakeTimeout       time.Duration
 	AfterAccept            func(*Global, net.Conn) error
 	ListeningLog           string
@@ -38,8 +35,8 @@ func DefaultWrapDial(s parse.Spec) func(net.Conn) (relay.Stream, error) {
 	}
 }
 
-// OpenListenSession compiles peer filtering before accept, then installs fork
-// wrapping or accepts one permitted connection for non-fork. Each refused peer
+// OpenListenSession compiles peer filtering before accept, then either
+// returns a fork parent or accepts one permitted connection. Each refused peer
 // restarts accept-timeout.
 func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess ListenSession) (*Opened, error) {
 	ln := sess.Listener
@@ -67,17 +64,6 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 			return nil, err
 		}
 	}
-	filter := peerFilter.AllowConn
-	setDeadline := sess.SetAcceptDeadline
-	if setDeadline == nil {
-		if dl, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
-			setDeadline = dl.SetDeadline
-		}
-	}
-	accept := sess.Accept
-	if accept == nil {
-		accept = func(context.Context) (net.Conn, error) { return ln.Accept() }
-	}
 
 	var closeOnce sync.Once
 	safeCloseLn := func() error {
@@ -88,20 +74,20 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 		return err
 	}
 
-	o := &Opened{
-		Kind:             ListenKind(fork),
-		Listener:         ln,
-		Label:            sess.Label,
-		PeerFilter:       filter,
-		MaxChildren:      maxChildren,
-		WrapDial:         wrap,
-		HandshakeTimeout: sess.HandshakeTimeout,
-	}
-	o.AcceptTimeout = AcceptTimeout(s)
-	o.AddCleanup(func() { _ = safeCloseLn() })
 	NoteListenBound(ln.Addr())
 
 	if fork {
+		o := &Opened{
+			Kind:             KindListen,
+			Listener:         ln,
+			Label:            sess.Label,
+			PeerFilter:       peerFilter.AllowConn,
+			MaxChildren:      maxChildren,
+			WrapDial:         wrap,
+			HandshakeTimeout: sess.HandshakeTimeout,
+			AcceptTimeout:    AcceptTimeout(s),
+		}
+		o.AddCleanup(func() { _ = safeCloseLn() })
 		stop := context.AfterFunc(ctx, func() {
 			logx.CloseErr(safeCloseLn())
 		})
@@ -109,38 +95,27 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 		return o, nil
 	}
 
+	return acceptOnce(ctx, s, g, sess, ln, wrap, peerFilter.AllowConn, safeCloseLn)
+}
+
+func acceptOnce(ctx context.Context, s parse.Spec, g *Global, sess ListenSession, ln net.Listener, wrap func(net.Conn) (relay.Stream, error), filter func(net.Conn) error, safeCloseLn func() error) (*Opened, error) {
 	if sess.ListeningLog != "" && g != nil && g.Log != nil {
 		g.Log.Noticef("%s", sess.ListeningLog)
 	} else if g != nil && g.Log != nil {
 		g.Log.Noticef("listening on %s", ln.Addr())
 	}
 
-	at := o.AcceptTimeout
+	at := AcceptTimeout(s)
+	abort := func() { _ = safeCloseLn() }
 	var conn net.Conn
 	for {
-		if setDeadline != nil && at > 0 && !sess.UseContextTimeout {
-			if err := setDeadline(time.Now().Add(at)); err != nil {
-				_ = safeCloseLn()
-				o.Listener = nil
-				return nil, fmt.Errorf("accept-timeout: %w", err)
-			}
-		}
-		actx := ctx
-		var cancel context.CancelFunc
-		if sess.UseContextTimeout && at > 0 {
-			actx, cancel = context.WithTimeout(ctx, at)
-		}
-		c, err := acceptOne(actx, ln, accept)
-		if cancel != nil {
-			cancel()
-		}
+		c, err := acceptUntil(ctx, ln, at, abort)
 		if err != nil {
 			_ = safeCloseLn()
-			o.Listener = nil
-			if ctx.Err() != nil {
+			if ctx != nil && ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
-			if IsTimeoutErr(err) || errors.Is(actx.Err(), context.DeadlineExceeded) {
+			if errors.Is(err, ErrAcceptTimeout) || IsTimeoutErr(err) {
 				if g != nil && g.Log != nil {
 					g.Log.Warningf("accept: Connection timed out")
 				}
@@ -150,9 +125,8 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 		}
 		if err := filter(c); err != nil {
 			CloseRefusedPeer(c)
-			if ctx.Err() != nil {
+			if ctx != nil && ctx.Err() != nil {
 				_ = safeCloseLn()
-				o.Listener = nil
 				return nil, ctx.Err()
 			}
 			if g != nil && g.Log != nil {
@@ -166,7 +140,6 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 	if !sess.KeepListenerForSession {
 		_ = safeCloseLn()
 	}
-	o.Listener = nil
 	if g != nil && g.Log != nil && conn.RemoteAddr() != nil {
 		g.Log.Infof("accepted connection from %s", conn.RemoteAddr())
 	}
@@ -174,48 +147,21 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 	if sess.AfterAccept != nil {
 		if err := sess.AfterAccept(g, conn); err != nil {
 			logx.CloseQuiet(conn)
-			if sess.KeepListenerForSession {
-				_ = safeCloseLn()
-			}
+			_ = safeCloseLn()
 			return nil, err
 		}
 	}
 	st, err := wrap(conn)
 	if err != nil {
 		logx.CloseQuiet(conn)
-		if sess.KeepListenerForSession {
-			_ = safeCloseLn()
-		}
+		_ = safeCloseLn()
 		return nil, err
 	}
-	o.Stream = st
+	o := &Opened{Kind: KindReady, Label: sess.Label, Stream: st}
+	if sess.KeepListenerForSession {
+		o.AddCleanup(func() { _ = safeCloseLn() })
+	}
 	return o, nil
-}
-
-func acceptOne(ctx context.Context, ln net.Listener, accept func(context.Context) (net.Conn, error)) (net.Conn, error) {
-	type acc struct {
-		c   net.Conn
-		err error
-	}
-	ch := make(chan acc, 1)
-	go func() {
-		c, err := accept(ctx)
-		ch <- acc{c, err}
-	}()
-	select {
-	case <-ctx.Done():
-		_ = ln.Close()
-		a := <-ch
-		if a.c != nil {
-			_ = a.c.Close()
-		}
-		if a.err != nil && ctx.Err() == nil {
-			return nil, a.err
-		}
-		return nil, ctx.Err()
-	case a := <-ch:
-		return a.c, a.err
-	}
 }
 
 var (
