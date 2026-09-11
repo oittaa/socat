@@ -11,9 +11,6 @@ type walkTestWrapper struct {
 	Stream
 }
 
-func (w *walkTestWrapper) UnwrapStream() Stream         { return w.Stream }
-func (w *walkTestWrapper) UnwrapZeroCopyStream() Stream { return w.Stream }
-
 func wrapTestStream(stream Stream, depth int) Stream {
 	for range depth {
 		stream = &walkTestWrapper{Stream: stream}
@@ -21,7 +18,7 @@ func wrapTestStream(stream Stream, depth int) Stream {
 	return stream
 }
 
-func TestCapabilityWalkerKeepsFDDirectionsSeparate(t *testing.T) {
+func TestStreamPropsKeepsFDDirectionsSeparate(t *testing.T) {
 	file, err := os.CreateTemp(t.TempDir(), "writer")
 	if err != nil {
 		t.Fatal(err)
@@ -41,28 +38,7 @@ func TestCapabilityWalkerKeepsFDDirectionsSeparate(t *testing.T) {
 	}
 }
 
-func TestCapabilityWalkerDetectsWrapperCycles(t *testing.T) {
-	left := &walkTestWrapper{}
-	right := &walkTestWrapper{}
-	left.Stream = right
-	right.Stream = left
-
-	if got := streamReadFD(left); got != -1 {
-		t.Fatalf("cyclic stream fd=%d want -1", got)
-	}
-	if streamNeedsExplicitPoll(left) {
-		t.Fatal("cyclic stream unexpectedly requires explicit polling")
-	}
-	if _, ok := unwrapZeroCopyReader(left); ok {
-		t.Fatal("cyclic stream unexpectedly supports zero-copy")
-	}
-	setStreamReadDeadline(left, time.Now())
-	if setStreamWriteDeadline(left, time.Now()) {
-		t.Fatal("cyclic stream unexpectedly supports write deadlines")
-	}
-}
-
-func TestCapabilityWalkerFindsDeepPollEndpoint(t *testing.T) {
+func TestStreamPropsFindsDeepPollEndpoint(t *testing.T) {
 	reader, writer, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -79,5 +55,16 @@ func TestCapabilityWalkerFindsDeepPollEndpoint(t *testing.T) {
 	wrapped := wrapTestStream(FDStream{R: reader, W: writer, C: reader}, 32)
 	if !streamNeedsExplicitPoll(wrapped) {
 		t.Fatal("deeply wrapped pipe did not enable explicit polling")
+	}
+}
+
+func TestStreamPropsForwardsDeadlinesThroughWrappers(t *testing.T) {
+	inner := &recordingDeadlineStream{}
+	wrapped := wrapTestStream(inner, 8)
+	setStreamReadDeadline(wrapped, time.Now())
+	inner.mu.Lock()
+	defer inner.mu.Unlock()
+	if inner.readDeadline.IsZero() {
+		t.Fatal("wrapped stream lost the read deadline")
 	}
 }

@@ -68,6 +68,8 @@ func (s *recordingDeadlineStream) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
+func (s *recordingDeadlineStream) StreamProps() Props { return Inspect(s) }
+
 type oneShotReader struct {
 	data []byte
 }

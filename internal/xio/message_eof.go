@@ -56,6 +56,9 @@ func (s messageEOFNetStream) Read(p []byte) (int, error) {
 }
 
 func (s messageEOFNetStream) UnwrapStream() relay.Stream { return s.NetStream }
+func (s messageEOFNetStream) StreamProps() relay.Props {
+	return relay.WithoutZeroCopy(relay.PropsOf(s.NetStream))
+}
 
 func (s messageEOFNetStream) NetConn() net.Conn { return s.Conn }
 
@@ -69,3 +72,6 @@ func (s messageEOFStream) Read(p []byte) (int, error) {
 }
 
 func (s messageEOFStream) UnwrapStream() relay.Stream { return s.Stream }
+func (s messageEOFStream) StreamProps() relay.Props {
+	return relay.WithoutZeroCopy(relay.PropsOf(s.Stream))
+}

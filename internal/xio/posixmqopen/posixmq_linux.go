@@ -670,6 +670,7 @@ type mqStream struct {
 }
 
 func (*mqStream) IOSemantics() relay.IOSemantics { return relay.MessageIO }
+func (s *mqStream) StreamProps() relay.Props     { return relay.Inspect(s) }
 
 func (s *mqStream) attachNotify() error {
 	n, err := newMQNotify()

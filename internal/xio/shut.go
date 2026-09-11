@@ -154,9 +154,6 @@ type shutNoneStream struct{ relay.Stream }
 
 func (s shutNoneStream) ShutdownWrite() error       { return nil }
 func (s shutNoneStream) UnwrapStream() relay.Stream { return s.Stream }
-func (s shutNoneStream) UnwrapZeroCopyStream() relay.Stream {
-	return s.Stream
-}
 
 // shutDownStream performs socket shutdown(SHUT_WR).
 type shutDownStream struct{ relay.Stream }
@@ -168,9 +165,6 @@ func (s shutDownStream) ShutdownWrite() error {
 	return nil
 }
 func (s shutDownStream) UnwrapStream() relay.Stream { return s.Stream }
-func (s shutDownStream) UnwrapZeroCopyStream() relay.Stream {
-	return s.Stream
-}
 
 // shutNullStream sends a 0-byte Write on ShutdownWrite. The write result
 // is ignored; ShutdownWrite of the underlying stream is not called.
@@ -179,9 +173,6 @@ type shutNullStream struct {
 }
 
 func (s shutNullStream) UnwrapStream() relay.Stream { return s.Stream }
-func (s shutNullStream) UnwrapZeroCopyStream() relay.Stream {
-	return s.Stream
-}
 
 func (s shutNullStream) ShutdownWrite() error {
 	_, _ = s.Write(nil) // result ignored; do not also half-close
@@ -208,6 +199,3 @@ func (s *shutCloseStream) close() error {
 func (s *shutCloseStream) ShutdownWrite() error       { return s.close() }
 func (s *shutCloseStream) Close() error               { return s.close() }
 func (s *shutCloseStream) UnwrapStream() relay.Stream { return s.Stream }
-func (s *shutCloseStream) UnwrapZeroCopyStream() relay.Stream {
-	return s.Stream
-}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/relay"
 )
 
 type closeCountingStream struct{ closes int }
@@ -15,7 +16,8 @@ func (s *closeCountingStream) Close() error {
 	s.closes++
 	return nil
 }
-func (*closeCountingStream) ShutdownWrite() error { return nil }
+func (*closeCountingStream) ShutdownWrite() error     { return nil }
+func (*closeCountingStream) StreamProps() relay.Props { return relay.NoProps() }
 
 func TestShutCloseFullyClosesOnce(t *testing.T) {
 	inner := &closeCountingStream{}
