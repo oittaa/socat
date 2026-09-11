@@ -26,4 +26,3 @@ func TestOpenDialedCleanupOnDialError(t *testing.T) {
 		t.Fatal("Cleanup not run")
 	}
 }
-
