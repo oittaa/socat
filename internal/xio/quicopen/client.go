@@ -111,6 +111,7 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	return xio.OpenDialed(ctx, s, g, xio.Dialed{
 		Label: s.Type + ":" + dest,
 		Dial:  dialOnce,
+		Wrap:  xio.DefaultWrapOpened(s),
 		Cleanup: []func(){func() {
 			if drain.Load() {
 				time.AfterFunc(quicConnDrain, func() {

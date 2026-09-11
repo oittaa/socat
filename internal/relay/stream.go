@@ -285,10 +285,10 @@ func IsTimeoutErr(err error) bool {
 }
 
 func pokeReadDeadline(s Stream) {
-	if _, ok := s.(*sessionWrap); ok {
+	if hasSessionWrap(s) {
 		// sessionWrap.Close pokes inner deadlines; the next serialized
-		// wrap clears leftovers at construction. Do not async-clear
-		// through this layer.
+		// wrap clears leftovers at construction. Transfer wraps that
+		// session in closeSerialStream before cancellation.
 		return
 	}
 	set := readDeadlineOf(s)
@@ -300,6 +300,28 @@ func pokeReadDeadline(s Stream) {
 		time.Sleep(10 * time.Millisecond)
 		_ = set(time.Time{})
 	}()
+}
+
+func hasSessionWrap(s Stream) bool {
+	cur := s
+	for range 32 {
+		if cur == nil {
+			return false
+		}
+		if _, ok := cur.(*sessionWrap); ok {
+			return true
+		}
+		u, ok := cur.(interface{ UnwrapStream() Stream })
+		if !ok {
+			return false
+		}
+		next := u.UnwrapStream()
+		if next == nil || next == cur {
+			return false
+		}
+		cur = next
+	}
+	return false
 }
 
 // StreamReadFD returns the underlying read descriptor, or -1.
