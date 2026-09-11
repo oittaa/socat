@@ -112,11 +112,7 @@ func (a *udpForkAccept) step() acceptNext {
 	session := a.childSession()
 	if a.l.oneShot {
 		xio.ProcessAncillary(got.packet.oob, session)
-		child := a.l.newUDPForkChild(got.packet, session, a.wantCtrl, a.recvErr)
-		// Share the parent socket (one-shot). A
-		// connected child on the same port would steal later datagrams.
-		child.setShared(a.pc)
-		return acceptChild(child, nil)
+		return acceptChild(a.l.newUDPOneshotChild(a.pc, got.packet, session), nil)
 	}
 	if !xio.UDPForkPortReuse(a.l.spec) {
 		xio.ProcessAncillary(got.packet.oob, session)

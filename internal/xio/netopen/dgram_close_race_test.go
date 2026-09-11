@@ -45,21 +45,3 @@ func TestUDPSessionConnConcurrentCloseOwnedOnce(t *testing.T) {
 		t.Fatal("owned socket still usable after Close")
 	}
 }
-
-func TestUDPSessionConnOneShotCloseDoesNotCloseParent(t *testing.T) {
-	parent, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = parent.Close() })
-	u := &udpSessionConn{sock: parent, role: udpRoleShared}
-	errs := concurrentCloses(t, u.Close, 16)
-	for i, err := range errs {
-		if err != nil {
-			t.Fatalf("Close[%d]=%v", i, err)
-		}
-	}
-	if err := parent.SetReadDeadline(time.Now().Add(50 * time.Millisecond)); err != nil {
-		t.Fatalf("one-shot Close closed parent: %v", err)
-	}
-}

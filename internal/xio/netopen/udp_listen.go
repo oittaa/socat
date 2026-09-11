@@ -238,10 +238,10 @@ func udpRouteLocalIP(network string, peer *net.UDPAddr) net.IP {
 
 // udpForkListener implements net.Listener for UDP-LISTEN/RECVFROM,fork:
 // each Accept waits for a datagram and returns a session Conn for that peer.
-// Children use udpSessionConn in one of three roles: connected (reuse child
-// socket), shared (RECVFROM,fork; parent keeps the fd), or exclusive handoff
-// (reuseaddr=0). Darwin/Windows may wrap this in udpDispatchListener instead
-// of connecting a child socket.
+// UDP-LISTEN,fork children use udpSessionConn: connected (reuse child socket)
+// or exclusive handoff (reuseaddr=0). UDP-RECVFROM,fork uses oneshotForkConn
+// so the parent keeps the listen fd. Darwin/Windows may wrap this in
+// udpDispatchListener instead of connecting a child socket.
 type udpForkPacket struct {
 	data []byte
 	oob  []byte
@@ -368,13 +368,28 @@ func (l *udpForkListener) handoffListenSocket(child *udpSessionConn) (net.Conn, 
 	return child, nil
 }
 
-func (l *udpForkListener) newUDPForkChild(packet udpForkPacket, session *xio.Global, wantCtrl, recvErr bool) *udpSessionConn {
-	role := udpRoleConnected
-	if l.oneShot {
-		role = udpRoleShared
+func (l *udpForkListener) newUDPOneshotChild(pc *net.UDPConn, packet udpForkPacket, session *xio.Global) *oneshotForkConn {
+	peer := cloneUDPAddr(packet.peer)
+	local := pc.LocalAddr()
+	if local == nil && l.laddr != nil {
+		local = l.laddr
 	}
+	recvErr := xio.NeedRecvErr(l.spec)
+	return newOneshotForkConn(
+		append([]byte(nil), packet.data...),
+		local,
+		peer,
+		session,
+		&l.writeMu,
+		pc.SetWriteDeadline,
+		func(p []byte) (int, error) { return writeToUDPWithFallback(pc, p, peer) },
+		func(err error) { xio.DrainRecvErrOnError(err, recvErr, pc, session) },
+	)
+}
+
+func (l *udpForkListener) newUDPForkChild(packet udpForkPacket, session *xio.Global, wantCtrl, recvErr bool) *udpSessionConn {
 	return &udpSessionConn{
-		role:     role,
+		role:     udpRoleConnected,
 		peer:     cloneUDPAddr(packet.peer),
 		first:    newFirstPacket(append([]byte(nil), packet.data...)),
 		env:      session.SessionVarsSnapshot(),
@@ -476,8 +491,6 @@ type udpSessionRole int
 const (
 	// udpRoleConnected: dedicated connected child (UDP-LISTEN,fork with reuse).
 	udpRoleConnected udpSessionRole = iota
-	// udpRoleShared: parent listen socket; child must not Close it (UDP-RECVFROM,fork).
-	udpRoleShared
 	// udpRoleHandoff: exclusive listen fd; child Closes it (reuseaddr=0).
 	udpRoleHandoff
 )
@@ -509,11 +522,6 @@ func (u *udpSessionConn) setConnected(c *net.UDPConn) {
 	u.sock = c
 }
 
-func (u *udpSessionConn) setShared(c *net.UDPConn) {
-	u.role = udpRoleShared
-	u.sock = c
-}
-
 func (u *udpSessionConn) setHandoff(c *net.UDPConn) {
 	u.role = udpRoleHandoff
 	u.sock = c
@@ -536,15 +544,8 @@ func (u *udpSessionConn) recvErrConn() syscall.Conn {
 
 func (u *udpSessionConn) Read(p []byte) (int, error) {
 	if first, ok := u.first.take(); ok {
-		if u.role == udpRoleShared {
-			return copyOneshotFirst(p, first)
-		}
 		n := copy(p, first)
 		return xio.ZeroLengthMessageEOF(n, nil, len(p))
-	}
-	if u.role == udpRoleShared {
-		// UDP-RECVFROM,fork is one-shot: drain first, then EOF.
-		return 0, io.EOF
 	}
 	if len(u.queued) > 0 {
 		packet := u.queued[0]
@@ -609,14 +610,7 @@ func (u *udpSessionConn) Write(p []byte) (int, error) {
 		return 0, net.ErrClosed
 	}
 	n, err := writeSharedPacket(u.writeMu, u.writeDL.get(), u.sock.SetWriteDeadline, func() (int, error) {
-		n, err := u.sock.WriteToUDP(p, u.peer)
-		if err == nil {
-			return n, nil
-		}
-		if n2, err2 := u.sock.Write(p); err2 == nil {
-			return n2, nil
-		}
-		return n, err
+		return writeToUDPWithFallback(u.sock, p, u.peer)
 	})
 	u.drainRecvErr(err)
 	return n, err
@@ -624,9 +618,6 @@ func (u *udpSessionConn) Write(p []byte) (int, error) {
 
 func (u *udpSessionConn) Close() error {
 	u.closeOnce.Do(func() {
-		if u.role == udpRoleShared {
-			return // parent owns the listen socket
-		}
 		var err error
 		if u.sock != nil {
 			// Keep sock set: Transfer pokes SetReadDeadline from another
@@ -649,19 +640,12 @@ func (u *udpSessionConn) LocalAddr() net.Addr {
 }
 func (u *udpSessionConn) RemoteAddr() net.Addr { return u.peer }
 func (u *udpSessionConn) SetDeadline(t time.Time) error {
-	if u.role == udpRoleShared {
-		return u.SetWriteDeadline(t)
-	}
 	if err := u.SetReadDeadline(t); err != nil {
 		return err
 	}
 	return u.SetWriteDeadline(t)
 }
 func (u *udpSessionConn) SetReadDeadline(t time.Time) error {
-	if u.role == udpRoleShared {
-		// Read never touches the shared listener; do not install a deadline on it.
-		return nil
-	}
 	if u.sock == nil {
 		return net.ErrClosed
 	}
@@ -676,10 +660,6 @@ func (u *udpSessionConn) SetWriteDeadline(t time.Time) error {
 }
 
 func (u *udpSessionConn) NetConn() net.Conn {
-	if u.role == udpRoleShared {
-		// UDP-RECVFROM,fork children share the parent listener.
-		return nil
-	}
 	return u.sock
 }
 
@@ -728,15 +708,9 @@ func (u *udpRecvFromConn) Write(p []byte) (int, error) {
 	if u.peer == nil {
 		return 0, net.ErrClosed
 	}
-	n, err := u.uc.WriteToUDP(p, u.peer)
+	n, err := writeToUDPWithFallback(u.uc, p, u.peer)
 	if err != nil {
 		xio.DrainRecvErrOnError(err, u.recvErr, u.uc, u.g)
-	}
-	if err == nil {
-		return n, nil
-	}
-	if n2, err2 := u.uc.Write(p); err2 == nil {
-		return n2, nil
 	}
 	return n, err
 }

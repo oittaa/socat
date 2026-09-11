@@ -12,7 +12,7 @@ func (*rawIPDatagramConn) IOSemantics() relay.IOSemantics { return relay.Message
 func (*rawIPConn) IOSemantics() relay.IOSemantics         { return relay.MessageIO }
 func (*rawIPRecvFrom) IOSemantics() relay.IOSemantics     { return relay.MessageIO }
 func (*rawIPFilteredRecv) IOSemantics() relay.IOSemantics { return relay.MessageIO }
-func (*rawIPSessionConn) IOSemantics() relay.IOSemantics  { return relay.MessageIO }
+func (*oneshotForkConn) IOSemantics() relay.IOSemantics   { return relay.MessageIO }
 
 func (c *udpDatagramConn) StreamProps() relay.Props   { return relay.Inspect(c) }
 func (c *udpFilteredRecv) StreamProps() relay.Props   { return relay.Inspect(c) }
@@ -24,4 +24,4 @@ func (c *rawIPDatagramConn) StreamProps() relay.Props { return relay.Inspect(c) 
 func (c *rawIPConn) StreamProps() relay.Props         { return relay.Inspect(c) }
 func (c *rawIPRecvFrom) StreamProps() relay.Props     { return relay.Inspect(c) }
 func (c *rawIPFilteredRecv) StreamProps() relay.Props { return relay.Inspect(c) }
-func (c *rawIPSessionConn) StreamProps() relay.Props  { return relay.Inspect(c) }
+func (c *oneshotForkConn) StreamProps() relay.Props   { return relay.Inspect(c) }
