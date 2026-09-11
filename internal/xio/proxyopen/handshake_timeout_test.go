@@ -48,7 +48,7 @@ func assertPROXYConnectFailsNear(t *testing.T, spec string, min, max time.Durati
 		t.Fatal(err)
 	}
 	started := time.Now()
-	_, err = openProxyConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	_, err = openProxyConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err == nil {
 		t.Fatal("expected timeout against stalled peer")
 	}
@@ -68,7 +68,7 @@ func assertPROXYConnectStillRunning(t *testing.T, spec string, wait time.Duratio
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := openProxyConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+		_, err := openProxyConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 		done <- err
 	}()
 	select {

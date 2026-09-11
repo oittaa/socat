@@ -17,11 +17,10 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
-func openEXEC(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+func openEXEC(ctx context.Context, s addrconfig.Address, mode Mode, g *Global) (*Opened, error) {
 	if len(s.Params) < 1 {
 		return nil, fmt.Errorf("EXEC requires command")
 	}
@@ -31,7 +30,7 @@ func openEXEC(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 	return startProcess(ctx, s, mode, g, cmdStr, false)
 }
 
-func openSYSTEM(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+func openSYSTEM(ctx context.Context, s addrconfig.Address, mode Mode, g *Global) (*Opened, error) {
 	if len(s.Params) < 1 {
 		return nil, fmt.Errorf("SYSTEM requires command")
 	}
@@ -39,11 +38,8 @@ func openSYSTEM(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opene
 	return startProcess(ctx, s, mode, g, cmdStr, true)
 }
 
-func openSHELL(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	config, ok := PreparedConfig(ctx)
-	if !ok {
-		return nil, fmt.Errorf("EXEC: prepared address configuration required")
-	}
+func openSHELL(ctx context.Context, s addrconfig.Address, mode Mode, g *Global) (*Opened, error) {
+	config := s
 	cmdStr := strings.Join(s.Params, ":")
 	hasCommand := len(s.Params) > 0 && s.Params[0] != ""
 	return startCmd(ctx, s, mode, g, configuredShellCommand(ctx, config.Process, cmdStr, hasCommand))
@@ -68,7 +64,7 @@ func configuredShellCommand(ctx context.Context, config addrconfig.Process, cmdS
 	return cmd
 }
 
-func startProcess(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmdStr string, useShell bool) (*Opened, error) {
+func startProcess(ctx context.Context, s addrconfig.Address, mode Mode, g *Global, cmdStr string, useShell bool) (*Opened, error) {
 	var cmd *exec.Cmd
 	if useShell {
 		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
@@ -272,7 +268,6 @@ func unusedExecPastSocketName(action addrconfig.SocketAction) (string, bool) {
 // Forked: prepare → open transport FDs → Start → drop child-side FDs → finish.
 // nofork: prepare → attach peer as stdio → Start → drop ExtraFiles → Wait.
 type execChild struct {
-	spec       parse.Spec
 	config     addrconfig.Address
 	mode       Mode
 	g          *Global
@@ -286,17 +281,13 @@ type execChild struct {
 	wait       *execWaitState
 }
 
-func newExecChild(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*execChild, error) {
-	config, ok := PreparedConfig(ctx)
-	if !ok {
-		return nil, fmt.Errorf("EXEC: prepared address configuration required")
-	}
+func newExecChild(ctx context.Context, s addrconfig.Address, mode Mode, g *Global, cmd *exec.Cmd) (*execChild, error) {
+	config := s
 	fdin, fdout, err := processFDPairConfig(config.Process, mode)
 	if err != nil {
 		return nil, err
 	}
 	return &execChild{
-		spec:       s,
 		config:     config,
 		mode:       mode,
 		g:          g,
@@ -342,7 +333,7 @@ func (c *execChild) wrapForkedFDHelper(ctx context.Context) error {
 	// place fdi/fdo. Apply it before wrapping. Every custom fdin/fdout
 	// uses the child dup2 helper so bare SHELL and dash stay on the
 	// target instead of a /bin/sh reconstruction.
-	if err := applyConfiguredDashArgv0(c.config.Process.Dash.Value, c.spec.Type, c.cmd); err != nil {
+	if err := applyConfiguredDashArgv0(c.config.Process.Dash.Value, c.config.Type, c.cmd); err != nil {
 		return err
 	}
 	var err error
@@ -425,10 +416,10 @@ func (c *execChild) startForked(ctx context.Context) (*Opened, error) {
 	var childFiles []*os.File
 	var err error
 	if c.usePipes {
-		stream, cleanup, childFiles, err = startCmdPipes(c.spec, c.config, c.mode, c.cmd, c.fdRedirect)
+		stream, cleanup, childFiles, err = startCmdPipes(c.config, c.mode, c.cmd, c.fdRedirect)
 	} else {
 		var child *os.File
-		stream, cleanup, child, err = startCmdSocketpair(c.spec, c.config, c.mode, c.cmd, c.fdRedirect)
+		stream, cleanup, child, err = startCmdSocketpair(c.config, c.mode, c.cmd, c.fdRedirect)
 		if child != nil {
 			childFiles = append(childFiles, child)
 		}
@@ -442,7 +433,7 @@ func (c *execChild) startForked(ctx context.Context) (*Opened, error) {
 	return c.finish(stream, cleanup, c.mode == ModeWrite, nil)
 }
 
-func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
+func startCmd(ctx context.Context, s addrconfig.Address, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
 	c, err := newExecChild(ctx, s, mode, g, cmd)
 	if err != nil {
 		return nil, err
@@ -453,9 +444,8 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 		if err := rejectUnusedExecPastSocketOptions(c.config); err != nil {
 			return nil, err
 		}
-		spec := s
 		config := c.config
-		return &Opened{Kind: KindExec, Label: "EXEC-nofork", NoForkSpec: &spec, NoForkConfig: &config}, nil
+		return &Opened{Kind: KindExec, Label: "EXEC-nofork", NoForkConfig: &config}, nil
 	}
 	if err := c.prepareForked(ctx); err != nil {
 		return nil, err
@@ -491,7 +481,7 @@ func processFDPairConfig(config addrconfig.Process, mode Mode) (fdin, fdout stri
 // unusedFDNumbers still keeps historical prefix temps in 3–9.
 const dashFDRedirectMax = 9
 
-func startCmdPipes(s parse.Spec, config addrconfig.Address, mode Mode, cmd *exec.Cmd, fdRedirect bool) (relay.Stream, []func(), []*os.File, error) {
+func startCmdPipes(config addrconfig.Address, mode Mode, cmd *exec.Cmd, fdRedirect bool) (relay.Stream, []func(), []*os.File, error) {
 	needIn, needOut := pipeDirections(mode)
 	var stdin io.WriteCloser
 	var stdout io.ReadCloser
@@ -584,8 +574,8 @@ func startCmdPipes(s parse.Spec, config addrconfig.Address, mode Mode, cmd *exec
 	return st, cleanup, childFiles, nil
 }
 
-func startCmdSocketpair(s parse.Spec, config addrconfig.Address, mode Mode, cmd *exec.Cmd, fdRedirect bool) (relay.Stream, []func(), *os.File, error) {
-	stype, _, err := SocketTypeOption(s, syscall.SOCK_STREAM)
+func startCmdSocketpair(config addrconfig.Address, mode Mode, cmd *exec.Cmd, fdRedirect bool) (relay.Stream, []func(), *os.File, error) {
+	stype, _, err := SocketTypeOption(config, syscall.SOCK_STREAM)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -597,7 +587,7 @@ func startCmdSocketpair(s parse.Spec, config addrconfig.Address, mode Mode, cmd 
 	child := os.NewFile(uintptr(fds[1]), "exec-child")
 	// After socket(), apply Spec.Options to the child endpoint only.
 	// Standalone SOCKETPAIR still applies to both descriptors.
-	if err := ApplySocketOptions(int(child.Fd()), s); err != nil {
+	if err := ApplySocketOptions(int(child.Fd()), config); err != nil {
 		_ = parent.Close()
 		_ = child.Close()
 		return nil, nil, nil, err
@@ -886,8 +876,8 @@ func (c *execChild) finishAfterFD(stream relay.Stream, cleanup []func(), waitChi
 	return c.finishStream(stream, cleanup, waitChild, done, WrapAfterFD)
 }
 
-func (c *execChild) finishStream(stream relay.Stream, cleanup []func(), waitChild bool, done chan struct{}, wrap func(parse.Spec, relay.Stream) (relay.Stream, error)) (*Opened, error) {
-	st, err := wrap(c.spec, stream)
+func (c *execChild) finishStream(stream relay.Stream, cleanup []func(), waitChild bool, done chan struct{}, wrap func(addrconfig.Address, relay.Stream) (relay.Stream, error)) (*Opened, error) {
+	st, err := wrap(c.config, stream)
 	if err != nil {
 		c.killWait()
 		for _, f := range cleanup {

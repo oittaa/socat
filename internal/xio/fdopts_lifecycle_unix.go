@@ -3,7 +3,6 @@
 package xio
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +11,6 @@ import (
 	"syscall"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/unix"
 )
@@ -283,40 +281,31 @@ func applyConfiguredGroup(fd int, action addrconfig.FileAction) error {
 	return nil
 }
 
-func applyFDLifecycleToFile(f *os.File, s parse.Spec, skip FDSkip) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func applyFDLifecycleToFile(f *os.File, s addrconfig.Address, skip FDSkip) error {
+	config := s
 	return ApplyConfiguredFDOptions(f, config.File, skip)
 }
 
-func applyFDLifecycleOnFD(fd int, s parse.Spec, skip FDSkip) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func applyFDLifecycleOnFD(fd int, s addrconfig.Address, skip FDSkip) error {
+	config := s
 	return applyConfiguredFDOnFD(fd, config.File, skip)
 }
 
 // applyFDLifecycleToStream applies descriptor lifecycle once per unique
 // underlying fd in this call (FileStream R/W/C sharing one fd).
-func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream, skip FDSkip) error {
+func applyFDLifecycleToStream(s addrconfig.Address, stream relay.Stream, skip FDSkip) error {
 	return applyFDLifecycleToStreamMode(s, stream, skip, false)
 }
 
 // applyFDLifecycleLateToStream applies only late descriptor options.
 // ACCEPT-FD applies after-open options before after-socket and after
 // connect/accept; late follows those stages instead of after-open.
-func applyFDLifecycleLateToStream(s parse.Spec, stream relay.Stream) error {
+func applyFDLifecycleLateToStream(s addrconfig.Address, stream relay.Stream) error {
 	return applyFDLifecycleToStreamMode(s, stream, FDSkip{}, true)
 }
 
-func applyFDLifecycleToStreamMode(s parse.Spec, stream relay.Stream, skip FDSkip, lateOnly bool) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func applyFDLifecycleToStreamMode(s addrconfig.Address, stream relay.Stream, skip FDSkip, lateOnly bool) error {
+	config := s
 	if lateOnly {
 		if !hasConfiguredFDActions(config.File, FDSkip{}) {
 			return nil
@@ -352,20 +341,17 @@ func applyFDLifecycleToStreamMode(s parse.Spec, stream relay.Stream, skip FDSkip
 
 // ApplyFDLifecycleToConn applies after-open then late options on a live
 // syscall.Conn (UDP/UNIX/QUIC transport, before wrapping).
-func ApplyFDLifecycleToConn(c syscall.Conn, s parse.Spec) error {
+func ApplyFDLifecycleToConn(c syscall.Conn, s addrconfig.Address) error {
 	return ApplyFDLifecycleToConnSkip(c, s, FDSkip{})
 }
 
 // ApplyFDLifecycleToConnSkip applies descriptor lifecycle with opener-owned
 // options skipped.
-func ApplyFDLifecycleToConnSkip(c syscall.Conn, s parse.Spec, skip FDSkip) error {
+func ApplyFDLifecycleToConnSkip(c syscall.Conn, s addrconfig.Address, skip FDSkip) error {
 	if c == nil {
 		return nil
 	}
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+	config := s
 	if !hasConfiguredFDActions(config.File, skip) {
 		return nil
 	}
@@ -383,14 +369,11 @@ func ApplyFDLifecycleToConnSkip(c syscall.Conn, s parse.Spec, skip FDSkip) error
 // ApplyFDPhaseLifecycleToConn applies only after-open owner options to a
 // descriptor that is not the eventual transfer stream. Abstract UNIX stream
 // listeners use this before accept; late options remain for the accepted socket.
-func ApplyFDPhaseLifecycleToConn(c syscall.Conn, s parse.Spec) error {
+func ApplyFDPhaseLifecycleToConn(c syscall.Conn, s addrconfig.Address) error {
 	if c == nil {
 		return nil
 	}
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+	config := s
 	raw, err := c.SyscallConn()
 	if err != nil {
 		return err
@@ -405,14 +388,11 @@ func ApplyFDPhaseLifecycleToConn(c syscall.Conn, s parse.Spec) error {
 // ApplyFDLifecycleToPacketConn applies descriptor lifecycle on a UDP
 // PacketConn (QUIC transport) before quic-go wrapping. Rejects enabled
 // options when the conn does not expose a socket.
-func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s parse.Spec) error {
+func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s addrconfig.Address) error {
 	if pc == nil {
 		return nil
 	}
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+	config := s
 	if !hasConfiguredFDActions(config.File, FDSkip{}) {
 		return nil
 	}
@@ -425,12 +405,12 @@ func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s parse.Spec) error {
 
 // ApplyFDLifecycleOnFD applies after-open then late options on a raw
 // descriptor (POSIX MQ mqd, listen sockets). Caller applies once on the parent.
-func ApplyFDLifecycleOnFD(fd int, s parse.Spec) error {
+func ApplyFDLifecycleOnFD(fd int, s addrconfig.Address) error {
 	return ApplyFDLifecycleOnFDSkip(fd, s, FDSkip{})
 }
 
 // ApplyFDLifecycleOnFDSkip applies descriptor lifecycle with opener-owned
 // options skipped.
-func ApplyFDLifecycleOnFDSkip(fd int, s parse.Spec, skip FDSkip) error {
+func ApplyFDLifecycleOnFDSkip(fd int, s addrconfig.Address, skip FDSkip) error {
 	return applyFDLifecycleOnFD(fd, s, skip)
 }

@@ -17,7 +17,7 @@ func TestListenPacketAppliesSetsockoptUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pc, err := listenPacket(context.Background(), "udp4", "127.0.0.1:0", spec)
+	pc, err := listenPacket(context.Background(), "udp4", "127.0.0.1:0", mustAddr(t, spec))
 	if err != nil {
 		t.Fatal(err)
 	}

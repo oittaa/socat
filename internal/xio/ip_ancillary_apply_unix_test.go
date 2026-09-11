@@ -57,7 +57,7 @@ func TestQUICClientListenControlIPTTLSetsockoptOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := collectSetSockopt(t)
-	lc := net.ListenConfig{Control: ListenControl(spec)}
+	lc := net.ListenConfig{Control: ListenControl(mustDecodeAddress(t, spec))}
 	pc, err := lc.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +75,7 @@ func TestQUICListenerListenControlIPTTLSetsockoptOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := collectSetSockopt(t)
-	lc := net.ListenConfig{Control: ListenControl(spec)}
+	lc := net.ListenConfig{Control: ListenControl(mustDecodeAddress(t, spec))}
 	pc, err := lc.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -93,7 +93,7 @@ func TestApplyIPSendOptsInvalidThenValidFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := collectSetSockopt(t)
-	lc := net.ListenConfig{Control: ListenControl(spec)}
+	lc := net.ListenConfig{Control: ListenControl(mustDecodeAddress(t, spec))}
 	pc, err := lc.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
 	if err == nil {
 		t.Cleanup(func() { _ = pc.Close() })
@@ -110,10 +110,16 @@ func TestIPOptionsInvalidThenValidFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lc := net.ListenConfig{Control: ListenControl(spec)}
-	pc, err := lc.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
+	config, err := decodeAddress(spec)
 	if err == nil {
-		t.Cleanup(func() { _ = pc.Close() })
+		lc := net.ListenConfig{Control: ListenControl(config)}
+		var pc net.PacketConn
+		pc, err = lc.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
+		if pc != nil {
+			t.Cleanup(func() { _ = pc.Close() })
+		}
+	}
+	if err == nil {
 		t.Fatal("invalid earlier ip-options succeeded; classic stops on the first occurrence")
 	}
 }

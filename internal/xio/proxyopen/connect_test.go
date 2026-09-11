@@ -58,7 +58,7 @@ func echoViaPROXY(t *testing.T, spec string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	o, err := openProxyConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openProxyConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestH2CONNECTNon200(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := openProxyConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()}); err == nil {
+	if _, err := openProxyConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()}); err == nil {
 		t.Fatal("expected CONNECT failure")
 	}
 }
@@ -123,7 +123,7 @@ func TestH2CONNECTVerifyFail(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := openProxyConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()}); err == nil {
+	if _, err := openProxyConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()}); err == nil {
 		t.Fatal("expected verify failure")
 	}
 }

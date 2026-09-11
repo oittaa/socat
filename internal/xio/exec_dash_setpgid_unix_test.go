@@ -170,7 +170,7 @@ func TestEXECSetpgidDoesNotMutateParentOnNofork(t *testing.T) {
 		t.Fatal(err)
 	}
 	peer := relay.FDStream{R: os.Stdin, W: os.Stdout, C: NopCloser{}}
-	if err := runExecNoFork(context.Background(), peer, s, prepared.Config, nil, ModeRDWR); err != nil {
+	if err := runExecNoFork(context.Background(), peer, prepared.Config, nil, ModeRDWR); err != nil {
 		t.Fatal(err)
 	}
 	if unix.Getpgrp() != parent {

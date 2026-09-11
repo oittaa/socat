@@ -16,7 +16,6 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
 )
@@ -24,15 +23,15 @@ import (
 // SOCKET-SENDTO stays unconnected and only accepts replies from the configured
 // peer. SOCKET-DATAGRAM stays unconnected and accepts any sender unless
 // range/tcpwrap restricts them.
-func openSocketSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openSocketSendto(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openSocketDgram(ctx, s, mode, g, true)
 }
 
-func openSocketDatagram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openSocketDatagram(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openSocketDgram(ctx, s, mode, g, false)
 }
 
-func openSocketDgram(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, exactPeer bool) (*xio.Opened, error) {
+func openSocketDgram(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, exactPeer bool) (*xio.Opened, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -59,7 +58,7 @@ func openSocketDgram(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	if err != nil {
 		return nil, err
 	}
-	if err := applySocketOpts(fd, s, config); err != nil {
+	if err := applySocketOpts(fd, config); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
@@ -98,15 +97,15 @@ func openSocketDgram(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	return &xio.Opened{Stream: st, Label: s.Type}, nil
 }
 
-func openSocketRecv(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openSocketRecv(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openSocketRecvCommon(ctx, s, mode, g, false)
 }
 
-func openSocketRecvfrom(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openSocketRecvfrom(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openSocketRecvCommon(ctx, s, mode, g, true)
 }
 
-func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, from bool) (*xio.Opened, error) {
+func openSocketRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, from bool) (*xio.Opened, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -193,13 +192,13 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 	return &xio.Opened{Stream: st, Label: s.Type}, nil
 }
 
-func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f *os.File, filter *xio.PeerFilter) (*xio.Opened, error) {
-	_, maxChildren, ferr := xio.ForkLimits(ctx, s)
+func openSocketRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Global, f *os.File, filter *xio.PeerFilter) (*xio.Opened, error) {
+	_, maxChildren, ferr := xio.ForkLimits(s)
 	if ferr != nil {
 		logx.CloseQuiet(f)
 		return nil, ferr
 	}
-	rcvTimeout, err := xio.RecvTimeoutFromSpec(ctx, s)
+	rcvTimeout, err := xio.RecvTimeout(s)
 	if err != nil {
 		logx.CloseQuiet(f)
 		return nil, err
@@ -227,7 +226,7 @@ func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f 
 	}, nil
 }
 
-func openSocketRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, f *os.File, filter *xio.PeerFilter, local net.Addr) (*xio.Opened, error) {
+func openSocketRecvfromOneShot(ctx context.Context, s addrconfig.Address, g *xio.Global, f *os.File, filter *xio.PeerFilter, local net.Addr) (*xio.Opened, error) {
 	config, err := preparedSocketConfig(ctx)
 	if err != nil {
 		logx.CloseQuiet(f)
@@ -284,11 +283,8 @@ func recvSocketFiltered(ctx context.Context, f *os.File, buf []byte, filter *xio
 	}
 }
 
-func socketIPFilterOrError(ctx context.Context, s parse.Spec, g *xio.Global, domain int) (*xio.PeerFilter, error) {
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+func socketIPFilterOrError(ctx context.Context, s addrconfig.Address, g *xio.Global, domain int) (*xio.PeerFilter, error) {
+	config := s
 	if err := socketFilterFamilyOK(config, domain); err != nil {
 		return nil, err
 	}

@@ -17,10 +17,11 @@ func TestConnectTimeoutIndependentOfHandshakeTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := ConnectTimeout(t.Context(), s); got != 250*time.Millisecond {
+	config := mustDecodeAddress(t, s)
+	if got := ConnectTimeout(config); got != 250*time.Millisecond {
 		t.Fatalf("ConnectTimeout=%s", got)
 	}
-	if got := HandshakeTimeout(t.Context(), s); got != defaultHandshakeTimeout {
+	if got := HandshakeTimeout(config); got != defaultHandshakeTimeout {
 		t.Fatalf("HandshakeTimeout=%s want default %s", got, defaultHandshakeTimeout)
 	}
 }

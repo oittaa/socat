@@ -54,7 +54,7 @@ func TestOpenListenSessionReturnsParentCancellation(t *testing.T) {
 	ln := &testSessionListener{closed: make(chan struct{})}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := OpenListenSession(ctx, parseSpecForListenSession(t, "TCP-LISTEN:0"), nil, ListenSession{Listener: ln})
+	_, err := OpenListenSession(ctx, mustDecodeAddress(t, parseSpecForListenSession(t, "TCP-LISTEN:0")), nil, ListenSession{Listener: ln})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("OpenListenSession error=%v, want context.Canceled", err)
 	}
@@ -63,7 +63,7 @@ func TestOpenListenSessionReturnsParentCancellation(t *testing.T) {
 func TestOpenListenSessionAcceptTimeoutWithoutDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ln := &testSessionListener{closed: make(chan struct{})}
-		_, err := OpenListenSession(context.Background(), parseSpecForListenSession(t, "TCP-LISTEN:0,accept-timeout=0.05"), nil, ListenSession{Listener: ln})
+		_, err := OpenListenSession(context.Background(), mustDecodeAddress(t, parseSpecForListenSession(t, "TCP-LISTEN:0,accept-timeout=0.05")), nil, ListenSession{Listener: ln})
 		if !errors.Is(err, ErrAcceptTimeout) {
 			t.Fatalf("OpenListenSession error=%v, want ErrAcceptTimeout", err)
 		}

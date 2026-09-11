@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"io"
 	"net"
 	"net/http"
@@ -14,7 +15,6 @@ import (
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
@@ -26,7 +26,7 @@ var testHookH3PacketConn func(net.PacketConn)
 // listenH3Packet binds the HTTP/3 UDP socket with ListenControl so send-side
 // IP/ancillary options apply after socket() and before bind, instead of
 // http3.Transport creating its own UDP socket and ignoring those options.
-func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost string) (net.PacketConn, string, error) {
+func listenH3Packet(ctx context.Context, s addrconfig.Address, g *xio.Global, proxyHost string) (net.PacketConn, string, error) {
 	network := xio.TCPToUDPNetwork(xio.ConnectNetworkForType(g, s, proxyHost, "tcp"))
 	netw, err := xio.PacketNetworkForHost(ctx, s, network, proxyHost)
 	if err != nil {
@@ -37,10 +37,7 @@ func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost 
 	if err != nil {
 		return nil, "", err
 	}
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, "", err
-	}
+	config := s
 	sourceport := xio.SourcePortText(config)
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	listen := func(port string) (net.PacketConn, error) {
@@ -92,11 +89,8 @@ func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost 
 	return pc, network, nil
 }
 
-func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarget) (net.Conn, error) {
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+func dialH3CONNECT(ctx context.Context, s addrconfig.Address, g *xio.Global, t proxyTarget) (net.Conn, error) {
+	config := s
 	tlsCfg, err := tlsopen.TLSClientConfigSettings(s.Type, config.TLS, t.proxyHost)
 	if err != nil {
 		return nil, err
@@ -109,8 +103,8 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 
 	u := "https://" + net.JoinHostPort(xio.StripBrackets(t.proxyHost), t.proxyPort) + "/"
 	authority := net.JoinHostPort(t.connectHost, t.targetPort)
-	attemptTimeout := xio.CombinedConnectHandshakeTimeout(ctx, s)
-	idle := xio.QUICHandshakeIdleTimeout(ctx, s)
+	attemptTimeout := xio.CombinedConnectHandshakeTimeout(s)
+	idle := xio.QUICHandshakeIdleTimeout(s)
 
 	var conn net.Conn
 	err = xio.WithRetry(ctx, g, "PROXY-CONNECT", func() error {

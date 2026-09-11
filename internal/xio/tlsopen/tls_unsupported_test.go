@@ -18,7 +18,7 @@ func TestTLSConfigsUseLastUnsupportedOpenSSLOptionValue(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = tlsClientConfig(spec, "localhost")
+		_, err = tlsClientConfig(mustAddr(t, spec), "localhost")
 		if err == nil || !strings.Contains(err.Error(), "not supported") {
 			t.Fatalf("%s: %v", options, err)
 		}
@@ -31,7 +31,7 @@ func TestTLSConfigsRejectOpenSSLMethodValues(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = tlsClientConfig(spec, "localhost")
+		_, err = tlsClientConfig(mustAddr(t, spec), "localhost")
 		if err == nil || !strings.Contains(err.Error(), optionName) || !strings.Contains(err.Error(), "not supported") {
 			t.Fatalf("%s: %v", optionName, err)
 		}
@@ -47,7 +47,7 @@ func TestTLSClientRejectsHiddenFamilies(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = TLSClientConfig(spec, "localhost")
+		_, err = TLSClientConfig(mustAddr(t, spec), "localhost")
 		if err == nil || !strings.Contains(err.Error(), "not supported") {
 			t.Errorf("%s: %v", opt, err)
 		}
@@ -63,7 +63,7 @@ func TestTLSServerRejectsFIPS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = TLSServerConfig(spec)
+	_, err = TLSServerConfig(mustAddr(t, spec))
 	if err == nil || !strings.Contains(err.Error(), `option "fips"`) {
 		t.Fatalf("%v", err)
 	}
@@ -75,7 +75,7 @@ func TestTLSDisabledFIPSAndCompressNone(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := TLSClientConfig(spec, "localhost"); err != nil {
+		if _, err := TLSClientConfig(mustAddr(t, spec), "localhost"); err != nil {
 			t.Errorf("%s: %v", opt, err)
 		}
 	}
@@ -86,14 +86,14 @@ func TestTLSFIPSAliasLastWins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := TLSClientConfig(spec, "localhost"); err != nil {
+	if _, err := TLSClientConfig(mustAddr(t, spec), "localhost"); err != nil {
 		t.Fatal(err)
 	}
 	spec, err = parse.ParseSpec("OPENSSL:localhost:443,verify=0,fips=0,openssl-fips=1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := TLSClientConfig(spec, "localhost"); err == nil {
+	if _, err := TLSClientConfig(mustAddr(t, spec), "localhost"); err == nil {
 		t.Fatal("enabled last value must reject")
 	}
 }

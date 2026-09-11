@@ -7,12 +7,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestSTALLRejectedOnWindows(t *testing.T) {
-	_, err := openSTALL(context.Background(), parse.Spec{Type: "STALL"}, xio.ModeRDWR, nil)
+	_, err := openSTALL(context.Background(), addrconfig.Address{Type: "STALL"}, xio.ModeRDWR, nil)
 	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("got %v", err)
 	}

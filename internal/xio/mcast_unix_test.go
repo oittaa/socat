@@ -87,7 +87,7 @@ func TestDialControlUDP6RejectsInvalidMembershipInterface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &net.Dialer{Control: DialControl(spec, "udp6", nil)}
+	d := &net.Dialer{Control: DialControl(mustDecodeAddress(t, spec), "udp6", nil)}
 	c, err := d.Dial("udp6", "[::1]:9")
 	if c != nil {
 		_ = c.Close()
@@ -101,7 +101,7 @@ func TestListenControlTCP6RejectsInvalidMembershipInterface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lc := net.ListenConfig{Control: ListenControl(spec)}
+	lc := net.ListenConfig{Control: ListenControl(mustDecodeAddress(t, spec))}
 	ln, err := lc.Listen(context.Background(), "tcp6", "[::1]:0")
 	if ln != nil {
 		_ = ln.Close()
@@ -115,7 +115,7 @@ func TestApplyMembershipJoinsAppliesAllInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &net.Dialer{Control: DialControl(spec, "udp6", nil)}
+	d := &net.Dialer{Control: DialControl(mustDecodeAddress(t, spec), "udp6", nil)}
 	c, err := d.Dial("udp6", "[::1]:9")
 	if c != nil {
 		_ = c.Close()

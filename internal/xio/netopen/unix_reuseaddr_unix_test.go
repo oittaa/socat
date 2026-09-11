@@ -21,7 +21,7 @@ func TestUnixRecvfromReuseaddrDoesNotUnlinkExistingFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUnixRecvfrom(context.Background(), spec, xio.ModeRDWR, nil)
+	o, err := openUnixRecvfrom(context.Background(), mustAddr(t, spec), xio.ModeRDWR, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("UNIX-RECVFROM,reuseaddr replaced an existing file")
@@ -37,7 +37,7 @@ func TestUnixListenUnlinkEarlyMissingPathSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUnixListen(context.Background(), spec, xio.ModeRDWR, nil)
+	o, err := openUnixListen(context.Background(), mustAddr(t, spec), xio.ModeRDWR, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

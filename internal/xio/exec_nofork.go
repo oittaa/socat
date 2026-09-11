@@ -12,7 +12,6 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
@@ -27,9 +26,9 @@ import (
 //
 // Phases: prepare command → attach peer (transfer FD ownership) → Start →
 // drop ExtraFiles copies → Wait/reap.
-func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, config addrconfig.Address, g *Global, mode Mode) error {
+func runExecNoFork(ctx context.Context, peer relay.Stream, config addrconfig.Address, g *Global, mode Mode) error {
 	ctx = withPreparedConfig(ctx, config)
-	cmd, err := commandForConfiguredExec(ctx, s, config)
+	cmd, err := commandForConfiguredExec(ctx, config)
 	if err != nil {
 		return err
 	}
@@ -39,20 +38,20 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, config 
 	if err := rejectExecUnsupportedPTYOptions(config); err != nil {
 		return err
 	}
-	c, err := newExecChild(ctx, s, mode, g, cmd)
+	c, err := newExecChild(ctx, config, mode, g, cmd)
 	if err != nil {
 		return err
 	}
 	return c.runNoFork(ctx, peer)
 }
 
-func commandForConfiguredExec(ctx context.Context, s parse.Spec, config addrconfig.Address) (*exec.Cmd, error) {
-	cmdStr := strings.Join(s.Params, ":")
+func commandForConfiguredExec(ctx context.Context, config addrconfig.Address) (*exec.Cmd, error) {
+	cmdStr := strings.Join(config.Params, ":")
 	switch {
-	case strings.EqualFold(s.Type, "SHELL"):
-		hasCommand := len(s.Params) > 0 && s.Params[0] != ""
+	case strings.EqualFold(config.Type, "SHELL"):
+		hasCommand := len(config.Params) > 0 && config.Params[0] != ""
 		return configuredShellCommand(ctx, config.Process, cmdStr, hasCommand), nil
-	case strings.EqualFold(s.Type, "SYSTEM"):
+	case strings.EqualFold(config.Type, "SYSTEM"):
 		return exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr), nil // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
 	default:
 		parts := splitExecArgs(cmdStr)
@@ -335,7 +334,7 @@ func (c *execChild) runNoFork(ctx context.Context, peer relay.Stream) error {
 		if err != nil {
 			return err
 		}
-		if err := applyConfiguredDashArgv0(c.config.Process.Dash.Value, c.spec.Type, c.cmd); err != nil {
+		if err := applyConfiguredDashArgv0(c.config.Process.Dash.Value, c.config.Type, c.cmd); err != nil {
 			return err
 		}
 		c.cmd, err = wrapNoForkFDCommand(ctx, c.cmd, c.mode, c.fdin, c.fdout, sameFD, c.config.Process.Stderr.Value)

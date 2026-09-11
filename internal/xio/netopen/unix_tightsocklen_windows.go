@@ -9,7 +9,6 @@ import (
 	"syscall"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
 
@@ -21,11 +20,8 @@ func rejectUnixTightSocklen(config addrconfig.Address) error {
 }
 
 // unix-tightsocklen is rejected on Windows; bindUnixPath also rejects tight=false.
-func listenUnixNetwork(ctx context.Context, s parse.Spec, network, path string) (net.Listener, error) {
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+func listenUnixNetwork(ctx context.Context, s addrconfig.Address, network, path string) (net.Listener, error) {
+	config := s
 	if err := rejectUnixTightSocklen(config); err != nil {
 		return nil, err
 	}
@@ -43,15 +39,12 @@ func listenUnixNetwork(ctx context.Context, s parse.Spec, network, path string) 
 }
 
 func dialUnixSocklen(req dialRequest, path, bindPath string) (net.Conn, error) {
-	config, err := xio.OpeningConfig(req.ctx, req.spec)
-	if err != nil {
-		return nil, err
-	}
+	config := req.config
 	if err := rejectUnixTightSocklen(config); err != nil {
 		return nil, err
 	}
 	var conn net.Conn
-	err = xio.WithRetry(req.ctx, req.g, req.spec.Type, func() error {
+	err = xio.WithRetry(req.ctx, req.g, req.config.Type, func() error {
 		if err := prepareUnixClientBind(bindPath, config); err != nil {
 			return err
 		}
@@ -61,7 +54,7 @@ func dialUnixSocklen(req dialRequest, path, bindPath string) (net.Conn, error) {
 		var created unixBindCreated
 		d := net.Dialer{
 			Timeout: req.timeout,
-			Control: xio.DialControl(req.spec, req.network, func(_ string, _ string, c syscall.RawConn) error {
+			Control: xio.DialControl(req.config, req.network, func(_ string, _ string, c syscall.RawConn) error {
 				if bindPath == "" {
 					return nil
 				}

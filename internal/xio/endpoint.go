@@ -309,10 +309,8 @@ type Opened struct {
 	closeOnce  sync.Once
 	closeErr   error
 
-	// NoForkSpec is KindExec: EXEC/SYSTEM,nofork started in Run with the peer FD as stdio.
-	NoForkSpec *parse.Spec
-	// NoForkConfig is the immutable EXEC/SYSTEM/SHELL configuration retained
-	// until Run attaches the peer descriptor.
+	// NoForkConfig is KindExec: EXEC/SYSTEM/SHELL,nofork started in Run with
+	// the peer FD as stdio.
 	NoForkConfig *addrconfig.Address
 	// childDone closes when an EXEC/SYSTEM/SHELL child exits. Fork loops with
 	// max-children retain their slot until that process, not just its relay,
@@ -503,8 +501,6 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 // OpenPreparedSpec opens a prepared address. Resource acquisition and
 // namespace work stay here so preparation never changes their lifetime.
 func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, g *Global) (*Opened, error) {
-	ctx = withPreparedConfig(ctx, prepared.Config)
-	s := prepared.legacy
 	if d, ok := registeredAddresses.resolve(prepared.Config.Type); ok {
 		warnAddressMode(g, mode, d.Directions)
 	}
@@ -513,23 +509,20 @@ func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, 
 	if err != nil {
 		return nil, err
 	}
-	// Positional filesystem paths stay aligned with the opener Spec until
-	// openers stop taking parse.Spec.
-	s.Params = append([]string(nil), prepared.Config.Params...)
 	ctx = withPreparedConfig(ctx, prepared.Config)
-	if err := RejectUnsupportedIPAncillary(s); err != nil {
+	if err := RejectUnsupportedIPAncillary(prepared.Config); err != nil {
 		return nil, err
 	}
-	if err := RejectUnsupportedTermios(s); err != nil {
+	if err := RejectUnsupportedTermios(prepared.Config); err != nil {
 		return nil, err
 	}
-	if err := RejectUnsupportedRecvErr(s); err != nil {
+	if err := RejectUnsupportedRecvErr(prepared.Config); err != nil {
 		return nil, err
 	}
 	if err := RejectUnsupportedRemainingIPv4(prepared.Config); err != nil {
 		return nil, err
 	}
-	if err := RejectUnsupportedListenBacklog(s); err != nil {
+	if err := RejectUnsupportedListenBacklog(prepared.Config); err != nil {
 		return nil, err
 	}
 	// lockfile=/waitlock= after chdir= rewrite and before the opener so a
@@ -541,7 +534,7 @@ func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, 
 	var o *Opened
 	err = WithNetNS(prepared.Config.Common.NetNamespace.Value, g, func() error {
 		var e error
-		o, e = prepared.opener(ctx, s, mode, g)
+		o, e = prepared.opener(ctx, prepared.Config, mode, g)
 		return e
 	})
 	if err != nil {
@@ -598,5 +591,5 @@ func modeAccText(m Mode) string {
 	}
 }
 
-// Opener opens one address type.
-type Opener func(context.Context, parse.Spec, Mode, *Global) (*Opened, error)
+// Opener opens one address type from prepared settings.
+type Opener func(context.Context, addrconfig.Address, Mode, *Global) (*Opened, error)

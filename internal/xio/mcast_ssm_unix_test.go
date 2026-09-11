@@ -23,7 +23,7 @@ func TestIPv6SourceMembershipInterfaceRequired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &net.Dialer{Control: DialControl(spec, "udp6", nil)}
+	d := &net.Dialer{Control: DialControl(mustDecodeAddress(t, spec), "udp6", nil)}
 	c, err := d.Dial("udp6", "[::1]:9")
 	if c != nil {
 		_ = c.Close()

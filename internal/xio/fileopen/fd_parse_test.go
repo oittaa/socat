@@ -11,7 +11,7 @@ func TestParseAcceptFDNumSharesParser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := parseFDNum(spec)
+	n, err := parseFDNum(mustAddr(t, spec))
 	if err != nil {
 		t.Fatal(err)
 	}

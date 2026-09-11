@@ -3,23 +3,18 @@
 package wsopen
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
-	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 // wsTarget extracts host, port, and URL path from a WS/WSS address spec.
 // Connect: WS:<host>:<port>[/<path>]
 // Listen:  WS-LISTEN:<port>[/<path>]
 // path= option overrides a path in the address.
-func wsTarget(s parse.Spec, listen bool) (host, port, path string, err error) {
-	config, err := xio.OpeningConfig(context.Background(), s)
-	if err != nil {
-		return "", "", "", err
-	}
+func wsTarget(s addrconfig.Address, listen bool) (host, port, path string, err error) {
+	config := s
 	pathOption := ""
 	if config.WebSocket.Path.Set {
 		pathOption = config.WebSocket.Path.Value
@@ -27,7 +22,7 @@ func wsTarget(s parse.Spec, listen bool) (host, port, path string, err error) {
 	return wsTargetWithPath(s, listen, pathOption)
 }
 
-func wsTargetWithPath(s parse.Spec, listen bool, path string) (host, port, out string, err error) {
+func wsTargetWithPath(s addrconfig.Address, listen bool, path string) (host, port, out string, err error) {
 	if listen {
 		if len(s.Params) < 1 || s.Params[0] == "" {
 			return "", "", "", fmt.Errorf("%s requires port", s.Type)
@@ -75,7 +70,7 @@ func normalizeWSPath(p string) string {
 	return p
 }
 
-func wsScheme(s parse.Spec) string {
+func wsScheme(s addrconfig.Address) string {
 	t := strings.ToUpper(s.Type)
 	if strings.HasPrefix(t, "WSS") {
 		return "wss"

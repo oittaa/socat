@@ -35,7 +35,7 @@ func TestWSConnectRejectsFIPS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openWSConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openWSConnect(ctx, mustAddr(t, cs), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if o != nil {
 		_ = o.Close()
 	}
@@ -49,7 +49,7 @@ func TestWSListenRejectsFIPS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openWSListen(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openWSListen(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if o != nil {
 		_ = o.Close()
 	}
@@ -63,7 +63,7 @@ func TestWSSConnectRejectsEnabledFIPS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = openWSSConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	_, err = openWSSConnect(ctx, mustAddr(t, cs), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err == nil || !strings.Contains(err.Error(), `"fips"`) || !strings.Contains(err.Error(), "OpenSSL FIPS module") {
 		t.Fatalf("%v", err)
 	}
@@ -77,7 +77,7 @@ func TestWSSConnectDisabledFIPSStillEchoes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openWSSConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openWSSConnect(ctx, mustAddr(t, cs), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err != nil {
 		t.Fatal(err)
 	}

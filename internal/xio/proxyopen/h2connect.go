@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"io"
 	"net"
 	"net/http"
@@ -13,19 +14,15 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
-func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarget) (net.Conn, error) {
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+func dialH2CONNECT(ctx context.Context, s addrconfig.Address, g *xio.Global, t proxyTarget) (net.Conn, error) {
+	config := s
 	h2c := config.Proxy.H2C.Value
-	connectTimeout := xio.ConnectTimeout(ctx, s)
-	handshakeTimeout := xio.HandshakeTimeout(ctx, s)
+	connectTimeout := xio.ConnectTimeout(s)
+	handshakeTimeout := xio.HandshakeTimeout(s)
 	network := xio.ConnectNetworkForType(g, s, t.proxyHost, "tcp")
 
 	var tlsCfg *tls.Config
@@ -45,7 +42,7 @@ func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 	authority := net.JoinHostPort(t.connectHost, t.targetPort)
 
 	var conn net.Conn
-	err = xio.WithRetry(ctx, g, "PROXY-CONNECT", func() error {
+	err := xio.WithRetry(ctx, g, "PROXY-CONNECT", func() error {
 		raw, e := xio.DialTCPAll(ctx, xio.DialTarget{Network: network, Host: t.proxyHost, Port: t.proxyPort}, s, g, connectTimeout, nil)
 		if e != nil {
 			return e

@@ -3,6 +3,7 @@ package quicopen
 import (
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -25,7 +26,11 @@ func FuzzQUICTarget(f *testing.F) {
 		if err != nil {
 			return
 		}
-		_, _, _ = quicTarget(s, false)
-		_, _, _ = quicTarget(s, true)
+		config, err := addrconfig.Decode(s, addrconfig.Facts{Type: s.Type})
+		if err != nil {
+			return
+		}
+		_, _, _ = quicTarget(config, false)
+		_, _, _ = quicTarget(config, true)
 	})
 }

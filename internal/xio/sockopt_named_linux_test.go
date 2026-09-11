@@ -64,7 +64,7 @@ func TestDarwinTCPNopushUnsupportedOnLinux(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = ApplySocketOptions(fd, spec)
+		err = ApplySocketOptions(fd, mustDecodeAddress(t, spec))
 		if err == nil || !errors.Is(err, errNamedOptUnsupported) {
 			t.Fatalf("%s on Linux: %v want %v", opt, err, errNamedOptUnsupported)
 		}
@@ -84,7 +84,7 @@ func TestApplySocketOptionsBareRcvlowatLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplySocketOptions(fd, spec); err != nil {
+	if err := ApplySocketOptions(fd, mustDecodeAddress(t, spec)); err != nil {
 		t.Fatal(err)
 	}
 	if got := unixSockoptInt(t, fd, unix.SO_RCVLOWAT); got != 1 {
@@ -106,7 +106,11 @@ func TestApplySocketOptionsRejectsInvalidRcvlowatLinux(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ApplySocketOptions(fd, spec); err == nil {
+		config, err := decodeAddress(spec)
+		if err == nil {
+			err = ApplySocketOptions(fd, config)
+		}
+		if err == nil {
 			t.Fatalf("%s: expected invalid value", specText)
 		}
 	}
@@ -122,7 +126,7 @@ func TestApplySocketOptionsTCPCorkOnUDPLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplySocketOptions(fd, spec)
+	err = ApplySocketOptions(fd, mustDecodeAddress(t, spec))
 	if err == nil {
 		t.Fatal("tcp-cork on UDP must fail, not no-op")
 	}
@@ -143,7 +147,7 @@ func TestApplySocketOptionsTCPCorkOnSCTPLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplySocketOptions(fd, spec)
+	err = ApplySocketOptions(fd, mustDecodeAddress(t, spec))
 	if err == nil {
 		t.Fatal("tcp-cork on SCTP must fail, not no-op")
 	}
@@ -160,7 +164,7 @@ func TestApplySocketOptionsDoesNotApplyMaxsegLateLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplySocketOptions(fd, spec); err != nil {
+	if err := ApplySocketOptions(fd, mustDecodeAddress(t, spec)); err != nil {
 		t.Fatal(err)
 	}
 	after := fdTCPSockoptInt(t, fd, unix.TCP_MAXSEG)
@@ -174,7 +178,7 @@ func TestListenControlAppliesDeferAcceptLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lc := NewTCPListenConfig(spec)
+	lc := NewTCPListenConfig(mustDecodeAddress(t, spec))
 	ln, err := lc.Listen(context.Background(), "tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -195,7 +199,11 @@ func TestApplySocketOptionsRejectsInvalidPriorityLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplySocketOptions(fd, spec); err == nil {
+	config, err := decodeAddress(spec)
+	if err == nil {
+		err = ApplySocketOptions(fd, config)
+	}
+	if err == nil {
 		t.Fatal("so-priority=no must fail")
 	}
 }
@@ -206,7 +214,7 @@ func TestApplyTCPConnOptsMaxsegLateThroughNetConnUnwrapLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplyTCPConnOpts(spec, netConnUnwrapper{Conn: cli})
+	err = ApplyTCPConnOpts(mustDecodeAddress(t, spec), netConnUnwrapper{Conn: cli})
 	if err == nil {
 		t.Fatal("tcp-maxseg-late through NetConn unwrap must reach the kernel")
 	}
@@ -296,7 +304,7 @@ func TestRunExecNoForkRejectsPastSocketOptionsLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = runExecNoFork(context.Background(), nil, spec, prepared.Config, &Global{Log: logx.New()}, ModeRDWR)
+	err = runExecNoFork(context.Background(), nil, prepared.Config, &Global{Log: logx.New()}, ModeRDWR)
 	if err == nil {
 		t.Fatal("expected leftover PASTSOCKET error")
 	}

@@ -266,7 +266,7 @@ func runPreparedNoFork(t *testing.T, peer relay.Stream, s parse.Spec, g *Global,
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runExecNoFork(context.Background(), peer, s, prepared.Config, g, mode); err != nil {
+	if err := runExecNoFork(context.Background(), peer, prepared.Config, g, mode); err != nil {
 		t.Fatal(err)
 	}
 }

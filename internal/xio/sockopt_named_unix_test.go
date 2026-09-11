@@ -22,7 +22,7 @@ func TestApplySocketOptionsDontrouteOnUDPUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplySocketOptions(fd, spec); err != nil {
+	if err := ApplySocketOptions(fd, mustDecodeAddress(t, spec)); err != nil {
 		t.Fatal(err)
 	}
 	if got := unixSockoptInt(t, fd, unix.SO_DONTROUTE); !sockoptFlagOn(got) {
@@ -43,7 +43,11 @@ func TestApplySocketOptionsRejectsInvalidNamedIntUnix(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := ApplySocketOptions(fd, spec); err == nil {
+		config, err := decodeAddress(spec)
+		if err == nil {
+			err = ApplySocketOptions(fd, config)
+		}
+		if err == nil {
 			t.Fatalf("%s: expected invalid value", specText)
 		}
 	}
@@ -54,7 +58,7 @@ func TestListenControlAppliesDontrouteUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lc := NewTCPListenConfig(spec)
+	lc := NewTCPListenConfig(mustDecodeAddress(t, spec))
 	ln, err := lc.Listen(context.Background(), "tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +78,7 @@ func TestApplyTCPConnOptsDoesNotApplyPastSocketNamedUnix(t *testing.T) {
 	if got := tcpSockoptInt(t, cli, unix.SO_DONTROUTE); got != 0 {
 		t.Fatalf("precondition SO_DONTROUTE=%d want 0", got)
 	}
-	if err := ApplyTCPConnOpts(spec, cli); err != nil {
+	if err := ApplyTCPConnOpts(mustDecodeAddress(t, spec), cli); err != nil {
 		t.Fatal(err)
 	}
 	if got := tcpSockoptInt(t, cli, unix.SO_DONTROUTE); got != 0 {
@@ -92,7 +96,7 @@ func TestApplyTCPConnOptsNamedConnectedOnUDPUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplyTCPConnOpts(spec, c)
+	err = ApplyTCPConnOpts(mustDecodeAddress(t, spec), c)
 	if err == nil {
 		t.Fatal("tcp-maxseg-late on UDP must fail, not no-op")
 	}

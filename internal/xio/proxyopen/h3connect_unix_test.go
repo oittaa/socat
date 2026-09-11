@@ -17,7 +17,7 @@ func TestListenH3PacketLowport(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pc, _, err := listenH3Packet(context.Background(), spec, &xio.Global{}, "127.0.0.1")
+	pc, _, err := listenH3Packet(context.Background(), mustAddr(t, spec), &xio.Global{}, "127.0.0.1")
 	if err != nil {
 		if !strings.Contains(err.Error(), "lowport: cannot bind a port in 640-1023") {
 			t.Fatalf("lowport bind: %v", err)

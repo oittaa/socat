@@ -16,7 +16,6 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
@@ -24,16 +23,13 @@ const maxHTTP1ProxyResponseBytes = 64 << 10
 
 // PROXY / PROXY-CONNECT:proxy:targethost:targetport[,proxyport=N][,http-version=1.0|2|3][,resolve]
 // HTTP CONNECT through a proxy. Default is HTTP/1.0.
-func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openProxyConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	// Params: proxyhost, targethost, targetport  (or combined from parser)
 	proxyHost, targetHost, targetPort, err := proxyParams(s)
 	if err != nil {
 		return nil, err
 	}
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+	config := s
 	if err := rejectProxyPlaintextPolicy(config); err != nil {
 		return nil, err
 	}
@@ -80,8 +76,8 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 
 	// Honour pf=ip4/ip6 when dialing the proxy host.
 	network := xio.ConnectNetworkForType(g, s, proxyHost, "tcp")
-	timeout := xio.ConnectTimeout(ctx, s)
-	handshakeTimeout := xio.HandshakeTimeout(ctx, s)
+	timeout := xio.ConnectTimeout(s)
+	handshakeTimeout := xio.HandshakeTimeout(s)
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
@@ -190,7 +186,7 @@ type proxyTarget struct {
 	label                  string
 }
 
-func openProxyDial(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, t proxyTarget, transportLifecycleApplied bool, dialOnce func(context.Context) (net.Conn, error)) (*xio.Opened, error) {
+func openProxyDial(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, t proxyTarget, transportLifecycleApplied bool, dialOnce func(context.Context) (net.Conn, error)) (*xio.Opened, error) {
 	_ = mode
 	return xio.OpenDialed(ctx, s, g, xio.Dialed{
 		Label: t.label,
@@ -266,7 +262,7 @@ func proxyStatusOK(status string) bool {
 	return code == "200"
 }
 
-func proxyParams(s parse.Spec) (proxy, host, port string, err error) {
+func proxyParams(s addrconfig.Address) (proxy, host, port string, err error) {
 	// PROXY:proxy:host:port → params may be split by our parser
 	p := s.Params
 	if len(p) >= 3 {

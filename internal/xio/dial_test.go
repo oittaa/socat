@@ -29,14 +29,14 @@ func TestResolvePortNumSCTPFallsBackToTCP(t *testing.T) {
 func TestConnectNetworkPreferDualStack(t *testing.T) {
 	g := &Global{IPVersion: IPv6}
 	s := parse.Spec{Type: "TCP"}
-	if n := ConnectNetworkForType(g, s, "example.com", "tcp"); n != "tcp" {
+	if n := ConnectNetworkForType(g, mustDecodeAddress(t, s), "example.com", "tcp"); n != "tcp" {
 		t.Fatalf("generic TCP want tcp got %s", n)
 	}
-	if n := ConnectNetworkForType(g, s, "example.com", "tcp4"); n != "tcp4" {
+	if n := ConnectNetworkForType(g, mustDecodeAddress(t, s), "example.com", "tcp4"); n != "tcp4" {
 		t.Fatalf("TCP4 forced want tcp4 got %s", n)
 	}
 	s.Options = []parse.Option{{Name: "pf", Value: "ip4", Has: true}}
-	if n := ConnectNetworkForType(g, s, "example.com", "tcp"); n != "tcp4" {
+	if n := ConnectNetworkForType(g, mustDecodeAddress(t, s), "example.com", "tcp"); n != "tcp4" {
 		t.Fatalf("pf=ip4 want tcp4 got %s", n)
 	}
 }
@@ -45,7 +45,7 @@ func TestResolveOrderIPv6First(t *testing.T) {
 	ctx := context.Background()
 	g := &Global{IPVersion: IPv6}
 	s := parse.Spec{}
-	ips, err := resolveConnectIPs(ctx, "tcp", "localhost", s, g)
+	ips, err := resolveConnectIPs(ctx, "tcp", "localhost", mustDecodeAddress(t, s), g)
 	if err != nil {
 		t.Skip(err)
 	}
@@ -67,7 +67,7 @@ func TestDialTCPLowportReturnsConnectErrorWhenBindSucceeds(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err = DialTCPAll(ctx, DialTarget{Network: "tcp4", Host: "127.0.0.1", Port: "1"}, s, nil, time.Second, nil)
+	_, err = DialTCPAll(ctx, DialTarget{Network: "tcp4", Host: "127.0.0.1", Port: "1"}, mustDecodeAddress(t, s), nil, time.Second, nil)
 	if err == nil {
 		t.Fatal("expected connect error after a successful lowport bind")
 	}

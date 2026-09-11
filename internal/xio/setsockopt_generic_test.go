@@ -61,7 +61,7 @@ func TestApplyTCPConnOptsRejectsSetsockoptWithoutSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplyTCPConnOpts(spec, a)
+	err = ApplyTCPConnOpts(mustDecodeAddress(t, spec), a)
 	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
 		t.Fatalf("error=%v want connection does not expose a socket", err)
 	}
@@ -80,7 +80,7 @@ func TestSetupStreamSkipsSetsockoptWithoutSocket(t *testing.T) {
 	// Same split as sndbuf-late: SetupStream is a fallback for streams that
 	// expose a socket fd. QUIC/WS/UDP-RECVFROM apply CONNECTED on the raw
 	// fd first, then wrap a non-syscall.Conn session.
-	if _, err := SetupStream(spec, relay.NetStream{Conn: a}); err != nil {
+	if _, err := SetupStream(mustDecodeAddress(t, spec), relay.NetStream{Conn: a}); err != nil {
 		t.Fatalf("SetupStream on net.Pipe: %v", err)
 	}
 }
@@ -90,7 +90,7 @@ func TestApplyGenericSetsockoptToPacketConnRejectsNonSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplyGenericSetsockoptToPacketConn(stubPacketConn{}, spec, SockoptPhaseConnected)
+	err = ApplyGenericSetsockoptToPacketConn(stubPacketConn{}, mustDecodeAddress(t, spec), SockoptPhaseConnected)
 	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
 		t.Fatalf("error=%v want packet connection does not expose a socket", err)
 	}

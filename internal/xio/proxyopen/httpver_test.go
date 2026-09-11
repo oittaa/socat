@@ -24,7 +24,7 @@ func TestH2CRequiresVersion2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = openProxyConnect(t.Context(), s, 0, nil)
+	_, err = openProxyConnect(t.Context(), mustAddr(t, s), 0, nil)
 	if err == nil {
 		t.Fatal("expected h2c without http-version=2 to fail")
 	}

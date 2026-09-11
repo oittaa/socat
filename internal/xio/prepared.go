@@ -10,14 +10,11 @@ import (
 )
 
 // PreparedAddress pairs immutable decoded settings with the opener selected by
-// the address registry. The parser representation is retained privately only
-// while address-family migration is in progress; execution code must consume
-// Config rather than parse options.
+// the address registry.
 type PreparedAddress struct {
 	Config addrconfig.Address
 
 	opener Opener
-	legacy parse.Spec
 }
 
 // PreparedDual is a decoded dual address.
@@ -113,7 +110,7 @@ func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 	if err != nil {
 		return PreparedAddress{}, err
 	}
-	return PreparedAddress{Config: config, opener: desc.Opener, legacy: spec}, nil
+	return PreparedAddress{Config: config, opener: desc.Opener}, nil
 }
 
 func clonePreparedSpec(spec parse.Spec) parse.Spec {

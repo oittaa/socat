@@ -2,13 +2,13 @@ package quicopen
 
 import (
 	"context"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"sync/atomic"
 	"time"
 
 	"github.com/quic-go/quic-go"
 
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
@@ -19,11 +19,11 @@ import (
 // omitted default) is also a candidate; handshake-timeout=0 disables only
 // that handshake candidate. The earlier positive deadline wins. A zero
 // result means no extra Dial context timeout.
-func quicDialAttemptTimeout(ctx context.Context, s parse.Spec) time.Duration {
-	return xio.CombinedConnectHandshakeTimeout(ctx, s)
+func quicDialAttemptTimeout(ctx context.Context, s addrconfig.Address) time.Duration {
+	return xio.CombinedConnectHandshakeTimeout(s)
 }
 
-func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openQUICConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	host, port, err := quicTarget(s, false)
 	if err != nil {
 		return nil, err
@@ -36,10 +36,7 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	}
 	network = netw
 
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+	config := s
 	tlsCfg, err := tlsopen.TLSClientConfigSettings(s.Type, config.TLS, host)
 	if err != nil {
 		return nil, err

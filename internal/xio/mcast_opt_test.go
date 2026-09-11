@@ -7,6 +7,18 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
+func membershipJoins(s parse.Spec) []membershipJoin {
+	var out []membershipJoin
+	for _, o := range s.Options {
+		family, name, ok := membershipFamilyOf(o)
+		if !ok {
+			continue
+		}
+		out = append(out, membershipJoin{family: family, spec: o.Value, name: name})
+	}
+	return out
+}
+
 func TestMembershipJoinsCollectsAllInOptionOrder(t *testing.T) {
 	s, err := parse.ParseSpec("UDP6-RECV:1,ip-add-membership=224.0.0.1:lo,ipv6-join-group=[ff02::2]:eth0")
 	if err != nil {

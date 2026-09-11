@@ -309,7 +309,7 @@ func TestResolveUDPAddrUsesResNSAddr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	addr, err := ResolveUDPAddr(t.Context(), resNSAddrSpec(server.addr), "udp4", "udp-res-nsaddr.test:9")
+	addr, err := ResolveUDPAddr(t.Context(), mustDecodeAddress(t, resNSAddrSpec(server.addr)), "udp4", "udp-res-nsaddr.test:9")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +357,7 @@ func TestLookupIPV4MappedOmittedDoesNotMap(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := resNSAddrSpec(server.addr)
-	_, err = LookupIP(t.Context(), s, "ip6", "v4mapped-omitted.test")
+	_, err = LookupIP(t.Context(), mustDecodeAddress(t, s), "ip6", "v4mapped-omitted.test")
 	if err == nil {
 		t.Fatal("omitted ai-v4mapped on A-only name succeeded; C does not default AI_V4MAPPED on")
 	}
@@ -370,7 +370,7 @@ func TestLookupIPV4MappedDisabled(t *testing.T) {
 	}
 	s := resNSAddrSpec(server.addr)
 	s.Options = append(s.Options, parse.Option{Name: "ai-v4mapped", Value: "0", Has: true})
-	_, err = LookupIP(t.Context(), s, "ip6", "v4mapped-off.test")
+	_, err = LookupIP(t.Context(), mustDecodeAddress(t, s), "ip6", "v4mapped-off.test")
 	if err == nil {
 		t.Fatal("ai-v4mapped=0 on A-only name succeeded")
 	}
@@ -383,7 +383,7 @@ func TestLookupIPWithoutAIAllKeepsNativeOnly(t *testing.T) {
 	}
 	server.setAnswers([]net.IP{net.IPv4(192, 0, 2, 1), net.ParseIP("2001:db8::1")})
 	s := resNSAddrSpec(server.addr)
-	ips, err := LookupIP(t.Context(), s, "ip6", "no-ai-all.test")
+	ips, err := LookupIP(t.Context(), mustDecodeAddress(t, s), "ip6", "no-ai-all.test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,7 +400,7 @@ func TestLookupIPAIAllWithoutV4MappedDoesNotMap(t *testing.T) {
 	server.setAnswers([]net.IP{net.IPv4(192, 0, 2, 1), net.ParseIP("2001:db8::1")})
 	s := resNSAddrSpec(server.addr)
 	s.Options = append(s.Options, parse.Option{Name: "ai-all"})
-	ips, err := LookupIP(t.Context(), s, "ip6", "all-without-v4mapped.test")
+	ips, err := LookupIP(t.Context(), mustDecodeAddress(t, s), "ip6", "all-without-v4mapped.test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,7 +416,7 @@ func TestResUseVCZeroKeepsUDP(t *testing.T) {
 	}
 	s := resNSAddrSpec(server.addr)
 	s.Options = append(s.Options, parse.Option{Name: "res-usevc", Value: "0", Has: true})
-	if _, err := LookupIP(t.Context(), s, "ip4", "usevc-off.test"); err != nil {
+	if _, err := LookupIP(t.Context(), mustDecodeAddress(t, s), "ip4", "usevc-off.test"); err != nil {
 		t.Fatal(err)
 	}
 	if server.udpQueries.Load() == 0 {
@@ -436,7 +436,7 @@ func TestResUseVCZeroTruncatedUDPRetriesTCP(t *testing.T) {
 	s.Options = append(s.Options, parse.Option{Name: "res-usevc", Value: "0", Has: true})
 	// Trailing dot keeps the name absolute so resolv.conf search does not
 	// add extra queries that would loosen the UDP/TCP counts.
-	ips, err := LookupIP(t.Context(), s, "ip4", "usevc-off-truncate.test.")
+	ips, err := LookupIP(t.Context(), mustDecodeAddress(t, s), "ip4", "usevc-off-truncate.test.")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -474,7 +474,7 @@ func TestLookupIPAIPassivePrefersIPv6OnUnspecifiedHint(t *testing.T) {
 	server.setAnswers([]net.IP{net.IPv4(192, 0, 2, 1), net.ParseIP("2001:db8::1")})
 	s := resNSAddrSpec(server.addr)
 	s.Options = append(s.Options, parse.Option{Name: "ai-addrconfig", Value: "0", Has: true}, parse.Option{Name: "ai-passive"})
-	ips, err := LookupIP(t.Context(), s, "ip", "passive-pref.test")
+	ips, err := LookupIP(t.Context(), mustDecodeAddress(t, s), "ip", "passive-pref.test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -491,7 +491,7 @@ func TestLookupDialIPAIPassivePrefersIPv6(t *testing.T) {
 	server.setAnswers([]net.IP{net.IPv4(192, 0, 2, 1), net.ParseIP("2001:db8::1")})
 	s := resNSAddrSpec(server.addr)
 	s.Options = append(s.Options, parse.Option{Name: "ai-addrconfig", Value: "0", Has: true}, parse.Option{Name: "ai-passive"})
-	netw, ip, err := LookupDialIP(t.Context(), s, "udp", "passive-udp.test")
+	netw, ip, err := LookupDialIP(t.Context(), mustDecodeAddress(t, s), "udp", "passive-udp.test")
 	if err != nil {
 		t.Fatal(err)
 	}

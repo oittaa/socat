@@ -39,7 +39,7 @@ func TestListenUDPAppendFcntlOnce(t *testing.T) {
 	var ops []string
 	restore := xio.InstallLifecycleSyscallHook(func(op string) { ops = append(ops, op) })
 	t.Cleanup(restore)
-	pc, err := listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}, spec)
+	pc, err := listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}, mustAddr(t, spec))
 	if err != nil {
 		t.Fatal(err)
 	}

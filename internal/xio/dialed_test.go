@@ -15,7 +15,7 @@ func TestOpenDialedCleanupOnDialError(t *testing.T) {
 		t.Fatal(err)
 	}
 	cleaned := false
-	_, err = OpenDialed(context.Background(), s, nil, Dialed{
+	_, err = OpenDialed(context.Background(), mustDecodeAddress(t, s), nil, Dialed{
 		Dial:    func(context.Context) (net.Conn, error) { return nil, errors.New("dial failed") },
 		Cleanup: []func(){func() { cleaned = true }},
 	})

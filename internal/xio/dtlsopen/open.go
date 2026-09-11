@@ -3,17 +3,17 @@ package dtlsopen
 import (
 	"context"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"net/netip"
 
 	"github.com/oittaa/socat/internal/dtls13"
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 )
 
-func wrap(s parse.Spec) func(net.Conn) (relay.Stream, error) {
+func wrap(s addrconfig.Address) func(net.Conn) (relay.Stream, error) {
 	return func(c net.Conn) (relay.Stream, error) {
 		dc, ok := c.(datagramConn)
 		if !ok {
@@ -23,7 +23,7 @@ func wrap(s parse.Spec) func(net.Conn) (relay.Stream, error) {
 	}
 }
 
-func openClient(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openClient(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	host, port, err := xio.HostPortParams(s)
 	if err != nil {
 		return nil, err
@@ -41,7 +41,7 @@ func openClient(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*
 		var conn net.Conn
 		err := xio.WithRetry(dctx, g, s.Type, func() error {
 			cctx := dctx
-			if timeout := xio.CombinedConnectHandshakeTimeout(ctx, s); timeout > 0 {
+			if timeout := xio.CombinedConnectHandshakeTimeout(s); timeout > 0 {
 				var cancel context.CancelFunc
 				cctx, cancel = context.WithTimeout(cctx, timeout)
 				defer cancel()
@@ -58,10 +58,7 @@ func openClient(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*
 			if err != nil {
 				return err
 			}
-			config, err := xio.OpeningConfig(cctx, s)
-			if err != nil {
-				return err
-			}
+			config := s
 			pc, err := xio.ListenClientPacket(cctx, netw, bind, xio.SourcePortText(config), s, g)
 			if err != nil {
 				return err
@@ -80,7 +77,7 @@ func openClient(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*
 	})
 }
 
-func openServer(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openServer(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	if len(s.Params) == 0 || s.Params[0] == "" {
 		return nil, fmt.Errorf("%s requires port", s.Type)
 	}
@@ -93,10 +90,7 @@ func openServer(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*
 		return nil, err
 	}
 	network := xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+	config := s
 	network = xio.DualStackListenNetwork(config, network)
 	host, err := xio.ListenBindHost(s, network, "")
 	if err != nil {

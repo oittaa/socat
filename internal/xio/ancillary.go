@@ -3,7 +3,6 @@
 package xio
 
 import (
-	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -12,13 +11,12 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
 
 // NeedAncillary reports whether the address requests control messages on recv.
 // A last-wins zero value (pktinfo=0) does not enable ReadMsg.
-func NeedAncillary(s parse.Spec) bool {
+func NeedAncillary(s addrconfig.Address) bool {
 	return ancillaryRecvRequested(s)
 }
 
@@ -26,11 +24,8 @@ func NeedAncillary(s parse.Spec) bool {
 // Bare flag → 1; with '=' → integer; =0 disables. Each matching decoded
 // ancillary action is applied in command-line order (ippktinfo then
 // ip-pktinfo=0 is two setsockopt calls).
-func ApplyAncillaryRecvOpts(fd int, s parse.Spec) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func ApplyAncillaryRecvOpts(fd int, s addrconfig.Address) error {
+	config := s
 	family, err := socketIPFamily(fd)
 	if err != nil {
 		return err
@@ -399,7 +394,7 @@ func ReadUDPMsgWithBuffer(c *net.UDPConn, p []byte, wantCtrl bool, oobBuffer []b
 // on a live UDPConn. Send and recv IP/ancillary options apply after
 // socket() (DialControl / ListenControl → ApplyPastSocketPhase) and must
 // not be re-applied here after bind/connect.
-func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, _ string) error {
+func ApplyUDPConnOpts(c *net.UDPConn, s addrconfig.Address, _ string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
 		return err

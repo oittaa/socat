@@ -23,14 +23,14 @@ func TestParseVsockConnectParams(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ep, err := parseVsockConnectParams(s)
+	ep, err := parseVsockConnectParams(mustAddr(t, s))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ep.cid != 1 || ep.port != 0x22 {
 		t.Fatalf("got %+v", ep)
 	}
-	if _, err := parseVsockConnectParams(parse.Spec{Type: "VSOCK-CONNECT", Params: []string{"1"}}); err == nil {
+	if _, err := parseVsockConnectParams(mustAddr(t, parse.Spec{Type: "VSOCK-CONNECT", Params: []string{"1"}})); err == nil {
 		t.Fatal("expected error for missing port")
 	}
 }

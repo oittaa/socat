@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"strconv"
 	"strings"
@@ -12,40 +13,36 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
-func openUDPSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDPSendto(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPDatagramNetwork(ctx, s, mode, g, NetworkUDP(g, s, "udp4"), true)
 }
-func openUDP4Sendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDP4Sendto(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPDatagramNetwork(ctx, s, mode, g, "udp4", true)
 }
-func openUDP6Sendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDP6Sendto(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPDatagramNetwork(ctx, s, mode, g, "udp6", true)
 }
 
 // UDP*-DATAGRAM: unconnected datagram to address (broadcast/multicast capable).
-func openUDPDatagram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDPDatagram(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPDatagramNetwork(ctx, s, mode, g, udpNetworkWithListenDefault(g, s), false)
 }
-func openUDP4Datagram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDP4Datagram(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPDatagramNetwork(ctx, s, mode, g, "udp4", false)
 }
-func openUDP6Datagram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDP6Datagram(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPDatagramNetwork(ctx, s, mode, g, "udp6", false)
 }
 
-func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string, exactPeer bool) (*xio.Opened, error) {
+func openUDPDatagramNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string, exactPeer bool) (*xio.Opened, error) {
 	network, raddr, err := resolveUDPDatagramRemote(ctx, s, network)
 	if err != nil {
 		return nil, err
 	}
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+	config := s
 	bind := xio.BindHost(config)
 	// DATAGRAM ignores sourceport for the local bind; SENDTO uses it as the local port.
 	sp := ""
@@ -101,7 +98,7 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 	return wrapUDPDatagram(ctx, s, g, c, raddr, network, exactPeer)
 }
 
-func resolveUDPDatagramRemote(ctx context.Context, s parse.Spec, network string) (string, *net.UDPAddr, error) {
+func resolveUDPDatagramRemote(ctx context.Context, s addrconfig.Address, network string) (string, *net.UDPAddr, error) {
 	host, port, err := xio.HostPortParams(s)
 	if err != nil {
 		return "", nil, err
@@ -128,7 +125,7 @@ func resolveUDPDatagramRemote(ctx context.Context, s parse.Spec, network string)
 	return network, raddr, nil
 }
 
-func wrapUDPDatagram(ctx context.Context, s parse.Spec, g *xio.Global, c *net.UDPConn, raddr *net.UDPAddr, network string, exactPeer bool) (*xio.Opened, error) {
+func wrapUDPDatagram(ctx context.Context, s addrconfig.Address, g *xio.Global, c *net.UDPConn, raddr *net.UDPAddr, network string, exactPeer bool) (*xio.Opened, error) {
 	// Late buffers. Send and recv IP/ancillary options were applied
 	// after socket() by ListenControl.
 	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
@@ -148,7 +145,7 @@ func wrapUDPDatagram(ctx context.Context, s parse.Spec, g *xio.Global, c *net.UD
 	return &xio.Opened{Stream: wrapped, Label: datagramLabel(exactPeer, raddr)}, nil
 }
 
-func udpListenConfig(s parse.Spec) net.ListenConfig {
+func udpListenConfig(s addrconfig.Address) net.ListenConfig {
 	return net.ListenConfig{
 		Control: udpListenControl(s),
 	}
@@ -156,7 +153,7 @@ func udpListenConfig(s parse.Spec) net.ListenConfig {
 
 // udpListenControl runs after socket() and before bind().
 // Go's ListenConfig.Control is that window.
-func udpListenControl(s parse.Spec) func(network, address string, c syscall.RawConn) error {
+func udpListenControl(s addrconfig.Address) func(network, address string, c syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) error {
 		if err := xio.ListenControl(s)(network, address, c); err != nil {
 			return err
@@ -199,11 +196,8 @@ type udpDatagramConn struct {
 	oob              []byte
 }
 
-func newUDPDatagramConn(ctx context.Context, c *net.UDPConn, raddr *net.UDPAddr, s parse.Spec, g *xio.Global, exactPeer bool) (*udpDatagramConn, error) {
-	config, ok := xio.PreparedConfig(ctx)
-	if !ok {
-		return nil, fmt.Errorf("UDP: prepared configuration is required")
-	}
+func newUDPDatagramConn(ctx context.Context, c *net.UDPConn, raddr *net.UDPAddr, s addrconfig.Address, g *xio.Global, exactPeer bool) (*udpDatagramConn, error) {
+	config := s
 	sourcePortFilter := config.Network.Peer.SourcePortSet
 	filter, err := xio.NewPeerFilter(ctx, config.Network.Peer.WithoutSourcePort(), xio.LookupResolver(config), g)
 	if err != nil {
@@ -303,7 +297,7 @@ func (u *udpDatagramConn) Write(p []byte) (int, error) {
 }
 
 // bindUDPLowport binds a port in 640..1023 via FirstAvailableLowport. Logs bind for tests.
-func bindUDPLowport(ctx context.Context, network, bind string, s parse.Spec, g *xio.Global) (*net.UDPConn, int, error) {
+func bindUDPLowport(ctx context.Context, network, bind string, s addrconfig.Address, g *xio.Global) (*net.UDPConn, int, error) {
 	var conn *net.UDPConn
 	port, err := xio.FirstAvailableLowport(func(port int) error {
 		// test.sh greps: [DE] bind(.*:PORT
@@ -333,37 +327,33 @@ func bindUDPLowport(ctx context.Context, network, bind string, s parse.Spec, g *
 }
 func (u *udpDatagramConn) ShutdownWrite() error { return nil }
 
-func openUDPRecv(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDPRecv(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPRecvNetwork(ctx, s, mode, g, udpNetworkWithListenDefault(g, s), false)
 }
-func openUDP4Recv(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDP4Recv(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPRecvNetwork(ctx, s, mode, g, "udp4", false)
 }
-func openUDP6Recv(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDP6Recv(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPRecvNetwork(ctx, s, mode, g, "udp6", false)
 }
 
-func openUDPRecvfrom(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDPRecvfrom(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPRecvNetwork(ctx, s, mode, g, udpNetworkWithListenDefault(g, s), true)
 }
-func openUDP4Recvfrom(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDP4Recvfrom(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPRecvNetwork(ctx, s, mode, g, "udp4", true)
 }
-func openUDP6Recvfrom(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDP6Recvfrom(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPRecvNetwork(ctx, s, mode, g, "udp6", true)
 }
 
-func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, network string, recvfrom bool) (*xio.Opened, error) {
+func openUDPRecvNetwork(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, network string, recvfrom bool) (*xio.Opened, error) {
 	pc, laddr, err := bindUDPPort(ctx, s, network)
 	if err != nil {
 		return nil, err
 	}
 	if recvfrom {
-		config, err := xio.OpeningConfig(ctx, s)
-		if err != nil {
-			logx.CloseQuiet(pc)
-			return nil, err
-		}
+		config := s
 		if xio.ForkRequested(config) {
 			return openUDPRecvfromFork(ctx, s, g, pc, laddr, network)
 		}
@@ -372,8 +362,8 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	return openUDPRecvAll(ctx, s, g, pc, mode)
 }
 
-func openUDPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *net.UDPConn, laddr *net.UDPAddr, network string) (*xio.Opened, error) {
-	_, maxChildren, ferr := xio.ForkLimits(ctx, s)
+func openUDPRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Global, pc *net.UDPConn, laddr *net.UDPAddr, network string) (*xio.Opened, error) {
+	_, maxChildren, ferr := xio.ForkLimits(s)
 	if ferr != nil {
 		logx.CloseQuiet(pc)
 		return nil, ferr
@@ -383,16 +373,12 @@ func openUDPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *n
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		logx.CloseQuiet(pc)
-		return nil, err
-	}
+	config := s
 	ln := &udpForkListener{
 		pc:      pc,
 		network: network,
 		laddr:   laddr,
-		spec:    s,
+		config:  s,
 		g:       g,
 		ctx:     ctx,
 		oneShot: true,
@@ -415,7 +401,7 @@ func openUDPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *n
 	}, nil
 }
 
-func openUDPRecvfromOne(ctx context.Context, s parse.Spec, g *xio.Global, pc *net.UDPConn) (*xio.Opened, error) {
+func openUDPRecvfromOne(ctx context.Context, s addrconfig.Address, g *xio.Global, pc *net.UDPConn) (*xio.Opened, error) {
 	xio.NoteListenBound(pc.LocalAddr())
 	// UDP-RECVFROM is not a listen address: wait for the first permitted
 	// datagram with no accept-timeout.
@@ -439,11 +425,7 @@ func openUDPRecvfromOne(ctx context.Context, s parse.Spec, g *xio.Global, pc *ne
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		logx.CloseQuiet(pc)
-		return nil, err
-	}
+	config := s
 	nullEOF := config.Transfer.NullEOF.Value
 	var oobBuffer [xio.AncillaryBufferSize]byte
 	for {
@@ -500,7 +482,7 @@ func openUDPRecvfromOne(ctx context.Context, s parse.Spec, g *xio.Global, pc *ne
 	}, nil
 }
 
-func openUDPRecvAll(ctx context.Context, s parse.Spec, g *xio.Global, pc *net.UDPConn, mode xio.Mode) (*xio.Opened, error) {
+func openUDPRecvAll(ctx context.Context, s addrconfig.Address, g *xio.Global, pc *net.UDPConn, mode xio.Mode) (*xio.Opened, error) {
 	if mode == xio.ModeWrite {
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("UDP-RECV is read-only")
@@ -567,7 +549,7 @@ func (u *udpFilteredRecv) ShutdownWrite() error      { return u.Close() }
 func (u *udpFilteredRecv) LocalAddr() net.Addr       { return u.conn.LocalAddr() }
 func (u *udpFilteredRecv) RemoteAddr() net.Addr      { return nil }
 
-func listenUDP(network string, laddr *net.UDPAddr, s parse.Spec) (*net.UDPConn, error) {
+func listenUDP(network string, laddr *net.UDPAddr, s addrconfig.Address) (*net.UDPConn, error) {
 	// UDP-LISTEN sets SO_REUSEADDR when fork is on or reuseaddr is
 	// present; UDP-RECV/RECVFROM only when the option is present.
 	// macOS SO_REUSEPORT is enabled only for UDP-LISTEN fork when reuseaddr is

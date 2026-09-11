@@ -27,7 +27,7 @@ func TestQUICConnectWrapAfterLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openQUICConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openQUICConnect(ctx, mustAddr(t, cs), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestQUICListenWrapAfterLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cli, err := openQUICConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	cli, err := openQUICConnect(ctx, mustAddr(t, cs), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err != nil {
 		t.Fatal(err)
 	}

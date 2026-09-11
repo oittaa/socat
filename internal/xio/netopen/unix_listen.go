@@ -3,25 +3,22 @@ package netopen
 import (
 	"context"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/xio"
 
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
-func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUnixListen(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	if len(s.Params) < 1 || s.Params[0] == "" {
 		// Fail fast: testaddrs uses UNIX-LISTEN::::: probes.
 		return nil, fmt.Errorf("UNIX-LISTEN requires path")
 	}
 	path := s.Params[0]
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+	config := s
 	if config.Network.BindSet || config.Common.ConnectBind.Set {
 		// bind= on UNIX-LISTEN is invalid (must not bind twice).
 		return nil, fmt.Errorf("option \"bind\" with UNIX-LISTEN is not supported")
@@ -91,7 +88,7 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 }
 
 // openAbstractListen: ABSTRACT-LISTEN:name — stream listen in Linux abstract namespace.
-func openAbstractListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openAbstractListen(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	if len(s.Params) < 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("ABSTRACT-LISTEN requires name")
 	}
@@ -129,7 +126,7 @@ func openAbstractListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Gl
 	})
 }
 
-func applyAbstractListenerFDPhase(ln net.Listener, s parse.Spec) error {
+func applyAbstractListenerFDPhase(ln net.Listener, s addrconfig.Address) error {
 	sc, ok := ln.(syscall.Conn)
 	if !ok {
 		return fmt.Errorf("%s: listener does not expose a descriptor", s.Type)

@@ -56,7 +56,7 @@ func newWSTestPair(t testing.TB) (net.Conn, net.Conn) {
 			Port:    fmt.Sprint(addr.Port),
 			Path:    "/",
 		},
-		spec,
+		mustAddr(t, spec),
 		&xio.Global{Log: logx.New()},
 		nil,
 		time.Second,

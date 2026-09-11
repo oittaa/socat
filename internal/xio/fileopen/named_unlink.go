@@ -5,7 +5,6 @@ import (
 	"os"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
 
@@ -18,7 +17,7 @@ type namedEarly struct {
 	mode   os.FileMode
 }
 
-func namedOpenEarly(path string, s parse.Spec, config addrconfig.File) (namedEarly, error) {
+func namedOpenEarly(path string, config addrconfig.File) (namedEarly, error) {
 	var n namedEarly
 	fi, err := os.Stat(path)
 	if err != nil {

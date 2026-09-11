@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // CloseRefusedPeer closes a rejected accept without RST when the peer already
@@ -45,11 +44,7 @@ type PeerFilter struct {
 }
 
 // PreparedPeerFilter compiles the prepared peer policy for an opening.
-func PreparedPeerFilter(ctx context.Context, spec parse.Spec, g *Global) (*PeerFilter, error) {
-	config, err := OpeningConfig(ctx, spec)
-	if err != nil {
-		return nil, err
-	}
+func PreparedPeerFilter(ctx context.Context, config addrconfig.Address, g *Global) (*PeerFilter, error) {
 	return NewPeerFilter(ctx, config.Network.Peer, LookupResolver(config), g)
 }
 

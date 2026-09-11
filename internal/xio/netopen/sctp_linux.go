@@ -6,13 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"os"
 	"syscall"
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
 )
@@ -21,7 +21,7 @@ func init() {
 	xio.FeatureSCTP = true
 }
 
-func listenSCTP(ctx context.Context, network, host, port string, s parse.Spec) (net.Listener, error) {
+func listenSCTP(ctx context.Context, network, host, port string, s addrconfig.Address) (net.Listener, error) {
 	portNum, err := xio.ResolvePortNum(network, port)
 	if err != nil {
 		return nil, err
@@ -75,11 +75,7 @@ func listenSCTP(ctx context.Context, network, host, port string, s parse.Spec) (
 		if network == "sctp" {
 			v6only = 0
 		}
-		config, cfgErr := xio.OpeningConfig(ctx, s)
-		if cfgErr != nil {
-			_ = unix.Close(fd)
-			return nil, cfgErr
-		}
+		config := s
 		if config.Common.IPv6V6Only.Set {
 			v6only = 0
 			if config.Common.IPv6V6Only.Value {
@@ -112,7 +108,7 @@ func listenSCTP(ctx context.Context, network, host, port string, s parse.Spec) (
 	return &rawListener{fd: fd, domain: family}, nil
 }
 
-func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s parse.Spec, g *xio.Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
+func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s addrconfig.Address, g *xio.Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
 	host := xio.StripBrackets(dest.Host)
 	portNum, err := xio.ResolvePortNum(dest.Network, dest.Port)
 	if err != nil {
@@ -125,10 +121,7 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s parse.Spec, g *xio.
 	if len(ips) == 0 {
 		return nil, fmt.Errorf("no addresses for %s", host)
 	}
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+	config := s
 	bindOpt := xio.BindHost(config)
 	sp := xio.SourcePortText(config)
 	lowport := config.Network.Peer.LowPort.Value && (sp == "" || sp == "0")

@@ -10,7 +10,6 @@ import (
 	"syscall"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // DefaultListenBacklog is the Linux/macOS listen queue length when backlog=
@@ -18,11 +17,8 @@ import (
 const DefaultListenBacklog = 5
 
 // ListenBacklog returns the requested Linux/macOS stream backlog.
-func ListenBacklog(s parse.Spec) (int, error) {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return 0, err
-	}
+func ListenBacklog(s addrconfig.Address) (int, error) {
+	config := s
 	return configuredListenBacklog(config), nil
 }
 
@@ -35,11 +31,11 @@ func configuredListenBacklog(config addrconfig.Address) int {
 
 // RejectUnsupportedListenBacklog is a no-op where the requested backlog can
 // be applied.
-func RejectUnsupportedListenBacklog(parse.Spec) error { return nil }
+func RejectUnsupportedListenBacklog(addrconfig.Address) error { return nil }
 
 // ListenStream creates a stream listener and applies its configured backlog.
 // Go's net.Listen uses SOMAXCONN; ApplyListenBacklog issues a second listen(2).
-func ListenStream(ctx context.Context, lc net.ListenConfig, network, address string, s parse.Spec) (net.Listener, error) {
+func ListenStream(ctx context.Context, lc net.ListenConfig, network, address string, s addrconfig.Address) (net.Listener, error) {
 	backlog, err := ListenBacklog(s)
 	if err != nil {
 		return nil, err

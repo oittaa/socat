@@ -93,7 +93,7 @@ func waitRawRead(t *testing.T, client *net.IPConn, payload []byte, r io.Reader) 
 func TestIP4DatagramAcceptsAnySender(t *testing.T) {
 	spec, ctx := openIP4Spec(t, fmt.Sprintf("IP4-DATAGRAM:127.0.0.1:%d,bind=127.0.0.1", rawIPTestProto))
 	g := useGlobal()
-	o, err := openIP4Datagram(ctx, spec, xio.ModeRDWR, g)
+	o, err := openIP4Datagram(ctx, mustAddr(t, spec), xio.ModeRDWR, g)
 	skipIfRawIPPermissionDenied(t, err)
 	if err != nil {
 		t.Fatal(err)
@@ -110,7 +110,7 @@ func TestIP4DatagramAcceptsAnySender(t *testing.T) {
 
 func TestIP4RecvfromForkMaxChildrenZero(t *testing.T) {
 	spec, ctx := openIP4Spec(t, fmt.Sprintf("IP4-RECVFROM:%d,bind=127.0.0.1,fork,max-children=0", rawIPTestProto))
-	_, err := openIP4Recvfrom(ctx, spec, xio.ModeRDWR, useGlobal())
+	_, err := openIP4Recvfrom(ctx, mustAddr(t, spec), xio.ModeRDWR, useGlobal())
 	skipIfRawIPPermissionDenied(t, err)
 	if err == nil {
 		t.Fatal("expected max-children=0 to fail after bind")
@@ -119,7 +119,7 @@ func TestIP4RecvfromForkMaxChildrenZero(t *testing.T) {
 
 func TestIP4RecvWriteOnlyRejected(t *testing.T) {
 	spec, ctx := openIP4Spec(t, fmt.Sprintf("IP4-RECV:%d,bind=127.0.0.1", rawIPTestProto))
-	_, err := openIP4Recv(ctx, spec, xio.ModeWrite, useGlobal())
+	_, err := openIP4Recv(ctx, mustAddr(t, spec), xio.ModeWrite, useGlobal())
 	skipIfRawIPPermissionDenied(t, err)
 	if err == nil {
 		t.Fatal("expected IP4-RECV write-only open to fail")

@@ -5,14 +5,13 @@ package xio
 import (
 	"errors"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
-func NeedAncillary(parse.Spec) bool { return false }
+func NeedAncillary(addrconfig.Address) bool { return false }
 
-func ApplyAncillaryRecvOpts(_ int, s parse.Spec) error {
+func ApplyAncillaryRecvOpts(_ int, s addrconfig.Address) error {
 	if !ancillaryRecvRequested(s) {
 		return nil
 	}
@@ -47,7 +46,7 @@ func applyPreparedIPRecv(_ int, e IPAncillaryEntry, _ int, family ipFamily) erro
 	return rejectIPAncillaryApply(e.Canonical, family)
 }
 
-func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, _ string) error {
+func ApplyUDPConnOpts(c *net.UDPConn, s addrconfig.Address, _ string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
 		return err

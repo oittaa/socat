@@ -5,6 +5,7 @@ package netopen
 import (
 	"context"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"math"
 	"net"
 	"os"
@@ -12,7 +13,6 @@ import (
 	"unsafe"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
 )
@@ -181,7 +181,7 @@ func unixRawSockaddr(name string, tight bool) (unix.RawSockaddrUnix, int, error)
 	return sa, n, nil
 }
 
-func listenUnixNetwork(ctx context.Context, s parse.Spec, network, path string) (net.Listener, error) {
+func listenUnixNetwork(ctx context.Context, s addrconfig.Address, network, path string) (net.Listener, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -200,11 +200,7 @@ func listenUnixNetwork(ctx context.Context, s parse.Spec, network, path string) 
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		logx.CloseErr(unix.Close(fd))
-		return nil, err
-	}
+	config := s
 	tight := unixTightSocklen(config.Network.UnixTightSocklen)
 	err = xio.WithConfiguredUmask(config.File, func() error {
 		return unixBindPath(fd, path, tight)
@@ -256,13 +252,10 @@ func dialUnixSocklen(req dialRequest, path, bindPath string) (net.Conn, error) {
 		return nil, err
 	}
 	var conn net.Conn
-	err = xio.WithRetry(req.ctx, req.g, req.spec.Type, func() error {
+	err = xio.WithRetry(req.ctx, req.g, req.config.Type, func() error {
 		cctx, cancel := req.withTimeout()
 		defer cancel()
-		config, err := xio.OpeningConfig(req.ctx, req.spec)
-		if err != nil {
-			return err
-		}
+		config := req.config
 		if err := prepareUnixClientBind(bindPath, config); err != nil {
 			return err
 		}
@@ -273,7 +266,7 @@ func dialUnixSocklen(req dialRequest, path, bindPath string) (net.Conn, error) {
 		if sockCloexec == 0 {
 			unix.CloseOnExec(fd)
 		}
-		if err := xio.ApplyPastSocketThenPrebind(fd, req.spec, req.network); err != nil {
+		if err := xio.ApplyPastSocketThenPrebind(fd, req.config, req.network); err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return err
 		}

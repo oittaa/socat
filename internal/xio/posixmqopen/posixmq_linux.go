@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
@@ -32,11 +31,8 @@ func init() {
 	xio.FeaturePOSIXMQ = true
 }
 
-func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+func openPOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	config := s
 	p, err := parsePOSIXMQ(ctx, s, mode, config)
 	if err != nil {
 		return nil, err
@@ -76,7 +72,7 @@ type posixMQParams struct {
 	attr        *mqAttr
 }
 
-func parsePOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, config addrconfig.Address) (posixMQParams, error) {
+func parsePOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode, config addrconfig.Address) (posixMQParams, error) {
 	name, err := queueName(s)
 	if err != nil {
 		return posixMQParams{}, err
@@ -86,7 +82,7 @@ func parsePOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, config addrc
 		return posixMQParams{}, fmt.Errorf("keyword \"POSIXMQ\" in bidirectional mode might unwanted flush the queue; use \"POSIXMQ-BIDIRECTIONAL\" to confirm usage")
 	}
 
-	fork, maxChildren, err := xio.ForkLimits(ctx, s)
+	fork, maxChildren, err := xio.ForkLimits(s)
 	if err != nil {
 		return posixMQParams{}, err
 	}
@@ -237,7 +233,7 @@ func posixMQOpenQueue(ctx context.Context, g *xio.Global, p posixMQParams, confi
 	return q, nil
 }
 
-func (q *posixMQQueue) wrapSendFork(ctx context.Context, s parse.Spec, p posixMQParams, nonblock bool) (*xio.Opened, error) {
+func (q *posixMQQueue) wrapSendFork(ctx context.Context, s addrconfig.Address, p posixMQParams, nonblock bool) (*xio.Opened, error) {
 	fd, name, prio, msgsize := q.fd, q.name, p.prio, q.msgsize
 	dial := func(dctx context.Context) (net.Conn, error) {
 		if !nonblock {
@@ -277,7 +273,7 @@ func (q *posixMQQueue) wrapSendFork(ctx context.Context, s parse.Spec, p posixMQ
 	return o, nil
 }
 
-func (q *posixMQQueue) wrapRecvFork(ctx context.Context, s parse.Spec, p posixMQParams) (*xio.Opened, error) {
+func (q *posixMQQueue) wrapRecvFork(ctx context.Context, s addrconfig.Address, p posixMQParams) (*xio.Opened, error) {
 	ln := &mqListener{
 		fd:      q.fd,
 		name:    q.name,
@@ -308,7 +304,7 @@ func (q *posixMQQueue) wrapRecvFork(ctx context.Context, s parse.Spec, p posixMQ
 	return o, nil
 }
 
-func (q *posixMQQueue) wrapStream(ctx context.Context, s parse.Spec, g *xio.Global, p posixMQParams, oneshot, nonblock bool) (*xio.Opened, error) {
+func (q *posixMQQueue) wrapStream(ctx context.Context, s addrconfig.Address, g *xio.Global, p posixMQParams, oneshot, nonblock bool) (*xio.Opened, error) {
 	mqs := &mqStream{
 		fd:       q.fd,
 		name:     q.name,

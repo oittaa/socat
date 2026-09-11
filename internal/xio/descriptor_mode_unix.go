@@ -3,21 +3,16 @@
 package xio
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
 // ValidateDescriptorModeOptions rejects Cygwin-only options on Unix even
 // though the shared help table knows their names for Windows builds.
-func ValidateDescriptorModeOptions(s parse.Spec) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func ValidateDescriptorModeOptions(s addrconfig.Address) error {
+	config := s
 	return validateConfiguredDescriptorMode(config)
 }
 

@@ -9,7 +9,6 @@ import (
 	"unsafe"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
 )
@@ -176,11 +175,11 @@ func sendtoRaw(fd int, p []byte, sa rawSockaddr) error {
 	})
 }
 
-func applySocketOpts(fd int, s parse.Spec, config addrconfig.Address) error {
-	if err := xio.ApplyReuse(fd, s, false); err != nil {
+func applySocketOpts(fd int, config addrconfig.Address) error {
+	if err := xio.ApplyReuse(fd, config, false); err != nil {
 		return err
 	}
-	if err := xio.ApplySocketOptions(fd, s); err != nil {
+	if err := xio.ApplySocketOptions(fd, config); err != nil {
 		return err
 	}
 	return xio.ApplyPreparedGenericSetsockopt(fd, config, xio.SockoptPhasePrebind)

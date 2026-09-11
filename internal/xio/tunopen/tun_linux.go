@@ -18,18 +18,14 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/unix"
 )
 
 // openTUN creates a Linux TUN/TAP device (TUN[:addr/bits]).
 // Syntax: TUN[:<ipv4>/<bits>][,tun-name=…][,tun-type=tun|tap][,iff-up][,if-mtu=N]…
-func openTUN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+func openTUN(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	config := s
 	if err := tunPositional(config.Params); err != nil {
 		return nil, err
 	}
@@ -286,11 +282,8 @@ func tunPositional(params []string) error {
 
 // openINTERFACE opens a Linux AF_PACKET SOCK_RAW socket on a named interface.
 // Syntax: INTERFACE:<ifname>
-func openINTERFACE(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+func openINTERFACE(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	config := s
 	// Exactly one non-empty name; INTERFACE::::: must fail (testaddrs).
 	if len(s.Params) != 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("INTERFACE requires interface name")

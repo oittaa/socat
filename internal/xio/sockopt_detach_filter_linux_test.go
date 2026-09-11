@@ -20,7 +20,10 @@ func TestApplySocketOptionsDetachFilterInvalidLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplySocketOptions(fd, spec)
+	config, err := decodeAddress(spec)
+	if err == nil {
+		err = ApplySocketOptions(fd, config)
+	}
 	if err == nil || !strings.Contains(err.Error(), "invalid value") {
 		t.Fatalf("err=%v want invalid value", err)
 	}

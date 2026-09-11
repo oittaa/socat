@@ -21,7 +21,7 @@ func TestUnixListenForkWrapDial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUnixListen(context.Background(), spec, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	o, err := openUnixListen(context.Background(), mustAddr(t, spec), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestAbstractListenForkWrapDial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openAbstractListen(context.Background(), spec, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	o, err := openAbstractListen(context.Background(), mustAddr(t, spec), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func TestUnixListenAcceptTimeoutPositive(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := time.Now()
-	_, err = openUnixListen(context.Background(), spec, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	_, err = openUnixListen(context.Background(), mustAddr(t, spec), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if !errors.Is(err, xio.ErrAcceptTimeout) {
 		t.Fatalf("error=%v want ErrAcceptTimeout", err)
 	}
@@ -107,7 +107,7 @@ func openUnixListenOnce(t *testing.T, raw string, g *xio.Global, afterBind func(
 	}
 	done := make(chan result, 1)
 	go func() {
-		o, err := open(context.Background(), spec, xio.ModeRDWR, g)
+		o, err := open(context.Background(), mustAddr(t, spec), xio.ModeRDWR, g)
 		done <- result{o, err}
 	}()
 	select {

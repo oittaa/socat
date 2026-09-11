@@ -15,7 +15,7 @@ func TestUnixListenClassicAddressProbeFails(t *testing.T) {
 	if err != nil {
 		return
 	}
-	if _, err := openUnixListen(context.Background(), *ch.Single, xio.ModeRDWR, nil); err == nil {
+	if _, err := openUnixListen(context.Background(), mustAddr(t, *ch.Single), xio.ModeRDWR, nil); err == nil {
 		t.Fatal("UNIX-LISTEN::::: unexpectedly opened a listener")
 	}
 }

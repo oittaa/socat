@@ -1,21 +1,16 @@
 package xio
 
 import (
-	"context"
 	"fmt"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // SocketTypeOption reads socktype / so-type. When the option is absent it
 // returns def (typically syscall.SOCK_STREAM) and explicit=false.
-func SocketTypeOption(s parse.Spec, def int) (typ int, explicit bool, err error) {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return 0, false, err
-	}
+func SocketTypeOption(s addrconfig.Address, def int) (typ int, explicit bool, err error) {
+	config := s
 	return ConfiguredSocketType(config, s.Type, def)
 }
 

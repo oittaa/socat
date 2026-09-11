@@ -20,7 +20,7 @@ func TestDialUDP6IPv4LiteralKeepsFamily(t *testing.T) {
 		ctx:     t.Context(),
 		network: "udp6",
 		timeout: time.Second,
-		spec:    s,
+		config:  mustAddr(t, s),
 	}, nil, ln.LocalAddr().String())
 	if err == nil {
 		t.Fatal("UDP6 to an IPv4 literal succeeded; want family mismatch")

@@ -1,12 +1,10 @@
 package xio
 
 import (
-	"context"
 	"os"
 	"strings"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // ApplyNamedPreopen applies perm-early / user-early / group-early and unlink
@@ -15,11 +13,8 @@ import (
 //
 // Callers must invoke this only when the name exists. UNIX bind paths call
 // ApplyNamedAfterBind once the directory entry exists.
-func ApplyNamedPreopen(path string, s parse.Spec) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func ApplyNamedPreopen(path string, s addrconfig.Address) error {
+	config := s
 	return ApplyConfiguredNamedPreopen(path, config.File)
 }
 
@@ -30,22 +25,16 @@ func ApplyNamedPreopen(path string, s parse.Spec) error {
 // perm-early is a no-op before bind because the directory entry does not
 // exist yet; after bind it chmods the new socket and wins over perm= on
 // listen/recv names. unlink= at this phase would remove the just-bound name.
-func ApplyNamedAfterBind(path string, s parse.Spec, f *os.File) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func ApplyNamedAfterBind(path string, s addrconfig.Address, f *os.File) error {
+	config := s
 	return ApplyConfiguredNamedAfterBind(path, config, f)
 }
 
 // ApplyNamedAttrs applies perm/user/group to a filesystem name in
 // command-line order. Regular files and FIFOs pass perm= to open(2)/mkfifo
 // so umask still applies; do not use ApplyNamedAttrs as create-mode for those.
-func ApplyNamedAttrs(path string, s parse.Spec, f *os.File) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func ApplyNamedAttrs(path string, s addrconfig.Address, f *os.File) error {
+	config := s
 	return ApplyConfiguredNamedAttrs(path, f, config.File)
 }
 
@@ -65,11 +54,8 @@ func ApplyConfiguredNamedAfterBind(path string, config addrconfig.Address, f *os
 
 // FDSkipNamedUnixSocket skips perm/user/group on a UNIX datagram fd when
 // those options were applied to the filesystem name after bind.
-func FDSkipNamedUnixSocket(s parse.Spec) FDSkip {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return FDSkip{}
-	}
+func FDSkipNamedUnixSocket(s addrconfig.Address) FDSkip {
+	config := s
 	return FDSkipNamedUnixSocketConfig(config)
 }
 

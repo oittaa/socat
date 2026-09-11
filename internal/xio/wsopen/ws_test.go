@@ -128,7 +128,7 @@ func TestWSListenConnectEcho(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openWSConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openWSConnect(ctx, mustAddr(t, cs), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestWSListenPathOption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openWSConnect(ctx, ok, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openWSConnect(ctx, mustAddr(t, ok), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func TestWSListenForkTwoClients(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		o, err := openWSConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+		o, err := openWSConnect(ctx, mustAddr(t, cs), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 		if err != nil {
 			t.Fatalf("client %d: %v", i, err)
 		}
@@ -181,7 +181,7 @@ func TestWSSListenConnectEcho(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openWSSConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openWSSConnect(ctx, mustAddr(t, cs), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestWSListenProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openWSConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openWSConnect(ctx, mustAddr(t, cs), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err != nil {
 		t.Fatal(err)
 	}

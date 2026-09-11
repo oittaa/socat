@@ -11,7 +11,7 @@ func TestWSTargetConnect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, port, path, err := wsTarget(s, false)
+	host, port, path, err := wsTarget(mustAddr(t, s), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestWSTargetPathOption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, path, err := wsTarget(s, false)
+	_, _, path, err := wsTarget(mustAddr(t, s), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestWSTargetListen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, port, path, err := wsTarget(s, true)
+	_, port, path, err := wsTarget(mustAddr(t, s), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,8 +50,8 @@ func TestWSTargetListen(t *testing.T) {
 
 func TestWSScheme(t *testing.T) {
 	s, _ := parse.ParseSpec("WSS:h:443")
-	if wsScheme(s) != "wss" {
-		t.Fatal(wsScheme(s))
+	if wsScheme(mustAddr(t, s)) != "wss" {
+		t.Fatal(wsScheme(mustAddr(t, s)))
 	}
 }
 
@@ -60,7 +60,7 @@ func TestWSTargetDefaultPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, path, err := wsTarget(s, false)
+	_, _, path, err := wsTarget(mustAddr(t, s), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestWSTargetExtraParams(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, port, path, err := wsTarget(s, false)
+	host, port, path, err := wsTarget(mustAddr(t, s), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestWSTargetListenExtraParams(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, port, path, err := wsTarget(s, true)
+	_, port, path, err := wsTarget(mustAddr(t, s), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestWSTargetIPv6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, port, path, err := wsTarget(s, false)
+	host, port, path, err := wsTarget(mustAddr(t, s), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestWSTargetListenRequiresPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := wsTarget(s, true); err == nil {
+	if _, _, _, err := wsTarget(mustAddr(t, s), true); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -126,7 +126,7 @@ func TestWSTargetConnectRequiresHostPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := wsTarget(s, false); err == nil {
+	if _, _, _, err := wsTarget(mustAddr(t, s), false); err == nil {
 		t.Fatal("expected error")
 	}
 }

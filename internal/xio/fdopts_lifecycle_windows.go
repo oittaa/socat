@@ -3,7 +3,6 @@
 package xio
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +11,6 @@ import (
 	"syscall"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/windows"
 )
@@ -171,32 +169,26 @@ func configuredWindowsSeek(fd uintptr, offset int64, whence int, name string) er
 	return nil
 }
 
-func applyFDLifecycleToFile(f *os.File, s parse.Spec, skip FDSkip) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func applyFDLifecycleToFile(f *os.File, s addrconfig.Address, skip FDSkip) error {
+	config := s
 	return ApplyConfiguredFDOptions(f, config.File, skip)
 }
 
 // applyFDLifecycleToStream applies descriptor lifecycle once per unique
 // underlying fd in this call (FileStream R/W/C sharing one fd).
-func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream, skip FDSkip) error {
+func applyFDLifecycleToStream(s addrconfig.Address, stream relay.Stream, skip FDSkip) error {
 	return applyFDLifecycleToStreamMode(s, stream, skip, false)
 }
 
 // applyFDLifecycleLateToStream applies only late descriptor options.
 // ACCEPT-FD applies after-open options before after-socket and after
 // connect/accept; late follows those stages instead of after-open.
-func applyFDLifecycleLateToStream(s parse.Spec, stream relay.Stream) error {
+func applyFDLifecycleLateToStream(s addrconfig.Address, stream relay.Stream) error {
 	return applyFDLifecycleToStreamMode(s, stream, FDSkip{}, true)
 }
 
-func applyFDLifecycleToStreamMode(s parse.Spec, stream relay.Stream, skip FDSkip, lateOnly bool) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func applyFDLifecycleToStreamMode(s addrconfig.Address, stream relay.Stream, skip FDSkip, lateOnly bool) error {
+	config := s
 	if lateOnly {
 		if !hasConfiguredFDActions(config.File, FDSkip{}) {
 			return nil
@@ -231,20 +223,17 @@ func applyFDLifecycleToStreamMode(s parse.Spec, stream relay.Stream, skip FDSkip
 
 // ApplyFDLifecycleToConn applies after-open, after-fd, then late options
 // on a live syscall.Conn.
-func ApplyFDLifecycleToConn(c syscall.Conn, s parse.Spec) error {
+func ApplyFDLifecycleToConn(c syscall.Conn, s addrconfig.Address) error {
 	return ApplyFDLifecycleToConnSkip(c, s, FDSkip{})
 }
 
 // ApplyFDLifecycleToConnSkip applies descriptor lifecycle with opener-owned
 // options skipped.
-func ApplyFDLifecycleToConnSkip(c syscall.Conn, s parse.Spec, skip FDSkip) error {
+func ApplyFDLifecycleToConnSkip(c syscall.Conn, s addrconfig.Address, skip FDSkip) error {
 	if c == nil {
 		return nil
 	}
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+	config := s
 	if !hasConfiguredFDActions(config.File, skip) {
 		return nil
 	}
@@ -260,14 +249,11 @@ func ApplyFDLifecycleToConnSkip(c syscall.Conn, s parse.Spec, skip FDSkip) error
 }
 
 // ApplyFDPhaseLifecycleToConn applies after-fd owner options.
-func ApplyFDPhaseLifecycleToConn(c syscall.Conn, s parse.Spec) error {
+func ApplyFDPhaseLifecycleToConn(c syscall.Conn, s addrconfig.Address) error {
 	if c == nil {
 		return nil
 	}
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+	config := s
 	raw, err := c.SyscallConn()
 	if err != nil {
 		return err
@@ -280,14 +266,11 @@ func ApplyFDPhaseLifecycleToConn(c syscall.Conn, s parse.Spec) error {
 }
 
 // ApplyFDLifecycleToPacketConn applies descriptor lifecycle on a PacketConn.
-func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s parse.Spec) error {
+func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s addrconfig.Address) error {
 	if pc == nil {
 		return nil
 	}
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+	config := s
 	if !hasConfiguredFDActions(config.File, FDSkip{}) {
 		return nil
 	}
@@ -300,14 +283,11 @@ func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s parse.Spec) error {
 
 // ApplyFDLifecycleOnFD applies after-open, after-fd, then late options on
 // a raw handle.
-func ApplyFDLifecycleOnFD(fd int, s parse.Spec) error {
+func ApplyFDLifecycleOnFD(fd int, s addrconfig.Address) error {
 	return ApplyFDLifecycleOnFDSkip(fd, s, FDSkip{})
 }
 
-func ApplyFDLifecycleOnFDSkip(fd int, s parse.Spec, skip FDSkip) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func ApplyFDLifecycleOnFDSkip(fd int, s addrconfig.Address, skip FDSkip) error {
+	config := s
 	return applyConfiguredWindowsFD(uintptr(fd), config.File, skip)
 }

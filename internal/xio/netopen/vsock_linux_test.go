@@ -30,7 +30,7 @@ func skipIfNoVSOCK(t *testing.T) {
 func skipIfNoVSOCKListen(t *testing.T) net.Listener {
 	t.Helper()
 	skipIfNoVSOCK(t)
-	ln, err := listenVSOCK(context.Background(), vsockPortAny, parse.Spec{}, nil)
+	ln, err := listenVSOCK(context.Background(), vsockPortAny, mustAddr(t, parse.Spec{}), nil)
 	if err != nil {
 		t.Skipf("VSOCK-LISTEN: %v", err)
 	}
@@ -96,7 +96,7 @@ func vsockLoopbackUnavailable(err error) bool {
 
 func TestVSOCKListenPortZeroDenied(t *testing.T) {
 	skipIfNoVSOCK(t)
-	_, err := listenVSOCK(context.Background(), 0, parse.Spec{}, nil)
+	_, err := listenVSOCK(context.Background(), 0, mustAddr(t, parse.Spec{}), nil)
 	if err == nil {
 		t.Fatal("VSOCK-LISTEN:0 succeeded; classic bind of port 0 is EACCES")
 	}
@@ -111,7 +111,7 @@ func TestVSOCKListenPFInetAddressFamily(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = listenVSOCK(context.Background(), 9, s, nil)
+	_, err = listenVSOCK(context.Background(), 9, mustAddr(t, s), nil)
 	if err == nil {
 		t.Fatal("pf=inet succeeded; classic bind is EAFNOSUPPORT")
 	}
@@ -128,7 +128,7 @@ func TestVSOCKListenProtocolAliases(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, err = listenVSOCK(context.Background(), 9, s, nil)
+			_, err = listenVSOCK(context.Background(), 9, mustAddr(t, s), nil)
 			if err == nil {
 				t.Fatalf("%s=6 succeeded; classic socket() is EPROTONOSUPPORT", name)
 			}

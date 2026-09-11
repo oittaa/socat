@@ -1,7 +1,6 @@
 package xio
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -33,21 +32,6 @@ func (j membershipJoin) optionName() string {
 		return "ipv6-join-group"
 	}
 	return "ip-add-membership"
-}
-
-// membershipJoins collects every membership option in command-line order.
-// Original spelling selects the IPv4/IPv6 sockopt; Name is the fallback
-// for constructed specs that do not preserve spelling.
-func membershipJoins(s parse.Spec) []membershipJoin {
-	var out []membershipJoin
-	for _, o := range s.Options {
-		family, name, ok := membershipFamilyOf(o)
-		if !ok {
-			continue
-		}
-		out = append(out, membershipJoin{family: family, spec: o.Value, name: name})
-	}
-	return out
 }
 
 func membershipFamilyOf(o parse.Option) (membershipFamily, string, bool) {
@@ -125,11 +109,8 @@ func mtuDiscoveryName(name string) (membershipFamily, string, bool) {
 }
 
 // NeedRecvErr reports whether the spec enables IP_RECVERR (Linux).
-func NeedRecvErr(s parse.Spec) bool {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return false
-	}
+func NeedRecvErr(s addrconfig.Address) bool {
+	config := s
 	var n int
 	var set bool
 	for _, action := range config.Network.Actions {
@@ -143,11 +124,8 @@ func NeedRecvErr(s parse.Spec) bool {
 
 // RejectUnsupportedRecvErr fails fast for ipv6-recverr everywhere and for
 // ip-recverr on platforms that do not implement IP_RECVERR.
-func RejectUnsupportedRecvErr(s parse.Spec) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func RejectUnsupportedRecvErr(s addrconfig.Address) error {
+	config := s
 	typ := config.Type
 	if typ == "" {
 		typ = s.Type

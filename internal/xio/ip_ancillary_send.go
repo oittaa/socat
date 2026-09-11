@@ -1,12 +1,10 @@
 package xio
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // maxIPOptions is the accumulated IP_OPTIONS byte cap (getsockopt buffer
@@ -18,7 +16,7 @@ const maxIPOptions = 256
 // via ApplyPastSocketPhase (DialControl / ListenControl, including raw IP).
 // This send-only helper remains for leftover callers such as
 // ApplyIPSendOptsToPacketConn.
-func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
+func ApplyIPSendOpts(fd int, s addrconfig.Address, network string) error {
 	return applyClassicIPSendOpts(fd, s, ipFamilyFromNetwork(network))
 }
 
@@ -29,11 +27,8 @@ func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
 // owner ioctls, generic setsockopt-socket, and IP/ancillary/membership
 // options. Occurrences keep original command-line order, including when a
 // generic option targets the same kernel setting as a named option.
-func applyOrderedPastSocketPhaseOptions(fd int, s parse.Spec, network string) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func applyOrderedPastSocketPhaseOptions(fd int, s addrconfig.Address, network string) error {
+	config := s
 	return applyPreparedSocketPhase(fd, config, socketApplyPastSocket, network)
 }
 
@@ -66,11 +61,8 @@ func resolveApplyIPFamily(fd int, family ipFamily) (ipFamily, error) {
 // uses IP_HDRINCL on raw IPv4 only (bare flag → 1). ttl=1,ip-ttl=64 is two
 // setsockopt calls, not last-wins. An earlier kernel-invalid value still
 // fails even if a later value is valid.
-func applyClassicIPSendOpts(fd int, s parse.Spec, family ipFamily) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func applyClassicIPSendOpts(fd int, s addrconfig.Address, family ipFamily) error {
+	config := s
 	got, err := resolveApplyIPFamily(fd, family)
 	if err != nil {
 		return err

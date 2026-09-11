@@ -15,7 +15,7 @@ func TestDialControlAppliesFreebind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &net.Dialer{Control: DialControl(spec, "udp4", nil)}
+	d := &net.Dialer{Control: DialControl(mustDecodeAddress(t, spec), "udp4", nil)}
 	c, err := d.Dial("udp4", "127.0.0.1:9")
 	if err != nil {
 		t.Fatal(err)

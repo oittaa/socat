@@ -16,14 +16,13 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/unix"
 )
 
 // SOCKET-CONNECT:<domain>:<protocol>:<remote-address>
 // Generic raw sockaddr connect. Address is hex/data without sa_family.
-func openSocketConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openSocketConnect(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	config, err := preparedSocketConfig(ctx)
 	if err != nil {
 		return nil, err
@@ -39,7 +38,7 @@ func openSocketConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Glo
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := xio.WithRetry(dctx, g, "socket connect", func() error {
-			c, e := dialRawSocket(dctx, call, sa, s, config)
+			c, e := dialRawSocket(dctx, call, sa, config)
 			if e != nil {
 				return e
 			}
@@ -59,7 +58,7 @@ func openSocketConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Glo
 	})
 }
 
-func dialRawSocket(ctx context.Context, call socketCall, sa rawSockaddr, s parse.Spec, config addrconfig.Address) (net.Conn, error) {
+func dialRawSocket(ctx context.Context, call socketCall, sa rawSockaddr, config addrconfig.Address) (net.Conn, error) {
 	timeout := time.Duration(0)
 	if config.Common.Timeouts.Connect.Set {
 		timeout = config.Common.Timeouts.Connect.Value
@@ -73,7 +72,7 @@ func dialRawSocket(ctx context.Context, call socketCall, sa rawSockaddr, s parse
 	if err != nil {
 		return nil, fmt.Errorf("socket: %w", err)
 	}
-	if err := applySocketOpts(fd, s, config); err != nil {
+	if err := applySocketOpts(fd, config); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
@@ -92,7 +91,7 @@ func dialRawSocket(ctx context.Context, call socketCall, sa rawSockaddr, s parse
 		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("connect: %w", err)
 	}
-	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhaseConnected); err != nil {
+	if err := xio.ApplyGenericSetsockopt(fd, config, xio.SockoptPhaseConnected); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
@@ -180,7 +179,7 @@ func sockAddrToNetAddr(sa unix.Sockaddr) net.Addr {
 }
 
 // SOCKET-LISTEN:<domain>:<protocol>:<local-address>
-func openSocketListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openSocketListen(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	config, err := preparedSocketConfig(ctx)
 	if err != nil {
 		return nil, err
@@ -201,7 +200,7 @@ func openSocketListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Glob
 		_ = unix.Close(fd)
 		return nil, err
 	}
-	if err := applySocketOpts(fd, s, config); err != nil {
+	if err := applySocketOpts(fd, config); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}

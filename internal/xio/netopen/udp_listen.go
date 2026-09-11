@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"io"
 	"net"
 	"strconv"
@@ -14,22 +15,21 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
-func openUDPListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDPListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPListenNetwork(ctx, s, mode, g, udpNetworkWithListenDefault(g, s))
 }
-func openUDP4Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDP4Listen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPListenNetwork(ctx, s, mode, g, "udp4")
 }
-func openUDP6Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDP6Listen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPListenNetwork(ctx, s, mode, g, "udp6")
 }
 
-func applyUDPAcceptTimeout(ctx context.Context, pc *net.UDPConn, s parse.Spec) (bool, error) {
-	timeout := xio.AcceptTimeout(ctx, s)
+func applyUDPAcceptTimeout(pc *net.UDPConn, s addrconfig.Address) (bool, error) {
+	timeout := xio.AcceptTimeout(s)
 	if timeout <= 0 {
 		return false, nil
 	}
@@ -53,23 +53,19 @@ func udpAcceptError(err error, timeoutSet bool) error {
 	return err
 }
 
-func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
+func openUDPListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
 	pc, laddr, err := bindUDPPort(ctx, s, network)
 	if err != nil {
 		return nil, err
 	}
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		logx.CloseQuiet(pc)
-		return nil, err
-	}
+	config := s
 	if xio.ForkRequested(config) {
 		return openUDPListenFork(ctx, s, g, pc, laddr, network)
 	}
 	return openUDPListenOnePeer(ctx, s, g, pc, network)
 }
 
-func bindUDPPort(ctx context.Context, s parse.Spec, network string) (*net.UDPConn, *net.UDPAddr, error) {
+func bindUDPPort(ctx context.Context, s addrconfig.Address, network string) (*net.UDPConn, *net.UDPAddr, error) {
 	if len(s.Params) < 1 || s.Params[0] == "" {
 		return nil, nil, fmt.Errorf("%s requires port", s.Type)
 	}
@@ -88,12 +84,12 @@ func bindUDPPort(ctx context.Context, s parse.Spec, network string) (*net.UDPCon
 	return pc, laddr, nil
 }
 
-func openUDPListenFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *net.UDPConn, laddr *net.UDPAddr, network string) (*xio.Opened, error) {
+func openUDPListenFork(ctx context.Context, s addrconfig.Address, g *xio.Global, pc *net.UDPConn, laddr *net.UDPAddr, network string) (*xio.Opened, error) {
 	if udpForkSharesListenSocket() && xio.ShutDownSelected(s) {
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("UDP-LISTEN,fork,shut-down: not supported")
 	}
-	_, maxChildren, ferr := xio.ForkLimits(ctx, s)
+	_, maxChildren, ferr := xio.ForkLimits(s)
 	if ferr != nil {
 		logx.CloseQuiet(pc)
 		return nil, ferr
@@ -103,16 +99,12 @@ func openUDPListenFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *net
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		logx.CloseQuiet(pc)
-		return nil, err
-	}
+	config := s
 	base := &udpForkListener{
 		pc:      pc,
 		network: network,
 		laddr:   laddr,
-		spec:    s,
+		config:  s,
 		g:       g,
 		ctx:     ctx,
 		filter:  peerFilter,
@@ -136,7 +128,7 @@ func openUDPListenFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *net
 	}, nil
 }
 
-func openUDPListenOnePeer(ctx context.Context, s parse.Spec, g *xio.Global, pc *net.UDPConn, network string) (*xio.Opened, error) {
+func openUDPListenOnePeer(ctx context.Context, s addrconfig.Address, g *xio.Global, pc *net.UDPConn, network string) (*xio.Opened, error) {
 	xio.NoteListenBound(pc.LocalAddr())
 
 	// Resolve range= before the accept deadline. Slow DNS must not consume
@@ -146,7 +138,7 @@ func openUDPListenOnePeer(ctx context.Context, s parse.Spec, g *xio.Global, pc *
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	timeoutSet, err := applyUDPAcceptTimeout(ctx, pc, s)
+	timeoutSet, err := applyUDPAcceptTimeout(pc, s)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -263,7 +255,7 @@ type udpForkListener struct {
 	pc            *net.UDPConn
 	network       string
 	laddr         *net.UDPAddr
-	spec          parse.Spec
+	config        addrconfig.Address
 	g             *xio.Global
 	ctx           context.Context
 	rcvTimeout    time.Duration
@@ -315,14 +307,14 @@ func appendUDPForkSessionPacket(child *udpSessionConn, packet udpForkPacket) boo
 	return true
 }
 
-func applyUDPForkTimeouts(ln *udpForkListener, s parse.Spec) error {
-	d, err := xio.RecvTimeoutFromSpec(ln.ctx, s)
+func applyUDPForkTimeouts(ln *udpForkListener, s addrconfig.Address) error {
+	d, err := xio.RecvTimeout(s)
 	if err != nil {
 		return err
 	}
 	ln.rcvTimeout = d
 	if !ln.oneShot {
-		ln.acceptTimeout = xio.AcceptTimeout(ln.ctx, s)
+		ln.acceptTimeout = xio.AcceptTimeout(s)
 	}
 	return nil
 }
@@ -386,7 +378,7 @@ func (l *udpForkListener) newUDPOneshotChild(pc *net.UDPConn, packet udpForkPack
 	if local == nil && l.laddr != nil {
 		local = l.laddr
 	}
-	recvErr := xio.NeedRecvErr(l.spec)
+	recvErr := xio.NeedRecvErr(l.config)
 	return newOneshotForkConn(
 		append([]byte(nil), packet.data...),
 		local,
@@ -414,7 +406,7 @@ func (l *udpForkListener) newUDPForkChild(packet udpForkPacket, session *xio.Glo
 
 func (l *udpForkListener) peerAllowed(addr *net.UDPAddr) error {
 	if l.filter == nil {
-		f, err := xio.PreparedPeerFilter(l.ctx, l.spec, l.g)
+		f, err := xio.PreparedPeerFilter(l.ctx, l.config, l.g)
 		if err != nil {
 			return err
 		}
@@ -423,7 +415,7 @@ func (l *udpForkListener) peerAllowed(addr *net.UDPAddr) error {
 	return l.filter.AllowAddr(addr, l.pc.LocalAddr())
 }
 
-func dialUDPSession(ctx context.Context, network string, local, remote *net.UDPAddr, s parse.Spec) (*net.UDPConn, error) {
+func dialUDPSession(ctx context.Context, network string, local, remote *net.UDPAddr, s addrconfig.Address) (*net.UDPConn, error) {
 	// SO_REUSEADDR so we can bind the same local port as the parent listener.
 	// Skip when reuseaddr=0: the explicit zero stays exclusive and does not
 	// enable SO_REUSEPORT for parent/child sharing.
@@ -446,7 +438,7 @@ func dialUDPSession(ctx context.Context, network string, local, remote *net.UDPA
 	c, err := dialUDPForSpec(dialRequest{
 		ctx:     ctx,
 		network: network,
-		spec:    s,
+		config:  s,
 		control: reuseControl,
 	}, local, remote.String())
 	if err != nil {

@@ -3,22 +3,19 @@ package fileopen
 import (
 	"context"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"time"
 
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // openPTY implements PTY: allocate a pseudo-terminal, optionally
 // create a symlink to the slave (link=), optionally put master in raw mode (cfmakeraw).
 // The transfer stream is the master side; peers open the slave path via the link.
-func openPTY(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	config, err := preparedFileConfig(ctx)
-	if err != nil {
-		return nil, err
-	}
+func openPTY(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	config := s
 	// PTY takes no positional parameters (PTY::::: probes / PTY_VOIDARG).
 	if len(s.Params) > 0 {
 		return nil, fmt.Errorf("PTY: wrong number of parameters (expected 0)")

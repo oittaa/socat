@@ -73,9 +73,9 @@ func echoViaSOCKS5(t *testing.T, spec string) {
 	defer cancel()
 	var o *xio.Opened
 	if s.Type == "SOCKS5-LISTEN" || s.Type == "SOCKS5-BIND" {
-		o, err = openSOCKS5Listen(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+		o, err = openSOCKS5Listen(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	} else {
-		o, err = openSOCKS5Connect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+		o, err = openSOCKS5Connect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -123,9 +123,9 @@ func echoViaSOCKS4(t *testing.T, spec string, socks4a bool) {
 	defer cancel()
 	var o *xio.Opened
 	if socks4a {
-		o, err = openSOCKS4AConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+		o, err = openSOCKS4AConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	} else {
-		o, err = openSOCKS4Connect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+		o, err = openSOCKS4Connect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -319,7 +319,7 @@ func echoViaSOCKS5Auth(t *testing.T, spec, wantUser, wantPass string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	o, err := openSOCKS5Connect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openSOCKS5Connect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err != nil {
 		t.Fatal(err)
 	}

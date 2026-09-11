@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"sort"
 	"strconv"
@@ -11,8 +12,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // Linux AF_* values used in "opening connection to AF=N …" logs.
@@ -59,7 +58,7 @@ func (c dialCall) dialTCP(laddr, raddr *net.TCPAddr) (net.Conn, error) {
 // DialTCPAll resolves dest.Host and tries each address in order.
 // dest.Network is "tcp", "tcp4", or "tcp6". Logs Notice "opening connection to AF=…"
 // for each attempt.
-func DialTCPAll(ctx context.Context, dest DialTarget, s parse.Spec, g *Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
+func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
 	host := StripBrackets(dest.Host)
 	portNum, err := ResolvePortNum(dest.Network, dest.Port)
 	if err != nil {
@@ -73,10 +72,7 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s parse.Spec, g *Global, t
 		return nil, fmt.Errorf("no addresses for %s", host)
 	}
 
-	config, err := OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+	config := s
 	bindOpt := BindHost(config)
 	sp := SourcePortText(config)
 	lowport := config.Network.Peer.LowPort.Value && (sp == "" || sp == "0")
@@ -162,7 +158,7 @@ func ResolvePortNum(network, port string) (int, error) {
 
 // ResolveConnectIPs returns remote IPs in try order.
 // network may be tcp/tcp4/tcp6 or sctp/sctp4/sctp6 (SCTP uses the TCP hint).
-func ResolveConnectIPs(ctx context.Context, network, host string, s parse.Spec, g *Global) ([]net.IP, error) {
+func ResolveConnectIPs(ctx context.Context, network, host string, s addrconfig.Address, g *Global) ([]net.IP, error) {
 	switch network {
 	case "sctp4":
 		network = "tcp4"
@@ -191,7 +187,7 @@ func afForNetwork(network string, ip net.IP) int {
 }
 
 // resolveConnectIPs returns remote IPs in try order.
-func resolveConnectIPs(ctx context.Context, network, host string, s parse.Spec, g *Global) ([]net.IP, error) {
+func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.Address, g *Global) ([]net.IP, error) {
 	// Literal IP: single address, no DNS.
 	if ip := net.ParseIP(host); ip != nil {
 		switch network {
@@ -217,10 +213,7 @@ func resolveConnectIPs(ctx context.Context, network, host string, s parse.Spec, 
 	// IPv6 when set, then -4/-6/-0, SOCAT_PREFERRED_RESOLVE_IP, then the
 	// IPv4 default.
 	if hint == "ip" && len(ips) > 1 {
-		config, err := OpeningConfig(ctx, s)
-		if err != nil {
-			return nil, err
-		}
+		config := s
 		if config.Common.Resolver.Passive.Value {
 			sort.SliceStable(ips, func(i, j int) bool {
 				return ips[i].To4() == nil && ips[j].To4() != nil
@@ -296,7 +289,7 @@ func localIPFamiliesFromAddrs(addrs []net.Addr) (v4, v6 bool) {
 // BindTCPAddrForRemote picks a local TCPAddr matching remote's family.
 // bindOpt may be host, [ipv6], or host:port / [ipv6]:port (bind=).
 // sourceport is used when bind has no port. skip=true means try next remote.
-func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bindOpt, sourceport, network string) (laddr *net.TCPAddr, skip bool, err error) {
+func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s addrconfig.Address, bindOpt, sourceport, network string) (laddr *net.TCPAddr, skip bool, err error) {
 	if bindOpt == "" && (sourceport == "" || sourceport == "0") {
 		return nil, false, nil
 	}
@@ -326,10 +319,7 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bind
 	if bindHost == "" {
 		// sourceport only: wildcard of matching family, or loopback when
 		// ai-passive=0.
-		config, cfgErr := OpeningConfig(ctx, s)
-		if cfgErr != nil {
-			return nil, false, cfgErr
-		}
+		config := s
 		if listenAIPassive(config) {
 			if want4 {
 				return &net.TCPAddr{IP: net.IPv4zero, Port: port}, false, nil
@@ -414,12 +404,8 @@ func dialTCPLowport(call dialCall, raddr, laddr *net.TCPAddr) (net.Conn, error) 
 // ConnectNetworkForType picks dial network for a CONNECT address type.
 // TCP4/TCP6 force a family; generic TCP uses dual-stack "tcp" (try both,
 // ordered by -4/-6). pf= still forces a family.
-func ConnectNetworkForType(g *Global, s parse.Spec, host, forced string) string {
-	config, err := OpeningConfig(context.Background(), s)
-	pf := ""
-	if err == nil {
-		pf = ProtocolFamilyText(config)
-	}
+func ConnectNetworkForType(g *Global, config addrconfig.Address, host, forced string) string {
+	pf := ProtocolFamilyText(config)
 	if forced == "tcp4" || forced == "tcp6" {
 		// Still honour pf= override if present
 		if pf != "" {

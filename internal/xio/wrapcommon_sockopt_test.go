@@ -20,7 +20,7 @@ func TestSetupStreamRejectsLifecycleWithoutDescriptor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = SetupStream(spec, relay.NetStream{Conn: a})
+	_, err = SetupStream(mustDecodeAddress(t, spec), relay.NetStream{Conn: a})
 	if err == nil || !strings.Contains(err.Error(), "does not expose a descriptor") {
 		t.Fatalf("error=%v want stream does not expose a descriptor", err)
 	}
@@ -36,7 +36,7 @@ func TestSetupStreamSkipsLateOptionsWithoutSocketFD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SetupStream(spec, relay.NetStream{Conn: a}); err != nil {
+	if _, err := SetupStream(mustDecodeAddress(t, spec), relay.NetStream{Conn: a}); err != nil {
 		t.Fatalf("SetupStream on net.Pipe: %v", err)
 	}
 }
@@ -56,7 +56,7 @@ func TestApplyLateSocketOptionsToPacketConnRejectsNonSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplyLateSocketOptionsToPacketConn(stubPacketConn{}, spec)
+	err = ApplyLateSocketOptionsToPacketConn(stubPacketConn{}, mustDecodeAddress(t, spec))
 	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
 		t.Fatalf("error=%v want packet connection does not expose a socket", err)
 	}
@@ -67,7 +67,7 @@ func TestApplyFDLifecycleToPacketConnRejectsNonSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplyFDLifecycleToPacketConn(stubPacketConn{}, spec)
+	err = ApplyFDLifecycleToPacketConn(stubPacketConn{}, mustDecodeAddress(t, spec))
 	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
 		t.Fatalf("error=%v want packet connection does not expose a socket", err)
 	}
@@ -78,7 +78,7 @@ func TestApplyIPSendOptsToPacketConnRejectsNonSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplyIPSendOptsToPacketConn(stubPacketConn{}, spec, "udp4")
+	err = ApplyIPSendOptsToPacketConn(stubPacketConn{}, mustDecodeAddress(t, spec), "udp4")
 	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
 		t.Fatalf("error=%v want packet connection does not expose a socket", err)
 	}

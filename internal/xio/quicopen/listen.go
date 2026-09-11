@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"sync"
 	"time"
@@ -11,21 +12,17 @@ import (
 	"github.com/quic-go/quic-go"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
-func openQUICListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openQUICListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	_, port, err := quicTarget(s, true)
 	if err != nil {
 		return nil, err
 	}
 	network := xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+	config := s
 	network = xio.DualStackListenNetwork(config, network)
 	host, err := xio.ListenBindHost(s, network, "")
 	if err != nil {
@@ -67,15 +64,12 @@ type quicSetup struct {
 	cfg *quic.Config
 }
 
-func quicHandshakeIdleTimeout(ctx context.Context, s parse.Spec) time.Duration {
-	return xio.QUICHandshakeIdleTimeout(ctx, s)
+func quicHandshakeIdleTimeout(ctx context.Context, s addrconfig.Address) time.Duration {
+	return xio.QUICHandshakeIdleTimeout(s)
 }
 
-func quicConfig(ctx context.Context, s parse.Spec, tlsCfg *tls.Config) (quicSetup, error) {
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return quicSetup{}, err
-	}
+func quicConfig(ctx context.Context, s addrconfig.Address, tlsCfg *tls.Config) (quicSetup, error) {
+	config := s
 	quicTLS, err := withALPN(tlsCfg, alpnProto(config.TLS))
 	if err != nil {
 		return quicSetup{}, err
@@ -87,11 +81,11 @@ func quicConfig(ctx context.Context, s parse.Spec, tlsCfg *tls.Config) (quicSetu
 	return quicSetup{tls: quicTLS, cfg: cfg}, nil
 }
 
-func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.PacketConn, error) {
+func listenPacket(ctx context.Context, network, addr string, s addrconfig.Address) (net.PacketConn, error) {
 	return xio.ListenPacketWithOptions(ctx, network, addr, s)
 }
 
-func listenQUICClientPacket(ctx context.Context, network, bindHost, sourceport string, s parse.Spec, g *xio.Global) (net.PacketConn, error) {
+func listenQUICClientPacket(ctx context.Context, network, bindHost, sourceport string, s addrconfig.Address, g *xio.Global) (net.PacketConn, error) {
 	return xio.ListenClientPacket(ctx, network, bindHost, sourceport, s, g)
 }
 

@@ -13,24 +13,20 @@ import (
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
 // SOCKS4 / SOCKS4A:sockshost:targethost:targetport[,socksport=N][,socksuser=U]
-func openSOCKS4Connect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openSOCKS4Connect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openSOCKS4(ctx, s, mode, g, false)
 }
 
-func openSOCKS4AConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openSOCKS4AConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openSOCKS4(ctx, s, mode, g, true)
 }
 
-func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, socks4a bool) (*xio.Opened, error) {
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+func openSOCKS4(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, socks4a bool) (*xio.Opened, error) {
+	config := s
 	if err := tlsopen.RejectHiddenTLSOnPlaintext(config.Type, config.TLS); err != nil {
 		return nil, err
 	}
@@ -74,8 +70,8 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	}
 
 	network := xio.ConnectNetworkForType(g, s, socksHost, "tcp")
-	timeout := xio.ConnectTimeout(ctx, s)
-	handshakeTimeout := xio.HandshakeTimeout(ctx, s)
+	timeout := xio.ConnectTimeout(s)
+	handshakeTimeout := xio.HandshakeTimeout(s)
 	label := fmt.Sprintf("SOCKS4:%s:%s", targetHost, targetPort)
 	if socks4a {
 		label = fmt.Sprintf("SOCKS4A:%s:%s", targetHost, targetPort)
@@ -163,20 +159,17 @@ const (
 
 // SOCKS5 / SOCKS5-CONNECT:sockshost:targethost:targetport[,socksport=N]
 // Also SOCKS5-CONNECT:server:socksport:target:port (4 params).
-func openSOCKS5Connect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openSOCKS5Connect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openSOCKS5(ctx, s, mode, g, socks5CmdConnect)
 }
 
 // SOCKS5-LISTEN / SOCKS5-BIND: RFC 1928 BIND via the SOCKS server.
-func openSOCKS5Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openSOCKS5Listen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openSOCKS5(ctx, s, mode, g, socks5CmdBind)
 }
 
-func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, cmd byte) (*xio.Opened, error) {
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+func openSOCKS5(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, cmd byte) (*xio.Opened, error) {
+	config := s
 	if err := tlsopen.RejectHiddenTLSOnPlaintext(config.Type, config.TLS); err != nil {
 		return nil, err
 	}
@@ -220,8 +213,8 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	}
 
 	network := xio.ConnectNetworkForType(g, s, socksHost, "tcp")
-	timeout := xio.ConnectTimeout(ctx, s)
-	handshakeTimeout := xio.HandshakeTimeout(ctx, s)
+	timeout := xio.ConnectTimeout(s)
+	handshakeTimeout := xio.HandshakeTimeout(s)
 	label := fmt.Sprintf("SOCKS5:%s:%s", targetHost, targetPort)
 	if cmd == socks5CmdBind {
 		label = fmt.Sprintf("SOCKS5-LISTEN:%s:%s", targetHost, targetPort)
@@ -261,7 +254,7 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 //	server host port
 //	server:host:port  (via split)
 //	server sport host port  (4 params; sport used if socksport option unset)
-func socksParams(s parse.Spec, proxy addrconfig.Proxy) (socksHost, socksPort, targetHost, targetPort string, err error) {
+func socksParams(s addrconfig.Address, proxy addrconfig.Proxy) (socksHost, socksPort, targetHost, targetPort string, err error) {
 	if proxy.SOCKSPort.Set {
 		socksPort = proxy.SOCKSPort.Value
 	}

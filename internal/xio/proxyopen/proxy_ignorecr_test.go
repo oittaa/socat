@@ -19,7 +19,7 @@ func TestIgnoreCRZeroDoesNotRejectHTTP2(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	_, err = openProxyConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	_, err = openProxyConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err == nil {
 		t.Fatal("expected dial/handshake failure, not success")
 	}

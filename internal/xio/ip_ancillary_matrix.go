@@ -1,13 +1,11 @@
 package xio
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/optionmeta"
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // IPAncillaryKind is a bitmask of runtime effects implemented for one
@@ -262,15 +260,12 @@ func rejectIPAncillaryApply(optionName string, family ipFamily) error {
 // option the opener group, platform, or forced IP family does not implement.
 // Same combinations the CLI rejects via implementationGroups, plus Windows
 // recv/ip-options/ipv6-* and IPv4/IPv6 mismatches.
-func RejectUnsupportedIPAncillary(s parse.Spec) error {
+func RejectUnsupportedIPAncillary(s addrconfig.Address) error {
 	reg, ok := AddressRegistrationForType(s.Type)
 	if !ok {
 		return nil
 	}
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+	config := s
 	family := preparedForcedIPFamily(config)
 	if family == ipFamilyUnknown {
 		family = ipFamilyFromAddressType(s.Type)
@@ -300,11 +295,8 @@ func RejectUnsupportedIPAncillary(s parse.Spec) error {
 	return nil
 }
 
-func ipSendRequested(s parse.Spec) bool {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return false
-	}
+func ipSendRequested(s addrconfig.Address) bool {
+	config := s
 	return preparedIPSendRequested(config)
 }
 
@@ -320,11 +312,8 @@ func preparedIPSendRequested(config addrconfig.Address) bool {
 	return false
 }
 
-func ancillaryRecvRequested(s parse.Spec) bool {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return false
-	}
+func ancillaryRecvRequested(s addrconfig.Address) bool {
+	config := s
 	return preparedAncillaryRecvRequested(config)
 }
 

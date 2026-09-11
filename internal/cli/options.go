@@ -46,20 +46,24 @@ func validateSpecOptions(spec parse.Spec) error {
 			return fmt.Errorf("%s: %w", spec.Type, err)
 		}
 	}
+	config, err := decodeSpecConfig(spec)
+	if err != nil {
+		return err
+	}
 	// Preserve the specific runtime rejection reasons before checking scope.
-	if err := xio.RejectUnsupportedIPAncillary(spec); err != nil {
+	if err := xio.RejectUnsupportedIPAncillary(config); err != nil {
 		return err
 	}
-	if err := xio.RejectUnsupportedTermios(spec); err != nil {
+	if err := xio.RejectUnsupportedTermios(config); err != nil {
 		return err
 	}
-	if err := xio.RejectUnsupportedRecvErr(spec); err != nil {
+	if err := xio.RejectUnsupportedRecvErr(config); err != nil {
 		return err
 	}
-	if err := xio.ValidateDescriptorModeOptions(spec); err != nil {
+	if err := xio.ValidateDescriptorModeOptions(config); err != nil {
 		return err
 	}
-	if err := xio.RejectUnsupportedListenBacklog(spec); err != nil {
+	if err := xio.RejectUnsupportedListenBacklog(config); err != nil {
 		return err
 	}
 	for _, option := range spec.Options {
@@ -78,10 +82,6 @@ func validateSpecOptions(spec parse.Spec) error {
 		if registered && scope.RestrictTypes && !addressTypeAllowed(registration.Name, scope.AddressTypes) {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
-	}
-	config, err := decodeSpecConfig(spec)
-	if err != nil {
-		return err
 	}
 	if err := xio.RejectUnsupportedRemainingIPv4(config); err != nil {
 		return err

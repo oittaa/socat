@@ -1,7 +1,6 @@
 package xio
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +11,6 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
@@ -183,11 +181,8 @@ func (r *readBytesWrap) Read(p []byte) (int, error) {
 // ApplyReadBytes wraps a stream if the address has readbytes=N.
 // Size is parsed with base 0 (decimal, 0x hex, 0 octal).
 // readbytes=0 means unlimited and leaves the stream unwrapped.
-func ApplyReadBytes(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return nil, err
-	}
+func ApplyReadBytes(s addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
+	config := s
 	return applyReadBytes(config.Transfer.ReadBytes, stream), nil
 }
 
@@ -423,11 +418,8 @@ func applyLineTerm(ending addrconfig.LineEnding, stream relay.Stream) relay.Stre
 }
 
 // ApplyCRNL wraps a stream with the selected line-termination mode.
-func ApplyCRNL(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return nil, err
-	}
+func ApplyCRNL(s addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
+	config := s
 	return applyLineTerm(config.Transfer.LineEnding, stream), nil
 }
 
@@ -457,11 +449,8 @@ func (e *escapeReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func ApplyEscape(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return nil, err
-	}
+func ApplyEscape(s addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
+	config := s
 	return applyEscape(config.Transfer.Escape, stream), nil
 }
 
@@ -557,15 +546,12 @@ const (
 
 // WrapStream applies stream transformations after transport setup is complete.
 // TLS enforces timeouts below its record layer; other streams enforce them here.
-func WrapStream(s parse.Spec, stream relay.Stream, timeouts SocketTimeoutLayer) (relay.Stream, error) {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return nil, err
-	}
+func WrapStream(s addrconfig.Address, stream relay.Stream, timeouts SocketTimeoutLayer) (relay.Stream, error) {
+	config := s
 	// O_BINARY/O_TEXT are descriptor-level conversions. Keep the wrapper
 	// inside user-requested cr/crnl, readbytes, escape, and ignoreeof layers,
 	// and do not let zero-copy bypass it.
-	stream, err = applyConfiguredDescriptorMode(config, stream)
+	stream, err := applyConfiguredDescriptorMode(config, stream)
 	if err != nil {
 		return nil, err
 	}

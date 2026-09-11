@@ -14,17 +14,16 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
 // openTLSConnect implements TLS/TLS-CONNECT (and OPENSSL/SSL aliases).
-func openTLSConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openTLSConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	// Dual-stack like TCP-CONNECT; pf=ip4/ip6 still forces a family.
 	return openTLSConnectNetwork(ctx, s, mode, g, xio.ConnectNetworkForType(g, s, xio.FirstHost(s), "tcp"))
 }
 
-func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
+func openTLSConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
 	host, port, err := xio.HostPortParams(s)
 	if err != nil {
 		return nil, err
@@ -41,8 +40,8 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return nil, err
 	}
 
-	timeout := xio.ConnectTimeout(ctx, s)
-	handshakeTimeout := xio.HandshakeTimeout(ctx, s)
+	timeout := xio.ConnectTimeout(s)
+	handshakeTimeout := xio.HandshakeTimeout(s)
 
 	// TLS-CONNECT forks after the handshake. TCP multi-address walk first,
 	// then TLS on the winning socket.
@@ -59,11 +58,7 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 			if e != nil {
 				return e
 			}
-			config, e := xio.OpeningConfig(cctx, s)
-			if e != nil {
-				logx.CloseQuiet(raw)
-				return e
-			}
+			config := s
 			timeoutRaw := xio.NewSocketTimeoutConn(raw, config.Common.Timeouts.Read.Value, config.Common.Timeouts.Write.Value)
 			// Clone config per dial so concurrent handshake state stays isolated.
 			cfg := tlsCfg.Clone()
@@ -103,17 +98,14 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 
 // openTLSListen implements TLS-LISTEN (and OPENSSL-LISTEN/SSL-LISTEN aliases).
 // Family selection matches TCP-LISTEN: pf=, -4/-6/-0, SOCAT_DEFAULT_LISTEN_IP, else IPv4.
-func openTLSListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openTLSListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	netw := xio.ListenNetwork(g, s)
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+	config := s
 	// Same dual-stack rule as TCP6-LISTEN when ipv6-v6only=0.
 	return openTLSListenNetwork(ctx, s, mode, g, xio.DualStackListenNetwork(config, netw))
 }
 
-func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
+func openTLSListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
 	if len(s.Params) < 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("%s requires port", s.Type)
 	}
@@ -132,11 +124,7 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	if err != nil {
 		return nil, err
 	}
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		logx.CloseQuiet(ln)
-		return nil, err
-	}
+	config := s
 	tlsLn := tls.NewListener(&socketTimeoutListener{
 		Listener:     ln,
 		readTimeout:  config.Common.Timeouts.Read.Value,
@@ -155,7 +143,7 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return xio.WrapStream(s, stream, xio.TransportSocketTimeouts)
 	}
 
-	handshakeTimeout := xio.HandshakeTimeout(ctx, s)
+	handshakeTimeout := xio.HandshakeTimeout(s)
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
 		Listener:         tlsLn,
 		Label:            s.Type + ":" + port,
@@ -183,28 +171,22 @@ func (l *socketTimeoutListener) Accept() (net.Conn, error) {
 }
 
 // TLSClientConfig builds a crypto/tls client config from TLS/WSS options.
-func TLSClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
-	config, err := xio.OpeningConfig(context.Background(), s)
-	if err != nil {
-		return nil, err
-	}
+func TLSClientConfig(s addrconfig.Address, serverName string) (*tls.Config, error) {
+	config := s
 	return TLSClientConfigSettings(s.Type, config.TLS, serverName)
 }
 
-func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
+func tlsClientConfig(s addrconfig.Address, serverName string) (*tls.Config, error) {
 	return TLSClientConfig(s, serverName)
 }
 
 // TLSServerConfig builds a crypto/tls server config from TLS/WSS-LISTEN options.
-func TLSServerConfig(s parse.Spec) (*tls.Config, error) {
-	config, err := xio.OpeningConfig(context.Background(), s)
-	if err != nil {
-		return nil, err
-	}
+func TLSServerConfig(s addrconfig.Address) (*tls.Config, error) {
+	config := s
 	return TLSServerConfigSettings(s.Type, config.TLS)
 }
 
-func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
+func tlsServerConfig(s addrconfig.Address) (*tls.Config, error) {
 	return TLSServerConfig(s)
 }
 
@@ -246,11 +228,8 @@ func RejectPROXYTLSOnPlaintext(typ string, settings addrconfig.TLS) error {
 	return rejectTLSNamesOnPlaintext(typ, settings, true)
 }
 
-func tlsClientConfigForContext(ctx context.Context, s parse.Spec, serverName string) (*tls.Config, error) {
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+func tlsClientConfigForContext(ctx context.Context, s addrconfig.Address, serverName string) (*tls.Config, error) {
+	config := s
 	return TLSClientConfigSettings(s.Type, config.TLS, serverName)
 }
 
@@ -321,11 +300,8 @@ func TLSClientConfigSettings(typ string, settings addrconfig.TLS, serverName str
 	return cfg, nil
 }
 
-func tlsServerConfigForContext(ctx context.Context, s parse.Spec) (*tls.Config, error) {
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+func tlsServerConfigForContext(ctx context.Context, s addrconfig.Address) (*tls.Config, error) {
+	config := s
 	return TLSServerConfigSettings(s.Type, config.TLS)
 }
 

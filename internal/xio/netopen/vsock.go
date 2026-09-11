@@ -3,10 +3,10 @@ package netopen
 import (
 	"context"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"syscall"
 
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
 
@@ -30,17 +30,17 @@ const (
 	vsockDefaultFamily = 40
 )
 
-func openVSOCKConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openVSOCKConnect(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	remote, err := parseVsockConnectParams(s)
 	if err != nil {
 		return nil, err
 	}
-	timeout := xio.ConnectTimeout(ctx, s)
+	timeout := xio.ConnectTimeout(s)
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := xio.WithRetry(dctx, g, "vsock connect", func() error {
-			c, e := dialVSOCK(dialRequest{ctx: dctx, spec: s, g: g, timeout: timeout}, remote)
+			c, e := dialVSOCK(dialRequest{ctx: dctx, config: s, g: g, timeout: timeout}, remote)
 			if e != nil {
 				return e
 			}
@@ -57,7 +57,7 @@ func openVSOCKConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Glob
 	})
 }
 
-func openVSOCKListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openVSOCKListen(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	port, err := parseVsockListenPort(s)
 	if err != nil {
 		return nil, err
@@ -81,7 +81,7 @@ func (e vsockEndpoint) String() string {
 	return fmt.Sprintf("%d:%d", e.cid, e.port)
 }
 
-func parseVsockConnectParams(s parse.Spec) (vsockEndpoint, error) {
+func parseVsockConnectParams(s addrconfig.Address) (vsockEndpoint, error) {
 	if len(s.Params) != 2 {
 		return vsockEndpoint{}, fmt.Errorf("%s: requires <cid>:<port>", s.Type)
 	}
@@ -96,7 +96,7 @@ func parseVsockConnectParams(s parse.Spec) (vsockEndpoint, error) {
 	return vsockEndpoint{cid: cid, port: port}, nil
 }
 
-func parseVsockListenPort(s parse.Spec) (uint32, error) {
+func parseVsockListenPort(s addrconfig.Address) (uint32, error) {
 	if len(s.Params) != 1 || s.Params[0] == "" {
 		return 0, fmt.Errorf("%s requires port", s.Type)
 	}
@@ -109,11 +109,8 @@ func parseVsockListenPort(s parse.Spec) (uint32, error) {
 
 // parseVsockBindOption parses bind= [cid][:(port)].
 // Listen rejects a colon (CID only). Connect allows cid:port.
-func parseVsockBindOption(s parse.Spec, portAllowed bool) (ep vsockEndpoint, set bool, err error) {
-	config, err := xio.OpeningConfig(context.Background(), s)
-	if err != nil {
-		return vsockEndpoint{}, false, err
-	}
+func parseVsockBindOption(s addrconfig.Address, portAllowed bool) (ep vsockEndpoint, set bool, err error) {
+	config := s
 	vsock := config.Network.VSOCK
 	if !vsock.BindSet {
 		return vsockEndpoint{}, false, nil
@@ -138,16 +135,13 @@ type vsockSocketArgs struct {
 }
 
 // parseVsockSocketArgs reads pf=, socktype, and so-protocol/protocol before socket().
-func parseVsockSocketArgs(s parse.Spec) (vsockSocketArgs, error) {
+func parseVsockSocketArgs(s addrconfig.Address) (vsockSocketArgs, error) {
 	args := vsockSocketArgs{
 		family:   vsockDefaultFamily,
 		socktype: syscall.SOCK_STREAM,
 		protocol: 0,
 	}
-	config, err := xio.OpeningConfig(context.Background(), s)
-	if err != nil {
-		return vsockSocketArgs{}, err
-	}
+	config := s
 	if config.Network.ProtocolSet {
 		args.family = config.Network.ProtocolFamily
 	}

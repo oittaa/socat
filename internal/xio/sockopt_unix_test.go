@@ -37,7 +37,11 @@ func TestApplySocketOptionsRejectsNegativeSndbuf(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplySocketOptions(fd, spec); err == nil {
+	config, err := decodeAddress(spec)
+	if err == nil {
+		err = ApplySocketOptions(fd, config)
+	}
+	if err == nil {
 		t.Fatal("expected invalid sndbuf error")
 	}
 }
@@ -100,7 +104,7 @@ func TestApplyTCPConnOptsAppliesSndbufLateThroughNetConnUnwrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyTCPConnOpts(spec, netConnUnwrapper{Conn: cli}); err != nil {
+	if err := ApplyTCPConnOpts(mustDecodeAddress(t, spec), netConnUnwrapper{Conn: cli}); err != nil {
 		t.Fatal(err)
 	}
 	if got := tcpSockoptInt(t, cli, unix.SO_SNDBUF); got < 65536 {
@@ -138,7 +142,7 @@ func TestApplyListenOptionsDoesNotApplyBroadcastUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyListenOptions(fd, spec, "udp4"); err != nil {
+	if err := ApplyListenOptions(fd, mustDecodeAddress(t, spec), "udp4"); err != nil {
 		t.Fatal(err)
 	}
 	if got := unixSockoptInt(t, fd, unix.SO_BROADCAST); got != 0 {

@@ -18,7 +18,7 @@ func TestDialControlAppliesIPRetopts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &net.Dialer{Control: DialControl(spec, "udp4", nil)}
+	d := &net.Dialer{Control: DialControl(mustDecodeAddress(t, spec), "udp4", nil)}
 	c, err := d.Dial("udp4", "127.0.0.1:9")
 	if err != nil {
 		t.Fatal(err)
@@ -35,7 +35,7 @@ func TestDialControlAppliesIPRetoptsZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &net.Dialer{Control: DialControl(spec, "udp4", nil)}
+	d := &net.Dialer{Control: DialControl(mustDecodeAddress(t, spec), "udp4", nil)}
 	c, err := d.Dial("udp4", "127.0.0.1:9")
 	if err != nil {
 		t.Fatal(err)
@@ -52,7 +52,7 @@ func TestDialControlRejectsRouterAlertOnUDP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &net.Dialer{Control: DialControl(spec, "udp4", nil)}
+	d := &net.Dialer{Control: DialControl(mustDecodeAddress(t, spec), "udp4", nil)}
 	c, err := d.Dial("udp4", "127.0.0.1:9")
 	if c != nil {
 		_ = c.Close()
@@ -75,7 +75,7 @@ func TestApplyRouterAlertRejectsIPPROTORaw(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplyPastSocketPhase(fd, spec, "ip4")
+	err = ApplyPastSocketPhase(fd, mustDecodeAddress(t, spec), "ip4")
 	if err == nil || !strings.Contains(err.Error(), "IPPROTO_RAW") {
 		t.Fatalf("err=%v want IPPROTO_RAW", err)
 	}
@@ -86,7 +86,7 @@ func TestApplyGetOnlyIPOption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &net.Dialer{Control: DialControl(spec, "udp4", nil)}
+	d := &net.Dialer{Control: DialControl(mustDecodeAddress(t, spec), "udp4", nil)}
 	c, err := d.Dial("udp4", "127.0.0.1:9")
 	if c != nil {
 		_ = c.Close()

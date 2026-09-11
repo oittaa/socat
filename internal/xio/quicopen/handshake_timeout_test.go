@@ -30,7 +30,7 @@ func assertQUICConnectFailsNear(t *testing.T, spec string, min, max time.Duratio
 		t.Fatal(err)
 	}
 	started := time.Now()
-	_, err = openQUICConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	_, err = openQUICConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err == nil {
 		t.Fatal("expected timeout against silent UDP peer")
 	}

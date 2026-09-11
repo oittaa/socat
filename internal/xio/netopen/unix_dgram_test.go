@@ -38,7 +38,7 @@ func TestUnixRecvfromForkHasWrapDial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUnixRecvfrom(context.Background(), spec, xio.ModeRDWR, g)
+	o, err := openUnixRecvfrom(context.Background(), mustAddr(t, spec), xio.ModeRDWR, g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestUnixRecvfromForkWrapAfterLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUnixRecvfrom(context.Background(), spec, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	o, err := openUnixRecvfrom(context.Background(), mustAddr(t, spec), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestUnixRecvfromForkSetupFailureUnlinksBind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUnixRecvfrom(context.Background(), spec, xio.ModeRDWR, nil)
+	o, err := openUnixRecvfrom(context.Background(), mustAddr(t, spec), xio.ModeRDWR, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("expected max-children=0 to fail after bind")
@@ -149,7 +149,7 @@ func TestUnixRecvfromForkSetupFailureUnlinkCloseZeroKeepsPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUnixRecvfrom(context.Background(), spec, xio.ModeRDWR, nil)
+	o, err := openUnixRecvfrom(context.Background(), mustAddr(t, spec), xio.ModeRDWR, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("expected max-children=0 to fail after bind")
@@ -169,7 +169,7 @@ func TestUnixRecvAbstractDoesNotRegisterUnlink(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := xio.RegisteredUnlinkCount()
-	o, err := openUnixRecv(context.Background(), spec, xio.ModeRead, nil)
+	o, err := openUnixRecv(context.Background(), mustAddr(t, spec), xio.ModeRead, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestApplyUnixgramSocketOptionsAppliesSetsockoptUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := applyUnixgramSocketOptions(c, spec); err != nil {
+	if err := applyUnixgramSocketOptions(c, mustAddr(t, spec)); err != nil {
 		t.Fatalf("UNIX datagram setsockopt must apply, not no-op: %v", err)
 	}
 	if got := packetSockoptInt(t, c, unix.SO_KEEPALIVE); got == 0 {
@@ -210,7 +210,7 @@ func TestUnixRecvStreamSetupStreamSetsockoptUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := xio.SetupStream(spec, &unixRecvStream{c: c}); err != nil {
+	if _, err := xio.SetupStream(mustAddr(t, spec), &unixRecvStream{c: c}); err != nil {
 		t.Fatalf("SetupStream on UNIX-RECV wrapper must not fail: %v", err)
 	}
 	if got := packetSockoptInt(t, c, unix.SO_KEEPALIVE); got == 0 {

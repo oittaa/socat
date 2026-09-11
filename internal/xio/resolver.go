@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 )
 
 const defaultDNSPort = 53
@@ -206,7 +205,7 @@ func MatchLocalPacketAddr(network string, laddr net.Addr) (net.Addr, error) {
 
 // LookupDialIP resolves host for network. Literals keep network. Hostnames
 // may switch *6 to *4 after AI_V4MAPPED (README Intentional differences).
-func LookupDialIP(ctx context.Context, s parse.Spec, network, host string) (string, net.IP, error) {
+func LookupDialIP(ctx context.Context, s addrconfig.Address, network, host string) (string, net.IP, error) {
 	host = StripBrackets(host)
 	if host == "" {
 		return network, nil, nil
@@ -228,7 +227,7 @@ func LookupDialIP(ctx context.Context, s parse.Spec, network, host string) (stri
 // PacketNetworkForHost returns the packet/dial network for a hostname lookup.
 // QUIC and PROXY HTTP/3 call this before binding UDP so an AI_V4MAPPED result
 // can switch udp6 to udp4. Literals keep network.
-func PacketNetworkForHost(ctx context.Context, s parse.Spec, network, host string) (string, error) {
+func PacketNetworkForHost(ctx context.Context, s addrconfig.Address, network, host string) (string, error) {
 	netw, _, err := LookupDialIP(ctx, s, network, host)
 	return netw, err
 }
@@ -301,7 +300,7 @@ func ipv6Only(addrs []net.IP) []net.IP {
 //
 // IPv4-mapped results are dialed as AF_INET: Go unmaps ::ffff: addresses
 // (README Intentional differences / ai-v4mapped dial family).
-func LookupIP(ctx context.Context, s parse.Spec, hint, host string) ([]net.IP, error) {
+func LookupIP(ctx context.Context, s addrconfig.Address, hint, host string) ([]net.IP, error) {
 	host = StripBrackets(host)
 	if host == "" {
 		return nil, nil
@@ -315,12 +314,10 @@ func LookupIP(ctx context.Context, s parse.Spec, hint, host string) ([]net.IP, e
 		}
 	}
 
-	config, err := OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+	config := s
 	resolver := LookupResolver(config)
 	var ips []net.IP
+	var err error
 	if hint == "ip6" && v4mappedEnabled(config) {
 		ips, err = lookupIPv6Mapped(ctx, config, resolver, host)
 	} else {
@@ -387,7 +384,7 @@ func finishMappedLookup(config addrconfig.Address, host string, ips []net.IP) ([
 
 // ResolveIPHost resolves one host with the resolver scoped to s. Literals are
 // returned without a lookup, preserving the no-DNS literal fast path.
-func ResolveIPHost(ctx context.Context, s parse.Spec, network, host string) (string, error) {
+func ResolveIPHost(ctx context.Context, s addrconfig.Address, network, host string) (string, error) {
 	host = StripBrackets(host)
 	if host == "" {
 		return host, nil
@@ -414,7 +411,7 @@ func ResolveIPHost(ctx context.Context, s parse.Spec, network, host string) (str
 
 // ResolveUDPAddr is net.ResolveUDPAddr with per-address DNS selection and
 // context cancellation. Literal addresses never reach the selected DNS server.
-func ResolveUDPAddr(ctx context.Context, s parse.Spec, network, address string) (*net.UDPAddr, error) {
+func ResolveUDPAddr(ctx context.Context, s addrconfig.Address, network, address string) (*net.UDPAddr, error) {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return nil, err

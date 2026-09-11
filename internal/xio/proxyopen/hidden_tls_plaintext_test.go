@@ -45,7 +45,7 @@ func TestSOCKS5ConnectRejectsFIPS(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	o, err := openSOCKS5Connect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openSOCKS5Connect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if o != nil {
 		_ = o.Close()
 	}
@@ -66,7 +66,7 @@ func TestSOCKS4ConnectRejectsMethodSpelling(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	o, err := openSOCKS4Connect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openSOCKS4Connect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if o != nil {
 		_ = o.Close()
 	}
@@ -87,7 +87,7 @@ func TestPROXYHTTP1RejectsFIPS(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	o, err := openProxyConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openProxyConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if o != nil {
 		_ = o.Close()
 	}
@@ -113,7 +113,7 @@ func TestH2cCONNECTRejectsFIPS(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	o, err := openProxyConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openProxyConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if o != nil {
 		_ = o.Close()
 	}
@@ -127,7 +127,7 @@ func TestH2CONNECTRejectsEnabledFIPS(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err = openProxyConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	_, err = openProxyConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err == nil || !strings.Contains(err.Error(), `"fips"`) || !strings.Contains(err.Error(), "OpenSSL FIPS module") {
 		t.Fatalf("%v", err)
 	}

@@ -81,7 +81,7 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 		// Client CONNECT/TLS-CONNECT with fork.
 		return runConnectFork(ctx, lo, right, rMode, g)
 	case KindExec:
-		if lo.NoForkSpec == nil || lo.NoForkConfig == nil {
+		if lo.NoForkConfig == nil {
 			return fmt.Errorf("%s: exec nofork without spec", lo.Label)
 		}
 		// Left EXEC,nofork: open right first, then exec on right's stream.
@@ -90,7 +90,7 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 			return err
 		}
 		defer func() { _ = ro.Close() }()
-		return runExecNoFork(ctx, ro.EffectiveStream(), *lo.NoForkSpec, *lo.NoForkConfig, g, lMode)
+		return runExecNoFork(ctx, ro.EffectiveStream(), *lo.NoForkConfig, g, lMode)
 	}
 
 	ro, err := OpenPreparedChannel(ctx, right, rMode, g)
@@ -101,11 +101,11 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 
 	switch ro.Kind {
 	case KindExec:
-		if ro.NoForkSpec == nil || ro.NoForkConfig == nil {
+		if ro.NoForkConfig == nil {
 			return fmt.Errorf("%s: exec nofork without spec", ro.Label)
 		}
 		// Right EXEC,nofork on left stream (TCP-LISTEN + EXEC,nofork).
-		return runExecNoFork(ctx, lo.EffectiveStream(), *ro.NoForkSpec, *ro.NoForkConfig, g, rMode)
+		return runExecNoFork(ctx, lo.EffectiveStream(), *ro.NoForkConfig, g, rMode)
 	case KindListen:
 		if ro.Listener == nil {
 			return fmt.Errorf("%s: listen fork without listener", ro.Label)

@@ -3,15 +3,14 @@
 package xio
 
 import (
+	"github.com/oittaa/socat/internal/addrconfig"
 	"os"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
-func ApplyFDOptions(f *os.File, s parse.Spec) error {
+func ApplyFDOptions(f *os.File, s addrconfig.Address) error {
 	return ApplyFDOptionsSkip(f, s, FDSkip{})
 }
 
-func ApplyFDOptionsSkip(f *os.File, s parse.Spec, skip FDSkip) error {
+func ApplyFDOptionsSkip(f *os.File, s addrconfig.Address, skip FDSkip) error {
 	return applyFDLifecycleToFile(f, s, skip)
 }

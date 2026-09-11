@@ -4,22 +4,17 @@ package xio
 
 import (
 	"bufio"
-	"context"
 	"fmt"
 	"io"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
 // ValidateDescriptorModeOptions validates the mutually exclusive Cygwin
 // O_BINARY/O_TEXT modes. Omitted values mean true; =0 clears that mode.
-func ValidateDescriptorModeOptions(s parse.Spec) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func ValidateDescriptorModeOptions(s addrconfig.Address) error {
+	config := s
 	return validateConfiguredDescriptorMode(config)
 }
 
@@ -66,11 +61,8 @@ func (r *windowsTextReader) Read(p []byte) (int, error) {
 	return written, nil
 }
 
-func applyDescriptorMode(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return nil, err
-	}
+func applyDescriptorMode(s addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
+	config := s
 	return applyConfiguredDescriptorMode(config, stream)
 }
 

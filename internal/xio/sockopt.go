@@ -1,7 +1,6 @@
 package xio
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -9,7 +8,6 @@ import (
 	"syscall"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
@@ -19,17 +17,14 @@ import (
 // options, owner ioctls, and generic setsockopt-socket. IP/ancillary/
 // membership options are skipped. Go net sockets and raw SCTP use
 // ApplyNetworkSocketOptions with the actual network name.
-func ApplySocketOptions(fd int, s parse.Spec) error {
+func ApplySocketOptions(fd int, s addrconfig.Address) error {
 	return applyOrderedPastSocketPhaseOptions(fd, s, "")
 }
 
 // ApplyLateSocketOptions applies so-sndbuf-late / so-rcvbuf-late
 // (same SO_SNDBUF / SO_RCVBUF constants).
-func ApplyLateSocketOptions(fd int, s parse.Spec) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func ApplyLateSocketOptions(fd int, s addrconfig.Address) error {
+	config := s
 	return applyPreparedLateSocketOptions(fd, config)
 }
 
@@ -52,14 +47,11 @@ func applyPreparedLateSocketOptions(fd int, config addrconfig.Address) error {
 // ApplyLateSocketOptionsToConn applies so-sndbuf-late / so-rcvbuf-late
 // on a connected or accepted socket, after connect/accept and before
 // SSL/PROXY handshake.
-func ApplyLateSocketOptionsToConn(conn syscall.Conn, s parse.Spec) error {
+func ApplyLateSocketOptionsToConn(conn syscall.Conn, s addrconfig.Address) error {
 	if conn == nil {
 		return nil
 	}
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+	config := s
 	if !hasLateSocketBuffers(config) {
 		return nil
 	}
@@ -81,14 +73,11 @@ func ApplyLateSocketOptionsToConn(conn syscall.Conn, s parse.Spec) error {
 // ApplyLateSocketOptionsToPacketConn applies late buffers on a UDP
 // PacketConn (QUIC transport, ListenPacket). Rejects enabled late options
 // when the conn does not expose a socket fd.
-func ApplyLateSocketOptionsToPacketConn(pc net.PacketConn, s parse.Spec) error {
+func ApplyLateSocketOptionsToPacketConn(pc net.PacketConn, s addrconfig.Address) error {
 	if pc == nil {
 		return nil
 	}
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+	config := s
 	if !hasLateSocketBuffers(config) {
 		return nil
 	}
@@ -115,7 +104,7 @@ func ApplyLateSocketOptionsToPacketConn(pc net.PacketConn, s parse.Spec) error {
 // that was not created with ListenControl (tests, leftover callers). QUIC,
 // HTTP/3, and raw IP apply the same options once in ListenControl / DialControl
 // after socket().
-func ApplyIPSendOptsToPacketConn(pc net.PacketConn, s parse.Spec, network string) error {
+func ApplyIPSendOptsToPacketConn(pc net.PacketConn, s addrconfig.Address, network string) error {
 	if pc == nil || !ipSendRequested(s) {
 		return nil
 	}
@@ -189,11 +178,8 @@ func recordSockoptBytes(fd, level, opt int, value []byte) {
 }
 
 // ApplyStreamLateSocketOptions applies buffer sizes on exposed sockets.
-func ApplyStreamLateSocketOptions(s parse.Spec, stream relay.Stream) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func ApplyStreamLateSocketOptions(s addrconfig.Address, stream relay.Stream) error {
+	config := s
 	if !hasLateSocketBuffers(config) {
 		return nil
 	}

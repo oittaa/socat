@@ -2,8 +2,7 @@ package posixmqopen
 
 import (
 	"fmt"
-
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 type mqKind int
@@ -28,7 +27,7 @@ func kindOf(typ string) mqKind {
 	}
 }
 
-func queueName(s parse.Spec) (string, error) {
+func queueName(s addrconfig.Address) (string, error) {
 	if len(s.Params) > 1 {
 		return "", fmt.Errorf("too many parameters (%d instead of 1)", len(s.Params))
 	}

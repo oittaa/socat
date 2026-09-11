@@ -17,7 +17,7 @@ func TestApplyFDOptionsUserLateAfterUser(t *testing.T) {
 	t.Cleanup(func() { _ = f.Close() })
 	ops := captureLifecycleSyscalls(t)
 	raw := "FD:3,user-late=" + uid + ",user=" + uid
-	if err := ApplyFDOptions(f, mustSpec(t, raw)); err != nil {
+	if err := ApplyFDOptions(f, mustDecodeAddress(t, mustSpec(t, raw))); err != nil {
 		skipIfOwnerChangeDenied(t, err)
 	}
 	if got := countOp(*ops, "fchown"); got != 2 {
@@ -31,7 +31,7 @@ func TestApplyFDOptionsLseekRejectsPipe(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
-	err = ApplyFDOptions(r, mustSpec(t, "FD:3,lseek=0"))
+	err = ApplyFDOptions(r, mustDecodeAddress(t, mustSpec(t, "FD:3,lseek=0")))
 	if err == nil {
 		t.Fatal("lseek on a pipe succeeded")
 	}

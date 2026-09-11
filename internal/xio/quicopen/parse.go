@@ -7,13 +7,12 @@ import (
 	"fmt"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
 
 const defaultALPN = "socat"
 
-func quicTarget(s parse.Spec, listen bool) (host, port string, err error) {
+func quicTarget(s addrconfig.Address, listen bool) (host, port string, err error) {
 	if listen {
 		if len(s.Params) < 1 || s.Params[0] == "" {
 			return "", "", fmt.Errorf("%s requires port", s.Type)

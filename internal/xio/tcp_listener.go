@@ -2,13 +2,12 @@ package xio
 
 import (
 	"context"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // TCPListenAddress resolves the bind address without creating a socket.
-func TCPListenAddress(ctx context.Context, s parse.Spec, network, port string) (string, error) {
+func TCPListenAddress(ctx context.Context, s addrconfig.Address, network, port string) (string, error) {
 	host, err := ListenBindHost(s, network, "")
 	if err != nil {
 		return "", err
@@ -21,6 +20,6 @@ func TCPListenAddress(ctx context.Context, s parse.Spec, network, port string) (
 }
 
 // ListenTCP binds a prepared address with the requested socket options.
-func ListenTCP(ctx context.Context, s parse.Spec, network, addr string) (net.Listener, error) {
+func ListenTCP(ctx context.Context, s addrconfig.Address, network, addr string) (net.Listener, error) {
 	return ListenStream(ctx, NewTCPListenConfig(s), network, addr, s)
 }

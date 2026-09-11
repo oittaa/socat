@@ -3,16 +3,16 @@ package netopen
 import (
 	"context"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"strings"
 
 	"github.com/oittaa/socat/internal/xio"
 
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
-func openTCPConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openTCPConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	host := ""
 	if len(s.Params) >= 1 {
 		host = s.Params[0]
@@ -21,15 +21,15 @@ func openTCPConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 	return openTCPConnectNetwork(ctx, s, mode, g, xio.ConnectNetworkForType(g, s, host, "tcp"))
 }
 
-func openTCP4Connect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openTCP4Connect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openTCPConnectNetwork(ctx, s, mode, g, "tcp4")
 }
 
-func openTCP6Connect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openTCP6Connect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openTCPConnectNetwork(ctx, s, mode, g, "tcp6")
 }
 
-func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
+func openTCPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
 	host, port, err := xio.HostPortParams(s)
 	if err != nil {
 		return nil, err
@@ -41,7 +41,7 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	network = xio.ConnectNetworkForType(g, s, host, network)
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
-	timeout := xio.ConnectTimeout(ctx, s)
+	timeout := xio.ConnectTimeout(s)
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
@@ -66,7 +66,7 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	})
 }
 
-func openTCPListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openTCPListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	// Listen address family:
 	//   1) address option pf=
 	//   2) explicit -4 / -6 / -0
@@ -76,21 +76,18 @@ func openTCPListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glob
 	return openTCPListenNetwork(ctx, s, mode, g, netw)
 }
 
-func openTCP4Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openTCP4Listen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openTCPListenNetwork(ctx, s, mode, g, "tcp4")
 }
 
-func openTCP6Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openTCP6Listen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	// Go's "tcp6" forces IPV6_V6ONLY=1 after our Control hook. For
 	// ipv6-v6only=0 use dual-stack "tcp" on :: so IPv4 clients work.
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+	config := s
 	return openTCPListenNetwork(ctx, s, mode, g, xio.DualStackListenNetwork(config, "tcp6"))
 }
 
-func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
+func openTCPListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
 	if len(s.Params) < 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("%s requires port", s.Type)
 	}

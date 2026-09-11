@@ -6,13 +6,12 @@ import (
 	"strconv"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
 
 // parseFDNum is the FD / ACCEPT-FD number parser: exactly one parameter,
 // base-0 (10, 0x10, 010), leftover garbage rejected.
-func parseFDNum(s parse.Spec) (int, error) {
+func parseFDNum(s addrconfig.Address) (int, error) {
 	if len(s.Params) != 1 || s.Params[0] == "" {
 		return -1, fmt.Errorf("%s: wrong number of parameters (%d instead of 1)", s.Type, len(s.Params))
 	}
@@ -23,17 +22,14 @@ func parseFDNum(s parse.Spec) (int, error) {
 	return int(n), nil
 }
 
-func openAcceptFD(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openAcceptFD(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	fd, err := parseFDNum(s)
 	if err != nil {
 		return nil, err
 	}
 	// setsockopt-listen / ip-transparent apply before bind. ACCEPT-FD never
 	// bind()s, so reject those options rather than ignore them.
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
+	config := s
 	if err := xio.RejectGenericSetsockoptPhases(config, config.Type, xio.SockoptPhasePrebind); err != nil {
 		return nil, err
 	}

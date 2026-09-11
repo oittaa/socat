@@ -31,7 +31,7 @@ func TestTUNRejectsBadName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = openTUN(context.Background(), s, xio.ModeRDWR, nil)
+	_, err = openTUN(context.Background(), mustAddr(t, s), xio.ModeRDWR, nil)
 	if err == nil {
 		t.Fatal("expected tun-name ../all to fail")
 	}
@@ -84,7 +84,7 @@ func TestTUNRetrieveVLANRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = openTUN(context.Background(), s, xio.ModeRDWR, nil)
+	_, err = openTUN(context.Background(), mustAddr(t, s), xio.ModeRDWR, nil)
 	if err == nil || !strings.Contains(err.Error(), "AF_PACKET") {
 		t.Fatalf("err=%v want AF_PACKET INTERFACE error", err)
 	}

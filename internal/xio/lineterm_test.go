@@ -90,7 +90,11 @@ func TestClassicCRRejectsAssignment(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := SetupStream(s, inner); err == nil || !strings.Contains(err.Error(), "no value permitted") {
+		config, err := decodeAddress(s)
+		if err == nil {
+			_, err = SetupStream(config, inner)
+		}
+		if err == nil || !strings.Contains(err.Error(), "no value permitted") {
 			t.Fatalf("%s: err=%v want no value permitted", spec, err)
 		}
 	}

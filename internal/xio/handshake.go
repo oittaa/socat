@@ -1,11 +1,10 @@
 package xio
 
 import (
-	"context"
 	"net"
 	"time"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 const defaultHandshakeTimeout = 30 * time.Second
@@ -22,11 +21,7 @@ const QUICHandshakeIdleTimeoutDisabled = 365 * 24 * time.Hour
 // stalled TLS/WS/QUIC/PROXY/SOCKS handshake cannot hang forever.
 // connect-timeout remains the dial bound only. accept-timeout is the
 // accept-side bound.
-func HandshakeTimeout(ctx context.Context, s parse.Spec) time.Duration {
-	config, err := OpeningConfig(ctx, s)
-	if err != nil {
-		return defaultHandshakeTimeout
-	}
+func HandshakeTimeout(config addrconfig.Address) time.Duration {
 	if config.Common.Timeouts.Handshake.Set {
 		return config.Common.Timeouts.Handshake.Value
 	}
@@ -39,9 +34,9 @@ func HandshakeTimeout(ctx context.Context, s parse.Spec) time.Duration {
 // A zero result means no extra attempt-context timeout. Used where path
 // establishment and the cryptographic handshake are combined (QUIC Dial,
 // PROXY HTTP/3 RoundTrip).
-func CombinedConnectHandshakeTimeout(ctx context.Context, s parse.Spec) time.Duration {
-	connect := ConnectTimeout(ctx, s)
-	handshake := HandshakeTimeout(ctx, s)
+func CombinedConnectHandshakeTimeout(config addrconfig.Address) time.Duration {
+	connect := ConnectTimeout(config)
+	handshake := HandshakeTimeout(config)
 	switch {
 	case connect <= 0:
 		return handshake
@@ -57,8 +52,8 @@ func CombinedConnectHandshakeTimeout(ctx context.Context, s parse.Spec) time.Dur
 // QUICHandshakeIdleTimeout maps handshake-timeout onto quic-go
 // HandshakeIdleTimeout. handshake-timeout=0 is not passed through as 0
 // (quic-go would substitute 5s); it becomes QUICHandshakeIdleTimeoutDisabled.
-func QUICHandshakeIdleTimeout(ctx context.Context, s parse.Spec) time.Duration {
-	if d := HandshakeTimeout(ctx, s); d > 0 {
+func QUICHandshakeIdleTimeout(config addrconfig.Address) time.Duration {
+	if d := HandshakeTimeout(config); d > 0 {
 		return d
 	}
 	return QUICHandshakeIdleTimeoutDisabled

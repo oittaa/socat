@@ -1,7 +1,6 @@
 package xio
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -9,7 +8,6 @@ import (
 	"syscall"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
@@ -80,11 +78,8 @@ const (
 // phase. Kernel rejection fails the call. Every matching occurrence is
 // applied in original command-line order (aliases are already folded to
 // the canonical Name).
-func ApplyGenericSetsockopt(fd int, s parse.Spec, phase SockoptPhase) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func ApplyGenericSetsockopt(fd int, s addrconfig.Address, phase SockoptPhase) error {
+	config := s
 	if phase == SockoptPhaseConnected {
 		return applyPreparedSocketPhase(fd, config, socketApplyConnected, "")
 	}
@@ -96,11 +91,8 @@ func ApplyGenericSetsockopt(fd int, s parse.Spec, phase SockoptPhase) error {
 // SOCKETPAIR needs this rather than phase-grouped passes. Fixed post-socket()
 // options (broadcast, sndbuf, linger, …) share this walk so they are not
 // applied before named/generic occurrences.
-func ApplyGenericSetsockoptAll(fd int, s parse.Spec) error {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return err
-	}
+func ApplyGenericSetsockoptAll(fd int, s addrconfig.Address) error {
+	config := s
 	return applyPreparedSocketPhase(fd, config, socketApplySocketpair, "")
 }
 
@@ -217,11 +209,8 @@ func parseSockoptBin(rest string) (useInt bool, n int, data []byte, err error) {
 	return false, 0, data, nil
 }
 
-func hasGenericSetsockopt(s parse.Spec, phase SockoptPhase) (bool, error) {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return false, err
-	}
+func hasGenericSetsockopt(s addrconfig.Address, phase SockoptPhase) (bool, error) {
+	config := s
 	return hasPreparedGenericSetsockopt(config, phase), nil
 }
 
@@ -243,7 +232,7 @@ func hasPreparedGenericSetsockopt(config addrconfig.Address, phase SockoptPhase)
 // ApplyGenericSetsockoptToConn applies phase options on any syscall.Conn.
 // Missing options are a no-op. Present options on a conn that does not
 // expose a socket fail; they are never silently ignored.
-func ApplyGenericSetsockoptToConn(conn syscall.Conn, s parse.Spec, phase SockoptPhase) error {
+func ApplyGenericSetsockoptToConn(conn syscall.Conn, s addrconfig.Address, phase SockoptPhase) error {
 	has, err := hasGenericSetsockopt(s, phase)
 	if err != nil {
 		return err
@@ -264,7 +253,7 @@ func ApplyGenericSetsockoptToConn(conn syscall.Conn, s parse.Spec, phase Sockopt
 
 // ApplyGenericSetsockoptToNetConn unwraps NetConn() wrappers, then applies
 // phase options. A present option on a non-socket fails.
-func ApplyGenericSetsockoptToNetConn(c net.Conn, s parse.Spec, phase SockoptPhase) error {
+func ApplyGenericSetsockoptToNetConn(c net.Conn, s addrconfig.Address, phase SockoptPhase) error {
 	has, err := hasGenericSetsockopt(s, phase)
 	if err != nil {
 		return err
@@ -286,7 +275,7 @@ func ApplyGenericSetsockoptToNetConn(c net.Conn, s parse.Spec, phase SockoptPhas
 // ApplyGenericSetsockoptToPacketConn applies phase options on a PacketConn
 // (QUIC transport, ListenPacket). Rejects present options when the conn does
 // not expose a socket fd.
-func ApplyGenericSetsockoptToPacketConn(pc net.PacketConn, s parse.Spec, phase SockoptPhase) error {
+func ApplyGenericSetsockoptToPacketConn(pc net.PacketConn, s addrconfig.Address, phase SockoptPhase) error {
 	has, err := hasGenericSetsockopt(s, phase)
 	if err != nil {
 		return err
@@ -301,7 +290,7 @@ func ApplyGenericSetsockoptToPacketConn(pc net.PacketConn, s parse.Spec, phase S
 	return ApplyGenericSetsockoptToConn(sc, s, phase)
 }
 
-func applyGenericSetsockoptToStream(s parse.Spec, stream relay.Stream, phase SockoptPhase) error {
+func applyGenericSetsockoptToStream(s addrconfig.Address, stream relay.Stream, phase SockoptPhase) error {
 	has, err := hasGenericSetsockopt(s, phase)
 	if err != nil {
 		return err

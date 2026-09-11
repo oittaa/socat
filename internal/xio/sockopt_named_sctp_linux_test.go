@@ -60,7 +60,7 @@ func TestApplySocketOptionsSCTPNodelayOnTCPLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplySocketOptions(fd, spec)
+	err = ApplySocketOptions(fd, mustDecodeAddress(t, spec))
 	if err == nil {
 		t.Fatal("sctp-nodelay on TCP must fail, not no-op")
 	}
@@ -79,7 +79,7 @@ func TestApplySocketOptionsSCTPMaxsegOnUDPLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplySocketOptions(fd, spec)
+	err = ApplySocketOptions(fd, mustDecodeAddress(t, spec))
 	if err == nil {
 		t.Fatal("sctp-maxseg on UDP must fail, not no-op")
 	}
@@ -98,7 +98,11 @@ func TestApplySocketOptionsRejectsInvalidSCTPNodelayLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplySocketOptions(fd, spec); err == nil {
+	config, err := decodeAddress(spec)
+	if err == nil {
+		err = ApplySocketOptions(fd, config)
+	}
+	if err == nil {
 		t.Fatal("sctp-nodelay=no must fail (TYPE_INT), not no-op")
 	}
 }
@@ -109,7 +113,7 @@ func TestApplySocketOptionsSCTPMaxsegLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplySocketOptions(fd, spec); err != nil {
+	if err := ApplySocketOptions(fd, mustDecodeAddress(t, spec)); err != nil {
 		t.Fatal(err)
 	}
 	if got := fdSCTPSockoptInt(t, fd, sctpMaxseg); got != 1400 {
@@ -123,14 +127,14 @@ func TestApplySocketOptionsSCTPNodelayClearLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplySocketOptions(fd, on); err != nil {
+	if err := ApplySocketOptions(fd, mustDecodeAddress(t, on)); err != nil {
 		t.Fatal(err)
 	}
 	off, err := parse.ParseSpec("SCTP4:127.0.0.1:9,sctp-nodelay=0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplySocketOptions(fd, off); err != nil {
+	if err := ApplySocketOptions(fd, mustDecodeAddress(t, off)); err != nil {
 		t.Fatal(err)
 	}
 	if got := fdSCTPSockoptInt(t, fd, sctpNodelay); got != 0 {
@@ -144,7 +148,7 @@ func TestListenControlAppliesSCTPNodelayLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ListenControl(spec)("sctp4", "127.0.0.1:0", ctrlFD(fd)); err != nil {
+	if err := ListenControl(mustDecodeAddress(t, spec))("sctp4", "127.0.0.1:0", ctrlFD(fd)); err != nil {
 		t.Fatal(err)
 	}
 	if got := fdSCTPSockoptInt(t, fd, sctpNodelay); got != 1 {
@@ -161,7 +165,7 @@ func TestDialControlAppliesSCTPNodelayLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := DialControl(spec, "sctp4", nil)("sctp4", "127.0.0.1:9", ctrlFD(fd)); err != nil {
+	if err := DialControl(mustDecodeAddress(t, spec), "sctp4", nil)("sctp4", "127.0.0.1:9", ctrlFD(fd)); err != nil {
 		t.Fatal(err)
 	}
 	if got := fdSCTPSockoptInt(t, fd, sctpNodelay); got != 1 {

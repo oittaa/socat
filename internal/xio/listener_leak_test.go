@@ -43,7 +43,7 @@ func openForkListenerForLifetime(t *testing.T, ctx context.Context) (*Opened, *c
 	ln := newCloseOnlyListener()
 	t.Cleanup(func() { _ = ln.Close() })
 	spec := parseSpecForListenSession(t, "TCP-LISTEN:0,fork,accept-timeout=0.01")
-	o, err := OpenListenSession(ctx, spec, nil, ListenSession{Listener: ln, Label: "TCP-LISTEN"})
+	o, err := OpenListenSession(ctx, mustDecodeAddress(t, spec), nil, ListenSession{Listener: ln, Label: "TCP-LISTEN"})
 	if err != nil {
 		t.Fatal(err)
 	}

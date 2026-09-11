@@ -1,20 +1,15 @@
 package xio
 
 import (
-	"context"
 	"fmt"
 	"sync"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
-func wrapShutPolicy(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return nil, err
-	}
+func wrapShutPolicy(s addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
+	config := s
 	return wrapTransferShut(config.Transfer.Shutdown, stream), nil
 }
 
@@ -34,15 +29,13 @@ func wrapTransferShut(mode addrconfig.ShutdownMode, stream relay.Stream) relay.S
 }
 
 // ShutNoneSelected reports that shut-none (or shut=none) is selected.
-func ShutNoneSelected(s parse.Spec) bool {
-	config, err := OpeningConfig(context.Background(), s)
-	return err == nil && config.Transfer.Shutdown == addrconfig.ShutdownNone
+func ShutNoneSelected(config addrconfig.Address) bool {
+	return config.Transfer.Shutdown == addrconfig.ShutdownNone
 }
 
 // ShutDownSelected reports that shut-down (or shut=down) is selected.
-func ShutDownSelected(s parse.Spec) bool {
-	config, err := OpeningConfig(context.Background(), s)
-	return err == nil && config.Transfer.Shutdown == addrconfig.ShutdownDown
+func ShutDownSelected(config addrconfig.Address) bool {
+	return config.Transfer.Shutdown == addrconfig.ShutdownDown
 }
 
 // shutNoneStream makes ShutdownWrite a no-op.
