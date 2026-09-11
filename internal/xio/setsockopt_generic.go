@@ -29,18 +29,27 @@ const (
 // ApplyPreparedGenericSetsockopt applies decoded generic socket actions in
 // their original order without reparsing a level, option, or payload.
 func ApplyPreparedGenericSetsockopt(fd int, config addrconfig.Address, phase SockoptPhase) error {
+	var want addrconfig.SocketPhase
+	switch phase {
+	case SockoptPhasePrebind:
+		want = addrconfig.SocketPhasePrebind
+	case SockoptPhasePastSocket:
+		want = addrconfig.SocketPhasePastSocket
+	case SockoptPhaseConnected:
+		want = addrconfig.SocketPhaseConnected
+	default:
+		return nil
+	}
+	return applyPreparedGenericPhase(fd, config, want)
+}
+
+func applyPreparedGenericPhase(fd int, config addrconfig.Address, phase addrconfig.SocketPhase) error {
 	for _, action := range config.Network.Actions {
-		if action.Kind != addrconfig.SocketActionGeneric || !preparedSocketPhaseMatches(action.Phase, phase) {
+		if action.Kind != addrconfig.SocketActionGeneric || action.Phase != phase {
 			continue
 		}
-		if action.Value.IsInt {
-			if err := setSockoptInt(fd, action.Number, action.Option, action.Value.Int); err != nil {
-				return fmt.Errorf("setsockopt: %w", err)
-			}
-			continue
-		}
-		if err := setSockoptBytes(fd, action.Number, action.Option, action.Value.Bytes); err != nil {
-			return fmt.Errorf("setsockopt: %w", err)
+		if err := applyPreparedGenericAction(fd, action); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -86,25 +95,14 @@ const (
 // applied in original command-line order (aliases are already folded to
 // the canonical Name).
 func ApplyGenericSetsockopt(fd int, s parse.Spec, phase SockoptPhase) error {
-	for _, o := range s.Options {
-		if kind, ok := genericSetsockoptKind(o.Name, phase); ok {
-			if err := applyGenericSetsockoptOption(fd, o, kind); err != nil {
-				return err
-			}
-			continue
-		}
-		// Named TCP options after connect (tcp-maxseg-late) share this walk
-		// so they apply once with generic connected setsockopt, including
-		// on TLS/WS/proxy/SOCKS via ApplyTCPConnOpts.
-		if phase == SockoptPhaseConnected {
-			if handled, err := applyNamedConnectedSockopt(fd, o); handled {
-				if err != nil {
-					return err
-				}
-			}
-		}
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return err
 	}
-	return nil
+	if phase == SockoptPhaseConnected {
+		return applyPreparedSocketPhase(fd, config, socketApplyConnected, "")
+	}
+	return ApplyPreparedGenericSetsockopt(fd, config, phase)
 }
 
 // ApplyGenericSetsockoptAll applies every named or generic setsockopt action
@@ -113,41 +111,11 @@ func ApplyGenericSetsockopt(fd int, s parse.Spec, phase SockoptPhase) error {
 // options (broadcast, sndbuf, linger, …) share this walk so they are not
 // applied before named/generic occurrences.
 func ApplyGenericSetsockoptAll(fd int, s parse.Spec) error {
-	for _, o := range s.Options {
-		if handled, err := applyFixedPastSocketOption(fd, o); handled {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		if handled, err := applyNamedPastSocketSockopt(fd, o); handled {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		if handled, err := applyNamedConnectedSockopt(fd, o); handled {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		_, kind, ok := genericSetsockoptDescriptor(o.Name)
-		if !ok {
-			continue
-		}
-		if err := applyGenericSetsockoptOption(fd, o, kind); err != nil {
-			return err
-		}
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return err
 	}
-	return nil
-}
-
-func applyGenericSetsockoptOption(fd int, o parse.Option, kind sockoptValueKind) error {
-	if !o.Has || strings.TrimSpace(o.Value) == "" {
-		return fmt.Errorf("%s requires level:optname:value", o.Name)
-	}
-	return applyGenericSetsockoptValue(fd, o.Name, o.Value, kind)
+	return applyPreparedSocketPhase(fd, config, socketApplySocketpair, "")
 }
 
 func genericSetsockoptKind(name string, phase SockoptPhase) (sockoptValueKind, bool) {

@@ -13,68 +13,6 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-// applySocketBufferOpt sets SO_SNDBUF or SO_RCVBUF after socket().
-// Linux often doubles the stored value; callers must not require exact equality.
-// Late buffers are applied from prepared Network.Actions.
-func applySocketBufferOpt(fd int, name string, o parse.Option, present bool, opt int) error {
-	if !present {
-		return nil
-	}
-	if !o.Has {
-		return fmt.Errorf("%s: invalid value %q", name, o.Value)
-	}
-	n, err := ParseIntAny(o.Value)
-	if err != nil || n < 0 {
-		return fmt.Errorf("%s: invalid value %q", name, o.Value)
-	}
-	if err := setSockoptInt(fd, solSocket, opt, n); err != nil {
-		return fmt.Errorf("%s: %w", name, err)
-	}
-	return nil
-}
-
-// applyBroadcastOption sets SO_BROADCAST. Bare flag → 1; with '=' → integer.
-// Presence always applies, including broadcast=0. BoolOption is wrong here
-// because it skips false.
-func applyBroadcastOption(fd int, o parse.Option) error {
-	n := 1
-	if o.Has {
-		v, err := ParseIntAny(o.Value)
-		if err != nil || v < 0 {
-			return fmt.Errorf("broadcast: invalid value %q", o.Value)
-		}
-		n = v
-	}
-	if err := setSockoptInt(fd, solSocket, soBroadcast, n); err != nil {
-		return fmt.Errorf("broadcast: %w", err)
-	}
-	return nil
-}
-
-// applyFixedPastSocketOption applies one post-socket() option: broadcast,
-// sndbuf/rcvbuf, bindtodevice, so-linger, or rcvtimeo/sndtimeo. Callers walk
-// Spec.Options so these keep command-line order with named SOL_SOCKET/TCP
-// options, generic setsockopt-socket, and IP/ancillary options.
-// sndbuf-late / rcvbuf-late apply later.
-func applyFixedPastSocketOption(fd int, o parse.Option) (bool, error) {
-	switch o.Name {
-	case "broadcast":
-		return true, applyBroadcastOption(fd, o)
-	case "sndbuf":
-		return true, applySocketBufferOpt(fd, "sndbuf", o, true, soSndbuf)
-	case "rcvbuf":
-		return true, applySocketBufferOpt(fd, "rcvbuf", o, true, soRcvbuf)
-	case "bindtodevice":
-		return true, applyBindToDeviceOption(fd, o)
-	case "so-linger", "linger":
-		return true, applyLingerOption(fd, o)
-	case "rcvtimeo", "sndtimeo":
-		return true, applySocketTimeoOption(fd, o)
-	default:
-		return false, nil
-	}
-}
-
 // ApplySocketOptions applies post-socket() options on a raw descriptor
 // whose network is unknown here: fixed SOL_SOCKET options (broadcast,
 // sndbuf/rcvbuf, bindtodevice, linger, timeos), named SOL_SOCKET/TCP/SCTP

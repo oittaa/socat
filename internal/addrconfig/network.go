@@ -111,6 +111,8 @@ const (
 	SocketActionTransparent
 	SocketActionMTUDiscovery
 	SocketActionRecvErr
+	SocketActionRouterAlert
+	SocketActionGetOnly
 )
 
 // NamedSocketOption is a closed list of named integer socket options.

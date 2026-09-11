@@ -3,6 +3,7 @@
 package xio
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
@@ -21,31 +23,39 @@ func NeedAncillary(s parse.Spec) bool {
 }
 
 // ApplyAncillaryRecvOpts enables kernel delivery of control messages on fd.
-// Bare flag → 1; with '=' → integer; =0 disables. Each matching option in
-// s.Options is applied in command-line order (ippktinfo then ip-pktinfo=0
-// is two setsockopt calls).
+// Bare flag → 1; with '=' → integer; =0 disables. Each matching decoded
+// ancillary action is applied in command-line order (ippktinfo then
+// ip-pktinfo=0 is two setsockopt calls).
 func ApplyAncillaryRecvOpts(fd int, s parse.Spec) error {
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return err
+	}
 	family, err := socketIPFamily(fd)
 	if err != nil {
 		return err
 	}
-	for _, option := range s.Options {
-		e, ok := lookupIPAncillary(specOptionName(option))
-		if !ok || e.Kind&IPAncillaryRecv == 0 {
+	resolved := family
+	for _, action := range config.Network.Actions {
+		if action.Kind != addrconfig.SocketActionAncillary {
 			continue
 		}
-		if err := applyOneIPRecvOpt(fd, e, option, family); err != nil {
+		name, kind, ok := ancillaryOptionIdentity(action.Ancillary)
+		if !ok || kind&IPAncillaryRecv == 0 {
+			continue
+		}
+		e, inMatrix := lookupIPAncillary(name)
+		if !inMatrix {
+			continue
+		}
+		if err := applyPreparedIPRecv(fd, e, action.Number, resolved); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func applyOneIPRecvOpt(fd int, e IPAncillaryEntry, option parse.Option, family ipFamily) error {
-	n, err := ancillaryRecvOptionInt(option)
-	if err != nil {
-		return fmt.Errorf("%s: %w", e.Canonical, err)
-	}
+func applyPreparedIPRecv(fd int, e IPAncillaryEntry, n int, family ipFamily) error {
 	if err := rejectIPAncillaryApply(e.Canonical, family); err != nil {
 		return err
 	}

@@ -1,5 +1,9 @@
 package optionmeta
 
+// IsolationUnsupportedReason is the rejection text for process-wide
+// credential and root-change options.
+const IsolationUnsupportedReason = "process-wide credentials/root changes require process isolation"
+
 var isolationOptions = []Option{
 	{Canonical: "chroot",
 		Isolation: true, Hidden: true,

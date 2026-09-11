@@ -207,20 +207,11 @@ func ApplyPastSocketPhase(fd int, s parse.Spec, network string) error {
 // ApplyPrebindPhase applies generic setsockopt-listen and ip-transparent
 // before bind()/connect(), in command-line order.
 func ApplyPrebindPhase(fd int, s parse.Spec) error {
-	for _, o := range s.Options {
-		if kind, ok := genericSetsockoptKind(o.Name, SockoptPhasePrebind); ok {
-			if err := applyGenericSetsockoptOption(fd, o, kind); err != nil {
-				return err
-			}
-			continue
-		}
-		if matched, err := applyTransparentOption(fd, o); matched {
-			if err != nil {
-				return err
-			}
-		}
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return err
 	}
-	return nil
+	return applyPreparedSocketPhase(fd, config, socketApplyPrebind, "")
 }
 
 // ApplyPastSocketThenPrebind is the Control-hook order used by net.Dialer

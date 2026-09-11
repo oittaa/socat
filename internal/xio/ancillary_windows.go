@@ -43,7 +43,7 @@ func ControlMessageBytes(oob []byte, oobn, _ int) []byte {
 	return oob[:oobn]
 }
 
-func applyOneIPRecvOpt(_ int, e IPAncillaryEntry, _ parse.Option, family ipFamily) error {
+func applyPreparedIPRecv(_ int, e IPAncillaryEntry, _ int, family ipFamily) error {
 	return rejectIPAncillaryApply(e.Canonical, family)
 }
 

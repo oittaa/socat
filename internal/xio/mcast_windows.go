@@ -5,6 +5,7 @@ package xio
 import (
 	"fmt"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -17,5 +18,21 @@ func applyMulticastNamedFD(_ int, _ multicastNamedKind, name string, _ parse.Opt
 }
 
 func applySourceMembershipFD(_ int, _ membershipFamily, name, _ string) error {
+	return fmt.Errorf("%s: not supported on Windows", name)
+}
+
+func applyPreparedMulticast(_ int, req addrconfig.MulticastRequest) error {
+	name := req.Name
+	if name == "" {
+		name = "ip-add-membership"
+	}
+	return fmt.Errorf("%s: not supported on Windows", name)
+}
+
+func applyPreparedSourceMulticast(_ int, req addrconfig.SourceMulticastRequest) error {
+	name := req.Name
+	if name == "" {
+		name = "ip-add-source-membership"
+	}
 	return fmt.Errorf("%s: not supported on Windows", name)
 }

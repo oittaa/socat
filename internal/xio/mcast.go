@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
@@ -309,4 +310,97 @@ func setIPv6MembershipFD(fd int, group net.IP, ifindex uint32) error {
 		return fmt.Errorf("ipv6-join-group: %w", err)
 	}
 	return nil
+}
+
+func applyPreparedMulticast(fd int, req addrconfig.MulticastRequest) error {
+	name := req.Name
+	switch req.Kind {
+	case addrconfig.MulticastJoinIPv4:
+		if name == "" {
+			name = "ip-add-membership"
+		}
+		return applyMembershipJoins(fd, []membershipJoin{{
+			family: membershipFamilyIPv4,
+			spec:   multicastJoinSpec(req),
+			name:   name,
+		}})
+	case addrconfig.MulticastJoinIPv6:
+		if name == "" {
+			name = "ipv6-join-group"
+		}
+		return applyMembershipJoins(fd, []membershipJoin{{
+			family: membershipFamilyIPv6,
+			spec:   multicastJoinSpec(req),
+			name:   name,
+		}})
+	case addrconfig.MulticastInterfaceIPv4:
+		if name == "" {
+			name = "ip-multicast-if"
+		}
+		return applyMulticastNamedFD(fd, multicastNamedIf, name, parse.Option{
+			Name:  name,
+			Value: formatMcastHost(req.InterfaceAddr),
+			Has:   true,
+		})
+	case addrconfig.MulticastLoopIPv4:
+		if name == "" {
+			name = "ip-multicast-loop"
+		}
+		return applyMulticastNamedFD(fd, multicastNamedLoop, name, multicastIntOption(name, req.Value))
+	case addrconfig.MulticastTTLIPv4:
+		if name == "" {
+			name = "ip-multicast-ttl"
+		}
+		return applyMulticastNamedFD(fd, multicastNamedTTL, name, multicastIntOption(name, req.Value))
+	case addrconfig.MulticastLoopIPv6:
+		if name == "" {
+			name = "ipv6-multicast-loop"
+		}
+		return applyMulticastNamedFD(fd, multicastNamedIPv6Loop, name, multicastIntOption(name, req.Value))
+	default:
+		return fmt.Errorf("%s: internal error", name)
+	}
+}
+
+func applyPreparedSourceMulticast(fd int, req addrconfig.SourceMulticastRequest) error {
+	name := req.Name
+	family := membershipFamilyIPv4
+	if req.IPv6 {
+		family = membershipFamilyIPv6
+		if name == "" {
+			name = "ipv6-join-source-group"
+		}
+	} else if name == "" {
+		name = "ip-add-source-membership"
+	}
+	return applySourceMembershipFD(fd, family, name, formatMcastHost(req.Group)+":"+formatMcastHost(req.Interface)+":"+formatMcastHost(req.Source))
+}
+
+func multicastIntOption(name string, n int) parse.Option {
+	return parse.Option{Name: name, Value: strconv.Itoa(n), Has: true}
+}
+
+func multicastJoinSpec(req addrconfig.MulticastRequest) string {
+	group := formatMcastHost(req.Group)
+	if req.ThreeField {
+		return group + ":" + formatMcastHost(req.InterfaceAddr) + ":" + multicastIfaceToken(req)
+	}
+	if token := multicastIfaceToken(req); token != "" {
+		return group + ":" + token
+	}
+	return group + ":" + formatMcastHost(req.InterfaceAddr)
+}
+
+func multicastIfaceToken(req addrconfig.MulticastRequest) string {
+	if req.InterfaceIsID {
+		return strconv.FormatUint(uint64(req.InterfaceID), 10)
+	}
+	return req.InterfaceName
+}
+
+func formatMcastHost(t addrconfig.HostTarget) string {
+	if t.IsLiteral() && t.Literal.Is6() {
+		return "[" + t.Literal.String() + "]"
+	}
+	return t.String()
 }

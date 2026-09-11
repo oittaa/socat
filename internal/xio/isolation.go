@@ -7,8 +7,6 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-const isolationUnsupportedReason = "process-wide credentials/root changes require process isolation"
-
 // RejectUnsupportedIsolation fails when a spec requests process-wide
 // credential or root changes. Those require process isolation and are not
 // implemented.
@@ -21,7 +19,7 @@ func RejectUnsupportedIsolation(s parse.Spec) error {
 		if _, ok := isolationCanonicalName(option); !ok {
 			continue
 		}
-		return fmt.Errorf("%s: option %q is not supported (%s)", typ, option.OriginalSpelling(), isolationUnsupportedReason)
+		return fmt.Errorf("%s: option %q is not supported (%s)", typ, option.OriginalSpelling(), optionmeta.IsolationUnsupportedReason)
 	}
 	return nil
 }

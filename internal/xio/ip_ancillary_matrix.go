@@ -403,21 +403,3 @@ func ancillaryOptionIdentity(opt addrconfig.AncillaryOption) (canonical string, 
 		return "", 0, false
 	}
 }
-
-func ancillaryRecvOptionInt(o parse.Option) (int, error) {
-	if !o.Has {
-		return 1, nil
-	}
-	v := strings.ToLower(strings.TrimSpace(o.Value))
-	switch v {
-	case "", "0", "false", "no", "off":
-		return 0, nil
-	case "1", "true", "yes", "on":
-		return 1, nil
-	}
-	n, err := ParseIntAny(o.Value)
-	if err != nil {
-		return 0, err
-	}
-	return n, nil
-}

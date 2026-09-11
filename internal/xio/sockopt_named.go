@@ -2,9 +2,8 @@ package xio
 
 import (
 	"errors"
-	"fmt"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 // Named SOL_SOCKET, TCP, and Linux SCTP integer socket options.
@@ -14,59 +13,60 @@ import (
 // sctp-maxseg-late are not implemented. sctp-nodelay/sctp-maxseg use SOL_SCTP.
 var errNamedOptUnsupported = errors.New("not supported on this platform")
 
-func parseTypeIntSockopt(o parse.Option) (int, error) {
-	if !o.Has {
-		return 1, nil
-	}
-	n, err := ParseIntAny(o.Value)
-	if err != nil {
-		return 0, fmt.Errorf("%s: invalid value %q", o.Name, o.Value)
-	}
-	return n, nil
-}
-
-func applyNamedIntSockopt(fd int, o parse.Option, level, opt int) error {
-	n, err := parseTypeIntSockopt(o)
-	if err != nil {
-		return err
-	}
-	if err := setSockoptInt(fd, level, opt, n); err != nil {
-		return fmt.Errorf("%s: %w", o.Name, err)
-	}
-	return nil
-}
-
-// applyNamedPastSocketSockopt applies one named SOL_SOCKET, TCP, or Linux
-// SCTP integer option after socket(). Callers walk Spec.Options so named,
-// fixed (broadcast/sndbuf/linger/…), generic setsockopt-socket, and IP
-// options retain command-line order.
-func applyNamedPastSocketSockopt(fd int, o parse.Option) (bool, error) {
-	level, opt, ok, err := lookupNamedPastSocketInt(o.Name)
-	if !ok {
-		return false, nil
-	}
-	if err != nil {
-		return true, fmt.Errorf("%s: %w", o.Name, err)
-	}
-	return true, applyNamedIntSockopt(fd, o, level, opt)
-}
-
-// applyNamedConnectedSockopt applies named TCP options after connect
-// (tcp-maxseg-late). ApplyGenericSetsockopt's connected walk calls it so
-// TLS/WS/proxy/SOCKS (ApplyTCPConnOpts) and SetupStream fallbacks share one
-// pass and do not apply connected generic setsockopt twice.
-func applyNamedConnectedSockopt(fd int, o parse.Option) (bool, error) {
-	level, opt, ok, err := lookupNamedConnectedInt(o.Name)
-	if !ok {
-		return false, nil
-	}
-	if err != nil {
-		return true, fmt.Errorf("%s: %w", o.Name, err)
-	}
-	return true, applyNamedIntSockopt(fd, o, level, opt)
-}
-
 func namedConnectedTCPName(name string) bool {
 	_, _, ok, _ := lookupNamedConnectedInt(name)
 	return ok
+}
+
+func namedSocketOptionName(option addrconfig.NamedSocketOption) string {
+	switch option {
+	case addrconfig.NamedSocketDebug:
+		return "so-debug"
+	case addrconfig.NamedSocketDontRoute:
+		return "so-dontroute"
+	case addrconfig.NamedSocketOOBInline:
+		return "so-oobinline"
+	case addrconfig.NamedSocketRecvLowWater:
+		return "so-rcvlowat"
+	case addrconfig.NamedSocketSendLowWater:
+		return "so-sndlowat"
+	case addrconfig.NamedSocketPriority:
+		return "so-priority"
+	case addrconfig.NamedSocketPassCred:
+		return "so-passcred"
+	case addrconfig.NamedSocketNoCheck:
+		return "so-no-check"
+	case addrconfig.NamedSocketDetachFilter:
+		return "so-detach-filter"
+	case addrconfig.NamedSocketTCPCork:
+		return "tcp-cork"
+	case addrconfig.NamedSocketTCPDeferAccept:
+		return "tcp-defer-accept"
+	case addrconfig.NamedSocketTCPLinger2:
+		return "tcp-linger2"
+	case addrconfig.NamedSocketTCPMaxSeg:
+		return "tcp-maxseg"
+	case addrconfig.NamedSocketTCPQuickAck:
+		return "tcp-quickack"
+	case addrconfig.NamedSocketTCPSyncNT:
+		return "tcp-syncnt"
+	case addrconfig.NamedSocketTCPWindowClamp:
+		return "tcp-window-clamp"
+	case addrconfig.NamedSocketTCPNoPush:
+		return "nopush"
+	case addrconfig.NamedSocketTCPNoOpt:
+		return "noopt"
+	case addrconfig.NamedSocketSCTPNoDelay:
+		return "sctp-nodelay"
+	case addrconfig.NamedSocketSCTPMaxSeg:
+		return "sctp-maxseg"
+	case addrconfig.NamedSocketTCPMaxSegLate:
+		return "tcp-maxseg-late"
+	case addrconfig.NamedSocketFIOSetown:
+		return "fiosetown"
+	case addrconfig.NamedSocketSIOCSPGRP:
+		return "siocspgrp"
+	default:
+		return ""
+	}
 }

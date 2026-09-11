@@ -44,21 +44,6 @@ func routerAlertOptionName(name string) bool {
 	return ok && d.Canonical == "ip-router-alert"
 }
 
-func applyGetOnlyIPOption(_ int, o parse.Option) (bool, error) {
-	_, kernel, spelling, ok := getOnlyIPOptionName(o)
-	if !ok {
-		return false, nil
-	}
-	return true, fmt.Errorf("%s: %s is get-only; not implemented as a setter", spelling, kernel)
-}
-
-func applyRouterAlertOption(fd int, o parse.Option) (bool, error) {
-	if !isRouterAlertOption(o) {
-		return false, nil
-	}
-	return true, applyRouterAlertFD(fd, o)
-}
-
 func rejectRouterAlert(s parse.Spec, o parse.Option) error {
 	spelling := optionSpelling(o)
 	if !isRawIPAddress(s.Type) {

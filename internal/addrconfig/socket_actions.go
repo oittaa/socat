@@ -100,9 +100,17 @@ func socketAction(o parse.Option, name string) (SocketAction, bool, error) {
 			return SocketAction{}, true, fmt.Errorf("%s: %w", name, err)
 		}
 		return SocketAction{Kind: SocketActionRecvErr, Phase: SocketPhasePastSocket, Text: name, Number: n}, true, nil
+	case "ip-router-alert":
+		n, err := optionalSocketInt(o, 1)
+		if err != nil {
+			return SocketAction{}, true, fmt.Errorf("ip-router-alert: invalid value %q", o.Value)
+		}
+		return SocketAction{Kind: SocketActionRouterAlert, Phase: SocketPhasePastSocket, Text: name, Number: n}, true, nil
+	case "ip-mtu", "ip-pktoptions":
+		return SocketAction{Kind: SocketActionGetOnly, Phase: SocketPhasePastSocket, Text: name}, true, nil
 	}
 	if named, ok := namedSocketOption(name); ok {
-		n, err := optionalSocketInt(o, 1)
+		n, err := optionalNamedSocketInt(o, named)
 		if err != nil {
 			return SocketAction{}, true, fmt.Errorf("%s: invalid value %q", name, o.Value)
 		}
@@ -197,6 +205,16 @@ func optionalSocketInt(o parse.Option, fallback int) (int, error) {
 		return fallback, nil
 	}
 	return socketIntText(o.Value)
+}
+
+func optionalNamedSocketInt(o parse.Option, named NamedSocketOption) (int, error) {
+	if named == NamedSocketFIOSetown || named == NamedSocketSIOCSPGRP {
+		if !o.Has {
+			return 1, nil
+		}
+		return classicCInt(o.Value)
+	}
+	return optionalSocketInt(o, 1)
 }
 
 func namedSocketOption(name string) (NamedSocketOption, bool) {

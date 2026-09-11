@@ -234,6 +234,14 @@ func Decode(spec parse.Spec, facts Facts) (Address, error) {
 }
 
 func decodeOption(a *Address, o parse.Option) error {
+	name := optionIdentity(o)
+	if _, ok := optionmeta.IsolationCanonical(name); ok {
+		spelling := o.OriginalSpelling()
+		if spelling == "" {
+			spelling = o.Name
+		}
+		return fmt.Errorf("option %q is not supported (%s)", spelling, optionmeta.IsolationUnsupportedReason)
+	}
 	if handled, err := decodeFileProcess(a, o); handled {
 		return err
 	}
@@ -246,7 +254,6 @@ func decodeOption(a *Address, o parse.Option) error {
 	if handled, err := decodeProtocolOption(a, o); handled {
 		return err
 	}
-	name := optionIdentity(o)
 	switch name {
 	case "fork":
 		v := activeBool(o)

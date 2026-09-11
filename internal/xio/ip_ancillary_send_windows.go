@@ -31,7 +31,7 @@ func socketIPFamily(fd int) (ipFamily, error) {
 	}
 }
 
-func applyIPOptions(int, string) error {
+func applyIPOptionsBytes(int, []byte) error {
 	return fmt.Errorf("not supported on this platform")
 }
 

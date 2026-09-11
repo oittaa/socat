@@ -38,16 +38,16 @@ func TestGetOnlyIPv4DoesNotMatchMTUDiscover(t *testing.T) {
 	}
 }
 
-func TestApplyGetOnlyIPOptionRejectsAllSpellings(t *testing.T) {
+func TestRejectUnsupportedGetOnlyRecognizesSpellings(t *testing.T) {
 	opts := []parse.Option{
 		{Name: "ip-mtu"}, {Name: "ipmtu"}, {Name: "mtu"},
 		{Name: "ip-pktoptions"}, {Name: "ippktoptions"}, {Name: "pktoptions"}, {Name: "pktopts"},
 		{Name: "other", Spelling: " IP-MTU "},
 	}
 	for _, o := range opts {
-		matched, err := applyGetOnlyIPOption(-1, o)
-		if !matched || err == nil || !strings.Contains(err.Error(), "get-only") {
-			t.Errorf("%+v: matched=%v err=%v", o, matched, err)
+		err := RejectUnsupportedRemainingIPv4(parse.Spec{Type: "TCP", Options: []parse.Option{o}})
+		if err == nil || !strings.Contains(err.Error(), "get-only") {
+			t.Errorf("%+v: err=%v want get-only", o, err)
 		}
 	}
 }
