@@ -347,19 +347,11 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s addrconfig.Addre
 	}
 	want4 := WantIPv4(network, remote)
 
-	if !s.Network.BindSet {
-		// sourceport only: wildcard of matching family, or loopback when
-		// ai-passive=0.
-		if listenAIPassive(s) {
-			if want4 {
-				return &net.TCPAddr{IP: net.IPv4zero, Port: port}, false, nil
-			}
-			return &net.TCPAddr{IP: net.IPv6zero, Port: port}, false, nil
-		}
-		if want4 {
-			return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}, false, nil
-		}
-		return &net.TCPAddr{IP: net.IPv6loopback, Port: port}, false, nil
+	if !s.Network.BindSet || s.Network.Bind.Empty() {
+		// sourceport only, or bind=:port with an empty node: wildcard of
+		// matching family, or loopback when ai-passive=0. Do not look up
+		// an empty hostname.
+		return &net.TCPAddr{IP: defaultLocalIP(listenAIPassive(s), want4), Port: port}, false, nil
 	}
 
 	bind := s.Network.Bind

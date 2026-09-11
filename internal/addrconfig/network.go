@@ -73,6 +73,11 @@ func (t HostTarget) IsLiteral() bool {
 	return t.Literal.IsValid()
 }
 
+// Empty reports a bind host with no name and no literal, including bind=:port.
+func (t HostTarget) Empty() bool {
+	return !t.IsLiteral() && strings.TrimSpace(t.Name) == ""
+}
+
 // IP is the typed literal, or nil when the host must be resolved.
 func (t HostTarget) IP() net.IP {
 	if !t.IsLiteral() {
@@ -828,14 +833,17 @@ func targetFromText(text string) HostTarget {
 
 func bindSplitsHostPort(n *Network) bool {
 	switch n.Kind {
-	case AddressKindSocket, AddressKindVSOCK, AddressKindTUN, AddressKindINTERFACE, AddressKindFD, AddressKindPOSIXMQ:
+	case AddressKindSocket, AddressKindVSOCK, AddressKindTUN, AddressKindINTERFACE, AddressKindFD, AddressKindPOSIXMQ, AddressKindRawIP:
 		return false
 	}
+	// Connect, sendto, and datagram accept bind=host:port. LISTEN and RECV
+	// take the port from the positional argument; bind is a hostname only.
 	switch n.Role {
-	case AddressRoleConnect, AddressRoleListen, AddressRoleSendTo, AddressRoleDatagram, AddressRoleReceive, AddressRoleReceiveFrom:
+	case AddressRoleConnect, AddressRoleSendTo, AddressRoleDatagram:
 		return true
+	default:
+		return false
 	}
-	return false
 }
 
 func parseBindValue(text string, splitHostPort bool) (HostTarget, PortTarget, bool) {

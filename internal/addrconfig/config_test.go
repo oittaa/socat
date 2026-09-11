@@ -393,6 +393,70 @@ func TestDecodeBindHostPort(t *testing.T) {
 	if got.Network.BindPortSet || got.Network.Bind.Original() != "/tmp/foo:bar" {
 		t.Fatalf("unix bind=%+v portset=%v", got.Network.Bind, got.Network.BindPortSet)
 	}
+
+	got = decodeSpec(t, "TCP:h:9,bind=:12345")
+	if !got.Network.BindSet || !got.Network.Bind.Empty() {
+		t.Fatalf("empty bind host=%+v", got.Network.Bind)
+	}
+	if !got.Network.BindPortSet || got.Network.BindPort.Number != 12345 {
+		t.Fatalf("empty-host bind port=%+v", got.Network.BindPort)
+	}
+}
+
+func TestDecodeListenBindDoesNotSplitHostPort(t *testing.T) {
+	spec, err := parse.ParseSpec("TCP4-LISTEN:443,bind=127.0.0.1:8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Decode(spec, Facts{Type: "TCP4-LISTEN", Role: AddressRoleListen, Family: IPFamilyIPv4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Network.ListenSet || got.Network.ListenPort.Number != 443 {
+		t.Fatalf("listen port=%+v", got.Network.ListenPort)
+	}
+	if got.Network.BindPortSet {
+		t.Fatalf("listen bind must not take a port, got %+v", got.Network.BindPort)
+	}
+	if got.Network.Bind.String() != "127.0.0.1:8080" {
+		t.Fatalf("listen bind host=%+v", got.Network.Bind)
+	}
+
+	spec, err = parse.ParseSpec("TCP4-LISTEN:443,bind=:8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = Decode(spec, Facts{Type: "TCP4-LISTEN", Role: AddressRoleListen, Family: IPFamilyIPv4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Network.BindPortSet || got.Network.Bind.Empty() || got.Network.Bind.String() != ":8080" {
+		t.Fatalf("listen bind=:port decoded=%+v", got.Network)
+	}
+
+	spec, err = parse.ParseSpec("UDP4-DATAGRAM:224.255.0.1:6666,bind=:6666")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = Decode(spec, Facts{Type: "UDP4-DATAGRAM", Role: AddressRoleDatagram, Family: IPFamilyIPv4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Network.Bind.Empty() || !got.Network.BindPortSet || got.Network.BindPort.Number != 6666 {
+		t.Fatalf("datagram bind=:port=%+v", got.Network)
+	}
+
+	spec, err = parse.ParseSpec("UDP4-LISTEN:6666,bind=:6666")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = Decode(spec, Facts{Type: "UDP4-LISTEN", Role: AddressRoleListen, Family: IPFamilyIPv4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Network.BindPortSet || got.Network.Bind.String() != ":6666" {
+		t.Fatalf("udp listen bind=:port=%+v", got.Network)
+	}
 }
 
 func TestDecodeBindPFAndIPv6V6Only(t *testing.T) {

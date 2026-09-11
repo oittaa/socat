@@ -2,6 +2,7 @@ package xio
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strconv"
 
@@ -25,6 +26,9 @@ func TCPListenAddress(ctx context.Context, s addrconfig.Address, network string,
 	formatted := host.String()
 	if ip != nil {
 		formatted = FormatIPForNetwork(network, ip)
+	}
+	if formatted == "" {
+		return "", fmt.Errorf("%s: bind requires a host", s.Type)
 	}
 	return net.JoinHostPort(formatted, strconv.Itoa(n)), nil
 }

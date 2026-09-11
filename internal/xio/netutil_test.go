@@ -181,3 +181,36 @@ func TestBindHostAndDualStackFromPreparedConfig(t *testing.T) {
 		t.Fatalf("v6only network=%s", got)
 	}
 }
+
+func decodeRole(t *testing.T, raw string, role addrconfig.AddressRole, family addrconfig.IPFamily) addrconfig.Address {
+	t.Helper()
+	spec, err := parse.ParseSpec(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: spec.Type, Role: role, Family: family})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return config
+}
+
+func TestListenBindHostEmptyHostFollowsPassive(t *testing.T) {
+	config := decodeRole(t, "TCP4:127.0.0.1:9,bind=:1234", addrconfig.AddressRoleConnect, addrconfig.IPFamilyIPv4)
+	host, err := ListenBindHost(config, "tcp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !host.IsLiteral() || host.String() != "0.0.0.0" {
+		t.Fatalf("passive empty bind host=%+v", host)
+	}
+
+	config = decodeRole(t, "TCP4:127.0.0.1:9,bind=:0,ai-passive=0", addrconfig.AddressRoleConnect, addrconfig.IPFamilyIPv4)
+	host, err = ListenBindHost(config, "tcp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !host.IsLiteral() || host.String() != "127.0.0.1" {
+		t.Fatalf("ai-passive=0 empty bind host=%+v", host)
+	}
+}

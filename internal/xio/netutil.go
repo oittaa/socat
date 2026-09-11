@@ -334,24 +334,15 @@ func DualStackListenNetwork(config addrconfig.Address, network string) string {
 
 // ListenBindHost resolves the bind host for listen and local-bind paths.
 // An explicit bind= host is returned unchanged: never rewrite :: to 0.0.0.0.
-// A family wildcard is supplied only when bind is absent.
-// Forced-family combinations that would otherwise fail inside the OS resolver
-// (TCP4/UDP4 vs ::, TCP6 vs 0.0.0.0) return a clear error.
+// A family wildcard is supplied only when bind is absent or the host is empty
+// (bind=:port). Forced-family combinations that would otherwise fail inside the
+// OS resolver (TCP4/UDP4 vs ::, TCP6 vs 0.0.0.0) return a clear error.
 //
 // LISTEN/RECV/bind set getaddrinfo AI_PASSIVE unless ai-passive=0.
 // AI_PASSIVE with an empty node is the wildcard; unset is loopback.
 func ListenBindHost(s addrconfig.Address, network string) (addrconfig.HostTarget, error) {
-	if !s.Network.BindSet {
-		if listenAIPassive(s) {
-			if forcedIPv4Network(network) {
-				return addrconfig.HostFromText("0.0.0.0"), nil
-			}
-			return addrconfig.HostFromText("::"), nil
-		}
-		if forcedIPv4Network(network) {
-			return addrconfig.HostFromText("127.0.0.1"), nil
-		}
-		return addrconfig.HostFromText("::1"), nil
+	if !s.Network.BindSet || s.Network.Bind.Empty() {
+		return defaultLocalHost(listenAIPassive(s), forcedIPv4Network(network)), nil
 	}
 	host := s.Network.Bind
 	if ip := host.IP(); ip != nil {
@@ -364,6 +355,32 @@ func ListenBindHost(s addrconfig.Address, network string) (addrconfig.HostTarget
 		}
 	}
 	return host, nil
+}
+
+func defaultLocalHost(passive, ipv4 bool) addrconfig.HostTarget {
+	if passive {
+		if ipv4 {
+			return addrconfig.HostFromText("0.0.0.0")
+		}
+		return addrconfig.HostFromText("::")
+	}
+	if ipv4 {
+		return addrconfig.HostFromText("127.0.0.1")
+	}
+	return addrconfig.HostFromText("::1")
+}
+
+func defaultLocalIP(passive, ipv4 bool) net.IP {
+	if passive {
+		if ipv4 {
+			return net.IPv4zero
+		}
+		return net.IPv6zero
+	}
+	if ipv4 {
+		return net.IPv4(127, 0, 0, 1)
+	}
+	return net.IPv6loopback
 }
 
 func StripBrackets(host string) string {

@@ -160,3 +160,47 @@ func TestBindTCPAddrSourcePortWhenBindHasNoPort(t *testing.T) {
 		t.Fatalf("port=%d want sourceport 123", laddr.Port)
 	}
 }
+
+func decodeConnectBind(t *testing.T, raw string) addrconfig.Address {
+	t.Helper()
+	spec, err := parse.ParseSpec(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: spec.Type, Role: addrconfig.AddressRoleConnect, Family: addrconfig.IPFamilyIPv4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return config
+}
+
+func TestBindTCPAddrEmptyHostSelectsPassiveDefault(t *testing.T) {
+	config := decodeConnectBind(t, "TCP4:127.0.0.1:9,bind=:1234")
+	laddr, skip, err := BindTCPAddrForRemote(t.Context(), net.IPv4(127, 0, 0, 1), config, "tcp4")
+	if err != nil || skip || laddr == nil {
+		t.Fatalf("laddr=%v skip=%v err=%v", laddr, skip, err)
+	}
+	if laddr.Port != 1234 || !laddr.IP.Equal(net.IPv4zero) {
+		t.Fatalf("passive bind=:port got %v", laddr)
+	}
+
+	config = decodeConnectBind(t, "TCP4:127.0.0.1:9,bind=:1234,ai-passive=0")
+	laddr, skip, err = BindTCPAddrForRemote(t.Context(), net.IPv4(127, 0, 0, 1), config, "tcp4")
+	if err != nil || skip || laddr == nil {
+		t.Fatalf("laddr=%v skip=%v err=%v", laddr, skip, err)
+	}
+	if laddr.Port != 1234 || !laddr.IP.Equal(net.IPv4(127, 0, 0, 1)) {
+		t.Fatalf("ai-passive=0 bind=:port got %v", laddr)
+	}
+}
+
+func TestBindTCPAddrEmptyHostPortZeroKeepsLoopback(t *testing.T) {
+	config := decodeConnectBind(t, "TCP4:127.0.0.1:9,bind=:0,ai-passive=0")
+	laddr, skip, err := BindTCPAddrForRemote(t.Context(), net.IPv4(127, 0, 0, 1), config, "tcp4")
+	if err != nil || skip || laddr == nil {
+		t.Fatalf("laddr=%v skip=%v err=%v want loopback:0", laddr, skip, err)
+	}
+	if laddr.Port != 0 || !laddr.IP.Equal(net.IPv4(127, 0, 0, 1)) {
+		t.Fatalf("ai-passive=0 bind=:0 got %v", laddr)
+	}
+}
