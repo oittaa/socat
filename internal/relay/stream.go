@@ -321,32 +321,30 @@ func streamWriteFD(s Stream) int {
 }
 
 func streamValueFD(value any) int {
-	if fd := ioFD(value); fd >= 0 {
-		return fd
-	}
 	type syscallConn interface {
 		SyscallConn() (syscall.RawConn, error)
 	}
-	conn, ok := value.(syscallConn)
-	if !ok {
-		return -1
+	if conn, ok := value.(syscallConn); ok {
+		raw, err := conn.SyscallConn()
+		if err == nil {
+			fd := -1
+			_ = raw.Control(func(rawFD uintptr) { fd = int(rawFD) })
+			if fd >= 0 {
+				return fd
+			}
+		}
 	}
-	raw, err := conn.SyscallConn()
-	if err != nil {
-		return -1
-	}
-	fd := -1
-	_ = raw.Control(func(rawFD uintptr) { fd = int(rawFD) })
-	return fd
+	return ioFD(value)
 }
 
 func ioFD(v any) int {
 	if v == nil {
 		return -1
 	}
-	if f, ok := v.(*os.File); ok {
-		// Accept FD 0 (stdin) — was incorrectly rejected by >0 checks.
-		return int(f.Fd())
+	if _, ok := v.(*os.File); ok {
+		// File.Fd() is not safe concurrent with Close. SyscallConn.Control
+		// above is the path for *os.File.
+		return -1
 	}
 	if f, ok := v.(interface{ Fd() uintptr }); ok {
 		return int(f.Fd())
