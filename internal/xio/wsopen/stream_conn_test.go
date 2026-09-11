@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
@@ -59,6 +60,7 @@ func newWSTestPair(t testing.TB) (net.Conn, net.Conn) {
 		&xio.Global{Log: logx.New()},
 		nil,
 		time.Second,
+		addrconfig.WebSocket{},
 	)
 	if err != nil {
 		t.Fatal(err)

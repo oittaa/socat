@@ -30,12 +30,16 @@ type Address struct {
 	Raw    string
 	Facts  Facts
 
-	Common   Common
-	Transfer Transfer
-	File     File
-	Process  Process
-	Terminal Terminal
-	Network  Network
+	Common    Common
+	Transfer  Transfer
+	File      File
+	Process   Process
+	Terminal  Terminal
+	Network   Network
+	TLS       TLS
+	DTLS      DTLS
+	Proxy     Proxy
+	WebSocket WebSocket
 }
 
 // Common contains settings shared by several address families.
@@ -235,6 +239,9 @@ func decodeOption(a *Address, o parse.Option) error {
 		return err
 	}
 	if handled, err := decodeNetworkOption(a, o); handled {
+		return err
+	}
+	if handled, err := decodeProtocolOption(a, o); handled {
 		return err
 	}
 	name := optionIdentity(o)

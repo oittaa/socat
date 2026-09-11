@@ -638,9 +638,9 @@ func protocolFamily(value string) (int, bool, error) {
 	}
 	switch strings.ToLower(value) {
 	case "inet", "inet4", "ip4", "ipv4":
-		return 2, true, nil
+		return socketFamilyIPv4, true, nil
 	case "inet6", "ip6", "ipv6":
-		return 10, true, nil
+		return socketFamilyIPv6, true, nil
 	default:
 		return 0, false, nil
 	}

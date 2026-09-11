@@ -32,7 +32,15 @@ func openWSSListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glob
 }
 
 func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, useTLS bool) (*xio.Opened, error) {
-	_, port, wpath, err := wsTarget(s, true)
+	websocketConfig, err := preparedWebSocketConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	pathOption := ""
+	if websocketConfig.Path.Set {
+		pathOption = websocketConfig.Path.Value
+	}
+	_, port, wpath, err := wsTargetWithPath(s, true, pathOption)
 	if err != nil {
 		return nil, err
 	}
@@ -59,8 +67,8 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		ln = tls.NewListener(rawLn, tlsCfg)
 	}
 
-	origin := s.OptionValue("origin", "")
-	proto := s.OptionValue("protocol", "")
+	origin := websocketConfig.Origin.Value
+	proto := websocketConfig.Protocol.Value
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	// Upgrade after peer filter (TCP-level range/sourceport/tcpwrap).
 	wrapConn := func(c net.Conn) (relay.Stream, error) {

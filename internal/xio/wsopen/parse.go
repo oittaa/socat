@@ -14,7 +14,10 @@ import (
 // Listen:  WS-LISTEN:<port>[/<path>]
 // path= option overrides a path in the address.
 func wsTarget(s parse.Spec, listen bool) (host, port, path string, err error) {
-	path = s.OptionValue("path", "")
+	return wsTargetWithPath(s, listen, s.OptionValue("path", ""))
+}
+
+func wsTargetWithPath(s parse.Spec, listen bool, path string) (host, port, out string, err error) {
 	if listen {
 		if len(s.Params) < 1 || s.Params[0] == "" {
 			return "", "", "", fmt.Errorf("%s requires port", s.Type)
@@ -41,8 +44,7 @@ func wsTarget(s parse.Spec, listen bool) (host, port, path string, err error) {
 			path = "/" + strings.Join(s.Params[2:], "/")
 		}
 	}
-	path = normalizeWSPath(path)
-	return host, port, path, nil
+	return host, port, normalizeWSPath(path), nil
 }
 
 func splitPortPath(s string) (port, path string) {

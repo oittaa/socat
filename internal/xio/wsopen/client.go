@@ -11,6 +11,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
@@ -30,7 +31,15 @@ func openWSSConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 }
 
 func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, scheme string) (*xio.Opened, error) {
-	host, port, path, err := wsTarget(s, false)
+	websocketConfig, err := preparedWebSocketConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	pathOption := ""
+	if websocketConfig.Path.Set {
+		pathOption = websocketConfig.Path.Value
+	}
+	host, port, path, err := wsTargetWithPath(s, false, pathOption)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +64,7 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := xio.WithRetry(dctx, g, s.Type, func() error {
-			nc, e := dialWS(dctx, dest, s, g, tlsCfg, handshakeTimeout)
+			nc, e := dialWS(dctx, dest, s, g, tlsCfg, handshakeTimeout, websocketConfig)
 			if e != nil {
 				return e
 			}
@@ -92,7 +101,7 @@ func (t wsDialTarget) httpURL() url.URL {
 	}
 }
 
-func dialWS(ctx context.Context, dest wsDialTarget, s parse.Spec, g *xio.Global, tlsCfg *tls.Config, handshakeTimeout time.Duration) (net.Conn, error) {
+func dialWS(ctx context.Context, dest wsDialTarget, s parse.Spec, g *xio.Global, tlsCfg *tls.Config, handshakeTimeout time.Duration, websocketConfig addrconfig.WebSocket) (net.Conn, error) {
 	raw, err := xio.DialTCPAll(ctx, xio.DialTarget{Network: dest.Network, Host: dest.Host, Port: dest.Port}, s, g, xio.ConnectTimeout(s), nil)
 	if err != nil {
 		return nil, err
@@ -142,11 +151,11 @@ func dialWS(ctx context.Context, dest wsDialTarget, s parse.Spec, g *xio.Global,
 		opts := &websocket.DialOptions{
 			HTTPClient: &http.Client{Transport: tr},
 		}
-		if origin := s.OptionValue("origin", ""); origin != "" {
+		if origin := websocketConfig.Origin.Value; origin != "" {
 			opts.HTTPHeader = make(http.Header)
 			opts.HTTPHeader.Set("Origin", origin)
 		}
-		if proto := s.OptionValue("protocol", ""); proto != "" {
+		if proto := websocketConfig.Protocol.Value; proto != "" {
 			opts.Subprotocols = []string{proto}
 		}
 		c, _, err := websocket.Dial(hctx, rawURL, opts)
@@ -165,4 +174,16 @@ func dialWS(ctx context.Context, dest wsDialTarget, s parse.Spec, g *xio.Global,
 	}
 	owned = true
 	return conn, nil
+}
+
+func preparedWebSocketConfig(ctx context.Context, s parse.Spec) (addrconfig.WebSocket, error) {
+	config, ok := xio.PreparedConfig(ctx)
+	if ok {
+		return config.WebSocket, nil
+	}
+	config, err := addrconfig.Decode(s, addrconfig.Facts{Type: s.Type, Group: xio.GroupWebSocket})
+	if err != nil {
+		return addrconfig.WebSocket{}, err
+	}
+	return config.WebSocket, nil
 }

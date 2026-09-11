@@ -242,3 +242,50 @@ func TestMembershipFamilyPrefersOriginalSpelling(t *testing.T) {
 		t.Fatalf("request=%+v", request)
 	}
 }
+
+func TestDecodeProtocolSettingsKeepsTypedAndTextualValuesDistinct(t *testing.T) {
+	spec, err := parse.ParseSpec("WSS:example.test:443/chat,verify=0,ciphers=ECDHE-RSA-AES128-GCM-SHA256,openssl-min-proto-version=TLS1.2,alpn=chat,path=/override,origin=https://example.test,protocol=Chat")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := Decode(spec, Facts{Type: "WSS", Group: "WebSocket (Go extra)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.TLS.Verify.Value || config.TLS.MinVersion != 0x0303 || len(config.TLS.CipherSuites) != 1 ||
+		config.TLS.ALPN.Value != "chat" {
+		t.Fatalf("TLS=%+v", config.TLS)
+	}
+	if config.WebSocket.Path.Value != "/override" || config.WebSocket.Origin.Value != "https://example.test" ||
+		config.WebSocket.Protocol.Value != "Chat" {
+		t.Fatalf("websocket=%+v", config.WebSocket)
+	}
+}
+
+func TestDecodeProxyAndDTLSSettings(t *testing.T) {
+	proxy, err := parse.ParseSpec("PROXY:proxy.test:target.test:443,http-version=2,h2c=1,proxy-resolve=0,proxy-authorization=user:pass")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := Decode(proxy, Facts{Type: "PROXY", Group: "PROXY and SOCKS"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Proxy.HTTPVersion != HTTPVersion2 || !config.Proxy.H2C.Value || config.Proxy.Resolve.Value ||
+		config.Proxy.Authorization.Value != "user:pass" {
+		t.Fatalf("proxy=%+v", config.Proxy)
+	}
+
+	dtls, err := parse.ParseSpec("DTLS:example.test:4444,openssl-min-proto-version=DTLS1.3,dtls-mtu=1200,dtls-migration=0,dtls-unfragmented-probes=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err = Decode(dtls, Facts{Type: "DTLS", Group: "Datagram TLS 1.3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.DTLS.MinVersion.Value != 13 || config.DTLS.MTU.Value != 1200 ||
+		config.DTLS.Migration.Value || !config.DTLS.UnfragmentedProbes.Value {
+		t.Fatalf("DTLS=%+v", config.DTLS)
+	}
+}
