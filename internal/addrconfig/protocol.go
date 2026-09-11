@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/oittaa/socat/internal/optionmeta"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -22,6 +23,16 @@ type TLS struct {
 	MinVersion   uint16
 	MaxVersion   uint16
 	ALPN         OptionalString
+	Unsupported  TLSUnsupported
+}
+
+// TLSUnsupported retains the final unsupported OpenSSL request for its
+// configured TLS endpoint.
+type TLSUnsupported struct {
+	Set       bool
+	Canonical string
+	Name      string
+	Reason    string
 }
 
 // DTLS holds the DTLS-specific static policy.
@@ -67,6 +78,19 @@ type WebSocket struct {
 
 func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 	name := optionIdentity(o)
+	if def, ok := optionmeta.Lookup(name); ok && def.TLSRejectReason != "" {
+		if !compatibleDisabledTLSOption(name, o) {
+			a.TLS.Unsupported = TLSUnsupported{
+				Set:       true,
+				Canonical: name,
+				Name:      o.OriginalSpelling(),
+				Reason:    def.TLSRejectReason,
+			}
+		} else if a.TLS.Unsupported.Canonical == name {
+			a.TLS.Unsupported = TLSUnsupported{}
+		}
+		return true, nil
+	}
 	switch name {
 	case "cert":
 		return true, decodeProtocolString(&a.TLS.Certificate, o)
@@ -190,6 +214,17 @@ func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+func compatibleDisabledTLSOption(name string, o parse.Option) bool {
+	switch name {
+	case "openssl-fips", "openssl-pseudo":
+		return !activeBool(o).Value
+	case "openssl-compress":
+		return o.Has && strings.EqualFold(strings.TrimSpace(o.Value), "none")
+	default:
+		return false
+	}
 }
 
 func decodeProtocolString(dst *OptionalString, o parse.Option) error {

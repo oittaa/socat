@@ -60,7 +60,7 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	}
 	ln := net.Listener(rawLn)
 	if useTLS {
-		tlsCfg, err := tlsopen.TLSServerConfigSettings(s, prepared.TLS)
+		tlsCfg, err := tlsopen.TLSServerConfigSettings(s.Type, prepared.TLS)
 		if err != nil {
 			logx.CloseQuiet(rawLn)
 			return nil, err

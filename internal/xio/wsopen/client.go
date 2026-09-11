@@ -56,7 +56,7 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	var tlsCfg *tls.Config
 	if scheme == "wss" {
-		tlsCfg, err = tlsopen.TLSClientConfigSettings(s, prepared.TLS, host)
+		tlsCfg, err = tlsopen.TLSClientConfigSettings(s.Type, prepared.TLS, host)
 		if err != nil {
 			return nil, err
 		}

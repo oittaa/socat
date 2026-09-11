@@ -8,7 +8,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
-	"strings"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
@@ -182,7 +181,7 @@ func TLSClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return TLSClientConfigSettings(s, settings, serverName)
+	return TLSClientConfigSettings(s.Type, settings, serverName)
 }
 
 func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
@@ -195,34 +194,19 @@ func TLSServerConfig(s parse.Spec) (*tls.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return TLSServerConfigSettings(s, settings)
+	return TLSServerConfigSettings(s.Type, settings)
 }
 
 func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 	return TLSServerConfig(s)
 }
 
-func rejectUnsupportedOpenSSLOptions(s parse.Spec) error {
-	typ := s.Type
+func rejectUnsupportedOpenSSLOptions(settings addrconfig.TLS, typ string) error {
 	if typ == "" {
 		typ = "TLS"
 	}
-	seen := make(map[string]struct{})
-	for i := len(s.Options) - 1; i >= 0; i-- {
-		option := s.Options[i]
-		canonical := parse.CanonicalOptionName(option.Name)
-		def, ok := optionmeta.Lookup(canonical)
-		if !ok || def.TLSRejectReason == "" {
-			continue
-		}
-		if _, ok := seen[canonical]; ok {
-			continue
-		}
-		seen[canonical] = struct{}{}
-		if compatibleDisabledOpenSSLOption(canonical, option) {
-			continue
-		}
-		return fmt.Errorf("%s: option %q is not supported (%s)", typ, option.OriginalSpelling(), def.TLSRejectReason)
+	if settings.Unsupported.Set {
+		return fmt.Errorf("%s: option %q is not supported (%s)", typ, settings.Unsupported.Name, settings.Unsupported.Reason)
 	}
 	return nil
 }
@@ -263,30 +247,18 @@ func RejectPROXYTLSOnPlaintext(s parse.Spec) error {
 	return rejectTLSNamesOnPlaintext(s, true)
 }
 
-func compatibleDisabledOpenSSLOption(canonical string, option parse.Option) bool {
-	switch canonical {
-	case "openssl-fips", "openssl-pseudo":
-		one := parse.Spec{Options: []parse.Option{option}}
-		return !one.BoolOption(canonical)
-	case "openssl-compress":
-		return option.Has && strings.EqualFold(strings.TrimSpace(option.Value), "none")
-	default:
-		return false
-	}
-}
-
 func tlsClientConfigForContext(ctx context.Context, s parse.Spec, serverName string) (*tls.Config, error) {
 	settings, ok := preparedTLSSettings(ctx)
 	if !ok {
 		return TLSClientConfig(s, serverName)
 	}
-	return TLSClientConfigSettings(s, settings, serverName)
+	return TLSClientConfigSettings(s.Type, settings, serverName)
 }
 
 // TLSClientConfigSettings builds a client config from prepared TLS settings.
 // s remains only for the temporary compatibility rejection adapter.
-func TLSClientConfigSettings(s parse.Spec, settings addrconfig.TLS, serverName string) (*tls.Config, error) {
-	if err := rejectUnsupportedOpenSSLOptions(s); err != nil {
+func TLSClientConfigSettings(typ string, settings addrconfig.TLS, serverName string) (*tls.Config, error) {
+	if err := rejectUnsupportedOpenSSLOptions(settings, typ); err != nil {
 		return nil, err
 	}
 	cfg := &tls.Config{
@@ -355,19 +327,18 @@ func tlsServerConfigForContext(ctx context.Context, s parse.Spec) (*tls.Config, 
 	if !ok {
 		return TLSServerConfig(s)
 	}
-	return TLSServerConfigSettings(s, settings)
+	return TLSServerConfigSettings(s.Type, settings)
 }
 
 // TLSServerConfigSettings builds a server config from prepared TLS settings.
 // s remains only for the temporary compatibility rejection adapter.
-func TLSServerConfigSettings(s parse.Spec, settings addrconfig.TLS) (*tls.Config, error) {
-	if err := rejectUnsupportedOpenSSLOptions(s); err != nil {
+func TLSServerConfigSettings(typ string, settings addrconfig.TLS) (*tls.Config, error) {
+	if err := rejectUnsupportedOpenSSLOptions(settings, typ); err != nil {
 		return nil, err
 	}
 	certPath := settings.Certificate.Value
 	keyPath := settings.Key.Value
 	if certPath == "" {
-		typ := s.Type
 		if typ == "" {
 			typ = "TLS-LISTEN"
 		}
