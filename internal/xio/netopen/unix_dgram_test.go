@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
@@ -46,6 +47,57 @@ func TestUnixRecvfromForkHasWrapDial(t *testing.T) {
 		t.Fatal("UNIX-RECVFROM must not install an IP PeerFilter")
 	}
 	assertWrapDialReadbytes(t, o)
+}
+
+func TestUnixRecvfromForkWrapAfterLifecycle(t *testing.T) {
+	if !xio.FeatureUNIXDatagram {
+		t.Skip("UNIX datagram not enabled")
+	}
+	path := unixSocketTestPath(t, "recv-life.sock")
+	var ops []string
+	restore := xio.InstallLifecycleSyscallHook(func(op string) {
+		ops = append(ops, op)
+	})
+	t.Cleanup(restore)
+	spec, err := parse.ParseSpec("UNIX-RECVFROM:" + path + ",unlink-early,fork,append")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openUnixRecvfrom(context.Background(), spec, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	if o.Listener == nil || o.WrapDial == nil {
+		t.Fatal("UNIX-RECVFROM,fork did not return a wrapable listener")
+	}
+	if len(ops) == 0 {
+		t.Fatal("lifecycle option was not applied on the unixgram socket")
+	}
+	applied := append([]string(nil), ops...)
+
+	client, err := net.DialUnix("unixgram", nil, &net.UnixAddr{Name: path, Net: "unixgram"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	ch := startUDPAccept(o.Listener)
+	if _, err := client.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	child := waitUDPAccept(t, ch, 2*time.Second, "unix recvfrom child")
+	st, err := o.WrapDial(child)
+	if err != nil {
+		t.Fatalf("WrapDial after lifecycle on owner: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if fmt.Sprint(ops) != fmt.Sprint(applied) {
+		t.Fatalf("WrapDial re-applied lifecycle: before %v after %v", applied, ops)
+	}
+	got, err := io.ReadAll(st)
+	if err != nil || string(got) != "hello" {
+		t.Fatalf("got %q err=%v want hello", got, err)
+	}
 }
 
 func TestUnixRecvStreamShortReadDropsRemainder(t *testing.T) {

@@ -6,3 +6,6 @@ import "github.com/oittaa/socat/internal/relay"
 
 func (*socketDgramStream) IOSemantics() relay.IOSemantics    { return relay.MessageIO }
 func (*socketRecvfromStream) IOSemantics() relay.IOSemantics { return relay.MessageIO }
+
+func (c *socketDgramStream) StreamProps() relay.Props    { return relay.Inspect(c) }
+func (c *socketRecvfromStream) StreamProps() relay.Props { return relay.Inspect(c) }

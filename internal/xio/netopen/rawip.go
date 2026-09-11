@@ -374,9 +374,7 @@ func openIPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *ne
 		Listener:       ln,
 		Label:          s.Type,
 		MaxChildren:    maxChildren,
-		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			return xio.SetupConnectedStream(s, relay.NetStream{Conn: c})
-		},
+		WrapDial:       xio.DefaultWrapOpened(s),
 	}, nil
 }
 
@@ -959,65 +957,15 @@ func (l *rawIPForkListener) Accept() (net.Conn, error) {
 		xio.ProcessAncillary(oob, session)
 		peer := ipAddrFromNet(a)
 		rememberRawIPPeer(session, peer, l.pc.LocalAddr())
-		return &rawIPSessionConn{
-			pc:      l.pc,
-			peer:    peer,
-			first:   newFirstPacket(append([]byte(nil), buf[:rn]...)),
-			env:     session.SessionVarsSnapshot(),
-			writeMu: &l.writeMu,
-			recvErr: xio.NeedRecvErr(l.spec),
-			g:       session,
-		}, nil
+		return newOneshotForkConn(
+			append([]byte(nil), buf[:rn]...),
+			l.pc.LocalAddr(),
+			peer,
+			session,
+			&l.writeMu,
+			l.pc.SetWriteDeadline,
+			func(p []byte) (int, error) { return l.pc.WriteToIP(p, peer) },
+			func(err error) { xio.DrainRecvErrOnError(err, xio.NeedRecvErr(l.spec), l.pc, session) },
+		), nil
 	}
-}
-
-// rawIPSessionConn is one IP-RECVFROM,fork datagram: drain first, then EOF,
-// and reply with WriteToIP. The parent owns the listen socket.
-type rawIPSessionConn struct {
-	pc      *net.IPConn
-	peer    *net.IPAddr
-	first   firstPacket
-	env     map[string]string
-	writeMu *sync.Mutex
-	writeDL sharedWriteDeadline
-	recvErr bool
-	g       *xio.Global
-}
-
-func (r *rawIPSessionConn) SessionEnvironment() map[string]string {
-	if r.g != nil {
-		return r.g.SessionVarsSnapshot()
-	}
-	return r.env
-}
-
-func (r *rawIPSessionConn) Read(p []byte) (int, error) {
-	if first, ok := r.first.take(); ok {
-		return copyOneshotFirst(p, first)
-	}
-	return 0, io.EOF
-}
-
-func (r *rawIPSessionConn) Write(p []byte) (int, error) {
-	if r.pc == nil || r.peer == nil {
-		return 0, net.ErrClosed
-	}
-	n, err := writeSharedPacket(r.writeMu, r.writeDL.get(), r.pc.SetWriteDeadline, func() (int, error) {
-		return r.pc.WriteToIP(p, r.peer)
-	})
-	xio.DrainRecvErrOnError(err, r.recvErr, r.pc, r.g)
-	return n, err
-}
-
-func (r *rawIPSessionConn) Close() error { return nil }
-
-func (r *rawIPSessionConn) LocalAddr() net.Addr  { return r.pc.LocalAddr() }
-func (r *rawIPSessionConn) RemoteAddr() net.Addr { return r.peer }
-func (r *rawIPSessionConn) SetDeadline(t time.Time) error {
-	return r.SetWriteDeadline(t)
-}
-func (r *rawIPSessionConn) SetReadDeadline(time.Time) error { return nil }
-func (r *rawIPSessionConn) SetWriteDeadline(t time.Time) error {
-	r.writeDL.set(t)
-	return nil
 }

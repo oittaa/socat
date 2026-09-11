@@ -8,6 +8,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/oittaa/socat/internal/relay"
 )
 
 type descriptorModeTestStream struct {
@@ -19,6 +21,7 @@ func (s *descriptorModeTestStream) Read(p []byte) (int, error)  { return s.r.Rea
 func (s *descriptorModeTestStream) Write(p []byte) (int, error) { return s.w.Write(p) }
 func (*descriptorModeTestStream) Close() error                  { return nil }
 func (*descriptorModeTestStream) ShutdownWrite() error          { return nil }
+func (*descriptorModeTestStream) StreamProps() relay.Props      { return relay.NoProps() }
 
 type oneByteReader struct{ r io.Reader }
 

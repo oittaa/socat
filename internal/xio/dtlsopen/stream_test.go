@@ -47,6 +47,14 @@ type semanticTestStream struct {
 }
 
 func (s semanticTestStream) IOSemantics() relay.IOSemantics { return s.kind }
+func (s semanticTestStream) StreamProps() relay.Props {
+	p := relay.NoProps()
+	if s.Stream != nil {
+		p = s.Stream.StreamProps()
+	}
+	p.ReadIO, p.WriteIO = s.kind, s.kind
+	return p
+}
 
 func TestPacketizerDTLSPairStaysStrict(t *testing.T) {
 	a := &streamConn{datagramConn: &packetTestConn{limit: 4}}
