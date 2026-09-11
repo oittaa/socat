@@ -9,6 +9,7 @@ import (
 	"net"
 	"syscall"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -18,15 +19,18 @@ const DefaultListenBacklog = 5
 
 // ListenBacklog returns the requested Linux/macOS stream backlog.
 func ListenBacklog(s parse.Spec) (int, error) {
-	o, ok := s.OptionNamed("backlog")
-	if !ok {
-		return DefaultListenBacklog, nil
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return 0, err
 	}
-	n, err := ParseIntAny(o.Value)
-	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("backlog: invalid value %q", o.Value)
+	return configuredListenBacklog(config), nil
+}
+
+func configuredListenBacklog(config addrconfig.Address) int {
+	if config.Network.Backlog.Set {
+		return config.Network.Backlog.Value
 	}
-	return n, nil
+	return DefaultListenBacklog
 }
 
 // RejectUnsupportedListenBacklog is a no-op where the requested backlog can

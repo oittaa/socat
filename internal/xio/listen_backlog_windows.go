@@ -13,7 +13,11 @@ import (
 // RejectUnsupportedListenBacklog rejects a backlog that Winsock cannot apply
 // through Go's listener API.
 func RejectUnsupportedListenBacklog(s parse.Spec) error {
-	if s.HasOption("backlog") {
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return err
+	}
+	if config.Network.Backlog.Set {
 		return fmt.Errorf("backlog: not supported on Windows")
 	}
 	return nil

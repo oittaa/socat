@@ -544,20 +544,14 @@ func IsTimeoutErr(err error) bool {
 // family: keepalive toggle, keepidle/keepintvl/keepcnt values.
 // Any sub-option implies enable; an explicit keepalive=0 disables even when
 // sub-options are present. Unset fields keep their platform defaults.
-func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
-	anyOpt := false
-	enable := true
-	for _, n := range []string{"keepalive", "keepidle", "keepintvl", "keepcnt"} {
-		if s.HasOption(n) {
-			anyOpt = true
-			break
-		}
-	}
-	if !anyOpt {
+func applyKeepAliveConfig(config addrconfig.Address, tc *net.TCPConn) error {
+	ka := config.Network.KeepAlive
+	if !ka.Enable.Set && !ka.Idle.Set && !ka.Interval.Set && !ka.Count.Set {
 		return nil
 	}
-	if s.HasOption("keepalive") {
-		enable = s.BoolOption("keepalive")
+	enable := true
+	if ka.Enable.Set {
+		enable = ka.Enable.Value
 	}
 	// Negative values preserve the current OS settings. Zero would replace
 	// omitted fields with Go's defaults (15s/15s/9), which is not what a
@@ -568,37 +562,14 @@ func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 		Interval: -1,
 		Count:    -1,
 	}
-
-	durFrom := func(o parse.Option) (time.Duration, error) {
-		d, err := parseTimeval(o.Value)
-		if err != nil {
-			return 0, fmt.Errorf("%s: %w", o.Name, err)
-		}
-		if d <= 0 {
-			return 0, fmt.Errorf("%s: must be positive, got %q", o.Name, o.Value)
-		}
-		return d, nil
+	if ka.Idle.Set {
+		cfg.Idle = ka.Idle.Value
 	}
-	if o, ok := s.OptionNamed("keepidle"); ok && o.Has && strings.TrimSpace(o.Value) != "" {
-		d, err := durFrom(o)
-		if err != nil {
-			return err
-		}
-		cfg.Idle = d
+	if ka.Interval.Set {
+		cfg.Interval = ka.Interval.Value
 	}
-	if o, ok := s.OptionNamed("keepintvl"); ok && o.Has && strings.TrimSpace(o.Value) != "" {
-		d, err := durFrom(o)
-		if err != nil {
-			return err
-		}
-		cfg.Interval = d
-	}
-	if o, ok := s.OptionNamed("keepcnt"); ok && o.Has && strings.TrimSpace(o.Value) != "" {
-		n, err := ParseIntAny(o.Value)
-		if err != nil || n <= 0 {
-			return fmt.Errorf("keepcnt: invalid count %q", o.Value)
-		}
-		cfg.Count = n
+	if ka.Count.Set {
+		cfg.Count = ka.Count.Value
 	}
 	if err := tc.SetKeepAliveConfig(cfg); err != nil {
 		return fmt.Errorf("keepalive: %w", err)
@@ -616,14 +587,17 @@ func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 // the conn is not *net.TCPConn (TCP_* on UDP/SCTP fails clearly).
 func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
 	noteOptionPhase("CONNECTED")
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return err
+	}
 	c = unwrapNetConn(c)
 	if tc, ok := c.(*net.TCPConn); ok {
-		if err := applyKeepAliveConfig(s, tc); err != nil {
+		if err := applyKeepAliveConfig(config, tc); err != nil {
 			return err
 		}
-		if s.HasOption("nodelay") {
-			enabled := s.BoolOption("nodelay")
-			if err := tc.SetNoDelay(enabled); err != nil {
+		if config.Network.NoDelay.Set {
+			if err := tc.SetNoDelay(config.Network.NoDelay.Value); err != nil {
 				return fmt.Errorf("nodelay: %w", err)
 			}
 		}
