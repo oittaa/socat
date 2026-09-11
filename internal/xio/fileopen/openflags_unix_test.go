@@ -25,7 +25,7 @@ func TestOpenDirectoryRejectsRegularFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openOPEN(context.Background(), spec, xio.ModeRead, nil)
+	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("o-directory on a regular file succeeded")
@@ -40,7 +40,7 @@ func TestUnnamedPIPERejectsOSync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openPIPE(context.Background(), spec, xio.ModeRDWR, nil)
+	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRDWR, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("unnamed PIPE,o-sync was accepted")

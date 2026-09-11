@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
@@ -36,6 +37,17 @@ func WithUmask(s parse.Spec, fn func() error) error {
 		return fmt.Errorf("%s: invalid umask %q", s.Type, v)
 	}
 	old := unix.Umask(int(mask))
+	defer unix.Umask(old)
+	return fn()
+}
+
+func withConfiguredUmask(mask addrconfig.OptionalUint32, fn func() error) error {
+	umaskMu.Lock()
+	defer umaskMu.Unlock()
+	if !mask.Set {
+		return fn()
+	}
+	old := unix.Umask(int(mask.Value))
 	defer unix.Umask(old)
 	return fn()
 }

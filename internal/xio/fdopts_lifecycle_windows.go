@@ -10,10 +10,122 @@ import (
 	"os"
 	"syscall"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/windows"
 )
+
+// ApplyConfiguredFDOptions applies the supported prepared descriptor actions
+// on a Windows handle. Unsupported Unix-only actions retain their established
+// rejection when they reach their resource owner.
+func ApplyConfiguredFDOptions(f *os.File, config addrconfig.File, skip FDSkip) error {
+	if f == nil {
+		return nil
+	}
+	raw, err := f.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var actionErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		actionErr = applyConfiguredWindowsFD(fd, config, skip)
+	})
+	return errors.Join(controlErr, actionErr)
+}
+
+func applyConfiguredWindowsFD(fd uintptr, config addrconfig.File, skip FDSkip) error {
+	for _, action := range config.Actions {
+		switch action.Kind {
+		case addrconfig.FileActionPerm:
+			if !skip.Perm {
+				return fmt.Errorf("perm: fchmod is not supported on windows")
+			}
+		case addrconfig.FileActionUser:
+			if !skip.User {
+				return fmt.Errorf("user: not supported on windows")
+			}
+		case addrconfig.FileActionGroup:
+			if !skip.Group {
+				return fmt.Errorf("group: not supported on windows")
+			}
+		case addrconfig.FileActionFlock:
+			if action.Enabled {
+				return fmt.Errorf("%s: flock is not supported on windows", action.Name)
+			}
+		case addrconfig.FileActionAppend:
+			if !skip.Append {
+				return fmt.Errorf("append: fcntl O_APPEND is not supported on windows")
+			}
+		case addrconfig.FileActionAsync:
+			if !skip.Async && action.Enabled {
+				return fmt.Errorf("async: fcntl O_ASYNC is not supported on windows")
+			}
+		case addrconfig.FileActionTruncate:
+			if err := configuredWindowsTruncate(fd, action.Offset); err != nil {
+				return err
+			}
+		case addrconfig.FileActionSeekStart:
+			if err := configuredWindowsSeek(fd, action.Offset, io.SeekStart, action.Name); err != nil {
+				return err
+			}
+		case addrconfig.FileActionSeekCurrent:
+			if err := configuredWindowsSeek(fd, action.Offset, io.SeekCurrent, action.Name); err != nil {
+				return err
+			}
+		case addrconfig.FileActionSeekEnd:
+			if err := configuredWindowsSeek(fd, action.Offset, io.SeekEnd, action.Name); err != nil {
+				return err
+			}
+		case addrconfig.FileActionPermLate:
+			return fmt.Errorf("perm-late: fchmod is not supported on windows")
+		case addrconfig.FileActionUserLate:
+			return fmt.Errorf("user-late: not supported on windows")
+		case addrconfig.FileActionGroupLate:
+			return fmt.Errorf("group-late: not supported on windows")
+		case addrconfig.FileActionCloexec:
+			return fmt.Errorf("%s: fcntl F_SETFD is not supported on windows", action.Name)
+		case addrconfig.FileActionNoInherit:
+			flags := uint32(0)
+			if !action.Enabled {
+				flags = windows.HANDLE_FLAG_INHERIT
+			}
+			noteLifecycleSyscall("SetHandleInformation")
+			if err := windows.SetHandleInformation(windows.Handle(fd), windows.HANDLE_FLAG_INHERIT, flags); err != nil {
+				return fmt.Errorf("%s: SetHandleInformation: %w", action.Name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func configuredWindowsTruncate(fd uintptr, offset int64) error {
+	h := windows.Handle(fd)
+	cur, err := windows.Seek(h, 0, io.SeekCurrent)
+	if err != nil {
+		return fmt.Errorf("ftruncate: not a regular file: %w", err)
+	}
+	if _, err := windows.Seek(h, offset, io.SeekStart); err != nil {
+		return fmt.Errorf("ftruncate: %w", err)
+	}
+	noteLifecycleSyscall("ftruncate")
+	if err := windows.SetEndOfFile(h); err != nil {
+		_, _ = windows.Seek(h, cur, io.SeekStart)
+		return fmt.Errorf("ftruncate: not a regular file: %w", err)
+	}
+	if _, err := windows.Seek(h, cur, io.SeekStart); err != nil {
+		return fmt.Errorf("ftruncate: %w", err)
+	}
+	return nil
+}
+
+func configuredWindowsSeek(fd uintptr, offset int64, whence int, name string) error {
+	noteLifecycleSyscall("lseek")
+	if _, err := windows.Seek(windows.Handle(fd), offset, whence); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	return nil
+}
 
 func applyFDLifecycleToFile(f *os.File, s parse.Spec, skip FDSkip) error {
 	if f == nil || !hasFDLifecycleOptions(s, skip) {

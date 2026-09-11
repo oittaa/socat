@@ -54,7 +54,7 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
-		err := xio.WithRetry(dctx, s, g, s.Type, func() error {
+		err := xio.WithRetry(dctx, g, s.Type, func() error {
 			nc, e := dialWS(dctx, dest, s, g, tlsCfg, handshakeTimeout)
 			if e != nil {
 				return e

@@ -105,7 +105,7 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 	idle := xio.QUICHandshakeIdleTimeout(s)
 
 	var conn net.Conn
-	err = xio.WithRetry(ctx, s, g, "PROXY-CONNECT", func() error {
+	err = xio.WithRetry(ctx, g, "PROXY-CONNECT", func() error {
 		cctx, stopTimer, cancelHandshake := proxyHandshakeContext(ctx, attemptTimeout)
 		pc, network, e := listenH3Packet(cctx, s, g, t.proxyHost)
 		if e != nil {

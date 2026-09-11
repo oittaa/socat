@@ -21,7 +21,7 @@ func TestOPENLockFailurePrecedesLateFtruncate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := openOPEN(context.Background(), spec, xio.ModeWrite, nil); err == nil {
+	if _, err := xio.OpenSpec(context.Background(), spec, xio.ModeWrite, nil); err == nil {
 		t.Fatal("write-only OPEN unexpectedly acquired a read lock")
 	}
 	st, err := os.Stat(path)

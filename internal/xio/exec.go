@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
@@ -39,17 +40,18 @@ func openSYSTEM(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opene
 }
 
 func openSHELL(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
+	config, ok := PreparedConfig(ctx)
+	if !ok {
+		return nil, fmt.Errorf("EXEC: prepared address configuration required")
+	}
 	cmdStr := strings.Join(s.Params, ":")
 	hasCommand := len(s.Params) > 0 && s.Params[0] != ""
-	return startCmd(ctx, s, mode, g, shellCommand(ctx, s, cmdStr, hasCommand))
+	return startCmd(ctx, s, mode, g, configuredShellCommand(ctx, config.Process, cmdStr, hasCommand))
 }
 
-// shellCommand builds SHELL as $SHELL (or shell=/bin/sh) with argv0 as the
-// basename and optional -c command. nofork rebuilds via runExecNoFork, so
-// shell= and $SHELL are honored in one place.
-func shellCommand(ctx context.Context, s parse.Spec, cmdStr string, hasCommand bool) *exec.Cmd {
-	shell := s.OptionValue("shell", "")
-	if shell == "" {
+func configuredShellCommand(ctx context.Context, config addrconfig.Process, cmdStr string, hasCommand bool) *exec.Cmd {
+	shell := config.Shell.Value
+	if !config.Shell.Set || shell == "" {
 		shell = os.Getenv("SHELL")
 	}
 	if shell == "" {
@@ -81,27 +83,19 @@ func startProcess(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmdSt
 	return startCmd(ctx, s, mode, g, cmd)
 }
 
-// applyExecChildOptions applies dash/login and setpgid on the child *exec.Cmd.
-// dash prefixes argv[0] with '-' on EXEC only; SYSTEM/SHELL reject it.
-// setpgid: omitted, 0, and 1 all make a new process group (Pgid=0). Do not
-// pass Pgid=1: Linux setpgid(0, 1) is EPERM and would fail Start.
-func applyExecChildOptions(s parse.Spec, cmd *exec.Cmd) error {
-	if err := applyDashArgv0(s, cmd); err != nil {
+func applyConfiguredExecChildOptions(config addrconfig.Process, addressType string, cmd *exec.Cmd) error {
+	if err := applyConfiguredDashArgv0(config.Dash.Value, addressType, cmd); err != nil {
 		return err
 	}
-	return applySetpgid(s, cmd)
+	return applyConfiguredSetpgid(config.SetPGID, cmd)
 }
 
-func applyDashArgv0(s parse.Spec, cmd *exec.Cmd) error {
-	o, ok := s.OptionNamed("dash")
-	if !ok {
+func applyConfiguredDashArgv0(enabled bool, addressType string, cmd *exec.Cmd) error {
+	if !enabled {
 		return nil
 	}
-	if !strings.EqualFold(s.Type, "EXEC") {
-		return fmt.Errorf("%s: unused on %s", o.OriginalSpelling(), s.Type)
-	}
-	if !s.BoolOption("dash") {
-		return nil
+	if !strings.EqualFold(addressType, "EXEC") {
+		return fmt.Errorf("dash: unused on %s", addressType)
 	}
 	if cmd == nil || len(cmd.Args) == 0 {
 		return fmt.Errorf("dash: no argv to rewrite")
@@ -116,23 +110,12 @@ func applyDashArgv0(s parse.Spec, cmd *exec.Cmd) error {
 	return nil
 }
 
-func applySetpgid(s parse.Spec, cmd *exec.Cmd) error {
-	o, ok := s.OptionNamed("setpgid")
-	if !ok {
+func applyConfiguredSetpgid(value addrconfig.OptionalInt, cmd *exec.Cmd) error {
+	if !value.Set {
 		return nil
 	}
-	n := 1 // bare flag stores 1
-	if o.Has {
-		v, err := ParseIntAny(o.Value)
-		if err != nil {
-			return fmt.Errorf("%s: invalid value %q", o.OriginalSpelling(), o.Value)
-		}
-		n = v
-	}
-	// Omitted, 0, and 1 → new process group. Pgid=0 is setpgid(0, 0).
-	// Do not pass Pgid=1: Linux setpgid(0, 1) is EPERM.
-	pgid := n
-	if n == 0 || n == 1 {
+	pgid := value.Value
+	if pgid == 0 || pgid == 1 {
 		pgid = 0
 	}
 	if cmd.SysProcAttr == nil {
@@ -188,26 +171,6 @@ func splitExecArgs(s string) []string {
 	}
 	flush()
 	return args
-}
-
-// commandForExecSpec builds argv for EXEC, SYSTEM, or SHELL. Start comes later.
-func commandForExecSpec(ctx context.Context, s parse.Spec) (*exec.Cmd, error) {
-	cmdStr := strings.Join(s.Params, ":")
-	switch {
-	case strings.EqualFold(s.Type, "SHELL"):
-		hasCommand := len(s.Params) > 0 && s.Params[0] != ""
-		return shellCommand(ctx, s, cmdStr, hasCommand), nil
-	case strings.EqualFold(s.Type, "SYSTEM"):
-		cmd := exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
-		return cmd, nil
-	default:
-		parts := splitExecArgs(cmdStr)
-		if len(parts) == 0 {
-			return nil, fmt.Errorf("empty EXEC command")
-		}
-		cmd := exec.CommandContext(ctx, parts[0], parts[1:]...) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
-		return cmd, nil
-	}
 }
 
 // childWaitExitCode maps cmd.Wait to a process exit status. Go's
@@ -275,6 +238,7 @@ func rejectUnusedExecPastSocketOptions(s parse.Spec) error {
 // nofork: prepare → attach peer as stdio → Start → drop ExtraFiles → Wait.
 type execChild struct {
 	spec       parse.Spec
+	config     addrconfig.Address
 	mode       Mode
 	g          *Global
 	cmd        *exec.Cmd
@@ -287,13 +251,18 @@ type execChild struct {
 	wait       *execWaitState
 }
 
-func newExecChild(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*execChild, error) {
-	fdin, fdout, err := processFDPair(s, mode)
+func newExecChild(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*execChild, error) {
+	config, ok := PreparedConfig(ctx)
+	if !ok {
+		return nil, fmt.Errorf("EXEC: prepared address configuration required")
+	}
+	fdin, fdout, err := processFDPairConfig(config.Process, mode)
 	if err != nil {
 		return nil, err
 	}
 	return &execChild{
 		spec:       s,
+		config:     config,
 		mode:       mode,
 		g:          g,
 		cmd:        cmd,
@@ -304,19 +273,21 @@ func newExecChild(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*execChild
 }
 
 // applyExecProcessAttrs sets chdir, setsid, dash/setpgid, and SOCAT_* env.
-func applyExecProcessAttrs(s parse.Spec, cmd *exec.Cmd, g *Global, fdRedirect bool) error {
-	cmd.Dir = s.OptionValue("chdir", "")
-	if s.BoolOption("setsid") {
+func applyExecProcessAttrs(s parse.Spec, config addrconfig.Address, cmd *exec.Cmd, g *Global, fdRedirect bool) error {
+	if config.Process.Chdir.Set {
+		cmd.Dir = config.Process.Chdir.Value
+	}
+	if config.Process.SetSID.Value {
 		if cmd.SysProcAttr == nil {
 			cmd.SysProcAttr = &syscall.SysProcAttr{}
 		}
 		cmd.SysProcAttr.Setsid = true
 	}
 	if fdRedirect {
-		if err := applySetpgid(s, cmd); err != nil {
+		if err := applyConfiguredSetpgid(config.Process.SetPGID, cmd); err != nil {
 			return err
 		}
-	} else if err := applyExecChildOptions(s, cmd); err != nil {
+	} else if err := applyConfiguredExecChildOptions(config.Process, s.Type, cmd); err != nil {
 		return err
 	}
 	if g != nil {
@@ -336,15 +307,15 @@ func (c *execChild) wrapForkedFDHelper(ctx context.Context) error {
 	// place fdi/fdo. Apply it before wrapping. Every custom fdin/fdout
 	// uses the child dup2 helper so bare SHELL and dash stay on the
 	// target instead of a /bin/sh reconstruction.
-	if err := applyDashArgv0(c.spec, c.cmd); err != nil {
+	if err := applyConfiguredDashArgv0(c.config.Process.Dash.Value, c.spec.Type, c.cmd); err != nil {
 		return err
 	}
 	var err error
 	if c.usePipes {
-		c.cmd, err = rebuildWithPipeFDHelper(ctx, c.cmd, c.mode, c.fdin, c.fdout, c.spec.BoolOption("stderr"))
+		c.cmd, err = rebuildWithPipeFDHelper(ctx, c.cmd, c.mode, c.fdin, c.fdout, c.config.Process.Stderr.Value)
 	} else {
 		// Socketpair and PTY share ExtraFiles[0] (child fd 3).
-		c.cmd, err = rebuildWithSocketFDHelper(ctx, c.cmd, c.mode, c.fdin, c.fdout, c.spec.BoolOption("stderr"))
+		c.cmd, err = rebuildWithSocketFDHelper(ctx, c.cmd, c.mode, c.fdin, c.fdout, c.config.Process.Stderr.Value)
 	}
 	return err
 }
@@ -353,8 +324,8 @@ func (c *execChild) prepareForked(ctx context.Context) error {
 	if err := rejectExecUnsupportedPTYOptions(c.spec); err != nil {
 		return err
 	}
-	userPipes := c.spec.BoolOption("pipes")
-	c.usePty = execUsesPTY(c.spec)
+	userPipes := c.config.Process.Pipes.Value
+	c.usePty = c.config.Process.PTY.Value
 	// Forked EXEC/SYSTEM/SHELL defaults to socketpair, including unidirectional
 	// mode and fdin/fdout. fdin/fdout only change Dup2 targets. pipes and
 	// pty/ptmx/openpty are user-selected transports; pipes+pty ignores pipes.
@@ -382,7 +353,7 @@ func (c *execChild) prepareForked(ctx context.Context) error {
 	if err := c.wrapForkedFDHelper(ctx); err != nil {
 		return err
 	}
-	return applyExecProcessAttrs(c.spec, c.cmd, c.g, c.fdRedirect)
+	return applyExecProcessAttrs(c.spec, c.config, c.cmd, c.g, c.fdRedirect)
 }
 
 func (c *execChild) startAndDropChildFDs(ctx context.Context, cleanup []func(), childFiles []*os.File) error {
@@ -410,7 +381,7 @@ func (c *execChild) startForked(ctx context.Context) (*Opened, error) {
 	// Child stderr inherits socat's stderr unless option stderr redirects it
 	// onto the data channel. Merging stderr into the data FD corrupts binary
 	// protocols (SOCKS4 echo scripts write diagnostics to stderr).
-	if !c.spec.BoolOption("stderr") {
+	if !c.config.Process.Stderr.Value {
 		c.cmd.Stderr = os.Stderr
 	}
 
@@ -419,10 +390,10 @@ func (c *execChild) startForked(ctx context.Context) (*Opened, error) {
 	var childFiles []*os.File
 	var err error
 	if c.usePipes {
-		stream, cleanup, childFiles, err = startCmdPipes(c.spec, c.mode, c.cmd, c.fdRedirect)
+		stream, cleanup, childFiles, err = startCmdPipes(c.spec, c.config, c.mode, c.cmd, c.fdRedirect)
 	} else {
 		var child *os.File
-		stream, cleanup, child, err = startCmdSocketpair(c.spec, c.mode, c.cmd, c.fdRedirect)
+		stream, cleanup, child, err = startCmdSocketpair(c.spec, c.config, c.mode, c.cmd, c.fdRedirect)
 		if child != nil {
 			childFiles = append(childFiles, child)
 		}
@@ -437,18 +408,19 @@ func (c *execChild) startForked(ctx context.Context) (*Opened, error) {
 }
 
 func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
-	c, err := newExecChild(s, mode, g, cmd)
+	c, err := newExecChild(ctx, s, mode, g, cmd)
 	if err != nil {
 		return nil, err
 	}
 	// nofork: defer start until Run has the peer stream (runExecNoFork).
 	// Placeholder Opened; Stream is nil — Run must not transferPair this alone.
-	if s.BoolOption("nofork") {
+	if c.config.Common.Fork.NoFork.Value {
 		if err := rejectUnusedExecPastSocketOptions(s); err != nil {
 			return nil, err
 		}
 		spec := s
-		return &Opened{Kind: KindExec, Label: "EXEC-nofork", NoForkSpec: &spec}, nil
+		config := c.config
+		return &Opened{Kind: KindExec, Label: "EXEC-nofork", NoForkSpec: &spec, NoForkConfig: &config}, nil
 	}
 	if err := c.prepareForked(ctx); err != nil {
 		return nil, err
@@ -466,16 +438,14 @@ func validateProcessFDOptions(mode Mode, fdin, fdout string) error {
 	return nil
 }
 
-func processFDPair(s parse.Spec, mode Mode) (fdin, fdout string, err error) {
-	fdin = s.OptionValue("fdin", "")
-	fdout = s.OptionValue("fdout", "")
+func processFDPairConfig(config addrconfig.Process, mode Mode) (fdin, fdout string, err error) {
+	if config.FDIn.Set {
+		fdin = strconv.Itoa(config.FDIn.Value)
+	}
+	if config.FDOut.Set {
+		fdout = strconv.Itoa(config.FDOut.Value)
+	}
 	if err = validateProcessFDOptions(mode, fdin, fdout); err != nil {
-		return "", "", err
-	}
-	if fdin, err = normalizeProcessFD(fdin, "fdin"); err != nil {
-		return "", "", err
-	}
-	if fdout, err = normalizeProcessFD(fdout, "fdout"); err != nil {
 		return "", "", err
 	}
 	return fdin, fdout, nil
@@ -486,25 +456,7 @@ func processFDPair(s parse.Spec, mode Mode) (fdin, fdout string, err error) {
 // unusedFDNumbers still keeps historical prefix temps in 3–9.
 const dashFDRedirectMax = 9
 
-// fdin/fdout are unsigned short (0..65535). Overflow is rejected instead of
-// wrapping onto an unrelated descriptor.
-const maxProcessFD = 1<<16 - 1
-
-func normalizeProcessFD(value, name string) (string, error) {
-	if value == "" {
-		return "", nil
-	}
-	n, err := ParseIntAny(value)
-	if err != nil || n < 0 {
-		return "", fmt.Errorf("%s: invalid file descriptor %q", name, value)
-	}
-	if n > maxProcessFD {
-		return "", fmt.Errorf("%s: file descriptor %d exceeds unsigned-short range", name, n)
-	}
-	return strconv.Itoa(n), nil
-}
-
-func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdRedirect bool) (relay.Stream, []func(), []*os.File, error) {
+func startCmdPipes(s parse.Spec, config addrconfig.Address, mode Mode, cmd *exec.Cmd, fdRedirect bool) (relay.Stream, []func(), []*os.File, error) {
 	needIn, needOut := pipeDirections(mode)
 	var stdin io.WriteCloser
 	var stdout io.ReadCloser
@@ -524,7 +476,7 @@ func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdRedirect bool) (rel
 		stdin = parentStdin
 		childFiles = append(childFiles, childStdin)
 		parentFiles = append(parentFiles, parentStdin)
-		if err := ApplyFDOptions(childStdin, s); err != nil {
+		if err := ApplyConfiguredFDOptions(childStdin, config.File, FDSkip{}); err != nil {
 			closeFiles(parentFiles)
 			closeFiles(childFiles)
 			return nil, nil, nil, err
@@ -540,7 +492,7 @@ func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdRedirect bool) (rel
 		stdout = parentStdout
 		childFiles = append(childFiles, childStdout)
 		parentFiles = append(parentFiles, parentStdout)
-		if err := ApplyFDOptions(childStdout, s); err != nil {
+		if err := ApplyConfiguredFDOptions(childStdout, config.File, FDSkip{}); err != nil {
 			closeFiles(parentFiles)
 			closeFiles(childFiles)
 			return nil, nil, nil, err
@@ -563,12 +515,12 @@ func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdRedirect bool) (rel
 		if needOut {
 			out := childFiles[len(childFiles)-1]
 			cmd.Stdout = out
-			if s.BoolOption("stderr") {
+			if config.Process.Stderr.Value {
 				cmd.Stderr = out
 			}
 		} else {
 			cmd.Stdout = os.Stdout
-			if s.BoolOption("stderr") {
+			if config.Process.Stderr.Value {
 				cmd.Stderr = os.Stdout
 			}
 		}
@@ -597,7 +549,7 @@ func startCmdPipes(s parse.Spec, mode Mode, cmd *exec.Cmd, fdRedirect bool) (rel
 	return st, cleanup, childFiles, nil
 }
 
-func startCmdSocketpair(s parse.Spec, mode Mode, cmd *exec.Cmd, fdRedirect bool) (relay.Stream, []func(), *os.File, error) {
+func startCmdSocketpair(s parse.Spec, config addrconfig.Address, mode Mode, cmd *exec.Cmd, fdRedirect bool) (relay.Stream, []func(), *os.File, error) {
 	stype, _, err := SocketTypeOption(s, syscall.SOCK_STREAM)
 	if err != nil {
 		return nil, nil, nil, err
@@ -630,19 +582,19 @@ func startCmdSocketpair(s parse.Spec, mode Mode, cmd *exec.Cmd, fdRedirect bool)
 		case ModeWrite:
 			cmd.Stdin = child
 			cmd.Stdout = os.Stdout
-			if s.BoolOption("stderr") {
+			if config.Process.Stderr.Value {
 				cmd.Stderr = os.Stdout
 			}
 		case ModeRead:
 			cmd.Stdin = os.Stdin
 			cmd.Stdout = child
-			if s.BoolOption("stderr") {
+			if config.Process.Stderr.Value {
 				cmd.Stderr = child
 			}
 		default:
 			cmd.Stdin = child
 			cmd.Stdout = child
-			if s.BoolOption("stderr") {
+			if config.Process.Stderr.Value {
 				cmd.Stderr = child
 			}
 		}
@@ -698,7 +650,7 @@ func (c *execChild) start(ctx context.Context) error {
 	// CLOEXEC descriptors, so the high-numbered originals are not leaked.
 	setCloexecAllFrom(3)
 	var startErr error
-	if err := WithUmask(c.spec, func() error {
+	if err := WithConfiguredUmask(c.config.File, func() error {
 		startErr = c.cmd.Start()
 		return nil
 	}); err != nil {
@@ -879,7 +831,7 @@ func (c *execChild) closeAfterTransfer(waitChild bool, linger time.Duration, end
 		if waitChild {
 			waitFor = time.Second
 		}
-		if execUsesPTY(c.spec) {
+		if c.config.Process.PTY.Value {
 			waitFor = linger + time.Second
 		}
 		t := time.NewTimer(waitFor)
@@ -917,7 +869,7 @@ func (c *execChild) finishStream(stream relay.Stream, cleanup []func(), waitChil
 	if c.g != nil && c.g.Linger > 0 {
 		linger = c.g.Linger
 	}
-	endClose := c.spec.BoolOption("end-close")
+	endClose := c.config.Transfer.EndClose.Value
 	o := &Opened{
 		Stream:    st,
 		Label:     "EXEC",

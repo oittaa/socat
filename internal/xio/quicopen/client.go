@@ -62,7 +62,7 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	attemptTimeout := quicDialAttemptTimeout(s)
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
-		err := xio.WithRetry(dctx, s, g, s.Type, func() error {
+		err := xio.WithRetry(dctx, g, s.Type, func() error {
 			cctx := dctx
 			var cancel context.CancelFunc
 			// Transport.Dial does path setup and the TLS handshake.

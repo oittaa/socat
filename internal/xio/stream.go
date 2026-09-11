@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -75,11 +76,22 @@ type closerFunc func() error
 
 func (c closerFunc) Close() error { return c() }
 
-// PtyStream wraps a PTY master. ShutdownWrite does NOT close the master FD
-// (unlike FileStream on non-sockets), so the reverse direction can still read
-// child output until full Close. Closing the master early SIGIO/SIGHUPs the child.
-func PtyStream(f *os.File, s parse.Spec) (relay.Stream, error) {
-	r, err := ptyMasterReader(f, s)
+func ptyExecStream(f *os.File, r io.Reader) relay.Stream {
+	w := &halfCloseWriter{w: f}
+	return relay.FDStream{
+		R: r,
+		W: w,
+		C: NopCloser{},
+		CloseW: func() error {
+			w.closeWrite()
+			return nil
+		},
+	}
+}
+
+// PtyStreamConfigured wraps a PTY master using prepared terminal settings.
+func PtyStreamConfigured(f *os.File, config addrconfig.Terminal) (relay.Stream, error) {
+	r, err := configuredPTYMasterReader(f, config)
 	if err != nil {
 		return nil, err
 	}
@@ -95,36 +107,12 @@ func PtyStream(f *os.File, s parse.Spec) (relay.Stream, error) {
 	}, nil
 }
 
-// PtyExecStream is a PTY master for EXEC/SYSTEM. Close does not drop the
-// master; the EXEC owner waits for the child first, then closes (avoids
-// SIGHUP before a SYSTEM script finishes).
-func PtyExecStream(f *os.File, s parse.Spec) (relay.Stream, error) {
-	r, err := ptyMasterReader(f, s)
-	if err != nil {
-		return nil, err
+func configuredPTYMasterReader(f *os.File, config addrconfig.Terminal) (io.Reader, error) {
+	var delay time.Duration
+	if config.SitoutEIO.Set {
+		delay = config.SitoutEIO.Value
 	}
-	return ptyExecStream(f, r), nil
-}
-
-func ptyExecStream(f *os.File, r io.Reader) relay.Stream {
-	w := &halfCloseWriter{w: f}
-	return relay.FDStream{
-		R: r,
-		W: w,
-		C: NopCloser{},
-		CloseW: func() error {
-			w.closeWrite()
-			return nil
-		},
-	}
-}
-
-func ptyMasterReader(f *os.File, s parse.Spec) (io.Reader, error) {
-	d, err := SitoutEIO(s)
-	if err != nil {
-		return nil, err
-	}
-	return wrapSitoutEIORead(f, d), nil
+	return wrapSitoutEIORead(f, delay), nil
 }
 
 // halfCloseWriter rejects Writes after closeWrite without closing the underlying file.

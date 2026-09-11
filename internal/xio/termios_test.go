@@ -7,14 +7,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
 
 func TestParseWinsz(t *testing.T) {
-	c, r, err := parseWinsz("177:37")
-	if err != nil || c != 177 || r != 37 {
-		t.Fatalf("%d %d %v", c, r, err)
+	spec, err := parse.ParseSpec("PTY,tiocswinsz=177:37")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: "PTY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := config.Terminal.Actions; len(got) != 1 || got[0].Col != 177 || got[0].Row != 37 {
+		t.Fatalf("winsize action=%+v", got)
 	}
 }
 
@@ -37,7 +45,11 @@ func applyTermiosSpec(t *testing.T, fd int, spec string) *unix.Termios {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyTermios(fd, s); err != nil {
+	config, err := addrconfig.Decode(s, addrconfig.Facts{Type: "PTY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyConfiguredTermios(fd, config.Terminal); err != nil {
 		t.Fatal(err)
 	}
 	tio, err := getTermios(fd)
@@ -79,12 +91,11 @@ func TestApplyTermiosSaneSetsCanonical(t *testing.T) {
 }
 
 func TestApplyTermiosBareVintrIsRejected(t *testing.T) {
-	fd := openPTYSlave(t)
 	s, err := parse.ParseSpec("PTY,vintr")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyTermios(fd, s); err == nil || !strings.Contains(err.Error(), "value required") {
+	if _, err := addrconfig.Decode(s, addrconfig.Facts{Type: "PTY"}); err == nil || !strings.Contains(err.Error(), "value required") {
 		t.Fatalf("bare vintr error=%v", err)
 	}
 }
@@ -177,5 +188,27 @@ func TestApplyTermiosUsesCommandLineOrder(t *testing.T) {
 				t.Fatalf("ECHO=%v want %v (Lflag=%#x)", got, tc.wantEcho, tio.Lflag)
 			}
 		})
+	}
+}
+
+func TestApplyConfiguredTermiosPreservesActionOrder(t *testing.T) {
+	fd := openPTYSlave(t)
+	spec, err := parse.ParseSpec("PTY,sane,echo=0,vintr=7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: "PTY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyConfiguredTermios(fd, config.Terminal); err != nil {
+		t.Fatal(err)
+	}
+	tio, err := getTermios(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tio.Lflag&unix.ECHO != 0 || tio.Cc[unix.VINTR] != 7 {
+		t.Fatalf("prepared actions left ECHO=%t VINTR=%d", tio.Lflag&unix.ECHO != 0, tio.Cc[unix.VINTR])
 	}
 }

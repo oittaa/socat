@@ -32,6 +32,9 @@ type Address struct {
 
 	Common   Common
 	Transfer Transfer
+	File     File
+	Process  Process
+	Terminal Terminal
 }
 
 // Common contains settings shared by several address families.
@@ -159,6 +162,12 @@ type OptionalUint64 struct {
 	Value uint64
 }
 
+// OptionalUint32 preserves absence separately from an explicit zero.
+type OptionalUint32 struct {
+	Set   bool
+	Value uint32
+}
+
 type OptionalByte struct {
 	Set   bool
 	Value byte
@@ -215,6 +224,12 @@ func Decode(spec parse.Spec, facts Facts) (Address, error) {
 }
 
 func decodeOption(a *Address, o parse.Option) error {
+	if handled, err := decodeFileProcess(a, o); handled {
+		return err
+	}
+	if handled, err := decodeTerminal(a, o); handled {
+		return err
+	}
 	name := optionIdentity(o)
 	switch name {
 	case "fork":

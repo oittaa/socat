@@ -40,8 +40,9 @@ func OpenDialed(ctx context.Context, s parse.Spec, g *Global, d Dialed) (*Opened
 	if fork {
 		o.Kind = KindDial
 		o.MaxChildren = maxChildren
-		o.Interval = ParseRetry(s).Interval
-		o.Dial = WrapNetNSDial(s, g, d.Dial)
+		o.Interval = RetryPolicyFromContext(ctx).Interval
+		dial := carryPreparedConfig(ctx, d.Dial)
+		o.Dial = WrapNetNSDial(s, g, dial)
 		o.WrapDial = wrap
 		return o, nil
 	}
@@ -69,4 +70,17 @@ func OpenDialed(ctx context.Context, s parse.Spec, g *Global, d Dialed) (*Opened
 	}
 	o.Stream = st
 	return o, nil
+}
+
+func carryPreparedConfig(openCtx context.Context, dial func(context.Context) (net.Conn, error)) func(context.Context) (net.Conn, error) {
+	if dial == nil {
+		return nil
+	}
+	config, ok := PreparedConfig(openCtx)
+	if !ok {
+		return dial
+	}
+	return func(dialCtx context.Context) (net.Conn, error) {
+		return dial(withPreparedConfig(dialCtx, config))
+	}
 }

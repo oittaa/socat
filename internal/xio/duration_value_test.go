@@ -2,7 +2,6 @@ package xio
 
 import (
 	"testing"
-	"time"
 
 	"github.com/oittaa/socat/internal/parse"
 )
@@ -16,7 +15,7 @@ func TestParseTimevalWrapsDurationErrors(t *testing.T) {
 	}
 }
 
-func TestParseRetryInvalidIntervalKeepsDefault(t *testing.T) {
+func TestPrepareRejectsInvalidRetryInterval(t *testing.T) {
 	for _, raw := range []string{
 		"TCP:127.0.0.1:9,interval=banana",
 		"TCP:127.0.0.1:9,interval=-1",
@@ -26,9 +25,8 @@ func TestParseRetryInvalidIntervalKeepsDefault(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		p := ParseRetry(s)
-		if p.Interval != time.Second {
-			t.Fatalf("%s interval=%s want 1s", raw, p.Interval)
+		if _, err := PrepareSpec(s); err == nil {
+			t.Fatalf("%s: invalid retry interval accepted", raw)
 		}
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"os"
 	"syscall"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/unix"
@@ -18,6 +19,293 @@ import (
 // fdLifecycleTestHook is invoked each time lifecycle options are applied to
 // an fd. Tests use it to observe SetupStream's per-call same-fd dedup.
 var fdLifecycleTestHook func(fd int)
+
+// ApplyConfiguredFDOptions applies prepared descriptor actions. Callers that
+// crossed PrepareChannel must use this path instead of reparsing Spec options.
+func ApplyConfiguredFDOptions(f *os.File, config addrconfig.File, skip FDSkip) error {
+	if f == nil || !hasConfiguredFDActions(config, skip) {
+		return nil
+	}
+	raw, err := f.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var actionErr error
+	controlErr := raw.Control(func(fd uintptr) {
+		actionErr = applyConfiguredFDOnFD(int(fd), config, skip)
+	})
+	return errors.Join(controlErr, actionErr)
+}
+
+func hasConfiguredFDActions(config addrconfig.File, skip FDSkip) bool {
+	for _, action := range config.Actions {
+		switch action.Kind {
+		case addrconfig.FileActionPerm:
+			if !skip.Perm {
+				return true
+			}
+		case addrconfig.FileActionUser:
+			if !skip.User {
+				return true
+			}
+		case addrconfig.FileActionGroup:
+			if !skip.Group {
+				return true
+			}
+		case addrconfig.FileActionAppend:
+			if !skip.Append {
+				return true
+			}
+		case addrconfig.FileActionAsync:
+			if !skip.Async {
+				return true
+			}
+		case addrconfig.FileActionFlock, addrconfig.FileActionTruncate,
+			addrconfig.FileActionSeekStart, addrconfig.FileActionSeekCurrent,
+			addrconfig.FileActionSeekEnd, addrconfig.FileActionPermLate,
+			addrconfig.FileActionUserLate, addrconfig.FileActionGroupLate,
+			addrconfig.FileActionCloexec, addrconfig.FileActionNoAtime,
+			addrconfig.FileActionPipeSize, addrconfig.FileActionFSFlag,
+			addrconfig.FileActionIoctl:
+			return true
+		}
+	}
+	return false
+}
+
+func applyConfiguredFDOnFD(fd int, config addrconfig.File, skip FDSkip) error {
+	if !hasConfiguredFDActions(config, skip) {
+		return nil
+	}
+	if fdLifecycleTestHook != nil {
+		fdLifecycleTestHook(fd)
+	}
+	noteOptionPhase("FD")
+	for _, action := range config.Actions {
+		switch action.Kind {
+		case addrconfig.FileActionPerm:
+			if !skip.Perm {
+				if err := applyConfiguredPerm(fd, action); err != nil {
+					return err
+				}
+			}
+		case addrconfig.FileActionUser:
+			if !skip.User {
+				if err := applyConfiguredUser(fd, action); err != nil {
+					return err
+				}
+			}
+		case addrconfig.FileActionGroup:
+			if !skip.Group {
+				if err := applyConfiguredGroup(fd, action); err != nil {
+					return err
+				}
+			}
+		case addrconfig.FileActionFlock:
+			if action.Enabled {
+				if err := applyConfiguredFlock(fd, action); err != nil {
+					return err
+				}
+			}
+		case addrconfig.FileActionIoctl:
+			if err := applyConfiguredGenericIoctl(fd, action); err != nil {
+				return err
+			}
+		case addrconfig.FileActionNoAtime, addrconfig.FileActionPipeSize, addrconfig.FileActionFSFlag:
+			if err := applyConfiguredLinuxPHFDAction(fd, action); err != nil {
+				return err
+			}
+		}
+	}
+	noteOptionPhase("LATE")
+	for _, action := range config.Actions {
+		switch action.Kind {
+		case addrconfig.FileActionAppend:
+			if !skip.Append {
+				if err := applyConfiguredAppend(fd, action); err != nil {
+					return err
+				}
+			}
+		case addrconfig.FileActionAsync:
+			if !skip.Async {
+				if err := applyConfiguredAsync(fd, action); err != nil {
+					return err
+				}
+			}
+		case addrconfig.FileActionTruncate:
+			if err := applyConfiguredTruncate(fd, action); err != nil {
+				return err
+			}
+		case addrconfig.FileActionSeekStart:
+			if err := applyConfiguredSeek(fd, action, io.SeekStart); err != nil {
+				return err
+			}
+		case addrconfig.FileActionSeekCurrent:
+			if err := applyConfiguredSeek(fd, action, io.SeekCurrent); err != nil {
+				return err
+			}
+		case addrconfig.FileActionSeekEnd:
+			if err := applyConfiguredSeek(fd, action, io.SeekEnd); err != nil {
+				return err
+			}
+		case addrconfig.FileActionPermLate:
+			if err := applyConfiguredPerm(fd, action); err != nil {
+				return err
+			}
+		case addrconfig.FileActionUserLate:
+			if err := applyConfiguredUser(fd, action); err != nil {
+				return err
+			}
+		case addrconfig.FileActionGroupLate:
+			if err := applyConfiguredGroup(fd, action); err != nil {
+				return err
+			}
+		case addrconfig.FileActionCloexec:
+			if err := applyConfiguredCloexec(fd, action); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func applyConfiguredCloexec(fd int, action addrconfig.FileAction) error {
+	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFD, 0)
+	if err != nil {
+		return fmt.Errorf("cloexec: %w", err)
+	}
+	if action.Enabled {
+		flags |= unix.FD_CLOEXEC
+	} else {
+		flags &^= unix.FD_CLOEXEC
+	}
+	noteLifecycleSyscall("F_SETFD")
+	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFD, flags); err != nil {
+		return fmt.Errorf("cloexec: %w", err)
+	}
+	return nil
+}
+
+func applyConfiguredAppend(fd int, action addrconfig.FileAction) error {
+	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
+	if err != nil {
+		return fmt.Errorf("append: %w", err)
+	}
+	if action.Enabled {
+		flags |= unix.O_APPEND
+	} else {
+		flags &^= unix.O_APPEND
+	}
+	noteLifecycleSyscall("F_SETFL")
+	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFL, flags); err != nil {
+		return fmt.Errorf("append: %w", err)
+	}
+	return nil
+}
+
+func applyConfiguredAsync(fd int, action addrconfig.FileAction) error {
+	if action.Enabled && !FeatureFDAsync {
+		return fmt.Errorf("%s: not supported on this platform", action.Name)
+	}
+	if !FeatureFDAsync {
+		return nil
+	}
+	flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
+	if err != nil {
+		return fmt.Errorf("%s: %w", action.Name, err)
+	}
+	if action.Enabled {
+		flags |= fdAsyncFlag
+	} else {
+		flags &^= fdAsyncFlag
+	}
+	noteLifecycleSyscall("F_SETFL")
+	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFL, flags); err != nil {
+		return fmt.Errorf("%s: %w", action.Name, err)
+	}
+	return nil
+}
+
+func applyConfiguredFlock(fd int, action addrconfig.FileAction) error {
+	if !FeatureFlock {
+		return fmt.Errorf("%s: not supported on this platform", action.Name)
+	}
+	how := unix.LOCK_EX
+	switch action.Value {
+	case 2:
+		how |= unix.LOCK_NB
+	case 3:
+		how = unix.LOCK_SH
+	case 4:
+		how = unix.LOCK_SH | unix.LOCK_NB
+	}
+	noteLifecycleSyscall("flock")
+	if err := flockFD(fd, how); err != nil {
+		return fmt.Errorf("%s: %w", action.Name, err)
+	}
+	return nil
+}
+
+func applyConfiguredSeek(fd int, action addrconfig.FileAction, whence int) error {
+	noteLifecycleSyscall("lseek")
+	if _, err := unix.Seek(fd, action.Offset, whence); err != nil {
+		return fmt.Errorf("%s: %w", action.Name, err)
+	}
+	return nil
+}
+
+func applyConfiguredTruncate(fd int, action addrconfig.FileAction) error {
+	var st unix.Stat_t
+	if err := unix.Fstat(fd, &st); err != nil {
+		return fmt.Errorf("ftruncate: %w", err)
+	}
+	if st.Mode&unix.S_IFMT != unix.S_IFREG {
+		return fmt.Errorf("ftruncate: not a regular file")
+	}
+	noteLifecycleSyscall("ftruncate")
+	if err := unix.Ftruncate(fd, action.Offset); err != nil {
+		return fmt.Errorf("ftruncate: %w", err)
+	}
+	return nil
+}
+
+func applyConfiguredPerm(fd int, action addrconfig.FileAction) error {
+	noteLifecycleSyscall("fchmod")
+	if err := unix.Fchmod(fd, FileModeToUnix(UnixModeToFileMode(action.Mode))); err != nil {
+		return fmt.Errorf("fchmod: %w", err)
+	}
+	return nil
+}
+
+func applyConfiguredUser(fd int, action addrconfig.FileAction) error {
+	uid, hasUID, err := resolveUID(action.Text)
+	if err != nil {
+		return err
+	}
+	if !hasUID {
+		return nil
+	}
+	noteLifecycleSyscall("fchown")
+	if err := unix.Fchown(fd, uid, -1); err != nil {
+		return fmt.Errorf("fchown: %w", err)
+	}
+	return nil
+}
+
+func applyConfiguredGroup(fd int, action addrconfig.FileAction) error {
+	gid, hasGID, err := resolveGID(action.Text)
+	if err != nil {
+		return err
+	}
+	if !hasGID {
+		return nil
+	}
+	noteLifecycleSyscall("fchown")
+	if err := unix.Fchown(fd, -1, gid); err != nil {
+		return fmt.Errorf("fchown: %w", err)
+	}
+	return nil
+}
 
 func applyFDLifecycleToFile(f *os.File, s parse.Spec, skip FDSkip) error {
 	if f == nil || (!hasFDLifecycleOptions(s, skip) && !hasLinuxPHFDOptions(s)) {

@@ -78,7 +78,7 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
-		e := xio.WithRetry(dctx, s, g, "SOCKS4", func() error {
+		e := xio.WithRetry(dctx, g, "SOCKS4", func() error {
 			c, e := xio.DialTCPAll(dctx, xio.DialTarget{Network: network, Host: socksHost, Port: socksPort}, s, g, timeout, nil)
 			if e != nil {
 				return e
@@ -220,7 +220,7 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
-		e := xio.WithRetry(dctx, s, g, "SOCKS5", func() error {
+		e := xio.WithRetry(dctx, g, "SOCKS5", func() error {
 			c, e := xio.DialTCPAll(dctx, xio.DialTarget{Network: network, Host: socksHost, Port: socksPort}, s, g, timeout, nil)
 			if e != nil {
 				return e

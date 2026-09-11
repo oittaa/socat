@@ -292,7 +292,11 @@ func TestRunExecNoForkRejectsPastSocketOptionsLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = runExecNoFork(context.Background(), nil, spec, &Global{Log: logx.New()}, ModeRDWR)
+	prepared, err := PrepareSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = runExecNoFork(context.Background(), nil, spec, prepared.Config, &Global{Log: logx.New()}, ModeRDWR)
 	if err == nil {
 		t.Fatal("expected leftover PASTSOCKET error")
 	}

@@ -1,6 +1,7 @@
 package xio
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -31,6 +32,26 @@ type PreparedChannel struct {
 	Single *PreparedAddress
 	Dual   *PreparedDual
 	Raw    string
+}
+
+type preparedConfigKey struct{}
+
+func withPreparedConfig(ctx context.Context, config addrconfig.Address) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, preparedConfigKey{}, config)
+}
+
+// PreparedConfig returns the immutable configuration carried by an opening
+// context. It is absent only for compatibility callers that have not crossed
+// the preparation boundary.
+func PreparedConfig(ctx context.Context) (addrconfig.Address, bool) {
+	if ctx == nil {
+		return addrconfig.Address{}, false
+	}
+	config, ok := ctx.Value(preparedConfigKey{}).(addrconfig.Address)
+	return config, ok
 }
 
 // IsDual reports whether the prepared channel contains two addresses.

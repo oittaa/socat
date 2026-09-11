@@ -7,13 +7,16 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func TestParseRetryIntervallAlias(t *testing.T) {
+func TestPreparedRetryIntervallAlias(t *testing.T) {
 	s, err := parse.ParseSpec("TCP:127.0.0.1:9,retry=1,intervall=2.5")
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := ParseRetry(s)
-	if p.Interval != 2500*time.Millisecond {
-		t.Fatalf("interval=%s want 2.5s", p.Interval)
+	p, err := PrepareSpec(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Config.Common.Retry.Policy().Interval; got != 2500*time.Millisecond {
+		t.Fatalf("interval=%s want 2.5s", got)
 	}
 }

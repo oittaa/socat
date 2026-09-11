@@ -18,7 +18,7 @@ func TestNamedPipeOwnershipFailureCleansCreatedFIFO(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := openPIPE(context.Background(), s, xio.ModeRDWR, nil); err == nil {
+	if _, err := xio.OpenSpec(context.Background(), s, xio.ModeRDWR, nil); err == nil {
 		t.Fatal("openPIPE unexpectedly ignored ownership failure")
 	}
 	if _, err := os.Lstat(path); !os.IsNotExist(err) {

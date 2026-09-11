@@ -15,7 +15,11 @@ import (
 func TestSocketConnectRetryWaitsBetweenAttempts(t *testing.T) {
 	spec := "SOCKET-CONNECT:2:0:" + ipv4SocketHex(1, [4]byte{127, 0, 0, 1}) + ",retry=1,interval=0.15"
 	start := time.Now()
-	_, err := openSocketConnect(context.Background(), mustSocketSpec(t, spec), xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	prepared, err := xio.PrepareSpec(mustSocketSpec(t, spec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = xio.OpenPreparedSpec(context.Background(), prepared, xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("connect to 127.0.0.1:1 succeeded")

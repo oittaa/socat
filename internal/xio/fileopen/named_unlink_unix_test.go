@@ -23,17 +23,7 @@ func openSpec(t *testing.T, raw string, mode xio.Mode) *xio.Opened {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var o *xio.Opened
-	switch spec.Type {
-	case "OPEN", "FILE":
-		o, err = openOPEN(context.Background(), spec, mode, nil)
-	case "CREATE", "CREAT":
-		o, err = openCREATE(context.Background(), spec, mode, nil)
-	case "GOPEN":
-		o, err = openGOPEN(context.Background(), spec, mode, nil)
-	default:
-		t.Fatalf("unexpected type %q", spec.Type)
-	}
+	o, err := xio.OpenSpec(context.Background(), spec, mode, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +39,7 @@ func TestOpenUnlinkEarlyRemovesThenOpenFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openOPEN(context.Background(), spec, xio.ModeRead, nil)
+	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("OPEN,unlink-early of existing file without creat succeeded")
@@ -97,7 +87,7 @@ func TestNamedPipeUnlinkLateRemovesNameOnFDOptionFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openPIPE(context.Background(), spec, xio.ModeRead, nil)
+	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("f-setpipe-sz on a regular file succeeded")
@@ -116,7 +106,7 @@ func TestNamedPipeUnlinkPreOpenIgnoresMissingPath(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			o, err := openPIPE(context.Background(), spec, xio.ModeRead, nil)
+			o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
 			if err != nil {
 				t.Fatalf("PIPE,%s of a missing path: %v", opt, err)
 			}
@@ -131,7 +121,7 @@ func TestNamedPipeUnlinkLateRemovesNameWhileOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openPIPE(context.Background(), spec, xio.ModeRead, nil)
+	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +192,7 @@ func TestNamedPipeUnlinkEqualsZeroMissingCreatesFIFO(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			o, err := openPIPE(context.Background(), spec, xio.ModeRead, nil)
+			o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
 			if err != nil {
 				t.Fatalf("PIPE,%s of a missing path: %v", opt, err)
 			}
@@ -217,7 +207,7 @@ func TestNamedPipeUnlinkLateEqualsZeroKeepsName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openPIPE(context.Background(), spec, xio.ModeRead, nil)
+	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +266,7 @@ func TestOpenPermEarlyDroppedOnMissingPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openOPEN(context.Background(), spec, xio.ModeRead, nil)
+	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("OPEN of missing path with perm-early succeeded")

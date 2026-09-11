@@ -52,7 +52,7 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	oneshot := p.kind == mqRecv
 	nonblock := p.oflag&unix.O_NONBLOCK != 0
 	if p.fork && p.kind == mqSend {
-		return q.wrapSendFork(s, p, nonblock)
+		return q.wrapSendFork(ctx, s, p, nonblock)
 	}
 	if p.fork && oneshot {
 		return q.wrapRecvFork(ctx, s, p)
@@ -201,7 +201,7 @@ type posixMQQueue struct {
 func posixMQOpenQueue(ctx context.Context, s parse.Spec, g *xio.Global, p posixMQParams) (*posixMQQueue, error) {
 	var fd int
 	err := xio.WithUmask(s, func() error {
-		return xio.WithRetry(ctx, s, g, "mq_open", func() error {
+		return xio.WithRetry(ctx, g, "mq_open", func() error {
 			var e error
 			fd, e = mqOpen(p.name, p.oflag, p.modePerm, p.attr)
 			if e != nil {
@@ -250,7 +250,7 @@ func posixMQOpenQueue(ctx context.Context, s parse.Spec, g *xio.Global, p posixM
 	return q, nil
 }
 
-func (q *posixMQQueue) wrapSendFork(s parse.Spec, p posixMQParams, nonblock bool) (*xio.Opened, error) {
+func (q *posixMQQueue) wrapSendFork(ctx context.Context, s parse.Spec, p posixMQParams, nonblock bool) (*xio.Opened, error) {
 	fd, name, prio, msgsize := q.fd, q.name, p.prio, q.msgsize
 	dial := func(dctx context.Context) (net.Conn, error) {
 		if !nonblock {
@@ -281,7 +281,7 @@ func (q *posixMQQueue) wrapSendFork(s parse.Spec, p posixMQParams, nonblock bool
 	o := &xio.Opened{
 		Kind:        xio.KindDial,
 		MaxChildren: p.maxChildren,
-		Interval:    xio.ParseRetry(s).Interval,
+		Interval:    xio.RetryPolicyFromContext(ctx).Interval,
 		Label:       s.Type,
 		Dial:        dial,
 		WrapDial:    wrap,

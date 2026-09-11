@@ -46,7 +46,7 @@ func openSCTPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
-		err := xio.WithRetry(dctx, s, g, network+" connect", func() error {
+		err := xio.WithRetry(dctx, g, network+" connect", func() error {
 			c, e := dialSCTPAll(dctx, xio.DialTarget{Network: network, Host: host, Port: port}, s, g, timeout, nil)
 			if e != nil {
 				return e

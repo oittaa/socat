@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
@@ -39,6 +40,40 @@ func applyLinuxPHFDOption(fd int, o parse.Option) error {
 		return applyOneNoatime(fd, o)
 	case "f-setpipe-sz", "pipesz":
 		return applyOnePipeSize(fd, o)
+	}
+	return nil
+}
+
+func applyConfiguredLinuxPHFDAction(fd int, action addrconfig.FileAction) error {
+	switch action.Kind {
+	case addrconfig.FileActionFSFlag:
+		mask, ok := linuxExtFSFlagMasks[action.Text]
+		if !ok {
+			return nil
+		}
+		noteLifecycleSyscall("FS_IOC_SETFLAGS")
+		if err := applyFSIoctlMask(fd, mask, action.Enabled); err != nil {
+			return fmt.Errorf("%s: %w", action.Name, err)
+		}
+	case addrconfig.FileActionNoAtime:
+		flags, err := unix.FcntlInt(uintptr(fd), unix.F_GETFL, 0)
+		if err != nil {
+			return fmt.Errorf("o-noatime: %w", err)
+		}
+		if action.Enabled {
+			flags |= unix.O_NOATIME
+		} else {
+			flags &^= unix.O_NOATIME
+		}
+		noteLifecycleSyscall("F_SETFL")
+		if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFL, flags); err != nil {
+			return fmt.Errorf("o-noatime: %w", err)
+		}
+	case addrconfig.FileActionPipeSize:
+		noteLifecycleSyscall("F_SETPIPE_SZ")
+		if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETPIPE_SZ, action.Value); err != nil {
+			return fmt.Errorf("f-setpipe-sz: %w", err)
+		}
 	}
 	return nil
 }

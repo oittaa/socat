@@ -5,6 +5,7 @@ package xio
 import (
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -15,14 +16,8 @@ func TermiosHelpNames() []string { return nil }
 
 func ValidateTermiosOption(parse.Option) error { return nil }
 
-func ApplyTermios(_ int, s parse.Spec) error {
-	return RejectUnsupportedTermios(s)
-}
+func ApplyConfiguredTermios(_ int, _ addrconfig.Terminal) error { return nil }
 
-func AttachTermios(_ *Opened, _ int, s parse.Spec) error {
-	return RejectUnsupportedTermios(s)
-}
+func AttachConfiguredTermios(_ *Opened, _ int, _ addrconfig.Terminal) error { return nil }
 
 func WaitPTYSlave(int, time.Duration) error { return nil }
-
-func PTYWaitInterval(parse.Spec) time.Duration { return time.Second }

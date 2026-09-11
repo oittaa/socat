@@ -48,7 +48,7 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	// then TLS on the winning socket.
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
-		err := xio.WithRetry(dctx, s, g, s.Type, func() error {
+		err := xio.WithRetry(dctx, g, s.Type, func() error {
 			cctx := dctx
 			var cancel context.CancelFunc
 			if timeout > 0 {

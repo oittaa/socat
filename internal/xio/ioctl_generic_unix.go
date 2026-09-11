@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"unsafe"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
@@ -49,6 +50,37 @@ func applyGenericIoctlOption(fd int, o parse.Option) error {
 		}
 	default:
 		return fmt.Errorf("unknown ioctl option %q", spec.name)
+	}
+	return nil
+}
+
+func applyConfiguredGenericIoctl(fd int, action addrconfig.FileAction) error {
+	request := uint(action.Request)
+	noteLifecycleSyscall("ioctl")
+	switch action.ValueKind {
+	case 1:
+		if err := ioctlVoid(fd, request); err != nil {
+			return fmt.Errorf("%s: ioctl(%d, 0x%x, NULL): %w", action.Name, fd, request, err)
+		}
+	case 2:
+		if err := unix.IoctlSetInt(fd, request, action.Value); err != nil {
+			return fmt.Errorf("%s: ioctl(%d, 0x%x, 0x%x): %w", action.Name, fd, request, action.Value, err)
+		}
+	case 3:
+		if err := unix.IoctlSetPointerInt(fd, request, action.Value); err != nil {
+			return fmt.Errorf("%s: ioctl(%d, 0x%x, int*): %w", action.Name, fd, request, err)
+		}
+	case 4:
+		if err := ioctlBytes(fd, request, action.Bytes); err != nil {
+			return fmt.Errorf("%s: ioctl(%d, 0x%x, bin): %w", action.Name, fd, request, err)
+		}
+	case 5:
+		data := append([]byte(action.Text), 0)
+		if err := ioctlBytes(fd, request, data); err != nil {
+			return fmt.Errorf("%s: ioctl(%d, 0x%x, string): %w", action.Name, fd, request, err)
+		}
+	default:
+		return fmt.Errorf("unknown ioctl option %q", action.Name)
 	}
 	return nil
 }

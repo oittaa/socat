@@ -35,7 +35,7 @@ func dialUnixSocklen(req dialRequest, path, bindPath string) (net.Conn, error) {
 		return nil, fmt.Errorf("unix-tightsocklen: not supported on this platform")
 	}
 	var conn net.Conn
-	err := xio.WithRetry(req.ctx, req.spec, req.g, req.spec.Type, func() error {
+	err := xio.WithRetry(req.ctx, req.g, req.spec.Type, func() error {
 		if err := prepareUnixClientBind(bindPath, req.spec); err != nil {
 			return err
 		}

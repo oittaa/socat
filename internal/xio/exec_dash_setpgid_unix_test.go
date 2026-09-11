@@ -24,7 +24,11 @@ func TestApplyDashArgv0RewritesBasename(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := applyExecChildOptions(spec, cmd); err != nil {
+	prepared, err := PrepareSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyConfiguredExecChildOptions(prepared.Config.Process, spec.Type, cmd); err != nil {
 		t.Fatal(err)
 	}
 	if cmd.Path != "/bin/echo" {
@@ -42,7 +46,11 @@ func TestApplySetpgidOmittedZeroOneNewGroup(t *testing.T) {
 			t.Fatal(err)
 		}
 		cmd := exec.Command("/bin/true")
-		if err := applyExecChildOptions(spec, cmd); err != nil {
+		prepared, err := PrepareSpec(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := applyConfiguredExecChildOptions(prepared.Config.Process, spec.Type, cmd); err != nil {
 			t.Fatal(err)
 		}
 		if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid || cmd.SysProcAttr.Pgid != 0 {
@@ -57,7 +65,11 @@ func TestApplySetpgidOtherValueKeepsPgid(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := exec.Command("/bin/true")
-	if err := applyExecChildOptions(spec, cmd); err != nil {
+	prepared, err := PrepareSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := applyConfiguredExecChildOptions(prepared.Config.Process, spec.Type, cmd); err != nil {
 		t.Fatal(err)
 	}
 	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid || cmd.SysProcAttr.Pgid != 4242 {
@@ -70,7 +82,7 @@ func TestApplySetpgidRejectsGarbage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = applyExecChildOptions(spec, exec.Command("/bin/true"))
+	_, err = PrepareSpec(spec)
 	if err == nil || !strings.Contains(err.Error(), "invalid") {
 		t.Fatalf("error=%v want invalid setpgid", err)
 	}
@@ -153,8 +165,12 @@ func TestEXECSetpgidDoesNotMutateParentOnNofork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	prepared, err := PrepareSpec(s)
+	if err != nil {
+		t.Fatal(err)
+	}
 	peer := relay.FDStream{R: os.Stdin, W: os.Stdout, C: NopCloser{}}
-	if err := runExecNoFork(context.Background(), peer, s, nil, ModeRDWR); err != nil {
+	if err := runExecNoFork(context.Background(), peer, s, prepared.Config, nil, ModeRDWR); err != nil {
 		t.Fatal(err)
 	}
 	if unix.Getpgrp() != parent {

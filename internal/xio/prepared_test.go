@@ -2,6 +2,8 @@ package xio
 
 import (
 	"context"
+	"errors"
+	"net"
 	"testing"
 	"time"
 
@@ -61,4 +63,26 @@ func TestOpenPreparedChannelDoesNotNeedRawChannel(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = opened.Close() }()
+}
+
+func TestPreparedRetryPolicyCarriesIntoForkDialContext(t *testing.T) {
+	raw, err := parse.ParseChannel("TCP:example.invalid:9,retry=1,interval=1ns")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareChannel(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	openCtx := withPreparedConfig(context.Background(), prepared.Single.Config)
+	dial := carryPreparedConfig(openCtx, func(ctx context.Context) (net.Conn, error) {
+		got, ok := PreparedConfig(ctx)
+		if !ok || got.Common.Retry.Policy().MaxAttempts != 2 {
+			return nil, errors.New("prepared retry policy missing")
+		}
+		return nil, nil
+	})
+	if _, err := dial(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 }

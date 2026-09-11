@@ -34,7 +34,7 @@ func openSocketConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Glo
 	timeout := xio.ConnectTimeout(s)
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
-		err := xio.WithRetry(dctx, s, g, "socket connect", func() error {
+		err := xio.WithRetry(dctx, g, "socket connect", func() error {
 			c, e := dialRawSocket(dctx, call, sa, s, timeout)
 			if e != nil {
 				return e

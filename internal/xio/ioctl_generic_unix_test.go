@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
@@ -124,5 +125,29 @@ func TestApplyFDOptionsIoctlIntpAliasPath(t *testing.T) {
 	spec := mustSpec(t, "FD:3,ioctl-intp="+strconv.FormatUint(uint64(fionreadRequest()), 10)+":0")
 	if err := ApplyFDOptions(r, spec); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestApplyConfiguredFDOptionsIoctlIntpFIONREADPipe(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
+	if _, err := w.Write([]byte("abcd")); err != nil {
+		t.Fatal(err)
+	}
+	spec := mustSpec(t, "FD:3,ioctl-intp="+strconv.FormatUint(uint64(fionreadRequest()), 10)+":0")
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: "FD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyConfiguredFDOptions(r, config.File, FDSkip{}); err != nil {
+		t.Fatalf("prepared ioctl-intp FIONREAD: %v", err)
+	}
+	buf := make([]byte, 4)
+	n, err := r.Read(buf)
+	if err != nil || n != 4 || string(buf) != "abcd" {
+		t.Fatalf("pipe payload after prepared FIONREAD: n=%d buf=%q err=%v", n, buf, err)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
@@ -310,6 +311,9 @@ type Opened struct {
 
 	// NoForkSpec is KindExec: EXEC/SYSTEM,nofork started in Run with the peer FD as stdio.
 	NoForkSpec *parse.Spec
+	// NoForkConfig is the immutable EXEC/SYSTEM/SHELL configuration retained
+	// until Run attaches the peer descriptor.
+	NoForkConfig *addrconfig.Address
 	// childDone closes when an EXEC/SYSTEM/SHELL child exits. Fork loops with
 	// max-children retain their slot until that process, not just its relay,
 	// has finished.
@@ -499,6 +503,7 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 // OpenPreparedSpec opens a prepared address. Resource acquisition and
 // namespace work stay here so preparation never changes their lifetime.
 func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, g *Global) (*Opened, error) {
+	ctx = withPreparedConfig(ctx, prepared.Config)
 	s := prepared.legacy
 	if d, ok := registeredAddresses.resolve(prepared.Config.Type); ok {
 		warnAddressMode(g, mode, d.Directions)
@@ -513,6 +518,8 @@ func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, 
 	if err != nil {
 		return nil, err
 	}
+	prepared.Config = withResolvedPreparedPaths(prepared.Config, s)
+	ctx = withPreparedConfig(ctx, prepared.Config)
 	if err := RejectUnsupportedIPAncillary(s); err != nil {
 		return nil, err
 	}
@@ -559,6 +566,20 @@ func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, 
 		o.ChildrenShutup = prepared.Config.Common.ChildrenShutup.Value
 	}
 	return o, nil
+}
+
+func withResolvedPreparedPaths(config addrconfig.Address, spec parse.Spec) addrconfig.Address {
+	if config.Process.Chdir.Set {
+		if option, ok := spec.OptionNamed("chdir"); ok {
+			config.Process.Chdir.Value = option.Value
+		}
+	}
+	if config.Terminal.Link.Set {
+		if option, ok := spec.OptionNamed("link"); ok {
+			config.Terminal.Link.Value = option.Value
+		}
+	}
+	return config
 }
 
 func warnAddressMode(g *Global, opened, supported Mode) {

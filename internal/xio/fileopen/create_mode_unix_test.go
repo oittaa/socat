@@ -21,7 +21,7 @@ func TestOpenExistingFileDoesNotChmod(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openOPEN(context.Background(), spec, xio.ModeRead, nil)
+	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

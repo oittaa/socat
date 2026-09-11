@@ -7,16 +7,14 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 func TestCreatePtySlaveLinkPreservesReplacement(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "link")
-	spec, err := parse.ParseSpec("PTY,link=" + path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cleanup, err := CreatePtySlaveLink(spec, "/dev/pts/0")
+	cleanup, err := CreateConfiguredPtySlaveLink(addrconfig.Address{
+		Terminal: addrconfig.Terminal{Link: addrconfig.OptionalString{Set: true, Value: path}},
+	}, "/dev/pts/0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,11 +31,10 @@ func TestCreatePtySlaveLinkPreservesReplacement(t *testing.T) {
 
 func TestCreatePtySlaveLinkHonorsUnlinkCloseFalse(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "link")
-	spec, err := parse.ParseSpec("PTY,link=" + path + ",unlink-close=0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cleanup, err := CreatePtySlaveLink(spec, "/dev/pts/0")
+	cleanup, err := CreateConfiguredPtySlaveLink(addrconfig.Address{
+		File:     addrconfig.File{UnlinkClose: addrconfig.OptionalBool{Set: true}},
+		Terminal: addrconfig.Terminal{Link: addrconfig.OptionalString{Set: true, Value: path}},
+	}, "/dev/pts/0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,11 +46,9 @@ func TestCreatePtySlaveLinkHonorsUnlinkCloseFalse(t *testing.T) {
 }
 
 func TestCreatePtySlaveLinkRequiresPath(t *testing.T) {
-	spec, err := parse.ParseSpec("PTY,link")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := CreatePtySlaveLink(spec, "/dev/pts/0"); err == nil {
+	if _, err := CreateConfiguredPtySlaveLink(addrconfig.Address{
+		Terminal: addrconfig.Terminal{Link: addrconfig.OptionalString{Set: true}},
+	}, "/dev/pts/0"); err == nil {
 		t.Fatal("expected empty link= to fail")
 	}
 }

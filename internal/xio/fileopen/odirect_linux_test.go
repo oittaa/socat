@@ -20,7 +20,7 @@ func TestCREATEDoesNotApplyODirect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openCREATE(context.Background(), spec, xio.ModeWrite, nil)
+	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeWrite, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

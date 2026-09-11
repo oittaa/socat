@@ -10,8 +10,8 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
 
@@ -26,8 +26,8 @@ type darwinExecPTYReader struct {
 	closeOnce sync.Once
 }
 
-func execPTYMasterReader(master, slave *os.File, s parse.Spec, childDone <-chan struct{}) (io.Reader, func(), error) {
-	r, err := ptyMasterReader(master, s)
+func execPTYMasterReader(master, slave *os.File, config addrconfig.Terminal, childDone <-chan struct{}) (io.Reader, func(), error) {
+	r, err := configuredPTYMasterReader(master, config)
 	if err != nil {
 		logx.CloseQuiet(slave)
 		return nil, nil, err

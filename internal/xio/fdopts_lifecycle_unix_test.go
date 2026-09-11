@@ -3,6 +3,7 @@
 package xio
 
 import (
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/unix"
 )
@@ -384,6 +386,32 @@ func TestApplyFDOptionsCloexecOccurrenceOrder(t *testing.T) {
 	}
 	if fcntlFD(t, f)&unix.FD_CLOEXEC == 0 {
 		t.Fatal("cloexec=0 then cloexec=1 left FD_CLOEXEC clear")
+	}
+}
+
+func TestApplyConfiguredFDOptionsPreservesLateActionOrder(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "prepared-late-order")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = f.Close() })
+	if _, err := f.Write([]byte("0123456789")); err != nil {
+		t.Fatal(err)
+	}
+	spec := mustSpec(t, "FD:3,ftruncate=4,seek-end=1,lseek=2")
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: "FD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyConfiguredFDOptions(f, config.File, FDSkip{}); err != nil {
+		t.Fatal(err)
+	}
+	offset, err := f.Seek(0, io.SeekCurrent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if offset != 2 {
+		t.Fatalf("offset=%d want 2 after ftruncate, seek-end, lseek", offset)
 	}
 }
 
