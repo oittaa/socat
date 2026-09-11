@@ -626,7 +626,10 @@ func applyConfiguredTermiosAction(t *unix.Termios, action addrconfig.TerminalAct
 		if !ok {
 			return nil
 		}
-		t.Cc[idx] = byte(action.Value) // #nosec G115 -- decoder validates terminal control characters as bytes.
+		if action.Value > math.MaxUint8 {
+			return fmt.Errorf("%s: invalid byte value %d", action.Name, action.Value)
+		}
+		t.Cc[idx] = byte(action.Value)
 	case addrconfig.TerminalActionSpeed:
 		switch action.Name {
 		case "ispeed":

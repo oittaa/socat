@@ -54,7 +54,11 @@ func TestFDEndCloseClosesInheritedDescriptorWindows(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openFD(context.Background(), parsed, xio.ModeRead, nil)
+	prepared, err := xio.PrepareSpec(parsed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := xio.OpenPreparedSpec(context.Background(), prepared, xio.ModeRead, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

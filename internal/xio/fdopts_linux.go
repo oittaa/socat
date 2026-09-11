@@ -70,6 +70,13 @@ func applyConfiguredLinuxPHFDAction(fd int, action addrconfig.FileAction) error 
 			return fmt.Errorf("o-noatime: %w", err)
 		}
 	case addrconfig.FileActionPipeSize:
+		var stat unix.Stat_t
+		if err := unix.Fstat(fd, &stat); err != nil {
+			return fmt.Errorf("f-setpipe-sz: %w", err)
+		}
+		if stat.Mode&unix.S_IFMT != unix.S_IFIFO {
+			return fmt.Errorf("f-setpipe-sz: not a pipe")
+		}
 		noteLifecycleSyscall("F_SETPIPE_SZ")
 		if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETPIPE_SZ, action.Value); err != nil {
 			return fmt.Errorf("f-setpipe-sz: %w", err)

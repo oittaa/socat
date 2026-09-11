@@ -19,7 +19,11 @@ func TestSTALLRejectedOnWindows(t *testing.T) {
 }
 
 func TestPTYRejectedOnWindows(t *testing.T) {
-	_, err := openPTY(context.Background(), parse.Spec{Type: "PTY"}, xio.ModeRDWR, nil)
+	prepared, err := xio.PrepareSpec(parse.Spec{Type: "PTY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = xio.OpenPreparedSpec(context.Background(), prepared, xio.ModeRDWR, nil)
 	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("got %v", err)
 	}
