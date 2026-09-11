@@ -34,7 +34,11 @@ func openUnixgramSend(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		return nil, fmt.Errorf("%s requires path", s.Type)
 	}
 	remote := unixAddr(s.Params[0])
-	bindPath, err := resolveUnixBind(s)
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	bindPath, err := resolveUnixBindConfig(config)
 	if err != nil {
 		return nil, err
 	}
@@ -44,7 +48,7 @@ func openUnixgramSend(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	bound := ""
 	if bindPath != "" {
 		bound = unixAddr(bindPath)
-		if err := prepareUnixClientBind(bound, s); err != nil {
+		if err := prepareUnixClientBind(bound, config); err != nil {
 			return nil, err
 		}
 		laddr := &net.UnixAddr{Name: bound, Net: "unixgram"}
@@ -55,7 +59,7 @@ func openUnixgramSend(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	if err != nil {
 		return nil, err
 	}
-	life := trackUnixBind(bound, s)
+	life := trackUnixBind(bound, config)
 	if err := applyUnixgramSocketOptions(c, s); err != nil {
 		life.drop(c)
 		return nil, err
@@ -101,11 +105,16 @@ func listenUnixgramBound(s parse.Spec, laddr *net.UnixAddr, applyUmask bool) (*n
 		logx.CloseErr(syscall.Close(fd))
 		return nil, err
 	}
+	config, err := xio.OpeningConfig(context.Background(), s)
+	if err != nil {
+		logx.CloseErr(syscall.Close(fd))
+		return nil, err
+	}
 	bind := func() error {
-		return bindUnixPath(int(fd), laddr.Name, unixTightSocklen(s))
+		return bindUnixPath(int(fd), laddr.Name, unixTightSocklen(config.Network.UnixTightSocklen))
 	}
 	if applyUmask {
-		err = xio.WithUmask(s, bind)
+		err = xio.WithConfiguredUmask(config.File, bind)
 	} else {
 		err = bind()
 	}
@@ -154,7 +163,11 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		return nil, fmt.Errorf("%s is read-only", s.Type)
 	}
 	path := unixAddr(s.Params[0])
-	if err := prepareUnixFilesystemPath(path, s); err != nil {
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	if err := prepareUnixFilesystemPath(path, config); err != nil {
 		return nil, err
 	}
 	laddr := &net.UnixAddr{Name: path, Net: "unixgram"}
@@ -162,7 +175,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	if err != nil {
 		return nil, err
 	}
-	life := trackUnixBind(path, s)
+	life := trackUnixBind(path, config)
 	if err := applyUnixgramSocketOptions(c, s); err != nil {
 		life.drop(c)
 		return nil, err
@@ -172,11 +185,6 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		return nil, err
 	}
 	label := s.Type + ":" + path
-	config, err := xio.OpeningConfig(ctx, s)
-	if err != nil {
-		life.drop(c)
-		return nil, err
-	}
 	if xio.ForkRequested(config) && from {
 		ln := &unixgramListener{c: c, path: path, spec: s, g: g, ctx: ctx, nullEOF: config.Transfer.NullEOF.Value}
 		d, terr := xio.RecvTimeoutFromSpec(ctx, s)

@@ -1,18 +1,18 @@
 package netopen
 
 import (
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 // unixTightSocklen is unix-tightsocklen / tightsocklen. Bare flag → 1;
 // unix-tightsocklen=0 still applies. Default is tight. Windows listen/dial
 // reject the option, and bindUnixPath rejects =0. Tight pathname length
 // excludes the terminator Go's net routines include.
-func unixTightSocklen(s parse.Spec) bool {
-	if !s.HasOption("unix-tightsocklen") {
+func unixTightSocklen(flag addrconfig.OptionalBool) bool {
+	if !flag.Set {
 		return true
 	}
-	return s.BoolOption("unix-tightsocklen")
+	return flag.Value
 }
 
 // classicUnixSockaddrLen is the bind/connect socklen for a pathname or

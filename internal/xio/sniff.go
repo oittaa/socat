@@ -8,7 +8,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 // expandSniffPath expands -r/-R path variables: $$ pid, $PROGNAME,
@@ -103,7 +103,7 @@ func expandSniffPath(src string, progname string, now time.Time, g *Global) (str
 // openSniffFiles opens -r/-R dump files for this transfer after expanding paths.
 // Uses O_APPEND|O_CREAT|O_CLOEXEC.
 func openSniffFiles(g *Global) error {
-	return WithUmask(parse.Spec{}, func() error {
+	return WithConfiguredUmask(addrconfig.File{}, func() error {
 		return openSniffFilesLocked(g)
 	})
 }

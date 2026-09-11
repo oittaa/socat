@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -20,11 +21,15 @@ const unixTempChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234
 
 // resolveUnixBind returns bind= or a unique unix-bind-tempname path.
 func resolveUnixBind(s parse.Spec) (string, error) {
-	hasTemp := s.HasOption("unix-bind-tempname")
 	config, err := xio.OpeningConfig(context.Background(), s)
 	if err != nil {
 		return "", err
 	}
+	return resolveUnixBindConfig(config)
+}
+
+func resolveUnixBindConfig(config addrconfig.Address) (string, error) {
+	hasTemp := config.Network.UnixBindTempname.Set
 	hasBind := config.Network.BindSet || config.Common.ConnectBind.Set
 	if hasTemp && hasBind {
 		return "", fmt.Errorf("do not use both options bind and unix-bind-tempname")
@@ -32,10 +37,9 @@ func resolveUnixBind(s parse.Spec) (string, error) {
 	if !hasTemp {
 		return xio.BindHost(config), nil
 	}
-	o, _ := s.OptionNamed("unix-bind-tempname")
-	pat := ""
-	if o.Has && o.Value != "" && o.Value != "1" {
-		pat = o.Value
+	pat := config.Network.UnixBindTempname.Value
+	if pat == "" || pat == "1" {
+		pat = ""
 	}
 	return unixTempnam(pat)
 }
@@ -130,10 +134,17 @@ func openUnixConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		}
 		g.PeerAddr = path
 	}
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		if conn != nil {
+			_ = conn.Close()
+		}
+		return nil, err
+	}
 	// Filesystem (non-ABSTRACT) clients default unlink-close=1 after a
 	// successful bind. Same helper as datagram; ABSTRACT / unlink-close=0 skip
 	// the unlink.
-	life := trackUnixBind(bindPath, s)
+	life := trackUnixBind(bindPath, config)
 	if err := xio.ApplyNamedAfterBind(bindPath, s, nil); err != nil {
 		life.drop(conn)
 		return nil, err
@@ -187,11 +198,11 @@ func dialUnixNetwork(req dialRequest, path, bindPath string) (net.Conn, error) {
 
 // prepareUnixClientBind runs before a client bind=. unlink-early removes the
 // name; otherwise an existing entry is left for bind(2) to fail with EADDRINUSE.
-func prepareUnixClientBind(path string, s parse.Spec) error {
+func prepareUnixClientBind(path string, config addrconfig.Address) error {
 	if path == "" || xio.IsAbstract(path) {
 		return nil
 	}
-	if !s.BoolOption("unlink-early") {
+	if !config.File.UnlinkEarly.Value {
 		return nil
 	}
 	if err := xio.Unlink(path); err != nil && !os.IsNotExist(err) {
@@ -250,7 +261,12 @@ func openUnixDgramClient(req dialRequest, path, bindPath string, emptyIsEOF bool
 	if err != nil {
 		return nil, err
 	}
-	life := trackUnixBind(bindPath, req.spec)
+	config, err := xio.OpeningConfig(req.ctx, req.spec)
+	if err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	life := trackUnixBind(bindPath, config)
 	if err := xio.ApplyNamedAfterBind(bindPath, req.spec, nil); err != nil {
 		life.drop(conn)
 		return nil, err

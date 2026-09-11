@@ -34,7 +34,7 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		return nil, fmt.Errorf("%s: SOCK_DGRAM does not support listen; use UNIX-RECV or UNIX-RECVFROM", s.Type)
 	}
 
-	if err := prepareUnixFilesystemPath(path, s); err != nil {
+	if err := prepareUnixFilesystemPath(path, config); err != nil {
 		return nil, err
 	}
 
@@ -45,7 +45,7 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 
 	// Go's UnixListener unlinks the path on Close by default. Match
 	// unlink-close: default true; unlink-close=0 keeps the filesystem entry.
-	doUnlink := !s.HasOption("unlink-close") || s.BoolOption("unlink-close")
+	doUnlink := unixUnlinkOnClose(config)
 	if ul, ok := ln.(*net.UnixListener); ok {
 		ul.SetUnlinkOnClose(doUnlink)
 	}

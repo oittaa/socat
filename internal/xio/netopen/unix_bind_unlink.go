@@ -5,8 +5,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
 
@@ -19,13 +19,17 @@ type unixBoundUnlink struct {
 	created  unixBindCreated
 }
 
-func trackUnixBind(path string, s parse.Spec) unixBoundUnlink {
+func unixUnlinkOnClose(config addrconfig.Address) bool {
+	return !config.File.UnlinkClose.Set || config.File.UnlinkClose.Value
+}
+
+func trackUnixBind(path string, config addrconfig.Address) unixBoundUnlink {
 	u := unixBoundUnlink{unreg: func() {}}
 	if path == "" || xio.IsAbstract(path) {
 		return u
 	}
 	u.created = rememberUnixBindCreated(path)
-	u.doUnlink = !s.HasOption("unlink-close") || s.BoolOption("unlink-close")
+	u.doUnlink = unixUnlinkOnClose(config)
 	if u.doUnlink && u.created.info != nil {
 		u.unreg = xio.RegisterUnlinkPathIdentity(path, u.created.info)
 	}
@@ -35,11 +39,11 @@ func trackUnixBind(path string, s parse.Spec) unixBoundUnlink {
 // prepareUnixFilesystemPath: unlink-early removes the name (ENOENT is
 // informational); otherwise an existing filesystem entry is an error.
 // reuseaddr does not unlink.
-func prepareUnixFilesystemPath(path string, s parse.Spec) error {
+func prepareUnixFilesystemPath(path string, config addrconfig.Address) error {
 	if path == "" || xio.IsAbstract(path) {
 		return nil
 	}
-	if s.BoolOption("unlink-early") {
+	if config.File.UnlinkEarly.Value {
 		// unlink(2), not os.Remove: Unlink refuses directories
 		// (EISDIR). os.Remove would rmdir an empty directory.
 		if err := xio.Unlink(path); err != nil && !os.IsNotExist(err) {

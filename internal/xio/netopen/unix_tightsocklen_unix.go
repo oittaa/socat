@@ -200,8 +200,13 @@ func listenUnixNetwork(ctx context.Context, s parse.Spec, network, path string) 
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	tight := unixTightSocklen(s)
-	err = xio.WithUmask(s, func() error {
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		logx.CloseErr(unix.Close(fd))
+		return nil, err
+	}
+	tight := unixTightSocklen(config.Network.UnixTightSocklen)
+	err = xio.WithConfiguredUmask(config.File, func() error {
 		return unixBindPath(fd, path, tight)
 	})
 	if err != nil {
@@ -254,7 +259,11 @@ func dialUnixSocklen(req dialRequest, path, bindPath string) (net.Conn, error) {
 	err = xio.WithRetry(req.ctx, req.g, req.spec.Type, func() error {
 		cctx, cancel := req.withTimeout()
 		defer cancel()
-		if err := prepareUnixClientBind(bindPath, req.spec); err != nil {
+		config, err := xio.OpeningConfig(req.ctx, req.spec)
+		if err != nil {
+			return err
+		}
+		if err := prepareUnixClientBind(bindPath, config); err != nil {
 			return err
 		}
 		fd, err := unix.Socket(unix.AF_UNIX, typ|sockCloexec, 0)
@@ -268,7 +277,7 @@ func dialUnixSocklen(req dialRequest, path, bindPath string) (net.Conn, error) {
 			logx.CloseErr(unix.Close(fd))
 			return err
 		}
-		tight := unixTightSocklen(req.spec)
+		tight := unixTightSocklen(config.Network.UnixTightSocklen)
 		var created unixBindCreated
 		if bindPath != "" {
 			if err := unixBindPath(fd, bindPath, tight); err != nil {

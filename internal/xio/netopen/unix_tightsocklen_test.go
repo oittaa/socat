@@ -3,7 +3,7 @@ package netopen
 import (
 	"testing"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 func TestClassicUnixSockaddrLenMatchesXiosetunix(t *testing.T) {
@@ -25,7 +25,7 @@ func TestClassicUnixSockaddrLenMatchesXiosetunix(t *testing.T) {
 }
 
 func TestUnixTightSocklenDefaultIsTight(t *testing.T) {
-	if !unixTightSocklen(parse.Spec{}) {
+	if !unixTightSocklen(addrconfig.OptionalBool{}) {
 		t.Fatal("default unix-tightsocklen must be tight")
 	}
 }

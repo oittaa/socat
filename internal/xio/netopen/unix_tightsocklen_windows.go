@@ -8,18 +8,30 @@ import (
 	"net"
 	"syscall"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
 
+func rejectUnixTightSocklen(config addrconfig.Address) error {
+	if config.Network.UnixTightSocklen.Set {
+		return fmt.Errorf("unix-tightsocklen: not supported on this platform")
+	}
+	return nil
+}
+
 // unix-tightsocklen is rejected on Windows; bindUnixPath also rejects tight=false.
 func listenUnixNetwork(ctx context.Context, s parse.Spec, network, path string) (net.Listener, error) {
-	if s.HasOption("unix-tightsocklen") {
-		return nil, fmt.Errorf("unix-tightsocklen: not supported on this platform")
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	if err := rejectUnixTightSocklen(config); err != nil {
+		return nil, err
 	}
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	var ln net.Listener
-	err := xio.WithUmask(s, func() error {
+	err = xio.WithConfiguredUmask(config.File, func() error {
 		var e error
 		ln, e = xio.ListenStream(ctx, lc, network, path, s)
 		return e
@@ -31,12 +43,16 @@ func listenUnixNetwork(ctx context.Context, s parse.Spec, network, path string) 
 }
 
 func dialUnixSocklen(req dialRequest, path, bindPath string) (net.Conn, error) {
-	if req.spec.HasOption("unix-tightsocklen") {
-		return nil, fmt.Errorf("unix-tightsocklen: not supported on this platform")
+	config, err := xio.OpeningConfig(req.ctx, req.spec)
+	if err != nil {
+		return nil, err
+	}
+	if err := rejectUnixTightSocklen(config); err != nil {
+		return nil, err
 	}
 	var conn net.Conn
-	err := xio.WithRetry(req.ctx, req.g, req.spec.Type, func() error {
-		if err := prepareUnixClientBind(bindPath, req.spec); err != nil {
+	err = xio.WithRetry(req.ctx, req.g, req.spec.Type, func() error {
+		if err := prepareUnixClientBind(bindPath, config); err != nil {
 			return err
 		}
 		// Bind in Control after socket() and snapshot that inode. Do not set
