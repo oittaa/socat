@@ -179,14 +179,7 @@ func compileIPRange(ctx context.Context, spec addrconfig.IPRange, resolver *net.
 	case addrconfig.RangeNone, addrconfig.RangeAny:
 		return func(net.IP) bool { return true }, nil
 	case addrconfig.RangeCIDR:
-		prefix := spec.Prefix
-		return func(ip net.IP) bool {
-			addr, ok := netip.AddrFromSlice(ip)
-			if !ok {
-				return false
-			}
-			return prefix.Contains(addr.Unmap())
-		}, nil
+		return compileCIDRMatcher(spec.Prefix), nil
 	case addrconfig.RangeHex:
 		return compileHexSockRange(spec.HexNet, spec.HexMask)
 	case addrconfig.RangeAddrMask:
@@ -238,12 +231,15 @@ func compileAddrMask(ctx context.Context, addr addrconfig.HostTarget, mask netip
 		}
 		bases = ips
 	}
-	maskIP := net.IP(mask.AsSlice())
-	if v4 := mask.As4(); mask.Is4() {
-		b := v4
-		maskIP = net.IP(b[:])
+	return maskedIPMatcher(bases, net.IP(mask.AsSlice())), nil
+}
+
+func compileCIDRMatcher(prefix netip.Prefix) ipRangeMatcher {
+	n := &net.IPNet{
+		IP:   net.IP(prefix.Addr().AsSlice()),
+		Mask: net.CIDRMask(prefix.Bits(), prefix.Addr().BitLen()),
 	}
-	return maskedIPMatcher(bases, maskIP), nil
+	return n.Contains
 }
 
 func rangeLookupIPs(ctx context.Context, lookup func(context.Context, string, string) ([]net.IP, error), host string) ([]net.IP, error) {

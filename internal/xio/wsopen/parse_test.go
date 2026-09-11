@@ -111,6 +111,56 @@ func TestWSTargetIPv6(t *testing.T) {
 	}
 }
 
+func TestWSTargetEmptyPathKeepsPositional(t *testing.T) {
+	s, err := parse.ParseSpec("WS:127.0.0.1:8080/service,path=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, path, err := wsTarget(mustAddr(t, s), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/service" {
+		t.Fatalf("path=%q want /service", path)
+	}
+
+	s, err = parse.ParseSpec("WS-LISTEN:8080/echo,path=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, path, err = wsTarget(mustAddr(t, s), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/echo" {
+		t.Fatalf("listen path=%q want /echo", path)
+	}
+
+	s, err = parse.ParseSpec("WS:127.0.0.1:8080/service,path=/foo,path=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, path, err = wsTarget(mustAddr(t, s), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/service" {
+		t.Fatalf("path=/foo,path= got %q want /service", path)
+	}
+
+	s, err = parse.ParseSpec("WS:127.0.0.1:8080/service,path=,path=/foo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, path, err = wsTarget(mustAddr(t, s), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/foo" {
+		t.Fatalf("path=,path=/foo got %q want /foo", path)
+	}
+}
+
 func TestWSTargetListenRequiresPort(t *testing.T) {
 	s, err := parse.ParseSpec("WS-LISTEN")
 	if err != nil {

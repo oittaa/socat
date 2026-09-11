@@ -107,6 +107,33 @@ func TestDecodeCrorlfDisableAndLastActiveConversion(t *testing.T) {
 	}
 }
 
+func TestDecodeEmptySOCKSPortKeepsPositional(t *testing.T) {
+	facts := Facts{Type: "SOCKS5", Kind: AddressKindSOCKS, Role: AddressRoleConnect}
+	config, err := Decode(mustParseSpec(t, "SOCKS5:127.0.0.1:12345:localhost:443,socksport="), facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.Proxy.SOCKSPortSet || config.Proxy.SOCKSPort.Text() != "12345" {
+		t.Fatalf("socksport= got %q set=%v want positional 12345", config.Proxy.SOCKSPort.Text(), config.Proxy.SOCKSPortSet)
+	}
+
+	config, err = Decode(mustParseSpec(t, "SOCKS5:127.0.0.1:12345:localhost:443,socksport=1081,socksport="), facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Proxy.SOCKSPort.Text() != "12345" {
+		t.Fatalf("socksport=1081,socksport= got %q want 12345", config.Proxy.SOCKSPort.Text())
+	}
+
+	config, err = Decode(mustParseSpec(t, "SOCKS5:127.0.0.1:12345:localhost:443,socksport=,socksport=1081"), facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Proxy.SOCKSPort.Text() != "1081" {
+		t.Fatalf("socksport=,socksport=1081 got %q want 1081", config.Proxy.SOCKSPort.Text())
+	}
+}
+
 func TestDecodeB0IsRecognizedBaud(t *testing.T) {
 	spec, err := parse.ParseSpec("PTY,b0")
 	if err != nil {

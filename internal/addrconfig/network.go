@@ -394,7 +394,8 @@ type Network struct {
 	MQMessageSize OptionalInt
 }
 
-func decodeNetwork(a *Address, spec parse.Spec) error {
+func decodeNetwork(d *decoder, spec parse.Spec) error {
+	a := &d.Address
 	n := &a.Network
 	n.Kind = a.Facts.Kind
 	n.Role = a.Facts.Role
@@ -456,11 +457,11 @@ func decodeNetwork(a *Address, spec parse.Spec) error {
 	case AddressKindINTERFACE:
 		return decodeINTERFACEPositional(a)
 	case AddressKindWebSocket:
-		return decodeWebSocketPositional(a)
+		return decodeWebSocketPositional(d)
 	case AddressKindPROXY:
 		return decodePROXYPositional(a)
 	case AddressKindSOCKS:
-		return decodeSOCKSPositional(a)
+		return decodeSOCKSPositional(d)
 	default:
 		switch n.Role {
 		case AddressRoleConnect, AddressRoleSendTo, AddressRoleDatagram:
@@ -711,7 +712,8 @@ func decodePROXYPositional(a *Address) error {
 	return nil
 }
 
-func decodeSOCKSPositional(a *Address) error {
+func decodeSOCKSPositional(d *decoder) error {
+	a := &d.Address
 	p := a.Params
 	var server, host, port, socksPort string
 	switch {
@@ -733,13 +735,16 @@ func decodeSOCKSPositional(a *Address) error {
 	a.Proxy.TargetPort = portTarget(port)
 	a.Proxy.EndpointsSet = true
 	if socksPort != "" {
-		a.Proxy.SOCKSPort = portTarget(socksPort)
+		d.socksPositionalPort = portTarget(socksPort)
+		d.socksPositionalPortSet = true
+		a.Proxy.SOCKSPort = d.socksPositionalPort
 		a.Proxy.SOCKSPortSet = true
 	}
 	return nil
 }
 
-func decodeWebSocketPositional(a *Address) error {
+func decodeWebSocketPositional(d *decoder) error {
+	a := &d.Address
 	n := &a.Network
 	if n.Role == AddressRoleListen {
 		if len(a.Params) < 1 || a.Params[0] == "" {
@@ -748,12 +753,10 @@ func decodeWebSocketPositional(a *Address) error {
 		port, path := splitPortPath(a.Params[0])
 		n.ListenPort = portTarget(port)
 		n.ListenSet = port != ""
-		if !a.TLS.WSPath.Set && path == "" && len(a.Params) > 1 {
+		if path == "" && len(a.Params) > 1 {
 			path = "/" + strings.Join(a.Params[1:], "/")
 		}
-		if !a.TLS.WSPath.Set && path != "" {
-			a.TLS.WSPath = OptionalString{Set: true, Value: normalizeWSPath(path)}
-		}
+		setWebSocketPositionalPath(d, path)
 		return nil
 	}
 	if len(a.Params) >= 2 && a.Params[0] != "" && a.Params[1] != "" {
@@ -761,14 +764,22 @@ func decodeWebSocketPositional(a *Address) error {
 		port, path := splitPortPath(a.Params[1])
 		n.TargetPort = portTarget(port)
 		n.TargetSet = true
-		if !a.TLS.WSPath.Set && path == "" && len(a.Params) > 2 {
+		if path == "" && len(a.Params) > 2 {
 			path = "/" + strings.Join(a.Params[2:], "/")
 		}
-		if !a.TLS.WSPath.Set && path != "" {
-			a.TLS.WSPath = OptionalString{Set: true, Value: normalizeWSPath(path)}
-		}
+		setWebSocketPositionalPath(d, path)
 	}
 	return nil
+}
+
+func setWebSocketPositionalPath(d *decoder, path string) {
+	if path == "" {
+		return
+	}
+	d.wsPositionalPath = normalizeWSPath(path)
+	if !d.TLS.WSPath.Set {
+		d.TLS.WSPath = OptionalString{Set: true, Value: d.wsPositionalPath}
+	}
 }
 
 func splitPortPath(value string) (port, path string) {

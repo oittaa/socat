@@ -79,6 +79,49 @@ func TestPeerFilterRangeAcceptsIPAddr(t *testing.T) {
 	}
 }
 
+func TestCompileAddrMaskIPv6DoesNotPanic(t *testing.T) {
+	parsed, err := addrconfig.ParseIPRange("[::1]:[ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff]")
+	if err != nil {
+		t.Fatal(err)
+	}
+	matcher, err := compileIPRange(context.Background(), parsed, net.DefaultResolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !matcher(net.ParseIP("::1")) {
+		t.Fatal("::1 should match range=[::1]:[ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff]")
+	}
+}
+
+func TestPeerFilterMappedCIDRAcceptsIPv4Peer(t *testing.T) {
+	parsed, err := addrconfig.ParseIPRange("[::ffff:127.0.0.1]/128")
+	if err != nil {
+		t.Fatal(err)
+	}
+	matcher, err := compileIPRange(context.Background(), parsed, net.DefaultResolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !matcher(net.ParseIP("127.0.0.1")) {
+		t.Fatal("127.0.0.1 should match range=[::ffff:127.0.0.1]/128")
+	}
+
+	parsed104, err := addrconfig.ParseIPRange("[::ffff:127.0.0.1]/104")
+	if err != nil {
+		t.Fatal(err)
+	}
+	matcher104, err := compileIPRange(context.Background(), parsed104, net.DefaultResolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !matcher104(net.ParseIP("127.1.0.1")) {
+		t.Fatal("127.1.0.1 should match range=[::ffff:127.0.0.1]/104")
+	}
+	if matcher104(net.ParseIP("10.0.0.1")) {
+		t.Fatal("10.0.0.1 must not match range=[::ffff:127.0.0.1]/104")
+	}
+}
+
 func TestCloseRefusedPeerNil(t *testing.T) {
 	CloseRefusedPeer(nil)
 }

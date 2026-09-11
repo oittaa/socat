@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -94,6 +95,39 @@ func lowportWildcardBindDenied() bool {
 		return false
 	}
 	return errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.EPERM)
+}
+
+func TestResolveDialIPsRejectsTCP6IPv4Literals(t *testing.T) {
+	ctx := context.Background()
+	config := mustDecodeAddress(t, parse.Spec{Type: "TCP6"})
+	for _, host := range []string{"127.0.0.1", "[::ffff:127.0.0.1]"} {
+		_, err := ResolveDialIPs(ctx, DialTargetFromText("tcp6", host, "9"), config, nil)
+		if err == nil || !strings.Contains(err.Error(), "not IPv6") {
+			t.Fatalf("%s: err=%v want not IPv6", host, err)
+		}
+	}
+}
+
+func TestDialTCP6IPv4LiteralDoesNotConnect(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	config := mustDecodeAddress(t, parse.Spec{Type: "TCP6"})
+	for _, host := range []string{"127.0.0.1", "[::ffff:127.0.0.1]"} {
+		c, err := DialTCPAll(ctx, DialTargetFromText("tcp6", host, port), config, nil, time.Second, nil)
+		if err == nil {
+			_ = c.Close()
+			t.Fatalf("%s: connected over IPv4; want not IPv6", host)
+		}
+		if !strings.Contains(err.Error(), "not IPv6") {
+			t.Fatalf("%s: err=%v want not IPv6", host, err)
+		}
+	}
 }
 
 func TestBindTCPAddrEmbeddedPortOverridesSourcePort(t *testing.T) {

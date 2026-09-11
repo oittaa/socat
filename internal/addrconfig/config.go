@@ -42,11 +42,14 @@ type Address struct {
 // prepared Address openers and fork sessions share.
 type decoder struct {
 	Address
-	optionIndex int
-	cr          lineConversion
-	crnl        lineConversion
-	crorlf      lineConversion
-	unsupported []TLSUnsupported
+	optionIndex            int
+	cr                     lineConversion
+	crnl                   lineConversion
+	crorlf                 lineConversion
+	unsupported            []TLSUnsupported
+	wsPositionalPath       string
+	socksPositionalPort    PortTarget
+	socksPositionalPortSet bool
 }
 
 type lineConversion struct {
@@ -177,7 +180,7 @@ func Decode(spec parse.Spec, facts Facts) (Address, error) {
 		},
 	}
 
-	if err := decodeNetwork(&d.Address, spec); err != nil {
+	if err := decodeNetwork(&d, spec); err != nil {
 		return Address{}, fmt.Errorf("%s: %w", facts.Type, err)
 	}
 	for _, option := range spec.Options {
@@ -197,6 +200,12 @@ func Decode(spec parse.Spec, facts Facts) (Address, error) {
 func finishDecode(d *decoder) error {
 	resolveLineEnding(d)
 	resolveUnsupportedTLS(d)
+	if d.TLS.WSPath.Set && d.TLS.WSPath.Value == "" && d.wsPositionalPath != "" {
+		d.TLS.WSPath.Value = d.wsPositionalPath
+	}
+	if d.Proxy.SOCKSPortSet && d.Proxy.SOCKSPort.Text() == "" && d.socksPositionalPortSet {
+		d.Proxy.SOCKSPort = d.socksPositionalPort
+	}
 	if d.TLS.MaxVersion != 0 && d.TLS.MinVersion > d.TLS.MaxVersion {
 		return fmt.Errorf("minimum TLS protocol version exceeds maximum")
 	}

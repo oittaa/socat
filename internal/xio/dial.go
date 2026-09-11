@@ -139,14 +139,46 @@ func ResolveDialIPs(ctx context.Context, dest DialTarget, s addrconfig.Address, 
 }
 
 func resolveDialIPs(ctx context.Context, dest DialTarget, s addrconfig.Address, g *Global) ([]net.IP, error) {
+	network := connectIPNetwork(dest.Network)
+	host := StripBrackets(dest.Host.Original())
 	if dest.Host.IsLiteral() {
 		ip := dest.Host.IP()
 		if ip == nil {
 			return nil, fmt.Errorf("no addresses for %s", dest.Host.String())
 		}
+		if err := rejectConnectIPFamily(network, host, ip); err != nil {
+			return nil, err
+		}
 		return []net.IP{ip}, nil
 	}
-	return resolveConnectIPs(ctx, dest.Network, StripBrackets(dest.Host.String()), s, g)
+	return resolveConnectIPs(ctx, network, host, s, g)
+}
+
+func connectIPNetwork(network string) string {
+	switch network {
+	case "sctp4":
+		return "tcp4"
+	case "sctp6":
+		return "tcp6"
+	case "sctp":
+		return "tcp"
+	default:
+		return network
+	}
+}
+
+func rejectConnectIPFamily(network, host string, ip net.IP) error {
+	switch network {
+	case "tcp4":
+		if ip.To4() == nil {
+			return fmt.Errorf("address %s: not IPv4", host)
+		}
+	case "tcp6":
+		if ip.To4() != nil {
+			return fmt.Errorf("address %s: not IPv6", host)
+		}
+	}
+	return nil
 }
 
 // ResolvePort uses a prepared port. Numeric values are not looked up again.
@@ -188,15 +220,7 @@ func ResolvePortNum(network, port string) (int, error) {
 // ResolveConnectIPs returns remote IPs in try order.
 // network may be tcp/tcp4/tcp6 or sctp/sctp4/sctp6 (SCTP uses the TCP hint).
 func ResolveConnectIPs(ctx context.Context, network, host string, s addrconfig.Address, g *Global) ([]net.IP, error) {
-	switch network {
-	case "sctp4":
-		network = "tcp4"
-	case "sctp6":
-		network = "tcp6"
-	case "sctp":
-		network = "tcp"
-	}
-	return resolveConnectIPs(ctx, network, host, s, g)
+	return resolveConnectIPs(ctx, connectIPNetwork(network), host, s, g)
 }
 
 func formatTCPAddr(network string, ip net.IP, port int) string {
@@ -219,15 +243,8 @@ func afForNetwork(network string, ip net.IP) int {
 func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.Address, g *Global) ([]net.IP, error) {
 	// Literal IP: single address, no DNS.
 	if ip := net.ParseIP(host); ip != nil {
-		switch network {
-		case "tcp4":
-			if ip.To4() == nil {
-				return nil, fmt.Errorf("address %s: not IPv4", host)
-			}
-		case "tcp6":
-			if ip.To4() != nil {
-				return nil, fmt.Errorf("address %s: not IPv6", host)
-			}
+		if err := rejectConnectIPFamily(network, host, ip); err != nil {
+			return nil, err
 		}
 		return []net.IP{ip}, nil
 	}
