@@ -57,11 +57,14 @@ func TestParseIffOpts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	set, clear := parseIffOpts(s)
-	if set&unix.IFF_UP == 0 {
+	config, err := xio.OpeningConfig(t.Context(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Network.TUN.InterfaceSet&unix.IFF_UP == 0 {
 		t.Fatal("iff-up not set")
 	}
-	if clear&unix.IFF_NOARP == 0 {
+	if config.Network.TUN.InterfaceClr&unix.IFF_NOARP == 0 {
 		t.Fatal("iff-noarp=0 not cleared")
 	}
 }

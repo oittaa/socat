@@ -25,7 +25,7 @@ func openINTERFACE(_ context.Context, s parse.Spec, _ xio.Mode, _ *xio.Global) (
 	return nil, fmt.Errorf("INTERFACE is only supported on Linux")
 }
 
-// tunPositional is shared with the Linux implementation for arity checks.
+// tunPositional checks TUN arity. Linux also uses this check after Decode.
 func tunPositional(s parse.Spec) (string, error) {
 	n := 0
 	for _, p := range s.Params {

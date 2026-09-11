@@ -7,13 +7,14 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"unsafe"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/logx"
@@ -24,22 +25,25 @@ import (
 
 // openTUN creates a Linux TUN/TAP device (TUN[:addr/bits]).
 // Syntax: TUN[:<ipv4>/<bits>][,tun-name=…][,tun-type=tun|tap][,iff-up][,if-mtu=N]…
-func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	// Zero or one positional (CIDR). TUN::::: must fail fast.
-	addrSpec, err := tunPositional(s)
+func openTUN(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	config, err := xio.OpeningConfig(ctx, s)
 	if err != nil {
 		return nil, err
 	}
-	if s.BoolOption("retrieve-vlan") {
+	if err := tunPositional(config.Params); err != nil {
+		return nil, err
+	}
+	tun := config.Network.TUN
+	if tun.RetrieveVLAN {
 		// retrieve-vlan needs PACKET_AUXDATA on an AF_PACKET socket; TUN is
 		// a char device, so fail closed instead of a silent no-op.
 		return nil, fmt.Errorf("retrieve-vlan: not supported on TUN (requires an AF_PACKET INTERFACE socket)")
 	}
-	name := s.OptionValue("tun-name", "")
+	name := tun.Name
 	if name != "" && !validIfaceName(name) {
 		return nil, fmt.Errorf("tun-name %q is not a valid interface name", name)
 	}
-	dev := s.OptionValue("tun-device", "/dev/net/tun")
+	dev := tun.Device
 	if dev == "" {
 		dev = "/dev/net/tun"
 	}
@@ -52,23 +56,14 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 
 	// Flags: IFF_TUN (default) or IFF_TAP; optional IFF_NO_PI.
 	var flags uint16
-	tunType := strings.ToLower(s.OptionValue("tun-type", "tun"))
-	if tunType == "" {
-		tunType = "tun"
-	}
-	switch tunType {
-	case "tun":
-		flags = unix.IFF_TUN
-	case "tap":
+	switch tun.Type {
+	case addrconfig.TUNTypeTAP:
 		flags = unix.IFF_TAP
 	default:
-		logx.CloseErr(unix.Close(fd))
-		return nil, fmt.Errorf("unknown tun-type %q", tunType)
+		flags = unix.IFF_TUN
 	}
-	if s.HasOption("iff-no-pi") {
-		if s.BoolOption("iff-no-pi") {
-			flags |= unix.IFF_NO_PI
-		}
+	if tun.NoPacketInfo.Value {
+		flags |= unix.IFF_NO_PI
 	}
 
 	ifr, err := unix.NewIfreq(name)
@@ -99,15 +94,15 @@ func openTUN(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xi
 	disableIPv6OnIface(ifname)
 
 	// Optional TUN:addr/bits
-	if addrSpec != "" {
-		if err := setTunIPv4(sock, ifname, addrSpec); err != nil {
+	if tun.AddressSet {
+		if err := setTunIPv4(sock, ifname, tun.Address); err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, err
 		}
 	}
 
 	// Interface flags (iff-up, …) and MTU.
-	if err := applyInterfaceOpts(sock, ifname, s); err != nil {
+	if err := applyInterfaceOpts(sock, ifname, tun); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
@@ -212,42 +207,23 @@ func isTunIPv6Multicast(b []byte, noPI bool) bool {
 	return b[off+24] == 0xff
 }
 
-// setTunIPv4 configures IPv4 address and netmask from "a.b.c.d/bits" or "a.b.c.d".
-func setTunIPv4(sock int, ifname, spec string) error {
-	spec = strings.TrimSpace(spec)
-	var ip net.IP
-	var mask net.IPMask
-	if strings.Contains(spec, "/") {
-		ipp, ipnet, err := net.ParseCIDR(spec)
-		if err != nil {
-			return fmt.Errorf("TUN address %q: %w", spec, err)
-		}
-		ip = ipp.To4()
-		if ip == nil {
-			return fmt.Errorf("TUN address %q: IPv4 required", spec)
-		}
-		mask = ipnet.Mask
-	} else {
-		ip = net.ParseIP(spec)
-		if ip == nil {
-			return fmt.Errorf("TUN address %q: invalid", spec)
-		}
-		ip = ip.To4()
-		if ip == nil {
-			return fmt.Errorf("TUN address %q: IPv4 required", spec)
-		}
-		mask = net.CIDRMask(24, 32) // /24 when only ifaddr is given
+// setTunIPv4 configures IPv4 address and netmask from a prepared prefix.
+func setTunIPv4(sock int, ifname string, prefix netip.Prefix) error {
+	if !prefix.Addr().Is4() {
+		return fmt.Errorf("TUN address %q: IPv4 required", prefix)
 	}
+	ip := prefix.Addr().As4()
+	mask := net.CIDRMask(prefix.Bits(), 32)
 
 	ifr, err := unix.NewIfreq(ifname)
 	if err != nil {
 		return err
 	}
-	if err := ifr.SetInet4Addr([]byte(ip)); err != nil {
+	if err := ifr.SetInet4Addr(ip[:]); err != nil {
 		return err
 	}
 	if err := unix.IoctlIfreq(sock, unix.SIOCSIFADDR, ifr); err != nil {
-		return fmt.Errorf("ioctl(SIOCSIFADDR, %s=%s): %w", ifname, ip, err)
+		return fmt.Errorf("ioctl(SIOCSIFADDR, %s=%s): %w", ifname, prefix.Addr(), err)
 	}
 	if err := ifr.SetInet4Addr([]byte(mask)); err != nil {
 		return err
@@ -259,7 +235,7 @@ func setTunIPv4(sock int, ifname, spec string) error {
 }
 
 // applyInterfaceOpts applies iff-* flags and if-mtu.
-func applyInterfaceOpts(sock int, ifname string, s parse.Spec) error {
+func applyInterfaceOpts(sock int, ifname string, tun addrconfig.TUNSettings) error {
 	ifr, err := unix.NewIfreq(ifname)
 	if err != nil {
 		return err
@@ -268,94 +244,53 @@ func applyInterfaceOpts(sock int, ifname string, s parse.Spec) error {
 		return fmt.Errorf("ioctl(SIOCGIFFLAGS, %s): %w", ifname, err)
 	}
 	flags := ifr.Uint16()
-	set, clear := parseIffOpts(s)
-	flags |= set
-	flags &^= clear
+	flags |= tun.InterfaceSet
+	flags &^= tun.InterfaceClr
 	ifr.SetUint16(flags)
 	if err := unix.IoctlIfreq(sock, unix.SIOCSIFFLAGS, ifr); err != nil {
 		return fmt.Errorf("ioctl(SIOCSIFFLAGS, %s): %w", ifname, err)
 	}
 
-	mtuStr := s.OptionValue("if-mtu", "")
-	if mtuStr != "" {
-		mtu, err := strconv.ParseUint(mtuStr, 0, 32)
-		if err != nil || mtu == 0 {
-			return fmt.Errorf("if-mtu: invalid %q", mtuStr)
-		}
+	if tun.MTU.Set {
 		ifr2, err := unix.NewIfreq(ifname)
 		if err != nil {
 			return err
 		}
-		ifr2.SetUint32(uint32(mtu))
+		ifr2.SetUint32(tun.MTU.Value)
 		if err := unix.IoctlIfreq(sock, unix.SIOCSIFMTU, ifr2); err != nil {
-			return fmt.Errorf("ioctl(SIOCSIFMTU, %s=%d): %w", ifname, mtu, err)
+			return fmt.Errorf("ioctl(SIOCSIFMTU, %s=%d): %w", ifname, tun.MTU.Value, err)
 		}
 	}
 	return nil
 }
 
-// parseIffOpts maps iff-up / iff-noarp / … to set and clear masks.
-// Bare flag or =1 sets the bit; =0 clears it.
-func parseIffOpts(s parse.Spec) (set, clear uint16) {
-	type iffOpt struct {
-		name string
-		bit  uint16
-	}
-	opts := []iffOpt{
-		{"iff-up", unix.IFF_UP},
-		{"iff-broadcast", unix.IFF_BROADCAST},
-		{"iff-debug", unix.IFF_DEBUG},
-		{"iff-loopback", unix.IFF_LOOPBACK},
-		{"iff-pointopoint", unix.IFF_POINTOPOINT},
-		{"iff-running", unix.IFF_RUNNING},
-		{"iff-noarp", unix.IFF_NOARP},
-		{"iff-promisc", unix.IFF_PROMISC},
-		{"iff-allmulti", unix.IFF_ALLMULTI},
-		{"iff-multicast", unix.IFF_MULTICAST},
-		{"iff-notrailers", unix.IFF_NOTRAILERS},
-		{"iff-master", unix.IFF_MASTER},
-		{"iff-slave", unix.IFF_SLAVE},
-		{"iff-portsel", unix.IFF_PORTSEL},
-		{"iff-automedia", unix.IFF_AUTOMEDIA},
-	}
-	for _, o := range opts {
-		if !s.HasOption(o.name) {
-			continue
-		}
-		if s.BoolOption(o.name) {
-			set |= o.bit
-		} else {
-			clear |= o.bit
-		}
-	}
-	return set, clear
-}
-
-// tunPositional returns the optional CIDR argument, or error on bad arity.
-func tunPositional(s parse.Spec) (string, error) {
+// tunPositional reports an error on bad TUN arity. The CIDR itself is decoded
+// into TUNSettings.Address.
+func tunPositional(params []string) error {
 	// Drop trailing empties from "TUN:" ; reject extra fields like "TUN:::::".
 	n := 0
-	for _, p := range s.Params {
+	for _, p := range params {
 		if p != "" {
 			n++
 		}
 	}
 	if n > 1 {
-		return "", fmt.Errorf("too many parameters (%d instead of 0 or 1)", len(s.Params))
+		return fmt.Errorf("too many parameters (%d instead of 0 or 1)", len(params))
 	}
-	if len(s.Params) > 1 {
+	if len(params) > 1 {
 		// e.g. TUN::::: → five empty params from testaddrs probes
-		return "", fmt.Errorf("too many parameters (%d instead of 0 or 1)", len(s.Params))
+		return fmt.Errorf("too many parameters (%d instead of 0 or 1)", len(params))
 	}
-	if len(s.Params) == 1 {
-		return s.Params[0], nil
-	}
-	return "", nil
+	return nil
 }
 
 // openINTERFACE opens a Linux AF_PACKET SOCK_RAW socket on a named interface.
 // Syntax: INTERFACE:<ifname>
-func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openINTERFACE(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
 	// Exactly one non-empty name; INTERFACE::::: must fail (testaddrs).
 	if len(s.Params) != 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("INTERFACE requires interface name")
@@ -390,7 +325,7 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	// Apply interface flags / MTU if requested (shared with TUN).
 	csock, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, 0)
 	if err == nil {
-		_ = applyInterfaceOpts(csock, ifname, s)
+		_ = applyInterfaceOpts(csock, ifname, config.Network.TUN)
 		logx.CloseErr(unix.Close(csock))
 	}
 
@@ -415,7 +350,7 @@ func openINTERFACE(_ context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 		}
 	}
 
-	retrieveVLAN := s.BoolOption("retrieve-vlan")
+	retrieveVLAN := config.Network.TUN.RetrieveVLAN
 	if retrieveVLAN {
 		// PACKET_AUXDATA restores 802.1Q tags the kernel stripped.
 		if err := unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_AUXDATA, 1); err != nil {

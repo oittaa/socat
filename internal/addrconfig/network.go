@@ -266,8 +266,8 @@ type TUNSettings struct {
 	Name         string
 	Type         TUNType
 	NoPacketInfo OptionalBool
-	InterfaceSet uint32
-	InterfaceClr uint32
+	InterfaceSet uint16
+	InterfaceClr uint16
 	MTU          OptionalUint32
 	RetrieveVLAN bool
 }
@@ -1017,8 +1017,8 @@ func decodeTUNOption(t *TUNSettings, o parse.Option, name string) (bool, error) 
 	return true, nil
 }
 
-func interfaceFlagBit(name string) (uint32, bool) {
-	flags := map[string]uint32{
+func interfaceFlagBit(name string) (uint16, bool) {
+	flags := map[string]uint16{
 		"iff-up":          0x1,
 		"iff-broadcast":   0x2,
 		"iff-debug":       0x4,
