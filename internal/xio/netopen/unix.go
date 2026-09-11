@@ -145,7 +145,7 @@ func openUnixConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	// successful bind. Same helper as datagram; ABSTRACT / unlink-close=0 skip
 	// the unlink.
 	life := trackUnixBind(bindPath, config)
-	if err := xio.ApplyNamedAfterBind(bindPath, s, nil); err != nil {
+	if err := xio.ApplyConfiguredNamedAfterBind(bindPath, config, nil); err != nil {
 		life.drop(conn)
 		return nil, err
 	}
@@ -267,7 +267,7 @@ func openUnixDgramClient(req dialRequest, path, bindPath string, emptyIsEOF bool
 		return nil, err
 	}
 	life := trackUnixBind(bindPath, config)
-	if err := xio.ApplyNamedAfterBind(bindPath, req.spec, nil); err != nil {
+	if err := xio.ApplyConfiguredNamedAfterBind(bindPath, config, nil); err != nil {
 		life.drop(conn)
 		return nil, err
 	}

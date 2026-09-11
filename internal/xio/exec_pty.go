@@ -12,17 +12,17 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
 // rejectExecUnsupportedPTYOptions rejects wait-slave / pty-interval on
 // EXEC/SYSTEM/SHELL. Those options apply only to the PTY address.
-func rejectExecUnsupportedPTYOptions(s parse.Spec) error {
-	for _, name := range []string{"pty-wait-slave", "pty-interval"} {
-		if o, ok := s.OptionNamed(name); ok {
-			return fmt.Errorf("%s: %s is not supported", s.Type, o.OriginalSpelling())
-		}
+func rejectExecUnsupportedPTYOptions(config addrconfig.Address) error {
+	if config.Terminal.WaitSlave.Set {
+		return fmt.Errorf("%s: %s is not supported", config.Type, "pty-wait-slave")
+	}
+	if config.Terminal.WaitInterval.Set {
+		return fmt.Errorf("%s: %s is not supported", config.Type, "pty-interval")
 	}
 	return nil
 }

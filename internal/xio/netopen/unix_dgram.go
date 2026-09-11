@@ -64,7 +64,7 @@ func openUnixgramSend(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		life.drop(c)
 		return nil, err
 	}
-	if err := xio.ApplyNamedAfterBind(bound, s, nil); err != nil {
+	if err := xio.ApplyConfiguredNamedAfterBind(bound, config, nil); err != nil {
 		life.drop(c)
 		return nil, err
 	}
@@ -180,7 +180,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		life.drop(c)
 		return nil, err
 	}
-	if err := xio.ApplyNamedAfterBind(path, s, nil); err != nil {
+	if err := xio.ApplyConfiguredNamedAfterBind(path, config, nil); err != nil {
 		life.drop(c)
 		return nil, err
 	}

@@ -321,7 +321,7 @@ func (c *execChild) wrapForkedFDHelper(ctx context.Context) error {
 }
 
 func (c *execChild) prepareForked(ctx context.Context) error {
-	if err := rejectExecUnsupportedPTYOptions(c.spec); err != nil {
+	if err := rejectExecUnsupportedPTYOptions(c.config); err != nil {
 		return err
 	}
 	userPipes := c.config.Process.Pipes.Value

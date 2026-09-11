@@ -52,7 +52,7 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 
 	// mode/perm/user then perm-early/user-early/group-early on the socket
 	// file after bind.
-	if err := xio.ApplyNamedAfterBind(path, s, nil); err != nil {
+	if err := xio.ApplyConfiguredNamedAfterBind(path, config, nil); err != nil {
 		_ = ln.Close()
 		if !xio.IsAbstract(path) {
 			_ = xio.Unlink(path)

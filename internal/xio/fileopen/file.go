@@ -574,7 +574,7 @@ func FileOpened(f *os.File, s parse.Spec, config addrconfig.Address, path string
 	}
 	// Locks after open must complete before late ftruncate/lseek/async.
 	// Applying lifecycle first could mutate the file before a lock failure.
-	if err := xio.ApplyConfiguredFDOptions(f, config.File, namedOpenFDSkip(s)); err != nil {
+	if err := xio.ApplyConfiguredFDOptions(f, config.File, namedOpenFDSkip(config.Type)); err != nil {
 		return fail(err)
 	}
 	// trunc= after ApplyFDOptions late ftruncate/lseek/perm-late.
@@ -596,8 +596,8 @@ func FileOpened(f *os.File, s parse.Spec, config addrconfig.Address, path string
 	return o, nil
 }
 
-func namedOpenFDSkip(s parse.Spec) xio.FDSkip {
-	switch strings.ToUpper(s.Type) {
+func namedOpenFDSkip(addressType string) xio.FDSkip {
+	switch strings.ToUpper(addressType) {
 	case "CREATE", "CREAT":
 		return xio.FDSkipCREATE
 	default:

@@ -50,6 +50,8 @@ type Common struct {
 	MaxChildren       OptionalInt
 	ChildrenShutup    OptionalInt
 	DescriptorMode    DescriptorMode
+	Binary            OptionalBool
+	Text              OptionalBool
 	NetNamespace      OptionalString
 	Resolver          Resolver
 	ConnectBind       OptionalString
@@ -355,16 +357,24 @@ func decodeOption(a *Address, o parse.Option) error {
 		return decodeShutdown(&a.Transfer.Shutdown, o)
 	case "binary":
 		v, err := optionalBool(o)
-		if err == nil && v.Value {
+		if err != nil {
+			return err
+		}
+		a.Common.Binary = v
+		if v.Value {
 			a.Common.DescriptorMode = DescriptorModeBinary
 		}
-		return err
+		return nil
 	case "text":
 		v, err := optionalBool(o)
-		if err == nil && v.Value {
+		if err != nil {
+			return err
+		}
+		a.Common.Text = v
+		if v.Value {
 			a.Common.DescriptorMode = DescriptorModeText
 		}
-		return err
+		return nil
 	case "netns":
 		v, err := requiredString(o)
 		if err == nil {

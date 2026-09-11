@@ -565,7 +565,7 @@ func WrapStream(s parse.Spec, stream relay.Stream, timeouts SocketTimeoutLayer) 
 	// O_BINARY/O_TEXT are descriptor-level conversions. Keep the wrapper
 	// inside user-requested cr/crnl, readbytes, escape, and ignoreeof layers,
 	// and do not let zero-copy bypass it.
-	stream, err = applyDescriptorMode(s, stream)
+	stream, err = applyConfiguredDescriptorMode(config, stream)
 	if err != nil {
 		return nil, err
 	}

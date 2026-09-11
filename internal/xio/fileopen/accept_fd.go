@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
@@ -32,8 +33,21 @@ func openAcceptFD(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Globa
 	if err := xio.RejectGenericSetsockoptPhases(s, s.Type, xio.SockoptPhasePrebind); err != nil {
 		return nil, err
 	}
-	if s.HasOption("ip-transparent") {
-		return nil, fmt.Errorf("%s: option %q is not supported at this lifecycle phase", s.Type, "ip-transparent")
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	if err := rejectAcceptFDTransparent(config); err != nil {
+		return nil, err
 	}
 	return openAcceptFDNum(ctx, s, mode, g, fd)
+}
+
+func rejectAcceptFDTransparent(config addrconfig.Address) error {
+	for _, action := range config.Network.Actions {
+		if action.Kind == addrconfig.SocketActionTransparent {
+			return fmt.Errorf("%s: option %q is not supported at this lifecycle phase", config.Type, "ip-transparent")
+		}
+	}
+	return nil
 }

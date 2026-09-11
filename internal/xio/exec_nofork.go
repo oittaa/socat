@@ -36,7 +36,7 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, config 
 	if err := rejectUnusedExecPastSocketOptions(s); err != nil {
 		return err
 	}
-	if err := rejectExecUnsupportedPTYOptions(s); err != nil {
+	if err := rejectExecUnsupportedPTYOptions(config); err != nil {
 		return err
 	}
 	c, err := newExecChild(ctx, s, mode, g, cmd)

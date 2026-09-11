@@ -1,18 +1,23 @@
 package xio
 
 import (
+	"context"
 	"testing"
 )
 
 func TestHasFDLifecycleOptionsIoctl(t *testing.T) {
-	if !hasFDLifecycleOptions(mustSpec(t, "FD:3,ioctl-void=1"), FDSkip{}) {
-		t.Fatal("ioctl-void must trigger ApplyFDOptions")
-	}
-	if !hasFDLifecycleOptions(mustSpec(t, "TCP:localhost:1,ioctl=1"), FDSkip{}) {
-		t.Fatal("ioctl alias must trigger ApplyFDOptions")
-	}
-	if !hasFDLifecycleOptions(mustSpec(t, "OPEN:file,ioctl-string=1:x"), FDSkip{}) {
-		t.Fatal("ioctl-string must trigger ApplyFDOptions")
+	for _, raw := range []string{
+		"FD:3,ioctl-void=1",
+		"TCP:localhost:1,ioctl=1",
+		"OPEN:file,ioctl-string=1:x",
+	} {
+		config, err := OpeningConfig(context.Background(), mustSpec(t, raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasConfiguredFDActions(config.File, FDSkip{}) {
+			t.Fatalf("%s must trigger ApplyFDOptions", raw)
+		}
 	}
 }
 

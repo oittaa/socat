@@ -5,15 +5,9 @@ package xio
 import (
 	"fmt"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
-// applyGenericIoctlOption recognizes generic ioctl options on Windows so
-// they are not unknown, then rejects them. Parse still runs first so
-// malformed values fail as invalid rather than "not supported".
-func applyGenericIoctlOption(_ int, o parse.Option) error {
-	if _, err := parseGenericIoctl(o); err != nil {
-		return err
-	}
-	return fmt.Errorf("%s: not supported on windows", o.OriginalSpelling())
+func applyConfiguredGenericIoctl(_ int, action addrconfig.FileAction) error {
+	return fmt.Errorf("%s: not supported on windows", action.Name)
 }

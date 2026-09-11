@@ -5,36 +5,8 @@ import (
 	"os"
 	"os/user"
 	"strconv"
-	"strings"
 	"sync"
-
-	"github.com/oittaa/socat/internal/parse"
 )
-
-// ApplyOwner applies every user=/uid=/owner= and group=/gid=
-// occurrence to a named object in command-line order. perm=/mode= is omitted
-// because regular files and FIFOs already consumed it as their creation mode.
-func ApplyOwner(path string, s parse.Spec, f *os.File) error {
-	// CREATE/CREAT use creat(2); ApplyFDOptions applies user/group on the
-	// descriptor. Do not also chown the pathname here.
-	switch strings.ToUpper(s.Type) {
-	case "CREATE", "CREAT":
-		return nil
-	}
-	for _, o := range s.Options {
-		switch parse.CanonicalOptionName(o.Name) {
-		case "user":
-			if err := applyNamedUser(path, f, o); err != nil {
-				return err
-			}
-		case "group":
-			if err := applyNamedGroup(path, f, o); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
 
 // resolveUID parses user=/user-early= as a numeric uid or login name.
 func resolveUID(name string) (int, bool, error) {

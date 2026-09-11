@@ -2,8 +2,6 @@ package xio
 
 import (
 	"strings"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // linux/fs.h FS_*_FL masks. golang.org/x/sys/unix exports FS_IOC_GETFLAGS /
@@ -47,25 +45,6 @@ var linuxExtFSFlagMasks = map[string]int{
 func LinuxExtFSFlagOption(name string) bool {
 	_, ok := linuxExtFSFlagMasks[strings.ToLower(strings.TrimSpace(name))]
 	return ok
-}
-
-// hasLinuxPHFDOptions reports whether spec has Linux after-open options that
-// share the walk with perm/user/group/flock (o-noatime, f-setpipe-sz, fs-*).
-// Other GOOS values still call this to decide whether applyFDLifecycleToFile
-// should enter; applyLinuxPHFDOption is a no-op there after ApplyFDOptions
-// rejects enabled names.
-func hasLinuxPHFDOptions(s parse.Spec) bool {
-	for _, o := range s.Options {
-		name := parse.CanonicalOptionName(o.Name)
-		if _, ok := linuxExtFSFlagMasks[name]; ok {
-			return true
-		}
-		switch name {
-		case "o-noatime", "noatime", "f-setpipe-sz", "pipesz":
-			return true
-		}
-	}
-	return false
 }
 
 // applyFSFlagMask: val &= ~mask, then |= mask when enable. Unrelated bits
