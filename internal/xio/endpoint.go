@@ -7,7 +7,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -438,20 +437,33 @@ type EOFReader struct{}
 
 func (EOFReader) Read([]byte) (int, error) { return 0, io.EOF }
 
-// OpenChannel opens a parsed address channel.
+// OpenChannel prepares and opens a parsed address channel.
 func OpenChannel(ctx context.Context, ch parse.Channel, mode Mode, g *Global) (*Opened, error) {
-	if ch.IsDual() {
-		return openDual(ctx, ch.Dual, g)
+	prepared, err := PrepareChannel(ch)
+	if err != nil {
+		return nil, err
 	}
-	return OpenSpec(ctx, *ch.Single, mode, g)
+	return OpenPreparedChannel(ctx, prepared, mode, g)
 }
 
-func openDual(ctx context.Context, d *parse.Dual, g *Global) (*Opened, error) {
-	left, err := OpenSpec(ctx, d.Left, ModeRead, g)
+// OpenPreparedChannel opens a previously prepared channel without repeating
+// registry resolution or common static decoding.
+func OpenPreparedChannel(ctx context.Context, ch PreparedChannel, mode Mode, g *Global) (*Opened, error) {
+	if ch.IsDual() {
+		return openPreparedDual(ctx, ch.Dual, g)
+	}
+	if ch.Single == nil {
+		return nil, fmt.Errorf("xio: empty channel")
+	}
+	return OpenPreparedSpec(ctx, *ch.Single, mode, g)
+}
+
+func openPreparedDual(ctx context.Context, d *PreparedDual, g *Global) (*Opened, error) {
+	left, err := OpenPreparedSpec(ctx, d.Left, ModeRead, g)
 	if err != nil {
 		return nil, fmt.Errorf("dual read side: %w", err)
 	}
-	right, err := OpenSpec(ctx, d.Right, ModeWrite, g)
+	right, err := OpenPreparedSpec(ctx, d.Right, ModeWrite, g)
 	if err != nil {
 		logx.CloseQuiet(left)
 		return nil, fmt.Errorf("dual write side: %w", err)
@@ -475,19 +487,20 @@ func openDual(ctx context.Context, d *parse.Dual, g *Global) (*Opened, error) {
 	return o, nil
 }
 
-// OpenSpec opens a single address type.
+// OpenSpec prepares and opens a single address.
 func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	orig := strings.ToUpper(s.Type)
-	s.Type = orig
-	fn, ok := lookupOpener(s.Type)
-	if !ok {
-		return nil, fmt.Errorf("unknown device/address \"%s\"", orig)
+	prepared, err := PrepareSpec(s)
+	if err != nil {
+		return nil, err
 	}
-	// Rewrite to the registered keyword so Type-based opener logic (chdir
-	// UNIX paths, ABSTRACT-CLIENT autodetect, family openers) sees the
-	// canonical name. Direct registrations such as TCP-L keep their own name.
-	if d, ok := registeredAddresses.resolve(s.Type); ok {
-		s.Type = d.Name
+	return OpenPreparedSpec(ctx, prepared, mode, g)
+}
+
+// OpenPreparedSpec opens a prepared address. Resource acquisition and
+// namespace work stay here so preparation never changes their lifetime.
+func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, g *Global) (*Opened, error) {
+	s := prepared.legacy
+	if d, ok := registeredAddresses.resolve(prepared.Config.Type); ok {
 		warnAddressMode(g, mode, d.Directions)
 	}
 	var err error
@@ -524,7 +537,7 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 	var o *Opened
 	err = WithNetNS(s, g, func() error {
 		var e error
-		o, e = fn(ctx, s, mode, g)
+		o, e = prepared.opener(ctx, s, mode, g)
 		return e
 	})
 	if err != nil {
@@ -542,13 +555,8 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 	if release != nil {
 		o.AddCleanup(release)
 	}
-	if value, ok := optionValueAny(s, "children-shutup", "child-shutup"); ok {
-		n, parseErr := ParseIntAny(value)
-		if parseErr != nil || n < 0 {
-			_ = o.Close()
-			return nil, fmt.Errorf("children-shutup: invalid value %q", value)
-		}
-		o.ChildrenShutup = n
+	if prepared.Config.Common.ChildrenShutup.Set {
+		o.ChildrenShutup = prepared.Config.Common.ChildrenShutup.Value
 	}
 	return o, nil
 }

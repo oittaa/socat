@@ -476,10 +476,20 @@ func Run(args []string, signalExit func(int)) int {
 		log.Errorf("parse right address: %s", err)
 		return 1
 	}
+	preparedLeft, err := xio.PrepareChannel(left)
+	if err != nil {
+		log.Errorf("parse left address: %s", err)
+		return 1
+	}
+	preparedRight, err := xio.PrepareChannel(right)
+	if err != nil {
+		log.Errorf("parse right address: %s", err)
+		return 1
+	}
 
 	g := buildGlobal(cfg, log)
 
-	runErr := xio.Run(ctx, left, right, g)
+	runErr := xio.RunPrepared(ctx, preparedLeft, preparedRight, g)
 	if cfg.Statistics {
 		xio.PrintExitStats(g)
 	}

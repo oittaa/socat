@@ -171,18 +171,6 @@ func Register(name string, fn Opener) {
 	})
 }
 
-func lookupOpener(typ string) (Opener, bool) {
-	return registeredAddresses.opener(typ)
-}
-
-func (r *addressRegistry) opener(typ string) (Opener, bool) {
-	d, ok := r.resolve(typ)
-	if !ok || d.Opener == nil {
-		return nil, false
-	}
-	return d.Opener, true
-}
-
 // resolve returns the registered descriptor for typ. Direct RegisterAddress
 // entries win. Otherwise Aliases on a registered descriptor are applied.
 // Unsupported families (DCCP, UDP-Lite, readline) stay unknown because

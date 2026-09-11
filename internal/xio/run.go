@@ -29,19 +29,42 @@ func channelModes(g *Global) (lMode, rMode Mode) {
 }
 
 func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
+	preparedLeft, err := PrepareChannel(left)
+	if err != nil {
+		return err
+	}
+	preparedRight, err := PrepareChannel(right)
+	if err != nil {
+		return err
+	}
+	return RunPrepared(ctx, preparedLeft, preparedRight, g)
+}
+
+// RunPrepared opens and relays two prepared channels. It retains immutable
+// configuration across accept and fork retry paths.
+func RunPrepared(ctx context.Context, left, right PreparedChannel, g *Global) error {
 	lMode, _ := channelModes(g)
 
 	// Open left first.
-	lo, err := OpenChannel(ctx, left, lMode, g)
+	lo, err := OpenPreparedChannel(ctx, left, lMode, g)
 	if err != nil {
 		// Preserve "unknown device/address" text.
 		return err
 	}
-	return RunOpened(ctx, lo, right, g)
+	return RunOpenedPrepared(ctx, lo, right, g)
 }
 
 // RunOpened continues Run after the left address is already open. It closes lo.
 func RunOpened(ctx context.Context, lo *Opened, right parse.Channel, g *Global) error {
+	prepared, err := PrepareChannel(right)
+	if err != nil {
+		return err
+	}
+	return RunOpenedPrepared(ctx, lo, prepared, g)
+}
+
+// RunOpenedPrepared continues a run with a prepared right channel.
+func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g *Global) error {
 	if lo == nil {
 		return fmt.Errorf("xio: nil left")
 	}
@@ -62,7 +85,7 @@ func RunOpened(ctx context.Context, lo *Opened, right parse.Channel, g *Global) 
 			return fmt.Errorf("%s: exec nofork without spec", lo.Label)
 		}
 		// Left EXEC,nofork: open right first, then exec on right's stream.
-		ro, err := OpenChannel(ctx, right, rMode, g)
+		ro, err := OpenPreparedChannel(ctx, right, rMode, g)
 		if err != nil {
 			return err
 		}
@@ -70,7 +93,7 @@ func RunOpened(ctx context.Context, lo *Opened, right parse.Channel, g *Global) 
 		return runExecNoFork(ctx, ro.EffectiveStream(), *lo.NoForkSpec, g, lMode)
 	}
 
-	ro, err := OpenChannel(ctx, right, rMode, g)
+	ro, err := OpenPreparedChannel(ctx, right, rMode, g)
 	if err != nil {
 		return err
 	}
@@ -106,13 +129,13 @@ func streamFromDial(o *Opened, c net.Conn) (relay.Stream, error) {
 
 // runConnectFork is the CONNECT,fork parent loop: dial, spawn child
 // transfer, sleep interval, honour max-children, repeat until ctx cancel.
-func runConnectFork(ctx context.Context, lo *Opened, right parse.Channel, rMode Mode, g *Global) error {
+func runConnectFork(ctx context.Context, lo *Opened, right PreparedChannel, rMode Mode, g *Global) error {
 	return runConnectForkLoop(ctx, lo, g, func(cctx context.Context, cg *Global, c net.Conn) error {
 		left, err := streamFromDial(lo, c)
 		if err != nil {
 			return err
 		}
-		ro, err := OpenChannel(cctx, right, rMode, cg)
+		ro, err := OpenPreparedChannel(cctx, right, rMode, cg)
 		if err != nil {
 			return err
 		}
@@ -315,7 +338,7 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 	}
 }
 
-func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode Mode, g *Global) error {
+func runForkListen(ctx context.Context, lo *Opened, right PreparedChannel, rMode Mode, g *Global) error {
 	ln := lo.Listener
 	lg := g.Log
 	lg.Noticef("listening on %s", ln.Addr())
@@ -333,7 +356,7 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 			cg.Log.Errorf("wrap accept: %s", err)
 			return
 		}
-		ro, err := OpenChannel(ctx, right, rMode, cg)
+		ro, err := OpenPreparedChannel(ctx, right, rMode, cg)
 		if err != nil {
 			// No "right address:" prefix on the open error.
 			cg.Log.Errorf("%s", err)
