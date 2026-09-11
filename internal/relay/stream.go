@@ -235,7 +235,7 @@ func (s *sessionWrap) ShutdownWrite() error {
 // SetStreamReadDeadline sets a read deadline when the stream exposes one.
 // os.ErrNoDeadline is treated as no deadline support.
 func SetStreamReadDeadline(s Stream, deadline time.Time) (bool, error) {
-	set := PropsOf(s).SetReadDeadline
+	set := readDeadlineOf(s)
 	if set == nil {
 		return false, nil
 	}
@@ -254,7 +254,7 @@ func setStreamReadDeadline(s Stream, deadline time.Time) {
 // SetStreamWriteDeadline is the write-side counterpart of
 // SetStreamReadDeadline.
 func SetStreamWriteDeadline(s Stream, deadline time.Time) (bool, error) {
-	set := PropsOf(s).SetWriteDeadline
+	set := writeDeadlineOf(s)
 	if set == nil {
 		return false, nil
 	}
@@ -291,7 +291,7 @@ func pokeReadDeadline(s Stream) {
 		// through this layer.
 		return
 	}
-	set := PropsOf(s).SetReadDeadline
+	set := readDeadlineOf(s)
 	if set == nil {
 		return
 	}
@@ -318,6 +318,50 @@ func streamReadFD(s Stream) int {
 
 func streamWriteFD(s Stream) int {
 	return StreamWriteFD(s)
+}
+
+// readDeadlineOf finds SetReadDeadline without Inspect. Cancel pokes
+// deadlines while the peer Close/ShutdownWrite runs; File.Stat and File.Fd
+// are not safe concurrent with Close.
+func readDeadlineOf(s Stream) func(time.Time) error {
+	return deadlineOf(s, true)
+}
+
+func writeDeadlineOf(s Stream) func(time.Time) error {
+	return deadlineOf(s, false)
+}
+
+func deadlineOf(s Stream, read bool) func(time.Time) error {
+	var cur any = s
+	for range 32 {
+		if cur == nil {
+			return nil
+		}
+		if read {
+			if d, ok := cur.(interface{ SetReadDeadline(time.Time) error }); ok {
+				return d.SetReadDeadline
+			}
+		} else if d, ok := cur.(interface{ SetWriteDeadline(time.Time) error }); ok {
+			return d.SetWriteDeadline
+		}
+		switch v := cur.(type) {
+		case interface{ UnwrapStream() Stream }:
+			cur = v.UnwrapStream()
+		case FDStream:
+			if read {
+				cur = v.R
+			} else {
+				cur = v.W
+			}
+		case NetStream:
+			cur = v.Conn
+		case RWCStream:
+			cur = v.ReadWriteCloser
+		default:
+			return nil
+		}
+	}
+	return nil
 }
 
 func streamValueFD(value any) int {

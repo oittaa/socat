@@ -11,6 +11,8 @@ type walkTestWrapper struct {
 	Stream
 }
 
+func (w *walkTestWrapper) UnwrapStream() Stream { return w.Stream }
+
 func wrapTestStream(stream Stream, depth int) Stream {
 	for range depth {
 		stream = &walkTestWrapper{Stream: stream}
@@ -66,5 +68,28 @@ func TestStreamPropsForwardsDeadlinesThroughWrappers(t *testing.T) {
 	defer inner.mu.Unlock()
 	if inner.readDeadline.IsZero() {
 		t.Fatal("wrapped stream lost the read deadline")
+	}
+}
+
+type deadlineInspectPanic struct{ Stream }
+
+func (s *deadlineInspectPanic) UnwrapStream() Stream { return s.Stream }
+func (s *deadlineInspectPanic) StreamProps() Props {
+	panic("deadline lookup must not inspect props")
+}
+
+func TestSetStreamDeadlineSkipsInspect(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
+	s := newCloseSerialStream(&deadlineInspectPanic{Stream: FDStream{R: r, W: w, C: r}})
+	deadline := time.Now().Add(time.Second)
+	if ok, err := SetStreamReadDeadline(s, deadline); err != nil || !ok {
+		t.Fatalf("set read deadline: ok=%v err=%v", ok, err)
+	}
+	if ok, err := SetStreamWriteDeadline(s, deadline); err != nil || !ok {
+		t.Fatalf("set write deadline: ok=%v err=%v", ok, err)
 	}
 }
