@@ -7,8 +7,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"net"
-	"os"
 	"syscall"
 )
 
@@ -41,29 +39,17 @@ func zeroCopyAllowed(cfg Config, dir string, usePoll bool) bool {
 }
 
 func unwrapZeroCopyReader(s io.Reader) (syscall.Conn, bool) {
-	return unwrapZeroCopyConn(s, streamRead)
+	if st, ok := s.(Stream); ok {
+		conn := PropsOf(st).ZeroCopyRead
+		return conn, conn != nil
+	}
+	return nil, false
 }
 
 func unwrapZeroCopyWriter(s io.Writer) (syscall.Conn, bool) {
-	return unwrapZeroCopyConn(s, streamWrite)
-}
-
-func unwrapZeroCopyConn(root any, direction streamDirection) (syscall.Conn, bool) {
-	var conn syscall.Conn
-	found := walkStreamCapabilities(root, func(value any) bool {
-		switch endpoint := value.(type) {
-		case *net.TCPConn:
-			conn = endpoint
-		case *net.UnixConn:
-			conn = endpoint
-		case *os.File:
-			conn = endpoint
-		default:
-			return false
-		}
-		return true
-	}, func(value any) []any {
-		return zeroCopyStreamChildren(value, direction)
-	})
-	return conn, found
+	if st, ok := s.(Stream); ok {
+		conn := PropsOf(st).ZeroCopyWrite
+		return conn, conn != nil
+	}
+	return nil, false
 }

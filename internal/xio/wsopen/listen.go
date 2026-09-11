@@ -74,17 +74,12 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		return xio.SetupConnectedStream(s, relay.NetStream{Conn: uc})
 	}
 
-	var setAcceptDeadline func(time.Time) error
-	if dl, ok := rawLn.(interface{ SetDeadline(time.Time) error }); ok {
-		setAcceptDeadline = dl.SetDeadline
-	}
 	sess := xio.ListenSession{
-		Listener:          ln,
-		Label:             s.Type + ":" + port + wpath,
-		WrapDial:          wrapConn,
-		SetAcceptDeadline: setAcceptDeadline,
-		HandshakeTimeout:  handshakeTimeout,
-		ListeningLog:      fmt.Sprintf("listening on %s (websocket %s)", ln.Addr(), wpath),
+		Listener:         ln,
+		Label:            s.Type + ":" + port + wpath,
+		WrapDial:         wrapConn,
+		HandshakeTimeout: handshakeTimeout,
+		ListeningLog:     fmt.Sprintf("listening on %s (websocket %s)", ln.Addr(), wpath),
 	}
 	if useTLS {
 		sess.AfterAccept = func(g *xio.Global, c net.Conn) error {
