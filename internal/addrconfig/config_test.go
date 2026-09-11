@@ -501,3 +501,23 @@ func TestDecodeTLSPlaintextLastWins(t *testing.T) {
 		t.Fatalf("plaintext=%q", got.TLS.LastPlaintextName)
 	}
 }
+
+func TestDecodeSourceMulticastGroupIfaceSource(t *testing.T) {
+	got := decodeSpec(t, "UDP:127.0.0.1:9,ip-add-source-membership=232.1.1.1:127.0.0.1:10.0.0.1")
+	var req SourceMulticastRequest
+	for _, action := range got.Network.Actions {
+		if action.Kind == SocketActionSourceMulticast {
+			req = action.Source
+		}
+	}
+	if req.Group.String() != "232.1.1.1" || req.Interface.String() != "127.0.0.1" || req.Source.String() != "10.0.0.1" {
+		t.Fatalf("decoded=%+v want group=232.1.1.1 iface=127.0.0.1 source=10.0.0.1", req)
+	}
+	spec, err := parse.ParseSpec("UDP:127.0.0.1:9,ip-add-source-membership=232.1.1.1:127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(spec, Facts{Type: "UDP"}); err == nil || !strings.Contains(err.Error(), "group:iface:source") {
+		t.Fatalf("two-field SSM: %v", err)
+	}
+}

@@ -91,13 +91,3 @@ func applySocketTimeoDuration(fd int, name string, d time.Duration) error {
 	}
 	return nil
 }
-
-func timevalFromSpec(v string) (*unix.Timeval, error) {
-	d, err := parseTimeval(v)
-	if err != nil || d < 0 {
-		return nil, fmt.Errorf("invalid timeout %q", v)
-	}
-	// NsecToTimeval handles each platform's Sec/Usec widths.
-	tv := unix.NsecToTimeval(int64(d))
-	return &tv, nil
-}

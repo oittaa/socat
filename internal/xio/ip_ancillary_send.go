@@ -20,18 +20,6 @@ func ApplyIPSendOpts(fd int, s addrconfig.Address, network string) error {
 	return applyClassicIPSendOpts(fd, s, ipFamilyFromNetwork(network))
 }
 
-// applyOrderedPastSocketPhaseOptions applies every post-socket() action
-// from decoded Network.Actions, after socket() and before bind/connect:
-// fixed SOL_SOCKET options (broadcast, sndbuf/rcvbuf, bindtodevice,
-// linger, timeos), named SOL_SOCKET/TCP/SCTP options, FIOSETOWN/SIOCSPGRP
-// owner ioctls, generic setsockopt-socket, and IP/ancillary/membership
-// options. Occurrences keep original command-line order, including when a
-// generic option targets the same kernel setting as a named option.
-func applyOrderedPastSocketPhaseOptions(fd int, s addrconfig.Address, network string) error {
-	config := s
-	return applyPreparedSocketPhase(fd, config, socketApplyPastSocket, network)
-}
-
 func ipSendAppliesToNetwork(network string) bool {
 	n := strings.ToLower(network)
 	if i := strings.IndexByte(n, ':'); i >= 0 {
@@ -159,18 +147,4 @@ func applyPreparedIPSend(fd int, e IPAncillaryEntry, action addrconfig.SocketAct
 	default:
 		return nil
 	}
-}
-
-// ParseHexOpt parses ip-options= dalan data. Default type is 'i', so x0102
-// is two hex bytes while an unprefixed 1 is one native C int; treating the
-// leading x as optional silently changes values.
-func ParseHexOpt(v string) ([]byte, error) {
-	data, _, err := ParseDalan(strings.TrimSpace(v), 'i')
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > maxIPOptions {
-		return nil, fmt.Errorf("value exceeds %d bytes", maxIPOptions)
-	}
-	return data, nil
 }

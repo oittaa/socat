@@ -5,7 +5,6 @@ package xio
 import (
 	"fmt"
 	"net"
-	"strings"
 	"unsafe"
 
 	"golang.org/x/sys/unix"
@@ -15,84 +14,6 @@ import (
 // (IP_ADD_SOURCE_MEMBERSHIP). IPv6 is group:iface-name-or-index:source
 // (MCAST_JOIN_SOURCE_GROUP). Keep ipv6-join-source-group as its own option,
 // not folded onto ip-add-source-membership.
-
-type parsedSourceMcast struct {
-	group     net.IP
-	ifaceAddr net.IP // IPv4 interface address
-	source    net.IP
-	token     string // IPv6 interface name or index
-}
-
-func parseSourceMcastSpec(spec, optionName string, family membershipFamily) (parsedSourceMcast, error) {
-	spec = strings.TrimSpace(spec)
-	if spec == "" {
-		return parsedSourceMcast{}, fmt.Errorf("%s: expected group:iface:source, got %q", optionName, spec)
-	}
-	fields, err := splitMcastFields(spec)
-	if err != nil {
-		return parsedSourceMcast{}, fmt.Errorf("%s: %w", optionName, err)
-	}
-	if len(fields) != 3 {
-		return parsedSourceMcast{}, fmt.Errorf("%s: expected group:iface:source, got %q", optionName, spec)
-	}
-	group, err := parseMcastGroup(fields[0], optionName)
-	if err != nil {
-		return parsedSourceMcast{}, fmt.Errorf("%s: %w", optionName, err)
-	}
-	source, err := parseMcastGroup(fields[2], optionName)
-	if err != nil {
-		return parsedSourceMcast{}, fmt.Errorf("%s: bad source %q", optionName, strings.TrimSpace(fields[2]))
-	}
-	iface := strings.TrimSpace(fields[1])
-	if iface == "" {
-		return parsedSourceMcast{}, fmt.Errorf("%s: expected group:iface:source, got %q", optionName, spec)
-	}
-	if family == membershipFamilyIPv4 {
-		addr, err := resolveMcastIPv4Address(iface)
-		if err != nil {
-			return parsedSourceMcast{}, fmt.Errorf("%s: bad interface address %q", optionName, iface)
-		}
-		return parsedSourceMcast{group: group, ifaceAddr: addr, source: source}, nil
-	}
-	return parsedSourceMcast{group: group, token: iface, source: source}, nil
-}
-
-func applySourceMembershipFD(fd int, family membershipFamily, name, spec string) error {
-	parsed, err := parseSourceMcastSpec(spec, name, family)
-	if err != nil {
-		return err
-	}
-	if family == membershipFamilyIPv4 {
-		if parsed.group.To4() == nil {
-			return fmt.Errorf("%s: IPv4 source membership requires an IPv4 group, got %s", name, parsed.group)
-		}
-		if parsed.source.To4() == nil {
-			return fmt.Errorf("%s: IPv4 source membership requires an IPv4 source, got %s", name, parsed.source)
-		}
-		return setIPv4SourceMembershipFD(fd, parsed.group.To4(), parsed.ifaceAddr, parsed.source.To4())
-	}
-	sockFamily, err := socketIPFamily(fd)
-	if err != nil {
-		return err
-	}
-	if sockFamily == ipFamilyV4 {
-		return fmt.Errorf("%s: not supported on IPv4", name)
-	}
-	if parsed.group.To4() != nil {
-		return fmt.Errorf("%s: IPv6 source membership requires an IPv6 group, got %s", name, parsed.group)
-	}
-	if parsed.source.To4() != nil {
-		return fmt.Errorf("%s: IPv6 source membership requires an IPv6 source, got %s", name, parsed.source)
-	}
-	idx, idxSet, err := resolveMcastInterface(parsedMcast{token: parsed.token}, name)
-	if err != nil {
-		return err
-	}
-	if !idxSet {
-		return fmt.Errorf("%s: expected interface name or index", name)
-	}
-	return setIPv6SourceMembershipFD(fd, parsed.group, idx, parsed.source)
-}
 
 func setIPv4SourceMembershipFD(fd int, group, iface, source net.IP) error {
 	mreq := packIPMreqSource(group, iface, source)

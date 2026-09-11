@@ -239,7 +239,7 @@ func NewTCPListenConfig(s addrconfig.Address) net.ListenConfig {
 // SOL_SOCKET/TCP/SCTP, generic setsockopt-socket, and IP/ancillary/membership
 // options are applied once in command-line order before bind/connect.
 func ApplyNetworkSocketOptions(fd int, s addrconfig.Address, network string) error {
-	return applyOrderedPastSocketPhaseOptions(fd, s, network)
+	return applyPreparedSocketPhase(fd, s, socketApplyPastSocket, network)
 }
 
 // DialControl merges spec-driven socket options with an optional
@@ -647,26 +647,6 @@ func ParseDurationValue(v string) (time.Duration, error) {
 		return time.Duration(f * float64(time.Second)), nil
 	}
 	return time.ParseDuration(v)
-}
-
-func parseTimeval(v string) (time.Duration, error) {
-	d, err := ParseDurationValue(v)
-	if err != nil {
-		switch {
-		case errors.Is(err, ErrEmptyDuration):
-			return 0, fmt.Errorf("empty timeout")
-		case errors.Is(err, ErrDurationOutOfRange):
-			return 0, fmt.Errorf("timeout out of range")
-		default:
-			return 0, err
-		}
-	}
-	return d, nil
-}
-
-func ParseTimeval(v string) time.Duration {
-	d, _ := parseTimeval(v)
-	return d
 }
 
 // RecvTimeout returns the prepared so-rcvtimeo / rcvtimeo duration.

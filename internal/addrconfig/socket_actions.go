@@ -126,7 +126,7 @@ func socketAction(o parse.Option, name string) (SocketAction, bool, error) {
 			if err != nil {
 				return SocketAction{}, true, err
 			}
-			data, _, err := parseDalan(value, 'i')
+			data, _, err := ParseDalan(value, 'i')
 			if err != nil {
 				return SocketAction{}, true, fmt.Errorf("ip-options: %w", err)
 			}
@@ -178,7 +178,7 @@ func genericSocketAction(o parse.Option, name string) (SocketAction, error) {
 	case "setsockopt-string":
 		value = SocketValue{Bytes: append([]byte(parts[2]), 0)}
 	default:
-		data, singleInt, err := parseDalan(parts[2], 'i')
+		data, singleInt, err := ParseDalan(parts[2], 'i')
 		if err != nil {
 			return SocketAction{}, fmt.Errorf("%s value: %w", name, err)
 		}
@@ -346,14 +346,14 @@ func decodeSourceMulticastRequest(o parse.Option, ipv6 bool, name string) (Sourc
 	}
 	parts, err := splitMulticastFields(value)
 	if err != nil || len(parts) != 3 {
-		return SourceMulticastRequest{}, fmt.Errorf("%s: expected group:source:interface, got %q", name, value)
+		return SourceMulticastRequest{}, fmt.Errorf("%s: expected group:iface:source, got %q", name, value)
 	}
 	return SourceMulticastRequest{
 		IPv6:      ipv6,
 		Name:      name,
 		Group:     targetFromText(parts[0]),
-		Source:    targetFromText(parts[1]),
-		Interface: targetFromText(parts[2]),
+		Interface: targetFromText(parts[1]),
+		Source:    targetFromText(parts[2]),
 	}, nil
 }
 
@@ -413,7 +413,11 @@ func multicastInterface(value string) (string, uint32, bool) {
 	return "", uint32(n), true // #nosec G115 -- membership uses the C unsigned index conversion
 }
 
-func parseDalan(value string, defaultType byte) ([]byte, bool, error) {
+// ParseDalan packs typed items at the current offset with native widths and
+// endianness and no extra alignment. defaultType is used for untyped numbers
+// (setsockopt-bin uses 'i'); a successful typed item becomes the default.
+// singleInt is true for exactly one native C int (bare decimal or iN only).
+func ParseDalan(value string, defaultType byte) ([]byte, bool, error) {
 	if defaultType == 0 {
 		defaultType = 'i'
 	}

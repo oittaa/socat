@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/addrconfig"
@@ -65,14 +64,6 @@ func preparedSocketPhaseMatches(action addrconfig.SocketPhase, phase SockoptPhas
 		return false
 	}
 }
-
-type sockoptValueKind int
-
-const (
-	sockoptKindBin sockoptValueKind = iota
-	sockoptKindInt
-	sockoptKindString
-)
 
 // ApplyGenericSetsockopt applies generic setsockopt options that belong to
 // phase. Kernel rejection fails the call. Every matching occurrence is
@@ -137,85 +128,8 @@ func genericRejectPhase(action addrconfig.SocketAction) (SockoptPhase, string, b
 	return 0, "", false
 }
 
-// ApplySetsockoptFD applies a level:opt:dalan setsockopt spec. Decimal
-// third fields such as 512 stay C ints (setsockopt=6:TCP_MAXSEG:512).
-func ApplySetsockoptFD(fd int, spec string) error {
-	return applyGenericSetsockoptValue(fd, "setsockopt", spec, sockoptKindBin)
-}
-
-func applyGenericSetsockoptValue(fd int, name, spec string, kind sockoptValueKind) error {
-	parts := strings.SplitN(spec, ":", 3)
-	if len(parts) != 3 {
-		return fmt.Errorf("%s requires level:optname:value", name)
-	}
-	level, err := ParseIntAny(parts[0])
-	if err != nil {
-		return fmt.Errorf("%s level: %w", name, err)
-	}
-	opt, err := ParseIntAny(parts[1])
-	if err != nil {
-		return fmt.Errorf("%s optname: %w", name, err)
-	}
-	rest := parts[2]
-	switch kind {
-	case sockoptKindInt:
-		n, err := ParseIntAny(rest)
-		if err != nil {
-			return fmt.Errorf("%s value: %w", name, err)
-		}
-		if err := setSockoptInt(fd, level, opt, n); err != nil {
-			return fmt.Errorf("%s: %w", name, err)
-		}
-		return nil
-	case sockoptKindString:
-		b := append([]byte(rest), 0)
-		if err := setSockoptBytes(fd, level, opt, b); err != nil {
-			return fmt.Errorf("%s: %w", name, err)
-		}
-		return nil
-	default:
-		useInt, n, data, err := parseSockoptBin(rest)
-		if err != nil {
-			return fmt.Errorf("%s value: %w", name, err)
-		}
-		if useInt {
-			if err := setSockoptInt(fd, level, opt, n); err != nil {
-				return fmt.Errorf("%s: %w", name, err)
-			}
-			return nil
-		}
-		if err := setSockoptBytes(fd, level, opt, data); err != nil {
-			return fmt.Errorf("%s: %w", name, err)
-		}
-		return nil
-	}
-}
-
-// parseSockoptBin parses dalan with default type 'i', so a bare decimal
-// such as 512 is sizeof(int) rather than ASCII bytes. Syntax errors are
-// returned; unknown typed expressions are never treated as ASCII paths
-// (ParseSocatData is for SOCKET address data only).
-func parseSockoptBin(rest string) (useInt bool, n int, data []byte, err error) {
-	data, singleInt, err := ParseDalan(rest, 'i')
-	if err != nil {
-		return false, 0, nil, err
-	}
-	if len(data) == 0 {
-		return false, 0, nil, fmt.Errorf("empty dalan value")
-	}
-	if singleInt {
-		return true, nativeCInt(data), data, nil
-	}
-	return false, 0, data, nil
-}
-
-func hasGenericSetsockopt(s addrconfig.Address, phase SockoptPhase) (bool, error) {
-	config := s
-	return hasPreparedGenericSetsockopt(config, phase), nil
-}
-
-func hasPreparedGenericSetsockopt(config addrconfig.Address, phase SockoptPhase) bool {
-	for _, action := range config.Network.Actions {
+func hasGenericSetsockopt(s addrconfig.Address, phase SockoptPhase) bool {
+	for _, action := range s.Network.Actions {
 		if !preparedSocketPhaseMatches(action.Phase, phase) {
 			continue
 		}
@@ -233,11 +147,7 @@ func hasPreparedGenericSetsockopt(config addrconfig.Address, phase SockoptPhase)
 // Missing options are a no-op. Present options on a conn that does not
 // expose a socket fail; they are never silently ignored.
 func ApplyGenericSetsockoptToConn(conn syscall.Conn, s addrconfig.Address, phase SockoptPhase) error {
-	has, err := hasGenericSetsockopt(s, phase)
-	if err != nil {
-		return err
-	}
-	if conn == nil || !has {
+	if conn == nil || !hasGenericSetsockopt(s, phase) {
 		return nil
 	}
 	raw, err := conn.SyscallConn()
@@ -254,11 +164,7 @@ func ApplyGenericSetsockoptToConn(conn syscall.Conn, s addrconfig.Address, phase
 // ApplyGenericSetsockoptToNetConn unwraps NetConn() wrappers, then applies
 // phase options. A present option on a non-socket fails.
 func ApplyGenericSetsockoptToNetConn(c net.Conn, s addrconfig.Address, phase SockoptPhase) error {
-	has, err := hasGenericSetsockopt(s, phase)
-	if err != nil {
-		return err
-	}
-	if !has {
+	if !hasGenericSetsockopt(s, phase) {
 		return nil
 	}
 	c = unwrapNetConn(c)
@@ -276,11 +182,7 @@ func ApplyGenericSetsockoptToNetConn(c net.Conn, s addrconfig.Address, phase Soc
 // (QUIC transport, ListenPacket). Rejects present options when the conn does
 // not expose a socket fd.
 func ApplyGenericSetsockoptToPacketConn(pc net.PacketConn, s addrconfig.Address, phase SockoptPhase) error {
-	has, err := hasGenericSetsockopt(s, phase)
-	if err != nil {
-		return err
-	}
-	if pc == nil || !has {
+	if pc == nil || !hasGenericSetsockopt(s, phase) {
 		return nil
 	}
 	sc, ok := pc.(syscall.Conn)
@@ -291,11 +193,7 @@ func ApplyGenericSetsockoptToPacketConn(pc net.PacketConn, s addrconfig.Address,
 }
 
 func applyGenericSetsockoptToStream(s addrconfig.Address, stream relay.Stream, phase SockoptPhase) error {
-	has, err := hasGenericSetsockopt(s, phase)
-	if err != nil {
-		return err
-	}
-	if !has {
+	if !hasGenericSetsockopt(s, phase) {
 		return nil
 	}
 	conns := streamSyscallConns(stream)

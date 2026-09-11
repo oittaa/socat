@@ -2,7 +2,6 @@ package xio
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 )
@@ -16,55 +15,6 @@ const (
 	membershipFamilyIPv4 membershipFamily = iota + 1
 	membershipFamilyIPv6
 )
-
-type membershipJoin struct {
-	family membershipFamily
-	spec   string
-	name   string // canonical option name used in errors
-}
-
-func (j membershipJoin) optionName() string {
-	if j.name != "" {
-		return j.name
-	}
-	if j.family == membershipFamilyIPv6 {
-		return "ipv6-join-group"
-	}
-	return "ip-add-membership"
-}
-
-func membershipFamilyName(name string) (membershipFamily, string, bool) {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "ip-add-membership", "add-membership", "ip-membership", "membership":
-		return membershipFamilyIPv4, "ip-add-membership", true
-	case "ipv6-join-group", "ipv6-add-membership", "join-group":
-		return membershipFamilyIPv6, "ipv6-join-group", true
-	default:
-		return 0, "", false
-	}
-}
-
-func sourceMembershipName(name string) (membershipFamily, string, bool) {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "ip-add-source-membership", "add-source-membership", "source-membership":
-		return membershipFamilyIPv4, "ip-add-source-membership", true
-	case "ipv6-join-source-group", "ipv6-add-source-membership", "join-source-group":
-		return membershipFamilyIPv6, "ipv6-join-source-group", true
-	default:
-		return 0, "", false
-	}
-}
-
-func mtuDiscoveryName(name string) (membershipFamily, string, bool) {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "ip-mtu-discover", "mtudiscover", "ipmtudiscover":
-		return membershipFamilyIPv4, "ip-mtu-discover", true
-	case "ipv6-mtu-discover", "mtudiscover6":
-		return membershipFamilyIPv6, "ipv6-mtu-discover", true
-	default:
-		return 0, "", false
-	}
-}
 
 // NeedRecvErr reports whether the spec enables IP_RECVERR (Linux).
 func NeedRecvErr(s addrconfig.Address) bool {

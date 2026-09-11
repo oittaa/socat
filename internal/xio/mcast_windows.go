@@ -8,14 +8,6 @@ import (
 	"github.com/oittaa/socat/internal/addrconfig"
 )
 
-func applyMembershipJoins(int, []membershipJoin) error {
-	return fmt.Errorf("multicast join is not supported on Windows")
-}
-
-func applySourceMembershipFD(_ int, _ membershipFamily, name, _ string) error {
-	return fmt.Errorf("%s: not supported on Windows", name)
-}
-
 func applyPreparedMulticast(_ int, req addrconfig.MulticastRequest) error {
 	name := req.Name
 	if name == "" {

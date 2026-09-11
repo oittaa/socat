@@ -1,16 +1,17 @@
 package xio
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func TestParseTimevalWrapsDurationErrors(t *testing.T) {
-	if _, err := parseTimeval(""); err == nil || err.Error() != "empty timeout" {
+func TestParseDurationValueRejectsEmptyAndRange(t *testing.T) {
+	if _, err := ParseDurationValue(""); err == nil || !errors.Is(err, ErrEmptyDuration) {
 		t.Fatalf("empty: %v", err)
 	}
-	if _, err := parseTimeval("NaN"); err == nil || err.Error() != "timeout out of range" {
+	if _, err := ParseDurationValue("NaN"); err == nil || !errors.Is(err, ErrDurationOutOfRange) {
 		t.Fatalf("range: %v", err)
 	}
 }

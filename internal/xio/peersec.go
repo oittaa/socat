@@ -280,8 +280,8 @@ func compileHexSockRange(spec string) (matcher ipRangeMatcher, err error, handle
 	if !strings.ContainsAny(netPart, "xX") || !strings.ContainsAny(maskPart, "xX") {
 		return nil, nil, false
 	}
-	netBytes, nerr := ParseSocatData(netPart)
-	maskBytes, merr := ParseSocatData(maskPart)
+	netBytes, nerr := addrconfig.ParseSocatData(netPart)
+	maskBytes, merr := addrconfig.ParseSocatData(maskPart)
 	if nerr != nil || merr != nil {
 		return nil, fmt.Errorf("range: invalid hex sockaddr"), true
 	}

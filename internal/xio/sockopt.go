@@ -18,7 +18,7 @@ import (
 // membership options are skipped. Go net sockets and raw SCTP use
 // ApplyNetworkSocketOptions with the actual network name.
 func ApplySocketOptions(fd int, s addrconfig.Address) error {
-	return applyOrderedPastSocketPhaseOptions(fd, s, "")
+	return applyPreparedSocketPhase(fd, s, socketApplyPastSocket, "")
 }
 
 // ApplyLateSocketOptions applies so-sndbuf-late / so-rcvbuf-late

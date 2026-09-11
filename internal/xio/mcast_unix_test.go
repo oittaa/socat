@@ -9,73 +9,72 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
 
 const missingMcastIface = "no-such-iface-socat-test"
 
-func TestParseMcastSpecBracketIPv6(t *testing.T) {
-	p, err := parseMcastSpec("[ff02::2]:eth0", "ipv6-join-group")
+func decodeMulticastJoin(t *testing.T, raw string) addrconfig.MulticastRequest {
+	t.Helper()
+	spec, err := parse.ParseSpec(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.group.String() != "ff02::2" || p.token != "eth0" || p.ifaceAddr != nil {
-		t.Fatalf("parsed=%+v", p)
+	config := mustDecodeAddress(t, spec)
+	for _, action := range config.Network.Actions {
+		if action.Kind == addrconfig.SocketActionMulticast &&
+			(action.Multicast.Kind == addrconfig.MulticastJoinIPv4 || action.Multicast.Kind == addrconfig.MulticastJoinIPv6) {
+			return action.Multicast
+		}
+	}
+	t.Fatal("no membership join")
+	return addrconfig.MulticastRequest{}
+}
+
+func TestDecodeMcastSpecBracketIPv6(t *testing.T) {
+	req := decodeMulticastJoin(t, "UDP6-RECV:1,ipv6-join-group=[ff02::2]:eth0")
+	if req.Group.String() != "ff02::2" || req.InterfaceName != "eth0" || req.InterfaceIsID || req.ThreeField {
+		t.Fatalf("parsed=%+v", req)
 	}
 }
 
-func TestParseMcastSpecIPv4Address(t *testing.T) {
-	p, err := parseMcastSpec("224.1.2.3:127.0.0.1", "ip-add-membership")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.group.String() != "224.1.2.3" || p.token != "127.0.0.1" || p.ifaceAddr != nil {
-		t.Fatalf("parsed=%+v", p)
+func TestDecodeMcastSpecIPv4Address(t *testing.T) {
+	req := decodeMulticastJoin(t, "UDP:127.0.0.1:9,ip-add-membership=224.1.2.3:127.0.0.1")
+	if req.Group.String() != "224.1.2.3" || req.InterfaceName != "127.0.0.1" || req.ThreeField {
+		t.Fatalf("parsed=%+v", req)
 	}
 }
 
-func TestParseMcastSpecThreeFieldIPv4(t *testing.T) {
-	p, err := parseMcastSpec("224.0.0.1:127.0.0.1:lo", "ip-add-membership")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.group.String() != "224.0.0.1" || p.ifaceAddr.String() != "127.0.0.1" || p.token != "lo" {
-		t.Fatalf("name form=%+v", p)
+func TestDecodeMcastSpecThreeFieldIPv4(t *testing.T) {
+	req := decodeMulticastJoin(t, "UDP:127.0.0.1:9,ip-add-membership=224.0.0.1:127.0.0.1:lo")
+	if req.Group.String() != "224.0.0.1" || req.InterfaceAddr.String() != "127.0.0.1" || req.InterfaceName != "lo" || !req.ThreeField {
+		t.Fatalf("name form=%+v", req)
 	}
 
-	p, err = parseMcastSpec("224.0.0.1:127.0.0.1:1", "ip-add-membership")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.ifaceAddr.String() != "127.0.0.1" || p.token != "1" {
-		t.Fatalf("index form=%+v", p)
+	req = decodeMulticastJoin(t, "UDP:127.0.0.1:9,ip-add-membership=224.0.0.1:127.0.0.1:1")
+	if req.InterfaceAddr.String() != "127.0.0.1" || !req.InterfaceIsID || req.InterfaceID != 1 {
+		t.Fatalf("index form=%+v", req)
 	}
 }
 
-func TestParseMcastSpecResolvesClassicAddressNames(t *testing.T) {
-	p, err := parseMcastSpec("224.0.0.1:localhost", "ip-add-membership")
-	if err != nil {
-		t.Fatal(err)
+func TestDecodeMcastSpecStoresClassicAddressNames(t *testing.T) {
+	req := decodeMulticastJoin(t, "UDP:127.0.0.1:9,ip-add-membership=224.0.0.1:localhost")
+	if req.Group.String() != "224.0.0.1" || req.InterfaceName != "localhost" {
+		t.Fatalf("parsed=%+v", req)
 	}
-	if p.group.String() != "224.0.0.1" || p.token != "localhost" {
-		t.Fatalf("parsed=%+v", p)
-	}
-	if _, _, err := resolveMcastInterface(p, "ip-add-membership"); err == nil {
+	if _, err := net.InterfaceByName("localhost"); err == nil {
 		t.Skip("host has an interface literally named localhost")
 	}
-	addr, err := resolveMcastIPv4Address(p.token)
+	addr, err := resolveMcastIPv4Address(req.InterfaceName)
 	if err != nil || !addr.Equal(net.IPv4(127, 0, 0, 1)) {
 		t.Fatalf("localhost=%v err=%v", addr, err)
 	}
 }
 
 func TestIPAddMembershipRejectsIPv6Group(t *testing.T) {
-	err := joinMulticastFD(0, membershipJoin{
-		family: membershipFamilyIPv4,
-		spec:   "[ff02::2]:lo",
-		name:   "ip-add-membership",
-	})
+	err := applyPreparedMulticast(0, decodeMulticastJoin(t, "UDP:127.0.0.1:9,ip-add-membership=[ff02::2]:lo"))
 	if err == nil || !strings.Contains(err.Error(), "IPv4 membership") {
 		t.Fatalf("error=%v want IPv4 membership group mismatch", err)
 	}
@@ -125,11 +124,7 @@ func TestApplyMembershipJoinsAppliesAllInOrder(t *testing.T) {
 
 func TestIPv4MembershipResolvesInterfaceAddressName(t *testing.T) {
 	fd := mustUDP4Socket(t)
-	if err := joinMulticastFD(fd, membershipJoin{
-		family: membershipFamilyIPv4,
-		spec:   "224.0.0.4:localhost",
-		name:   "ip-add-membership",
-	}); err != nil {
+	if err := applyPreparedMulticast(fd, decodeMulticastJoin(t, "UDP:127.0.0.1:9,ip-add-membership=224.0.0.4:localhost")); err != nil {
 		t.Fatalf("hostname interface address join: %v", err)
 	}
 }
@@ -139,11 +134,8 @@ func TestIPv4NumericIndexDoesNotRequireIPv4AddressOnIface(t *testing.T) {
 	// interface must not become "use 0.0.0.0 as if it were the ifindex".
 	ifi := multicastLoopback(t)
 	fd := mustUDP4Socket(t)
-	if err := joinMulticastFD(fd, membershipJoin{
-		family: membershipFamilyIPv4,
-		spec:   "224.0.0.1:" + strconv.Itoa(ifi.Index),
-		name:   "ip-add-membership",
-	}); err != nil {
+	raw := "UDP:127.0.0.1:9,ip-add-membership=224.0.0.1:" + strconv.Itoa(ifi.Index)
+	if err := applyPreparedMulticast(fd, decodeMulticastJoin(t, raw)); err != nil {
 		t.Fatalf("index-only join: %v", err)
 	}
 }

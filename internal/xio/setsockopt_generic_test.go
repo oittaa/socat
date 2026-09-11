@@ -8,24 +8,25 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
 func TestParseSockoptBinDecimalAndDalan(t *testing.T) {
-	useInt, n, data, err := parseSockoptBin("512")
-	if err != nil || !useInt || n != 512 {
-		t.Fatalf("512: useInt=%v n=%d data=%q err=%v", useInt, n, data, err)
+	data, singleInt, err := addrconfig.ParseDalan("512", 'i')
+	if err != nil || !singleInt || nativeDalanInt(data) != 512 {
+		t.Fatalf("512: singleInt=%v n=%d data=%q err=%v", singleInt, nativeDalanInt(data), data, err)
 	}
-	useInt, n, data, err = parseSockoptBin("i1")
-	if err != nil || !useInt || n != 1 {
-		t.Fatalf("i1: useInt=%v n=%d data=%q err=%v", useInt, n, data, err)
+	data, singleInt, err = addrconfig.ParseDalan("i1", 'i')
+	if err != nil || !singleInt || nativeDalanInt(data) != 1 {
+		t.Fatalf("i1: singleInt=%v n=%d data=%q err=%v", singleInt, nativeDalanInt(data), data, err)
 	}
-	useInt, n, data, err = parseSockoptBin("x01000000")
-	if err != nil || useInt || hex.EncodeToString(data) != "01000000" {
-		t.Fatalf("hex: useInt=%v n=%d data=%x err=%v", useInt, n, data, err)
+	data, singleInt, err = addrconfig.ParseDalan("x01000000", 'i')
+	if err != nil || singleInt || hex.EncodeToString(data) != "01000000" {
+		t.Fatalf("hex: singleInt=%v data=%x err=%v", singleInt, data, err)
 	}
-	if _, _, _, err := parseSockoptBin("'ab'"); err == nil {
+	if _, _, err := addrconfig.ParseDalan("'ab'", 'i'); err == nil {
 		t.Fatal("multi-char dalan quote should fail")
 	}
 }
@@ -33,20 +34,28 @@ func TestParseSockoptBinDecimalAndDalan(t *testing.T) {
 func TestDalanHexKeepaliveBytes(t *testing.T) {
 	b := make([]byte, 4)
 	binary.NativeEndian.PutUint32(b, 1)
-	useInt, _, data, err := parseSockoptBin("x" + hex.EncodeToString(b))
-	if err != nil || useInt || len(data) != 4 {
-		t.Fatalf("useInt=%v data=%x err=%v", useInt, data, err)
+	data, singleInt, err := addrconfig.ParseDalan("x"+hex.EncodeToString(b), 'i')
+	if err != nil || singleInt || len(data) != 4 {
+		t.Fatalf("singleInt=%v data=%x err=%v", singleInt, data, err)
 	}
 	if binary.NativeEndian.Uint32(data) != 1 {
 		t.Fatalf("payload=%x want native int 1", data)
 	}
 }
 
-func TestApplySetsockoptFDRejectsBadArityAndLevel(t *testing.T) {
-	if err := ApplySetsockoptFD(0, "1:2"); err == nil || !strings.Contains(err.Error(), "level:optname:value") {
+func TestDecodeSetsockoptRejectsBadArityAndLevel(t *testing.T) {
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,setsockopt=1:2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeAddress(spec); err == nil || !strings.Contains(err.Error(), "level:optname:value") {
 		t.Fatalf("arity: err=%v", err)
 	}
-	if err := ApplySetsockoptFD(0, "nope:1:1"); err == nil || !strings.Contains(err.Error(), "level") {
+	spec, err = parse.ParseSpec("TCP:127.0.0.1:9,setsockopt=nope:1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeAddress(spec); err == nil || !strings.Contains(err.Error(), "level") {
 		t.Fatalf("level: err=%v", err)
 	}
 }
@@ -94,4 +103,11 @@ func TestApplyGenericSetsockoptToPacketConnRejectsNonSocket(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
 		t.Fatalf("error=%v want packet connection does not expose a socket", err)
 	}
+}
+
+func nativeDalanInt(data []byte) int {
+	if len(data) < 4 {
+		return 0
+	}
+	return int(int32(binary.NativeEndian.Uint32(data[:4])))
 }

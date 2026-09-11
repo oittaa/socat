@@ -435,7 +435,7 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 		text := optionText(o)
 		a.Common.ConnectBind = OptionalString{Set: true, Value: text}
 		if n.Kind == AddressKindSocket {
-			data, err := parseSocketData(text)
+			data, err := ParseSocatData(text)
 			if err != nil {
 				return true, err
 			}
@@ -808,7 +808,7 @@ func socketAddressData(a *Address, spec parse.Spec, paramIndex int) ([]byte, err
 	if strings.Trim(text, ":") == "" {
 		return nil, fmt.Errorf("%s requires address", a.Type)
 	}
-	return parseSocketData(text)
+	return ParseSocatData(text)
 }
 
 func rawSocketAddress(typ, raw string, paramIndex int) string {
@@ -860,7 +860,9 @@ func splitColonNoUnquote(value string) []string {
 	return append(values, value[start:])
 }
 
-func parseSocketData(value string) ([]byte, error) {
+// ParseSocatData parses SOCKET address data: quoted strings, hex segments,
+// and unquoted paths.
+func ParseSocatData(value string) ([]byte, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return nil, nil
@@ -889,7 +891,7 @@ func parseSocketData(value string) ([]byte, error) {
 		if rest == "" {
 			return out, nil
 		}
-		more, err := parseSocketData(rest)
+		more, err := ParseSocatData(rest)
 		if err != nil {
 			return nil, err
 		}

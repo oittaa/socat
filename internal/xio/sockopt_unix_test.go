@@ -10,10 +10,14 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestTimevalFromSpecRejectsInvalidValues(t *testing.T) {
+func TestDecodeRejectsInvalidSocketTimeouts(t *testing.T) {
 	for _, value := range []string{"-1", "banana", "NaN", "1e100"} {
-		if _, err := timevalFromSpec(value); err == nil {
-			t.Errorf("timevalFromSpec(%q) succeeded", value)
+		spec, err := parse.ParseSpec("TCP:127.0.0.1:9,rcvtimeo=" + value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := decodeAddress(spec); err == nil {
+			t.Errorf("rcvtimeo=%q accepted", value)
 		}
 	}
 }

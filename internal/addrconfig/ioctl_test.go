@@ -6,7 +6,6 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestDecodeIoctlBinMatchesRuntimeDalan(t *testing.T) {
@@ -32,7 +31,7 @@ func TestDecodeIoctlBinMatchesRuntimeDalan(t *testing.T) {
 			if len(config.File.Actions) != 1 {
 				t.Fatalf("actions=%+v", config.File.Actions)
 			}
-			want, _, err := xio.ParseDalan(value, 'i')
+			want, _, err := addrconfig.ParseDalan(value, 'i')
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -57,7 +56,7 @@ func TestDecodeIoctlBinRejectsRuntimeDalanErrors(t *testing.T) {
 			if _, err := addrconfig.Decode(spec, addrconfig.Facts{Type: "FD"}); err == nil {
 				t.Fatal("Decode succeeded")
 			}
-			if _, _, err := xio.ParseDalan(value, 'i'); err == nil {
+			if _, _, err := addrconfig.ParseDalan(value, 'i'); err == nil {
 				t.Fatal("ParseDalan succeeded")
 			}
 		})
