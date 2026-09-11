@@ -17,6 +17,7 @@ type Facts struct {
 	Type  string
 	Group string
 	Caps  []string
+	Kind  AddressKind
 }
 
 // Address is immutable prepared address data.
@@ -33,6 +34,18 @@ type Address struct {
 	Network  Network
 	TLS      TLS
 	Proxy    Proxy
+
+	optionIndex int
+	cr          lineConversion
+	crnl        lineConversion
+	crorlf      lineConversion
+}
+
+type lineConversion struct {
+	set    bool
+	active bool
+	index  int
+	ending LineEnding
 }
 
 // Common contains settings shared by several address families.
@@ -145,6 +158,7 @@ func Decode(spec parse.Spec, facts Facts) (Address, error) {
 			Type:  facts.Type,
 			Group: facts.Group,
 			Caps:  append([]string(nil), facts.Caps...),
+			Kind:  facts.Kind,
 		},
 		Common: Common{
 			Retry: Retry{Interval: time.Second},
@@ -159,13 +173,26 @@ func Decode(spec parse.Spec, facts Facts) (Address, error) {
 			return Address{}, fmt.Errorf("%s: %w", facts.Type, err)
 		}
 	}
+	if err := finishDecode(&a); err != nil {
+		return Address{}, fmt.Errorf("%s: %w", facts.Type, err)
+	}
 	if a.Common.MaxChildren.Set && (!a.Common.Fork.Set || !a.Common.Fork.Value) {
 		return Address{}, fmt.Errorf("%s: option max-children not allowed without option fork", facts.Type)
 	}
 	return a, nil
 }
 
+func finishDecode(a *Address) error {
+	resolveLineEnding(a)
+	resolveUnsupportedTLS(a)
+	if a.TLS.MaxVersion != 0 && a.TLS.MinVersion > a.TLS.MaxVersion {
+		return fmt.Errorf("minimum TLS protocol version exceeds maximum")
+	}
+	return nil
+}
+
 func decodeOption(a *Address, o parse.Option) error {
+	a.optionIndex++
 	name := optionIdentity(o)
 	if _, ok := optionmeta.IsolationCanonical(name); ok {
 		spelling := o.OriginalSpelling()
@@ -264,19 +291,17 @@ func decodeOption(a *Address, o parse.Option) error {
 		if o.Has {
 			return fmt.Errorf("%s: no value permitted", o.OriginalSpelling())
 		}
-		a.Transfer.LineEnding = LineEndingCR
+		a.cr = lineConversion{set: true, active: true, index: a.optionIndex, ending: LineEndingCR}
 		return nil
 	case "crnl":
 		if o.Has {
 			return fmt.Errorf("%s: no value permitted", o.OriginalSpelling())
 		}
-		a.Transfer.LineEnding = LineEndingCRNL
+		a.crnl = lineConversion{set: true, active: true, index: a.optionIndex, ending: LineEndingCRNL}
 		return nil
 	case "crorlf":
 		v := activeBool(o)
-		if v.Value {
-			a.Transfer.LineEnding = LineEndingCROrLF
-		}
+		a.crorlf = lineConversion{set: true, active: v.Value, index: a.optionIndex, ending: LineEndingCROrLF}
 		return nil
 	case "shut-none":
 		return decodeNamedShutdown(&a.Transfer.Shutdown, o, ShutdownNone)
@@ -329,6 +354,21 @@ func decodeOption(a *Address, o parse.Option) error {
 		return err
 	}
 	return nil
+}
+
+func resolveLineEnding(a *Address) {
+	last := -1
+	ending := LineEndingRaw
+	consider := func(c lineConversion) {
+		if c.set && c.active && c.index >= last {
+			last = c.index
+			ending = c.ending
+		}
+	}
+	consider(a.cr)
+	consider(a.crnl)
+	consider(a.crorlf)
+	a.Transfer.LineEnding = ending
 }
 
 func optionIdentity(o parse.Option) string {

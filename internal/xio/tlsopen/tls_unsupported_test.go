@@ -81,6 +81,26 @@ func TestTLSDisabledFIPSAndCompressNone(t *testing.T) {
 	}
 }
 
+func TestTLSConfigsKeepEarlierUnsupportedAfterLaterDisable(t *testing.T) {
+	spec, err := parse.ParseSpec("TLS:127.0.0.1:1,fips=1,pseudo=1,pseudo=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = tlsClientConfig(mustAddr(t, spec), "127.0.0.1")
+	if err == nil || !strings.Contains(err.Error(), `"fips"`) {
+		t.Fatalf("fips must still be rejected: %v", err)
+	}
+
+	spec, err = parse.ParseSpec("TLS:127.0.0.1:1,method=SSLv23,fips=1,fips=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = tlsClientConfig(mustAddr(t, spec), "127.0.0.1")
+	if err == nil || !strings.Contains(err.Error(), "method") || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("method must still be rejected: %v", err)
+	}
+}
+
 func TestTLSFIPSAliasLastWins(t *testing.T) {
 	spec, err := parse.ParseSpec("OPENSSL:localhost:443,verify=0,openssl-fips=1,fips=0")
 	if err != nil {

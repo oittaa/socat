@@ -66,6 +66,52 @@ func TestParseIffOpts(t *testing.T) {
 	}
 }
 
+func TestTUNIffLastWinsBringsInterfaceUp(t *testing.T) {
+	s, err := parse.ParseSpec("TUN,iff-up=0,iff-up=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := mustAddr(t, s)
+	if config.Network.TUNInterfaceSet&unix.IFF_UP == 0 {
+		t.Fatal("iff-up=1 last must set IFF_UP")
+	}
+	if config.Network.TUNInterfaceClr&unix.IFF_UP != 0 {
+		t.Fatal("iff-up=1 last must not remain in the clear mask")
+	}
+	o, err := openTUN(context.Background(), config, xio.ModeRDWR, nil)
+	if err != nil {
+		t.Skipf("requires TUN (/dev/net/tun): %v", err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	name := strings.TrimPrefix(o.Label, "TUN:")
+	if name == "" || name == o.Label {
+		t.Fatalf("TUN label=%q", o.Label)
+	}
+	flags, err := readInterfaceFlags(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags&unix.IFF_UP == 0 {
+		t.Fatalf("%s flags=%#x want IFF_UP", name, flags)
+	}
+}
+
+func readInterfaceFlags(name string) (uint16, error) {
+	sock, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = unix.Close(sock) }()
+	ifr, err := unix.NewIfreq(name)
+	if err != nil {
+		return 0, err
+	}
+	if err := unix.IoctlIfreq(sock, unix.SIOCGIFFLAGS, ifr); err != nil {
+		return 0, err
+	}
+	return ifr.Uint16(), nil
+}
+
 func TestPacketAuxVLANTCIEmpty(t *testing.T) {
 	if tci, ok := packetAuxVLANTCI(nil); ok || tci != 0 {
 		t.Fatalf("empty oob: tci=%d ok=%v", tci, ok)

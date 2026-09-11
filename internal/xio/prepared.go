@@ -91,6 +91,7 @@ func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 		Type:  desc.Name,
 		Group: desc.Group,
 		Caps:  desc.OptionCaps,
+		Kind:  desc.Kind,
 	})
 	if err != nil {
 		return PreparedAddress{}, err
@@ -111,6 +112,7 @@ func OpenWithType(ctx context.Context, name string, config addrconfig.Address, m
 		Type:  desc.Name,
 		Group: desc.Group,
 		Caps:  append([]string(nil), desc.OptionCaps...),
+		Kind:  desc.Kind,
 	}
 	return desc.Opener(ctx, config, mode, g)
 }

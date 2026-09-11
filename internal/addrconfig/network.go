@@ -22,6 +22,7 @@ const (
 	AddressKindSocket
 	AddressKindVSOCK
 	AddressKindTUN
+	AddressKindINTERFACE
 	AddressKindPOSIXMQ
 )
 
@@ -265,7 +266,7 @@ type Network struct {
 
 func decodeNetwork(a *Address, spec parse.Spec) error {
 	n := &a.Network
-	n.Kind = addressKind(a.Facts.Group)
+	n.Kind = addressKind(a.Facts)
 	n.Role = addressRole(a.Type)
 	n.TUNType = TUNTypeTUN
 
@@ -319,6 +320,8 @@ func decodeNetwork(a *Address, spec parse.Spec) error {
 		if err := decodeTUNPositional(a); err != nil {
 			return err
 		}
+	case AddressKindINTERFACE:
+		return nil
 	default:
 		switch n.Role {
 		case AddressRoleConnect, AddressRoleSendTo, AddressRoleDatagram:
@@ -507,8 +510,17 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 	return false, nil
 }
 
-func addressKind(group string) AddressKind {
-	switch group {
+func addressKind(facts Facts) AddressKind {
+	if facts.Kind != AddressKindOther {
+		return facts.Kind
+	}
+	switch facts.Type {
+	case "TUN":
+		return AddressKindTUN
+	case "INTERFACE", "IF":
+		return AddressKindINTERFACE
+	}
+	switch facts.Group {
 	case "Raw IP":
 		return AddressKindRawIP
 	case "Generic socket":
@@ -1019,8 +1031,10 @@ func decodeTUNOption(n *Network, o parse.Option, name string) (bool, error) {
 		}
 		if v.Value {
 			n.TUNInterfaceSet |= bit
+			n.TUNInterfaceClr &^= bit
 		} else {
 			n.TUNInterfaceClr |= bit
+			n.TUNInterfaceSet &^= bit
 		}
 	}
 	return true, nil

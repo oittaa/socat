@@ -79,6 +79,20 @@ func TestWantCRNLAliasLastWins(t *testing.T) {
 	}
 }
 
+func TestCrorlfDisableDoesNotKeepConversion(t *testing.T) {
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,crorlf,crorlf=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: "TCP"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Transfer.LineEnding != addrconfig.LineEndingRaw {
+		t.Fatalf("crorlf,crorlf=0 ending=%v", config.Transfer.LineEnding)
+	}
+}
+
 func TestClassicCRRejectsAssignment(t *testing.T) {
 	inner := relay.FDStream{R: bytes.NewReader(nil), W: io.Discard, C: NopCloser{}, CloseW: func() error { return nil }}
 	for _, spec := range []string{

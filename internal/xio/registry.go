@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/optionmeta"
 )
 
@@ -55,6 +56,8 @@ type AddressDesc struct {
 	Opener      Opener        // Opener function handling this address
 	OptionCaps  []string      // Address capability tokens for option-scope checks
 	Aliases     []string      // Extra keywords that resolve to this descriptor; -hhh only
+	// Kind is the registry-owned address identity used during preparation.
+	Kind addrconfig.AddressKind
 	// Directions is ModeRead, ModeWrite, or ModeRDWR (zero: both).
 	Directions Mode
 }
@@ -222,6 +225,7 @@ type AddressRegistration struct {
 	Syntax     string
 	Enabled    bool
 	OptionCaps []string
+	Kind       addrconfig.AddressKind
 }
 
 // AddressRegistrationForType returns the registered metadata for one address
@@ -278,6 +282,7 @@ func registrationSnapshot(d AddressDesc) AddressRegistration {
 		Syntax:     d.Syntax,
 		Enabled:    d.Enabled == nil || d.Enabled(),
 		OptionCaps: append([]string(nil), d.OptionCaps...),
+		Kind:       d.Kind,
 	}
 }
 

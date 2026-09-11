@@ -124,6 +124,20 @@ func TestTLSProtocolVersionOptions(t *testing.T) {
 	}
 }
 
+func TestTLSProtocolVersionLastWinsRange(t *testing.T) {
+	spec, err := parse.ParseSpec("TLS:localhost:443,min-version=TLS1.3,max-version=TLS1.2,max-version=TLS1.3,verify=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := tlsClientConfig(mustAddr(t, spec), "localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MinVersion != tls.VersionTLS13 || cfg.MaxVersion != tls.VersionTLS13 {
+		t.Fatalf("protocol bounds=%#x..%#x", cfg.MinVersion, cfg.MaxVersion)
+	}
+}
+
 func TestTLSProtocolVersionOptionsRejectInvalidBounds(t *testing.T) {
 	for _, text := range []string{
 		"TLS:localhost:443,min-version=DTLS1.2,verify=0",

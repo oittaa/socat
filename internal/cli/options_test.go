@@ -169,3 +169,11 @@ func TestValidateSpecOptionsUsesOriginalSpellingNotFoldedName(t *testing.T) {
 		t.Fatalf("folded Name must not bypass spelling groups: %v", err)
 	}
 }
+
+func TestINTERFACELoIsAcceptedAtCLI(t *testing.T) {
+	for _, spec := range []string{"INTERFACE:lo", "IF:lo"} {
+		if err := validateParsed(t, spec); err != nil {
+			t.Errorf("%s: %v", spec, err)
+		}
+	}
+}

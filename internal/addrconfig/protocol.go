@@ -26,6 +26,7 @@ type TLS struct {
 	ALPN                   OptionalString
 	LastHiddenName         string
 	LastPlaintextName      string
+	Unsupported            []TLSUnsupported
 	UnsupportedSet         bool
 	UnsupportedCanonical   string
 	UnsupportedName        string
@@ -50,6 +51,15 @@ const (
 	HTTPVersion3
 )
 
+// TLSUnsupported is the last occurrence of one unsupported TLS option.
+type TLSUnsupported struct {
+	Canonical string
+	Name      string
+	Reason    string
+	Reject    bool
+	Index     int
+}
+
 // Proxy holds static HTTP CONNECT and SOCKS settings.
 type Proxy struct {
 	Port              OptionalString
@@ -71,17 +81,7 @@ func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 		if err := decodeUnsupportedTLSValue(name, o); err != nil {
 			return true, err
 		}
-		if !compatibleDisabledTLSOption(name, o) {
-			a.TLS.UnsupportedSet = true
-			a.TLS.UnsupportedCanonical = name
-			a.TLS.UnsupportedName = o.OriginalSpelling()
-			a.TLS.UnsupportedReason = def.TLSRejectReason
-		} else if a.TLS.UnsupportedCanonical == name {
-			a.TLS.UnsupportedSet = false
-			a.TLS.UnsupportedCanonical = ""
-			a.TLS.UnsupportedName = ""
-			a.TLS.UnsupportedReason = ""
-		}
+		recordUnsupportedTLS(a, name, o, def.TLSRejectReason, !compatibleDisabledTLSOption(name, o))
 		return true, nil
 	}
 	switch name {
@@ -296,10 +296,45 @@ func decodeProtocolVersion(a *Address, o parse.Option, minimum bool) error {
 	} else {
 		a.TLS.MaxVersion = version
 	}
-	if a.TLS.MaxVersion != 0 && a.TLS.MinVersion > a.TLS.MaxVersion {
-		return fmt.Errorf("minimum TLS protocol version exceeds maximum")
-	}
 	return nil
+}
+
+func recordUnsupportedTLS(a *Address, canonical string, o parse.Option, reason string, reject bool) {
+	spelling := o.OriginalSpelling()
+	if spelling == "" {
+		spelling = o.Name
+	}
+	state := TLSUnsupported{
+		Canonical: canonical,
+		Name:      spelling,
+		Reason:    reason,
+		Reject:    reject,
+		Index:     a.optionIndex,
+	}
+	for i := range a.TLS.Unsupported {
+		if a.TLS.Unsupported[i].Canonical == canonical {
+			a.TLS.Unsupported[i] = state
+			return
+		}
+	}
+	a.TLS.Unsupported = append(a.TLS.Unsupported, state)
+}
+
+func resolveUnsupportedTLS(a *Address) {
+	last := -1
+	a.TLS.UnsupportedSet = false
+	a.TLS.UnsupportedCanonical = ""
+	a.TLS.UnsupportedName = ""
+	a.TLS.UnsupportedReason = ""
+	for _, option := range a.TLS.Unsupported {
+		if option.Reject && option.Index >= last {
+			last = option.Index
+			a.TLS.UnsupportedSet = true
+			a.TLS.UnsupportedCanonical = option.Canonical
+			a.TLS.UnsupportedName = option.Name
+			a.TLS.UnsupportedReason = option.Reason
+		}
+	}
 }
 
 func decodeTLSVersion(value string) (uint16, error) {

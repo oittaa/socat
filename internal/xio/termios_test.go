@@ -220,3 +220,11 @@ func TestApplyConfiguredTermiosPreservesActionOrder(t *testing.T) {
 		t.Fatalf("prepared actions left ECHO=%t VINTR=%d", tio.Lflag&unix.ECHO != 0, tio.Cc[unix.VINTR])
 	}
 }
+
+func TestApplyTermiosB0HangupSpeed(t *testing.T) {
+	fd := openPTYSlave(t)
+	tio := applyTermiosSpec(t, fd, "PTY,b9600,b0")
+	if tio.Ispeed != 0 || tio.Ospeed != 0 {
+		t.Fatalf("b0 speed=%d/%d want hangup 0", tio.Ispeed, tio.Ospeed)
+	}
+}

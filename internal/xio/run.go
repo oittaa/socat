@@ -58,6 +58,9 @@ func RunPrepared(ctx context.Context, left, right PreparedChannel, g *Global) er
 func RunOpened(ctx context.Context, lo *Opened, right parse.Channel, g *Global) error {
 	prepared, err := PrepareChannel(right)
 	if err != nil {
+		if lo != nil {
+			_ = lo.Close()
+		}
 		return err
 	}
 	return RunOpenedPrepared(ctx, lo, prepared, g)

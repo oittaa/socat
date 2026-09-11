@@ -90,6 +90,7 @@ func decodeSpecConfig(spec parse.Spec) (addrconfig.Address, error) {
 		facts.Type = registration.Name
 		facts.Group = registration.Group
 		facts.Caps = registration.OptionCaps
+		facts.Kind = registration.Kind
 	}
 	return addrconfig.Decode(spec, facts)
 }

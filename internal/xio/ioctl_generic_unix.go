@@ -28,7 +28,8 @@ func applyConfiguredGenericIoctl(fd int, action addrconfig.FileAction) error {
 			return fmt.Errorf("%s: ioctl(%d, 0x%x, int*): %w", action.Name, fd, request, err)
 		}
 	case 4:
-		if err := ioctlBytes(fd, request, action.Bytes); err != nil {
+		payload := append([]byte(nil), action.Bytes...)
+		if err := ioctlBytes(fd, request, payload); err != nil {
 			return fmt.Errorf("%s: ioctl(%d, 0x%x, bin): %w", action.Name, fd, request, err)
 		}
 	case 5:

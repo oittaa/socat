@@ -533,11 +533,11 @@ func decodeTerminal(a *Address, o parse.Option) (bool, error) {
 		appendAction(TerminalAction{Kind: TerminalActionChar, Value: uint32(value)})
 		return true, nil
 	}
-	if terminalBaud(name) != 0 {
+	if baud, ok := terminalBaud(name); ok {
 		if o.Has {
 			return true, fmt.Errorf("%s: no value permitted", o.Name)
 		}
-		appendAction(TerminalAction{Kind: TerminalActionSpeed, Value: terminalBaud(name)})
+		appendAction(TerminalAction{Kind: TerminalActionSpeed, Value: baud})
 		return true, nil
 	}
 	if terminalFieldName(name) {
@@ -601,19 +601,19 @@ func terminalFlagName(name string) bool {
 	return false
 }
 
-func terminalBaud(name string) uint32 {
+func terminalBaud(name string) (uint32, bool) {
 	if len(name) < 2 || name[0] != 'b' {
-		return 0
+		return 0, false
 	}
 	n, err := strconv.ParseUint(name[1:], 10, 32)
 	if err != nil {
-		return 0
+		return 0, false
 	}
 	switch n {
 	case 0, 50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800, 7200, 9600, 19200, 38400, 57600, 115200, 230400, 460800, 500000, 576000, 921600, 1000000, 1152000, 1500000, 2000000, 2500000, 3000000, 3500000, 4000000:
-		return uint32(n)
+		return uint32(n), true
 	}
-	return 0
+	return 0, false
 }
 
 func terminalByte(name string, o parse.Option) (byte, error) {

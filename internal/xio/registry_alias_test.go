@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	_ "github.com/oittaa/socat/internal/xio/all"
@@ -51,6 +52,21 @@ func TestParserShorthandDashStaysOutOfRegistry(t *testing.T) {
 	}
 	if _, ok := xio.AddressRegistrationForType("STDIO"); !ok {
 		t.Fatal("STDIO opener missing")
+	}
+}
+
+func TestTUNAndINTERFACEHaveDistinctKinds(t *testing.T) {
+	tun, ok := xio.AddressRegistrationForType("TUN")
+	if !ok || tun.Kind != addrconfig.AddressKindTUN {
+		t.Fatalf("TUN kind=%v ok=%v", tun.Kind, ok)
+	}
+	iface, ok := xio.AddressRegistrationForType("INTERFACE")
+	if !ok || iface.Kind != addrconfig.AddressKindINTERFACE {
+		t.Fatalf("INTERFACE kind=%v ok=%v", iface.Kind, ok)
+	}
+	alias, ok := xio.AddressRegistrationForType("IF")
+	if !ok || alias.Kind != iface.Kind || alias.Name != "INTERFACE" {
+		t.Fatalf("IF=%+v ok=%v", alias, ok)
 	}
 }
 

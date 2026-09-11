@@ -3,6 +3,7 @@
 package xio
 
 import (
+	"bytes"
 	"os"
 	"strconv"
 	"strings"
@@ -75,6 +76,38 @@ func TestApplyFDOptionsIoctlBinTIOCGWINSZPty(t *testing.T) {
 	spec := mustSpec(t, "FD:3,ioctl-bin="+strconv.FormatUint(uint64(unix.TIOCGWINSZ), 10)+":x0000000000000000")
 	if err := ApplyFDOptions(slave, mustDecodeAddress(t, spec)); err != nil {
 		t.Fatalf("ioctl-bin TIOCGWINSZ: %v", err)
+	}
+}
+
+func TestIoctlBinTIOCGWINSZDoesNotMutatePreparedBytes(t *testing.T) {
+	master, slave, err := OpenPTYPair()
+	if err != nil {
+		t.Skipf("pty: %v", err)
+	}
+	t.Cleanup(func() { _ = master.Close(); _ = slave.Close() })
+	if _, err := unix.IoctlGetWinsize(int(slave.Fd()), unix.TIOCGWINSZ); err != nil {
+		t.Skipf("not a tty: %v", err)
+	}
+	spec := mustSpec(t, "FD:3,ioctl-bin="+strconv.FormatUint(uint64(unix.TIOCGWINSZ), 10)+":x0000000000000000")
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: "FD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(config.File.Actions) != 1 {
+		t.Fatalf("actions=%+v", config.File.Actions)
+	}
+	orig := append([]byte(nil), config.File.Actions[0].Bytes...)
+	if err := ApplyConfiguredFDOptions(slave, config.File, FDSkip{}); err != nil {
+		t.Fatalf("first ioctl-bin: %v", err)
+	}
+	if got := config.File.Actions[0].Bytes; !bytes.Equal(got, orig) {
+		t.Fatalf("prepared ioctl-bin bytes mutated: got %x want %x", got, orig)
+	}
+	if err := ApplyConfiguredFDOptions(slave, config.File, FDSkip{}); err != nil {
+		t.Fatalf("second ioctl-bin: %v", err)
+	}
+	if got := config.File.Actions[0].Bytes; !bytes.Equal(got, orig) {
+		t.Fatalf("second apply mutated prepared bytes: got %x want %x", got, orig)
 	}
 }
 

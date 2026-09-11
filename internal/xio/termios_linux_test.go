@@ -26,6 +26,14 @@ func TestApplyTermiosLinuxB7200Effect(t *testing.T) {
 	}
 }
 
+func TestApplyTermiosLinuxB0CBAUD(t *testing.T) {
+	fd := openPTYSlave(t)
+	tio := applyTermiosSpec(t, fd, "PTY,b9600,b0")
+	if got := tio.Cflag & termiosBits(unix.CBAUD); got != termiosBits(unix.B0) {
+		t.Fatalf("b0 CBAUD=%#x want B0 %#x", got, unix.B0)
+	}
+}
+
 func TestApplyTermiosLinuxXTABS(t *testing.T) {
 	fd := openPTYSlave(t)
 	tio := applyTermiosSpec(t, fd, "PTY,sane,xtabs")
