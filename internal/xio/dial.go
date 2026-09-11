@@ -27,11 +27,6 @@ type DialTarget struct {
 	Port    addrconfig.PortTarget
 }
 
-// DialTargetFromText builds a destination from leftover string hosts and ports.
-func DialTargetFromText(network, host, port string) DialTarget {
-	return DialTarget{Network: network, Host: addrconfig.HostFromText(host), Port: addrconfig.PortFromText(port)}
-}
-
 // dialCall is the shared context for one TCP connect attempt.
 type dialCall struct {
 	ctx     context.Context
@@ -215,12 +210,6 @@ func ResolvePortNum(network, port string) (int, error) {
 		return net.LookupPort("tcp", port)
 	}
 	return net.LookupPort(proto, port)
-}
-
-// ResolveConnectIPs returns remote IPs in try order.
-// network may be tcp/tcp4/tcp6 or sctp/sctp4/sctp6 (SCTP uses the TCP hint).
-func ResolveConnectIPs(ctx context.Context, network, host string, s addrconfig.Address, g *Global) ([]net.IP, error) {
-	return resolveConnectIPs(ctx, connectIPNetwork(network), host, s, g)
 }
 
 func formatTCPAddr(network string, ip net.IP, port int) string {

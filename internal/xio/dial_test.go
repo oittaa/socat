@@ -14,6 +14,10 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
+func DialTargetFromText(network, host, port string) DialTarget {
+	return DialTarget{Network: network, Host: addrconfig.HostFromText(host), Port: addrconfig.PortFromText(port)}
+}
+
 func TestResolvePortNumSCTPFallsBackToTCP(t *testing.T) {
 	n, err := ResolvePortNum("sctp4", "http")
 	if err != nil {

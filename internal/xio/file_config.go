@@ -101,18 +101,7 @@ func applyConfiguredNamedOwner(path string, f *os.File, value string, user bool)
 }
 
 func applyNamedPathOwner(path, value string, user bool) error {
-	id, has, err := lookupOwnerID(value, user)
-	if err != nil || !has {
-		return err
-	}
-	uid, gid := id, -1
-	if !user {
-		uid, gid = -1, id
-	}
-	if err := os.Chown(path, uid, gid); err != nil {
-		return fmt.Errorf("chown %s: %w", path, err)
-	}
-	return nil
+	return applyConfiguredNamedOwner(path, nil, value, user)
 }
 
 func lookupOwnerID(value string, user bool) (int, bool, error) {

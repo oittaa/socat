@@ -200,130 +200,81 @@ func optionalNamedSocketInt(o parse.Option, name string) (int, error) {
 	return optionalSocketInt(o, 1)
 }
 
-func namedSocketID(name string) NamedSocket {
-	switch name {
-	case "so-debug":
-		return NamedSocketDebug
-	case "so-dontroute":
-		return NamedSocketDontRoute
-	case "so-oobinline":
-		return NamedSocketOOBInline
-	case "so-rcvlowat":
-		return NamedSocketRcvLowat
-	case "so-sndlowat":
-		return NamedSocketSndLowat
-	case "so-priority":
-		return NamedSocketPriority
-	case "so-passcred":
-		return NamedSocketPassCred
-	case "so-no-check":
-		return NamedSocketNoCheck
-	case "so-detach-filter":
-		return NamedSocketDetachFilter
-	case "tcp-cork":
-		return NamedSocketTCPCork
-	case "tcp-defer-accept":
-		return NamedSocketTCPDeferAccept
-	case "tcp-linger2":
-		return NamedSocketTCPLinger2
-	case "tcp-maxseg":
-		return NamedSocketTCPMaxSeg
-	case "tcp-quickack":
-		return NamedSocketTCPQuickAck
-	case "tcp-syncnt":
-		return NamedSocketTCPSyncnt
-	case "tcp-window-clamp":
-		return NamedSocketTCPWindowClamp
-	case "nopush", "tcp-nopush":
-		return NamedSocketNoPush
-	case "noopt", "tcp-noopt":
-		return NamedSocketNoOpt
-	case "sctp-nodelay":
-		return NamedSocketSCTPNodelay
-	case "sctp-maxseg":
-		return NamedSocketSCTPMaxSeg
-	case "tcp-maxseg-late":
-		return NamedSocketTCPMaxSegLate
-	case "fiosetown":
-		return NamedSocketFIOSETOWN
-	case "siocspgrp":
-		return NamedSocketSIOCSPGRP
-	default:
-		return NamedSocketNone
-	}
+func namedSocketID(name string) NamedSocket { return namedSocketByName[name] }
+
+var namedSocketByName = map[string]NamedSocket{
+	"so-debug":         NamedSocketDebug,
+	"so-dontroute":     NamedSocketDontRoute,
+	"so-oobinline":     NamedSocketOOBInline,
+	"so-rcvlowat":      NamedSocketRcvLowat,
+	"so-sndlowat":      NamedSocketSndLowat,
+	"so-priority":      NamedSocketPriority,
+	"so-passcred":      NamedSocketPassCred,
+	"so-no-check":      NamedSocketNoCheck,
+	"so-detach-filter": NamedSocketDetachFilter,
+	"tcp-cork":         NamedSocketTCPCork,
+	"tcp-defer-accept": NamedSocketTCPDeferAccept,
+	"tcp-linger2":      NamedSocketTCPLinger2,
+	"tcp-maxseg":       NamedSocketTCPMaxSeg,
+	"tcp-quickack":     NamedSocketTCPQuickAck,
+	"tcp-syncnt":       NamedSocketTCPSyncnt,
+	"tcp-window-clamp": NamedSocketTCPWindowClamp,
+	"nopush":           NamedSocketNoPush,
+	"tcp-nopush":       NamedSocketNoPush,
+	"noopt":            NamedSocketNoOpt,
+	"tcp-noopt":        NamedSocketNoOpt,
+	"sctp-nodelay":     NamedSocketSCTPNodelay,
+	"sctp-maxseg":      NamedSocketSCTPMaxSeg,
+	"tcp-maxseg-late":  NamedSocketTCPMaxSegLate,
+	"fiosetown":        NamedSocketFIOSETOWN,
+	"siocspgrp":        NamedSocketSIOCSPGRP,
 }
 
 func ancillaryOption(name string) bool {
 	return ancillaryID(name) != AncillaryNone
 }
 
-// AncillaryID is the typed identity of a canonical IP/ancillary option name.
 func AncillaryID(name string) AncillaryOption { return ancillaryID(name) }
 
-func ancillaryID(name string) AncillaryOption {
-	switch name {
-	case "so-timestamp":
-		return AncillarySOTimestamp
-	case "ip-pktinfo":
-		return AncillaryIPPktinfo
-	case "ip-recvttl":
-		return AncillaryIPRecvTTL
-	case "ip-recvtos":
-		return AncillaryIPRecvTOS
-	case "ip-recvopts":
-		return AncillaryIPRecvOpts
-	case "ip-retopts":
-		return AncillaryIPRetOpts
-	case "ip-recvdstaddr":
-		return AncillaryIPRecvDstAddr
-	case "ip-recvif":
-		return AncillaryIPRecvIf
-	case "ipv6-recvpktinfo":
-		return AncillaryIPv6RecvPktinfo
-	case "ipv6-recvhoplimit":
-		return AncillaryIPv6RecvHopLimit
-	case "ipv6-recvtclass":
-		return AncillaryIPv6RecvTclass
-	case "ipv6-recvdstopts":
-		return AncillaryIPv6RecvDstOpts
-	case "ipv6-recvhopopts":
-		return AncillaryIPv6RecvHopOpts
-	case "ipv6-recvrthdr":
-		return AncillaryIPv6RecvRtHdr
-	case "ipv6-recvpathmtu":
-		return AncillaryIPv6RecvPathMTU
-	case "ip-ttl":
-		return AncillaryIPTTL
-	case "ip-tos":
-		return AncillaryIPTOS
-	case "ip-options":
-		return AncillaryIPOptions
-	case "ip-hdrincl":
-		return AncillaryIPHdrincl
-	case "ipv6-unicast-hops":
-		return AncillaryIPv6UnicastHops
-	case "ipv6-tclass":
-		return AncillaryIPv6Tclass
-	default:
-		return AncillaryNone
-	}
+func ancillaryID(name string) AncillaryOption { return ancillaryByName[name] }
+
+var ancillaryByName = map[string]AncillaryOption{
+	"so-timestamp":      AncillarySOTimestamp,
+	"ip-pktinfo":        AncillaryIPPktinfo,
+	"ip-recvttl":        AncillaryIPRecvTTL,
+	"ip-recvtos":        AncillaryIPRecvTOS,
+	"ip-recvopts":       AncillaryIPRecvOpts,
+	"ip-retopts":        AncillaryIPRetOpts,
+	"ip-recvdstaddr":    AncillaryIPRecvDstAddr,
+	"ip-recvif":         AncillaryIPRecvIf,
+	"ipv6-recvpktinfo":  AncillaryIPv6RecvPktinfo,
+	"ipv6-recvhoplimit": AncillaryIPv6RecvHopLimit,
+	"ipv6-recvtclass":   AncillaryIPv6RecvTclass,
+	"ipv6-recvdstopts":  AncillaryIPv6RecvDstOpts,
+	"ipv6-recvhopopts":  AncillaryIPv6RecvHopOpts,
+	"ipv6-recvrthdr":    AncillaryIPv6RecvRtHdr,
+	"ipv6-recvpathmtu":  AncillaryIPv6RecvPathMTU,
+	"ip-ttl":            AncillaryIPTTL,
+	"ip-tos":            AncillaryIPTOS,
+	"ip-options":        AncillaryIPOptions,
+	"ip-hdrincl":        AncillaryIPHdrincl,
+	"ipv6-unicast-hops": AncillaryIPv6UnicastHops,
+	"ipv6-tclass":       AncillaryIPv6Tclass,
 }
 
 func multicastKind(name string) MulticastKind {
-	switch name {
-	case "ipv6-join-group":
-		return MulticastJoinIPv6
-	case "ip-multicast-if":
-		return MulticastInterfaceIPv4
-	case "ip-multicast-loop":
-		return MulticastLoopIPv4
-	case "ip-multicast-ttl":
-		return MulticastTTLIPv4
-	case "ipv6-multicast-loop":
-		return MulticastLoopIPv6
-	default:
-		return MulticastJoinIPv4
+	if kind, ok := multicastKindByName[name]; ok {
+		return kind
 	}
+	return MulticastJoinIPv4
+}
+
+var multicastKindByName = map[string]MulticastKind{
+	"ipv6-join-group":     MulticastJoinIPv6,
+	"ip-multicast-if":     MulticastInterfaceIPv4,
+	"ip-multicast-loop":   MulticastLoopIPv4,
+	"ip-multicast-ttl":    MulticastTTLIPv4,
+	"ipv6-multicast-loop": MulticastLoopIPv6,
 }
 
 func ancillaryOptionInt(o parse.Option) (int, error) {

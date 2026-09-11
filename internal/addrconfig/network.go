@@ -60,23 +60,13 @@ type HostTarget struct {
 	Name    string
 }
 
-// HostFromText parses a bind or peer host once. Literal IPs become typed
-// addresses; other names stay for runtime resolution.
 func HostFromText(text string) HostTarget { return targetFromText(text) }
 
-// PortFromText parses a port once. Numeric ports keep their value; service
-// names stay for runtime lookup.
 func PortFromText(text string) PortTarget { return portTarget(text) }
 
-// IsLiteral reports whether the host is a parsed IP address.
-func (t HostTarget) IsLiteral() bool {
-	return t.Literal.IsValid()
-}
+func (t HostTarget) IsLiteral() bool { return t.Literal.IsValid() }
 
-// Empty reports a bind host with no name and no literal, including bind=:port.
-func (t HostTarget) Empty() bool {
-	return !t.IsLiteral() && strings.TrimSpace(t.Name) == ""
-}
+func (t HostTarget) Empty() bool { return !t.IsLiteral() && strings.TrimSpace(t.Name) == "" }
 
 // IP is the typed literal, or nil when the host must be resolved.
 func (t HostTarget) IP() net.IP {
@@ -314,8 +304,6 @@ func (n Network) WithoutSourcePort() Network {
 	return n
 }
 
-// LocalPort is the prepared local bind port: bind=host:port when present,
-// otherwise sourceport=.
 func (n Network) LocalPort() (PortTarget, bool) {
 	if n.BindPortSet {
 		return n.BindPort, true
@@ -513,8 +501,7 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 		n.SourcePortSet = true
 		return true, nil
 	case "lowport":
-		n.LowPort = activeBool(o)
-		return true, nil
+		return true, setActive(&n.LowPort, o)
 	case "range":
 		value, err := requiredString(o)
 		if err != nil {
@@ -584,11 +571,9 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 		n.SocketProtocol = OptionalInt{Set: true, Value: value}
 		return true, nil
 	case "reuseaddr":
-		n.ReuseAddr = activeBool(o)
-		return true, nil
+		return true, setActive(&n.ReuseAddr, o)
 	case "reuseport":
-		n.ReusePort = activeBool(o)
-		return true, nil
+		return true, setActive(&n.ReusePort, o)
 	case "ipv6-v6only":
 		v, err := optionalBool(o)
 		a.Common.IPv6V6Only = v
@@ -608,22 +593,11 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 		n.Backlog = OptionalInt{Set: true, Value: backlog}
 		return true, nil
 	case "keepalive":
-		n.KeepAlive = activeBool(o)
-		return true, nil
+		return true, setActive(&n.KeepAlive, o)
 	case "keepidle":
-		d, err := positiveKeepDuration(o)
-		if err != nil {
-			return true, err
-		}
-		n.KeepIdle = OptionalDuration{Set: true, Value: d}
-		return true, nil
+		return true, decodePositiveDuration(&n.KeepIdle, o)
 	case "keepintvl":
-		d, err := positiveKeepDuration(o)
-		if err != nil {
-			return true, err
-		}
-		n.KeepIntvl = OptionalDuration{Set: true, Value: d}
-		return true, nil
+		return true, decodePositiveDuration(&n.KeepIntvl, o)
 	case "keepcnt":
 		count, err := decodePositiveInt(o)
 		if err != nil {
@@ -632,8 +606,7 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 		n.KeepCnt = OptionalInt{Set: true, Value: count}
 		return true, nil
 	case "nodelay":
-		n.NoDelay = activeBool(o)
-		return true, nil
+		return true, setActive(&n.NoDelay, o)
 	}
 	if action, ok, err := socketAction(o, name); ok {
 		if err != nil {
@@ -836,8 +809,6 @@ func bindSplitsHostPort(n *Network) bool {
 	case AddressKindSocket, AddressKindVSOCK, AddressKindTUN, AddressKindINTERFACE, AddressKindFD, AddressKindPOSIXMQ, AddressKindRawIP:
 		return false
 	}
-	// Connect, sendto, and datagram accept bind=host:port. LISTEN and RECV
-	// take the port from the positional argument; bind is a hostname only.
 	switch n.Role {
 	case AddressRoleConnect, AddressRoleSendTo, AddressRoleDatagram:
 		return true
@@ -1204,11 +1175,7 @@ func decodePositiveInt(o parse.Option) (int, error) {
 }
 
 func positiveKeepDuration(o parse.Option) (time.Duration, error) {
-	value, err := requiredString(o)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", o.Name, err)
-	}
-	d, err := ParseDuration(value)
+	d, err := parseDurationValue(o)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", o.Name, err)
 	}
@@ -1344,18 +1311,11 @@ func decodePOSIXMQOption(n *Network, o parse.Option, name string) (bool, error) 
 		}
 		n.MQPriority = OptionalUint32{Set: true, Value: uint32(v)}
 	case "mq-flush":
-		n.MQFlush = activeBool(o)
-	case "mq-maxmsg", "mq-msgsize":
-		v, err := requiredInt(o, 0)
-		if err != nil {
-			return true, err
-		}
-		opt := OptionalInt{Set: true, Value: v}
-		if name == "mq-maxmsg" {
-			n.MQMaxMessages = opt
-		} else {
-			n.MQMessageSize = opt
-		}
+		return true, setActive(&n.MQFlush, o)
+	case "mq-maxmsg":
+		return true, setRequiredInt(&n.MQMaxMessages, o, 0)
+	case "mq-msgsize":
+		return true, setRequiredInt(&n.MQMessageSize, o, 0)
 	default:
 		return false, nil
 	}

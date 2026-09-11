@@ -84,27 +84,18 @@ func applyPreparedSocketAction(fd int, action addrconfig.SocketAction, family *i
 	case addrconfig.SocketActionNamed:
 		return applyPreparedNamedAction(fd, action)
 	case addrconfig.SocketActionBroadcast:
-		if err := setSockoptInt(fd, solSocket, soBroadcast, action.Number); err != nil {
-			return fmt.Errorf("broadcast: %w", err)
-		}
-		return nil
+		return sockerr("broadcast", setSockoptInt(fd, solSocket, soBroadcast, action.Number))
 	case addrconfig.SocketActionBuffer:
-		opt := soSndbuf
-		name := action.Text
+		opt, name := soSndbuf, action.Text
 		if action.Recv {
 			opt = soRcvbuf
-		}
-		if name == "" {
-			if action.Recv {
+			if name == "" {
 				name = "rcvbuf"
-			} else {
-				name = "sndbuf"
 			}
+		} else if name == "" {
+			name = "sndbuf"
 		}
-		if err := setSockoptInt(fd, solSocket, opt, action.Number); err != nil {
-			return fmt.Errorf("%s: %w", name, err)
-		}
-		return nil
+		return sockerr(name, setSockoptInt(fd, solSocket, opt, action.Number))
 	case addrconfig.SocketActionBindToDevice:
 		return applyBindToDeviceName(fd, action.Text)
 	case addrconfig.SocketActionLinger:
@@ -144,45 +135,42 @@ func applyPreparedSocketAction(fd int, action addrconfig.SocketAction, family *i
 	}
 }
 
-func applyPreparedGenericAction(fd int, action addrconfig.SocketAction) error {
-	if action.Value.IsInt {
-		if err := setSockoptInt(fd, action.Number, action.Option, action.Value.Int); err != nil {
-			return fmt.Errorf("setsockopt: %w", err)
-		}
-		return nil
-	}
-	if err := setSockoptBytes(fd, action.Number, action.Option, action.Value.Bytes); err != nil {
-		return fmt.Errorf("setsockopt: %w", err)
+func sockerr(name string, err error) error {
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
 	}
 	return nil
 }
 
+func applyPreparedGenericAction(fd int, action addrconfig.SocketAction) error {
+	var err error
+	if action.Value.IsInt {
+		err = setSockoptInt(fd, action.Number, action.Option, action.Value.Int)
+	} else {
+		err = setSockoptBytes(fd, action.Number, action.Option, action.Value.Bytes)
+	}
+	return sockerr("setsockopt", err)
+}
+
 func applyPreparedNamedAction(fd int, action addrconfig.SocketAction) error {
-	name := action.Text
 	if action.Named == addrconfig.NamedSocketNone {
 		return nil
 	}
+	name := action.Text
 	if action.Named == addrconfig.NamedSocketFIOSETOWN || action.Named == addrconfig.NamedSocketSIOCSPGRP {
 		if name == "" {
+			name = "siocspgrp"
 			if action.Named == addrconfig.NamedSocketFIOSETOWN {
 				name = "fiosetown"
-			} else {
-				name = "siocspgrp"
 			}
 		}
-		if err := applyOwnerIoctlPlatform(fd, action.Named, action.Number); err != nil {
-			return fmt.Errorf("%s: %w", name, err)
-		}
-		return nil
+		return sockerr(name, applyOwnerIoctlPlatform(fd, action.Named, action.Number))
 	}
-	var level, opt int
-	var ok bool
-	var err error
+	lookup := lookupNamedPastSocketInt
 	if action.Named == addrconfig.NamedSocketTCPMaxSegLate {
-		level, opt, ok, err = lookupNamedConnectedInt(action.Named)
-	} else {
-		level, opt, ok, err = lookupNamedPastSocketInt(action.Named)
+		lookup = lookupNamedConnectedInt
 	}
+	level, opt, ok, err := lookup(action.Named)
 	if !ok {
 		return nil
 	}
@@ -190,10 +178,7 @@ func applyPreparedNamedAction(fd int, action addrconfig.SocketAction) error {
 		name = "named-socket-option"
 	}
 	if err != nil {
-		return fmt.Errorf("%s: %w", name, err)
+		return sockerr(name, err)
 	}
-	if err := setSockoptInt(fd, level, opt, action.Number); err != nil {
-		return fmt.Errorf("%s: %w", name, err)
-	}
-	return nil
+	return sockerr(name, setSockoptInt(fd, level, opt, action.Number))
 }

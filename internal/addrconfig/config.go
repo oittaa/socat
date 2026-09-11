@@ -237,18 +237,11 @@ func decodeOption(d *decoder, o parse.Option) error {
 	}
 	switch name {
 	case "fork":
-		a.Common.Fork = activeBool(o)
-		return nil
+		return setActive(&a.Common.Fork, o)
 	case "nofork":
-		a.Common.NoFork = activeBool(o)
-		return nil
+		return setActive(&a.Common.NoFork, o)
 	case "max-children":
-		n, err := requiredInt(o, 0)
-		if err != nil {
-			return err
-		}
-		a.Common.MaxChildren = OptionalInt{Set: true, Value: n}
-		return nil
+		return setRequiredInt(&a.Common.MaxChildren, o, 0)
 	case "children-shutup":
 		if !o.Has {
 			a.Common.ChildrenShutup = OptionalInt{Set: true, Value: 1}
@@ -261,15 +254,9 @@ func decodeOption(d *decoder, o parse.Option) error {
 		a.Common.ChildrenShutup = OptionalInt{Set: true, Value: n}
 		return nil
 	case "forever":
-		a.Common.Retry.Forever = activeBool(o)
-		return nil
+		return setActive(&a.Common.Retry.Forever, o)
 	case "retry":
-		n, err := requiredInt(o, -1)
-		if err != nil {
-			return err
-		}
-		a.Common.Retry.Count = OptionalInt{Set: true, Value: n}
-		return nil
+		return setRequiredInt(&a.Common.Retry.Count, o, -1)
 	case "interval":
 		d, err := duration(o)
 		if err != nil {
@@ -412,6 +399,24 @@ func decodeDuration(dst *OptionalDuration, o parse.Option) error {
 	return nil
 }
 
+func decodePositiveDuration(dst *OptionalDuration, o parse.Option) error {
+	d, err := positiveKeepDuration(o)
+	if err != nil {
+		return err
+	}
+	*dst = OptionalDuration{Set: true, Value: d}
+	return nil
+}
+
+func setRequiredInt(dst *OptionalInt, o parse.Option, min int) error {
+	n, err := requiredInt(o, min)
+	if err != nil {
+		return err
+	}
+	*dst = OptionalInt{Set: true, Value: n}
+	return nil
+}
+
 func decodeNamedShutdown(dst *ShutdownMode, o parse.Option, mode ShutdownMode) error {
 	v, err := optionalBool(o)
 	if err == nil && v.Value {
@@ -463,6 +468,11 @@ func activeBool(o parse.Option) OptionalBool {
 	return OptionalBool{Set: true, Value: v != "" && v != "0" && v != "false" && v != "no" && v != "off"}
 }
 
+func setActive(dst *OptionalBool, o parse.Option) error {
+	*dst = activeBool(o)
+	return nil
+}
+
 func optionText(o parse.Option) string {
 	if !o.Has {
 		return "1"
@@ -490,15 +500,22 @@ func requiredInt(o parse.Option, min int) (int, error) {
 }
 
 func duration(o parse.Option) (time.Duration, error) {
+	d, err := parseDurationValue(o)
+	if err != nil || d < 0 {
+		if err != nil && (!o.Has || strings.TrimSpace(o.Value) == "") {
+			return 0, err
+		}
+		return 0, fmt.Errorf("invalid %s %q", o.OriginalSpelling(), o.Value)
+	}
+	return d, nil
+}
+
+func parseDurationValue(o parse.Option) (time.Duration, error) {
 	value, err := requiredString(o)
 	if err != nil {
 		return 0, err
 	}
-	d, err := ParseDuration(value)
-	if err != nil || d < 0 {
-		return 0, fmt.Errorf("invalid %s %q", o.OriginalSpelling(), value)
-	}
-	return d, nil
+	return ParseDuration(value)
 }
 
 func ParseDuration(value string) (time.Duration, error) {

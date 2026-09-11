@@ -216,8 +216,7 @@ func decodeFileProcess(a *Address, o parse.Option) (bool, error) {
 		}
 		return true, nil
 	case "creat":
-		a.File.Create = activeBool(o)
-		return true, nil
+		return true, setActive(&a.File.Create, o)
 	case "excl":
 		a.File.Exclusive = activeBool(o).Value
 		return true, nil
@@ -517,8 +516,7 @@ func decodeTerminal(a *Address, o parse.Option) (bool, error) {
 		a.Terminal.Link = OptionalString{Set: true, Value: value}
 		return true, nil
 	case "pty-wait-slave":
-		a.Terminal.WaitSlave = activeBool(o)
-		return true, nil
+		return true, setActive(&a.Terminal.WaitSlave, o)
 	case "pty-interval":
 		value := optionText(o)
 		d, err := ParseDuration(value)
@@ -750,58 +748,33 @@ func terminalWinSize(o parse.Option) (uint16, uint16, error) {
 	return uint16(col), uint16(row), nil
 }
 
-func openFlagID(name string) OpenFlag {
-	switch name {
-	case "o-direct":
-		return OpenFlagDirect
-	case "o-sync":
-		return OpenFlagSync
-	case "o-dsync":
-		return OpenFlagDSync
-	case "o-rsync":
-		return OpenFlagRSync
-	case "o-noctty":
-		return OpenFlagNoCTTY
-	case "o-nofollow":
-		return OpenFlagNoFollow
-	case "o-directory":
-		return OpenFlagDirectory
-	case "o-largefile":
-		return OpenFlagLargeFile
-	case "async":
-		return OpenFlagAsync
-	default:
-		return OpenFlagNone
-	}
+func openFlagID(name string) OpenFlag { return openFlagByName[name] }
+
+var openFlagByName = map[string]OpenFlag{
+	"o-direct":    OpenFlagDirect,
+	"o-sync":      OpenFlagSync,
+	"o-dsync":     OpenFlagDSync,
+	"o-rsync":     OpenFlagRSync,
+	"o-noctty":    OpenFlagNoCTTY,
+	"o-nofollow":  OpenFlagNoFollow,
+	"o-directory": OpenFlagDirectory,
+	"o-largefile": OpenFlagLargeFile,
+	"async":       OpenFlagAsync,
 }
 
-func fsFlagID(name string) FSFlag {
-	switch name {
-	case "fs-secrm":
-		return FSFlagSecrm
-	case "fs-unrm":
-		return FSFlagUnrm
-	case "fs-compr":
-		return FSFlagCompr
-	case "fs-sync":
-		return FSFlagSync
-	case "fs-immutable":
-		return FSFlagImmutable
-	case "fs-append":
-		return FSFlagAppend
-	case "fs-nodump":
-		return FSFlagNodump
-	case "fs-noatime":
-		return FSFlagNoatime
-	case "fs-journal-data":
-		return FSFlagJournalData
-	case "fs-notail":
-		return FSFlagNotail
-	case "fs-dirsync":
-		return FSFlagDirsync
-	case "fs-topdir":
-		return FSFlagTopdir
-	default:
-		return FSFlagNone
-	}
+func fsFlagID(name string) FSFlag { return fsFlagByName[name] }
+
+var fsFlagByName = map[string]FSFlag{
+	"fs-secrm":        FSFlagSecrm,
+	"fs-unrm":         FSFlagUnrm,
+	"fs-compr":        FSFlagCompr,
+	"fs-sync":         FSFlagSync,
+	"fs-immutable":    FSFlagImmutable,
+	"fs-append":       FSFlagAppend,
+	"fs-nodump":       FSFlagNodump,
+	"fs-noatime":      FSFlagNoatime,
+	"fs-journal-data": FSFlagJournalData,
+	"fs-notail":       FSFlagNotail,
+	"fs-dirsync":      FSFlagDirsync,
+	"fs-topdir":       FSFlagTopdir,
 }

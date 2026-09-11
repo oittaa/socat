@@ -86,9 +86,6 @@ func ParseIPRange(spec string) (IPRange, error) {
 
 func parseAddrMask(addrPart, maskPart string) (IPRange, error) {
 	maskIP := net.ParseIP(stripBrackets(maskPart))
-	if maskIP == nil {
-		return IPRange{}, fmt.Errorf("range: invalid addr:mask %s:%s", addrPart, maskPart)
-	}
 	mask, ok := netip.AddrFromSlice(maskIP)
 	if !ok {
 		return IPRange{}, fmt.Errorf("range: invalid addr:mask %s:%s", addrPart, maskPart)

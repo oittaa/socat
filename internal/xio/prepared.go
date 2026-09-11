@@ -9,22 +9,17 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// PreparedAddress pairs immutable decoded settings with the opener selected by
-// the address registry.
 type PreparedAddress struct {
 	Config addrconfig.Address
-
 	opener Opener
 }
 
-// PreparedDual is a decoded dual address.
 type PreparedDual struct {
 	Left  PreparedAddress
 	Right PreparedAddress
 	Raw   string
 }
 
-// PreparedChannel is the typed boundary between syntax and resource opening.
 type PreparedChannel struct {
 	Single *PreparedAddress
 	Dual   *PreparedDual
@@ -40,9 +35,6 @@ func withPreparedConfig(ctx context.Context, config addrconfig.Address) context.
 	return context.WithValue(ctx, preparedConfigKey{}, config)
 }
 
-// PreparedConfig returns the immutable configuration carried by an opening
-// context. It is absent only for compatibility callers that have not crossed
-// the preparation boundary.
 func PreparedConfig(ctx context.Context) (addrconfig.Address, bool) {
 	if ctx == nil {
 		return addrconfig.Address{}, false
@@ -51,11 +43,8 @@ func PreparedConfig(ctx context.Context) (addrconfig.Address, bool) {
 	return config, ok
 }
 
-// IsDual reports whether the prepared channel contains two addresses.
 func (c PreparedChannel) IsDual() bool { return c.Dual != nil }
 
-// PrepareChannel resolves registration identities and decodes each address
-// without acquiring resources. Both CLI and constructed channels enter here.
 func PrepareChannel(ch parse.Channel) (PreparedChannel, error) {
 	if ch.Single != nil {
 		a, err := PrepareSpec(*ch.Single)
@@ -78,9 +67,6 @@ func PrepareChannel(ch parse.Channel) (PreparedChannel, error) {
 	return PreparedChannel{}, fmt.Errorf("xio: empty channel")
 }
 
-// PrepareSpec is the shared CLI and programmatic preparation path. It applies
-// name, scope, and static checks, then returns the retained decoded configuration.
-// It does not access files, DNS, or other runtime resources.
 func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 	typ := strings.ToUpper(strings.TrimSpace(spec.Type))
 	desc, registered := registeredAddresses.resolve(typ)
@@ -117,9 +103,6 @@ func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 	return PreparedAddress{Config: config, opener: desc.Opener}, nil
 }
 
-// OpenWithType opens an already-decoded address using a different registered
-// type. GOPEN uses this for an existing socket path so execution never
-// reconstructs parser state from the original text.
 func OpenWithType(ctx context.Context, name string, config addrconfig.Address, mode Mode, g *Global) (*Opened, error) {
 	desc, ok := registeredAddresses.resolve(name)
 	if !ok || desc.Opener == nil {

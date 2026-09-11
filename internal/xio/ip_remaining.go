@@ -53,13 +53,11 @@ func rejectPreparedRouterAlert(config addrconfig.Address, action addrconfig.Sock
 }
 
 func isRawIPAddress(config addrconfig.Address) bool {
-	if config.Facts.Kind == addrconfig.AddressKindRawIP || config.Network.Kind == addrconfig.AddressKindRawIP {
+	if config.Facts.Kind == addrconfig.AddressKindRawIP {
 		return true
 	}
-	if reg, ok := AddressRegistrationForType(config.Type); ok {
-		return reg.Kind == addrconfig.AddressKindRawIP
-	}
-	return false
+	reg, ok := AddressRegistrationForType(config.Type)
+	return ok && reg.Kind == addrconfig.AddressKindRawIP
 }
 
 func preparedRawIPProtocolNumber(config addrconfig.Address) (int, bool) {

@@ -56,10 +56,9 @@ type AddressDesc struct {
 	Opener      Opener        // Opener function handling this address
 	OptionCaps  []string      // Address capability tokens for option-scope checks
 	Aliases     []string      // Extra keywords that resolve to this descriptor; -hhh only
-	// Kind, Role, and Family are registry-owned identity used during preparation.
-	Kind   addrconfig.AddressKind
-	Role   addrconfig.AddressRole
-	Family addrconfig.IPFamily
+	Kind        addrconfig.AddressKind
+	Role        addrconfig.AddressRole
+	Family      addrconfig.IPFamily
 	// Directions is ModeRead, ModeWrite, or ModeRDWR (zero: both).
 	Directions Mode
 }

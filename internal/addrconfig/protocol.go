@@ -100,8 +100,7 @@ func decodeProtocolOption(d *decoder, o parse.Option) (bool, error) {
 	case "capath":
 		return true, setOptionText(&a.TLS.CAPath, o)
 	case "verify":
-		a.TLS.Verify = activeBool(o)
-		return true, nil
+		return true, setActive(&a.TLS.Verify, o)
 	case "commonname":
 		if !o.Has {
 			return true, nil
@@ -115,8 +114,7 @@ func decodeProtocolOption(d *decoder, o parse.Option) (bool, error) {
 		a.TLS.SNIHost = OptionalString{Set: true, Value: o.Value}
 		return true, nil
 	case "nosni":
-		a.TLS.NoSNI = activeBool(o)
-		return true, nil
+		return true, setActive(&a.TLS.NoSNI, o)
 	case "ciphers":
 		value, err := requiredString(o)
 		if err != nil {
@@ -175,14 +173,11 @@ func decodeProtocolOption(d *decoder, o parse.Option) (bool, error) {
 		a.Proxy.HTTPVersion = version
 		return true, nil
 	case "h2c":
-		a.Proxy.H2C = activeBool(o)
-		return true, nil
+		return true, setActive(&a.Proxy.H2C, o)
 	case "ignorecr":
-		a.Proxy.IgnoreCR = activeBool(o)
-		return true, nil
+		return true, setActive(&a.Proxy.IgnoreCR, o)
 	case "proxy-resolve":
-		a.Proxy.Resolve = activeBool(o)
-		return true, nil
+		return true, setActive(&a.Proxy.Resolve, o)
 	case "proxy-authorization":
 		if !o.Has {
 			return true, nil

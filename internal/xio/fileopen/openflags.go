@@ -8,8 +8,6 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
-// openFlag is one open(2) bit (o-direct, o-sync, …) or async (O_ASYNC),
-// OR'd into the open flags.
 type openFlag struct {
 	id        addrconfig.OpenFlag
 	bit       int
@@ -24,8 +22,6 @@ func init() {
 	}
 }
 
-// ConfiguredOpenFlags derives open(2) bits from typed configuration. It is
-// used by prepared file address openers.
 func ConfiguredOpenFlags(config addrconfig.File, mode xio.Mode) (int, error) {
 	var flags int
 	switch config.Access {
@@ -89,30 +85,15 @@ func configuredOpenFlags(config addrconfig.File, flags int) (int, error) {
 	return flags, nil
 }
 
-// rejectUnnamedPIPEOpenFlags rejects enabled o-direct / o-sync / … on
-// unnamed PIPE: pipe(2) has no open(2) phase, so those flags would be
-// dropped. async is applied later with F_SETFL.
 func rejectUnnamedPIPEOpenFlags(config addrconfig.File) error {
-	for _, action := range config.Actions {
-		if action.Kind != addrconfig.FileActionOpenFlag || !action.Enabled {
-			continue
-		}
-		flag, ok := openFlagByID[action.Flag]
-		if !ok {
-			continue
-		}
-		if !flag.supported {
-			return fmt.Errorf("%s: not supported on this platform", action.Name)
-		}
-		return fmt.Errorf("%s: not supported on unnamed PIPE", action.Name)
-	}
-	return nil
+	return rejectEnabledOpenFlags(config, "not supported on unnamed PIPE")
 }
 
-// GOPEN delegates an existing socket path to the UNIX address, which has
-// no open(2) phase. Reject enabled o-direct / o-sync / … instead of
-// silently dropping them. async remains meaningful on the connected socket.
 func rejectGOPENSocketOpenFlags(config addrconfig.File) error {
+	return rejectEnabledOpenFlags(config, "not supported when GOPEN resolves to a socket")
+}
+
+func rejectEnabledOpenFlags(config addrconfig.File, reason string) error {
 	for _, action := range config.Actions {
 		if action.Kind != addrconfig.FileActionOpenFlag || !action.Enabled {
 			continue
@@ -124,7 +105,7 @@ func rejectGOPENSocketOpenFlags(config addrconfig.File) error {
 		if !flag.supported {
 			return fmt.Errorf("%s: not supported on this platform", action.Name)
 		}
-		return fmt.Errorf("%s: not supported when GOPEN resolves to a socket", action.Name)
+		return fmt.Errorf("%s: %s", action.Name, reason)
 	}
 	return nil
 }

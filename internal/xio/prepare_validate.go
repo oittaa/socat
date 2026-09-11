@@ -10,12 +10,34 @@ import (
 )
 
 func rejectUnknownOptions(spec parse.Spec, desc AddressDesc, registered bool) error {
+	return rejectAddressOptions(spec, desc, registered, false)
+}
+
+func rejectOptionScope(spec parse.Spec, desc AddressDesc, registered bool) error {
+	return rejectAddressOptions(spec, desc, registered, true)
+}
+
+func rejectAddressOptions(spec parse.Spec, desc AddressDesc, registered, scope bool) error {
+	reg := registrationSnapshot(desc)
 	for _, option := range spec.Options {
 		optionSpec, ok := lookupAddressOption(option)
 		if !ok {
 			return fmt.Errorf("%s: unknown option %q", spec.Type, option.Name)
 		}
-		if registered && !optionImplementedForGroup(desc.Group, optionSpec) {
+		if !registered {
+			continue
+		}
+		if !scope {
+			if !optionImplementedForGroup(desc.Group, optionSpec) {
+				return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
+			}
+			continue
+		}
+		s := optionSpec.Scope
+		if !OptionSupportedOnAddress(reg, s.AddressGroups, s.AddressTypes, s.Caps) {
+			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
+		}
+		if s.RestrictTypes && !addressTypeAllowed(desc.Name, s.AddressTypes) {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
 	}
@@ -38,28 +60,7 @@ func rejectPreparedStaticChecks(config addrconfig.Address) error {
 	if err := RejectUnsupportedListenBacklog(config); err != nil {
 		return err
 	}
-	if err := RejectUnsupportedUnixTightSocklen(config); err != nil {
-		return err
-	}
-	return nil
-}
-
-func rejectOptionScope(spec parse.Spec, desc AddressDesc, registered bool) error {
-	reg := registrationSnapshot(desc)
-	for _, option := range spec.Options {
-		optionSpec, ok := lookupAddressOption(option)
-		if !ok {
-			return fmt.Errorf("%s: unknown option %q", spec.Type, option.Name)
-		}
-		scope := optionSpec.Scope
-		if registered && !OptionSupportedOnAddress(reg, scope.AddressGroups, scope.AddressTypes, scope.Caps) {
-			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
-		}
-		if registered && scope.RestrictTypes && !addressTypeAllowed(desc.Name, scope.AddressTypes) {
-			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
-		}
-	}
-	return nil
+	return RejectUnsupportedUnixTightSocklen(config)
 }
 
 func lookupAddressOption(option parse.Option) (optionmeta.Option, bool) {
