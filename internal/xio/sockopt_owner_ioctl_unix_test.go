@@ -4,7 +4,6 @@ package xio
 
 import (
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -63,14 +62,7 @@ func assertSocketOwner(t *testing.T, fd, want int) {
 	if got := ownerIoctlGet(t, fd, uint(unix.SIOCGPGRP)); got != want {
 		t.Fatalf("SIOCGPGRP=%d want %d", got, want)
 	}
-	if runtime.GOOS == "darwin" {
-		// FIOGETOWN SET works; GET does not copy out (see
-		// sockopt_owner_ioctl_bsd.go). Verify with F_GETOWN / SIOCGPGRP.
-		return
-	}
-	if got := ownerIoctlGet(t, fd, ownerIoctlFIOGETOWN); got != want {
-		t.Fatalf("FIOGETOWN=%d want %d", got, want)
-	}
+	assertFIOGETOWN(t, fd, want)
 }
 
 func ownerIoctlGet(t *testing.T, fd int, req uint) int {

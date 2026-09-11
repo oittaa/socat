@@ -330,26 +330,3 @@ func requiredLifecycleOptionValue(o parse.Option) (string, error) {
 	}
 	return v, nil
 }
-
-// ApplyNamedFileFtruncate applies every ftruncate/truncate/ftruncate32/64
-// occurrence in command-line order. Production named OPEN/CREATE/GOPEN apply
-// that walk through ApplyFDOptions so lseek and perm-late share the same phase.
-func ApplyNamedFileFtruncate(f *os.File, s parse.Spec) error {
-	if f == nil {
-		return nil
-	}
-	for _, o := range s.Options {
-		if parse.CanonicalOptionName(o.Name) != "ftruncate" {
-			continue
-		}
-		n, err := parseFtruncateOption(o)
-		if err != nil {
-			return err
-		}
-		noteLifecycleSyscall("ftruncate")
-		if err := f.Truncate(n); err != nil {
-			return fmt.Errorf("ftruncate: %w", err)
-		}
-	}
-	return nil
-}

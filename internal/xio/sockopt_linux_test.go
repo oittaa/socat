@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/unix"
 )
 
@@ -78,4 +79,18 @@ func TestApplySocketOptionsBindToDeviceInvalidLinux(t *testing.T) {
 		t.Fatal("invalid interface name succeeded")
 	}
 	skipIfUnprivilegedBindToDevice(t, err)
+}
+
+func TestSetupStreamAppliesLateThroughNetConnUnwrap(t *testing.T) {
+	cli, _ := tcpPair(t)
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,sndbuf-late=65536")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SetupStream(spec, relay.NetStream{Conn: netConnUnwrapper{Conn: cli}}); err != nil {
+		t.Fatalf("SetupStream via NetConn(): %v", err)
+	}
+	if got := tcpSockoptInt(t, cli, unix.SO_SNDBUF); got < 65536 {
+		t.Fatalf("SO_SNDBUF=%d want >= 65536 through NetConn() unwrap", got)
+	}
 }

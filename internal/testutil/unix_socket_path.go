@@ -3,7 +3,6 @@ package testutil
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 )
 
@@ -21,11 +20,7 @@ func UnixSocketPath(t testing.TB, name string) string {
 		t.Fatalf("UNIX socket name %q must be a non-empty base name", name)
 	}
 
-	root := os.TempDir()
-	if runtime.GOOS != "windows" {
-		root = "/tmp"
-	}
-	dir, err := os.MkdirTemp(root, "s-u-")
+	dir, err := os.MkdirTemp(unixSocketTempRoot(), "s-u-")
 	if err != nil {
 		t.Fatalf("create UNIX socket test directory: %v", err)
 	}

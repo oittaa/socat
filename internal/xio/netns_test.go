@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -111,14 +110,5 @@ func TestWrapNetNSDialNoOption(t *testing.T) {
 	_, err := got(context.Background())
 	if !called || err == nil || err.Error() != "dialed" {
 		t.Fatalf("passthrough failed: called=%v err=%v", called, err)
-	}
-}
-
-func TestFeatureNAMESPACESLinuxOnly(t *testing.T) {
-	if runtime.GOOS == "linux" && !FeatureNAMESPACES {
-		t.Fatal("WITH_NAMESPACES must be on for Linux")
-	}
-	if runtime.GOOS != "linux" && FeatureNAMESPACES {
-		t.Fatal("WITH_NAMESPACES must be off outside Linux")
 	}
 }

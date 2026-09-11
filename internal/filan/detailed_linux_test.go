@@ -5,8 +5,19 @@ package filan
 import (
 	"io"
 	"os"
+	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
+
+func TestSockAddrInfoOmitsLen(t *testing.T) {
+	sa := &unix.SockaddrInet4{Port: 2345, Addr: [4]byte{127, 0, 0, 1}}
+	got := SockAddrInfo(sa)
+	if strings.HasPrefix(got, "LEN=") {
+		t.Fatalf("linux SockAddrInfo=%q", got)
+	}
+}
 
 func TestFIONREADNegativeOffsetLinux(t *testing.T) {
 	tmp, err := os.CreateTemp(t.TempDir(), "fionread-test-*")

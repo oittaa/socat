@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -123,55 +122,46 @@ func TestUNIXConnectBindRemove(t *testing.T) {
 // SYSTEM,nofork blocks in Wait(); a caught signal must yield 128+signum and
 // log "exiting on signal" (handler ran, not a pre-Notify default dump).
 func TestExitCodeOnSignal(t *testing.T) {
-	bin := socatBin(t)
-	for _, tc := range []struct {
-		name   string
-		sig    syscall.Signal
-		logged string
-	}{
-		{name: "TERM", sig: syscall.SIGTERM, logged: "exiting on signal 15"},
-		{name: "ILL", sig: syscall.SIGILL, logged: "exiting on signal 4"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if tc.sig == syscall.SIGILL && runtime.GOOS == "darwin" {
-				t.Skip("Go runtime on Darwin treats SIGILL as a crash dump; Notify cannot intercept it")
-			}
-			dir := t.TempDir()
-			ready := filepath.Join(dir, "ready")
-			script := filepath.Join(dir, "child.sh")
-			body := "#!/bin/sh\necho $$ >\"" + ready + "\"\nexec sleep 30\n"
-			if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
-				t.Fatal(err)
-			}
-			cmd := exec.Command(bin, "PIPE", "SYSTEM:exec "+script+",nofork")
-			stderrPath := attachStderrFile(t, cmd)
-			proc, err := startTestProcess(cmd)
-			if err != nil {
-				t.Fatal(err)
-			}
-			t.Cleanup(func() {
-				proc.stop()
-				killPIDFile(ready)
-			})
+	runExitCodeOnSignal(t, syscall.SIGTERM, "exiting on signal 15")
+}
 
-			waitPath(t, ready, proc, stderrPath, 5*time.Second)
-			if err := cmd.Process.Signal(tc.sig); err != nil {
-				t.Fatal(err)
-			}
-			select {
-			case <-proc.done:
-			case <-time.After(5 * time.Second):
-				t.Fatalf("socat did not exit after %s stderr=%s", tc.sig, readFile(t, stderrPath))
-			}
-			got := exitStatus(proc)
-			want := 128 + int(tc.sig)
-			if got != want {
-				t.Fatalf("exit=%d want %d stderr=%s", got, want, readFile(t, stderrPath))
-			}
-			if !strings.Contains(readFile(t, stderrPath), tc.logged) {
-				t.Fatalf("missing %q in stderr=%s", tc.logged, readFile(t, stderrPath))
-			}
-		})
+func runExitCodeOnSignal(t *testing.T, sig syscall.Signal, logged string) {
+	t.Helper()
+	bin := socatBin(t)
+	dir := t.TempDir()
+	ready := filepath.Join(dir, "ready")
+	script := filepath.Join(dir, "child.sh")
+	body := "#!/bin/sh\necho $$ >\"" + ready + "\"\nexec sleep 30\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "PIPE", "SYSTEM:exec "+script+",nofork")
+	stderrPath := attachStderrFile(t, cmd)
+	proc, err := startTestProcess(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		proc.stop()
+		killPIDFile(ready)
+	})
+
+	waitPath(t, ready, proc, stderrPath, 5*time.Second)
+	if err := cmd.Process.Signal(sig); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-proc.done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("socat did not exit after %s stderr=%s", sig, readFile(t, stderrPath))
+	}
+	got := exitStatus(proc)
+	want := 128 + int(sig)
+	if got != want {
+		t.Fatalf("exit=%d want %d stderr=%s", got, want, readFile(t, stderrPath))
+	}
+	if !strings.Contains(readFile(t, stderrPath), logged) {
+		t.Fatalf("missing %q in stderr=%s", logged, readFile(t, stderrPath))
 	}
 }
 

@@ -4,11 +4,9 @@ package xio
 
 import (
 	"net"
-	"runtime"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/unix"
 )
 
@@ -104,23 +102,6 @@ func TestApplyTCPConnOptsAppliesSndbufLateThroughNetConnUnwrap(t *testing.T) {
 	}
 	if err := ApplyTCPConnOpts(spec, netConnUnwrapper{Conn: cli}); err != nil {
 		t.Fatal(err)
-	}
-	if got := tcpSockoptInt(t, cli, unix.SO_SNDBUF); got < 65536 {
-		t.Fatalf("SO_SNDBUF=%d want >= 65536 through NetConn() unwrap", got)
-	}
-}
-
-func TestSetupStreamAppliesLateThroughNetConnUnwrapUnix(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("linux SO_SNDBUF doubling")
-	}
-	cli, _ := tcpPair(t)
-	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,sndbuf-late=65536")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := SetupStream(spec, relay.NetStream{Conn: netConnUnwrapper{Conn: cli}}); err != nil {
-		t.Fatalf("SetupStream via NetConn(): %v", err)
 	}
 	if got := tcpSockoptInt(t, cli, unix.SO_SNDBUF); got < 65536 {
 		t.Fatalf("SO_SNDBUF=%d want >= 65536 through NetConn() unwrap", got)

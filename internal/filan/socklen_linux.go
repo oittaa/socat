@@ -7,3 +7,5 @@ import "golang.org/x/sys/unix"
 func kernelSockaddrLen(_ *unix.RawSockaddrAny, namelen int) int {
 	return namelen
 }
+
+func sockAddrLenPrefix(int) string { return "" }
