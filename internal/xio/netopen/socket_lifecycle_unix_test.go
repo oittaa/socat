@@ -35,7 +35,7 @@ func TestSocketConnectRetryWaitsBetweenAttempts(t *testing.T) {
 func TestSocketListenAcceptTimeout(t *testing.T) {
 	spec := "SOCKET-LISTEN:2:0:" + ipv4SocketHex(0, [4]byte{127, 0, 0, 1}) + ",reuseaddr,accept-timeout=0.2"
 	start := time.Now()
-	_, err := openSocketListen(context.Background(), mustSocketSpec(t, spec), xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	_, err := xio.OpenSpec(context.Background(), mustSocketSpec(t, spec), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if !errors.Is(err, xio.ErrAcceptTimeout) {
 		t.Fatalf("error=%v want ErrAcceptTimeout", err)
 	}

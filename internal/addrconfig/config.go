@@ -35,6 +35,7 @@ type Address struct {
 	File     File
 	Process  Process
 	Terminal Terminal
+	Network  Network
 }
 
 // Common contains settings shared by several address families.
@@ -212,6 +213,9 @@ func Decode(spec parse.Spec, facts Facts) (Address, error) {
 		},
 	}
 
+	if err := decodeNetwork(&a, spec); err != nil {
+		return Address{}, fmt.Errorf("%s: %w", facts.Type, err)
+	}
 	for _, option := range spec.Options {
 		if err := decodeOption(&a, option); err != nil {
 			return Address{}, fmt.Errorf("%s: %w", facts.Type, err)
@@ -228,6 +232,9 @@ func decodeOption(a *Address, o parse.Option) error {
 		return err
 	}
 	if handled, err := decodeTerminal(a, o); handled {
+		return err
+	}
+	if handled, err := decodeNetworkOption(a, o); handled {
 		return err
 	}
 	name := optionIdentity(o)

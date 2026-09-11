@@ -35,7 +35,11 @@ func openSocketDgram(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	c, err := parseSocketDgramCall(s)
+	config, err := preparedSocketConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c, err := socketCallFromConfig(config)
 	if err != nil {
 		return nil, err
 	}
@@ -58,13 +62,8 @@ func openSocketDgram(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	if bind := s.OptionValue("bind", ""); bind != "" {
-		bdata, berr := xio.ParseSocatData(bind)
-		if berr != nil {
-			logx.CloseErr(unix.Close(fd))
-			return nil, berr
-		}
-		bsa, err := packRawSockaddr(c.domain, bdata)
+	if config.Network.RawBindSet {
+		bsa, err := packRawSockaddr(c.domain, config.Network.RawBind)
 		if err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, err
@@ -114,7 +113,11 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 		return nil, fmt.Errorf("%s is read-only", s.Type)
 	}
 	fork := from && s.BoolOption("fork")
-	c, err := parseSocketDgramCall(s)
+	config, err := preparedSocketConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	c, err := socketCallFromConfig(config)
 	if err != nil {
 		return nil, err
 	}

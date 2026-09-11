@@ -193,3 +193,52 @@ func TestDecodeNoInheritActionsPreserveBareAndZero(t *testing.T) {
 		t.Fatalf("noinherit actions=%+v", got)
 	}
 }
+
+func TestDecodeNetworkSocketActionsPreserveSourceOrder(t *testing.T) {
+	spec, err := parse.ParseSpec("SOCKET-SENDTO:2:2:17:x00007f000001,broadcast=0,setsockopt-socket=1:2:3,so-priority=5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := Decode(spec, Facts{Type: "SOCKET-SENDTO", Group: "Generic socket"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Network.Kind != AddressKindSocket || config.Network.Role != AddressRoleSendTo ||
+		config.Network.RawSocket.Domain != 2 || config.Network.RawSocket.Type != 2 ||
+		config.Network.RawSocket.Protocol != 17 {
+		t.Fatalf("socket=%+v", config.Network)
+	}
+	got := config.Network.Actions
+	if len(got) != 3 ||
+		got[0].Kind != SocketActionBroadcast || got[0].Number != 0 ||
+		got[1].Kind != SocketActionGeneric || got[1].Phase != SocketPhasePastSocket ||
+		got[1].Number != 1 || got[1].Option != 2 || !got[1].Value.IsInt || got[1].Value.Int != 3 ||
+		got[2].Kind != SocketActionNamed || got[2].Named != NamedSocketPriority || got[2].Number != 5 {
+		t.Fatalf("actions=%+v", got)
+	}
+}
+
+func TestMembershipFamilyPrefersOriginalSpelling(t *testing.T) {
+	spec := parse.Spec{
+		Type:   "UDP6-RECV",
+		Params: []string{"1"},
+		Options: []parse.Option{{
+			Name:     "ip-add-membership",
+			Spelling: "ipv6-join-group",
+			Value:    "[ff02::2]:lo",
+			Has:      true,
+		}},
+	}
+	config, err := Decode(spec, Facts{Type: "UDP6-RECV", Group: "UDP"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Network.Actions) != 1 {
+		t.Fatalf("actions=%+v", config.Network.Actions)
+	}
+	request := config.Network.Actions[0].Multicast
+	if config.Network.Actions[0].Kind != SocketActionMulticast ||
+		request.Kind != MulticastJoinIPv6 || request.Name != "ipv6-join-group" {
+		t.Fatalf("request=%+v", request)
+	}
+}

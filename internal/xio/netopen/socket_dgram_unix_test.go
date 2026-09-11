@@ -35,18 +35,7 @@ func openSocketKind(t *testing.T, raw string, mode xio.Mode) *xio.Opened {
 	t.Cleanup(cancel)
 	s := mustSocketSpec(t, raw)
 	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
-	var o *xio.Opened
-	var err error
-	switch s.Type {
-	case "SOCKET-SENDTO":
-		o, err = openSocketSendto(ctx, s, mode, g)
-	case "SOCKET-DATAGRAM":
-		o, err = openSocketDatagram(ctx, s, mode, g)
-	case "SOCKET-RECV":
-		o, err = openSocketRecv(ctx, s, mode, g)
-	default:
-		t.Fatalf("openSocketKind: %s", s.Type)
-	}
+	o, err := xio.OpenSpec(ctx, s, mode, g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +112,7 @@ func TestSendtoPeerMatchesIPv6AddrAndPortOnly(t *testing.T) {
 
 func TestSocketUnixRangeRejected(t *testing.T) {
 	path := unixSocketTestPath(t, "range.sock")
-	_, err := openSocketDatagram(context.Background(), mustSocketSpec(t, socketDgramSpec("SOCKET-DATAGRAM", unix.AF_UNIX, unix.SOCK_DGRAM, 0,
+	_, err := xio.OpenSpec(context.Background(), mustSocketSpec(t, socketDgramSpec("SOCKET-DATAGRAM", unix.AF_UNIX, unix.SOCK_DGRAM, 0,
 		unixSocketHex(path), "range=127.0.0.0/8")), xio.ModeRDWR, useGlobal())
 	if err == nil {
 		t.Fatal("expected range on AF_UNIX SOCKET-DATAGRAM to fail")
@@ -145,7 +134,7 @@ func TestSocketSendtoUnixMissingPeerDoesNotHang(t *testing.T) {
 }
 
 func TestSocketRecvWriteModeRejected(t *testing.T) {
-	_, err := openSocketRecv(context.Background(), mustSocketSpec(t, socketDgramSpec("SOCKET-RECV", unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP,
+	_, err := xio.OpenSpec(context.Background(), mustSocketSpec(t, socketDgramSpec("SOCKET-RECV", unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP,
 		ipv4SocketHex(0, [4]byte{127, 0, 0, 1}), "")), xio.ModeWrite, useGlobal())
 	if err == nil {
 		t.Fatal("expected SOCKET-RECV write-only open to fail")
@@ -175,7 +164,7 @@ func TestSocketRecvRangeFilter(t *testing.T) {
 func TestSocketRecvfromForkMaxChildrenZero(t *testing.T) {
 	spec := mustSocketSpec(t, socketDgramSpec("SOCKET-RECVFROM", unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP,
 		ipv4SocketHex(0, [4]byte{127, 0, 0, 1}), "fork,max-children=0"))
-	_, err := openSocketRecvfrom(context.Background(), spec, xio.ModeRDWR, useGlobal())
+	_, err := xio.OpenSpec(context.Background(), spec, xio.ModeRDWR, useGlobal())
 	if err == nil {
 		t.Fatal("expected max-children=0 to fail after bind")
 	}
