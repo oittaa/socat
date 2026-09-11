@@ -69,8 +69,8 @@ func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	}
 
 	network := xio.ConnectNetworkForType(g, s, socksHost, "tcp")
-	timeout := xio.ConnectTimeout(s)
-	handshakeTimeout := xio.HandshakeTimeout(s)
+	timeout := xio.ConnectTimeout(ctx, s)
+	handshakeTimeout := xio.HandshakeTimeout(ctx, s)
 	label := fmt.Sprintf("SOCKS4:%s:%s", targetHost, targetPort)
 	if socks4a {
 		label = fmt.Sprintf("SOCKS4A:%s:%s", targetHost, targetPort)
@@ -211,8 +211,8 @@ func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global,
 	}
 
 	network := xio.ConnectNetworkForType(g, s, socksHost, "tcp")
-	timeout := xio.ConnectTimeout(s)
-	handshakeTimeout := xio.HandshakeTimeout(s)
+	timeout := xio.ConnectTimeout(ctx, s)
+	handshakeTimeout := xio.HandshakeTimeout(ctx, s)
 	label := fmt.Sprintf("SOCKS5:%s:%s", targetHost, targetPort)
 	if cmd == socks5CmdBind {
 		label = fmt.Sprintf("SOCKS5-LISTEN:%s:%s", targetHost, targetPort)

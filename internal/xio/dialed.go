@@ -28,7 +28,7 @@ func OpenDialed(ctx context.Context, s parse.Spec, g *Global, d Dialed) (*Opened
 			o.AddCleanup(f)
 		}
 	}
-	fork, maxChildren, err := ForkLimits(s)
+	fork, maxChildren, err := ForkLimits(ctx, s)
 	if err != nil {
 		logx.CloseQuiet(o)
 		return nil, err
@@ -53,7 +53,7 @@ func OpenDialed(ctx context.Context, s parse.Spec, g *Global, d Dialed) (*Opened
 	}
 	RememberAddrs(g, conn)
 	if d.RememberTLS {
-		if err := RememberTLSPeer(g, conn, HandshakeTimeout(s)); err != nil {
+		if err := RememberTLSPeer(g, conn, HandshakeTimeout(ctx, s)); err != nil {
 			logx.CloseQuiet(conn)
 			logx.CloseQuiet(o)
 			return nil, err

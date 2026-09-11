@@ -32,7 +32,7 @@ func init() {
 }
 
 func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	p, err := parsePOSIXMQ(s, mode)
+	p, err := parsePOSIXMQ(ctx, s, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ type posixMQParams struct {
 	attr        *mqAttr
 }
 
-func parsePOSIXMQ(s parse.Spec, mode xio.Mode) (posixMQParams, error) {
+func parsePOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode) (posixMQParams, error) {
 	name, err := queueName(s)
 	if err != nil {
 		return posixMQParams{}, err
@@ -81,7 +81,7 @@ func parsePOSIXMQ(s parse.Spec, mode xio.Mode) (posixMQParams, error) {
 		return posixMQParams{}, fmt.Errorf("keyword \"POSIXMQ\" in bidirectional mode might unwanted flush the queue; use \"POSIXMQ-BIDIRECTIONAL\" to confirm usage")
 	}
 
-	fork, maxChildren, err := xio.ForkLimits(s)
+	fork, maxChildren, err := xio.ForkLimits(ctx, s)
 	if err != nil {
 		return posixMQParams{}, err
 	}

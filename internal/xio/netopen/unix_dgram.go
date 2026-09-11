@@ -174,13 +174,13 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	label := s.Type + ":" + path
 	if s.BoolOption("fork") && from {
 		ln := &unixgramListener{c: c, path: path, spec: s, g: g, ctx: ctx}
-		d, terr := xio.RecvTimeoutFromSpec(s)
+		d, terr := xio.RecvTimeoutFromSpec(ctx, s)
 		if terr != nil {
 			life.drop(ln)
 			return nil, terr
 		}
 		ln.rcvTimeout = d
-		_, maxChildren, ferr := xio.ForkLimits(s)
+		_, maxChildren, ferr := xio.ForkLimits(ctx, s)
 		if ferr != nil {
 			life.drop(ln)
 			return nil, ferr

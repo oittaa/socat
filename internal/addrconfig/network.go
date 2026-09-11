@@ -509,6 +509,14 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 			return true, err
 		}
 		n.Actions = append(n.Actions, action)
+		if action.Kind == SocketActionTimeout {
+			opt := OptionalDuration{Set: true, Value: action.Duration}
+			if action.Text == "rcvtimeo" {
+				a.Common.Timeouts.Read = opt
+			} else {
+				a.Common.Timeouts.Write = opt
+			}
+		}
 		return true, nil
 	}
 	if handled, err := decodeTUNOption(&n.TUN, o, name); handled {

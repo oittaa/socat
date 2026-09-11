@@ -102,8 +102,8 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 
 	// Honour pf=ip4/ip6 when dialing the proxy host.
 	network := xio.ConnectNetworkForType(g, s, proxyHost, "tcp")
-	timeout := xio.ConnectTimeout(s)
-	handshakeTimeout := xio.HandshakeTimeout(s)
+	timeout := xio.ConnectTimeout(ctx, s)
+	handshakeTimeout := xio.HandshakeTimeout(ctx, s)
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn

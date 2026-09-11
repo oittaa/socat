@@ -1,6 +1,7 @@
 package xio
 
 import (
+	"context"
 	"net"
 	"time"
 
@@ -21,9 +22,13 @@ const QUICHandshakeIdleTimeoutDisabled = 365 * 24 * time.Hour
 // stalled TLS/WS/QUIC/PROXY/SOCKS handshake cannot hang forever.
 // connect-timeout remains the dial bound only. accept-timeout is the
 // accept-side bound.
-func HandshakeTimeout(s parse.Spec) time.Duration {
-	if s.HasOption("handshake-timeout") {
-		return ParseTimeval(s.OptionValue("handshake-timeout", ""))
+func HandshakeTimeout(ctx context.Context, s parse.Spec) time.Duration {
+	config, err := addressFromOpening(ctx, s)
+	if err != nil {
+		return defaultHandshakeTimeout
+	}
+	if config.Common.Timeouts.Handshake.Set {
+		return config.Common.Timeouts.Handshake.Value
 	}
 	return defaultHandshakeTimeout
 }
@@ -34,9 +39,9 @@ func HandshakeTimeout(s parse.Spec) time.Duration {
 // A zero result means no extra attempt-context timeout. Used where path
 // establishment and the cryptographic handshake are combined (QUIC Dial,
 // PROXY HTTP/3 RoundTrip).
-func CombinedConnectHandshakeTimeout(s parse.Spec) time.Duration {
-	connect := ConnectTimeout(s)
-	handshake := HandshakeTimeout(s)
+func CombinedConnectHandshakeTimeout(ctx context.Context, s parse.Spec) time.Duration {
+	connect := ConnectTimeout(ctx, s)
+	handshake := HandshakeTimeout(ctx, s)
 	switch {
 	case connect <= 0:
 		return handshake
@@ -52,8 +57,8 @@ func CombinedConnectHandshakeTimeout(s parse.Spec) time.Duration {
 // QUICHandshakeIdleTimeout maps handshake-timeout onto quic-go
 // HandshakeIdleTimeout. handshake-timeout=0 is not passed through as 0
 // (quic-go would substitute 5s); it becomes QUICHandshakeIdleTimeoutDisabled.
-func QUICHandshakeIdleTimeout(s parse.Spec) time.Duration {
-	if d := HandshakeTimeout(s); d > 0 {
+func QUICHandshakeIdleTimeout(ctx context.Context, s parse.Spec) time.Duration {
+	if d := HandshakeTimeout(ctx, s); d > 0 {
 		return d
 	}
 	return QUICHandshakeIdleTimeoutDisabled

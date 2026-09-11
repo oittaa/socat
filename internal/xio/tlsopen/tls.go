@@ -41,8 +41,8 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		return nil, err
 	}
 
-	timeout := xio.ConnectTimeout(s)
-	handshakeTimeout := xio.HandshakeTimeout(s)
+	timeout := xio.ConnectTimeout(ctx, s)
+	handshakeTimeout := xio.HandshakeTimeout(ctx, s)
 
 	// TLS-CONNECT forks after the handshake. TCP multi-address walk first,
 	// then TLS on the winning socket.
@@ -144,7 +144,7 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return xio.WrapStream(s, stream, xio.TransportSocketTimeouts)
 	}
 
-	handshakeTimeout := xio.HandshakeTimeout(s)
+	handshakeTimeout := xio.HandshakeTimeout(ctx, s)
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
 		Listener:         tlsLn,
 		Label:            s.Type + ":" + port,

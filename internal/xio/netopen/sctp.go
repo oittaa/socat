@@ -42,7 +42,7 @@ func openSCTPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 	}
 	network = sctpNetwork(xio.ConnectNetworkForType(g, s, host, tcpNetwork(network)))
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
-	timeout := xio.ConnectTimeout(s)
+	timeout := xio.ConnectTimeout(ctx, s)
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn

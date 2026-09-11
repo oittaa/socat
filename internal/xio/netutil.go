@@ -370,12 +370,15 @@ func BindPort(bind, sourceport string) string {
 	return net.JoinHostPort(StripBrackets(bind), sourceport)
 }
 
-func ConnectTimeout(s parse.Spec) time.Duration {
-	v := s.OptionValue("connect-timeout", "")
-	if v == "" {
+func ConnectTimeout(ctx context.Context, s parse.Spec) time.Duration {
+	config, err := addressFromOpening(ctx, s)
+	if err != nil {
 		return 0
 	}
-	return ParseTimeval(v)
+	if config.Common.Timeouts.Connect.Set {
+		return config.Common.Timeouts.Connect.Value
+	}
+	return 0
 }
 
 // pfVersion maps pf= names (and PF_* numbers) to a family.
@@ -447,12 +450,15 @@ func ListenNetwork(g *Global, s parse.Spec) string {
 	return "tcp4"
 }
 
-func AcceptTimeout(s parse.Spec) time.Duration {
-	v := s.OptionValue("accept-timeout", "")
-	if v == "" {
+func AcceptTimeout(ctx context.Context, s parse.Spec) time.Duration {
+	config, err := addressFromOpening(ctx, s)
+	if err != nil {
 		return 0
 	}
-	return ParseTimeval(v)
+	if config.Common.Timeouts.Accept.Set {
+		return config.Common.Timeouts.Accept.Value
+	}
+	return 0
 }
 
 func IsTimeoutErr(err error) bool {
@@ -658,18 +664,17 @@ func ParseTimeval(v string) time.Duration {
 	return d
 }
 
-// RecvTimeoutFromSpec parses so-rcvtimeo / rcvtimeo. An empty value means
-// unlimited; a present but invalid value is an error.
-func RecvTimeoutFromSpec(s parse.Spec) (time.Duration, error) {
-	v := s.OptionValue("rcvtimeo", "")
-	if v == "" {
-		return 0, nil
+// RecvTimeoutFromSpec returns the prepared so-rcvtimeo / rcvtimeo duration.
+// An omitted value means unlimited.
+func RecvTimeoutFromSpec(ctx context.Context, s parse.Spec) (time.Duration, error) {
+	config, err := addressFromOpening(ctx, s)
+	if err != nil {
+		return 0, err
 	}
-	d, err := parseTimeval(v)
-	if err != nil || d < 0 {
-		return 0, fmt.Errorf("rcvtimeo: invalid timeout %q", v)
+	if config.Common.Timeouts.Read.Set {
+		return config.Common.Timeouts.Read.Value, nil
 	}
-	return d, nil
+	return 0, nil
 }
 
 // RecvOneCtx performs one datagram read through read in a goroutine so that

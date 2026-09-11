@@ -41,7 +41,7 @@ func openTCPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	network = xio.ConnectNetworkForType(g, s, host, network)
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
-	timeout := xio.ConnectTimeout(s)
+	timeout := xio.ConnectTimeout(ctx, s)
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn

@@ -101,8 +101,8 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 
 	u := "https://" + net.JoinHostPort(xio.StripBrackets(t.proxyHost), t.proxyPort) + "/"
 	authority := net.JoinHostPort(t.connectHost, t.targetPort)
-	attemptTimeout := xio.CombinedConnectHandshakeTimeout(s)
-	idle := xio.QUICHandshakeIdleTimeout(s)
+	attemptTimeout := xio.CombinedConnectHandshakeTimeout(ctx, s)
+	idle := xio.QUICHandshakeIdleTimeout(ctx, s)
 
 	var conn net.Conn
 	err = xio.WithRetry(ctx, g, "PROXY-CONNECT", func() error {

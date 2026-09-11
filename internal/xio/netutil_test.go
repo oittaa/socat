@@ -110,7 +110,7 @@ func TestRecvTimeoutFromSpecRejectsJunk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := RecvTimeoutFromSpec(ok)
+	d, err := RecvTimeoutFromSpec(t.Context(), ok)
 	if err != nil || d != 0 {
 		t.Fatalf("empty rcvtimeo d=%s err=%v", d, err)
 	}
@@ -118,7 +118,7 @@ func TestRecvTimeoutFromSpecRejectsJunk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RecvTimeoutFromSpec(bad); err == nil {
+	if _, err := RecvTimeoutFromSpec(t.Context(), bad); err == nil {
 		t.Fatal("expected rcvtimeo parse error")
 	}
 }

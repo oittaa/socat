@@ -55,7 +55,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 	if closeLn == nil {
 		closeLn = ln.Close
 	}
-	fork, maxChildren, err := ForkLimits(s)
+	fork, maxChildren, err := ForkLimits(ctx, s)
 	if err != nil {
 		_ = closeLn()
 		return nil, err
@@ -93,7 +93,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 			MaxChildren:      maxChildren,
 			WrapDial:         wrap,
 			HandshakeTimeout: sess.HandshakeTimeout,
-			AcceptTimeout:    AcceptTimeout(s),
+			AcceptTimeout:    AcceptTimeout(ctx, s),
 		}
 		o.AddCleanup(func() { _ = safeCloseLn() })
 		stop := context.AfterFunc(ctx, func() {
@@ -113,7 +113,7 @@ func acceptOnce(ctx context.Context, s parse.Spec, g *Global, sess ListenSession
 		g.Log.Noticef("listening on %s", ln.Addr())
 	}
 
-	at := AcceptTimeout(s)
+	at := AcceptTimeout(ctx, s)
 	abort := func() { _ = safeCloseLn() }
 	var conn net.Conn
 	for {

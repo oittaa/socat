@@ -364,7 +364,7 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 }
 
 func openUDPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *net.UDPConn, laddr *net.UDPAddr, network string) (*xio.Opened, error) {
-	_, maxChildren, ferr := xio.ForkLimits(s)
+	_, maxChildren, ferr := xio.ForkLimits(ctx, s)
 	if ferr != nil {
 		logx.CloseQuiet(pc)
 		return nil, ferr

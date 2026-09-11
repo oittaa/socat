@@ -28,8 +28,8 @@ func openUDP6Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 	return openUDPListenNetwork(ctx, s, mode, g, "udp6")
 }
 
-func applyUDPAcceptTimeout(pc *net.UDPConn, s parse.Spec) (bool, error) {
-	timeout := xio.AcceptTimeout(s)
+func applyUDPAcceptTimeout(ctx context.Context, pc *net.UDPConn, s parse.Spec) (bool, error) {
+	timeout := xio.AcceptTimeout(ctx, s)
 	if timeout <= 0 {
 		return false, nil
 	}
@@ -88,7 +88,7 @@ func openUDPListenFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *net
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("UDP-LISTEN,fork,shut-down: not supported")
 	}
-	_, maxChildren, ferr := xio.ForkLimits(s)
+	_, maxChildren, ferr := xio.ForkLimits(ctx, s)
 	if ferr != nil {
 		logx.CloseQuiet(pc)
 		return nil, ferr
@@ -135,7 +135,7 @@ func openUDPListenOnePeer(ctx context.Context, s parse.Spec, g *xio.Global, pc *
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	timeoutSet, err := applyUDPAcceptTimeout(pc, s)
+	timeoutSet, err := applyUDPAcceptTimeout(ctx, pc, s)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -304,13 +304,13 @@ func appendUDPForkSessionPacket(child *udpSessionConn, packet udpForkPacket) boo
 }
 
 func applyUDPForkTimeouts(ln *udpForkListener, s parse.Spec) error {
-	d, err := xio.RecvTimeoutFromSpec(s)
+	d, err := xio.RecvTimeoutFromSpec(ln.ctx, s)
 	if err != nil {
 		return err
 	}
 	ln.rcvTimeout = d
 	if !ln.oneShot {
-		ln.acceptTimeout = xio.AcceptTimeout(s)
+		ln.acceptTimeout = xio.AcceptTimeout(ln.ctx, s)
 	}
 	return nil
 }

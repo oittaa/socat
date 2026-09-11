@@ -2,6 +2,7 @@
 package dtlsopen
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"strconv"
@@ -13,7 +14,7 @@ import (
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
-func endpointConfig(s parse.Spec, host string, server bool) (*dtls13.Config, error) {
+func endpointConfig(ctx context.Context, s parse.Spec, host string, server bool) (*dtls13.Config, error) {
 	// Older DTLS versions are intentionally excluded; see README security differences.
 	if s.HasOption("openssl-method") {
 		return nil, fmt.Errorf("%s: method selection is not supported; only DTLS 1.3 is available", s.Type)
@@ -57,7 +58,7 @@ func endpointConfig(s parse.Spec, host string, server bool) (*dtls13.Config, err
 	if err != nil {
 		return nil, err
 	}
-	receiveTimeout, err := xio.RecvTimeoutFromSpec(s)
+	receiveTimeout, err := xio.RecvTimeoutFromSpec(ctx, s)
 	if err != nil {
 		return nil, err
 	}
@@ -66,9 +67,9 @@ func endpointConfig(s parse.Spec, host string, server bool) (*dtls13.Config, err
 		ServerName: tc.ServerName, ClientAuth: tc.ClientAuth,
 		InsecureSkipVerify:    tc.InsecureSkipVerify,
 		VerifyPeerCertificate: tc.VerifyPeerCertificate, VerifyConnection: tc.VerifyConnection,
-		HandshakeTimeout:        xio.HandshakeTimeout(s),
+		HandshakeTimeout:        xio.HandshakeTimeout(ctx, s),
 		HandshakeReadTimeout:    receiveTimeout,
-		DisableHandshakeTimeout: xio.HandshakeTimeout(s) == 0,
+		DisableHandshakeTimeout: xio.HandshakeTimeout(ctx, s) == 0,
 	}
 	if s.HasOption("alpn") {
 		protocol := s.OptionValue("alpn", "")

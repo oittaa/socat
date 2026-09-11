@@ -70,7 +70,7 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 
 	origin := websocketConfig.Origin.Value
 	proto := websocketConfig.Protocol.Value
-	handshakeTimeout := xio.HandshakeTimeout(s)
+	handshakeTimeout := xio.HandshakeTimeout(ctx, s)
 	// Upgrade after peer filter (TCP-level range/sourceport/tcpwrap).
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
 		if err := xio.ApplyTCPConnOpts(s, c); err != nil {

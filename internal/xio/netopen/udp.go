@@ -71,7 +71,7 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		conn, err = dialUDPForSpec(dialRequest{
 			ctx:     ctx,
 			network: network,
-			timeout: xio.ConnectTimeout(s),
+			timeout: xio.ConnectTimeout(ctx, s),
 			spec:    s,
 		}, laddr, addr)
 	}
@@ -109,7 +109,7 @@ func dialUDPLowport(ctx context.Context, network, bind, remote string, s parse.S
 		conn, err = dialUDPForSpec(dialRequest{
 			ctx:     ctx,
 			network: network,
-			timeout: xio.ConnectTimeout(s),
+			timeout: xio.ConnectTimeout(ctx, s),
 			spec:    s,
 			g:       g,
 		}, laddr, remote)

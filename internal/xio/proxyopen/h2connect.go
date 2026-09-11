@@ -20,8 +20,8 @@ import (
 
 func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarget) (net.Conn, error) {
 	h2c := s.BoolOption("h2c")
-	connectTimeout := xio.ConnectTimeout(s)
-	handshakeTimeout := xio.HandshakeTimeout(s)
+	connectTimeout := xio.ConnectTimeout(ctx, s)
+	handshakeTimeout := xio.HandshakeTimeout(ctx, s)
 	network := xio.ConnectNetworkForType(g, s, t.proxyHost, "tcp")
 
 	var tlsCfg *tls.Config

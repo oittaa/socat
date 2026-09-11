@@ -1,24 +1,25 @@
 package xio
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// ForkLimits reads fork and max-children. A present but invalid
-// max-children value, or max-children without fork, is an error.
-func ForkLimits(s parse.Spec) (fork bool, maxChildren int, err error) {
-	fork = s.BoolOption("fork")
-	if v := s.OptionValue("max-children", ""); v != "" {
-		n, e := ParsePositiveInt(v)
-		if e != nil {
-			return false, 0, fmt.Errorf("%s: invalid max-children %q", s.Type, v)
-		}
-		if !fork {
-			return false, 0, fmt.Errorf("%s: option max-children not allowed without option fork", s.Type)
-		}
-		maxChildren = n
+// ForkLimits reads prepared fork and max-children. A present max-children
+// without fork is an error.
+func ForkLimits(ctx context.Context, s parse.Spec) (fork bool, maxChildren int, err error) {
+	config, err := addressFromOpening(ctx, s)
+	if err != nil {
+		return false, 0, err
 	}
-	return fork, maxChildren, nil
+	fork = config.Common.Fork.Enabled.Value
+	if !config.Common.MaxChildren.Set {
+		return fork, 0, nil
+	}
+	if !fork {
+		return false, 0, fmt.Errorf("%s: option max-children not allowed without option fork", config.Type)
+	}
+	return fork, config.Common.MaxChildren.Value, nil
 }

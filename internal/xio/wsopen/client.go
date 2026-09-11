@@ -53,7 +53,7 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	}
 	u := dest.httpURL()
 
-	handshakeTimeout := xio.HandshakeTimeout(s)
+	handshakeTimeout := xio.HandshakeTimeout(ctx, s)
 	var tlsCfg *tls.Config
 	if scheme == "wss" {
 		tlsCfg, err = tlsopen.TLSClientConfigSettings(s.Type, prepared.TLS, host)
@@ -103,7 +103,7 @@ func (t wsDialTarget) httpURL() url.URL {
 }
 
 func dialWS(ctx context.Context, dest wsDialTarget, s parse.Spec, g *xio.Global, tlsCfg *tls.Config, handshakeTimeout time.Duration, websocketConfig addrconfig.WebSocket) (net.Conn, error) {
-	raw, err := xio.DialTCPAll(ctx, xio.DialTarget{Network: dest.Network, Host: dest.Host, Port: dest.Port}, s, g, xio.ConnectTimeout(s), nil)
+	raw, err := xio.DialTCPAll(ctx, xio.DialTarget{Network: dest.Network, Host: dest.Host, Port: dest.Port}, s, g, xio.ConnectTimeout(ctx, s), nil)
 	if err != nil {
 		return nil, err
 	}

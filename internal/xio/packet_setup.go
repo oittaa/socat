@@ -12,7 +12,7 @@ import (
 
 // ListenPacketWithOptions prepares an unconnected UDP transport socket.
 func ListenPacketWithOptions(ctx context.Context, network, addr string, s parse.Spec) (net.PacketConn, error) {
-	if timeout := ConnectTimeout(s); timeout > 0 {
+	if timeout := ConnectTimeout(ctx, s); timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()

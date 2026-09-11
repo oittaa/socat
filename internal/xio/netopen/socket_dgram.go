@@ -197,12 +197,12 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 }
 
 func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f *os.File, filter *xio.PeerFilter) (*xio.Opened, error) {
-	_, maxChildren, ferr := xio.ForkLimits(s)
+	_, maxChildren, ferr := xio.ForkLimits(ctx, s)
 	if ferr != nil {
 		logx.CloseQuiet(f)
 		return nil, ferr
 	}
-	rcvTimeout, err := xio.RecvTimeoutFromSpec(s)
+	rcvTimeout, err := xio.RecvTimeoutFromSpec(ctx, s)
 	if err != nil {
 		logx.CloseQuiet(f)
 		return nil, err

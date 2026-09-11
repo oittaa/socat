@@ -87,7 +87,7 @@ func openUnixConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	if err != nil {
 		return nil, err
 	}
-	req := dialRequest{ctx: ctx, spec: s, g: g, timeout: xio.ConnectTimeout(s)}
+	req := dialRequest{ctx: ctx, spec: s, g: g, timeout: xio.ConnectTimeout(ctx, s)}
 	if network == "unixgram" {
 		return openUnixDgramClient(req, path, bindPath, true)
 	}

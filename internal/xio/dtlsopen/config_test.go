@@ -12,7 +12,7 @@ func TestDTLSMethodAliasKeepsDTLS13Reason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = endpointConfig(spec, "127.0.0.1", false)
+	_, err = endpointConfig(t.Context(), spec, "127.0.0.1", false)
 	if err == nil || !strings.Contains(err.Error(), "only DTLS 1.3 is available") {
 		t.Fatalf("%v", err)
 	}

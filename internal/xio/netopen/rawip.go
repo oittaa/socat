@@ -343,12 +343,12 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 }
 
 func openIPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *net.IPConn, network string) (*xio.Opened, error) {
-	_, maxChildren, ferr := xio.ForkLimits(s)
+	_, maxChildren, ferr := xio.ForkLimits(ctx, s)
 	if ferr != nil {
 		logx.CloseQuiet(pc)
 		return nil, ferr
 	}
-	rcvTimeout, err := xio.RecvTimeoutFromSpec(s)
+	rcvTimeout, err := xio.RecvTimeoutFromSpec(ctx, s)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -493,7 +493,7 @@ var testHookAfterRawIPPastSocket func(network, address string, c syscall.RawConn
 
 func dialRawIP(ctx context.Context, netw, network string, laddr, raddr *net.IPAddr, s parse.Spec) (*net.IPConn, error) {
 	d := net.Dialer{
-		Timeout:   xio.ConnectTimeout(s),
+		Timeout:   xio.ConnectTimeout(ctx, s),
 		LocalAddr: laddr,
 		Control:   xio.DialControl(s, network, testHookAfterRawIPPastSocket),
 	}

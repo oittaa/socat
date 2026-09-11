@@ -282,6 +282,12 @@ func TestDecodeTCPWrapDaemonPreservesCaseAndLastWins(t *testing.T) {
 	if !got.Network.Peer.TCPWrap.Value || got.Network.Peer.TCPWrapDaemon != "" {
 		t.Fatalf("tcpwrap=1: %+v", got.Network.Peer)
 	}
+
+	got = decodeSpec(t, "TCP:host:9,rcvtimeo=250ms,sndtimeo=1")
+	if !got.Common.Timeouts.Read.Set || got.Common.Timeouts.Read.Value != 250*time.Millisecond ||
+		!got.Common.Timeouts.Write.Set || got.Common.Timeouts.Write.Value != time.Second {
+		t.Fatalf("socket timeouts=%+v", got.Common.Timeouts)
+	}
 }
 
 func TestDecodeProxyAndDTLSSettings(t *testing.T) {

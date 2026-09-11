@@ -31,7 +31,7 @@ func openClient(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*
 	if host == "" || port == "" {
 		return nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
-	cfg, err := endpointConfig(s, host, false)
+	cfg, err := endpointConfig(ctx, s, host, false)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +41,7 @@ func openClient(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*
 		var conn net.Conn
 		err := xio.WithRetry(dctx, g, s.Type, func() error {
 			cctx := dctx
-			if timeout := xio.CombinedConnectHandshakeTimeout(s); timeout > 0 {
+			if timeout := xio.CombinedConnectHandshakeTimeout(ctx, s); timeout > 0 {
 				var cancel context.CancelFunc
 				cctx, cancel = context.WithTimeout(cctx, timeout)
 				defer cancel()
@@ -80,7 +80,7 @@ func openServer(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*
 	if len(s.Params) == 0 || s.Params[0] == "" {
 		return nil, fmt.Errorf("%s requires port", s.Type)
 	}
-	cfg, err := endpointConfig(s, "", true)
+	cfg, err := endpointConfig(ctx, s, "", true)
 	if err != nil {
 		return nil, err
 	}
