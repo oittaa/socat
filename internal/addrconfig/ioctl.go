@@ -117,7 +117,7 @@ func classicCInt(value string) (int, error) {
 	if uerr != nil {
 		return 0, err
 	}
-	return int(int32(u)), nil
+	return int(int32(u)), nil // #nosec G115 -- preserve a C int two's-complement bit pattern.
 }
 
 func classicIoctlRequest(value string) (uint32, error) {
@@ -125,7 +125,7 @@ func classicIoctlRequest(value string) (uint32, error) {
 	if err != nil {
 		return 0, err
 	}
-	return uint32(int32(n)), nil
+	return uint32(int32(n)), nil // #nosec G115 -- zero-extend a validated C int request.
 }
 
 func decodeDalan(source string) ([]byte, error) {
@@ -270,13 +270,13 @@ func dalanNumber(value string, width int) ([]byte, string, int) {
 	data := make([]byte, width)
 	switch width {
 	case 1:
-		data[0] = byte(n)
+		data[0] = byte(n) // #nosec G115 -- preserve the requested C integer bit pattern.
 	case 2:
-		binary.NativeEndian.PutUint16(data, uint16(n))
+		binary.NativeEndian.PutUint16(data, uint16(n)) // #nosec G115 -- preserve the requested C integer bit pattern.
 	case 4:
-		binary.NativeEndian.PutUint32(data, uint32(n))
+		binary.NativeEndian.PutUint32(data, uint32(n)) // #nosec G115 -- preserve the requested C integer bit pattern.
 	case 8:
-		binary.NativeEndian.PutUint64(data, uint64(n))
+		binary.NativeEndian.PutUint64(data, uint64(n)) // #nosec G115 -- preserve the requested C integer bit pattern.
 	}
 	return data, rest, dalanOK
 }
@@ -303,7 +303,7 @@ func dalanInteger(value string) (int64, string, bool) {
 		if uerr != nil {
 			return 0, value, false
 		}
-		return int64(u), value[i:], true
+		return int64(u), value[i:], true // #nosec G115 -- value is decoded as a signed C integer payload.
 	}
 	return n, value[i:], true
 }

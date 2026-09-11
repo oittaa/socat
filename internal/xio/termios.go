@@ -626,7 +626,7 @@ func applyConfiguredTermiosAction(t *unix.Termios, action addrconfig.TerminalAct
 		if !ok {
 			return nil
 		}
-		t.Cc[idx] = byte(action.Value)
+		t.Cc[idx] = byte(action.Value) // #nosec G115 -- decoder validates terminal control characters as bytes.
 	case addrconfig.TerminalActionSpeed:
 		switch action.Name {
 		case "ispeed":
@@ -643,7 +643,7 @@ func applyConfiguredTermiosAction(t *unix.Termios, action addrconfig.TerminalAct
 		}
 		setPattern(t, field.word, field.mask, termiosBits(action.Value)<<field.shift)
 	case addrconfig.TerminalActionSetFlags:
-		setTermiosWord(t, int(action.Word), termiosBits(action.Flags))
+		setTermiosWord(t, int(action.Word), termiosBits(action.Flags)) // #nosec G115 -- decoder bounds the word and preserves the platform flag bit pattern.
 	}
 	return nil
 }
@@ -691,12 +691,4 @@ func WaitPTYSlave(masterFD int, interval time.Duration) error {
 		}
 		time.Sleep(interval)
 	}
-}
-
-// PTYWaitInterval is pty-interval (default 1s).
-func PTYWaitInterval(s parse.Spec) time.Duration {
-	if !s.HasOption("pty-interval") {
-		return time.Second
-	}
-	return ParseTimeval(s.OptionValue("pty-interval", "1"))
 }
