@@ -116,11 +116,11 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 	if !from && mode == xio.ModeWrite {
 		return nil, fmt.Errorf("%s is read-only", s.Type)
 	}
-	fork := from && s.BoolOption("fork")
 	config, err := preparedSocketConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
+	fork := from && xio.ForkRequested(config)
 	c, err := socketCallFromConfig(config)
 	if err != nil {
 		return nil, err
@@ -207,13 +207,18 @@ func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f 
 		logx.CloseQuiet(f)
 		return nil, err
 	}
+	config, err := preparedSocketConfig(ctx)
+	if err != nil {
+		logx.CloseQuiet(f)
+		return nil, err
+	}
 	ln := &socketRecvfromListener{
 		f:          f,
 		g:          g,
 		ctx:        ctx,
 		filter:     filter,
 		rcvTimeout: rcvTimeout,
-		nullEOF:    s.BoolOption("null-eof"),
+		nullEOF:    config.Transfer.NullEOF.Value,
 	}
 	return &xio.Opened{
 		Kind:           xio.KindListen,
@@ -226,8 +231,13 @@ func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f 
 }
 
 func openSocketRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, f *os.File, filter *xio.PeerFilter, local net.Addr) (*xio.Opened, error) {
+	config, err := preparedSocketConfig(ctx)
+	if err != nil {
+		logx.CloseQuiet(f)
+		return nil, err
+	}
 	buf := make([]byte, dgramBufSize(g))
-	n, from, err := recvSocketFiltered(ctx, f, buf, filter, g, local, emptyDatagramPolicy{NullEOF: s.BoolOption("null-eof")})
+	n, from, err := recvSocketFiltered(ctx, f, buf, filter, g, local, emptyDatagramPolicy{NullEOF: config.Transfer.NullEOF.Value})
 	if err != nil {
 		logx.CloseQuiet(f)
 		return nil, err

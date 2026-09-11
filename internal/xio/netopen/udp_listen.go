@@ -58,7 +58,12 @@ func openUDPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	if err != nil {
 		return nil, err
 	}
-	if s.BoolOption("fork") {
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
+	if xio.ForkRequested(config) {
 		return openUDPListenFork(ctx, s, g, pc, laddr, network)
 	}
 	return openUDPListenOnePeer(ctx, s, g, pc, network)
@@ -98,6 +103,11 @@ func openUDPListenFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *net
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
 	base := &udpForkListener{
 		pc:      pc,
 		network: network,
@@ -106,6 +116,7 @@ func openUDPListenFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *net
 		g:       g,
 		ctx:     ctx,
 		filter:  peerFilter,
+		nullEOF: config.Transfer.NullEOF.Value,
 	}
 	if err := applyUDPForkTimeouts(base, s); err != nil {
 		logx.CloseQuiet(pc)
@@ -258,6 +269,7 @@ type udpForkListener struct {
 	rcvTimeout    time.Duration
 	acceptTimeout time.Duration
 	oneShot       bool // UDP-RECVFROM,fork: one datagram then EOF
+	nullEOF       bool
 	filter        *xio.PeerFilter
 	writeMu       sync.Mutex
 	pending       []udpForkPacket

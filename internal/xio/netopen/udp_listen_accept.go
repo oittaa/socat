@@ -105,7 +105,7 @@ func (a *udpForkAccept) step() acceptNext {
 	if next := a.filterPeer(got.addr, got.consumed); next.stop() {
 		return next
 	}
-	if a.l.oneShot && xio.IgnoreEmptyDatagram(len(got.packet.data), nil, a.l.spec.BoolOption("null-eof")) {
+	if a.l.oneShot && xio.IgnoreEmptyDatagram(len(got.packet.data), nil, a.l.nullEOF) {
 		return acceptAgain()
 	}
 

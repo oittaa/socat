@@ -317,7 +317,12 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 
 	wantCtrl := xio.NeedAncillary(s)
 	if recvfrom {
-		if s.BoolOption("fork") {
+		config, err := xio.OpeningConfig(ctx, s)
+		if err != nil {
+			logx.CloseQuiet(pc)
+			return nil, err
+		}
+		if xio.ForkRequested(config) {
 			return openIPRecvfromFork(ctx, s, g, pc, network)
 		}
 		return openIPRecvfromOneShot(ctx, s, g, pc, network, wantCtrl)
@@ -366,6 +371,11 @@ func openIPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *ne
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
 	ln := &rawIPForkListener{
 		pc:         pc,
 		spec:       s,
@@ -373,6 +383,7 @@ func openIPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *ne
 		ctx:        ctx,
 		filter:     peerFilter,
 		rcvTimeout: rcvTimeout,
+		nullEOF:    config.Transfer.NullEOF.Value,
 		v4:         network == "ip4",
 	}
 	xio.NoteListenBound(pc.LocalAddr())
@@ -396,11 +407,16 @@ func openIPRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, pc 
 		return nil, err
 	}
 	recvErr := xio.NeedRecvErr(s)
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
 	n, oob, raddr, err := recvRawIPFiltered(ctx, pc, buf, rawIPRecvPolicy{
 		Ancillary: wantCtrl,
 		RecvErr:   recvErr,
 		StripIPv4: stripV4,
-		NullEOF:   s.BoolOption("null-eof"),
+		NullEOF:   config.Transfer.NullEOF.Value,
 	}, peerFilter, g)
 	if err != nil {
 		logx.CloseQuiet(pc)
@@ -913,6 +929,7 @@ type rawIPForkListener struct {
 	rcvTimeout time.Duration
 	writeMu    sync.Mutex
 	v4         bool
+	nullEOF    bool
 }
 
 func (l *rawIPForkListener) Addr() net.Addr { return l.pc.LocalAddr() }
@@ -955,7 +972,7 @@ func (l *rawIPForkListener) Accept() (net.Conn, error) {
 			}
 			continue
 		}
-		if xio.IgnoreEmptyDatagram(rn, err, l.spec.BoolOption("null-eof")) {
+		if xio.IgnoreEmptyDatagram(rn, err, l.nullEOF) {
 			continue
 		}
 		if l.v4 {

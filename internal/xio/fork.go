@@ -4,8 +4,14 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
+
+// ForkRequested reports whether fork is enabled on the prepared address.
+func ForkRequested(config addrconfig.Address) bool {
+	return config.Common.Fork.Enabled.Value
+}
 
 // ForkLimits reads prepared fork and max-children. A present max-children
 // without fork is an error.
@@ -14,7 +20,7 @@ func ForkLimits(ctx context.Context, s parse.Spec) (fork bool, maxChildren int, 
 	if err != nil {
 		return false, 0, err
 	}
-	fork = config.Common.Fork.Enabled.Value
+	fork = ForkRequested(config)
 	if !config.Common.MaxChildren.Set {
 		return fork, 0, nil
 	}

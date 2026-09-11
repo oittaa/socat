@@ -75,7 +75,11 @@ func firstAvailableLowportFrom(start int, bind func(int) error) (int, error) {
 // QUIC-LISTEN, …) only set it when reuseaddr is present.
 func reuseaddrListenDefault(s parse.Spec, network string) bool {
 	if udpListenAddress(s.Type) {
-		return s.BoolOption("fork")
+		config, err := OpeningConfig(context.Background(), s)
+		if err != nil {
+			return false
+		}
+		return ForkRequested(config)
 	}
 	switch network {
 	case "udp", "udp4", "udp6":
@@ -106,11 +110,15 @@ func udpListenAddress(addrType string) bool {
 // sharing; the first session then takes the listen socket instead of dropping
 // the datagram.
 func UDPForkPortReuse(s parse.Spec) bool {
-	if !udpListenAddress(s.Type) || !s.BoolOption("fork") {
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
 		return false
 	}
-	if s.HasOption("reuseaddr") {
-		return s.BoolOption("reuseaddr")
+	if !udpListenAddress(config.Type) || !ForkRequested(config) {
+		return false
+	}
+	if config.Network.ReuseAddr.Set {
+		return config.Network.ReuseAddr.Value
 	}
 	return true
 }
@@ -118,16 +126,20 @@ func UDPForkPortReuse(s parse.Spec) bool {
 // ApplyReuse sets SO_REUSEADDR and optional SO_REUSEPORT on fd.
 // reuseaddrDefault is used when reuseaddr is not present on the spec.
 func ApplyReuse(fd int, s parse.Spec, reuseaddrDefault bool) error {
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return err
+	}
 	reuse := reuseaddrDefault
-	if s.HasOption("reuseaddr") {
-		reuse = s.BoolOption("reuseaddr")
+	if config.Network.ReuseAddr.Set {
+		reuse = config.Network.ReuseAddr.Value
 	}
 	if reuse {
-		if err := setSockoptInt(fd, solSocket, soReuseaddr, 1); err != nil && s.HasOption("reuseaddr") {
+		if err := setSockoptInt(fd, solSocket, soReuseaddr, 1); err != nil && config.Network.ReuseAddr.Set {
 			return fmt.Errorf("reuseaddr: %w", err)
 		}
 	}
-	if s.BoolOption("reuseport") {
+	if config.Network.ReusePort.Value {
 		if soReuseport == 0 {
 			return fmt.Errorf("reuseport is not supported on this platform")
 		}

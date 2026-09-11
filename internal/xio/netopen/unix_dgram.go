@@ -172,8 +172,13 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		return nil, err
 	}
 	label := s.Type + ":" + path
-	if s.BoolOption("fork") && from {
-		ln := &unixgramListener{c: c, path: path, spec: s, g: g, ctx: ctx}
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		life.drop(c)
+		return nil, err
+	}
+	if xio.ForkRequested(config) && from {
+		ln := &unixgramListener{c: c, path: path, spec: s, g: g, ctx: ctx, nullEOF: config.Transfer.NullEOF.Value}
 		d, terr := xio.RecvTimeoutFromSpec(ctx, s)
 		if terr != nil {
 			life.drop(ln)
@@ -199,7 +204,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	}
 
 	if from {
-		first, peer, err := waitUnixRecvfromPacket(ctx, c, g, s.BoolOption("null-eof"))
+		first, peer, err := waitUnixRecvfromPacket(ctx, c, g, config.Transfer.NullEOF.Value)
 		if err != nil {
 			life.drop(c)
 			return nil, err
@@ -313,6 +318,7 @@ type unixgramListener struct {
 	g          *xio.Global
 	ctx        context.Context
 	rcvTimeout time.Duration
+	nullEOF    bool
 	writeMu    sync.Mutex
 }
 
@@ -339,7 +345,7 @@ func (l *unixgramListener) Accept() (net.Conn, error) {
 			}
 			return nil, err
 		}
-		if xio.IgnoreEmptyDatagram(n, err, l.spec.BoolOption("null-eof")) {
+		if xio.IgnoreEmptyDatagram(n, err, l.nullEOF) {
 			continue
 		}
 		return &unixPacketConn{

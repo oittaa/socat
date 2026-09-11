@@ -359,7 +359,12 @@ func openUDPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		return nil, err
 	}
 	if recvfrom {
-		if s.BoolOption("fork") {
+		config, err := xio.OpeningConfig(ctx, s)
+		if err != nil {
+			logx.CloseQuiet(pc)
+			return nil, err
+		}
+		if xio.ForkRequested(config) {
 			return openUDPRecvfromFork(ctx, s, g, pc, laddr, network)
 		}
 		return openUDPRecvfromOne(ctx, s, g, pc)
@@ -378,6 +383,11 @@ func openUDPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *n
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
 	ln := &udpForkListener{
 		pc:      pc,
 		network: network,
@@ -386,6 +396,7 @@ func openUDPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *n
 		g:       g,
 		ctx:     ctx,
 		oneShot: true,
+		nullEOF: config.Transfer.NullEOF.Value,
 		filter:  peerFilter,
 	}
 	if err := applyUDPForkTimeouts(ln, s); err != nil {
@@ -428,6 +439,12 @@ func openUDPRecvfromOne(ctx context.Context, s parse.Spec, g *xio.Global, pc *ne
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		logx.CloseQuiet(pc)
+		return nil, err
+	}
+	nullEOF := config.Transfer.NullEOF.Value
 	var oobBuffer [xio.AncillaryBufferSize]byte
 	for {
 		ch := make(chan res, 1)
@@ -452,7 +469,7 @@ func openUDPRecvfromOne(ctx context.Context, s parse.Spec, g *xio.Global, pc *ne
 				}
 				continue
 			}
-			if xio.IgnoreEmptyDatagram(r.n, r.e, s.BoolOption("null-eof")) {
+			if xio.IgnoreEmptyDatagram(r.n, r.e, nullEOF) {
 				continue
 			}
 			n, raddr = r.n, r.a
