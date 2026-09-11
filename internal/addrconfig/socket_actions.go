@@ -194,6 +194,7 @@ func genericSocketAction(o parse.Option, name string) (SocketAction, error) {
 	return SocketAction{
 		Kind:   SocketActionGeneric,
 		Phase:  phase,
+		Text:   name,
 		Value:  value,
 		Number: level,
 		Option: opt,

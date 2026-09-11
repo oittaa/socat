@@ -166,7 +166,7 @@ func openFD(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.
 	// FD applies after-open and after-socket() options, not before-bind or
 	// after-connect/accept. Reject those combinations instead of applying
 	// them to an existing socket or silently ignoring them.
-	if err := xio.RejectGenericSetsockoptPhases(s, s.Type, xio.SockoptPhasePrebind, xio.SockoptPhaseConnected); err != nil {
+	if err := xio.RejectGenericSetsockoptPhases(config, config.Type, xio.SockoptPhasePrebind, xio.SockoptPhaseConnected); err != nil {
 		return nil, err
 	}
 	// Default FD_CLOEXEC on the caller's descriptor before options, then

@@ -13,11 +13,6 @@ import (
 // sctp-maxseg-late are not implemented. sctp-nodelay/sctp-maxseg use SOL_SCTP.
 var errNamedOptUnsupported = errors.New("not supported on this platform")
 
-func namedConnectedTCPName(name string) bool {
-	_, _, ok, _ := lookupNamedConnectedInt(name)
-	return ok
-}
-
 func namedSocketOptionName(option addrconfig.NamedSocketOption) string {
 	switch option {
 	case addrconfig.NamedSocketDebug:

@@ -200,14 +200,6 @@ func ipFamilyName(family ipFamily) string {
 	}
 }
 
-func specForcedIPFamily(s parse.Spec) ipFamily {
-	config, err := OpeningConfig(context.Background(), s)
-	if err != nil {
-		return ipFamilyFromAddressType(s.Type)
-	}
-	return preparedForcedIPFamily(config)
-}
-
 func preparedForcedIPFamily(config addrconfig.Address) ipFamily {
 	if v, ok := VersionFromPF(ProtocolFamilyText(config)); ok {
 		switch v {

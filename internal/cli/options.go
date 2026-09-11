@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/optionmeta"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
@@ -78,10 +79,24 @@ func validateSpecOptions(spec parse.Spec) error {
 			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
 	}
-	if err := xio.RejectUnsupportedRemainingIPv4(spec); err != nil {
+	config, err := decodeSpecConfig(spec)
+	if err != nil {
+		return err
+	}
+	if err := xio.RejectUnsupportedRemainingIPv4(config); err != nil {
 		return err
 	}
 	return nil
+}
+
+func decodeSpecConfig(spec parse.Spec) (addrconfig.Address, error) {
+	facts := addrconfig.Facts{Type: spec.Type}
+	if registration, ok := xio.AddressRegistrationForType(spec.Type); ok {
+		facts.Type = registration.Name
+		facts.Group = registration.Group
+		facts.Caps = registration.OptionCaps
+	}
+	return addrconfig.Decode(spec, facts)
 }
 
 // Prefer the original spelling; public aliases need not fold during parsing.

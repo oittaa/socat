@@ -68,20 +68,6 @@ func preparedSocketPhaseMatches(action addrconfig.SocketPhase, phase SockoptPhas
 	}
 }
 
-// WithoutGenericSetsockopt leaves non-generic actions for their existing
-// owners after generic values have been decoded into addrconfig.
-func WithoutGenericSetsockopt(s parse.Spec) parse.Spec {
-	out := s
-	out.Options = make([]parse.Option, 0, len(s.Options))
-	for _, option := range s.Options {
-		if _, _, ok := genericSetsockoptDescriptor(option.Name); ok {
-			continue
-		}
-		out.Options = append(out.Options, option)
-	}
-	return out
-}
-
 type sockoptValueKind int
 
 const (
@@ -118,47 +104,45 @@ func ApplyGenericSetsockoptAll(fd int, s parse.Spec) error {
 	return applyPreparedSocketPhase(fd, config, socketApplySocketpair, "")
 }
 
-func genericSetsockoptKind(name string, phase SockoptPhase) (sockoptValueKind, bool) {
-	want, kind, ok := genericSetsockoptDescriptor(name)
-	return kind, ok && want == phase
-}
-
-func genericSetsockoptDescriptor(name string) (SockoptPhase, sockoptValueKind, bool) {
-	switch name {
-	case "setsockopt-listen":
-		return SockoptPhasePrebind, sockoptKindBin, true
-	case "setsockopt-socket":
-		return SockoptPhasePastSocket, sockoptKindBin, true
-	case "setsockopt", "setsockopt-bin", "setsockopt-connected":
-		return SockoptPhaseConnected, sockoptKindBin, true
-	case "setsockopt-int":
-		return SockoptPhaseConnected, sockoptKindInt, true
-	case "setsockopt-string":
-		return SockoptPhaseConnected, sockoptKindString, true
-	default:
-		return 0, 0, false
-	}
-}
-
 // RejectGenericSetsockoptPhases fails an address/phase combination before it
 // can be accepted and silently ignored. FD includes post-socket() options
 // but not listen-time or post-connect generic setsockopt.
-func RejectGenericSetsockoptPhases(s parse.Spec, address string, phases ...SockoptPhase) error {
-	for _, o := range s.Options {
-		phase, _, ok := genericSetsockoptDescriptor(o.Name)
+func RejectGenericSetsockoptPhases(config addrconfig.Address, address string, phases ...SockoptPhase) error {
+	for _, action := range config.Network.Actions {
+		phase, name, ok := genericRejectPhase(action)
 		if !ok {
-			if !namedConnectedTCPName(o.Name) {
-				continue
-			}
-			phase = SockoptPhaseConnected
+			continue
 		}
 		for _, rejected := range phases {
 			if phase == rejected {
-				return fmt.Errorf("%s: option %q is not supported at this lifecycle phase", address, o.Name)
+				return fmt.Errorf("%s: option %q is not supported at this lifecycle phase", address, name)
 			}
 		}
 	}
 	return nil
+}
+
+func genericRejectPhase(action addrconfig.SocketAction) (SockoptPhase, string, bool) {
+	switch action.Kind {
+	case addrconfig.SocketActionGeneric:
+		name := action.Text
+		if name == "" {
+			name = "setsockopt"
+		}
+		switch action.Phase {
+		case addrconfig.SocketPhasePrebind:
+			return SockoptPhasePrebind, name, true
+		case addrconfig.SocketPhasePastSocket:
+			return SockoptPhasePastSocket, name, true
+		case addrconfig.SocketPhaseConnected:
+			return SockoptPhaseConnected, name, true
+		}
+	case addrconfig.SocketActionNamed:
+		if action.Named == addrconfig.NamedSocketTCPMaxSegLate {
+			return SockoptPhaseConnected, namedSocketOptionName(action.Named), true
+		}
+	}
+	return 0, "", false
 }
 
 // ApplySetsockoptFD applies a level:opt:dalan setsockopt spec. Decimal

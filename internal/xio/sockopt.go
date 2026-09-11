@@ -23,24 +23,6 @@ func ApplySocketOptions(fd int, s parse.Spec) error {
 	return applyOrderedPastSocketPhaseOptions(fd, s, "")
 }
 
-// isPastSocketActionOption reports whether o would be consumed by
-// ApplySocketOptions. User-selected EXEC pipes/pty/nofork must reject this
-// leftover set instead of silently ignoring it. sndbuf-late/rcvbuf-late and
-// tcp-maxseg-late are not included.
-func isPastSocketActionOption(o parse.Option) bool {
-	switch o.Name {
-	case "broadcast", "sndbuf", "rcvbuf", "bindtodevice",
-		"so-linger", "linger", "rcvtimeo", "sndtimeo",
-		"fiosetown", "siocspgrp":
-		return true
-	}
-	if _, _, ok, _ := lookupNamedPastSocketInt(o.Name); ok {
-		return true
-	}
-	_, ok := genericSetsockoptKind(o.Name, SockoptPhasePastSocket)
-	return ok
-}
-
 // ApplyLateSocketOptions applies so-sndbuf-late / so-rcvbuf-late
 // (same SO_SNDBUF / SO_RCVBUF constants).
 func ApplyLateSocketOptions(fd int, s parse.Spec) error {

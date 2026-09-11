@@ -109,18 +109,30 @@ type FileAction struct {
 // Process holds static EXEC/SYSTEM/SHELL choices. Command strings remain
 // positional text because their interpretation belongs to os/exec.
 type Process struct {
-	Pipes   OptionalBool
-	PTY     OptionalBool
-	Stderr  OptionalBool
-	SetSID  OptionalBool
-	CTTY    OptionalBool
-	Dash    OptionalBool
-	SetPGID OptionalInt
-	FDIn    OptionalInt
-	FDOut   OptionalInt
-	Shell   OptionalString
-	Chdir   OptionalString
+	Pipes         OptionalBool
+	PTY           OptionalBool
+	Stderr        OptionalBool
+	SetSID        OptionalBool
+	CTTY          OptionalBool
+	Dash          OptionalBool
+	SetPGID       OptionalInt
+	FDIn          OptionalInt
+	FDOut         OptionalInt
+	Shell         OptionalString
+	Chdir         OptionalString
+	ParentSignals []ParentSignal
 }
+
+// ParentSignal is one EXEC/SYSTEM/SHELL parent-to-child signal pass-through.
+// Each source occurrence is retained so registration can occupy one slot.
+type ParentSignal uint8
+
+const (
+	ParentSignalNone ParentSignal = iota
+	ParentSignalHUP
+	ParentSignalINT
+	ParentSignalQUIT
+)
 
 // Terminal holds terminal setup and PTY policy. Actions retain source order.
 type Terminal struct {
@@ -413,6 +425,21 @@ func decodeFileProcess(a *Address, o parse.Option) (bool, error) {
 			return true, err
 		}
 		a.Process.Chdir = OptionalString{Set: true, Value: value}
+		return true, nil
+	case "sighup", "sigint", "sigquit":
+		if o.Has {
+			return true, fmt.Errorf("%s: no value permitted", o.OriginalSpelling())
+		}
+		var sig ParentSignal
+		switch name {
+		case "sighup":
+			sig = ParentSignalHUP
+		case "sigint":
+			sig = ParentSignalINT
+		default:
+			sig = ParentSignalQUIT
+		}
+		a.Process.ParentSignals = append(a.Process.ParentSignals, sig)
 		return true, nil
 	case "lockfile", "waitlock":
 		if a.File.Lock.Set {

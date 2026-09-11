@@ -33,7 +33,7 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, config 
 	if err != nil {
 		return err
 	}
-	if err := rejectUnusedExecPastSocketOptions(s); err != nil {
+	if err := rejectUnusedExecPastSocketOptions(config); err != nil {
 		return err
 	}
 	if err := rejectExecUnsupportedPTYOptions(config); err != nil {
@@ -343,7 +343,7 @@ func (c *execChild) runNoFork(ctx context.Context, peer relay.Stream) error {
 			return err
 		}
 	}
-	if err := applyExecProcessAttrs(c.spec, c.config, c.cmd, c.g, c.fdRedirect); err != nil {
+	if err := applyExecProcessAttrs(c.config, c.cmd, c.g, c.fdRedirect); err != nil {
 		return err
 	}
 	if err := c.attachNoForkStdio(peer, extra); err != nil {

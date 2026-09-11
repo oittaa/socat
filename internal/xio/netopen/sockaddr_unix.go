@@ -177,7 +177,6 @@ func sendtoRaw(fd int, p []byte, sa rawSockaddr) error {
 }
 
 func applySocketOpts(fd int, s parse.Spec, config addrconfig.Address) error {
-	s = xio.WithoutGenericSetsockopt(s)
 	if err := xio.ApplyReuse(fd, s, false); err != nil {
 		return err
 	}

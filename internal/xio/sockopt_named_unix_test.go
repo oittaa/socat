@@ -103,7 +103,7 @@ func TestFDRejectsMaxsegLateUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = RejectGenericSetsockoptPhases(spec, "FD", SockoptPhasePrebind, SockoptPhaseConnected)
+	err = RejectGenericSetsockoptPhases(mustDecodeAddress(t, spec), "FD", SockoptPhasePrebind, SockoptPhaseConnected)
 	if err == nil || !strings.Contains(err.Error(), "not supported at this lifecycle phase") {
 		t.Fatalf("error=%v want CONNECTED phase rejection", err)
 	}

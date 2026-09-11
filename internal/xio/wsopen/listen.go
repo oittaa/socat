@@ -21,7 +21,11 @@ import (
 )
 
 func openWSListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if err := tlsopen.RejectHiddenTLSOnPlaintext(s); err != nil {
+	prepared, err := preparedWebSocketConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	if err := tlsopen.RejectHiddenTLSOnPlaintext(prepared.Type, prepared.TLS); err != nil {
 		return nil, err
 	}
 	return openWSListenTLS(ctx, s, mode, g, false)

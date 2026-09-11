@@ -509,11 +509,6 @@ func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, 
 		warnAddressMode(g, mode, d.Directions)
 	}
 	var err error
-	// Process-wide setuid/chroot/substuser names are recognized so the
-	// error explains the isolation requirement instead of "unknown option".
-	if err := RejectUnsupportedIsolation(s); err != nil {
-		return nil, err
-	}
 	prepared.Config, err = ResolvePreparedPaths(prepared.Config)
 	if err != nil {
 		return nil, err
@@ -531,7 +526,7 @@ func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, 
 	if err := RejectUnsupportedRecvErr(s); err != nil {
 		return nil, err
 	}
-	if err := RejectUnsupportedRemainingIPv4(s); err != nil {
+	if err := RejectUnsupportedRemainingIPv4(prepared.Config); err != nil {
 		return nil, err
 	}
 	if err := RejectUnsupportedListenBacklog(s); err != nil {

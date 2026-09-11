@@ -223,13 +223,48 @@ func asOSFile(x any) *os.File {
 // be silently ignored on EXEC/SYSTEM/SHELL pipes, pty, or nofork. Canonical
 // Name is after alias fold. end-close is not pipes; it keeps the default
 // socketpair and applies those options on the child endpoint.
-func rejectUnusedExecPastSocketOptions(s parse.Spec) error {
-	for _, o := range s.Options {
-		if isPastSocketActionOption(o) {
-			return fmt.Errorf("option %q not inquired", o.Name)
+func rejectUnusedExecPastSocketOptions(config addrconfig.Address) error {
+	for _, action := range config.Network.Actions {
+		if name, ok := unusedExecPastSocketName(action); ok {
+			return fmt.Errorf("option %q not inquired", name)
 		}
 	}
 	return nil
+}
+
+func unusedExecPastSocketName(action addrconfig.SocketAction) (string, bool) {
+	switch action.Kind {
+	case addrconfig.SocketActionBroadcast:
+		return "broadcast", true
+	case addrconfig.SocketActionBindToDevice:
+		return "bindtodevice", true
+	case addrconfig.SocketActionLinger:
+		return "so-linger", true
+	case addrconfig.SocketActionTimeout:
+		if action.Text != "" {
+			return action.Text, true
+		}
+		return "rcvtimeo", true
+	case addrconfig.SocketActionBuffer:
+		if action.Phase == addrconfig.SocketPhasePastSocket && action.Text != "" {
+			return action.Text, true
+		}
+	case addrconfig.SocketActionNamed:
+		if action.Phase == addrconfig.SocketPhasePastSocket {
+			if name := namedSocketOptionName(action.Named); name != "" {
+				return name, true
+			}
+		}
+	case addrconfig.SocketActionGeneric:
+		if action.Phase == addrconfig.SocketPhasePastSocket {
+			name := action.Text
+			if name == "" {
+				name = "setsockopt-socket"
+			}
+			return name, true
+		}
+	}
+	return "", false
 }
 
 // execChild is one EXEC/SYSTEM/SHELL start after argv exists.
@@ -273,7 +308,7 @@ func newExecChild(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *
 }
 
 // applyExecProcessAttrs sets chdir, setsid, dash/setpgid, and SOCAT_* env.
-func applyExecProcessAttrs(s parse.Spec, config addrconfig.Address, cmd *exec.Cmd, g *Global, fdRedirect bool) error {
+func applyExecProcessAttrs(config addrconfig.Address, cmd *exec.Cmd, g *Global, fdRedirect bool) error {
 	if config.Process.Chdir.Set {
 		cmd.Dir = config.Process.Chdir.Value
 	}
@@ -287,7 +322,7 @@ func applyExecProcessAttrs(s parse.Spec, config addrconfig.Address, cmd *exec.Cm
 		if err := applyConfiguredSetpgid(config.Process.SetPGID, cmd); err != nil {
 			return err
 		}
-	} else if err := applyConfiguredExecChildOptions(config.Process, s.Type, cmd); err != nil {
+	} else if err := applyConfiguredExecChildOptions(config.Process, config.Type, cmd); err != nil {
 		return err
 	}
 	if g != nil {
@@ -346,14 +381,14 @@ func (c *execChild) prepareForked(ctx context.Context) error {
 	// Socketpair (including end-close) applies those options on the child
 	// endpoint instead of a silent no-op.
 	if c.usePipes || c.usePty {
-		if err := rejectUnusedExecPastSocketOptions(c.spec); err != nil {
+		if err := rejectUnusedExecPastSocketOptions(c.config); err != nil {
 			return err
 		}
 	}
 	if err := c.wrapForkedFDHelper(ctx); err != nil {
 		return err
 	}
-	return applyExecProcessAttrs(c.spec, c.config, c.cmd, c.g, c.fdRedirect)
+	return applyExecProcessAttrs(c.config, c.cmd, c.g, c.fdRedirect)
 }
 
 func (c *execChild) startAndDropChildFDs(ctx context.Context, cleanup []func(), childFiles []*os.File) error {
@@ -415,7 +450,7 @@ func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec
 	// nofork: defer start until Run has the peer stream (runExecNoFork).
 	// Placeholder Opened; Stream is nil — Run must not transferPair this alone.
 	if c.config.Common.Fork.NoFork.Value {
-		if err := rejectUnusedExecPastSocketOptions(s); err != nil {
+		if err := rejectUnusedExecPastSocketOptions(c.config); err != nil {
 			return nil, err
 		}
 		spec := s
@@ -641,9 +676,6 @@ func execSocketpairParentStream(mode Mode, parent *os.File, stype int) relay.Str
 // children inherit only 0/1/2 plus explicitly mapped fdi/fdo descriptors,
 // then registers sighup/sigint/sigquit after pid is known.
 func (c *execChild) start(ctx context.Context) error {
-	if err := validateExecParentSignals(c.spec); err != nil {
-		return err
-	}
 	c.armCancel(ctx)
 	// Mark ALL FDs ≥3 CLOEXEC (including the socketpair/pipe/PTY ends passed
 	// as Stdin/Stdout). Go's fork/exec dup2's them to 0/1/2 first, then closes
@@ -659,7 +691,7 @@ func (c *execChild) start(ctx context.Context) error {
 	if startErr != nil {
 		return startErr
 	}
-	if err := registerExecParentSignals(c.spec, c.cmd, c.g); err != nil {
+	if err := registerExecParentSignals(c.config, c.cmd, c.g); err != nil {
 		c.killWait()
 		return err
 	}

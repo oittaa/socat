@@ -92,11 +92,7 @@ func dialRawSocket(ctx context.Context, call socketCall, sa rawSockaddr, s parse
 		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("connect: %w", err)
 	}
-	if err := xio.ApplyGenericSetsockopt(fd, xio.WithoutGenericSetsockopt(s), xio.SockoptPhaseConnected); err != nil {
-		logx.CloseErr(unix.Close(fd))
-		return nil, err
-	}
-	if err := xio.ApplyPreparedGenericSetsockopt(fd, config, xio.SockoptPhaseConnected); err != nil {
+	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhaseConnected); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}

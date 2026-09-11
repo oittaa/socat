@@ -30,13 +30,11 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	if err != nil {
 		return nil, err
 	}
-	// Plaintext TLS reject must run before Decode so last-wins spelling is
-	// reported for public TLS names that would otherwise fail as values.
-	if err := rejectProxyPlaintextPolicy(s); err != nil {
-		return nil, err
-	}
 	config, err := xio.OpeningConfig(ctx, s)
 	if err != nil {
+		return nil, err
+	}
+	if err := rejectProxyPlaintextPolicy(config); err != nil {
 		return nil, err
 	}
 	proxyPort := proxyPortText(config.Proxy)

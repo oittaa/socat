@@ -14,7 +14,6 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/optionmeta"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -219,40 +218,32 @@ func rejectUnsupportedOpenSSLOptions(settings addrconfig.TLS, typ string) error 
 	return nil
 }
 
-func rejectTLSNamesOnPlaintext(s parse.Spec, includePublic bool) error {
-	typ := s.Type
+func rejectTLSNamesOnPlaintext(typ string, settings addrconfig.TLS, includePublic bool) error {
 	if typ == "" {
 		typ = "address"
 	}
-	for i := len(s.Options) - 1; i >= 0; i-- {
-		option := s.Options[i]
-		canonical := parse.CanonicalOptionName(option.Name)
-		def, ok := optionmeta.Lookup(canonical)
-		if !ok {
-			continue
-		}
-		hiddenTLS := def.Hidden && def.TLSRejectReason != ""
-		publicTLS := includePublic && def.PublicTLS
-		if !hiddenTLS && !publicTLS {
-			continue
-		}
-		return fmt.Errorf("%s: option %q does not apply to a plaintext transport", typ, option.OriginalSpelling())
+	name := settings.LastHiddenName
+	if includePublic {
+		name = settings.LastPlaintextName
 	}
-	return nil
+	if name == "" {
+		return nil
+	}
+	return fmt.Errorf("%s: option %q does not apply to a plaintext transport", typ, name)
 }
 
 // RejectHiddenTLSOnPlaintext fails when a hidden OpenSSL family is present on
 // a path that will not configure TLS. Call after the opener has chosen a
 // plaintext transport. Last-wins selects the spelling in the error.
-func RejectHiddenTLSOnPlaintext(s parse.Spec) error {
-	return rejectTLSNamesOnPlaintext(s, false)
+func RejectHiddenTLSOnPlaintext(typ string, settings addrconfig.TLS) error {
+	return rejectTLSNamesOnPlaintext(typ, settings, false)
 }
 
 // RejectPROXYTLSOnPlaintext fails when a hidden or public TLS family is present
 // on plaintext PROXY (HTTP/1 CONNECT or h2c). Call after HTTP-version / h2c
 // dispatch. Last-wins selects the spelling in the error.
-func RejectPROXYTLSOnPlaintext(s parse.Spec) error {
-	return rejectTLSNamesOnPlaintext(s, true)
+func RejectPROXYTLSOnPlaintext(typ string, settings addrconfig.TLS) error {
+	return rejectTLSNamesOnPlaintext(typ, settings, true)
 }
 
 func tlsClientConfigForContext(ctx context.Context, s parse.Spec, serverName string) (*tls.Config, error) {

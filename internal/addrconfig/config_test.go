@@ -460,3 +460,34 @@ func TestDecodeVSOCKBind(t *testing.T) {
 		t.Fatalf("vsock listen bind=%+v", got.Network.VSOCK)
 	}
 }
+
+func TestDecodeParentSignals(t *testing.T) {
+	got := decodeSpec(t, "EXEC:true,sighup,sigint,sighup")
+	want := []ParentSignal{ParentSignalHUP, ParentSignalINT, ParentSignalHUP}
+	if len(got.Process.ParentSignals) != len(want) {
+		t.Fatalf("signals=%v", got.Process.ParentSignals)
+	}
+	for i, sig := range want {
+		if got.Process.ParentSignals[i] != sig {
+			t.Fatalf("signals=%v want %v", got.Process.ParentSignals, want)
+		}
+	}
+	spec, err := parse.ParseSpec("EXEC:true,sighup=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Decode(spec, Facts{Type: "EXEC"})
+	if err == nil || !strings.Contains(err.Error(), "no value permitted") {
+		t.Fatalf("error=%v want no value permitted", err)
+	}
+}
+
+func TestDecodeTLSPlaintextLastWins(t *testing.T) {
+	got := decodeSpec(t, "PROXY:h:h:9,cert=x,fips=1,verify=0")
+	if got.TLS.LastHiddenName != "fips" {
+		t.Fatalf("hidden=%q", got.TLS.LastHiddenName)
+	}
+	if got.TLS.LastPlaintextName != "verify" {
+		t.Fatalf("plaintext=%q", got.TLS.LastPlaintextName)
+	}
+}

@@ -6,12 +6,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 	"syscall"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // liveSessions holds every per-logical-process signal table that currently
@@ -49,37 +48,17 @@ func sessionForLocked(g *Global) *childSignalSession {
 	return g.childSignals
 }
 
-func parentSignalName(o parse.Option) (syscall.Signal, bool) {
-	switch strings.ToLower(o.Name) {
-	case "sighup":
+func parentSignalSyscall(sig addrconfig.ParentSignal) (syscall.Signal, bool) {
+	switch sig {
+	case addrconfig.ParentSignalHUP:
 		return syscall.SIGHUP, true
-	case "sigint":
+	case addrconfig.ParentSignalINT:
 		return syscall.SIGINT, true
-	case "sigquit":
+	case addrconfig.ParentSignalQUIT:
 		return syscall.SIGQUIT, true
 	default:
 		return 0, false
 	}
-}
-
-func execParentSignalRequested(s parse.Spec) bool {
-	// Named lookups keep the option-table contract pointed at these spellings.
-	return s.HasOption("sighup") || s.HasOption("sigint") || s.HasOption("sigquit")
-}
-
-// validateExecParentSignals rejects any assignment, including sighup=0
-// ("no value permitted").
-func validateExecParentSignals(s parse.Spec) error {
-	_ = execParentSignalRequested(s)
-	for _, o := range s.Options {
-		if _, ok := parentSignalName(o); !ok {
-			continue
-		}
-		if o.Has {
-			return fmt.Errorf("%s: no value permitted", o.OriginalSpelling())
-		}
-	}
-	return nil
 }
 
 // registerExecParentSignals registers the child pid for each sighup/sigint/
@@ -87,23 +66,20 @@ func validateExecParentSignals(s parse.Spec) error {
 // `sighup` flags occupy two of the four slots. The four-slot limit is per
 // logical session (g's ForkSession copy). Register after Start so pid is
 // known; pid 0 would signal the process group. nofork still Wait()s.
-func registerExecParentSignals(s parse.Spec, cmd *exec.Cmd, g *Global) error {
-	if err := validateExecParentSignals(s); err != nil {
-		return err
-	}
-	if !execParentSignalRequested(s) {
+func registerExecParentSignals(config addrconfig.Address, cmd *exec.Cmd, g *Global) error {
+	if len(config.Process.ParentSignals) == 0 {
 		return nil
 	}
 	if cmd == nil || cmd.Process == nil {
 		return nil
 	}
 	pid := cmd.Process.Pid
-	for _, o := range s.Options {
-		sig, ok := parentSignalName(o)
+	for _, sig := range config.Process.ParentSignals {
+		ss, ok := parentSignalSyscall(sig)
 		if !ok {
 			continue
 		}
-		if err := registerChildSignalOn(g, pid, sig); err != nil {
+		if err := registerChildSignalOn(g, pid, ss); err != nil {
 			return err
 		}
 	}

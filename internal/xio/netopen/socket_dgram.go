@@ -74,11 +74,7 @@ func openSocketDgram(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 			return nil, fmt.Errorf("bind: %w", err)
 		}
 	}
-	if err := xio.ApplyGenericSetsockopt(fd, xio.WithoutGenericSetsockopt(s), xio.SockoptPhaseConnected); err != nil {
-		logx.CloseErr(unix.Close(fd))
-		return nil, err
-	}
-	if err := xio.ApplyPreparedGenericSetsockopt(fd, config, xio.SockoptPhaseConnected); err != nil {
+	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhaseConnected); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}

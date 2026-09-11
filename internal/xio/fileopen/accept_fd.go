@@ -30,11 +30,11 @@ func openAcceptFD(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Globa
 	}
 	// setsockopt-listen / ip-transparent apply before bind. ACCEPT-FD never
 	// bind()s, so reject those options rather than ignore them.
-	if err := xio.RejectGenericSetsockoptPhases(s, s.Type, xio.SockoptPhasePrebind); err != nil {
-		return nil, err
-	}
 	config, err := xio.OpeningConfig(ctx, s)
 	if err != nil {
+		return nil, err
+	}
+	if err := xio.RejectGenericSetsockoptPhases(config, config.Type, xio.SockoptPhasePrebind); err != nil {
 		return nil, err
 	}
 	if err := rejectAcceptFDTransparent(config); err != nil {

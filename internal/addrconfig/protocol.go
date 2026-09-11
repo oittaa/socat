@@ -11,19 +11,21 @@ import (
 
 // TLS holds static TLS settings. Certificate and CA paths remain live inputs.
 type TLS struct {
-	Certificate  OptionalString
-	Key          OptionalString
-	CAFile       OptionalString
-	CAPath       OptionalString
-	Verify       OptionalBool
-	CommonName   OptionalString
-	SNIHost      OptionalString
-	NoSNI        OptionalBool
-	CipherSuites []uint16
-	MinVersion   uint16
-	MaxVersion   uint16
-	ALPN         OptionalString
-	Unsupported  TLSUnsupported
+	Certificate       OptionalString
+	Key               OptionalString
+	CAFile            OptionalString
+	CAPath            OptionalString
+	Verify            OptionalBool
+	CommonName        OptionalString
+	SNIHost           OptionalString
+	NoSNI             OptionalBool
+	CipherSuites      []uint16
+	MinVersion        uint16
+	MaxVersion        uint16
+	ALPN              OptionalString
+	Unsupported       TLSUnsupported
+	LastHiddenName    string
+	LastPlaintextName string
 }
 
 // TLSUnsupported retains the final unsupported OpenSSL request for its
@@ -78,6 +80,7 @@ type WebSocket struct {
 
 func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 	name := optionIdentity(o)
+	recordTLSPlaintextName(a, o, name)
 	if def, ok := optionmeta.Lookup(name); ok && def.TLSRejectReason != "" {
 		if !compatibleDisabledTLSOption(name, o) {
 			a.TLS.Unsupported = TLSUnsupported{
@@ -208,6 +211,25 @@ func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+func recordTLSPlaintextName(a *Address, o parse.Option, name string) {
+	def, ok := optionmeta.Lookup(name)
+	if !ok {
+		return
+	}
+	spelling := o.OriginalSpelling()
+	if spelling == "" {
+		spelling = o.Name
+	}
+	if def.Hidden && def.TLSRejectReason != "" {
+		a.TLS.LastHiddenName = spelling
+		a.TLS.LastPlaintextName = spelling
+		return
+	}
+	if def.PublicTLS {
+		a.TLS.LastPlaintextName = spelling
+	}
 }
 
 func compatibleDisabledTLSOption(name string, o parse.Option) bool {

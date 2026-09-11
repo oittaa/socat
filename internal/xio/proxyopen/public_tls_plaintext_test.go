@@ -33,7 +33,7 @@ func TestPROXYHTTP1RejectsPublicTLSOptions(t *testing.T) {
 	defer cancel()
 	for _, opt := range []string{
 		"cert=x", "key=x", "cafile=x", "capath=x", "verify=0",
-		"commonname=h", "snihost=h", "nosni", "ciphers=RSA",
+		"commonname=h", "snihost=h", "nosni", "ciphers=ECDHE-RSA-AES128-GCM-SHA256",
 		"compress=none", "openssl-min-proto-version=TLS1.2",
 		"openssl-max-proto-version=TLS1.3", "alpn=h2",
 	} {

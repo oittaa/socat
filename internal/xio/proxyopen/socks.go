@@ -27,11 +27,11 @@ func openSOCKS4AConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 }
 
 func openSOCKS4(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, socks4a bool) (*xio.Opened, error) {
-	if err := tlsopen.RejectHiddenTLSOnPlaintext(s); err != nil {
-		return nil, err
-	}
 	config, err := xio.OpeningConfig(ctx, s)
 	if err != nil {
+		return nil, err
+	}
+	if err := tlsopen.RejectHiddenTLSOnPlaintext(config.Type, config.TLS); err != nil {
 		return nil, err
 	}
 	socksHost, socksPort, targetHost, targetPort, err := socksParams(s, config.Proxy)
@@ -173,11 +173,11 @@ func openSOCKS5Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 }
 
 func openSOCKS5(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, cmd byte) (*xio.Opened, error) {
-	if err := tlsopen.RejectHiddenTLSOnPlaintext(s); err != nil {
-		return nil, err
-	}
 	config, err := xio.OpeningConfig(ctx, s)
 	if err != nil {
+		return nil, err
+	}
+	if err := tlsopen.RejectHiddenTLSOnPlaintext(config.Type, config.TLS); err != nil {
 		return nil, err
 	}
 	socksHost, socksPort, targetHost, targetPort, err := socksParams(s, config.Proxy)

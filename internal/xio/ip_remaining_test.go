@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -21,7 +22,7 @@ func TestRejectUnsupportedGetOnlyIPv4(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = RejectUnsupportedRemainingIPv4(s)
+		err = RejectUnsupportedRemainingIPv4(mustDecodeAddress(t, s))
 		if err == nil || !strings.Contains(err.Error(), "get-only") {
 			t.Errorf("%s: err=%v want get-only", spec, err)
 		}
@@ -33,7 +34,7 @@ func TestGetOnlyIPv4DoesNotMatchMTUDiscover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := RejectUnsupportedRemainingIPv4(s); err != nil {
+	if err := RejectUnsupportedRemainingIPv4(mustDecodeAddress(t, s)); err != nil {
 		t.Fatalf("ip-mtu-discover: %v", err)
 	}
 }
@@ -45,9 +46,22 @@ func TestRejectUnsupportedGetOnlyRecognizesSpellings(t *testing.T) {
 		{Name: "other", Spelling: " IP-MTU "},
 	}
 	for _, o := range opts {
-		err := RejectUnsupportedRemainingIPv4(parse.Spec{Type: "TCP", Options: []parse.Option{o}})
+		err := RejectUnsupportedRemainingIPv4(mustDecodeAddress(t, parse.Spec{Type: "TCP", Options: []parse.Option{o}}))
 		if err == nil || !strings.Contains(err.Error(), "get-only") {
 			t.Errorf("%+v: err=%v want get-only", o, err)
 		}
 	}
+}
+
+func mustDecodeAddress(t *testing.T, spec parse.Spec) addrconfig.Address {
+	t.Helper()
+	prepared, err := PrepareSpec(spec)
+	if err == nil {
+		return prepared.Config
+	}
+	config, err2 := addrconfig.Decode(spec, addrconfig.Facts{Type: spec.Type})
+	if err2 != nil {
+		t.Fatal(err)
+	}
+	return config
 }
