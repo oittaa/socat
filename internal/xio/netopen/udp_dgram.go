@@ -196,7 +196,11 @@ type udpDatagramConn struct {
 }
 
 func newUDPDatagramConn(ctx context.Context, c *net.UDPConn, raddr *net.UDPAddr, s parse.Spec, g *xio.Global, exactPeer bool) (*udpDatagramConn, error) {
-	_, sourcePortFilter := s.OptionNamed("sourceport")
+	config, ok := xio.PreparedConfig(ctx)
+	if !ok {
+		return nil, fmt.Errorf("UDP: prepared configuration is required")
+	}
+	sourcePortFilter := config.Network.Peer.SourcePortSet
 	filter, err := xio.NewPeerFilter(ctx, specWithoutSourceport(s), g)
 	if err != nil {
 		return nil, err
