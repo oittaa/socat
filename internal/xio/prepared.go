@@ -51,20 +51,6 @@ func PreparedConfig(ctx context.Context) (addrconfig.Address, bool) {
 	return config, ok
 }
 
-// OpeningConfig returns the prepared settings for this resource attempt.
-// Production openers carry the value on ctx; tests that call helpers
-// directly decode the spec without a second textual fallback.
-func OpeningConfig(ctx context.Context, spec parse.Spec) (addrconfig.Address, error) {
-	if config, ok := PreparedConfig(ctx); ok {
-		return config, nil
-	}
-	prepared, err := PrepareSpec(spec)
-	if err == nil {
-		return prepared.Config, nil
-	}
-	return addrconfig.Decode(spec, addrconfig.Facts{Type: spec.Type})
-}
-
 // IsDual reports whether the prepared channel contains two addresses.
 func (c PreparedChannel) IsDual() bool { return c.Dual != nil }
 

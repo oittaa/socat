@@ -1,7 +1,6 @@
 package quicopen
 
 import (
-	"context"
 	"testing"
 
 	"github.com/oittaa/socat/internal/addrconfig"
@@ -11,9 +10,16 @@ import (
 
 func mustAddr(t testing.TB, spec parse.Spec) addrconfig.Address {
 	t.Helper()
-	config, err := xio.OpeningConfig(context.Background(), spec)
+	if spec.Type == "" {
+		config, err := addrconfig.Decode(spec, addrconfig.Facts{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return config
+	}
+	prepared, err := xio.PrepareSpec(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return config
+	return prepared.Config
 }

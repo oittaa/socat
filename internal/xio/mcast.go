@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
 
@@ -196,13 +195,14 @@ func joinMulticastFD(fd int, join membershipJoin) error {
 	return setIPv6MembershipFD(fd, parsed.group, idx)
 }
 
-func applyMulticastNamedFD(fd int, kind multicastNamedKind, name string, o parse.Option) error {
-	switch kind {
-	case multicastNamedIf:
-		if !o.Has || strings.TrimSpace(o.Value) == "" {
+func applyMulticastNamedFD(fd int, name string, req addrconfig.MulticastRequest) error {
+	switch req.Kind {
+	case addrconfig.MulticastInterfaceIPv4:
+		host := formatMcastHost(req.InterfaceAddr)
+		if strings.TrimSpace(host) == "" {
 			return fmt.Errorf("%s: expected IPv4 hostname or address", name)
 		}
-		addr, err := resolveMcastIPv4Address(o.Value)
+		addr, err := resolveMcastIPv4Address(host)
 		if err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
@@ -212,26 +212,16 @@ func applyMulticastNamedFD(fd int, kind multicastNamedKind, name string, o parse
 			return fmt.Errorf("%s: %w", name, err)
 		}
 		return nil
-	case multicastNamedLoop, multicastNamedTTL:
-		max := 255
-		if kind == multicastNamedLoop {
-			// ip-multicast-loop[=<bool>] is 0/1; ip-multicast-ttl remains
-			// the full byte option.
-			max = 1
-		}
-		n, err := classicFlagInt(o, max)
-		if err != nil {
-			return fmt.Errorf("%s: %w", name, err)
-		}
+	case addrconfig.MulticastLoopIPv4, addrconfig.MulticastTTLIPv4:
 		opt := unix.IP_MULTICAST_LOOP
-		if kind == multicastNamedTTL {
+		if req.Kind == addrconfig.MulticastTTLIPv4 {
 			opt = unix.IP_MULTICAST_TTL
 		}
-		if err := setSockoptByte(fd, unix.IPPROTO_IP, opt, byte(n)); err != nil { // #nosec G115 -- classicFlagInt max 255
+		if err := setSockoptByte(fd, unix.IPPROTO_IP, opt, byte(req.Value)); err != nil { // #nosec G115 -- decoder bounds multicast loop/ttl
 			return fmt.Errorf("%s: %w", name, err)
 		}
 		return nil
-	case multicastNamedIPv6Loop:
+	case addrconfig.MulticastLoopIPv6:
 		family, err := socketIPFamily(fd)
 		if err != nil {
 			return err
@@ -239,12 +229,7 @@ func applyMulticastNamedFD(fd int, kind multicastNamedKind, name string, o parse
 		if family == ipFamilyV4 {
 			return fmt.Errorf("%s: not supported on IPv4", name)
 		}
-		// ipv6-multicast-loop[=<bool>] is 0/1.
-		n, err := classicFlagInt(o, 1)
-		if err != nil {
-			return fmt.Errorf("%s: %w", name, err)
-		}
-		if err := setSockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_MULTICAST_LOOP, n); err != nil {
+		if err := setSockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_MULTICAST_LOOP, req.Value); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
 		return nil
@@ -337,26 +322,22 @@ func applyPreparedMulticast(fd int, req addrconfig.MulticastRequest) error {
 		if name == "" {
 			name = "ip-multicast-if"
 		}
-		return applyMulticastNamedFD(fd, multicastNamedIf, name, parse.Option{
-			Name:  name,
-			Value: formatMcastHost(req.InterfaceAddr),
-			Has:   true,
-		})
+		return applyMulticastNamedFD(fd, name, req)
 	case addrconfig.MulticastLoopIPv4:
 		if name == "" {
 			name = "ip-multicast-loop"
 		}
-		return applyMulticastNamedFD(fd, multicastNamedLoop, name, multicastIntOption(name, req.Value))
+		return applyMulticastNamedFD(fd, name, req)
 	case addrconfig.MulticastTTLIPv4:
 		if name == "" {
 			name = "ip-multicast-ttl"
 		}
-		return applyMulticastNamedFD(fd, multicastNamedTTL, name, multicastIntOption(name, req.Value))
+		return applyMulticastNamedFD(fd, name, req)
 	case addrconfig.MulticastLoopIPv6:
 		if name == "" {
 			name = "ipv6-multicast-loop"
 		}
-		return applyMulticastNamedFD(fd, multicastNamedIPv6Loop, name, multicastIntOption(name, req.Value))
+		return applyMulticastNamedFD(fd, name, req)
 	default:
 		return fmt.Errorf("%s: internal error", name)
 	}
@@ -374,10 +355,6 @@ func applyPreparedSourceMulticast(fd int, req addrconfig.SourceMulticastRequest)
 		name = "ip-add-source-membership"
 	}
 	return applySourceMembershipFD(fd, family, name, formatMcastHost(req.Group)+":"+formatMcastHost(req.Interface)+":"+formatMcastHost(req.Source))
-}
-
-func multicastIntOption(name string, n int) parse.Option {
-	return parse.Option{Name: name, Value: strconv.Itoa(n), Has: true}
 }
 
 func multicastJoinSpec(req addrconfig.MulticastRequest) string {

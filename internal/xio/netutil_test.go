@@ -118,7 +118,7 @@ func TestRecvTimeoutFromSpecRejectsJunk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := OpeningConfig(t.Context(), bad); err == nil {
+	if _, err := decodeAddress(bad); err == nil {
 		t.Fatal("expected rcvtimeo parse error")
 	}
 }
@@ -128,7 +128,7 @@ func TestBindHostAndDualStackFromPreparedConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := OpeningConfig(t.Context(), s)
+	config, err := decodeAddress(s)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestBindHostAndDualStackFromPreparedConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err = OpeningConfig(t.Context(), s)
+	config, err = decodeAddress(s)
 	if err != nil {
 		t.Fatal(err)
 	}

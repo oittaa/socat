@@ -1,7 +1,6 @@
 package netopen
 
 import (
-	"context"
 	"testing"
 
 	"github.com/oittaa/socat/internal/addrconfig"
@@ -10,7 +9,14 @@ import (
 )
 
 func tryAddr(spec parse.Spec) (addrconfig.Address, error) {
-	return xio.OpeningConfig(context.Background(), spec)
+	if spec.Type == "" {
+		return addrconfig.Decode(spec, addrconfig.Facts{})
+	}
+	prepared, err := xio.PrepareSpec(spec)
+	if err != nil {
+		return addrconfig.Address{}, err
+	}
+	return prepared.Config, nil
 }
 
 func mustAddr(t testing.TB, spec parse.Spec) addrconfig.Address {

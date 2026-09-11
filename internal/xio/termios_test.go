@@ -132,7 +132,7 @@ func TestApplyTermiosSetFlagsAndOrder(t *testing.T) {
 	}
 }
 
-func TestValidateTermiosOptionClassicIntegerDiagnostics(t *testing.T) {
+func TestDecodeTermiosIntegerDiagnostics(t *testing.T) {
 	for _, tc := range []struct {
 		value string
 		want  string
@@ -140,12 +140,20 @@ func TestValidateTermiosOptionClassicIntegerDiagnostics(t *testing.T) {
 		{value: "b19200", want: "missing numerical value"},
 		{value: "19200B", want: "trailing garbage"},
 	} {
-		err := ValidateTermiosOption(parse.Option{Name: "ispeed", Value: tc.value, Has: true})
+		spec, err := parse.ParseSpec("PTY,ispeed=" + tc.value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = addrconfig.Decode(spec, addrconfig.Facts{Type: "PTY"})
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Fatalf("ispeed=%q: err=%v want %q", tc.value, err, tc.want)
 		}
 	}
-	if err := ValidateTermiosOption(parse.Option{Name: "ispeed", Value: "0x2580", Has: true}); err != nil {
+	spec, err := parse.ParseSpec("PTY,ispeed=0x2580")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := addrconfig.Decode(spec, addrconfig.Facts{Type: "PTY"}); err != nil {
 		t.Fatalf("base-0 ispeed: %v", err)
 	}
 }
@@ -166,7 +174,7 @@ func TestApplyTermiosCatalogAliases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !s.BoolOption("hupcl") || !s.BoolOption("ixoff") {
+	if len(s.Options) != 2 || s.Options[0].Name != "hupcl" || s.Options[1].Name != "ixoff" {
 		t.Fatalf("hup/tandem did not fold: options=%v", s.Options)
 	}
 }

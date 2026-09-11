@@ -57,10 +57,7 @@ func TestParseIffOpts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := xio.OpeningConfig(t.Context(), s)
-	if err != nil {
-		t.Fatal(err)
-	}
+	config := mustAddr(t, s)
 	if config.Network.TUN.InterfaceSet&unix.IFF_UP == 0 {
 		t.Fatal("iff-up not set")
 	}

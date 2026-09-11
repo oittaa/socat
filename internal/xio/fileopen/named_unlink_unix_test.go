@@ -272,14 +272,9 @@ func TestUIDEAndGIDEAliases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.OptionValue("user-early", "") != "1000" {
-		t.Fatalf("uid-e did not parse as user-early: %v", s.Options)
-	}
-	if s.OptionValue("group-early", "") != "100" {
-		t.Fatalf("gid-e did not parse as group-early: %v", s.Options)
-	}
-	if len(s.Options) != 2 || s.Options[0].Name != "user-early" || s.Options[1].Name != "group-early" {
-		t.Fatalf("stored names=%v", s.Options)
+	if len(s.Options) != 2 || s.Options[0].Name != "user-early" || s.Options[0].Value != "1000" ||
+		s.Options[1].Name != "group-early" || s.Options[1].Value != "100" {
+		t.Fatalf("uid-e/gid-e did not fold: %v", s.Options)
 	}
 }
 

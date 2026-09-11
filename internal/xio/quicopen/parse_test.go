@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestQUICTargetConnect(t *testing.T) {
@@ -63,10 +62,7 @@ func TestALPNDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := xio.OpeningConfig(t.Context(), s)
-	if err != nil {
-		t.Fatal(err)
-	}
+	config := mustAddr(t, s)
 	if alpnProto(config.TLS) != defaultALPN {
 		t.Fatalf("alpn=%q", alpnProto(config.TLS))
 	}
@@ -77,10 +73,7 @@ func TestALPNOption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := xio.OpeningConfig(t.Context(), s)
-	if err != nil {
-		t.Fatal(err)
-	}
+	config := mustAddr(t, s)
 	if alpnProto(config.TLS) != "foo" {
 		t.Fatalf("alpn=%q", alpnProto(config.TLS))
 	}

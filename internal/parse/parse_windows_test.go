@@ -21,7 +21,7 @@ func TestParseWindowsRelativeCertOption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := s.OptionValue("cert", ""); got != cert {
+	if got := optionValue(s, "cert", ""); got != cert {
 		t.Fatalf("cert %q", got)
 	}
 }

@@ -1,7 +1,6 @@
 package xio
 
 import (
-	"context"
 	"testing"
 
 	"github.com/oittaa/socat/internal/optionmeta"
@@ -13,7 +12,7 @@ func TestHasFDLifecycleOptionsIoctl(t *testing.T) {
 		"TCP:localhost:1,ioctl=1",
 		"OPEN:file,ioctl-string=1:x",
 	} {
-		config, err := OpeningConfig(context.Background(), mustSpec(t, raw))
+		config, err := decodeAddress(mustSpec(t, raw))
 		if err != nil {
 			t.Fatal(err)
 		}

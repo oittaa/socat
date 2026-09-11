@@ -32,7 +32,7 @@ func TestApplySocketOptionsBindToDeviceIfAliasLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.OptionValue("bindtodevice", "") != "lo" {
+	if len(spec.Options) != 1 || spec.Options[0].Name != "bindtodevice" || spec.Options[0].Value != "lo" {
 		t.Fatalf("if= did not canonicalize to bindtodevice: %#v", spec.Options)
 	}
 	err = ApplySocketOptions(fd, mustDecodeAddress(t, spec))
@@ -53,7 +53,7 @@ func TestApplySocketOptionsBindToDeviceInterfaceAliasLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.OptionValue("bindtodevice", "") != "lo" {
+	if len(spec.Options) != 1 || spec.Options[0].Name != "bindtodevice" || spec.Options[0].Value != "lo" {
 		t.Fatalf("interface= did not canonicalize to bindtodevice: %#v", spec.Options)
 	}
 	err = ApplySocketOptions(fd, mustDecodeAddress(t, spec))

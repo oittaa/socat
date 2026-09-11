@@ -1,7 +1,6 @@
 package xio
 
 import (
-	"context"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -18,7 +17,7 @@ func mustSpec(t *testing.T, raw string) parse.Spec {
 
 func TestHasFDLifecycleOptionsCloexec(t *testing.T) {
 	for _, raw := range []string{"FD:3,cloexec", "FD:3,cloexec=0", "TCP:localhost:1,cloexec=1", "OPEN:file,cloexec"} {
-		config, err := OpeningConfig(context.Background(), mustSpec(t, raw))
+		config, err := decodeAddress(mustSpec(t, raw))
 		if err != nil {
 			t.Fatal(err)
 		}

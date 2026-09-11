@@ -3,16 +3,12 @@
 package xio
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"math/bits"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
 
@@ -47,11 +43,6 @@ type termiosValue struct {
 	word  termiosWord
 	mask  termiosBits
 	shift uint
-}
-
-type termiosSetFlags struct {
-	word  int
-	flags termiosBits
 }
 
 // Flags we honor. Advertise only these.
@@ -136,8 +127,6 @@ var termiosCharAliases = []string{
 var termiosFlagAliases = []string{
 	"crterase", "crtkill", "ctlecho", "hup", "prterase", "tandem",
 }
-
-var termiosCombos = []string{"sane", "rawer", "raw", "cfmakeraw"}
 
 type baudOption struct {
 	name string
@@ -272,24 +261,6 @@ func lookupTermiosValue(name string) (termiosValue, bool) {
 	return termiosValue{}, false
 }
 
-func lookupBaud(name string) (uint32, bool) {
-	for _, b := range baudOptions() {
-		if b.name == name {
-			return b.baud, true
-		}
-	}
-	return 0, false
-}
-
-func isTermiosCombo(name string) bool {
-	for _, c := range termiosCombos {
-		if c == name {
-			return true
-		}
-	}
-	return false
-}
-
 func setFlag(t *unix.Termios, word termiosWord, mask termiosBits, on bool) {
 	switch word {
 	case wordI:
@@ -334,165 +305,6 @@ func setPattern(t *unix.Termios, word termiosWord, field, value termiosBits) {
 		t.Lflag &^= field
 		t.Lflag |= value
 	}
-}
-
-func parseTermiosBool(o parse.Option) (bool, error) {
-	if !o.Has {
-		return true, nil
-	}
-	switch strings.TrimSpace(o.Value) {
-	case "0":
-		return false, nil
-	case "1":
-		return true, nil
-	default:
-		return false, fmt.Errorf("%s: boolean value must be 0 or 1", o.Name)
-	}
-}
-
-func parseTermiosByte(name string, o parse.Option) (byte, error) {
-	// The man page documents every control character as name=<byte>. A bare
-	// flag is rejected here. Overflow clamps to 255.
-	v := strings.TrimSpace(o.Value)
-	if !o.Has || v == "" {
-		return 0, fmt.Errorf("%s: value required", name)
-	}
-	n, err := strconv.ParseUint(v, 0, 8)
-	if err == nil {
-		return byte(n), nil
-	}
-	if errors.Is(err, strconv.ErrRange) {
-		return 255, nil
-	}
-	return 0, fmt.Errorf("%s: invalid byte value %q", name, v)
-}
-
-func parseTermiosUint(name string, o parse.Option) (uint32, error) {
-	v := strings.TrimSpace(o.Value)
-	if !o.Has || v == "" {
-		return 0, fmt.Errorf("option %q: missing numerical value", name)
-	}
-	n, err := strconv.ParseUint(v, 0, 32)
-	if err != nil {
-		// Distinguish a value with no numeric prefix from a valid prefix
-		// followed by junk (different diagnostics).
-		for i := len(v) - 1; i > 0; i-- {
-			if _, prefixErr := strconv.ParseUint(v[:i], 0, 32); prefixErr == nil {
-				return 0, fmt.Errorf("option %q: trailing garbage %q", name, v[i:])
-			}
-		}
-		if v[0] < '0' || v[0] > '9' {
-			return 0, fmt.Errorf("option %q: missing numerical value", name)
-		}
-		return 0, fmt.Errorf("%s: invalid unsigned value %q", name, v)
-	}
-	return uint32(n), nil
-}
-
-func parseTermiosField(o parse.Option, field termiosValue) (termiosBits, error) {
-	n, err := parseTermiosUint(field.name, o)
-	if err != nil {
-		return 0, err
-	}
-	shifted64 := uint64(n) << field.shift
-	if shifted64 > uint64(^termiosBits(0)) || shifted64&^uint64(field.mask) != 0 {
-		return 0, fmt.Errorf("%s: invalid value %d", field.name, n)
-	}
-	shifted := termiosBits(shifted64)
-	return shifted, nil
-}
-
-func parseTermiosSetFlags(o parse.Option) (termiosSetFlags, error) {
-	v := strings.TrimSpace(o.Value)
-	if !o.Has || v == "" {
-		return termiosSetFlags{}, fmt.Errorf("%s: WORD:FLAGS value required", o.Name)
-	}
-	parts := strings.Split(v, ":")
-	if len(parts) != 2 {
-		return termiosSetFlags{}, fmt.Errorf("%s: expected WORD:FLAGS", o.Name)
-	}
-	word, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 0, 32)
-	if err != nil || word < 0 || word > 3 {
-		return termiosSetFlags{}, fmt.Errorf("%s: word must be 0..3", o.Name)
-	}
-	// Parse flags at host unsigned-long width, then truncate to tcflag_t when
-	// the termios word is narrower.
-	flags64, err := strconv.ParseUint(strings.TrimSpace(parts[1]), 0, strconv.IntSize)
-	if err != nil {
-		return termiosSetFlags{}, fmt.Errorf("%s: invalid flags %q", o.Name, strings.TrimSpace(parts[1]))
-	}
-	flags := termiosBits(flags64) // #nosec G115 -- unsigned-long to tcflag_t truncation.
-	return termiosSetFlags{word: int(word), flags: flags}, nil
-}
-
-func validateTermiosConst(o parse.Option) error {
-	if o.Has {
-		return fmt.Errorf("%s: no value permitted", o.Name)
-	}
-	return nil
-}
-
-// ValidateTermiosOption enforces the documented option type. Non-termios
-// options are ignored.
-func ValidateTermiosOption(o parse.Option) error {
-	name := parse.CanonicalOptionName(o.Name)
-	if isTermiosCombo(name) {
-		return validateTermiosConst(o)
-	}
-	if f, ok := lookupTermiosFlag(name); ok {
-		if f.clr != 0 {
-			return validateTermiosConst(o)
-		}
-		_, err := parseTermiosBool(o)
-		return err
-	}
-	if _, ok := lookupTermiosChar(name); ok {
-		_, err := parseTermiosByte(name, o)
-		return err
-	}
-	if _, ok := lookupBaud(name); ok {
-		return validateTermiosConst(o)
-	}
-	if name == "ispeed" || name == "ospeed" {
-		_, err := parseTermiosUint(name, o)
-		return err
-	}
-	if field, ok := lookupTermiosValue(name); ok {
-		_, err := parseTermiosField(o, field)
-		return err
-	}
-	if name == "termios-setflags" {
-		_, err := parseTermiosSetFlags(o)
-		return err
-	}
-	if name == "tiocswinsz" {
-		if !o.Has || strings.TrimSpace(o.Value) == "" {
-			return fmt.Errorf("%s: COL:ROW value required", o.Name)
-		}
-		_, _, err := parseWinsz(o.Value)
-		return err
-	}
-	if name == "ctty" {
-		_, err := parseTermiosBool(o)
-		return err
-	}
-	return nil
-}
-
-func parseWinsz(v string) (uint16, uint16, error) {
-	parts := strings.Split(v, ":")
-	if len(parts) != 2 {
-		return 0, 0, fmt.Errorf("tiocswinsz requires COL:ROW")
-	}
-	col, err := strconv.Atoi(strings.TrimSpace(parts[0]))
-	if err != nil {
-		return 0, 0, fmt.Errorf("tiocswinsz col: %w", err)
-	}
-	row, err := strconv.Atoi(strings.TrimSpace(parts[1]))
-	if err != nil {
-		return 0, 0, fmt.Errorf("tiocswinsz row: %w", err)
-	}
-	return uint16(min(max(col, 0), math.MaxUint16)), uint16(min(max(row, 0), math.MaxUint16)), nil
 }
 
 func applyCombo(t *unix.Termios, name string) {
