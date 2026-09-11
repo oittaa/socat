@@ -1,9 +1,11 @@
 package xio
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -254,8 +256,19 @@ func recvErrSpelling(name string) (string, bool) {
 
 // NeedRecvErr reports whether the spec enables IP_RECVERR (Linux).
 func NeedRecvErr(s parse.Spec) bool {
-	n, ok, err := ancillaryRecvInt(s, "ip-recverr")
-	return ok && err == nil && n != 0
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return false
+	}
+	var n int
+	var set bool
+	for _, action := range config.Network.Actions {
+		if action.Kind == addrconfig.SocketActionRecvErr && action.Text == "ip-recverr" {
+			n = action.Number
+			set = true
+		}
+	}
+	return set && n != 0
 }
 
 // RejectUnsupportedRecvErr fails fast for ipv6-recverr everywhere and for

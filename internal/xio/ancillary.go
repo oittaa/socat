@@ -15,8 +15,7 @@ import (
 )
 
 // NeedAncillary reports whether the address requests control messages on recv.
-// Recv flags use BoolOption: pktinfo=0 does not enable ReadMsg; presence
-// or =1 does.
+// A last-wins zero value (pktinfo=0) does not enable ReadMsg.
 func NeedAncillary(s parse.Spec) bool {
 	return ancillaryRecvRequested(s)
 }
