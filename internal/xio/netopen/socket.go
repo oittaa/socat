@@ -73,7 +73,7 @@ func dialRawSocket(ctx context.Context, call socketCall, sa rawSockaddr, s parse
 	if err != nil {
 		return nil, fmt.Errorf("socket: %w", err)
 	}
-	if err := applySocketOpts(fd, s); err != nil {
+	if err := applySocketOpts(fd, s, config); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
@@ -92,7 +92,11 @@ func dialRawSocket(ctx context.Context, call socketCall, sa rawSockaddr, s parse
 		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("connect: %w", err)
 	}
-	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhaseConnected); err != nil {
+	if err := xio.ApplyGenericSetsockopt(fd, xio.WithoutGenericSetsockopt(s), xio.SockoptPhaseConnected); err != nil {
+		logx.CloseErr(unix.Close(fd))
+		return nil, err
+	}
+	if err := xio.ApplyPreparedGenericSetsockopt(fd, config, xio.SockoptPhaseConnected); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
@@ -201,7 +205,7 @@ func openSocketListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Glob
 		_ = unix.Close(fd)
 		return nil, err
 	}
-	if err := applySocketOpts(fd, s); err != nil {
+	if err := applySocketOpts(fd, s, config); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}

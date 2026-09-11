@@ -7,6 +7,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -23,6 +24,53 @@ const (
 	SockoptPhasePastSocket
 	SockoptPhaseConnected
 )
+
+// ApplyPreparedGenericSetsockopt applies decoded generic socket actions in
+// their original order without reparsing a level, option, or payload.
+func ApplyPreparedGenericSetsockopt(fd int, config addrconfig.Address, phase SockoptPhase) error {
+	for _, action := range config.Network.Actions {
+		if action.Kind != addrconfig.SocketActionGeneric || !preparedSocketPhaseMatches(action.Phase, phase) {
+			continue
+		}
+		if action.Value.IsInt {
+			if err := setSockoptInt(fd, action.Number, action.Option, action.Value.Int); err != nil {
+				return fmt.Errorf("setsockopt: %w", err)
+			}
+			continue
+		}
+		if err := setSockoptBytes(fd, action.Number, action.Option, action.Value.Bytes); err != nil {
+			return fmt.Errorf("setsockopt: %w", err)
+		}
+	}
+	return nil
+}
+
+func preparedSocketPhaseMatches(action addrconfig.SocketPhase, phase SockoptPhase) bool {
+	switch phase {
+	case SockoptPhasePrebind:
+		return action == addrconfig.SocketPhasePrebind
+	case SockoptPhasePastSocket:
+		return action == addrconfig.SocketPhasePastSocket
+	case SockoptPhaseConnected:
+		return action == addrconfig.SocketPhaseConnected
+	default:
+		return false
+	}
+}
+
+// WithoutGenericSetsockopt leaves non-generic actions for their existing
+// owners after generic values have been decoded into addrconfig.
+func WithoutGenericSetsockopt(s parse.Spec) parse.Spec {
+	out := s
+	out.Options = make([]parse.Option, 0, len(s.Options))
+	for _, option := range s.Options {
+		if _, _, ok := genericSetsockoptDescriptor(option.Name); ok {
+			continue
+		}
+		out.Options = append(out.Options, option)
+	}
+	return out
+}
 
 type sockoptValueKind int
 
