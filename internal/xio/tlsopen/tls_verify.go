@@ -8,30 +8,8 @@ import (
 	"net"
 	"strings"
 
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
-
-func verifyEnabled(s parse.Spec) bool {
-	// Default verify=1; verify=0 disables peer verification.
-	// Bare "verify" without a value is true.
-	if !s.HasOption("verify") {
-		return true
-	}
-	return s.BoolOption("verify")
-}
-
-// commonNameOption returns openssl-commonname / commonname when the option
-// is present with an explicit value, including the empty string.
-// Unset checks the dial host; empty commonname= skips the name check;
-// commonname=foo checks foo. verify=1 still checks trust.
-func commonNameOption(s parse.Spec) (name string, set bool) {
-	o, ok := s.OptionNamed("commonname")
-	if !ok || !o.Has {
-		return "", false
-	}
-	return o.Value, true
-}
 
 // attachPeerVerify sets both VerifyPeerCertificate and VerifyConnection.
 // crypto/tls skips VerifyPeerCertificate on session resume; VerifyConnection

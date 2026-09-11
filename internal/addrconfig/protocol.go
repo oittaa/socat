@@ -77,9 +77,8 @@ func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 	case "capath":
 		return true, decodeProtocolString(&a.TLS.CAPath, o)
 	case "verify":
-		value, err := optionalBool(o)
-		a.TLS.Verify = value
-		return true, err
+		a.TLS.Verify = activeBool(o)
+		return true, nil
 	case "commonname":
 		if !o.Has {
 			return true, nil
@@ -93,13 +92,13 @@ func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 		a.TLS.SNIHost = OptionalString{Set: true, Value: o.Value}
 		return true, nil
 	case "nosni":
-		value, err := optionalBool(o)
-		a.TLS.NoSNI = value
-		return true, err
+		a.TLS.NoSNI = activeBool(o)
+		return true, nil
 	case "ciphers":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
+		value := strings.TrimSpace(optionText(o))
+		if value == "" {
+			a.TLS.CipherSuites = nil
+			return true, nil
 		}
 		suites, err := decodeCipherSuites(value)
 		if err != nil {
@@ -112,10 +111,7 @@ func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 	case "openssl-max-proto-version":
 		return true, decodeProtocolVersion(a, o, false)
 	case "alpn":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
+		value := optionText(o)
 		if len(value) > 255 {
 			return true, fmt.Errorf("alpn: protocol must contain 1 to 255 bytes")
 		}
@@ -150,17 +146,14 @@ func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 		a.Proxy.HTTPVersion = version
 		return true, nil
 	case "h2c":
-		value, err := optionalBool(o)
-		a.Proxy.H2C = value
-		return true, err
+		a.Proxy.H2C = activeBool(o)
+		return true, nil
 	case "ignorecr":
-		value, err := optionalBool(o)
-		a.Proxy.IgnoreCR = value
-		return true, err
+		a.Proxy.IgnoreCR = activeBool(o)
+		return true, nil
 	case "proxy-resolve":
-		value, err := optionalBool(o)
-		a.Proxy.Resolve = value
-		return true, err
+		a.Proxy.Resolve = activeBool(o)
+		return true, nil
 	case "proxy-authorization":
 		if !o.Has {
 			return true, nil
@@ -184,36 +177,23 @@ func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 		a.Proxy.SOCKSPassword = OptionalString{Set: true, Value: o.Value}
 		return true, nil
 	case "path":
-		if !o.Has {
-			return true, nil
-		}
-		a.WebSocket.Path = OptionalString{Set: true, Value: o.Value}
+		a.WebSocket.Path = OptionalString{Set: true, Value: optionText(o)}
 		return true, nil
 	case "origin":
-		if !o.Has {
-			return true, nil
-		}
-		a.WebSocket.Origin = OptionalString{Set: true, Value: o.Value}
+		a.WebSocket.Origin = OptionalString{Set: true, Value: optionText(o)}
 		return true, nil
 	case "protocol":
 		if a.Network.Kind == AddressKindSocket || a.Network.Kind == AddressKindVSOCK {
 			return false, nil
 		}
-		if !o.Has {
-			return true, nil
-		}
-		a.WebSocket.Protocol = OptionalString{Set: true, Value: o.Value}
+		a.WebSocket.Protocol = OptionalString{Set: true, Value: optionText(o)}
 		return true, nil
 	}
 	return false, nil
 }
 
 func decodeProtocolString(dst *OptionalString, o parse.Option) error {
-	value, err := requiredString(o)
-	if err != nil {
-		return err
-	}
-	*dst = OptionalString{Set: true, Value: value}
+	*dst = OptionalString{Set: true, Value: optionText(o)}
 	return nil
 }
 

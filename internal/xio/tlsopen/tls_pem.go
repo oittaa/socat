@@ -85,8 +85,10 @@ func splitCertKeyPEM(data []byte) (certPEM, keyPEM []byte) {
 }
 
 func loadCAPool(s parse.Spec) (*x509.CertPool, error) {
-	cafile := s.OptionValue("cafile", "")
-	capath := s.OptionValue("capath", "")
+	return loadCAPoolPaths(s.OptionValue("cafile", ""), s.OptionValue("capath", ""))
+}
+
+func loadCAPoolPaths(cafile, capath string) (*x509.CertPool, error) {
 	if cafile == "" && capath == "" {
 		return nil, nil
 	}
@@ -112,9 +114,8 @@ func loadCAPool(s parse.Spec) (*x509.CertPool, error) {
 	return pool, nil
 }
 
-// loadVerifyRoots is the trust store for verify=1: cafile/capath, else the system pool.
-func loadVerifyRoots(s parse.Spec) (*x509.CertPool, error) {
-	pool, err := loadCAPool(s)
+func loadVerifyRootsForPaths(cafile, capath string) (*x509.CertPool, error) {
+	pool, err := loadCAPoolPaths(cafile, capath)
 	if err != nil {
 		return nil, err
 	}
