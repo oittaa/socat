@@ -16,7 +16,6 @@ import (
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
 )
@@ -215,9 +214,7 @@ func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f 
 		Listener:       ln,
 		Label:          s.Type,
 		MaxChildren:    maxChildren,
-		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			return xio.WrapOpened(s, relay.NetStream{Conn: c})
-		},
+		WrapDial:       xio.DefaultWrapOpened(s),
 	}, nil
 }
 
@@ -712,59 +709,18 @@ func (l *socketRecvfromListener) Accept() (net.Conn, error) {
 			}
 			continue
 		}
-		session := &xio.Global{}
-		if l.g != nil {
-			session.Log = l.g.Log
-			session.Progname = l.g.Progname
-		}
+		session := l.g.ForkSession()
 		rememberSocketPeer(session, from, local)
-		return &socketPacketConn{
-			f:       l.f,
-			peer:    cloneSockaddr(from),
-			first:   newFirstPacket(append([]byte(nil), buf[:n]...)),
-			local:   local,
-			remote:  packetAddrFromSockaddr(from),
-			env:     session.SessionVars,
-			writeMu: &l.writeMu,
-		}, nil
+		peer := cloneSockaddr(from)
+		return newOneshotForkConn(
+			append([]byte(nil), buf[:n]...),
+			local,
+			packetAddrFromSockaddr(from),
+			session,
+			&l.writeMu,
+			l.f.SetWriteDeadline,
+			func(p []byte) (int, error) { return sendtoFileSock(l.f, p, peer) },
+			nil,
+		), nil
 	}
-}
-
-type socketPacketConn struct {
-	f       *os.File
-	peer    unix.Sockaddr
-	first   firstPacket
-	local   net.Addr
-	remote  net.Addr
-	env     map[string]string
-	writeMu *sync.Mutex
-	writeDL sharedWriteDeadline
-}
-
-func (c *socketPacketConn) SessionEnvironment() map[string]string { return c.env }
-
-func (c *socketPacketConn) Read(p []byte) (int, error) {
-	if first, ok := c.first.take(); ok {
-		return copyOneshotFirst(p, first)
-	}
-	return 0, io.EOF
-}
-
-func (c *socketPacketConn) Write(p []byte) (int, error) {
-	return writeSharedPacket(c.writeMu, c.writeDL.get(), c.f.SetWriteDeadline, func() (int, error) {
-		return sendtoFileSock(c.f, p, c.peer)
-	})
-}
-
-func (c *socketPacketConn) Close() error { return nil }
-
-func (c *socketPacketConn) LocalAddr() net.Addr  { return c.local }
-func (c *socketPacketConn) RemoteAddr() net.Addr { return c.remote }
-func (c *socketPacketConn) SetDeadline(t time.Time) error {
-	return c.SetWriteDeadline(t)
-}
-func (c *socketPacketConn) SetReadDeadline(time.Time) error { return nil }
-func (c *socketPacketConn) SetWriteDeadline(t time.Time) error {
-	c.writeDL.set(t)
-	return nil
 }

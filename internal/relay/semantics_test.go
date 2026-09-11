@@ -15,6 +15,16 @@ func (*semanticProbe) IOSemantics() IOSemantics           { return MessageIO }
 func (p *semanticProbe) ConfigureReadPeer(k IOSemantics)  { p.readPeer = k }
 func (p *semanticProbe) ConfigureWritePeer(k IOSemantics) { p.writePeer = k }
 func (p *semanticProbe) UnwrapStream() Stream             { return p.Stream }
+func (p *semanticProbe) StreamProps() Props {
+	inner := NoProps()
+	if p.Stream != nil {
+		inner = p.Stream.StreamProps()
+	}
+	inner.ReadIO, inner.WriteIO = MessageIO, MessageIO
+	inner.ConfigureRead = p.ConfigureReadPeer
+	inner.ConfigureWrite = p.ConfigureWritePeer
+	return WithoutZeroCopy(inner)
+}
 
 func TestConfigureStreamPairUsesDirectionalCapabilities(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "source")
@@ -50,6 +60,6 @@ func TestAdaptationStopsZeroCopy(t *testing.T) {
 		t.Fatal("zero-copy bypasses adapter")
 	}
 	if StreamReadFD(p) < 0 {
-		t.Fatal("ordinary capability traversal lost the descriptor")
+		t.Fatal("ordinary StreamProps lost the descriptor")
 	}
 }

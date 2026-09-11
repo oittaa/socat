@@ -3,6 +3,7 @@ package netopen
 import (
 	"errors"
 	"io"
+	"net"
 	"sync"
 	"time"
 
@@ -81,10 +82,106 @@ func writeSharedPacket(
 		mu.Lock()
 		defer mu.Unlock()
 	}
-	if err := setDeadline(deadline); err != nil {
-		return 0, err
+	if setDeadline != nil {
+		if err := setDeadline(deadline); err != nil {
+			return 0, err
+		}
 	}
 	n, writeErr := write()
-	clearErr := setDeadline(time.Time{})
+	var clearErr error
+	if setDeadline != nil {
+		clearErr = setDeadline(time.Time{})
+	}
 	return n, errors.Join(writeErr, clearErr)
+}
+
+func writeToUDPWithFallback(c *net.UDPConn, p []byte, peer *net.UDPAddr) (int, error) {
+	n, err := c.WriteToUDP(p, peer)
+	if err == nil {
+		return n, nil
+	}
+	if n2, err2 := c.Write(p); err2 == nil {
+		return n2, nil
+	}
+	return n, err
+}
+
+// oneshotForkConn is one *-RECVFROM,fork child: deliver the opener, then EOF.
+// Replies use the parent listen socket; Close does not close it.
+type oneshotForkConn struct {
+	first            firstPacket
+	local, remote    net.Addr
+	env              map[string]string
+	g                *xio.Global
+	writeMu          *sync.Mutex
+	writeDL          sharedWriteDeadline
+	setWriteDeadline func(time.Time) error
+	writeTo          func([]byte) (int, error)
+	drain            func(error)
+}
+
+func newOneshotForkConn(
+	data []byte,
+	local, remote net.Addr,
+	session *xio.Global,
+	writeMu *sync.Mutex,
+	setWriteDeadline func(time.Time) error,
+	writeTo func([]byte) (int, error),
+	drain func(error),
+) *oneshotForkConn {
+	var env map[string]string
+	if session != nil {
+		env = session.SessionVarsSnapshot()
+	}
+	return &oneshotForkConn{
+		first:            newFirstPacket(data),
+		local:            local,
+		remote:           remote,
+		env:              env,
+		g:                session,
+		writeMu:          writeMu,
+		setWriteDeadline: setWriteDeadline,
+		writeTo:          writeTo,
+		drain:            drain,
+	}
+}
+
+func (c *oneshotForkConn) SessionEnvironment() map[string]string {
+	if c.g != nil {
+		return c.g.SessionVarsSnapshot()
+	}
+	return c.env
+}
+
+func (c *oneshotForkConn) Read(p []byte) (int, error) {
+	if first, ok := c.first.take(); ok {
+		return copyOneshotFirst(p, first)
+	}
+	return 0, io.EOF
+}
+
+func (c *oneshotForkConn) Write(p []byte) (int, error) {
+	if c.writeTo == nil {
+		return 0, net.ErrClosed
+	}
+	n, err := writeSharedPacket(c.writeMu, c.writeDL.get(), c.setWriteDeadline, func() (int, error) {
+		return c.writeTo(p)
+	})
+	if c.drain != nil {
+		c.drain(err)
+	}
+	return n, err
+}
+
+func (c *oneshotForkConn) Close() error { return nil }
+
+func (c *oneshotForkConn) LocalAddr() net.Addr  { return c.local }
+func (c *oneshotForkConn) RemoteAddr() net.Addr { return c.remote }
+func (c *oneshotForkConn) SetDeadline(t time.Time) error {
+	return c.SetWriteDeadline(t)
+}
+func (c *oneshotForkConn) SetReadDeadline(time.Time) error { return nil }
+func (c *oneshotForkConn) SetWriteDeadline(t time.Time) error {
+	c.writeDL.set(t)
+	return nil
 }

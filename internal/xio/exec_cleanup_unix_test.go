@@ -5,6 +5,7 @@ package xio
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -115,5 +116,32 @@ func TestFinishExecEndCloseZeroKillsChild(t *testing.T) {
 		return !processAlive(pid), nil
 	}); err != nil {
 		t.Fatal("end-close=0 should kill like a normal EXEC close")
+	}
+}
+
+func TestExecChildCancelRelease(t *testing.T) {
+	run := func(canceled bool) (killed bool, err error) {
+		ctx, cancel := context.WithCancel(context.Background())
+		if canceled {
+			cancel()
+		} else {
+			defer cancel()
+		}
+		c := &execChild{cmd: exec.Command("true")}
+		c.cmd.Cancel = func() error {
+			killed = true
+			return nil
+		}
+		c.armCancel(ctx)
+		c.releaseCancel()
+		return killed, c.cmd.Cancel()
+	}
+	killed, err := run(false)
+	if killed || err != os.ErrProcessDone {
+		t.Fatalf("end-close: killed=%v err=%v", killed, err)
+	}
+	killed, err = run(true)
+	if !killed || err != nil {
+		t.Fatalf("in-flight: killed=%v err=%v", killed, err)
 	}
 }

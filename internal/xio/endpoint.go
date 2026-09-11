@@ -26,12 +26,18 @@ type acceptResult struct {
 	err  error
 }
 
-// AcceptWithTimeout accepts one connection and aborts the listener when the
-// timeout expires. Closing is intentional: accept-timeout terminates the
-// listen address, and it also makes the timeout work for wrapped listeners
-// such as TLS and QUIC that do not expose SetDeadline.
+// AcceptWithTimeout accepts one connection and closes the listener when the
+// timeout expires or ctx is done. Closing is intentional: accept-timeout
+// terminates the listen address, and it also makes the wait work for wrapped
+// listeners such as TLS and QUIC that do not expose SetDeadline.
 func AcceptWithTimeout(ctx context.Context, ln net.Listener, timeout time.Duration) (net.Conn, error) {
-	if timeout <= 0 {
+	return acceptUntil(ctx, ln, timeout, func() { _ = ln.Close() })
+}
+
+// acceptUntil waits for ln.Accept. timeout>0 starts a timer; a non-nil
+// ctx.Done is always watched. abort unblocks Accept (typically Close).
+func acceptUntil(ctx context.Context, ln net.Listener, timeout time.Duration, abort func()) (net.Conn, error) {
+	if timeout <= 0 && (ctx == nil || ctx.Done() == nil) {
 		return ln.Accept()
 	}
 	result := make(chan acceptResult, 1)
@@ -39,26 +45,38 @@ func AcceptWithTimeout(ctx context.Context, ln net.Listener, timeout time.Durati
 		conn, err := ln.Accept()
 		result <- acceptResult{conn: conn, err: err}
 	}()
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
+	var timerC <-chan time.Time
+	if timeout > 0 {
+		timer := time.NewTimer(timeout)
+		defer timer.Stop()
+		timerC = timer.C
+	}
+	var ctxDone <-chan struct{}
+	if ctx != nil {
+		ctxDone = ctx.Done()
+	}
 	select {
 	case accepted := <-result:
 		return accepted.conn, accepted.err
-	case <-ctx.Done():
-		_ = ln.Close()
-		accepted := <-result
-		if accepted.conn != nil {
-			_ = accepted.conn.Close()
+	case <-ctxDone:
+		if abort != nil {
+			abort()
 		}
-		return nil, ctx.Err()
-	case <-timer.C:
-		_ = ln.Close()
-		accepted := <-result
-		if accepted.conn != nil {
-			_ = accepted.conn.Close()
+		return drainAccept(result, ctx.Err())
+	case <-timerC:
+		if abort != nil {
+			abort()
 		}
-		return nil, ErrAcceptTimeout
+		return drainAccept(result, ErrAcceptTimeout)
 	}
+}
+
+func drainAccept(result <-chan acceptResult, err error) (net.Conn, error) {
+	accepted := <-result
+	if accepted.conn != nil {
+		_ = accepted.conn.Close()
+	}
+	return nil, err
 }
 
 // Mode indicates how an address is used.
@@ -82,10 +100,9 @@ const (
 	IPvAny // -0
 )
 
-// globalOptions is parsed process configuration. forkSession copies it by
-// value, then clones Log so children do not share logger mutables.
+// globalOptions is parsed process configuration. It is immutable after
+// buildGlobal. ForkSession copies it by value.
 type globalOptions struct {
-	Log          *logx.Logger
 	IPVersion    IPVersion
 	BlockSize    int
 	Linger       time.Duration
@@ -97,7 +114,6 @@ type globalOptions struct {
 	Dump         io.Writer
 	DumpFDs      bool      // -D: filan-style dump of channel descriptors
 	DumpFDOut    io.Writer // defaults to stderr; independent of -l* destinations
-	LogMixed     bool      // -lm: stderr until both endpoints are ready
 	LogFacility  string    // syslog facility for -ly/-lm
 	Statistics   bool
 	Experimental bool // --experimental (netns= warning)
@@ -108,7 +124,7 @@ type globalOptions struct {
 }
 
 // sessionPeer is per-connection identity for SOCAT_* env and sniff paths.
-// forkSession clones the maps; RememberAddrs overwrites the address strings.
+// ForkSession clones the maps; RememberAddrs overwrites the address strings.
 type sessionPeer struct {
 	SockAddr string
 	PeerAddr string
@@ -129,15 +145,16 @@ type childResult struct {
 	ChildErr      error
 }
 
-// sniffFiles are -r/-R dumps. forkSession copies the pointers; openSniffFiles
+// sniffFiles are -r/-R dumps. ForkSession copies the pointers; openSniffFiles
 // then closes and reopens so parent and child do not share an *os.File.
 type sniffFiles struct {
 	RawLeft  *os.File
 	RawRight *os.File
 }
 
-// sessionRuntime is per-logical-session flags that are not parsed options.
-// forkSession sets ForkChild and starts with a nil signal table.
+// sessionRuntime is per-logical-session state that is not parsed options.
+// ForkSession sets ForkChild, clones Log, copies LogMixed, and starts with a
+// nil signal table.
 type sessionRuntime struct {
 	// ForkChild is set on LISTEN/CONNECT,fork session goroutines. FD,end-close
 	// then closes only the per-session duplicate, like a fork child's copy of
@@ -145,6 +162,8 @@ type sessionRuntime struct {
 	ForkChild bool
 	// childSignals is this logical session's four-slot signal table.
 	childSignals *childSignalSession
+	Log          *logx.Logger
+	LogMixed     bool // -lm: stderr until both endpoints are ready
 }
 
 // Global is parsed options plus the current logical session's runtime state.
@@ -159,41 +178,51 @@ type Global struct {
 	// Pointer, never an embedded atomic.Bool, so copies cannot copy a lock.
 	statsPrinted *atomic.Bool
 	// sessionMu guards SessionVars. Each session CAS-installs its own mutex;
-	// forkSession must not copy this field.
+	// ForkSession must not copy this field.
 	sessionMu atomic.Pointer[sync.Mutex]
 }
 
-// forkSession returns a per-connection copy of g.
+// ForkSession returns a per-connection session derived from g.
 //
-// Copy: options, peer address strings, child wait status, sniff file pointers.
+// Copy: options, peer address strings, child wait status, sniff file pointers, LogMixed.
 // Clone: Log, TLSVars, SessionVars (so SOCAT_* env does not race).
 // Share: statsPrinted.
 // Reset: ForkChild=true, childSignals=nil, sessionMu unset (child installs one).
 // Passing *g without a copy is not safe: RememberAddrs writes peer fields.
-func (g *Global) forkSession() *Global {
+func (g *Global) ForkSession() *Global {
 	if g == nil {
 		return &Global{sessionRuntime: sessionRuntime{ForkChild: true}, statsPrinted: new(atomic.Bool)}
 	}
 	unlock := g.lockSession()
 	vars := cloneStringMap(g.SessionVars)
-	cg := Global{
-		globalOptions:  g.globalOptions,
-		sessionPeer:    g.sessionPeer,
-		childResult:    g.childResult,
-		sniffFiles:     g.sniffFiles,
-		sessionRuntime: sessionRuntime{ForkChild: true},
-		statsPrinted:   g.statsPrinted,
-	}
 	unlock()
+	var log *logx.Logger
 	if g.Log != nil {
-		cg.Log = g.Log.Clone()
+		log = g.Log.Clone()
 	}
-	cg.TLSVars = cloneStringMap(g.TLSVars)
-	cg.SessionVars = vars
-	if cg.statsPrinted == nil {
-		cg.statsPrinted = new(atomic.Bool)
+	stats := g.statsPrinted
+	if stats == nil {
+		stats = new(atomic.Bool)
 	}
-	return &cg
+	return &Global{
+		globalOptions: g.globalOptions,
+		sessionPeer: sessionPeer{
+			SockAddr:    g.SockAddr,
+			PeerAddr:    g.PeerAddr,
+			SockPort:    g.SockPort,
+			PeerPort:    g.PeerPort,
+			TLSVars:     cloneStringMap(g.TLSVars),
+			SessionVars: vars,
+		},
+		childResult: g.childResult,
+		sniffFiles:  g.sniffFiles,
+		sessionRuntime: sessionRuntime{
+			ForkChild: true,
+			Log:       log,
+			LogMixed:  g.LogMixed,
+		},
+		statsPrinted: stats,
+	}
 }
 
 func cloneStringMap(src map[string]string) map[string]string {
@@ -232,81 +261,54 @@ func (g *Global) ensureStatsFlag() {
 	}
 }
 
-// OpenedKind says how Run uses an Opened. One Opened, not a wrapper hierarchy:
-// Kind selects which embedded group is live.
+// OpenedKind says how Run uses an Opened. Kind selects which fields are live.
 type OpenedKind int
 
 const (
-	// KindReady: transfer I/O is already open (readyIO).
+	// KindReady: transfer I/O is already open (Stream / Read / Write).
 	KindReady OpenedKind = iota
-	// KindListen: bound listener; Run accepts in a fork loop (listenLoop).
+	// KindListen: bound listener; Run accepts in a fork loop.
 	KindListen
-	// KindDial: repeated-connect parent; Run dials in a fork loop (dialLoop).
+	// KindDial: repeated-connect parent; Run dials in a fork loop.
 	KindDial
 	// KindExec: EXEC/SYSTEM,nofork; Run starts the process after the peer is open.
 	KindExec
 )
 
-// ListenKind is KindListen when fork is set, else KindReady.
-func ListenKind(fork bool) OpenedKind {
-	if fork {
-		return KindListen
-	}
-	return KindReady
-}
+// Opened is a live address endpoint. Kind selects the mode; callers still use
+// the field names (o.Stream, o.Listener, o.Dial, ...).
+type Opened struct {
+	Kind  OpenedKind
+	Label string
 
-// readyIO is payload I/O for KindReady, including dual read/write halves.
-// Listen/dial parents leave these nil until a child wraps a conn.
-type readyIO struct {
+	// Ready I/O. Listen/dial parents leave these nil until a child wraps a conn.
 	Stream relay.Stream
 	Read   relay.Stream
 	Write  relay.Stream
-}
 
-// listenLoop is the KindListen parent: bound socket and accept-loop knobs.
-// Listener is nil after a non-fork accept hands the conn to readyIO.
-type listenLoop struct {
+	// KindListen: bound socket and accept-loop knobs.
 	Listener       net.Listener
 	ForkSocketpair bool // datagram sessions bridged through a socketpair
 	PeerFilter     func(net.Conn) error
 	AcceptTimeout  time.Duration
-}
 
-// dialLoop is the KindDial parent: repeated connect until cancel.
-type dialLoop struct {
-	// Dial completes the full open, including TLS/SOCKS/HTTP handshake.
+	// KindDial: repeated connect until cancel. Dial includes TLS/SOCKS/HTTP handshake.
 	Dial     func(ctx context.Context) (net.Conn, error)
 	Interval time.Duration
-}
 
-// forkLoop is shared by listen and dial parents.
-type forkLoop struct {
+	// Listen and dial parents.
 	MaxChildren    int
 	ChildrenShutup int // demote child diagnostics; parent/siblings unchanged
 	// WrapDial wraps each accepted or dialed conn (crlf, escape, ...). Optional.
 	WrapDial         func(net.Conn) (relay.Stream, error)
 	HandshakeTimeout time.Duration
-}
 
-// endpointClose is exactly-once teardown. Order: tty restore (fd still open),
-// ready stream, listener, then Cleanup hooks.
-type endpointClose struct {
+	// Exactly-once teardown. Order: tty restore (fd still open), Stream, Listener, Cleanup.
 	Cleanup    []func()
 	ttyRestore []func()
 	closeOnce  sync.Once
 	closeErr   error
-}
 
-// Opened is a live address endpoint. Kind selects the mode; callers still use
-// the promoted field names (o.Stream, o.Listener, o.Dial, ...).
-type Opened struct {
-	Kind  OpenedKind
-	Label string
-	readyIO
-	listenLoop
-	dialLoop
-	forkLoop
-	endpointClose
 	// NoForkSpec is KindExec: EXEC/SYSTEM,nofork started in Run with the peer FD as stdio.
 	NoForkSpec *parse.Spec
 	// childDone closes when an EXEC/SYSTEM/SHELL child exits. Fork loops with

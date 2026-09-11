@@ -212,8 +212,8 @@ func commandForExecSpec(ctx context.Context, s parse.Spec) (*exec.Cmd, error) {
 
 // childWaitExitCode maps cmd.Wait to a process exit status. Go's
 // exec.ExitError.ExitCode is -1 when the child was signaled; POSIX shells
-// report 128+signum. Forked EXEC still skips those statuses in finishExec
-// so a PTY-master SIGHUP does not become EXEC_RC.
+// report 128+signum. Forked EXEC still skips those statuses on close so a
+// PTY-master SIGHUP does not become EXEC_RC.
 func childWaitExitCode(err error) (int, bool) {
 	if err == nil {
 		return 0, true
@@ -270,7 +270,8 @@ func rejectUnusedExecPastSocketOptions(s parse.Spec) error {
 }
 
 // execChild is one EXEC/SYSTEM/SHELL start after argv exists.
-// Forked: prepare → open transport FDs → Start → drop child-side FDs → finishExec.
+// It owns the command, CommandContext cancel disarm, and Wait/reap.
+// Forked: prepare → open transport FDs → Start → drop child-side FDs → finish.
 // nofork: prepare → attach peer as stdio → Start → drop ExtraFiles → Wait.
 type execChild struct {
 	spec       parse.Spec
@@ -282,6 +283,8 @@ type execChild struct {
 	fdRedirect bool
 	usePipes   bool
 	usePty     bool
+	cancel     *execContextCancel // armed at start; stays until the owner is dropped
+	wait       *execWaitState
 }
 
 func newExecChild(s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*execChild, error) {
@@ -384,7 +387,7 @@ func (c *execChild) prepareForked(ctx context.Context) error {
 
 func (c *execChild) startAndDropChildFDs(ctx context.Context, cleanup []func(), childFiles []*os.File) error {
 	// Only FDs 0/1/2 may remain in the child.
-	if err := startWithChildUmask(ctx, c.spec, c.cmd, c.g); err != nil {
+	if err := c.start(ctx); err != nil {
 		for _, f := range cleanup {
 			f()
 		}
@@ -401,7 +404,7 @@ func (c *execChild) startAndDropChildFDs(ctx context.Context, cleanup []func(), 
 
 func (c *execChild) startForked(ctx context.Context) (*Opened, error) {
 	if c.usePty {
-		return startCmdPty(ctx, c.spec, c.mode, c.g, c.cmd, c.fdRedirect)
+		return c.startPty(ctx)
 	}
 
 	// Child stderr inherits socat's stderr unless option stderr redirects it
@@ -430,7 +433,7 @@ func (c *execChild) startForked(ctx context.Context) (*Opened, error) {
 	if err := c.startAndDropChildFDs(ctx, cleanup, childFiles); err != nil {
 		return nil, err
 	}
-	return finishExec(c.spec, c.g, c.cmd, stream, cleanup, c.mode == ModeWrite, nil)
+	return c.finish(stream, cleanup, c.mode == ModeWrite, nil)
 }
 
 func startCmd(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
@@ -682,51 +685,47 @@ func execSocketpairParentStream(mode Mode, parent *os.File, stype int) relay.Str
 	}
 }
 
-// startWithChildUmask applies umask= around cmd.Start and marks FDs ≥3
-// CLOEXEC so EXEC children inherit only 0/1/2 plus explicitly mapped fdi/fdo
-// descriptors, then registers sighup/sigint/sigquit after pid is known.
-func startWithChildUmask(ctx context.Context, s parse.Spec, cmd *exec.Cmd, g *Global) error {
-	if err := validateExecParentSignals(s); err != nil {
+// start applies umask= around cmd.Start and marks FDs ≥3 CLOEXEC so EXEC
+// children inherit only 0/1/2 plus explicitly mapped fdi/fdo descriptors,
+// then registers sighup/sigint/sigquit after pid is known.
+func (c *execChild) start(ctx context.Context) error {
+	if err := validateExecParentSignals(c.spec); err != nil {
 		return err
 	}
-	armExecContextCancel(ctx, cmd)
+	c.armCancel(ctx)
 	// Mark ALL FDs ≥3 CLOEXEC (including the socketpair/pipe/PTY ends passed
 	// as Stdin/Stdout). Go's fork/exec dup2's them to 0/1/2 first, then closes
 	// CLOEXEC descriptors, so the high-numbered originals are not leaked.
 	setCloexecAllFrom(3)
 	var startErr error
-	if err := WithUmask(s, func() error {
-		startErr = cmd.Start()
+	if err := WithUmask(c.spec, func() error {
+		startErr = c.cmd.Start()
 		return nil
 	}); err != nil {
-		forgetExecContextCancel(cmd)
 		return err
 	}
 	if startErr != nil {
-		forgetExecContextCancel(cmd)
 		return startErr
 	}
-	if err := registerExecParentSignals(s, cmd, g); err != nil {
-		killWaitUnregisterChild(cmd)
+	if err := registerExecParentSignals(c.spec, c.cmd, c.g); err != nil {
+		c.killWait()
 		return err
 	}
 	return nil
 }
 
-// killWaitUnregisterChild reaps a started EXEC child and drops signal
-// registrations. Post-Start failures (PTY master lifecycle, SetupStream, too
-// many pids) must not leave the pid in the four-slot tables: a later
-// LISTEN,fork child can reuse the number and receive a stale kill.
-func killWaitUnregisterChild(cmd *exec.Cmd) {
-	if cmd == nil || cmd.Process == nil {
-		forgetExecContextCancel(cmd)
+// killWait reaps a started EXEC child and drops signal registrations. Post-Start
+// failures (PTY master lifecycle, SetupStream, too many pids) must not leave
+// the pid in the four-slot tables: a later LISTEN,fork child can reuse the
+// number and receive a stale kill.
+func (c *execChild) killWait() {
+	if c == nil || c.cmd == nil || c.cmd.Process == nil {
 		return
 	}
-	pid := cmd.Process.Pid
-	_ = cmd.Process.Kill()
-	_, _ = cmd.Process.Wait()
+	pid := c.cmd.Process.Pid
+	_ = c.cmd.Process.Kill()
+	_, _ = c.cmd.Process.Wait()
 	unregisterChildSignals(pid)
-	forgetExecContextCancel(cmd)
 }
 
 // execContextCancel disarms CommandContext's kill after end-close cleanup.
@@ -737,8 +736,6 @@ type execContextCancel struct {
 	mu       sync.Mutex
 	released bool
 }
-
-var execContextCancels sync.Map // *exec.Cmd -> *execContextCancel
 
 func contextCanceled(ctx context.Context) bool {
 	if ctx == nil {
@@ -752,13 +749,13 @@ func contextCanceled(ctx context.Context) bool {
 	}
 }
 
-func armExecContextCancel(ctx context.Context, cmd *exec.Cmd) {
-	if cmd == nil || cmd.Cancel == nil {
+func (c *execChild) armCancel(ctx context.Context) {
+	if c == nil || c.cmd == nil || c.cmd.Cancel == nil {
 		return
 	}
 	ctl := &execContextCancel{ctx: ctx}
-	prev := cmd.Cancel
-	cmd.Cancel = func() error {
+	prev := c.cmd.Cancel
+	c.cmd.Cancel = func() error {
 		ctl.mu.Lock()
 		defer ctl.mu.Unlock()
 		if ctl.released {
@@ -766,18 +763,14 @@ func armExecContextCancel(ctx context.Context, cmd *exec.Cmd) {
 		}
 		return prev()
 	}
-	execContextCancels.Store(cmd, ctl)
+	c.cancel = ctl
 }
 
-func releaseExecContextCancel(cmd *exec.Cmd) {
-	if cmd == nil {
+func (c *execChild) releaseCancel() {
+	if c == nil || c.cancel == nil {
 		return
 	}
-	v, ok := execContextCancels.Load(cmd)
-	if !ok {
-		return
-	}
-	ctl := v.(*execContextCancel)
+	ctl := c.cancel
 	ctl.mu.Lock()
 	defer ctl.mu.Unlock()
 	// cancel() marks ctx done before CommandContext's callback runs. If that
@@ -788,12 +781,6 @@ func releaseExecContextCancel(cmd *exec.Cmd) {
 	ctl.released = true
 	if contextCanceled(ctl.ctx) {
 		ctl.released = false
-	}
-}
-
-func forgetExecContextCancel(cmd *exec.Cmd) {
-	if cmd != nil {
-		execContextCancels.Delete(cmd)
 	}
 }
 
@@ -830,19 +817,18 @@ type execWaitState struct {
 	exitCode int
 }
 
-func watchExecWait(cmd *exec.Cmd, done chan struct{}) *execWaitState {
+func (c *execChild) watchWait(done chan struct{}) *execWaitState {
 	pid := 0
-	if cmd != nil && cmd.Process != nil {
-		pid = cmd.Process.Pid
+	if c.cmd != nil && c.cmd.Process != nil {
+		pid = c.cmd.Process.Pid
 	}
 	w := &execWaitState{done: done}
 	if w.done == nil {
 		w.done = make(chan struct{})
 	}
 	go func() {
-		err := cmd.Wait()
+		err := c.cmd.Wait()
 		unregisterChildSignals(pid)
-		forgetExecContextCancel(cmd)
 		w.mu.Lock()
 		w.waitErr = err
 		if err == nil {
@@ -855,6 +841,7 @@ func watchExecWait(cmd *exec.Cmd, done chan struct{}) *execWaitState {
 		w.mu.Unlock()
 		close(w.done)
 	}()
+	c.wait = w
 	return w
 }
 
@@ -874,10 +861,14 @@ func (w *execWaitState) recordExit(g *Global) {
 	}
 }
 
-func (w *execWaitState) closeAfterTransfer(s parse.Spec, g *Global, cmd *exec.Cmd, waitChild bool, linger time.Duration, endClose bool) {
+func (c *execChild) closeAfterTransfer(waitChild bool, linger time.Duration, endClose bool) {
+	w := c.wait
+	if w == nil {
+		return
+	}
 	if endClose {
 		// Keep Wait reaping, but do not let later ctx cancel SIGKILL.
-		releaseExecContextCancel(cmd)
+		c.releaseCancel()
 		select {
 		case <-w.done:
 		default:
@@ -888,7 +879,7 @@ func (w *execWaitState) closeAfterTransfer(s parse.Spec, g *Global, cmd *exec.Cm
 		if waitChild {
 			waitFor = time.Second
 		}
-		if execUsesPTY(s) {
+		if execUsesPTY(c.spec) {
 			waitFor = linger + time.Second
 		}
 		t := time.NewTimer(waitFor)
@@ -896,37 +887,37 @@ func (w *execWaitState) closeAfterTransfer(s parse.Spec, g *Global, cmd *exec.Cm
 		case <-w.done:
 			t.Stop()
 		case <-t.C:
-			_ = cmd.Process.Kill()
+			_ = c.cmd.Process.Kill()
 			<-w.done
 		}
 	}
-	w.recordExit(g)
+	w.recordExit(c.g)
 }
 
-func finishExec(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func(), waitChild bool, done chan struct{}) (*Opened, error) {
-	return finishExecStream(s, g, cmd, stream, cleanup, waitChild, done, SetupStream)
+func (c *execChild) finish(stream relay.Stream, cleanup []func(), waitChild bool, done chan struct{}) (*Opened, error) {
+	return c.finishStream(stream, cleanup, waitChild, done, SetupStream)
 }
 
-func finishExecAfterFD(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func(), waitChild bool, done chan struct{}) (*Opened, error) {
-	return finishExecStream(s, g, cmd, stream, cleanup, waitChild, done, WrapAfterFD)
+func (c *execChild) finishAfterFD(stream relay.Stream, cleanup []func(), waitChild bool, done chan struct{}) (*Opened, error) {
+	return c.finishStream(stream, cleanup, waitChild, done, WrapAfterFD)
 }
 
-func finishExecStream(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Stream, cleanup []func(), waitChild bool, done chan struct{}, wrap func(parse.Spec, relay.Stream) (relay.Stream, error)) (*Opened, error) {
-	st, err := wrap(s, stream)
+func (c *execChild) finishStream(stream relay.Stream, cleanup []func(), waitChild bool, done chan struct{}, wrap func(parse.Spec, relay.Stream) (relay.Stream, error)) (*Opened, error) {
+	st, err := wrap(c.spec, stream)
 	if err != nil {
-		killWaitUnregisterChild(cmd)
+		c.killWait()
 		for _, f := range cleanup {
 			f()
 		}
 		return nil, err
 	}
 
-	w := watchExecWait(cmd, done)
+	w := c.watchWait(done)
 	linger := 500 * time.Millisecond
-	if g != nil && g.Linger > 0 {
-		linger = g.Linger
+	if c.g != nil && c.g.Linger > 0 {
+		linger = c.g.Linger
 	}
-	endClose := s.BoolOption("end-close")
+	endClose := c.spec.BoolOption("end-close")
 	o := &Opened{
 		Stream:    st,
 		Label:     "EXEC",
@@ -935,7 +926,7 @@ func finishExecStream(s parse.Spec, g *Global, cmd *exec.Cmd, stream relay.Strea
 	for _, f := range cleanup {
 		o.AddCleanup(f)
 	}
-	o.AddCleanup(func() { w.closeAfterTransfer(s, g, cmd, waitChild, linger, endClose) })
+	o.AddCleanup(func() { c.closeAfterTransfer(waitChild, linger, endClose) })
 	return o, nil
 }
 

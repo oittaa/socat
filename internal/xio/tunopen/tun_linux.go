@@ -141,6 +141,7 @@ type tunStream struct {
 }
 
 func (*tunStream) IOSemantics() relay.IOSemantics { return relay.MessageIO }
+func (t *tunStream) StreamProps() relay.Props     { return relay.Inspect(t) }
 
 func (t *tunStream) Read(p []byte) (int, error) {
 	for {
@@ -477,6 +478,7 @@ type packetRawStream struct {
 }
 
 func (*packetRawStream) IOSemantics() relay.IOSemantics { return relay.MessageIO }
+func (p *packetRawStream) StreamProps() relay.Props     { return relay.Inspect(p) }
 
 func (p *packetRawStream) Read(b []byte) (int, error) {
 	for {

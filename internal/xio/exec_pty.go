@@ -86,33 +86,33 @@ func closeExecPTY(master, slave *os.File) {
 	logx.CloseQuiet(slave)
 }
 
-// startCmdPtyFDRedirect keeps the PTY slave as ExtraFiles fd 3 and lets the
+// startPtyFDRedirect keeps the PTY slave as ExtraFiles fd 3 and lets the
 // descriptor mapper duplicate it onto fdi/fdo. fdin/fdout do not select pipes.
-func startCmdPtyFDRedirect(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd) (*Opened, error) {
-	master, slave, unlink, err := openExecPTYPair(cmd, s, g)
+func (c *execChild) startPtyFDRedirect(ctx context.Context) (*Opened, error) {
+	master, slave, unlink, err := openExecPTYPair(c.cmd, c.spec, c.g)
 	if err != nil {
 		return nil, err
 	}
-	cmd.ExtraFiles = []*os.File{slave}
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	c.cmd.ExtraFiles = []*os.File{slave}
+	c.cmd.Stdin = os.Stdin
+	c.cmd.Stdout = os.Stdout
+	c.cmd.Stderr = os.Stderr
+	if c.cmd.SysProcAttr == nil {
+		c.cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
-	cmd.SysProcAttr.Ctty = 3
-	if err := startWithChildUmask(ctx, s, cmd, g); err != nil {
+	c.cmd.SysProcAttr.Ctty = 3
+	if err := c.start(ctx); err != nil {
 		if unlink != nil {
 			unlink()
 		}
 		closeExecPTY(master, slave)
 		return nil, err
 	}
-	if mode == ModeWrite {
+	if c.mode == ModeWrite {
 		logx.CloseQuiet(slave)
 	}
-	if err := applyPtyMasterLifecycle(s, master); err != nil {
-		killWaitUnregisterChild(cmd)
+	if err := applyPtyMasterLifecycle(c.spec, master); err != nil {
+		c.killWait()
 		if unlink != nil {
 			unlink()
 		}
@@ -123,7 +123,7 @@ func startCmdPtyFDRedirect(ctx context.Context, s parse.Spec, mode Mode, g *Glob
 	waitChild := false
 	var done chan struct{}
 	var closeSlave func()
-	switch mode {
+	switch c.mode {
 	case ModeWrite:
 		w := &halfCloseWriter{w: master}
 		stream = relay.FDStream{
@@ -135,9 +135,9 @@ func startCmdPtyFDRedirect(ctx context.Context, s parse.Spec, mode Mode, g *Glob
 		waitChild = true
 	case ModeRead:
 		done = make(chan struct{})
-		r, closeHeldSlave, rerr := execPTYMasterReader(master, slave, s, done)
+		r, closeHeldSlave, rerr := execPTYMasterReader(master, slave, c.spec, done)
 		if rerr != nil {
-			killWaitUnregisterChild(cmd)
+			c.killWait()
 			if unlink != nil {
 				unlink()
 			}
@@ -153,9 +153,9 @@ func startCmdPtyFDRedirect(ctx context.Context, s parse.Spec, mode Mode, g *Glob
 		}
 	default:
 		done = make(chan struct{})
-		r, closeHeldSlave, rerr := execPTYMasterReader(master, slave, s, done)
+		r, closeHeldSlave, rerr := execPTYMasterReader(master, slave, c.spec, done)
 		if rerr != nil {
-			killWaitUnregisterChild(cmd)
+			c.killWait()
 			if unlink != nil {
 				unlink()
 			}
@@ -165,10 +165,10 @@ func startCmdPtyFDRedirect(ctx context.Context, s parse.Spec, mode Mode, g *Glob
 		closeSlave = closeHeldSlave
 		stream = ptyExecStream(master, r)
 	}
-	return finishExecAfterFD(s, g, cmd, stream, execPtyCleanup(master, unlink, closeSlave), waitChild, done)
+	return c.finishAfterFD(stream, execPtyCleanup(master, unlink, closeSlave), waitChild, done)
 }
 
-// startCmdPty runs the child with a pseudo-terminal.
+// startPty runs the child with a pseudo-terminal.
 //
 // Unidirectional dual forms inherit the unused stdio of the socat process:
 //
@@ -176,29 +176,29 @@ func startCmdPtyFDRedirect(ctx context.Context, s parse.Spec, mode Mode, g *Glob
 //	ModeRead  (EXEC,pty!!-): child stdin←os.Stdin (inherit), child stdout→PTY
 //
 // Full duplex: both directions on the PTY slave (startOnPTY).
-func startCmdPty(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *exec.Cmd, fdRedirect bool) (*Opened, error) {
-	if fdRedirect {
-		return startCmdPtyFDRedirect(ctx, s, mode, g, cmd)
+func (c *execChild) startPty(ctx context.Context) (*Opened, error) {
+	if c.fdRedirect {
+		return c.startPtyFDRedirect(ctx)
 	}
 	var ptmx *os.File
 	var unlink func()
 	var err error
 
-	switch mode {
+	switch c.mode {
 	case ModeWrite:
 		// Inherit stdout/stderr; only stdin is the PTY slave.
-		master, slave, u, err := openExecPTYPair(cmd, s, g)
+		master, slave, u, err := openExecPTYPair(c.cmd, c.spec, c.g)
 		if err != nil {
 			return nil, err
 		}
 		unlink = u
 		ptmx = master
-		cmd.Stdin = slave
-		cmd.Stdout = os.Stdout
-		if s.BoolOption("stderr") {
-			cmd.Stderr = slave
+		c.cmd.Stdin = slave
+		c.cmd.Stdout = os.Stdout
+		if c.spec.BoolOption("stderr") {
+			c.cmd.Stderr = slave
 		}
-		if err := startWithChildUmask(ctx, s, cmd, g); err != nil {
+		if err := c.start(ctx); err != nil {
 			if unlink != nil {
 				unlink()
 			}
@@ -206,8 +206,8 @@ func startCmdPty(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *e
 			return nil, err
 		}
 		logx.CloseQuiet(slave)
-		if err := applyPtyMasterLifecycle(s, ptmx); err != nil {
-			killWaitUnregisterChild(cmd)
+		if err := applyPtyMasterLifecycle(c.spec, ptmx); err != nil {
+			c.killWait()
 			if unlink != nil {
 				unlink()
 			}
@@ -221,36 +221,36 @@ func startCmdPty(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *e
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { w.closeWrite(); return nil },
 		}
-		return finishExecAfterFD(s, g, cmd, stream, execPtyCleanup(ptmx, unlink, nil), true, nil)
+		return c.finishAfterFD(stream, execPtyCleanup(ptmx, unlink, nil), true, nil)
 
 	case ModeRead:
 		// Inherit stdin; only stdout/stderr on PTY slave.
-		master, slave, u, err := openExecPTYPair(cmd, s, g)
+		master, slave, u, err := openExecPTYPair(c.cmd, c.spec, c.g)
 		if err != nil {
 			return nil, err
 		}
 		unlink = u
 		ptmx = master
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = slave
-		if s.BoolOption("stderr") {
-			cmd.Stderr = slave
+		c.cmd.Stdin = os.Stdin
+		c.cmd.Stdout = slave
+		if c.spec.BoolOption("stderr") {
+			c.cmd.Stderr = slave
 		}
 		// Controlling tty is stdout/stderr slave; Setctty needs a child FD.
 		// With stdin inherited, Ctty 1 (stdout) is the slave after setup.
-		if cmd.SysProcAttr == nil {
-			cmd.SysProcAttr = &syscall.SysProcAttr{}
+		if c.cmd.SysProcAttr == nil {
+			c.cmd.SysProcAttr = &syscall.SysProcAttr{}
 		}
-		cmd.SysProcAttr.Ctty = 1
-		if err := startWithChildUmask(ctx, s, cmd, g); err != nil {
+		c.cmd.SysProcAttr.Ctty = 1
+		if err := c.start(ctx); err != nil {
 			if unlink != nil {
 				unlink()
 			}
 			closeExecPTY(master, slave)
 			return nil, err
 		}
-		if err := applyPtyMasterLifecycle(s, ptmx); err != nil {
-			killWaitUnregisterChild(cmd)
+		if err := applyPtyMasterLifecycle(c.spec, ptmx); err != nil {
+			c.killWait()
 			if unlink != nil {
 				unlink()
 			}
@@ -258,9 +258,9 @@ func startCmdPty(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *e
 			return nil, err
 		}
 		done := make(chan struct{})
-		r, closeSlave, rerr := execPTYMasterReader(ptmx, slave, s, done)
+		r, closeSlave, rerr := execPTYMasterReader(ptmx, slave, c.spec, done)
 		if rerr != nil {
-			killWaitUnregisterChild(cmd)
+			c.killWait()
 			if unlink != nil {
 				unlink()
 			}
@@ -273,16 +273,16 @@ func startCmdPty(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *e
 			C:      NewMultiCloser(nil, nil),
 			CloseW: func() error { return nil },
 		}
-		return finishExecAfterFD(s, g, cmd, stream, execPtyCleanup(ptmx, unlink, closeSlave), false, done)
+		return c.finishAfterFD(stream, execPtyCleanup(ptmx, unlink, closeSlave), false, done)
 
 	default:
 		var slave *os.File
-		ptmx, slave, unlink, err = startOnPTY(ctx, cmd, s, g)
+		ptmx, slave, unlink, err = c.startOnPTY(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}
-		if err := applyPtyMasterLifecycle(s, ptmx); err != nil {
-			killWaitUnregisterChild(cmd)
+		if err := applyPtyMasterLifecycle(c.spec, ptmx); err != nil {
+			c.killWait()
 			if unlink != nil {
 				unlink()
 			}
@@ -290,9 +290,9 @@ func startCmdPty(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *e
 			return nil, err
 		}
 		done := make(chan struct{})
-		r, closeSlave, rerr := execPTYMasterReader(ptmx, slave, s, done)
+		r, closeSlave, rerr := execPTYMasterReader(ptmx, slave, c.spec, done)
 		if rerr != nil {
-			killWaitUnregisterChild(cmd)
+			c.killWait()
 			if unlink != nil {
 				unlink()
 			}
@@ -300,8 +300,65 @@ func startCmdPty(ctx context.Context, s parse.Spec, mode Mode, g *Global, cmd *e
 			return nil, rerr
 		}
 		st := ptyExecStream(ptmx, r)
-		return finishExecAfterFD(s, g, cmd, st, execPtyCleanup(ptmx, unlink, closeSlave), false, done)
+		return c.finishAfterFD(st, execPtyCleanup(ptmx, unlink, closeSlave), false, done)
 	}
+}
+
+// startOnPTY assigns a PTY slave to cmd stdio (nil slots), starts the child,
+// and returns both ends. The caller owns both descriptors. setsid and ctty
+// come from the spec; pty itself does not start a session or take the
+// controlling tty.
+func (c *execChild) startOnPTY(ctx context.Context) (*os.File, *os.File, func(), error) {
+	master, slave, err := OpenPTYPair()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	if c.cmd.Stdin == nil {
+		c.cmd.Stdin = slave
+	}
+	if c.cmd.Stdout == nil {
+		c.cmd.Stdout = slave
+	}
+	// stderr stays on the parent unless option stderr.
+	if c.cmd.Stderr == nil && c.spec.BoolOption("stderr") {
+		c.cmd.Stderr = slave
+	}
+	applyExecPtySession(c.cmd, c.spec, c.g)
+	// Ctty is the slave FD number as seen by the child after fd setup.
+	// Go's fork/exec sets controlling tty from Setctty when slave is Stdin.
+
+	if err := ApplyTermios(int(slave.Fd()), c.spec); err != nil {
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
+		return nil, nil, nil, err
+	}
+	// Before Start: Darwin TIOCSETA on the controller flushes t_outq.
+	if err := ApplyTermios(int(master.Fd()), c.spec); err != nil {
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
+		return nil, nil, nil, err
+	}
+	if err := ApplyNamedAttrs(slave.Name(), c.spec, slave); err != nil {
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
+		return nil, nil, nil, err
+	}
+	unlink, err := CreatePtySlaveLink(c.spec, slave.Name())
+	if err != nil {
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
+		return nil, nil, nil, err
+	}
+	if err := c.start(ctx); err != nil {
+		if unlink != nil {
+			unlink()
+		}
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
+		return nil, nil, nil, fmt.Errorf("start on pty: %w", err)
+	}
+	return master, slave, unlink, nil
 }
 
 func execPtyCleanup(master *os.File, unlink, closeSlave func()) []func() {

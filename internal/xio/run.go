@@ -229,7 +229,7 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 			defer func() { _ = c.Close() }()
 			defer slots.release()
 			defer children.Done()
-			cg := g.forkSession()
+			cg := g.ForkSession()
 			if o.ChildrenShutup > 0 && cg.Log != nil {
 				cg.Log = cg.Log.WithShutup(o.ChildrenShutup)
 			}
@@ -284,7 +284,7 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 			defer slots.release()
 			stopClose := context.AfterFunc(ctx, func() { _ = c.Close() })
 			defer stopClose()
-			cg := g.forkSession()
+			cg := g.ForkSession()
 			if o.ChildrenShutup > 0 && cg.Log != nil {
 				cg.Log = cg.Log.WithShutup(o.ChildrenShutup)
 			}
