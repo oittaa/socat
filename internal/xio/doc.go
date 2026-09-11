@@ -22,7 +22,7 @@
 // # Opener lifecycle
 //
 // OpenSpec is the common entry. It looks up the registered opener, rewrites
-// the type to the catalog name, ResolveChdirPaths, then RejectUnsupported*
+// the type to the catalog name, ResolvePreparedPaths, then RejectUnsupported*
 // (IP ancillary, termios, recverr, remaining IPv4, listen-backlog). lockfile=
 // / waitlock= run next. If the opener returns an error, OpenSpec releases
 // that address lock only; it does not close sockets, files, or children the

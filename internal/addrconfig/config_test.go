@@ -408,6 +408,32 @@ func TestDecodeUnixBacklogAndKeepalive(t *testing.T) {
 	}
 }
 
+func TestDecodeLockfileAndWaitlock(t *testing.T) {
+	got := decodeSpec(t, "TCP:host:9,lockfile=/tmp/a.lock")
+	if !got.File.Lock.Set || got.File.Lock.Wait || got.File.Lock.Path != "/tmp/a.lock" {
+		t.Fatalf("lockfile=%+v", got.File.Lock)
+	}
+	got = decodeSpec(t, "TCP:host:9,waitlock=/tmp/b.lock")
+	if !got.File.Lock.Set || !got.File.Lock.Wait || got.File.Lock.Path != "/tmp/b.lock" {
+		t.Fatalf("waitlock=%+v", got.File.Lock)
+	}
+
+	spec, err := parse.ParseSpec("TCP:host:9,lockfile=/tmp/a.lock,waitlock=/tmp/b.lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "only one use") {
+		t.Fatalf("dual lock error=%v", err)
+	}
+	spec, err = parse.ParseSpec("TCP:host:9,lockfile")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "requires a value") {
+		t.Fatalf("bare lockfile error=%v", err)
+	}
+}
+
 func TestDecodeVSOCKBind(t *testing.T) {
 	spec, err := parse.ParseSpec("VSOCK-CONNECT:2:22,bind=3:9")
 	if err != nil {

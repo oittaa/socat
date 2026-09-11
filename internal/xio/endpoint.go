@@ -514,11 +514,13 @@ func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, 
 	if err := RejectUnsupportedIsolation(s); err != nil {
 		return nil, err
 	}
-	s, err = ResolveChdirPaths(s)
+	prepared.Config, err = ResolvePreparedPaths(prepared.Config)
 	if err != nil {
 		return nil, err
 	}
-	prepared.Config = withResolvedPreparedPaths(prepared.Config, s)
+	// Positional filesystem paths stay aligned with the opener Spec until
+	// openers stop taking parse.Spec.
+	s.Params = append([]string(nil), prepared.Config.Params...)
 	ctx = withPreparedConfig(ctx, prepared.Config)
 	if err := RejectUnsupportedIPAncillary(s); err != nil {
 		return nil, err
@@ -537,7 +539,7 @@ func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, 
 	}
 	// lockfile=/waitlock= after chdir= rewrite and before the opener so a
 	// failed open still releases.
-	release, err := applyAddressLock(ctx, s)
+	release, err := applyAddressLock(ctx, prepared.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -566,20 +568,6 @@ func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, 
 		o.ChildrenShutup = prepared.Config.Common.ChildrenShutup.Value
 	}
 	return o, nil
-}
-
-func withResolvedPreparedPaths(config addrconfig.Address, spec parse.Spec) addrconfig.Address {
-	if config.Process.Chdir.Set {
-		if option, ok := spec.OptionNamed("chdir"); ok {
-			config.Process.Chdir.Value = option.Value
-		}
-	}
-	if config.Terminal.Link.Set {
-		if option, ok := spec.OptionNamed("link"); ok {
-			config.Terminal.Link.Value = option.Value
-		}
-	}
-	return config
 }
 
 func warnAddressMode(g *Global, opened, supported Mode) {

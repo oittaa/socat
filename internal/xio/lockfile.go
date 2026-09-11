@@ -6,11 +6,10 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 // AddressWaitLockPollInterval is the 1s poll for address waitlock=.
@@ -166,41 +165,12 @@ func releaseLockFile(path string, original os.FileInfo) {
 	UnlinkIfSameFile(path, original)
 }
 
-// applyAddressLock applies lockfile=/waitlock= after ResolveChdirPaths and
+// applyAddressLock applies lockfile=/waitlock= after ResolvePreparedPaths and
 // before the opener so a failed open still releases and relative paths follow
 // chdir=.
-func applyAddressLock(ctx context.Context, s parse.Spec) (func(), error) {
-	if !s.HasOption("lockfile") && !s.HasOption("waitlock") {
+func applyAddressLock(ctx context.Context, config addrconfig.Address) (func(), error) {
+	if !config.File.Lock.Set || config.File.Lock.Path == "" {
 		return nil, nil
 	}
-	path, wait, err := addressLockRequest(s)
-	if err != nil {
-		return nil, err
-	}
-	if path == "" {
-		return nil, nil
-	}
-	return HoldLockFile(ctx, path, wait, AddressWaitLockPollInterval)
-}
-
-func addressLockRequest(s parse.Spec) (path string, wait bool, err error) {
-	// Reject a second lockfile=/waitlock= before acquire.
-	var locks []parse.Option
-	for _, o := range s.Options {
-		switch parse.CanonicalOptionName(o.Name) {
-		case "lockfile", "waitlock":
-			locks = append(locks, o)
-		}
-	}
-	if len(locks) == 0 {
-		return "", false, nil
-	}
-	if len(locks) > 1 {
-		return "", false, fmt.Errorf("only one use of options lockfile and waitlock allowed")
-	}
-	o := locks[0]
-	if !o.Has || strings.TrimSpace(o.Value) == "" {
-		return "", false, fmt.Errorf("option %q requires a value", o.Name)
-	}
-	return o.Value, parse.CanonicalOptionName(o.Name) == "waitlock", nil
+	return HoldLockFile(ctx, config.File.Lock.Path, config.File.Lock.Wait, AddressWaitLockPollInterval)
 }

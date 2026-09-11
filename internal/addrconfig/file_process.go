@@ -20,6 +20,14 @@ type File struct {
 	UnlinkEarly OptionalBool
 	UnlinkLate  OptionalBool
 	UnlinkClose OptionalBool
+	Lock        FileLock
+}
+
+// FileLock is lockfile= or waitlock=. Only one of those options may appear.
+type FileLock struct {
+	Set  bool
+	Wait bool
+	Path string
 }
 
 // OpenSettings is the final open(2) flag policy. The decoder updates it in
@@ -405,6 +413,16 @@ func decodeFileProcess(a *Address, o parse.Option) (bool, error) {
 			return true, err
 		}
 		a.Process.Chdir = OptionalString{Set: true, Value: value}
+		return true, nil
+	case "lockfile", "waitlock":
+		if a.File.Lock.Set {
+			return true, errors.New("only one use of options lockfile and waitlock allowed")
+		}
+		value, err := requiredString(o)
+		if err != nil {
+			return true, err
+		}
+		a.File.Lock = FileLock{Set: true, Wait: name == "waitlock", Path: value}
 		return true, nil
 	}
 	return false, nil
