@@ -49,7 +49,9 @@
 //
 // DTLS and QUIC bind through ListenPacketWithOptions: ListenControl before
 // bind, then late socket buffers, FD lifecycle, and connected generic
-// setsockopt on the PacketConn. That helper does not wrap.
+// setsockopt on the PacketConn. That helper does not wrap. QUIC then uses
+// WrapOpened around the stream; the packet socket is not the transfer
+// descriptor. DTLS wraps with WrapStream after handshake.
 //
 // UDP binds through listenPacketForSpec → udpListenConfig (ListenControl
 // plus optional fork port reuse before bind). After bind it applies UDP

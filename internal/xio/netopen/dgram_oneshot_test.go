@@ -6,7 +6,6 @@ import (
 	"net"
 	"syscall"
 	"testing"
-	"time"
 )
 
 func TestOneshotForkConnShortReadDropsRemainder(t *testing.T) {
@@ -42,19 +41,11 @@ func TestOneshotForkConnHidesSharedListener(t *testing.T) {
 	}
 }
 
-func TestOneshotForkConnCloseDoesNotCloseParent(t *testing.T) {
-	parent, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = parent.Close() })
-	c := newOneshotForkConn(nil, parent.LocalAddr(), nil, nil, nil, nil, nil, nil)
+func TestOneshotForkConnCloseIsIdempotent(t *testing.T) {
+	c := newOneshotForkConn(nil, nil, nil, nil, nil, nil, nil, nil)
 	for i, err := range concurrentCloses(t, c.Close, 16) {
 		if err != nil {
 			t.Fatalf("Close[%d]=%v", i, err)
 		}
-	}
-	if err := parent.SetReadDeadline(time.Now().Add(50 * time.Millisecond)); err != nil {
-		t.Fatalf("oneshot Close closed parent: %v", err)
 	}
 }

@@ -120,7 +120,7 @@ func openUDPListenFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *net
 		MaxChildren: maxChildren,
 		PeerFilter:  peerFilter.AllowConn,
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			return xio.SetupConnectedStream(s, udpConnectStream{NetStream: relay.NetStream{Conn: c}})
+			return xio.WrapOpened(s, udpConnectStream{NetStream: relay.NetStream{Conn: c}})
 		},
 	}, nil
 }

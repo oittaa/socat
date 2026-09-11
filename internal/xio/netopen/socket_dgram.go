@@ -16,7 +16,6 @@ import (
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
 )
@@ -215,9 +214,7 @@ func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f 
 		Listener:       ln,
 		Label:          s.Type,
 		MaxChildren:    maxChildren,
-		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			return xio.WrapOpened(s, relay.NetStream{Conn: c})
-		},
+		WrapDial:       xio.DefaultWrapOpened(s),
 	}, nil
 }
 
