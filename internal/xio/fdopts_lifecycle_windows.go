@@ -8,7 +8,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"strings"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -16,8 +15,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func applyFDLifecycleToFile(f *os.File, s parse.Spec) error {
-	if f == nil || !hasFDLifecycleOptions(s) {
+func applyFDLifecycleToFile(f *os.File, s parse.Spec, skip FDSkip) error {
+	if f == nil || !hasFDLifecycleOptions(s, skip) {
 		return nil
 	}
 	raw, err := f.SyscallConn()
@@ -26,56 +25,48 @@ func applyFDLifecycleToFile(f *os.File, s parse.Spec) error {
 	}
 	var optionErr error
 	ctrlErr := raw.Control(func(fd uintptr) {
-		optionErr = applyFDLifecycleOnHandle(fd, s)
+		optionErr = applyFDLifecycleOnHandle(fd, s, skip)
 	})
-	if err := errors.Join(ctrlErr, optionErr); err != nil {
-		return err
-	}
-	markFDLifecycleApplied(f)
-	return nil
+	return errors.Join(ctrlErr, optionErr)
 }
 
-func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream) error {
-	return applyFDLifecycleToStreamMode(s, stream, false)
+func applyFDLifecycleToStream(s parse.Spec, stream relay.Stream, skip FDSkip) error {
+	return applyFDLifecycleToStreamMode(s, stream, skip, false)
 }
 
 func applyFDLifecycleLateToStream(s parse.Spec, stream relay.Stream) error {
-	return applyFDLifecycleToStreamMode(s, stream, true)
+	return applyFDLifecycleToStreamMode(s, stream, FDSkip{}, true)
 }
 
-func applyFDLifecycleToStreamMode(s parse.Spec, stream relay.Stream, lateOnly bool) error {
-	if !hasFDLifecycleOptions(s) {
+func applyFDLifecycleToStreamMode(s parse.Spec, stream relay.Stream, skip FDSkip, lateOnly bool) error {
+	if lateOnly {
+		if !hasFDLifecycleOptions(s, FDSkip{}) {
+			return nil
+		}
+	} else if !hasFDLifecycleOptions(s, skip) {
 		return nil
 	}
-	if wrapHidesDescriptor(s) {
-		return nil
-	}
-	targets := streamSyscallConnTargets(stream)
+	targets := streamSyscallConns(stream)
 	if len(targets) == 0 {
 		return fmt.Errorf("append/perm/user/group/ftruncate: stream does not expose a descriptor")
 	}
 	seen := make(map[uintptr]struct{})
-	for _, t := range targets {
-		if isFDLifecycleApplied(t.file) || isConnLifecycleApplied(t.conn) {
-			continue
-		}
+	for _, raw := range targets {
 		var fdErr error
-		ctrlErr := t.raw.Control(func(fd uintptr) {
+		ctrlErr := raw.Control(func(fd uintptr) {
 			if _, ok := seen[fd]; ok {
 				return
 			}
 			seen[fd] = struct{}{}
 			if lateOnly {
-				fdErr = applyWindowsLate(fd, s)
+				fdErr = applyWindowsLate(fd, s, FDSkip{})
 				return
 			}
-			fdErr = applyFDLifecycleOnHandle(fd, s)
+			fdErr = applyFDLifecycleOnHandle(fd, s, skip)
 		})
 		if err := errors.Join(ctrlErr, fdErr); err != nil {
 			return err
 		}
-		markFDLifecycleApplied(t.file)
-		markConnLifecycleApplied(t.conn)
 	}
 	return nil
 }
@@ -83,10 +74,13 @@ func applyFDLifecycleToStreamMode(s parse.Spec, stream relay.Stream, lateOnly bo
 // ApplyFDLifecycleToConn applies after-open, after-fd, then late options
 // on a live syscall.Conn.
 func ApplyFDLifecycleToConn(c syscall.Conn, s parse.Spec) error {
-	if c == nil || !hasFDLifecycleOptions(s) {
-		return nil
-	}
-	if isConnLifecycleApplied(c) {
+	return ApplyFDLifecycleToConnSkip(c, s, FDSkip{})
+}
+
+// ApplyFDLifecycleToConnSkip applies descriptor lifecycle with opener-owned
+// options skipped.
+func ApplyFDLifecycleToConnSkip(c syscall.Conn, s parse.Spec, skip FDSkip) error {
+	if c == nil || !hasFDLifecycleOptions(s, skip) {
 		return nil
 	}
 	raw, err := c.SyscallConn()
@@ -95,13 +89,9 @@ func ApplyFDLifecycleToConn(c syscall.Conn, s parse.Spec) error {
 	}
 	var optionErr error
 	ctrlErr := raw.Control(func(fd uintptr) {
-		optionErr = applyFDLifecycleOnHandle(fd, s)
+		optionErr = applyFDLifecycleOnHandle(fd, s, skip)
 	})
-	if err := errors.Join(ctrlErr, optionErr); err != nil {
-		return err
-	}
-	markConnLifecycleApplied(c)
-	return nil
+	return errors.Join(ctrlErr, optionErr)
 }
 
 // ApplyFDPhaseLifecycleToConn applies after-fd owner options.
@@ -115,14 +105,14 @@ func ApplyFDPhaseLifecycleToConn(c syscall.Conn, s parse.Spec) error {
 	}
 	var optionErr error
 	ctrlErr := raw.Control(func(_ uintptr) {
-		optionErr = applyWindowsFDPhaseOptions(s, false)
+		optionErr = applyWindowsFDPhaseOptions(s, FDSkip{})
 	})
 	return errors.Join(ctrlErr, optionErr)
 }
 
 // ApplyFDLifecycleToPacketConn applies descriptor lifecycle on a PacketConn.
 func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s parse.Spec) error {
-	if pc == nil || !hasFDLifecycleOptions(s) {
+	if pc == nil || !hasFDLifecycleOptions(s, FDSkip{}) {
 		return nil
 	}
 	sc, ok := pc.(syscall.Conn)
@@ -135,17 +125,21 @@ func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s parse.Spec) error {
 // ApplyFDLifecycleOnFD applies after-open, after-fd, then late options on
 // a raw handle.
 func ApplyFDLifecycleOnFD(fd int, s parse.Spec) error {
-	return applyFDLifecycleOnHandle(uintptr(fd), s)
+	return ApplyFDLifecycleOnFDSkip(fd, s, FDSkip{})
 }
 
-func applyFDLifecycleOnHandle(fd uintptr, s parse.Spec) error {
+func ApplyFDLifecycleOnFDSkip(fd int, s parse.Spec, skip FDSkip) error {
+	return applyFDLifecycleOnHandle(uintptr(fd), s, skip)
+}
+
+func applyFDLifecycleOnHandle(fd uintptr, s parse.Spec, skip FDSkip) error {
 	if err := applyWindowsOpen(fd, s); err != nil {
 		return err
 	}
-	if err := applyWindowsFDPhase(s); err != nil {
+	if err := applyWindowsFDPhaseOptions(s, skip); err != nil {
 		return err
 	}
-	return applyWindowsLate(fd, s)
+	return applyWindowsLate(fd, s, skip)
 }
 
 // applyWindowsOpen applies noinherit on the native Win32 handle via
@@ -168,27 +162,23 @@ func applyWindowsOpen(fd uintptr, s parse.Spec) error {
 	return nil
 }
 
-func applyWindowsFDPhase(s parse.Spec) error {
-	return applyWindowsFDPhaseOptions(s, true)
-}
-
-func applyWindowsFDPhaseOptions(s parse.Spec, honorTargetSkip bool) error {
+func applyWindowsFDPhaseOptions(s parse.Spec, skip FDSkip) error {
 	noteOptionPhase("FD")
 	for _, o := range s.Options {
 		name := parse.CanonicalOptionName(o.Name)
 		switch name {
 		case "perm":
-			if honorTargetSkip && skipDescriptorOwnerOption(s, name) {
+			if skip.Perm {
 				continue
 			}
 			return fmt.Errorf("perm: fchmod is not supported on windows")
 		case "user":
-			if honorTargetSkip && skipDescriptorOwnerOption(s, name) {
+			if skip.User {
 				continue
 			}
 			return fmt.Errorf("user: not supported on windows")
 		case "group":
-			if honorTargetSkip && skipDescriptorOwnerOption(s, name) {
+			if skip.Group {
 				continue
 			}
 			return fmt.Errorf("group: not supported on windows")
@@ -206,21 +196,19 @@ func applyWindowsFDPhaseOptions(s parse.Spec, honorTargetSkip bool) error {
 	return nil
 }
 
-func applyWindowsLate(fd uintptr, s parse.Spec) error {
+func applyWindowsLate(fd uintptr, s parse.Spec, skip FDSkip) error {
 	noteOptionPhase("LATE")
-	skipAppend := skipNamedFileAppend(s.Type)
-	skipAsync := skipNamedFileAsync(s.Type)
 	for _, o := range s.Options {
 		switch parse.CanonicalOptionName(o.Name) {
 		case "append":
-			if skipAppend {
+			if skip.Append {
 				continue
 			}
-			if err := applyWindowsOneAppend(s); err != nil {
+			if err := applyWindowsOneAppend(); err != nil {
 				return err
 			}
 		case "async":
-			if skipAsync {
+			if skip.Async {
 				continue
 			}
 			if !o.Active() {
@@ -256,13 +244,8 @@ func applyWindowsLate(fd uintptr, s parse.Spec) error {
 	return nil
 }
 
-func applyWindowsOneAppend(s parse.Spec) error {
-	switch strings.ToUpper(s.Type) {
-	case "OPEN", "FILE", "CREATE", "CREAT", "GOPEN":
-		return nil
-	default:
-		return fmt.Errorf("append: fcntl O_APPEND is not supported on windows")
-	}
+func applyWindowsOneAppend() error {
+	return fmt.Errorf("append: fcntl O_APPEND is not supported on windows")
 }
 
 func applyWindowsOneFtruncate(fd uintptr, o parse.Option) error {

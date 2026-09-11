@@ -136,7 +136,7 @@ func wrapUDPDatagram(ctx context.Context, s parse.Spec, g *xio.Global, c *net.UD
 		logx.CloseQuiet(c)
 		return nil, err
 	}
-	wrapped, err := xio.SetupConnectedStream(s, st)
+	wrapped, err := xio.WrapOpened(s, st)
 	if err != nil {
 		logx.CloseQuiet(c)
 		return nil, err
@@ -408,9 +408,7 @@ func openUDPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *n
 		ForkSocketpair: true,
 		MaxChildren:    maxChildren,
 		PeerFilter:     peerFilter.AllowConn,
-		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			return xio.SetupConnectedStream(s, relay.NetStream{Conn: c})
-		},
+		WrapDial:       xio.DefaultWrapOpened(s),
 	}, nil
 }
 
@@ -482,7 +480,7 @@ func openUDPRecvfromOne(ctx context.Context, s parse.Spec, g *xio.Global, pc *ne
 		recvErr:  recvErr,
 		g:        g,
 	})
-	st, err = xio.SetupConnectedStream(s, st)
+	st, err = xio.WrapOpened(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -511,7 +509,7 @@ func openUDPRecvAll(ctx context.Context, s parse.Spec, g *xio.Global, pc *net.UD
 		wantCtrl: xio.NeedAncillary(s),
 		recvErr:  xio.NeedRecvErr(s),
 	})
-	st, err = xio.SetupConnectedStream(s, st)
+	st, err = xio.WrapOpened(s, st)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err

@@ -17,21 +17,21 @@ type Dialed struct {
 	RememberTLS bool
 	LogOK       bool
 	LogSuffix   string
-	Base        *Opened
+	Cleanup     []func()
 }
 
 // OpenDialed opens a client address: CONNECT,fork loop, or one dial + wrap.
 func OpenDialed(ctx context.Context, s parse.Spec, g *Global, d Dialed) (*Opened, error) {
+	o := &Opened{Label: d.Label}
+	for _, f := range d.Cleanup {
+		if f != nil {
+			o.AddCleanup(f)
+		}
+	}
 	fork, maxChildren, err := ForkLimits(s)
 	if err != nil {
+		logx.CloseQuiet(o)
 		return nil, err
-	}
-	o := d.Base
-	if o == nil {
-		o = &Opened{}
-	}
-	if o.Label == "" {
-		o.Label = d.Label
 	}
 	wrap := d.Wrap
 	if wrap == nil {

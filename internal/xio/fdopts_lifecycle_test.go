@@ -17,7 +17,7 @@ func mustSpec(t *testing.T, raw string) parse.Spec {
 
 func TestHasFDLifecycleOptionsCloexec(t *testing.T) {
 	for _, raw := range []string{"FD:3,cloexec", "FD:3,cloexec=0", "TCP:localhost:1,cloexec=1", "OPEN:file,cloexec"} {
-		if !hasFDLifecycleOptions(mustSpec(t, raw)) {
+		if !hasFDLifecycleOptions(mustSpec(t, raw), FDSkip{}) {
 			t.Errorf("%s: cloexec must trigger ApplyFDOptions", raw)
 		}
 	}

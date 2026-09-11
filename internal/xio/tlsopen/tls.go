@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"time"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -145,18 +144,13 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 		return xio.WrapStream(s, stream, xio.TransportSocketTimeouts)
 	}
 
-	var setAcceptDeadline func(time.Time) error
-	if dl, ok := ln.(interface{ SetDeadline(time.Time) error }); ok {
-		setAcceptDeadline = dl.SetDeadline
-	}
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
-		Listener:          tlsLn,
-		Label:             s.Type + ":" + port,
-		WrapDial:          wrapConn,
-		SetAcceptDeadline: setAcceptDeadline,
-		HandshakeTimeout:  handshakeTimeout,
-		ListeningLog:      fmt.Sprintf("listening on %s (TLS)", tlsLn.Addr()),
+		Listener:         tlsLn,
+		Label:            s.Type + ":" + port,
+		WrapDial:         wrapConn,
+		HandshakeTimeout: handshakeTimeout,
+		ListeningLog:     fmt.Sprintf("listening on %s (TLS)", tlsLn.Addr()),
 		AfterAccept: func(g *xio.Global, c net.Conn) error {
 			return xio.RememberTLSPeer(g, c, handshakeTimeout)
 		},

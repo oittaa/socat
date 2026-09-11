@@ -96,8 +96,8 @@ func PtyStream(f *os.File, s parse.Spec) (relay.Stream, error) {
 }
 
 // PtyExecStream is a PTY master for EXEC/SYSTEM. Close does not drop the
-// master; finishExec waits for the child first, then closes (avoids SIGHUP
-// before a SYSTEM script finishes).
+// master; the EXEC owner waits for the child first, then closes (avoids
+// SIGHUP before a SYSTEM script finishes).
 func PtyExecStream(f *os.File, s parse.Spec) (relay.Stream, error) {
 	r, err := ptyMasterReader(f, s)
 	if err != nil {
@@ -454,8 +454,8 @@ func resizeScratch(buf []byte, size int) []byte {
 	return buf[:size]
 }
 
-// transformStream delegates converted I/O and preserves capability traversal.
-// It does not expose zero-copy traversal: copying must pass through conversion.
+// transformStream delegates converted I/O. Zero-copy is cleared so splice
+// cannot skip conversion.
 type transformStream struct {
 	relay.Stream
 	r io.Reader
@@ -465,6 +465,9 @@ type transformStream struct {
 func (s *transformStream) Read(p []byte) (int, error)  { return s.r.Read(p) }
 func (s *transformStream) Write(p []byte) (int, error) { return s.w.Write(p) }
 func (s *transformStream) UnwrapStream() relay.Stream  { return s.Stream }
+func (s *transformStream) StreamProps() relay.Props {
+	return relay.WithoutZeroCopy(relay.PropsOf(s.Stream))
+}
 
 func applyLineTerm(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
 	for _, o := range s.Options {
@@ -573,6 +576,9 @@ type socketTimeoutStream struct {
 }
 
 func (s socketTimeoutStream) UnwrapStream() relay.Stream { return s.Stream }
+func (s socketTimeoutStream) StreamProps() relay.Props {
+	return relay.WithoutZeroCopy(relay.PropsOf(s.Stream))
+}
 
 func (s socketTimeoutStream) Read(p []byte) (int, error) {
 	if s.readTimeout > 0 {
@@ -697,9 +703,6 @@ func (e endCloseStream) ShutdownWrite() error       { return nil }
 func (e endCloseStream) Close() error               { return nil }
 func (e endCloseStream) IsEndClose() bool           { return true }
 func (e endCloseStream) UnwrapStream() relay.Stream { return e.Stream }
-func (e endCloseStream) UnwrapZeroCopyStream() relay.Stream {
-	return e.Stream
-}
 
 // StreamIsEndClose reports whether s (or a wrapper) is end-close.
 func StreamIsEndClose(s relay.Stream) bool {
@@ -784,6 +787,9 @@ func (s *ignoreEOFStream) Close() error {
 	return errors.Join(s.reader.Close(), s.Stream.Close())
 }
 func (s *ignoreEOFStream) UnwrapStream() relay.Stream { return s.Stream }
+func (s *ignoreEOFStream) StreamProps() relay.Props {
+	return relay.WithoutZeroCopy(relay.PropsOf(s.Stream))
+}
 
 // NopCloser is a no-op Closer.
 type NopCloser struct{}

@@ -28,7 +28,7 @@ import (
 // set live here; opener packages keep tests that assert package-private
 // behavior.
 
-// cloneGlobal is a per-process copy. OpenChannel and forkSession write peer
+// cloneGlobal is a per-process copy. OpenChannel and ForkSession write peer
 // fields on *Global, so a listener and a client must not share one.
 func cloneGlobal(g *xio.Global) *xio.Global {
 	if g == nil {

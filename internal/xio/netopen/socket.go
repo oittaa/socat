@@ -216,9 +216,10 @@ func openSocketListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Glob
 		Listener: ln,
 		Label:    "SOCKET-LISTEN",
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			return xio.WrapAccepted(s, c, func(c net.Conn) error {
-				return xio.ApplyGenericSetsockoptToNetConn(c, s, xio.SockoptPhaseConnected)
-			})
+			if err := xio.ApplyGenericSetsockoptToNetConn(c, s, xio.SockoptPhaseConnected); err != nil {
+				return nil, err
+			}
+			return xio.SetupConnectedStream(s, relay.NetStream{Conn: c})
 		},
 	})
 }

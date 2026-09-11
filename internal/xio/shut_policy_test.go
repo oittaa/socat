@@ -78,6 +78,8 @@ func (s *recordingStream) ShutdownWrite() error {
 	return nil
 }
 
+func (s *recordingStream) StreamProps() relay.Props { return relay.NoProps() }
+
 func wrapSpec(t *testing.T, spec string, inner relay.Stream) relay.Stream {
 	t.Helper()
 	s, err := parse.ParseSpec(spec)

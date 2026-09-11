@@ -72,7 +72,7 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 		Listener: ln,
 		Label:    "UNIX-LISTEN:" + path,
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			return xio.SetupStream(s, relay.NetStream{Conn: c})
+			return xio.SetupAccepted(s, c, xio.FDSkipOwner)
 		},
 		ListeningLog: "listening on " + path,
 		CloseListener: func() error {
@@ -115,7 +115,7 @@ func openAbstractListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Gl
 		Listener: ln,
 		Label:    "ABSTRACT-LISTEN:" + name,
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			return xio.SetupStream(s, relay.NetStream{Conn: c})
+			return xio.SetupAccepted(s, c, xio.FDSkipOwner)
 		},
 		CloseListener: func() error { return ln.Close() },
 		AfterAccept: func(g *xio.Global, conn net.Conn) error {

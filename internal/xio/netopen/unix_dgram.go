@@ -65,7 +65,7 @@ func openUnixgramSend(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		return nil, err
 	}
 	st := &unixgramConn{UnixConn: c, raddr: raddr, filterPeer: filterPeer, ctx: ctx}
-	wrapped, err := xio.SetupConnectedStream(s, st)
+	wrapped, err := xio.WrapOpened(s, st)
 	if err != nil {
 		life.drop(c)
 		return nil, err
@@ -191,9 +191,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			Listener:       ln,
 			Label:          label,
 			MaxChildren:    maxChildren,
-			WrapDial: func(conn net.Conn) (relay.Stream, error) {
-				return xio.SetupConnectedStream(s, relay.NetStream{Conn: conn})
-			},
+			WrapDial:       xio.DefaultWrapOpened(s),
 		}
 		life.attach(o)
 		_ = mode
@@ -207,7 +205,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 			return nil, err
 		}
 		st := relay.Stream(&unixRecvStream{c: c, from: true, peer: peer, first: first, firstEOF: true})
-		wrapped, err := xio.SetupConnectedStream(s, st)
+		wrapped, err := xio.WrapOpened(s, st)
 		if err != nil {
 			life.drop(c)
 			return nil, err
@@ -219,7 +217,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	}
 
 	st := &unixRecvStream{c: c, from: from}
-	wrapped, err := xio.SetupConnectedStream(s, st)
+	wrapped, err := xio.WrapOpened(s, st)
 	if err != nil {
 		life.drop(c)
 		return nil, err
@@ -472,7 +470,7 @@ func openAbstractSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		return nil, err
 	}
 	st := &unixgramConn{UnixConn: c, raddr: raddr, filterPeer: true, ctx: ctx}
-	wrapped, err := xio.SetupConnectedStream(s, st)
+	wrapped, err := xio.WrapOpened(s, st)
 	if err != nil {
 		logx.CloseQuiet(c)
 		return nil, err
@@ -500,7 +498,7 @@ func applyUnixgramSocketOptions(c *net.UnixConn, s parse.Spec) error {
 		return err
 	}
 	// FD then late options on the unixgram fd before wrapping.
-	return xio.ApplyFDLifecycleToConn(c, s)
+	return xio.ApplyFDLifecycleToConnSkip(c, s, xio.FDSkipNamedUnixSocket(s))
 }
 
 type unixgramConn struct {

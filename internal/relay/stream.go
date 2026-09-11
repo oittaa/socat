@@ -19,6 +19,9 @@ type Stream interface {
 	// ShutdownWrite half-closes the write side (like shutdown(SHUT_WR)).
 	// If not supported, Close may be used by the relay after linger.
 	ShutdownWrite() error
+	// StreamProps is the relay-visible endpoint. Wrappers that embed Stream
+	// forward it; wrappers that convert bytes clear zero-copy.
+	StreamProps() Props
 }
 
 // fdProvider is optionally implemented by streams backed by a real file descriptor.
@@ -97,6 +100,10 @@ func (s *closeSerialStream) ShutdownWrite() error {
 
 func (s *closeSerialStream) UnwrapStream() Stream { return s.Stream }
 
+func (s *closeSerialStream) StreamProps() Props {
+	return WithoutZeroCopy(PropsOf(s.Stream))
+}
+
 // sessionWrap decouples a transfer session from a shared underlying stream.
 // Close aborts this session and pokes a short deadline to wake blocked I/O.
 // It does not sleep or clear that poke: fork reuse is serialized (leftMu),
@@ -117,6 +124,10 @@ func newSessionWrap(inner Stream) *sessionWrap {
 }
 
 func (s *sessionWrap) UnwrapStream() Stream { return s.inner }
+
+func (s *sessionWrap) StreamProps() Props {
+	return WithoutZeroCopy(PropsOf(s.inner))
+}
 
 func (s *sessionWrap) closed() bool {
 	select {
@@ -219,28 +230,20 @@ func (s *sessionWrap) ShutdownWrite() error {
 	return nil
 }
 
-// --- capability traversal over wrapped streams ---
+// --- stream properties ---
 
-// SetStreamReadDeadline sets a read deadline on the first stream layer that
-// supports one. Layers that report os.ErrNoDeadline are skipped so split
-// streams can expose a deadline-capable reader below an FDStream wrapper.
+// SetStreamReadDeadline sets a read deadline when the stream exposes one.
+// os.ErrNoDeadline is treated as no deadline support.
 func SetStreamReadDeadline(s Stream, deadline time.Time) (bool, error) {
-	var deadlineErr error
-	found := walkStreamCapabilities(s, func(value any) bool {
-		d, ok := value.(interface{ SetReadDeadline(time.Time) error })
-		if !ok {
-			return false
-		}
-		err := d.SetReadDeadline(deadline)
-		if errors.Is(err, os.ErrNoDeadline) {
-			return false
-		}
-		deadlineErr = err
-		return true
-	}, func(value any) []any {
-		return regularStreamChildren(value, streamRead)
-	})
-	return found, deadlineErr
+	set := readDeadlineOf(s)
+	if set == nil {
+		return false, nil
+	}
+	err := set(deadline)
+	if errors.Is(err, os.ErrNoDeadline) {
+		return false, nil
+	}
+	return true, err
 }
 
 // setStreamReadDeadline is the best-effort form used by cancellation paths.
@@ -251,22 +254,15 @@ func setStreamReadDeadline(s Stream, deadline time.Time) {
 // SetStreamWriteDeadline is the write-side counterpart of
 // SetStreamReadDeadline.
 func SetStreamWriteDeadline(s Stream, deadline time.Time) (bool, error) {
-	var deadlineErr error
-	found := walkStreamCapabilities(s, func(value any) bool {
-		d, ok := value.(interface{ SetWriteDeadline(time.Time) error })
-		if !ok {
-			return false
-		}
-		err := d.SetWriteDeadline(deadline)
-		if errors.Is(err, os.ErrNoDeadline) {
-			return false
-		}
-		deadlineErr = err
-		return true
-	}, func(value any) []any {
-		return regularStreamChildren(value, streamWrite)
-	})
-	return found, deadlineErr
+	set := writeDeadlineOf(s)
+	if set == nil {
+		return false, nil
+	}
+	err := set(deadline)
+	if errors.Is(err, os.ErrNoDeadline) {
+		return false, nil
+	}
+	return true, err
 }
 
 func setStreamWriteDeadline(s Stream, deadline time.Time) bool {
@@ -289,87 +285,132 @@ func IsTimeoutErr(err error) bool {
 }
 
 func pokeReadDeadline(s Stream) {
-	// Try SetReadDeadline on known types; clear after a moment.
-	set := func(d interface{ SetReadDeadline(time.Time) error }) {
-		_ = d.SetReadDeadline(time.Now())
-		go func() {
-			time.Sleep(10 * time.Millisecond)
-			_ = d.SetReadDeadline(time.Time{})
-		}()
+	if hasSessionWrap(s) {
+		// sessionWrap.Close pokes inner deadlines; the next serialized
+		// wrap clears leftovers at construction. Transfer wraps that
+		// session in closeSerialStream before cancellation.
+		return
 	}
-	walkStreamCapabilities(s, func(value any) bool {
-		if _, ok := value.(*sessionWrap); ok {
-			// sessionWrap.Close pokes inner deadlines; the next serialized
-			// wrap clears leftovers at construction. Do not async-clear
-			// through this layer.
+	set := readDeadlineOf(s)
+	if set == nil {
+		return
+	}
+	_ = set(time.Now())
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		_ = set(time.Time{})
+	}()
+}
+
+func hasSessionWrap(s Stream) bool {
+	cur := s
+	for range 32 {
+		if cur == nil {
+			return false
+		}
+		if _, ok := cur.(*sessionWrap); ok {
 			return true
 		}
-		d, ok := value.(interface{ SetReadDeadline(time.Time) error })
-		if ok {
-			set(d)
+		u, ok := cur.(interface{ UnwrapStream() Stream })
+		if !ok {
+			return false
 		}
-		return ok
-	}, func(value any) []any {
-		return regularStreamChildren(value, streamRead)
-	})
+		next := u.UnwrapStream()
+		if next == nil || next == cur {
+			return false
+		}
+		cur = next
+	}
+	return false
 }
 
 // StreamReadFD returns the underlying read descriptor, or -1.
 func StreamReadFD(s Stream) int {
-	return streamReadFD(s)
+	return PropsOf(s).ReadFD
 }
 
 // StreamWriteFD returns the underlying write descriptor, or -1.
 func StreamWriteFD(s Stream) int {
-	return streamWriteFD(s)
+	return PropsOf(s).WriteFD
 }
 
 func streamReadFD(s Stream) int {
-	return streamFD(s, streamRead)
+	return StreamReadFD(s)
 }
 
 func streamWriteFD(s Stream) int {
-	return streamFD(s, streamWrite)
+	return StreamWriteFD(s)
 }
 
-func streamFD(s Stream, direction streamDirection) int {
-	fd := -1
-	walkStreamCapabilities(s, func(value any) bool {
-		fd = streamValueFD(value)
-		return fd >= 0
-	}, func(value any) []any {
-		return regularStreamChildren(value, direction)
-	})
-	return fd
+// readDeadlineOf finds SetReadDeadline without Inspect. Cancel pokes
+// deadlines while the peer Close/ShutdownWrite runs; File.Stat and File.Fd
+// are not safe concurrent with Close.
+func readDeadlineOf(s Stream) func(time.Time) error {
+	return deadlineOf(s, true)
+}
+
+func writeDeadlineOf(s Stream) func(time.Time) error {
+	return deadlineOf(s, false)
+}
+
+func deadlineOf(s Stream, read bool) func(time.Time) error {
+	var cur any = s
+	for range 32 {
+		if cur == nil {
+			return nil
+		}
+		if read {
+			if d, ok := cur.(interface{ SetReadDeadline(time.Time) error }); ok {
+				return d.SetReadDeadline
+			}
+		} else if d, ok := cur.(interface{ SetWriteDeadline(time.Time) error }); ok {
+			return d.SetWriteDeadline
+		}
+		switch v := cur.(type) {
+		case interface{ UnwrapStream() Stream }:
+			cur = v.UnwrapStream()
+		case FDStream:
+			if read {
+				cur = v.R
+			} else {
+				cur = v.W
+			}
+		case NetStream:
+			cur = v.Conn
+		case RWCStream:
+			cur = v.ReadWriteCloser
+		default:
+			return nil
+		}
+	}
+	return nil
 }
 
 func streamValueFD(value any) int {
-	if fd := ioFD(value); fd >= 0 {
-		return fd
-	}
 	type syscallConn interface {
 		SyscallConn() (syscall.RawConn, error)
 	}
-	conn, ok := value.(syscallConn)
-	if !ok {
-		return -1
+	if conn, ok := value.(syscallConn); ok {
+		raw, err := conn.SyscallConn()
+		if err == nil {
+			fd := -1
+			_ = raw.Control(func(rawFD uintptr) { fd = int(rawFD) })
+			if fd >= 0 {
+				return fd
+			}
+		}
 	}
-	raw, err := conn.SyscallConn()
-	if err != nil {
-		return -1
-	}
-	fd := -1
-	_ = raw.Control(func(rawFD uintptr) { fd = int(rawFD) })
-	return fd
+	return ioFD(value)
 }
 
 func ioFD(v any) int {
 	if v == nil {
 		return -1
 	}
-	if f, ok := v.(*os.File); ok {
-		// Accept FD 0 (stdin) — was incorrectly rejected by >0 checks.
-		return int(f.Fd())
+	if _, ok := v.(*os.File); ok {
+		// File.Fd() is not safe concurrent with Close. SyscallConn.Control
+		// above is the path for *os.File.
+		return -1
 	}
 	if f, ok := v.(interface{ Fd() uintptr }); ok {
 		return int(f.Fd())

@@ -23,25 +23,8 @@ func TestRawIPRecvFromIsNotSyscallConn(t *testing.T) {
 	}
 }
 
-func TestRawIPSessionConnIsNotSyscallConn(t *testing.T) {
-	var s any = &rawIPSessionConn{}
-	if _, ok := s.(interface {
-		SyscallConn() (syscall.RawConn, error)
-	}); ok {
-		t.Fatal("rawIPSessionConn must not implement syscall.Conn; relay would poll the shared listener")
-	}
-}
-
 func TestRawIPRecvFromEmptyFirstDatagram(t *testing.T) {
 	r := &rawIPRecvFrom{first: newFirstPacket(nil), closeEOF: true}
-	n, err := r.Read(make([]byte, 8))
-	if n != 0 || !errors.Is(err, io.EOF) {
-		t.Fatalf("empty first n=%d err=%v want EOF", n, err)
-	}
-}
-
-func TestRawIPSessionConnEmptyFirstDatagram(t *testing.T) {
-	r := &rawIPSessionConn{first: newFirstPacket(nil)}
 	n, err := r.Read(make([]byte, 8))
 	if n != 0 || !errors.Is(err, io.EOF) {
 		t.Fatalf("empty first n=%d err=%v want EOF", n, err)

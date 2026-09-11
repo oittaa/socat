@@ -57,6 +57,13 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 		return nil, err
 	}
 
+	if err := xio.ApplyFDOptionsSkip(master, s, xio.FDSkipOwner); err != nil {
+		unlink()
+		logx.CloseQuiet(master)
+		logx.CloseQuiet(slave)
+		return nil, err
+	}
+
 	// Use xio.PtyStream so half-close does not xio.Close the master (xio.FileStream would).
 	st, err := xio.PtyStream(master, s)
 	if err != nil {
@@ -65,7 +72,7 @@ func openPTY(_ context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.O
 		logx.CloseQuiet(slave)
 		return nil, err
 	}
-	st, err = xio.SetupStream(s, st)
+	st, err = xio.WrapAfterFD(s, st)
 	if err != nil {
 		unlink()
 		logx.CloseQuiet(master)

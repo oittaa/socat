@@ -32,6 +32,7 @@ func (s *eagainTestStream) Read(p []byte) (int, error) {
 func (s *eagainTestStream) Write(p []byte) (int, error) { return s.output.Write(p) }
 func (s *eagainTestStream) Close() error                { return nil }
 func (s *eagainTestStream) ShutdownWrite() error        { return nil }
+func (s *eagainTestStream) StreamProps() Props          { return NoProps() }
 
 func TestTransferRetriesUnixEAGAIN(t *testing.T) {
 	source := &eagainTestStream{input: []byte("after-eagain")}
