@@ -244,10 +244,21 @@ type VSOCKEndpoint struct {
 
 // VSOCKSettings holds generic VSOCK socket parameters and endpoints.
 type VSOCKSettings struct {
-	Connect VSOCKEndpoint
-	Listen  uint32
-	Bind    VSOCKEndpoint
-	BindSet bool
+	Connect     VSOCKEndpoint
+	Listen      uint32
+	Bind        VSOCKEndpoint
+	BindSet     bool
+	BindHasPort bool
+}
+
+// KeepAliveSettings holds TCP keepalive enablement and probe parameters.
+// Any sub-option implies enable; an explicit keepalive=0 disables even when
+// idle/interval/count are present.
+type KeepAliveSettings struct {
+	Enable   OptionalBool
+	Idle     OptionalDuration
+	Interval OptionalDuration
+	Count    OptionalInt
 }
 
 // TUNType chooses the Linux TUN device mode.
@@ -320,15 +331,20 @@ type Network struct {
 	BindPort   PortTarget
 	BindSet    bool
 
-	ProtocolFamily int
-	ProtocolSet    bool
-	SocketType     OptionalInt
-	SocketProtocol OptionalInt
-	ReuseAddr      OptionalBool
-	ReusePort      OptionalBool
-	RawSocket      RawSocketCall
-	RawBind        []byte
-	RawBindSet     bool
+	ProtocolFamily   int
+	ProtocolSet      bool
+	SocketType       OptionalInt
+	SocketProtocol   OptionalInt
+	ReuseAddr        OptionalBool
+	ReusePort        OptionalBool
+	UnixBindTempname OptionalString
+	UnixTightSocklen OptionalBool
+	Backlog          OptionalInt
+	KeepAlive        KeepAliveSettings
+	NoDelay          OptionalBool
+	RawSocket        RawSocketCall
+	RawBind          []byte
+	RawBindSet       bool
 
 	Peer    PeerPolicy
 	Actions []SocketAction
@@ -422,6 +438,15 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 				return true, err
 			}
 			n.RawBind, n.RawBindSet = data, true
+			return true, nil
+		}
+		if n.Kind == AddressKindVSOCK {
+			ep, hasPort, err := decodeVSOCKBind(o.Value)
+			if err != nil {
+				return true, err
+			}
+			n.VSOCK.Bind, n.VSOCK.BindSet, n.VSOCK.BindHasPort = ep, true, hasPort
+			n.BindSet = true
 			return true, nil
 		}
 		n.Bind = targetFromText(text)
@@ -519,6 +544,47 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 		v, err := optionalBool(o)
 		a.Common.IPv6V6Only = v
 		return true, err
+	case "unix-bind-tempname":
+		n.UnixBindTempname = OptionalString{Set: true, Value: optionText(o)}
+		return true, nil
+	case "unix-tightsocklen":
+		v, err := optionalBool(o)
+		n.UnixTightSocklen = v
+		return true, err
+	case "backlog":
+		backlog, err := decodePositiveInt(o)
+		if err != nil {
+			return true, fmt.Errorf("backlog: invalid value %q", o.Value)
+		}
+		n.Backlog = OptionalInt{Set: true, Value: backlog}
+		return true, nil
+	case "keepalive":
+		n.KeepAlive.Enable = activeBool(o)
+		return true, nil
+	case "keepidle":
+		d, err := positiveKeepDuration(o)
+		if err != nil {
+			return true, err
+		}
+		n.KeepAlive.Idle = OptionalDuration{Set: true, Value: d}
+		return true, nil
+	case "keepintvl":
+		d, err := positiveKeepDuration(o)
+		if err != nil {
+			return true, err
+		}
+		n.KeepAlive.Interval = OptionalDuration{Set: true, Value: d}
+		return true, nil
+	case "keepcnt":
+		count, err := decodePositiveInt(o)
+		if err != nil {
+			return true, fmt.Errorf("keepcnt: invalid count %q", o.Value)
+		}
+		n.KeepAlive.Count = OptionalInt{Set: true, Value: count}
+		return true, nil
+	case "nodelay":
+		n.NoDelay = activeBool(o)
+		return true, nil
 	}
 	if action, ok, err := socketAction(o, name); ok {
 		if err != nil {
@@ -938,6 +1004,57 @@ func vsockCID(value string) (uint32, error) {
 		return ^uint32(0), nil
 	}
 	return vsockUint32(value)
+}
+
+func decodeVSOCKBind(value string) (VSOCKEndpoint, bool, error) {
+	cidStr, portStr, hasPort := splitVSOCKBind(value)
+	cid, err := vsockCID(cidStr)
+	if err != nil {
+		return VSOCKEndpoint{}, hasPort, fmt.Errorf("bind: cid: %w", err)
+	}
+	ep := VSOCKEndpoint{CID: cid, Port: ^uint32(0)}
+	if !hasPort {
+		return ep, false, nil
+	}
+	port, err := vsockUint32(portStr)
+	if err != nil {
+		return VSOCKEndpoint{}, true, fmt.Errorf("bind: port: %w", err)
+	}
+	ep.Port = port
+	return ep, true, nil
+}
+
+func splitVSOCKBind(bind string) (cidStr, portStr string, hasPort bool) {
+	if i := strings.IndexByte(bind, ':'); i >= 0 {
+		return bind[:i], bind[i+1:], true
+	}
+	return bind, "", false
+}
+
+func decodePositiveInt(o parse.Option) (int, error) {
+	if !o.Has || strings.TrimSpace(o.Value) == "" {
+		return 0, fmt.Errorf("invalid")
+	}
+	n, err := socketIntText(o.Value)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("invalid")
+	}
+	return n, nil
+}
+
+func positiveKeepDuration(o parse.Option) (time.Duration, error) {
+	value, err := requiredString(o)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", o.Name, err)
+	}
+	d, err := parseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", o.Name, err)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("%s: must be positive, got %q", o.Name, o.Value)
+	}
+	return d, nil
 }
 
 func decodeTUNPositional(a *Address) error {

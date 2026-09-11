@@ -372,3 +372,65 @@ func TestDecodeProxyAndDTLSSettings(t *testing.T) {
 		t.Fatalf("DTLS=%+v", config.DTLS)
 	}
 }
+
+func TestDecodeUnixBacklogAndKeepalive(t *testing.T) {
+	got := decodeSpec(t, "TCP:host:9,unix-bind-tempname=/tmp/x.XXXXXX,unix-tightsocklen=0,backlog=8,keepalive,keepidle=7s,keepintvl=2s,keepcnt=4,nodelay=0")
+	if got.Network.UnixBindTempname.Value != "/tmp/x.XXXXXX" {
+		t.Fatalf("tempname=%+v", got.Network.UnixBindTempname)
+	}
+	if !got.Network.UnixTightSocklen.Set || got.Network.UnixTightSocklen.Value {
+		t.Fatalf("tightsocklen=%+v", got.Network.UnixTightSocklen)
+	}
+	if got.Network.Backlog != (OptionalInt{Set: true, Value: 8}) {
+		t.Fatalf("backlog=%+v", got.Network.Backlog)
+	}
+	if !got.Network.KeepAlive.Enable.Value || got.Network.KeepAlive.Idle.Value != 7*time.Second ||
+		got.Network.KeepAlive.Interval.Value != 2*time.Second || got.Network.KeepAlive.Count.Value != 4 {
+		t.Fatalf("keepalive=%+v", got.Network.KeepAlive)
+	}
+	if !got.Network.NoDelay.Set || got.Network.NoDelay.Value {
+		t.Fatalf("nodelay=%+v", got.Network.NoDelay)
+	}
+
+	spec, err := parse.ParseSpec("TCP-LISTEN:9,backlog=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(spec, Facts{Type: "TCP-LISTEN"}); err == nil || !strings.Contains(err.Error(), `backlog: invalid value "0"`) {
+		t.Fatalf("backlog=0 error=%v", err)
+	}
+	spec, err = parse.ParseSpec("TCP:host:9,keepidle=-5s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "positive") {
+		t.Fatalf("keepidle=-5s error=%v", err)
+	}
+}
+
+func TestDecodeVSOCKBind(t *testing.T) {
+	spec, err := parse.ParseSpec("VSOCK-CONNECT:2:22,bind=3:9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Decode(spec, Facts{Type: "VSOCK-CONNECT", Group: "VSOCK (Linux)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Network.VSOCK.BindSet || !got.Network.VSOCK.BindHasPort ||
+		got.Network.VSOCK.Bind.CID != 3 || got.Network.VSOCK.Bind.Port != 9 {
+		t.Fatalf("vsock bind=%+v", got.Network.VSOCK)
+	}
+
+	listen, err := parse.ParseSpec("VSOCK-LISTEN:22,bind=5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = Decode(listen, Facts{Type: "VSOCK-LISTEN", Group: "VSOCK (Linux)"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Network.VSOCK.BindSet || got.Network.VSOCK.BindHasPort || got.Network.VSOCK.Bind.CID != 5 {
+		t.Fatalf("vsock listen bind=%+v", got.Network.VSOCK)
+	}
+}

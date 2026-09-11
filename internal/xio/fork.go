@@ -27,5 +27,8 @@ func ForkLimits(ctx context.Context, s parse.Spec) (fork bool, maxChildren int, 
 	if !fork {
 		return false, 0, fmt.Errorf("%s: option max-children not allowed without option fork", config.Type)
 	}
+	if config.Common.MaxChildren.Value < 1 {
+		return fork, 0, fmt.Errorf("%s: invalid max-children %q", config.Type, "0")
+	}
 	return fork, config.Common.MaxChildren.Value, nil
 }

@@ -255,7 +255,7 @@ func decodeOption(a *Address, o parse.Option) error {
 		a.Common.Fork.NoFork = v
 		return nil
 	case "max-children":
-		n, err := requiredInt(o, 1)
+		n, err := requiredInt(o, 0)
 		if err != nil {
 			return err
 		}
