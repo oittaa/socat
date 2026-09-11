@@ -48,7 +48,7 @@ func TestPreparedChannelRejectsStaticCommonErrorsBeforeOpen(t *testing.T) {
 }
 
 func TestOpenPreparedChannelDoesNotNeedRawChannel(t *testing.T) {
-	raw, err := parse.ParseChannel("ECHO:prepared")
+	raw, err := parse.ParseChannel("STDOUT")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestOpenPreparedChannelDoesNotNeedRawChannel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opened, err := OpenPreparedChannel(context.Background(), prepared, ModeRDWR, nil)
+	opened, err := OpenPreparedChannel(context.Background(), prepared, ModeWrite, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
