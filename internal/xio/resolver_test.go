@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/testutil"
 	"golang.org/x/net/dns/dnsmessage"
@@ -250,6 +251,15 @@ func makeDNSResponse(query []byte, answers []net.IP, ptrName string, truncated b
 	return builder.Finish()
 }
 
+func resolverConfig(t *testing.T, s parse.Spec) addrconfig.Address {
+	t.Helper()
+	config, err := addrconfig.Decode(s, addrconfig.Facts{Type: s.Type})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return config
+}
+
 func resNSAddrSpec(addr string) parse.Spec {
 	return parse.Spec{Type: "TCP4", Options: []parse.Option{{
 		Name:  "res-nsaddr",
@@ -273,7 +283,7 @@ func TestResNSAddrResolverDoesNotMutateDefaultResolver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	resolver := LookupResolver(resNSAddrSpec(server.addr))
+	resolver := LookupResolver(resolverConfig(t, resNSAddrSpec(server.addr)))
 	if resolver == before {
 		t.Fatal("res-nsaddr returned process-global DefaultResolver")
 	}
@@ -288,7 +298,7 @@ func TestResNSAddrResolverDoesNotMutateDefaultResolver(t *testing.T) {
 func TestLookupResolverCombinesNetNSAndResNSAddr(t *testing.T) {
 	s := resNSAddrSpec("127.0.0.1:5353")
 	s.Options = append(s.Options, parse.Option{Name: "netns", Value: "test", Has: true})
-	resolver := LookupResolver(s)
+	resolver := LookupResolver(resolverConfig(t, s))
 	if resolver == nil || !resolver.PreferGo || resolver.Dial == nil {
 		t.Fatalf("combined resolver=%+v; want PreferGo custom Dial", resolver)
 	}
@@ -317,7 +327,7 @@ func TestTCPWrapReverseVerificationUsesResNSAddr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := reverseHost(t.Context(), LookupResolver(resNSAddrSpec(server.addr)), "192.0.2.55")
+	got, err := reverseHost(t.Context(), LookupResolver(resolverConfig(t, resNSAddrSpec(server.addr))), "192.0.2.55")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,17 +449,18 @@ func TestResUseVCZeroTruncatedUDPRetriesTCP(t *testing.T) {
 }
 
 func TestAIAddrConfigDefaultOnUnspecifiedHint(t *testing.T) {
-	if !addrconfigEnabled(parse.Spec{}, "ip") {
+	empty := addrconfig.Address{}
+	if !addrconfigEnabled(empty, "ip") {
 		t.Fatal("omitted ai-addrconfig with hint ip: want default on")
 	}
-	if addrconfigEnabled(parse.Spec{}, "ip4") || addrconfigEnabled(parse.Spec{}, "ip6") {
+	if addrconfigEnabled(empty, "ip4") || addrconfigEnabled(empty, "ip6") {
 		t.Fatal("omitted ai-addrconfig with family hint: want default off")
 	}
-	off := parse.Spec{Options: []parse.Option{{Name: "ai-addrconfig", Value: "0", Has: true}}}
+	off := resolverConfig(t, parse.Spec{Options: []parse.Option{{Name: "ai-addrconfig", Value: "0", Has: true}}})
 	if addrconfigEnabled(off, "ip") {
 		t.Fatal("ai-addrconfig=0 with hint ip: want off")
 	}
-	on := parse.Spec{Options: []parse.Option{{Name: "ai-addrconfig"}}}
+	on := resolverConfig(t, parse.Spec{Options: []parse.Option{{Name: "ai-addrconfig"}}})
 	if !addrconfigEnabled(on, "ip6") {
 		t.Fatal("ai-addrconfig with hint ip6: want on")
 	}

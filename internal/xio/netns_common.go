@@ -6,18 +6,11 @@ import (
 	"net"
 	"strings"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
-func netnsName(s parse.Spec) (string, bool) {
-	if !s.HasOption("netns") {
-		return "", false
-	}
-	name := s.OptionValue("netns", "")
-	if name == "" {
-		return "", false
-	}
-	return name, true
+func netNamespaceName(config addrconfig.Address) string {
+	return config.Common.NetNamespace.Value
 }
 
 func warnNetNSExperimental(g *Global) {
@@ -29,24 +22,24 @@ func warnNetNSExperimental(g *Global) {
 	}
 }
 
-// LookupResolver returns the resolver scoped to one address. It never
+// LookupResolver returns the resolver scoped to one prepared address. It never
 // mutates net.DefaultResolver or libc _res. Remaining libc res-* flags
 // (debug, search, retry, retrans, …) are rejected rather than applied
 // globally. Construction is: select the base (system default, res-nsaddr,
 // or PreferGo for netns), apply res-usevc transport policy, then wrap
 // custom Dial connections once so session cancel unblocks in-flight
 // DNS reads.
-func LookupResolver(s parse.Spec) *net.Resolver {
-	r := lookupResolverBase(s)
-	if s.HasOption("res-usevc") {
-		r = resolverRewriteDNSTransport(r, s.BoolOption("res-usevc"))
+func LookupResolver(config addrconfig.Address) *net.Resolver {
+	r := lookupResolverBase(config)
+	if config.Common.Resolver.UseVC.Set {
+		r = resolverRewriteDNSTransport(r, config.Common.Resolver.UseVC.Value)
 	}
 	return wrapDNSDialCloseWhenDone(r)
 }
 
-func lookupResolverBase(s parse.Spec) *net.Resolver {
-	if s.HasOption("res-nsaddr") {
-		nsAddr, err := ParseResNSAddr(s.OptionValue("res-nsaddr", ""))
+func lookupResolverBase(config addrconfig.Address) *net.Resolver {
+	if config.Common.Resolver.NameServer.Set {
+		nsAddr, err := ParseResNSAddr(config.Common.Resolver.NameServer.Value)
 		if err != nil {
 			return &net.Resolver{
 				PreferGo: true,
@@ -73,7 +66,7 @@ func lookupResolverBase(s parse.Spec) *net.Resolver {
 			},
 		}
 	}
-	if _, ok := netnsName(s); ok {
+	if netNamespaceName(config) != "" {
 		return &net.Resolver{PreferGo: true}
 	}
 	return net.DefaultResolver
@@ -81,16 +74,16 @@ func lookupResolverBase(s parse.Spec) *net.Resolver {
 
 // WrapNetNSDial runs dial inside WithNetNS so CONNECT,fork reconnects stay in
 // the target namespace (OpenDialed does not dial during OpenSpec).
-func WrapNetNSDial(s parse.Spec, g *Global, dial func(context.Context) (net.Conn, error)) func(context.Context) (net.Conn, error) {
+func WrapNetNSDial(name string, g *Global, dial func(context.Context) (net.Conn, error)) func(context.Context) (net.Conn, error) {
 	if dial == nil {
 		return nil
 	}
-	if _, ok := netnsName(s); !ok {
+	if name == "" {
 		return dial
 	}
 	return func(ctx context.Context) (net.Conn, error) {
 		var c net.Conn
-		err := WithNetNS(s, g, func() error {
+		err := WithNetNS(name, g, func() error {
 			var e error
 			c, e = dial(ctx)
 			return e

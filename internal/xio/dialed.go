@@ -42,7 +42,12 @@ func OpenDialed(ctx context.Context, s parse.Spec, g *Global, d Dialed) (*Opened
 		o.MaxChildren = maxChildren
 		o.Interval = RetryPolicyFromContext(ctx).Interval
 		dial := carryPreparedConfig(ctx, d.Dial)
-		o.Dial = WrapNetNSDial(s, g, dial)
+		config, err := OpeningConfig(ctx, s)
+		if err != nil {
+			logx.CloseQuiet(o)
+			return nil, err
+		}
+		o.Dial = WrapNetNSDial(netNamespaceName(config), g, dial)
 		o.WrapDial = wrap
 		return o, nil
 	}

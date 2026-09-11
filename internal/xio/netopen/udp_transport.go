@@ -33,13 +33,17 @@ func dialUDPForSpec(req dialRequest, laddr net.Addr, remote string) (net.Conn, e
 	if err != nil {
 		return nil, err
 	}
+	config, cfgErr := xio.OpeningConfig(req.ctx, req.spec)
+	if cfgErr != nil {
+		return nil, cfgErr
+	}
 	d := net.Dialer{
 		Timeout:   req.timeout,
 		LocalAddr: matched,
 		Control:   xio.DialControl(req.spec, req.network, req.control),
 		// UDP connect still carries a resolver so a leftover hostname (or
 		// Dialer internals) cannot fall back to DefaultResolver.
-		Resolver: xio.LookupResolver(req.spec),
+		Resolver: xio.LookupResolver(config),
 	}
 	return d.DialContext(req.ctx, req.network, remote)
 }

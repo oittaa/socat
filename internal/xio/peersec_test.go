@@ -63,7 +63,7 @@ func TestPeerFilterRangeAcceptsIPAddr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filter, err := NewPeerFilter(context.Background(), config.Network.Peer, LookupResolver(spec), nil)
+	filter, err := NewPeerFilter(context.Background(), config.Network.Peer, LookupResolver(config), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

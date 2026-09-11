@@ -290,6 +290,26 @@ func TestDecodeTCPWrapDaemonPreservesCaseAndLastWins(t *testing.T) {
 	}
 }
 
+func TestDecodeResolverAndNetNS(t *testing.T) {
+	got := decodeSpec(t, "TCP:host:9,res-nsaddr=127.0.0.1:53,res-usevc=0,ai-v4mapped,ai-passive=0,ai-addrconfig=1,ai-all,netns=foo")
+	if got.Common.Resolver.NameServer.Value != "127.0.0.1:53" || got.Common.Resolver.UseVC.Value ||
+		!got.Common.Resolver.V4Mapped.Value || got.Common.Resolver.Passive.Value ||
+		!got.Common.Resolver.AddrConfig.Value || !got.Common.Resolver.All.Value {
+		t.Fatalf("resolver=%+v", got.Common.Resolver)
+	}
+	if got.Common.NetNamespace.Value != "foo" {
+		t.Fatalf("netns=%+v", got.Common.NetNamespace)
+	}
+
+	spec, err := parse.ParseSpec("TCP:host:9,netns=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "requires a value") {
+		t.Fatalf("empty netns error=%v", err)
+	}
+}
+
 func TestDecodeProxyAndDTLSSettings(t *testing.T) {
 	proxy, err := parse.ParseSpec("PROXY:proxy.test:target.test:443,http-version=2,h2c=1,proxy-resolve=0,proxy-authorization=user:pass")
 	if err != nil {

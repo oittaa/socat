@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
 
@@ -21,9 +20,8 @@ func init() {
 // The calling OS thread is locked for the whole section (setns is per-thread).
 // There is no process-wide mutex: setns is per-thread, and a lock here
 // deadlocks LISTEN,netns= (Accept) against a same-process CONNECT,netns=.
-func WithNetNS(s parse.Spec, g *Global, fn func() error) (err error) {
-	name, ok := netnsName(s)
-	if !ok {
+func WithNetNS(name string, g *Global, fn func() error) (err error) {
+	if name == "" {
 		return fn()
 	}
 	warnNetNSExperimental(g)

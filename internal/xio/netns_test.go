@@ -8,13 +8,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 )
 
 func TestWithNetNSNoOption(t *testing.T) {
 	called := false
-	err := WithNetNS(parse.Spec{}, nil, func() error {
+	err := WithNetNS("", nil, func() error {
 		called = true
 		return nil
 	})
@@ -27,9 +27,8 @@ func TestWithNetNSNoOption(t *testing.T) {
 }
 
 func TestWithNetNSEmptyValue(t *testing.T) {
-	s := parse.Spec{Options: []parse.Option{{Name: "netns", Has: true, Value: ""}}}
 	called := false
-	if err := WithNetNS(s, nil, func() error { called = true; return nil }); err != nil {
+	if err := WithNetNS("", nil, func() error { called = true; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if !called {
@@ -41,8 +40,7 @@ func TestWithNetNSExperimentalNoWarn(t *testing.T) {
 	var buf bytes.Buffer
 	log := logx.New()
 	log.SetOutput(&buf)
-	s := parse.Spec{Options: []parse.Option{{Name: "netns", Has: true, Value: "socat-missing-ns"}}}
-	err := WithNetNS(s, &Global{Log: log, Experimental: true}, func() error {
+	err := WithNetNS("socat-missing-ns", &Global{Log: log, Experimental: true}, func() error {
 		t.Fatal("fn must not run when ns is missing")
 		return nil
 	})
@@ -54,14 +52,13 @@ func TestWithNetNSExperimentalNoWarn(t *testing.T) {
 	}
 }
 
-func TestNetNSName(t *testing.T) {
-	if _, ok := netnsName(parse.Spec{}); ok {
-		t.Fatal("empty spec")
+func TestNetNamespaceName(t *testing.T) {
+	if netNamespaceName(addrconfig.Address{}) != "" {
+		t.Fatal("empty config")
 	}
-	s := parse.Spec{Options: []parse.Option{{Name: "netns", Has: true, Value: "foo"}}}
-	name, ok := netnsName(s)
-	if !ok || name != "foo" {
-		t.Fatalf("got %q %v", name, ok)
+	config := addrconfig.Address{Common: addrconfig.Common{NetNamespace: addrconfig.OptionalString{Set: true, Value: "foo"}}}
+	if got := netNamespaceName(config); got != "foo" {
+		t.Fatalf("got %q", got)
 	}
 }
 
@@ -78,12 +75,12 @@ func TestCloseConnWhenDonePreservesPacketConn(t *testing.T) {
 }
 
 func TestLookupResolverPreferGoWithNetNS(t *testing.T) {
-	plain := LookupResolver(parse.Spec{})
+	plain := LookupResolver(addrconfig.Address{})
 	if plain.PreferGo {
 		t.Fatal("default resolver must not force PreferGo")
 	}
-	s := parse.Spec{Options: []parse.Option{{Name: "netns", Has: true, Value: "foo"}}}
-	r := LookupResolver(s)
+	config := addrconfig.Address{Common: addrconfig.Common{NetNamespace: addrconfig.OptionalString{Set: true, Value: "foo"}}}
+	r := LookupResolver(config)
 	if r == nil || !r.PreferGo {
 		t.Fatal("netns= must use PreferGo so DNS stays on the locked thread")
 	}
@@ -94,7 +91,7 @@ func TestLookupResolverPreferGoWithNetNS(t *testing.T) {
 
 func TestLookupResolverLeavesDefaultResolverUnwrapped(t *testing.T) {
 	before := net.DefaultResolver
-	r := LookupResolver(parse.Spec{})
+	r := LookupResolver(addrconfig.Address{})
 	if r != before {
 		t.Fatal("empty spec must keep the process-global resolver")
 	}
@@ -106,7 +103,7 @@ func TestWrapNetNSDialNoOption(t *testing.T) {
 		called = true
 		return nil, errors.New("dialed")
 	}
-	got := WrapNetNSDial(parse.Spec{}, nil, inner)
+	got := WrapNetNSDial("", nil, inner)
 	_, err := got(context.Background())
 	if !called || err == nil || err.Error() != "dialed" {
 		t.Fatalf("passthrough failed: called=%v err=%v", called, err)

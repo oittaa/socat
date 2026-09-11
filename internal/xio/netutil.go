@@ -371,7 +371,7 @@ func BindPort(bind, sourceport string) string {
 }
 
 func ConnectTimeout(ctx context.Context, s parse.Spec) time.Duration {
-	config, err := addressFromOpening(ctx, s)
+	config, err := OpeningConfig(ctx, s)
 	if err != nil {
 		return 0
 	}
@@ -451,7 +451,7 @@ func ListenNetwork(g *Global, s parse.Spec) string {
 }
 
 func AcceptTimeout(ctx context.Context, s parse.Spec) time.Duration {
-	config, err := addressFromOpening(ctx, s)
+	config, err := OpeningConfig(ctx, s)
 	if err != nil {
 		return 0
 	}
@@ -667,7 +667,7 @@ func ParseTimeval(v string) time.Duration {
 // RecvTimeoutFromSpec returns the prepared so-rcvtimeo / rcvtimeo duration.
 // An omitted value means unlimited.
 func RecvTimeoutFromSpec(ctx context.Context, s parse.Spec) (time.Duration, error) {
-	config, err := addressFromOpening(ctx, s)
+	config, err := OpeningConfig(ctx, s)
 	if err != nil {
 		return 0, err
 	}

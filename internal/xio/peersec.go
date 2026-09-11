@@ -46,11 +46,11 @@ type PeerFilter struct {
 
 // PreparedPeerFilter compiles the prepared peer policy for an opening.
 func PreparedPeerFilter(ctx context.Context, spec parse.Spec, g *Global) (*PeerFilter, error) {
-	config, err := addressFromOpening(ctx, spec)
+	config, err := OpeningConfig(ctx, spec)
 	if err != nil {
 		return nil, err
 	}
-	return NewPeerFilter(ctx, config.Network.Peer, LookupResolver(spec), g)
+	return NewPeerFilter(ctx, config.Network.Peer, LookupResolver(config), g)
 }
 
 // NewPeerFilter compiles peer policy and resolves range= once. Callers must

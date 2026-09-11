@@ -10,7 +10,7 @@ import (
 // ForkLimits reads prepared fork and max-children. A present max-children
 // without fork is an error.
 func ForkLimits(ctx context.Context, s parse.Spec) (fork bool, maxChildren int, err error) {
-	config, err := addressFromOpening(ctx, s)
+	config, err := OpeningConfig(ctx, s)
 	if err != nil {
 		return false, 0, err
 	}

@@ -201,7 +201,7 @@ func newUDPDatagramConn(ctx context.Context, c *net.UDPConn, raddr *net.UDPAddr,
 		return nil, fmt.Errorf("UDP: prepared configuration is required")
 	}
 	sourcePortFilter := config.Network.Peer.SourcePortSet
-	filter, err := xio.NewPeerFilter(ctx, config.Network.Peer.WithoutSourcePort(), xio.LookupResolver(s), g)
+	filter, err := xio.NewPeerFilter(ctx, config.Network.Peer.WithoutSourcePort(), xio.LookupResolver(config), g)
 	if err != nil {
 		return nil, err
 	}

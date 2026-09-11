@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -248,25 +249,25 @@ func ipv4MappedAddrs(ips []net.IP) []net.IP {
 	return out
 }
 
-func v4mappedEnabled(s parse.Spec) bool {
+func v4mappedEnabled(config addrconfig.Address) bool {
 	// Off unless ai-v4mapped is set truthily. The man page says IPv6
 	// addresses default it to 1; remaining off unless requested keeps
 	// drop-in runtime parity.
-	return s.HasOption("ai-v4mapped") && s.BoolOption("ai-v4mapped")
+	return config.Common.Resolver.V4Mapped.Value
 }
 
-func addrconfigEnabled(s parse.Spec, hint string) bool {
+func addrconfigEnabled(config addrconfig.Address, hint string) bool {
 	// AI_ADDRCONFIG defaults on when the resolver has no address-family
 	// hint. ai-addrconfig=0 clears it; a present truthy value sets it for
 	// any hint.
-	if s.HasOption("ai-addrconfig") {
-		return s.BoolOption("ai-addrconfig")
+	if config.Common.Resolver.AddrConfig.Set {
+		return config.Common.Resolver.AddrConfig.Value
 	}
 	return hint == "ip"
 }
 
-func applyAIAddrConfig(s parse.Spec, hint string, ips []net.IP) []net.IP {
-	if addrconfigEnabled(s, hint) {
+func applyAIAddrConfig(config addrconfig.Address, hint string, ips []net.IP) []net.IP {
+	if addrconfigEnabled(config, hint) {
 		return filterAIAddrConfig(ips)
 	}
 	return ips
@@ -314,20 +315,21 @@ func LookupIP(ctx context.Context, s parse.Spec, hint, host string) ([]net.IP, e
 		}
 	}
 
-	resolver := LookupResolver(s)
-	var (
-		ips []net.IP
-		err error
-	)
-	if hint == "ip6" && v4mappedEnabled(s) {
-		ips, err = lookupIPv6Mapped(ctx, s, resolver, host)
+	config, err := OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	resolver := LookupResolver(config)
+	var ips []net.IP
+	if hint == "ip6" && v4mappedEnabled(config) {
+		ips, err = lookupIPv6Mapped(ctx, config, resolver, host)
 	} else {
 		ips, err = resolver.LookupIP(ctx, hint, host)
 		if err == nil {
-			if hint == "ip6" && !v4mappedEnabled(s) {
+			if hint == "ip6" && !v4mappedEnabled(config) {
 				ips = ipv6Only(ips)
 			}
-			ips = applyAIAddrConfig(s, hint, ips)
+			ips = applyAIAddrConfig(config, hint, ips)
 		}
 	}
 	if err != nil {
@@ -336,13 +338,13 @@ func LookupIP(ctx context.Context, s parse.Spec, hint, host string) ([]net.IP, e
 	if len(ips) == 0 {
 		return nil, fmt.Errorf("lookup %s: no addresses", host)
 	}
-	if hint == "ip" && s.BoolOption("ai-passive") && len(ips) > 1 {
+	if hint == "ip" && config.Common.Resolver.Passive.Value && len(ips) > 1 {
 		preferIPv6First(ips)
 	}
 	return ips, nil
 }
 
-func lookupIPv6Mapped(ctx context.Context, s parse.Spec, resolver *net.Resolver, host string) ([]net.IP, error) {
+func lookupIPv6Mapped(ctx context.Context, config addrconfig.Address, resolver *net.Resolver, host string) ([]net.IP, error) {
 	v6, err6 := resolver.LookupIP(ctx, "ip6", host)
 	if err6 != nil {
 		v6 = nil
@@ -351,14 +353,14 @@ func lookupIPv6Mapped(ctx context.Context, s parse.Spec, resolver *net.Resolver,
 		// resolver cannot duplicate mapped results when we append A records.
 		v6 = ipv6Only(v6)
 	}
-	wantAll := s.BoolOption("ai-all")
+	wantAll := config.Common.Resolver.All.Value
 	if !wantAll && len(v6) > 0 {
-		return finishMappedLookup(s, host, v6)
+		return finishMappedLookup(config, host, v6)
 	}
 	v4, err4 := resolver.LookupIP(ctx, "ip4", host)
 	if err4 != nil {
 		if len(v6) > 0 {
-			return finishMappedLookup(s, host, v6)
+			return finishMappedLookup(config, host, v6)
 		}
 		if err6 != nil {
 			return nil, err6
@@ -372,11 +374,11 @@ func lookupIPv6Mapped(ctx context.Context, s parse.Spec, resolver *net.Resolver,
 	} else {
 		ips = mapped
 	}
-	return finishMappedLookup(s, host, ips)
+	return finishMappedLookup(config, host, ips)
 }
 
-func finishMappedLookup(s parse.Spec, host string, ips []net.IP) ([]net.IP, error) {
-	ips = applyAIAddrConfig(s, "ip6", ips)
+func finishMappedLookup(config addrconfig.Address, host string, ips []net.IP) ([]net.IP, error) {
+	ips = applyAIAddrConfig(config, "ip6", ips)
 	if len(ips) == 0 {
 		return nil, fmt.Errorf("lookup %s: no addresses", host)
 	}

@@ -542,7 +542,7 @@ func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, 
 		return nil, err
 	}
 	var o *Opened
-	err = WithNetNS(s, g, func() error {
+	err = WithNetNS(prepared.Config.Common.NetNamespace.Value, g, func() error {
 		var e error
 		o, e = prepared.opener(ctx, s, mode, g)
 		return e
