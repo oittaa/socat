@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/netip"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/oittaa/socat/internal/addrconfig"
@@ -111,20 +110,20 @@ func MatchLocalPacketAddr(network string, laddr net.Addr) (net.Addr, error) {
 
 // LookupDialIP resolves host for network. Literals keep network. Hostnames
 // may switch *6 to *4 after AI_V4MAPPED (README Intentional differences).
-func LookupDialIP(ctx context.Context, s addrconfig.Address, network, host string) (string, net.IP, error) {
-	host = StripBrackets(host)
-	if host == "" {
+func LookupDialIP(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget) (string, net.IP, error) {
+	if host.IsLiteral() {
+		return network, host.IP(), nil
+	}
+	name := host.String()
+	if name == "" {
 		return network, nil, nil
 	}
-	if ip := net.ParseIP(host); ip != nil {
-		return network, ip, nil
-	}
-	ips, err := LookupIP(ctx, s, IPHint(network), host)
+	ips, err := LookupIP(ctx, s, IPHint(network), name)
 	if err != nil {
 		return "", nil, err
 	}
 	if len(ips) == 0 {
-		return "", nil, fmt.Errorf("resolve %s: no addresses", host)
+		return "", nil, fmt.Errorf("resolve %s: no addresses", name)
 	}
 	ip := ips[0]
 	return DialNetwork(network, ip), ip, nil
@@ -133,7 +132,7 @@ func LookupDialIP(ctx context.Context, s addrconfig.Address, network, host strin
 // PacketNetworkForHost returns the packet/dial network for a hostname lookup.
 // QUIC and PROXY HTTP/3 call this before binding UDP so an AI_V4MAPPED result
 // can switch udp6 to udp4. Literals keep network.
-func PacketNetworkForHost(ctx context.Context, s addrconfig.Address, network, host string) (string, error) {
+func PacketNetworkForHost(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget) (string, error) {
 	netw, _, err := LookupDialIP(ctx, s, network, host)
 	return netw, err
 }
@@ -287,61 +286,59 @@ func finishMappedLookup(config addrconfig.Address, host string, ips []net.IP) ([
 	return ips, nil
 }
 
-// ResolveIPHost resolves one host with the resolver scoped to s. Literals are
-// returned without a lookup, preserving the no-DNS literal fast path.
-func ResolveIPHost(ctx context.Context, s addrconfig.Address, network, host string) (string, error) {
-	host = StripBrackets(host)
-	if host == "" {
-		return host, nil
+// ResolveIPTarget resolves one host with the resolver scoped to s. Literals
+// skip DNS.
+func ResolveIPTarget(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget) (net.IP, error) {
+	if host.IsLiteral() {
+		return host.IP(), nil
 	}
-	if ip := net.ParseIP(host); ip != nil {
-		return FormatIPForNetwork(network, ip), nil
+	name := host.String()
+	if name == "" {
+		return nil, nil
 	}
-	if strings.Contains(host, "%") {
-		if addr, err := netip.ParseAddr(host); err == nil {
-			return addr.String(), nil
+	if strings.Contains(name, "%") {
+		if addr, err := netip.ParseAddr(name); err == nil {
+			return addr.AsSlice(), nil
 		}
 	}
-
 	hint := IPHint(network)
-	ips, err := LookupIP(ctx, s, hint, host)
+	ips, err := LookupIP(ctx, s, hint, name)
 	if err != nil {
-		return "", fmt.Errorf("resolve %s: %w", host, err)
+		return nil, fmt.Errorf("resolve %s: %w", name, err)
 	}
 	if len(ips) == 0 {
-		return "", fmt.Errorf("resolve %s: no addresses", host)
+		return nil, fmt.Errorf("resolve %s: no addresses", name)
 	}
-	return FormatIPForNetwork(network, ips[0]), nil
+	return ips[0], nil
 }
 
-// ResolveUDPAddr is net.ResolveUDPAddr with per-address DNS selection and
-// context cancellation. Literal addresses never reach the selected DNS server.
-func ResolveUDPAddr(ctx context.Context, s addrconfig.Address, network, address string) (*net.UDPAddr, error) {
-	host, port, err := net.SplitHostPort(address)
-	if err != nil {
-		return nil, err
-	}
-	resolved, err := ResolveIPHost(ctx, s, network, host)
-	if err != nil {
-		return nil, err
-	}
-	return net.ResolveUDPAddr(network, net.JoinHostPort(resolved, port))
-}
-
-// ResolveUDPAddrPort resolves a host with a prepared port. Numeric ports are
-// not parsed again by net.ResolveUDPAddr.
-func ResolveUDPAddrPort(ctx context.Context, s addrconfig.Address, network, host string, port addrconfig.PortTarget) (*net.UDPAddr, error) {
+// ResolveUDPTarget resolves a typed host and port. Literal IPs never reach
+// DNS; numeric ports are not parsed again.
+func ResolveUDPTarget(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget, port addrconfig.PortTarget) (*net.UDPAddr, error) {
 	n, err := ResolvePort(network, port)
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := ResolveIPHost(ctx, s, network, host)
+	if host.IsLiteral() {
+		return udpAddrFromHost(network, host, n), nil
+	}
+	_, ip, err := LookupDialIP(ctx, s, network, host)
 	if err != nil {
 		return nil, err
 	}
-	addr, parseErr := netip.ParseAddr(StripBrackets(resolved))
-	if parseErr != nil {
-		return net.ResolveUDPAddr(network, net.JoinHostPort(resolved, strconv.Itoa(n)))
+	if ip == nil {
+		return &net.UDPAddr{Port: n}, nil
 	}
-	return &net.UDPAddr{IP: addr.AsSlice(), Port: n, Zone: addr.Zone()}, nil
+	return udpAddrFromIP(network, ip, n, ""), nil
+}
+
+func udpAddrFromHost(network string, host addrconfig.HostTarget, port int) *net.UDPAddr {
+	return udpAddrFromIP(network, host.IP(), port, host.Literal.Zone())
+}
+
+func udpAddrFromIP(network string, ip net.IP, port int, zone string) *net.UDPAddr {
+	if ip4 := ip.To4(); ip4 != nil && strings.HasSuffix(network, "4") {
+		ip = ip4
+	}
+	return &net.UDPAddr{IP: ip, Port: port, Zone: zone}
 }

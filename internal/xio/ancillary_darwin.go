@@ -5,14 +5,15 @@ package xio
 import (
 	"net"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"golang.org/x/sys/unix"
 )
 
-func ancillaryRecvSockoptPlatform(canonical string) (level, opt int, ok bool) {
-	switch canonical {
-	case "ip-recvdstaddr":
+func ancillaryRecvSockoptPlatform(id addrconfig.AncillaryOption) (level, opt int, ok bool) {
+	switch id {
+	case addrconfig.AncillaryIPRecvDstAddr:
 		return unix.IPPROTO_IP, unix.IP_RECVDSTADDR, true
-	case "ip-recvif":
+	case addrconfig.AncillaryIPRecvIf:
 		return unix.IPPROTO_IP, unix.IP_RECVIF, true
 	default:
 		return 0, 0, false

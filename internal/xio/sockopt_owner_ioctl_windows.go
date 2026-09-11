@@ -2,6 +2,8 @@
 
 package xio
 
-func applyOwnerIoctlPlatform(int, string, int) error {
+import "github.com/oittaa/socat/internal/addrconfig"
+
+func applyOwnerIoctlPlatform(int, addrconfig.NamedSocket, int) error {
 	return errNamedOptUnsupported
 }

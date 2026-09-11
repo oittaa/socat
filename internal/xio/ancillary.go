@@ -34,12 +34,8 @@ func ApplyAncillaryRecvOpts(fd int, s addrconfig.Address) error {
 		if action.Kind != addrconfig.SocketActionAncillary {
 			continue
 		}
-		name, kind, ok := ancillaryOptionIdentity(action)
-		if !ok || kind&IPAncillaryRecv == 0 {
-			continue
-		}
-		e, inMatrix := lookupIPAncillary(name)
-		if !inMatrix {
+		e, inMatrix := lookupIPAncillary(action.Ancillary)
+		if !inMatrix || e.Kind&IPAncillaryRecv == 0 {
 			continue
 		}
 		if err := applyPreparedIPRecv(fd, e, action.Number, resolved); err != nil {
@@ -50,10 +46,10 @@ func ApplyAncillaryRecvOpts(fd int, s addrconfig.Address) error {
 }
 
 func applyPreparedIPRecv(fd int, e IPAncillaryEntry, n int, family ipFamily) error {
-	if err := rejectIPAncillaryApply(e.Canonical, family); err != nil {
+	if err := rejectIPAncillaryApply(e, family); err != nil {
 		return err
 	}
-	level, opt, ok := ancillaryRecvSockopt(e.Canonical)
+	level, opt, ok := ancillaryRecvSockopt(e.ID)
 	if !ok {
 		return nil
 	}
@@ -63,39 +59,36 @@ func applyPreparedIPRecv(fd int, e IPAncillaryEntry, n int, family ipFamily) err
 	return nil
 }
 
-func ancillaryRecvSockopt(canonical string) (level, opt int, ok bool) {
-	if level, opt, ok := ancillaryRecvSockoptPlatform(canonical); ok {
+func ancillaryRecvSockopt(id addrconfig.AncillaryOption) (level, opt int, ok bool) {
+	if level, opt, ok := ancillaryRecvSockoptPlatform(id); ok {
 		return level, opt, true
 	}
-	switch canonical {
-	case "so-timestamp":
+	switch id {
+	case addrconfig.AncillarySOTimestamp:
 		return unix.SOL_SOCKET, unix.SO_TIMESTAMP, true
-	case "ip-pktinfo":
+	case addrconfig.AncillaryIPPktinfo:
 		return unix.IPPROTO_IP, unix.IP_PKTINFO, true
-	case "ip-recvttl":
+	case addrconfig.AncillaryIPRecvTTL:
 		return unix.IPPROTO_IP, unix.IP_RECVTTL, true
-	case "ip-recvtos":
+	case addrconfig.AncillaryIPRecvTOS:
 		return unix.IPPROTO_IP, unix.IP_RECVTOS, true
-	case "ip-recvopts":
+	case addrconfig.AncillaryIPRecvOpts:
 		return unix.IPPROTO_IP, unix.IP_RECVOPTS, true
-	case "ip-retopts":
-		// Linux IP_RETOPTS is the recv-cmsg flag (same shape as
-		// IP_RECVOPTS). Darwin's IP_RETOPTS is an IP-options blob; the
-		// matrix hides and rejects the name there.
+	case addrconfig.AncillaryIPRetOpts:
 		return unix.IPPROTO_IP, unix.IP_RETOPTS, true
-	case "ipv6-recvpktinfo":
+	case addrconfig.AncillaryIPv6RecvPktinfo:
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO, true
-	case "ipv6-recvhoplimit":
+	case addrconfig.AncillaryIPv6RecvHopLimit:
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVHOPLIMIT, true
-	case "ipv6-recvtclass":
+	case addrconfig.AncillaryIPv6RecvTclass:
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVTCLASS, true
-	case "ipv6-recvdstopts":
+	case addrconfig.AncillaryIPv6RecvDstOpts:
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVDSTOPTS, true
-	case "ipv6-recvhopopts":
+	case addrconfig.AncillaryIPv6RecvHopOpts:
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVHOPOPTS, true
-	case "ipv6-recvrthdr":
+	case addrconfig.AncillaryIPv6RecvRtHdr:
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVRTHDR, true
-	case "ipv6-recvpathmtu":
+	case addrconfig.AncillaryIPv6RecvPathMTU:
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVPATHMTU, true
 	default:
 		return 0, 0, false

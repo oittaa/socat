@@ -14,25 +14,25 @@ import (
 func applyConfiguredGenericIoctl(fd int, action addrconfig.FileAction) error {
 	request := uint(action.Request)
 	noteLifecycleSyscall("ioctl")
-	switch action.ValueKind {
-	case 1:
+	switch action.Ioctl {
+	case addrconfig.IoctlVoid:
 		if err := ioctlVoid(fd, request); err != nil {
 			return fmt.Errorf("%s: ioctl(%d, 0x%x, NULL): %w", action.Name, fd, request, err)
 		}
-	case 2:
+	case addrconfig.IoctlInt:
 		if err := unix.IoctlSetInt(fd, request, action.Value); err != nil {
 			return fmt.Errorf("%s: ioctl(%d, 0x%x, 0x%x): %w", action.Name, fd, request, action.Value, err)
 		}
-	case 3:
+	case addrconfig.IoctlIntp:
 		if err := unix.IoctlSetPointerInt(fd, request, action.Value); err != nil {
 			return fmt.Errorf("%s: ioctl(%d, 0x%x, int*): %w", action.Name, fd, request, err)
 		}
-	case 4:
+	case addrconfig.IoctlBin:
 		payload := append([]byte(nil), action.Bytes...)
 		if err := ioctlBytes(fd, request, payload); err != nil {
 			return fmt.Errorf("%s: ioctl(%d, 0x%x, bin): %w", action.Name, fd, request, err)
 		}
-	case 5:
+	case addrconfig.IoctlString:
 		data := append([]byte(action.Text), 0)
 		if err := ioctlBytes(fd, request, data); err != nil {
 			return fmt.Errorf("%s: ioctl(%d, 0x%x, string): %w", action.Name, fd, request, err)

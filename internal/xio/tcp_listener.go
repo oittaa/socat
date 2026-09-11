@@ -10,11 +10,11 @@ import (
 
 // TCPListenAddress resolves the bind address without creating a socket.
 func TCPListenAddress(ctx context.Context, s addrconfig.Address, network string, port addrconfig.PortTarget) (string, error) {
-	host, err := ListenBindHost(s, network, "")
+	host, err := ListenBindHost(s, network)
 	if err != nil {
 		return "", err
 	}
-	host, err = ResolveIPHost(ctx, s, network, host)
+	ip, err := ResolveIPTarget(ctx, s, network, host)
 	if err != nil {
 		return "", err
 	}
@@ -22,7 +22,11 @@ func TCPListenAddress(ctx context.Context, s addrconfig.Address, network string,
 	if err != nil {
 		return "", err
 	}
-	return net.JoinHostPort(StripBrackets(host), strconv.Itoa(n)), nil
+	formatted := host.String()
+	if ip != nil {
+		formatted = FormatIPForNetwork(network, ip)
+	}
+	return net.JoinHostPort(formatted, strconv.Itoa(n)), nil
 }
 
 // ListenTCP binds a prepared address with the requested socket options.

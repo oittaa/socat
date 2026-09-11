@@ -21,18 +21,17 @@ func init() {
 	xio.FeatureSCTP = true
 }
 
-func listenSCTP(ctx context.Context, network, host string, port addrconfig.PortTarget, s addrconfig.Address) (net.Listener, error) {
+func listenSCTP(ctx context.Context, network string, ip net.IP, port addrconfig.PortTarget, s addrconfig.Address) (net.Listener, error) {
 	portNum, err := xio.ResolvePort(network, port)
 	if err != nil {
 		return nil, err
 	}
-	ip := net.ParseIP(xio.StripBrackets(host))
 	family := unix.AF_INET
 	switch network {
 	case "sctp6":
 		family = unix.AF_INET6
 		if ip != nil && xio.WantIPv4(network, ip) {
-			return nil, fmt.Errorf("bind: address family mismatch (%s on %s)", host, network)
+			return nil, fmt.Errorf("bind: address family mismatch (%s on %s)", ip, network)
 		}
 		if ip == nil {
 			ip = net.IPv6zero
@@ -44,7 +43,7 @@ func listenSCTP(ctx context.Context, network, host string, port addrconfig.PortT
 		}
 	default:
 		if ip != nil && ip.To4() == nil {
-			return nil, fmt.Errorf("bind: address family mismatch (%s on %s)", host, network)
+			return nil, fmt.Errorf("bind: address family mismatch (%s on %s)", ip, network)
 		}
 		if ip == nil {
 			ip = net.IPv4zero
@@ -120,13 +119,8 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s addrconfig.Address,
 	if len(ips) == 0 {
 		return nil, fmt.Errorf("no addresses for %s", host)
 	}
-	bindOpt := xio.BindHost(s)
 	spText := xio.SourcePortText(s)
 	lowport := s.Network.LowPort.Value && (spText == "" || spText == "0")
-	var sourceport addrconfig.PortTarget
-	if s.Network.SourcePortSet {
-		sourceport = s.Network.SourcePort
-	}
 	var lastErr error
 	for _, ip := range ips {
 		af := 2
@@ -136,7 +130,7 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s addrconfig.Address,
 		if g != nil && g.Log != nil {
 			g.Log.Noticef("opening connection to AF=%d %s", af, net.JoinHostPort(xio.FormatIPForNetwork(dest.Network, ip), fmt.Sprintf("%d", portNum)))
 		}
-		laddr, skip, err := xio.BindTCPAddrForRemote(ctx, ip, s, bindOpt, sourceport, dest.Network)
+		laddr, skip, err := xio.BindTCPAddrForRemote(ctx, ip, s, dest.Network)
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {

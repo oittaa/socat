@@ -55,7 +55,7 @@ func testOversizedProxyResponse(t *testing.T, response string) {
 	type result struct{ err error }
 	resultCh := make(chan result, 1)
 	go func() {
-		_, err := proxyHTTP1Handshake(client, addrconfig.Proxy{}, "192.0.2.1", "443", "1.0")
+		_, err := proxyHTTP1Handshake(client, addrconfig.Proxy{}, "192.0.2.1", 443, "1.0")
 		resultCh <- result{err: err}
 	}()
 	select {

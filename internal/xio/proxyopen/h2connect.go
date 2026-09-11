@@ -22,14 +22,14 @@ func dialH2CONNECT(ctx context.Context, s addrconfig.Address, g *xio.Global, t p
 	h2c := s.Proxy.H2C.Value
 	connectTimeout := xio.ConnectTimeout(s)
 	handshakeTimeout := xio.HandshakeTimeout(s)
-	network := xio.ConnectNetworkForType(g, s, t.proxyHost, "tcp")
+	network := xio.ConnectNetworkForType(g, s, t.proxyHost.String(), "tcp")
 
 	var tlsCfg *tls.Config
 	scheme := "https"
 	if h2c {
 		scheme = "http"
 	} else {
-		cfg, err := tlsopen.TLSClientConfigSettings(s.Type, s.TLS, t.proxyHost)
+		cfg, err := tlsopen.TLSClientConfigSettings(s.Type, s.TLS, t.proxyHost.String())
 		if err != nil {
 			return nil, err
 		}
@@ -37,11 +37,15 @@ func dialH2CONNECT(ctx context.Context, s addrconfig.Address, g *xio.Global, t p
 		tlsCfg.NextProtos = []string{proxyALPN(s.TLS, "h2")}
 	}
 
-	u := scheme + "://" + net.JoinHostPort(xio.StripBrackets(t.proxyHost), t.proxyPort) + "/"
-	authority := net.JoinHostPort(t.connectHost, t.targetPort)
+	proxyPort, err := xio.ResolvePort("tcp", t.proxyPort)
+	if err != nil {
+		return nil, err
+	}
+	u := scheme + "://" + proxyCONNECTTarget(t.proxyHost.String(), proxyPort) + "/"
+	authority := proxyCONNECTTarget(t.connectHost, t.connectPort)
 
 	var conn net.Conn
-	err := xio.WithRetry(ctx, g, "PROXY-CONNECT", func() error {
+	err = xio.WithRetry(ctx, g, "PROXY-CONNECT", func() error {
 		raw, e := xio.DialTCPAll(ctx, xio.DialTarget{Network: network, Host: s.Proxy.Server, Port: proxyPortTarget(s.Proxy)}, s, g, connectTimeout, nil)
 		if e != nil {
 			return e

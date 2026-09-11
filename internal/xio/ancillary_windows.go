@@ -43,7 +43,7 @@ func ControlMessageBytes(oob []byte, oobn, _ int) []byte {
 }
 
 func applyPreparedIPRecv(_ int, e IPAncillaryEntry, _ int, family ipFamily) error {
-	return rejectIPAncillaryApply(e.Canonical, family)
+	return rejectIPAncillaryApply(e, family)
 }
 
 func ApplyUDPConnOpts(c *net.UDPConn, s addrconfig.Address, _ string) error {

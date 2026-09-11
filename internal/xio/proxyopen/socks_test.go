@@ -346,3 +346,39 @@ func TestSOCKS5UserPassClassic604(t *testing.T) {
 func TestSOCKS5PassOnlyFallsBackToAnonymous(t *testing.T) {
 	echoViaSOCKS5Auth(t, "SOCKS5-CONNECT:127.0.0.1:127.0.0.1:80,sockspass=p", "anonymous", "p")
 }
+
+func TestSOCKSDestBytesFromTypedHost(t *testing.T) {
+	dest, err := socks5DestFromTarget(addrconfig.HostFromText("192.0.2.1"), 443)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dest.AddrType != 1 || dest.Port != 443 || string(dest.Addr) != string([]byte{192, 0, 2, 1}) {
+		t.Fatalf("ipv4 dest=%+v", dest)
+	}
+
+	dest, err = socks5DestFromTarget(addrconfig.HostFromText("2001:db8::1"), 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want6 := addrconfig.HostFromText("2001:db8::1").IP().To16()
+	if dest.AddrType != 4 || dest.Port != 80 || string(dest.Addr) != string(want6) {
+		t.Fatalf("ipv6 dest=%+v", dest)
+	}
+
+	dest, err = socks5DestFromTarget(addrconfig.HostFromText("example.test"), 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dest.AddrType != 3 || dest.Port != 9 || dest.Addr[0] != byte(len("example.test")) ||
+		string(dest.Addr[1:]) != "example.test" {
+		t.Fatalf("domain dest=%+v", dest)
+	}
+
+	ip4, err := socks4DestIP(t.Context(), addrconfig.Address{}, addrconfig.HostFromText("192.0.2.10"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ip4 != [4]byte{192, 0, 2, 10} {
+		t.Fatalf("socks4 ip=%v", ip4)
+	}
+}

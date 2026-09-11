@@ -49,6 +49,7 @@ const (
 // IPAncillaryEntry is one row of the address-family × option runtime matrix.
 // Only the groups, platforms, and IP families listed here are honored.
 type IPAncillaryEntry struct {
+	ID        addrconfig.AncillaryOption
 	Canonical string
 	Kind      IPAncillaryKind
 	Groups    []string
@@ -111,31 +112,43 @@ var (
 // ReadMsg cmsg path. There is no recvpathmtu parser alias.
 
 var ipAncillaryMatrix = []IPAncillaryEntry{
-	{Canonical: "so-timestamp", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ip-pktinfo", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ip-recvttl", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ip-recvtos", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ip-recvopts", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ip-retopts", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryLinuxOnly},
-	{Canonical: "ip-recvdstaddr", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryDarwinOnly},
-	{Canonical: "ip-recvif", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryDarwinOnly},
-	{Canonical: "ipv6-recvpktinfo", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ipv6-recvhoplimit", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ipv6-recvtclass", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ipv6-recvdstopts", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryLinuxOnly},
-	{Canonical: "ipv6-recvhopopts", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryLinuxOnly},
-	{Canonical: "ipv6-recvrthdr", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ipv6-recvpathmtu", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
+	{ID: addrconfig.AncillarySOTimestamp, Canonical: "so-timestamp", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixOnly},
+	{ID: addrconfig.AncillaryIPPktinfo, Canonical: "ip-pktinfo", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
+	{ID: addrconfig.AncillaryIPRecvTTL, Canonical: "ip-recvttl", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
+	{ID: addrconfig.AncillaryIPRecvTOS, Canonical: "ip-recvtos", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
+	{ID: addrconfig.AncillaryIPRecvOpts, Canonical: "ip-recvopts", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
+	{ID: addrconfig.AncillaryIPRetOpts, Canonical: "ip-retopts", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryLinuxOnly},
+	{ID: addrconfig.AncillaryIPRecvDstAddr, Canonical: "ip-recvdstaddr", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryDarwinOnly},
+	{ID: addrconfig.AncillaryIPRecvIf, Canonical: "ip-recvif", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv4, platforms: ipAncillaryDarwinOnly},
+	{ID: addrconfig.AncillaryIPv6RecvPktinfo, Canonical: "ipv6-recvpktinfo", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
+	{ID: addrconfig.AncillaryIPv6RecvHopLimit, Canonical: "ipv6-recvhoplimit", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
+	{ID: addrconfig.AncillaryIPv6RecvTclass, Canonical: "ipv6-recvtclass", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
+	{ID: addrconfig.AncillaryIPv6RecvDstOpts, Canonical: "ipv6-recvdstopts", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryLinuxOnly},
+	{ID: addrconfig.AncillaryIPv6RecvHopOpts, Canonical: "ipv6-recvhopopts", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryLinuxOnly},
+	{ID: addrconfig.AncillaryIPv6RecvRtHdr, Canonical: "ipv6-recvrthdr", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
+	{ID: addrconfig.AncillaryIPv6RecvPathMTU, Canonical: "ipv6-recvpathmtu", Kind: IPAncillaryRecv, Groups: ipAncillaryRecvGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
 
-	{Canonical: "ip-ttl", Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixWindows},
-	{Canonical: "ip-tos", Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixWindows},
-	{Canonical: "ip-options", Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ip-hdrincl", Kind: IPAncillarySend, Groups: []string{GroupRawIP}, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ipv6-unicast-hops", Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
-	{Canonical: "ipv6-tclass", Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
+	{ID: addrconfig.AncillaryIPTTL, Canonical: "ip-ttl", Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixWindows},
+	{ID: addrconfig.AncillaryIPTOS, Canonical: "ip-tos", Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixWindows},
+	{ID: addrconfig.AncillaryIPOptions, Canonical: "ip-options", Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv4AndIPv6, platforms: ipAncillaryUnixOnly},
+	{ID: addrconfig.AncillaryIPHdrincl, Canonical: "ip-hdrincl", Kind: IPAncillarySend, Groups: []string{GroupRawIP}, families: ipAncillaryIPv4, platforms: ipAncillaryUnixOnly},
+	{ID: addrconfig.AncillaryIPv6UnicastHops, Canonical: "ipv6-unicast-hops", Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
+	{ID: addrconfig.AncillaryIPv6Tclass, Canonical: "ipv6-tclass", Kind: IPAncillarySend, Groups: ipAncillarySendGroups, families: ipAncillaryIPv6, platforms: ipAncillaryUnixOnly},
 }
 
-func lookupIPAncillary(optionName string) (IPAncillaryEntry, bool) {
+func lookupIPAncillary(id addrconfig.AncillaryOption) (IPAncillaryEntry, bool) {
+	if id == addrconfig.AncillaryNone {
+		return IPAncillaryEntry{}, false
+	}
+	for _, e := range ipAncillaryMatrix {
+		if e.ID == id {
+			return e, true
+		}
+	}
+	return IPAncillaryEntry{}, false
+}
+
+func lookupIPAncillaryName(optionName string) (IPAncillaryEntry, bool) {
 	n := strings.ToLower(strings.TrimSpace(optionName))
 	if n == "" {
 		return IPAncillaryEntry{}, false
@@ -144,12 +157,7 @@ func lookupIPAncillary(optionName string) (IPAncillaryEntry, bool) {
 	if !ok {
 		return IPAncillaryEntry{}, false
 	}
-	for _, e := range ipAncillaryMatrix {
-		if e.Canonical == d.Canonical {
-			return e, true
-		}
-	}
-	return IPAncillaryEntry{}, false
+	return lookupIPAncillary(addrconfig.AncillaryID(d.Canonical))
 }
 
 // IPAncillarySupported reports whether optionName is implemented on the
@@ -157,7 +165,7 @@ func lookupIPAncillary(optionName string) (IPAncillaryEntry, bool) {
 // unrestricted here. Platform and IP-family checks live in
 // RejectUnsupportedIPAncillary.
 func IPAncillarySupported(group, optionName string) bool {
-	e, ok := lookupIPAncillary(optionName)
+	e, ok := lookupIPAncillaryName(optionName)
 	if !ok {
 		return true
 	}
@@ -224,16 +232,15 @@ func ipFamilyFromNetwork(network string) ipFamily {
 	}
 }
 
-func rejectIPAncillaryApply(optionName string, family ipFamily) error {
-	e, ok := lookupIPAncillary(optionName)
-	if !ok {
+func rejectIPAncillaryApply(e IPAncillaryEntry, family ipFamily) error {
+	if e.ID == addrconfig.AncillaryNone {
 		return nil
 	}
 	if !e.supportedOnThisPlatform() {
-		return fmt.Errorf("%s: not supported on this platform", optionName)
+		return fmt.Errorf("%s: not supported on this platform", e.Canonical)
 	}
 	if family != ipFamilyUnknown && !e.supportedOnFamily(family) {
-		return fmt.Errorf("%s: not supported on %s", optionName, ipFamilyName(family))
+		return fmt.Errorf("%s: not supported on %s", e.Canonical, ipFamilyName(family))
 	}
 	return nil
 }
@@ -252,13 +259,13 @@ func RejectUnsupportedIPAncillary(s addrconfig.Address) error {
 		if action.Kind != addrconfig.SocketActionAncillary {
 			continue
 		}
-		name, _, ok := ancillaryOptionIdentity(action)
-		if !ok {
-			continue
-		}
-		e, inMatrix := lookupIPAncillary(name)
+		e, inMatrix := lookupIPAncillary(action.Ancillary)
 		if !inMatrix {
 			continue
+		}
+		name := e.Canonical
+		if action.Text != "" {
+			name = action.Text
 		}
 		if !e.supportedOnThisPlatform() {
 			return fmt.Errorf("%s: option %q not supported on this platform", s.Type, name)
@@ -278,7 +285,7 @@ func ipSendRequested(s addrconfig.Address) bool {
 		if action.Kind != addrconfig.SocketActionAncillary {
 			continue
 		}
-		if _, kind, ok := ancillaryOptionIdentity(action); ok && kind&IPAncillarySend != 0 {
+		if e, ok := lookupIPAncillary(action.Ancillary); ok && e.Kind&IPAncillarySend != 0 {
 			return true
 		}
 	}
@@ -286,15 +293,16 @@ func ipSendRequested(s addrconfig.Address) bool {
 }
 
 func ancillaryRecvRequested(s addrconfig.Address) bool {
-	last := make(map[string]int)
+	last := make(map[addrconfig.AncillaryOption]int)
 	for _, action := range s.Network.Actions {
 		if action.Kind != addrconfig.SocketActionAncillary {
 			continue
 		}
-		if _, kind, ok := ancillaryOptionIdentity(action); !ok || kind&IPAncillaryRecv == 0 {
+		e, ok := lookupIPAncillary(action.Ancillary)
+		if !ok || e.Kind&IPAncillaryRecv == 0 {
 			continue
 		}
-		last[action.Text] = action.Number
+		last[action.Ancillary] = action.Number
 	}
 	for _, n := range last {
 		if n != 0 {
@@ -302,12 +310,4 @@ func ancillaryRecvRequested(s addrconfig.Address) bool {
 		}
 	}
 	return false
-}
-
-func ancillaryOptionIdentity(action addrconfig.SocketAction) (canonical string, kind IPAncillaryKind, ok bool) {
-	e, ok := lookupIPAncillary(action.Text)
-	if !ok {
-		return "", 0, false
-	}
-	return e.Canonical, e.Kind, true
 }

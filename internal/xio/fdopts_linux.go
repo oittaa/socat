@@ -25,7 +25,7 @@ func ApplyFDOptionsSkip(f *os.File, s addrconfig.Address, skip FDSkip) error {
 func applyConfiguredLinuxPHFDAction(fd int, action addrconfig.FileAction) error {
 	switch action.Kind {
 	case addrconfig.FileActionFSFlag:
-		mask, ok := linuxExtFSFlagMasks[action.Text]
+		mask, ok := linuxExtFSFlagMasks[action.FS]
 		if !ok {
 			return nil
 		}

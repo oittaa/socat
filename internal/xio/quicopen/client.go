@@ -24,13 +24,15 @@ func quicDialAttemptTimeout(ctx context.Context, s addrconfig.Address) time.Dura
 }
 
 func openQUICConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	host, port, err := quicTarget(s, false)
+	host, _, err := quicTarget(s, false)
 	if err != nil {
 		return nil, err
 	}
+	target := s.Network.Target
+	targetPort := s.Network.TargetPort
 	network := xio.TCPToUDPNetwork(xio.ConnectNetworkForType(g, s, host, "tcp"))
-	dest := net.JoinHostPort(xio.StripBrackets(host), port)
-	netw, err := xio.PacketNetworkForHost(ctx, s, network, host)
+	dest := net.JoinHostPort(target.String(), targetPort.Text())
+	netw, err := xio.PacketNetworkForHost(ctx, s, network, target)
 	if err != nil {
 		return nil, err
 	}
@@ -45,11 +47,11 @@ func openQUICConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g
 		return nil, err
 	}
 
-	bindHost, err := xio.ListenBindHost(s, network, "")
+	bindHost, err := xio.ListenBindHost(s, network)
 	if err != nil {
 		return nil, err
 	}
-	pc, err := listenQUICClientPacket(ctx, network, bindHost, xio.SourcePortText(s), s, g)
+	pc, err := listenQUICClientPacket(ctx, network, bindHost, xio.ClientLocalPort(s), s, g)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +74,7 @@ func openQUICConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g
 				cctx, cancel = context.WithTimeout(dctx, attemptTimeout)
 				defer cancel()
 			}
-			raddr, e := xio.ResolveUDPAddr(cctx, s, network, dest)
+			raddr, e := xio.ResolveUDPTarget(cctx, s, network, target, targetPort)
 			if e != nil {
 				return e
 			}

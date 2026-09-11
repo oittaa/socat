@@ -13,7 +13,7 @@ func decodeIoctl(o parse.Option) (FileAction, error) {
 	name := optionIdentity(o)
 	switch name {
 	case "ioctl-void":
-		action.ValueKind = 1
+		action.Ioctl = IoctlVoid
 		value, err := requiredString(o)
 		if err != nil {
 			return FileAction{}, err
@@ -24,9 +24,9 @@ func decodeIoctl(o parse.Option) (FileAction, error) {
 		}
 		action.Request = uint32(int32(request)) // #nosec G115 -- zero-extend a validated C int request.
 	case "ioctl-int", "ioctl-intp":
-		action.ValueKind = 2
+		action.Ioctl = IoctlInt
 		if name == "ioctl-intp" {
-			action.ValueKind = 3
+			action.Ioctl = IoctlIntp
 		}
 		request, value, err := splitIoctlInt(o)
 		if err != nil {
@@ -34,7 +34,7 @@ func decodeIoctl(o parse.Option) (FileAction, error) {
 		}
 		action.Request, action.Value = request, value
 	case "ioctl-bin":
-		action.ValueKind = 4
+		action.Ioctl = IoctlBin
 		request, rest, err := splitIoctlRest(o, true)
 		if err != nil {
 			return FileAction{}, err
@@ -48,7 +48,7 @@ func decodeIoctl(o parse.Option) (FileAction, error) {
 		}
 		action.Request, action.Bytes = request, data
 	case "ioctl-string":
-		action.ValueKind = 5
+		action.Ioctl = IoctlString
 		request, value, err := splitIoctlRest(o, false)
 		if err != nil {
 			return FileAction{}, err

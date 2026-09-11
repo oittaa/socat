@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/optionmeta"
 )
 
 type socketApplyPass uint8
@@ -138,14 +137,7 @@ func applyPreparedSocketAction(fd int, action addrconfig.SocketAction, family *i
 	case addrconfig.SocketActionAncillary:
 		return applyPreparedAncillary(fd, action, family, familyResolved)
 	case addrconfig.SocketActionGetOnly:
-		spelling := action.Text
-		if spelling == "" {
-			spelling = "ip-mtu"
-		}
-		kernel := spelling
-		if def, ok := optionmeta.Lookup(spelling); ok && def.Kernel != "" {
-			kernel = def.Kernel
-		}
+		spelling, kernel := getOnlyNames(action)
 		return fmt.Errorf("%s: %s is get-only; not implemented as a setter", spelling, kernel)
 	default:
 		return nil
@@ -178,7 +170,7 @@ func applyPreparedNamedAction(fd int, action addrconfig.SocketAction) error {
 				name = "siocspgrp"
 			}
 		}
-		if err := applyOwnerIoctlPlatform(fd, name, action.Number); err != nil {
+		if err := applyOwnerIoctlPlatform(fd, action.Named, action.Number); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
 		return nil

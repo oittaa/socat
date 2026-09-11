@@ -95,3 +95,34 @@ func lowportWildcardBindDenied() bool {
 	}
 	return errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.EPERM)
 }
+
+func TestBindTCPAddrEmbeddedPortOverridesSourcePort(t *testing.T) {
+	s, err := parse.ParseSpec("TCP4:127.0.0.1:9,bind=127.0.0.1:123,sourceport=9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	laddr, skip, err := BindTCPAddrForRemote(t.Context(), net.IPv4(127, 0, 0, 1), mustDecodeAddress(t, s), "tcp4")
+	if err != nil || skip || laddr == nil {
+		t.Fatalf("laddr=%v skip=%v err=%v", laddr, skip, err)
+	}
+	if laddr.Port != 123 {
+		t.Fatalf("port=%d want 123 from bind=host:port, not sourceport", laddr.Port)
+	}
+	if !laddr.IP.Equal(net.IPv4(127, 0, 0, 1)) {
+		t.Fatalf("ip=%v", laddr.IP)
+	}
+}
+
+func TestBindTCPAddrSourcePortWhenBindHasNoPort(t *testing.T) {
+	s, err := parse.ParseSpec("TCP4:127.0.0.1:9,bind=127.0.0.1,sourceport=123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	laddr, skip, err := BindTCPAddrForRemote(t.Context(), net.IPv4(127, 0, 0, 1), mustDecodeAddress(t, s), "tcp4")
+	if err != nil || skip || laddr == nil {
+		t.Fatalf("laddr=%v skip=%v err=%v", laddr, skip, err)
+	}
+	if laddr.Port != 123 {
+		t.Fatalf("port=%d want sourceport 123", laddr.Port)
+	}
+}

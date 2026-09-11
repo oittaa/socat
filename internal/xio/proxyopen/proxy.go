@@ -24,43 +24,31 @@ const maxHTTP1ProxyResponseBytes = 64 << 10
 // PROXY / PROXY-CONNECT:proxy:targethost:targetport[,proxyport=N][,http-version=1.0|2|3][,resolve]
 // HTTP CONNECT through a proxy. Default is HTTP/1.0.
 func openProxyConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	// Params: proxyhost, targethost, targetport  (or combined from parser)
-	proxyHost, targetHost, targetPort, err := proxyParams(s)
-	if err != nil {
-		return nil, err
+	if !s.Proxy.EndpointsSet {
+		return nil, fmt.Errorf("%s requires proxy, host, and port", s.Type)
 	}
 	if err := rejectProxyPlaintextPolicy(s); err != nil {
 		return nil, err
 	}
-	proxyPort := proxyPortText(s.Proxy)
+	targetPort, err := xio.ResolvePort("tcp", s.Proxy.TargetPort)
+	if err != nil {
+		return nil, fmt.Errorf("PROXY: target port: %w", err)
+	}
+	connectHost, err := resolvePROXYConnectHost(ctx, s, s.Proxy.Target, proxyResolveTarget(s.Proxy))
+	if err != nil {
+		return nil, err
+	}
+	proxyPort := proxyPortTarget(s.Proxy)
 	major, ver := proxyHTTPVersion(s.Proxy)
 
-	// proxy-resolve / resolve (default true): put IPv4 in the CONNECT target.
-	// Many proxies expect "CONNECT a.b.c.d:port HTTP/x.y".
-	connectHost := xio.StripBrackets(targetHost)
-	doResolve := proxyResolveTarget(s.Proxy)
-	if doResolve {
-		if ip := net.ParseIP(connectHost); ip == nil {
-			ips, resolveErr := xio.LookupIP(ctx, s, "ip4", connectHost)
-			if resolveErr != nil {
-				return nil, fmt.Errorf("PROXY: resolve target %s: %w", targetHost, resolveErr)
-			}
-			if len(ips) == 0 {
-				return nil, fmt.Errorf("PROXY: resolve target %s: no IPv4 addresses", targetHost)
-			}
-			connectHost = ips[0].String()
-		} else if ip4 := ip.To4(); ip4 != nil {
-			connectHost = ip4.String()
-		}
-	}
-
 	t := proxyTarget{
-		proxyHost:   proxyHost,
+		proxyHost:   s.Proxy.Server,
 		proxyPort:   proxyPort,
-		targetHost:  targetHost,
-		targetPort:  targetPort,
+		targetHost:  s.Proxy.Target,
+		targetPort:  s.Proxy.TargetPort,
 		connectHost: connectHost,
-		label:       "PROXY:" + targetHost + ":" + targetPort,
+		connectPort: targetPort,
+		label:       "PROXY:" + s.Proxy.Target.Original() + ":" + s.Proxy.TargetPort.Text(),
 	}
 	switch major {
 	case addrconfig.HTTPVersion2:
@@ -73,15 +61,14 @@ func openProxyConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 		})
 	}
 
-	// Honour pf=ip4/ip6 when dialing the proxy host.
-	network := xio.ConnectNetworkForType(g, s, proxyHost, "tcp")
+	network := xio.ConnectNetworkForType(g, s, s.Proxy.Server.String(), "tcp")
 	timeout := xio.ConnectTimeout(s)
 	handshakeTimeout := xio.HandshakeTimeout(s)
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		e := xio.WithRetry(dctx, g, "PROXY-CONNECT", func() error {
-			c, e := xio.DialTCPAll(dctx, xio.DialTarget{Network: network, Host: s.Proxy.Server, Port: proxyPortTarget(s.Proxy)}, s, g, timeout, nil)
+			c, e := xio.DialTCPAll(dctx, xio.DialTarget{Network: network, Host: s.Proxy.Server, Port: proxyPort}, s, g, timeout, nil)
 			if e != nil {
 				return e
 			}
@@ -104,9 +91,35 @@ func openProxyConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 	return openProxyDial(ctx, s, mode, g, t, false, dialOnce)
 }
 
-func proxyHTTP1Handshake(c net.Conn, proxy addrconfig.Proxy, connectHost, targetPort, version string) (net.Conn, error) {
+func resolvePROXYConnectHost(ctx context.Context, s addrconfig.Address, target addrconfig.HostTarget, doResolve bool) (string, error) {
+	if target.IsLiteral() {
+		ip := target.IP()
+		if ip4 := ip.To4(); ip4 != nil {
+			return ip4.String(), nil
+		}
+		return ip.String(), nil
+	}
+	name := target.String()
+	if !doResolve {
+		return name, nil
+	}
+	ips, err := xio.LookupIP(ctx, s, "ip4", name)
+	if err != nil {
+		return "", fmt.Errorf("PROXY: resolve target %s: %w", target.Original(), err)
+	}
+	if len(ips) == 0 {
+		return "", fmt.Errorf("PROXY: resolve target %s: no IPv4 addresses", target.Original())
+	}
+	return ips[0].String(), nil
+}
+
+func proxyCONNECTTarget(host string, port int) string {
+	return net.JoinHostPort(host, strconv.Itoa(port))
+}
+
+func proxyHTTP1Handshake(c net.Conn, proxy addrconfig.Proxy, connectHost string, targetPort int, version string) (net.Conn, error) {
 	// CONNECT host:port HTTP/1.x\r\n[auth]\r\n  (always CRLF, even with ignorecr)
-	req := fmt.Sprintf("CONNECT %s HTTP/%s\r\n", net.JoinHostPort(connectHost, targetPort), version)
+	req := fmt.Sprintf("CONNECT %s HTTP/%s\r\n", proxyCONNECTTarget(connectHost, targetPort), version)
 	auth, err := proxyAuthHeader(proxy)
 	if err != nil {
 		return nil, err
@@ -179,10 +192,13 @@ func proxyHTTP1BlankLine(line string) bool {
 }
 
 type proxyTarget struct {
-	proxyHost, proxyPort   string
-	targetHost, targetPort string
-	connectHost            string
-	label                  string
+	proxyHost   addrconfig.HostTarget
+	proxyPort   addrconfig.PortTarget
+	targetHost  addrconfig.HostTarget
+	targetPort  addrconfig.PortTarget
+	connectHost string
+	connectPort int
+	label       string
 }
 
 func openProxyDial(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, t proxyTarget, transportLifecycleApplied bool, dialOnce func(context.Context) (net.Conn, error)) (*xio.Opened, error) {
@@ -259,13 +275,6 @@ func proxyStatusOK(status string) bool {
 		return false
 	}
 	return code == "200"
-}
-
-func proxyParams(s addrconfig.Address) (proxy, host, port string, err error) {
-	if !s.Proxy.EndpointsSet {
-		return "", "", "", fmt.Errorf("%s requires proxy, host, and port", s.Type)
-	}
-	return s.Proxy.Server.Original(), s.Proxy.Target.Original(), s.Proxy.TargetPort.Text(), nil
 }
 
 // prefixConn prepends buffered bytes to the first Read.

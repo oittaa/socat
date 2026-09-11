@@ -2,6 +2,8 @@ package xio
 
 import (
 	"strings"
+
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 // linux/fs.h FS_*_FL masks. golang.org/x/sys/unix exports FS_IOC_GETFLAGS /
@@ -21,30 +23,36 @@ const (
 	fsTopdirFL      = 0x00020000
 )
 
-// linuxExtFSFlagMasks maps canonical fs-* names to FS_*_FL. Short nicknames
+// linuxExtFSFlagMasks maps typed fs-* flags to FS_*_FL. Short nicknames
 // append/sync/noatime are not keys: those spellings map to O_APPEND / O_SYNC /
 // O_NOATIME.
-var linuxExtFSFlagMasks = map[string]int{
-	"fs-secrm":        fsSecrmFL,
-	"fs-unrm":         fsUnrmFL,
-	"fs-compr":        fsComprFL,
-	"fs-sync":         fsSyncFL,
-	"fs-immutable":    fsImmutableFL,
-	"fs-append":       fsAppendFL,
-	"fs-nodump":       fsNodumpFL,
-	"fs-noatime":      fsNoatimeFL,
-	"fs-journal-data": fsJournalDataFL,
-	"fs-notail":       fsNotailFL,
-	"fs-dirsync":      fsDirsyncFL,
-	"fs-topdir":       fsTopdirFL,
+var linuxExtFSFlagMasks = map[addrconfig.FSFlag]int{
+	addrconfig.FSFlagSecrm:       fsSecrmFL,
+	addrconfig.FSFlagUnrm:        fsUnrmFL,
+	addrconfig.FSFlagCompr:       fsComprFL,
+	addrconfig.FSFlagSync:        fsSyncFL,
+	addrconfig.FSFlagImmutable:   fsImmutableFL,
+	addrconfig.FSFlagAppend:      fsAppendFL,
+	addrconfig.FSFlagNodump:      fsNodumpFL,
+	addrconfig.FSFlagNoatime:     fsNoatimeFL,
+	addrconfig.FSFlagJournalData: fsJournalDataFL,
+	addrconfig.FSFlagNotail:      fsNotailFL,
+	addrconfig.FSFlagDirsync:     fsDirsyncFL,
+	addrconfig.FSFlagTopdir:      fsTopdirFL,
 }
 
 // LinuxExtFSFlagOption reports whether name is a canonical Linux ext
 // filesystem ioctl flag (fs-append, fs-nodump, …). Used to hide these
 // options on Darwin/Windows the same way as fs-noatime.
 func LinuxExtFSFlagOption(name string) bool {
-	_, ok := linuxExtFSFlagMasks[strings.ToLower(strings.TrimSpace(name))]
-	return ok
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "fs-secrm", "fs-unrm", "fs-compr", "fs-sync", "fs-immutable",
+		"fs-append", "fs-nodump", "fs-noatime", "fs-journal-data",
+		"fs-notail", "fs-dirsync", "fs-topdir":
+		return true
+	default:
+		return false
+	}
 }
 
 // applyFSFlagMask: val &= ~mask, then |= mask when enable. Unrelated bits

@@ -59,12 +59,8 @@ func applyClassicIPSendOpts(fd int, s addrconfig.Address, family ipFamily) error
 		if action.Kind != addrconfig.SocketActionAncillary {
 			continue
 		}
-		name, kind, ok := ancillaryOptionIdentity(action)
-		if !ok || kind&IPAncillarySend == 0 {
-			continue
-		}
-		e, inMatrix := lookupIPAncillary(name)
-		if !inMatrix {
+		e, inMatrix := lookupIPAncillary(action.Ancillary)
+		if !inMatrix || e.Kind&IPAncillarySend == 0 {
 			continue
 		}
 		if err := applyPreparedIPSend(fd, e, action, resolved); err != nil {
@@ -75,12 +71,8 @@ func applyClassicIPSendOpts(fd int, s addrconfig.Address, family ipFamily) error
 }
 
 func applyPreparedAncillary(fd int, action addrconfig.SocketAction, family *ipFamily, familyResolved *bool) error {
-	name, kind, ok := ancillaryOptionIdentity(action)
+	e, ok := lookupIPAncillary(action.Ancillary)
 	if !ok {
-		return nil
-	}
-	e, inMatrix := lookupIPAncillary(name)
-	if !inMatrix {
 		return nil
 	}
 	if familyResolved != nil && !*familyResolved {
@@ -96,9 +88,9 @@ func applyPreparedAncillary(fd int, action addrconfig.SocketAction, family *ipFa
 		resolved = *family
 	}
 	switch {
-	case kind&IPAncillarySend != 0:
+	case e.Kind&IPAncillarySend != 0:
 		return applyPreparedIPSend(fd, e, action, resolved)
-	case kind&IPAncillaryRecv != 0:
+	case e.Kind&IPAncillaryRecv != 0:
 		return applyPreparedIPRecv(fd, e, action.Number, resolved)
 	default:
 		return nil
@@ -106,11 +98,11 @@ func applyPreparedAncillary(fd int, action addrconfig.SocketAction, family *ipFa
 }
 
 func applyPreparedIPSend(fd int, e IPAncillaryEntry, action addrconfig.SocketAction, family ipFamily) error {
-	if err := rejectIPAncillaryApply(e.Canonical, family); err != nil {
+	if err := rejectIPAncillaryApply(e, family); err != nil {
 		return err
 	}
-	switch e.Canonical {
-	case "ip-options":
+	switch e.ID {
+	case addrconfig.AncillaryIPOptions:
 		if len(action.Value.Bytes) == 0 {
 			return nil
 		}
@@ -118,27 +110,27 @@ func applyPreparedIPSend(fd int, e IPAncillaryEntry, action addrconfig.SocketAct
 			return fmt.Errorf("ip-options: %w", err)
 		}
 		return nil
-	case "ip-hdrincl":
+	case addrconfig.AncillaryIPHdrincl:
 		if err := applyIPHdrincl(fd, action.Number); err != nil {
 			return fmt.Errorf("%s: %w", e.Canonical, err)
 		}
 		return nil
-	case "ip-ttl":
+	case addrconfig.AncillaryIPTTL:
 		if err := setSockoptInt(fd, ipLevelIP, ipOptTTL, action.Number); err != nil {
 			return fmt.Errorf("%s: %w", e.Canonical, err)
 		}
 		return nil
-	case "ip-tos":
+	case addrconfig.AncillaryIPTOS:
 		if err := setSockoptInt(fd, ipLevelIP, ipOptTOS, action.Number); err != nil {
 			return fmt.Errorf("%s: %w", e.Canonical, err)
 		}
 		return nil
-	case "ipv6-unicast-hops":
+	case addrconfig.AncillaryIPv6UnicastHops:
 		if err := setSockoptInt(fd, ipLevelIPv6, ipOptUnicastHops, action.Number); err != nil {
 			return fmt.Errorf("%s: %w", e.Canonical, err)
 		}
 		return nil
-	case "ipv6-tclass":
+	case addrconfig.AncillaryIPv6Tclass:
 		if err := applyIPv6Tclass(fd, action.Number); err != nil {
 			return fmt.Errorf("%s: %w", e.Canonical, err)
 		}

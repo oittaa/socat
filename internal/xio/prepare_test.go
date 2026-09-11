@@ -40,6 +40,17 @@ func TestPrepareSpecRetainsDecodedFDAndHostPort(t *testing.T) {
 	if !tcp.Config.Network.Target.IsLiteral() || tcp.Config.Network.TargetPort.Number != 80 {
 		t.Fatalf("target=%+v port=%+v", tcp.Config.Network.Target, tcp.Config.Network.TargetPort)
 	}
+
+	bound, err := xio.PrepareSpec(mustParseSpec(t, "TCP4:127.0.0.1:9,bind=127.0.0.1:0"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bound.Config.Network.Bind.IsLiteral() || bound.Config.Network.Bind.String() != "127.0.0.1" {
+		t.Fatalf("bind host=%+v", bound.Config.Network.Bind)
+	}
+	if !bound.Config.Network.BindPortSet || bound.Config.Network.BindPort.Number != 0 {
+		t.Fatalf("bind port=%+v", bound.Config.Network.BindPort)
+	}
 }
 
 func TestPrepareSpecDecodesRangeAndResNSAddr(t *testing.T) {

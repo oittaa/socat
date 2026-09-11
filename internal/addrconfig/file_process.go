@@ -72,18 +72,67 @@ const (
 	FileActionOpenFlag
 )
 
+// OpenFlag is the dispatch identity of an open(2) bit option.
+type OpenFlag uint8
+
+const (
+	OpenFlagNone OpenFlag = iota
+	OpenFlagDirect
+	OpenFlagSync
+	OpenFlagDSync
+	OpenFlagRSync
+	OpenFlagNoCTTY
+	OpenFlagNoFollow
+	OpenFlagDirectory
+	OpenFlagLargeFile
+	OpenFlagAsync
+)
+
+// FSFlag is the dispatch identity of a Linux ext FS_IOC_* bit.
+type FSFlag uint8
+
+const (
+	FSFlagNone FSFlag = iota
+	FSFlagSecrm
+	FSFlagUnrm
+	FSFlagCompr
+	FSFlagSync
+	FSFlagImmutable
+	FSFlagAppend
+	FSFlagNodump
+	FSFlagNoatime
+	FSFlagJournalData
+	FSFlagNotail
+	FSFlagDirsync
+	FSFlagTopdir
+)
+
+// IoctlForm is the decoded ioctl value shape.
+type IoctlForm uint8
+
+const (
+	IoctlNone IoctlForm = iota
+	IoctlVoid
+	IoctlInt
+	IoctlIntp
+	IoctlBin
+	IoctlString
+)
+
 // FileAction is one filesystem operation in source order.
 type FileAction struct {
-	Kind      FileActionKind
-	Name      string
-	Enabled   bool
-	Mode      uint32
-	Offset    int64
-	Value     int
-	Text      string
-	Request   uint32
-	Bytes     []byte
-	ValueKind uint8
+	Kind    FileActionKind
+	Name    string
+	Enabled bool
+	Mode    uint32
+	Offset  int64
+	Value   int
+	Text    string
+	Flag    OpenFlag
+	FS      FSFlag
+	Ioctl   IoctlForm
+	Request uint32
+	Bytes   []byte
 }
 
 // Process holds EXEC/SYSTEM/SHELL choices. Commands stay positional.
@@ -185,11 +234,11 @@ func decodeFileProcess(a *Address, o parse.Option) (bool, error) {
 		a.File.Nonblock = activeBool(o).Value
 		return true, nil
 	case "o-direct", "o-sync", "o-dsync", "o-rsync", "o-noctty", "o-nofollow", "o-directory", "o-largefile":
-		appendAction(FileAction{Kind: FileActionOpenFlag, Text: name, Enabled: activeBool(o).Value})
+		appendAction(FileAction{Kind: FileActionOpenFlag, Flag: openFlagID(name), Name: name, Enabled: activeBool(o).Value})
 		return true, nil
 	case "async":
 		enabled := activeBool(o).Value
-		appendAction(FileAction{Kind: FileActionAsync, Text: name, Enabled: enabled})
+		appendAction(FileAction{Kind: FileActionAsync, Flag: OpenFlagAsync, Name: name, Enabled: enabled})
 		return true, nil
 	case "perm", "perm-late", "perm-early":
 		mode, err := fileMode(o, 0o7777)
@@ -293,7 +342,7 @@ func decodeFileProcess(a *Address, o parse.Option) (bool, error) {
 		if err != nil {
 			return true, err
 		}
-		appendAction(FileAction{Kind: FileActionFSFlag, Enabled: enabled.Value, Text: name})
+		appendAction(FileAction{Kind: FileActionFSFlag, Enabled: enabled.Value, FS: fsFlagID(name), Name: name})
 		return true, nil
 	case "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string":
 		action, err := decodeIoctl(o)
@@ -699,4 +748,60 @@ func terminalWinSize(o parse.Option) (uint16, uint16, error) {
 		row = math.MaxUint16
 	}
 	return uint16(col), uint16(row), nil
+}
+
+func openFlagID(name string) OpenFlag {
+	switch name {
+	case "o-direct":
+		return OpenFlagDirect
+	case "o-sync":
+		return OpenFlagSync
+	case "o-dsync":
+		return OpenFlagDSync
+	case "o-rsync":
+		return OpenFlagRSync
+	case "o-noctty":
+		return OpenFlagNoCTTY
+	case "o-nofollow":
+		return OpenFlagNoFollow
+	case "o-directory":
+		return OpenFlagDirectory
+	case "o-largefile":
+		return OpenFlagLargeFile
+	case "async":
+		return OpenFlagAsync
+	default:
+		return OpenFlagNone
+	}
+}
+
+func fsFlagID(name string) FSFlag {
+	switch name {
+	case "fs-secrm":
+		return FSFlagSecrm
+	case "fs-unrm":
+		return FSFlagUnrm
+	case "fs-compr":
+		return FSFlagCompr
+	case "fs-sync":
+		return FSFlagSync
+	case "fs-immutable":
+		return FSFlagImmutable
+	case "fs-append":
+		return FSFlagAppend
+	case "fs-nodump":
+		return FSFlagNodump
+	case "fs-noatime":
+		return FSFlagNoatime
+	case "fs-journal-data":
+		return FSFlagJournalData
+	case "fs-notail":
+		return FSFlagNotail
+	case "fs-dirsync":
+		return FSFlagDirsync
+	case "fs-topdir":
+		return FSFlagTopdir
+	default:
+		return FSFlagNone
+	}
 }

@@ -190,6 +190,43 @@ const (
 	NamedSocketSIOCSPGRP
 )
 
+// AncillaryOption is the dispatch identity of an IP/ancillary socket option.
+type AncillaryOption uint8
+
+const (
+	AncillaryNone AncillaryOption = iota
+	AncillarySOTimestamp
+	AncillaryIPPktinfo
+	AncillaryIPRecvTTL
+	AncillaryIPRecvTOS
+	AncillaryIPRecvOpts
+	AncillaryIPRetOpts
+	AncillaryIPRecvDstAddr
+	AncillaryIPRecvIf
+	AncillaryIPv6RecvPktinfo
+	AncillaryIPv6RecvHopLimit
+	AncillaryIPv6RecvTclass
+	AncillaryIPv6RecvDstOpts
+	AncillaryIPv6RecvHopOpts
+	AncillaryIPv6RecvRtHdr
+	AncillaryIPv6RecvPathMTU
+	AncillaryIPTTL
+	AncillaryIPTOS
+	AncillaryIPOptions
+	AncillaryIPHdrincl
+	AncillaryIPv6UnicastHops
+	AncillaryIPv6Tclass
+)
+
+// IPGetOnly is a recognized get-only IPv4 name that is never applied as a setter.
+type IPGetOnly uint8
+
+const (
+	IPGetOnlyNone IPGetOnly = iota
+	IPGetOnlyMTU
+	IPGetOnlyPktoptions
+)
+
 // MulticastKind selects a multicast socket request.
 type MulticastKind uint8
 
@@ -230,6 +267,8 @@ type SocketAction struct {
 	Kind      SocketActionKind
 	Phase     SocketPhase
 	Named     NamedSocket
+	Ancillary AncillaryOption
+	GetOnly   IPGetOnly
 	Number    int
 	Option    int
 	Duration  time.Duration
@@ -270,18 +309,32 @@ func (n Network) WithoutSourcePort() Network {
 	return n
 }
 
+// LocalPort is the prepared local bind port: bind=host:port when present,
+// otherwise sourceport=.
+func (n Network) LocalPort() (PortTarget, bool) {
+	if n.BindPortSet {
+		return n.BindPort, true
+	}
+	if n.SourcePortSet {
+		return n.SourcePort, true
+	}
+	return PortTarget{}, false
+}
+
 // Network contains the immutable network and socket configuration.
 type Network struct {
 	Kind AddressKind
 	Role AddressRole
 
-	Target     HostTarget
-	TargetPort PortTarget
-	TargetSet  bool
-	ListenPort PortTarget
-	ListenSet  bool
-	Bind       HostTarget
-	BindSet    bool
+	Target      HostTarget
+	TargetPort  PortTarget
+	TargetSet   bool
+	ListenPort  PortTarget
+	ListenSet   bool
+	Bind        HostTarget
+	BindSet     bool
+	BindPort    PortTarget
+	BindPortSet bool
 
 	ProtocolFamily   int
 	IPFamily         IPFamily
@@ -445,7 +498,7 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 			n.BindSet = true
 			return true, nil
 		}
-		n.Bind = targetFromText(text)
+		n.Bind, n.BindPort, n.BindPortSet = parseBindValue(text, bindSplitsHostPort(n))
 		n.BindSet = true
 		return true, nil
 	case "sourceport":
@@ -760,6 +813,31 @@ func targetFromText(text string) HostTarget {
 		return HostTarget{Literal: ip, Name: text}
 	}
 	return HostTarget{Name: text}
+}
+
+func bindSplitsHostPort(n *Network) bool {
+	switch n.Kind {
+	case AddressKindSocket, AddressKindVSOCK, AddressKindTUN, AddressKindINTERFACE, AddressKindFD, AddressKindPOSIXMQ:
+		return false
+	}
+	switch n.Role {
+	case AddressRoleConnect, AddressRoleListen, AddressRoleSendTo, AddressRoleDatagram, AddressRoleReceive, AddressRoleReceiveFrom:
+		return true
+	}
+	return false
+}
+
+func parseBindValue(text string, splitHostPort bool) (HostTarget, PortTarget, bool) {
+	if splitHostPort {
+		if h, p, err := net.SplitHostPort(text); err == nil && !bindHostLooksLikePath(h) {
+			return targetFromText(h), portTarget(p), true
+		}
+	}
+	return targetFromText(text), PortTarget{}, false
+}
+
+func bindHostLooksLikePath(host string) bool {
+	return strings.ContainsAny(host, `/\`) || strings.HasPrefix(host, "@")
 }
 
 func portTarget(text string) PortTarget {

@@ -298,12 +298,12 @@ func TestResolveUDPAddrUsesResNSAddr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	addr, err := ResolveUDPAddr(t.Context(), mustDecodeAddress(t, resNSAddrSpec(server.addr)), "udp4", "udp-res-nsaddr.test:9")
+	addr, err := ResolveUDPTarget(t.Context(), mustDecodeAddress(t, resNSAddrSpec(server.addr)), "udp4", addrconfig.HostFromText("udp-res-nsaddr.test"), addrconfig.PortFromText("9"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !addr.IP.Equal(net.IPv4(127, 0, 0, 1)) || addr.Port != 9 {
-		t.Fatalf("ResolveUDPAddr=%v want 127.0.0.1:9", addr)
+		t.Fatalf("ResolveUDPTarget=%v want 127.0.0.1:9", addr)
 	}
 	if server.udpQueries.Load() == 0 {
 		t.Fatal("UDP target hostname did not use selected nameserver")
@@ -480,7 +480,7 @@ func TestLookupDialIPAIPassivePrefersIPv6(t *testing.T) {
 	server.setAnswers([]net.IP{net.IPv4(192, 0, 2, 1), net.ParseIP("2001:db8::1")})
 	s := resNSAddrSpec(server.addr)
 	s.Options = append(s.Options, parse.Option{Name: "ai-addrconfig", Value: "0", Has: true}, parse.Option{Name: "ai-passive"})
-	netw, ip, err := LookupDialIP(t.Context(), mustDecodeAddress(t, s), "udp", "passive-udp.test")
+	netw, ip, err := LookupDialIP(t.Context(), mustDecodeAddress(t, s), "udp", addrconfig.HostFromText("passive-udp.test"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,5 +500,22 @@ func TestMatchLocalPacketAddrUnspecified(t *testing.T) {
 	}
 	if _, err = MatchLocalPacketAddr("udp4", &net.UDPAddr{IP: net.ParseIP("::1"), Port: 9}); err == nil {
 		t.Fatal("specified IPv6 bind on udp4: want mismatch")
+	}
+}
+
+func TestResolveUDPTargetLiteralKeepsTypedHostPort(t *testing.T) {
+	addr, err := ResolveUDPTarget(t.Context(), addrconfig.Address{}, "udp4", addrconfig.HostFromText("127.0.0.1"), addrconfig.PortFromText("080"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !addr.IP.Equal(net.IPv4(127, 0, 0, 1)) || addr.Port != 80 {
+		t.Fatalf("ResolveUDPTarget=%v want 127.0.0.1:80", addr)
+	}
+	addr, err = ResolveUDPTarget(t.Context(), addrconfig.Address{}, "udp6", addrconfig.HostFromText("::1"), addrconfig.PortFromText("9"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !addr.IP.Equal(net.ParseIP("::1")) || addr.Port != 9 {
+		t.Fatalf("ResolveUDPTarget=%v want [::1]:9", addr)
 	}
 }

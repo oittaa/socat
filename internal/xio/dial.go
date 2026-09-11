@@ -77,13 +77,8 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *G
 		return nil, fmt.Errorf("no addresses for %s", host)
 	}
 
-	bindOpt := BindHost(s)
 	spText := SourcePortText(s)
 	lowport := s.Network.LowPort.Value && (spText == "" || spText == "0")
-	var sourceport addrconfig.PortTarget
-	if s.Network.SourcePortSet {
-		sourceport = s.Network.SourcePort
-	}
 
 	var lastErr error
 	for _, ip := range ips {
@@ -94,7 +89,7 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *G
 			g.Log.Noticef("opening connection to AF=%d %s", af, formatTCPAddr(dest.Network, ip, raddr.Port))
 		}
 
-		laddr, skip, err := BindTCPAddrForRemote(ctx, ip, s, bindOpt, sourceport, dest.Network)
+		laddr, skip, err := BindTCPAddrForRemote(ctx, ip, s, dest.Network)
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {
@@ -320,25 +315,14 @@ func localIPFamiliesFromAddrs(addrs []net.Addr) (v4, v6 bool) {
 }
 
 // BindTCPAddrForRemote picks a local TCPAddr matching remote's family.
-// bindOpt may be host, [ipv6], or host:port / [ipv6]:port (bind=).
-// sourceport is used when bind has no port. skip=true means try next remote.
-func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s addrconfig.Address, bindOpt string, sourceport addrconfig.PortTarget, network string) (laddr *net.TCPAddr, skip bool, err error) {
-	if bindOpt == "" && (sourceport.Text() == "" || sourceport.Text() == "0") {
+// skip=true means try next remote.
+func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s addrconfig.Address, network string) (laddr *net.TCPAddr, skip bool, err error) {
+	portTarget, hasPort := s.Network.LocalPort()
+	if !s.Network.BindSet && (!hasPort || portTarget.Text() == "" || portTarget.Text() == "0") {
 		return nil, false, nil
 	}
-	bindHost := ""
-	portTarget := sourceport
-	if bindOpt != "" {
-		// Prefer SplitHostPort so bind=127.0.0.1:0 and bind=[::1]:123 work.
-		if h, p, e := net.SplitHostPort(bindOpt); e == nil {
-			bindHost = h
-			portTarget = addrconfig.PortFromText(p)
-		} else {
-			bindHost = StripBrackets(bindOpt)
-		}
-	}
 	port := 0
-	if portTarget.Text() != "" && portTarget.Text() != "0" {
+	if hasPort && portTarget.Text() != "" && portTarget.Text() != "0" {
 		port, err = ResolvePort("tcp", portTarget)
 		if err != nil {
 			return nil, false, fmt.Errorf("bind port: %w", err)
@@ -346,7 +330,7 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s addrconfig.Addre
 	}
 	want4 := WantIPv4(network, remote)
 
-	if bindHost == "" {
+	if !s.Network.BindSet {
 		// sourceport only: wildcard of matching family, or loopback when
 		// ai-passive=0.
 		if listenAIPassive(s) {
@@ -361,27 +345,27 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s addrconfig.Addre
 		return &net.TCPAddr{IP: net.IPv6loopback, Port: port}, false, nil
 	}
 
-	bindHost = StripBrackets(bindHost)
-	if ip := net.ParseIP(bindHost); ip != nil {
+	bind := s.Network.Bind
+	if bind.IsLiteral() {
+		ip := bind.IP()
 		// Forced-IPv4 resolves bind= as AF_INET; an IPv6 wildcard
 		// does not become 0.0.0.0. Skip this remote and try the next.
 		if (ip.To4() != nil) != want4 {
 			return nil, true, nil
 		}
-		return &net.TCPAddr{IP: ip, Port: port}, false, nil
+		return &net.TCPAddr{IP: ip, Port: port, Zone: bind.Literal.Zone()}, false, nil
 	}
 
-	// Hostname: resolve and pick first address matching remote family.
+	bindHost := bind.String()
 	hint := "ip6"
 	if want4 {
 		hint = "ip4"
 	}
 	ips, err := LookupIP(ctx, s, hint, bindHost)
 	if err != nil {
-		// Fallback: full lookup then filter
 		all, err2 := LookupIP(ctx, s, "ip", bindHost)
 		if err2 != nil {
-			return nil, false, fmt.Errorf("bind %s: %w", bindOpt, err)
+			return nil, false, fmt.Errorf("bind %s: %w", bind.Original(), err)
 		}
 		for _, ip := range all {
 			if WantIPv4(network, ip) == want4 {

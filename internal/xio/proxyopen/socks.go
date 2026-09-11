@@ -29,9 +29,8 @@ func openSOCKS4(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio
 	if err := tlsopen.RejectHiddenTLSOnPlaintext(s.Type, s.TLS); err != nil {
 		return nil, err
 	}
-	socksHost, _, targetHost, targetPort, err := socksParams(s, s.Proxy)
-	if err != nil {
-		return nil, err
+	if !s.Proxy.EndpointsSet {
+		return nil, fmt.Errorf("%s requires socks-server, host, and port", s.Type)
 	}
 	user := socksUser(s.Proxy)
 
@@ -40,40 +39,18 @@ func openSOCKS4(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio
 		return nil, fmt.Errorf("socks target port: %w", err)
 	}
 
-	// SOCKS4A: dest IP is 0.0.0.1 and the hostname follows the userid NUL.
-	// Do not resolve the target. SOCKS4: resolve to IPv4; no hostname trailer.
-	var ip4 [4]byte
-	hostName := xio.StripBrackets(targetHost)
-	if socks4a {
-		ip4 = [4]byte{0, 0, 0, 1}
-	} else if ip := net.ParseIP(hostName); ip != nil {
-		v4 := ip.To4()
-		if v4 == nil {
-			return nil, fmt.Errorf("SOCKS4 requires IPv4 target (got %s)", targetHost)
-		}
-		copy(ip4[:], v4)
-	} else {
-		ips, e := xio.LookupIP(ctx, s, "ip4", hostName)
-		if e != nil {
-			return nil, fmt.Errorf("SOCKS4: resolve %s: %w", targetHost, e)
-		}
-		for _, ip := range ips {
-			if v4 := ip.To4(); v4 != nil {
-				copy(ip4[:], v4)
-				break
-			}
-		}
-		if ip4 == [4]byte{} {
-			return nil, fmt.Errorf("SOCKS4: cannot resolve %s to IPv4", targetHost)
-		}
+	ip4, err := socks4DestIP(ctx, s, s.Proxy.Target, socks4a)
+	if err != nil {
+		return nil, err
 	}
+	hostName := s.Proxy.Target.String()
 
-	network := xio.ConnectNetworkForType(g, s, socksHost, "tcp")
+	network := xio.ConnectNetworkForType(g, s, s.Proxy.Server.String(), "tcp")
 	timeout := xio.ConnectTimeout(s)
 	handshakeTimeout := xio.HandshakeTimeout(s)
-	label := fmt.Sprintf("SOCKS4:%s:%s", targetHost, targetPort)
+	label := fmt.Sprintf("SOCKS4:%s:%s", s.Proxy.Target.Original(), s.Proxy.TargetPort.Text())
 	if socks4a {
-		label = fmt.Sprintf("SOCKS4A:%s:%s", targetHost, targetPort)
+		label = fmt.Sprintf("SOCKS4A:%s:%s", s.Proxy.Target.Original(), s.Proxy.TargetPort.Text())
 	}
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
@@ -138,6 +115,33 @@ func socks4ReadReply(r io.Reader) error {
 	return nil
 }
 
+func socks4DestIP(ctx context.Context, s addrconfig.Address, target addrconfig.HostTarget, socks4a bool) ([4]byte, error) {
+	if socks4a {
+		return [4]byte{0, 0, 0, 1}, nil
+	}
+	if target.IsLiteral() {
+		v4 := target.IP().To4()
+		if v4 == nil {
+			return [4]byte{}, fmt.Errorf("SOCKS4 requires IPv4 target (got %s)", target.Original())
+		}
+		var ip4 [4]byte
+		copy(ip4[:], v4)
+		return ip4, nil
+	}
+	ips, err := xio.LookupIP(ctx, s, "ip4", target.String())
+	if err != nil {
+		return [4]byte{}, fmt.Errorf("SOCKS4: resolve %s: %w", target.Original(), err)
+	}
+	for _, ip := range ips {
+		if v4 := ip.To4(); v4 != nil {
+			var ip4 [4]byte
+			copy(ip4[:], v4)
+			return ip4, nil
+		}
+	}
+	return [4]byte{}, fmt.Errorf("SOCKS4: cannot resolve %s to IPv4", target.Original())
+}
+
 func socksUser(proxy addrconfig.Proxy) string {
 	if proxy.SOCKSUser.Set && proxy.SOCKSUser.Value != "" {
 		return proxy.SOCKSUser.Value
@@ -171,9 +175,8 @@ func openSOCKS5(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio
 	if err := tlsopen.RejectHiddenTLSOnPlaintext(s.Type, s.TLS); err != nil {
 		return nil, err
 	}
-	socksHost, _, targetHost, targetPort, err := socksParams(s, s.Proxy)
-	if err != nil {
-		return nil, err
+	if !s.Proxy.EndpointsSet {
+		return nil, fmt.Errorf("%s requires socks-server, host, and port", s.Type)
 	}
 	auth := socks5Credentials(s.Proxy)
 	if auth.OfferUserPass && g != nil && g.Log != nil {
@@ -190,32 +193,17 @@ func openSOCKS5(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio
 		return nil, fmt.Errorf("socks5 target port: %w", err)
 	}
 
-	var dest socks5Dest
-	dest.Port = portNum
-	if ip := net.ParseIP(xio.StripBrackets(targetHost)); ip != nil {
-		if v4 := ip.To4(); v4 != nil {
-			dest.AddrType = 1
-			dest.Addr = append([]byte(nil), v4...)
-		} else {
-			dest.AddrType = 4
-			dest.Addr = append([]byte(nil), ip.To16()...)
-		}
-	} else {
-		h := xio.StripBrackets(targetHost)
-		n, ok := xio.Uint8FromInt(len(h))
-		if !ok {
-			return nil, fmt.Errorf("socks5: domain name too long")
-		}
-		dest.AddrType = 3
-		dest.Addr = append([]byte{n}, []byte(h)...)
+	dest, err := socks5DestFromTarget(s.Proxy.Target, portNum)
+	if err != nil {
+		return nil, err
 	}
 
-	network := xio.ConnectNetworkForType(g, s, socksHost, "tcp")
+	network := xio.ConnectNetworkForType(g, s, s.Proxy.Server.String(), "tcp")
 	timeout := xio.ConnectTimeout(s)
 	handshakeTimeout := xio.HandshakeTimeout(s)
-	label := fmt.Sprintf("SOCKS5:%s:%s", targetHost, targetPort)
+	label := fmt.Sprintf("SOCKS5:%s:%s", s.Proxy.Target.Original(), s.Proxy.TargetPort.Text())
 	if cmd == socks5CmdBind {
-		label = fmt.Sprintf("SOCKS5-LISTEN:%s:%s", targetHost, targetPort)
+		label = fmt.Sprintf("SOCKS5-LISTEN:%s:%s", s.Proxy.Target.Original(), s.Proxy.TargetPort.Text())
 	}
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
@@ -246,17 +234,27 @@ func openSOCKS5(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio
 	})
 }
 
-// socksParams parses SOCKS address params.
-// Forms:
-//
-//	server host port
-//	server:host:port  (via split)
-//	server sport host port  (4 params; sport used if socksport option unset)
-func socksParams(s addrconfig.Address, proxy addrconfig.Proxy) (socksHost, socksPort, targetHost, targetPort string, err error) {
-	if !proxy.EndpointsSet {
-		return "", "", "", "", fmt.Errorf("%s requires socks-server, host, and port", s.Type)
+func socks5DestFromTarget(target addrconfig.HostTarget, portNum int) (socks5Dest, error) {
+	dest := socks5Dest{Port: portNum}
+	if target.IsLiteral() {
+		ip := target.IP()
+		if v4 := ip.To4(); v4 != nil {
+			dest.AddrType = 1
+			dest.Addr = append([]byte(nil), v4...)
+			return dest, nil
+		}
+		dest.AddrType = 4
+		dest.Addr = append([]byte(nil), ip.To16()...)
+		return dest, nil
 	}
-	return proxy.Server.Original(), socksPortTarget(proxy).Text(), proxy.Target.Original(), proxy.TargetPort.Text(), nil
+	h := target.String()
+	n, ok := xio.Uint8FromInt(len(h))
+	if !ok {
+		return socks5Dest{}, fmt.Errorf("socks5: domain name too long")
+	}
+	dest.AddrType = 3
+	dest.Addr = append([]byte{n}, []byte(h)...)
+	return dest, nil
 }
 
 func socksPortTarget(p addrconfig.Proxy) addrconfig.PortTarget {

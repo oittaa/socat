@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/coder/websocket"
@@ -30,15 +31,15 @@ func openWSSConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g 
 }
 
 func openWSConnectScheme(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, scheme string) (*xio.Opened, error) {
-	host, port, path, err := wsTarget(s, false)
+	_, _, path, err := wsTarget(s, false)
 	if err != nil {
 		return nil, err
 	}
 	dest := wsDialTarget{
-		Network: xio.ConnectNetworkForType(g, s, host, "tcp"),
+		Network: xio.ConnectNetworkForType(g, s, s.Network.Target.String(), "tcp"),
 		Scheme:  scheme,
-		Host:    host,
-		Port:    port,
+		Host:    s.Network.Target,
+		Port:    s.Network.TargetPort,
 		Path:    path,
 	}
 	u := dest.httpURL()
@@ -46,7 +47,7 @@ func openWSConnectScheme(ctx context.Context, s addrconfig.Address, _ xio.Mode, 
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	var tlsCfg *tls.Config
 	if scheme == "wss" {
-		tlsCfg, err = tlsopen.TLSClientConfigSettings(s.Type, s.TLS, host)
+		tlsCfg, err = tlsopen.TLSClientConfigSettings(s.Type, s.TLS, s.Network.Target.String())
 		if err != nil {
 			return nil, err
 		}
@@ -79,15 +80,19 @@ func openWSConnectScheme(ctx context.Context, s addrconfig.Address, _ xio.Mode, 
 type wsDialTarget struct {
 	Network string
 	Scheme  string
-	Host    string
-	Port    string
+	Host    addrconfig.HostTarget
+	Port    addrconfig.PortTarget
 	Path    string
 }
 
 func (t wsDialTarget) httpURL() url.URL {
+	port := t.Port.Text()
+	if t.Port.Numeric {
+		port = strconv.Itoa(int(t.Port.Number))
+	}
 	return url.URL{
 		Scheme: t.Scheme,
-		Host:   net.JoinHostPort(xio.StripBrackets(t.Host), t.Port),
+		Host:   net.JoinHostPort(t.Host.String(), port),
 		Path:   t.Path,
 	}
 }

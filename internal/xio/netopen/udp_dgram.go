@@ -7,7 +7,6 @@ import (
 	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"strconv"
-	"strings"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -42,18 +41,15 @@ func openUDPDatagramNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mod
 	if err != nil {
 		return nil, err
 	}
-	bind := xio.BindHost(s)
-	// DATAGRAM ignores sourceport for the local bind; SENDTO uses it as the local port.
 	sp := ""
 	if exactPeer {
 		sp = xio.SourcePortText(s)
 	}
 	var laddr *net.UDPAddr
-	// lowport: bind a port in 640..1023 (log even if EACCES).
 	if s.Network.LowPort.Value && sp == "" {
-		bind, err = xio.ListenBindHost(s, network, bind)
-		if err != nil {
-			return nil, err
+		bind, bindErr := xio.ListenBindHost(s, network)
+		if bindErr != nil {
+			return nil, bindErr
 		}
 		c, port, berr := bindUDPLowport(ctx, network, bind, s, g)
 		if berr == nil && c != nil {
@@ -65,27 +61,23 @@ func openUDPDatagramNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mod
 		}
 		return nil, fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", xio.LowportMin, xio.LowportMax, berr)
 	}
-	if bind != "" || sp != "" {
-		bind, err = xio.ListenBindHost(s, network, bind)
-		if err != nil {
-			return nil, err
+	if s.Network.BindSet || sp != "" {
+		bind, bindErr := xio.ListenBindHost(s, network)
+		if bindErr != nil {
+			return nil, bindErr
 		}
-		if sp == "" {
-			// bind may already be host:port
-			if _, _, e := net.SplitHostPort(bind); e != nil {
-				sp = "0"
-			}
+		p := addrconfig.PortFromText("0")
+		if s.Network.BindPortSet {
+			p = s.Network.BindPort
+		} else if exactPeer && s.Network.SourcePortSet {
+			p = s.Network.SourcePort
 		}
-		ba := bind
-		if sp != "" {
-			ba = xio.BindPort(bind, sp)
-		}
-		laddr, err = xio.ResolveUDPAddr(ctx, s, network, ba)
+		laddr, err = xio.ResolveUDPTarget(ctx, s, network, bind, p)
 		if err != nil {
 			return nil, err
 		}
 	}
-	pc, err := listenPacketForSpec(ctx, network, laddrString(network, laddr), s)
+	pc, err := listenPacketForSpec(ctx, network, laddr, s)
 	if err != nil {
 		return nil, err
 	}
@@ -101,25 +93,16 @@ func resolveUDPDatagramRemote(ctx context.Context, s addrconfig.Address, network
 	if !s.Network.TargetSet {
 		return "", nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
-	host := s.Network.Target.String()
-	stripped := xio.StripBrackets(host)
-	netw, ip, err := xio.LookupDialIP(ctx, s, network, stripped)
-	if err != nil {
-		return "", nil, err
-	}
-	if ip == nil {
-		return "", nil, fmt.Errorf("%s: invalid host", s.Type)
-	}
 	if !s.Network.Target.IsLiteral() {
+		netw, err := xio.PacketNetworkForHost(ctx, s, network, s.Network.Target)
+		if err != nil {
+			return "", nil, err
+		}
 		network = netw
 	}
-	portNum, err := xio.ResolvePort(network, s.Network.TargetPort)
+	raddr, err := xio.ResolveUDPTarget(ctx, s, network, s.Network.Target, s.Network.TargetPort)
 	if err != nil {
 		return "", nil, err
-	}
-	raddr := &net.UDPAddr{IP: ip, Port: portNum}
-	if ip4 := ip.To4(); ip4 != nil && strings.HasSuffix(network, "4") {
-		raddr.IP = ip4
 	}
 	return network, raddr, nil
 }
@@ -295,18 +278,18 @@ func (u *udpDatagramConn) Write(p []byte) (int, error) {
 }
 
 // bindUDPLowport binds a port in 640..1023 via FirstAvailableLowport. Logs bind for tests.
-func bindUDPLowport(ctx context.Context, network, bind string, s addrconfig.Address, g *xio.Global) (*net.UDPConn, int, error) {
+func bindUDPLowport(ctx context.Context, network string, bind addrconfig.HostTarget, s addrconfig.Address, g *xio.Global) (*net.UDPConn, int, error) {
 	var conn *net.UDPConn
 	port, err := xio.FirstAvailableLowport(func(port int) error {
 		// test.sh greps: [DE] bind(.*:PORT
 		if g != nil && g.Log != nil {
-			g.Log.Debugf("bind({AF=2 %s:%d}, 16)", bind, port)
+			g.Log.Debugf("bind({AF=2 %s:%d}, 16)", bind.Original(), port)
 		}
-		addr, err := xio.ResolveUDPAddr(ctx, s, network, net.JoinHostPort(xio.StripBrackets(bind), strconv.Itoa(port)))
+		addr, err := xio.ResolveUDPTarget(ctx, s, network, bind, addrconfig.PortFromText(strconv.Itoa(port)))
 		if err != nil {
 			return err
 		}
-		pc, err := listenPacketForSpec(ctx, network, addr.String(), s)
+		pc, err := listenPacketForSpec(ctx, network, addr, s)
 		if err != nil {
 			return err
 		}
@@ -550,7 +533,7 @@ func listenUDP(network string, laddr *net.UDPAddr, s addrconfig.Address) (*net.U
 	// macOS SO_REUSEPORT is enabled only for UDP-LISTEN fork when reuseaddr is
 	// not explicitly disabled, so reuseaddr=0 stays exclusive.
 	// After-socket then before-bind options run in Control.
-	pc, err := listenPacketForSpec(context.Background(), network, laddr.String(), s)
+	pc, err := listenPacketForSpec(context.Background(), network, laddr, s)
 	if err != nil {
 		return nil, err
 	}

@@ -68,7 +68,11 @@ func socketAction(o parse.Option, name string) (SocketAction, bool, error) {
 	case "ip-router-alert":
 		return optionalIntAction(SocketActionRouterAlert, SocketPhasePastSocket, o, name, 1)
 	case "ip-mtu", "ip-pktoptions":
-		return SocketAction{Kind: SocketActionGetOnly, Phase: SocketPhasePastSocket, Text: name}, true, nil
+		id := IPGetOnlyMTU
+		if name == "ip-pktoptions" {
+			id = IPGetOnlyPktoptions
+		}
+		return SocketAction{Kind: SocketActionGetOnly, Phase: SocketPhasePastSocket, GetOnly: id, Text: name}, true, nil
 	}
 	if id := namedSocketID(name); id != NamedSocketNone {
 		n, err := optionalNamedSocketInt(o, name)
@@ -82,6 +86,7 @@ func socketAction(o parse.Option, name string) (SocketAction, bool, error) {
 		return SocketAction{Kind: SocketActionNamed, Phase: phase, Named: id, Number: n, Text: name}, true, nil
 	}
 	if ancillaryOption(name) {
+		id := ancillaryID(name)
 		if name == "ip-options" {
 			value, err := requiredString(o)
 			if err != nil {
@@ -94,13 +99,13 @@ func socketAction(o parse.Option, name string) (SocketAction, bool, error) {
 			if len(data) > 256 {
 				return SocketAction{}, true, fmt.Errorf("ip-options: value exceeds 256 bytes")
 			}
-			return SocketAction{Kind: SocketActionAncillary, Phase: SocketPhasePastSocket, Text: name, Value: SocketValue{Bytes: data}}, true, nil
+			return SocketAction{Kind: SocketActionAncillary, Phase: SocketPhasePastSocket, Ancillary: id, Text: name, Value: SocketValue{Bytes: data}}, true, nil
 		}
 		n, err := ancillaryOptionInt(o)
 		if err != nil {
 			return SocketAction{}, true, fmt.Errorf("%s: %w", name, err)
 		}
-		return SocketAction{Kind: SocketActionAncillary, Phase: SocketPhasePastSocket, Text: name, Number: n}, true, nil
+		return SocketAction{Kind: SocketActionAncillary, Phase: SocketPhasePastSocket, Ancillary: id, Text: name, Number: n}, true, nil
 	}
 	return SocketAction{}, false, nil
 }
@@ -249,15 +254,59 @@ func namedSocketID(name string) NamedSocket {
 }
 
 func ancillaryOption(name string) bool {
+	return ancillaryID(name) != AncillaryNone
+}
+
+// AncillaryID is the typed identity of a canonical IP/ancillary option name.
+func AncillaryID(name string) AncillaryOption { return ancillaryID(name) }
+
+func ancillaryID(name string) AncillaryOption {
 	switch name {
-	case "so-timestamp", "ip-pktinfo", "ip-recvttl", "ip-recvtos", "ip-recvopts",
-		"ip-retopts", "ip-recvdstaddr", "ip-recvif", "ipv6-recvpktinfo",
-		"ipv6-recvhoplimit", "ipv6-recvtclass", "ipv6-recvdstopts", "ipv6-recvhopopts",
-		"ipv6-recvrthdr", "ipv6-recvpathmtu", "ip-ttl", "ip-tos", "ip-options",
-		"ip-hdrincl", "ipv6-unicast-hops", "ipv6-tclass":
-		return true
+	case "so-timestamp":
+		return AncillarySOTimestamp
+	case "ip-pktinfo":
+		return AncillaryIPPktinfo
+	case "ip-recvttl":
+		return AncillaryIPRecvTTL
+	case "ip-recvtos":
+		return AncillaryIPRecvTOS
+	case "ip-recvopts":
+		return AncillaryIPRecvOpts
+	case "ip-retopts":
+		return AncillaryIPRetOpts
+	case "ip-recvdstaddr":
+		return AncillaryIPRecvDstAddr
+	case "ip-recvif":
+		return AncillaryIPRecvIf
+	case "ipv6-recvpktinfo":
+		return AncillaryIPv6RecvPktinfo
+	case "ipv6-recvhoplimit":
+		return AncillaryIPv6RecvHopLimit
+	case "ipv6-recvtclass":
+		return AncillaryIPv6RecvTclass
+	case "ipv6-recvdstopts":
+		return AncillaryIPv6RecvDstOpts
+	case "ipv6-recvhopopts":
+		return AncillaryIPv6RecvHopOpts
+	case "ipv6-recvrthdr":
+		return AncillaryIPv6RecvRtHdr
+	case "ipv6-recvpathmtu":
+		return AncillaryIPv6RecvPathMTU
+	case "ip-ttl":
+		return AncillaryIPTTL
+	case "ip-tos":
+		return AncillaryIPTOS
+	case "ip-options":
+		return AncillaryIPOptions
+	case "ip-hdrincl":
+		return AncillaryIPHdrincl
+	case "ipv6-unicast-hops":
+		return AncillaryIPv6UnicastHops
+	case "ipv6-tclass":
+		return AncillaryIPv6Tclass
+	default:
+		return AncillaryNone
 	}
-	return false
 }
 
 func multicastKind(name string) MulticastKind {

@@ -27,17 +27,16 @@ func openClient(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Gl
 	if !s.Network.TargetSet {
 		return nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
-	host := s.Network.Target.String()
-	port := s.Network.TargetPort.Text()
-	if host == "" || port == "" {
+	host := s.Network.Target
+	port := s.Network.TargetPort
+	if host.String() == "" || port.Text() == "" {
 		return nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
-	cfg, err := endpointConfig(ctx, s, host, false)
+	cfg, err := endpointConfig(ctx, s, host.String(), false)
 	if err != nil {
 		return nil, err
 	}
-	dest := net.JoinHostPort(xio.StripBrackets(host), port)
-	network := xio.TCPToUDPNetwork(xio.ConnectNetworkForType(g, s, host, "tcp"))
+	network := xio.TCPToUDPNetwork(xio.ConnectNetworkForType(g, s, host.String(), "tcp"))
 	dial := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := xio.WithRetry(dctx, g, s.Type, func() error {
@@ -51,15 +50,15 @@ func openClient(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Gl
 			if err != nil {
 				return err
 			}
-			peer, err := xio.ResolveUDPAddr(cctx, s, netw, dest)
+			peer, err := xio.ResolveUDPTarget(cctx, s, netw, host, port)
 			if err != nil {
 				return err
 			}
-			bind, err := xio.ListenBindHost(s, netw, "")
+			bind, err := xio.ListenBindHost(s, netw)
 			if err != nil {
 				return err
 			}
-			pc, err := xio.ListenClientPacket(cctx, netw, bind, xio.SourcePortText(s), s, g)
+			pc, err := xio.ListenClientPacket(cctx, netw, bind, xio.ClientLocalPort(s), s, g)
 			if err != nil {
 				return err
 			}
@@ -72,7 +71,7 @@ func openClient(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Gl
 		return conn, err
 	}
 	return xio.OpenDialed(ctx, s, g, xio.Dialed{
-		Label: s.Type + ":" + dest, Dial: dial, Wrap: wrap(s),
+		Label: s.Type + ":" + net.JoinHostPort(host.String(), port.Text()), Dial: dial, Wrap: wrap(s),
 		RememberTLS: true, LogOK: true, LogSuffix: " (DTLS)",
 	})
 }
@@ -92,12 +91,11 @@ func openServer(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Gl
 	}
 	network := xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
 	network = xio.DualStackListenNetwork(s, network)
-	host, err := xio.ListenBindHost(s, network, "")
+	host, err := xio.ListenBindHost(s, network)
 	if err != nil {
 		return nil, err
 	}
-	addr := net.JoinHostPort(xio.StripBrackets(host), port.Text())
-	pc, err := xio.ListenPacketWithOptions(ctx, network, addr, s)
+	pc, err := xio.ListenPacketWithOptions(ctx, network, host, port, s)
 	if err != nil {
 		return nil, err
 	}

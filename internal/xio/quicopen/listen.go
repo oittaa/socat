@@ -23,11 +23,10 @@ func openQUICListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g 
 	}
 	network := xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
 	network = xio.DualStackListenNetwork(s, network)
-	host, err := xio.ListenBindHost(s, network, "")
+	host, err := xio.ListenBindHost(s, network)
 	if err != nil {
 		return nil, err
 	}
-	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
 	tlsCfg, err := tlsopen.TLSServerConfigSettings(s.Type, s.TLS)
 	if err != nil {
@@ -38,7 +37,7 @@ func openQUICListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g 
 		return nil, err
 	}
 
-	pc, err := listenPacket(ctx, network, addr, s)
+	pc, err := listenPacket(ctx, network, host, s.Network.ListenPort, s)
 	if err != nil {
 		return nil, err
 	}
@@ -79,11 +78,11 @@ func quicConfig(ctx context.Context, s addrconfig.Address, tlsCfg *tls.Config) (
 	return quicSetup{tls: quicTLS, cfg: cfg}, nil
 }
 
-func listenPacket(ctx context.Context, network, addr string, s addrconfig.Address) (net.PacketConn, error) {
-	return xio.ListenPacketWithOptions(ctx, network, addr, s)
+func listenPacket(ctx context.Context, network string, host addrconfig.HostTarget, port addrconfig.PortTarget, s addrconfig.Address) (net.PacketConn, error) {
+	return xio.ListenPacketWithOptions(ctx, network, host, port, s)
 }
 
-func listenQUICClientPacket(ctx context.Context, network, bindHost, sourceport string, s addrconfig.Address, g *xio.Global) (net.PacketConn, error) {
+func listenQUICClientPacket(ctx context.Context, network string, bindHost addrconfig.HostTarget, sourceport addrconfig.PortTarget, s addrconfig.Address, g *xio.Global) (net.PacketConn, error) {
 	return xio.ListenClientPacket(ctx, network, bindHost, sourceport, s, g)
 }
 

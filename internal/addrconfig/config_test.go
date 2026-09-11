@@ -218,6 +218,47 @@ func TestDecodeNetworkSocketActionsPreserveSourceOrder(t *testing.T) {
 	}
 }
 
+func TestDecodeTypedDispatchIdentities(t *testing.T) {
+	got := decodeSpec(t, "TCP:h:9,o-direct,so-debug,ip-pktinfo,ioctl-intp=1:2,fs-append")
+	var sawOpen, sawIoctl, sawFS, sawNamed, sawAncillary bool
+	for _, action := range got.File.Actions {
+		switch action.Kind {
+		case FileActionOpenFlag:
+			sawOpen = true
+			if action.Flag != OpenFlagDirect {
+				t.Fatalf("open flag=%+v", action)
+			}
+		case FileActionIoctl:
+			sawIoctl = true
+			if action.Ioctl != IoctlIntp || action.Request != 1 || action.Value != 2 {
+				t.Fatalf("ioctl=%+v", action)
+			}
+		case FileActionFSFlag:
+			sawFS = true
+			if action.FS != FSFlagAppend {
+				t.Fatalf("fs flag=%+v", action)
+			}
+		}
+	}
+	for _, action := range got.Network.Actions {
+		switch action.Kind {
+		case SocketActionNamed:
+			sawNamed = true
+			if action.Named != NamedSocketDebug {
+				t.Fatalf("named=%+v", action)
+			}
+		case SocketActionAncillary:
+			sawAncillary = true
+			if action.Ancillary != AncillaryIPPktinfo {
+				t.Fatalf("ancillary=%+v", action)
+			}
+		}
+	}
+	if !sawOpen || !sawIoctl || !sawFS || !sawNamed || !sawAncillary {
+		t.Fatalf("missing dispatch identities file=%+v net=%+v", got.File.Actions, got.Network.Actions)
+	}
+}
+
 func TestMembershipFamilyPrefersOriginalSpelling(t *testing.T) {
 	spec := parse.Spec{
 		Type:   "UDP6-RECV",
@@ -317,6 +358,40 @@ func TestDecodeResolverAndNetNS(t *testing.T) {
 		if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "IPv6") {
 			t.Fatalf("res-nsaddr=%s error=%v", ns, err)
 		}
+	}
+}
+
+func TestDecodeBindHostPort(t *testing.T) {
+	got := decodeSpec(t, "TCP:h:9,bind=127.0.0.1:0")
+	if !got.Network.BindSet || !got.Network.Bind.IsLiteral() || got.Network.Bind.String() != "127.0.0.1" {
+		t.Fatalf("bind host=%+v", got.Network.Bind)
+	}
+	if !got.Network.BindPortSet || !got.Network.BindPort.Numeric || got.Network.BindPort.Number != 0 {
+		t.Fatalf("bind port=%+v", got.Network.BindPort)
+	}
+	p, ok := got.Network.LocalPort()
+	if !ok || p.Number != 0 {
+		t.Fatalf("LocalPort=%+v ok=%v", p, ok)
+	}
+
+	got = decodeSpec(t, "TCP:h:9,bind=[::1]:123")
+	if !got.Network.Bind.IsLiteral() || got.Network.Bind.String() != "::1" {
+		t.Fatalf("ipv6 bind host=%+v", got.Network.Bind)
+	}
+	if !got.Network.BindPortSet || got.Network.BindPort.Number != 123 {
+		t.Fatalf("ipv6 bind port=%+v", got.Network.BindPort)
+	}
+
+	unix, err := parse.ParseSpec("UNIX-CONNECT:/tmp/x,bind=/tmp/foo:bar")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = Decode(unix, Facts{Type: "UNIX-CONNECT"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Network.BindPortSet || got.Network.Bind.Original() != "/tmp/foo:bar" {
+		t.Fatalf("unix bind=%+v portset=%v", got.Network.Bind, got.Network.BindPortSet)
 	}
 }
 

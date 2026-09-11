@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
@@ -51,8 +52,8 @@ func newWSTestPair(t testing.TB) (net.Conn, net.Conn) {
 		wsDialTarget{
 			Network: "tcp4",
 			Scheme:  "ws",
-			Host:    "127.0.0.1",
-			Port:    fmt.Sprint(addr.Port),
+			Host:    addrconfig.HostFromText("127.0.0.1"),
+			Port:    addrconfig.PortFromText(fmt.Sprint(addr.Port)),
 			Path:    "/",
 		},
 		mustAddr(t, spec),

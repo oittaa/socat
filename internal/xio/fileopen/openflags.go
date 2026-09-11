@@ -11,16 +11,16 @@ import (
 // openFlag is one open(2) bit (o-direct, o-sync, …) or async (O_ASYNC),
 // OR'd into the open flags.
 type openFlag struct {
-	name      string
+	id        addrconfig.OpenFlag
 	bit       int
 	supported bool
 }
 
-var openFlagByName = make(map[string]openFlag, len(openFlagTable))
+var openFlagByID = make(map[addrconfig.OpenFlag]openFlag, len(openFlagTable))
 
 func init() {
 	for _, f := range openFlagTable {
-		openFlagByName[f.name] = f
+		openFlagByID[f.id] = f
 	}
 }
 
@@ -65,15 +65,15 @@ func ConfiguredOpenFlags(config addrconfig.File, mode xio.Mode) (int, error) {
 
 func configuredOpenFlags(config addrconfig.File, flags int) (int, error) {
 	for _, action := range config.Actions {
-		name := action.Text
+		id := action.Flag
 		switch action.Kind {
 		case addrconfig.FileActionOpenFlag:
 		case addrconfig.FileActionAsync:
-			name = "async"
+			id = addrconfig.OpenFlagAsync
 		default:
 			continue
 		}
-		flag, ok := openFlagByName[name]
+		flag, ok := openFlagByID[id]
 		if !ok {
 			continue
 		}
@@ -97,7 +97,7 @@ func rejectUnnamedPIPEOpenFlags(config addrconfig.File) error {
 		if action.Kind != addrconfig.FileActionOpenFlag || !action.Enabled {
 			continue
 		}
-		flag, ok := openFlagByName[action.Text]
+		flag, ok := openFlagByID[action.Flag]
 		if !ok {
 			continue
 		}
@@ -117,7 +117,7 @@ func rejectGOPENSocketOpenFlags(config addrconfig.File) error {
 		if action.Kind != addrconfig.FileActionOpenFlag || !action.Enabled {
 			continue
 		}
-		flag, ok := openFlagByName[action.Text]
+		flag, ok := openFlagByID[action.Flag]
 		if !ok {
 			continue
 		}

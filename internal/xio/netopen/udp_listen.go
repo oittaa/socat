@@ -69,11 +69,11 @@ func bindUDPPort(ctx context.Context, s addrconfig.Address, network string) (*ne
 	if err != nil {
 		return nil, nil, err
 	}
-	host, err := xio.ListenBindHost(s, network, "")
+	host, err := xio.ListenBindHost(s, network)
 	if err != nil {
 		return nil, nil, err
 	}
-	laddr, err := xio.ResolveUDPAddrPort(ctx, s, network, host, port)
+	laddr, err := xio.ResolveUDPTarget(ctx, s, network, host, port)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -439,7 +439,7 @@ func dialUDPSession(ctx context.Context, network string, local, remote *net.UDPA
 		network: network,
 		config:  s,
 		control: reuseControl,
-	}, local, remote.String())
+	}, local, remote)
 	if err != nil {
 		return nil, err
 	}

@@ -13,7 +13,7 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
-func listenSCTP(context.Context, string, string, addrconfig.PortTarget, addrconfig.Address) (net.Listener, error) {
+func listenSCTP(context.Context, string, net.IP, addrconfig.PortTarget, addrconfig.Address) (net.Listener, error) {
 	return nil, fmt.Errorf("SCTP is only implemented on Linux")
 }
 

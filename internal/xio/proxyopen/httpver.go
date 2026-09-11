@@ -42,10 +42,6 @@ func proxyPortTarget(p addrconfig.Proxy) addrconfig.PortTarget {
 	return addrconfig.PortFromText("8080")
 }
 
-func proxyPortText(p addrconfig.Proxy) string {
-	return proxyPortTarget(p).Text()
-}
-
 func proxyResolveTarget(p addrconfig.Proxy) bool {
 	if p.Resolve.Set {
 		return p.Resolve.Value

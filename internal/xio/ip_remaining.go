@@ -18,6 +18,18 @@ func getOnlyKernelName(name string) string {
 	return name
 }
 
+func getOnlyNames(action addrconfig.SocketAction) (spelling, kernel string) {
+	canonical := "ip-mtu"
+	if action.GetOnly == addrconfig.IPGetOnlyPktoptions {
+		canonical = "ip-pktoptions"
+	}
+	spelling = canonical
+	if action.Text != "" {
+		spelling = action.Text
+	}
+	return spelling, getOnlyKernelName(canonical)
+}
+
 func rejectPreparedRouterAlert(config addrconfig.Address, action addrconfig.SocketAction) error {
 	spelling := action.Text
 	if spelling == "" {
@@ -65,11 +77,7 @@ func RejectUnsupportedRemainingIPv4(config addrconfig.Address) error {
 	for _, action := range config.Network.Actions {
 		switch action.Kind {
 		case addrconfig.SocketActionGetOnly:
-			spelling := action.Text
-			if spelling == "" {
-				spelling = "ip-mtu"
-			}
-			kernel := getOnlyKernelName(spelling)
+			spelling, kernel := getOnlyNames(action)
 			typ := config.Type
 			if typ == "" {
 				return fmt.Errorf("%s: %s is get-only; not implemented as a setter", spelling, kernel)
