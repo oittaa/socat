@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
@@ -32,14 +33,18 @@ func init() {
 }
 
 func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	p, err := parsePOSIXMQ(ctx, s, mode)
+	config, err := xio.OpeningConfig(ctx, s)
 	if err != nil {
 		return nil, err
 	}
-	if err := posixMQUnlinkAndFlush(p.name, s, g); err != nil {
+	p, err := parsePOSIXMQ(ctx, s, mode, config)
+	if err != nil {
 		return nil, err
 	}
-	q, err := posixMQOpenQueue(ctx, s, g, p)
+	if err := posixMQUnlinkAndFlush(p.name, config, g); err != nil {
+		return nil, err
+	}
+	q, err := posixMQOpenQueue(ctx, g, p, config)
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +76,7 @@ type posixMQParams struct {
 	attr        *mqAttr
 }
 
-func parsePOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode) (posixMQParams, error) {
+func parsePOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, config addrconfig.Address) (posixMQParams, error) {
 	name, err := queueName(s)
 	if err != nil {
 		return posixMQParams{}, err
@@ -86,27 +91,20 @@ func parsePOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode) (posixMQPara
 		return posixMQParams{}, err
 	}
 
+	mq := config.Network.POSIXMQ
 	prio := uint32(0)
-	if v := s.OptionValue("mq-prio", ""); v != "" {
-		n, e := strconv.ParseUint(v, 0, 32)
-		if e != nil {
-			return posixMQParams{}, fmt.Errorf("%s: invalid mq-prio %q", s.Type, v)
-		}
-		prio = uint32(n)
+	if mq.Priority.Set {
+		prio = mq.Priority.Value
 	}
 
 	oflag := 0
-	optCreat := true
-	if s.HasOption("creat") {
-		optCreat = s.BoolOption("creat")
-	}
-	if optCreat {
+	if !config.File.Open.Create.Set || config.File.Open.Create.Value {
 		oflag |= unix.O_CREAT
 	}
-	if s.BoolOption("excl") {
+	if config.File.Open.Exclusive {
 		oflag |= unix.O_EXCL
 	}
-	if s.HasOption("nonblock") && s.BoolOption("nonblock") {
+	if config.File.Open.Nonblock {
 		oflag |= unix.O_NONBLOCK
 	}
 	switch kind {
@@ -125,27 +123,16 @@ func parsePOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode) (posixMQPara
 		}
 	}
 
-	modePerm, err := xio.ParseUnixMode(s, uint32(xio.DefaultCreateMode))
-	if err != nil {
-		return posixMQParams{}, err
-	}
+	modePerm := xio.FileModeToUnix(xio.ConfiguredFileMode(config.File, xio.DefaultCreateMode))
 
 	var attr *mqAttr
-	if s.HasOption("mq-maxmsg") || s.HasOption("mq-msgsize") {
+	if mq.MaxMessages.Set || mq.MessageSize.Set {
 		a := mqAttr{}
-		if v := s.OptionValue("mq-maxmsg", ""); v != "" {
-			n, e := strconv.ParseInt(v, 0, 64)
-			if e != nil {
-				return posixMQParams{}, fmt.Errorf("%s: invalid mq-maxmsg %q", s.Type, v)
-			}
-			a.Maxmsg = int(n)
+		if mq.MaxMessages.Set {
+			a.Maxmsg = int(mq.MaxMessages.Value)
 		}
-		if v := s.OptionValue("mq-msgsize", ""); v != "" {
-			n, e := strconv.ParseInt(v, 0, 64)
-			if e != nil {
-				return posixMQParams{}, fmt.Errorf("%s: invalid mq-msgsize %q", s.Type, v)
-			}
-			a.Msgsize = int(n)
+		if mq.MessageSize.Set {
+			a.Msgsize = int(mq.MessageSize.Value)
 		}
 		if a.Maxmsg == 0 {
 			if n, ok := readProcLong("/proc/sys/fs/mqueue/msg_default"); ok {
@@ -175,15 +162,15 @@ func parsePOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode) (posixMQPara
 	}, nil
 }
 
-func posixMQUnlinkAndFlush(name string, s parse.Spec, g *xio.Global) error {
-	if s.BoolOption("unlink-early") {
+func posixMQUnlinkAndFlush(name string, config addrconfig.Address, g *xio.Global) error {
+	if config.File.UnlinkEarly.Value {
 		if e := mqUnlink(name); e != nil && e != unix.ENOENT {
 			if g != nil && g.Log != nil {
 				g.Log.Infof("mq_unlink(%q): %s", name, e)
 			}
 		}
 	}
-	if s.BoolOption("mq-flush") {
+	if config.Network.POSIXMQ.Flush.Value {
 		return flushQueue(name)
 	}
 	return nil
@@ -198,9 +185,9 @@ type posixMQQueue struct {
 	unregister  func()
 }
 
-func posixMQOpenQueue(ctx context.Context, s parse.Spec, g *xio.Global, p posixMQParams) (*posixMQQueue, error) {
+func posixMQOpenQueue(ctx context.Context, g *xio.Global, p posixMQParams, config addrconfig.Address) (*posixMQQueue, error) {
 	var fd int
-	err := xio.WithUmask(s, func() error {
+	err := xio.WithConfiguredUmask(config.File, func() error {
 		return xio.WithRetry(ctx, g, "mq_open", func() error {
 			var e error
 			fd, e = mqOpen(p.name, p.oflag, p.modePerm, p.attr)
@@ -232,7 +219,7 @@ func posixMQOpenQueue(ctx context.Context, s parse.Spec, g *xio.Global, p posixM
 	q := &posixMQQueue{
 		fd:          fd,
 		msgsize:     msgsize,
-		unlinkClose: s.BoolOption("unlink-close"),
+		unlinkClose: config.File.UnlinkClose.Value,
 		name:        p.name,
 		unregister:  func() {},
 	}

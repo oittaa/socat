@@ -45,7 +45,7 @@ func ConfiguredOpenFlags(config addrconfig.File, mode xio.Mode) (int, error) {
 			flags = os.O_RDWR
 		}
 	}
-	if config.Open.Create {
+	if config.Open.Create.Value {
 		flags |= os.O_CREATE
 	}
 	if config.Open.Exclusive {

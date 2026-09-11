@@ -26,7 +26,7 @@ type File struct {
 // source order, so aliases and explicit false values keep their usual effect.
 type OpenSettings struct {
 	Access    FileAccess
-	Create    bool
+	Create    OptionalBool
 	Exclusive bool
 	AppendSet bool
 	Append    bool
@@ -175,7 +175,7 @@ func decodeFileProcess(a *Address, o parse.Option) (bool, error) {
 		}
 		return true, nil
 	case "creat":
-		a.File.Open.Create = activeBool(o).Value
+		a.File.Open.Create = activeBool(o)
 		return true, nil
 	case "excl":
 		a.File.Open.Exclusive = activeBool(o).Value
