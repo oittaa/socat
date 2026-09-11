@@ -21,7 +21,7 @@ func TestLinuxOnlyNamedTCPUnsupportedOnDarwin(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = ApplySocketOptions(fd, spec)
+		err = ApplySocketOptions(fd, mustDecodeAddress(t, spec))
 		if err == nil || !errors.Is(err, errNamedOptUnsupported) {
 			t.Fatalf("%s: %v want %v", opt, err, errNamedOptUnsupported)
 		}

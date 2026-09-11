@@ -27,7 +27,7 @@ func listenUnixNetwork(ctx context.Context, s addrconfig.Address, network, path 
 	}
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	var ln net.Listener
-	err = xio.WithConfiguredUmask(config.File, func() error {
+	err := xio.WithConfiguredUmask(config.File, func() error {
 		var e error
 		ln, e = xio.ListenStream(ctx, lc, network, path, s)
 		return e
@@ -44,7 +44,7 @@ func dialUnixSocklen(req dialRequest, path, bindPath string) (net.Conn, error) {
 		return nil, err
 	}
 	var conn net.Conn
-	err = xio.WithRetry(req.ctx, req.g, req.config.Type, func() error {
+	err := xio.WithRetry(req.ctx, req.g, req.config.Type, func() error {
 		if err := prepareUnixClientBind(bindPath, config); err != nil {
 			return err
 		}

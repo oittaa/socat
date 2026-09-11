@@ -16,7 +16,7 @@ func TestApplyFDOptionsWindowsFtruncateShortensFile(t *testing.T) {
 	if _, err := f.Write([]byte("abcdefghij")); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyFDOptions(f, mustSpec(t, "FD:3,ftruncate=4")); err != nil {
+	if err := ApplyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,ftruncate=4"))); err != nil {
 		t.Fatal(err)
 	}
 	st, err := f.Stat()
