@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
@@ -288,14 +289,18 @@ func recvSocketFiltered(ctx context.Context, f *os.File, buf []byte, filter *xio
 }
 
 func socketIPFilterOrError(ctx context.Context, s parse.Spec, g *xio.Global, domain int) (*xio.PeerFilter, error) {
-	if err := socketFilterFamilyOK(s, domain); err != nil {
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	if err := socketFilterFamilyOK(config, domain); err != nil {
 		return nil, err
 	}
 	return xio.PreparedPeerFilter(ctx, s, g)
 }
 
-func socketFilterFamilyOK(s parse.Spec, domain int) error {
-	opt := socketFilterOptionName(s)
+func socketFilterFamilyOK(config addrconfig.Address, domain int) error {
+	opt := socketFilterOptionName(config)
 	if opt == "" {
 		return nil
 	}
@@ -305,17 +310,22 @@ func socketFilterFamilyOK(s parse.Spec, domain int) error {
 	return nil
 }
 
-func socketFilterOptionName(s parse.Spec) string {
-	if _, ok := s.OptionNamed("range"); ok {
+func socketFilterOptionName(config addrconfig.Address) string {
+	peer := config.Network.Peer
+	if peer.RangeSet {
 		return "range"
 	}
-	for _, name := range []string{
-		"tcpwrap", "tcpwrap-etc", "tcpwrap-dir",
-		"hosts-allow", "hosts-deny", "allow-table", "deny-table",
-	} {
-		if s.HasOption(name) {
-			return name
-		}
+	if peer.TCPWrap.Set {
+		return "tcpwrap"
+	}
+	if peer.TCPWrapEtc.Set {
+		return "tcpwrap-etc"
+	}
+	if peer.HostsAllow.Set {
+		return "hosts-allow"
+	}
+	if peer.HostsDeny.Set {
+		return "hosts-deny"
 	}
 	return ""
 }

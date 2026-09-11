@@ -217,7 +217,11 @@ func resolveConnectIPs(ctx context.Context, network, host string, s parse.Spec, 
 	// IPv6 when set, then -4/-6/-0, SOCAT_PREFERRED_RESOLVE_IP, then the
 	// IPv4 default.
 	if hint == "ip" && len(ips) > 1 {
-		if s.BoolOption("ai-passive") {
+		config, err := OpeningConfig(ctx, s)
+		if err != nil {
+			return nil, err
+		}
+		if config.Common.Resolver.Passive.Value {
 			sort.SliceStable(ips, func(i, j int) bool {
 				return ips[i].To4() == nil && ips[j].To4() != nil
 			})

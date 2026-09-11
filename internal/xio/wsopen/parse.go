@@ -3,10 +3,12 @@
 package wsopen
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 )
 
 // wsTarget extracts host, port, and URL path from a WS/WSS address spec.
@@ -14,7 +16,15 @@ import (
 // Listen:  WS-LISTEN:<port>[/<path>]
 // path= option overrides a path in the address.
 func wsTarget(s parse.Spec, listen bool) (host, port, path string, err error) {
-	return wsTargetWithPath(s, listen, s.OptionValue("path", ""))
+	config, err := xio.OpeningConfig(context.Background(), s)
+	if err != nil {
+		return "", "", "", err
+	}
+	pathOption := ""
+	if config.WebSocket.Path.Set {
+		pathOption = config.WebSocket.Path.Value
+	}
+	return wsTargetWithPath(s, listen, pathOption)
 }
 
 func wsTargetWithPath(s parse.Spec, listen bool, path string) (host, port, out string, err error) {

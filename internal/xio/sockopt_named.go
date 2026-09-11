@@ -66,15 +66,6 @@ func applyNamedConnectedSockopt(fd int, o parse.Option) (bool, error) {
 	return true, applyNamedIntSockopt(fd, o, level, opt)
 }
 
-func hasNamedConnectedTCP(s parse.Spec) bool {
-	for _, o := range s.Options {
-		if _, _, ok, _ := lookupNamedConnectedInt(o.Name); ok {
-			return true
-		}
-	}
-	return false
-}
-
 func namedConnectedTCPName(name string) bool {
 	_, _, ok, _ := lookupNamedConnectedInt(name)
 	return ok

@@ -1,6 +1,7 @@
 package xio
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -264,29 +265,38 @@ func parseSockoptBin(rest string) (useInt bool, n int, data []byte, err error) {
 	return false, 0, data, nil
 }
 
-func hasGenericSetsockopt(s parse.Spec, phase SockoptPhase) bool {
-	switch phase {
-	case SockoptPhasePrebind:
-		return s.HasOption("setsockopt-listen")
-	case SockoptPhasePastSocket:
-		return s.HasOption("setsockopt-socket")
-	case SockoptPhaseConnected:
-		return s.HasOption("setsockopt") ||
-			s.HasOption("setsockopt-bin") ||
-			s.HasOption("setsockopt-int") ||
-			s.HasOption("setsockopt-string") ||
-			s.HasOption("setsockopt-connected") ||
-			hasNamedConnectedTCP(s)
-	default:
-		return false
+func hasGenericSetsockopt(s parse.Spec, phase SockoptPhase) (bool, error) {
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return false, err
 	}
+	return hasPreparedGenericSetsockopt(config, phase), nil
+}
+
+func hasPreparedGenericSetsockopt(config addrconfig.Address, phase SockoptPhase) bool {
+	for _, action := range config.Network.Actions {
+		if !preparedSocketPhaseMatches(action.Phase, phase) {
+			continue
+		}
+		if action.Kind == addrconfig.SocketActionGeneric {
+			return true
+		}
+		if phase == SockoptPhaseConnected && action.Kind == addrconfig.SocketActionNamed && action.Named == addrconfig.NamedSocketTCPMaxSegLate {
+			return true
+		}
+	}
+	return false
 }
 
 // ApplyGenericSetsockoptToConn applies phase options on any syscall.Conn.
 // Missing options are a no-op. Present options on a conn that does not
 // expose a socket fail; they are never silently ignored.
 func ApplyGenericSetsockoptToConn(conn syscall.Conn, s parse.Spec, phase SockoptPhase) error {
-	if conn == nil || !hasGenericSetsockopt(s, phase) {
+	has, err := hasGenericSetsockopt(s, phase)
+	if err != nil {
+		return err
+	}
+	if conn == nil || !has {
 		return nil
 	}
 	raw, err := conn.SyscallConn()
@@ -303,7 +313,11 @@ func ApplyGenericSetsockoptToConn(conn syscall.Conn, s parse.Spec, phase Sockopt
 // ApplyGenericSetsockoptToNetConn unwraps NetConn() wrappers, then applies
 // phase options. A present option on a non-socket fails.
 func ApplyGenericSetsockoptToNetConn(c net.Conn, s parse.Spec, phase SockoptPhase) error {
-	if !hasGenericSetsockopt(s, phase) {
+	has, err := hasGenericSetsockopt(s, phase)
+	if err != nil {
+		return err
+	}
+	if !has {
 		return nil
 	}
 	c = unwrapNetConn(c)
@@ -321,7 +335,11 @@ func ApplyGenericSetsockoptToNetConn(c net.Conn, s parse.Spec, phase SockoptPhas
 // (QUIC transport, ListenPacket). Rejects present options when the conn does
 // not expose a socket fd.
 func ApplyGenericSetsockoptToPacketConn(pc net.PacketConn, s parse.Spec, phase SockoptPhase) error {
-	if pc == nil || !hasGenericSetsockopt(s, phase) {
+	has, err := hasGenericSetsockopt(s, phase)
+	if err != nil {
+		return err
+	}
+	if pc == nil || !has {
 		return nil
 	}
 	sc, ok := pc.(syscall.Conn)
@@ -332,7 +350,11 @@ func ApplyGenericSetsockoptToPacketConn(pc net.PacketConn, s parse.Spec, phase S
 }
 
 func applyGenericSetsockoptToStream(s parse.Spec, stream relay.Stream, phase SockoptPhase) error {
-	if !hasGenericSetsockopt(s, phase) {
+	has, err := hasGenericSetsockopt(s, phase)
+	if err != nil {
+		return err
+	}
+	if !has {
 		return nil
 	}
 	conns := streamSyscallConns(stream)

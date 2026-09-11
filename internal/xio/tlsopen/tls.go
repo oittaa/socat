@@ -185,11 +185,11 @@ func (l *socketTimeoutListener) Accept() (net.Conn, error) {
 
 // TLSClientConfig builds a crypto/tls client config from TLS/WSS options.
 func TLSClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
-	settings, err := decodeTLSSettings(s)
+	config, err := xio.OpeningConfig(context.Background(), s)
 	if err != nil {
 		return nil, err
 	}
-	return TLSClientConfigSettings(s.Type, settings, serverName)
+	return TLSClientConfigSettings(s.Type, config.TLS, serverName)
 }
 
 func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
@@ -198,11 +198,11 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 
 // TLSServerConfig builds a crypto/tls server config from TLS/WSS-LISTEN options.
 func TLSServerConfig(s parse.Spec) (*tls.Config, error) {
-	settings, err := decodeTLSSettings(s)
+	config, err := xio.OpeningConfig(context.Background(), s)
 	if err != nil {
 		return nil, err
 	}
-	return TLSServerConfigSettings(s.Type, settings)
+	return TLSServerConfigSettings(s.Type, config.TLS)
 }
 
 func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
@@ -256,11 +256,11 @@ func RejectPROXYTLSOnPlaintext(s parse.Spec) error {
 }
 
 func tlsClientConfigForContext(ctx context.Context, s parse.Spec, serverName string) (*tls.Config, error) {
-	settings, ok := preparedTLSSettings(ctx)
-	if !ok {
-		return TLSClientConfig(s, serverName)
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
 	}
-	return TLSClientConfigSettings(s.Type, settings, serverName)
+	return TLSClientConfigSettings(s.Type, config.TLS, serverName)
 }
 
 // TLSClientConfigSettings builds a client config from prepared TLS settings.
@@ -331,11 +331,11 @@ func TLSClientConfigSettings(typ string, settings addrconfig.TLS, serverName str
 }
 
 func tlsServerConfigForContext(ctx context.Context, s parse.Spec) (*tls.Config, error) {
-	settings, ok := preparedTLSSettings(ctx)
-	if !ok {
-		return TLSServerConfig(s)
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
 	}
-	return TLSServerConfigSettings(s.Type, settings)
+	return TLSServerConfigSettings(s.Type, config.TLS)
 }
 
 // TLSServerConfigSettings builds a server config from prepared TLS settings.
@@ -402,20 +402,4 @@ func applyProtocolVersions(cfg *tls.Config, settings addrconfig.TLS) error {
 		return fmt.Errorf("minimum TLS protocol version exceeds maximum")
 	}
 	return nil
-}
-
-func decodeTLSSettings(s parse.Spec) (addrconfig.TLS, error) {
-	config, err := addrconfig.Decode(s, addrconfig.Facts{Type: s.Type, Group: xio.GroupTLS})
-	if err != nil {
-		return addrconfig.TLS{}, err
-	}
-	return config.TLS, nil
-}
-
-func preparedTLSSettings(ctx context.Context) (addrconfig.TLS, bool) {
-	config, ok := xio.PreparedConfig(ctx)
-	if !ok {
-		return addrconfig.TLS{}, false
-	}
-	return config.TLS, true
 }

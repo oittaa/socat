@@ -82,7 +82,7 @@ func TestLoadCAPath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "ca.pem"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw}), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pool, err := loadCAPool(parse.Spec{Options: []parse.Option{{Name: "capath", Value: dir, Has: true}}})
+	pool, err := loadCAPoolPaths("", dir)
 	if err != nil {
 		t.Fatal(err)
 	}

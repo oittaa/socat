@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strings"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -111,37 +110,18 @@ func parseVsockListenPort(s parse.Spec) (uint32, error) {
 // parseVsockBindOption parses bind= [cid][:(port)].
 // Listen rejects a colon (CID only). Connect allows cid:port.
 func parseVsockBindOption(s parse.Spec, portAllowed bool) (ep vsockEndpoint, set bool, err error) {
-	raw, ok := s.OptionNamed("bind")
-	if !ok {
+	config, err := xio.OpeningConfig(context.Background(), s)
+	if err != nil {
+		return vsockEndpoint{}, false, err
+	}
+	vsock := config.Network.VSOCK
+	if !vsock.BindSet {
 		return vsockEndpoint{}, false, nil
 	}
-	bind := raw.Value
-	cidStr, portStr, hasPort := splitVsockBind(bind)
-	if hasPort && !portAllowed {
+	if vsock.BindHasPort && !portAllowed {
 		return vsockEndpoint{}, true, fmt.Errorf("port specification not allowed in this bind option")
 	}
-	cid, err := parseVsockCID(cidStr)
-	if err != nil {
-		return vsockEndpoint{}, true, fmt.Errorf("bind: cid: %w", err)
-	}
-	ep.cid = cid
-	if hasPort {
-		port, err := parseVsockU32(portStr)
-		if err != nil {
-			return vsockEndpoint{}, true, fmt.Errorf("bind: port: %w", err)
-		}
-		ep.port = port
-	} else {
-		ep.port = vsockPortAny
-	}
-	return ep, true, nil
-}
-
-func splitVsockBind(bind string) (cidStr, portStr string, hasPort bool) {
-	if i := strings.IndexByte(bind, ':'); i >= 0 {
-		return bind[:i], bind[i+1:], true
-	}
-	return bind, "", false
+	return vsockEndpoint{cid: vsock.Bind.CID, port: vsock.Bind.Port}, true, nil
 }
 
 func parseVsockCID(s string) (uint32, error) {
@@ -171,56 +151,13 @@ func parseVsockSocketArgs(s parse.Spec) (vsockSocketArgs, error) {
 	if config.Network.ProtocolSet {
 		args.family = config.Network.ProtocolFamily
 	}
-	if o, ok := s.OptionNamed("socktype"); ok {
-		n, err := parseVsockSocketInt(o, "socktype")
-		if err != nil {
-			return vsockSocketArgs{}, err
-		}
-		args.socktype = n
+	if config.Network.SocketType.Set {
+		args.socktype = config.Network.SocketType.Value
 	}
-	proto, err := parseVsockProtocolOption(s)
-	if err != nil {
-		return vsockSocketArgs{}, err
+	if config.Network.SocketProtocol.Set {
+		args.protocol = config.Network.SocketProtocol.Value
 	}
-	args.protocol = proto
 	return args, nil
-}
-
-// parseSocketProtocolOption reads so-protocol (and so-prototype/prototype aliases)
-// plus protocol= as the socket() protocol number. protocol= is also the
-// WebSocket subprotocol option, so it cannot be globally canonicalized to
-// so-protocol. Walk backwards so mixed aliases remain last-option-wins like
-// the rest of Spec's option accessors. set is false when the option is absent
-// so a positional protocol is left unchanged.
-func parseSocketProtocolOption(s parse.Spec) (proto int, set bool, err error) {
-	for i := len(s.Options) - 1; i >= 0; i-- {
-		o := s.Options[i]
-		switch strings.ToLower(o.Name) {
-		case "so-protocol", "protocol":
-			n, err := parseVsockSocketInt(o, o.Name)
-			if err != nil {
-				return 0, false, err
-			}
-			return n, true, nil
-		}
-	}
-	return 0, false, nil
-}
-
-func parseVsockProtocolOption(s parse.Spec) (int, error) {
-	n, _, err := parseSocketProtocolOption(s)
-	return n, err
-}
-
-func parseVsockSocketInt(o parse.Option, name string) (int, error) {
-	if !o.Has || strings.TrimSpace(o.Value) == "" {
-		return 0, fmt.Errorf("option %q requires a number", name)
-	}
-	n, err := xio.ParseIntAny(o.Value)
-	if err != nil {
-		return 0, fmt.Errorf("invalid %s=%q", name, o.Value)
-	}
-	return n, nil
 }
 
 // parseVsockU32: ParseSizeT stored in uint32 (so -1 becomes VMADDR_*_ANY).

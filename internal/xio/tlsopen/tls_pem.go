@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // errDSAUnsupported is returned when a PEM contains a DSA private key.
@@ -82,10 +80,6 @@ func splitCertKeyPEM(data []byte) (certPEM, keyPEM []byte) {
 		}
 	}
 	return certPEM, keyPEM
-}
-
-func loadCAPool(s parse.Spec) (*x509.CertPool, error) {
-	return loadCAPoolPaths(s.OptionValue("cafile", ""), s.OptionValue("capath", ""))
 }
 
 func loadCAPoolPaths(cafile, capath string) (*x509.CertPool, error) {
