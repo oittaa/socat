@@ -93,7 +93,7 @@ func (t wsDialTarget) httpURL() url.URL {
 }
 
 func dialWS(ctx context.Context, dest wsDialTarget, s addrconfig.Address, g *xio.Global, tlsCfg *tls.Config, handshakeTimeout time.Duration) (net.Conn, error) {
-	raw, err := xio.DialTCPAll(ctx, xio.DialTarget{Network: dest.Network, Host: dest.Host, Port: dest.Port}, s, g, xio.ConnectTimeout(s), nil)
+	raw, err := xio.DialTCPAll(ctx, xio.DialTarget{Network: dest.Network, Host: s.Network.Target, Port: s.Network.TargetPort}, s, g, xio.ConnectTimeout(s), nil)
 	if err != nil {
 		return nil, err
 	}

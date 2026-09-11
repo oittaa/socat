@@ -199,32 +199,14 @@ func ipFamilyName(family ipFamily) string {
 }
 
 func preparedForcedIPFamily(config addrconfig.Address) ipFamily {
-	if v, ok := VersionFromPF(ProtocolFamilyText(config)); ok {
-		switch v {
-		case IPv4:
-			return ipFamilyV4
-		case IPv6:
-			return ipFamilyV6
-		}
+	switch config.Network.IPFamily {
+	case addrconfig.IPFamilyIPv4:
+		return ipFamilyV4
+	case addrconfig.IPFamilyIPv6:
+		return ipFamilyV6
+	default:
+		return ipFamilyUnknown
 	}
-	return ipFamilyFromAddressType(config.Type)
-}
-
-func ipFamilyFromAddressType(typ string) ipFamily {
-	u := strings.ToUpper(strings.TrimSpace(typ))
-	for _, prefix := range []string{"TCP", "UDP", "SCTP", "IP"} {
-		if !strings.HasPrefix(u, prefix) {
-			continue
-		}
-		rest := u[len(prefix):]
-		switch {
-		case strings.HasPrefix(rest, "4"):
-			return ipFamilyV4
-		case strings.HasPrefix(rest, "6"):
-			return ipFamilyV6
-		}
-	}
-	return ipFamilyUnknown
 }
 
 func ipFamilyFromNetwork(network string) ipFamily {
@@ -266,9 +248,6 @@ func RejectUnsupportedIPAncillary(s addrconfig.Address) error {
 		return nil
 	}
 	family := preparedForcedIPFamily(s)
-	if family == ipFamilyUnknown {
-		family = ipFamilyFromAddressType(s.Type)
-	}
 	for _, action := range s.Network.Actions {
 		if action.Kind != addrconfig.SocketActionAncillary {
 			continue

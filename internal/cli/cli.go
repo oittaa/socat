@@ -457,14 +457,6 @@ func Run(args []string, signalExit func(int)) int {
 		log.Errorf("parse right address: %s", err)
 		return 1
 	}
-	if err := validateChannelOptions(left); err != nil {
-		log.Errorf("parse left address: %s", err)
-		return 1
-	}
-	if err := validateChannelOptions(right); err != nil {
-		log.Errorf("parse right address: %s", err)
-		return 1
-	}
 	preparedLeft, err := xio.PrepareChannel(left)
 	if err != nil {
 		log.Errorf("parse left address: %s", err)

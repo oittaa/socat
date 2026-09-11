@@ -19,6 +19,8 @@ type File struct {
 	Append      bool
 	Truncate    bool
 	Nonblock    bool
+	FD          int
+	FDSet       bool
 	Actions     []FileAction
 	Umask       OptionalUint32
 	UnlinkEarly OptionalBool

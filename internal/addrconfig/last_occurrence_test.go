@@ -17,7 +17,7 @@ func TestDecodeUnsupportedTLSKeepsEarlierRejection(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !config.TLS.UnsupportedSet || config.TLS.UnsupportedCanonical != "openssl-fips" {
-		t.Fatalf("effective=%+v options=%+v", config.TLS, config.TLS.Unsupported)
+		t.Fatalf("effective=%+v", config.TLS)
 	}
 	if config.TLS.UnsupportedName != "fips" {
 		t.Fatalf("name=%q", config.TLS.UnsupportedName)
@@ -32,7 +32,7 @@ func TestDecodeUnsupportedTLSKeepsEarlierRejection(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !config.TLS.UnsupportedSet || config.TLS.UnsupportedCanonical != "openssl-method" {
-		t.Fatalf("method erased: set=%v can=%q options=%+v", config.TLS.UnsupportedSet, config.TLS.UnsupportedCanonical, config.TLS.Unsupported)
+		t.Fatalf("method erased: set=%v can=%q", config.TLS.UnsupportedSet, config.TLS.UnsupportedCanonical)
 	}
 }
 

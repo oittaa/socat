@@ -81,7 +81,7 @@ func openProxyConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		e := xio.WithRetry(dctx, g, "PROXY-CONNECT", func() error {
-			c, e := xio.DialTCPAll(dctx, xio.DialTarget{Network: network, Host: proxyHost, Port: proxyPort}, s, g, timeout, nil)
+			c, e := xio.DialTCPAll(dctx, xio.DialTarget{Network: network, Host: s.Proxy.Server, Port: proxyPortTarget(s.Proxy)}, s, g, timeout, nil)
 			if e != nil {
 				return e
 			}
@@ -262,26 +262,10 @@ func proxyStatusOK(status string) bool {
 }
 
 func proxyParams(s addrconfig.Address) (proxy, host, port string, err error) {
-	// PROXY:proxy:host:port → params may be split by our parser
-	p := s.Params
-	if len(p) >= 3 {
-		return p[0], p[1], p[2], nil
+	if !s.Proxy.EndpointsSet {
+		return "", "", "", fmt.Errorf("%s requires proxy, host, and port", s.Type)
 	}
-	if len(p) == 1 {
-		// single string "proxy:host:port" unlikely
-		parts := strings.Split(p[0], ":")
-		if len(parts) >= 3 {
-			return parts[0], parts[1], parts[2], nil
-		}
-	}
-	if len(p) == 2 {
-		// proxyhost, host:port
-		h, pt, e := net.SplitHostPort(p[1])
-		if e == nil {
-			return p[0], h, pt, nil
-		}
-	}
-	return "", "", "", fmt.Errorf("%s requires proxy, host, and port", s.Type)
+	return s.Proxy.Server.Original(), s.Proxy.Target.Original(), s.Proxy.TargetPort.Text(), nil
 }
 
 // prefixConn prepends buffered bytes to the first Read.

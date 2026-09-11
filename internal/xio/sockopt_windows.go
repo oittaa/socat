@@ -8,6 +8,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"golang.org/x/sys/windows"
 )
 
@@ -78,13 +79,21 @@ func applyLingerSeconds(fd int, seconds int) error {
 	return nil
 }
 
-func applySocketTimeoDuration(fd int, name string, d time.Duration) error {
-	ms, err := windowsTimeoutMillisFromDuration(d)
+func applySocketTimeoDuration(fd int, action addrconfig.SocketAction) error {
+	name := action.Text
+	if name == "" {
+		if action.Recv {
+			name = "rcvtimeo"
+		} else {
+			name = "sndtimeo"
+		}
+	}
+	ms, err := windowsTimeoutMillisFromDuration(action.Duration)
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	opt := soRcvtimeo
-	if name == "sndtimeo" {
+	if !action.Recv {
 		opt = soSndtimeo
 	}
 	if err := windows.SetsockoptInt(windows.Handle(fd), solSocket, opt, int(ms)); err != nil {

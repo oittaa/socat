@@ -35,6 +35,8 @@ func TestVsockListenMinusOneIsAny(t *testing.T) {
 	config, err := addrconfig.Decode(parse.Spec{Type: "VSOCK-LISTEN", Params: []string{"-1"}}, addrconfig.Facts{
 		Type:  "VSOCK-LISTEN",
 		Group: "VSOCK (Linux)",
+		Kind:  addrconfig.AddressKindVSOCK,
+		Role:  addrconfig.AddressRoleListen,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -6,8 +6,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
@@ -20,7 +22,14 @@ func TestCREATEDoesNotApplyODirect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeWrite, nil)
+	if _, err := xio.PrepareSpec(spec); err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("PrepareSpec err=%v want not supported", err)
+	}
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: spec.Type})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := openCREATE(context.Background(), config, xio.ModeWrite, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -33,11 +33,19 @@ func applyPreparedLateSocketOptions(fd int, config addrconfig.Address) error {
 			continue
 		}
 		opt := soSndbuf
-		if action.Text == "rcvbuf-late" {
+		if action.Recv {
 			opt = soRcvbuf
 		}
+		name := action.Text
+		if name == "" {
+			if action.Recv {
+				name = "rcvbuf-late"
+			} else {
+				name = "sndbuf-late"
+			}
+		}
 		if err := setSockoptInt(fd, solSocket, opt, action.Number); err != nil {
-			return fmt.Errorf("%s: %w", action.Text, err)
+			return fmt.Errorf("%s: %w", name, err)
 		}
 	}
 	return nil

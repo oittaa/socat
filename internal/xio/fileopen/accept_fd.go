@@ -3,23 +3,17 @@ package fileopen
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
 )
 
-// parseFDNum is the FD / ACCEPT-FD number parser: exactly one parameter,
-// base-0 (10, 0x10, 010), leftover garbage rejected.
+// parseFDNum returns the FD / ACCEPT-FD number decoded at preparation.
 func parseFDNum(s addrconfig.Address) (int, error) {
-	if len(s.Params) != 1 || s.Params[0] == "" {
+	if !s.File.FDSet {
 		return -1, fmt.Errorf("%s: wrong number of parameters (%d instead of 1)", s.Type, len(s.Params))
 	}
-	n, err := strconv.ParseUint(s.Params[0], 0, 32)
-	if err != nil {
-		return -1, fmt.Errorf("error in FD number %q", s.Params[0])
-	}
-	return int(n), nil
+	return s.File.FD, nil
 }
 
 func openAcceptFD(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {

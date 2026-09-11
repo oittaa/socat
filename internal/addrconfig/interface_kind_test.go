@@ -23,8 +23,8 @@ func TestDecodeINTERFACENameIsNotTUNPrefix(t *testing.T) {
 		if config.Network.TUNAddressSet {
 			t.Fatalf("%s decoded %q as a TUN prefix", text, spec.Params)
 		}
-		if len(config.Params) != 1 || config.Params[0] != "lo" {
-			t.Fatalf("%s params=%v", text, config.Params)
+		if config.Network.InterfaceName != "lo" {
+			t.Fatalf("%s interface=%q", text, config.Network.InterfaceName)
 		}
 	}
 }
@@ -38,8 +38,14 @@ func TestDecodeINTERFACETypeFallbackWithoutKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.Network.Kind != AddressKindINTERFACE || config.Network.TUNAddressSet {
-		t.Fatalf("kind=%v tun set=%v", config.Network.Kind, config.Network.TUNAddressSet)
+	if config.Network.Kind != AddressKindOther {
+		t.Fatalf("kind=%v want Other without registry Kind", config.Network.Kind)
+	}
+	if config.Network.TUNAddressSet {
+		t.Fatal("must not treat INTERFACE as a TUN prefix")
+	}
+	if config.Network.InterfaceName != "" {
+		t.Fatal("must not decode INTERFACE name without Kind")
 	}
 }
 

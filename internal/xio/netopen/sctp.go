@@ -28,15 +28,15 @@ func openSCTP6Connect(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 }
 
 func openSCTPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
-	host, port, err := xio.HostPortParams(s)
-	if err != nil {
-		return nil, err
+	if !s.Network.TargetSet {
+		return nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
-	if host == "" || port == "" {
+	host, port := s.Network.Target, s.Network.TargetPort
+	if host.String() == "" || port.Text() == "" {
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
-	network = sctpNetwork(xio.ConnectNetworkForType(g, s, host, tcpNetwork(network)))
-	addr := net.JoinHostPort(xio.StripBrackets(host), port)
+	network = sctpNetwork(xio.ConnectNetworkForType(g, s, host.String(), tcpNetwork(network)))
+	addr := net.JoinHostPort(xio.StripBrackets(host.String()), port.Text())
 	timeout := xio.ConnectTimeout(s)
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
@@ -72,7 +72,7 @@ func openSCTP6Listen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g
 }
 
 func openSCTPListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
-	port, err := xio.ListenPortText(s)
+	port, err := xio.ListenPort(s)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +91,7 @@ func openSCTPListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
 		Listener: ln,
-		Label:    fmt.Sprintf("%s-LISTEN:%s", network, port),
+		Label:    fmt.Sprintf("%s-LISTEN:%s", network, port.Text()),
 	})
 }
 

@@ -2,7 +2,6 @@ package xio
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/optionmeta"
@@ -24,7 +23,7 @@ func rejectPreparedRouterAlert(config addrconfig.Address, action addrconfig.Sock
 	if spelling == "" {
 		spelling = "ip-router-alert"
 	}
-	if !isRawIPAddress(config.Type) {
+	if !isRawIPAddress(config) {
 		typ := config.Type
 		if typ == "" {
 			return fmt.Errorf("%s: not supported with this address type", spelling)
@@ -41,16 +40,14 @@ func rejectPreparedRouterAlert(config addrconfig.Address, action addrconfig.Sock
 	return nil
 }
 
-func isRawIPAddress(typ string) bool {
-	if reg, ok := AddressRegistrationForType(typ); ok {
-		return reg.Group == GroupRawIP
-	}
-	u := strings.ToUpper(strings.TrimSpace(typ))
-	switch u {
-	case "IP", "IP4", "IP6":
+func isRawIPAddress(config addrconfig.Address) bool {
+	if config.Facts.Kind == addrconfig.AddressKindRawIP || config.Network.Kind == addrconfig.AddressKindRawIP {
 		return true
 	}
-	return strings.HasPrefix(u, "IP-") || strings.HasPrefix(u, "IP4-") || strings.HasPrefix(u, "IP6-")
+	if reg, ok := AddressRegistrationForType(config.Type); ok {
+		return reg.Kind == addrconfig.AddressKindRawIP
+	}
+	return false
 }
 
 func preparedRawIPProtocolNumber(config addrconfig.Address) (int, bool) {

@@ -32,13 +32,13 @@ func openWSSListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *
 }
 
 func openWSListenTLS(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, useTLS bool) (*xio.Opened, error) {
-	_, port, wpath, err := wsTarget(s, true)
+	_, _, wpath, err := wsTarget(s, true)
 	if err != nil {
 		return nil, err
 	}
 	network := xio.ListenNetwork(g, s)
 	network = xio.DualStackListenNetwork(s, network)
-	addr, err := xio.TCPListenAddress(ctx, s, network, port)
+	addr, err := xio.TCPListenAddress(ctx, s, network, s.Network.ListenPort)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func openWSListenTLS(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *x
 
 	sess := xio.ListenSession{
 		Listener:         ln,
-		Label:            s.Type + ":" + port + wpath,
+		Label:            s.Type + ":" + s.Network.ListenPort.Text() + wpath,
 		WrapDial:         wrapConn,
 		HandshakeTimeout: handshakeTimeout,
 		ListeningLog:     fmt.Sprintf("listening on %s (websocket %s)", ln.Addr(), wpath),

@@ -260,12 +260,10 @@ func applyInterfaceOpts(sock int, ifname string, tun addrconfig.Network) error {
 // Syntax: INTERFACE:<ifname>
 func openINTERFACE(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	// Exactly one non-empty name; INTERFACE::::: must fail (testaddrs).
-	if len(s.Params) != 1 || s.Params[0] == "" {
+	ifname := s.Network.InterfaceName
+	if ifname == "" {
 		return nil, fmt.Errorf("INTERFACE requires interface name")
 	}
-	// Extra empty fields from INTERFACE:foo:::: are still wrong arity.
-	// (Parse of INTERFACE::::: is params=["","","","",""] → caught above.)
-	ifname := s.Params[0]
 	if !validIfaceName(ifname) {
 		return nil, fmt.Errorf("INTERFACE: invalid name %q", ifname)
 	}

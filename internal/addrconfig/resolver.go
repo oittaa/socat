@@ -10,37 +10,66 @@ import (
 
 const defaultDNSPort = 53
 
-// ParseResNSAddr validates res-nsaddr and returns a dialable host:port.
+// NameServer is the decoded res-nsaddr value. The nameserver host is resolved
+// when the resolver dials.
+type NameServer struct {
+	Set  bool
+	Host HostTarget
+	Port PortTarget
+}
+
+// String is the decoded host:port spelling.
+func (n NameServer) String() string {
+	return n.DialHostPort()
+}
+
+// DialHostPort is host:port for net.Dialer, using the already decoded port.
+func (n NameServer) DialHostPort() string {
+	if !n.Set {
+		return ""
+	}
+	port := n.Port.Text()
+	if port == "" {
+		port = strconv.Itoa(defaultDNSPort)
+	}
+	return net.JoinHostPort(n.Host.String(), port)
+}
+
+// ParseResNSAddr validates res-nsaddr and returns the static host and port.
 // Accepts an IPv4 address or hostname plus an optional port. IPv6
-// nameserver literals are rejected.
-func ParseResNSAddr(value string) (string, error) {
+// nameserver literals are rejected. Service names stay for runtime lookup.
+func ParseResNSAddr(value string) (NameServer, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return "", fmt.Errorf("res-nsaddr: nameserver address is empty")
+		return NameServer{}, fmt.Errorf("res-nsaddr: nameserver address is empty")
 	}
 
 	host, port, err := splitResNSAddr(value)
 	if err != nil {
-		return "", err
+		return NameServer{}, err
 	}
 	if err := validateResNSHost(host); err != nil {
-		return "", err
+		return NameServer{}, err
 	}
 
-	portNum := defaultDNSPort
-	if port != "" {
-		portNum, err = strconv.Atoi(port)
-		if err != nil {
-			portNum, err = net.LookupPort("udp", port)
-		}
-		if err != nil || portNum < 0 || portNum > 65535 {
-			return "", fmt.Errorf("res-nsaddr: invalid DNS port %q", port)
+	ns := NameServer{Set: true, Host: targetFromText(host)}
+	if port == "" {
+		ns.Port = PortTarget{Number: defaultDNSPort, Numeric: true}
+		return ns, nil
+	}
+	portNum, err := strconv.Atoi(port)
+	if err == nil {
+		if portNum < 0 || portNum > 65535 {
+			return NameServer{}, fmt.Errorf("res-nsaddr: invalid DNS port %q", port)
 		}
 		if portNum == 0 {
 			portNum = defaultDNSPort
 		}
+		ns.Port = PortTarget{Number: uint16(portNum), Numeric: true, Service: port}
+		return ns, nil
 	}
-	return net.JoinHostPort(host, strconv.Itoa(portNum)), nil
+	ns.Port = PortTarget{Service: port}
+	return ns, nil
 }
 
 func splitResNSAddr(value string) (host, port string, err error) {

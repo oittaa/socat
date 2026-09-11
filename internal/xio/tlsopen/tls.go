@@ -24,16 +24,17 @@ func openTLSConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g 
 }
 
 func openTLSConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
-	host, port, err := xio.HostPortParams(s)
-	if err != nil {
-		return nil, err
+	if !s.Network.TargetSet {
+		return nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
-	if host == "" || port == "" {
+	target, port := s.Network.Target, s.Network.TargetPort
+	host := target.String()
+	if host == "" || port.Text() == "" {
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
 	// Dual-stack + pf= like TCP-CONNECT.
 	network = xio.ConnectNetworkForType(g, s, host, network)
-	addr := net.JoinHostPort(xio.StripBrackets(host), port)
+	addr := net.JoinHostPort(xio.StripBrackets(host), port.Text())
 
 	tlsCfg, err := tlsClientConfigForContext(ctx, s, host)
 	if err != nil {
@@ -54,7 +55,7 @@ func openTLSConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 				cctx, cancel = context.WithTimeout(dctx, timeout)
 				defer cancel()
 			}
-			raw, e := xio.DialTCPAll(cctx, xio.DialTarget{Network: network, Host: host, Port: port}, s, g, timeout, nil)
+			raw, e := xio.DialTCPAll(cctx, xio.DialTarget{Network: network, Host: target, Port: port}, s, g, timeout, nil)
 			if e != nil {
 				return e
 			}
@@ -104,7 +105,7 @@ func openTLSListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *
 }
 
 func openTLSListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
-	port, err := xio.ListenPortText(s)
+	port, err := xio.ListenPort(s)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +144,7 @@ func openTLSListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode,
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
 		Listener:         tlsLn,
-		Label:            s.Type + ":" + port,
+		Label:            s.Type + ":" + port.Text(),
 		WrapDial:         wrapConn,
 		HandshakeTimeout: handshakeTimeout,
 		ListeningLog:     fmt.Sprintf("listening on %s (TLS)", tlsLn.Addr()),

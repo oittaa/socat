@@ -24,16 +24,16 @@ func openTCP6Connect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g
 }
 
 func openTCPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
-	host, port, err := xio.HostPortParams(s)
-	if err != nil {
-		return nil, err
+	if !s.Network.TargetSet {
+		return nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
-	if host == "" || port == "" {
+	host, port := s.Network.Target, s.Network.TargetPort
+	if host.String() == "" || port.Text() == "" {
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
 	// Honour pf= even when called from TCP4/TCP6 openers.
-	network = xio.ConnectNetworkForType(g, s, host, network)
-	addr := net.JoinHostPort(xio.StripBrackets(host), port)
+	network = xio.ConnectNetworkForType(g, s, host.String(), network)
+	addr := net.JoinHostPort(xio.StripBrackets(host.String()), port.Text())
 
 	timeout := xio.ConnectTimeout(s)
 
@@ -81,7 +81,7 @@ func openTCP6Listen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g 
 }
 
 func openTCPListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
-	port, err := xio.ListenPortText(s)
+	port, err := xio.ListenPort(s)
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func openTCPListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode,
 
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
 		Listener: ln,
-		Label:    fmt.Sprintf("%s-LISTEN:%s", network, port),
+		Label:    fmt.Sprintf("%s-LISTEN:%s", network, port.Text()),
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
 			if err := xio.ApplyTCPConnOpts(s, c); err != nil {
 				return nil, err

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
@@ -156,8 +157,12 @@ func TestAcceptFDRejectsListenSetsockopt(t *testing.T) {
 }
 
 func TestAcceptFDWrongParamCount(t *testing.T) {
-	_, err := openAcceptFD(context.Background(), mustAddr(t, parse.Spec{Type: "ACCEPT-FD"}), xio.ModeRDWR, nil)
+	_, err := xio.PrepareSpec(parse.Spec{Type: "ACCEPT-FD"})
 	if err == nil || !strings.Contains(err.Error(), "wrong number of parameters") {
-		t.Fatalf("err=%v", err)
+		t.Fatalf("prepare err=%v", err)
+	}
+	_, err = openAcceptFD(context.Background(), addrconfig.Address{Type: "ACCEPT-FD", Params: []string{"3"}}, xio.ModeRDWR, nil)
+	if err == nil || !strings.Contains(err.Error(), "wrong number of parameters") {
+		t.Fatalf("open without FDSet err=%v", err)
 	}
 }

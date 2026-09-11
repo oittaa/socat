@@ -106,8 +106,12 @@ func genericRejectPhase(action addrconfig.SocketAction) (SockoptPhase, string, b
 			return SockoptPhaseConnected, name, true
 		}
 	case addrconfig.SocketActionNamed:
-		if action.Text == "tcp-maxseg-late" {
-			return SockoptPhaseConnected, action.Text, true
+		if action.Named == addrconfig.NamedSocketTCPMaxSegLate {
+			name := action.Text
+			if name == "" {
+				name = "tcp-maxseg-late"
+			}
+			return SockoptPhaseConnected, name, true
 		}
 	}
 	return 0, "", false
@@ -125,7 +129,7 @@ func hasGenericSetsockopt(s addrconfig.Address, phase SockoptPhase) bool {
 		if action.Kind == addrconfig.SocketActionGeneric {
 			return true
 		}
-		if phase == SockoptPhaseConnected && action.Kind == addrconfig.SocketActionNamed && action.Text == "tcp-maxseg-late" {
+		if phase == SockoptPhaseConnected && action.Kind == addrconfig.SocketActionNamed && action.Named == addrconfig.NamedSocketTCPMaxSegLate {
 			return true
 		}
 	}

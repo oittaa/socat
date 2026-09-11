@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"golang.org/x/sys/unix"
 )
 
@@ -77,13 +77,22 @@ func applyLingerSeconds(fd int, seconds int) error {
 	return nil
 }
 
-func applySocketTimeoDuration(fd int, name string, d time.Duration) error {
+func applySocketTimeoDuration(fd int, action addrconfig.SocketAction) error {
+	name := action.Text
+	if name == "" {
+		if action.Recv {
+			name = "rcvtimeo"
+		} else {
+			name = "sndtimeo"
+		}
+	}
+	d := action.Duration
 	if d < 0 {
 		return fmt.Errorf("%s: invalid timeout %q", name, d)
 	}
 	tv := unix.NsecToTimeval(int64(d))
 	opt := soRcvtimeo
-	if name == "sndtimeo" {
+	if !action.Recv {
 		opt = soSndtimeo
 	}
 	if err := unix.SetsockoptTimeval(fd, solSocket, opt, &tv); err != nil {

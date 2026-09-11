@@ -14,10 +14,12 @@ import (
 
 // Facts are registry-supplied address properties.
 type Facts struct {
-	Type  string
-	Group string
-	Caps  []string
-	Kind  AddressKind
+	Type   string
+	Group  string
+	Caps   []string
+	Kind   AddressKind
+	Role   AddressRole
+	Family IPFamily
 }
 
 // Address is immutable prepared address data.
@@ -34,11 +36,17 @@ type Address struct {
 	Network  Network
 	TLS      TLS
 	Proxy    Proxy
+}
 
+// decoder holds last-occurrence bookkeeping that must not leak onto the
+// prepared Address openers and fork sessions share.
+type decoder struct {
+	Address
 	optionIndex int
 	cr          lineConversion
 	crnl        lineConversion
 	crorlf      lineConversion
+	unsupported []TLSUnsupported
 }
 
 type lineConversion struct {
@@ -63,7 +71,7 @@ type Common struct {
 	Binary           OptionalBool
 	Text             OptionalBool
 	NetNamespace     OptionalString
-	NameServer       OptionalString
+	NameServer       NameServer
 	UseVC            OptionalBool
 	AddrConfig       OptionalBool
 	Passive          OptionalBool
@@ -151,48 +159,53 @@ type (
 
 // Decode transforms shared option families without acquiring resources.
 func Decode(spec parse.Spec, facts Facts) (Address, error) {
-	a := Address{
-		Type:   facts.Type,
-		Params: append([]string(nil), spec.Params...),
-		Facts: Facts{
-			Type:  facts.Type,
-			Group: facts.Group,
-			Caps:  append([]string(nil), facts.Caps...),
-			Kind:  facts.Kind,
-		},
-		Common: Common{
-			Retry: Retry{Interval: time.Second},
+	d := decoder{
+		Address: Address{
+			Type:   facts.Type,
+			Params: append([]string(nil), spec.Params...),
+			Facts: Facts{
+				Type:   facts.Type,
+				Group:  facts.Group,
+				Caps:   append([]string(nil), facts.Caps...),
+				Kind:   facts.Kind,
+				Role:   facts.Role,
+				Family: facts.Family,
+			},
+			Common: Common{
+				Retry: Retry{Interval: time.Second},
+			},
 		},
 	}
 
-	if err := decodeNetwork(&a, spec); err != nil {
+	if err := decodeNetwork(&d.Address, spec); err != nil {
 		return Address{}, fmt.Errorf("%s: %w", facts.Type, err)
 	}
 	for _, option := range spec.Options {
-		if err := decodeOption(&a, option); err != nil {
+		if err := decodeOption(&d, option); err != nil {
 			return Address{}, fmt.Errorf("%s: %w", facts.Type, err)
 		}
 	}
-	if err := finishDecode(&a); err != nil {
+	if err := finishDecode(&d); err != nil {
 		return Address{}, fmt.Errorf("%s: %w", facts.Type, err)
 	}
-	if a.Common.MaxChildren.Set && (!a.Common.Fork.Set || !a.Common.Fork.Value) {
+	if d.Common.MaxChildren.Set && (!d.Common.Fork.Set || !d.Common.Fork.Value) {
 		return Address{}, fmt.Errorf("%s: option max-children not allowed without option fork", facts.Type)
 	}
-	return a, nil
+	return d.Address, nil
 }
 
-func finishDecode(a *Address) error {
-	resolveLineEnding(a)
-	resolveUnsupportedTLS(a)
-	if a.TLS.MaxVersion != 0 && a.TLS.MinVersion > a.TLS.MaxVersion {
+func finishDecode(d *decoder) error {
+	resolveLineEnding(d)
+	resolveUnsupportedTLS(d)
+	if d.TLS.MaxVersion != 0 && d.TLS.MinVersion > d.TLS.MaxVersion {
 		return fmt.Errorf("minimum TLS protocol version exceeds maximum")
 	}
 	return nil
 }
 
-func decodeOption(a *Address, o parse.Option) error {
-	a.optionIndex++
+func decodeOption(d *decoder, o parse.Option) error {
+	d.optionIndex++
+	a := &d.Address
 	name := optionIdentity(o)
 	if _, ok := optionmeta.IsolationCanonical(name); ok {
 		spelling := o.OriginalSpelling()
@@ -210,7 +223,7 @@ func decodeOption(a *Address, o parse.Option) error {
 	if handled, err := decodeNetworkOption(a, o); handled {
 		return err
 	}
-	if handled, err := decodeProtocolOption(a, o); handled {
+	if handled, err := decodeProtocolOption(d, o); handled {
 		return err
 	}
 	switch name {
@@ -291,17 +304,17 @@ func decodeOption(a *Address, o parse.Option) error {
 		if o.Has {
 			return fmt.Errorf("%s: no value permitted", o.OriginalSpelling())
 		}
-		a.cr = lineConversion{set: true, active: true, index: a.optionIndex, ending: LineEndingCR}
+		d.cr = lineConversion{set: true, active: true, index: d.optionIndex, ending: LineEndingCR}
 		return nil
 	case "crnl":
 		if o.Has {
 			return fmt.Errorf("%s: no value permitted", o.OriginalSpelling())
 		}
-		a.crnl = lineConversion{set: true, active: true, index: a.optionIndex, ending: LineEndingCRNL}
+		d.crnl = lineConversion{set: true, active: true, index: d.optionIndex, ending: LineEndingCRNL}
 		return nil
 	case "crorlf":
 		v := activeBool(o)
-		a.crorlf = lineConversion{set: true, active: v.Value, index: a.optionIndex, ending: LineEndingCROrLF}
+		d.crorlf = lineConversion{set: true, active: v.Value, index: d.optionIndex, ending: LineEndingCROrLF}
 		return nil
 	case "shut-none":
 		return decodeNamedShutdown(&a.Transfer.Shutdown, o, ShutdownNone)
@@ -332,10 +345,11 @@ func decodeOption(a *Address, o parse.Option) error {
 		if err != nil {
 			return err
 		}
-		if _, err := ParseResNSAddr(v); err != nil {
+		ns, err := ParseResNSAddr(v)
+		if err != nil {
 			return err
 		}
-		a.Common.NameServer = OptionalString{Set: true, Value: v}
+		a.Common.NameServer = ns
 		return nil
 	case "res-usevc", "ai-addrconfig", "ai-passive", "ai-v4mapped", "ai-all":
 		v, err := optionalBool(o)
@@ -356,7 +370,7 @@ func decodeOption(a *Address, o parse.Option) error {
 	return nil
 }
 
-func resolveLineEnding(a *Address) {
+func resolveLineEnding(d *decoder) {
 	last := -1
 	ending := LineEndingRaw
 	consider := func(c lineConversion) {
@@ -365,10 +379,10 @@ func resolveLineEnding(a *Address) {
 			ending = c.ending
 		}
 	}
-	consider(a.cr)
-	consider(a.crnl)
-	consider(a.crorlf)
-	a.Transfer.LineEnding = ending
+	consider(d.cr)
+	consider(d.crnl)
+	consider(d.crorlf)
+	d.Transfer.LineEnding = ending
 }
 
 func optionIdentity(o parse.Option) string {

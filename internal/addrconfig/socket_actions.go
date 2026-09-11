@@ -23,7 +23,11 @@ func socketAction(o parse.Option, name string) (SocketAction, bool, error) {
 		if strings.HasSuffix(name, "-late") {
 			phase = SocketPhaseLate
 		}
-		return requiredIntAction(SocketActionBuffer, phase, o, name)
+		action, ok, err := requiredIntAction(SocketActionBuffer, phase, o, name)
+		if err == nil {
+			action.Recv = strings.HasPrefix(name, "rcv")
+		}
+		return action, ok, err
 	case "bindtodevice":
 		value, err := requiredString(o)
 		if err != nil {
@@ -37,7 +41,7 @@ func socketAction(o parse.Option, name string) (SocketAction, bool, error) {
 		if err != nil {
 			return SocketAction{}, true, err
 		}
-		return SocketAction{Kind: SocketActionTimeout, Phase: SocketPhasePastSocket, Text: name, Duration: value}, true, nil
+		return SocketAction{Kind: SocketActionTimeout, Phase: SocketPhasePastSocket, Text: name, Duration: value, Recv: name == "rcvtimeo"}, true, nil
 	case "ip-add-membership", "ipv6-join-group", "ip-multicast-if", "ip-multicast-loop",
 		"ip-multicast-ttl", "ipv6-multicast-loop":
 		request, err := decodeMulticastRequest(o, multicastKind(name), name)
@@ -54,28 +58,28 @@ func socketAction(o parse.Option, name string) (SocketAction, bool, error) {
 		if err != nil || n < 0 || n > 2 {
 			return SocketAction{}, true, fmt.Errorf("%s: invalid value %q", name, o.Value)
 		}
-		return SocketAction{Kind: SocketActionMTUDiscovery, Phase: SocketPhasePastSocket, Text: name, Number: n}, true, nil
+		return SocketAction{Kind: SocketActionMTUDiscovery, Phase: SocketPhasePastSocket, Text: name, Number: n, IPv6: name == "ipv6-mtu-discover"}, true, nil
 	case "ip-recverr", "ipv6-recverr":
 		n, err := ancillaryOptionInt(o)
 		if err != nil {
 			return SocketAction{}, true, fmt.Errorf("%s: %w", name, err)
 		}
-		return SocketAction{Kind: SocketActionRecvErr, Phase: SocketPhasePastSocket, Text: name, Number: n}, true, nil
+		return SocketAction{Kind: SocketActionRecvErr, Phase: SocketPhasePastSocket, Text: name, Number: n, IPv6: name == "ipv6-recverr"}, true, nil
 	case "ip-router-alert":
 		return optionalIntAction(SocketActionRouterAlert, SocketPhasePastSocket, o, name, 1)
 	case "ip-mtu", "ip-pktoptions":
 		return SocketAction{Kind: SocketActionGetOnly, Phase: SocketPhasePastSocket, Text: name}, true, nil
 	}
-	if namedSocketOption(name) {
+	if id := namedSocketID(name); id != NamedSocketNone {
 		n, err := optionalNamedSocketInt(o, name)
 		if err != nil {
 			return SocketAction{}, true, fmt.Errorf("%s: invalid value %q", name, o.Value)
 		}
 		phase := SocketPhasePastSocket
-		if name == "tcp-maxseg-late" {
+		if id == NamedSocketTCPMaxSegLate {
 			phase = SocketPhaseConnected
 		}
-		return SocketAction{Kind: SocketActionNamed, Phase: phase, Number: n, Text: name}, true, nil
+		return SocketAction{Kind: SocketActionNamed, Phase: phase, Named: id, Number: n, Text: name}, true, nil
 	}
 	if ancillaryOption(name) {
 		if name == "ip-options" {
@@ -191,16 +195,57 @@ func optionalNamedSocketInt(o parse.Option, name string) (int, error) {
 	return optionalSocketInt(o, 1)
 }
 
-func namedSocketOption(name string) bool {
+func namedSocketID(name string) NamedSocket {
 	switch name {
-	case "so-debug", "so-dontroute", "so-oobinline", "so-rcvlowat", "so-sndlowat",
-		"so-priority", "so-passcred", "so-no-check", "so-detach-filter",
-		"tcp-cork", "tcp-defer-accept", "tcp-linger2", "tcp-maxseg", "tcp-quickack",
-		"tcp-syncnt", "tcp-window-clamp", "nopush", "noopt", "sctp-nodelay",
-		"sctp-maxseg", "tcp-maxseg-late", "fiosetown", "siocspgrp":
-		return true
+	case "so-debug":
+		return NamedSocketDebug
+	case "so-dontroute":
+		return NamedSocketDontRoute
+	case "so-oobinline":
+		return NamedSocketOOBInline
+	case "so-rcvlowat":
+		return NamedSocketRcvLowat
+	case "so-sndlowat":
+		return NamedSocketSndLowat
+	case "so-priority":
+		return NamedSocketPriority
+	case "so-passcred":
+		return NamedSocketPassCred
+	case "so-no-check":
+		return NamedSocketNoCheck
+	case "so-detach-filter":
+		return NamedSocketDetachFilter
+	case "tcp-cork":
+		return NamedSocketTCPCork
+	case "tcp-defer-accept":
+		return NamedSocketTCPDeferAccept
+	case "tcp-linger2":
+		return NamedSocketTCPLinger2
+	case "tcp-maxseg":
+		return NamedSocketTCPMaxSeg
+	case "tcp-quickack":
+		return NamedSocketTCPQuickAck
+	case "tcp-syncnt":
+		return NamedSocketTCPSyncnt
+	case "tcp-window-clamp":
+		return NamedSocketTCPWindowClamp
+	case "nopush", "tcp-nopush":
+		return NamedSocketNoPush
+	case "noopt", "tcp-noopt":
+		return NamedSocketNoOpt
+	case "sctp-nodelay":
+		return NamedSocketSCTPNodelay
+	case "sctp-maxseg":
+		return NamedSocketSCTPMaxSeg
+	case "tcp-maxseg-late":
+		return NamedSocketTCPMaxSegLate
+	case "fiosetown":
+		return NamedSocketFIOSETOWN
+	case "siocspgrp":
+		return NamedSocketSIOCSPGRP
+	default:
+		return NamedSocketNone
 	}
-	return false
 }
 
 func ancillaryOption(name string) bool {

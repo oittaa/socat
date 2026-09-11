@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -23,6 +24,10 @@ func TestResolvePortNumSCTPFallsBackToTCP(t *testing.T) {
 	n, err = ResolvePortNum("sctp", "443")
 	if err != nil || n != 443 {
 		t.Fatalf("numeric: %d %v", n, err)
+	}
+	n, err = ResolvePort("tcp", addrconfig.PortFromText("080"))
+	if err != nil || n != 80 {
+		t.Fatalf("prepared numeric: %d %v", n, err)
 	}
 }
 
@@ -67,7 +72,7 @@ func TestDialTCPLowportReturnsConnectErrorWhenBindSucceeds(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err = DialTCPAll(ctx, DialTarget{Network: "tcp4", Host: "127.0.0.1", Port: "1"}, mustDecodeAddress(t, s), nil, time.Second, nil)
+	_, err = DialTCPAll(ctx, DialTargetFromText("tcp4", "127.0.0.1", "1"), mustDecodeAddress(t, s), nil, time.Second, nil)
 	if err == nil {
 		t.Fatal("expected connect error after a successful lowport bind")
 	}

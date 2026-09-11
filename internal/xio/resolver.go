@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/oittaa/socat/internal/addrconfig"
@@ -325,4 +326,22 @@ func ResolveUDPAddr(ctx context.Context, s addrconfig.Address, network, address 
 		return nil, err
 	}
 	return net.ResolveUDPAddr(network, net.JoinHostPort(resolved, port))
+}
+
+// ResolveUDPAddrPort resolves a host with a prepared port. Numeric ports are
+// not parsed again by net.ResolveUDPAddr.
+func ResolveUDPAddrPort(ctx context.Context, s addrconfig.Address, network, host string, port addrconfig.PortTarget) (*net.UDPAddr, error) {
+	n, err := ResolvePort(network, port)
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := ResolveIPHost(ctx, s, network, host)
+	if err != nil {
+		return nil, err
+	}
+	addr, parseErr := netip.ParseAddr(StripBrackets(resolved))
+	if parseErr != nil {
+		return net.ResolveUDPAddr(network, net.JoinHostPort(resolved, strconv.Itoa(n)))
+	}
+	return &net.UDPAddr{IP: addr.AsSlice(), Port: n, Zone: addr.Zone()}, nil
 }

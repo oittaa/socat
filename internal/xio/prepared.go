@@ -78,23 +78,41 @@ func PrepareChannel(ch parse.Channel) (PreparedChannel, error) {
 	return PreparedChannel{}, fmt.Errorf("xio: empty channel")
 }
 
-// PrepareSpec resolves one registered address before its static configuration
-// is decoded. It does not access files, DNS, or other runtime resources.
+// PrepareSpec is the shared CLI and programmatic preparation path. It applies
+// name, scope, and static checks, then returns the retained decoded configuration.
+// It does not access files, DNS, or other runtime resources.
 func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 	typ := strings.ToUpper(strings.TrimSpace(spec.Type))
-	desc, ok := registeredAddresses.resolve(typ)
-	if !ok || desc.Opener == nil {
-		return PreparedAddress{}, fmt.Errorf("unknown device/address %q", typ)
+	desc, registered := registeredAddresses.resolve(typ)
+	if err := rejectUnknownOptions(spec, desc, registered); err != nil {
+		return PreparedAddress{}, err
 	}
-	spec.Type = desc.Name
-	config, err := addrconfig.Decode(spec, addrconfig.Facts{
-		Type:  desc.Name,
-		Group: desc.Group,
-		Caps:  desc.OptionCaps,
-		Kind:  desc.Kind,
-	})
+	facts := addrconfig.Facts{Type: spec.Type}
+	if registered {
+		facts = addrconfig.Facts{
+			Type:   desc.Name,
+			Group:  desc.Group,
+			Caps:   desc.OptionCaps,
+			Kind:   desc.Kind,
+			Role:   desc.Role,
+			Family: desc.Family,
+		}
+	}
+	config, err := addrconfig.Decode(spec, facts)
 	if err != nil {
 		return PreparedAddress{}, err
+	}
+	if err := rejectPreparedStaticChecks(config); err != nil {
+		return PreparedAddress{}, err
+	}
+	if err := rejectOptionScope(spec, desc, registered); err != nil {
+		return PreparedAddress{}, err
+	}
+	if err := RejectUnsupportedRemainingIPv4(config); err != nil {
+		return PreparedAddress{}, err
+	}
+	if !registered || desc.Opener == nil {
+		return PreparedAddress{}, fmt.Errorf("unknown device/address %q", typ)
 	}
 	return PreparedAddress{Config: config, opener: desc.Opener}, nil
 }
@@ -109,10 +127,12 @@ func OpenWithType(ctx context.Context, name string, config addrconfig.Address, m
 	}
 	config.Type = desc.Name
 	config.Facts = addrconfig.Facts{
-		Type:  desc.Name,
-		Group: desc.Group,
-		Caps:  append([]string(nil), desc.OptionCaps...),
-		Kind:  desc.Kind,
+		Type:   desc.Name,
+		Group:  desc.Group,
+		Caps:   append([]string(nil), desc.OptionCaps...),
+		Kind:   desc.Kind,
+		Role:   desc.Role,
+		Family: desc.Family,
 	}
 	return desc.Opener(ctx, config, mode, g)
 }

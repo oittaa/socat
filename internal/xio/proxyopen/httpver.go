@@ -35,11 +35,15 @@ func proxyHTTPVersion(p addrconfig.Proxy) (addrconfig.HTTPVersion, string) {
 	}
 }
 
-func proxyPortText(p addrconfig.Proxy) string {
-	if p.Port.Set && p.Port.Value != "" {
-		return p.Port.Value
+func proxyPortTarget(p addrconfig.Proxy) addrconfig.PortTarget {
+	if p.PortSet && p.Port.Text() != "" {
+		return p.Port
 	}
-	return "8080"
+	return addrconfig.PortFromText("8080")
+}
+
+func proxyPortText(p addrconfig.Proxy) string {
+	return proxyPortTarget(p).Text()
 }
 
 func proxyResolveTarget(p addrconfig.Proxy) bool {

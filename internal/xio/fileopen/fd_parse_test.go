@@ -18,4 +18,8 @@ func TestParseAcceptFDNumSharesParser(t *testing.T) {
 	if n != 32 {
 		t.Fatalf("fd=%d want 32", n)
 	}
+	config := mustAddr(t, spec)
+	if !config.File.FDSet || config.File.FD != 32 {
+		t.Fatalf("prepared FD=%+v", config.File)
+	}
 }

@@ -376,26 +376,24 @@ func IsAbstract(path string) bool {
 	return len(path) > 0 && (path[0] == 0 || path[0] == '@')
 }
 
-func HostPortParams(s addrconfig.Address) (host, port string, err error) {
-	if !s.Network.TargetSet {
-		return "", "", fmt.Errorf("%s requires host and port", s.Type)
+func ListenPort(s addrconfig.Address) (addrconfig.PortTarget, error) {
+	if !s.Network.ListenSet {
+		return addrconfig.PortTarget{}, fmt.Errorf("%s requires port", s.Type)
 	}
-	host, port = s.Network.Target.String(), s.Network.TargetPort.Text()
-	if host == "" || port == "" {
-		return "", "", fmt.Errorf("%s: invalid host/port", s.Type)
+	port := s.Network.ListenPort
+	text := port.Text()
+	if text == "" || strings.Trim(text, ":") == "" {
+		return addrconfig.PortTarget{}, fmt.Errorf("%s: invalid port %q", s.Type, text)
 	}
-	return host, port, nil
+	return port, nil
 }
 
 func ListenPortText(s addrconfig.Address) (string, error) {
-	if !s.Network.ListenSet {
-		return "", fmt.Errorf("%s requires port", s.Type)
+	port, err := ListenPort(s)
+	if err != nil {
+		return "", err
 	}
-	port := s.Network.ListenPort.Text()
-	if port == "" || strings.Trim(port, ":") == "" {
-		return "", fmt.Errorf("%s: invalid port %q", s.Type, port)
-	}
-	return port, nil
+	return port.Text(), nil
 }
 
 func BindPort(bind, sourceport string) string {
@@ -457,9 +455,27 @@ func TCPToUDPNetwork(tcpNet string) string {
 	}
 }
 
+func networkFromIPFamily(family addrconfig.IPFamily, proto string) string {
+	switch family {
+	case addrconfig.IPFamilyIPv4:
+		return proto + "4"
+	case addrconfig.IPFamilyIPv6:
+		return proto + "6"
+	default:
+		return ""
+	}
+}
+
+// NetworkFromIPFamily maps a prepared family onto a net package name.
+func NetworkFromIPFamily(family addrconfig.IPFamily, proto string) string {
+	return networkFromIPFamily(family, proto)
+}
+
 func ListenNetwork(g *Global, config addrconfig.Address) string {
-	if n := NetworkFromPF(ProtocolFamilyText(config), "tcp", ""); n != "" {
-		return n
+	if config.Network.ProtocolSet {
+		if n := networkFromIPFamily(config.Network.IPFamily, "tcp"); n != "" {
+			return n
+		}
 	}
 	ver := IPv4Default
 	if g != nil {
@@ -567,9 +583,6 @@ func ApplyTCPConnOpts(s addrconfig.Address, c net.Conn) error {
 func FirstHost(s addrconfig.Address) string {
 	if s.Network.TargetSet {
 		return s.Network.Target.String()
-	}
-	if len(s.Params) > 0 {
-		return s.Params[0]
 	}
 	return ""
 }

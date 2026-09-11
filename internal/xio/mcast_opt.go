@@ -21,7 +21,7 @@ func NeedRecvErr(s addrconfig.Address) bool {
 	var n int
 	var set bool
 	for _, action := range s.Network.Actions {
-		if action.Kind == addrconfig.SocketActionRecvErr && action.Text == "ip-recverr" {
+		if action.Kind == addrconfig.SocketActionRecvErr && !action.IPv6 {
 			n = action.Number
 			set = true
 		}
@@ -38,6 +38,18 @@ func RejectUnsupportedRecvErr(s addrconfig.Address) error {
 			continue
 		}
 		name := action.Text
+		if action.IPv6 {
+			if name == "" {
+				name = "ipv6-recverr"
+			}
+			if typ == "" {
+				return fmt.Errorf("%s: not supported (no MSG_ERRQUEUE ReadMsg path)", name)
+			}
+			return fmt.Errorf("%s: option %q is not supported (no MSG_ERRQUEUE ReadMsg path)", typ, name)
+		}
+		if name == "" {
+			name = "ip-recverr"
+		}
 		if name == "ip-recverr" && recvErrSupported() {
 			continue
 		}

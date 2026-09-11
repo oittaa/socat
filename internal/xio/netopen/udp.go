@@ -23,10 +23,11 @@ func openUDP6Connect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g
 }
 
 func openUDPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
-	host, port, err := xio.HostPortParams(s)
-	if err != nil {
-		return nil, err
+	if !s.Network.TargetSet {
+		return nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
+	host := s.Network.Target.String()
+	port := s.Network.TargetPort.Text()
 	if host == "" || port == "" {
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
@@ -34,7 +35,7 @@ func openUDPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 	// Select the mapped remote network before resolving bind=. UDP6 to an
 	// A-only hostname with ai-v4mapped switches udp6→udp4; resolving
 	// bind=<A-only-host> on udp6 first fails with "no suitable address".
-	if net.ParseIP(stripped) == nil {
+	if !s.Network.Target.IsLiteral() {
 		netw, netErr := xio.PacketNetworkForHost(ctx, s, network, stripped)
 		if netErr != nil {
 			return nil, netErr
@@ -46,6 +47,7 @@ func openUDPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 	sp := xio.SourcePortText(s)
 	lowport := s.Network.LowPort.Value && (sp == "" || sp == "0")
 	var conn net.Conn
+	var err error
 	if lowport {
 		bind, err = xio.ListenBindHost(s, network, bind)
 		if err != nil {
@@ -122,8 +124,10 @@ func dialUDPLowport(ctx context.Context, network, bind, remote string, s addrcon
 }
 
 func NetworkUDP(g *xio.Global, s addrconfig.Address, def string) string {
-	if n := xio.NetworkFromPF(xio.ProtocolFamilyText(s), "udp", ""); n != "" {
-		return n
+	if s.Network.ProtocolSet {
+		if n := xio.NetworkFromIPFamily(s.Network.IPFamily, "udp"); n != "" {
+			return n
+		}
 	}
 	ver := xio.IPv4Default
 	if g != nil {

@@ -14,7 +14,7 @@ func decodeSpec(t *testing.T, text string) Address {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := Decode(spec, Facts{Type: "TCP", Group: "TCP", Caps: []string{"socket"}})
+	got, err := Decode(spec, Facts{Type: "TCP", Group: "TCP", Caps: []string{"socket"}, Role: AddressRoleConnect})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestDecodeNoInheritActionsPreserveBareAndZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := Decode(spec, Facts{Type: "FD"})
+	config, err := Decode(spec, Facts{Type: "FD", Kind: AddressKindFD})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestDecodeNetworkSocketActionsPreserveSourceOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := Decode(spec, Facts{Type: "SOCKET-SENDTO", Group: "Generic socket"})
+	config, err := Decode(spec, Facts{Type: "SOCKET-SENDTO", Group: "Generic socket", Kind: AddressKindSocket, Role: AddressRoleSendTo})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestDecodeNetworkSocketActionsPreserveSourceOrder(t *testing.T) {
 		got[0].Kind != SocketActionBroadcast || got[0].Number != 0 ||
 		got[1].Kind != SocketActionGeneric || got[1].Phase != SocketPhasePastSocket ||
 		got[1].Number != 1 || got[1].Option != 2 || !got[1].Value.IsInt || got[1].Value.Int != 3 ||
-		got[2].Kind != SocketActionNamed || got[2].Text != "so-priority" || got[2].Number != 5 {
+		got[2].Kind != SocketActionNamed || got[2].Named != NamedSocketPriority || got[2].Number != 5 {
 		t.Fatalf("actions=%+v", got)
 	}
 }
@@ -229,7 +229,7 @@ func TestMembershipFamilyPrefersOriginalSpelling(t *testing.T) {
 			Has:      true,
 		}},
 	}
-	config, err := Decode(spec, Facts{Type: "UDP6-RECV", Group: "UDP"})
+	config, err := Decode(spec, Facts{Type: "UDP6-RECV", Group: "UDP", Role: AddressRoleReceive, Family: IPFamilyIPv6})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,7 +248,7 @@ func TestDecodeProtocolSettingsKeepsTypedAndTextualValuesDistinct(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := Decode(spec, Facts{Type: "WSS", Group: "WebSocket (Go extra)"})
+	config, err := Decode(spec, Facts{Type: "WSS", Group: "WebSocket (Go extra)", Kind: AddressKindWebSocket, Role: AddressRoleConnect})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func TestDecodeTCPWrapDaemonPreservesCaseAndLastWins(t *testing.T) {
 
 func TestDecodeResolverAndNetNS(t *testing.T) {
 	got := decodeSpec(t, "TCP:host:9,res-nsaddr=127.0.0.1:53,res-usevc=0,ai-v4mapped,ai-passive=0,ai-addrconfig=1,ai-all,netns=foo")
-	if got.Common.NameServer.Value != "127.0.0.1:53" || got.Common.UseVC.Value ||
+	if got.Common.NameServer.String() != "127.0.0.1:53" || got.Common.UseVC.Value ||
 		!got.Common.V4Mapped.Value || got.Common.Passive.Value ||
 		!got.Common.AddrConfig.Value || !got.Common.AddrInfoAll.Value {
 		t.Fatalf("resolver=%+v", got.Common)
@@ -355,9 +355,13 @@ func TestDecodeProxyAndDTLSSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := Decode(proxy, Facts{Type: "PROXY", Group: "PROXY and SOCKS"})
+	config, err := Decode(proxy, Facts{Type: "PROXY", Group: "PROXY and SOCKS", Kind: AddressKindPROXY, Role: AddressRoleConnect})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !config.Proxy.EndpointsSet || config.Proxy.Server.Name != "proxy.test" ||
+		config.Proxy.Target.Name != "target.test" || config.Proxy.TargetPort.Number != 443 {
+		t.Fatalf("proxy endpoints=%+v", config.Proxy)
 	}
 	if config.Proxy.HTTPVersion != HTTPVersion2 || !config.Proxy.H2C.Value || config.Proxy.Resolve.Value ||
 		config.Proxy.Authorization.Value != "user:pass" {
@@ -368,7 +372,7 @@ func TestDecodeProxyAndDTLSSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err = Decode(dtls, Facts{Type: "DTLS", Group: "Datagram TLS 1.3"})
+	config, err = Decode(dtls, Facts{Type: "DTLS", Group: "Datagram TLS 1.3", Kind: AddressKindDTLS, Role: AddressRoleConnect})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +448,7 @@ func TestDecodeVSOCKBind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := Decode(spec, Facts{Type: "VSOCK-CONNECT", Group: "VSOCK (Linux)"})
+	got, err := Decode(spec, Facts{Type: "VSOCK-CONNECT", Group: "VSOCK (Linux)", Kind: AddressKindVSOCK, Role: AddressRoleConnect})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +461,7 @@ func TestDecodeVSOCKBind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err = Decode(listen, Facts{Type: "VSOCK-LISTEN", Group: "VSOCK (Linux)"})
+	got, err = Decode(listen, Facts{Type: "VSOCK-LISTEN", Group: "VSOCK (Linux)", Kind: AddressKindVSOCK, Role: AddressRoleListen})
 	if err != nil {
 		t.Fatal(err)
 	}

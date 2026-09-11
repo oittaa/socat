@@ -14,10 +14,20 @@ const defaultALPN = "socat"
 
 func quicTarget(s addrconfig.Address, listen bool) (host, port string, err error) {
 	if listen {
-		port, err := xio.ListenPortText(s)
-		return "", port, err
+		p, err := xio.ListenPort(s)
+		if err != nil {
+			return "", "", err
+		}
+		return "", p.Text(), nil
 	}
-	return xio.HostPortParams(s)
+	if !s.Network.TargetSet {
+		return "", "", fmt.Errorf("%s requires host and port", s.Type)
+	}
+	host, port = s.Network.Target.Original(), s.Network.TargetPort.Text()
+	if host == "" || port == "" {
+		return "", "", fmt.Errorf("%s: invalid host/port", s.Type)
+	}
+	return host, port, nil
 }
 
 func alpnProto(settings addrconfig.TLS) string {

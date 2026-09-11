@@ -11,7 +11,7 @@ import (
 )
 
 func TestOpenSpecCarriesChildrenShutup(t *testing.T) {
-	spec, err := parse.ParseSpec("ECHO,child-shutup=2")
+	spec, err := parse.ParseSpec("TCP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork,child-shutup=2")
 	if err != nil {
 		t.Fatal(err)
 	}

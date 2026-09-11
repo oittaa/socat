@@ -24,10 +24,11 @@ func wrap(s addrconfig.Address) func(net.Conn) (relay.Stream, error) {
 }
 
 func openClient(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	host, port, err := xio.HostPortParams(s)
-	if err != nil {
-		return nil, err
+	if !s.Network.TargetSet {
+		return nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
+	host := s.Network.Target.String()
+	port := s.Network.TargetPort.Text()
 	if host == "" || port == "" {
 		return nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
@@ -77,7 +78,7 @@ func openClient(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Gl
 }
 
 func openServer(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	port, err := xio.ListenPortText(s)
+	port, err := xio.ListenPort(s)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +96,7 @@ func openServer(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Gl
 	if err != nil {
 		return nil, err
 	}
-	addr := net.JoinHostPort(xio.StripBrackets(host), port)
+	addr := net.JoinHostPort(xio.StripBrackets(host), port.Text())
 	pc, err := xio.ListenPacketWithOptions(ctx, network, addr, s)
 	if err != nil {
 		return nil, err
@@ -110,7 +111,7 @@ func openServer(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Gl
 	}
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
 		Listener: drainingListener{ln}, CloseListener: ln.Close,
-		Label: s.Type + ":" + s.Params[0], WrapDial: wrap(s), PeerFilter: filter,
+		Label: s.Type + ":" + port.Text(), WrapDial: wrap(s), PeerFilter: filter,
 		KeepListenerForSession: true,
 		ListeningLog:           fmt.Sprintf("listening on %s (DTLS)", ln.Addr()),
 		AfterAccept:            func(g *xio.Global, c net.Conn) error { return xio.RememberTLSPeer(g, c, 0) },

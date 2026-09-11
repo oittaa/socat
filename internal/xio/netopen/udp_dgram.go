@@ -98,10 +98,10 @@ func openUDPDatagramNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mod
 }
 
 func resolveUDPDatagramRemote(ctx context.Context, s addrconfig.Address, network string) (string, *net.UDPAddr, error) {
-	host, port, err := xio.HostPortParams(s)
-	if err != nil {
-		return "", nil, err
+	if !s.Network.TargetSet {
+		return "", nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
+	host := s.Network.Target.String()
 	stripped := xio.StripBrackets(host)
 	netw, ip, err := xio.LookupDialIP(ctx, s, network, stripped)
 	if err != nil {
@@ -110,10 +110,10 @@ func resolveUDPDatagramRemote(ctx context.Context, s addrconfig.Address, network
 	if ip == nil {
 		return "", nil, fmt.Errorf("%s: invalid host", s.Type)
 	}
-	if net.ParseIP(stripped) == nil {
+	if !s.Network.Target.IsLiteral() {
 		network = netw
 	}
-	portNum, err := xio.ResolvePortNum(network, port)
+	portNum, err := xio.ResolvePort(network, s.Network.TargetPort)
 	if err != nil {
 		return "", nil, err
 	}

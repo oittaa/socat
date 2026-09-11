@@ -24,6 +24,21 @@ const (
 	AddressKindTUN
 	AddressKindINTERFACE
 	AddressKindPOSIXMQ
+	AddressKindFD
+	AddressKindDTLS
+	AddressKindWebSocket
+	AddressKindPROXY
+	AddressKindSOCKS
+)
+
+// IPFamily is the registry- or pf=-selected internet protocol family.
+type IPFamily uint8
+
+const (
+	IPFamilyAny IPFamily = iota
+	IPFamilyIPv4
+	IPFamilyIPv6
+	IPFamilyOther
 )
 
 // AddressRole identifies an address's connection lifetime.
@@ -45,8 +60,26 @@ type HostTarget struct {
 	Name    string
 }
 
-// IsLiteral reports whether the target was an IP literal.
-func (t HostTarget) IsLiteral() bool { return t.Literal.IsValid() }
+// HostFromText parses a bind or peer host once. Literal IPs become typed
+// addresses; other names stay for runtime resolution.
+func HostFromText(text string) HostTarget { return targetFromText(text) }
+
+// PortFromText parses a port once. Numeric ports keep their value; service
+// names stay for runtime lookup.
+func PortFromText(text string) PortTarget { return portTarget(text) }
+
+// IsLiteral reports whether the host is a parsed IP address.
+func (t HostTarget) IsLiteral() bool {
+	return t.Literal.IsValid()
+}
+
+// IP is the typed literal, or nil when the host must be resolved.
+func (t HostTarget) IP() net.IP {
+	if !t.IsLiteral() {
+		return nil
+	}
+	return t.Literal.AsSlice()
+}
 
 // String returns the original address spelling without brackets.
 func (t HostTarget) String() string {
@@ -54,6 +87,14 @@ func (t HostTarget) String() string {
 		return t.Literal.String()
 	}
 	return t.Name
+}
+
+// Original is the input spelling, including brackets on IPv6 literals.
+func (t HostTarget) Original() string {
+	if t.Name != "" {
+		return t.Name
+	}
+	return t.String()
 }
 
 type PortTarget struct {
@@ -73,15 +114,15 @@ func (p PortTarget) Text() string {
 	return ""
 }
 
-// ProtocolFamilyToken is the pf= token used to select a net package family.
+// ProtocolFamilyToken is a diagnostic spelling of pf=. Execution uses IPFamily.
 func (n Network) ProtocolFamilyToken() string {
 	if !n.ProtocolSet {
 		return ""
 	}
-	switch n.ProtocolFamily {
-	case socketFamilyIPv4:
+	switch n.IPFamily {
+	case IPFamilyIPv4:
 		return "ip4"
-	case socketFamilyIPv6:
+	case IPFamilyIPv6:
 		return "ip6"
 	default:
 		return strconv.Itoa(n.ProtocolFamily)
@@ -117,6 +158,36 @@ const (
 	SocketActionRecvErr
 	SocketActionRouterAlert
 	SocketActionGetOnly
+)
+
+// NamedSocket is the dispatch identity of a named socket option.
+type NamedSocket uint8
+
+const (
+	NamedSocketNone NamedSocket = iota
+	NamedSocketDebug
+	NamedSocketDontRoute
+	NamedSocketOOBInline
+	NamedSocketRcvLowat
+	NamedSocketSndLowat
+	NamedSocketPriority
+	NamedSocketPassCred
+	NamedSocketNoCheck
+	NamedSocketDetachFilter
+	NamedSocketTCPCork
+	NamedSocketTCPDeferAccept
+	NamedSocketTCPLinger2
+	NamedSocketTCPMaxSeg
+	NamedSocketTCPQuickAck
+	NamedSocketTCPSyncnt
+	NamedSocketTCPWindowClamp
+	NamedSocketNoPush
+	NamedSocketNoOpt
+	NamedSocketSCTPNodelay
+	NamedSocketSCTPMaxSeg
+	NamedSocketTCPMaxSegLate
+	NamedSocketFIOSETOWN
+	NamedSocketSIOCSPGRP
 )
 
 // MulticastKind selects a multicast socket request.
@@ -158,10 +229,13 @@ type SocketValue struct {
 type SocketAction struct {
 	Kind      SocketActionKind
 	Phase     SocketPhase
+	Named     NamedSocket
 	Number    int
 	Option    int
 	Duration  time.Duration
 	Text      string
+	Recv      bool
+	IPv6      bool
 	Value     SocketValue
 	Multicast MulticastRequest
 }
@@ -210,6 +284,7 @@ type Network struct {
 	BindSet    bool
 
 	ProtocolFamily   int
+	IPFamily         IPFamily
 	ProtocolSet      bool
 	SocketType       OptionalInt
 	SocketProtocol   OptionalInt
@@ -227,7 +302,7 @@ type Network struct {
 	RawBind          []byte
 	RawBindSet       bool
 
-	Range         string
+	Range         IPRange
 	RangeSet      bool
 	SourcePort    PortTarget
 	SourcePortSet bool
@@ -258,6 +333,8 @@ type Network struct {
 	TUNMTU          OptionalUint32
 	TUNRetrieveVLAN bool
 
+	InterfaceName string
+
 	MQPriority    OptionalUint32
 	MQFlush       OptionalBool
 	MQMaxMessages OptionalInt
@@ -266,11 +343,14 @@ type Network struct {
 
 func decodeNetwork(a *Address, spec parse.Spec) error {
 	n := &a.Network
-	n.Kind = addressKind(a.Facts)
-	n.Role = addressRole(a.Type)
+	n.Kind = a.Facts.Kind
+	n.Role = a.Facts.Role
+	n.IPFamily = a.Facts.Family
 	n.TUNType = TUNTypeTUN
 
 	switch n.Kind {
+	case AddressKindFD:
+		return decodeFDPositional(a)
 	case AddressKindRawIP:
 		if n.Role == AddressRoleReceive || n.Role == AddressRoleReceiveFrom {
 			if len(a.Params) >= 1 && a.Params[0] != "" {
@@ -321,7 +401,13 @@ func decodeNetwork(a *Address, spec parse.Spec) error {
 			return err
 		}
 	case AddressKindINTERFACE:
-		return nil
+		return decodeINTERFACEPositional(a)
+	case AddressKindWebSocket:
+		return decodeWebSocketPositional(a)
+	case AddressKindPROXY:
+		return decodePROXYPositional(a)
+	case AddressKindSOCKS:
+		return decodeSOCKSPositional(a)
 	default:
 		switch n.Role {
 		case AddressRoleConnect, AddressRoleSendTo, AddressRoleDatagram:
@@ -375,7 +461,11 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 		if err != nil {
 			return true, err
 		}
-		n.Range, n.RangeSet = value, true
+		parsed, err := ParseIPRange(value)
+		if err != nil {
+			return true, err
+		}
+		n.Range, n.RangeSet = parsed, true
 		return true, nil
 	case "tcpwrap":
 		n.TCPWrap = activeBool(o)
@@ -409,7 +499,7 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 			return true, fmt.Errorf("unknown protocol family %q", text)
 		}
 		if known {
-			n.ProtocolFamily, n.ProtocolSet = pf, true
+			n.ProtocolFamily, n.ProtocolSet, n.IPFamily = pf, true, ipFamilyOf(pf)
 		}
 		return true, nil
 	case "socktype", "so-protocol":
@@ -493,7 +583,7 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 		n.Actions = append(n.Actions, action)
 		if action.Kind == SocketActionTimeout {
 			opt := OptionalDuration{Set: true, Value: action.Duration}
-			if action.Text == "rcvtimeo" {
+			if action.Recv {
 				a.Common.ReadTimeout = opt
 			} else {
 				a.Common.WriteTimeout = opt
@@ -510,58 +600,140 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 	return false, nil
 }
 
-func addressKind(facts Facts) AddressKind {
-	if facts.Kind != AddressKindOther {
-		return facts.Kind
-	}
-	switch facts.Type {
-	case "TUN":
-		return AddressKindTUN
-	case "INTERFACE", "IF":
-		return AddressKindINTERFACE
-	}
-	switch facts.Group {
-	case "Raw IP":
-		return AddressKindRawIP
-	case "Generic socket":
-		return AddressKindSocket
-	case "VSOCK (Linux)":
-		return AddressKindVSOCK
-	case "Linux TUN / INTERFACE":
-		return AddressKindTUN
-	case "POSIX message queues (Linux)":
-		return AddressKindPOSIXMQ
+func ipFamilyOf(pf int) IPFamily {
+	switch pf {
+	case socketFamilyIPv4:
+		return IPFamilyIPv4
+	case socketFamilyIPv6:
+		return IPFamilyIPv6
 	default:
-		return AddressKindOther
+		return IPFamilyOther
 	}
 }
 
-func addressRole(typ string) AddressRole {
-	if strings.HasPrefix(typ, "SOCKS") {
-		return AddressRoleOther
+func decodeFDPositional(a *Address) error {
+	if len(a.Params) != 1 || a.Params[0] == "" {
+		return fmt.Errorf("wrong number of parameters (%d instead of 1)", len(a.Params))
 	}
+	n, err := strconv.ParseUint(a.Params[0], 0, 32)
+	if err != nil {
+		return fmt.Errorf("error in FD number %q", a.Params[0])
+	}
+	a.File.FD, a.File.FDSet = int(n), true
+	return nil
+}
+
+func decodeINTERFACEPositional(a *Address) error {
+	if len(a.Params) != 1 || a.Params[0] == "" {
+		return fmt.Errorf("INTERFACE requires interface name")
+	}
+	a.Network.InterfaceName = a.Params[0]
+	return nil
+}
+
+func decodePROXYPositional(a *Address) error {
+	p := a.Params
+	var server, host, port string
 	switch {
-	case strings.Contains(typ, "LISTEN") || strings.HasSuffix(typ, "-L") || strings.HasSuffix(typ, "-SERVER"):
-		return AddressRoleListen
-	case strings.Contains(typ, "SENDTO") || strings.HasSuffix(typ, "-SEND"):
-		return AddressRoleSendTo
-	case strings.Contains(typ, "DATAGRAM"):
-		return AddressRoleDatagram
-	case strings.Contains(typ, "RECVFROM"):
-		return AddressRoleReceiveFrom
-	case strings.Contains(typ, "RECV"):
-		return AddressRoleReceive
-	case strings.Contains(typ, "CONNECT") || strings.HasSuffix(typ, "-CLIENT"):
-		return AddressRoleConnect
+	case len(p) >= 3:
+		server, host, port = p[0], p[1], p[2]
+	case len(p) == 2:
+		h, pt, err := net.SplitHostPort(p[1])
+		if err == nil {
+			server, host, port = p[0], h, pt
+		}
+	case len(p) == 1:
+		parts := strings.Split(p[0], ":")
+		if len(parts) >= 3 {
+			server, host, port = parts[0], parts[1], parts[2]
+		}
 	}
-	switch typ {
-	case "TCP", "TCP4", "TCP6", "UDP", "UDP4", "UDP6",
-		"SCTP", "SCTP4", "SCTP6", "VSOCK",
-		"TLS", "OPENSSL", "SSL", "WS", "WSS", "QUIC", "DTLS":
-		return AddressRoleConnect
-	default:
-		return AddressRoleOther
+	if server == "" || host == "" || port == "" {
+		return fmt.Errorf("%s requires proxy, host, and port", a.Type)
 	}
+	a.Proxy.Server = targetFromText(server)
+	a.Proxy.Target = targetFromText(host)
+	a.Proxy.TargetPort = portTarget(port)
+	a.Proxy.EndpointsSet = true
+	return nil
+}
+
+func decodeSOCKSPositional(a *Address) error {
+	p := a.Params
+	var server, host, port, socksPort string
+	switch {
+	case len(p) >= 4:
+		server, socksPort, host, port = p[0], p[1], p[2], p[3]
+	case len(p) >= 3:
+		server, host, port = p[0], p[1], p[2]
+	case len(p) == 2:
+		h, pt, err := net.SplitHostPort(p[1])
+		if err == nil {
+			server, host, port = p[0], h, pt
+		}
+	}
+	if server == "" || host == "" || port == "" {
+		return fmt.Errorf("%s requires socks-server, host, and port", a.Type)
+	}
+	a.Proxy.Server = targetFromText(server)
+	a.Proxy.Target = targetFromText(host)
+	a.Proxy.TargetPort = portTarget(port)
+	a.Proxy.EndpointsSet = true
+	if socksPort != "" {
+		a.Proxy.SOCKSPort = portTarget(socksPort)
+		a.Proxy.SOCKSPortSet = true
+	}
+	return nil
+}
+
+func decodeWebSocketPositional(a *Address) error {
+	n := &a.Network
+	if n.Role == AddressRoleListen {
+		if len(a.Params) < 1 || a.Params[0] == "" {
+			return nil
+		}
+		port, path := splitPortPath(a.Params[0])
+		n.ListenPort = portTarget(port)
+		n.ListenSet = port != ""
+		if !a.TLS.WSPath.Set && path == "" && len(a.Params) > 1 {
+			path = "/" + strings.Join(a.Params[1:], "/")
+		}
+		if !a.TLS.WSPath.Set && path != "" {
+			a.TLS.WSPath = OptionalString{Set: true, Value: normalizeWSPath(path)}
+		}
+		return nil
+	}
+	if len(a.Params) >= 2 && a.Params[0] != "" && a.Params[1] != "" {
+		n.Target = targetFromText(a.Params[0])
+		port, path := splitPortPath(a.Params[1])
+		n.TargetPort = portTarget(port)
+		n.TargetSet = true
+		if !a.TLS.WSPath.Set && path == "" && len(a.Params) > 2 {
+			path = "/" + strings.Join(a.Params[2:], "/")
+		}
+		if !a.TLS.WSPath.Set && path != "" {
+			a.TLS.WSPath = OptionalString{Set: true, Value: normalizeWSPath(path)}
+		}
+	}
+	return nil
+}
+
+func splitPortPath(value string) (port, path string) {
+	i := strings.Index(value, "/")
+	if i < 0 {
+		return value, ""
+	}
+	return value[:i], value[i:]
+}
+
+func normalizeWSPath(p string) string {
+	if p == "" {
+		return "/"
+	}
+	if !strings.HasPrefix(p, "/") {
+		return "/" + p
+	}
+	return p
 }
 
 func decodeHostPort(n *Network, params []string) {

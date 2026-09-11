@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/oittaa/socat/internal/addrconfig"
@@ -39,18 +40,18 @@ func LookupResolver(config addrconfig.Address) *net.Resolver {
 
 func lookupResolverBase(config addrconfig.Address) *net.Resolver {
 	if config.Common.NameServer.Set {
-		nsAddr, err := addrconfig.ParseResNSAddr(config.Common.NameServer.Value)
-		if err != nil {
-			return &net.Resolver{
-				PreferGo: true,
-				Dial: func(context.Context, string, string) (net.Conn, error) {
-					return nil, err
-				},
-			}
-		}
+		ns := config.Common.NameServer
 		return &net.Resolver{
 			PreferGo: true,
 			Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+				port := int(ns.Port.Number)
+				if !ns.Port.Numeric {
+					var err error
+					port, err = net.LookupPort("udp", ns.Port.Service)
+					if err != nil {
+						return nil, fmt.Errorf("res-nsaddr: invalid DNS port %q", ns.Port.Service)
+					}
+				}
 				// res-nsaddr resolves the nameserver as IPv4 so
 				// res-nsaddr=localhost does not prefer ::1.
 				switch {
@@ -62,7 +63,7 @@ func lookupResolverBase(config addrconfig.Address) *net.Resolver {
 					return nil, fmt.Errorf("res-nsaddr: unsupported DNS transport %q", network)
 				}
 				var d net.Dialer
-				return d.DialContext(ctx, network, nsAddr)
+				return d.DialContext(ctx, network, net.JoinHostPort(ns.Host.String(), strconv.Itoa(port)))
 			},
 		}
 	}

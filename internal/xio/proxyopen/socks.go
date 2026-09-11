@@ -29,13 +29,13 @@ func openSOCKS4(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio
 	if err := tlsopen.RejectHiddenTLSOnPlaintext(s.Type, s.TLS); err != nil {
 		return nil, err
 	}
-	socksHost, socksPort, targetHost, targetPort, err := socksParams(s, s.Proxy)
+	socksHost, _, targetHost, targetPort, err := socksParams(s, s.Proxy)
 	if err != nil {
 		return nil, err
 	}
 	user := socksUser(s.Proxy)
 
-	portNum, err := xio.ResolvePortNum("tcp", targetPort)
+	portNum, err := xio.ResolvePort("tcp", s.Proxy.TargetPort)
 	if err != nil {
 		return nil, fmt.Errorf("socks target port: %w", err)
 	}
@@ -79,7 +79,7 @@ func openSOCKS4(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		e := xio.WithRetry(dctx, g, "SOCKS4", func() error {
-			c, e := xio.DialTCPAll(dctx, xio.DialTarget{Network: network, Host: socksHost, Port: socksPort}, s, g, timeout, nil)
+			c, e := xio.DialTCPAll(dctx, xio.DialTarget{Network: network, Host: s.Proxy.Server, Port: socksPortTarget(s.Proxy)}, s, g, timeout, nil)
 			if e != nil {
 				return e
 			}
@@ -171,7 +171,7 @@ func openSOCKS5(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio
 	if err := tlsopen.RejectHiddenTLSOnPlaintext(s.Type, s.TLS); err != nil {
 		return nil, err
 	}
-	socksHost, socksPort, targetHost, targetPort, err := socksParams(s, s.Proxy)
+	socksHost, _, targetHost, targetPort, err := socksParams(s, s.Proxy)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +185,7 @@ func openSOCKS5(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio
 		}
 	}
 
-	portNum, err := xio.ResolvePortNum("tcp", targetPort)
+	portNum, err := xio.ResolvePort("tcp", s.Proxy.TargetPort)
 	if err != nil {
 		return nil, fmt.Errorf("socks5 target port: %w", err)
 	}
@@ -221,7 +221,7 @@ func openSOCKS5(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		e := xio.WithRetry(dctx, g, "SOCKS5", func() error {
-			c, e := xio.DialTCPAll(dctx, xio.DialTarget{Network: network, Host: socksHost, Port: socksPort}, s, g, timeout, nil)
+			c, e := xio.DialTCPAll(dctx, xio.DialTarget{Network: network, Host: s.Proxy.Server, Port: socksPortTarget(s.Proxy)}, s, g, timeout, nil)
 			if e != nil {
 				return e
 			}
@@ -253,27 +253,17 @@ func openSOCKS5(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio
 //	server:host:port  (via split)
 //	server sport host port  (4 params; sport used if socksport option unset)
 func socksParams(s addrconfig.Address, proxy addrconfig.Proxy) (socksHost, socksPort, targetHost, targetPort string, err error) {
-	if proxy.SOCKSPort.Set {
-		socksPort = proxy.SOCKSPort.Value
+	if !proxy.EndpointsSet {
+		return "", "", "", "", fmt.Errorf("%s requires socks-server, host, and port", s.Type)
 	}
-	p := s.Params
-	if len(p) >= 4 {
-		// server, socks-port, target-host, target-port
-		if socksPort == "" {
-			socksPort = p[1]
-		}
-		return p[0], defaultSocksPort(socksPort), p[2], p[3], nil
+	return proxy.Server.Original(), socksPortTarget(proxy).Text(), proxy.Target.Original(), proxy.TargetPort.Text(), nil
+}
+
+func socksPortTarget(p addrconfig.Proxy) addrconfig.PortTarget {
+	if p.SOCKSPortSet && p.SOCKSPort.Text() != "" {
+		return p.SOCKSPort
 	}
-	if len(p) >= 3 {
-		return p[0], defaultSocksPort(socksPort), p[1], p[2], nil
-	}
-	if len(p) == 2 {
-		h, pt, e := net.SplitHostPort(p[1])
-		if e == nil {
-			return p[0], defaultSocksPort(socksPort), h, pt, nil
-		}
-	}
-	return "", "", "", "", fmt.Errorf("%s requires socks-server, host, and port", s.Type)
+	return addrconfig.PortFromText("1080")
 }
 
 // socks5Credentials: if socksuser or sockspass is set, offer username/password
@@ -425,11 +415,4 @@ func socks5ReadReply(c io.Reader) error {
 	default:
 		return fmt.Errorf("socks5: unknown atyp %d in reply", hdr[3])
 	}
-}
-
-func defaultSocksPort(p string) string {
-	if p == "" {
-		return "1080"
-	}
-	return p
 }

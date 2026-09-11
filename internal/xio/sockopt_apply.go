@@ -92,8 +92,15 @@ func applyPreparedSocketAction(fd int, action addrconfig.SocketAction, family *i
 	case addrconfig.SocketActionBuffer:
 		opt := soSndbuf
 		name := action.Text
-		if name == "rcvbuf" || name == "rcvbuf-late" {
+		if action.Recv {
 			opt = soRcvbuf
+		}
+		if name == "" {
+			if action.Recv {
+				name = "rcvbuf"
+			} else {
+				name = "sndbuf"
+			}
 		}
 		if err := setSockoptInt(fd, solSocket, opt, action.Number); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
@@ -104,20 +111,24 @@ func applyPreparedSocketAction(fd int, action addrconfig.SocketAction, family *i
 	case addrconfig.SocketActionLinger:
 		return applyLingerSeconds(fd, action.Number)
 	case addrconfig.SocketActionTimeout:
-		return applySocketTimeoDuration(fd, action.Text, action.Duration)
+		return applySocketTimeoDuration(fd, action)
 	case addrconfig.SocketActionFreebind:
 		return applyFreebindValue(fd, action.Number)
 	case addrconfig.SocketActionTransparent:
 		return applyTransparentValue(fd, action.Number)
 	case addrconfig.SocketActionMTUDiscovery:
 		family := membershipFamilyIPv4
-		if action.Text == "ipv6-mtu-discover" {
+		if action.IPv6 {
 			family = membershipFamilyIPv6
 		}
 		return applyMTUDiscoveryValue(fd, family, action.Text, action.Number)
 	case addrconfig.SocketActionRecvErr:
-		if action.Text == "ipv6-recverr" {
-			return fmt.Errorf("%s: not supported (no MSG_ERRQUEUE ReadMsg path)", action.Text)
+		if action.IPv6 {
+			name := action.Text
+			if name == "" {
+				name = "ipv6-recverr"
+			}
+			return fmt.Errorf("%s: not supported (no MSG_ERRQUEUE ReadMsg path)", name)
 		}
 		return applyRecvErrValue(fd, action.Number)
 	case addrconfig.SocketActionRouterAlert:
@@ -156,10 +167,17 @@ func applyPreparedGenericAction(fd int, action addrconfig.SocketAction) error {
 
 func applyPreparedNamedAction(fd int, action addrconfig.SocketAction) error {
 	name := action.Text
-	if name == "" {
+	if action.Named == addrconfig.NamedSocketNone {
 		return nil
 	}
-	if name == "fiosetown" || name == "siocspgrp" {
+	if action.Named == addrconfig.NamedSocketFIOSETOWN || action.Named == addrconfig.NamedSocketSIOCSPGRP {
+		if name == "" {
+			if action.Named == addrconfig.NamedSocketFIOSETOWN {
+				name = "fiosetown"
+			} else {
+				name = "siocspgrp"
+			}
+		}
 		if err := applyOwnerIoctlPlatform(fd, name, action.Number); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
@@ -168,13 +186,16 @@ func applyPreparedNamedAction(fd int, action addrconfig.SocketAction) error {
 	var level, opt int
 	var ok bool
 	var err error
-	if name == "tcp-maxseg-late" {
-		level, opt, ok, err = lookupNamedConnectedInt(name)
+	if action.Named == addrconfig.NamedSocketTCPMaxSegLate {
+		level, opt, ok, err = lookupNamedConnectedInt(action.Named)
 	} else {
-		level, opt, ok, err = lookupNamedPastSocketInt(name)
+		level, opt, ok, err = lookupNamedPastSocketInt(action.Named)
 	}
 	if !ok {
 		return nil
+	}
+	if name == "" {
+		name = "named-socket-option"
 	}
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)

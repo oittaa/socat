@@ -21,8 +21,8 @@ func init() {
 	xio.FeatureSCTP = true
 }
 
-func listenSCTP(ctx context.Context, network, host, port string, s addrconfig.Address) (net.Listener, error) {
-	portNum, err := xio.ResolvePortNum(network, port)
+func listenSCTP(ctx context.Context, network, host string, port addrconfig.PortTarget, s addrconfig.Address) (net.Listener, error) {
+	portNum, err := xio.ResolvePort(network, port)
 	if err != nil {
 		return nil, err
 	}
@@ -108,12 +108,12 @@ func listenSCTP(ctx context.Context, network, host, port string, s addrconfig.Ad
 }
 
 func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s addrconfig.Address, g *xio.Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
-	host := xio.StripBrackets(dest.Host)
-	portNum, err := xio.ResolvePortNum(dest.Network, dest.Port)
+	host := xio.StripBrackets(dest.Host.String())
+	portNum, err := xio.ResolvePort(dest.Network, dest.Port)
 	if err != nil {
 		return nil, err
 	}
-	ips, err := xio.ResolveConnectIPs(ctx, dest.Network, host, s, g)
+	ips, err := xio.ResolveDialIPs(ctx, dest, s, g)
 	if err != nil {
 		return nil, err
 	}
@@ -121,8 +121,12 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s addrconfig.Address,
 		return nil, fmt.Errorf("no addresses for %s", host)
 	}
 	bindOpt := xio.BindHost(s)
-	sp := xio.SourcePortText(s)
-	lowport := s.Network.LowPort.Value && (sp == "" || sp == "0")
+	spText := xio.SourcePortText(s)
+	lowport := s.Network.LowPort.Value && (spText == "" || spText == "0")
+	var sourceport addrconfig.PortTarget
+	if s.Network.SourcePortSet {
+		sourceport = s.Network.SourcePort
+	}
 	var lastErr error
 	for _, ip := range ips {
 		af := 2
@@ -132,7 +136,7 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s addrconfig.Address,
 		if g != nil && g.Log != nil {
 			g.Log.Noticef("opening connection to AF=%d %s", af, net.JoinHostPort(xio.FormatIPForNetwork(dest.Network, ip), fmt.Sprintf("%d", portNum)))
 		}
-		laddr, skip, err := xio.BindTCPAddrForRemote(ctx, ip, s, bindOpt, sp, dest.Network)
+		laddr, skip, err := xio.BindTCPAddrForRemote(ctx, ip, s, bindOpt, sourceport, dest.Network)
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {
@@ -171,7 +175,7 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s addrconfig.Address,
 		return c, nil
 	}
 	if lastErr == nil {
-		lastErr = fmt.Errorf("connect %s:%s failed", host, dest.Port)
+		lastErr = fmt.Errorf("connect %s:%s failed", host, dest.Port.Text())
 	}
 	return nil, lastErr
 }

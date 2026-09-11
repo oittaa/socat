@@ -78,7 +78,7 @@ func openIP6(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Gl
 
 func NetworkIP(g *xio.Global, s addrconfig.Address, def string) string {
 	if s.Network.ProtocolSet {
-		if n := xio.NetworkFromPF(xio.ProtocolFamilyText(s), "ip", ""); n != "" {
+		if n := xio.NetworkFromIPFamily(s.Network.IPFamily, "ip"); n != "" {
 			return n
 		}
 	}
@@ -98,14 +98,11 @@ func NetworkIPFromHost(g *xio.Global, s addrconfig.Address, def string) string {
 	if s.Network.ProtocolSet {
 		return NetworkIP(g, s, def)
 	}
-	if s.Network.TargetSet {
-		host := xio.StripBrackets(s.Network.Target.String())
-		if ip := net.ParseIP(host); ip != nil {
-			if ip.To4() == nil {
-				return "ip6"
-			}
+	if s.Network.TargetSet && s.Network.Target.IsLiteral() {
+		if s.Network.Target.Literal.Is4() {
 			return "ip4"
 		}
+		return "ip6"
 	}
 	return NetworkIP(g, s, def)
 }

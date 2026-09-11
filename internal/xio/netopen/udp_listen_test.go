@@ -184,15 +184,11 @@ func TestUDPListenMalformedRangeFailsOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	o, err := openUDP4Listen(context.Background(), mustAddr(t, spec), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
-	if o != nil {
-		_ = o.Close()
-		t.Fatal("UDP-LISTEN opened with uppercase hex range")
-	}
+	_, err = xio.PrepareSpec(spec)
 	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Fatalf("malformed range took %v; want immediate open failure", elapsed)
+		t.Fatalf("malformed range took %v; want immediate prepare failure", elapsed)
 	}
 	if err == nil || !strings.Contains(err.Error(), "invalid hex") {
-		t.Fatalf("openUDP4Listen err=%v want invalid hex", err)
+		t.Fatalf("PrepareSpec err=%v want invalid hex", err)
 	}
 }

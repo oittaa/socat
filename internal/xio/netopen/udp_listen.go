@@ -65,7 +65,7 @@ func openUDPListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode,
 }
 
 func bindUDPPort(ctx context.Context, s addrconfig.Address, network string) (*net.UDPConn, *net.UDPAddr, error) {
-	port, err := xio.ListenPortText(s)
+	port, err := xio.ListenPort(s)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -73,7 +73,7 @@ func bindUDPPort(ctx context.Context, s addrconfig.Address, network string) (*ne
 	if err != nil {
 		return nil, nil, err
 	}
-	laddr, err := xio.ResolveUDPAddr(ctx, s, network, net.JoinHostPort(xio.StripBrackets(host), port))
+	laddr, err := xio.ResolveUDPAddrPort(ctx, s, network, host, port)
 	if err != nil {
 		return nil, nil, err
 	}

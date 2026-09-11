@@ -26,7 +26,6 @@ type TLS struct {
 	ALPN                   OptionalString
 	LastHiddenName         string
 	LastPlaintextName      string
-	Unsupported            []TLSUnsupported
 	UnsupportedSet         bool
 	UnsupportedCanonical   string
 	UnsupportedName        string
@@ -62,26 +61,33 @@ type TLSUnsupported struct {
 
 // Proxy holds static HTTP CONNECT and SOCKS settings.
 type Proxy struct {
-	Port              OptionalString
+	Server            HostTarget
+	Target            HostTarget
+	TargetPort        PortTarget
+	EndpointsSet      bool
+	Port              PortTarget
+	PortSet           bool
 	HTTPVersion       HTTPVersion
 	H2C               OptionalBool
 	IgnoreCR          OptionalBool
 	Resolve           OptionalBool
 	Authorization     OptionalString
 	AuthorizationFile OptionalString
-	SOCKSPort         OptionalString
+	SOCKSPort         PortTarget
+	SOCKSPortSet      bool
 	SOCKSUser         OptionalString
 	SOCKSPassword     OptionalString
 }
 
-func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
+func decodeProtocolOption(d *decoder, o parse.Option) (bool, error) {
+	a := &d.Address
 	name := optionIdentity(o)
 	recordTLSPlaintextName(a, o, name)
 	if def, ok := optionmeta.Lookup(name); ok && def.TLSRejectReason != "" {
 		if err := decodeUnsupportedTLSValue(name, o); err != nil {
 			return true, err
 		}
-		recordUnsupportedTLS(a, name, o, def.TLSRejectReason, !compatibleDisabledTLSOption(name, o))
+		recordUnsupportedTLS(d, name, o, def.TLSRejectReason, !compatibleDisabledTLSOption(name, o))
 		return true, nil
 	}
 	switch name {
@@ -154,7 +160,9 @@ func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 		}
 		return true, err
 	case "proxyport":
-		return true, setOptionText(&a.Proxy.Port, o)
+		a.Proxy.Port = portTarget(optionText(o))
+		a.Proxy.PortSet = true
+		return true, nil
 	case "http-version":
 		value, err := requiredString(o)
 		if err != nil {
@@ -184,7 +192,9 @@ func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 	case "proxy-authorization-file":
 		return true, setOptionText(&a.Proxy.AuthorizationFile, o)
 	case "socksport":
-		return true, setOptionText(&a.Proxy.SOCKSPort, o)
+		a.Proxy.SOCKSPort = portTarget(optionText(o))
+		a.Proxy.SOCKSPortSet = true
+		return true, nil
 	case "socksuser":
 		a.Proxy.SOCKSUser = OptionalString{Set: true, Value: optionText(o)}
 		return true, nil
@@ -272,7 +282,7 @@ func decodeProtocolVersion(a *Address, o parse.Option, minimum bool) error {
 	if err != nil {
 		return err
 	}
-	if a.Facts.Group == "Datagram TLS 1.3" {
+	if a.Facts.Kind == AddressKindDTLS {
 		version, err := decodeDTLSVersion(value)
 		if err != nil {
 			return fmt.Errorf("%s: %w", optionIdentity(o), err)
@@ -299,7 +309,7 @@ func decodeProtocolVersion(a *Address, o parse.Option, minimum bool) error {
 	return nil
 }
 
-func recordUnsupportedTLS(a *Address, canonical string, o parse.Option, reason string, reject bool) {
+func recordUnsupportedTLS(d *decoder, canonical string, o parse.Option, reason string, reject bool) {
 	spelling := o.OriginalSpelling()
 	if spelling == "" {
 		spelling = o.Name
@@ -309,30 +319,30 @@ func recordUnsupportedTLS(a *Address, canonical string, o parse.Option, reason s
 		Name:      spelling,
 		Reason:    reason,
 		Reject:    reject,
-		Index:     a.optionIndex,
+		Index:     d.optionIndex,
 	}
-	for i := range a.TLS.Unsupported {
-		if a.TLS.Unsupported[i].Canonical == canonical {
-			a.TLS.Unsupported[i] = state
+	for i := range d.unsupported {
+		if d.unsupported[i].Canonical == canonical {
+			d.unsupported[i] = state
 			return
 		}
 	}
-	a.TLS.Unsupported = append(a.TLS.Unsupported, state)
+	d.unsupported = append(d.unsupported, state)
 }
 
-func resolveUnsupportedTLS(a *Address) {
+func resolveUnsupportedTLS(d *decoder) {
 	last := -1
-	a.TLS.UnsupportedSet = false
-	a.TLS.UnsupportedCanonical = ""
-	a.TLS.UnsupportedName = ""
-	a.TLS.UnsupportedReason = ""
-	for _, option := range a.TLS.Unsupported {
+	d.TLS.UnsupportedSet = false
+	d.TLS.UnsupportedCanonical = ""
+	d.TLS.UnsupportedName = ""
+	d.TLS.UnsupportedReason = ""
+	for _, option := range d.unsupported {
 		if option.Reject && option.Index >= last {
 			last = option.Index
-			a.TLS.UnsupportedSet = true
-			a.TLS.UnsupportedCanonical = option.Canonical
-			a.TLS.UnsupportedName = option.Name
-			a.TLS.UnsupportedReason = option.Reason
+			d.TLS.UnsupportedSet = true
+			d.TLS.UnsupportedCanonical = option.Canonical
+			d.TLS.UnsupportedName = option.Name
+			d.TLS.UnsupportedReason = option.Reason
 		}
 	}
 }

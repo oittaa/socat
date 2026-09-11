@@ -2,29 +2,25 @@
 
 package xio
 
-func lookupNamedPastSocketInt(name string) (level, opt int, ok bool, err error) {
-	switch name {
-	case "so-debug":
+import "github.com/oittaa/socat/internal/addrconfig"
+
+func lookupNamedPastSocketInt(id addrconfig.NamedSocket) (level, opt int, ok bool, err error) {
+	switch id {
+	case addrconfig.NamedSocketDebug:
 		return solSocket, soDebug, true, nil
-	case "so-dontroute":
+	case addrconfig.NamedSocketDontRoute:
 		return solSocket, soDontroute, true, nil
-	case "so-oobinline":
+	case addrconfig.NamedSocketOOBInline:
 		return solSocket, soOobinline, true, nil
-	case "so-rcvlowat", "so-sndlowat":
-		return 0, 0, true, errNamedOptUnsupported
-	case "tcp-cork", "tcp-defer-accept", "tcp-linger2", "tcp-maxseg",
-		"tcp-quickack", "tcp-syncnt", "tcp-window-clamp",
-		"nopush", "noopt", "tcp-nopush", "tcp-noopt",
-		"sctp-nodelay", "sctp-maxseg",
-		"so-priority", "so-passcred", "so-no-check", "so-detach-filter":
-		return 0, 0, true, errNamedOptUnsupported
-	default:
+	case addrconfig.NamedSocketNone:
 		return 0, 0, false, nil
+	default:
+		return 0, 0, true, errNamedOptUnsupported
 	}
 }
 
-func lookupNamedConnectedInt(name string) (level, opt int, ok bool, err error) {
-	if name == "tcp-maxseg-late" {
+func lookupNamedConnectedInt(id addrconfig.NamedSocket) (level, opt int, ok bool, err error) {
+	if id == addrconfig.NamedSocketTCPMaxSegLate {
 		return 0, 0, true, errNamedOptUnsupported
 	}
 	return 0, 0, false, nil

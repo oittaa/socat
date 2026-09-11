@@ -1,6 +1,9 @@
 package fileopen
 
-import "github.com/oittaa/socat/internal/xio"
+import (
+	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/xio"
+)
 
 func init() {
 	xio.RegisterAddress(xio.AddressDesc{
@@ -45,6 +48,7 @@ func init() {
 		Desc:       "existing file descriptor",
 		Opener:     openFD,
 		OptionCaps: xio.CapsFD,
+		Kind:       addrconfig.AddressKindFD,
 	})
 	// ACCEPT is the public alias of ACCEPT-FD. Linux and macOS only;
 	// FeatureACCEPTFD hides -h on Windows (like VSOCK).
@@ -57,6 +61,7 @@ func init() {
 		Enabled:    acceptFDEnabled,
 		Opener:     openAcceptFD,
 		OptionCaps: xio.CapsAcceptFD,
+		Kind:       addrconfig.AddressKindFD,
 	})
 	xio.RegisterAddress(xio.AddressDesc{
 		Group:      xio.GroupFiles,
@@ -66,6 +71,7 @@ func init() {
 		Enabled:    acceptFDEnabled,
 		Opener:     openAcceptFD,
 		OptionCaps: xio.CapsAcceptFD,
+		Kind:       addrconfig.AddressKindFD,
 	})
 	xio.RegisterAddress(xio.AddressDesc{
 		Group:      xio.GroupFiles,

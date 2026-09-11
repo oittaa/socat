@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
@@ -127,7 +128,17 @@ func TestTUNRetrieveVLANRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = openTUN(context.Background(), mustAddr(t, s), xio.ModeRDWR, nil)
+	if _, err := xio.PrepareSpec(s); err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("PrepareSpec err=%v want not supported", err)
+	}
+	config, err := addrconfig.Decode(s, addrconfig.Facts{Type: "TUN", Kind: addrconfig.AddressKindTUN})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.Network.TUNRetrieveVLAN {
+		t.Fatal("expected retrieve-vlan on decoded TUN config")
+	}
+	_, err = openTUN(context.Background(), config, xio.ModeRDWR, nil)
 	if err == nil || !strings.Contains(err.Error(), "AF_PACKET") {
 		t.Fatalf("err=%v want AF_PACKET INTERFACE error", err)
 	}

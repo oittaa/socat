@@ -14,7 +14,11 @@ func TestCompileIPRangeWrapsLookupError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	for _, spec := range []string{"blocked.test", "blocked.test:255.255.255.255"} {
-		_, err := compileIPRange(ctx, spec, net.DefaultResolver)
+		parsed, err := addrconfig.ParseIPRange(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = compileIPRange(ctx, parsed, net.DefaultResolver)
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("compileIPRange(%q) err=%v want context.Canceled", spec, err)
 		}
@@ -23,18 +27,18 @@ func TestCompileIPRangeWrapsLookupError(t *testing.T) {
 
 func TestIPInRangeHostnameMask(t *testing.T) {
 	// Classic FDLEAK: range=localhost:255.255.255.255
-	ok, err := ipInRange(net.ParseIP("127.0.0.1"), "localhost:255.255.255.255")
+	parsed, err := addrconfig.ParseIPRange("localhost:255.255.255.255")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ok {
+	matcher, err := compileIPRange(context.Background(), parsed, net.DefaultResolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !matcher(net.ParseIP("127.0.0.1")) {
 		t.Fatal("127.0.0.1 should match range=localhost:255.255.255.255")
 	}
-	ok, err = ipInRange(net.ParseIP("127.1.0.1"), "localhost:255.255.255.255")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok {
+	if matcher(net.ParseIP("127.1.0.1")) {
 		t.Fatal("127.1.0.1 should not match range=localhost:255.255.255.255")
 	}
 }

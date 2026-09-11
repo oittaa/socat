@@ -13,7 +13,7 @@ func BenchmarkDecodeAddress(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	facts := Facts{Type: "TCP6-LISTEN", Group: "TCP", Caps: []string{"socket"}}
+	facts := Facts{Type: "TCP6-LISTEN", Group: "TCP", Caps: []string{"socket"}, Role: AddressRoleListen, Family: IPFamilyIPv6}
 	b.ReportAllocs()
 	for b.Loop() {
 		if _, err := Decode(spec, facts); err != nil {
@@ -27,7 +27,7 @@ func BenchmarkPreparedRetryReuse(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	prepared, err := Decode(spec, Facts{Type: "TCP6-LISTEN", Group: "TCP", Caps: []string{"socket"}})
+	prepared, err := Decode(spec, Facts{Type: "TCP6-LISTEN", Group: "TCP", Caps: []string{"socket"}, Role: AddressRoleListen, Family: IPFamilyIPv6})
 	if err != nil {
 		b.Fatal(err)
 	}
