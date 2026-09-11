@@ -5,8 +5,6 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"strconv"
-	"strings"
 
 	"github.com/oittaa/socat/internal/dtls13"
 	"github.com/oittaa/socat/internal/parse"
@@ -15,45 +13,19 @@ import (
 )
 
 func endpointConfig(ctx context.Context, s parse.Spec, host string, server bool) (*dtls13.Config, error) {
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
 	// Older DTLS versions are intentionally excluded; see README security differences.
-	if s.HasOption("openssl-method") {
+	if config.TLS.Unsupported.Canonical == "openssl-method" {
 		return nil, fmt.Errorf("%s: method selection is not supported; only DTLS 1.3 is available", s.Type)
 	}
-	for _, name := range []string{"openssl-min-proto-version", "openssl-max-proto-version"} {
-		if !s.HasOption(name) {
-			continue
-		}
-		value := strings.ToUpper(s.OptionValue(name, ""))
-		var version int
-		switch value {
-		case "DTLS1", "DTLS1.0", "DTLSV1", "DTLSV1.0":
-			version = 10
-		case "DTLS1.2", "DTLSV1.2":
-			version = 12
-		case "DTLS1.3", "DTLSV1.3":
-			version = 13
-		default:
-			return nil, fmt.Errorf("%s: invalid DTLS protocol version %q", name, value)
-		}
-		if name == "openssl-max-proto-version" && version < 13 {
-			return nil, fmt.Errorf("%s: only DTLS 1.3 is supported", name)
-		}
-	}
-	credentials := s
-	credentials.Options = nil
-	for _, option := range s.Options {
-		switch parse.CanonicalOptionName(option.Name) {
-		case "openssl-min-proto-version", "openssl-max-proto-version":
-		default:
-			credentials.Options = append(credentials.Options, option)
-		}
-	}
 	var tc *tls.Config
-	var err error
 	if server {
-		tc, err = tlsopen.TLSServerConfig(credentials)
+		tc, err = tlsopen.TLSServerConfigSettings(s.Type, config.TLS)
 	} else {
-		tc, err = tlsopen.TLSClientConfig(credentials, host)
+		tc, err = tlsopen.TLSClientConfigSettings(s.Type, config.TLS, host)
 	}
 	if err != nil {
 		return nil, err
@@ -71,23 +43,20 @@ func endpointConfig(ctx context.Context, s parse.Spec, host string, server bool)
 		HandshakeReadTimeout:    receiveTimeout,
 		DisableHandshakeTimeout: xio.HandshakeTimeout(ctx, s) == 0,
 	}
-	if s.HasOption("alpn") {
-		protocol := s.OptionValue("alpn", "")
+	if config.TLS.ALPN.Set {
+		protocol := config.TLS.ALPN.Value
 		if len(protocol) == 0 || len(protocol) > 255 {
 			return nil, fmt.Errorf("alpn: protocol must contain 1 to 255 bytes")
 		}
 		c.NextProtos = []string{protocol}
 	}
-	if s.HasOption("dtls-mtu") {
-		c.MTU, err = strconv.Atoi(s.OptionValue("dtls-mtu", ""))
-		if err != nil || c.MTU < 256 || c.MTU > 65507 {
-			return nil, fmt.Errorf("dtls-mtu: value must be between 256 and 65507")
-		}
+	if config.DTLS.MTU.Set {
+		c.MTU = config.DTLS.MTU.Value
 	}
-	c.DisableMigration = s.HasOption("dtls-migration") && !s.BoolOption("dtls-migration")
+	c.DisableMigration = config.DTLS.Migration.Set && !config.DTLS.Migration.Value
 	c.UnfragmentedProbes = !c.DisableMigration
-	if s.HasOption("dtls-unfragmented-probes") {
-		c.UnfragmentedProbes = s.BoolOption("dtls-unfragmented-probes")
+	if config.DTLS.UnfragmentedProbes.Set {
+		c.UnfragmentedProbes = config.DTLS.UnfragmentedProbes.Value
 	}
 	return c, nil
 }
