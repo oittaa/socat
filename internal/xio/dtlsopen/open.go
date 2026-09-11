@@ -54,11 +54,15 @@ func openClient(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*
 			if err != nil {
 				return err
 			}
-			bind, err := xio.ListenBindHost(s, netw, s.OptionValue("bind", ""))
+			bind, err := xio.ListenBindHost(s, netw, "")
 			if err != nil {
 				return err
 			}
-			pc, err := xio.ListenClientPacket(cctx, netw, bind, s.OptionValue("sourceport", ""), s, g)
+			config, err := xio.OpeningConfig(cctx, s)
+			if err != nil {
+				return err
+			}
+			pc, err := xio.ListenClientPacket(cctx, netw, bind, xio.SourcePortText(config), s, g)
 			if err != nil {
 				return err
 			}
@@ -89,10 +93,12 @@ func openServer(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*
 		return nil, err
 	}
 	network := xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
-	if network == "udp6" && s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
-		network = "udp"
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
 	}
-	host, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
+	network = xio.DualStackListenNetwork(config, network)
+	host, err := xio.ListenBindHost(s, network, "")
 	if err != nil {
 		return nil, err
 	}

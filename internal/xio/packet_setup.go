@@ -47,14 +47,18 @@ func ListenClientPacket(ctx context.Context, network, bindHost, sourceport strin
 	bind := func(port string) (net.PacketConn, error) {
 		return ListenPacketWithOptions(ctx, network, net.JoinHostPort(StripBrackets(bindHost), port), s)
 	}
-	if !s.BoolOption("lowport") || (sourceport != "" && sourceport != "0") {
+	config, err := OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	if !config.Network.Peer.LowPort.Value || (sourceport != "" && sourceport != "0") {
 		if sourceport == "" {
 			sourceport = "0"
 		}
 		return bind(sourceport)
 	}
 	var pc net.PacketConn
-	_, err := FirstAvailableLowport(func(port int) error {
+	_, err = FirstAvailableLowport(func(port int) error {
 		if g != nil && g.Log != nil {
 			g.Log.Debugf("bind(%s:%d)", bindHost, port)
 		}

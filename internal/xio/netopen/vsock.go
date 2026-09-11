@@ -164,12 +164,12 @@ func parseVsockSocketArgs(s parse.Spec) (vsockSocketArgs, error) {
 		socktype: syscall.SOCK_STREAM,
 		protocol: 0,
 	}
-	if v := s.OptionValue("pf", ""); v != "" {
-		pf, err := parseClassicSocketPF(v)
-		if err != nil {
-			return vsockSocketArgs{}, err
-		}
-		args.family = pf
+	config, err := xio.OpeningConfig(context.Background(), s)
+	if err != nil {
+		return vsockSocketArgs{}, err
+	}
+	if config.Network.ProtocolSet {
+		args.family = config.Network.ProtocolFamily
 	}
 	if o, ok := s.OptionNamed("socktype"); ok {
 		n, err := parseVsockSocketInt(o, "socktype")
@@ -205,30 +205,6 @@ func parseSocketProtocolOption(s parse.Spec) (proto int, set bool, err error) {
 		}
 	}
 	return 0, false, nil
-}
-
-// parseClassicSocketPF: a leading digit is base 0; inet/inet4/ip4/ipv4 → PF_INET;
-// inet6/ip6/ipv6 → PF_INET6; anything else is an error.
-func parseClassicSocketPF(name string) (int, error) {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return vsockDefaultFamily, nil
-	}
-	if name[0] >= '0' && name[0] <= '9' {
-		n, err := xio.ParseIntAny(name)
-		if err != nil {
-			return 0, fmt.Errorf("unknown protocol family %q", name)
-		}
-		return n, nil
-	}
-	switch strings.ToLower(name) {
-	case "inet", "inet4", "ip4", "ipv4":
-		return syscall.AF_INET, nil
-	case "inet6", "ip6", "ipv6":
-		return syscall.AF_INET6, nil
-	default:
-		return 0, fmt.Errorf("unknown protocol family %q", name)
-	}
 }
 
 func parseVsockProtocolOption(s parse.Spec) (int, error) {

@@ -68,7 +68,7 @@ func bindUDPPort(ctx context.Context, s parse.Spec, network string) (*net.UDPCon
 	if len(s.Params) < 1 || s.Params[0] == "" {
 		return nil, nil, fmt.Errorf("%s requires port", s.Type)
 	}
-	host, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
+	host, err := xio.ListenBindHost(s, network, "")
 	if err != nil {
 		return nil, nil, err
 	}

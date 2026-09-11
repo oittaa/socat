@@ -45,11 +45,15 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 		return nil, err
 	}
 
-	bindHost, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
+	bindHost, err := xio.ListenBindHost(s, network, "")
 	if err != nil {
 		return nil, err
 	}
-	pc, err := listenQUICClientPacket(ctx, network, bindHost, s.OptionValue("sourceport", ""), s, g)
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	pc, err := listenQUICClientPacket(ctx, network, bindHost, xio.SourcePortText(config), s, g)
 	if err != nil {
 		return nil, err
 	}

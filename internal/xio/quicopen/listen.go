@@ -22,10 +22,12 @@ func openQUICListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 		return nil, err
 	}
 	network := xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
-	if network == "udp6" && s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
-		network = "udp"
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
 	}
-	host, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
+	network = xio.DualStackListenNetwork(config, network)
+	host, err := xio.ListenBindHost(s, network, "")
 	if err != nil {
 		return nil, err
 	}

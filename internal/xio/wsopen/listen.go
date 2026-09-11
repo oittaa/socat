@@ -46,9 +46,7 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		return nil, err
 	}
 	network := xio.ListenNetwork(g, s)
-	if network == "tcp6" && s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
-		network = "tcp"
-	}
+	network = xio.DualStackListenNetwork(prepared, network)
 	addr, err := xio.TCPListenAddress(ctx, s, network, port)
 	if err != nil {
 		return nil, err

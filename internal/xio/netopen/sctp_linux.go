@@ -21,7 +21,7 @@ func init() {
 	xio.FeatureSCTP = true
 }
 
-func listenSCTP(_ context.Context, network, host, port string, s parse.Spec) (net.Listener, error) {
+func listenSCTP(ctx context.Context, network, host, port string, s parse.Spec) (net.Listener, error) {
 	portNum, err := xio.ResolvePortNum(network, port)
 	if err != nil {
 		return nil, err
@@ -75,13 +75,18 @@ func listenSCTP(_ context.Context, network, host, port string, s parse.Spec) (ne
 		if network == "sctp" {
 			v6only = 0
 		}
-		if s.HasOption("ipv6-v6only") {
+		config, cfgErr := xio.OpeningConfig(ctx, s)
+		if cfgErr != nil {
+			_ = unix.Close(fd)
+			return nil, cfgErr
+		}
+		if config.Common.IPv6V6Only.Set {
 			v6only = 0
-			if s.BoolOption("ipv6-v6only") {
+			if config.Common.IPv6V6Only.Value {
 				v6only = 1
 			}
 		}
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_V6ONLY, v6only); err != nil && s.HasOption("ipv6-v6only") {
+		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_V6ONLY, v6only); err != nil && config.Common.IPv6V6Only.Set {
 			_ = unix.Close(fd)
 			return nil, fmt.Errorf("ipv6-v6only: %w", err)
 		}
@@ -120,9 +125,13 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s parse.Spec, g *xio.
 	if len(ips) == 0 {
 		return nil, fmt.Errorf("no addresses for %s", host)
 	}
-	bindOpt := s.OptionValue("bind", "")
-	sp := s.OptionValue("sourceport", "")
-	lowport := s.BoolOption("lowport") && (sp == "" || sp == "0")
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	bindOpt := xio.BindHost(config)
+	sp := xio.SourcePortText(config)
+	lowport := config.Network.Peer.LowPort.Value && (sp == "" || sp == "0")
 	var lastErr error
 	for _, ip := range ips {
 		af := 2

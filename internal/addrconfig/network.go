@@ -75,6 +75,14 @@ type PortTarget struct {
 	Numeric bool
 }
 
+// Text is the numeric port or service name. Zero numeric ports stay "0".
+func (p PortTarget) Text() string {
+	if p.Numeric {
+		return strconv.FormatUint(uint64(p.Number), 10)
+	}
+	return p.Service
+}
+
 // SocketPhase is the lifecycle stage for a socket action.
 type SocketPhase uint8
 
@@ -406,19 +414,23 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 	name := optionIdentity(o)
 	switch name {
 	case "bind":
+		text := optionText(o)
+		a.Common.ConnectBind = OptionalString{Set: true, Value: text}
 		if n.Kind == AddressKindSocket {
-			data, err := parseSocketData(optionText(o))
+			data, err := parseSocketData(text)
 			if err != nil {
 				return true, err
 			}
 			n.RawBind, n.RawBindSet = data, true
 			return true, nil
 		}
-		n.Bind = targetFromText(optionText(o))
+		n.Bind = targetFromText(text)
 		n.BindSet = true
 		return true, nil
 	case "sourceport":
-		n.Peer.SourcePort = portTarget(optionText(o))
+		text := optionText(o)
+		a.Common.SourcePort = OptionalString{Set: true, Value: text}
+		n.Peer.SourcePort = portTarget(text)
 		n.Peer.SourcePortSet = true
 		return true, nil
 	case "lowport":
@@ -460,12 +472,14 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 		n.Peer.HostsDeny = OptionalString{Set: true, Value: value}
 		return true, nil
 	case "pf":
-		pf, known, err := protocolFamily(optionText(o))
+		text := optionText(o)
+		a.Common.ProtocolFamily = OptionalString{Set: true, Value: text}
+		pf, known, err := protocolFamily(text)
 		if err != nil {
 			return true, err
 		}
 		if !known && (n.Kind == AddressKindSocket || n.Kind == AddressKindVSOCK) {
-			return true, fmt.Errorf("unknown protocol family %q", optionText(o))
+			return true, fmt.Errorf("unknown protocol family %q", text)
 		}
 		if known {
 			n.ProtocolFamily, n.ProtocolSet = pf, true
@@ -502,7 +516,9 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 		n.ReusePort = activeBool(o)
 		return true, nil
 	case "ipv6-v6only":
-		return true, nil
+		v, err := optionalBool(o)
+		a.Common.IPv6V6Only = v
+		return true, err
 	}
 	if action, ok, err := socketAction(o, name); ok {
 		if err != nil {

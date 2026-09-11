@@ -77,8 +77,9 @@ func openIP6(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*
 }
 
 func NetworkIP(g *xio.Global, s parse.Spec, def string) string {
-	if s.HasOption("pf") {
-		if n := xio.NetworkFromPF(s.OptionValue("pf", ""), "ip", ""); n != "" {
+	config, err := xio.OpeningConfig(context.Background(), s)
+	if err == nil && config.Common.ProtocolFamily.Set {
+		if n := xio.NetworkFromPF(xio.ProtocolFamilyText(config), "ip", ""); n != "" {
 			return n
 		}
 	}
@@ -95,7 +96,8 @@ func NetworkIP(g *xio.Global, s parse.Spec, def string) string {
 
 // NetworkIPFromHost prefers an explicit IPv6 host (e.g. IP:[::1]:proto).
 func NetworkIPFromHost(g *xio.Global, s parse.Spec, def string) string {
-	if s.HasOption("pf") {
+	config, err := xio.OpeningConfig(context.Background(), s)
+	if err == nil && config.Common.ProtocolFamily.Set {
 		return NetworkIP(g, s, def)
 	}
 	if len(s.Params) >= 1 {
@@ -142,6 +144,18 @@ func resolveRawIPTarget(ctx context.Context, s parse.Spec, network, host string)
 	return &net.IPAddr{IP: ips[0]}, nil
 }
 
+func bindRawIPAddr(ctx context.Context, s parse.Spec, network string, fallback *net.IPAddr) (*net.IPAddr, error) {
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	bind := xio.BindHost(config)
+	if bind == "" {
+		return fallback, nil
+	}
+	return resolveRawIPBind(ctx, s, network, bind)
+}
+
 // resolveRawIPBind resolves bind= with the address-local resolver. Literals skip DNS.
 func resolveRawIPBind(ctx context.Context, s parse.Spec, network, bind string) (*net.IPAddr, error) {
 	addr, err := resolveRawIPTarget(ctx, s, network, xio.StripBrackets(bind))
@@ -184,11 +198,9 @@ func openIPSendtoNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 		}
 	}
 	var laddr *net.IPAddr
-	if bind := s.OptionValue("bind", ""); bind != "" {
-		laddr, err = resolveRawIPBind(ctx, s, network, bind)
-		if err != nil {
-			return nil, err
-		}
+	laddr, err = bindRawIPAddr(ctx, s, network, nil)
+	if err != nil {
+		return nil, err
 	}
 	laddr = matchRawLocalIP(network, laddr)
 	if err := requireRawIPFamily(s.Type, network, raddr, host); err != nil {
@@ -241,11 +253,9 @@ func openIPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	if network == "ip6" {
 		laddr = &net.IPAddr{IP: net.IPv6zero}
 	}
-	if bind := s.OptionValue("bind", ""); bind != "" {
-		laddr, err = resolveRawIPBind(ctx, s, network, bind)
-		if err != nil {
-			return nil, err
-		}
+	laddr, err = bindRawIPAddr(ctx, s, network, laddr)
+	if err != nil {
+		return nil, err
 	}
 	laddr = matchRawLocalIP(network, laddr)
 	netw := ipNetwork(network, proto)
@@ -291,11 +301,9 @@ func openIPRecvNetwork(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.
 	if network == "ip6" {
 		laddr = &net.IPAddr{IP: net.IPv6zero}
 	}
-	if bind := s.OptionValue("bind", ""); bind != "" {
-		laddr, err = resolveRawIPBind(ctx, s, network, bind)
-		if err != nil {
-			return nil, err
-		}
+	laddr, err = bindRawIPAddr(ctx, s, network, laddr)
+	if err != nil {
+		return nil, err
 	}
 	netw := ipNetwork(network, proto)
 	pc, err := listenRawIP(ctx, netw, network, laddr, s)

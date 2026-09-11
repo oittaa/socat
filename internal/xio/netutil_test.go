@@ -122,3 +122,38 @@ func TestRecvTimeoutFromSpecRejectsJunk(t *testing.T) {
 		t.Fatal("expected rcvtimeo parse error")
 	}
 }
+
+func TestBindHostAndDualStackFromPreparedConfig(t *testing.T) {
+	s, err := parse.ParseSpec("TCP6-LISTEN:9,bind=[::1],sourceport=080,pf=ip6,ipv6-v6only=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := OpeningConfig(t.Context(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := BindHost(config); got != "[::1]" {
+		t.Fatalf("bind=%q", got)
+	}
+	if got := SourcePortText(config); got != "080" {
+		t.Fatalf("sourceport=%q", got)
+	}
+	if got := ProtocolFamilyText(config); got != "ip6" {
+		t.Fatalf("pf=%q", got)
+	}
+	if got := DualStackListenNetwork(config, "tcp6"); got != "tcp" {
+		t.Fatalf("dual-stack network=%s", got)
+	}
+
+	s, err = parse.ParseSpec("TCP6-LISTEN:9,ipv6-v6only=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err = OpeningConfig(t.Context(), s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := DualStackListenNetwork(config, "tcp6"); got != "tcp6" {
+		t.Fatalf("v6only network=%s", got)
+	}
+}

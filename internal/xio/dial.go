@@ -73,9 +73,13 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s parse.Spec, g *Global, t
 		return nil, fmt.Errorf("no addresses for %s", host)
 	}
 
-	bindOpt := s.OptionValue("bind", "")
-	sp := s.OptionValue("sourceport", "")
-	lowport := s.BoolOption("lowport") && (sp == "" || sp == "0")
+	config, err := OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	bindOpt := BindHost(config)
+	sp := SourcePortText(config)
+	lowport := config.Network.Peer.LowPort.Value && (sp == "" || sp == "0")
 
 	var lastErr error
 	for _, ip := range ips {
@@ -318,7 +322,11 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bind
 	if bindHost == "" {
 		// sourceport only: wildcard of matching family, or loopback when
 		// ai-passive=0.
-		if listenAIPassive(s) {
+		config, cfgErr := OpeningConfig(ctx, s)
+		if cfgErr != nil {
+			return nil, false, cfgErr
+		}
+		if listenAIPassive(config) {
 			if want4 {
 				return &net.TCPAddr{IP: net.IPv4zero, Port: port}, false, nil
 			}
@@ -403,14 +411,19 @@ func dialTCPLowport(call dialCall, raddr, laddr *net.TCPAddr) (net.Conn, error) 
 // TCP4/TCP6 force a family; generic TCP uses dual-stack "tcp" (try both,
 // ordered by -4/-6). pf= still forces a family.
 func ConnectNetworkForType(g *Global, s parse.Spec, host, forced string) string {
+	config, err := OpeningConfig(context.Background(), s)
+	pf := ""
+	if err == nil {
+		pf = ProtocolFamilyText(config)
+	}
 	if forced == "tcp4" || forced == "tcp6" {
 		// Still honour pf= override if present
-		if pf := s.OptionValue("pf", ""); pf != "" {
+		if pf != "" {
 			return NetworkFromPF(pf, "tcp", forced)
 		}
 		return forced
 	}
-	if pf := s.OptionValue("pf", ""); pf != "" {
+	if pf != "" {
 		return NetworkFromPF(pf, "tcp", "tcp")
 	}
 	h := StripBrackets(host)

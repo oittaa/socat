@@ -1,6 +1,7 @@
 package xio
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -199,8 +200,9 @@ func ipFamilyName(family ipFamily) string {
 }
 
 func specForcedIPFamily(s parse.Spec) ipFamily {
-	if pf := s.OptionValue("pf", ""); pf != "" {
-		if v, ok := VersionFromPF(pf); ok {
+	config, err := OpeningConfig(context.Background(), s)
+	if err == nil {
+		if v, ok := VersionFromPF(ProtocolFamilyText(config)); ok {
 			switch v {
 			case IPv4:
 				return ipFamilyV4

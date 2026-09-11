@@ -42,9 +42,13 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		network = netw
 	}
 	addr := net.JoinHostPort(stripped, port)
-	bind := s.OptionValue("bind", "")
-	sp := s.OptionValue("sourceport", "")
-	lowport := s.BoolOption("lowport") && (sp == "" || sp == "0")
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	bind := xio.BindHost(config)
+	sp := xio.SourcePortText(config)
+	lowport := config.Network.Peer.LowPort.Value && (sp == "" || sp == "0")
 	var conn net.Conn
 	if lowport {
 		bind, err = xio.ListenBindHost(s, network, bind)
@@ -122,8 +126,9 @@ func dialUDPLowport(ctx context.Context, network, bind, remote string, s parse.S
 }
 
 func NetworkUDP(g *xio.Global, s parse.Spec, def string) string {
-	if pf := s.OptionValue("pf", ""); pf != "" {
-		if n := xio.NetworkFromPF(pf, "udp", ""); n != "" {
+	config, err := xio.OpeningConfig(context.Background(), s)
+	if err == nil {
+		if n := xio.NetworkFromPF(xio.ProtocolFamilyText(config), "udp", ""); n != "" {
 			return n
 		}
 	}

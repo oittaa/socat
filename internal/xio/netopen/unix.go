@@ -21,12 +21,16 @@ const unixTempChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234
 // resolveUnixBind returns bind= or a unique unix-bind-tempname path.
 func resolveUnixBind(s parse.Spec) (string, error) {
 	hasTemp := s.HasOption("unix-bind-tempname")
-	hasBind := s.HasOption("bind")
+	config, err := xio.OpeningConfig(context.Background(), s)
+	if err != nil {
+		return "", err
+	}
+	hasBind := config.Network.BindSet || config.Common.ConnectBind.Set
 	if hasTemp && hasBind {
 		return "", fmt.Errorf("do not use both options bind and unix-bind-tempname")
 	}
 	if !hasTemp {
-		return s.OptionValue("bind", ""), nil
+		return xio.BindHost(config), nil
 	}
 	o, _ := s.OptionNamed("unix-bind-tempname")
 	pat := ""

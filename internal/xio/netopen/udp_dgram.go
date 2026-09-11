@@ -42,15 +42,19 @@ func openUDPDatagramNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xi
 	if err != nil {
 		return nil, err
 	}
-	bind := s.OptionValue("bind", "")
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
+	}
+	bind := xio.BindHost(config)
 	// DATAGRAM ignores sourceport for the local bind; SENDTO uses it as the local port.
 	sp := ""
 	if exactPeer {
-		sp = s.OptionValue("sourceport", "")
+		sp = xio.SourcePortText(config)
 	}
 	var laddr *net.UDPAddr
 	// lowport: bind a port in 640..1023 (log even if EACCES).
-	if s.BoolOption("lowport") && sp == "" {
+	if config.Network.Peer.LowPort.Value && sp == "" {
 		bind, err = xio.ListenBindHost(s, network, bind)
 		if err != nil {
 			return nil, err

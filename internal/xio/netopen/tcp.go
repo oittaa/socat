@@ -83,11 +83,11 @@ func openTCP4Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 func openTCP6Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	// Go's "tcp6" forces IPV6_V6ONLY=1 after our Control hook. For
 	// ipv6-v6only=0 use dual-stack "tcp" on :: so IPv4 clients work.
-	netw := "tcp6"
-	if s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
-		netw = "tcp"
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
 	}
-	return openTCPListenNetwork(ctx, s, mode, g, netw)
+	return openTCPListenNetwork(ctx, s, mode, g, xio.DualStackListenNetwork(config, "tcp6"))
 }
 
 func openTCPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {

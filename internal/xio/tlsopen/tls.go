@@ -106,11 +106,12 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 // Family selection matches TCP-LISTEN: pf=, -4/-6/-0, SOCAT_DEFAULT_LISTEN_IP, else IPv4.
 func openTLSListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	netw := xio.ListenNetwork(g, s)
-	// Same dual-stack rule as TCP6-LISTEN when ipv6-v6only=0.
-	if netw == "tcp6" && s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
-		netw = "tcp"
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
 	}
-	return openTLSListenNetwork(ctx, s, mode, g, netw)
+	// Same dual-stack rule as TCP6-LISTEN when ipv6-v6only=0.
+	return openTLSListenNetwork(ctx, s, mode, g, xio.DualStackListenNetwork(config, netw))
 }
 
 func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {

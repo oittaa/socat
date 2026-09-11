@@ -33,11 +33,15 @@ func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost 
 		return nil, "", err
 	}
 	network = netw
-	bindHost, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
+	bindHost, err := xio.ListenBindHost(s, network, "")
 	if err != nil {
 		return nil, "", err
 	}
-	sourceport := s.OptionValue("sourceport", "")
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, "", err
+	}
+	sourceport := xio.SourcePortText(config)
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	listen := func(port string) (net.PacketConn, error) {
 		laddr := net.JoinHostPort(xio.StripBrackets(bindHost), port)
@@ -48,7 +52,7 @@ func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost 
 		return lc.ListenPacket(ctx, network, resolved.String())
 	}
 	var pc net.PacketConn
-	if s.BoolOption("lowport") && (sourceport == "" || sourceport == "0") {
+	if config.Network.Peer.LowPort.Value && (sourceport == "" || sourceport == "0") {
 		_, err = xio.FirstAvailableLowport(func(port int) error {
 			if g != nil && g.Log != nil {
 				g.Log.Debugf("bind(%s:%d)", bindHost, port)

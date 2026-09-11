@@ -73,11 +73,11 @@ func openSCTP4Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 }
 
 func openSCTP6Listen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	netw := "sctp6"
-	if s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
-		netw = "sctp"
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		return nil, err
 	}
-	return openSCTPListenNetwork(ctx, s, mode, g, netw)
+	return openSCTPListenNetwork(ctx, s, mode, g, xio.DualStackListenNetwork(config, "sctp6"))
 }
 
 func openSCTPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
@@ -88,7 +88,7 @@ func openSCTPListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	if port == "" || strings.Trim(port, ":") == "" {
 		return nil, fmt.Errorf("%s: invalid port %q", s.Type, port)
 	}
-	host, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
+	host, err := xio.ListenBindHost(s, network, "")
 	if err != nil {
 		return nil, err
 	}

@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -147,9 +148,13 @@ func ApplyReuseAndV6Only(fd int, s parse.Spec, network string) error {
 	default:
 		return nil
 	}
-	if s.HasOption("ipv6-v6only") {
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return err
+	}
+	if config.Common.IPv6V6Only.Set {
 		v := 0
-		if s.BoolOption("ipv6-v6only") {
+		if config.Common.IPv6V6Only.Value {
 			v = 1
 		}
 		if err := setSockoptInt(fd, ipprotoIPv6, ipv6V6only, v); err != nil {
@@ -291,11 +296,59 @@ func forcedIPv6Network(network string) bool {
 	}
 }
 
-func listenAIPassive(s parse.Spec) bool {
-	if s.HasOption("ai-passive") {
-		return s.BoolOption("ai-passive")
+func listenAIPassive(config addrconfig.Address) bool {
+	if config.Common.Resolver.Passive.Set {
+		return config.Common.Resolver.Passive.Value
 	}
 	return true
+}
+
+// BindHost is the prepared bind= value, or empty when the option is absent.
+func BindHost(config addrconfig.Address) string {
+	if config.Common.ConnectBind.Set {
+		return config.Common.ConnectBind.Value
+	}
+	if !config.Network.BindSet {
+		return ""
+	}
+	return config.Network.Bind.String()
+}
+
+// SourcePortText is the prepared sourceport= value, or empty when absent.
+func SourcePortText(config addrconfig.Address) string {
+	if config.Common.SourcePort.Set {
+		return config.Common.SourcePort.Value
+	}
+	if !config.Network.Peer.SourcePortSet {
+		return ""
+	}
+	return config.Network.Peer.SourcePort.Text()
+}
+
+// ProtocolFamilyText is the prepared pf= token, or empty when absent.
+func ProtocolFamilyText(config addrconfig.Address) string {
+	if !config.Common.ProtocolFamily.Set {
+		return ""
+	}
+	return config.Common.ProtocolFamily.Value
+}
+
+// DualStackListenNetwork maps *6 networks onto dual-stack names when
+// ipv6-v6only=0. Other values keep the caller network.
+func DualStackListenNetwork(config addrconfig.Address, network string) string {
+	if !config.Common.IPv6V6Only.Set || config.Common.IPv6V6Only.Value {
+		return network
+	}
+	switch network {
+	case "tcp6":
+		return "tcp"
+	case "udp6":
+		return "udp"
+	case "sctp6":
+		return "sctp"
+	default:
+		return network
+	}
 }
 
 // ListenBindHost resolves the bind host for listen and local-bind paths.
@@ -307,8 +360,15 @@ func listenAIPassive(s parse.Spec) bool {
 // LISTEN/RECV/bind set getaddrinfo AI_PASSIVE unless ai-passive=0.
 // AI_PASSIVE with an empty node is the wildcard; unset is loopback.
 func ListenBindHost(s parse.Spec, network, bind string) (string, error) {
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return "", err
+	}
 	if bind == "" {
-		if listenAIPassive(s) {
+		bind = BindHost(config)
+	}
+	if bind == "" {
+		if listenAIPassive(config) {
 			if forcedIPv4Network(network) {
 				return "0.0.0.0", nil
 			}
@@ -424,8 +484,9 @@ func TCPToUDPNetwork(tcpNet string) string {
 }
 
 func ListenNetwork(g *Global, s parse.Spec) string {
-	if pf := s.OptionValue("pf", ""); pf != "" {
-		if n := NetworkFromPF(pf, "tcp", ""); n != "" {
+	config, err := OpeningConfig(context.Background(), s)
+	if err == nil {
+		if n := NetworkFromPF(ProtocolFamilyText(config), "tcp", ""); n != "" {
 			return n
 		}
 	}

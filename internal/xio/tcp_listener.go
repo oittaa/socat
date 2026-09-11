@@ -9,7 +9,7 @@ import (
 
 // TCPListenAddress resolves the bind address without creating a socket.
 func TCPListenAddress(ctx context.Context, s parse.Spec, network, port string) (string, error) {
-	host, err := ListenBindHost(s, network, s.OptionValue("bind", ""))
+	host, err := ListenBindHost(s, network, "")
 	if err != nil {
 		return "", err
 	}

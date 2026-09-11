@@ -397,16 +397,6 @@ func decodeOption(a *Address, o parse.Option) error {
 		v, err := optionalBool(o)
 		a.Common.Resolver.All = v
 		return err
-	case "bind":
-		a.Common.ConnectBind = OptionalString{Set: true, Value: optionText(o)}
-	case "sourceport":
-		a.Common.SourcePort = OptionalString{Set: true, Value: optionText(o)}
-	case "pf":
-		a.Common.ProtocolFamily = OptionalString{Set: true, Value: optionText(o)}
-	case "ipv6-v6only":
-		v, err := optionalBool(o)
-		a.Common.IPv6V6Only = v
-		return err
 	}
 	return nil
 }

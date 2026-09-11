@@ -310,6 +310,41 @@ func TestDecodeResolverAndNetNS(t *testing.T) {
 	}
 }
 
+func TestDecodeBindPFAndIPv6V6Only(t *testing.T) {
+	got := decodeSpec(t, "TCP:host:9,bind=[::1],sourceport=080,pf=ip4,ipv6-v6only=0")
+	if !got.Common.ConnectBind.Set || got.Common.ConnectBind.Value != "[::1]" {
+		t.Fatalf("bind=%+v", got.Common.ConnectBind)
+	}
+	if !got.Network.BindSet || got.Network.Bind.String() != "::1" {
+		t.Fatalf("typed bind=%+v", got.Network.Bind)
+	}
+	if !got.Common.SourcePort.Set || got.Common.SourcePort.Value != "080" {
+		t.Fatalf("sourceport=%+v", got.Common.SourcePort)
+	}
+	if !got.Network.Peer.SourcePortSet || !got.Network.Peer.SourcePort.Numeric || got.Network.Peer.SourcePort.Number != 80 {
+		t.Fatalf("typed sourceport=%+v", got.Network.Peer.SourcePort)
+	}
+	if !got.Common.ProtocolFamily.Set || got.Common.ProtocolFamily.Value != "ip4" {
+		t.Fatalf("pf=%+v", got.Common.ProtocolFamily)
+	}
+	if !got.Common.IPv6V6Only.Set || got.Common.IPv6V6Only.Value {
+		t.Fatalf("ipv6-v6only=%+v", got.Common.IPv6V6Only)
+	}
+
+	got = decodeSpec(t, "TCP6-LISTEN:9,ipv6-v6only")
+	if !got.Common.IPv6V6Only.Set || !got.Common.IPv6V6Only.Value {
+		t.Fatalf("bare ipv6-v6only=%+v", got.Common.IPv6V6Only)
+	}
+
+	spec, err := parse.ParseSpec("TCP6-LISTEN:9,ipv6-v6only=false")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(spec, Facts{Type: "TCP6-LISTEN"}); err == nil || !strings.Contains(err.Error(), "ipv6-v6only") {
+		t.Fatalf("ipv6-v6only=false error=%v", err)
+	}
+}
+
 func TestDecodeProxyAndDTLSSettings(t *testing.T) {
 	proxy, err := parse.ParseSpec("PROXY:proxy.test:target.test:443,http-version=2,h2c=1,proxy-resolve=0,proxy-authorization=user:pass")
 	if err != nil {
