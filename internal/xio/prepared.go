@@ -54,6 +54,17 @@ func PreparedConfig(ctx context.Context) (addrconfig.Address, bool) {
 	return config, ok
 }
 
+func addressFromOpening(ctx context.Context, spec parse.Spec) (addrconfig.Address, error) {
+	if config, ok := PreparedConfig(ctx); ok {
+		return config, nil
+	}
+	prepared, err := PrepareSpec(spec)
+	if err != nil {
+		return addrconfig.Address{}, err
+	}
+	return prepared.Config, nil
+}
+
 // IsDual reports whether the prepared channel contains two addresses.
 func (c PreparedChannel) IsDual() bool { return c.Dual != nil }
 

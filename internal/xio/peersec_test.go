@@ -6,6 +6,7 @@ import (
 	"net"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -39,7 +40,7 @@ func TestIPInRangeHostnameMask(t *testing.T) {
 }
 
 func TestPeerFilterNoOptionsDoesNotAllocate(t *testing.T) {
-	filter, err := NewPeerFilter(context.Background(), parse.Spec{}, nil)
+	filter, err := NewPeerFilter(context.Background(), addrconfig.PeerPolicy{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +59,11 @@ func TestPeerFilterRangeAcceptsIPAddr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filter, err := NewPeerFilter(context.Background(), spec, nil)
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: "IP4-DATAGRAM", Group: "Raw IP"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filter, err := NewPeerFilter(context.Background(), config.Network.Peer, LookupResolver(spec), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

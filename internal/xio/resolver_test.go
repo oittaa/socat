@@ -317,7 +317,7 @@ func TestTCPWrapReverseVerificationUsesResNSAddr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := reverseHost(t.Context(), resNSAddrSpec(server.addr), "192.0.2.55")
+	got, err := reverseHost(t.Context(), LookupResolver(resNSAddrSpec(server.addr)), "192.0.2.55")
 	if err != nil {
 		t.Fatal(err)
 	}

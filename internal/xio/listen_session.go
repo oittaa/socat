@@ -66,7 +66,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 	}
 	peerFilter := sess.PeerFilter
 	if peerFilter == nil {
-		peerFilter, err = NewPeerFilter(ctx, s, g)
+		peerFilter, err = PreparedPeerFilter(ctx, s, g)
 		if err != nil {
 			_ = closeLn()
 			return nil, err

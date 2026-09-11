@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -34,54 +35,51 @@ func CloseRefusedPeer(c net.Conn) {
 // PeerFilter holds parsed peer policy for one address lifetime.
 type PeerFilter struct {
 	ctx           context.Context
-	spec          parse.Spec
+	resolver      *net.Resolver
 	hasRange      bool
 	rangeMatcher  ipRangeMatcher
 	hasSourcePort bool
-	sourcePort    string
+	sourcePort    addrconfig.PortTarget
 	lowport       bool
 	tcpwrap       tcpwrapConfig
 }
 
-// NewPeerFilter parses peer policy and resolves range= once. Callers must
+// PreparedPeerFilter compiles the prepared peer policy for an opening.
+func PreparedPeerFilter(ctx context.Context, spec parse.Spec, g *Global) (*PeerFilter, error) {
+	config, err := addressFromOpening(ctx, spec)
+	if err != nil {
+		return nil, err
+	}
+	return NewPeerFilter(ctx, config.Network.Peer, LookupResolver(spec), g)
+}
+
+// NewPeerFilter compiles peer policy and resolves range= once. Callers must
 // construct it before accepting or receiving peers so syntax and lookup
 // errors abort the address instead of leaving a listener that rejects every
 // peer. ctx cancels hostname range compilation; tcpwrap reverse DNS still
 // uses it per peer. Long-lived listeners pass the session context so
 // shutdown does not leave lookups running.
-func NewPeerFilter(ctx context.Context, s parse.Spec, g *Global) (*PeerFilter, error) {
+func NewPeerFilter(ctx context.Context, policy addrconfig.PeerPolicy, resolver *net.Resolver, g *Global) (*PeerFilter, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	_, hasRange := s.OptionNamed("range")
-	_, hasSourcePort := s.OptionNamed("sourceport")
 	f := &PeerFilter{
 		ctx:           ctx,
-		spec:          s,
-		hasRange:      hasRange,
-		hasSourcePort: hasSourcePort,
-		sourcePort:    s.OptionValue("sourceport", ""),
-		lowport:       s.BoolOption("lowport"),
-		tcpwrap:       parseTCPWrap(s, g),
+		resolver:      resolver,
+		hasRange:      policy.RangeSet,
+		hasSourcePort: policy.SourcePortSet,
+		sourcePort:    policy.SourcePort,
+		lowport:       policy.LowPort.Value,
+		tcpwrap:       parseTCPWrap(policy, g),
 	}
-	if hasRange {
-		matcher, err := compileIPRange(ctx, s.OptionValue("range", ""), LookupResolver(s))
+	if policy.RangeSet {
+		matcher, err := compileIPRange(ctx, policy.Range, resolver)
 		if err != nil {
 			return nil, err
 		}
 		f.rangeMatcher = matcher
 	}
 	return f, nil
-}
-
-// PeerAllowedG checks a connection with a one-use filter. Long-lived callers
-// should keep a PeerFilter instead.
-func PeerAllowedG(s parse.Spec, conn net.Conn, g *Global) error {
-	f, err := NewPeerFilter(context.Background(), s, g)
-	if err != nil {
-		return err
-	}
-	return f.AllowConn(conn)
 }
 
 func (f *PeerFilter) AllowConn(conn net.Conn) error {
@@ -106,7 +104,7 @@ func (f *PeerFilter) AllowAddr(remote, local net.Addr) error {
 		// Non-IP (e.g. unix) — range/sourceport/lowport do not apply.
 		// Still run tcpwrap if enabled (unlikely for unix).
 		if f.tcpwrap.enabled {
-			return tcpwrapAllowedForSpec(ctx, f.spec, f.tcpwrap, remote, local)
+			return tcpwrapAllowedWithResolver(ctx, f.resolver, f.tcpwrap, remote, local)
 		}
 		return nil
 	}
@@ -121,13 +119,8 @@ func (f *PeerFilter) AllowAddr(remote, local net.Addr) error {
 	}
 
 	// On listen, sourceport/sp is a peer filter (not bind).
-	if f.hasSourcePort {
-		if portStr == "" {
-			portStr = strconv.Itoa(port)
-		}
-		if f.sourcePort != "" && portStr != f.sourcePort {
-			return fmt.Errorf("refusing connection from %s, sourceport mismatch", remote)
-		}
+	if f.hasSourcePort && !sourcePortMatches(f.sourcePort, port, portStr) {
+		return fmt.Errorf("refusing connection from %s, sourceport mismatch", remote)
 	}
 
 	if f.lowport {
@@ -137,12 +130,25 @@ func (f *PeerFilter) AllowAddr(remote, local net.Addr) error {
 	}
 
 	if f.tcpwrap.enabled {
-		if err := tcpwrapAllowedForSpec(ctx, f.spec, f.tcpwrap, remote, local); err != nil {
+		if err := tcpwrapAllowedWithResolver(ctx, f.resolver, f.tcpwrap, remote, local); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func sourcePortMatches(want addrconfig.PortTarget, port int, portStr string) bool {
+	if want.Numeric {
+		return port == int(want.Number)
+	}
+	if want.Service == "" {
+		return true
+	}
+	if portStr == "" {
+		portStr = strconv.Itoa(port)
+	}
+	return portStr == want.Service
 }
 
 func peerIPPort(addr net.Addr) (net.IP, int, string, bool) {

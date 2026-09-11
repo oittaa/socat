@@ -274,6 +274,8 @@ type POSIXMQSettings struct {
 
 // PeerPolicy holds prepared peer filtering inputs. Range names remain
 // unresolved because they must use the selected resolver at open time.
+// TCPWrapDaemon is the optional hosts-table service name from tcpwrap=<daemon>
+// and keeps its original spelling.
 type PeerPolicy struct {
 	Range         string
 	RangeSet      bool
@@ -281,9 +283,18 @@ type PeerPolicy struct {
 	SourcePortSet bool
 	LowPort       OptionalBool
 	TCPWrap       OptionalBool
+	TCPWrapDaemon string
 	TCPWrapEtc    OptionalString
 	HostsAllow    OptionalString
 	HostsDeny     OptionalString
+}
+
+// WithoutSourcePort returns a copy that does not filter by source port.
+// UDP DATAGRAM uses sourceport as a dest-port receive filter instead.
+func (p PeerPolicy) WithoutSourcePort() PeerPolicy {
+	p.SourcePort = PortTarget{}
+	p.SourcePortSet = false
+	return p
 }
 
 // Network contains the immutable network and socket configuration.
@@ -422,6 +433,10 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 		return true, nil
 	case "tcpwrap":
 		n.Peer.TCPWrap = activeBool(o)
+		n.Peer.TCPWrapDaemon = ""
+		if o.Has && o.Value != "" && o.Value != "1" {
+			n.Peer.TCPWrapDaemon = o.Value
+		}
 		return true, nil
 	case "tcpwrap-etc":
 		value, err := requiredString(o)

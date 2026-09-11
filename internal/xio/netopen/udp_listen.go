@@ -93,7 +93,7 @@ func openUDPListenFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *net
 		logx.CloseQuiet(pc)
 		return nil, ferr
 	}
-	peerFilter, err := xio.NewPeerFilter(ctx, s, g)
+	peerFilter, err := xio.PreparedPeerFilter(ctx, s, g)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -130,7 +130,7 @@ func openUDPListenOnePeer(ctx context.Context, s parse.Spec, g *xio.Global, pc *
 
 	// Resolve range= before the accept deadline. Slow DNS must not consume
 	// accept-timeout; a datagram can already be queued while lookup runs.
-	peerFilter, err := xio.NewPeerFilter(ctx, s, g)
+	peerFilter, err := xio.PreparedPeerFilter(ctx, s, g)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -402,7 +402,7 @@ func (l *udpForkListener) newUDPForkChild(packet udpForkPacket, session *xio.Glo
 
 func (l *udpForkListener) peerAllowed(addr *net.UDPAddr) error {
 	if l.filter == nil {
-		f, err := xio.NewPeerFilter(l.ctx, l.spec, l.g)
+		f, err := xio.PreparedPeerFilter(l.ctx, l.spec, l.g)
 		if err != nil {
 			return err
 		}

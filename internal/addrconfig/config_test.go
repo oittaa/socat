@@ -262,6 +262,28 @@ func TestDecodeProtocolSettingsKeepsTypedAndTextualValuesDistinct(t *testing.T) 
 	}
 }
 
+func TestDecodeTCPWrapDaemonPreservesCaseAndLastWins(t *testing.T) {
+	got := decodeSpec(t, "TCP:host:9,tcpwrap=MyDaemon")
+	if !got.Network.Peer.TCPWrap.Set || !got.Network.Peer.TCPWrap.Value || got.Network.Peer.TCPWrapDaemon != "MyDaemon" {
+		t.Fatalf("tcpwrap=MyDaemon: %+v", got.Network.Peer)
+	}
+
+	got = decodeSpec(t, "TCP:host:9,wrap=MyDaemon")
+	if got.Network.Peer.TCPWrapDaemon != "MyDaemon" {
+		t.Fatalf("wrap alias daemon=%q", got.Network.Peer.TCPWrapDaemon)
+	}
+
+	got = decodeSpec(t, "TCP:host:9,tcpwrap=MyDaemon,tcpwrap")
+	if !got.Network.Peer.TCPWrap.Value || got.Network.Peer.TCPWrapDaemon != "" {
+		t.Fatalf("bare tcpwrap must clear daemon: %+v", got.Network.Peer)
+	}
+
+	got = decodeSpec(t, "TCP:host:9,tcpwrap=1")
+	if !got.Network.Peer.TCPWrap.Value || got.Network.Peer.TCPWrapDaemon != "" {
+		t.Fatalf("tcpwrap=1: %+v", got.Network.Peer)
+	}
+}
+
 func TestDecodeProxyAndDTLSSettings(t *testing.T) {
 	proxy, err := parse.ParseSpec("PROXY:proxy.test:target.test:443,http-version=2,h2c=1,proxy-resolve=0,proxy-authorization=user:pass")
 	if err != nil {

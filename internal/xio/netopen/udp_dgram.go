@@ -201,7 +201,7 @@ func newUDPDatagramConn(ctx context.Context, c *net.UDPConn, raddr *net.UDPAddr,
 		return nil, fmt.Errorf("UDP: prepared configuration is required")
 	}
 	sourcePortFilter := config.Network.Peer.SourcePortSet
-	filter, err := xio.NewPeerFilter(ctx, specWithoutSourceport(s), g)
+	filter, err := xio.NewPeerFilter(ctx, config.Network.Peer.WithoutSourcePort(), xio.LookupResolver(s), g)
 	if err != nil {
 		return nil, err
 	}
@@ -291,22 +291,6 @@ func udpAddrIsPeer(got, want *net.UDPAddr) bool {
 	return gi.Equal(wi)
 }
 
-func specWithoutSourceport(s parse.Spec) parse.Spec {
-	if !s.HasOption("sourceport") {
-		return s
-	}
-	opts := make([]parse.Option, 0, len(s.Options))
-	for _, o := range s.Options {
-		name := strings.ToLower(o.Name)
-		if name == "sourceport" || name == "sp" {
-			continue
-		}
-		opts = append(opts, o)
-	}
-	s.Options = opts
-	return s
-}
-
 func (u *udpDatagramConn) Write(p []byte) (int, error) {
 	// Allow 0-byte writes (shut-null sends empty datagram).
 	n, err := u.WriteToUDP(p, u.raddr)
@@ -385,7 +369,7 @@ func openUDPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *n
 		logx.CloseQuiet(pc)
 		return nil, ferr
 	}
-	peerFilter, err := xio.NewPeerFilter(ctx, s, g)
+	peerFilter, err := xio.PreparedPeerFilter(ctx, s, g)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -435,7 +419,7 @@ func openUDPRecvfromOne(ctx context.Context, s parse.Spec, g *xio.Global, pc *ne
 	}
 	var n int
 	var raddr *net.UDPAddr
-	peerFilter, err := xio.NewPeerFilter(ctx, s, g)
+	peerFilter, err := xio.PreparedPeerFilter(ctx, s, g)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -500,7 +484,7 @@ func openUDPRecvAll(ctx context.Context, s parse.Spec, g *xio.Global, pc *net.UD
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("UDP-RECV is read-only")
 	}
-	filter, err := xio.NewPeerFilter(ctx, s, g)
+	filter, err := xio.PreparedPeerFilter(ctx, s, g)
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err

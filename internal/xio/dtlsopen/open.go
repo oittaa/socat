@@ -84,7 +84,7 @@ func openServer(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*
 	if err != nil {
 		return nil, err
 	}
-	filter, err := xio.NewPeerFilter(ctx, s, g)
+	filter, err := xio.PreparedPeerFilter(ctx, s, g)
 	if err != nil {
 		return nil, err
 	}
